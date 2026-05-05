@@ -9,6 +9,7 @@ architecture, release, and security facts should be kept here first.
 - [Product](#product)
 - [Install And Build](#install-and-build)
 - [Daily Workflow](#daily-workflow)
+- [Minimal Example Policy](#minimal-example-policy)
 - [Command Surface](#command-surface)
 - [Repository Policy](#repository-policy)
 - [Architecture](#architecture)
@@ -82,6 +83,41 @@ Exit codes:
 - `0`: pass, warn, or informational success
 - `1`: runtime or input error
 - `2`: blocking policy violation
+
+## Minimal Example Policy
+
+Copy this into `.reconc.yml` in a Go repository:
+
+```yaml
+default_mode: warn
+extends:
+  - default
+
+rules:
+  - id: go-tests-before-source-done
+    kind: require_command_success
+    mode: block
+    when_paths:
+      - "cmd/**/*.go"
+      - "internal/**/*.go"
+      - "go.mod"
+      - "go.sum"
+    commands:
+      - "go test ./..."
+    message: Go source or dependency changes require a successful full test run.
+```
+
+Run:
+
+```bash
+reconc compile .
+reconc check . --write internal/example.go
+reconc check . --write internal/example.go --command-success 'go test ./...'
+```
+
+The first command compiles policy into the local lockfile. The second command
+shows that a protected source write needs test evidence. The third command
+supplies that evidence.
 
 ## Command Surface
 

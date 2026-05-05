@@ -61,6 +61,40 @@ reconc ci . --staged \
   --command-success 'go test ./...'
 ```
 
+## Minimal Example Policy
+
+Copy this into `.reconc.yml` in a Go repository:
+
+```yaml
+default_mode: warn
+extends:
+  - default
+
+rules:
+  - id: go-tests-before-source-done
+    kind: require_command_success
+    mode: block
+    when_paths:
+      - "cmd/**/*.go"
+      - "internal/**/*.go"
+      - "go.mod"
+      - "go.sum"
+    commands:
+      - "go test ./..."
+    message: Go source or dependency changes require a successful full test run.
+```
+
+Then run:
+
+```bash
+reconc compile .
+reconc check . --write internal/example.go
+reconc check . --write internal/example.go --command-success 'go test ./...'
+```
+
+The second command shows the missing evidence. The third command supplies the
+required test result and should pass unless another rule blocks it.
+
 Exit codes are stable for humans, agents, and CI:
 
 - `0`: pass, warn, or informational success
