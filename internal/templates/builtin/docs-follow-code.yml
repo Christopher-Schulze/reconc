@@ -1,0 +1,7 @@
+description: "Couple-change: an API-surface edit must come with a docs edit."
+kind: couple_change
+mode: warn
+message: "Public-API change requires a matching documentation update."
+# User must supply:
+#   paths:      the code patterns (e.g. ['src/api/**'])
+#   when_paths: the docs patterns (e.g. ['docs/**'])

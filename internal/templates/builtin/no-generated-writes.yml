@@ -1,0 +1,11 @@
+description: "Deny writes to build output / generated artifact directories."
+kind: deny_write
+mode: block
+message: "Generated artifacts are managed by the build; edit the source, not the output."
+paths:
+  - "generated/**"
+  - "dist/**"
+  - "build/**"
+  - "**/generated/**"
+  - "**/dist/**"
+  - "**/build/**"

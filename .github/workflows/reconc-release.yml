@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - reconc-v*
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build release artifacts
+    runs-on: macos-15
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build artifacts
+        run: |
+          version="${GITHUB_REF_NAME#reconc-v}"
+          make release VERSION="$version"
+
+      - name: Verify checksums
+        run: |
+          cd dist
+          shasum -a 256 -c SHA256SUMS
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes "Release $GITHUB_REF_NAME."
+          find dist -type f -print0 | xargs -0 gh release upload "$GITHUB_REF_NAME" --clobber

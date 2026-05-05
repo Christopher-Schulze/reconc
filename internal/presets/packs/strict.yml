@@ -1,0 +1,68 @@
+# reconc preset: strict
+#
+# Opinionated guardrails for teams that want source changes to come with
+# tests, architecture reads, and a CI sign-off claim. Pair with the
+# `default` preset for full coverage.
+
+rules:
+  - id: preset-strict-tests-follow-source
+    kind: couple_change
+    mode: block
+    paths:
+      - "cmd/**"
+      - "internal/**"
+      - "pkg/**"
+      - "lib/**"
+      - "app/**"
+      - "src/**"
+    when_paths:
+      - "cmd/**/*_test.go"
+      - "internal/**/*_test.go"
+      - "pkg/**/*_test.go"
+      - "tests/**"
+      - "test/**"
+    message: Source changes must include matching test updates.
+
+  - id: preset-strict-architecture-read-before-edit
+    kind: require_read
+    mode: warn
+    paths:
+      - "cmd/**"
+      - "internal/**"
+      - "pkg/**"
+      - "lib/**"
+      - "app/**"
+      - "src/**"
+    before_paths:
+      - "docs/rfcs/**"
+      - "docs/architecture.md"
+      - "docs/architecture/**"
+      - "ARCHITECTURE.md"
+    message: Read the architecture context before editing core source.
+
+  - id: preset-strict-require-ci-green-claim
+    kind: require_claim
+    mode: block
+    when_paths:
+      - "cmd/**"
+      - "internal/**"
+      - "pkg/**"
+      - "lib/**"
+      - "app/**"
+      - "src/**"
+    claims:
+      - "ci-green"
+    message: Require a `ci-green` claim to ship source changes.
+
+  - id: preset-strict-forbid-raw-pip-install
+    kind: forbid_command
+    mode: block
+    when_paths:
+      - "pyproject.toml"
+      - "**/pyproject.toml"
+      - "requirements.txt"
+      - "**/requirements.txt"
+    commands:
+      - "pip install"
+      - "pip install -r requirements.txt"
+    message: Do not run `pip install` against manifest edits; use the repo's canonical installer (uv sync, poetry install, pip-sync).

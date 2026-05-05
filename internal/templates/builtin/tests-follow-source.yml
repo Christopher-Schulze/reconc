@@ -1,0 +1,7 @@
+description: "Couple-change: a source edit must come with a test edit in the same change."
+kind: couple_change
+mode: warn
+message: "Source change must be coupled with a matching test change."
+# User must supply:
+#   paths:      the source patterns (e.g. ['src/**/*.ts'])
+#   when_paths: the test patterns   (e.g. ['tests/**/*.ts'])

@@ -1,0 +1,37 @@
+# reconc preset: docs-sync
+#
+# Couple user-facing code changes with documentation updates so README,
+# docs/, and CHANGELOG stay in lockstep with the code they describe.
+
+rules:
+  - id: preset-docs-sync-public-surface
+    kind: couple_change
+    mode: warn
+    paths:
+      - "cmd/**"
+      - "internal/cli/**"
+      - "internal/runtime/**"
+      - "internal/hooks/**"
+      - "internal/api/**"
+      - "src/**/cli/**"
+      - "src/**/runtime/**"
+      - "src/**/api/**"
+      - "app/api/**"
+      - "lib/**"
+      - "pkg/**"
+    when_paths:
+      - "README.md"
+      - "docs/**"
+    message: Update user-facing docs alongside public surface changes.
+
+  - id: preset-docs-sync-changelog-for-releases
+    kind: couple_change
+    mode: warn
+    paths:
+      - "pyproject.toml"
+      - "package.json"
+      - "Cargo.toml"
+    when_paths:
+      - "CHANGELOG.md"
+      - "CHANGES.md"
+    message: Bumping a version manifest should come with a CHANGELOG entry.

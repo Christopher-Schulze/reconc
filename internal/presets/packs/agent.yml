@@ -1,0 +1,70 @@
+# reconc preset: agent
+#
+# Lightweight defaults for AI-assisted development. Warns on missing context,
+# validation, and user-facing documentation without hard-locking the normal
+# edit loop. Pair with `default` for generated-output protection.
+
+rules:
+  - id: preset-agent-tests-before-done
+    kind: require_command_success
+    mode: warn
+    when_paths:
+      - "src/**"
+      - "cmd/**"
+      - "internal/**"
+      - "lib/**"
+      - "pkg/**"
+      - "app/**"
+      - "packages/**"
+      - "go.mod"
+      - "go.sum"
+      - "pyproject.toml"
+      - "package.json"
+      - "Cargo.toml"
+    commands:
+      - "go test ./..."
+      - "pytest -q"
+      - "uv run pytest -q"
+      - "npm test"
+      - "pnpm test"
+      - "bun test"
+      - "cargo test"
+    message: Source or dependency changes should be backed by a successful test run.
+
+  - id: preset-agent-read-project-context
+    kind: require_read
+    mode: warn
+    paths:
+      - "src/**"
+      - "cmd/**"
+      - "internal/**"
+      - "lib/**"
+      - "pkg/**"
+      - "app/**"
+      - "packages/**"
+    before_paths:
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "start.md"
+      - "README.md"
+      - "docs/architecture.md"
+      - "ARCHITECTURE.md"
+    message: Read the project context before editing source code.
+
+  - id: preset-agent-docs-follow-public-surface
+    kind: couple_change
+    mode: warn
+    paths:
+      - "cmd/**"
+      - "src/**/cli/**"
+      - "src/**/api/**"
+      - "src/**/runtime/**"
+      - "internal/cli/**"
+      - "internal/hooks/**"
+      - "internal/runtime/**"
+      - "app/api/**"
+    when_paths:
+      - "README.md"
+      - "CHANGELOG.md"
+      - "docs/**"
+    message: Public CLI, API, hook, or runtime changes should update user-facing docs.

@@ -1,0 +1,55 @@
+# reconc preset: release
+#
+# Release hygiene checks. These are warnings by default so teams can adopt the
+# pack early without blocking local development, then tighten selected rules in
+# repo-local policy when the release flow is mature.
+
+rules:
+  - id: preset-release-changelog-follows-version
+    kind: couple_change
+    mode: warn
+    paths:
+      - "go.mod"
+      - "pyproject.toml"
+      - "package.json"
+      - "Cargo.toml"
+      - "Makefile"
+      - "cmd/**/main.go"
+    when_paths:
+      - "CHANGELOG.md"
+      - "CHANGES.md"
+      - "docs/commands.md"
+      - "README.md"
+    message: Release or version-affecting changes should update changelog and user-facing docs.
+
+  - id: preset-release-artifacts-need-checksums
+    kind: couple_change
+    mode: warn
+    paths:
+      - "dist/**"
+      - "releases/**"
+    when_paths:
+      - "dist/SHA256SUMS"
+      - "SHA256SUMS"
+      - "checksums.txt"
+    message: Release artifacts should ship with checksums.
+
+  - id: preset-release-verify-before-release
+    kind: require_command_success
+    mode: warn
+    when_paths:
+      - "CHANGELOG.md"
+      - "Makefile"
+      - "install.sh"
+      - ".github/workflows/**"
+    commands:
+      - "go test ./..."
+      - "go vet ./..."
+      - "make test"
+      - "make lint"
+      - "uv run pytest -q"
+      - "npm test"
+      - "pnpm test"
+      - "bun test"
+      - "cargo test"
+    message: Release flow changes should be validated before shipping.

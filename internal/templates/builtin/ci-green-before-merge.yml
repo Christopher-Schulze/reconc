@@ -1,0 +1,8 @@
+description: "Require a 'ci-green' claim before writes are allowed."
+kind: require_claim
+mode: warn
+message: "Assert ci-green (e.g. `reconc hook claim . ci-green`) after CI passes."
+claims:
+  - "ci-green"
+# User must supply:
+#   when_paths: scope where the claim is enforced (e.g. ['**'])

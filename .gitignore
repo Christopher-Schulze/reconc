@@ -1,0 +1,46 @@
+# Go build artifacts
+/reconc
+/bin/
+/dist/
+*.test
+*.out
+
+# macOS
+.DS_Store
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+
+# Coverage
+coverage.out
+coverage.html
+
+# Local dev
+tmp/
+
+# Local planning / release notes
+/CHANGELOG.md
+/changelog.md
+/CHANGES.md
+/bench-baseline.txt
+/todo.md
+/todo/
+/docs/todo.md
+/docs/todo/
+/docs/changelog.md
+/docs/changelog/
+/docs/security-review-*.md
+/docs/*audit*.md
+/docs/pilot-*.md
+/docs/parity-audit-*.md
+/docs/pilot-prep-*.md
+
+# reconc runtime state
+.reconc/policy.lock.json
+.reconc/.compile.lock
+.reconc/audit.jsonl
+.reconc/audit.jsonl.*
+.reconc/sessions/
+.reconc/reports/

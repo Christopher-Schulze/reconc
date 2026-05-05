@@ -1,0 +1,56 @@
+# reconc self-policy. Keep this intentionally small: it should add
+# determinism around release-critical paths without turning local work into
+# bureaucracy.
+default_mode: warn
+extends:
+  - default
+
+rules:
+  - id: reconc-go-tests-before-source-done
+    kind: require_command_success
+    mode: block
+    when_paths:
+      - "cmd/**/*.go"
+      - "internal/**/*.go"
+      - "go.mod"
+      - "go.sum"
+    commands:
+      - "go test ./..."
+    message: Go source or dependency changes require a successful full test run.
+
+  - id: reconc-go-vet-before-source-done
+    kind: require_command_success
+    mode: block
+    when_paths:
+      - "cmd/**/*.go"
+      - "internal/**/*.go"
+      - "go.mod"
+      - "go.sum"
+    commands:
+      - "go vet ./..."
+    message: Go source or dependency changes require a clean go vet pass.
+
+  - id: reconc-core-read-architecture
+    kind: require_read
+    mode: warn
+    paths:
+      - "internal/compiler/**"
+      - "internal/hooks/**"
+      - "internal/parser/**"
+      - "internal/runtime/**"
+    before_paths:
+      - "docs/documentation.md"
+    message: Read the documentation source of truth before touching core policy, hook, parser, or runtime code.
+
+  - id: reconc-public-surface-docs-follow
+    kind: couple_change
+    mode: warn
+    paths:
+      - "cmd/**"
+      - "internal/cli/**"
+      - "internal/hooks/**"
+      - "internal/runtime/**"
+    when_paths:
+      - "README.md"
+      - "docs/documentation.md"
+    message: Public CLI, hook, or runtime changes should keep the GitHub landing page and documentation source of truth current.
