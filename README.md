@@ -1,12 +1,17 @@
 # reconc -- Repository Control Compiler
 
-`reconc` is the Repository Control Compiler: a small Go CLI that compiles
-repository policy into a deterministic control contract for AI-assisted coding
+`reconc` is the Repository Control Compiler: a small Go CLI that turns
+repository policy into a deterministic control plane for AI-assisted coding
 workflows.
 
 It checks proposed writes, command evidence, hook events, claims, and git diffs
 against one repo-local policy model. One binary, offline by default, no Docker,
 no daemon, no runtime network dependency.
+
+It does not pretend that an LLM is deterministic. It makes the boundaries around
+agent work deterministic: what can be touched, what evidence is required, which
+runtime events are allowed to continue, and why a gate passed, warned, or
+blocked.
 
 ## What It Does
 
@@ -16,10 +21,23 @@ no daemon, no runtime network dependency.
   missing claims, stale evidence, and unsafe hook activity
 - fails closed on stale lockfiles, schema drift, invalid globs, unsupported rule
   kinds, and repository-root mismatch
-- installs git hooks plus native Claude Code, Codex and Cursor hooks, including
-  PermissionRequest gates, when those agent configs exist
+- installs git hooks plus native Claude Code, Codex, Cursor, OpenCode, and
+  Antigravity hooks when those agent configs exist
+- controls autonomous agent continuation with prompt-scoped `/runloop` state,
+  stop files, no-progress guards, and append-only decision logs
 - gives agents one short remediation path with `reconc next .` and one final
   task gate with `reconc done .`
+
+## Why It Matters
+
+Coding agents can write files, run shell commands, continue after stop hooks, and
+drift away from the workflow you thought they were following. Prompt instructions
+alone are not a control layer.
+
+`reconc` gives teams policy-as-code for agentic development: fail-closed hooks,
+deterministic lockfiles, evidence-based checks, scoped autonomous continuation,
+and audit-friendly decisions that can be reviewed by humans, CI, or another
+agent.
 
 ## Install
 

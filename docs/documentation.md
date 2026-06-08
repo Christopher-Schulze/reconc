@@ -28,6 +28,10 @@ from `AGENTS.md`, `.reconc.yml`, presets, templates, and policy files into a
 local policy lockfile, then evaluates runtime evidence, agent hook events, and
 git-derived diffs against that deterministic contract.
 
+`reconc` does not make LLM output deterministic. It makes the repository control
+surface around agent work deterministic: write boundaries, required evidence,
+runtime continuation decisions, audit trails, and fail-closed policy gates.
+
 The product is a standalone Go CLI. It does not require Docker, Node, Python,
 or a local service. Runtime behavior should stay offline by default.
 
@@ -164,6 +168,7 @@ Workflow maintenance:
 - `changelog`
 - `agent-intro`
 - `audit`
+- `runloop`
 - `session-briefing`
 - `context`
 - `start`
