@@ -63,7 +63,7 @@ make vet
 make lint
 make cover
 make bench
-make release VERSION=0.5.0
+make release VERSION=0.6.0
 ```
 
 `make release` cross-compiles five binaries into `dist/`, generates shell
@@ -487,7 +487,7 @@ link to it, but should not become competing current-state documentation.
 
 ## Release State
 
-The current public release line is `v0.5.x`. Core tests, race tests, vet,
+The current public release line is `v0.6.x`. Core tests, race tests, vet,
 staticcheck, coverage, doctor, verify, and release artifact generation pass
 locally. Release artifacts are produced by the GitHub release workflow when a
 `reconc-v*` tag is pushed.

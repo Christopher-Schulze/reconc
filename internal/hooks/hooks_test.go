@@ -28,7 +28,7 @@ func TestGenerateGitPreCommitContainsReconcCI(t *testing.T) {
 		t.Errorf("content should reference `reconc ci`, got: %s", a.Content)
 	}
 	for _, token := range []string{
-		`release_reconc="reconc-0.5.0-$reconc_os-$reconc_arch$reconc_ext"`,
+		`release_reconc="reconc-0.6.0-$reconc_os-$reconc_arch$reconc_ext"`,
 		`"$repo_root/tools/reconc/dist/$release_reconc"`,
 		`"$repo_root/dist/$release_reconc"`,
 		`"$repo_root/.build/bin/reconc"`,
@@ -77,7 +77,7 @@ func TestGenerateClaudeCodeIsValidJSON(t *testing.T) {
 		strings.Contains(a.Content, `git -C \"$repo\" rev-parse --show-toplevel`) {
 		t.Errorf("Claude Code hooks should use exec form without shell/git launcher")
 	}
-	if strings.Contains(a.Content, "tools/reconc/dist/reconc-0.5.0-darwin-arm64") {
+	if strings.Contains(a.Content, "tools/reconc/dist/reconc-0.6.0-darwin-arm64") {
 		t.Errorf("Claude Code hooks should delegate binary fallback to the repo-local wrapper")
 	}
 	if !strings.Contains(a.Content, `"matcher": "Edit|Write|MultiEdit|Bash"`) {
@@ -202,7 +202,7 @@ func TestRuntimeCommandPrefersRepoLocalHookWrapper(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
-		`tools/reconc/dist/reconc-0.5.0-darwin-arm64`,
+		`tools/reconc/dist/reconc-0.6.0-darwin-arm64`,
 		`exec reconc hook runtime cursor-post-tool-use "$repo"`,
 		`for bin in`,
 	} {

@@ -39,7 +39,7 @@ if [ "$reconc_os" = "windows" ]; then
 fi
 reconc_release=""
 if [ -n "$reconc_os" ] && [ -n "$reconc_arch" ]; then
-  reconc_release="reconc-0.5.0-$reconc_os-$reconc_arch$reconc_ext"
+  reconc_release="reconc-0.6.0-$reconc_os-$reconc_arch$reconc_ext"
 fi
 
 if [ "${RECONC_HOOK_REPO_RESOLVED:-}" != "1" ] && \

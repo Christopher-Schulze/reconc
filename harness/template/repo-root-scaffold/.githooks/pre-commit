@@ -32,7 +32,7 @@ if [ -n "$reconc_os" ] && [ -n "$reconc_arch" ]; then
     if [ "$reconc_os" = "windows" ]; then
         reconc_ext=".exe"
     fi
-    release_reconc="reconc-0.5.0-$reconc_os-$reconc_arch$reconc_ext"
+    release_reconc="reconc-0.6.0-$reconc_os-$reconc_arch$reconc_ext"
     for local_reconc in \
         "$repo_root/tools/reconc/dist/$release_reconc" \
         "$repo_root/dist/$release_reconc"

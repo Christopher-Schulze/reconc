@@ -1,10 +1,4 @@
-```text
- ____  _____ ____ ___  _   _  ____
-|  _ \| ____/ ___/ _ \| \ | |/ ___|
-| |_) |  _|| |  | | | |  \| | |
-|  _ <| |__| |__| |_| | |\  | |___
-|_| \_\_____\____\___/|_| \_|\____|
-```
+![RECONC Repository Control Compiler](assets/reconc-hero.png)
 
 # Repository Control Compiler
 
@@ -242,7 +236,7 @@ reconc <command> --help
 
 ## Status
 
-`reconc` is released on the `v0.5.x` line. Core local gates pass, and release
+`reconc` is released on the `v0.6.x` line. Core local gates pass, and release
 artifacts are produced by the GitHub release workflow when a `reconc-v*` tag is
 pushed.
 

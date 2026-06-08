@@ -292,11 +292,11 @@ Claude Code generated hooks use exec-form `command` plus `args` and pass `${CLAU
 
 The wrapper falls back through repo-local Reconc binaries before PATH:
 
-- `tools/reconc/dist/reconc-0.5.0-darwin-arm64`
-- `tools/reconc/dist/reconc-0.5.0-darwin-amd64`
-- `tools/reconc/dist/reconc-0.5.0-linux-arm64`
-- `tools/reconc/dist/reconc-0.5.0-linux-amd64`
-- `tools/reconc/dist/reconc-0.5.0-windows-amd64.exe`
+- `tools/reconc/dist/reconc-0.6.0-darwin-arm64`
+- `tools/reconc/dist/reconc-0.6.0-darwin-amd64`
+- `tools/reconc/dist/reconc-0.6.0-linux-arm64`
+- `tools/reconc/dist/reconc-0.6.0-linux-amd64`
+- `tools/reconc/dist/reconc-0.6.0-windows-amd64.exe`
 
 Do not require a global `reconc` install. PATH fallback is only a last fallback. Generated JSON hook configs must not inline binary fallback loops; they call `tools/reconc/bin/hook` and let the wrapper own binary selection. PreToolUse, permission and Stop hooks remain hard/interactive priority; only observation hooks are lowered.
 

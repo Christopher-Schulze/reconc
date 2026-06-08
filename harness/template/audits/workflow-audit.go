@@ -1206,11 +1206,11 @@ func repoCleanDryRunLines(output string) []string {
 
 func reconcDistBinaryTokens() []string {
 	return []string{
-		"tools/reconc/dist/reconc-0.5.0-darwin-arm64",
-		"tools/reconc/dist/reconc-0.5.0-darwin-amd64",
-		"tools/reconc/dist/reconc-0.5.0-linux-arm64",
-		"tools/reconc/dist/reconc-0.5.0-linux-amd64",
-		"tools/reconc/dist/reconc-0.5.0-windows-amd64.exe",
+		"tools/reconc/dist/reconc-0.6.0-darwin-arm64",
+		"tools/reconc/dist/reconc-0.6.0-darwin-amd64",
+		"tools/reconc/dist/reconc-0.6.0-linux-arm64",
+		"tools/reconc/dist/reconc-0.6.0-linux-amd64",
+		"tools/reconc/dist/reconc-0.6.0-windows-amd64.exe",
 	}
 }
 
@@ -1257,8 +1257,8 @@ func auditStartEntrypoint(root string) []string {
 	required := []string{
 		"AGENTS.md",
 		"docs/tasks.md",
-		"tools/reconc/dist/reconc-0.5.0-darwin-arm64 status .",
-		"tools/reconc/dist/reconc-0.5.0-darwin-arm64 session-briefing .",
+		"tools/reconc/dist/reconc-0.6.0-darwin-arm64 status .",
+		"tools/reconc/dist/reconc-0.6.0-darwin-arm64 session-briefing .",
 		"No file writes",
 		"_drop/",
 		"/runloop",

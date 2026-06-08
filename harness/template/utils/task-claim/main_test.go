@@ -37,7 +37,7 @@ Current: TASK-0042-Foo-Bar -> tasks/TASK-0042-Foo-Bar.md
 }
 
 func TestReconcBinaryRelTracksCurrentRelease(t *testing.T) {
-	if reconcBinaryRel != "tools/reconc/dist/reconc-0.5.0-darwin-arm64" {
+	if reconcBinaryRel != "tools/reconc/dist/reconc-0.6.0-darwin-arm64" {
 		t.Fatalf("unexpected reconc binary path %q", reconcBinaryRel)
 	}
 }

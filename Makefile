@@ -19,7 +19,7 @@ BIN       := reconc
 PKG       := ./...
 BINDIR    := .build/bin
 DISTDIR   := dist
-VERSION   ?= 0.5.0
+VERSION   ?= 0.6.0
 LDFLAGS   := -ldflags "-X main.Version=$(VERSION) -s -w"
 
 # Release matrix. Each entry is OS/ARCH separated by '/'. Extend here

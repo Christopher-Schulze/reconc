@@ -31,7 +31,7 @@ export const ReconcOpenCodePlugin = async ({ directory, worktree, client }) => {
     process.arch === "x64" ? "amd64" : ""
   const reconcReleaseName =
     reconcPlatform !== "" && reconcArch !== ""
-      ? "reconc-0.5.0-" + reconcPlatform + "-" + reconcArch + (reconcPlatform === "windows" ? ".exe" : "")
+      ? "reconc-0.6.0-" + reconcPlatform + "-" + reconcArch + (reconcPlatform === "windows" ? ".exe" : "")
       : ""
   const reconcBinaryCandidates = reconcReleaseName === "" ? [] : [
     repo + "/tools/reconc/dist/" + reconcReleaseName,

@@ -304,7 +304,7 @@ Runtime task-tracking tool: in-session micro-tracking only; tasks.md+tasks/ = pr
 
 Deviation: rules strict; only if rule blocks core progress -> Note in Deviations + minimal-invasive alternative + new Sub-Task to reconcile.
 
-Reconc execution: workflow commands and generated hooks must resolve repo-local binaries under `tools/reconc/dist/` first: `reconc-0.5.0-darwin-arm64`, `reconc-0.5.0-darwin-amd64`, `reconc-0.5.0-linux-arm64`, `reconc-0.5.0-linux-amd64`, `reconc-0.5.0-windows-amd64.exe`. PATH/global `reconc` is only a final fallback so Codex, Claude Code, OpenCode, git hooks and fresh shells work without external installation.
+Reconc execution: workflow commands and generated hooks must resolve repo-local binaries under `tools/reconc/dist/` first: `reconc-0.6.0-darwin-arm64`, `reconc-0.6.0-darwin-amd64`, `reconc-0.6.0-linux-arm64`, `reconc-0.6.0-linux-amd64`, `reconc-0.6.0-windows-amd64.exe`. PATH/global `reconc` is only a final fallback so Codex, Claude Code, OpenCode, git hooks and fresh shells work without external installation.
 
 Session entry for implementation work: read active task context if relevant -> read relevant `docs/spec.md` section -> read `docs/decisions.md` only for rationale/tradeoff questions -> read relevant `research/...` code before implementing referenced features -> reuse existing modules/naming before adding new structure.
 

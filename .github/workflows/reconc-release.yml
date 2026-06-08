@@ -36,7 +36,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "$GITHUB_REF_NAME" \
-            --notes "Release $GITHUB_REF_NAME."
+          notes_file=".github/releases/${GITHUB_REF_NAME}.md"
+          if [ -f "$notes_file" ]; then
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
+              --notes-file "$notes_file"
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes
+          fi
           find dist -type f -print0 | xargs -0 gh release upload "$GITHUB_REF_NAME" --clobber

@@ -35,7 +35,7 @@ import (
 const (
 	tasksRel        = "docs/tasks.md"
 	bindingsRel     = "tools/reconc/harness/template/config/workflow/task-claim-bindings.yaml"
-	reconcBinaryRel = "tools/reconc/dist/reconc-0.5.0-darwin-arm64"
+	reconcBinaryRel = "tools/reconc/dist/reconc-0.6.0-darwin-arm64"
 )
 
 var currentRe = regexp.MustCompile(`(?m)^Current: (TASK-[0-9]{4}-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*) -> tasks/`)

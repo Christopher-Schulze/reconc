@@ -250,7 +250,7 @@ if [ -n "$reconc_os" ] && [ -n "$reconc_arch" ]; then
     if [ "$reconc_os" = "windows" ]; then
         reconc_ext=".exe"
     fi
-    release_reconc="reconc-0.5.0-$reconc_os-$reconc_arch$reconc_ext"
+    release_reconc="reconc-0.6.0-$reconc_os-$reconc_arch$reconc_ext"
     for local_reconc in \
         "$repo_root/tools/reconc/dist/$release_reconc" \
         "$repo_root/dist/$release_reconc"
@@ -629,7 +629,7 @@ export const ReconcOpenCodePlugin = async ({ directory, worktree, client }) => {
     process.arch === "x64" ? "amd64" : ""
   const reconcReleaseName =
     reconcPlatform !== "" && reconcArch !== ""
-      ? "reconc-0.5.0-" + reconcPlatform + "-" + reconcArch + (reconcPlatform === "windows" ? ".exe" : "")
+      ? "reconc-0.6.0-" + reconcPlatform + "-" + reconcArch + (reconcPlatform === "windows" ? ".exe" : "")
       : ""
   const reconcBinaryCandidates = reconcReleaseName === "" ? [] : [
     repo + "/tools/reconc/dist/" + reconcReleaseName,

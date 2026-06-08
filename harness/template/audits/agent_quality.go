@@ -201,21 +201,21 @@ func isGeneratedGoPath(path string) bool {
 }
 
 func auditReconcBinaryFreshness(root string) []string {
-	binary := filepath.Join(root, "tools/reconc/dist/reconc-0.5.0-darwin-arm64")
+	binary := filepath.Join(root, "tools/reconc/dist/reconc-0.6.0-darwin-arm64")
 	binaryInfo, err := os.Stat(binary)
 	if err != nil {
 		return nil
 	}
 	var failures []string
 	if binaryInfo.Mode()&0o111 == 0 {
-		failures = append(failures, "tools/reconc/dist/reconc-0.5.0-darwin-arm64 is not executable; live agent hooks need an executable repo-local Reconc binary")
+		failures = append(failures, "tools/reconc/dist/reconc-0.6.0-darwin-arm64 is not executable; live agent hooks need an executable repo-local Reconc binary")
 	}
 	newest, newestRel, ok := newestReconcSource(root)
 	if !ok {
 		return failures
 	}
 	if newest.After(binaryInfo.ModTime()) {
-		failures = append(failures, fmt.Sprintf("tools/reconc/dist/reconc-0.5.0-darwin-arm64 is older than %s; rebuild the live Reconc binary before relying on agent hooks", newestRel))
+		failures = append(failures, fmt.Sprintf("tools/reconc/dist/reconc-0.6.0-darwin-arm64 is older than %s; rebuild the live Reconc binary before relying on agent hooks", newestRel))
 	}
 	return failures
 }
