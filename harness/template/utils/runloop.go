@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-type degenState struct {
+type runLoopState struct {
 	currentName string
 	currentPath string
 	state       string
@@ -21,7 +21,7 @@ type degenState struct {
 	modeNudges  int
 }
 
-type persistedDegenState struct {
+type persistedRunLoopState struct {
 	Enabled          bool   `json:"enabled"`
 	SessionID        string `json:"session_id"`
 	ActiveRunID      string `json:"active_run_id"`
@@ -34,11 +34,11 @@ func main() {
 	if err != nil {
 		exit("get cwd: %v", err)
 	}
-	state, err := readDegenState(root)
+	state, err := readRunLoopState(root)
 	if err != nil {
 		exit("%v", err)
 	}
-	fmt.Printf("DEGENMODE_CONTINUE: %s | %s | blockers=none\n", state.currentName, state.nextStep)
+	fmt.Printf("RUNLOOP_CONTINUE: %s | %s | blockers=none\n", state.currentName, state.nextStep)
 	fmt.Printf("state=%s detail=%s\n", state.state, state.currentPath)
 	if state.modeEnabled {
 		session := state.modeSession
@@ -46,51 +46,51 @@ func main() {
 			session = state.modeActive
 		}
 		if state.modeNudges > 0 {
-			fmt.Printf("degenmode=enabled session=%s no_progress_nudges=%d\n", session, state.modeNudges)
+			fmt.Printf("runloop=enabled session=%s no_progress_nudges=%d\n", session, state.modeNudges)
 			return
 		}
-		fmt.Printf("degenmode=enabled session=%s\n", session)
+		fmt.Printf("runloop=enabled session=%s\n", session)
 		return
 	}
 	if state.modeReason != "" {
-		fmt.Printf("degenmode=disabled reason=%s\n", state.modeReason)
+		fmt.Printf("runloop=disabled reason=%s\n", state.modeReason)
 		return
 	}
-	fmt.Println("degenmode=disabled")
+	fmt.Println("runloop=disabled")
 }
 
-func readDegenState(root string) (degenState, error) {
+func readRunLoopState(root string) (runLoopState, error) {
 	tasksPath := filepath.Join(root, "docs", "tasks.md")
 	tasksBytes, err := os.ReadFile(tasksPath)
 	if err != nil {
-		return degenState{}, fmt.Errorf("read docs/tasks.md: %w", err)
+		return runLoopState{}, fmt.Errorf("read docs/tasks.md: %w", err)
 	}
 	currentName, currentTarget, err := parseCurrentTask(string(tasksBytes))
 	if err != nil {
-		return degenState{}, err
+		return runLoopState{}, err
 	}
 	detailPath := filepath.Join(root, "docs", filepath.FromSlash(currentTarget))
 	detailBytes, err := os.ReadFile(detailPath)
 	if err != nil {
-		return degenState{}, fmt.Errorf("read docs/%s: %w", currentTarget, err)
+		return runLoopState{}, fmt.Errorf("read docs/%s: %w", currentTarget, err)
 	}
 	state := parseState(string(detailBytes))
 	if state == "" {
-		return degenState{}, fmt.Errorf("docs/%s missing State line", currentTarget)
+		return runLoopState{}, fmt.Errorf("docs/%s missing State line", currentTarget)
 	}
 	nextStep := parseActiveSubTask(string(detailBytes))
 	if nextStep == "" {
 		nextStep = parseFirstOpenSubTask(string(detailBytes))
 	}
 	if nextStep == "" {
-		return degenState{}, fmt.Errorf("docs/%s has no active/open sub-task", currentTarget)
+		return runLoopState{}, fmt.Errorf("docs/%s has no active/open sub-task", currentTarget)
 	}
-	mode := readPersistedDegenState(root)
+	mode := readPersistedRunLoopState(root)
 	sessionID := mode.SessionID
 	if mode.ActiveRunID != "" {
 		sessionID = mode.ActiveRunID
 	}
-	return degenState{
+	return runLoopState{
 		currentName: currentName,
 		currentPath: filepath.ToSlash(filepath.Join("docs", currentTarget)),
 		state:       state,
@@ -103,15 +103,15 @@ func readDegenState(root string) (degenState, error) {
 	}, nil
 }
 
-func readPersistedDegenState(root string) persistedDegenState {
-	path := filepath.Join(root, ".reconc", "degenmode", "state.json")
+func readPersistedRunLoopState(root string) persistedRunLoopState {
+	path := filepath.Join(root, ".reconc", "runloop", "state.json")
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return persistedDegenState{}
+		return persistedRunLoopState{}
 	}
-	var state persistedDegenState
+	var state persistedRunLoopState
 	if err := json.Unmarshal(content, &state); err != nil {
-		return persistedDegenState{DisabledReason: "invalid_state_json"}
+		return persistedRunLoopState{DisabledReason: "invalid_state_json"}
 	}
 	return state
 }

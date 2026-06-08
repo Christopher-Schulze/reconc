@@ -219,7 +219,7 @@ The excerpt must preserve these workflow sections:
 - File Operations.
 - Test Integrity.
 - AI Workflow.
-- Degenmode.
+- Runloop.
 - Source Of Truth.
 - Reality Check Standard.
 - `docs/spec.md` Discipline.
@@ -251,9 +251,9 @@ Required Reconc runtime ignores:
 - `.reconc/audit.jsonl`
 - `.reconc/cache/`
 - `.reconc/.compile.lock`
-- `.reconc/degenmode/`
+- `.reconc/runloop/`
 
-`.reconc/degenmode/` holds repo-local degenmode runtime state: `state.json` (current run) and the append-only `decisions.jsonl` (one record per degenmode state transition with the exact branch taken). It is gitignored above. No per-repo scaffolding is needed: the observability commands `reconc degenmode status` and `reconc degenmode log [--follow]` ship in the reconc binary and read this directory in any repo. The per-TASK Reality-Check loop (`docs/task-loop-workflow.md`, scaffolded) and its AGENTS.md excerpt are merged into the repo's `AGENTS.md` like the other sections.
+`.reconc/runloop/` holds repo-local runloop runtime state: `state.json` (current run) and the append-only `decisions.jsonl` (one record per runloop state transition with the exact branch taken). It is gitignored above. No per-repo scaffolding is needed: the observability commands `reconc runloop status` and `reconc runloop log [--follow]` ship in the reconc binary and read this directory in any repo. The per-TASK Reality-Check loop (`docs/task-loop-workflow.md`, scaffolded) and its AGENTS.md excerpt are merged into the repo's `AGENTS.md` like the other sections.
 
 Dual-layout build/dependency ignores should cover both flat-root and `codebase/` when relevant:
 

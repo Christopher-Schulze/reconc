@@ -203,14 +203,14 @@ Aggregate summary: totals, by-decision, by-event, top rules.
 ### `reconc audit export [repo]`
 Raw JSONL dump on stdout for external tooling.
 
-### `reconc degenmode status [repo] [--json]`
-One-line (or JSON) snapshot of the current degenmode state from
-`.reconc/degenmode/state.json` (with the active stop-file applied):
+### `reconc runloop status [repo] [--json]`
+One-line (or JSON) snapshot of the current runloop state from
+`.reconc/runloop/state.json` (with the active stop-file applied):
 `enabled`, `runtime`, `active_run`, `awaiting`, `nudges`, `stopfile`, `reason`.
 
-### `reconc degenmode log [repo] [-n N] [--branch B] [--session S] [--follow] [--json]`
-Render the append-only degenmode decision log
-(`.reconc/degenmode/decisions.jsonl`): one line per state transition with the
+### `reconc runloop log [repo] [-n N] [--branch B] [--session S] [--follow] [--json]`
+Render the append-only runloop decision log
+(`.reconc/runloop/decisions.jsonl`): one line per state transition with the
 exact branch taken (e.g. `policy_block_released_on_repeat`,
 `continuation_aborted`, `disable_stop_file`), runtime, enabled/awaiting
 transitions, reason, session, and flags. `--branch`/`--session` filter

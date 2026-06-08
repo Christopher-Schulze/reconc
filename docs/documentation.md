@@ -259,12 +259,12 @@ Codex also needs `hooks = true` in an active `config.toml` and routes
 `preToolUse` as the pre-write gate, `afterFileEdit`/`afterTabFileEdit` plus
 `postToolUse` as evidence backstops for Cursor write aliases including
 `StrReplace`, `Delete`, and `FileEdit`, `beforeSubmitPrompt` for standalone
-`/degenmode`, and `stop` via Cursor-native `followup_message`. Clean Cursor
+`/runloop`, and `stop` via Cursor-native `followup_message`. Clean Cursor
 hook paths emit explicit `{"continue":true,"permission":"allow"}` JSON because
 Cursor fail-closed hooks treat empty stdout as hook failure. If Cursor also
 executes compatible `.claude/settings.json` hooks, Reconc detects Cursor-native
 payload markers and no-ops those non-native Claude hook invocations before they
-can mutate Cursor session or Degenmode state. OpenCode uses
+can mutate Cursor session or Runloop state. OpenCode uses
 `.opencode/plugins/reconc.js`
 with `chat.message`, `tool.execute.*`, `permission.ask`, and `session.idle`;
 Antigravity uses `.agents/hooks.json` with `PreInvocation`, `PreToolUse`,
@@ -272,36 +272,36 @@ Antigravity uses `.agents/hooks.json` with `PreInvocation`, `PreToolUse`,
 PreTool metadata as pending evidence so PostToolUse can record exact
 read/write/command evidence even when the post payload only carries the step
 index/result.
-Degenmode activation is prompt-only and requires a standalone `/degenmode`
+Runloop activation is prompt-only and requires a standalone `/runloop`
 slash-command flag in sanitized real user prompt text, so quoted transcripts,
 multi-line quoted chat blocks, pasted transcript marker lines, diagnostic
-mention lines such as "kein /degenmode", pure hook prompts, stop feedback, code
+mention lines such as "kein /runloop", pure hook prompts, stop feedback, code
 fences, tool text, and errors cannot start it accidentally. Runtime-internal
 continuation prompts are accepted only when they are the control payload itself
 (for example a pure `<hook_prompt>...</hook_prompt>` block or a prompt starting
 with the generated autocontinue text), so a normal user diagnostic that merely
-mentions `degenmode autocontinue` still counts as a real non-Degenmode prompt
+mentions `runloop autocontinue` still counts as a real non-Runloop prompt
 and stops the active same-runtime run.
-Degenmode runs are session- and runtime-scoped: a normal same-session prompt
+Runloop runs are session- and runtime-scoped: a normal same-session prompt
 stops that run, except a same-session `/btw` side-channel prompt, which
-preserves the active run and must not write `.reconc/degenmode/stop`;
+preserves the active run and must not write `.reconc/runloop/stop`;
 prompts, interrupts, session ends, or stop markers from another agent runtime
 or session in the same repo must not stop the active run.
-`.reconc/degenmode/stop` is scoped to the active run and agent runtime and clears when a new
-standalone `/degenmode` prompt starts a run. Active Degenmode Stop events use a
+`.reconc/runloop/stop` is scoped to the active run and agent runtime and clears when a new
+standalone `/runloop` prompt starts a run. Active Runloop Stop events use a
 pre-policy continuation fast path when the session has no Stop-time evidence, or
 when a runtime re-enters with `stop_hook_active=true` and the cached policy
 report is already clean for the exact same Stop-time evidence hash;
 evidence-bearing stops still run the policy gate first, and changed evidence
 invalidates the clean-cache path, so blocking policy reports win over
-Degenmode.
+Runloop.
 `awaiting_continuation` is not a hard stop reason by itself; if a runtime
 bounces through another Stop before visible tool progress, Reconc may re-emit
 the continuation prompt until progress or the no-progress guard decides. Tool
 events clear `awaiting_continuation`, so the no-progress guard resets from
-hook-observed work without running a full Git dirty scan on every Degenmode
+hook-observed work without running a full Git dirty scan on every Runloop
 continuation.
-Degenmode decisions are persisted in `.reconc/degenmode/decisions.jsonl` with
+Runloop decisions are persisted in `.reconc/runloop/decisions.jsonl` with
 branch/runtime/session/state fields for forensic debugging without bloating hook
 output.
 Repeated identical policy blocks stay blocking but shrink to rule IDs plus the
@@ -330,7 +330,7 @@ evidence hash. Normal Stops still rebuild the fingerprint, while reentrant
 `stop_hook_active=true` calls may reuse a clean cached report only when the
 evidence hash still matches, so the next Stop reruns if the repo or evidence
 changes after the report was built. Reconc's own `.reconc/cache/`,
-`.reconc/degenmode/`, `.reconc/locks/`, `.reconc/reports/`, and
+`.reconc/runloop/`, `.reconc/locks/`, `.reconc/reports/`, and
 `.reconc/audit.jsonl` runtime artefacts are excluded from the dirty fingerprint
 so report writes cannot invalidate their own cache. `RECONC_STOP_FINGERPRINT_UNTRACKED=all`
 restores the old all-untracked cache key for repos that need it. Matching `require_script` rules

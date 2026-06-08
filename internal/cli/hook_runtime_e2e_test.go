@@ -133,7 +133,7 @@ func TestHookRuntimeIgnoresCursorPayloadDeliveredToClaudeHook(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
 	writeHookRuntimeTaskFixture(t, repo)
 
-	cursorPrompt := `{"sessionId":"cursor-run","cursor_version":"3.5.17","hook_event_name":"beforeSubmitPrompt","workspace_roots":["` + repo + `"],"text":"arbeite autonom /degenmode und nutze den restlichen Prompt"}`
+	cursorPrompt := `{"sessionId":"cursor-run","cursor_version":"3.5.17","hook_event_name":"beforeSubmitPrompt","workspace_roots":["` + repo + `"],"text":"arbeite autonom /runloop und nutze den restlichen Prompt"}`
 	stdout, stderr, code := runWithStdin(t, cursorPrompt,
 		"hook", "runtime", "cursor-user-prompt-submit", repo)
 	if code != 0 {
@@ -149,14 +149,14 @@ func TestHookRuntimeIgnoresCursorPayloadDeliveredToClaudeHook(t *testing.T) {
 	if code != 0 || stdout != "" || stderr != "" {
 		t.Fatalf("duplicate claude hook carrying Cursor payload must no-op, code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	stateBytes, err := os.ReadFile(filepath.Join(repo, ".reconc", "degenmode", "state.json"))
+	stateBytes, err := os.ReadFile(filepath.Join(repo, ".reconc", "runloop", "state.json"))
 	if err != nil {
-		t.Fatalf("read degenmode state: %v", err)
+		t.Fatalf("read runloop state: %v", err)
 	}
 	stateText := string(stateBytes)
 	for _, want := range []string{`"enabled": true`, `"session_id": "cursor-run"`, `"runtime": "cursor"`} {
 		if !strings.Contains(stateText, want) {
-			t.Fatalf("duplicate claude hook must preserve Cursor degenmode state; missing %s in %s", want, stateText)
+			t.Fatalf("duplicate claude hook must preserve Cursor runloop state; missing %s in %s", want, stateText)
 		}
 	}
 
@@ -166,16 +166,16 @@ func TestHookRuntimeIgnoresCursorPayloadDeliveredToClaudeHook(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("cursor stop should exit 0, got %d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	if !strings.Contains(stdout, `"followup_message"`) || !strings.Contains(stdout, "degenmode autocontinue") {
-		t.Fatalf("cursor stop must still emit degenmode followup after duplicate claude hook, stdout=%q stderr=%q", stdout, stderr)
+	if !strings.Contains(stdout, `"followup_message"`) || !strings.Contains(stdout, "LET ME COOK") {
+		t.Fatalf("cursor stop must still emit runloop followup after duplicate claude hook, stdout=%q stderr=%q", stdout, stderr)
 	}
 }
 
-func TestHookRuntimeCursorInternalUserPromptPreservesDegenmode(t *testing.T) {
+func TestHookRuntimeCursorInternalUserPromptPreservesRunloop(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
 	writeHookRuntimeTaskFixture(t, repo)
 
-	cursorPrompt := `{"sessionId":"cursor-run","cursor_version":"3.5.17","hook_event_name":"beforeSubmitPrompt","workspace_roots":["` + repo + `"],"text":"arbeite autonom /degenmode und nutze den restlichen Prompt"}`
+	cursorPrompt := `{"sessionId":"cursor-run","cursor_version":"3.5.17","hook_event_name":"beforeSubmitPrompt","workspace_roots":["` + repo + `"],"text":"arbeite autonom /runloop und nutze den restlichen Prompt"}`
 	stdout, stderr, code := runWithStdin(t, cursorPrompt,
 		"hook", "runtime", "cursor-user-prompt-submit", repo)
 	if code != 0 {
@@ -189,14 +189,14 @@ func TestHookRuntimeCursorInternalUserPromptPreservesDegenmode(t *testing.T) {
 		t.Fatalf("cursor internal prompt should exit 0, got %d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 
-	stateBytes, err := os.ReadFile(filepath.Join(repo, ".reconc", "degenmode", "state.json"))
+	stateBytes, err := os.ReadFile(filepath.Join(repo, ".reconc", "runloop", "state.json"))
 	if err != nil {
-		t.Fatalf("read degenmode state: %v", err)
+		t.Fatalf("read runloop state: %v", err)
 	}
 	stateText := string(stateBytes)
 	for _, want := range []string{`"enabled": true`, `"session_id": "cursor-run"`, `"runtime": "cursor"`} {
 		if !strings.Contains(stateText, want) {
-			t.Fatalf("cursor internal prompt must preserve degenmode; missing %s in %s", want, stateText)
+			t.Fatalf("cursor internal prompt must preserve runloop; missing %s in %s", want, stateText)
 		}
 	}
 
@@ -206,8 +206,8 @@ func TestHookRuntimeCursorInternalUserPromptPreservesDegenmode(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("cursor stop should exit 0, got %d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	if !strings.Contains(stdout, `"followup_message"`) || !strings.Contains(stdout, "degenmode autocontinue") {
-		t.Fatalf("cursor stop must emit degenmode followup after internal prompt, stdout=%q stderr=%q", stdout, stderr)
+	if !strings.Contains(stdout, `"followup_message"`) || !strings.Contains(stdout, "LET ME COOK") {
+		t.Fatalf("cursor stop must emit runloop followup after internal prompt, stdout=%q stderr=%q", stdout, stderr)
 	}
 }
 
@@ -240,20 +240,20 @@ func writeHookRuntimeTaskFixture(t *testing.T, repo string) {
 	}
 	tasks := `# Tasks
 
-Current: TASK-0001-Degen-Test -> tasks/TASK-0001-Degen-Test.md
+Current: TASK-0001-Runloop-Test -> tasks/TASK-0001-Runloop-Test.md
 
-- [ ] TASK-0001-Degen-Test - Exercise degenmode continuation -> tasks/TASK-0001-Degen-Test.md
+- [ ] TASK-0001-Runloop-Test - Exercise runloop continuation -> tasks/TASK-0001-Runloop-Test.md
 `
 	if err := os.WriteFile(filepath.Join(repo, "docs", "tasks.md"), []byte(tasks), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	detail := `# TASK-0001-Degen-Test
+	detail := `# TASK-0001-Runloop-Test
 
 ## Sub-Tasks
 
 - [~] Continue the active task
 `
-	if err := os.WriteFile(filepath.Join(tasksDir, "TASK-0001-Degen-Test.md"), []byte(detail), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tasksDir, "TASK-0001-Runloop-Test.md"), []byte(detail), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

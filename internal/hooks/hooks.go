@@ -636,7 +636,7 @@ export const ReconcOpenCodePlugin = async ({ directory, worktree, client }) => {
     repo + "/dist/" + reconcReleaseName,
   ]
   const reconcArgs = (event) => ["hook", "runtime", event, repo]
-  const stateDir = repo + "/.reconc/degenmode"
+  const stateDir = repo + "/.reconc/runloop"
   const stateFile = stateDir + "/state.json"
   const stopFile = stateDir + "/stop"
   let sessionStarted = false
@@ -774,7 +774,7 @@ export const ReconcOpenCodePlugin = async ({ directory, worktree, client }) => {
     }, null, 2) + "\n")
   }
 
-  const disableDegenmode = async (state, reason, context = {}) => {
+  const disableRunloop = async (state, reason, context = {}) => {
     await writeState({
       ...state,
       ...context,
@@ -786,7 +786,7 @@ export const ReconcOpenCodePlugin = async ({ directory, worktree, client }) => {
     })
   }
 
-  const enableDegenmode = async (state, openCodeSessionID) => {
+  const enableRunloop = async (state, openCodeSessionID) => {
     const session = openCodeSessionID || state.session_id || state.active_run_id || ""
     await writeState({
       ...state,
@@ -841,7 +841,7 @@ export const ReconcOpenCodePlugin = async ({ directory, worktree, client }) => {
     const openCodeSessionID = findSessionID(event)
     if (state.enabled && !sameActiveRun(state, openCodeSessionID)) return false
     const latestMessage = await latestUserMessage(openCodeSessionID)
-    await disableDegenmode({
+    await disableRunloop({
       ...state,
       session_id: openCodeSessionID || state.session_id || "",
       stop_anchor_message_id: latestMessage?.signature || "",
@@ -1016,11 +1016,11 @@ export const ReconcOpenCodePlugin = async ({ directory, worktree, client }) => {
     const targetSessionID = openCodeSessionID || state.session_id || state.active_run_id || sessionID
     if (hasExplicitRunText(text)) {
       await clearStopFile()
-      await enableDegenmode({ ...state, stop_anchor_message_id: "" }, targetSessionID)
+      await enableRunloop({ ...state, stop_anchor_message_id: "" }, targetSessionID)
       return
     }
     if (state.enabled && !sameActiveRun(state, targetSessionID)) return
-    await disableDegenmode({
+    await disableRunloop({
       ...state,
       session_id: targetSessionID,
       stop_anchor_message_id: messageID || "",
@@ -1046,7 +1046,7 @@ export const ReconcOpenCodePlugin = async ({ directory, worktree, client }) => {
     return result.code === 0 ? result.stdout : "unknown"
   }
 
-const degenPrompt = (task, head) => "degenmode autocontinue. Continue the repository task lifecycle without asking for routine permission. No ceremony, no confirmation questions - just work.\n\n" +
+const legacyRunLoopPrompt = (task, head) => "runloop autocontinue. Continue the repository task lifecycle without asking for routine permission. No ceremony, no confirmation questions - just work.\n\n" +
     "Active: TASK = " + (task || "read docs/tasks.md Current") + ". Read the live Current: pointer in docs/tasks.md yourself.\n\n" +
     "Quality gate (mandatory before any Done):\n" +
     "- Brutal efficient, performance- and efficiency-maximized, secure (deny-by-default, fail-closed), maintainable.\n" +
@@ -1061,9 +1061,11 @@ const degenPrompt = (task, head) => "degenmode autocontinue. Continue the reposi
     "Stop only for: user stop, destructive/high-risk choice, missing credentials/access, unresolved test/build failure after root-cause attempts, Reconc/spec/policy conflict needing user direction, repeated no-progress, or the zero-finding Terminal Gate in workflow-complete-loop.md.\n" +
     "Never auto-push. Never touch _drop/, research/, or README.md unless explicitly instructed."
 
+const runLoopPrompt = (_task, _head) => "🔥 STFU & LET ME COOK! 🔥"
+
   const hasExplicitRunText = (text) => String(text || "").split(/\s+/).some((field) => {
     const token = field.replace(/^[\s.,;:!?()[\]{}<>]+|[\s.,;:!?()[\]{}<>]+$/g, "")
-    return token === "/degenmode"
+    return token === "/runloop"
   })
 
   const maybeAutocontinue = async (event, stopResult) => {
@@ -1075,7 +1077,7 @@ const degenPrompt = (task, head) => "degenmode autocontinue. Continue the reposi
 
     const stopMarker = await readStopMarker()
     if (stopMarkerMatchesState(stopMarker, state)) {
-      await disableDegenmode(state, "stop_file")
+      await disableRunloop(state, "stop_file")
       return
     }
 
@@ -1099,7 +1101,7 @@ const degenPrompt = (task, head) => "degenmode autocontinue. Continue the reposi
     const noProgress = state.last_head === head && state.last_current === progress
     const noProgressNudges = noProgress ? (state.no_progress_nudges || 0) + 1 : 0
     if (noProgressNudges >= maxNoProgressNudges) {
-      await disableDegenmode({ ...state, session_id: targetSessionID, last_head: head, last_current: progress, no_progress_nudges: noProgressNudges }, "no_progress_guard")
+      await disableRunloop({ ...state, session_id: targetSessionID, last_head: head, last_current: progress, no_progress_nudges: noProgressNudges }, "no_progress_guard")
       return
     }
 
@@ -1119,7 +1121,7 @@ const degenPrompt = (task, head) => "degenmode autocontinue. Continue the reposi
       await client.session.prompt({
         path: { id: targetSessionID },
         body: {
-          parts: [{ type: "text", text: degenPrompt(task, head) }],
+          parts: [{ type: "text", text: runLoopPrompt(task, head) }],
         },
       })
     } finally {
@@ -1152,7 +1154,7 @@ const degenPrompt = (task, head) => "degenmode autocontinue. Continue the reposi
         const state = await readState()
         const eventSessionID = findSessionID(event) || state.session_id || ""
         if (!state.enabled || sameActiveRun(state, eventSessionID)) {
-          await disableDegenmode({ ...state, session_id: eventSessionID }, "session_error")
+          await disableRunloop({ ...state, session_id: eventSessionID }, "session_error")
           await setStopFile(eventSessionID, state.active_run_id || eventSessionID, "session_error")
         }
         return

@@ -72,7 +72,7 @@ func NormalizeCursorPayload(event string, payloadBytes []byte) ([]byte, error) {
 // PayloadLooksLikeCursor reports whether a raw hook payload came from Cursor
 // Desktop before event-specific normalization. Cursor can execute compatible
 // Claude project hooks in the same workspace; those duplicate hooks must not
-// mutate Reconc session/degenmode state for the Cursor run.
+// mutate Reconc session/runloop state for the Cursor run.
 func PayloadLooksLikeCursor(payloadBytes []byte) bool {
 	if len(bytes.TrimSpace(payloadBytes)) == 0 {
 		return false

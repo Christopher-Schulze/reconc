@@ -123,7 +123,7 @@ Codex also needs `hooks = true` in an active `config.toml` and routes
 `preToolUse` as the pre-write gate, `afterFileEdit`/`afterTabFileEdit` plus
 `postToolUse` as evidence backstops for Cursor write aliases including
 `StrReplace`, `Delete`, and `FileEdit`, `beforeSubmitPrompt` for standalone
-`/degenmode`, and `stop` via Cursor-native `followup_message`. Clean Cursor
+`/runloop`, and `stop` via Cursor-native `followup_message`. Clean Cursor
 hook paths emit explicit `{"continue":true,"permission":"allow"}` JSON because
 Cursor fail-closed hooks treat empty stdout as hook failure. OpenCode uses
 `.opencode/plugins/reconc.js`
@@ -133,20 +133,20 @@ Antigravity uses `.agents/hooks.json` with `PreInvocation`, `PreToolUse`,
 PreTool metadata as pending evidence so PostToolUse can record exact
 read/write/command evidence even when the post payload only carries the step
 index/result.
-Degenmode activation is prompt-only and requires a standalone `/degenmode`
+Runloop activation is prompt-only and requires a standalone `/runloop`
 slash-command flag in sanitized real user prompt text, so quoted transcripts,
 hook prompts, stop feedback, code fences, tool text, and errors cannot start
-it accidentally. Degenmode runs are session- and runtime-scoped: a normal
+it accidentally. Runloop runs are session- and runtime-scoped: a normal
 same-session prompt stops that run, except a same-session `/btw` side-channel
 prompt, which preserves the active run; prompts, interrupts, session ends, or
 stop markers from another agent runtime or session in the same repo must not
 stop the active run.
-`.reconc/degenmode/stop` is scoped to the active run and agent runtime and
-clears when a new standalone `/degenmode` prompt starts a run. Stop hooks cache
+`.reconc/runloop/stop` is scoped to the active run and agent runtime and
+clears when a new standalone `/runloop` prompt starts a run. Stop hooks cache
 only the policy report, never the final stop output; `awaiting_continuation`
 alone is not a hard stop reason, so Reconc may re-emit the continuation prompt
-until progress or the no-progress guard decides. Degenmode decisions are logged
-to `.reconc/degenmode/decisions.jsonl`. Repeated identical policy blocks stay
+until progress or the no-progress guard decides. Runloop decisions are logged
+to `.reconc/runloop/decisions.jsonl`. Repeated identical policy blocks stay
 blocking but shrink to rule IDs plus the saved report path. All platforms
 still use git pre-commit as the hard repository backstop. PreToolUse evaluates
 only pre-execution write rules; all PostToolUse / after-shell events record

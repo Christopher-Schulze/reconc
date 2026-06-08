@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-func TestReadDegenModeDecisionsMissingIsEmpty(t *testing.T) {
+func TestReadRunLoopDecisionsMissingIsEmpty(t *testing.T) {
 	repo := t.TempDir()
-	ds, err := ReadDegenModeDecisions(repo, 0)
+	ds, err := ReadRunLoopDecisions(repo, 0)
 	if err != nil {
 		t.Fatalf("missing log must not error: %v", err)
 	}
@@ -16,15 +16,15 @@ func TestReadDegenModeDecisionsMissingIsEmpty(t *testing.T) {
 	}
 }
 
-func TestReadDegenModeDecisionsOrderLimitAndMalformed(t *testing.T) {
+func TestReadRunLoopDecisionsOrderLimitAndMalformed(t *testing.T) {
 	repo := t.TempDir()
 	for _, b := range []string{"a", "b", "c"} {
-		if err := appendDegenModeDecision(repo, DegenModeDecision{Event: "stop", Branch: b}); err != nil {
+		if err := appendRunLoopDecision(repo, RunLoopDecision{Event: "stop", Branch: b}); err != nil {
 			t.Fatalf("append %s: %v", b, err)
 		}
 	}
 	// A malformed line must be skipped, not fail the whole read.
-	path, err := degenModeDecisionLogPath(repo)
+	path, err := runLoopDecisionLogPath(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestReadDegenModeDecisionsOrderLimitAndMalformed(t *testing.T) {
 	}
 	f.Close()
 
-	all, err := ReadDegenModeDecisions(repo, 0)
+	all, err := ReadRunLoopDecisions(repo, 0)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestReadDegenModeDecisionsOrderLimitAndMalformed(t *testing.T) {
 	if all[0].Branch != "a" || all[2].Branch != "c" {
 		t.Fatalf("append order not preserved: %+v", all)
 	}
-	last2, err := ReadDegenModeDecisions(repo, 2)
+	last2, err := ReadRunLoopDecisions(repo, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,16 +56,16 @@ func TestReadDegenModeDecisionsOrderLimitAndMalformed(t *testing.T) {
 	}
 }
 
-func TestReadDegenModeStatusReflectsState(t *testing.T) {
+func TestReadRunLoopStatusReflectsState(t *testing.T) {
 	repo := t.TempDir()
-	info, err := ReadDegenModeStatus(repo)
+	info, err := ReadRunLoopStatus(repo)
 	if err != nil {
 		t.Fatalf("missing state must not error: %v", err)
 	}
 	if info.Enabled {
 		t.Fatal("missing state must be disabled")
 	}
-	if err := saveDegenModeState(repo, degenModeState{
+	if err := saveRunLoopState(repo, runLoopState{
 		Enabled:              true,
 		Runtime:              "cursor",
 		SessionID:            "sess-1",
@@ -75,7 +75,7 @@ func TestReadDegenModeStatusReflectsState(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	info, err = ReadDegenModeStatus(repo)
+	info, err = ReadRunLoopStatus(repo)
 	if err != nil {
 		t.Fatal(err)
 	}

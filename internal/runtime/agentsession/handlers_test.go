@@ -71,20 +71,20 @@ func TestRunSessionStartRejectsMalformedPayload(t *testing.T) {
 	}
 }
 
-func TestRunUserPromptSubmitSwitchesDegenMode(t *testing.T) {
+func TestRunUserPromptSubmitSwitchesRunLoop(t *testing.T) {
 	repo := setupPolicyRepo(t)
-	enable := RunUserPromptSubmit(repo, []byte(`{"session_id":"s1","prompt":"/degenmode"}`))
+	enable := RunUserPromptSubmit(repo, []byte(`{"session_id":"s1","prompt":"/runloop"}`))
 	if enable.ExitCode != 0 {
 		t.Fatalf("enable prompt: exit=%d stderr=%s", enable.ExitCode, enable.Stderr)
 	}
-	state, err := loadDegenModeState(repo)
+	state, err := loadRunLoopState(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !state.Enabled || state.ActiveRunID != "s1" {
-		t.Fatalf("expected enabled degenmode for s1, got %+v", state)
+		t.Fatalf("expected enabled runloop for s1, got %+v", state)
 	}
-	stopPath, err := degenModeStopPath(repo)
+	stopPath, err := runLoopStopPath(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,27 +96,27 @@ func TestRunUserPromptSubmitSwitchesDegenMode(t *testing.T) {
 	if normal.ExitCode != 0 {
 		t.Fatalf("normal prompt: exit=%d stderr=%s", normal.ExitCode, normal.Stderr)
 	}
-	state, err = loadDegenModeState(repo)
+	state, err = loadRunLoopState(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if state.Enabled || state.DisabledReason != "user_prompt" {
-		t.Fatalf("expected user prompt to disable degenmode, got %+v", state)
+		t.Fatalf("expected user prompt to disable runloop, got %+v", state)
 	}
 	if _, err := os.Stat(stopPath); err != nil {
 		t.Fatalf("expected stop file after normal prompt: %v", err)
 	}
 
-	enableAgain := RunUserPromptSubmit(repo, []byte(`{"session_id":"s1","prompt":"/degenmode"}`))
+	enableAgain := RunUserPromptSubmit(repo, []byte(`{"session_id":"s1","prompt":"/runloop"}`))
 	if enableAgain.ExitCode != 0 {
 		t.Fatalf("enable again: exit=%d stderr=%s", enableAgain.ExitCode, enableAgain.Stderr)
 	}
-	state, err = loadDegenModeState(repo)
+	state, err = loadRunLoopState(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !state.Enabled || state.DisabledReason != "" {
-		t.Fatalf("expected enabled after explicit degenmode prompt, got %+v", state)
+		t.Fatalf("expected enabled after explicit runloop prompt, got %+v", state)
 	}
 	if _, err := os.Stat(stopPath); !os.IsNotExist(err) {
 		t.Fatalf("expected activation to clear stop file, got %v", err)
@@ -488,11 +488,11 @@ func TestRunPostToolUseIgnoresExternalReadEvidence(t *testing.T) {
 	}
 }
 
-func TestRunStopDegenModeToleratesExistingExternalReadEvidence(t *testing.T) {
+func TestRunStopRunLoopToleratesExistingExternalReadEvidence(t *testing.T) {
 	repo := setupPolicyRepo(t)
 	writeTaskFixture(t, repo)
 	_ = RunSessionStart(repo, []byte(`{"session_id":"cursor-run"}`))
-	start := RunUserPromptSubmit(repo, []byte(`{"session_id":"cursor-run","runtime":"cursor","prompt":"arbeite weiter /degenmode"}`))
+	start := RunUserPromptSubmit(repo, []byte(`{"session_id":"cursor-run","runtime":"cursor","prompt":"arbeite weiter /runloop"}`))
 	if start.ExitCode != 0 {
 		t.Fatalf("user prompt: %s", start.Stderr)
 	}
@@ -509,30 +509,30 @@ func TestRunStopDegenModeToleratesExistingExternalReadEvidence(t *testing.T) {
 	if stop.ExitCode != 0 {
 		t.Fatalf("stop: exit=%d stderr=%s stdout=%s", stop.ExitCode, stop.Stderr, stop.Stdout)
 	}
-	if !strings.Contains(stop.Stdout, "degenmode autocontinue") {
-		t.Fatalf("expected degenmode continuation despite external read artifact, got stdout=%q stderr=%q", stop.Stdout, stop.Stderr)
+	if !strings.Contains(stop.Stdout, "LET ME COOK") {
+		t.Fatalf("expected runloop continuation despite external read artifact, got stdout=%q stderr=%q", stop.Stdout, stop.Stderr)
 	}
 }
 
 // TestRunStopContinuationPersistsAwaitingUnderLock guards the RunStop refactor
-// that moved both degenmode regions into mutateDegenModeState: the continuation
+// that moved both runloop regions into mutateRunLoopState: the continuation
 // decision must still persist enabled+awaiting via the locked atomic write, so
 // the emitted followup and the on-disk state agree.
 func TestRunStopContinuationPersistsAwaitingUnderLock(t *testing.T) {
 	repo := setupPolicyRepo(t)
 	writeTaskFixture(t, repo)
 	_ = RunSessionStart(repo, []byte(`{"session_id":"cursor-run","runtime":"cursor"}`))
-	if start := RunUserPromptSubmit(repo, []byte(`{"session_id":"cursor-run","runtime":"cursor","prompt":"/degenmode"}`)); start.ExitCode != 0 {
-		t.Fatalf("enable degenmode: %s", start.Stderr)
+	if start := RunUserPromptSubmit(repo, []byte(`{"session_id":"cursor-run","runtime":"cursor","prompt":"/runloop"}`)); start.ExitCode != 0 {
+		t.Fatalf("enable runloop: %s", start.Stderr)
 	}
 	stop := RunStop(repo, []byte(`{"session_id":"cursor-run","runtime":"cursor"}`))
 	if stop.ExitCode != 0 {
 		t.Fatalf("stop: exit=%d stderr=%s", stop.ExitCode, stop.Stderr)
 	}
-	if !strings.Contains(stop.Stdout, "degenmode autocontinue") {
+	if !strings.Contains(stop.Stdout, "LET ME COOK") {
 		t.Fatalf("expected continuation prompt, got stdout=%q stderr=%q", stop.Stdout, stop.Stderr)
 	}
-	state, err := loadDegenModeState(repo)
+	state, err := loadRunLoopState(repo)
 	if err != nil {
 		t.Fatalf("load state: %v", err)
 	}
@@ -683,55 +683,55 @@ func TestRunStopHookActiveCleanCacheInvalidatesOnEvidenceChange(t *testing.T) {
 	}
 }
 
-func TestRunStopCachedPolicyStillEmitsDegenModePrompt(t *testing.T) {
+func TestRunStopCachedPolicyStillEmitsRunLoopPrompt(t *testing.T) {
 	counterPath := filepath.Join(t.TempDir(), "counter")
 	repo := setupStopScriptPolicyRepo(t, counterPath, 0, "")
 	writeTaskFixture(t, repo)
-	if start := RunUserPromptSubmit(repo, []byte(`{"session_id":"s-degen-cache","prompt":"/degenmode"}`)); start.ExitCode != 0 {
-		t.Fatalf("enable degenmode: %s", start.Stderr)
+	if start := RunUserPromptSubmit(repo, []byte(`{"session_id":"s-runLoop-cache","prompt":"/runloop"}`)); start.ExitCode != 0 {
+		t.Fatalf("enable runloop: %s", start.Stderr)
 	}
-	_, err := InitializeSessionState(repo, "s-degen-cache")
+	_, err := InitializeSessionState(repo, "s-runLoop-cache")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = MutateSessionState(repo, "s-degen-cache", func(state SessionState) SessionState {
+	_, err = MutateSessionState(repo, "s-runLoop-cache", func(state SessionState) SessionState {
 		return AppendWritePath(state, "src/a.go")
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	first := RunStop(repo, []byte(`{"session_id":"s-degen-cache"}`))
-	if !strings.Contains(first.Stdout, "degenmode autocontinue") {
-		t.Fatalf("expected first degen stop to emit prompt, got: %s", first.Stdout)
+	first := RunStop(repo, []byte(`{"session_id":"s-runLoop-cache"}`))
+	if !strings.Contains(first.Stdout, "LET ME COOK") {
+		t.Fatalf("expected first runLoop stop to emit prompt, got: %s", first.Stdout)
 	}
 	if got := readCounter(t, counterPath); got != 1 {
 		t.Fatalf("expected first stop to run script once, got %d", got)
 	}
-	dmState, err := loadDegenModeState(repo)
+	dmState, err := loadRunLoopState(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
 	dmState.AwaitingContinuation = false
-	if err := saveDegenModeState(repo, dmState); err != nil {
+	if err := saveRunLoopState(repo, dmState); err != nil {
 		t.Fatal(err)
 	}
 
-	second := RunStop(repo, []byte(`{"session_id":"s-degen-cache"}`))
-	if !strings.Contains(second.Stdout, "degenmode autocontinue") {
-		t.Fatalf("cached policy report must not suppress degen prompt, got: %s", second.Stdout)
+	second := RunStop(repo, []byte(`{"session_id":"s-runLoop-cache"}`))
+	if !strings.Contains(second.Stdout, "LET ME COOK") {
+		t.Fatalf("cached policy report must not suppress runLoop prompt, got: %s", second.Stdout)
 	}
 	if got := readCounter(t, counterPath); got != 1 {
-		t.Fatalf("expected cached degen stop to skip script, got %d runs", got)
+		t.Fatalf("expected cached runLoop stop to skip script, got %d runs", got)
 	}
 }
 
-func TestRunStopPolicyBlockWinsOverDegenModeThenReleasesOnRepeat(t *testing.T) {
+func TestRunStopPolicyBlockWinsOverRunLoopThenReleasesOnRepeat(t *testing.T) {
 	counterPath := filepath.Join(t.TempDir(), "counter")
 	repo := setupStopScriptPolicyRepo(t, counterPath, 2, "real audit failure")
 	writeTaskFixture(t, repo)
-	if start := RunUserPromptSubmit(repo, []byte(`{"session_id":"s-block-cache","prompt":"/degenmode"}`)); start.ExitCode != 0 {
-		t.Fatalf("enable degenmode: %s", start.Stderr)
+	if start := RunUserPromptSubmit(repo, []byte(`{"session_id":"s-block-cache","prompt":"/runloop"}`)); start.ExitCode != 0 {
+		t.Fatalf("enable runloop: %s", start.Stderr)
 	}
 	_, err := InitializeSessionState(repo, "s-block-cache")
 	if err != nil {
@@ -745,13 +745,13 @@ func TestRunStopPolicyBlockWinsOverDegenModeThenReleasesOnRepeat(t *testing.T) {
 	}
 
 	first := RunStop(repo, []byte(`{"session_id":"s-block-cache"}`))
-	for _, want := range []string{`"decision":"block"`, "stop-script-gate", "Report:", "Degenmode: enabled", "blocked_by_policy", "real audit failure"} {
+	for _, want := range []string{`"decision":"block"`, "stop-script-gate", "Report:", "Runloop: enabled", "blocked_by_policy", "real audit failure"} {
 		if !strings.Contains(first.Stdout, want) {
 			t.Fatalf("first block should contain %q, got: %s", want, first.Stdout)
 		}
 	}
-	if strings.Contains(first.Stdout, "degenmode autocontinue") {
-		t.Fatalf("policy block must win over degen prompt, got: %s", first.Stdout)
+	if strings.Contains(first.Stdout, "LET ME COOK") {
+		t.Fatalf("policy block must win over runLoop prompt, got: %s", first.Stdout)
 	}
 	if got := readCounter(t, counterPath); got != 1 {
 		t.Fatalf("expected first policy block to run script once, got %d", got)
@@ -773,7 +773,7 @@ func TestRunStopPolicyBlockWinsOverDegenModeThenReleasesOnRepeat(t *testing.T) {
 }
 
 func TestCursorStopReleasesStopLoopOnRepeatedBlockEndToEnd(t *testing.T) {
-	// End-to-end reproduction of the "degenmode/Cursor cannot be stopped" bug
+	// End-to-end reproduction of the "runloop/Cursor cannot be stopped" bug
 	// through the real cursor-stop path (NormalizeCursorPayload -> RunStop ->
 	// AdaptCursorResult). Cursor never sets stop_hook_active, so an unresolved
 	// blocking violation must NOT trap the session forever: the first stop
@@ -823,8 +823,8 @@ func TestRunStopHappyPath(t *testing.T) {
 	if result.ExitCode != 0 || result.Stdout != "" {
 		t.Errorf("clean session should pass Stop silently, got exit=%d stdout=%q", result.ExitCode, result.Stdout)
 	}
-	if strings.Contains(result.Stdout, "degenmode autocontinue") {
-		t.Fatalf("normal stop without degenmode must not emit degen prompt, got: %s", result.Stdout)
+	if strings.Contains(result.Stdout, "LET ME COOK") {
+		t.Fatalf("normal stop without runloop must not emit runLoop prompt, got: %s", result.Stdout)
 	}
 }
 
@@ -898,58 +898,52 @@ func TestFullHappyFlow(t *testing.T) {
 	}
 }
 
-func TestRunStopDegenModeEnabledReturnsBlock(t *testing.T) {
+func TestRunStopRunLoopEnabledReturnsBlock(t *testing.T) {
 	_ = os.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
 	gitInitHelper(t, repo)
 	writeTaskFixture(t, repo)
 
-	// Enable degenmode via the authoritative user-prompt switch.
-	start := RunUserPromptSubmit(repo, []byte(`{"session_id":"ses_dm","prompt":"/degenmode"}`))
+	// Enable runloop via the authoritative user-prompt switch.
+	start := RunUserPromptSubmit(repo, []byte(`{"session_id":"ses_dm","prompt":"/runloop"}`))
 	if start.ExitCode != 0 {
 		t.Fatalf("user prompt: %s", start.Stderr)
 	}
-	dmState, _ := loadDegenModeState(repo)
+	dmState, _ := loadRunLoopState(repo)
 	if !dmState.Enabled {
-		t.Fatal("expected degenmode enabled after explicit user prompt")
+		t.Fatal("expected runloop enabled after explicit user prompt")
 	}
 
-	// Stop with degenmode enabled — should return a block with prompt.
+	// Stop with runloop enabled — should return a block with prompt.
 	stop := RunStop(repo, []byte(`{"session_id":"ses_dm"}`))
 	if stop.ExitCode != 0 {
 		t.Fatalf("stop: exit=%d stderr=%s", stop.ExitCode, stop.Stderr)
 	}
 	if !strings.Contains(stop.Stdout, `"decision":"block"`) {
-		t.Fatalf("expected block decision for degenmode stop, got: %s", stop.Stdout)
+		t.Fatalf("expected block decision for runloop stop, got: %s", stop.Stdout)
 	}
-	if !strings.Contains(stop.Stdout, "degenmode autocontinue") {
-		t.Fatalf("expected degenmode prompt in block reason, got: %s", stop.Stdout)
+	if !strings.Contains(stop.Stdout, "LET ME COOK") {
+		t.Fatalf("expected runloop prompt in block reason, got: %s", stop.Stdout)
 	}
-	if !strings.Contains(stop.Stdout, "Quality gate") || !strings.Contains(stop.Stdout, "NO_SPEC_SURFACE") {
-		t.Fatalf("expected quality-gate mandate in block reason, got: %s", stop.Stdout)
-	}
-	if !strings.Contains(stop.Stdout, "per-TASK Reality-Check loop in docs/task-loop-workflow.md") {
-		t.Fatalf("expected per-TASK Reality-Check loop reference in block reason, got: %s", stop.Stdout)
-	}
-	if !strings.Contains(stop.Stdout, "degenmode autocontinue") {
-		t.Fatalf("expected degenmode autocontinue text, got: %s", stop.Stdout)
+	if !strings.Contains(stop.Stdout, "LET ME COOK") {
+		t.Fatalf("expected LET ME COOK text, got: %s", stop.Stdout)
 	}
 }
 
-func TestRunStopDegenModeStopFileAllowsStop(t *testing.T) {
+func TestRunStopRunLoopStopFileAllowsStop(t *testing.T) {
 	_ = os.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
 	gitInitHelper(t, repo)
 	writeTaskFixture(t, repo)
 
-	// Enable degenmode.
-	start := RunUserPromptSubmit(repo, []byte(`{"session_id":"ses_dm2","prompt":"/degenmode"}`))
+	// Enable runloop.
+	start := RunUserPromptSubmit(repo, []byte(`{"session_id":"ses_dm2","prompt":"/runloop"}`))
 	if start.ExitCode != 0 {
 		t.Fatalf("user prompt: %s", start.Stderr)
 	}
 
 	// Create stop file (simulating user abort).
-	stopDir := filepath.Join(repo, ".reconc", "degenmode")
+	stopDir := filepath.Join(repo, ".reconc", "runloop")
 	if err := os.MkdirAll(stopDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -966,36 +960,36 @@ func TestRunStopDegenModeStopFileAllowsStop(t *testing.T) {
 		t.Fatalf("expected clean stop when stop file exists, got: %s", stop.Stdout)
 	}
 
-	// Degenmode should now be disabled.
-	dmState, _ := loadDegenModeState(repo)
+	// Runloop should now be disabled.
+	dmState, _ := loadRunLoopState(repo)
 	if dmState.Enabled {
-		t.Fatal("expected degenmode disabled after stop with stop file")
+		t.Fatal("expected runloop disabled after stop with stop file")
 	}
 }
 
-func TestRunStopDegenModeStopHookActiveReemitsContinuation(t *testing.T) {
+func TestRunStopRunLoopStopHookActiveReemitsContinuation(t *testing.T) {
 	_ = os.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
 	gitInitHelper(t, repo)
 	writeTaskFixture(t, repo)
 
-	// Enable degenmode.
-	start := RunUserPromptSubmit(repo, []byte(`{"session_id":"ses_dm3","prompt":"/degenmode"}`))
+	// Enable runloop.
+	start := RunUserPromptSubmit(repo, []byte(`{"session_id":"ses_dm3","prompt":"/runloop"}`))
 	if start.ExitCode != 0 {
 		t.Fatalf("user prompt: %s", start.Stderr)
 	}
 
 	// Stop with stop_hook_active=true is Claude's reentrant Stop-hook
-	// continuation path. It must continue Degenmode instead of silently
+	// continuation path. It must continue Runloop instead of silently
 	// halting the active run.
 	stop := RunStop(repo, []byte(`{"session_id":"ses_dm3","stop_hook_active":true}`))
 	if stop.ExitCode != 0 {
 		t.Fatalf("stop: exit=%d stderr=%s", stop.ExitCode, stop.Stderr)
 	}
-	if !strings.Contains(stop.Stdout, `"decision":"block"`) || !strings.Contains(stop.Stdout, "degenmode autocontinue") {
-		t.Fatalf("expected reentrant stop to emit degenmode continuation, got: %s", stop.Stdout)
+	if !strings.Contains(stop.Stdout, `"decision":"block"`) || !strings.Contains(stop.Stdout, "LET ME COOK") {
+		t.Fatalf("expected reentrant stop to emit runloop continuation, got: %s", stop.Stdout)
 	}
-	state, err := loadDegenModeState(repo)
+	state, err := loadRunLoopState(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1004,12 +998,12 @@ func TestRunStopDegenModeStopHookActiveReemitsContinuation(t *testing.T) {
 	}
 }
 
-func TestRunStopDegenModeFastPathBypassesRoutinePolicyGate(t *testing.T) {
+func TestRunStopRunLoopFastPathBypassesRoutinePolicyGate(t *testing.T) {
 	counterPath := filepath.Join(t.TempDir(), "counter")
 	repo := setupStopScriptPolicyRepo(t, counterPath, 0, "")
 	writeTaskFixture(t, repo)
 
-	start := RunUserPromptSubmit(repo, []byte(`{"session_id":"ses_fast","prompt":"/degenmode"}`))
+	start := RunUserPromptSubmit(repo, []byte(`{"session_id":"ses_fast","prompt":"/runloop"}`))
 	if start.ExitCode != 0 {
 		t.Fatalf("user prompt: %s", start.Stderr)
 	}
@@ -1018,20 +1012,20 @@ func TestRunStopDegenModeFastPathBypassesRoutinePolicyGate(t *testing.T) {
 	if stop.ExitCode != 0 {
 		t.Fatalf("stop: exit=%d stderr=%s", stop.ExitCode, stop.Stderr)
 	}
-	if !strings.Contains(stop.Stdout, "degenmode autocontinue") {
-		t.Fatalf("expected degenmode continuation prompt, got: %s", stop.Stdout)
+	if !strings.Contains(stop.Stdout, "LET ME COOK") {
+		t.Fatalf("expected runloop continuation prompt, got: %s", stop.Stdout)
 	}
 	if got := readCounter(t, counterPath); got != 0 {
-		t.Fatalf("routine degenmode stop without stop-policy evidence must not run Stop policy script, got %d runs", got)
+		t.Fatalf("routine runloop stop without stop-policy evidence must not run Stop policy script, got %d runs", got)
 	}
 }
 
-func TestRunStopDegenModeStopHookActiveUsesCleanCachedPolicyFastPath(t *testing.T) {
+func TestRunStopRunLoopStopHookActiveUsesCleanCachedPolicyFastPath(t *testing.T) {
 	counterPath := filepath.Join(t.TempDir(), "counter")
 	repo := setupStopScriptPolicyRepo(t, counterPath, 0, "")
 	writeTaskFixture(t, repo)
-	if start := RunUserPromptSubmit(repo, []byte(`{"session_id":"ses_reentrant_cache","prompt":"/degenmode"}`)); start.ExitCode != 0 {
-		t.Fatalf("enable degenmode: %s", start.Stderr)
+	if start := RunUserPromptSubmit(repo, []byte(`{"session_id":"ses_reentrant_cache","prompt":"/runloop"}`)); start.ExitCode != 0 {
+		t.Fatalf("enable runloop: %s", start.Stderr)
 	}
 	_, err := InitializeSessionState(repo, "ses_reentrant_cache")
 	if err != nil {
@@ -1045,23 +1039,23 @@ func TestRunStopDegenModeStopHookActiveUsesCleanCachedPolicyFastPath(t *testing.
 	}
 
 	first := RunStop(repo, []byte(`{"session_id":"ses_reentrant_cache"}`))
-	if !strings.Contains(first.Stdout, "degenmode autocontinue") {
-		t.Fatalf("expected first degen stop to emit prompt, got: %s", first.Stdout)
+	if !strings.Contains(first.Stdout, "LET ME COOK") {
+		t.Fatalf("expected first runLoop stop to emit prompt, got: %s", first.Stdout)
 	}
 	if got := readCounter(t, counterPath); got != 1 {
 		t.Fatalf("expected first evidence-bearing stop to run policy once, got %d runs", got)
 	}
-	dmState, err := loadDegenModeState(repo)
+	dmState, err := loadRunLoopState(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
 	dmState.AwaitingContinuation = false
-	if err := saveDegenModeState(repo, dmState); err != nil {
+	if err := saveRunLoopState(repo, dmState); err != nil {
 		t.Fatal(err)
 	}
 
 	second := RunStop(repo, []byte(`{"session_id":"ses_reentrant_cache","stop_hook_active":true}`))
-	if !strings.Contains(second.Stdout, "degenmode autocontinue") {
+	if !strings.Contains(second.Stdout, "LET ME COOK") {
 		t.Fatalf("reentrant stop should continue from clean cached report, got: %s", second.Stdout)
 	}
 	if got := readCounter(t, counterPath); got != 1 {
@@ -1069,13 +1063,13 @@ func TestRunStopDegenModeStopHookActiveUsesCleanCachedPolicyFastPath(t *testing.
 	}
 }
 
-func TestRunStopOpenCodeContinuationDriverSkipsOnlyDegenBlock(t *testing.T) {
+func TestRunStopOpenCodeContinuationDriverSkipsOnlyRunLoopBlock(t *testing.T) {
 	_ = os.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
 	gitInitHelper(t, repo)
 	writeTaskFixture(t, repo)
 
-	start := RunUserPromptSubmit(repo, []byte(`{"session_id":"ses_oc","prompt":"/degenmode"}`))
+	start := RunUserPromptSubmit(repo, []byte(`{"session_id":"ses_oc","prompt":"/runloop"}`))
 	if start.ExitCode != 0 {
 		t.Fatalf("user prompt: %s", start.Stderr)
 	}
@@ -1084,26 +1078,26 @@ func TestRunStopOpenCodeContinuationDriverSkipsOnlyDegenBlock(t *testing.T) {
 	if stop.ExitCode != 0 {
 		t.Fatalf("stop: exit=%d stderr=%s", stop.ExitCode, stop.Stderr)
 	}
-	if strings.Contains(stop.Stdout, "degenmode autocontinue") {
+	if strings.Contains(stop.Stdout, "LET ME COOK") {
 		t.Fatalf("OpenCode plugin must own continuation prompt, got: %s", stop.Stdout)
 	}
 }
 
-func TestRunStopDegenModeAwaitingContinuationReemitsInsteadOfDisabling(t *testing.T) {
+func TestRunStopRunLoopAwaitingContinuationReemitsInsteadOfDisabling(t *testing.T) {
 	_ = os.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
 	gitInitHelper(t, repo)
 	writeTaskFixture(t, repo)
 
-	start := RunUserPromptSubmit(repo, []byte(`{"session_id":"ses_wait","prompt":"/degenmode"}`))
+	start := RunUserPromptSubmit(repo, []byte(`{"session_id":"ses_wait","prompt":"/runloop"}`))
 	if start.ExitCode != 0 {
 		t.Fatalf("user prompt: %s", start.Stderr)
 	}
 	first := RunStop(repo, []byte(`{"session_id":"ses_wait"}`))
-	if !strings.Contains(first.Stdout, "degenmode autocontinue") {
+	if !strings.Contains(first.Stdout, "LET ME COOK") {
 		t.Fatalf("expected first stop to emit continuation prompt, got: %s", first.Stdout)
 	}
-	state, _ := loadDegenModeState(repo)
+	state, _ := loadRunLoopState(repo)
 	if !state.AwaitingContinuation {
 		t.Fatal("expected awaiting_continuation after emitted continuation prompt")
 	}
@@ -1112,22 +1106,22 @@ func TestRunStopDegenModeAwaitingContinuationReemitsInsteadOfDisabling(t *testin
 	if second.ExitCode != 0 {
 		t.Fatalf("second stop: exit=%d stderr=%s", second.ExitCode, second.Stderr)
 	}
-	if !strings.Contains(second.Stdout, "degenmode autocontinue") {
+	if !strings.Contains(second.Stdout, "LET ME COOK") {
 		t.Fatalf("expected second stop without tool use to reemit continuation, got: %s", second.Stdout)
 	}
-	again, _ := loadDegenModeState(repo)
+	again, _ := loadRunLoopState(repo)
 	if !again.Enabled {
-		t.Fatal("expected degenmode to remain enabled after awaiting continuation stop")
+		t.Fatal("expected runloop to remain enabled after awaiting continuation stop")
 	}
 	if again.DisabledReason != "" {
 		t.Fatalf("expected empty disabled_reason, got %q", again.DisabledReason)
 	}
-	logBody, err := os.ReadFile(filepath.Join(repo, ".reconc", "degenmode", "decisions.jsonl"))
+	logBody, err := os.ReadFile(filepath.Join(repo, ".reconc", "runloop", "decisions.jsonl"))
 	if err != nil {
 		t.Fatalf("read decision log: %v", err)
 	}
-	if strings.Count(string(logBody), `"branch":"degen_followup_message"`) < 2 {
-		t.Fatalf("expected both stops logged as degen followups, got:\n%s", logBody)
+	if strings.Count(string(logBody), `"branch":"runLoop_followup_message"`) < 2 {
+		t.Fatalf("expected both stops logged as runLoop followups, got:\n%s", logBody)
 	}
 }
 
@@ -1137,7 +1131,7 @@ func TestRunStopOtherSessionAwaitingContinuationDoesNotReemitPrompt(t *testing.T
 	gitInitHelper(t, repo)
 	writeTaskFixture(t, repo)
 
-	if err := saveDegenModeState(repo, degenModeState{
+	if err := saveRunLoopState(repo, runLoopState{
 		Enabled:              true,
 		SessionID:            "old-session",
 		ActiveRunID:          "old-session",
@@ -1153,7 +1147,7 @@ func TestRunStopOtherSessionAwaitingContinuationDoesNotReemitPrompt(t *testing.T
 	if stop.Stdout != "" {
 		t.Fatalf("other session awaiting_continuation must stop silently, got: %s", stop.Stdout)
 	}
-	state, err := loadDegenModeState(repo)
+	state, err := loadRunLoopState(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1162,13 +1156,13 @@ func TestRunStopOtherSessionAwaitingContinuationDoesNotReemitPrompt(t *testing.T
 	}
 }
 
-func TestRunStopOtherSessionNormalPromptDoesNotClearDegenModeState(t *testing.T) {
+func TestRunStopOtherSessionNormalPromptDoesNotClearRunLoopState(t *testing.T) {
 	_ = os.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
 	gitInitHelper(t, repo)
 	writeTaskFixture(t, repo)
 
-	if err := saveDegenModeState(repo, degenModeState{
+	if err := saveRunLoopState(repo, runLoopState{
 		Enabled:     true,
 		SessionID:   "old-session",
 		ActiveRunID: "old-session",
@@ -1183,10 +1177,10 @@ func TestRunStopOtherSessionNormalPromptDoesNotClearDegenModeState(t *testing.T)
 	if stop.ExitCode != 0 {
 		t.Fatalf("stop: exit=%d stderr=%s", stop.ExitCode, stop.Stderr)
 	}
-	if strings.Contains(stop.Stdout, "degenmode autocontinue") {
-		t.Fatalf("normal prompt must clear stale degen state before stop, got: %s", stop.Stdout)
+	if strings.Contains(stop.Stdout, "LET ME COOK") {
+		t.Fatalf("normal prompt must clear stale runLoop state before stop, got: %s", stop.Stdout)
 	}
-	state, err := loadDegenModeState(repo)
+	state, err := loadRunLoopState(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1195,18 +1189,18 @@ func TestRunStopOtherSessionNormalPromptDoesNotClearDegenModeState(t *testing.T)
 	}
 }
 
-func TestRunStopDegenModeToolUseClearsAwaitingContinuation(t *testing.T) {
+func TestRunStopRunLoopToolUseClearsAwaitingContinuation(t *testing.T) {
 	_ = os.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
 	gitInitHelper(t, repo)
 	writeTaskFixture(t, repo)
 
-	start := RunUserPromptSubmit(repo, []byte(`{"session_id":"ses_tool","prompt":"/degenmode"}`))
+	start := RunUserPromptSubmit(repo, []byte(`{"session_id":"ses_tool","prompt":"/runloop"}`))
 	if start.ExitCode != 0 {
 		t.Fatalf("user prompt: %s", start.Stderr)
 	}
 	first := RunStop(repo, []byte(`{"session_id":"ses_tool"}`))
-	if !strings.Contains(first.Stdout, "degenmode autocontinue") {
+	if !strings.Contains(first.Stdout, "LET ME COOK") {
 		t.Fatalf("expected first stop to emit continuation prompt, got: %s", first.Stdout)
 	}
 
@@ -1214,27 +1208,27 @@ func TestRunStopDegenModeToolUseClearsAwaitingContinuation(t *testing.T) {
 	if post.ExitCode != 0 {
 		t.Fatalf("post tool use: exit=%d stderr=%s", post.ExitCode, post.Stderr)
 	}
-	state, _ := loadDegenModeState(repo)
+	state, _ := loadRunLoopState(repo)
 	if state.AwaitingContinuation {
 		t.Fatal("expected tool use to clear awaiting_continuation")
 	}
 	second := RunStop(repo, []byte(`{"session_id":"ses_tool"}`))
-	if !strings.Contains(second.Stdout, "degenmode autocontinue") {
+	if !strings.Contains(second.Stdout, "LET ME COOK") {
 		t.Fatalf("expected second stop after tool use to continue, got: %s", second.Stdout)
 	}
-	afterSecond, _ := loadDegenModeState(repo)
+	afterSecond, _ := loadRunLoopState(repo)
 	if afterSecond.NoProgressNudges != 0 {
 		t.Fatalf("tool progress must reset no-progress nudges, got %d", afterSecond.NoProgressNudges)
 	}
 }
 
-func TestRunStopDegenModeIgnoresOtherSession(t *testing.T) {
+func TestRunStopRunLoopIgnoresOtherSession(t *testing.T) {
 	_ = os.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
 	gitInitHelper(t, repo)
 	writeTaskFixture(t, repo)
 
-	start := RunUserPromptSubmit(repo, []byte(`{"session_id":"cursor-run","prompt":"mach weiter /degenmode mit Kontext"}`))
+	start := RunUserPromptSubmit(repo, []byte(`{"session_id":"cursor-run","prompt":"mach weiter /runloop mit Kontext"}`))
 	if start.ExitCode != 0 {
 		t.Fatalf("user prompt: %s", start.Stderr)
 	}
@@ -1242,10 +1236,10 @@ func TestRunStopDegenModeIgnoresOtherSession(t *testing.T) {
 	if other.ExitCode != 0 {
 		t.Fatalf("other stop: exit=%d stderr=%s", other.ExitCode, other.Stderr)
 	}
-	if strings.Contains(other.Stdout, "degenmode autocontinue") {
+	if strings.Contains(other.Stdout, "LET ME COOK") {
 		t.Fatalf("other session stop must not emit active run continuation, got: %s", other.Stdout)
 	}
-	state, err := loadDegenModeState(repo)
+	state, err := loadRunLoopState(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1254,9 +1248,9 @@ func TestRunStopDegenModeIgnoresOtherSession(t *testing.T) {
 	}
 }
 
-func TestDegenModeStopBlockJSON(t *testing.T) {
-	prompt := "DEGENMODE TEST PROMPT"
-	out := degenModeStopBlockJSON(prompt)
+func TestRunLoopStopBlockJSON(t *testing.T) {
+	prompt := "RUNLOOP TEST PROMPT"
+	out := runLoopStopBlockJSON(prompt)
 	if !strings.Contains(out, `"decision":"block"`) {
 		t.Fatalf("expected decision=block, got: %s", out)
 	}
@@ -1349,21 +1343,21 @@ func readCounter(t *testing.T, path string) int {
 	return len(body)
 }
 
-func TestRunStopDegenModeNoProgressGuard(t *testing.T) {
+func TestRunStopRunLoopNoProgressGuard(t *testing.T) {
 	_ = os.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
 	gitInitHelper(t, repo)
 	writeTaskFixture(t, repo)
 
-	start := RunUserPromptSubmit(repo, []byte(`{"session_id":"ses_npg","prompt":"/degenmode"}`))
+	start := RunUserPromptSubmit(repo, []byte(`{"session_id":"ses_npg","prompt":"/runloop"}`))
 	if start.ExitCode != 0 {
 		t.Fatalf("user prompt: %s", start.Stderr)
 	}
 
-	// Deactivate degenmode between calls via direct state mutation to
-	// ensure RunStop always enters the degenmode-enabled branch.
+	// Deactivate runloop between calls via direct state mutation to
+	// ensure RunStop always enters the runloop-enabled branch.
 	activateDM := func() {
-		_ = saveDegenModeState(repo, degenModeState{
+		_ = saveRunLoopState(repo, runLoopState{
 			Enabled:     true,
 			SessionID:   "ses_npg",
 			ActiveRunID: "ses_npg",
@@ -1393,12 +1387,12 @@ func TestRunStopDegenModeNoProgressGuard(t *testing.T) {
 
 	// Stop 4: nudges reaches 6 — disables with no_progress_guard
 	activateDM()
-	s, _ := loadDegenModeState(repo)
+	s, _ := loadRunLoopState(repo)
 	s.NoProgressNudges = 5 // simulate previous stop nudges
 	s.LastHead = readCurrentHead(repo)
-	s.LastCurrent = readDegenProgressFingerprint(repo)
+	s.LastCurrent = readRunLoopProgressFingerprint(repo)
 	s.AwaitingContinuation = true
-	_ = saveDegenModeState(repo, s)
+	_ = saveRunLoopState(repo, s)
 
 	r4 := RunStop(repo, []byte(`{"session_id":"ses_npg"}`))
 	if r4.ExitCode != 0 {
@@ -1408,9 +1402,9 @@ func TestRunStopDegenModeNoProgressGuard(t *testing.T) {
 		t.Fatalf("stop 4: expected clean stop (no block), got: %s", r4.Stdout)
 	}
 
-	final, _ := loadDegenModeState(repo)
+	final, _ := loadRunLoopState(repo)
 	if final.Enabled {
-		t.Fatal("expected degenmode disabled after no_progress_guard")
+		t.Fatal("expected runloop disabled after no_progress_guard")
 	}
 	if final.DisabledReason != "no_progress_guard" {
 		t.Fatalf("expected disabled_reason=no_progress_guard, got %q", final.DisabledReason)

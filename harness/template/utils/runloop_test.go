@@ -6,15 +6,15 @@ import (
 	"testing"
 )
 
-func TestReadDegenStateUsesCurrentAndActiveSubtask(t *testing.T) {
+func TestReadRunLoopStateUsesCurrentAndActiveSubtask(t *testing.T) {
 	root := t.TempDir()
-	writeDegenFile(t, root, "docs/tasks.md", `# Tasks
+	writeRunLoopFile(t, root, "docs/tasks.md", `# Tasks
 
 Current: TASK-0007-Test-Task -> tasks/TASK-0007-Test-Task.md
 
 - [ ] TASK-0007-Test-Task - test task -> tasks/TASK-0007-Test-Task.md
 `)
-	writeDegenFile(t, root, "docs/tasks/TASK-0007-Test-Task.md", `# TASK-0007-Test-Task
+	writeRunLoopFile(t, root, "docs/tasks/TASK-0007-Test-Task.md", `# TASK-0007-Test-Task
 
 ## Status
 
@@ -27,9 +27,9 @@ State: Active
 - [ ] Later step
 `)
 
-	state, err := readDegenState(root)
+	state, err := readRunLoopState(root)
 	if err != nil {
-		t.Fatalf("readDegenState: %v", err)
+		t.Fatalf("readRunLoopState: %v", err)
 	}
 	if state.currentName != "TASK-0007-Test-Task" {
 		t.Fatalf("currentName = %q", state.currentName)
@@ -45,15 +45,15 @@ State: Active
 	}
 }
 
-func TestReadDegenStateFallsBackToOpenSubtask(t *testing.T) {
+func TestReadRunLoopStateFallsBackToOpenSubtask(t *testing.T) {
 	root := t.TempDir()
-	writeDegenFile(t, root, "docs/tasks.md", `# Tasks
+	writeRunLoopFile(t, root, "docs/tasks.md", `# Tasks
 
 Current: TASK-0008-Test-Task -> tasks/TASK-0008-Test-Task.md
 
 - [ ] TASK-0008-Test-Task - test task -> tasks/TASK-0008-Test-Task.md
 `)
-	writeDegenFile(t, root, "docs/tasks/TASK-0008-Test-Task.md", `# TASK-0008-Test-Task
+	writeRunLoopFile(t, root, "docs/tasks/TASK-0008-Test-Task.md", `# TASK-0008-Test-Task
 
 ## Status
 
@@ -65,38 +65,38 @@ State: Active
 - [ ] First open step
 `)
 
-	state, err := readDegenState(root)
+	state, err := readRunLoopState(root)
 	if err != nil {
-		t.Fatalf("readDegenState: %v", err)
+		t.Fatalf("readRunLoopState: %v", err)
 	}
 	if state.nextStep != "First open step" {
 		t.Fatalf("nextStep = %q", state.nextStep)
 	}
 }
 
-func TestReadDegenStateRejectsDoneCurrent(t *testing.T) {
+func TestReadRunLoopStateRejectsDoneCurrent(t *testing.T) {
 	root := t.TempDir()
-	writeDegenFile(t, root, "docs/tasks.md", `# Tasks
+	writeRunLoopFile(t, root, "docs/tasks.md", `# Tasks
 
 Current: TASK-0009-Test-Task -> tasks/TASK-0009-Test-Task.md
 
 - [x] TASK-0009-Test-Task - test task -> tasks/done/TASK-0009-Test-Task.md
 `)
 
-	if _, err := readDegenState(root); err == nil {
+	if _, err := readRunLoopState(root); err == nil {
 		t.Fatal("expected error for done current task")
 	}
 }
 
-func TestReadDegenStateIncludesPersistedDegenmode(t *testing.T) {
+func TestReadRunLoopStateIncludesPersistedRunloop(t *testing.T) {
 	root := t.TempDir()
-	writeDegenFile(t, root, "docs/tasks.md", `# Tasks
+	writeRunLoopFile(t, root, "docs/tasks.md", `# Tasks
 
 Current: TASK-0010-Test-Task -> tasks/TASK-0010-Test-Task.md
 
 - [ ] TASK-0010-Test-Task - test task -> tasks/TASK-0010-Test-Task.md
 `)
-	writeDegenFile(t, root, "docs/tasks/TASK-0010-Test-Task.md", `# TASK-0010-Test-Task
+	writeRunLoopFile(t, root, "docs/tasks/TASK-0010-Test-Task.md", `# TASK-0010-Test-Task
 
 ## Status
 
@@ -106,29 +106,29 @@ State: Active
 
 - [~] Continue exact step
 `)
-	writeDegenFile(t, root, ".reconc/degenmode/state.json", `{"enabled":true,"session_id":"ses_test"}`)
+	writeRunLoopFile(t, root, ".reconc/runloop/state.json", `{"enabled":true,"session_id":"ses_test"}`)
 
-	state, err := readDegenState(root)
+	state, err := readRunLoopState(root)
 	if err != nil {
-		t.Fatalf("readDegenState: %v", err)
+		t.Fatalf("readRunLoopState: %v", err)
 	}
 	if !state.modeEnabled {
-		t.Fatal("expected persisted degenmode to be enabled")
+		t.Fatal("expected persisted runloop to be enabled")
 	}
 	if state.modeSession != "ses_test" {
 		t.Fatalf("modeSession = %q", state.modeSession)
 	}
 }
 
-func TestReadDegenStateUsesActiveRunAndNoProgressNudges(t *testing.T) {
+func TestReadRunLoopStateUsesActiveRunAndNoProgressNudges(t *testing.T) {
 	root := t.TempDir()
-	writeDegenFile(t, root, "docs/tasks.md", `# Tasks
+	writeRunLoopFile(t, root, "docs/tasks.md", `# Tasks
 
 Current: TASK-0011-Test-Task -> tasks/TASK-0011-Test-Task.md
 
 - [ ] TASK-0011-Test-Task - test task -> tasks/TASK-0011-Test-Task.md
 `)
-	writeDegenFile(t, root, "docs/tasks/TASK-0011-Test-Task.md", `# TASK-0011-Test-Task
+	writeRunLoopFile(t, root, "docs/tasks/TASK-0011-Test-Task.md", `# TASK-0011-Test-Task
 
 ## Status
 
@@ -138,11 +138,11 @@ State: Active
 
 - [~] Continue exact step
 `)
-	writeDegenFile(t, root, ".reconc/degenmode/state.json", `{"enabled":true,"session_id":"ses_old","active_run_id":"ses_active","no_progress_nudges":3}`)
+	writeRunLoopFile(t, root, ".reconc/runloop/state.json", `{"enabled":true,"session_id":"ses_old","active_run_id":"ses_active","no_progress_nudges":3}`)
 
-	state, err := readDegenState(root)
+	state, err := readRunLoopState(root)
 	if err != nil {
-		t.Fatalf("readDegenState: %v", err)
+		t.Fatalf("readRunLoopState: %v", err)
 	}
 	if state.modeActive != "ses_active" {
 		t.Fatalf("modeActive = %q", state.modeActive)
@@ -155,7 +155,7 @@ State: Active
 	}
 }
 
-func writeDegenFile(t *testing.T, root string, relative string, content string) {
+func writeRunLoopFile(t *testing.T, root string, relative string, content string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(relative))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

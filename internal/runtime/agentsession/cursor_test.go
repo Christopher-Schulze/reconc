@@ -50,11 +50,11 @@ func TestNormalizeCursorPayloadBeforeShellExecution(t *testing.T) {
 	}
 }
 
-func TestCursorBeforeSubmitPromptActivatesDegenModeFlag(t *testing.T) {
+func TestCursorBeforeSubmitPromptActivatesRunLoopFlag(t *testing.T) {
 	repo := setupPolicyRepo(t)
 	body, err := NormalizeCursorPayload("cursor-user-prompt-submit", []byte(`{
-		"sessionId":"cursor-degen",
-		"text":"arbeite autonom /degenmode und nutze den restlichen Prompt"
+		"sessionId":"cursor-runLoop",
+		"text":"arbeite autonom /runloop und nutze den restlichen Prompt"
 	}`))
 	if err != nil {
 		t.Fatalf("NormalizeCursorPayload: %v", err)
@@ -63,12 +63,12 @@ func TestCursorBeforeSubmitPromptActivatesDegenModeFlag(t *testing.T) {
 	if result.ExitCode != 0 {
 		t.Fatalf("RunUserPromptSubmit: exit=%d stderr=%s", result.ExitCode, result.Stderr)
 	}
-	state, err := loadDegenModeState(repo)
+	state, err := loadRunLoopState(repo)
 	if err != nil {
-		t.Fatalf("loadDegenModeState: %v", err)
+		t.Fatalf("loadRunLoopState: %v", err)
 	}
-	if !state.Enabled || state.SessionID != "cursor-degen" {
-		t.Fatalf("expected Cursor /degenmode flag prompt to enable state, got %#v", state)
+	if !state.Enabled || state.SessionID != "cursor-runLoop" {
+		t.Fatalf("expected Cursor /runloop flag prompt to enable state, got %#v", state)
 	}
 }
 

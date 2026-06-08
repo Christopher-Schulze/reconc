@@ -123,8 +123,8 @@ func Run(argv []string, version string, stdout, stderr io.Writer) error {
 		return runAgentIntro(argv[1:], stdout, stderr)
 	case "audit":
 		return runAudit(argv[1:], stdout, stderr)
-	case "degenmode":
-		return runDegenmode(argv[1:], stdout, stderr)
+	case "runloop":
+		return runRunloop(argv[1:], stdout, stderr)
 	case "template":
 		return runTemplate(argv[1:], stdout, stderr)
 	case "session-briefing":
@@ -5244,7 +5244,7 @@ Workflow maintenance:
   changelog        rotate docs/changelog.md / list-archives
   agent-intro      print the embedded reconc agent integration guide
   audit            tail / stats / export the enforcement decision log
-  degenmode        status / log of degenmode state + decision log (--follow)
+  runloop        status / log of runloop state + decision log (--follow)
   session-briefing token-efficient session-start dump (lockfile + audit)
   context          size check for auto-loaded files vs a token budget
   start            render / write a canonical start.md onboarding doc

@@ -267,21 +267,21 @@ grep-guard test.
   started_at) so manual tampering is detected and causes reconc to
   discard the state and start a fresh session.
 
-### Degenmode state concurrency
+### Runloop state concurrency
 
-`.reconc/degenmode/state.json` is mutated by every hook event, so
+`.reconc/runloop/state.json` is mutated by every hook event, so
 parallel agent tool calls spawn concurrent `reconc hook runtime`
 processes that race it. Two invariants keep an active run from being
 silently disabled:
 
-- **Atomic writes.** `writeDegenModeStateAtomic` writes a temp file and
+- **Atomic writes.** `writeRunLoopStateAtomic` writes a temp file and
   renames it into place. A bare `os.WriteFile` truncates first; a reader
   hitting that window decodes an empty file into a disabled zero-value
   state and persists `enabled=false`, killing the run with no logged
   `true->false` transition.
-- **Locked read-modify-write.** `mutateDegenModeState` /
-  `withDegenModeLock` serialize load->mutate->save under an exclusive
-  flock (`.reconc/degenmode/state.lock`), mirroring `MutateSessionState`,
+- **Locked read-modify-write.** `mutateRunLoopState` /
+  `withRunLoopLock` serialize load->mutate->save under an exclusive
+  flock (`.reconc/runloop/state.lock`), mirroring `MutateSessionState`,
   so concurrent mutators cannot lose each other's updates. The Stop hook's
   own disable and continuation decisions run through the same locked
   mutator, so a concurrent reconcile or a user disabling mid-stop cannot be

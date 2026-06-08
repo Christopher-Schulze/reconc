@@ -13,14 +13,14 @@ import (
 
 const reconcHookRuntimeEnv = "RECONC_HOOK_RUNTIME"
 
-// degenModeState mirrors the file contract consumed by the OpenCode
-// runtime degenmode plugin. The CLI/runtime only consumes the core
+// runLoopState mirrors the file contract consumed by the OpenCode
+// runtime runloop plugin. The CLI/runtime only consumes the core
 // fields needed to coordinate continue/stop behavior.
 //
 // The shape intentionally stays tiny so older plugin versions or
 // hand-edited state files can still be parsed without strict
 // coupling.
-type degenModeState struct {
+type runLoopState struct {
 	Enabled              bool   `json:"enabled"`
 	SessionID            string `json:"session_id"`
 	ActiveRunID          string `json:"active_run_id"`
@@ -34,11 +34,11 @@ type degenModeState struct {
 	LastPromptSignature  string `json:"last_prompt_signature,omitempty"`
 }
 
-// DegenModeDecision is one append-only record in
-// .reconc/degenmode/decisions.jsonl: every degenmode state transition with the
-// exact branch taken, so `reconc degenmode log` can show why the runtime did
+// RunLoopDecision is one append-only record in
+// .reconc/runloop/decisions.jsonl: every runloop state transition with the
+// exact branch taken, so `reconc runloop log` can show why the runtime did
 // what it did without grepping raw JSONL.
-type DegenModeDecision struct {
+type RunLoopDecision struct {
 	Timestamp                  string `json:"ts"`
 	Event                      string `json:"event"`
 	Branch                     string `json:"branch"`
@@ -61,28 +61,28 @@ type DegenModeDecision struct {
 	ViolationCount             int    `json:"violation_count,omitempty"`
 }
 
-type degenModeStopMarker struct {
+type runLoopStopMarker struct {
 	SessionID   string `json:"session_id,omitempty"`
 	ActiveRunID string `json:"active_run_id,omitempty"`
 	Runtime     string `json:"runtime,omitempty"`
 	Reason      string `json:"reason,omitempty"`
 }
 
-type degenModeEvent int
+type runLoopEvent int
 
 const (
-	degenModeSessionStart degenModeEvent = iota
-	degenModeUserPrompt
-	degenModeToolEvent
-	degenModeStopEvent
-	degenModeSessionEnd
+	runLoopSessionStart runLoopEvent = iota
+	runLoopUserPrompt
+	runLoopToolEvent
+	runLoopStopEvent
+	runLoopSessionEnd
 )
 
-type degenModeIntent int
+type runLoopIntent int
 
 const (
-	degenModeIntentNoop degenModeIntent = iota
-	degenModeIntentEnable
+	runLoopIntentNoop runLoopIntent = iota
+	runLoopIntentEnable
 )
 
 var (
@@ -90,32 +90,52 @@ var (
 	fencedCodeBlockPattern = regexp.MustCompile("(?s)```.*?```")
 )
 
-func degenModeStatePath(repoRoot string) (string, error) {
+const runLoopContinuationPrompt = "🔥 STFU & LET ME COOK! 🔥"
+
+const legacyRunLoopContinuationPrompt = `runloop autocontinue. Continue the repository task lifecycle without asking for routine permission. No ceremony, no confirmation questions - just work.
+
+Active: TASK = <task> | Sub-Task = <sub-task>. Read the live Current: pointer in docs/tasks.md yourself.
+
+Quality gate (mandatory before any Done):
+- Brutal efficient, performance- and efficiency-maximized, secure (deny-by-default, fail-closed), maintainable.
+- NO gaps, nothing forgotten: implement every spec atom or own it via a concrete follow-up TASK. Never declare NO_SPEC_SURFACE without grepping docs/spec.md first.
+- Read and adapt the Research Refs (a floor, not inspiration) before coding.
+- Max out each feature's intended effect - innovative, not the smallest runnable approximation.
+- Integrate into existing repository subsystems; never build a parallel/duplicate system (grep for the existing mechanism first).
+- Same-TASK substantive tests, then a real Final Reality Check + Contradiction Check with concrete file:line evidence. Verify goal by goal, atomically - no sampling.
+- Exactly one commit per TASK including git rm of the archived task path; never bundle TASKs, never stack uncommitted work.
+- After every completed TASK, run the per-TASK Reality-Check loop in docs/task-loop-workflow.md before continuing: fresh-eyes, strict, paranoid, forensically deep, LINE BY LINE - zero guessing, nothing from memory, no sampling or spot-checks; verify every goal and every changed line hard and explicitly. Check for gaps; is this REALLY EXACTLY what we wanted or something else; does it honestly meet our quality standards (Hard Quality Mandate)? If there is any potential work, ALWAYS do it, then re-run the loop - repeat until the honest hard Reality-Check finds nothing left to do. Only then continue.
+
+After a completed TASK promote/resume the next executable TASK and continue immediately.
+Stop only for: user stop, destructive/high-risk choice, missing credentials/access, unresolved test/build failure after root-cause attempts, Reconc/spec/policy conflict needing user direction, repeated no-progress, or the zero-finding Terminal Gate in workflow-complete-loop.md.
+Never auto-push. Never touch _drop/, research/, or README.md unless explicitly instructed.`
+
+func runLoopStatePath(repoRoot string) (string, error) {
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(root, ".reconc", "degenmode", "state.json"), nil
+	return filepath.Join(root, ".reconc", "runloop", "state.json"), nil
 }
 
-func degenModeStopPath(repoRoot string) (string, error) {
+func runLoopStopPath(repoRoot string) (string, error) {
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(root, ".reconc", "degenmode", "stop"), nil
+	return filepath.Join(root, ".reconc", "runloop", "stop"), nil
 }
 
-func degenModeDecisionLogPath(repoRoot string) (string, error) {
+func runLoopDecisionLogPath(repoRoot string) (string, error) {
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(root, ".reconc", "degenmode", "decisions.jsonl"), nil
+	return filepath.Join(root, ".reconc", "runloop", "decisions.jsonl"), nil
 }
 
-func appendDegenModeDecision(repoRoot string, decision DegenModeDecision) error {
-	path, err := degenModeDecisionLogPath(repoRoot)
+func appendRunLoopDecision(repoRoot string, decision RunLoopDecision) error {
+	path, err := runLoopDecisionLogPath(repoRoot)
 	if err != nil {
 		return err
 	}
@@ -137,26 +157,26 @@ func appendDegenModeDecision(repoRoot string, decision DegenModeDecision) error 
 	return err
 }
 
-func degenModeEventName(event degenModeEvent) string {
+func runLoopEventName(event runLoopEvent) string {
 	switch event {
-	case degenModeSessionStart:
+	case runLoopSessionStart:
 		return "session_start"
-	case degenModeUserPrompt:
+	case runLoopUserPrompt:
 		return "user_prompt"
-	case degenModeToolEvent:
+	case runLoopToolEvent:
 		return "tool_event"
-	case degenModeStopEvent:
+	case runLoopStopEvent:
 		return "stop"
-	case degenModeSessionEnd:
+	case runLoopSessionEnd:
 		return "session_end"
 	default:
 		return "unknown"
 	}
 }
 
-func degenModeIntentName(intent degenModeIntent) string {
+func runLoopIntentName(intent runLoopIntent) string {
 	switch intent {
-	case degenModeIntentEnable:
+	case runLoopIntentEnable:
 		return "enable"
 	default:
 		return "noop"
@@ -170,8 +190,8 @@ func sessionIDFromPayload(payload *HookPayload) string {
 	return strings.TrimSpace(payload.SessionID)
 }
 
-func clearDegenModeStopFile(repoRoot string) error {
-	path, err := degenModeStopPath(repoRoot)
+func clearRunLoopStopFile(repoRoot string) error {
+	path, err := runLoopStopPath(repoRoot)
 	if err != nil {
 		return err
 	}
@@ -181,19 +201,19 @@ func clearDegenModeStopFile(repoRoot string) error {
 	return nil
 }
 
-func writeDegenModeStopFile(repoRoot, sessionID, activeRunID, reason string) error {
-	return writeDegenModeStopFileForRuntime(repoRoot, sessionID, activeRunID, "", reason)
+func writeRunLoopStopFile(repoRoot, sessionID, activeRunID, reason string) error {
+	return writeRunLoopStopFileForRuntime(repoRoot, sessionID, activeRunID, "", reason)
 }
 
-func writeDegenModeStopFileForRuntime(repoRoot, sessionID, activeRunID, runtime, reason string) error {
-	path, err := degenModeStopPath(repoRoot)
+func writeRunLoopStopFileForRuntime(repoRoot, sessionID, activeRunID, runtime, reason string) error {
+	path, err := runLoopStopPath(repoRoot)
 	if err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	marker := degenModeStopMarker{
+	marker := runLoopStopMarker{
 		SessionID:   strings.TrimSpace(sessionID),
 		ActiveRunID: strings.TrimSpace(activeRunID),
 		Runtime:     strings.TrimSpace(runtime),
@@ -207,8 +227,8 @@ func writeDegenModeStopFileForRuntime(repoRoot, sessionID, activeRunID, runtime,
 	return os.WriteFile(path, body, 0o644)
 }
 
-func hasDegenModeStopFile(repoRoot string) bool {
-	path, err := degenModeStopPath(repoRoot)
+func hasRunLoopStopFile(repoRoot string) bool {
+	path, err := runLoopStopPath(repoRoot)
 	if err != nil {
 		return false
 	}
@@ -216,22 +236,22 @@ func hasDegenModeStopFile(repoRoot string) bool {
 	return err == nil
 }
 
-func readDegenModeStopMarker(repoRoot string) (degenModeStopMarker, bool, bool) {
-	path, err := degenModeStopPath(repoRoot)
+func readRunLoopStopMarker(repoRoot string) (runLoopStopMarker, bool, bool) {
+	path, err := runLoopStopPath(repoRoot)
 	if err != nil {
-		return degenModeStopMarker{}, false, false
+		return runLoopStopMarker{}, false, false
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return degenModeStopMarker{}, false, false
+		return runLoopStopMarker{}, false, false
 	}
 	trimmed := strings.TrimSpace(string(data))
 	if trimmed == "" {
-		return degenModeStopMarker{}, true, true
+		return runLoopStopMarker{}, true, true
 	}
-	var marker degenModeStopMarker
+	var marker runLoopStopMarker
 	if err := json.Unmarshal(data, &marker); err != nil {
-		return degenModeStopMarker{}, true, true
+		return runLoopStopMarker{}, true, true
 	}
 	marker.SessionID = strings.TrimSpace(marker.SessionID)
 	marker.ActiveRunID = strings.TrimSpace(marker.ActiveRunID)
@@ -240,18 +260,18 @@ func readDegenModeStopMarker(repoRoot string) (degenModeStopMarker, bool, bool) 
 	return marker, true, false
 }
 
-func degenModeStopFileAppliesToState(repoRoot string, state degenModeState) bool {
-	marker, exists, legacy := readDegenModeStopMarker(repoRoot)
+func runLoopStopFileAppliesToState(repoRoot string, state runLoopState) bool {
+	marker, exists, legacy := readRunLoopStopMarker(repoRoot)
 	if !exists {
 		return false
 	}
 	if legacy {
 		return true
 	}
-	return degenModeMarkerMatchesState(marker, state)
+	return runLoopMarkerMatchesState(marker, state)
 }
 
-func degenModeMarkerMatchesState(marker degenModeStopMarker, state degenModeState) bool {
+func runLoopMarkerMatchesState(marker runLoopStopMarker, state runLoopState) bool {
 	if marker.Runtime != "" && state.Runtime != "" && marker.Runtime != state.Runtime {
 		return false
 	}
@@ -266,7 +286,7 @@ func degenModeMarkerMatchesState(marker degenModeStopMarker, state degenModeStat
 	return false
 }
 
-func degenModeSessionMatchesRuntime(state degenModeState, sessionID string, runtime string) bool {
+func runLoopSessionMatchesRuntime(state runLoopState, sessionID string, runtime string) bool {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		return false
@@ -281,21 +301,21 @@ func degenModeSessionMatchesRuntime(state degenModeState, sessionID string, runt
 	return sessionID == state.SessionID
 }
 
-func loadDegenModeState(repoRoot string) (degenModeState, error) {
-	path, err := degenModeStatePath(repoRoot)
+func loadRunLoopState(repoRoot string) (runLoopState, error) {
+	path, err := runLoopStatePath(repoRoot)
 	if err != nil {
-		return degenModeState{}, err
+		return runLoopState{}, err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return degenModeState{}, nil
+			return runLoopState{}, nil
 		}
-		return degenModeState{}, err
+		return runLoopState{}, err
 	}
-	var state degenModeState
+	var state runLoopState
 	if err := json.Unmarshal(data, &state); err != nil {
-		return degenModeState{}, err
+		return runLoopState{}, err
 	}
 	state.SessionID = strings.TrimSpace(state.SessionID)
 	state.ActiveRunID = strings.TrimSpace(state.ActiveRunID)
@@ -303,7 +323,7 @@ func loadDegenModeState(repoRoot string) (degenModeState, error) {
 	if state.NoProgressNudges < 0 {
 		state.NoProgressNudges = 0
 	}
-	if state.Enabled && degenModeStopFileAppliesToState(repoRoot, state) {
+	if state.Enabled && runLoopStopFileAppliesToState(repoRoot, state) {
 		state.Enabled = false
 		state.ActiveRunID = ""
 		state.NoProgressNudges = 0
@@ -313,47 +333,47 @@ func loadDegenModeState(repoRoot string) (degenModeState, error) {
 	return state, nil
 }
 
-func degenModeStateLockPath(repoRoot string) (string, error) {
+func runLoopStateLockPath(repoRoot string) (string, error) {
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(root, ".reconc", "degenmode", "state.lock"), nil
+	return filepath.Join(root, ".reconc", "runloop", "state.lock"), nil
 }
 
-// withDegenModeLock serializes degenmode state access with an exclusive file
+// withRunLoopLock serializes runloop state access with an exclusive file
 // lock so concurrent `reconc hook runtime` processes (parallel agent tool
 // events) cannot race a load-modify-write on state.json. Mirrors the
 // per-session locking that SessionState already relies on.
-func withDegenModeLock(repoRoot string, fn func() error) error {
-	lockPath, err := degenModeStateLockPath(repoRoot)
+func withRunLoopLock(repoRoot string, fn func() error) error {
+	lockPath, err := runLoopStateLockPath(repoRoot)
 	if err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
-		return fmt.Errorf("mkdir degenmode lock dir: %w", err)
+		return fmt.Errorf("mkdir runloop lock dir: %w", err)
 	}
 	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
-		return fmt.Errorf("open degenmode lock: %w", err)
+		return fmt.Errorf("open runloop lock: %w", err)
 	}
 	defer file.Close()
 	unlock, err := lockSessionFile(file)
 	if err != nil {
-		return fmt.Errorf("lock degenmode state: %w", err)
+		return fmt.Errorf("lock runloop state: %w", err)
 	}
 	defer func() { _ = unlock() }()
 	return fn()
 }
 
-// writeDegenModeStateAtomic writes state via tmp-file-then-rename so a
+// writeRunLoopStateAtomic writes state via tmp-file-then-rename so a
 // concurrent reader never observes a truncated/half-written file (a bare
 // os.WriteFile truncates first, and a reader hitting that window decodes an
 // empty file into a disabled zero-value state). Callers doing
-// read-modify-write MUST hold withDegenModeLock; this primitive only
+// read-modify-write MUST hold withRunLoopLock; this primitive only
 // guarantees each individual write is atomic, not that two writes serialize.
-func writeDegenModeStateAtomic(repoRoot string, state degenModeState) error {
-	path, err := degenModeStatePath(repoRoot)
+func writeRunLoopStateAtomic(repoRoot string, state runLoopState) error {
+	path, err := runLoopStatePath(repoRoot)
 	if err != nil {
 		return err
 	}
@@ -369,87 +389,87 @@ func writeDegenModeStateAtomic(repoRoot string, state degenModeState) error {
 	}
 	body, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
-		return fmt.Errorf("marshal degenmode state: %w", err)
+		return fmt.Errorf("marshal runloop state: %w", err)
 	}
 	body = append(body, '\n')
 	tmpFile, err := os.CreateTemp(dir, "state.json.*.tmp")
 	if err != nil {
-		return fmt.Errorf("create degenmode state tmp: %w", err)
+		return fmt.Errorf("create runloop state tmp: %w", err)
 	}
 	tmp := tmpFile.Name()
 	if _, err := tmpFile.Write(body); err != nil {
 		_ = tmpFile.Close()
 		_ = os.Remove(tmp)
-		return fmt.Errorf("write degenmode state tmp: %w", err)
+		return fmt.Errorf("write runloop state tmp: %w", err)
 	}
 	if err := tmpFile.Close(); err != nil {
 		_ = os.Remove(tmp)
-		return fmt.Errorf("close degenmode state tmp: %w", err)
+		return fmt.Errorf("close runloop state tmp: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
-		return fmt.Errorf("rename degenmode state: %w", err)
+		return fmt.Errorf("rename runloop state: %w", err)
 	}
 	return nil
 }
 
-// saveDegenModeState atomically persists state while holding the degenmode
-// state lock. Use this for standalone/terminal writes; use mutateDegenModeState
+// saveRunLoopState atomically persists state while holding the runloop
+// state lock. Use this for standalone/terminal writes; use mutateRunLoopState
 // for read-modify-write so the load and save share a single lock.
-func saveDegenModeState(repoRoot string, state degenModeState) error {
-	return withDegenModeLock(repoRoot, func() error {
-		return writeDegenModeStateAtomic(repoRoot, state)
+func saveRunLoopState(repoRoot string, state runLoopState) error {
+	return withRunLoopLock(repoRoot, func() error {
+		return writeRunLoopStateAtomic(repoRoot, state)
 	})
 }
 
-// mutateDegenModeState serializes load -> mutate -> save under one lock so
+// mutateRunLoopState serializes load -> mutate -> save under one lock so
 // concurrent agent tool events cannot lose each other's updates. Mirror of
 // MutateSessionState. A transient load error yields an empty (disabled) state
 // to the mutator, matching the previous recovery behavior; with atomic writes
 // in place that can now only happen on genuine corruption, never a torn read.
-func mutateDegenModeState(repoRoot string, fn func(degenModeState) degenModeState) (degenModeState, degenModeState, error) {
-	var before, after degenModeState
-	err := withDegenModeLock(repoRoot, func() error {
-		state, lerr := loadDegenModeState(repoRoot)
+func mutateRunLoopState(repoRoot string, fn func(runLoopState) runLoopState) (runLoopState, runLoopState, error) {
+	var before, after runLoopState
+	err := withRunLoopLock(repoRoot, func() error {
+		state, lerr := loadRunLoopState(repoRoot)
 		if lerr != nil {
-			state = degenModeState{}
+			state = runLoopState{}
 		}
 		before = state
 		after = fn(state)
-		return writeDegenModeStateAtomic(repoRoot, after)
+		return writeRunLoopStateAtomic(repoRoot, after)
 	})
 	return before, after, err
 }
 
-func reconcileDegenModeState(repoRoot, sessionID string, payload *HookPayload, event degenModeEvent) error {
-	return reconcileDegenModeStateForRuntime(repoRoot, sessionID, "", payload, event)
+func reconcileRunLoopState(repoRoot, sessionID string, payload *HookPayload, event runLoopEvent) error {
+	return reconcileRunLoopStateForRuntime(repoRoot, sessionID, "", payload, event)
 }
 
-func reconcileDegenModeStateForRuntime(repoRoot, sessionID, runtime string, payload *HookPayload, event degenModeEvent) error {
+func reconcileRunLoopStateForRuntime(repoRoot, sessionID, runtime string, payload *HookPayload, event runLoopEvent) error {
 	sessionID = strings.TrimSpace(sessionID)
 	runtime = strings.TrimSpace(runtime)
-	intent := degenModeIntentFromUserPrompt(payload)
-	internalPrompt := event == degenModeUserPrompt && isRuntimeInternalUserPrompt(payload)
+	intent := runLoopIntentFromUserPrompt(payload)
+	internalPrompt := event == runLoopUserPrompt && isRuntimeInternalUserPrompt(payload)
 
 	var branch string
 	var stopApplies bool
-	before, after, err := mutateDegenModeState(repoRoot, func(state degenModeState) degenModeState {
-		stopApplies = degenModeStopFileAppliesToState(repoRoot, state)
-		next, b := computeDegenModeNextState(repoRoot, state, sessionID, runtime, payload, event, intent, internalPrompt, stopApplies)
+	before, after, err := mutateRunLoopState(repoRoot, func(state runLoopState) runLoopState {
+		stopApplies = runLoopStopFileAppliesToState(repoRoot, state)
+		next, b := computeRunLoopNextState(repoRoot, state, sessionID, runtime, payload, event, intent, internalPrompt, stopApplies)
 		branch = b
 		return next
 	})
 	if err != nil {
 		return err
 	}
-	_ = appendDegenModeDecision(repoRoot, DegenModeDecision{
-		Event:                      degenModeEventName(event),
+	_ = appendRunLoopDecision(repoRoot, RunLoopDecision{
+		Event:                      runLoopEventName(event),
 		Branch:                     branch,
 		Runtime:                    runtime,
 		SessionID:                  sessionIDFromPayload(payload),
 		StateSessionID:             after.SessionID,
 		ActiveRunID:                after.ActiveRunID,
-		Intent:                     degenModeIntentName(intent),
+		Intent:                     runLoopIntentName(intent),
 		EnabledBefore:              before.Enabled,
 		EnabledAfter:               after.Enabled,
 		DisabledReasonBefore:       before.DisabledReason,
@@ -464,12 +484,12 @@ func reconcileDegenModeStateForRuntime(repoRoot, sessionID, runtime string, payl
 	return nil
 }
 
-// computeDegenModeNextState is the pure state-transition core of the reconcile.
-// It runs under withDegenModeLock (via mutateDegenModeState) and returns the
+// computeRunLoopNextState is the pure state-transition core of the reconcile.
+// It runs under withRunLoopLock (via mutateRunLoopState) and returns the
 // next state plus the branch name for the decision log. Stop-file writes/clears
 // are intentional side effects of specific transitions.
-func computeDegenModeNextState(repoRoot string, state degenModeState, sessionID, runtime string, payload *HookPayload, event degenModeEvent, intent degenModeIntent, internalPrompt bool, stopApplies bool) (degenModeState, string) {
-	if stopApplies && !(event == degenModeUserPrompt && intent == degenModeIntentEnable) {
+func computeRunLoopNextState(repoRoot string, state runLoopState, sessionID, runtime string, payload *HookPayload, event runLoopEvent, intent runLoopIntent, internalPrompt bool, stopApplies bool) (runLoopState, string) {
+	if stopApplies && !(event == runLoopUserPrompt && intent == runLoopIntentEnable) {
 		state.Enabled = false
 		state.ActiveRunID = ""
 		state.NoProgressNudges = 0
@@ -479,9 +499,9 @@ func computeDegenModeNextState(repoRoot string, state degenModeState, sessionID,
 	branch := "preserve"
 
 	switch event {
-	case degenModeSessionStart:
+	case runLoopSessionStart:
 		if stopApplies {
-			state = degenModeState{SessionID: sessionID, Runtime: runtime, DisabledReason: "stop_file"}
+			state = runLoopState{SessionID: sessionID, Runtime: runtime, DisabledReason: "stop_file"}
 			branch = "session_start_stop_file"
 		} else if !state.Enabled && sessionID != "" {
 			state.SessionID = sessionID
@@ -490,48 +510,48 @@ func computeDegenModeNextState(repoRoot string, state degenModeState, sessionID,
 		} else {
 			branch = "session_start_preserve_active"
 		}
-	case degenModeUserPrompt:
-		if intent != degenModeIntentEnable && state.Enabled && !degenModeSessionMatchesRuntime(state, sessionID, runtime) {
+	case runLoopUserPrompt:
+		if intent != runLoopIntentEnable && state.Enabled && !runLoopSessionMatchesRuntime(state, sessionID, runtime) {
 			return state, "preserve_other_runtime_prompt"
 		}
-		if intent != degenModeIntentEnable && state.Enabled && degenModeSessionMatchesRuntime(state, sessionID, runtime) && isDegenModeSideChannelPrompt(payload) {
+		if intent != runLoopIntentEnable && state.Enabled && runLoopSessionMatchesRuntime(state, sessionID, runtime) && isRunLoopSideChannelPrompt(payload) {
 			return state, "preserve_side_channel_prompt"
 		}
-		if intent != degenModeIntentEnable && state.Enabled && degenModeSessionMatchesRuntime(state, sessionID, runtime) && internalPrompt {
+		if intent != runLoopIntentEnable && state.Enabled && runLoopSessionMatchesRuntime(state, sessionID, runtime) && internalPrompt {
 			return state, "preserve_runtime_internal_prompt"
 		}
-		if intent != degenModeIntentEnable && internalPrompt {
+		if intent != runLoopIntentEnable && internalPrompt {
 			return state, "ignore_runtime_internal_prompt"
 		}
-		state = degenModeState{
+		state = runLoopState{
 			SessionID: sessionID,
 			Runtime:   runtime,
 		}
-		if intent == degenModeIntentEnable {
+		if intent == runLoopIntentEnable {
 			state.Enabled = true
 			state.ActiveRunID = sessionID
 			state.DisabledReason = ""
 			state.NoProgressNudges = 0
 			state.AwaitingContinuation = false
-			_ = clearDegenModeStopFile(repoRoot)
+			_ = clearRunLoopStopFile(repoRoot)
 			branch = "enable_user_prompt"
 		} else {
 			state.Enabled = false
 			state.ActiveRunID = ""
 			state.DisabledReason = "user_prompt"
-			_ = writeDegenModeStopFileForRuntime(repoRoot, sessionID, sessionID, runtime, "user_prompt")
+			_ = writeRunLoopStopFileForRuntime(repoRoot, sessionID, sessionID, runtime, "user_prompt")
 			branch = "disable_user_prompt"
 		}
-	case degenModeToolEvent:
-		if !state.Enabled || degenModeSessionMatchesRuntime(state, sessionID, runtime) {
+	case runLoopToolEvent:
+		if !state.Enabled || runLoopSessionMatchesRuntime(state, sessionID, runtime) {
 			state.AwaitingContinuation = false
 			branch = "tool_event_clear_awaiting"
 		} else {
 			branch = "tool_event_preserve_other_runtime"
 		}
-	case degenModeStopEvent:
+	case runLoopStopEvent:
 		interrupted := isUserStopInterrupt(payload)
-		if interrupted && (!state.Enabled || degenModeSessionMatchesRuntime(state, sessionID, runtime)) {
+		if interrupted && (!state.Enabled || runLoopSessionMatchesRuntime(state, sessionID, runtime)) {
 			activeRunID := state.ActiveRunID
 			if activeRunID == "" {
 				activeRunID = sessionID
@@ -540,13 +560,13 @@ func computeDegenModeNextState(repoRoot string, state degenModeState, sessionID,
 			state.ActiveRunID = ""
 			state.NoProgressNudges = 0
 			state.DisabledReason = "user_interrupt"
-			_ = writeDegenModeStopFileForRuntime(repoRoot, sessionID, activeRunID, runtime, "user_interrupt")
+			_ = writeRunLoopStopFileForRuntime(repoRoot, sessionID, activeRunID, runtime, "user_interrupt")
 			branch = "disable_user_interrupt"
 		} else {
 			branch = "stop_event_preserve"
 		}
-	case degenModeSessionEnd:
-		if !state.Enabled || degenModeSessionMatchesRuntime(state, sessionID, runtime) {
+	case runLoopSessionEnd:
+		if !state.Enabled || runLoopSessionMatchesRuntime(state, sessionID, runtime) {
 			state.Enabled = false
 			state.ActiveRunID = ""
 			state.NoProgressNudges = 0
@@ -559,7 +579,7 @@ func computeDegenModeNextState(repoRoot string, state degenModeState, sessionID,
 		}
 	}
 
-	if event != degenModeSessionStart && sessionID != "" {
+	if event != runLoopSessionStart && sessionID != "" {
 		state.SessionID = sessionID
 	}
 	if !state.Enabled {
@@ -585,19 +605,19 @@ func isUserStopInterrupt(payload *HookPayload) bool {
 	return false
 }
 
-func degenModeIntentFromUserPrompt(payload *HookPayload) degenModeIntent {
-	text := extractDegenModeUserPromptText(payload)
+func runLoopIntentFromUserPrompt(payload *HookPayload) runLoopIntent {
+	text := extractRunLoopUserPromptText(payload)
 	if text == "" {
-		return degenModeIntentNoop
+		return runLoopIntentNoop
 	}
-	if !containsDegenModeActivationFlag(text) {
-		return degenModeIntentNoop
+	if !containsRunLoopActivationFlag(text) {
+		return runLoopIntentNoop
 	}
-	return degenModeIntentEnable
+	return runLoopIntentEnable
 }
 
 func isRuntimeInternalUserPrompt(payload *HookPayload) bool {
-	text := extractDegenModeRawPromptText(payload)
+	text := extractRunLoopRawPromptText(payload)
 	if text == "" {
 		return false
 	}
@@ -605,11 +625,14 @@ func isRuntimeInternalUserPrompt(payload *HookPayload) bool {
 		return true
 	}
 	normalized := strings.ToLower(strings.Join(strings.Fields(text), " "))
-	if strings.HasPrefix(normalized, "degenmode autocontinue.") && strings.Contains(normalized, "continue the repository task lifecycle") {
+	if strings.Contains(normalized, strings.ToLower(runLoopContinuationPrompt)) {
+		return true
+	}
+	if strings.HasPrefix(normalized, "runloop autocontinue.") && strings.Contains(normalized, "continue the repository task lifecycle") {
 		return true
 	}
 	internalPhrases := []string{
-		"degenmode autocontinue. continue the repository task lifecycle",
+		normalizedRunLoopPromptFirstLine(legacyRunLoopContinuationPrompt),
 		"briefly inform the user about the task result and perform any follow-up actions",
 		"the above subagent result is already visible to the user",
 		"otherwise end your response with a brief third-person confirmation that the subagent has completed",
@@ -622,7 +645,12 @@ func isRuntimeInternalUserPrompt(payload *HookPayload) bool {
 	return false
 }
 
-func extractDegenModeRawPromptText(payload *HookPayload) string {
+func normalizedRunLoopPromptFirstLine(prompt string) string {
+	line := strings.SplitN(prompt, "\n", 2)[0]
+	return strings.ToLower(strings.Join(strings.Fields(line), " "))
+}
+
+func extractRunLoopRawPromptText(payload *HookPayload) string {
 	if payload == nil {
 		return ""
 	}
@@ -638,12 +666,12 @@ func extractDegenModeRawPromptText(payload *HookPayload) string {
 	return strings.Join(parts, "\n")
 }
 
-func extractDegenModeUserPromptText(payload *HookPayload) string {
+func extractRunLoopUserPromptText(payload *HookPayload) string {
 	if payload == nil {
 		return ""
 	}
 	if payload.Prompt != "" {
-		return sanitizeDegenModeIntentText(payload.Prompt)
+		return sanitizeRunLoopIntentText(payload.Prompt)
 	}
 	parts := []string{}
 	for _, key := range []string{"prompt", "user_prompt", "userPrompt", "message", "text"} {
@@ -651,13 +679,13 @@ func extractDegenModeUserPromptText(payload *HookPayload) string {
 			parts = append(parts, value)
 		}
 	}
-	return sanitizeDegenModeIntentText(strings.Join(parts, "\n"))
+	return sanitizeRunLoopIntentText(strings.Join(parts, "\n"))
 }
 
-func sanitizeDegenModeIntentText(text string) string {
+func sanitizeRunLoopIntentText(text string) string {
 	text = hookPromptBlockPattern.ReplaceAllString(text, "\n")
 	text = fencedCodeBlockPattern.ReplaceAllString(text, "\n")
-	text = stripQuotedDegenModeIntentText(text)
+	text = stripQuotedRunLoopIntentText(text)
 	lines := strings.Split(text, "\n")
 	out := make([]string, 0, len(lines))
 	for _, line := range lines {
@@ -677,7 +705,7 @@ func sanitizeDegenModeIntentText(text string) string {
 	return strings.Join(out, "\n")
 }
 
-func stripQuotedDegenModeIntentText(text string) string {
+func stripQuotedRunLoopIntentText(text string) string {
 	var out strings.Builder
 	out.Grow(len(text))
 	var quote rune
@@ -687,13 +715,13 @@ func stripQuotedDegenModeIntentText(text string) string {
 				out.WriteRune('\n')
 				continue
 			}
-			if closesDegenModeQuote(r, quote) {
+			if closesRunLoopQuote(r, quote) {
 				quote = 0
 			}
 			out.WriteRune(' ')
 			continue
 		}
-		if closeQuote, ok := opensDegenModeQuote(r); ok {
+		if closeQuote, ok := opensRunLoopQuote(r); ok {
 			quote = closeQuote
 			out.WriteRune(' ')
 			continue
@@ -703,7 +731,7 @@ func stripQuotedDegenModeIntentText(text string) string {
 	return out.String()
 }
 
-func opensDegenModeQuote(r rune) (rune, bool) {
+func opensRunLoopQuote(r rune) (rune, bool) {
 	switch r {
 	case '"':
 		return '"', true
@@ -720,7 +748,7 @@ func opensDegenModeQuote(r rune) (rune, bool) {
 	}
 }
 
-func closesDegenModeQuote(r, quote rune) bool {
+func closesRunLoopQuote(r, quote rune) bool {
 	return r == quote || (quote == '”' && r == '“')
 }
 
@@ -748,15 +776,15 @@ func looksLikePastedTranscriptLine(trimmed string) bool {
 	return false
 }
 
-func containsDegenModeActivationFlag(text string) bool {
+func containsRunLoopActivationFlag(text string) bool {
 	for _, line := range strings.Split(text, "\n") {
 		trimmed := strings.TrimSpace(line)
-		if looksLikeDegenModeActivationMentionLine(trimmed) {
+		if looksLikeRunLoopActivationMentionLine(trimmed) {
 			continue
 		}
 		for _, field := range strings.Fields(line) {
 			token := strings.Trim(field, " \t\r\n.,;:!?()[]{}<>")
-			if token == "/degenmode" {
+			if token == "/runloop" {
 				return true
 			}
 		}
@@ -764,32 +792,32 @@ func containsDegenModeActivationFlag(text string) bool {
 	return false
 }
 
-func looksLikeDegenModeActivationMentionLine(trimmed string) bool {
-	if !strings.Contains(trimmed, "/degenmode") {
+func looksLikeRunLoopActivationMentionLine(trimmed string) bool {
+	if !strings.Contains(trimmed, "/runloop") {
 		return false
 	}
 	lower := strings.ToLower(strings.Join(strings.Fields(trimmed), " "))
 	for _, phrase := range []string{
-		"kein /degenmode",
-		"keine /degenmode",
-		"ohne /degenmode",
-		"no /degenmode",
-		"not /degenmode",
-		"without /degenmode",
-		"contains no /degenmode",
-		"enthält kein /degenmode",
-		"enthaelt kein /degenmode",
-		"degenmode ist aus",
-		"degenmode is off",
-		"append /degenmode",
-		"häng /degenmode",
-		"häng dort /degenmode",
-		"haeng /degenmode",
-		"haeng dort /degenmode",
-		"hänge /degenmode",
-		"hänge dort /degenmode",
-		"haenge /degenmode",
-		"haenge dort /degenmode",
+		"kein /runloop",
+		"keine /runloop",
+		"ohne /runloop",
+		"no /runloop",
+		"not /runloop",
+		"without /runloop",
+		"contains no /runloop",
+		"enthält kein /runloop",
+		"enthaelt kein /runloop",
+		"runloop ist aus",
+		"runloop is off",
+		"append /runloop",
+		"häng /runloop",
+		"häng dort /runloop",
+		"haeng /runloop",
+		"haeng dort /runloop",
+		"hänge /runloop",
+		"hänge dort /runloop",
+		"haenge /runloop",
+		"haenge dort /runloop",
 	} {
 		if strings.Contains(lower, phrase) {
 			return true
@@ -798,8 +826,8 @@ func looksLikeDegenModeActivationMentionLine(trimmed string) bool {
 	return false
 }
 
-func isDegenModeSideChannelPrompt(payload *HookPayload) bool {
-	text := strings.TrimSpace(extractDegenModeRawPromptText(payload))
+func isRunLoopSideChannelPrompt(payload *HookPayload) bool {
+	text := strings.TrimSpace(extractRunLoopRawPromptText(payload))
 	if text == "" {
 		return false
 	}
@@ -808,20 +836,20 @@ func isDegenModeSideChannelPrompt(payload *HookPayload) bool {
 		if trimmed == "" {
 			continue
 		}
-		return strings.HasPrefix(trimmed, "/btw") && (len(trimmed) == len("/btw") || isDegenModeTokenBoundary(rune(trimmed[len("/btw")])))
+		return strings.HasPrefix(trimmed, "/btw") && (len(trimmed) == len("/btw") || isRunLoopTokenBoundary(rune(trimmed[len("/btw")])))
 	}
 	return false
 }
 
-func isDegenModeTokenBoundary(r rune) bool {
+func isRunLoopTokenBoundary(r rune) bool {
 	return r == ' ' || r == '\t' || r == '\r' || r == '\n' || strings.ContainsRune(".,;:!?()[]{}<>", r)
 }
 
-// buildDegenModeContinuationPrompt reads the current TASK state and
-// constructs the full degenmode auto-continuation prompt used when
-// the Stop hook blocks for degenmode. Returns empty string if the
-// repo has no current open TASK (degenmode can't continue without one).
-func buildDegenModeContinuationPrompt(repoRoot string) string {
+// buildRunLoopContinuationPrompt checks that a current TASK exists before
+// returning the compact runloop auto-continuation prompt used when
+// the Stop hook blocks for runloop. Returns empty string if the
+// repo has no current open TASK (runloop can't continue without one).
+func buildRunLoopContinuationPrompt(repoRoot string) string {
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
 		return ""
@@ -830,24 +858,8 @@ func buildDegenModeContinuationPrompt(repoRoot string) string {
 	if task == "" {
 		return ""
 	}
-	prompt := `degenmode autocontinue. Continue the repository task lifecycle without asking for routine permission. No ceremony, no confirmation questions - just work.
-
-Active: TASK = ` + task + ` | Sub-Task = ` + subTask + `. Read the live Current: pointer in docs/tasks.md yourself.
-
-Quality gate (mandatory before any Done):
-- Brutal efficient, performance- and efficiency-maximized, secure (deny-by-default, fail-closed), maintainable.
-- NO gaps, nothing forgotten: implement every spec atom or own it via a concrete follow-up TASK. Never declare NO_SPEC_SURFACE without grepping docs/spec.md first.
-- Read and adapt the Research Refs (a floor, not inspiration) before coding.
-- Max out each feature's intended effect - innovative, not the smallest runnable approximation.
-- Integrate into existing repository subsystems; never build a parallel/duplicate system (grep for the existing mechanism first).
-- Same-TASK substantive tests, then a real Final Reality Check + Contradiction Check with concrete file:line evidence. Verify goal by goal, atomically - no sampling.
-- Exactly one commit per TASK including git rm of the archived task path; never bundle TASKs, never stack uncommitted work.
-- After every completed TASK, run the per-TASK Reality-Check loop in docs/task-loop-workflow.md before continuing: fresh-eyes, strict, paranoid, forensically deep, LINE BY LINE - zero guessing, nothing from memory, no sampling or spot-checks; verify every goal and every changed line hard and explicitly. Check for gaps; is this REALLY EXACTLY what we wanted or something else; does it honestly meet our quality standards (Hard Quality Mandate)? If there is any potential work, ALWAYS do it, then re-run the loop - repeat until the honest hard Reality-Check finds nothing left to do. Only then continue.
-
-After a completed TASK promote/resume the next executable TASK and continue immediately.
-Stop only for: user stop, destructive/high-risk choice, missing credentials/access, unresolved test/build failure after root-cause attempts, Reconc/spec/policy conflict needing user direction, repeated no-progress, or the zero-finding Terminal Gate in workflow-complete-loop.md.
-Never auto-push. Never touch _drop/, research/, or README.md unless explicitly instructed.`
-	return prompt
+	_ = subTask
+	return runLoopContinuationPrompt
 }
 
 // readCurrentTaskState returns the name of the current TASK from
@@ -888,7 +900,7 @@ func readCurrentHead(repoRoot string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func readDegenProgressFingerprint(repoRoot string) string {
+func readRunLoopProgressFingerprint(repoRoot string) string {
 	task, subTask := readCurrentTaskState(repoRoot)
 	return task + "\n" + subTask
 }

@@ -152,29 +152,29 @@ func TestAntigravityTranscriptFallbackSignatureDistinguishesRepeatedText(t *test
 	}
 }
 
-func TestAntigravityPreInvocationActivatesSlashDegenmodeOnlyOnce(t *testing.T) {
+func TestAntigravityPreInvocationActivatesSlashRunloopOnlyOnce(t *testing.T) {
 	repo := setupPolicyRepo(t)
 	transcript := filepath.Join(t.TempDir(), "transcript.jsonl")
-	if err := os.WriteFile(transcript, []byte(`{"id":"m1","role":"user","text":"/degenmode"}`+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(transcript, []byte(`{"id":"m1","role":"user","text":"/runloop"}`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	payload := []byte(`{"conversationId":"ag-degen","invocationNum":1,"initialNumSteps":1,"transcriptPath":` + strconvQuote(transcript) + `}`)
+	payload := []byte(`{"conversationId":"ag-runLoop","invocationNum":1,"initialNumSteps":1,"transcriptPath":` + strconvQuote(transcript) + `}`)
 	first := RunAntigravityPreInvocation(repo, payload)
 	if first.ExitCode != 0 {
 		t.Fatalf("pre invocation: %s", first.Stderr)
 	}
-	state, err := loadDegenModeState(repo)
+	state, err := loadRunLoopState(repo)
 	if err != nil {
-		t.Fatalf("loadDegenModeState: %v", err)
+		t.Fatalf("loadRunLoopState: %v", err)
 	}
-	if !state.Enabled || state.SessionID != "ag-degen" || state.LastPromptSignature != "m1" {
-		t.Fatalf("expected enabled slash degenmode state, got %+v", state)
+	if !state.Enabled || state.SessionID != "ag-runLoop" || state.LastPromptSignature != "m1" {
+		t.Fatalf("expected enabled slash runloop state, got %+v", state)
 	}
 	second := RunAntigravityPreInvocation(repo, payload)
 	if second.ExitCode != 0 {
 		t.Fatalf("second pre invocation: %s", second.Stderr)
 	}
-	again, _ := loadDegenModeState(repo)
+	again, _ := loadRunLoopState(repo)
 	if !again.Enabled || again.LastPromptSignature != "m1" {
 		t.Fatalf("repeated same prompt should not disable state, got %+v", again)
 	}

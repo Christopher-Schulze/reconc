@@ -863,11 +863,14 @@ func TestGenerateOpenCodePluginLeanContinuationPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate opencode: %v", err)
 	}
-	// The continuation prompt must keep the internal marker (so a re-submitted
-	// autocontinue is recognized as runtime-internal and does not disable the
-	// run) and carry the quality gate without re-injecting entry-only ceremony.
+	// The active continuation prompt is deliberately terse. The legacy quality
+	// gate remains in the generated plugin as disabled reference text, but it is
+	// no longer sent as the follow-up prompt.
 	for _, want := range []string{
-		"degenmode autocontinue. Continue the repository task lifecycle",
+		`const runLoopPrompt = (_task, _head) => "🔥 STFU & LET ME COOK! 🔥"`,
+		`parts: [{ type: "text", text: runLoopPrompt(task, head) }]`,
+		"const legacyRunLoopPrompt",
+		"runloop autocontinue. Continue the repository task lifecycle",
 		"Quality gate (mandatory before any Done)",
 		"Never declare NO_SPEC_SURFACE without grepping docs/spec.md first",
 		"Verify goal by goal, atomically - no sampling",
@@ -887,7 +890,7 @@ func TestGenerateOpenCodePluginLeanContinuationPrompt(t *testing.T) {
 	}
 }
 
-func TestGenerateOpenCodePluginDegenModeStateMachine(t *testing.T) {
+func TestGenerateOpenCodePluginRunLoopStateMachine(t *testing.T) {
 	a, err := Generate(KindOpenCode)
 	if err != nil {
 		t.Fatalf("generate opencode: %v", err)
@@ -903,26 +906,26 @@ func TestGenerateOpenCodePluginDegenModeStateMachine(t *testing.T) {
 		t.Fatal("missing readState enabled=false correction")
 	}
 
-	// enableDegenmode clears disabled_reason and stop_anchor_message_id
+	// enableRunloop clears disabled_reason and stop_anchor_message_id
 	if !strings.Contains(content, `disabled_reason: ""`) {
-		t.Fatal("missing enableDegenmode disabled_reason clear")
+		t.Fatal("missing enableRunloop disabled_reason clear")
 	}
 	if !strings.Contains(content, `stop_anchor_message_id: ""`) {
-		t.Fatal("missing enableDegenmode stop_anchor_message_id clear")
+		t.Fatal("missing enableRunloop stop_anchor_message_id clear")
 	}
 
-	// disableDegenmode resets active_run_id
+	// disableRunloop resets active_run_id
 	if !strings.Contains(content, `active_run_id: ""`) {
-		t.Fatal("missing disableDegenmode active_run_id reset")
+		t.Fatal("missing disableRunloop active_run_id reset")
 	}
 
 	// chat.message is the authoritative OpenCode user-prompt switch:
-	// standalone /degenmode flag enables; same-run normal prompts disable.
+	// standalone /runloop flag enables; same-run normal prompts disable.
 	if !strings.Contains(content, `"chat.message": async`) || !strings.Contains(content, "handleUserPromptText") {
 		t.Fatal("missing chat.message prompt switch")
 	}
-	if !strings.Contains(content, `return token === "/degenmode"`) {
-		t.Fatal("OpenCode activation must use standalone /degenmode flag")
+	if !strings.Contains(content, `return token === "/runloop"`) {
+		t.Fatal("OpenCode activation must use standalone /runloop flag")
 	}
 	if !strings.Contains(content, "sameActiveRun") {
 		t.Fatal("OpenCode activation must preserve active run across other sessions")
@@ -946,7 +949,7 @@ func TestGenerateOpenCodePluginDegenModeStateMachine(t *testing.T) {
 		"abortPayloadPattern",
 		"safeJSON(event)",
 		"user_abort_or_session_error",
-		"degenmode user abort detected",
+		"runloop user abort detected",
 	} {
 		if strings.Contains(content, forbidden) {
 			t.Fatalf("BUG: %s still present — removed to prevent false aborts from internal OpenCode events", forbidden)
@@ -974,7 +977,7 @@ func TestGenerateOpenCodePluginDegenModeStateMachine(t *testing.T) {
 		t.Fatal("missing other-session no-op guard")
 	}
 	if strings.Contains(content, "plugin_load") {
-		t.Fatal("plugin reload must not disable degenmode")
+		t.Fatal("plugin reload must not disable runloop")
 	}
 	if !strings.Contains(content, "opencode_continuation_driver") {
 		t.Fatal("missing OpenCode continuation driver marker")
@@ -1127,7 +1130,7 @@ func TestTemplateRepoRootScaffoldHooksMatchGenerator(t *testing.T) {
 			t.Fatalf("template scaffold %s still contains old final-hold wording", kind)
 		}
 		if kind == KindOpenCode && !strings.Contains(artifact.Content, "zero-finding Terminal Gate") {
-			t.Fatalf("template scaffold %s must point Degenmode at the zero-finding Terminal Gate", kind)
+			t.Fatalf("template scaffold %s must point Runloop at the zero-finding Terminal Gate", kind)
 		}
 		info, err := os.Stat(target)
 		if err != nil {

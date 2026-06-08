@@ -1070,8 +1070,8 @@ func auditAgentHooks(root string) []string {
 			"opencode-stop",
 			"session.idle",
 			"client.session.prompt",
-			".reconc/degenmode",
-			"degenmode autocontinue",
+			".reconc/runloop",
+			"runloop autocontinue",
 			"session.interrupted_by_user",
 			"user_interrupt",
 			"opencode_continuation_driver",
@@ -1261,12 +1261,12 @@ func auditStartEntrypoint(root string) []string {
 		"tools/reconc/dist/reconc-0.5.0-darwin-arm64 session-briefing .",
 		"No file writes",
 		"_drop/",
-		"/degenmode",
-		"Otherwise Degenmode is off",
+		"/runloop",
+		"Otherwise Runloop is off",
 		"not a parallel workflow",
-		"tools/reconc/harness/template/utils/degenmode.go",
+		"tools/reconc/harness/template/utils/runloop.go",
 		"autonomous mode",
-		".reconc/degenmode/state.json",
+		".reconc/runloop/state.json",
 		"no chat-command off switch",
 	}
 	for _, token := range required {
@@ -1287,16 +1287,16 @@ func auditStartEntrypoint(root string) []string {
 	}
 	agentsContent := string(agentsBytes)
 	agentsRequired := []string{
-		"`/degenmode` is default-off",
+		"`/runloop` is default-off",
 		"not a second workflow",
 		"not permission to invent a parallel process",
 		"concise task output",
 		"fully autonomous, non-interactive mode",
-		".reconc/degenmode/state.json",
+		".reconc/runloop/state.json",
 	}
 	for _, token := range agentsRequired {
 		if !strings.Contains(agentsContent, token) {
-			failures = append(failures, fmt.Sprintf("AGENTS.md missing required degenmode token %q", token))
+			failures = append(failures, fmt.Sprintf("AGENTS.md missing required runloop token %q", token))
 		}
 	}
 	return failures

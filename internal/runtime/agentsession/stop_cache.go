@@ -409,7 +409,7 @@ func filteredGitOutput(repoRoot string, args ...string) string {
 
 func stopPolicyRuntimeStateRecord(record string) bool {
 	for _, marker := range []string{
-		".reconc/degenmode/",
+		".reconc/runloop/",
 		".reconc/cache/",
 		".reconc/locks/",
 		".reconc/reports/",

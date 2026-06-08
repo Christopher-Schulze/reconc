@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestHookRuntimeScopesDegenmodeUserPromptByAgentRuntime(t *testing.T) {
+func TestHookRuntimeScopesRunloopUserPromptByAgentRuntime(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
 	runPrompt := func(event, prompt string) {
 		t.Helper()
@@ -24,29 +24,29 @@ func TestHookRuntimeScopesDegenmodeUserPromptByAgentRuntime(t *testing.T) {
 		}
 	}
 
-	runPrompt("cursor-user-prompt-submit", "/degenmode")
-	runPrompt("codex-user-prompt-submit", "ist der degenmode an?")
+	runPrompt("cursor-user-prompt-submit", "/runloop")
+	runPrompt("codex-user-prompt-submit", "ist der runloop an?")
 
-	state := readDegenmodeRuntimeState(t, repo)
+	state := readRunloopRuntimeState(t, repo)
 	if !state.Enabled || state.Runtime != "cursor" || state.ActiveRunID != "shared-session" {
-		t.Fatalf("codex control prompt must not stop cursor degenmode, got %+v", state)
+		t.Fatalf("codex control prompt must not stop cursor runloop, got %+v", state)
 	}
-	if _, err := os.Stat(filepath.Join(repo, ".reconc", "degenmode", "stop")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(repo, ".reconc", "runloop", "stop")); !os.IsNotExist(err) {
 		t.Fatalf("codex control prompt wrote cursor stop marker, stat err=%v", err)
 	}
 
 	runPrompt("cursor-user-prompt-submit", "normal cursor prompt")
-	state = readDegenmodeRuntimeState(t, repo)
+	state = readRunloopRuntimeState(t, repo)
 	if state.Enabled || state.Runtime != "cursor" || state.DisabledReason != "user_prompt" {
-		t.Fatalf("cursor normal prompt must stop cursor degenmode, got %+v", state)
+		t.Fatalf("cursor normal prompt must stop cursor runloop, got %+v", state)
 	}
-	marker := readDegenmodeRuntimeStopMarker(t, repo)
+	marker := readRunloopRuntimeStopMarker(t, repo)
 	if marker.Runtime != "cursor" || marker.Reason != "user_prompt" {
 		t.Fatalf("cursor stop marker must be runtime scoped, got %+v", marker)
 	}
 }
 
-type degenmodeRuntimeState struct {
+type runloopRuntimeState struct {
 	Enabled        bool   `json:"enabled"`
 	SessionID      string `json:"session_id"`
 	ActiveRunID    string `json:"active_run_id"`
@@ -54,33 +54,33 @@ type degenmodeRuntimeState struct {
 	DisabledReason string `json:"disabled_reason"`
 }
 
-type degenmodeRuntimeStopMarker struct {
+type runloopRuntimeStopMarker struct {
 	SessionID   string `json:"session_id"`
 	ActiveRunID string `json:"active_run_id"`
 	Runtime     string `json:"runtime"`
 	Reason      string `json:"reason"`
 }
 
-func readDegenmodeRuntimeState(t *testing.T, repo string) degenmodeRuntimeState {
+func readRunloopRuntimeState(t *testing.T, repo string) runloopRuntimeState {
 	t.Helper()
-	body, err := os.ReadFile(filepath.Join(repo, ".reconc", "degenmode", "state.json"))
+	body, err := os.ReadFile(filepath.Join(repo, ".reconc", "runloop", "state.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var state degenmodeRuntimeState
+	var state runloopRuntimeState
 	if err := json.Unmarshal(body, &state); err != nil {
 		t.Fatal(err)
 	}
 	return state
 }
 
-func readDegenmodeRuntimeStopMarker(t *testing.T, repo string) degenmodeRuntimeStopMarker {
+func readRunloopRuntimeStopMarker(t *testing.T, repo string) runloopRuntimeStopMarker {
 	t.Helper()
-	body, err := os.ReadFile(filepath.Join(repo, ".reconc", "degenmode", "stop"))
+	body, err := os.ReadFile(filepath.Join(repo, ".reconc", "runloop", "stop"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var marker degenmodeRuntimeStopMarker
+	var marker runloopRuntimeStopMarker
 	if err := json.Unmarshal(body, &marker); err != nil {
 		t.Fatal(err)
 	}

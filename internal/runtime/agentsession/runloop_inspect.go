@@ -6,11 +6,11 @@ import (
 	"os"
 )
 
-// DegenModeStatusInfo is the read-only snapshot of the current degenmode state
-// rendered by `reconc degenmode status`. It is derived from the same state
+// RunLoopStatusInfo is the read-only snapshot of the current runloop state
+// rendered by `reconc runloop status`. It is derived from the same state
 // file the runtime consumes, with the active stop-file already applied, so it
 // reflects exactly what the next stop decision will see.
-type DegenModeStatusInfo struct {
+type RunLoopStatusInfo struct {
 	Enabled              bool   `json:"enabled"`
 	Runtime              string `json:"runtime,omitempty"`
 	SessionID            string `json:"session_id,omitempty"`
@@ -21,20 +21,20 @@ type DegenModeStatusInfo struct {
 	StopFilePresent      bool   `json:"stop_file_present"`
 }
 
-// DegenModeDecisionLogPath returns the repo-local decisions.jsonl path used by
-// the degenmode observability commands.
-func DegenModeDecisionLogPath(repoRoot string) (string, error) {
-	return degenModeDecisionLogPath(repoRoot)
+// RunLoopDecisionLogPath returns the repo-local decisions.jsonl path used by
+// the runloop observability commands.
+func RunLoopDecisionLogPath(repoRoot string) (string, error) {
+	return runLoopDecisionLogPath(repoRoot)
 }
 
-// ReadDegenModeStatus loads the current degenmode state for display. A missing
+// ReadRunLoopStatus loads the current runloop state for display. A missing
 // state file is not an error: it returns a zero (disabled) snapshot.
-func ReadDegenModeStatus(repoRoot string) (DegenModeStatusInfo, error) {
-	state, err := loadDegenModeState(repoRoot)
+func ReadRunLoopStatus(repoRoot string) (RunLoopStatusInfo, error) {
+	state, err := loadRunLoopState(repoRoot)
 	if err != nil {
-		return DegenModeStatusInfo{}, err
+		return RunLoopStatusInfo{}, err
 	}
-	return DegenModeStatusInfo{
+	return RunLoopStatusInfo{
 		Enabled:              state.Enabled,
 		Runtime:              state.Runtime,
 		SessionID:            state.SessionID,
@@ -42,17 +42,17 @@ func ReadDegenModeStatus(repoRoot string) (DegenModeStatusInfo, error) {
 		DisabledReason:       state.DisabledReason,
 		AwaitingContinuation: state.AwaitingContinuation,
 		NoProgressNudges:     state.NoProgressNudges,
-		StopFilePresent:      hasDegenModeStopFile(repoRoot),
+		StopFilePresent:      hasRunLoopStopFile(repoRoot),
 	}, nil
 }
 
-// ReadDegenModeDecisions returns degenmode decision records from
-// .reconc/degenmode/decisions.jsonl in chronological (append) order. When
+// ReadRunLoopDecisions returns runloop decision records from
+// .reconc/runloop/decisions.jsonl in chronological (append) order. When
 // limit > 0 only the last limit records are returned. A missing log is not an
 // error (returns nil). Malformed lines are skipped rather than failing the
 // whole read, so a single bad append never blinds the observability surface.
-func ReadDegenModeDecisions(repoRoot string, limit int) ([]DegenModeDecision, error) {
-	path, err := degenModeDecisionLogPath(repoRoot)
+func ReadRunLoopDecisions(repoRoot string, limit int) ([]RunLoopDecision, error) {
+	path, err := runLoopDecisionLogPath(repoRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +65,7 @@ func ReadDegenModeDecisions(repoRoot string, limit int) ([]DegenModeDecision, er
 	}
 	defer file.Close()
 
-	var out []DegenModeDecision
+	var out []RunLoopDecision
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
@@ -73,7 +73,7 @@ func ReadDegenModeDecisions(repoRoot string, limit int) ([]DegenModeDecision, er
 		if len(line) == 0 {
 			continue
 		}
-		var d DegenModeDecision
+		var d RunLoopDecision
 		if err := json.Unmarshal(line, &d); err != nil {
 			continue
 		}

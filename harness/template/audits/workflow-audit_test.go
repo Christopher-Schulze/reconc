@@ -574,10 +574,10 @@ await run("opencode-pre-tool-use", payload)
 await run("opencode-post-tool-use", payload)
 await run("opencode-stop", payload)
 if (event?.type === "session.idle") await maybeAutocontinue(event, result)
-if (event?.type === "session.interrupted_by_user") await disableDegenmode(state, "user_interrupt")
+if (event?.type === "session.interrupted_by_user") await disableRunloop(state, "user_interrupt")
 await clearStopFile()
 await run("opencode-stop", { session_id: sessionID, opencode_continuation_driver: true })
-await client.session.prompt({ path: { id: sessionID }, body: { parts: [{ type: "text", text: "degenmode autocontinue .reconc/degenmode" }] } })
+await client.session.prompt({ path: { id: sessionID }, body: { parts: [{ type: "text", text: "runloop autocontinue .reconc/runloop" }] } })
 `)
 	writeFile(t, root, ".agents/hooks.json", `{"reconc":{"PreInvocation":[{"type":"command","command":"sh -lc 'repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" antigravity-pre-invocation \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2>/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/`+wrapper+`\" antigravity-pre-invocation \"$repo\"'","timeout":120}],"PreToolUse":[{"matcher":"write_to_file|replace_file_content|multi_replace_file_content|run_command","hooks":[{"type":"command","command":"sh -lc 'repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" antigravity-pre-tool-use \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2>/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/`+wrapper+`\" antigravity-pre-tool-use \"$repo\"'","timeout":120}]}],"PostToolUse":[{"matcher":"view_file|write_to_file|replace_file_content|multi_replace_file_content|list_dir|find_by_name|grep_search|run_command","hooks":[{"type":"command","command":"sh -lc 'repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" antigravity-post-tool-use \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2>/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/`+wrapper+`\" antigravity-post-tool-use \"$repo\"'","timeout":120}]}],"PostInvocation":[{"type":"command","command":"sh -lc 'repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" antigravity-post-invocation \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2>/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/`+wrapper+`\" antigravity-post-invocation \"$repo\"'","timeout":120}],"Stop":[{"type":"command","command":"sh -lc 'repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" antigravity-stop \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2>/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/`+wrapper+`\" antigravity-stop \"$repo\"'","timeout":120}]}}`)
 
@@ -609,7 +609,7 @@ func TestAuditHookLauncherShapeRejectsClaudeShellLauncher(t *testing.T) {
 	}
 }
 
-func TestAuditStartEntrypointRequiresDegenmodeOptIn(t *testing.T) {
+func TestAuditStartEntrypointRequiresRunloopOptIn(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "start.md", `# START
 
@@ -619,16 +619,16 @@ tools/reconc/dist/reconc-0.5.0-darwin-arm64 status .
 tools/reconc/dist/reconc-0.5.0-darwin-arm64 session-briefing .
 No file writes
 _drop/
-/degenmode
-tools/reconc/harness/template/utils/degenmode.go
+/runloop
+tools/reconc/harness/template/utils/runloop.go
 `)
-	writeFile(t, root, "AGENTS.md", "`/degenmode` is always-on and can invent a parallel process")
+	writeFile(t, root, "AGENTS.md", "`/runloop` is always-on and can invent a parallel process")
 
 	failures := auditStartEntrypoint(root)
-	if !containsFailure(failures, "Otherwise Degenmode is off") ||
+	if !containsFailure(failures, "Otherwise Runloop is off") ||
 		!containsFailure(failures, "not a parallel workflow") ||
-		!containsFailure(failures, "AGENTS.md missing required degenmode token") {
-		t.Fatalf("expected degenmode opt-in failures, got:\n%s", strings.Join(failures, "\n"))
+		!containsFailure(failures, "AGENTS.md missing required runloop token") {
+		t.Fatalf("expected runloop opt-in failures, got:\n%s", strings.Join(failures, "\n"))
 	}
 }
 

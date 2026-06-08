@@ -27,17 +27,17 @@ func RunAntigravityPreInvocation(repoRoot string, payloadBytes []byte) Result {
 	}
 	prompt, signature := latestAntigravityUserMessage(antigravityString(parsed.Raw, "transcriptPath", "transcript_path"))
 	if prompt != "" && signature != "" {
-		state, err := loadDegenModeState(root)
+		state, err := loadRunLoopState(root)
 		if err != nil {
 			return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}}), Stderr: err.Error()}
 		}
 		if state.LastPromptSignature != signature {
 			promptPayload := *parsed
 			promptPayload.Prompt = prompt
-			if err := reconcileDegenModeState(root, parsed.SessionID, &promptPayload, degenModeUserPrompt); err != nil {
+			if err := reconcileRunLoopState(root, parsed.SessionID, &promptPayload, runLoopUserPrompt); err != nil {
 				return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}}), Stderr: err.Error()}
 			}
-			if _, _, err := mutateDegenModeState(root, func(s degenModeState) degenModeState {
+			if _, _, err := mutateRunLoopState(root, func(s runLoopState) runLoopState {
 				s.LastPromptSignature = signature
 				return s
 			}); err != nil {

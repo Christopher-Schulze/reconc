@@ -54,8 +54,8 @@ func RunSessionStart(repoRoot string, payloadBytes []byte) Result {
 	if _, err := InitializeSessionState(repoRoot, payload.SessionID); err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook: session init: %s", err)}
 	}
-	if err := reconcileDegenModeStateForRuntime(repoRoot, payload.SessionID, runtimeFromPayload(payload), payload, degenModeSessionStart); err != nil {
-		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc degenmode: %s", err)}
+	if err := reconcileRunLoopStateForRuntime(repoRoot, payload.SessionID, runtimeFromPayload(payload), payload, runLoopSessionStart); err != nil {
+		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc runloop: %s", err)}
 	}
 	return Result{ExitCode: 0}
 }
@@ -81,8 +81,8 @@ func normalizeRuntimeName(value string) string {
 	return value
 }
 
-func logDegenModeStopDecision(repoRoot, branch string, payload *HookPayload, runtime string, before, after degenModeState, stopFileApplies bool, policyBlocked bool, violationCount int) {
-	_ = appendDegenModeDecision(repoRoot, DegenModeDecision{
+func logRunLoopStopDecision(repoRoot, branch string, payload *HookPayload, runtime string, before, after runLoopState, stopFileApplies bool, policyBlocked bool, violationCount int) {
+	_ = appendRunLoopDecision(repoRoot, RunLoopDecision{
 		Event:                      "stop",
 		Branch:                     branch,
 		Runtime:                    strings.TrimSpace(runtime),
@@ -104,8 +104,8 @@ func logDegenModeStopDecision(repoRoot, branch string, payload *HookPayload, run
 }
 
 // RunUserPromptSubmit treats every fresh user prompt as the authoritative
-// run-intent switch for degenmode. A prompt that explicitly asks for
-// degenmode starts a new autonomous run; any other prompt stops a previous
+// run-intent switch for runloop. A prompt that explicitly asks for
+// runloop starts a new autonomous run; any other prompt stops a previous
 // run so stale state cannot survive app restarts or user follow-up messages.
 func RunUserPromptSubmit(repoRoot string, payloadBytes []byte) Result {
 	payload, err := ParsePayload(payloadBytes)
@@ -115,8 +115,8 @@ func RunUserPromptSubmit(repoRoot string, payloadBytes []byte) Result {
 	if _, err := ResolveRepoRoot(repoRoot); err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (user-prompt): %s", err)}
 	}
-	if err := reconcileDegenModeStateForRuntime(repoRoot, payload.SessionID, runtimeFromPayload(payload), payload, degenModeUserPrompt); err != nil {
-		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc degenmode: %s", err)}
+	if err := reconcileRunLoopStateForRuntime(repoRoot, payload.SessionID, runtimeFromPayload(payload), payload, runLoopUserPrompt); err != nil {
+		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc runloop: %s", err)}
 	}
 	return Result{ExitCode: 0}
 }
@@ -147,8 +147,8 @@ func RunPreToolUse(repoRoot string, payloadBytes []byte) Result {
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}
 	}
-	if err := reconcileDegenModeStateForRuntime(root, payload.SessionID, runtimeFromPayload(payload), payload, degenModeToolEvent); err != nil {
-		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc degenmode: %s", err)}
+	if err := reconcileRunLoopStateForRuntime(root, payload.SessionID, runtimeFromPayload(payload), payload, runLoopToolEvent); err != nil {
+		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc runloop: %s", err)}
 	}
 	state, err := EnsureSessionState(root, payload.SessionID)
 	if err != nil {
@@ -203,8 +203,8 @@ func RunPostToolUse(repoRoot string, payloadBytes []byte) Result {
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post, warn): %s", err)}
 	}
-	if err := reconcileDegenModeStateForRuntime(root, payload.SessionID, runtimeFromPayload(payload), payload, degenModeToolEvent); err != nil {
-		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc degenmode: %s", err)}
+	if err := reconcileRunLoopStateForRuntime(root, payload.SessionID, runtimeFromPayload(payload), payload, runLoopToolEvent); err != nil {
+		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc runloop: %s", err)}
 	}
 	_, err = MutateSessionState(root, payload.SessionID, func(state SessionState) SessionState {
 		return recordToolUse(state, payload)
@@ -225,8 +225,8 @@ func RunPostToolUseFailure(repoRoot string, payloadBytes []byte) Result {
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post-fail, warn): %s", err)}
 	}
-	if err := reconcileDegenModeStateForRuntime(root, payload.SessionID, runtimeFromPayload(payload), payload, degenModeToolEvent); err != nil {
-		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc degenmode: %s", err)}
+	if err := reconcileRunLoopStateForRuntime(root, payload.SessionID, runtimeFromPayload(payload), payload, runLoopToolEvent); err != nil {
+		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc runloop: %s", err)}
 	}
 	updated, err := MutateSessionState(root, payload.SessionID, func(state SessionState) SessionState {
 		return recordToolFailure(state, payload)
@@ -258,8 +258,8 @@ func RunPostToolUseComplete(repoRoot string, payloadBytes []byte) Result {
 // block so the agent refuses to stop (prompting the agent to fix
 // the remaining violations).
 //
-// When degenmode is enabled and no policy violations block the stop,
-// RunStop returns a block decision carrying the degenmode continuation
+// When runloop is enabled and no policy violations block the stop,
+// RunStop returns a block decision carrying the runloop continuation
 // prompt as the reason. This lets Codex and Claude auto-continue
 // without a JS plugin.
 func RunStop(repoRoot string, payloadBytes []byte) Result {
@@ -272,44 +272,44 @@ func RunStop(repoRoot string, payloadBytes []byte) Result {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): %s", err)}
 	}
 	runtimeName := runtimeFromPayload(payload)
-	if err := reconcileDegenModeStateForRuntime(root, payload.SessionID, runtimeName, payload, degenModeStopEvent); err != nil {
-		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc degenmode: %s", err)}
+	if err := reconcileRunLoopStateForRuntime(root, payload.SessionID, runtimeName, payload, runLoopStopEvent); err != nil {
+		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc runloop: %s", err)}
 	}
 
 	// Region 1: stop-file / user-interrupt disable. The load+decide+save runs
-	// under withDegenModeLock (via mutateDegenModeState) so a concurrent
+	// under withRunLoopLock (via mutateRunLoopState) so a concurrent
 	// reconcile cannot be clobbered and a fresh disable is respected.
 	var earlyResult Result
 	earlyHandled := false
-	if _, _, err := mutateDegenModeState(root, func(dmState degenModeState) degenModeState {
-		if !(dmState.Enabled && degenModeSessionMatchesRuntime(dmState, payload.SessionID, runtimeName)) {
+	if _, _, err := mutateRunLoopState(root, func(dmState runLoopState) runLoopState {
+		if !(dmState.Enabled && runLoopSessionMatchesRuntime(dmState, payload.SessionID, runtimeName)) {
 			return dmState
 		}
 		interrupted := isUserStopInterrupt(payload)
-		stopFileApplies := degenModeStopFileAppliesToState(root, dmState)
+		stopFileApplies := runLoopStopFileAppliesToState(root, dmState)
 		if !(stopFileApplies || interrupted) {
 			return dmState
 		}
 		if !stopFileApplies {
-			_ = writeDegenModeStopFileForRuntime(root, payload.SessionID, dmState.ActiveRunID, runtimeName, "stop")
+			_ = writeRunLoopStopFileForRuntime(root, payload.SessionID, dmState.ActiveRunID, runtimeName, "stop")
 		}
 		reason := "user_interrupt"
 		if stopFileApplies && !interrupted {
 			reason = "stop_file"
 		}
-		after := degenModeState{
+		after := runLoopState{
 			Enabled:             false,
 			SessionID:           dmState.SessionID,
 			Runtime:             dmState.Runtime,
 			DisabledReason:      reason,
 			StopAnchorMessageID: dmState.StopAnchorMessageID,
 		}
-		logDegenModeStopDecision(root, "disable_"+reason, payload, runtimeName, dmState, after, stopFileApplies, false, 0)
+		logRunLoopStopDecision(root, "disable_"+reason, payload, runtimeName, dmState, after, stopFileApplies, false, 0)
 		earlyResult = Result{ExitCode: 0}
 		earlyHandled = true
 		return after
 	}); err != nil {
-		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc degenmode: %s", err)}
+		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc runloop: %s", err)}
 	}
 	if earlyHandled {
 		return earlyResult
@@ -320,14 +320,14 @@ func RunStop(repoRoot string, payloadBytes []byte) Result {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): %s", err)}
 	}
 
-	// In active Degenmode a Stop event is usually a continuation boundary, not
+	// In active Runloop a Stop event is usually a continuation boundary, not
 	// a terminal workflow gate. Use a pre-policy fast path only when the session
 	// has no Stop-time evidence or when Claude re-enters the Stop hook with an
 	// already-known-clean report. Real evidence-bearing stops still run the
-	// policy gate below so blocking rules keep winning over Degenmode.
-	if canUseDegenModePrePolicyFastPath(root, state, payload, runtimeName) {
-		if contResult, contHandled, err := runDegenModeContinuation(root, payload, runtimeName); err != nil {
-			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc degenmode: %s", err)}
+	// policy gate below so blocking rules keep winning over Runloop.
+	if canUseRunLoopPrePolicyFastPath(root, state, payload, runtimeName) {
+		if contResult, contHandled, err := runRunLoopContinuation(root, payload, runtimeName); err != nil {
+			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc runloop: %s", err)}
 		} else if contHandled {
 			return contResult
 		}
@@ -336,8 +336,8 @@ func RunStop(repoRoot string, payloadBytes []byte) Result {
 	if payload.StopHookActive {
 		evidenceHash := stopPolicyEvidenceHash(state)
 		if _, ok := cachedCleanStopPolicyReportForEvidence(root, state, evidenceHash); ok {
-			dmState, _ := loadDegenModeState(root)
-			logDegenModeStopDecision(root, "stop_hook_active_clean_cache", payload, runtimeName, dmState, dmState, degenModeStopFileAppliesToState(root, dmState), false, 0)
+			dmState, _ := loadRunLoopState(root)
+			logRunLoopStopDecision(root, "stop_hook_active_clean_cache", payload, runtimeName, dmState, dmState, runLoopStopFileAppliesToState(root, dmState), false, 0)
 			return Result{ExitCode: 0}
 		}
 	}
@@ -348,11 +348,11 @@ func RunStop(repoRoot string, payloadBytes []byte) Result {
 	}
 	violations := blockingViolations(report)
 	if len(violations) != 0 {
-		dmState, _ := loadDegenModeState(root)
+		dmState, _ := loadRunLoopState(root)
 		// Avoid endless loops when the agent is already continuing because
 		// of this hook.
 		if payload.StopHookActive {
-			logDegenModeStopDecision(root, "policy_block_stop_hook_active", payload, runtimeName, dmState, dmState, degenModeStopFileAppliesToState(root, dmState), true, len(violations))
+			logRunLoopStopDecision(root, "policy_block_stop_hook_active", payload, runtimeName, dmState, dmState, runLoopStopFileAppliesToState(root, dmState), true, len(violations))
 			return Result{ExitCode: 0}
 		}
 		// A user stop/interrupt must always win. Runtimes like Cursor never set
@@ -363,46 +363,46 @@ func RunStop(repoRoot string, payloadBytes []byte) Result {
 		// told not to resolve it. This is the Cursor-equivalent of the
 		// StopHookActive escape above.
 		if vh := hashBlockingViolations(violations); vh != "" && state.LastStopBlockViolationHash == vh {
-			logDegenModeStopDecision(root, "policy_block_released_on_repeat", payload, runtimeName, dmState, dmState, degenModeStopFileAppliesToState(root, dmState), true, len(violations))
+			logRunLoopStopDecision(root, "policy_block_released_on_repeat", payload, runtimeName, dmState, dmState, runLoopStopFileAppliesToState(root, dmState), true, len(violations))
 			return Result{ExitCode: 0}
 		}
-		logDegenModeStopDecision(root, "policy_block", payload, runtimeName, dmState, dmState, degenModeStopFileAppliesToState(root, dmState), true, len(violations))
+		logRunLoopStopDecision(root, "policy_block", payload, runtimeName, dmState, dmState, runLoopStopFileAppliesToState(root, dmState), true, len(violations))
 		return Result{ExitCode: 0, Stdout: stopBlockJSONOutput(root, state.SessionID, report, violations)}
 	}
 
-	if contResult, contHandled, err := runDegenModeContinuation(root, payload, runtimeName); err != nil {
-		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc degenmode: %s", err)}
+	if contResult, contHandled, err := runRunLoopContinuation(root, payload, runtimeName); err != nil {
+		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc runloop: %s", err)}
 	} else if contHandled {
 		return contResult
 	}
 
-	var dmFinal degenModeState
-	if _, _, err := mutateDegenModeState(root, func(dmState degenModeState) degenModeState {
+	var dmFinal runLoopState
+	if _, _, err := mutateRunLoopState(root, func(dmState runLoopState) runLoopState {
 		dmFinal = dmState
-		if !(dmState.Enabled && degenModeSessionMatchesRuntime(dmState, payload.SessionID, runtimeName)) {
+		if !(dmState.Enabled && runLoopSessionMatchesRuntime(dmState, payload.SessionID, runtimeName)) {
 			return dmState
 		}
 		if payload.OpenCodeContinuationDriver {
-			logDegenModeStopDecision(root, "degen_skip_opencode_driver", payload, runtimeName, dmState, dmState, false, false, 0)
+			logRunLoopStopDecision(root, "runLoop_skip_opencode_driver", payload, runtimeName, dmState, dmState, false, false, 0)
 			return dmState
 		}
 		return dmState
 	}); err != nil {
-		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc degenmode: %s", err)}
+		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc runloop: %s", err)}
 	}
-	if dmFinal.Enabled && degenModeSessionMatchesRuntime(dmFinal, payload.SessionID, runtimeName) && payload.OpenCodeContinuationDriver {
+	if dmFinal.Enabled && runLoopSessionMatchesRuntime(dmFinal, payload.SessionID, runtimeName) && payload.OpenCodeContinuationDriver {
 		return Result{ExitCode: 0}
 	}
-	logDegenModeStopDecision(root, "allow_no_active_degenmode", payload, runtimeName, dmFinal, dmFinal, degenModeStopFileAppliesToState(root, dmFinal), false, 0)
+	logRunLoopStopDecision(root, "allow_no_active_runloop", payload, runtimeName, dmFinal, dmFinal, runLoopStopFileAppliesToState(root, dmFinal), false, 0)
 	return Result{ExitCode: 0}
 }
 
-func canUseDegenModePrePolicyFastPath(root string, state SessionState, payload *HookPayload, runtimeName string) bool {
+func canUseRunLoopPrePolicyFastPath(root string, state SessionState, payload *HookPayload, runtimeName string) bool {
 	if payload.OpenCodeContinuationDriver {
 		return false
 	}
-	dmState, err := loadDegenModeState(root)
-	if err != nil || !(dmState.Enabled && degenModeSessionMatchesRuntime(dmState, payload.SessionID, runtimeName)) {
+	dmState, err := loadRunLoopState(root)
+	if err != nil || !(dmState.Enabled && runLoopSessionMatchesRuntime(dmState, payload.SessionID, runtimeName)) {
 		return false
 	}
 	if !sessionHasStopPolicyEvidence(state) {
@@ -424,35 +424,35 @@ func cachedStopPolicyReportIsClean(root string, state SessionState) bool {
 	return ok
 }
 
-// runDegenModeContinuation emits the autonomous continuation prompt. Callers
+// runRunLoopContinuation emits the autonomous continuation prompt. Callers
 // choose whether this runs before or after the Stop policy gate.
-func runDegenModeContinuation(root string, payload *HookPayload, runtimeName string) (Result, bool, error) {
+func runRunLoopContinuation(root string, payload *HookPayload, runtimeName string) (Result, bool, error) {
 	if payload.OpenCodeContinuationDriver {
 		return Result{}, false, nil
 	}
 
 	var contResult Result
 	contHandled := false
-	if _, _, err := mutateDegenModeState(root, func(dmState degenModeState) degenModeState {
-		if !(dmState.Enabled && degenModeSessionMatchesRuntime(dmState, payload.SessionID, runtimeName)) {
+	if _, _, err := mutateRunLoopState(root, func(dmState runLoopState) runLoopState {
+		if !(dmState.Enabled && runLoopSessionMatchesRuntime(dmState, payload.SessionID, runtimeName)) {
 			return dmState
 		}
-		prompt := buildDegenModeContinuationPrompt(root)
+		prompt := buildRunLoopContinuationPrompt(root)
 		if prompt == "" {
-			after := degenModeState{
+			after := runLoopState{
 				Enabled:        false,
 				SessionID:      dmState.SessionID,
 				Runtime:        dmState.Runtime,
 				DisabledReason: "no_current_task",
 			}
-			logDegenModeStopDecision(root, "disable_no_current_task", payload, runtimeName, dmState, after, false, false, 0)
+			logRunLoopStopDecision(root, "disable_no_current_task", payload, runtimeName, dmState, after, false, false, 0)
 			contResult = Result{ExitCode: 0}
 			contHandled = true
 			return after
 		}
 
 		head := readCurrentHead(root)
-		progress := readDegenProgressFingerprint(root)
+		progress := readRunLoopProgressFingerprint(root)
 		noProgress := dmState.AwaitingContinuation && dmState.LastHead == head && dmState.LastCurrent == progress
 		nudges := dmState.NoProgressNudges
 		if noProgress {
@@ -461,7 +461,7 @@ func runDegenModeContinuation(root string, payload *HookPayload, runtimeName str
 			nudges = 0
 		}
 		if nudges >= 6 {
-			after := degenModeState{
+			after := runLoopState{
 				Enabled:          false,
 				SessionID:        dmState.SessionID,
 				Runtime:          dmState.Runtime,
@@ -470,13 +470,13 @@ func runDegenModeContinuation(root string, payload *HookPayload, runtimeName str
 				LastHead:         head,
 				LastCurrent:      progress,
 			}
-			logDegenModeStopDecision(root, "disable_no_progress_guard", payload, runtimeName, dmState, after, false, false, 0)
+			logRunLoopStopDecision(root, "disable_no_progress_guard", payload, runtimeName, dmState, after, false, false, 0)
 			contResult = Result{ExitCode: 0}
 			contHandled = true
 			return after
 		}
 
-		after := degenModeState{
+		after := runLoopState{
 			Enabled:              true,
 			SessionID:            dmState.SessionID,
 			ActiveRunID:          dmState.ActiveRunID,
@@ -486,8 +486,8 @@ func runDegenModeContinuation(root string, payload *HookPayload, runtimeName str
 			LastCurrent:          progress,
 			AwaitingContinuation: true,
 		}
-		logDegenModeStopDecision(root, "degen_followup_message", payload, runtimeName, dmState, after, false, false, 0)
-		contResult = Result{ExitCode: 0, Stdout: degenModeStopBlockJSON(prompt)}
+		logRunLoopStopDecision(root, "runLoop_followup_message", payload, runtimeName, dmState, after, false, false, 0)
+		contResult = Result{ExitCode: 0, Stdout: runLoopStopBlockJSON(prompt)}
 		contHandled = true
 		return after
 	}); err != nil {
@@ -506,8 +506,8 @@ func RunSessionEnd(repoRoot string, payloadBytes []byte) Result {
 	if err := CleanupSessionState(repoRoot, payload.SessionID); err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (end, warn): %s", err)}
 	}
-	if err := reconcileDegenModeStateForRuntime(repoRoot, payload.SessionID, runtimeFromPayload(payload), payload, degenModeSessionEnd); err != nil {
-		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc degenmode: %s", err)}
+	if err := reconcileRunLoopStateForRuntime(repoRoot, payload.SessionID, runtimeFromPayload(payload), payload, runLoopSessionEnd); err != nil {
+		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc runloop: %s", err)}
 	}
 	return Result{ExitCode: 0}
 }
@@ -791,7 +791,7 @@ func postToolFailureJSONOutput(state SessionState) string {
 // blocking violations.
 func stopBlockJSONOutput(repoRoot, sessionID string, report *runtime.CheckReport, violations []runtime.Violation) string {
 	repeated := recordStopBlockAndRepeated(repoRoot, sessionID, violations)
-	reason := stopReasonForViolations(violations, reportPathForStop(repoRoot, sessionID), repeated, degenModeStatusLine(repoRoot))
+	reason := stopReasonForViolations(violations, reportPathForStop(repoRoot, sessionID), repeated, runLoopStatusLine(repoRoot))
 	payload := map[string]string{
 		"decision": "block",
 		"reason":   reason,
@@ -800,7 +800,7 @@ func stopBlockJSONOutput(repoRoot, sessionID string, report *runtime.CheckReport
 	return string(body)
 }
 
-func stopReasonForViolations(violations []runtime.Violation, reportPath string, repeated bool, degenStatus string) string {
+func stopReasonForViolations(violations []runtime.Violation, reportPath string, repeated bool, runLoopStatus string) string {
 	if repeated {
 		var rules []string
 		for _, v := range violations {
@@ -812,9 +812,9 @@ func stopReasonForViolations(violations []runtime.Violation, reportPath string, 
 			b.WriteString("\nReport: ")
 			b.WriteString(reportPath)
 		}
-		if degenStatus != "" {
+		if runLoopStatus != "" {
 			b.WriteString("\n")
-			b.WriteString(degenStatus)
+			b.WriteString(runLoopStatus)
 		}
 		if len(rules) > 0 {
 			b.WriteString("\nRules: ")
@@ -826,28 +826,28 @@ func stopReasonForViolations(violations []runtime.Violation, reportPath string, 
 	reason := firstLinesForViolationsWithReport(violations,
 		"reconc: blocking workflow requirements still remain before this session can stop.",
 		reportPath)
-	if degenStatus != "" {
-		reason += "\n" + degenStatus
+	if runLoopStatus != "" {
+		reason += "\n" + runLoopStatus
 	}
 	return reason
 }
 
-func degenModeStatusLine(repoRoot string) string {
-	state, err := loadDegenModeState(repoRoot)
+func runLoopStatusLine(repoRoot string) string {
+	state, err := loadRunLoopState(repoRoot)
 	if err != nil {
-		return "Degenmode: unknown"
+		return "Runloop: unknown"
 	}
 	if state.Enabled {
 		runtimeName := state.Runtime
 		if runtimeName == "" {
 			runtimeName = "unknown"
 		}
-		return fmt.Sprintf("Degenmode: enabled, runtime=%s, blocked_by_policy", runtimeName)
+		return fmt.Sprintf("Runloop: enabled, runtime=%s, blocked_by_policy", runtimeName)
 	}
 	if state.DisabledReason != "" {
-		return fmt.Sprintf("Degenmode: disabled, reason=%s", state.DisabledReason)
+		return fmt.Sprintf("Runloop: disabled, reason=%s", state.DisabledReason)
 	}
-	return "Degenmode: disabled"
+	return "Runloop: disabled"
 }
 
 func firstLinesForViolationsWithReport(violations []runtime.Violation, title, reportPath string) string {
@@ -907,10 +907,10 @@ func firstDiagnosticLine(explanation string) string {
 	return explanation
 }
 
-// degenModeStopBlockJSON returns the Stop-hook block control-response
-// that carries the degenmode continuation prompt as the reason so the
+// runLoopStopBlockJSON returns the Stop-hook block control-response
+// that carries the runloop continuation prompt as the reason so the
 // agent auto-continues without a separate JS plugin.
-func degenModeStopBlockJSON(prompt string) string {
+func runLoopStopBlockJSON(prompt string) string {
 	payload := map[string]string{
 		"decision": "block",
 		"reason":   prompt,
