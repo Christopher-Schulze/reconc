@@ -1,17 +1,31 @@
-# reconc -- Repository Control Compiler
+# reconc - Repository Control Compiler
 
-`reconc` is the Repository Control Compiler: a small Go CLI that turns
-repository policy into a deterministic control plane for AI-assisted coding
-workflows.
+Deterministic policy gates for AI-assisted software engineering.
 
-It checks proposed writes, command evidence, hook events, claims, and git diffs
-against one repo-local policy model. One binary, offline by default, no Docker,
-no daemon, no runtime network dependency.
+`reconc` is a small offline Go CLI that turns repository policy into a compiled
+control plane. It lets a repo decide what an AI coding agent may read, write,
+claim, continue, or finish based on real evidence instead of prompt trust.
 
-It does not pretend that an LLM is deterministic. It makes the boundaries around
-agent work deterministic: what can be touched, what evidence is required, which
-runtime events are allowed to continue, and why a gate passed, warned, or
-blocked.
+One binary. Repo-local policy. Deterministic lockfile. Native hooks for modern
+agent runtimes. No daemon, no Docker requirement, no runtime network dependency.
+
+```text
+AGENTS.md + .reconc.yml + presets + templates
+                  |
+                  v
+        reconc compile -> .reconc/policy.lock.json
+                  |
+                  v
+     CLI checks + git hooks + agent runtime hooks
+                  |
+                  v
+        pass / warn / block + exact next action
+```
+
+`reconc` does not make LLMs deterministic. It makes the boundary around their
+work deterministic: which files are protected, which commands must have run,
+which claims must be supplied, which hook events are allowed to continue, and
+why a task is allowed to be called done.
 
 ## What It Does
 
@@ -28,20 +42,26 @@ blocked.
 - gives agents one short remediation path with `reconc next .` and one final
   task gate with `reconc done .`
 
-## Why It Matters
+## Why Teams Use It
 
-Coding agents can write files, run shell commands, continue after stop hooks, and
-drift away from the workflow you thought they were following. Prompt instructions
-alone are not a control layer.
+AI agents are useful because they can edit fast, run commands, and keep moving.
+That is also the risk. Prompt instructions alone are not a control layer, and a
+human review after the fact is often too late.
 
-`reconc` gives teams policy-as-code for agentic development: fail-closed hooks,
-deterministic lockfiles, evidence-based checks, scoped autonomous continuation,
-and audit-friendly decisions that can be reviewed by humans, CI, or another
-agent.
+`reconc` gives teams policy-as-code for agentic development:
 
-## Install
+- enforce test-before-done and read-before-write contracts
+- protect generated files, secrets, docs, specs, architecture boundaries, and
+  release assets
+- make autonomous continuation explicit with `/runloop`, scoped state, stop
+  files, and no-progress guards
+- give every agent the same remediation command instead of ad-hoc recovery
+- leave audit-friendly decisions that can be reviewed by humans, CI, or another
+  agent
 
-Build from source in this repository:
+## Quick Start
+
+Build from source:
 
 ```bash
 go build -o reconc ./cmd/reconc
@@ -50,26 +70,18 @@ go build -o reconc ./cmd/reconc
 
 After installing or placing the binary on `PATH`, use `reconc` directly.
 
-## Use In A Repository
-
-Bootstrap policy and hooks:
+Add Reconc to a target repo:
 
 ```bash
 reconc bootstrap .
 ```
 
-`bootstrap` scaffolds missing repo policy, compiles the local lockfile, installs
-a git pre-commit hook, and wires Claude Code / Codex / Cursor / OpenCode /
-Antigravity hooks when `.claude/`, `.codex/`, `.cursor/`, `.opencode/` or
-`.agents/` already exist.
+`bootstrap` is intentionally minimal: it scaffolds missing repo policy, compiles
+the local lockfile, installs a git pre-commit hook, and wires Claude Code,
+Codex, Cursor, OpenCode, and Antigravity hooks when their repo-local config
+directories already exist.
 
-For the full repo-local governance rollout with the harness, `start.md`, TASK
-files, root scaffold, and repo-local release binaries, have an agent follow
-`harness/template/BOOTSTRAP.md` from the copied Reconc toolkit. The CLI
-`bootstrap` command is intentionally the minimal policy/hook bootstrap, not the
-full workflow-package installer.
-
-Daily loop:
+Then use the daily loop:
 
 ```bash
 reconc status .
@@ -78,13 +90,44 @@ reconc next .
 reconc done .
 ```
 
-For staged changes, use the git-aware check:
+For staged changes:
 
 ```bash
 reconc ci . --staged \
   --read docs/documentation.md \
   --command-success 'go test ./...'
 ```
+
+## Rollout Modes
+
+Minimal policy and hook bootstrap:
+
+```bash
+reconc bootstrap .
+```
+
+Full repo-local governance rollout:
+
+1. Copy the Reconc toolkit into the target repository.
+2. Have an agent read and follow `harness/template/BOOTSTRAP.md`.
+3. Let the bootstrap guide install the harness, `start.md`, TASK files, root
+   scaffold, repo-local binaries, hooks, and validation loop.
+
+That split is deliberate. The CLI bootstrap stays small and predictable. The
+full governance package is installed by an agent following the versioned
+bootstrap guide.
+
+## Supported Agent Runtimes
+
+| Runtime | Integration |
+| --- | --- |
+| Claude Code | repo-local hook wiring |
+| Codex | repo-local hooks with `apply_patch` path extraction |
+| Cursor | pre-write, post-write, prompt, and stop hook coverage |
+| OpenCode | plugin-based chat, tool, permission, and idle handling |
+| Antigravity | invocation, tool, post-tool, and stop hook coverage |
+
+All platforms still use git pre-commit as the hard repository backstop.
 
 ## Minimal Example Policy
 
@@ -131,7 +174,7 @@ Exit codes are stable for humans, agents, and CI:
 The repo ships an agent-facing skill at `skills/reconc/SKILL.md`.
 
 Use it as the reconc operating guide for Codex, OpenCode, Claude Code, and
-other coding agents. The skill gives every agent the same workflow:
+other coding agents. The skill gives every agent the same operating loop:
 
 - check policy health before work
 - collect truthful read, write, command, and claim evidence
@@ -139,50 +182,8 @@ other coding agents. The skill gives every agent the same workflow:
 - run `reconc done .` before claiming completion
 - distinguish native hook enforcement from CLI self-checks
 
-Claude Code, Codex, Cursor, OpenCode and Antigravity have repo-local
-prompt/tool/stop hook wiring;
-Codex also needs `hooks = true` in an active `config.toml` and routes
-`apply_patch` through Reconc by parsing patch headers from
-`tool_input.command`. Cursor Desktop uses `.cursor/hooks.json` with
-`preToolUse` as the pre-write gate, `afterFileEdit`/`afterTabFileEdit` plus
-`postToolUse` as evidence backstops for Cursor write aliases including
-`StrReplace`, `Delete`, and `FileEdit`, `beforeSubmitPrompt` for standalone
-`/runloop`, and `stop` via Cursor-native `followup_message`. Clean Cursor
-hook paths emit explicit `{"continue":true,"permission":"allow"}` JSON because
-Cursor fail-closed hooks treat empty stdout as hook failure. OpenCode uses
-`.opencode/plugins/reconc.js`
-with `chat.message`, `tool.execute.*`, `permission.ask`, and `session.idle`;
-Antigravity uses `.agents/hooks.json` with `PreInvocation`, `PreToolUse`,
-`PostToolUse`, `PostInvocation`, and `Stop`; Reconc stores Antigravity
-PreTool metadata as pending evidence so PostToolUse can record exact
-read/write/command evidence even when the post payload only carries the step
-index/result.
-Runloop activation is prompt-only and requires a standalone `/runloop`
-slash-command flag in sanitized real user prompt text, so quoted transcripts,
-hook prompts, stop feedback, code fences, tool text, and errors cannot start
-it accidentally. Runloop runs are session- and runtime-scoped: a normal
-same-session prompt stops that run, except a same-session `/btw` side-channel
-prompt, which preserves the active run; prompts, interrupts, session ends, or
-stop markers from another agent runtime or session in the same repo must not
-stop the active run.
-`.reconc/runloop/stop` is scoped to the active run and agent runtime and
-clears when a new standalone `/runloop` prompt starts a run. Stop hooks cache
-only the policy report, never the final stop output; `awaiting_continuation`
-alone is not a hard stop reason, so Reconc may re-emit the continuation prompt
-until progress or the no-progress guard decides. Runloop decisions are logged
-to `.reconc/runloop/decisions.jsonl`. Repeated identical policy blocks stay
-blocking but shrink to rule IDs plus the saved report path. All platforms
-still use git pre-commit as the hard repository backstop. PreToolUse evaluates
-only pre-execution write rules; all PostToolUse / after-shell events record
-evidence only and never run repo-wide policy audits. Stop and explicit Reconc
-checks remain the hard enforcement points. The Stop fingerprint uses git status
-with default `--untracked-files=normal`, dirty-path content/index hashes, and a
-per-session report lock instead of full `git diff --binary` output or repeated
-parallel checks. Set `RECONC_STOP_FINGERPRINT_UNTRACKED=all` only when a repo
-needs every untracked path in the Stop cache key.
-When multiple active `require_script` rules call the same `run-workflow-audit`
-runner, Reconc batches them through `--batch-json` in one process while still
-mapping pass/block output back to the original rule IDs.
+Detailed runtime behavior lives in `docs/documentation.md` and
+`docs/architecture.md`.
 
 ## Policy Files
 
