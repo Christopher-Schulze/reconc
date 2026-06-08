@@ -77,14 +77,19 @@ install or build it.
 For a new target repo:
 
 ```bash
-reconc setup .
+reconc bootstrap .
 reconc status .
 ```
 
-`setup` is the human-facing onboarding path. It scaffolds `.reconc.yml` and
+`bootstrap` is the minimal CLI onboarding path. It scaffolds `.reconc.yml` and
 `AGENTS.md` when missing, compiles the lockfile, installs git hooks, and wires
 native agent hooks when supported directories such as `.claude/`, `.codex/`,
 `.cursor/`, `.opencode/`, or `.agents/` already exist.
+
+For the full repo-local governance rollout with copied Reconc toolkit, harness,
+root scaffold, `start.md`, TASK files, and repo-local release binaries, have an
+agent follow `harness/template/BOOTSTRAP.md` from the copied toolkit instead of
+trying to automate it with the minimal CLI bootstrap.
 
 For a lighter/manual start:
 
@@ -170,7 +175,7 @@ reconc status .              # one-line health
 reconc check . ...           # evaluate current evidence
 reconc next .                # next remediation
 reconc done .                # final task gate
-reconc verify .              # setup health, read-only
+reconc verify .              # installation health, read-only
 reconc doctor . --deep       # deeper diagnostics
 reconc ci . --base HEAD~1 --head HEAD
 reconc preset list
@@ -179,7 +184,7 @@ reconc agent-intro           # built-in guide for humans and agents
 ```
 
 `status`, `verify`, and `session-briefing` are diagnostic/read-only. `compile`,
-`setup`, `init`, hook installation, `hook sync-scaffold`, `adopt --apply`,
+`bootstrap`, `init`, hook installation, `hook sync-scaffold`, `adopt --apply`,
 and audit logging can write.
 
 ## Platform Model

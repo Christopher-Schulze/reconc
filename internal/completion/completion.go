@@ -41,15 +41,14 @@ var HookSubcommands = []hookSubcommand{
 // subcommands in a stable order. Keep alphabetical within categories
 // so the generated completion reads naturally.
 var Subcommands = []Subcommand{
-	// setup & inspection
+	// bootstrap & inspection
 	{Name: "adopt", Help: "detect tooling and suggest rules", Flags: []string{"--yaml", "--json", "--apply"}},
 	{Name: "bootstrap", Help: "init + compile + install hooks", Flags: []string{"--preset", "--force", "--skip-git-hook", "--skip-agent-hooks", "--json"}},
 	{Name: "doctor", Help: "inspect discovery + validation", Flags: []string{"--deep", "--json", "--output"}},
 	{Name: "extract", Help: "prose-to-rule heuristic scan", Flags: []string{"--from", "--yaml", "--json"}},
 	{Name: "init", Help: "scaffold .reconc.yml and AGENTS.md", Flags: []string{"--preset", "--force", "--json", "--output"}},
-	{Name: "setup", Help: "friendly alias for bootstrap", Flags: []string{"--preset", "--force", "--skip-git-hook", "--skip-agent-hooks", "--json"}},
 	{Name: "status", Help: "one-line policy health summary", Flags: []string{"--json", "--output"}},
-	{Name: "verify", Help: "end-to-end setup health check", Flags: []string{"--json"}},
+	{Name: "verify", Help: "end-to-end installation health check", Flags: []string{"--json"}},
 	// compile & evaluate
 	{Name: "assert", Help: "evaluate one rule by id", Flags: []string{"--var", "--read", "--write", "--command", "--claim", "--json"}},
 	{Name: "can", Help: "ultra-terse yes/no decision", Flags: []string{"--why", "--json"}},

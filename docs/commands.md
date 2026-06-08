@@ -8,7 +8,7 @@ the exact flag details emitted by the installed binary.
 Use this first:
 
 ```bash
-reconc setup .
+reconc bootstrap .
 reconc status .
 reconc check . --write path/to/file
 reconc next .
@@ -31,7 +31,7 @@ Everything below is the full automation and diagnostic surface.
 
 ---
 
-## Setup & inspection
+## Bootstrap & inspection
 
 ### `reconc init [repo] [--preset NAME] [--force] [--output PATH]`
 Scaffolds `.reconc.yml` + a stub `AGENTS.md` for a fresh repo. Multiple
@@ -42,10 +42,6 @@ to a file while still printing to stdout.
 ### `reconc bootstrap [repo] [--preset NAME] [--force] [--skip-git-hook] [--skip-agent-hooks] [--json]`
 One-shot onboarding: init + compile + install git pre-commit + (if
 `.claude/`, `.codex/`, `.cursor/`, `.opencode/`, or `.agents/` are present) install agent hooks.
-
-### `reconc setup [repo] [--preset NAME] [--force] [--skip-git-hook] [--skip-agent-hooks] [--json]`
-Friendly alias for `bootstrap`. Prefer this in human-facing guides when
-you want the shortest mental model.
 
 ### `reconc adopt [repo] [--yaml | --json | --apply]`
 Detects common tooling (JS/TS, Python, Rust, Go, CI, generated dirs)
@@ -65,7 +61,7 @@ age, and static rule conflicts. Deep mode exits 1 when any check is
 `FAIL`, 0 when all rows are `OK` or `WARN`.
 
 ### `reconc verify [repo] [--json]`
-End-to-end setup health check: PATH, `$RECONC_HOME`, presets, repo
+End-to-end installation health check: PATH, `$RECONC_HOME`, presets, repo
 discovery, read-only policy parsing, lockfile freshness, git
 pre-commit hook, and agent-hook runtime compatibility. Always exits 0;
 WARN rows flag optional misses.

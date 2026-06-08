@@ -73,4 +73,4 @@ fi
 
 log "installed ${target}"
 log "version: $("$target" --version)"
-log "next: reconc --help  or  reconc setup ."
+log "next: reconc --help  or  reconc bootstrap ."

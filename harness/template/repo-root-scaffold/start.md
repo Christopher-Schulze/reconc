@@ -20,7 +20,7 @@ Run these read-only checks from the repo root after reading the files above:
 - `tools/reconc/dist/reconc-0.5.0-darwin-arm64 status .`
 - `tools/reconc/dist/reconc-0.5.0-darwin-arm64 session-briefing .`
 
-Do not run `reconc setup`, `reconc bootstrap`, `reconc init`, hook install, task promotion, claim assertion, or any file-writing command during onboarding.
+Do not run `reconc bootstrap`, `reconc init`, hook install, task promotion, claim assertion, or any file-writing command during onboarding.
 
 ## 3. Report Readiness And Wait
 

@@ -55,13 +55,19 @@ After installing or placing the binary on `PATH`, use `reconc` directly.
 Bootstrap policy and hooks:
 
 ```bash
-reconc setup .
+reconc bootstrap .
 ```
 
-`setup` scaffolds missing repo policy, compiles the local lockfile, installs a
-git pre-commit hook, and wires Claude Code / Codex / Cursor / OpenCode /
+`bootstrap` scaffolds missing repo policy, compiles the local lockfile, installs
+a git pre-commit hook, and wires Claude Code / Codex / Cursor / OpenCode /
 Antigravity hooks when `.claude/`, `.codex/`, `.cursor/`, `.opencode/` or
 `.agents/` already exist.
+
+For the full repo-local governance rollout with the harness, `start.md`, TASK
+files, root scaffold, and repo-local release binaries, have an agent follow
+`harness/template/BOOTSTRAP.md` from the copied Reconc toolkit. The CLI
+`bootstrap` command is intentionally the minimal policy/hook bootstrap, not the
+full workflow-package installer.
 
 Daily loop:
 
@@ -199,8 +205,8 @@ Do not commit generated runtime state:
 ## Documentation
 
 Current product documentation lives in `docs/documentation.md`. That file is
-the source of truth for setup, workflow, architecture, release, security, and
-git-ignore policy.
+the source of truth for installation, workflow, architecture, release, security,
+and git-ignore policy.
 
 - `docs/architecture.md` covers contributor internals and the hook-runtime
   threat model.

@@ -34,7 +34,7 @@ Treat exit 2 as "stop writing and remediate first".
 
 Zero-config path:
 ```bash
-reconc setup .
+reconc bootstrap .
 ```
 One command: scaffolds `.reconc.yml`, compiles, installs git
 pre-commit, and installs Claude Code / Codex hooks when their config
@@ -46,7 +46,7 @@ reconc adopt . --yaml       # preview as YAML
 reconc adopt . --apply      # append to .reconc.yml (idempotent)
 ```
 
-Verify setup health end-to-end:
+Verify installation health end-to-end:
 ```bash
 reconc verify .
 ```

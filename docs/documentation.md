@@ -1,8 +1,8 @@
 # reconc: Repository Control Compiler Documentation
 
 This file is the source of truth for current reconc product documentation.
-RFCs may remain in `docs/` as frozen contracts, but user-facing setup, usage,
-architecture, release, and security facts should be kept here first.
+RFCs may remain in `docs/` as frozen contracts, but user-facing installation,
+usage, architecture, release, and security facts should be kept here first.
 
 ## Contents
 
@@ -75,7 +75,7 @@ completion scripts, generates a man page, and writes `dist/SHA256SUMS`.
 Most users should use this path:
 
 ```bash
-reconc setup .
+reconc bootstrap .
 reconc status .
 reconc check . --write path/to/file
 reconc next .
@@ -127,16 +127,15 @@ supplies that evidence.
 
 Daily:
 
-- `setup` - friendly bootstrap alias for new repos
+- `bootstrap` - minimal init + compile + hook bootstrap for new repos
 - `status` - one-line policy health summary
 - `check` - evaluate runtime evidence against compiled policy
 - `next` - show the next remediation
 - `done` - task-finish gate
 
-Setup and inspection:
+Bootstrap and inspection:
 
 - `init`
-- `bootstrap`
 - `adopt`
 - `extract`
 - `doctor`

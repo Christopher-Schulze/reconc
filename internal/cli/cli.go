@@ -101,8 +101,6 @@ func Run(argv []string, version string, stdout, stderr io.Writer) error {
 		return runPreset(argv[1:], stdout, stderr)
 	case "bootstrap":
 		return runBootstrap(argv[1:], version, stdout, stderr)
-	case "setup":
-		return runBootstrap(argv[1:], version, stdout, stderr)
 	case "fix":
 		return runFix(argv[1:], stdout, stderr)
 	case "next":
@@ -923,7 +921,7 @@ func runExplain(args []string, stdout, stderr io.Writer) error {
 
 // runVerify implements `reconc verify [repo] [--json]` (W12).
 //
-// Checks the full reconc setup health end-to-end:
+// Checks the full reconc installation health end-to-end:
 //   - reconc binary on PATH (we're running, so trivially yes)
 //   - $RECONC_HOME directory exists / is writable
 //   - global policy (if set) is parseable
@@ -943,7 +941,7 @@ func runVerify(args []string, stdout, stderr io.Writer) error {
 			jsonOut = true
 		case "-h", "--help":
 			fmt.Fprintln(stdout, "Usage: reconc verify [repo] [--json]")
-			fmt.Fprintln(stdout, "End-to-end setup health check. Always exits 0.")
+			fmt.Fprintln(stdout, "End-to-end installation health check. Always exits 0.")
 			return nil
 		default:
 			if len(a) > 0 && a[0] == '-' {
@@ -3775,7 +3773,7 @@ func atoi(s string) (int, error) {
 	return n, nil
 }
 
-// runBootstrap is the one-shot repo setup: init -> compile ->
+// runBootstrap is the one-shot minimal repo bootstrap: init -> compile ->
 // (auto-detected) hook install. Produces a "ready to use" repo from
 // a fresh directory in one command.
 //
@@ -3821,11 +3819,10 @@ func runBootstrap(args []string, version string, stdout, stderr io.Writer) error
 			}
 			opts.Presets = append(opts.Presets, val)
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "Usage: reconc setup [repo] [--preset NAME ...] [--force]")
-			fmt.Fprintln(stdout, "       reconc bootstrap [repo] [--preset NAME ...] [--force]")
-			fmt.Fprintln(stdout, "                              [--skip-git-hook] [--skip-agent-hooks] [--json]")
+			fmt.Fprintln(stdout, "Usage: reconc bootstrap [repo] [--preset NAME ...] [--force]")
+			fmt.Fprintln(stdout, "                       [--skip-git-hook] [--skip-agent-hooks] [--json]")
 			fmt.Fprintln(stdout, "")
-			fmt.Fprintln(stdout, "One-shot repo setup: init + compile + platform hook install.")
+			fmt.Fprintln(stdout, "Minimal CLI bootstrap: init + compile + platform hook install.")
 			fmt.Fprintln(stdout, "- git pre-commit is installed when .git/ is present.")
 			fmt.Fprintln(stdout, "- Claude Code / Codex / Cursor / OpenCode / Antigravity hooks are installed when their repo-local config dirs exist.")
 			return nil
@@ -5210,18 +5207,17 @@ Flags:
   --help, -h       Print this help and exit
 
 Daily:
-  setup            friendly bootstrap alias for new repos
   status           one-line policy health summary
   check            evaluate runtime evidence against compiled policy
   next             show the next remediation
   done             task-finish gate: prints done or blocked
 
-Setup & inspection:
+Bootstrap & inspection:
   init             Scaffold .reconc.yml (and stub AGENTS.md) for a fresh repo
   adopt            Scan repo for tooling and suggest matching rules
   extract          Heuristic scan of AGENTS.md/CLAUDE.md prose for rule hints
   doctor           Inspect discovery and validation state
-  verify           End-to-end setup health check ($RECONC_HOME, repo, lockfile, hook)
+  verify           End-to-end installation health check ($RECONC_HOME, repo, lockfile, hook)
 
 Compile & evaluate:
   compile          Compile policy sources into .reconc/policy.lock.json

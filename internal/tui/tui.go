@@ -74,7 +74,7 @@ func Build(repo string) (*View, error) {
 	if !discovery.Discovered {
 		view.LockfileStatus = "not discovered"
 		view.Errors = append(view.Errors, discovery.Warnings...)
-		view.NextAction = "run `reconc setup " + repo + "`"
+		view.NextAction = "run `reconc bootstrap " + repo + "`"
 		return view, nil
 	}
 

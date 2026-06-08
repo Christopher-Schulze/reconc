@@ -2866,20 +2866,6 @@ func TestRunBootstrapJSON(t *testing.T) {
 	}
 }
 
-func TestRunSetupAlias(t *testing.T) {
-	t.Setenv("RECONC_HOME", t.TempDir())
-	repo := t.TempDir()
-	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"setup", repo, "--json"}, "0.5.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("setup alias: %v", err)
-	}
-	for _, path := range []string{".reconc.yml", "AGENTS.md", ".reconc/policy.lock.json"} {
-		if _, err := os.Stat(filepath.Join(repo, path)); err != nil {
-			t.Errorf("setup: %s not created: %v", path, err)
-		}
-	}
-}
-
 func TestRunInitRefuseExistingWithoutForce(t *testing.T) {
 	repo := t.TempDir()
 	// Pre-seed .reconc.yml so init's overwrite-guard fires.

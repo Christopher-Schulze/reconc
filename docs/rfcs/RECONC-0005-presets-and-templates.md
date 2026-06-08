@@ -29,7 +29,7 @@ must fail source loading.
 
 ## Default Bootstrap
 
-`reconc init` and `reconc setup` default to `default` + `agent` unless
+`reconc init` and `reconc bootstrap` default to `default` + `agent` unless
 the caller provides explicit `--preset` values. This keeps the initial
 experience useful without immediately blocking normal development.
 
