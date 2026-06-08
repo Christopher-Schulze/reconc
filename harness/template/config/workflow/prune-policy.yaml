@@ -1,0 +1,24 @@
+# Prune-Policy for Reconc state files.
+#
+# Reconc accumulates per-session state under
+# `~/.reconc/sessions/claude/projects/<sha256(repo)[:16]>/sessions/` plus a
+# matching `reports/` sibling, and append-only events at
+# `<repo>/.reconc/audit.jsonl`. None of these are needed after the session
+# ends; the prune library trims them to a small bounded budget.
+#
+# Retention is COUNT-based for sessions/reports (so the budget is exact,
+# independent of how often a vacation lasts), and SIZE+LINE-bounded for the
+# JSONL log (whichever stricter applies).
+#
+# The auto-trigger lives in tools/reconc/harness/template/audits/audit_cache.go: when the
+# audit cache writes its results JSON it consults the cached LastPruneTS;
+# only when more than `prune_interval_seconds` have elapsed does it call the
+# prune library. Total real-time overhead per prune is single-digit ms.
+#
+# Manual override: `go run ./tools/reconc/harness/template/utils/reconc-prune --force`.
+
+sessions_retention: 25
+reports_retention: 25
+audit_jsonl_max_bytes: 1572864    # 1.5 MB
+audit_jsonl_max_lines: 100
+prune_interval_seconds: 604800     # 7 days

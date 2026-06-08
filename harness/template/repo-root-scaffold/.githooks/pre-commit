@@ -1,0 +1,58 @@
+#!/bin/sh
+# Managed by `reconc hook install git-pre-commit`.
+#
+# Runs `reconc ci --staged` before every commit so that staged write paths
+# are evaluated against the compiled policy lockfile. Exits non-zero on
+# blocking violations, which aborts the commit.
+#
+# To bypass this hook for an individual commit, run `git commit --no-verify`.
+# To remove it, delete this file or run `reconc hook install git-pre-commit
+# --force` to regenerate it.
+
+set -eu
+export RECONC_AUDIT=1
+
+repo_root=$(git rev-parse --show-toplevel)
+
+case "$(uname -s)" in
+    Darwin) reconc_os="darwin" ;;
+    Linux) reconc_os="linux" ;;
+    CYGWIN*|MINGW*|MSYS*) reconc_os="windows" ;;
+    *) reconc_os="" ;;
+esac
+
+case "$(uname -m)" in
+    arm64|aarch64) reconc_arch="arm64" ;;
+    x86_64|amd64) reconc_arch="amd64" ;;
+    *) reconc_arch="" ;;
+esac
+
+if [ -n "$reconc_os" ] && [ -n "$reconc_arch" ]; then
+    reconc_ext=""
+    if [ "$reconc_os" = "windows" ]; then
+        reconc_ext=".exe"
+    fi
+    release_reconc="reconc-0.5.0-$reconc_os-$reconc_arch$reconc_ext"
+    for local_reconc in \
+        "$repo_root/tools/reconc/dist/$release_reconc" \
+        "$repo_root/dist/$release_reconc"
+    do
+        if [ -x "$local_reconc" ]; then
+            exec "$local_reconc" ci "$repo_root" --staged
+        fi
+    done
+fi
+
+for dev_reconc in "$repo_root/.build/bin/reconc" "$repo_root/reconc"; do
+    if [ -x "$dev_reconc" ]; then
+        exec "$dev_reconc" ci "$repo_root" --staged
+    fi
+done
+
+if command -v reconc >/dev/null 2>&1; then
+    exec reconc ci "$repo_root" --staged
+fi
+
+echo "reconc pre-commit hook: no executable Reconc binary found" >&2
+echo "expected repo-local release binary, dev binary, or reconc on PATH" >&2
+exit 2

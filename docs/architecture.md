@@ -53,7 +53,7 @@ internal/
   contextsize/    token-budget guard for auto-loaded session files
   errors/         typed exception hierarchy (PolicySourceError, LockfileError, ...)
   extractor/      prose-to-rule heuristic scanner (regex-only, no LLM)
-  hooks/          git + claude-code + codex generators / installers
+  hooks/          git + claude-code + codex + cursor + opencode + antigravity generators / installers / scaffold sync
   ingest/         discovery + source loading (AGENTS.md, .reconc.yml, presets, globals)
   lockdiff/       structural lockfile comparison (ignore-provenance semantics)
   parser/         YAML-to-Rule validation + template expansion + scope expansion
@@ -81,7 +81,8 @@ internal/
    treating the situation as "pass".
 
 3. **Idempotent writes.** `compile`, `init`, `bootstrap`, `hook
-   install claude-code|codex`, `adopt --apply`, `changelog rotate`,
+   install claude-code|codex|cursor|opencode|antigravity`, `hook sync-scaffold`,
+   `adopt --apply`, `changelog rotate`,
    `audit` append -- every write path can be re-run without
    duplicating state. Where the target file pre-exists, reconc-owned
    entries are replaced; user-owned entries are preserved.
@@ -265,6 +266,42 @@ grep-guard test.
 - Session-state file is HMAC-tagged (lockfile_digest + session_id +
   started_at) so manual tampering is detected and causes reconc to
   discard the state and start a fresh session.
+
+### Degenmode state concurrency
+
+`.reconc/degenmode/state.json` is mutated by every hook event, so
+parallel agent tool calls spawn concurrent `reconc hook runtime`
+processes that race it. Two invariants keep an active run from being
+silently disabled:
+
+- **Atomic writes.** `writeDegenModeStateAtomic` writes a temp file and
+  renames it into place. A bare `os.WriteFile` truncates first; a reader
+  hitting that window decodes an empty file into a disabled zero-value
+  state and persists `enabled=false`, killing the run with no logged
+  `true->false` transition.
+- **Locked read-modify-write.** `mutateDegenModeState` /
+  `withDegenModeLock` serialize load->mutate->save under an exclusive
+  flock (`.reconc/degenmode/state.lock`), mirroring `MutateSessionState`,
+  so concurrent mutators cannot lose each other's updates. The Stop hook's
+  own disable and continuation decisions run through the same locked
+  mutator, so a concurrent reconcile or a user disabling mid-stop cannot be
+  lost. The append-only `decisions.jsonl` log relies on POSIX `O_APPEND`
+  atomicity and stays outside the lock.
+
+### require_command_success redirect tolerance
+
+`matchingCommandResults` matches a recorded command against a
+`require_command_success` rule by normalized equality
+(`normalizeCommandSemantics`: RTK-prefix strip + absolute-repo-path cd
+folding), then additionally strips trailing shell output redirections
+(`stripTrailingRedirects`: ` 2>&1`, ` >file`, ` >>file`, ` 2>err`, ` <in`)
+from the recorded side. So a rule authored as `cd x && go test ./...` is
+satisfied by a recorded `... 2>&1` or `... > out.log`. Pipes are
+deliberately not stripped - a pipeline's exit status is the last stage's,
+so `go test ./... | tail` could record success even when the test failed -
+and extra arguments are not stripped, so the matched command is the same
+command that succeeded. `forbid_command`/`require_command`
+(`matchingCommands`) keep exact normalized matching and are untouched.
 
 ### Resource exhaustion
 

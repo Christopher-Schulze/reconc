@@ -102,6 +102,23 @@ func TestRunScriptTimeout(t *testing.T) {
 	}
 }
 
+func TestRunScriptTimeoutKillsProcessGroup(t *testing.T) {
+	repo := t.TempDir()
+	marker := filepath.Join(repo, "child-survived")
+	writeScript(t, repo, ".reconc/scripts/spawn-child.sh",
+		"#!/bin/sh\n(sleep 3; echo survived > child-survived) &\nwait\n")
+	out, err := RunScript(repo, ".reconc/scripts/spawn-child.sh", nil, ScriptInput{}, 1, 1)
+	if err != nil {
+		t.Fatalf("unexpected error from timeout: %v", err)
+	}
+	if !out.TimedOut {
+		t.Fatal("expected TimedOut=true")
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("timeout must kill child process group; marker exists or stat failed: %v", err)
+	}
+}
+
 func TestRunScriptStdinHasJSONInput(t *testing.T) {
 	repo := t.TempDir()
 	// Script reads stdin and exits 0 if it contains the rule_id.

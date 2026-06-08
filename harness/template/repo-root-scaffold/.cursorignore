@@ -1,0 +1,7 @@
+# Cursor AI access guard. Keep narrow: indexing breadth belongs in .cursorindexingignore.
+_drop/**
+.project/**
+.env
+.env.*
+*.key
+*.pem

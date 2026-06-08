@@ -1,0 +1,71 @@
+# Template-local stack contract. The bootstrap agent rewrites `project` to the
+# target repo name and adjusts this file when the target stack is not Go CLI.
+stack: go-cli
+project: project
+layout: auto
+
+build:
+  enabled: true
+  language: go
+  require_go_mod: true
+  require_cargo_toml: false
+  require_build_runner: true
+  require_build_runner_test: true
+  require_frontend_package: false
+  backend_entrypoints:
+    - project
+  go_mod_tokens:
+    - "module "
+    - "go "
+  cargo_toml_tokens:
+    - "[package]"
+    - "name ="
+  frontend_package_tokens:
+    - '"private": true'
+    - '"packageManager": "bun@'
+    - '"build"'
+    - '"test"'
+    - '"typecheck"'
+  forbidden_frontend_tokens:
+    - '"packageManager": "npm@'
+    - '"packageManager": "yarn@'
+    - '"packageManager": "pnpm@'
+  build_runner_tokens:
+    - 'case "build":'
+    - 'case "test":'
+    - 'case "lint":'
+    - 'case "validate":'
+    - 'case "clean":'
+
+durable_store:
+  enabled: false
+  store_files:
+    - "backend/{project}/internal/store/store.go"
+    - "backend/{project}/internal/store/hash.go"
+    - "backend/{project}/internal/store/store_test.go"
+  migration_go_files:
+    - "db/migrations/migrations.go"
+    - "db/migrations/migrations_test.go"
+  initial_sql: "db/migrations/{project}/core/001_initial.sql"
+  store_go_tokens:
+    - "PRAGMA journal_mode=WAL"
+    - "PRAGMA auto_vacuum=INCREMENTAL"
+    - "migration_run_ledger"
+    - "SnapshotCore"
+    - "IntegrityCheck"
+  initial_sql_tokens:
+    - "CREATE TABLE"
+
+generated_references:
+  enabled: false
+
+architecture_boundaries:
+  required: false
+
+agent_hooks:
+  require_codex_config: true
+  require_codex_hook_file: true
+  require_cursor_hooks: true
+  require_claude_settings: true
+  require_opencode_plugin: true
+  require_antigravity_hooks: true

@@ -1,0 +1,372 @@
+// Package prune trims Reconc state files to a bounded budget.
+//
+// Reconc accumulates four classes of disk state that are never auto-cleaned:
+//   - sessions JSONs at ~/.reconc/sessions/claude/projects/<key>/sessions/
+//   - reports JSONs at  ~/.reconc/sessions/claude/projects/<key>/reports/
+//   - the append-only audit log at <repo>/.reconc/audit.jsonl
+//   - locks at ~/.reconc/sessions/claude/projects/<key>/locks/ (transient)
+//
+// `Run` keeps the newest N session/report files (count-based) and trims the
+// JSONL log to the most recent lines that fit a byte budget AND a line-count
+// budget. Locks older than 24h are also removed (defensive: stale lock from
+// a crashed agent).
+//
+// All operations are idempotent and fail-safe: I/O errors on individual
+// files are recorded in the Report but never abort the whole run, so a
+// transient permission glitch does not break the audit cache that triggers
+// us.
+package prune
+
+import (
+	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Policy holds the retention thresholds. Zero-value defaults to a safe
+// budget so a missing YAML file does not silently disable pruning.
+type Policy struct {
+	SessionsRetention    int   `yaml:"sessions_retention"`
+	ReportsRetention     int   `yaml:"reports_retention"`
+	AuditJsonlMaxBytes   int64 `yaml:"audit_jsonl_max_bytes"`
+	AuditJsonlMaxLines   int   `yaml:"audit_jsonl_max_lines"`
+	PruneIntervalSeconds int64 `yaml:"prune_interval_seconds"`
+}
+
+// DefaultPolicy is the failure-safe fallback when prune-policy.yaml is
+// missing or unreadable: 25 sessions/reports, 1.5 MB or 100 lines for the
+// audit log, prune at most once per week.
+func DefaultPolicy() Policy {
+	return Policy{
+		SessionsRetention:    25,
+		ReportsRetention:     25,
+		AuditJsonlMaxBytes:   1_572_864,
+		AuditJsonlMaxLines:   100,
+		PruneIntervalSeconds: 604_800,
+	}
+}
+
+// LoadPolicy reads the YAML at path. Missing / malformed / partial content
+// is tolerated by merging with DefaultPolicy so the caller always gets a
+// fully-populated, validated Policy.
+func LoadPolicy(path string) (Policy, error) {
+	policy := DefaultPolicy()
+	bytes, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return policy, nil
+		}
+		return policy, fmt.Errorf("read %s: %w", path, err)
+	}
+	var loaded Policy
+	if err := yaml.Unmarshal(bytes, &loaded); err != nil {
+		return policy, fmt.Errorf("parse %s: %w", path, err)
+	}
+	if loaded.SessionsRetention > 0 {
+		policy.SessionsRetention = loaded.SessionsRetention
+	}
+	if loaded.ReportsRetention > 0 {
+		policy.ReportsRetention = loaded.ReportsRetention
+	}
+	if loaded.AuditJsonlMaxBytes > 0 {
+		policy.AuditJsonlMaxBytes = loaded.AuditJsonlMaxBytes
+	}
+	if loaded.AuditJsonlMaxLines > 0 {
+		policy.AuditJsonlMaxLines = loaded.AuditJsonlMaxLines
+	}
+	if loaded.PruneIntervalSeconds > 0 {
+		policy.PruneIntervalSeconds = loaded.PruneIntervalSeconds
+	}
+	return policy, nil
+}
+
+// Report describes what one Run did.
+type Report struct {
+	SessionsDeleted   int
+	SessionsKept      int
+	ReportsDeleted    int
+	ReportsKept       int
+	LocksDeleted      int
+	JsonlLinesDropped int
+	JsonlBytesFreed   int64
+	Errors            []string
+}
+
+// Options configures a Run. RepoRoot is used to locate audit.jsonl and to
+// derive the project key for ~/.reconc/sessions/. ReconcHome overrides the
+// default ~/.reconc base (mirrors the agentsession layer's StateRootEnv).
+type Options struct {
+	RepoRoot   string
+	ReconcHome string
+	Policy     Policy
+	DryRun     bool
+}
+
+// Run executes the prune. Idempotent: a second call with the same inputs
+// returns a Report with all zero counts (nothing to delete).
+func Run(opts Options) Report {
+	report := Report{}
+	policy := opts.Policy
+	stateRoot := resolveStateRoot(opts.ReconcHome)
+	if stateRoot != "" {
+		projectDir := filepath.Join(stateRoot, "projects", projectKey(opts.RepoRoot))
+		report.SessionsKept, report.SessionsDeleted = pruneDir(filepath.Join(projectDir, "sessions"), policy.SessionsRetention, opts.DryRun, &report)
+		report.ReportsKept, report.ReportsDeleted = pruneDir(filepath.Join(projectDir, "reports"), policy.ReportsRetention, opts.DryRun, &report)
+		report.LocksDeleted = pruneStaleLocks(filepath.Join(projectDir, "locks"), 24*time.Hour, opts.DryRun, &report)
+	}
+	jsonlPath := filepath.Join(opts.RepoRoot, ".reconc", "audit.jsonl")
+	dropped, freed := trimJsonl(jsonlPath, policy.AuditJsonlMaxBytes, policy.AuditJsonlMaxLines, opts.DryRun, &report)
+	report.JsonlLinesDropped = dropped
+	report.JsonlBytesFreed = freed
+	return report
+}
+
+func resolveStateRoot(reconcHome string) string {
+	if reconcHome != "" {
+		return filepath.Join(reconcHome, "sessions", "claude")
+	}
+	if env := os.Getenv("RECONC_CLAUDE_STATE_DIR"); env != "" {
+		return env
+	}
+	if env := os.Getenv("RECONC_HOME"); env != "" {
+		return filepath.Join(env, "sessions", "claude")
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".reconc", "sessions", "claude")
+	}
+	return ""
+}
+
+// projectKey replicates Reconc's hash16(repoRoot) → first 16 hex chars of
+// SHA-256 so we hit the exact directory the agentsession runtime writes to.
+func projectKey(repoRoot string) string {
+	sum := sha256.Sum256([]byte(repoRoot))
+	return hex.EncodeToString(sum[:])[:16]
+}
+
+// pruneDir keeps the newest `keep` regular files in dir (by mtime), removes
+// the rest. Returns (kept, deleted) counts. Missing dir → (0, 0), no error.
+func pruneDir(dir string, keep int, dryRun bool, report *Report) (int, int) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return 0, 0
+		}
+		report.Errors = append(report.Errors, fmt.Sprintf("read %s: %v", dir, err))
+		return 0, 0
+	}
+	type fileInfo struct {
+		name  string
+		mtime time.Time
+	}
+	var files []fileInfo
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("stat %s/%s: %v", dir, entry.Name(), err))
+			continue
+		}
+		files = append(files, fileInfo{name: entry.Name(), mtime: info.ModTime()})
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].mtime.After(files[j].mtime) })
+	if keep < 0 {
+		keep = 0
+	}
+	if len(files) <= keep {
+		return len(files), 0
+	}
+	deleted := 0
+	for _, f := range files[keep:] {
+		path := filepath.Join(dir, f.name)
+		if dryRun {
+			deleted++
+			continue
+		}
+		if err := os.Remove(path); err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("remove %s: %v", path, err))
+			continue
+		}
+		deleted++
+	}
+	return keep, deleted
+}
+
+// pruneStaleLocks removes lock files older than maxAge so a crashed agent
+// does not block forever.
+func pruneStaleLocks(dir string, maxAge time.Duration, dryRun bool, report *Report) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	cutoff := time.Now().Add(-maxAge)
+	deleted := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		if !info.ModTime().Before(cutoff) {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		if dryRun {
+			deleted++
+			continue
+		}
+		if err := os.Remove(path); err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("remove stale lock %s: %v", path, err))
+			continue
+		}
+		deleted++
+	}
+	return deleted
+}
+
+// trimJsonl rewrites path to keep the last lines that fit within both
+// maxBytes and maxLines. Whichever cap binds first wins. Lines longer than
+// maxBytes are dropped (the audit log occasionally embeds a multi-megabyte
+// commit diff which is useless for debugging anyway). Returns
+// (linesDropped, bytesFreed).
+func trimJsonl(path string, maxBytes int64, maxLines int, dryRun bool, report *Report) (int, int64) {
+	stat, err := os.Stat(path)
+	if err != nil {
+		return 0, 0
+	}
+	original := stat.Size()
+	if original <= maxBytes && countLinesQuick(path) <= maxLines {
+		return 0, 0
+	}
+	tail, dropped, err := tailLinesWithinBudget(path, maxBytes, maxLines)
+	if err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("trim %s: %v", path, err))
+		return 0, 0
+	}
+	if dryRun {
+		return dropped, original - int64(len(tail))
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".audit-jsonl-*")
+	if err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("create tmp for %s: %v", path, err))
+		return 0, 0
+	}
+	if _, err := tmp.Write(tail); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		report.Errors = append(report.Errors, fmt.Sprintf("write tmp for %s: %v", path, err))
+		return 0, 0
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmp.Name())
+		report.Errors = append(report.Errors, fmt.Sprintf("close tmp for %s: %v", path, err))
+		return 0, 0
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		os.Remove(tmp.Name())
+		report.Errors = append(report.Errors, fmt.Sprintf("rename %s: %v", path, err))
+		return 0, 0
+	}
+	return dropped, original - int64(len(tail))
+}
+
+// tailLinesWithinBudget returns the trailing slice of path that fits both
+// maxBytes and maxLines, plus the number of leading lines it dropped.
+// Lines that individually exceed maxBytes are skipped (treated as garbage).
+func tailLinesWithinBudget(path string, maxBytes int64, maxLines int) ([]byte, int, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), 64*1024*1024)
+	var all [][]byte
+	totalLines := 0
+	for scanner.Scan() {
+		totalLines++
+		line := append([]byte{}, scanner.Bytes()...)
+		if int64(len(line))+1 > maxBytes {
+			continue
+		}
+		all = append(all, line)
+	}
+	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
+		return nil, 0, err
+	}
+	keep := all
+	if maxLines > 0 && len(keep) > maxLines {
+		keep = keep[len(keep)-maxLines:]
+	}
+	for {
+		var size int64
+		for _, l := range keep {
+			size += int64(len(l)) + 1
+		}
+		if size <= maxBytes || len(keep) == 0 {
+			break
+		}
+		keep = keep[1:]
+	}
+	out := make([]byte, 0)
+	for _, l := range keep {
+		out = append(out, l...)
+		out = append(out, '\n')
+	}
+	return out, totalLines - len(keep), nil
+}
+
+func countLinesQuick(path string) int {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), 64*1024*1024)
+	count := 0
+	for scanner.Scan() {
+		count++
+	}
+	return count
+}
+
+// PolicyPathFromRepo returns the canonical YAML path inside repoRoot.
+func PolicyPathFromRepo(repoRoot string) string {
+	harnessRoot := filepath.Join(repoRoot, "tools", "reconc", "harness")
+	entries, err := os.ReadDir(harnessRoot)
+	if err == nil {
+		var firstPolicy string
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			candidate := filepath.Join(harnessRoot, entry.Name(), "config", "workflow", "prune-policy.yaml")
+			if _, err := os.Stat(candidate); err == nil {
+				if entry.Name() == "template" {
+					return candidate
+				}
+				if firstPolicy == "" {
+					firstPolicy = candidate
+				}
+			}
+		}
+		if firstPolicy != "" {
+			return firstPolicy
+		}
+	}
+	return filepath.Join(harnessRoot, "template", "config", "workflow", "prune-policy.yaml")
+}

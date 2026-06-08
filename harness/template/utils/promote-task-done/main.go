@@ -1,0 +1,514 @@
+// Package main implements promote-task-done: an atomic mutator that takes a
+// finished TASK from docs/tasks/<NAME>.md to docs/tasks/done/<NAME>.md while
+// keeping docs/tasks.md, the Current header and the next executable TASK in
+// sync. All validation is delegated to
+// project/tools/reconc/harness/template/audits/lib/donecheck so the tool and the workflow
+// audit cannot drift apart.
+package main
+
+import (
+	"flag"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"syscall"
+
+	"reconc-harness/template/audits/lib/donecheck"
+)
+
+const (
+	tasksRel        = "docs/tasks.md"
+	stateActive     = "Active"
+	stateQueued     = "Queued"
+	stateDone       = "Done"
+	currentPrefix   = "Current: "
+	openIcon        = " "
+	doneIcon        = "x"
+	subTaskOpen     = "- [ ] "
+	subTaskActive   = "- [~] "
+	stateLine       = "State: "
+	dependsOnLabel  = "Depends On"
+	headerStatus    = "## Status"
+	headerSubTasks  = "## Sub-Tasks"
+	headerScheduled = "## Scheduling"
+	lockRel         = ".reconc/promote-task-done.lock"
+	auditRunner     = "tools/reconc/harness/template/audits/run-workflow-audit"
+	schemaRel       = "tools/reconc/harness/template/config/workflow/task-schema.yaml"
+)
+
+// loadedSchema is the workflow Schema used by every donecheck call. Loaded
+// once at startup from task-schema.yaml; falls back to DefaultSchema() if the
+// YAML cannot be read so the tool fails visibly rather than silently.
+var loadedSchema = donecheck.DefaultSchema()
+
+var (
+	rowRe = regexp.MustCompile(
+		`^- \[([ x])\] (TASK-[0-9]{4}-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*) - (.+) -> (tasks(?:/done)?/TASK-[0-9]{4}-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*\.md)$`,
+	)
+	currentRe = regexp.MustCompile(
+		`^Current: (TASK-[0-9]{4}-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*) -> (tasks(?:/done)?/TASK-[0-9]{4}-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*\.md)$`,
+	)
+)
+
+type taskRow struct {
+	icon        string
+	name        string
+	description string
+	target      string
+	line        int
+}
+
+type taskIndex struct {
+	currentName   string
+	currentTarget string
+	currentLine   int
+	rows          []taskRow
+	rawLines      []string
+}
+
+type detailInfo struct {
+	state        string
+	dependencies []string
+}
+
+type options struct {
+	dryRun            bool
+	verify            bool
+	allowEmptyCurrent bool
+	taskName          string
+}
+
+func main() {
+	dryRun := flag.Bool("dry-run", false, "validate and print plan without writing changes")
+	verify := flag.Bool("verify", false, "after a successful mutation run `run-workflow-audit task-state`; rollback on failure")
+	allowEmpty := flag.Bool("allow-empty-current", false, "permit promotion when no next executable TASK exists; otherwise refuse to leave Current pointing at a checked row")
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr,
+			"usage: promote-task-done [--dry-run] [--verify] [--allow-empty-current] [TASK-NNNN-Name]\n\n"+
+				"Atomically promotes a TASK from docs/tasks/ to docs/tasks/done/.\n"+
+				"Without an explicit TASK name the Current TASK is promoted.\n"+
+				"Validation is shared with run-workflow-audit via the donecheck library.\n")
+	}
+	flag.Parse()
+	root, err := os.Getwd()
+	if err != nil {
+		fail("get cwd: %v", err)
+	}
+	if schema, schemaErr := donecheck.LoadSchema(filepath.Join(root, filepath.FromSlash(schemaRel))); schemaErr == nil {
+		loadedSchema = schema
+	}
+	opts := options{
+		dryRun:            *dryRun,
+		verify:            *verify,
+		allowEmptyCurrent: *allowEmpty,
+		taskName:          flag.Arg(0),
+	}
+	if err := runWithLock(root, opts); err != nil {
+		fail("%v", err)
+	}
+}
+
+func runWithLock(root string, opts options) error {
+	if opts.dryRun {
+		return promote(root, opts)
+	}
+	lockPath := filepath.Join(root, filepath.FromSlash(lockRel))
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
+		return fmt.Errorf("create lock dir: %w", err)
+	}
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return fmt.Errorf("open lock file: %w", err)
+	}
+	defer lockFile.Close()
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		return fmt.Errorf("another promote-task-done holds %s; refusing to race", lockRel)
+	}
+	defer func() {
+		_ = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+	}()
+	return promote(root, opts)
+}
+
+func promote(root string, opts options) error {
+	tasksPath := filepath.Join(root, filepath.FromSlash(tasksRel))
+	content, err := os.ReadFile(tasksPath)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", tasksRel, err)
+	}
+	index, err := parseTasks(string(content))
+	if err != nil {
+		return err
+	}
+	taskName := opts.taskName
+	if taskName == "" {
+		taskName = index.currentName
+	}
+	if taskName == "" {
+		return fmt.Errorf("no TASK name given and tasks.md has no Current header")
+	}
+	if opts.taskName != "" && opts.taskName != index.currentName {
+		return fmt.Errorf("TASK %s is not the Current TASK (Current=%s); promote-task-done only handles the active TASK to keep state transitions atomic", opts.taskName, index.currentName)
+	}
+	row, ok := findRow(index, taskName)
+	if !ok {
+		return fmt.Errorf("tasks.md has no row for %s", taskName)
+	}
+	if row.icon != openIcon {
+		return fmt.Errorf("tasks.md row for %s is already checked", taskName)
+	}
+	if !strings.HasPrefix(row.target, "tasks/") || strings.HasPrefix(row.target, "tasks/done/") {
+		return fmt.Errorf("tasks.md row for %s must point to tasks/<name>.md before promotion, got %s", taskName, row.target)
+	}
+	srcRel := filepath.ToSlash(filepath.Join("docs", row.target))
+	dstRel := filepath.ToSlash(filepath.Join("docs", "tasks", "done", filepath.Base(row.target)))
+	srcAbs := filepath.Join(root, filepath.FromSlash(srcRel))
+	dstAbs := filepath.Join(root, filepath.FromSlash(dstRel))
+	if !exists(srcAbs) {
+		return fmt.Errorf("detail file %s does not exist", srcRel)
+	}
+	if exists(dstAbs) {
+		return fmt.Errorf("destination %s already exists; resolve the duplicate before promoting", dstRel)
+	}
+	detailBytes, err := os.ReadFile(srcAbs)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", srcRel, err)
+	}
+	if errs := donecheck.CheckDonePromotion(string(detailBytes), taskName, loadedSchema); len(errs) > 0 {
+		return fmt.Errorf("%s is not promotable:\n  - %s", srcRel, strings.Join(errs, "\n  - "))
+	}
+	doneSet := collectDoneSet(index.rows)
+	doneSet[taskName] = true
+	nextName, nextRow, nextInfo := pickNextExecutable(index, root, doneSet, taskName)
+	if nextName == "" && !opts.allowEmptyCurrent {
+		return fmt.Errorf("no next executable [ ] TASK after promoting %s; refusing to leave Current pointing at a checked row. Either:\n  - add a new TASK row + detail file, or\n  - report zero-finding Terminal Gate status from workflow-complete-loop.md, or\n  - re-run with --allow-empty-current to accept the resulting audit failure", taskName)
+	}
+	newTasks := computeTasksMd(index, taskName, nextName)
+	plan := buildPlan(srcRel, dstRel, taskName, nextName, nextInfo.state)
+	if opts.dryRun {
+		fmt.Print(plan)
+		return nil
+	}
+	rollback, err := applyChanges(root, tasksPath, newTasks, srcAbs, dstAbs, nextName, nextRow)
+	if err != nil {
+		return err
+	}
+	if opts.verify {
+		if vErr := runAuditTaskState(root); vErr != nil {
+			rollback()
+			return fmt.Errorf("post-mutation verify failed; rolled back: %w", vErr)
+		}
+	}
+	fmt.Print(plan)
+	fmt.Printf("promoted %s -> %s\n", srcRel, dstRel)
+	if nextName == "" {
+		fmt.Println("no executable [ ] TASK remains; report zero-finding Terminal Gate status from workflow-complete-loop.md instead of leaving an empty board")
+	} else {
+		fmt.Printf("Current advanced to %s\n", nextName)
+	}
+	if opts.verify {
+		fmt.Println("verify: run-workflow-audit task-state passed")
+	}
+	return nil
+}
+
+func parseTasks(content string) (taskIndex, error) {
+	var index taskIndex
+	index.rawLines = strings.Split(content, "\n")
+	seenCurrent := false
+	for i, line := range index.rawLines {
+		lineNo := i + 1
+		if strings.HasPrefix(line, currentPrefix) {
+			if seenCurrent {
+				return index, fmt.Errorf("tasks.md line %d: duplicate Current header", lineNo)
+			}
+			seenCurrent = true
+			match := currentRe.FindStringSubmatch(line)
+			if match == nil {
+				return index, fmt.Errorf("tasks.md line %d: invalid Current header", lineNo)
+			}
+			index.currentName = match[1]
+			index.currentTarget = match[2]
+			index.currentLine = lineNo
+			continue
+		}
+		match := rowRe.FindStringSubmatch(line)
+		if match == nil {
+			continue
+		}
+		index.rows = append(index.rows, taskRow{icon: match[1], name: match[2], description: match[3], target: match[4], line: lineNo})
+	}
+	if !seenCurrent {
+		return index, fmt.Errorf("tasks.md missing Current header")
+	}
+	if len(index.rows) == 0 {
+		return index, fmt.Errorf("tasks.md has no TASK rows")
+	}
+	return index, nil
+}
+
+func findRow(index taskIndex, name string) (taskRow, bool) {
+	for _, row := range index.rows {
+		if row.name == name {
+			return row, true
+		}
+	}
+	return taskRow{}, false
+}
+
+func collectDoneSet(rows []taskRow) map[string]bool {
+	done := map[string]bool{}
+	for _, row := range rows {
+		if row.icon == doneIcon {
+			done[row.name] = true
+		}
+	}
+	return done
+}
+
+// pickNextExecutable returns the first non-done, non-promoting TASK whose
+// detail State is Active|Queued and whose dependencies are all in doneSet.
+// On a hit it returns (name, row, info). On a miss it returns ("", taskRow{},
+// detailInfo{}) -- callers gate on the empty name to avoid relying on the
+// info value, so no pointer is exposed and no nil-deref class exists.
+func pickNextExecutable(index taskIndex, root string, doneSet map[string]bool, promoting string) (string, taskRow, detailInfo) {
+	for _, row := range index.rows {
+		if row.icon == doneIcon || row.name == promoting {
+			continue
+		}
+		info, err := readDetailInfo(root, row.target)
+		if err != nil {
+			continue
+		}
+		if info.state != stateActive && info.state != stateQueued {
+			continue
+		}
+		ready := true
+		for _, dep := range info.dependencies {
+			if !doneSet[dep] {
+				ready = false
+				break
+			}
+		}
+		if !ready {
+			continue
+		}
+		return row.name, row, info
+	}
+	return "", taskRow{}, detailInfo{}
+}
+
+func readDetailInfo(root string, target string) (detailInfo, error) {
+	path := filepath.Join(root, "docs", filepath.FromSlash(target))
+	bytes, err := os.ReadFile(path)
+	if err != nil {
+		return detailInfo{}, err
+	}
+	content := string(bytes)
+	state := donecheck.ParseState(content)
+	deps := parseDependencies(donecheck.ExtractSection(content, headerScheduled))
+	return detailInfo{state: state, dependencies: deps}, nil
+}
+
+func parseDependencies(section string) []string {
+	fields := donecheck.ParseBulletFields(section)
+	raw := strings.TrimSpace(fields[dependsOnLabel])
+	if raw == "" || raw == "none" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		value := strings.TrimSpace(part)
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func computeTasksMd(index taskIndex, promoting string, nextName string) string {
+	lines := append([]string(nil), index.rawLines...)
+	for _, row := range index.rows {
+		if row.name != promoting {
+			continue
+		}
+		newTarget := "tasks/done/" + filepath.Base(row.target)
+		lines[row.line-1] = fmt.Sprintf("- [x] %s - %s -> %s", row.name, row.description, newTarget)
+	}
+	if nextName != "" {
+		var nextRow taskRow
+		for _, row := range index.rows {
+			if row.name == nextName {
+				nextRow = row
+				break
+			}
+		}
+		lines[index.currentLine-1] = fmt.Sprintf("Current: %s -> %s", nextRow.name, nextRow.target)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func mutateNextDetail(content string) (string, error) {
+	lines := strings.Split(content, "\n")
+	statusStart := -1
+	statusEnd := len(lines)
+	for i, line := range lines {
+		if strings.TrimSpace(line) == headerStatus {
+			statusStart = i + 1
+			continue
+		}
+		if statusStart >= 0 && i > statusStart && strings.HasPrefix(line, "## ") {
+			statusEnd = i
+			break
+		}
+	}
+	if statusStart < 0 {
+		return "", fmt.Errorf("next detail file missing %s", headerStatus)
+	}
+	stateChanged := false
+	for i := statusStart; i < statusEnd; i++ {
+		trimmed := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(trimmed, stateLine) {
+			lines[i] = stateLine + stateActive
+			stateChanged = true
+			break
+		}
+	}
+	if !stateChanged {
+		return "", fmt.Errorf("next detail file missing 'State:' line")
+	}
+	subStart := -1
+	subEnd := len(lines)
+	for i, line := range lines {
+		if strings.TrimSpace(line) == headerSubTasks {
+			subStart = i + 1
+			continue
+		}
+		if subStart >= 0 && i > subStart && strings.HasPrefix(line, "## ") {
+			subEnd = i
+			break
+		}
+	}
+	if subStart < 0 {
+		return "", fmt.Errorf("next detail file missing %s", headerSubTasks)
+	}
+	for i := subStart; i < subEnd; i++ {
+		if strings.HasPrefix(lines[i], subTaskActive) {
+			return strings.Join(lines, "\n"), nil
+		}
+	}
+	for i := subStart; i < subEnd; i++ {
+		if strings.HasPrefix(lines[i], subTaskOpen) {
+			lines[i] = subTaskActive + strings.TrimPrefix(lines[i], subTaskOpen)
+			return strings.Join(lines, "\n"), nil
+		}
+	}
+	return "", fmt.Errorf("next detail file has no [ ] Sub-Task to mark active")
+}
+
+type rollbackFunc func()
+
+func applyChanges(root string, tasksPath string, newTasks string, srcAbs string, dstAbs string, nextName string, nextRow taskRow) (rollbackFunc, error) {
+	var nextPath string
+	var newNextContent string
+	var origNextContent []byte
+	if nextName != "" {
+		nextPath = filepath.Join(root, "docs", filepath.FromSlash(nextRow.target))
+		original, err := os.ReadFile(nextPath)
+		if err != nil {
+			return nil, fmt.Errorf("read next detail %s: %w", nextRow.target, err)
+		}
+		origNextContent = original
+		mutated, err := mutateNextDetail(string(original))
+		if err != nil {
+			return nil, fmt.Errorf("mutate next detail %s: %w", nextRow.target, err)
+		}
+		newNextContent = mutated
+	}
+	origTasks, err := os.ReadFile(tasksPath)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", tasksRel, err)
+	}
+	if err := writeAtomic(tasksPath, []byte(newTasks)); err != nil {
+		return nil, fmt.Errorf("write %s: %w", tasksRel, err)
+	}
+	if err := os.Rename(srcAbs, dstAbs); err != nil {
+		_ = writeAtomic(tasksPath, origTasks)
+		return nil, fmt.Errorf("move detail file: %w", err)
+	}
+	if nextName != "" {
+		if err := writeAtomic(nextPath, []byte(newNextContent)); err != nil {
+			_ = os.Rename(dstAbs, srcAbs)
+			_ = writeAtomic(tasksPath, origTasks)
+			return nil, fmt.Errorf("write next detail %s: %w", nextRow.target, err)
+		}
+	}
+	rollback := func() {
+		if nextName != "" {
+			_ = writeAtomic(nextPath, origNextContent)
+		}
+		_ = os.Rename(dstAbs, srcAbs)
+		_ = writeAtomic(tasksPath, origTasks)
+	}
+	return rollback, nil
+}
+
+func writeAtomic(path string, content []byte) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".promote-task-done-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(content); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	return os.Rename(tmpName, path)
+}
+
+func buildPlan(srcRel string, dstRel string, promoting string, nextName string, nextState string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "promote-task-done plan:\n")
+	fmt.Fprintf(&b, "  move:    %s -> %s\n", srcRel, dstRel)
+	fmt.Fprintf(&b, "  row:     [ ] %s -> [x] %s (target tasks/ -> tasks/done/)\n", promoting, promoting)
+	if nextName == "" {
+		fmt.Fprintf(&b, "  next:    none executable; zero-finding Terminal Gate path\n")
+	} else {
+		fmt.Fprintf(&b, "  current: -> %s\n", nextName)
+		fmt.Fprintf(&b, "  state:   %s State:%s -> Active, first [ ] sub-task -> [~]\n", nextName, nextState)
+	}
+	return b.String()
+}
+
+func runAuditTaskState(root string) error {
+	cmd := exec.Command(filepath.Join(root, filepath.FromSlash(auditRunner)), "task-state")
+	cmd.Dir = root
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		trimmed := strings.TrimSpace(string(output))
+		if trimmed == "" {
+			return fmt.Errorf("audit task-state failed: %w", err)
+		}
+		return fmt.Errorf("audit task-state failed:\n%s", trimmed)
+	}
+	return nil
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func fail(format string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, "promote-task-done: "+format+"\n", args...)
+	os.Exit(2)
+}

@@ -135,15 +135,19 @@ Claims can also be supplied via an events file, stdin JSON, or by the Claude Cod
 - **Codex**: Bash-centered hook integration. Command rules can be
   enforced by hooks, but file-level rules still require the agent to
   self-check with `reconc check` before edits.
-- **Generic / other agents (OpenCode, KiloCode, Aider, ...)**: invoke
-  the CLI directly. `reconc can`, `reconc check --terse`, `reconc
-  next`, and `reconc done` are token-optimised for this path.
+- **OpenCode**: use `reconc hook install opencode .` for the
+  project-local `.opencode/plugins/reconc.js`; still run explicit CLI
+  checks for any gap the platform cannot report.
+- **Generic / other agents (KiloCode, Aider, ...)**: invoke the CLI
+  directly. `reconc can`, `reconc check --terse`, `reconc next`, and
+  `reconc done` are token-optimised for this path.
 - **Git**: `reconc hook install git-pre-commit .` drops a pre-commit
   hook that runs `reconc ci --staged` as a hard commit-time backstop.
 
-Do not claim Claude-level file enforcement on Codex or generic agents.
-For those platforms, explicit CLI checks plus the git hook are the
-deterministic safety net.
+Do not claim Claude-level file enforcement on Codex, OpenCode, or
+generic agents. For those platforms, native hooks where available,
+explicit CLI checks, and the git hook together are the deterministic
+safety net.
 
 ## Output Modes (Token Efficiency)
 

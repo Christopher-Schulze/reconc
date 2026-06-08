@@ -41,7 +41,7 @@ to a file while still printing to stdout.
 
 ### `reconc bootstrap [repo] [--preset NAME] [--force] [--skip-git-hook] [--skip-agent-hooks] [--json]`
 One-shot onboarding: init + compile + install git pre-commit + (if
-`.claude/` or `.codex/` are present) install agent hooks.
+`.claude/`, `.codex/`, `.cursor/`, `.opencode/`, or `.agents/` are present) install agent hooks.
 
 ### `reconc setup [repo] [--preset NAME] [--force] [--skip-git-hook] [--skip-agent-hooks] [--json]`
 Friendly alias for `bootstrap`. Prefer this in human-facing guides when
@@ -71,7 +71,7 @@ pre-commit hook, and agent-hook runtime compatibility. Always exits 0;
 WARN rows flag optional misses.
 
 ### `reconc status [repo] [--json] [--output PATH]`
-One-line policy health summary. Useful as a session-start ping.
+One-line policy health summary. Auto-compiles missing/stale lockfiles when policy sources are valid; malformed policy, schema drift, migration drift and repo-root mismatch still surface as issues. Useful as a session-start ping.
 
 ### `reconc done [repo] [--window N] [--require-clean-git] [--json]`
 Terse task-finish gate. Prints `done` when the lockfile is present,
@@ -91,10 +91,12 @@ Produces `.reconc/policy.lock.json` from sources. With
 The core policy evaluator. Exit 0 = pass/warn, 2 = block, 1 = error.
 `--terse` emits ~50-token JSON optimised for hook-loop calls.
 `--auto-claim` detects CI environment and auto-asserts `ci-green`.
+Missing/stale lockfiles are auto-compiled before evaluation when policy sources are valid.
 
 ### `reconc ci [repo] (--staged | --base REF [--head REF]) [--read PATH] [--command CMD] [--claim NAME] [--auto-claim] [--json] [--output PATH]`
 Git-aware check. Derives write paths from the working-tree index or a
 `base..head` range instead of explicit `--write` flags.
+Missing/stale lockfiles are auto-compiled before evaluation when policy sources are valid.
 
 ### `reconc assert <rule-id> [repo] [--var K=V] [--read PATH] [--write PATH] [--command CMD] [--claim NAME] [--json]`
 Evaluate exactly one rule, ignoring the rest of the lockfile. Useful
@@ -151,22 +153,32 @@ Rule shape templates (`tests-follow-source`, `docs-follow-code`,
 `no-generated-writes`, `ci-green-before-merge`). User overrides in
 `$RECONC_HOME/templates/*.yml`.
 
-### `reconc hook generate <git-pre-commit|claude-code|codex> [--json] [--output PATH]`
+### `reconc hook generate <git-pre-commit|claude-code|codex|cursor|opencode|antigravity> [--json] [--output PATH]`
 Emit the hook artefact content without writing to disk.
 
-### `reconc hook install <git-pre-commit|claude-code|codex> [repo] [--force] [--json] [--output PATH]`
-Write the hook into the repo. Git pre-commit is a fresh file; Claude
-Code / Codex JSON configs are merged non-destructively (idempotent:
-reconc-owned entries are identified by the `reconc hook runtime`
-command prefix and replaced wholesale on re-install).
+### `reconc hook install <git-pre-commit|claude-code|codex|cursor|opencode|antigravity> [repo] [--force] [--json] [--output PATH]`
+Write the hook into the repo. Git pre-commit is a fresh `.git/hooks`
+file; Claude Code / Codex JSON configs are merged non-destructively;
+Cursor writes `.cursor/hooks.json`; OpenCode writes
+`.opencode/plugins/reconc.js`; Antigravity merges the top-level
+`reconc` hook definition into `.agents/hooks.json`, preserving
+non-reconc hook groups unless `--force` is passed.
+
+### `reconc hook sync-scaffold <repo-root-scaffold> [--json]`
+Regenerate source-controlled hook artifacts inside a template
+`repo-root-scaffold`: `.githooks/pre-commit`, `.codex/hooks.json`,
+`.cursor/hooks.json`, `.agents/hooks.json`, `.claude/settings.json`,
+and `.opencode/plugins/reconc.js`. This keeps scaffolded repos on the
+same generator truth as `reconc hook install`; do not copy these files
+from a source-specific harness.
 
 ### `reconc hook claim <repo> <claim-name> [--json] [--output PATH]`
 Assert a workflow claim (e.g. `ci-green`). Written to the session
-state consulted by later `check`/`ci` calls.
+state consulted by later hook-runtime checks and `ci` calls.
 
 ### `reconc hook runtime <event> <repo>`
-Agent-platform event dispatcher. Called from Claude Code / Codex hook
-configs, not by users directly.
+Agent-platform event dispatcher. Called from Claude Code / Codex /
+Cursor / OpenCode / Antigravity hook configs, not by users directly.
 
 ---
 
@@ -191,10 +203,23 @@ Aggregate summary: totals, by-decision, by-event, top rules.
 ### `reconc audit export [repo]`
 Raw JSONL dump on stdout for external tooling.
 
+### `reconc degenmode status [repo] [--json]`
+One-line (or JSON) snapshot of the current degenmode state from
+`.reconc/degenmode/state.json` (with the active stop-file applied):
+`enabled`, `runtime`, `active_run`, `awaiting`, `nudges`, `stopfile`, `reason`.
+
+### `reconc degenmode log [repo] [-n N] [--branch B] [--session S] [--follow] [--json]`
+Render the append-only degenmode decision log
+(`.reconc/degenmode/decisions.jsonl`): one line per state transition with the
+exact branch taken (e.g. `policy_block_released_on_repeat`,
+`continuation_aborted`, `disable_stop_file`), runtime, enabled/awaiting
+transitions, reason, session, and flags. `--branch`/`--session` filter
+(substring), `-n` keeps the last N, `--follow` tails new records live until
+Ctrl-C. Read-only: never writes, never blocks the hooks.
+
 ### `reconc session-briefing [repo] [--json]`
 Compact (~400 token) session-start state dump: lockfile state, recent
-audit activity, top firing rule, next action. Read-only; it never
-repairs or rewrites the lockfile.
+audit activity, top firing rule, next action. Auto-compiles missing/stale lockfiles when policy sources are valid, then reports the refreshed state.
 
 ### `reconc context size [repo] [--limit N] [--files PATH,PATH,...] [--json]`
 Guards the auto-loaded session-file token budget (default 20000
@@ -207,8 +232,7 @@ current state. Reuses session-briefing + audit-tail data. `--minimal`
 emits a compact 3-line summary.
 
 ### `reconc post-task-check [repo] [--window N] [--require-clean-git] [--json]`
-Pre-done gate: fresh lockfile + no blocking audit entries in the last
-N minutes (default 10). Exit 1 on any check failure.
+Pre-done gate: auto-refreshable fresh lockfile + no blocking audit entries in the last N minutes (default 10). Exit 1 on any check failure.
 
 ### `reconc delta [repo] [--since RFC3339] [--json]`
 Audit activity since a reference point (default 1h ago), with

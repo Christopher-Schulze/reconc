@@ -1,0 +1,62 @@
+#!/bin/sh
+# Managed by Reconc. Repo-local agent hook wrapper.
+#
+# Usage: tools/reconc/bin/hook <event> [repo]
+# Reads the agent hook JSON payload from stdin and execs the best available
+# repo-local Reconc binary. The final exec keeps hook processes single-layered
+# so shells do not remain as idle parents after agent events.
+
+set -eu
+
+event="${1:-}"
+repo="${2:-}"
+
+if [ -z "$event" ]; then
+  echo "reconc hook wrapper: missing event" >&2
+  exit 1
+fi
+
+if [ -z "$repo" ]; then
+  repo="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+fi
+
+case "$(uname -s)" in
+  Darwin) reconc_os="darwin" ;;
+  Linux) reconc_os="linux" ;;
+  CYGWIN*|MINGW*|MSYS*) reconc_os="windows" ;;
+  *) reconc_os="" ;;
+esac
+
+case "$(uname -m)" in
+  arm64|aarch64) reconc_arch="arm64" ;;
+  x86_64|amd64) reconc_arch="amd64" ;;
+  *) reconc_arch="" ;;
+esac
+
+reconc_ext=""
+if [ "$reconc_os" = "windows" ]; then
+  reconc_ext=".exe"
+fi
+reconc_release=""
+if [ -n "$reconc_os" ] && [ -n "$reconc_arch" ]; then
+  reconc_release="reconc-0.5.0-$reconc_os-$reconc_arch$reconc_ext"
+fi
+
+if [ "${RECONC_HOOK_REPO_RESOLVED:-}" != "1" ] && \
+  [ ! -x "$repo/tools/reconc/bin/hook" ] && \
+  { [ -z "$reconc_release" ] || { [ ! -x "$repo/tools/reconc/dist/$reconc_release" ] && [ ! -x "$repo/dist/$reconc_release" ]; }; }; then
+  repo="$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null || printf "%s" "$repo")"
+fi
+
+if [ -n "$reconc_release" ]; then
+  for bin in \
+    "$repo/tools/reconc/dist/$reconc_release" \
+    "$repo/dist/$reconc_release"
+  do
+    if [ -x "$bin" ]; then
+      exec "$bin" hook runtime "$event" "$repo"
+    fi
+  done
+fi
+
+exec reconc hook runtime "$event" "$repo"

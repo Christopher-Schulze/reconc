@@ -355,7 +355,7 @@ func BenchmarkAuditRecordSize(b *testing.B) {
 		Commands:       []string{"go test ./...", "go vet ./..."},
 		Claims:         []string{"ci-green"},
 		RepoRoot:       "/repo/reconc",
-		ReconcVersion:  "0.4.0",
+		ReconcVersion:  "0.5.0",
 	}
 	data, err := json.Marshal(entry)
 	if err != nil {

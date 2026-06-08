@@ -4,4 +4,4 @@ package hooks
 // implements `reconc hook runtime ...` for installed agent hook
 // configs. Older binaries may have generated configs that reference
 // the subcommand but cannot execute it.
-const MinRuntimeSupportedVersion = "0.4.0"
+const MinRuntimeSupportedVersion = "0.5.0"

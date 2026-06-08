@@ -83,8 +83,8 @@ reconc status .
 
 `setup` is the human-facing onboarding path. It scaffolds `.reconc.yml` and
 `AGENTS.md` when missing, compiles the lockfile, installs git hooks, and wires
-native agent hooks when supported directories such as `.claude/` or `.codex/`
-already exist.
+native agent hooks when supported directories such as `.claude/`, `.codex/`,
+`.cursor/`, `.opencode/`, or `.agents/` already exist.
 
 For a lighter/manual start:
 
@@ -179,25 +179,28 @@ reconc agent-intro           # built-in guide for humans and agents
 ```
 
 `status`, `verify`, and `session-briefing` are diagnostic/read-only. `compile`,
-`setup`, `init`, hook installation, `adopt --apply`, and audit logging can write.
+`setup`, `init`, hook installation, `hook sync-scaffold`, `adopt --apply`,
+and audit logging can write.
 
 ## Platform Model
 
 Know what is hard-enforced versus self-enforced:
 
-| Capability | Claude Code | Codex | OpenCode | Other agents |
-|---|---|---|---|---|
-| Native hook install | `.claude/settings.json` | `.codex/hooks.json` | none currently | none by default |
-| Pre-write file blocking | Hard for Edit/Write/MultiEdit | Soft self-check | Soft self-check | Soft self-check |
-| Read/write evidence capture | Hard via hooks | Partial/manual | Manual CLI evidence | Manual CLI evidence |
-| Bash command interception | Hard | Hard for Bash hooks | Manual CLI evidence | Manual CLI evidence |
-| Stop/final gate | Hard | Hard where hooks run | `reconc done` | `reconc done` |
-| Commit backstop | Git pre-commit | Git pre-commit | Git pre-commit | Git pre-commit |
+| Capability | Claude Code | Codex | Cursor | OpenCode | Antigravity | Other agents |
+|---|---|---|---|---|---|---|
+| Native hook install | `.claude/settings.json` | `.codex/hooks.json` | `.cursor/hooks.json` | `.opencode/plugins/reconc.js` | `.agents/hooks.json` | none by default |
+| Pre-write file blocking | Hard for Edit/Write/MultiEdit | Soft self-check | Hook-backed for exposed preTool/file/shell events | Hook-backed when OpenCode exposes path args, otherwise self-check | Hook-backed for matched file and command tools | Soft self-check |
+| Read/write evidence capture | Hard via hooks | Partial/manual | Hook-backed for exposed file/tool events | Hook-backed for tool events OpenCode emits | Hook-backed via pending PreTool metadata plus PostTool result | Manual CLI evidence |
+| Bash command interception | Hard | Hard for Bash hooks | Hard for shell hook events | Hook-backed for `bash` tool events | Hook-backed for `run_command` | Manual CLI evidence |
+| Stop/final gate | Hard | Hard where hooks run | Hard where Cursor stop hook runs | Hook-backed on `session.idle` + `reconc done` | Hook-backed on Stop with `continue` decision | `reconc done` |
+| Commit backstop | Git pre-commit | Git pre-commit | Git pre-commit | Git pre-commit | Git pre-commit | Git pre-commit |
 
 Claude Code has the strongest native integration. Codex has native hook wiring
 for session, Bash, and stop events, but agents must still run explicit file
-checks for file-level evidence. OpenCode and other agents should use the same
-CLI evidence loop and rely on git pre-commit as the hard repository backstop.
+checks for file-level evidence. OpenCode uses a project-local plugin for
+tool before/after and idle stop events; agents must still run explicit CLI
+checks for any platform gap and rely on git pre-commit as the hard repository
+backstop.
 
 Never claim stronger enforcement than the platform can provide.
 

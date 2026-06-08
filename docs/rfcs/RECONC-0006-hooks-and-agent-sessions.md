@@ -1,7 +1,7 @@
 # RECONC-0006: Hooks And Agent Sessions
 
 - Status: Frozen
-- Contract: git, Claude Code, Codex, and generic-agent integration
+- Contract: git, Claude Code, Codex, Cursor, OpenCode, Antigravity, and generic-agent integration
 
 ## Hook Kinds
 
@@ -12,10 +12,22 @@
 | `git-pre-commit` | `.git/hooks/pre-commit` | Runs `reconc ci --staged` before commit. |
 | `claude-code` | `.claude/settings.json` | Session, pre-write, post-tool, stop, and cleanup hooks. |
 | `codex` | `.codex/hooks.json` | Session, Bash pre/post hooks, and stop gate. |
+| `cursor` | `.cursor/hooks.json` | Session, prompt, write/shell policy, post-tool evidence, and stop gate. |
+| `opencode` | `.opencode/plugins/reconc.js` | Project plugin for session start, tool before/after, and idle stop gate. |
+| `antigravity` | `.agents/hooks.json` | Invocation, tool, and stop hook group under the top-level `reconc` key. |
 
 Installers are idempotent. Reconc-owned JSON hook entries are
-identified by `reconc hook runtime` command prefixes and replaced on
-reinstall; unrelated user config is preserved.
+identified by `reconc hook runtime` command tokens and replaced on
+reinstall; unrelated user config is preserved. The OpenCode installer
+updates only the reconc-managed project plugin and refuses to overwrite
+non-reconc plugin content without `--force`.
+
+`reconc hook sync-scaffold <repo-root-scaffold>` writes the
+source-controlled scaffold twins from the same generator:
+`.githooks/pre-commit`, `.codex/hooks.json`, `.cursor/hooks.json`,
+`.agents/hooks.json`, `.claude/settings.json`, and
+`.opencode/plugins/reconc.js`. Template scaffolds are never synced from
+a source-specific harness.
 
 ## Claude Code Guarantee
 

@@ -92,7 +92,7 @@ func Run(argv []string, version string, stdout, stderr io.Writer) error {
 	case "init":
 		return runInit(argv[1:], stdout, stderr)
 	case "status":
-		return runStatus(argv[1:], stdout, stderr)
+		return runStatus(argv[1:], version, stdout, stderr)
 	case "ci":
 		return runCI(argv[1:], stdout, stderr)
 	case "hook":
@@ -123,20 +123,22 @@ func Run(argv []string, version string, stdout, stderr io.Writer) error {
 		return runAgentIntro(argv[1:], stdout, stderr)
 	case "audit":
 		return runAudit(argv[1:], stdout, stderr)
+	case "degenmode":
+		return runDegenmode(argv[1:], stdout, stderr)
 	case "template":
 		return runTemplate(argv[1:], stdout, stderr)
 	case "session-briefing":
-		return runSessionBriefing(argv[1:], stdout, stderr)
+		return runSessionBriefing(argv[1:], version, stdout, stderr)
 	case "context":
 		return runContext(argv[1:], stdout, stderr)
 	case "start":
-		return runStart(argv[1:], stdout, stderr)
+		return runStart(argv[1:], version, stdout, stderr)
 	case "post-task-check":
-		return runPostTaskCheck(argv[1:], stdout, stderr)
+		return runPostTaskCheck(argv[1:], version, stdout, stderr)
 	case "delta":
 		return runDelta(argv[1:], stdout, stderr)
 	case "done":
-		return runDone(argv[1:], stdout, stderr)
+		return runDone(argv[1:], version, stdout, stderr)
 	case "spec":
 		return runSpec(argv[1:], stdout, stderr)
 	case "coverage":
@@ -494,9 +496,8 @@ func nextArgValue(args []string, i *int, flag string) (string, bool) {
 // runAssert implements `reconc assert <rule-id> [repo] [--var key=value ...]
 // [--read PATH] [--write PATH] [--command CMD] [--claim NAME] [--json]`.
 //
-// Single-rule evaluation primitive. Replaces Golem-Office's per-assertion
-// subcommands (assert stage, assert task-done, assert sequence, assert
-// force-multipliers) with one generic command driven by the lockfile.
+// Single-rule evaluation primitive. Replaces repo-specific assertion
+// subcommands with one generic command driven by the lockfile.
 //
 // Exit codes: 0 = pass/warn (no blocking violation), 1 = error,
 // 2 = blocking violation.
@@ -2033,7 +2034,7 @@ func runTemplateShow(args []string, stdout, stderr io.Writer) error {
 // Intentionally skips project-convention-specific inputs (todo.md,
 // spec.md, changelog.md) so the command works in any repo without
 // configuration. Those can be added by the caller's wrapper.
-func runSessionBriefing(args []string, stdout, stderr io.Writer) error {
+func runSessionBriefing(args []string, version string, stdout, stderr io.Writer) error {
 	repo := "."
 	jsonOut := false
 	for _, a := range args {
@@ -2056,7 +2057,7 @@ func runSessionBriefing(args []string, stdout, stderr io.Writer) error {
 		return &CLIError{ExitCode: 1, Message: "reconc session-briefing: " + err.Error()}
 	}
 
-	briefing := buildSessionBriefing(abs)
+	briefing := buildSessionBriefing(abs, version)
 
 	if jsonOut {
 		enc := json.NewEncoder(stdout)
@@ -2094,7 +2095,7 @@ func runSessionBriefing(args []string, stdout, stderr io.Writer) error {
 // buildSessionBriefing collects the facts a session-start agent needs
 // in one decode. Returns a map so text + JSON output render from the
 // same source.
-func buildSessionBriefing(repoRoot string) map[string]interface{} {
+func buildSessionBriefing(repoRoot string, version string) map[string]interface{} {
 	out := map[string]interface{}{
 		"repo_root":       repoRoot,
 		"lockfile_status": "unknown",
@@ -2113,11 +2114,22 @@ func buildSessionBriefing(repoRoot string) map[string]interface{} {
 		return out
 	}
 	out["repo_root"] = discovery.RepoRoot
+	if err := ensureFreshLockfile(discovery.RepoRoot, version); err != nil {
+		out["lockfile_status"] = "auto-compile failed: " + err.Error()
+		out["next_action"] = "fix policy sources, then rerun the command"
+		return out
+	}
 
 	if discovery.LockfilePath == nil {
-		out["lockfile_status"] = "config found but no lockfile"
-		out["next_action"] = "run `reconc compile " + repoRoot + "`"
-		return out
+		rediscovered, err := ingest.DiscoverPolicyRepo(discovery.RepoRoot)
+		if err == nil {
+			discovery = rediscovered
+		}
+		if discovery.LockfilePath == nil {
+			out["lockfile_status"] = "config found but no lockfile"
+			out["next_action"] = "fix policy sources, then rerun the command"
+			return out
+		}
 	}
 	lockPath := filepath.Join(discovery.RepoRoot, *discovery.LockfilePath)
 	lockInfo, err := os.Stat(lockPath)
@@ -2144,17 +2156,17 @@ func buildSessionBriefing(repoRoot string) map[string]interface{} {
 
 	if validation, err := validatePolicyReadOnly(discovery.RepoRoot); err != nil {
 		out["lockfile_status"] = "source error: " + err.Error()
-		out["next_action"] = "fix policy source parsing, then run `reconc compile " + repoRoot + "`"
+		out["next_action"] = "fix policy source parsing, then rerun the command"
 	} else {
 		out["source_count"] = validation.sourceCount
 		if payload, err := readLockfileSummary(discovery.RepoRoot); err != nil {
 			out["lockfile_status"] = "lockfile unreadable: " + err.Error()
-			out["next_action"] = "run `reconc compile " + repoRoot + "`"
+			out["next_action"] = "fix lockfile state, then rerun the command"
 		} else if storedDigest, _ := payload["source_digest"].(string); storedDigest == validation.sourceDigest {
 			out["lockfile_status"] = "fresh"
 		} else {
 			out["lockfile_status"] = "stale"
-			out["next_action"] = "run `reconc compile " + repoRoot + "`"
+			out["next_action"] = "rerun the command; auto-compile should refresh this state"
 		}
 		out["conflicts"] = validation.conflicts
 	}
@@ -2318,7 +2330,7 @@ func runContextSize(args []string, stdout, stderr io.Writer) error {
 //
 // Never overwrites an existing start.md without --force (same safety
 // contract as init / hook install).
-func runStart(args []string, stdout, stderr io.Writer) error {
+func runStart(args []string, version string, stdout, stderr io.Writer) error {
 	repo := "."
 	writePath := ""
 	force := false
@@ -2361,7 +2373,7 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc start: " + err.Error()}
 	}
-	data := buildStartData(abs)
+	data := buildStartData(abs, version)
 	if jsonOut && minimal {
 		return &CLIError{ExitCode: 1, Message: "reconc start: --json and --minimal are mutually exclusive"}
 	}
@@ -2391,8 +2403,8 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 
 // buildStartData gathers the facts start.md needs. Returns a map so
 // text + JSON render from the same source of truth.
-func buildStartData(repoRoot string) map[string]interface{} {
-	briefing := buildSessionBriefing(repoRoot)
+func buildStartData(repoRoot string, version string) map[string]interface{} {
+	briefing := buildSessionBriefing(repoRoot, version)
 	briefing["generated_at"] = time.Now().UTC().Format(time.RFC3339)
 
 	// Recent audit entries: last 5 decisions if the log is enabled.
@@ -2519,7 +2531,7 @@ type taskGateReport struct {
 	OK       bool            `json:"ok"`
 }
 
-func buildTaskGateReport(repo string, windowMinutes int, requireCleanGit bool) (taskGateReport, error) {
+func buildTaskGateReport(repo string, version string, windowMinutes int, requireCleanGit bool) (taskGateReport, error) {
 	abs, err := filepath.Abs(repo)
 	if err != nil {
 		return taskGateReport{}, err
@@ -2542,8 +2554,17 @@ func buildTaskGateReport(repo string, windowMinutes int, requireCleanGit bool) (
 	if derr != nil || !discovery.Discovered {
 		addCheck("repo discovered", "FAIL", fmt.Sprintf("%v", derr))
 	} else if discovery.LockfilePath == nil {
-		addCheck("lockfile fresh", "FAIL", "no lockfile; run `reconc compile`")
+		if err := ensureFreshLockfile(discovery.RepoRoot, version); err != nil {
+			addCheck("lockfile fresh", "FAIL", "auto-compile failed: "+err.Error())
+		} else {
+			addCheck("lockfile fresh", "OK", ingest.LockfilePath)
+		}
 	} else {
+		if err := ensureFreshLockfile(discovery.RepoRoot, version); err != nil {
+			addCheck("lockfile fresh", "FAIL", "auto-compile failed: "+err.Error())
+		} else {
+			discovery, _ = ingest.DiscoverPolicyRepo(discovery.RepoRoot)
+		}
 		validation, verr := validatePolicyReadOnly(discovery.RepoRoot)
 		payload, lerr := readLockfileSummary(discovery.RepoRoot)
 		if verr != nil {
@@ -2553,7 +2574,7 @@ func buildTaskGateReport(repo string, windowMinutes int, requireCleanGit bool) (
 		} else if err := validateLockfileRepoRoot(discovery.RepoRoot, payload); err != nil {
 			addCheck("lockfile fresh", "FAIL", err.Error())
 		} else if storedDigest, _ := payload["source_digest"].(string); storedDigest != validation.sourceDigest {
-			addCheck("lockfile fresh", "FAIL", "stale lockfile; run `reconc compile`")
+			addCheck("lockfile fresh", "FAIL", "stale lockfile after auto-compile")
 		} else {
 			addCheck("lockfile fresh", "OK", *discovery.LockfilePath)
 		}
@@ -2597,7 +2618,7 @@ func buildTaskGateReport(repo string, windowMinutes int, requireCleanGit bool) (
 	return report, nil
 }
 
-func runPostTaskCheck(args []string, stdout, stderr io.Writer) error {
+func runPostTaskCheck(args []string, version string, stdout, stderr io.Writer) error {
 	repo := "."
 	jsonOut := false
 	requireCleanGit := false
@@ -2635,7 +2656,7 @@ func runPostTaskCheck(args []string, stdout, stderr io.Writer) error {
 		i++
 	}
 
-	report, err := buildTaskGateReport(repo, windowMinutes, requireCleanGit)
+	report, err := buildTaskGateReport(repo, version, windowMinutes, requireCleanGit)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc post-task-check: " + err.Error()}
 	}
@@ -2659,7 +2680,7 @@ func runPostTaskCheck(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
-func runDone(args []string, stdout, stderr io.Writer) error {
+func runDone(args []string, version string, stdout, stderr io.Writer) error {
 	repo := "."
 	jsonOut := false
 	requireCleanGit := false
@@ -2697,7 +2718,7 @@ func runDone(args []string, stdout, stderr io.Writer) error {
 		i++
 	}
 
-	report, err := buildTaskGateReport(repo, windowMinutes, requireCleanGit)
+	report, err := buildTaskGateReport(repo, version, windowMinutes, requireCleanGit)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc done: " + err.Error()}
 	}
@@ -3762,7 +3783,7 @@ func atoi(s string) (int, error) {
 //   - Init: scaffold .reconc.yml + AGENTS.md (extends default by default)
 //   - Compile: build .reconc/policy.lock.json
 //   - If .git/ present and --skip-git-hook NOT set: install git pre-commit
-//   - If .claude/ / .codex/ present and --skip-agent-hooks NOT set:
+//   - If .claude/ / .codex/ / .cursor/ / .opencode/ / .agents/ present and --skip-agent-hooks NOT set:
 //     install the matching agent-platform hook config non-destructively
 //     (merges with any existing settings)
 //   - Idempotent: re-running bootstrap on an already-initialized repo
@@ -3806,7 +3827,7 @@ func runBootstrap(args []string, version string, stdout, stderr io.Writer) error
 			fmt.Fprintln(stdout, "")
 			fmt.Fprintln(stdout, "One-shot repo setup: init + compile + platform hook install.")
 			fmt.Fprintln(stdout, "- git pre-commit is installed when .git/ is present.")
-			fmt.Fprintln(stdout, "- Claude Code / Codex hooks are merged when .claude/ or .codex/ exist.")
+			fmt.Fprintln(stdout, "- Claude Code / Codex / Cursor / OpenCode / Antigravity hooks are installed when their repo-local config dirs exist.")
 			return nil
 		default:
 			if len(a) > 0 && a[0] == '-' {
@@ -3854,6 +3875,9 @@ func runBootstrap(args []string, version string, stdout, stderr io.Writer) error
 	// bootstrap non-invasive for repos that don't yet use those agents).
 	claudeDirPresent := dirExists(filepath.Join(initReport.RepoRoot, ".claude"))
 	codexDirPresent := dirExists(filepath.Join(initReport.RepoRoot, ".codex"))
+	cursorDirPresent := dirExists(filepath.Join(initReport.RepoRoot, ".cursor"))
+	opencodeDirPresent := dirExists(filepath.Join(initReport.RepoRoot, ".opencode"))
+	antigravityDirPresent := dirExists(filepath.Join(initReport.RepoRoot, ".agents"))
 	if claudeDirPresent && !skipAgentHooks {
 		if rep, err := hooks.Install(hooks.KindClaudeCode, initReport.RepoRoot, false); err != nil {
 			steps = append(steps, "hook install claude-code: "+err.Error())
@@ -3870,7 +3894,34 @@ func runBootstrap(args []string, version string, stdout, stderr io.Writer) error
 			steps = append(steps, fmt.Sprintf("hook install codex: %s -> %s", rep.Action, rep.TargetPath))
 		}
 	} else if !codexDirPresent {
-		hints = append(hints, "Codex: create .codex/ then `reconc hook install codex` (and set codex_hooks=true in config.toml)")
+		hints = append(hints, "Codex: create .codex/ then `reconc hook install codex` (and set hooks=true in config.toml)")
+	}
+	if cursorDirPresent && !skipAgentHooks {
+		if rep, err := hooks.Install(hooks.KindCursor, initReport.RepoRoot, false); err != nil {
+			steps = append(steps, "hook install cursor: "+err.Error())
+		} else {
+			steps = append(steps, fmt.Sprintf("hook install cursor: %s -> %s", rep.Action, rep.TargetPath))
+		}
+	} else if !cursorDirPresent {
+		hints = append(hints, "Cursor Desktop: create .cursor/ then `reconc hook install cursor`")
+	}
+	if opencodeDirPresent && !skipAgentHooks {
+		if rep, err := hooks.Install(hooks.KindOpenCode, initReport.RepoRoot, false); err != nil {
+			steps = append(steps, "hook install opencode: "+err.Error())
+		} else {
+			steps = append(steps, fmt.Sprintf("hook install opencode: %s -> %s", rep.Action, rep.TargetPath))
+		}
+	} else if !opencodeDirPresent {
+		hints = append(hints, "OpenCode: create .opencode/ then `reconc hook install opencode`")
+	}
+	if antigravityDirPresent && !skipAgentHooks {
+		if rep, err := hooks.Install(hooks.KindAntigravity, initReport.RepoRoot, false); err != nil {
+			steps = append(steps, "hook install antigravity: "+err.Error())
+		} else {
+			steps = append(steps, fmt.Sprintf("hook install antigravity: %s -> %s", rep.Action, rep.TargetPath))
+		}
+	} else if !antigravityDirPresent {
+		hints = append(hints, "Antigravity CLI: create .agents/ then `reconc hook install antigravity`")
 	}
 
 	if jsonOut {
@@ -3908,30 +3959,42 @@ func dirExists(path string) bool {
 // [--force] [--json]`. Routes to the hooks package.
 func runHook(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return &CLIError{ExitCode: 1, Message: "reconc hook: missing subcommand (generate | install | runtime | claim)"}
+		return &CLIError{ExitCode: 1, Message: "reconc hook: missing subcommand (generate | install | sync-scaffold | runtime | claim)"}
 	}
 	switch args[0] {
 	case "-h", "--help":
 		fmt.Fprintln(stdout, "Usage: reconc hook generate <kind> [--json]")
 		fmt.Fprintln(stdout, "       reconc hook install  <kind> [repo] [--force] [--json]")
+		fmt.Fprintln(stdout, "       reconc hook sync-scaffold <repo-root-scaffold> [--json]")
 		fmt.Fprintln(stdout, "       reconc hook runtime  <event> <repo>            (reads stdin JSON)")
 		fmt.Fprintln(stdout, "       reconc hook claim    <repo> <claim-name> [--session ID] [--json]")
 		fmt.Fprintln(stdout, "")
-		fmt.Fprintln(stdout, "Kinds: git-pre-commit, claude-code, codex (all three are installable)")
-		fmt.Fprintln(stdout, "Runtime events: claude-{session-start,pre-tool-use,post-tool-use,")
-		fmt.Fprintln(stdout, "                post-tool-use-failure,stop,session-end}")
-		fmt.Fprintln(stdout, "                codex-{session-start,pre-tool-use,post-tool-use,stop}")
+		fmt.Fprintln(stdout, "Kinds: git-pre-commit, claude-code, codex, cursor, opencode, antigravity (all installable)")
+		fmt.Fprintln(stdout, "Runtime events: claude-{session-start,user-prompt-submit,pre-tool-use,")
+		fmt.Fprintln(stdout, "                permission-request,post-tool-use,post-tool-use-failure,")
+		fmt.Fprintln(stdout, "                stop,session-end}")
+		fmt.Fprintln(stdout, "                codex-{session-start,user-prompt-submit,pre-tool-use,")
+		fmt.Fprintln(stdout, "                permission-request,post-tool-use,post-tool-use-failure,")
+		fmt.Fprintln(stdout, "                stop,session-end}")
+		fmt.Fprintln(stdout, "                cursor-{session-start,user-prompt-submit,pre-tool-use,post-tool-use,")
+		fmt.Fprintln(stdout, "                before-shell-execution,after-shell-execution,before-read-file,")
+		fmt.Fprintln(stdout, "                before-tab-file-read,after-file-edit,after-tab-file-edit,")
+		fmt.Fprintln(stdout, "                stop,session-end}")
+		fmt.Fprintln(stdout, "                opencode-{session-start,pre-tool-use,post-tool-use,stop}")
+		fmt.Fprintln(stdout, "                antigravity-{pre-invocation,pre-tool-use,post-tool-use,post-invocation,stop}")
 		return nil
 	case "generate":
 		return runHookGenerate(args[1:], stdout, stderr)
 	case "install":
 		return runHookInstall(args[1:], stdout, stderr)
+	case "sync-scaffold":
+		return runHookSyncScaffold(args[1:], stdout, stderr)
 	case "runtime":
 		return runHookRuntime(args[1:], stdout, stderr)
 	case "claim":
 		return runHookClaim(args[1:], stdout, stderr)
 	}
-	return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook: unknown subcommand %q (expected generate | install | runtime | claim)", args[0])}
+	return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook: unknown subcommand %q (expected generate | install | sync-scaffold | runtime | claim)", args[0])}
 }
 
 func runHookGenerate(args []string, stdout, stderr io.Writer) error {
@@ -4047,6 +4110,50 @@ func runHookInstall(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
+func runHookSyncScaffold(args []string, stdout, stderr io.Writer) error {
+	scaffoldRoot := ""
+	jsonOut := false
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch a {
+		case "--json":
+			jsonOut = true
+		case "-h", "--help":
+			fmt.Fprintln(stdout, "Usage: reconc hook sync-scaffold <repo-root-scaffold> [--json]")
+			fmt.Fprintln(stdout, "Writes generated Codex/Cursor/Claude/OpenCode/Antigravity hook artifacts and .githooks/pre-commit into a repo-root scaffold.")
+			return nil
+		default:
+			if len(a) > 0 && a[0] == '-' {
+				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook sync-scaffold: unknown flag %q", a)}
+			}
+			if scaffoldRoot != "" {
+				return &CLIError{ExitCode: 1, Message: "reconc hook sync-scaffold: accepts exactly one scaffold path"}
+			}
+			scaffoldRoot = a
+		}
+	}
+	if scaffoldRoot == "" {
+		return &CLIError{ExitCode: 1, Message: "reconc hook sync-scaffold: missing repo-root-scaffold path"}
+	}
+	report, err := hooks.SyncRepoRootScaffold(scaffoldRoot)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc hook sync-scaffold: " + err.Error()}
+	}
+	if jsonOut {
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(report); err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc hook sync-scaffold: json encode: " + err.Error()}
+		}
+		return nil
+	}
+	fmt.Fprintf(stdout, "Synced hook scaffold: %s\n", report.ScaffoldRoot)
+	for _, artifact := range report.Artifacts {
+		fmt.Fprintf(stdout, "- %s: %s -> %s\n", artifact.Kind, artifact.Action, artifact.TargetPath)
+	}
+	return nil
+}
+
 // runHookRuntime dispatches `reconc hook runtime <event> <repo>` to
 // the agent-session adapter. Reads a JSON payload from stdin, runs
 // the per-event handler, and translates the Result into exit code +
@@ -4065,10 +4172,24 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 			fmt.Fprintln(stdout, "Usage: reconc hook runtime <event> <repo>   (reads JSON from stdin)")
 			fmt.Fprintln(stdout, "")
 			fmt.Fprintln(stdout, "Events: claude-session-start, claude-pre-tool-use,")
+			fmt.Fprintln(stdout, "        claude-permission-request,")
 			fmt.Fprintln(stdout, "        claude-post-tool-use, claude-post-tool-use-failure,")
-			fmt.Fprintln(stdout, "        claude-stop, claude-session-end,")
+			fmt.Fprintln(stdout, "        claude-user-prompt-submit, claude-stop, claude-session-end,")
 			fmt.Fprintln(stdout, "        codex-session-start, codex-pre-tool-use,")
-			fmt.Fprintln(stdout, "        codex-post-tool-use, codex-stop")
+			fmt.Fprintln(stdout, "        codex-permission-request,")
+			fmt.Fprintln(stdout, "        codex-post-tool-use, codex-post-tool-use-failure,")
+			fmt.Fprintln(stdout, "        codex-user-prompt-submit, codex-stop, codex-session-end,")
+			fmt.Fprintln(stdout, "        cursor-session-start, cursor-user-prompt-submit,")
+			fmt.Fprintln(stdout, "        cursor-pre-tool-use, cursor-post-tool-use,")
+			fmt.Fprintln(stdout, "        cursor-before-shell-execution, cursor-after-shell-execution,")
+			fmt.Fprintln(stdout, "        cursor-before-read-file, cursor-before-tab-file-read,")
+			fmt.Fprintln(stdout, "        cursor-after-file-edit, cursor-after-tab-file-edit,")
+			fmt.Fprintln(stdout, "        cursor-stop, cursor-session-end,")
+			fmt.Fprintln(stdout, "        opencode-session-start, opencode-pre-tool-use,")
+			fmt.Fprintln(stdout, "        opencode-post-tool-use, opencode-stop,")
+			fmt.Fprintln(stdout, "        antigravity-pre-invocation, antigravity-pre-tool-use,")
+			fmt.Fprintln(stdout, "        antigravity-post-tool-use, antigravity-post-invocation,")
+			fmt.Fprintln(stdout, "        antigravity-stop")
 			return nil
 		}
 	}
@@ -4077,28 +4198,81 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 	}
 	event := args[0]
 	repo := args[1]
+	timing := newHookRuntimeTiming(event, stderr)
+	exitCode := 0
+	defer func() {
+		timing.finish(exitCode)
+	}()
+	if isObservationOnlyHookEvent(event) {
+		lowerObservationHookPriorityBestEffort()
+	}
 
 	payload, err := agentsession.ReadPayload(os.Stdin)
 	if err != nil {
+		exitCode = 2
 		return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + err.Error()}
 	}
+	timing.mark("payload_read")
+	if !strings.HasPrefix(event, "cursor-") && agentsession.PayloadLooksLikeCursor(payload) {
+		return nil
+	}
+	if strings.HasPrefix(event, "cursor-") {
+		payload, err = agentsession.NormalizeCursorPayload(event, payload)
+		if err != nil {
+			exitCode = 2
+			return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + err.Error()}
+		}
+		timing.mark("cursor_normalize")
+	}
+
+	previousRuntime, hadRuntime := os.LookupEnv("RECONC_HOOK_RUNTIME")
+	_ = os.Setenv("RECONC_HOOK_RUNTIME", event)
+	defer func() {
+		if hadRuntime {
+			_ = os.Setenv("RECONC_HOOK_RUNTIME", previousRuntime)
+		} else {
+			_ = os.Unsetenv("RECONC_HOOK_RUNTIME")
+		}
+	}()
 
 	var result agentsession.Result
 	switch event {
-	case "claude-session-start", "codex-session-start":
+	case "antigravity-pre-invocation":
+		result = agentsession.RunAntigravityPreInvocation(repo, payload)
+	case "antigravity-pre-tool-use":
+		result = agentsession.RunAntigravityPreToolUse(repo, payload)
+	case "antigravity-post-tool-use":
+		result = agentsession.RunAntigravityPostToolUse(repo, payload)
+	case "antigravity-post-invocation":
+		result = agentsession.RunAntigravityPostInvocation(repo, payload)
+	case "antigravity-stop":
+		result = agentsession.RunAntigravityStop(repo, payload)
+	case "claude-session-start", "codex-session-start", "cursor-session-start", "opencode-session-start":
 		result = agentsession.RunSessionStart(repo, payload)
-	case "claude-pre-tool-use", "codex-pre-tool-use":
+	case "claude-user-prompt-submit", "codex-user-prompt-submit", "cursor-user-prompt-submit":
+		result = agentsession.RunUserPromptSubmit(repo, payload)
+	case "claude-pre-tool-use", "codex-pre-tool-use", "cursor-pre-tool-use", "cursor-before-shell-execution", "cursor-before-read-file", "cursor-before-tab-file-read", "opencode-pre-tool-use":
 		result = agentsession.RunPreToolUse(repo, payload)
-	case "claude-post-tool-use", "codex-post-tool-use":
+	case "claude-permission-request", "codex-permission-request":
+		result = agentsession.RunPermissionRequest(repo, payload)
+	case "claude-post-tool-use", "codex-post-tool-use", "cursor-post-tool-use", "cursor-after-file-edit", "cursor-after-tab-file-edit", "opencode-post-tool-use":
 		result = agentsession.RunPostToolUse(repo, payload)
-	case "claude-post-tool-use-failure":
+	case "cursor-after-shell-execution":
+		result = agentsession.RunPostToolUseComplete(repo, payload)
+	case "claude-post-tool-use-failure", "codex-post-tool-use-failure":
 		result = agentsession.RunPostToolUseFailure(repo, payload)
-	case "claude-stop", "codex-stop":
+	case "claude-stop", "codex-stop", "cursor-stop", "opencode-stop":
 		result = agentsession.RunStop(repo, payload)
-	case "claude-session-end":
+	case "codex-session-end", "cursor-session-end", "claude-session-end":
 		result = agentsession.RunSessionEnd(repo, payload)
 	default:
+		exitCode = 1
 		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook runtime: unknown event %q", event)}
+	}
+	timing.mark("handler")
+	if strings.HasPrefix(event, "cursor-") {
+		result = agentsession.AdaptCursorResult(event, result)
+		timing.mark("cursor_adapt")
 	}
 
 	if result.Stdout != "" {
@@ -4108,9 +4282,95 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintln(stderr, result.Stderr)
 	}
 	if result.ExitCode != 0 {
+		exitCode = result.ExitCode
 		return &CLIError{ExitCode: result.ExitCode, Message: ""}
 	}
 	return nil
+}
+
+type hookRuntimeTiming struct {
+	enabled   bool
+	event     string
+	stderr    io.Writer
+	startedAt time.Time
+	lastMark  time.Time
+	stages    []string
+}
+
+func newHookRuntimeTiming(event string, stderr io.Writer) hookRuntimeTiming {
+	if strings.TrimSpace(os.Getenv("RECONC_HOOK_TIMING")) == "" &&
+		strings.TrimSpace(os.Getenv("RECONC_HOOK_TIMING_THRESHOLD_MS")) == "" {
+		return hookRuntimeTiming{}
+	}
+	now := time.Now()
+	return hookRuntimeTiming{
+		enabled:   true,
+		event:     event,
+		stderr:    stderr,
+		startedAt: now,
+		lastMark:  now,
+	}
+}
+
+func (t *hookRuntimeTiming) mark(name string) {
+	if t == nil || !t.enabled {
+		return
+	}
+	now := time.Now()
+	t.stages = append(t.stages, fmt.Sprintf("%s=%s", name, now.Sub(t.lastMark).Round(time.Microsecond)))
+	t.lastMark = now
+}
+
+func (t *hookRuntimeTiming) finish(exitCode int) {
+	if t == nil || !t.enabled {
+		return
+	}
+	total := time.Since(t.startedAt).Round(time.Microsecond)
+	if threshold := hookRuntimeTimingThreshold(); threshold > 0 && total < threshold {
+		return
+	}
+	parts := []string{
+		"reconc hook timing:",
+		"event=" + t.event,
+		fmt.Sprintf("exit=%d", exitCode),
+		"total=" + total.String(),
+	}
+	parts = append(parts, t.stages...)
+	fmt.Fprintln(t.stderr, strings.Join(parts, " "))
+}
+
+func hookRuntimeTimingThreshold() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("RECONC_HOOK_TIMING_THRESHOLD_MS"))
+	if raw == "" {
+		return 0
+	}
+	ms, err := atoi(raw)
+	if err != nil || ms <= 0 {
+		return 0
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
+func isObservationOnlyHookEvent(event string) bool {
+	switch event {
+	case "claude-post-tool-use",
+		"claude-post-tool-use-failure",
+		"codex-post-tool-use",
+		"codex-post-tool-use-failure",
+		"cursor-post-tool-use",
+		"cursor-after-file-edit",
+		"cursor-after-tab-file-edit",
+		"cursor-after-shell-execution",
+		"cursor-session-end",
+		"claude-session-end",
+		"codex-session-end",
+		"opencode-post-tool-use",
+		"antigravity-post-tool-use",
+		"antigravity-post-invocation":
+		return true
+	default:
+		return false
+	}
 }
 
 // runHookClaim appends one explicit claim to the active session state.
@@ -4428,6 +4688,16 @@ func runCI(args []string, stdout, stderr io.Writer) error {
 	if !discovery.Discovered {
 		return &CLIError{ExitCode: 1, Message: "reconc ci: no policy markers found"}
 	}
+	if commands, results, claims, err := agentsession.ActiveEvidence(discovery.RepoRoot); err == nil {
+		inputs.Commands = append(inputs.Commands, commands...)
+		for _, result := range results {
+			inputs.CommandResults = append(inputs.CommandResults, runtime.CommandResult{
+				Command: result.Command,
+				Outcome: result.Outcome,
+			})
+		}
+		inputs.Claims = append(inputs.Claims, claims...)
+	}
 
 	gitPaths, gitMeta, err := runtime.CollectGitWritePaths(discovery.RepoRoot, staged, base, head)
 	if err != nil {
@@ -4555,7 +4825,7 @@ func runInit(args []string, stdout, stderr io.Writer) error {
 //
 // One-line policy health summary. Returns exit 0 always (it's a
 // diagnostic, not an enforcement command).
-func runStatus(args []string, stdout, stderr io.Writer) error {
+func runStatus(args []string, version string, stdout, stderr io.Writer) error {
 	repo := "."
 	jsonOut := false
 	outputPath := ""
@@ -4599,6 +4869,11 @@ func runStatus(args []string, stdout, stderr io.Writer) error {
 	if !discovery.Discovered {
 		issues = append(issues, "no policy markers found")
 	} else {
+		if err := ensureFreshLockfile(discovery.RepoRoot, version); err != nil {
+			issues = append(issues, err.Error())
+		} else if refreshed, err := ingest.DiscoverPolicyRepo(discovery.RepoRoot); err == nil {
+			discovery = refreshed
+		}
 		bundle, err := ingest.LoadPolicySources(discovery.RepoRoot)
 		if err != nil {
 			issues = append(issues, err.Error())
@@ -4750,10 +5025,19 @@ func validateLockfileRepoRoot(repoRoot string, payload map[string]interface{}) e
 	if storedRoot == "" {
 		return fmt.Errorf("compiled lockfile repo_root is missing; re-run `reconc compile`")
 	}
-	if canonicalPathForCompare(storedRoot) != canonicalPathForCompare(repoRoot) {
+	if !samePathForCompare(storedRoot, repoRoot) {
 		return fmt.Errorf("compiled lockfile repo_root does not match the discovered repository root; re-run `reconc compile`")
 	}
 	return nil
+}
+
+func samePathForCompare(a, b string) bool {
+	if canonicalPathForCompare(a) == canonicalPathForCompare(b) {
+		return true
+	}
+	aInfo, aErr := os.Stat(a)
+	bInfo, bErr := os.Stat(b)
+	return aErr == nil && bErr == nil && os.SameFile(aInfo, bInfo)
 }
 
 func canonicalPathForCompare(path string) string {
@@ -4791,6 +5075,43 @@ func validatePolicyReadOnly(repoRoot string) (*readOnlyPolicyValidation, error) 
 		sourceDigest: compiler.ComputeSourceDigest(bundle),
 		conflicts:    len(conflicts),
 	}, nil
+}
+
+func ensureFreshLockfile(repoRoot string, version string) error {
+	validation, err := validatePolicyReadOnly(repoRoot)
+	if err != nil {
+		return err
+	}
+	payload, err := readLockfileSummary(repoRoot)
+	needsCompile := false
+	if err != nil {
+		needsCompile = true
+	} else if err := validateLockfileRepoRoot(repoRoot, payload); err != nil {
+		return err
+	} else if storedDigest, _ := payload["source_digest"].(string); storedDigest != validation.sourceDigest {
+		needsCompile = true
+	} else if int(jsonNumberAsIntDefault(payload["rule_count"], 0)) != validation.ruleCount {
+		needsCompile = true
+	} else if int(jsonNumberAsIntDefault(payload["source_count"], 0)) != validation.sourceCount {
+		needsCompile = true
+	}
+	if !needsCompile {
+		return nil
+	}
+	if _, err := compiler.CompileRepoPolicy(repoRoot, version); err != nil {
+		return err
+	}
+	payload, err = readLockfileSummary(repoRoot)
+	if err != nil {
+		return err
+	}
+	if err := validateLockfileRepoRoot(repoRoot, payload); err != nil {
+		return err
+	}
+	if storedDigest, _ := payload["source_digest"].(string); storedDigest != validation.sourceDigest {
+		return fmt.Errorf("lockfile source digest is stale after auto-compile")
+	}
+	return nil
 }
 
 func jsonNumberAsIntDefault(v interface{}, def int64) int64 {
@@ -4917,12 +5238,13 @@ Explain & remediate:
 Packs & wiring:
   preset           list / show bundled and user presets
   template         list / show bundled and user rule templates (W18)
-  hook             generate / install / claim platform hooks (git / claude-code / codex)
+  hook             generate / install / sync-scaffold / claim platform hooks (git / claude-code / codex / cursor / opencode / antigravity)
 
 Workflow maintenance:
   changelog        rotate docs/changelog.md / list-archives
   agent-intro      print the embedded reconc agent integration guide
   audit            tail / stats / export the enforcement decision log
+  degenmode        status / log of degenmode state + decision log (--follow)
   session-briefing token-efficient session-start dump (lockfile + audit)
   context          size check for auto-loaded files vs a token budget
   start            render / write a canonical start.md onboarding doc

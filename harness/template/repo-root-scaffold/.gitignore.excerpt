@@ -1,0 +1,55 @@
+# Build
+build/
+codebase/build/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Frontend/Bun
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.next/
+codebase/frontend/node_modules/
+codebase/frontend/dist/
+codebase/frontend/.vite/
+codebase/frontend/.next/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime data, never commit
+.project/
+
+# Dev DB
+*.db
+*.db-wal
+*.db-shm
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# Reconc runtime state
+.reconc/*
+!.reconc/
+!.reconc/policy.lock.json
+.reconc/audit.jsonl
+.reconc/cache/
+.reconc/.compile.lock
+.reconc/degenmode/

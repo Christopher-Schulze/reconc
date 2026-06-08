@@ -14,10 +14,11 @@ rules:
       - "dist/**"
       - "build/**"
       # Nested under any prefix - required for monorepos where each
-      # package keeps its own dist/, build/, or generated/ directory.
+      # package keeps its own dist/ or generated/ directory. Nested
+      # build/ is intentionally not matched because scripts/build/ is
+      # commonly source-owned tooling.
       - "**/generated/**"
       - "**/dist/**"
-      - "**/build/**"
       # Files explicitly flagged as generated regardless of directory.
       - "**/*.generated.*"
     message: Generated artifacts are managed by the build; edit the source, not the output.

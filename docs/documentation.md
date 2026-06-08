@@ -59,7 +59,7 @@ make vet
 make lint
 make cover
 make bench
-make release VERSION=0.4.0
+make release VERSION=0.5.0
 ```
 
 `make release` cross-compiles five binaries into `dist/`, generates shell
@@ -196,6 +196,8 @@ Runtime state is local and ignored:
 - `.reconc/.compile.lock`
 - `.reconc/audit.jsonl`
 - `.reconc/audit.jsonl.*`
+- `.reconc/cache/`
+- `.reconc/locks/`
 - `.reconc/sessions/`
 - `.reconc/reports/`
 
@@ -215,7 +217,7 @@ Package responsibilities:
 - `internal/parser`: YAML-to-policy validation and normalization
 - `internal/compiler`: canonical JSON lockfile generation, digesting, conflicts, migrations, compile lock
 - `internal/runtime`: policy evaluation, remediation, git integration, scripts, templates
-- `internal/hooks`: git, Claude Code, and Codex hook generation and install
+- `internal/hooks`: git, Claude Code, and Codex hook generation and install, including PermissionRequest wiring
 - `internal/runtime/agentsession`: hook-runtime session state and event handling
 - `internal/audit`: opt-in JSONL decision log and rotation
 - `internal/presets`: bundled and user policy packs
@@ -243,8 +245,121 @@ skill documents the same reconc workflow for every agent runtime:
 - run `reconc done .` before claiming completion
 - distinguish native hook enforcement from CLI self-checks
 
-Claude Code and Codex have native hook wiring. OpenCode and other agents use
-the same CLI loop plus git pre-commit as the repository backstop.
+Claude Code, Codex, Cursor, OpenCode and Antigravity have repo-local
+prompt/tool/stop hook wiring through generated configs that call
+`tools/reconc/bin/hook`; the wrapper owns repo-local dist-binary selection and
+PATH `reconc` as last fallback. Claude Code uses its exec-form `command`+`args`
+shape so it does not spawn a hook shell or run a hook-launcher Git lookup.
+Codex uses the host shell command string without a nested `sh -lc`; Cursor and
+Antigravity keep their portable shell launcher until their direct argv shape is
+proven by runtime docs/tests.
+Codex also needs `hooks = true` in an active `config.toml` and routes
+`apply_patch` through Reconc by parsing patch headers from
+`tool_input.command`. Cursor Desktop uses `.cursor/hooks.json` with
+`preToolUse` as the pre-write gate, `afterFileEdit`/`afterTabFileEdit` plus
+`postToolUse` as evidence backstops for Cursor write aliases including
+`StrReplace`, `Delete`, and `FileEdit`, `beforeSubmitPrompt` for standalone
+`/degenmode`, and `stop` via Cursor-native `followup_message`. Clean Cursor
+hook paths emit explicit `{"continue":true,"permission":"allow"}` JSON because
+Cursor fail-closed hooks treat empty stdout as hook failure. If Cursor also
+executes compatible `.claude/settings.json` hooks, Reconc detects Cursor-native
+payload markers and no-ops those non-native Claude hook invocations before they
+can mutate Cursor session or Degenmode state. OpenCode uses
+`.opencode/plugins/reconc.js`
+with `chat.message`, `tool.execute.*`, `permission.ask`, and `session.idle`;
+Antigravity uses `.agents/hooks.json` with `PreInvocation`, `PreToolUse`,
+`PostToolUse`, `PostInvocation`, and `Stop`; Reconc stores Antigravity
+PreTool metadata as pending evidence so PostToolUse can record exact
+read/write/command evidence even when the post payload only carries the step
+index/result.
+Degenmode activation is prompt-only and requires a standalone `/degenmode`
+slash-command flag in sanitized real user prompt text, so quoted transcripts,
+multi-line quoted chat blocks, pasted transcript marker lines, diagnostic
+mention lines such as "kein /degenmode", pure hook prompts, stop feedback, code
+fences, tool text, and errors cannot start it accidentally. Runtime-internal
+continuation prompts are accepted only when they are the control payload itself
+(for example a pure `<hook_prompt>...</hook_prompt>` block or a prompt starting
+with the generated autocontinue text), so a normal user diagnostic that merely
+mentions `degenmode autocontinue` still counts as a real non-Degenmode prompt
+and stops the active same-runtime run.
+Degenmode runs are session- and runtime-scoped: a normal same-session prompt
+stops that run, except a same-session `/btw` side-channel prompt, which
+preserves the active run and must not write `.reconc/degenmode/stop`;
+prompts, interrupts, session ends, or stop markers from another agent runtime
+or session in the same repo must not stop the active run.
+`.reconc/degenmode/stop` is scoped to the active run and agent runtime and clears when a new
+standalone `/degenmode` prompt starts a run. Active Degenmode Stop events use a
+pre-policy continuation fast path when the session has no Stop-time evidence, or
+when a runtime re-enters with `stop_hook_active=true` and the cached policy
+report is already clean for the exact same Stop-time evidence hash;
+evidence-bearing stops still run the policy gate first, and changed evidence
+invalidates the clean-cache path, so blocking policy reports win over
+Degenmode.
+`awaiting_continuation` is not a hard stop reason by itself; if a runtime
+bounces through another Stop before visible tool progress, Reconc may re-emit
+the continuation prompt until progress or the no-progress guard decides. Tool
+events clear `awaiting_continuation`, so the no-progress guard resets from
+hook-observed work without running a full Git dirty scan on every Degenmode
+continuation.
+Degenmode decisions are persisted in `.reconc/degenmode/decisions.jsonl` with
+branch/runtime/session/state fields for forensic debugging without bloating hook
+output.
+Repeated identical policy blocks stay blocking but shrink to rule IDs plus the
+saved report path. PreToolUse evaluates only pre-execution write/shell rules,
+generated Claude/Codex/Cursor/Antigravity configs do not spawn PreToolUse for
+read-only matchers, all PostToolUse / after-shell events record evidence only,
+and repo-wide policy audits run only at Stop or explicit Reconc checks. Stop and
+explicit checks remain the hard enforcement points. Claude Code generated hooks pass
+`${CLAUDE_PROJECT_DIR}` to the repo-local wrapper as argv. Shell-command
+runtimes first exec `./tools/reconc/bin/hook` directly when their cwd is already
+the repo root, and only fall back to `git rev-parse` plus
+`RECONC_HOOK_REPO_RESOLVED=1` when needed. The agent-hooks audit rejects
+git-first launchers, Claude shell/git launchers and wrapper configs that omit
+the direct-wrapper fast path. The wrapper trusts either the resolved marker or
+an already-valid repo-local wrapper/dist path, normalizes only
+direct/manual calls, and `exec`s the selected Reconc binary so no avoidable shell
+parent remains;
+the Go hook runtime lowers observation-only events (`post/after/session-end`)
+with best-effort Unix process priority while keeping PreToolUse, permission,
+and Stop at normal priority. The Stop fingerprint uses one git status snapshot
+per report build with default `--untracked-files=normal`, dirty-path
+content/index hashes, and a per-session report lock instead of full
+`git diff --binary` output or repeated parallel checks; the completed report is
+cached under that initial fingerprint and the exact read/write/command/claim
+evidence hash. Normal Stops still rebuild the fingerprint, while reentrant
+`stop_hook_active=true` calls may reuse a clean cached report only when the
+evidence hash still matches, so the next Stop reruns if the repo or evidence
+changes after the report was built. Reconc's own `.reconc/cache/`,
+`.reconc/degenmode/`, `.reconc/locks/`, `.reconc/reports/`, and
+`.reconc/audit.jsonl` runtime artefacts are excluded from the dirty fingerprint
+so report writes cannot invalidate their own cache. `RECONC_STOP_FINGERPRINT_UNTRACKED=all`
+restores the old all-untracked cache key for repos that need it. Matching `require_script` rules
+that call the same `run-workflow-audit` runner are batched through
+`--batch-json` in one process and then split back into per-rule pass/block
+reports, so subprocess startup drops without weakening rule attribution. All
+runtimes still keep git pre-commit as the repository backstop.
+The runtime keeps the old read-safe fast path as defense in depth if a host tool
+still sends a read-only PreToolUse event; write tools still resolve the repo and
+fail closed before policy evaluation. Payload parsing stays allocation-light by decoding
+directly from bytes, and duplicate Cursor-payload suppression uses a cheap
+marker prefilter before JSON decoding. `RECONC_HOOK_TIMING=1` or
+`RECONC_HOOK_TIMING_THRESHOLD_MS=<ms>` emits payload/read/handler/adapt timing
+to stderr for hook latency diagnosis.
+Require-script subprocesses run in their own process group; on timeout Reconc
+sends SIGTERM to the group and escalates to SIGKILL after the configured kill
+grace period, so shell grandchildren such as `go build` compiler workers cannot
+survive as orphans after a blocked hook. Workflow-audit launchers build their
+cached binaries behind an atomic mkdir build lock and publish via temp binary +
+rename; parallel agent hooks therefore wait for one rebuild instead of stampeding
+the Go compiler or exposing a partially written cache binary.
+Harnesses can also expose an `agent-quality` mode for objective live-diff
+quality gates: newly added test skips, placeholder completion language,
+untested sensitive Go edits, and stale live Reconc binaries can block without
+retroactively failing untouched legacy code.
+Line counting in the workflow-audit harness (`lineCount`) follows `wc -l`/editor
+semantics: a trailing newline terminates the final line and does not add a
+phantom extra line, so spec-line-count and spec-line-range gates (for example
+the spec-code-parity audit `Spec Line Count` check) match the real file length.
 
 ## GitHub And Release
 
@@ -325,6 +440,8 @@ Ignore:
 - `.reconc/.compile.lock`
 - `.reconc/audit.jsonl`
 - `.reconc/audit.jsonl.*`
+- `.reconc/cache/`
+- `.reconc/locks/`
 - `.reconc/sessions/`
 - `.reconc/reports/`
 
@@ -366,7 +483,7 @@ link to it, but should not become competing current-state documentation.
 
 ## Release State
 
-The current public release line is `v0.4.x`. Core tests, race tests, vet,
+The current public release line is `v0.5.x`. Core tests, race tests, vet,
 staticcheck, coverage, doctor, verify, and release artifact generation pass
 locally. Release artifacts are produced by the GitHub release workflow when a
 `reconc-v*` tag is pushed.

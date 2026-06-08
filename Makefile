@@ -17,9 +17,9 @@
 GO        ?= go
 BIN       := reconc
 PKG       := ./...
-BINDIR    := bin
+BINDIR    := .build/bin
 DISTDIR   := dist
-VERSION   ?= 0.4.0
+VERSION   ?= 0.5.0
 LDFLAGS   := -ldflags "-X main.Version=$(VERSION) -s -w"
 
 # Release matrix. Each entry is OS/ARCH separated by '/'. Extend here
@@ -34,6 +34,7 @@ RELEASE_TARGETS := \
 .PHONY: build test fmt vet lint cover clean run tidy release completion manpage checksums release-all bench
 
 build:
+	@mkdir -p $(BINDIR)
 	$(GO) build $(LDFLAGS) -o $(BINDIR)/$(BIN) ./cmd/reconc
 
 test:
@@ -56,7 +57,7 @@ bench:
 	$(GO) test -run '^$$' -bench . -benchmem -benchtime=1000x $(PKG)
 
 clean:
-	rm -rf $(BINDIR) $(DISTDIR) coverage.out coverage.html
+	rm -rf .build $(DISTDIR) coverage.out coverage.html
 
 run: build
 	$(BINDIR)/$(BIN) $(ARGS)

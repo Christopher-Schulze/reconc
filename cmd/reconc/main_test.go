@@ -11,13 +11,13 @@ func TestMainVersionSuccess(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestMainHelperProcess", "--", "--version")
 	cmd.Env = append(os.Environ(),
 		"GO_WANT_MAIN_HELPER=1",
-		"RECONC_TEST_VERSION=0.4.0-test",
+		"RECONC_TEST_VERSION=0.5.0-test",
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("main --version failed: %v\n%s", err, string(out))
 	}
-	if got := string(out); got != "reconc 0.4.0-test\n" {
+	if got := string(out); got != "reconc 0.5.0-test\n" {
 		t.Fatalf("unexpected version output: %q", got)
 	}
 }
@@ -26,7 +26,7 @@ func TestMainErrorExitCodeAndStderr(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestMainHelperProcess", "--", "definitely-not-a-real-subcommand")
 	cmd.Env = append(os.Environ(),
 		"GO_WANT_MAIN_HELPER=1",
-		"RECONC_TEST_VERSION=0.4.0-test",
+		"RECONC_TEST_VERSION=0.5.0-test",
 	)
 	out, err := cmd.CombinedOutput()
 	if err == nil {

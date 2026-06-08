@@ -1,0 +1,13 @@
+version: 1
+whitelist: config/arch/arch-rules-whitelist.yaml
+rules:
+  - id: core-services
+    path_glob: backend/project/internal/core/**
+  - id: feature-modules
+    path_glob: backend/project/internal/modules/{name}/**
+  - id: connectors
+    path_glob: backend/project/internal/connectors/**
+  - id: public-shared
+    path_glob:
+      - backend/project/pkg/**
+      - backend/shared/**

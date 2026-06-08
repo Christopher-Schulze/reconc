@@ -1,0 +1,83 @@
+# Canonical workflow schema for Project TASK detail files.
+#
+# This file is the single source of truth for the structural rules that
+# `tools/reconc/harness/template/audits/workflow-audit.go`,
+# `tools/reconc/harness/template/audits/lib/donecheck/` and
+# `tools/reconc/harness/template/utils/promote-task-done/` enforce.
+#
+# AGENTS.md keeps the narrative explanation that LLM agents read; the audit
+# `agents-md-mirror` sub-mode verifies that AGENTS.md still mentions every
+# value declared here so the prose and the machine rules cannot drift.
+#
+# When you change a value here, also update AGENTS.md and re-run
+# `tools/reconc/harness/template/audits/run-workflow-audit agents-md-mirror`.
+
+required_sections:
+  - "## Why"
+  - "## Status"
+  - "## Scheduling"
+  - "## Technical Plan"
+  - "## Acceptance"
+  - "## Sub-Tasks"
+  - "## Notes"
+  - "## Deviations"
+
+status_states:
+  - Active
+  - Queued
+  - Blocked
+  - Paused
+  - Done
+
+priorities:
+  - P0
+  - P1
+  - P2
+  - P3
+
+scope_types:
+  - Slice
+  - Complete Feature
+  - Coverage Index
+  - Audit Repair
+
+sub_task_icons:
+  - " "
+  - "~"
+  - "x"
+
+final_reality_check:
+  required_fields:
+    - Spec Parity
+    - Spec Scope
+    - Reality Check
+    - Tests
+    - Evidence
+    - Beyond Spec Handling
+  spec_parity_values:
+    - MATCHES
+    - SCOPE_MATCHES_WITH_SPEC_GAPS_QUEUED
+    - EXCEEDS_SPEC_UPDATED
+    - EXCEEDS_USER_ACCEPTED_NO_SPEC_EDIT
+    - NO_SPEC_SURFACE
+  reality_check_prefix: "PASS - "
+  tests_no_code_marker: NO_CODE_CHANGED
+  exceeds_user_accepted_keywords:
+    - user
+    - follow-up
+    - queue
+
+placeholder_values:
+  - todo
+  - tbd
+  - placeholder
+  - "n/a?"
+  - unknown
+  - none yet
+  - open
+
+test_intent_keywords:
+  - test
+  - coverage
+  - go test
+  - bun test

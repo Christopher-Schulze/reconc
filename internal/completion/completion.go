@@ -1,6 +1,7 @@
 // Package completion generates shell completion scripts for reconc.
 // `reconc completion bash|zsh|fish` prints a ready-to-source script
-// that provides tab-completion for subcommands and the most-used flags.
+// that provides tab-completion for subcommands, hook subcommands and
+// the most-used flags.
 //
 // Scripts are generated deterministically from the Subcommands table
 // so adding a new subcommand in cli requires only a single table
@@ -22,6 +23,18 @@ type Subcommand struct {
 	Name  string
 	Help  string
 	Flags []string
+}
+
+type hookSubcommand struct {
+	Name string
+	Help string
+}
+
+var HookSubcommands = []hookSubcommand{
+	{Name: "claim", Help: "emit hook claim/evidence payloads"},
+	{Name: "generate", Help: "print one hook artifact"},
+	{Name: "install", Help: "install generated hooks into a repo"},
+	{Name: "sync-scaffold", Help: "sync repo-root scaffold hooks from generator"},
 }
 
 // Subcommands is the canonical table of all top-level reconc
@@ -52,7 +65,7 @@ var Subcommands = []Subcommand{
 	{Name: "next", Help: "friendly alias for fix --next", Flags: []string{"--read", "--write", "--command", "--command-success", "--command-failure", "--claim", "--json"}},
 	{Name: "why", Help: "print full details of one rule", Flags: []string{"--json", "--terse"}},
 	// packs & wiring
-	{Name: "hook", Help: "generate / install / claim hooks", Flags: []string{"--force", "--json", "--output"}},
+	{Name: "hook", Help: "generate / install / sync-scaffold / claim hooks", Flags: []string{"--force", "--json", "--output"}},
 	{Name: "preset", Help: "list / show bundled presets", Flags: []string{"--json", "--output"}},
 	{Name: "template", Help: "list / show rule templates", Flags: []string{"--json"}},
 	// workflow maintenance
@@ -85,10 +98,16 @@ _reconc() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"`)
 	fmt.Fprintf(w, "    local subcmds=%q\n", strings.Join(names, " "))
+	fmt.Fprintf(w, "    local hook_subcmds=%q\n", strings.Join(hookSubcommandNames(), " "))
 	fmt.Fprintln(w, `
     # First word after 'reconc' -> subcommand completion.
     if [[ ${COMP_CWORD} -eq 1 ]]; then
         COMPREPLY=($(compgen -W "${subcmds}" -- "${cur}"))
+        return 0
+    fi
+
+    if [[ "${COMP_WORDS[1]}" == "hook" && ${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=($(compgen -W "${hook_subcmds}" -- "${cur}"))
         return 0
     fi
 
@@ -136,7 +155,19 @@ _reconc() {
     fi
 
     local sub="${words[2]}"
-    local -a flags
+    if [[ "${sub}" == "hook" && ${CURRENT} == 3 ]]; then
+        local -a hook_subcmds
+        hook_subcmds=(`)
+	for _, s := range HookSubcommands {
+		fmt.Fprintf(w, "            %q\n", s.Name+":"+s.Help)
+	}
+	fmt.Fprint(w, `        )
+        _describe 'reconc hook subcommand' hook_subcmds
+        return
+    fi
+
+`)
+	fmt.Fprintln(w, `    local -a flags
     case "${sub}" in`)
 	for _, s := range Subcommands {
 		if len(s.Flags) == 0 {
@@ -171,6 +202,9 @@ func GenerateFish(w io.Writer) error {
 	for _, s := range Subcommands {
 		fmt.Fprintf(w, "complete -c reconc -n '__fish_use_subcommand' -a %q -d %q\n", s.Name, s.Help)
 	}
+	for _, s := range HookSubcommands {
+		fmt.Fprintf(w, "complete -c reconc -n '__fish_seen_subcommand_from hook' -a %q -d %q\n", s.Name, s.Help)
+	}
 	for _, s := range Subcommands {
 		for _, f := range s.Flags {
 			long := strings.TrimPrefix(f, "--")
@@ -189,6 +223,15 @@ func GenerateFish(w io.Writer) error {
 func subcommandNames() []string {
 	out := make([]string, 0, len(Subcommands))
 	for _, s := range Subcommands {
+		out = append(out, s.Name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func hookSubcommandNames() []string {
+	out := make([]string, 0, len(HookSubcommands))
+	for _, s := range HookSubcommands {
 		out = append(out, s.Name)
 	}
 	sort.Strings(out)

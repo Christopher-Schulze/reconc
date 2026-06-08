@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -36,8 +37,8 @@ type evalContext struct {
 //   - Evaluates ONLY that rule (other rules in the lockfile are skipped)
 //   - Returns a CheckReport whose decision is solely based on this one rule
 //
-// This is the primitive behind `reconc assert` (W27) which replaces
-// Golem-Office's per-assertion subcommands with one generic one.
+// This is the primitive behind `reconc assert` (W27), replacing
+// repo-specific assertion subcommands with one generic path.
 func AssertRuleByID(startPath, ruleID string, vars map[string]string, inputs ExecutionInputs) (*CheckReport, error) {
 	discovery, err := ingest.DiscoverPolicyRepo(startPath)
 	if err != nil {
@@ -52,11 +53,8 @@ func AssertRuleByID(startPath, ruleID string, vars map[string]string, inputs Exe
 	}
 	root := discovery.RepoRoot
 
-	payload, err := loadLockfile(root)
+	payload, err := loadFreshLockfile(root)
 	if err != nil {
-		return nil, err
-	}
-	if err := validateLockfileFreshness(root, payload); err != nil {
 		return nil, err
 	}
 
@@ -162,6 +160,20 @@ func AssertRuleByID(startPath, ruleID string, vars map[string]string, inputs Exe
 // inputs carry the runtime evidence (typically merged from CLI flags
 // + events file + stdin payload before this call).
 func CheckRepoPolicy(startPath string, inputs ExecutionInputs) (*CheckReport, error) {
+	return checkRepoPolicy(startPath, inputs, nil)
+}
+
+// CheckRepoPolicyForKinds evaluates only the requested top-level rule kinds
+// while keeping lockfile loading, freshness checks, path normalization and
+// unsupported-kind validation identical to CheckRepoPolicy.
+func CheckRepoPolicyForKinds(startPath string, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}) (*CheckReport, error) {
+	return checkRepoPolicy(startPath, inputs, func(kind policy.Kind) bool {
+		_, ok := allowedKinds[kind]
+		return ok
+	})
+}
+
+func checkRepoPolicy(startPath string, inputs ExecutionInputs, includeKind func(policy.Kind) bool) (*CheckReport, error) {
 	discovery, err := ingest.DiscoverPolicyRepo(startPath)
 	if err != nil {
 		return nil, err
@@ -175,11 +187,8 @@ func CheckRepoPolicy(startPath string, inputs ExecutionInputs) (*CheckReport, er
 	}
 	root := discovery.RepoRoot
 
-	payload, err := loadLockfile(root)
+	payload, err := loadFreshLockfile(root)
 	if err != nil {
-		return nil, err
-	}
-	if err := validateLockfileFreshness(root, payload); err != nil {
 		return nil, err
 	}
 
@@ -216,10 +225,33 @@ func CheckRepoPolicy(startPath string, inputs ExecutionInputs) (*CheckReport, er
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile must contain a 'rules' list"}
 	}
 	ctx := &evalContext{repoRoot: root}
+	rules := make([]map[string]interface{}, 0, len(rulesRaw))
 	for _, ruleRaw := range rulesRaw {
 		ruleMap, ok := ruleRaw.(map[string]interface{})
 		if !ok {
 			return nil, &rerrors.LockfileError{Message: "compiled lockfile contains a non-object rule entry"}
+		}
+		kindStr, _ := ruleMap["kind"].(string)
+		kind := policy.Kind(kindStr)
+		if !kind.Valid() {
+			return nil, &rerrors.LockfileError{Message: "compiled lockfile contains unsupported rule kind: " + kindStr}
+		}
+		if includeKind != nil && !includeKind(kind) {
+			continue
+		}
+		rules = append(rules, ruleMap)
+	}
+
+	batchedScripts, err := evaluateBatchedRequireScripts(ctx, rules, defaultMode, normalizedInputs, includeKind)
+	if err != nil {
+		return nil, err
+	}
+	for i, ruleMap := range rules {
+		if batchedScripts.handled[i] {
+			if v := batchedScripts.violations[i]; v != nil {
+				report.Violations = append(report.Violations, *v)
+			}
+			continue
 		}
 		v, err := evaluateRule(ctx, ruleMap, defaultMode, normalizedInputs)
 		if err != nil {
@@ -236,7 +268,277 @@ func CheckRepoPolicy(startPath string, inputs ExecutionInputs) (*CheckReport, er
 	return &report, nil
 }
 
+type batchedScriptEvaluations struct {
+	handled    map[int]bool
+	violations map[int]*Violation
+}
+
+type workflowAuditBatchKey struct {
+	scriptPath     string
+	timeoutSec     int
+	killTimeoutSec int
+}
+
+type workflowAuditBatchItem struct {
+	index    int
+	rule     map[string]interface{}
+	mode     string
+	contexts []matchContext
+}
+
+type workflowAuditBatchOutput struct {
+	Results []workflowAuditBatchResult `json:"results"`
+}
+
+type workflowAuditBatchResult struct {
+	Mode     string   `json:"mode"`
+	Failures []string `json:"failures"`
+}
+
+func evaluateBatchedRequireScripts(ctx *evalContext, rules []map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs, includeKind func(policy.Kind) bool) (batchedScriptEvaluations, error) {
+	results := batchedScriptEvaluations{
+		handled:    map[int]bool{},
+		violations: map[int]*Violation{},
+	}
+	if includeKind != nil && !includeKind(policy.KindRequireScript) {
+		return results, nil
+	}
+
+	groups := map[workflowAuditBatchKey][]workflowAuditBatchItem{}
+	groupOrder := []workflowAuditBatchKey{}
+	for i, rule := range rules {
+		scriptPath, mode, timeoutSec, killTimeoutSec, ok := workflowAuditBatchCandidate(rule)
+		if !ok {
+			continue
+		}
+		contexts, err := collectMatchContexts(inputs.WritePaths, stringListField(rule, "when_paths"))
+		if err != nil {
+			return results, err
+		}
+		if len(contexts) == 0 {
+			continue
+		}
+
+		key := workflowAuditBatchKey{scriptPath: scriptPath, timeoutSec: timeoutSec, killTimeoutSec: killTimeoutSec}
+		if _, ok := groups[key]; !ok {
+			groupOrder = append(groupOrder, key)
+		}
+		groups[key] = append(groups[key], workflowAuditBatchItem{
+			index:    i,
+			rule:     rule,
+			mode:     mode,
+			contexts: contexts,
+		})
+	}
+
+	for _, key := range groupOrder {
+		items := groups[key]
+		if len(items) < 2 {
+			continue
+		}
+		modes := uniqueBatchModes(items)
+		if len(modes) == 0 {
+			continue
+		}
+
+		args := append([]string{"--batch-json"}, modes...)
+		input := ScriptInput{
+			RuleID:         "workflow-audit-batch",
+			RepoRoot:       ctx.repoRoot,
+			Captures:       map[string]string{},
+			WritePaths:     inputs.WritePaths,
+			ReadPaths:      inputs.ReadPaths,
+			Commands:       inputs.Commands,
+			Claims:         inputs.Claims,
+			CommandResults: inputs.CommandResults,
+		}
+		outcome, err := RunScript(ctx.repoRoot, key.scriptPath, args, input, key.timeoutSec, key.killTimeoutSec)
+		if err != nil || (outcome.Status != "pass" && outcome.Status != "block") {
+			continue
+		}
+		failuresByMode, ok := parseWorkflowAuditBatchOutput(outcome.Stdout, modes)
+		if !ok {
+			continue
+		}
+
+		for _, item := range items {
+			results.handled[item.index] = true
+			failures := failuresByMode[item.mode]
+			if len(failures) == 0 {
+				continue
+			}
+			triggeredPaths := triggeredPathsForContexts(item.contexts)
+			v := buildViolation(item.rule, defaultMode, triggeredPaths, nil, nil, []string{key.scriptPath}, nil, nil)
+			details := batchScriptFailureDetails(key.scriptPath, failures)
+			v.Explanation = fmt.Sprintf(
+				"Write activity %s triggered require_script rule '%s'. %s",
+				joinForHumans(triggeredPaths), v.RuleID, strings.Join(details, "; "),
+			)
+			v.RecommendedAction = batchScriptRecommendedAction(details)
+			results.violations[item.index] = v
+		}
+	}
+
+	return results, nil
+}
+
+func workflowAuditBatchCandidate(rule map[string]interface{}) (scriptPath, mode string, timeoutSec, killTimeoutSec int, ok bool) {
+	kindStr, _ := rule["kind"].(string)
+	if policy.Kind(kindStr) != policy.KindRequireScript {
+		return "", "", 0, 0, false
+	}
+	scriptPath, _ = rule["script"].(string)
+	slashScriptPath := filepath.ToSlash(scriptPath)
+	if scriptPath == "" || HasTemplateVars(scriptPath) || !strings.HasPrefix(slashScriptPath, "tools/reconc/harness/") || !strings.HasSuffix(slashScriptPath, "/audits/run-workflow-audit") {
+		return "", "", 0, 0, false
+	}
+	rawArgs, _ := rule["args"].([]interface{})
+	if len(rawArgs) != 1 {
+		return "", "", 0, 0, false
+	}
+	mode, ok = rawArgs[0].(string)
+	if !ok || mode == "" || HasTemplateVars(mode) {
+		return "", "", 0, 0, false
+	}
+	timeoutSec = int(numAsIntDefault(rule["timeout_sec"], 0))
+	killTimeoutSec = int(numAsIntDefault(rule["kill_timeout_sec"], 0))
+	return scriptPath, mode, timeoutSec, killTimeoutSec, true
+}
+
+func uniqueBatchModes(items []workflowAuditBatchItem) []string {
+	seen := map[string]struct{}{}
+	modes := make([]string, 0, len(items))
+	for _, item := range items {
+		if _, ok := seen[item.mode]; ok {
+			continue
+		}
+		seen[item.mode] = struct{}{}
+		modes = append(modes, item.mode)
+	}
+	return modes
+}
+
+func parseWorkflowAuditBatchOutput(stdout string, expectedModes []string) (map[string][]string, bool) {
+	var output workflowAuditBatchOutput
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &output); err != nil {
+		return nil, false
+	}
+	failuresByMode := map[string][]string{}
+	for _, result := range output.Results {
+		failuresByMode[result.Mode] = result.Failures
+	}
+	for _, mode := range expectedModes {
+		if _, ok := failuresByMode[mode]; !ok {
+			return nil, false
+		}
+	}
+	return failuresByMode, true
+}
+
+func triggeredPathsForContexts(contexts []matchContext) []string {
+	paths := []string{}
+	for _, mc := range contexts {
+		paths = appendUnique(paths, mc.path)
+	}
+	return paths
+}
+
+func batchScriptFailureDetails(scriptPath string, failures []string) []string {
+	details := make([]string, 0, len(failures))
+	for _, failure := range failures {
+		failure = strings.TrimSpace(failure)
+		if failure == "" {
+			continue
+		}
+		details = append(details, fmt.Sprintf("script %s blocked: %s", scriptPath, failure))
+	}
+	if len(details) == 0 {
+		return []string{fmt.Sprintf("script %s blocked: no output", scriptPath)}
+	}
+	return details
+}
+
+func batchScriptRecommendedAction(details []string) string {
+	detail := strings.Join(details, "; ")
+	runes := []rune(detail)
+	if len(runes) > 600 {
+		detail = string(runes[:600]) + "..."
+	}
+	return "Resolve batch audit failure(s): " + detail
+}
+
+func scriptRecommendedAction(failures []string) string {
+	detail := strings.Join(failures, "; ")
+	runes := []rune(detail)
+	if len(runes) > 600 {
+		detail = string(runes[:600]) + "..."
+	}
+	return "Resolve script failure(s): " + detail
+}
+
 // --- Lockfile loading + freshness ---
+
+const autoCompileVersion = "runtime-auto"
+
+func loadFreshLockfile(root string) (map[string]interface{}, error) {
+	payload, err := loadLockfile(root)
+	if err != nil {
+		if !lockfileCanAutoCompile(err) {
+			return nil, err
+		}
+		return autoCompileAndLoadLockfile(root, err)
+	}
+	if err := validateLockfileFreshness(root, payload); err != nil {
+		if !lockfileCanAutoCompile(err) {
+			return nil, err
+		}
+		return autoCompileAndLoadLockfile(root, err)
+	}
+	return payload, nil
+}
+
+func autoCompileAndLoadLockfile(root string, cause error) (map[string]interface{}, error) {
+	_, err := compiler.CompileRepoPolicy(root, autoCompileVersion)
+	if err != nil {
+		if strings.Contains(err.Error(), "another reconc compile is in progress") {
+			for i := 0; i < 20; i++ {
+				time.Sleep(100 * time.Millisecond)
+				payload, loadErr := loadLockfile(root)
+				if loadErr != nil {
+					continue
+				}
+				if freshErr := validateLockfileFreshness(root, payload); freshErr == nil {
+					return payload, nil
+				}
+			}
+		}
+		return nil, &rerrors.LockfileError{Message: "auto-compile failed after stale lockfile check: " + err.Error(), Cause: cause}
+	}
+	payload, err := loadLockfile(root)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateLockfileFreshness(root, payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
+}
+
+func lockfileCanAutoCompile(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := err.Error()
+	if strings.Contains(message, "repo_root does not match") ||
+		strings.Contains(message, "schema does not match") ||
+		strings.Contains(message, "migration") ||
+		strings.Contains(message, "format_version") {
+		return false
+	}
+	return strings.Contains(message, "run `reconc compile`") ||
+		strings.Contains(message, "compiled lockfile not found") ||
+		strings.Contains(message, "source_digest does not match")
+}
 
 func loadLockfile(root string) (map[string]interface{}, error) {
 	lf := filepath.Join(root, ingest.LockfilePath)
@@ -394,8 +696,8 @@ func resolveAncestorSymlinks(path string) string {
 
 // sameCanonicalPath reports whether two paths refer to the same
 // filesystem location after symlink resolution. Used by the lockfile
-// loader so macOS /var <-> /private/var symlink drift doesn't reject
-// a legitimate lockfile.
+// loader so macOS /var <-> /private/var symlink drift and case-variant
+// mount aliases don't reject a legitimate lockfile.
 //
 // EvalSymlinks can fail when a path doesn't exist. In that case we
 // fall back to filepath.Clean comparison, which is the best we can
@@ -407,7 +709,12 @@ func sameCanonicalPath(a, b string) bool {
 	ca, aerr := filepath.EvalSymlinks(a)
 	cb, berr := filepath.EvalSymlinks(b)
 	if aerr == nil && berr == nil {
-		return ca == cb
+		if ca == cb {
+			return true
+		}
+		aInfo, aStatErr := os.Stat(ca)
+		bInfo, bStatErr := os.Stat(cb)
+		return aStatErr == nil && bStatErr == nil && os.SameFile(aInfo, bInfo)
 	}
 	// One or both paths don't resolve; fall back to cleaned strings.
 	return filepath.Clean(a) == filepath.Clean(b)
@@ -481,6 +788,136 @@ func normalizePaths(paths []string, root string) ([]string, error) {
 // Empty / whitespace-only strings become empty.
 func normalizeWhitespace(s string) string {
 	return strings.Join(strings.Fields(s), " ")
+}
+
+// normalizeCommandSemantics applies idempotent semantic normalisations
+// that reflect transparent wrapping by other tools so that
+// require_command / require_command_success / forbid_command rules can
+// be authored in their literal-intent form even when the recorded
+// command was rewritten by a CLI proxy or anchored to an absolute path
+// by the agent runtime.
+//
+// Two normalisations are layered on top of normalizeWhitespace:
+//
+//  1. RTK proxy prefix: the literal token "rtk " is stripped at the
+//     start of the command and after every shell compound boundary
+//     (" && ", " || ", " ; ", " | ", " & "). The trailing space in the
+//     match prevents false positives like a directory named /rtkfoo or
+//     a literal command named rtk-tool.
+//  2. Absolute repo path in cd: "cd <repoRoot>" becomes "cd ." and
+//     "cd <repoRoot>/<sub>" becomes "cd <sub>", but only when the cd
+//     argument is the repo root prefix at a segment boundary. A
+//     command like `echo /<repoRoot>` is untouched because no `cd ` is
+//     at segment start.
+//
+// repoRoot may be empty; in that case only the RTK prefix strip runs.
+// The transformation is applied to BOTH sides of every command match
+// so forbid-rule semantics stay exact (a literal `rm -rf /` still
+// matches only `rm -rf /` and `rtk rm -rf /`, not `echo "rm -rf /"`).
+//
+// Applied repeatedly the function is idempotent: every pass after the
+// first returns the same string.
+func normalizeCommandSemantics(cmd, repoRoot string) string {
+	cmd = normalizeWhitespace(cmd)
+	if cmd == "" {
+		return ""
+	}
+	repoRoot = strings.TrimRight(strings.TrimSpace(repoRoot), "/")
+	segments := splitCommandSegments(cmd)
+	for i := range segments {
+		segments[i].body = normalizeSegmentBody(segments[i].body, repoRoot)
+	}
+	var out strings.Builder
+	for i, s := range segments {
+		if i > 0 {
+			out.WriteString(s.sep)
+		}
+		out.WriteString(s.body)
+	}
+	return normalizeWhitespace(out.String())
+}
+
+// commandSegment is one slice of a normalized command between shell
+// compound boundaries. The first segment has sep == "".
+type commandSegment struct {
+	sep  string
+	body string
+}
+
+// commandSegmentSeparators lists the shell compound boundaries that
+// start a new command position. Order matters: longer separators
+// must precede shorter overlapping ones so " && " is preferred over
+// " & " when both could match. After normalizeWhitespace these
+// boundaries always appear in their single-space canonical form.
+var commandSegmentSeparators = []string{" && ", " || ", " ; ", " | ", " & "}
+
+// splitCommandSegments splits a whitespace-normalized command into
+// segments at every shell compound boundary while preserving the
+// separators so the command can be reconstructed verbatim.
+func splitCommandSegments(cmd string) []commandSegment {
+	segments := []commandSegment{{sep: "", body: cmd}}
+	for {
+		progress := false
+		next := make([]commandSegment, 0, len(segments)+1)
+		for _, s := range segments {
+			bestIdx := -1
+			bestSep := ""
+			for _, sep := range commandSegmentSeparators {
+				if i := strings.Index(s.body, sep); i >= 0 {
+					if bestIdx < 0 || i < bestIdx {
+						bestIdx = i
+						bestSep = sep
+					}
+				}
+			}
+			if bestIdx < 0 {
+				next = append(next, s)
+				continue
+			}
+			next = append(next,
+				commandSegment{sep: s.sep, body: s.body[:bestIdx]},
+				commandSegment{sep: bestSep, body: s.body[bestIdx+len(bestSep):]},
+			)
+			progress = true
+		}
+		segments = next
+		if !progress {
+			return segments
+		}
+	}
+}
+
+// normalizeSegmentBody applies the two semantic normalisations to one
+// command segment body (the text between compound boundaries).
+//
+// The cd-arg path is cleaned via path.Clean before comparison so that
+// `cd /repo/`, `cd /repo/.`, `cd /repo//sub`, and `cd /repo/sub/..` all
+// resolve to their canonical forms relative to repoRoot. Cleaning is
+// only applied to unquoted absolute-style arguments to avoid touching
+// `cd "/path with spaces"` and similar quoted forms.
+func normalizeSegmentBody(body, repoRoot string) string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return body
+	}
+	if strings.HasPrefix(body, "rtk ") {
+		body = strings.TrimSpace(body[len("rtk "):])
+	}
+	if repoRoot != "" && strings.HasPrefix(body, "cd ") {
+		arg := strings.TrimSpace(body[len("cd "):])
+		// Skip quote-wrapped arguments — path.Clean would mishandle
+		// embedded spaces in quoted shell tokens.
+		if !strings.HasPrefix(arg, "\"") && !strings.HasPrefix(arg, "'") {
+			cleaned := path.Clean(arg)
+			cleanedRoot := path.Clean(repoRoot)
+			if cleaned == cleanedRoot {
+				body = "cd ."
+			} else if strings.HasPrefix(cleaned, cleanedRoot+"/") {
+				body = "cd " + strings.TrimPrefix(cleaned, cleanedRoot+"/")
+			}
+		}
+	}
+	return body
 }
 
 func normalizeCommands(commands []string) []string {
@@ -609,11 +1046,11 @@ func evaluateRule(ctx *evalContext, rule map[string]interface{}, defaultMode pol
 	case policy.KindRequireClaim:
 		return evalRequireClaim(rule, defaultMode, inputs)
 	case policy.KindForbidCommand:
-		return evalForbidCommand(rule, defaultMode, inputs)
+		return evalForbidCommand(ctx, rule, defaultMode, inputs)
 	case policy.KindRequireCommand:
-		return evalRequireCommand(rule, defaultMode, inputs, false)
+		return evalRequireCommand(ctx, rule, defaultMode, inputs, false)
 	case policy.KindRequireCommandSuccess:
-		return evalRequireCommand(rule, defaultMode, inputs, true)
+		return evalRequireCommand(ctx, rule, defaultMode, inputs, true)
 	case policy.KindRequireFreshFile:
 		return evalRequireFreshFile(ctx, rule, defaultMode, inputs)
 	case policy.KindRequireEvidence:
@@ -705,7 +1142,7 @@ func evalRequireScript(ctx *evalContext, rule map[string]interface{}, defaultMod
 		"Write activity %s triggered require_script rule '%s'. %s",
 		joinForHumans(triggeredPaths), v.RuleID, strings.Join(failures, "; "),
 	)
-	v.RecommendedAction = "Inspect the script output above; resolve the reported failure and re-run."
+	v.RecommendedAction = scriptRecommendedAction(failures)
 	return v, nil
 }
 
@@ -1126,9 +1563,9 @@ func evalRequireClaim(rule map[string]interface{}, defaultMode policy.Mode, inpu
 	return buildViolation(rule, defaultMode, triggered, nil, nil, nil, nil, required), nil
 }
 
-func evalForbidCommand(rule map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
+func evalForbidCommand(ctx *evalContext, rule map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
 	required := stringListField(rule, "commands")
-	forbidden := matchingCommands(inputs.Commands, required)
+	forbidden := matchingCommands(inputs.Commands, required, ctxRepoRoot(ctx))
 	if len(forbidden) == 0 {
 		return nil, nil
 	}
@@ -1147,7 +1584,7 @@ func evalForbidCommand(rule map[string]interface{}, defaultMode policy.Mode, inp
 	return buildViolation(rule, defaultMode, triggered, forbidden, nil, nil, nil, nil), nil
 }
 
-func evalRequireCommand(rule map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs, requireSuccess bool) (*Violation, error) {
+func evalRequireCommand(ctx *evalContext, rule map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs, requireSuccess bool) (*Violation, error) {
 	triggered, err := matchingPaths(inputs.WritePaths, stringListField(rule, "when_paths"))
 	if err != nil {
 		return nil, err
@@ -1157,15 +1594,26 @@ func evalRequireCommand(rule map[string]interface{}, defaultMode policy.Mode, in
 	}
 	required := stringListField(rule, "commands")
 	var matched []string
+	repoRoot := ctxRepoRoot(ctx)
 	if requireSuccess {
-		matched = matchingCommandResults(inputs.CommandResults, required, CommandOutcomeSuccess)
+		matched = matchingCommandResults(inputs.CommandResults, required, CommandOutcomeSuccess, repoRoot)
 	} else {
-		matched = matchingCommands(inputs.Commands, required)
+		matched = matchingCommands(inputs.Commands, required, repoRoot)
 	}
 	if len(matched) > 0 {
 		return nil, nil
 	}
 	return buildViolation(rule, defaultMode, triggered, nil, nil, nil, required, nil), nil
+}
+
+// ctxRepoRoot returns ctx.repoRoot if ctx is non-nil; otherwise the
+// empty string. Lets matchers and evaluators safely access the root
+// without nil-checking at every call site.
+func ctxRepoRoot(ctx *evalContext) string {
+	if ctx == nil {
+		return ""
+	}
+	return ctx.repoRoot
 }
 
 // --- Match helpers (operate on already-normalized inputs) ---
@@ -1211,48 +1659,131 @@ func matchingCoupledPaths(writes, triggered, required []string) ([]string, error
 	return out, nil
 }
 
-func matchingCommands(commands, expected []string) []string {
+func matchingCommands(commands, expected []string, repoRoot string) []string {
 	if len(expected) == 0 {
 		return nil
 	}
 	// Normalise both sides of the comparison so whitespace variation
-	// can't defeat require_command /
-	// forbid_command. The `commands` slice is already normalised by
-	// normalizeCommands; `expected` comes straight from the lockfile
-	// rule payload and may contain operator-authored double-spaces,
-	// tabs, or newlines.
+	// can't defeat require_command / forbid_command, and so the literal
+	// rule form matches commands that were transparently wrapped by a
+	// CLI proxy (e.g. `rtk go test ...`) or anchored to an absolute
+	// repo path by the agent runtime (e.g.
+	// `cd /Users/.../repo/sub && ...`). normalizeCommandSemantics
+	// applies both transformations to expected and recorded sides.
 	expectedSet := map[string]struct{}{}
 	for _, e := range expected {
-		expectedSet[normalizeWhitespace(e)] = struct{}{}
+		expectedSet[normalizeCommandSemantics(e, repoRoot)] = struct{}{}
 	}
 	out := []string{}
 	for _, c := range commands {
-		if _, ok := expectedSet[normalizeWhitespace(c)]; ok {
+		if _, ok := expectedSet[normalizeCommandSemantics(c, repoRoot)]; ok {
 			out = append(out, c)
 		}
 	}
 	return out
 }
 
-func matchingCommandResults(results []CommandResult, expected []string, outcome string) []string {
+func matchingCommandResults(results []CommandResult, expected []string, outcome string, repoRoot string) []string {
 	if len(expected) == 0 {
 		return nil
 	}
-	// Normalise both sides of the comparison.
+	// Normalise both sides of the comparison (whitespace + RTK prefix +
+	// absolute repoRoot in cd). See matchingCommands for the rationale.
 	expectedSet := map[string]struct{}{}
 	for _, e := range expected {
-		expectedSet[normalizeWhitespace(e)] = struct{}{}
+		expectedSet[normalizeCommandSemantics(e, repoRoot)] = struct{}{}
 	}
 	out := []string{}
 	for _, r := range results {
 		if r.Outcome != outcome {
 			continue
 		}
-		if _, ok := expectedSet[normalizeWhitespace(r.Command)]; ok {
+		norm := normalizeCommandSemantics(r.Command, repoRoot)
+		if _, ok := expectedSet[norm]; ok {
 			out = append(out, r.Command)
+			continue
+		}
+		// Tolerate trailing output REDIRECTIONS only (e.g. a rule
+		// `cd x && go test ./...` is satisfied by a recorded
+		// `cd x && go test ./... 2>&1` or `... > out.log`). Redirections
+		// keep the command's own exit status, so a recorded success is
+		// genuine. Pipes are deliberately NOT stripped: a pipeline's exit
+		// status is the last stage's, so `go test ./... | tail` could
+		// record success even when the test failed - tolerating it would
+		// weaken require_command_success.
+		if stripped := stripTrailingRedirects(norm); stripped != norm {
+			if _, ok := expectedSet[stripped]; ok {
+				out = append(out, r.Command)
+			}
 		}
 	}
 	return out
+}
+
+// stripTrailingRedirects removes trailing shell output-redirection clauses from
+// a whitespace-normalized command, leaving the command and its arguments and
+// any pipeline intact. It strips forms like ` 2>&1`, ` > file`, ` >>log`,
+// ` 2> err`, ` < in`; it never strips a pipe (`| ...`) or a plain argument, so
+// it cannot mask a failed pipeline or count a different command as success.
+// Used only by require_command_success matching (matchingCommandResults), never
+// by forbid_command, so forbid semantics stay exact.
+func stripTrailingRedirects(cmd string) string {
+	fields := strings.Fields(cmd)
+	for len(fields) > 1 {
+		last := fields[len(fields)-1]
+		switch {
+		case isRedirectStart(last):
+			// Self-contained redirect token: ">file", "2>&1", ">>", "<in".
+			fields = fields[:len(fields)-1]
+		case isRedirectOperatorOnly(fields[len(fields)-2]) && isPlainRedirectTarget(last):
+			// Spaced redirect: "> file", "2> err", "< in".
+			fields = fields[:len(fields)-2]
+		default:
+			return strings.Join(fields, " ")
+		}
+	}
+	return strings.Join(fields, " ")
+}
+
+// isRedirectStart reports whether tok begins a shell redirection: an optional
+// fd number, an optional leading '&', then '>' or '<' (so ">file", "2>&1",
+// ">>", "&>log", "<in" qualify, but "a>b", "file", "123" do not).
+func isRedirectStart(tok string) bool {
+	i := 0
+	for i < len(tok) && tok[i] >= '0' && tok[i] <= '9' {
+		i++
+	}
+	if i < len(tok) && tok[i] == '&' {
+		i++
+	}
+	return i < len(tok) && (tok[i] == '>' || tok[i] == '<')
+}
+
+// isRedirectOperatorOnly reports whether tok is a bare redirect operator with
+// no fused target (">", ">>", "2>", "&>", "<", "2>&1"): only digits, '&', '<',
+// '>' characters and at least one '<' or '>'.
+func isRedirectOperatorOnly(tok string) bool {
+	hasRedir := false
+	for _, c := range tok {
+		switch {
+		case c >= '0' && c <= '9', c == '&':
+		case c == '<' || c == '>':
+			hasRedir = true
+		default:
+			return false
+		}
+	}
+	return hasRedir
+}
+
+// isPlainRedirectTarget reports whether tok is a plausible redirect target (a
+// filename), i.e. it carries no shell metacharacters that would make it part of
+// a pipeline or another command.
+func isPlainRedirectTarget(tok string) bool {
+	if tok == "" {
+		return false
+	}
+	return !strings.ContainsAny(tok, "|&;<>")
 }
 
 func matchingClaims(claims, expected []string) []string {

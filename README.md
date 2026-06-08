@@ -16,8 +16,8 @@ no daemon, no runtime network dependency.
   missing claims, stale evidence, and unsafe hook activity
 - fails closed on stale lockfiles, schema drift, invalid globs, unsupported rule
   kinds, and repository-root mismatch
-- installs git hooks plus native Claude Code and Codex hooks when those agent
-  configs exist
+- installs git hooks plus native Claude Code, Codex and Cursor hooks, including
+  PermissionRequest gates, when those agent configs exist
 - gives agents one short remediation path with `reconc next .` and one final
   task gate with `reconc done .`
 
@@ -41,8 +41,9 @@ reconc setup .
 ```
 
 `setup` scaffolds missing repo policy, compiles the local lockfile, installs a
-git pre-commit hook, and wires Claude Code / Codex hooks when `.claude/` or
-`.codex/` already exist.
+git pre-commit hook, and wires Claude Code / Codex / Cursor / OpenCode /
+Antigravity hooks when `.claude/`, `.codex/`, `.cursor/`, `.opencode/` or
+`.agents/` already exist.
 
 Daily loop:
 
@@ -114,8 +115,50 @@ other coding agents. The skill gives every agent the same workflow:
 - run `reconc done .` before claiming completion
 - distinguish native hook enforcement from CLI self-checks
 
-Claude Code and Codex have native hook wiring. OpenCode and other agents use
-the same CLI loop plus git pre-commit as the hard repository backstop.
+Claude Code, Codex, Cursor, OpenCode and Antigravity have repo-local
+prompt/tool/stop hook wiring;
+Codex also needs `hooks = true` in an active `config.toml` and routes
+`apply_patch` through Reconc by parsing patch headers from
+`tool_input.command`. Cursor Desktop uses `.cursor/hooks.json` with
+`preToolUse` as the pre-write gate, `afterFileEdit`/`afterTabFileEdit` plus
+`postToolUse` as evidence backstops for Cursor write aliases including
+`StrReplace`, `Delete`, and `FileEdit`, `beforeSubmitPrompt` for standalone
+`/degenmode`, and `stop` via Cursor-native `followup_message`. Clean Cursor
+hook paths emit explicit `{"continue":true,"permission":"allow"}` JSON because
+Cursor fail-closed hooks treat empty stdout as hook failure. OpenCode uses
+`.opencode/plugins/reconc.js`
+with `chat.message`, `tool.execute.*`, `permission.ask`, and `session.idle`;
+Antigravity uses `.agents/hooks.json` with `PreInvocation`, `PreToolUse`,
+`PostToolUse`, `PostInvocation`, and `Stop`; Reconc stores Antigravity
+PreTool metadata as pending evidence so PostToolUse can record exact
+read/write/command evidence even when the post payload only carries the step
+index/result.
+Degenmode activation is prompt-only and requires a standalone `/degenmode`
+slash-command flag in sanitized real user prompt text, so quoted transcripts,
+hook prompts, stop feedback, code fences, tool text, and errors cannot start
+it accidentally. Degenmode runs are session- and runtime-scoped: a normal
+same-session prompt stops that run, except a same-session `/btw` side-channel
+prompt, which preserves the active run; prompts, interrupts, session ends, or
+stop markers from another agent runtime or session in the same repo must not
+stop the active run.
+`.reconc/degenmode/stop` is scoped to the active run and agent runtime and
+clears when a new standalone `/degenmode` prompt starts a run. Stop hooks cache
+only the policy report, never the final stop output; `awaiting_continuation`
+alone is not a hard stop reason, so Reconc may re-emit the continuation prompt
+until progress or the no-progress guard decides. Degenmode decisions are logged
+to `.reconc/degenmode/decisions.jsonl`. Repeated identical policy blocks stay
+blocking but shrink to rule IDs plus the saved report path. All platforms
+still use git pre-commit as the hard repository backstop. PreToolUse evaluates
+only pre-execution write rules; all PostToolUse / after-shell events record
+evidence only and never run repo-wide policy audits. Stop and explicit Reconc
+checks remain the hard enforcement points. The Stop fingerprint uses git status
+with default `--untracked-files=normal`, dirty-path content/index hashes, and a
+per-session report lock instead of full `git diff --binary` output or repeated
+parallel checks. Set `RECONC_STOP_FINGERPRINT_UNTRACKED=all` only when a repo
+needs every untracked path in the Stop cache key.
+When multiple active `require_script` rules call the same `run-workflow-audit`
+runner, Reconc batches them through `--batch-json` in one process while still
+mapping pass/block output back to the original rule IDs.
 
 ## Policy Files
 
@@ -129,7 +172,10 @@ Do not commit generated runtime state:
 
 - `.reconc/policy.lock.json`
 - `.reconc/audit.jsonl*`
+- `.reconc/cache/`
+- `.reconc/locks/`
 - `.reconc/sessions/`
+- `.reconc/reports/`
 - `dist/`
 
 ## Documentation
@@ -157,7 +203,7 @@ reconc <command> --help
 
 ## Status
 
-`reconc` is released on the `v0.4.x` line. Core local gates pass, and release
+`reconc` is released on the `v0.5.x` line. Core local gates pass, and release
 artifacts are produced by the GitHub release workflow when a `reconc-v*` tag is
 pushed.
 

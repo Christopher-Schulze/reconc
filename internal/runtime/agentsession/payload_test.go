@@ -143,7 +143,7 @@ func TestParsePayloadRejectsUnbalancedBraces(t *testing.T) {
 }
 
 func TestParsePayloadIsWriteTool(t *testing.T) {
-	for _, name := range []string{"Edit", "MultiEdit", "Write"} {
+	for _, name := range []string{"Edit", "MultiEdit", "Write", "apply_patch"} {
 		raw := `{"session_id":"s1","tool_name":"` + name + `"}`
 		p, _ := ParsePayload([]byte(raw))
 		if !p.IsWriteTool() {
@@ -157,6 +157,33 @@ func TestParsePayloadIsWriteTool(t *testing.T) {
 	}
 	if !p.IsReadTool() {
 		t.Error("Read should be a read tool")
+	}
+}
+
+func TestParsePayloadApplyPatchFilePaths(t *testing.T) {
+	raw := `{
+		"session_id": "s1",
+		"tool_name": "apply_patch",
+		"tool_input": {
+			"command": "*** Begin Patch\n*** Add File: generated/a.go\n+package generated\n*** Update File: src/b.go\n@@\n-old\n+new\n*** Move to: src/c.go\n*** Delete File: generated/d.go\n*** End Patch"
+		}
+	}`
+	p, err := ParsePayload([]byte(raw))
+	if err != nil {
+		t.Fatalf("ParsePayload: %v", err)
+	}
+	want := []string{"generated/a.go", "src/b.go", "src/c.go", "generated/d.go"}
+	got := p.FilePaths()
+	if len(got) != len(want) {
+		t.Fatalf("FilePaths length wrong: got %v want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("FilePaths[%d] = %q, want %q (all: %v)", i, got[i], want[i], got)
+		}
+	}
+	if p.FilePath() != "generated/a.go" {
+		t.Errorf("FilePath() should return first path, got %q", p.FilePath())
 	}
 }
 
@@ -178,5 +205,16 @@ func TestParsePayloadStopHookActive(t *testing.T) {
 	p2, _ := ParsePayload([]byte(`{"session_id":"s1"}`))
 	if p2.StopHookActive {
 		t.Error("expected StopHookActive=false when absent")
+	}
+}
+
+func TestParsePayloadOpenCodeContinuationDriver(t *testing.T) {
+	p, _ := ParsePayload([]byte(`{"session_id":"s1","opencode_continuation_driver":true}`))
+	if !p.OpenCodeContinuationDriver {
+		t.Error("expected OpenCodeContinuationDriver=true")
+	}
+	p2, _ := ParsePayload([]byte(`{"session_id":"s1"}`))
+	if p2.OpenCodeContinuationDriver {
+		t.Error("expected OpenCodeContinuationDriver=false when absent")
 	}
 }

@@ -44,6 +44,6 @@ go run ./cmd/reconc doctor . --deep
 
 ## Current Release State
 
-The current public release line is `v0.4.x`. Core tests, race tests, vet,
+The current public release line is `v0.5.x`. Core tests, race tests, vet,
 static analysis, and release artifact generation are expected to pass before
 release.

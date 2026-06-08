@@ -9,7 +9,7 @@ func TestTopLevelHelpReflectsCurrentSurface(t *testing.T) {
 	var stdout strings.Builder
 	var stderr strings.Builder
 
-	if err := Run([]string{"--help"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"--help"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("--help: %v", err)
 	}
 

@@ -1,0 +1,58 @@
+//go:build windows
+
+package agentsession
+
+import (
+	"fmt"
+	"os"
+	"syscall"
+	"unsafe"
+)
+
+const lockfileExclusiveLock = 0x00000002
+
+var (
+	kernel32         = syscall.NewLazyDLL("kernel32.dll")
+	procLockFileEx   = kernel32.NewProc("LockFileEx")
+	procUnlockFileEx = kernel32.NewProc("UnlockFileEx")
+)
+
+func lockSessionFile(file *os.File) (func() error, error) {
+	handle := syscall.Handle(file.Fd())
+	overlapped := &syscall.Overlapped{}
+	if err := lockFileEx(handle, lockfileExclusiveLock, 0, 1, 0, overlapped); err != nil {
+		return nil, err
+	}
+	return func() error {
+		return unlockFileEx(handle, 0, 1, 0, overlapped)
+	}, nil
+}
+
+func lockFileEx(handle syscall.Handle, flags, reserved, lowBytes, highBytes uint32, overlapped *syscall.Overlapped) error {
+	r1, _, err := procLockFileEx.Call(
+		uintptr(handle),
+		uintptr(flags),
+		uintptr(reserved),
+		uintptr(lowBytes),
+		uintptr(highBytes),
+		uintptr(unsafe.Pointer(overlapped)),
+	)
+	if r1 == 0 {
+		return fmt.Errorf("LockFileEx: %w", err)
+	}
+	return nil
+}
+
+func unlockFileEx(handle syscall.Handle, reserved, lowBytes, highBytes uint32, overlapped *syscall.Overlapped) error {
+	r1, _, err := procUnlockFileEx.Call(
+		uintptr(handle),
+		uintptr(reserved),
+		uintptr(lowBytes),
+		uintptr(highBytes),
+		uintptr(unsafe.Pointer(overlapped)),
+	)
+	if r1 == 0 {
+		return fmt.Errorf("UnlockFileEx: %w", err)
+	}
+	return nil
+}

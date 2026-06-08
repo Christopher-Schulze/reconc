@@ -20,6 +20,8 @@
 //     events.
 //   - state is rewritten atomically via a tmp-then-rename dance so a
 //     crash mid-write doesn't produce a half-parsed file.
+//   - session mutations are serialized with a per-session file lock and
+//     unique temp files so parallel agent tool events cannot race.
 package agentsession
 
 import (
@@ -50,18 +52,29 @@ type CommandResult struct {
 	IsInterrupt *bool  `json:"is_interrupt,omitempty"`
 }
 
+type PendingToolCall struct {
+	ToolName  string                 `json:"tool_name"`
+	ToolInput map[string]interface{} `json:"tool_input"`
+	ToolUseID string                 `json:"tool_use_id,omitempty"`
+}
+
 // SessionState is the on-disk shape of one agent session's accumulated
 // evidence. Every field is JSON-tagged so adding a new one is strictly
 // additive for back-compat.
 type SessionState struct {
-	RepoRoot       string          `json:"repo_root"`
-	SessionID      string          `json:"session_id"`
-	ReadPaths      []string        `json:"read_paths"`
-	WritePaths     []string        `json:"write_paths"`
-	Commands       []string        `json:"commands"`
-	Claims         []string        `json:"claims"`
-	CommandResults []CommandResult `json:"command_results"`
-	ReportPath     string          `json:"report_path"`
+	RepoRoot                   string                     `json:"repo_root"`
+	SessionID                  string                     `json:"session_id"`
+	ReadPaths                  []string                   `json:"read_paths"`
+	WritePaths                 []string                   `json:"write_paths"`
+	Commands                   []string                   `json:"commands"`
+	Claims                     []string                   `json:"claims"`
+	CommandResults             []CommandResult            `json:"command_results"`
+	ReportPath                 string                     `json:"report_path"`
+	StopPolicyFingerprint      string                     `json:"stop_policy_fingerprint,omitempty"`
+	StopPolicyEvidenceHash     string                     `json:"stop_policy_evidence_hash,omitempty"`
+	StopPolicyReportHash       string                     `json:"stop_policy_report_hash,omitempty"`
+	LastStopBlockViolationHash string                     `json:"last_stop_block_violation_hash,omitempty"`
+	PendingToolCalls           map[string]PendingToolCall `json:"pending_tool_calls,omitempty"`
 }
 
 // emptyState builds a fresh, unpopulated state for a (repo, session).
@@ -125,6 +138,10 @@ func activeSessionPath(repoRoot string) string {
 	return filepath.Join(projectDir(repoRoot), "active-session.txt")
 }
 
+func sessionLockPath(repoRoot, sessionID string) string {
+	return filepath.Join(projectDir(repoRoot), "locks", sanitiseID(sessionID)+".lock")
+}
+
 // sanitiseID scrubs a session id to a safe filename. Claude Code sends
 // UUIDs so this is almost always a no-op, but we defend against any
 // payload that slips path-traversal-like characters through.
@@ -186,6 +203,10 @@ func LoadSessionState(repoRoot, sessionID string) (SessionState, error) {
 	if err != nil {
 		return SessionState{}, err
 	}
+	return loadSessionStateResolved(root, sessionID)
+}
+
+func loadSessionStateResolved(root, sessionID string) (SessionState, error) {
 	path := sessionStatePath(root, sessionID)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -244,7 +265,7 @@ func validateStringList(xs []string, field, srcPath string) error {
 
 // saveSessionState writes the state file atomically. Tmp-file-then-
 // rename so a crash mid-write never leaves an unreadable state.
-func saveSessionState(state SessionState) error {
+func saveSessionStateLocked(state SessionState) error {
 	path := sessionStatePath(state.RepoRoot, state.SessionID)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("mkdir session dir: %w", err)
@@ -255,15 +276,85 @@ func saveSessionState(state SessionState) error {
 	if err != nil {
 		return fmt.Errorf("marshal session state: %w", err)
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	tmpFile, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("create session state tmp: %w", err)
+	}
+	tmp := tmpFile.Name()
+	if _, err := tmpFile.Write(data); err != nil {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmp)
 		return fmt.Errorf("write session state tmp: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("close session state tmp: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("rename session state: %w", err)
 	}
 	return nil
+}
+
+func saveSessionState(state SessionState) error {
+	root, err := ResolveRepoRoot(state.RepoRoot)
+	if err != nil {
+		return err
+	}
+	state.RepoRoot = root
+	return withSessionLock(root, state.SessionID, func() error {
+		return saveSessionStateLocked(state)
+	})
+}
+
+func withSessionLock(repoRoot, sessionID string, fn func() error) error {
+	lockPath := sessionLockPath(repoRoot, sessionID)
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
+		return fmt.Errorf("mkdir session lock dir: %w", err)
+	}
+	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return fmt.Errorf("open session lock: %w", err)
+	}
+	defer file.Close()
+	unlock, err := lockSessionFile(file)
+	if err != nil {
+		return fmt.Errorf("lock session state: %w", err)
+	}
+	defer func() { _ = unlock() }()
+	return fn()
+}
+
+// MutateSessionState serializes load -> mutate -> save for one session.
+// Hook evidence updates must use this path so concurrent tool events
+// merge instead of overwriting each other.
+func MutateSessionState(repoRoot, sessionID string, mutate func(SessionState) SessionState) (SessionState, error) {
+	root, err := ResolveRepoRoot(repoRoot)
+	if err != nil {
+		return SessionState{}, err
+	}
+	var updated SessionState
+	err = withSessionLock(root, sessionID, func() error {
+		state, err := loadSessionStateResolved(root, sessionID)
+		if err != nil {
+			return err
+		}
+		updated = mutate(state)
+		updated.RepoRoot = root
+		updated.SessionID = sessionID
+		if updated.ReportPath == "" {
+			updated.ReportPath = sessionReportPath(root, sessionID)
+		}
+		if err := saveSessionStateLocked(updated); err != nil {
+			return err
+		}
+		return writeActiveSession(root, sessionID)
+	})
+	if err != nil {
+		return SessionState{}, err
+	}
+	return updated, nil
 }
 
 // marshalStateDeterministic serialises SessionState with sorted keys
@@ -315,10 +406,12 @@ func InitializeSessionState(repoRoot, sessionID string) (SessionState, error) {
 		return SessionState{}, err
 	}
 	state := emptyState(root, sessionID)
-	if err := saveSessionState(state); err != nil {
-		return SessionState{}, err
-	}
-	if err := writeActiveSession(root, sessionID); err != nil {
+	if err := withSessionLock(root, sessionID, func() error {
+		if err := saveSessionStateLocked(state); err != nil {
+			return err
+		}
+		return writeActiveSession(root, sessionID)
+	}); err != nil {
 		return SessionState{}, err
 	}
 	return state, nil
@@ -332,16 +425,21 @@ func EnsureSessionState(repoRoot, sessionID string) (SessionState, error) {
 	if err != nil {
 		return SessionState{}, err
 	}
-	state, err := LoadSessionState(root, sessionID)
+	var state SessionState
+	err = withSessionLock(root, sessionID, func() error {
+		loaded, err := loadSessionStateResolved(root, sessionID)
+		if err != nil {
+			return err
+		}
+		state = loaded
+		// Persist any default-normalisation done by LoadSessionState and
+		// record this as the active session.
+		if err := saveSessionStateLocked(state); err != nil {
+			return err
+		}
+		return writeActiveSession(root, sessionID)
+	})
 	if err != nil {
-		return SessionState{}, err
-	}
-	// Persist any default-normalisation done by LoadSessionState and
-	// record this as the active session.
-	if err := saveSessionState(state); err != nil {
-		return SessionState{}, err
-	}
-	if err := writeActiveSession(root, sessionID); err != nil {
 		return SessionState{}, err
 	}
 	return state, nil

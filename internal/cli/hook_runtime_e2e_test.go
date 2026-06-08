@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"reconc.dev/reconc/internal/compiler"
+	"reconc.dev/reconc/internal/runtime/agentsession"
 )
 
 // runWithStdin invokes cli.Run with a stdin string piped in via
@@ -39,7 +40,7 @@ func runWithStdin(t *testing.T, stdin string, argv ...string) (stdoutStr, stderr
 	}()
 
 	var stdout, stderr bytes.Buffer
-	err = Run(argv, "0.4.0-e2e", &stdout, &stderr)
+	err = Run(argv, "0.5.0-e2e", &stdout, &stderr)
 	code := ExitCode(err)
 	return stdout.String(), stderr.String(), code
 }
@@ -128,6 +129,88 @@ func TestHookRuntimeHappyPath(t *testing.T) {
 	}
 }
 
+func TestHookRuntimeIgnoresCursorPayloadDeliveredToClaudeHook(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	writeHookRuntimeTaskFixture(t, repo)
+
+	cursorPrompt := `{"sessionId":"cursor-run","cursor_version":"3.5.17","hook_event_name":"beforeSubmitPrompt","workspace_roots":["` + repo + `"],"text":"arbeite autonom /degenmode und nutze den restlichen Prompt"}`
+	stdout, stderr, code := runWithStdin(t, cursorPrompt,
+		"hook", "runtime", "cursor-user-prompt-submit", repo)
+	if code != 0 {
+		t.Fatalf("cursor prompt should exit 0, got %d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"continue":true`) {
+		t.Fatalf("cursor prompt should emit allow JSON, got stdout=%q stderr=%q", stdout, stderr)
+	}
+
+	duplicateClaudePrompt := `{"session_id":"cursor-run","cursor_version":"3.5.17","hook_event_name":"beforeSubmitPrompt","workspace_roots":["` + repo + `"],"prompt":"normal diagnostic prompt without activation"}`
+	stdout, stderr, code = runWithStdin(t, duplicateClaudePrompt,
+		"hook", "runtime", "claude-user-prompt-submit", repo)
+	if code != 0 || stdout != "" || stderr != "" {
+		t.Fatalf("duplicate claude hook carrying Cursor payload must no-op, code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	stateBytes, err := os.ReadFile(filepath.Join(repo, ".reconc", "degenmode", "state.json"))
+	if err != nil {
+		t.Fatalf("read degenmode state: %v", err)
+	}
+	stateText := string(stateBytes)
+	for _, want := range []string{`"enabled": true`, `"session_id": "cursor-run"`, `"runtime": "cursor"`} {
+		if !strings.Contains(stateText, want) {
+			t.Fatalf("duplicate claude hook must preserve Cursor degenmode state; missing %s in %s", want, stateText)
+		}
+	}
+
+	cursorStop := `{"sessionId":"cursor-run","cursor_version":"3.5.17","hook_event_name":"stop","workspace_roots":["` + repo + `"],"status":"completed","loop_count":0}`
+	stdout, stderr, code = runWithStdin(t, cursorStop,
+		"hook", "runtime", "cursor-stop", repo)
+	if code != 0 {
+		t.Fatalf("cursor stop should exit 0, got %d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"followup_message"`) || !strings.Contains(stdout, "degenmode autocontinue") {
+		t.Fatalf("cursor stop must still emit degenmode followup after duplicate claude hook, stdout=%q stderr=%q", stdout, stderr)
+	}
+}
+
+func TestHookRuntimeCursorInternalUserPromptPreservesDegenmode(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	writeHookRuntimeTaskFixture(t, repo)
+
+	cursorPrompt := `{"sessionId":"cursor-run","cursor_version":"3.5.17","hook_event_name":"beforeSubmitPrompt","workspace_roots":["` + repo + `"],"text":"arbeite autonom /degenmode und nutze den restlichen Prompt"}`
+	stdout, stderr, code := runWithStdin(t, cursorPrompt,
+		"hook", "runtime", "cursor-user-prompt-submit", repo)
+	if code != 0 {
+		t.Fatalf("cursor prompt should exit 0, got %d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+
+	internalPrompt := `{"sessionId":"cursor-run","cursor_version":"3.5.17","hook_event_name":"beforeSubmitPrompt","workspace_roots":["` + repo + `"],"text":"The above subagent result is already visible to the user. DO NOT reiterate or summarize its contents unless asked, or if multi-task result synthesis is required. Otherwise end your response with a brief third-person confirmation that the subagent has completed. Don't repeat the same confirmation every time."}`
+	stdout, stderr, code = runWithStdin(t, internalPrompt,
+		"hook", "runtime", "cursor-user-prompt-submit", repo)
+	if code != 0 {
+		t.Fatalf("cursor internal prompt should exit 0, got %d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+
+	stateBytes, err := os.ReadFile(filepath.Join(repo, ".reconc", "degenmode", "state.json"))
+	if err != nil {
+		t.Fatalf("read degenmode state: %v", err)
+	}
+	stateText := string(stateBytes)
+	for _, want := range []string{`"enabled": true`, `"session_id": "cursor-run"`, `"runtime": "cursor"`} {
+		if !strings.Contains(stateText, want) {
+			t.Fatalf("cursor internal prompt must preserve degenmode; missing %s in %s", want, stateText)
+		}
+	}
+
+	cursorStop := `{"sessionId":"cursor-run","cursor_version":"3.5.17","hook_event_name":"stop","workspace_roots":["` + repo + `"],"status":"completed","loop_count":0}`
+	stdout, stderr, code = runWithStdin(t, cursorStop,
+		"hook", "runtime", "cursor-stop", repo)
+	if code != 0 {
+		t.Fatalf("cursor stop should exit 0, got %d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"followup_message"`) || !strings.Contains(stdout, "degenmode autocontinue") {
+		t.Fatalf("cursor stop must emit degenmode followup after internal prompt, stdout=%q stderr=%q", stdout, stderr)
+	}
+}
+
 // --- Scenario 2: PreToolUse blocks deny_write ----------------------
 
 func TestHookRuntimeBlocksDenyWrite(t *testing.T) {
@@ -146,6 +229,32 @@ func TestHookRuntimeBlocksDenyWrite(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "reconc blocked") {
 		t.Errorf("stderr should announce block, got: %s", stderr)
+	}
+}
+
+func writeHookRuntimeTaskFixture(t *testing.T, repo string) {
+	t.Helper()
+	tasksDir := filepath.Join(repo, "docs", "tasks")
+	if err := os.MkdirAll(tasksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tasks := `# Tasks
+
+Current: TASK-0001-Degen-Test -> tasks/TASK-0001-Degen-Test.md
+
+- [ ] TASK-0001-Degen-Test - Exercise degenmode continuation -> tasks/TASK-0001-Degen-Test.md
+`
+	if err := os.WriteFile(filepath.Join(repo, "docs", "tasks.md"), []byte(tasks), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	detail := `# TASK-0001-Degen-Test
+
+## Sub-Tasks
+
+- [~] Continue the active task
+`
+	if err := os.WriteFile(filepath.Join(tasksDir, "TASK-0001-Degen-Test.md"), []byte(detail), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -269,7 +378,8 @@ func TestHookRuntimeCodexDispatch(t *testing.T) {
 		t.Errorf("codex-session-start should exit 0, got %d", code)
 	}
 
-	// Codex PreToolUse on a Bash command is a no-op (not a write tool).
+	// Codex PreToolUse allows safe Bash commands while still applying
+	// command-level destructive-operation guards.
 	_, _, code = runWithStdin(t,
 		`{"session_id":"cx1","tool_name":"Bash","tool_input":{"command":"ls"}}`,
 		"hook", "runtime", "codex-pre-tool-use", repo)
@@ -277,11 +387,176 @@ func TestHookRuntimeCodexDispatch(t *testing.T) {
 		t.Errorf("codex-pre-tool-use on Bash should exit 0, got %d", code)
 	}
 
-	// Codex doesn't have SessionEnd; verify the router rejects it.
+	// Codex session-end goes through the same session-end handler.
 	_, _, code = runWithStdin(t, `{"session_id":"cx1"}`,
 		"hook", "runtime", "codex-session-end", repo)
-	if code != 1 {
-		t.Errorf("unknown event should return exit 1, got %d", code)
+	if code != 0 {
+		t.Errorf("codex-session-end should exit 0, got %d", code)
+	}
+}
+
+func TestHookRuntimeCursorPreToolUseBlocksDenyWrite(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	_, _, code := runWithStdin(t, `{"conversation_id":"cur1"}`,
+		"hook", "runtime", "cursor-session-start", repo)
+	if code != 0 {
+		t.Fatalf("cursor-session-start should exit 0, got %d", code)
+	}
+
+	stdout, stderr, code := runWithStdin(t,
+		`{"conversation_id":"cur1","tool_name":"Write","tool_input":{"filePath":"generated/evil.go"}}`,
+		"hook", "runtime", "cursor-pre-tool-use", repo)
+	if code != 0 {
+		t.Fatalf("Cursor pre-tool denial must be returned as JSON exit 0, got %d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, `"permission":"deny"`) || !strings.Contains(stdout, "deny-gen") {
+		t.Fatalf("expected Cursor permission deny with rule id, got stdout=%q stderr=%q", stdout, stderr)
+	}
+}
+
+func TestHookRuntimeCursorPromptSuccessReturnsAllowJSON(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	stdout, stderr, code := runWithStdin(t, `{"conversation_id":"cur-prompt","text":"start.md"}`,
+		"hook", "runtime", "cursor-user-prompt-submit", repo)
+	if code != 0 {
+		t.Fatalf("Cursor prompt success should exit 0, got %d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, `"continue":true`) || !strings.Contains(stdout, `"permission":"allow"`) {
+		t.Fatalf("expected explicit Cursor allow JSON, got stdout=%q stderr=%q", stdout, stderr)
+	}
+}
+
+func TestHookRuntimeCursorStopUsesFollowupMessage(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	_, _, _ = runWithStdin(t, `{"conversation_id":"cur2"}`,
+		"hook", "runtime", "cursor-session-start", repo)
+	_, _, _ = runWithStdin(t,
+		`{"conversation_id":"cur2","filePath":"src/app.go"}`,
+		"hook", "runtime", "cursor-after-file-edit", repo)
+
+	stdout, _, code := runWithStdin(t, `{"conversation_id":"cur2"}`,
+		"hook", "runtime", "cursor-stop", repo)
+	if code != 0 {
+		t.Fatalf("Cursor stop should exit 0, got %d", code)
+	}
+	if !strings.Contains(stdout, `"followup_message"`) || !strings.Contains(stdout, "need-ci") {
+		t.Fatalf("expected Cursor followup block with rule id, got %q", stdout)
+	}
+	if strings.Contains(stdout, `"decision":"block"`) {
+		t.Fatalf("Cursor stop must not emit Claude/Codex decision schema, got %q", stdout)
+	}
+}
+
+func TestHookRuntimeCursorBeforeReadDoesNotSatisfyReadEvidence(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	_, _, _ = runWithStdin(t, `{"conversation_id":"cur-read"}`,
+		"hook", "runtime", "cursor-session-start", repo)
+
+	_, _, code := runWithStdin(t,
+		`{"conversation_id":"cur-read","filePath":"docs/tasks.md"}`,
+		"hook", "runtime", "cursor-before-read-file", repo)
+	if code != 0 {
+		t.Fatalf("Cursor before-read hook should pass, got %d", code)
+	}
+	state, err := agentsession.LoadSessionState(repo, "cur-read")
+	if err != nil {
+		t.Fatalf("LoadSessionState: %v", err)
+	}
+	if len(state.ReadPaths) != 0 {
+		t.Fatalf("before-read must not record successful read evidence, got %#v", state.ReadPaths)
+	}
+
+	_, _, code = runWithStdin(t,
+		`{"conversation_id":"cur-read","tool_name":"Read","tool_input":{"filePath":"docs/tasks.md"}}`,
+		"hook", "runtime", "cursor-post-tool-use", repo)
+	if code != 0 {
+		t.Fatalf("Cursor post-tool read should pass, got %d", code)
+	}
+	state, err = agentsession.LoadSessionState(repo, "cur-read")
+	if err != nil {
+		t.Fatalf("LoadSessionState: %v", err)
+	}
+	if len(state.ReadPaths) != 1 || state.ReadPaths[0] != "docs/tasks.md" {
+		t.Fatalf("post-tool read should record evidence, got %#v", state.ReadPaths)
+	}
+}
+
+func TestHookRuntimeCursorAfterShellRecordsFailure(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	_, _, _ = runWithStdin(t, `{"conversation_id":"cur3"}`,
+		"hook", "runtime", "cursor-session-start", repo)
+
+	_, _, code := runWithStdin(t,
+		`{"conversation_id":"cur3","command":"go test ./...","exitCode":1,"stderr":"failed"}`,
+		"hook", "runtime", "cursor-after-shell-execution", repo)
+	if code != 0 {
+		t.Fatalf("Cursor after-shell hook should fail-open after recording failure, got %d", code)
+	}
+
+	state, err := agentsession.LoadSessionState(repo, "cur3")
+	if err != nil {
+		t.Fatalf("LoadSessionState: %v", err)
+	}
+	if len(state.CommandResults) != 1 || state.CommandResults[0].Outcome != "failure" {
+		t.Fatalf("expected one failed command result, got %#v", state.CommandResults)
+	}
+}
+
+func TestHookRuntimeAntigravityPreToolUseBlocksDenyWrite(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	stdout, stderr, code := runWithStdin(t,
+		`{"conversationId":"ag-e2e","stepIdx":1,"toolCall":{"name":"write_to_file","args":{"TargetFile":"generated/evil.go"}}}`,
+		"hook", "runtime", "antigravity-pre-tool-use", repo)
+	if code != 0 {
+		t.Fatalf("Antigravity pre-tool denial must be returned as JSON exit 0, got %d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, `"decision":"deny"`) || !strings.Contains(stdout, "deny-gen") {
+		t.Fatalf("expected Antigravity deny with rule id, got stdout=%q stderr=%q", stdout, stderr)
+	}
+}
+
+func TestHookRuntimeAntigravityPostToolUseRecordsPendingEvidence(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	_, stderr, code := runWithStdin(t,
+		`{"conversationId":"ag-read","stepIdx":2,"toolCall":{"name":"view_file","args":{"AbsolutePath":"docs/tasks.md"}}}`,
+		"hook", "runtime", "antigravity-pre-tool-use", repo)
+	if code != 0 {
+		t.Fatalf("Antigravity pre read should pass, got %d stderr=%q", code, stderr)
+	}
+	_, stderr, code = runWithStdin(t,
+		`{"conversationId":"ag-read","stepIdx":2,"error":""}`,
+		"hook", "runtime", "antigravity-post-tool-use", repo)
+	if code != 0 {
+		t.Fatalf("Antigravity post read should pass, got %d stderr=%q", code, stderr)
+	}
+	state, err := agentsession.LoadSessionState(repo, "ag-read")
+	if err != nil {
+		t.Fatalf("LoadSessionState: %v", err)
+	}
+	if len(state.ReadPaths) != 1 || state.ReadPaths[0] != "docs/tasks.md" {
+		t.Fatalf("expected read evidence, got %#v", state.ReadPaths)
+	}
+}
+
+func TestHookRuntimeAntigravityStopUsesContinueSchema(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	_, _, _ = runWithStdin(t,
+		`{"conversationId":"ag-stop","stepIdx":3,"toolCall":{"name":"write_to_file","args":{"TargetFile":"src/app.go"}}}`,
+		"hook", "runtime", "antigravity-pre-tool-use", repo)
+	_, _, _ = runWithStdin(t,
+		`{"conversationId":"ag-stop","stepIdx":3,"error":""}`,
+		"hook", "runtime", "antigravity-post-tool-use", repo)
+
+	stdout, _, code := runWithStdin(t, `{"conversationId":"ag-stop","executionNum":1,"terminationReason":"model_stop","fullyIdle":true}`,
+		"hook", "runtime", "antigravity-stop", repo)
+	if code != 0 {
+		t.Fatalf("Antigravity stop should exit 0, got %d", code)
+	}
+	if !strings.Contains(stdout, `"decision":"continue"`) || !strings.Contains(stdout, "need-ci") {
+		t.Fatalf("expected Antigravity continue stop with rule id, got %q", stdout)
+	}
+	if strings.Contains(stdout, `"decision":"block"`) {
+		t.Fatalf("Antigravity stop must not emit Claude/Codex block schema, got %q", stdout)
 	}
 }
 

@@ -19,16 +19,26 @@ const (
 // WriteToolNames are Claude Code tool names that represent a file
 // write. Mirrors the Python WRITE_TOOL_NAMES set.
 var WriteToolNames = map[string]struct{}{
-	"Edit":      {},
-	"MultiEdit": {},
-	"Write":     {},
+	"Edit":        {},
+	"MultiEdit":   {},
+	"Write":       {},
+	"TabWrite":    {},
+	"StrReplace":  {},
+	"Delete":      {},
+	"apply_patch": {},
+	"edit":        {},
+	"multiedit":   {},
+	"write":       {},
+	"tabwrite":    {},
+	"strreplace":  {},
+	"delete":      {},
 }
 
 // ReadToolNames are tools that represent a file read.
-var ReadToolNames = map[string]struct{}{"Read": {}}
+var ReadToolNames = map[string]struct{}{"Read": {}, "read": {}, "TabRead": {}, "tabread": {}}
 
 // CommandToolNames are tools that execute a shell command.
-var CommandToolNames = map[string]struct{}{"Bash": {}}
+var CommandToolNames = map[string]struct{}{"Bash": {}, "bash": {}}
 
 // ErrPayloadTooLarge is returned when stdin produces more than
 // MaxPayloadBytes. Callers treat this as fail-closed for PreToolUse /
@@ -59,7 +69,6 @@ func ParsePayload(data []byte) (*HookPayload, error) {
 	if len(data) == 0 {
 		return nil, errors.New("hook payload is empty")
 	}
-	dec := json.NewDecoder(strings.NewReader(string(data)))
 	// Go's stdlib decoder doesn't expose a max-depth knob, so we
 	// pre-scan the byte stream for brace/bracket depth before
 	// delegating to Unmarshal. Cheap; runs in one pass.
@@ -68,7 +77,7 @@ func ParsePayload(data []byte) (*HookPayload, error) {
 	}
 
 	var raw map[string]interface{}
-	if err := dec.Decode(&raw); err != nil {
+	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("hook payload is not valid JSON: %w", err)
 	}
 	if raw == nil {
@@ -81,35 +90,60 @@ func ParsePayload(data []byte) (*HookPayload, error) {
 // Codex sends on stdin. Fields we know about are typed; everything
 // else stays in Raw for future forward-compat.
 type HookPayload struct {
-	SessionID      string
-	ToolName       string
-	ToolInput      map[string]interface{}
-	ToolResponse   map[string]interface{}
-	ToolUseID      string
-	Error          string
-	IsInterrupt    *bool
-	StopHookActive bool
-	Raw            map[string]interface{}
+	SessionID                  string
+	Prompt                     string
+	ToolName                   string
+	ToolInput                  map[string]interface{}
+	ToolResponse               map[string]interface{}
+	ToolUseID                  string
+	Error                      string
+	IsInterrupt                *bool
+	StopHookActive             bool
+	OpenCodeContinuationDriver bool
+	Raw                        map[string]interface{}
 }
 
-// FilePath returns the "file_path" field of tool_input, trimmed, or
-// "" if absent.
+// FilePath returns the first known file path field of tool_input,
+// trimmed, or "" if absent.
 func (p *HookPayload) FilePath() string {
-	if p == nil || p.ToolInput == nil {
-		return ""
+	paths := p.FilePaths()
+	if len(paths) > 0 {
+		return paths[0]
 	}
-	v, _ := p.ToolInput["file_path"].(string)
-	return strings.TrimSpace(v)
+	return ""
 }
 
-// Command returns the "command" field of tool_input, trimmed, or ""
-// if absent.
+// FilePaths returns all known file paths addressed by the tool input.
+// Codex reports apply_patch edits through tool_input.command, so parse
+// the patch headers instead of treating the patch as a shell command.
+func (p *HookPayload) FilePaths() []string {
+	if p == nil || p.ToolInput == nil {
+		return nil
+	}
+	var paths []string
+	for _, key := range []string{"file_path", "filePath", "path", "file", "target", "absolute_path", "absolutePath", "relative_path", "relativePath", "target_file", "targetFile"} {
+		if v, _ := p.ToolInput[key].(string); strings.TrimSpace(v) != "" {
+			paths = appendUniquePath(paths, strings.TrimSpace(v))
+		}
+	}
+	if p.ToolName == "apply_patch" {
+		paths = append(paths, parseApplyPatchPaths(p.Command())...)
+	}
+	return dedupePaths(paths)
+}
+
+// Command returns the first known shell command field of tool_input,
+// trimmed, or "" if absent.
 func (p *HookPayload) Command() string {
 	if p == nil || p.ToolInput == nil {
 		return ""
 	}
-	v, _ := p.ToolInput["command"].(string)
-	return strings.TrimSpace(v)
+	for _, key := range []string{"command", "cmd", "script"} {
+		if v, _ := p.ToolInput[key].(string); strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }
 
 // ExitCode extracts the tool-response exit code, supporting all four
@@ -142,6 +176,46 @@ func (p *HookPayload) IsWriteTool() bool {
 	return ok
 }
 
+func parseApplyPatchPaths(patch string) []string {
+	var paths []string
+	for _, line := range strings.Split(patch, "\n") {
+		line = strings.TrimSpace(line)
+		for _, prefix := range []string{
+			"*** Add File: ",
+			"*** Update File: ",
+			"*** Delete File: ",
+			"*** Move to: ",
+		} {
+			if strings.HasPrefix(line, prefix) {
+				paths = appendUniquePath(paths, strings.TrimSpace(strings.TrimPrefix(line, prefix)))
+				break
+			}
+		}
+	}
+	return paths
+}
+
+func appendUniquePath(paths []string, path string) []string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return paths
+	}
+	for _, existing := range paths {
+		if existing == path {
+			return paths
+		}
+	}
+	return append(paths, path)
+}
+
+func dedupePaths(paths []string) []string {
+	var out []string
+	for _, path := range paths {
+		out = appendUniquePath(out, path)
+	}
+	return out
+}
+
 // IsReadTool reports whether the payload's tool_name is a read tool.
 func (p *HookPayload) IsReadTool() bool {
 	_, ok := ReadToolNames[p.ToolName]
@@ -168,6 +242,9 @@ func payloadFromMap(raw map[string]interface{}) (*HookPayload, error) {
 	toolName, _ := raw["tool_name"].(string)
 	toolName = strings.TrimSpace(toolName)
 
+	prompt, _ := raw["prompt"].(string)
+	prompt = strings.TrimSpace(prompt)
+
 	toolInput, _ := raw["tool_input"].(map[string]interface{})
 	toolResponse, _ := raw["tool_response"].(map[string]interface{})
 	toolUseID, _ := raw["tool_use_id"].(string)
@@ -182,17 +259,20 @@ func payloadFromMap(raw map[string]interface{}) (*HookPayload, error) {
 	}
 
 	stopHookActive, _ := raw["stop_hook_active"].(bool)
+	openCodeContinuationDriver, _ := raw["opencode_continuation_driver"].(bool)
 
 	return &HookPayload{
-		SessionID:      sessionID,
-		ToolName:       toolName,
-		ToolInput:      toolInput,
-		ToolResponse:   toolResponse,
-		ToolUseID:      toolUseID,
-		Error:          errString,
-		IsInterrupt:    isInterrupt,
-		StopHookActive: stopHookActive,
-		Raw:            raw,
+		SessionID:                  sessionID,
+		Prompt:                     prompt,
+		ToolName:                   toolName,
+		ToolInput:                  toolInput,
+		ToolResponse:               toolResponse,
+		ToolUseID:                  toolUseID,
+		Error:                      errString,
+		IsInterrupt:                isInterrupt,
+		StopHookActive:             stopHookActive,
+		OpenCodeContinuationDriver: openCodeContinuationDriver,
+		Raw:                        raw,
 	}, nil
 }
 

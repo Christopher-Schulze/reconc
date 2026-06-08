@@ -1,0 +1,26 @@
+# Windsurf compatibility indexing ignore. Official Windsurf/Codeium local
+# indexing uses .codeiumignore; keep this twin for tool builds that probe
+# windsurf-named ignore files. Do not mirror this into .gitignore.
+research/**
+_drop/**
+.reconc/**
+docs/spec-audit/ranges/**
+docs/spec-audit/claims/**
+build/**
+backend/**/bin/**
+frontend/node_modules/**
+frontend/dist/**
+frontend/.vite/**
+frontend/.next/**
+codebase/build/**
+codebase/frontend/node_modules/**
+codebase/frontend/dist/**
+codebase/frontend/.vite/**
+codebase/frontend/.next/**
+tools/reconc/harness/**/.reconc/**
+.opencode/node_modules/**
+node_modules/**
+dist/**
+coverage/**
+tmp/**
+.cache/**

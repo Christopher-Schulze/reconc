@@ -112,13 +112,13 @@ func TestWatchHelpersCompileOnceAndMTime(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	compileOnce(&stdout, &stderr, repo, "0.4.0-test")
+	compileOnce(&stdout, &stderr, repo, "0.5.0-test")
 	if !strings.Contains(stdout.String(), "compiled 1 rules from") {
 		t.Fatalf("expected compileOnce success output, got %q", stdout.String())
 	}
 
 	stdout.Reset()
-	compileOnce(&stdout, &stderr, t.TempDir(), "0.4.0-test")
+	compileOnce(&stdout, &stderr, t.TempDir(), "0.5.0-test")
 	if !strings.Contains(stdout.String(), "compile failed") {
 		t.Fatalf("expected compileOnce failure output, got %q", stdout.String())
 	}
@@ -129,7 +129,7 @@ func TestRunFixNextBranches(t *testing.T) {
 		"rules:\n  - id: deny-gen\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: generated output is locked\n")
 
 	var stdout, stderr bytes.Buffer
-	err := Run([]string{"fix", blockRepo, "--write", "gen/output.go", "--next"}, "0.4.0-test", &stdout, &stderr)
+	err := Run([]string{"fix", blockRepo, "--write", "gen/output.go", "--next"}, "0.5.0-test", &stdout, &stderr)
 	if err == nil || ExitCode(err) != 2 {
 		t.Fatalf("expected blocking fix --next exit 2, got err=%v code=%d", err, ExitCode(err))
 	}
@@ -141,7 +141,7 @@ func TestRunFixNextBranches(t *testing.T) {
 		"rules:\n  - id: deny-gen\n    kind: deny_write\n    paths: ['gen/**']\n    mode: warn\n    message: generated output is locked\n")
 	stdout.Reset()
 	stderr.Reset()
-	if err := Run([]string{"fix", passRepo, "--next", "--json"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"fix", passRepo, "--next", "--json"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("fix --next --json pass repo: %v", err)
 	}
 	var payload map[string]interface{}
@@ -158,7 +158,7 @@ func TestRunNextAlias(t *testing.T) {
 		"rules:\n  - id: deny-gen\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: generated output is locked\n")
 
 	var stdout, stderr bytes.Buffer
-	err := Run([]string{"next", repo, "--write", "gen/output.go"}, "0.4.0-test", &stdout, &stderr)
+	err := Run([]string{"next", repo, "--write", "gen/output.go"}, "0.5.0-test", &stdout, &stderr)
 	if err == nil || ExitCode(err) != 2 {
 		t.Fatalf("expected blocking next exit 2, got err=%v code=%d", err, ExitCode(err))
 	}
@@ -167,7 +167,7 @@ func TestRunNextAlias(t *testing.T) {
 	}
 
 	stdout.Reset()
-	if err := Run([]string{"next", "--help"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"next", "--help"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("next --help: %v", err)
 	}
 	if !strings.Contains(stdout.String(), "Usage: reconc next") {
@@ -187,7 +187,7 @@ func TestRunFixTextAndFlagParsing(t *testing.T) {
 		"--command-success", "go test ./...",
 		"--command-failure", "go vet ./...",
 		"--claim", "ci-green",
-	}, "0.4.0-test", &stdout, &stderr)
+	}, "0.5.0-test", &stdout, &stderr)
 	if err == nil || ExitCode(err) != 2 {
 		t.Fatalf("expected blocking fix exit 2, got err=%v code=%d", err, ExitCode(err))
 	}
@@ -198,7 +198,7 @@ func TestRunFixTextAndFlagParsing(t *testing.T) {
 
 func TestRunFixHelpAndValueValidation(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"fix", "--help"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"fix", "--help"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("fix --help: %v", err)
 	}
 	if !strings.Contains(stdout.String(), "Usage: reconc fix") {
@@ -217,7 +217,7 @@ func TestRunFixHelpAndValueValidation(t *testing.T) {
 	for _, tc := range cases {
 		stdout.Reset()
 		stderr.Reset()
-		err := Run(tc.argv, "0.4.0-test", &stdout, &stderr)
+		err := Run(tc.argv, "0.5.0-test", &stdout, &stderr)
 		if err == nil {
 			t.Fatalf("expected error for %v", tc.argv)
 		}
@@ -232,7 +232,7 @@ func TestRunExplainReportFileMarkdownAndErrors(t *testing.T) {
 		"rules:\n  - id: deny-gen\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: generated output is locked\n")
 
 	var reportOut, stderr bytes.Buffer
-	err := Run([]string{"check", repo, "--write", "gen/output.go", "--json"}, "0.4.0-test", &reportOut, &stderr)
+	err := Run([]string{"check", repo, "--write", "gen/output.go", "--json"}, "0.5.0-test", &reportOut, &stderr)
 	if err == nil || ExitCode(err) != 2 {
 		t.Fatalf("expected blocking check to build report, got err=%v code=%d", err, ExitCode(err))
 	}
@@ -243,7 +243,7 @@ func TestRunExplainReportFileMarkdownAndErrors(t *testing.T) {
 	}
 
 	var stdout bytes.Buffer
-	if err := Run([]string{"explain", "--report-file", reportPath, "--format", "markdown"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"explain", "--report-file", reportPath, "--format", "markdown"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("explain --report-file --format markdown: %v", err)
 	}
 	if !strings.Contains(stdout.String(), "# Policy Check Report") || !strings.Contains(stdout.String(), "deny-gen") {
@@ -255,7 +255,7 @@ func TestRunExplainReportFileMarkdownAndErrors(t *testing.T) {
 		t.Fatalf("write bad report: %v", err)
 	}
 	stdout.Reset()
-	err = Run([]string{"explain", "--report-file", badPath}, "0.4.0-test", &stdout, &stderr)
+	err = Run([]string{"explain", "--report-file", badPath}, "0.5.0-test", &stdout, &stderr)
 	if err == nil {
 		t.Fatal("expected invalid report JSON to fail")
 	}
@@ -269,7 +269,7 @@ func TestRunExplainFreshTextAndFormatValidation(t *testing.T) {
 		"rules:\n  - id: deny-gen\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: generated output is locked\n")
 
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"explain", repo, "--write", "gen/output.go"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"explain", repo, "--write", "gen/output.go"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("fresh explain text: %v", err)
 	}
 	if !strings.Contains(stdout.String(), "Decision:  block") {
@@ -277,7 +277,7 @@ func TestRunExplainFreshTextAndFormatValidation(t *testing.T) {
 	}
 
 	stdout.Reset()
-	err := Run([]string{"explain", repo, "--format", "html"}, "0.4.0-test", &stdout, &stderr)
+	err := Run([]string{"explain", repo, "--format", "html"}, "0.5.0-test", &stdout, &stderr)
 	if err == nil {
 		t.Fatal("expected invalid explain format to fail")
 	}
@@ -288,7 +288,7 @@ func TestRunExplainFreshTextAndFormatValidation(t *testing.T) {
 
 func TestRunWatchHelpAndValidation(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"watch", "--help"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"watch", "--help"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("watch --help: %v", err)
 	}
 	if !strings.Contains(stdout.String(), "Usage: reconc watch") {
@@ -307,7 +307,7 @@ func TestRunWatchHelpAndValidation(t *testing.T) {
 	for _, tc := range cases {
 		stdout.Reset()
 		stderr.Reset()
-		err := Run(tc.argv, "0.4.0-test", &stdout, &stderr)
+		err := Run(tc.argv, "0.5.0-test", &stdout, &stderr)
 		if err == nil {
 			t.Fatalf("expected watch error for %v", tc.argv)
 		}
@@ -319,7 +319,7 @@ func TestRunWatchHelpAndValidation(t *testing.T) {
 
 func TestRunExplainHelpAndValueValidation(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"explain", "--help"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"explain", "--help"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("explain --help: %v", err)
 	}
 	if !strings.Contains(stdout.String(), "Usage: reconc explain") {
@@ -338,7 +338,7 @@ func TestRunExplainHelpAndValueValidation(t *testing.T) {
 	for _, tc := range cases {
 		stdout.Reset()
 		stderr.Reset()
-		err := Run(tc.argv, "0.4.0-test", &stdout, &stderr)
+		err := Run(tc.argv, "0.5.0-test", &stdout, &stderr)
 		if err == nil {
 			t.Fatalf("expected error for %v", tc.argv)
 		}
@@ -364,7 +364,7 @@ func TestRunCIAutoClaimAndBaseHeadJSON(t *testing.T) {
 	gitRun(t, repo, "add", "src/main.go")
 
 	var stdout, stderr bytes.Buffer
-	err := Run([]string{"ci", repo, "--staged"}, "0.4.0-test", &stdout, &stderr)
+	err := Run([]string{"ci", repo, "--staged"}, "0.5.0-test", &stdout, &stderr)
 	if err == nil || ExitCode(err) != 2 {
 		t.Fatalf("expected staged ci without claim to block, got err=%v code=%d", err, ExitCode(err))
 	}
@@ -372,7 +372,7 @@ func TestRunCIAutoClaimAndBaseHeadJSON(t *testing.T) {
 	t.Setenv("CI", "true")
 	stdout.Reset()
 	stderr.Reset()
-	if err := Run([]string{"ci", repo, "--staged", "--auto-claim", "--json"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"ci", repo, "--staged", "--auto-claim", "--json"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("ci --staged --auto-claim --json: %v", err)
 	}
 	var stagedPayload map[string]interface{}
@@ -392,7 +392,7 @@ func TestRunCIAutoClaimAndBaseHeadJSON(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if err := Run([]string{"ci", repo, "--base", "HEAD~1", "--head", "HEAD", "--json", "--claim", "ci-green"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"ci", repo, "--base", "HEAD~1", "--head", "HEAD", "--json", "--claim", "ci-green"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("ci --base/--head --json: %v", err)
 	}
 	var rangePayload map[string]interface{}
@@ -426,7 +426,7 @@ func TestRunCITextWithCommandFlags(t *testing.T) {
 		"--command-success", "go test ./...",
 		"--command-failure", "go vet ./...",
 		"--claim", "ci-green",
-	}, "0.4.0-test", &stdout, &stderr); err != nil {
+	}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("ci text path: %v", err)
 	}
 	if !strings.Contains(stdout.String(), "Git:") || !strings.Contains(stdout.String(), "Decision:  pass") {
@@ -442,7 +442,7 @@ func TestRunCheckTerseAndCommandFailure(t *testing.T) {
 		"--write", "src/main.go",
 		"--command-failure", "go vet ./...",
 		"--terse",
-	}, "0.4.0-test", &stdout, &stderr); err != nil {
+	}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("check --terse with command-failure: %v", err)
 	}
 	var payload map[string]interface{}
@@ -460,14 +460,14 @@ func TestRunAuditCommandsOnRecordedEntries(t *testing.T) {
 		"rules:\n  - id: deny-gen\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: generated output is locked\n")
 
 	var stdout, stderr bytes.Buffer
-	err := Run([]string{"check", repo, "--write", "gen/output.go"}, "0.4.0-test", &stdout, &stderr)
+	err := Run([]string{"check", repo, "--write", "gen/output.go"}, "0.5.0-test", &stdout, &stderr)
 	if err == nil || ExitCode(err) != 2 {
 		t.Fatalf("expected blocking check to record audit entry, got err=%v code=%d", err, ExitCode(err))
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	if err := Run([]string{"audit", "tail", repo, "--compact", "-n", "1"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"audit", "tail", repo, "--compact", "-n", "1"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("audit tail --compact: %v", err)
 	}
 	if !strings.Contains(stdout.String(), "check") || !strings.Contains(stdout.String(), "deny-gen") {
@@ -476,7 +476,7 @@ func TestRunAuditCommandsOnRecordedEntries(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if err := Run([]string{"audit", "stats", repo, "--json"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"audit", "stats", repo, "--json"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("audit stats --json: %v", err)
 	}
 	var stats map[string]interface{}
@@ -503,7 +503,7 @@ func TestRunAuditStatsTextAndFlagValidation(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"audit", "stats", repo}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"audit", "stats", repo}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("audit stats text: %v", err)
 	}
 	out := stdout.String()
@@ -512,7 +512,7 @@ func TestRunAuditStatsTextAndFlagValidation(t *testing.T) {
 	}
 
 	stdout.Reset()
-	err := Run([]string{"audit", "stats", repo, "--bogus"}, "0.4.0-test", &stdout, &stderr)
+	err := Run([]string{"audit", "stats", repo, "--bogus"}, "0.5.0-test", &stdout, &stderr)
 	if err == nil {
 		t.Fatal("expected audit stats unknown flag to fail")
 	}
@@ -536,7 +536,7 @@ func TestRunAuditTailFiltersAndMutualExclusion(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"audit", "tail", repo, "--rule", "r1", "--decision", "block", "--since", "2026-04-13T00:00:00Z"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"audit", "tail", repo, "--rule", "r1", "--decision", "block", "--since", "2026-04-13T00:00:00Z"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("audit tail with filters: %v", err)
 	}
 	out := stdout.String()
@@ -545,7 +545,7 @@ func TestRunAuditTailFiltersAndMutualExclusion(t *testing.T) {
 	}
 
 	stdout.Reset()
-	err := Run([]string{"audit", "tail", repo, "--json", "--compact"}, "0.4.0-test", &stdout, &stderr)
+	err := Run([]string{"audit", "tail", repo, "--json", "--compact"}, "0.5.0-test", &stdout, &stderr)
 	if err == nil {
 		t.Fatal("expected audit tail --json --compact to fail")
 	}
@@ -560,12 +560,12 @@ func TestBuildStartDataAndRenderStartMarkdown(t *testing.T) {
 		"rules:\n  - id: deny-gen\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: generated output is locked\n")
 
 	var stdout, stderr bytes.Buffer
-	err := Run([]string{"check", repo, "--write", "gen/output.go"}, "0.4.0-test", &stdout, &stderr)
+	err := Run([]string{"check", repo, "--write", "gen/output.go"}, "0.5.0-test", &stdout, &stderr)
 	if err == nil || ExitCode(err) != 2 {
 		t.Fatalf("expected blocking check before start-data build, got err=%v code=%d", err, ExitCode(err))
 	}
 
-	data := buildStartData(repo)
+	data := buildStartData(repo, "0.1.0-test")
 	if data["generated_at"] == "" {
 		t.Fatalf("expected generated_at in start data: %#v", data)
 	}
@@ -591,7 +591,7 @@ func TestRunVerifyTextWithWarningsAndGlobalPolicy(t *testing.T) {
 	initGitRepo(t, repo)
 
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"verify", repo}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"verify", repo}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("verify text: %v", err)
 	}
 	out := stdout.String()
@@ -600,7 +600,7 @@ func TestRunVerifyTextWithWarningsAndGlobalPolicy(t *testing.T) {
 	}
 
 	stdout.Reset()
-	err := Run([]string{"verify", repo, "--bogus"}, "0.4.0-test", &stdout, &stderr)
+	err := Run([]string{"verify", repo, "--bogus"}, "0.5.0-test", &stdout, &stderr)
 	if err == nil {
 		t.Fatal("expected verify unknown flag to fail")
 	}
@@ -615,11 +615,11 @@ func TestRunBootstrapHintsAndAgentInstall(t *testing.T) {
 	t.Run("hints-when-tooling-missing", func(t *testing.T) {
 		repo := t.TempDir()
 		var stdout, stderr bytes.Buffer
-		if err := Run([]string{"bootstrap", repo}, "0.4.0-test", &stdout, &stderr); err != nil {
+		if err := Run([]string{"bootstrap", repo}, "0.5.0-test", &stdout, &stderr); err != nil {
 			t.Fatalf("bootstrap missing-tooling repo: %v", err)
 		}
 		out := stdout.String()
-		if !strings.Contains(out, "no .git/ found") || !strings.Contains(out, "Claude Code: create .claude/") || !strings.Contains(out, "Codex: create .codex/") {
+		if !strings.Contains(out, "no .git/ found") || !strings.Contains(out, "Claude Code: create .claude/") || !strings.Contains(out, "Codex: create .codex/") || !strings.Contains(out, "Cursor Desktop: create .cursor/") || !strings.Contains(out, "OpenCode: create .opencode/") || !strings.Contains(out, "Antigravity CLI: create .agents/") {
 			t.Fatalf("expected bootstrap hints, got %q", out)
 		}
 	})
@@ -633,8 +633,17 @@ func TestRunBootstrapHintsAndAgentInstall(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(repo, ".codex"), 0o755); err != nil {
 			t.Fatal(err)
 		}
+		if err := os.MkdirAll(filepath.Join(repo, ".cursor"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(repo, ".opencode"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(repo, ".agents"), 0o755); err != nil {
+			t.Fatal(err)
+		}
 		var stdout, stderr bytes.Buffer
-		if err := Run([]string{"bootstrap", repo, "--json"}, "0.4.0-test", &stdout, &stderr); err != nil {
+		if err := Run([]string{"bootstrap", repo, "--json"}, "0.5.0-test", &stdout, &stderr); err != nil {
 			t.Fatalf("bootstrap json with agent dirs: %v", err)
 		}
 		var payload map[string]interface{}
@@ -652,7 +661,7 @@ func TestRunBootstrapHintsAndAgentInstall(t *testing.T) {
 			}
 		}
 		joined := strings.Join(stepText, "\n")
-		if !strings.Contains(joined, "hook install claude-code") || !strings.Contains(joined, "hook install codex") {
+		if !strings.Contains(joined, "hook install claude-code") || !strings.Contains(joined, "hook install codex") || !strings.Contains(joined, "hook install cursor") || !strings.Contains(joined, "hook install opencode") || !strings.Contains(joined, "hook install antigravity") {
 			t.Fatalf("expected agent hook install steps, got %q", joined)
 		}
 	})
@@ -661,7 +670,7 @@ func TestRunBootstrapHintsAndAgentInstall(t *testing.T) {
 func TestRunHookGenerateAndPresetListText(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"hook", "generate", "codex"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"hook", "generate", "codex"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("hook generate codex: %v", err)
 	}
 	if !strings.Contains(stdout.String(), "codex-pre-tool-use") {
@@ -669,7 +678,7 @@ func TestRunHookGenerateAndPresetListText(t *testing.T) {
 	}
 
 	stdout.Reset()
-	if err := Run([]string{"preset", "list"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"preset", "list"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("preset list text: %v", err)
 	}
 	if !strings.Contains(stdout.String(), "Bundled and user presets:") || !strings.Contains(stdout.String(), "extends: [<name>, ...]") {
@@ -677,30 +686,66 @@ func TestRunHookGenerateAndPresetListText(t *testing.T) {
 	}
 }
 
+func TestRunHookSyncScaffold(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	scaffoldRoot := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"hook", "sync-scaffold", scaffoldRoot, "--json"}, "0.5.0-test", &stdout, &stderr); err != nil {
+		t.Fatalf("hook sync-scaffold: %v", err)
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("expected hook sync-scaffold JSON, got %v\n%s", err, stdout.String())
+	}
+	if payload["scaffold_root"] == "" {
+		t.Fatalf("expected scaffold_root in payload: %#v", payload)
+	}
+	for _, want := range []string{
+		".githooks/pre-commit",
+		".codex/hooks.json",
+		".cursor/hooks.json",
+		".claude/settings.json",
+		".agents/hooks.json",
+		".opencode/plugins/reconc.js",
+	} {
+		if _, err := os.Stat(filepath.Join(scaffoldRoot, filepath.FromSlash(want))); err != nil {
+			t.Fatalf("expected generated scaffold artifact %s: %v", want, err)
+		}
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	err := Run([]string{"hook", "sync-scaffold", scaffoldRoot, "--bogus"}, "0.5.0-test", &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("expected sync-scaffold unknown-flag error, got %v", err)
+	}
+}
+
 func TestRunHookAndPresetValidationPaths(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 
-	if err := Run([]string{"hook", "--help"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"hook", "--help"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("hook --help: %v", err)
 	}
-	if !strings.Contains(stdout.String(), "Usage: reconc hook generate") {
+	if !strings.Contains(stdout.String(), "Usage: reconc hook generate") ||
+		!strings.Contains(stdout.String(), "sync-scaffold") {
 		t.Fatalf("expected hook help output, got %q", stdout.String())
 	}
 
 	stdout.Reset()
-	err := Run([]string{"hook", "install"}, "0.4.0-test", &stdout, &stderr)
+	err := Run([]string{"hook", "install"}, "0.5.0-test", &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "missing kind") {
 		t.Fatalf("expected hook install missing-kind error, got %v", err)
 	}
 
 	stdout.Reset()
-	err = Run([]string{"hook", "claim", "/tmp/repo", "ci-green", "--bogus"}, "0.4.0-test", &stdout, &stderr)
+	err = Run([]string{"hook", "claim", "/tmp/repo", "ci-green", "--bogus"}, "0.5.0-test", &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "unknown flag") {
 		t.Fatalf("expected hook claim unknown-flag error, got %v", err)
 	}
 
 	stdout.Reset()
-	if err := Run([]string{"preset", "--help"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"preset", "--help"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("preset --help: %v", err)
 	}
 	if !strings.Contains(stdout.String(), "Usage: reconc preset list") {
@@ -708,7 +753,7 @@ func TestRunHookAndPresetValidationPaths(t *testing.T) {
 	}
 
 	stdout.Reset()
-	err = Run([]string{"preset", "bogus"}, "0.4.0-test", &stdout, &stderr)
+	err = Run([]string{"preset", "bogus"}, "0.5.0-test", &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "unknown subcommand") {
 		t.Fatalf("expected preset unknown-subcommand error, got %v", err)
 	}
@@ -742,7 +787,7 @@ func TestRunWhyComplexLockfileAndValidation(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"why", "complex", repo}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"why", "complex", repo}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("why complex: %v", err)
 	}
 	out := stdout.String()
@@ -751,7 +796,7 @@ func TestRunWhyComplexLockfileAndValidation(t *testing.T) {
 	}
 
 	stdout.Reset()
-	err := Run([]string{"why", "complex", repo, "--json", "--terse"}, "0.4.0-test", &stdout, &stderr)
+	err := Run([]string{"why", "complex", repo, "--json", "--terse"}, "0.5.0-test", &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
 		t.Fatalf("expected why mutually-exclusive error, got %v", err)
 	}
@@ -760,7 +805,7 @@ func TestRunWhyComplexLockfileAndValidation(t *testing.T) {
 func TestRunHookGenerateJSONAndPresetListValidation(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"hook", "generate", "codex", "--json"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"hook", "generate", "codex", "--json"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("hook generate codex --json: %v", err)
 	}
 	var payload map[string]interface{}
@@ -772,7 +817,7 @@ func TestRunHookGenerateJSONAndPresetListValidation(t *testing.T) {
 	}
 
 	stdout.Reset()
-	if err := Run([]string{"preset", "list", "--help"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"preset", "list", "--help"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("preset list --help: %v", err)
 	}
 	if !strings.Contains(stdout.String(), "Usage: reconc preset list") {
@@ -780,7 +825,7 @@ func TestRunHookGenerateJSONAndPresetListValidation(t *testing.T) {
 	}
 
 	stdout.Reset()
-	err := Run([]string{"preset", "list", "--bogus"}, "0.4.0-test", &stdout, &stderr)
+	err := Run([]string{"preset", "list", "--bogus"}, "0.5.0-test", &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "unknown flag") {
 		t.Fatalf("expected preset list unknown-flag error, got %v", err)
 	}
@@ -789,7 +834,7 @@ func TestRunHookGenerateJSONAndPresetListValidation(t *testing.T) {
 func TestRunHookValidationExtras(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 
-	err := Run([]string{"hook", "generate"}, "0.4.0-test", &stdout, &stderr)
+	err := Run([]string{"hook", "generate"}, "0.5.0-test", &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "missing kind") {
 		t.Fatalf("expected hook generate missing-kind error, got %v", err)
 	}
@@ -799,7 +844,7 @@ func TestRunHookValidationExtras(t *testing.T) {
 		t.Fatal(err)
 	}
 	stdout.Reset()
-	if err := Run([]string{"hook", "install", "git-pre-commit", repo, "--help"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"hook", "install", "git-pre-commit", repo, "--help"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("hook install --help: %v", err)
 	}
 	if !strings.Contains(stdout.String(), "Usage: reconc hook install") {
@@ -807,29 +852,70 @@ func TestRunHookValidationExtras(t *testing.T) {
 	}
 
 	stdout.Reset()
-	err = Run([]string{"hook", "install", "git-pre-commit", repo, "--bogus"}, "0.4.0-test", &stdout, &stderr)
+	err = Run([]string{"hook", "install", "git-pre-commit", repo, "--bogus"}, "0.5.0-test", &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "unknown flag") {
 		t.Fatalf("expected hook install unknown-flag error, got %v", err)
 	}
 
 	stdout.Reset()
-	err = Run([]string{"hook", "claim", repo, "ci-green", "--session"}, "0.4.0-test", &stdout, &stderr)
+	err = Run([]string{"hook", "claim", repo, "ci-green", "--session"}, "0.5.0-test", &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "--session requires a value") {
 		t.Fatalf("expected hook claim session-value error, got %v", err)
 	}
 
 	stdout.Reset()
-	if err := Run([]string{"hook", "runtime", "--help"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"hook", "runtime", "--help"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("hook runtime --help: %v", err)
 	}
 	if !strings.Contains(stdout.String(), "Usage: reconc hook runtime") {
 		t.Fatalf("expected hook runtime help output, got %q", stdout.String())
 	}
 
+	t.Run("hook-runtime-timing-trace", func(t *testing.T) {
+		t.Setenv("RECONC_HOME", t.TempDir())
+		t.Setenv("RECONC_HOOK_TIMING", "1")
+		repo := t.TempDir()
+		stdout.Reset()
+		stderr.Reset()
+
+		oldStdin := os.Stdin
+		read, write, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := write.WriteString(`{"session_id":"s-timing","tool_name":"Read","tool_input":{"file_path":"docs/tasks.md"}}`); err != nil {
+			t.Fatal(err)
+		}
+		if err := write.Close(); err != nil {
+			t.Fatal(err)
+		}
+		os.Stdin = read
+		defer func() {
+			os.Stdin = oldStdin
+			_ = read.Close()
+		}()
+
+		if err := runHookRuntime([]string{"codex-pre-tool-use", repo}, &stdout, &stderr); err != nil {
+			t.Fatalf("hook runtime timing path: %v stderr=%s", err, stderr.String())
+		}
+		trace := stderr.String()
+		for _, token := range []string{
+			"reconc hook timing:",
+			"event=codex-pre-tool-use",
+			"total=",
+			"payload_read=",
+			"handler=",
+		} {
+			if !strings.Contains(trace, token) {
+				t.Fatalf("timing trace missing %q: %s", token, trace)
+			}
+		}
+	})
+
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo2 := t.TempDir()
 	stdout.Reset()
-	if err := Run([]string{"hook", "claim", repo2, "ci-green", "--session", "session-1"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"hook", "claim", repo2, "ci-green", "--session", "session-1"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("hook claim text path: %v", err)
 	}
 	if !strings.Contains(stdout.String(), "claim 'ci-green' recorded for session session-1") {
@@ -837,7 +923,7 @@ func TestRunHookValidationExtras(t *testing.T) {
 	}
 
 	stdout.Reset()
-	if err := Run([]string{"hook", "claim", "--help"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"hook", "claim", "--help"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("hook claim --help: %v", err)
 	}
 	if !strings.Contains(stdout.String(), "Usage: reconc hook claim") {
@@ -845,13 +931,13 @@ func TestRunHookValidationExtras(t *testing.T) {
 	}
 
 	stdout.Reset()
-	err = Run([]string{"hook", "claim", repo2}, "0.4.0-test", &stdout, &stderr)
+	err = Run([]string{"hook", "claim", repo2}, "0.5.0-test", &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "usage: reconc hook claim") {
 		t.Fatalf("expected hook claim usage error, got %v", err)
 	}
 
 	stdout.Reset()
-	err = Run([]string{"hook", "claim", repo2, "ci-green", "extra"}, "0.4.0-test", &stdout, &stderr)
+	err = Run([]string{"hook", "claim", repo2, "ci-green", "extra"}, "0.5.0-test", &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "too many positional arguments") {
 		t.Fatalf("expected hook claim too-many-positionals error, got %v", err)
 	}
@@ -859,9 +945,35 @@ func TestRunHookValidationExtras(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo3 := t.TempDir()
 	stdout.Reset()
-	err = Run([]string{"hook", "claim", repo3, "ci-green"}, "0.4.0-test", &stdout, &stderr)
+	err = Run([]string{"hook", "claim", repo3, "ci-green"}, "0.5.0-test", &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "no active reconc session") {
 		t.Fatalf("expected hook claim no-active-session error, got %v", err)
+	}
+}
+
+func TestObservationOnlyHookEventClassification(t *testing.T) {
+	for _, event := range []string{
+		"claude-post-tool-use",
+		"codex-post-tool-use-failure",
+		"cursor-after-shell-execution",
+		"cursor-after-file-edit",
+		"opencode-post-tool-use",
+		"antigravity-post-invocation",
+	} {
+		if !isObservationOnlyHookEvent(event) {
+			t.Fatalf("%s should be observation-only", event)
+		}
+	}
+	for _, event := range []string{
+		"claude-pre-tool-use",
+		"codex-permission-request",
+		"cursor-before-shell-execution",
+		"cursor-stop",
+		"antigravity-stop",
+	} {
+		if isObservationOnlyHookEvent(event) {
+			t.Fatalf("%s must stay hard/interactive priority", event)
+		}
 	}
 }
 
@@ -871,7 +983,7 @@ func TestRunHookInstallAndPresetShowJSON(t *testing.T) {
 	initGitRepo(t, repo)
 
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"hook", "install", "git-pre-commit", repo, "--json"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"hook", "install", "git-pre-commit", repo, "--json"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("hook install git-pre-commit --json: %v", err)
 	}
 	var install map[string]interface{}
@@ -884,7 +996,7 @@ func TestRunHookInstallAndPresetShowJSON(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if err := Run([]string{"preset", "show", "default", "--json"}, "0.4.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"preset", "show", "default", "--json"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("preset show default --json: %v", err)
 	}
 	var preset map[string]interface{}

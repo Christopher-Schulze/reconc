@@ -1,0 +1,436 @@
+default_mode: warn
+
+rules:
+  - id: project-root-product-paths-deny
+    kind: deny_write
+    mode: block
+    paths:
+      - "cmd/**"
+      - "internal/**"
+      - "pkg/**"
+      - "ui-kit/**"
+      - "sdk/**"
+      - "skills/**"
+      - "industry-packs/**"
+      - "apps/**"
+      - "packages/**"
+      - "dist/**"
+      - "package.json"
+      - "bun.lock"
+      - "bun.lockb"
+      - "package-lock.json"
+      - "pnpm-lock.yaml"
+      - "yarn.lock"
+    message: Root must stay structurally intentional. Default flat-root owners are allowed; unrelated root product sprawl belongs under the selected owner paths.
+
+  - id: project-local-secret-state-deny
+    kind: deny_write
+    mode: block
+    paths:
+      - ".env"
+      - ".env.*"
+      - "*.key"
+      - "*.pem"
+      - "*.db"
+      - "*.db-wal"
+      - "*.db-shm"
+      - ".project/**"
+    message: Secrets, runtime homes and local databases are customer/dev state, never source-controlled project artifacts.
+
+  - id: project-agents-md-edit-authorized
+    kind: require_claim
+    mode: block
+    when_paths:
+      - "AGENTS.md"
+    claims:
+      - "agents-md-edit-authorized"
+    message: AGENTS.md is protected local workflow law. Edit it only when the user explicitly asks and the session asserts agents-md-edit-authorized.
+
+  - id: project-readme-edit-authorized
+    kind: require_claim
+    mode: block
+    when_paths:
+      - "README.md"
+    claims:
+      - "readme-edit-authorized"
+    message: README.md is a protected static GitHub team info page. Read or edit it only when the user explicitly asks for README work and the session asserts readme-edit-authorized.
+
+  - id: project-research-readonly-authorized
+    kind: require_claim
+    mode: block
+    when_paths:
+      - "research/**"
+    claims:
+      - "research-edit-authorized"
+    message: research/ is read-only reference material. Manage research assets only after explicit user instruction and research-edit-authorized claim.
+
+  - id: project-drop-manual-intake-authorized
+    kind: require_claim
+    mode: block
+    when_paths:
+      - "_drop/**"
+    claims:
+      - "drop-access-authorized"
+    message: _drop/ is manual user/team intake. Do not read/use/edit/move/delete it unless the user explicitly names _drop/ and the session asserts drop-access-authorized.
+
+  - id: project-spec-edit-authorized
+    kind: require_claim
+    mode: block
+    when_paths:
+      - "docs/spec.md"
+    claims:
+      - "spec-edit-authorized"
+    message: docs/spec.md is protected target-state architecture. Edit it only when the user explicitly asked for a spec change and the session asserts spec-edit-authorized.
+
+  - id: project-task-state-audit
+    kind: require_script
+    mode: block
+    when_paths:
+      - "docs/tasks.md"
+      - "docs/tasks/**"
+    script: "tools/reconc/harness/project/audits/run-workflow-audit"
+    args:
+      - "task-state"
+    timeout_sec: 30
+    message: TASK index/detail/archive state, Scheduling order, Current selection, dependency readiness, Expected Touch Surfaces, parallel-group disjointness, Done-time Final Reality Check and spec parity evidence must stay internally consistent before task files are accepted.
+
+  - id: project-tasks-md-rows-immutable
+    kind: require_script
+    mode: block
+    when_paths:
+      - "docs/tasks.md"
+    script: "tools/reconc/harness/project/audits/run-workflow-audit"
+    args:
+      - "tasks-md-rows-immutable"
+    timeout_sec: 15
+    message: docs/tasks.md is APPEND-ONLY. Historical task rows present in HEAD must remain in the working tree and must not reverse-flip [x] to [ ]. Only [ ] to [x] flips with target swap and appended new rows are allowed.
+
+  - id: project-git-hooks-audit
+    kind: require_script
+    mode: warn
+    when_paths:
+      - ".githooks/**"
+      - ".reconc.yml"
+    script: "tools/reconc/harness/project/audits/run-workflow-audit"
+    args:
+      - "git-hooks"
+    timeout_sec: 10
+    message: Source-controlled `.githooks/pre-commit` must be present, executable, and activated via `git config core.hooksPath .githooks` so commits made via Bash are also gated by Reconc. Mode is warn so a fresh clone can bootstrap before activation.
+
+  - id: project-repo-layout-audit
+    kind: require_script
+    mode: block
+    when_paths:
+      - "AGENTS.md"
+      - ".gitignore"
+      - ".reconc.yml"
+      - "start.md"
+      - "README.md"
+      - "*"
+      - ".*"
+      - "package.json"
+      - "bun.lock"
+      - "bun.lockb"
+      - "package-lock.json"
+      - "pnpm-lock.yaml"
+      - "yarn.lock"
+      - "**/package.json"
+      - "**/bun.lock"
+      - "**/bun.lockb"
+      - "**/package-lock.json"
+      - "**/pnpm-lock.yaml"
+      - "**/yarn.lock"
+      - ".codex/**"
+      - ".cursor/**"
+      - ".claude/**"
+      - ".opencode/**"
+      - ".agents/**"
+      - "tools/reconc/harness/project/config/workflow/stack-config.yaml"
+    script: "tools/reconc/harness/project/audits/run-workflow-audit"
+    args:
+      - "repo-layout"
+    timeout_sec: 30
+    message: Root layout, wrapper entrypoints, codebase ownership and dependency locality must match AGENTS.md.
+
+  - id: project-repo-cleanliness-audit
+    kind: require_script
+    mode: block
+    when_paths:
+      - "AGENTS.md"
+      - ".gitignore"
+      - ".reconc.yml"
+      - "start.md"
+      - "*"
+      - ".*"
+      - ".codex/**"
+      - ".cursor/**"
+      - ".claude/**"
+      - ".opencode/**"
+      - ".agents/**"
+      - "codebase/**"
+      - "docs/**"
+      - "tools/**"
+    script: "tools/reconc/harness/project/audits/run-workflow-audit"
+    args:
+      - "repo-cleanliness"
+    timeout_sec: 30
+    message: Non-ignored repo content must be tracked or intentionally ignored; otherwise git clean would delete useful files.
+
+  - id: project-agent-quality-audit
+    kind: require_script
+    mode: block
+    when_paths:
+      - "AGENTS.md"
+      - ".reconc.yml"
+      - ".codex/**"
+      - ".cursor/**"
+      - ".claude/**"
+      - ".opencode/**"
+      - ".agents/**"
+      - "backend/**"
+      - "codebase/**"
+      - "docs/tasks.md"
+      - "docs/tasks/**"
+      - "scripts/**"
+      - "tools/reconc/**"
+    script: "tools/reconc/harness/project/audits/run-workflow-audit"
+    args:
+      - "agent-quality"
+    timeout_sec: 30
+    message: Changed code and workflow surfaces must not introduce hidden test skips, placeholder completion language, untested sensitive Go edits, or stale live Reconc binaries.
+
+  - id: project-agent-hooks-audit
+    kind: require_script
+    mode: block
+    when_paths:
+      - ".codex/**"
+      - ".cursor/**"
+      - ".claude/**"
+      - ".opencode/**"
+      - ".agents/**"
+      - ".reconc.yml"
+    script: "tools/reconc/harness/project/audits/run-workflow-audit"
+    args:
+      - "agent-hooks"
+    timeout_sec: 30
+    message: Repo-local Codex/Cursor/Claude/OpenCode hooks must resolve the repo-local Reconc binary first, keep PATH only as fallback, and avoid global agent config drift.
+
+  - id: project-start-entrypoint-audit
+    kind: require_script
+    mode: block
+    when_paths:
+      - "start.md"
+    script: "tools/reconc/harness/project/audits/run-workflow-audit"
+    args:
+      - "start-entrypoint"
+    timeout_sec: 30
+    message: start.md must remain a read-only Project onboarding entrypoint, not a scaffold/setup script.
+
+  - id: project-spec-format-audit
+    kind: require_script
+    mode: block
+    when_paths:
+      - "docs/spec.md"
+    script: "tools/reconc/harness/project/audits/run-workflow-audit"
+    args:
+      - "spec-format"
+    timeout_sec: 30
+    message: docs/spec.md must remain markdown-only target-state spec content.
+
+  - id: project-architecture-boundaries-audit
+    kind: require_script
+    mode: block
+    when_paths:
+      - "backend/**"
+      - "shared/**"
+      - "config/arch/**"
+      - "codebase/backend/**"
+      - "codebase/shared/**"
+      - "codebase/config/arch/**"
+      - "tools/reconc/harness/project/audits/arch_lint.go"
+    script: "tools/reconc/harness/project/audits/run-workflow-audit"
+    args:
+      - "arch-boundaries"
+    timeout_sec: 30
+    message: Core services, feature modules, connectors and public/shared packages must respect the ss2a import DAG and arch-rules.yaml.
+
+  - id: project-module-contracts-audit
+    kind: require_script
+    mode: block
+    when_paths:
+      - "modules/**"
+      - "backend/project/internal/modules/**"
+      - "frontend/modules/**"
+      - "codebase/modules/**"
+      - "codebase/backend/project/internal/modules/**"
+      - "codebase/frontend/modules/**"
+      - "tools/reconc/harness/project/audits/module_lint.go"
+    script: "tools/reconc/harness/project/audits/run-workflow-audit"
+    args:
+      - "module-contracts"
+    timeout_sec: 30
+    message: Every feature module needs MODULE.yaml, may not import transport/process primitives directly, and stub modules may not expose runtime/UI surfaces.
+
+  - id: project-generated-references-audit
+    kind: require_script
+    mode: block
+    when_paths:
+      - "backend/shared/contracts/generated_reference/**"
+      - "scripts/generators/generated_reference/**"
+      - "codebase/backend/shared/contracts/generated_reference/**"
+      - "codebase/scripts/generators/generated_reference/**"
+      - "tools/reconc/harness/project/audits/generated_reference/**"
+    script: "tools/reconc/harness/project/audits/run-workflow-audit"
+    args:
+      - "generated-references"
+    timeout_sec: 60
+    message: Generated reference artifacts must be reproducible from contracts.yaml and must not drift from the generator output.
+
+  - id: project-build-baseline-audit
+    kind: require_script
+    mode: block
+    when_paths:
+      - "go.mod"
+      - "go.sum"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/build/**"
+      - "backend/project/**"
+      - "codebase/scripts/build/**"
+      - "codebase/backend/project/**"
+      - "tools/reconc/harness/project/config/workflow/stack-config.yaml"
+    script: "tools/reconc/harness/project/audits/run-workflow-audit"
+    args:
+      - "build-baseline"
+    timeout_sec: 60
+    message: Selected stack module, build runner and binary entrypoints must stay aligned with stack-config.yaml.
+
+  - id: project-durable-store-audit
+    kind: require_script
+    mode: block
+    when_paths:
+      - "go.mod"
+      - "go.sum"
+      - "backend/project/internal/store/**"
+      - "db/migrations/**"
+      - "codebase/backend/project/internal/store/**"
+      - "codebase/db/migrations/**"
+      - "tools/reconc/harness/project/config/workflow/stack-config.yaml"
+    script: "tools/reconc/harness/project/audits/run-workflow-audit"
+    args:
+      - "durable-store"
+    timeout_sec: 60
+    message: Durable store code, embedded migrations, migration ledger and SQLite safety defaults must stay aligned.
+
+  - id: project-workflow-audit-self-check
+    kind: require_script
+    mode: block
+    when_paths:
+      - ".reconc.yml"
+      - "tools/reconc/harness/project/audits/**"
+      - ".codex/**"
+      - ".cursor/**"
+      - ".claude/**"
+      - ".opencode/**"
+      - ".agents/**"
+    script: "tools/reconc/harness/project/audits/run-workflow-audit"
+    args:
+      - "all"
+    timeout_sec: 60
+    message: Changes to the enforcement layer must pass the complete Project workflow audit, including Done-time reality/spec parity gates.
+
+  - id: project-task-schema-sot-audit
+    kind: require_script
+    mode: block
+    when_paths:
+      - "tools/reconc/harness/project/config/workflow/task-schema.yaml"
+      - "tools/reconc/harness/project/audits/lib/donecheck/**"
+    script: "tools/reconc/harness/project/audits/run-workflow-audit"
+    args:
+      - "schema-present"
+    timeout_sec: 30
+    message: tools/reconc/harness/project/config/workflow/task-schema.yaml is the single source of truth for TASK structural rules; it must stay valid and consistent with donecheck.DefaultSchema().
+
+  - id: project-agents-md-mirror-audit
+    kind: require_script
+    mode: block
+    when_paths:
+      - "AGENTS.md"
+      - "tools/reconc/harness/project/config/workflow/task-schema.yaml"
+      - "tools/reconc/harness/project/audits/lib/donecheck/schema.go"
+    script: "tools/reconc/harness/project/audits/run-workflow-audit"
+    args:
+      - "agents-md-mirror"
+    timeout_sec: 30
+    message: AGENTS.md narrative must mention every machine value declared in task-schema.yaml so prose and machine rules cannot drift.
+
+  - id: project-code-test-coverage-audit
+    kind: require_script
+    mode: block
+    when_paths:
+      - "backend/**/*.go"
+      - "scripts/**/*.go"
+      - "frontend/**"
+      - "codebase/**/*.go"
+      - "tools/reconc/**/*.go"
+      - "codebase/frontend/**"
+      - "docs/tasks.md"
+      - "docs/tasks/**"
+    script: "tools/reconc/harness/project/audits/run-workflow-audit"
+    args:
+      - "test-coverage"
+    timeout_sec: 60
+    message: Code changes and TASK Done state must keep same-TASK substantive tests, co-located Go *_test.go files and explicit test/coverage evidence.
+
+  - id: project-workflow-docs-follow-enforcement
+    kind: couple_change
+    mode: warn
+    paths:
+      - ".reconc.yml"
+      - "start.md"
+      - "tools/reconc/harness/project/audits/**"
+      - "tools/reconc/harness/project/utils/**"
+      - "tools/reconc/harness/project/config/**"
+      - ".codex/**"
+      - ".cursor/**"
+      - ".claude/**"
+      - ".opencode/**"
+      - ".agents/**"
+    when_paths:
+      - "docs/documentation.md"
+    message: Enforcement/onboarding changes should keep docs/documentation.md current.
+
+  - id: project-reconc-engine-docs-follow
+    kind: couple_change
+    mode: warn
+    paths:
+      - "tools/reconc/cmd/**"
+      - "tools/reconc/internal/**"
+      - "tools/reconc/skills/**"
+      - "tools/reconc/stdlib/**"
+    when_paths:
+      - "tools/reconc/docs/**"
+    message: Reconc engine source changes that alter behavior should keep the tool's own docs (tools/reconc/docs/) current, not the product documentation.md.
+
+  - id: project-reconc-source-tests
+    kind: require_command_success
+    mode: warn
+    when_paths:
+      - "tools/reconc/cmd/**/*.go"
+      - "tools/reconc/internal/**/*.go"
+      - "tools/reconc/go.mod"
+      - "tools/reconc/go.sum"
+    commands:
+      - "cd tools/reconc && go test ./..."
+    message: Reconc engine source changes should prove the operative enforcement tool still passes its own Go test suite.
+
+  - id: project-harness-project-tests
+    kind: require_command_success
+    mode: warn
+    when_paths:
+      - "tools/reconc/harness/project/**/*.go"
+      - "tools/reconc/harness/project/go.mod"
+      - "tools/reconc/harness/project/go.sum"
+    commands:
+      - "cd tools/reconc/harness/project && go test ./..."
+    message: Harness module changes should prove the workflow harness still passes its own Go test suite.

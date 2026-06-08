@@ -46,12 +46,10 @@ func RecordClaim(repoRoot, claim, sessionID string) (*ClaimReport, error) {
 		sessionID = active
 	}
 
-	state, err := LoadSessionState(root, sessionID)
+	updated, err := MutateSessionState(root, sessionID, func(state SessionState) SessionState {
+		return AppendClaim(state, claim)
+	})
 	if err != nil {
-		return nil, err
-	}
-	updated := AppendClaim(state, claim)
-	if err := SaveSessionState(updated); err != nil {
 		return nil, err
 	}
 	// Re-run check so the saved report reflects the new claim set.
@@ -68,6 +66,43 @@ func RecordClaim(repoRoot, claim, sessionID string) (*ClaimReport, error) {
 		StatePath:  sessionStatePath(root, sessionID),
 		ReportPath: updated.ReportPath,
 	}, nil
+}
+
+// ActiveEvidence returns command and claim evidence recorded on the
+// currently active agent session. Missing session state is not an
+// error; callers use this to let non-interactive gates such as git
+// pre-commit inherit in-session authorizations and successful checks
+// without requiring PATH-dependent wrappers.
+func ActiveEvidence(repoRoot string) ([]string, []CommandResult, []string, error) {
+	root, err := ResolveRepoRoot(repoRoot)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	sessionID, err := ResolveActiveSessionID(root)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if sessionID == "" {
+		return nil, nil, nil, nil
+	}
+	state, err := LoadSessionState(root, sessionID)
+	if err != nil {
+		return nil, nil, nil, nil
+	}
+	commands := append([]string{}, state.Commands...)
+	results := append([]CommandResult{}, state.CommandResults...)
+	claims := append([]string{}, state.Claims...)
+	return commands, results, claims, nil
+}
+
+// ActiveClaims returns claims recorded on the currently active agent
+// session. Kept as a narrow helper for callers that need only claims.
+func ActiveClaims(repoRoot string) ([]string, error) {
+	_, _, claims, err := ActiveEvidence(repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	return claims, nil
 }
 
 // DescribeClaimReport returns a short human-readable rendering of

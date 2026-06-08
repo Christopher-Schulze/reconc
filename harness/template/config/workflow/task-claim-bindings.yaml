@@ -1,0 +1,42 @@
+# Task -> Claims Mapping
+#
+# `task-claim` reads the active TASK from docs/tasks.md and asserts every
+# claim listed under `default_claims` plus any claim listed under a binding
+# whose `match` pattern matches the active TASK name (case-sensitive substring
+# match, simplest contract).
+#
+# Reconc claims today are session-scoped (one assertion lives until the agent
+# session ends) so this mapping mainly automates the "assert N standard
+# claims" boilerplate. Re-run after a hot-switch / TASK promotion to refresh.
+#
+# This file is the single source of truth for which TASKs warrant which
+# protected-path access. Update both this file and AGENTS.md prose if the
+# protected-paths surface area changes.
+
+default_claims: []
+
+# Example bindings (commented out). Uncomment + adapt to your repo's
+# TASK-name conventions. The `match` value is a case-sensitive substring
+# matched against the active TASK detail filename (e.g. TASK-0042-Spec-Refresh);
+# any TASK whose name contains the substring inherits the listed claims for
+# the session.
+bindings: []
+  # - match: Spec
+  #   claims:
+  #     - spec-edit-authorized
+  #
+  # - match: Workflow
+  #   claims:
+  #     - agents-md-edit-authorized
+  #
+  # - match: README
+  #   claims:
+  #     - readme-edit-authorized
+  #
+  # - match: Research
+  #   claims:
+  #     - research-edit-authorized
+  #
+  # - match: Drop
+  #   claims:
+  #     - drop-access-authorized

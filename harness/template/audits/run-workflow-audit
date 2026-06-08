@@ -1,0 +1,57 @@
+#!/bin/sh
+# Reconc-invoked launcher. Reconc calls this script with the repo root as
+# cwd, so all repo-relative paths below resolve against the repo root.
+set -eu
+repo_root="$(pwd)"
+harness="tools/reconc/harness/template"
+cache_dir=".reconc/cache"
+bin="$cache_dir/workflow-audit-template"
+lock_dir="$bin.build.lock"
+mkdir -p "$cache_dir"
+
+needs_rebuild() {
+  if [ ! -x "$bin" ]; then
+    return 0
+  fi
+  for src in "$harness/audits/"*.go "$harness/audits/lib/donecheck/"*.go "$harness/audits/lib/prune/"*.go; do
+    [ -f "$src" ] || continue
+    if [ "$src" -nt "$bin" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+acquire_lock() {
+  attempts=0
+  while ! mkdir "$lock_dir" 2>/dev/null; do
+    if [ -f "$lock_dir/pid" ]; then
+      holder="$(cat "$lock_dir/pid" 2>/dev/null || true)"
+      if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
+        rm -rf "$lock_dir"
+        continue
+      fi
+    fi
+    attempts=$((attempts + 1))
+    if [ "$attempts" -ge 300 ]; then
+      echo "workflow-audit build lock timed out: $lock_dir" >&2
+      return 1
+    fi
+    sleep 0.2
+  done
+  printf '%s\n' "$$" >"$lock_dir/pid"
+}
+
+if needs_rebuild; then
+  acquire_lock
+  tmp="$bin.tmp.$$"
+  trap 'rm -f "$tmp"; rm -rf "$lock_dir"' EXIT INT TERM
+  if needs_rebuild; then
+    (cd "$harness" && go build -ldflags="-s -w" -trimpath -buildvcs=false -o "$repo_root/$tmp" ./audits)
+    chmod 755 "$tmp"
+    mv "$tmp" "$bin"
+  fi
+  rm -rf "$lock_dir"
+  trap - EXIT INT TERM
+fi
+exec "$bin" "$@"

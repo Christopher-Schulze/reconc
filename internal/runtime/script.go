@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -8,8 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
-	"syscall"
 	"time"
 )
 
@@ -117,13 +116,10 @@ func RunScript(repoRoot, scriptPath string, args []string, input ScriptInput, ti
 	cmd := exec.CommandContext(ctx, full, args...)
 	cmd.Dir = repoRoot
 	cmd.Env = sanitizedEnv()
-	cmd.Stdin = strings.NewReader(string(stdinJSON))
+	cmd.Stdin = bytes.NewReader(stdinJSON)
 
-	// Cancel sends SIGTERM first; WaitDelay then escalates to SIGKILL.
-	cmd.Cancel = func() error {
-		return cmd.Process.Signal(syscall.SIGTERM)
-	}
-	cmd.WaitDelay = time.Duration(killTimeoutSec) * time.Second
+	done := make(chan struct{})
+	configureScriptProcess(ctx, cmd, done, killTimeoutSec)
 
 	stdoutBuf := newCappedWriter(MaxScriptOutputBytes)
 	stderrBuf := newCappedWriter(MaxScriptOutputBytes)
@@ -132,6 +128,7 @@ func RunScript(repoRoot, scriptPath string, args []string, input ScriptInput, ti
 
 	start := time.Now()
 	err = cmd.Run()
+	close(done)
 	duration := time.Since(start)
 
 	outcome := ScriptOutcome{

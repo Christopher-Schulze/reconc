@@ -480,8 +480,8 @@ func discoveryToMap(d ingest.DiscoveryResult) map[string]interface{} {
 // with sorted keys (Go's json.Marshal already does this for maps) and
 // 2-space indentation, terminated by a single newline.
 //
-// MkdirAll handles a missing .reconc/ directory; existing files are
-// overwritten atomically (via os.WriteFile's truncate-and-write).
+// MkdirAll handles a missing .reconc/ directory; existing files are replaced
+// with temp-file-then-rename so readers never observe a truncated lockfile.
 func writeLockfile(repoRoot string, payload map[string]interface{}) error {
 	lockDir := filepath.Join(repoRoot, ".reconc")
 	if err := os.MkdirAll(lockDir, 0o755); err != nil {
@@ -492,8 +492,27 @@ func writeLockfile(repoRoot string, payload map[string]interface{}) error {
 		return &rerrors.LockfileError{Message: "marshal lockfile", Cause: err}
 	}
 	full := filepath.Join(lockDir, "policy.lock.json")
-	if err := os.WriteFile(full, append(data, '\n'), 0o644); err != nil {
-		return &rerrors.LockfileError{Message: "write lockfile", Cause: err}
+	tmpFile, err := os.CreateTemp(lockDir, "policy.lock.json.*.tmp")
+	if err != nil {
+		return &rerrors.LockfileError{Message: "create lockfile tmp", Cause: err}
+	}
+	tmp := tmpFile.Name()
+	if _, err := tmpFile.Write(append(data, '\n')); err != nil {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmp)
+		return &rerrors.LockfileError{Message: "write lockfile tmp", Cause: err}
+	}
+	if err := tmpFile.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return &rerrors.LockfileError{Message: "close lockfile tmp", Cause: err}
+	}
+	if err := os.Chmod(tmp, 0o644); err != nil {
+		_ = os.Remove(tmp)
+		return &rerrors.LockfileError{Message: "chmod lockfile tmp", Cause: err}
+	}
+	if err := os.Rename(tmp, full); err != nil {
+		_ = os.Remove(tmp)
+		return &rerrors.LockfileError{Message: "rename lockfile", Cause: err}
 	}
 	return nil
 }

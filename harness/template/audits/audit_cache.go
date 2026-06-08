@@ -1,0 +1,240 @@
+package main
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"reconc-harness/template/audits/lib/prune"
+)
+
+// cacheVersion is bumped whenever audit logic changes in a way that should
+// invalidate every cached pass. The cache key embeds this constant so a
+// stale binary cannot return a false pass after the rules tightened.
+const cacheVersion = "v2-2026-05-10"
+
+const (
+	cacheRel     = ".reconc/cache/audit-results.json"
+	cacheEnv     = "RECONC_AUDIT_NO_CACHE"
+	cachePassTag = "pass"
+)
+
+var auditCacheMu sync.Mutex
+
+type cacheEntry struct {
+	Hash    string `json:"hash"`
+	Result  string `json:"result"`
+	Version string `json:"version"`
+}
+
+type cacheFile struct {
+	Entries     map[string]cacheEntry `json:"entries"`
+	LastPruneTS int64                 `json:"last_prune_ts,omitempty"`
+}
+
+// fileGlobs is a sorted set of file paths that fully define a sub-audit's
+// input. The cache hashes them in lexical order so identical content always
+// produces the same digest. Globs that read directories return their
+// recursive file list; globs that read individual files just return that file.
+type cacheInputs struct {
+	files          []string
+	structurePaths []string
+}
+
+func newCacheInputs() *cacheInputs {
+	return &cacheInputs{}
+}
+
+// AddFile appends a single file to the input set if it exists.
+func (c *cacheInputs) AddFile(path string) {
+	if _, err := os.Stat(path); err == nil {
+		c.files = append(c.files, path)
+	}
+}
+
+// AddTreeStructure appends every regular file under root with one of the
+// suffixes BUT marks them so Hash() includes only their paths and existence,
+// not their contents. Used by audits whose result depends on the directory
+// tree shape (e.g. test-coverage: "does each Go dir have a *_test.go?") so
+// pure content edits do not invalidate the cache.
+func (c *cacheInputs) AddTreeStructure(root string, suffixes []string) {
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if len(suffixes) == 0 {
+			c.structurePaths = append(c.structurePaths, path)
+			return nil
+		}
+		for _, suffix := range suffixes {
+			if strings.HasSuffix(path, suffix) {
+				c.structurePaths = append(c.structurePaths, path)
+				return nil
+			}
+		}
+		return nil
+	})
+}
+
+// AddTree appends every regular file under root with one of the suffixes.
+// Returns silently if root does not exist.
+func (c *cacheInputs) AddTree(root string, suffixes []string) {
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if len(suffixes) == 0 {
+			c.files = append(c.files, path)
+			return nil
+		}
+		for _, suffix := range suffixes {
+			if strings.HasSuffix(path, suffix) {
+				c.files = append(c.files, path)
+				return nil
+			}
+		}
+		return nil
+	})
+}
+
+// Hash returns a deterministic SHA256 over the cache version, the sorted file
+// list, and each file's content. Files that cannot be read are encoded as a
+// canonical absent marker so missing-vs-present is also part of the hash.
+// Structure paths (added via AddTreeStructure) contribute only their path
+// and existence, not their content, so content-only edits do not invalidate
+// audits whose result depends only on the directory tree shape.
+func (c *cacheInputs) Hash() (string, error) {
+	sort.Strings(c.files)
+	sort.Strings(c.structurePaths)
+	digest := sha256.New()
+	digest.Write([]byte(cacheVersion))
+	digest.Write([]byte{0})
+	for _, path := range c.files {
+		digest.Write([]byte(path))
+		digest.Write([]byte{0})
+		content, err := os.ReadFile(path)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return "", fmt.Errorf("hash read %s: %w", path, err)
+			}
+			digest.Write([]byte("ABSENT"))
+		} else {
+			digest.Write(content)
+		}
+		digest.Write([]byte{0})
+	}
+	digest.Write([]byte("STRUCTURE"))
+	digest.Write([]byte{0})
+	for _, path := range c.structurePaths {
+		digest.Write([]byte(path))
+		digest.Write([]byte{0})
+		if _, err := os.Stat(path); err == nil {
+			digest.Write([]byte("PRESENT"))
+		} else {
+			digest.Write([]byte("ABSENT"))
+		}
+		digest.Write([]byte{0})
+	}
+	return hex.EncodeToString(digest.Sum(nil)), nil
+}
+
+// runWithCache executes fn unless the inputs already hashed to a previously
+// passing result for this audit name. On pass it persists the new entry; on
+// failure it removes the cache entry so the next call re-runs the audit and
+// the user does not silently keep the stale pass.
+//
+// Side effect: when this routine writes the cache and more than the
+// configured prune-policy interval has elapsed since the last prune, it
+// piggybacks a prune.Run() before returning. This is the auto-cleanup
+// trigger for Reconc state files; it costs single-digit ms once per
+// interval and zero in between.
+func runWithCache(root string, name string, inputs *cacheInputs, fn func() []string) []string {
+	if os.Getenv(cacheEnv) != "" {
+		return fn()
+	}
+	hash, err := inputs.Hash()
+	if err != nil {
+		return fn()
+	}
+	auditCacheMu.Lock()
+	defer auditCacheMu.Unlock()
+	cachePath := filepath.Join(root, filepath.FromSlash(cacheRel))
+	cache := loadCacheFile(cachePath)
+	if entry, ok := cache.Entries[name]; ok && entry.Version == cacheVersion && entry.Result == cachePassTag && entry.Hash == hash {
+		return nil
+	}
+	result := fn()
+	if len(result) == 0 {
+		cache.Entries[name] = cacheEntry{Hash: hash, Result: cachePassTag, Version: cacheVersion}
+	} else {
+		delete(cache.Entries, name)
+	}
+	maybeAutoPrune(root, &cache)
+	saveCacheFile(cachePath, cache)
+	return result
+}
+
+// maybeAutoPrune calls prune.Run when the configured interval has passed.
+// It mutates cache.LastPruneTS so the next call sees the fresh timestamp.
+// Failures inside prune are non-fatal and silently swallowed: pruning is a
+// hygiene operation and must never break audit decisions.
+func maybeAutoPrune(root string, cache *cacheFile) {
+	policy, _ := prune.LoadPolicy(prune.PolicyPathFromRepo(root))
+	now := time.Now().Unix()
+	if cache.LastPruneTS != 0 && now-cache.LastPruneTS < policy.PruneIntervalSeconds {
+		return
+	}
+	_ = prune.Run(prune.Options{RepoRoot: root, Policy: policy})
+	cache.LastPruneTS = now
+}
+
+func loadCacheFile(path string) cacheFile {
+	cache := cacheFile{Entries: map[string]cacheEntry{}}
+	bytes, err := os.ReadFile(path)
+	if err != nil {
+		return cache
+	}
+	if err := json.Unmarshal(bytes, &cache); err != nil {
+		return cacheFile{Entries: map[string]cacheEntry{}}
+	}
+	if cache.Entries == nil {
+		cache.Entries = map[string]cacheEntry{}
+	}
+	return cache
+}
+
+func saveCacheFile(path string, cache cacheFile) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".audit-cache-*")
+	if err != nil {
+		return
+	}
+	defer os.Remove(tmp.Name())
+	encoder := json.NewEncoder(tmp)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(cache); err != nil {
+		tmp.Close()
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		return
+	}
+	_ = os.Rename(tmp.Name(), path)
+}

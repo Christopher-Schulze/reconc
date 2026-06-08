@@ -1,8 +1,10 @@
 package agentsession
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -90,6 +92,76 @@ func TestLoadSessionStateRoundTrip(t *testing.T) {
 	}
 	if len(loaded.Claims) != 1 || loaded.Claims[0] != "ci-green" {
 		t.Errorf("Claims roundtrip failed: %v", loaded.Claims)
+	}
+}
+
+func TestMutateSessionStateMergesConcurrentUpdates(t *testing.T) {
+	_, repo := withStateRoot(t)
+	if _, err := InitializeSessionState(repo, "parallel"); err != nil {
+		t.Fatal(err)
+	}
+
+	const workers = 40
+	var wg sync.WaitGroup
+	errs := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := MutateSessionState(repo, "parallel", func(state SessionState) SessionState {
+				return AppendReadPath(state, fmt.Sprintf("docs/read-%02d.md", i))
+			})
+			if err != nil {
+				errs <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+
+	state, err := LoadSessionState(repo, "parallel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.ReadPaths) != workers {
+		t.Fatalf("expected %d merged read paths, got %d: %v", workers, len(state.ReadPaths), state.ReadPaths)
+	}
+}
+
+func TestSaveSessionStateUsesRaceSafeTempFiles(t *testing.T) {
+	_, repo := withStateRoot(t)
+	state, err := InitializeSessionState(repo, "save-parallel")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const workers = 25
+	var wg sync.WaitGroup
+	errs := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			copyState := state
+			copyState.ReadPaths = []string{fmt.Sprintf("docs/read-%02d.md", i)}
+			if err := SaveSessionState(copyState); err != nil {
+				errs <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadSessionState(repo, "save-parallel"); err != nil {
+		t.Fatal(err)
 	}
 }
 

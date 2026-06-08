@@ -2,6 +2,7 @@ package completion
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 )
@@ -12,10 +13,28 @@ func TestGenerateBashContainsSubcommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	for _, want := range []string{"_reconc()", "complete -F _reconc reconc", "compile", "bootstrap", "audit"} {
+	for _, want := range []string{"_reconc()", "complete -F _reconc reconc", "compile", "bootstrap", "audit", "hook"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("bash completion missing %q", want)
 		}
+	}
+}
+
+func TestGenerateCompletionIncludesHookSyncScaffold(t *testing.T) {
+	for name, generate := range map[string]func(io.Writer) error{
+		"bash": GenerateBash,
+		"zsh":  GenerateZsh,
+		"fish": GenerateFish,
+	} {
+		t.Run(name, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := generate(&buf); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(buf.String(), "sync-scaffold") {
+				t.Fatalf("%s completion missing hook sync-scaffold", name)
+			}
+		})
 	}
 }
 

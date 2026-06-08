@@ -224,11 +224,11 @@ func evalCheck(ctx *evalContext, c policy.Check, captures map[string]string, inp
 	case policy.KindRequireClaim:
 		return evalCheckRequireClaim(c, inputs)
 	case policy.KindRequireCommand:
-		return evalCheckRequireCommand(c, inputs, false)
+		return evalCheckRequireCommand(ctx, c, inputs, false)
 	case policy.KindRequireCommandSuccess:
-		return evalCheckRequireCommand(c, inputs, true)
+		return evalCheckRequireCommand(ctx, c, inputs, true)
 	case policy.KindForbidCommand:
-		return evalCheckForbidCommand(c, inputs)
+		return evalCheckForbidCommand(ctx, c, inputs)
 	case policy.KindDenyWrite:
 		return evalCheckDenyWrite(c, inputs)
 	case policy.KindRequireScript:
@@ -365,12 +365,13 @@ func evalCheckRequireClaim(c policy.Check, inputs ExecutionInputs) (bool, string
 	return false, "no required claim asserted; expected one of: " + strings.Join(c.Claims, ", "), nil
 }
 
-func evalCheckRequireCommand(c policy.Check, inputs ExecutionInputs, requireSuccess bool) (bool, string, error) {
+func evalCheckRequireCommand(ctx *evalContext, c policy.Check, inputs ExecutionInputs, requireSuccess bool) (bool, string, error) {
 	var matched []string
+	repoRoot := ctxRepoRoot(ctx)
 	if requireSuccess {
-		matched = matchingCommandResults(inputs.CommandResults, c.Commands, CommandOutcomeSuccess)
+		matched = matchingCommandResults(inputs.CommandResults, c.Commands, CommandOutcomeSuccess, repoRoot)
 	} else {
-		matched = matchingCommands(inputs.Commands, c.Commands)
+		matched = matchingCommands(inputs.Commands, c.Commands, repoRoot)
 	}
 	if len(matched) > 0 {
 		return true, "", nil
@@ -382,8 +383,8 @@ func evalCheckRequireCommand(c policy.Check, inputs ExecutionInputs, requireSucc
 	return false, fmt.Sprintf("no required command %s; expected one of: %s", verb, strings.Join(c.Commands, ", ")), nil
 }
 
-func evalCheckForbidCommand(c policy.Check, inputs ExecutionInputs) (bool, string, error) {
-	hit := matchingCommands(inputs.Commands, c.Commands)
+func evalCheckForbidCommand(ctx *evalContext, c policy.Check, inputs ExecutionInputs) (bool, string, error) {
+	hit := matchingCommands(inputs.Commands, c.Commands, ctxRepoRoot(ctx))
 	if len(hit) == 0 {
 		return true, "", nil
 	}
