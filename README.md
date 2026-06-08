@@ -1,6 +1,20 @@
-# reconc - Repository Control Compiler
+```text
+ ____  _____ ____ ___  _   _  ____
+|  _ \| ____/ ___/ _ \| \ | |/ ___|
+| |_) |  _|| |  | | | |  \| | |
+|  _ <| |__| |__| |_| | |\  | |___
+|_| \_\_____\____\___/|_| \_|\____|
+```
+
+# Repository Control Compiler
 
 Deterministic policy gates for AI-assisted software engineering.
+
+[![CI](https://github.com/Christopher-Schulze/reconc/actions/workflows/reconc-ci.yml/badge.svg)](https://github.com/Christopher-Schulze/reconc/actions/workflows/reconc-ci.yml)
+[![Release](https://github.com/Christopher-Schulze/reconc/actions/workflows/reconc-release.yml/badge.svg)](https://github.com/Christopher-Schulze/reconc/actions/workflows/reconc-release.yml)
+[![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Offline](https://img.shields.io/badge/runtime-offline_by_default-111827)](#what-it-does)
 
 `reconc` is a small offline Go CLI that turns repository policy into a compiled
 control plane. It lets a repo decide what an AI coding agent may read, write,
