@@ -47,8 +47,8 @@ why a task is allowed to be called done.
   kinds, and repository-root mismatch
 - installs explicitly selected git, Claude Code, Codex, Cursor, OpenCode,
   Devin CLI, Antigravity CLI, GitHub Copilot, and Kilo integrations
-- controls autonomous agent continuation with prompt-scoped `/runloop` state,
-  stop files, no-progress guards, and append-only decision logs
+- controls autonomous agent continuation with repo-scoped `reconc run on|off`,
+  prompt-scoped `/runloop` compatibility, no-progress guards, and bounded logs
 - adopts typed repository TASK state and performs recoverable claim, block,
   resume, split, promotion, and archive transitions
 - bounds session/report state, audit and runloop logs, generated audit binaries,
@@ -67,8 +67,8 @@ human review after the fact is often too late.
 - enforce test-before-done and read-before-write contracts
 - protect generated files, secrets, docs, specs, architecture boundaries, and
   release assets
-- make autonomous continuation explicit with `/runloop`, scoped state, stop
-  files, and no-progress guards
+- make autonomous continuation explicit with one repository switch across all
+  supported agents, plus scoped prompt compatibility and no-progress guards
 - give every agent the same remediation command instead of ad-hoc recovery
 - leave audit-friendly decisions that can be reviewed by humans, CI, or another
   agent
@@ -112,6 +112,20 @@ reconc next .
 reconc done .
 reconc prune . --dry-run
 ```
+
+An AI agent, not the user, operates autonomous run control:
+
+```bash
+reconc run on .
+reconc run status .
+reconc run off .
+```
+
+While repository mode is on, every supported runtime continues executable
+typed TASK work. Explicit user interrupt or `run off` releases it immediately;
+blocked, invalid, or terminal TASK state still reaches the final policy gate.
+The older standalone `/runloop` prompt remains a session-scoped compatibility
+switch.
 
 Inspection and enforcement commands never mutate policy or refresh the
 lockfile implicitly. If policy sources change, they fail closed with one
@@ -236,6 +250,7 @@ other coding agents. The skill gives every agent the same operating loop:
 - remediate blocks with `reconc next .`
 - run `reconc done .` before claiming completion
 - distinguish native hook enforcement from CLI self-checks
+- operate `reconc run on|off|status` itself when autonomous TASK execution is requested
 
 Detailed runtime behavior lives in `docs/documentation.md` and
 `docs/architecture.md`.

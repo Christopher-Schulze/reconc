@@ -8,6 +8,7 @@
 
 ## Done
 
+- [x] 011 Universal run control and Stop hotpath -> tasks/done/011-universal-run-control-and-stop-hotpath.md
 - [x] 010 Self-hosting and final proof -> tasks/done/010-self-hosting-and-final-proof.md
 - [x] 009 Architecture and release trust -> tasks/done/009-architecture-and-release-trust.md
 - [x] 008 Transactional bootstrap and artifact resolution -> tasks/done/008-transactional-bootstrap-and-artifact-resolution.md
@@ -17,4 +18,3 @@
 - [x] 004 State retention and SSD hygiene -> tasks/done/004-state-retention-and-ssd-hygiene.md
 - [x] 003 Stop-path performance and scope -> tasks/done/003-stop-path-performance-and-scope.md
 - [x] 002 Read-only runtime truth -> tasks/done/002-read-only-runtime-truth.md
-- [x] 001 Lock universal evolution program -> tasks/done/001-lock-universal-evolution-program.md

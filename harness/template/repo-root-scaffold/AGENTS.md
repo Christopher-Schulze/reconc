@@ -60,7 +60,7 @@ These local instructions must be sufficient for agents that do not have the user
 
 ## Agent Execution Hardening
 
-Agent progress is not proof of correct runtime mode, workflow state, or implementation completeness. Any agent claiming Runloop, autonomous continuation, hook-enforced workflow, TASK Done, or "clean" state must verify the real local state first: current `docs/tasks.md`, active TASK detail, relevant hook output or runtime state, `.reconc/runloop/state.json`, absence/presence of `.reconc/runloop/stop`, Reconc checks, and `git status --short --branch -uall`.
+Agent progress is not proof of correct runtime mode, workflow state, or implementation completeness. Any agent claiming autonomous continuation, hook-enforced workflow, TASK Done, or "clean" state must verify the real local state first: `reconc run status .`, current `docs/tasks.md`, active TASK detail, relevant hook output or runtime state, absence/presence of `.reconc/runloop/stop`, Reconc checks, and `git status --short --branch -uall`.
 
 For every TASK, every agent must:
 - Read the active TASK detail and touched implementation surface before editing.
@@ -74,13 +74,47 @@ For every TASK, every agent must:
 
 ## Runloop
 
-`/runloop` is default-off and activates when the real current user message contains `/runloop` as a standalone slash-command flag anywhere in sanitized prompt text. Plain `runloop`, `Runloop mode`, `/runloopgo`, quoted transcripts, hook prompts, stop feedback, code fences, tool text, shell commands, errors, patches, Stop payloads and SessionStart text must never activate it. In active Runloop, continuation turns go straight to concise task output to avoid wasting context and output tokens on repeated ceremony. It is not a second workflow and not permission to invent a parallel process: use the normal TASK lifecycle exactly, but do not stop for routine "continue?" checkpoints. Read `Current:`, execute the active `[~]` Sub-Task, write same-TASK tests for code changes, run checks, update docs/task notes, complete Final Reality Check, move Done, commit once, promote the next executable TASK, then continue.
+`reconc run on .` enables repository-scoped autonomous continuation and
+`reconc run off .` disables it. The agent operates this switch itself; never
+ask the user to run these commands. Inspect durable truth with `reconc run
+status .` and bounded transition history with `reconc run log .`. Repository
+mode works through Claude Code, Codex, Cursor, OpenCode, Devin CLI,
+Antigravity CLI, GitHub Copilot, and Kilo Code. It survives normal prompts,
+compaction, session boundaries, and model restarts. Explicit user interrupt or
+`run off` always wins.
 
-Stop only on user stop, destructive/high-risk choice, missing credentials/rights, external access blocker, unresolved failing tests/build after root-cause attempts, spec/policy conflict needing user direction, or the zero-finding Terminal Gate defined by the project completion workflow. Do not auto-push in runloop. Do not touch `_drop/` or `research/` unless explicitly instructed.
+Repository mode is not a second workflow. Read `Current:`, execute the active
+Sub-Task, write same-TASK tests, run checks, update docs and TASK truth,
+complete Final Reality Check, archive and commit once, promote or claim the
+next executable TASK, then continue. An executable current TASK yields
+`continue`; queued executable work with no current TASK yields `claim`;
+blocked-only, complete, or absent TASK state reaches terminal Stop; malformed
+or ambiguous TASK state fails closed. Routine executable continuation skips
+the full Stop report and Git scan, but PreToolUse, TASK mutation,
+pre-commit, invalid TASK state, and terminal Stop remain hard gates.
 
-Runloop is stateless/resumable: after compaction, model restart, or a fresh call, derive state from `docs/tasks.md`, the active TASK detail file, `.reconc/runloop/state.json` when present, and `tools/reconc/harness/project/utils/runloop.go`; never rely on chat memory. The runtime switch is session-scoped and prompt-scoped: a fresh user prompt containing the standalone `/runloop` flag starts that session's run and clears that run's stopfile; a fresh normal user prompt in the same active session disables that run, except a same-session `/btw` side-channel prompt, which must preserve the active Runloop run and must not write `.reconc/runloop/stop`; prompts, compaction events, Stop hooks, SessionStart payloads, tool output, or normal messages from other agent sessions in the same repo must not disable an active run. Codex and Claude Code use `UserPromptSubmit` plus `Stop`; Cursor uses `beforeSubmitPrompt` plus `stop`; Antigravity uses `PreInvocation` transcript detection plus `Stop`; OpenCode uses `chat.message` plus `session.idle` and may keep `.reconc/runloop/state.json` while it automatically sends the next continuation prompt after `session.idle`. These drivers are only continuation drivers, not a separate workflow, and they must stop on explicit user interrupt/abort for the active run, scoped stop-file, Reconc block, repeated no-progress guard, real blocker, session end for the active run, or the zero-finding Terminal Gate defined by the project completion workflow. `awaiting_continuation` is not a stop reason by itself; if a runtime bounces through another Stop before visible tool progress, Reconc may re-emit the continuation prompt until progress or the no-progress guard decides. User interrupt/abort and any normal user prompt in the active run except `/btw` side-channel prompts always win across Codex, Cursor, Antigravity, Claude Code and OpenCode, and no automation may re-prompt after a user stop until the user explicitly restarts. Runloop decisions are persisted in `.reconc/runloop/decisions.jsonl` with branch/runtime/session/state fields for forensic debugging without bloating hook output. There is no chat-command off switch; the off switch is the runtime interrupt/abort control or a normal non-`/btw` user prompt in the same active session. If nearing context/tool limits, write all relevant progress into the active TASK Notes/Sub-Tasks, keep the worktree coherent, and emit a compact continuation line instead of a long recap: `RUNLOOP_CONTINUE: <current TASK> | <next concrete step> | blockers=<none|...>`. A later "go" or "weiter" resumes from that durable state, and only a prompt containing standalone `/runloop` re-enters runloop.
+The older standalone `/runloop` prompt remains session-scoped compatibility.
+It activates only from sanitized real user prompt text. Quoted transcripts,
+hook prompts, code fences, tool text, errors, and Stop payloads never activate
+it. A normal same-session prompt stops compatibility mode except `/btw`.
+Repository mode does not stop on ordinary prompts or session end.
 
-**Runloop Non-Interactive Rule:** When runloop is active, the agent operates in fully autonomous, non-interactive mode. The agent MUST NOT ask the user for direction, confirmation, or permission. The agent MUST NOT write status reports that end with "Soll ich...", "Should I...", "Continue?", "Weiter?", or any question. The agent MUST NOT pause for user input. The agent decides autonomously which Sub-Task to execute next, promotes TASKs when complete, and continues working without interruption. The only allowed user-facing output in runloop is: (1) concise task-relevant progress, (2) compact continuation lines when nearing limits, (3) Final Reality Check summaries on TASK Done. Everything else is silent operative work. Violating this rule by asking questions or pausing for direction is a runloop protocol breach and must be corrected immediately by the runtime continuation driver.
+After repeated Stop events without observed tool progress, compatibility mode
+disables. Repository mode releases one Stop and resets the guard without
+silently changing its durable switch. Run decisions are written only for
+material transitions to the bounded `.reconc/runloop/decisions.jsonl` ring.
+If nearing context or tool limits, persist exact progress in the active TASK
+and emit `RUNLOOP_CONTINUE: <current TASK> | <next concrete step> |
+blockers=<none|...>`.
+
+**Autonomous Non-Interactive Rule:** While run control is active, do not ask
+the user for routine direction, confirmation, or permission and do not pause
+at arbitrary checkpoints. Stop only on explicit user stop, destructive or
+high-risk choice requiring authority, missing credentials or rights, external
+access blocker, unresolved failing tests/build after root-cause attempts,
+policy conflict needing user direction, or the verified zero-finding Terminal
+Gate. Do not auto-push. Do not touch `_drop/` or `research/` unless explicitly
+instructed.
 
 
 ## Source Of Truth
@@ -262,7 +296,7 @@ Existing Projects: at session start, analyze current state + adopt. No renames/m
 
 Task logbook icons: `[ ]`=open/current-or-future, `[x]`=done. Detail-file Sub-Task icons: `[ ]`=open, `[~]`=current, `[x]`=done.
 
-tasks.md: flat permanent logbook, no sections, append-only row order. `Current: TASK-0001-Name -> tasks/TASK-0001-Name.md` is the fixed mutable control line before all TASK rows; it is always present and intentionally edited on activation/hot-switch/resume. `Current:` points to exactly one unchecked `[ ]` row and names the active/next TASK; it does not have to be the first unchecked row, because blocked/paused work and hot-switches can leave earlier open rows waiting. Every TASK appears exactly once from project start with checkbox, exact task name, compact description, and matching detail-file link. Line format: `- [ ] TASK-0001-Name - Description -> tasks/TASK-0001-Name.md` or `- [x] TASK-0001-Name - Description -> tasks/done/TASK-0001-Name.md`; `[ ]` rows not referenced by `Current:` are queued/blocked/paused future work, and historical row order is append-only except `[ ]->[x]` plus `tasks/->tasks/done/` on Done.
+tasks.md: flat permanent logbook, no sections, append-only row order. `Current: TASK-0001-Name -> tasks/TASK-0001-Name.md` is the fixed mutable control line before all TASK rows; `Current: none` is valid only when no TASK is Active, including blocked-only and terminal state. The line is always present and intentionally edited on activation, hot-switch, resume, blocker release, and terminal archive. A non-empty `Current:` points to exactly one unchecked `[ ]` row and names the active/next TASK; it does not have to be the first unchecked row, because blocked/paused work and hot-switches can leave earlier open rows waiting. Every TASK appears exactly once from project start with checkbox, exact task name, compact description, and matching detail-file link. Line format: `- [ ] TASK-0001-Name - Description -> tasks/TASK-0001-Name.md` or `- [x] TASK-0001-Name - Description -> tasks/done/TASK-0001-Name.md`; `[ ]` rows not referenced by `Current:` are queued/blocked/paused future work, and historical row order is append-only except `[ ]->[x]` plus `tasks/->tasks/done/` on Done.
 
 Queue order: row order is execution priority. `Current:` must point to the earliest executable `[ ]` TASK in row order. A preceding `[ ]` row is allowed only when its detail `State` is `Blocked|Paused` or its `Depends On` tasks are not Done. When adding many TASKs, order them for maximum implementation efficiency: foundational architecture/contracts before product surfaces, shared infrastructure before module-specific work, security/policy/audit before autonomous execution, tests/gates beside the risky system they protect, thematically adjacent tasks together. Use dependency fields instead of prose to defer work.
 
@@ -272,7 +306,7 @@ Task size: medium by default. Do not make giant epics that hide risk, and do not
 
 Detail file: filename and H1 are the exact task name (`# TASK-0001-Name`) + H2 sections `Why`, `Status`, `Scheduling`, `Technical Plan`, `Acceptance`, `Sub-Tasks`, `Notes`, `Deviations`. `Status` first line is `State: Active|Queued|Blocked|Paused|Done`; only the `Current:` TASK may be `Active`, queued open TASKs use `Queued`, interrupted work uses `Paused`/`Blocked`, archived work uses `Done`. `Scheduling` must contain bullets `Priority: P0|P1|P2|P3`, `Depends On: none|TASK-0001-Name, TASK-0002-Name`, `Parallel Group: none|PG-Name`, `Expected Touch Surfaces: path/glob, path/glob`, `Order Rationale: <why this task sits here>`; dependencies must point to earlier logbook rows, and same-`PG-*` tasks must not have overlapping touch surfaces. `Technical Plan` contains the detailed implementation/research/audit plan; `Sub-Tasks` is the fine-grained progress checklist with `[ ]/[~]/[x]` and exactly one `[~]` in the current TASK; non-current open TASKs have no `[~]` and at least one `[ ]`. `Notes` is allowed and expected to hold status updates, findings, remarks, context, commands, blockers and resume notes. Before Done add `## Final Reality Check` with exact fields: `Spec Parity`, `Spec Scope`, `Reality Check`, `Reality Check Loop`, `Evidence`, `Beyond Spec Handling`.
 
-Session start: read tasks.md -> read `Current:` header -> verify it points to exactly one unchecked `[ ]` row -> open its detail file -> continue at its `[~]` Sub-Task using `Status`, `Technical Plan`, `Notes`, and `Sub-Tasks`. If there is no `[ ]` row, run Continuity Sweep instead of stopping. Verify env vs stack.
+Session start: run `reconc run status .` -> read tasks.md -> read `Current:` header -> if non-empty, verify it points to exactly one unchecked `[ ]` row -> open its detail file -> continue at its `[~]` Sub-Task using `Status`, `Technical Plan`, `Notes`, and `Sub-Tasks`. If `Current: none` has queued executable work, claim it. If there is no `[ ]` row, run Continuity Sweep instead of stopping. Verify env vs stack.
 
 New TASK Initial Sweep: read key files for structure/patterns/deps/naming/interfaces/constraints -> findings to Notes, no edits -> plan Sub-Tasks. Ambiguous scope -> announce interpretation. Large/destructive -> await confirmation.
 
@@ -290,7 +324,7 @@ TASK Done: all Sub-Tasks [x] + Acceptance met + changed code has same-TASK subst
 
 New TASK: append a new `[ ] TASK-NNNN-Name - Description -> tasks/TASK-NNNN-Name.md` row with number=max+1; create matching detail with Why/Status/Scheduling/Technical Plan/Acceptance/Sub-Tasks/Notes/Deviations. `Scheduling` must include real `Expected Touch Surfaces` before the TASK is accepted. No stock planning; the plan must be concrete enough that a fresh agent can resume without chat history. Do not renumber, reorder, or insert rows between historical tasks after commit; before commit, reorder only newly added rows to get the best dependency/efficiency sequence.
 
-Continuity Sweep (no open `[ ]` tasks): reread this AGENTS.md TASK Lifecycle, `docs/tasks.md`, `docs/documentation.md`, and `docs/spec.md` completely; inspect relevant product docs and current repo structure; then do a hard Reality Check to find remaining valuable work. Create new TASKs only for real gaps that improve implementation readiness, spec parity, architecture consistency, testability, product value, security, performance, reliability, or maintainability. Scope must be medium-sized: not tiny chores, not giant epics; each TASK gets a conforming detail file with concrete Why, measurable Acceptance, actionable Sub-Tasks, Notes, Deviations. Append enough `[ ]` rows to keep work flowing but do not flood the logbook; set `Current:` to the first appended `[ ]` row. If the project truly appears complete, do not invent fake work: report only the zero-finding Terminal Gate status defined by the project completion workflow with evidence and wait for explicit user confirmation; repository state still should not be left with an empty unverified task logbook.
+Continuity Sweep (no open `[ ]` tasks): set `Current: none`, reread this AGENTS.md TASK Lifecycle, `docs/tasks.md`, `docs/documentation.md`, and `docs/spec.md` completely; inspect relevant product docs and current repo structure; then do a hard Reality Check to find remaining valuable work. Create new TASKs only for real gaps that improve implementation readiness, spec parity, architecture consistency, testability, product value, security, performance, reliability, or maintainability. Scope must be medium-sized: not tiny chores, not giant epics; each TASK gets a conforming detail file with concrete Why, measurable Acceptance, actionable Sub-Tasks, Notes, Deviations. Append enough `[ ]` rows to keep work flowing but do not flood the logbook; set `Current:` to the first appended `[ ]` row. If the project truly appears complete, do not invent fake work: keep `Current: none`, report only the zero-finding Terminal Gate status defined by the project completion workflow with evidence, and wait for explicit user confirmation.
 
 Discovered issue: belongs to current TASK -> Sub-Task or Notes; separate work-item -> append a new `TASK-NNNN-*` logbook row + detail file after the current planned work, don't start now unless user reprioritizes it.
 
@@ -304,7 +338,7 @@ Runtime task-tracking tool: in-session micro-tracking only; tasks.md+tasks/ = pr
 
 Deviation: rules strict; only if rule blocks core progress -> Note in Deviations + minimal-invasive alternative + new Sub-Task to reconcile.
 
-Reconc execution: workflow commands and generated hooks must resolve repo-local binaries under `tools/reconc/dist/` first: `reconc-darwin-arm64`, `reconc-darwin-amd64`, `reconc-linux-arm64`, `reconc-linux-amd64`, `reconc-windows-amd64.exe`. PATH/global `reconc` is only a final fallback so Codex, Claude Code, OpenCode, git hooks and fresh shells work without external installation.
+Reconc execution: workflow commands and generated hooks resolve `.build/bin/reconc` and root `reconc` first for development/self-hosting without platform probes, then repo-local binaries under `tools/reconc/dist/`: `reconc-darwin-arm64`, `reconc-darwin-amd64`, `reconc-linux-arm64`, `reconc-linux-amd64`, `reconc-windows-amd64.exe`. PATH/global `reconc` is only a final fallback so Codex, Claude Code, OpenCode, git hooks and fresh shells work without external installation.
 
 Session entry for implementation work: read active task context if relevant -> read relevant `docs/spec.md` section -> read `docs/decisions.md` only for rationale/tradeoff questions -> read relevant `research/...` code before implementing referenced features -> reuse existing modules/naming before adding new structure.
 

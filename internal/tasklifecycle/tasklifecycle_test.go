@@ -1,6 +1,7 @@
 package tasklifecycle
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -269,6 +270,133 @@ func TestPromoteLogbookUpdatesStateBeforeVerifiedMove(t *testing.T) {
 	}
 	if board.Active == nil || board.Active.ID != "0002" || currentSubTask(board.Active) != "Continue" {
 		t.Fatalf("next logbook TASK not active: %#v", board.Active)
+	}
+}
+
+func TestArchiveTerminalLogbookWritesExplicitEmptyCurrent(t *testing.T) {
+	repo := t.TempDir()
+	writeFile(t, repo, ".reconc.yml", []byte("task_lifecycle:\n  profile: logbook-v1\n"))
+	writeFile(t, repo, "docs/tasks.md", []byte("# Tasks\n\nCurrent: TASK-0001-Terminal -> tasks/TASK-0001-Terminal.md\n\n- [ ] TASK-0001-Terminal - Terminal work -> tasks/TASK-0001-Terminal.md\n"))
+	writeFile(t, repo, "docs/tasks/TASK-0001-Terminal.md", logbookDetail("TASK-0001-Terminal", "Active", "- [x] Complete"))
+	result, err := Archive(repo)
+	if err != nil {
+		t.Fatalf("Archive logbook: %v", err)
+	}
+	if result.NextTaskID != "" {
+		t.Fatalf("terminal archive selected a successor: %#v", result)
+	}
+	overview, err := os.ReadFile(filepath.Join(repo, "docs", "tasks.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(overview), "Current: none") || strings.Contains(string(overview), "Current: TASK-") {
+		t.Fatalf("terminal logbook did not render explicit empty Current:\n%s", overview)
+	}
+	runState, err := InspectRunState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runState.Disposition != RunComplete || runState.OpenTasks != 0 {
+		t.Fatalf("terminal logbook run state is not complete: %#v", runState)
+	}
+}
+
+func TestClaimLogbookFromExplicitEmptyCurrent(t *testing.T) {
+	repo := t.TempDir()
+	writeFile(t, repo, ".reconc.yml", []byte("task_lifecycle:\n  profile: logbook-v1\n"))
+	writeFile(t, repo, "docs/tasks.md", []byte("# Tasks\n\nCurrent: none\n\n- [ ] TASK-0002-Queued - Queued work -> tasks/TASK-0002-Queued.md\n"))
+	writeFile(t, repo, "docs/tasks/TASK-0002-Queued.md", logbookDetail("TASK-0002-Queued", "Queued", "- [ ] Start"))
+	runState, err := InspectRunState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runState.Disposition != RunClaim || runState.TaskID != "0002" {
+		t.Fatalf("queued logbook run state is not claimable: %#v", runState)
+	}
+	if _, err := Claim(repo, "0002"); err != nil {
+		t.Fatalf("Claim: %v", err)
+	}
+	runState, err = InspectRunState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runState.Disposition != RunContinue || runState.TaskID != "0002" || runState.SubTask != "Start" {
+		t.Fatalf("claimed logbook run state is not executable: %#v", runState)
+	}
+}
+
+func TestInspectRunStateDoesNotClaimTaskWithUnfinishedDependency(t *testing.T) {
+	repo := t.TempDir()
+	writeFile(t, repo, ".reconc.yml", []byte("task_lifecycle:\n  profile: logbook-v1\n"))
+	writeFile(t, repo, "docs/tasks.md", []byte("# Tasks\n\nCurrent: none\n\n- [ ] TASK-0001-Blocked - Blocked work -> tasks/TASK-0001-Blocked.md\n- [ ] TASK-0002-Waiting - Waiting work -> tasks/TASK-0002-Waiting.md\n"))
+	blocked := logbookDetail("TASK-0001-Blocked", "Blocked", "- [ ] Resume")
+	blocked = bytes.Replace(blocked, []byte("## Notes\n"), []byte("## Blocker\n\ncredential missing\n\n## Notes\n"), 1)
+	writeFile(t, repo, "docs/tasks/TASK-0001-Blocked.md", blocked)
+	waiting := logbookDetail("TASK-0002-Waiting", "Queued", "- [ ] Start")
+	waiting = bytes.Replace(waiting, []byte("- Depends On: none"), []byte("- Depends On: TASK-0001-Blocked"), 1)
+	writeFile(t, repo, "docs/tasks/TASK-0002-Waiting.md", waiting)
+	state, err := InspectRunState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Disposition != RunBlocked || state.TaskID != "0002" || state.Blocker != "queued TASKs have unfinished dependencies" {
+		t.Fatalf("dependency-blocked queue was treated as executable: %#v", state)
+	}
+}
+
+func TestBlockLogbookWithoutSuccessorWritesEmptyCurrent(t *testing.T) {
+	repo := t.TempDir()
+	writeFile(t, repo, ".reconc.yml", []byte("task_lifecycle:\n  profile: logbook-v1\n"))
+	writeFile(t, repo, "docs/tasks.md", []byte("# Tasks\n\nCurrent: TASK-0003-Blocked -> tasks/TASK-0003-Blocked.md\n\n- [ ] TASK-0003-Blocked - Blocked work -> tasks/TASK-0003-Blocked.md\n"))
+	writeFile(t, repo, "docs/tasks/TASK-0003-Blocked.md", logbookDetail("TASK-0003-Blocked", "Active", "- [~] Resume here"))
+	if _, err := Block(repo, "credential missing", ""); err != nil {
+		t.Fatalf("Block: %v", err)
+	}
+	overview, err := os.ReadFile(filepath.Join(repo, "docs", "tasks.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(overview), "Current: none") {
+		t.Fatalf("blocked logbook did not clear Current:\n%s", overview)
+	}
+	state, err := InspectRunState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Disposition != RunBlocked || state.TaskID != "0003" || state.Blocker != "credential missing" {
+		t.Fatalf("blocked logbook run state is wrong: %#v", state)
+	}
+}
+
+func TestInspectRunStateSectionedDispositions(t *testing.T) {
+	tests := []struct {
+		name string
+		task testTask
+		want RunDisposition
+	}{
+		{name: "active", task: testTask{id: "001", title: "Active", state: StateActive, subTasks: "- [~] Work"}, want: RunContinue},
+		{name: "queued", task: testTask{id: "001", title: "Queued", state: StateQueued, subTasks: "- [ ] Work"}, want: RunClaim},
+		{name: "blocked", task: testTask{id: "001", title: "Blocked", state: StateBlocked, subTasks: "- [~] Work", blocker: "credential missing"}, want: RunBlocked},
+		{name: "complete", task: testTask{id: "001", title: "Done", state: StateDone, subTasks: "- [x] Work"}, want: RunComplete},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repo := sectionedRepo(t, "", []testTask{test.task})
+			state, err := InspectRunState(repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if state.Disposition != test.want {
+				t.Fatalf("disposition=%q want %q: %#v", state.Disposition, test.want, state)
+			}
+		})
+	}
+	state, err := InspectRunState(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Disposition != RunAbsent {
+		t.Fatalf("missing TASK plane disposition=%q", state.Disposition)
 	}
 }
 

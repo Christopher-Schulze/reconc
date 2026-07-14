@@ -15,6 +15,79 @@ import (
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
 
+// runRunControl implements the canonical AI-operated repository run switch.
+func runRunControl(args []string, stdout, stderr io.Writer) error {
+	for _, arg := range args {
+		if arg == "-h" || arg == "--help" {
+			printRunControlHelp(stdout)
+			return nil
+		}
+	}
+	if len(args) == 0 {
+		return &CLIError{ExitCode: 1, Message: "reconc run: missing subcommand (on | off | status | log)"}
+	}
+	switch args[0] {
+	case "on":
+		return runRunSwitch(args[1:], true, stdout)
+	case "off":
+		return runRunSwitch(args[1:], false, stdout)
+	case "status":
+		return runRunloopStatus(args[1:], stdout, stderr)
+	case "log":
+		return runRunloopLog(args[1:], stdout, stderr)
+	default:
+		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc run: unknown subcommand %q (expected on, off, status, or log)", args[0])}
+	}
+}
+
+func printRunControlHelp(stdout io.Writer) {
+	fmt.Fprintln(stdout, "Usage:")
+	fmt.Fprintln(stdout, "  reconc run on [repo] [--json]")
+	fmt.Fprintln(stdout, "  reconc run off [repo] [--json]")
+	fmt.Fprintln(stdout, "  reconc run status [repo] [--json]")
+	fmt.Fprintln(stdout, "  reconc run log [repo] [-n N] [--branch B] [--session S] [--follow] [--json]")
+	fmt.Fprintln(stdout, "")
+	fmt.Fprintln(stdout, "AI-operated repository run control. On keeps every supported agent runtime")
+	fmt.Fprintln(stdout, "working while the typed TASK plane has executable work; off releases Stop.")
+}
+
+func runRunSwitch(args []string, enabled bool, stdout io.Writer) error {
+	repo := "."
+	jsonOut := false
+	repoSeen := false
+	for _, arg := range args {
+		switch {
+		case arg == "--json":
+			jsonOut = true
+		case strings.HasPrefix(arg, "-"):
+			return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc run: unknown flag %q", arg)}
+		case repoSeen:
+			return &CLIError{ExitCode: 1, Message: "reconc run: expected at most one repo path"}
+		default:
+			repo = arg
+			repoSeen = true
+		}
+	}
+	abs, err := filepath.Abs(repo)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc run: " + err.Error()}
+	}
+	info, err := agentsession.SetRunLoopRepoMode(abs, enabled)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc run: " + err.Error()}
+	}
+	if jsonOut {
+		body, err := json.Marshal(info)
+		if err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc run: " + err.Error()}
+		}
+		fmt.Fprintln(stdout, string(body))
+		return nil
+	}
+	fmt.Fprintln(stdout, formatRunLoopStatus(info))
+	return nil
+}
+
 // runRunloop implements `reconc runloop <status|log>` - a read-only view
 // over the append-only runloop state + decision log. It never writes and is
 // a separate process from the hooks, so it can never slow down or block the
@@ -49,14 +122,18 @@ func runRunloop(args []string, stdout, stderr io.Writer) error {
 func runRunloopStatus(args []string, stdout, stderr io.Writer) error {
 	repo := "."
 	jsonOut := false
+	repoSeen := false
 	for _, a := range args {
 		switch {
 		case a == "--json":
 			jsonOut = true
 		case len(a) > 0 && a[0] == '-':
 			return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc runloop status: unknown flag %q", a)}
+		case repoSeen:
+			return &CLIError{ExitCode: 1, Message: "reconc runloop status: expected at most one repo path"}
 		default:
 			repo = a
+			repoSeen = true
 		}
 	}
 	abs, err := filepath.Abs(repo)
@@ -87,6 +164,7 @@ func runRunloopLog(args []string, stdout, stderr io.Writer) error {
 	session := ""
 	n := 20
 	i := 0
+	repoSeen := false
 	for i < len(args) {
 		a := args[i]
 		switch a {
@@ -120,7 +198,11 @@ func runRunloopLog(args []string, stdout, stderr io.Writer) error {
 			if len(a) > 0 && a[0] == '-' {
 				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc runloop log: unknown flag %q", a)}
 			}
+			if repoSeen {
+				return &CLIError{ExitCode: 1, Message: "reconc runloop log: expected at most one repo path"}
+			}
 			repo = a
+			repoSeen = true
 		}
 		i++
 	}
@@ -248,8 +330,13 @@ func formatRunLoopStatus(info agentsession.RunLoopStatusInfo) string {
 	if reason == "" {
 		reason = "-"
 	}
-	return fmt.Sprintf("runloop: enabled=%v runtime=%s active_run=%s awaiting=%v nudges=%d stopfile=%v reason=%s",
-		info.Enabled, dash(info.Runtime), shortID(info.ActiveRunID), info.AwaitingContinuation, info.NoProgressNudges, info.StopFilePresent, reason)
+	status := fmt.Sprintf("run: enabled=%v mode=%s task=%s/%s open=%d runtime=%s active_run=%s awaiting=%v nudges=%d stopfile=%v reason=%s",
+		info.Enabled, dash(info.Mode), dash(info.TaskDisposition), dash(info.TaskID), info.OpenTasks,
+		dash(info.Runtime), shortID(info.ActiveRunID), info.AwaitingContinuation, info.NoProgressNudges, info.StopFilePresent, reason)
+	if info.Blocker != "" {
+		status += fmt.Sprintf(" blocker=%q", info.Blocker)
+	}
+	return status
 }
 
 func formatRunLoopDecision(d agentsession.RunLoopDecision) string {

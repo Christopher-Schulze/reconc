@@ -24,6 +24,12 @@ if [ "${RECONC_HOOK_REPO_RESOLVED:-}" != "1" ] && [ ! -x "$repo/tools/reconc/bin
   repo="$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null || printf "%s" "$repo")"
 fi
 
+for dev_reconc in "$repo/.build/bin/reconc" "$repo/reconc"; do
+  if [ -x "$dev_reconc" ]; then
+    exec "$dev_reconc" hook runtime "$event" "$repo"
+  fi
+done
+
 case "$(uname -s)" in
   Darwin) reconc_os="darwin" ;;
   Linux) reconc_os="linux" ;;
@@ -77,12 +83,6 @@ for reconc_dir in "$repo/tools/reconc/dist" "$repo/dist"; do
   fi
   if [ "$resolve_status" -eq 2 ]; then
     exit 2
-  fi
-done
-
-for dev_reconc in "$repo/.build/bin/reconc" "$repo/reconc"; do
-  if [ -x "$dev_reconc" ]; then
-    exec "$dev_reconc" hook runtime "$event" "$repo"
   fi
 done
 

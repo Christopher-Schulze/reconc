@@ -77,7 +77,8 @@ internal/
 `cli.Run`, translate the returned error into an exit code.
 Within `internal/cli`, `cli.go` owns top-level dispatch and the remaining small
 commands; hook routing, workflow/session commands, bootstrap, TASK lifecycle,
-Runloop, and deep doctor logic live in their own command files. Hook generation
+repository run control, and deep doctor logic live in their own command files.
+Hook generation
 is separate from merge/install logic, runtime lockfile trust is separate from
 rule evaluation, and Stop decisions are separate from general session event
 handling.
@@ -247,7 +248,7 @@ class of hostile input.
 | Max persisted session state | **1 MiB** | Bounds full-file state publication and recovery cost. |
 | Evidence collections | **item + byte caps per field** | Overflow is persisted and fails closed; relevant evidence is never silently omitted. |
 | Audit record | **32 KiB** | Bounds one locked JSONL append. |
-| Audit/runloop storage | **2 MiB live + 2 archives each** | Fixed rings prevent repository-local log growth. |
+| Audit/run storage | **2 MiB live + 2 archives each** | Fixed rings and transition-only run records prevent repository-local log growth. |
 | Hook output | **8 KiB per route** | Prevents verbose host output from consuming agent context. |
 | Compaction context | **4 KiB** | Restores control-plane orientation without replaying logs or task files. |
 | Native assurance file | **4 MiB** | Rejects oversized source, manifest, or proof inputs before allocation. |
@@ -299,12 +300,13 @@ authenticate, HMAC, or expire host session IDs, so a hostile host process with
 the same user/filesystem authority remains outside this boundary. Malformed
 state fails closed instead of being reset silently.
 
-### Runloop state concurrency
+### Run state concurrency and Stop routing
 
-`.reconc/runloop/state.json` is mutated by every hook event, so
-parallel agent tool calls spawn concurrent `reconc hook runtime`
-processes that race it. Two invariants keep an active run from being
-silently disabled:
+`.reconc/runloop/state.json` is published only for material transitions.
+Disabled and unchanged hook events do not create or rewrite state, stop
+markers, or decisions. Parallel agent tool calls can still spawn concurrent
+`reconc hook runtime` processes, so two invariants keep an active run from
+being silently disabled:
 
 - **Atomic writes.** `writeRunLoopStateAtomic` writes a temp file and
   renames it into place. A bare `os.WriteFile` truncates first; a reader
@@ -320,6 +322,20 @@ silently disabled:
   lost. The append-only `decisions.jsonl` log uses a separate cross-process
   lock and a 2 MiB plus two-archive ring, so state-lock re-entry cannot deadlock
   decision publication.
+
+Canonical repository mode is controlled by `reconc run on|off`; the older
+standalone `/runloop` prompt creates session-scoped compatibility mode. Both
+use the same locked state, but repository mode survives ordinary prompts and
+session ends. Explicit interrupt and `run off` always disable it.
+
+Stop reads TASK state through `tasklifecycle.InspectRunState`. Executable
+`continue` and `claim` dispositions return the runtime-native continuation
+response before policy report construction and without a Git process.
+`blocked`, `complete`, and `absent` dispositions continue to the terminal Stop
+gate; `invalid` fails closed. This fast path never bypasses PreToolUse, TASK
+mutation transactions, pre-commit, or terminal policy enforcement. The
+no-progress guard disables session mode; repository mode releases one Stop and
+resets the guard while leaving the explicit durable switch enabled.
 
 ### require_command_success redirect tolerance
 

@@ -50,6 +50,9 @@ This skill is platform-agnostic. The loop is identical across agents:
 4. Ask `reconc` for the next remediation when blocked.
 5. Run the final done gate before claiming completion.
 
+When the user requests autonomous TASK execution, the agent also owns the run
+switch. Never ask the user to type Reconc commands.
+
 Never fake reads, commands, claims, or write paths to satisfy policy. If an
 agent runtime cannot enforce a rule natively, use the CLI loop and git
 pre-commit as the backstop.
@@ -139,6 +142,20 @@ Before claiming completion:
 reconc done .
 ```
 
+For autonomous repository execution:
+
+```bash
+reconc run on .
+reconc run status .
+reconc run off .
+```
+
+Repository mode persists across supported agent sessions and keeps Stop
+continuing while typed TASK state is executable. Use `run off` only for an
+explicit user stop or a real blocker. Pre-write, TASK mutation, pre-commit, and
+terminal Stop gates remain authoritative. `/runloop` is only the older
+session-scoped prompt compatibility path.
+
 If `reconc task status .` finds a configured TASK control plane, also run
 `reconc task check-done .` and use `reconc task promote .` only after every
 real Sub-Task and configured evidence field is complete. Use `task block`,
@@ -189,6 +206,7 @@ reconc done .                # final task gate
 reconc verify .              # installation health, read-only
 reconc doctor . --deep       # deeper diagnostics
 reconc hook status . --json  # exact platform activation truth
+reconc run status .          # run mode and typed TASK disposition
 reconc ci . --base HEAD~1 --head HEAD
 reconc preset list
 reconc preset show agent
@@ -197,11 +215,11 @@ reconc agent-intro           # built-in guide for humans and agents
 
 `status`, `verify`, `doctor`, `check`, `ci`, `assert`, `can`, `why`,
 `task status`, `task validate`, `task check-done`,
-`session-briefing`, `start` without `--write`, `post-task-check`, `done`, and
+`run status`, `run log`, `session-briefing`, `start` without `--write`, `post-task-check`, `done`, and
 `tui` never mutate policy or refresh the lockfile. With `RECONC_AUDIT=1`,
 enforcement commands may append decision records. `refresh`, `compile`,
 `watch`, `bootstrap`, `init`, hook installation, `hook sync-scaffold`,
-`adopt --apply`, and audit logging can write.
+`adopt --apply`, `run on`, `run off`, and audit logging can write.
 
 ## Platform Model
 

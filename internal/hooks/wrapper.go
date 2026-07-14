@@ -6,7 +6,8 @@ package hooks
 const WrapperPath = "tools/reconc/bin/hook"
 
 // GenerateWrapper returns the version-independent repository-local hook
-// launcher. A stable platform artifact wins. Exactly one compatible versioned
+// launcher. A development binary wins without OS/architecture subprocesses;
+// otherwise a stable platform artifact wins. Exactly one compatible versioned
 // release artifact is accepted as a migration fallback; multiple matches fail
 // closed instead of selecting a version by directory order.
 func GenerateWrapper() *Artifact {
@@ -36,6 +37,12 @@ if [ "${RECONC_HOOK_REPO_RESOLVED:-}" != "1" ] && [ ! -x "$repo/tools/reconc/bin
   repo="$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null || printf "%s" "$repo")"
 fi
 
+for dev_reconc in "$repo/.build/bin/reconc" "$repo/reconc"; do
+  if [ -x "$dev_reconc" ]; then
+    exec "$dev_reconc" hook runtime "$event" "$repo"
+  fi
+done
+
 ` + shellBinaryResolver() + `
 for reconc_dir in "$repo/tools/reconc/dist" "$repo/dist"; do
   resolve_status=0
@@ -45,12 +52,6 @@ for reconc_dir in "$repo/tools/reconc/dist" "$repo/dist"; do
   fi
   if [ "$resolve_status" -eq 2 ]; then
     exit 2
-  fi
-done
-
-for dev_reconc in "$repo/.build/bin/reconc" "$repo/reconc"; do
-  if [ -x "$dev_reconc" ]; then
-    exec "$dev_reconc" hook runtime "$event" "$repo"
   fi
 done
 

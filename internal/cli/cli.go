@@ -123,6 +123,8 @@ func Run(argv []string, version string, stdout, stderr io.Writer) error {
 		return runAgentIntro(argv[1:], stdout, stderr)
 	case "audit":
 		return runAudit(argv[1:], stdout, stderr)
+	case "run":
+		return runRunControl(argv[1:], stdout, stderr)
 	case "runloop":
 		return runRunloop(argv[1:], stdout, stderr)
 	case "task":
@@ -3987,7 +3989,8 @@ Workflow maintenance:
   changelog        rotate docs/changelog.md / list-archives
   agent-intro      print the embedded reconc agent integration guide
   audit            tail / stats / export the enforcement decision log
-  runloop        status / log of runloop state + decision log (--follow)
+  run              AI-operated on / off / status / log repository run control
+  runloop          compatibility alias for run status / log
   task             typed TASK status / validation / atomic lifecycle mutations
   prune            bound runtime state, logs, generated binaries, and owned temp residue
   session-briefing token-efficient session-start delta (TASK + policy)

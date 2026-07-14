@@ -60,6 +60,13 @@ var TaskSubcommands = []hookSubcommand{
 	{Name: "validate", Help: "validate the typed TASK control plane"},
 }
 
+var RunSubcommands = []hookSubcommand{
+	{Name: "log", Help: "inspect bounded run decisions"},
+	{Name: "off", Help: "disable repository run control"},
+	{Name: "on", Help: "enable repository run control"},
+	{Name: "status", Help: "inspect run and TASK state"},
+}
+
 // Subcommands is the canonical table of all top-level reconc
 // subcommands in a stable order. Keep alphabetical within categories
 // so the generated completion reads naturally.
@@ -100,6 +107,7 @@ var Subcommands = []Subcommand{
 	{Name: "delta", Help: "audit activity since a point in time", Flags: []string{"--since", "--json"}},
 	{Name: "post-task-check", Help: "pre-done gate", Flags: []string{"--window", "--require-clean-git", "--json"}},
 	{Name: "prune", Help: "bound runtime state and owned temp residue", Flags: []string{"--dry-run", "--json", "--force"}},
+	{Name: "run", Help: "AI-operated repository run control", Flags: []string{"-n", "--branch", "--session", "--follow", "--json"}},
 	{Name: "runloop", Help: "inspect runloop state and decisions", Flags: []string{"-n", "--branch", "--session", "--follow", "--json"}},
 	{Name: "session-briefing", Help: "token-efficient session start dump", Flags: []string{"--json"}},
 	{Name: "spec", Help: "docs/spec.md freshness check", Flags: []string{"--file", "--max-age-days", "--json"}},
@@ -128,6 +136,7 @@ _reconc() {
 	fmt.Fprintf(w, "    local bootstrap_profiles=%q\n", strings.Join(BootstrapProfiles, " "))
 	fmt.Fprintf(w, "    local hook_subcmds=%q\n", strings.Join(hookSubcommandNames(), " "))
 	fmt.Fprintf(w, "    local task_subcmds=%q\n", strings.Join(taskSubcommandNames(), " "))
+	fmt.Fprintf(w, "    local run_subcmds=%q\n", strings.Join(runSubcommandNames(), " "))
 	fmt.Fprintln(w, `
     # First word after 'reconc' -> subcommand completion.
     if [[ ${COMP_CWORD} -eq 1 ]]; then
@@ -152,6 +161,11 @@ _reconc() {
 
     if [[ "${COMP_WORDS[1]}" == "task" && ${COMP_CWORD} -eq 2 ]]; then
         COMPREPLY=($(compgen -W "${task_subcmds}" -- "${cur}"))
+        return 0
+    fi
+
+    if [[ "${COMP_WORDS[1]}" == "run" && ${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=($(compgen -W "${run_subcmds}" -- "${cur}"))
         return 0
     fi
 
@@ -240,6 +254,17 @@ _reconc() {
         return
     fi
 
+    if [[ "${sub}" == "run" && ${CURRENT} == 3 ]]; then
+        local -a run_subcmds
+        run_subcmds=(`)
+	for _, s := range RunSubcommands {
+		fmt.Fprintf(w, "            %q\n", s.Name+":"+s.Help)
+	}
+	fmt.Fprint(w, `        )
+        _describe 'reconc run subcommand' run_subcmds
+        return
+    fi
+
 `)
 	fmt.Fprintln(w, `    local -a flags
     case "${sub}" in`)
@@ -285,6 +310,9 @@ func GenerateFish(w io.Writer) error {
 	fmt.Fprintf(w, "complete -c reconc -n '__fish_seen_subcommand_from bootstrap; and __fish_prev_arg_in --profile' -a %q\n", strings.Join(BootstrapProfiles, " "))
 	for _, s := range TaskSubcommands {
 		fmt.Fprintf(w, "complete -c reconc -n '__fish_seen_subcommand_from task' -a %q -d %q\n", s.Name, s.Help)
+	}
+	for _, s := range RunSubcommands {
+		fmt.Fprintf(w, "complete -c reconc -n '__fish_seen_subcommand_from run' -a %q -d %q\n", s.Name, s.Help)
 	}
 	for _, s := range Subcommands {
 		for _, f := range s.Flags {
@@ -332,6 +360,15 @@ func taskSubcommandNames() []string {
 	out := make([]string, 0, len(TaskSubcommands))
 	for _, s := range TaskSubcommands {
 		out = append(out, s.Name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func runSubcommandNames() []string {
+	out := make([]string, 0, len(RunSubcommands))
+	for _, subcommand := range RunSubcommands {
+		out = append(out, subcommand.Name)
 	}
 	sort.Strings(out)
 	return out

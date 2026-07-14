@@ -155,8 +155,8 @@ reconc done .
 ```
 
 `status`, `doctor`, `verify`, `check`, `ci`, `assert`, `can`, `why`,
-`task status`, `task validate`, `task check-done`, `session-briefing`,
-`post-task-check`, `done`, and `tui` never compile or write
+`task status`, `task validate`, `task check-done`, `run status`, `run log`,
+`session-briefing`, `post-task-check`, `done`, and `tui` never compile or write
 the lockfile. Missing, stale, malformed, schema-drifted, or wrong-root
 lockfiles fail closed with one explicit remediation: `reconc refresh .`.
 When `RECONC_AUDIT=1`, enforcement commands may still append decision records;
@@ -182,7 +182,8 @@ may assist within one session, but it never replaces these repository files.
 
 `task_lifecycle` in `.reconc.yml` adopts the repository without migration.
 `sections-v1` is the bounded canonical profile for new repositories;
-`logbook-v1` accepts a `Current:` line, permanent overview rows,
+`logbook-v1` accepts a `Current:` line, including `Current: none` when no TASK
+is active, permanent overview rows,
 and detail-file `State:` fields. `auto` selects a profile only when exactly one
 grammar matches. Paths and the visible Done window are configurable. Unknown,
 mixed, duplicated, unsafe, or structurally inconsistent state fails closed
@@ -288,6 +289,7 @@ Workflow maintenance:
 - `changelog`
 - `agent-intro`
 - `audit`
+- `run`
 - `runloop`
 - `task`
 - `prune`
@@ -336,7 +338,9 @@ Runtime retention is product-owned rather than harness-owned. `SessionStart`
 and `SessionEnd` run a cross-process-safe due check with a six-hour interval;
 Stop never prunes. `reconc prune [repo] [--dry-run] [--json]` runs the same
 core explicitly. Unchanged session files, active-session pointers, reports,
-and runloop state are byte-compared and never republished. Session state is
+and runloop state are byte-compared and never republished. Disabled and
+unchanged hook events do not create run state or stop markers, and run
+decisions are appended only for material transitions. Session state is
 hard-capped at 1 MiB; every evidence collection has both item and byte limits,
 repeated command results are deduplicated, and any omitted security-relevant
 evidence sets a persisted overflow marker that blocks PreToolUse and Stop.
@@ -514,13 +518,14 @@ ignores output, so spawning Reconc there would add latency without restoring
 context.
 
 Claude Code, Codex, Cursor, Devin, Antigravity, and Copilot generated configs
-use `tools/reconc/bin/hook` on POSIX; the wrapper owns repo-local dist-binary
+use `tools/reconc/bin/hook` on POSIX; the wrapper owns repo-local binary
 selection and PATH `reconc` as last fallback. Copilot's native Windows route
 uses its PowerShell command field until the cross-platform wrapper is installed.
-For each `tools/reconc/dist` and root `dist` directory, the wrapper prefers the
-stable platform name and accepts exactly one compatible versioned artifact as a
-migration fallback. Multiple compatible versions fail closed. Only then does it
-try `.build/bin/reconc`, root `reconc`, and PATH.
+For development and self-hosting, the wrapper checks `.build/bin/reconc` and
+root `reconc` before invoking any platform probe. Otherwise, each
+`tools/reconc/dist` and root `dist` directory prefers the stable platform name
+and accepts exactly one compatible versioned artifact as a migration fallback.
+Multiple compatible versions fail closed before PATH fallback.
 Claude Code uses its exec-form
 `command`+`args` shape so it does not spawn a hook shell or run a hook-launcher
 Git lookup. Codex uses the host shell command string without a nested `sh -lc`;
@@ -554,46 +559,46 @@ parallel runloop files or inject project-specific prompts. Their subprocess
 budgets are generated from the same registry, cap output at 8 KiB, terminate
 slow routes after 5, 10, or 30 seconds, and delegate versioned binary discovery
 to `tools/reconc/bin/hook` instead of embedding a release number.
-Runloop activation is prompt-only and requires a standalone `/runloop`
-slash-command flag in sanitized real user prompt text, so quoted transcripts,
-multi-line quoted chat blocks, pasted transcript marker lines, diagnostic
-mention lines such as "kein /runloop", pure hook prompts, stop feedback, code
-fences, tool text, and errors cannot start it accidentally. Runtime-internal
-continuation prompts are accepted only when they are the control payload itself
-(for example a pure `<hook_prompt>...</hook_prompt>` block or a prompt starting
-with the generated autocontinue text), so a normal user diagnostic that merely
-mentions `runloop autocontinue` still counts as a real non-Runloop prompt
-and stops the active same-runtime run.
-Runloop runs are session- and runtime-scoped: a normal same-session prompt
-stops that run, except a same-session `/btw` side-channel prompt, which
-preserves the active run and must not write `.reconc/runloop/stop`;
-prompts, interrupts, session ends, or stop markers from another agent runtime
-or session in the same repo must not stop the active run.
-`.reconc/runloop/stop` is scoped to the active run and agent runtime and clears when a new
-standalone `/runloop` prompt starts a run. Active Runloop Stop events use a
-pre-policy continuation fast path when the session has no Stop-time evidence, or
-when a runtime re-enters with `stop_hook_active=true` and the cached policy
-report is already clean for the exact same Stop-time evidence hash;
-evidence-bearing stops still run the policy gate first, and changed evidence
-invalidates the clean-cache path, so blocking policy reports win over
-Runloop.
-`awaiting_continuation` is not a hard stop reason by itself; if a runtime
-bounces through another Stop before visible tool progress, Reconc may re-emit
-the continuation prompt until progress or the no-progress guard decides. Tool
-events clear `awaiting_continuation`, so the no-progress guard resets from
-hook-observed work without running a full Git dirty scan on every Runloop
-continuation.
-Runloop decisions are persisted in `.reconc/runloop/decisions.jsonl` with
-branch/runtime/session/state fields for forensic debugging without bloating hook
-output. The live log and two archives are each bounded at 2 MiB; readers merge
-the ring in chronological order.
+`reconc run on|off|status|log` is the canonical AI-operated repository switch.
+Repository mode persists across sessions for Claude Code, Codex, Cursor,
+OpenCode, Devin CLI, Antigravity CLI, GitHub Copilot, and Kilo Code. The agent
+runs these commands itself; users do not need to operate Reconc. Normal prompts
+and session ends preserve repository mode, while `reconc run off` and an
+explicit interrupt disable it.
+
+Repository continuation reads the configured TASK profile through the typed
+lifecycle package. An active executable TASK yields `continue`; an empty
+`Current:` with queued executable work yields `claim`; blocked-only, complete,
+or absent state releases Stop to the terminal policy gate; malformed or
+ambiguous TASK state fails closed. Both `sections-v1` and `logbook-v1` use the
+same dispositions, and the continuation prompt tells the agent to execute
+`reconc task check-done`, promotion, or claim itself rather than asking the
+user.
+
+Routine executable repository continuations return before the full Stop policy
+report and never spawn Git. PreToolUse, TASK mutations, pre-commit, invalid
+TASK state, and terminal Stop remain hard gates. Prompt-scoped `/runloop`
+remains a session- and runtime-scoped compatibility mode: a standalone flag in
+sanitized user prompt text starts it, a normal same-session prompt stops it
+except for `/btw`, and evidence-bearing Stop events retain the exact-evidence
+policy-cache behavior.
+
+`awaiting_continuation` is not a hard stop reason by itself. Tool events clear
+it without a Git dirty scan. After repeated no-progress stops, session mode
+disables; repository mode releases one Stop and resets its guard without
+silently changing the durable switch. Run decisions are persisted only for
+material state transitions in `.reconc/runloop/decisions.jsonl`, with bounded
+identifiers and reasons. The live log and two archives are each bounded at
+2 MiB; readers merge the ring in chronological order.
 Repeated identical policy feedback shrinks to stable `RB-*` feedback IDs,
 rule IDs, and the saved report path. PreToolUse evaluates only pre-execution
 write/shell rules,
 generated Claude/Codex/Cursor/Devin/Antigravity/Copilot configs do not spawn PreToolUse for
 read-only matchers, all PostToolUse / after-shell events record evidence only,
-and repo-wide policy audits run only at Stop or explicit Reconc checks. Stop and
-explicit checks remain the hard enforcement points. Claude Code generated hooks pass
+and repo-wide policy audits run only at terminal Stop or explicit Reconc checks.
+Routine executable repository continuations are the bounded exception described
+above; terminal Stop and explicit checks remain hard enforcement points.
+Claude Code generated hooks pass
 `${CLAUDE_PROJECT_DIR}` to the repo-local wrapper as argv. Shell-command
 runtimes first exec `./tools/reconc/bin/hook` directly when their cwd is already
 the repo root, and only fall back to `git rev-parse` plus
@@ -605,7 +610,8 @@ direct/manual calls, and `exec`s the selected Reconc binary so no avoidable shel
 parent remains;
 the Go hook runtime lowers observation-only events (`post/after/session-end`)
 with best-effort Unix process priority while keeping PreToolUse, permission,
-and Stop at normal priority. The Stop fingerprint uses one git status snapshot
+and Stop at normal priority. Routine executable repository continuation never
+builds a Stop fingerprint. Terminal Stop uses one git status snapshot
 per report build with default `--untracked-files=normal`, dirty-path
 content/index hashes, direct loose/packed/worktree HEAD resolution, and a
 per-session report lock instead of full `git diff --binary` output or repeated

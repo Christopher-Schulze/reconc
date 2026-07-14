@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -17,6 +16,13 @@ import (
 
 const reconcHookRuntimeEnv = "RECONC_HOOK_RUNTIME"
 
+type runLoopMode string
+
+const (
+	runLoopModeSession runLoopMode = "session"
+	runLoopModeRepo    runLoopMode = "repo"
+)
+
 // runLoopState mirrors the file contract consumed by the OpenCode
 // runtime runloop plugin. The CLI/runtime only consumes the core
 // fields needed to coordinate continue/stop behavior.
@@ -25,17 +31,18 @@ const reconcHookRuntimeEnv = "RECONC_HOOK_RUNTIME"
 // hand-edited state files can still be parsed without strict
 // coupling.
 type runLoopState struct {
-	Enabled              bool   `json:"enabled"`
-	SessionID            string `json:"session_id"`
-	ActiveRunID          string `json:"active_run_id"`
-	Runtime              string `json:"runtime,omitempty"`
-	NoProgressNudges     int    `json:"no_progress_nudges"`
-	DisabledReason       string `json:"disabled_reason"`
-	StopAnchorMessageID  string `json:"stop_anchor_message_id"`
-	LastHead             string `json:"last_head,omitempty"`
-	LastCurrent          string `json:"last_current,omitempty"`
-	AwaitingContinuation bool   `json:"awaiting_continuation,omitempty"`
-	LastPromptSignature  string `json:"last_prompt_signature,omitempty"`
+	Enabled              bool        `json:"enabled"`
+	Mode                 runLoopMode `json:"mode,omitempty"`
+	SessionID            string      `json:"session_id"`
+	ActiveRunID          string      `json:"active_run_id"`
+	Runtime              string      `json:"runtime,omitempty"`
+	NoProgressNudges     int         `json:"no_progress_nudges"`
+	DisabledReason       string      `json:"disabled_reason"`
+	StopAnchorMessageID  string      `json:"stop_anchor_message_id"`
+	LastHead             string      `json:"last_head,omitempty"`
+	LastCurrent          string      `json:"last_current,omitempty"`
+	AwaitingContinuation bool        `json:"awaiting_continuation,omitempty"`
+	LastPromptSignature  string      `json:"last_prompt_signature,omitempty"`
 }
 
 // RunLoopDecision is one append-only record in
@@ -93,8 +100,6 @@ var (
 	hookPromptBlockPattern = regexp.MustCompile(`(?is)<hook_prompt\b[^>]*>.*?</hook_prompt>`)
 	fencedCodeBlockPattern = regexp.MustCompile("(?s)```.*?```")
 )
-
-const runLoopContinuationPrompt = "🔥 STFU & LET ME COOK! 🔥"
 
 const (
 	runLoopDecisionMaxBytes    = 2 * 1024 * 1024
@@ -237,7 +242,8 @@ func writeRunLoopStopFileForRuntime(repoRoot, sessionID, activeRunID, runtime, r
 		return err
 	}
 	body = append(body, '\n')
-	return os.WriteFile(path, body, 0o644)
+	_, err = atomicfile.WriteIfChanged(path, body, 0o644)
+	return err
 }
 
 func hasRunLoopStopFile(repoRoot string) bool {
@@ -314,7 +320,36 @@ func runLoopSessionMatchesRuntime(state runLoopState, sessionID string, runtime 
 	return sessionID == state.SessionID
 }
 
+func runLoopStateApplies(state runLoopState, sessionID, runtime string) bool {
+	if !state.Enabled {
+		return false
+	}
+	if state.Mode == runLoopModeRepo {
+		return true
+	}
+	return runLoopSessionMatchesRuntime(state, sessionID, runtime)
+}
+
 func loadRunLoopState(repoRoot string) (runLoopState, error) {
+	state, err := readRunLoopStateStored(repoRoot)
+	if err != nil {
+		return runLoopState{}, err
+	}
+	if state.Enabled && runLoopStopFileAppliesToState(repoRoot, state) {
+		state.Enabled = false
+		state.Mode = ""
+		state.ActiveRunID = ""
+		state.NoProgressNudges = 0
+		state.DisabledReason = "stop_file"
+		state.AwaitingContinuation = false
+	}
+	return state, nil
+}
+
+// readRunLoopStateStored returns the exact persisted state. State mutations
+// use this form so a stop marker is converted into one durable transition,
+// rather than being mistaken for an already-persisted disabled state.
+func readRunLoopStateStored(repoRoot string) (runLoopState, error) {
 	path, err := runLoopStatePath(repoRoot)
 	if err != nil {
 		return runLoopState{}, err
@@ -336,12 +371,11 @@ func loadRunLoopState(repoRoot string) (runLoopState, error) {
 	if state.NoProgressNudges < 0 {
 		state.NoProgressNudges = 0
 	}
-	if state.Enabled && runLoopStopFileAppliesToState(repoRoot, state) {
-		state.Enabled = false
-		state.ActiveRunID = ""
-		state.NoProgressNudges = 0
-		state.DisabledReason = "stop_file"
-		state.AwaitingContinuation = false
+	if state.Enabled && state.Mode == "" {
+		state.Mode = runLoopModeSession
+	}
+	if !state.Enabled {
+		state.Mode = ""
 	}
 	return state, nil
 }
@@ -396,6 +430,12 @@ func writeRunLoopStateAtomic(repoRoot string, state runLoopState) error {
 	if state.NoProgressNudges < 0 {
 		state.NoProgressNudges = 0
 	}
+	if state.Enabled && state.Mode == "" {
+		state.Mode = runLoopModeSession
+	}
+	if !state.Enabled {
+		state.Mode = ""
+	}
 	body, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal runloop state: %w", err)
@@ -418,18 +458,20 @@ func saveRunLoopState(repoRoot string, state runLoopState) error {
 
 // mutateRunLoopState serializes load -> mutate -> save under one lock so
 // concurrent agent tool events cannot lose each other's updates. Mirror of
-// MutateSessionState. A transient load error yields an empty (disabled) state
-// to the mutator, matching the previous recovery behavior; with atomic writes
-// in place that can now only happen on genuine corruption, never a torn read.
+// MutateSessionState. Corrupt or unreadable state fails closed and is never
+// replaced with a zero value; atomic writes prevent torn-read recovery cases.
 func mutateRunLoopState(repoRoot string, fn func(runLoopState) runLoopState) (runLoopState, runLoopState, error) {
 	var before, after runLoopState
 	err := withRunLoopLock(repoRoot, func() error {
-		state, lerr := loadRunLoopState(repoRoot)
+		state, lerr := readRunLoopStateStored(repoRoot)
 		if lerr != nil {
-			state = runLoopState{}
+			return lerr
 		}
 		before = state
 		after = fn(state)
+		if before == after {
+			return nil
+		}
 		return writeRunLoopStateAtomic(repoRoot, after)
 	})
 	return before, after, err
@@ -444,6 +486,13 @@ func reconcileRunLoopStateForRuntime(repoRoot, sessionID, runtime string, payloa
 	runtime = strings.TrimSpace(runtime)
 	intent := runLoopIntentFromUserPrompt(payload)
 	internalPrompt := event == runLoopUserPrompt && isRuntimeInternalUserPrompt(payload)
+	stored, err := readRunLoopStateStored(repoRoot)
+	if err != nil {
+		return err
+	}
+	if !stored.Enabled && intent != runLoopIntentEnable {
+		return nil
+	}
 
 	var branch string
 	var stopApplies bool
@@ -456,7 +505,7 @@ func reconcileRunLoopStateForRuntime(repoRoot, sessionID, runtime string, payloa
 	if err != nil {
 		return err
 	}
-	_ = appendRunLoopDecision(repoRoot, RunLoopDecision{
+	decision := RunLoopDecision{
 		Event:                      runLoopEventName(event),
 		Branch:                     branch,
 		Runtime:                    runtime,
@@ -474,7 +523,10 @@ func reconcileRunLoopStateForRuntime(repoRoot, sessionID, runtime string, payloa
 		AwaitingContinuationAfter:  after.AwaitingContinuation,
 		StopHookActive:             payload != nil && payload.StopHookActive,
 		OpenCodeContinuationDriver: payload != nil && payload.OpenCodeContinuationDriver,
-	})
+	}
+	if before != after || intent == runLoopIntentEnable || stopApplies {
+		_ = appendRunLoopDecision(repoRoot, decision)
+	}
 	return nil
 }
 
@@ -483,7 +535,7 @@ func reconcileRunLoopStateForRuntime(repoRoot, sessionID, runtime string, payloa
 // next state plus the branch name for the decision log. Stop-file writes/clears
 // are intentional side effects of specific transitions.
 func computeRunLoopNextState(repoRoot string, state runLoopState, sessionID, runtime string, payload *HookPayload, event runLoopEvent, intent runLoopIntent, internalPrompt bool, stopApplies bool) (runLoopState, string) {
-	if stopApplies && !(event == runLoopUserPrompt && intent == runLoopIntentEnable) {
+	if stopApplies && event != runLoopUserPrompt {
 		state.Enabled = false
 		state.ActiveRunID = ""
 		state.NoProgressNudges = 0
@@ -497,6 +549,8 @@ func computeRunLoopNextState(repoRoot string, state runLoopState, sessionID, run
 		if stopApplies {
 			state = runLoopState{SessionID: sessionID, Runtime: runtime, DisabledReason: "stop_file"}
 			branch = "session_start_stop_file"
+		} else if state.Enabled && state.Mode == runLoopModeRepo {
+			branch = "session_start_preserve_repo"
 		} else if !state.Enabled && sessionID != "" {
 			state.SessionID = sessionID
 			state.Runtime = runtime
@@ -505,6 +559,15 @@ func computeRunLoopNextState(repoRoot string, state runLoopState, sessionID, run
 			branch = "session_start_preserve_active"
 		}
 	case runLoopUserPrompt:
+		if state.Enabled && state.Mode == runLoopModeRepo {
+			if intent == runLoopIntentEnable {
+				_ = clearRunLoopStopFile(repoRoot)
+				branch = "preserve_repo_enable_prompt"
+			} else {
+				branch = "preserve_repo_prompt"
+			}
+			return state, branch
+		}
 		if intent != runLoopIntentEnable && state.Enabled && !runLoopSessionMatchesRuntime(state, sessionID, runtime) {
 			return state, "preserve_other_runtime_prompt"
 		}
@@ -517,27 +580,33 @@ func computeRunLoopNextState(repoRoot string, state runLoopState, sessionID, run
 		if intent != runLoopIntentEnable && internalPrompt {
 			return state, "ignore_runtime_internal_prompt"
 		}
+		wasEnabled := state.Enabled
 		state = runLoopState{
 			SessionID: sessionID,
 			Runtime:   runtime,
 		}
 		if intent == runLoopIntentEnable {
 			state.Enabled = true
+			state.Mode = runLoopModeSession
 			state.ActiveRunID = sessionID
 			state.DisabledReason = ""
 			state.NoProgressNudges = 0
 			state.AwaitingContinuation = false
 			_ = clearRunLoopStopFile(repoRoot)
 			branch = "enable_user_prompt"
-		} else {
+		} else if wasEnabled {
 			state.Enabled = false
+			state.Mode = ""
 			state.ActiveRunID = ""
 			state.DisabledReason = "user_prompt"
 			_ = writeRunLoopStopFileForRuntime(repoRoot, sessionID, sessionID, runtime, "user_prompt")
 			branch = "disable_user_prompt"
+		} else {
+			state.DisabledReason = ""
+			branch = "disabled_user_prompt"
 		}
 	case runLoopToolEvent:
-		if !state.Enabled || runLoopSessionMatchesRuntime(state, sessionID, runtime) {
+		if !state.Enabled || runLoopStateApplies(state, sessionID, runtime) {
 			state.AwaitingContinuation = false
 			branch = "tool_event_clear_awaiting"
 		} else {
@@ -545,12 +614,13 @@ func computeRunLoopNextState(repoRoot string, state runLoopState, sessionID, run
 		}
 	case runLoopStopEvent:
 		interrupted := isUserStopInterrupt(payload)
-		if interrupted && (!state.Enabled || runLoopSessionMatchesRuntime(state, sessionID, runtime)) {
+		if interrupted && (!state.Enabled || runLoopStateApplies(state, sessionID, runtime)) {
 			activeRunID := state.ActiveRunID
 			if activeRunID == "" {
 				activeRunID = sessionID
 			}
 			state.Enabled = false
+			state.Mode = ""
 			state.ActiveRunID = ""
 			state.NoProgressNudges = 0
 			state.DisabledReason = "user_interrupt"
@@ -560,8 +630,11 @@ func computeRunLoopNextState(repoRoot string, state runLoopState, sessionID, run
 			branch = "stop_event_preserve"
 		}
 	case runLoopSessionEnd:
-		if !state.Enabled || runLoopSessionMatchesRuntime(state, sessionID, runtime) {
+		if state.Enabled && state.Mode == runLoopModeRepo {
+			branch = "session_end_preserve_repo"
+		} else if !state.Enabled || runLoopSessionMatchesRuntime(state, sessionID, runtime) {
 			state.Enabled = false
+			state.Mode = ""
 			state.ActiveRunID = ""
 			state.NoProgressNudges = 0
 			state.DisabledReason = ""
@@ -573,10 +646,11 @@ func computeRunLoopNextState(repoRoot string, state runLoopState, sessionID, run
 		}
 	}
 
-	if event != runLoopSessionStart && sessionID != "" {
+	if event != runLoopSessionStart && sessionID != "" && state.Mode != runLoopModeRepo {
 		state.SessionID = sessionID
 	}
 	if !state.Enabled {
+		state.Mode = ""
 		state.ActiveRunID = ""
 		if state.NoProgressNudges < 0 {
 			state.NoProgressNudges = 0
@@ -619,7 +693,13 @@ func isRuntimeInternalUserPrompt(payload *HookPayload) bool {
 		return true
 	}
 	normalized := strings.ToLower(strings.Join(strings.Fields(text), " "))
-	if strings.Contains(normalized, strings.ToLower(runLoopContinuationPrompt)) {
+	if strings.HasPrefix(normalized, "reconc run is on.") {
+		return true
+	}
+	if strings.HasPrefix(normalized, "runloop autocontinue. reconc run is on") {
+		return true
+	}
+	if strings.HasPrefix(normalized, "runloop autocontinue. let me cook. reconc run is on") {
 		return true
 	}
 	if strings.HasPrefix(normalized, "runloop autocontinue.") && strings.Contains(normalized, "continue the repository task lifecycle") {
@@ -837,82 +917,4 @@ func isRunLoopSideChannelPrompt(payload *HookPayload) bool {
 
 func isRunLoopTokenBoundary(r rune) bool {
 	return r == ' ' || r == '\t' || r == '\r' || r == '\n' || strings.ContainsRune(".,;:!?()[]{}<>", r)
-}
-
-// buildRunLoopContinuationPrompt checks that a current TASK exists before
-// returning the compact runloop auto-continuation prompt used when
-// the Stop hook blocks for runloop. Returns empty string if the
-// repo has no current open TASK (runloop can't continue without one).
-func buildRunLoopContinuationPrompt(repoRoot string) string {
-	root, err := ResolveRepoRoot(repoRoot)
-	if err != nil {
-		return ""
-	}
-	task, subTask := readCurrentTaskState(root)
-	if task == "" {
-		return ""
-	}
-	_ = subTask
-	return runLoopContinuationPrompt
-}
-
-// readCurrentTaskState returns the name of the current TASK from
-// docs/tasks.md and the active sub-task from the detail file.
-func readCurrentTaskState(repoRoot string) (string, string) {
-	tasksPath := filepath.Join(repoRoot, "docs", "tasks.md")
-	tasksBytes, err := os.ReadFile(tasksPath)
-	if err != nil {
-		return "", ""
-	}
-	re := regexp.MustCompile(`(?m)^Current:\s+(TASK-[0-9]{4}-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)\s+->\s+(tasks/TASK-[0-9]{4}-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*\.md)$`)
-	match := re.FindStringSubmatch(string(tasksBytes))
-	if match == nil {
-		return "", ""
-	}
-	taskName := match[1]
-	detailPath := filepath.Join(repoRoot, "docs", filepath.FromSlash(match[2]))
-	detailBytes, err := os.ReadFile(detailPath)
-	if err != nil {
-		return taskName, "unknown"
-	}
-	subTask := parseActiveSubTaskLine(string(detailBytes))
-	if subTask == "" {
-		subTask = parseFirstOpenSubTaskLine(string(detailBytes))
-	}
-	if subTask == "" {
-		subTask = "continue"
-	}
-	return taskName, subTask
-}
-
-func readCurrentHead(repoRoot string) string {
-	cmd := exec.Command("git", "-C", repoRoot, "rev-parse", "HEAD")
-	out, err := cmd.Output()
-	if err != nil {
-		return "unknown"
-	}
-	return strings.TrimSpace(string(out))
-}
-
-func readRunLoopProgressFingerprint(repoRoot string) string {
-	task, subTask := readCurrentTaskState(repoRoot)
-	return task + "\n" + subTask
-}
-
-func parseActiveSubTaskLine(content string) string {
-	return parseSubTaskLine(content, "- [~] ")
-}
-
-func parseFirstOpenSubTaskLine(content string) string {
-	return parseSubTaskLine(content, "- [ ] ")
-}
-
-func parseSubTaskLine(content string, prefix string) string {
-	for _, line := range strings.Split(content, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, prefix) {
-			return strings.TrimSpace(strings.TrimPrefix(trimmed, prefix))
-		}
-	}
-	return ""
 }

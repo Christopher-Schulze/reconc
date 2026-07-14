@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"reconc.dev/reconc/internal/jsonl"
+	"reconc.dev/reconc/internal/tasklifecycle"
 )
 
 // RunLoopStatusInfo is the read-only snapshot of the current runloop state
@@ -15,6 +16,7 @@ import (
 // reflects exactly what the next stop decision will see.
 type RunLoopStatusInfo struct {
 	Enabled              bool   `json:"enabled"`
+	Mode                 string `json:"mode,omitempty"`
 	Runtime              string `json:"runtime,omitempty"`
 	SessionID            string `json:"session_id,omitempty"`
 	ActiveRunID          string `json:"active_run_id,omitempty"`
@@ -22,6 +24,11 @@ type RunLoopStatusInfo struct {
 	AwaitingContinuation bool   `json:"awaiting_continuation"`
 	NoProgressNudges     int    `json:"no_progress_nudges"`
 	StopFilePresent      bool   `json:"stop_file_present"`
+	TaskDisposition      string `json:"task_disposition"`
+	TaskID               string `json:"task_id,omitempty"`
+	CurrentSubTask       string `json:"current_sub_task,omitempty"`
+	Blocker              string `json:"blocker,omitempty"`
+	OpenTasks            int    `json:"open_tasks"`
 }
 
 // RunLoopDecisionLogPath returns the repo-local decisions.jsonl path used by
@@ -37,8 +44,16 @@ func ReadRunLoopStatus(repoRoot string) (RunLoopStatusInfo, error) {
 	if err != nil {
 		return RunLoopStatusInfo{}, err
 	}
+	taskState, err := tasklifecycle.InspectRunState(repoRoot)
+	if err != nil {
+		taskState = tasklifecycle.RunState{
+			Disposition: tasklifecycle.RunInvalid,
+			Blocker:     truncateBytes(err.Error(), 512),
+		}
+	}
 	return RunLoopStatusInfo{
 		Enabled:              state.Enabled,
+		Mode:                 string(state.Mode),
 		Runtime:              state.Runtime,
 		SessionID:            state.SessionID,
 		ActiveRunID:          state.ActiveRunID,
@@ -46,6 +61,11 @@ func ReadRunLoopStatus(repoRoot string) (RunLoopStatusInfo, error) {
 		AwaitingContinuation: state.AwaitingContinuation,
 		NoProgressNudges:     state.NoProgressNudges,
 		StopFilePresent:      hasRunLoopStopFile(repoRoot),
+		TaskDisposition:      string(taskState.Disposition),
+		TaskID:               taskState.TaskID,
+		CurrentSubTask:       taskState.SubTask,
+		Blocker:              taskState.Blocker,
+		OpenTasks:            taskState.OpenTasks,
 	}, nil
 }
 

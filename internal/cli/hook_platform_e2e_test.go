@@ -49,6 +49,43 @@ func TestHookRuntimeKiloAdapterShapeBlocksDeniedWrite(t *testing.T) {
 	}
 }
 
+func TestRepositoryRunControlContinuesEveryAgentPlatform(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	writeHookRuntimeTaskFixture(t, repo)
+	tests := []struct {
+		name    string
+		event   string
+		payload string
+		want    string
+	}{
+		{name: "Claude Code", event: "claude-stop", payload: `{"session_id":"claude-run"}`, want: `"decision":"block"`},
+		{name: "Codex", event: "codex-stop", payload: `{"session_id":"codex-run"}`, want: `"decision":"block"`},
+		{name: "Cursor", event: "cursor-stop", payload: `{"sessionId":"cursor-run","cursor_version":"3.5.17","hook_event_name":"stop","workspace_roots":["` + repo + `"]}`, want: `"followup_message"`},
+		{name: "OpenCode", event: "opencode-stop", payload: `{"session_id":"opencode-run","reconc_runtime":"opencode"}`, want: `"decision":"block"`},
+		{name: "Devin CLI", event: "devin-stop", payload: `{"session_id":"devin-run"}`, want: `"decision":"block"`},
+		{name: "Antigravity CLI", event: "antigravity-stop", payload: `{"session_id":"antigravity-run"}`, want: `"decision":"continue"`},
+		{name: "GitHub Copilot", event: "copilot-stop", payload: `{"session_id":"copilot-run","hook_event_name":"Stop"}`, want: `"decision":"block"`},
+		{name: "Kilo", event: "kilo-stop", payload: `{"session_id":"kilo-run","reconc_runtime":"kilo"}`, want: `"decision":"block"`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := agentsession.SetRunLoopRepoMode(repo, false); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := agentsession.SetRunLoopRepoMode(repo, true); err != nil {
+				t.Fatal(err)
+			}
+			stdout, stderr, code := runWithStdin(t, test.payload, "hook", "runtime", test.event, repo)
+			if code != 0 || stderr != "" {
+				t.Fatalf("native Stop failed: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+			}
+			if !strings.Contains(stdout, test.want) || !strings.Contains(stdout, "LET ME COOK") {
+				t.Fatalf("native Stop did not continue: want=%q stdout=%q", test.want, stdout)
+			}
+		})
+	}
+}
+
 func TestHookRuntimeDevinPostCompactionReturnsRecoveryPacket(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
 	_, _, _ = runWithStdin(t, `{"session_id":"devin-compact"}`,

@@ -23,6 +23,12 @@ export RECONC_AUDIT=1
 
 repo_root=$(git rev-parse --show-toplevel)
 
+for dev_reconc in "$repo_root/.build/bin/reconc" "$repo_root/reconc"; do
+    if [ -x "$dev_reconc" ]; then
+        exec "$dev_reconc" ci "$repo_root" --staged
+    fi
+done
+
 ` + shellBinaryResolver() + `
 for reconc_dir in "$repo_root/tools/reconc/dist" "$repo_root/dist"; do
     resolve_status=0
@@ -32,12 +38,6 @@ for reconc_dir in "$repo_root/tools/reconc/dist" "$repo_root/dist"; do
     fi
     if [ "$resolve_status" -eq 2 ]; then
         exit 2
-    fi
-done
-
-for dev_reconc in "$repo_root/.build/bin/reconc" "$repo_root/reconc"; do
-    if [ -x "$dev_reconc" ]; then
-        exec "$dev_reconc" ci "$repo_root" --staged
     fi
 done
 

@@ -119,6 +119,7 @@ reconc doctor . --json
 One-line health:
 ```bash
 reconc status .
+reconc run status .
 ```
 
 ## Assertions (Claims)
@@ -165,6 +166,30 @@ shadowed, or unsupported.
 Do not claim stronger enforcement than `reconc hook status`, the platform
 capability contract, and native-shape tests prove. Explicit CLI checks and the
 git hook remain the deterministic backstop for unsupported host events.
+
+## Autonomous Run Control
+
+The agent operates run control itself. Never ask the user to type Reconc
+commands:
+
+```bash
+reconc run on .
+reconc run status .
+reconc run off .
+```
+
+Repository mode applies to Claude Code, Codex, Cursor, OpenCode, Devin CLI,
+Antigravity CLI, GitHub Copilot, and Kilo. While typed TASK state is `continue`
+or `claim`, Stop returns the runtime-native continuation response without a
+full terminal policy or Git scan. PreToolUse, permission, TASK mutation,
+pre-commit, and terminal Stop gates remain active. A blocked, complete, absent,
+or invalid TASK plane never receives routine continuation.
+
+`run off` and explicit user interrupt disable repository mode immediately.
+Normal prompts and session end do not. Six repeated no-progress continuations
+release one Stop without disabling repository mode, preventing an unbreakable
+host loop. The older `/runloop` prompt remains session-scoped compatibility and
+retains its stricter policy behavior.
 
 ## Output Modes (Token Efficiency)
 

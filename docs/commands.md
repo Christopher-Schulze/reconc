@@ -1,6 +1,6 @@
 # reconc -- Command Reference
 
-Full reference for all 40 subcommands. See `reconc <subcommand> --help` for
+Full reference for all 41 subcommands. See `reconc <subcommand> --help` for
 the exact flag details emitted by the installed binary.
 
 ## Daily path
@@ -266,24 +266,37 @@ rules.
 Raw JSONL dump on stdout for external tooling. Audit tail, stats, and export
 read the two bounded archives plus the live file in chronological order.
 
-### `reconc runloop status [repo] [--json]`
-One-line (or JSON) snapshot of the current runloop state from
-`.reconc/runloop/state.json` (with the active stop-file applied):
-`enabled`, `runtime`, `active_run`, `awaiting`, `nudges`, `stopfile`, `reason`.
+### `reconc run on [repo] [--json]` / `reconc run off [repo] [--json]`
+AI-operated repository-wide autonomous TASK switch. `on` applies to every
+registered agent runtime and persists across normal prompts and session ends.
+`off` releases Stop immediately. Both commands are idempotent and append a
+decision record only when state actually changes. The agent executes these
+commands itself; it must not ask the user to operate Reconc.
 
-### `reconc runloop log [repo] [-n N] [--branch B] [--session S] [--follow] [--json]`
-Render the append-only runloop decision log
-(`.reconc/runloop/decisions.jsonl`): one line per state transition with the
-exact branch taken (e.g. `policy_block_released_on_repeat`,
-`continuation_aborted`, `disable_stop_file`), runtime, enabled/awaiting
-transitions, reason, session, and flags. `--branch`/`--session` filter
-(substring), `-n` keeps the last N, `--follow` tails new records live until
-Ctrl-C. Read-only: never writes, never blocks the hooks.
+### `reconc run status [repo] [--json]`
+One-line or JSON snapshot of run mode plus typed TASK disposition:
+`enabled`, `mode`, `task_disposition`, current TASK/Sub-Task, open count,
+runtime/session compatibility fields, no-progress state, stop marker, and
+reason. Invalid TASK state is reported as disposition `invalid`; Stop then
+fails closed with the validation error.
+
+### `reconc run log [repo] [-n N] [--branch B] [--session S] [--follow] [--json]`
+Render the bounded run decision ring: material state transitions,
+continuations, policy blocks, no-progress releases, explicit switches, and
+stop reasons. Disabled no-op events and unchanged state are not logged.
+`--branch`/`--session` filter, `-n` keeps the last N, and `--follow` tails new
+records until Ctrl-C.
+
+### `reconc runloop status|log ...`
+Read-only compatibility alias for `reconc run status|log`. The standalone
+`/runloop` prompt remains a session-scoped compatibility switch; canonical
+repository control is `reconc run on|off`.
 
 ### `reconc task <subcommand>`
 Typed repository TASK control with two non-migrating profiles:
 `sections-v1` for bounded Active/Queue/Blocked/Done sections and `logbook-v1`
-for a `Current:` line plus detail `State:` fields. Configure the profile,
+for a `Current:` line plus detail `State:` fields. `Current: none` is the
+explicit valid logbook state when no TASK is active. Configure the profile,
 overview/detail paths, Done window, and required completion evidence under
 `task_lifecycle` in `.reconc.yml`; `auto` succeeds only on an unambiguous exact
 grammar match.
@@ -296,7 +309,7 @@ grammar match.
 - `task resume <ID> [repo] [--json]`: reactivate a blocked TASK when no TASK is active
 - `task split [repo] --children ID,ID [--json]`: block the parent and activate the first pre-created, parent-linked child
 - `task promote [repo] [--next ID] [--json]`: completion-check, archive, and activate the next executable TASK
-- `task archive [repo] [--json]`: terminal archive for a completed sectioned board with no queued successor
+- `task archive [repo] [--json]`: terminal archive for either profile with no queued successor
 - `task recover [repo] [--json]`: integrity-check and roll back an interrupted transaction without overwriting external edits
 
 Mutations use `.reconc/locks/task-lifecycle.lock`, atomic publication, verified

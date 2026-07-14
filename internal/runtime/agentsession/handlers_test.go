@@ -1323,7 +1323,7 @@ func writeTaskFixture(t *testing.T, repo string) {
 	os.WriteFile(filepath.Join(repo, "docs", "tasks.md"),
 		[]byte("Current: TASK-0017-Test-Task -> tasks/TASK-0017-Test-Task.md\n\n- [ ] TASK-0017-Test-Task - test -> tasks/TASK-0017-Test-Task.md\n"), 0o644)
 	os.WriteFile(filepath.Join(repo, "docs", "tasks", "TASK-0017-Test-Task.md"),
-		[]byte("# TASK-0017-Test-Task\n\n## Status\n\nState: Active\n\n## Sub-Tasks\n\n- [~] Test sub-task\n- [ ] Next step\n"), 0o644)
+		[]byte("# TASK-0017-Test-Task\n\n## Why\n\nExercise run control.\n\n## Status\n\nState: Active\n\n## Scheduling\n\n- Depends On: none\n\n## Technical Plan\n\nExercise the real hook path.\n\n## Acceptance\n\n- The hook continues.\n\n## Sub-Tasks\n\n- [~] Test sub-task\n- [ ] Next step\n\n## Notes\n\nNone.\n\n## Deviations\n\nNone.\n"), 0o644)
 	if _, err := compiler.CompileRepoPolicy(repo, "test"); err != nil {
 		t.Fatalf("refresh task fixture policy: %v", err)
 	}
@@ -1416,7 +1416,7 @@ func TestRunStopRunLoopNoProgressGuard(t *testing.T) {
 		t.Fatal("stop 1: expected block")
 	}
 
-	// Stop 2: same HEAD/TASK, nudges=1
+	// Stop 2: same typed TASK state, nudges=1
 	activateDM()
 	r2 := RunStop(repo, []byte(`{"session_id":"ses_npg"}`))
 	if !strings.Contains(r2.Stdout, `"decision":"block"`) {
@@ -1433,9 +1433,12 @@ func TestRunStopRunLoopNoProgressGuard(t *testing.T) {
 	// Stop 4: nudges reaches 6 — disables with no_progress_guard
 	activateDM()
 	s, _ := loadRunLoopState(repo)
+	runState, err := inspectRunLoopTask(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
 	s.NoProgressNudges = 5 // simulate previous stop nudges
-	s.LastHead = readCurrentHead(repo)
-	s.LastCurrent = readRunLoopProgressFingerprint(repo)
+	s.LastCurrent = runLoopTaskProgressFingerprint(runState)
 	s.AwaitingContinuation = true
 	_ = saveRunLoopState(repo, s)
 

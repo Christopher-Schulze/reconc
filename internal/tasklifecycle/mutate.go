@@ -72,9 +72,6 @@ func buildBlockMutation(board *Board, reason, nextID string) (MutationResult, []
 	if err != nil {
 		return MutationResult{}, nil, nil, err
 	}
-	if next == nil && board.Profile == ProfileLogbook {
-		return MutationResult{}, nil, nil, fmt.Errorf("logbook-v1 requires a replacement Current TASK; add or select a queued TASK with --next")
-	}
 	details, changes, err := blockedDetails(board, current, next, reason)
 	if err != nil {
 		return MutationResult{}, nil, nil, err
@@ -271,17 +268,11 @@ func archiveTasks(board *Board, action, nextID string, promote bool) (*Task, *Ta
 		if len(board.Queue) > 0 {
 			return nil, nil, fmt.Errorf("%d queued TASK(s) remain; use `reconc task promote` so one becomes active", len(board.Queue))
 		}
-		if board.Profile == ProfileLogbook {
-			return nil, nil, fmt.Errorf("logbook-v1 requires Current and therefore uses promote, not terminal archive")
-		}
 		return current, nil, nil
 	}
 	next, err := selectNext(board, nextID, true)
 	if err != nil {
 		return nil, nil, err
-	}
-	if next == nil && board.Profile == ProfileLogbook {
-		return nil, nil, fmt.Errorf("logbook-v1 cannot clear Current; add a queued TASK or select a blocked TASK with --next")
 	}
 	return current, next, nil
 }
@@ -414,12 +405,13 @@ func setLogbookOverview(lines []string, changes []overviewStateChange, active *T
 			return nil, err
 		}
 	}
-	if active == nil {
-		return nil, fmt.Errorf("logbook-v1 requires an active Current TASK")
-	}
 	for index, line := range lines {
 		if strings.HasPrefix(line, "Current:") {
-			lines[index] = fmt.Sprintf("Current: %s -> %s", active.Name, active.Path)
+			if active == nil {
+				lines[index] = "Current: none"
+			} else {
+				lines[index] = fmt.Sprintf("Current: %s -> %s", active.Name, active.Path)
+			}
 			return []byte(strings.Join(lines, "\n")), nil
 		}
 	}

@@ -194,3 +194,60 @@ func TestRunRunloopRejectsUnknownSubcommand(t *testing.T) {
 		t.Fatal("unknown subcommand must error")
 	}
 }
+
+func TestRunControlOnOffIsIdempotent(t *testing.T) {
+	repo := t.TempDir()
+	var out bytes.Buffer
+	for range 2 {
+		out.Reset()
+		if err := runRunControl([]string{"on", repo, "--json"}, &out, &out); err != nil {
+			t.Fatalf("run on: %v", err)
+		}
+		var info agentsession.RunLoopStatusInfo
+		if err := json.Unmarshal(bytes.TrimSpace(out.Bytes()), &info); err != nil {
+			t.Fatalf("decode run on: %v", err)
+		}
+		if !info.Enabled || info.Mode != "repo" || info.TaskDisposition != "absent" {
+			t.Fatalf("unexpected run on status: %+v", info)
+		}
+	}
+	for range 2 {
+		out.Reset()
+		if err := runRunControl([]string{"off", repo}, &out, &out); err != nil {
+			t.Fatalf("run off: %v", err)
+		}
+		if !strings.Contains(out.String(), "enabled=false") || !strings.Contains(out.String(), "reason=command_off") {
+			t.Fatalf("unexpected run off status: %s", out.String())
+		}
+	}
+	decisions, err := agentsession.ReadRunLoopDecisions(repo, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decisions) != 2 || decisions[0].Branch != "run_command_on" || decisions[1].Branch != "run_command_off" {
+		t.Fatalf("idempotent switches must log only transitions: %#v", decisions)
+	}
+}
+
+func TestRunControlDispatchAndArguments(t *testing.T) {
+	repo := t.TempDir()
+	var out bytes.Buffer
+	if err := Run([]string{"run", "on", repo}, "test", &out, &out); err != nil {
+		t.Fatalf("dispatch run on: %v", err)
+	}
+	if !strings.Contains(out.String(), "mode=repo") {
+		t.Fatalf("canonical status missing repo mode: %s", out.String())
+	}
+	if err := runRunControl([]string{"on", repo, repo}, &out, &out); err == nil {
+		t.Fatal("multiple repo paths must fail")
+	}
+	if err := runRunControl([]string{"status", repo, repo}, &out, &out); err == nil {
+		t.Fatal("multiple status repo paths must fail")
+	}
+	if err := runRunControl([]string{"log", repo, repo}, &out, &out); err == nil {
+		t.Fatal("multiple log repo paths must fail")
+	}
+	if err := runRunControl([]string{"unknown"}, &out, &out); err == nil {
+		t.Fatal("unknown run subcommand must fail")
+	}
+}

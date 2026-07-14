@@ -2,14 +2,17 @@
 
 This release moves Reconc from a policy checker into a self-hosting repository
 control plane for AI-assisted engineering. It includes transactional bootstrap,
-typed TASK lifecycle, bounded runtime state, native assurance packs, nine hook
-platforms, release trust verification, and the `/runloop` continuation surface.
+typed TASK lifecycle, bounded runtime state, native assurance packs, hook
+platforms, release trust verification, and universal repository run control.
 
 ## Highlights
 
-- Adds prompt-scoped `/runloop` autonomous continuation with session/runtime
-  scoping, stop-file handling, no-progress guards, continuation decisions, and
-  durable runloop state.
+- Adds `reconc run on|off|status|log` as the canonical AI-operated repository
+  continuation surface across all eight registered agent platforms. The older
+  prompt-scoped `/runloop` remains session-scoped compatibility.
+- Couples repository continuation to typed `sections-v1` and `logbook-v1`
+  TASK dispositions, including `Current: none`, queue claim, blockers,
+  completion, invalid-state fail-closed behavior, and terminal release.
 - Replaces the old degenmode naming across CLI, runtime packages, harness
   utilities, scaffold docs, tests, and agent-facing instructions.
 - Removes `reconc setup` from the public CLI. Use `reconc bootstrap .` for the
@@ -34,9 +37,14 @@ platforms, release trust verification, and the `/runloop` continuation surface.
 - Provides native hook coverage for Claude Code, Codex, Cursor, OpenCode,
   Devin CLI, Antigravity CLI, GitHub Copilot, and Kilo while routing generated
   runtime hooks through the repo-local `tools/reconc/bin/hook` wrapper.
-- Makes hook binary discovery release-version agnostic: stable
-  `reconc-<os>-<arch>` first, then exactly one compatible versioned artifact,
-  development binaries, and PATH. Ambiguity fails closed.
+- Makes hook binary discovery release-version agnostic: development and
+  self-host binaries first without platform probes, then stable
+  `reconc-<os>-<arch>`, exactly one compatible versioned artifact, and PATH.
+  Ambiguity fails closed.
+- Returns routine executable repository continuations before full Stop report
+  construction and without Git subprocesses. Disabled and unchanged events do
+  not rewrite state or append decision noise; terminal Stop remains a hard
+  gate.
 - Preserves git pre-commit as the hard repository backstop.
 - Keeps stale `0.5.0` dist-path detection in the harness audit so older copied
   release binaries are surfaced during rollout validation.
@@ -50,6 +58,8 @@ platforms, release trust verification, and the `/runloop` continuation surface.
 - Universal rollout is handled by reviewed `bootstrap inspect|plan|apply|verify`
   transactions. `harness/template/BOOTSTRAP.md` remains the AI tutorial and the
   manual path for project-specific harness, stack, architecture, and merge work.
+- Agents operate `reconc run on|off` themselves; users do not need to manage
+  the switch.
 
 ## Release Artifacts
 
@@ -74,4 +84,6 @@ The release workflow builds:
 - Re-run `reconc hook install <kind> --force` only for Reconc-managed hook
   artifacts that still hard-code a release number, then verify with
   `reconc hook status . --json`.
-- Use `/runloop` as the standalone prompt flag for autonomous continuation.
+- Use `reconc run on .` for durable repository continuation and `reconc run
+  off .` for explicit release. Keep `/runloop` only for session-scoped
+  compatibility.

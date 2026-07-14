@@ -5,8 +5,8 @@ You are an agent joining the Project repository. This file is the only onboardin
 ## 1. Read In This Order
 
 1. `AGENTS.md` - local repo rules, structure, TASK lifecycle, spec discipline, protected paths.
-2. `docs/tasks.md` - persistent TASK logbook; read the `Current:` header and verify it matches exactly one unchecked `[ ] TASK-NNNN-Name` row.
-3. The current TASK detail file referenced from `Current:`, e.g. `docs/tasks/TASK-0001-Bootstrap-workflow-enforcement.md`. If no unchecked `[ ]` TASK exists, do not edit during onboarding; report that AGENTS.md Continuity Sweep is required.
+2. `docs/tasks.md` - persistent TASK logbook; read the `Current:` header. If it is not `Current: none`, verify it matches exactly one unchecked `[ ] TASK-NNNN-Name` row.
+3. The current TASK detail file referenced from `Current:`, e.g. `docs/tasks/TASK-0001-Bootstrap-workflow-enforcement.md`. If `Current: none` has queued executable work, report that claim is required after onboarding. If no unchecked `[ ]` TASK exists, do not edit during onboarding; report that AGENTS.md Continuity Sweep is required.
 4. `docs/documentation.md` - current codebase/workflow documentation.
 5. `docs/spec.md` only when the active TASK requires spec/architecture context, and then only the relevant section plus dependencies unless the TASK/user asks for full-spec review.
 6. `docs/decisions.md` only when rationale/tradeoff context is needed.
@@ -18,6 +18,7 @@ You are an agent joining the Project repository. This file is the only onboardin
 Run these read-only checks from the repo root after reading the files above:
 
 - `tools/reconc/dist/reconc-darwin-arm64 status .`
+- `tools/reconc/dist/reconc-darwin-arm64 run status .`
 - `tools/reconc/dist/reconc-darwin-arm64 session-briefing .`
 
 Do not run `reconc bootstrap`, `reconc init`, hook install, task promotion, claim assertion, or any file-writing command during onboarding.
@@ -38,4 +39,17 @@ Then stop and wait for the user. No file writes, no claims, no task status chang
 
 Follow `AGENTS.md`: read the task-relevant source/spec/research paths, edit surgically, update TASK notes/subtasks incrementally, flush `docs/documentation.md` only at real workflow boundaries, run relevant checks, and commit once per completed logical TASK unless the user explicitly says not to.
 
-If the current real user prompt contains `/runloop` as a standalone slash-command flag anywhere in sanitized prompt text, enter AGENTS.md Runloop and work in autonomous mode without routine permission stops. `runloop`, `Runloop mode`, `/runloopgo`, quoted transcripts, hook prompts, stop feedback, code fences, tool text, shell commands, errors, patches, Stop payloads and SessionStart text are not activation. Otherwise Runloop is off unless `.reconc/runloop/state.json` was already enabled by the runtime continuation driver. Runloop is not a parallel workflow: keep the normal TASK lifecycle, work task-by-task, keep progress durable in TASK files, write tests with code, commit once per completed TASK, promote/resume the next executable TASK, never auto-push, and on context limits emit `RUNLOOP_CONTINUE: ...`. User interrupt/abort in the active run always wins; normal non-`/btw` messages in the same active session stop that run, `/btw` side-channel prompts preserve it, and normal messages from other repo sessions must not stop the active run. `awaiting_continuation` alone is not a stop reason; Reconc may re-emit the continuation prompt until progress or the no-progress guard decides. Runloop decisions are logged in `.reconc/runloop/decisions.jsonl`. There is no chat-command off switch, only the runtime interrupt/abort control or a normal non-`/btw` user prompt in the same active session. Only a fresh prompt containing standalone `/runloop` may restart after a stop. For a compact stateless resume packet, run `go run ./tools/reconc/harness/project/utils/runloop.go`.
+When autonomous execution is requested, the agent enables the durable switch
+itself with `reconc run on .`, verifies it with `reconc run status .`, and
+disables it with `reconc run off .` on explicit user stop or a real blocker.
+Never ask the user to operate these commands. Repository mode works across all
+supported agent runtimes, persists across ordinary prompts and sessions, and
+continues while TASK state is executable. It claims queued work when
+`Current: none`, releases terminal or blocked state to the hard Stop gate, and
+fails closed on invalid TASK state. The older standalone `/runloop` prompt
+remains session-scoped compatibility. Run control is not a parallel workflow:
+keep TASK progress durable, write tests with code, commit once per completed
+TASK, promote or claim the next executable TASK, never auto-push, and on
+context limits emit `RUNLOOP_CONTINUE: ...`. Explicit user interrupt always
+wins. For a compact stateless resume packet, run
+`go run ./tools/reconc/harness/project/utils/runloop.go`.

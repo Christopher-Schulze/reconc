@@ -52,7 +52,7 @@ func TestRenderIncludesEverySubcommand(t *testing.T) {
 	_ = Render(&buf, "0.2.0")
 	out := buf.String()
 	// Spot-check a representative selection.
-	for _, sub := range []string{"compile", "check", "bootstrap", "audit", "manpage", "agent-intro"} {
+	for _, sub := range []string{"compile", "check", "bootstrap", "audit", "run", "manpage", "agent-intro"} {
 		if !strings.Contains(out, ".B "+sub) {
 			t.Errorf("subcommand %q missing from man page", sub)
 		}

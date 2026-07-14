@@ -250,9 +250,37 @@ Current: TASK-0001-Runloop-Test -> tasks/TASK-0001-Runloop-Test.md
 	}
 	detail := `# TASK-0001-Runloop-Test
 
+## Why
+
+Exercise the real runtime continuation path.
+
+## Status
+
+State: Active
+
+## Scheduling
+
+- Depends On: none
+
+## Technical Plan
+
+Drive the installed hook through the public CLI.
+
+## Acceptance
+
+- The active TASK continues.
+
 ## Sub-Tasks
 
 - [~] Continue the active task
+
+## Notes
+
+None.
+
+## Deviations
+
+None.
 `
 	if err := os.WriteFile(filepath.Join(tasksDir, "TASK-0001-Runloop-Test.md"), []byte(detail), 0o644); err != nil {
 		t.Fatal(err)

@@ -479,7 +479,7 @@ func TestReconcileRunLoopSessionEndResetsAll(t *testing.T) {
 	}
 }
 
-func TestReconcileRunLoopSessionSwitchPreservesDisabled(t *testing.T) {
+func TestReconcileRunLoopSessionStartDoesNotPersistDisabledNoop(t *testing.T) {
 	_, repo := withStateRoot(t)
 	if err := reconcileRunLoopState(repo, "old-session", &HookPayload{SessionID: "old-session"}, runLoopSessionStart); err != nil {
 		t.Fatalf("session start: %v", err)
@@ -494,8 +494,15 @@ func TestReconcileRunLoopSessionSwitchPreservesDisabled(t *testing.T) {
 	if state.Enabled {
 		t.Fatal("expected disabled after fresh session start without runloop intent")
 	}
-	if state.SessionID != "new-session" {
-		t.Fatalf("expected session_id updated, got %q", state.SessionID)
+	if state.SessionID != "" {
+		t.Fatalf("disabled session starts must not persist no-op state, got %q", state.SessionID)
+	}
+	statePath, err := runLoopStatePath(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
+		t.Fatalf("disabled session starts must not create state.json: %v", err)
 	}
 }
 

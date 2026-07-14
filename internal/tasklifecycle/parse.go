@@ -16,6 +16,7 @@ var (
 	logbookRowRE  = regexp.MustCompile(`^- \[([ x])\] (TASK-[0-9]{4}-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*) - (.+) -> (.+\.md)$`)
 	logbookNameRE = regexp.MustCompile(`^TASK-[0-9]{4}-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$`)
 	logbookCurRE  = regexp.MustCompile(`^Current: (TASK-[0-9]{4}-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*) -> (.+\.md)$`)
+	logbookNoneRE = regexp.MustCompile(`^Current: none$`)
 	subTaskRE     = regexp.MustCompile(`^- \[([ ~x])\] (.+)$`)
 	bulletFieldRE = regexp.MustCompile(`^(?:- )?([A-Za-z][A-Za-z0-9 _-]*):\s*(.*)$`)
 )
@@ -147,7 +148,8 @@ func detectProfile(configured Profile, content string) (Profile, error) {
 		return configured, nil
 	}
 	hasSections := strings.Contains(content, "\n## Active\n") && strings.Contains(content, "\n## Queue\n")
-	hasLogbook := logbookCurRE.MatchString(firstMatchingLine(content, "Current:"))
+	currentLine := firstMatchingLine(content, "Current:")
+	hasLogbook := logbookCurRE.MatchString(currentLine) || logbookNoneRE.MatchString(currentLine)
 	switch {
 	case hasSections && hasLogbook:
 		return "", &ValidationError{Issues: []Issue{{
@@ -210,7 +212,7 @@ func (board *Board) parseSectionsOverview() []Issue {
 
 func (board *Board) parseLogbookOverview() []Issue {
 	scan := board.scanLogbookOverview()
-	if scan.currentName == "" {
+	if !scan.currentSeen {
 		scan.issues = append(scan.issues, issue("task/overview/missing-current", board.Config.OverviewPath, 0, "missing Current line", "add exactly one Current line for the active TASK"))
 	}
 	for _, task := range scan.rows {
@@ -229,6 +231,7 @@ func (board *Board) parseLogbookOverview() []Issue {
 }
 
 type logbookOverviewScan struct {
+	currentSeen   bool
 	currentName   string
 	currentTarget string
 	currentLine   int
@@ -241,9 +244,18 @@ func (board *Board) scanLogbookOverview() logbookOverviewScan {
 	for index, line := range board.overviewLines {
 		lineNo := index + 1
 		if strings.HasPrefix(line, "Current:") {
+			if scan.currentSeen {
+				scan.issues = append(scan.issues, issue("task/overview/invalid-current", board.Config.OverviewPath, lineNo, "duplicate Current line", "keep exactly one Current line"))
+				continue
+			}
+			scan.currentSeen = true
+			if logbookNoneRE.MatchString(line) {
+				scan.currentLine = lineNo
+				continue
+			}
 			match := logbookCurRE.FindStringSubmatch(line)
-			if match == nil || scan.currentName != "" {
-				scan.issues = append(scan.issues, issue("task/overview/invalid-current", board.Config.OverviewPath, lineNo, "invalid or duplicate Current line", "keep one exact `Current: TASK-NNNN-Name -> tasks/TASK-NNNN-Name.md` line"))
+			if match == nil {
+				scan.issues = append(scan.issues, issue("task/overview/invalid-current", board.Config.OverviewPath, lineNo, "invalid Current line", "use `Current: TASK-NNNN-Name -> tasks/TASK-NNNN-Name.md` or `Current: none`"))
 				continue
 			}
 			scan.currentName = match[1]
