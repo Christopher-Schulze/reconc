@@ -9,6 +9,7 @@ usage, architecture, release, and security facts should be kept here first.
 - [Product](#product)
 - [Install And Build](#install-and-build)
 - [Daily Workflow](#daily-workflow)
+- [Development Control Plane](#development-control-plane)
 - [Minimal Example Policy](#minimal-example-policy)
 - [Command Surface](#command-surface)
 - [Repository Policy](#repository-policy)
@@ -87,6 +88,18 @@ Exit codes:
 - `0`: pass, warn, or informational success
 - `1`: runtime or input error
 - `2`: blocking policy violation
+
+## Development Control Plane
+
+Product implementation work is tracked in `docs/tasks.md`. It is the durable
+control plane for current work and links to one detail file per TASK under
+`docs/tasks/`. Completed details move to `docs/tasks/done/`; the overview keeps
+only the ten newest completed TASKs visible.
+
+TASK state uses `[ ]` for queued, `[~]` for the single active TASK, `[!]` for
+blocked, and `[x]` for done. Each detail records motivation, measurable
+acceptance, sub-tasks, temporary notes, and deviations. Runtime task tracking
+may assist within one session, but it never replaces these repository files.
 
 ## Minimal Example Policy
 
@@ -402,6 +415,8 @@ Commit:
 - `SECURITY.md`
 - `cmd/**`
 - `docs/documentation.md`
+- `docs/tasks.md`
+- `docs/tasks/**`
 - `docs/architecture.md`
 - `docs/commands.md`
 - `docs/rfcs/**`
@@ -477,6 +492,7 @@ Copyright (c) 2026 Christopher Schulze.
 Allowed supporting docs:
 
 - `docs/rfcs/**` for frozen contracts
+- `docs/tasks.md` and `docs/tasks/**` for the implementation control plane and completed TASK history
 - `README.md` as the GitHub landing page
 - `SECURITY.md` as security policy
 
@@ -487,7 +503,7 @@ link to it, but should not become competing current-state documentation.
 
 ## Release State
 
-The current public release line is `v0.6.x`. Core tests, race tests, vet,
-staticcheck, coverage, doctor, verify, and release artifact generation pass
-locally. Release artifacts are produced by the GitHub release workflow when a
-`reconc-v*` tag is pushed.
+The current public release line is `v0.6.x`. The universal evolution program is
+tracked in `docs/tasks.md`; a new release is blocked until its release, install,
+self-hosting, and final verification contracts pass. Release artifacts are
+produced by the GitHub release workflow when a `reconc-v*` tag is pushed.
