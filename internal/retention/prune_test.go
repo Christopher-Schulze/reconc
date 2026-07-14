@@ -116,6 +116,48 @@ func TestRunCoversLogsBinariesAndOwnedTemp(t *testing.T) {
 	}
 }
 
+func TestDefaultPolicyRemovesAbandonedOwnedTempWithoutTouchingRecentWork(t *testing.T) {
+	repo := t.TempDir()
+	stateRoot := t.TempDir()
+	tempRoot := t.TempDir()
+	now := time.Now().UTC()
+	policy := DefaultPolicy()
+	if policy.AbandonedTempAge != 2*time.Hour {
+		t.Fatalf("abandoned temp grace = %s, want 2h", policy.AbandonedTempAge)
+	}
+
+	cases := []struct {
+		name    string
+		age     time.Duration
+		removed bool
+	}{
+		{name: "reconc-proof-neg-stale", age: 3 * time.Hour, removed: true},
+		{name: "reconc-proof-gocache-recent", age: 90 * time.Minute},
+	}
+	for _, testCase := range cases {
+		path := filepath.Join(tempRoot, testCase.name)
+		modTime := now.Add(-testCase.age)
+		writeTimed(t, filepath.Join(path, "payload"), make([]byte, 4096), modTime)
+		if err := os.Chtimes(path, modTime, modTime); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	report := Run(Options{RepoRoot: repo, StateRoot: stateRoot, Policy: policy, Now: now, TempRoot: tempRoot})
+	if len(report.Errors) != 0 {
+		t.Fatalf("retention errors: %v", report.Errors)
+	}
+	for _, testCase := range cases {
+		_, err := os.Stat(filepath.Join(tempRoot, testCase.name))
+		if testCase.removed && !os.IsNotExist(err) {
+			t.Fatalf("abandoned owned temp survived default retention: %v", err)
+		}
+		if !testCase.removed && err != nil {
+			t.Fatalf("recent owned temp was removed: %v", err)
+		}
+	}
+}
+
 func TestRunIfDueWritesOnceAndSkipsWithoutMutation(t *testing.T) {
 	repo := t.TempDir()
 	stateRoot := t.TempDir()

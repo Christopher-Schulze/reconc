@@ -48,7 +48,7 @@ internal/
   assurance/      bounded native layout/source/manifest/proof gates
   atomicfile/     write-on-change and atomic publication primitives
   audit/          append-only JSONL decision log + rotation + stats
-  bootstrap/      deterministic inspect/plan/apply/verify transactions + binary resolution
+  bootstrap/      deterministic new/mature-repo transactions + binary resolution
   changelog/      docs/changelog.md rotation into quarterly archives
   cli/            command dispatch plus responsibility-owned command modules
   compiler/       lockfile builder: digest, writer, conflicts, migrations, lock
@@ -109,6 +109,11 @@ handling.
 5. **Advisory compile lock.** `.reconc/.compile.lock` via O_EXCL
    prevents two `reconc compile` from racing. 60s stale-reap so a
    crashed compile doesn't wedge the repo forever.
+
+6. **Satisfiable conflict analysis.** Static command contradictions follow
+   runtime `require_command` semantics: any configured alternative can satisfy
+   the rule. A forbid/require pair is reported only when their exact trigger
+   scopes overlap and one forbid rule blocks every required alternative.
 
 ## Key external contracts
 

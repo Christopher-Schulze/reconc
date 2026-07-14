@@ -54,6 +54,12 @@ jobs:
           go test ./...
           (cd harness/template && go test ./...)
 
+      - name: Self-hosting golden path
+        if: runner.os != 'Windows'
+        run: |
+          go build -ldflags "-X main.Version=0.6.0 -s -w" -o .build/bin/reconc ./cmd/reconc
+          RECONC_BIN="$PWD/.build/bin/reconc" ./scripts/tests/self-hosting.sh
+
       - name: Vet
         run: |
           go vet ./...

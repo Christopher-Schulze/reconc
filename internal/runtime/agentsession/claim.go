@@ -71,37 +71,37 @@ func RecordClaim(repoRoot, claim, sessionID string) (*ClaimReport, error) {
 	}, nil
 }
 
-// ActiveEvidence returns command and claim evidence recorded on the
-// currently active agent session. Missing session state is not an
-// error; callers use this to let non-interactive gates such as git
-// pre-commit inherit in-session authorizations and successful checks
-// without requiring PATH-dependent wrappers.
-func ActiveEvidence(repoRoot string) ([]string, []CommandResult, []string, error) {
+// ActiveEvidence returns read, command, and claim evidence recorded on the
+// currently active agent session. Missing session state is not an error;
+// callers use this to let non-interactive gates such as git pre-commit inherit
+// in-session context, authorizations, and successful checks.
+func ActiveEvidence(repoRoot string) ([]string, []string, []CommandResult, []string, error) {
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	sessionID, err := ResolveActiveSessionID(root)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	if sessionID == "" {
-		return nil, nil, nil, nil
+		return nil, nil, nil, nil, nil
 	}
 	state, err := LoadSessionState(root, sessionID)
 	if err != nil {
-		return nil, nil, nil, nil
+		return nil, nil, nil, nil, nil
 	}
+	reads := append([]string{}, state.ReadPaths...)
 	commands := append([]string{}, state.Commands...)
 	results := append([]CommandResult{}, state.CommandResults...)
 	claims := append([]string{}, state.Claims...)
-	return commands, results, claims, nil
+	return reads, commands, results, claims, nil
 }
 
 // ActiveClaims returns claims recorded on the currently active agent
 // session. Kept as a narrow helper for callers that need only claims.
 func ActiveClaims(repoRoot string) ([]string, error) {
-	_, _, claims, err := ActiveEvidence(repoRoot)
+	_, _, _, claims, err := ActiveEvidence(repoRoot)
 	if err != nil {
 		return nil, err
 	}

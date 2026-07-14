@@ -20,7 +20,10 @@ func TestPruneCommandUsesCoreRetention(t *testing.T) {
 	}
 	stateRoot := t.TempDir()
 	t.Setenv(retention.StateRootEnv, stateRoot)
-	t.Setenv("TMPDIR", t.TempDir())
+	tempRoot := t.TempDir()
+	t.Setenv("TMPDIR", tempRoot)
+	t.Setenv("TMP", tempRoot)
+	t.Setenv("TEMP", tempRoot)
 	project := retention.ProjectDir(stateRoot, resolvedRepo)
 	for index := 0; index < 40; index++ {
 		path := filepath.Join(project, "sessions", fmt.Sprintf("session-%02d.json", index))

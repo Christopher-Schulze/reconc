@@ -13,6 +13,7 @@
 #   make release            -- build release binaries for dist/ (darwin, linux, windows)
 #   make completion         -- emit flat shell completion artifacts into dist/
 #   make checksums          -- generate dist/SHA256SUMS over release artefacts
+#   make self-host          -- run the clean-repository bootstrap golden path
 
 GO        ?= go
 BIN       := reconc
@@ -32,7 +33,7 @@ RELEASE_TARGETS := \
 	linux/arm64 \
 	windows/amd64
 
-.PHONY: build test test-release-trust fmt vet lint cover clean run tidy release completion manpage checksums release-all bench
+.PHONY: build test test-release-trust self-host fmt vet lint cover clean run tidy release completion manpage checksums release-all bench
 
 build:
 	@mkdir -p $(BINDIR)
@@ -44,6 +45,9 @@ test:
 
 test-release-trust:
 	./scripts/tests/release-trust.sh
+
+self-host: build
+	RECONC_BIN="$(CURDIR)/$(BINDIR)/$(BIN)" ./scripts/tests/self-hosting.sh
 
 fmt:
 	$(GO) fmt $(PKG)

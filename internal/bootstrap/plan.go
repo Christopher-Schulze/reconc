@@ -30,6 +30,10 @@ func BuildPlan(request Request, productVersion string) (*Plan, error) {
 	if err != nil {
 		return nil, err
 	}
+	profile, err := profileByName(selection.Profile)
+	if err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(productVersion) == "" {
 		return nil, fmt.Errorf("bootstrap product version must be non-empty")
 	}
@@ -60,8 +64,10 @@ func BuildPlan(request Request, productVersion string) (*Plan, error) {
 		return nil, fmt.Errorf("inspect existing policy lockfile: %w", lockErr)
 	}
 	issues := []string{}
-	compileRequired := !hasConflict && !lockExists
-	if !hasConflict && lockExists {
+	compileRequired := profile.Policy && !hasConflict && !lockExists
+	if !profile.Policy && !lockExists {
+		issues = append(issues, "existing bootstrap profile requires an already compiled fresh policy lockfile")
+	} else if lockExists && (!hasConflict || !profile.Policy) {
 		if err := reconruntime.ValidatePolicyLockfile(root); err != nil {
 			issues = append(issues, "existing policy lockfile is not fresh and bootstrap will not replace it: "+err.Error())
 		}
@@ -204,7 +210,7 @@ func ValidatePlan(plan *Plan) error {
 		}
 	}
 	if profile.Wrapper && plan.Selection.TrustExistingWrapper {
-		return fmt.Errorf("governed bootstrap plans cannot trust an unmanaged existing wrapper")
+		return fmt.Errorf("bootstrap profiles that own the wrapper cannot trust an unmanaged existing wrapper")
 	}
 	if binary := plan.Selection.Binary; binary != nil {
 		if !filepath.IsAbs(binary.SourcePath) || !validSHA256(binary.SHA256) {
@@ -280,6 +286,9 @@ func normalizeSelection(request Request, inspection *Inspection) (Selection, err
 	if err != nil {
 		return Selection{}, err
 	}
+	if !profile.Policy && len(request.Packs) > 0 {
+		return Selection{}, fmt.Errorf("profile %q does not own policy and cannot select packs", profile.Name)
+	}
 	packs := dedupePreservingOrder(append(append([]string{}, profile.DefaultPacks...), request.Packs...))
 	if err := presets.ValidateSelection(packs); err != nil {
 		return Selection{}, fmt.Errorf("validate bootstrap pack selection: %w", err)
@@ -354,7 +363,7 @@ func profileByName(name ProfileName) (Profile, error) {
 			return profile, nil
 		}
 	}
-	return Profile{}, fmt.Errorf("unknown bootstrap profile %q; supported: governed, minimal", name)
+	return Profile{}, fmt.Errorf("unknown bootstrap profile %q; supported: existing, governed, minimal", name)
 }
 
 func planAction(root string, artifact desiredArtifact) (Action, error) {

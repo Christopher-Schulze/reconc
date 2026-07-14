@@ -83,6 +83,11 @@ func TestGenerateCompletionIncludesBootstrapPhases(t *testing.T) {
 					t.Fatalf("%s completion missing bootstrap flag %s", name, needle)
 				}
 			}
+			for _, profile := range BootstrapProfiles {
+				if !strings.Contains(buf.String(), profile) {
+					t.Fatalf("%s completion missing bootstrap profile %s", name, profile)
+				}
+			}
 		})
 	}
 }

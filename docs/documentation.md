@@ -66,6 +66,7 @@ make vet
 make lint
 make cover
 make bench
+make self-host
 make release VERSION=0.6.0
 ```
 
@@ -105,6 +106,13 @@ block. The `governed` profile adds the TASK control plane, documentation,
 `start.md`, runtime ignores, and the stable repo-local hook wrapper. Both use
 `default` and `agent` as profile defaults. Stack detection and platform
 detection produce suggestions only; packs and hooks remain explicit.
+
+The `existing` profile is the mature-repository wiring path. It requires an
+already fresh compiled policy lockfile, rejects pack selection, and owns only
+explicitly selected hooks, the repo-local wrapper, and an optional stable
+binary. It never owns `.reconc.yml`, agent instructions, docs, TASK files, or
+ignore policy. This lets an agent install or refresh universal wiring without
+forcing the governed scaffold over a repository's existing control plane.
 
 Plans are deterministic JSON with a format version, product version, canonical
 repository root, normalized selections, sorted actions, hashes, modes,
@@ -339,9 +347,10 @@ and 32 MiB / 14 days for generated audit binaries. Audit and runloop decision
 JSONL each use a 2 MiB live file plus two archives, with file-locked append and
 pre-append rotation. Repo runtime is capped at 48 MiB. Known
 `reconc-proof-neg-*`, `reconc-proof-neg-copy-*`, and
-`reconc-proof-gocache-*` temp trees are removed only after a 24-hour inactive
-grace. Active session/report/lock files, live build-lock targets, runloop
-state/locks, and recent temp trees are never deleted to force a budget.
+`reconc-proof-gocache-*` temp trees are removed after a two-hour inactive
+grace, retaining recent work while removing hard-kill residue before a full
+working day passes. Active session/report/lock files, live build-lock targets,
+runloop state/locks, and recent temp trees are never deleted to force a budget.
 Global temp scanning has its own six-hour marker, so multiple repos do not
 re-walk the same temp tree on every session start.
 
@@ -353,6 +362,12 @@ evidence classes, implementing rule IDs, and explicit pack conflicts. Manifest
 rule references and conflicts are validated before a selected pack is loaded.
 User presets without a manifest remain compatible, but cannot be proposed by
 stack detection and declare no capabilities.
+
+Static command conflict analysis follows evaluator semantics:
+`require_command` accepts any configured command. A `forbid_command` pair is
+reported only when their exact trigger scopes overlap and that single forbid
+rule blocks every required alternative. A partial overlap is satisfiable and
+is not reported as a contradiction.
 
 `reconc adopt .` detects Go and Bun stack evidence and may propose
 `go-assurance` or `bun-assurance`. A proposal is review-only. `adopt --apply`
@@ -659,6 +674,7 @@ CI checks:
 
 - Ubuntu 24.04, macOS 15, and Windows 2025 matrix runners
 - root module and `harness/template` module formatting, tidy, test, vet, pinned Staticcheck v0.7.0, and race checks
+- clean-repository self-hosting golden path on Ubuntu and macOS across all three bootstrap profiles and nine hook platforms
 - immutable action commit pins for checkout and Go setup
 - release and installer negative-path trust tests
 
@@ -675,7 +691,16 @@ Release:
 
 Commit:
 
+- `.agents/hooks.json`
+- `.claude/settings.json`
+- `.codex/config.toml`
+- `.codex/hooks.json`
+- `.cursor/hooks.json`
+- `.devin/hooks.v1.json`
+- `.github/hooks/reconc.json`
 - `.github/workflows/**`
+- `.kilo/plugin/reconc.js`
+- `.opencode/plugins/reconc.js`
 - `.gitignore`
 - `.reconc.yml`
 - `AGENTS.md`
@@ -698,12 +723,16 @@ Commit:
 - `scripts/release/**`
 - `scripts/tests/**`
 - `skills/**`
+- `bin/hook`
+- `tools/reconc/bin/hook`
 
 Ignore:
 
 - `/reconc`
-- `/bin/`
+- `/.build/`
+- `/bin/*` except `/bin/hook`
 - `/dist/`
+- `/tools/reconc/dist/`
 - `*.test`
 - `*.out`
 - `coverage.out`

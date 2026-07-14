@@ -45,6 +45,8 @@ var BootstrapSubcommands = []hookSubcommand{
 	{Name: "verify", Help: "verify an applied bootstrap manifest read-only"},
 }
 
+var BootstrapProfiles = []string{"existing", "governed", "minimal"}
+
 var TaskSubcommands = []hookSubcommand{
 	{Name: "archive", Help: "archive a terminal completed TASK"},
 	{Name: "block", Help: "block current TASK and optionally activate the next"},
@@ -123,6 +125,7 @@ _reconc() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"`)
 	fmt.Fprintf(w, "    local subcmds=%q\n", strings.Join(names, " "))
 	fmt.Fprintf(w, "    local bootstrap_subcmds=%q\n", strings.Join(bootstrapSubcommandNames(), " "))
+	fmt.Fprintf(w, "    local bootstrap_profiles=%q\n", strings.Join(BootstrapProfiles, " "))
 	fmt.Fprintf(w, "    local hook_subcmds=%q\n", strings.Join(hookSubcommandNames(), " "))
 	fmt.Fprintf(w, "    local task_subcmds=%q\n", strings.Join(taskSubcommandNames(), " "))
 	fmt.Fprintln(w, `
@@ -139,6 +142,11 @@ _reconc() {
 
     if [[ "${COMP_WORDS[1]}" == "bootstrap" && ${COMP_CWORD} -eq 2 ]]; then
         COMPREPLY=($(compgen -W "${bootstrap_subcmds}" -- "${cur}"))
+        return 0
+    fi
+
+    if [[ "${COMP_WORDS[1]}" == "bootstrap" && "${prev}" == "--profile" ]]; then
+        COMPREPLY=($(compgen -W "${bootstrap_profiles}" -- "${cur}"))
         return 0
     fi
 
@@ -199,6 +207,13 @@ _reconc() {
 	}
 	fmt.Fprint(w, `        )
         _describe 'reconc bootstrap subcommand' bootstrap_subcmds
+        return
+    fi
+
+    if [[ "${sub}" == "bootstrap" && "${words[CURRENT-1]}" == "--profile" ]]; then
+        local -a bootstrap_profiles
+        bootstrap_profiles=(existing governed minimal)
+        _describe 'reconc bootstrap profile' bootstrap_profiles
         return
     fi
 
@@ -267,6 +282,7 @@ func GenerateFish(w io.Writer) error {
 	for _, s := range BootstrapSubcommands {
 		fmt.Fprintf(w, "complete -c reconc -n '__fish_seen_subcommand_from bootstrap' -a %q -d %q\n", s.Name, s.Help)
 	}
+	fmt.Fprintf(w, "complete -c reconc -n '__fish_seen_subcommand_from bootstrap; and __fish_prev_arg_in --profile' -a %q\n", strings.Join(BootstrapProfiles, " "))
 	for _, s := range TaskSubcommands {
 		fmt.Fprintf(w, "complete -c reconc -n '__fish_seen_subcommand_from task' -a %q -d %q\n", s.Name, s.Help)
 	}

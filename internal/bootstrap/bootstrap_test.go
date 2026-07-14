@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/hooks"
 )
 
@@ -151,6 +152,15 @@ func TestGovernedApplyVerifyAndRerunAreIdempotent(t *testing.T) {
 			t.Fatalf("expected installed %s: %v", relative, err)
 		}
 	}
+	ignoreBody, err := os.ReadFile(filepath.Join(repo, ".gitignore"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"/tools/reconc/dist/", ".reconc/runloop/"} {
+		if !strings.Contains(string(ignoreBody), expected) {
+			t.Fatalf("governed bootstrap ignore block missing %q: body=%q", expected, ignoreBody)
+		}
+	}
 	before := bootstrapTreeSnapshot(t, repo)
 	secondPlan, err := BuildPlan(request, "test-version")
 	if err != nil {
@@ -168,6 +178,93 @@ func TestGovernedApplyVerifyAndRerunAreIdempotent(t *testing.T) {
 	after := bootstrapTreeSnapshot(t, repo)
 	if strings.Join(before, "\n") != strings.Join(after, "\n") {
 		t.Fatalf("idempotent apply changed repository bytes:\nbefore=%v\nafter=%v", before, after)
+	}
+}
+
+func TestExistingProfileWiresWithoutOwningControlPlane(t *testing.T) {
+	bootstrapTestHome(t)
+	repo := t.TempDir()
+	controlFiles := map[string]string{
+		".reconc.yml":           "extends:\n  - default\n  - agent\nrules: []\n",
+		"AGENTS.md":             "# Existing agent contract\n",
+		"docs/documentation.md": "# Existing documentation\n",
+		"docs/tasks.md":         "# Existing TASK control plane\n",
+	}
+	for path, body := range controlFiles {
+		writeBootstrapTestFile(t, repo, path, body, 0o644)
+	}
+	if _, err := compiler.CompileRepoPolicy(repo, "test-version"); err != nil {
+		t.Fatalf("compile existing policy: %v", err)
+	}
+
+	request := Request{RepoRoot: repo, Profile: ProfileExisting, Hooks: []string{hooks.KindCodex}}
+	plan, err := BuildPlan(request, "test-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.CompileRequired || len(plan.BlockingIssues) != 0 {
+		t.Fatalf("existing profile rejected fresh policy: %+v", plan)
+	}
+	for _, action := range plan.Actions {
+		if _, owned := controlFiles[action.Path]; owned {
+			t.Fatalf("existing profile tried to own %s", action.Path)
+		}
+	}
+	report, err := Apply(plan, "test-version")
+	if err != nil || report.Status != ApplyComplete {
+		t.Fatalf("apply existing profile: report=%+v err=%v", report, err)
+	}
+	verification, err := Verify(plan)
+	if err != nil || !verification.Valid {
+		t.Fatalf("verify existing profile: verification=%+v err=%v", verification, err)
+	}
+	for path, want := range controlFiles {
+		body, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(path)))
+		if err != nil || string(body) != want {
+			t.Fatalf("existing control file changed %s: body=%q err=%v", path, body, err)
+		}
+	}
+	second, err := BuildPlan(request, "test-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range second.Actions {
+		if action.State != ActionUnchanged {
+			t.Fatalf("existing-profile rerun drifted: %+v", action)
+		}
+	}
+}
+
+func TestExistingProfileRequiresFreshPolicyAndRejectsPacks(t *testing.T) {
+	bootstrapTestHome(t)
+	repo := t.TempDir()
+	plan, err := BuildPlan(Request{RepoRoot: repo, Profile: ProfileExisting}, "test-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.CompileRequired || len(plan.BlockingIssues) != 1 || !strings.Contains(plan.BlockingIssues[0], "already compiled fresh policy") {
+		t.Fatalf("missing-policy existing plan = %+v", plan)
+	}
+	if report, err := Apply(plan, "test-version"); err == nil || len(report.Created) != 0 {
+		t.Fatalf("existing profile applied without policy: report=%+v err=%v", report, err)
+	}
+	if _, err := BuildPlan(Request{RepoRoot: repo, Profile: ProfileExisting, Packs: []string{"default"}}, "test-version"); err == nil || !strings.Contains(err.Error(), "cannot select packs") {
+		t.Fatalf("existing profile accepted policy packs: %v", err)
+	}
+
+	staleRepo := t.TempDir()
+	writeBootstrapTestFile(t, staleRepo, ".reconc.yml", "rules: []\n", 0o644)
+	if _, err := compiler.CompileRepoPolicy(staleRepo, "test-version"); err != nil {
+		t.Fatalf("compile stale-policy fixture: %v", err)
+	}
+	writeBootstrapTestFile(t, staleRepo, ".reconc.yml", "rules:\n  - id: changed\n    kind: deny_write\n    paths: [\"generated/**\"]\n", 0o644)
+	writeBootstrapTestFile(t, staleRepo, hooks.WrapperPath, "custom wrapper\n", 0o755)
+	stalePlan, err := BuildPlan(Request{RepoRoot: staleRepo, Profile: ProfileExisting}, "test-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stalePlan.BlockingIssues) != 1 || !strings.Contains(stalePlan.BlockingIssues[0], "not fresh") {
+		t.Fatalf("existing profile hid stale policy behind artifact conflict: %+v", stalePlan)
 	}
 }
 

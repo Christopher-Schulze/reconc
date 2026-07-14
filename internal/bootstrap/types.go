@@ -14,6 +14,7 @@ type ProfileName string
 const (
 	ProfileMinimal  ProfileName = "minimal"
 	ProfileGoverned ProfileName = "governed"
+	ProfileExisting ProfileName = "existing"
 )
 
 type Profile struct {
@@ -38,6 +39,10 @@ func Profiles() []Profile {
 		{
 			Name: ProfileMinimal, Summary: "Policy and a compact AI orientation file only.",
 			Policy: true, AgentDoc: true, DefaultPacks: []string{"default", "agent"},
+		},
+		{
+			Name: ProfileExisting, Summary: "Hooks, repo-local wrapper, and optional binary for a repository with existing fresh policy.",
+			Wrapper: true, DefaultPacks: []string{},
 		},
 	}
 }

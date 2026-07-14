@@ -70,8 +70,9 @@ func DetectConflicts(rules []policy.Rule) []Conflict {
 	// indicates a rule-authoring mistake.
 	out = append(out, findDenyVsRequireRead(byKind[policy.KindDenyWrite], byKind[policy.KindRequireRead])...)
 
-	// forbid_command X + require_command X (same command forbidden AND
-	// required) => impossible to satisfy.
+	// A require_command rule is satisfiable when any listed command runs.
+	// It only conflicts with one forbid_command rule when their trigger scopes
+	// overlap and that forbid rule blocks every required alternative.
 	out = append(out, findForbidVsRequireCommand(byKind[policy.KindForbidCommand], byKind[policy.KindRequireCommand])...)
 
 	// Stable ordering.
@@ -149,28 +150,77 @@ func findForbidVsRequireCommand(forbids, requires []policy.Rule) []Conflict {
 	for _, f := range forbids {
 		forbidSet := map[string]struct{}{}
 		for _, c := range f.Commands {
-			forbidSet[c] = struct{}{}
+			if normalized := normalizeStaticCommand(c); normalized != "" {
+				forbidSet[normalized] = struct{}{}
+			}
 		}
 		for _, r := range requires {
+			if !staticTriggerScopesOverlap(f.WhenPaths, r.WhenPaths) {
+				continue
+			}
+			blocked := make([]string, 0, len(r.Commands))
+			required := map[string]struct{}{}
 			for _, c := range r.Commands {
-				if _, ok := forbidSet[c]; ok {
-					idA, idB := f.ID, r.ID
-					if idB < idA {
-						idA, idB = idB, idA
-					}
-					out = append(out, Conflict{
-						Kind:        ConflictForbidVsRequireCommand,
-						RuleIDA:     idA,
-						RuleIDB:     idB,
-						Description: "command '" + c + "' is both forbidden by '" + f.ID + "' and required by '" + r.ID + "'",
-						Paths:       []string{c},
-					})
-					break
+				normalized := normalizeStaticCommand(c)
+				if normalized == "" {
+					continue
+				}
+				required[normalized] = struct{}{}
+				if _, forbidden := forbidSet[normalized]; forbidden {
+					blocked = append(blocked, normalized)
 				}
 			}
+			blocked = uniqueSorted(blocked)
+			if len(required) == 0 || len(blocked) != len(required) {
+				continue
+			}
+			idA, idB := f.ID, r.ID
+			if idB < idA {
+				idA, idB = idB, idA
+			}
+			out = append(out, Conflict{
+				Kind:        ConflictForbidVsRequireCommand,
+				RuleIDA:     idA,
+				RuleIDB:     idB,
+				Description: "all commands required by '" + r.ID + "' are forbidden by '" + f.ID + "'",
+				Paths:       blocked,
+			})
 		}
 	}
 	return out
+}
+
+func normalizeStaticCommand(command string) string {
+	return strings.Join(strings.Fields(command), " ")
+}
+
+func staticTriggerScopesOverlap(a, b []string) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return true
+	}
+	set := map[string]struct{}{}
+	for _, path := range a {
+		set[strings.TrimSpace(path)] = struct{}{}
+	}
+	for _, path := range b {
+		if _, ok := set[strings.TrimSpace(path)]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func uniqueSorted(values []string) []string {
+	set := map[string]struct{}{}
+	for _, value := range values {
+		set[value] = struct{}{}
+	}
+	result := make([]string, 0, len(set))
+	for value := range set {
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result
 }
 
 // selectField picks the target slice for duplicate detection. Kept

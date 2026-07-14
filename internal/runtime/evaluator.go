@@ -1436,9 +1436,25 @@ func evalCoupleChange(rule map[string]interface{}, defaultMode policy.Mode, inpu
 		return nil, nil
 	}
 	required := stringListField(rule, "when_paths")
-	coupled, err := matchingCoupledPaths(inputs.WritePaths, triggered, required)
+	coupled, err := matchingPaths(inputs.WritePaths, required)
 	if err != nil {
 		return nil, err
+	}
+	if len(coupled) > 0 {
+		coupledSet := make(map[string]struct{}, len(coupled))
+		for _, path := range coupled {
+			coupledSet[path] = struct{}{}
+		}
+		primary := triggered[:0]
+		for _, path := range triggered {
+			if _, isCompanion := coupledSet[path]; !isCompanion {
+				primary = append(primary, path)
+			}
+		}
+		triggered = primary
+	}
+	if len(triggered) == 0 {
+		return nil, nil
 	}
 	if len(coupled) > 0 {
 		return nil, nil
@@ -1524,30 +1540,6 @@ func matchingPaths(paths, patterns []string) ([]string, error) {
 	out := []string{}
 	for _, p := range paths {
 		_, ok, err := MatchAny(patterns, p)
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			out = append(out, p)
-		}
-	}
-	return out, nil
-}
-
-func matchingCoupledPaths(writes, triggered, required []string) ([]string, error) {
-	if len(required) == 0 {
-		return nil, nil
-	}
-	triggeredSet := map[string]struct{}{}
-	for _, t := range triggered {
-		triggeredSet[t] = struct{}{}
-	}
-	out := []string{}
-	for _, p := range writes {
-		if _, dup := triggeredSet[p]; dup {
-			continue
-		}
-		_, ok, err := MatchAny(required, p)
 		if err != nil {
 			return nil, err
 		}

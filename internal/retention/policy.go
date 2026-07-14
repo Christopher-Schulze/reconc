@@ -47,7 +47,7 @@ func DefaultPolicy() Policy {
 		AuditArchives:       2,
 		RunLoopFileBytes:    2 * 1024 * 1024,
 		RunLoopArchives:     2,
-		AbandonedTempAge:    24 * time.Hour,
+		AbandonedTempAge:    2 * time.Hour,
 		OwnedTempTotalBytes: 512 * 1024 * 1024,
 		Interval:            6 * time.Hour,
 	}

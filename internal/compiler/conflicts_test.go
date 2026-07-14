@@ -83,6 +83,46 @@ func TestDetectConflictsForbidVsRequireCommand(t *testing.T) {
 	}
 }
 
+func TestDetectConflictsAllowsUnforbiddenRequiredAlternative(t *testing.T) {
+	rules := []policy.Rule{
+		{ID: "no-pip", Kind: policy.KindForbidCommand, WhenPaths: []string{"requirements.txt"}, Commands: []string{"pip install -r requirements.txt"}},
+		{ID: "sync-deps", Kind: policy.KindRequireCommand, WhenPaths: []string{"requirements.txt"}, Commands: []string{"pip install -r requirements.txt", "uv sync"}},
+	}
+	if conflicts := DetectConflicts(rules); len(conflicts) != 0 {
+		t.Fatalf("one permitted alternative must keep require_command satisfiable: %+v", conflicts)
+	}
+}
+
+func TestDetectConflictsRequiresOverlappingCommandScopes(t *testing.T) {
+	rules := []policy.Rule{
+		{ID: "no-pip", Kind: policy.KindForbidCommand, WhenPaths: []string{"pyproject.toml"}, Commands: []string{"pip install"}},
+		{ID: "require-pip", Kind: policy.KindRequireCommand, WhenPaths: []string{"requirements.txt"}, Commands: []string{"pip install"}},
+	}
+	if conflicts := DetectConflicts(rules); len(conflicts) != 0 {
+		t.Fatalf("disjoint exact trigger scopes must not conflict: %+v", conflicts)
+	}
+}
+
+func TestDetectConflictsReportsEveryBlockedRequiredAlternative(t *testing.T) {
+	rules := []policy.Rule{
+		{ID: "forbid", Kind: policy.KindForbidCommand, Commands: []string{"go  test", "go vet"}},
+		{ID: "require", Kind: policy.KindRequireCommand, WhenPaths: []string{"**/*.go"}, Commands: []string{"go vet", "go test"}},
+	}
+	conflicts := DetectConflicts(rules)
+	if len(conflicts) != 1 {
+		t.Fatalf("expected one complete alternative-set conflict, got %+v", conflicts)
+	}
+	want := []string{"go test", "go vet"}
+	if len(conflicts[0].Paths) != len(want) {
+		t.Fatalf("blocked alternatives = %v, want %v", conflicts[0].Paths, want)
+	}
+	for index := range want {
+		if conflicts[0].Paths[index] != want[index] {
+			t.Fatalf("blocked alternatives = %v, want %v", conflicts[0].Paths, want)
+		}
+	}
+}
+
 func TestDetectConflictsDuplicateRequireClaim(t *testing.T) {
 	rules := []policy.Rule{
 		{ID: "ci-a", Kind: policy.KindRequireClaim,

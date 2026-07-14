@@ -3127,14 +3127,20 @@ func TestRunCIStagedFailsOnNonGit(t *testing.T) {
 	}
 }
 
-func TestRunCIStagedInheritsActiveCommandSuccessEvidence(t *testing.T) {
+func TestRunCIStagedInheritsActiveSessionEvidence(t *testing.T) {
 	repo := makeCheckRepo(t,
-		"rules:\n  - id: tests-must-pass\n    kind: require_command_success\n    when_paths: ['src/**']\n    commands: ['cd tools/reconc && go test ./...']\n    mode: block\n    message: tests must pass\n")
+		"rules:\n  - id: tests-must-pass\n    kind: require_command_success\n    when_paths: ['src/**']\n    commands: ['cd tools/reconc && go test ./...']\n    mode: block\n    message: tests must pass\n  - id: architecture-read\n    kind: require_read\n    paths: ['src/**']\n    before_paths: ['docs/architecture.md']\n    mode: block\n    message: architecture read required\n")
 	initGitRepo(t, repo)
 	if err := os.MkdirAll(filepath.Join(repo, "src"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(repo, "src", "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "docs", "architecture.md"), []byte("# Architecture\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("git", "add", "src/main.go")
@@ -3146,6 +3152,10 @@ func TestRunCIStagedInheritsActiveCommandSuccessEvidence(t *testing.T) {
 	if result := agentsession.RunSessionStart(repo, []byte(`{"session_id":"s1"}`)); result.ExitCode != 0 {
 		t.Fatalf("session start failed: %s", result.Stderr)
 	}
+	readPayload := `{"session_id":"s1","tool_name":"Read","tool_input":{"file_path":"docs/architecture.md"}}`
+	if result := agentsession.RunPostToolUse(repo, []byte(readPayload)); result.ExitCode != 0 || result.Stderr != "" {
+		t.Fatalf("read post tool failed: exit=%d stderr=%s", result.ExitCode, result.Stderr)
+	}
 	payload := `{"session_id":"s1","tool_name":"Bash","tool_input":{"command":"cd tools/reconc && go test ./..."},"tool_response":{"exit_code":0}}`
 	if result := agentsession.RunPostToolUse(repo, []byte(payload)); result.ExitCode != 0 || result.Stderr != "" {
 		t.Fatalf("post tool failed: exit=%d stderr=%s", result.ExitCode, result.Stderr)
@@ -3155,8 +3165,10 @@ func TestRunCIStagedInheritsActiveCommandSuccessEvidence(t *testing.T) {
 	if err := Run([]string{"ci", repo, "--staged"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("ci should inherit active command success evidence: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
 	}
-	if strings.Contains(stdout.String(), "tests-must-pass") {
-		t.Fatalf("ci still reported require_command_success violation:\n%s", stdout.String())
+	for _, ruleID := range []string{"tests-must-pass", "architecture-read"} {
+		if strings.Contains(stdout.String(), ruleID) {
+			t.Fatalf("ci still reported inherited-evidence violation %s:\n%s", ruleID, stdout.String())
+		}
 	}
 }
 

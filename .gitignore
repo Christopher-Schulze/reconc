@@ -4,6 +4,7 @@
 /bin/*
 !/bin/hook
 /dist/
+/tools/reconc/dist/
 *.test
 *.out
 
@@ -48,6 +49,7 @@ tmp/
 .reconc/locks/
 .reconc/sessions/
 .reconc/reports/
+.reconc/runloop/
 .reconc/task-transaction.json
 .reconc/bootstrap-*.json
 *.reconc-candidate-*
@@ -59,6 +61,7 @@ tmp/
 **/.reconc/locks/
 **/.reconc/sessions/
 **/.reconc/reports/
+**/.reconc/runloop/
 **/.reconc/task-transaction.json
 **/.reconc/bootstrap-*.json
 **/*.reconc-candidate-*

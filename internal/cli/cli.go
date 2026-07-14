@@ -3495,7 +3495,8 @@ func runCI(args []string, stdout, stderr io.Writer) error {
 	if !discovery.Discovered {
 		return &CLIError{ExitCode: 1, Message: "reconc ci: no policy markers found"}
 	}
-	if commands, results, claims, err := agentsession.ActiveEvidence(discovery.RepoRoot); err == nil {
+	if reads, commands, results, claims, err := agentsession.ActiveEvidence(discovery.RepoRoot); err == nil {
+		inputs.ReadPaths = append(inputs.ReadPaths, reads...)
 		inputs.Commands = append(inputs.Commands, commands...)
 		for _, result := range results {
 			inputs.CommandResults = append(inputs.CommandResults, runtime.CommandResult{

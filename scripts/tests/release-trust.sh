@@ -28,7 +28,7 @@ expect_failure() {
 require_text() {
   file="$1"
   value="$2"
-  grep -Fq "$value" "$file" || fail "$file is missing required release-trust text: $value"
+  grep -Fq -- "$value" "$file" || fail "$file is missing required release-trust text: $value"
 }
 
 ci_workflow="$root/.github/workflows/reconc-ci.yml"
@@ -50,6 +50,10 @@ for workflow in "$ci_workflow" "$release_workflow"; do
 done
 require_text "$ci_workflow" "go mod tidy -diff"
 require_text "$ci_workflow" "staticcheck@v0.7.0"
+require_text "$ci_workflow" "./scripts/tests/self-hosting.sh"
+require_text "$root/scripts/tests/self-hosting.sh" "--profile governed"
+require_text "$root/scripts/tests/self-hosting.sh" "--profile existing"
+require_text "$root/scripts/tests/self-hosting.sh" "--hook all"
 if grep -Fq 'staticcheck@latest' "$ci_workflow"; then
   fail "$ci_workflow uses an unpinned staticcheck version"
 fi

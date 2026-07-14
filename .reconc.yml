@@ -6,6 +6,10 @@
 extends:
   - default
   - agent
+  - go-assurance
+  - docs-sync
+  - release
+  - strict
 task_lifecycle:
   profile: sections-v1
   overview_path: docs/tasks.md

@@ -46,19 +46,21 @@ review-only pack suggestions, detected agent-platform directories, existing
 control paths, and platform-correct repo-local binary resolution.
 
 ### `reconc bootstrap profiles [--json]`
-List the two explicit profiles. `minimal` selects policy plus a managed AI
+List the three explicit profiles. `minimal` selects policy plus a managed AI
 orientation block. `governed` adds the TASK control plane, documentation,
 `start.md`, runtime ignores, and the stable hook wrapper. Both default to the
-`default` and `agent` packs.
+`default` and `agent` packs. `existing` owns only selected hooks, the wrapper,
+and an optional stable binary. It requires an already fresh compiled policy,
+accepts no packs, and never owns existing control-plane files.
 
-### `reconc bootstrap plan [repo] --profile minimal|governed [--pack NAME] [--hook KIND] [--install-binary | --binary PATH --checksum SHA256 [--platform OS/ARCH]] [--output PATH] [--json]`
+### `reconc bootstrap plan [repo] --profile existing|minimal|governed [--pack NAME] [--hook KIND] [--install-binary | --binary PATH --checksum SHA256 [--platform OS/ARCH]] [--output PATH] [--json]`
 Build a deterministic, versioned manifest of desired hashes, modes, current
 state, conflict candidates, compilation need, and blocking issues. Packs and
 hooks are repeatable explicit selections; detected suggestions are never
 applied automatically. The command is read-only unless `--output` is supplied.
 Plan files are create-only and an exact repeat is reported as unchanged.
 
-### `reconc bootstrap apply --plan PATH [--json]` / `reconc bootstrap apply [repo] --profile minimal|governed [selection flags] [--json]`
+### `reconc bootstrap apply --plan PATH [--json]` / `reconc bootstrap apply [repo] --profile existing|minimal|governed [selection flags] [--json]`
 Apply an exact reviewed plan or build the same plan from explicit selections.
 Repository targets are create-only. Exact files remain unchanged; any drift
 creates hash-addressed candidate files and prevents all normal target installs.
@@ -117,7 +119,10 @@ is not ready. `--require-clean-git` also requires a clean working tree.
 
 ### `reconc compile [repo] [--json] [--strict-conflicts] [--output PATH]`
 Produces `.reconc/policy.lock.json` from sources. With
-`--strict-conflicts`, exits 1 when any rule conflict is detected.
+`--strict-conflicts`, exits 1 when any rule conflict is detected. A
+`forbid_command` conflicts with `require_command` only when their exact trigger
+scopes overlap and the forbid rule blocks every acceptable required command;
+one blocked option among several valid alternatives remains satisfiable.
 
 ### `reconc refresh [repo] [--json] [--strict-conflicts] [--output PATH]`
 Explicit policy refresh. Uses the same deterministic compiler pipeline as
@@ -130,9 +135,11 @@ The core policy evaluator. Exit 0 = pass/warn, 2 = block, 1 = error.
 Missing or stale lockfiles fail closed without writing and require
 `reconc refresh .`.
 
-### `reconc ci [repo] (--staged | --base REF [--head REF]) [--read PATH] [--command CMD] [--claim NAME] [--auto-claim] [--json] [--output PATH]`
+### `reconc ci [repo] (--staged | --base REF [--head REF]) [--read PATH] [--command CMD] [--command-success CMD] [--command-failure CMD] [--claim NAME] [--auto-claim] [--json] [--output PATH]`
 Git-aware check. Derives write paths from the working-tree index or a
-`base..head` range instead of explicit `--write` flags.
+`base..head` range instead of explicit `--write` flags. It inherits recorded
+read paths, commands, command results, and claims from the active agent session,
+so pre-commit evaluates the same evidence without repeating warnings.
 Missing or stale lockfiles fail closed without writing and require
 `reconc refresh .`.
 
@@ -302,7 +309,8 @@ Run the product retention core immediately. It bounds external session,
 report, and lock state; audit and runloop JSONL rings; generated workflow-audit
 binaries; abandoned repo-local atomic/build temps; and owned
 `reconc-proof-*` temp trees. `--dry-run` reports file candidates without
-deleting them. SessionStart and SessionEnd invoke the same core through a
+deleting them. Owned proof temp trees use a two-hour inactivity grace.
+SessionStart and SessionEnd invoke the same core through a
 six-hour due check; Stop never prunes. `--force` remains accepted as a no-op
 compatibility flag for the former harness utility.
 

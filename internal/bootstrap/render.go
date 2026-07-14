@@ -260,7 +260,8 @@ func renderStart() string {
 }
 
 func renderIgnoreBlock() string {
-	return `.reconc/*
+	return `/tools/reconc/dist/
+.reconc/*
 !.reconc/
 !.reconc/policy.lock.json
 .reconc/audit.jsonl*

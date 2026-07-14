@@ -83,6 +83,12 @@ repo-local hook wrapper. Profile default packs are `default` and `agent`.
 Detected stacks, pack suggestions, and agent-platform directories are evidence
 only. Packs and hooks are installed only when they are named explicitly.
 
+For a mature repository that already owns policy, agent instructions, docs,
+TASK state, and ignore policy, first run `reconc refresh .`, then use
+`--profile existing`. It requires that fresh lockfile and owns only selected
+hooks, `tools/reconc/bin/hook`, and an optional stable binary. It rejects
+`--pack` and leaves the existing control plane untouched.
+
 Review every manifest action, checksum, mode, conflict, and blocking issue.
 For an explicit external binary use `--binary PATH --checksum SHA256` and add
 `--platform OS/ARCH` only for a cross-platform artifact. The transaction never
@@ -328,6 +334,7 @@ Then merge `.gitignore.excerpt` into `.gitignore` without deleting existing entr
 
 Required Reconc runtime ignores:
 
+- `/tools/reconc/dist/`
 - `.reconc/*`
 - `!.reconc/`
 - `!.reconc/policy.lock.json`
@@ -349,6 +356,8 @@ The same pass is available to an agent as `reconc prune . --json` and can be
 inspected without mutation via `reconc prune . --dry-run --json`. It bounds
 session/report/lock state, audit and runloop JSONL rings, generated audit
 binaries, abandoned atomic/build temps, and owned `reconc-proof-*` temp trees.
+Proof temp trees use a two-hour inactivity grace to bound hard-kill residue
+while preserving recent work.
 Do not add another project-specific cleanup loop or attach cleanup to the
 workflow-audit cache. Active state and live build targets are protected even
 when that means reporting a temporary budget excess.
@@ -486,9 +495,11 @@ If the target repo is mature:
 2. Inventory real owners and existing build/test/docs/task systems.
 3. Identify which Reconc rules can be adopted directly.
 4. Identify which rules need stack-config or path adaptation.
-5. Present a compact plan to the user before changing files.
-6. Prefer adapting `.reconc.yml`, `stack-config.yaml`, and `AGENTS.md` to the repo over reorganizing the repo.
-7. Never delete or rename existing docs/tasks/start/config files without explicit approval.
+5. Compile the reviewed repository-owned policy with `reconc refresh .`.
+6. Use `bootstrap plan --profile existing` for hooks, wrapper, and optional binary wiring.
+7. Present a compact plan to the user before changing project-specific files.
+8. Prefer adapting `.reconc.yml`, `stack-config.yaml`, and `AGENTS.md` to the repo over reorganizing the repo.
+9. Never delete or rename existing docs/tasks/start/config files without explicit approval.
 
 ## Final Bootstrap Reality Check
 
@@ -509,5 +520,6 @@ The rollout is not done until all of this is true:
 - Cursor/Windsurf/Codeium/VS Code indexing excludes are installed as local-tool performance controls only, not Git ignores.
 - `AGENTS.md` contains the workflow excerpt and any user-approved stack-specific style rules.
 - `.gitignore` contains Reconc runtime ignores and relevant dual-layout build/dependency ignores.
+- Repo-local binaries under `tools/reconc/dist/` are ignored while `tools/reconc/bin/hook` remains source-controlled.
 - `docs/tasks.md` and the active TASK detail file pass task-state audit.
 - `run-workflow-audit all` passes, or any disabled surface is explicitly disabled because it is not part of the selected stack.

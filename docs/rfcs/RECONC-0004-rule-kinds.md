@@ -21,7 +21,7 @@
 | `require_command` | `commands`, `when_paths` | Writes matching `when_paths` require at least one command string. |
 | `require_command_success` | `commands`, `when_paths` | Like `require_command`, but success must be present in command results. |
 | `forbid_command` | `commands` | Fails when a command matches forbidden command patterns. |
-| `couple_change` | `paths`, `when_paths` | A write matching `paths` requires a separate write matching `when_paths`. |
+| `couple_change` | `paths`, `when_paths` | A primary write matching `paths` requires a separate companion write matching `when_paths`; a path matching both is classified as a companion. |
 | `require_claim` | `claims`, `when_paths` | Writes matching `when_paths` require at least one listed claim. |
 
 ## Evidence Rule Kinds

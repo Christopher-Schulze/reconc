@@ -153,6 +153,12 @@ suggest. Apply publishes absent targets, leaves exact files unchanged, creates
 hash-addressed candidates for drift, and rolls back transaction-owned files on
 failure.
 
+Mature repositories that already own policy, agent instructions, docs, and
+TASK state use `--profile existing` after `reconc refresh .`. That profile
+requires a fresh lockfile and owns only explicitly selected hooks, the
+repo-local wrapper, and an optional stable binary. It rejects `--pack` and
+leaves every existing control-plane file untouched.
+
 Advanced project-harness rollout:
 
 1. Copy the Reconc toolkit into the target repository.
@@ -253,6 +259,7 @@ Do not commit generated runtime state:
 - `.reconc/runloop/`
 - `.reconc/task-transaction.json`
 - `dist/`
+- `tools/reconc/dist/`
 
 ## Documentation
 
@@ -282,6 +289,10 @@ reconc <command> --help
 `reconc` is released on the `v0.6.x` line. Core local gates pass, and release
 artifacts are produced by the GitHub release workflow when a `reconc-v*` tag is
 pushed.
+
+`make self-host` builds the local binary and runs the clean-repository golden
+path across all three bootstrap profiles, all nine hook platforms, TASK
+lifecycle, retention, and stable release-layout binary resolution.
 
 ## License
 

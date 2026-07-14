@@ -129,6 +129,26 @@ func TestBootstrapInspectIsMachineReadableAndPlanRequiresProfile(t *testing.T) {
 	}
 }
 
+func TestBootstrapProfilesExposeExistingRepositoryWiring(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"bootstrap", "profiles", "--json"}, "test", &stdout, &stderr); err != nil {
+		t.Fatalf("profiles: %v stderr=%s", err, stderr.String())
+	}
+	var profiles []reconbootstrap.Profile
+	if err := json.Unmarshal(stdout.Bytes(), &profiles); err != nil {
+		t.Fatalf("decode profiles: %v", err)
+	}
+	for _, profile := range profiles {
+		if profile.Name == reconbootstrap.ProfileExisting {
+			if profile.Policy || profile.AgentDoc || profile.Tasks || profile.Docs || profile.Ignores || !profile.Wrapper {
+				t.Fatalf("existing profile owns the wrong surfaces: %+v", profile)
+			}
+			return
+		}
+	}
+	t.Fatal("existing bootstrap profile missing")
+}
+
 func TestBootstrapLegacyRejectsForce(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := Run([]string{"bootstrap", t.TempDir(), "--force"}, "test", &stdout, &stderr)

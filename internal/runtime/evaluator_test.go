@@ -223,6 +223,34 @@ func TestCheckCoupleChange(t *testing.T) {
 	}
 }
 
+func TestCheckCoupleChangeClassifiesOverlappingCompanionPaths(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "",
+		"rules:\n  - id: tests-follow\n    kind: couple_change\n    paths: ['internal/**']\n    when_paths: ['internal/**/*_test.go']\n    mode: block\n    message: tests required\n")
+	cases := []struct {
+		name     string
+		writes   []string
+		decision Decision
+	}{
+		{name: "source without test", writes: []string{"internal/parser/parser.go"}, decision: DecisionBlock},
+		{name: "source with colocated test", writes: []string{"internal/parser/parser.go", "internal/parser/parser_test.go"}, decision: DecisionPass},
+		{name: "test only", writes: []string{"internal/parser/parser_test.go"}, decision: DecisionPass},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			inputs := Empty()
+			inputs.WritePaths = testCase.writes
+			report, err := CheckRepoPolicy(repo, inputs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if report.Decision != testCase.decision {
+				t.Fatalf("decision = %s, want %s: %+v", report.Decision, testCase.decision, report.Violations)
+			}
+		})
+	}
+}
+
 func TestCheckRequireCommand(t *testing.T) {
 	withRECONCHome(t)
 	repo := makeRepo(t, "# project\n", "",

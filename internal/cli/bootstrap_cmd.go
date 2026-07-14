@@ -55,9 +55,9 @@ func runBootstrap(args []string, version string, stdout, stderr io.Writer) error
 func printBootstrapHelp(stdout io.Writer) {
 	fmt.Fprintln(stdout, "Usage: reconc bootstrap inspect [repo] [--json]")
 	fmt.Fprintln(stdout, "       reconc bootstrap profiles [--json]")
-	fmt.Fprintln(stdout, "       reconc bootstrap plan [repo] --profile minimal|governed [selection flags]")
+	fmt.Fprintln(stdout, "       reconc bootstrap plan [repo] --profile existing|minimal|governed [selection flags]")
 	fmt.Fprintln(stdout, "       reconc bootstrap apply --plan PATH [--json]")
-	fmt.Fprintln(stdout, "       reconc bootstrap apply [repo] --profile minimal|governed [selection flags]")
+	fmt.Fprintln(stdout, "       reconc bootstrap apply [repo] --profile existing|minimal|governed [selection flags]")
 	fmt.Fprintln(stdout, "       reconc bootstrap verify --plan PATH [--json]")
 	fmt.Fprintln(stdout, "")
 	fmt.Fprintln(stdout, "Selection flags:")
@@ -395,7 +395,7 @@ func parseBootstrapRequestFlags(command string, args []string, allowOutput bool)
 
 func (flags bootstrapRequestFlags) request() (reconbootstrap.Request, error) {
 	if !flags.profileSet {
-		return reconbootstrap.Request{}, fmt.Errorf("--profile is required; choose minimal or governed after inspect")
+		return reconbootstrap.Request{}, fmt.Errorf("--profile is required; choose existing, minimal, or governed after inspect")
 	}
 	if flags.installBinary && flags.binaryPath != "" {
 		return reconbootstrap.Request{}, fmt.Errorf("--install-binary and --binary are mutually exclusive")
