@@ -76,6 +76,7 @@ var Subcommands = []Subcommand{
 	{Name: "coverage", Help: "minimum-percentage gate", Flags: []string{"--file", "--min-pct", "--json"}},
 	{Name: "delta", Help: "audit activity since a point in time", Flags: []string{"--since", "--json"}},
 	{Name: "post-task-check", Help: "pre-done gate", Flags: []string{"--window", "--require-clean-git", "--json"}},
+	{Name: "prune", Help: "bound runtime state and owned temp residue", Flags: []string{"--dry-run", "--json", "--force"}},
 	{Name: "runloop", Help: "inspect runloop state and decisions", Flags: []string{"-n", "--branch", "--session", "--follow", "--json"}},
 	{Name: "session-briefing", Help: "token-efficient session start dump", Flags: []string{"--json"}},
 	{Name: "spec", Help: "docs/spec.md freshness check", Flags: []string{"--file", "--max-age-days", "--json"}},

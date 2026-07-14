@@ -1,6 +1,6 @@
 # reconc -- Command Reference
 
-Full reference for all 38 subcommands. See `reconc <subcommand> --help` for
+Full reference for all 39 subcommands. See `reconc <subcommand> --help` for
 the exact flag details emitted by the installed binary.
 
 ## Daily path
@@ -27,6 +27,7 @@ Everything below is the full automation and diagnostic surface.
 
 - `RECONC_HOME` (default `~/.reconc`) -- user config, presets, templates
 - `RECONC_AUDIT=1` -- enable the opt-in append-only audit log
+- `RECONC_CLAUDE_STATE_DIR` -- override the global session-state root
 - `RECONC_SCHEMA_BASE_URL` -- enterprise override for schema URLs
 
 ---
@@ -207,7 +208,8 @@ activity, blocking events in the last 24 hours, by-decision, by-event, and top
 rules.
 
 ### `reconc audit export [repo]`
-Raw JSONL dump on stdout for external tooling.
+Raw JSONL dump on stdout for external tooling. Audit tail, stats, and export
+read the two bounded archives plus the live file in chronological order.
 
 ### `reconc runloop status [repo] [--json]`
 One-line (or JSON) snapshot of the current runloop state from
@@ -222,6 +224,15 @@ exact branch taken (e.g. `policy_block_released_on_repeat`,
 transitions, reason, session, and flags. `--branch`/`--session` filter
 (substring), `-n` keeps the last N, `--follow` tails new records live until
 Ctrl-C. Read-only: never writes, never blocks the hooks.
+
+### `reconc prune [repo] [--dry-run] [--json]`
+Run the product retention core immediately. It bounds external session,
+report, and lock state; audit and runloop JSONL rings; generated workflow-audit
+binaries; abandoned repo-local atomic/build temps; and owned
+`reconc-proof-*` temp trees. `--dry-run` reports file candidates without
+deleting them. SessionStart and SessionEnd invoke the same core through a
+six-hour due check; Stop never prunes. `--force` remains accepted as a no-op
+compatibility flag for the former harness utility.
 
 ### `reconc session-briefing [repo] [--json]`
 Compact (~400 token) session-start state dump: lockfile state, recent

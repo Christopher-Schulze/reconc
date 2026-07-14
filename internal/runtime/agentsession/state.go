@@ -29,10 +29,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/filelock"
+	"reconc.dev/reconc/internal/retention"
 )
 
 // StateRootEnv lets operators pin the session-state directory to a
@@ -75,6 +80,8 @@ type SessionState struct {
 	StopPolicyReportHash       string                     `json:"stop_policy_report_hash,omitempty"`
 	LastStopBlockViolationHash string                     `json:"last_stop_block_violation_hash,omitempty"`
 	PendingToolCalls           map[string]PendingToolCall `json:"pending_tool_calls,omitempty"`
+	EvidenceOverflow           bool                       `json:"evidence_overflow,omitempty"`
+	EvidenceOverflowReason     string                     `json:"evidence_overflow_reason,omitempty"`
 }
 
 // emptyState builds a fresh, unpopulated state for a (repo, session).
@@ -100,18 +107,7 @@ func emptyState(repoRoot, sessionID string) SessionState {
 // state lives. Honours RECONC_CLAUDE_STATE_DIR first, then falls back
 // to $RECONC_HOME/sessions/claude, then ~/.reconc/sessions/claude.
 func stateRoot() string {
-	if override := os.Getenv(StateRootEnv); override != "" {
-		return override
-	}
-	if home := os.Getenv("RECONC_HOME"); home != "" {
-		return filepath.Join(home, "sessions", "claude")
-	}
-	if userHome, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(userHome, ".reconc", "sessions", "claude")
-	}
-	// Last-ditch fallback: /tmp. Deliberately tolerant -- we'd rather
-	// log evidence to an unusual place than crash mid-hook.
-	return filepath.Join(os.TempDir(), "reconc-claude-sessions")
+	return retention.ResolveStateRoot()
 }
 
 // projectKey is a short deterministic hash of the repo root. Keeps
@@ -123,7 +119,7 @@ func projectKey(repoRoot string) string {
 }
 
 func projectDir(repoRoot string) string {
-	return filepath.Join(stateRoot(), "projects", projectKey(repoRoot))
+	return retention.ProjectDir(stateRoot(), repoRoot)
 }
 
 func sessionStatePath(repoRoot, sessionID string) string {
@@ -208,12 +204,20 @@ func LoadSessionState(repoRoot, sessionID string) (SessionState, error) {
 
 func loadSessionStateResolved(root, sessionID string) (SessionState, error) {
 	path := sessionStatePath(root, sessionID)
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return emptyState(root, sessionID), nil
 		}
 		return SessionState{}, fmt.Errorf("read session state %s: %w", path, err)
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxLegacySessionStateBytes+1))
+	if err != nil {
+		return SessionState{}, fmt.Errorf("read session state %s: %w", path, err)
+	}
+	if len(data) > maxLegacySessionStateBytes {
+		return SessionState{}, fmt.Errorf("session state exceeds %d-byte recovery limit: %s", maxLegacySessionStateBytes, path)
 	}
 
 	var state SessionState
@@ -250,7 +254,7 @@ func loadSessionStateResolved(root, sessionID string) (SessionState, error) {
 	if state.ReportPath == "" {
 		state.ReportPath = sessionReportPath(root, sessionID)
 	}
-	return state, nil
+	return normalizeSessionState(state), nil
 }
 
 func validateStringList(xs []string, field, srcPath string) error {
@@ -266,35 +270,23 @@ func validateStringList(xs []string, field, srcPath string) error {
 // saveSessionState writes the state file atomically. Tmp-file-then-
 // rename so a crash mid-write never leaves an unreadable state.
 func saveSessionStateLocked(state SessionState) error {
+	_, err := saveSessionStateLockedIfChanged(state)
+	return err
+}
+
+func saveSessionStateLockedIfChanged(state SessionState) (bool, error) {
 	path := sessionStatePath(state.RepoRoot, state.SessionID)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("mkdir session dir: %w", err)
-	}
 	// Deterministic marshalling (sorted keys, 2-space indent, trailing
 	// newline) so diffing session state across runs is git-friendly.
 	data, err := marshalStateDeterministic(state)
 	if err != nil {
-		return fmt.Errorf("marshal session state: %w", err)
+		return false, fmt.Errorf("marshal session state: %w", err)
 	}
-	tmpFile, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	written, err := atomicfile.WriteIfChanged(path, data, 0o644)
 	if err != nil {
-		return fmt.Errorf("create session state tmp: %w", err)
+		return false, fmt.Errorf("write session state: %w", err)
 	}
-	tmp := tmpFile.Name()
-	if _, err := tmpFile.Write(data); err != nil {
-		_ = tmpFile.Close()
-		_ = os.Remove(tmp)
-		return fmt.Errorf("write session state tmp: %w", err)
-	}
-	if err := tmpFile.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("close session state tmp: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("rename session state: %w", err)
-	}
-	return nil
+	return written, nil
 }
 
 func saveSessionState(state SessionState) error {
@@ -318,7 +310,7 @@ func withSessionLock(repoRoot, sessionID string, fn func() error) error {
 		return fmt.Errorf("open session lock: %w", err)
 	}
 	defer file.Close()
-	unlock, err := lockSessionFile(file)
+	unlock, err := filelock.Lock(file)
 	if err != nil {
 		return fmt.Errorf("lock session state: %w", err)
 	}
@@ -362,16 +354,16 @@ func MutateSessionState(repoRoot, sessionID string, mutate func(SessionState) Se
 // trailing newline. We dedupe + sort the slice fields first so two
 // semantically-equal states produce identical bytes.
 func marshalStateDeterministic(state SessionState) ([]byte, error) {
-	// Copies; don't mutate the caller's slices.
-	state.ReadPaths = sortedUnique(state.ReadPaths)
-	state.WritePaths = sortedUnique(state.WritePaths)
-	state.Commands = sortedUnique(state.Commands)
-	state.Claims = sortedUnique(state.Claims)
+	state = normalizeSessionState(state)
 	body, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return nil, err
 	}
-	return append(body, '\n'), nil
+	body = append(body, '\n')
+	if len(body) > MaxSessionStateBytes {
+		return nil, fmt.Errorf("bounded session state is %d bytes; maximum is %d", len(body), MaxSessionStateBytes)
+	}
+	return body, nil
 }
 
 func sortedUnique(xs []string) []string {
@@ -485,11 +477,17 @@ func ResolveActiveSessionID(repoRoot string) (string, error) {
 }
 
 func writeActiveSession(repoRoot, sessionID string) error {
+	_, err := writeActiveSessionIfChanged(repoRoot, sessionID)
+	return err
+}
+
+func writeActiveSessionIfChanged(repoRoot, sessionID string) (bool, error) {
 	path := activeSessionPath(repoRoot)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("mkdir active-session dir: %w", err)
+	written, err := atomicfile.WriteIfChanged(path, []byte(sessionID+"\n"), 0o644)
+	if err != nil {
+		return false, fmt.Errorf("write active session: %w", err)
 	}
-	return os.WriteFile(path, []byte(sessionID+"\n"), 0o644)
+	return written, nil
 }
 
 // --- state mutators -------------------------------------------------
@@ -497,45 +495,32 @@ func writeActiveSession(repoRoot, sessionID string) error {
 // AppendReadPath adds one read path to the state (dedup, non-empty).
 // Returns a NEW state; callers should save it explicitly.
 func AppendReadPath(state SessionState, p string) SessionState {
-	state.ReadPaths = appendUnique(state.ReadPaths, p)
+	appendBoundedString(&state, &state.ReadPaths, p, maxPathEvidenceItems, maxPathEvidenceBytes, maxPathBytes, "read_paths")
 	return state
 }
 
 // AppendWritePath adds one write path.
 func AppendWritePath(state SessionState, p string) SessionState {
-	state.WritePaths = appendUnique(state.WritePaths, p)
+	appendBoundedString(&state, &state.WritePaths, p, maxPathEvidenceItems, maxPathEvidenceBytes, maxPathBytes, "write_paths")
 	return state
 }
 
 // AppendCommand adds one command string.
 func AppendCommand(state SessionState, cmd string) SessionState {
-	state.Commands = appendUnique(state.Commands, cmd)
+	appendBoundedString(&state, &state.Commands, cmd, maxCommandEvidenceItems, maxCommandEvidenceBytes, maxCommandBytes, "commands")
 	return state
 }
 
 // AppendClaim adds one explicit claim.
 func AppendClaim(state SessionState, claim string) SessionState {
-	state.Claims = appendUnique(state.Claims, claim)
+	appendBoundedString(&state, &state.Claims, claim, maxClaimEvidenceItems, maxClaimEvidenceBytes, maxClaimBytes, "claims")
 	return state
 }
 
 // AppendCommandResult adds one command-execution outcome.
 func AppendCommandResult(state SessionState, result CommandResult) SessionState {
-	state.CommandResults = append(state.CommandResults, result)
+	appendBoundedCommandResult(&state, result)
 	return state
-}
-
-func appendUnique(xs []string, item string) []string {
-	item = strings.TrimSpace(item)
-	if item == "" {
-		return xs
-	}
-	for _, x := range xs {
-		if x == item {
-			return xs
-		}
-	}
-	return append(xs, item)
 }
 
 // SaveSessionState exposes the tmp-file-rename writer. Public so the

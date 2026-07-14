@@ -1,6 +1,8 @@
-// Package prune trims Reconc state files to a bounded budget.
+// Package prune is the compatibility cleanup used by older bootstraps.
 //
-// Reconc accumulates four classes of disk state that are never auto-cleaned:
+// Current Reconc binaries own full lifecycle retention. This package keeps the
+// former narrow manual utility safe for repositories that have not refreshed
+// their bootstrap yet. It covers four legacy classes:
 //   - sessions JSONs at ~/.reconc/sessions/claude/projects/<key>/sessions/
 //   - reports JSONs at  ~/.reconc/sessions/claude/projects/<key>/reports/
 //   - the append-only audit log at <repo>/.reconc/audit.jsonl
@@ -42,16 +44,15 @@ type Policy struct {
 	PruneIntervalSeconds int64 `yaml:"prune_interval_seconds"`
 }
 
-// DefaultPolicy is the failure-safe fallback when prune-policy.yaml is
-// missing or unreadable: 25 sessions/reports, 1.5 MB or 100 lines for the
-// audit log, prune at most once per week.
+// DefaultPolicy mirrors the current compatibility YAML. Product-core
+// retention has additional byte, age, archive, temp, and total budgets.
 func DefaultPolicy() Policy {
 	return Policy{
-		SessionsRetention:    25,
-		ReportsRetention:     25,
-		AuditJsonlMaxBytes:   1_572_864,
-		AuditJsonlMaxLines:   100,
-		PruneIntervalSeconds: 604_800,
+		SessionsRetention:    32,
+		ReportsRetention:     32,
+		AuditJsonlMaxBytes:   2_097_152,
+		AuditJsonlMaxLines:   5_000,
+		PruneIntervalSeconds: 21_600,
 	}
 }
 

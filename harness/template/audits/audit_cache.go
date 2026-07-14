@@ -12,9 +12,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
-
-	"reconc-harness/template/audits/lib/prune"
 )
 
 // cacheVersion is bumped whenever audit logic changes in a way that should
@@ -40,8 +37,7 @@ type cacheEntry struct {
 }
 
 type cacheFile struct {
-	Entries     map[string]cacheEntry `json:"entries"`
-	LastPruneTS int64                 `json:"last_prune_ts,omitempty"`
+	Entries map[string]cacheEntry `json:"entries"`
 }
 
 // fileGlobs is a sorted set of file paths that fully define a sub-audit's
@@ -198,12 +194,6 @@ func (c *cacheInputs) Hash() (string, error) {
 // passing result for this audit name. On pass it persists the new entry; on
 // failure it removes the cache entry so the next call re-runs the audit and
 // the user does not silently keep the stale pass.
-//
-// Side effect: when this routine writes the cache and more than the
-// configured prune-policy interval has elapsed since the last prune, it
-// piggybacks a prune.Run() before returning. This is the auto-cleanup
-// trigger for Reconc state files; it costs single-digit ms once per
-// interval and zero in between.
 func runWithCache(root string, name string, inputs *cacheInputs, fn func() []string) []string {
 	if os.Getenv(cacheEnv) != "" {
 		return fn()
@@ -218,21 +208,16 @@ func runWithCache(root string, name string, inputs *cacheInputs, fn func() []str
 
 	cachePath := filepath.Join(root, filepath.FromSlash(cacheRel))
 	var result []string
-	pruneDue := false
-	prunePolicy := prune.DefaultPolicy()
 	err = withAuditCacheNamedLock(auditCacheKeyLockPath(root, name), func() error {
 		if auditCacheHasPass(cachePath, name, hash) {
 			return nil
 		}
 		result = fn()
-		pruneDue, prunePolicy = publishAuditCacheResult(root, cachePath, name, hash, result)
+		publishAuditCacheResult(cachePath, name, hash, result)
 		return nil
 	})
 	if err != nil {
 		return fn()
-	}
-	if pruneDue {
-		_ = prune.Run(prune.Options{RepoRoot: root, Policy: prunePolicy})
 	}
 	return result
 }
@@ -250,25 +235,19 @@ func auditCacheHasPass(cachePath, name, hash string) bool {
 	return err == nil && hit
 }
 
-func publishAuditCacheResult(root, cachePath, name, hash string, result []string) (bool, prune.Policy) {
+func publishAuditCacheResult(cachePath, name, hash string, result []string) {
 	auditCacheMu.Lock()
 	defer auditCacheMu.Unlock()
-	pruneDue := false
-	prunePolicy := prune.DefaultPolicy()
-	err := withAuditCacheNamedLock(cachePath+".lock", func() error {
+	_ = withAuditCacheNamedLock(cachePath+".lock", func() error {
 		cache := loadCacheFile(cachePath)
 		if len(result) == 0 {
 			cache.Entries[name] = cacheEntry{Hash: hash, Result: cachePassTag, Version: cacheVersion}
 		} else {
 			delete(cache.Entries, name)
 		}
-		pruneDue, prunePolicy = claimAutoPrune(root, &cache)
-		if !saveCacheFile(cachePath, cache) {
-			pruneDue = false
-		}
+		_ = saveCacheFile(cachePath, cache)
 		return nil
 	})
-	return err == nil && pruneDue, prunePolicy
 }
 
 func auditCacheKeyLock(root, name string) *sync.Mutex {
@@ -281,19 +260,6 @@ func auditCacheKeyLockPath(root, name string) string {
 	digest := sha256.Sum256([]byte(name))
 	filename := "audit-key-" + hex.EncodeToString(digest[:]) + ".lock"
 	return filepath.Join(root, ".reconc", "cache", filename)
-}
-
-// claimAutoPrune atomically reserves a due prune interval in the shared
-// cache. The caller runs the actual disk cleanup after releasing the cache
-// lock so unrelated cold audits are never serialized behind prune I/O.
-func claimAutoPrune(root string, cache *cacheFile) (bool, prune.Policy) {
-	policy, _ := prune.LoadPolicy(prune.PolicyPathFromRepo(root))
-	now := time.Now().Unix()
-	if cache.LastPruneTS != 0 && now-cache.LastPruneTS < policy.PruneIntervalSeconds {
-		return false, policy
-	}
-	cache.LastPruneTS = now
-	return true, policy
 }
 
 func loadCacheFile(path string) cacheFile {

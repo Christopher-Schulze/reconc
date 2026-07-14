@@ -1,13 +1,15 @@
 //go:build !windows
 
-package agentsession
+package filelock
 
 import (
 	"os"
 	"syscall"
 )
 
-func lockSessionFile(file *os.File) (func() error, error) {
+// Lock takes a blocking exclusive lock on file and returns its unlock
+// function. The caller must keep file open until after unlock.
+func Lock(file *os.File) (func() error, error) {
 	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX); err != nil {
 		return nil, err
 	}

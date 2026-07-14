@@ -1,6 +1,6 @@
 //go:build windows
 
-package agentsession
+package filelock
 
 import (
 	"fmt"
@@ -17,7 +17,9 @@ var (
 	procUnlockFileEx = kernel32.NewProc("UnlockFileEx")
 )
 
-func lockSessionFile(file *os.File) (func() error, error) {
+// Lock takes a blocking exclusive lock on file and returns its unlock
+// function. The caller must keep file open until after unlock.
+func Lock(file *os.File) (func() error, error) {
 	handle := syscall.Handle(file.Fd())
 	overlapped := &syscall.Overlapped{}
 	if err := lockFileEx(handle, lockfileExclusiveLock, 0, 1, 0, overlapped); err != nil {

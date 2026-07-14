@@ -47,6 +47,8 @@ why a task is allowed to be called done.
   Antigravity hooks when those agent configs exist
 - controls autonomous agent continuation with prompt-scoped `/runloop` state,
   stop files, no-progress guards, and append-only decision logs
+- bounds session/report state, audit and runloop logs, generated audit binaries,
+  and owned temp residue outside the Stop path
 - gives agents one short remediation path with `reconc next .` and one final
   task gate with `reconc done .`
 
@@ -96,6 +98,7 @@ reconc status .
 reconc check . --write path/to/file
 reconc next .
 reconc done .
+reconc prune . --dry-run
 ```
 
 Inspection and enforcement commands never mutate policy or refresh the
@@ -214,6 +217,7 @@ Do not commit generated runtime state:
 - `.reconc/locks/`
 - `.reconc/sessions/`
 - `.reconc/reports/`
+- `.reconc/runloop/`
 - `dist/`
 
 ## Documentation

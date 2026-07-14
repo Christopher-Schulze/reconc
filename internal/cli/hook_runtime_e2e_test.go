@@ -53,6 +53,7 @@ func bootstrapE2ERepo(t *testing.T) string {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	// Isolate agentsession state too so tests don't share session data.
 	t.Setenv("RECONC_CLAUDE_STATE_DIR", t.TempDir())
+	t.Setenv("TMPDIR", t.TempDir())
 
 	repo := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("# t\n"), 0o644); err != nil {

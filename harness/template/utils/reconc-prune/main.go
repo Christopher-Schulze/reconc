@@ -1,16 +1,12 @@
-// Package main is the operator-facing CLI for the prune library.
-//
-// The auto-trigger in tools/reconc/harness/template/audits/audit_cache.go calls prune
-// every prune_interval_seconds (default 7d) without any manual action. This
-// CLI exists for two cases:
+// Package main preserves the former operator-facing compatibility utility.
+// Current bootstraps use `reconc prune`; this utility exists for two cases:
 //
 //  1. Inspect: `reconc-prune --dry-run` shows what *would* be removed.
 //  2. Force: `reconc-prune --force` ignores the interval and runs now (for
 //     after vacations, or when investigating disk usage).
 //
 // Exit code is always 0 unless flag parsing fails. Internal errors are
-// printed to stderr but do not abort, matching the auto-trigger's
-// fail-safe semantics.
+// printed to stderr but do not abort.
 package main
 
 import (
@@ -23,13 +19,13 @@ import (
 
 func main() {
 	dryRun := flag.Bool("dry-run", false, "report what would be deleted without touching anything")
-	force := flag.Bool("force", false, "kept for symmetry; this CLI always prunes immediately (the auto-trigger is the rate-limited path)")
+	force := flag.Bool("force", false, "compatibility flag; this utility always prunes immediately")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr,
 			"usage: reconc-prune [--dry-run] [--force]\n\n"+
 				"Trims Reconc state to the budget defined in\n"+
-				"tools/reconc/harness/template/config/workflow/prune-policy.yaml. The auto-trigger in\n"+
-				"audit_cache.go calls this same library once per prune_interval_seconds.\n")
+				"tools/reconc/harness/template/config/workflow/prune-policy.yaml.\n"+
+				"Prefer the product command: reconc prune . [--dry-run] [--json].\n")
 	}
 	flag.Parse()
 	_ = *force

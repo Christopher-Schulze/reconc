@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/policy"
+	"reconc.dev/reconc/internal/retention"
 	"reconc.dev/reconc/internal/runtime"
 )
 
@@ -51,11 +53,18 @@ func RunSessionStart(repoRoot string, payloadBytes []byte) Result {
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook: %s", err)}
 	}
-	if _, err := InitializeSessionState(repoRoot, payload.SessionID); err != nil {
+	root, err := ResolveRepoRoot(repoRoot)
+	if err != nil {
+		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook: session root: %s", err)}
+	}
+	if _, err := InitializeSessionState(root, payload.SessionID); err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook: session init: %s", err)}
 	}
-	if err := reconcileRunLoopStateForRuntime(repoRoot, payload.SessionID, runtimeFromPayload(payload), payload, runLoopSessionStart); err != nil {
+	if err := reconcileRunLoopStateForRuntime(root, payload.SessionID, runtimeFromPayload(payload), payload, runLoopSessionStart); err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc runloop: %s", err)}
+	}
+	if warning := retentionWarning(retention.RunIfDue(retention.Options{RepoRoot: root, StateRoot: stateRoot(), ActiveSession: payload.SessionID})); warning != "" {
+		return Result{ExitCode: 0, Stderr: warning}
 	}
 	return Result{ExitCode: 0}
 }
@@ -154,6 +163,9 @@ func RunPreToolUse(repoRoot string, payloadBytes []byte) Result {
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}
 	}
+	if state.EvidenceOverflow {
+		return Result{ExitCode: 2, Stderr: evidenceOverflowMessage(state)}
+	}
 	trialWrites := append([]string{}, state.WritePaths...)
 	trialWrites = append(trialWrites, pendingWrites...)
 	report, err := runPreWritePolicyCheck(root, state.ReadPaths, trialWrites,
@@ -206,11 +218,14 @@ func RunPostToolUse(repoRoot string, payloadBytes []byte) Result {
 	if err := reconcileRunLoopStateForRuntime(root, payload.SessionID, runtimeFromPayload(payload), payload, runLoopToolEvent); err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc runloop: %s", err)}
 	}
-	_, err = MutateSessionState(root, payload.SessionID, func(state SessionState) SessionState {
+	updated, err := MutateSessionState(root, payload.SessionID, func(state SessionState) SessionState {
 		return recordToolUse(state, payload)
 	})
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post, warn): %s", err)}
+	}
+	if updated.EvidenceOverflow {
+		return Result{ExitCode: 0, Stderr: evidenceOverflowMessage(updated)}
 	}
 	return Result{ExitCode: 0}
 }
@@ -318,6 +333,9 @@ func RunStop(repoRoot string, payloadBytes []byte) Result {
 	state, err := EnsureSessionState(root, payload.SessionID)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): %s", err)}
+	}
+	if state.EvidenceOverflow {
+		return Result{ExitCode: 0, Stdout: runLoopStopBlockJSON(evidenceOverflowMessage(state))}
 	}
 
 	// In active Runloop a Stop event is usually a continuation boundary, not
@@ -509,7 +527,19 @@ func RunSessionEnd(repoRoot string, payloadBytes []byte) Result {
 	if err := reconcileRunLoopStateForRuntime(repoRoot, payload.SessionID, runtimeFromPayload(payload), payload, runLoopSessionEnd); err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc runloop: %s", err)}
 	}
+	if root, err := ResolveRepoRoot(repoRoot); err == nil {
+		if warning := retentionWarning(retention.RunIfDue(retention.Options{RepoRoot: root, StateRoot: stateRoot()})); warning != "" {
+			return Result{ExitCode: 0, Stderr: warning}
+		}
+	}
 	return Result{ExitCode: 0}
+}
+
+func retentionWarning(report retention.Report) string {
+	if len(report.Errors) == 0 {
+		return ""
+	}
+	return "reconc retention (warn): " + strings.Join(report.Errors, "; ")
 }
 
 // --- shared internals ----------------------------------------------
@@ -657,6 +687,14 @@ func executionInputs(
 	}
 }
 
+func evidenceOverflowMessage(state SessionState) string {
+	field := strings.TrimSpace(state.EvidenceOverflowReason)
+	if field == "" {
+		field = "unknown"
+	}
+	return fmt.Sprintf("reconc blocked because bounded session evidence overflowed at %s. Start a fresh session or reduce the tool-event scope; omitted evidence cannot be evaluated safely.", field)
+}
+
 // writeLatestReport persists the CheckReport JSON to the session's
 // reports/<id>.json path. Atomic via tmp-rename.
 func writeLatestReport(repoRoot, sessionID string, report *runtime.CheckReport) error {
@@ -669,23 +707,8 @@ func writeLatestReport(repoRoot, sessionID string, report *runtime.CheckReport) 
 		return fmt.Errorf("marshal report: %w", err)
 	}
 	body = append(body, '\n')
-	tmpFile, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
-	if err != nil {
-		return fmt.Errorf("create report tmp: %w", err)
-	}
-	tmp := tmpFile.Name()
-	if _, err := tmpFile.Write(body); err != nil {
-		_ = tmpFile.Close()
-		_ = os.Remove(tmp)
-		return fmt.Errorf("write report tmp: %w", err)
-	}
-	if err := tmpFile.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("close report tmp: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("rename report: %w", err)
+	if _, err := atomicfile.WriteIfChanged(path, body, 0o644); err != nil {
+		return fmt.Errorf("write report: %w", err)
 	}
 	return nil
 }

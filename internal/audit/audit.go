@@ -2,9 +2,8 @@
 //
 // When enabled, every non-trivial enforcement decision (check, ci,
 // assert, can) appends one JSONL record to .reconc/audit.jsonl. The
-// log is append-only, crash-safe (O_APPEND writes are atomic for small
-// records on POSIX), and self-rotating once it exceeds the configured
-// size cap.
+// log is append-only, cross-process serialized, and self-rotating through a
+// fixed archive ring once it reaches the configured size cap.
 //
 // Design notes:
 //   - Disabled by default. Opt-in via RECONC_AUDIT=1 env var or
@@ -27,15 +26,22 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"reconc.dev/reconc/internal/jsonl"
 )
 
 // Relative path under the repo root where the log lives.
 const AuditFileRelative = ".reconc/audit.jsonl"
 
-// DefaultMaxSizeBytes triggers rotation. When the log exceeds this, it
-// gets renamed to .reconc/audit.jsonl.N (where N = next free integer)
-// and a fresh empty file is created.
-const DefaultMaxSizeBytes = 50 * 1024 * 1024 // 50 MiB
+const (
+	// DefaultMaxSizeBytes bounds each live/archive file. Together with the
+	// two-file ring, audit storage is capped at 6 MiB per repository.
+	DefaultMaxSizeBytes = 2 * 1024 * 1024
+	MaxArchiveFiles     = 2
+	maxRecordBytes      = 32 * 1024
+	maxEntryListItems   = 128
+	maxEntryListBytes   = 16 * 1024
+)
 
 // Entry is one audit record. Zero-value fields serialise to omitempty so
 // small checks stay small on disk.
@@ -80,9 +86,8 @@ func Enabled(repoRoot string, configEnabled bool) bool {
 // file is larger than maxSizeBytes after this write, it triggers
 // rotation. Silent no-op if repoRoot is empty.
 //
-// The call is append-only (O_APPEND), so concurrent reconc invocations
-// can log to the same file without cross-line corruption for records
-// smaller than the kernel's PIPE_BUF (typically 4 KiB on Linux/macOS).
+// The bounded JSONL writer serializes concurrent processes through a file
+// lock and rotates before append, so files never overshoot the cap.
 func Append(repoRoot string, entry Entry, maxSizeBytes int64) error {
 	if repoRoot == "" {
 		return nil
@@ -90,37 +95,29 @@ func Append(repoRoot string, entry Entry, maxSizeBytes int64) error {
 	if entry.Timestamp == "" {
 		entry.Timestamp = time.Now().UTC().Format(time.RFC3339Nano)
 	}
-	path := filepath.Join(repoRoot, AuditFileRelative)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("audit: mkdir: %w", err)
-	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("audit: open: %w", err)
-	}
-	defer f.Close()
+	entry = normalizeEntry(entry)
 	line, err := json.Marshal(entry)
 	if err != nil {
 		return fmt.Errorf("audit: marshal: %w", err)
 	}
-	if _, err := f.Write(append(line, '\n')); err != nil {
-		return fmt.Errorf("audit: write: %w", err)
+	if len(line)+1 > maxRecordBytes {
+		return fmt.Errorf("audit: bounded record is %d bytes; maximum is %d", len(line)+1, maxRecordBytes)
 	}
-
-	// Best-effort rotation check AFTER the write so the log always
-	// contains the current entry. Rotation failures propagate as a
-	// non-fatal "append-succeeded-but-rotate-failed" error so callers
-	// can log / alert. The record IS still persisted -- losing one
-	// rotation is strictly better than losing the current entry.
 	if maxSizeBytes <= 0 {
 		maxSizeBytes = DefaultMaxSizeBytes
 	}
-	if info, err := f.Stat(); err == nil && info.Size() > maxSizeBytes {
-		if rerr := rotate(path); rerr != nil {
-			return fmt.Errorf("audit: append succeeded but rotation failed: %w", rerr)
-		}
+	path := filepath.Join(repoRoot, AuditFileRelative)
+	if err := jsonl.Append(path, line, jsonl.Policy{MaxBytes: maxSizeBytes, MaxArchives: MaxArchiveFiles}); err != nil {
+		return fmt.Errorf("audit: append: %w", err)
 	}
 	return nil
+}
+
+// EnforceRetention compacts legacy oversized audit files and removes
+// archives outside the fixed ring.
+func EnforceRetention(repoRoot string) (jsonl.EnforceResult, error) {
+	path := filepath.Join(repoRoot, AuditFileRelative)
+	return jsonl.Enforce(path, jsonl.Policy{MaxBytes: DefaultMaxSizeBytes, MaxArchives: MaxArchiveFiles})
 }
 
 // TailOptions controls what Tail reads.
@@ -137,53 +134,54 @@ type TailOptions struct {
 }
 
 // Tail returns the last N records matching the filter. The file is
-// scanned fully (simple linear read); for a 50MiB log that's ~100ms
-// which is fine for CLI use. We don't maintain an index because
+// scanned fully (simple linear read); the fixed ring caps the scan at
+// 6 MiB. We don't maintain an index because
 // append-only JSONL is self-describing and the cost-of-read is bounded
 // by the rotation cap.
 func Tail(repoRoot string, opts TailOptions) ([]Entry, error) {
 	if repoRoot == "" {
 		return nil, nil
 	}
-	path := filepath.Join(repoRoot, AuditFileRelative)
-	f, err := os.Open(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return []Entry{}, nil
-		}
-		return nil, fmt.Errorf("audit: open: %w", err)
-	}
-	defer f.Close()
-
 	var all []Entry
-	sc := bufio.NewScanner(f)
-	// Default scanner buffer is 64KiB; raise to 1MiB so a pathological
-	// very-long record doesn't stop the scan.
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for sc.Scan() {
-		line := sc.Bytes()
-		if len(line) == 0 {
-			continue
+	path := filepath.Join(repoRoot, AuditFileRelative)
+	for _, source := range jsonl.PathsOldestFirst(path, MaxArchiveFiles) {
+		if err := scanEntries(source, opts, &all); err != nil {
+			return nil, err
 		}
-		var e Entry
-		if err := json.Unmarshal(line, &e); err != nil {
-			// Skip malformed lines rather than failing the whole query;
-			// the log is meant to survive partial writes on crash.
-			continue
-		}
-		if !matchesFilters(e, opts) {
-			continue
-		}
-		all = append(all, e)
-	}
-	if err := sc.Err(); err != nil && !errors.Is(err, io.EOF) {
-		return nil, fmt.Errorf("audit: scan: %w", err)
 	}
 
 	if opts.N > 0 && len(all) > opts.N {
 		all = all[len(all)-opts.N:]
 	}
 	return all, nil
+}
+
+func scanEntries(path string, opts TailOptions, all *[]Entry) error {
+	file, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("audit: open: %w", err)
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 32*1024), maxRecordBytes)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var entry Entry
+		if err := json.Unmarshal(line, &entry); err != nil || !matchesFilters(entry, opts) {
+			continue
+		}
+		*all = append(*all, entry)
+	}
+	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
+		return fmt.Errorf("audit: scan: %w", err)
+	}
+	return nil
 }
 
 func matchesFilters(e Entry, opts TailOptions) bool {
@@ -289,30 +287,91 @@ func Stats(repoRoot string) (*StatsReport, error) {
 	return out, nil
 }
 
-// rotate moves path to path.N where N is the smallest free integer.
-// Used by Append when the log grows past the size cap.
-func rotate(path string) error {
-	for n := 1; n < 1000; n++ {
-		dst := fmt.Sprintf("%s.%d", path, n)
-		if _, err := os.Stat(dst); errors.Is(err, os.ErrNotExist) {
-			return os.Rename(path, dst)
-		}
-	}
-	return errors.New("audit: rotation exhausted 1000 suffixes; cleanup old archives")
-}
-
 // ExportJSONL writes the full log to w as-is. Useful for CSV export
 // tooling or cross-repo aggregation.
 func ExportJSONL(repoRoot string, w io.Writer) error {
 	path := filepath.Join(repoRoot, AuditFileRelative)
-	f, err := os.Open(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
+	for _, source := range jsonl.PathsOldestFirst(path, MaxArchiveFiles) {
+		file, err := os.Open(source)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return err
 		}
-		return err
+		_, copyErr := io.Copy(w, file)
+		closeErr := file.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
 	}
-	defer f.Close()
-	_, err = io.Copy(w, f)
-	return err
+	return nil
+}
+
+func normalizeEntry(entry Entry) Entry {
+	entry.Event = truncateRunes(strings.TrimSpace(entry.Event), 128)
+	entry.Decision = truncateRunes(strings.TrimSpace(entry.Decision), 128)
+	entry.RuleIDs = boundedStrings(entry.RuleIDs)
+	entry.WritePaths = boundedStrings(entry.WritePaths)
+	entry.ReadPaths = boundedStrings(entry.ReadPaths)
+	entry.Claims = boundedStrings(entry.Claims)
+	commands := make([]string, 0, len(entry.Commands))
+	for _, command := range entry.Commands {
+		command = strings.TrimSpace(command)
+		if command == "" {
+			continue
+		}
+		if !auditVerbose() {
+			command = strings.Fields(command)[0]
+		}
+		commands = append(commands, truncateRunes(command, 4096))
+	}
+	entry.Commands = boundedStrings(commands)
+	entry.RepoRoot = truncateRunes(strings.TrimSpace(entry.RepoRoot), 4096)
+	entry.LockfileDigest = truncateRunes(strings.TrimSpace(entry.LockfileDigest), 256)
+	entry.ReconcVersion = truncateRunes(strings.TrimSpace(entry.ReconcVersion), 128)
+	entry.Agent = truncateRunes(strings.TrimSpace(entry.Agent), 256)
+	return entry
+}
+
+func boundedStrings(values []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	bytesUsed := 0
+	for _, value := range values {
+		value = truncateRunes(strings.TrimSpace(value), 4096)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		if len(out) >= maxEntryListItems || bytesUsed+len(value) > maxEntryListBytes {
+			break
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+		bytesUsed += len(value)
+	}
+	return out
+}
+
+func truncateRunes(value string, limit int) string {
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return string(runes[:limit])
+}
+
+func auditVerbose() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("RECONC_AUDIT_VERBOSE"))) {
+	case "1", "true", "on", "yes":
+		return true
+	default:
+		return false
+	}
 }

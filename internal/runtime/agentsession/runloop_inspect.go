@@ -3,7 +3,10 @@ package agentsession
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"os"
+
+	"reconc.dev/reconc/internal/jsonl"
 )
 
 // RunLoopStatusInfo is the read-only snapshot of the current runloop state
@@ -56,18 +59,29 @@ func ReadRunLoopDecisions(repoRoot string, limit int) ([]RunLoopDecision, error)
 	if err != nil {
 		return nil, err
 	}
+	var out []RunLoopDecision
+	for _, source := range jsonl.PathsOldestFirst(path, runLoopDecisionMaxArchives) {
+		if err := readRunLoopDecisionFile(source, &out); err != nil {
+			return out, err
+		}
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[len(out)-limit:]
+	}
+	return out, nil
+}
+
+func readRunLoopDecisionFile(path string, out *[]RunLoopDecision) error {
 	file, err := os.Open(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
 		}
-		return nil, err
+		return err
 	}
 	defer file.Close()
-
-	var out []RunLoopDecision
 	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 0, 32*1024), 32*1024)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {
@@ -77,13 +91,10 @@ func ReadRunLoopDecisions(repoRoot string, limit int) ([]RunLoopDecision, error)
 		if err := json.Unmarshal(line, &d); err != nil {
 			continue
 		}
-		out = append(out, d)
+		*out = append(*out, d)
 	}
 	if err := scanner.Err(); err != nil {
-		return out, err
+		return err
 	}
-	if limit > 0 && len(out) > limit {
-		out = out[len(out)-limit:]
-	}
-	return out, nil
+	return nil
 }

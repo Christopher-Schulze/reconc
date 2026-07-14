@@ -36,6 +36,7 @@ import (
 	"reconc.dev/reconc/internal/manpage"
 	"reconc.dev/reconc/internal/parser"
 	"reconc.dev/reconc/internal/presets"
+	"reconc.dev/reconc/internal/retention"
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 	"reconc.dev/reconc/internal/scaffold"
@@ -125,6 +126,8 @@ func Run(argv []string, version string, stdout, stderr io.Writer) error {
 		return runAudit(argv[1:], stdout, stderr)
 	case "runloop":
 		return runRunloop(argv[1:], stdout, stderr)
+	case "prune":
+		return runPrune(argv[1:], stdout)
 	case "template":
 		return runTemplate(argv[1:], stdout, stderr)
 	case "session-briefing":
@@ -1734,6 +1737,65 @@ func runAgentIntro(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
+// runPrune performs the same bounded cleanup that SessionStart/SessionEnd
+// invoke on a six-hour interval. The explicit CLI always runs immediately.
+func runPrune(args []string, stdout io.Writer) error {
+	repo := "."
+	dryRun := false
+	jsonOut := false
+	for _, arg := range args {
+		switch arg {
+		case "--dry-run":
+			dryRun = true
+		case "--json":
+			jsonOut = true
+		case "--force":
+			// Compatibility with the old harness utility. Explicit prune is
+			// already immediate, so --force has no additional effect.
+		case "-h", "--help":
+			fmt.Fprintln(stdout, "Usage: reconc prune [repo] [--dry-run] [--json]")
+			fmt.Fprintln(stdout, "Bound sessions, reports, locks, audit/runloop JSONL, generated audit binaries, and owned temp residue.")
+			return nil
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc prune: unknown flag %q", arg)}
+			}
+			repo = arg
+		}
+	}
+	root, err := agentsession.ResolveRepoRoot(repo)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc prune: " + err.Error()}
+	}
+	active, _ := agentsession.ResolveActiveSessionID(root)
+	report := retention.Run(retention.Options{
+		RepoRoot:      root,
+		StateRoot:     retention.ResolveStateRoot(),
+		ActiveSession: active,
+		DryRun:        dryRun,
+	})
+	if jsonOut {
+		encoder := json.NewEncoder(stdout)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(report); err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc prune: encode report: " + err.Error()}
+		}
+	} else {
+		verb := "pruned"
+		if dryRun {
+			verb = "would prune"
+		}
+		for _, class := range report.Classes {
+			fmt.Fprintf(stdout, "%s %s: deleted=%d freed=%dB kept=%d after=%dB\n", verb, class.Name, class.FilesDeleted, class.BytesFreed, class.FilesKept, class.BytesAfter)
+		}
+		fmt.Fprintf(stdout, "budgets: state=%d/%dB repo=%d/%dB temp=%d/%dB\n", report.StateBytesAfter, report.StateByteBudget, report.RepoBytesAfter, report.RepoByteBudget, report.OwnedTempBytes, report.OwnedTempBudget)
+	}
+	if len(report.Errors) > 0 {
+		return &CLIError{ExitCode: 1, Message: "reconc prune: " + strings.Join(report.Errors, "; ")}
+	}
+	return nil
+}
+
 // runAudit implements `reconc audit <tail|stats|export>` (W29).
 //
 // The audit log is the append-only history of every enforcement
@@ -1757,7 +1819,7 @@ func runAudit(args []string, stdout, stderr io.Writer) error {
 			fmt.Fprintln(stdout, "  reconc audit export [repo]   # JSONL to stdout")
 			fmt.Fprintln(stdout, "")
 			fmt.Fprintln(stdout, "Enable logging: RECONC_AUDIT=1 reconc check ...")
-			fmt.Fprintln(stdout, "Log location:   .reconc/audit.jsonl (repo-local, rotated at 50 MiB)")
+			fmt.Fprintln(stdout, "Log location:   .reconc/audit.jsonl (repo-local, 2 MiB live + two archives)")
 			return nil
 		}
 	}
@@ -5151,6 +5213,7 @@ Workflow maintenance:
   agent-intro      print the embedded reconc agent integration guide
   audit            tail / stats / export the enforcement decision log
   runloop        status / log of runloop state + decision log (--follow)
+  prune            bound runtime state, logs, generated binaries, and owned temp residue
   session-briefing token-efficient session-start dump (lockfile + audit)
   context          size check for auto-loaded files vs a token budget
   start            render / write a canonical start.md onboarding doc

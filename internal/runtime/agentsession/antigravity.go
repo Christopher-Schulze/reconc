@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"reconc.dev/reconc/internal/retention"
 )
 
 func RunAntigravityPreInvocation(repoRoot string, payloadBytes []byte) Result {
@@ -25,6 +27,7 @@ func RunAntigravityPreInvocation(repoRoot string, payloadBytes []byte) Result {
 	if _, err := EnsureSessionState(root, parsed.SessionID); err != nil {
 		return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}}), Stderr: err.Error()}
 	}
+	retentionStderr := retentionWarning(retention.RunIfDue(retention.Options{RepoRoot: root, StateRoot: stateRoot(), ActiveSession: parsed.SessionID}))
 	prompt, signature := latestAntigravityUserMessage(antigravityString(parsed.Raw, "transcriptPath", "transcript_path"))
 	if prompt != "" && signature != "" {
 		state, err := loadRunLoopState(root)
@@ -45,7 +48,7 @@ func RunAntigravityPreInvocation(repoRoot string, payloadBytes []byte) Result {
 			}
 		}
 	}
-	return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}})}
+	return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}}), Stderr: retentionStderr}
 }
 
 func RunAntigravityPreToolUse(repoRoot string, payloadBytes []byte) Result {
@@ -62,19 +65,19 @@ func RunAntigravityPreToolUse(repoRoot string, payloadBytes []byte) Result {
 		return AdaptAntigravityResult("antigravity-pre-tool-use", Result{ExitCode: 2, Stderr: err.Error()})
 	}
 	if parsed.IsReadTool() || parsed.IsWriteTool() || parsed.IsCommandTool() {
-		_, err = MutateSessionState(repoRoot, parsed.SessionID, func(state SessionState) SessionState {
-			if state.PendingToolCalls == nil {
-				state.PendingToolCalls = map[string]PendingToolCall{}
-			}
-			state.PendingToolCalls[antigravityPendingKey(parsed)] = PendingToolCall{
+		var updated SessionState
+		updated, err = MutateSessionState(repoRoot, parsed.SessionID, func(state SessionState) SessionState {
+			return PutPendingToolCall(state, antigravityPendingKey(parsed), PendingToolCall{
 				ToolName:  parsed.ToolName,
 				ToolInput: cloneAntigravityObject(parsed.ToolInput),
 				ToolUseID: parsed.ToolUseID,
-			}
-			return state
+			})
 		})
 		if err != nil {
 			return AdaptAntigravityResult("antigravity-pre-tool-use", Result{ExitCode: 2, Stderr: err.Error()})
+		}
+		if updated.EvidenceOverflow {
+			return AdaptAntigravityResult("antigravity-pre-tool-use", Result{ExitCode: 2, Stderr: evidenceOverflowMessage(updated)})
 		}
 	}
 	return AdaptAntigravityResult("antigravity-pre-tool-use", result)

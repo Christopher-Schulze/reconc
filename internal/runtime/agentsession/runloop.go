@@ -9,6 +9,10 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/filelock"
+	"reconc.dev/reconc/internal/jsonl"
 )
 
 const reconcHookRuntimeEnv = "RECONC_HOOK_RUNTIME"
@@ -92,6 +96,11 @@ var (
 
 const runLoopContinuationPrompt = "🔥 STFU & LET ME COOK! 🔥"
 
+const (
+	runLoopDecisionMaxBytes    = 2 * 1024 * 1024
+	runLoopDecisionMaxArchives = 2
+)
+
 const legacyRunLoopContinuationPrompt = `runloop autocontinue. Continue the repository task lifecycle without asking for routine permission. No ceremony, no confirmation questions - just work.
 
 Active: TASK = <task> | Sub-Task = <sub-task>. Read the live Current: pointer in docs/tasks.md yourself.
@@ -139,22 +148,26 @@ func appendRunLoopDecision(repoRoot string, decision RunLoopDecision) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
 	decision.Timestamp = time.Now().UTC().Format(time.RFC3339Nano)
+	decision = boundedRunLoopDecision(decision)
 	body, err := json.Marshal(decision)
 	if err != nil {
 		return err
 	}
-	body = append(body, '\n')
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	_, err = file.Write(body)
-	return err
+	return jsonl.Append(path, body, jsonl.Policy{MaxBytes: runLoopDecisionMaxBytes, MaxArchives: runLoopDecisionMaxArchives})
+}
+
+func boundedRunLoopDecision(decision RunLoopDecision) RunLoopDecision {
+	decision.Event = truncateBytes(strings.TrimSpace(decision.Event), 256)
+	decision.Branch = truncateBytes(strings.TrimSpace(decision.Branch), 256)
+	decision.Runtime = truncateBytes(strings.TrimSpace(decision.Runtime), 256)
+	decision.SessionID = truncateBytes(strings.TrimSpace(decision.SessionID), 4096)
+	decision.StateSessionID = truncateBytes(strings.TrimSpace(decision.StateSessionID), 4096)
+	decision.ActiveRunID = truncateBytes(strings.TrimSpace(decision.ActiveRunID), 4096)
+	decision.Intent = truncateBytes(strings.TrimSpace(decision.Intent), 256)
+	decision.DisabledReasonBefore = truncateBytes(strings.TrimSpace(decision.DisabledReasonBefore), 4096)
+	decision.DisabledReasonAfter = truncateBytes(strings.TrimSpace(decision.DisabledReasonAfter), 4096)
+	return decision
 }
 
 func runLoopEventName(event runLoopEvent) string {
@@ -358,7 +371,7 @@ func withRunLoopLock(repoRoot string, fn func() error) error {
 		return fmt.Errorf("open runloop lock: %w", err)
 	}
 	defer file.Close()
-	unlock, err := lockSessionFile(file)
+	unlock, err := filelock.Lock(file)
 	if err != nil {
 		return fmt.Errorf("lock runloop state: %w", err)
 	}
@@ -377,10 +390,6 @@ func writeRunLoopStateAtomic(repoRoot string, state runLoopState) error {
 	if err != nil {
 		return err
 	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
 	state.SessionID = strings.TrimSpace(state.SessionID)
 	state.ActiveRunID = strings.TrimSpace(state.ActiveRunID)
 	state.Runtime = strings.TrimSpace(state.Runtime)
@@ -392,23 +401,8 @@ func writeRunLoopStateAtomic(repoRoot string, state runLoopState) error {
 		return fmt.Errorf("marshal runloop state: %w", err)
 	}
 	body = append(body, '\n')
-	tmpFile, err := os.CreateTemp(dir, "state.json.*.tmp")
-	if err != nil {
-		return fmt.Errorf("create runloop state tmp: %w", err)
-	}
-	tmp := tmpFile.Name()
-	if _, err := tmpFile.Write(body); err != nil {
-		_ = tmpFile.Close()
-		_ = os.Remove(tmp)
-		return fmt.Errorf("write runloop state tmp: %w", err)
-	}
-	if err := tmpFile.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("close runloop state tmp: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("rename runloop state: %w", err)
+	if _, err := atomicfile.WriteIfChanged(path, body, 0o644); err != nil {
+		return fmt.Errorf("write runloop state: %w", err)
 	}
 	return nil
 }

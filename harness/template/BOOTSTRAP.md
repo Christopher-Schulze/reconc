@@ -255,6 +255,16 @@ Required Reconc runtime ignores:
 
 `.reconc/runloop/` holds repo-local runloop runtime state: `state.json` (current run) and the append-only `decisions.jsonl` (one record per runloop state transition with the exact branch taken). It is gitignored above. No per-repo scaffolding is needed: the observability commands `reconc runloop status` and `reconc runloop log [--follow]` ship in the reconc binary and read this directory in any repo. The per-TASK Reality-Check loop (`docs/task-loop-workflow.md`, scaffolded) and its AGENTS.md excerpt are merged into the repo's `AGENTS.md` like the other sections.
 
+Reconc owns runtime retention in the product binary. SessionStart and
+SessionEnd perform a cheap six-hour due check; Stop never performs cleanup.
+The same pass is available to an agent as `reconc prune . --json` and can be
+inspected without mutation via `reconc prune . --dry-run --json`. It bounds
+session/report/lock state, audit and runloop JSONL rings, generated audit
+binaries, abandoned atomic/build temps, and owned `reconc-proof-*` temp trees.
+Do not add another project-specific cleanup loop or attach cleanup to the
+workflow-audit cache. Active state and live build targets are protected even
+when that means reporting a temporary budget excess.
+
 Dual-layout build/dependency ignores should cover both flat-root and `codebase/` when relevant:
 
 - `build/`

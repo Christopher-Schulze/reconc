@@ -204,9 +204,9 @@ func TestStatsAggregates(t *testing.T) {
 
 func TestRotationCreatesArchive(t *testing.T) {
 	repo := t.TempDir()
-	// Tiny size cap -- each write exceeds cap and triggers rotation.
-	_ = Append(repo, Entry{Event: "check"}, 10)
-	_ = Append(repo, Entry{Event: "check"}, 10)
+	// One record fits, two do not, so the second append rotates first.
+	_ = Append(repo, Entry{Event: "check"}, 160)
+	_ = Append(repo, Entry{Event: "check"}, 160)
 
 	// Rotation moves the live file to .jsonl.N; the live file may or
 	// may not exist at this instant (only re-created by the NEXT
@@ -242,42 +242,25 @@ func TestExportJSONLMissingFile(t *testing.T) {
 	}
 }
 
-// --- rotation errors are propagated ---------------------------------
-
-func TestAppendPropagatesRotationFailure(t *testing.T) {
+func TestRotationKeepsFixedArchiveRing(t *testing.T) {
 	repo := t.TempDir()
-	// Pre-create all 999 rotation slots so rotate() runs out of room.
-	// This simulates the error path without needing a cross-filesystem
-	// setup.
 	basePath := filepath.Join(repo, AuditFileRelative)
-	if err := os.MkdirAll(filepath.Dir(basePath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for i := 1; i < 1000; i++ {
-		if err := os.WriteFile(fmt.Sprintf("%s.%d", basePath, i), []byte("x"), 0o644); err != nil {
+	for i := 0; i < 8; i++ {
+		if err := Append(repo, Entry{Event: fmt.Sprintf("check-%d", i)}, 160); err != nil {
 			t.Fatal(err)
 		}
 	}
-
-	// First append creates the live file.
-	if err := Append(repo, Entry{Event: "check"}, 0); err != nil {
-		t.Fatalf("initial append: %v", err)
+	if _, err := os.Stat(basePath + ".3"); !os.IsNotExist(err) {
+		t.Fatalf("archive ring escaped fixed size: %v", err)
 	}
-	// Force rotation: tiny cap makes the next write blow the limit.
-	err := Append(repo, Entry{Event: "check"}, 10)
-	if err == nil {
-		t.Fatal("expected rotation-failure error to propagate")
-	}
-	if !strings.Contains(err.Error(), "append succeeded but rotation failed") {
-		t.Errorf("expected append-succeeded-rotation-failed error, got: %v", err)
-	}
-	// Record still persisted in the live log despite rotation failure.
-	data, rerr := os.ReadFile(basePath)
-	if rerr != nil {
-		t.Fatalf("live log should exist: %v", rerr)
-	}
-	if !strings.Contains(string(data), `"event":"check"`) {
-		t.Errorf("record should persist before rotation failure, got: %s", string(data))
+	for _, path := range []string{basePath, basePath + ".1", basePath + ".2"} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("expected ring member %s: %v", path, err)
+		}
+		if info.Size() > 160 {
+			t.Fatalf("ring member %s exceeds cap: %d", path, info.Size())
+		}
 	}
 }
 
@@ -344,10 +327,9 @@ func TestAuditAppendIsConcurrencySafe(t *testing.T) {
 }
 
 func BenchmarkAuditRecordSize(b *testing.B) {
-	// Reports the max serialised size of a representative Entry. If any
-	// future change pushes record size past PIPE_BUF (4096 bytes on most
-	// POSIX systems), concurrent appends could interleave. This benchmark
-	// surfaces that risk via an assertion.
+	// Reports the serialised size of a representative Entry and locks the
+	// bounded-record contract. Cross-process append safety comes from the
+	// JSONL file lock rather than a platform-specific PIPE_BUF assumption.
 	entry := Entry{
 		Timestamp:      "2026-04-14T00:00:00Z",
 		Event:          "check",
@@ -367,9 +349,9 @@ func BenchmarkAuditRecordSize(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	b.Logf("typical audit record: %d bytes (PIPE_BUF safe ceiling: 4096)", len(data))
-	if len(data) > 4096 {
-		b.Errorf("record size %d exceeds 4 KiB PIPE_BUF safety ceiling", len(data))
+	b.Logf("typical audit record: %d bytes (hard ceiling: %d)", len(data), maxRecordBytes)
+	if len(data)+1 > maxRecordBytes {
+		b.Errorf("record size %d exceeds %d-byte ceiling", len(data)+1, maxRecordBytes)
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

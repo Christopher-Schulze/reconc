@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/runtime"
 )
 
@@ -208,7 +209,7 @@ func withStopPolicyReportLock(repoRoot, sessionID string, fn func() (*runtime.Ch
 		return nil, fmt.Errorf("open stop-policy lock: %w", err)
 	}
 	defer file.Close()
-	unlock, err := lockSessionFile(file)
+	unlock, err := filelock.Lock(file)
 	if err != nil {
 		return nil, fmt.Errorf("lock stop-policy report: %w", err)
 	}

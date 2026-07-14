@@ -18,7 +18,7 @@ model so new platforms remain thin and predictable.
 
 ## Sub-Tasks
 
-- [ ] Model the common event and capability contract.
+- [~] Model the common event and capability contract.
 - [ ] Refactor existing adapters onto the registry without behavior drift.
 - [ ] Add and verify Devin, Antigravity, Copilot, and Kilo coverage.
 - [ ] Add activation probes, exact diagnostics, and bounded latency/failure policy.

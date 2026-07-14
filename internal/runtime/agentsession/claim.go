@@ -52,6 +52,9 @@ func RecordClaim(repoRoot, claim, sessionID string) (*ClaimReport, error) {
 	if err != nil {
 		return nil, err
 	}
+	if updated.EvidenceOverflow {
+		return nil, errors.New(evidenceOverflowMessage(updated))
+	}
 	// Re-run check so the saved report reflects the new claim set.
 	// Ignore check errors here -- the claim record is the primary
 	// artefact; the report refresh is a courtesy for later inspection.

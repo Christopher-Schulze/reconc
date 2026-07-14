@@ -189,6 +189,7 @@ Workflow maintenance:
 - `agent-intro`
 - `audit`
 - `runloop`
+- `prune`
 - `session-briefing`
 - `context`
 - `start`
@@ -225,6 +226,28 @@ Runtime state is local and ignored:
 - `.reconc/locks/`
 - `.reconc/sessions/`
 - `.reconc/reports/`
+- `.reconc/runloop/`
+
+Runtime retention is product-owned rather than harness-owned. `SessionStart`
+and `SessionEnd` run a cross-process-safe due check with a six-hour interval;
+Stop never prunes. `reconc prune [repo] [--dry-run] [--json]` runs the same
+core explicitly. Unchanged session files, active-session pointers, reports,
+and runloop state are byte-compared and never republished. Session state is
+hard-capped at 1 MiB; every evidence collection has both item and byte limits,
+repeated command results are deduplicated, and any omitted security-relevant
+evidence sets a persisted overflow marker that blocks PreToolUse and Stop.
+
+Default persistent budgets are 32 session files / 8 MiB / 14 days, 32 reports
+/ 8 MiB / 14 days, 128 locks / 1 MiB / 24 hours, 16 MiB total external state,
+and 32 MiB / 14 days for generated audit binaries. Audit and runloop decision
+JSONL each use a 2 MiB live file plus two archives, with file-locked append and
+pre-append rotation. Repo runtime is capped at 48 MiB. Known
+`reconc-proof-neg-*`, `reconc-proof-neg-copy-*`, and
+`reconc-proof-gocache-*` temp trees are removed only after a 24-hour inactive
+grace. Active session/report/lock files, live build-lock targets, runloop
+state/locks, and recent temp trees are never deleted to force a budget.
+Global temp scanning has its own six-hour marker, so multiple repos do not
+re-walk the same temp tree on every session start.
 
 ## Architecture
 
@@ -245,6 +268,10 @@ Package responsibilities:
 - `internal/hooks`: git, Claude Code, and Codex hook generation and install, including PermissionRequest wiring
 - `internal/runtime/agentsession`: hook-runtime session state and event handling
 - `internal/audit`: opt-in JSONL decision log and rotation
+- `internal/atomicfile`: atomic write-on-change publication
+- `internal/filelock`: Unix/Windows cross-process file locking
+- `internal/jsonl`: bounded, locked JSONL append and archive rings
+- `internal/retention`: runtime storage classes, lifecycle due checks, and cleanup
 - `internal/presets`: bundled and user policy packs
 - `internal/templates`: bundled and user rule templates
 - `internal/tui`: dependency-free terminal dashboard
@@ -328,7 +355,8 @@ hook-observed work without running a full Git dirty scan on every Runloop
 continuation.
 Runloop decisions are persisted in `.reconc/runloop/decisions.jsonl` with
 branch/runtime/session/state fields for forensic debugging without bloating hook
-output.
+output. The live log and two archives are each bounded at 2 MiB; readers merge
+the ring in chronological order.
 Repeated identical policy blocks stay blocking but shrink to rule IDs plus the
 saved report path. PreToolUse evaluates only pre-execution write/shell rules,
 generated Claude/Codex/Cursor/Antigravity configs do not spawn PreToolUse for
@@ -384,8 +412,8 @@ rename; parallel agent hooks therefore wait for one rebuild instead of stampedin
 the Go compiler or exposing a partially written cache binary.
 Independent cold workflow-audit keys execute concurrently behind per-key
 singleflight locks. Only short cache read/merge/atomic-publication sections are
-globally serialized, so parallel results cannot overwrite each other and prune
-I/O never holds the shared cache lock. The task-state cache hashes only
+globally serialized, so parallel results cannot overwrite each other. Runtime
+retention no longer piggybacks on audit-cache publication. The task-state cache hashes only
 `docs/tasks.md`, schema, and open TASK bodies on its hot path. A clean completed
 TASK archive is represented by its committed Git tree ID plus directory
 metadata; dirty or unreadable archive state bypasses caching entirely, avoiding
@@ -393,6 +421,8 @@ full archive reads without hiding archived-file changes. Reproducible Stop and
 concurrent-cache benchmarks live beside their regression tests and run with
 `go test ./internal/runtime/agentsession -run '^$' -bench StopPolicy -benchmem`
 and `go test ./harness/template/audits -run '^$' -bench RunWithCache -benchmem`.
+Storage hot paths run with
+`go test ./internal/runtime/agentsession ./internal/retention -run '^$' -bench 'DuplicateSessionMutation|LifecycleRetentionNotDue' -benchmem`.
 Harnesses can also expose an `agent-quality` mode for objective live-diff
 quality gates: newly added test skips, placeholder completion language,
 untested sensitive Go edits, and stale live Reconc binaries can block without

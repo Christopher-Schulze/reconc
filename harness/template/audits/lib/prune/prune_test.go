@@ -35,13 +35,13 @@ func setupSessionTree(t *testing.T) (repoRoot string, reconcHome string, project
 
 func TestDefaultPolicy(t *testing.T) {
 	p := DefaultPolicy()
-	if p.SessionsRetention != 25 || p.ReportsRetention != 25 {
+	if p.SessionsRetention != 32 || p.ReportsRetention != 32 {
 		t.Fatalf("unexpected retention: %+v", p)
 	}
-	if p.AuditJsonlMaxBytes != 1_572_864 || p.AuditJsonlMaxLines != 100 {
+	if p.AuditJsonlMaxBytes != 2_097_152 || p.AuditJsonlMaxLines != 5_000 {
 		t.Fatalf("unexpected jsonl caps: %+v", p)
 	}
-	if p.PruneIntervalSeconds != 604_800 {
+	if p.PruneIntervalSeconds != 21_600 {
 		t.Fatalf("unexpected interval: %d", p.PruneIntervalSeconds)
 	}
 }

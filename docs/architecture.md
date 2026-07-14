@@ -217,8 +217,10 @@ class of hostile input.
 | Max payload bytes | **1 MiB** (1 048 576) | No legitimate tool-use payload exceeds ~100 KiB; 1 MiB leaves 10x headroom + stops JSON bombs. |
 | stdin read timeout | **5 seconds** | Prevents agent hangs from wedging the hook call. Typical payloads arrive < 50 ms. |
 | Max JSON nesting depth | **32 levels** | Prevents stack-busting via deeply nested payloads. |
-| Max audit entries per session | **10 000** | Caps log growth under a runaway hook loop. |
-| Session lifetime | **24 hours** | Stale session state is discarded. |
+| Max persisted session state | **1 MiB** | Bounds full-file state publication and recovery cost. |
+| Evidence collections | **item + byte caps per field** | Overflow is persisted and fails closed; relevant evidence is never silently omitted. |
+| Audit record | **32 KiB** | Bounds one locked JSONL append. |
+| Audit/runloop storage | **2 MiB live + 2 archives each** | Fixed rings prevent repository-local log growth. |
 
 Breaches: exit 2 (block) for PreToolUse / Stop; exit 0 (allow)
 with stderr warning for PostToolUse / SessionEnd.
@@ -255,17 +257,14 @@ strings; no `exec.Command` call path in the runtime handlers takes
 user data as the binary name or unescaped argument. Verified by a
 grep-guard test.
 
-### Replay-attack mitigation
+### Session identity boundary
 
-- Each session generates a fresh UUID-like `session_id` at
-  `SessionStart`.
-- All subsequent events are required to carry the same session_id;
-  mismatches are rejected with exit 2.
-- Session state records `started_at` (RFC3339 UTC) and rejects
-  events with `session_id` older than the 24h lifetime.
-- Session-state file is HMAC-tagged (lockfile_digest + session_id +
-  started_at) so manual tampering is detected and causes reconc to
-  discard the state and start a fresh session.
+The host runtime supplies `session_id`; Reconc sanitizes it for the filename and
+stores evidence in that session-specific file under the canonical repo hash.
+Different IDs therefore cannot merge accidentally. Reconc does not generate,
+authenticate, HMAC, or expire host session IDs, so a hostile host process with
+the same user/filesystem authority remains outside this boundary. Malformed
+state fails closed instead of being reset silently.
 
 ### Runloop state concurrency
 
@@ -281,12 +280,13 @@ silently disabled:
   `true->false` transition.
 - **Locked read-modify-write.** `mutateRunLoopState` /
   `withRunLoopLock` serialize load->mutate->save under an exclusive
-  flock (`.reconc/runloop/state.lock`), mirroring `MutateSessionState`,
+  cross-platform file lock (`.reconc/runloop/state.lock`), mirroring `MutateSessionState`,
   so concurrent mutators cannot lose each other's updates. The Stop hook's
   own disable and continuation decisions run through the same locked
   mutator, so a concurrent reconcile or a user disabling mid-stop cannot be
-  lost. The append-only `decisions.jsonl` log relies on POSIX `O_APPEND`
-  atomicity and stays outside the lock.
+  lost. The append-only `decisions.jsonl` log uses a separate cross-process
+  lock and a 2 MiB plus two-archive ring, so state-lock re-entry cannot deadlock
+  decision publication.
 
 ### require_command_success redirect tolerance
 
@@ -307,9 +307,11 @@ command that succeeded. `forbid_command`/`require_command`
 
 - `ResourceLimitedJSONReader` wraps stdin: bails at 1 MiB + 5s
   timeout + 32-level depth.
-- Session state's `evidence` slices cap at 10 000 entries each;
-  further events surface a WARN in audit but do not append.
-- Audit-log rotation prevents disk-fill DoS.
+- Session evidence has per-field item and byte caps plus a 1 MiB serialized
+  ceiling. Overflow persists a fail-closed marker used by PreToolUse and Stop.
+- Audit and runloop JSONL writes rotate before append through fixed archive
+  rings; lifecycle retention bounds sessions, reports, locks, generated
+  binaries, and owned temp residue outside the Stop path.
 
 ### Secrets in audit
 

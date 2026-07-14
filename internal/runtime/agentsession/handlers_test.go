@@ -47,7 +47,25 @@ func setupPolicyRepo(t *testing.T) string {
 	// Point the agentsession state-root at an isolated temp dir so
 	// tests don't collide across runs.
 	t.Setenv(StateRootEnv, t.TempDir())
+	t.Setenv("TMPDIR", t.TempDir())
 	return repo
+}
+
+func TestRunStopFailsClosedOnEvidenceOverflow(t *testing.T) {
+	_, repo := withStateRoot(t)
+	if _, err := InitializeSessionState(repo, "overflow"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MutateSessionState(repo, "overflow", func(state SessionState) SessionState {
+		markEvidenceOverflow(&state, "write_paths")
+		return state
+	}); err != nil {
+		t.Fatal(err)
+	}
+	result := RunStop(repo, []byte(`{"session_id":"overflow"}`))
+	if result.ExitCode != 0 || !strings.Contains(result.Stdout, `"decision":"block"`) || !strings.Contains(result.Stdout, "write_paths") {
+		t.Fatalf("overflow stop did not fail closed: %+v", result)
+	}
 }
 
 func TestRunSessionStartInitialises(t *testing.T) {
@@ -1300,6 +1318,7 @@ func setupStopScriptPolicyRepo(t *testing.T, counterPath string, exitCode int, o
 	t.Helper()
 	t.Setenv("RECONC_HOME", t.TempDir())
 	t.Setenv(StateRootEnv, t.TempDir())
+	t.Setenv("TMPDIR", t.TempDir())
 	repo := t.TempDir()
 	gitInitHelper(t, repo)
 	if err := os.MkdirAll(filepath.Join(repo, "src"), 0o755); err != nil {

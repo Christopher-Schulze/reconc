@@ -1,6 +1,7 @@
 package agentsession
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ func withStateRoot(t *testing.T) (string, string) {
 	t.Helper()
 	stateDir := t.TempDir()
 	t.Setenv(StateRootEnv, stateDir)
+	t.Setenv("TMPDIR", t.TempDir())
 	repo := t.TempDir()
 	return stateDir, repo
 }
@@ -215,6 +217,93 @@ func TestAppendEmptyStringIgnored(t *testing.T) {
 	}
 }
 
+func TestSessionAndActivePointerSkipIdenticalWrites(t *testing.T) {
+	_, repo := withStateRoot(t)
+	state, err := InitializeSessionState(repo, "unchanged")
+	if err != nil {
+		t.Fatal(err)
+	}
+	written, err := saveSessionStateLockedIfChanged(state)
+	if err != nil || written {
+		t.Fatalf("unchanged state write: written=%v err=%v", written, err)
+	}
+	written, err = writeActiveSessionIfChanged(state.RepoRoot, state.SessionID)
+	if err != nil || written {
+		t.Fatalf("unchanged active pointer write: written=%v err=%v", written, err)
+	}
+	state = AppendReadPath(state, "docs/new.md")
+	written, err = saveSessionStateLockedIfChanged(state)
+	if err != nil || !written {
+		t.Fatalf("changed state write: written=%v err=%v", written, err)
+	}
+}
+
+func TestEvidenceCollectionsAreDeduplicatedAndBounded(t *testing.T) {
+	state := emptyState("/repo", "bounded")
+	result := CommandResult{Command: "go test ./...", Outcome: "success", ToolUseID: "tool-1"}
+	state = AppendCommandResult(state, result)
+	state = AppendCommandResult(state, result)
+	if len(state.CommandResults) != 1 {
+		t.Fatalf("repeated command result was not deduplicated: %d", len(state.CommandResults))
+	}
+	for index := 0; index <= maxPathEvidenceItems; index++ {
+		state = AppendWritePath(state, fmt.Sprintf("src/generated-%04d.go", index))
+	}
+	if !state.EvidenceOverflow || state.EvidenceOverflowReason != "write_paths" {
+		t.Fatalf("missing fail-closed overflow marker: %+v", state)
+	}
+	if len(state.WritePaths) > maxPathEvidenceItems {
+		t.Fatalf("write path item cap escaped: %d", len(state.WritePaths))
+	}
+	body, err := marshalStateDeterministic(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(body) > MaxSessionStateBytes {
+		t.Fatalf("session byte cap escaped: %d", len(body))
+	}
+}
+
+func TestLegacyOversizedCollectionsCompactOnLoad(t *testing.T) {
+	_, repo := withStateRoot(t)
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := emptyState(root, "legacy")
+	for index := 0; index < maxPathEvidenceItems+500; index++ {
+		legacy.ReadPaths = append(legacy.ReadPaths, fmt.Sprintf("docs/legacy-%04d.md", index))
+	}
+	body, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := sessionStatePath(root, legacy.SessionID)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadSessionState(root, legacy.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loaded.EvidenceOverflow || len(loaded.ReadPaths) > maxPathEvidenceItems {
+		t.Fatalf("legacy state was not safely compacted: overflow=%v reads=%d", loaded.EvidenceOverflow, len(loaded.ReadPaths))
+	}
+}
+
+func TestPendingToolCallsAreBounded(t *testing.T) {
+	state := emptyState("/repo", "pending")
+	for index := 0; index <= maxPendingToolCalls; index++ {
+		state = PutPendingToolCall(state, fmt.Sprintf("call-%03d", index), PendingToolCall{ToolName: "Read", ToolInput: map[string]interface{}{"file_path": "docs/x.md"}})
+	}
+	if len(state.PendingToolCalls) != maxPendingToolCalls || !state.EvidenceOverflow {
+		t.Fatalf("pending calls escaped bound: count=%d overflow=%v", len(state.PendingToolCalls), state.EvidenceOverflow)
+	}
+}
+
 func TestActiveSessionPointerTracksLatest(t *testing.T) {
 	_, repo := withStateRoot(t)
 	_, _ = InitializeSessionState(repo, "sess-A")
@@ -254,6 +343,30 @@ func TestSanitiseIDScrubsUnsafeChars(t *testing.T) {
 	for in, want := range cases {
 		if got := sanitiseID(in); got != want {
 			t.Errorf("sanitiseID(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func BenchmarkDuplicateSessionMutation(b *testing.B) {
+	stateRoot := b.TempDir()
+	b.Setenv(StateRootEnv, stateRoot)
+	b.Setenv("TMPDIR", b.TempDir())
+	repo := b.TempDir()
+	if _, err := InitializeSessionState(repo, "duplicate"); err != nil {
+		b.Fatal(err)
+	}
+	if _, err := MutateSessionState(repo, "duplicate", func(state SessionState) SessionState {
+		return AppendReadPath(state, "docs/documentation.md")
+	}); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for index := 0; index < b.N; index++ {
+		if _, err := MutateSessionState(repo, "duplicate", func(state SessionState) SessionState {
+			return AppendReadPath(state, "docs/documentation.md")
+		}); err != nil {
+			b.Fatal(err)
 		}
 	}
 }
