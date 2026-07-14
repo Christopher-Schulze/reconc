@@ -114,8 +114,10 @@ or overwrites an external edit.
 After verification, the agent itself inspects the target with `reconc run status <target-repo>`.
 It enables repository continuation with `reconc run on <target-repo>` only
 when autonomous execution is requested, and disables it with
-`reconc run off <target-repo>` on explicit stop or a real blocker. Do not ask
-the user to operate these commands.
+`reconc run off <target-repo>` on explicit stop or a real blocker. A real user
+prompt without `/runloop` also cancels repository continuation; internal
+continuation prompts and session end preserve it. Do not ask the user to
+operate these commands.
 
 The following manual steps remain authoritative for the project harness,
 stack config, conditional skeletons, architecture boundaries, project-specific
@@ -224,6 +226,10 @@ repository stack and control intent match. `go-assurance` and `bun-assurance`
 start in warn mode so a new rollout can measure friction before explicitly
 tightening selected repo-local rules. Never copy source-harness-specific gate
 paths, baselines, exemptions, or proof ledgers into a target repo.
+`go-assurance` is only for repositories with real Go stack evidence. Its native
+changed-file Go AST gate flags bare goroutine launches without spawning tools;
+it has no value in a non-Go project and must not be selected merely because the
+Reconc binary itself is written in Go.
 
 ## Step 4: Deploy Repo Root Scaffold
 
@@ -416,7 +422,8 @@ tools/reconc/dist/<local-reconc-binary> hook status . --json
 Treat `degraded`, `shadowed`, and `unsupported` as unresolved rollout defects.
 `installed` is valid only for an artifact that intentionally still needs its
 documented activation switch. `active` means the config is complete and
-discoverable, not that a live agent process has already loaded it.
+discoverable. `last_seen` and `last_event` are the separate live-process proof;
+their external state is rate-limited to one write per runtime every six hours.
 
 Claude Code generated hooks use exec-form `command` plus `args`, pass `${CLAUDE_PROJECT_DIR}` directly to the wrapper, and use the context-capable `SessionStart` `compact` matcher for recovery instead of spawning the notification-only `PostCompact` event. Devin uses `.devin/hooks.v1.json`, passes `DEVIN_PROJECT_DIR`, and includes `PostCompaction`. Copilot uses `.github/hooks/reconc.json` version 1 and VS Code-compatible event names; its notification-only `PreCompact` event is intentionally omitted because it cannot consume recovery output. OpenCode and Kilo plugins are transport adapters only: policy, session state, continuation, and context recovery remain in the Go runtime. Kilo requires `KILO_PURE` to be unset so project plugins load.
 

@@ -73,6 +73,19 @@ func runHookStatus(args []string, stdout io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc hook status: " + err.Error()}
 	}
+	liveness, err := agentsession.ReadHookLiveness(repo)
+	if err != nil {
+		for i := range reports {
+			reports[i].LivenessError = err.Error()
+		}
+	} else {
+		for i := range reports {
+			if live, ok := liveness[hookRuntimeName(reports[i].Kind)]; ok {
+				reports[i].LastSeen = live.LastSeen
+				reports[i].LastEvent = live.Event
+			}
+		}
+	}
 	if jsonOut {
 		encoder := json.NewEncoder(stdout)
 		encoder.SetIndent("", "  ")
@@ -82,9 +95,26 @@ func runHookStatus(args []string, stdout io.Writer) error {
 		return nil
 	}
 	for _, report := range reports {
-		fmt.Fprintf(stdout, "%s: %s (%s)\n", report.Kind, report.State, report.Detail)
+		live := "never seen"
+		if report.LastSeen != "" {
+			live = "last seen " + report.LastSeen
+		} else if report.LivenessError != "" {
+			live = "liveness unavailable: " + report.LivenessError
+		}
+		fmt.Fprintf(stdout, "%s: %s (%s; %s)\n", report.Kind, report.State, report.Detail, live)
 	}
 	return nil
+}
+
+func hookRuntimeName(kind string) string {
+	switch kind {
+	case hooks.KindClaudeCode:
+		return "claude"
+	case hooks.KindDevinCLI:
+		return "devin"
+	default:
+		return kind
+	}
 }
 
 func runHookGenerate(args []string, stdout, stderr io.Writer) error {

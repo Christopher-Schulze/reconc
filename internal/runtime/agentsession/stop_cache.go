@@ -1,6 +1,7 @@
 package agentsession
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/runtime"
@@ -60,23 +62,37 @@ type stopPolicyGitSnapshot struct {
 	StatusOK   bool
 }
 
+type stopPolicyCheckResult struct {
+	Report      *runtime.CheckReport
+	GitSnapshot stopPolicyGitSnapshot
+}
+
 func runStopPolicyCheck(repoRoot string, state SessionState) (*runtime.CheckReport, error) {
+	result, err := runStopPolicyCheckWithSnapshot(repoRoot, state)
+	return result.Report, err
+}
+
+func runStopPolicyCheckWithSnapshot(repoRoot string, state SessionState) (stopPolicyCheckResult, error) {
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
-		return nil, err
+		return stopPolicyCheckResult{}, err
 	}
-	return withStopPolicyReportLock(root, state.SessionID, func() (*runtime.CheckReport, error) {
+	return withStopPolicyReportLock(root, state.SessionID, func() (stopPolicyCheckResult, error) {
 		return runStopPolicyCheckLocked(root, state)
 	})
 }
 
-func runStopPolicyCheckLocked(repoRoot string, state SessionState) (*runtime.CheckReport, error) {
+func runStopPolicyCheckLocked(repoRoot string, state SessionState) (stopPolicyCheckResult, error) {
 	fingerprintInput := stopPolicyFingerprintInputFor(repoRoot, state)
+	snapshot := stopPolicyGitSnapshot{
+		Head: fingerprintInput.GitHead, Status: fingerprintInput.GitStatus,
+		StatusMode: fingerprintInput.GitStatusMode, StatusOK: fingerprintInput.GitStatusOK,
+	}
 	fingerprint := hashStopPolicyFingerprintInput(fingerprintInput)
 	if fingerprint != "" && state.StopPolicyFingerprint == fingerprint && state.StopPolicyReportHash != "" {
 		report, reportHash, err := readLatestReport(repoRoot, state.SessionID)
 		if err == nil && reportHash == state.StopPolicyReportHash {
-			return report, nil
+			return stopPolicyCheckResult{Report: report, GitSnapshot: snapshot}, nil
 		}
 	}
 
@@ -88,7 +104,7 @@ func runStopPolicyCheckLocked(repoRoot string, state SessionState) (*runtime.Che
 			StatusOK:   fingerprintInput.GitStatusOK,
 		}), state.Commands, state.CommandResults, state.Claims)
 	if err != nil {
-		return nil, err
+		return stopPolicyCheckResult{}, err
 	}
 	reportHash := hashCheckReport(report)
 	if fingerprint != "" && reportHash != "" {
@@ -105,7 +121,7 @@ func runStopPolicyCheckLocked(repoRoot string, state SessionState) (*runtime.Che
 			return current
 		})
 	}
-	return report, nil
+	return stopPolicyCheckResult{Report: report, GitSnapshot: snapshot}, nil
 }
 
 // stopScopeWritePathsToUncommitted intersects this session's recorded writes
@@ -199,19 +215,19 @@ func cachedCleanStopPolicyReportForEvidence(repoRoot string, state SessionState,
 	return report, true
 }
 
-func withStopPolicyReportLock(repoRoot, sessionID string, fn func() (*runtime.CheckReport, error)) (*runtime.CheckReport, error) {
+func withStopPolicyReportLock(repoRoot, sessionID string, fn func() (stopPolicyCheckResult, error)) (stopPolicyCheckResult, error) {
 	lockPath := filepath.Join(projectDir(repoRoot), "locks", sanitiseID(sessionID)+".stop-policy.lock")
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
-		return nil, fmt.Errorf("create stop-policy lock dir: %w", err)
+		return stopPolicyCheckResult{}, fmt.Errorf("create stop-policy lock dir: %w", err)
 	}
 	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
-		return nil, fmt.Errorf("open stop-policy lock: %w", err)
+		return stopPolicyCheckResult{}, fmt.Errorf("open stop-policy lock: %w", err)
 	}
 	defer file.Close()
 	unlock, err := filelock.Lock(file)
 	if err != nil {
-		return nil, fmt.Errorf("lock stop-policy report: %w", err)
+		return stopPolicyCheckResult{}, fmt.Errorf("lock stop-policy report: %w", err)
 	}
 	defer unlock()
 	return fn()
@@ -346,8 +362,13 @@ func fileContentHash(path string) string {
 }
 
 func gitCommandOutput(repoRoot string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", repoRoot}, args...)...)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", repoRoot}, args...)...)
 	out, err := cmd.CombinedOutput()
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return string(out), fmt.Errorf("git %s timed out", strings.Join(args, " "))
+	}
 	return string(out), err
 }
 
@@ -516,16 +537,15 @@ func gitIndexEntries(repoRoot string, paths []string) map[string]string {
 	if len(paths) == 0 {
 		return entries
 	}
-	args := append([]string{"-C", repoRoot, "ls-files", "-s", "-z", "--"}, paths...)
-	cmd := exec.Command("git", args...)
-	out, err := cmd.Output()
+	args := append([]string{"ls-files", "-s", "-z", "--"}, paths...)
+	out, err := gitCommandOutput(repoRoot, args...)
 	if err != nil {
 		for _, path := range paths {
 			entries[path] = "error:" + err.Error()
 		}
 		return entries
 	}
-	for _, record := range strings.Split(string(out), "\x00") {
+	for _, record := range strings.Split(out, "\x00") {
 		if record == "" {
 			continue
 		}

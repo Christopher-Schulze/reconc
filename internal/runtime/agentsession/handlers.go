@@ -1,6 +1,8 @@
 package agentsession
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -63,10 +65,14 @@ func RunSessionStart(repoRoot string, payloadBytes []byte) Result {
 	if err := reconcileRunLoopStateForRuntime(root, payload.SessionID, runtimeFromPayload(payload), payload, runLoopSessionStart); err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc runloop: %s", err)}
 	}
-	if warning := retentionWarning(retention.RunIfDue(retention.Options{RepoRoot: root, StateRoot: stateRoot(), ActiveSession: payload.SessionID})); warning != "" {
-		return Result{ExitCode: 0, Stderr: warning}
+	warnings := []string{}
+	if err := RecordHookLiveness(root, runtimeFromPayload(payload), "session_start"); err != nil {
+		warnings = append(warnings, "reconc hook liveness (warn): "+err.Error())
 	}
-	return Result{ExitCode: 0}
+	if warning := retentionWarning(retention.RunIfDue(retention.Options{RepoRoot: root, StateRoot: stateRoot(), ActiveSession: payload.SessionID})); warning != "" {
+		warnings = append(warnings, warning)
+	}
+	return Result{ExitCode: 0, Stderr: strings.Join(warnings, "; ")}
 }
 
 func runtimeFromPayload(payload *HookPayload) string {
@@ -313,8 +319,13 @@ func recordToolUse(state SessionState, payload *HookPayload) SessionState {
 		}
 		return AppendReadPath(state, path)
 	case payload.IsWriteTool():
+		seen := false
 		for _, path := range payload.FilePaths() {
 			state = AppendWritePath(state, path)
+			seen = true
+		}
+		if seen {
+			state = RecordMaterialEvent(state, materialEventSignature(payload, "success"))
 		}
 		return state
 	case payload.IsCommandTool():
@@ -324,7 +335,7 @@ func recordToolUse(state SessionState, payload *HookPayload) SessionState {
 		}
 		state = AppendCommand(state, cmd)
 		state = AppendCommandResult(state, commandResultFromPayload(payload, "success"))
-		return state
+		return RecordMaterialEvent(state, materialEventSignature(payload, "success"))
 	}
 	return state
 }
@@ -340,7 +351,24 @@ func recordToolFailure(state SessionState, payload *HookPayload) SessionState {
 	if cmd == "" {
 		return state
 	}
-	return AppendCommandResult(state, commandResultFromPayload(payload, "failure"))
+	state = AppendCommandResult(state, commandResultFromPayload(payload, "failure"))
+	return RecordMaterialEvent(state, materialEventSignature(payload, "failure"))
+}
+
+func materialEventSignature(payload *HookPayload, outcome string) string {
+	if payload == nil {
+		return ""
+	}
+	body, err := json.Marshal(struct {
+		ToolName  string                 `json:"tool_name"`
+		ToolInput map[string]interface{} `json:"tool_input"`
+		Outcome   string                 `json:"outcome"`
+	}{ToolName: payload.ToolName, ToolInput: payload.ToolInput, Outcome: outcome})
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(body)
+	return hex.EncodeToString(sum[:])
 }
 
 // commandResultFromPayload extracts the normalised CommandResult from

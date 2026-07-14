@@ -36,6 +36,9 @@ var assuranceFieldsByKind = map[policy.AssuranceKind][]string{
 	},
 	policy.AssuranceSubstantiveProof: {"proof_file", "min_samples", "max_age_hours"},
 	policy.AssuranceLiveVerification: {"commands", "command_policy"},
+	policy.AssuranceGoConcurrency: {
+		"scan_paths", "exclude_paths", "exemptions",
+	},
 }
 
 // optionalAssuranceGateList decodes typed native gate configurations. A strict
@@ -188,6 +191,10 @@ func validateAssuranceGate(gate *policy.AssuranceGate) error {
 				return fmt.Errorf("allowed extension must start with a dot: %q", ext)
 			}
 			gate.AllowedExtensions[index] = ext
+		}
+	case policy.AssuranceGoConcurrency:
+		if len(gate.ScanPaths) == 0 {
+			return fmt.Errorf("go_concurrency_boundary requires scan_paths")
 		}
 	case policy.AssuranceDependencyPins:
 		if len(gate.ManifestPaths) == 0 {

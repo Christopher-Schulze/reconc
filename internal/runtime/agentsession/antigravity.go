@@ -27,7 +27,16 @@ func RunAntigravityPreInvocation(repoRoot string, payloadBytes []byte) Result {
 	if _, err := EnsureSessionState(root, parsed.SessionID); err != nil {
 		return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}}), Stderr: err.Error()}
 	}
+	livenessStderr := ""
+	if err := RecordHookLiveness(root, "antigravity", "pre_invocation"); err != nil {
+		livenessStderr = "reconc hook liveness (warn): " + err.Error()
+	}
 	retentionStderr := retentionWarning(retention.RunIfDue(retention.Options{RepoRoot: root, StateRoot: stateRoot(), ActiveSession: parsed.SessionID}))
+	if livenessStderr != "" && retentionStderr != "" {
+		retentionStderr = livenessStderr + "; " + retentionStderr
+	} else if livenessStderr != "" {
+		retentionStderr = livenessStderr
+	}
 	prompt, signature := latestAntigravityUserMessage(antigravityString(parsed.Raw, "transcriptPath", "transcript_path"))
 	if prompt != "" && signature != "" {
 		state, err := loadRunLoopState(root)

@@ -49,6 +49,13 @@ func Inspect(repoRoot string) (*Board, error) {
 	}
 	body, err := os.ReadFile(overviewPath)
 	if errors.Is(err, os.ErrNotExist) {
+		if cfg.Configured {
+			return nil, &ValidationError{Issues: []Issue{{
+				ID: "task/overview/missing", Path: cfg.OverviewPath,
+				Message:     "the explicitly configured TASK overview is missing",
+				Remediation: "restore " + cfg.OverviewPath + " or disable task_lifecycle explicitly",
+			}}}
+		}
 		return nil, nil
 	}
 	if err != nil {

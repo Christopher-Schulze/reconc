@@ -80,6 +80,8 @@ type SessionState struct {
 	StopPolicyReportHash       string                     `json:"stop_policy_report_hash,omitempty"`
 	LastStopBlockViolationHash string                     `json:"last_stop_block_violation_hash,omitempty"`
 	PendingToolCalls           map[string]PendingToolCall `json:"pending_tool_calls,omitempty"`
+	MaterialEvents             uint64                     `json:"material_events,omitempty"`
+	LastMaterialSignature      string                     `json:"last_material_signature,omitempty"`
 	EvidenceOverflow           bool                       `json:"evidence_overflow,omitempty"`
 	EvidenceOverflowReason     string                     `json:"evidence_overflow_reason,omitempty"`
 }
@@ -524,6 +526,20 @@ func AppendClaim(state SessionState, claim string) SessionState {
 // AppendCommandResult adds one command-execution outcome.
 func AppendCommandResult(state SessionState, result CommandResult) SessionState {
 	appendBoundedCommandResult(&state, result)
+	return state
+}
+
+// RecordMaterialEvent advances the bounded semantic-progress clock for a
+// write or command event. Reads intentionally do not count as progress.
+func RecordMaterialEvent(state SessionState, signature string) SessionState {
+	signature = strings.TrimSpace(signature)
+	if signature == "" || signature == state.LastMaterialSignature {
+		return state
+	}
+	state.LastMaterialSignature = signature
+	if state.MaterialEvents < ^uint64(0) {
+		state.MaterialEvents++
+	}
 	return state
 }
 

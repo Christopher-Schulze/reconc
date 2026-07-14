@@ -1,5 +1,7 @@
 package agentsession
 
+import "time"
+
 // SetRunLoopRepoMode is the AI-facing repository-wide on/off switch used by
 // `reconc run on|off`. Prompt-scoped `/runloop` remains session mode.
 func SetRunLoopRepoMode(repoRoot string, enabled bool) (RunLoopStatusInfo, error) {
@@ -13,7 +15,14 @@ func SetRunLoopRepoMode(repoRoot string, enabled bool) (RunLoopStatusInfo, error
 	}
 	before, after, err := mutateRunLoopState(root, func(state runLoopState) runLoopState {
 		if enabled {
-			return runLoopState{Enabled: true, Mode: runLoopModeRepo}
+			if state.Enabled && state.Mode == runLoopModeRepo {
+				return state
+			}
+			return runLoopState{
+				Enabled:   true,
+				Mode:      runLoopModeRepo,
+				EnabledAt: time.Now().UTC().Format(time.RFC3339Nano),
+			}
 		}
 		return runLoopState{DisabledReason: "command_off"}
 	})

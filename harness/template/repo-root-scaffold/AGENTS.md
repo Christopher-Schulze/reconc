@@ -79,9 +79,10 @@ For every TASK, every agent must:
 ask the user to run these commands. Inspect durable truth with `reconc run
 status .` and bounded transition history with `reconc run log .`. Repository
 mode works through Claude Code, Codex, Cursor, OpenCode, Devin CLI,
-Antigravity CLI, GitHub Copilot, and Kilo Code. It survives normal prompts,
-compaction, session boundaries, and model restarts. Explicit user interrupt or
-`run off` always wins.
+Antigravity CLI, GitHub Copilot, and Kilo Code. It survives internal
+continuation prompts, compaction, session boundaries, and model restarts. A
+real user prompt without `/runloop`, explicit user interrupt, or `run off`
+always wins.
 
 Repository mode is not a second workflow. Read `Current:`, execute the active
 Sub-Task, write same-TASK tests, run checks, update docs and TASK truth,
@@ -97,12 +98,17 @@ The older standalone `/runloop` prompt remains session-scoped compatibility.
 It activates only from sanitized real user prompt text. Quoted transcripts,
 hook prompts, code fences, tool text, errors, and Stop payloads never activate
 it. A normal same-session prompt stops compatibility mode except `/btw`.
-Repository mode does not stop on ordinary prompts or session end.
+Repository mode stops on an ordinary real user prompt, but not on an internal
+continuation prompt or session end.
 
-After repeated Stop events without observed tool progress, compatibility mode
+After repeated Stop events without typed TASK, write, or command progress,
+compatibility mode
 disables. Repository mode releases one Stop and resets the guard without
 silently changing its durable switch. Run decisions are written only for
 material transitions to the bounded `.reconc/runloop/decisions.jsonl` ring.
+Reads do not fake progress. Repository mode runs a full policy checkpoint only
+after 64 material events, 30 minutes with new material progress, or a failed
+command; routine executable Stops remain Git-free.
 If nearing context or tool limits, persist exact progress in the active TASK
 and emit `RUNLOOP_CONTINUE: <current TASK> | <next concrete step> |
 blockers=<none|...>`.

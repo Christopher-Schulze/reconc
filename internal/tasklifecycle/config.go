@@ -36,10 +36,12 @@ const (
 type CompletionConfig struct {
 	RequiredSections       []string `json:"required_sections,omitempty"`
 	RequiredEvidenceFields []string `json:"required_evidence_fields,omitempty"`
+	RequireCommitted       bool     `json:"require_committed,omitempty"`
 }
 
 // Config is the resolved task_lifecycle section from .reconc.yml.
 type Config struct {
+	Configured   bool             `json:"configured"`
 	Enabled      bool             `json:"enabled"`
 	Profile      Profile          `json:"profile"`
 	OverviewPath string           `json:"overview_path"`
@@ -66,6 +68,7 @@ type rawConfig struct {
 type rawCompletion struct {
 	RequiredSections       []string `yaml:"required_sections"`
 	RequiredEvidenceFields []string `yaml:"required_evidence_fields"`
+	RequireCommitted       bool     `yaml:"require_committed"`
 }
 
 // LoadConfig reads only task_lifecycle from .reconc.yml. Unknown policy keys
@@ -90,6 +93,7 @@ func LoadConfig(repoRoot string) (Config, error) {
 	if file.TaskLifecycle == nil {
 		return cfg, nil
 	}
+	cfg.Configured = true
 	cfg = mergeRawConfig(cfg, file.TaskLifecycle)
 	if err := cfg.validate(); err != nil {
 		return Config{}, err
@@ -118,6 +122,7 @@ func mergeRawConfig(cfg Config, raw *rawConfig) Config {
 	}
 	cfg.Completion.RequiredSections = cleanUnique(raw.Completion.RequiredSections)
 	cfg.Completion.RequiredEvidenceFields = cleanUnique(raw.Completion.RequiredEvidenceFields)
+	cfg.Completion.RequireCommitted = raw.Completion.RequireCommitted
 	return cfg
 }
 

@@ -137,7 +137,8 @@ Claims can also be supplied via an events file, stdin JSON, or by a registered h
 The typed registry supports Claude Code, Codex, Cursor, OpenCode, Devin CLI,
 Antigravity CLI, GitHub Copilot, and Kilo. Run `reconc hook status . --json`
 instead of guessing whether an artifact is installed, active, degraded,
-shadowed, or unsupported.
+shadowed, or unsupported. Static activation and rate-limited live
+`last_seen`/`last_event` evidence are separate facts.
 
 - **Claude Code**: strongest integration. `PreToolUse` blocks
   protected file edits before execution, `PostToolUse` records reads /
@@ -186,10 +187,15 @@ pre-commit, and terminal Stop gates remain active. A blocked, complete, absent,
 or invalid TASK plane never receives routine continuation.
 
 `run off` and explicit user interrupt disable repository mode immediately.
-Normal prompts and session end do not. Six repeated no-progress continuations
+The next real user prompt without `/runloop` also disables it; internal
+continuation prompts and session end do not. Six repeated no-progress
+continuations
 release one Stop without disabling repository mode, preventing an unbreakable
-host loop. The older `/runloop` prompt remains session-scoped compatibility and
-retains its stricter policy behavior.
+host loop. Reads do not count as progress; TASK changes, writes, and command
+outcomes do. Long runs receive bounded policy checkpoints after 64 material
+events, 30 minutes with new progress, or a failed command. The older `/runloop`
+prompt remains session-scoped compatibility and retains its stricter policy
+behavior.
 
 ## Output Modes (Token Efficiency)
 

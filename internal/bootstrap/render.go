@@ -183,6 +183,8 @@ func renderPolicy(packs []string, tasks bool) string {
 		builder.WriteString("  detail_dir: docs/tasks\n")
 		builder.WriteString("  done_dir: docs/tasks/done\n")
 		builder.WriteString("  done_visible: 10\n")
+		builder.WriteString("  completion:\n")
+		builder.WriteString("    require_committed: true\n")
 	}
 	builder.WriteString("rules: []\n")
 	return builder.String()

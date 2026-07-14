@@ -43,8 +43,9 @@ When autonomous execution is requested, the agent enables the durable switch
 itself with `reconc run on .`, verifies it with `reconc run status .`, and
 disables it with `reconc run off .` on explicit user stop or a real blocker.
 Never ask the user to operate these commands. Repository mode works across all
-supported agent runtimes, persists across ordinary prompts and sessions, and
-continues while TASK state is executable. It claims queued work when
+supported agent runtimes and continues while TASK state is executable. A real
+user prompt without `/runloop`, explicit interrupt, or `run off` cancels it;
+internal continuation prompts and session end preserve it. It claims queued work when
 `Current: none`, releases terminal or blocked state to the hard Stop gate, and
 fails closed on invalid TASK state. The older standalone `/runloop` prompt
 remains session-scoped compatibility. Run control is not a parallel workflow:

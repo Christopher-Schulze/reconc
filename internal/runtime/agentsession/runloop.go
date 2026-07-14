@@ -43,6 +43,9 @@ type runLoopState struct {
 	LastCurrent          string      `json:"last_current,omitempty"`
 	AwaitingContinuation bool        `json:"awaiting_continuation,omitempty"`
 	LastPromptSignature  string      `json:"last_prompt_signature,omitempty"`
+	EnabledAt            string      `json:"enabled_at,omitempty"`
+	LastPolicyCheckpoint string      `json:"last_policy_checkpoint,omitempty"`
+	CheckpointMaterial   uint64      `json:"checkpoint_material_events,omitempty"`
 }
 
 // RunLoopDecision is one append-only record in
@@ -560,13 +563,26 @@ func computeRunLoopNextState(repoRoot string, state runLoopState, sessionID, run
 		}
 	case runLoopUserPrompt:
 		if state.Enabled && state.Mode == runLoopModeRepo {
+			if internalPrompt {
+				branch = "preserve_repo_internal_prompt"
+				return state, branch
+			}
 			if intent == runLoopIntentEnable {
 				_ = clearRunLoopStopFile(repoRoot)
 				branch = "preserve_repo_enable_prompt"
-			} else {
-				branch = "preserve_repo_prompt"
+				return state, branch
 			}
-			return state, branch
+			activeRunID := state.ActiveRunID
+			if activeRunID == "" {
+				activeRunID = sessionID
+			}
+			state = runLoopState{
+				SessionID:      sessionID,
+				Runtime:        runtime,
+				DisabledReason: "user_prompt",
+			}
+			_ = writeRunLoopStopFileForRuntime(repoRoot, sessionID, activeRunID, runtime, "user_prompt")
+			return state, "disable_repo_user_prompt"
 		}
 		if intent != runLoopIntentEnable && state.Enabled && !runLoopSessionMatchesRuntime(state, sessionID, runtime) {
 			return state, "preserve_other_runtime_prompt"
@@ -592,6 +608,7 @@ func computeRunLoopNextState(repoRoot string, state runLoopState, sessionID, run
 			state.DisabledReason = ""
 			state.NoProgressNudges = 0
 			state.AwaitingContinuation = false
+			state.EnabledAt = time.Now().UTC().Format(time.RFC3339Nano)
 			_ = clearRunLoopStopFile(repoRoot)
 			branch = "enable_user_prompt"
 		} else if wasEnabled {
@@ -606,12 +623,11 @@ func computeRunLoopNextState(repoRoot string, state runLoopState, sessionID, run
 			branch = "disabled_user_prompt"
 		}
 	case runLoopToolEvent:
-		if !state.Enabled || runLoopStateApplies(state, sessionID, runtime) {
-			state.AwaitingContinuation = false
-			branch = "tool_event_clear_awaiting"
-		} else {
-			branch = "tool_event_preserve_other_runtime"
-		}
+		// Tool events do not mutate runloop state. Semantic progress is derived
+		// from the session's bounded material-event counter at Stop time, so
+		// reads cannot reset the no-progress guard and no extra runloop write is
+		// needed for every tool call.
+		branch = "tool_event_preserve"
 	case runLoopStopEvent:
 		interrupted := isUserStopInterrupt(payload)
 		if interrupted && (!state.Enabled || runLoopStateApplies(state, sessionID, runtime)) {

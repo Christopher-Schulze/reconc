@@ -6,7 +6,7 @@
 pack:
   format_version: "1"
   name: go-assurance
-  summary: Current Go verification plus changed-file network and process boundaries.
+  summary: Current Go verification plus changed-file network, process, and concurrency boundaries.
   stacks: ["go"]
   capabilities:
     - id: go-live-verification
@@ -20,6 +20,10 @@ pack:
     - id: go-process-boundary
       inputs: ["changed Go source"]
       evidence: ["native-source-scan"]
+      rules: ["preset-go-assurance"]
+    - id: go-concurrency-boundary
+      inputs: ["changed Go source"]
+      evidence: ["native-Go-AST-scan"]
       rules: ["preset-go-assurance"]
   conflicts: []
 
@@ -49,5 +53,10 @@ rules:
         scan_paths: ["**/*.go"]
         exclude_paths: ["**/*_test.go", "vendor/**"]
         site_patterns: ["exec.Command(", "exec.CommandContext("]
-        guard_markers: ["SysProcAttr", "ApplyHardening", "ArmHardening", "Pdeathsig"]
+        guard_markers: ["exec.CommandContext(", "SysProcAttr", "ApplyHardening", "ArmHardening", "Pdeathsig"]
         marker_window_lines: 20
+      - id: go-concurrency
+        type: go_concurrency_boundary
+        applicable_if: ["go.mod"]
+        scan_paths: ["**/*.go"]
+        exclude_paths: ["**/*_test.go", "vendor/**"]

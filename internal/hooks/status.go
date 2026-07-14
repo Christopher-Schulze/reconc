@@ -1,12 +1,14 @@
 package hooks
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // ActivationState is configuration truth, not proof that a live process has
@@ -30,6 +32,9 @@ type PlatformStatus struct {
 	State         ActivationState `json:"state"`
 	Detail        string          `json:"detail"`
 	MissingEvents []string        `json:"missing_events,omitempty"`
+	LastSeen      string          `json:"last_seen,omitempty"`
+	LastEvent     string          `json:"last_event,omitempty"`
+	LivenessError string          `json:"liveness_error,omitempty"`
 }
 
 // InspectPlatforms validates every registered artifact and activation probe.
@@ -203,7 +208,9 @@ func activationTokenPresent(path, token string) bool {
 }
 
 func gitHooksShadowPath(root string) string {
-	command := exec.Command("git", "-C", root, "config", "--get", "core.hooksPath")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, "git", "-C", root, "config", "--get", "core.hooksPath")
 	output, err := command.Output()
 	if err != nil {
 		return ""

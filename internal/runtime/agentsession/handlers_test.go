@@ -1222,7 +1222,7 @@ func TestRunStopOtherSessionNormalPromptDoesNotClearRunLoopState(t *testing.T) {
 	}
 }
 
-func TestRunStopRunLoopToolUseClearsAwaitingContinuation(t *testing.T) {
+func TestRunStopRunLoopSemanticProgressIgnoresReadsAndCountsWrites(t *testing.T) {
 	_ = os.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
 	gitInitHelper(t, repo)
@@ -1242,16 +1242,28 @@ func TestRunStopRunLoopToolUseClearsAwaitingContinuation(t *testing.T) {
 		t.Fatalf("post tool use: exit=%d stderr=%s", post.ExitCode, post.Stderr)
 	}
 	state, _ := loadRunLoopState(repo)
-	if state.AwaitingContinuation {
-		t.Fatal("expected tool use to clear awaiting_continuation")
+	if !state.AwaitingContinuation {
+		t.Fatal("read-only tool use must preserve awaiting_continuation")
 	}
 	second := RunStop(repo, []byte(`{"session_id":"ses_tool"}`))
 	if !strings.Contains(second.Stdout, "LET ME COOK") {
 		t.Fatalf("expected second stop after tool use to continue, got: %s", second.Stdout)
 	}
 	afterSecond, _ := loadRunLoopState(repo)
-	if afterSecond.NoProgressNudges != 0 {
-		t.Fatalf("tool progress must reset no-progress nudges, got %d", afterSecond.NoProgressNudges)
+	if afterSecond.NoProgressNudges != 1 {
+		t.Fatalf("read-only activity must count as no progress, got %d nudges", afterSecond.NoProgressNudges)
+	}
+	post = RunPostToolUse(repo, []byte(`{"session_id":"ses_tool","tool_name":"Write","tool_input":{"file_path":"src/a.go"}}`))
+	if post.ExitCode != 0 {
+		t.Fatalf("post write: exit=%d stderr=%s", post.ExitCode, post.Stderr)
+	}
+	third := RunStop(repo, []byte(`{"session_id":"ses_tool"}`))
+	if !strings.Contains(third.Stdout, "LET ME COOK") {
+		t.Fatalf("expected third stop after material progress to continue, got: %s", third.Stdout)
+	}
+	afterThird, _ := loadRunLoopState(repo)
+	if afterThird.NoProgressNudges != 0 {
+		t.Fatalf("material progress must reset no-progress nudges, got %d", afterThird.NoProgressNudges)
 	}
 }
 
@@ -1438,7 +1450,7 @@ func TestRunStopRunLoopNoProgressGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.NoProgressNudges = 5 // simulate previous stop nudges
-	s.LastCurrent = runLoopTaskProgressFingerprint(runState)
+	s.LastCurrent = runLoopTaskProgressFingerprint(runState) + "|material=0"
 	s.AwaitingContinuation = true
 	_ = saveRunLoopState(repo, s)
 

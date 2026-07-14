@@ -221,6 +221,8 @@ Validate registered artifacts and activation requirements. States are
 The command checks malformed, incomplete, non-executable, or drifted managed
 artifacts, the repo-local wrapper, Codex's enable flag, Git `core.hooksPath`,
 Copilot disable settings, Kilo pure mode, and legacy Kilo plugin placement.
+Each platform also reports rate-limited `last_seen`/`last_event` live-runtime
+evidence separately from static activation state.
 
 ### `reconc hook sync-scaffold <repo-root-scaffold> [--json]`
 Regenerate source-controlled hook artifacts inside a template
@@ -268,8 +270,10 @@ read the two bounded archives plus the live file in chronological order.
 
 ### `reconc run on [repo] [--json]` / `reconc run off [repo] [--json]`
 AI-operated repository-wide autonomous TASK switch. `on` applies to every
-registered agent runtime and persists across normal prompts and session ends.
-`off` releases Stop immediately. Both commands are idempotent and append a
+registered agent runtime. A real user prompt without `/runloop`, `off`, or an
+explicit interrupt releases Stop immediately; runtime-internal continuation
+prompts do not cancel the loop, and session end alone preserves it. Both
+commands are idempotent and append a
 decision record only when state actually changes. The agent executes these
 commands itself; it must not ask the user to operate Reconc.
 
@@ -299,7 +303,10 @@ for a `Current:` line plus detail `State:` fields. `Current: none` is the
 explicit valid logbook state when no TASK is active. Configure the profile,
 overview/detail paths, Done window, and required completion evidence under
 `task_lifecycle` in `.reconc.yml`; `auto` succeeds only on an unambiguous exact
-grammar match.
+grammar match. Explicit configuration makes the overview mandatory.
+`completion.require_committed: true` requires the terminal TASK control-plane
+changes to be committed, reusing the terminal Stop snapshot without adding Git
+work to executable TASK continuations.
 
 - `task status [repo] [--json]`: current TASK, current Sub-Task, bounded blockers, missing configured evidence, exact next action
 - `task validate [repo] [--json]`: full live-control-plane validation with stable issue IDs

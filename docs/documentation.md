@@ -195,6 +195,13 @@ Briefings expose at most five TASK blockers, three policy gates, and six
 missing evidence fields; each free-text value is capped at 240 characters and
 omitted counts remain explicit.
 
+Once `task_lifecycle` is explicitly present, its overview path is mandatory:
+missing, unreadable, unsafe, or invalid TASK state fails closed instead of
+degrading to `absent`. `completion.require_committed: true` additionally blocks
+terminal TASK completion while the configured overview or detail tree is dirty.
+The terminal gate reuses the single Git status snapshot already built for Stop;
+it adds no Git process to routine executable continuations.
+
 `reconc task status|validate|check-done` are read-only. `claim`, `block`,
 `resume`, `split`, `promote`, and `archive` serialize through a cross-platform
 lock and publish one integrity-checked transaction. `split` accepts only
@@ -394,6 +401,7 @@ selected gate type are rejected instead of being silently ignored.
 | `process_boundary` | Changed process-spawn sites have a nearby non-comment hardening marker or reasoned path exemption | Matching changed files |
 | `substantive_proof` | Fresh measured samples, computed aggregate, threshold result, live command, and byte-matched evidence agree | Full configured proof manifest |
 | `live_verification` | Every or any configured command has current successful evidence | Current session |
+| `go_concurrency_boundary` | Changed production Go files contain no bare `go` statements without a reasoned path exemption | Matching changed Go files, parsed with the Go AST |
 
 Example:
 
@@ -443,6 +451,10 @@ same bytes from the SSD.
 Network and process gates are deterministic source heuristics, not semantic AST
 proofs; select narrow site patterns and guard markers, and use explicit
 reasoned exemptions where language-specific control flow cannot be expressed.
+`go_concurrency_boundary` is different: it parses only changed matching `.go`
+files with the Go standard-library parser and fails closed on invalid source.
+It is opt-in through `go-assurance`, excluded from tests and `vendor/**` by the
+bundled pack, runs no subprocess, and has zero effect on non-Go repositories.
 
 ## Architecture
 
@@ -504,8 +516,11 @@ routes, config and scaffold paths, failure behavior, timeout budgets, output
 budgets, installation strategy, and activation probes. `reconc hook status
 [repo] [--json]` validates every registered artifact and reports `absent`,
 `installed`, `active`, `degraded`, `shadowed`, or `unsupported`. `active` means
-the configuration is complete and discoverable; it does not claim that a live
-agent process already loaded it.
+the configuration is complete and discoverable. Separate `last_seen` and
+`last_event` fields report whether a live runtime executed Reconc's
+session-start route. Liveness is stored outside the repository and written at
+most once per runtime every six hours, so it does not amplify tool or Stop
+writes.
 
 The registry assigns 5-second observation/session budgets, 10-second pre-tool
 and permission budgets, and 30-second Stop budgets instead of one blanket
@@ -563,8 +578,9 @@ to `tools/reconc/bin/hook` instead of embedding a release number.
 Repository mode persists across sessions for Claude Code, Codex, Cursor,
 OpenCode, Devin CLI, Antigravity CLI, GitHub Copilot, and Kilo Code. The agent
 runs these commands itself; users do not need to operate Reconc. Normal prompts
-and session ends preserve repository mode, while `reconc run off` and an
-explicit interrupt disable it.
+without `/runloop`, `reconc run off`, and explicit interrupts disable it;
+runtime-internal continuation prompts preserve it. Session end alone preserves
+repository mode.
 
 Repository continuation reads the configured TASK profile through the typed
 lifecycle package. An active executable TASK yields `continue`; an empty
@@ -583,8 +599,11 @@ sanitized user prompt text starts it, a normal same-session prompt stops it
 except for `/btw`, and evidence-bearing Stop events retain the exact-evidence
 policy-cache behavior.
 
-`awaiting_continuation` is not a hard stop reason by itself. Tool events clear
-it without a Git dirty scan. After repeated no-progress stops, session mode
+`awaiting_continuation` is not a hard stop reason by itself. Reads and unrelated
+hook events do not clear it. A bounded material-event counter advances only for
+write and command outcomes, so TASK changes or real tool progress reset the
+guard without a Git dirty scan or per-tool run-state write. After repeated
+no-progress stops, session mode
 disables; repository mode releases one Stop and resets its guard without
 silently changing the durable switch. Run decisions are persisted only for
 material state transitions in `.reconc/runloop/decisions.jsonl`, with bounded
@@ -595,7 +614,11 @@ rule IDs, and the saved report path. PreToolUse evaluates only pre-execution
 write/shell rules,
 generated Claude/Codex/Cursor/Devin/Antigravity/Copilot configs do not spawn PreToolUse for
 read-only matchers, all PostToolUse / after-shell events record evidence only,
-and repo-wide policy audits run only at terminal Stop or explicit Reconc checks.
+and repo-wide policy audits run at terminal Stop, explicit Reconc checks, or a
+bounded repository-run checkpoint. Checkpoints occur after 64 material events,
+after 30 minutes with new material progress, or after a failed command; a clean
+checkpoint records one rate-limited state transition and returns to the fast
+continuation path.
 Routine executable repository continuations are the bounded exception described
 above; terminal Stop and explicit checks remain hard enforcement points.
 Claude Code generated hooks pass

@@ -89,26 +89,28 @@ func TestRunControlFailsClosedWithoutReplacingCorruptState(t *testing.T) {
 	}
 }
 
-func TestRepoRunModePersistsAcrossRuntimesPromptsAndSessionEnd(t *testing.T) {
+func TestRepoRunModeCancelsOnRealPromptAcrossRuntimes(t *testing.T) {
 	repo := t.TempDir()
-	if _, err := SetRunLoopRepoMode(repo, true); err != nil {
-		t.Fatal(err)
-	}
 	for _, runtimeName := range []string{"claude", "codex", "cursor", "opencode", "devin", "antigravity", "copilot", "kilo"} {
+		if _, err := SetRunLoopRepoMode(repo, true); err != nil {
+			t.Fatal(err)
+		}
+		internal := &HookPayload{SessionID: runtimeName + "-session", Prompt: "Reconc run is ON. Continue TASK 012."}
+		if err := reconcileRunLoopStateForRuntime(repo, internal.SessionID, runtimeName, internal, runLoopUserPrompt); err != nil {
+			t.Fatalf("%s internal prompt: %v", runtimeName, err)
+		}
+		preserved, err := loadRunLoopState(repo)
+		if err != nil || !preserved.Enabled {
+			t.Fatalf("%s internal continuation disabled repo mode: %+v err=%v", runtimeName, preserved, err)
+		}
 		payload := &HookPayload{SessionID: runtimeName + "-session", Prompt: "ordinary prompt"}
 		if err := reconcileRunLoopStateForRuntime(repo, payload.SessionID, runtimeName, payload, runLoopUserPrompt); err != nil {
 			t.Fatalf("%s prompt: %v", runtimeName, err)
 		}
-		if err := reconcileRunLoopStateForRuntime(repo, payload.SessionID, runtimeName, payload, runLoopSessionEnd); err != nil {
-			t.Fatalf("%s session end: %v", runtimeName, err)
+		state, err := loadRunLoopState(repo)
+		if err != nil || state.Enabled || state.DisabledReason != "user_prompt" {
+			t.Fatalf("%s normal prompt did not cancel repo mode: %+v err=%v", runtimeName, state, err)
 		}
-	}
-	state, err := loadRunLoopState(repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !state.Enabled || state.Mode != runLoopModeRepo {
-		t.Fatalf("repo mode did not persist: %+v", state)
 	}
 }
 
@@ -185,7 +187,7 @@ func TestRepoRunNoProgressGuardReleasesOneStopWithoutDisabling(t *testing.T) {
 	}
 	if _, _, err := mutateRunLoopState(repo, func(state runLoopState) runLoopState {
 		state.NoProgressNudges = 5
-		state.LastCurrent = runLoopTaskProgressFingerprint(runState)
+		state.LastCurrent = runLoopTaskProgressFingerprint(runState) + "|material=0"
 		state.AwaitingContinuation = true
 		return state
 	}); err != nil {

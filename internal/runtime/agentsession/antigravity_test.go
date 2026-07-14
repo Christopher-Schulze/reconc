@@ -180,6 +180,29 @@ func TestAntigravityPreInvocationActivatesSlashRunloopOnlyOnce(t *testing.T) {
 	}
 }
 
+func TestAntigravityNormalTranscriptPromptCancelsRepositoryRun(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	if _, err := SetRunLoopRepoMode(repo, true); err != nil {
+		t.Fatal(err)
+	}
+	transcript := filepath.Join(t.TempDir(), "transcript.jsonl")
+	if err := os.WriteFile(transcript, []byte(`{"id":"m2","role":"user","text":"normal follow-up"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte(`{"conversationId":"ag-repo","invocationNum":2,"initialNumSteps":1,"transcriptPath":` + strconvQuote(transcript) + `}`)
+	result := RunAntigravityPreInvocation(repo, payload)
+	if result.ExitCode != 0 {
+		t.Fatalf("pre invocation: %s", result.Stderr)
+	}
+	state, err := loadRunLoopState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Enabled || state.DisabledReason != "user_prompt" {
+		t.Fatalf("normal Antigravity prompt did not cancel repository run: %+v", state)
+	}
+}
+
 func strconvQuote(value string) string {
 	body, _ := json.Marshal(value)
 	return string(body)

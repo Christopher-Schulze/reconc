@@ -16,6 +16,8 @@ task_lifecycle:
   detail_dir: docs/tasks
   done_dir: docs/tasks/done
   done_visible: 10
+  completion:
+    require_committed: true
 # Add repo-local rules below. They compose with the preset rules
 # listed above; duplicate rule IDs are a hard error.
 rules: []

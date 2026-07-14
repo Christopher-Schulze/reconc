@@ -93,6 +93,27 @@ func TestPublishedSchemaPropertiesMatchEmittedGoTypes(t *testing.T) {
 	assertPropertiesMatch(t, schemaDefinition(t, fixPlan, "remediation"), runtime.Remediation{})
 }
 
+func TestPublishedAssuranceEnumMatchesPolicyKinds(t *testing.T) {
+	lock := readSchemaDocument(t, "policy-lock.schema.json")
+	definitions := lock["$defs"].(map[string]interface{})
+	assurance := definitions["assurance"].(map[string]interface{})
+	properties := assurance["properties"].(map[string]interface{})
+	typeSchema := properties["type"].(map[string]interface{})
+	raw := typeSchema["enum"].([]interface{})
+	got := make([]string, len(raw))
+	for i, value := range raw {
+		got[i] = value.(string)
+	}
+	wantKinds := policy.AllAssuranceKinds()
+	want := make([]string, len(wantKinds))
+	for i, kind := range wantKinds {
+		want[i] = string(kind)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("published assurance enum = %v, want %v", got, want)
+	}
+}
+
 func readSchemaDocument(t *testing.T, name string) map[string]interface{} {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("..", "..", "schemas", "v1", name))

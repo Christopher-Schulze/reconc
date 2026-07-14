@@ -325,8 +325,9 @@ being silently disabled:
 
 Canonical repository mode is controlled by `reconc run on|off`; the older
 standalone `/runloop` prompt creates session-scoped compatibility mode. Both
-use the same locked state, but repository mode survives ordinary prompts and
-session ends. Explicit interrupt and `run off` always disable it.
+use the same locked state. Repository mode survives session end and internal
+continuation prompts, but a real user prompt without `/runloop`, explicit
+interrupt, or `run off` disables it.
 
 Stop reads TASK state through `tasklifecycle.InspectRunState`. Executable
 `continue` and `claim` dispositions return the runtime-native continuation
@@ -334,8 +335,14 @@ response before policy report construction and without a Git process.
 `blocked`, `complete`, and `absent` dispositions continue to the terminal Stop
 gate; `invalid` fails closed. This fast path never bypasses PreToolUse, TASK
 mutation transactions, pre-commit, or terminal policy enforcement. The
-no-progress guard disables session mode; repository mode releases one Stop and
-resets the guard while leaving the explicit durable switch enabled.
+no-progress guard compares typed TASK state plus a write/command material-event
+counter; reads and unrelated events cannot fake progress. Session mode disables
+at the limit; repository mode releases one Stop and resets the guard while
+leaving the explicit durable switch enabled. Repository runs leave the fast
+path only after 64 new material events, 30 minutes with new progress, or a
+failed command, then reuse the normal full Stop report as a policy checkpoint.
+Explicitly configured TASK state fails closed if its overview disappears, and
+optional committed completion reuses that terminal report's Git snapshot.
 
 ### require_command_success redirect tolerance
 
