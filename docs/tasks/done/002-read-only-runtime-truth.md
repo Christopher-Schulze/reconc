@@ -18,16 +18,26 @@ atomic lockfile writer that must be retained.
 
 ## Sub-Tasks
 
-- [~] Trace every compile and freshness call from public command entry points.
-- [ ] Introduce the explicit refresh contract without weakening atomic publication.
-- [ ] Convert inspection and evaluation paths to strict read-only lockfile loading.
-- [ ] Repair metrics, help, completion, docs, and tests as one public contract.
-- [ ] Run the full verification set and archive the TASK.
+- [x] Trace every compile and freshness call from public command entry points.
+- [x] Introduce the explicit refresh contract without weakening atomic publication.
+- [x] Convert inspection and evaluation paths to strict read-only lockfile loading.
+- [x] Repair metrics, help, completion, docs, and tests as one public contract.
+- [x] Run the full verification set and archive the TASK.
 
 ## Notes
 
 Approved areas: 3 Read-only contract break; 5 CLI drift. Golem commit
 `45d70e919` is a reference, not a patch source.
+
+Implemented `refresh` as an explicit alias over the atomic compiler pipeline,
+removed runtime and CLI auto-compilation, centralized strict lockfile
+validation for diagnostics, repaired schema/source-count checks, added
+truthful latest and time-windowed audit metrics, and registered the previously
+missing `runloop` completion surface.
+
+Proof: root and nested harness `go test`, `go test -race -count=1`, `go vet`,
+and `go build` all pass. Live standalone `reconc status .` reports 5 rules, 4
+sources, and a fresh lockfile.
 
 ## Deviations
 

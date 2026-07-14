@@ -18,6 +18,7 @@ import (
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/parser"
 	"reconc.dev/reconc/internal/presets"
+	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 	"reconc.dev/reconc/internal/templates"
 )
@@ -91,34 +92,8 @@ func doctorCheckLockfileFreshness(discovery ingest.DiscoveryResult) doctorCheck 
 		check.Detail = firstDiscoveryWarning(discovery, "no reconc policy markers discovered")
 		return check
 	}
-	if discovery.LockfilePath == nil {
-		check.Detail = "compiled lockfile missing; run `reconc compile`"
-		return check
-	}
-
-	payload, err := readDoctorLockfile(discovery.RepoRoot)
-	if err != nil {
+	if err := runtime.ValidatePolicyLockfile(discovery.RepoRoot); err != nil {
 		check.Detail = err.Error()
-		return check
-	}
-	if err := validateLockfileRepoRoot(discovery.RepoRoot, payload); err != nil {
-		check.Detail = err.Error()
-		return check
-	}
-	stored, _ := payload["source_digest"].(string)
-	if len(stored) != 64 {
-		check.Detail = "compiled lockfile source_digest is missing or invalid; run `reconc compile`"
-		return check
-	}
-
-	bundle, err := ingest.LoadPolicySources(discovery.RepoRoot)
-	if err != nil {
-		check.Detail = err.Error()
-		return check
-	}
-	current := compiler.ComputeSourceDigest(bundle)
-	if stored != current {
-		check.Detail = fmt.Sprintf("source_digest mismatch: lock=%s current=%s; run `reconc compile`", short12(stored), short12(current))
 		return check
 	}
 

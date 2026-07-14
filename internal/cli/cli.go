@@ -85,6 +85,8 @@ func Run(argv []string, version string, stdout, stderr io.Writer) error {
 		return runDoctor(argv[1:], stdout, stderr)
 	case "compile":
 		return runCompile(argv[1:], version, stdout, stderr)
+	case "refresh":
+		return runRefresh(argv[1:], version, stdout, stderr)
 	case "check":
 		return runCheck(argv[1:], stdout, stderr)
 	case "assert":
@@ -92,7 +94,7 @@ func Run(argv []string, version string, stdout, stderr io.Writer) error {
 	case "init":
 		return runInit(argv[1:], stdout, stderr)
 	case "status":
-		return runStatus(argv[1:], version, stdout, stderr)
+		return runStatus(argv[1:], stdout, stderr)
 	case "ci":
 		return runCI(argv[1:], stdout, stderr)
 	case "hook":
@@ -126,17 +128,17 @@ func Run(argv []string, version string, stdout, stderr io.Writer) error {
 	case "template":
 		return runTemplate(argv[1:], stdout, stderr)
 	case "session-briefing":
-		return runSessionBriefing(argv[1:], version, stdout, stderr)
+		return runSessionBriefing(argv[1:], stdout, stderr)
 	case "context":
 		return runContext(argv[1:], stdout, stderr)
 	case "start":
-		return runStart(argv[1:], version, stdout, stderr)
+		return runStart(argv[1:], stdout, stderr)
 	case "post-task-check":
-		return runPostTaskCheck(argv[1:], version, stdout, stderr)
+		return runPostTaskCheck(argv[1:], stdout, stderr)
 	case "delta":
 		return runDelta(argv[1:], stdout, stderr)
 	case "done":
-		return runDone(argv[1:], version, stdout, stderr)
+		return runDone(argv[1:], stdout, stderr)
 	case "spec":
 		return runSpec(argv[1:], stdout, stderr)
 	case "coverage":
@@ -184,6 +186,17 @@ func teeToFile(w io.Writer, path string) (io.Writer, func() error, error) {
 // .reconc/policy.lock.json. Returns a CLIError with exit 1 on any
 // pipeline failure (PolicySourceError, RuleValidationError, etc.).
 func runCompile(args []string, version string, stdout, stderr io.Writer) error {
+	return runCompileCommand("compile", args, version, stdout, stderr)
+}
+
+// runRefresh implements the explicit policy-refresh command. It intentionally
+// shares the compiler pipeline with `compile`; the distinct name makes every
+// read-only command's remediation precise without hiding repository writes.
+func runRefresh(args []string, version string, stdout, stderr io.Writer) error {
+	return runCompileCommand("refresh", args, version, stdout, stderr)
+}
+
+func runCompileCommand(command string, args []string, version string, stdout, stderr io.Writer) error {
 	repo := "."
 	jsonOut := false
 	strictConflicts := false
@@ -199,18 +212,18 @@ func runCompile(args []string, version string, stdout, stderr io.Writer) error {
 		case "--output":
 			val, ok := nextArgValue(args, &i, a)
 			if !ok {
-				return &CLIError{ExitCode: 1, Message: "reconc compile: --output requires a path"}
+				return &CLIError{ExitCode: 1, Message: "reconc " + command + ": --output requires a path"}
 			}
 			outputPath = val
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "Usage: reconc compile [repo] [--json] [--strict-conflicts] [--output PATH]")
-			fmt.Fprintln(stdout, "Compile policy sources into .reconc/policy.lock.json.")
+			fmt.Fprintf(stdout, "Usage: reconc %s [repo] [--json] [--strict-conflicts] [--output PATH]\n", command)
+			fmt.Fprintln(stdout, "Explicitly compile policy sources into .reconc/policy.lock.json.")
 			fmt.Fprintln(stdout, "--strict-conflicts: exit 1 if any rule conflicts are detected.")
 			fmt.Fprintln(stdout, "--output PATH: write the primary output to stdout and PATH.")
 			return nil
 		default:
 			if len(a) > 0 && a[0] == '-' {
-				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc compile: unknown flag %q", a)}
+				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc %s: unknown flag %q", command, a)}
 			}
 			repo = a
 		}
@@ -219,11 +232,11 @@ func runCompile(args []string, version string, stdout, stderr io.Writer) error {
 
 	compiled, err := compiler.CompileRepoPolicy(repo, version)
 	if err != nil {
-		return &CLIError{ExitCode: 1, Message: "reconc compile: " + err.Error()}
+		return &CLIError{ExitCode: 1, Message: "reconc " + command + ": " + err.Error()}
 	}
 	out, closeOutput, err := teeToFile(stdout, outputPath)
 	if err != nil {
-		return &CLIError{ExitCode: 1, Message: "reconc compile: open output file: " + err.Error()}
+		return &CLIError{ExitCode: 1, Message: "reconc " + command + ": open output file: " + err.Error()}
 	}
 	defer func() { _ = closeOutput() }()
 
@@ -231,10 +244,10 @@ func runCompile(args []string, version string, stdout, stderr io.Writer) error {
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(compiled); err != nil {
-			return &CLIError{ExitCode: 1, Message: "reconc compile: json encode: " + err.Error()}
+			return &CLIError{ExitCode: 1, Message: "reconc " + command + ": json encode: " + err.Error()}
 		}
 		if strictConflicts && len(compiled.Conflicts) > 0 {
-			return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc compile: %d rule conflict(s) detected under --strict-conflicts", len(compiled.Conflicts))}
+			return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc %s: %d rule conflict(s) detected under --strict-conflicts", command, len(compiled.Conflicts))}
 		}
 		return nil
 	}
@@ -256,7 +269,7 @@ func runCompile(args []string, version string, stdout, stderr io.Writer) error {
 		}
 	}
 	if strictConflicts && len(compiled.Conflicts) > 0 {
-		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc compile: %d rule conflict(s) detected under --strict-conflicts", len(compiled.Conflicts))}
+		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc %s: %d rule conflict(s) detected under --strict-conflicts", command, len(compiled.Conflicts))}
 	}
 	return nil
 }
@@ -1006,16 +1019,10 @@ func runVerify(args []string, stdout, stderr io.Writer) error {
 			add("policy parse", "FAIL", verr.Error())
 		} else {
 			add("policy parse", "OK", fmt.Sprintf("%d rules from %d sources", validation.ruleCount, validation.sourceCount))
-			if discovery.LockfilePath == nil {
-				add("lockfile fresh", "WARN", "no lockfile (run `reconc compile`)")
-			} else if payload, err := readLockfileSummary(discovery.RepoRoot); err != nil {
-				add("lockfile fresh", "FAIL", err.Error())
-			} else if err := validateLockfileRepoRoot(discovery.RepoRoot, payload); err != nil {
-				add("lockfile fresh", "FAIL", err.Error())
-			} else if storedDigest, _ := payload["source_digest"].(string); storedDigest == validation.sourceDigest {
+			if err := runtime.ValidatePolicyLockfile(discovery.RepoRoot); err == nil {
 				add("lockfile fresh", "OK", filepath.Join(discovery.RepoRoot, ingest.LockfilePath))
 			} else {
-				add("lockfile fresh", "FAIL", "stale lockfile (run `reconc compile`)")
+				add("lockfile fresh", "FAIL", err.Error())
 			}
 		}
 		// Git pre-commit hook
@@ -1087,11 +1094,14 @@ func runWhy(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc why: " + err.Error()}
 	}
-	if !discovery.Discovered || discovery.LockfilePath == nil {
-		return &CLIError{ExitCode: 1, Message: "reconc why: no compiled lockfile; run `reconc compile` first"}
+	if !discovery.Discovered {
+		return &CLIError{ExitCode: 1, Message: "reconc why: no policy markers discovered"}
+	}
+	if err := runtime.ValidatePolicyLockfile(discovery.RepoRoot); err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc why: " + err.Error()}
 	}
 
-	lockPath := filepath.Join(discovery.RepoRoot, *discovery.LockfilePath)
+	lockPath := filepath.Join(discovery.RepoRoot, ingest.LockfilePath)
 	data, err := os.ReadFile(lockPath)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc why: read lockfile: " + err.Error()}
@@ -1477,7 +1487,7 @@ func runAdopt(args []string, stdout, stderr io.Writer) error {
 		for _, id := range added {
 			fmt.Fprintf(stdout, "  - %s\n", id)
 		}
-		fmt.Fprintln(stdout, "\nNext: reconc compile")
+		fmt.Fprintln(stdout, "\nNext: reconc refresh")
 		return nil
 	}
 
@@ -2032,7 +2042,7 @@ func runTemplateShow(args []string, stdout, stderr io.Writer) error {
 // Intentionally skips project-convention-specific inputs (todo.md,
 // spec.md, changelog.md) so the command works in any repo without
 // configuration. Those can be added by the caller's wrapper.
-func runSessionBriefing(args []string, version string, stdout, stderr io.Writer) error {
+func runSessionBriefing(args []string, stdout, stderr io.Writer) error {
 	repo := "."
 	jsonOut := false
 	for _, a := range args {
@@ -2055,7 +2065,7 @@ func runSessionBriefing(args []string, version string, stdout, stderr io.Writer)
 		return &CLIError{ExitCode: 1, Message: "reconc session-briefing: " + err.Error()}
 	}
 
-	briefing := buildSessionBriefing(abs, version)
+	briefing := buildSessionBriefing(abs)
 
 	if jsonOut {
 		enc := json.NewEncoder(stdout)
@@ -2071,13 +2081,16 @@ func runSessionBriefing(args []string, version string, stdout, stderr io.Writer)
 		fmt.Fprintf(stdout, "  Rules:         %d active, %d sources\n", v, briefing["source_count"])
 	}
 	if v, ok := briefing["conflicts"].(int); ok && v > 0 {
-		fmt.Fprintf(stdout, "  Conflicts:     %d (run `reconc compile` to see)\n", v)
+		fmt.Fprintf(stdout, "  Conflicts:     %d (run `reconc refresh` to inspect)\n", v)
 	} else {
 		fmt.Fprintln(stdout, "  Conflicts:     none")
 	}
 	if v, ok := briefing["audit_enabled"].(bool); ok && v {
-		fmt.Fprintf(stdout, "  Audit log:     %d entries (%d last hour, %d blocking)\n",
-			briefing["audit_total"], briefing["audit_last_hour"], briefing["audit_blocking_24h"])
+		fmt.Fprintf(stdout, "  Audit log:     %d entries (%d last hour, %d blocking events last 24h)\n",
+			briefing["audit_total"], briefing["audit_last_hour"], briefing["audit_blocking_events_24h"])
+		if decision, ok := briefing["audit_latest_decision"].(string); ok && decision != "" {
+			fmt.Fprintf(stdout, "  Latest audit:  %s (%d blocking violations)\n", decision, briefing["audit_latest_blocking_count"])
+		}
 		if top, ok := briefing["audit_top_rule"].(string); ok && top != "" {
 			fmt.Fprintf(stdout, "  Top rule:      %s (%d fires)\n", top, briefing["audit_top_rule_count"])
 		}
@@ -2093,7 +2106,7 @@ func runSessionBriefing(args []string, version string, stdout, stderr io.Writer)
 // buildSessionBriefing collects the facts a session-start agent needs
 // in one decode. Returns a map so text + JSON output render from the
 // same source.
-func buildSessionBriefing(repoRoot string, version string) map[string]interface{} {
+func buildSessionBriefing(repoRoot string) map[string]interface{} {
 	out := map[string]interface{}{
 		"repo_root":       repoRoot,
 		"lockfile_status": "unknown",
@@ -2112,75 +2125,37 @@ func buildSessionBriefing(repoRoot string, version string) map[string]interface{
 		return out
 	}
 	out["repo_root"] = discovery.RepoRoot
-	if err := ensureFreshLockfile(discovery.RepoRoot, version); err != nil {
-		out["lockfile_status"] = "auto-compile failed: " + err.Error()
-		out["next_action"] = "fix policy sources, then rerun the command"
-		return out
-	}
-
-	if discovery.LockfilePath == nil {
-		rediscovered, err := ingest.DiscoverPolicyRepo(discovery.RepoRoot)
-		if err == nil {
-			discovery = rediscovered
-		}
-		if discovery.LockfilePath == nil {
-			out["lockfile_status"] = "config found but no lockfile"
-			out["next_action"] = "fix policy sources, then rerun the command"
-			return out
-		}
-	}
-	lockPath := filepath.Join(discovery.RepoRoot, *discovery.LockfilePath)
-	lockInfo, err := os.Stat(lockPath)
-	if err != nil {
-		out["lockfile_status"] = "lockfile missing: " + err.Error()
-		out["next_action"] = "run `reconc compile " + repoRoot + "`"
-		return out
-	}
-	out["lockfile_modified"] = lockInfo.ModTime().UTC().Format(time.RFC3339)
-
-	// Try to read rule_count + source_count from the lockfile (both
-	// are already summarised at the top level by the compiler).
-	if data, err := os.ReadFile(lockPath); err == nil {
-		var payload map[string]interface{}
-		if err := json.Unmarshal(data, &payload); err == nil {
-			if rc, ok := payload["rule_count"].(float64); ok {
-				out["rule_count"] = int(rc)
-			}
-			if sc, ok := payload["source_count"].(float64); ok {
-				out["source_count"] = int(sc)
-			}
-		}
-	}
-
 	if validation, err := validatePolicyReadOnly(discovery.RepoRoot); err != nil {
 		out["lockfile_status"] = "source error: " + err.Error()
-		out["next_action"] = "fix policy source parsing, then rerun the command"
+		out["next_action"] = "fix policy sources, then run `reconc refresh " + discovery.RepoRoot + "`"
 	} else {
 		out["source_count"] = validation.sourceCount
-		if payload, err := readLockfileSummary(discovery.RepoRoot); err != nil {
-			out["lockfile_status"] = "lockfile unreadable: " + err.Error()
-			out["next_action"] = "fix lockfile state, then rerun the command"
-		} else if storedDigest, _ := payload["source_digest"].(string); storedDigest == validation.sourceDigest {
-			out["lockfile_status"] = "fresh"
-		} else {
-			out["lockfile_status"] = "stale"
-			out["next_action"] = "rerun the command; auto-compile should refresh this state"
-		}
 		out["conflicts"] = validation.conflicts
+		if err := runtime.ValidatePolicyLockfile(discovery.RepoRoot); err != nil {
+			out["lockfile_status"] = err.Error()
+			out["next_action"] = "run `reconc refresh " + discovery.RepoRoot + "`"
+		} else if payload, err := readLockfileSummary(discovery.RepoRoot); err != nil {
+			out["lockfile_status"] = "lockfile unreadable: " + err.Error()
+			out["next_action"] = "run `reconc refresh " + discovery.RepoRoot + "`"
+		} else {
+			out["lockfile_status"] = "fresh"
+			out["rule_count"] = int(jsonNumberAsIntDefault(payload["rule_count"], 0))
+			out["source_count"] = int(jsonNumberAsIntDefault(payload["source_count"], 0))
+			lockPath := filepath.Join(discovery.RepoRoot, ingest.LockfilePath)
+			if lockInfo, err := os.Stat(lockPath); err == nil {
+				out["lockfile_modified"] = lockInfo.ModTime().UTC().Format(time.RFC3339)
+			}
+		}
 	}
 
 	// Audit stats: if the log exists, summarise the last 24 hours.
 	if stats, err := audit.Stats(discovery.RepoRoot); err == nil && stats.TotalEntries > 0 {
 		out["audit_enabled"] = true
 		out["audit_total"] = stats.TotalEntries
-		out["audit_blocking_24h"] = stats.BlockingFires
-		// Count last-hour entries without re-scanning: use Tail with Since filter.
-		since := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano)
-		if hourly, err := audit.Tail(discovery.RepoRoot, audit.TailOptions{Since: since}); err == nil {
-			out["audit_last_hour"] = len(hourly)
-		} else {
-			out["audit_last_hour"] = 0
-		}
+		out["audit_last_hour"] = stats.EntriesLastHour
+		out["audit_blocking_events_24h"] = stats.BlockingEntriesLast24h
+		out["audit_latest_decision"] = stats.LatestDecision
+		out["audit_latest_blocking_count"] = stats.LatestBlockingCount
 		if len(stats.TopRules) > 0 {
 			out["audit_top_rule"] = stats.TopRules[0].RuleID
 			out["audit_top_rule_count"] = stats.TopRules[0].Count
@@ -2189,7 +2164,7 @@ func buildSessionBriefing(repoRoot string, version string) map[string]interface{
 
 	// Suggest a next action if one is obvious.
 	if cnt, ok := out["conflicts"].(int); ok && cnt > 0 {
-		out["next_action"] = "address " + itoaCLI(cnt) + " rule conflict(s) (run `reconc compile` for details)"
+		out["next_action"] = "address " + itoaCLI(cnt) + " rule conflict(s), then run `reconc refresh " + discovery.RepoRoot + "`"
 	}
 	return out
 }
@@ -2328,7 +2303,7 @@ func runContextSize(args []string, stdout, stderr io.Writer) error {
 //
 // Never overwrites an existing start.md without --force (same safety
 // contract as init / hook install).
-func runStart(args []string, version string, stdout, stderr io.Writer) error {
+func runStart(args []string, stdout, stderr io.Writer) error {
 	repo := "."
 	writePath := ""
 	force := false
@@ -2371,7 +2346,7 @@ func runStart(args []string, version string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc start: " + err.Error()}
 	}
-	data := buildStartData(abs, version)
+	data := buildStartData(abs)
 	if jsonOut && minimal {
 		return &CLIError{ExitCode: 1, Message: "reconc start: --json and --minimal are mutually exclusive"}
 	}
@@ -2401,8 +2376,8 @@ func runStart(args []string, version string, stdout, stderr io.Writer) error {
 
 // buildStartData gathers the facts start.md needs. Returns a map so
 // text + JSON render from the same source of truth.
-func buildStartData(repoRoot string, version string) map[string]interface{} {
-	briefing := buildSessionBriefing(repoRoot, version)
+func buildStartData(repoRoot string) map[string]interface{} {
+	briefing := buildSessionBriefing(repoRoot)
 	briefing["generated_at"] = time.Now().UTC().Format(time.RFC3339)
 
 	// Recent audit entries: last 5 decisions if the log is enabled.
@@ -2441,7 +2416,7 @@ func renderStartMarkdown(d map[string]interface{}) string {
 		b.WriteString(fmt.Sprintf("- **Rules:** %d active across %d source(s)\n", rc, sc))
 	}
 	if cnt, ok := d["conflicts"].(int); ok && cnt > 0 {
-		b.WriteString(fmt.Sprintf("- **Conflicts:** %d (run `reconc compile` to inspect)\n", cnt))
+		b.WriteString(fmt.Sprintf("- **Conflicts:** %d (run `reconc refresh` to inspect)\n", cnt))
 	} else {
 		b.WriteString("- **Conflicts:** none\n")
 	}
@@ -2450,9 +2425,13 @@ func renderStartMarkdown(d map[string]interface{}) string {
 	if enabled, _ := d["audit_enabled"].(bool); enabled {
 		total, _ := d["audit_total"].(int)
 		hour, _ := d["audit_last_hour"].(int)
-		blocking, _ := d["audit_blocking_24h"].(int)
-		b.WriteString(fmt.Sprintf("- Audit log: %d entries (%d in the last hour, %d blocking)\n",
+		blocking, _ := d["audit_blocking_events_24h"].(int)
+		b.WriteString(fmt.Sprintf("- Audit log: %d entries (%d in the last hour, %d blocking events in the last 24h)\n",
 			total, hour, blocking))
+		if decision, ok := d["audit_latest_decision"].(string); ok && decision != "" {
+			count, _ := d["audit_latest_blocking_count"].(int)
+			b.WriteString(fmt.Sprintf("- Latest decision: `%s` (%d blocking violations)\n", decision, count))
+		}
 		if top, ok := d["audit_top_rule"].(string); ok && top != "" {
 			cnt, _ := d["audit_top_rule_count"].(int)
 			b.WriteString(fmt.Sprintf("- Top firing rule: `%s` (%d fires)\n", top, cnt))
@@ -2529,7 +2508,7 @@ type taskGateReport struct {
 	OK       bool            `json:"ok"`
 }
 
-func buildTaskGateReport(repo string, version string, windowMinutes int, requireCleanGit bool) (taskGateReport, error) {
+func buildTaskGateReport(repo string, windowMinutes int, requireCleanGit bool) (taskGateReport, error) {
 	abs, err := filepath.Abs(repo)
 	if err != nil {
 		return taskGateReport{}, err
@@ -2549,33 +2528,18 @@ func buildTaskGateReport(repo string, version string, windowMinutes int, require
 
 	// 1. Lockfile freshness
 	discovery, derr := ingest.DiscoverPolicyRepo(abs)
-	if derr != nil || !discovery.Discovered {
-		addCheck("repo discovered", "FAIL", fmt.Sprintf("%v", derr))
-	} else if discovery.LockfilePath == nil {
-		if err := ensureFreshLockfile(discovery.RepoRoot, version); err != nil {
-			addCheck("lockfile fresh", "FAIL", "auto-compile failed: "+err.Error())
-		} else {
-			addCheck("lockfile fresh", "OK", ingest.LockfilePath)
+	if derr != nil {
+		addCheck("repo discovered", "FAIL", derr.Error())
+	} else if !discovery.Discovered {
+		detail := "no policy markers discovered"
+		if len(discovery.Warnings) > 0 {
+			detail = discovery.Warnings[0]
 		}
+		addCheck("repo discovered", "FAIL", detail)
+	} else if err := runtime.ValidatePolicyLockfile(discovery.RepoRoot); err != nil {
+		addCheck("lockfile fresh", "FAIL", err.Error())
 	} else {
-		if err := ensureFreshLockfile(discovery.RepoRoot, version); err != nil {
-			addCheck("lockfile fresh", "FAIL", "auto-compile failed: "+err.Error())
-		} else {
-			discovery, _ = ingest.DiscoverPolicyRepo(discovery.RepoRoot)
-		}
-		validation, verr := validatePolicyReadOnly(discovery.RepoRoot)
-		payload, lerr := readLockfileSummary(discovery.RepoRoot)
-		if verr != nil {
-			addCheck("lockfile fresh", "FAIL", verr.Error())
-		} else if lerr != nil {
-			addCheck("lockfile fresh", "FAIL", lerr.Error())
-		} else if err := validateLockfileRepoRoot(discovery.RepoRoot, payload); err != nil {
-			addCheck("lockfile fresh", "FAIL", err.Error())
-		} else if storedDigest, _ := payload["source_digest"].(string); storedDigest != validation.sourceDigest {
-			addCheck("lockfile fresh", "FAIL", "stale lockfile after auto-compile")
-		} else {
-			addCheck("lockfile fresh", "OK", *discovery.LockfilePath)
-		}
+		addCheck("lockfile fresh", "OK", ingest.LockfilePath)
 	}
 
 	// 2 + 3. Audit log
@@ -2616,7 +2580,7 @@ func buildTaskGateReport(repo string, version string, windowMinutes int, require
 	return report, nil
 }
 
-func runPostTaskCheck(args []string, version string, stdout, stderr io.Writer) error {
+func runPostTaskCheck(args []string, stdout, stderr io.Writer) error {
 	repo := "."
 	jsonOut := false
 	requireCleanGit := false
@@ -2654,7 +2618,7 @@ func runPostTaskCheck(args []string, version string, stdout, stderr io.Writer) e
 		i++
 	}
 
-	report, err := buildTaskGateReport(repo, version, windowMinutes, requireCleanGit)
+	report, err := buildTaskGateReport(repo, windowMinutes, requireCleanGit)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc post-task-check: " + err.Error()}
 	}
@@ -2678,7 +2642,7 @@ func runPostTaskCheck(args []string, version string, stdout, stderr io.Writer) e
 	return nil
 }
 
-func runDone(args []string, version string, stdout, stderr io.Writer) error {
+func runDone(args []string, stdout, stderr io.Writer) error {
 	repo := "."
 	jsonOut := false
 	requireCleanGit := false
@@ -2716,7 +2680,7 @@ func runDone(args []string, version string, stdout, stderr io.Writer) error {
 		i++
 	}
 
-	report, err := buildTaskGateReport(repo, version, windowMinutes, requireCleanGit)
+	report, err := buildTaskGateReport(repo, windowMinutes, requireCleanGit)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc done: " + err.Error()}
 	}
@@ -3468,7 +3432,7 @@ func compileOnce(stdout, stderr io.Writer, repoRoot, version string) {
 	fmt.Fprintf(stdout, "[%s] compiled %d rules from %d sources in %s\n",
 		ts, compiled.RuleCount, compiled.SourceCount, dur.Round(time.Millisecond))
 	if len(compiled.Conflicts) > 0 {
-		fmt.Fprintf(stdout, "          %d conflict(s): run `reconc compile` for details\n", len(compiled.Conflicts))
+		fmt.Fprintf(stdout, "          %d conflict(s): run `reconc refresh` for details\n", len(compiled.Conflicts))
 	}
 }
 
@@ -4822,7 +4786,7 @@ func runInit(args []string, stdout, stderr io.Writer) error {
 //
 // One-line policy health summary. Returns exit 0 always (it's a
 // diagnostic, not an enforcement command).
-func runStatus(args []string, version string, stdout, stderr io.Writer) error {
+func runStatus(args []string, stdout, stderr io.Writer) error {
 	repo := "."
 	jsonOut := false
 	outputPath := ""
@@ -4866,39 +4830,21 @@ func runStatus(args []string, version string, stdout, stderr io.Writer) error {
 	if !discovery.Discovered {
 		issues = append(issues, "no policy markers found")
 	} else {
-		if err := ensureFreshLockfile(discovery.RepoRoot, version); err != nil {
-			issues = append(issues, err.Error())
-		} else if refreshed, err := ingest.DiscoverPolicyRepo(discovery.RepoRoot); err == nil {
-			discovery = refreshed
-		}
-		bundle, err := ingest.LoadPolicySources(discovery.RepoRoot)
+		validation, err := validatePolicyReadOnly(discovery.RepoRoot)
 		if err != nil {
 			issues = append(issues, err.Error())
 		} else {
-			sourceCount = len(bundle.Sources)
-			if discovery.LockfilePath == nil {
-				issues = append(issues, "no lockfile (run `reconc compile`)")
+			sourceCount = validation.sourceCount
+			if err := runtime.ValidatePolicyLockfile(discovery.RepoRoot); err != nil {
+				issues = append(issues, err.Error())
+			} else if payload, err := readLockfileSummary(discovery.RepoRoot); err != nil {
+				issues = append(issues, err.Error())
 			} else {
-				payload, err := readLockfileSummary(discovery.RepoRoot)
-				if err != nil {
-					issues = append(issues, err.Error())
-				} else {
-					ruleCount = int(jsonNumberAsIntDefault(payload["rule_count"], 0))
-					defaultMode, _ = payload["default_mode"].(string)
-					storedDigest, _ := payload["source_digest"].(string)
-					liveDigest := compiler.ComputeSourceDigest(bundle)
-					if err := validateLockfileRepoRoot(discovery.RepoRoot, payload); err != nil {
-						issues = append(issues, err.Error())
-					} else if storedDigest == liveDigest {
-						lockfileFresh = true
-						healthy = true
-					} else {
-						issues = append(issues, "stale lockfile (run `reconc compile`)")
-					}
-					if storedSourceCount := int(jsonNumberAsIntDefault(payload["source_count"], 0)); storedSourceCount > 0 {
-						sourceCount = storedSourceCount
-					}
-				}
+				ruleCount = int(jsonNumberAsIntDefault(payload["rule_count"], 0))
+				sourceCount = int(jsonNumberAsIntDefault(payload["source_count"], 0))
+				defaultMode, _ = payload["default_mode"].(string)
+				lockfileFresh = true
+				healthy = true
 			}
 		}
 	}
@@ -5020,10 +4966,10 @@ func readLockfileSummary(repoRoot string) (map[string]interface{}, error) {
 func validateLockfileRepoRoot(repoRoot string, payload map[string]interface{}) error {
 	storedRoot, _ := payload["repo_root"].(string)
 	if storedRoot == "" {
-		return fmt.Errorf("compiled lockfile repo_root is missing; re-run `reconc compile`")
+		return fmt.Errorf("compiled lockfile repo_root is missing; run `reconc refresh .`")
 	}
 	if !samePathForCompare(storedRoot, repoRoot) {
-		return fmt.Errorf("compiled lockfile repo_root does not match the discovered repository root; re-run `reconc compile`")
+		return fmt.Errorf("compiled lockfile repo_root does not match the discovered repository root; run `reconc refresh .`")
 	}
 	return nil
 }
@@ -5072,43 +5018,6 @@ func validatePolicyReadOnly(repoRoot string) (*readOnlyPolicyValidation, error) 
 		sourceDigest: compiler.ComputeSourceDigest(bundle),
 		conflicts:    len(conflicts),
 	}, nil
-}
-
-func ensureFreshLockfile(repoRoot string, version string) error {
-	validation, err := validatePolicyReadOnly(repoRoot)
-	if err != nil {
-		return err
-	}
-	payload, err := readLockfileSummary(repoRoot)
-	needsCompile := false
-	if err != nil {
-		needsCompile = true
-	} else if err := validateLockfileRepoRoot(repoRoot, payload); err != nil {
-		return err
-	} else if storedDigest, _ := payload["source_digest"].(string); storedDigest != validation.sourceDigest {
-		needsCompile = true
-	} else if int(jsonNumberAsIntDefault(payload["rule_count"], 0)) != validation.ruleCount {
-		needsCompile = true
-	} else if int(jsonNumberAsIntDefault(payload["source_count"], 0)) != validation.sourceCount {
-		needsCompile = true
-	}
-	if !needsCompile {
-		return nil
-	}
-	if _, err := compiler.CompileRepoPolicy(repoRoot, version); err != nil {
-		return err
-	}
-	payload, err = readLockfileSummary(repoRoot)
-	if err != nil {
-		return err
-	}
-	if err := validateLockfileRepoRoot(repoRoot, payload); err != nil {
-		return err
-	}
-	if storedDigest, _ := payload["source_digest"].(string); storedDigest != validation.sourceDigest {
-		return fmt.Errorf("lockfile source digest is stale after auto-compile")
-	}
-	return nil
 }
 
 func jsonNumberAsIntDefault(v interface{}, def int64) int64 {
@@ -5221,6 +5130,7 @@ Bootstrap & inspection:
 
 Compile & evaluate:
   compile          Compile policy sources into .reconc/policy.lock.json
+  refresh          Explicitly refresh .reconc/policy.lock.json
   ci               Derive write_paths from git diff and run check
   assert           Evaluate one rule by id with --var key=value substitution
   can              Ultra-terse yes/no for an action (e.g. 'reconc can write src/app.go')

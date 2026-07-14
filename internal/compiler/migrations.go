@@ -90,7 +90,7 @@ func MigrateLockfile(payload map[string]interface{}) (map[string]interface{}, []
 		}
 		if !found {
 			return nil, applied, &rerrors.LockfileError{
-				Message: fmt.Sprintf("no migration registered from format_version %s to %s; re-run `reconc compile`", got, LockfileFormatVersion),
+				Message: fmt.Sprintf("no migration registered from format_version %s to %s", got, LockfileFormatVersion),
 			}
 		}
 	}

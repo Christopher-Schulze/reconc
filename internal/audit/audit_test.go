@@ -191,6 +191,12 @@ func TestStatsAggregates(t *testing.T) {
 	if stats.BlockingFires != 2 {
 		t.Errorf("expected 2 blocking fires, got %d", stats.BlockingFires)
 	}
+	if stats.LatestDecision != "block" || stats.LatestBlockingCount != 2 {
+		t.Errorf("wrong latest audit state: decision=%q blocking=%d", stats.LatestDecision, stats.LatestBlockingCount)
+	}
+	if stats.EntriesLastHour != 3 || stats.BlockingEntriesLast24h != 2 {
+		t.Errorf("wrong recent audit counts: hour=%d blocking24h=%d", stats.EntriesLastHour, stats.BlockingEntriesLast24h)
+	}
 	if len(stats.TopRules) < 1 || stats.TopRules[0].RuleID != "r1" || stats.TopRules[0].Count != 2 {
 		t.Errorf("expected r1 as top rule with count 2, got %v", stats.TopRules)
 	}

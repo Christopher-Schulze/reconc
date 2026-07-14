@@ -51,6 +51,12 @@ Verify installation health end-to-end:
 reconc verify .
 ```
 
+After changing policy sources, refresh the generated contract explicitly:
+```bash
+reconc refresh .
+```
+Inspection and enforcement commands never compile or write the lockfile.
+
 ## The Core Decision Loop
 
 ### Before Writing

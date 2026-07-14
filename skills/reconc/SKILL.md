@@ -95,7 +95,7 @@ For a lighter/manual start:
 
 ```bash
 reconc init .
-reconc compile .
+reconc refresh .
 ```
 
 Default new repos should normally use the bundled `default` + `agent` presets.
@@ -183,9 +183,12 @@ reconc preset show agent
 reconc agent-intro           # built-in guide for humans and agents
 ```
 
-`status`, `verify`, and `session-briefing` are diagnostic/read-only. `compile`,
-`bootstrap`, `init`, hook installation, `hook sync-scaffold`, `adopt --apply`,
-and audit logging can write.
+`status`, `verify`, `doctor`, `check`, `ci`, `assert`, `can`, `why`,
+`session-briefing`, `start` without `--write`, `post-task-check`, `done`, and
+`tui` never mutate policy or refresh the lockfile. With `RECONC_AUDIT=1`,
+enforcement commands may append decision records. `refresh`, `compile`,
+`watch`, `bootstrap`, `init`, hook installation, `hook sync-scaffold`,
+`adopt --apply`, and audit logging can write.
 
 ## Platform Model
 
@@ -214,11 +217,12 @@ Never claim stronger enforcement than the platform can provide.
 If `status`, `verify`, or `check` reports a stale or missing lockfile:
 
 ```bash
-reconc compile .
+reconc refresh .
 reconc status .
 ```
 
-Do not hand-edit `.reconc/policy.lock.json`. The lockfile is generated output.
+Read-only commands never refresh implicitly. Do not hand-edit
+`.reconc/policy.lock.json`; it is generated output.
 
 ## Agent Behavior
 

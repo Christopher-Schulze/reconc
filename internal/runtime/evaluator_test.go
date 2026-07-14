@@ -9,6 +9,7 @@ import (
 
 	"reconc.dev/reconc/internal/compiler"
 	rerrors "reconc.dev/reconc/internal/errors"
+	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/policy"
 )
 
@@ -346,35 +347,46 @@ func TestCheckRejectsPathOutsideRepo(t *testing.T) {
 	}
 }
 
-func TestCheckAutoCompilesMissingLockfile(t *testing.T) {
+func TestCheckRequiresExplicitRefreshForMissingLockfile(t *testing.T) {
 	withRECONCHome(t)
 	repo := t.TempDir()
 	writeFile(t, repo, "AGENTS.md", "# project\n")
-	// note: no compile call
 
-	report, err := CheckRepoPolicy(repo, Empty())
-	if err != nil {
-		t.Fatalf("expected missing lockfile to auto-compile, got %v", err)
+	_, err := CheckRepoPolicy(repo, Empty())
+	if err == nil || !strings.Contains(err.Error(), "reconc refresh .") {
+		t.Fatalf("expected explicit refresh error, got %v", err)
 	}
-	if !report.OK {
-		t.Fatalf("expected pass after auto-compile, got %s", report.Decision)
+	if strings.Count(err.Error(), "reconc refresh .") != 1 {
+		t.Fatalf("refresh remediation must appear exactly once, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(repo, ingest.LockfilePath)); !os.IsNotExist(statErr) {
+		t.Fatalf("check must not create a lockfile, stat err=%v", statErr)
 	}
 }
 
-func TestCheckAutoCompilesStaleLockfile(t *testing.T) {
+func TestCheckRequiresExplicitRefreshForStaleLockfile(t *testing.T) {
 	withRECONCHome(t)
 	repo := makeRepo(t, "# project\n", "", "rules:\n  - id: r\n    kind: deny_write\n    paths: ['x']\n    mode: warn\n    message: x\n")
+	lockPath := filepath.Join(repo, ingest.LockfilePath)
+	before, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Modify a source file AFTER compile -> source digest no longer matches.
 	writeFile(t, repo, "policies/rules.yml",
 		"rules:\n  - id: r\n    kind: deny_write\n    paths: ['x']\n    mode: warn\n    message: changed\n")
 
-	report, err := CheckRepoPolicy(repo, Empty())
-	if err != nil {
-		t.Fatalf("expected stale lockfile to auto-compile, got %v", err)
+	_, err = CheckRepoPolicy(repo, Empty())
+	if err == nil || !strings.Contains(err.Error(), "reconc refresh .") {
+		t.Fatalf("expected explicit refresh error, got %v", err)
 	}
-	if !report.OK {
-		t.Fatalf("expected pass after stale auto-compile, got %s", report.Decision)
+	after, readErr := os.ReadFile(lockPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(after) != string(before) {
+		t.Fatal("check modified the stale lockfile")
 	}
 }
 

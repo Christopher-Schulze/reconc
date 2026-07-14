@@ -1,6 +1,6 @@
 # reconc -- Command Reference
 
-Full reference for all 37 subcommands. See `reconc <subcommand> --help` for
+Full reference for all 38 subcommands. See `reconc <subcommand> --help` for
 the exact flag details emitted by the installed binary.
 
 ## Daily path
@@ -67,7 +67,9 @@ pre-commit hook, and agent-hook runtime compatibility. Always exits 0;
 WARN rows flag optional misses.
 
 ### `reconc status [repo] [--json] [--output PATH]`
-One-line policy health summary. Auto-compiles missing/stale lockfiles when policy sources are valid; malformed policy, schema drift, migration drift and repo-root mismatch still surface as issues. Useful as a session-start ping.
+One-line, read-only policy health summary. Missing, stale, malformed,
+schema-drifted, migration-drifted, and wrong-root lockfiles surface as issues
+with explicit `reconc refresh .` remediation. Useful as a session-start ping.
 
 ### `reconc done [repo] [--window N] [--require-clean-git] [--json]`
 Terse task-finish gate. Prints `done` when the lockfile is present,
@@ -83,16 +85,22 @@ is not ready. `--require-clean-git` also requires a clean working tree.
 Produces `.reconc/policy.lock.json` from sources. With
 `--strict-conflicts`, exits 1 when any rule conflict is detected.
 
+### `reconc refresh [repo] [--json] [--strict-conflicts] [--output PATH]`
+Explicit policy refresh. Uses the same deterministic compiler pipeline as
+`compile` and is the canonical remediation emitted by read-only commands.
+
 ### `reconc check [repo] [--read PATH] [--write PATH] [--command CMD] [--command-success CMD] [--command-failure CMD] [--claim NAME] [--auto-claim] [--json] [--terse] [--output PATH]`
 The core policy evaluator. Exit 0 = pass/warn, 2 = block, 1 = error.
 `--terse` emits ~50-token JSON optimised for hook-loop calls.
 `--auto-claim` detects CI environment and auto-asserts `ci-green`.
-Missing/stale lockfiles are auto-compiled before evaluation when policy sources are valid.
+Missing or stale lockfiles fail closed without writing and require
+`reconc refresh .`.
 
 ### `reconc ci [repo] (--staged | --base REF [--head REF]) [--read PATH] [--command CMD] [--claim NAME] [--auto-claim] [--json] [--output PATH]`
 Git-aware check. Derives write paths from the working-tree index or a
 `base..head` range instead of explicit `--write` flags.
-Missing/stale lockfiles are auto-compiled before evaluation when policy sources are valid.
+Missing or stale lockfiles fail closed without writing and require
+`reconc refresh .`.
 
 ### `reconc assert <rule-id> [repo] [--var K=V] [--read PATH] [--write PATH] [--command CMD] [--claim NAME] [--json]`
 Evaluate exactly one rule, ignoring the rest of the lockfile. Useful
@@ -194,7 +202,9 @@ Tail the decision log. Filters combine. `--compact` emits
 `<ts> <event> <decision> <rule_id>`.
 
 ### `reconc audit stats [repo] [--json]`
-Aggregate summary: totals, by-decision, by-event, top rules.
+Aggregate summary: totals, latest decision and blocking count, last-hour
+activity, blocking events in the last 24 hours, by-decision, by-event, and top
+rules.
 
 ### `reconc audit export [repo]`
 Raw JSONL dump on stdout for external tooling.
@@ -215,7 +225,9 @@ Ctrl-C. Read-only: never writes, never blocks the hooks.
 
 ### `reconc session-briefing [repo] [--json]`
 Compact (~400 token) session-start state dump: lockfile state, recent
-audit activity, top firing rule, next action. Auto-compiles missing/stale lockfiles when policy sources are valid, then reports the refreshed state.
+audit activity, latest decision, latest blocking count, top firing rule, and
+next action. It is read-only; missing or stale lockfiles require an explicit
+`reconc refresh .`.
 
 ### `reconc context size [repo] [--limit N] [--files PATH,PATH,...] [--json]`
 Guards the auto-loaded session-file token budget (default 20000
@@ -228,7 +240,8 @@ current state. Reuses session-briefing + audit-tail data. `--minimal`
 emits a compact 3-line summary.
 
 ### `reconc post-task-check [repo] [--window N] [--require-clean-git] [--json]`
-Pre-done gate: auto-refreshable fresh lockfile + no blocking audit entries in the last N minutes (default 10). Exit 1 on any check failure.
+Read-only pre-done gate: valid fresh lockfile + no blocking audit entries in
+the last N minutes (default 10). Exit 1 on any check failure.
 
 ### `reconc delta [repo] [--since RFC3339] [--json]`
 Audit activity since a reference point (default 1h ago), with
@@ -247,7 +260,7 @@ Reads the first percentage from a coverage artefact, compares to
 Dependency-free terminal dashboard for policy state. Shows discovery,
 lockfile freshness, source list, rule list, audit summary, active
 session id, conflicts, and the next action. `--json` emits the same
-snapshot as structured data.
+snapshot as structured data. It never refreshes policy implicitly.
 
 ### `reconc completion <bash|zsh|fish>`
 Emit a shell completion script. Install one-liners:

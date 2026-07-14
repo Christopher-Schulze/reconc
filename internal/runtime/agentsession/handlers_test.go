@@ -1291,6 +1291,9 @@ func writeTaskFixture(t *testing.T, repo string) {
 		[]byte("Current: TASK-0017-Test-Task -> tasks/TASK-0017-Test-Task.md\n\n- [ ] TASK-0017-Test-Task - test -> tasks/TASK-0017-Test-Task.md\n"), 0o644)
 	os.WriteFile(filepath.Join(repo, "docs", "tasks", "TASK-0017-Test-Task.md"),
 		[]byte("# TASK-0017-Test-Task\n\n## Status\n\nState: Active\n\n## Sub-Tasks\n\n- [~] Test sub-task\n- [ ] Next step\n"), 0o644)
+	if _, err := compiler.CompileRepoPolicy(repo, "test"); err != nil {
+		t.Fatalf("refresh task fixture policy: %v", err)
+	}
 }
 
 func setupStopScriptPolicyRepo(t *testing.T, counterPath string, exitCode int, output string) string {

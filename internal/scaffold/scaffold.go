@@ -141,7 +141,7 @@ func Initialize(repoRoot string, opts Options) (*Report, error) {
 	sort.Strings(report.Created)
 	sort.Strings(report.Updated)
 	sort.Strings(report.Skipped)
-	report.NextAction = "Run `reconc compile " + root + "` to build the lockfile from the new config."
+	report.NextAction = "Run `reconc refresh " + root + "` to build the lockfile from the new config."
 	return report, nil
 }
 

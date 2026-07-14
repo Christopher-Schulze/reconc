@@ -229,6 +229,37 @@ func TestRunCompileJSONOutput(t *testing.T) {
 	}
 }
 
+func TestRunRefreshExplicitlyCompilesPolicy(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("# project\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"refresh", repo, "--json"}, "0.1.0-test", &stdout, &stderr); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".reconc", "policy.lock.json")); err != nil {
+		t.Fatalf("refresh must publish the lockfile: %v", err)
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("refresh JSON: %v", err)
+	}
+	if payload["compiler_version"] != "0.1.0-test" {
+		t.Fatalf("unexpected compiler version: %v", payload["compiler_version"])
+	}
+
+	stdout.Reset()
+	if err := Run([]string{"refresh", "--help"}, "0.1.0-test", &stdout, &stderr); err != nil {
+		t.Fatalf("refresh help: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "Usage: reconc refresh") {
+		t.Fatalf("refresh help missing usage: %s", stdout.String())
+	}
+}
+
 func TestRunCompileFailsOnInvalidRule(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
@@ -2905,7 +2936,46 @@ func TestRunStatusOnFreshRepo(t *testing.T) {
 	}
 }
 
-func TestRunStatusAutoCompilesWhenLockfileMissing(t *testing.T) {
+func TestReadOnlyCommandsNeverCreateLockfile(t *testing.T) {
+	commands := map[string]func(string) []string{
+		"assert":          func(repo string) []string { return []string{"assert", "missing-rule", repo} },
+		"can":             func(repo string) []string { return []string{"can", "write", "x.go", repo} },
+		"check":           func(repo string) []string { return []string{"check", repo} },
+		"ci":              func(repo string) []string { return []string{"ci", repo, "--staged"} },
+		"doctor":          func(repo string) []string { return []string{"doctor", repo, "--deep"} },
+		"done":            func(repo string) []string { return []string{"done", repo, "--json"} },
+		"post-task-check": func(repo string) []string { return []string{"post-task-check", repo, "--json"} },
+		"session-briefing": func(repo string) []string {
+			return []string{"session-briefing", repo, "--json"}
+		},
+		"start":  func(repo string) []string { return []string{"start", repo, "--json"} },
+		"status": func(repo string) []string { return []string{"status", repo, "--json"} },
+		"tui":    func(repo string) []string { return []string{"tui", repo, "--json"} },
+		"verify": func(repo string) []string { return []string{"verify", repo, "--json"} },
+		"why":    func(repo string) []string { return []string{"why", "missing-rule", repo} },
+	}
+	for name, argv := range commands {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("RECONC_HOME", t.TempDir())
+			t.Setenv("RECONC_AUDIT", "0")
+			repo := t.TempDir()
+			if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("# project\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if name == "ci" {
+				initGitRepo(t, repo)
+			}
+			var stdout, stderr bytes.Buffer
+			_ = Run(argv(repo), "0.1.0-test", &stdout, &stderr)
+			lockPath := filepath.Join(repo, ".reconc", "policy.lock.json")
+			if _, err := os.Stat(lockPath); !os.IsNotExist(err) {
+				t.Fatalf("%s wrote a lockfile: %v", name, err)
+			}
+		})
+	}
+}
+
+func TestRunStatusIsReadOnlyWhenLockfileMissing(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("# test\n"), 0o644); err != nil {
@@ -2915,11 +2985,40 @@ func TestRunStatusAutoCompilesWhenLockfileMissing(t *testing.T) {
 	if err := Run([]string{"status", repo}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("status: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(repo, ".reconc", "policy.lock.json")); err != nil {
-		t.Fatalf("status should auto-create lockfile; stat err=%v", err)
+	if _, err := os.Stat(filepath.Join(repo, ".reconc", "policy.lock.json")); !os.IsNotExist(err) {
+		t.Fatalf("status must not create a lockfile; stat err=%v", err)
 	}
-	if !strings.Contains(stdout.String(), "lockfile fresh") {
-		t.Fatalf("expected fresh lockfile in status output, got %q", stdout.String())
+	if !strings.Contains(stdout.String(), "reconc refresh .") {
+		t.Fatalf("expected explicit refresh guidance in status output, got %q", stdout.String())
+	}
+}
+
+func TestRunStatusRejectsSchemaDriftWithoutWriting(t *testing.T) {
+	repo := makeCheckRepo(t,
+		"rules:\n  - id: r\n    kind: deny_write\n    paths: ['x']\n    mode: warn\n    message: m\n")
+	lockPath := filepath.Join(repo, ".reconc", "policy.lock.json")
+	data, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	drifted := []byte(strings.Replace(string(data), "https://reconc.dev/schemas/policy-lock/v1", "https://invalid.example/policy-lock/v1", 1))
+	if err := os.WriteFile(lockPath, drifted, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"status", repo}, "0.1.0-test", &stdout, &stderr); err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "[ISSUE]") || !strings.Contains(stdout.String(), "reconc refresh .") {
+		t.Fatalf("status accepted schema drift: %s", stdout.String())
+	}
+	after, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, drifted) {
+		t.Fatal("status modified the schema-drifted lockfile")
 	}
 }
 
@@ -2936,12 +3035,12 @@ func TestRunVerifyIsReadOnlyWhenLockfileMissing(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(repo, ".reconc", "policy.lock.json")); !os.IsNotExist(err) {
 		t.Fatalf("verify must not create lockfile; stat err=%v", err)
 	}
-	if !strings.Contains(stdout.String(), "no lockfile") {
-		t.Fatalf("expected no-lockfile issue in verify output, got %q", stdout.String())
+	if !strings.Contains(stdout.String(), "reconc refresh .") {
+		t.Fatalf("expected explicit refresh guidance in verify output, got %q", stdout.String())
 	}
 }
 
-func TestRunSessionBriefingAutoCompilesWhenLockfileMissing(t *testing.T) {
+func TestRunSessionBriefingIsReadOnlyWhenLockfileMissing(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("# test\n"), 0o644); err != nil {
@@ -2951,11 +3050,11 @@ func TestRunSessionBriefingAutoCompilesWhenLockfileMissing(t *testing.T) {
 	if err := Run([]string{"session-briefing", repo}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("session-briefing: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(repo, ".reconc", "policy.lock.json")); err != nil {
-		t.Fatalf("session-briefing should auto-create lockfile; stat err=%v", err)
+	if _, err := os.Stat(filepath.Join(repo, ".reconc", "policy.lock.json")); !os.IsNotExist(err) {
+		t.Fatalf("session-briefing must not create a lockfile; stat err=%v", err)
 	}
-	if !strings.Contains(stdout.String(), "Lockfile:      fresh") {
-		t.Fatalf("expected fresh lockfile in session-briefing output, got %q", stdout.String())
+	if !strings.Contains(stdout.String(), "reconc refresh "+repo) {
+		t.Fatalf("expected explicit refresh guidance in session-briefing output, got %q", stdout.String())
 	}
 }
 

@@ -565,7 +565,7 @@ func TestBuildStartDataAndRenderStartMarkdown(t *testing.T) {
 		t.Fatalf("expected blocking check before start-data build, got err=%v code=%d", err, ExitCode(err))
 	}
 
-	data := buildStartData(repo, "0.1.0-test")
+	data := buildStartData(repo)
 	if data["generated_at"] == "" {
 		t.Fatalf("expected generated_at in start data: %#v", data)
 	}
@@ -760,33 +760,52 @@ func TestRunHookAndPresetValidationPaths(t *testing.T) {
 }
 
 func TestRunWhyComplexLockfileAndValidation(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("# test\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(repo, ".reconc"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(repo, "policies"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	lockfile := `{
-  "rules": [
-    {
-      "id": "complex",
-      "kind": "all_of",
-      "message": "line one\nline two",
-      "source_path": "policies/rules.yml",
-      "source_block_id": "AGENTS.md:12",
-      "required_files": [{"path": "docs/report.md", "max_age_hours": 24}],
-      "evidence": [{"file": "docs/evidence.md"}],
-      "checks": [{"kind": "require_evidence"}],
-      "script": "scripts/check.sh"
-    }
-  ]
-}`
-	if err := os.WriteFile(filepath.Join(repo, ".reconc", "policy.lock.json"), []byte(lockfile), 0o644); err != nil {
+	policy := "rules:\n  - id: complex\n    kind: deny_write\n    paths: ['generated/**']\n    message: test\n"
+	if err := os.WriteFile(filepath.Join(repo, "policies", "rules.yml"), []byte(policy), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"refresh", repo}, "0.5.0-test", &stdout, &stderr); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	lockPath := filepath.Join(repo, ".reconc", "policy.lock.json")
+	data, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	payload["rules"] = []interface{}{map[string]interface{}{
+		"id":              "complex",
+		"kind":            "all_of",
+		"message":         "line one\nline two",
+		"source_path":     "policies/rules.yml",
+		"source_block_id": "AGENTS.md:12",
+		"required_files":  []interface{}{map[string]interface{}{"path": "docs/report.md", "max_age_hours": 24}},
+		"evidence":        []interface{}{map[string]interface{}{"file": "docs/evidence.md"}},
+		"checks":          []interface{}{map[string]interface{}{"kind": "require_evidence"}},
+		"script":          "scripts/check.sh",
+	}}
+	data, err = json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lockPath, append(data, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout.Reset()
 	if err := Run([]string{"why", "complex", repo}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("why complex: %v", err)
 	}
@@ -796,7 +815,7 @@ func TestRunWhyComplexLockfileAndValidation(t *testing.T) {
 	}
 
 	stdout.Reset()
-	err := Run([]string{"why", "complex", repo, "--json", "--terse"}, "0.5.0-test", &stdout, &stderr)
+	err = Run([]string{"why", "complex", repo, "--json", "--terse"}, "0.5.0-test", &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
 		t.Fatalf("expected why mutually-exclusive error, got %v", err)
 	}

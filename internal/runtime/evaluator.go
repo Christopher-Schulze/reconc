@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"os"
 	"path"
@@ -478,66 +479,26 @@ func scriptRecommendedAction(failures []string) string {
 
 // --- Lockfile loading + freshness ---
 
-const autoCompileVersion = "runtime-auto"
-
 func loadFreshLockfile(root string) (map[string]interface{}, error) {
 	payload, err := loadLockfile(root)
 	if err != nil {
-		if !lockfileCanAutoCompile(err) {
-			return nil, err
-		}
-		return autoCompileAndLoadLockfile(root, err)
+		return nil, lockfileRefreshRequired(err)
 	}
 	if err := validateLockfileFreshness(root, payload); err != nil {
-		if !lockfileCanAutoCompile(err) {
-			return nil, err
-		}
-		return autoCompileAndLoadLockfile(root, err)
+		return nil, lockfileRefreshRequired(err)
 	}
 	return payload, nil
 }
 
-func autoCompileAndLoadLockfile(root string, cause error) (map[string]interface{}, error) {
-	_, err := compiler.CompileRepoPolicy(root, autoCompileVersion)
-	if err != nil {
-		if strings.Contains(err.Error(), "another reconc compile is in progress") {
-			for i := 0; i < 20; i++ {
-				time.Sleep(100 * time.Millisecond)
-				payload, loadErr := loadLockfile(root)
-				if loadErr != nil {
-					continue
-				}
-				if freshErr := validateLockfileFreshness(root, payload); freshErr == nil {
-					return payload, nil
-				}
-			}
-		}
-		return nil, &rerrors.LockfileError{Message: "auto-compile failed after stale lockfile check: " + err.Error(), Cause: cause}
+func lockfileRefreshRequired(err error) error {
+	var lockErr *rerrors.LockfileError
+	if !stderrors.As(err, &lockErr) {
+		return err
 	}
-	payload, err := loadLockfile(root)
-	if err != nil {
-		return nil, err
+	return &rerrors.LockfileError{
+		Message: lockErr.Message + "; explicit refresh required; run `reconc refresh .`",
+		Cause:   lockErr.Cause,
 	}
-	if err := validateLockfileFreshness(root, payload); err != nil {
-		return nil, err
-	}
-	return payload, nil
-}
-
-func lockfileCanAutoCompile(err error) bool {
-	if err == nil {
-		return false
-	}
-	message := err.Error()
-	if strings.Contains(message, "repo_root does not match") ||
-		strings.Contains(message, "schema does not match") ||
-		strings.Contains(message, "migration") ||
-		strings.Contains(message, "format_version") {
-		return false
-	}
-	return strings.Contains(message, "run `reconc compile`") ||
-		strings.Contains(message, "compiled lockfile not found") ||
-		strings.Contains(message, "source_digest does not match")
 }
 
 func loadLockfile(root string) (map[string]interface{}, error) {
@@ -545,7 +506,7 @@ func loadLockfile(root string) (map[string]interface{}, error) {
 	data, err := os.ReadFile(lf)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("compiled lockfile not found at %s; run `reconc compile` before `reconc check`", ingest.LockfilePath)
+			return nil, &rerrors.LockfileError{Message: "compiled lockfile not found at " + ingest.LockfilePath}
 		}
 		return nil, &rerrors.LockfileError{Message: "read lockfile", Cause: err}
 	}
@@ -576,7 +537,7 @@ func loadLockfile(root string) (map[string]interface{}, error) {
 	// lockfiles written by upstream reconc, and vice versa).
 	schemaGot, _ := payload["$schema"].(string)
 	if schemaGot != compiler.DefaultLockfileSchema && schemaGot != compiler.LockfileSchema() {
-		return nil, &rerrors.LockfileError{Message: "compiled lockfile schema does not match this checker; re-run `reconc compile` to refresh it"}
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile schema does not match this checker"}
 	}
 	// Compare both sides after EvalSymlinks so macOS /var <->
 	// /private/var drift doesn't reject legitimate lockfiles.
@@ -585,7 +546,7 @@ func loadLockfile(root string) (map[string]interface{}, error) {
 	// stage of evaluation).
 	storedRoot, _ := payload["repo_root"].(string)
 	if !sameCanonicalPath(storedRoot, root) {
-		return nil, &rerrors.LockfileError{Message: "compiled lockfile repo_root does not match the discovered repository root; re-run `reconc compile`"}
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile repo_root does not match the discovered repository root"}
 	}
 
 	defaultMode, _ := payload["default_mode"].(string)
@@ -603,7 +564,22 @@ func loadLockfile(root string) (map[string]interface{}, error) {
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile must contain an integer 'rule_count'"}
 	}
 	if int(expectedCount) != len(rulesRaw) {
-		return nil, &rerrors.LockfileError{Message: "compiled lockfile rule_count does not match the embedded rules; re-run `reconc compile`"}
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile rule_count does not match the embedded rules"}
+	}
+	sources, ok := payload["sources"].([]interface{})
+	if !ok {
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile must contain a 'sources' list"}
+	}
+	sourceCountNum, ok := payload["source_count"].(json.Number)
+	if !ok {
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile must contain an integer 'source_count'"}
+	}
+	expectedSourceCount, err := sourceCountNum.Int64()
+	if err != nil {
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile must contain an integer 'source_count'"}
+	}
+	if int(expectedSourceCount) != len(sources) {
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile source_count does not match the embedded sources"}
 	}
 
 	return payload, nil
@@ -620,21 +596,43 @@ func validateLockfileFreshness(root string, payload map[string]interface{}) erro
 	}
 
 	if string(parsed.DefaultMode) != payload["default_mode"].(string) {
-		return &rerrors.LockfileError{Message: "compiled lockfile default_mode does not match the current policy sources; re-run `reconc compile`"}
+		return &rerrors.LockfileError{Message: "compiled lockfile default_mode does not match the current policy sources"}
 	}
 	if int(numAsInt(payload["rule_count"])) != len(parsed.Rules) {
-		return &rerrors.LockfileError{Message: "compiled lockfile rule_count does not match the current policy sources; re-run `reconc compile`"}
+		return &rerrors.LockfileError{Message: "compiled lockfile rule_count does not match the current policy sources"}
+	}
+	if int(numAsInt(payload["source_count"])) != len(bundle.Sources) {
+		return &rerrors.LockfileError{Message: "compiled lockfile source_count does not match the current policy sources"}
 	}
 
 	currentDigest := compiler.ComputeSourceDigest(bundle)
 	stored, _ := payload["source_digest"].(string)
 	if len(stored) != 64 {
-		return &rerrors.LockfileError{Message: "compiled lockfile source_digest is missing or invalid; re-run `reconc compile` to refresh it"}
+		return &rerrors.LockfileError{Message: "compiled lockfile source_digest is missing or invalid"}
 	}
 	if stored != currentDigest {
-		return &rerrors.LockfileError{Message: "compiled lockfile source_digest does not match the current policy sources; re-run `reconc compile`"}
+		return &rerrors.LockfileError{Message: "compiled lockfile source_digest does not match the current policy sources"}
 	}
 	return nil
+}
+
+// ValidatePolicyLockfile verifies that the discovered lockfile is readable,
+// structurally valid, and fresh without compiling or writing any repository
+// state. Callers use it for read-only status and gate surfaces.
+func ValidatePolicyLockfile(startPath string) error {
+	discovery, err := ingest.DiscoverPolicyRepo(startPath)
+	if err != nil {
+		return err
+	}
+	if !discovery.Discovered {
+		warning := "no policy markers discovered"
+		if len(discovery.Warnings) > 0 {
+			warning = discovery.Warnings[0]
+		}
+		return fmt.Errorf("%s", warning)
+	}
+	_, err = loadFreshLockfile(discovery.RepoRoot)
+	return err
 }
 
 func numAsInt(v interface{}) int64 {
@@ -1029,7 +1027,7 @@ func evaluateRule(ctx *evalContext, rule map[string]interface{}, defaultMode pol
 			Mode:              policy.ModeBlock,
 			Message:           "scope pattern failed to compile: " + err.Error(),
 			Explanation:       "The rule's scope_paths contains a glob pattern that the matcher could not compile. reconc fails closed here to prevent a malformed scope from silently disabling a rule.",
-			RecommendedAction: "Fix the scope_paths pattern in the rule source, then run `reconc compile` again.",
+			RecommendedAction: "Fix the scope_paths pattern in the rule source, then run `reconc refresh .`.",
 		}, nil
 	}
 	if !matched {

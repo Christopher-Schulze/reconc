@@ -51,7 +51,7 @@ go test -race -count=1 ./...
 go vet ./...
 go build ./cmd/reconc
 go run ./cmd/reconc --help
-go run ./cmd/reconc compile .
+go run ./cmd/reconc refresh .
 go run ./cmd/reconc doctor . --deep
 ```
 
@@ -82,6 +82,13 @@ reconc check . --write path/to/file
 reconc next .
 reconc done .
 ```
+
+`status`, `doctor`, `verify`, `check`, `ci`, `assert`, `can`, `why`,
+`session-briefing`, `post-task-check`, `done`, and `tui` never compile or write
+the lockfile. Missing, stale, malformed, schema-drifted, or wrong-root
+lockfiles fail closed with one explicit remediation: `reconc refresh .`.
+When `RECONC_AUDIT=1`, enforcement commands may still append decision records;
+that opt-in audit write is independent of policy refresh.
 
 Exit codes:
 
@@ -127,14 +134,14 @@ rules:
 Run:
 
 ```bash
-reconc compile .
+reconc refresh .
 reconc check . --write internal/example.go
 reconc check . --write internal/example.go --command-success 'go test ./...'
 ```
 
-The first command compiles policy into the local lockfile. The second command
-shows that a protected source write needs test evidence. The third command
-supplies that evidence.
+The first command explicitly compiles policy into the local lockfile. The
+second command shows that a protected source write needs test evidence. The
+third command supplies that evidence.
 
 ## Command Surface
 
@@ -157,6 +164,7 @@ Bootstrap and inspection:
 Compile and evaluate:
 
 - `compile`
+- `refresh`
 - `ci`
 - `assert`
 - `can`
@@ -205,7 +213,7 @@ local paths in `repo_root` and `discovery.start_path`. Contributors should
 regenerate it locally with:
 
 ```bash
-reconc compile .
+reconc refresh .
 ```
 
 Runtime state is local and ignored:

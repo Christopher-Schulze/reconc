@@ -21,7 +21,7 @@ agent runtimes. No daemon, no Docker requirement, no runtime network dependency.
 AGENTS.md + .reconc.yml + presets + templates
                   |
                   v
-        reconc compile -> .reconc/policy.lock.json
+        reconc refresh -> .reconc/policy.lock.json
                   |
                   v
      CLI checks + git hooks + agent runtime hooks
@@ -98,6 +98,11 @@ reconc next .
 reconc done .
 ```
 
+Inspection and enforcement commands never mutate policy or refresh the
+lockfile implicitly. If policy sources change, they fail closed with one
+explicit remediation: `reconc refresh .`. Opt-in audit logging may still
+append decision records.
+
 For staged changes:
 
 ```bash
@@ -163,7 +168,7 @@ rules:
 Then run:
 
 ```bash
-reconc compile .
+reconc refresh .
 reconc check . --write internal/example.go
 reconc check . --write internal/example.go --command-success 'go test ./...'
 ```

@@ -214,13 +214,17 @@ func matchesFilters(e Entry, opts TailOptions) bool {
 
 // StatsReport is the summary returned by Stats.
 type StatsReport struct {
-	TotalEntries  int            `json:"total_entries"`
-	FirstTS       string         `json:"first_ts,omitempty"`
-	LastTS        string         `json:"last_ts,omitempty"`
-	ByDecision    map[string]int `json:"by_decision"`
-	ByEvent       map[string]int `json:"by_event"`
-	TopRules      []RuleCount    `json:"top_rules"`
-	BlockingFires int            `json:"blocking_fires"`
+	TotalEntries           int            `json:"total_entries"`
+	FirstTS                string         `json:"first_ts,omitempty"`
+	LastTS                 string         `json:"last_ts,omitempty"`
+	LatestDecision         string         `json:"latest_decision,omitempty"`
+	LatestBlockingCount    int            `json:"latest_blocking_count"`
+	EntriesLastHour        int            `json:"entries_last_hour"`
+	BlockingEntriesLast24h int            `json:"blocking_entries_last_24h"`
+	ByDecision             map[string]int `json:"by_decision"`
+	ByEvent                map[string]int `json:"by_event"`
+	TopRules               []RuleCount    `json:"top_rules"`
+	BlockingFires          int            `json:"blocking_fires"`
 }
 
 // RuleCount pairs a rule id with how many entries triggered it.
@@ -242,15 +246,28 @@ func Stats(repoRoot string) (*StatsReport, error) {
 		ByEvent:      map[string]int{},
 	}
 	ruleCounts := map[string]int{}
+	now := time.Now().UTC()
+	hourAgo := now.Add(-time.Hour)
+	dayAgo := now.Add(-24 * time.Hour)
 	for i, e := range entries {
 		if i == 0 {
 			out.FirstTS = e.Timestamp
 		}
 		out.LastTS = e.Timestamp
+		out.LatestDecision = e.Decision
+		out.LatestBlockingCount = e.BlockingCount
 		out.ByDecision[e.Decision]++
 		out.ByEvent[e.Event]++
 		if e.BlockingCount > 0 {
 			out.BlockingFires++
+		}
+		if ts, err := time.Parse(time.RFC3339Nano, e.Timestamp); err == nil {
+			if !ts.Before(hourAgo) {
+				out.EntriesLastHour++
+			}
+			if e.BlockingCount > 0 && !ts.Before(dayAgo) {
+				out.BlockingEntriesLast24h++
+			}
 		}
 		for _, rid := range e.RuleIDs {
 			ruleCounts[rid]++

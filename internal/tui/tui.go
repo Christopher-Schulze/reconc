@@ -6,11 +6,7 @@
 package tui
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -19,6 +15,7 @@ import (
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/parser"
 	"reconc.dev/reconc/internal/policy"
+	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
 
@@ -82,7 +79,7 @@ func Build(repo string) (*View, error) {
 	if err != nil {
 		view.LockfileStatus = "source error"
 		view.Errors = append(view.Errors, err.Error())
-		view.NextAction = "fix policy sources, then run `reconc compile .`"
+		view.NextAction = "fix policy sources, then run `reconc refresh .`"
 		return view, nil
 	}
 	view.SourceCount = len(bundle.Sources)
@@ -98,7 +95,7 @@ func Build(repo string) (*View, error) {
 	if err != nil {
 		view.LockfileStatus = "parse error"
 		view.Errors = append(view.Errors, err.Error())
-		view.NextAction = "fix rule validation, then run `reconc compile .`"
+		view.NextAction = "fix rule validation, then run `reconc refresh .`"
 		return view, nil
 	}
 	view.DefaultMode = parsed.DefaultMode
@@ -117,9 +114,12 @@ func Build(repo string) (*View, error) {
 		view.Conflicts = []compiler.Conflict{}
 	}
 
-	view.LockfileStatus = lockfileStatus(discovery.RepoRoot, compiler.ComputeSourceDigest(bundle))
-	if view.LockfileStatus != "fresh" {
-		view.NextAction = "run `reconc compile .`"
+	if err := runtime.ValidatePolicyLockfile(discovery.RepoRoot); err != nil {
+		view.LockfileStatus = "refresh required"
+		view.Errors = append(view.Errors, err.Error())
+		view.NextAction = "run `reconc refresh .`"
+	} else {
+		view.LockfileStatus = "fresh"
 	}
 
 	if stats, err := audit.Stats(discovery.RepoRoot); err == nil {
@@ -140,26 +140,6 @@ func effectiveMode(mode, defaultMode policy.Mode) policy.Mode {
 		return mode
 	}
 	return defaultMode
-}
-
-func lockfileStatus(repoRoot, liveDigest string) string {
-	data, err := os.ReadFile(filepath.Join(repoRoot, ingest.LockfilePath))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "missing"
-		}
-		return "unreadable"
-	}
-	var payload map[string]interface{}
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.UseNumber()
-	if err := dec.Decode(&payload); err != nil {
-		return "invalid"
-	}
-	if stored, _ := payload["source_digest"].(string); stored == liveDigest {
-		return "fresh"
-	}
-	return "stale"
 }
 
 // RenderText renders View as a compact terminal dashboard.
