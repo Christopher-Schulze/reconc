@@ -20,8 +20,9 @@ Use it to add a small amount of determinism to AI coding sessions:
 - expose one next remediation instead of a giant rule lecture
 - gate task completion with a terse `done` / `blocked` result
 
-Keep the workflow simple. `reconc` is a guardrail, not a project manager, task
-tracker, or substitute for tests and human review.
+Keep the workflow simple. `reconc` may enforce a repository's existing typed
+TASK control plane, but it never invents product priorities, acceptance, test
+evidence, or human approval.
 
 ## Trigger
 
@@ -62,15 +63,16 @@ reconc --help
 ```
 
 If the binary is not installed and the current repo is the `reconc` source
-tree, build a temporary session binary:
+tree, build an owned, pruneable session binary:
 
 ```bash
-go build -o /tmp/reconc ./cmd/reconc
+mkdir -p .reconc/cache
+go build -o .reconc/cache/reconc-session ./cmd/reconc
 ```
 
-Then use `/tmp/reconc` in commands for this session. In any other repo, do not
-invent an install path; tell the user `reconc` is missing and ask whether to
-install or build it.
+Then use `.reconc/cache/reconc-session` in commands for this session. In any
+other repo, do not invent an install path; tell the user `reconc` is missing
+and ask whether to install or build it.
 
 ## Bootstrap A Repo
 
@@ -137,6 +139,12 @@ Before claiming completion:
 reconc done .
 ```
 
+If `reconc task status .` finds a configured TASK control plane, also run
+`reconc task check-done .` and use `reconc task promote .` only after every
+real Sub-Task and configured evidence field is complete. Use `task block`,
+`resume`, or `split` for actual state changes; never hand-edit multiple TASK
+files into a half-transition.
+
 Treat `done` as the minimal task-finish gate:
 
 - `done`: task may be closed
@@ -173,6 +181,8 @@ Use the shortest command that answers the current question:
 
 ```bash
 reconc status .              # one-line health
+reconc task status .         # bounded current TASK context
+reconc task validate .       # typed control-plane validation
 reconc check . ...           # evaluate current evidence
 reconc next .                # next remediation
 reconc done .                # final task gate
@@ -186,6 +196,7 @@ reconc agent-intro           # built-in guide for humans and agents
 ```
 
 `status`, `verify`, `doctor`, `check`, `ci`, `assert`, `can`, `why`,
+`task status`, `task validate`, `task check-done`,
 `session-briefing`, `start` without `--write`, `post-task-check`, `done`, and
 `tui` never mutate policy or refresh the lockfile. With `RECONC_AUDIT=1`,
 enforcement commands may append decision records. `refresh`, `compile`,

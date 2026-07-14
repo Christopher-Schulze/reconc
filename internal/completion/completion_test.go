@@ -38,6 +38,26 @@ func TestGenerateCompletionIncludesHookSyncScaffold(t *testing.T) {
 	}
 }
 
+func TestGenerateCompletionIncludesTaskLifecycle(t *testing.T) {
+	for name, generate := range map[string]func(io.Writer) error{
+		"bash": GenerateBash,
+		"zsh":  GenerateZsh,
+		"fish": GenerateFish,
+	} {
+		t.Run(name, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := generate(&buf); err != nil {
+				t.Fatal(err)
+			}
+			for _, command := range []string{"check-done", "promote", "recover", "split"} {
+				if !strings.Contains(buf.String(), command) {
+					t.Fatalf("%s completion missing task %s", name, command)
+				}
+			}
+		})
+	}
+}
+
 func TestGenerateBashFlagsPerSubcommand(t *testing.T) {
 	var buf bytes.Buffer
 	_ = GenerateBash(&buf)

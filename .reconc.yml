@@ -6,6 +6,12 @@
 extends:
   - default
   - agent
+task_lifecycle:
+  profile: sections-v1
+  overview_path: docs/tasks.md
+  detail_dir: docs/tasks
+  done_dir: docs/tasks/done
+  done_visible: 10
 # Add repo-local rules below. They compose with the preset rules
 # listed above; duplicate rule IDs are a hard error.
 rules: []

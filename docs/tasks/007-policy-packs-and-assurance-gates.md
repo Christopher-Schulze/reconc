@@ -18,7 +18,7 @@ workflow audit.
 
 ## Sub-Tasks
 
-- [ ] Extract reusable gate contracts from Golem without copying product policy.
+- [~] Extract reusable gate contracts from Golem without copying product policy.
 - [ ] Define composable pack capabilities and configuration schemas.
 - [ ] Implement the smallest high-value generic gate set.
 - [ ] Add adversarial effectiveness and bypass proofs.

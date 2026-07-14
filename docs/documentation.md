@@ -84,7 +84,8 @@ reconc done .
 ```
 
 `status`, `doctor`, `verify`, `check`, `ci`, `assert`, `can`, `why`,
-`session-briefing`, `post-task-check`, `done`, and `tui` never compile or write
+`task status`, `task validate`, `task check-done`, `session-briefing`,
+`post-task-check`, `done`, and `tui` never compile or write
 the lockfile. Missing, stale, malformed, schema-drifted, or wrong-root
 lockfiles fail closed with one explicit remediation: `reconc refresh .`.
 When `RECONC_AUDIT=1`, enforcement commands may still append decision records;
@@ -103,10 +104,37 @@ control plane for current work and links to one detail file per TASK under
 `docs/tasks/`. Completed details move to `docs/tasks/done/`; the overview keeps
 only the ten newest completed TASKs visible.
 
-TASK state uses `[ ]` for queued, `[~]` for the single active TASK, `[!]` for
+TASK state uses `[ ]` for queued, `[~]` for at most one active TASK, `[!]` for
 blocked, and `[x]` for done. Each detail records motivation, measurable
 acceptance, sub-tasks, temporary notes, and deviations. Runtime task tracking
 may assist within one session, but it never replaces these repository files.
+
+`task_lifecycle` in `.reconc.yml` adopts the repository without migration.
+`sections-v1` is the bounded canonical profile for new repositories;
+`logbook-v1` accepts the Golem-style `Current:` line, permanent overview rows,
+and detail-file `State:` fields. `auto` selects a profile only when exactly one
+grammar matches. Paths and the visible Done window are configurable. Unknown,
+mixed, duplicated, unsafe, or structurally inconsistent state fails closed
+with stable issue IDs and exact remediation.
+
+`completion.required_sections` and `completion.required_evidence_fields` may
+each contain at most 32 unique one-line names of at most 120 characters.
+Briefings expose at most five TASK blockers, three policy gates, and six
+missing evidence fields; each free-text value is capped at 240 characters and
+omitted counts remain explicit.
+
+`reconc task status|validate|check-done` are read-only. `claim`, `block`,
+`resume`, `split`, `promote`, and `archive` serialize through a cross-platform
+lock and publish one integrity-checked transaction. `split` accepts only
+pre-created child TASKs whose Why section references the parent. Promotion
+checks every Sub-Task and configured evidence field before moving the detail;
+it never fabricates evidence. A crash leaves `.reconc/task-transaction.json`.
+All readers fail closed while that journal exists; `reconc task recover` rolls
+back only if every touched path still equals its recorded before or after
+image, so an external edit is never overwritten. Archived detail bodies are
+not reopened by normal status or briefing reads. Runtime paths reject symlink
+components, journals are capped at 4 MiB, and rollback restores the original
+file bytes and permission mode.
 
 ## Minimal Example Policy
 
@@ -189,6 +217,7 @@ Workflow maintenance:
 - `agent-intro`
 - `audit`
 - `runloop`
+- `task`
 - `prune`
 - `session-briefing`
 - `context`
@@ -227,6 +256,7 @@ Runtime state is local and ignored:
 - `.reconc/sessions/`
 - `.reconc/reports/`
 - `.reconc/runloop/`
+- `.reconc/task-transaction.json`
 
 Runtime retention is product-owned rather than harness-owned. `SessionStart`
 and `SessionEnd` run a cross-process-safe due check with a six-hour interval;
@@ -274,6 +304,8 @@ Package responsibilities:
 - `internal/retention`: runtime storage classes, lifecycle due checks, and cleanup
 - `internal/presets`: bundled and user policy packs
 - `internal/templates`: bundled and user rule templates
+- `internal/tasklifecycle`: typed TASK profiles, validation, bounded briefing,
+  recoverable transactions
 - `internal/tui`: dependency-free terminal dashboard
 
 Key invariants:
@@ -387,8 +419,9 @@ Runloop decisions are persisted in `.reconc/runloop/decisions.jsonl` with
 branch/runtime/session/state fields for forensic debugging without bloating hook
 output. The live log and two archives are each bounded at 2 MiB; readers merge
 the ring in chronological order.
-Repeated identical policy blocks stay blocking but shrink to rule IDs plus the
-saved report path. PreToolUse evaluates only pre-execution write/shell rules,
+Repeated identical policy feedback shrinks to stable `RB-*` feedback IDs,
+rule IDs, and the saved report path. PreToolUse evaluates only pre-execution
+write/shell rules,
 generated Claude/Codex/Cursor/Devin/Antigravity/Copilot configs do not spawn PreToolUse for
 read-only matchers, all PostToolUse / after-shell events record evidence only,
 and repo-wide policy audits run only at Stop or explicit Reconc checks. Stop and
@@ -547,6 +580,7 @@ Ignore:
 - `.reconc/locks/`
 - `.reconc/sessions/`
 - `.reconc/reports/`
+- `.reconc/task-transaction.json`
 
 ## Security
 

@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"reconc.dev/reconc/internal/completion"
+	"reconc.dev/reconc/internal/policy"
+	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
 
@@ -2328,7 +2330,7 @@ func TestRunSessionBriefingDiscoveredRepo(t *testing.T) {
 		t.Fatalf("session-briefing: %v", err)
 	}
 	out := stdout.String()
-	for _, want := range []string{"Lockfile:", "fresh", "Rules:", "Conflicts:"} {
+	for _, want := range []string{"Policy delta:", "fresh"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in briefing, got:\n%s", want, out)
 		}
@@ -2383,15 +2385,34 @@ func TestRunSessionBriefingJSONOutput(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("expected JSON, got: %v\n%s", err, stdout.String())
 	}
-	if payload["lockfile_status"] != "fresh" {
-		t.Errorf("expected lockfile_status=fresh, got %v", payload["lockfile_status"])
-	}
-	if rc, ok := payload["rule_count"].(float64); !ok || rc != 1 {
-		t.Errorf("expected rule_count=1, got %v", payload["rule_count"])
+	if payload["policy_delta"] != "fresh" {
+		t.Errorf("expected policy_delta=fresh, got %v", payload["policy_delta"])
 	}
 }
 
-func TestRunSessionBriefingReportsAuditActivity(t *testing.T) {
+func TestRunSessionBriefingFindsTaskWithoutPolicyConfig(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "docs/tasks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	overview := "# TASK Control Plane\n\n## Active\n\n- [~] 001 Standalone -> tasks/001-standalone.md\n\n## Queue\n\n## Blocked\n\n## Done\n"
+	detail := "# TASK 001: Standalone\n\n## Why\n\nReason.\n\n## Acceptance\n\n- Result.\n\n## Sub-Tasks\n\n- [~] Work\n\n## Notes\n\nNone.\n\n## Deviations\n\nNone.\n"
+	if err := os.WriteFile(filepath.Join(repo, "docs/tasks.md"), []byte(overview), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "docs/tasks/001-standalone.md"), []byte(detail), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"session-briefing", repo, "--json"}, "test", &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), `"id": "001"`) || !strings.Contains(stdout.String(), `"current_sub_task": "Work"`) {
+		t.Fatalf("standalone TASK missing from briefing: %s", stdout.String())
+	}
+}
+
+func TestRunSessionBriefingSkipsAggregateAuditHistory(t *testing.T) {
 	t.Setenv("RECONC_AUDIT", "1")
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := makeAssertRepo(t,
@@ -2407,11 +2428,49 @@ func TestRunSessionBriefingReportsAuditActivity(t *testing.T) {
 		t.Fatalf("session-briefing: %v", err)
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "3 entries") {
-		t.Errorf("expected audit activity reported, got:\n%s", out)
+	if strings.Contains(out, "3 entries") || strings.Contains(out, "Top rule:") {
+		t.Errorf("session hot path must omit aggregate audit history, got:\n%s", out)
 	}
-	if !strings.Contains(out, "Top rule:") {
-		t.Errorf("expected top rule line, got:\n%s", out)
+	if !strings.Contains(out, "Policy delta:  fresh") {
+		t.Errorf("expected compact current policy state, got:\n%s", out)
+	}
+}
+
+func TestRunSessionBriefingBoundsCurrentPolicyFeedback(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repo := makeAssertRepo(t,
+		"rules:\n  - id: r1\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: m\n")
+	state, err := agentsession.InitializeSessionState(repo, "briefing-bounds")
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := runtime.NewEmptyReport(repo, filepath.Join(repo, ".reconc/policy.lock.json"), policy.ModeWarn, runtime.ExecutionInputs{})
+	report.Violations = []runtime.Violation{{
+		RuleID: "very-long-gate", Mode: policy.ModeBlock,
+		RecommendedAction: strings.Repeat("run exact evidence command ", 100),
+	}}
+	report.Finalize()
+	body, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(state.ReportPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state.ReportPath, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"session-briefing", repo, "--json"}, "test", &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if stdout.Len() > 1800 {
+		t.Fatalf("briefing exceeded bounded output: %d bytes\n%s", stdout.Len(), stdout.String())
+	}
+	for _, want := range []string{"very-long-gate", "report_path", "run exact evidence command"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("briefing missing %q: %s", want, stdout.String())
+		}
 	}
 }
 

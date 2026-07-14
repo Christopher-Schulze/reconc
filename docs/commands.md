@@ -1,6 +1,6 @@
 # reconc -- Command Reference
 
-Full reference for all 39 subcommands. See `reconc <subcommand> --help` for
+Full reference for all 40 subcommands. See `reconc <subcommand> --help` for
 the exact flag details emitted by the installed binary.
 
 ## Daily path
@@ -241,6 +241,30 @@ transitions, reason, session, and flags. `--branch`/`--session` filter
 (substring), `-n` keeps the last N, `--follow` tails new records live until
 Ctrl-C. Read-only: never writes, never blocks the hooks.
 
+### `reconc task <subcommand>`
+Typed repository TASK control with two non-migrating profiles:
+`sections-v1` for bounded Active/Queue/Blocked/Done sections and `logbook-v1`
+for Golem-style `Current:` plus detail `State:` fields. Configure the profile,
+overview/detail paths, Done window, and required completion evidence under
+`task_lifecycle` in `.reconc.yml`; `auto` succeeds only on an unambiguous exact
+grammar match.
+
+- `task status [repo] [--json]`: current TASK, current Sub-Task, bounded blockers, missing configured evidence, exact next action
+- `task validate [repo] [--json]`: full live-control-plane validation with stable issue IDs
+- `task check-done [repo] [--task ID] [--json]`: fail closed on any unfinished Sub-Task or missing configured evidence
+- `task claim <ID> [repo] [--json]`: activate one executable queued TASK
+- `task block [repo] --reason TEXT [--next ID] [--json]`: block current and optionally activate a successor
+- `task resume <ID> [repo] [--json]`: reactivate a blocked TASK when no TASK is active
+- `task split [repo] --children ID,ID [--json]`: block the parent and activate the first pre-created, parent-linked child
+- `task promote [repo] [--next ID] [--json]`: completion-check, archive, and activate the next executable TASK
+- `task archive [repo] [--json]`: terminal archive for a completed sectioned board with no queued successor
+- `task recover [repo] [--json]`: integrity-check and roll back an interrupted transaction without overwriting external edits
+
+Mutations use `.reconc/locks/task-lifecycle.lock`, atomic publication, verified
+renames, and `.reconc/task-transaction.json`. Normal reads never open unlinked
+archive history. Briefings cap blockers/evidence and free text; transactions
+reject symlinked paths, preserve file modes, and cap journals at 4 MiB.
+
 ### `reconc prune [repo] [--dry-run] [--json]`
 Run the product retention core immediately. It bounds external session,
 report, and lock state; audit and runloop JSONL rings; generated workflow-audit
@@ -251,10 +275,10 @@ six-hour due check; Stop never prunes. `--force` remains accepted as a no-op
 compatibility flag for the former harness utility.
 
 ### `reconc session-briefing [repo] [--json]`
-Compact (~400 token) session-start state dump: lockfile state, recent
-audit activity, latest decision, latest blocking count, top firing rule, and
-next action. It is read-only; missing or stale lockfiles require an explicit
-`reconc refresh .`.
+Compact delta-oriented session state: current TASK/Sub-Task, bounded blockers,
+current policy delta, required evidence, saved report path, and one exact next
+action. Aggregate audit history is intentionally excluded from this hot path.
+It is read-only; missing or stale lockfiles require `reconc refresh .`.
 
 ### `reconc context size [repo] [--limit N] [--files PATH,PATH,...] [--json]`
 Guards the auto-loaded session-file token budget (default 20000

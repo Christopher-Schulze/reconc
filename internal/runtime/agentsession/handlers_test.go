@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"reconc.dev/reconc/internal/compiler"
+	"reconc.dev/reconc/internal/runtime"
 )
 
 // setupPolicyRepo creates a compiled repo with one deny_write rule on
@@ -763,7 +764,7 @@ func TestRunStopPolicyBlockWinsOverRunLoopThenReleasesOnRepeat(t *testing.T) {
 	}
 
 	first := RunStop(repo, []byte(`{"session_id":"s-block-cache"}`))
-	for _, want := range []string{`"decision":"block"`, "stop-script-gate", "Report:", "Runloop: enabled", "blocked_by_policy", "real audit failure"} {
+	for _, want := range []string{`"decision":"block"`, "stop-script-gate", "Report:", "Feedback: RB-", "Runloop: enabled", "blocked_by_policy", "real audit failure"} {
 		if !strings.Contains(first.Stdout, want) {
 			t.Fatalf("first block should contain %q, got: %s", want, first.Stdout)
 		}
@@ -787,6 +788,20 @@ func TestRunStopPolicyBlockWinsOverRunLoopThenReleasesOnRepeat(t *testing.T) {
 	}
 	if got := readCounter(t, counterPath); got != 1 {
 		t.Fatalf("expected repeated policy block to use cached report, got %d script runs", got)
+	}
+}
+
+func TestRepeatedStopReasonCollapsesToStableFeedbackAndReport(t *testing.T) {
+	violations := []runtime.Violation{{RuleID: "gate-one", RecommendedAction: "run the exact gate"}}
+	first := stopReasonForViolations(violations, "/tmp/report.json", "RB-123456789abc", false, "")
+	repeated := stopReasonForViolations(violations, "/tmp/report.json", "RB-123456789abc", true, "")
+	for _, output := range []string{first, repeated} {
+		if !strings.Contains(output, "Feedback: RB-123456789abc") || !strings.Contains(output, "Report: /tmp/report.json") {
+			t.Fatalf("feedback is not stable and report-backed: %q", output)
+		}
+	}
+	if len(repeated) >= len(first)+80 {
+		t.Fatalf("repeated feedback unexpectedly expanded: first=%d repeated=%d", len(first), len(repeated))
 	}
 }
 

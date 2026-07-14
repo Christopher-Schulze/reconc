@@ -41,6 +41,7 @@ import (
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 	"reconc.dev/reconc/internal/scaffold"
+	"reconc.dev/reconc/internal/tasklifecycle"
 	"reconc.dev/reconc/internal/templates"
 	"reconc.dev/reconc/internal/tui"
 )
@@ -127,6 +128,8 @@ func Run(argv []string, version string, stdout, stderr io.Writer) error {
 		return runAudit(argv[1:], stdout, stderr)
 	case "runloop":
 		return runRunloop(argv[1:], stdout, stderr)
+	case "task":
+		return runTask(argv[1:], stdout, stderr)
 	case "prune":
 		return runPrune(argv[1:], stdout)
 	case "template":
@@ -2095,12 +2098,12 @@ func runTemplateShow(args []string, stdout, stderr io.Writer) error {
 // runSessionBriefing implements `reconc session-briefing [repo] [--json]` (W44).
 //
 // One-shot replacement for the multi-file session-start read-list.
-// Reads discovery + lockfile + audit-log aggregates and emits a
-// compact (~400 token) summary so an agent knows in one decode:
+// Reads discovery, lockfile, live TASK state, and the active saved policy
+// report and emits a compact delta summary so an agent knows in one decode:
 //   - is policy loaded and fresh?
-//   - what were the last enforcement decisions?
-//   - which rules are firing most?
-//   - are there open conflicts?
+//   - what TASK and Sub-Task are current?
+//   - which current saved policy blockers and evidence are actionable?
+//   - what is the single next remediation?
 //
 // Intentionally skips project-convention-specific inputs (todo.md,
 // spec.md, changelog.md) so the command works in any repo without
@@ -2114,7 +2117,7 @@ func runSessionBriefing(args []string, stdout, stderr io.Writer) error {
 			jsonOut = true
 		case "-h", "--help":
 			fmt.Fprintln(stdout, "Usage: reconc session-briefing [repo] [--json]")
-			fmt.Fprintln(stdout, "Compact session-start dump: lockfile state + recent audit activity.")
+			fmt.Fprintln(stdout, "Compact session-start delta: current TASK, policy blockers, evidence, and remediation.")
 			return nil
 		default:
 			if len(a) > 0 && a[0] == '-' {
@@ -2128,7 +2131,7 @@ func runSessionBriefing(args []string, stdout, stderr io.Writer) error {
 		return &CLIError{ExitCode: 1, Message: "reconc session-briefing: " + err.Error()}
 	}
 
-	briefing := buildSessionBriefing(abs)
+	briefing := compactSessionBriefing(buildSessionBriefing(abs))
 
 	if jsonOut {
 		enc := json.NewEncoder(stdout)
@@ -2136,34 +2139,72 @@ func runSessionBriefing(args []string, stdout, stderr io.Writer) error {
 		return enc.Encode(briefing)
 	}
 
-	// Text form: one-screen compact summary, explicit about what's
-	// present vs missing so the agent never has to guess.
+	// Text form stays delta-oriented. Archive history and aggregate audit
+	// counters are deliberately excluded from the session hot path.
 	fmt.Fprintf(stdout, "Session briefing for %s\n", briefing["repo_root"])
-	fmt.Fprintf(stdout, "  Lockfile:      %s\n", briefing["lockfile_status"])
-	if v, ok := briefing["rule_count"].(int); ok && v > 0 {
-		fmt.Fprintf(stdout, "  Rules:         %d active, %d sources\n", v, briefing["source_count"])
-	}
-	if v, ok := briefing["conflicts"].(int); ok && v > 0 {
-		fmt.Fprintf(stdout, "  Conflicts:     %d (run `reconc refresh` to inspect)\n", v)
-	} else {
-		fmt.Fprintln(stdout, "  Conflicts:     none")
-	}
-	if v, ok := briefing["audit_enabled"].(bool); ok && v {
-		fmt.Fprintf(stdout, "  Audit log:     %d entries (%d last hour, %d blocking events last 24h)\n",
-			briefing["audit_total"], briefing["audit_last_hour"], briefing["audit_blocking_events_24h"])
-		if decision, ok := briefing["audit_latest_decision"].(string); ok && decision != "" {
-			fmt.Fprintf(stdout, "  Latest audit:  %s (%d blocking violations)\n", decision, briefing["audit_latest_blocking_count"])
+	if task, ok := briefing["task"].(tasklifecycle.Briefing); ok {
+		if task.Current != nil {
+			fmt.Fprintf(stdout, "  TASK:          %s %s -> %s\n", task.Current.ID, task.Current.Title, task.Current.Path)
+			if task.Current.CurrentSubTask != "" {
+				fmt.Fprintf(stdout, "  Sub-Task:      %s\n", task.Current.CurrentSubTask)
+			}
 		}
-		if top, ok := briefing["audit_top_rule"].(string); ok && top != "" {
-			fmt.Fprintf(stdout, "  Top rule:      %s (%d fires)\n", top, briefing["audit_top_rule_count"])
+		for _, blocker := range task.Blockers {
+			fmt.Fprintf(stdout, "  Blocker:       %s %s\n", blocker.ID, blocker.Reason)
 		}
-	} else {
-		fmt.Fprintln(stdout, "  Audit log:     not enabled (set RECONC_AUDIT=1 to record)")
+		if task.OmittedBlockers > 0 {
+			fmt.Fprintf(stdout, "  Blocker:       +%d more\n", task.OmittedBlockers)
+		}
 	}
-	if nextAction, ok := briefing["next_action"].(string); ok && nextAction != "" {
-		fmt.Fprintf(stdout, "  Next action:   %s\n", nextAction)
+	if taskErr, ok := briefing["task_error"].(string); ok && taskErr != "" {
+		fmt.Fprintf(stdout, "  TASK error:    %s\n", boundedBriefingText(taskErr))
+	}
+	fmt.Fprintf(stdout, "  Policy delta:  %s\n", briefing["policy_delta"])
+	if blockers, ok := briefing["policy_blockers"].([]policyBriefingBlocker); ok {
+		for _, blocker := range blockers {
+			fmt.Fprintf(stdout, "  Gate:          [%s] %s\n", blocker.ID, blocker.Action)
+		}
+	}
+	if omitted, ok := briefing["omitted_policy_blockers"].(int); ok && omitted > 0 {
+		fmt.Fprintf(stdout, "  Gate:          +%d more\n", omitted)
+	}
+	if evidence, ok := briefing["required_evidence"].([]string); ok && len(evidence) > 0 {
+		fmt.Fprintf(stdout, "  Evidence:      %s\n", strings.Join(evidence, "; "))
+	}
+	if task, ok := briefing["task"].(tasklifecycle.Briefing); ok && task.OmittedEvidence > 0 {
+		fmt.Fprintf(stdout, "  Evidence:      +%d more\n", task.OmittedEvidence)
+	}
+	if reportPath, ok := briefing["report_path"].(string); ok && reportPath != "" {
+		fmt.Fprintf(stdout, "  Report:        %s\n", reportPath)
+	}
+	if remediation, ok := briefing["remediation"].(string); ok && remediation != "" {
+		fmt.Fprintf(stdout, "  Next:          %s\n", remediation)
 	}
 	return nil
+}
+
+type policyBriefingBlocker struct {
+	ID     string `json:"id"`
+	Action string `json:"action"`
+}
+
+func compactSessionBriefing(full map[string]interface{}) map[string]interface{} {
+	out := map[string]interface{}{
+		"repo_root":    full["repo_root"],
+		"policy_delta": full["lockfile_status"],
+	}
+	if nextAction, exists := full["next_action"]; exists && nextAction != nil {
+		out["remediation"] = nextAction
+	}
+	for _, key := range []string{"task", "task_error", "policy_blockers", "omitted_policy_blockers", "required_evidence", "report_path"} {
+		if value, exists := full[key]; exists && value != nil {
+			out[key] = value
+		}
+	}
+	if conflicts, ok := full["conflicts"].(int); ok && conflicts > 0 {
+		out["policy_delta"] = fmt.Sprintf("%v; %d conflict(s)", full["lockfile_status"], conflicts)
+	}
+	return out
 }
 
 // buildSessionBriefing collects the facts a session-start agent needs
@@ -2173,18 +2214,19 @@ func buildSessionBriefing(repoRoot string) map[string]interface{} {
 	out := map[string]interface{}{
 		"repo_root":       repoRoot,
 		"lockfile_status": "unknown",
-		"audit_enabled":   false,
 	}
 
 	discovery, err := ingest.DiscoverPolicyRepo(repoRoot)
 	if err != nil {
 		out["lockfile_status"] = "discovery error: " + err.Error()
 		out["next_action"] = "Fix the discovery error (is this a real directory?)"
+		addTaskBriefing(out, repoRoot)
 		return out
 	}
 	if !discovery.Discovered {
 		out["lockfile_status"] = "no reconc config found"
 		out["next_action"] = "run `reconc init " + repoRoot + "` to scaffold a starting config"
+		addTaskBriefing(out, repoRoot)
 		return out
 	}
 	out["repo_root"] = discovery.RepoRoot
@@ -2211,25 +2253,115 @@ func buildSessionBriefing(repoRoot string) map[string]interface{} {
 		}
 	}
 
-	// Audit stats: if the log exists, summarise the last 24 hours.
-	if stats, err := audit.Stats(discovery.RepoRoot); err == nil && stats.TotalEntries > 0 {
-		out["audit_enabled"] = true
-		out["audit_total"] = stats.TotalEntries
-		out["audit_last_hour"] = stats.EntriesLastHour
-		out["audit_blocking_events_24h"] = stats.BlockingEntriesLast24h
-		out["audit_latest_decision"] = stats.LatestDecision
-		out["audit_latest_blocking_count"] = stats.LatestBlockingCount
-		if len(stats.TopRules) > 0 {
-			out["audit_top_rule"] = stats.TopRules[0].RuleID
-			out["audit_top_rule_count"] = stats.TopRules[0].Count
-		}
-	}
-
 	// Suggest a next action if one is obvious.
 	if cnt, ok := out["conflicts"].(int); ok && cnt > 0 {
 		out["next_action"] = "address " + itoaCLI(cnt) + " rule conflict(s), then run `reconc refresh " + discovery.RepoRoot + "`"
 	}
+	addTaskBriefing(out, discovery.RepoRoot)
+	addActivePolicyBriefing(out, discovery.RepoRoot)
 	return out
+}
+
+func addTaskBriefing(out map[string]interface{}, repoRoot string) {
+	if board, taskErr := tasklifecycle.Inspect(repoRoot); taskErr != nil {
+		out["task_error"] = taskErr.Error()
+		if _, exists := out["next_action"]; !exists {
+			out["next_action"] = "repair TASK state with `reconc task validate " + repoRoot + "`"
+		}
+	} else if board != nil {
+		taskBriefing := tasklifecycle.BuildBriefing(board)
+		taskRemediation := taskBriefing.Remediation
+		missingEvidence := append([]string{}, taskBriefing.RequiredEvidence...)
+		taskBriefing.Remediation = ""
+		taskBriefing.RequiredEvidence = nil
+		out["task"] = taskBriefing
+		if len(missingEvidence) > 0 {
+			out["required_evidence"] = missingEvidence
+		}
+		if _, exists := out["next_action"]; !exists {
+			out["next_action"] = taskRemediation
+		}
+	}
+}
+
+func addActivePolicyBriefing(out map[string]interface{}, repoRoot string) {
+	if status, _ := out["lockfile_status"].(string); status != "fresh" {
+		return
+	}
+	sessionID, err := agentsession.ResolveActiveSessionID(repoRoot)
+	if err != nil || sessionID == "" {
+		return
+	}
+	state, err := agentsession.LoadSessionState(repoRoot, sessionID)
+	if err != nil || state.ReportPath == "" {
+		return
+	}
+	body, err := os.ReadFile(state.ReportPath)
+	if err != nil || len(body) > 1<<20 {
+		return
+	}
+	var report runtime.CheckReport
+	if err := json.Unmarshal(body, &report); err != nil {
+		return
+	}
+	if filepath.Clean(report.RepoRoot) != filepath.Clean(repoRoot) {
+		return
+	}
+	blockers := make([]policyBriefingBlocker, 0, 3)
+	omittedBlockers := 0
+	evidence, _ := out["required_evidence"].([]string)
+	for _, violation := range report.Violations {
+		if violation.Mode != "block" && violation.Mode != "fix" {
+			continue
+		}
+		action := strings.TrimSpace(violation.RecommendedAction)
+		if action == "" {
+			action = strings.TrimSpace(violation.Message)
+		}
+		action = boundedBriefingText(action)
+		if len(blockers) < 3 {
+			blockers = append(blockers, policyBriefingBlocker{ID: boundedBriefingText(violation.RuleID), Action: action})
+		} else {
+			omittedBlockers++
+		}
+		if action != "" && len(evidence) < 6 {
+			evidence = append(evidence, action)
+		}
+	}
+	if len(blockers) == 0 {
+		return
+	}
+	out["policy_blockers"] = blockers
+	if omittedBlockers > 0 {
+		out["omitted_policy_blockers"] = omittedBlockers
+	}
+	out["required_evidence"] = cleanBriefingStrings(evidence)
+	out["report_path"] = state.ReportPath
+	out["next_action"] = "resolve the listed gate(s), then rerun their exact command; full details are in the saved report"
+}
+
+func cleanBriefingStrings(values []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.Join(strings.Fields(value), " ")
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		value = boundedBriefingText(value)
+		out = append(out, value)
+	}
+	return out
+}
+
+func boundedBriefingText(value string) string {
+	value = strings.Join(strings.Fields(value), " ")
+	runes := []rune(value)
+	if len(runes) <= 240 {
+		return value
+	}
+	return string(runes[:239]) + "…"
 }
 
 // runContext implements `reconc context size [repo] [--limit N] [--json]` (W43).
@@ -2442,17 +2574,28 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 func buildStartData(repoRoot string) map[string]interface{} {
 	briefing := buildSessionBriefing(repoRoot)
 	briefing["generated_at"] = time.Now().UTC().Format(time.RFC3339)
+	if stats, err := audit.Stats(repoRoot); err == nil && stats.TotalEntries > 0 {
+		briefing["audit_enabled"] = true
+		briefing["audit_total"] = stats.TotalEntries
+		briefing["audit_last_hour"] = stats.EntriesLastHour
+		briefing["audit_blocking_events_24h"] = stats.BlockingEntriesLast24h
+		briefing["audit_latest_decision"] = stats.LatestDecision
+		briefing["audit_latest_blocking_count"] = stats.LatestBlockingCount
+		if len(stats.TopRules) > 0 {
+			briefing["audit_top_rule"] = stats.TopRules[0].RuleID
+			briefing["audit_top_rule_count"] = stats.TopRules[0].Count
+		}
+	}
 
 	// Recent audit entries: last 5 decisions if the log is enabled.
-	if _, ok := briefing["audit_enabled"].(bool); ok {
-		if recent, err := audit.Tail(repoRoot, audit.TailOptions{N: 5}); err == nil && len(recent) > 0 {
-			lines := make([]string, 0, len(recent))
-			for _, e := range recent {
-				lines = append(lines, fmt.Sprintf("%s  %s  %s  %v",
-					e.Timestamp, e.Event, e.Decision, e.RuleIDs))
-			}
-			briefing["recent_decisions"] = lines
+	if recent, err := audit.Tail(repoRoot, audit.TailOptions{N: 5}); err == nil && len(recent) > 0 {
+		briefing["audit_enabled"] = true
+		lines := make([]string, 0, len(recent))
+		for _, e := range recent {
+			lines = append(lines, fmt.Sprintf("%s  %s  %s  %v",
+				e.Timestamp, e.Event, e.Decision, e.RuleIDs))
 		}
+		briefing["recent_decisions"] = lines
 	}
 	return briefing
 }
@@ -5300,8 +5443,9 @@ Workflow maintenance:
   agent-intro      print the embedded reconc agent integration guide
   audit            tail / stats / export the enforcement decision log
   runloop        status / log of runloop state + decision log (--follow)
+  task             typed TASK status / validation / atomic lifecycle mutations
   prune            bound runtime state, logs, generated binaries, and owned temp residue
-  session-briefing token-efficient session-start dump (lockfile + audit)
+  session-briefing token-efficient session-start delta (TASK + policy)
   context          size check for auto-loaded files vs a token budget
   start            render / write a canonical start.md onboarding doc
   post-task-check  pre-done gate: fresh lockfile + no recent blocks

@@ -225,12 +225,14 @@ func loadSessionStateResolved(root, sessionID string) (SessionState, error) {
 		return SessionState{}, fmt.Errorf("session state is not valid JSON: %s: %w", path, err)
 	}
 	// Validate every field so the rest of the adapter can trust it.
-	if state.SessionID == "" {
-		state.SessionID = sessionID
+	if state.SessionID != "" && state.SessionID != sessionID {
+		return SessionState{}, fmt.Errorf("%s: session_id %q does not match requested session %q", path, state.SessionID, sessionID)
 	}
-	if state.RepoRoot == "" {
-		state.RepoRoot = root
+	state.SessionID = sessionID
+	if state.RepoRoot != "" && filepath.Clean(state.RepoRoot) != filepath.Clean(root) {
+		return SessionState{}, fmt.Errorf("%s: repo_root %q does not match resolved repository %q", path, state.RepoRoot, root)
 	}
+	state.RepoRoot = root
 	if err := validateStringList(state.ReadPaths, "read_paths", path); err != nil {
 		return SessionState{}, err
 	}
@@ -251,9 +253,11 @@ func loadSessionStateResolved(root, sessionID string) (SessionState, error) {
 			return SessionState{}, fmt.Errorf("%s: command_results[%d].outcome must be success|failure", path, i)
 		}
 	}
-	if state.ReportPath == "" {
-		state.ReportPath = sessionReportPath(root, sessionID)
+	expectedReportPath := sessionReportPath(root, sessionID)
+	if state.ReportPath != "" && filepath.Clean(state.ReportPath) != filepath.Clean(expectedReportPath) {
+		return SessionState{}, fmt.Errorf("%s: report_path %q does not match session report %q", path, state.ReportPath, expectedReportPath)
 	}
+	state.ReportPath = expectedReportPath
 	return normalizeSessionState(state), nil
 }
 

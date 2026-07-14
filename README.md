@@ -48,6 +48,8 @@ why a task is allowed to be called done.
   configs exist
 - controls autonomous agent continuation with prompt-scoped `/runloop` state,
   stop files, no-progress guards, and append-only decision logs
+- adopts typed repository TASK state and performs recoverable claim, block,
+  resume, split, promotion, and archive transitions
 - bounds session/report state, audit and runloop logs, generated audit binaries,
   and owned temp residue outside the Stop path
 - gives agents one short remediation path with `reconc next .` and one final
@@ -221,6 +223,7 @@ Do not commit generated runtime state:
 - `.reconc/sessions/`
 - `.reconc/reports/`
 - `.reconc/runloop/`
+- `.reconc/task-transaction.json`
 - `dist/`
 
 ## Documentation

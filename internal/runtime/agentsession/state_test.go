@@ -197,6 +197,35 @@ func TestLoadSessionStateRejectsMalformedJSON(t *testing.T) {
 	}
 }
 
+func TestLoadSessionStateRejectsIdentityAndReportPathDrift(t *testing.T) {
+	for name, mutate := range map[string]func(*SessionState){
+		"session": func(state *SessionState) { state.SessionID = "other" },
+		"repo":    func(state *SessionState) { state.RepoRoot = t.TempDir() },
+		"report":  func(state *SessionState) { state.ReportPath = filepath.Join(t.TempDir(), "foreign.json") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, repo := withStateRoot(t)
+			root, _ := ResolveRepoRoot(repo)
+			state := emptyState(root, "identity")
+			mutate(&state)
+			body, err := json.Marshal(state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := sessionStatePath(root, "identity")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, body, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadSessionState(repo, "identity"); err == nil {
+				t.Fatalf("expected %s drift to fail closed", name)
+			}
+		})
+	}
+}
+
 func TestAppendUniqueDeduplicates(t *testing.T) {
 	state := emptyState("/x", "s1")
 	state = AppendReadPath(state, "a.go")

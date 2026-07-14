@@ -816,8 +816,8 @@ func postToolFailureJSONOutput(state SessionState) string {
 // the session, prompting the agent to resolve the remaining
 // blocking violations.
 func stopBlockJSONOutput(repoRoot, sessionID string, report *runtime.CheckReport, violations []runtime.Violation) string {
-	repeated := recordStopBlockAndRepeated(repoRoot, sessionID, violations)
-	reason := stopReasonForViolations(violations, reportPathForStop(repoRoot, sessionID), repeated, runLoopStatusLine(repoRoot))
+	repeated, feedbackID := recordStopBlockAndRepeated(repoRoot, sessionID, violations)
+	reason := stopReasonForViolations(violations, reportPathForStop(repoRoot, sessionID), feedbackID, repeated, runLoopStatusLine(repoRoot))
 	payload := map[string]string{
 		"decision": "block",
 		"reason":   reason,
@@ -826,7 +826,7 @@ func stopBlockJSONOutput(repoRoot, sessionID string, report *runtime.CheckReport
 	return string(body)
 }
 
-func stopReasonForViolations(violations []runtime.Violation, reportPath string, repeated bool, runLoopStatus string) string {
+func stopReasonForViolations(violations []runtime.Violation, reportPath, feedbackID string, repeated bool, runLoopStatus string) string {
 	if repeated {
 		var rules []string
 		for _, v := range violations {
@@ -834,6 +834,10 @@ func stopReasonForViolations(violations []runtime.Violation, reportPath string, 
 		}
 		var b strings.Builder
 		b.WriteString("reconc: same blocking workflow report still prevents this session from stopping.")
+		if feedbackID != "" {
+			b.WriteString("\nFeedback: ")
+			b.WriteString(feedbackID)
+		}
 		if reportPath != "" {
 			b.WriteString("\nReport: ")
 			b.WriteString(reportPath)
@@ -852,6 +856,9 @@ func stopReasonForViolations(violations []runtime.Violation, reportPath string, 
 	reason := firstLinesForViolationsWithReport(violations,
 		"reconc: blocking workflow requirements still remain before this session can stop.",
 		reportPath)
+	if feedbackID != "" {
+		reason += "\nFeedback: " + feedbackID
+	}
 	if runLoopStatus != "" {
 		reason += "\n" + runLoopStatus
 	}

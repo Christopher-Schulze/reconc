@@ -37,6 +37,19 @@ var HookSubcommands = []hookSubcommand{
 	{Name: "sync-scaffold", Help: "sync repo-root scaffold hooks from generator"},
 }
 
+var TaskSubcommands = []hookSubcommand{
+	{Name: "archive", Help: "archive a terminal completed TASK"},
+	{Name: "block", Help: "block current TASK and optionally activate the next"},
+	{Name: "check-done", Help: "validate completion evidence"},
+	{Name: "claim", Help: "activate one queued TASK"},
+	{Name: "promote", Help: "archive current TASK and activate the next"},
+	{Name: "recover", Help: "roll back an interrupted TASK transaction"},
+	{Name: "resume", Help: "reactivate one blocked TASK"},
+	{Name: "split", Help: "block parent and activate a pre-created child"},
+	{Name: "status", Help: "print compact current TASK context"},
+	{Name: "validate", Help: "validate the typed TASK control plane"},
+}
+
 // Subcommands is the canonical table of all top-level reconc
 // subcommands in a stable order. Keep alphabetical within categories
 // so the generated completion reads naturally.
@@ -81,6 +94,7 @@ var Subcommands = []Subcommand{
 	{Name: "session-briefing", Help: "token-efficient session start dump", Flags: []string{"--json"}},
 	{Name: "spec", Help: "docs/spec.md freshness check", Flags: []string{"--file", "--max-age-days", "--json"}},
 	{Name: "start", Help: "render canonical start.md", Flags: []string{"--write", "--force", "--json", "--minimal"}},
+	{Name: "task", Help: "typed TASK lifecycle", Flags: []string{"--json", "--reason", "--next", "--children", "--task"}},
 	{Name: "tui", Help: "terminal dashboard for policy state", Flags: []string{"--json", "--output"}},
 	// top-level meta
 	{Name: "completion", Help: "print shell completion script", Flags: []string{}},
@@ -101,6 +115,7 @@ _reconc() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"`)
 	fmt.Fprintf(w, "    local subcmds=%q\n", strings.Join(names, " "))
 	fmt.Fprintf(w, "    local hook_subcmds=%q\n", strings.Join(hookSubcommandNames(), " "))
+	fmt.Fprintf(w, "    local task_subcmds=%q\n", strings.Join(taskSubcommandNames(), " "))
 	fmt.Fprintln(w, `
     # First word after 'reconc' -> subcommand completion.
     if [[ ${COMP_CWORD} -eq 1 ]]; then
@@ -110,6 +125,11 @@ _reconc() {
 
     if [[ "${COMP_WORDS[1]}" == "hook" && ${COMP_CWORD} -eq 2 ]]; then
         COMPREPLY=($(compgen -W "${hook_subcmds}" -- "${cur}"))
+        return 0
+    fi
+
+    if [[ "${COMP_WORDS[1]}" == "task" && ${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=($(compgen -W "${task_subcmds}" -- "${cur}"))
         return 0
     fi
 
@@ -168,6 +188,17 @@ _reconc() {
         return
     fi
 
+    if [[ "${sub}" == "task" && ${CURRENT} == 3 ]]; then
+        local -a task_subcmds
+        task_subcmds=(`)
+	for _, s := range TaskSubcommands {
+		fmt.Fprintf(w, "            %q\n", s.Name+":"+s.Help)
+	}
+	fmt.Fprint(w, `        )
+        _describe 'reconc task subcommand' task_subcmds
+        return
+    fi
+
 `)
 	fmt.Fprintln(w, `    local -a flags
     case "${sub}" in`)
@@ -207,6 +238,9 @@ func GenerateFish(w io.Writer) error {
 	for _, s := range HookSubcommands {
 		fmt.Fprintf(w, "complete -c reconc -n '__fish_seen_subcommand_from hook' -a %q -d %q\n", s.Name, s.Help)
 	}
+	for _, s := range TaskSubcommands {
+		fmt.Fprintf(w, "complete -c reconc -n '__fish_seen_subcommand_from task' -a %q -d %q\n", s.Name, s.Help)
+	}
 	for _, s := range Subcommands {
 		for _, f := range s.Flags {
 			long := strings.TrimPrefix(f, "--")
@@ -234,6 +268,15 @@ func subcommandNames() []string {
 func hookSubcommandNames() []string {
 	out := make([]string, 0, len(HookSubcommands))
 	for _, s := range HookSubcommands {
+		out = append(out, s.Name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func taskSubcommandNames() []string {
+	out := make([]string, 0, len(TaskSubcommands))
+	for _, s := range TaskSubcommands {
 		out = append(out, s.Name)
 	}
 	sort.Strings(out)

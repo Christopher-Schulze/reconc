@@ -598,10 +598,10 @@ func stopPolicyRuntimeStateRecord(record string) bool {
 	return false
 }
 
-func recordStopBlockAndRepeated(repoRoot, sessionID string, violations []runtime.Violation) bool {
+func recordStopBlockAndRepeated(repoRoot, sessionID string, violations []runtime.Violation) (bool, string) {
 	violationHash := hashBlockingViolations(violations)
 	if violationHash == "" {
-		return false
+		return false, ""
 	}
 	repeated := false
 	_, err := MutateSessionState(repoRoot, sessionID, func(state SessionState) SessionState {
@@ -609,7 +609,7 @@ func recordStopBlockAndRepeated(repoRoot, sessionID string, violations []runtime
 		state.LastStopBlockViolationHash = violationHash
 		return state
 	})
-	return err == nil && repeated
+	return err == nil && repeated, "RB-" + violationHash[:12]
 }
 
 func reportPathForStop(repoRoot, sessionID string) string {
