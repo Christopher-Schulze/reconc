@@ -1,6 +1,6 @@
 // Package completion generates shell completion scripts for reconc.
 // `reconc completion bash|zsh|fish` prints a ready-to-source script
-// that provides tab-completion for subcommands, hook subcommands and
+// that provides tab-completion for subcommands, nested bootstrap/hook/TASK commands and
 // the most-used flags.
 //
 // Scripts are generated deterministically from the Subcommands table
@@ -37,6 +37,14 @@ var HookSubcommands = []hookSubcommand{
 	{Name: "sync-scaffold", Help: "sync repo-root scaffold hooks from generator"},
 }
 
+var BootstrapSubcommands = []hookSubcommand{
+	{Name: "apply", Help: "apply an exact plan or explicit selection transaction"},
+	{Name: "inspect", Help: "inspect repository bootstrap inputs without mutation"},
+	{Name: "plan", Help: "build a deterministic bootstrap manifest"},
+	{Name: "profiles", Help: "list explicit bootstrap profiles"},
+	{Name: "verify", Help: "verify an applied bootstrap manifest read-only"},
+}
+
 var TaskSubcommands = []hookSubcommand{
 	{Name: "archive", Help: "archive a terminal completed TASK"},
 	{Name: "block", Help: "block current TASK and optionally activate the next"},
@@ -56,7 +64,7 @@ var TaskSubcommands = []hookSubcommand{
 var Subcommands = []Subcommand{
 	// bootstrap & inspection
 	{Name: "adopt", Help: "detect tooling and suggest rules", Flags: []string{"--yaml", "--json", "--apply"}},
-	{Name: "bootstrap", Help: "init + compile + install hooks", Flags: []string{"--preset", "--force", "--skip-git-hook", "--skip-agent-hooks", "--json"}},
+	{Name: "bootstrap", Help: "inspect / plan / apply / verify repository bootstrap", Flags: []string{"--profile", "--pack", "--hook", "--install-binary", "--binary", "--checksum", "--platform", "--output", "--json"}},
 	{Name: "doctor", Help: "inspect discovery + validation", Flags: []string{"--deep", "--json", "--output"}},
 	{Name: "extract", Help: "prose-to-rule heuristic scan", Flags: []string{"--from", "--yaml", "--json"}},
 	{Name: "init", Help: "scaffold .reconc.yml and AGENTS.md", Flags: []string{"--preset", "--force", "--json", "--output"}},
@@ -114,6 +122,7 @@ _reconc() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"`)
 	fmt.Fprintf(w, "    local subcmds=%q\n", strings.Join(names, " "))
+	fmt.Fprintf(w, "    local bootstrap_subcmds=%q\n", strings.Join(bootstrapSubcommandNames(), " "))
 	fmt.Fprintf(w, "    local hook_subcmds=%q\n", strings.Join(hookSubcommandNames(), " "))
 	fmt.Fprintf(w, "    local task_subcmds=%q\n", strings.Join(taskSubcommandNames(), " "))
 	fmt.Fprintln(w, `
@@ -125,6 +134,11 @@ _reconc() {
 
     if [[ "${COMP_WORDS[1]}" == "hook" && ${COMP_CWORD} -eq 2 ]]; then
         COMPREPLY=($(compgen -W "${hook_subcmds}" -- "${cur}"))
+        return 0
+    fi
+
+    if [[ "${COMP_WORDS[1]}" == "bootstrap" && ${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=($(compgen -W "${bootstrap_subcmds}" -- "${cur}"))
         return 0
     fi
 
@@ -177,7 +191,19 @@ _reconc() {
     fi
 
     local sub="${words[2]}"
-    if [[ "${sub}" == "hook" && ${CURRENT} == 3 ]]; then
+    if [[ "${sub}" == "bootstrap" && ${CURRENT} == 3 ]]; then
+        local -a bootstrap_subcmds
+        bootstrap_subcmds=(`)
+	for _, s := range BootstrapSubcommands {
+		fmt.Fprintf(w, "            %q\n", s.Name+":"+s.Help)
+	}
+	fmt.Fprint(w, `        )
+        _describe 'reconc bootstrap subcommand' bootstrap_subcmds
+        return
+    fi
+
+`)
+	fmt.Fprintln(w, `    if [[ "${sub}" == "hook" && ${CURRENT} == 3 ]]; then
         local -a hook_subcmds
         hook_subcmds=(`)
 	for _, s := range HookSubcommands {
@@ -238,6 +264,9 @@ func GenerateFish(w io.Writer) error {
 	for _, s := range HookSubcommands {
 		fmt.Fprintf(w, "complete -c reconc -n '__fish_seen_subcommand_from hook' -a %q -d %q\n", s.Name, s.Help)
 	}
+	for _, s := range BootstrapSubcommands {
+		fmt.Fprintf(w, "complete -c reconc -n '__fish_seen_subcommand_from bootstrap' -a %q -d %q\n", s.Name, s.Help)
+	}
 	for _, s := range TaskSubcommands {
 		fmt.Fprintf(w, "complete -c reconc -n '__fish_seen_subcommand_from task' -a %q -d %q\n", s.Name, s.Help)
 	}
@@ -268,6 +297,15 @@ func subcommandNames() []string {
 func hookSubcommandNames() []string {
 	out := make([]string, 0, len(HookSubcommands))
 	for _, s := range HookSubcommands {
+		out = append(out, s.Name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func bootstrapSubcommandNames() []string {
+	out := make([]string, 0, len(BootstrapSubcommands))
+	for _, s := range BootstrapSubcommands {
 		out = append(out, s.Name)
 	}
 	sort.Strings(out)

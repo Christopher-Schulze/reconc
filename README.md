@@ -45,9 +45,8 @@ why a task is allowed to be called done.
   substantive-proof, and live-verification gates without extra subprocesses
 - fails closed on stale lockfiles, schema drift, invalid globs, unsupported rule
   kinds, and repository-root mismatch
-- installs git hooks plus Claude Code, Codex, Cursor, OpenCode, Devin CLI,
-  Antigravity CLI, GitHub Copilot, and Kilo integrations when those agent
-  configs exist
+- installs explicitly selected git, Claude Code, Codex, Cursor, OpenCode,
+  Devin CLI, Antigravity CLI, GitHub Copilot, and Kilo integrations
 - controls autonomous agent continuation with prompt-scoped `/runloop` state,
   stop files, no-progress guards, and append-only decision logs
 - adopts typed repository TASK state and performs recoverable claim, block,
@@ -91,9 +90,10 @@ Add Reconc to a target repo:
 reconc bootstrap .
 ```
 
-`bootstrap` is intentionally minimal: it scaffolds missing repo policy, compiles
-the local lockfile, installs a git pre-commit hook, and wires every registered
-agent platform whose repo-local config directory already exists.
+This compatibility shorthand builds and applies a create-only minimal plan. It
+scaffolds missing policy, compiles the local lockfile, selects git when `.git/`
+exists, and selects registered agent platforms whose repo-local config directory
+already exists. It never overwrites drift; conflicts produce review candidates.
 
 For an existing repo, inspect evidence-backed rule and policy-pack proposals:
 
@@ -134,16 +134,34 @@ Minimal policy and hook bootstrap:
 reconc bootstrap .
 ```
 
-Full repo-local governance rollout:
+Explicit full repo-local governance rollout:
+
+```bash
+reconc bootstrap inspect . --json
+reconc bootstrap plan . --profile governed \
+  --hook codex \
+  --install-binary \
+  --output .reconc/bootstrap-plan.json \
+  --json
+reconc bootstrap apply --plan .reconc/bootstrap-plan.json --json
+reconc bootstrap verify --plan .reconc/bootstrap-plan.json --json
+```
+
+`inspect` and `verify` are read-only. `plan` writes only with explicit
+`--output`. Packs and hooks are explicit; stack and platform detection only
+suggest. Apply publishes absent targets, leaves exact files unchanged, creates
+hash-addressed candidates for drift, and rolls back transaction-owned files on
+failure.
+
+Advanced project-harness rollout:
 
 1. Copy the Reconc toolkit into the target repository.
 2. Have an agent read and follow `harness/template/BOOTSTRAP.md`.
-3. Let the bootstrap guide install the harness, `start.md`, TASK files, root
-   scaffold, repo-local binaries, hooks, and validation loop.
+3. Use its manual path only for project harness, stack, architecture, merge,
+   and verification surfaces beyond the universal governed profile.
 
-That split is deliberate. The CLI bootstrap stays small and predictable. The
-full governance package is installed by an agent following the versioned
-bootstrap guide.
+The versioned guide remains the AI recovery tutorial and parity checklist when
+a transaction reports drift or a mature repository needs surgical adaptation.
 
 ## Supported Agent Runtimes
 

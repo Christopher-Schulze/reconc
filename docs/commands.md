@@ -40,12 +40,41 @@ Scaffolds `.reconc.yml` + a stub `AGENTS.md` for a fresh repo. Multiple
 `--force` is set. `--output` mirrors the primary text or JSON output
 to a file while still printing to stdout.
 
-### `reconc bootstrap [repo] [--preset NAME] [--force] [--skip-git-hook] [--skip-agent-hooks] [--json]`
-One-shot onboarding: init + compile + install git pre-commit + install every
-registered agent hook whose dedicated repo-local config directory is present.
-Detection covers `.claude/`, `.codex/`, `.cursor/`, `.opencode/`, `.devin/`,
-`.agents/`, `.github/hooks/` or `.github/copilot/`, and `.kilo/` or
-`.kilocode/`. A generic `.github/` directory alone does not imply Copilot.
+### `reconc bootstrap inspect [repo] [--json]`
+Read-only discovery of canonical repository root, detected Go/Bun stacks,
+review-only pack suggestions, detected agent-platform directories, existing
+control paths, and platform-correct repo-local binary resolution.
+
+### `reconc bootstrap profiles [--json]`
+List the two explicit profiles. `minimal` selects policy plus a managed AI
+orientation block. `governed` adds the TASK control plane, documentation,
+`start.md`, runtime ignores, and the stable hook wrapper. Both default to the
+`default` and `agent` packs.
+
+### `reconc bootstrap plan [repo] --profile minimal|governed [--pack NAME] [--hook KIND] [--install-binary | --binary PATH --checksum SHA256 [--platform OS/ARCH]] [--output PATH] [--json]`
+Build a deterministic, versioned manifest of desired hashes, modes, current
+state, conflict candidates, compilation need, and blocking issues. Packs and
+hooks are repeatable explicit selections; detected suggestions are never
+applied automatically. The command is read-only unless `--output` is supplied.
+Plan files are create-only and an exact repeat is reported as unchanged.
+
+### `reconc bootstrap apply --plan PATH [--json]` / `reconc bootstrap apply [repo] --profile minimal|governed [selection flags] [--json]`
+Apply an exact reviewed plan or build the same plan from explicit selections.
+Repository targets are create-only. Exact files remain unchanged; any drift
+creates hash-addressed candidate files and prevents all normal target installs.
+Stale plans fail before publication. Failures roll back only transaction-owned
+files whose identity and checksum still match. Status `drift` exits 1.
+
+### `reconc bootstrap verify --plan PATH [--json]`
+Read-only verification of every selected artifact hash and mode, candidate
+drift, policy-lock freshness, governed TASK structure, selected hook activation,
+and selected binary checksum/resolution. Any failed check exits 1.
+
+### `reconc bootstrap [repo] [--preset NAME] [--skip-git-hook] [--skip-agent-hooks] [--json]`
+Compatibility shorthand for a create-only `minimal` transaction. It explicitly
+selects the git hook when `.git/` exists and selects registered agent hooks only
+for detected repo-local platform directories. `--force` is rejected; drift must
+be resolved through candidate review.
 
 ### `reconc adopt [repo] [--yaml | --json | --apply]`
 Detects common tooling (JS/TS, Python, Rust, Go, CI, generated dirs)

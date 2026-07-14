@@ -1,4 +1,16 @@
-#!/bin/sh
+package hooks
+
+// WrapperPath is the canonical repository-local hook launcher. Agent hook
+// artifacts call this stable path and leave binary discovery to one small
+// resolver.
+const WrapperPath = "tools/reconc/bin/hook"
+
+// GenerateWrapper returns the version-independent repository-local hook
+// launcher. A stable platform artifact wins. Exactly one compatible versioned
+// release artifact is accepted as a migration fallback; multiple matches fail
+// closed instead of selecting a version by directory order.
+func GenerateWrapper() *Artifact {
+	content := `#!/bin/sh
 # Managed by Reconc. Repo-local agent hook wrapper.
 #
 # Usage: tools/reconc/bin/hook <event> [repo]
@@ -24,7 +36,37 @@ if [ "${RECONC_HOOK_REPO_RESOLVED:-}" != "1" ] && [ ! -x "$repo/tools/reconc/bin
   repo="$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null || printf "%s" "$repo")"
 fi
 
-case "$(uname -s)" in
+` + shellBinaryResolver() + `
+for reconc_dir in "$repo/tools/reconc/dist" "$repo/dist"; do
+  resolve_status=0
+  resolve_reconc_dir "$reconc_dir" || resolve_status=$?
+  if [ "$resolve_status" -eq 0 ]; then
+    exec "$resolved_reconc" hook runtime "$event" "$repo"
+  fi
+  if [ "$resolve_status" -eq 2 ]; then
+    exit 2
+  fi
+done
+
+for dev_reconc in "$repo/.build/bin/reconc" "$repo/reconc"; do
+  if [ -x "$dev_reconc" ]; then
+    exec "$dev_reconc" hook runtime "$event" "$repo"
+  fi
+done
+
+if command -v reconc >/dev/null 2>&1; then
+  exec reconc hook runtime "$event" "$repo"
+fi
+
+echo "reconc hook wrapper: no executable Reconc binary found" >&2
+echo "expected one stable or unambiguous versioned repo-local binary, a dev binary, or reconc on PATH" >&2
+exit 2
+`
+	return &Artifact{Kind: "hook-wrapper", TargetPath: WrapperPath, Executable: true, Content: content}
+}
+
+func shellBinaryResolver() string {
+	return `case "$(uname -s)" in
   Darwin) reconc_os="darwin" ;;
   Linux) reconc_os="linux" ;;
   CYGWIN*|MINGW*|MSYS*) reconc_os="windows" ;;
@@ -68,28 +110,5 @@ resolve_reconc_dir() {
   fi
   [ "$reconc_matches" -eq 1 ]
 }
-
-for reconc_dir in "$repo/tools/reconc/dist" "$repo/dist"; do
-  resolve_status=0
-  resolve_reconc_dir "$reconc_dir" || resolve_status=$?
-  if [ "$resolve_status" -eq 0 ]; then
-    exec "$resolved_reconc" hook runtime "$event" "$repo"
-  fi
-  if [ "$resolve_status" -eq 2 ]; then
-    exit 2
-  fi
-done
-
-for dev_reconc in "$repo/.build/bin/reconc" "$repo/reconc"; do
-  if [ -x "$dev_reconc" ]; then
-    exec "$dev_reconc" hook runtime "$event" "$repo"
-  fi
-done
-
-if command -v reconc >/dev/null 2>&1; then
-  exec reconc hook runtime "$event" "$repo"
-fi
-
-echo "reconc hook wrapper: no executable Reconc binary found" >&2
-echo "expected one stable or unambiguous versioned repo-local binary, a dev binary, or reconc on PATH" >&2
-exit 2
+`
+}

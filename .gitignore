@@ -49,6 +49,8 @@ tmp/
 .reconc/sessions/
 .reconc/reports/
 .reconc/task-transaction.json
+.reconc/bootstrap-*.json
+*.reconc-candidate-*
 **/.reconc/policy.lock.json
 **/.reconc/.compile.lock
 **/.reconc/audit.jsonl
@@ -58,3 +60,5 @@ tmp/
 **/.reconc/sessions/
 **/.reconc/reports/
 **/.reconc/task-transaction.json
+**/.reconc/bootstrap-*.json
+**/*.reconc-candidate-*

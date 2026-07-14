@@ -58,6 +58,35 @@ func TestGenerateCompletionIncludesTaskLifecycle(t *testing.T) {
 	}
 }
 
+func TestGenerateCompletionIncludesBootstrapPhases(t *testing.T) {
+	for name, generate := range map[string]func(io.Writer) error{
+		"bash": GenerateBash,
+		"zsh":  GenerateZsh,
+		"fish": GenerateFish,
+	} {
+		t.Run(name, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := generate(&buf); err != nil {
+				t.Fatal(err)
+			}
+			for _, command := range []string{"inspect", "plan", "apply", "verify", "profiles"} {
+				if !strings.Contains(buf.String(), command) {
+					t.Fatalf("%s completion missing bootstrap %s", name, command)
+				}
+			}
+			for _, flag := range []string{"profile", "pack", "hook", "checksum"} {
+				needle := "--" + flag
+				if name == "fish" {
+					needle = "-l " + flag
+				}
+				if !strings.Contains(buf.String(), needle) {
+					t.Fatalf("%s completion missing bootstrap flag %s", name, needle)
+				}
+			}
+		})
+	}
+}
+
 func TestGenerateBashFlagsPerSubcommand(t *testing.T) {
 	var buf bytes.Buffer
 	_ = GenerateBash(&buf)

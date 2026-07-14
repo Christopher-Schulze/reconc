@@ -26,6 +26,7 @@ import (
 	"reconc.dev/reconc/internal/adopt"
 	"reconc.dev/reconc/internal/agentguide"
 	"reconc.dev/reconc/internal/audit"
+	reconbootstrap "reconc.dev/reconc/internal/bootstrap"
 	"reconc.dev/reconc/internal/changelog"
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/completion"
@@ -3947,26 +3948,21 @@ func atoi(s string) (int, error) {
 	return n, nil
 }
 
-// runBootstrap is the one-shot minimal repo bootstrap: init -> compile ->
-// (auto-detected) hook install. Produces a "ready to use" repo from
-// a fresh directory in one command.
+// runBootstrapLegacy preserves the original one-command surface while using
+// the same create-only transaction as the explicit bootstrap phases.
 //
 // Behavior:
-//   - Init: scaffold .reconc.yml + AGENTS.md (extends default by default)
-//   - Compile: build .reconc/policy.lock.json
-//   - If .git/ present and --skip-git-hook NOT set: install git pre-commit
-//   - If a registered agent platform's config directory is present and
-//     --skip-agent-hooks is not set: install its hook non-destructively.
-//   - Idempotent: re-running bootstrap on an already-initialized repo
-//     skips with --force when the user wants to overwrite
+//   - Existing files are never overwritten.
+//   - Detected hooks are selected for the transaction unless skipped.
+//   - Drift creates reviewed candidates and exits non-zero.
 //
 // Flags mirror init + extra ones for hook control:
 //
 //	--preset NAME (rep)    same as init
-//	--force                same as init (overwrite .reconc.yml)
+//	--force                rejected because bootstrap is create-only
 //	--skip-git-hook        do not install .git/hooks/pre-commit
 //	--json                 emit structured JSON instead of text
-func runBootstrap(args []string, version string, stdout, stderr io.Writer) error {
+func runBootstrapLegacy(args []string, version string, stdout, stderr io.Writer) error {
 	repo := "."
 	jsonOut := false
 	skipGitHook := false
@@ -3992,10 +3988,10 @@ func runBootstrap(args []string, version string, stdout, stderr io.Writer) error
 			}
 			opts.Presets = append(opts.Presets, val)
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "Usage: reconc bootstrap [repo] [--preset NAME ...] [--force]")
+			fmt.Fprintln(stdout, "Usage: reconc bootstrap [repo] [--preset NAME ...]")
 			fmt.Fprintln(stdout, "                       [--skip-git-hook] [--skip-agent-hooks] [--json]")
 			fmt.Fprintln(stdout, "")
-			fmt.Fprintln(stdout, "Minimal CLI bootstrap: init + compile + platform hook install.")
+			fmt.Fprintln(stdout, "Compatibility bootstrap: create-only minimal transaction with detected hooks.")
 			fmt.Fprintln(stdout, "- git pre-commit is installed when .git/ is present.")
 			fmt.Fprintln(stdout, "- Registered agent hooks are installed when their repo-local config dirs exist.")
 			return nil
@@ -4007,66 +4003,56 @@ func runBootstrap(args []string, version string, stdout, stderr io.Writer) error
 		}
 		i++
 	}
-
-	steps := []string{}
-	hints := []string{}
-	installFailed := false
-
-	// Step 1: init
-	initReport, err := scaffold.Initialize(repo, opts)
-	if err != nil {
-		return &CLIError{ExitCode: 1, Message: "reconc bootstrap (init): " + err.Error()}
+	if opts.Force {
+		return &CLIError{ExitCode: 1, Message: "reconc bootstrap: --force is unsupported; inspect drift and integrate candidate files surgically"}
 	}
-	steps = append(steps, fmt.Sprintf("init: presets=%s, created=%v, updated=%v, skipped=%v",
-		joinList(initReport.Presets), initReport.Created, initReport.Updated, initReport.Skipped))
 
-	// Step 2: compile
-	compiled, err := compiler.CompileRepoPolicy(initReport.RepoRoot, version)
+	inspection, err := reconbootstrap.Inspect(repo)
 	if err != nil {
-		return &CLIError{ExitCode: 1, Message: "reconc bootstrap (compile): " + err.Error()}
+		return &CLIError{ExitCode: 1, Message: "reconc bootstrap inspect: " + err.Error()}
 	}
-	steps = append(steps, fmt.Sprintf("compile: %d rules from %d sources -> %s",
-		compiled.RuleCount, compiled.SourceCount, compiled.LockfilePath))
-
-	// Step 3: git pre-commit (only when .git is present)
-	gitDirPresent := dirExists(filepath.Join(initReport.RepoRoot, ".git"))
+	hookKinds := []string{}
+	gitDirPresent := dirExists(filepath.Join(inspection.RepoRoot, ".git"))
 	if gitDirPresent && !skipGitHook {
-		hookReport, err := hooks.Install(hooks.KindGitPreCommit, initReport.RepoRoot, true)
-		if err != nil {
-			installFailed = true
-			steps = append(steps, "hook install git-pre-commit: "+err.Error())
-		} else {
-			steps = append(steps, fmt.Sprintf("hook install git-pre-commit: %s -> %s", hookReport.Action, hookReport.TargetPath))
-		}
-	} else if !gitDirPresent {
+		hookKinds = append(hookKinds, hooks.KindGitPreCommit)
+	}
+	if !skipAgentHooks {
+		hookKinds = append(hookKinds, inspection.DetectedPlatforms...)
+	}
+	plan, err := reconbootstrap.BuildPlan(reconbootstrap.Request{
+		RepoRoot: inspection.RepoRoot, Profile: reconbootstrap.ProfileMinimal,
+		Packs: opts.Presets, Hooks: hookKinds, TrustExistingWrapper: true,
+	}, version)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc bootstrap plan: " + err.Error()}
+	}
+	applyReport, err := reconbootstrap.Apply(plan, version)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc bootstrap apply: " + err.Error()}
+	}
+
+	steps := []string{fmt.Sprintf("transaction %s: created=%v, unchanged=%v, candidates=%v",
+		applyReport.Status, applyReport.Created, applyReport.Unchanged, applyReport.Candidates)}
+	hints := []string{}
+	if !gitDirPresent {
 		hints = append(hints, "no .git/ found - run `git init` then `reconc hook install git-pre-commit` to enable commit-time enforcement")
 	}
-
-	// Step 4: registry-driven agent hook installation. Generic .github alone
-	// does not imply Copilot; its dedicated copilot/ or hooks/ path must exist.
 	for _, platform := range hooks.AgentPlatforms() {
-		detected := platformConfigDetected(initReport.RepoRoot, platform)
-		if detected && !skipAgentHooks {
-			report, err := hooks.Install(platform.Kind, initReport.RepoRoot, false)
-			if err != nil {
-				installFailed = true
-				steps = append(steps, "hook install "+platform.Kind+": "+err.Error())
-				continue
-			}
-			steps = append(steps, fmt.Sprintf("hook install %s: %s -> %s", platform.Kind, report.Action, report.TargetPath))
+		if containsString(inspection.DetectedPlatforms, platform.Kind) && !skipAgentHooks {
+			steps = append(steps, "hook install "+platform.Kind+": transaction verified")
 			continue
 		}
-		if !detected {
+		if !containsString(inspection.DetectedPlatforms, platform.Kind) {
 			hints = append(hints, fmt.Sprintf("%s: create %s then `reconc hook install %s`", platform.DisplayName, strings.Join(platform.Activation.ConfigDirs, " or "), platform.Kind))
 		}
 	}
 
-	hookStatuses, statusErr := hooks.InspectPlatforms(initReport.RepoRoot)
+	hookStatuses, statusErr := hooks.InspectPlatforms(inspection.RepoRoot)
+	installFailed := statusErr != nil
 	if statusErr != nil {
-		installFailed = true
 		hints = append(hints, "Hook activation inspection failed: "+statusErr.Error())
 	}
-	healthy := !installFailed
+	healthy := !installFailed && applyReport.Status == reconbootstrap.ApplyComplete
 	for _, report := range hookStatuses {
 		if report.State != hooks.StateAbsent && report.State != hooks.StateActive {
 			healthy = false
@@ -4075,7 +4061,7 @@ func runBootstrap(args []string, version string, stdout, stderr io.Writer) error
 
 	if jsonOut {
 		payload := map[string]interface{}{
-			"repo_root":     initReport.RepoRoot,
+			"repo_root":     inspection.RepoRoot,
 			"steps":         steps,
 			"hook_statuses": hookStatuses,
 			"next_hints":    hints,
@@ -4083,11 +4069,16 @@ func runBootstrap(args []string, version string, stdout, stderr io.Writer) error
 		}
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
-		_ = enc.Encode(payload)
+		if err := enc.Encode(payload); err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc bootstrap: json encode: " + err.Error()}
+		}
+		if !healthy {
+			return &CLIError{ExitCode: 1, Message: ""}
+		}
 		return nil
 	}
 
-	fmt.Fprintf(stdout, "Bootstrapped reconc at %s\n\n", initReport.RepoRoot)
+	fmt.Fprintf(stdout, "Bootstrapped reconc at %s\n\n", inspection.RepoRoot)
 	for i, s := range steps {
 		fmt.Fprintf(stdout, "  %d. %s\n", i+1, s)
 	}
@@ -4103,6 +4094,9 @@ func runBootstrap(args []string, version string, stdout, stderr io.Writer) error
 	for _, h := range hints {
 		fmt.Fprintf(stdout, "  - %s\n", h)
 	}
+	if !healthy {
+		return &CLIError{ExitCode: 1, Message: ""}
+	}
 	return nil
 }
 
@@ -4110,15 +4104,6 @@ func runBootstrap(args []string, version string, stdout, stderr io.Writer) error
 func dirExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
-}
-
-func platformConfigDetected(repoRoot string, platform hooks.Platform) bool {
-	for _, relative := range platform.Activation.ConfigDirs {
-		if dirExists(filepath.Join(repoRoot, filepath.FromSlash(relative))) {
-			return true
-		}
-	}
-	return false
 }
 
 // runHook routes hook platform management and runtime events to the hooks and
@@ -5418,6 +5403,7 @@ Daily:
   done             task-finish gate: prints done or blocked
 
 Bootstrap & inspection:
+  bootstrap        inspect / profiles / plan / apply / verify create-only onboarding
   init             Scaffold .reconc.yml (and stub AGENTS.md) for a fresh repo
   adopt            Scan repo for tooling and suggest matching rules
   extract          Heuristic scan of AGENTS.md/CLAUDE.md prose for rule hints

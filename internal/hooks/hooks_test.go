@@ -28,9 +28,10 @@ func TestGenerateGitPreCommitContainsReconcCI(t *testing.T) {
 		t.Errorf("content should reference `reconc ci`, got: %s", a.Content)
 	}
 	for _, token := range []string{
-		`release_reconc="reconc-0.6.0-$reconc_os-$reconc_arch$reconc_ext"`,
-		`"$repo_root/tools/reconc/dist/$release_reconc"`,
-		`"$repo_root/dist/$release_reconc"`,
+		`stable_reconc="$reconc_dir/reconc-$reconc_os-$reconc_arch$reconc_ext"`,
+		`"$reconc_dir"/reconc-*-"${reconc_os}-${reconc_arch}${reconc_ext}"`,
+		`for reconc_dir in "$repo_root/tools/reconc/dist" "$repo_root/dist"`,
+		`reconc binary resolution is ambiguous`,
 		`"$repo_root/.build/bin/reconc"`,
 		`"$repo_root/reconc"`,
 	} {
@@ -40,6 +41,88 @@ func TestGenerateGitPreCommitContainsReconcCI(t *testing.T) {
 	}
 	if !strings.HasPrefix(a.Content, "#!/bin/sh") {
 		t.Errorf("content should start with shebang, got: %s", a.Content[:50])
+	}
+}
+
+func TestRepositoryHookWrapperMatchesGenerator(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	moduleRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	data, err := os.ReadFile(filepath.Join(moduleRoot, "bin", "hook"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	generated := GenerateWrapper()
+	if string(data) != generated.Content {
+		t.Fatal("bin/hook differs from the canonical version-independent wrapper generator")
+	}
+}
+
+func TestHookWrapperResolvesStableAndUnambiguousArtifacts(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX wrapper execution is covered on POSIX hosts")
+	}
+	repo := filepath.Join(t.TempDir(), "repo with spaces")
+	if err := os.Mkdir(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wrapper := filepath.Join(repo, filepath.FromSlash(WrapperPath))
+	if err := os.MkdirAll(filepath.Dir(wrapper), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(wrapper, []byte(GenerateWrapper().Content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	platformOS := map[string]string{"darwin": "darwin", "linux": "linux"}[runtime.GOOS]
+	if platformOS == "" {
+		t.Skip("host OS is not supported by the wrapper")
+	}
+	platformArch := map[string]string{"arm64": "arm64", "amd64": "amd64"}[runtime.GOARCH]
+	if platformArch == "" {
+		t.Skip("host architecture is not supported by the wrapper")
+	}
+	dist := filepath.Join(repo, "tools", "reconc", "dist")
+	if err := os.MkdirAll(dist, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFake := func(name, label string) string {
+		path := filepath.Join(dist, name)
+		content := "#!/bin/sh\nprintf '%s|%s\\n' '" + label + "' \"$*\"\n"
+		if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	stableName := "reconc-" + platformOS + "-" + platformArch
+	stable := writeFake(stableName, "stable")
+	versionA := writeFake("reconc-0.5.0-"+platformOS+"-"+platformArch, "old")
+	versionB := writeFake("reconc-0.6.0-"+platformOS+"-"+platformArch, "new")
+
+	command := exec.Command("sh", wrapper, "codex-stop", repo)
+	output, err := command.CombinedOutput()
+	if err != nil || !strings.Contains(string(output), "stable|hook runtime codex-stop") {
+		t.Fatalf("stable artifact should win: err=%v output=%s", err, output)
+	}
+	if err := os.Remove(stable); err != nil {
+		t.Fatal(err)
+	}
+	command = exec.Command("sh", wrapper, "codex-stop", repo)
+	output, err = command.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "ambiguous") {
+		t.Fatalf("multiple versioned artifacts must fail closed: err=%v output=%s", err, output)
+	}
+	if err := os.Remove(versionA); err != nil {
+		t.Fatal(err)
+	}
+	command = exec.Command("sh", wrapper, "codex-stop", repo)
+	output, err = command.CombinedOutput()
+	if err != nil || !strings.Contains(string(output), "new|hook runtime codex-stop") {
+		t.Fatalf("one versioned artifact should resolve: err=%v output=%s", err, output)
+	}
+	if _, err := os.Stat(versionB); err != nil {
+		t.Fatal(err)
 	}
 }
 

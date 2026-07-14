@@ -18,7 +18,7 @@ output less trustworthy and future changes unnecessarily expensive.
 
 ## Sub-Tasks
 
-- [ ] Close release, checksum, installer, schema, and artifact trust gaps.
+- [~] Close release, checksum, installer, schema, and artifact trust gaps.
 - [ ] Add nested-module and cross-platform CI coverage with pinned tools.
 - [ ] Refactor complexity hotspots behind existing public behavior and tests.
 - [ ] Remove drift and duplicated command, adapter, and evaluation paths.

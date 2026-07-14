@@ -8,6 +8,7 @@ usage, architecture, release, and security facts should be kept here first.
 
 - [Product](#product)
 - [Install And Build](#install-and-build)
+- [Transactional Bootstrap](#transactional-bootstrap)
 - [Daily Workflow](#daily-workflow)
 - [Development Control Plane](#development-control-plane)
 - [Minimal Example Policy](#minimal-example-policy)
@@ -71,6 +72,57 @@ make release VERSION=0.6.0
 `make release` cross-compiles five binaries into `dist/`, generates shell
 completion scripts, generates a man page, and writes `dist/SHA256SUMS`.
 `dist/` is ignored and should not be committed.
+
+## Transactional Bootstrap
+
+New repositories use an explicit inspect, plan, apply, and verify contract:
+
+```bash
+reconc bootstrap inspect . --json
+reconc bootstrap profiles --json
+reconc bootstrap plan . --profile governed \
+  --hook codex \
+  --install-binary \
+  --output .reconc/bootstrap-plan.json \
+  --json
+reconc bootstrap apply --plan .reconc/bootstrap-plan.json --json
+reconc bootstrap verify --plan .reconc/bootstrap-plan.json --json
+```
+
+Inspection is read-only. Planning is read-only unless an explicit output path
+is supplied. The `minimal` profile owns policy and a managed AI-orientation
+block. The `governed` profile adds the TASK control plane, documentation,
+`start.md`, runtime ignores, and the stable repo-local hook wrapper. Both use
+`default` and `agent` as profile defaults. Stack detection and platform
+detection produce suggestions only; packs and hooks remain explicit.
+
+Plans are deterministic JSON with a format version, product version, canonical
+repository root, normalized selections, sorted actions, hashes, modes,
+conflicts, compilation state, blocking issues, and a plan digest. Plan output
+is create-only. An existing byte-identical plan is unchanged; different content
+at the output path is never replaced.
+
+Apply publishes only absent targets. Exact artifacts remain unchanged. A
+different file, directory, symlink, or special target produces a
+hash-addressed `.reconc-candidate-*` artifact and no normal target is installed.
+A stale plan fails before publication. New files are staged beside the target,
+synced, checksum-verified, and published without replacement. On failure,
+rollback removes only transaction-owned files whose file identity and checksum
+still match, plus transaction-created directories that are still empty.
+Verification is read-only and checks artifacts, lockfile freshness, selected
+hooks, governed TASK state, and selected binary resolution.
+
+Binary installation has no network path. `--install-binary` uses the running
+executable; `--binary PATH --checksum SHA256` accepts an explicit local artifact
+and optional `--platform OS/ARCH`. Installed artifacts use the stable
+`reconc-<os>-<arch>[.exe]` name. Resolution prefers the stable name, permits
+exactly one compatible versioned fallback per searched directory, and fails on
+ambiguity before trying development binaries or PATH.
+
+`reconc bootstrap .` remains a compatibility shorthand for a create-only
+minimal plan with detected hook directories. It rejects `--force`; drift must
+be reviewed through candidates. The detailed AI tutorial and manual advanced
+harness path remain in `harness/template/BOOTSTRAP.md`.
 
 ## Daily Workflow
 
@@ -176,7 +228,7 @@ third command supplies that evidence.
 
 Daily:
 
-- `bootstrap` - minimal init + compile + hook bootstrap for new repos
+- `bootstrap` - inspect, profile, plan, apply, and verify create-only onboarding
 - `status` - one-line policy health summary
 - `check` - evaluate runtime evidence against compiled policy
 - `next` - show the next remediation
@@ -184,6 +236,7 @@ Daily:
 
 Bootstrap and inspection:
 
+- `bootstrap inspect|profiles|plan|apply|verify`
 - `init`
 - `adopt`
 - `extract`
@@ -258,6 +311,8 @@ Runtime state is local and ignored:
 - `.reconc/reports/`
 - `.reconc/runloop/`
 - `.reconc/task-transaction.json`
+- `.reconc/bootstrap-*.json`
+- `*.reconc-candidate-*`
 
 Runtime retention is product-owned rather than harness-owned. `SessionStart`
 and `SessionEnd` run a cross-process-safe due check with a six-hour interval;
@@ -375,6 +430,7 @@ Package responsibilities:
 - `internal/ingest`: repository discovery and source loading
 - `internal/parser`: YAML-to-policy validation and normalization
 - `internal/compiler`: canonical JSON lockfile generation, digesting, conflicts, migrations, compile lock
+- `internal/bootstrap`: deterministic inspect/plan/apply/verify transactions and binary resolution
 - `internal/runtime`: policy evaluation, remediation, git integration, scripts, templates
 - `internal/assurance`: bounded native repository assurance evaluators
 - `internal/hooks`: typed hook platform registry, artifact generation, non-destructive install, scaffold sync, and activation diagnostics
@@ -435,6 +491,10 @@ Claude Code, Codex, Cursor, Devin, Antigravity, and Copilot generated configs
 use `tools/reconc/bin/hook` on POSIX; the wrapper owns repo-local dist-binary
 selection and PATH `reconc` as last fallback. Copilot's native Windows route
 uses its PowerShell command field until the cross-platform wrapper is installed.
+For each `tools/reconc/dist` and root `dist` directory, the wrapper prefers the
+stable platform name and accepts exactly one compatible versioned artifact as a
+migration fallback. Multiple compatible versions fail closed. Only then does it
+try `.build/bin/reconc`, root `reconc`, and PATH.
 Claude Code uses its exec-form
 `command`+`args` shape so it does not spawn a hook shell or run a hook-launcher
 Git lookup. Codex uses the host shell command string without a nested `sh -lc`;

@@ -254,34 +254,17 @@ export RECONC_AUDIT=1
 
 repo_root=$(git rev-parse --show-toplevel)
 
-case "$(uname -s)" in
-    Darwin) reconc_os="darwin" ;;
-    Linux) reconc_os="linux" ;;
-    CYGWIN*|MINGW*|MSYS*) reconc_os="windows" ;;
-    *) reconc_os="" ;;
-esac
-
-case "$(uname -m)" in
-    arm64|aarch64) reconc_arch="arm64" ;;
-    x86_64|amd64) reconc_arch="amd64" ;;
-    *) reconc_arch="" ;;
-esac
-
-if [ -n "$reconc_os" ] && [ -n "$reconc_arch" ]; then
-    reconc_ext=""
-    if [ "$reconc_os" = "windows" ]; then
-        reconc_ext=".exe"
+` + shellBinaryResolver() + `
+for reconc_dir in "$repo_root/tools/reconc/dist" "$repo_root/dist"; do
+    resolve_status=0
+    resolve_reconc_dir "$reconc_dir" || resolve_status=$?
+    if [ "$resolve_status" -eq 0 ]; then
+        exec "$resolved_reconc" ci "$repo_root" --staged
     fi
-    release_reconc="reconc-0.6.0-$reconc_os-$reconc_arch$reconc_ext"
-    for local_reconc in \
-        "$repo_root/tools/reconc/dist/$release_reconc" \
-        "$repo_root/dist/$release_reconc"
-    do
-        if [ -x "$local_reconc" ]; then
-            exec "$local_reconc" ci "$repo_root" --staged
-        fi
-    done
-fi
+    if [ "$resolve_status" -eq 2 ]; then
+        exit 2
+    fi
+done
 
 for dev_reconc in "$repo_root/.build/bin/reconc" "$repo_root/reconc"; do
     if [ -x "$dev_reconc" ]; then
@@ -294,7 +277,7 @@ if command -v reconc >/dev/null 2>&1; then
 fi
 
 echo "reconc pre-commit hook: no executable Reconc binary found" >&2
-echo "expected repo-local release binary, dev binary, or reconc on PATH" >&2
+echo "expected one stable or unambiguous versioned repo-local binary, a dev binary, or reconc on PATH" >&2
 exit 2
 `
 	return &Artifact{

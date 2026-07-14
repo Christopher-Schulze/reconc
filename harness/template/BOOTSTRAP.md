@@ -20,6 +20,7 @@ Read this file completely before touching files. The goal is not to invent a new
 - Template audits are dual-path compatible: they understand both flat-root (`backend/`, `scripts/`, `config/`) and `codebase/` layout.
 - Source-specific harness folders are not part of a target rollout. A standalone toolkit copy should carry the template harness and the target repo's renamed harness only.
 - Hook artifacts are generated artifacts, not hand-maintained source. The canonical source is `reconc hook generate`; before copying hook files from `repo-root-scaffold/`, sync that scaffold with `reconc hook sync-scaffold tools/reconc/harness/<project-name>/repo-root-scaffold`.
+- Prefer the transactional `reconc bootstrap inspect|plan|apply|verify` flow for every universal surface it owns. Use the manual sections in this runbook for project-specific harness, stack, architecture, and merge decisions that the universal CLI intentionally cannot infer.
 
 ## Source Package
 
@@ -58,6 +59,56 @@ From the target repo root:
    - TS/Bun frontend: `package.json`, `bun.lock`, `frontend/**`.
    - Mixed: more than one of the above.
 6. If language/stack is unclear, ask the user one concise question before writing stack-specific files.
+
+## Step 0a: Build The Transactional Bootstrap Plan
+
+Use one local Reconc binary for the complete transaction. Inspection and plan
+generation are read-only unless `--output` is explicitly supplied:
+
+```sh
+reconc bootstrap inspect <target-repo> --json
+reconc bootstrap profiles --json
+reconc bootstrap plan <target-repo> --profile governed \
+  --pack <reviewed-pack> \
+  --hook <selected-hook-kind> \
+  --install-binary \
+  --output <target-repo>/.reconc/bootstrap-plan.json \
+  --json
+```
+
+The `minimal` profile selects `.reconc.yml` plus a compact managed Reconc block
+in `AGENTS.md`. The `governed` profile additionally selects the TASK control
+plane, `docs/documentation.md`, `start.md`, runtime ignores, and the stable
+repo-local hook wrapper. Profile default packs are `default` and `agent`.
+Detected stacks, pack suggestions, and agent-platform directories are evidence
+only. Packs and hooks are installed only when they are named explicitly.
+
+Review every manifest action, checksum, mode, conflict, and blocking issue.
+For an explicit external binary use `--binary PATH --checksum SHA256` and add
+`--platform OS/ARCH` only for a cross-platform artifact. The transaction never
+downloads at runtime. `--install-binary` copies the already-running executable
+to the stable `tools/reconc/dist/reconc-<os>-<arch>[.exe]` path.
+
+Apply only the exact reviewed plan, then verify it read-only:
+
+```sh
+reconc bootstrap apply --plan <target-repo>/.reconc/bootstrap-plan.json --json
+reconc bootstrap verify --plan <target-repo>/.reconc/bootstrap-plan.json --json
+```
+
+Apply is create-only. Exact existing artifacts remain unchanged. If any target
+differs, no normal target is installed; hash-addressed
+`*.reconc-candidate-<sha>` files are created for surgical review and apply exits
+with status `drift`. Rebuild the plan after integrating or rejecting every
+candidate. A stale plan fails before publication. A later failure rolls back
+only transaction-owned files whose identity and checksum still match, and
+removes only empty directories created by that transaction. It never removes
+or overwrites an external edit.
+
+The following manual steps remain authoritative for the project harness,
+stack config, conditional skeletons, architecture boundaries, project-specific
+AGENTS content, and any mature-repository merge that is outside the universal
+profile.
 
 ## Step 1: Scan Global Agent Rule Sources
 
@@ -146,13 +197,15 @@ For Go fullstack/frontend/durable-store repos:
 
 Stack config controls enforcement. Do not leave a selected surface disabled just because bootstrapping was inconvenient. If the repo is meant to have a build runner, durable store, frontend, generated references, or arch rules, install the real files and enable the check.
 
-Before selecting policy packs, run the repo-local equivalent of:
+Before selecting policy packs, inspect the target and, when individual rule
+suggestions are also useful, run both read-only discovery surfaces:
 
 ```sh
+reconc bootstrap inspect . --json
 reconc adopt . --json
 ```
 
-Treat `pack_suggestions` as evidence-backed candidates, never automatic
+Treat `pack_suggestions` from either command as evidence-backed candidates, never automatic
 configuration. Inspect each pack manifest's capabilities, inputs, evidence,
 rules, and conflicts. Add a pack to `.reconc.yml` `extends` only when the real
 repository stack and control intent match. `go-assurance` and `bun-assurance`
@@ -163,6 +216,10 @@ paths, baselines, exemptions, or proof ledgers into a target repo.
 ## Step 4: Deploy Repo Root Scaffold
 
 Work from `tools/reconc/harness/<project-name>/repo-root-scaffold/`.
+
+If Step 0a already applied the `governed` profile, do not copy its exact
+universal targets again. Compare the remaining project harness scaffold to the
+installed files and merge only the additional project-specific content.
 
 First sync generated hook artifacts from the repo-local Reconc generator:
 
@@ -274,10 +331,15 @@ Required Reconc runtime ignores:
 - `.reconc/*`
 - `!.reconc/`
 - `!.reconc/policy.lock.json`
-- `.reconc/audit.jsonl`
+- `.reconc/audit.jsonl*`
 - `.reconc/cache/`
-- `.reconc/.compile.lock`
+- `.reconc/locks/`
+- `.reconc/reports/`
 - `.reconc/runloop/`
+- `.reconc/sessions/`
+- `.reconc/task-transaction.json`
+- `.reconc/bootstrap-*.json`
+- `*.reconc-candidate-*`
 
 `.reconc/runloop/` holds repo-local runloop runtime state: `state.json` (current run) and the append-only `decisions.jsonl` (one record per runloop state transition with the exact branch taken). It is gitignored above. No per-repo scaffolding is needed: the observability commands `reconc runloop status` and `reconc runloop log [--follow]` ship in the reconc binary and read this directory in any repo. The per-TASK Reality-Check loop (`docs/task-loop-workflow.md`, scaffolded) and its AGENTS.md excerpt are merged into the repo's `AGENTS.md` like the other sections.
 
@@ -339,13 +401,18 @@ Claude Code generated hooks use exec-form `command` plus `args`, pass `${CLAUDE_
 
 The registry assigns 5-second observation/session timeouts, 10-second pre-tool/permission timeouts, and a 30-second Stop timeout. Claude/Devin/Antigravity/Copilot generators emit those host budgets; OpenCode/Kilo adapters enforce them internally, kill slow subprocesses, cap combined output at 8 KiB, and never embed a versioned release filename. Generated Claude/Codex/Cursor/Devin/Antigravity/Copilot configs do not spawn PreToolUse for read-only matchers; read evidence remains in PostToolUse while pre-execution hooks stay focused on write/shell/apply_patch policy checks. Shell-command runtimes first exec `./tools/reconc/bin/hook` directly when their cwd is already the repo root, and only fall back to `git rev-parse` plus `RECONC_HOOK_REPO_RESOLVED=1` when needed. The agent-hooks audit rejects git-first launchers, Claude/Devin shell/git launchers, project-specific OpenCode/Kilo state logic, version-pinned OpenCode/Kilo binaries, stale 120-second Antigravity timeouts, Copilot no-op compaction hooks, and wrapper configs that omit the direct-wrapper fast path. The wrapper trusts the resolved marker or an already-valid repo-local wrapper/dist path, normalizes only direct/manual calls, and execs the first available repo-local Reconc binary. The Go hook runtime lowers observation-only hook priority on Unix for post/after/session-end events; PreToolUse, permission and Stop keep normal priority. The final `exec` keeps hook process trees shallow and avoids idle parent shells where the host runtime allows it.
 
-The wrapper falls back through repo-local Reconc binaries before PATH:
+The wrapper resolves binaries without pinning a Reconc release number. For the
+detected host OS and architecture it tries this exact order:
 
-- `tools/reconc/dist/reconc-0.6.0-darwin-arm64`
-- `tools/reconc/dist/reconc-0.6.0-darwin-amd64`
-- `tools/reconc/dist/reconc-0.6.0-linux-arm64`
-- `tools/reconc/dist/reconc-0.6.0-linux-amd64`
-- `tools/reconc/dist/reconc-0.6.0-windows-amd64.exe`
+1. Stable `tools/reconc/dist/reconc-<os>-<arch>[.exe]`.
+2. Exactly one compatible versioned artifact under `tools/reconc/dist/`.
+3. The same stable-then-unambiguous lookup under root `dist/`.
+4. Development binaries `.build/bin/reconc` and root `reconc`.
+5. `reconc` on PATH.
+
+More than one compatible versioned artifact in a searched directory is an
+ambiguity error. Install the stable name or retain exactly one versioned
+fallback; never select a release by directory order.
 
 Do not require a global `reconc` install. PATH fallback is only a last fallback. POSIX routes in generated JSON hook configs must not inline binary fallback loops; they call `tools/reconc/bin/hook` and let the wrapper own binary selection. Copilot's native Windows route remains an explicit PowerShell adaptation until the cross-platform wrapper is installed. PreToolUse, permission and Stop hooks remain hard/interactive priority; only observation hooks are lowered.
 
@@ -381,12 +448,13 @@ Use the repo-local Reconc binary candidate that exists on the host.
 
 Required checks:
 
-1. `tools/reconc/dist/<local-reconc-binary> status .`
-2. `tools/reconc/dist/<local-reconc-binary> hook status . --json`
-3. `tools/reconc/dist/<local-reconc-binary> session-briefing .`
-4. `cd tools/reconc/harness/<project-name> && go test ./...`
-5. `tools/reconc/harness/<project-name>/audits/run-workflow-audit all`
-6. Selected stack build/test commands:
+1. `reconc bootstrap verify --plan .reconc/bootstrap-plan.json --json` when the transactional profile was used.
+2. `tools/reconc/dist/<local-reconc-binary> status .`
+3. `tools/reconc/dist/<local-reconc-binary> hook status . --json`
+4. `tools/reconc/dist/<local-reconc-binary> session-briefing .`
+5. `cd tools/reconc/harness/<project-name> && go test ./...`
+6. `tools/reconc/harness/<project-name>/audits/run-workflow-audit all`
+7. Selected stack build/test commands:
    - Go default: `go test ./...` and `go run ./scripts/build validate` if the build runner was installed.
    - Rust: `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test` when Rust is selected.
    - Frontend: selected package manager checks only when a frontend stack is selected.
@@ -395,7 +463,9 @@ If an audit is disabled by stack config, record why. Disabled is allowed only wh
 
 ## Step 10: Finish Bootstrap TASK
 
-Update `docs/tasks/TASK-0001-Bootstrap-Reconc.md`:
+Update the active bootstrap TASK. The governed CLI profile creates
+`docs/tasks/001-bootstrap-reconc.md`; a project harness that already owns the
+legacy template name may retain `docs/tasks/TASK-0001-Bootstrap-Reconc.md`:
 
 - Record files copied.
 - Record files merged.
@@ -425,6 +495,8 @@ If the target repo is mature:
 The rollout is not done until all of this is true:
 
 - No stale placeholder names remain.
+- The reviewed bootstrap plan matches the applied profile, packs, hooks, binary checksum, and target platform.
+- `reconc bootstrap verify --plan ... --json` passes and no unresolved candidate file remains.
 - No source-specific product, internal-binary, UI, or local-machine text remains in generic runtime or workflow files.
 - `.reconc.yml` points to `tools/reconc/harness/<project-name>/...`.
 - `stack-config.yaml` matches the selected stack.
