@@ -135,7 +135,7 @@ Claims can also be supplied via an events file, stdin JSON, or by a registered h
 ## Platform Integration
 
 The typed registry supports Claude Code, Codex, Cursor, OpenCode, Devin CLI,
-Antigravity CLI, GitHub Copilot, and Kilo. Run `reconc hook status . --json`
+Antigravity CLI, GitHub Copilot, and Kilo Code. Run `reconc hook status . --json`
 instead of guessing whether an artifact is installed, configured, degraded,
 shadowed, or unsupported. `configured` is static discovery truth, not live
 execution proof. Static activation and rate-limited live
@@ -159,7 +159,7 @@ execution proof. Static activation and rate-limited live
   observation, and Stop events.
 - **GitHub Copilot**: `.github/hooks/reconc.json` returns Copilot-native
   decision JSON and omits its notification-only compaction event.
-- **Kilo**: `.kilo/plugin/reconc.js` is a thin adapter; `KILO_PURE` must
+- **Kilo Code**: `.kilo/plugin/reconc.js` is a thin adapter; `KILO_PURE` must
   be unset for project plugins to load. Like OpenCode, continuation is inferred
   from `session.idle`.
 - **Generic / other agents (Aider, ...)**: invoke the CLI
@@ -184,7 +184,7 @@ reconc run off .
 ```
 
 Repository mode applies to Claude Code, Codex, Cursor, OpenCode, Devin CLI,
-Antigravity CLI, GitHub Copilot, and Kilo. While typed TASK state is `continue`
+Antigravity CLI, GitHub Copilot, and Kilo Code. While typed TASK state is `continue`
 or `claim`, Stop returns the runtime-native continuation response without a
 full terminal policy or Git scan. PreToolUse, permission, TASK mutation,
 pre-commit, and terminal Stop gates remain active. A blocked, complete, absent,

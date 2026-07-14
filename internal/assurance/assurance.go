@@ -75,6 +75,10 @@ func Evaluate(repoRoot string, gates []policy.AssuranceGate, inputs Inputs) ([]F
 			gateFindings, err = evaluateSubstantiveProof(root, gate, inputs, state)
 		case policy.AssuranceGoConcurrency:
 			gateFindings, err = evaluateGoConcurrencyBoundary(root, gate, inputs.ChangedPaths, state)
+		case policy.AssuranceGoFormat:
+			gateFindings, err = evaluateGoFormat(root, gate, inputs.ChangedPaths, state)
+		case policy.AssuranceSourceHygiene:
+			gateFindings, err = evaluateSourceHygiene(root, gate, inputs.ChangedPaths, state)
 		default:
 			err = fmt.Errorf("unsupported assurance kind %q", gate.Type)
 		}

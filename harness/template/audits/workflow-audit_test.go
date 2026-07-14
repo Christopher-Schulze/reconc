@@ -547,7 +547,7 @@ Current: TASK-0001-Cover-Spec -> tasks/TASK-0001-Cover-Spec.md
 
 func TestAuditDependencyLocalitySkipsLocalAgentStateDirs(t *testing.T) {
 	root := newWorkflowAuditRepo(t)
-	for _, dir := range []string{".agents", ".cursor", ".kilo", ".gemini", ".vscode"} {
+	for _, dir := range []string{".agents", ".cursor", ".kilo", ".vscode"} {
 		writeFile(t, root, filepath.Join(dir, "package.json"), `{"private": true}`)
 		writeFile(t, root, filepath.Join(dir, "package-lock.json"), `{"lockfileVersion": 3}`)
 		writeFile(t, root, filepath.Join(dir, "node_modules", "agent-package", "package.json"), `{"name": "agent-package"}`)
@@ -555,6 +555,16 @@ func TestAuditDependencyLocalitySkipsLocalAgentStateDirs(t *testing.T) {
 
 	if failures := auditDependencyLocality(root); len(failures) > 0 {
 		t.Fatalf("expected local agent state dirs to be skipped, got:\n%s", strings.Join(failures, "\n"))
+	}
+}
+
+func TestAuditDependencyLocalityDoesNotIgnoreLegacyGeminiState(t *testing.T) {
+	root := newWorkflowAuditRepo(t)
+	writeFile(t, root, ".gemini/package.json", `{"private": true}`)
+
+	failures := auditDependencyLocality(root)
+	if !containsFailure(failures, "dependency file .gemini/package.json violates single Bun workspace policy") {
+		t.Fatalf("legacy Gemini state must not be treated as a supported agent directory, got:\n%s", strings.Join(failures, "\n"))
 	}
 }
 

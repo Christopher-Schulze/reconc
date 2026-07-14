@@ -628,7 +628,7 @@ func TestRunBootstrapHintsAndAgentInstall(t *testing.T) {
 			"Devin CLI: create .devin",
 			"Antigravity CLI: create .agents",
 			"GitHub Copilot: create .github/copilot or .github/hooks",
-			"Kilo: create .kilo or .kilocode",
+			"Kilo Code: create .kilo or .kilocode",
 		} {
 			if !strings.Contains(out, hint) {
 				t.Fatalf("expected bootstrap hint %q, got %q", hint, out)

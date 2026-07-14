@@ -18,7 +18,7 @@ func TestEvaluatePositiveAllGateKinds(t *testing.T) {
 	root := t.TempDir()
 	now := time.Now().UTC().Truncate(time.Second)
 	writeAssuranceFile(t, root, "go.mod", "module example\n")
-	writeAssuranceFile(t, root, "src/main.go", "package main\nfunc run() { NewGuardedClient(); http.Get(\"https://example.test\"); ApplyHardening(); exec.Command(\"tool\") }\n")
+	writeAssuranceFile(t, root, "src/main.go", "package main\n\nfunc run() {\n\tNewGuardedClient()\n\thttp.Get(\"https://example.test\")\n\tApplyHardening()\n\texec.Command(\"tool\")\n}\n")
 	writeAssuranceFile(t, root, "package.json", `{"dependencies":{"react":"19.1.0","local":"workspace:*"}}`)
 	evidence := []byte("benchmark samples: 10, 11, 12\n")
 	writeAssuranceFile(t, root, "proof/evidence.txt", string(evidence))
@@ -44,6 +44,24 @@ func TestEvaluatePositiveAllGateKinds(t *testing.T) {
 		{ID: "process", Type: policy.AssuranceProcessBoundary, ScanPaths: []string{"src/**"}, SitePatterns: []string{"exec.Command("}, GuardMarkers: []string{"ApplyHardening"}, MarkerWindowLines: 2},
 		{ID: "proof", Type: policy.AssuranceSubstantiveProof, ProofFile: "proof/proofs.json", MinSamples: 3, MaxAgeHours: 24},
 		{ID: "live", Type: policy.AssuranceLiveVerification, Commands: []string{"go test ./...", "go vet ./..."}, CommandPolicy: "all"},
+		{ID: "concurrency", Type: policy.AssuranceGoConcurrency, ScanPaths: []string{"src/**"}},
+		{ID: "format", Type: policy.AssuranceGoFormat, ScanPaths: []string{"src/**"}},
+		{ID: "hygiene", Type: policy.AssuranceSourceHygiene, ScanPaths: []string{"src/**"}},
+	}
+	if len(gates) != len(policy.AllAssuranceKinds()) {
+		t.Fatalf("positive matrix covers %d gates, want %d", len(gates), len(policy.AllAssuranceKinds()))
+	}
+	covered := make(map[policy.AssuranceKind]bool, len(gates))
+	for _, gate := range gates {
+		if covered[gate.Type] {
+			t.Fatalf("positive matrix covers assurance kind %s more than once", gate.Type)
+		}
+		covered[gate.Type] = true
+	}
+	for _, kind := range policy.AllAssuranceKinds() {
+		if !covered[kind] {
+			t.Fatalf("positive matrix does not cover assurance kind %s", kind)
+		}
 	}
 	findings, err := Evaluate(root, gates, Inputs{
 		ChangedPaths:       []string{"src/main.go", "package.json"},
@@ -324,7 +342,7 @@ func BenchmarkEvaluateChangedSourceGates(b *testing.B) {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			b.Fatal(err)
 		}
-		content := "package pkg\nfunc run() { GuardedClient(); http.Get(\"https://example.test\"); ApplyHardening(); exec.Command(\"tool\") }\n"
+		content := "package pkg\n\nfunc run() {\n\tGuardedClient()\n\thttp.Get(\"https://example.test\")\n\tApplyHardening()\n\texec.Command(\"tool\")\n}\n"
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			b.Fatal(err)
 		}
@@ -334,7 +352,11 @@ func BenchmarkEvaluateChangedSourceGates(b *testing.B) {
 		{ID: "language", Type: policy.AssuranceLanguageBoundary, ScanPaths: []string{"src/**"}, AllowedExtensions: []string{".go"}},
 		{ID: "network", Type: policy.AssuranceNetworkBoundary, ScanPaths: []string{"src/**"}, SitePatterns: []string{"http.Get("}, GuardMarkers: []string{"GuardedClient"}, MarkerWindowLines: 2},
 		{ID: "process", Type: policy.AssuranceProcessBoundary, ScanPaths: []string{"src/**"}, SitePatterns: []string{"exec.Command("}, GuardMarkers: []string{"ApplyHardening"}, MarkerWindowLines: 2},
+		{ID: "concurrency", Type: policy.AssuranceGoConcurrency, ScanPaths: []string{"src/**"}},
+		{ID: "format", Type: policy.AssuranceGoFormat, ScanPaths: []string{"src/**"}},
+		{ID: "hygiene", Type: policy.AssuranceSourceHygiene, ScanPaths: []string{"src/**"}},
 	}
+	b.ReportAllocs()
 	b.ResetTimer()
 	for index := 0; index < b.N; index++ {
 		findings, err := Evaluate(root, gates, Inputs{ChangedPaths: changed})

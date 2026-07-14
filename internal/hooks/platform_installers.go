@@ -90,7 +90,7 @@ func installKilo(repoRoot string, force bool) (*InstallReport, error) {
 			text := string(data)
 			return strings.Contains(text, "Managed by reconc") && strings.Contains(text, "kilo-pre-tool-use")
 		},
-		"Restart Kilo in this repository so it reloads .kilo/plugin/reconc.js; KILO_PURE must be unset.",
+		"Restart Kilo Code in this repository so it reloads .kilo/plugin/reconc.js; KILO_PURE must be unset.",
 	)
 }
 

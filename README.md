@@ -41,12 +41,13 @@ why a task is allowed to be called done.
   policy files into `.reconc/policy.lock.json`
 - blocks or warns on protected writes, missing reads, missing test commands,
   missing claims, stale evidence, and unsafe hook activity
-- evaluates bounded native layout, language, dependency, network/process,
-  substantive-proof, and live-verification gates without extra subprocesses
+- evaluates bounded native layout, language, dependency, source-hygiene,
+  Go-format, network/process, substantive-proof, and live-verification gates
+  without extra subprocesses
 - fails closed on stale lockfiles, schema drift, invalid globs, unsupported rule
   kinds, and repository-root mismatch
 - installs explicitly selected git, Claude Code, Codex, Cursor, OpenCode,
-  Devin CLI, Antigravity CLI, GitHub Copilot, and Kilo integrations
+  Devin CLI, Antigravity CLI, GitHub Copilot, and Kilo Code integrations
 - controls autonomous agent continuation with repo-scoped
   `reconc run on|off|status|log`, no-progress guards, and bounded logs
 - adopts typed repository TASK state and performs recoverable claim, block,
@@ -195,10 +196,10 @@ a transaction reports drift or a mature repository needs surgical adaptation.
 | Devin CLI | native session, tool, permission, stop, and post-compaction hooks |
 | Antigravity CLI | invocation, tool, post-tool, and stop hook coverage |
 | GitHub Copilot | repository hooks with native Copilot decision responses |
-| Kilo | thin project plugin with tool, permission, compaction, and `session.idle` continuation handling |
+| Kilo Code | thin project plugin with tool, permission, compaction, and `session.idle` continuation handling |
 
 Claude Code, Codex, Cursor, Devin CLI, Antigravity CLI, and GitHub Copilot expose
-a synchronous Stop event. OpenCode and Kilo expose `session.idle`; Reconc can
+a synchronous Stop event. OpenCode and Kilo Code expose `session.idle`; Reconc can
 request continuation there, but that inferred adapter is not an equivalent
 host-level Stop gate. All platforms still use git pre-commit as the hard
 repository backstop.
@@ -295,6 +296,10 @@ and git-ignore policy.
   kinds, presets, templates, and hooks.
 - local planning files such as `docs/todo.md`, `docs/todo/`, and
   `CHANGELOG.md` are ignored and are not part of the published repo state.
+
+Any locally present v0.3/v0.4 `docs/todo*` corpus is frozen historical
+scratch, not current work. Current TASK truth is only `docs/tasks.md` plus its
+linked `docs/tasks/` detail files.
 
 Security policy lives in `SECURITY.md`.
 

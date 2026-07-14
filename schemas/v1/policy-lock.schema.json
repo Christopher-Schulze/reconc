@@ -189,7 +189,9 @@
             "process_boundary",
             "substantive_proof",
             "live_verification",
-            "go_concurrency_boundary"
+            "go_concurrency_boundary",
+            "go_format",
+            "source_hygiene"
           ]
         },
         "applicable_if": { "$ref": "#/$defs/stringArray" },

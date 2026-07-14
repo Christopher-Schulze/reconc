@@ -22,6 +22,10 @@ pack:
       inputs: ["public-surface"]
       evidence: ["write-path"]
       rules: ["preset-agent-docs-follow-public-surface"]
+    - id: shipped-source-hygiene
+      inputs: ["changed shipped source"]
+      evidence: ["native-source-scan"]
+      rules: ["preset-agent-source-hygiene"]
   conflicts: []
 
 rules:
@@ -88,3 +92,66 @@ rules:
       - "CHANGELOG.md"
       - "docs/**"
     message: Public CLI, API, hook, or runtime changes should update user-facing docs.
+
+  - id: preset-agent-source-hygiene
+    kind: require_assurance
+    mode: warn
+    when_paths:
+      - "**/*.go"
+      - "**/*.rs"
+      - "**/*.py"
+      - "**/*.js"
+      - "**/*.jsx"
+      - "**/*.ts"
+      - "**/*.tsx"
+      - "**/*.java"
+      - "**/*.kt"
+      - "**/*.kts"
+      - "**/*.c"
+      - "**/*.cc"
+      - "**/*.cpp"
+      - "**/*.h"
+      - "**/*.hpp"
+      - "**/*.cs"
+      - "**/*.swift"
+    message: Changed shipped source should not contain implementation-debt markers or unimplemented sentinels.
+    assurance:
+      - id: shipped-source-hygiene
+        type: source_hygiene
+        scan_paths:
+          - "**/*.go"
+          - "**/*.rs"
+          - "**/*.py"
+          - "**/*.js"
+          - "**/*.jsx"
+          - "**/*.ts"
+          - "**/*.tsx"
+          - "**/*.java"
+          - "**/*.kt"
+          - "**/*.kts"
+          - "**/*.c"
+          - "**/*.cc"
+          - "**/*.cpp"
+          - "**/*.h"
+          - "**/*.hpp"
+          - "**/*.cs"
+          - "**/*.swift"
+        exclude_paths:
+          - "**/*_test.go"
+          - "**/test_*.py"
+          - "**/*_test.py"
+          - "**/*.test.*"
+          - "**/*.spec.*"
+          - "**/test/**"
+          - "**/tests/**"
+          - "**/__tests__/**"
+          - "**/fixtures/**"
+          - "vendor/**"
+          - "node_modules/**"
+          - "target/**"
+          - "dist/**"
+          - "build/**"
+          - "generated/**"
+          - "**/generated/**"
+          - "**/*.gen.*"
+          - "**/*.generated.*"

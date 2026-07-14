@@ -230,14 +230,14 @@ timeout policy, output budgets, artifact paths, and activation probes:
 
 | Platform | Artifact | Integration model |
 |---|---|---|
-| Claude Code | `.claude/settings.json` | Native session, prompt, tool, permission, Stop, cleanup, and compact-session recovery hooks |
-| Codex | `.codex/hooks.json` | Native hooks when `.codex/config.toml` enables them |
-| Cursor | `.cursor/hooks.json` | Native prompt, file, shell, evidence, and Stop adapters |
+| Claude Code | `.claude/settings.json` | Native session, tool, permission, Stop, cleanup, and compact-session recovery hooks |
+| Codex | `.codex/hooks.json` | Native session, tool, permission, evidence, and Stop hooks; no `SessionEnd` |
+| Cursor | `.cursor/hooks.json` | Native session, file, shell, evidence, and Stop adapters |
 | OpenCode | `.opencode/plugins/reconc.js` | Thin project plugin; decisions and state stay in Go |
 | Devin CLI | `.devin/hooks.v1.json` | Native lifecycle plus post-compaction recovery |
 | Antigravity CLI | `.agents/hooks.json` | Invocation, tool, evidence, and Stop adapters |
 | GitHub Copilot | `.github/hooks/reconc.json` | Copilot-native decision response adapter |
-| Kilo | `.kilo/plugin/reconc.js` | Thin project plugin; disabled when `KILO_PURE` is set |
+| Kilo Code | `.kilo/plugin/reconc.js` | Thin project plugin; disabled when `KILO_PURE` is set |
 
 Run `reconc hook status . --json` before making enforcement claims. `active`
 means configuration is complete and discoverable, not that a live process has

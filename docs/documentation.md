@@ -400,7 +400,9 @@ selected gate type are rejected instead of being silently ignored.
 | `process_boundary` | Changed process-spawn sites have a nearby non-comment hardening marker or reasoned path exemption | Matching changed files |
 | `substantive_proof` | Fresh measured samples, computed aggregate, threshold result, live command, and byte-matched evidence agree | Full configured proof manifest |
 | `live_verification` | Every or any configured command has current successful evidence | Current session |
-| `go_concurrency_boundary` | Changed production Go files contain no bare `go` statements without a reasoned path exemption | Matching changed Go files, parsed with the Go AST |
+| `go_concurrency_boundary` | Changed production Go files contain no unowned bare `go` statements | Matching changed Go files, parsed with the Go AST |
+| `go_format` | Changed Go files are byte-identical to Go standard-library canonical formatting | Matching changed Go files |
+| `source_hygiene` | Changed shipped source contains no leading implementation-debt markers or language-specific unimplemented sentinels | Matching changed source files |
 
 Example:
 
@@ -450,10 +452,25 @@ same bytes from the SSD.
 Network and process gates are deterministic source heuristics, not semantic AST
 proofs; select narrow site patterns and guard markers, and use explicit
 reasoned exemptions where language-specific control flow cannot be expressed.
-`go_concurrency_boundary` is different: it parses only changed matching `.go`
-files with the Go standard-library parser and fails closed on invalid source.
-It is opt-in through `go-assurance`, excluded from tests and `vendor/**` by the
-bundled pack, runs no subprocess, and has zero effect on non-Go repositories.
+`go_concurrency_boundary` parses only changed matching `.go` files with the Go
+standard-library parser and fails closed on invalid source. A local goroutine
+is accepted only when the same function proves matching `WaitGroup.Add` before
+launch, deferred `WaitGroup.Done` inside the function literal, and
+`WaitGroup.Wait` after launch; other ownership models require a reasoned path
+exemption. `go_format` uses
+the Go standard-library formatter over the same bounded file snapshot and
+fails closed on invalid Go. Both run through `go-assurance`; formatting covers
+tests while concurrency excludes tests, and both exclude `vendor/**`.
+
+The default `agent` pack runs `source_hygiene` in warn mode over changed shipped
+Go, Rust, Python, JavaScript/TypeScript, JVM, C/C++, C#, and Swift source. It
+ignores tests, fixtures, dependency trees, generated output, and build output.
+The fixed high-signal contract catches leading `TODO`, `FIXME`, `XXX`, `STUB`,
+`PLACEHOLDER`, `TEMPORARY`, and `NOT IMPLEMENTED` comments, ignored Go
+`_ = err`, unimplemented Go panics, Rust `todo!`/`unimplemented!`, and
+JavaScript/TypeScript `throw new Error("not implemented")` sentinels. Narrow
+path exemptions require a reason. Neither gate spawns Git or another tool, and
+both have zero effect on files outside the configured changed-file surface.
 
 ## Architecture
 
@@ -510,7 +527,7 @@ skill documents the same reconc workflow for every agent runtime:
 
 The typed platform registry is the source of truth for Git pre-commit, Claude
 Code, Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, GitHub Copilot, and
-Kilo. It owns native event names, normalized lifecycle coverage, compatibility
+Kilo Code. It owns native event names, normalized lifecycle coverage, compatibility
 routes, config and scaffold paths, failure behavior, timeout budgets, output
 budgets, installation strategy, and activation probes. `reconc hook status
 [repo] [--json]` validates every registered artifact and reports `absent`,
@@ -525,7 +542,7 @@ writes.
 The registry assigns 5-second observation/session budgets, 10-second pre-tool
 and permission budgets, and 30-second Stop budgets instead of one blanket
 timeout. Claude, Codex, Devin, Antigravity, and Copilot generators emit those
-host timeouts; OpenCode and Kilo enforce them inside their adapters. Each runtime
+host timeouts; OpenCode and Kilo Code enforce them inside their adapters. Each runtime
 route caps combined process output at 8 KiB.
 Post-compaction recovery context is deduplicated and capped at 4 KiB.
 Copilot's `PreCompact` event is intentionally not installed because that event
@@ -571,7 +588,7 @@ Claude-hook duplicates. GitHub Copilot uses `.github/hooks/reconc.json` version
 Antigravity uses `.agents/hooks.json` with `PreInvocation`, `PreToolUse`,
 `PostToolUse`, `PostInvocation`, and `Stop`; Reconc stores Antigravity PreTool
 metadata as pending evidence so PostToolUse can record exact evidence when the
-post payload only carries a step index/result. OpenCode and Kilo use thin Bun
+post payload only carries a step index/result. OpenCode and Kilo Code use thin Bun
 adapters at `.opencode/plugins/reconc.js` and `.kilo/plugin/reconc.js`. They
 translate host events only; policy, session state, compaction context, and
 continuation decisions stay in the Go runtime, so the plugins do not maintain
@@ -682,7 +699,10 @@ grace period, so shell grandchildren such as `go build` compiler workers cannot
 survive as orphans after a blocked hook. Workflow-audit launchers build their
 cached binaries behind an atomic mkdir build lock and publish via temp binary +
 rename; parallel agent hooks therefore wait for one rebuild instead of stampeding
-the Go compiler or exposing a partially written cache binary.
+the Go compiler or exposing a partially written cache binary. Direct audit Git
+commands have a 15-second deadline; generated-reference build and execution
+have a two-minute deadline, and every command has a two-second process/pipe
+wait bound after cancellation.
 Independent cold workflow-audit keys execute concurrently behind per-key
 singleflight locks. Only short cache read/merge/atomic-publication sections are
 globally serialized, so parallel results cannot overwrite each other. Runtime
@@ -850,6 +870,9 @@ Local planning and release-note scratch files such as `todo.md`,
 `docs/todo/**`, and `CHANGELOG.md` are ignored in this repository. When
 behavior changes, update `docs/documentation.md` first. Supporting docs may
 link to it, but should not become competing current-state documentation.
+Any locally present v0.3/v0.4 `docs/todo*` corpus is frozen historical scratch
+and must never be treated as current TASK state; `docs/tasks.md` and its linked
+detail files are the only current implementation control plane.
 
 ## Release State
 

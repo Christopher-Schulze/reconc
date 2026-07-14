@@ -14,11 +14,11 @@ Current bundled presets:
 | Name | Intent |
 |---|---|
 | `default` | Baseline generated-output protection and manifest/lock coupling. |
-| `agent` | Warning-level agent workflow guidance for reads, tests, and docs. |
+| `agent` | Warning-level agent workflow guidance for reads, tests, docs, and changed shipped-source hygiene. |
 | `docs-sync` | Public surface changes should update README/docs/changelog. |
 | `strict` | Blocking source/test/CI discipline for mature repos. |
 | `release` | Release-manifest, checksum, and verification hygiene. |
-| `go-assurance` | Current Go test/vet evidence and changed-file network/process boundaries. |
+| `go-assurance` | Current Go test/vet evidence plus changed-file format, network, process, and concurrency boundaries. |
 | `bun-assurance` | Exact JSON dependency pins and current Bun test evidence. |
 
 Repos opt in through `.reconc.yml`:

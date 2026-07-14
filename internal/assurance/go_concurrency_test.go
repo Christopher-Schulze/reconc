@@ -45,3 +45,99 @@ func TestGoConcurrencyBoundaryFailsClosedOnInvalidGo(t *testing.T) {
 		t.Fatal("invalid changed Go source must fail closed")
 	}
 }
+
+func TestGoConcurrencyBoundaryRecognizesOnlyCompleteWaitGroupOwnership(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		wantIssues int
+	}{
+		{
+			name: "owned",
+			body: `package worker
+import "sync"
+func Start() {
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			work()
+		}()
+	}
+	wg.Wait()
+}
+`,
+		},
+		{
+			name: "missing wait",
+			body: `package worker
+import "sync"
+func Start() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() { defer wg.Done() }()
+}
+`,
+			wantIssues: 1,
+		},
+		{
+			name: "non-deferred done",
+			body: `package worker
+import "sync"
+func Start() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() { wg.Done() }()
+	wg.Wait()
+}
+`,
+			wantIssues: 1,
+		},
+		{
+			name: "add after launch",
+			body: `package worker
+import "sync"
+func Start() {
+	var wg sync.WaitGroup
+	go func() { defer wg.Done() }()
+	wg.Add(1)
+	wg.Wait()
+}
+`,
+			wantIssues: 1,
+		},
+		{
+			name: "lookalike lifecycle type",
+			body: `package worker
+type group struct{}
+func (group) Add(int) {}
+func (group) Done() {}
+func (group) Wait() {}
+func Start() {
+	var wg group
+	wg.Add(1)
+	go func() { defer wg.Done() }()
+	wg.Wait()
+}
+`,
+			wantIssues: 1,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.WriteFile(filepath.Join(root, "worker.go"), []byte(test.body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			gate := policy.AssuranceGate{ID: "go-concurrency", Type: policy.AssuranceGoConcurrency, ScanPaths: []string{"**/*.go"}}
+			findings, err := Evaluate(root, []policy.AssuranceGate{gate}, Inputs{ChangedPaths: []string{"worker.go"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(findings) != test.wantIssues {
+				t.Fatalf("findings = %d, want %d: %+v", len(findings), test.wantIssues, findings)
+			}
+		})
+	}
+}

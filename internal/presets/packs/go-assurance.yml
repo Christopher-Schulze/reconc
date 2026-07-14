@@ -6,7 +6,7 @@
 pack:
   format_version: "1"
   name: go-assurance
-  summary: Current Go verification plus changed-file network, process, and concurrency boundaries.
+  summary: Current Go verification plus changed-file format, network, process, and concurrency boundaries.
   stacks: ["go"]
   capabilities:
     - id: go-live-verification
@@ -25,6 +25,10 @@ pack:
       inputs: ["changed Go source"]
       evidence: ["native-Go-AST-scan"]
       rules: ["preset-go-assurance"]
+    - id: go-format
+      inputs: ["changed Go source"]
+      evidence: ["native-Go-format-scan"]
+      rules: ["preset-go-assurance"]
   conflicts: []
 
 rules:
@@ -32,7 +36,7 @@ rules:
     kind: require_assurance
     mode: warn
     when_paths: ["**/*.go", "go.mod", "go.sum"]
-    message: Go changes require current verification and guarded network/process sites.
+    message: Go changes require canonical formatting, current verification, and guarded network/process sites.
     assurance:
       - id: go-live
         type: live_verification
@@ -60,3 +64,8 @@ rules:
         applicable_if: ["go.mod"]
         scan_paths: ["**/*.go"]
         exclude_paths: ["**/*_test.go", "vendor/**"]
+      - id: go-format
+        type: go_format
+        applicable_if: ["go.mod"]
+        scan_paths: ["**/*.go"]
+        exclude_paths: ["vendor/**"]

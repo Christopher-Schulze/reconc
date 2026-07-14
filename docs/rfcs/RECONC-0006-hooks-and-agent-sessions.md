@@ -1,7 +1,7 @@
 # RECONC-0006: Hooks And Agent Sessions
 
 - Status: Frozen
-- Contract: git, Claude Code, Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, GitHub Copilot, Kilo, and generic-agent integration
+- Contract: git, Claude Code, Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, GitHub Copilot, Kilo Code, and generic-agent integration
 
 ## Hook Kinds
 
@@ -17,13 +17,13 @@
 | `devin-cli` | `.devin/hooks.v1.json` | Session, tool, permission, stop, cleanup, and post-compaction hooks. |
 | `antigravity` | `.agents/hooks.json` | Invocation, tool, and stop hook group under the top-level `reconc` key. |
 | `copilot` | `.github/hooks/reconc.json` | Repository hooks with Copilot decision response adaptation. |
-| `kilo` | `.kilo/plugin/reconc.js` | Thin project plugin for chat, tool, permission, compaction, and idle handling. |
+| `kilo` | `.kilo/plugin/reconc.js` | Thin project plugin for session, tool, permission, compaction, and idle handling. |
 
 Installers are idempotent. Reconc-owned JSON hook entries are
 identified by `reconc hook runtime` command tokens and replaced on
 reinstall; unrelated user config is preserved. The OpenCode installer
 updates only the reconc-managed project plugin and refuses to overwrite
-non-reconc plugin content without `--force`. Copilot and Kilo managed files use
+non-reconc plugin content without `--force`. Copilot and Kilo Code managed files use
 the same refusal rule.
 
 The typed registry owns event coverage, native names, fallbacks, failure and
@@ -53,15 +53,12 @@ Claude Code provides file-tool hooks, so `reconc` can enforce:
 
 ## Codex Guarantee
 
-Codex hooks are Bash-centered in current supported wiring:
-
-- Bash command interception for `forbid_command`
-- command evidence collection
-- stop-gate blocking for unmet invariants
-
-File-read and file-write enforcement is softer than Claude Code and
-depends on AGENTS.md instructions plus explicit CLI checks. Git
-pre-commit remains the hard backstop.
+Codex exposes session, tool, permission, evidence, and Stop routes. Reconc
+extracts write paths from native tool fields and `apply_patch` headers,
+intercepts shell commands, records successful and failed evidence, and blocks
+Stop on unmet invariants. Codex has no `SessionEnd` route. Bootstrap writes
+`hooks = true` under `[features]`; a root-level lookalike does not activate the
+host. Git pre-commit remains the hard repository backstop.
 
 ## Generic Agents
 

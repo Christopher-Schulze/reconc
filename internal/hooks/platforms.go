@@ -218,7 +218,7 @@ var platformRegistry = []platformDefinition{
 		generator: generatorCopilot,
 	},
 	{
-		Platform: Platform{Kind: KindKilo, DisplayName: "Kilo", TargetPath: KiloPluginPath, ScaffoldPath: KiloPluginPath, InstallMode: InstallPlugin, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".kilo", ".kilocode"}, DisabledByEnv: "KILO_PURE", LegacyArtifactPath: ".kilocode/plugin/reconc.js"}, Capabilities: []Capability{
+		Platform: Platform{Kind: KindKilo, DisplayName: "Kilo Code", TargetPath: KiloPluginPath, ScaffoldPath: KiloPluginPath, InstallMode: InstallPlugin, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".kilo", ".kilocode"}, DisabledByEnv: "KILO_PURE", LegacyArtifactPath: ".kilocode/plugin/reconc.js"}, Capabilities: []Capability{
 			capability(EventSessionStart, "session.created", SupportNative, FailureAllow, FailureAllow, 5, "kilo-session-start"),
 			capability(EventPreToolUse, "tool.execute.before", SupportNative, FailureBlock, FailureBlock, 10, "kilo-pre-tool-use"),
 			capability(EventPermissionRequest, "permission.ask", SupportNative, FailureBlock, FailureBlock, 10, "kilo-permission-request"),

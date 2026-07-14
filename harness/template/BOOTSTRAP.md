@@ -17,6 +17,7 @@ Read this file completely before touching files. The goal is not to invent a new
 - `AGENTS.md` is an excerpt merge: insert the workflow excerpt into an existing `AGENTS.md`; create a new one only when none exists.
 - `.gitignore.excerpt` is an excerpt merge after git initialization; do not overwrite `.gitignore`.
 - Do not scaffold source-project-specific surfaces into generic repos: no secondary/internal-only binary, no Bun frontend package unless the stack requires frontend, no SQLite initial migration unless durable store is selected, no generated_reference artifacts unless generated references are selected, no `go.mod` unless the target stack/repo is Go.
+- Never treat ignored `docs/todo*` or changelog scratch as TASK truth or rollout input. Current TASK truth comes from the target repository's adopted `docs/tasks.md` control plane.
 - Template audits are dual-path compatible: they understand both flat-root (`backend/`, `scripts/`, `config/`) and `codebase/` layout.
 - Source-specific harness folders are not part of a target rollout. A standalone toolkit copy should carry the template harness and the target repo's renamed harness only.
 - Hook artifacts are generated artifacts, not hand-maintained source. The canonical source is `reconc hook generate`; before copying hook files from `repo-root-scaffold/`, sync that scaffold with `reconc hook sync-scaffold tools/reconc/harness/<project-name>/repo-root-scaffold`.
@@ -228,7 +229,9 @@ start in warn mode so a new rollout can measure friction before explicitly
 tightening selected repo-local rules. Never copy source-harness-specific gate
 paths, baselines, exemptions, or proof ledgers into a target repo.
 `go-assurance` is only for repositories with real Go stack evidence. Its native
-changed-file Go AST gate flags bare goroutine launches without spawning tools;
+changed-file gates enforce canonical Go formatting and flag bare goroutine
+launches unless the same function proves `WaitGroup.Add`, deferred
+`WaitGroup.Done`, and `WaitGroup.Wait` ownership, without spawning tools;
 it has no value in a non-Go project and must not be selected merely because the
 Reconc binary itself is written in Go.
 
@@ -379,6 +382,9 @@ while preserving recent work.
 Do not add another project-specific cleanup loop or attach cleanup to the
 workflow-audit cache. Active state and live build targets are protected even
 when that means reporting a temporary budget excess.
+Workflow-audit Git subprocesses have a 15-second deadline; generated-reference
+build and execution have a two-minute deadline, and canceled commands have a
+two-second process/pipe wait bound. Preserve those bounds in derived harnesses.
 
 Dual-layout build/dependency ignores should cover both flat-root and `codebase/` when relevant:
 
@@ -411,7 +417,7 @@ The scaffold hook configs must first call the repo-local wrapper:
 
 - `tools/reconc/bin/hook`
 
-Hook files in `repo-root-scaffold/` are generated with `reconc hook sync-scaffold`. The typed registry is the source of truth for Claude Code, Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, GitHub Copilot, Kilo, and the source-controlled `.githooks/pre-commit` twin. Root repo artifacts and template scaffold artifacts must never be reconciled by copying from each other; both are regenerated from the same Reconc binary. A target repo must never compare against, depend on, or copy from a source-specific harness.
+Hook files in `repo-root-scaffold/` are generated with `reconc hook sync-scaffold`. The typed registry is the source of truth for Claude Code, Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, GitHub Copilot, Kilo Code, and the source-controlled `.githooks/pre-commit` twin. Root repo artifacts and template scaffold artifacts must never be reconciled by copying from each other; both are regenerated from the same Reconc binary. A target repo must never compare against, depend on, or copy from a source-specific harness.
 
 After copying or installing hooks, run:
 
@@ -425,9 +431,9 @@ documented activation switch. `configured` means the static config is complete
 and host-discoverable. `last_seen` and `last_event` are the separate live-process proof;
 their external state is rate-limited to one write per runtime every six hours.
 
-Claude Code generated hooks use exec-form `command` plus `args`, pass `${CLAUDE_PROJECT_DIR}` directly to the wrapper, and use the context-capable `SessionStart` `compact` matcher for recovery instead of spawning the notification-only `PostCompact` event. Codex bootstrap writes `hooks = true` under `[features]`; root-level `hooks=true` is invalid, and Codex has no `SessionEnd` event. Devin uses `.devin/hooks.v1.json`, passes `DEVIN_PROJECT_DIR`, and includes `PostCompaction`. Copilot uses `.github/hooks/reconc.json` version 1 and VS Code-compatible event names; its notification-only `PreCompact` event is intentionally omitted because it cannot consume recovery output. OpenCode and Kilo plugins are transport adapters only: policy, session state, continuation, and context recovery remain in the Go runtime. Their continuation trigger is inferred from `session.idle`, not a synchronous native Stop gate. Kilo requires `KILO_PURE` to be unset so project plugins load.
+Claude Code generated hooks use exec-form `command` plus `args`, pass `${CLAUDE_PROJECT_DIR}` directly to the wrapper, and use the context-capable `SessionStart` `compact` matcher for recovery instead of spawning the notification-only `PostCompact` event. Codex bootstrap writes `hooks = true` under `[features]`; root-level `hooks=true` is invalid, and Codex has no `SessionEnd` event. Devin uses `.devin/hooks.v1.json`, passes `DEVIN_PROJECT_DIR`, and includes `PostCompaction`. Copilot uses `.github/hooks/reconc.json` version 1 and VS Code-compatible event names; its notification-only `PreCompact` event is intentionally omitted because it cannot consume recovery output. OpenCode and Kilo Code plugins are transport adapters only: policy, session state, continuation, and context recovery remain in the Go runtime. Their continuation trigger is inferred from `session.idle`, not a synchronous native Stop gate. Kilo Code requires `KILO_PURE` to be unset so project plugins load.
 
-The registry assigns 5-second observation/session timeouts, 10-second pre-tool/permission timeouts, and a 30-second Stop timeout. Claude/Devin/Antigravity/Copilot generators emit those host budgets; OpenCode/Kilo adapters enforce them internally, kill slow subprocesses, cap combined output at 8 KiB, and never embed a versioned release filename. Generated Claude/Codex/Cursor/Devin/Antigravity/Copilot configs do not spawn PreToolUse for read-only matchers; read evidence remains in PostToolUse while pre-execution hooks stay focused on write/shell/apply_patch policy checks. Shell-command runtimes first exec `./tools/reconc/bin/hook` directly when their cwd is already the repo root, and only fall back to `git rev-parse` plus `RECONC_HOOK_REPO_RESOLVED=1` when needed. The agent-hooks audit rejects git-first launchers, Claude/Devin shell/git launchers, project-specific OpenCode/Kilo state logic, version-pinned OpenCode/Kilo binaries, stale 120-second Antigravity timeouts, Copilot no-op compaction hooks, and wrapper configs that omit the direct-wrapper fast path. The wrapper trusts the resolved marker or an already-valid repo-local wrapper/dist path, normalizes only direct/manual calls, and execs the first available repo-local Reconc binary. The Go hook runtime lowers observation-only hook priority on Unix for post/after/session-end events; PreToolUse, permission and Stop keep normal priority. The final `exec` keeps hook process trees shallow and avoids idle parent shells where the host runtime allows it.
+The registry assigns 5-second observation/session timeouts, 10-second pre-tool/permission timeouts, and a 30-second Stop timeout. Claude/Codex/Devin/Antigravity/Copilot generators emit those host budgets; OpenCode/Kilo Code adapters enforce them internally, kill slow subprocesses, cap combined output at 8 KiB, and never embed a versioned release filename. Generated Claude/Codex/Cursor/Devin/Antigravity/Copilot configs do not spawn PreToolUse for read-only matchers; read evidence remains in PostToolUse while pre-execution hooks stay focused on write/shell/apply_patch policy checks. Shell-command runtimes first exec `./tools/reconc/bin/hook` directly when their cwd is already the repo root, and only fall back to `git rev-parse` plus `RECONC_HOOK_REPO_RESOLVED=1` when needed. The agent-hooks audit rejects git-first launchers, Claude/Devin shell/git launchers, project-specific OpenCode/Kilo Code state logic, version-pinned OpenCode/Kilo Code binaries, stale 120-second Antigravity timeouts, Copilot no-op compaction hooks, and wrapper configs that omit the direct-wrapper fast path. The wrapper trusts the resolved marker or an already-valid repo-local wrapper/dist path, normalizes only direct/manual calls, and execs the first available repo-local Reconc binary. The Go hook runtime lowers observation-only hook priority on Unix for post/after/session-end events; PreToolUse, permission and Stop keep normal priority. The final `exec` keeps hook process trees shallow and avoids idle parent shells where the host runtime allows it.
 
 The wrapper resolves binaries without pinning a Reconc release number. It
 tries this exact order:
@@ -538,7 +544,7 @@ The rollout is not done until all of this is true:
 - `repo-root-scaffold/` hook artifacts were synced with `reconc hook sync-scaffold` from the local generator; no hook artifact was edited by hand or copied from a source-specific harness.
 - POSIX hook routes call `tools/reconc/bin/hook` first and retain local-dist/PATH fallback; native Windows adaptations are documented explicitly.
 - `hook status . --json` reports every selected platform as `configured`; no platform is degraded, shadowed, unsupported, or accidentally left only installed.
-- OpenCode and Kilo plugins contain no project-specific run state or prompts; Copilot contains no no-op `PreCompact` route; Antigravity contains no blanket 120-second timeout.
+- OpenCode and Kilo Code plugins contain no project-specific run state or prompts; Copilot contains no no-op `PreCompact` route; Antigravity contains no blanket 120-second timeout.
 - Cursor/Windsurf/Codeium/VS Code indexing excludes are installed as local-tool performance controls only, not Git ignores.
 - `AGENTS.md` contains the workflow excerpt and any user-approved stack-specific style rules.
 - `.gitignore` contains Reconc runtime ignores and relevant dual-layout build/dependency ignores.

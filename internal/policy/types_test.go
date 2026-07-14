@@ -58,8 +58,8 @@ func TestAllKindsLen(t *testing.T) {
 }
 
 func TestAllAssuranceKindsValid(t *testing.T) {
-	if got := len(AllAssuranceKinds()); got != 9 {
-		t.Fatalf("expected 9 assurance kinds, got %d", got)
+	if got := len(AllAssuranceKinds()); got != 11 {
+		t.Fatalf("expected 11 assurance kinds, got %d", got)
 	}
 	for _, kind := range AllAssuranceKinds() {
 		if !kind.Valid() {

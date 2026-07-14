@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -344,7 +343,7 @@ func auditDependencyLocality(root string) []string {
 	}
 	skipDirs := map[string]bool{
 		".git": true, ".reconc": true, "_drop": true, "research": true,
-		".agents": true, ".claude": true, ".codex": true, ".cursor": true, ".gemini": true, ".kilo": true, ".opencode": true, ".vscode": true,
+		".agents": true, ".claude": true, ".codex": true, ".cursor": true, ".kilo": true, ".opencode": true, ".vscode": true,
 	}
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
@@ -401,8 +400,9 @@ func auditGitHooks(root string) []string {
 	} else if info.Mode()&0o111 == 0 {
 		failures = append(failures, ".githooks/pre-commit is not executable (run `chmod +x .githooks/pre-commit`)")
 	}
-	cmd := exec.Command("git", "-C", root, "config", "--get", "core.hooksPath")
+	cmd, cancel := commandWithTimeout(shortAuditCommandTimeout, "git", "-C", root, "config", "--get", "core.hooksPath")
 	out, err := cmd.Output()
+	cancel()
 	configured := strings.TrimSpace(string(out))
 	if err != nil || configured != ".githooks" {
 		failures = append(failures, fmt.Sprintf("git core.hooksPath is %q, must be `.githooks` (run `git config core.hooksPath .githooks` once per fresh clone)", configured))
@@ -427,8 +427,9 @@ func auditTasksMdRowsImmutable(root string) []string {
 		// Missing working-tree file is handled by auditTaskState.
 		return nil
 	}
-	cmd := exec.Command("git", "-C", root, "show", "HEAD:docs/tasks.md")
+	cmd, cancel := commandWithTimeout(shortAuditCommandTimeout, "git", "-C", root, "show", "HEAD:docs/tasks.md")
 	headBytes, err := cmd.Output()
+	cancel()
 	if err != nil {
 		// No HEAD yet, or file not in HEAD: nothing to compare against.
 		return nil
@@ -1283,11 +1284,15 @@ func visitJSONCommands(value interface{}, visit func(command string, args interf
 }
 
 func auditRepoCleanliness(root string) []string {
-	inside, err := exec.Command("git", "-C", root, "rev-parse", "--is-inside-work-tree").CombinedOutput()
+	insideCommand, cancel := commandWithTimeout(shortAuditCommandTimeout, "git", "-C", root, "rev-parse", "--is-inside-work-tree")
+	inside, err := insideCommand.CombinedOutput()
+	cancel()
 	if err != nil || strings.TrimSpace(string(inside)) != "true" {
 		return nil
 	}
-	out, err := exec.Command("git", "-C", root, "clean", "-nd").CombinedOutput()
+	cleanCommand, cancel := commandWithTimeout(shortAuditCommandTimeout, "git", "-C", root, "clean", "-nd")
+	out, err := cleanCommand.CombinedOutput()
+	cancel()
 	if err != nil {
 		return []string{fmt.Sprintf("git clean dry-run failed: %v: %s", err, strings.TrimSpace(string(out)))}
 	}
@@ -1441,15 +1446,18 @@ func auditGeneratedReferences(root string) []string {
 		bin := filepath.Join(root, ".reconc/cache/generated-reference-audit")
 		src := filepath.Join(root, "tools/reconc/harness/template/audits/generated_reference")
 		if needsRebuild(bin, src) {
-			build := exec.Command("go", "build", "-ldflags=-s -w", "-trimpath", "-buildvcs=false", "-o", bin, "./audits/generated_reference")
+			build, cancel := commandWithTimeout(buildAuditCommandTimeout, "go", "build", "-ldflags=-s -w", "-trimpath", "-buildvcs=false", "-o", bin, "./audits/generated_reference")
 			build.Dir = filepath.Join(root, "tools/reconc/harness/template")
-			if out, err := build.CombinedOutput(); err != nil {
+			out, err := build.CombinedOutput()
+			cancel()
+			if err != nil {
 				return []string{fmt.Sprintf("generated-references audit build failed: %v\n%s", err, string(out))}
 			}
 		}
-		cmd := exec.Command(bin)
+		cmd, cancel := commandWithTimeout(buildAuditCommandTimeout, bin)
 		cmd.Dir = root
 		output, err := cmd.CombinedOutput()
+		cancel()
 		if err != nil {
 			return []string{fmt.Sprintf("generated-references audit failed: %v\n%s", err, string(output))}
 		}

@@ -39,6 +39,12 @@ var assuranceFieldsByKind = map[policy.AssuranceKind][]string{
 	policy.AssuranceGoConcurrency: {
 		"scan_paths", "exclude_paths", "exemptions",
 	},
+	policy.AssuranceGoFormat: {
+		"scan_paths", "exclude_paths", "exemptions",
+	},
+	policy.AssuranceSourceHygiene: {
+		"scan_paths", "exclude_paths", "exemptions",
+	},
 }
 
 // optionalAssuranceGateList decodes typed native gate configurations. A strict
@@ -192,9 +198,9 @@ func validateAssuranceGate(gate *policy.AssuranceGate) error {
 			}
 			gate.AllowedExtensions[index] = ext
 		}
-	case policy.AssuranceGoConcurrency:
+	case policy.AssuranceGoConcurrency, policy.AssuranceGoFormat, policy.AssuranceSourceHygiene:
 		if len(gate.ScanPaths) == 0 {
-			return fmt.Errorf("go_concurrency_boundary requires scan_paths")
+			return fmt.Errorf("%s requires scan_paths", gate.Type)
 		}
 	case policy.AssuranceDependencyPins:
 		if len(gate.ManifestPaths) == 0 {

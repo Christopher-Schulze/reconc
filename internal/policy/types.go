@@ -231,6 +231,8 @@ const (
 	AssuranceSubstantiveProof   AssuranceKind = "substantive_proof"
 	AssuranceLiveVerification   AssuranceKind = "live_verification"
 	AssuranceGoConcurrency      AssuranceKind = "go_concurrency_boundary"
+	AssuranceGoFormat           AssuranceKind = "go_format"
+	AssuranceSourceHygiene      AssuranceKind = "source_hygiene"
 )
 
 // AllAssuranceKinds returns every native assurance kind in stable order.
@@ -245,6 +247,8 @@ func AllAssuranceKinds() []AssuranceKind {
 		AssuranceSubstantiveProof,
 		AssuranceLiveVerification,
 		AssuranceGoConcurrency,
+		AssuranceGoFormat,
+		AssuranceSourceHygiene,
 	}
 }
 
