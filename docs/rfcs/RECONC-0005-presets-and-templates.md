@@ -18,6 +18,8 @@ Current bundled presets:
 | `docs-sync` | Public surface changes should update README/docs/changelog. |
 | `strict` | Blocking source/test/CI discipline for mature repos. |
 | `release` | Release-manifest, checksum, and verification hygiene. |
+| `go-assurance` | Current Go test/vet evidence and changed-file network/process boundaries. |
+| `bun-assurance` | Exact JSON dependency pins and current Bun test evidence. |
 
 Repos opt in through `.reconc.yml`:
 
@@ -26,6 +28,17 @@ Repos opt in through `.reconc.yml`:
 Names may also use `preset:<name>`. Duplicate preset names are
 deduplicated after trimming and prefix removal. Unknown preset names
 must fail source loading.
+
+Bundled presets carry a `pack` manifest with `format_version`, matching `name`,
+summary, stack selectors, capabilities, and explicit conflicts. Every
+capability declares non-empty inputs, evidence classes, and real implementing
+rule IDs. Selection rejects conflicts deterministically regardless of argument
+order. Legacy user presets without manifests remain loadable, but cannot be
+stack-recommended and declare no capabilities.
+
+Stack detection may propose manifested packs with specific evidence. It never
+selects wildcard packs and never mutates `extends`; pack adoption remains an
+explicit reviewed decision.
 
 ## Default Bootstrap
 

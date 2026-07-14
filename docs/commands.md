@@ -49,8 +49,9 @@ Detection covers `.claude/`, `.codex/`, `.cursor/`, `.opencode/`, `.devin/`,
 
 ### `reconc adopt [repo] [--yaml | --json | --apply]`
 Detects common tooling (JS/TS, Python, Rust, Go, CI, generated dirs)
-and emits matching-rule suggestions. `--apply` appends them to
-`.reconc.yml` idempotently.
+and emits matching-rule suggestions. Go and Bun evidence can also produce
+review-only manifested policy-pack recommendations. `--apply` appends
+individual rules to `.reconc.yml` idempotently and never changes `extends`.
 
 ### `reconc extract [repo] [--from PATH] [--yaml | --json]`
 Regex-heuristic scan of AGENTS.md / CLAUDE.md prose for concrete rule
@@ -152,9 +153,11 @@ first path, and a shortened message.
 ## Packs & wiring
 
 ### `reconc preset list [--json] [--output PATH]` / `reconc preset show <name> [--json] [--output PATH]`
-Built-in (`default`, `agent`, `docs-sync`, `release`, `strict`) + user presets from
+Built-in (`default`, `agent`, `docs-sync`, `release`, `strict`,
+`go-assurance`, `bun-assurance`) + user presets from
 `$RECONC_HOME/presets/*.yml`. User-authored presets override bundled
-ones on name collision.
+ones on name collision. JSON listing includes each validated manifest and its
+declared capabilities when present.
 
 ### `reconc template list [--json]` / `reconc template show <name> [--json]`
 Rule shape templates (`tests-follow-source`, `docs-follow-code`,
@@ -244,7 +247,7 @@ Ctrl-C. Read-only: never writes, never blocks the hooks.
 ### `reconc task <subcommand>`
 Typed repository TASK control with two non-migrating profiles:
 `sections-v1` for bounded Active/Queue/Blocked/Done sections and `logbook-v1`
-for Golem-style `Current:` plus detail `State:` fields. Configure the profile,
+for a `Current:` line plus detail `State:` fields. Configure the profile,
 overview/detail paths, Done window, and required completion evidence under
 `task_lifecycle` in `.reconc.yml`; `auto` succeeds only on an unambiguous exact
 grammar match.

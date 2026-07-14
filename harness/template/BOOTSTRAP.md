@@ -146,6 +146,20 @@ For Go fullstack/frontend/durable-store repos:
 
 Stack config controls enforcement. Do not leave a selected surface disabled just because bootstrapping was inconvenient. If the repo is meant to have a build runner, durable store, frontend, generated references, or arch rules, install the real files and enable the check.
 
+Before selecting policy packs, run the repo-local equivalent of:
+
+```sh
+reconc adopt . --json
+```
+
+Treat `pack_suggestions` as evidence-backed candidates, never automatic
+configuration. Inspect each pack manifest's capabilities, inputs, evidence,
+rules, and conflicts. Add a pack to `.reconc.yml` `extends` only when the real
+repository stack and control intent match. `go-assurance` and `bun-assurance`
+start in warn mode so a new rollout can measure friction before explicitly
+tightening selected repo-local rules. Never copy source-harness-specific gate
+paths, baselines, exemptions, or proof ledgers into a target repo.
+
 ## Step 4: Deploy Repo Root Scaffold
 
 Work from `tools/reconc/harness/<project-name>/repo-root-scaffold/`.
@@ -386,6 +400,7 @@ Update `docs/tasks/TASK-0001-Bootstrap-Reconc.md`:
 - Record files copied.
 - Record files merged.
 - Record selected stack and layout.
+- Record policy-pack recommendations reviewed, packs selected, and the evidence/rationale for each decision.
 - Record global rule sources inspected and which language/style source was proposed or merged.
 - Record every verification command and result.
 - Record any stack-intentional disabled checks.
@@ -413,6 +428,7 @@ The rollout is not done until all of this is true:
 - No source-specific product, internal-binary, UI, or local-machine text remains in generic runtime or workflow files.
 - `.reconc.yml` points to `tools/reconc/harness/<project-name>/...`.
 - `stack-config.yaml` matches the selected stack.
+- Every selected policy pack matches real stack evidence; no recommendation was silently auto-applied.
 - Hooks prefer local dist binaries on macOS/Linux/Windows before PATH.
 - `repo-root-scaffold/` hook artifacts were synced with `reconc hook sync-scaffold` from the local generator; no hook artifact was edited by hand or copied from a source-specific harness.
 - POSIX hook routes call `tools/reconc/bin/hook` first and retain local-dist/PATH fallback; native Windows adaptations are documented explicitly.

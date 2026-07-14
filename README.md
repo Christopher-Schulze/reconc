@@ -41,6 +41,8 @@ why a task is allowed to be called done.
   policy files into `.reconc/policy.lock.json`
 - blocks or warns on protected writes, missing reads, missing test commands,
   missing claims, stale evidence, and unsafe hook activity
+- evaluates bounded native layout, language, dependency, network/process,
+  substantive-proof, and live-verification gates without extra subprocesses
 - fails closed on stale lockfiles, schema drift, invalid globs, unsupported rule
   kinds, and repository-root mismatch
 - installs git hooks plus Claude Code, Codex, Cursor, OpenCode, Devin CLI,
@@ -92,6 +94,14 @@ reconc bootstrap .
 `bootstrap` is intentionally minimal: it scaffolds missing repo policy, compiles
 the local lockfile, installs a git pre-commit hook, and wires every registered
 agent platform whose repo-local config directory already exists.
+
+For an existing repo, inspect evidence-backed rule and policy-pack proposals:
+
+```bash
+reconc adopt . --json
+```
+
+Pack proposals are review-only. Reconc never silently adds them to `extends`.
 
 Then use the daily loop:
 

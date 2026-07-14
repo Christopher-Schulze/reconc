@@ -13,6 +13,7 @@ usage, architecture, release, and security facts should be kept here first.
 - [Minimal Example Policy](#minimal-example-policy)
 - [Command Surface](#command-surface)
 - [Repository Policy](#repository-policy)
+- [Policy Packs And Native Assurance](#policy-packs-and-native-assurance)
 - [Architecture](#architecture)
 - [Agent Skill](#agent-skill)
 - [GitHub And Release](#github-and-release)
@@ -111,7 +112,7 @@ may assist within one session, but it never replaces these repository files.
 
 `task_lifecycle` in `.reconc.yml` adopts the repository without migration.
 `sections-v1` is the bounded canonical profile for new repositories;
-`logbook-v1` accepts the Golem-style `Current:` line, permanent overview rows,
+`logbook-v1` accepts a `Current:` line, permanent overview rows,
 and detail-file `State:` fields. `auto` selects a profile only when exactly one
 grammar matches. Paths and the visible Done window are configurable. Unknown,
 mixed, duplicated, unsafe, or structurally inconsistent state fails closed
@@ -279,6 +280,86 @@ state/locks, and recent temp trees are never deleted to force a budget.
 Global temp scanning has its own six-hour marker, so multiple repos do not
 re-walk the same temp tree on every session start.
 
+## Policy Packs And Native Assurance
+
+Every bundled preset carries a versioned `pack` manifest with its name,
+summary, stack selectors, declared capabilities, required inputs, accepted
+evidence classes, implementing rule IDs, and explicit pack conflicts. Manifest
+rule references and conflicts are validated before a selected pack is loaded.
+User presets without a manifest remain compatible, but cannot be proposed by
+stack detection and declare no capabilities.
+
+`reconc adopt .` detects Go and Bun stack evidence and may propose
+`go-assurance` or `bun-assurance`. A proposal is review-only. `adopt --apply`
+adds individual rule suggestions but never mutates `extends`; the agent or user
+must explicitly select a pack in `.reconc.yml` after confirming that its
+contract fits the repository.
+
+`require_assurance` is the native, no-subprocess rule kind used by assurance
+packs. The parent `when_paths` controls when the gate set runs. Every gate has
+an `id`, `type`, and optional `applicable_if`. Fields that do not belong to the
+selected gate type are rejected instead of being silently ignored.
+
+| Gate type | Contract | Authority surface |
+|---|---|---|
+| `repository_layout` | Allowed, required, forbidden, hidden, and reserved root ownership | Full repository root |
+| `generated_reference` | Configured generator check has current successful command evidence | Current session |
+| `language_boundary` | Changed files use configured extensions inside configured zones | Matching changed files |
+| `dependency_pins` | Changed JSON dependency manifests use exact semantic versions or explicit protocol prefixes | Matching changed manifests |
+| `network_boundary` | Changed source sites have a nearby non-comment guard marker or reasoned path exemption | Matching changed files |
+| `process_boundary` | Changed process-spawn sites have a nearby non-comment hardening marker or reasoned path exemption | Matching changed files |
+| `substantive_proof` | Fresh measured samples, computed aggregate, threshold result, live command, and byte-matched evidence agree | Full configured proof manifest |
+| `live_verification` | Every or any configured command has current successful evidence | Current session |
+
+Example:
+
+```yaml
+rules:
+  - id: repository-assurance
+    kind: require_assurance
+    mode: block
+    when_paths: ["src/**", "package.json"]
+    message: Changed production surfaces must satisfy native assurance.
+    assurance:
+      - id: production-language
+        type: language_boundary
+        scan_paths: ["src/**"]
+        allowed_extensions: [".go"]
+        exemptions:
+          - path: "src/fixtures/**"
+            reason: Protocol fixtures are intentionally non-Go.
+      - id: dependency-pins
+        type: dependency_pins
+        applicable_if: ["package.json"]
+        manifest_paths: ["package.json"]
+        dependency_sections: ["dependencies", "devDependencies"]
+        allowed_version_prefixes: ["workspace:", "file:"]
+      - id: verification
+        type: live_verification
+        commands: ["go test ./...", "go vet ./..."]
+        command_policy: all
+```
+
+Substantive proof files use `format_version: "1"`. Each proof record requires a
+unique ID, subject, current successful command, `outcome: "pass"`, aggregation
+(`last`, `mean`, `min`, `max`, `median`, or `p95`), comparator (`lt`, `lte`,
+`eq`, `gte`, or `gt`), numeric threshold and actual, measured samples, an
+RFC3339 verification time, and a repository-relative evidence path plus its
+SHA-256. Reconc recomputes the aggregate from the samples, compares it to both
+the declared actual and threshold, checks freshness, reruns no command itself,
+and verifies the evidence bytes.
+
+Native assurance is intentionally bounded: 20,000 changed paths, 4,096 unique
+files, 4 MiB per file, 32 MiB total reads, 50,000 applicability or reserved-dir
+walk entries, and 50 returned findings plus one explicit omitted-count marker.
+An unreadable or over-budget authority surface is an error and fails closed.
+Matching gates reuse one canonical path resolution and one bounded in-memory
+file snapshot per evaluation, so overlapping source gates do not reread the
+same bytes from the SSD.
+Network and process gates are deterministic source heuristics, not semantic AST
+proofs; select narrow site patterns and guard markers, and use explicit
+reasoned exemptions where language-specific control flow cannot be expressed.
+
 ## Architecture
 
 Pipeline:
@@ -295,6 +376,7 @@ Package responsibilities:
 - `internal/parser`: YAML-to-policy validation and normalization
 - `internal/compiler`: canonical JSON lockfile generation, digesting, conflicts, migrations, compile lock
 - `internal/runtime`: policy evaluation, remediation, git integration, scripts, templates
+- `internal/assurance`: bounded native repository assurance evaluators
 - `internal/hooks`: typed hook platform registry, artifact generation, non-destructive install, scaffold sync, and activation diagnostics
 - `internal/runtime/agentsession`: hook-runtime session state and event handling
 - `internal/audit`: opt-in JSONL decision log and rotation

@@ -213,6 +213,11 @@ func buildStepsForKind(v Violation) []string {
 			"Inspect the script output above; resolve the reported failure",
 			"Re-run after fixing whatever the script flagged",
 		}
+	case policy.KindRequireAssurance:
+		return []string{
+			"Apply the exact remediation from the first native assurance finding",
+			"Rerun the same successful verification commands and policy check",
+		}
 	}
 	return []string{
 		"Inspect the matched rule and input evidence, then rerun the policy check",

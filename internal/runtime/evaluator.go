@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"reconc.dev/reconc/internal/assurance"
 	"reconc.dev/reconc/internal/compiler"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/ingest"
@@ -1061,8 +1062,64 @@ func evaluateRule(ctx *evalContext, rule map[string]interface{}, defaultMode pol
 		return evalNot(ctx, rule, defaultMode, inputs)
 	case policy.KindRequireScript:
 		return evalRequireScript(ctx, rule, defaultMode, inputs)
+	case policy.KindRequireAssurance:
+		return evalRequireAssurance(ctx, rule, defaultMode, inputs)
 	}
 	return nil, nil
+}
+
+func evalRequireAssurance(ctx *evalContext, rule map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
+	triggered, err := matchingPaths(inputs.WritePaths, stringListField(rule, "when_paths"))
+	if err != nil {
+		return nil, err
+	}
+	if len(triggered) == 0 {
+		return nil, nil
+	}
+	gates, err := assuranceGatesFromRule(rule)
+	if err != nil {
+		return nil, err
+	}
+	successful := []string{}
+	reportedSuccessful := []string{}
+	for _, result := range inputs.CommandResults {
+		if result.Outcome == CommandOutcomeSuccess {
+			reportedSuccessful = appendUnique(reportedSuccessful, result.Command)
+			successful = appendUnique(successful, result.Command)
+			successful = appendUnique(successful, normalizeCommandSemantics(result.Command, ctx.repoRoot))
+		}
+	}
+	for gateIndex := range gates {
+		for commandIndex := range gates[gateIndex].Commands {
+			gates[gateIndex].Commands[commandIndex] = normalizeCommandSemantics(gates[gateIndex].Commands[commandIndex], ctx.repoRoot)
+		}
+	}
+	findings, err := assurance.Evaluate(ctx.repoRoot, gates, assurance.Inputs{
+		ChangedPaths:       inputs.WritePaths,
+		SuccessfulCommands: successful,
+		Now:                time.Now().UTC(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(findings) == 0 {
+		return nil, nil
+	}
+	requiredPaths := []string{}
+	details := make([]string, 0, len(findings))
+	for _, finding := range findings {
+		details = append(details, "["+finding.GateID+"] "+finding.Message)
+		for _, path := range finding.Paths {
+			requiredPaths = appendUnique(requiredPaths, path)
+		}
+	}
+	v := buildViolation(rule, defaultMode, triggered, reportedSuccessful, nil, requiredPaths, nil, nil)
+	v.Explanation = "Native assurance failed: " + strings.Join(details, "; ")
+	v.RecommendedAction = findings[0].Remediation
+	if len(findings) > 1 {
+		v.RecommendedAction += fmt.Sprintf(" Then resolve the remaining %d assurance finding(s).", len(findings)-1)
+	}
+	return v, nil
 }
 
 // evalRequireScript runs an external script for each match context.
@@ -1466,6 +1523,25 @@ func evidenceChecksFromRule(rule map[string]interface{}) []policy.EvidenceCheck 
 		})
 	}
 	return out
+}
+
+func assuranceGatesFromRule(rule map[string]interface{}) ([]policy.AssuranceGate, error) {
+	raw, ok := rule["assurance"]
+	if !ok || raw == nil {
+		return nil, &rerrors.LockfileError{Message: "rule '" + ruleIDOf(rule) + "' missing assurance field in lockfile"}
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil, &rerrors.LockfileError{Message: "marshal assurance gates for rule '" + ruleIDOf(rule) + "'", Cause: err}
+	}
+	var gates []policy.AssuranceGate
+	if err := json.Unmarshal(data, &gates); err != nil {
+		return nil, &rerrors.LockfileError{Message: "decode assurance gates for rule '" + ruleIDOf(rule) + "'", Cause: err}
+	}
+	if len(gates) == 0 {
+		return nil, &rerrors.LockfileError{Message: "rule '" + ruleIDOf(rule) + "' has empty assurance field in lockfile"}
+	}
+	return gates, nil
 }
 
 // numAsIntDefault is like numAsInt but returns the default when nil.

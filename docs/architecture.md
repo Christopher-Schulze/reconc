@@ -45,6 +45,7 @@ also use the runtime then render the result. `why` / `diff` /
 internal/
   adopt/          convention detector (JS/TS, Python, Rust, Go, CI, dirs)
   agentguide/     embedded agent-integration guide + section lookup
+  assurance/      bounded native layout/source/manifest/proof gates
   audit/          append-only JSONL decision log + rotation + stats
   changelog/      docs/changelog.md rotation into quarterly archives
   cli/            argparse-equivalent dispatcher (one file, big switch)
@@ -179,8 +180,9 @@ completion.go, cli_test.go, and commands.md. ~80-150 LOC including tests.
         │       ▲
         │       └── migrations, conflicts, lock
         │
-        ├──► runtime ──► policy
-        │       └── template substitution, script runner, git
+        ├──► runtime ──┬──► policy
+        │              ├──► assurance ──► policy
+        │              └── template substitution, script runner, git
         │
         ├──► hooks
         ├──► adopt
@@ -223,6 +225,9 @@ class of hostile input.
 | Audit/runloop storage | **2 MiB live + 2 archives each** | Fixed rings prevent repository-local log growth. |
 | Hook output | **8 KiB per route** | Prevents verbose host output from consuming agent context. |
 | Compaction context | **4 KiB** | Restores control-plane orientation without replaying logs or task files. |
+| Native assurance file | **4 MiB** | Rejects oversized source, manifest, or proof inputs before allocation. |
+| Native assurance run | **4,096 files / 32 MiB reads** | Bounds aggregate source and evidence inspection across all gates. |
+| Assurance findings | **50 + omitted-count marker** | Keeps policy output useful without consuming agent context. |
 
 Breaches use the registry's platform-specific blocking response or exit code for
 PreToolUse, permission, and Stop. Observation and cleanup routes fail open with
@@ -315,6 +320,9 @@ command that succeeded. `forbid_command`/`require_command`
 - Audit and runloop JSONL writes rotate before append through fixed archive
   rings; lifecycle retention bounds sessions, reports, locks, generated
   binaries, and owned temp residue outside the Stop path.
+- Native assurance source gates scan matching changed files only. Layout and
+  substantive-proof authority gates inspect their complete configured surface;
+  unreadable or over-budget authority fails closed.
 
 ### Secrets in audit
 

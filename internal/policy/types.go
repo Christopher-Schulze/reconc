@@ -72,6 +72,10 @@ const (
 	// Phase 4D: subprocess-based custom assertion (W21 + W28).
 	// Runs an external script under timeout enforcement.
 	KindRequireScript Kind = "require_script"
+
+	// RequireAssurance runs one or more bounded, native repository assurance
+	// gates. Unlike require_script, these checks do not spawn a subprocess.
+	KindRequireAssurance Kind = "require_assurance"
 )
 
 // AllKinds returns every supported rule kind in declaration order.
@@ -90,6 +94,7 @@ func AllKinds() []Kind {
 		KindAnyOf,
 		KindNot,
 		KindRequireScript,
+		KindRequireAssurance,
 	}
 }
 
@@ -146,6 +151,10 @@ type Rule struct {
 	Args           []string `json:"args,omitempty" yaml:"args,omitempty"`
 	TimeoutSec     int      `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`
 	KillTimeoutSec int      `json:"kill_timeout_sec,omitempty" yaml:"kill_timeout_sec,omitempty"`
+
+	// Assurance contains native, typed gate configurations. The parent rule's
+	// when_paths determines when the gate set runs.
+	Assurance []AssuranceGate `json:"assurance,omitempty" yaml:"assurance,omitempty"`
 
 	// Provenance: where did this rule come from? Set by the parser so
 	// violations can point back to the authoring location.
@@ -207,6 +216,87 @@ type EvidenceCheck struct {
 	MustNotContain string   `json:"must_not_contain,omitempty" yaml:"must_not_contain,omitempty"`
 	MaxLineCount   int      `json:"max_line_count,omitempty" yaml:"max_line_count,omitempty"`
 	Optional       bool     `json:"optional,omitempty" yaml:"optional,omitempty"`
+}
+
+// AssuranceKind identifies a native repository assurance contract.
+type AssuranceKind string
+
+const (
+	AssuranceRepositoryLayout   AssuranceKind = "repository_layout"
+	AssuranceGeneratedReference AssuranceKind = "generated_reference"
+	AssuranceLanguageBoundary   AssuranceKind = "language_boundary"
+	AssuranceDependencyPins     AssuranceKind = "dependency_pins"
+	AssuranceNetworkBoundary    AssuranceKind = "network_boundary"
+	AssuranceProcessBoundary    AssuranceKind = "process_boundary"
+	AssuranceSubstantiveProof   AssuranceKind = "substantive_proof"
+	AssuranceLiveVerification   AssuranceKind = "live_verification"
+)
+
+// AllAssuranceKinds returns every native assurance kind in stable order.
+func AllAssuranceKinds() []AssuranceKind {
+	return []AssuranceKind{
+		AssuranceRepositoryLayout,
+		AssuranceGeneratedReference,
+		AssuranceLanguageBoundary,
+		AssuranceDependencyPins,
+		AssuranceNetworkBoundary,
+		AssuranceProcessBoundary,
+		AssuranceSubstantiveProof,
+		AssuranceLiveVerification,
+	}
+}
+
+// Valid reports whether k is a supported native assurance kind.
+func (k AssuranceKind) Valid() bool {
+	for _, candidate := range AllAssuranceKinds() {
+		if k == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+// AssuranceExemption excludes a configured path pattern from a source gate.
+// Reason is mandatory so an exception cannot become an unexplained bypass.
+type AssuranceExemption struct {
+	Path   string `json:"path" yaml:"path"`
+	Reason string `json:"reason" yaml:"reason"`
+}
+
+// AssuranceGate is one typed native gate. Fields are validated per Type; a
+// field that is not meaningful for the selected type is rejected by parser.
+// Source-oriented gates inspect matching changed files. Authority gates such
+// as repository_layout and substantive_proof inspect their full configured
+// surface.
+type AssuranceGate struct {
+	ID           string               `json:"id" yaml:"id"`
+	Type         AssuranceKind        `json:"type" yaml:"type"`
+	ApplicableIf []string             `json:"applicable_if,omitempty" yaml:"applicable_if,omitempty"`
+	ScanPaths    []string             `json:"scan_paths,omitempty" yaml:"scan_paths,omitempty"`
+	ExcludePaths []string             `json:"exclude_paths,omitempty" yaml:"exclude_paths,omitempty"`
+	Exemptions   []AssuranceExemption `json:"exemptions,omitempty" yaml:"exemptions,omitempty"`
+
+	AllowedRootEntries   []string `json:"allowed_root_entries,omitempty" yaml:"allowed_root_entries,omitempty"`
+	RequiredRootEntries  []string `json:"required_root_entries,omitempty" yaml:"required_root_entries,omitempty"`
+	ForbiddenRootEntries []string `json:"forbidden_root_entries,omitempty" yaml:"forbidden_root_entries,omitempty"`
+	ReservedDirs         []string `json:"reserved_dirs,omitempty" yaml:"reserved_dirs,omitempty"`
+	AllowHiddenEntries   bool     `json:"allow_hidden_entries,omitempty" yaml:"allow_hidden_entries,omitempty"`
+
+	AllowedExtensions      []string `json:"allowed_extensions,omitempty" yaml:"allowed_extensions,omitempty"`
+	ManifestPaths          []string `json:"manifest_paths,omitempty" yaml:"manifest_paths,omitempty"`
+	DependencySections     []string `json:"dependency_sections,omitempty" yaml:"dependency_sections,omitempty"`
+	AllowedVersionPrefixes []string `json:"allowed_version_prefixes,omitempty" yaml:"allowed_version_prefixes,omitempty"`
+
+	SitePatterns      []string `json:"site_patterns,omitempty" yaml:"site_patterns,omitempty"`
+	GuardMarkers      []string `json:"guard_markers,omitempty" yaml:"guard_markers,omitempty"`
+	MarkerWindowLines int      `json:"marker_window_lines,omitempty" yaml:"marker_window_lines,omitempty"`
+
+	Commands      []string `json:"commands,omitempty" yaml:"commands,omitempty"`
+	CommandPolicy string   `json:"command_policy,omitempty" yaml:"command_policy,omitempty"`
+
+	ProofFile   string `json:"proof_file,omitempty" yaml:"proof_file,omitempty"`
+	MinSamples  int    `json:"min_samples,omitempty" yaml:"min_samples,omitempty"`
+	MaxAgeHours int    `json:"max_age_hours,omitempty" yaml:"max_age_hours,omitempty"`
 }
 
 // Check is one INLINE sub-check inside a composite rule (all_of /

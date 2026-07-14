@@ -31,11 +31,20 @@
 | `require_fresh_file` | `required_files`, `when_paths` | Writes matching `when_paths` require listed files to exist and optionally be fresh by `max_age_hours`. |
 | `require_evidence` | `evidence`, `when_paths` | Writes matching `when_paths` require evidence files to satisfy existence/content/line-count assertions. |
 | `require_script` | `script`, `when_paths` | Writes matching `when_paths` require a repo-local policy-authored script to return success. |
+| `require_assurance` | `assurance`, `when_paths` | Writes matching `when_paths` require every applicable typed native assurance gate to pass. |
 
 `require_script` may use `args`, `timeout_sec`, and
 `kill_timeout_sec`. Script paths must be repo-relative and must not
 escape the repository root. Payload-provided command strings are never
 executed as scripts.
+
+`require_assurance` performs no network calls and spawns no subprocesses. Its
+typed gates cover repository layout, generated-reference command evidence,
+language boundaries, exact JSON dependency pins, network/process guard
+markers, measured substantive proof, and live command evidence. Fields
+irrelevant to a selected gate type are invalid. Source gates are changed-file
+scoped; repository-layout and substantive-proof gates inspect their full
+configured authority surface. Operational read and scan limits fail closed.
 
 ## Composite Rule Kinds
 

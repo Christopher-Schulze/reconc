@@ -3,6 +3,22 @@
 # Couple user-facing code changes with documentation updates so README,
 # docs/, and CHANGELOG stay in lockstep with the code they describe.
 
+pack:
+  format_version: "1"
+  name: docs-sync
+  summary: Public surface and release changes stay synchronized with documentation.
+  stacks: ["*"]
+  capabilities:
+    - id: public-surface-doc-sync
+      inputs: ["public-surface"]
+      evidence: ["write-path"]
+      rules: ["preset-docs-sync-public-surface"]
+    - id: release-changelog-sync
+      inputs: ["version-manifest"]
+      evidence: ["write-path"]
+      rules: ["preset-docs-sync-changelog-for-releases"]
+  conflicts: []
+
 rules:
   - id: preset-docs-sync-public-surface
     kind: couple_change

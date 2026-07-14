@@ -18,7 +18,7 @@ detailed recovery tutorial and verification checklist.
 
 ## Sub-Tasks
 
-- [ ] Define the bootstrap plan and manifest contract.
+- [~] Define the bootstrap plan and manifest contract.
 - [ ] Implement non-destructive apply, rollback, idempotence, and verification.
 - [ ] Integrate profiles, packs, TASK lifecycle, adapters, wrapper, and ignore policy.
 - [ ] Repair binary and artifact discovery across supported platforms.

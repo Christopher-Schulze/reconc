@@ -136,6 +136,9 @@ func LoadPolicySources(repoStartPath string) (*SourceBundle, error) {
 	}
 
 	// 6. Preset packs referenced via extends:.
+	if err := presets.ValidateSelection(presetNames); err != nil {
+		return nil, err
+	}
 	presetSources, err := loadPresetSources(presetNames)
 	if err != nil {
 		return nil, err

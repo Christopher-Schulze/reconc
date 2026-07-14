@@ -270,6 +270,17 @@ func validateRuleItem(item map[string]interface{}, src policy.PolicySource, inde
 			Message: "unknown rule kind: " + string(kind) + " (rule '" + id + "')",
 		}
 	}
+	if kind != policy.KindRequireAssurance {
+		if _, present := item["assurance"]; present {
+			return policy.Rule{}, &rerrors.RuleValidationError{Message: "rule '" + id + "' field 'assurance' is only valid for kind require_assurance"}
+		}
+	} else {
+		for _, field := range []string{"paths", "before_paths", "commands", "claims", "required_files", "evidence", "script", "args", "timeout_sec", "kill_timeout_sec", "checks"} {
+			if _, present := item[field]; present {
+				return policy.Rule{}, &rerrors.RuleValidationError{Message: "rule '" + id + "' field '" + field + "' is not valid for kind require_assurance"}
+			}
+		}
+	}
 
 	mode := policy.Mode("")
 	if mRaw, ok := item["mode"]; ok && mRaw != nil {
@@ -430,6 +441,23 @@ func validateRuleItem(item map[string]interface{}, src policy.PolicySource, inde
 		}
 	}
 
+	assurance, err := optionalAssuranceGateList(item, "assurance", id)
+	if err != nil {
+		return policy.Rule{}, err
+	}
+	if kind == policy.KindRequireAssurance {
+		if len(assurance) == 0 {
+			return policy.Rule{}, &rerrors.RuleValidationError{
+				Message: "rule '" + id + "' (kind require_assurance) requires field 'assurance' (non-empty list)",
+			}
+		}
+		if len(whenPaths) == 0 {
+			return policy.Rule{}, &rerrors.RuleValidationError{
+				Message: "rule '" + id + "' (kind require_assurance) requires field 'when_paths'",
+			}
+		}
+	}
+
 	// Optional deprecation fields (W31). All optional; zero values
 	// mean "not deprecated". Accepted on every rule kind so the
 	// lifecycle is uniform.
@@ -473,6 +501,7 @@ func validateRuleItem(item map[string]interface{}, src policy.PolicySource, inde
 		Args:                 args,
 		TimeoutSec:           timeoutSec,
 		KillTimeoutSec:       killTimeoutSec,
+		Assurance:            assurance,
 		SourcePath:           src.Path,
 		SourceBlockID:        src.BlockID,
 		Deprecated:           deprecated,
@@ -493,11 +522,12 @@ func isRepoRelativePath(p string) bool {
 	if cleaned == "" {
 		return false
 	}
-	if strings.HasPrefix(cleaned, "/") || strings.Contains(cleaned, ":") {
+	normalized := strings.ReplaceAll(cleaned, `\`, "/")
+	if strings.HasPrefix(normalized, "/") || strings.Contains(normalized, ":") {
 		// Absolute (POSIX) or Windows-drive prefix
 		return false
 	}
-	for _, seg := range strings.Split(cleaned, "/") {
+	for _, seg := range strings.Split(normalized, "/") {
 		if seg == ".." {
 			return false
 		}

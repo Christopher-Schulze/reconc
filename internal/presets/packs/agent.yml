@@ -4,6 +4,26 @@
 # validation, and user-facing documentation without hard-locking the normal
 # edit loop. Pair with `default` for generated-output protection.
 
+pack:
+  format_version: "1"
+  name: agent
+  summary: Lightweight AI-agent context, verification, and documentation guidance.
+  stacks: ["*"]
+  capabilities:
+    - id: agent-test-evidence
+      inputs: ["source", "dependency-manifest"]
+      evidence: ["command-success"]
+      rules: ["preset-agent-tests-before-done"]
+    - id: agent-context-read
+      inputs: ["source"]
+      evidence: ["read-path"]
+      rules: ["preset-agent-read-project-context"]
+    - id: public-surface-doc-sync
+      inputs: ["public-surface"]
+      evidence: ["write-path"]
+      rules: ["preset-agent-docs-follow-public-surface"]
+  conflicts: []
+
 rules:
   - id: preset-agent-tests-before-done
     kind: require_command_success

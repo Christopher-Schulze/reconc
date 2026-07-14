@@ -28,6 +28,7 @@ Treat exit 2 as "stop writing and remediate first".
 | `require_fresh_file` | Artifact must be recent | Regenerate / touch the referenced file |
 | `require_evidence` | Text must (not) appear in a file | Update the evidence file to satisfy assertions |
 | `require_script` | A script must pass | Run it; fix whatever it flags; re-check |
+| `require_assurance` | Native bounded repository gates must pass | Apply the first exact finding, collect real command/proof evidence, then re-check |
 | `all_of` / `any_of` / `not` | Composite | Resolve each sub-check; see explanation |
 
 ## Bootstrap (New Repo)
@@ -45,6 +46,10 @@ Detect existing conventions and propose matching rules:
 reconc adopt . --yaml       # preview as YAML
 reconc adopt . --apply      # append to .reconc.yml (idempotent)
 ```
+
+Stack-aware policy-pack recommendations are review-only. `adopt --apply` never
+adds them to `extends`. Inspect the declared capabilities and select a pack
+explicitly only when its inputs, evidence, and gates fit the repository.
 
 Verify installation health end-to-end:
 ```bash

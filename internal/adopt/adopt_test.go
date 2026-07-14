@@ -9,7 +9,7 @@ import (
 
 func TestScanEmptyRepoProducesNoSuggestions(t *testing.T) {
 	repo := t.TempDir()
-	r := Scan(repo)
+	r := mustScan(t, repo)
 	if len(r.Suggestions) != 0 {
 		t.Errorf("expected 0 suggestions for empty repo, got %d", len(r.Suggestions))
 	}
@@ -23,7 +23,7 @@ func TestScanNodeRepoWithTestScript(t *testing.T) {
 	mustWrite(t, filepath.Join(repo, "package.json"), `{"scripts":{"test":"vitest","lint":"eslint ."}}`)
 	mustWrite(t, filepath.Join(repo, "bun.lockb"), "")
 
-	r := Scan(repo)
+	r := mustScan(t, repo)
 	ids := collectIDs(r)
 	for _, want := range []string{"adopt-js-tests", "adopt-js-lint"} {
 		if !containsString(ids, want) {
@@ -47,7 +47,7 @@ func TestScanNodeRepoWithTestScript(t *testing.T) {
 func TestScanPythonRepoWithRuffAndPytest(t *testing.T) {
 	repo := t.TempDir()
 	mustWrite(t, filepath.Join(repo, "pyproject.toml"), "[tool.ruff]\n[tool.pytest.ini_options]\n[tool.mypy]\n")
-	r := Scan(repo)
+	r := mustScan(t, repo)
 	ids := collectIDs(r)
 	for _, want := range []string{"adopt-py-ruff", "adopt-py-pytest", "adopt-py-mypy"} {
 		if !containsString(ids, want) {
@@ -59,7 +59,7 @@ func TestScanPythonRepoWithRuffAndPytest(t *testing.T) {
 func TestScanRustRepoSuggestsCargoTestAndClippy(t *testing.T) {
 	repo := t.TempDir()
 	mustWrite(t, filepath.Join(repo, "Cargo.toml"), "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n")
-	r := Scan(repo)
+	r := mustScan(t, repo)
 	ids := collectIDs(r)
 	for _, want := range []string{"adopt-rust-test", "adopt-rust-clippy"} {
 		if !containsString(ids, want) {
@@ -71,12 +71,15 @@ func TestScanRustRepoSuggestsCargoTestAndClippy(t *testing.T) {
 func TestScanGoRepoSuggestsTestAndVet(t *testing.T) {
 	repo := t.TempDir()
 	mustWrite(t, filepath.Join(repo, "go.mod"), "module demo\ngo 1.22\n")
-	r := Scan(repo)
+	r := mustScan(t, repo)
 	ids := collectIDs(r)
 	for _, want := range []string{"adopt-go-test", "adopt-go-vet"} {
 		if !containsString(ids, want) {
 			t.Errorf("expected suggestion %q; got %v", want, ids)
 		}
+	}
+	if len(r.PackSuggestions) != 1 || r.PackSuggestions[0].Name != "go-assurance" {
+		t.Fatalf("expected review-only go-assurance recommendation, got %+v", r.PackSuggestions)
 	}
 }
 
@@ -93,7 +96,7 @@ func TestScanCIAndGeneratedDirs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r := Scan(repo)
+	r := mustScan(t, repo)
 	ids := collectIDs(r)
 	for _, want := range []string{"adopt-ci-green-gate", "adopt-generated-dist", "adopt-generated-generated"} {
 		if !containsString(ids, want) {
@@ -146,7 +149,7 @@ func TestRenderYAMLIncludesAllFields(t *testing.T) {
 func TestApplyCreatesMissingConfig(t *testing.T) {
 	repo := t.TempDir()
 	mustWrite(t, filepath.Join(repo, "go.mod"), "module demo\n")
-	r := Scan(repo)
+	r := mustScan(t, repo)
 	added, err := Apply(repo, r)
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -169,7 +172,7 @@ func TestApplyCreatesMissingConfig(t *testing.T) {
 func TestApplyIsIdempotent(t *testing.T) {
 	repo := t.TempDir()
 	mustWrite(t, filepath.Join(repo, "go.mod"), "module demo\n")
-	r := Scan(repo)
+	r := mustScan(t, repo)
 	firstAdded, err := Apply(repo, r)
 	if err != nil {
 		t.Fatalf("Apply 1: %v", err)
@@ -193,7 +196,7 @@ func TestApplyAppendsToExistingConfig(t *testing.T) {
 	// Pre-existing .reconc.yml with rules: key but no adopt-go-test.
 	pre := "default_mode: warn\nrules:\n  - id: existing-rule\n    kind: deny_write\n    paths: ['secret/**']\n    mode: block\n    message: no\n"
 	mustWrite(t, filepath.Join(repo, ".reconc.yml"), pre)
-	r := Scan(repo)
+	r := mustScan(t, repo)
 	_, err := Apply(repo, r)
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -209,6 +212,9 @@ func TestApplyAppendsToExistingConfig(t *testing.T) {
 	if !strings.Contains(got, "adopt-go-test") {
 		t.Errorf("new rule should be added; got:\n%s", got)
 	}
+	if strings.Contains(got, "go-assurance") {
+		t.Errorf("adopt --apply must never add inferred packs; got:\n%s", got)
+	}
 }
 
 func TestToJSON(t *testing.T) {
@@ -220,6 +226,24 @@ func TestToJSON(t *testing.T) {
 	s := string(data)
 	if !strings.Contains(s, `"id":"id1"`) {
 		t.Errorf("JSON missing id field: %s", s)
+	}
+}
+
+func TestRenderTextPackOnlyDoesNotSuggestApplyingRules(t *testing.T) {
+	report := Report{
+		RepoRoot: "/repo",
+		Detected: []string{"go.mod"},
+		PackSuggestions: []PackSuggestion{{
+			Name: "go-assurance", DetectedStack: "go", Reason: "Go assurance",
+		}},
+	}
+	text := RenderText(report)
+	if strings.Contains(text, "--apply") || !strings.Contains(text, "add selected names to extends manually") {
+		t.Fatalf("pack-only next action must remain explicit and review-only:\n%s", text)
+	}
+	yaml := RenderYAML(report)
+	if strings.Contains(yaml, "Paste the rule body") || !strings.Contains(yaml, "adopt --apply never changes extends") {
+		t.Fatalf("pack-only YAML must not imply a rule body exists:\n%s", yaml)
 	}
 }
 
@@ -250,4 +274,13 @@ func containsString(xs []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func mustScan(t *testing.T, repo string) Report {
+	t.Helper()
+	report, err := Scan(repo)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	return report
 }

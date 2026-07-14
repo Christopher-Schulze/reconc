@@ -1,0 +1,53 @@
+# reconc preset: go-assurance
+#
+# Explicit opt-in Go gates. `reconc adopt` may recommend this pack when go.mod
+# exists, but never adds it automatically.
+
+pack:
+  format_version: "1"
+  name: go-assurance
+  summary: Current Go verification plus changed-file network and process boundaries.
+  stacks: ["go"]
+  capabilities:
+    - id: go-live-verification
+      inputs: ["**/*.go", "go.mod", "go.sum"]
+      evidence: ["command-success"]
+      rules: ["preset-go-assurance"]
+    - id: go-network-boundary
+      inputs: ["changed Go source"]
+      evidence: ["native-source-scan"]
+      rules: ["preset-go-assurance"]
+    - id: go-process-boundary
+      inputs: ["changed Go source"]
+      evidence: ["native-source-scan"]
+      rules: ["preset-go-assurance"]
+  conflicts: []
+
+rules:
+  - id: preset-go-assurance
+    kind: require_assurance
+    mode: warn
+    when_paths: ["**/*.go", "go.mod", "go.sum"]
+    message: Go changes require current verification and guarded network/process sites.
+    assurance:
+      - id: go-live
+        type: live_verification
+        applicable_if: ["go.mod"]
+        commands: ["go test ./...", "go vet ./..."]
+        command_policy: all
+      - id: go-network
+        type: network_boundary
+        applicable_if: ["go.mod"]
+        scan_paths: ["**/*.go"]
+        exclude_paths: ["**/*_test.go", "vendor/**"]
+        site_patterns: ["http.Get(", "http.Post(", "http.Head(", "http.PostForm(", "http.DefaultClient", "&http.Client{"]
+        guard_markers: ["NewGuardedClient", "NewRoundTripper", "NewEgressGuardedClient", "NewEgressRoundTripper", "RoundTripper:"]
+        marker_window_lines: 20
+      - id: go-process
+        type: process_boundary
+        applicable_if: ["go.mod"]
+        scan_paths: ["**/*.go"]
+        exclude_paths: ["**/*_test.go", "vendor/**"]
+        site_patterns: ["exec.Command(", "exec.CommandContext("]
+        guard_markers: ["SysProcAttr", "ApplyHardening", "ArmHardening", "Pdeathsig"]
+        marker_window_lines: 20

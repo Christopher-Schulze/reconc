@@ -51,9 +51,23 @@ func TestKindValid(t *testing.T) {
 }
 
 func TestAllKindsLen(t *testing.T) {
-	// 7 core + 2 evidence + 3 composite + 1 script = 13.
-	if got := len(AllKinds()); got != 13 {
-		t.Errorf("expected 13 rule kinds, got %d", got)
+	// 7 core + 2 evidence + 3 composite + 1 script + 1 assurance = 14.
+	if got := len(AllKinds()); got != 14 {
+		t.Errorf("expected 14 rule kinds, got %d", got)
+	}
+}
+
+func TestAllAssuranceKindsValid(t *testing.T) {
+	if got := len(AllAssuranceKinds()); got != 8 {
+		t.Fatalf("expected 8 assurance kinds, got %d", got)
+	}
+	for _, kind := range AllAssuranceKinds() {
+		if !kind.Valid() {
+			t.Errorf("canonical assurance kind %q must be valid", kind)
+		}
+	}
+	if AssuranceKind("theater").Valid() {
+		t.Error("unknown assurance kind must be invalid")
 	}
 }
 

@@ -1467,7 +1467,10 @@ func runAdopt(args []string, stdout, stderr io.Writer) error {
 		return &CLIError{ExitCode: 1, Message: "reconc adopt: not a directory: " + abs}
 	}
 
-	report := adopt.Scan(abs)
+	report, err := adopt.Scan(abs)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc adopt: " + err.Error()}
+	}
 
 	if applyOut {
 		added, err := adopt.Apply(abs, report)
@@ -1476,11 +1479,12 @@ func runAdopt(args []string, stdout, stderr io.Writer) error {
 		}
 		if jsonOut {
 			payload := map[string]interface{}{
-				"repo_root":   abs,
-				"added":       added,
-				"suggestions": report.Suggestions,
-				"detected":    report.Detected,
-				"config_path": filepath.Join(abs, ".reconc.yml"),
+				"repo_root":        abs,
+				"added":            added,
+				"suggestions":      report.Suggestions,
+				"pack_suggestions": report.PackSuggestions,
+				"detected":         report.Detected,
+				"config_path":      filepath.Join(abs, ".reconc.yml"),
 			}
 			enc := json.NewEncoder(stdout)
 			enc.SetIndent("", "  ")

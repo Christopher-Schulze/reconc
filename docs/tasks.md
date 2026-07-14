@@ -2,11 +2,10 @@
 
 ## Active
 
-- [~] 007 Policy packs and assurance gates -> tasks/007-policy-packs-and-assurance-gates.md
+- [~] 008 Transactional bootstrap and artifact resolution -> tasks/008-transactional-bootstrap-and-artifact-resolution.md
 
 ## Queue
 
-- [ ] 008 Transactional bootstrap and artifact resolution -> tasks/008-transactional-bootstrap-and-artifact-resolution.md
 - [ ] 009 Architecture and release trust -> tasks/009-architecture-and-release-trust.md
 - [ ] 010 Self-hosting and final proof -> tasks/010-self-hosting-and-final-proof.md
 
@@ -14,6 +13,7 @@
 
 ## Done
 
+- [x] 007 Policy packs and assurance gates -> tasks/done/007-policy-packs-and-assurance-gates.md
 - [x] 006 Task lifecycle and AI context -> tasks/done/006-task-lifecycle-and-ai-context.md
 - [x] 005 Hook platform registry and adapters -> tasks/done/005-hook-platform-registry-and-adapters.md
 - [x] 004 State retention and SSD hygiene -> tasks/done/004-state-retention-and-ssd-hygiene.md

@@ -15,6 +15,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"reconc.dev/reconc/internal/presets"
 )
 
 // Suggestion is one rule the detector wants to propose. Kept small +
@@ -50,19 +52,33 @@ type Suggestion struct {
 
 // Report groups all suggestions for a single adopt run.
 type Report struct {
-	RepoRoot    string       `json:"repo_root"`
-	Detected    []string     `json:"detected"`
-	Suggestions []Suggestion `json:"suggestions"`
+	RepoRoot        string           `json:"repo_root"`
+	Detected        []string         `json:"detected"`
+	Suggestions     []Suggestion     `json:"suggestions"`
+	PackSuggestions []PackSuggestion `json:"pack_suggestions"`
+}
+
+// PackSuggestion is a stack-evidenced preset recommendation. It is never
+// consumed by Apply; adding a pack to extends remains an explicit decision.
+type PackSuggestion struct {
+	Name          string   `json:"name"`
+	DetectedStack string   `json:"detected_stack"`
+	Evidence      []string `json:"evidence"`
+	Reason        string   `json:"reason"`
+	Capabilities  []string `json:"capabilities"`
 }
 
 // Scan inspects repoRoot for common tooling and returns a deterministic
 // Report. Never mutates the repository.
-func Scan(repoRoot string) Report {
+func Scan(repoRoot string) (Report, error) {
 	r := Report{
-		RepoRoot:    repoRoot,
-		Detected:    []string{},
-		Suggestions: []Suggestion{},
+		RepoRoot:        repoRoot,
+		Detected:        []string{},
+		Suggestions:     []Suggestion{},
+		PackSuggestions: []PackSuggestion{},
 	}
+	detectedStacks := []string{}
+	stackEvidence := map[string][]string{}
 
 	// --- JS / TS ---
 	if exists(filepath.Join(repoRoot, "package.json")) {
@@ -92,6 +108,10 @@ func Scan(repoRoot string) Report {
 				Reason:    "package.json declares a 'lint' script",
 			})
 		}
+	}
+	if exists(filepath.Join(repoRoot, "package.json")) && (exists(filepath.Join(repoRoot, "bun.lock")) || exists(filepath.Join(repoRoot, "bun.lockb"))) {
+		detectedStacks = append(detectedStacks, "bun")
+		stackEvidence["bun"] = []string{"package.json", firstExisting(repoRoot, "bun.lock", "bun.lockb")}
 	}
 	if exists(filepath.Join(repoRoot, "tsconfig.json")) {
 		r.Detected = append(r.Detected, "tsconfig.json")
@@ -176,6 +196,8 @@ func Scan(repoRoot string) Report {
 
 	// --- Go ---
 	if exists(filepath.Join(repoRoot, "go.mod")) {
+		detectedStacks = append(detectedStacks, "go")
+		stackEvidence["go"] = []string{"go.mod"}
 		r.Detected = append(r.Detected, "go.mod")
 		r.Suggestions = append(r.Suggestions, Suggestion{
 			ID:        "adopt-go-test",
@@ -244,22 +266,53 @@ func Scan(repoRoot string) Report {
 		}
 	}
 
-	return r
+	packs, err := presets.SuggestForStacks(detectedStacks)
+	if err != nil {
+		return Report{}, err
+	}
+	for _, metadata := range packs {
+		matchedStack := matchingManifestStack(metadata.Manifest.Stacks, detectedStacks)
+		capabilities := make([]string, 0, len(metadata.Manifest.Capabilities))
+		for _, capability := range metadata.Manifest.Capabilities {
+			capabilities = append(capabilities, capability.ID)
+		}
+		r.PackSuggestions = append(r.PackSuggestions, PackSuggestion{
+			Name:          metadata.Name,
+			DetectedStack: matchedStack,
+			Evidence:      stackEvidence[matchedStack],
+			Reason:        metadata.Manifest.Summary,
+			Capabilities:  capabilities,
+		})
+	}
+	return r, nil
 }
 
 // RenderYAML emits a YAML snippet suitable for pasting into .reconc.yml
 // under `rules:`. Deterministic output (suggestions are already in
 // scan-order, which is stable).
 func RenderYAML(r Report) string {
-	if len(r.Suggestions) == 0 {
+	if len(r.Suggestions) == 0 && len(r.PackSuggestions) == 0 {
 		return "# reconc adopt: no suggestions for this repo.\n"
 	}
 	var b strings.Builder
 	b.WriteString("# reconc adopt suggestions for ")
 	b.WriteString(r.RepoRoot)
 	b.WriteString("\n")
-	b.WriteString("# Paste the body under the `rules:` key of .reconc.yml.\n")
-	b.WriteString("# Start in warn mode; switch to block once green.\n\n")
+	if len(r.Suggestions) > 0 {
+		b.WriteString("# Paste the rule body under the `rules:` key of .reconc.yml.\n")
+		b.WriteString("# Start in warn mode; switch to block once green.\n\n")
+	}
+	if len(r.PackSuggestions) > 0 {
+		b.WriteString("# Review-only pack suggestions; adopt --apply never changes extends:\n")
+		b.WriteString("# extends: [")
+		for index, suggestion := range r.PackSuggestions {
+			if index > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(suggestion.Name)
+		}
+		b.WriteString("]\n\n")
+	}
 	for _, s := range r.Suggestions {
 		b.WriteString("  - id: ")
 		b.WriteString(s.ID)
@@ -304,7 +357,7 @@ func RenderYAML(r Report) string {
 // default `reconc adopt` output.
 func RenderText(r Report) string {
 	var b strings.Builder
-	if len(r.Suggestions) == 0 {
+	if len(r.Suggestions) == 0 && len(r.PackSuggestions) == 0 {
 		b.WriteString("reconc adopt: no conventions detected in ")
 		b.WriteString(r.RepoRoot)
 		b.WriteString("\n")
@@ -318,9 +371,23 @@ func RenderText(r Report) string {
 		b.WriteString(d)
 		b.WriteString("\n")
 	}
-	b.WriteString("\nSuggested rules (")
-	b.WriteString(itoa(len(r.Suggestions)))
-	b.WriteString(" total, all warn-mode):\n\n")
+	if len(r.PackSuggestions) > 0 {
+		b.WriteString("\nSuggested policy packs (review only; never auto-applied):\n")
+		for _, suggestion := range r.PackSuggestions {
+			b.WriteString("  - ")
+			b.WriteString(suggestion.Name)
+			b.WriteString(" (")
+			b.WriteString(suggestion.DetectedStack)
+			b.WriteString("): ")
+			b.WriteString(suggestion.Reason)
+			b.WriteString("\n")
+		}
+	}
+	if len(r.Suggestions) > 0 {
+		b.WriteString("\nSuggested rules (")
+		b.WriteString(itoa(len(r.Suggestions)))
+		b.WriteString(" total, all warn-mode):\n\n")
+	}
 	for i, s := range r.Suggestions {
 		b.WriteString(itoa(i + 1))
 		b.WriteString(". ")
@@ -347,12 +414,17 @@ func RenderText(r Report) string {
 		}
 	}
 	b.WriteString("\nNext steps:\n")
-	b.WriteString("  - Preview YAML:  reconc adopt ")
-	b.WriteString(r.RepoRoot)
-	b.WriteString(" --yaml\n")
-	b.WriteString("  - Apply to .reconc.yml: reconc adopt ")
-	b.WriteString(r.RepoRoot)
-	b.WriteString(" --apply\n")
+	if len(r.PackSuggestions) > 0 {
+		b.WriteString("  - Review pack capabilities, then add selected names to extends manually.\n")
+	}
+	if len(r.Suggestions) > 0 {
+		b.WriteString("  - Preview YAML:  reconc adopt ")
+		b.WriteString(r.RepoRoot)
+		b.WriteString(" --yaml\n")
+		b.WriteString("  - Apply rules to .reconc.yml: reconc adopt ")
+		b.WriteString(r.RepoRoot)
+		b.WriteString(" --apply\n")
+	}
 	b.WriteString("  - JSON for agents: reconc adopt ")
 	b.WriteString(r.RepoRoot)
 	b.WriteString(" --json\n")
@@ -485,6 +557,26 @@ func detectJSRunner(repoRoot string) string {
 		return "yarn"
 	}
 	return "npm run"
+}
+
+func firstExisting(repoRoot string, names ...string) string {
+	for _, name := range names {
+		if exists(filepath.Join(repoRoot, name)) {
+			return name
+		}
+	}
+	return ""
+}
+
+func matchingManifestStack(selectors, detected []string) string {
+	for _, selector := range selectors {
+		for _, stack := range detected {
+			if strings.EqualFold(selector, stack) {
+				return stack
+			}
+		}
+	}
+	return ""
 }
 
 func quoteYAML(s string) string {

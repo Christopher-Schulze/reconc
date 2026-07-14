@@ -14,13 +14,16 @@
 package presets
 
 import (
+	"bytes"
 	"embed"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"gopkg.in/yaml.v3"
 	rerrors "reconc.dev/reconc/internal/errors"
 )
 
@@ -54,9 +57,31 @@ const (
 // absolute on-disk path. Either way, Load(name) is the canonical way
 // to read the content.
 type Metadata struct {
-	Name   string `json:"name"`
-	Path   string `json:"path"`
-	Source Source `json:"source"`
+	Name     string    `json:"name"`
+	Path     string    `json:"path"`
+	Source   Source    `json:"source"`
+	Manifest *Manifest `json:"manifest,omitempty"`
+}
+
+// Manifest is the explicit composition contract embedded in a preset file.
+// Legacy user presets without a manifest remain loadable, but cannot be
+// stack-recommended and contribute no declared capabilities.
+type Manifest struct {
+	FormatVersion string       `json:"format_version" yaml:"format_version"`
+	Name          string       `json:"name" yaml:"name"`
+	Summary       string       `json:"summary" yaml:"summary"`
+	Stacks        []string     `json:"stacks" yaml:"stacks"`
+	Capabilities  []Capability `json:"capabilities" yaml:"capabilities"`
+	Conflicts     []string     `json:"conflicts,omitempty" yaml:"conflicts,omitempty"`
+}
+
+// Capability binds one semantic promise to its triggering inputs, accepted
+// evidence classes, and implementing rule IDs.
+type Capability struct {
+	ID       string   `json:"id" yaml:"id"`
+	Inputs   []string `json:"inputs" yaml:"inputs"`
+	Evidence []string `json:"evidence" yaml:"evidence"`
+	Rules    []string `json:"rules" yaml:"rules"`
 }
 
 // Home returns the reconc home directory. RECONC_HOME wins; falls back
@@ -99,10 +124,211 @@ func List() ([]Metadata, error) {
 
 	out := make([]Metadata, 0, len(merged))
 	for _, p := range merged {
+		content, err := Load(p.Name)
+		if err != nil {
+			return nil, err
+		}
+		manifest, err := parseManifest(p.Name, content)
+		if err != nil {
+			return nil, err
+		}
+		p.Manifest = manifest
 		out = append(out, p)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
+}
+
+// Inspect returns one preset's metadata plus validated manifest when present.
+func Inspect(name string) (Metadata, error) {
+	content, err := Load(name)
+	if err != nil {
+		return Metadata{}, err
+	}
+	path, source, err := Path(name)
+	if err != nil {
+		return Metadata{}, err
+	}
+	manifest, err := parseManifest(strings.TrimSpace(name), content)
+	if err != nil {
+		return Metadata{}, err
+	}
+	return Metadata{Name: strings.TrimSpace(name), Path: path, Source: source, Manifest: manifest}, nil
+}
+
+// ValidateSelection rejects explicitly conflicting selected packs. Conflict
+// lookup is symmetric and diagnostics are sorted, so selection order cannot
+// change the result.
+func ValidateSelection(names []string) error {
+	selected := map[string]*Manifest{}
+	for _, name := range names {
+		metadata, err := Inspect(name)
+		if err != nil {
+			return err
+		}
+		selected[metadata.Name] = metadata.Manifest
+	}
+	pairs := []string{}
+	seen := map[string]bool{}
+	for name, manifest := range selected {
+		if manifest == nil {
+			continue
+		}
+		for _, conflict := range manifest.Conflicts {
+			if _, ok := selected[conflict]; !ok {
+				continue
+			}
+			a, b := name, conflict
+			if b < a {
+				a, b = b, a
+			}
+			pair := a + " <-> " + b
+			if !seen[pair] {
+				seen[pair] = true
+				pairs = append(pairs, pair)
+			}
+		}
+	}
+	if len(pairs) == 0 {
+		return nil
+	}
+	sort.Strings(pairs)
+	return &rerrors.PresetError{Message: "conflicting preset selection: " + strings.Join(pairs, ", ")}
+}
+
+// SuggestForStacks returns manifested packs whose selectors match at least one
+// detected stack. Generic "*" packs are intentionally omitted: detection must
+// recommend only a specific, evidence-backed fit.
+func SuggestForStacks(stacks []string) ([]Metadata, error) {
+	stackSet := map[string]bool{}
+	for _, stack := range stacks {
+		stackSet[strings.ToLower(strings.TrimSpace(stack))] = true
+	}
+	list, err := List()
+	if err != nil {
+		return nil, err
+	}
+	out := []Metadata{}
+	for _, metadata := range list {
+		if metadata.Manifest == nil {
+			continue
+		}
+		for _, stack := range metadata.Manifest.Stacks {
+			selector := strings.ToLower(strings.TrimSpace(stack))
+			if selector != "*" && stackSet[selector] {
+				out = append(out, metadata)
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+func parseManifest(name, content string) (*Manifest, error) {
+	var document struct {
+		Pack  yaml.Node `yaml:"pack"`
+		Rules []struct {
+			ID string `yaml:"id"`
+		} `yaml:"rules"`
+	}
+	if err := yaml.Unmarshal([]byte(content), &document); err != nil {
+		return nil, &rerrors.PresetError{Message: "parse preset " + name, Cause: err}
+	}
+	if document.Pack.Kind == 0 {
+		return nil, nil
+	}
+	data, err := yaml.Marshal(&document.Pack)
+	if err != nil {
+		return nil, &rerrors.PresetError{Message: "encode manifest for preset " + name, Cause: err}
+	}
+	var manifest Manifest
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&manifest); err != nil {
+		return nil, &rerrors.PresetError{Message: "parse manifest for preset " + name, Cause: err}
+	}
+	ruleIDs := map[string]bool{}
+	for _, rule := range document.Rules {
+		ruleIDs[strings.TrimSpace(rule.ID)] = true
+	}
+	if err := validateManifest(name, &manifest, ruleIDs); err != nil {
+		return nil, &rerrors.PresetError{Message: "invalid manifest for preset " + name, Cause: err}
+	}
+	return &manifest, nil
+}
+
+func validateManifest(name string, manifest *Manifest, ruleIDs map[string]bool) error {
+	if manifest.FormatVersion != "1" {
+		return fmt.Errorf("format_version must be 1")
+	}
+	manifest.Name = strings.TrimSpace(manifest.Name)
+	manifest.Summary = strings.TrimSpace(manifest.Summary)
+	if manifest.Name != name {
+		return fmt.Errorf("name %q must match preset filename %q", manifest.Name, name)
+	}
+	if strings.TrimSpace(manifest.Summary) == "" || len(manifest.Stacks) == 0 || len(manifest.Capabilities) == 0 {
+		return fmt.Errorf("summary, stacks, and capabilities are required")
+	}
+	for index := range manifest.Stacks {
+		manifest.Stacks[index] = strings.ToLower(strings.TrimSpace(manifest.Stacks[index]))
+	}
+	if err := normalizeManifestList("stacks", &manifest.Stacks); err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for index := range manifest.Capabilities {
+		capability := &manifest.Capabilities[index]
+		capability.ID = strings.TrimSpace(capability.ID)
+		if capability.ID == "" || seen[capability.ID] {
+			return fmt.Errorf("capabilities[%d].id must be unique and non-empty", index)
+		}
+		seen[capability.ID] = true
+		if len(capability.Inputs) == 0 || len(capability.Evidence) == 0 || len(capability.Rules) == 0 {
+			return fmt.Errorf("capability %q requires inputs, evidence, and rules", capability.ID)
+		}
+		for _, field := range []struct {
+			name   string
+			values *[]string
+		}{
+			{"inputs", &capability.Inputs},
+			{"evidence", &capability.Evidence},
+			{"rules", &capability.Rules},
+		} {
+			if err := normalizeManifestList("capability "+capability.ID+" "+field.name, field.values); err != nil {
+				return err
+			}
+		}
+		for _, ruleID := range capability.Rules {
+			if !ruleIDs[ruleID] {
+				return fmt.Errorf("capability %q references missing rule %q", capability.ID, ruleID)
+			}
+		}
+	}
+	if err := normalizeManifestList("conflicts", &manifest.Conflicts); err != nil {
+		return err
+	}
+	for _, conflict := range manifest.Conflicts {
+		if conflict == name {
+			return fmt.Errorf("conflicts must contain non-empty other preset names")
+		}
+	}
+	return nil
+}
+
+func normalizeManifestList(name string, values *[]string) error {
+	seen := map[string]bool{}
+	for index := range *values {
+		value := strings.TrimSpace((*values)[index])
+		if value == "" {
+			return fmt.Errorf("%s cannot contain an empty value", name)
+		}
+		if seen[value] {
+			return fmt.Errorf("%s cannot contain duplicate value %q", name, value)
+		}
+		seen[value] = true
+		(*values)[index] = value
+	}
+	return nil
 }
 
 // Load returns the raw YAML content of the named preset, preferring

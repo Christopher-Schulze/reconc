@@ -4,6 +4,22 @@
 # directories and warns when lockfile-generating manifests change without
 # a matching install/sync command. Designed to be extended, not replaced.
 
+pack:
+  format_version: "1"
+  name: default
+  summary: Baseline generated-output protection and manifest synchronization.
+  stacks: ["*"]
+  capabilities:
+    - id: generated-output-protection
+      inputs: ["generated/**", "dist/**", "build/**"]
+      evidence: ["write-path"]
+      rules: ["preset-default-generated-read-only"]
+    - id: dependency-manifest-sync
+      inputs: ["package.json", "pyproject.toml", "Cargo.toml", "go.mod", "requirements.txt"]
+      evidence: ["command"]
+      rules: ["preset-default-lockfiles-follow-manifests"]
+  conflicts: []
+
 rules:
   - id: preset-default-generated-read-only
     kind: deny_write

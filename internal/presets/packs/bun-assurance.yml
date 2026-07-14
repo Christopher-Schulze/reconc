@@ -1,0 +1,39 @@
+# reconc preset: bun-assurance
+#
+# Explicit opt-in Bun gates. Stack detection requires a Bun lockfile and only
+# recommends this pack; it never mutates extends automatically.
+
+pack:
+  format_version: "1"
+  name: bun-assurance
+  summary: Exact package pins and current Bun test evidence.
+  stacks: ["bun"]
+  capabilities:
+    - id: bun-dependency-pins
+      inputs: ["**/package.json"]
+      evidence: ["native-manifest-scan"]
+      rules: ["preset-bun-assurance"]
+    - id: bun-live-verification
+      inputs: ["**/*.{js,jsx,ts,tsx}", "**/package.json"]
+      evidence: ["command-success"]
+      rules: ["preset-bun-assurance"]
+  conflicts: []
+
+rules:
+  - id: preset-bun-assurance
+    kind: require_assurance
+    mode: warn
+    when_paths: ["**/*.{js,jsx,ts,tsx}", "**/package.json", "bun.lock", "bun.lockb"]
+    message: Bun changes require exact dependency pins and current tests.
+    assurance:
+      - id: bun-pins
+        type: dependency_pins
+        applicable_if: ["bun.lock", "bun.lockb"]
+        manifest_paths: ["**/package.json"]
+        dependency_sections: ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
+        allowed_version_prefixes: ["workspace:", "file:"]
+      - id: bun-tests
+        type: live_verification
+        applicable_if: ["bun.lock", "bun.lockb"]
+        commands: ["bun test"]
+        command_policy: all

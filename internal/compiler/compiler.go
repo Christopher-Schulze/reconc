@@ -341,6 +341,13 @@ func ruleToMap(r policy.Rule) map[string]interface{} {
 	if r.KillTimeoutSec > 0 {
 		m["kill_timeout_sec"] = r.KillTimeoutSec
 	}
+	if len(r.Assurance) > 0 {
+		out := make([]interface{}, len(r.Assurance))
+		for i, gate := range r.Assurance {
+			out[i] = assuranceGateToMap(gate)
+		}
+		m["assurance"] = out
+	}
 	if r.SourcePath != "" {
 		m["source_path"] = r.SourcePath
 	}
@@ -371,6 +378,55 @@ func ruleToMap(r policy.Rule) map[string]interface{} {
 	}
 	if r.ScopeID != "" {
 		m["scope_id"] = r.ScopeID
+	}
+	return m
+}
+
+func assuranceGateToMap(g policy.AssuranceGate) map[string]interface{} {
+	m := map[string]interface{}{"id": g.ID, "type": string(g.Type)}
+	putStrings := func(key string, values []string) {
+		if len(values) > 0 {
+			m[key] = values
+		}
+	}
+	putStrings("applicable_if", g.ApplicableIf)
+	putStrings("scan_paths", g.ScanPaths)
+	putStrings("exclude_paths", g.ExcludePaths)
+	if len(g.Exemptions) > 0 {
+		items := make([]interface{}, len(g.Exemptions))
+		for i, exemption := range g.Exemptions {
+			items[i] = map[string]interface{}{"path": exemption.Path, "reason": exemption.Reason}
+		}
+		m["exemptions"] = items
+	}
+	putStrings("allowed_root_entries", g.AllowedRootEntries)
+	putStrings("required_root_entries", g.RequiredRootEntries)
+	putStrings("forbidden_root_entries", g.ForbiddenRootEntries)
+	putStrings("reserved_dirs", g.ReservedDirs)
+	if g.AllowHiddenEntries {
+		m["allow_hidden_entries"] = true
+	}
+	putStrings("allowed_extensions", g.AllowedExtensions)
+	putStrings("manifest_paths", g.ManifestPaths)
+	putStrings("dependency_sections", g.DependencySections)
+	putStrings("allowed_version_prefixes", g.AllowedVersionPrefixes)
+	putStrings("site_patterns", g.SitePatterns)
+	putStrings("guard_markers", g.GuardMarkers)
+	if g.MarkerWindowLines > 0 {
+		m["marker_window_lines"] = g.MarkerWindowLines
+	}
+	putStrings("commands", g.Commands)
+	if g.CommandPolicy != "" {
+		m["command_policy"] = g.CommandPolicy
+	}
+	if g.ProofFile != "" {
+		m["proof_file"] = g.ProofFile
+	}
+	if g.MinSamples > 0 {
+		m["min_samples"] = g.MinSamples
+	}
+	if g.MaxAgeHours > 0 {
+		m["max_age_hours"] = g.MaxAgeHours
 	}
 	return m
 }

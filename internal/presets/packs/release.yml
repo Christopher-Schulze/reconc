@@ -4,6 +4,26 @@
 # pack early without blocking local development, then tighten selected rules in
 # repo-local policy when the release flow is mature.
 
+pack:
+  format_version: "1"
+  name: release
+  summary: Release documentation, checksums, and successful verification evidence.
+  stacks: ["*"]
+  capabilities:
+    - id: release-documentation
+      inputs: ["version-manifest", "release-entrypoint"]
+      evidence: ["write-path"]
+      rules: ["preset-release-changelog-follows-version"]
+    - id: release-checksums
+      inputs: ["release-artifact"]
+      evidence: ["write-path"]
+      rules: ["preset-release-artifacts-need-checksums"]
+    - id: release-verification
+      inputs: ["release-flow"]
+      evidence: ["command-success"]
+      rules: ["preset-release-verify-before-release"]
+  conflicts: []
+
 rules:
   - id: preset-release-changelog-follows-version
     kind: couple_change

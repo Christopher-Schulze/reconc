@@ -4,6 +4,30 @@
 # tests, architecture reads, and a CI sign-off claim. Pair with the
 # `default` preset for full coverage.
 
+pack:
+  format_version: "1"
+  name: strict
+  summary: Blocking source, test, architecture-context, CI, and installer discipline.
+  stacks: ["*"]
+  capabilities:
+    - id: source-test-coupling
+      inputs: ["source"]
+      evidence: ["write-path"]
+      rules: ["preset-strict-tests-follow-source"]
+    - id: architecture-context-read
+      inputs: ["source"]
+      evidence: ["read-path"]
+      rules: ["preset-strict-architecture-read-before-edit"]
+    - id: ci-claim
+      inputs: ["source"]
+      evidence: ["claim"]
+      rules: ["preset-strict-require-ci-green-claim"]
+    - id: python-installer-boundary
+      inputs: ["python-manifest"]
+      evidence: ["command"]
+      rules: ["preset-strict-forbid-raw-pip-install"]
+  conflicts: []
+
 rules:
   - id: preset-strict-tests-follow-source
     kind: couple_change
