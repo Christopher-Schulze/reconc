@@ -348,13 +348,18 @@ the Go hook runtime lowers observation-only events (`post/after/session-end`)
 with best-effort Unix process priority while keeping PreToolUse, permission,
 and Stop at normal priority. The Stop fingerprint uses one git status snapshot
 per report build with default `--untracked-files=normal`, dirty-path
-content/index hashes, and a per-session report lock instead of full
-`git diff --binary` output or repeated parallel checks; the completed report is
-cached under that initial fingerprint and the exact read/write/command/claim
-evidence hash. Normal Stops still rebuild the fingerprint, while reentrant
-`stop_hook_active=true` calls may reuse a clean cached report only when the
-evidence hash still matches, so the next Stop reruns if the repo or evidence
-changes after the report was built. Reconc's own `.reconc/cache/`,
+content/index hashes, direct loose/packed/worktree HEAD resolution, and a
+per-session report lock instead of full `git diff --binary` output or repeated
+status walks. The same bounded status snapshot scopes Stop-time write evidence
+to paths that are both session-recorded and still uncommitted; unknown Git or
+path state keeps the full session write set and therefore fails closed. The
+completed report is cached under that initial fingerprint and the exact
+read/write/command/claim evidence hash. Normal Stops still rebuild the
+fingerprint, while reentrant `stop_hook_active=true` calls may reuse a clean
+cached report only when both the full repo fingerprint and evidence hash still
+match, so the next Stop reruns if the repo or evidence changes after the report
+was built. Alternate Git ref backends fall back to `git rev-parse`; the normal
+path avoids that extra process. Reconc's own `.reconc/cache/`,
 `.reconc/runloop/`, `.reconc/locks/`, `.reconc/reports/`, and
 `.reconc/audit.jsonl` runtime artefacts are excluded from the dirty fingerprint
 so report writes cannot invalidate their own cache. `RECONC_STOP_FINGERPRINT_UNTRACKED=all`
@@ -377,6 +382,17 @@ survive as orphans after a blocked hook. Workflow-audit launchers build their
 cached binaries behind an atomic mkdir build lock and publish via temp binary +
 rename; parallel agent hooks therefore wait for one rebuild instead of stampeding
 the Go compiler or exposing a partially written cache binary.
+Independent cold workflow-audit keys execute concurrently behind per-key
+singleflight locks. Only short cache read/merge/atomic-publication sections are
+globally serialized, so parallel results cannot overwrite each other and prune
+I/O never holds the shared cache lock. The task-state cache hashes only
+`docs/tasks.md`, schema, and open TASK bodies on its hot path. A clean completed
+TASK archive is represented by its committed Git tree ID plus directory
+metadata; dirty or unreadable archive state bypasses caching entirely, avoiding
+full archive reads without hiding archived-file changes. Reproducible Stop and
+concurrent-cache benchmarks live beside their regression tests and run with
+`go test ./internal/runtime/agentsession -run '^$' -bench StopPolicy -benchmem`
+and `go test ./harness/template/audits -run '^$' -bench RunWithCache -benchmem`.
 Harnesses can also expose an `agent-quality` mode for objective live-diff
 quality gates: newly added test skips, placeholder completion language,
 untested sensitive Go edits, and stale live Reconc binaries can block without

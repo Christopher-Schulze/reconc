@@ -1,7 +1,11 @@
 package main
 
 import (
+	"errors"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // The cached* wrappers below define the canonical input fingerprint for each
@@ -12,13 +16,54 @@ import (
 // either too broad to fingerprint cheaply or too small to benefit.
 
 func cachedTaskState(root string) []string {
-	inputs := newCacheInputs()
-	inputs.AddFile(filepath.Join(root, "docs/tasks.md"))
-	inputs.AddTree(filepath.Join(root, "docs/tasks"), []string{".md"})
-	inputs.AddFile(filepath.Join(root, filepath.FromSlash(schemaRel)))
+	archiveRevision, cacheable := taskArchiveRevision(root)
+	if !cacheable {
+		return auditTaskState(root)
+	}
+	inputs := taskStateCacheInputs(root)
+	inputs.AddValue("task-archive-tree", archiveRevision)
 	return runWithCache(root, "task-state", inputs, func() []string {
 		return auditTaskState(root)
 	})
+}
+
+func taskStateCacheInputs(root string) *cacheInputs {
+	inputs := newCacheInputs()
+	tasksPath := filepath.Join(root, "docs/tasks.md")
+	inputs.AddFile(tasksPath)
+	if body, err := os.ReadFile(tasksPath); err == nil {
+		index, _ := parseTaskIndex(string(body))
+		for _, entry := range index.entries {
+			if entry.icon == "x" {
+				continue
+			}
+			inputs.AddFile(filepath.Join(root, "docs", filepath.FromSlash(entry.target)))
+		}
+	}
+	inputs.AddPathMetadata(filepath.Join(root, "docs/tasks"))
+	inputs.AddPathMetadata(filepath.Join(root, "docs/tasks/done"))
+	inputs.AddFile(filepath.Join(root, filepath.FromSlash(schemaRel)))
+	return inputs
+}
+
+// taskArchiveRevision returns the committed archive tree only when the
+// archive worktree is clean. Dirty, untracked, or unreadable archive state
+// bypasses the cache entirely, so archived TASK edits can never reuse a
+// stale pass while clean hot-path checks avoid reading every archive file.
+func taskArchiveRevision(root string) (string, bool) {
+	status, err := exec.Command("git", "-C", root, "status", "--porcelain=v1", "-z", "--untracked-files=normal", "--", "docs/tasks/done").CombinedOutput()
+	if err != nil || len(status) != 0 {
+		return "", false
+	}
+	revision, err := exec.Command("git", "-C", root, "rev-parse", "--verify", "HEAD:docs/tasks/done").CombinedOutput()
+	if err != nil {
+		entries, readErr := os.ReadDir(filepath.Join(root, "docs/tasks/done"))
+		if errors.Is(readErr, os.ErrNotExist) || (readErr == nil && len(entries) == 0) {
+			return "absent", true
+		}
+		return "", false
+	}
+	return strings.TrimSpace(string(revision)), true
 }
 
 func cachedSpecFormat(root string) []string {

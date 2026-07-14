@@ -20,7 +20,7 @@ import (
 // cacheVersion is bumped whenever audit logic changes in a way that should
 // invalidate every cached pass. The cache key embeds this constant so a
 // stale binary cannot return a false pass after the rules tightened.
-const cacheVersion = "v2-2026-05-10"
+const cacheVersion = "v3-2026-07-14"
 
 const (
 	cacheRel     = ".reconc/cache/audit-results.json"
@@ -28,7 +28,10 @@ const (
 	cachePassTag = "pass"
 )
 
-var auditCacheMu sync.Mutex
+var (
+	auditCacheMu       sync.Mutex
+	auditCacheKeyLocks sync.Map
+)
 
 type cacheEntry struct {
 	Hash    string `json:"hash"`
@@ -48,6 +51,8 @@ type cacheFile struct {
 type cacheInputs struct {
 	files          []string
 	structurePaths []string
+	metadataPaths  []string
+	values         []string
 }
 
 func newCacheInputs() *cacheInputs {
@@ -59,6 +64,18 @@ func (c *cacheInputs) AddFile(path string) {
 	if _, err := os.Stat(path); err == nil {
 		c.files = append(c.files, path)
 	}
+}
+
+// AddPathMetadata records one path without reading its contents. Directory
+// metadata invalidates caches on child add/remove/rename while avoiding a
+// recursive archive read on every hot-path audit.
+func (c *cacheInputs) AddPathMetadata(path string) {
+	c.metadataPaths = append(c.metadataPaths, path)
+}
+
+// AddValue adds a deterministic non-file input such as a Git tree object ID.
+func (c *cacheInputs) AddValue(name, value string) {
+	c.values = append(c.values, name+"\x00"+value)
 }
 
 // AddTreeStructure appends every regular file under root with one of the
@@ -121,6 +138,8 @@ func (c *cacheInputs) AddTree(root string, suffixes []string) {
 func (c *cacheInputs) Hash() (string, error) {
 	sort.Strings(c.files)
 	sort.Strings(c.structurePaths)
+	sort.Strings(c.metadataPaths)
+	sort.Strings(c.values)
 	digest := sha256.New()
 	digest.Write([]byte(cacheVersion))
 	digest.Write([]byte{0})
@@ -150,6 +169,28 @@ func (c *cacheInputs) Hash() (string, error) {
 		}
 		digest.Write([]byte{0})
 	}
+	digest.Write([]byte("METADATA"))
+	digest.Write([]byte{0})
+	for _, path := range c.metadataPaths {
+		digest.Write([]byte(path))
+		digest.Write([]byte{0})
+		info, err := os.Lstat(path)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return "", fmt.Errorf("hash metadata %s: %w", path, err)
+			}
+			digest.Write([]byte("ABSENT"))
+		} else {
+			fmt.Fprintf(digest, "%s\x00%d\x00%d", info.Mode().String(), info.Size(), info.ModTime().UnixNano())
+		}
+		digest.Write([]byte{0})
+	}
+	digest.Write([]byte("VALUES"))
+	digest.Write([]byte{0})
+	for _, value := range c.values {
+		digest.Write([]byte(value))
+		digest.Write([]byte{0})
+	}
 	return hex.EncodeToString(digest.Sum(nil)), nil
 }
 
@@ -171,36 +212,88 @@ func runWithCache(root string, name string, inputs *cacheInputs, fn func() []str
 	if err != nil {
 		return fn()
 	}
-	auditCacheMu.Lock()
-	defer auditCacheMu.Unlock()
+	keyLock := auditCacheKeyLock(root, name)
+	keyLock.Lock()
+	defer keyLock.Unlock()
+
 	cachePath := filepath.Join(root, filepath.FromSlash(cacheRel))
-	cache := loadCacheFile(cachePath)
-	if entry, ok := cache.Entries[name]; ok && entry.Version == cacheVersion && entry.Result == cachePassTag && entry.Hash == hash {
+	var result []string
+	pruneDue := false
+	prunePolicy := prune.DefaultPolicy()
+	err = withAuditCacheNamedLock(auditCacheKeyLockPath(root, name), func() error {
+		if auditCacheHasPass(cachePath, name, hash) {
+			return nil
+		}
+		result = fn()
+		pruneDue, prunePolicy = publishAuditCacheResult(root, cachePath, name, hash, result)
 		return nil
+	})
+	if err != nil {
+		return fn()
 	}
-	result := fn()
-	if len(result) == 0 {
-		cache.Entries[name] = cacheEntry{Hash: hash, Result: cachePassTag, Version: cacheVersion}
-	} else {
-		delete(cache.Entries, name)
+	if pruneDue {
+		_ = prune.Run(prune.Options{RepoRoot: root, Policy: prunePolicy})
 	}
-	maybeAutoPrune(root, &cache)
-	saveCacheFile(cachePath, cache)
 	return result
 }
 
-// maybeAutoPrune calls prune.Run when the configured interval has passed.
-// It mutates cache.LastPruneTS so the next call sees the fresh timestamp.
-// Failures inside prune are non-fatal and silently swallowed: pruning is a
-// hygiene operation and must never break audit decisions.
-func maybeAutoPrune(root string, cache *cacheFile) {
+func auditCacheHasPass(cachePath, name, hash string) bool {
+	auditCacheMu.Lock()
+	defer auditCacheMu.Unlock()
+	hit := false
+	err := withAuditCacheNamedLock(cachePath+".lock", func() error {
+		cache := loadCacheFile(cachePath)
+		entry, ok := cache.Entries[name]
+		hit = ok && entry.Version == cacheVersion && entry.Result == cachePassTag && entry.Hash == hash
+		return nil
+	})
+	return err == nil && hit
+}
+
+func publishAuditCacheResult(root, cachePath, name, hash string, result []string) (bool, prune.Policy) {
+	auditCacheMu.Lock()
+	defer auditCacheMu.Unlock()
+	pruneDue := false
+	prunePolicy := prune.DefaultPolicy()
+	err := withAuditCacheNamedLock(cachePath+".lock", func() error {
+		cache := loadCacheFile(cachePath)
+		if len(result) == 0 {
+			cache.Entries[name] = cacheEntry{Hash: hash, Result: cachePassTag, Version: cacheVersion}
+		} else {
+			delete(cache.Entries, name)
+		}
+		pruneDue, prunePolicy = claimAutoPrune(root, &cache)
+		if !saveCacheFile(cachePath, cache) {
+			pruneDue = false
+		}
+		return nil
+	})
+	return err == nil && pruneDue, prunePolicy
+}
+
+func auditCacheKeyLock(root, name string) *sync.Mutex {
+	key := filepath.Clean(root) + "\x00" + name
+	lock, _ := auditCacheKeyLocks.LoadOrStore(key, &sync.Mutex{})
+	return lock.(*sync.Mutex)
+}
+
+func auditCacheKeyLockPath(root, name string) string {
+	digest := sha256.Sum256([]byte(name))
+	filename := "audit-key-" + hex.EncodeToString(digest[:]) + ".lock"
+	return filepath.Join(root, ".reconc", "cache", filename)
+}
+
+// claimAutoPrune atomically reserves a due prune interval in the shared
+// cache. The caller runs the actual disk cleanup after releasing the cache
+// lock so unrelated cold audits are never serialized behind prune I/O.
+func claimAutoPrune(root string, cache *cacheFile) (bool, prune.Policy) {
 	policy, _ := prune.LoadPolicy(prune.PolicyPathFromRepo(root))
 	now := time.Now().Unix()
 	if cache.LastPruneTS != 0 && now-cache.LastPruneTS < policy.PruneIntervalSeconds {
-		return
+		return false, policy
 	}
-	_ = prune.Run(prune.Options{RepoRoot: root, Policy: policy})
 	cache.LastPruneTS = now
+	return true, policy
 }
 
 func loadCacheFile(path string) cacheFile {
@@ -218,23 +311,47 @@ func loadCacheFile(path string) cacheFile {
 	return cache
 }
 
-func saveCacheFile(path string, cache cacheFile) {
+func saveCacheFile(path string, cache cacheFile) bool {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return
+		return false
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".audit-cache-*")
 	if err != nil {
-		return
+		return false
 	}
 	defer os.Remove(tmp.Name())
 	encoder := json.NewEncoder(tmp)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(cache); err != nil {
 		tmp.Close()
-		return
+		return false
 	}
 	if err := tmp.Close(); err != nil {
-		return
+		return false
 	}
-	_ = os.Rename(tmp.Name(), path)
+	return os.Rename(tmp.Name(), path) == nil
+}
+
+func withAuditCacheNamedLock(lockPath string, fn func() error) (err error) {
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	unlock, err := lockAuditCacheFile(file)
+	if err != nil {
+		_ = file.Close()
+		return err
+	}
+	defer func() {
+		if unlockErr := unlock(); err == nil && unlockErr != nil {
+			err = unlockErr
+		}
+		if closeErr := file.Close(); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}()
+	return fn()
 }

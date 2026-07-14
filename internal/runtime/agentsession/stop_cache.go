@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,7 +15,7 @@ import (
 )
 
 const (
-	stopPolicyFingerprintVersion = "stop-policy-report-v3"
+	stopPolicyFingerprintVersion = "stop-policy-report-v4"
 	stopPolicyUntrackedModeEnv   = "RECONC_STOP_FINGERPRINT_UNTRACKED"
 )
 
@@ -31,6 +32,7 @@ type stopPolicyFingerprintInput struct {
 	CommandResults     []CommandResult `json:"command_results"`
 	GitHead            string          `json:"git_head"`
 	GitStatusMode      string          `json:"git_status_mode"`
+	GitStatusOK        bool            `json:"git_status_ok"`
 	GitStatus          string          `json:"git_status"`
 	GitDirtyFiles      []gitDirtyFile  `json:"git_dirty_files"`
 	ReconcAuditNoCache string          `json:"reconc_audit_no_cache"`
@@ -48,6 +50,13 @@ type gitDirtyFile struct {
 	Path         string `json:"path"`
 	WorktreeHash string `json:"worktree_hash"`
 	IndexEntry   string `json:"index_entry"`
+}
+
+type stopPolicyGitSnapshot struct {
+	Head       string
+	Status     string
+	StatusMode string
+	StatusOK   bool
 }
 
 func runStopPolicyCheck(repoRoot string, state SessionState) (*runtime.CheckReport, error) {
@@ -71,7 +80,12 @@ func runStopPolicyCheckLocked(repoRoot string, state SessionState) (*runtime.Che
 	}
 
 	report, err := runCheckAndSave(repoRoot, state.SessionID, state.ReadPaths,
-		state.WritePaths, state.Commands, state.CommandResults, state.Claims)
+		stopScopeWritePathsToUncommitted(repoRoot, state.WritePaths, stopPolicyGitSnapshot{
+			Head:       fingerprintInput.GitHead,
+			Status:     fingerprintInput.GitStatus,
+			StatusMode: fingerprintInput.GitStatusMode,
+			StatusOK:   fingerprintInput.GitStatusOK,
+		}), state.Commands, state.CommandResults, state.Claims)
 	if err != nil {
 		return nil, err
 	}
@@ -93,8 +107,85 @@ func runStopPolicyCheckLocked(repoRoot string, state SessionState) (*runtime.Che
 	return report, nil
 }
 
+// stopScopeWritePathsToUncommitted intersects this session's recorded writes
+// with the exact Git status snapshot already used by the Stop fingerprint.
+// A clean committed path was gated at commit time and no longer needs to
+// trigger stop-time batch rules. If Git status or path normalization cannot be
+// trusted, the original path is retained so scoping always fails closed.
+func stopScopeWritePathsToUncommitted(repoRoot string, writePaths []string, snapshot stopPolicyGitSnapshot) []string {
+	if len(writePaths) == 0 {
+		return writePaths
+	}
+	if !snapshot.StatusOK {
+		return writePaths
+	}
+	dirty := map[string]struct{}{}
+	for _, path := range dirtyPathsFromStatus(snapshot.Status) {
+		dirty[path] = struct{}{}
+	}
+	if len(dirty) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(writePaths))
+	for _, writePath := range writePaths {
+		rel := stopRepoRelPosix(repoRoot, writePath)
+		if rel == "" || stopPathDirtyOrUnderDirtyDir(rel, dirty) {
+			out = append(out, writePath)
+		}
+	}
+	return out
+}
+
+func stopPathDirtyOrUnderDirtyDir(rel string, dirty map[string]struct{}) bool {
+	if _, ok := dirty[rel]; ok {
+		return true
+	}
+	segments := strings.Split(rel, "/")
+	for i := 1; i < len(segments); i++ {
+		if _, ok := dirty[strings.Join(segments[:i], "/")+"/"]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func stopRepoRelPosix(repoRoot, raw string) string {
+	path := strings.TrimSpace(raw)
+	if path == "" {
+		return ""
+	}
+	path = filepath.FromSlash(path)
+	if !filepath.IsAbs(path) {
+		cleaned := filepath.Clean(path)
+		if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+			return ""
+		}
+		return filepath.ToSlash(cleaned)
+	}
+	root, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		root = resolved
+	}
+	cleaned := filepath.Clean(path)
+	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
+		cleaned = resolved
+	}
+	rel, err := filepath.Rel(root, cleaned)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return ""
+	}
+	return filepath.ToSlash(rel)
+}
+
 func cachedCleanStopPolicyReportForEvidence(repoRoot string, state SessionState, evidenceHash string) (*runtime.CheckReport, bool) {
 	if evidenceHash == "" || state.StopPolicyEvidenceHash != evidenceHash || state.StopPolicyReportHash == "" {
+		return nil, false
+	}
+	currentFingerprint := stopPolicyFingerprint(repoRoot, state)
+	if currentFingerprint == "" || currentFingerprint != state.StopPolicyFingerprint {
 		return nil, false
 	}
 	report, reportHash, err := readLatestReport(repoRoot, state.SessionID)
@@ -134,7 +225,11 @@ func stopPolicyFingerprintInputFor(repoRoot string, state SessionState) stopPoli
 	if err != nil {
 		root = repoRoot
 	}
-	gitStatus, gitStatusMode := stopPolicyGitStatus(root)
+	gitSnapshot := stopPolicyGitSnapshotFor(root)
+	dirtyFiles := []gitDirtyFile{}
+	if gitSnapshot.StatusOK {
+		dirtyFiles = gitDirtyFiles(root, gitSnapshot.Status)
+	}
 	return stopPolicyFingerprintInput{
 		Version:            stopPolicyFingerprintVersion,
 		RepoRoot:           root,
@@ -146,10 +241,11 @@ func stopPolicyFingerprintInputFor(repoRoot string, state SessionState) stopPoli
 		Commands:           sortedUnique(state.Commands),
 		Claims:             sortedUnique(state.Claims),
 		CommandResults:     append([]CommandResult{}, state.CommandResults...),
-		GitHead:            gitOutput(root, "rev-parse", "HEAD"),
-		GitStatusMode:      gitStatusMode,
-		GitStatus:          gitStatus,
-		GitDirtyFiles:      gitDirtyFiles(root, gitStatus),
+		GitHead:            gitSnapshot.Head,
+		GitStatusMode:      gitSnapshot.StatusMode,
+		GitStatusOK:        gitSnapshot.StatusOK,
+		GitStatus:          gitSnapshot.Status,
+		GitDirtyFiles:      dirtyFiles,
 		ReconcAuditNoCache: os.Getenv("RECONC_AUDIT_NO_CACHE"),
 	}
 }
@@ -164,67 +260,33 @@ func hashStopPolicyFingerprintInput(input stopPolicyFingerprintInput) string {
 }
 
 func stopPolicyGitStatus(repoRoot string) (status string, mode string) {
-	mode = strings.ToLower(strings.TrimSpace(os.Getenv(stopPolicyUntrackedModeEnv)))
+	snapshot := stopPolicyGitSnapshotFor(repoRoot)
+	return snapshot.Status, snapshot.StatusMode
+}
+
+func stopPolicyGitSnapshotFor(repoRoot string) stopPolicyGitSnapshot {
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv(stopPolicyUntrackedModeEnv)))
 	switch mode {
 	case "all", "no", "normal":
 	default:
 		mode = "normal"
 	}
-	if mode == "normal" {
-		return stopPolicyGitStatusNormal(repoRoot), mode
+	raw, err := gitCommandOutput(repoRoot, "status", "--porcelain=v1", "-z", "--untracked-files="+mode)
+	status := filterStopPolicyGitStatus(raw)
+	if err != nil {
+		status = "error:" + err.Error() + "\n" + status
 	}
-	return filteredGitOutput(repoRoot, "status", "--porcelain=v1", "-z", "--untracked-files="+mode), mode
+	return stopPolicyGitSnapshot{
+		Head:       gitHeadFingerprint(repoRoot),
+		Status:     status,
+		StatusMode: mode,
+		StatusOK:   err == nil,
+	}
 }
 
 func stopPolicyGitStatusNormal(repoRoot string) string {
-	type gitStatusPart struct {
-		name string
-		out  string
-	}
-	ch := make(chan gitStatusPart, 2)
-	go func() {
-		ch <- gitStatusPart{
-			name: "tracked",
-			out:  filteredGitOutput(repoRoot, "status", "--porcelain=v1", "-z", "--untracked-files=no"),
-		}
-	}()
-	go func() {
-		ch <- gitStatusPart{
-			name: "untracked",
-			out:  untrackedDirectoryStatus(repoRoot),
-		}
-	}()
-
-	var tracked, untracked string
-	for i := 0; i < 2; i++ {
-		part := <-ch
-		switch part.name {
-		case "tracked":
-			tracked = part.out
-		case "untracked":
-			untracked = part.out
-		}
-	}
-	return tracked + untracked
-}
-
-func untrackedDirectoryStatus(repoRoot string) string {
-	raw := filteredGitOutput(repoRoot, "ls-files", "--others", "--exclude-standard", "--directory", "-z")
-	if raw == "" {
-		return ""
-	}
-	records := strings.Split(raw, "\x00")
-	var b strings.Builder
-	for _, record := range records {
-		path := strings.TrimSpace(record)
-		if path == "" || stopPolicyRuntimeStateRecord(path) {
-			continue
-		}
-		b.WriteString("?? ")
-		b.WriteString(filepath.ToSlash(path))
-		b.WriteByte(0)
-	}
-	return b.String()
+	snapshot := stopPolicyGitSnapshotFor(repoRoot)
+	return snapshot.Status
 }
 
 func stopPolicyEvidenceHash(state SessionState) string {
@@ -287,13 +349,132 @@ func fileContentHash(path string) string {
 	return hashBytes(body)
 }
 
-func gitOutput(repoRoot string, args ...string) string {
+func gitCommandOutput(repoRoot string, args ...string) (string, error) {
 	cmd := exec.Command("git", append([]string{"-C", repoRoot}, args...)...)
 	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// gitHeadFingerprint reads Git's HEAD and referenced object directly. Stop
+// already pays for one bounded status process; spawning a second Git process
+// just to resolve HEAD added measurable hook latency. Worktree gitdirs and
+// packed refs are supported, and any unreadable state is encoded fail-closed
+// into the fingerprint instead of being ignored.
+func gitHeadFingerprint(repoRoot string) string {
+	gitDir, err := resolveGitDir(repoRoot)
 	if err != nil {
-		return "error:" + err.Error() + "\n" + string(out)
+		return "error:" + err.Error()
 	}
-	return string(out)
+	headBody, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
+	if err != nil {
+		return "error:" + err.Error()
+	}
+	head := strings.TrimSpace(string(headBody))
+	if !strings.HasPrefix(head, "ref: ") {
+		return "detached:" + head
+	}
+	ref := strings.TrimSpace(strings.TrimPrefix(head, "ref: "))
+	cleanRef, err := cleanGitRefPath(ref)
+	if err != nil {
+		return "error:" + err.Error()
+	}
+	objectID, found, err := gitRefObjectID(gitDir, cleanRef, ref)
+	if err != nil {
+		return "error:" + err.Error()
+	}
+	if found {
+		return ref + "\n" + objectID
+	}
+	// Alternate ref backends such as reftable do not expose loose or packed
+	// refs. Pay for rev-parse only on that exceptional path.
+	if head, commandErr := gitCommandOutput(repoRoot, "rev-parse", "HEAD"); commandErr == nil {
+		return ref + "\n" + strings.TrimSpace(head)
+	}
+	return ref + "\nmissing"
+}
+
+func cleanGitRefPath(ref string) (string, error) {
+	cleanRef := filepath.Clean(filepath.FromSlash(ref))
+	if filepath.IsAbs(cleanRef) || cleanRef == ".." || strings.HasPrefix(cleanRef, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("unsafe HEAD ref")
+	}
+	return cleanRef, nil
+}
+
+func gitRefObjectID(gitDir, cleanRef, ref string) (string, bool, error) {
+	roots := sortedUnique([]string{gitDir, gitCommonDir(gitDir)})
+	if objectID, found, err := readLooseGitRef(roots, cleanRef); found || err != nil {
+		return objectID, found, err
+	}
+	return readPackedGitRef(roots, ref)
+}
+
+func readLooseGitRef(roots []string, cleanRef string) (string, bool, error) {
+	for _, root := range roots {
+		body, err := os.ReadFile(filepath.Join(root, cleanRef))
+		if err == nil {
+			return strings.TrimSpace(string(body)), true, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", false, err
+		}
+	}
+	return "", false, nil
+}
+
+func readPackedGitRef(roots []string, ref string) (string, bool, error) {
+	for _, root := range roots {
+		body, err := os.ReadFile(filepath.Join(root, "packed-refs"))
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return "", false, err
+		}
+		for _, line := range strings.Split(string(body), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) == 2 && fields[1] == ref {
+				return fields[0], true, nil
+			}
+		}
+	}
+	return "", false, nil
+}
+
+func resolveGitDir(repoRoot string) (string, error) {
+	dotGit := filepath.Join(repoRoot, ".git")
+	info, err := os.Stat(dotGit)
+	if err != nil {
+		return "", fmt.Errorf("stat .git: %w", err)
+	}
+	if info.IsDir() {
+		return dotGit, nil
+	}
+	body, err := os.ReadFile(dotGit)
+	if err != nil {
+		return "", fmt.Errorf("read .git: %w", err)
+	}
+	value := strings.TrimSpace(string(body))
+	if !strings.HasPrefix(value, "gitdir:") {
+		return "", fmt.Errorf("invalid .git file")
+	}
+	gitDir := strings.TrimSpace(strings.TrimPrefix(value, "gitdir:"))
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(repoRoot, gitDir)
+	}
+	return filepath.Clean(gitDir), nil
+}
+
+func gitCommonDir(gitDir string) string {
+	body, err := os.ReadFile(filepath.Join(gitDir, "commondir"))
+	if err != nil {
+		return gitDir
+	}
+	commonDir := strings.TrimSpace(string(body))
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(gitDir, commonDir)
+	}
+	return filepath.Clean(commonDir)
 }
 
 func gitDirtyFiles(repoRoot string, status string) []gitDirtyFile {
@@ -391,8 +572,7 @@ func worktreePathHash(repoRoot string, path string) string {
 	return hashBytes(body)
 }
 
-func filteredGitOutput(repoRoot string, args ...string) string {
-	raw := gitOutput(repoRoot, args...)
+func filterStopPolicyGitStatus(raw string) string {
 	parts := strings.Split(raw, "\x00")
 	out := make([]string, 0, len(parts))
 	for _, part := range parts {

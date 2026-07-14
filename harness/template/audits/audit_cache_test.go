@@ -1,14 +1,23 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
-func writeCacheFixture(t *testing.T, root string, rel string, content string) {
+const auditCacheProcessHelperEnv = "RECONC_AUDIT_CACHE_PROCESS_HELPER"
+
+func writeCacheFixture(t testing.TB, root string, rel string, content string) {
 	t.Helper()
 	full := filepath.Join(root, filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
@@ -98,6 +107,241 @@ func TestRunWithCacheDoesNotPersistFailure(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("failure must not be cached, calls=%d", calls)
+	}
+}
+
+func TestRunWithCacheIndependentColdKeysRunConcurrentlyAndMerge(t *testing.T) {
+	root := t.TempDir()
+	writeCacheFixture(t, root, "input.txt", "hello")
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	var workers sync.WaitGroup
+	for _, name := range []string{"audit-a", "audit-b"} {
+		name := name
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			inputs := newCacheInputs()
+			inputs.AddFile(filepath.Join(root, "input.txt"))
+			runWithCache(root, name, inputs, func() []string {
+				started <- name
+				<-release
+				return nil
+			})
+		}()
+	}
+
+	for count := 0; count < 2; count++ {
+		select {
+		case <-started:
+		case <-time.After(2 * time.Second):
+			close(release)
+			workers.Wait()
+			t.Fatal("independent cold audit keys were serialized")
+		}
+	}
+	close(release)
+	workers.Wait()
+
+	cachePath := filepath.Join(root, filepath.FromSlash(cacheRel))
+	body, err := os.ReadFile(cachePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cache cacheFile
+	if err := json.Unmarshal(body, &cache); err != nil {
+		t.Fatalf("concurrent publication corrupted cache JSON: %v", err)
+	}
+	if len(cache.Entries) != 2 {
+		t.Fatalf("concurrent publication lost an entry: %#v", cache.Entries)
+	}
+}
+
+func TestRunWithCacheSameColdKeySingleflights(t *testing.T) {
+	root := t.TempDir()
+	writeCacheFixture(t, root, "input.txt", "hello")
+	start := make(chan struct{})
+	firstEntered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	var calls atomic.Int32
+	var workers sync.WaitGroup
+	for worker := 0; worker < 2; worker++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-start
+			inputs := newCacheInputs()
+			inputs.AddFile(filepath.Join(root, "input.txt"))
+			runWithCache(root, "same-audit", inputs, func() []string {
+				calls.Add(1)
+				firstEntered <- struct{}{}
+				<-release
+				return nil
+			})
+		}()
+	}
+	close(start)
+	select {
+	case <-firstEntered:
+	case <-time.After(2 * time.Second):
+		close(release)
+		workers.Wait()
+		t.Fatal("cold audit never started")
+	}
+	select {
+	case <-firstEntered:
+		close(release)
+		workers.Wait()
+		t.Fatal("same cold audit key executed twice")
+	case <-time.After(250 * time.Millisecond):
+	}
+	close(release)
+	workers.Wait()
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("same cold audit key must execute once, got %d", got)
+	}
+}
+
+func TestRunWithCacheCrossProcessColdKeysMerge(t *testing.T) {
+	root := t.TempDir()
+	writeCacheFixture(t, root, "input.txt", "hello")
+	releasePath := filepath.Join(root, "release")
+	type child struct {
+		command *exec.Cmd
+		output  bytes.Buffer
+	}
+	children := make([]child, 2)
+	for index, name := range []string{"process-a", "process-b"} {
+		readyPath := filepath.Join(root, name+".ready")
+		command := exec.Command(os.Args[0], "-test.run=^TestAuditCacheCrossProcessHelper$", "-test.count=1")
+		command.Env = append(os.Environ(),
+			auditCacheProcessHelperEnv+"=1",
+			"RECONC_AUDIT_CACHE_ROOT="+root,
+			"RECONC_AUDIT_CACHE_NAME="+name,
+			"RECONC_AUDIT_CACHE_READY="+readyPath,
+			"RECONC_AUDIT_CACHE_RELEASE="+releasePath,
+		)
+		command.Stdout = &children[index].output
+		command.Stderr = &children[index].output
+		children[index].command = command
+		if err := command.Start(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		ready := true
+		for _, name := range []string{"process-a", "process-b"} {
+			if _, err := os.Stat(filepath.Join(root, name+".ready")); err != nil {
+				ready = false
+			}
+		}
+		if ready || time.Now().After(deadline) {
+			if !ready {
+				writeCacheFixture(t, root, "release", "release")
+				for index := range children {
+					_ = children[index].command.Wait()
+				}
+				t.Fatal("cross-process cold audits did not overlap")
+			}
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	writeCacheFixture(t, root, "release", "release")
+	for index := range children {
+		if err := children[index].command.Wait(); err != nil {
+			t.Fatalf("cache child %d: %v\n%s", index, err, children[index].output.String())
+		}
+	}
+	cache := loadCacheFile(filepath.Join(root, filepath.FromSlash(cacheRel)))
+	if len(cache.Entries) != 2 {
+		t.Fatalf("cross-process publication lost an entry: %#v", cache.Entries)
+	}
+}
+
+func TestAuditCacheCrossProcessHelper(t *testing.T) {
+	if os.Getenv(auditCacheProcessHelperEnv) == "" {
+		t.Skip("process helper")
+	}
+	root := os.Getenv("RECONC_AUDIT_CACHE_ROOT")
+	name := os.Getenv("RECONC_AUDIT_CACHE_NAME")
+	inputs := newCacheInputs()
+	inputs.AddFile(filepath.Join(root, "input.txt"))
+	result := runWithCache(root, name, inputs, func() []string {
+		if err := os.WriteFile(os.Getenv("RECONC_AUDIT_CACHE_READY"), []byte("ready"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, err := os.Stat(os.Getenv("RECONC_AUDIT_CACHE_RELEASE")); err == nil {
+				return nil
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		t.Fatal("release timeout")
+		return nil
+	})
+	if len(result) != 0 {
+		t.Fatalf("helper audit failed: %v", result)
+	}
+}
+
+func TestRunWithCacheCrossProcessSameKeySingleflights(t *testing.T) {
+	root := t.TempDir()
+	writeCacheFixture(t, root, "input.txt", "hello")
+	releasePath := filepath.Join(root, "release")
+	readyPaths := []string{filepath.Join(root, "first.ready"), filepath.Join(root, "second.ready")}
+	commands := make([]*exec.Cmd, 2)
+	outputs := make([]bytes.Buffer, 2)
+	startChild := func(index int) {
+		t.Helper()
+		command := exec.Command(os.Args[0], "-test.run=^TestAuditCacheCrossProcessHelper$", "-test.count=1")
+		command.Env = append(os.Environ(),
+			auditCacheProcessHelperEnv+"=1",
+			"RECONC_AUDIT_CACHE_ROOT="+root,
+			"RECONC_AUDIT_CACHE_NAME=same-process-key",
+			"RECONC_AUDIT_CACHE_READY="+readyPaths[index],
+			"RECONC_AUDIT_CACHE_RELEASE="+releasePath,
+		)
+		command.Stdout = &outputs[index]
+		command.Stderr = &outputs[index]
+		commands[index] = command
+		if err := command.Start(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	startChild(0)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := os.Stat(readyPaths[0]); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			writeCacheFixture(t, root, "release", "release")
+			_ = commands[0].Wait()
+			t.Fatalf("first same-key cache child did not enter audit\n%s", outputs[0].String())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	startChild(1)
+	time.Sleep(250 * time.Millisecond)
+	if _, err := os.Stat(readyPaths[1]); err == nil {
+		writeCacheFixture(t, root, "release", "release")
+		for _, command := range commands {
+			_ = command.Wait()
+		}
+		t.Fatal("same cache key executed concurrently in separate processes")
+	}
+	writeCacheFixture(t, root, "release", "release")
+	for index, command := range commands {
+		if err := command.Wait(); err != nil {
+			t.Fatalf("same-key cache child %d: %v\n%s", index, err, outputs[index].String())
+		}
+	}
+	if _, err := os.Stat(readyPaths[1]); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("second same-key audit function ran unexpectedly: %v", err)
 	}
 }
 
@@ -202,5 +446,121 @@ func TestCacheInputsAbsentVsPresent(t *testing.T) {
 	h2, _ := c2.Hash()
 	if h1 == h2 {
 		t.Fatal("hash must differ for absent vs present file")
+	}
+}
+
+func TestCacheInputsPathMetadataDetectsDirectoryEntryChange(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "archive")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(dir, time.Unix(1_000, 0), time.Unix(1_000, 0)); err != nil {
+		t.Fatal(err)
+	}
+	first := newCacheInputs()
+	first.AddPathMetadata(dir)
+	hashBefore, err := first.Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeCacheFixture(t, root, "archive/TASK-0001-Done.md", "done")
+	if err := os.Chtimes(dir, time.Unix(2_000, 0), time.Unix(2_000, 0)); err != nil {
+		t.Fatal(err)
+	}
+	second := newCacheInputs()
+	second.AddPathMetadata(dir)
+	hashAfter, err := second.Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hashBefore == hashAfter {
+		t.Fatal("directory entry changes must invalidate path metadata")
+	}
+}
+
+func TestTaskStateCacheInputsHashOnlyOpenTaskBodies(t *testing.T) {
+	root := t.TempDir()
+	writeCacheFixture(t, root, "docs/tasks.md", "# Tasks\n\nCurrent: TASK-0002-Open -> tasks/TASK-0002-Open.md\n\n- [x] TASK-0001-Done - done -> tasks/done/TASK-0001-Done.md\n- [ ] TASK-0002-Open - open -> tasks/TASK-0002-Open.md\n")
+	writeCacheFixture(t, root, "docs/tasks/TASK-0002-Open.md", "open-v1")
+	writeCacheFixture(t, root, "docs/tasks/done/TASK-0001-Done.md", "done-v1")
+	inputs := taskStateCacheInputs(root)
+	donePath := filepath.Join(root, "docs/tasks/done/TASK-0001-Done.md")
+	for _, path := range inputs.files {
+		if path == donePath {
+			t.Fatal("archived TASK body leaked into the hot-path content hash")
+		}
+	}
+	firstHash, err := inputs.Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeCacheFixture(t, root, "docs/tasks/done/TASK-0001-Done.md", "done-v2")
+	secondHash, err := taskStateCacheInputs(root).Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstHash != secondHash {
+		t.Fatal("archived TASK body edits must not trigger full archive hashing")
+	}
+	writeCacheFixture(t, root, "docs/tasks/TASK-0002-Open.md", "open-v2")
+	thirdHash, err := taskStateCacheInputs(root).Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondHash == thirdHash {
+		t.Fatal("open TASK body edits must invalidate task-state cache")
+	}
+}
+
+func TestTaskArchiveRevisionBypassesDirtyArchiveAndTracksCommit(t *testing.T) {
+	root := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", root}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "--quiet")
+	git("config", "user.email", "test@test")
+	git("config", "user.name", "test")
+	writeCacheFixture(t, root, "docs/tasks/done/TASK-0001-Done.md", "done-v1")
+	git("add", "docs/tasks/done/TASK-0001-Done.md")
+	git("commit", "-m", "initial archive", "--quiet")
+	firstRevision, cacheable := taskArchiveRevision(root)
+	if !cacheable || firstRevision == "" || firstRevision == "absent" {
+		t.Fatalf("clean committed archive must be cacheable, got revision=%q cacheable=%t", firstRevision, cacheable)
+	}
+	writeCacheFixture(t, root, "docs/tasks/done/TASK-0001-Done.md", "done-v2")
+	if _, cacheable := taskArchiveRevision(root); cacheable {
+		t.Fatal("dirty archived TASK must bypass cache")
+	}
+	git("add", "docs/tasks/done/TASK-0001-Done.md")
+	git("commit", "-m", "update archive", "--quiet")
+	secondRevision, cacheable := taskArchiveRevision(root)
+	if !cacheable || secondRevision == firstRevision {
+		t.Fatalf("archive tree revision must change after commit: first=%q second=%q cacheable=%t", firstRevision, secondRevision, cacheable)
+	}
+}
+
+func BenchmarkRunWithCacheIndependentColdKeys(b *testing.B) {
+	root := b.TempDir()
+	writeCacheFixture(b, root, "input.txt", "hello")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for iteration := 0; iteration < b.N; iteration++ {
+		var workers sync.WaitGroup
+		for _, name := range []string{"audit-a", "audit-b"} {
+			name := name
+			workers.Add(1)
+			go func() {
+				defer workers.Done()
+				inputs := newCacheInputs()
+				inputs.AddFile(filepath.Join(root, "input.txt"))
+				inputs.AddValue("iteration", strconv.Itoa(iteration))
+				runWithCache(root, name, inputs, func() []string { return nil })
+			}()
+		}
+		workers.Wait()
 	}
 }

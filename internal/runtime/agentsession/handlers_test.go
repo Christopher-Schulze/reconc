@@ -605,7 +605,7 @@ func TestRunStopPolicyReportCacheSkipsRepeatedScriptRun(t *testing.T) {
 	}
 }
 
-func TestRunStopHookActiveCleanCacheSkipsStaleFingerprint(t *testing.T) {
+func TestRunStopHookActiveCleanCacheRejectsStaleFingerprint(t *testing.T) {
 	counterPath := filepath.Join(t.TempDir(), "counter")
 	repo := setupStopScriptPolicyRepo(t, counterPath, 0, "")
 	if _, err := InitializeSessionState(repo, "s-reentrant-clean-cache"); err != nil {
@@ -640,10 +640,10 @@ func TestRunStopHookActiveCleanCacheSkipsStaleFingerprint(t *testing.T) {
 
 	second := RunStop(repo, []byte(`{"session_id":"s-reentrant-clean-cache","stop_hook_active":true}`))
 	if second.ExitCode != 0 || second.Stdout != "" {
-		t.Fatalf("reentrant clean cached stop: exit=%d stdout=%q stderr=%s", second.ExitCode, second.Stdout, second.Stderr)
+		t.Fatalf("reentrant stale-cache stop: exit=%d stdout=%q stderr=%s", second.ExitCode, second.Stdout, second.Stderr)
 	}
-	if got := readCounter(t, counterPath); got != 1 {
-		t.Fatalf("reentrant clean cached stop should skip full policy despite stale fingerprint, got %d script runs", got)
+	if got := readCounter(t, counterPath); got != 2 {
+		t.Fatalf("reentrant stop must rerun policy when the fingerprint is stale, got %d script runs", got)
 	}
 }
 
@@ -1302,6 +1302,14 @@ func setupStopScriptPolicyRepo(t *testing.T, counterPath string, exitCode int, o
 	t.Setenv(StateRootEnv, t.TempDir())
 	repo := t.TempDir()
 	gitInitHelper(t, repo)
+	if err := os.MkdirAll(filepath.Join(repo, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a.go", "b.go"} {
+		if err := os.WriteFile(filepath.Join(repo, "src", name), []byte("package src\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("# t\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

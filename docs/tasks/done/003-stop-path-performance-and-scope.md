@@ -18,16 +18,23 @@ scale with the entire archive.
 
 ## Sub-Tasks
 
-- [ ] Port and harden the single-snapshot fingerprint contract.
-- [ ] Port and harden session-specific uncommitted-path scoping.
-- [ ] Replace the global cold-audit critical section with keyed coordination and atomic merge.
-- [ ] Make task-state fingerprints incremental and hot-set bounded.
-- [ ] Benchmark cold, warm, dirty, untracked, reentrant, and concurrent paths.
+- [x] Port and harden the single-snapshot fingerprint contract.
+- [x] Port and harden session-specific uncommitted-path scoping.
+- [x] Replace the global cold-audit critical section with keyed coordination and atomic merge.
+- [x] Make task-state fingerprints incremental and hot-set bounded.
+- [x] Benchmark cold, warm, dirty, untracked, reentrant, and concurrent paths.
 
 ## Notes
 
 Approved areas: 8 Stop fingerprint regression; 9 Session-specific stop scope;
 11 Cache mutex serializes cold audits; 12 Task audit scaling.
+
+Final proof on Apple M1: clean fingerprint median 14.97 ms; tracked-dirty
+28.62 ms; untracked-directory 28.41 ms; cold Stop 15.79 ms; warm exact Stop
+14.97 ms; clean reentrant Stop 14.85 ms; two independent cold cache keys
+0.71 ms/pair. Root and nested-module tests, race tests, vet, builds, Unix tests,
+Windows cross-compilation, cross-process same-key singleflight, and a real
+two-process independent-key publication test pass.
 
 ## Deviations
 
