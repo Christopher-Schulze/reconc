@@ -153,6 +153,7 @@ func generateCodex() *Artifact {
 						map[string]interface{}{
 							"type":          "command",
 							"command":       shellRuntimeCommand(".", "codex-session-start"),
+							"timeout":       mustTimeoutSeconds(KindCodex, EventSessionStart),
 							"statusMessage": "reconc: initializing policy session",
 						},
 					},
@@ -165,6 +166,7 @@ func generateCodex() *Artifact {
 						map[string]interface{}{
 							"type":    "command",
 							"command": shellRuntimeCommand(".", "codex-pre-tool-use"),
+							"timeout": mustTimeoutSeconds(KindCodex, EventPreToolUse),
 						},
 					},
 				},
@@ -176,6 +178,7 @@ func generateCodex() *Artifact {
 						map[string]interface{}{
 							"type":    "command",
 							"command": shellRuntimeCommand(".", "codex-permission-request"),
+							"timeout": mustTimeoutSeconds(KindCodex, EventPermissionRequest),
 						},
 					},
 				},
@@ -187,6 +190,7 @@ func generateCodex() *Artifact {
 						map[string]interface{}{
 							"type":    "command",
 							"command": shellRuntimeCommand(".", "codex-post-tool-use"),
+							"timeout": mustTimeoutSeconds(KindCodex, EventPostToolUse),
 						},
 					},
 				},
@@ -198,6 +202,7 @@ func generateCodex() *Artifact {
 						map[string]interface{}{
 							"type":    "command",
 							"command": shellRuntimeCommand(".", "codex-post-tool-use-failure"),
+							"timeout": mustTimeoutSeconds(KindCodex, EventPostToolUseFailure),
 						},
 					},
 				},
@@ -208,16 +213,7 @@ func generateCodex() *Artifact {
 						map[string]interface{}{
 							"type":    "command",
 							"command": shellRuntimeCommand(".", "codex-stop"),
-						},
-					},
-				},
-			},
-			"SessionEnd": []interface{}{
-				map[string]interface{}{
-					"hooks": []interface{}{
-						map[string]interface{}{
-							"type":    "command",
-							"command": shellRuntimeCommand(".", "codex-session-end"),
+							"timeout": mustTimeoutSeconds(KindCodex, EventStop),
 						},
 					},
 				},

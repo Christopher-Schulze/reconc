@@ -18,7 +18,7 @@ type ActivationState string
 const (
 	StateAbsent      ActivationState = "absent"
 	StateInstalled   ActivationState = "installed"
-	StateActive      ActivationState = "active"
+	StateConfigured  ActivationState = "configured"
 	StateDegraded    ActivationState = "degraded"
 	StateShadowed    ActivationState = "shadowed"
 	StateUnsupported ActivationState = "unsupported"
@@ -60,7 +60,7 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 			data = legacyData
 			err = nil
 			report.TargetPath = platform.Activation.LegacyArtifactPath
-			report.Detail = "legacy artifact path is active; reinstall to migrate to " + platform.TargetPath
+			report.Detail = "legacy artifact path is selected; reinstall to migrate to " + platform.TargetPath
 		}
 	}
 	if err != nil {
@@ -87,6 +87,15 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 			report.Detail = "managed artifact differs from the current generator; reinstall the hook"
 			return report
 		}
+	}
+	contractIssues := unsupportedNativeEvents(platform, string(data))
+	if platform.Kind == KindCodex {
+		contractIssues = append(contractIssues, codexRouteBudgetIssues(data, platform)...)
+	}
+	if len(contractIssues) > 0 {
+		report.State = StateDegraded
+		report.Detail = "artifact contract drift: " + strings.Join(contractIssues, "; ") + "; reinstall the hook"
+		return report
 	}
 
 	report.MissingEvents = missingRuntimeEvents(platform, string(data))
@@ -118,9 +127,22 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 
 	switch platform.Activation.Mode {
 	case ActivationFlag:
-		if !activationTokenPresent(filepath.Join(root, filepath.FromSlash(platform.Activation.EnablePath)), platform.Activation.EnableToken) {
+		enabled, present, probeErr := tomlSectionBoolean(
+			filepath.Join(root, filepath.FromSlash(platform.Activation.EnablePath)),
+			platform.Activation.EnableSection,
+			platform.Activation.EnableKey,
+		)
+		if probeErr != nil {
+			report.State = StateDegraded
+			report.Detail = platform.Activation.EnablePath + " is invalid: " + probeErr.Error()
+			return report
+		}
+		if !present {
+			enabled = platform.Activation.EnabledByDefault
+		}
+		if !enabled {
 			report.State = StateInstalled
-			report.Detail = "artifact is installed but " + platform.Activation.EnablePath + " does not enable hooks"
+			report.Detail = "artifact is installed but " + platform.Activation.EnablePath + " does not enable " + platform.Activation.EnableSection + "." + platform.Activation.EnableKey
 			return report
 		}
 	case ActivationGitPath:
@@ -131,11 +153,59 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 		}
 	}
 
-	report.State = StateActive
+	report.State = StateConfigured
 	if report.TargetPath == platform.TargetPath {
-		report.Detail = "configuration is complete and auto-discoverable"
+		report.Detail = "configuration is complete and host-discoverable; live execution is reported separately"
 	}
 	return report
+}
+
+func unsupportedNativeEvents(platform Platform, content string) []string {
+	var unexpected []string
+	for _, capability := range platform.Capabilities {
+		if capability.Support == SupportUnsupported && capability.NativeEvent != "" && strings.Contains(content, `"`+capability.NativeEvent+`"`) {
+			unexpected = append(unexpected, "unsupported "+capability.NativeEvent)
+		}
+	}
+	return unexpected
+}
+
+func codexRouteBudgetIssues(data []byte, platform Platform) []string {
+	var document struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Command string `json:"command"`
+				Timeout *int   `json:"timeout"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(data, &document); err != nil {
+		return []string{"invalid Codex route structure"}
+	}
+	var issues []string
+	for _, capability := range platform.Capabilities {
+		if capability.Support == SupportUnsupported || len(capability.RuntimeEvents) == 0 {
+			continue
+		}
+		for _, runtimeEvent := range capability.RuntimeEvents {
+			matches := 0
+			for _, group := range document.Hooks[capability.NativeEvent] {
+				for _, handler := range group.Hooks {
+					if !strings.Contains(handler.Command, runtimeEvent) {
+						continue
+					}
+					matches++
+					if handler.Timeout == nil || *handler.Timeout != capability.TimeoutSeconds {
+						issues = append(issues, fmt.Sprintf("%s timeout must be %ds", runtimeEvent, capability.TimeoutSeconds))
+					}
+				}
+			}
+			if matches != 1 {
+				issues = append(issues, fmt.Sprintf("%s route count is %d", runtimeEvent, matches))
+			}
+		}
+	}
+	return issues
 }
 
 func managedArtifactRequiresExactMatch(mode InstallMode) bool {
@@ -191,20 +261,61 @@ func executableFile(path string) bool {
 	return err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0
 }
 
-func activationTokenPresent(path, token string) bool {
+func tomlSectionBoolean(path, section, key string) (bool, bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return false
+		if os.IsNotExist(err) {
+			return false, false, nil
+		}
+		return false, false, err
 	}
-	want := strings.ReplaceAll(token, " ", "")
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.SplitN(line, "#", 2)[0]
-		line = strings.NewReplacer(" ", "", "\t", "").Replace(line)
-		if line == want {
-			return true
+	currentSection := ""
+	sectionSeen := false
+	found := false
+	enabled := false
+	for lineNumber, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(strings.SplitN(raw, "#", 2)[0])
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			if strings.HasPrefix(line, "[[") || strings.HasSuffix(line, "]]") {
+				currentSection = ""
+				continue
+			}
+			currentSection = strings.TrimSpace(line[1 : len(line)-1])
+			if currentSection == section {
+				if sectionSeen {
+					return false, false, fmt.Errorf("duplicate [%s] table", section)
+				}
+				sectionSeen = true
+			}
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 || strings.TrimSpace(parts[0]) != key {
+			continue
+		}
+		if currentSection != section {
+			if currentSection == "" {
+				return false, false, fmt.Errorf("line %d places %s at the TOML root; expected [%s]", lineNumber+1, key, section)
+			}
+			continue
+		}
+		if found {
+			return false, false, fmt.Errorf("duplicate %s.%s", section, key)
+		}
+		found = true
+		switch strings.TrimSpace(parts[1]) {
+		case "true":
+			enabled = true
+		case "false":
+			enabled = false
+		default:
+			return false, false, fmt.Errorf("%s.%s must be a boolean", section, key)
 		}
 	}
-	return false
+	return enabled, found, nil
 }
 
 func gitHooksShadowPath(root string) string {

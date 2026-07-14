@@ -33,6 +33,12 @@ func Inspect(repoRoot string) (*Board, error) {
 	if err != nil {
 		return nil, err
 	}
+	return inspectResolved(root)
+}
+
+// inspectResolved reads TASK state from a canonical repository root. Runtime
+// hotpaths use it after resolving the root once at their process boundary.
+func inspectResolved(root string) (*Board, error) {
 	cfg, err := LoadConfig(root)
 	if err != nil {
 		return nil, err

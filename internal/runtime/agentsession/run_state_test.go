@@ -1,25 +1,20 @@
 package agentsession
 
-import (
-	"os"
-	"path/filepath"
-	"testing"
-)
+import "testing"
 
 func TestRepositoryRunStateRoundTrip(t *testing.T) {
 	repo := t.TempDir()
-	want := runLoopState{
+	want := repositoryRunState{
 		Enabled:              true,
-		Mode:                 runLoopModeRepo,
 		NoProgressNudges:     2,
-		LastCurrent:          "TASK-013|subtask",
+		LastProgressHash:     [32]byte{1, 2, 3},
 		AwaitingContinuation: true,
-		EnabledAt:            "2026-07-14T20:00:00Z",
+		EnabledAt:            1_752_524_800_000_000_000,
 	}
-	if err := saveRunLoopState(repo, want); err != nil {
+	if err := saveRepositoryRunState(repo, want); err != nil {
 		t.Fatal(err)
 	}
-	got, err := loadRunLoopState(repo)
+	got, err := loadRepositoryRunState(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,34 +23,12 @@ func TestRepositoryRunStateRoundTrip(t *testing.T) {
 	}
 }
 
-func TestLegacySessionRunStateIsRejected(t *testing.T) {
-	repo := t.TempDir()
-	path := filepath.Join(repo, ".reconc", "runloop", "state.json")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(`{"enabled":true,"mode":"session"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	state, err := loadRunLoopState(repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if state.Enabled || state.DisabledReason != "legacy_session_mode_removed" {
-		t.Fatalf("legacy session state must not activate repository run: %+v", state)
-	}
-}
-
 func TestRunStateClampsNegativeNoProgressCount(t *testing.T) {
 	repo := t.TempDir()
-	path := filepath.Join(repo, ".reconc", "runloop", "state.json")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := saveRepositoryRunState(repo, repositoryRunState{Enabled: true, NoProgressNudges: -7}); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"enabled":true,"mode":"repo","no_progress_nudges":-7}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	state, err := loadRunLoopState(repo)
+	state, err := loadRepositoryRunState(repo)
 	if err != nil {
 		t.Fatal(err)
 	}

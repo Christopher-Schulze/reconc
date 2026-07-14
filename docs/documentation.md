@@ -335,7 +335,7 @@ Runtime state is local and ignored:
 - `.reconc/locks/`
 - `.reconc/sessions/`
 - `.reconc/reports/`
-- `.reconc/runloop/`
+- `.reconc/run/`
 - `.reconc/task-transaction.json`
 - `.reconc/bootstrap-*.json`
 - `*.reconc-candidate-*`
@@ -514,8 +514,9 @@ Kilo. It owns native event names, normalized lifecycle coverage, compatibility
 routes, config and scaffold paths, failure behavior, timeout budgets, output
 budgets, installation strategy, and activation probes. `reconc hook status
 [repo] [--json]` validates every registered artifact and reports `absent`,
-`installed`, `active`, `degraded`, `shadowed`, or `unsupported`. `active` means
-the configuration is complete and discoverable. Separate `last_seen` and
+`installed`, `configured`, `degraded`, `shadowed`, or `unsupported`.
+`configured` means the static configuration is complete and host-discoverable;
+it is not proof that a host process executed it. Separate `last_seen` and
 `last_event` fields report whether a live runtime executed Reconc's
 session-start route. Liveness is stored outside the repository and written at
 most once per runtime every six hours, so it does not amplify tool or Stop
@@ -523,8 +524,8 @@ writes.
 
 The registry assigns 5-second observation/session budgets, 10-second pre-tool
 and permission budgets, and 30-second Stop budgets instead of one blanket
-timeout. Claude, Devin, Antigravity, and Copilot generators emit those host
-timeouts; OpenCode and Kilo enforce them inside their adapters. Each runtime
+timeout. Claude, Codex, Devin, Antigravity, and Copilot generators emit those
+host timeouts; OpenCode and Kilo enforce them inside their adapters. Each runtime
 route caps combined process output at 8 KiB.
 Post-compaction recovery context is deduplicated and capped at 4 KiB.
 Copilot's `PreCompact` event is intentionally not installed because that event
@@ -545,9 +546,14 @@ Claude Code uses its exec-form
 Git lookup. Codex uses the host shell command string without a nested `sh -lc`;
 Cursor, Antigravity, and Copilot use portable shell launchers with a direct
 wrapper fast path before their Git fallback.
-Codex also needs `hooks = true` in an active `config.toml` and routes
-`apply_patch` through Reconc by parsing patch headers from
-`tool_input.command`. Cursor Desktop uses `.cursor/hooks.json` with
+Codex hooks are enabled by default by the current host contract; governed
+bootstrap still writes `hooks = true` under the `[features]` table. A
+root-level `hooks=true` lookalike is invalid, while `hooks = false` under
+`[features]` leaves the artifact installed but disabled. Codex
+does not expose `SessionEnd`; Reconc generates only supported routes and gives
+each route its exact 5, 10, or 30 second host timeout. `apply_patch` is routed
+through Reconc by parsing patch headers from `tool_input.command`. Cursor
+Desktop uses `.cursor/hooks.json` with
 `preToolUse` as the pre-write gate, `afterFileEdit`/`afterTabFileEdit` plus
 `postToolUse` as evidence backstops for Cursor write aliases including
 `StrReplace`, `Delete`, and `FileEdit`, and `stop` via Cursor-native
@@ -572,7 +578,10 @@ continuation decisions stay in the Go runtime, so the plugins do not maintain
 parallel run-state files or inject project-specific prompts. Their subprocess
 budgets are generated from the same registry, cap output at 8 KiB, terminate
 slow routes after 5, 10, or 30 seconds, and delegate versioned binary discovery
-to `tools/reconc/bin/hook` instead of embedding a release number.
+to `tools/reconc/bin/hook` instead of embedding a release number. Their Stop
+capability is inferred from `session.idle`: the adapter asks the host client to
+continue, but the host boundary remains fail-open and is not equivalent to the
+synchronous native Stop gates exposed by the other six agent runtimes.
 `reconc run on|off|status|log` is the canonical AI-operated repository switch.
 Repository mode persists across sessions for Claude Code, Codex, Cursor,
 OpenCode, Devin CLI, Antigravity CLI, GitHub Copilot, and Kilo Code. The agent
@@ -597,13 +606,20 @@ TASK state, and terminal Stop remain hard gates. Blocked and invalid TASK state
 never silently disables the durable switch; status and Stop expose the blocker
 for recovery.
 
+The durable switch uses `.reconc/run/state.bin` only. Its two alternating
+512-byte slots carry a fixed 56-byte payload, monotonic sequence, and CRC32C
+over both header and payload;
+decoding allocates no state strings, and a torn newest slot falls back to the
+previous valid slot. There is no session runloop, legacy mode discriminator,
+marker cleanup, or `.reconc/runloop/` compatibility read.
+
 `awaiting_continuation` is not a hard stop reason by itself. Reads and unrelated
 hook events do not clear it. A bounded material-event counter advances only for
 write and command outcomes, so TASK changes or real tool progress reset the
 guard without a Git dirty scan or per-tool run-state write. After repeated
 no-progress stops, repository mode releases one Stop and resets its guard without
 silently changing the durable switch. Run decisions are persisted only for
-material state transitions in `.reconc/runloop/decisions.jsonl`, with bounded
+material state transitions in `.reconc/run/decisions.jsonl`, with bounded
 identifiers and reasons. The live log and two archives are each bounded at
 2 MiB; readers merge the ring in chronological order.
 Repeated identical policy feedback shrinks to stable `RB-*` feedback IDs,
@@ -645,7 +661,7 @@ cached report only when both the full repo fingerprint and evidence hash still
 match, so the next Stop reruns if the repo or evidence changes after the report
 was built. Alternate Git ref backends fall back to `git rev-parse`; the normal
 path avoids that extra process. Reconc's own `.reconc/cache/`,
-`.reconc/runloop/`, `.reconc/locks/`, `.reconc/reports/`, and
+`.reconc/run/`, `.reconc/locks/`, `.reconc/reports/`, and
 `.reconc/audit.jsonl` runtime artefacts are excluded from the dirty fingerprint
 so report writes cannot invalidate their own cache. `RECONC_STOP_FINGERPRINT_UNTRACKED=all`
 restores the old all-untracked cache key for repos that need it. Matching `require_script` rules
@@ -674,9 +690,13 @@ retention no longer piggybacks on audit-cache publication. The task-state cache 
 `docs/tasks.md`, schema, and open TASK bodies on its hot path. A clean completed
 TASK archive is represented by its committed Git tree ID plus directory
 metadata; dirty or unreadable archive state bypasses caching entirely, avoiding
-full archive reads without hiding archived-file changes. Reproducible Stop and
-concurrent-cache benchmarks live beside their regression tests and run with
-`go test ./internal/runtime/agentsession -run '^$' -bench StopPolicy -benchmem`
+full archive reads without hiding archived-file changes. The in-process normal
+executable-TASK benchmark on Apple M1 improved from 1,504,653 ns/op,
+61,612 B/op, and 553 allocs/op to a seven-run range of 130,819-142,849 ns/op
+with a 131,483 ns/op median, 29,225-29,276 B/op, and 245 allocs/op. The
+benchmark excludes process startup. Reproducible Stop and concurrent-cache
+benchmarks live beside their regression tests and run with
+`go test ./internal/runtime/agentsession -run '^$' -bench 'RepositoryRunStopHotpath|StopPolicy' -benchmem`
 and `go test ./harness/template/audits -run '^$' -bench RunWithCache -benchmem`.
 Storage hot paths run with
 `go test ./internal/runtime/agentsession ./internal/retention -run '^$' -bench 'DuplicateSessionMutation|LifecycleRetentionNotDue' -benchmem`.
@@ -791,6 +811,7 @@ Ignore:
 - `.reconc/locks/`
 - `.reconc/sessions/`
 - `.reconc/reports/`
+- `.reconc/run/`
 - `.reconc/task-transaction.json`
 
 ## Security

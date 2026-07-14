@@ -24,7 +24,7 @@ func TestInspectIsReadOnlyAndSuggestsApplicablePacks(t *testing.T) {
 	writeBootstrapTestFile(t, repo, "go.mod", "module example\n", 0o644)
 	writeBootstrapTestFile(t, repo, "package.json", "{}\n", 0o644)
 	writeBootstrapTestFile(t, repo, "bun.lock", "lock\n", 0o644)
-	writeBootstrapTestFile(t, repo, ".codex/config.toml", "hooks=true\n", 0o644)
+	writeBootstrapTestFile(t, repo, ".codex/config.toml", "[features]\nhooks = true\n", 0o644)
 	before := bootstrapTreeSnapshot(t, repo)
 
 	inspection, err := Inspect(repo)
@@ -152,11 +152,18 @@ func TestGovernedApplyVerifyAndRerunAreIdempotent(t *testing.T) {
 			t.Fatalf("expected installed %s: %v", relative, err)
 		}
 	}
+	codexConfig, err := os.ReadFile(filepath.Join(repo, ".codex", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(codexConfig), "[features]\n") || !strings.Contains(string(codexConfig), "hooks = true") {
+		t.Fatalf("Codex activation is not valid features TOML: %q", codexConfig)
+	}
 	ignoreBody, err := os.ReadFile(filepath.Join(repo, ".gitignore"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"/tools/reconc/dist/", ".reconc/runloop/"} {
+	for _, expected := range []string{"/tools/reconc/dist/", ".reconc/run/"} {
 		if !strings.Contains(string(ignoreBody), expected) {
 			t.Fatalf("governed bootstrap ignore block missing %q: body=%q", expected, ignoreBody)
 		}

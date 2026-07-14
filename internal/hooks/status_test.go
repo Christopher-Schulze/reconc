@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -20,7 +21,7 @@ func TestInspectPlatformsActivationStates(t *testing.T) {
 		}
 	})
 
-	t.Run("claude degraded then active", func(t *testing.T) {
+	t.Run("claude degraded then configured", func(t *testing.T) {
 		repo := t.TempDir()
 		if _, err := Install(KindClaudeCode, repo, false); err != nil {
 			t.Fatal(err)
@@ -29,26 +30,48 @@ func TestInspectPlatformsActivationStates(t *testing.T) {
 			t.Fatalf("without wrapper = %s, want degraded", got)
 		}
 		writeExecutableWrapper(t, repo)
-		if got := statusForKind(t, repo, KindClaudeCode).State; got != StateActive {
-			t.Fatalf("with wrapper = %s, want active", got)
+		if got := statusForKind(t, repo, KindClaudeCode).State; got != StateConfigured {
+			t.Fatalf("with wrapper = %s, want configured", got)
 		}
 	})
 
-	t.Run("codex installed then active", func(t *testing.T) {
+	t.Run("codex defaults configured and explicit false disables", func(t *testing.T) {
 		repo := t.TempDir()
 		writeExecutableWrapper(t, repo)
 		if _, err := Install(KindCodex, repo, false); err != nil {
 			t.Fatal(err)
 		}
-		if got := statusForKind(t, repo, KindCodex).State; got != StateInstalled {
-			t.Fatalf("without flag = %s, want installed", got)
+		if got := statusForKind(t, repo, KindCodex).State; got != StateConfigured {
+			t.Fatalf("without flag = %s, want configured", got)
 		}
 		config := filepath.Join(repo, ".codex", "config.toml")
-		if err := os.WriteFile(config, []byte("hooks = true\n"), 0o644); err != nil {
+		if err := os.WriteFile(config, []byte("[features]\nhooks = false\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if got := statusForKind(t, repo, KindCodex).State; got != StateActive {
-			t.Fatalf("with flag = %s, want active", got)
+		if got := statusForKind(t, repo, KindCodex).State; got != StateInstalled {
+			t.Fatalf("explicit false = %s, want installed", got)
+		}
+		if err := os.WriteFile(config, []byte("[features]\nhooks = true\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := statusForKind(t, repo, KindCodex).State; got != StateConfigured {
+			t.Fatalf("with flag = %s, want configured", got)
+		}
+	})
+
+	t.Run("codex rejects root-level lookalike", func(t *testing.T) {
+		repo := t.TempDir()
+		writeExecutableWrapper(t, repo)
+		if _, err := Install(KindCodex, repo, false); err != nil {
+			t.Fatal(err)
+		}
+		config := filepath.Join(repo, ".codex", "config.toml")
+		if err := os.WriteFile(config, []byte("hooks=true\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		status := statusForKind(t, repo, KindCodex)
+		if status.State != StateDegraded || !strings.Contains(status.Detail, "TOML root") {
+			t.Fatalf("root-level hooks flag = %+v, want degraded", status)
 		}
 	})
 

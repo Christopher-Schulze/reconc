@@ -355,13 +355,13 @@ Required Reconc runtime ignores:
 - `.reconc/cache/`
 - `.reconc/locks/`
 - `.reconc/reports/`
-- `.reconc/runloop/`
+- `.reconc/run/`
 - `.reconc/sessions/`
 - `.reconc/task-transaction.json`
 - `.reconc/bootstrap-*.json`
 - `*.reconc-candidate-*`
 
-`.reconc/runloop/` holds repo-local run state: `state.json` and the bounded,
+`.reconc/run/` holds repo-local run state: `state.bin` and the bounded,
 transition-only `decisions.jsonl`. It is gitignored above. No per-repo
 scaffolding is needed: `reconc run on|off|status|log` ships in the binary and
 operates this directory in any repo. The agent operates the switch. The per-TASK
@@ -421,11 +421,11 @@ tools/reconc/dist/<local-reconc-binary> hook status . --json
 
 Treat `degraded`, `shadowed`, and `unsupported` as unresolved rollout defects.
 `installed` is valid only for an artifact that intentionally still needs its
-documented activation switch. `active` means the config is complete and
-discoverable. `last_seen` and `last_event` are the separate live-process proof;
+documented activation switch. `configured` means the static config is complete
+and host-discoverable. `last_seen` and `last_event` are the separate live-process proof;
 their external state is rate-limited to one write per runtime every six hours.
 
-Claude Code generated hooks use exec-form `command` plus `args`, pass `${CLAUDE_PROJECT_DIR}` directly to the wrapper, and use the context-capable `SessionStart` `compact` matcher for recovery instead of spawning the notification-only `PostCompact` event. Devin uses `.devin/hooks.v1.json`, passes `DEVIN_PROJECT_DIR`, and includes `PostCompaction`. Copilot uses `.github/hooks/reconc.json` version 1 and VS Code-compatible event names; its notification-only `PreCompact` event is intentionally omitted because it cannot consume recovery output. OpenCode and Kilo plugins are transport adapters only: policy, session state, continuation, and context recovery remain in the Go runtime. Kilo requires `KILO_PURE` to be unset so project plugins load.
+Claude Code generated hooks use exec-form `command` plus `args`, pass `${CLAUDE_PROJECT_DIR}` directly to the wrapper, and use the context-capable `SessionStart` `compact` matcher for recovery instead of spawning the notification-only `PostCompact` event. Codex bootstrap writes `hooks = true` under `[features]`; root-level `hooks=true` is invalid, and Codex has no `SessionEnd` event. Devin uses `.devin/hooks.v1.json`, passes `DEVIN_PROJECT_DIR`, and includes `PostCompaction`. Copilot uses `.github/hooks/reconc.json` version 1 and VS Code-compatible event names; its notification-only `PreCompact` event is intentionally omitted because it cannot consume recovery output. OpenCode and Kilo plugins are transport adapters only: policy, session state, continuation, and context recovery remain in the Go runtime. Their continuation trigger is inferred from `session.idle`, not a synchronous native Stop gate. Kilo requires `KILO_PURE` to be unset so project plugins load.
 
 The registry assigns 5-second observation/session timeouts, 10-second pre-tool/permission timeouts, and a 30-second Stop timeout. Claude/Devin/Antigravity/Copilot generators emit those host budgets; OpenCode/Kilo adapters enforce them internally, kill slow subprocesses, cap combined output at 8 KiB, and never embed a versioned release filename. Generated Claude/Codex/Cursor/Devin/Antigravity/Copilot configs do not spawn PreToolUse for read-only matchers; read evidence remains in PostToolUse while pre-execution hooks stay focused on write/shell/apply_patch policy checks. Shell-command runtimes first exec `./tools/reconc/bin/hook` directly when their cwd is already the repo root, and only fall back to `git rev-parse` plus `RECONC_HOOK_REPO_RESOLVED=1` when needed. The agent-hooks audit rejects git-first launchers, Claude/Devin shell/git launchers, project-specific OpenCode/Kilo state logic, version-pinned OpenCode/Kilo binaries, stale 120-second Antigravity timeouts, Copilot no-op compaction hooks, and wrapper configs that omit the direct-wrapper fast path. The wrapper trusts the resolved marker or an already-valid repo-local wrapper/dist path, normalizes only direct/manual calls, and execs the first available repo-local Reconc binary. The Go hook runtime lowers observation-only hook priority on Unix for post/after/session-end events; PreToolUse, permission and Stop keep normal priority. The final `exec` keeps hook process trees shallow and avoids idle parent shells where the host runtime allows it.
 
@@ -537,7 +537,7 @@ The rollout is not done until all of this is true:
 - Hooks prefer development/self-host binaries without platform probes, then local dist binaries on macOS/Linux/Windows, before PATH.
 - `repo-root-scaffold/` hook artifacts were synced with `reconc hook sync-scaffold` from the local generator; no hook artifact was edited by hand or copied from a source-specific harness.
 - POSIX hook routes call `tools/reconc/bin/hook` first and retain local-dist/PATH fallback; native Windows adaptations are documented explicitly.
-- `hook status . --json` reports every installed platform as `active`; no platform is degraded, shadowed, unsupported, or accidentally left only installed.
+- `hook status . --json` reports every selected platform as `configured`; no platform is degraded, shadowed, unsupported, or accidentally left only installed.
 - OpenCode and Kilo plugins contain no project-specific run state or prompts; Copilot contains no no-op `PreCompact` route; Antigravity contains no blanket 120-second timeout.
 - Cursor/Windsurf/Codeium/VS Code indexing excludes are installed as local-tool performance controls only, not Git ignores.
 - `AGENTS.md` contains the workflow excerpt and any user-approved stack-specific style rules.

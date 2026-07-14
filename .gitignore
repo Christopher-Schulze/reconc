@@ -49,7 +49,7 @@ tmp/
 .reconc/locks/
 .reconc/sessions/
 .reconc/reports/
-.reconc/runloop/
+.reconc/run/
 .reconc/task-transaction.json
 .reconc/bootstrap-*.json
 *.reconc-candidate-*
@@ -61,7 +61,7 @@ tmp/
 **/.reconc/locks/
 **/.reconc/sessions/
 **/.reconc/reports/
-**/.reconc/runloop/
+**/.reconc/run/
 **/.reconc/task-transaction.json
 **/.reconc/bootstrap-*.json
 **/*.reconc-candidate-*

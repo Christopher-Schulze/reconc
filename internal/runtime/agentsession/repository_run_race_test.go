@@ -5,13 +5,13 @@ import (
 	"testing"
 )
 
-// TestMutateRunLoopStateSerializesIncrements proves the lock serializes
+// TestMutateRepositoryRunStateSerializesIncrements proves the lock serializes
 // read-modify-write so concurrent mutators do not lose each other's updates.
 // Each mutator increments NoProgressNudges; with a lost update the final count
 // would be below the total number of mutations.
-func TestMutateRunLoopStateSerializesIncrements(t *testing.T) {
+func TestMutateRepositoryRunStateSerializesIncrements(t *testing.T) {
 	repo := t.TempDir()
-	if err := saveRunLoopState(repo, runLoopState{Enabled: true, Mode: runLoopModeRepo}); err != nil {
+	if err := saveRepositoryRunState(repo, repositoryRunState{Enabled: true}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
@@ -23,7 +23,7 @@ func TestMutateRunLoopStateSerializesIncrements(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for i := 0; i < iterations; i++ {
-				if _, _, err := mutateRunLoopState(repo, func(s runLoopState) runLoopState {
+				if _, _, err := mutateRepositoryRunState(repo, func(s repositoryRunState) repositoryRunState {
 					s.NoProgressNudges++
 					return s
 				}); err != nil {
@@ -35,7 +35,7 @@ func TestMutateRunLoopStateSerializesIncrements(t *testing.T) {
 	}
 	wg.Wait()
 
-	final, err := loadRunLoopState(repo)
+	final, err := loadRepositoryRunState(repo)
 	if err != nil {
 		t.Fatalf("load final: %v", err)
 	}

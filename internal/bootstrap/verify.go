@@ -90,7 +90,7 @@ func Verify(plan *Plan) (*Verification, error) {
 					verification.add("hook:"+kind, false, "selected hook has no registry status")
 					continue
 				}
-				verification.add("hook:"+kind, status.State == hooks.StateActive, string(status.State)+": "+status.Detail)
+				verification.add("hook:"+kind, status.State == hooks.StateConfigured, string(status.State)+": "+status.Detail)
 			}
 		}
 	}

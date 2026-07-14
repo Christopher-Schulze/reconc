@@ -26,9 +26,9 @@ func (s *syncWriter) Write(p []byte) (int, error) {
 	return s.w.Write(p)
 }
 
-func appendRunLoopDecisionRaw(t *testing.T, repo string, d agentsession.RunLoopDecision) {
+func appendRunDecisionRaw(t *testing.T, repo string, d agentsession.RunDecision) {
 	t.Helper()
-	path := filepath.Join(repo, ".reconc", "runloop", "decisions.jsonl")
+	path := filepath.Join(repo, ".reconc", "run", "decisions.jsonl")
 	line, err := json.Marshal(d)
 	if err != nil {
 		t.Fatal(err)
@@ -47,7 +47,7 @@ func TestFollowRunLogTailsNewRecords(t *testing.T) {
 	repo := t.TempDir()
 	// Seed one record so the log exists; follow baselines its offset to the
 	// current size, so the seed must NOT be reprinted - only live appends are.
-	writeRunLoopDecisions(t, repo, []agentsession.RunLoopDecision{{Event: "stop", Branch: "seed_record"}})
+	writeRunDecisions(t, repo, []agentsession.RunDecision{{Event: "stop", Branch: "seed_record"}})
 
 	var mu sync.Mutex
 	var buf bytes.Buffer
@@ -61,7 +61,7 @@ func TestFollowRunLogTailsNewRecords(t *testing.T) {
 
 	// Append a NEW record after the follow loop is running.
 	time.Sleep(20 * time.Millisecond)
-	appendRunLoopDecisionRaw(t, repo, agentsession.RunLoopDecision{Event: "stop", Branch: "live_tail_branch", Runtime: "cursor"})
+	appendRunDecisionRaw(t, repo, agentsession.RunDecision{Event: "stop", Branch: "live_tail_branch", Runtime: "cursor"})
 
 	deadline := time.After(3 * time.Second)
 	for {
@@ -91,9 +91,9 @@ func TestFollowRunLogTailsNewRecords(t *testing.T) {
 	}
 }
 
-func writeRunLoopDecisions(t *testing.T, repo string, ds []agentsession.RunLoopDecision) {
+func writeRunDecisions(t *testing.T, repo string, ds []agentsession.RunDecision) {
 	t.Helper()
-	dir := filepath.Join(repo, ".reconc", "runloop")
+	dir := filepath.Join(repo, ".reconc", "run")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -113,12 +113,7 @@ func writeRunLoopDecisions(t *testing.T, repo string, ds []agentsession.RunLoopD
 
 func TestRunStatusTextAndJSON(t *testing.T) {
 	repo := t.TempDir()
-	dir := filepath.Join(repo, ".reconc", "runloop")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "state.json"),
-		[]byte(`{"enabled":true,"mode":"repo","awaiting_continuation":true}`), 0o644); err != nil {
+	if _, err := agentsession.SetRepositoryRun(repo, true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -126,7 +121,7 @@ func TestRunStatusTextAndJSON(t *testing.T) {
 	if err := runRunStatus([]string{repo}, &out, &out); err != nil {
 		t.Fatalf("status: %v", err)
 	}
-	if !strings.Contains(out.String(), "enabled=true") || !strings.Contains(out.String(), "awaiting=true") {
+	if !strings.Contains(out.String(), "enabled=true") || !strings.Contains(out.String(), "awaiting=false") {
 		t.Fatalf("text status missing fields: %s", out.String())
 	}
 
@@ -134,18 +129,18 @@ func TestRunStatusTextAndJSON(t *testing.T) {
 	if err := runRunStatus([]string{repo, "--json"}, &out, &out); err != nil {
 		t.Fatalf("status --json: %v", err)
 	}
-	var info agentsession.RunLoopStatusInfo
+	var info agentsession.RepositoryRunStatus
 	if err := json.Unmarshal(bytes.TrimSpace(out.Bytes()), &info); err != nil {
 		t.Fatalf("json parse: %v (%s)", err, out.String())
 	}
-	if !info.Enabled || !info.AwaitingContinuation {
+	if !info.Enabled || info.AwaitingContinuation {
 		t.Fatalf("json status mismatch: %+v", info)
 	}
 }
 
 func TestRunLogRenderFilterLimit(t *testing.T) {
 	repo := t.TempDir()
-	writeRunLoopDecisions(t, repo, []agentsession.RunLoopDecision{
+	writeRunDecisions(t, repo, []agentsession.RunDecision{
 		{Event: "stop", Branch: "policy_block", Runtime: "cursor", SessionID: "sess-1", PolicyBlocked: true, ViolationCount: 2},
 		{Event: "stop", Branch: "policy_block_released_on_repeat", Runtime: "cursor", SessionID: "sess-1"},
 		{Event: "command", Branch: "run_command_off", SessionID: "sess-2"},
@@ -210,7 +205,7 @@ func TestRunControlOnOffIsIdempotent(t *testing.T) {
 		if err := runRunControl([]string{"on", repo, "--json"}, &out, &out); err != nil {
 			t.Fatalf("run on: %v", err)
 		}
-		var info agentsession.RunLoopStatusInfo
+		var info agentsession.RepositoryRunStatus
 		if err := json.Unmarshal(bytes.TrimSpace(out.Bytes()), &info); err != nil {
 			t.Fatalf("decode run on: %v", err)
 		}
@@ -227,7 +222,7 @@ func TestRunControlOnOffIsIdempotent(t *testing.T) {
 			t.Fatalf("unexpected run off status: %s", out.String())
 		}
 	}
-	decisions, err := agentsession.ReadRunLoopDecisions(repo, 0)
+	decisions, err := agentsession.ReadRunDecisions(repo, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

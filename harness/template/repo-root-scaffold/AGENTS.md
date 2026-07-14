@@ -98,7 +98,7 @@ pre-commit, invalid TASK state, and terminal Stop remain hard gates.
 After repeated Stop events without typed TASK, write, or command progress,
 repository mode releases one Stop and resets the guard without
 silently changing its durable switch. Run decisions are written only for
-material transitions to the bounded `.reconc/runloop/decisions.jsonl` ring.
+material transitions to the bounded `.reconc/run/decisions.jsonl` ring.
 Reads do not fake progress. Repository mode runs a full policy checkpoint only
 after 64 material events, 30 minutes with new material progress, or a failed
 command; routine executable Stops remain Git-free.

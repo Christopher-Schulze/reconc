@@ -53,7 +53,7 @@ Thumbs.db
 .reconc/cache/
 .reconc/locks/
 .reconc/reports/
-.reconc/runloop/
+.reconc/run/
 .reconc/sessions/
 .reconc/task-transaction.json
 .reconc/bootstrap-*.json

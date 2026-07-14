@@ -2,7 +2,7 @@ package agentsession
 
 import (
 	"fmt"
-	"strconv"
+	"os"
 	"strings"
 	"time"
 
@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	runLoopPolicyCheckpointEvents   = 64
-	runLoopPolicyCheckpointInterval = 30 * time.Minute
+	repositoryRunCheckpointEvents   = 64
+	repositoryRunCheckpointInterval = 30 * time.Minute
 )
 
 // RunStop checks whether any blocking invariant is still unmet at
@@ -23,7 +23,7 @@ const (
 // RunStop returns a block decision carrying the TASK continuation
 // prompt as the reason. This lets Codex and Claude auto-continue
 // without a JS plugin.
-func RunStop(repoRoot string, payloadBytes []byte) Result {
+func RunStop(repoRoot string, payloadBytes []byte) (result Result) {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): %s", err)}
@@ -33,47 +33,55 @@ func RunStop(repoRoot string, payloadBytes []byte) Result {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): %s", err)}
 	}
 	runtimeName := runtimeFromPayload(payload)
-	loopState, err := loadRunLoopState(root)
+	runFile, runSnapshot, err := openRepositoryRunStateResolved(root)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc run: %s", err)}
 	}
+	if runFile != nil {
+		defer func() {
+			if closeErr := runFile.Close(); closeErr != nil && result.ExitCode == 0 {
+				result = Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc run: close state: %s", closeErr)}
+			}
+		}()
+	}
+	runState := runSnapshot.State
 
 	// An interrupt releases only this host invocation. Durable repository run
 	// state remains enabled until `reconc run off` or terminal TASK exhaustion.
 	if isUserStopInterrupt(payload) {
-		if runLoopStateApplies(loopState) {
-			logRunLoopStopDecision(root, "interrupt_release", payload, runtimeName, loopState, loopState, false, 0)
+		if repositoryRunEnabled(runState) {
+			logRunStopDecision(root, "interrupt_release", payload, runtimeName, runState, runState, false, 0)
 		}
 		return Result{ExitCode: 0}
 	}
 
 	var taskStateInspected bool
-	var taskState runLoopTaskState
+	var taskState repositoryRunTaskState
 	checkpointDue := false
-	loopApplies := runLoopStateApplies(loopState)
-	if loopApplies {
-		inspected, inspectErr := inspectRunLoopTask(root)
+	runApplies := repositoryRunEnabled(runState)
+	if runApplies {
+		inspected, inspectErr := inspectRepositoryRunTask(root)
 		if inspectErr != nil {
 			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc run: inspect TASK state: %s", inspectErr)}
 		}
-		taskState = runLoopTaskState{RunState: inspected}
+		taskState = repositoryRunTaskState{RunState: inspected}
 		taskStateInspected = true
 	}
 
 	// Repository mode is explicitly autonomous. An executable TASK continues
 	// before the terminal Stop policy and never shells out to Git. Task mutation,
 	// pre-commit, and the eventual terminal Stop still retain their hard gates.
-	if loopApplies && taskState.executable() {
+	if runApplies && taskState.executable() {
 		state, loadErr := loadSessionStateResolved(root, payload.SessionID)
 		if loadErr != nil {
 			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): %s", loadErr)}
 		}
 		if state.EvidenceOverflow {
-			return Result{ExitCode: 0, Stdout: runLoopStopBlockJSON(evidenceOverflowMessage(state))}
+			return Result{ExitCode: 0, Stdout: repositoryRunBlockJSON(evidenceOverflowMessage(state))}
 		}
-		checkpointDue = repoRunPolicyCheckpointDue(loopState, state, time.Now())
+		checkpointDue = repoRunPolicyCheckpointDue(runState, state, time.Now())
 		if !checkpointDue {
-			if contResult, contHandled, err := runRunLoopContinuation(root, payload, runtimeName, taskState.RunState, state.MaterialEvents); err != nil {
+			if contResult, contHandled, err := runRepositoryContinuation(root, runFile, payload, runtimeName, taskState.RunState, state.MaterialEvents); err != nil {
 				return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc run: %s", err)}
 			} else if contHandled {
 				return contResult
@@ -86,15 +94,15 @@ func RunStop(repoRoot string, payloadBytes []byte) Result {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): %s", err)}
 	}
 	if state.EvidenceOverflow {
-		return Result{ExitCode: 0, Stdout: runLoopStopBlockJSON(evidenceOverflowMessage(state))}
+		return Result{ExitCode: 0, Stdout: repositoryRunBlockJSON(evidenceOverflowMessage(state))}
 	}
 
 	if payload.StopHookActive && !checkpointDue {
 		evidenceHash := stopPolicyEvidenceHash(state)
 		if _, ok := cachedCleanStopPolicyReportForEvidence(root, state, evidenceHash); ok {
-			dmState, _ := loadRunLoopState(root)
-			if runLoopStateApplies(dmState) {
-				logRunLoopStopDecision(root, "stop_hook_active_clean_cache", payload, runtimeName, dmState, dmState, false, 0)
+			currentRun, _ := loadRepositoryRunStateResolved(root)
+			if repositoryRunEnabled(currentRun) {
+				logRunStopDecision(root, "stop_hook_active_clean_cache", payload, runtimeName, currentRun, currentRun, false, 0)
 			}
 			return Result{ExitCode: 0}
 		}
@@ -107,11 +115,11 @@ func RunStop(repoRoot string, payloadBytes []byte) Result {
 	report := policyResult.Report
 	violations := blockingViolations(report)
 	if len(violations) != 0 {
-		dmState, _ := loadRunLoopState(root)
+		currentRun, _ := loadRepositoryRunStateResolved(root)
 		// Avoid endless loops when the agent is already continuing because
 		// of this hook.
 		if payload.StopHookActive {
-			logRunLoopStopDecision(root, "policy_block_stop_hook_active", payload, runtimeName, dmState, dmState, true, len(violations))
+			logRunStopDecision(root, "policy_block_stop_hook_active", payload, runtimeName, currentRun, currentRun, true, len(violations))
 			return Result{ExitCode: 0}
 		}
 		// A user stop/interrupt must always win. Runtimes like Cursor never set
@@ -122,10 +130,10 @@ func RunStop(repoRoot string, payloadBytes []byte) Result {
 		// told not to resolve it. This is the Cursor-equivalent of the
 		// StopHookActive escape above.
 		if vh := hashBlockingViolations(violations); vh != "" && state.LastStopBlockViolationHash == vh {
-			logRunLoopStopDecision(root, "policy_block_released_on_repeat", payload, runtimeName, dmState, dmState, true, len(violations))
+			logRunStopDecision(root, "policy_block_released_on_repeat", payload, runtimeName, currentRun, currentRun, true, len(violations))
 			return Result{ExitCode: 0}
 		}
-		logRunLoopStopDecision(root, "policy_block", payload, runtimeName, dmState, dmState, true, len(violations))
+		logRunStopDecision(root, "policy_block", payload, runtimeName, currentRun, currentRun, true, len(violations))
 		return Result{ExitCode: 0, Stdout: stopBlockJSONOutput(root, state.SessionID, report, violations)}
 	}
 
@@ -135,56 +143,57 @@ func RunStop(repoRoot string, payloadBytes []byte) Result {
 		return result
 	}
 	if checkpointDue {
-		if err := markRepoPolicyCheckpoint(root, payload, runtimeName, state.MaterialEvents); err != nil {
+		if err := markRepoPolicyCheckpoint(root, runFile, payload, runtimeName, state.MaterialEvents); err != nil {
 			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc run: checkpoint: %s", err)}
 		}
 	}
 
-	if runLoopStateApplies(loopState) && !taskStateInspected {
-		inspected, inspectErr := inspectRunLoopTask(root)
-		if inspectErr != nil {
-			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc run: inspect TASK state: %s", inspectErr)}
+	if repositoryRunEnabled(runState) {
+		if !taskStateInspected {
+			inspected, inspectErr := inspectRepositoryRunTask(root)
+			if inspectErr != nil {
+				return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc run: inspect TASK state: %s", inspectErr)}
+			}
+			taskState = repositoryRunTaskState{RunState: inspected}
 		}
-		taskState = runLoopTaskState{RunState: inspected}
-	}
-	if contResult, contHandled, err := runRunLoopContinuation(root, payload, runtimeName, taskState.RunState, state.MaterialEvents); err != nil {
-		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc run: %s", err)}
-	} else if contHandled {
-		return contResult
+		if contResult, contHandled, err := runRepositoryContinuation(root, runFile, payload, runtimeName, taskState.RunState, state.MaterialEvents); err != nil {
+			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc run: %s", err)}
+		} else if contHandled {
+			return contResult
+		}
 	}
 
 	return Result{ExitCode: 0}
 }
 
-func repoRunPolicyCheckpointDue(loop runLoopState, state SessionState, now time.Time) bool {
-	if !runLoopStateApplies(loop) || state.MaterialEvents <= loop.CheckpointMaterial {
+func repoRunPolicyCheckpointDue(run repositoryRunState, state SessionState, now time.Time) bool {
+	if !repositoryRunEnabled(run) || state.MaterialEvents <= run.CheckpointMaterial {
 		return false
 	}
-	if state.MaterialEvents-loop.CheckpointMaterial >= runLoopPolicyCheckpointEvents {
+	if state.MaterialEvents-run.CheckpointMaterial >= repositoryRunCheckpointEvents {
 		return true
 	}
 	if len(state.CommandResults) > 0 && state.CommandResults[len(state.CommandResults)-1].Outcome == "failure" {
 		return true
 	}
-	anchor := loop.LastPolicyCheckpoint
-	if anchor == "" {
-		anchor = loop.EnabledAt
+	anchor := run.LastPolicyCheckpoint
+	if anchor == 0 {
+		anchor = run.EnabledAt
 	}
-	started, err := time.Parse(time.RFC3339Nano, anchor)
-	return err == nil && now.Sub(started) >= runLoopPolicyCheckpointInterval
+	return anchor > 0 && now.Sub(time.Unix(0, anchor)) >= repositoryRunCheckpointInterval
 }
 
-func markRepoPolicyCheckpoint(root string, payload *HookPayload, runtimeName string, materialEvents uint64) error {
-	before, after, err := mutateRunLoopState(root, func(state runLoopState) runLoopState {
-		if !runLoopStateApplies(state) {
+func markRepoPolicyCheckpoint(root string, runFile *os.File, payload *HookPayload, runtimeName string, materialEvents uint64) error {
+	before, after, err := mutateRepositoryRunStateOpenFile(runFile, func(state repositoryRunState) repositoryRunState {
+		if !repositoryRunEnabled(state) {
 			return state
 		}
 		state.CheckpointMaterial = materialEvents
-		state.LastPolicyCheckpoint = time.Now().UTC().Format(time.RFC3339Nano)
+		state.LastPolicyCheckpoint = time.Now().UnixNano()
 		return state
 	})
 	if err == nil && before != after {
-		logRunLoopStopDecision(root, "repo_policy_checkpoint", payload, runtimeName, before, after, false, 0)
+		logRunStopDecision(root, "repo_policy_checkpoint", payload, runtimeName, before, after, false, 0)
 	}
 	return err
 }
@@ -202,13 +211,13 @@ func taskCompletionCommitGate(root string, snapshot stopPolicyGitSnapshot) (Resu
 		return Result{}, false, nil
 	}
 	if !snapshot.StatusOK {
-		return Result{ExitCode: 0, Stdout: runLoopStopBlockJSON("reconc blocked terminal TASK completion because Git status could not be verified. Restore Git status visibility or interrupt explicitly.")}, true, nil
+		return Result{ExitCode: 0, Stdout: repositoryRunBlockJSON("reconc blocked terminal TASK completion because Git status could not be verified. Restore Git status visibility or interrupt explicitly.")}, true, nil
 	}
 	dirty := taskControlPlaneDirtyPaths(cfg, snapshot.Status)
 	if len(dirty) == 0 {
 		return Result{}, false, nil
 	}
-	return Result{ExitCode: 0, Stdout: runLoopStopBlockJSON("reconc blocked terminal TASK completion because the TASK control plane is not committed: " + strings.Join(dirty, ", ") + ". Commit the completed TASK or interrupt explicitly.")}, true, nil
+	return Result{ExitCode: 0, Stdout: repositoryRunBlockJSON("reconc blocked terminal TASK completion because the TASK control plane is not committed: " + strings.Join(dirty, ", ") + ". Commit the completed TASK or interrupt explicitly.")}, true, nil
 }
 
 func taskControlPlaneDirtyPaths(cfg tasklifecycle.Config, status string) []string {
@@ -225,40 +234,46 @@ func taskControlPlaneDirtyPaths(cfg tasklifecycle.Config, status string) []strin
 	return paths
 }
 
-// runRunLoopContinuation emits the autonomous continuation prompt. Callers
+// runRepositoryContinuation emits the autonomous continuation prompt. Callers
 // choose whether this runs before or after the Stop policy gate.
-func runRunLoopContinuation(root string, payload *HookPayload, runtimeName string, taskState tasklifecycle.RunState, materialEvents uint64) (Result, bool, error) {
+func runRepositoryContinuation(root string, runFile *os.File, payload *HookPayload, runtimeName string, taskState tasklifecycle.RunState, materialEvents uint64) (Result, bool, error) {
 	var contResult Result
 	contHandled := false
 	decisionBranch := ""
-	before, after, err := mutateRunLoopState(root, func(dmState runLoopState) runLoopState {
-		if !runLoopStateApplies(dmState) {
-			return dmState
+	mutate := mutateRepositoryRunStateResolved
+	if runFile != nil {
+		mutate = func(_ string, fn func(repositoryRunState) repositoryRunState) (repositoryRunState, repositoryRunState, error) {
+			return mutateRepositoryRunStateOpenFile(runFile, fn)
 		}
-		prompt := buildRunLoopContinuationPrompt(taskState)
+	}
+	before, after, err := mutate(root, func(current repositoryRunState) repositoryRunState {
+		if !repositoryRunEnabled(current) {
+			return current
+		}
+		prompt := buildRepositoryRunPrompt(taskState)
 		if prompt == "" {
 			if taskState.Disposition != tasklifecycle.RunComplete && taskState.Disposition != tasklifecycle.RunAbsent {
-				return dmState
+				return current
 			}
-			after := runLoopState{DisabledReason: runLoopTerminalReason(taskState)}
-			decisionBranch = "disable_" + after.DisabledReason
+			after := repositoryRunState{DisabledReason: repositoryRunTerminalReason(taskState)}
+			decisionBranch = "disable_" + after.DisabledReason.String()
 			contResult = Result{ExitCode: 0}
 			contHandled = true
 			return after
 		}
 
-		progress := runLoopTaskProgressFingerprint(taskState) + "|material=" + strconv.FormatUint(materialEvents, 10)
-		noProgress := dmState.AwaitingContinuation && dmState.LastCurrent == progress
-		nudges := dmState.NoProgressNudges
+		progressHash := repositoryRunProgressHash(taskState, materialEvents)
+		noProgress := current.AwaitingContinuation && current.LastProgressHash == progressHash
+		nudges := current.NoProgressNudges
 		if noProgress {
 			nudges++
 		} else {
 			nudges = 0
 		}
 		if nudges >= 6 {
-			after := dmState
+			after := current
 			after.NoProgressNudges = 0
-			after.LastCurrent = progress
+			after.LastProgressHash = progressHash
 			after.AwaitingContinuation = false
 			decisionBranch = "repo_no_progress_release"
 			contResult = Result{ExitCode: 0}
@@ -266,26 +281,25 @@ func runRunLoopContinuation(root string, payload *HookPayload, runtimeName strin
 			return after
 		}
 
-		after := runLoopState{
+		after := repositoryRunState{
 			Enabled:              true,
-			Mode:                 runLoopModeRepo,
 			NoProgressNudges:     nudges,
-			LastCurrent:          progress,
+			LastProgressHash:     progressHash,
 			AwaitingContinuation: true,
-			EnabledAt:            dmState.EnabledAt,
-			LastPolicyCheckpoint: dmState.LastPolicyCheckpoint,
-			CheckpointMaterial:   dmState.CheckpointMaterial,
+			EnabledAt:            current.EnabledAt,
+			LastPolicyCheckpoint: current.LastPolicyCheckpoint,
+			CheckpointMaterial:   current.CheckpointMaterial,
 		}
 		decisionBranch = "run_followup"
-		contResult = Result{ExitCode: 0, Stdout: runLoopStopBlockJSON(prompt)}
+		contResult = Result{ExitCode: 0, Stdout: repositoryRunBlockJSON(prompt)}
 		contHandled = true
 		return after
 	})
 	if err != nil {
 		return Result{}, false, err
 	}
-	if decisionBranch != "" && before != after {
-		logRunLoopStopDecision(root, decisionBranch, payload, runtimeName, before, after, false, 0)
+	if decisionBranch != "" && decisionBranch != "run_followup" && before != after {
+		logRunStopDecision(root, decisionBranch, payload, runtimeName, before, after, false, 0)
 	}
 	return contResult, contHandled, nil
 }

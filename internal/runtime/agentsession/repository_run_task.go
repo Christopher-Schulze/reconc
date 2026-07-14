@@ -1,19 +1,21 @@
 package agentsession
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"reconc.dev/reconc/internal/tasklifecycle"
 )
 
-const maxRunLoopPromptBytes = 1600
+const maxRepositoryRunPromptBytes = 1600
 
-func inspectRunLoopTask(repoRoot string) (tasklifecycle.RunState, error) {
-	return tasklifecycle.InspectRunState(repoRoot)
+func inspectRepositoryRunTask(repoRoot string) (tasklifecycle.RunState, error) {
+	return tasklifecycle.InspectRunStateResolved(repoRoot)
 }
 
-func buildRunLoopContinuationPrompt(state tasklifecycle.RunState) string {
+func buildRepositoryRunPrompt(state tasklifecycle.RunState) string {
 	var prompt string
 	switch state.Disposition {
 	case tasklifecycle.RunContinue:
@@ -27,33 +29,42 @@ func buildRunLoopContinuationPrompt(state tasklifecycle.RunState) string {
 	default:
 		return ""
 	}
-	return truncateBytes(strings.TrimSpace(prompt), maxRunLoopPromptBytes)
+	return truncateBytes(strings.TrimSpace(prompt), maxRepositoryRunPromptBytes)
 }
 
-func runLoopTaskProgressFingerprint(state tasklifecycle.RunState) string {
+func repositoryRunProgressFingerprint(state tasklifecycle.RunState) string {
 	return strings.Join([]string{
 		string(state.Disposition), state.TaskID, state.TaskPath,
 		state.SubTask, fmt.Sprintf("%d", state.OpenTasks),
 	}, "\n")
 }
 
-type runLoopTaskState struct {
+func repositoryRunProgressHash(state tasklifecycle.RunState, materialEvents uint64) [sha256.Size]byte {
+	fingerprint := repositoryRunProgressFingerprint(state)
+	buffer := make([]byte, 0, len(fingerprint)+1+20)
+	buffer = append(buffer, fingerprint...)
+	buffer = append(buffer, '\n')
+	buffer = strconv.AppendUint(buffer, materialEvents, 10)
+	return sha256.Sum256(buffer)
+}
+
+type repositoryRunTaskState struct {
 	tasklifecycle.RunState
 }
 
-func (state runLoopTaskState) executable() bool {
+func (state repositoryRunTaskState) executable() bool {
 	return state.Disposition == tasklifecycle.RunContinue || state.Disposition == tasklifecycle.RunClaim
 }
 
-func runLoopTerminalReason(state tasklifecycle.RunState) string {
+func repositoryRunTerminalReason(state tasklifecycle.RunState) repositoryRunDisabledReason {
 	switch state.Disposition {
 	case tasklifecycle.RunBlocked:
-		return "blocked_task"
+		return repositoryRunDisabledBlockedTask
 	case tasklifecycle.RunComplete:
-		return "task_complete"
+		return repositoryRunDisabledTaskComplete
 	case tasklifecycle.RunAbsent:
-		return "task_plane_absent"
+		return repositoryRunDisabledTaskPlaneAbsent
 	default:
-		return "no_executable_task"
+		return repositoryRunDisabledNoExecutableTask
 	}
 }

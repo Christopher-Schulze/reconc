@@ -93,16 +93,16 @@ func normalizeRuntimeName(value string) string {
 	return value
 }
 
-func logRunLoopStopDecision(repoRoot, branch string, payload *HookPayload, runtime string, before, after runLoopState, policyBlocked bool, violationCount int) {
-	_ = appendRunLoopDecision(repoRoot, RunLoopDecision{
+func logRunStopDecision(repoRoot, branch string, payload *HookPayload, runtime string, before, after repositoryRunState, policyBlocked bool, violationCount int) {
+	_ = appendRunDecisionResolved(repoRoot, RunDecision{
 		Event:                      "stop",
 		Branch:                     branch,
 		Runtime:                    strings.TrimSpace(runtime),
 		SessionID:                  sessionIDFromPayload(payload),
 		EnabledBefore:              before.Enabled,
 		EnabledAfter:               after.Enabled,
-		DisabledReasonBefore:       before.DisabledReason,
-		DisabledReasonAfter:        after.DisabledReason,
+		DisabledReasonBefore:       before.DisabledReason.String(),
+		DisabledReasonAfter:        after.DisabledReason.String(),
 		AwaitingContinuationBefore: before.AwaitingContinuation,
 		AwaitingContinuationAfter:  after.AwaitingContinuation,
 		StopHookActive:             payload != nil && payload.StopHookActive,
@@ -562,7 +562,7 @@ func postToolFailureJSONOutput(state SessionState) string {
 // blocking violations.
 func stopBlockJSONOutput(repoRoot, sessionID string, report *runtime.CheckReport, violations []runtime.Violation) string {
 	repeated, feedbackID := recordStopBlockAndRepeated(repoRoot, sessionID, violations)
-	reason := stopReasonForViolations(violations, reportPathForStop(repoRoot, sessionID), feedbackID, repeated, runLoopStatusLine(repoRoot))
+	reason := stopReasonForViolations(violations, reportPathForStop(repoRoot, sessionID), feedbackID, repeated, repositoryRunStatusLine(repoRoot))
 	payload := map[string]string{
 		"decision": "block",
 		"reason":   reason,
@@ -571,7 +571,7 @@ func stopBlockJSONOutput(repoRoot, sessionID string, report *runtime.CheckReport
 	return string(body)
 }
 
-func stopReasonForViolations(violations []runtime.Violation, reportPath, feedbackID string, repeated bool, runLoopStatus string) string {
+func stopReasonForViolations(violations []runtime.Violation, reportPath, feedbackID string, repeated bool, repositoryRunStatus string) string {
 	if repeated {
 		var rules []string
 		for _, v := range violations {
@@ -587,9 +587,9 @@ func stopReasonForViolations(violations []runtime.Violation, reportPath, feedbac
 			b.WriteString("\nReport: ")
 			b.WriteString(reportPath)
 		}
-		if runLoopStatus != "" {
+		if repositoryRunStatus != "" {
 			b.WriteString("\n")
-			b.WriteString(runLoopStatus)
+			b.WriteString(repositoryRunStatus)
 		}
 		if len(rules) > 0 {
 			b.WriteString("\nRules: ")
@@ -604,22 +604,22 @@ func stopReasonForViolations(violations []runtime.Violation, reportPath, feedbac
 	if feedbackID != "" {
 		reason += "\nFeedback: " + feedbackID
 	}
-	if runLoopStatus != "" {
-		reason += "\n" + runLoopStatus
+	if repositoryRunStatus != "" {
+		reason += "\n" + repositoryRunStatus
 	}
 	return reason
 }
 
-func runLoopStatusLine(repoRoot string) string {
-	state, err := loadRunLoopState(repoRoot)
+func repositoryRunStatusLine(repoRoot string) string {
+	state, err := loadRepositoryRunStateResolved(repoRoot)
 	if err != nil {
 		return "Repository run: unknown"
 	}
-	if runLoopStateApplies(state) {
+	if repositoryRunEnabled(state) {
 		return "Repository run: enabled, blocked_by_policy"
 	}
-	if state.DisabledReason != "" {
-		return fmt.Sprintf("Repository run: disabled, reason=%s", state.DisabledReason)
+	if state.DisabledReason != repositoryRunDisabledNone {
+		return fmt.Sprintf("Repository run: disabled, reason=%s", state.DisabledReason.String())
 	}
 	return "Repository run: disabled"
 }
@@ -681,10 +681,10 @@ func firstDiagnosticLine(explanation string) string {
 	return explanation
 }
 
-// runLoopStopBlockJSON returns the Stop-hook block control-response
+// repositoryRunBlockJSON returns the Stop-hook block control-response
 // that carries the repository-run continuation prompt as the reason so the
 // agent auto-continues without a separate JS plugin.
-func runLoopStopBlockJSON(prompt string) string {
+func repositoryRunBlockJSON(prompt string) string {
 	payload := map[string]string{
 		"decision": "block",
 		"reason":   prompt,

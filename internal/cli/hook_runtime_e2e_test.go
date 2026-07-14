@@ -332,11 +332,12 @@ func TestHookRuntimeCodexDispatch(t *testing.T) {
 		t.Errorf("codex-pre-tool-use on Bash should exit 0, got %d", code)
 	}
 
-	// Codex session-end goes through the same session-end handler.
+	// Codex does not expose SessionEnd. Keeping the old compatibility route
+	// would hide generator drift behind an event the host can never deliver.
 	_, _, code = runWithStdin(t, `{"session_id":"cx1"}`,
 		"hook", "runtime", "codex-session-end", repo)
-	if code != 0 {
-		t.Errorf("codex-session-end should exit 0, got %d", code)
+	if code == 0 {
+		t.Error("unsupported codex-session-end should be rejected")
 	}
 }
 

@@ -96,10 +96,10 @@ func runLocked(options Options, forceOwnedTemp bool) Report {
 	report.StateBytesAfter = stateTotal.BytesAfter
 
 	auditPath := filepath.Join(options.RepoRoot, ".reconc", "audit.jsonl")
-	runLoopPath := filepath.Join(options.RepoRoot, ".reconc", "runloop", "decisions.jsonl")
+	runDecisionPath := filepath.Join(options.RepoRoot, ".reconc", "run", "decisions.jsonl")
 	report.Classes = append(report.Classes,
 		enforceJSONL("audit", auditPath, policy.AuditFileBytes, policy.AuditArchives, options.DryRun, &report),
-		enforceJSONL("run-decisions", runLoopPath, policy.RunLoopFileBytes, policy.RunLoopArchives, options.DryRun, &report),
+		enforceJSONL("run-decisions", runDecisionPath, policy.RunDecisionFileBytes, policy.RunDecisionArchives, options.DryRun, &report),
 	)
 	cacheDir := filepath.Join(options.RepoRoot, ".reconc", "cache")
 	report.Classes = append(report.Classes,

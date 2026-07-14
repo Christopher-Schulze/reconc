@@ -49,7 +49,7 @@ func TestHookRuntimeKiloAdapterShapeBlocksDeniedWrite(t *testing.T) {
 	}
 }
 
-func TestRepositoryRunControlContinuesEveryAgentPlatform(t *testing.T) {
+func TestRepositoryRunControlReturnsContinuationForEveryAgentAdapter(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
 	writeHookRuntimeTaskFixture(t, repo)
 	tests := []struct {
@@ -69,18 +69,18 @@ func TestRepositoryRunControlContinuesEveryAgentPlatform(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := agentsession.SetRunLoopRepoMode(repo, false); err != nil {
+			if _, err := agentsession.SetRepositoryRun(repo, false); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := agentsession.SetRunLoopRepoMode(repo, true); err != nil {
+			if _, err := agentsession.SetRepositoryRun(repo, true); err != nil {
 				t.Fatal(err)
 			}
 			stdout, stderr, code := runWithStdin(t, test.payload, "hook", "runtime", test.event, repo)
 			if code != 0 || stderr != "" {
-				t.Fatalf("native Stop failed: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+				t.Fatalf("adapter continuation failed: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 			}
 			if !strings.Contains(stdout, test.want) || !strings.Contains(stdout, "Reconc run is ON") {
-				t.Fatalf("native Stop did not continue: want=%q stdout=%q", test.want, stdout)
+				t.Fatalf("adapter continuation missing: want=%q stdout=%q", test.want, stdout)
 			}
 		})
 	}
@@ -164,8 +164,8 @@ func TestRunHookStatusJSONReportsActivePlugin(t *testing.T) {
 	}
 	for _, report := range reports {
 		if report.Kind == hooks.KindKilo {
-			if report.State != hooks.StateActive {
-				t.Fatalf("Kilo status = %s, want active: %+v", report.State, report)
+			if report.State != hooks.StateConfigured {
+				t.Fatalf("Kilo status = %s, want configured: %+v", report.State, report)
 			}
 			return
 		}
@@ -201,9 +201,9 @@ func TestRunBootstrapJSONIncludesActivationTruth(t *testing.T) {
 		t.Fatalf("bootstrap should be healthy: %s", stdout.String())
 	}
 	for _, report := range payload.HookStatuses {
-		if report.Kind == hooks.KindDevinCLI && report.State == hooks.StateActive {
+		if report.Kind == hooks.KindDevinCLI && report.State == hooks.StateConfigured {
 			return
 		}
 	}
-	t.Fatalf("bootstrap did not report Devin active: %s", stdout.String())
+	t.Fatalf("bootstrap did not report Devin configured: %s", stdout.String())
 }

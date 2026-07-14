@@ -1013,6 +1013,7 @@ func auditAgentHooks(root string) []string {
 	hooks := map[string][]string{}
 	if cfg.AgentHooks.RequireCodexConfig {
 		hooks[filepath.Join(root, ".codex/config.toml")] = []string{
+			"[features]",
 			"hooks = true",
 		}
 	}
@@ -1142,7 +1143,7 @@ func auditAgentHooks(root string) []string {
 	}
 	forbidden := map[string][]string{
 		".claude/settings.json":       {`"PostCompact"`, `"UserPromptSubmit"`, "claude-user-prompt-submit"},
-		".codex/hooks.json":           {`"UserPromptSubmit"`, "codex-user-prompt-submit"},
+		".codex/hooks.json":           {`"UserPromptSubmit"`, "codex-user-prompt-submit", `"SessionEnd"`, "codex-session-end"},
 		".cursor/hooks.json":          {`"beforeSubmitPrompt"`, "cursor-user-prompt-submit"},
 		".opencode/plugins/reconc.js": {".reconc/runloop", "chat.message", "opencode-user-prompt-submit", "runloop autocontinue", "opencode_continuation_driver", "STFU", "tools/reconc/dist", "reconc-0.6.0-"},
 		".devin/hooks.v1.json":        {`"UserPromptSubmit"`, "devin-user-prompt-submit"},

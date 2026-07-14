@@ -156,7 +156,7 @@ func enforceRepoTotal(options Options, report *Report) ClassReport {
 	}
 	for _, base := range []string{
 		filepath.Join(options.RepoRoot, ".reconc", "audit.jsonl"),
-		filepath.Join(options.RepoRoot, ".reconc", "runloop", "decisions.jsonl"),
+		filepath.Join(options.RepoRoot, ".reconc", "run", "decisions.jsonl"),
 	} {
 		for index := 1; index <= 32; index++ {
 			path := fmt.Sprintf("%s.%d", base, index)
@@ -225,7 +225,7 @@ func ownedRepoRuntimeBytes(repoRoot string) int64 {
 	var total int64
 	for _, base := range []string{
 		filepath.Join(repoRoot, ".reconc", "audit.jsonl"),
-		filepath.Join(repoRoot, ".reconc", "runloop", "decisions.jsonl"),
+		filepath.Join(repoRoot, ".reconc", "run", "decisions.jsonl"),
 	} {
 		for index := 0; index <= 32; index++ {
 			path := base

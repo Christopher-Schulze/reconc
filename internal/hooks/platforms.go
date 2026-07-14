@@ -77,7 +77,9 @@ type ActivationProbe struct {
 	Mode               ActivationMode `json:"mode"`
 	ConfigDirs         []string       `json:"config_dirs"`
 	EnablePath         string         `json:"enable_path,omitempty"`
-	EnableToken        string         `json:"enable_token,omitempty"`
+	EnableSection      string         `json:"enable_section,omitempty"`
+	EnableKey          string         `json:"enable_key,omitempty"`
+	EnabledByDefault   bool           `json:"enabled_by_default,omitempty"`
 	DisabledByEnv      string         `json:"disabled_by_env,omitempty"`
 	LegacyArtifactPath string         `json:"legacy_artifact_path,omitempty"`
 	RequiresWrapper    bool           `json:"requires_wrapper"`
@@ -138,14 +140,14 @@ var platformRegistry = []platformDefinition{
 		generator: generatorClaudeCode,
 	},
 	{
-		Platform: Platform{Kind: KindCodex, DisplayName: "Codex", TargetPath: CodexHooksPath, ScaffoldPath: CodexHooksPath, InstallMode: InstallNestedJSON, Activation: ActivationProbe{Mode: ActivationFlag, ConfigDirs: []string{".codex"}, EnablePath: ".codex/config.toml", EnableToken: "hooks=true", RequiresWrapper: true}, Capabilities: []Capability{
+		Platform: Platform{Kind: KindCodex, DisplayName: "Codex", TargetPath: CodexHooksPath, ScaffoldPath: CodexHooksPath, InstallMode: InstallNestedJSON, Activation: ActivationProbe{Mode: ActivationFlag, ConfigDirs: []string{".codex"}, EnablePath: ".codex/config.toml", EnableSection: "features", EnableKey: "hooks", EnabledByDefault: true, RequiresWrapper: true}, Capabilities: []Capability{
 			capability(EventSessionStart, "SessionStart", SupportNative, FailureAllow, FailureAllow, 5, "codex-session-start"),
 			capability(EventPreToolUse, "PreToolUse", SupportNative, FailureBlock, FailureBlock, 10, "codex-pre-tool-use"),
 			capability(EventPermissionRequest, "PermissionRequest", SupportNative, FailureBlock, FailureBlock, 10, "codex-permission-request"),
 			capability(EventPostToolUse, "PostToolUse", SupportNative, FailureAllow, FailureAllow, 5, "codex-post-tool-use"),
 			capability(EventPostToolUseFailure, "PostToolUseFailure", SupportNative, FailureAllow, FailureAllow, 5, "codex-post-tool-use-failure"),
 			capability(EventStop, "Stop", SupportNative, FailureBlock, FailureBlock, 30, "codex-stop"),
-			capability(EventSessionEnd, "SessionEnd", SupportNative, FailureAllow, FailureAllow, 5, "codex-session-end"),
+			unsupportedNative(EventSessionEnd, "SessionEnd"),
 			unsupported(EventPostCompaction),
 		}},
 		generator: generatorCodex,

@@ -72,7 +72,7 @@ func runRunSwitch(args []string, enabled bool, stdout io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc run: " + err.Error()}
 	}
-	info, err := agentsession.SetRunLoopRepoMode(abs, enabled)
+	info, err := agentsession.SetRepositoryRun(abs, enabled)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc run: " + err.Error()}
 	}
@@ -109,7 +109,7 @@ func runRunStatus(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc run status: " + err.Error()}
 	}
-	info, err := agentsession.ReadRunLoopStatus(abs)
+	info, err := agentsession.ReadRepositoryRunStatus(abs)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc run status: " + err.Error()}
 	}
@@ -180,16 +180,16 @@ func runRunLog(args []string, stdout, stderr io.Writer) error {
 		return &CLIError{ExitCode: 1, Message: "reconc run log: " + err.Error()}
 	}
 
-	decisions, err := agentsession.ReadRunLoopDecisions(abs, 0)
+	decisions, err := agentsession.ReadRunDecisions(abs, 0)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc run log: " + err.Error()}
 	}
-	filtered := filterRunLoopDecisions(decisions, branch, session)
+	filtered := filterRunDecisions(decisions, branch, session)
 	if n > 0 && len(filtered) > n {
 		filtered = filtered[len(filtered)-n:]
 	}
 	for _, d := range filtered {
-		writeRunLoopDecision(stdout, d, jsonOut)
+		writeRunDecision(stdout, d, jsonOut)
 	}
 	if !follow {
 		return nil
@@ -203,7 +203,7 @@ func runRunLog(args []string, stdout, stderr io.Writer) error {
 // records as they are appended, until ctx is cancelled (Ctrl-C / SIGTERM).
 // pollInterval is injectable so tests can drive the live tail deterministically.
 func followRunLog(ctx context.Context, repoRoot, branch, session string, jsonOut bool, pollInterval time.Duration, stdout io.Writer) error {
-	path, err := agentsession.RunLoopDecisionLogPath(repoRoot)
+	path, err := agentsession.RunDecisionLogPath(repoRoot)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc run log: " + err.Error()}
 	}
@@ -249,33 +249,33 @@ func followRunLog(ctx context.Context, repoRoot, branch, session string, jsonOut
 			if line == "" {
 				continue
 			}
-			var d agentsession.RunLoopDecision
+			var d agentsession.RunDecision
 			if json.Unmarshal([]byte(line), &d) != nil {
 				continue
 			}
 			if !decisionMatches(d, branch, session) {
 				continue
 			}
-			writeRunLoopDecision(stdout, d, jsonOut)
+			writeRunDecision(stdout, d, jsonOut)
 		}
 	}
 }
 
-func writeRunLoopDecision(stdout io.Writer, d agentsession.RunLoopDecision, jsonOut bool) {
+func writeRunDecision(stdout io.Writer, d agentsession.RunDecision, jsonOut bool) {
 	if jsonOut {
 		if body, err := json.Marshal(d); err == nil {
 			fmt.Fprintln(stdout, string(body))
 		}
 		return
 	}
-	fmt.Fprintln(stdout, formatRunLoopDecision(d))
+	fmt.Fprintln(stdout, formatRunDecision(d))
 }
 
-func filterRunLoopDecisions(in []agentsession.RunLoopDecision, branch, session string) []agentsession.RunLoopDecision {
+func filterRunDecisions(in []agentsession.RunDecision, branch, session string) []agentsession.RunDecision {
 	if branch == "" && session == "" {
 		return in
 	}
-	out := make([]agentsession.RunLoopDecision, 0, len(in))
+	out := make([]agentsession.RunDecision, 0, len(in))
 	for _, d := range in {
 		if decisionMatches(d, branch, session) {
 			out = append(out, d)
@@ -284,7 +284,7 @@ func filterRunLoopDecisions(in []agentsession.RunLoopDecision, branch, session s
 	return out
 }
 
-func decisionMatches(d agentsession.RunLoopDecision, branch, session string) bool {
+func decisionMatches(d agentsession.RunDecision, branch, session string) bool {
 	if branch != "" && !strings.Contains(d.Branch, branch) {
 		return false
 	}
@@ -294,7 +294,7 @@ func decisionMatches(d agentsession.RunLoopDecision, branch, session string) boo
 	return true
 }
 
-func formatRunStatus(info agentsession.RunLoopStatusInfo) string {
+func formatRunStatus(info agentsession.RepositoryRunStatus) string {
 	reason := info.DisabledReason
 	if reason == "" {
 		reason = "-"
@@ -308,7 +308,7 @@ func formatRunStatus(info agentsession.RunLoopStatusInfo) string {
 	return status
 }
 
-func formatRunLoopDecision(d agentsession.RunLoopDecision) string {
+func formatRunDecision(d agentsession.RunDecision) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s  %s/%s  rt=%s  en=%v->%v  await=%v->%v  reason=%s  sess=%s",
 		dash(d.Timestamp), dash(d.Event), dash(d.Branch), dash(d.Runtime),

@@ -25,8 +25,8 @@ run_json() {
 }
 
 [ -x "$binary" ] || fail "Reconc binary is missing or not executable: $binary"
-git -C "$root" check-ignore --no-index --quiet .reconc/runloop/decisions.jsonl.lock \
-  || fail "self-hosted repository does not ignore Reconc runloop runtime"
+git -C "$root" check-ignore --no-index --quiet .reconc/run/decisions.jsonl.lock \
+  || fail "self-hosted repository does not ignore Reconc run runtime"
 
 mkdir -p "$tmp/runtime-tmp" "$tmp/state"
 export TMPDIR="$tmp/runtime-tmp"
@@ -68,7 +68,7 @@ stable_binary=$(find "$governed/tools/reconc/dist" -maxdepth 1 -type f -name 're
 require_text "$tmp/stable-version.txt" 'reconc 0.6.0'
 
 run_json "$tmp/hook-status.json" "$stable_binary" hook status "$governed"
-[ "$(grep -c '"state": "active"' "$tmp/hook-status.json")" -eq 9 ] || fail "not all nine hook platforms are active"
+[ "$(grep -c '"state": "configured"' "$tmp/hook-status.json")" -eq 9 ] || fail "not all nine hook platforms are configured"
 
 wrapper="$governed/tools/reconc/bin/hook"
 for event in \

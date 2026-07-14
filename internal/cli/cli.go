@@ -3199,7 +3199,7 @@ func runBootstrapLegacy(args []string, version string, stdout, stderr io.Writer)
 	}
 	healthy := !installFailed && applyReport.Status == reconbootstrap.ApplyComplete
 	for _, report := range hookStatuses {
-		if report.State != hooks.StateAbsent && report.State != hooks.StateActive {
+		if report.State != hooks.StateAbsent && report.State != hooks.StateConfigured {
 			healthy = false
 		}
 	}

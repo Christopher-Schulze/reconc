@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-func TestReadRunLoopDecisionsMissingIsEmpty(t *testing.T) {
+func TestReadRunDecisionsMissingIsEmpty(t *testing.T) {
 	repo := t.TempDir()
-	ds, err := ReadRunLoopDecisions(repo, 0)
+	ds, err := ReadRunDecisions(repo, 0)
 	if err != nil {
 		t.Fatalf("missing log must not error: %v", err)
 	}
@@ -16,15 +16,15 @@ func TestReadRunLoopDecisionsMissingIsEmpty(t *testing.T) {
 	}
 }
 
-func TestReadRunLoopDecisionsOrderLimitAndMalformed(t *testing.T) {
+func TestReadRunDecisionsOrderLimitAndMalformed(t *testing.T) {
 	repo := t.TempDir()
 	for _, b := range []string{"a", "b", "c"} {
-		if err := appendRunLoopDecision(repo, RunLoopDecision{Event: "stop", Branch: b}); err != nil {
+		if err := appendRunDecision(repo, RunDecision{Event: "stop", Branch: b}); err != nil {
 			t.Fatalf("append %s: %v", b, err)
 		}
 	}
 	// A malformed line must be skipped, not fail the whole read.
-	path, err := runLoopDecisionLogPath(repo)
+	path, err := runDecisionLogPath(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestReadRunLoopDecisionsOrderLimitAndMalformed(t *testing.T) {
 	}
 	f.Close()
 
-	all, err := ReadRunLoopDecisions(repo, 0)
+	all, err := ReadRunDecisions(repo, 0)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestReadRunLoopDecisionsOrderLimitAndMalformed(t *testing.T) {
 	if all[0].Branch != "a" || all[2].Branch != "c" {
 		t.Fatalf("append order not preserved: %+v", all)
 	}
-	last2, err := ReadRunLoopDecisions(repo, 2)
+	last2, err := ReadRunDecisions(repo, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,24 +56,23 @@ func TestReadRunLoopDecisionsOrderLimitAndMalformed(t *testing.T) {
 	}
 }
 
-func TestReadRunLoopStatusReflectsState(t *testing.T) {
+func TestReadRepositoryRunStatusReflectsState(t *testing.T) {
 	repo := t.TempDir()
-	info, err := ReadRunLoopStatus(repo)
+	info, err := ReadRepositoryRunStatus(repo)
 	if err != nil {
 		t.Fatalf("missing state must not error: %v", err)
 	}
 	if info.Enabled {
 		t.Fatal("missing state must be disabled")
 	}
-	if err := saveRunLoopState(repo, runLoopState{
+	if err := saveRepositoryRunState(repo, repositoryRunState{
 		Enabled:              true,
-		Mode:                 runLoopModeRepo,
 		AwaitingContinuation: true,
 		NoProgressNudges:     2,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	info, err = ReadRunLoopStatus(repo)
+	info, err = ReadRepositoryRunStatus(repo)
 	if err != nil {
 		t.Fatal(err)
 	}

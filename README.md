@@ -189,15 +189,19 @@ a transaction reports drift or a mature repository needs surgical adaptation.
 | Runtime | Integration |
 | --- | --- |
 | Claude Code | repo-local hook wiring |
-| Codex | repo-local hooks with `apply_patch` path extraction |
-| Cursor | pre-write, post-write, prompt, and stop hook coverage |
-| OpenCode | plugin-based chat, tool, permission, and idle handling |
+| Codex | session, tool, permission, evidence, and Stop hooks with `apply_patch` path extraction |
+| Cursor | pre-write, post-write, shell, evidence, and Stop hook coverage |
+| OpenCode | thin tool, permission, compaction, and `session.idle` continuation adapter |
 | Devin CLI | native session, tool, permission, stop, and post-compaction hooks |
 | Antigravity CLI | invocation, tool, post-tool, and stop hook coverage |
 | GitHub Copilot | repository hooks with native Copilot decision responses |
-| Kilo | thin project plugin with chat, tool, permission, compaction, and idle handling |
+| Kilo | thin project plugin with tool, permission, compaction, and `session.idle` continuation handling |
 
-All platforms still use git pre-commit as the hard repository backstop.
+Claude Code, Codex, Cursor, Devin CLI, Antigravity CLI, and GitHub Copilot expose
+a synchronous Stop event. OpenCode and Kilo expose `session.idle`; Reconc can
+request continuation there, but that inferred adapter is not an equivalent
+host-level Stop gate. All platforms still use git pre-commit as the hard
+repository backstop.
 
 ## Minimal Example Policy
 
@@ -272,7 +276,7 @@ Do not commit generated runtime state:
 - `.reconc/locks/`
 - `.reconc/sessions/`
 - `.reconc/reports/`
-- `.reconc/runloop/`
+- `.reconc/run/`
 - `.reconc/task-transaction.json`
 - `dist/`
 - `tools/reconc/dist/`

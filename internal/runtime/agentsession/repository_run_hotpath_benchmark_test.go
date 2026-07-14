@@ -11,7 +11,7 @@ import (
 func BenchmarkRepositoryRunStopHotpath(b *testing.B) {
 	repo := setupStopBenchmarkRepo(b)
 	writeRunControlBenchmarkTask(b, repo)
-	if _, err := SetRunLoopRepoMode(repo, true); err != nil {
+	if _, err := SetRepositoryRun(repo, true); err != nil {
 		b.Fatal(err)
 	}
 	payload := []byte(`{"session_id":"benchmark","runtime":"codex"}`)
@@ -19,7 +19,7 @@ func BenchmarkRepositoryRunStopHotpath(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		b.StopTimer()
-		if _, _, err := mutateRunLoopState(repo, func(state runLoopState) runLoopState {
+		if _, _, err := mutateRepositoryRunState(repo, func(state repositoryRunState) repositoryRunState {
 			state.AwaitingContinuation = false
 			state.NoProgressNudges = 0
 			return state

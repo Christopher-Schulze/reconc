@@ -45,7 +45,7 @@ func inspectHookRuntimeCompatibility(discovery ingest.DiscoveryResult) hookRunti
 			runtimeKinds = append(runtimeKinds, report.Kind)
 		}
 		parts = append(parts, fmt.Sprintf("%s: %s (%s)", report.Kind, report.State, report.Detail))
-		if report.State != hooks.StateActive {
+		if report.State != hooks.StateConfigured {
 			hasWarn = true
 		}
 	}

@@ -605,7 +605,7 @@ func filterStopPolicyGitStatus(raw string) string {
 
 func stopPolicyRuntimeStateRecord(record string) bool {
 	for _, marker := range []string{
-		".reconc/runloop/",
+		".reconc/run/",
 		".reconc/cache/",
 		".reconc/locks/",
 		".reconc/reports/",

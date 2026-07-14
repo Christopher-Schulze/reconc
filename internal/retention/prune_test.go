@@ -62,14 +62,14 @@ func TestRunCoversLogsBinariesAndOwnedTemp(t *testing.T) {
 	policy := DefaultPolicy()
 	policy.AuditFileBytes = 256
 	policy.AuditArchives = 1
-	policy.RunLoopFileBytes = 256
-	policy.RunLoopArchives = 1
+	policy.RunDecisionFileBytes = 256
+	policy.RunDecisionArchives = 1
 	policy.GeneratedBinaries = ClassPolicy{MaxFiles: 1, MaxBytes: 64, MaxAge: 24 * time.Hour}
 	policy.AbandonedTempAge = time.Hour
 	policy.RepoRuntimeBytes = 1024
 	for _, base := range []string{
 		filepath.Join(repo, ".reconc", "audit.jsonl"),
-		filepath.Join(repo, ".reconc", "runloop", "decisions.jsonl"),
+		filepath.Join(repo, ".reconc", "run", "decisions.jsonl"),
 	} {
 		for index := 0; index <= 3; index++ {
 			path := base
@@ -102,7 +102,7 @@ func TestRunCoversLogsBinariesAndOwnedTemp(t *testing.T) {
 	}
 	for _, base := range []string{
 		filepath.Join(repo, ".reconc", "audit.jsonl"),
-		filepath.Join(repo, ".reconc", "runloop", "decisions.jsonl"),
+		filepath.Join(repo, ".reconc", "run", "decisions.jsonl"),
 	} {
 		for _, path := range []string{base, base + ".1"} {
 			info, err := os.Stat(path)

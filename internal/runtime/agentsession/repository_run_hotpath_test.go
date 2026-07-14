@@ -22,20 +22,20 @@ func TestDisabledRunEventsCreateNoStateFiles(t *testing.T) {
 	if result.ExitCode != 0 || result.Stderr != "" {
 		t.Fatalf("disabled stop: %+v", result)
 	}
-	for _, name := range []string{"state.json", "decisions.jsonl"} {
-		if _, err := os.Stat(filepath.Join(repo, ".reconc", "runloop", name)); !os.IsNotExist(err) {
+	for _, name := range []string{"state.bin", "decisions.jsonl"} {
+		if _, err := os.Stat(filepath.Join(repo, ".reconc", "run", name)); !os.IsNotExist(err) {
 			t.Fatalf("disabled no-op events must not create %s: %v", name, err)
 		}
 	}
 }
 
-func TestUnchangedRunLoopStateIsNotRewritten(t *testing.T) {
+func TestUnchangedRepositoryRunStateIsNotRewritten(t *testing.T) {
 	repo := t.TempDir()
-	state := runLoopState{Enabled: true, Mode: runLoopModeRepo}
-	if err := saveRunLoopState(repo, state); err != nil {
+	state := repositoryRunState{Enabled: true}
+	if err := saveRepositoryRunState(repo, state); err != nil {
 		t.Fatal(err)
 	}
-	path, err := runLoopStatePath(repo)
+	path, err := repositoryRunStatePath(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestUnchangedRunLoopStateIsNotRewritten(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := mutateRunLoopState(repo, func(current runLoopState) runLoopState { return current }); err != nil {
+	if _, _, err := mutateRepositoryRunState(repo, func(current repositoryRunState) repositoryRunState { return current }); err != nil {
 		t.Fatal(err)
 	}
 	after, err := os.Stat(path)
@@ -57,7 +57,7 @@ func TestUnchangedRunLoopStateIsNotRewritten(t *testing.T) {
 
 func TestRunControlFailsClosedWithoutReplacingCorruptState(t *testing.T) {
 	repo := t.TempDir()
-	path := filepath.Join(repo, ".reconc", "runloop", "state.json")
+	path := filepath.Join(repo, ".reconc", "run", "state.bin")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestRunControlFailsClosedWithoutReplacingCorruptState(t *testing.T) {
 	if err := os.WriteFile(path, corrupt, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SetRunLoopRepoMode(repo, true); err == nil {
+	if _, err := SetRepositoryRun(repo, true); err == nil {
 		t.Fatal("run on must fail closed on corrupt state")
 	}
 	after, err := os.ReadFile(path)
@@ -80,7 +80,7 @@ func TestRunControlFailsClosedWithoutReplacingCorruptState(t *testing.T) {
 func TestRepoRunModePersistsAcrossSessionsRuntimesAndInterrupts(t *testing.T) {
 	repo := t.TempDir()
 	for _, runtimeName := range []string{"claude", "codex", "cursor", "opencode", "devin", "antigravity", "copilot", "kilo"} {
-		if _, err := SetRunLoopRepoMode(repo, true); err != nil {
+		if _, err := SetRepositoryRun(repo, true); err != nil {
 			t.Fatal(err)
 		}
 		sessionID := runtimeName + "-session"
@@ -96,8 +96,8 @@ func TestRepoRunModePersistsAcrossSessionsRuntimesAndInterrupts(t *testing.T) {
 		if end.ExitCode != 0 {
 			t.Fatalf("%s session end: %+v", runtimeName, end)
 		}
-		state, err := loadRunLoopState(repo)
-		if err != nil || !runLoopStateApplies(state) {
+		state, err := loadRepositoryRunState(repo)
+		if err != nil || !repositoryRunEnabled(state) {
 			t.Fatalf("%s lifecycle changed repository run state: %+v err=%v", runtimeName, state, err)
 		}
 	}
@@ -107,7 +107,7 @@ func TestRepoRunModeSkipsStopPolicyOnlyForExecutableTask(t *testing.T) {
 	counterPath := filepath.Join(t.TempDir(), "counter")
 	repo := setupStopScriptPolicyRepo(t, counterPath, 42, "terminal gate")
 	writeTaskFixture(t, repo)
-	if _, err := SetRunLoopRepoMode(repo, true); err != nil {
+	if _, err := SetRepositoryRun(repo, true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := InitializeSessionState(repo, "repo-run"); err != nil {
@@ -119,7 +119,7 @@ func TestRepoRunModeSkipsStopPolicyOnlyForExecutableTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := RunStop(repo, []byte(`{"session_id":"repo-run","runtime":"codex"}`))
-	if result.ExitCode != 0 || !containsRunLoopBlock(result.Stdout) {
+	if result.ExitCode != 0 || !containsRepositoryRunBlock(result.Stdout) {
 		t.Fatalf("executable repo run did not continue: %+v", result)
 	}
 	if got := readCounter(t, counterPath); got != 0 {
@@ -127,7 +127,7 @@ func TestRepoRunModeSkipsStopPolicyOnlyForExecutableTask(t *testing.T) {
 	}
 
 	terminalRepo := setupStopScriptPolicyRepo(t, counterPath, 42, "terminal gate")
-	if _, err := SetRunLoopRepoMode(terminalRepo, true); err != nil {
+	if _, err := SetRepositoryRun(terminalRepo, true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := InitializeSessionState(terminalRepo, "terminal"); err != nil {
@@ -139,7 +139,7 @@ func TestRepoRunModeSkipsStopPolicyOnlyForExecutableTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	result = RunStop(terminalRepo, []byte(`{"session_id":"terminal","runtime":"codex"}`))
-	if result.ExitCode != 0 || containsRunLoopBlock(result.Stdout) || result.Stdout == "" {
+	if result.ExitCode != 0 || containsRepositoryRunBlock(result.Stdout) || result.Stdout == "" {
 		t.Fatalf("terminal repo run did not retain policy gate: %+v", result)
 	}
 	if got := readCounter(t, counterPath); got != 1 {
@@ -150,11 +150,11 @@ func TestRepoRunModeSkipsStopPolicyOnlyForExecutableTask(t *testing.T) {
 func TestRepoRunExecutableStopDoesNotPublishEmptySessionState(t *testing.T) {
 	repo := setupPolicyRepo(t)
 	writeTaskFixture(t, repo)
-	if _, err := SetRunLoopRepoMode(repo, true); err != nil {
+	if _, err := SetRepositoryRun(repo, true); err != nil {
 		t.Fatal(err)
 	}
 	result := RunStop(repo, []byte(`{"session_id":"repo-fastpath","runtime":"codex"}`))
-	if result.ExitCode != 0 || !containsRunLoopBlock(result.Stdout) {
+	if result.ExitCode != 0 || !containsRepositoryRunBlock(result.Stdout) {
 		t.Fatalf("executable repo run did not continue: %+v", result)
 	}
 	for _, path := range []string{sessionStatePath(repo, "repo-fastpath"), activeSessionPath(repo)} {
@@ -167,16 +167,16 @@ func TestRepoRunExecutableStopDoesNotPublishEmptySessionState(t *testing.T) {
 func TestRepoRunNoProgressGuardReleasesOneStopWithoutDisabling(t *testing.T) {
 	repo := setupPolicyRepo(t)
 	writeTaskFixture(t, repo)
-	if _, err := SetRunLoopRepoMode(repo, true); err != nil {
+	if _, err := SetRepositoryRun(repo, true); err != nil {
 		t.Fatal(err)
 	}
-	runState, err := inspectRunLoopTask(repo)
+	runState, err := inspectRepositoryRunTask(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := mutateRunLoopState(repo, func(state runLoopState) runLoopState {
+	if _, _, err := mutateRepositoryRunState(repo, func(state repositoryRunState) repositoryRunState {
 		state.NoProgressNudges = 5
-		state.LastCurrent = runLoopTaskProgressFingerprint(runState) + "|material=0"
+		state.LastProgressHash = repositoryRunProgressHash(runState, 0)
 		state.AwaitingContinuation = true
 		return state
 	}); err != nil {
@@ -186,11 +186,11 @@ func TestRepoRunNoProgressGuardReleasesOneStopWithoutDisabling(t *testing.T) {
 	if result.ExitCode != 0 || result.Stdout != "" {
 		t.Fatalf("sixth no-progress Stop must release once: %+v", result)
 	}
-	state, err := loadRunLoopState(repo)
+	state, err := loadRepositoryRunState(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !state.Enabled || state.Mode != runLoopModeRepo || state.NoProgressNudges != 0 || state.AwaitingContinuation {
+	if !state.Enabled || state.NoProgressNudges != 0 || state.AwaitingContinuation {
 		t.Fatalf("repo mode must remain enabled after one-stop release: %+v", state)
 	}
 }
@@ -198,57 +198,57 @@ func TestRepoRunNoProgressGuardReleasesOneStopWithoutDisabling(t *testing.T) {
 func TestRepoRunExplicitInterruptReleasesCurrentStopWithoutDisabling(t *testing.T) {
 	repo := setupPolicyRepo(t)
 	writeTaskFixture(t, repo)
-	if _, err := SetRunLoopRepoMode(repo, true); err != nil {
+	if _, err := SetRepositoryRun(repo, true); err != nil {
 		t.Fatal(err)
 	}
 	result := RunStop(repo, []byte(`{"session_id":"repo-run","runtime":"codex","is_interrupt":true}`))
 	if result.ExitCode != 0 || result.Stdout != "" {
 		t.Fatalf("interrupt did not release Stop: %+v", result)
 	}
-	state, err := loadRunLoopState(repo)
+	state, err := loadRepositoryRunState(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !runLoopStateApplies(state) {
+	if !repositoryRunEnabled(state) {
 		t.Fatalf("interrupt changed durable repository run mode: %+v", state)
 	}
 }
 
 func TestRepoRunAutomaticallyDisablesWhenTaskPlaneIsAbsent(t *testing.T) {
 	repo := setupPolicyRepo(t)
-	if _, err := SetRunLoopRepoMode(repo, true); err != nil {
+	if _, err := SetRepositoryRun(repo, true); err != nil {
 		t.Fatal(err)
 	}
 	result := RunStop(repo, []byte(`{"session_id":"terminal","runtime":"codex"}`))
 	if result.ExitCode != 0 || result.Stdout != "" {
 		t.Fatalf("terminal absent TASK plane did not stop cleanly: %+v", result)
 	}
-	state, err := loadRunLoopState(repo)
+	state, err := loadRepositoryRunState(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.Enabled || state.DisabledReason != "task_plane_absent" {
+	if state.Enabled || state.DisabledReason != repositoryRunDisabledTaskPlaneAbsent {
 		t.Fatalf("absent TASK plane did not auto-disable repository run: %+v", state)
 	}
 }
 
 func TestRepoRunAutomaticallyDisablesWhenTaskQueueIsComplete(t *testing.T) {
 	repo := t.TempDir()
-	if _, err := SetRunLoopRepoMode(repo, true); err != nil {
+	if _, err := SetRepositoryRun(repo, true); err != nil {
 		t.Fatal(err)
 	}
-	result, handled, err := runRunLoopContinuation(repo, &HookPayload{SessionID: "complete"}, "codex", tasklifecycle.RunState{Disposition: tasklifecycle.RunComplete}, 0)
+	result, handled, err := runRepositoryContinuation(repo, nil, &HookPayload{SessionID: "complete"}, "codex", tasklifecycle.RunState{Disposition: tasklifecycle.RunComplete}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !handled || result.ExitCode != 0 || result.Stdout != "" {
 		t.Fatalf("complete TASK queue did not stop cleanly: handled=%v result=%+v", handled, result)
 	}
-	state, err := loadRunLoopState(repo)
+	state, err := loadRepositoryRunState(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.Enabled || state.DisabledReason != "task_complete" {
+	if state.Enabled || state.DisabledReason != repositoryRunDisabledTaskComplete {
 		t.Fatalf("complete TASK queue did not auto-disable repository run: %+v", state)
 	}
 }
@@ -257,27 +257,27 @@ func TestRepoRunBlockedOrInvalidTaskStateNeverSilentlyDisables(t *testing.T) {
 	for _, disposition := range []tasklifecycle.RunDisposition{tasklifecycle.RunBlocked, tasklifecycle.RunInvalid} {
 		t.Run(string(disposition), func(t *testing.T) {
 			repo := t.TempDir()
-			if _, err := SetRunLoopRepoMode(repo, true); err != nil {
+			if _, err := SetRepositoryRun(repo, true); err != nil {
 				t.Fatal(err)
 			}
-			result, handled, err := runRunLoopContinuation(repo, &HookPayload{SessionID: "blocked"}, "codex", tasklifecycle.RunState{Disposition: disposition}, 0)
+			result, handled, err := runRepositoryContinuation(repo, nil, &HookPayload{SessionID: "blocked"}, "codex", tasklifecycle.RunState{Disposition: disposition}, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if handled || result != (Result{}) {
 				t.Fatalf("non-terminal blocker was incorrectly handled as terminal: handled=%v result=%+v", handled, result)
 			}
-			state, err := loadRunLoopState(repo)
+			state, err := loadRepositoryRunState(repo)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !runLoopStateApplies(state) {
+			if !repositoryRunEnabled(state) {
 				t.Fatalf("%s task state silently disabled repository run: %+v", disposition, state)
 			}
 		})
 	}
 }
 
-func containsRunLoopBlock(stdout string) bool {
+func containsRepositoryRunBlock(stdout string) bool {
 	return strings.Contains(stdout, `"decision":"block"`) && strings.Contains(stdout, "Reconc run is ON")
 }

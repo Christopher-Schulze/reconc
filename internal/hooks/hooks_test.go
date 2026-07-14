@@ -189,8 +189,8 @@ func TestGenerateCodexIsValidJSON(t *testing.T) {
 	if !strings.Contains(a.Content, "codex-pre-tool-use") {
 		t.Errorf("expected codex routes in template")
 	}
-	if !strings.Contains(a.Content, "codex-session-end") {
-		t.Errorf("expected codex session-end route in template")
+	if strings.Contains(a.Content, "codex-session-end") || strings.Contains(a.Content, `"SessionEnd"`) {
+		t.Errorf("Codex template retained unsupported SessionEnd routing")
 	}
 	if !strings.Contains(a.Content, "codex-post-tool-use-failure") {
 		t.Errorf("expected codex post-tool-use-failure route in template")

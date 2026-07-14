@@ -217,12 +217,16 @@ content unless `--force` is passed.
 
 ### `reconc hook status [repo] [--json]`
 Validate registered artifacts and activation requirements. States are
-`absent`, `installed`, `active`, `degraded`, `shadowed`, and `unsupported`.
+`absent`, `installed`, `configured`, `degraded`, `shadowed`, and `unsupported`.
 The command checks malformed, incomplete, non-executable, or drifted managed
 artifacts, the repo-local wrapper, Codex's enable flag, Git `core.hooksPath`,
 Copilot disable settings, Kilo pure mode, and legacy Kilo plugin placement.
 Each platform also reports rate-limited `last_seen`/`last_event` live-runtime
-evidence separately from static activation state.
+evidence separately from static activation state. `configured` proves only
+that the host can discover a complete static artifact. Codex accepts
+`hooks = true` under `[features]`, rejects root-level `hooks=true`, and has no
+`SessionEnd` route. OpenCode and Kilo continuation is inferred from
+`session.idle`, not a synchronous native Stop gate.
 
 ### `reconc hook sync-scaffold <repo-root-scaffold> [--json]`
 Regenerate source-controlled hook artifacts inside a template

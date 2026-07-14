@@ -136,20 +136,23 @@ Claims can also be supplied via an events file, stdin JSON, or by a registered h
 
 The typed registry supports Claude Code, Codex, Cursor, OpenCode, Devin CLI,
 Antigravity CLI, GitHub Copilot, and Kilo. Run `reconc hook status . --json`
-instead of guessing whether an artifact is installed, active, degraded,
-shadowed, or unsupported. Static activation and rate-limited live
+instead of guessing whether an artifact is installed, configured, degraded,
+shadowed, or unsupported. `configured` is static discovery truth, not live
+execution proof. Static activation and rate-limited live
 `last_seen`/`last_event` evidence are separate facts.
 
 - **Claude Code**: strongest integration. `PreToolUse` blocks
   protected file edits before execution, `PostToolUse` records reads /
   writes / commands, `Stop` gates session end, and `SessionStart(compact)`
   restores a bounded context packet after compaction.
-- **Codex**: session, prompt, Bash, `apply_patch`, permission, evidence,
-  and Stop hooks when `.codex/config.toml` enables them.
-- **Cursor**: `.cursor/hooks.json` covers prompt, file, shell, evidence,
+- **Codex**: session, Bash, `apply_patch`, permission, evidence, and Stop
+  hooks. Bootstrap writes `hooks = true` under `[features]`; Codex has no
+  `SessionEnd` event.
+- **Cursor**: `.cursor/hooks.json` covers file, shell, evidence,
   and Stop events exposed by Cursor.
 - **OpenCode**: use `reconc hook install opencode .` for the
-  thin project-local `.opencode/plugins/reconc.js` adapter.
+  thin project-local `.opencode/plugins/reconc.js` adapter. Continuation is
+  inferred from `session.idle`, not a synchronous native Stop gate.
 - **Devin CLI**: `.devin/hooks.v1.json` covers session, tool,
   permission, Stop, cleanup, and post-compaction recovery.
 - **Antigravity CLI**: `.agents/hooks.json` covers invocation, tool,
@@ -157,7 +160,8 @@ shadowed, or unsupported. Static activation and rate-limited live
 - **GitHub Copilot**: `.github/hooks/reconc.json` returns Copilot-native
   decision JSON and omits its notification-only compaction event.
 - **Kilo**: `.kilo/plugin/reconc.js` is a thin adapter; `KILO_PURE` must
-  be unset for project plugins to load.
+  be unset for project plugins to load. Like OpenCode, continuation is inferred
+  from `session.idle`.
 - **Generic / other agents (Aider, ...)**: invoke the CLI
   directly. `reconc can`, `reconc check --terse`, `reconc next`, and
   `reconc done` are token-optimised for this path.

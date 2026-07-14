@@ -18,38 +18,38 @@ type ClassPolicy struct {
 
 // Policy is the complete product retention contract.
 type Policy struct {
-	Sessions            ClassPolicy
-	Reports             ClassPolicy
-	Locks               ClassPolicy
-	GeneratedBinaries   ClassPolicy
-	StateTotalBytes     int64
-	RepoRuntimeBytes    int64
-	AuditFileBytes      int64
-	AuditArchives       int
-	RunLoopFileBytes    int64
-	RunLoopArchives     int
-	AbandonedTempAge    time.Duration
-	OwnedTempTotalBytes int64
-	Interval            time.Duration
+	Sessions             ClassPolicy
+	Reports              ClassPolicy
+	Locks                ClassPolicy
+	GeneratedBinaries    ClassPolicy
+	StateTotalBytes      int64
+	RepoRuntimeBytes     int64
+	AuditFileBytes       int64
+	AuditArchives        int
+	RunDecisionFileBytes int64
+	RunDecisionArchives  int
+	AbandonedTempAge     time.Duration
+	OwnedTempTotalBytes  int64
+	Interval             time.Duration
 }
 
 // DefaultPolicy keeps useful recent evidence while placing deterministic
 // ceilings on write amplification and persistent disk use.
 func DefaultPolicy() Policy {
 	return Policy{
-		Sessions:            ClassPolicy{MaxFiles: 32, MaxBytes: 8 * 1024 * 1024, MaxAge: 14 * 24 * time.Hour},
-		Reports:             ClassPolicy{MaxFiles: 32, MaxBytes: 8 * 1024 * 1024, MaxAge: 14 * 24 * time.Hour},
-		Locks:               ClassPolicy{MaxFiles: 128, MaxBytes: 1024 * 1024, MaxAge: 24 * time.Hour},
-		GeneratedBinaries:   ClassPolicy{MaxFiles: 8, MaxBytes: 32 * 1024 * 1024, MaxAge: 14 * 24 * time.Hour},
-		StateTotalBytes:     16 * 1024 * 1024,
-		RepoRuntimeBytes:    48 * 1024 * 1024,
-		AuditFileBytes:      2 * 1024 * 1024,
-		AuditArchives:       2,
-		RunLoopFileBytes:    2 * 1024 * 1024,
-		RunLoopArchives:     2,
-		AbandonedTempAge:    2 * time.Hour,
-		OwnedTempTotalBytes: 512 * 1024 * 1024,
-		Interval:            6 * time.Hour,
+		Sessions:             ClassPolicy{MaxFiles: 32, MaxBytes: 8 * 1024 * 1024, MaxAge: 14 * 24 * time.Hour},
+		Reports:              ClassPolicy{MaxFiles: 32, MaxBytes: 8 * 1024 * 1024, MaxAge: 14 * 24 * time.Hour},
+		Locks:                ClassPolicy{MaxFiles: 128, MaxBytes: 1024 * 1024, MaxAge: 24 * time.Hour},
+		GeneratedBinaries:    ClassPolicy{MaxFiles: 8, MaxBytes: 32 * 1024 * 1024, MaxAge: 14 * 24 * time.Hour},
+		StateTotalBytes:      16 * 1024 * 1024,
+		RepoRuntimeBytes:     48 * 1024 * 1024,
+		AuditFileBytes:       2 * 1024 * 1024,
+		AuditArchives:        2,
+		RunDecisionFileBytes: 2 * 1024 * 1024,
+		RunDecisionArchives:  2,
+		AbandonedTempAge:     2 * time.Hour,
+		OwnedTempTotalBytes:  512 * 1024 * 1024,
+		Interval:             6 * time.Hour,
 	}
 }
 

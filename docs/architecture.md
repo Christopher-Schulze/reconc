@@ -302,20 +302,23 @@ state fails closed instead of being reset silently.
 
 ### Run state concurrency and Stop routing
 
-`.reconc/runloop/state.json` is published only for material transitions.
+`.reconc/run/state.bin` uses two CRC-protected slots and is published only for
+material transitions.
 Disabled and unchanged hook events do not create or rewrite state or
 decisions. Parallel agent tool calls can still spawn concurrent
 `reconc hook runtime` processes, so two invariants keep an active run from
 being silently disabled:
 
-- **Atomic writes.** `writeRunLoopStateAtomic` writes a temp file and
-  renames it into place. A bare `os.WriteFile` truncates first; a reader
-  hitting that window decodes an empty file into a disabled zero-value
-  state and persists `enabled=false`, killing the run with no logged
-  `true->false` transition.
-- **Locked read-modify-write.** `mutateRunLoopState` /
-  `withRunLoopLock` serialize load->mutate->save under an exclusive
-  cross-platform file lock (`.reconc/runloop/state.lock`), mirroring `MutateSessionState`,
+- **Crash-safe fixed layout.** Each state update writes a fixed 56-byte payload
+  into the inactive 512-byte slot with a monotonic sequence and CRC32C over
+  both header and payload. The
+  payload stores timestamps as integers, the progress digest as 32 raw bytes,
+  and the disable reason as a bounded enum, so the hot read does not decode
+  variable strings. Readers select the newest valid slot; a torn write leaves
+  the previous slot intact and never decodes as disabled.
+- **Locked read-modify-write.** `mutateRepositoryRunStateResolved` /
+  `withRepositoryRunFileResolved` serialize load->mutate->save by locking
+  `.reconc/run/state.bin` itself, mirroring `MutateSessionState`,
   so concurrent mutators cannot lose each other's updates. The Stop hook's
   own terminal-disable and continuation decisions run through the same locked
   mutator, so a concurrent `run off` cannot be lost. The append-only
@@ -344,6 +347,15 @@ path only after 64 new material events, 30 minutes with new progress, or a
 failed command, then reuse the normal full Stop report as a policy checkpoint.
 Explicitly configured TASK state fails closed if its overview disappears, and
 optional committed completion reuses that terminal report's Git snapshot.
+
+`BenchmarkRepositoryRunStopHotpath` measures the in-process executable-TASK
+continuation path without process startup. On Apple M1 its baseline was
+1,504,653 ns/op, 61,612 B/op, and 553 allocs/op. The optimized seven-run sample
+is 130,819-142,849 ns/op with a 131,483 ns/op median, 29,225-29,276 B/op, and
+245 allocs/op. The routine path starts no Git process and publishes no decision
+log record. C/cgo would not reduce the dominant filesystem syscalls and would
+add a toolchain and portability boundary, so the implementation remains pure
+Go.
 
 ### require_command_success redirect tolerance
 

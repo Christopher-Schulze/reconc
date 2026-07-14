@@ -737,9 +737,9 @@ func TestFullHappyFlow(t *testing.T) {
 	}
 }
 
-func TestRunLoopStopBlockJSON(t *testing.T) {
-	prompt := "RUNLOOP TEST PROMPT"
-	out := runLoopStopBlockJSON(prompt)
+func TestRepositoryRunBlockJSON(t *testing.T) {
+	prompt := "REPOSITORY RUN TEST PROMPT"
+	out := repositoryRunBlockJSON(prompt)
 	if !strings.Contains(out, `"decision":"block"`) {
 		t.Fatalf("expected decision=block, got: %s", out)
 	}

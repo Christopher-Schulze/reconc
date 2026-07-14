@@ -35,7 +35,7 @@ func RunPostCompaction(repoRoot string, payloadBytes []byte) Result {
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (compaction, warn): %s", err)}
 	}
-	runLoop, err := ReadRunLoopStatus(root)
+	repositoryRun, err := ReadRepositoryRunStatus(root)
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (compaction, warn): %s", err)}
 	}
@@ -52,10 +52,10 @@ func RunPostCompaction(repoRoot string, payloadBytes []byte) Result {
 		"Session evidence: reads=%d writes=%d commands=%d command_results=%d claims=%d overflow=%t.",
 		len(state.ReadPaths), len(state.WritePaths), len(state.Commands), len(state.CommandResults), len(state.Claims), state.EvidenceOverflow,
 	))
-	if runLoop.Enabled {
+	if repositoryRun.Enabled {
 		lines = append(lines, "Repository run: enabled; continue only the live executable TASK.")
-	} else if runLoop.DisabledReason != "" {
-		lines = append(lines, "Repository run: disabled ("+runLoop.DisabledReason+").")
+	} else if repositoryRun.DisabledReason != "" {
+		lines = append(lines, "Repository run: disabled ("+repositoryRun.DisabledReason+").")
 	} else {
 		lines = append(lines, "Repository run: disabled.")
 	}
