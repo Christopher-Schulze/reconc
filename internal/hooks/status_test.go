@@ -1,0 +1,163 @@
+package hooks
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+)
+
+func TestInspectPlatformsActivationStates(t *testing.T) {
+	t.Run("absent", func(t *testing.T) {
+		reports, err := InspectPlatforms(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, report := range reports {
+			if report.State != StateAbsent {
+				t.Fatalf("%s = %s, want absent", report.Kind, report.State)
+			}
+		}
+	})
+
+	t.Run("claude degraded then active", func(t *testing.T) {
+		repo := t.TempDir()
+		if _, err := Install(KindClaudeCode, repo, false); err != nil {
+			t.Fatal(err)
+		}
+		if got := statusForKind(t, repo, KindClaudeCode).State; got != StateDegraded {
+			t.Fatalf("without wrapper = %s, want degraded", got)
+		}
+		writeExecutableWrapper(t, repo)
+		if got := statusForKind(t, repo, KindClaudeCode).State; got != StateActive {
+			t.Fatalf("with wrapper = %s, want active", got)
+		}
+	})
+
+	t.Run("codex installed then active", func(t *testing.T) {
+		repo := t.TempDir()
+		writeExecutableWrapper(t, repo)
+		if _, err := Install(KindCodex, repo, false); err != nil {
+			t.Fatal(err)
+		}
+		if got := statusForKind(t, repo, KindCodex).State; got != StateInstalled {
+			t.Fatalf("without flag = %s, want installed", got)
+		}
+		config := filepath.Join(repo, ".codex", "config.toml")
+		if err := os.WriteFile(config, []byte("hooks = true\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := statusForKind(t, repo, KindCodex).State; got != StateActive {
+			t.Fatalf("with flag = %s, want active", got)
+		}
+	})
+
+	t.Run("kilo unsupported in pure mode", func(t *testing.T) {
+		repo := t.TempDir()
+		if _, err := Install(KindKilo, repo, false); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("KILO_PURE", "1")
+		if got := statusForKind(t, repo, KindKilo).State; got != StateUnsupported {
+			t.Fatalf("KILO_PURE = %s, want unsupported", got)
+		}
+	})
+
+	t.Run("managed plugin drift is degraded", func(t *testing.T) {
+		repo := t.TempDir()
+		if _, err := Install(KindKilo, repo, false); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(repo, filepath.FromSlash(KiloPluginPath))
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, append(data, []byte("// local drift\n")...), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := statusForKind(t, repo, KindKilo).State; got != StateDegraded {
+			t.Fatalf("drifted Kilo plugin = %s, want degraded", got)
+		}
+	})
+
+	t.Run("copilot shadowed by repository setting", func(t *testing.T) {
+		repo := t.TempDir()
+		writeExecutableWrapper(t, repo)
+		if _, err := Install(KindCopilot, repo, false); err != nil {
+			t.Fatal(err)
+		}
+		settings := filepath.Join(repo, ".github", "copilot", "settings.json")
+		if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(settings, []byte(`{"disableAllHooks":true}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := statusForKind(t, repo, KindCopilot).State; got != StateShadowed {
+			t.Fatalf("disabled repository hooks = %s, want shadowed", got)
+		}
+	})
+}
+
+func TestInspectGitHookShadowedByCoreHooksPath(t *testing.T) {
+	repo := t.TempDir()
+	command := exec.Command("git", "init", "-q", repo)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+	if _, err := Install(KindGitPreCommit, repo, false); err != nil {
+		t.Fatal(err)
+	}
+	command = exec.Command("git", "-C", repo, "config", "core.hooksPath", ".githooks")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git config: %v: %s", err, output)
+	}
+	if got := statusForKind(t, repo, KindGitPreCommit).State; got != StateShadowed {
+		t.Fatalf("git hook = %s, want shadowed", got)
+	}
+}
+
+func TestInspectGitHookRequiresExecutableArtifact(t *testing.T) {
+	repo := t.TempDir()
+	command := exec.Command("git", "init", "-q", repo)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+	if _, err := Install(KindGitPreCommit, repo, false); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(repo, filepath.FromSlash(GitPreCommitPath))
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := statusForKind(t, repo, KindGitPreCommit).State; got != StateDegraded {
+		t.Fatalf("non-executable git hook = %s, want degraded", got)
+	}
+}
+
+func statusForKind(t *testing.T, repo, kind string) PlatformStatus {
+	t.Helper()
+	reports, err := InspectPlatforms(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, report := range reports {
+		if report.Kind == kind {
+			return report
+		}
+	}
+	t.Fatalf("status for %s missing", kind)
+	return PlatformStatus{}
+}
+
+func writeExecutableWrapper(t *testing.T, repo string) {
+	t.Helper()
+	path := filepath.Join(repo, "tools", "reconc", "bin", "hook")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}

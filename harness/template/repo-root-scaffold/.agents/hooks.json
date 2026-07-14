@@ -3,7 +3,7 @@
     "PostInvocation": [
       {
         "command": "sh -lc 'repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" antigravity-post-invocation \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2\u003e/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" antigravity-post-invocation \"$repo\"'",
-        "timeout": 120,
+        "timeout": 5,
         "type": "command"
       }
     ],
@@ -12,7 +12,7 @@
         "hooks": [
           {
             "command": "sh -lc 'repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" antigravity-post-tool-use \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2\u003e/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" antigravity-post-tool-use \"$repo\"'",
-            "timeout": 120,
+            "timeout": 5,
             "type": "command"
           }
         ],
@@ -22,7 +22,7 @@
     "PreInvocation": [
       {
         "command": "sh -lc 'repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" antigravity-pre-invocation \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2\u003e/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" antigravity-pre-invocation \"$repo\"'",
-        "timeout": 120,
+        "timeout": 5,
         "type": "command"
       }
     ],
@@ -31,7 +31,7 @@
         "hooks": [
           {
             "command": "sh -lc 'repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" antigravity-pre-tool-use \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2\u003e/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" antigravity-pre-tool-use \"$repo\"'",
-            "timeout": 120,
+            "timeout": 10,
             "type": "command"
           }
         ],
@@ -41,7 +41,7 @@
     "Stop": [
       {
         "command": "sh -lc 'repo=\".\"; hook=\"$repo/tools/reconc/bin/hook\"; if [ -x \"$hook\" ]; then exec \"$hook\" antigravity-stop \"$repo\"; fi; repo=\"$(git -C \"$repo\" rev-parse --show-toplevel 2\u003e/dev/null || printf \"%s\" \"$repo\")\"; RECONC_HOOK_REPO_RESOLVED=1 exec \"$repo/tools/reconc/bin/hook\" antigravity-stop \"$repo\"'",
-        "timeout": 120,
+        "timeout": 30,
         "type": "command"
       }
     ]

@@ -29,10 +29,8 @@ output less trustworthy and future changes unnecessarily expensive.
 Approved areas: 1 Release fail-open; 2 Harness CI hole; 4 Public trust chain;
 6 Complexity concentration.
 
-Current root staticcheck baseline has three pre-existing U1000 findings:
-`validateLockfileRepoRoot`, `readDoctorLockfile`, and
-`stopPolicyGitStatusNormal`. Remove or reconnect them during the planned
-complexity/drift refactor; TASK 004 introduced no additional findings.
+The three pre-existing U1000 findings in the read-only and Stop paths were
+removed when TASK 005 promoted staticcheck to a required completion gate.
 
 ## Deviations
 

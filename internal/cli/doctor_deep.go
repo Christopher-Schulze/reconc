@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -258,21 +257,6 @@ func doctorCheckConflictCount(discovery ingest.DiscoveryResult) doctorCheck {
 	check.Status = doctorStatusWarn
 	check.Detail = fmt.Sprintf("%d static rule conflict(s) detected", len(conflicts))
 	return check
-}
-
-func readDoctorLockfile(repoRoot string) (map[string]interface{}, error) {
-	path := filepath.Join(repoRoot, ingest.LockfilePath)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read lockfile: %w", err)
-	}
-	var payload map[string]interface{}
-	dec := json.NewDecoder(strings.NewReader(string(data)))
-	dec.UseNumber()
-	if err := dec.Decode(&payload); err != nil {
-		return nil, fmt.Errorf("lockfile is not valid JSON: %w", err)
-	}
-	return payload, nil
 }
 
 func collectDoctorRefs(discovery ingest.DiscoveryResult) ([]string, []string, error) {

@@ -82,7 +82,7 @@ func runtimeFromPayload(payload *HookPayload) string {
 
 func normalizeRuntimeName(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
-	for _, prefix := range []string{"cursor-", "codex-", "claude-", "opencode-", "antigravity-"} {
+	for _, prefix := range []string{"cursor-", "codex-", "claude-", "opencode-", "devin-", "antigravity-", "copilot-", "kilo-"} {
 		if strings.HasPrefix(value, prefix) {
 			return strings.TrimSuffix(prefix, "-")
 		}
@@ -261,6 +261,9 @@ func RunPostToolUseComplete(repoRoot string, payloadBytes []byte) Result {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post-complete, warn): %s", err)}
 	}
 	if payload.IsCommandTool() {
+		if payload.Error != "" {
+			return RunPostToolUseFailure(repoRoot, payloadBytes)
+		}
 		if exitCode := payload.ExitCode(); exitCode != nil && *exitCode != 0 {
 			return RunPostToolUseFailure(repoRoot, payloadBytes)
 		}

@@ -68,4 +68,7 @@ agent_hooks:
   require_cursor_hooks: true
   require_claude_settings: true
   require_opencode_plugin: true
+  require_devin_hooks: true
   require_antigravity_hooks: true
+  require_copilot_hooks: true
+  require_kilo_plugin: true

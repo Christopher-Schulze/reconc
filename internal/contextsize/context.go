@@ -26,8 +26,8 @@ const DefaultTokenBudget = 20000
 // overestimates for code-heavy content (safer for a budget guard).
 const BytesPerTokenEstimate = 4
 
-// DefaultFiles lists the files typically auto-loaded at session start
-// by Claude Code / Codex agents. Order is presentation-only.
+// DefaultFiles lists files commonly auto-loaded by coding agents at session
+// start. Order is presentation-only.
 var DefaultFiles = []string{
 	"AGENTS.md",
 	"CLAUDE.md",

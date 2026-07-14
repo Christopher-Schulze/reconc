@@ -18,7 +18,7 @@ control without wasting tokens.
 
 ## Sub-Tasks
 
-- [ ] Define the typed lifecycle schema and repository-adoption boundary.
+- [~] Define the typed lifecycle schema and repository-adoption boundary.
 - [ ] Implement read, validation, and atomic mutation commands.
 - [ ] Move reusable TASK gates out of project-specific audit code.
 - [ ] Build compact delta briefings and repeated-feedback suppression.

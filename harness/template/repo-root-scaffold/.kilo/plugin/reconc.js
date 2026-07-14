@@ -1,9 +1,9 @@
-// Managed by reconc. Project-local opencode policy adapter.
+// Managed by reconc. Project-local kilo policy adapter.
 // Policy, session state, and continuation decisions stay in the Go runtime.
 
-const fallbackSessionID = globalThis.crypto?.randomUUID?.() ?? "opencode-" + Date.now()
+const fallbackSessionID = globalThis.crypto?.randomUUID?.() ?? "kilo-" + Date.now()
 const startedSessions = new Set()
-const routeBudgets = {"opencode-permission-request":{"timeoutMilliseconds":10000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"block"},"opencode-post-compaction":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"opencode-post-tool-use":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"opencode-post-tool-use-failure":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"opencode-pre-tool-use":{"timeoutMilliseconds":10000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"block"},"opencode-session-end":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"opencode-session-start":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"opencode-stop":{"timeoutMilliseconds":30000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"allow"},"opencode-user-prompt-submit":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"}}
+const routeBudgets = {"kilo-permission-request":{"timeoutMilliseconds":10000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"block"},"kilo-post-compaction":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"kilo-post-tool-use":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"kilo-post-tool-use-failure":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"kilo-pre-tool-use":{"timeoutMilliseconds":10000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"block"},"kilo-session-end":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"kilo-session-start":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"kilo-stop":{"timeoutMilliseconds":30000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"allow"},"kilo-user-prompt-submit":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"}}
 
 const sessionIDFrom = (value, depth = 0) => {
   if (!value || depth > 6) return ""
@@ -45,7 +45,7 @@ const textFromParts = (parts) => (Array.isArray(parts) ? parts : [])
   .filter(Boolean)
   .join("\n")
 
-export const ReconcOpenCodePlugin = async ({ directory, worktree, client }) => {
+const ReconcKiloServer = async ({ directory, worktree, client }) => {
   const repo = worktree || directory || process.cwd()
   const wrapper = repo + "/tools/reconc/bin/hook"
   const binaries = [repo + "/.build/bin/reconc", repo + "/reconc"]
@@ -98,8 +98,8 @@ export const ReconcOpenCodePlugin = async ({ directory, worktree, client }) => {
   const ensureSession = async (sessionID) => {
     const id = sessionID || fallbackSessionID
     if (startedSessions.has(id)) return id
-    const event = "opencode-session-start"
-    const result = await run(event, { session_id: id, reconc_runtime: "opencode" })
+    const event = "kilo-session-start"
+    const result = await run(event, { session_id: id, reconc_runtime: "kilo" })
     if (shouldBlockFailure(event, result)) throw new Error(result.stderr || result.stdout || "reconc session start failed")
     if (result.code === 0) startedSessions.add(id)
     return id
@@ -108,7 +108,7 @@ export const ReconcOpenCodePlugin = async ({ directory, worktree, client }) => {
   const toolPayload = (input, output) => {
     const payload = {
       session_id: sessionIDFrom(input) || fallbackSessionID,
-      reconc_runtime: "opencode",
+      reconc_runtime: "kilo",
       tool_name: normalizeTool(input?.tool || output?.tool),
       tool_input: output?.args || input?.args || {},
       tool_response: output?.result || output?.response || {},
@@ -142,8 +142,8 @@ export const ReconcOpenCodePlugin = async ({ directory, worktree, client }) => {
 
   const handleStop = async (event) => {
     const sessionID = await ensureSession(sessionIDFrom(event))
-    const stopEvent = "opencode-stop"
-    const result = await run(stopEvent, { session_id: sessionID, reconc_runtime: "opencode" })
+    const stopEvent = "kilo-stop"
+    const result = await run(stopEvent, { session_id: sessionID, reconc_runtime: "kilo" })
     if (result.code !== 0 && !shouldBlockFailure(stopEvent, result)) return
     const reason = contextFrom(result)
     if (result.code === 0 && !reason) return
@@ -157,27 +157,27 @@ export const ReconcOpenCodePlugin = async ({ directory, worktree, client }) => {
   return {
     "chat.message": async (input, output) => {
       const sessionID = await ensureSession(sessionIDFrom(input))
-      await run("opencode-user-prompt-submit", { session_id: sessionID, reconc_runtime: "opencode", prompt: textFromParts(output?.parts) })
+      await run("kilo-user-prompt-submit", { session_id: sessionID, reconc_runtime: "kilo", prompt: textFromParts(output?.parts) })
     },
     "tool.execute.before": async (input, output) => {
       await ensureSession(sessionIDFrom(input))
-      const event = "opencode-pre-tool-use"
+      const event = "kilo-pre-tool-use"
       const result = await run(event, toolPayload(input, output))
       if (shouldBlockFailure(event, result)) throw new Error(result.stderr || result.stdout || "reconc blocked tool execution")
     },
     "tool.execute.after": async (input, output) => {
       await ensureSession(sessionIDFrom(input))
       const payload = toolPayload(input, output)
-      const event = payload.error ? "opencode-post-tool-use-failure" : "opencode-post-tool-use"
+      const event = payload.error ? "kilo-post-tool-use-failure" : "kilo-post-tool-use"
       await run(event, payload)
     },
     "permission.ask": async (input, output) => {
       const sessionID = await ensureSession(sessionIDFrom(input))
       const patterns = Array.isArray(input?.pattern) ? input.pattern : [input?.pattern].filter(Boolean)
-      const event = "opencode-permission-request"
+      const event = "kilo-permission-request"
       const result = await run(event, {
         session_id: sessionID,
-        reconc_runtime: "opencode",
+        reconc_runtime: "kilo",
         tool_name: normalizeTool(input?.type || input?.metadata?.tool),
         tool_input: { file_path: patterns[0] || "", command: input?.title || patterns[0] || "", pattern: patterns },
       })
@@ -185,7 +185,7 @@ export const ReconcOpenCodePlugin = async ({ directory, worktree, client }) => {
     },
     "experimental.session.compacting": async (input, output) => {
       const sessionID = await ensureSession(sessionIDFrom(input))
-      const result = await run("opencode-post-compaction", { session_id: sessionID, reconc_runtime: "opencode", summary: input?.message?.summary || "" })
+      const result = await run("kilo-post-compaction", { session_id: sessionID, reconc_runtime: "kilo", summary: input?.message?.summary || "" })
       const context = contextFrom(result)
       if (context && Array.isArray(output?.context)) output.context.push(context)
     },
@@ -194,9 +194,9 @@ export const ReconcOpenCodePlugin = async ({ directory, worktree, client }) => {
       if (event?.type === "session.created") {
         await ensureSession(sessionID)
       } else if (event?.type === "session.compacted") {
-        await run("opencode-post-compaction", { session_id: sessionID, reconc_runtime: "opencode" })
+        await run("kilo-post-compaction", { session_id: sessionID, reconc_runtime: "kilo" })
       } else if (event?.type === "session.deleted") {
-        await run("opencode-session-end", { session_id: sessionID, reconc_runtime: "opencode" })
+        await run("kilo-session-end", { session_id: sessionID, reconc_runtime: "kilo" })
         startedSessions.delete(sessionID)
       } else if (event?.type === "session.idle") {
         await handleStop(event)
@@ -204,3 +204,5 @@ export const ReconcOpenCodePlugin = async ({ directory, worktree, client }) => {
     },
   }
 }
+
+export default { id: "reconc", server: ReconcKiloServer }

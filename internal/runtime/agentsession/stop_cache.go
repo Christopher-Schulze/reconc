@@ -285,11 +285,6 @@ func stopPolicyGitSnapshotFor(repoRoot string) stopPolicyGitSnapshot {
 	}
 }
 
-func stopPolicyGitStatusNormal(repoRoot string) string {
-	snapshot := stopPolicyGitSnapshotFor(repoRoot)
-	return snapshot.Status
-}
-
 func stopPolicyEvidenceHash(state SessionState) string {
 	input := stopPolicyEvidenceInput{
 		ReadPaths:      sortedUnique(state.ReadPaths),

@@ -1,6 +1,6 @@
 ---
 name: reconc
-description: Use when Codex, OpenCode, Claude Code, or another coding agent should bootstrap, maintain, or obey reconc repository policy. Covers the Repository Control Compiler, install/build choice, minimal daily loop, truthful evidence collection, policy checks, remediation, task-finish gates, CI/release use, and platform-specific enforcement limits without adding heavy process or option sprawl.
+description: Use when a coding agent should bootstrap, maintain, or obey reconc repository policy. Covers the Repository Control Compiler, install/build choice, minimal daily loop, truthful evidence collection, policy checks, remediation, task-finish gates, CI/release use, and registry-backed platform enforcement limits without adding heavy process or option sprawl.
 ---
 
 # reconc
@@ -84,7 +84,8 @@ reconc status .
 `bootstrap` is the minimal CLI onboarding path. It scaffolds `.reconc.yml` and
 `AGENTS.md` when missing, compiles the lockfile, installs git hooks, and wires
 native agent hooks when supported directories such as `.claude/`, `.codex/`,
-`.cursor/`, `.opencode/`, or `.agents/` already exist.
+`.cursor/`, `.opencode/`, `.devin/`, `.agents/`, `.github/hooks/`, or `.kilo/`
+already exist.
 
 For the full repo-local governance rollout with copied Reconc toolkit, harness,
 root scaffold, `start.md`, TASK files, and repo-local release binaries, have an
@@ -177,6 +178,7 @@ reconc next .                # next remediation
 reconc done .                # final task gate
 reconc verify .              # installation health, read-only
 reconc doctor . --deep       # deeper diagnostics
+reconc hook status . --json  # exact platform activation truth
 reconc ci . --base HEAD~1 --head HEAD
 reconc preset list
 reconc preset show agent
@@ -192,25 +194,26 @@ enforcement commands may append decision records. `refresh`, `compile`,
 
 ## Platform Model
 
-Know what is hard-enforced versus self-enforced:
+The typed registry owns native event coverage, fallback routes, failure and
+timeout policy, output budgets, artifact paths, and activation probes:
 
-| Capability | Claude Code | Codex | Cursor | OpenCode | Antigravity | Other agents |
-|---|---|---|---|---|---|---|
-| Native hook install | `.claude/settings.json` | `.codex/hooks.json` | `.cursor/hooks.json` | `.opencode/plugins/reconc.js` | `.agents/hooks.json` | none by default |
-| Pre-write file blocking | Hard for Edit/Write/MultiEdit | Soft self-check | Hook-backed for exposed preTool/file/shell events | Hook-backed when OpenCode exposes path args, otherwise self-check | Hook-backed for matched file and command tools | Soft self-check |
-| Read/write evidence capture | Hard via hooks | Partial/manual | Hook-backed for exposed file/tool events | Hook-backed for tool events OpenCode emits | Hook-backed via pending PreTool metadata plus PostTool result | Manual CLI evidence |
-| Bash command interception | Hard | Hard for Bash hooks | Hard for shell hook events | Hook-backed for `bash` tool events | Hook-backed for `run_command` | Manual CLI evidence |
-| Stop/final gate | Hard | Hard where hooks run | Hard where Cursor stop hook runs | Hook-backed on `session.idle` + `reconc done` | Hook-backed on Stop with `continue` decision | `reconc done` |
-| Commit backstop | Git pre-commit | Git pre-commit | Git pre-commit | Git pre-commit | Git pre-commit | Git pre-commit |
+| Platform | Artifact | Integration model |
+|---|---|---|
+| Claude Code | `.claude/settings.json` | Native session, prompt, tool, permission, Stop, cleanup, and compact-session recovery hooks |
+| Codex | `.codex/hooks.json` | Native hooks when `.codex/config.toml` enables them |
+| Cursor | `.cursor/hooks.json` | Native prompt, file, shell, evidence, and Stop adapters |
+| OpenCode | `.opencode/plugins/reconc.js` | Thin project plugin; decisions and state stay in Go |
+| Devin CLI | `.devin/hooks.v1.json` | Native lifecycle plus post-compaction recovery |
+| Antigravity CLI | `.agents/hooks.json` | Invocation, tool, evidence, and Stop adapters |
+| GitHub Copilot | `.github/hooks/reconc.json` | Copilot-native decision response adapter |
+| Kilo | `.kilo/plugin/reconc.js` | Thin project plugin; disabled when `KILO_PURE` is set |
 
-Claude Code has the strongest native integration. Codex has native hook wiring
-for session, Bash, and stop events, but agents must still run explicit file
-checks for file-level evidence. OpenCode uses a project-local plugin for
-tool before/after and idle stop events; agents must still run explicit CLI
-checks for any platform gap and rely on git pre-commit as the hard repository
-backstop.
-
-Never claim stronger enforcement than the platform can provide.
+Run `reconc hook status . --json` before making enforcement claims. `active`
+means configuration is complete and discoverable, not that a live process has
+proven it loaded the file. `installed`, `degraded`, `shadowed`, and
+`unsupported` require the detail field to be handled or reported. Generic
+agents use explicit CLI checks. Every platform keeps Git pre-commit as the hard
+repository backstop.
 
 ## When Policy Is Stale
 

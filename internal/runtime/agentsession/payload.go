@@ -230,8 +230,8 @@ func (p *HookPayload) IsCommandTool() bool {
 }
 
 // payloadFromMap converts the raw decoded object into a HookPayload
-// with the session_id validated. Missing session_id is a hard error;
-// every event from Claude Code / Codex must carry one.
+// with the normalized session_id validated. Platform adapters must derive a
+// stable identity before this boundary when the host omits one.
 func payloadFromMap(raw map[string]interface{}) (*HookPayload, error) {
 	sessionID, _ := raw["session_id"].(string)
 	sessionID = strings.TrimSpace(sessionID)

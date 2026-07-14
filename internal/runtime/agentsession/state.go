@@ -1,6 +1,6 @@
-// Package agentsession is the stateful hook-runtime adapter that the generated
-// Claude Code / Codex configs delegate to. It uses runtime.CheckRepoPolicy as
-// the policy backend.
+// Package agentsession is the stateful hook-runtime core used by every
+// registered agent adapter. It uses runtime.CheckRepoPolicy as the policy
+// backend.
 //
 // Session state is a small JSON file per session kept under
 //

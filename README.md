@@ -43,8 +43,9 @@ why a task is allowed to be called done.
   missing claims, stale evidence, and unsafe hook activity
 - fails closed on stale lockfiles, schema drift, invalid globs, unsupported rule
   kinds, and repository-root mismatch
-- installs git hooks plus native Claude Code, Codex, Cursor, OpenCode, and
-  Antigravity hooks when those agent configs exist
+- installs git hooks plus Claude Code, Codex, Cursor, OpenCode, Devin CLI,
+  Antigravity CLI, GitHub Copilot, and Kilo integrations when those agent
+  configs exist
 - controls autonomous agent continuation with prompt-scoped `/runloop` state,
   stop files, no-progress guards, and append-only decision logs
 - bounds session/report state, audit and runloop logs, generated audit binaries,
@@ -87,9 +88,8 @@ reconc bootstrap .
 ```
 
 `bootstrap` is intentionally minimal: it scaffolds missing repo policy, compiles
-the local lockfile, installs a git pre-commit hook, and wires Claude Code,
-Codex, Cursor, OpenCode, and Antigravity hooks when their repo-local config
-directories already exist.
+the local lockfile, installs a git pre-commit hook, and wires every registered
+agent platform whose repo-local config directory already exists.
 
 Then use the daily loop:
 
@@ -141,7 +141,10 @@ bootstrap guide.
 | Codex | repo-local hooks with `apply_patch` path extraction |
 | Cursor | pre-write, post-write, prompt, and stop hook coverage |
 | OpenCode | plugin-based chat, tool, permission, and idle handling |
-| Antigravity | invocation, tool, post-tool, and stop hook coverage |
+| Devin CLI | native session, tool, permission, stop, and post-compaction hooks |
+| Antigravity CLI | invocation, tool, post-tool, and stop hook coverage |
+| GitHub Copilot | repository hooks with native Copilot decision responses |
+| Kilo | thin project plugin with chat, tool, permission, compaction, and idle handling |
 
 All platforms still use git pre-commit as the hard repository backstop.
 

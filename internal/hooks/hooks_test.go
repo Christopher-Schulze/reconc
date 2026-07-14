@@ -348,7 +348,7 @@ func gitInitRepo(t *testing.T, dir string) {
 	}
 }
 
-func TestInstallGitPreCommitRefusesOverwriteWithoutForce(t *testing.T) {
+func TestInstallGitPreCommitIsIdempotentWithoutForce(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
 	}
@@ -358,12 +358,29 @@ func TestInstallGitPreCommitRefusesOverwriteWithoutForce(t *testing.T) {
 	if _, err := Install(KindGitPreCommit, repo, false); err != nil {
 		t.Fatalf("first install: %v", err)
 	}
-	_, err := Install(KindGitPreCommit, repo, false)
-	if err == nil {
-		t.Fatal("expected error on second install without force")
+	report, err := Install(KindGitPreCommit, repo, false)
+	if err != nil {
+		t.Fatalf("second install: %v", err)
 	}
-	if !strings.Contains(err.Error(), "already exists") {
-		t.Errorf("expected 'already exists', got: %v", err)
+	if report.Action != "unchanged" {
+		t.Fatalf("second install action = %s, want unchanged", report.Action)
+	}
+}
+
+func TestInstallGitPreCommitRefusesDifferentHookWithoutForce(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	repo := t.TempDir()
+	gitInitRepo(t, repo)
+	target := filepath.Join(repo, ".git", "hooks", "pre-commit")
+	if err := os.WriteFile(target, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Install(KindGitPreCommit, repo, false)
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("expected existing-hook refusal, got %v", err)
 	}
 }
 
@@ -376,6 +393,10 @@ func TestInstallGitPreCommitForceOverwrites(t *testing.T) {
 
 	if _, err := Install(KindGitPreCommit, repo, false); err != nil {
 		t.Fatalf("first install: %v", err)
+	}
+	target := filepath.Join(repo, ".git", "hooks", "pre-commit")
+	if err := os.WriteFile(target, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
 	}
 	report, err := Install(KindGitPreCommit, repo, true)
 	if err != nil {
@@ -835,22 +856,17 @@ func TestGenerateOpenCodePlugin(t *testing.T) {
 		"tool.execute.before",
 		"tool.execute.after",
 		"chat.message",
+		"permission.ask",
+		"experimental.session.compacting",
 		"session.idle",
+		"session.deleted",
 		"opencode-pre-tool-use",
 		"opencode-post-tool-use",
 		"opencode-stop",
-		"reconcReleaseName",
-		`repo + "/tools/reconc/dist/" + reconcReleaseName`,
-		`repo + "/dist/" + reconcReleaseName`,
-		`Bun.spawn(["git", "-C", candidate, "rev-parse", "--show-toplevel"]`,
-		"await resolveRepoRoot(worktree || directory || process.cwd())",
-		"isSyntheticMessage",
-		"isUserRole",
-		"handleUserPromptText",
-		`disabled_reason: reason`,
-		"const readStopMarker = async",
-		"stopMarkerMatchesState",
-		`await runCommand(["rm", "-f", stopFile])`,
+		`const wrapper = repo + "/tools/reconc/bin/hook"`,
+		`return [wrapper, event, repo]`,
+		`return [binary, "hook", "runtime", event, repo]`,
+		"Policy, session state, and continuation decisions stay in the Go runtime",
 	} {
 		if !strings.Contains(a.Content, token) {
 			t.Fatalf("OpenCode plugin missing %q:\n%s", token, a.Content)
@@ -863,26 +879,27 @@ func TestGenerateOpenCodePluginLeanContinuationPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate opencode: %v", err)
 	}
-	// The active continuation prompt is deliberately terse. The legacy quality
-	// gate remains in the generated plugin as disabled reference text, but it is
-	// no longer sent as the follow-up prompt.
+	// The plugin forwards the bounded Go response. It must not embed a second
+	// project workflow, task parser, or prompt policy.
 	for _, want := range []string{
-		`const runLoopPrompt = (_task, _head) => "🔥 STFU & LET ME COOK! 🔥"`,
-		`parts: [{ type: "text", text: runLoopPrompt(task, head) }]`,
-		"const legacyRunLoopPrompt",
-		"runloop autocontinue. Continue the repository task lifecycle",
-		"Quality gate (mandatory before any Done)",
-		"Never declare NO_SPEC_SURFACE without grepping docs/spec.md first",
-		"Verify goal by goal, atomically - no sampling",
-		"per-TASK Reality-Check loop in docs/task-loop-workflow.md",
+		`const reason = contextFrom(result)`,
+		`parts: [{ type: "text", text: reason }]`,
+		`const stopEvent = "opencode-stop"`,
+		`const result = await run(stopEvent`,
 	} {
 		if !strings.Contains(a.Content, want) {
 			t.Fatalf("OpenCode continuation prompt missing %q:\n%s", want, a.Content)
 		}
 	}
 	for _, banned := range []string{
-		"The second visible line must be a fresh",
-		"Inspiration bank",
+		"legacyRunLoopPrompt",
+		"STFU & LET ME COOK",
+		"docs/task-loop-workflow.md",
+		"no_progress_guard",
+		"Bun.write",
+		`Bun.spawn(["git"`,
+		`reconc-0.6.0-`,
+		`tools/reconc/dist`,
 	} {
 		if strings.Contains(a.Content, banned) {
 			t.Fatalf("OpenCode continuation prompt must not re-inject entry ceremony %q:\n%s", banned, a.Content)
@@ -890,112 +907,20 @@ func TestGenerateOpenCodePluginLeanContinuationPrompt(t *testing.T) {
 	}
 }
 
-func TestGenerateOpenCodePluginRunLoopStateMachine(t *testing.T) {
+func TestGenerateOpenCodePluginDelegatesStateToGoRuntime(t *testing.T) {
 	a, err := Generate(KindOpenCode)
 	if err != nil {
 		t.Fatalf("generate opencode: %v", err)
 	}
 	content := a.Content
 
-	// readState heals inconsistent state when disabled_reason or a scoped stopfile
-	// applies to the active run.
-	if !strings.Contains(content, "(state.disabled_reason || stopApplies) && state.enabled") {
-		t.Fatal("missing readState auto-heal for inconsistent enabled state")
-	}
-	if !strings.Contains(content, "state.enabled = false") {
-		t.Fatal("missing readState enabled=false correction")
-	}
-
-	// enableRunloop clears disabled_reason and stop_anchor_message_id
-	if !strings.Contains(content, `disabled_reason: ""`) {
-		t.Fatal("missing enableRunloop disabled_reason clear")
-	}
-	if !strings.Contains(content, `stop_anchor_message_id: ""`) {
-		t.Fatal("missing enableRunloop stop_anchor_message_id clear")
-	}
-
-	// disableRunloop resets active_run_id
-	if !strings.Contains(content, `active_run_id: ""`) {
-		t.Fatal("missing disableRunloop active_run_id reset")
-	}
-
-	// chat.message is the authoritative OpenCode user-prompt switch:
-	// standalone /runloop flag enables; same-run normal prompts disable.
-	if !strings.Contains(content, `"chat.message": async`) || !strings.Contains(content, "handleUserPromptText") {
-		t.Fatal("missing chat.message prompt switch")
-	}
-	if !strings.Contains(content, `return token === "/runloop"`) {
-		t.Fatal("OpenCode activation must use standalone /runloop flag")
-	}
-	if !strings.Contains(content, "sameActiveRun") {
-		t.Fatal("OpenCode activation must preserve active run across other sessions")
-	}
-	if !strings.Contains(content, `disabledReason: "user_prompt"`) && !strings.Contains(content, `"user_prompt"`) {
-		t.Fatal("missing user_prompt disable reason")
-	}
-
-	// maybeAutocontinue re-checks the scoped stop marker live.
-	if !strings.Contains(content, "const stopMarker = await readStopMarker()") {
-		t.Fatal("missing live stop marker re-check in maybeAutocontinue")
-	}
-
-	// Internal OpenCode errors must not be confused with user aborts. Only
-	// explicit interrupt signals map to user_interrupt; other session errors
-	// stop the driver as session_error.
-	for _, forbidden := range []string{
-		"abortTypePattern",
-		"isUserAbortEvent",
-		"disableOnUserAbort",
-		"abortPayloadPattern",
-		"safeJSON(event)",
-		"user_abort_or_session_error",
-		"runloop user abort detected",
-	} {
+	for _, forbidden := range []string{"readState", "writeState", "stopMarker", "currentTask", "currentHead", "currentDirtyState", "runLoopPrompt"} {
 		if strings.Contains(content, forbidden) {
-			t.Fatalf("BUG: %s still present — removed to prevent false aborts from internal OpenCode events", forbidden)
+			t.Fatalf("OpenCode adapter must not own %q; the Go runtime owns policy and state", forbidden)
 		}
 	}
-
-	for _, token := range []string{"tui.command.execute", "session.interrupt", "MessageAbortedError", "user_interrupt", "session_error", "setStopFile(eventSessionID"} {
-		if !strings.Contains(content, token) {
-			t.Fatalf("missing OpenCode interrupt/error handling token %q", token)
-		}
-	}
-	if !strings.Contains(content, `"permission.ask": async`) || !strings.Contains(content, "permissionPayload") {
-		t.Fatal("missing OpenCode permission.ask Reconc gate")
-	}
-	if !strings.Contains(content, "session.interrupted_by_user") {
-		t.Fatal("missing explicit user interrupt stop handling")
-	}
-
-	// no_progress_guard stops at maxNoProgressNudges
-	if !strings.Contains(content, "no_progress_guard") {
-		t.Fatal("missing no_progress_guard disable reason")
-	}
-	// Other sessions must not disable an active run.
-	if !strings.Contains(content, "state.active_run_id !== targetSessionID") {
-		t.Fatal("missing other-session no-op guard")
-	}
-	if strings.Contains(content, "plugin_load") {
-		t.Fatal("plugin reload must not disable runloop")
-	}
-	if !strings.Contains(content, "opencode_continuation_driver") {
-		t.Fatal("missing OpenCode continuation driver marker")
-	}
-
-	// nudgeInFlight prevents double-prompt
-	if !strings.Contains(content, "nudgeInFlight") {
-		t.Fatal("missing nudgeInFlight guard")
-	}
-
-	// isSyntheticMessage filters compaction messages
-	if !strings.Contains(content, "isSyntheticMessage") {
-		t.Fatal("missing isSyntheticMessage filter")
-	}
-
-	// isUserRole correctly identifies user/human roles
-	if !strings.Contains(content, "isUserRole") {
-		t.Fatal("missing isUserRole check")
+	if len(content) > 12*1024 {
+		t.Fatalf("OpenCode adapter is not thin: %d bytes", len(content))
 	}
 }
 
@@ -1129,8 +1054,8 @@ func TestTemplateRepoRootScaffoldHooksMatchGenerator(t *testing.T) {
 		if strings.Contains(artifact.Content, "Project Complete Candidate") {
 			t.Fatalf("template scaffold %s still contains old final-hold wording", kind)
 		}
-		if kind == KindOpenCode && !strings.Contains(artifact.Content, "zero-finding Terminal Gate") {
-			t.Fatalf("template scaffold %s must point Runloop at the zero-finding Terminal Gate", kind)
+		if kind == KindOpenCode && strings.Contains(artifact.Content, "Terminal Gate") {
+			t.Fatalf("template scaffold %s must not embed a project-specific workflow", kind)
 		}
 		info, err := os.Stat(target)
 		if err != nil {

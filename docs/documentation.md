@@ -265,7 +265,7 @@ Package responsibilities:
 - `internal/parser`: YAML-to-policy validation and normalization
 - `internal/compiler`: canonical JSON lockfile generation, digesting, conflicts, migrations, compile lock
 - `internal/runtime`: policy evaluation, remediation, git integration, scripts, templates
-- `internal/hooks`: git, Claude Code, and Codex hook generation and install, including PermissionRequest wiring
+- `internal/hooks`: typed hook platform registry, artifact generation, non-destructive install, scaffold sync, and activation diagnostics
 - `internal/runtime/agentsession`: hook-runtime session state and event handling
 - `internal/audit`: opt-in JSONL decision log and rotation
 - `internal/atomicfile`: atomic write-on-change publication
@@ -297,14 +297,35 @@ skill documents the same reconc workflow for every agent runtime:
 - run `reconc done .` before claiming completion
 - distinguish native hook enforcement from CLI self-checks
 
-Claude Code, Codex, Cursor, OpenCode and Antigravity have repo-local
-prompt/tool/stop hook wiring through generated configs that call
-`tools/reconc/bin/hook`; the wrapper owns repo-local dist-binary selection and
-PATH `reconc` as last fallback. Claude Code uses its exec-form `command`+`args`
-shape so it does not spawn a hook shell or run a hook-launcher Git lookup.
-Codex uses the host shell command string without a nested `sh -lc`; Cursor and
-Antigravity keep their portable shell launcher until their direct argv shape is
-proven by runtime docs/tests.
+The typed platform registry is the source of truth for Git pre-commit, Claude
+Code, Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, GitHub Copilot, and
+Kilo. It owns native event names, normalized lifecycle coverage, compatibility
+routes, config and scaffold paths, failure behavior, timeout budgets, output
+budgets, installation strategy, and activation probes. `reconc hook status
+[repo] [--json]` validates every registered artifact and reports `absent`,
+`installed`, `active`, `degraded`, `shadowed`, or `unsupported`. `active` means
+the configuration is complete and discoverable; it does not claim that a live
+agent process already loaded it.
+
+The registry assigns 5-second observation/session budgets, 10-second pre-tool
+and permission budgets, and 30-second Stop budgets instead of one blanket
+timeout. Claude, Devin, Antigravity, and Copilot generators emit those host
+timeouts; OpenCode and Kilo enforce them inside their adapters. Each runtime
+route caps combined process output at 8 KiB.
+Post-compaction recovery context is deduplicated and capped at 4 KiB.
+Copilot's `PreCompact` event is intentionally not installed because that event
+ignores output, so spawning Reconc there would add latency without restoring
+context.
+
+Claude Code, Codex, Cursor, Devin, Antigravity, and Copilot generated configs
+use `tools/reconc/bin/hook` on POSIX; the wrapper owns repo-local dist-binary
+selection and PATH `reconc` as last fallback. Copilot's native Windows route
+uses its PowerShell command field until the cross-platform wrapper is installed.
+Claude Code uses its exec-form
+`command`+`args` shape so it does not spawn a hook shell or run a hook-launcher
+Git lookup. Codex uses the host shell command string without a nested `sh -lc`;
+Cursor, Antigravity, and Copilot use portable shell launchers with a direct
+wrapper fast path before their Git fallback.
 Codex also needs `hooks = true` in an active `config.toml` and routes
 `apply_patch` through Reconc by parsing patch headers from
 `tool_input.command`. Cursor Desktop uses `.cursor/hooks.json` with
@@ -316,14 +337,23 @@ hook paths emit explicit `{"continue":true,"permission":"allow"}` JSON because
 Cursor fail-closed hooks treat empty stdout as hook failure. If Cursor also
 executes compatible `.claude/settings.json` hooks, Reconc detects Cursor-native
 payload markers and no-ops those non-native Claude hook invocations before they
-can mutate Cursor session or Runloop state. OpenCode uses
-`.opencode/plugins/reconc.js`
-with `chat.message`, `tool.execute.*`, `permission.ask`, and `session.idle`;
+can mutate Cursor session or Runloop state. After compaction, Claude routes the
+context-capable `SessionStart` `compact` matcher through Reconc; it does not
+spawn the notification-only `PostCompact` event. Devin uses
+`.devin/hooks.v1.json`, including `PostCompaction`, and suppresses compatible
+Claude-hook duplicates. GitHub Copilot uses `.github/hooks/reconc.json` version
+1 with VS Code-compatible payloads and Copilot-native decision JSON.
 Antigravity uses `.agents/hooks.json` with `PreInvocation`, `PreToolUse`,
-`PostToolUse`, `PostInvocation`, and `Stop`; Reconc stores Antigravity
-PreTool metadata as pending evidence so PostToolUse can record exact
-read/write/command evidence even when the post payload only carries the step
-index/result.
+`PostToolUse`, `PostInvocation`, and `Stop`; Reconc stores Antigravity PreTool
+metadata as pending evidence so PostToolUse can record exact evidence when the
+post payload only carries a step index/result. OpenCode and Kilo use thin Bun
+adapters at `.opencode/plugins/reconc.js` and `.kilo/plugin/reconc.js`. They
+translate host events only; policy, session state, compaction context, and
+continuation decisions stay in the Go runtime, so the plugins do not maintain
+parallel runloop files or inject project-specific prompts. Their subprocess
+budgets are generated from the same registry, cap output at 8 KiB, terminate
+slow routes after 5, 10, or 30 seconds, and delegate versioned binary discovery
+to `tools/reconc/bin/hook` instead of embedding a release number.
 Runloop activation is prompt-only and requires a standalone `/runloop`
 slash-command flag in sanitized real user prompt text, so quoted transcripts,
 multi-line quoted chat blocks, pasted transcript marker lines, diagnostic
@@ -359,7 +389,7 @@ output. The live log and two archives are each bounded at 2 MiB; readers merge
 the ring in chronological order.
 Repeated identical policy blocks stay blocking but shrink to rule IDs plus the
 saved report path. PreToolUse evaluates only pre-execution write/shell rules,
-generated Claude/Codex/Cursor/Antigravity configs do not spawn PreToolUse for
+generated Claude/Codex/Cursor/Devin/Antigravity/Copilot configs do not spawn PreToolUse for
 read-only matchers, all PostToolUse / after-shell events record evidence only,
 and repo-wide policy audits run only at Stop or explicit Reconc checks. Stop and
 explicit checks remain the hard enforcement points. Claude Code generated hooks pass

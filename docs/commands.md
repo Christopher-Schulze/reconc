@@ -41,8 +41,11 @@ Scaffolds `.reconc.yml` + a stub `AGENTS.md` for a fresh repo. Multiple
 to a file while still printing to stdout.
 
 ### `reconc bootstrap [repo] [--preset NAME] [--force] [--skip-git-hook] [--skip-agent-hooks] [--json]`
-One-shot onboarding: init + compile + install git pre-commit + (if
-`.claude/`, `.codex/`, `.cursor/`, `.opencode/`, or `.agents/` are present) install agent hooks.
+One-shot onboarding: init + compile + install git pre-commit + install every
+registered agent hook whose dedicated repo-local config directory is present.
+Detection covers `.claude/`, `.codex/`, `.cursor/`, `.opencode/`, `.devin/`,
+`.agents/`, `.github/hooks/` or `.github/copilot/`, and `.kilo/` or
+`.kilocode/`. A generic `.github/` directory alone does not imply Copilot.
 
 ### `reconc adopt [repo] [--yaml | --json | --apply]`
 Detects common tooling (JS/TS, Python, Rust, Go, CI, generated dirs)
@@ -158,22 +161,34 @@ Rule shape templates (`tests-follow-source`, `docs-follow-code`,
 `no-generated-writes`, `ci-green-before-merge`). User overrides in
 `$RECONC_HOME/templates/*.yml`.
 
-### `reconc hook generate <git-pre-commit|claude-code|codex|cursor|opencode|antigravity> [--json] [--output PATH]`
+### `reconc hook generate <git-pre-commit|claude-code|codex|cursor|opencode|devin-cli|antigravity|copilot|kilo> [--json] [--output PATH]`
 Emit the hook artefact content without writing to disk.
 
-### `reconc hook install <git-pre-commit|claude-code|codex|cursor|opencode|antigravity> [repo] [--force] [--json] [--output PATH]`
-Write the hook into the repo. Git pre-commit is a fresh `.git/hooks`
-file; Claude Code / Codex JSON configs are merged non-destructively;
+### `reconc hook install <git-pre-commit|claude-code|codex|cursor|opencode|devin-cli|antigravity|copilot|kilo> [repo] [--force] [--json] [--output PATH]`
+Write the hook into the repo. Git pre-commit reuses an identical managed
+`.git/hooks` file and refuses different content without `--force`; Claude Code
+and Codex JSON configs are merged non-destructively;
 Cursor writes `.cursor/hooks.json`; OpenCode writes
-`.opencode/plugins/reconc.js`; Antigravity merges the top-level
+`.opencode/plugins/reconc.js`; Devin merges `.devin/hooks.v1.json`;
+Antigravity merges the top-level
 `reconc` hook definition into `.agents/hooks.json`, preserving
-non-reconc hook groups unless `--force` is passed.
+non-reconc hook groups; Copilot owns `.github/hooks/reconc.json`; and Kilo owns
+`.kilo/plugin/reconc.js`. Managed plugin/files refuse unrelated existing
+content unless `--force` is passed.
+
+### `reconc hook status [repo] [--json]`
+Validate registered artifacts and activation requirements. States are
+`absent`, `installed`, `active`, `degraded`, `shadowed`, and `unsupported`.
+The command checks malformed, incomplete, non-executable, or drifted managed
+artifacts, the repo-local wrapper, Codex's enable flag, Git `core.hooksPath`,
+Copilot disable settings, Kilo pure mode, and legacy Kilo plugin placement.
 
 ### `reconc hook sync-scaffold <repo-root-scaffold> [--json]`
 Regenerate source-controlled hook artifacts inside a template
 `repo-root-scaffold`: `.githooks/pre-commit`, `.codex/hooks.json`,
 `.cursor/hooks.json`, `.agents/hooks.json`, `.claude/settings.json`,
-and `.opencode/plugins/reconc.js`. This keeps scaffolded repos on the
+`.opencode/plugins/reconc.js`, `.devin/hooks.v1.json`,
+`.github/hooks/reconc.json`, and `.kilo/plugin/reconc.js`. This keeps scaffolded repos on the
 same generator truth as `reconc hook install`; do not copy these files
 from a source-specific harness.
 
@@ -182,8 +197,9 @@ Assert a workflow claim (e.g. `ci-green`). Written to the session
 state consulted by later hook-runtime checks and `ci` calls.
 
 ### `reconc hook runtime <event> <repo>`
-Agent-platform event dispatcher. Called from Claude Code / Codex /
-Cursor / OpenCode / Antigravity hook configs, not by users directly.
+Registry-owned agent-platform event dispatcher. Called from Claude Code,
+Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, GitHub Copilot, and Kilo
+hook configs, not by users directly.
 
 ---
 

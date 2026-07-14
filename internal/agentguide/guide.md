@@ -37,8 +37,8 @@ Zero-config path:
 reconc bootstrap .
 ```
 One command: scaffolds `.reconc.yml`, compiles, installs git
-pre-commit, and installs Claude Code / Codex hooks when their config
-directories already exist.
+pre-commit, and installs every registered agent hook whose dedicated
+repo-local config directory already exists.
 
 Detect existing conventions and propose matching rules:
 ```bash
@@ -49,6 +49,7 @@ reconc adopt . --apply      # append to .reconc.yml (idempotent)
 Verify installation health end-to-end:
 ```bash
 reconc verify .
+reconc hook status . --json
 ```
 
 After changing policy sources, refresh the generated contract explicitly:
@@ -123,37 +124,42 @@ reconc hook claim . ci-green
 reconc check . --write <path> --claim ci-green --json
 ```
 
-Claims can also be supplied via an events file, stdin JSON, or by the Claude Code / Codex hook integration.
+Claims can also be supplied via an events file, stdin JSON, or by a registered hook integration.
 
 ## Platform Integration
 
-| Capability | Claude Code | Codex | Generic agents |
-|---|---|---|---|
-| Pre-write file blocking | Hard for Edit/Write/MultiEdit | Soft self-check | Soft self-check |
-| Read/write evidence capture | Hard via hooks | Not file-level | Manual CLI evidence |
-| Bash command interception | Hard | Hard for Bash | Manual CLI evidence |
-| Stop/final gate | Hard | Hard where hooks run | `reconc done` / git hook |
-| Commit backstop | Git pre-commit | Git pre-commit | Git pre-commit |
+The typed registry supports Claude Code, Codex, Cursor, OpenCode, Devin CLI,
+Antigravity CLI, GitHub Copilot, and Kilo. Run `reconc hook status . --json`
+instead of guessing whether an artifact is installed, active, degraded,
+shadowed, or unsupported.
 
 - **Claude Code**: strongest integration. `PreToolUse` blocks
   protected file edits before execution, `PostToolUse` records reads /
-  writes / commands, and `Stop` gates session end.
-- **Codex**: Bash-centered hook integration. Command rules can be
-  enforced by hooks, but file-level rules still require the agent to
-  self-check with `reconc check` before edits.
+  writes / commands, `Stop` gates session end, and `SessionStart(compact)`
+  restores a bounded context packet after compaction.
+- **Codex**: session, prompt, Bash, `apply_patch`, permission, evidence,
+  and Stop hooks when `.codex/config.toml` enables them.
+- **Cursor**: `.cursor/hooks.json` covers prompt, file, shell, evidence,
+  and Stop events exposed by Cursor.
 - **OpenCode**: use `reconc hook install opencode .` for the
-  project-local `.opencode/plugins/reconc.js`; still run explicit CLI
-  checks for any gap the platform cannot report.
-- **Generic / other agents (KiloCode, Aider, ...)**: invoke the CLI
+  thin project-local `.opencode/plugins/reconc.js` adapter.
+- **Devin CLI**: `.devin/hooks.v1.json` covers session, tool,
+  permission, Stop, cleanup, and post-compaction recovery.
+- **Antigravity CLI**: `.agents/hooks.json` covers invocation, tool,
+  observation, and Stop events.
+- **GitHub Copilot**: `.github/hooks/reconc.json` returns Copilot-native
+  decision JSON and omits its notification-only compaction event.
+- **Kilo**: `.kilo/plugin/reconc.js` is a thin adapter; `KILO_PURE` must
+  be unset for project plugins to load.
+- **Generic / other agents (Aider, ...)**: invoke the CLI
   directly. `reconc can`, `reconc check --terse`, `reconc next`, and
   `reconc done` are token-optimised for this path.
 - **Git**: `reconc hook install git-pre-commit .` drops a pre-commit
   hook that runs `reconc ci --staged` as a hard commit-time backstop.
 
-Do not claim Claude-level file enforcement on Codex, OpenCode, or
-generic agents. For those platforms, native hooks where available,
-explicit CLI checks, and the git hook together are the deterministic
-safety net.
+Do not claim stronger enforcement than `reconc hook status`, the platform
+capability contract, and native-shape tests prove. Explicit CLI checks and the
+git hook remain the deterministic backstop for unsupported host events.
 
 ## Output Modes (Token Efficiency)
 

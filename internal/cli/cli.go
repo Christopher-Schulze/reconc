@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"reconc.dev/reconc/internal/adopt"
 	"reconc.dev/reconc/internal/agentguide"
@@ -3807,9 +3808,8 @@ func atoi(s string) (int, error) {
 //   - Init: scaffold .reconc.yml + AGENTS.md (extends default by default)
 //   - Compile: build .reconc/policy.lock.json
 //   - If .git/ present and --skip-git-hook NOT set: install git pre-commit
-//   - If .claude/ / .codex/ / .cursor/ / .opencode/ / .agents/ present and --skip-agent-hooks NOT set:
-//     install the matching agent-platform hook config non-destructively
-//     (merges with any existing settings)
+//   - If a registered agent platform's config directory is present and
+//     --skip-agent-hooks is not set: install its hook non-destructively.
 //   - Idempotent: re-running bootstrap on an already-initialized repo
 //     skips with --force when the user wants to overwrite
 //
@@ -3850,7 +3850,7 @@ func runBootstrap(args []string, version string, stdout, stderr io.Writer) error
 			fmt.Fprintln(stdout, "")
 			fmt.Fprintln(stdout, "Minimal CLI bootstrap: init + compile + platform hook install.")
 			fmt.Fprintln(stdout, "- git pre-commit is installed when .git/ is present.")
-			fmt.Fprintln(stdout, "- Claude Code / Codex / Cursor / OpenCode / Antigravity hooks are installed when their repo-local config dirs exist.")
+			fmt.Fprintln(stdout, "- Registered agent hooks are installed when their repo-local config dirs exist.")
 			return nil
 		default:
 			if len(a) > 0 && a[0] == '-' {
@@ -3863,6 +3863,7 @@ func runBootstrap(args []string, version string, stdout, stderr io.Writer) error
 
 	steps := []string{}
 	hints := []string{}
+	installFailed := false
 
 	// Step 1: init
 	initReport, err := scaffold.Initialize(repo, opts)
@@ -3885,6 +3886,7 @@ func runBootstrap(args []string, version string, stdout, stderr io.Writer) error
 	if gitDirPresent && !skipGitHook {
 		hookReport, err := hooks.Install(hooks.KindGitPreCommit, initReport.RepoRoot, true)
 		if err != nil {
+			installFailed = true
 			steps = append(steps, "hook install git-pre-commit: "+err.Error())
 		} else {
 			steps = append(steps, fmt.Sprintf("hook install git-pre-commit: %s -> %s", hookReport.Action, hookReport.TargetPath))
@@ -3893,66 +3895,44 @@ func runBootstrap(args []string, version string, stdout, stderr io.Writer) error
 		hints = append(hints, "no .git/ found - run `git init` then `reconc hook install git-pre-commit` to enable commit-time enforcement")
 	}
 
-	// Step 4: auto-install agent hooks when the platform's config dir
-	// is already present. Opt-out via --skip-agent-hooks (we keep the
-	// bootstrap non-invasive for repos that don't yet use those agents).
-	claudeDirPresent := dirExists(filepath.Join(initReport.RepoRoot, ".claude"))
-	codexDirPresent := dirExists(filepath.Join(initReport.RepoRoot, ".codex"))
-	cursorDirPresent := dirExists(filepath.Join(initReport.RepoRoot, ".cursor"))
-	opencodeDirPresent := dirExists(filepath.Join(initReport.RepoRoot, ".opencode"))
-	antigravityDirPresent := dirExists(filepath.Join(initReport.RepoRoot, ".agents"))
-	if claudeDirPresent && !skipAgentHooks {
-		if rep, err := hooks.Install(hooks.KindClaudeCode, initReport.RepoRoot, false); err != nil {
-			steps = append(steps, "hook install claude-code: "+err.Error())
-		} else {
-			steps = append(steps, fmt.Sprintf("hook install claude-code: %s -> %s", rep.Action, rep.TargetPath))
+	// Step 4: registry-driven agent hook installation. Generic .github alone
+	// does not imply Copilot; its dedicated copilot/ or hooks/ path must exist.
+	for _, platform := range hooks.AgentPlatforms() {
+		detected := platformConfigDetected(initReport.RepoRoot, platform)
+		if detected && !skipAgentHooks {
+			report, err := hooks.Install(platform.Kind, initReport.RepoRoot, false)
+			if err != nil {
+				installFailed = true
+				steps = append(steps, "hook install "+platform.Kind+": "+err.Error())
+				continue
+			}
+			steps = append(steps, fmt.Sprintf("hook install %s: %s -> %s", platform.Kind, report.Action, report.TargetPath))
+			continue
 		}
-	} else if !claudeDirPresent {
-		hints = append(hints, "Claude Code: create .claude/ then `reconc hook install claude-code` (or `reconc hook generate claude-code` for manual paste)")
+		if !detected {
+			hints = append(hints, fmt.Sprintf("%s: create %s then `reconc hook install %s`", platform.DisplayName, strings.Join(platform.Activation.ConfigDirs, " or "), platform.Kind))
+		}
 	}
-	if codexDirPresent && !skipAgentHooks {
-		if rep, err := hooks.Install(hooks.KindCodex, initReport.RepoRoot, false); err != nil {
-			steps = append(steps, "hook install codex: "+err.Error())
-		} else {
-			steps = append(steps, fmt.Sprintf("hook install codex: %s -> %s", rep.Action, rep.TargetPath))
-		}
-	} else if !codexDirPresent {
-		hints = append(hints, "Codex: create .codex/ then `reconc hook install codex` (and set hooks=true in config.toml)")
+
+	hookStatuses, statusErr := hooks.InspectPlatforms(initReport.RepoRoot)
+	if statusErr != nil {
+		installFailed = true
+		hints = append(hints, "Hook activation inspection failed: "+statusErr.Error())
 	}
-	if cursorDirPresent && !skipAgentHooks {
-		if rep, err := hooks.Install(hooks.KindCursor, initReport.RepoRoot, false); err != nil {
-			steps = append(steps, "hook install cursor: "+err.Error())
-		} else {
-			steps = append(steps, fmt.Sprintf("hook install cursor: %s -> %s", rep.Action, rep.TargetPath))
+	healthy := !installFailed
+	for _, report := range hookStatuses {
+		if report.State != hooks.StateAbsent && report.State != hooks.StateActive {
+			healthy = false
 		}
-	} else if !cursorDirPresent {
-		hints = append(hints, "Cursor Desktop: create .cursor/ then `reconc hook install cursor`")
-	}
-	if opencodeDirPresent && !skipAgentHooks {
-		if rep, err := hooks.Install(hooks.KindOpenCode, initReport.RepoRoot, false); err != nil {
-			steps = append(steps, "hook install opencode: "+err.Error())
-		} else {
-			steps = append(steps, fmt.Sprintf("hook install opencode: %s -> %s", rep.Action, rep.TargetPath))
-		}
-	} else if !opencodeDirPresent {
-		hints = append(hints, "OpenCode: create .opencode/ then `reconc hook install opencode`")
-	}
-	if antigravityDirPresent && !skipAgentHooks {
-		if rep, err := hooks.Install(hooks.KindAntigravity, initReport.RepoRoot, false); err != nil {
-			steps = append(steps, "hook install antigravity: "+err.Error())
-		} else {
-			steps = append(steps, fmt.Sprintf("hook install antigravity: %s -> %s", rep.Action, rep.TargetPath))
-		}
-	} else if !antigravityDirPresent {
-		hints = append(hints, "Antigravity CLI: create .agents/ then `reconc hook install antigravity`")
 	}
 
 	if jsonOut {
 		payload := map[string]interface{}{
-			"repo_root":  initReport.RepoRoot,
-			"steps":      steps,
-			"next_hints": hints,
-			"healthy":    true,
+			"repo_root":     initReport.RepoRoot,
+			"steps":         steps,
+			"hook_statuses": hookStatuses,
+			"next_hints":    hints,
+			"healthy":       healthy,
 		}
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
@@ -3963,6 +3943,13 @@ func runBootstrap(args []string, version string, stdout, stderr io.Writer) error
 	fmt.Fprintf(stdout, "Bootstrapped reconc at %s\n\n", initReport.RepoRoot)
 	for i, s := range steps {
 		fmt.Fprintf(stdout, "  %d. %s\n", i+1, s)
+	}
+	if len(hookStatuses) > 0 {
+		fmt.Fprintln(stdout, "")
+		fmt.Fprintln(stdout, "Hook status:")
+		for _, report := range hookStatuses {
+			fmt.Fprintf(stdout, "  - %s: %s (%s)\n", report.Kind, report.State, report.Detail)
+		}
 	}
 	fmt.Fprintln(stdout, "")
 	fmt.Fprintln(stdout, "Next steps:")
@@ -3978,38 +3965,39 @@ func dirExists(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// runHook implements `reconc hook <generate|install> <kind> [repo]
-// [--force] [--json]`. Routes to the hooks package.
+func platformConfigDetected(repoRoot string, platform hooks.Platform) bool {
+	for _, relative := range platform.Activation.ConfigDirs {
+		if dirExists(filepath.Join(repoRoot, filepath.FromSlash(relative))) {
+			return true
+		}
+	}
+	return false
+}
+
+// runHook routes hook platform management and runtime events to the hooks and
+// agent-session packages.
 func runHook(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return &CLIError{ExitCode: 1, Message: "reconc hook: missing subcommand (generate | install | sync-scaffold | runtime | claim)"}
+		return &CLIError{ExitCode: 1, Message: "reconc hook: missing subcommand (generate | install | status | sync-scaffold | runtime | claim)"}
 	}
 	switch args[0] {
 	case "-h", "--help":
-		fmt.Fprintln(stdout, "Usage: reconc hook generate <kind> [--json]")
-		fmt.Fprintln(stdout, "       reconc hook install  <kind> [repo] [--force] [--json]")
+		fmt.Fprintln(stdout, "Usage: reconc hook generate <kind> [--json] [--output PATH]")
+		fmt.Fprintln(stdout, "       reconc hook install  <kind> [repo] [--force] [--json] [--output PATH]")
+		fmt.Fprintln(stdout, "       reconc hook status   [repo] [--json]")
 		fmt.Fprintln(stdout, "       reconc hook sync-scaffold <repo-root-scaffold> [--json]")
 		fmt.Fprintln(stdout, "       reconc hook runtime  <event> <repo>            (reads stdin JSON)")
-		fmt.Fprintln(stdout, "       reconc hook claim    <repo> <claim-name> [--session ID] [--json]")
+		fmt.Fprintln(stdout, "       reconc hook claim    <repo> <claim-name> [--session ID] [--json] [--output PATH]")
 		fmt.Fprintln(stdout, "")
-		fmt.Fprintln(stdout, "Kinds: git-pre-commit, claude-code, codex, cursor, opencode, antigravity (all installable)")
-		fmt.Fprintln(stdout, "Runtime events: claude-{session-start,user-prompt-submit,pre-tool-use,")
-		fmt.Fprintln(stdout, "                permission-request,post-tool-use,post-tool-use-failure,")
-		fmt.Fprintln(stdout, "                stop,session-end}")
-		fmt.Fprintln(stdout, "                codex-{session-start,user-prompt-submit,pre-tool-use,")
-		fmt.Fprintln(stdout, "                permission-request,post-tool-use,post-tool-use-failure,")
-		fmt.Fprintln(stdout, "                stop,session-end}")
-		fmt.Fprintln(stdout, "                cursor-{session-start,user-prompt-submit,pre-tool-use,post-tool-use,")
-		fmt.Fprintln(stdout, "                before-shell-execution,after-shell-execution,before-read-file,")
-		fmt.Fprintln(stdout, "                before-tab-file-read,after-file-edit,after-tab-file-edit,")
-		fmt.Fprintln(stdout, "                stop,session-end}")
-		fmt.Fprintln(stdout, "                opencode-{session-start,pre-tool-use,post-tool-use,stop}")
-		fmt.Fprintln(stdout, "                antigravity-{pre-invocation,pre-tool-use,post-tool-use,post-invocation,stop}")
+		fmt.Fprintf(stdout, "Kinds: %s (all installable)\n", strings.Join(hooks.SupportedKinds(), ", "))
+		fmt.Fprintf(stdout, "Runtime events: %d registry-owned routes; run `reconc hook runtime --help` for the exact list.\n", len(hooks.RuntimeEvents()))
 		return nil
 	case "generate":
 		return runHookGenerate(args[1:], stdout, stderr)
 	case "install":
 		return runHookInstall(args[1:], stdout, stderr)
+	case "status":
+		return runHookStatus(args[1:], stdout)
 	case "sync-scaffold":
 		return runHookSyncScaffold(args[1:], stdout, stderr)
 	case "runtime":
@@ -4017,7 +4005,47 @@ func runHook(args []string, stdout, stderr io.Writer) error {
 	case "claim":
 		return runHookClaim(args[1:], stdout, stderr)
 	}
-	return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook: unknown subcommand %q (expected generate | install | sync-scaffold | runtime | claim)", args[0])}
+	return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook: unknown subcommand %q (expected generate | install | status | sync-scaffold | runtime | claim)", args[0])}
+}
+
+func runHookStatus(args []string, stdout io.Writer) error {
+	repo := "."
+	repoSet := false
+	jsonOut := false
+	for _, arg := range args {
+		switch arg {
+		case "--json":
+			jsonOut = true
+		case "-h", "--help":
+			fmt.Fprintln(stdout, "Usage: reconc hook status [repo] [--json]")
+			return nil
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook status: unknown flag %q", arg)}
+			}
+			if repoSet {
+				return &CLIError{ExitCode: 1, Message: "reconc hook status: accepts at most one repo path"}
+			}
+			repo = arg
+			repoSet = true
+		}
+	}
+	reports, err := hooks.InspectPlatforms(repo)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc hook status: " + err.Error()}
+	}
+	if jsonOut {
+		encoder := json.NewEncoder(stdout)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(reports); err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc hook status: json encode: " + err.Error()}
+		}
+		return nil
+	}
+	for _, report := range reports {
+		fmt.Fprintf(stdout, "%s: %s (%s)\n", report.Kind, report.State, report.Detail)
+	}
+	return nil
 }
 
 func runHookGenerate(args []string, stdout, stderr io.Writer) error {
@@ -4143,7 +4171,7 @@ func runHookSyncScaffold(args []string, stdout, stderr io.Writer) error {
 			jsonOut = true
 		case "-h", "--help":
 			fmt.Fprintln(stdout, "Usage: reconc hook sync-scaffold <repo-root-scaffold> [--json]")
-			fmt.Fprintln(stdout, "Writes generated Codex/Cursor/Claude/OpenCode/Antigravity hook artifacts and .githooks/pre-commit into a repo-root scaffold.")
+			fmt.Fprintln(stdout, "Writes every registry-managed hook artifact into a repo-root scaffold.")
 			return nil
 		default:
 			if len(a) > 0 && a[0] == '-' {
@@ -4194,25 +4222,10 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 		if a == "-h" || a == "--help" {
 			fmt.Fprintln(stdout, "Usage: reconc hook runtime <event> <repo>   (reads JSON from stdin)")
 			fmt.Fprintln(stdout, "")
-			fmt.Fprintln(stdout, "Events: claude-session-start, claude-pre-tool-use,")
-			fmt.Fprintln(stdout, "        claude-permission-request,")
-			fmt.Fprintln(stdout, "        claude-post-tool-use, claude-post-tool-use-failure,")
-			fmt.Fprintln(stdout, "        claude-user-prompt-submit, claude-stop, claude-session-end,")
-			fmt.Fprintln(stdout, "        codex-session-start, codex-pre-tool-use,")
-			fmt.Fprintln(stdout, "        codex-permission-request,")
-			fmt.Fprintln(stdout, "        codex-post-tool-use, codex-post-tool-use-failure,")
-			fmt.Fprintln(stdout, "        codex-user-prompt-submit, codex-stop, codex-session-end,")
-			fmt.Fprintln(stdout, "        cursor-session-start, cursor-user-prompt-submit,")
-			fmt.Fprintln(stdout, "        cursor-pre-tool-use, cursor-post-tool-use,")
-			fmt.Fprintln(stdout, "        cursor-before-shell-execution, cursor-after-shell-execution,")
-			fmt.Fprintln(stdout, "        cursor-before-read-file, cursor-before-tab-file-read,")
-			fmt.Fprintln(stdout, "        cursor-after-file-edit, cursor-after-tab-file-edit,")
-			fmt.Fprintln(stdout, "        cursor-stop, cursor-session-end,")
-			fmt.Fprintln(stdout, "        opencode-session-start, opencode-pre-tool-use,")
-			fmt.Fprintln(stdout, "        opencode-post-tool-use, opencode-stop,")
-			fmt.Fprintln(stdout, "        antigravity-pre-invocation, antigravity-pre-tool-use,")
-			fmt.Fprintln(stdout, "        antigravity-post-tool-use, antigravity-post-invocation,")
-			fmt.Fprintln(stdout, "        antigravity-stop")
+			fmt.Fprintln(stdout, "Events:")
+			for _, event := range hooks.RuntimeEvents() {
+				fmt.Fprintln(stdout, "  "+event)
+			}
 			return nil
 		}
 	}
@@ -4221,6 +4234,10 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 	}
 	event := args[0]
 	repo := args[1]
+	route, knownEvent := hooks.RuntimeEvent(event)
+	if !knownEvent {
+		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook runtime: unknown event %q", event)}
+	}
 	timing := newHookRuntimeTiming(event, stderr)
 	exitCode := 0
 	defer func() {
@@ -4232,20 +4249,41 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 
 	payload, err := agentsession.ReadPayload(os.Stdin)
 	if err != nil {
-		exitCode = 2
-		return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + err.Error()}
-	}
-	timing.mark("payload_read")
-	if !strings.HasPrefix(event, "cursor-") && agentsession.PayloadLooksLikeCursor(payload) {
-		return nil
-	}
-	if strings.HasPrefix(event, "cursor-") {
-		payload, err = agentsession.NormalizeCursorPayload(event, payload)
-		if err != nil {
+		if route.ErrorPolicy == hooks.FailureBlock {
 			exitCode = 2
 			return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + err.Error()}
 		}
+		fmt.Fprintln(stderr, "reconc hook runtime warning: "+err.Error())
+		return nil
+	}
+	timing.mark("payload_read")
+	if route.PlatformKind != hooks.KindCursor && agentsession.PayloadLooksLikeCursor(payload) {
+		return nil
+	}
+	if route.PlatformKind != hooks.KindDevinCLI && agentsession.PayloadLooksLikeDevin(payload) {
+		return nil
+	}
+	if route.PlatformKind == hooks.KindClaudeCode && agentsession.PayloadMatchesRuntimeSession(repo, payload, "copilot") {
+		return nil
+	}
+	switch route.PlatformKind {
+	case hooks.KindCursor:
+		payload, err = agentsession.NormalizeCursorPayload(event, payload)
 		timing.mark("cursor_normalize")
+	case hooks.KindDevinCLI:
+		payload, err = agentsession.NormalizeDevinPayload(event, payload, repo)
+		timing.mark("devin_normalize")
+	case hooks.KindCopilot:
+		payload, err = agentsession.NormalizeCopilotPayload(event, payload)
+		timing.mark("copilot_normalize")
+	}
+	if err != nil {
+		if route.ErrorPolicy == hooks.FailureBlock {
+			exitCode = 2
+			return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + err.Error()}
+		}
+		fmt.Fprintln(stderr, "reconc hook runtime warning: "+err.Error())
+		return nil
 	}
 
 	previousRuntime, hadRuntime := os.LookupEnv("RECONC_HOOK_RUNTIME")
@@ -4259,44 +4297,52 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 	}()
 
 	var result agentsession.Result
-	switch event {
-	case "antigravity-pre-invocation":
-		result = agentsession.RunAntigravityPreInvocation(repo, payload)
-	case "antigravity-pre-tool-use":
-		result = agentsession.RunAntigravityPreToolUse(repo, payload)
-	case "antigravity-post-tool-use":
-		result = agentsession.RunAntigravityPostToolUse(repo, payload)
-	case "antigravity-post-invocation":
-		result = agentsession.RunAntigravityPostInvocation(repo, payload)
-	case "antigravity-stop":
-		result = agentsession.RunAntigravityStop(repo, payload)
-	case "claude-session-start", "codex-session-start", "cursor-session-start", "opencode-session-start":
-		result = agentsession.RunSessionStart(repo, payload)
-	case "claude-user-prompt-submit", "codex-user-prompt-submit", "cursor-user-prompt-submit":
-		result = agentsession.RunUserPromptSubmit(repo, payload)
-	case "claude-pre-tool-use", "codex-pre-tool-use", "cursor-pre-tool-use", "cursor-before-shell-execution", "cursor-before-read-file", "cursor-before-tab-file-read", "opencode-pre-tool-use":
-		result = agentsession.RunPreToolUse(repo, payload)
-	case "claude-permission-request", "codex-permission-request":
-		result = agentsession.RunPermissionRequest(repo, payload)
-	case "claude-post-tool-use", "codex-post-tool-use", "cursor-post-tool-use", "cursor-after-file-edit", "cursor-after-tab-file-edit", "opencode-post-tool-use":
-		result = agentsession.RunPostToolUse(repo, payload)
-	case "cursor-after-shell-execution":
-		result = agentsession.RunPostToolUseComplete(repo, payload)
-	case "claude-post-tool-use-failure", "codex-post-tool-use-failure":
-		result = agentsession.RunPostToolUseFailure(repo, payload)
-	case "claude-stop", "codex-stop", "cursor-stop", "opencode-stop":
-		result = agentsession.RunStop(repo, payload)
-	case "codex-session-end", "cursor-session-end", "claude-session-end":
-		result = agentsession.RunSessionEnd(repo, payload)
-	default:
-		exitCode = 1
-		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook runtime: unknown event %q", event)}
+	if route.PlatformKind == hooks.KindAntigravity {
+		result = runAntigravityHookRuntime(event, repo, payload)
+	} else {
+		switch route.Event {
+		case hooks.EventSessionStart:
+			result = agentsession.RunSessionStart(repo, payload)
+		case hooks.EventUserPromptSubmit:
+			result = agentsession.RunUserPromptSubmit(repo, payload)
+		case hooks.EventPreToolUse:
+			result = agentsession.RunPreToolUse(repo, payload)
+		case hooks.EventPermissionRequest:
+			result = agentsession.RunPermissionRequest(repo, payload)
+		case hooks.EventPostToolUse:
+			if event == "cursor-after-shell-execution" || event == "devin-post-tool-use" {
+				result = agentsession.RunPostToolUseComplete(repo, payload)
+			} else {
+				result = agentsession.RunPostToolUse(repo, payload)
+			}
+		case hooks.EventPostToolUseFailure:
+			result = agentsession.RunPostToolUseFailure(repo, payload)
+		case hooks.EventStop:
+			result = agentsession.RunStop(repo, payload)
+		case hooks.EventSessionEnd:
+			result = agentsession.RunSessionEnd(repo, payload)
+		case hooks.EventPostCompaction:
+			result = agentsession.RunPostCompaction(repo, payload)
+		default:
+			exitCode = 1
+			return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook runtime: event %q is not executable", event)}
+		}
 	}
 	timing.mark("handler")
-	if strings.HasPrefix(event, "cursor-") {
+	switch route.PlatformKind {
+	case hooks.KindClaudeCode:
+		if route.Event == hooks.EventPostCompaction {
+			result = agentsession.AdaptPostCompactionResult(result, "SessionStart")
+			timing.mark("claude_compaction_adapt")
+		}
+	case hooks.KindCursor:
 		result = agentsession.AdaptCursorResult(event, result)
 		timing.mark("cursor_adapt")
+	case hooks.KindCopilot:
+		result = agentsession.AdaptCopilotResult(event, result)
+		timing.mark("copilot_adapt")
 	}
+	result = boundHookResult(result, route)
 
 	if result.Stdout != "" {
 		fmt.Fprintln(stdout, result.Stdout)
@@ -4309,6 +4355,67 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 		return &CLIError{ExitCode: result.ExitCode, Message: ""}
 	}
 	return nil
+}
+
+func runAntigravityHookRuntime(event, repo string, payload []byte) agentsession.Result {
+	switch event {
+	case "antigravity-pre-invocation":
+		return agentsession.RunAntigravityPreInvocation(repo, payload)
+	case "antigravity-pre-tool-use":
+		return agentsession.RunAntigravityPreToolUse(repo, payload)
+	case "antigravity-post-tool-use":
+		return agentsession.RunAntigravityPostToolUse(repo, payload)
+	case "antigravity-post-invocation":
+		return agentsession.RunAntigravityPostInvocation(repo, payload)
+	case "antigravity-stop":
+		return agentsession.RunAntigravityStop(repo, payload)
+	default:
+		return agentsession.Result{ExitCode: 1, Stderr: "unsupported Antigravity event"}
+	}
+}
+
+func boundHookResult(result agentsession.Result, route hooks.RuntimeRoute) agentsession.Result {
+	limit := route.MaxOutputBytes
+	if limit <= 0 {
+		return result
+	}
+	stderrLimit := limit / 2
+	stdoutLimit := limit - stderrLimit
+	result.Stderr = truncateWithSuffix(result.Stderr, stderrLimit, "\n[reconc stderr truncated]")
+	if len(result.Stdout) <= stdoutLimit {
+		return result
+	}
+	result.Stdout = ""
+	result.Stderr = truncateUTF8("reconc hook output exceeded the platform byte budget", limit)
+	if route.ErrorPolicy == hooks.FailureBlock {
+		result.ExitCode = 2
+	} else {
+		result.ExitCode = 0
+	}
+	return result
+}
+
+func truncateWithSuffix(value string, limit int, suffix string) string {
+	if len(value) <= limit {
+		return value
+	}
+	if limit <= len(suffix) {
+		return truncateUTF8(value, limit)
+	}
+	return truncateUTF8(value, limit-len(suffix)) + suffix
+}
+
+func truncateUTF8(value string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	if len(value) <= limit {
+		return value
+	}
+	for limit > 0 && !utf8.RuneStart(value[limit]) {
+		limit--
+	}
+	return value[:limit]
 }
 
 type hookRuntimeTiming struct {
@@ -4375,21 +4482,12 @@ func hookRuntimeTimingThreshold() time.Duration {
 }
 
 func isObservationOnlyHookEvent(event string) bool {
-	switch event {
-	case "claude-post-tool-use",
-		"claude-post-tool-use-failure",
-		"codex-post-tool-use",
-		"codex-post-tool-use-failure",
-		"cursor-post-tool-use",
-		"cursor-after-file-edit",
-		"cursor-after-tab-file-edit",
-		"cursor-after-shell-execution",
-		"cursor-session-end",
-		"claude-session-end",
-		"codex-session-end",
-		"opencode-post-tool-use",
-		"antigravity-post-tool-use",
-		"antigravity-post-invocation":
+	route, ok := hooks.RuntimeEvent(event)
+	if !ok {
+		return false
+	}
+	switch route.Event {
+	case hooks.EventPostToolUse, hooks.EventPostToolUseFailure, hooks.EventSessionEnd, hooks.EventPostCompaction:
 		return true
 	default:
 		return false
@@ -5025,17 +5123,6 @@ func readLockfileSummary(repoRoot string) (map[string]interface{}, error) {
 	return payload, nil
 }
 
-func validateLockfileRepoRoot(repoRoot string, payload map[string]interface{}) error {
-	storedRoot, _ := payload["repo_root"].(string)
-	if storedRoot == "" {
-		return fmt.Errorf("compiled lockfile repo_root is missing; run `reconc refresh .`")
-	}
-	if !samePathForCompare(storedRoot, repoRoot) {
-		return fmt.Errorf("compiled lockfile repo_root does not match the discovered repository root; run `reconc refresh .`")
-	}
-	return nil
-}
-
 func samePathForCompare(a, b string) bool {
 	if canonicalPathForCompare(a) == canonicalPathForCompare(b) {
 		return true
@@ -5206,7 +5293,7 @@ Explain & remediate:
 Packs & wiring:
   preset           list / show bundled and user presets
   template         list / show bundled and user rule templates (W18)
-  hook             generate / install / sync-scaffold / claim platform hooks (git / claude-code / codex / cursor / opencode / antigravity)
+  hook             generate / install / status / sync-scaffold / claim registered platform hooks
 
 Workflow maintenance:
   changelog        rotate docs/changelog.md / list-archives

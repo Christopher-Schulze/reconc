@@ -619,8 +619,20 @@ func TestRunBootstrapHintsAndAgentInstall(t *testing.T) {
 			t.Fatalf("bootstrap missing-tooling repo: %v", err)
 		}
 		out := stdout.String()
-		if !strings.Contains(out, "no .git/ found") || !strings.Contains(out, "Claude Code: create .claude/") || !strings.Contains(out, "Codex: create .codex/") || !strings.Contains(out, "Cursor Desktop: create .cursor/") || !strings.Contains(out, "OpenCode: create .opencode/") || !strings.Contains(out, "Antigravity CLI: create .agents/") {
-			t.Fatalf("expected bootstrap hints, got %q", out)
+		for _, hint := range []string{
+			"no .git/ found",
+			"Claude Code: create .claude",
+			"Codex: create .codex",
+			"Cursor: create .cursor",
+			"OpenCode: create .opencode",
+			"Devin CLI: create .devin",
+			"Antigravity CLI: create .agents",
+			"GitHub Copilot: create .github/copilot or .github/hooks",
+			"Kilo: create .kilo or .kilocode",
+		} {
+			if !strings.Contains(out, hint) {
+				t.Fatalf("expected bootstrap hint %q, got %q", hint, out)
+			}
 		}
 	})
 
@@ -728,7 +740,8 @@ func TestRunHookAndPresetValidationPaths(t *testing.T) {
 		t.Fatalf("hook --help: %v", err)
 	}
 	if !strings.Contains(stdout.String(), "Usage: reconc hook generate") ||
-		!strings.Contains(stdout.String(), "sync-scaffold") {
+		!strings.Contains(stdout.String(), "sync-scaffold") ||
+		!strings.Contains(stdout.String(), "--output PATH") {
 		t.Fatalf("expected hook help output, got %q", stdout.String())
 	}
 

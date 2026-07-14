@@ -1011,7 +1011,6 @@ func auditAgentHooks(root string) []string {
 	}
 	var failures []string
 	hooks := map[string][]string{}
-	binaryTokens := reconcDistBinaryTokens()
 	if cfg.AgentHooks.RequireCodexConfig {
 		hooks[filepath.Join(root, ".codex/config.toml")] = []string{
 			"hooks = true",
@@ -1053,6 +1052,9 @@ func auditAgentHooks(root string) []string {
 			"tools/reconc/bin/hook",
 			"\"args\"",
 			"claude-session-start",
+			"claude-post-compaction",
+			`"compact"`,
+			`"timeout"`,
 			"claude-pre-tool-use",
 			"claude-post-tool-use",
 			"claude-stop",
@@ -1060,23 +1062,38 @@ func auditAgentHooks(root string) []string {
 		}
 	}
 	if cfg.AgentHooks.RequireOpenCodePlugin {
-		hooks[filepath.Join(root, ".opencode/plugins/reconc.js")] = append([]string{
+		hooks[filepath.Join(root, ".opencode/plugins/reconc.js")] = []string{
 			"Managed by reconc",
-			"reconcBinaryCandidates",
-			"reconcArgs = (event) => [\"hook\", \"runtime\", event, repo]",
+			"Policy, session state, and continuation decisions stay in the Go runtime",
+			`const wrapper = repo + "/tools/reconc/bin/hook"`,
+			`return [wrapper, event, repo]`,
+			`killSignal: "SIGKILL"`,
 			"opencode-session-start",
+			"opencode-user-prompt-submit",
 			"opencode-pre-tool-use",
+			"opencode-permission-request",
 			"opencode-post-tool-use",
+			"opencode-post-tool-use-failure",
+			"opencode-post-compaction",
+			"opencode-session-end",
 			"opencode-stop",
 			"session.idle",
 			"client.session.prompt",
-			".reconc/runloop",
-			"runloop autocontinue",
-			"session.interrupted_by_user",
-			"user_interrupt",
-			"opencode_continuation_driver",
-			"clearStopFile",
-		}, binaryTokens...)
+		}
+	}
+	if cfg.AgentHooks.RequireDevinHooks {
+		hooks[filepath.Join(root, ".devin/hooks.v1.json")] = []string{
+			"DEVIN_PROJECT_DIR",
+			"tools/reconc/bin/hook",
+			"devin-session-start",
+			"devin-user-prompt-submit",
+			"devin-pre-tool-use",
+			"devin-permission-request",
+			"devin-post-tool-use",
+			"devin-post-compaction",
+			"devin-stop",
+			"devin-session-end",
+		}
 	}
 	if cfg.AgentHooks.RequireAntigravityHooks {
 		hooks[filepath.Join(root, ".agents/hooks.json")] = []string{
@@ -1092,6 +1109,49 @@ func auditAgentHooks(root string) []string {
 			"view_file|write_to_file|replace_file_content|multi_replace_file_content|list_dir|find_by_name|grep_search|run_command",
 		}
 	}
+	if cfg.AgentHooks.RequireCopilotHooks {
+		hooks[filepath.Join(root, ".github/hooks/reconc.json")] = []string{
+			`"version": 1`,
+			`"SessionStart"`,
+			`"UserPromptSubmit"`,
+			`"PreToolUse"`,
+			`"PermissionRequest"`,
+			`"PostToolUse"`,
+			`"PostToolUseFailure"`,
+			`"Stop"`,
+			`"SessionEnd"`,
+			"copilot-pre-tool-use",
+			"copilot-stop",
+			"tools/reconc/bin/hook",
+			`"timeoutSec": 10`,
+		}
+	}
+	if cfg.AgentHooks.RequireKiloPlugin {
+		hooks[filepath.Join(root, ".kilo/plugin/reconc.js")] = []string{
+			"Managed by reconc",
+			"Policy, session state, and continuation decisions stay in the Go runtime",
+			`const wrapper = repo + "/tools/reconc/bin/hook"`,
+			`return [wrapper, event, repo]`,
+			`killSignal: "SIGKILL"`,
+			"kilo-session-start",
+			"kilo-user-prompt-submit",
+			"kilo-pre-tool-use",
+			"kilo-permission-request",
+			"kilo-post-tool-use",
+			"kilo-post-tool-use-failure",
+			"kilo-post-compaction",
+			"kilo-session-end",
+			"kilo-stop",
+			`export default { id: "reconc", server: ReconcKiloServer }`,
+		}
+	}
+	forbidden := map[string][]string{
+		".claude/settings.json":       {`"PostCompact"`},
+		".opencode/plugins/reconc.js": {".reconc/runloop", "runloop autocontinue", "opencode_continuation_driver", "STFU", "tools/reconc/dist", "reconc-0.6.0-"},
+		".kilo/plugin/reconc.js":      {".reconc/runloop", "runloop autocontinue", "opencode_continuation_driver", "STFU", "tools/reconc/dist", "reconc-0.6.0-"},
+		".agents/hooks.json":          {`"timeout": 120`},
+		".github/hooks/reconc.json":   {`"PreCompact"`, "copilot-post-compaction"},
+	}
 	for path, required := range hooks {
 		relative := rel(root, path)
 		contentBytes, err := os.ReadFile(path)
@@ -1100,9 +1160,18 @@ func auditAgentHooks(root string) []string {
 			continue
 		}
 		content := string(contentBytes)
+		if strings.HasSuffix(relative, ".json") && !json.Valid(contentBytes) {
+			failures = append(failures, fmt.Sprintf("%s is not valid JSON", relative))
+			continue
+		}
 		for _, token := range required {
 			if !strings.Contains(content, token) {
 				failures = append(failures, fmt.Sprintf("%s missing required Reconc hook token %q", relative, token))
+			}
+		}
+		for _, token := range forbidden[relative] {
+			if strings.Contains(content, token) {
+				failures = append(failures, fmt.Sprintf("%s contains forbidden Reconc hook token %q", relative, token))
 			}
 		}
 		if relative == ".codex/hooks.json" || relative == ".cursor/hooks.json" || relative == ".claude/settings.json" || relative == ".agents/hooks.json" {
@@ -1119,6 +1188,8 @@ func auditAgentHooks(root string) []string {
 				}
 			}
 			failures = append(failures, auditHookLauncherShape(relative, content)...)
+		} else if relative == ".devin/hooks.v1.json" || relative == ".github/hooks/reconc.json" {
+			failures = append(failures, auditHookLauncherShape(relative, content)...)
 		}
 	}
 	return failures
@@ -1127,7 +1198,7 @@ func auditAgentHooks(root string) []string {
 func auditHookLauncherShape(relative string, content string) []string {
 	var decoded interface{}
 	if err := json.Unmarshal([]byte(content), &decoded); err != nil {
-		return nil
+		return []string{fmt.Sprintf("%s is not valid JSON: %v", relative, err)}
 	}
 	var failures []string
 	visitJSONCommands(decoded, func(command string, args interface{}) {
@@ -1143,6 +1214,15 @@ func auditHookLauncherShape(relative string, content string) []string {
 			}
 			return
 		}
+		if relative == ".devin/hooks.v1.json" {
+			if strings.Contains(command, "sh -lc") || strings.Contains(command, "git -C") {
+				failures = append(failures, fmt.Sprintf("%s uses shell/git launcher for Devin direct hook command %q", relative, command))
+			}
+			if !strings.Contains(command, "DEVIN_PROJECT_DIR") {
+				failures = append(failures, fmt.Sprintf("%s Devin hook command %q does not use DEVIN_PROJECT_DIR", relative, command))
+			}
+			return
+		}
 		for _, token := range []string{
 			`hook="$repo/tools/reconc/bin/hook"`,
 			`if [ -x "$hook" ]; then exec "$hook"`,
@@ -1154,7 +1234,37 @@ func auditHookLauncherShape(relative string, content string) []string {
 			}
 		}
 	})
+	if relative == ".github/hooks/reconc.json" {
+		visitJSONStringField(decoded, "bash", func(command string) {
+			for _, token := range []string{
+				`hook="$repo/tools/reconc/bin/hook"`,
+				`if [ -x "$hook" ]; then exec "$hook"`,
+				`git -C "$repo" rev-parse --show-toplevel`,
+				`RECONC_HOOK_REPO_RESOLVED=1 exec "$repo/tools/reconc/bin/hook"`,
+			} {
+				if !strings.Contains(command, token) {
+					failures = append(failures, fmt.Sprintf("%s Copilot bash hook missing fast-launch token %q", relative, token))
+				}
+			}
+		})
+	}
 	return failures
+}
+
+func visitJSONStringField(value interface{}, field string, visit func(string)) {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		if entry, ok := typed[field].(string); ok {
+			visit(entry)
+		}
+		for _, child := range typed {
+			visitJSONStringField(child, field, visit)
+		}
+	case []interface{}:
+		for _, child := range typed {
+			visitJSONStringField(child, field, visit)
+		}
+	}
 }
 
 func visitJSONCommands(value interface{}, visit func(command string, args interface{})) {
@@ -1202,16 +1312,6 @@ func repoCleanDryRunLines(output string) []string {
 		}
 	}
 	return lines
-}
-
-func reconcDistBinaryTokens() []string {
-	return []string{
-		"tools/reconc/dist/reconc-0.6.0-darwin-arm64",
-		"tools/reconc/dist/reconc-0.6.0-darwin-amd64",
-		"tools/reconc/dist/reconc-0.6.0-linux-arm64",
-		"tools/reconc/dist/reconc-0.6.0-linux-amd64",
-		"tools/reconc/dist/reconc-0.6.0-windows-amd64.exe",
-	}
 }
 
 func auditFinalRealityCheck(relative string, content string) []string {

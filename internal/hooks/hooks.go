@@ -1,6 +1,5 @@
-// Package hooks generates and installs platform-specific hook
-// artifacts that wire reconc into git, Claude Code, Codex, Cursor,
-// OpenCode, and Antigravity.
+// Package hooks generates, installs, and inspects platform-specific hook
+// artifacts that wire reconc into git and supported agent runtimes.
 //
 // Generators are pure functions (return a string + metadata).
 // Installers are the only entry points that touch the filesystem and
@@ -27,7 +26,10 @@ const (
 	CodexHooksPath           = ".codex/hooks.json"
 	CursorHooksPath          = ".cursor/hooks.json"
 	OpenCodePluginPath       = ".opencode/plugins/reconc.js"
+	DevinHooksPath           = ".devin/hooks.v1.json"
 	AntigravityHooksPath     = ".agents/hooks.json"
+	CopilotHooksPath         = ".github/hooks/reconc.json"
+	KiloPluginPath           = ".kilo/plugin/reconc.js"
 )
 
 // Supported hook kinds.
@@ -37,19 +39,22 @@ const (
 	KindCodex        = "codex"
 	KindCursor       = "cursor"
 	KindOpenCode     = "opencode"
+	KindDevinCLI     = "devin-cli"
 	KindAntigravity  = "antigravity"
+	KindCopilot      = "copilot"
+	KindKilo         = "kilo"
 )
 
 // SupportedKinds returns every kind reconc hook generate can produce.
 func SupportedKinds() []string {
-	return []string{KindGitPreCommit, KindClaudeCode, KindCodex, KindCursor, KindOpenCode, KindAntigravity}
+	return platformKinds(false)
 }
 
-// InstallableKinds returns the kinds that reconc hook install can
-// write directly. JSON configs are merged non-destructively; git
-// pre-commit is a fresh file write.
+// InstallableKinds returns the kinds that reconc hook install can write
+// directly. JSON configs are merged non-destructively; an unchanged managed
+// git hook is reused without another filesystem write.
 func InstallableKinds() []string {
-	return []string{KindGitPreCommit, KindClaudeCode, KindCodex, KindCursor, KindOpenCode, KindAntigravity}
+	return platformKinds(false)
 }
 
 // Artifact is one generated hook script + enough context to render it.
@@ -65,7 +70,7 @@ type InstallReport struct {
 	Kind       string `json:"kind"`
 	RepoRoot   string `json:"repo_root"`
 	TargetPath string `json:"target_path"`
-	Action     string `json:"action"` // "created" | "updated"
+	Action     string `json:"action"` // "created" | "updated" | "unchanged"
 	Executable bool   `json:"executable"`
 	NextAction string `json:"next_action"`
 	// DroppedUserEdits lists any hooks-entry strings classified as
@@ -92,33 +97,43 @@ type ScaffoldArtifactReport struct {
 	Executable bool   `json:"executable"`
 }
 
-// Generate dispatches to the per-kind generator.
+// Generate dispatches through the platform registry.
 func Generate(kind string) (*Artifact, error) {
-	switch kind {
-	case KindGitPreCommit:
+	definition, ok := lookupPlatformDefinition(kind)
+	if !ok {
+		return nil, &rerrors.PolicySourceError{
+			Message: fmt.Sprintf("unknown hook kind: %q (supported: %v)", kind, SupportedKinds()),
+		}
+	}
+	switch definition.generator {
+	case generatorGitPreCommit:
 		return generateGitPreCommit(), nil
-	case KindClaudeCode:
+	case generatorClaudeCode:
 		return generateClaudeCode(), nil
-	case KindCodex:
+	case generatorCodex:
 		return generateCodex(), nil
-	case KindCursor:
+	case generatorCursor:
 		return generateCursor(), nil
-	case KindOpenCode:
-		return generateOpenCode(), nil
-	case KindAntigravity:
+	case generatorOpenCode:
+		return generateOpenCodeThin(), nil
+	case generatorDevinCLI:
+		return generateDevinCLI(), nil
+	case generatorAntigravity:
 		return generateAntigravity(), nil
+	case generatorCopilot:
+		return generateCopilot(), nil
+	case generatorKilo:
+		return generateKilo(), nil
 	}
-	return nil, &rerrors.PolicySourceError{
-		Message: fmt.Sprintf("unknown hook kind: %q (supported: %v)", kind, SupportedKinds()),
-	}
+	return nil, &rerrors.PolicySourceError{Message: fmt.Sprintf("hook kind %q has no generator", kind)}
 }
 
 // Install writes an installable hook into the repo. Refuses to
 // overwrite an existing hook unless force is true.
 //
 // Supported kinds are installable:
-//   - git-pre-commit: creates .git/hooks/pre-commit (fresh file write,
-//     refuses to clobber an existing hook unless --force is set)
+//   - git-pre-commit: creates .git/hooks/pre-commit, reuses an identical
+//     managed hook, and refuses to clobber different content unless --force
 //   - claude-code: merges reconc hook entries into .claude/settings.json
 //     non-destructively. Idempotent: reconc-owned hook entries are
 //     identified by their repo-local wrapper/runtime signature and replaced
@@ -128,33 +143,40 @@ func Generate(kind string) (*Artifact, error) {
 //   - opencode: writes .opencode/plugins/reconc.js as a project-local
 //     plugin, refusing to clobber non-reconc plugin content unless
 //     --force is set.
-//   - antigravity: merges a top-level "reconc" JSON hook definition into
-//     .agents/hooks.json, preserving other Antigravity customizations.
+//   - JSON platforms merge reconc-owned entries without replacing unrelated
+//     hooks; plugin platforms replace only reconc-managed plugin files.
 func Install(kind, repoRoot string, force bool) (*InstallReport, error) {
-	switch kind {
-	case KindGitPreCommit:
+	definition, ok := lookupPlatformDefinition(kind)
+	if !ok {
+		return nil, &rerrors.PolicySourceError{
+			Message: fmt.Sprintf("unknown installable hook kind: %q (installable: %v)", kind, InstallableKinds()),
+		}
+	}
+	switch definition.InstallMode {
+	case InstallExecutable:
 		return installGitPreCommit(repoRoot, force)
-	case KindClaudeCode:
-		return installJSONHooks(KindClaudeCode, ClaudeCodeSettingsPath, repoRoot, force)
-	case KindCodex:
-		return installJSONHooks(KindCodex, CodexHooksPath, repoRoot, force)
-	case KindCursor:
-		return installJSONHooks(KindCursor, CursorHooksPath, repoRoot, force)
-	case KindOpenCode:
-		return installOpenCode(repoRoot, force)
-	case KindAntigravity:
+	case InstallNestedJSON:
+		return installJSONHooks(kind, definition.TargetPath, repoRoot, force)
+	case InstallFlatJSON:
+		return installDevinCLI(repoRoot, force)
+	case InstallOwnedJSON:
 		return installAntigravity(repoRoot, force)
+	case InstallManagedJSON:
+		return installCopilot(repoRoot, force)
+	case InstallPlugin:
+		if kind == KindOpenCode {
+			return installOpenCode(repoRoot, force)
+		}
+		return installKilo(repoRoot, force)
 	}
-	return nil, &rerrors.PolicySourceError{
-		Message: fmt.Sprintf("unknown installable hook kind: %q (installable: %v)", kind, InstallableKinds()),
-	}
+	return nil, &rerrors.PolicySourceError{Message: fmt.Sprintf("hook kind %q has no installer", kind)}
 }
 
 // ScaffoldKinds returns every generated hook artifact that belongs in
 // repo-root-scaffold. Git pre-commit is mapped to .githooks/pre-commit
 // because .git/hooks is clone-local and cannot be source-controlled.
 func ScaffoldKinds() []string {
-	return []string{KindGitPreCommit, KindClaudeCode, KindCodex, KindCursor, KindOpenCode, KindAntigravity}
+	return platformKinds(false)
 }
 
 // GenerateScaffoldArtifact returns the generated artifact at its
@@ -285,7 +307,7 @@ exit 2
 
 func generateClaudeCode() *Artifact {
 	// Route Claude Code events to reconc-specific runtime sub-actions.
-	command := func(event string) map[string]interface{} {
+	command := func(event string, lifecycle Event) map[string]interface{} {
 		return map[string]interface{}{
 			"type":    "command",
 			"command": "${CLAUDE_PROJECT_DIR}/tools/reconc/bin/hook",
@@ -293,14 +315,22 @@ func generateClaudeCode() *Artifact {
 				event,
 				"${CLAUDE_PROJECT_DIR}",
 			},
+			"timeout": mustTimeoutSeconds(KindClaudeCode, lifecycle),
 		}
 	}
 	template := map[string]interface{}{
 		"hooks": map[string]interface{}{
 			"SessionStart": []interface{}{
 				map[string]interface{}{
+					"matcher": "startup|resume|clear",
 					"hooks": []interface{}{
-						command("claude-session-start"),
+						command("claude-session-start", EventSessionStart),
+					},
+				},
+				map[string]interface{}{
+					"matcher": "compact",
+					"hooks": []interface{}{
+						command("claude-post-compaction", EventPostCompaction),
 					},
 				},
 			},
@@ -308,7 +338,7 @@ func generateClaudeCode() *Artifact {
 				map[string]interface{}{
 					"matcher": "Edit|Write|MultiEdit|Bash",
 					"hooks": []interface{}{
-						command("claude-pre-tool-use"),
+						command("claude-pre-tool-use", EventPreToolUse),
 					},
 				},
 			},
@@ -316,14 +346,14 @@ func generateClaudeCode() *Artifact {
 				map[string]interface{}{
 					"matcher": "Edit|Write|MultiEdit|Bash",
 					"hooks": []interface{}{
-						command("claude-permission-request"),
+						command("claude-permission-request", EventPermissionRequest),
 					},
 				},
 			},
 			"UserPromptSubmit": []interface{}{
 				map[string]interface{}{
 					"hooks": []interface{}{
-						command("claude-user-prompt-submit"),
+						command("claude-user-prompt-submit", EventUserPromptSubmit),
 					},
 				},
 			},
@@ -331,7 +361,7 @@ func generateClaudeCode() *Artifact {
 				map[string]interface{}{
 					"matcher": "Read|Edit|Write|MultiEdit|Bash",
 					"hooks": []interface{}{
-						command("claude-post-tool-use"),
+						command("claude-post-tool-use", EventPostToolUse),
 					},
 				},
 			},
@@ -339,21 +369,21 @@ func generateClaudeCode() *Artifact {
 				map[string]interface{}{
 					"matcher": "Bash",
 					"hooks": []interface{}{
-						command("claude-post-tool-use-failure"),
+						command("claude-post-tool-use-failure", EventPostToolUseFailure),
 					},
 				},
 			},
 			"Stop": []interface{}{
 				map[string]interface{}{
 					"hooks": []interface{}{
-						command("claude-stop"),
+						command("claude-stop", EventStop),
 					},
 				},
 			},
 			"SessionEnd": []interface{}{
 				map[string]interface{}{
 					"hooks": []interface{}{
-						command("claude-session-end"),
+						command("claude-session-end", EventSessionEnd),
 					},
 				},
 			},
@@ -528,11 +558,11 @@ func generateCursor() *Artifact {
 
 func generateAntigravity() *Artifact {
 	repoExpr := "."
-	command := func(event string) map[string]interface{} {
+	command := func(event string, lifecycle Event) map[string]interface{} {
 		return map[string]interface{}{
 			"type":    "command",
 			"command": runtimeCommand(repoExpr, event),
-			"timeout": 120,
+			"timeout": mustTimeoutSeconds(KindAntigravity, lifecycle),
 		}
 	}
 	preToolMatcher := strings.Join([]string{
@@ -551,30 +581,30 @@ func generateAntigravity() *Artifact {
 		"grep_search",
 		"run_command",
 	}, "|")
-	toolEntry := func(event string, matcher string) map[string]interface{} {
+	toolEntry := func(event string, lifecycle Event, matcher string) map[string]interface{} {
 		return map[string]interface{}{
 			"matcher": matcher,
 			"hooks": []interface{}{
-				command(event),
+				command(event, lifecycle),
 			},
 		}
 	}
 	template := map[string]interface{}{
 		"reconc": map[string]interface{}{
 			"PreInvocation": []interface{}{
-				command("antigravity-pre-invocation"),
+				command("antigravity-pre-invocation", EventSessionStart),
 			},
 			"PreToolUse": []interface{}{
-				toolEntry("antigravity-pre-tool-use", preToolMatcher),
+				toolEntry("antigravity-pre-tool-use", EventPreToolUse, preToolMatcher),
 			},
 			"PostToolUse": []interface{}{
-				toolEntry("antigravity-post-tool-use", postToolMatcher),
+				toolEntry("antigravity-post-tool-use", EventPostToolUse, postToolMatcher),
 			},
 			"PostInvocation": []interface{}{
-				command("antigravity-post-invocation"),
+				command("antigravity-post-invocation", EventSessionEnd),
 			},
 			"Stop": []interface{}{
-				command("antigravity-stop"),
+				command("antigravity-stop", EventStop),
 			},
 		},
 	}
@@ -593,590 +623,6 @@ func runtimeCommand(repoExpr, event string) string {
 
 func shellRuntimeCommand(repoExpr, event string) string {
 	return fmt.Sprintf(`repo="%s"; hook="$repo/tools/reconc/bin/hook"; if [ -x "$hook" ]; then exec "$hook" %s "$repo"; fi; repo="$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null || printf "%%s" "$repo")"; RECONC_HOOK_REPO_RESOLVED=1 exec "$repo/tools/reconc/bin/hook" %s "$repo"`, repoExpr, event, event)
-}
-
-func generateOpenCode() *Artifact {
-	content := `// Managed by reconc. Project-local OpenCode plugin.
-// Uses the repo-local Reconc binary when present; PATH is only a fallback.
-
-const sessionID = globalThis.crypto?.randomUUID?.() ?? "opencode-" + Date.now()
-const maxNoProgressNudges = 8
-
-const resolveRepoRoot = async (candidate) => {
-  const proc = Bun.spawn(["git", "-C", candidate, "rev-parse", "--show-toplevel"], {
-    stdout: "pipe",
-    stderr: "pipe",
-  })
-  const [code, stdout] = await Promise.all([
-    proc.exited,
-    new Response(proc.stdout).text(),
-  ])
-  if (code === 0) {
-    const root = stdout.trim()
-    if (root !== "") return root
-  }
-  return candidate
-}
-
-export const ReconcOpenCodePlugin = async ({ directory, worktree, client }) => {
-  const repo = await resolveRepoRoot(worktree || directory || process.cwd())
-  const reconcPlatform =
-    process.platform === "darwin" ? "darwin" :
-    process.platform === "linux" ? "linux" :
-    process.platform === "win32" ? "windows" : ""
-  const reconcArch =
-    process.arch === "arm64" ? "arm64" :
-    process.arch === "x64" ? "amd64" : ""
-  const reconcReleaseName =
-    reconcPlatform !== "" && reconcArch !== ""
-      ? "reconc-0.6.0-" + reconcPlatform + "-" + reconcArch + (reconcPlatform === "windows" ? ".exe" : "")
-      : ""
-  const reconcBinaryCandidates = reconcReleaseName === "" ? [] : [
-    repo + "/tools/reconc/dist/" + reconcReleaseName,
-    repo + "/dist/" + reconcReleaseName,
-  ]
-  const reconcArgs = (event) => ["hook", "runtime", event, repo]
-  const stateDir = repo + "/.reconc/runloop"
-  const stateFile = stateDir + "/state.json"
-  const stopFile = stateDir + "/stop"
-  let sessionStarted = false
-  let nudgeInFlight = false
-
-  const run = async (event, payload) => {
-    let bin = "reconc"
-    for (const candidate of reconcBinaryCandidates) {
-      if (await Bun.file(candidate).exists()) {
-        bin = candidate
-        break
-      }
-    }
-    const proc = Bun.spawn([bin, ...reconcArgs(event)], {
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
-    })
-    proc.stdin.write(JSON.stringify(payload))
-    proc.stdin.end()
-    const [code, stdout, stderr] = await Promise.all([
-      proc.exited,
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ])
-    return { code, stdout, stderr }
-  }
-
-  const runCommand = async (args) => {
-    const proc = Bun.spawn(args, {
-      cwd: repo,
-      stdout: "pipe",
-      stderr: "pipe",
-    })
-    const [code, stdout, stderr] = await Promise.all([
-      proc.exited,
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ])
-    return { code, stdout: stdout.trim(), stderr: stderr.trim() }
-  }
-
-  const ensureStateDir = async () => {
-    await runCommand(["mkdir", "-p", stateDir])
-  }
-
-  const readStopMarker = async () => {
-    if (!(await Bun.file(stopFile).exists())) return { exists: false, legacy: false }
-    const text = (await Bun.file(stopFile).text()).trim()
-    if (text === "") return { exists: true, legacy: true }
-    try {
-      const marker = JSON.parse(text)
-      return {
-        exists: true,
-        legacy: false,
-        session_id: typeof marker.session_id === "string" ? marker.session_id.trim() : "",
-        active_run_id: typeof marker.active_run_id === "string" ? marker.active_run_id.trim() : "",
-      }
-    } catch {
-      return { exists: true, legacy: true }
-    }
-  }
-
-  const stopMarkerMatchesState = (marker, state) => {
-    if (!marker?.exists) return false
-    if (marker.legacy) return true
-    if (marker.active_run_id && state.active_run_id) return marker.active_run_id === state.active_run_id
-    if (marker.session_id) return marker.session_id === state.session_id || marker.session_id === state.active_run_id
-    return false
-  }
-
-  const sameActiveRun = (state, openCodeSessionID) => {
-    const session = String(openCodeSessionID || "").trim()
-    if (!session) return false
-    if (state.active_run_id) return state.active_run_id === session
-    return state.session_id === session
-  }
-
-  const readState = async () => {
-    if (!(await Bun.file(stateFile).exists())) {
-      return {
-        enabled: false,
-        session_id: "",
-        active_run_id: "",
-        no_progress_nudges: 0,
-        disabled_reason: "",
-        stop_anchor_message_id: "",
-        awaiting_continuation: false,
-      }
-    }
-    try {
-      const state = JSON.parse(await Bun.file(stateFile).text())
-      if (typeof state.enabled !== "boolean") state.enabled = false
-      if (typeof state.no_progress_nudges !== "number") state.no_progress_nudges = 0
-      if (typeof state.session_id !== "string") state.session_id = ""
-      if (typeof state.active_run_id !== "string") state.active_run_id = state.session_id || ""
-      if (typeof state.disabled_reason !== "string") state.disabled_reason = ""
-      if (typeof state.stop_anchor_message_id !== "string") state.stop_anchor_message_id = ""
-      if (typeof state.awaiting_continuation !== "boolean") state.awaiting_continuation = false
-      const stopMarker = await readStopMarker()
-      const stopApplies = stopMarkerMatchesState(stopMarker, state)
-
-      if ((state.disabled_reason || stopApplies) && state.enabled) {
-        state.enabled = false
-        state.no_progress_nudges = 0
-        state.active_run_id = ""
-        state.awaiting_continuation = false
-        if (stopApplies) state.disabled_reason = "stop_file"
-      }
-
-      if (!state.enabled) {
-        state.no_progress_nudges = 0
-        state.awaiting_continuation = false
-      }
-
-      return state
-    } catch {
-      return {
-        enabled: false,
-        session_id: "",
-        active_run_id: "",
-        no_progress_nudges: 0,
-        disabled_reason: "invalid_state_json",
-        stop_anchor_message_id: "",
-        awaiting_continuation: false,
-      }
-    }
-  }
-
-  const writeState = async (state) => {
-    await ensureStateDir()
-    await Bun.write(stateFile, JSON.stringify({
-      ...state,
-      updated_at: new Date().toISOString(),
-    }, null, 2) + "\n")
-  }
-
-  const disableRunloop = async (state, reason, context = {}) => {
-    await writeState({
-      ...state,
-      ...context,
-      enabled: false,
-      active_run_id: "",
-      no_progress_nudges: 0,
-      disabled_reason: reason,
-      awaiting_continuation: false,
-    })
-  }
-
-  const enableRunloop = async (state, openCodeSessionID) => {
-    const session = openCodeSessionID || state.session_id || state.active_run_id || ""
-    await writeState({
-      ...state,
-      enabled: true,
-      session_id: session,
-      active_run_id: session,
-      no_progress_nudges: 0,
-      stop_anchor_message_id: "",
-      disabled_reason: "",
-      awaiting_continuation: false,
-      last_prompt_at: new Date().toISOString(),
-    })
-  }
-
-  const clearStopFile = async () => {
-    if (!(await Bun.file(stopFile).exists())) return
-    await runCommand(["rm", "-f", stopFile])
-  }
-
-  const setStopFile = async (sessionID, activeRunID, reason) => {
-    await runCommand(["mkdir", "-p", stateDir])
-    await Bun.write(stopFile, JSON.stringify({
-      session_id: sessionID || "",
-      active_run_id: activeRunID || sessionID || "",
-      reason: reason || "",
-    }) + "\n")
-  }
-
-  const messageIdentity = (value) => {
-    const candidates = [
-      value?.id,
-      value?.message?.id,
-      value?.info?.id,
-      value?.message_id,
-      value?.messageId,
-      value?.uuid,
-      value?.message?.uuid,
-      value?.meta?.id,
-    ]
-    for (const candidate of candidates) {
-      if (typeof candidate === "string" && candidate.trim() !== "") return candidate.trim()
-    }
-    if (typeof value?.created_at === "string" && value.created_at.trim() !== "") return "created:" + value.created_at.trim()
-    if (typeof value?.createdAt === "string" && value.createdAt.trim() !== "") return "created:" + value.createdAt.trim()
-    if (typeof value?.timestamp === "string" && value.timestamp.trim() !== "") return "created:" + value.timestamp.trim()
-    return ""
-  }
-
-  const markUserInterrupt = async (event) => {
-    if (!isUserInterruptEvent(event)) return false
-    const state = await readState()
-    const openCodeSessionID = findSessionID(event)
-    if (state.enabled && !sameActiveRun(state, openCodeSessionID)) return false
-    const latestMessage = await latestUserMessage(openCodeSessionID)
-    await disableRunloop({
-      ...state,
-      session_id: openCodeSessionID || state.session_id || "",
-      stop_anchor_message_id: latestMessage?.signature || "",
-    }, "user_interrupt")
-    await setStopFile(openCodeSessionID || state.session_id || "", state.active_run_id || openCodeSessionID || "", "user_interrupt")
-    return true
-  }
-
-  const isUserInterruptEvent = (event) => {
-    const type = event?.type
-    if (type === "session.interrupted_by_user") return true
-    if (type === "tui.command.execute" && event?.properties?.command === "session.interrupt") return true
-    if (type === "session.error" && event?.properties?.error?.name === "MessageAbortedError") return true
-    return false
-  }
-
-  const isSessionErrorEvent = (event) => event?.type === "session.error" && !isUserInterruptEvent(event)
-
-  const ensureSession = async () => {
-    if (sessionStarted) return
-    const result = await run("opencode-session-start", { session_id: sessionID })
-    if (result.code !== 0) throw new Error(result.stderr || result.stdout || "reconc OpenCode session-start failed")
-    sessionStarted = true
-  }
-
-  const normalizeTool = (tool) => {
-    switch (tool) {
-      case "read": return "Read"
-      case "write": return "Write"
-      case "edit": return "Edit"
-      case "multiedit": return "MultiEdit"
-      case "bash": return "Bash"
-      default: return tool || ""
-    }
-  }
-
-  const payload = (input, output) => ({
-    session_id: sessionID,
-    tool_name: normalizeTool(input?.tool || output?.tool),
-    tool_input: output?.args || input?.args || {},
-    tool_response: output?.result || output?.response || {},
-  })
-
-  const permissionPayload = (input) => {
-    const patterns = Array.isArray(input?.pattern) ? input.pattern : [input?.pattern].filter(Boolean)
-    const firstPattern = patterns.find((item) => typeof item === "string" && item.trim() !== "") || ""
-    const metadata = input?.metadata || {}
-    return {
-      session_id: input?.sessionID || sessionID,
-      tool_name: normalizeTool(input?.type || metadata.tool || metadata.tool_name || metadata.toolName),
-      tool_input: {
-        file_path: firstPattern,
-        command: input?.title || firstPattern,
-        pattern: patterns,
-        metadata,
-      },
-    }
-  }
-
-  const findSessionID = (value, depth = 0) => {
-    if (!value || depth > 6) return ""
-    if (typeof value === "string") return value.startsWith("ses_") ? value : ""
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        const found = findSessionID(item, depth + 1)
-        if (found) return found
-      }
-      return ""
-    }
-    if (typeof value !== "object") return ""
-    for (const key of ["sessionID", "sessionId", "session_id", "session"]) {
-      const found = findSessionID(value[key], depth + 1)
-      if (found) return found
-    }
-    for (const item of Object.values(value)) {
-      const found = findSessionID(item, depth + 1)
-      if (found) return found
-    }
-    return ""
-  }
-
-  const collectText = (value, output = []) => {
-    if (!value) return output
-    if (typeof value === "string") {
-      output.push(value)
-      return output
-    }
-    if (Array.isArray(value)) {
-      for (const item of value) collectText(item, output)
-      return output
-    }
-    if (typeof value !== "object") return output
-    for (const key of ["text", "content", "message"]) {
-      if (typeof value[key] === "string") output.push(value[key])
-    }
-    for (const key of ["parts", "children"]) {
-      collectText(value[key], output)
-    }
-    return output
-  }
-
-  const isSyntheticMessage = (message) => {
-    const candidates = [
-      message?.synthetic,
-      message?.is_synthetic,
-      message?.isSynthetic,
-      message?.metadata?.synthetic,
-      message?.metadata?.compaction_continue,
-      message?.metadata?.compactionContinue,
-      message?.metadata?.source,
-      message?.info?.synthetic,
-      message?.info?.is_synthetic,
-      message?.info?.isSynthetic,
-      message?.info?.metadata?.synthetic,
-      message?.info?.metadata?.compaction_continue,
-      message?.info?.metadata?.compactionContinue,
-      message?.info?.metadata?.source,
-      message?.message?.synthetic,
-      message?.message?.is_synthetic,
-      message?.message?.isSynthetic,
-      message?.message?.metadata?.synthetic,
-      message?.message?.metadata?.compaction_continue,
-      message?.message?.metadata?.compactionContinue,
-      message?.message?.metadata?.source,
-    ]
-
-    return candidates.some((value) => {
-      if (value === true || value === 1) return true
-      if (typeof value === "string") {
-        if (value.toLowerCase() === "compaction") return true
-      }
-      return false
-    })
-  }
-
-  const messagesList = (response) => {
-    const data = response?.data ?? response
-    if (Array.isArray(data)) return data
-    if (Array.isArray(data?.data)) return data.data
-    if (Array.isArray(data?.messages)) return data.messages
-    return []
-  }
-
-  const isUserRole = (role) => {
-    if (typeof role !== "string") return false
-    const normalized = role.toLowerCase().trim()
-    return normalized === "user" || normalized === "human"
-  }
-
-  const latestUserMessage = async (openCodeSessionID) => {
-    if (!client?.session?.messages || !openCodeSessionID) return null
-    const response = await client.session.messages({ path: { id: openCodeSessionID } })
-    const messages = messagesList(response)
-    for (let index = messages.length - 1; index >= 0; index--) {
-      const message = messages[index]
-      const role = message?.info?.role || message?.role || message?.message?.role || ""
-      if (isSyntheticMessage(message)) continue
-      const text = collectText(message?.parts || message).join("\n")
-      if (!text) continue
-      if (isUserRole(role) || (!role && hasExplicitRunText(text))) {
-        return { text, signature: messageIdentity(message) || text }
-      }
-    }
-    return null
-  }
-
-  const partsText = (parts) => collectText(parts).join("\n")
-
-  const handleUserPromptText = async (openCodeSessionID, text, messageID) => {
-    await ensureSession()
-    let state = await readState()
-    const targetSessionID = openCodeSessionID || state.session_id || state.active_run_id || sessionID
-    if (hasExplicitRunText(text)) {
-      await clearStopFile()
-      await enableRunloop({ ...state, stop_anchor_message_id: "" }, targetSessionID)
-      return
-    }
-    if (state.enabled && !sameActiveRun(state, targetSessionID)) return
-    await disableRunloop({
-      ...state,
-      session_id: targetSessionID,
-      stop_anchor_message_id: messageID || "",
-    }, "user_prompt")
-    await setStopFile(targetSessionID, state.active_run_id || targetSessionID, "user_prompt")
-  }
-
-  const currentTask = async () => {
-    const path = repo + "/docs/tasks.md"
-    if (!(await Bun.file(path).exists())) return ""
-    const content = await Bun.file(path).text()
-    const match = content.match(/^Current:\s+(TASK-[0-9]{4}-[A-Za-z0-9-]+)\s+->\s+(tasks\/TASK-[0-9]{4}-[A-Za-z0-9-]+\.md)$/m)
-    return match?.[1] || ""
-  }
-
-  const currentHead = async () => {
-    const result = await runCommand(["git", "rev-parse", "HEAD"])
-    return result.code === 0 ? result.stdout : ""
-  }
-
-  const currentDirtyState = async () => {
-    const result = await runCommand(["git", "status", "--porcelain=v1"])
-    return result.code === 0 ? result.stdout : "unknown"
-  }
-
-const legacyRunLoopPrompt = (task, head) => "runloop autocontinue. Continue the repository task lifecycle without asking for routine permission. No ceremony, no confirmation questions - just work.\n\n" +
-    "Active: TASK = " + (task || "read docs/tasks.md Current") + ". Read the live Current: pointer in docs/tasks.md yourself.\n\n" +
-    "Quality gate (mandatory before any Done):\n" +
-    "- Brutal efficient, performance- and efficiency-maximized, secure (deny-by-default, fail-closed), maintainable.\n" +
-    "- NO gaps, nothing forgotten: implement every spec atom or own it via a concrete follow-up TASK. Never declare NO_SPEC_SURFACE without grepping docs/spec.md first.\n" +
-    "- Read and adapt the Research Refs (a floor, not inspiration) before coding.\n" +
-    "- Max out each feature's intended effect - innovative, not the smallest runnable approximation.\n" +
-    "- Integrate into existing project subsystems; never build a parallel/duplicate system (grep for the existing mechanism first).\n" +
-    "- Same-TASK substantive tests, then a real Final Reality Check + Contradiction Check with concrete file:line evidence. Verify goal by goal, atomically - no sampling.\n" +
-    "- Exactly one commit per TASK including git rm of the archived task path; never bundle TASKs, never stack uncommitted work.\n" +
-    "- After every completed TASK, run the per-TASK Reality-Check loop in docs/task-loop-workflow.md before continuing: fresh-eyes, strict, paranoid, forensically deep, LINE BY LINE - zero guessing, nothing from memory, no sampling or spot-checks; verify every goal and every changed line hard and explicitly. Check for gaps; is this REALLY EXACTLY what we wanted or something else; does it honestly meet our quality standards (Hard Quality Mandate)? If there is any potential work, ALWAYS do it, then re-run the loop - repeat until the honest hard Reality-Check finds nothing left to do. Only then continue.\n\n" +
-    "After a completed TASK promote/resume the next executable TASK and continue immediately.\n" +
-    "Stop only for: user stop, destructive/high-risk choice, missing credentials/access, unresolved test/build failure after root-cause attempts, Reconc/spec/policy conflict needing user direction, repeated no-progress, or the zero-finding Terminal Gate in workflow-complete-loop.md.\n" +
-    "Never auto-push. Never touch _drop/, research/, or README.md unless explicitly instructed."
-
-const runLoopPrompt = (_task, _head) => "🔥 STFU & LET ME COOK! 🔥"
-
-  const hasExplicitRunText = (text) => String(text || "").split(/\s+/).some((field) => {
-    const token = field.replace(/^[\s.,;:!?()[\]{}<>]+|[\s.,;:!?()[\]{}<>]+$/g, "")
-    return token === "/runloop"
-  })
-
-  const maybeAutocontinue = async (event, stopResult) => {
-    if (stopResult?.stdout && stopResult.stdout.includes('\"decision\":\"block\"')) return
-    if (nudgeInFlight) return
-
-    const openCodeSessionID = findSessionID(event)
-    const state = await readState()
-
-    const stopMarker = await readStopMarker()
-    if (stopMarkerMatchesState(stopMarker, state)) {
-      await disableRunloop(state, "stop_file")
-      return
-    }
-
-    if (!state.enabled) return
-
-    const targetSessionID = openCodeSessionID || state.active_run_id || state.session_id
-    if (!targetSessionID) return
-
-    if (!client?.session?.prompt) return
-
-    const task = await currentTask()
-    const head = await currentHead()
-    const dirtyState = await currentDirtyState()
-    if (!task || !head) {
-      return
-    }
-
-    if (state.active_run_id && state.active_run_id !== targetSessionID && state.session_id !== targetSessionID) return
-
-    const progress = task + "\n" + dirtyState
-    const noProgress = state.last_head === head && state.last_current === progress
-    const noProgressNudges = noProgress ? (state.no_progress_nudges || 0) + 1 : 0
-    if (noProgressNudges >= maxNoProgressNudges) {
-      await disableRunloop({ ...state, session_id: targetSessionID, last_head: head, last_current: progress, no_progress_nudges: noProgressNudges }, "no_progress_guard")
-      return
-    }
-
-    nudgeInFlight = true
-    await writeState({
-      ...state,
-      enabled: true,
-      session_id: targetSessionID,
-      active_run_id: targetSessionID,
-      last_head: head,
-      last_current: progress,
-      no_progress_nudges: noProgressNudges,
-      awaiting_continuation: true,
-      last_prompt_at: new Date().toISOString(),
-    })
-    try {
-      await client.session.prompt({
-        path: { id: targetSessionID },
-        body: {
-          parts: [{ type: "text", text: runLoopPrompt(task, head) }],
-        },
-      })
-    } finally {
-      nudgeInFlight = false
-    }
-  }
-
-  return {
-    "chat.message": async (input, output) => {
-      const text = partsText(output?.parts || [])
-      await handleUserPromptText(input?.sessionID || sessionID, text, input?.messageID || output?.message?.id || "")
-    },
-    "tool.execute.before": async (input, output) => {
-      await ensureSession()
-      const result = await run("opencode-pre-tool-use", payload(input, output))
-      if (result.code !== 0) throw new Error(result.stderr || result.stdout || "reconc blocked OpenCode tool execution")
-    },
-    "tool.execute.after": async (input, output) => {
-      await ensureSession()
-      await run("opencode-post-tool-use", payload(input, output))
-    },
-    "permission.ask": async (input, output) => {
-      await ensureSession()
-      const result = await run("opencode-pre-tool-use", permissionPayload(input))
-      if (result.code !== 0) output.status = "deny"
-    },
-    event: async ({ event }) => {
-      if (await markUserInterrupt(event)) return
-      if (isSessionErrorEvent(event)) {
-        const state = await readState()
-        const eventSessionID = findSessionID(event) || state.session_id || ""
-        if (!state.enabled || sameActiveRun(state, eventSessionID)) {
-          await disableRunloop({ ...state, session_id: eventSessionID }, "session_error")
-          await setStopFile(eventSessionID, state.active_run_id || eventSessionID, "session_error")
-        }
-        return
-      }
-      if (event?.type !== "session.idle") return
-      await ensureSession()
-      const result = await run("opencode-stop", { session_id: sessionID, opencode_continuation_driver: true })
-      if (result.code !== 0) return
-      if (result.stdout && result.stdout.includes('\"decision\":\"block\"')) {
-        throw new Error(result.stdout)
-      }
-      await maybeAutocontinue(event, result)
-    },
-  }
-}
-`
-	return &Artifact{
-		Kind:       KindOpenCode,
-		TargetPath: OpenCodePluginPath,
-		Executable: false,
-		Content:    content,
-	}
 }
 
 func installGitPreCommit(repoRoot string, force bool) (*InstallReport, error) {
@@ -1208,19 +654,29 @@ func installGitPreCommit(repoRoot string, force bool) (*InstallReport, error) {
 
 	artifact := generateGitPreCommit()
 	action := "created"
-	if _, err := os.Stat(target); err == nil {
-		if !force {
+	if existing, err := os.ReadFile(target); err == nil {
+		info, statErr := os.Stat(target)
+		if statErr != nil {
+			return nil, &rerrors.PolicySourceError{Message: "stat " + target, Cause: statErr}
+		}
+		if string(existing) == artifact.Content && info.Mode().Perm() == 0o755 {
+			action = "unchanged"
+		} else if !force {
 			return nil, &rerrors.PolicySourceError{
 				Message: GitPreCommitPath + " already exists; pass --force to overwrite",
 			}
+		} else {
+			action = "updated"
 		}
-		action = "updated"
+	} else if !os.IsNotExist(err) {
+		return nil, &rerrors.PolicySourceError{Message: "read " + target, Cause: err}
 	}
-	if err := os.WriteFile(target, []byte(artifact.Content), 0o755); err != nil {
-		return nil, &rerrors.PolicySourceError{Message: "write " + target, Cause: err}
-	}
-	if err := os.Chmod(target, 0o755); err != nil {
-		return nil, &rerrors.PolicySourceError{Message: "chmod " + target, Cause: err}
+	if action != "unchanged" {
+		writeAction, err := writeGeneratedArtifact(target, artifact.Content, true)
+		if err != nil {
+			return nil, err
+		}
+		action = writeAction
 	}
 
 	return &InstallReport{
@@ -1257,8 +713,8 @@ func writeGeneratedArtifact(target, content string, executable bool) (string, er
 	return action, nil
 }
 
-// installJSONHooks merges reconc's hook entries into a JSON settings
-// file (Claude Code / Codex). Preserves any non-reconc keys the user
+// installJSONHooks merges reconc's hook entries into a nested JSON settings
+// file. Preserves any non-reconc keys the user
 // has set. Idempotent: reconc-owned entries (identified by a repo-local
 // wrapper/runtime signature) are replaced on each run, so running
 // `reconc hook install claude-code` twice produces identical output.
@@ -1325,8 +781,10 @@ func installJSONHooks(kind, relPath, repoRoot string, force bool) (*InstallRepor
 	if err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "marshal merged config", Cause: err}
 	}
-	if err := os.WriteFile(target, append(out, '\n'), 0o644); err != nil {
-		return nil, &rerrors.PolicySourceError{Message: "write " + target, Cause: err}
+	if writeAction, err := writeGeneratedArtifact(target, string(append(out, '\n')), false); err != nil {
+		return nil, err
+	} else if writeAction == "unchanged" {
+		action = writeAction
 	}
 
 	nextAction := "Restart your agent session so it picks up the new hooks."
@@ -1354,7 +812,10 @@ func installOpenCode(repoRoot string, force bool) (*InstallReport, error) {
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "create parent dir of " + target, Cause: err}
 	}
-	artifact := generateOpenCode()
+	artifact, err := Generate(KindOpenCode)
+	if err != nil {
+		return nil, err
+	}
 	action := "created"
 	if existing, err := os.ReadFile(target); err == nil {
 		action = "updated"
@@ -1367,8 +828,10 @@ func installOpenCode(repoRoot string, force bool) (*InstallReport, error) {
 	} else if err != nil && !os.IsNotExist(err) {
 		return nil, &rerrors.PolicySourceError{Message: "read " + target, Cause: err}
 	}
-	if err := os.WriteFile(target, []byte(artifact.Content), 0o644); err != nil {
-		return nil, &rerrors.PolicySourceError{Message: "write " + target, Cause: err}
+	if writeAction, err := writeGeneratedArtifact(target, artifact.Content, false); err != nil {
+		return nil, err
+	} else if writeAction == "unchanged" {
+		action = writeAction
 	}
 	return &InstallReport{
 		Kind:       KindOpenCode,
@@ -1431,8 +894,10 @@ func installAntigravity(repoRoot string, force bool) (*InstallReport, error) {
 	if err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "marshal merged Antigravity hooks", Cause: err}
 	}
-	if err := os.WriteFile(target, append(out, '\n'), 0o644); err != nil {
-		return nil, &rerrors.PolicySourceError{Message: "write " + target, Cause: err}
+	if writeAction, err := writeGeneratedArtifact(target, string(append(out, '\n')), false); err != nil {
+		return nil, err
+	} else if writeAction == "unchanged" {
+		action = writeAction
 	}
 	return &InstallReport{
 		Kind:       KindAntigravity,

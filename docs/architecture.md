@@ -53,7 +53,7 @@ internal/
   contextsize/    token-budget guard for auto-loaded session files
   errors/         typed exception hierarchy (PolicySourceError, LockfileError, ...)
   extractor/      prose-to-rule heuristic scanner (regex-only, no LLM)
-  hooks/          git + claude-code + codex + cursor + opencode + antigravity generators / installers / scaffold sync
+  hooks/          typed platform registry + generators + installers + activation probes + scaffold sync
   ingest/         discovery + source loading (AGENTS.md, .reconc.yml, presets, globals)
   lockdiff/       structural lockfile comparison (ignore-provenance semantics)
   parser/         YAML-to-Rule validation + template expansion + scope expansion
@@ -80,8 +80,8 @@ internal/
    every degradation path raises a typed error rather than silently
    treating the situation as "pass".
 
-3. **Idempotent writes.** `compile`, `init`, `bootstrap`, `hook
-   install claude-code|codex|cursor|opencode|antigravity`, `hook sync-scaffold`,
+3. **Idempotent writes.** `compile`, `init`, `bootstrap`, `hook install`,
+   `hook sync-scaffold`,
    `adopt --apply`, `changelog rotate`,
    `audit` append -- every write path can be re-run without
    duplicating state. Where the target file pre-exists, reconc-owned
@@ -203,7 +203,7 @@ the runtime (the lockfile is the boundary). The runtime only imports
 ## Threat model: hook runtime
 
 `reconc hook runtime <event>` accepts a JSON payload on stdin from
-the agent process (Claude Code, Codex). That payload is **untrusted
+the registered agent platforms. That payload is **untrusted
 input** even when the agent is cooperative: an agent may be buggy
 and produce malformed JSON, a malicious agent build may try to inject
 adversarial payloads, and payload schemas drift as the platforms
@@ -221,9 +221,12 @@ class of hostile input.
 | Evidence collections | **item + byte caps per field** | Overflow is persisted and fails closed; relevant evidence is never silently omitted. |
 | Audit record | **32 KiB** | Bounds one locked JSONL append. |
 | Audit/runloop storage | **2 MiB live + 2 archives each** | Fixed rings prevent repository-local log growth. |
+| Hook output | **8 KiB per route** | Prevents verbose host output from consuming agent context. |
+| Compaction context | **4 KiB** | Restores control-plane orientation without replaying logs or task files. |
 
-Breaches: exit 2 (block) for PreToolUse / Stop; exit 0 (allow)
-with stderr warning for PostToolUse / SessionEnd.
+Breaches use the registry's platform-specific blocking response or exit code for
+PreToolUse, permission, and Stop. Observation and cleanup routes fail open with
+bounded warnings.
 
 ### Fail-closed vs fail-open
 
