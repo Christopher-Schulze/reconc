@@ -46,9 +46,11 @@ internal/
   adopt/          convention detector (JS/TS, Python, Rust, Go, CI, dirs)
   agentguide/     embedded agent-integration guide + section lookup
   assurance/      bounded native layout/source/manifest/proof gates
+  atomicfile/     write-on-change and atomic publication primitives
   audit/          append-only JSONL decision log + rotation + stats
+  bootstrap/      deterministic inspect/plan/apply/verify transactions + binary resolution
   changelog/      docs/changelog.md rotation into quarterly archives
-  cli/            argparse-equivalent dispatcher (one file, big switch)
+  cli/            command dispatch plus responsibility-owned command modules
   compiler/       lockfile builder: digest, writer, conflicts, migrations, lock
   completion/     bash / zsh / fish completion generators
   contextsize/    token-budget guard for auto-loaded session files
@@ -57,16 +59,28 @@ internal/
   hooks/          typed platform registry + generators + installers + activation probes + scaffold sync
   ingest/         discovery + source loading (AGENTS.md, .reconc.yml, presets, globals)
   lockdiff/       structural lockfile comparison (ignore-provenance semantics)
+  filelock/       cross-platform process locks
+  jsonl/          bounded locked JSONL append + archive rings
   parser/         YAML-to-Rule validation + template expansion + scope expansion
   policy/         Rule / Scope / Source / Kind / Mode types
   presets/        bundled policy packs (embed.FS) + user overlays
   runtime/        evaluator + remediation + git integration + subprocess runner
+  retention/      bounded runtime storage lifecycle + owned temp cleanup
   scaffold/       reconc init implementation
+  schema/         canonical public JSON contract URLs + enterprise override
+  tasklifecycle/  typed TASK profiles + recoverable state transactions
   templates/      bundled rule-shape templates (embed.FS) + user overlays
+  tui/            dependency-free terminal dashboard
 ```
 
 `cmd/reconc/main.go` is ~20 lines: parse argv, delegate to
 `cli.Run`, translate the returned error into an exit code.
+Within `internal/cli`, `cli.go` owns top-level dispatch and the remaining small
+commands; hook routing, workflow/session commands, bootstrap, TASK lifecycle,
+Runloop, and deep doctor logic live in their own command files. Hook generation
+is separate from merge/install logic, runtime lockfile trust is separate from
+rule evaluation, and Stop decisions are separate from general session event
+handling.
 
 ## Key invariants
 
@@ -81,17 +95,16 @@ internal/
    every degradation path raises a typed error rather than silently
    treating the situation as "pass".
 
-3. **Idempotent writes.** `compile`, `init`, `bootstrap`, `hook install`,
-   `hook sync-scaffold`,
-   `adopt --apply`, `changelog rotate`,
-   `audit` append -- every write path can be re-run without
-   duplicating state. Where the target file pre-exists, reconc-owned
-   entries are replaced; user-owned entries are preserved.
+3. **Owned publication.** Write paths publish atomically or through an explicit
+   transaction. Bootstrap is create-only, emits candidate files for drift, and
+   rolls back only transaction-owned unchanged files. Hook merges preserve
+   unrelated host configuration. Bounded JSONL writers rotate under a process
+   lock before append.
 
-4. **Opt-in side effects.** `RECONC_AUDIT=1` enables the decision
-   log. With no env override reconc leaves no files behind outside
-   `.reconc/policy.lock.json` (the one file that is its job to
-   produce).
+4. **Explicit side effects.** Compile, bootstrap, hook installation, TASK
+   mutation, retention, and hook event handling own their documented files.
+   Read-only commands never refresh policy. `RECONC_AUDIT=1` is still required
+   for the optional decision audit log.
 
 5. **Advisory compile lock.** `.reconc/.compile.lock` via O_EXCL
    prevents two `reconc compile` from racing. 60s stale-reap so a
@@ -105,6 +118,10 @@ internal/
 
 - **CheckReport / FixPlan schemas**: same policy. Additive changes
   (new optional fields) don't bump the version; breaking changes do.
+
+- **Published schema documents**: `schemas/v1/*.schema.json` are the canonical
+  Draft 2020-12 contracts, use format-versioned repository URLs as `$id`, and
+  ship in the checksummed release inventory.
 
 - **Exit codes 0/1/2**: stable across all subcommands for agent
   consumption. 0 = pass or warn, 1 = runtime/input error, 2 = at
@@ -122,8 +139,8 @@ internal/
 3. `runtime.CheckRepoPolicy(repo, inputs)`:
    - `ingest.DiscoverPolicyRepo(repo)` walks up for `.reconc/`,
      `.reconc.yml`, `AGENTS.md`, etc.
-   - `loadLockfile(root)` reads + validates schema / version /
-     repo_root.
+   - `internal/runtime/lockfile.go` reads and validates schema, version,
+     repository root, migration state, and source freshness.
    - Normalises the input paths against the repo root.
    - For each rule in the lockfile: applies the scope filter
      (`ruleScopeMatches`), then dispatches to the per-kind
@@ -138,9 +155,10 @@ internal/
 
 ## Adding a new subcommand
 
-1. Write `runFoo(args []string, stdout, stderr io.Writer) error` in
-   `internal/cli/cli.go`. Use `CLIError{ExitCode, Message}` for
-   typed failures.
+1. Write `runFoo(args []string, stdout, stderr io.Writer) error` in the
+   responsibility-owned `internal/cli/*_cmd.go` file, or create one when the
+   command introduces a distinct responsibility. Use `CLIError{ExitCode,
+   Message}` for typed failures.
 2. Add a `case "foo": return runFoo(argv[1:], ...)` to the dispatcher
    switch.
 3. Add an entry to the `printUsage` help text in the correct category.
@@ -151,8 +169,9 @@ internal/
    one error path + `--help`.
 6. Document in `docs/commands.md` under the right category.
 
-The typical commit diff for a new subcommand touches: cli.go,
-completion.go, cli_test.go, and commands.md. ~80-150 LOC including tests.
+The typical commit diff for a new subcommand touches the dispatcher, one
+responsibility-owned command file, completion metadata, focused tests, and
+`commands.md`.
 
 ## Adding a new rule kind
 
@@ -198,9 +217,10 @@ completion.go, cli_test.go, and commands.md. ~80-150 LOC including tests.
         └──► completion
 ```
 
-Nothing below `cli` imports `cli`. The compiler doesn't know about
-the runtime (the lockfile is the boundary). The runtime only imports
-`compiler` for the shared schema constants.
+Nothing below `cli` imports `cli`. The compiler does not know about the runtime;
+the serialized lockfile is the boundary. `schema` is the single owner of public
+contract URLs. Runtime lockfile loading imports compiler only for registered
+migrations and source-digest freshness validation.
 
 ## Threat model: hook runtime
 

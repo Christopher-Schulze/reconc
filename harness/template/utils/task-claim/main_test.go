@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -36,9 +37,14 @@ Current: TASK-0042-Foo-Bar -> tasks/TASK-0042-Foo-Bar.md
 	}
 }
 
-func TestReconcBinaryRelTracksCurrentRelease(t *testing.T) {
-	if reconcBinaryRel != "tools/reconc/dist/reconc-0.6.0-darwin-arm64" {
-		t.Fatalf("unexpected reconc binary path %q", reconcBinaryRel)
+func TestReconcBinaryRelUsesStablePlatformName(t *testing.T) {
+	extension := ""
+	if runtime.GOOS == "windows" {
+		extension = ".exe"
+	}
+	want := "tools/reconc/dist/reconc-" + runtime.GOOS + "-" + runtime.GOARCH + extension
+	if got := reconcBinaryRel(); got != want {
+		t.Fatalf("reconcBinaryRel() = %q, want %q", got, want)
 	}
 }
 
@@ -211,7 +217,7 @@ func TestAssertClaimsRejectsMissingBinary(t *testing.T) {
 
 func TestAssertClaimsForwardsToBinaryStub(t *testing.T) {
 	root := t.TempDir()
-	binPath := filepath.Join(root, filepath.FromSlash(reconcBinaryRel))
+	binPath := filepath.Join(root, filepath.FromSlash(reconcBinaryRel()))
 	if err := os.MkdirAll(filepath.Dir(binPath), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -235,7 +241,7 @@ func TestAssertClaimsForwardsToBinaryStub(t *testing.T) {
 
 func TestAssertClaimsPropagatesBinaryFailure(t *testing.T) {
 	root := t.TempDir()
-	binPath := filepath.Join(root, filepath.FromSlash(reconcBinaryRel))
+	binPath := filepath.Join(root, filepath.FromSlash(reconcBinaryRel()))
 	if err := os.MkdirAll(filepath.Dir(binPath), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}

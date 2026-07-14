@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"reconc.dev/reconc/internal/schema"
 )
 
 func TestRenderContainsHeader(t *testing.T) {
@@ -17,6 +19,16 @@ func TestRenderContainsHeader(t *testing.T) {
 	}
 	if !strings.Contains(out, `"reconc 0.9.9"`) {
 		t.Error("version not embedded in .TH line")
+	}
+}
+
+func TestRenderUsesCanonicalSchemaBase(t *testing.T) {
+	var buf bytes.Buffer
+	if err := Render(&buf, "0.9.9"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), schema.DefaultBaseURL) {
+		t.Fatalf("man page omitted canonical schema base %q", schema.DefaultBaseURL)
 	}
 }
 

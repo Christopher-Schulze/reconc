@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/policy-report.schema.json",
+  "title": "Reconc policy check report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "format_version",
+    "ok",
+    "repo_root",
+    "lockfile_path",
+    "decision",
+    "default_mode",
+    "summary",
+    "actions",
+    "rule_ids",
+    "inputs",
+    "violation_count",
+    "blocking_violation_count",
+    "violations"
+  ],
+  "properties": {
+    "$schema": { "type": "string", "format": "uri" },
+    "format_version": { "const": "1" },
+    "ok": { "type": "boolean" },
+    "repo_root": { "type": "string" },
+    "lockfile_path": { "type": "string" },
+    "decision": { "$ref": "#/$defs/decision" },
+    "default_mode": { "$ref": "#/$defs/mode" },
+    "summary": { "type": "string" },
+    "actions": { "$ref": "#/$defs/stringArray" },
+    "rule_ids": { "$ref": "#/$defs/stringArray" },
+    "next_action": { "type": "string" },
+    "inputs": { "$ref": "#/$defs/inputs" },
+    "violation_count": { "type": "integer", "minimum": 0 },
+    "blocking_violation_count": { "type": "integer", "minimum": 0 },
+    "violations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/violation" }
+    }
+  },
+  "$defs": {
+    "stringArray": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "decision": {
+      "enum": ["pass", "warn", "block"]
+    },
+    "mode": {
+      "enum": ["observe", "warn", "block", "fix"]
+    },
+    "kind": {
+      "enum": [
+        "deny_write",
+        "require_read",
+        "require_command",
+        "require_command_success",
+        "forbid_command",
+        "couple_change",
+        "require_claim",
+        "require_fresh_file",
+        "require_evidence",
+        "all_of",
+        "any_of",
+        "not",
+        "require_script",
+        "require_assurance"
+      ]
+    },
+    "commandResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "outcome"],
+      "properties": {
+        "command": { "type": "string" },
+        "outcome": { "enum": ["success", "failure"] }
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["read_paths", "write_paths", "commands", "claims", "command_results"],
+      "properties": {
+        "read_paths": { "$ref": "#/$defs/stringArray" },
+        "write_paths": { "$ref": "#/$defs/stringArray" },
+        "commands": { "$ref": "#/$defs/stringArray" },
+        "claims": { "$ref": "#/$defs/stringArray" },
+        "command_results": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/commandResult" }
+        }
+      }
+    },
+    "violation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "kind",
+        "mode",
+        "message",
+        "explanation",
+        "recommended_action",
+        "matched_paths",
+        "matched_commands",
+        "matched_claims",
+        "required_paths",
+        "required_commands",
+        "required_claims"
+      ],
+      "properties": {
+        "rule_id": { "type": "string" },
+        "kind": { "$ref": "#/$defs/kind" },
+        "mode": { "$ref": "#/$defs/mode" },
+        "message": { "type": "string" },
+        "explanation": { "type": "string" },
+        "recommended_action": { "type": "string" },
+        "matched_paths": { "$ref": "#/$defs/stringArray" },
+        "matched_commands": { "$ref": "#/$defs/stringArray" },
+        "matched_claims": { "$ref": "#/$defs/stringArray" },
+        "required_paths": { "$ref": "#/$defs/stringArray" },
+        "required_commands": { "$ref": "#/$defs/stringArray" },
+        "required_claims": { "$ref": "#/$defs/stringArray" },
+        "source_path": { "type": "string" },
+        "source_block_id": { "type": "string" }
+      }
+    }
+  }
+}

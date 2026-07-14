@@ -11,7 +11,7 @@
 #   make run ARGS="--help"  -- build and run with args
 #   make tidy               -- go mod tidy
 #   make release            -- build release binaries for dist/ (darwin, linux, windows)
-#   make completion         -- emit shell completion scripts into dist/completion/
+#   make completion         -- emit flat shell completion artifacts into dist/
 #   make checksums          -- generate dist/SHA256SUMS over release artefacts
 
 GO        ?= go
@@ -21,6 +21,7 @@ BINDIR    := .build/bin
 DISTDIR   := dist
 VERSION   ?= 0.6.0
 LDFLAGS   := -ldflags "-X main.Version=$(VERSION) -s -w"
+STATICCHECK_VERSION := v0.7.0
 
 # Release matrix. Each entry is OS/ARCH separated by '/'. Extend here
 # to ship another platform -- nothing else needs to change.
@@ -31,7 +32,7 @@ RELEASE_TARGETS := \
 	linux/arm64 \
 	windows/amd64
 
-.PHONY: build test fmt vet lint cover clean run tidy release completion manpage checksums release-all bench
+.PHONY: build test test-release-trust fmt vet lint cover clean run tidy release completion manpage checksums release-all bench
 
 build:
 	@mkdir -p $(BINDIR)
@@ -39,6 +40,10 @@ build:
 
 test:
 	$(GO) test -race -count=1 $(PKG)
+	./scripts/tests/release-trust.sh
+
+test-release-trust:
+	./scripts/tests/release-trust.sh
 
 fmt:
 	$(GO) fmt $(PKG)
@@ -47,7 +52,7 @@ vet:
 	$(GO) vet $(PKG)
 
 lint:
-	$(GO) run honnef.co/go/tools/cmd/staticcheck@latest $(PKG)
+	$(GO) run honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION) $(PKG)
 
 cover:
 	$(GO) test -cover -coverprofile=coverage.out $(PKG)
@@ -79,7 +84,7 @@ release-one:
 
 release: clean
 	@mkdir -p $(DISTDIR)
-	@for t in $(RELEASE_TARGETS); do \
+	@set -eu; for t in $(RELEASE_TARGETS); do \
 	  $(MAKE) --no-print-directory release-one TARGET=$$t; \
 	done
 	@$(MAKE) --no-print-directory completion
@@ -90,17 +95,20 @@ release: clean
 	@ls -1 $(DISTDIR)
 
 completion:
-	@mkdir -p $(DISTDIR)/completion
-	@$(GO) run ./cmd/reconc completion bash > $(DISTDIR)/completion/reconc.bash
-	@$(GO) run ./cmd/reconc completion zsh  > $(DISTDIR)/completion/_reconc
-	@$(GO) run ./cmd/reconc completion fish > $(DISTDIR)/completion/reconc.fish
-	@echo "completion scripts -> $(DISTDIR)/completion/"
+	@mkdir -p $(DISTDIR)
+	@$(GO) run ./cmd/reconc completion bash > $(DISTDIR)/reconc.bash
+	@$(GO) run ./cmd/reconc completion zsh  > $(DISTDIR)/_reconc
+	@$(GO) run ./cmd/reconc completion fish > $(DISTDIR)/reconc.fish
+	@echo "completion scripts -> $(DISTDIR)/"
 
 manpage:
-	@mkdir -p $(DISTDIR)/man
-	@$(GO) run ./cmd/reconc manpage > $(DISTDIR)/man/reconc.1
-	@echo "man page -> $(DISTDIR)/man/reconc.1"
+	@mkdir -p $(DISTDIR)
+	@$(GO) run ./cmd/reconc manpage > $(DISTDIR)/reconc.1
+	@echo "man page -> $(DISTDIR)/reconc.1"
 
 checksums:
-	@cd $(DISTDIR) && shasum -a 256 $(BIN)-$(VERSION)-* > SHA256SUMS 2>/dev/null || true
+	@mkdir -p $(DISTDIR)
+	@cp schemas/v1/*.schema.json $(DISTDIR)/
+	@./scripts/release/write-checksums.sh $(DISTDIR)
+	@./scripts/release/verify-artifacts.sh $(DISTDIR) $(BIN) $(VERSION) $(RELEASE_TARGETS)
 	@echo "checksums -> $(DISTDIR)/SHA256SUMS"

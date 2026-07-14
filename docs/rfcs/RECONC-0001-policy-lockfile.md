@@ -2,7 +2,7 @@
 
 - Status: Frozen
 - Contract: `.reconc/policy.lock.json`
-- Schema: `https://reconc.dev/schemas/policy-lock/v1`
+- Schema: `https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/policy-lock.schema.json`
 - Format version: `1`
 
 ## Purpose

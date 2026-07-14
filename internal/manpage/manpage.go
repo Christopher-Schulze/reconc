@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/completion"
+	"reconc.dev/reconc/internal/schema"
 )
 
 // Render writes a groff man(1) page for reconc to w. The version is
@@ -63,7 +64,7 @@ coding agents' behaviour auditable and gate-able rather than hopeful.`)
 	fmt.Fprintln(w, "Set to \\fB1\\fR to enable the append-only decision log at \\fI.reconc/audit.jsonl\\fR. Off by default.")
 	fmt.Fprintln(w, ".TP")
 	fmt.Fprintln(w, ".B RECONC_SCHEMA_BASE_URL")
-	fmt.Fprintln(w, "Enterprise override for schema URLs stamped on lockfiles, check reports, and fix plans. Default: \\fIhttps://reconc.dev\\fR.")
+	fmt.Fprintf(w, "Enterprise override for schema URLs stamped on lockfiles, check reports, and fix plans. Default: \\fI%s\\fR.\n", schema.DefaultBaseURL)
 
 	fmt.Fprintln(w, ".SH FILES")
 	fmt.Fprintln(w, ".TP")

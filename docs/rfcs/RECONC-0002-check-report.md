@@ -2,7 +2,7 @@
 
 - Status: Frozen
 - Producers: `reconc check`, `reconc ci`, `reconc assert`, hooks
-- Schema: `https://reconc.dev/schemas/policy-report/v1`
+- Schema: `https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/policy-report.schema.json`
 - Format version: `1`
 
 ## Purpose

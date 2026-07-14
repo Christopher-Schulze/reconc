@@ -69,9 +69,19 @@ make bench
 make release VERSION=0.6.0
 ```
 
-`make release` cross-compiles five binaries into `dist/`, generates shell
-completion scripts, generates a man page, and writes `dist/SHA256SUMS`.
-`dist/` is ignored and should not be committed.
+`make release` cross-compiles five binaries into `dist/`, generates three flat
+shell-completion artifacts, generates a man page, copies the three public v1
+JSON schemas, and writes `dist/SHA256SUMS`. The target stops on the first build
+or checksum failure. The release verifier requires exactly those twelve
+checksummed artifacts, rejects missing, extra, duplicate, unsafe, or corrupted
+entries, and never accepts an empty manifest. `dist/` is ignored and should not
+be committed.
+
+`install.sh [VERSION]` downloads both the platform binary and the published
+`SHA256SUMS`, requires exactly one matching SHA-256 entry, verifies the payload
+before executing it, stages and re-verifies it inside the install directory,
+then atomically replaces the target. A download, manifest, checksum, execution,
+staging, or publication failure leaves an existing installation untouched.
 
 ## Transactional Bootstrap
 
@@ -432,6 +442,7 @@ Package responsibilities:
 - `internal/compiler`: canonical JSON lockfile generation, digesting, conflicts, migrations, compile lock
 - `internal/bootstrap`: deterministic inspect/plan/apply/verify transactions and binary resolution
 - `internal/runtime`: policy evaluation, remediation, git integration, scripts, templates
+- `internal/schema`: canonical format-versioned public JSON schema locations and enterprise URL resolution
 - `internal/assurance`: bounded native repository assurance evaluators
 - `internal/hooks`: typed hook platform registry, artifact generation, non-destructive install, scaffold sync, and activation diagnostics
 - `internal/runtime/agentsession`: hook-runtime session state and event handling
@@ -449,7 +460,7 @@ Package responsibilities:
 Key invariants:
 
 - Deterministic JSON artifacts
-- Stable schema and `format_version` fields
+- Stable schema and `format_version` fields; public v1 contracts live under `schemas/v1/` and ship in every release
 - Fail closed on malformed policy, stale lockfiles, schema drift, invalid globs, unsupported rule kinds, and lockfile root mismatch
 - No runtime network calls
 - Behavior in internal packages, thin `cmd/reconc/main.go`
@@ -646,18 +657,18 @@ GitHub workflows:
 
 CI checks:
 
-- formatting
-- `go mod tidy -diff`
-- `go test ./...`
-- `go vet ./...`
-- `make lint`
-- `go test -race -count=1 ./...`
+- Ubuntu 24.04, macOS 15, and Windows 2025 matrix runners
+- root module and `harness/template` module formatting, tidy, test, vet, pinned Staticcheck v0.7.0, and race checks
+- immutable action commit pins for checkout and Go setup
+- release and installer negative-path trust tests
 
 Release:
 
 - Push a tag matching `reconc-v*`.
-- Release workflow builds artifacts with `make release VERSION=<tag-version>`.
-- Checksums are verified before upload.
+- Release workflow tests both Go modules and the trust harness before building.
+- `make release VERSION=<tag-version>` builds the exact flat release inventory.
+- Every artifact is verified against `SHA256SUMS` before upload.
+- GitHub publication stays draft until every manifest-listed artifact and the manifest itself upload successfully.
 - No Docker image is built or published.
 
 ## Git Ignore Policy
@@ -683,6 +694,9 @@ Commit:
 - `go.sum`
 - `install.sh`
 - `internal/**`
+- `schemas/**`
+- `scripts/release/**`
+- `scripts/tests/**`
 - `skills/**`
 
 Ignore:

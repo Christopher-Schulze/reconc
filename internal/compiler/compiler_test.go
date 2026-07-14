@@ -190,8 +190,8 @@ func TestCompileLockfileHasReconcSchema(t *testing.T) {
 		t.Fatalf("compile: %v", err)
 	}
 	data, _ := os.ReadFile(filepath.Join(repo, ".reconc", "policy.lock.json"))
-	if !strings.Contains(string(data), "reconc.dev/schemas/policy-lock/v1") {
-		t.Errorf("lockfile must reference reconc.dev schema URL, got: %s", string(data))
+	if !strings.Contains(string(data), DefaultLockfileSchema) {
+		t.Errorf("lockfile must reference the published schema URL, got: %s", string(data))
 	}
 }
 

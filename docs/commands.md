@@ -28,7 +28,7 @@ Everything below is the full automation and diagnostic surface.
 - `RECONC_HOME` (default `~/.reconc`) -- user config, presets, templates
 - `RECONC_AUDIT=1` -- enable the opt-in append-only audit log
 - `RECONC_CLAUDE_STATE_DIR` -- override the global session-state root
-- `RECONC_SCHEMA_BASE_URL` -- enterprise override for schema URLs
+- `RECONC_SCHEMA_BASE_URL` -- enterprise override for schema URLs; defaults to the format-versioned repository contracts under `schemas/v1/`
 
 ---
 

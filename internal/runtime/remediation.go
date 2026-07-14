@@ -2,20 +2,17 @@ package runtime
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"reconc.dev/reconc/internal/policy"
+	"reconc.dev/reconc/internal/schema"
 )
 
 // ResolveFixPlanSchema returns the URL to stamp on newly produced
 // fix plans. Honors $RECONC_SCHEMA_BASE_URL (W24); defaults to
 // DefaultFixPlanSchema.
 func ResolveFixPlanSchema() string {
-	if base := os.Getenv("RECONC_SCHEMA_BASE_URL"); base != "" {
-		return strings.TrimRight(base, "/") + "/schemas/policy-fix-plan/v1"
-	}
-	return DefaultFixPlanSchema
+	return schema.Resolve(schema.PolicyFixPlan)
 }
 
 // FixPlanSchema + FormatVersion are the contract for `reconc fix`
@@ -25,7 +22,7 @@ const (
 	// `reconc fix` output. Use ResolveFixPlanSchema() on write paths
 	// so $RECONC_SCHEMA_BASE_URL (W24) is honoured.
 	FixPlanSchema        = DefaultFixPlanSchema
-	DefaultFixPlanSchema = "https://reconc.dev/schemas/policy-fix-plan/v1"
+	DefaultFixPlanSchema = schema.PolicyFixPlanURL
 	FixPlanFormatVersion = "1"
 )
 
@@ -90,7 +87,7 @@ func BuildFixPlan(report *CheckReport) *FixPlan {
 	}
 
 	return &FixPlan{
-		Schema:                 FixPlanSchema,
+		Schema:                 ResolveFixPlanSchema(),
 		FormatVersion:          FixPlanFormatVersion,
 		Decision:               report.Decision,
 		Summary:                renderFixPlanSummary(report),

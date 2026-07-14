@@ -17,8 +17,8 @@ You are an agent joining the Project repository. This file is the only onboardin
 
 Run these read-only checks from the repo root after reading the files above:
 
-- `tools/reconc/dist/reconc-0.6.0-darwin-arm64 status .`
-- `tools/reconc/dist/reconc-0.6.0-darwin-arm64 session-briefing .`
+- `tools/reconc/dist/reconc-darwin-arm64 status .`
+- `tools/reconc/dist/reconc-darwin-arm64 session-briefing .`
 
 Do not run `reconc bootstrap`, `reconc init`, hook install, task promotion, claim assertion, or any file-writing command during onboarding.
 

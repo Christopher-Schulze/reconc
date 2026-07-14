@@ -26,6 +26,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -33,9 +34,8 @@ import (
 )
 
 const (
-	tasksRel        = "docs/tasks.md"
-	bindingsRel     = "tools/reconc/harness/template/config/workflow/task-claim-bindings.yaml"
-	reconcBinaryRel = "tools/reconc/dist/reconc-0.6.0-darwin-arm64"
+	tasksRel    = "docs/tasks.md"
+	bindingsRel = "tools/reconc/harness/template/config/workflow/task-claim-bindings.yaml"
 )
 
 var currentRe = regexp.MustCompile(`(?m)^Current: (TASK-[0-9]{4}-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*) -> tasks/`)
@@ -163,9 +163,10 @@ func assertClaims(root string, taskName string, claims []string) error {
 		fmt.Printf("task: %s\nclaims: (none -- nothing to assert)\n", taskName)
 		return nil
 	}
-	binPath := filepath.Join(root, filepath.FromSlash(reconcBinaryRel))
+	binaryRel := reconcBinaryRel()
+	binPath := filepath.Join(root, filepath.FromSlash(binaryRel))
 	if _, err := os.Stat(binPath); err != nil {
-		return fmt.Errorf("reconc binary missing at %s: %w", reconcBinaryRel, err)
+		return fmt.Errorf("reconc binary missing at %s: %w", binaryRel, err)
 	}
 	fmt.Printf("task: %s\n", taskName)
 	for _, claim := range claims {
@@ -177,6 +178,14 @@ func assertClaims(root string, taskName string, claims []string) error {
 		fmt.Printf("  asserted: %s\n", claim)
 	}
 	return nil
+}
+
+func reconcBinaryRel() string {
+	name := "reconc-" + runtime.GOOS + "-" + runtime.GOARCH
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	return filepath.ToSlash(filepath.Join("tools", "reconc", "dist", name))
 }
 
 func fail(format string, args ...interface{}) {

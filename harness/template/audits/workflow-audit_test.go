@@ -155,11 +155,11 @@ func TestAuditAgentQualityRejectsTaskPlaceholderPhrases(t *testing.T) {
 
 func TestAuditReconcBinaryFreshnessRejectsStaleLiveBinary(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, root, "tools/reconc/dist/reconc-0.6.0-darwin-arm64", "#!/bin/sh\n")
+	writeFile(t, root, localReconcBinaryRel(), "#!/bin/sh\n")
 	writeFile(t, root, "tools/reconc/internal/runtime/agentsession/handlers.go", "package agentsession\n")
 	oldTime := time.Unix(100, 0)
 	newTime := time.Unix(200, 0)
-	binary := filepath.Join(root, "tools/reconc/dist/reconc-0.6.0-darwin-arm64")
+	binary := filepath.Join(root, filepath.FromSlash(localReconcBinaryRel()))
 	source := filepath.Join(root, "tools/reconc/internal/runtime/agentsession/handlers.go")
 	if err := os.Chmod(binary, 0o755); err != nil {
 		t.Fatal(err)
@@ -621,8 +621,8 @@ func TestAuditStartEntrypointRequiresRunloopOptIn(t *testing.T) {
 
 AGENTS.md
 docs/tasks.md
-tools/reconc/dist/reconc-0.6.0-darwin-arm64 status .
-tools/reconc/dist/reconc-0.6.0-darwin-arm64 session-briefing .
+tools/reconc/dist/reconc-darwin-arm64 status .
+tools/reconc/dist/reconc-darwin-arm64 session-briefing .
 No file writes
 _drop/
 /runloop

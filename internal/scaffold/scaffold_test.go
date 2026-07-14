@@ -29,6 +29,22 @@ func TestInitializeFreshRepoCreatesBoth(t *testing.T) {
 	}
 }
 
+func TestInitializeAgentsStubUsesPublishedProjectLocation(t *testing.T) {
+	withRECONCHome(t)
+	repo := t.TempDir()
+	if _, err := Initialize(repo, Options{}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(repo, "AGENTS.md"))
+	if err != nil {
+		t.Fatalf("read AGENTS.md: %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "https://github.com/Christopher-Schulze/reconc") || strings.Contains(content, "https://reconc.dev") {
+		t.Fatalf("AGENTS.md project link is not canonical: %s", content)
+	}
+}
+
 func TestInitializeDefaultsToDefaultAndAgentPresets(t *testing.T) {
 	withRECONCHome(t)
 	repo := t.TempDir()

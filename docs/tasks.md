@@ -2,16 +2,15 @@
 
 ## Active
 
-- [~] 009 Architecture and release trust -> tasks/009-architecture-and-release-trust.md
+- [~] 010 Self-hosting and final proof -> tasks/010-self-hosting-and-final-proof.md
 
 ## Queue
-
-- [ ] 010 Self-hosting and final proof -> tasks/010-self-hosting-and-final-proof.md
 
 ## Blocked
 
 ## Done
 
+- [x] 009 Architecture and release trust -> tasks/done/009-architecture-and-release-trust.md
 - [x] 008 Transactional bootstrap and artifact resolution -> tasks/done/008-transactional-bootstrap-and-artifact-resolution.md
 - [x] 007 Policy packs and assurance gates -> tasks/done/007-policy-packs-and-assurance-gates.md
 - [x] 006 Task lifecycle and AI context -> tasks/done/006-task-lifecycle-and-ai-context.md

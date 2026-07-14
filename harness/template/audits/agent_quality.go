@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -201,23 +202,32 @@ func isGeneratedGoPath(path string) bool {
 }
 
 func auditReconcBinaryFreshness(root string) []string {
-	binary := filepath.Join(root, "tools/reconc/dist/reconc-0.6.0-darwin-arm64")
+	binaryRel := localReconcBinaryRel()
+	binary := filepath.Join(root, filepath.FromSlash(binaryRel))
 	binaryInfo, err := os.Stat(binary)
 	if err != nil {
 		return nil
 	}
 	var failures []string
 	if binaryInfo.Mode()&0o111 == 0 {
-		failures = append(failures, "tools/reconc/dist/reconc-0.6.0-darwin-arm64 is not executable; live agent hooks need an executable repo-local Reconc binary")
+		failures = append(failures, binaryRel+" is not executable; live agent hooks need an executable repo-local Reconc binary")
 	}
 	newest, newestRel, ok := newestReconcSource(root)
 	if !ok {
 		return failures
 	}
 	if newest.After(binaryInfo.ModTime()) {
-		failures = append(failures, fmt.Sprintf("tools/reconc/dist/reconc-0.6.0-darwin-arm64 is older than %s; rebuild the live Reconc binary before relying on agent hooks", newestRel))
+		failures = append(failures, fmt.Sprintf("%s is older than %s; rebuild the live Reconc binary before relying on agent hooks", binaryRel, newestRel))
 	}
 	return failures
+}
+
+func localReconcBinaryRel() string {
+	name := "reconc-" + runtime.GOOS + "-" + runtime.GOARCH
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	return filepath.ToSlash(filepath.Join("tools", "reconc", "dist", name))
 }
 
 func newestReconcSource(root string) (time.Time, string, bool) {

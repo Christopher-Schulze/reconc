@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/completion"
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/runtime"
@@ -3060,7 +3061,7 @@ func TestRunStatusRejectsSchemaDriftWithoutWriting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	drifted := []byte(strings.Replace(string(data), "https://reconc.dev/schemas/policy-lock/v1", "https://invalid.example/policy-lock/v1", 1))
+	drifted := []byte(strings.Replace(string(data), compiler.DefaultLockfileSchema, "https://invalid.example/policy-lock/v1", 1))
 	if err := os.WriteFile(lockPath, drifted, 0o644); err != nil {
 		t.Fatal(err)
 	}

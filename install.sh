@@ -37,24 +37,67 @@ esac
 
 asset="reconc-${VERSION}-${os}-${arch}"
 url="${RELEASE_BASE}/reconc-v${VERSION}/${asset}"
+checksum_url="${RELEASE_BASE}/reconc-v${VERSION}/SHA256SUMS"
 log "target: ${os}/${arch}"
 log "asset:  ${asset}"
 log "url:    ${url}"
 
-# Temp file, guaranteed cleanup.
-tmp="$(mktemp -t reconc.XXXXXX)"
-trap 'rm -f "$tmp"' EXIT INT HUP TERM
+download() {
+  destination="$1"
+  source_url="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL --proto '=https' --tlsv1.2 -o "$destination" "$source_url" \
+      || die "download failed: curl returned $?"
+  elif command -v wget >/dev/null 2>&1; then
+    wget --https-only -O "$destination" "$source_url" \
+      || die "download failed: wget returned $?"
+  else
+    die "neither curl nor wget available; install one and retry"
+  fi
+}
 
-# Prefer curl, fall back to wget.
-if command -v curl >/dev/null 2>&1; then
-  curl -fL --proto '=https' --tlsv1.2 -o "$tmp" "$url" \
-    || die "download failed: curl returned $?"
-elif command -v wget >/dev/null 2>&1; then
-  wget --https-only -O "$tmp" "$url" \
-    || die "download failed: wget returned $?"
-else
-  die "neither curl nor wget available; install one and retry"
-fi
+sha256_file() {
+  file="$1"
+  if command -v shasum >/dev/null 2>&1; then
+    output="$(shasum -a 256 "$file")" || return 1
+  elif command -v sha256sum >/dev/null 2>&1; then
+    output="$(sha256sum "$file")" || return 1
+  else
+    die "neither shasum nor sha256sum is available for checksum verification"
+  fi
+  hash=${output%% *}
+  [ "$hash" != "$output" ] || return 1
+  printf '%s\n' "$hash"
+}
+
+# Temp files, guaranteed cleanup.
+tmp="$(mktemp -t reconc.XXXXXX)"
+checksums="$(mktemp -t reconc-checksums.XXXXXX)"
+staged=""
+trap 'rm -f "$tmp" "$checksums"; if [ -n "$staged" ]; then rm -f "$staged"; fi' EXIT INT HUP TERM
+
+download "$tmp" "$url"
+download "$checksums" "$checksum_url"
+
+expected=""
+matches=0
+while read -r checksum filename extra; do
+  filename=${filename#\*}
+  if [ "$filename" = "$asset" ]; then
+    expected="$checksum"
+    matches=$((matches + 1))
+    [ -z "${extra:-}" ] || die "malformed checksum entry for ${asset}"
+  fi
+done < "$checksums"
+
+[ "$matches" -eq 1 ] || die "checksum manifest must contain exactly one entry for ${asset}; found ${matches}"
+[ "${#expected}" -eq 64 ] || die "checksum for ${asset} is not a SHA-256 digest"
+case "$expected" in
+  *[!0-9A-Fa-f]*) die "checksum for ${asset} is not hexadecimal" ;;
+esac
+
+actual="$(sha256_file "$tmp")"
+[ "$actual" = "$expected" ] || die "checksum mismatch for ${asset}"
 
 chmod +x "$tmp"
 
@@ -65,11 +108,18 @@ fi
 
 # Install. Needs write access to INSTALL_DIR -- caller handles sudo if
 # needed (we don't sudo implicitly, that's surprising behaviour).
-mkdir -p "$INSTALL_DIR" 2>/dev/null || true
+mkdir -p "$INSTALL_DIR" || die "install failed: cannot create ${INSTALL_DIR}"
 target="${INSTALL_DIR}/${BIN_NAME}"
-if ! mv "$tmp" "$target" 2>/dev/null; then
+staged="$(mktemp "${INSTALL_DIR}/.reconc.install.XXXXXX")" \
+  || die "install failed: cannot stage a file in ${INSTALL_DIR}"
+cp "$tmp" "$staged" || die "install failed: cannot copy the verified binary into ${INSTALL_DIR}"
+chmod +x "$staged"
+[ "$(sha256_file "$staged")" = "$expected" ] \
+  || die "install failed: staged binary checksum changed"
+if ! mv "$staged" "$target" 2>/dev/null; then
   die "install failed: cannot write to ${INSTALL_DIR}. Retry with 'sudo sh install.sh' or set RECONC_INSTALL_DIR=~/bin."
 fi
+staged=""
 
 log "installed ${target}"
 log "version: $("$target" --version)"

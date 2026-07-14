@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/policy-fix-plan.schema.json",
+  "title": "Reconc policy fix plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "format_version",
+    "decision",
+    "summary",
+    "repo_root",
+    "lockfile_path",
+    "inputs",
+    "violation_count",
+    "blocking_violation_count",
+    "remediation_count",
+    "remediations"
+  ],
+  "properties": {
+    "$schema": { "type": "string", "format": "uri" },
+    "format_version": { "const": "1" },
+    "decision": { "enum": ["pass", "warn", "block"] },
+    "summary": { "type": "string" },
+    "repo_root": { "type": "string" },
+    "lockfile_path": { "type": "string" },
+    "inputs": { "$ref": "policy-report.schema.json#/$defs/inputs" },
+    "violation_count": { "type": "integer", "minimum": 0 },
+    "blocking_violation_count": { "type": "integer", "minimum": 0 },
+    "remediation_count": { "type": "integer", "minimum": 0 },
+    "remediations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/remediation" }
+    }
+  },
+  "$defs": {
+    "stringArray": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "remediation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rule_id",
+        "kind",
+        "mode",
+        "priority",
+        "message",
+        "why",
+        "recommended_action",
+        "steps",
+        "can_autofix"
+      ],
+      "properties": {
+        "rule_id": { "type": "string" },
+        "kind": { "$ref": "policy-report.schema.json#/$defs/kind" },
+        "mode": { "$ref": "policy-report.schema.json#/$defs/mode" },
+        "priority": { "enum": ["blocking", "non-blocking"] },
+        "message": { "type": "string" },
+        "why": { "type": "string" },
+        "recommended_action": { "type": "string" },
+        "suggested_commands": { "$ref": "#/$defs/stringArray" },
+        "forbidden_commands": { "$ref": "#/$defs/stringArray" },
+        "suggested_claims": { "$ref": "#/$defs/stringArray" },
+        "files_to_inspect": { "$ref": "#/$defs/stringArray" },
+        "steps": { "$ref": "#/$defs/stringArray" },
+        "source_path": { "type": "string" },
+        "source_block_id": { "type": "string" },
+        "can_autofix": { "type": "boolean" }
+      }
+    }
+  }
+}

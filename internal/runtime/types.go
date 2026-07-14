@@ -1,10 +1,8 @@
 package runtime
 
 import (
-	"os"
-	"strings"
-
 	"reconc.dev/reconc/internal/policy"
+	"reconc.dev/reconc/internal/schema"
 )
 
 // Decision is the top-level verdict of a check run.
@@ -23,7 +21,7 @@ const (
 // DefaultCheckReportSchema is the default JSON-schema URL stamped on every
 // saved CheckReport. Deployments can override the base via
 // $RECONC_SCHEMA_BASE_URL (W24).
-const DefaultCheckReportSchema = "https://reconc.dev/schemas/policy-report/v1"
+const DefaultCheckReportSchema = schema.PolicyReportURL
 
 // CheckReportSchema is a compile-time constant for callers that need
 // the literal URL (tests, doc references). Runtime code paths that
@@ -38,10 +36,7 @@ const CheckReportSchema = DefaultCheckReportSchema
 // CheckReports. Honors $RECONC_SCHEMA_BASE_URL; defaults to
 // DefaultCheckReportSchema.
 func ResolveCheckReportSchema() string {
-	if base := os.Getenv("RECONC_SCHEMA_BASE_URL"); base != "" {
-		return strings.TrimRight(base, "/") + "/schemas/policy-report/v1"
-	}
-	return DefaultCheckReportSchema
+	return schema.Resolve(schema.PolicyReport)
 }
 
 // CheckReportFormatVersion is the explicit format-version field in the

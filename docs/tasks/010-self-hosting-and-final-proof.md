@@ -18,7 +18,7 @@ performance, storage, hooks, bootstrap, policy, docs, and release artifacts.
 
 ## Sub-Tasks
 
-- [ ] Bootstrap Reconc into itself and resolve every self-hosting finding.
+- [~] Bootstrap Reconc into itself and resolve every self-hosting finding.
 - [ ] Run the clean-repository golden path across all supported profiles and hook platforms.
 - [ ] Run adversarial, concurrent, race, scale, storage, and performance proof suites.
 - [ ] Reconcile all docs and remove generated verification residue.

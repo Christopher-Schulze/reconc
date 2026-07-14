@@ -209,7 +209,7 @@ func renderCompilerConfig(extends []string) string {
 
 func renderAgentsStub(repoName string) string {
 	return "# " + repoName + "\n\n" +
-		"This repository uses [`reconc`](https://reconc.dev) to compile its policy\n" +
+		"This repository uses [`reconc`](https://github.com/Christopher-Schulze/reconc) to compile its policy\n" +
 		"into a versioned lockfile under `.reconc/policy.lock.json`.\n\n" +
 		"Policy rules live in `.reconc.yml` and are inherited from the bundled\n" +
 		"preset(s) listed under `extends:`. Add repo-local rules inline below in\n" +

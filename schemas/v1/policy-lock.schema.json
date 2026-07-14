@@ -1,0 +1,265 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/policy-lock.schema.json",
+  "title": "Reconc compiled policy lock v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "compiler_version",
+    "format_version",
+    "repo_root",
+    "default_mode",
+    "rule_count",
+    "source_count",
+    "source_digest",
+    "source_precedence",
+    "discovery",
+    "sources",
+    "rules"
+  ],
+  "properties": {
+    "$schema": { "type": "string", "format": "uri" },
+    "compiler_version": { "type": "string", "minLength": 1 },
+    "format_version": { "const": "1" },
+    "repo_root": { "type": "string" },
+    "default_mode": { "$ref": "#/$defs/mode" },
+    "rule_count": { "type": "integer", "minimum": 0 },
+    "source_count": { "type": "integer", "minimum": 0 },
+    "source_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "source_precedence": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/sourceKind" },
+      "uniqueItems": true
+    },
+    "discovery": { "$ref": "#/$defs/discovery" },
+    "sources": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/source" }
+    },
+    "rules": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/rule" }
+    }
+  },
+  "$defs": {
+    "stringArray": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "mode": {
+      "enum": ["observe", "warn", "block", "fix"]
+    },
+    "kind": {
+      "enum": [
+        "deny_write",
+        "require_read",
+        "require_command",
+        "require_command_success",
+        "forbid_command",
+        "couple_change",
+        "require_claim",
+        "require_fresh_file",
+        "require_evidence",
+        "all_of",
+        "any_of",
+        "not",
+        "require_script",
+        "require_assurance"
+      ]
+    },
+    "sourceKind": {
+      "enum": [
+        "global",
+        "claude_md",
+        "agents_md",
+        "start_md",
+        "inline_block",
+        "compiler_config",
+        "preset",
+        "policy_file"
+      ]
+    },
+    "discovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start_path",
+        "repo_root",
+        "discovered",
+        "config_candidates",
+        "policy_paths",
+        "warnings"
+      ],
+      "properties": {
+        "start_path": { "type": "string" },
+        "repo_root": { "type": "string" },
+        "discovered": { "type": "boolean" },
+        "config_candidates": { "$ref": "#/$defs/stringArray" },
+        "policy_paths": { "$ref": "#/$defs/stringArray" },
+        "warnings": { "$ref": "#/$defs/stringArray" },
+        "claude_path": { "type": "string" },
+        "agents_path": { "type": "string" },
+        "start_md_path": { "type": "string" },
+        "config_path": { "type": "string" },
+        "lockfile_path": { "type": "string" }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path", "content"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/sourceKind" },
+        "path": { "type": "string" },
+        "content": { "type": "string" },
+        "block_id": { "type": "string" },
+        "line_start": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "requiredFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": { "type": "string" },
+        "max_age_hours": { "type": "integer", "minimum": 1 },
+        "optional": { "type": "boolean" }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file"],
+      "properties": {
+        "file": { "type": "string" },
+        "must_exist": { "type": "boolean" },
+        "must_contain": { "$ref": "#/$defs/stringArray" },
+        "must_not_contain": { "type": "string" },
+        "max_line_count": { "type": "integer", "minimum": 1 },
+        "optional": { "type": "boolean" }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/kind" },
+        "path": { "type": "string" },
+        "max_age_hours": { "type": "integer", "minimum": 1 },
+        "file": { "type": "string" },
+        "must_exist": { "type": "boolean" },
+        "must_contain": { "$ref": "#/$defs/stringArray" },
+        "must_not_contain": { "type": "string" },
+        "max_line_count": { "type": "integer", "minimum": 1 },
+        "script": { "type": "string" },
+        "args": { "$ref": "#/$defs/stringArray" },
+        "timeout_sec": { "type": "integer", "minimum": 1 },
+        "paths": { "$ref": "#/$defs/stringArray" },
+        "before_paths": { "$ref": "#/$defs/stringArray" },
+        "when_paths": { "$ref": "#/$defs/stringArray" },
+        "commands": { "$ref": "#/$defs/stringArray" },
+        "claims": { "$ref": "#/$defs/stringArray" },
+        "optional": { "type": "boolean" }
+      }
+    },
+    "assuranceExemption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "reason"],
+      "properties": {
+        "path": { "type": "string" },
+        "reason": { "type": "string" }
+      }
+    },
+    "assurance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": {
+          "enum": [
+            "repository_layout",
+            "generated_reference",
+            "language_boundary",
+            "dependency_pins",
+            "network_boundary",
+            "process_boundary",
+            "substantive_proof",
+            "live_verification"
+          ]
+        },
+        "applicable_if": { "$ref": "#/$defs/stringArray" },
+        "scan_paths": { "$ref": "#/$defs/stringArray" },
+        "exclude_paths": { "$ref": "#/$defs/stringArray" },
+        "exemptions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assuranceExemption" }
+        },
+        "allowed_root_entries": { "$ref": "#/$defs/stringArray" },
+        "required_root_entries": { "$ref": "#/$defs/stringArray" },
+        "forbidden_root_entries": { "$ref": "#/$defs/stringArray" },
+        "reserved_dirs": { "$ref": "#/$defs/stringArray" },
+        "allow_hidden_entries": { "type": "boolean" },
+        "allowed_extensions": { "$ref": "#/$defs/stringArray" },
+        "manifest_paths": { "$ref": "#/$defs/stringArray" },
+        "dependency_sections": { "$ref": "#/$defs/stringArray" },
+        "allowed_version_prefixes": { "$ref": "#/$defs/stringArray" },
+        "site_patterns": { "$ref": "#/$defs/stringArray" },
+        "guard_markers": { "$ref": "#/$defs/stringArray" },
+        "marker_window_lines": { "type": "integer", "minimum": 1 },
+        "commands": { "$ref": "#/$defs/stringArray" },
+        "command_policy": { "type": "string" },
+        "proof_file": { "type": "string" },
+        "min_samples": { "type": "integer", "minimum": 1 },
+        "max_age_hours": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "message"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "$ref": "#/$defs/kind" },
+        "mode": { "$ref": "#/$defs/mode" },
+        "message": { "type": "string" },
+        "paths": { "$ref": "#/$defs/stringArray" },
+        "before_paths": { "$ref": "#/$defs/stringArray" },
+        "when_paths": { "$ref": "#/$defs/stringArray" },
+        "commands": { "$ref": "#/$defs/stringArray" },
+        "claims": { "$ref": "#/$defs/stringArray" },
+        "required_files": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/requiredFile" }
+        },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidence" }
+        },
+        "checks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/check" }
+        },
+        "script": { "type": "string" },
+        "args": { "$ref": "#/$defs/stringArray" },
+        "timeout_sec": { "type": "integer", "minimum": 1 },
+        "kill_timeout_sec": { "type": "integer", "minimum": 1 },
+        "assurance": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assurance" }
+        },
+        "source_path": { "type": "string" },
+        "source_block_id": { "type": "string" },
+        "deprecated": { "type": "boolean" },
+        "deprecated_reason": { "type": "string" },
+        "deprecated_since": { "type": "string" },
+        "deprecated_replaced_by": { "type": "string" },
+        "scope_paths": { "$ref": "#/$defs/stringArray" },
+        "scope_id": { "type": "string" }
+      }
+    }
+  }
+}

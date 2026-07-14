@@ -22,6 +22,7 @@ import (
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/parser"
 	"reconc.dev/reconc/internal/policy"
+	"reconc.dev/reconc/internal/schema"
 )
 
 // LockfileFormatVersion is bumped whenever lockfile JSON changes shape
@@ -31,16 +32,13 @@ const LockfileFormatVersion = "1"
 // DefaultLockfileSchema is the canonical JSON-schema URL recorded in every
 // lockfile by default. Deployments can override the base via
 // $RECONC_SCHEMA_BASE_URL; the reader still accepts this default.
-const DefaultLockfileSchema = "https://reconc.dev/schemas/policy-lock/v1"
+const DefaultLockfileSchema = schema.PolicyLockURL
 
 // LockfileSchema resolves the $schema URL to write into new lockfiles.
 // Honors $RECONC_SCHEMA_BASE_URL (W24). Falls back to
 // DefaultLockfileSchema when no override is set.
 func LockfileSchema() string {
-	if base := os.Getenv("RECONC_SCHEMA_BASE_URL"); base != "" {
-		return strings.TrimRight(base, "/") + "/schemas/policy-lock/v1"
-	}
-	return DefaultLockfileSchema
+	return schema.Resolve(schema.PolicyLock)
 }
 
 // LockfileRelativePath is the repo-relative location of the compiled
