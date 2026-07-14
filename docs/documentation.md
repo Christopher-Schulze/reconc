@@ -297,7 +297,6 @@ Workflow maintenance:
 - `agent-intro`
 - `audit`
 - `run`
-- `runloop`
 - `task`
 - `prune`
 - `session-briefing`
@@ -345,8 +344,8 @@ Runtime retention is product-owned rather than harness-owned. `SessionStart`
 and `SessionEnd` run a cross-process-safe due check with a six-hour interval;
 Stop never prunes. `reconc prune [repo] [--dry-run] [--json]` runs the same
 core explicitly. Unchanged session files, active-session pointers, reports,
-and runloop state are byte-compared and never republished. Disabled and
-unchanged hook events do not create run state or stop markers, and run
+and run state are byte-compared and never republished. Disabled and unchanged
+hook events do not create run state, and run
 decisions are appended only for material transitions. Session state is
 hard-capped at 1 MiB; every evidence collection has both item and byte limits,
 repeated command results are deduplicated, and any omitted security-relevant
@@ -354,14 +353,14 @@ evidence sets a persisted overflow marker that blocks PreToolUse and Stop.
 
 Default persistent budgets are 32 session files / 8 MiB / 14 days, 32 reports
 / 8 MiB / 14 days, 128 locks / 1 MiB / 24 hours, 16 MiB total external state,
-and 32 MiB / 14 days for generated audit binaries. Audit and runloop decision
+and 32 MiB / 14 days for generated audit binaries. Audit and run-decision
 JSONL each use a 2 MiB live file plus two archives, with file-locked append and
 pre-append rotation. Repo runtime is capped at 48 MiB. Known
 `reconc-proof-neg-*`, `reconc-proof-neg-copy-*`, and
 `reconc-proof-gocache-*` temp trees are removed after a two-hour inactive
 grace, retaining recent work while removing hard-kill residue before a full
 working day passes. Active session/report/lock files, live build-lock targets,
-runloop state/locks, and recent temp trees are never deleted to force a budget.
+run state/locks, and recent temp trees are never deleted to force a budget.
 Global temp scanning has its own six-hour marker, so multiple repos do not
 re-walk the same temp tree on every session start.
 
@@ -551,13 +550,13 @@ Codex also needs `hooks = true` in an active `config.toml` and routes
 `tool_input.command`. Cursor Desktop uses `.cursor/hooks.json` with
 `preToolUse` as the pre-write gate, `afterFileEdit`/`afterTabFileEdit` plus
 `postToolUse` as evidence backstops for Cursor write aliases including
-`StrReplace`, `Delete`, and `FileEdit`, `beforeSubmitPrompt` for standalone
-`/runloop`, and `stop` via Cursor-native `followup_message`. Clean Cursor
+`StrReplace`, `Delete`, and `FileEdit`, and `stop` via Cursor-native
+`followup_message`. Clean Cursor
 hook paths emit explicit `{"continue":true,"permission":"allow"}` JSON because
 Cursor fail-closed hooks treat empty stdout as hook failure. If Cursor also
 executes compatible `.claude/settings.json` hooks, Reconc detects Cursor-native
 payload markers and no-ops those non-native Claude hook invocations before they
-can mutate Cursor session or Runloop state. After compaction, Claude routes the
+can duplicate Cursor session evidence. After compaction, Claude routes the
 context-capable `SessionStart` `compact` matcher through Reconc; it does not
 spawn the notification-only `PostCompact` event. Devin uses
 `.devin/hooks.v1.json`, including `PostCompaction`, and suppresses compatible
@@ -570,17 +569,18 @@ post payload only carries a step index/result. OpenCode and Kilo use thin Bun
 adapters at `.opencode/plugins/reconc.js` and `.kilo/plugin/reconc.js`. They
 translate host events only; policy, session state, compaction context, and
 continuation decisions stay in the Go runtime, so the plugins do not maintain
-parallel runloop files or inject project-specific prompts. Their subprocess
+parallel run-state files or inject project-specific prompts. Their subprocess
 budgets are generated from the same registry, cap output at 8 KiB, terminate
 slow routes after 5, 10, or 30 seconds, and delegate versioned binary discovery
 to `tools/reconc/bin/hook` instead of embedding a release number.
 `reconc run on|off|status|log` is the canonical AI-operated repository switch.
 Repository mode persists across sessions for Claude Code, Codex, Cursor,
 OpenCode, Devin CLI, Antigravity CLI, GitHub Copilot, and Kilo Code. The agent
-runs these commands itself; users do not need to operate Reconc. Normal prompts
-without `/runloop`, `reconc run off`, and explicit interrupts disable it;
-runtime-internal continuation prompts preserve it. Session end alone preserves
-repository mode.
+runs these commands itself; users do not need to operate Reconc. Prompt text,
+runtime interrupts, compaction, session boundaries, runtime changes, and
+application restarts never mutate the switch. An interrupt releases only the
+current host invocation. `reconc run off` is the only manual disable action;
+complete or absent TASK state disables it automatically after terminal gates.
 
 Repository continuation reads the configured TASK profile through the typed
 lifecycle package. An active executable TASK yields `continue`; an empty
@@ -593,18 +593,15 @@ user.
 
 Routine executable repository continuations return before the full Stop policy
 report and never spawn Git. PreToolUse, TASK mutations, pre-commit, invalid
-TASK state, and terminal Stop remain hard gates. Prompt-scoped `/runloop`
-remains a session- and runtime-scoped compatibility mode: a standalone flag in
-sanitized user prompt text starts it, a normal same-session prompt stops it
-except for `/btw`, and evidence-bearing Stop events retain the exact-evidence
-policy-cache behavior.
+TASK state, and terminal Stop remain hard gates. Blocked and invalid TASK state
+never silently disables the durable switch; status and Stop expose the blocker
+for recovery.
 
 `awaiting_continuation` is not a hard stop reason by itself. Reads and unrelated
 hook events do not clear it. A bounded material-event counter advances only for
 write and command outcomes, so TASK changes or real tool progress reset the
 guard without a Git dirty scan or per-tool run-state write. After repeated
-no-progress stops, session mode
-disables; repository mode releases one Stop and resets its guard without
+no-progress stops, repository mode releases one Stop and resets its guard without
 silently changing the durable switch. Run decisions are persisted only for
 material state transitions in `.reconc/runloop/decisions.jsonl`, with bounded
 identifiers and reasons. The live log and two archives are each bounded at

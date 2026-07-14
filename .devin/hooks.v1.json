@@ -78,16 +78,5 @@
         }
       ]
     }
-  ],
-  "UserPromptSubmit": [
-    {
-      "hooks": [
-        {
-          "command": "\"$DEVIN_PROJECT_DIR/tools/reconc/bin/hook\" devin-user-prompt-submit \"$DEVIN_PROJECT_DIR\"",
-          "timeout": 5,
-          "type": "command"
-        }
-      ]
-    }
   ]
 }

@@ -28,9 +28,6 @@ func NormalizeCursorPayload(event string, payloadBytes []byte) ([]byte, error) {
 	out := cloneCursorObject(raw)
 	out["session_id"] = cursorSessionID(raw)
 	out["cursor_event"] = event
-	if prompt := cursorFirstString(raw, "prompt", "user_prompt", "userPrompt", "message", "text", "input"); prompt != "" {
-		out["prompt"] = prompt
-	}
 	if v, ok := cursorFirstBool(raw, "stop_hook_active", "stopHookActive", "isStopHookActive"); ok {
 		out["stop_hook_active"] = v
 	}
@@ -72,7 +69,7 @@ func NormalizeCursorPayload(event string, payloadBytes []byte) ([]byte, error) {
 // PayloadLooksLikeCursor reports whether a raw hook payload came from Cursor
 // Desktop before event-specific normalization. Cursor can execute compatible
 // Claude project hooks in the same workspace; those duplicate hooks must not
-// mutate Reconc session/runloop state for the Cursor run.
+// mutate Reconc session evidence for the Cursor run.
 func PayloadLooksLikeCursor(payloadBytes []byte) bool {
 	if len(bytes.TrimSpace(payloadBytes)) == 0 {
 		return false
@@ -150,19 +147,6 @@ func AdaptCursorResult(event string, result Result) Result {
 		return Result{
 			ExitCode: 0,
 			Stdout:   cursorJSON(map[string]interface{}{"followup_message": reason}),
-		}
-	}
-	if event == "cursor-user-prompt-submit" {
-		if result.ExitCode == 0 {
-			if strings.TrimSpace(result.Stdout) == "" {
-				return cursorAllowResult(result)
-			}
-			return result
-		}
-		reason := cursorResultReason(result)
-		return Result{
-			ExitCode: 0,
-			Stdout:   cursorJSON(map[string]interface{}{"continue": false, "user_message": reason}),
 		}
 	}
 	if isCursorPreDecisionEvent(event) && result.ExitCode != 0 {

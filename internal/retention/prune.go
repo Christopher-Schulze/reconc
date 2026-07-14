@@ -99,7 +99,7 @@ func runLocked(options Options, forceOwnedTemp bool) Report {
 	runLoopPath := filepath.Join(options.RepoRoot, ".reconc", "runloop", "decisions.jsonl")
 	report.Classes = append(report.Classes,
 		enforceJSONL("audit", auditPath, policy.AuditFileBytes, policy.AuditArchives, options.DryRun, &report),
-		enforceJSONL("runloop-decisions", runLoopPath, policy.RunLoopFileBytes, policy.RunLoopArchives, options.DryRun, &report),
+		enforceJSONL("run-decisions", runLoopPath, policy.RunLoopFileBytes, policy.RunLoopArchives, options.DryRun, &report),
 	)
 	cacheDir := filepath.Join(options.RepoRoot, ".reconc", "cache")
 	report.Classes = append(report.Classes,
@@ -108,7 +108,7 @@ func runLocked(options Options, forceOwnedTemp bool) Report {
 	)
 	ownedTempClass, ownedTempScanned := pruneOwnedTempRootsInterval(options, forceOwnedTemp, &report)
 	report.Classes = append(report.Classes, ownedTempClass)
-	projectedRepoBefore, projectedRepoAfter := classTotals(report.Classes, "audit", "runloop-decisions", "generated-binaries")
+	projectedRepoBefore, projectedRepoAfter := classTotals(report.Classes, "audit", "run-decisions", "generated-binaries")
 	repoTotal := enforceRepoTotal(options, &report)
 	if options.DryRun {
 		repoTotal.BytesBefore = projectedRepoBefore

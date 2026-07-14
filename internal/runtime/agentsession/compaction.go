@@ -53,11 +53,11 @@ func RunPostCompaction(repoRoot string, payloadBytes []byte) Result {
 		len(state.ReadPaths), len(state.WritePaths), len(state.Commands), len(state.CommandResults), len(state.Claims), state.EvidenceOverflow,
 	))
 	if runLoop.Enabled {
-		lines = append(lines, "Runloop: enabled for runtime "+fallbackText(runLoop.Runtime, "unknown")+"; continue only the live active task.")
+		lines = append(lines, "Repository run: enabled; continue only the live executable TASK.")
 	} else if runLoop.DisabledReason != "" {
-		lines = append(lines, "Runloop: disabled ("+runLoop.DisabledReason+").")
+		lines = append(lines, "Repository run: disabled ("+runLoop.DisabledReason+").")
 	} else {
-		lines = append(lines, "Runloop: disabled.")
+		lines = append(lines, "Repository run: disabled.")
 	}
 	lines = append(lines, "Re-run relevant verification before claiming the task is done.")
 	context := truncateUTF8(strings.Join(dedupeContextLines(lines), "\n"), maxCompactionContextBytes)
@@ -147,11 +147,4 @@ func truncateUTF8(value string, maxBytes int) string {
 		limit--
 	}
 	return value[:limit] + suffix
-}
-
-func fallbackText(value, fallback string) string {
-	if strings.TrimSpace(value) == "" {
-		return fallback
-	}
-	return strings.TrimSpace(value)
 }

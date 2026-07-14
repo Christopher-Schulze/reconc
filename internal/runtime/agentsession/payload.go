@@ -90,17 +90,15 @@ func ParsePayload(data []byte) (*HookPayload, error) {
 // Codex sends on stdin. Fields we know about are typed; everything
 // else stays in Raw for future forward-compat.
 type HookPayload struct {
-	SessionID                  string
-	Prompt                     string
-	ToolName                   string
-	ToolInput                  map[string]interface{}
-	ToolResponse               map[string]interface{}
-	ToolUseID                  string
-	Error                      string
-	IsInterrupt                *bool
-	StopHookActive             bool
-	OpenCodeContinuationDriver bool
-	Raw                        map[string]interface{}
+	SessionID      string
+	ToolName       string
+	ToolInput      map[string]interface{}
+	ToolResponse   map[string]interface{}
+	ToolUseID      string
+	Error          string
+	IsInterrupt    *bool
+	StopHookActive bool
+	Raw            map[string]interface{}
 }
 
 // FilePath returns the first known file path field of tool_input,
@@ -242,9 +240,6 @@ func payloadFromMap(raw map[string]interface{}) (*HookPayload, error) {
 	toolName, _ := raw["tool_name"].(string)
 	toolName = strings.TrimSpace(toolName)
 
-	prompt, _ := raw["prompt"].(string)
-	prompt = strings.TrimSpace(prompt)
-
 	toolInput, _ := raw["tool_input"].(map[string]interface{})
 	toolResponse, _ := raw["tool_response"].(map[string]interface{})
 	toolUseID, _ := raw["tool_use_id"].(string)
@@ -259,20 +254,17 @@ func payloadFromMap(raw map[string]interface{}) (*HookPayload, error) {
 	}
 
 	stopHookActive, _ := raw["stop_hook_active"].(bool)
-	openCodeContinuationDriver, _ := raw["opencode_continuation_driver"].(bool)
 
 	return &HookPayload{
-		SessionID:                  sessionID,
-		Prompt:                     prompt,
-		ToolName:                   toolName,
-		ToolInput:                  toolInput,
-		ToolResponse:               toolResponse,
-		ToolUseID:                  toolUseID,
-		Error:                      errString,
-		IsInterrupt:                isInterrupt,
-		StopHookActive:             stopHookActive,
-		OpenCodeContinuationDriver: openCodeContinuationDriver,
-		Raw:                        raw,
+		SessionID:      sessionID,
+		ToolName:       toolName,
+		ToolInput:      toolInput,
+		ToolResponse:   toolResponse,
+		ToolUseID:      toolUseID,
+		Error:          errString,
+		IsInterrupt:    isInterrupt,
+		StopHookActive: stopHookActive,
+		Raw:            raw,
 	}, nil
 }
 

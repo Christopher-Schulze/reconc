@@ -2,8 +2,8 @@ package agentsession
 
 import "time"
 
-// SetRunLoopRepoMode is the AI-facing repository-wide on/off switch used by
-// `reconc run on|off`. Prompt-scoped `/runloop` remains session mode.
+// SetRunLoopRepoMode is the only run-state switch used by `reconc run on|off`.
+// Hook messages and session lifecycle events never mutate this state.
 func SetRunLoopRepoMode(repoRoot string, enabled bool) (RunLoopStatusInfo, error) {
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
@@ -15,7 +15,7 @@ func SetRunLoopRepoMode(repoRoot string, enabled bool) (RunLoopStatusInfo, error
 	}
 	before, after, err := mutateRunLoopState(root, func(state runLoopState) runLoopState {
 		if enabled {
-			if state.Enabled && state.Mode == runLoopModeRepo {
+			if runLoopStateApplies(state) {
 				return state
 			}
 			return runLoopState{
@@ -29,11 +29,10 @@ func SetRunLoopRepoMode(repoRoot string, enabled bool) (RunLoopStatusInfo, error
 	if err != nil {
 		return RunLoopStatusInfo{}, err
 	}
-	if enabled {
-		if err := clearRunLoopStopFile(root); err != nil {
-			return RunLoopStatusInfo{}, err
-		}
-	}
+	// The marker belonged to the removed prompt/session mode and has no control
+	// semantics. Cleanup is best-effort and cannot invalidate a successful
+	// canonical state transition.
+	_ = clearRunLoopStopFile(root)
 	if before != after {
 		_ = appendRunLoopDecision(root, RunLoopDecision{
 			Event: "command", Branch: branch,

@@ -32,9 +32,6 @@ func NormalizeDevinPayload(event string, payloadBytes []byte, repoRoot string) (
 	out["session_id"] = devinSessionID(raw, repoRoot)
 	out["reconc_runtime"] = "devin"
 	out["devin_event"] = event
-	if prompt := cursorFirstString(raw, "prompt", "user_prompt", "userPrompt", "message", "text", "input"); prompt != "" {
-		out["prompt"] = prompt
-	}
 	if value, ok := cursorFirstBool(raw, "stop_hook_active", "stopHookActive", "isStopHookActive"); ok {
 		out["stop_hook_active"] = value
 	}

@@ -6,7 +6,6 @@ type Event string
 const (
 	EventPreCommit          Event = "pre-commit"
 	EventSessionStart       Event = "session-start"
-	EventUserPromptSubmit   Event = "user-prompt-submit"
 	EventPreToolUse         Event = "pre-tool-use"
 	EventPermissionRequest  Event = "permission-request"
 	EventPostToolUse        Event = "post-tool-use"
@@ -128,7 +127,6 @@ var platformRegistry = []platformDefinition{
 	{
 		Platform: Platform{Kind: KindClaudeCode, DisplayName: "Claude Code", TargetPath: ClaudeCodeSettingsPath, ScaffoldPath: ClaudeCodeSettingsPath, InstallMode: InstallNestedJSON, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".claude"}, RequiresWrapper: true}, Capabilities: []Capability{
 			capability(EventSessionStart, "SessionStart", SupportNative, FailureAllow, FailureAllow, 5, "claude-session-start"),
-			capability(EventUserPromptSubmit, "UserPromptSubmit", SupportNative, FailureAllow, FailureAllow, 5, "claude-user-prompt-submit"),
 			capability(EventPreToolUse, "PreToolUse", SupportNative, FailureBlock, FailureBlock, 10, "claude-pre-tool-use"),
 			capability(EventPermissionRequest, "PermissionRequest", SupportNative, FailureBlock, FailureBlock, 10, "claude-permission-request"),
 			capability(EventPostToolUse, "PostToolUse", SupportNative, FailureAllow, FailureAllow, 5, "claude-post-tool-use"),
@@ -142,7 +140,6 @@ var platformRegistry = []platformDefinition{
 	{
 		Platform: Platform{Kind: KindCodex, DisplayName: "Codex", TargetPath: CodexHooksPath, ScaffoldPath: CodexHooksPath, InstallMode: InstallNestedJSON, Activation: ActivationProbe{Mode: ActivationFlag, ConfigDirs: []string{".codex"}, EnablePath: ".codex/config.toml", EnableToken: "hooks=true", RequiresWrapper: true}, Capabilities: []Capability{
 			capability(EventSessionStart, "SessionStart", SupportNative, FailureAllow, FailureAllow, 5, "codex-session-start"),
-			capability(EventUserPromptSubmit, "UserPromptSubmit", SupportNative, FailureAllow, FailureAllow, 5, "codex-user-prompt-submit"),
 			capability(EventPreToolUse, "PreToolUse", SupportNative, FailureBlock, FailureBlock, 10, "codex-pre-tool-use"),
 			capability(EventPermissionRequest, "PermissionRequest", SupportNative, FailureBlock, FailureBlock, 10, "codex-permission-request"),
 			capability(EventPostToolUse, "PostToolUse", SupportNative, FailureAllow, FailureAllow, 5, "codex-post-tool-use"),
@@ -156,7 +153,6 @@ var platformRegistry = []platformDefinition{
 	{
 		Platform: Platform{Kind: KindCursor, DisplayName: "Cursor", TargetPath: CursorHooksPath, ScaffoldPath: CursorHooksPath, InstallMode: InstallNestedJSON, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".cursor"}, RequiresWrapper: true}, Capabilities: []Capability{
 			capability(EventSessionStart, "sessionStart", SupportNative, FailureBlock, FailureBlock, 5, "cursor-session-start"),
-			capability(EventUserPromptSubmit, "beforeSubmitPrompt", SupportNative, FailureBlock, FailureBlock, 5, "cursor-user-prompt-submit"),
 			cursorPreToolCapability(),
 			fallback(EventPermissionRequest, EventPreToolUse),
 			capabilityMany(EventPostToolUse, "postToolUse", SupportNative, FailureAllow, FailureAllow, 5, "cursor-post-tool-use", "cursor-after-shell-execution", "cursor-after-file-edit", "cursor-after-tab-file-edit"),
@@ -170,7 +166,6 @@ var platformRegistry = []platformDefinition{
 	{
 		Platform: Platform{Kind: KindOpenCode, DisplayName: "OpenCode", TargetPath: OpenCodePluginPath, ScaffoldPath: OpenCodePluginPath, InstallMode: InstallPlugin, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".opencode"}}, Capabilities: []Capability{
 			capability(EventSessionStart, "plugin-load", SupportInferred, FailureAllow, FailureAllow, 5, "opencode-session-start"),
-			capability(EventUserPromptSubmit, "chat.message", SupportNative, FailureAllow, FailureAllow, 5, "opencode-user-prompt-submit"),
 			capability(EventPreToolUse, "tool.execute.before", SupportNative, FailureBlock, FailureBlock, 10, "opencode-pre-tool-use"),
 			capability(EventPermissionRequest, "permission.ask", SupportNative, FailureBlock, FailureBlock, 10, "opencode-permission-request"),
 			capability(EventPostToolUse, "tool.execute.after", SupportNative, FailureAllow, FailureAllow, 5, "opencode-post-tool-use"),
@@ -184,7 +179,6 @@ var platformRegistry = []platformDefinition{
 	{
 		Platform: Platform{Kind: KindDevinCLI, DisplayName: "Devin CLI", TargetPath: DevinHooksPath, ScaffoldPath: DevinHooksPath, InstallMode: InstallFlatJSON, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".devin"}, RequiresWrapper: true}, Capabilities: []Capability{
 			capability(EventSessionStart, "SessionStart", SupportNative, FailureAllow, FailureAllow, 5, "devin-session-start"),
-			capability(EventUserPromptSubmit, "UserPromptSubmit", SupportNative, FailureAllow, FailureAllow, 5, "devin-user-prompt-submit"),
 			capability(EventPreToolUse, "PreToolUse", SupportNative, FailureBlock, FailureAllow, 10, "devin-pre-tool-use"),
 			capability(EventPermissionRequest, "PermissionRequest", SupportNative, FailureBlock, FailureAllow, 10, "devin-permission-request"),
 			capability(EventPostToolUse, "PostToolUse", SupportNative, FailureAllow, FailureAllow, 5, "devin-post-tool-use"),
@@ -198,7 +192,6 @@ var platformRegistry = []platformDefinition{
 	{
 		Platform: Platform{Kind: KindAntigravity, DisplayName: "Antigravity CLI", TargetPath: AntigravityHooksPath, ScaffoldPath: AntigravityHooksPath, InstallMode: InstallOwnedJSON, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".agents"}, RequiresWrapper: true}, Capabilities: []Capability{
 			capability(EventSessionStart, "PreInvocation", SupportAdapted, FailureAllow, FailureAllow, 5, "antigravity-pre-invocation"),
-			capability(EventUserPromptSubmit, "PreInvocation transcript", SupportInferred, FailureAllow, FailureAllow, 5),
 			capability(EventPreToolUse, "PreToolUse", SupportNative, FailureBlock, FailureAllow, 10, "antigravity-pre-tool-use"),
 			fallback(EventPermissionRequest, EventPreToolUse),
 			capability(EventPostToolUse, "PostToolUse", SupportNative, FailureAllow, FailureAllow, 5, "antigravity-post-tool-use"),
@@ -212,7 +205,6 @@ var platformRegistry = []platformDefinition{
 	{
 		Platform: Platform{Kind: KindCopilot, DisplayName: "GitHub Copilot", TargetPath: CopilotHooksPath, ScaffoldPath: CopilotHooksPath, InstallMode: InstallManagedJSON, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".github/copilot", ".github/hooks"}, RequiresWrapper: true}, Capabilities: []Capability{
 			capability(EventSessionStart, "SessionStart", SupportNative, FailureAllow, FailureAllow, 5, "copilot-session-start"),
-			capability(EventUserPromptSubmit, "UserPromptSubmit", SupportNative, FailureAllow, FailureAllow, 5, "copilot-user-prompt-submit"),
 			capability(EventPreToolUse, "PreToolUse", SupportNative, FailureBlock, FailureAllow, 10, "copilot-pre-tool-use"),
 			capability(EventPermissionRequest, "PermissionRequest", SupportNative, FailureBlock, FailureAllow, 10, "copilot-permission-request"),
 			capability(EventPostToolUse, "PostToolUse", SupportNative, FailureAllow, FailureAllow, 5, "copilot-post-tool-use"),
@@ -226,7 +218,6 @@ var platformRegistry = []platformDefinition{
 	{
 		Platform: Platform{Kind: KindKilo, DisplayName: "Kilo", TargetPath: KiloPluginPath, ScaffoldPath: KiloPluginPath, InstallMode: InstallPlugin, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".kilo", ".kilocode"}, DisabledByEnv: "KILO_PURE", LegacyArtifactPath: ".kilocode/plugin/reconc.js"}, Capabilities: []Capability{
 			capability(EventSessionStart, "session.created", SupportNative, FailureAllow, FailureAllow, 5, "kilo-session-start"),
-			capability(EventUserPromptSubmit, "chat.message", SupportNative, FailureAllow, FailureAllow, 5, "kilo-user-prompt-submit"),
 			capability(EventPreToolUse, "tool.execute.before", SupportNative, FailureBlock, FailureBlock, 10, "kilo-pre-tool-use"),
 			capability(EventPermissionRequest, "permission.ask", SupportNative, FailureBlock, FailureBlock, 10, "kilo-permission-request"),
 			capability(EventPostToolUse, "tool.execute.after", SupportNative, FailureAllow, FailureAllow, 5, "kilo-post-tool-use"),

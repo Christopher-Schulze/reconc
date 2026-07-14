@@ -23,7 +23,6 @@ func generateDevinCLI() *Artifact {
 	}
 	template := map[string]interface{}{
 		"SessionStart":      []interface{}{entry("devin-session-start", EventSessionStart, "")},
-		"UserPromptSubmit":  []interface{}{entry("devin-user-prompt-submit", EventUserPromptSubmit, "")},
 		"PreToolUse":        []interface{}{entry("devin-pre-tool-use", EventPreToolUse, "^(exec|edit)$")},
 		"PermissionRequest": []interface{}{entry("devin-permission-request", EventPermissionRequest, "^(exec|edit)$")},
 		"PostToolUse":       []interface{}{entry("devin-post-tool-use", EventPostToolUse, "^(read|edit|grep|glob|exec|mcp__.*)$")},
@@ -54,7 +53,6 @@ func generateCopilot() *Artifact {
 		"version": 1,
 		"hooks": map[string]interface{}{
 			"SessionStart":       []interface{}{entry("copilot-session-start", EventSessionStart, "")},
-			"UserPromptSubmit":   []interface{}{entry("copilot-user-prompt-submit", EventUserPromptSubmit, "")},
 			"PreToolUse":         []interface{}{entry("copilot-pre-tool-use", EventPreToolUse, "Bash|Edit|Write")},
 			"PermissionRequest":  []interface{}{entry("copilot-permission-request", EventPermissionRequest, "Bash|Edit|Write")},
 			"PostToolUse":        []interface{}{entry("copilot-post-tool-use", EventPostToolUse, "Read|Bash|Edit|Write|Grep|Glob")},
@@ -178,11 +176,6 @@ const normalizeTool = (tool) => {
   }
 }
 
-const textFromParts = (parts) => (Array.isArray(parts) ? parts : [])
-  .map((part) => typeof part === "string" ? part : part?.text || part?.content || "")
-  .filter(Boolean)
-  .join("\n")
-
 __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
   const repo = worktree || directory || process.cwd()
   const wrapper = repo + "/tools/reconc/bin/hook"
@@ -293,10 +286,6 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
   }
 
   return {
-    "chat.message": async (input, output) => {
-      const sessionID = await ensureSession(sessionIDFrom(input))
-      await run("__PREFIX__-user-prompt-submit", { session_id: sessionID, reconc_runtime: "__PREFIX__", prompt: textFromParts(output?.parts) })
-    },
     "tool.execute.before": async (input, output) => {
       await ensureSession(sessionIDFrom(input))
       const event = "__PREFIX__-pre-tool-use"

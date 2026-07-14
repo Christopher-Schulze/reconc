@@ -114,10 +114,11 @@ or overwrites an external edit.
 After verification, the agent itself inspects the target with `reconc run status <target-repo>`.
 It enables repository continuation with `reconc run on <target-repo>` only
 when autonomous execution is requested, and disables it with
-`reconc run off <target-repo>` on explicit stop or a real blocker. A real user
-prompt without `/runloop` also cancels repository continuation; internal
-continuation prompts and session end preserve it. Do not ask the user to
-operate these commands.
+`reconc run off <target-repo>` on explicit stop or a real blocker. Prompt text,
+runtime interrupts, session boundaries, and application restarts never mutate
+the durable switch; an interrupt releases only the current host invocation.
+Complete or absent TASK state disables it automatically after terminal gates.
+Do not ask the user to operate these commands.
 
 The following manual steps remain authoritative for the project harness,
 stack config, conditional skeletons, architecture boundaries, project-specific
@@ -320,7 +321,7 @@ The excerpt must preserve these workflow sections:
 - File Operations.
 - Test Integrity.
 - AI Workflow.
-- Runloop.
+- Repository Run.
 - Source Of Truth.
 - Reality Check Standard.
 - `docs/spec.md` Discipline.
@@ -363,8 +364,7 @@ Required Reconc runtime ignores:
 `.reconc/runloop/` holds repo-local run state: `state.json` and the bounded,
 transition-only `decisions.jsonl`. It is gitignored above. No per-repo
 scaffolding is needed: `reconc run on|off|status|log` ships in the binary and
-operates this directory in any repo; `reconc runloop status|log` remains a
-read-only compatibility alias. The agent operates the switch. The per-TASK
+operates this directory in any repo. The agent operates the switch. The per-TASK
 Reality-Check loop (`docs/task-loop-workflow.md`, scaffolded) and its AGENTS.md
 excerpt are merged into the repo's `AGENTS.md` like the other sections.
 
@@ -372,7 +372,7 @@ Reconc owns runtime retention in the product binary. SessionStart and
 SessionEnd perform a cheap six-hour due check; Stop never performs cleanup.
 The same pass is available to an agent as `reconc prune . --json` and can be
 inspected without mutation via `reconc prune . --dry-run --json`. It bounds
-session/report/lock state, audit and runloop JSONL rings, generated audit
+session/report/lock state, audit and run-decision JSONL rings, generated audit
 binaries, abandoned atomic/build temps, and owned `reconc-proof-*` temp trees.
 Proof temp trees use a two-hour inactivity grace to bound hard-kill residue
 while preserving recent work.
@@ -538,7 +538,7 @@ The rollout is not done until all of this is true:
 - `repo-root-scaffold/` hook artifacts were synced with `reconc hook sync-scaffold` from the local generator; no hook artifact was edited by hand or copied from a source-specific harness.
 - POSIX hook routes call `tools/reconc/bin/hook` first and retain local-dist/PATH fallback; native Windows adaptations are documented explicitly.
 - `hook status . --json` reports every installed platform as `active`; no platform is degraded, shadowed, unsupported, or accidentally left only installed.
-- OpenCode and Kilo plugins contain no project-specific runloop state or prompts; Copilot contains no no-op `PreCompact` route; Antigravity contains no blanket 120-second timeout.
+- OpenCode and Kilo plugins contain no project-specific run state or prompts; Copilot contains no no-op `PreCompact` route; Antigravity contains no blanket 120-second timeout.
 - Cursor/Windsurf/Codeium/VS Code indexing excludes are installed as local-tool performance controls only, not Git ignores.
 - `AGENTS.md` contains the workflow excerpt and any user-approved stack-specific style rules.
 - `.gitignore` contains Reconc runtime ignores and relevant dual-layout build/dependency ignores.

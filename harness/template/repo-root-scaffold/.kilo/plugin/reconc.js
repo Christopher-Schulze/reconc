@@ -3,7 +3,7 @@
 
 const fallbackSessionID = globalThis.crypto?.randomUUID?.() ?? "kilo-" + Date.now()
 const startedSessions = new Set()
-const routeBudgets = {"kilo-permission-request":{"timeoutMilliseconds":10000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"block"},"kilo-post-compaction":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"kilo-post-tool-use":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"kilo-post-tool-use-failure":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"kilo-pre-tool-use":{"timeoutMilliseconds":10000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"block"},"kilo-session-end":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"kilo-session-start":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"kilo-stop":{"timeoutMilliseconds":30000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"allow"},"kilo-user-prompt-submit":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"}}
+const routeBudgets = {"kilo-permission-request":{"timeoutMilliseconds":10000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"block"},"kilo-post-compaction":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"kilo-post-tool-use":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"kilo-post-tool-use-failure":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"kilo-pre-tool-use":{"timeoutMilliseconds":10000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"block"},"kilo-session-end":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"kilo-session-start":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"kilo-stop":{"timeoutMilliseconds":30000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"allow"}}
 
 const sessionIDFrom = (value, depth = 0) => {
   if (!value || depth > 6) return ""
@@ -39,11 +39,6 @@ const normalizeTool = (tool) => {
     default: return tool || ""
   }
 }
-
-const textFromParts = (parts) => (Array.isArray(parts) ? parts : [])
-  .map((part) => typeof part === "string" ? part : part?.text || part?.content || "")
-  .filter(Boolean)
-  .join("\n")
 
 const ReconcKiloServer = async ({ directory, worktree, client }) => {
   const repo = worktree || directory || process.cwd()
@@ -155,10 +150,6 @@ const ReconcKiloServer = async ({ directory, worktree, client }) => {
   }
 
   return {
-    "chat.message": async (input, output) => {
-      const sessionID = await ensureSession(sessionIDFrom(input))
-      await run("kilo-user-prompt-submit", { session_id: sessionID, reconc_runtime: "kilo", prompt: textFromParts(output?.parts) })
-    },
     "tool.execute.before": async (input, output) => {
       await ensureSession(sessionIDFrom(input))
       const event = "kilo-pre-tool-use"

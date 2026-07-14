@@ -303,8 +303,8 @@ state fails closed instead of being reset silently.
 ### Run state concurrency and Stop routing
 
 `.reconc/runloop/state.json` is published only for material transitions.
-Disabled and unchanged hook events do not create or rewrite state, stop
-markers, or decisions. Parallel agent tool calls can still spawn concurrent
+Disabled and unchanged hook events do not create or rewrite state or
+decisions. Parallel agent tool calls can still spawn concurrent
 `reconc hook runtime` processes, so two invariants keep an active run from
 being silently disabled:
 
@@ -317,17 +317,18 @@ being silently disabled:
   `withRunLoopLock` serialize load->mutate->save under an exclusive
   cross-platform file lock (`.reconc/runloop/state.lock`), mirroring `MutateSessionState`,
   so concurrent mutators cannot lose each other's updates. The Stop hook's
-  own disable and continuation decisions run through the same locked
-  mutator, so a concurrent reconcile or a user disabling mid-stop cannot be
-  lost. The append-only `decisions.jsonl` log uses a separate cross-process
+  own terminal-disable and continuation decisions run through the same locked
+  mutator, so a concurrent `run off` cannot be lost. The append-only
+  `decisions.jsonl` log uses a separate cross-process
   lock and a 2 MiB plus two-archive ring, so state-lock re-entry cannot deadlock
   decision publication.
 
-Canonical repository mode is controlled by `reconc run on|off`; the older
-standalone `/runloop` prompt creates session-scoped compatibility mode. Both
-use the same locked state. Repository mode survives session end and internal
-continuation prompts, but a real user prompt without `/runloop`, explicit
-interrupt, or `run off` disables it.
+Repository mode is controlled only by `reconc run on|off`. Prompt text,
+runtime interrupts, session lifecycle events, runtime changes, compaction, and
+application restarts never mutate its locked state. An explicit interrupt
+releases only the current host invocation. `run off` is the only manual
+disable action; complete or absent TASK state disables it automatically after
+the terminal gates.
 
 Stop reads TASK state through `tasklifecycle.InspectRunState`. Executable
 `continue` and `claim` dispositions return the runtime-native continuation
@@ -336,9 +337,9 @@ response before policy report construction and without a Git process.
 gate; `invalid` fails closed. This fast path never bypasses PreToolUse, TASK
 mutation transactions, pre-commit, or terminal policy enforcement. The
 no-progress guard compares typed TASK state plus a write/command material-event
-counter; reads and unrelated events cannot fake progress. Session mode disables
-at the limit; repository mode releases one Stop and resets the guard while
-leaving the explicit durable switch enabled. Repository runs leave the fast
+counter; reads and unrelated events cannot fake progress. At the limit,
+repository mode releases one Stop and resets the guard while leaving the
+explicit durable switch enabled. Repository runs leave the fast
 path only after 64 new material events, 30 minutes with new progress, or a
 failed command, then reuse the normal full Stop report as a policy checkpoint.
 Explicitly configured TASK state fails closed if its overview disappears, and
@@ -365,7 +366,7 @@ command that succeeded. `forbid_command`/`require_command`
   timeout + 32-level depth.
 - Session evidence has per-field item and byte caps plus a 1 MiB serialized
   ceiling. Overflow persists a fail-closed marker used by PreToolUse and Stop.
-- Audit and runloop JSONL writes rotate before append through fixed archive
+- Audit and run-decision JSONL writes rotate before append through fixed archive
   rings; lifecycle retention bounds sessions, reports, locks, generated
   binaries, and owned temp residue outside the Stop path.
 - Native assurance source gates scan matching changed files only. Layout and

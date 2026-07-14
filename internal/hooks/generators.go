@@ -102,13 +102,6 @@ func generateClaudeCode() *Artifact {
 					},
 				},
 			},
-			"UserPromptSubmit": []interface{}{
-				map[string]interface{}{
-					"hooks": []interface{}{
-						command("claude-user-prompt-submit", EventUserPromptSubmit),
-					},
-				},
-			},
 			"PostToolUse": []interface{}{
 				map[string]interface{}{
 					"matcher": "Read|Edit|Write|MultiEdit|Bash",
@@ -187,16 +180,6 @@ func generateCodex() *Artifact {
 					},
 				},
 			},
-			"UserPromptSubmit": []interface{}{
-				map[string]interface{}{
-					"hooks": []interface{}{
-						map[string]interface{}{
-							"type":    "command",
-							"command": shellRuntimeCommand(".", "codex-user-prompt-submit"),
-						},
-					},
-				},
-			},
 			"PostToolUse": []interface{}{
 				map[string]interface{}{
 					"matcher": "Read|Edit|Write|MultiEdit|Bash|apply_patch",
@@ -269,9 +252,6 @@ func generateCursor() *Artifact {
 		"hooks": map[string]interface{}{
 			"sessionStart": []interface{}{
 				entry("cursor-session-start", true),
-			},
-			"beforeSubmitPrompt": []interface{}{
-				entry("cursor-user-prompt-submit", true),
 			},
 			"preToolUse": []interface{}{
 				preToolEntry,

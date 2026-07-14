@@ -47,7 +47,6 @@ func TestPlatformRegistryOwnsEveryHookKind(t *testing.T) {
 func TestPlatformRegistryCapabilitiesAreCompleteAndBounded(t *testing.T) {
 	coreEvents := []Event{
 		EventSessionStart,
-		EventUserPromptSubmit,
 		EventPreToolUse,
 		EventPermissionRequest,
 		EventPostToolUse,
@@ -105,6 +104,11 @@ func TestGenerateEveryRegisteredArtifact(t *testing.T) {
 			for _, missing := range missingRuntimeEvents(platform, artifact.Content) {
 				t.Errorf("generated artifact misses registry route %s", missing)
 			}
+			for _, removed := range []string{"UserPromptSubmit", "beforeSubmitPrompt", "chat.message", "-user-prompt-submit"} {
+				if strings.Contains(artifact.Content, removed) {
+					t.Errorf("generated artifact retained removed prompt route %q", removed)
+				}
+			}
 		})
 	}
 }
@@ -137,10 +141,13 @@ func TestNewPlatformArtifactsUseCurrentContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, token := range []string{`"version": 1`, `"SessionStart"`, `"UserPromptSubmit"`, `"PreToolUse"`, `"PermissionRequest"`, `"Stop"`, `"timeoutSec": 10`, `"powershell"`} {
+	for _, token := range []string{`"version": 1`, `"SessionStart"`, `"PreToolUse"`, `"PermissionRequest"`, `"Stop"`, `"timeoutSec": 10`, `"powershell"`} {
 		if !strings.Contains(copilot.Content, token) {
 			t.Fatalf("Copilot artifact missing %q:\n%s", token, copilot.Content)
 		}
+	}
+	if strings.Contains(copilot.Content, `"UserPromptSubmit"`) || strings.Contains(copilot.Content, "copilot-user-prompt-submit") {
+		t.Fatal("Copilot artifact retained removed user-prompt route")
 	}
 	if strings.Contains(copilot.Content, `"PreCompact"`) || strings.Contains(copilot.Content, "copilot-post-compaction") {
 		t.Fatal("Copilot preCompact is notification-only and must not spawn a no-op Reconc process")
@@ -171,12 +178,12 @@ func TestNewPlatformArtifactsUseCurrentContracts(t *testing.T) {
 func TestBunAdapterRoutesAreRegistered(t *testing.T) {
 	for kind, events := range map[string][]string{
 		KindOpenCode: {
-			"opencode-session-start", "opencode-user-prompt-submit", "opencode-pre-tool-use",
+			"opencode-session-start", "opencode-pre-tool-use",
 			"opencode-permission-request", "opencode-post-tool-use", "opencode-post-tool-use-failure",
 			"opencode-post-compaction", "opencode-session-end", "opencode-stop",
 		},
 		KindKilo: {
-			"kilo-session-start", "kilo-user-prompt-submit", "kilo-pre-tool-use",
+			"kilo-session-start", "kilo-pre-tool-use",
 			"kilo-permission-request", "kilo-post-tool-use", "kilo-post-tool-use-failure",
 			"kilo-post-compaction", "kilo-session-end", "kilo-stop",
 		},
@@ -186,6 +193,20 @@ func TestBunAdapterRoutesAreRegistered(t *testing.T) {
 			if !ok || route.PlatformKind != kind {
 				t.Fatalf("adapter route %s = %+v, %t; want %s", event, route, ok, kind)
 			}
+		}
+	}
+	for _, event := range []string{
+		"claude-user-prompt-submit",
+		"codex-user-prompt-submit",
+		"cursor-user-prompt-submit",
+		"opencode-user-prompt-submit",
+		"devin-user-prompt-submit",
+		"antigravity-user-prompt-submit",
+		"copilot-user-prompt-submit",
+		"kilo-user-prompt-submit",
+	} {
+		if _, ok := RuntimeEvent(event); ok {
+			t.Fatalf("removed user-prompt route %s is still registered", event)
 		}
 	}
 }

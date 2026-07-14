@@ -69,6 +69,7 @@ type PendingToolCall struct {
 type SessionState struct {
 	RepoRoot                   string                     `json:"repo_root"`
 	SessionID                  string                     `json:"session_id"`
+	Runtime                    string                     `json:"runtime,omitempty"`
 	ReadPaths                  []string                   `json:"read_paths"`
 	WritePaths                 []string                   `json:"write_paths"`
 	Commands                   []string                   `json:"commands"`
@@ -231,6 +232,7 @@ func loadSessionStateResolved(root, sessionID string) (SessionState, error) {
 		return SessionState{}, fmt.Errorf("%s: session_id %q does not match requested session %q", path, state.SessionID, sessionID)
 	}
 	state.SessionID = sessionID
+	state.Runtime = normalizeRuntimeName(state.Runtime)
 	if state.RepoRoot != "" && filepath.Clean(state.RepoRoot) != filepath.Clean(root) {
 		return SessionState{}, fmt.Errorf("%s: repo_root %q does not match resolved repository %q", path, state.RepoRoot, root)
 	}
@@ -399,11 +401,16 @@ func sortedUnique(xs []string) []string {
 // Also records the sessionID as the active one for this repo so later
 // events without a session_id can fall back to it.
 func InitializeSessionState(repoRoot, sessionID string) (SessionState, error) {
+	return initializeSessionState(repoRoot, sessionID, "")
+}
+
+func initializeSessionState(repoRoot, sessionID, runtime string) (SessionState, error) {
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
 		return SessionState{}, err
 	}
 	state := emptyState(root, sessionID)
+	state.Runtime = normalizeRuntimeName(runtime)
 	if err := withSessionLock(root, sessionID, func() error {
 		if err := saveSessionStateLocked(state); err != nil {
 			return err

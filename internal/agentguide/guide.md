@@ -186,16 +186,15 @@ full terminal policy or Git scan. PreToolUse, permission, TASK mutation,
 pre-commit, and terminal Stop gates remain active. A blocked, complete, absent,
 or invalid TASK plane never receives routine continuation.
 
-`run off` and explicit user interrupt disable repository mode immediately.
-The next real user prompt without `/runloop` also disables it; internal
-continuation prompts and session end do not. Six repeated no-progress
-continuations
+`run off` is the only manual disable action. Prompt text, runtime interrupts,
+session boundaries, runtime changes, and application restarts never mutate the
+durable switch; an interrupt releases only the current invocation. Complete or
+absent TASK state disables it automatically after terminal gates. Six repeated
+no-progress continuations
 release one Stop without disabling repository mode, preventing an unbreakable
 host loop. Reads do not count as progress; TASK changes, writes, and command
 outcomes do. Long runs receive bounded policy checkpoints after 64 material
-events, 30 minutes with new progress, or a failed command. The older `/runloop`
-prompt remains session-scoped compatibility and retains its stricter policy
-behavior.
+events, 30 minutes with new progress, or a failed command.
 
 ## Output Modes (Token Efficiency)
 

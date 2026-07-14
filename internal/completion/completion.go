@@ -108,7 +108,6 @@ var Subcommands = []Subcommand{
 	{Name: "post-task-check", Help: "pre-done gate", Flags: []string{"--window", "--require-clean-git", "--json"}},
 	{Name: "prune", Help: "bound runtime state and owned temp residue", Flags: []string{"--dry-run", "--json", "--force"}},
 	{Name: "run", Help: "AI-operated repository run control", Flags: []string{"-n", "--branch", "--session", "--follow", "--json"}},
-	{Name: "runloop", Help: "inspect runloop state and decisions", Flags: []string{"-n", "--branch", "--session", "--follow", "--json"}},
 	{Name: "session-briefing", Help: "token-efficient session start dump", Flags: []string{"--json"}},
 	{Name: "spec", Help: "docs/spec.md freshness check", Flags: []string{"--file", "--max-age-days", "--json"}},
 	{Name: "start", Help: "render canonical start.md", Flags: []string{"--write", "--force", "--json", "--minimal"}},

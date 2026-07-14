@@ -1033,7 +1033,6 @@ func auditAgentHooks(root string) []string {
 			"tools/reconc/bin/hook",
 			"RECONC_HOOK_REPO_RESOLVED=1",
 			"cursor-session-start",
-			"cursor-user-prompt-submit",
 			"cursor-pre-tool-use",
 			"cursor-post-tool-use",
 			"cursor-before-shell-execution",
@@ -1069,7 +1068,6 @@ func auditAgentHooks(root string) []string {
 			`return [wrapper, event, repo]`,
 			`killSignal: "SIGKILL"`,
 			"opencode-session-start",
-			"opencode-user-prompt-submit",
 			"opencode-pre-tool-use",
 			"opencode-permission-request",
 			"opencode-post-tool-use",
@@ -1086,7 +1084,6 @@ func auditAgentHooks(root string) []string {
 			"DEVIN_PROJECT_DIR",
 			"tools/reconc/bin/hook",
 			"devin-session-start",
-			"devin-user-prompt-submit",
 			"devin-pre-tool-use",
 			"devin-permission-request",
 			"devin-post-tool-use",
@@ -1113,7 +1110,6 @@ func auditAgentHooks(root string) []string {
 		hooks[filepath.Join(root, ".github/hooks/reconc.json")] = []string{
 			`"version": 1`,
 			`"SessionStart"`,
-			`"UserPromptSubmit"`,
 			`"PreToolUse"`,
 			`"PermissionRequest"`,
 			`"PostToolUse"`,
@@ -1134,7 +1130,6 @@ func auditAgentHooks(root string) []string {
 			`return [wrapper, event, repo]`,
 			`killSignal: "SIGKILL"`,
 			"kilo-session-start",
-			"kilo-user-prompt-submit",
 			"kilo-pre-tool-use",
 			"kilo-permission-request",
 			"kilo-post-tool-use",
@@ -1146,11 +1141,14 @@ func auditAgentHooks(root string) []string {
 		}
 	}
 	forbidden := map[string][]string{
-		".claude/settings.json":       {`"PostCompact"`},
-		".opencode/plugins/reconc.js": {".reconc/runloop", "runloop autocontinue", "opencode_continuation_driver", "STFU", "tools/reconc/dist", "reconc-0.6.0-"},
-		".kilo/plugin/reconc.js":      {".reconc/runloop", "runloop autocontinue", "opencode_continuation_driver", "STFU", "tools/reconc/dist", "reconc-0.6.0-"},
+		".claude/settings.json":       {`"PostCompact"`, `"UserPromptSubmit"`, "claude-user-prompt-submit"},
+		".codex/hooks.json":           {`"UserPromptSubmit"`, "codex-user-prompt-submit"},
+		".cursor/hooks.json":          {`"beforeSubmitPrompt"`, "cursor-user-prompt-submit"},
+		".opencode/plugins/reconc.js": {".reconc/runloop", "chat.message", "opencode-user-prompt-submit", "runloop autocontinue", "opencode_continuation_driver", "STFU", "tools/reconc/dist", "reconc-0.6.0-"},
+		".devin/hooks.v1.json":        {`"UserPromptSubmit"`, "devin-user-prompt-submit"},
+		".kilo/plugin/reconc.js":      {".reconc/runloop", "chat.message", "kilo-user-prompt-submit", "runloop autocontinue", "opencode_continuation_driver", "STFU", "tools/reconc/dist", "reconc-0.6.0-"},
 		".agents/hooks.json":          {`"timeout": 120`},
-		".github/hooks/reconc.json":   {`"PreCompact"`, "copilot-post-compaction"},
+		".github/hooks/reconc.json":   {`"PreCompact"`, `"UserPromptSubmit"`, "copilot-user-prompt-submit", "copilot-post-compaction"},
 	}
 	for path, required := range hooks {
 		relative := rel(root, path)
@@ -1361,20 +1359,19 @@ func auditStartEntrypoint(root string) []string {
 		"tools/reconc/dist/reconc-darwin-arm64 session-briefing .",
 		"No file writes",
 		"_drop/",
-		"/runloop",
-		"Otherwise Runloop is off",
+		"reconc run on .",
+		"reconc run off .",
+		"reconc run status .",
 		"not a parallel workflow",
-		"tools/reconc/harness/template/utils/runloop.go",
-		"autonomous mode",
-		".reconc/runloop/state.json",
-		"no chat-command off switch",
+		"only the current invocation",
+		"only manual disable action",
 	}
 	for _, token := range required {
 		if !strings.Contains(content, token) {
 			failures = append(failures, fmt.Sprintf("start.md missing required onboarding token %q", token))
 		}
 	}
-	forbidden := []string{"docs/todo", "active-task.md"}
+	forbidden := []string{"docs/todo", "active-task.md", "/runloop", "RUNLOOP_CONTINUE", "utils/runloop.go", ".reconc/runloop/stop"}
 	for _, token := range forbidden {
 		if strings.Contains(content, token) {
 			failures = append(failures, fmt.Sprintf("start.md contains forbidden stale/setup token %q", token))
@@ -1387,16 +1384,16 @@ func auditStartEntrypoint(root string) []string {
 	}
 	agentsContent := string(agentsBytes)
 	agentsRequired := []string{
-		"`/runloop` is default-off",
+		"reconc run on .",
+		"reconc run off .",
+		"only the current invocation",
+		"only manual disable action",
 		"not a second workflow",
-		"not permission to invent a parallel process",
-		"concise task output",
 		"fully autonomous, non-interactive mode",
-		".reconc/runloop/state.json",
 	}
 	for _, token := range agentsRequired {
 		if !strings.Contains(agentsContent, token) {
-			failures = append(failures, fmt.Sprintf("AGENTS.md missing required runloop token %q", token))
+			failures = append(failures, fmt.Sprintf("AGENTS.md missing required repository run token %q", token))
 		}
 	}
 	return failures

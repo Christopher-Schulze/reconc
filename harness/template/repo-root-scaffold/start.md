@@ -43,14 +43,15 @@ When autonomous execution is requested, the agent enables the durable switch
 itself with `reconc run on .`, verifies it with `reconc run status .`, and
 disables it with `reconc run off .` on explicit user stop or a real blocker.
 Never ask the user to operate these commands. Repository mode works across all
-supported agent runtimes and continues while TASK state is executable. A real
-user prompt without `/runloop`, explicit interrupt, or `run off` cancels it;
-internal continuation prompts and session end preserve it. It claims queued work when
-`Current: none`, releases terminal or blocked state to the hard Stop gate, and
-fails closed on invalid TASK state. The older standalone `/runloop` prompt
-remains session-scoped compatibility. Run control is not a parallel workflow:
+supported agent runtimes and continues while TASK state is executable. Prompt
+text, runtime interrupts, compaction, session boundaries, runtime changes, and
+application restarts never mutate the durable switch. An interrupt releases
+only the current invocation. `run off` is the only manual disable action;
+complete or absent TASK state disables it automatically after terminal gates.
+It claims queued work when `Current: none`, releases blocked state to the hard
+Stop gate, and fails closed on invalid TASK state. Run control is not a parallel workflow:
 keep TASK progress durable, write tests with code, commit once per completed
 TASK, promote or claim the next executable TASK, never auto-push, and on
-context limits emit `RUNLOOP_CONTINUE: ...`. Explicit user interrupt always
-wins. For a compact stateless resume packet, run
-`go run ./tools/reconc/harness/project/utils/runloop.go`.
+context limits persist exact progress in the TASK control plane. Explicit user
+interrupt always stops the current invocation without changing durable run
+state.

@@ -3,7 +3,7 @@
 
 const fallbackSessionID = globalThis.crypto?.randomUUID?.() ?? "opencode-" + Date.now()
 const startedSessions = new Set()
-const routeBudgets = {"opencode-permission-request":{"timeoutMilliseconds":10000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"block"},"opencode-post-compaction":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"opencode-post-tool-use":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"opencode-post-tool-use-failure":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"opencode-pre-tool-use":{"timeoutMilliseconds":10000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"block"},"opencode-session-end":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"opencode-session-start":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"opencode-stop":{"timeoutMilliseconds":30000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"allow"},"opencode-user-prompt-submit":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"}}
+const routeBudgets = {"opencode-permission-request":{"timeoutMilliseconds":10000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"block"},"opencode-post-compaction":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"opencode-post-tool-use":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"opencode-post-tool-use-failure":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"opencode-pre-tool-use":{"timeoutMilliseconds":10000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"block"},"opencode-session-end":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"opencode-session-start":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"opencode-stop":{"timeoutMilliseconds":30000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"allow"}}
 
 const sessionIDFrom = (value, depth = 0) => {
   if (!value || depth > 6) return ""
@@ -39,11 +39,6 @@ const normalizeTool = (tool) => {
     default: return tool || ""
   }
 }
-
-const textFromParts = (parts) => (Array.isArray(parts) ? parts : [])
-  .map((part) => typeof part === "string" ? part : part?.text || part?.content || "")
-  .filter(Boolean)
-  .join("\n")
 
 export const ReconcOpenCodePlugin = async ({ directory, worktree, client }) => {
   const repo = worktree || directory || process.cwd()
@@ -155,10 +150,6 @@ export const ReconcOpenCodePlugin = async ({ directory, worktree, client }) => {
   }
 
   return {
-    "chat.message": async (input, output) => {
-      const sessionID = await ensureSession(sessionIDFrom(input))
-      await run("opencode-user-prompt-submit", { session_id: sessionID, reconc_runtime: "opencode", prompt: textFromParts(output?.parts) })
-    },
     "tool.execute.before": async (input, output) => {
       await ensureSession(sessionIDFrom(input))
       const event = "opencode-pre-tool-use"

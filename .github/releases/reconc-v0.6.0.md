@@ -8,8 +8,8 @@ platforms, release trust verification, and universal repository run control.
 ## Highlights
 
 - Adds `reconc run on|off|status|log` as the canonical AI-operated repository
-  continuation surface across all eight registered agent platforms. The older
-  prompt-scoped `/runloop` remains session-scoped compatibility.
+  continuation surface across all eight registered agent platforms, with one
+  durable repository state and no prompt-scoped compatibility mode.
 - Couples repository continuation to typed `sections-v1` and `logbook-v1`
   TASK dispositions, including `Current: none`, queue claim, blockers,
   completion, invalid-state fail-closed behavior, and terminal release.
@@ -85,5 +85,5 @@ The release workflow builds:
   artifacts that still hard-code a release number, then verify with
   `reconc hook status . --json`.
 - Use `reconc run on .` for durable repository continuation and `reconc run
-  off .` for explicit release. Keep `/runloop` only for session-scoped
-  compatibility.
+  off .` for explicit release. Prompt text and runtime interrupts never mutate
+  the durable switch; an interrupt releases only the current invocation.

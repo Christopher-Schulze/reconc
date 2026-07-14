@@ -4,7 +4,7 @@ import "testing"
 
 func TestPayloadMatchesRuntimeSession(t *testing.T) {
 	repo := t.TempDir()
-	if err := saveRunLoopState(repo, runLoopState{Runtime: "copilot", SessionID: "session-1"}); err != nil {
+	if _, err := initializeSessionState(repo, "session-1", "copilot"); err != nil {
 		t.Fatal(err)
 	}
 	if !PayloadMatchesRuntimeSession(repo, []byte(`{"session_id":"session-1"}`), "copilot") {

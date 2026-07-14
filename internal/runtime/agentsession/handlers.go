@@ -59,11 +59,8 @@ func RunSessionStart(repoRoot string, payloadBytes []byte) Result {
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook: session root: %s", err)}
 	}
-	if _, err := InitializeSessionState(root, payload.SessionID); err != nil {
+	if _, err := initializeSessionState(root, payload.SessionID, runtimeFromPayload(payload)); err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook: session init: %s", err)}
-	}
-	if err := reconcileRunLoopStateForRuntime(root, payload.SessionID, runtimeFromPayload(payload), payload, runLoopSessionStart); err != nil {
-		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc runloop: %s", err)}
 	}
 	warnings := []string{}
 	if err := RecordHookLiveness(root, runtimeFromPayload(payload), "session_start"); err != nil {
@@ -96,44 +93,22 @@ func normalizeRuntimeName(value string) string {
 	return value
 }
 
-func logRunLoopStopDecision(repoRoot, branch string, payload *HookPayload, runtime string, before, after runLoopState, stopFileApplies bool, policyBlocked bool, violationCount int) {
+func logRunLoopStopDecision(repoRoot, branch string, payload *HookPayload, runtime string, before, after runLoopState, policyBlocked bool, violationCount int) {
 	_ = appendRunLoopDecision(repoRoot, RunLoopDecision{
 		Event:                      "stop",
 		Branch:                     branch,
 		Runtime:                    strings.TrimSpace(runtime),
 		SessionID:                  sessionIDFromPayload(payload),
-		StateSessionID:             after.SessionID,
-		ActiveRunID:                after.ActiveRunID,
 		EnabledBefore:              before.Enabled,
 		EnabledAfter:               after.Enabled,
 		DisabledReasonBefore:       before.DisabledReason,
 		DisabledReasonAfter:        after.DisabledReason,
-		StopFileApplies:            stopFileApplies,
 		AwaitingContinuationBefore: before.AwaitingContinuation,
 		AwaitingContinuationAfter:  after.AwaitingContinuation,
 		StopHookActive:             payload != nil && payload.StopHookActive,
-		OpenCodeContinuationDriver: payload != nil && payload.OpenCodeContinuationDriver,
 		PolicyBlocked:              policyBlocked,
 		ViolationCount:             violationCount,
 	})
-}
-
-// RunUserPromptSubmit treats every fresh user prompt as the authoritative
-// run-intent switch for runloop. A prompt that explicitly asks for
-// runloop starts a new autonomous run; any other prompt stops a previous
-// run so stale state cannot survive app restarts or user follow-up messages.
-func RunUserPromptSubmit(repoRoot string, payloadBytes []byte) Result {
-	payload, err := ParsePayload(payloadBytes)
-	if err != nil {
-		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (user-prompt): %s", err)}
-	}
-	if _, err := ResolveRepoRoot(repoRoot); err != nil {
-		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (user-prompt): %s", err)}
-	}
-	if err := reconcileRunLoopStateForRuntime(repoRoot, payload.SessionID, runtimeFromPayload(payload), payload, runLoopUserPrompt); err != nil {
-		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc runloop: %s", err)}
-	}
-	return Result{ExitCode: 0}
 }
 
 // RunPreToolUse evaluates whether the tool-use about to happen would
@@ -161,9 +136,6 @@ func RunPreToolUse(repoRoot string, payloadBytes []byte) Result {
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}
-	}
-	if err := reconcileRunLoopStateForRuntime(root, payload.SessionID, runtimeFromPayload(payload), payload, runLoopToolEvent); err != nil {
-		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc runloop: %s", err)}
 	}
 	state, err := EnsureSessionState(root, payload.SessionID)
 	if err != nil {
@@ -221,9 +193,6 @@ func RunPostToolUse(repoRoot string, payloadBytes []byte) Result {
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post, warn): %s", err)}
 	}
-	if err := reconcileRunLoopStateForRuntime(root, payload.SessionID, runtimeFromPayload(payload), payload, runLoopToolEvent); err != nil {
-		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc runloop: %s", err)}
-	}
 	updated, err := MutateSessionState(root, payload.SessionID, func(state SessionState) SessionState {
 		return recordToolUse(state, payload)
 	})
@@ -245,9 +214,6 @@ func RunPostToolUseFailure(repoRoot string, payloadBytes []byte) Result {
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post-fail, warn): %s", err)}
-	}
-	if err := reconcileRunLoopStateForRuntime(root, payload.SessionID, runtimeFromPayload(payload), payload, runLoopToolEvent); err != nil {
-		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc runloop: %s", err)}
 	}
 	updated, err := MutateSessionState(root, payload.SessionID, func(state SessionState) SessionState {
 		return recordToolFailure(state, payload)
@@ -286,9 +252,6 @@ func RunSessionEnd(repoRoot string, payloadBytes []byte) Result {
 	}
 	if err := CleanupSessionState(repoRoot, payload.SessionID); err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (end, warn): %s", err)}
-	}
-	if err := reconcileRunLoopStateForRuntime(repoRoot, payload.SessionID, runtimeFromPayload(payload), payload, runLoopSessionEnd); err != nil {
-		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc runloop: %s", err)}
 	}
 	if root, err := ResolveRepoRoot(repoRoot); err == nil {
 		if warning := retentionWarning(retention.RunIfDue(retention.Options{RepoRoot: root, StateRoot: stateRoot()})); warning != "" {
@@ -650,19 +613,15 @@ func stopReasonForViolations(violations []runtime.Violation, reportPath, feedbac
 func runLoopStatusLine(repoRoot string) string {
 	state, err := loadRunLoopState(repoRoot)
 	if err != nil {
-		return "Runloop: unknown"
+		return "Repository run: unknown"
 	}
-	if state.Enabled {
-		runtimeName := state.Runtime
-		if runtimeName == "" {
-			runtimeName = "unknown"
-		}
-		return fmt.Sprintf("Runloop: enabled, runtime=%s, blocked_by_policy", runtimeName)
+	if runLoopStateApplies(state) {
+		return "Repository run: enabled, blocked_by_policy"
 	}
 	if state.DisabledReason != "" {
-		return fmt.Sprintf("Runloop: disabled, reason=%s", state.DisabledReason)
+		return fmt.Sprintf("Repository run: disabled, reason=%s", state.DisabledReason)
 	}
-	return "Runloop: disabled"
+	return "Repository run: disabled"
 }
 
 func firstLinesForViolationsWithReport(violations []runtime.Violation, title, reportPath string) string {
@@ -723,7 +682,7 @@ func firstDiagnosticLine(explanation string) string {
 }
 
 // runLoopStopBlockJSON returns the Stop-hook block control-response
-// that carries the runloop continuation prompt as the reason so the
+// that carries the repository-run continuation prompt as the reason so the
 // agent auto-continues without a separate JS plugin.
 func runLoopStopBlockJSON(prompt string) string {
 	payload := map[string]string{

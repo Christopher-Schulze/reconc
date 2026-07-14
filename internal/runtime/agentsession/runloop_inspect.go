@@ -10,20 +10,12 @@ import (
 	"reconc.dev/reconc/internal/tasklifecycle"
 )
 
-// RunLoopStatusInfo is the read-only snapshot of the current runloop state
-// rendered by `reconc runloop status`. It is derived from the same state
-// file the runtime consumes, with the active stop-file already applied, so it
-// reflects exactly what the next stop decision will see.
+// RunLoopStatusInfo is the read-only snapshot rendered by `reconc run status`.
 type RunLoopStatusInfo struct {
 	Enabled              bool   `json:"enabled"`
-	Mode                 string `json:"mode,omitempty"`
-	Runtime              string `json:"runtime,omitempty"`
-	SessionID            string `json:"session_id,omitempty"`
-	ActiveRunID          string `json:"active_run_id,omitempty"`
 	DisabledReason       string `json:"disabled_reason,omitempty"`
 	AwaitingContinuation bool   `json:"awaiting_continuation"`
 	NoProgressNudges     int    `json:"no_progress_nudges"`
-	StopFilePresent      bool   `json:"stop_file_present"`
 	TaskDisposition      string `json:"task_disposition"`
 	TaskID               string `json:"task_id,omitempty"`
 	CurrentSubTask       string `json:"current_sub_task,omitempty"`
@@ -32,12 +24,12 @@ type RunLoopStatusInfo struct {
 }
 
 // RunLoopDecisionLogPath returns the repo-local decisions.jsonl path used by
-// the runloop observability commands.
+// the repository run observability commands.
 func RunLoopDecisionLogPath(repoRoot string) (string, error) {
 	return runLoopDecisionLogPath(repoRoot)
 }
 
-// ReadRunLoopStatus loads the current runloop state for display. A missing
+// ReadRunLoopStatus loads the current repository run state for display. A missing
 // state file is not an error: it returns a zero (disabled) snapshot.
 func ReadRunLoopStatus(repoRoot string) (RunLoopStatusInfo, error) {
 	state, err := loadRunLoopState(repoRoot)
@@ -53,14 +45,9 @@ func ReadRunLoopStatus(repoRoot string) (RunLoopStatusInfo, error) {
 	}
 	return RunLoopStatusInfo{
 		Enabled:              state.Enabled,
-		Mode:                 string(state.Mode),
-		Runtime:              state.Runtime,
-		SessionID:            state.SessionID,
-		ActiveRunID:          state.ActiveRunID,
 		DisabledReason:       state.DisabledReason,
 		AwaitingContinuation: state.AwaitingContinuation,
 		NoProgressNudges:     state.NoProgressNudges,
-		StopFilePresent:      hasRunLoopStopFile(repoRoot),
 		TaskDisposition:      string(taskState.Disposition),
 		TaskID:               taskState.TaskID,
 		CurrentSubTask:       taskState.SubTask,
@@ -69,7 +56,7 @@ func ReadRunLoopStatus(repoRoot string) (RunLoopStatusInfo, error) {
 	}, nil
 }
 
-// ReadRunLoopDecisions returns runloop decision records from
+// ReadRunLoopDecisions returns repository run decision records from
 // .reconc/runloop/decisions.jsonl in chronological (append) order. When
 // limit > 0 only the last limit records are returned. A missing log is not an
 // error (returns nil). Malformed lines are skipped rather than failing the

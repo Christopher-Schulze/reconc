@@ -67,9 +67,7 @@ func TestReadRunLoopStatusReflectsState(t *testing.T) {
 	}
 	if err := saveRunLoopState(repo, runLoopState{
 		Enabled:              true,
-		Runtime:              "cursor",
-		SessionID:            "sess-1",
-		ActiveRunID:          "sess-1",
+		Mode:                 runLoopModeRepo,
 		AwaitingContinuation: true,
 		NoProgressNudges:     2,
 	}); err != nil {
@@ -79,7 +77,7 @@ func TestReadRunLoopStatusReflectsState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !info.Enabled || info.Runtime != "cursor" || info.ActiveRunID != "sess-1" || !info.AwaitingContinuation || info.NoProgressNudges != 2 {
+	if !info.Enabled || !info.AwaitingContinuation || info.NoProgressNudges != 2 {
 		t.Fatalf("status snapshot mismatch: %+v", info)
 	}
 }

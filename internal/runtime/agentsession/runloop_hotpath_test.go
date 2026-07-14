@@ -7,9 +7,10 @@ import (
 	"testing"
 
 	"reconc.dev/reconc/internal/compiler"
+	"reconc.dev/reconc/internal/tasklifecycle"
 )
 
-func TestDisabledRunLoopEventsCreateNoRunLoopFiles(t *testing.T) {
+func TestDisabledRunEventsCreateNoStateFiles(t *testing.T) {
 	repo := setupPolicyRepo(t)
 	if err := os.WriteFile(filepath.Join(repo, "policies", "rules.yml"), []byte("rules: []\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -17,24 +18,11 @@ func TestDisabledRunLoopEventsCreateNoRunLoopFiles(t *testing.T) {
 	if _, err := compiler.CompileRepoPolicy(repo, "test"); err != nil {
 		t.Fatal(err)
 	}
-	events := []runLoopEvent{
-		runLoopSessionStart,
-		runLoopUserPrompt,
-		runLoopToolEvent,
-		runLoopStopEvent,
-		runLoopSessionEnd,
-	}
-	for _, event := range events {
-		payload := &HookPayload{SessionID: "disabled", Prompt: "ordinary prompt"}
-		if err := reconcileRunLoopStateForRuntime(repo, "disabled", "codex", payload, event); err != nil {
-			t.Fatalf("event %d: %v", event, err)
-		}
-	}
 	result := RunStop(repo, []byte(`{"session_id":"disabled","runtime":"codex"}`))
 	if result.ExitCode != 0 || result.Stderr != "" {
 		t.Fatalf("disabled stop: %+v", result)
 	}
-	for _, name := range []string{"state.json", "stop", "decisions.jsonl"} {
+	for _, name := range []string{"state.json", "decisions.jsonl"} {
 		if _, err := os.Stat(filepath.Join(repo, ".reconc", "runloop", name)); !os.IsNotExist(err) {
 			t.Fatalf("disabled no-op events must not create %s: %v", name, err)
 		}
@@ -89,27 +77,28 @@ func TestRunControlFailsClosedWithoutReplacingCorruptState(t *testing.T) {
 	}
 }
 
-func TestRepoRunModeCancelsOnRealPromptAcrossRuntimes(t *testing.T) {
+func TestRepoRunModePersistsAcrossSessionsRuntimesAndInterrupts(t *testing.T) {
 	repo := t.TempDir()
 	for _, runtimeName := range []string{"claude", "codex", "cursor", "opencode", "devin", "antigravity", "copilot", "kilo"} {
 		if _, err := SetRunLoopRepoMode(repo, true); err != nil {
 			t.Fatal(err)
 		}
-		internal := &HookPayload{SessionID: runtimeName + "-session", Prompt: "Reconc run is ON. Continue TASK 012."}
-		if err := reconcileRunLoopStateForRuntime(repo, internal.SessionID, runtimeName, internal, runLoopUserPrompt); err != nil {
-			t.Fatalf("%s internal prompt: %v", runtimeName, err)
+		sessionID := runtimeName + "-session"
+		start := RunSessionStart(repo, []byte(`{"session_id":"`+sessionID+`","runtime":"`+runtimeName+`"}`))
+		if start.ExitCode != 0 {
+			t.Fatalf("%s session start: %+v", runtimeName, start)
 		}
-		preserved, err := loadRunLoopState(repo)
-		if err != nil || !preserved.Enabled {
-			t.Fatalf("%s internal continuation disabled repo mode: %+v err=%v", runtimeName, preserved, err)
+		interrupt := RunStop(repo, []byte(`{"session_id":"`+sessionID+`","runtime":"`+runtimeName+`","is_interrupt":true}`))
+		if interrupt.ExitCode != 0 || interrupt.Stdout != "" {
+			t.Fatalf("%s interrupt: %+v", runtimeName, interrupt)
 		}
-		payload := &HookPayload{SessionID: runtimeName + "-session", Prompt: "ordinary prompt"}
-		if err := reconcileRunLoopStateForRuntime(repo, payload.SessionID, runtimeName, payload, runLoopUserPrompt); err != nil {
-			t.Fatalf("%s prompt: %v", runtimeName, err)
+		end := RunSessionEnd(repo, []byte(`{"session_id":"`+sessionID+`","runtime":"`+runtimeName+`"}`))
+		if end.ExitCode != 0 {
+			t.Fatalf("%s session end: %+v", runtimeName, end)
 		}
 		state, err := loadRunLoopState(repo)
-		if err != nil || state.Enabled || state.DisabledReason != "user_prompt" {
-			t.Fatalf("%s normal prompt did not cancel repo mode: %+v err=%v", runtimeName, state, err)
+		if err != nil || !runLoopStateApplies(state) {
+			t.Fatalf("%s lifecycle changed repository run state: %+v err=%v", runtimeName, state, err)
 		}
 	}
 }
@@ -206,7 +195,7 @@ func TestRepoRunNoProgressGuardReleasesOneStopWithoutDisabling(t *testing.T) {
 	}
 }
 
-func TestRepoRunExplicitInterruptDisablesImmediately(t *testing.T) {
+func TestRepoRunExplicitInterruptReleasesCurrentStopWithoutDisabling(t *testing.T) {
 	repo := setupPolicyRepo(t)
 	writeTaskFixture(t, repo)
 	if _, err := SetRunLoopRepoMode(repo, true); err != nil {
@@ -220,11 +209,75 @@ func TestRepoRunExplicitInterruptDisablesImmediately(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.Enabled || state.DisabledReason != "user_interrupt" {
-		t.Fatalf("interrupt did not disable repo mode: %+v", state)
+	if !runLoopStateApplies(state) {
+		t.Fatalf("interrupt changed durable repository run mode: %+v", state)
+	}
+}
+
+func TestRepoRunAutomaticallyDisablesWhenTaskPlaneIsAbsent(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	if _, err := SetRunLoopRepoMode(repo, true); err != nil {
+		t.Fatal(err)
+	}
+	result := RunStop(repo, []byte(`{"session_id":"terminal","runtime":"codex"}`))
+	if result.ExitCode != 0 || result.Stdout != "" {
+		t.Fatalf("terminal absent TASK plane did not stop cleanly: %+v", result)
+	}
+	state, err := loadRunLoopState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Enabled || state.DisabledReason != "task_plane_absent" {
+		t.Fatalf("absent TASK plane did not auto-disable repository run: %+v", state)
+	}
+}
+
+func TestRepoRunAutomaticallyDisablesWhenTaskQueueIsComplete(t *testing.T) {
+	repo := t.TempDir()
+	if _, err := SetRunLoopRepoMode(repo, true); err != nil {
+		t.Fatal(err)
+	}
+	result, handled, err := runRunLoopContinuation(repo, &HookPayload{SessionID: "complete"}, "codex", tasklifecycle.RunState{Disposition: tasklifecycle.RunComplete}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !handled || result.ExitCode != 0 || result.Stdout != "" {
+		t.Fatalf("complete TASK queue did not stop cleanly: handled=%v result=%+v", handled, result)
+	}
+	state, err := loadRunLoopState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Enabled || state.DisabledReason != "task_complete" {
+		t.Fatalf("complete TASK queue did not auto-disable repository run: %+v", state)
+	}
+}
+
+func TestRepoRunBlockedOrInvalidTaskStateNeverSilentlyDisables(t *testing.T) {
+	for _, disposition := range []tasklifecycle.RunDisposition{tasklifecycle.RunBlocked, tasklifecycle.RunInvalid} {
+		t.Run(string(disposition), func(t *testing.T) {
+			repo := t.TempDir()
+			if _, err := SetRunLoopRepoMode(repo, true); err != nil {
+				t.Fatal(err)
+			}
+			result, handled, err := runRunLoopContinuation(repo, &HookPayload{SessionID: "blocked"}, "codex", tasklifecycle.RunState{Disposition: disposition}, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if handled || result != (Result{}) {
+				t.Fatalf("non-terminal blocker was incorrectly handled as terminal: handled=%v result=%+v", handled, result)
+			}
+			state, err := loadRunLoopState(repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !runLoopStateApplies(state) {
+				t.Fatalf("%s task state silently disabled repository run: %+v", disposition, state)
+			}
+		})
 	}
 }
 
 func containsRunLoopBlock(stdout string) bool {
-	return strings.Contains(stdout, `"decision":"block"`) && strings.Contains(stdout, "LET ME COOK")
+	return strings.Contains(stdout, `"decision":"block"`) && strings.Contains(stdout, "Reconc run is ON")
 }

@@ -143,8 +143,8 @@ func TestGenerateClaudeCodeIsValidJSON(t *testing.T) {
 		strings.Contains(a.Content, "reconc hook runtime") {
 		t.Errorf("expected reconc routes in template")
 	}
-	if !strings.Contains(a.Content, "claude-user-prompt-submit") {
-		t.Errorf("expected Claude Code user-prompt route in template")
+	if strings.Contains(a.Content, "claude-user-prompt-submit") {
+		t.Errorf("Claude Code template retained removed user-prompt route")
 	}
 	if !strings.Contains(a.Content, "claude-permission-request") {
 		t.Errorf("expected Claude Code permission-request route in template")
@@ -195,8 +195,8 @@ func TestGenerateCodexIsValidJSON(t *testing.T) {
 	if !strings.Contains(a.Content, "codex-post-tool-use-failure") {
 		t.Errorf("expected codex post-tool-use-failure route in template")
 	}
-	if !strings.Contains(a.Content, "codex-user-prompt-submit") {
-		t.Errorf("expected codex user-prompt route in template")
+	if strings.Contains(a.Content, "codex-user-prompt-submit") {
+		t.Errorf("Codex template retained removed user-prompt route")
 	}
 	if !strings.Contains(a.Content, "codex-permission-request") {
 		t.Errorf("expected codex permission-request route in template")
@@ -239,7 +239,6 @@ func TestGenerateCursorIsValidJSON(t *testing.T) {
 	for _, token := range []string{
 		`"version": 1`,
 		`"preToolUse"`,
-		`"beforeSubmitPrompt"`,
 		`"beforeShellExecution"`,
 		`"afterShellExecution"`,
 		`"afterFileEdit"`,
@@ -258,7 +257,7 @@ func TestGenerateCursorIsValidJSON(t *testing.T) {
 			t.Fatalf("Cursor hook template missing %q:\n%s", token, a.Content)
 		}
 	}
-	for _, forbidden := range []string{"beforeReadFile", "beforeTabFileRead", "cursor-before-read-file", "cursor-before-tab-file-read"} {
+	for _, forbidden := range []string{"beforeSubmitPrompt", "cursor-user-prompt-submit", "beforeReadFile", "beforeTabFileRead", "cursor-before-read-file", "cursor-before-tab-file-read"} {
 		if strings.Contains(a.Content, forbidden) {
 			t.Fatalf("Cursor hook template should not spawn pre-execution hooks for read-only events %q:\n%s", forbidden, a.Content)
 		}
@@ -938,7 +937,6 @@ func TestGenerateOpenCodePlugin(t *testing.T) {
 	for _, token := range []string{
 		"tool.execute.before",
 		"tool.execute.after",
-		"chat.message",
 		"permission.ask",
 		"experimental.session.compacting",
 		"session.idle",
@@ -954,6 +952,9 @@ func TestGenerateOpenCodePlugin(t *testing.T) {
 		if !strings.Contains(a.Content, token) {
 			t.Fatalf("OpenCode plugin missing %q:\n%s", token, a.Content)
 		}
+	}
+	if strings.Contains(a.Content, "chat.message") || strings.Contains(a.Content, "opencode-user-prompt-submit") {
+		t.Fatalf("OpenCode plugin retained removed user-prompt route:\n%s", a.Content)
 	}
 }
 

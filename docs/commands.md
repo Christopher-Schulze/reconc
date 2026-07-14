@@ -270,19 +270,19 @@ read the two bounded archives plus the live file in chronological order.
 
 ### `reconc run on [repo] [--json]` / `reconc run off [repo] [--json]`
 AI-operated repository-wide autonomous TASK switch. `on` applies to every
-registered agent runtime. A real user prompt without `/runloop`, `off`, or an
-explicit interrupt releases Stop immediately; runtime-internal continuation
-prompts do not cancel the loop, and session end alone preserves it. Both
-commands are idempotent and append a
+registered agent runtime. Ordinary prompts, explicit runtime interrupts,
+session end, runtime changes, and application restarts never mutate the
+durable switch. An interrupt releases only the current host invocation.
+`off` is the only manual disable action; complete or absent TASK state disables
+the switch automatically after terminal gates. Both commands are idempotent and append a
 decision record only when state actually changes. The agent executes these
 commands itself; it must not ask the user to operate Reconc.
 
 ### `reconc run status [repo] [--json]`
 One-line or JSON snapshot of run mode plus typed TASK disposition:
-`enabled`, `mode`, `task_disposition`, current TASK/Sub-Task, open count,
-runtime/session compatibility fields, no-progress state, stop marker, and
-reason. Invalid TASK state is reported as disposition `invalid`; Stop then
-fails closed with the validation error.
+`enabled`, `task_disposition`, current TASK/Sub-Task, open count, no-progress
+state, blocker, and reason. Invalid TASK state is reported as disposition
+`invalid`; Stop then fails closed with the validation error.
 
 ### `reconc run log [repo] [-n N] [--branch B] [--session S] [--follow] [--json]`
 Render the bounded run decision ring: material state transitions,
@@ -290,11 +290,6 @@ continuations, policy blocks, no-progress releases, explicit switches, and
 stop reasons. Disabled no-op events and unchanged state are not logged.
 `--branch`/`--session` filter, `-n` keeps the last N, and `--follow` tails new
 records until Ctrl-C.
-
-### `reconc runloop status|log ...`
-Read-only compatibility alias for `reconc run status|log`. The standalone
-`/runloop` prompt remains a session-scoped compatibility switch; canonical
-repository control is `reconc run on|off`.
 
 ### `reconc task <subcommand>`
 Typed repository TASK control with two non-migrating profiles:
@@ -326,7 +321,7 @@ reject symlinked paths, preserve file modes, and cap journals at 4 MiB.
 
 ### `reconc prune [repo] [--dry-run] [--json]`
 Run the product retention core immediately. It bounds external session,
-report, and lock state; audit and runloop JSONL rings; generated workflow-audit
+report, and lock state; audit and run-decision JSONL rings; generated workflow-audit
 binaries; abandoned repo-local atomic/build temps; and owned
 `reconc-proof-*` temp trees. `--dry-run` reports file candidates without
 deleting them. Owned proof temp trees use a two-hour inactivity grace.

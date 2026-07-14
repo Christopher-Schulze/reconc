@@ -79,7 +79,7 @@ func TestRepositoryRunControlContinuesEveryAgentPlatform(t *testing.T) {
 			if code != 0 || stderr != "" {
 				t.Fatalf("native Stop failed: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 			}
-			if !strings.Contains(stdout, test.want) || !strings.Contains(stdout, "LET ME COOK") {
+			if !strings.Contains(stdout, test.want) || !strings.Contains(stdout, "Reconc run is ON") {
 				t.Fatalf("native Stop did not continue: want=%q stdout=%q", test.want, stdout)
 			}
 		})

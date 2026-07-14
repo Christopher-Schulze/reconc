@@ -47,11 +47,11 @@ why a task is allowed to be called done.
   kinds, and repository-root mismatch
 - installs explicitly selected git, Claude Code, Codex, Cursor, OpenCode,
   Devin CLI, Antigravity CLI, GitHub Copilot, and Kilo integrations
-- controls autonomous agent continuation with repo-scoped `reconc run on|off`,
-  prompt-scoped `/runloop` compatibility, no-progress guards, and bounded logs
+- controls autonomous agent continuation with repo-scoped
+  `reconc run on|off|status|log`, no-progress guards, and bounded logs
 - adopts typed repository TASK state and performs recoverable claim, block,
   resume, split, promotion, and archive transitions
-- bounds session/report state, audit and runloop logs, generated audit binaries,
+- bounds session/report state, audit and run-decision logs, generated audit binaries,
   and owned temp residue outside the Stop path
 - gives agents one short remediation path with `reconc next .` and one final
   task gate with `reconc done .`
@@ -67,8 +67,8 @@ human review after the fact is often too late.
 - enforce test-before-done and read-before-write contracts
 - protect generated files, secrets, docs, specs, architecture boundaries, and
   release assets
-- make autonomous continuation explicit with one repository switch across all
-  supported agents, plus scoped prompt compatibility and no-progress guards
+- make autonomous continuation explicit with one durable repository switch
+  across all supported agents, plus no-progress guards
 - give every agent the same remediation command instead of ad-hoc recovery
 - leave audit-friendly decisions that can be reviewed by humans, CI, or another
   agent
@@ -122,10 +122,11 @@ reconc run off .
 ```
 
 While repository mode is on, every supported runtime continues executable
-typed TASK work. Explicit user interrupt or `run off` releases it immediately;
-blocked, invalid, or terminal TASK state still reaches the final policy gate.
-The older standalone `/runloop` prompt remains a session-scoped compatibility
-switch.
+typed TASK work. A runtime interrupt releases only the current invocation;
+ordinary messages, session boundaries, application restarts, and runtime
+changes never mutate the durable switch. `reconc run off .` is the only manual
+disable action. Complete or absent TASK state disables it automatically after
+the terminal gates; blocked or invalid state remains visible for recovery.
 
 Inspection and enforcement commands never mutate policy or refresh the
 lockfile implicitly. If policy sources change, they fail closed with one

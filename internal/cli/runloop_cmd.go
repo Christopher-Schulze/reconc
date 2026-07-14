@@ -32,9 +32,9 @@ func runRunControl(args []string, stdout, stderr io.Writer) error {
 	case "off":
 		return runRunSwitch(args[1:], false, stdout)
 	case "status":
-		return runRunloopStatus(args[1:], stdout, stderr)
+		return runRunStatus(args[1:], stdout, stderr)
 	case "log":
-		return runRunloopLog(args[1:], stdout, stderr)
+		return runRunLog(args[1:], stdout, stderr)
 	default:
 		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc run: unknown subcommand %q (expected on, off, status, or log)", args[0])}
 	}
@@ -84,42 +84,11 @@ func runRunSwitch(args []string, enabled bool, stdout io.Writer) error {
 		fmt.Fprintln(stdout, string(body))
 		return nil
 	}
-	fmt.Fprintln(stdout, formatRunLoopStatus(info))
+	fmt.Fprintln(stdout, formatRunStatus(info))
 	return nil
 }
 
-// runRunloop implements `reconc runloop <status|log>` - a read-only view
-// over the append-only runloop state + decision log. It never writes and is
-// a separate process from the hooks, so it can never slow down or block the
-// runloop/reconc control flow.
-func runRunloop(args []string, stdout, stderr io.Writer) error {
-	for _, a := range args {
-		if a == "-h" || a == "--help" {
-			fmt.Fprintln(stdout, "Usage:")
-			fmt.Fprintln(stdout, "  reconc runloop status [repo] [--json]")
-			fmt.Fprintln(stdout, "  reconc runloop log [repo] [-n N] [--branch B] [--session S] [--follow] [--json]")
-			fmt.Fprintln(stdout, "")
-			fmt.Fprintln(stdout, "Read-only view of runloop state and the decision log")
-			fmt.Fprintln(stdout, "(.reconc/runloop/state.json + decisions.jsonl). --follow tails live.")
-			return nil
-		}
-	}
-	if len(args) == 0 {
-		return &CLIError{ExitCode: 1, Message: "reconc runloop: missing subcommand (status | log)"}
-	}
-	sub := args[0]
-	rest := args[1:]
-	switch sub {
-	case "status":
-		return runRunloopStatus(rest, stdout, stderr)
-	case "log":
-		return runRunloopLog(rest, stdout, stderr)
-	default:
-		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc runloop: unknown subcommand %q (expected status or log)", sub)}
-	}
-}
-
-func runRunloopStatus(args []string, stdout, stderr io.Writer) error {
+func runRunStatus(args []string, stdout, stderr io.Writer) error {
 	repo := "."
 	jsonOut := false
 	repoSeen := false
@@ -128,9 +97,9 @@ func runRunloopStatus(args []string, stdout, stderr io.Writer) error {
 		case a == "--json":
 			jsonOut = true
 		case len(a) > 0 && a[0] == '-':
-			return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc runloop status: unknown flag %q", a)}
+			return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc run status: unknown flag %q", a)}
 		case repoSeen:
-			return &CLIError{ExitCode: 1, Message: "reconc runloop status: expected at most one repo path"}
+			return &CLIError{ExitCode: 1, Message: "reconc run status: expected at most one repo path"}
 		default:
 			repo = a
 			repoSeen = true
@@ -138,25 +107,25 @@ func runRunloopStatus(args []string, stdout, stderr io.Writer) error {
 	}
 	abs, err := filepath.Abs(repo)
 	if err != nil {
-		return &CLIError{ExitCode: 1, Message: "reconc runloop status: " + err.Error()}
+		return &CLIError{ExitCode: 1, Message: "reconc run status: " + err.Error()}
 	}
 	info, err := agentsession.ReadRunLoopStatus(abs)
 	if err != nil {
-		return &CLIError{ExitCode: 1, Message: "reconc runloop status: " + err.Error()}
+		return &CLIError{ExitCode: 1, Message: "reconc run status: " + err.Error()}
 	}
 	if jsonOut {
 		body, err := json.Marshal(info)
 		if err != nil {
-			return &CLIError{ExitCode: 1, Message: "reconc runloop status: " + err.Error()}
+			return &CLIError{ExitCode: 1, Message: "reconc run status: " + err.Error()}
 		}
 		fmt.Fprintln(stdout, string(body))
 		return nil
 	}
-	fmt.Fprintln(stdout, formatRunLoopStatus(info))
+	fmt.Fprintln(stdout, formatRunStatus(info))
 	return nil
 }
 
-func runRunloopLog(args []string, stdout, stderr io.Writer) error {
+func runRunLog(args []string, stdout, stderr io.Writer) error {
 	repo := "."
 	jsonOut := false
 	follow := false
@@ -174,32 +143,32 @@ func runRunloopLog(args []string, stdout, stderr io.Writer) error {
 			follow = true
 		case "-n":
 			if i+1 >= len(args) {
-				return &CLIError{ExitCode: 1, Message: "reconc runloop log: -n requires an integer"}
+				return &CLIError{ExitCode: 1, Message: "reconc run log: -n requires an integer"}
 			}
 			v, err := atoi(args[i+1])
 			if err != nil || v < 0 {
-				return &CLIError{ExitCode: 1, Message: "reconc runloop log: -n must be a non-negative integer"}
+				return &CLIError{ExitCode: 1, Message: "reconc run log: -n must be a non-negative integer"}
 			}
 			n = v
 			i++
 		case "--branch":
 			if i+1 >= len(args) {
-				return &CLIError{ExitCode: 1, Message: "reconc runloop log: --branch requires a value"}
+				return &CLIError{ExitCode: 1, Message: "reconc run log: --branch requires a value"}
 			}
 			branch = args[i+1]
 			i++
 		case "--session":
 			if i+1 >= len(args) {
-				return &CLIError{ExitCode: 1, Message: "reconc runloop log: --session requires a value"}
+				return &CLIError{ExitCode: 1, Message: "reconc run log: --session requires a value"}
 			}
 			session = args[i+1]
 			i++
 		default:
 			if len(a) > 0 && a[0] == '-' {
-				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc runloop log: unknown flag %q", a)}
+				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc run log: unknown flag %q", a)}
 			}
 			if repoSeen {
-				return &CLIError{ExitCode: 1, Message: "reconc runloop log: expected at most one repo path"}
+				return &CLIError{ExitCode: 1, Message: "reconc run log: expected at most one repo path"}
 			}
 			repo = a
 			repoSeen = true
@@ -208,12 +177,12 @@ func runRunloopLog(args []string, stdout, stderr io.Writer) error {
 	}
 	abs, err := filepath.Abs(repo)
 	if err != nil {
-		return &CLIError{ExitCode: 1, Message: "reconc runloop log: " + err.Error()}
+		return &CLIError{ExitCode: 1, Message: "reconc run log: " + err.Error()}
 	}
 
 	decisions, err := agentsession.ReadRunLoopDecisions(abs, 0)
 	if err != nil {
-		return &CLIError{ExitCode: 1, Message: "reconc runloop log: " + err.Error()}
+		return &CLIError{ExitCode: 1, Message: "reconc run log: " + err.Error()}
 	}
 	filtered := filterRunLoopDecisions(decisions, branch, session)
 	if n > 0 && len(filtered) > n {
@@ -227,16 +196,16 @@ func runRunloopLog(args []string, stdout, stderr io.Writer) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return followRunLoopLog(ctx, abs, branch, session, jsonOut, 500*time.Millisecond, stdout)
+	return followRunLog(ctx, abs, branch, session, jsonOut, 500*time.Millisecond, stdout)
 }
 
-// followRunLoopLog tails decisions.jsonl by byte offset and renders new
+// followRunLog tails decisions.jsonl by byte offset and renders new
 // records as they are appended, until ctx is cancelled (Ctrl-C / SIGTERM).
 // pollInterval is injectable so tests can drive the live tail deterministically.
-func followRunLoopLog(ctx context.Context, repoRoot, branch, session string, jsonOut bool, pollInterval time.Duration, stdout io.Writer) error {
+func followRunLog(ctx context.Context, repoRoot, branch, session string, jsonOut bool, pollInterval time.Duration, stdout io.Writer) error {
 	path, err := agentsession.RunLoopDecisionLogPath(repoRoot)
 	if err != nil {
-		return &CLIError{ExitCode: 1, Message: "reconc runloop log: " + err.Error()}
+		return &CLIError{ExitCode: 1, Message: "reconc run log: " + err.Error()}
 	}
 	var offset int64
 	if fi, statErr := os.Stat(path); statErr == nil {
@@ -319,20 +288,20 @@ func decisionMatches(d agentsession.RunLoopDecision, branch, session string) boo
 	if branch != "" && !strings.Contains(d.Branch, branch) {
 		return false
 	}
-	if session != "" && !strings.Contains(d.SessionID, session) && !strings.Contains(d.ActiveRunID, session) && !strings.Contains(d.StateSessionID, session) {
+	if session != "" && !strings.Contains(d.SessionID, session) {
 		return false
 	}
 	return true
 }
 
-func formatRunLoopStatus(info agentsession.RunLoopStatusInfo) string {
+func formatRunStatus(info agentsession.RunLoopStatusInfo) string {
 	reason := info.DisabledReason
 	if reason == "" {
 		reason = "-"
 	}
-	status := fmt.Sprintf("run: enabled=%v mode=%s task=%s/%s open=%d runtime=%s active_run=%s awaiting=%v nudges=%d stopfile=%v reason=%s",
-		info.Enabled, dash(info.Mode), dash(info.TaskDisposition), dash(info.TaskID), info.OpenTasks,
-		dash(info.Runtime), shortID(info.ActiveRunID), info.AwaitingContinuation, info.NoProgressNudges, info.StopFilePresent, reason)
+	status := fmt.Sprintf("run: enabled=%v task=%s/%s open=%d awaiting=%v nudges=%d reason=%s",
+		info.Enabled, dash(info.TaskDisposition), dash(info.TaskID), info.OpenTasks,
+		info.AwaitingContinuation, info.NoProgressNudges, reason)
 	if info.Blocker != "" {
 		status += fmt.Sprintf(" blocker=%q", info.Blocker)
 	}
@@ -344,24 +313,12 @@ func formatRunLoopDecision(d agentsession.RunLoopDecision) string {
 	fmt.Fprintf(&b, "%s  %s/%s  rt=%s  en=%v->%v  await=%v->%v  reason=%s  sess=%s",
 		dash(d.Timestamp), dash(d.Event), dash(d.Branch), dash(d.Runtime),
 		d.EnabledBefore, d.EnabledAfter, d.AwaitingContinuationBefore, d.AwaitingContinuationAfter,
-		dash(d.DisabledReasonAfter), shortID(firstNonEmpty(d.SessionID, d.ActiveRunID, d.StateSessionID)))
+		dash(d.DisabledReasonAfter), shortID(d.SessionID))
 	if d.PolicyBlocked {
 		fmt.Fprintf(&b, "  [policy_block viol=%d]", d.ViolationCount)
 	}
-	if d.StopFileApplies {
-		b.WriteString("  [stop_file]")
-	}
 	if d.StopHookActive {
 		b.WriteString("  [stop_hook_active]")
-	}
-	if d.OpenCodeContinuationDriver {
-		b.WriteString("  [opencode_driver]")
-	}
-	if d.RuntimeInternalPrompt {
-		b.WriteString("  [internal_prompt]")
-	}
-	if d.Intent == "enable" {
-		b.WriteString("  [intent=enable]")
 	}
 	return b.String()
 }
@@ -382,13 +339,4 @@ func shortID(s string) string {
 		return s[:8]
 	}
 	return s
-}
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if strings.TrimSpace(v) != "" {
-			return v
-		}
-	}
-	return ""
 }

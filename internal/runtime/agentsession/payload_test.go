@@ -207,14 +207,3 @@ func TestParsePayloadStopHookActive(t *testing.T) {
 		t.Error("expected StopHookActive=false when absent")
 	}
 }
-
-func TestParsePayloadOpenCodeContinuationDriver(t *testing.T) {
-	p, _ := ParsePayload([]byte(`{"session_id":"s1","opencode_continuation_driver":true}`))
-	if !p.OpenCodeContinuationDriver {
-		t.Error("expected OpenCodeContinuationDriver=true")
-	}
-	p2, _ := ParsePayload([]byte(`{"session_id":"s1"}`))
-	if p2.OpenCodeContinuationDriver {
-		t.Error("expected OpenCodeContinuationDriver=false when absent")
-	}
-}

@@ -153,8 +153,10 @@ reconc run off .
 Repository mode persists across supported agent sessions and keeps Stop
 continuing while typed TASK state is executable. Use `run off` only for an
 explicit user stop or a real blocker. Pre-write, TASK mutation, pre-commit, and
-terminal Stop gates remain authoritative. `/runloop` is only the older
-session-scoped prompt compatibility path.
+terminal Stop gates remain authoritative. Prompt text, runtime interrupts,
+session boundaries, runtime changes, and application restarts never mutate the
+durable switch; an interrupt releases only the current invocation. Complete or
+absent TASK state disables it automatically after terminal gates.
 
 If `reconc task status .` finds a configured TASK control plane, also run
 `reconc task check-done .` and use `reconc task promote .` only after every

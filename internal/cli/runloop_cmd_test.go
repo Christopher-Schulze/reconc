@@ -43,7 +43,7 @@ func appendRunLoopDecisionRaw(t *testing.T, repo string, d agentsession.RunLoopD
 	}
 }
 
-func TestFollowRunLoopLogTailsNewRecords(t *testing.T) {
+func TestFollowRunLogTailsNewRecords(t *testing.T) {
 	repo := t.TempDir()
 	// Seed one record so the log exists; follow baselines its offset to the
 	// current size, so the seed must NOT be reprinted - only live appends are.
@@ -56,7 +56,7 @@ func TestFollowRunLoopLogTailsNewRecords(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- followRunLoopLog(ctx, repo, "", "", false, 5*time.Millisecond, sw)
+		done <- followRunLog(ctx, repo, "", "", false, 5*time.Millisecond, sw)
 	}()
 
 	// Append a NEW record after the follow loop is running.
@@ -111,48 +111,48 @@ func writeRunLoopDecisions(t *testing.T, repo string, ds []agentsession.RunLoopD
 	}
 }
 
-func TestRunRunloopStatusTextAndJSON(t *testing.T) {
+func TestRunStatusTextAndJSON(t *testing.T) {
 	repo := t.TempDir()
 	dir := filepath.Join(repo, ".reconc", "runloop")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "state.json"),
-		[]byte(`{"enabled":true,"runtime":"cursor","session_id":"sess-1","active_run_id":"sess-1","awaiting_continuation":true}`), 0o644); err != nil {
+		[]byte(`{"enabled":true,"mode":"repo","awaiting_continuation":true}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	var out bytes.Buffer
-	if err := runRunloop([]string{"status", repo}, &out, &out); err != nil {
+	if err := runRunStatus([]string{repo}, &out, &out); err != nil {
 		t.Fatalf("status: %v", err)
 	}
-	if !strings.Contains(out.String(), "enabled=true") || !strings.Contains(out.String(), "runtime=cursor") || !strings.Contains(out.String(), "awaiting=true") {
+	if !strings.Contains(out.String(), "enabled=true") || !strings.Contains(out.String(), "awaiting=true") {
 		t.Fatalf("text status missing fields: %s", out.String())
 	}
 
 	out.Reset()
-	if err := runRunloop([]string{"status", repo, "--json"}, &out, &out); err != nil {
+	if err := runRunStatus([]string{repo, "--json"}, &out, &out); err != nil {
 		t.Fatalf("status --json: %v", err)
 	}
 	var info agentsession.RunLoopStatusInfo
 	if err := json.Unmarshal(bytes.TrimSpace(out.Bytes()), &info); err != nil {
 		t.Fatalf("json parse: %v (%s)", err, out.String())
 	}
-	if !info.Enabled || info.Runtime != "cursor" || !info.AwaitingContinuation {
+	if !info.Enabled || !info.AwaitingContinuation {
 		t.Fatalf("json status mismatch: %+v", info)
 	}
 }
 
-func TestRunRunloopLogRenderFilterLimit(t *testing.T) {
+func TestRunLogRenderFilterLimit(t *testing.T) {
 	repo := t.TempDir()
 	writeRunLoopDecisions(t, repo, []agentsession.RunLoopDecision{
 		{Event: "stop", Branch: "policy_block", Runtime: "cursor", SessionID: "sess-1", PolicyBlocked: true, ViolationCount: 2},
 		{Event: "stop", Branch: "policy_block_released_on_repeat", Runtime: "cursor", SessionID: "sess-1"},
-		{Event: "user_prompt", Branch: "disable_user_prompt", Runtime: "claude", SessionID: "sess-2"},
+		{Event: "command", Branch: "run_command_off", SessionID: "sess-2"},
 	})
 
 	var out bytes.Buffer
-	if err := runRunloop([]string{"log", repo}, &out, &out); err != nil {
+	if err := runRunLog([]string{repo}, &out, &out); err != nil {
 		t.Fatalf("log: %v", err)
 	}
 	if !strings.Contains(out.String(), "policy_block_released_on_repeat") || !strings.Contains(out.String(), "[policy_block viol=2]") {
@@ -160,38 +160,45 @@ func TestRunRunloopLogRenderFilterLimit(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := runRunloop([]string{"log", repo, "--branch", "disable_user_prompt"}, &out, &out); err != nil {
+	if err := runRunLog([]string{repo, "--branch", "run_command_off"}, &out, &out); err != nil {
 		t.Fatalf("log --branch: %v", err)
 	}
-	if strings.Contains(out.String(), "/policy_block") || !strings.Contains(out.String(), "disable_user_prompt") {
+	if strings.Contains(out.String(), "/policy_block") || !strings.Contains(out.String(), "run_command_off") {
 		t.Fatalf("branch filter wrong: %s", out.String())
 	}
 
 	out.Reset()
-	if err := runRunloop([]string{"log", repo, "--session", "sess-2"}, &out, &out); err != nil {
+	if err := runRunLog([]string{repo, "--session", "sess-2"}, &out, &out); err != nil {
 		t.Fatalf("log --session: %v", err)
 	}
-	if strings.Contains(out.String(), "sess=sess-1") || !strings.Contains(out.String(), "disable_user_prompt") {
+	if strings.Contains(out.String(), "sess=sess-1") || !strings.Contains(out.String(), "run_command_off") {
 		t.Fatalf("session filter wrong: %s", out.String())
 	}
 
 	out.Reset()
-	if err := runRunloop([]string{"log", repo, "-n", "1"}, &out, &out); err != nil {
+	if err := runRunLog([]string{repo, "-n", "1"}, &out, &out); err != nil {
 		t.Fatalf("log -n: %v", err)
 	}
 	if got := strings.Count(strings.TrimSpace(out.String()), "\n"); got != 0 {
 		t.Fatalf("-n 1 must render exactly one record, got %d extra lines: %s", got, out.String())
 	}
-	if !strings.Contains(out.String(), "disable_user_prompt") {
+	if !strings.Contains(out.String(), "run_command_off") {
 		t.Fatalf("-n 1 must render the last record: %s", out.String())
 	}
 }
 
-func TestRunRunloopRejectsUnknownSubcommand(t *testing.T) {
+func TestRunRejectsUnknownSubcommand(t *testing.T) {
 	var out bytes.Buffer
-	err := runRunloop([]string{"frobnicate"}, &out, &out)
+	err := runRunControl([]string{"frobnicate"}, &out, &out)
 	if err == nil {
 		t.Fatal("unknown subcommand must error")
+	}
+}
+
+func TestLegacyRunloopCommandIsRemoved(t *testing.T) {
+	var out bytes.Buffer
+	if err := Run([]string{"runloop", "status", "."}, "test", &out, &out); err == nil {
+		t.Fatal("removed runloop compatibility command unexpectedly succeeded")
 	}
 }
 
@@ -207,7 +214,7 @@ func TestRunControlOnOffIsIdempotent(t *testing.T) {
 		if err := json.Unmarshal(bytes.TrimSpace(out.Bytes()), &info); err != nil {
 			t.Fatalf("decode run on: %v", err)
 		}
-		if !info.Enabled || info.Mode != "repo" || info.TaskDisposition != "absent" {
+		if !info.Enabled || info.TaskDisposition != "absent" {
 			t.Fatalf("unexpected run on status: %+v", info)
 		}
 	}
@@ -235,8 +242,8 @@ func TestRunControlDispatchAndArguments(t *testing.T) {
 	if err := Run([]string{"run", "on", repo}, "test", &out, &out); err != nil {
 		t.Fatalf("dispatch run on: %v", err)
 	}
-	if !strings.Contains(out.String(), "mode=repo") {
-		t.Fatalf("canonical status missing repo mode: %s", out.String())
+	if !strings.Contains(out.String(), "enabled=true") {
+		t.Fatalf("canonical status missing enabled state: %s", out.String())
 	}
 	if err := runRunControl([]string{"on", repo, repo}, &out, &out); err == nil {
 		t.Fatal("multiple repo paths must fail")

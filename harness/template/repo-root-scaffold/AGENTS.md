@@ -60,7 +60,7 @@ These local instructions must be sufficient for agents that do not have the user
 
 ## Agent Execution Hardening
 
-Agent progress is not proof of correct runtime mode, workflow state, or implementation completeness. Any agent claiming autonomous continuation, hook-enforced workflow, TASK Done, or "clean" state must verify the real local state first: `reconc run status .`, current `docs/tasks.md`, active TASK detail, relevant hook output or runtime state, absence/presence of `.reconc/runloop/stop`, Reconc checks, and `git status --short --branch -uall`.
+Agent progress is not proof of correct runtime mode, workflow state, or implementation completeness. Any agent claiming autonomous continuation, hook-enforced workflow, TASK Done, or "clean" state must verify the real local state first: `reconc run status .`, current `docs/tasks.md`, active TASK detail, relevant hook output or runtime state, Reconc checks, and `git status --short --branch -uall`.
 
 For every TASK, every agent must:
 - Read the active TASK detail and touched implementation surface before editing.
@@ -70,9 +70,9 @@ For every TASK, every agent must:
 - Run narrow tests for touched packages, race tests for concurrency/state/persistence code, broad backend tests for shared behavior, and Reconc task-state/check gates before Done.
 - Before marking Done, verify `git status --short --branch -uall`; no untracked or dirty paths may remain unless explicitly documented as unrelated user work.
 - Never mark Done with stale `Current`, missing next `[~]` Sub-Task, missing TASK detail move, failed Reconc audit, untracked files, placeholder logic, or tests that only prove mocks.
-- In active Reconc Runloop: after a TASK is Done, commit once, promote the next executable TASK, and continue immediately. Never stop after an arbitrary number of TASKs.
+- While Repository Run is active: after a TASK is Done, commit once, promote the next executable TASK, and continue immediately. Never stop after an arbitrary number of TASKs.
 
-## Runloop
+## Repository Run
 
 `reconc run on .` enables repository-scoped autonomous continuation and
 `reconc run off .` disables it. The agent operates this switch itself; never
@@ -81,8 +81,9 @@ status .` and bounded transition history with `reconc run log .`. Repository
 mode works through Claude Code, Codex, Cursor, OpenCode, Devin CLI,
 Antigravity CLI, GitHub Copilot, and Kilo Code. It survives internal
 continuation prompts, compaction, session boundaries, and model restarts. A
-real user prompt without `/runloop`, explicit user interrupt, or `run off`
-always wins.
+runtime interrupt releases only the current invocation. Prompt text, interrupts,
+session lifecycle events, runtime changes, and application restarts never
+mutate durable run state. `run off` is the only manual disable action.
 
 Repository mode is not a second workflow. Read `Current:`, execute the active
 Sub-Task, write same-TASK tests, run checks, update docs and TASK truth,
@@ -94,24 +95,14 @@ or ambiguous TASK state fails closed. Routine executable continuation skips
 the full Stop report and Git scan, but PreToolUse, TASK mutation,
 pre-commit, invalid TASK state, and terminal Stop remain hard gates.
 
-The older standalone `/runloop` prompt remains session-scoped compatibility.
-It activates only from sanitized real user prompt text. Quoted transcripts,
-hook prompts, code fences, tool text, errors, and Stop payloads never activate
-it. A normal same-session prompt stops compatibility mode except `/btw`.
-Repository mode stops on an ordinary real user prompt, but not on an internal
-continuation prompt or session end.
-
 After repeated Stop events without typed TASK, write, or command progress,
-compatibility mode
-disables. Repository mode releases one Stop and resets the guard without
+repository mode releases one Stop and resets the guard without
 silently changing its durable switch. Run decisions are written only for
 material transitions to the bounded `.reconc/runloop/decisions.jsonl` ring.
 Reads do not fake progress. Repository mode runs a full policy checkpoint only
 after 64 material events, 30 minutes with new material progress, or a failed
 command; routine executable Stops remain Git-free.
-If nearing context or tool limits, persist exact progress in the active TASK
-and emit `RUNLOOP_CONTINUE: <current TASK> | <next concrete step> |
-blockers=<none|...>`.
+If nearing context or tool limits, persist exact progress in the active TASK.
 
 **Autonomous Non-Interactive Rule:** While run control is active, do not ask
 the user for routine direction, confirmation, or permission and do not pause

@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	"reconc.dev/reconc/internal/retention"
@@ -36,26 +35,6 @@ func RunAntigravityPreInvocation(repoRoot string, payloadBytes []byte) Result {
 		retentionStderr = livenessStderr + "; " + retentionStderr
 	} else if livenessStderr != "" {
 		retentionStderr = livenessStderr
-	}
-	prompt, signature := latestAntigravityUserMessage(antigravityString(parsed.Raw, "transcriptPath", "transcript_path"))
-	if prompt != "" && signature != "" {
-		state, err := loadRunLoopState(root)
-		if err != nil {
-			return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}}), Stderr: err.Error()}
-		}
-		if state.LastPromptSignature != signature {
-			promptPayload := *parsed
-			promptPayload.Prompt = prompt
-			if err := reconcileRunLoopState(root, parsed.SessionID, &promptPayload, runLoopUserPrompt); err != nil {
-				return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}}), Stderr: err.Error()}
-			}
-			if _, _, err := mutateRunLoopState(root, func(s runLoopState) runLoopState {
-				s.LastPromptSignature = signature
-				return s
-			}); err != nil {
-				return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}}), Stderr: err.Error()}
-			}
-		}
 	}
 	return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}}), Stderr: retentionStderr}
 }
@@ -288,90 +267,6 @@ func antigravityPendingKey(payload *HookPayload) string {
 	})
 	sum := sha256.Sum256(body)
 	return "tool:" + hex.EncodeToString(sum[:])
-}
-
-func latestAntigravityUserMessage(path string) (string, string) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return "", ""
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", ""
-	}
-	lines := strings.Split(string(data), "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := strings.TrimSpace(lines[i])
-		if line == "" {
-			continue
-		}
-		var raw map[string]interface{}
-		if err := json.Unmarshal([]byte(line), &raw); err != nil {
-			continue
-		}
-		if !antigravityLooksLikeUserMessage(raw) {
-			continue
-		}
-		text := strings.TrimSpace(antigravityMessageText(raw))
-		if text == "" {
-			continue
-		}
-		if signature := antigravityMessageSignature(raw, text, i, line); signature != "" {
-			return text, signature
-		}
-	}
-	return "", ""
-}
-
-func antigravityLooksLikeUserMessage(raw map[string]interface{}) bool {
-	for _, key := range []string{"role", "speaker", "author", "type"} {
-		value := strings.ToLower(antigravityString(raw, key))
-		if value == "user" || value == "human" || value == "user_message" {
-			return true
-		}
-	}
-	for _, key := range []string{"userMessage", "user_message", "prompt"} {
-		if antigravityString(raw, key) != "" {
-			return true
-		}
-	}
-	if message := antigravityObject(raw, "message"); len(message) > 0 {
-		return antigravityLooksLikeUserMessage(message)
-	}
-	return false
-}
-
-func antigravityMessageText(raw map[string]interface{}) string {
-	for _, key := range []string{"text", "content", "userMessage", "user_message", "prompt"} {
-		if value := antigravityString(raw, key); value != "" {
-			return value
-		}
-	}
-	if parts, ok := raw["parts"].([]interface{}); ok {
-		var out []string
-		for _, part := range parts {
-			if m, ok := part.(map[string]interface{}); ok {
-				if value := antigravityMessageText(m); value != "" {
-					out = append(out, value)
-				}
-			}
-		}
-		return strings.Join(out, "\n")
-	}
-	if message := antigravityObject(raw, "message"); len(message) > 0 {
-		return antigravityMessageText(message)
-	}
-	return ""
-}
-
-func antigravityMessageSignature(raw map[string]interface{}, text string, lineIndex int, rawLine string) string {
-	for _, key := range []string{"id", "messageId", "message_id", "uuid", "timestamp", "createdAt", "created_at"} {
-		if value := antigravityString(raw, key); value != "" {
-			return value
-		}
-	}
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%d\n%s\n%s", lineIndex, rawLine, text)))
-	return "line:" + hex.EncodeToString(sum[:])
 }
 
 func antigravitySessionID(raw map[string]interface{}) string {

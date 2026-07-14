@@ -372,8 +372,6 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 		switch route.Event {
 		case hooks.EventSessionStart:
 			result = agentsession.RunSessionStart(repo, payload)
-		case hooks.EventUserPromptSubmit:
-			result = agentsession.RunUserPromptSubmit(repo, payload)
 		case hooks.EventPreToolUse:
 			result = agentsession.RunPreToolUse(repo, payload)
 		case hooks.EventPermissionRequest:

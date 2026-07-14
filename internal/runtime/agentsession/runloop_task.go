@@ -17,13 +17,13 @@ func buildRunLoopContinuationPrompt(state tasklifecycle.RunState) string {
 	var prompt string
 	switch state.Disposition {
 	case tasklifecycle.RunContinue:
-		prompt = fmt.Sprintf("Runloop autocontinue. LET ME COOK. Reconc run is ON. Continue TASK %s: %s.", state.TaskID, state.TaskTitle)
+		prompt = fmt.Sprintf("Reconc run is ON. Continue TASK %s: %s.", state.TaskID, state.TaskTitle)
 		if state.SubTask != "" {
 			prompt += " Current Sub-Task: " + state.SubTask + "."
 		}
 		prompt += " Execute Reconc commands yourself. Run `reconc task check-done .` before `reconc task promote .`. Use `reconc run off .` only for an explicit user stop or a real blocker."
 	case tasklifecycle.RunClaim:
-		prompt = fmt.Sprintf("Runloop autocontinue. LET ME COOK. Reconc run is ON and no TASK is active. Execute `reconc task claim %s .`, then continue %s. Do not ask the user to operate Reconc.", state.TaskID, state.TaskTitle)
+		prompt = fmt.Sprintf("Reconc run is ON and no TASK is active. Execute `reconc task claim %s .`, then continue %s. Do not ask the user to operate Reconc.", state.TaskID, state.TaskTitle)
 	default:
 		return ""
 	}

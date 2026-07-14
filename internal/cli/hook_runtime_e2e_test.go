@@ -130,90 +130,6 @@ func TestHookRuntimeHappyPath(t *testing.T) {
 	}
 }
 
-func TestHookRuntimeIgnoresCursorPayloadDeliveredToClaudeHook(t *testing.T) {
-	repo := bootstrapE2ERepo(t)
-	writeHookRuntimeTaskFixture(t, repo)
-
-	cursorPrompt := `{"sessionId":"cursor-run","cursor_version":"3.5.17","hook_event_name":"beforeSubmitPrompt","workspace_roots":["` + repo + `"],"text":"arbeite autonom /runloop und nutze den restlichen Prompt"}`
-	stdout, stderr, code := runWithStdin(t, cursorPrompt,
-		"hook", "runtime", "cursor-user-prompt-submit", repo)
-	if code != 0 {
-		t.Fatalf("cursor prompt should exit 0, got %d stdout=%q stderr=%q", code, stdout, stderr)
-	}
-	if !strings.Contains(stdout, `"continue":true`) {
-		t.Fatalf("cursor prompt should emit allow JSON, got stdout=%q stderr=%q", stdout, stderr)
-	}
-
-	duplicateClaudePrompt := `{"session_id":"cursor-run","cursor_version":"3.5.17","hook_event_name":"beforeSubmitPrompt","workspace_roots":["` + repo + `"],"prompt":"normal diagnostic prompt without activation"}`
-	stdout, stderr, code = runWithStdin(t, duplicateClaudePrompt,
-		"hook", "runtime", "claude-user-prompt-submit", repo)
-	if code != 0 || stdout != "" || stderr != "" {
-		t.Fatalf("duplicate claude hook carrying Cursor payload must no-op, code=%d stdout=%q stderr=%q", code, stdout, stderr)
-	}
-	stateBytes, err := os.ReadFile(filepath.Join(repo, ".reconc", "runloop", "state.json"))
-	if err != nil {
-		t.Fatalf("read runloop state: %v", err)
-	}
-	stateText := string(stateBytes)
-	for _, want := range []string{`"enabled": true`, `"session_id": "cursor-run"`, `"runtime": "cursor"`} {
-		if !strings.Contains(stateText, want) {
-			t.Fatalf("duplicate claude hook must preserve Cursor runloop state; missing %s in %s", want, stateText)
-		}
-	}
-
-	cursorStop := `{"sessionId":"cursor-run","cursor_version":"3.5.17","hook_event_name":"stop","workspace_roots":["` + repo + `"],"status":"completed","loop_count":0}`
-	stdout, stderr, code = runWithStdin(t, cursorStop,
-		"hook", "runtime", "cursor-stop", repo)
-	if code != 0 {
-		t.Fatalf("cursor stop should exit 0, got %d stdout=%q stderr=%q", code, stdout, stderr)
-	}
-	if !strings.Contains(stdout, `"followup_message"`) || !strings.Contains(stdout, "LET ME COOK") {
-		t.Fatalf("cursor stop must still emit runloop followup after duplicate claude hook, stdout=%q stderr=%q", stdout, stderr)
-	}
-}
-
-func TestHookRuntimeCursorInternalUserPromptPreservesRunloop(t *testing.T) {
-	repo := bootstrapE2ERepo(t)
-	writeHookRuntimeTaskFixture(t, repo)
-
-	cursorPrompt := `{"sessionId":"cursor-run","cursor_version":"3.5.17","hook_event_name":"beforeSubmitPrompt","workspace_roots":["` + repo + `"],"text":"arbeite autonom /runloop und nutze den restlichen Prompt"}`
-	stdout, stderr, code := runWithStdin(t, cursorPrompt,
-		"hook", "runtime", "cursor-user-prompt-submit", repo)
-	if code != 0 {
-		t.Fatalf("cursor prompt should exit 0, got %d stdout=%q stderr=%q", code, stdout, stderr)
-	}
-
-	internalPrompt := `{"sessionId":"cursor-run","cursor_version":"3.5.17","hook_event_name":"beforeSubmitPrompt","workspace_roots":["` + repo + `"],"text":"The above subagent result is already visible to the user. DO NOT reiterate or summarize its contents unless asked, or if multi-task result synthesis is required. Otherwise end your response with a brief third-person confirmation that the subagent has completed. Don't repeat the same confirmation every time."}`
-	stdout, stderr, code = runWithStdin(t, internalPrompt,
-		"hook", "runtime", "cursor-user-prompt-submit", repo)
-	if code != 0 {
-		t.Fatalf("cursor internal prompt should exit 0, got %d stdout=%q stderr=%q", code, stdout, stderr)
-	}
-
-	stateBytes, err := os.ReadFile(filepath.Join(repo, ".reconc", "runloop", "state.json"))
-	if err != nil {
-		t.Fatalf("read runloop state: %v", err)
-	}
-	stateText := string(stateBytes)
-	for _, want := range []string{`"enabled": true`, `"session_id": "cursor-run"`, `"runtime": "cursor"`} {
-		if !strings.Contains(stateText, want) {
-			t.Fatalf("cursor internal prompt must preserve runloop; missing %s in %s", want, stateText)
-		}
-	}
-
-	cursorStop := `{"sessionId":"cursor-run","cursor_version":"3.5.17","hook_event_name":"stop","workspace_roots":["` + repo + `"],"status":"completed","loop_count":0}`
-	stdout, stderr, code = runWithStdin(t, cursorStop,
-		"hook", "runtime", "cursor-stop", repo)
-	if code != 0 {
-		t.Fatalf("cursor stop should exit 0, got %d stdout=%q stderr=%q", code, stdout, stderr)
-	}
-	if !strings.Contains(stdout, `"followup_message"`) || !strings.Contains(stdout, "LET ME COOK") {
-		t.Fatalf("cursor stop must emit runloop followup after internal prompt, stdout=%q stderr=%q", stdout, stderr)
-	}
-}
-
-// --- Scenario 2: PreToolUse blocks deny_write ----------------------
-
 func TestHookRuntimeBlocksDenyWrite(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
 	_, _, _ = runWithStdin(t, `{"session_id":"s2"}`,
@@ -241,14 +157,14 @@ func writeHookRuntimeTaskFixture(t *testing.T, repo string) {
 	}
 	tasks := `# Tasks
 
-Current: TASK-0001-Runloop-Test -> tasks/TASK-0001-Runloop-Test.md
+Current: TASK-0001-Repository-Run-Test -> tasks/TASK-0001-Repository-Run-Test.md
 
-- [ ] TASK-0001-Runloop-Test - Exercise runloop continuation -> tasks/TASK-0001-Runloop-Test.md
+- [ ] TASK-0001-Repository-Run-Test - Exercise repository continuation -> tasks/TASK-0001-Repository-Run-Test.md
 `
 	if err := os.WriteFile(filepath.Join(repo, "docs", "tasks.md"), []byte(tasks), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	detail := `# TASK-0001-Runloop-Test
+	detail := `# TASK-0001-Repository-Run-Test
 
 ## Why
 
@@ -282,7 +198,7 @@ None.
 
 None.
 `
-	if err := os.WriteFile(filepath.Join(tasksDir, "TASK-0001-Runloop-Test.md"), []byte(detail), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tasksDir, "TASK-0001-Repository-Run-Test.md"), []byte(detail), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -440,18 +356,6 @@ func TestHookRuntimeCursorPreToolUseBlocksDenyWrite(t *testing.T) {
 	}
 	if !strings.Contains(stdout, `"permission":"deny"`) || !strings.Contains(stdout, "deny-gen") {
 		t.Fatalf("expected Cursor permission deny with rule id, got stdout=%q stderr=%q", stdout, stderr)
-	}
-}
-
-func TestHookRuntimeCursorPromptSuccessReturnsAllowJSON(t *testing.T) {
-	repo := bootstrapE2ERepo(t)
-	stdout, stderr, code := runWithStdin(t, `{"conversation_id":"cur-prompt","text":"start.md"}`,
-		"hook", "runtime", "cursor-user-prompt-submit", repo)
-	if code != 0 {
-		t.Fatalf("Cursor prompt success should exit 0, got %d stderr=%q", code, stderr)
-	}
-	if !strings.Contains(stdout, `"continue":true`) || !strings.Contains(stdout, `"permission":"allow"`) {
-		t.Fatalf("expected explicit Cursor allow JSON, got stdout=%q stderr=%q", stdout, stderr)
 	}
 }
 

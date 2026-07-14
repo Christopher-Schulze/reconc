@@ -123,21 +123,6 @@
           }
         ]
       }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "args": [
-              "claude-user-prompt-submit",
-              "${CLAUDE_PROJECT_DIR}"
-            ],
-            "command": "${CLAUDE_PROJECT_DIR}/tools/reconc/bin/hook",
-            "timeout": 5,
-            "type": "command"
-          }
-        ]
-      }
     ]
   }
 }
