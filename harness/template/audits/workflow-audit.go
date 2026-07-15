@@ -486,7 +486,8 @@ func auditTaskState(root string) []string {
 	// change (newly promoted or edited) must carry the Reality-Check loop
 	// attestation, while already-archived tasks not in the diff stay exempt so
 	// the full-history sweep does not retroactively invalidate them.
-	changedFiles, _ := collectGitDiffFiles(root)
+	changedFiles, diffFailures := collectGitDiffFiles(root)
+	failures = append(failures, diffFailures...)
 	for position, entry := range index.entries {
 		taskPositions[entry.name] = position
 		if entry.icon == "x" {

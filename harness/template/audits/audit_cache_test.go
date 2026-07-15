@@ -412,6 +412,34 @@ func TestCacheInputsTreeRecursive(t *testing.T) {
 	}
 }
 
+func TestRunWithCacheFailsClosedOnTreeWalkError(t *testing.T) {
+	tests := []struct {
+		name string
+		add  func(*cacheInputs, string)
+	}{
+		{name: "content", add: func(inputs *cacheInputs, root string) { inputs.AddTree(root, nil) }},
+		{name: "structure", add: func(inputs *cacheInputs, root string) { inputs.AddTreeStructure(root, nil) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			inputs := newCacheInputs()
+			test.add(inputs, filepath.Join(root, "invalid\x00tree"))
+			calls := 0
+			result := runWithCache(root, "walk-error-"+test.name, inputs, func() []string {
+				calls++
+				return nil
+			})
+			if calls != 1 || !containsFailure(result, "cache input failed") {
+				t.Fatalf("walk failure must execute the audit and fail closed: calls=%d result=%v", calls, result)
+			}
+			if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(cacheRel))); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("walk failure must not publish a cache pass: %v", err)
+			}
+		})
+	}
+}
+
 func TestCacheInputsHashStable(t *testing.T) {
 	root := t.TempDir()
 	writeCacheFixture(t, root, "a.txt", "alpha")

@@ -220,6 +220,26 @@ Current: TASK-0002-Next-Work -> tasks/TASK-0002-Next-Work.md
 	}
 }
 
+func TestAuditTaskStateFailsClosedWhenGitDiffFails(t *testing.T) {
+	tasksMd := `# Tasks
+
+Current: TASK-0001-Active-Work -> tasks/TASK-0001-Active-Work.md
+
+- [ ] TASK-0001-Active-Work - active work -> tasks/TASK-0001-Active-Work.md
+`
+	root := gitInitRepoForRowsImmutable(t, tasksMd)
+	writeDefaultStackConfig(t, root)
+	writeFile(t, root, "docs/tasks/TASK-0001-Active-Work.md", taskDetail("TASK-0001-Active-Work", "Active", "- [~] Continue here", ""))
+	invalidIndex := filepath.Join(root, "invalid-index")
+	writeFile(t, root, "invalid-index", "not a Git index")
+	t.Setenv("GIT_INDEX_FILE", invalidIndex)
+
+	failures := auditTaskState(root)
+	if !containsFailure(failures, "git diff --cached") {
+		t.Fatalf("TASK audit must fail closed on an unreadable Git diff, got:\n%s", strings.Join(failures, "\n"))
+	}
+}
+
 func TestAuditTaskStateExemptsUnchangedArchivedDoneTask(t *testing.T) {
 	tasksMd := `# Tasks
 

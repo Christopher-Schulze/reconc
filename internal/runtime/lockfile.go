@@ -1,12 +1,12 @@
 package runtime
 
 import (
+	"bytes"
 	"encoding/json"
 	stderrors "errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"reconc.dev/reconc/internal/compiler"
 	rerrors "reconc.dev/reconc/internal/errors"
@@ -49,7 +49,7 @@ func loadLockfile(root string) (map[string]interface{}, error) {
 		return nil, &rerrors.LockfileError{Message: "read lockfile", Cause: err}
 	}
 	var payload map[string]interface{}
-	dec := json.NewDecoder(strings.NewReader(string(data)))
+	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
 	if err := dec.Decode(&payload); err != nil {
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile is not valid JSON", Cause: err}

@@ -12,6 +12,7 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	stderrors "errors"
 	"fmt"
@@ -3787,7 +3788,7 @@ func readLockfileSummary(repoRoot string) (map[string]interface{}, error) {
 		return nil, err
 	}
 	var payload map[string]interface{}
-	dec := json.NewDecoder(strings.NewReader(string(data)))
+	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
 	if err := dec.Decode(&payload); err != nil {
 		return nil, fmt.Errorf("lockfile is not valid JSON: %w", err)

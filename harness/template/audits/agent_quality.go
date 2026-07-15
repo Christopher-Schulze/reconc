@@ -34,7 +34,13 @@ func auditAgentQuality(root string) []string {
 
 func collectGitDiffFiles(root string) (map[string]*gitDiffFile, []string) {
 	inside, err := exec.Command("git", "-C", root, "rev-parse", "--is-inside-work-tree").CombinedOutput()
-	if err != nil || strings.TrimSpace(string(inside)) != "true" {
+	if err != nil {
+		if _, statErr := os.Stat(filepath.Join(root, ".git")); statErr == nil {
+			return nil, []string{fmt.Sprintf("git rev-parse --is-inside-work-tree failed: %v: %s", err, strings.TrimSpace(string(inside)))}
+		}
+		return nil, nil
+	}
+	if strings.TrimSpace(string(inside)) != "true" {
 		return nil, nil
 	}
 	files := map[string]*gitDiffFile{}

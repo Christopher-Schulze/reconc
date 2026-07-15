@@ -17,7 +17,7 @@ import (
 // cacheVersion is bumped whenever audit logic changes in a way that should
 // invalidate every cached pass. The cache key embeds this constant so a
 // stale binary cannot return a false pass after the rules tightened.
-const cacheVersion = "v3-2026-07-14"
+const cacheVersion = "v4-2026-07-15"
 
 const (
 	cacheRel     = ".reconc/cache/audit-results.json"
@@ -49,6 +49,7 @@ type cacheInputs struct {
 	structurePaths []string
 	metadataPaths  []string
 	values         []string
+	inputErrors    []error
 }
 
 func newCacheInputs() *cacheInputs {
@@ -80,9 +81,9 @@ func (c *cacheInputs) AddValue(name, value string) {
 // tree shape (e.g. test-coverage: "does each Go dir have a *_test.go?") so
 // pure content edits do not invalidate the cache.
 func (c *cacheInputs) AddTreeStructure(root string, suffixes []string) {
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil
+			return err
 		}
 		if d.IsDir() {
 			return nil
@@ -99,14 +100,17 @@ func (c *cacheInputs) AddTreeStructure(root string, suffixes []string) {
 		}
 		return nil
 	})
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		c.inputErrors = append(c.inputErrors, fmt.Errorf("walk tree structure %s: %w", root, err))
+	}
 }
 
 // AddTree appends every regular file under root with one of the suffixes.
 // Returns silently if root does not exist.
 func (c *cacheInputs) AddTree(root string, suffixes []string) {
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil
+			return err
 		}
 		if d.IsDir() {
 			return nil
@@ -123,6 +127,9 @@ func (c *cacheInputs) AddTree(root string, suffixes []string) {
 		}
 		return nil
 	})
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		c.inputErrors = append(c.inputErrors, fmt.Errorf("walk tree %s: %w", root, err))
+	}
 }
 
 // Hash returns a deterministic SHA256 over the cache version, the sorted file
@@ -132,6 +139,9 @@ func (c *cacheInputs) AddTree(root string, suffixes []string) {
 // and existence, not their content, so content-only edits do not invalidate
 // audits whose result depends only on the directory tree shape.
 func (c *cacheInputs) Hash() (string, error) {
+	if len(c.inputErrors) > 0 {
+		return "", errors.Join(c.inputErrors...)
+	}
 	sort.Strings(c.files)
 	sort.Strings(c.structurePaths)
 	sort.Strings(c.metadataPaths)
@@ -200,7 +210,8 @@ func runWithCache(root string, name string, inputs *cacheInputs, fn func() []str
 	}
 	hash, err := inputs.Hash()
 	if err != nil {
-		return fn()
+		result := fn()
+		return append(result, fmt.Sprintf("audit %s cache input failed: %v", name, err))
 	}
 	keyLock := auditCacheKeyLock(root, name)
 	keyLock.Lock()

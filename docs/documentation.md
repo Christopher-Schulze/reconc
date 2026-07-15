@@ -726,7 +726,12 @@ retention no longer piggybacks on audit-cache publication. The task-state cache 
 `docs/tasks.md`, schema, and open TASK bodies on its hot path. A clean completed
 TASK archive is represented by its committed Git tree ID plus directory
 metadata; dirty or unreadable archive state bypasses caching entirely, avoiding
-full archive reads without hiding archived-file changes. The in-process normal
+full archive reads without hiding archived-file changes. Cache input tree walks
+now propagate traversal failures into a blocking audit result and never publish
+a pass from an incomplete tree. TASK diff-aware gates likewise report staged or
+working-tree Git diff failures instead of silently exempting changed completed
+TASKs. Lockfile JSON readers decode directly from the existing byte slice,
+avoiding one full lockfile copy per policy check and TUI summary. The in-process normal
 executable-TASK benchmark on Apple M1 improved from 1,504,653 ns/op,
 61,612 B/op, and 553 allocs/op to a seven-run range of 130,819-142,849 ns/op
 with a 131,483 ns/op median, 29,225-29,276 B/op, and 245 allocs/op. The

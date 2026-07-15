@@ -48,6 +48,22 @@ func BenchmarkCheckSingleDenyWrite(b *testing.B) {
 	}
 }
 
+func BenchmarkLoadLockfile(b *testing.B) {
+	repo := b.TempDir()
+	writeFileBench(b, repo, "AGENTS.md", "# t\n")
+	writeFileBench(b, repo, "policies/rules.yml", "rules: []\n")
+	if _, err := compiler.CompileRepoPolicy(repo, "bench"); err != nil {
+		b.Fatalf("compile: %v", err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if _, err := loadLockfile(repo); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 // BenchmarkCheckLargeRuleset measures scaling: 100 deny_write rules
 // against 10 write paths. Any accidental N*N regression in the
 // evaluator jumps out in CI.
