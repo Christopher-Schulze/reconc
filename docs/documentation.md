@@ -66,7 +66,7 @@ make lint
 make cover
 make bench
 make self-host
-make release VERSION=0.7.0
+make release VERSION=0.7.1
 ```
 
 `make release` cross-compiles five binaries into `dist/`, generates three flat
@@ -755,7 +755,7 @@ GitHub workflows:
 CI checks:
 
 - Ubuntu 24.04, macOS 15, and Windows 2025 matrix runners
-- root module and `harness/template` module formatting, tidy, test, vet, pinned Govulncheck v1.6.0, pinned Staticcheck v0.7.0, and race checks
+- root module and `harness/template` module tests, vet, pinned Staticcheck v0.7.0, and race checks across the OS matrix; formatting, tidy, and pinned Govulncheck v1.6.0 on Linux
 - clean-repository self-hosting golden path on Ubuntu and macOS across all three bootstrap profiles and nine hook platforms
 - immutable action commit pins for checkout, Go setup, and build provenance
 - least-privilege permissions, disabled checkout credential persistence, bounded job timeouts, and stale-run cancellation per branch or pull request

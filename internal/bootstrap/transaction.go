@@ -22,8 +22,8 @@ type createdRecord struct {
 }
 
 type createdDirectory struct {
-	path string
-	file os.FileInfo
+	path   string
+	handle *os.File
 }
 
 func Apply(plan *Plan, productVersion string) (*Report, error) {
@@ -68,6 +68,7 @@ func apply(plan *Plan, productVersion string, options applyOptions) (*Report, er
 	}
 	if len(conflicts) > 0 {
 		created, dirs, err := materializeCandidates(plan, conflicts, artifactByPath, options)
+		defer closeCreatedDirectoryHandles(dirs)
 		if err != nil {
 			rolledBack, rollbackErr := rollbackCreated(plan.RepoRoot, created, dirs)
 			report.RolledBack = rolledBack
@@ -83,6 +84,7 @@ func apply(plan *Plan, productVersion string, options applyOptions) (*Report, er
 
 	created := []createdRecord{}
 	createdDirs := []createdDirectory{}
+	defer func() { closeCreatedDirectoryHandles(createdDirs) }()
 	for _, action := range plan.Actions {
 		if action.State != ActionCreate {
 			continue
@@ -393,12 +395,12 @@ func createSafeParents(root, parent string) ([]createdDirectory, error) {
 			if err := os.Mkdir(current, 0o755); err != nil {
 				return created, fmt.Errorf("create bootstrap parent %s: %w", current, err)
 			}
-			createdInfo, err := os.Lstat(current)
+			directory, err := captureCreatedDirectory(current)
 			if err != nil {
 				removeErr := os.Remove(current)
 				return created, combineWriteFailure("inspect created bootstrap parent "+current, err, nil, removeErr)
 			}
-			created = append(created, createdDirectory{path: current, file: createdInfo})
+			created = append(created, directory)
 			continue
 		}
 		if err != nil {
@@ -412,6 +414,7 @@ func createSafeParents(root, parent string) ([]createdDirectory, error) {
 }
 
 func rollbackCreated(root string, created []createdRecord, dirs []createdDirectory) ([]string, error) {
+	defer closeCreatedDirectoryHandles(dirs)
 	rolledBack := []string{}
 	errors := []string{}
 	for index := len(created) - 1; index >= 0; index-- {
@@ -435,7 +438,16 @@ func rollbackCreated(root string, created []createdRecord, dirs []createdDirecto
 			errors = append(errors, "inspect rollback directory "+directory.path+": "+err.Error())
 			continue
 		}
-		if directory.file == nil || !os.SameFile(info, directory.file) {
+		if directory.handle == nil {
+			errors = append(errors, "refuse rollback without directory identity handle "+directory.path)
+			continue
+		}
+		expected, err := directory.handle.Stat()
+		if err != nil {
+			errors = append(errors, "inspect rollback directory identity "+directory.path+": "+err.Error())
+			continue
+		}
+		if !os.SameFile(info, expected) {
 			errors = append(errors, "refuse rollback of externally replaced directory "+directory.path)
 			continue
 		}
@@ -448,6 +460,14 @@ func rollbackCreated(root string, created []createdRecord, dirs []createdDirecto
 			errors = append(errors, "refuse rollback of non-empty transaction directory "+directory.path)
 			continue
 		}
+		current, err := os.Lstat(directory.path)
+		if err != nil || !os.SameFile(current, expected) {
+			if err == nil {
+				err = fmt.Errorf("directory identity changed")
+			}
+			errors = append(errors, "refuse rollback of externally replaced directory "+directory.path+": "+err.Error())
+			continue
+		}
 		if err := os.Remove(directory.path); err != nil && !os.IsNotExist(err) {
 			errors = append(errors, "remove rollback directory "+directory.path+": "+err.Error())
 		}
@@ -457,6 +477,31 @@ func rollbackCreated(root string, created []createdRecord, dirs []createdDirecto
 		return rolledBack, fmt.Errorf("rollback incomplete: %s", strings.Join(errors, "; "))
 	}
 	return rolledBack, nil
+}
+
+func captureCreatedDirectory(path string) (createdDirectory, error) {
+	handle, err := os.Open(path)
+	if err != nil {
+		return createdDirectory{}, err
+	}
+	info, err := handle.Stat()
+	if err != nil {
+		_ = handle.Close()
+		return createdDirectory{}, err
+	}
+	if !info.IsDir() {
+		_ = handle.Close()
+		return createdDirectory{}, fmt.Errorf("created path is not a directory: %s", path)
+	}
+	return createdDirectory{path: path, handle: handle}, nil
+}
+
+func closeCreatedDirectoryHandles(directories []createdDirectory) {
+	for _, directory := range directories {
+		if directory.handle != nil {
+			_ = directory.handle.Close()
+		}
+	}
 }
 
 func removeCreatedRecord(record createdRecord) error {

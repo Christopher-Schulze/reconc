@@ -50,6 +50,7 @@ jobs:
           (cd harness/template && go mod download)
 
       - name: Check formatting
+        if: runner.os == 'Linux'
         run: |
           unformatted="$(git ls-files -z -- '*.go' | xargs -0 gofmt -l)"
           test -z "$unformatted" || {
@@ -58,6 +59,7 @@ jobs:
           }
 
       - name: Check module tidy
+        if: runner.os == 'Linux'
         run: |
           go mod tidy -diff
           (cd harness/template && go mod tidy -diff)

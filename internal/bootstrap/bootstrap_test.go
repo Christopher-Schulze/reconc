@@ -492,17 +492,18 @@ func TestRollbackRefusesExternallyReplacedDirectory(t *testing.T) {
 	if err := os.Mkdir(path, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Lstat(path)
+	directory, err := captureCreatedDirectory(path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = directory.handle.Close() })
 	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
+		t.Skipf("filesystem does not permit replacing an open directory: %v", err)
 	}
 	if err := os.Mkdir(path, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	_, err = rollbackCreated(repo, nil, []createdDirectory{{path: path, file: info}})
+	_, err = rollbackCreated(repo, nil, []createdDirectory{directory})
 	if err == nil || !strings.Contains(err.Error(), "externally replaced directory") {
 		t.Fatalf("rollback must refuse a replacement directory: %v", err)
 	}
