@@ -52,21 +52,25 @@ func CollectGitWritePaths(repoRoot string, staged bool, base, head string) ([]st
 		}
 	}
 
+	// -z emits verbatim NUL-terminated path bytes. Without it git
+	// quotes and octal-escapes non-ASCII or special filenames (per
+	// core.quotepath), and those escaped strings silently match no
+	// policy glob.
 	var args []string
 	var commandStr string
 	mode := GitModeStaged
 	resolvedHead := head
 	if staged {
-		args = []string{"diff", "--cached", "--name-only"}
-		commandStr = "git diff --cached --name-only"
+		args = []string{"diff", "--cached", "--name-only", "-z"}
+		commandStr = "git diff --cached --name-only -z"
 	} else {
 		if resolvedHead == "" {
 			resolvedHead = "HEAD"
 		}
 		mode = GitModeRange
 		spec := fmt.Sprintf("%s...%s", base, resolvedHead)
-		args = []string{"diff", spec, "--name-only"}
-		commandStr = "git diff " + spec + " --name-only"
+		args = []string{"diff", spec, "--name-only", "-z"}
+		commandStr = "git diff " + spec + " --name-only -z"
 	}
 
 	cmd := exec.Command("git", args...)
@@ -85,16 +89,16 @@ func CollectGitWritePaths(repoRoot string, staged bool, base, head string) ([]st
 		return nil, GitDiffMetadata{}, &rerrors.GitError{Message: msg, Cause: err}
 	}
 
-	// Parse output: one path per line, possibly empty trailing line.
-	lines := strings.Split(string(out), "\n")
-	paths := make([]string, 0, len(lines))
-	for _, l := range lines {
-		l = strings.TrimSpace(l)
-		if l == "" {
+	// Parse output: NUL-terminated records, possibly one empty
+	// trailing record. Path bytes are verbatim (git already returns
+	// POSIX-style paths) and must not be trimmed.
+	records := strings.Split(string(out), "\x00")
+	paths := make([]string, 0, len(records))
+	for _, record := range records {
+		if record == "" {
 			continue
 		}
-		// git already returns POSIX-style paths.
-		paths = append(paths, l)
+		paths = append(paths, record)
 	}
 
 	metadata := GitDiffMetadata{

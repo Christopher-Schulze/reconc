@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -523,28 +524,49 @@ func gitDirtyFiles(repoRoot string, status string) []gitDirtyFile {
 	return files
 }
 
+// dirtyPathsFromStatus parses `git status --porcelain=v1 -z` records.
+// Each record is "XY <path>"; rename/copy records are followed by the
+// origin path as a separate NUL field WITHOUT an XY prefix, and that
+// origin is dirty too. Path bytes are verbatim (-z never quotes), so
+// nothing is trimmed: leading/trailing spaces are part of the name.
 func dirtyPathsFromStatus(status string) []string {
 	records := strings.Split(status, "\x00")
+	seen := map[string]struct{}{}
 	paths := make([]string, 0, len(records))
-	for _, record := range records {
-		path := dirtyPathFromStatusRecord(record)
+	add := func(path string) {
+		path = filepath.ToSlash(path)
 		if path == "" || stopPolicyRuntimeStateRecord(path) {
-			continue
+			return
 		}
+		if _, ok := seen[path]; ok {
+			return
+		}
+		seen[path] = struct{}{}
 		paths = append(paths, path)
 	}
-	return sortedUnique(paths)
+	for i := 0; i < len(records); i++ {
+		record := records[i]
+		if record == "" {
+			continue
+		}
+		if len(record) >= 4 && record[2] == ' ' {
+			add(record[3:])
+			if isRenameOrCopyStatus(record[0], record[1]) && i+1 < len(records) {
+				i++
+				add(records[i])
+			}
+			continue
+		}
+		// Defensive fallback for a record that does not match the
+		// XY-prefix shape; keep its bytes verbatim.
+		add(record)
+	}
+	sort.Strings(paths)
+	return paths
 }
 
-func dirtyPathFromStatusRecord(record string) string {
-	record = strings.TrimRight(record, "\r\n")
-	if record == "" {
-		return ""
-	}
-	if len(record) >= 4 && record[2] == ' ' {
-		return filepath.ToSlash(strings.TrimSpace(record[3:]))
-	}
-	return filepath.ToSlash(record)
+func isRenameOrCopyStatus(x, y byte) bool {
+	return x == 'R' || x == 'C' || y == 'R' || y == 'C'
 }
 
 func gitIndexEntries(repoRoot string, paths []string) map[string]string {

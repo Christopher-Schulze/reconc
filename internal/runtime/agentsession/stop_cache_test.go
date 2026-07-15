@@ -21,6 +21,18 @@ func TestDirtyPathsFromStatusIncludesRenamePairAndSkipsRuntimeState(t *testing.T
 	}
 }
 
+func TestDirtyPathsFromStatusKeepsVerbatimPathBytes(t *testing.T) {
+	// A rename origin whose third byte is a space must not lose its
+	// first three characters, and leading/trailing spaces are part of
+	// the filename with -z output.
+	status := "R  dst.go\x00ab cd.go\x00 M  spaced name .go\x00?? für/é.go\x00"
+	got := dirtyPathsFromStatus(status)
+	want := []string{" spaced name .go", "ab cd.go", "dst.go", "für/é.go"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("dirty paths mismatch\ngot:  %#v\nwant: %#v", got, want)
+	}
+}
+
 func TestStopScopeWritePathsToUncommittedUsesFingerprintSnapshot(t *testing.T) {
 	repo := t.TempDir()
 	git := func(args ...string) {

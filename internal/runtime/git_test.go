@@ -115,6 +115,37 @@ func TestCollectGitWritePathsStagedNonEmpty(t *testing.T) {
 	}
 }
 
+func TestCollectGitWritePathsUnicodeAndSpacedNames(t *testing.T) {
+	repo := initGitRepo(t)
+	// Default core.quotepath would octal-escape these in non -z output;
+	// verbatim bytes must come back so policy globs can match them.
+	names := []string{"docs/über plan.md", "src/héllo.go", "with space.txt"}
+	for _, name := range names {
+		gitWrite(t, repo, name, "content\n")
+	}
+	gitRun(t, repo, "add", ".")
+
+	paths, meta, err := CollectGitWritePaths(repo, true, "", "")
+	if err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+	if len(paths) != len(names) {
+		t.Fatalf("expected %d paths, got %v", len(names), paths)
+	}
+	got := map[string]bool{}
+	for _, p := range paths {
+		got[p] = true
+	}
+	for _, name := range names {
+		if !got[name] {
+			t.Errorf("expected verbatim path %q in %v", name, paths)
+		}
+	}
+	if meta.WritePathCount != len(names) {
+		t.Errorf("metadata count: %d", meta.WritePathCount)
+	}
+}
+
 func TestCollectGitWritePathsRangeMode(t *testing.T) {
 	repo := initGitRepo(t)
 	// Make initial commit
