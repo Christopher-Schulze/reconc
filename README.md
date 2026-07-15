@@ -338,10 +338,10 @@ reconc <command> --help
 
 ## Status
 
-`reconc` is released on the `v0.7.x` line. Core local gates pass, and release
-artifacts are produced by the GitHub release workflow when a `reconc-v*` tag is
-pushed. Every release SBOM is regenerated and byte-verified before its checksum
-and build provenance are published.
+`reconc` is released on the `v0.7.x` line; the current patch is `v0.7.2`. Core
+local gates pass, and release artifacts are produced by the GitHub release
+workflow when a `reconc-v*` tag is pushed. Every release SBOM is regenerated
+and byte-verified before its checksum and build provenance are published.
 
 `make self-host` builds the local binary and runs the clean-repository golden
 path across all three bootstrap profiles, all nine hook platforms, TASK

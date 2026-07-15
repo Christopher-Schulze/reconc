@@ -455,7 +455,10 @@ avoid OS/architecture subprocess probes on development and self-hosting paths.
 
 Do not require a global `reconc` install. PATH fallback is only a last fallback. POSIX routes in generated JSON hook configs must not inline binary fallback loops; they call `tools/reconc/bin/hook` and let the wrapper own binary selection. Copilot's native Windows route remains an explicit PowerShell adaptation until the cross-platform wrapper is installed. PreToolUse, permission and Stop hooks remain hard/interactive priority; only observation hooks are lowered.
 
-For native Windows targets, verify the host tool can execute the configured shell command. If it cannot, keep the same event names and binary candidate order, but adapt the command wrapper to PowerShell in-place and document that exact adaptation in the bootstrap TASK Notes.
+On native Windows, generated shell hook routes and `.sh` or extensionless policy
+scripts require `sh` on `PATH`; Git for Windows supplies it. Native `.exe` and
+`.com` policy scripts execute directly. Copilot keeps the explicit PowerShell
+route above. Do not invent a per-project wrapper variant.
 
 ### Step 7b: Activate source-controlled git hooks
 
@@ -543,7 +546,7 @@ The rollout is not done until all of this is true:
 - Every selected policy pack matches real stack evidence; no recommendation was silently auto-applied.
 - Hooks prefer development/self-host binaries without platform probes, then local dist binaries on macOS/Linux/Windows, before PATH.
 - `repo-root-scaffold/` hook artifacts were synced with `reconc hook sync-scaffold` from the local generator; no hook artifact was edited by hand or copied from a source-specific harness.
-- POSIX hook routes call `tools/reconc/bin/hook` first and retain local-dist/PATH fallback; native Windows adaptations are documented explicitly.
+- POSIX hook routes call `tools/reconc/bin/hook` first and retain local-dist/PATH fallback; native Windows shell routes have `sh` on `PATH`, Copilot uses its generated PowerShell route, and native `.exe`/`.com` policy scripts execute directly.
 - `hook status . --json` reports every selected platform as `configured`; no platform is degraded, shadowed, unsupported, or accidentally left only installed.
 - OpenCode and Kilo Code plugins contain no project-specific run state or prompts; Copilot contains no no-op `PreCompact` route; Antigravity contains no blanket 120-second timeout.
 - Cursor/Windsurf/Codeium/VS Code indexing excludes are installed as local-tool performance controls only, not Git ignores.

@@ -69,8 +69,8 @@ make lint
 make cover
 make bench
 make self-host
-make sbom VERSION=0.7.1
-make release VERSION=0.7.1
+make sbom VERSION=0.7.2
+make release VERSION=0.7.2
 ```
 
 `make release` cross-compiles five binaries into `dist/`, generates three flat
@@ -952,7 +952,7 @@ not become competing current-state documentation.
 
 ## Release State
 
-The current public release line is `v0.7.x`. A new release is blocked until its
-release, install, self-hosting, and final verification contracts pass. Release
-artifacts are produced by the GitHub release workflow when a `reconc-v*` tag is
-pushed.
+The current public release line is `v0.7.x`; the current patch is `v0.7.2`. A
+new release is blocked until its release, install, self-hosting, and final
+verification contracts pass. Release artifacts are produced by the GitHub
+release workflow when a `reconc-v*` tag is pushed.

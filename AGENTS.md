@@ -46,6 +46,6 @@ make self-host
 
 ## Current Release State
 
-The current public release line is `v0.7.x`. Core tests, race tests, vet,
-static analysis, and release artifact generation are expected to pass before
-release.
+The current public release line is `v0.7.x`; the current patch is `v0.7.2`.
+Core tests, race tests, vet, static analysis, and release artifact generation
+are expected to pass before release.
