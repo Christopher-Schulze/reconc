@@ -75,9 +75,12 @@ internal/
 
 `cmd/reconc/main.go` is ~20 lines: parse argv, delegate to
 `cli.Run`, translate the returned error into an exit code.
-Within `internal/cli`, `cli.go` owns top-level dispatch and the remaining small
-commands; hook routing, workflow/session commands, bootstrap, TASK lifecycle,
-repository run control, and deep doctor logic live in their own command files.
+Within `internal/cli`, the 209-line `cli.go` owns only public errors, top-level
+dispatch, and canonical usage. Compile, evaluate, inspect, explain, CI,
+bootstrap, scaffold, source analysis, quality, maintenance, catalog, metadata,
+hook, workflow/session, TASK lifecycle, repository-run, and deep-doctor logic
+live in responsibility-owned files without a second router or compatibility
+wrapper.
 Hook generation
 is separate from merge/install logic, runtime lockfile trust is separate from
 rule evaluation, and Stop decisions are separate from general session event
