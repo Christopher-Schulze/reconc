@@ -55,6 +55,7 @@ Verify installation health end-to-end:
 ```bash
 reconc verify .
 reconc hook status . --json
+reconc session-briefing . --json
 ```
 
 After changing policy sources, refresh the generated contract explicitly:
@@ -116,10 +117,9 @@ reconc doctor .
 reconc doctor . --json
 ```
 
-One-line health:
+Versioned session/reentry state:
 ```bash
-reconc status .
-reconc run status .
+reconc session-briefing . --json
 ```
 
 ## Assertions (Claims)
@@ -209,6 +209,8 @@ events, 30 minutes with new progress, or a failed command.
 | default | Text | Human inspection, logs |
 
 Prefer `--terse` or `can` in hot paths; reach for full `--json` when you actually need the rule ids, explanations, and files-to-inspect.
+For session entry and reentry, prefer the compact versioned
+`session-briefing --json` contract over separate status and run-status calls.
 
 ## Where to Look
 
@@ -224,3 +226,4 @@ Prefer `--terse` or `can` in hot paths; reach for full `--json` when you actuall
 3. **Warn is a signal, not a suggestion.** Investigate; don't silently ignore.
 4. **If a rule seems wrong**, amend the rule (policy PR), don't work around it.
 5. **Claims are promises.** Only assert `ci-green` after CI is actually green.
+6. **Reconc is not a sandbox.** A hostile same-user process needs external sandboxing and protected remote CI or branch rules.

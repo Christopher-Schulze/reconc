@@ -306,6 +306,9 @@ func renderAgentBlock() string {
 		"This repository compiles policy from `.reconc.yml` and agent instructions into",
 		"`.reconc/policy.lock.json`. Inspection commands are read-only and never refresh",
 		"policy implicitly. After policy edits, run `reconc refresh .` explicitly.",
+		"Use `reconc session-briefing . --json` for one versioned, machine-readable TASK,",
+		"policy, and repository-run delta. Fetch only needed reference sections with",
+		"`reconc agent-intro --section NAME` instead of loading the full guide.",
 		"",
 		"Before implementation, read `docs/tasks.md` and its active detail when those",
 		"files exist. Before claiming completion, run the repository's real tests and",
@@ -363,9 +366,10 @@ func renderDocumentationBlock() string {
 func renderStart() string {
 	return strings.Join([]string{
 		"# START", "",
-		"Read `AGENTS.md`, then `docs/tasks.md` and its active TASK detail. Run",
-		"`reconc status .` and `reconc session-briefing .` only after reading those",
-		"files. Onboarding is read-only: do not bootstrap, refresh, install hooks, or",
+		"Read `AGENTS.md`, then `docs/tasks.md` and its active TASK detail. After those",
+		"reads, run `reconc session-briefing . --json` once for the versioned TASK,",
+		"policy, and repository-run delta. Onboarding is read-only: do not bootstrap,",
+		"refresh, install hooks, or",
 		"transition TASK state until the user authorizes implementation.", "",
 	}, "\n")
 }

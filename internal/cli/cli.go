@@ -2096,19 +2096,7 @@ func runTemplateShow(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
-// runSessionBriefing implements `reconc session-briefing [repo] [--json]` (W44).
-//
-// One-shot replacement for the multi-file session-start read-list.
-// Reads discovery, lockfile, live TASK state, and the active saved policy
-// report and emits a compact delta summary so an agent knows in one decode:
-//   - is policy loaded and fresh?
-//   - what TASK and Sub-Task are current?
-//   - which current saved policy blockers and evidence are actionable?
-//   - what is the single next remediation?
-//
-// Intentionally skips project-convention-specific inputs (todo.md,
-// spec.md, changelog.md) so the command works in any repo without
-// configuration. Those can be added by the caller's wrapper.
+// runDelta implements `reconc delta [repo] [--since RFC3339] [--json]`.
 func runDelta(args []string, stdout, stderr io.Writer) error {
 	repo := "."
 	jsonOut := false
@@ -3990,8 +3978,8 @@ Workflow maintenance:
   run              AI-operated on / off / status / log repository run control
   task             typed TASK status / validation / atomic lifecycle mutations
   prune            bound runtime state, logs, generated binaries, and owned temp residue
-  session-briefing token-efficient session-start delta (TASK + policy)
-  context          size check for auto-loaded files vs a token budget
+  session-briefing versioned session/reentry delta (TASK + policy + run)
+  context          canonical entrypoint + active TASK token budget
   start            render / write a canonical start.md onboarding doc
   post-task-check  pre-done gate: fresh lockfile + no recent blocks
   delta            show audit + policy changes since a point in time

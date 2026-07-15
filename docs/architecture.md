@@ -53,7 +53,7 @@ internal/
   cli/            command dispatch plus responsibility-owned command modules
   compiler/       lockfile builder: digest, writer, conflicts, migrations, lock
   completion/     bash / zsh / fish completion generators
-  contextsize/    token-budget guard for auto-loaded session files
+  contextsize/    token-budget guard for canonical entrypoints + active TASK
   errors/         typed exception hierarchy (PolicySourceError, LockfileError, ...)
   extractor/      prose-to-rule heuristic scanner (regex-only, no LLM)
   hooks/          typed platform registry + generators + installers + activation probes + scaffold sync
@@ -406,6 +406,10 @@ our own depth-limited decoder is the only entry point.
 ### What this threat model does NOT cover
 
 - A compromised reconc binary itself (trust root).
+- A deliberately hostile same-user process or agent replacing repository
+  policy, hooks, state, or binaries; fabricating self-reported evidence;
+  disabling host hooks; or bypassing Git hooks. External sandboxing and
+  protected remote CI or branch rules must own that adversarial boundary.
 - Kernel-level attacks (e.g. PID reuse allowing session-state
   tampering between runs). Out of scope; we assume the OS is sound.
 - Network-borne attacks (reconc is offline; no network surface).

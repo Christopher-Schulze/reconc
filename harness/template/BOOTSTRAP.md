@@ -112,7 +112,10 @@ only transaction-owned files whose identity and checksum still match, and
 removes only empty directories created by that transaction. It never removes
 or overwrites an external edit.
 
-After verification, the agent itself inspects the target with `reconc run status <target-repo>`.
+After verification, the agent itself inspects the target once with
+`reconc session-briefing <target-repo> --json`. That versioned response carries
+the current TASK, policy delta, and repository-run state without a Git process
+or repository write.
 It enables repository continuation with `reconc run on <target-repo>` only
 when autonomous execution is requested, and disables it with
 `reconc run off <target-repo>` on explicit stop or a real blocker. Prompt text,
@@ -485,13 +488,11 @@ Use the repo-local Reconc binary candidate that exists on the host.
 Required checks:
 
 1. `reconc bootstrap verify --plan .reconc/bootstrap-plan.json --json` when the transactional profile was used.
-2. `tools/reconc/dist/<local-reconc-binary> status .`
-3. `tools/reconc/dist/<local-reconc-binary> hook status . --json`
-4. `tools/reconc/dist/<local-reconc-binary> run status .`
-5. `tools/reconc/dist/<local-reconc-binary> session-briefing .`
-6. `cd tools/reconc/harness/<project-name> && go test ./...`
-7. `tools/reconc/harness/<project-name>/audits/run-workflow-audit all`
-8. Selected stack build/test commands:
+2. `tools/reconc/dist/<local-reconc-binary> hook status . --json`
+3. `tools/reconc/dist/<local-reconc-binary> session-briefing . --json`
+4. `cd tools/reconc/harness/<project-name> && go test ./...`
+5. `tools/reconc/harness/<project-name>/audits/run-workflow-audit all`
+6. Selected stack build/test commands:
    - Go default: `go test ./...` and `go run ./scripts/build validate` if the build runner was installed.
    - Rust: `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test` when Rust is selected.
    - Frontend: selected package manager checks only when a frontend stack is selected.
@@ -550,4 +551,6 @@ The rollout is not done until all of this is true:
 - `.gitignore` contains Reconc runtime ignores and relevant dual-layout build/dependency ignores.
 - Repo-local binaries under `tools/reconc/dist/` are ignored while `tools/reconc/bin/hook` remains source-controlled.
 - `docs/tasks.md` and the active TASK detail file pass task-state audit.
+- `session-briefing . --json` returns a supported `format_version`, current
+  TASK/policy delta, and repository-run state without a redundant status call.
 - `run-workflow-audit all` passes, or any disabled surface is explicitly disabled because it is not part of the selected stack.

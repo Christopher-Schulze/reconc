@@ -107,12 +107,18 @@ Pack proposals are review-only. Reconc never silently adds them to `extends`.
 Then use the daily loop:
 
 ```bash
-reconc status .
+reconc session-briefing . --json
 reconc check . --write path/to/file
 reconc next .
 reconc done .
 reconc prune . --dry-run
 ```
+
+The first command is the bounded machine handshake for session entry and
+reentry. Its versioned JSON combines current TASK/Sub-Task, policy delta,
+required evidence, exact remediation, and durable repository-run state without
+starting Git or mutating repository state. Agents fetch detailed static help
+only when needed with `reconc agent-intro --section NAME`.
 
 An AI agent, not the user, operates autonomous run control:
 
@@ -252,6 +258,7 @@ Use it as the reconc operating guide for Codex, OpenCode, Claude Code, and
 other coding agents. The skill gives every agent the same operating loop:
 
 - check policy health before work
+- begin and reenter with `reconc session-briefing . --json`
 - collect truthful read, write, command, and claim evidence
 - remediate blocks with `reconc next .`
 - run `reconc done .` before claiming completion
@@ -302,6 +309,12 @@ scratch, not current work. Current TASK truth is only `docs/tasks.md` plus its
 linked `docs/tasks/` detail files.
 
 Security policy lives in `SECURITY.md`.
+
+Reconc is a deterministic repository control plane, not an operating-system
+sandbox. A deliberately hostile same-user process can replace local policy,
+hooks, state, or binaries, fabricate self-reported evidence, or bypass a Git
+hook. Strong adversarial enforcement therefore requires an external sandbox
+and protected remote CI or branch rules outside the agent's write authority.
 
 For command details:
 

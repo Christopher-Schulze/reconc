@@ -148,11 +148,17 @@ Most users should use this path:
 
 ```bash
 reconc bootstrap .
-reconc status .
+reconc session-briefing . --json
 reconc check . --write path/to/file
 reconc next .
 reconc done .
 ```
+
+`session-briefing --json` is the bounded machine handshake for session entry
+and reentry. Its versioned compact contract combines current TASK/Sub-Task,
+policy delta, required evidence, exact remediation, and durable repository-run
+state without Git or writes. Static reference material stays on demand through
+`reconc agent-intro --section NAME` instead of inflating every agent prompt.
 
 `status`, `doctor`, `verify`, `check`, `ci`, `assert`, `can`, `why`,
 `task status`, `task validate`, `task check-done`, `run status`, `run log`,
@@ -519,7 +525,7 @@ The repo ships one agent-facing skill at `skills/reconc/SKILL.md`.
 It is written for Codex, OpenCode, Claude Code, and other coding agents. The
 skill documents the same reconc workflow for every agent runtime:
 
-- check policy health before work
+- begin and reenter with the versioned `session-briefing --json` contract
 - collect truthful read, write, command, and claim evidence
 - use `reconc next .` for remediation
 - run `reconc done .` before claiming completion
@@ -845,6 +851,12 @@ Security posture:
 - Only policy-authored `require_script` entries execute subprocesses.
 - Audit log is opt-in via `RECONC_AUDIT=1`.
 - Lockfile root mismatch is a hard stale/fail condition.
+
+Reconc is a deterministic repository control plane, not an operating-system
+sandbox. A deliberately hostile same-user process can replace local policy,
+hooks, state, or binaries, fabricate self-reported evidence, or bypass a Git
+hook. Strong adversarial enforcement requires an external sandbox and
+protected remote CI or branch rules outside the agent's write authority.
 
 Security reports should be private first and include the command, policy,
 lockfile shape, payload if relevant, and reproduction steps.

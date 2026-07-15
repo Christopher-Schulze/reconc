@@ -1361,8 +1361,7 @@ func auditStartEntrypoint(root string) []string {
 	required := []string{
 		"AGENTS.md",
 		"docs/tasks.md",
-		"tools/reconc/dist/reconc-darwin-arm64 status .",
-		"tools/reconc/dist/reconc-darwin-arm64 session-briefing .",
+		"tools/reconc/dist/reconc-darwin-arm64 session-briefing . --json",
 		"No file writes",
 		"_drop/",
 		"reconc run on .",

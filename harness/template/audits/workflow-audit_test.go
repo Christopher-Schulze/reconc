@@ -630,8 +630,7 @@ func TestAuditStartEntrypointRequiresRepositoryRunContract(t *testing.T) {
 
 AGENTS.md
 docs/tasks.md
-tools/reconc/dist/reconc-darwin-arm64 status .
-tools/reconc/dist/reconc-darwin-arm64 session-briefing .
+tools/reconc/dist/reconc-darwin-arm64 session-briefing . --json
 No file writes
 _drop/
 reconc run on .
@@ -643,6 +642,9 @@ reconc run on .
 		!containsFailure(failures, "not a parallel workflow") ||
 		!containsFailure(failures, "AGENTS.md missing required repository run token") {
 		t.Fatalf("expected repository run contract failures, got:\n%s", strings.Join(failures, "\n"))
+	}
+	if containsFailure(failures, "session-briefing") {
+		t.Fatalf("versioned machine briefing should satisfy onboarding state, got:\n%s", strings.Join(failures, "\n"))
 	}
 }
 

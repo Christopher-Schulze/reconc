@@ -18,6 +18,12 @@ import (
 	"reconc.dev/reconc/internal/tasklifecycle"
 )
 
+const agentBriefingFormatVersion = "1"
+
+// runSessionBriefing emits one bounded, versioned machine handshake for
+// session entry and reentry. It combines policy, typed TASK, and repository-run
+// state without starting Git, loading audit history, or mutating repository
+// state. Project-specific reference material remains explicitly on demand.
 func runSessionBriefing(args []string, stdout, stderr io.Writer) error {
 	repo := "."
 	jsonOut := false
@@ -69,6 +75,11 @@ func runSessionBriefing(args []string, stdout, stderr io.Writer) error {
 	if taskErr, ok := briefing["task_error"].(string); ok && taskErr != "" {
 		fmt.Fprintf(stdout, "  TASK error:    %s\n", boundedBriefingText(taskErr))
 	}
+	if runStatus, ok := briefing["run"].(agentsession.RepositoryRunStatus); ok {
+		fmt.Fprintf(stdout, "  Run:           %s\n", strings.TrimPrefix(formatRunStatus(runStatus), "run: "))
+	} else if runErr, ok := briefing["run_error"].(string); ok && runErr != "" {
+		fmt.Fprintf(stdout, "  Run error:     %s\n", boundedBriefingText(runErr))
+	}
 	fmt.Fprintf(stdout, "  Policy delta:  %s\n", briefing["policy_delta"])
 	if blockers, ok := briefing["policy_blockers"].([]policyBriefingBlocker); ok {
 		for _, blocker := range blockers {
@@ -100,13 +111,14 @@ type policyBriefingBlocker struct {
 
 func compactSessionBriefing(full map[string]interface{}) map[string]interface{} {
 	out := map[string]interface{}{
-		"repo_root":    full["repo_root"],
-		"policy_delta": full["lockfile_status"],
+		"format_version": full["format_version"],
+		"repo_root":      full["repo_root"],
+		"policy_delta":   full["lockfile_status"],
 	}
 	if nextAction, exists := full["next_action"]; exists && nextAction != nil {
 		out["remediation"] = nextAction
 	}
-	for _, key := range []string{"task", "task_error", "policy_blockers", "omitted_policy_blockers", "required_evidence", "report_path"} {
+	for _, key := range []string{"task", "task_error", "run", "run_error", "policy_blockers", "omitted_policy_blockers", "required_evidence", "report_path"} {
 		if value, exists := full[key]; exists && value != nil {
 			out[key] = value
 		}
@@ -122,6 +134,7 @@ func compactSessionBriefing(full map[string]interface{}) map[string]interface{} 
 // same source.
 func buildSessionBriefing(repoRoot string) map[string]interface{} {
 	out := map[string]interface{}{
+		"format_version":  agentBriefingFormatVersion,
 		"repo_root":       repoRoot,
 		"lockfile_status": "unknown",
 	}
@@ -131,12 +144,14 @@ func buildSessionBriefing(repoRoot string) map[string]interface{} {
 		out["lockfile_status"] = "discovery error: " + err.Error()
 		out["next_action"] = "Fix the discovery error (is this a real directory?)"
 		addTaskBriefing(out, repoRoot)
+		addRunBriefing(out, repoRoot)
 		return out
 	}
 	if !discovery.Discovered {
 		out["lockfile_status"] = "no reconc config found"
 		out["next_action"] = "run `reconc init " + repoRoot + "` to scaffold a starting config"
 		addTaskBriefing(out, repoRoot)
+		addRunBriefing(out, repoRoot)
 		return out
 	}
 	out["repo_root"] = discovery.RepoRoot
@@ -168,8 +183,18 @@ func buildSessionBriefing(repoRoot string) map[string]interface{} {
 		out["next_action"] = "address " + itoaCLI(cnt) + " rule conflict(s), then run `reconc refresh " + discovery.RepoRoot + "`"
 	}
 	addTaskBriefing(out, discovery.RepoRoot)
+	addRunBriefing(out, discovery.RepoRoot)
 	addActivePolicyBriefing(out, discovery.RepoRoot)
 	return out
+}
+
+func addRunBriefing(out map[string]interface{}, repoRoot string) {
+	status, err := agentsession.ReadRepositoryRunStatus(repoRoot)
+	if err != nil {
+		out["run_error"] = boundedBriefingText(err.Error())
+		return
+	}
+	out["run"] = status
 }
 
 func addTaskBriefing(out map[string]interface{}, repoRoot string) {
@@ -276,10 +301,9 @@ func boundedBriefingText(value string) string {
 
 // runContext implements `reconc context size [repo] [--limit N] [--json]` (W43).
 //
-// Guards the per-session token budget by reporting the combined size
-// of files the agent auto-loads at session start (AGENTS.md,
-// docs/changelog.md, etc). Exits 1 when total approx tokens exceed the
-// budget so CI gates can block PRs that grow the budget silently.
+// Guards the per-session token budget by reporting the canonical entrypoints
+// plus the active TASK detail. Exits 1 when total approximate tokens exceed
+// the budget so CI gates can block prompt growth.
 //
 // Subcommand design (instead of a flat `reconc context`) leaves room
 // for future related commands (trim, audit-loaded-list, etc) without
@@ -293,8 +317,9 @@ func runContext(args []string, stdout, stderr io.Writer) error {
 			fmt.Fprintln(stdout, "Usage:")
 			fmt.Fprintln(stdout, "  reconc context size [repo] [--limit N] [--files PATH[,PATH...]] [--json]")
 			fmt.Fprintln(stdout, "")
-			fmt.Fprintln(stdout, "Check auto-loaded session files vs a token budget.")
-			fmt.Fprintln(stdout, "Default budget: 20000 approximate tokens (bytes / 4).")
+			fmt.Fprintln(stdout, "Check canonical session entrypoints plus the active TASK against a token budget.")
+			fmt.Fprintln(stdout, "Default budget: 20000 approximate tokens (bytes / 4, rounded up per file).")
+			fmt.Fprintln(stdout, "--files replaces the default list; paths must stay inside the repository.")
 			fmt.Fprintln(stdout, "Exit 1 when budget is exceeded.")
 			return nil
 		}
@@ -353,7 +378,13 @@ func runContextSize(args []string, stdout, stderr io.Writer) error {
 		return &CLIError{ExitCode: 1, Message: "reconc context size: not a directory: " + abs}
 	}
 
-	report := contextsize.Scan(abs, files, limit)
+	if len(files) == 0 {
+		files = defaultContextFiles(abs)
+	}
+	report, err := contextsize.Scan(abs, files, limit)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc context size: " + err.Error()}
+	}
 
 	if jsonOut {
 		enc := json.NewEncoder(stdout)
@@ -390,6 +421,24 @@ func runContextSize(args []string, stdout, stderr io.Writer) error {
 		return &CLIError{ExitCode: 1, Message: ""}
 	}
 	return nil
+}
+
+func defaultContextFiles(repoRoot string) []string {
+	files := append([]string(nil), contextsize.DefaultFiles...)
+	board, err := tasklifecycle.Inspect(repoRoot)
+	if err != nil || board == nil || board.Active == nil {
+		return files
+	}
+	activePath := filepath.ToSlash(filepath.Clean(filepath.Join(
+		filepath.Dir(filepath.FromSlash(board.Config.OverviewPath)),
+		filepath.FromSlash(board.Active.Path),
+	)))
+	for _, path := range files {
+		if path == activePath {
+			return files
+		}
+	}
+	return append(files, activePath)
 }
 
 // runStart implements `reconc start [repo] [--write PATH] [--json]` (W51).
@@ -536,6 +585,9 @@ func renderStartMarkdown(d map[string]interface{}) string {
 	} else {
 		b.WriteString("- **Conflicts:** none\n")
 	}
+	if runStatus, ok := d["run"].(agentsession.RepositoryRunStatus); ok {
+		b.WriteString("- **Run:** `" + strings.TrimPrefix(formatRunStatus(runStatus), "run: ") + "`\n")
+	}
 
 	b.WriteString("\n## Recent activity\n\n")
 	if enabled, _ := d["audit_enabled"].(bool); enabled {
@@ -589,8 +641,12 @@ func renderStartMinimal(d map[string]interface{}) string {
 	ruleCount, _ := d["rule_count"].(int)
 	sourceCount, _ := d["source_count"].(int)
 	conflicts, _ := d["conflicts"].(int)
-	fmt.Fprintf(&b, "status: repo=%s lockfile=%s rules=%d sources=%d conflicts=%d\n",
-		root, lockfile, ruleCount, sourceCount, conflicts)
+	runEnabled := false
+	if runStatus, ok := d["run"].(agentsession.RepositoryRunStatus); ok {
+		runEnabled = runStatus.Enabled
+	}
+	fmt.Fprintf(&b, "status: repo=%s lockfile=%s rules=%d sources=%d conflicts=%d run=%t\n",
+		root, lockfile, ruleCount, sourceCount, conflicts, runEnabled)
 	nextAction := "None outstanding."
 	if value, ok := d["next_action"].(string); ok && value != "" {
 		nextAction = value

@@ -17,9 +17,11 @@ You are an agent joining the Project repository. This file is the only onboardin
 
 Run these read-only checks from the repo root after reading the files above:
 
-- `tools/reconc/dist/reconc-darwin-arm64 status .`
-- `tools/reconc/dist/reconc-darwin-arm64 run status .`
-- `tools/reconc/dist/reconc-darwin-arm64 session-briefing .`
+- `tools/reconc/dist/reconc-darwin-arm64 session-briefing . --json`
+
+That single versioned response carries current TASK/Sub-Task, policy delta,
+exact remediation, and durable repository-run state without a Git process or
+repository write.
 
 Do not run `reconc bootstrap`, `reconc init`, hook install, task promotion, claim assertion, or any file-writing command during onboarding.
 
@@ -29,7 +31,7 @@ Send one chat message with:
 
 - Current TASK name/description, Status summary, and next `[~]` Sub-Task.
 - Files read.
-- Reconc status/session-briefing result.
+- Reconc session-briefing result and `format_version`.
 - Dirty worktree summary if visible.
 - Open blockers or user-input needs from the current TASK. If no open `[ ]` TASK exists, state `Continuity Sweep required` and summarize whether all logbook rows are checked.
 

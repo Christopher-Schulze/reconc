@@ -44,7 +44,7 @@ to touch policy, hooks, lockfiles, or repo controls.
 
 This skill is platform-agnostic. The loop is identical across agents:
 
-1. Check policy health.
+1. Read the versioned machine briefing.
 2. Do the actual work.
 3. Report only evidence that really happened.
 4. Ask `reconc` for the next remediation when blocked.
@@ -56,6 +56,10 @@ switch. Never ask the user to type Reconc commands.
 Never fake reads, commands, claims, or write paths to satisfy policy. If an
 agent runtime cannot enforce a rule natively, use the CLI loop and git
 pre-commit as the backstop.
+
+Reconc is not an operating-system sandbox. If the agent is treated as a
+hostile same-user process, put the repository inside an external sandbox and
+enforce final truth in protected remote CI or branch rules.
 
 ## Install Or Build
 
@@ -83,7 +87,7 @@ For a new target repo:
 
 ```bash
 reconc bootstrap .
-reconc status .
+reconc session-briefing . --json
 ```
 
 `bootstrap` is the minimal CLI onboarding path. It scaffolds `.reconc.yml` and
@@ -117,8 +121,12 @@ Only add stronger presets when the repo is ready for them:
 Run this compact loop around actual work:
 
 ```bash
-reconc status .
+reconc session-briefing . --json
 ```
+
+This one read-only response carries `format_version`, TASK/Sub-Task, policy
+delta, exact remediation, and repository-run state. Fetch static detail only
+when needed with `reconc agent-intro --section NAME`.
 
 Before or during edits, collect explicit evidence. At the end of a task, check
 the real touched surface:
@@ -199,6 +207,7 @@ look complete.
 Use the shortest command that answers the current question:
 
 ```bash
+reconc session-briefing . --json # versioned session/reentry handshake
 reconc status .              # one-line health
 reconc task status .         # bounded current TASK context
 reconc task validate .       # typed control-plane validation
@@ -239,7 +248,7 @@ timeout policy, output budgets, artifact paths, and activation probes:
 | GitHub Copilot | `.github/hooks/reconc.json` | Copilot-native decision response adapter |
 | Kilo Code | `.kilo/plugin/reconc.js` | Thin project plugin; disabled when `KILO_PURE` is set |
 
-Run `reconc hook status . --json` before making enforcement claims. `active`
+Run `reconc hook status . --json` before making enforcement claims. `configured`
 means configuration is complete and discoverable, not that a live process has
 proven it loaded the file. `installed`, `degraded`, `shadowed`, and
 `unsupported` require the detail field to be handled or reported. Generic

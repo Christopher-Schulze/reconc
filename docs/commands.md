@@ -335,13 +335,19 @@ compatibility flag for the former harness utility.
 
 ### `reconc session-briefing [repo] [--json]`
 Compact delta-oriented session state: current TASK/Sub-Task, bounded blockers,
-current policy delta, required evidence, saved report path, and one exact next
-action. Aggregate audit history is intentionally excluded from this hot path.
-It is read-only; missing or stale lockfiles require `reconc refresh .`.
+current policy delta, required evidence, durable repository-run status, saved
+report path, and one exact next action. JSON includes `format_version` for
+machine consumers. Aggregate audit history and Git are intentionally excluded
+from this hot path. It is read-only; missing or stale lockfiles require
+`reconc refresh .`.
 
 ### `reconc context size [repo] [--limit N] [--files PATH,PATH,...] [--json]`
-Guards the auto-loaded session-file token budget (default 20000
-tokens). Lists per-file size + approximate tokens. Exit 1 over limit
+Guards the auto-loaded session-file token budget (default 20000 tokens).
+Without `--files`, it measures `AGENTS.md`, `CLAUDE.md`, `start.md`,
+`docs/tasks.md`, and the active TASK detail when present. Custom paths replace
+that default. Paths are normalized and deduplicated; lexical and symlink
+escapes outside the repository fail closed. Non-empty files round up to at
+least one approximate token. JSON includes `format_version`; exit 1 over limit
 so CI gates can block budget-growing PRs.
 
 ### `reconc start [repo] [--write PATH] [--force] [--json] [--minimal]`
