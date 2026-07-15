@@ -40,12 +40,11 @@ const (
 type InstallMode string
 
 const (
-	InstallExecutable  InstallMode = "executable"
-	InstallNestedJSON  InstallMode = "nested-json-merge"
-	InstallFlatJSON    InstallMode = "flat-json-merge"
-	InstallOwnedJSON   InstallMode = "owned-json-key"
-	InstallManagedJSON InstallMode = "managed-json-file"
-	InstallPlugin      InstallMode = "managed-plugin"
+	InstallExecutable InstallMode = "executable"
+	InstallNestedJSON InstallMode = "nested-json-merge"
+	InstallFlatJSON   InstallMode = "flat-json-merge"
+	InstallOwnedJSON  InstallMode = "owned-json-key"
+	InstallPlugin     InstallMode = "managed-plugin"
 )
 
 // ActivationMode defines how a correct artifact becomes discoverable.
@@ -113,7 +112,6 @@ const (
 	generatorOpenCode
 	generatorDevinCLI
 	generatorAntigravity
-	generatorCopilot
 	generatorKilo
 )
 
@@ -154,7 +152,7 @@ var platformRegistry = []platformDefinition{
 	},
 	{
 		Platform: Platform{Kind: KindCursor, DisplayName: "Cursor", TargetPath: CursorHooksPath, ScaffoldPath: CursorHooksPath, InstallMode: InstallNestedJSON, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".cursor"}, RequiresWrapper: true}, Capabilities: []Capability{
-			capability(EventSessionStart, "sessionStart", SupportNative, FailureBlock, FailureBlock, 5, "cursor-session-start"),
+			capability(EventSessionStart, "sessionStart", SupportNative, FailureAllow, FailureAllow, 5, "cursor-session-start"),
 			cursorPreToolCapability(),
 			fallback(EventPermissionRequest, EventPreToolUse),
 			capabilityMany(EventPostToolUse, "postToolUse", SupportNative, FailureAllow, FailureAllow, 5, "cursor-post-tool-use", "cursor-after-shell-execution", "cursor-after-file-edit", "cursor-after-tab-file-edit"),
@@ -203,19 +201,6 @@ var platformRegistry = []platformDefinition{
 			unsupported(EventPostCompaction),
 		}},
 		generator: generatorAntigravity,
-	},
-	{
-		Platform: Platform{Kind: KindCopilot, DisplayName: "GitHub Copilot", TargetPath: CopilotHooksPath, ScaffoldPath: CopilotHooksPath, InstallMode: InstallManagedJSON, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".github/copilot", ".github/hooks"}, RequiresWrapper: true}, Capabilities: []Capability{
-			capability(EventSessionStart, "SessionStart", SupportNative, FailureAllow, FailureAllow, 5, "copilot-session-start"),
-			capability(EventPreToolUse, "PreToolUse", SupportNative, FailureBlock, FailureAllow, 10, "copilot-pre-tool-use"),
-			capability(EventPermissionRequest, "PermissionRequest", SupportNative, FailureBlock, FailureAllow, 10, "copilot-permission-request"),
-			capability(EventPostToolUse, "PostToolUse", SupportNative, FailureAllow, FailureAllow, 5, "copilot-post-tool-use"),
-			capability(EventPostToolUseFailure, "PostToolUseFailure", SupportNative, FailureAllow, FailureAllow, 5, "copilot-post-tool-use-failure"),
-			capability(EventStop, "Stop", SupportNative, FailureBlock, FailureAllow, 30, "copilot-stop"),
-			capability(EventSessionEnd, "SessionEnd", SupportNative, FailureAllow, FailureAllow, 5, "copilot-session-end"),
-			unsupportedNative(EventPostCompaction, "PreCompact"),
-		}},
-		generator: generatorCopilot,
 	},
 	{
 		Platform: Platform{Kind: KindKilo, DisplayName: "Kilo Code", TargetPath: KiloPluginPath, ScaffoldPath: KiloPluginPath, InstallMode: InstallPlugin, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".kilo", ".kilocode"}, DisabledByEnv: "KILO_PURE", LegacyArtifactPath: ".kilocode/plugin/reconc.js"}, Capabilities: []Capability{

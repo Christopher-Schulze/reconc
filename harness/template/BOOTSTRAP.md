@@ -193,7 +193,6 @@ Default empty repo profile:
 - `agent_hooks.require_opencode_plugin: true`
 - `agent_hooks.require_devin_hooks: true`
 - `agent_hooks.require_antigravity_hooks: true`
-- `agent_hooks.require_copilot_hooks: true`
 - `agent_hooks.require_kilo_plugin: true`
 
 For Rust CLI:
@@ -252,7 +251,7 @@ First sync generated hook artifacts from the repo-local Reconc generator:
 tools/reconc/dist/<local-reconc-binary> hook sync-scaffold tools/reconc/harness/<project-name>/repo-root-scaffold
 ```
 
-This writes `.githooks/pre-commit`, `.codex/hooks.json`, `.cursor/hooks.json`, `.agents/hooks.json`, `.claude/settings.json`, `.opencode/plugins/reconc.js`, `.devin/hooks.v1.json`, `.github/hooks/reconc.json`, and `.kilo/plugin/reconc.js` from the same generator used by `reconc hook install`. Do not edit these hook artifacts manually and do not copy them from any source-specific harness.
+This writes `.githooks/pre-commit`, `.codex/hooks.json`, `.cursor/hooks.json`, `.agents/hooks.json`, `.claude/settings.json`, `.opencode/plugins/reconc.js`, `.devin/hooks.v1.json`, and `.kilo/plugin/reconc.js` from the same generator used by `reconc hook install`. Do not edit these hook artifacts manually and do not copy them from any source-specific harness.
 
 Direct-copy files when the target file is missing:
 
@@ -266,7 +265,6 @@ Direct-copy files when the target file is missing:
 - `.claude/settings.json`
 - `.opencode/plugins/reconc.js`
 - `.devin/hooks.v1.json`
-- `.github/hooks/reconc.json`
 - `.kilo/plugin/reconc.js`
 - `.cursorindexingignore`
 - `.codeiumignore`
@@ -420,7 +418,7 @@ The scaffold hook configs must first call the repo-local wrapper:
 
 - `tools/reconc/bin/hook`
 
-Hook files in `repo-root-scaffold/` are generated with `reconc hook sync-scaffold`. The typed registry is the source of truth for Claude Code, Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, GitHub Copilot, Kilo Code, and the source-controlled `.githooks/pre-commit` twin. Root repo artifacts and template scaffold artifacts must never be reconciled by copying from each other; both are regenerated from the same Reconc binary. A target repo must never compare against, depend on, or copy from a source-specific harness.
+Hook files in `repo-root-scaffold/` are generated with `reconc hook sync-scaffold`. The typed registry is the source of truth for Claude Code, Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, and the source-controlled `.githooks/pre-commit` twin. Root repo artifacts and template scaffold artifacts must never be reconciled by copying from each other; both are regenerated from the same Reconc binary. A target repo must never compare against, depend on, or copy from a source-specific harness.
 
 After copying or installing hooks, run:
 
@@ -431,12 +429,13 @@ tools/reconc/dist/<local-reconc-binary> hook status . --json
 Treat `degraded`, `shadowed`, and `unsupported` as unresolved rollout defects.
 `installed` is valid only for an artifact that intentionally still needs its
 documented activation switch. `configured` means the static config is complete
-and host-discoverable. `last_seen` and `last_event` are the separate live-process proof;
-their external state is rate-limited to one write per runtime every six hours.
+and host-discoverable. `expected_events`, `live_events`, `unseen_events`,
+`last_seen`, and `last_event` are separate live-process proof; each route is
+rate-limited to one external-state write every six hours.
 
-Claude Code generated hooks use exec-form `command` plus `args`, pass `${CLAUDE_PROJECT_DIR}` directly to the wrapper, and use the context-capable `SessionStart` `compact` matcher for recovery instead of spawning the notification-only `PostCompact` event. Codex bootstrap writes `hooks = true` under `[features]`; root-level `hooks=true` is invalid, and Codex has no `SessionEnd` event. Devin uses `.devin/hooks.v1.json`, passes `DEVIN_PROJECT_DIR`, and includes `PostCompaction`. Copilot uses `.github/hooks/reconc.json` version 1 and VS Code-compatible event names; its notification-only `PreCompact` event is intentionally omitted because it cannot consume recovery output. OpenCode and Kilo Code plugins are transport adapters only: policy, session state, continuation, and context recovery remain in the Go runtime. Their continuation trigger is inferred from `session.idle`, not a synchronous native Stop gate. Kilo Code requires `KILO_PURE` to be unset so project plugins load.
+Claude Code generated hooks use exec-form `command` plus `args`, pass `${CLAUDE_PROJECT_DIR}` directly to the wrapper, and use the context-capable `SessionStart` `compact` matcher for recovery instead of spawning the notification-only `PostCompact` event. Codex bootstrap writes `hooks = true` under `[features]`; root-level `hooks=true` is invalid, and Codex has no `SessionEnd` event. Devin uses `.devin/hooks.v1.json`, passes `DEVIN_PROJECT_DIR`, and includes `PostCompaction`. OpenCode and Kilo Code plugins are transport adapters only: policy, session state, continuation, and context recovery remain in the Go runtime. Their continuation trigger is inferred from `session.idle`, not a synchronous native Stop gate. Kilo Code requires `KILO_PURE` to be unset so project plugins load.
 
-The registry assigns 5-second observation/session timeouts, 10-second pre-tool/permission timeouts, and a 30-second Stop timeout. Claude/Codex/Devin/Antigravity/Copilot generators emit those host budgets; OpenCode/Kilo Code adapters enforce them internally, kill slow subprocesses, cap combined output at 8 KiB, and never embed a versioned release filename. Generated Claude/Codex/Cursor/Devin/Antigravity/Copilot configs do not spawn PreToolUse for read-only matchers; read evidence remains in PostToolUse while pre-execution hooks stay focused on write/shell/apply_patch policy checks. Shell-command runtimes first exec `./tools/reconc/bin/hook` directly when their cwd is already the repo root, and only fall back to `git rev-parse` plus `RECONC_HOOK_REPO_RESOLVED=1` when needed. The agent-hooks audit rejects git-first launchers, Claude/Devin shell/git launchers, project-specific OpenCode/Kilo Code state logic, version-pinned OpenCode/Kilo Code binaries, stale 120-second Antigravity timeouts, Copilot no-op compaction hooks, and wrapper configs that omit the direct-wrapper fast path. The wrapper trusts the resolved marker or an already-valid repo-local wrapper/dist path, normalizes only direct/manual calls, and execs the first available repo-local Reconc binary. The Go hook runtime lowers observation-only hook priority on Unix for post/after/session-end events; PreToolUse, permission and Stop keep normal priority. The final `exec` keeps hook process trees shallow and avoids idle parent shells where the host runtime allows it.
+The registry assigns 5-second observation/session timeouts, 10-second pre-tool/permission timeouts, and a 30-second Stop timeout. Claude/Codex/Devin/Antigravity generators emit those host budgets; OpenCode/Kilo Code adapters enforce them internally, kill slow subprocesses, cap combined output at 8 KiB, and never embed a versioned release filename. Generated Claude/Codex/Cursor/Devin/Antigravity configs do not spawn PreToolUse for read-only matchers; read evidence remains in PostToolUse while pre-execution hooks stay focused on write/shell/apply_patch policy checks. Shell-command runtimes first exec `./tools/reconc/bin/hook` directly when their cwd is already the repo root, and only fall back to `git rev-parse` plus `RECONC_HOOK_REPO_RESOLVED=1` when needed. The agent-hooks audit rejects git-first launchers, Claude/Devin shell/git launchers, project-specific OpenCode/Kilo Code state logic, version-pinned OpenCode/Kilo Code binaries, stale 120-second Antigravity timeouts, and wrapper configs that omit the direct-wrapper fast path. The wrapper trusts the resolved marker or an already-valid repo-local wrapper/dist path, normalizes only direct/manual calls, and execs the first available repo-local Reconc binary. The Go hook runtime lowers observation-only hook priority on Unix for post/after/session-end events; PreToolUse, permission and Stop keep normal priority. The final `exec` keeps hook process trees shallow and avoids idle parent shells where the host runtime allows it.
 
 The wrapper resolves binaries without pinning a Reconc release number. It
 tries this exact order:
@@ -453,12 +452,11 @@ ambiguity error. Install the stable name or retain exactly one versioned
 fallback; never select a release by directory order. The first two candidates
 avoid OS/architecture subprocess probes on development and self-hosting paths.
 
-Do not require a global `reconc` install. PATH fallback is only a last fallback. POSIX routes in generated JSON hook configs must not inline binary fallback loops; they call `tools/reconc/bin/hook` and let the wrapper own binary selection. Copilot's native Windows route remains an explicit PowerShell adaptation until the cross-platform wrapper is installed. PreToolUse, permission and Stop hooks remain hard/interactive priority; only observation hooks are lowered.
+Do not require a global `reconc` install. PATH fallback is only a last fallback. POSIX routes in generated JSON hook configs must not inline binary fallback loops; they call `tools/reconc/bin/hook` and let the wrapper own binary selection. PreToolUse, permission and Stop hooks remain hard/interactive priority; only observation hooks are lowered.
 
 On native Windows, generated shell hook routes and `.sh` or extensionless policy
 scripts require `sh` on `PATH`; Git for Windows supplies it. Native `.exe` and
-`.com` policy scripts execute directly. Copilot keeps the explicit PowerShell
-route above. Do not invent a per-project wrapper variant.
+`.com` policy scripts execute directly. Do not invent a per-project wrapper variant.
 
 ### Step 7b: Activate source-controlled git hooks
 
@@ -546,9 +544,9 @@ The rollout is not done until all of this is true:
 - Every selected policy pack matches real stack evidence; no recommendation was silently auto-applied.
 - Hooks prefer development/self-host binaries without platform probes, then local dist binaries on macOS/Linux/Windows, before PATH.
 - `repo-root-scaffold/` hook artifacts were synced with `reconc hook sync-scaffold` from the local generator; no hook artifact was edited by hand or copied from a source-specific harness.
-- POSIX hook routes call `tools/reconc/bin/hook` first and retain local-dist/PATH fallback; native Windows shell routes have `sh` on `PATH`, Copilot uses its generated PowerShell route, and native `.exe`/`.com` policy scripts execute directly.
+- POSIX hook routes call `tools/reconc/bin/hook` first and retain local-dist/PATH fallback; native Windows shell routes have `sh` on `PATH`, and native `.exe`/`.com` policy scripts execute directly.
 - `hook status . --json` reports every selected platform as `configured`; no platform is degraded, shadowed, unsupported, or accidentally left only installed.
-- OpenCode and Kilo Code plugins contain no project-specific run state or prompts; Copilot contains no no-op `PreCompact` route; Antigravity contains no blanket 120-second timeout.
+- OpenCode and Kilo Code plugins contain no project-specific run state or prompts; Antigravity contains no blanket 120-second timeout.
 - Cursor/Windsurf/Codeium/VS Code indexing excludes are installed as local-tool performance controls only, not Git ignores.
 - `AGENTS.md` contains the workflow excerpt and any user-approved stack-specific style rules.
 - `.gitignore` contains Reconc runtime ignores and relevant dual-layout build/dependency ignores.

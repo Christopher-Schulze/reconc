@@ -46,10 +46,9 @@ var preWriteBlockKinds = map[policy.Kind]struct{}{
 	policy.KindRequireRead: {},
 }
 
-// RunSessionStart initialises fresh session state. Always exit 0;
-// any failure is turned into stderr text because blocking SessionStart
-// would wedge the whole agent session (the payload is mostly session
-// id + initial transcript path -- little to validate).
+// RunSessionStart initialises fresh session state. The handler reports errors;
+// the central route registry converts them to success for fail-open
+// SessionStart integrations so a state failure cannot wedge the host session.
 func RunSessionStart(repoRoot string, payloadBytes []byte) Result {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
@@ -63,9 +62,6 @@ func RunSessionStart(repoRoot string, payloadBytes []byte) Result {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook: session init: %s", err)}
 	}
 	warnings := []string{}
-	if err := RecordHookLiveness(root, runtimeFromPayload(payload), "session_start"); err != nil {
-		warnings = append(warnings, "reconc hook liveness (warn): "+err.Error())
-	}
 	if warning := retentionWarning(retention.RunIfDue(retention.Options{RepoRoot: root, StateRoot: stateRoot(), ActiveSession: payload.SessionID})); warning != "" {
 		warnings = append(warnings, warning)
 	}
@@ -85,7 +81,7 @@ func runtimeFromPayload(payload *HookPayload) string {
 
 func normalizeRuntimeName(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
-	for _, prefix := range []string{"cursor-", "codex-", "claude-", "opencode-", "devin-", "antigravity-", "copilot-", "kilo-"} {
+	for _, prefix := range []string{"cursor-", "codex-", "claude-", "opencode-", "devin-", "antigravity-", "kilo-"} {
 		if strings.HasPrefix(value, prefix) {
 			return strings.TrimSuffix(prefix, "-")
 		}
@@ -147,7 +143,7 @@ func RunPreToolUse(repoRoot string, payloadBytes []byte) Result {
 	trialWrites := append([]string{}, state.WritePaths...)
 	trialWrites = append(trialWrites, pendingWrites...)
 	report, err := runPreWritePolicyCheck(root, state.ReadPaths, trialWrites,
-		state.Commands, state.CommandResults, state.Claims)
+		state.WriteEpochs, state.Commands, state.CommandResults, state.Claims)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): check failed: %s", err)}
 	}
@@ -282,12 +278,9 @@ func recordToolUse(state SessionState, payload *HookPayload) SessionState {
 		}
 		return AppendReadPath(state, path)
 	case payload.IsWriteTool():
-		seen := false
-		for _, path := range payload.FilePaths() {
-			state = AppendWritePath(state, path)
-			seen = true
-		}
-		if seen {
+		paths := payload.FilePaths()
+		if len(paths) > 0 {
+			state = RecordWriteEvent(state, paths)
 			state = RecordMaterialEvent(state, materialEventSignature(payload, "success"))
 		}
 		return state
@@ -297,7 +290,7 @@ func recordToolUse(state SessionState, payload *HookPayload) SessionState {
 			return state
 		}
 		state = AppendCommand(state, cmd)
-		state = AppendCommandResult(state, commandResultFromPayload(payload, "success"))
+		state = AppendCommandResult(state, commandResultFromPayload(state, payload, "success"))
 		return RecordMaterialEvent(state, materialEventSignature(payload, "success"))
 	}
 	return state
@@ -314,7 +307,7 @@ func recordToolFailure(state SessionState, payload *HookPayload) SessionState {
 	if cmd == "" {
 		return state
 	}
-	state = AppendCommandResult(state, commandResultFromPayload(payload, "failure"))
+	state = AppendCommandResult(state, commandResultFromPayload(state, payload, "failure"))
 	return RecordMaterialEvent(state, materialEventSignature(payload, "failure"))
 }
 
@@ -336,14 +329,15 @@ func materialEventSignature(payload *HookPayload, outcome string) string {
 
 // commandResultFromPayload extracts the normalised CommandResult from
 // a Bash tool-use payload.
-func commandResultFromPayload(payload *HookPayload, outcome string) CommandResult {
+func commandResultFromPayload(state SessionState, payload *HookPayload, outcome string) CommandResult {
 	return CommandResult{
-		Command:     payload.Command(),
-		Outcome:     outcome,
-		ToolUseID:   payload.ToolUseID,
-		ExitCode:    payload.ExitCode(),
-		Error:       payload.Error,
-		IsInterrupt: payload.IsInterrupt,
+		Command:       payload.Command(),
+		Outcome:       outcome,
+		EvidenceEpoch: state.EvidenceEpoch,
+		ToolUseID:     payload.ToolUseID,
+		ExitCode:      payload.ExitCode(),
+		Error:         payload.Error,
+		IsInterrupt:   payload.IsInterrupt,
 	}
 }
 
@@ -352,11 +346,13 @@ func commandResultFromPayload(payload *HookPayload, outcome string) CommandResul
 // (`reconc why`, `reconc fix`, agent tooling) finds the latest view.
 func runCheckAndSave(
 	repoRoot, sessionID string,
-	readPaths, writePaths, commands []string,
+	readPaths, writePaths []string,
+	writeEpochs map[string]uint64,
+	commands []string,
 	cmdResults []CommandResult,
 	claims []string,
 ) (*runtime.CheckReport, error) {
-	inputs := executionInputs(filterRepoScopedReadPaths(repoRoot, readPaths), writePaths, commands, cmdResults, claims)
+	inputs := executionInputs(filterRepoScopedReadPaths(repoRoot, readPaths), writePaths, writeEpochs, commands, cmdResults, claims)
 	report, err := runtime.CheckRepoPolicy(repoRoot, inputs)
 	if err != nil {
 		return nil, err
@@ -369,11 +365,13 @@ func runCheckAndSave(
 
 func runPreWritePolicyCheck(
 	repoRoot string,
-	readPaths, writePaths, commands []string,
+	readPaths, writePaths []string,
+	writeEpochs map[string]uint64,
+	commands []string,
 	cmdResults []CommandResult,
 	claims []string,
 ) (*runtime.CheckReport, error) {
-	inputs := executionInputs(filterRepoScopedReadPaths(repoRoot, readPaths), writePaths, commands, cmdResults, claims)
+	inputs := executionInputs(filterRepoScopedReadPaths(repoRoot, readPaths), writePaths, writeEpochs, commands, cmdResults, claims)
 	return runtime.CheckRepoPolicyForKinds(repoRoot, inputs, preWriteBlockKinds)
 }
 
@@ -415,20 +413,24 @@ func isRepoScopedReadEvidence(repoRoot, raw string) bool {
 }
 
 func executionInputs(
-	readPaths, writePaths, commands []string,
+	readPaths, writePaths []string,
+	writeEpochs map[string]uint64,
+	commands []string,
 	cmdResults []CommandResult,
 	claims []string,
 ) runtime.ExecutionInputs {
 	evalResults := make([]runtime.CommandResult, len(cmdResults))
 	for i, r := range cmdResults {
 		evalResults[i] = runtime.CommandResult{
-			Command: r.Command,
-			Outcome: r.Outcome,
+			Command:       r.Command,
+			Outcome:       r.Outcome,
+			EvidenceEpoch: r.EvidenceEpoch,
 		}
 	}
 	return runtime.ExecutionInputs{
 		ReadPaths:      readPaths,
 		WritePaths:     writePaths,
+		WriteEpochs:    writeEpochs,
 		Commands:       commands,
 		Claims:         claims,
 		CommandResults: evalResults,

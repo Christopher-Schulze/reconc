@@ -109,6 +109,10 @@ func AssertRuleByID(startPath, ruleID string, vars map[string]string, inputs Exe
 	if err != nil {
 		return nil, err
 	}
+	normalizedWriteEpochs, err := normalizeWriteEpochs(merged.WritePaths, merged.WriteEpochs, root)
+	if err != nil {
+		return nil, err
+	}
 	normalizedResults := normalizeCommandResults(merged.CommandResults)
 	commandsForDedupe := append([]string{}, merged.Commands...)
 	for _, r := range normalizedResults {
@@ -120,6 +124,7 @@ func AssertRuleByID(startPath, ruleID string, vars map[string]string, inputs Exe
 	normalizedInputs := ExecutionInputs{
 		ReadPaths:      normalizedReads,
 		WritePaths:     normalizedWrites,
+		WriteEpochs:    normalizedWriteEpochs,
 		Commands:       normalizedCommands,
 		Claims:         normalizedClaims,
 		CommandResults: normalizedResults,
@@ -201,6 +206,10 @@ func checkRepoPolicy(startPath string, inputs ExecutionInputs, includeKind func(
 	if err != nil {
 		return nil, err
 	}
+	normalizedWriteEpochs, err := normalizeWriteEpochs(inputs.WritePaths, inputs.WriteEpochs, root)
+	if err != nil {
+		return nil, err
+	}
 	normalizedResults := normalizeCommandResults(inputs.CommandResults)
 	commandsForDedupe := append([]string{}, inputs.Commands...)
 	for _, r := range normalizedResults {
@@ -212,6 +221,7 @@ func checkRepoPolicy(startPath string, inputs ExecutionInputs, includeKind func(
 	normalizedInputs := ExecutionInputs{
 		ReadPaths:      normalizedReads,
 		WritePaths:     normalizedWrites,
+		WriteEpochs:    normalizedWriteEpochs,
 		Commands:       normalizedCommands,
 		Claims:         normalizedClaims,
 		CommandResults: normalizedResults,
@@ -605,6 +615,27 @@ func normalizePaths(paths []string, root string) ([]string, error) {
 	return out, nil
 }
 
+func normalizeWriteEpochs(paths []string, epochs map[string]uint64, root string) (map[string]uint64, error) {
+	out := make(map[string]uint64, len(epochs))
+	for _, raw := range paths {
+		normalized, err := normalizePaths([]string{raw}, root)
+		if err != nil {
+			return nil, err
+		}
+		if len(normalized) == 0 {
+			continue
+		}
+		epoch := epochs[raw]
+		if epoch == 0 {
+			epoch = epochs[strings.ReplaceAll(strings.TrimSpace(raw), "\\", "/")]
+		}
+		if epoch > out[normalized[0]] {
+			out[normalized[0]] = epoch
+		}
+	}
+	return out, nil
+}
+
 // normalizeWhitespace collapses every run of whitespace (spaces,
 // tabs, newlines) into a single space and trims leading/trailing
 // whitespace. Used for command + claim matching so policy-side
@@ -762,7 +793,7 @@ func normalizeCommandResults(results []CommandResult) []CommandResult {
 		if c == "" {
 			continue
 		}
-		out = append(out, CommandResult{Command: c, Outcome: r.Outcome})
+		out = append(out, CommandResult{Command: c, Outcome: r.Outcome, EvidenceEpoch: r.EvidenceEpoch})
 	}
 	return out
 }
@@ -1511,7 +1542,8 @@ func evalRequireCommand(ctx *evalContext, rule map[string]interface{}, defaultMo
 	var matched []string
 	repoRoot := ctxRepoRoot(ctx)
 	if requireSuccess {
-		matched = matchingCommandResults(inputs.CommandResults, required, CommandOutcomeSuccess, repoRoot)
+		minimumEpoch := latestWriteEpoch(triggered, inputs.WriteEpochs)
+		matched = matchingCommandResultsSince(inputs.CommandResults, required, CommandOutcomeSuccess, repoRoot, minimumEpoch)
 	} else {
 		matched = matchingCommands(inputs.Commands, required, repoRoot)
 	}
@@ -1575,6 +1607,10 @@ func matchingCommands(commands, expected []string, repoRoot string) []string {
 }
 
 func matchingCommandResults(results []CommandResult, expected []string, outcome string, repoRoot string) []string {
+	return matchingCommandResultsSince(results, expected, outcome, repoRoot, 0)
+}
+
+func matchingCommandResultsSince(results []CommandResult, expected []string, outcome string, repoRoot string, minimumEpoch uint64) []string {
 	if len(expected) == 0 {
 		return nil
 	}
@@ -1586,7 +1622,7 @@ func matchingCommandResults(results []CommandResult, expected []string, outcome 
 	}
 	out := []string{}
 	for _, r := range results {
-		if r.Outcome != outcome {
+		if r.Outcome != outcome || r.EvidenceEpoch < minimumEpoch {
 			continue
 		}
 		norm := normalizeCommandSemantics(r.Command, repoRoot)
@@ -1609,6 +1645,16 @@ func matchingCommandResults(results []CommandResult, expected []string, outcome 
 		}
 	}
 	return out
+}
+
+func latestWriteEpoch(paths []string, epochs map[string]uint64) uint64 {
+	var latest uint64
+	for _, path := range paths {
+		if epochs[path] > latest {
+			latest = epochs[path]
+		}
+	}
+	return latest
 }
 
 // stripTrailingRedirects removes trailing shell output-redirection clauses from

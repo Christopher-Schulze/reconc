@@ -16,7 +16,6 @@ func TestPlatformRegistryOwnsEveryHookKind(t *testing.T) {
 		KindOpenCode,
 		KindDevinCLI,
 		KindAntigravity,
-		KindCopilot,
 		KindKilo,
 	}
 	if got := SupportedKinds(); !reflect.DeepEqual(got, want) {
@@ -81,8 +80,12 @@ func TestPlatformRegistryCapabilitiesAreCompleteAndBounded(t *testing.T) {
 			}
 		}
 		for _, event := range coreEvents {
-			if _, ok := byEvent[event]; !ok {
+			capability, ok := byEvent[event]
+			if !ok {
 				t.Fatalf("%s has no %s capability row", platform.Kind, event)
+			}
+			if event == EventSessionStart && capability.Support != SupportUnsupported && (capability.ErrorPolicy != FailureAllow || capability.TimeoutPolicy != FailureAllow) {
+				t.Fatalf("%s SessionStart can wedge the host: %+v", platform.Kind, capability)
 			}
 		}
 	}
@@ -137,22 +140,6 @@ func TestNewPlatformArtifactsUseCurrentContracts(t *testing.T) {
 		}
 	}
 
-	copilot, err := Generate(KindCopilot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, token := range []string{`"version": 1`, `"SessionStart"`, `"PreToolUse"`, `"PermissionRequest"`, `"Stop"`, `"timeoutSec": 10`, `"powershell"`} {
-		if !strings.Contains(copilot.Content, token) {
-			t.Fatalf("Copilot artifact missing %q:\n%s", token, copilot.Content)
-		}
-	}
-	if strings.Contains(copilot.Content, `"UserPromptSubmit"`) || strings.Contains(copilot.Content, "copilot-user-prompt-submit") {
-		t.Fatal("Copilot artifact retained removed user-prompt route")
-	}
-	if strings.Contains(copilot.Content, `"PreCompact"`) || strings.Contains(copilot.Content, "copilot-post-compaction") {
-		t.Fatal("Copilot preCompact is notification-only and must not spawn a no-op Reconc process")
-	}
-
 	kilo, err := Generate(KindKilo)
 	if err != nil {
 		t.Fatal(err)
@@ -202,7 +189,6 @@ func TestBunAdapterRoutesAreRegistered(t *testing.T) {
 		"opencode-user-prompt-submit",
 		"devin-user-prompt-submit",
 		"antigravity-user-prompt-submit",
-		"copilot-user-prompt-submit",
 		"kilo-user-prompt-submit",
 	} {
 		if _, ok := RuntimeEvent(event); ok {

@@ -28,15 +28,18 @@ const (
 
 // PlatformStatus is one deterministic activation report.
 type PlatformStatus struct {
-	Kind          string          `json:"kind"`
-	DisplayName   string          `json:"display_name"`
-	TargetPath    string          `json:"target_path"`
-	State         ActivationState `json:"state"`
-	Detail        string          `json:"detail"`
-	MissingEvents []string        `json:"missing_events,omitempty"`
-	LastSeen      string          `json:"last_seen,omitempty"`
-	LastEvent     string          `json:"last_event,omitempty"`
-	LivenessError string          `json:"liveness_error,omitempty"`
+	Kind           string          `json:"kind"`
+	DisplayName    string          `json:"display_name"`
+	TargetPath     string          `json:"target_path"`
+	State          ActivationState `json:"state"`
+	Detail         string          `json:"detail"`
+	MissingEvents  []string        `json:"missing_events,omitempty"`
+	ExpectedEvents []string        `json:"expected_events,omitempty"`
+	LiveEvents     []string        `json:"live_events,omitempty"`
+	UnseenEvents   []string        `json:"unseen_events,omitempty"`
+	LastSeen       string          `json:"last_seen,omitempty"`
+	LastEvent      string          `json:"last_event,omitempty"`
+	LivenessError  string          `json:"liveness_error,omitempty"`
 }
 
 // InspectPlatforms validates every registered artifact and activation probe.
@@ -53,7 +56,7 @@ func InspectPlatforms(repoRoot string) ([]PlatformStatus, error) {
 }
 
 func inspectPlatform(root string, platform Platform) PlatformStatus {
-	report := PlatformStatus{Kind: platform.Kind, DisplayName: platform.DisplayName, TargetPath: platform.TargetPath, State: StateAbsent, Detail: "artifact not installed"}
+	report := PlatformStatus{Kind: platform.Kind, DisplayName: platform.DisplayName, TargetPath: platform.TargetPath, State: StateAbsent, Detail: "artifact not installed", ExpectedEvents: platformRuntimeEvents(platform)}
 	target := filepath.Join(root, filepath.FromSlash(platform.TargetPath))
 	data, err := os.ReadFile(target)
 	if os.IsNotExist(err) && platform.Activation.LegacyArtifactPath != "" {
@@ -106,19 +109,9 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 		report.Detail = fmt.Sprintf("artifact misses %d generated runtime route(s); reinstall the hook", len(report.MissingEvents))
 		return report
 	}
-	if platform.Kind == KindCopilot && jsonBoolean(data, "disableAllHooks") {
-		report.State = StateUnsupported
-		report.Detail = "this Copilot hook file sets disableAllHooks=true"
-		return report
-	}
 	if platform.Activation.DisabledByEnv != "" && envTruthy(platform.Activation.DisabledByEnv) {
 		report.State = StateUnsupported
 		report.Detail = platform.Activation.DisabledByEnv + " disables external project plugins in this process"
-		return report
-	}
-	if platform.Kind == KindCopilot && copilotRepositoryHooksDisabled(root) {
-		report.State = StateShadowed
-		report.Detail = "repository Copilot settings disable all non-policy hooks"
 		return report
 	}
 	if platform.Activation.RequiresWrapper && !executableFile(filepath.Join(root, "tools", "reconc", "bin", "hook")) {
@@ -160,6 +153,17 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 		report.Detail = "configuration is complete and host-discoverable; live execution is reported separately"
 	}
 	return report
+}
+
+func platformRuntimeEvents(platform Platform) []string {
+	events := []string{}
+	for _, capability := range platform.Capabilities {
+		if capability.Support == SupportUnsupported {
+			continue
+		}
+		events = append(events, capability.RuntimeEvents...)
+	}
+	return events
 }
 
 func unsupportedNativeEvents(platform Platform, content string) []string {
@@ -212,7 +216,7 @@ func codexRouteBudgetIssues(data []byte, platform Platform) []string {
 
 func managedArtifactRequiresExactMatch(mode InstallMode) bool {
 	switch mode {
-	case InstallExecutable, InstallManagedJSON, InstallPlugin:
+	case InstallExecutable, InstallPlugin:
 		return true
 	default:
 		return false
@@ -221,7 +225,7 @@ func managedArtifactRequiresExactMatch(mode InstallMode) bool {
 
 func requiresJSON(mode InstallMode) bool {
 	switch mode {
-	case InstallNestedJSON, InstallFlatJSON, InstallOwnedJSON, InstallManagedJSON:
+	case InstallNestedJSON, InstallFlatJSON, InstallOwnedJSON:
 		return true
 	default:
 		return false
@@ -242,15 +246,6 @@ func missingRuntimeEvents(platform Platform, content string) []string {
 		missing = append(missing, "git-pre-commit")
 	}
 	return missing
-}
-
-func jsonBoolean(data []byte, key string) bool {
-	var raw map[string]interface{}
-	if json.Unmarshal(data, &raw) != nil {
-		return false
-	}
-	value, _ := raw[key].(bool)
-	return value
 }
 
 func envTruthy(name string) bool {
@@ -332,14 +327,4 @@ func gitHooksShadowPath(root string) string {
 		return ""
 	}
 	return value
-}
-
-func copilotRepositoryHooksDisabled(root string) bool {
-	for _, relative := range []string{".github/copilot/settings.json", ".github/copilot/settings.local.json"} {
-		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative)))
-		if err == nil && jsonBoolean(data, "disableAllHooks") {
-			return true
-		}
-	}
-	return false
 }

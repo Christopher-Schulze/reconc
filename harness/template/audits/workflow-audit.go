@@ -1111,22 +1111,6 @@ func auditAgentHooks(root string) []string {
 			"view_file|write_to_file|replace_file_content|multi_replace_file_content|list_dir|find_by_name|grep_search|run_command",
 		}
 	}
-	if cfg.AgentHooks.RequireCopilotHooks {
-		hooks[filepath.Join(root, ".github/hooks/reconc.json")] = []string{
-			`"version": 1`,
-			`"SessionStart"`,
-			`"PreToolUse"`,
-			`"PermissionRequest"`,
-			`"PostToolUse"`,
-			`"PostToolUseFailure"`,
-			`"Stop"`,
-			`"SessionEnd"`,
-			"copilot-pre-tool-use",
-			"copilot-stop",
-			"tools/reconc/bin/hook",
-			`"timeoutSec": 10`,
-		}
-	}
 	if cfg.AgentHooks.RequireKiloPlugin {
 		hooks[filepath.Join(root, ".kilo/plugin/reconc.js")] = []string{
 			"Managed by reconc",
@@ -1153,7 +1137,6 @@ func auditAgentHooks(root string) []string {
 		".devin/hooks.v1.json":        {`"UserPromptSubmit"`, "devin-user-prompt-submit"},
 		".kilo/plugin/reconc.js":      {".reconc/runloop", "chat.message", "kilo-user-prompt-submit", "runloop autocontinue", "opencode_continuation_driver", "STFU", "tools/reconc/dist", "reconc-0.6.0-"},
 		".agents/hooks.json":          {`"timeout": 120`},
-		".github/hooks/reconc.json":   {`"PreCompact"`, `"UserPromptSubmit"`, "copilot-user-prompt-submit", "copilot-post-compaction"},
 	}
 	for path, required := range hooks {
 		relative := filepath.ToSlash(rel(root, path))
@@ -1191,7 +1174,7 @@ func auditAgentHooks(root string) []string {
 				}
 			}
 			failures = append(failures, auditHookLauncherShape(relative, content)...)
-		} else if relative == ".devin/hooks.v1.json" || relative == ".github/hooks/reconc.json" {
+		} else if relative == ".devin/hooks.v1.json" {
 			failures = append(failures, auditHookLauncherShape(relative, content)...)
 		}
 	}
@@ -1237,37 +1220,7 @@ func auditHookLauncherShape(relative string, content string) []string {
 			}
 		}
 	})
-	if relative == ".github/hooks/reconc.json" {
-		visitJSONStringField(decoded, "bash", func(command string) {
-			for _, token := range []string{
-				`hook="$repo/tools/reconc/bin/hook"`,
-				`if [ -x "$hook" ]; then exec "$hook"`,
-				`git -C "$repo" rev-parse --show-toplevel`,
-				`RECONC_HOOK_REPO_RESOLVED=1 exec "$repo/tools/reconc/bin/hook"`,
-			} {
-				if !strings.Contains(command, token) {
-					failures = append(failures, fmt.Sprintf("%s Copilot bash hook missing fast-launch token %q", relative, token))
-				}
-			}
-		})
-	}
 	return failures
-}
-
-func visitJSONStringField(value interface{}, field string, visit func(string)) {
-	switch typed := value.(type) {
-	case map[string]interface{}:
-		if entry, ok := typed[field].(string); ok {
-			visit(entry)
-		}
-		for _, child := range typed {
-			visitJSONStringField(child, field, visit)
-		}
-	case []interface{}:
-		for _, child := range typed {
-			visitJSONStringField(child, field, visit)
-		}
-	}
 }
 
 func visitJSONCommands(value interface{}, visit func(command string, args interface{})) {

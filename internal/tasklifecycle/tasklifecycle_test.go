@@ -59,6 +59,15 @@ func TestInspectLogbookAdoptsBlockedDetailState(t *testing.T) {
 	}
 }
 
+func TestLoadConfigRejectsUnknownTaskLifecycleField(t *testing.T) {
+	repo := t.TempDir()
+	writeFile(t, repo, ".reconc.yml", []byte("rules: []\ntask_lifecycle:\n  done_visble: 10\n"))
+	_, err := LoadConfig(repo)
+	if err == nil || !strings.Contains(err.Error(), "field done_visble not found") {
+		t.Fatalf("expected strict task-lifecycle field error, got %v", err)
+	}
+}
+
 func TestInspectLogbookRejectsUnsafeArchivedTargetWithoutOpeningArchive(t *testing.T) {
 	repo := t.TempDir()
 	writeFile(t, repo, ".reconc.yml", []byte("task_lifecycle:\n  profile: logbook-v1\n"))

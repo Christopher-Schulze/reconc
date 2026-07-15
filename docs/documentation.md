@@ -69,15 +69,15 @@ make lint
 make cover
 make bench
 make self-host
-make sbom VERSION=0.7.3
-make release VERSION=0.7.3
+make sbom VERSION=0.8.0
+make release VERSION=0.8.0
 ```
 
 `make release` cross-compiles five binaries into `dist/`, generates three flat
-shell-completion artifacts, generates a man page, copies the three public v1
+shell-completion artifacts, generates a man page, copies the four public v1
 JSON schemas, generates deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs, and
 writes `dist/SHA256SUMS`. The target stops on the first build, SBOM, or checksum
-failure. The release verifier requires exactly those fourteen
+failure. The release verifier requires exactly those fifteen
 checksummed artifacts, rejects missing, extra, duplicate, unsafe, or corrupted
 entries, and never accepts an empty manifest. `dist/` is ignored and should not
 be committed.
@@ -269,7 +269,10 @@ reconc check . --write internal/example.go --command-success 'go test ./...'
 
 The first command explicitly compiles policy into the local lockfile. The
 second command shows that a protected source write needs test evidence. The
-third command supplies that evidence.
+third command supplies current evidence. Session evidence carries causal write
+epochs: a successful command recorded before a later matching write is stale
+and must be rerun. Later writes outside the rule trigger do not invalidate it.
+Explicit `--command-success` evidence applies to the complete evaluation snapshot.
 
 ## Command Surface
 
@@ -342,6 +345,13 @@ because it records absolute paths. This standalone product repository does not
 carry either file and must exercise policy compilation only inside isolated
 test repositories. Its ignore patterns remain as a defensive boundary against
 accidental local state and for nested bootstrap fixtures.
+
+Policy authoring is strict. Unknown keys at the document, scope, rule,
+evidence, composite-check, and TASK-lifecycle levels fail compilation instead
+of being ignored. This validation applies only to structured YAML fields;
+free-form rule messages and agent prompts remain unrestricted text. Editors and
+automation can use `schemas/v1/policy-config.schema.json`; emitted lock, report,
+and fix-plan artifacts keep their separate public schemas.
 
 Runtime state is local and ignored:
 
@@ -555,33 +565,28 @@ skill documents the same reconc workflow for every agent runtime:
 - distinguish native hook enforcement from CLI self-checks
 
 The typed platform registry is the source of truth for Git pre-commit, Claude
-Code, Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, GitHub Copilot, and
+Code, Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, and
 Kilo Code. It owns native event names, normalized lifecycle coverage, compatibility
 routes, config and scaffold paths, failure behavior, timeout budgets, output
 budgets, installation strategy, and activation probes. `reconc hook status
 [repo] [--json]` validates every registered artifact and reports `absent`,
 `installed`, `configured`, `degraded`, `shadowed`, or `unsupported`.
 `configured` means the static configuration is complete and host-discoverable;
-it is not proof that a host process executed it. Separate `last_seen` and
-`last_event` fields report whether a live runtime executed Reconc's
-session-start route. Liveness is stored outside the repository and written at
-most once per runtime every six hours, so it does not amplify tool or Stop
-writes.
+it is not proof that a host process executed it. Separate `expected_events`,
+`live_events`, `unseen_events`, `last_seen`, and `last_event` fields report
+which registry routes a live runtime actually executed. Liveness is stored
+outside the repository and each route writes at most once every six hours.
 
 The registry assigns 5-second observation/session budgets, 10-second pre-tool
 and permission budgets, and 30-second Stop budgets instead of one blanket
-timeout. Claude, Codex, Devin, Antigravity, and Copilot generators emit those
+timeout. Claude, Codex, Devin, and Antigravity generators emit those
 host timeouts; OpenCode and Kilo Code enforce them inside their adapters. Each runtime
 route caps combined process output at 8 KiB.
 Post-compaction recovery context is deduplicated and capped at 4 KiB.
-Copilot's `PreCompact` event is intentionally not installed because that event
-ignores output, so spawning Reconc there would add latency without restoring
-context.
 
-Claude Code, Codex, Cursor, Devin, Antigravity, and Copilot generated configs
+Claude Code, Codex, Cursor, Devin, and Antigravity generated configs
 use `tools/reconc/bin/hook` on POSIX; the wrapper owns repo-local binary
-selection and PATH `reconc` as last fallback. Copilot's native Windows route
-uses its PowerShell command field until the cross-platform wrapper is installed.
+selection and PATH `reconc` as last fallback.
 For development and self-hosting, the wrapper checks `.build/bin/reconc` and
 root `reconc` before invoking any platform probe. Otherwise, each
 `tools/reconc/dist` and root `dist` directory prefers the stable platform name
@@ -590,7 +595,7 @@ Multiple compatible versions fail closed before PATH fallback.
 Claude Code uses its exec-form
 `command`+`args` shape so it does not spawn a hook shell or run a hook-launcher
 Git lookup. Codex uses the host shell command string without a nested `sh -lc`;
-Cursor, Antigravity, and Copilot use portable shell launchers with a direct
+Cursor and Antigravity use portable shell launchers with a direct
 wrapper fast path before their Git fallback.
 Codex hooks are enabled by default by the current host contract; governed
 bootstrap still writes `hooks = true` under the `[features]` table. A
@@ -612,8 +617,7 @@ can duplicate Cursor session evidence. After compaction, Claude routes the
 context-capable `SessionStart` `compact` matcher through Reconc; it does not
 spawn the notification-only `PostCompact` event. Devin uses
 `.devin/hooks.v1.json`, including `PostCompaction`, and suppresses compatible
-Claude-hook duplicates. GitHub Copilot uses `.github/hooks/reconc.json` version
-1 with VS Code-compatible payloads and Copilot-native decision JSON.
+Claude-hook duplicates.
 Antigravity uses `.agents/hooks.json` with `PreInvocation`, `PreToolUse`,
 `PostToolUse`, `PostInvocation`, and `Stop`; Reconc stores Antigravity PreTool
 metadata as pending evidence so PostToolUse can record exact evidence when the
@@ -627,11 +631,11 @@ slow routes after 5, 10, or 30 seconds, and delegate versioned binary discovery
 to `tools/reconc/bin/hook` instead of embedding a release number. Their Stop
 capability is inferred from `session.idle`: the adapter asks the host client to
 continue, but the host boundary remains fail-open and is not equivalent to the
-synchronous native Stop gates exposed by the other six agent runtimes.
+synchronous native Stop gates exposed by the other five agent runtimes.
 `reconc run on|off|status|log` is the canonical AI-operated repository switch.
 Its durable state applies only to the selected repository, not the whole machine.
 Repository mode persists across sessions for Claude Code, Codex, Cursor,
-OpenCode, Devin CLI, Antigravity CLI, GitHub Copilot, and Kilo Code. The agent
+OpenCode, Devin CLI, Antigravity CLI, and Kilo Code. The agent
 runs these commands itself; users do not need to operate Reconc. Prompt text,
 runtime interrupts, compaction, session boundaries, runtime changes, and
 application restarts never mutate the switch. An interrupt releases only the
@@ -672,7 +676,7 @@ identifiers and reasons. The live log and two archives are each bounded at
 Repeated identical policy feedback shrinks to stable `RB-*` feedback IDs,
 rule IDs, and the saved report path. PreToolUse evaluates only pre-execution
 write/shell rules,
-generated Claude/Codex/Cursor/Devin/Antigravity/Copilot configs do not spawn PreToolUse for
+generated Claude/Codex/Cursor/Devin/Antigravity configs do not spawn PreToolUse for
 read-only matchers, all PostToolUse / after-shell events record evidence only,
 and repo-wide policy audits run at terminal Stop, explicit Reconc checks, or a
 bounded repository-run checkpoint. Checkpoints occur after 64 material events,
@@ -779,7 +783,7 @@ CI checks:
 - native Windows 2025 root-module and `harness/template` tests plus native
   binary version/help smoke;
   shell hook wrappers and shell policy scripts use the documented `sh` runtime
-- clean-repository self-hosting golden path on Ubuntu and macOS across all three bootstrap profiles and nine hook platforms
+- clean-repository self-hosting golden path on Ubuntu and macOS across all three bootstrap profiles and eight hook platforms
 - immutable action commit pins plus an explicit GitHub-owned action allowlist;
   the trust gate validates pin shape and action identity without coupling
   updates to historical commit values
@@ -964,7 +968,7 @@ not become competing current-state documentation.
 
 ## Release State
 
-The current public release line is `v0.7.x`; the current patch is `v0.7.3`. A
+The current public release line is `v0.8.x`; the source version is `v0.8.0`. A
 new release is blocked until its release, install, self-hosting, and final
 verification contracts pass. Release artifacts are produced by the GitHub
 release workflow when a `reconc-v*` tag is pushed.

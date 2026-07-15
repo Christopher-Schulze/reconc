@@ -30,7 +30,6 @@ const (
 	OpenCodePluginPath       = ".opencode/plugins/reconc.js"
 	DevinHooksPath           = ".devin/hooks.v1.json"
 	AntigravityHooksPath     = ".agents/hooks.json"
-	CopilotHooksPath         = ".github/hooks/reconc.json"
 	KiloPluginPath           = ".kilo/plugin/reconc.js"
 )
 
@@ -43,7 +42,6 @@ const (
 	KindOpenCode     = "opencode"
 	KindDevinCLI     = "devin-cli"
 	KindAntigravity  = "antigravity"
-	KindCopilot      = "copilot"
 	KindKilo         = "kilo"
 )
 
@@ -122,8 +120,6 @@ func Generate(kind string) (*Artifact, error) {
 		return generateDevinCLI(), nil
 	case generatorAntigravity:
 		return generateAntigravity(), nil
-	case generatorCopilot:
-		return generateCopilot(), nil
 	case generatorKilo:
 		return generateKilo(), nil
 	}
@@ -163,8 +159,6 @@ func Install(kind, repoRoot string, force bool) (*InstallReport, error) {
 		return installDevinCLI(repoRoot, force)
 	case InstallOwnedJSON:
 		return installAntigravity(repoRoot, force)
-	case InstallManagedJSON:
-		return installCopilot(repoRoot, force)
 	case InstallPlugin:
 		if kind == KindOpenCode {
 			return installOpenCode(repoRoot, force)

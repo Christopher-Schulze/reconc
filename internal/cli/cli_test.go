@@ -3162,6 +3162,10 @@ func TestRunCIStagedInheritsActiveSessionEvidence(t *testing.T) {
 	if result := agentsession.RunPostToolUse(repo, []byte(readPayload)); result.ExitCode != 0 || result.Stderr != "" {
 		t.Fatalf("read post tool failed: exit=%d stderr=%s", result.ExitCode, result.Stderr)
 	}
+	writePayload := `{"session_id":"s1","tool_name":"Write","tool_input":{"file_path":"src/main.go"}}`
+	if result := agentsession.RunPostToolUse(repo, []byte(writePayload)); result.ExitCode != 0 || result.Stderr != "" {
+		t.Fatalf("write post tool failed: exit=%d stderr=%s", result.ExitCode, result.Stderr)
+	}
 	payload := `{"session_id":"s1","tool_name":"Bash","tool_input":{"command":"cd tools/reconc && go test ./..."},"tool_response":{"exit_code":0}}`
 	if result := agentsession.RunPostToolUse(repo, []byte(payload)); result.ExitCode != 0 || result.Stderr != "" {
 		t.Fatalf("post tool failed: exit=%d stderr=%s", result.ExitCode, result.Stderr)

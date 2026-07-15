@@ -34,37 +34,6 @@ func generateDevinCLI() *Artifact {
 	return &Artifact{Kind: KindDevinCLI, TargetPath: DevinHooksPath, Content: string(data) + "\n"}
 }
 
-func generateCopilot() *Artifact {
-	entry := func(event string, lifecycle Event, matcher string) map[string]interface{} {
-		out := map[string]interface{}{
-			"type":       "command",
-			"bash":       shellRuntimeCommand(".", event),
-			"powershell": fmt.Sprintf("reconc hook runtime %s .", event),
-			"command":    fmt.Sprintf("reconc hook runtime %s .", event),
-			"cwd":        ".",
-			"timeoutSec": mustTimeoutSeconds(KindCopilot, lifecycle),
-		}
-		if matcher != "" {
-			out["matcher"] = matcher
-		}
-		return out
-	}
-	template := map[string]interface{}{
-		"version": 1,
-		"hooks": map[string]interface{}{
-			"SessionStart":       []interface{}{entry("copilot-session-start", EventSessionStart, "")},
-			"PreToolUse":         []interface{}{entry("copilot-pre-tool-use", EventPreToolUse, "Bash|Edit|Write")},
-			"PermissionRequest":  []interface{}{entry("copilot-permission-request", EventPermissionRequest, "Bash|Edit|Write")},
-			"PostToolUse":        []interface{}{entry("copilot-post-tool-use", EventPostToolUse, "Read|Bash|Edit|Write|Grep|Glob")},
-			"PostToolUseFailure": []interface{}{entry("copilot-post-tool-use-failure", EventPostToolUseFailure, "Bash")},
-			"Stop":               []interface{}{entry("copilot-stop", EventStop, "")},
-			"SessionEnd":         []interface{}{entry("copilot-session-end", EventSessionEnd, "")},
-		},
-	}
-	data, _ := json.MarshalIndent(template, "", "  ")
-	return &Artifact{Kind: KindCopilot, TargetPath: CopilotHooksPath, Content: string(data) + "\n"}
-}
-
 func generateOpenCodeThin() *Artifact {
 	return generateBunAgentPlugin(KindOpenCode, OpenCodePluginPath, "opencode", false)
 }

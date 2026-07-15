@@ -37,6 +37,7 @@ func TestResolveEnterpriseSchemaBase(t *testing.T) {
 
 func TestPublishedSchemasAreVersionedJSONContracts(t *testing.T) {
 	contracts := map[string]string{
+		"policy-config.schema.json":   schema.PolicyConfigURL,
 		"policy-lock.schema.json":     schema.PolicyLockURL,
 		"policy-report.schema.json":   schema.PolicyReportURL,
 		"policy-fix-plan.schema.json": schema.PolicyFixPlanURL,

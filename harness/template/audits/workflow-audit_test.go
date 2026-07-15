@@ -810,7 +810,6 @@ agent_hooks:
   require_claude_settings: true
   require_opencode_plugin: true
   require_devin_hooks: false
-  require_copilot_hooks: false
   require_kilo_plugin: false
 `)
 }
@@ -860,7 +859,6 @@ agent_hooks:
   require_claude_settings: true
   require_opencode_plugin: true
   require_devin_hooks: false
-  require_copilot_hooks: false
   require_kilo_plugin: false
 `)
 }

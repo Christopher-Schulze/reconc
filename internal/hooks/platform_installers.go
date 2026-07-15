@@ -69,18 +69,6 @@ func installDevinCLI(repoRoot string, force bool) (*InstallReport, error) {
 	}, nil
 }
 
-func installCopilot(repoRoot string, force bool) (*InstallReport, error) {
-	return installManagedPlatformFile(
-		KindCopilot,
-		repoRoot,
-		force,
-		func(data []byte) bool {
-			return json.Valid(data) && strings.Contains(string(data), "copilot-pre-tool-use") && strings.Contains(string(data), "tools/reconc/bin/hook")
-		},
-		"Restart Copilot CLI or start a new cloud-agent job so it reloads .github/hooks/reconc.json.",
-	)
-}
-
 func installKilo(repoRoot string, force bool) (*InstallReport, error) {
 	return installManagedPlatformFile(
 		KindKilo,

@@ -68,6 +68,31 @@ func TestLoadCommandResults(t *testing.T) {
 	}
 }
 
+func TestLoadEvidenceEpochAcceptsFullUint64Range(t *testing.T) {
+	got := parseJSON(t, `{
+		"write_paths": ["src/main.go"],
+		"write_epochs": {"src/main.go": 18446744073709551615},
+		"command_results": [
+			{"command": "go test", "outcome": "success", "evidence_epoch": 18446744073709551615}
+		]
+	}`)
+	if got.WriteEpochs["src/main.go"] != ExplicitEvidenceEpoch || got.CommandResults[0].EvidenceEpoch != ExplicitEvidenceEpoch {
+		t.Fatalf("maximum evidence epoch was not preserved: %+v", got)
+	}
+}
+
+func TestLoadEvidenceEpochRejectsNonIntegers(t *testing.T) {
+	for _, payload := range []string{
+		`{"write_epochs":{"src/main.go":-1}}`,
+		`{"write_epochs":{"src/main.go":1.5}}`,
+		`{"command_results":[{"command":"go test","outcome":"success","evidence_epoch":-1}]}`,
+	} {
+		if _, err := LoadExecutionInputsText(payload, "test"); err == nil {
+			t.Fatalf("expected invalid evidence epoch to fail: %s", payload)
+		}
+	}
+}
+
 func TestLoadEventsArray(t *testing.T) {
 	got := parseJSON(t, `{
 		"events": [
@@ -102,6 +127,23 @@ func TestLoadCommandEventWithOutcome(t *testing.T) {
 	}
 	if got.CommandResults[0].Outcome != "success" {
 		t.Errorf("outcome wrong: %s", got.CommandResults[0].Outcome)
+	}
+}
+
+func TestOrderedEventsDeriveCausalEvidenceEpochs(t *testing.T) {
+	got := parseJSON(t, `{
+		"events": [
+			{"kind": "command", "command": "go test", "outcome": "success"},
+			{"kind": "write", "path": "src/a.go"},
+			{"kind": "command", "command": "go test", "outcome": "success"},
+			{"kind": "write", "path": "docs/readme.md"}
+		]
+	}`)
+	if got.CommandResults[0].EvidenceEpoch != 0 || got.CommandResults[1].EvidenceEpoch != 1 {
+		t.Fatalf("command epochs = %v", got.CommandResults)
+	}
+	if got.WriteEpochs["src/a.go"] != 1 || got.WriteEpochs["docs/readme.md"] != 2 {
+		t.Fatalf("write epochs = %v", got.WriteEpochs)
 	}
 }
 

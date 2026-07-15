@@ -16,10 +16,12 @@ type Artifact string
 
 const (
 	PolicyLock    Artifact = "policy-lock"
+	PolicyConfig  Artifact = "policy-config"
 	PolicyReport  Artifact = "policy-report"
 	PolicyFixPlan Artifact = "policy-fix-plan"
 
 	PolicyLockURL    = DefaultBaseURL + "/policy-lock.schema.json"
+	PolicyConfigURL  = DefaultBaseURL + "/policy-config.schema.json"
 	PolicyReportURL  = DefaultBaseURL + "/policy-report.schema.json"
 	PolicyFixPlanURL = DefaultBaseURL + "/policy-fix-plan.schema.json"
 )
@@ -29,6 +31,8 @@ func DefaultURL(artifact Artifact) string {
 	switch artifact {
 	case PolicyLock:
 		return PolicyLockURL
+	case PolicyConfig:
+		return PolicyConfigURL
 	case PolicyReport:
 		return PolicyReportURL
 	case PolicyFixPlan:

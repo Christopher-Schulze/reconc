@@ -292,6 +292,18 @@ func TestHookRuntimeFailOpenOnMalformedPost(t *testing.T) {
 	}
 }
 
+func TestHookRuntimeSessionStartHonorsRegistryFailOpenPolicy(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	_, stderr, code := runWithStdin(t, `{}`,
+		"hook", "runtime", "claude-session-start", repo)
+	if code != 0 {
+		t.Fatalf("SessionStart handler errors must fail open, got %d: %s", code, stderr)
+	}
+	if !strings.Contains(stderr, "session_id") {
+		t.Fatalf("SessionStart diagnostic missing: %s", stderr)
+	}
+}
+
 // --- Scenario 7: PostToolUseFailure records failure + warns --------
 
 func TestHookRuntimePostToolUseFailure(t *testing.T) {

@@ -1,7 +1,7 @@
 # RECONC-0006: Hooks And Agent Sessions
 
 - Status: Frozen
-- Contract: git, Claude Code, Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, GitHub Copilot, Kilo Code, and generic-agent integration
+- Contract: git, Claude Code, Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, and generic-agent integration
 
 ## Hook Kinds
 
@@ -16,14 +16,13 @@
 | `opencode` | `.opencode/plugins/reconc.js` | Project plugin for session start, tool before/after, and idle stop gate. |
 | `devin-cli` | `.devin/hooks.v1.json` | Session, tool, permission, stop, cleanup, and post-compaction hooks. |
 | `antigravity` | `.agents/hooks.json` | Invocation, tool, and stop hook group under the top-level `reconc` key. |
-| `copilot` | `.github/hooks/reconc.json` | Repository hooks with Copilot decision response adaptation. |
 | `kilo` | `.kilo/plugin/reconc.js` | Thin project plugin for session, tool, permission, compaction, and idle handling. |
 
 Installers are idempotent. Reconc-owned JSON hook entries are
 identified by `reconc hook runtime` command tokens and replaced on
 reinstall; unrelated user config is preserved. The OpenCode installer
 updates only the reconc-managed project plugin and refuses to overwrite
-non-reconc plugin content without `--force`. Copilot and Kilo Code managed files use
+non-reconc plugin content without `--force`. Kilo Code managed files use
 the same refusal rule.
 
 The typed registry owns event coverage, native names, fallbacks, failure and
@@ -36,7 +35,7 @@ source-controlled scaffold twins from the same generator:
 `.githooks/pre-commit`, `.codex/hooks.json`, `.cursor/hooks.json`,
 `.agents/hooks.json`, `.claude/settings.json`, and
 `.opencode/plugins/reconc.js`, `.devin/hooks.v1.json`,
-`.github/hooks/reconc.json`, and `.kilo/plugin/reconc.js`. Template scaffolds are never synced from
+and `.kilo/plugin/reconc.js`. Template scaffolds are never synced from
 a source-specific harness.
 
 ## Claude Code Guarantee

@@ -70,7 +70,7 @@ cmp -s "$tmp/source-version.txt" "$tmp/stable-version.txt" \
   || fail "stable release-layout binary version differs from the source binary"
 
 run_json "$tmp/hook-status.json" "$stable_binary" hook status "$governed"
-[ "$(grep -c '"state": "configured"' "$tmp/hook-status.json")" -eq 9 ] || fail "not all nine hook platforms are configured"
+[ "$(grep -c '"state": "configured"' "$tmp/hook-status.json")" -eq 8 ] || fail "not all eight hook platforms are configured"
 
 wrapper="$governed/tools/reconc/bin/hook"
 for event in \
@@ -80,7 +80,6 @@ for event in \
   opencode-session-start \
   devin-session-start \
   antigravity-pre-invocation \
-  copilot-session-start \
   kilo-session-start
 do
   session=${event%%-*}

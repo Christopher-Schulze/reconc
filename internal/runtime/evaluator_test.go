@@ -299,6 +299,38 @@ func TestCheckRequireCommandSuccess(t *testing.T) {
 	}
 }
 
+func TestCheckRequireCommandSuccessRequiresFreshCausalEvidence(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "",
+		"rules:\n  - id: tests-must-pass\n    kind: require_command_success\n    when_paths: ['src/**']\n    commands: ['go test']\n    mode: block\n    message: tests must pass\n")
+
+	tests := []struct {
+		name        string
+		writeEpochs map[string]uint64
+		resultEpoch uint64
+		want        Decision
+	}{
+		{name: "command before relevant write blocks", writeEpochs: map[string]uint64{"src/main.go": 2}, resultEpoch: 1, want: DecisionBlock},
+		{name: "command after relevant write passes", writeEpochs: map[string]uint64{"src/main.go": 2}, resultEpoch: 2, want: DecisionPass},
+		{name: "later unrelated write does not invalidate", writeEpochs: map[string]uint64{"src/main.go": 1, "docs/readme.md": 2}, resultEpoch: 1, want: DecisionPass},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			inputs := Empty()
+			inputs.WritePaths = []string{"src/main.go", "docs/readme.md"}
+			inputs.WriteEpochs = test.writeEpochs
+			inputs.CommandResults = []CommandResult{{Command: "go test", Outcome: CommandOutcomeSuccess, EvidenceEpoch: test.resultEpoch}}
+			report, err := CheckRepoPolicy(repo, inputs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if report.Decision != test.want {
+				t.Fatalf("decision = %s, want %s", report.Decision, test.want)
+			}
+		})
+	}
+}
+
 func TestCheckForbidCommand(t *testing.T) {
 	withRECONCHome(t)
 	repo := makeRepo(t, "# project\n", "",

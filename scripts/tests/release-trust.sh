@@ -109,7 +109,9 @@ require_action "$ci_workflow" "actions/setup-go"
 require_action "$release_workflow" "actions/setup-go"
 require_action "$release_workflow" "actions/attest-build-provenance"
 require_text "$release_workflow" "subject-checksums: dist/SHA256SUMS"
+# shellcheck disable=SC2016 # Match workflow shell expressions literally.
 require_text "$release_workflow" 'test "$tag_version" = "$source_version"'
+# shellcheck disable=SC2016 # Match workflow shell expressions literally.
 require_text "$release_workflow" 'gh release upload "$GITHUB_REF_NAME" dist/* --clobber'
 for runner in ubuntu-24.04 macos-15 windows-2025; do
   require_text "$ci_workflow" "$runner"
@@ -145,6 +147,7 @@ release_assets=(
   reconc.bash
   reconc.fish
   policy-fix-plan.schema.json
+  policy-config.schema.json
   policy-lock.schema.json
   policy-report.schema.json
   "reconc-$project_version-darwin-amd64"
@@ -186,7 +189,8 @@ mv "$spdx" "$spdx.missing"
 expect_failure "${verify_release[@]}"
 mv "$spdx.missing" "$spdx"
 
-head -n 1 "$release_dir/SHA256SUMS" >> "$release_dir/SHA256SUMS"
+duplicate_manifest_line=$(head -n 1 "$release_dir/SHA256SUMS")
+printf '%s\n' "$duplicate_manifest_line" >> "$release_dir/SHA256SUMS"
 expect_failure "${verify_release[@]}"
 "$root/scripts/release/write-checksums.sh" "$release_dir"
 

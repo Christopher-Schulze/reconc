@@ -63,7 +63,6 @@ type agentHooksConfig struct {
 	RequireOpenCodePlugin   bool `yaml:"require_opencode_plugin"`
 	RequireDevinHooks       bool `yaml:"require_devin_hooks"`
 	RequireAntigravityHooks bool `yaml:"require_antigravity_hooks"`
-	RequireCopilotHooks     bool `yaml:"require_copilot_hooks"`
 	RequireKiloPlugin       bool `yaml:"require_kilo_plugin"`
 }
 
@@ -117,7 +116,6 @@ func defaultStackConfig() stackConfig {
 			RequireOpenCodePlugin:   true,
 			RequireDevinHooks:       true,
 			RequireAntigravityHooks: true,
-			RequireCopilotHooks:     true,
 			RequireKiloPlugin:       true,
 		},
 	}

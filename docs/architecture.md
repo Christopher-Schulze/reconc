@@ -94,7 +94,7 @@ handling.
    same canonical form. Enables rsync-style drift detection and
    git-friendly diffs.
 
-2. **Fail-closed on tampering.** Unknown rule kind, malformed YAML,
+2. **Fail-closed on tampering.** Unknown document or rule field, unknown rule kind, malformed YAML,
    stale lockfile, mismatched repo_root, unsupported schema URL --
    every degradation path raises a typed error rather than silently
    treating the situation as "pass".
@@ -130,7 +130,8 @@ handling.
 
 - **Published schema documents**: `schemas/v1/*.schema.json` are the canonical
   Draft 2020-12 contracts, use format-versioned repository URLs as `$id`, and
-  ship in the checksummed release inventory.
+  ship in the checksummed release inventory. `policy-config.schema.json` is the
+  strict authoring contract; lock, report, and fix-plan schemas describe emitted artifacts.
 
 - **Exit codes 0/1/2**: stable across all subcommands for agent
   consumption. 0 = pass or warn, 1 = runtime/input error, 2 = at
@@ -268,12 +269,19 @@ Decision is per-event based on the security role of the event:
 
 | Event | Malformed payload | Reasoning |
 |---|---|---|
-| `SessionStart` | **fail-closed** (exit 2) | Session can't be trusted without a valid start. |
+| `SessionStart` | **fail-open** (exit 0, stderr warn) | Orientation failure must not wedge the host session; PreToolUse and Stop remain the enforcement points. |
 | `PreToolUse` | **fail-closed** (exit 2) | This event GATES a write/command; uncertain input must not allow. |
 | `PostToolUse` | **fail-open** (exit 0, stderr warn) | Observation-only; blocking here doesn't prevent already-done damage and just disrupts the session. |
 | `PostToolUseFailure` | **fail-open** (exit 0, stderr warn) | Same as PostToolUse. |
 | `Stop` | **fail-closed** (exit 2) | GATES session completion; uncertain input must block. |
 | `SessionEnd` | **fail-open** (exit 0, stderr warn) | Cleanup-only; forced close shouldn't propagate errors. |
+
+The CLI applies the registry failure policy after handler execution as well as
+during input decoding, so a handler cannot accidentally make an allow-route
+blocking. Successful dispatch records per-route liveness outside the repository.
+Each runtime route has a small six-hour marker: the common path is one `stat`,
+zero locks, zero JSON reads, and zero writes; a due route refresh updates the
+bounded aggregate status used by `reconc hook status`.
 
 ### Path-traversal
 
@@ -359,6 +367,22 @@ is 130,819-142,849 ns/op with a 131,483 ns/op median, 29,225-29,276 B/op, and
 log record. C/cgo would not reduce the dominant filesystem syscalls and would
 add a toolchain and portability boundary, so the implementation remains pure
 Go.
+
+### Causal command-success evidence
+
+Session state advances a monotonic evidence epoch for each write tool event.
+Every written path stores its latest epoch, and each command outcome stores the
+current epoch. `require_command_success` accepts a matching success only when
+its epoch is at least the newest epoch among the rule-triggering writes. A
+later relevant write therefore requires a rerun, while an unrelated later
+write does not. Legacy session state with unordered writes and command results
+is upgraded fail-closed by placing its writes one epoch ahead. Explicit
+`--command-success` evidence uses the maximum epoch because it asserts the
+complete evaluation snapshot.
+
+Ordered JSON `events` derive the same epochs during ingestion. Check reports
+publish optional `write_epochs` and `evidence_epoch` fields so the decision is
+auditable without expanding the normal zero-value payload.
 
 ### require_command_success redirect tolerance
 

@@ -27,19 +27,6 @@ func TestHookRuntimeDevinNativeShapeBlocksDeniedWrite(t *testing.T) {
 	}
 }
 
-func TestHookRuntimeCopilotVSCodeShapeReturnsDenyDecision(t *testing.T) {
-	repo := bootstrapE2ERepo(t)
-	payload := `{"hook_event_name":"PreToolUse","session_id":"copilot-1","tool_name":"Edit","tool_input":{"file_path":"generated/blocked.go"}}`
-	stdout, stderr, code := runWithStdin(t, payload,
-		"hook", "runtime", "copilot-pre-tool-use", repo)
-	if code != 0 {
-		t.Fatalf("Copilot decision must use output JSON instead of process failure, code=%d stderr=%q", code, stderr)
-	}
-	if !strings.Contains(stdout, `"permissionDecision":"deny"`) || !strings.Contains(stdout, "deny-gen") {
-		t.Fatalf("Copilot deny response missing exact decision context: %q", stdout)
-	}
-}
-
 func TestHookRuntimeKiloAdapterShapeBlocksDeniedWrite(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
 	payload := `{"session_id":"kilo-1","reconc_runtime":"kilo","tool_name":"Write","tool_input":{"file_path":"generated/blocked.go"}}`
@@ -65,7 +52,6 @@ func TestRepositoryRunControlReturnsContinuationForEveryAgentAdapter(t *testing.
 		{name: "OpenCode", event: "opencode-stop", payload: `{"session_id":"opencode-run","reconc_runtime":"opencode"}`, want: `"decision":"block"`},
 		{name: "Devin CLI", event: "devin-stop", payload: `{"session_id":"devin-run"}`, want: `"decision":"block"`},
 		{name: "Antigravity CLI", event: "antigravity-stop", payload: `{"session_id":"antigravity-run"}`, want: `"decision":"continue"`},
-		{name: "GitHub Copilot", event: "copilot-stop", payload: `{"session_id":"copilot-run","hook_event_name":"Stop"}`, want: `"decision":"block"`},
 		{name: "Kilo", event: "kilo-stop", payload: `{"session_id":"kilo-run","reconc_runtime":"kilo"}`, want: `"decision":"block"`},
 	}
 	for _, test := range tests {
@@ -139,20 +125,13 @@ func TestBoundHookResultCapsCombinedOutput(t *testing.T) {
 	}
 }
 
-func TestBoundHookResultCapsAdaptedCopilotOutput(t *testing.T) {
-	adapted := agentsession.AdaptCopilotResult(
-		"copilot-pre-tool-use",
-		agentsession.Result{ExitCode: 2, Stderr: strings.Repeat("x", 6*1024)},
-	)
-	result := boundHookResult(adapted, hooks.RuntimeRoute{MaxOutputBytes: 8 * 1024, ErrorPolicy: hooks.FailureBlock})
-	if result.ExitCode != 2 || result.Stdout != "" || len(result.Stderr) > 8*1024 {
-		t.Fatalf("adapted Copilot output escaped bounds: %#v", result)
-	}
-}
-
 func TestRunHookStatusJSONReportsActivePlugin(t *testing.T) {
+	t.Setenv(agentsession.StateRootEnv, t.TempDir())
 	repo := t.TempDir()
 	if _, err := hooks.Install(hooks.KindKilo, repo, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := agentsession.RecordHookLiveness(repo, "kilo-session-start", "kilo-session-start"); err != nil {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
@@ -167,6 +146,9 @@ func TestRunHookStatusJSONReportsActivePlugin(t *testing.T) {
 		if report.Kind == hooks.KindKilo {
 			if report.State != hooks.StateConfigured {
 				t.Fatalf("Kilo status = %s, want configured: %+v", report.State, report)
+			}
+			if len(report.LiveEvents) != 1 || report.LiveEvents[0] != "kilo-session-start" || len(report.UnseenEvents) == 0 {
+				t.Fatalf("Kilo per-route liveness missing: %+v", report)
 			}
 			return
 		}

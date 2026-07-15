@@ -135,11 +135,11 @@ Claims can also be supplied via an events file, stdin JSON, or by a registered h
 ## Platform Integration
 
 The typed registry supports Claude Code, Codex, Cursor, OpenCode, Devin CLI,
-Antigravity CLI, GitHub Copilot, and Kilo Code. Run `reconc hook status . --json`
+Antigravity CLI and Kilo Code. Run `reconc hook status . --json`
 instead of guessing whether an artifact is installed, configured, degraded,
 shadowed, or unsupported. `configured` is static discovery truth, not live
-execution proof. Static activation and rate-limited live
-`last_seen`/`last_event` evidence are separate facts.
+execution proof. Static activation and rate-limited per-route
+`expected_events`/`live_events`/`unseen_events` evidence are separate facts.
 
 - **Claude Code**: strongest integration. `PreToolUse` blocks
   protected file edits before execution, `PostToolUse` records reads /
@@ -157,8 +157,6 @@ execution proof. Static activation and rate-limited live
   permission, Stop, cleanup, and post-compaction recovery.
 - **Antigravity CLI**: `.agents/hooks.json` covers invocation, tool,
   observation, and Stop events.
-- **GitHub Copilot**: `.github/hooks/reconc.json` returns Copilot-native
-  decision JSON and omits its notification-only compaction event.
 - **Kilo Code**: `.kilo/plugin/reconc.js` is a thin adapter; `KILO_PURE` must
   be unset for project plugins to load. Like OpenCode, continuation is inferred
   from `session.idle`.
@@ -184,9 +182,9 @@ reconc run off .
 ```
 
 Repository mode applies to Claude Code, Codex, Cursor, OpenCode, Devin CLI,
-Antigravity CLI, GitHub Copilot, and Kilo Code, scoped to this repository rather
-than the whole machine. Claude Code, Codex, Cursor, Devin CLI, Antigravity CLI,
-and GitHub Copilot expose synchronous Stop gates. OpenCode and Kilo Code use
+Antigravity CLI and Kilo Code, scoped to this repository rather
+than the whole machine. Claude Code, Codex, Cursor, Devin CLI, and Antigravity
+CLI expose synchronous Stop gates. OpenCode and Kilo Code use
 inferred `session.idle`, so their host continuation is best-effort and fail-open.
 While typed TASK state is `continue` or `claim`, Reconc returns the host-specific
 continuation response without a full terminal policy or Git scan. An empty

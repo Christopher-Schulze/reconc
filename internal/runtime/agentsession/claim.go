@@ -59,7 +59,7 @@ func RecordClaim(repoRoot, claim, sessionID string) (*ClaimReport, error) {
 	// Ignore check errors here -- the claim record is the primary
 	// artefact; the report refresh is a courtesy for later inspection.
 	_, _ = runCheckAndSave(root, sessionID, updated.ReadPaths,
-		updated.WritePaths, updated.Commands, updated.CommandResults, updated.Claims)
+		updated.WritePaths, updated.WriteEpochs, updated.Commands, updated.CommandResults, updated.Claims)
 
 	return &ClaimReport{
 		RepoRoot:   root,
@@ -71,41 +71,63 @@ func RecordClaim(repoRoot, claim, sessionID string) (*ClaimReport, error) {
 	}, nil
 }
 
-// ActiveEvidence returns read, command, and claim evidence recorded on the
+// ActiveEvidence returns read, write, command, and claim evidence recorded on the
 // currently active agent session. Missing session state is not an error;
 // callers use this to let non-interactive gates such as git pre-commit inherit
 // in-session context, authorizations, and successful checks.
-func ActiveEvidence(repoRoot string) ([]string, []string, []CommandResult, []string, error) {
+type ActiveEvidenceSnapshot struct {
+	ReadPaths      []string
+	WritePaths     []string
+	WriteEpochs    map[string]uint64
+	EvidenceEpoch  uint64
+	Commands       []string
+	CommandResults []CommandResult
+	Claims         []string
+}
+
+func ActiveEvidence(repoRoot string) (ActiveEvidenceSnapshot, error) {
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return ActiveEvidenceSnapshot{}, err
 	}
 	sessionID, err := ResolveActiveSessionID(root)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return ActiveEvidenceSnapshot{}, err
 	}
 	if sessionID == "" {
-		return nil, nil, nil, nil, nil
+		return ActiveEvidenceSnapshot{}, nil
 	}
 	state, err := LoadSessionState(root, sessionID)
 	if err != nil {
-		return nil, nil, nil, nil, nil
+		return ActiveEvidenceSnapshot{}, nil
 	}
-	reads := append([]string{}, state.ReadPaths...)
-	commands := append([]string{}, state.Commands...)
-	results := append([]CommandResult{}, state.CommandResults...)
-	claims := append([]string{}, state.Claims...)
-	return reads, commands, results, claims, nil
+	return ActiveEvidenceSnapshot{
+		ReadPaths:      append([]string{}, state.ReadPaths...),
+		WritePaths:     append([]string{}, state.WritePaths...),
+		WriteEpochs:    cloneWriteEpochs(state.WriteEpochs),
+		EvidenceEpoch:  state.EvidenceEpoch,
+		Commands:       append([]string{}, state.Commands...),
+		CommandResults: append([]CommandResult{}, state.CommandResults...),
+		Claims:         append([]string{}, state.Claims...),
+	}, nil
+}
+
+func cloneWriteEpochs(values map[string]uint64) map[string]uint64 {
+	out := make(map[string]uint64, len(values))
+	for path, epoch := range values {
+		out[path] = epoch
+	}
+	return out
 }
 
 // ActiveClaims returns claims recorded on the currently active agent
 // session. Kept as a narrow helper for callers that need only claims.
 func ActiveClaims(repoRoot string) ([]string, error) {
-	_, _, _, claims, err := ActiveEvidence(repoRoot)
+	evidence, err := ActiveEvidence(repoRoot)
 	if err != nil {
 		return nil, err
 	}
-	return claims, nil
+	return evidence.Claims, nil
 }
 
 // DescribeClaimReport returns a short human-readable rendering of

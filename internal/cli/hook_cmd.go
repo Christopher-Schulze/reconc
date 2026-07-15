@@ -83,6 +83,15 @@ func runHookStatus(args []string, stdout io.Writer) error {
 			if live, ok := liveness[hookRuntimeName(reports[i].Kind)]; ok {
 				reports[i].LastSeen = live.LastSeen
 				reports[i].LastEvent = live.Event
+				for _, event := range reports[i].ExpectedEvents {
+					if _, seen := live.Routes[event]; seen {
+						reports[i].LiveEvents = append(reports[i].LiveEvents, event)
+					} else {
+						reports[i].UnseenEvents = append(reports[i].UnseenEvents, event)
+					}
+				}
+			} else {
+				reports[i].UnseenEvents = append(reports[i].UnseenEvents, reports[i].ExpectedEvents...)
 			}
 		}
 	}
@@ -97,9 +106,12 @@ func runHookStatus(args []string, stdout io.Writer) error {
 	for _, report := range reports {
 		live := "never seen"
 		if report.LastSeen != "" {
-			live = "last seen " + report.LastSeen
+			live = fmt.Sprintf("routes %d/%d seen; last %s", len(report.LiveEvents), len(report.ExpectedEvents), report.LastSeen)
 		} else if report.LivenessError != "" {
 			live = "liveness unavailable: " + report.LivenessError
+		}
+		if len(report.UnseenEvents) > 0 {
+			live += "; unseen " + strings.Join(report.UnseenEvents, ",")
 		}
 		fmt.Fprintf(stdout, "%s: %s (%s; %s)\n", report.Kind, report.State, report.Detail, live)
 	}
@@ -332,9 +344,6 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 	if route.PlatformKind != hooks.KindDevinCLI && agentsession.PayloadLooksLikeDevin(payload) {
 		return nil
 	}
-	if route.PlatformKind == hooks.KindClaudeCode && agentsession.PayloadMatchesRuntimeSession(repo, payload, "copilot") {
-		return nil
-	}
 	switch route.PlatformKind {
 	case hooks.KindCursor:
 		payload, err = agentsession.NormalizeCursorPayload(event, payload)
@@ -342,9 +351,6 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 	case hooks.KindDevinCLI:
 		payload, err = agentsession.NormalizeDevinPayload(event, payload, repo)
 		timing.mark("devin_normalize")
-	case hooks.KindCopilot:
-		payload, err = agentsession.NormalizeCopilotPayload(event, payload)
-		timing.mark("copilot_normalize")
 	}
 	if err != nil {
 		if route.ErrorPolicy == hooks.FailureBlock {
@@ -396,6 +402,15 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 		}
 	}
 	timing.mark("handler")
+	if result.ExitCode != 0 && route.ErrorPolicy == hooks.FailureAllow {
+		result.ExitCode = 0
+	}
+	if err := agentsession.RecordHookLiveness(repo, event, event); err != nil {
+		if result.Stderr != "" {
+			result.Stderr += "; "
+		}
+		result.Stderr += "reconc hook liveness (warn): " + err.Error()
+	}
 	switch route.PlatformKind {
 	case hooks.KindClaudeCode:
 		if route.Event == hooks.EventPostCompaction {
@@ -405,9 +420,6 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 	case hooks.KindCursor:
 		result = agentsession.AdaptCursorResult(event, result)
 		timing.mark("cursor_adapt")
-	case hooks.KindCopilot:
-		result = agentsession.AdaptCopilotResult(event, result)
-		timing.mark("copilot_adapt")
 	}
 	result = boundHookResult(result, route)
 

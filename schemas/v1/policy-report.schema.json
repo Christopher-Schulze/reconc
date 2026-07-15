@@ -75,7 +75,8 @@
       "required": ["command", "outcome"],
       "properties": {
         "command": { "type": "string" },
-        "outcome": { "enum": ["success", "failure"] }
+        "outcome": { "enum": ["success", "failure"] },
+        "evidence_epoch": { "type": "integer", "minimum": 0 }
       }
     },
     "inputs": {
@@ -85,6 +86,10 @@
       "properties": {
         "read_paths": { "$ref": "#/$defs/stringArray" },
         "write_paths": { "$ref": "#/$defs/stringArray" },
+        "write_epochs": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
         "commands": { "$ref": "#/$defs/stringArray" },
         "claims": { "$ref": "#/$defs/stringArray" },
         "command_results": {

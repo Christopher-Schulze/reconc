@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/policy-config.schema.json",
+  "title": "Reconc policy authoring config v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "default_mode": { "$ref": "#/$defs/mode" },
+    "extends": { "$ref": "#/$defs/nonEmptyStrings" },
+    "include": { "$ref": "#/$defs/nonEmptyStrings" },
+    "task_lifecycle": { "$ref": "#/$defs/taskLifecycle" },
+    "rules": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/rule" }
+    },
+    "scopes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/scope" }
+    }
+  },
+  "$defs": {
+    "mode": { "enum": ["observe", "warn", "block", "fix"] },
+    "kind": {
+      "enum": [
+        "deny_write", "require_read", "require_command", "require_command_success",
+        "forbid_command", "couple_change", "require_claim", "require_fresh_file",
+        "require_evidence", "all_of", "any_of", "not", "require_script",
+        "require_assurance"
+      ]
+    },
+    "nonEmptyStrings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "taskLifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "profile": { "enum": ["auto", "sections-v1", "logbook-v1"] },
+        "overview_path": { "type": "string", "minLength": 1 },
+        "detail_dir": { "type": "string", "minLength": 1 },
+        "done_dir": { "type": "string", "minLength": 1 },
+        "done_visible": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "completion": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "required_sections": { "$ref": "#/$defs/nonEmptyStrings" },
+            "required_evidence_fields": { "$ref": "#/$defs/nonEmptyStrings" },
+            "require_committed": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paths", "rules"],
+      "properties": {
+        "id": { "type": "string" },
+        "paths": { "$ref": "#/$defs/nonEmptyStrings" },
+        "rules": { "type": "array", "items": { "$ref": "#/$defs/rule" } }
+      }
+    },
+    "requiredFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "max_age_hours": { "type": "integer", "minimum": 0 },
+        "optional": { "type": "boolean" }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file"],
+      "properties": {
+        "file": { "type": "string", "minLength": 1 },
+        "must_exist": { "type": "boolean" },
+        "must_contain": { "$ref": "#/$defs/nonEmptyStrings" },
+        "must_not_contain": { "type": "string" },
+        "max_line_count": { "type": "integer", "minimum": 0 },
+        "optional": { "type": "boolean" }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/kind" },
+        "optional": { "type": "boolean" },
+        "path": { "type": "string" },
+        "max_age_hours": { "type": "integer", "minimum": 0 },
+        "file": { "type": "string" },
+        "must_exist": { "type": "boolean" },
+        "must_contain": { "$ref": "#/$defs/nonEmptyStrings" },
+        "must_not_contain": { "type": "string" },
+        "max_line_count": { "type": "integer", "minimum": 0 },
+        "script": { "type": "string" },
+        "args": { "$ref": "#/$defs/nonEmptyStrings" },
+        "timeout_sec": { "type": "integer", "minimum": 0 },
+        "paths": { "$ref": "#/$defs/nonEmptyStrings" },
+        "commands": { "$ref": "#/$defs/nonEmptyStrings" },
+        "claims": { "$ref": "#/$defs/nonEmptyStrings" }
+      }
+    },
+    "assuranceExemption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "reason"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "assurance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "type": { "enum": ["repository_layout", "generated_reference", "language_boundary", "dependency_pins", "network_boundary", "process_boundary", "substantive_proof", "live_verification", "go_concurrency_boundary", "go_format", "source_hygiene"] },
+        "applicable_if": { "$ref": "#/$defs/nonEmptyStrings" },
+        "scan_paths": { "$ref": "#/$defs/nonEmptyStrings" },
+        "exclude_paths": { "$ref": "#/$defs/nonEmptyStrings" },
+        "exemptions": { "type": "array", "items": { "$ref": "#/$defs/assuranceExemption" } },
+        "allowed_root_entries": { "$ref": "#/$defs/nonEmptyStrings" },
+        "required_root_entries": { "$ref": "#/$defs/nonEmptyStrings" },
+        "forbidden_root_entries": { "$ref": "#/$defs/nonEmptyStrings" },
+        "reserved_dirs": { "$ref": "#/$defs/nonEmptyStrings" },
+        "allow_hidden_entries": { "type": "boolean" },
+        "allowed_extensions": { "$ref": "#/$defs/nonEmptyStrings" },
+        "manifest_paths": { "$ref": "#/$defs/nonEmptyStrings" },
+        "dependency_sections": { "$ref": "#/$defs/nonEmptyStrings" },
+        "allowed_version_prefixes": { "$ref": "#/$defs/nonEmptyStrings" },
+        "site_patterns": { "$ref": "#/$defs/nonEmptyStrings" },
+        "guard_markers": { "$ref": "#/$defs/nonEmptyStrings" },
+        "marker_window_lines": { "type": "integer", "minimum": 0 },
+        "commands": { "$ref": "#/$defs/nonEmptyStrings" },
+        "command_policy": { "enum": ["all", "any"] },
+        "proof_file": { "type": "string" },
+        "min_samples": { "type": "integer", "minimum": 0 },
+        "max_age_hours": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "anyOf": [
+        { "required": ["template"] },
+        { "required": ["id", "kind", "message"] }
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "$ref": "#/$defs/kind" },
+        "mode": { "$ref": "#/$defs/mode" },
+        "message": { "type": "string", "minLength": 1 },
+        "paths": { "$ref": "#/$defs/nonEmptyStrings" },
+        "before_paths": { "$ref": "#/$defs/nonEmptyStrings" },
+        "when_paths": { "$ref": "#/$defs/nonEmptyStrings" },
+        "commands": { "$ref": "#/$defs/nonEmptyStrings" },
+        "claims": { "$ref": "#/$defs/nonEmptyStrings" },
+        "required_files": { "type": "array", "items": { "$ref": "#/$defs/requiredFile" } },
+        "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
+        "checks": { "type": "array", "items": { "$ref": "#/$defs/check" } },
+        "script": { "type": "string" },
+        "args": { "$ref": "#/$defs/nonEmptyStrings" },
+        "timeout_sec": { "type": "integer", "minimum": 0 },
+        "kill_timeout_sec": { "type": "integer", "minimum": 0 },
+        "assurance": { "type": "array", "items": { "$ref": "#/$defs/assurance" } },
+        "template": { "type": "string" },
+        "deprecated": { "type": "boolean" },
+        "deprecated_reason": { "type": "string" },
+        "deprecated_since": { "type": "string" },
+        "deprecated_replaced_by": { "type": "string" }
+      }
+    }
+  }
+}

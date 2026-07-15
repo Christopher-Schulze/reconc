@@ -159,7 +159,7 @@ reconc run off .
 ```
 
 Repository mode is durable for this repository, not machine-global. Claude
-Code, Codex, Cursor, Devin CLI, Antigravity CLI, and GitHub Copilot expose
+Code, Codex, Cursor, Devin CLI, and Antigravity CLI expose
 synchronous Stop continuation. OpenCode and Kilo Code use inferred
 `session.idle`, so their host continuation remains best-effort and fail-open.
 Typed `continue` and `claim` states continue; an empty active slot claims queued
@@ -250,7 +250,6 @@ timeout policy, output budgets, artifact paths, and activation probes:
 | OpenCode | `.opencode/plugins/reconc.js` | Thin project plugin; decisions and state stay in Go |
 | Devin CLI | `.devin/hooks.v1.json` | Native lifecycle plus post-compaction recovery |
 | Antigravity CLI | `.agents/hooks.json` | Invocation, tool, evidence, and Stop adapters |
-| GitHub Copilot | `.github/hooks/reconc.json` | Copilot-native decision response adapter |
 | Kilo Code | `.kilo/plugin/reconc.js` | Thin project plugin; disabled when `KILO_PURE` is set |
 
 Run `reconc hook status . --json` before making enforcement claims. `configured`

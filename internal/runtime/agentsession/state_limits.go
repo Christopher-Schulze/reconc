@@ -38,6 +38,7 @@ func normalizeSessionState(state SessionState) SessionState {
 
 	reads := sortedUnique(state.ReadPaths)
 	writes := sortedUnique(state.WritePaths)
+	writeEpochs := state.WriteEpochs
 	commands := sortedUnique(state.Commands)
 	claims := sortedUnique(state.Claims)
 	results := append([]CommandResult(nil), state.CommandResults...)
@@ -45,6 +46,7 @@ func normalizeSessionState(state SessionState) SessionState {
 
 	state.ReadPaths = []string{}
 	state.WritePaths = []string{}
+	state.WriteEpochs = map[string]uint64{}
 	state.Commands = []string{}
 	state.Claims = []string{}
 	state.CommandResults = []CommandResult{}
@@ -54,6 +56,9 @@ func normalizeSessionState(state SessionState) SessionState {
 	}
 	for _, value := range writes {
 		state = AppendWritePath(state, value)
+		if epoch := writeEpochs[value]; epoch > 0 {
+			state.WriteEpochs[value] = epoch
+		}
 	}
 	for _, value := range commands {
 		state = AppendCommand(state, value)

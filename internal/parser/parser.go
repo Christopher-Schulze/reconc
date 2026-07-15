@@ -78,6 +78,9 @@ func ParseRuleDocuments(bundle *ingest.SourceBundle) (*ParsedPolicy, error) {
 		if err != nil {
 			return nil, err
 		}
+		if err := validateDocumentFields(src, doc); err != nil {
+			return nil, err
+		}
 
 		// Capture default_mode from the compiler config (only).
 		if src.Kind == policy.SourceCompilerConfig {

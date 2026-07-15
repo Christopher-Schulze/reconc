@@ -18,35 +18,37 @@ import (
 )
 
 const (
-	stopPolicyFingerprintVersion = "stop-policy-report-v4"
+	stopPolicyFingerprintVersion = "stop-policy-report-v5"
 	stopPolicyUntrackedModeEnv   = "RECONC_STOP_FINGERPRINT_UNTRACKED"
 )
 
 type stopPolicyFingerprintInput struct {
-	Version            string          `json:"version"`
-	RepoRoot           string          `json:"repo_root"`
-	PolicyLockHash     string          `json:"policy_lock_hash"`
-	ReportFormat       string          `json:"report_format"`
-	SchemaBase         string          `json:"schema_base"`
-	ReadPaths          []string        `json:"read_paths"`
-	WritePaths         []string        `json:"write_paths"`
-	Commands           []string        `json:"commands"`
-	Claims             []string        `json:"claims"`
-	CommandResults     []CommandResult `json:"command_results"`
-	GitHead            string          `json:"git_head"`
-	GitStatusMode      string          `json:"git_status_mode"`
-	GitStatusOK        bool            `json:"git_status_ok"`
-	GitStatus          string          `json:"git_status"`
-	GitDirtyFiles      []gitDirtyFile  `json:"git_dirty_files"`
-	ReconcAuditNoCache string          `json:"reconc_audit_no_cache"`
+	Version            string            `json:"version"`
+	RepoRoot           string            `json:"repo_root"`
+	PolicyLockHash     string            `json:"policy_lock_hash"`
+	ReportFormat       string            `json:"report_format"`
+	SchemaBase         string            `json:"schema_base"`
+	ReadPaths          []string          `json:"read_paths"`
+	WritePaths         []string          `json:"write_paths"`
+	WriteEpochs        map[string]uint64 `json:"write_epochs"`
+	Commands           []string          `json:"commands"`
+	Claims             []string          `json:"claims"`
+	CommandResults     []CommandResult   `json:"command_results"`
+	GitHead            string            `json:"git_head"`
+	GitStatusMode      string            `json:"git_status_mode"`
+	GitStatusOK        bool              `json:"git_status_ok"`
+	GitStatus          string            `json:"git_status"`
+	GitDirtyFiles      []gitDirtyFile    `json:"git_dirty_files"`
+	ReconcAuditNoCache string            `json:"reconc_audit_no_cache"`
 }
 
 type stopPolicyEvidenceInput struct {
-	ReadPaths      []string        `json:"read_paths"`
-	WritePaths     []string        `json:"write_paths"`
-	Commands       []string        `json:"commands"`
-	Claims         []string        `json:"claims"`
-	CommandResults []CommandResult `json:"command_results"`
+	ReadPaths      []string          `json:"read_paths"`
+	WritePaths     []string          `json:"write_paths"`
+	WriteEpochs    map[string]uint64 `json:"write_epochs"`
+	Commands       []string          `json:"commands"`
+	Claims         []string          `json:"claims"`
+	CommandResults []CommandResult   `json:"command_results"`
 }
 
 type gitDirtyFile struct {
@@ -96,13 +98,14 @@ func runStopPolicyCheckLocked(repoRoot string, state SessionState) (stopPolicyCh
 		}
 	}
 
+	scopedWritePaths := stopScopeWritePathsToUncommitted(repoRoot, state.WritePaths, stopPolicyGitSnapshot{
+		Head:       fingerprintInput.GitHead,
+		Status:     fingerprintInput.GitStatus,
+		StatusMode: fingerprintInput.GitStatusMode,
+		StatusOK:   fingerprintInput.GitStatusOK,
+	})
 	report, err := runCheckAndSave(repoRoot, state.SessionID, state.ReadPaths,
-		stopScopeWritePathsToUncommitted(repoRoot, state.WritePaths, stopPolicyGitSnapshot{
-			Head:       fingerprintInput.GitHead,
-			Status:     fingerprintInput.GitStatus,
-			StatusMode: fingerprintInput.GitStatusMode,
-			StatusOK:   fingerprintInput.GitStatusOK,
-		}), state.Commands, state.CommandResults, state.Claims)
+		scopedWritePaths, filterWriteEpochs(state.WriteEpochs, scopedWritePaths), state.Commands, state.CommandResults, state.Claims)
 	if err != nil {
 		return stopPolicyCheckResult{}, err
 	}
@@ -122,6 +125,16 @@ func runStopPolicyCheckLocked(repoRoot string, state SessionState) (stopPolicyCh
 		})
 	}
 	return stopPolicyCheckResult{Report: report, GitSnapshot: snapshot}, nil
+}
+
+func filterWriteEpochs(epochs map[string]uint64, paths []string) map[string]uint64 {
+	out := make(map[string]uint64, len(paths))
+	for _, path := range paths {
+		if epoch := epochs[path]; epoch > 0 {
+			out[path] = epoch
+		}
+	}
+	return out
 }
 
 // stopScopeWritePathsToUncommitted intersects this session's recorded writes
@@ -255,6 +268,7 @@ func stopPolicyFingerprintInputFor(repoRoot string, state SessionState) stopPoli
 		SchemaBase:         os.Getenv("RECONC_SCHEMA_BASE_URL"),
 		ReadPaths:          sortedUnique(state.ReadPaths),
 		WritePaths:         sortedUnique(state.WritePaths),
+		WriteEpochs:        cloneWriteEpochs(state.WriteEpochs),
 		Commands:           sortedUnique(state.Commands),
 		Claims:             sortedUnique(state.Claims),
 		CommandResults:     append([]CommandResult{}, state.CommandResults...),
@@ -305,6 +319,7 @@ func stopPolicyEvidenceHash(state SessionState) string {
 	input := stopPolicyEvidenceInput{
 		ReadPaths:      sortedUnique(state.ReadPaths),
 		WritePaths:     sortedUnique(state.WritePaths),
+		WriteEpochs:    cloneWriteEpochs(state.WriteEpochs),
 		Commands:       sortedUnique(state.Commands),
 		Claims:         sortedUnique(state.Claims),
 		CommandResults: append([]CommandResult{}, state.CommandResults...),

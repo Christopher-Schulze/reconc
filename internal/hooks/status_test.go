@@ -105,23 +105,6 @@ func TestInspectPlatformsActivationStates(t *testing.T) {
 		}
 	})
 
-	t.Run("copilot shadowed by repository setting", func(t *testing.T) {
-		repo := t.TempDir()
-		writeExecutableWrapper(t, repo)
-		if _, err := Install(KindCopilot, repo, false); err != nil {
-			t.Fatal(err)
-		}
-		settings := filepath.Join(repo, ".github", "copilot", "settings.json")
-		if err := os.MkdirAll(filepath.Dir(settings), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(settings, []byte(`{"disableAllHooks":true}`), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if got := statusForKind(t, repo, KindCopilot).State; got != StateShadowed {
-			t.Fatalf("disabled repository hooks = %s, want shadowed", got)
-		}
-	})
 }
 
 func TestInspectGitHookShadowedByCoreHooksPath(t *testing.T) {

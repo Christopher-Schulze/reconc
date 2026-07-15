@@ -49,7 +49,7 @@ why a task is allowed to be called done.
 - fails closed on stale lockfiles, schema drift, invalid globs, unsupported rule
   kinds, and repository-root mismatch
 - installs explicitly selected git, Claude Code, Codex, Cursor, OpenCode,
-  Devin CLI, Antigravity CLI, GitHub Copilot, and Kilo Code integrations
+  Devin CLI, Antigravity CLI, and Kilo Code integrations
 - controls autonomous agent continuation with repo-scoped
   `reconc run on|off|status|log`, no-progress guards, and bounded logs
 - adopts typed repository TASK state and performs recoverable claim, block,
@@ -138,7 +138,7 @@ reconc run off .
 ```
 
 The switch is durable for this repository, not machine-global. Claude Code,
-Codex, Cursor, Devin CLI, Antigravity CLI, and GitHub Copilot expose synchronous
+Codex, Cursor, Devin CLI, and Antigravity CLI expose synchronous
 Stop continuation. OpenCode and Kilo Code use inferred `session.idle` adapters,
 so Reconc requests continuation there but the host boundary remains best-effort
 and fail-open. Executable active work continues; an empty active slot with
@@ -215,10 +215,9 @@ a transaction reports drift or a mature repository needs surgical adaptation.
 | OpenCode | thin tool, permission, compaction, and `session.idle` continuation adapter |
 | Devin CLI | native session, tool, permission, stop, and post-compaction hooks |
 | Antigravity CLI | invocation, tool, post-tool, and stop hook coverage |
-| GitHub Copilot | repository hooks with native Copilot decision responses |
 | Kilo Code | thin project plugin with tool, permission, compaction, and `session.idle` continuation handling |
 
-Claude Code, Codex, Cursor, Devin CLI, Antigravity CLI, and GitHub Copilot expose
+Claude Code, Codex, Cursor, Devin CLI, and Antigravity CLI expose
 a synchronous Stop event. OpenCode and Kilo Code expose `session.idle`; Reconc can
 request continuation there, but that inferred adapter is not an equivalent
 host-level Stop gate. All platforms still use git pre-commit as the hard
@@ -255,8 +254,10 @@ reconc check . --write internal/example.go
 reconc check . --write internal/example.go --command-success 'go test ./...'
 ```
 
-The second command shows the missing evidence. The third command supplies the
-required test result and should pass unless another rule blocks it.
+The second command shows the missing evidence. The third command supplies a
+current test result and should pass unless another rule blocks it. Hook sessions
+track write epochs, so a successful command recorded before a later matching
+write no longer satisfies `require_command_success`.
 
 Exit codes are stable for humans, agents, and CI:
 
@@ -339,13 +340,13 @@ reconc <command> --help
 
 ## Status
 
-`reconc` is released on the `v0.7.x` line; the current patch is `v0.7.3`. Core
+`reconc` is released on the `v0.8.x` line; the source version is `v0.8.0`. Core
 local gates pass, and release artifacts are produced by the GitHub release
 workflow when a `reconc-v*` tag is pushed. Every release SBOM is regenerated
 and byte-verified before its checksum and build provenance are published.
 
 `make self-host` builds the local binary and runs the clean-repository golden
-path across all three bootstrap profiles, all nine hook platforms, TASK
+path across all three bootstrap profiles, all eight hook platforms, TASK
 lifecycle, retention, and stable release-layout binary resolution.
 
 ## License

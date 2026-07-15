@@ -217,6 +217,39 @@ func TestParseRejectsInvalidDefaultMode(t *testing.T) {
 	}
 }
 
+func TestParseRejectsUnknownConfigurationFields(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{name: "root", content: "default_mod: warn\nrules: []\n"},
+		{name: "rule", content: "rules:\n  - id: x\n    kind: deny_write\n    pathz: ['x']\n    paths: ['x']\n    mode: warn\n    message: x\n"},
+		{name: "scope", content: "scopes:\n  - pathz: ['src/**']\n    paths: ['src/**']\n    rules: []\n"},
+		{name: "required file", content: "rules:\n  - id: x\n    kind: require_fresh_file\n    required_files:\n      - path: proof.txt\n        max_age_hourz: 1\n    mode: block\n    message: x\n"},
+		{name: "check", content: "rules:\n  - id: x\n    kind: all_of\n    checks:\n      - kind: require_command_success\n        commandz: ['go test']\n        commands: ['go test']\n    mode: block\n    message: x\n"},
+		{name: "task lifecycle", content: "task_lifecycle:\n  done_visble: 10\nrules: []\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := ParseRuleDocuments(makeBundle(policy.PolicySource{Kind: policy.SourceCompilerConfig, Path: ".reconc.yml", Content: test.content}))
+			if err == nil || !contains(err.Error(), "unknown field") {
+				t.Fatalf("expected unknown-field error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestParseDoesNotInterpretMessageTextAsConfiguration(t *testing.T) {
+	_, err := ParseRuleDocuments(makeBundle(policy.PolicySource{
+		Kind:    policy.SourcePolicyFile,
+		Path:    "policies/x.yml",
+		Content: "rules:\n  - id: x\n    kind: deny_write\n    paths: ['x']\n    mode: warn\n    message: 'typos and arbitrary prompt text stay valid'\n",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestParseSkipsContextOnlySources(t *testing.T) {
 	// AGENTS.md / CLAUDE.md / start.md sources should not be
 	// parsed as rule documents (they carry prose).

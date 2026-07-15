@@ -627,7 +627,6 @@ func TestRunBootstrapHintsAndAgentInstall(t *testing.T) {
 			"OpenCode: create .opencode",
 			"Devin CLI: create .devin",
 			"Antigravity CLI: create .agents",
-			"GitHub Copilot: create .github/copilot or .github/hooks",
 			"Kilo Code: create .kilo or .kilocode",
 		} {
 			if !strings.Contains(out, hint) {

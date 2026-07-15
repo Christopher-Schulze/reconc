@@ -16,7 +16,7 @@ import (
 
 // Version is the reconc build version. Overridden at build time via
 // -ldflags "-X main.Version=<semver>" for release builds.
-var Version = "0.7.3"
+var Version = "0.8.0"
 
 func main() {
 	if err := cli.Run(os.Args[1:], Version, os.Stdout, os.Stderr); err != nil {

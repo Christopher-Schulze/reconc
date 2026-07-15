@@ -71,6 +71,14 @@ type rawCompletion struct {
 	RequireCommitted       bool     `yaml:"require_committed"`
 }
 
+func (raw *rawConfig) UnmarshalYAML(node *yaml.Node) error {
+	if err := validateTaskLifecycleNode(node); err != nil {
+		return err
+	}
+	type plainRawConfig rawConfig
+	return node.Decode((*plainRawConfig)(raw))
+}
+
 // LoadConfig reads only task_lifecycle from .reconc.yml. Unknown policy keys
 // remain owned by the policy parser and are deliberately ignored here.
 func LoadConfig(repoRoot string) (Config, error) {
@@ -99,6 +107,40 @@ func LoadConfig(repoRoot string) (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+func validateTaskLifecycleNode(node *yaml.Node) error {
+	if node.Kind != yaml.MappingNode {
+		return fmt.Errorf("must be a mapping")
+	}
+	for index := 0; index < len(node.Content); index += 2 {
+		key := node.Content[index].Value
+		switch key {
+		case "enabled", "profile", "overview_path", "detail_dir", "done_dir", "done_visible":
+		case "completion":
+			if err := validateTaskCompletionNode(node.Content[index+1]); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("field %s not found in task_lifecycle", key)
+		}
+	}
+	return nil
+}
+
+func validateTaskCompletionNode(node *yaml.Node) error {
+	if node.Kind != yaml.MappingNode {
+		return fmt.Errorf("task_lifecycle.completion must be a mapping")
+	}
+	for index := 0; index < len(node.Content); index += 2 {
+		key := node.Content[index].Value
+		switch key {
+		case "required_sections", "required_evidence_fields", "require_committed":
+		default:
+			return fmt.Errorf("field %s not found in task_lifecycle.completion", key)
+		}
+	}
+	return nil
 }
 
 func mergeRawConfig(cfg Config, raw *rawConfig) Config {

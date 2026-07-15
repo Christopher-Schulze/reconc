@@ -79,9 +79,9 @@ For every TASK, every agent must:
 ask the user to run these commands. Inspect durable truth with `reconc run
 status .` and bounded transition history with `reconc run log .`. Repository
 mode works through Claude Code, Codex, Cursor, OpenCode, Devin CLI,
-Antigravity CLI, GitHub Copilot, and Kilo Code, scoped to this repository rather
-than the whole machine. Claude Code, Codex, Cursor, Devin CLI, Antigravity CLI,
-and GitHub Copilot expose synchronous Stop gates. OpenCode and Kilo Code use
+Antigravity CLI and Kilo Code, scoped to this repository rather
+than the whole machine. Claude Code, Codex, Cursor, Devin CLI, and Antigravity
+CLI expose synchronous Stop gates. OpenCode and Kilo Code use
 inferred `session.idle`, so their host continuation remains best-effort and
 fail-open. It survives internal continuation prompts, compaction, session
 boundaries, and model restarts. A runtime interrupt releases only the current

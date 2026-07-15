@@ -49,12 +49,13 @@ const StateRootEnv = "RECONC_CLAUDE_STATE_DIR"
 // keep our own copy in the session state so we can replay / inspect
 // them without importing runtime types back into the state file.
 type CommandResult struct {
-	Command     string `json:"command"`
-	Outcome     string `json:"outcome"` // "success" | "failure"
-	ToolUseID   string `json:"tool_use_id,omitempty"`
-	ExitCode    *int   `json:"exit_code,omitempty"`
-	Error       string `json:"error,omitempty"`
-	IsInterrupt *bool  `json:"is_interrupt,omitempty"`
+	Command       string `json:"command"`
+	Outcome       string `json:"outcome"` // "success" | "failure"
+	EvidenceEpoch uint64 `json:"evidence_epoch,omitempty"`
+	ToolUseID     string `json:"tool_use_id,omitempty"`
+	ExitCode      *int   `json:"exit_code,omitempty"`
+	Error         string `json:"error,omitempty"`
+	IsInterrupt   *bool  `json:"is_interrupt,omitempty"`
 }
 
 type PendingToolCall struct {
@@ -72,6 +73,8 @@ type SessionState struct {
 	Runtime                    string                     `json:"runtime,omitempty"`
 	ReadPaths                  []string                   `json:"read_paths"`
 	WritePaths                 []string                   `json:"write_paths"`
+	WriteEpochs                map[string]uint64          `json:"write_epochs,omitempty"`
+	EvidenceEpoch              uint64                     `json:"evidence_epoch,omitempty"`
 	Commands                   []string                   `json:"commands"`
 	Claims                     []string                   `json:"claims"`
 	CommandResults             []CommandResult            `json:"command_results"`
@@ -97,6 +100,7 @@ func emptyState(repoRoot, sessionID string) SessionState {
 		SessionID:      sessionID,
 		ReadPaths:      []string{},
 		WritePaths:     []string{},
+		WriteEpochs:    map[string]uint64{},
 		Commands:       []string{},
 		Claims:         []string{},
 		CommandResults: []CommandResult{},
@@ -237,6 +241,16 @@ func loadSessionStateResolved(root, sessionID string) (SessionState, error) {
 		return SessionState{}, fmt.Errorf("%s: repo_root %q does not match resolved repository %q", path, state.RepoRoot, root)
 	}
 	state.RepoRoot = root
+	if len(state.WritePaths) > 0 && state.EvidenceEpoch == 0 && len(state.WriteEpochs) == 0 {
+		// Legacy states cannot prove whether recorded commands ran before or
+		// after their writes. Put every legacy write one epoch ahead so old
+		// command outcomes fail closed until the command is rerun.
+		state.EvidenceEpoch = 1
+		state.WriteEpochs = make(map[string]uint64, len(state.WritePaths))
+		for _, writePath := range state.WritePaths {
+			state.WriteEpochs[writePath] = state.EvidenceEpoch
+		}
+	}
 	if err := validateStringList(state.ReadPaths, "read_paths", path); err != nil {
 		return SessionState{}, err
 	}
@@ -516,6 +530,41 @@ func AppendReadPath(state SessionState, p string) SessionState {
 func AppendWritePath(state SessionState, p string) SessionState {
 	appendBoundedString(&state, &state.WritePaths, p, maxPathEvidenceItems, maxPathEvidenceBytes, maxPathBytes, "write_paths")
 	return state
+}
+
+// RecordWriteEvent advances the causal evidence clock once and records every
+// path produced by that single tool event at the new epoch.
+func RecordWriteEvent(state SessionState, paths []string) SessionState {
+	if len(paths) == 0 {
+		return state
+	}
+	if state.EvidenceEpoch < ^uint64(0)-1 {
+		state.EvidenceEpoch++
+	}
+	if state.WriteEpochs == nil {
+		state.WriteEpochs = map[string]uint64{}
+	}
+	for _, path := range paths {
+		before := len(state.WritePaths)
+		state = AppendWritePath(state, path)
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		if len(state.WritePaths) > before || containsString(state.WritePaths, path) {
+			state.WriteEpochs[path] = state.EvidenceEpoch
+		}
+	}
+	return state
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 // AppendCommand adds one command string.

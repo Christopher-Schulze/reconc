@@ -75,7 +75,7 @@ func runCI(args []string, stdout, stderr io.Writer) error {
 			}
 			inputs.Commands = append(inputs.Commands, val)
 			inputs.CommandResults = append(inputs.CommandResults, runtime.CommandResult{
-				Command: val, Outcome: runtime.CommandOutcomeSuccess,
+				Command: val, Outcome: runtime.CommandOutcomeSuccess, EvidenceEpoch: runtime.ExplicitEvidenceEpoch,
 			})
 		case "--command-failure":
 			val, ok := nextArgValue(args, &i, a)
@@ -84,7 +84,7 @@ func runCI(args []string, stdout, stderr io.Writer) error {
 			}
 			inputs.Commands = append(inputs.Commands, val)
 			inputs.CommandResults = append(inputs.CommandResults, runtime.CommandResult{
-				Command: val, Outcome: runtime.CommandOutcomeFailure,
+				Command: val, Outcome: runtime.CommandOutcomeFailure, EvidenceEpoch: runtime.ExplicitEvidenceEpoch,
 			})
 		case "--claim":
 			val, ok := nextArgValue(args, &i, a)
@@ -123,16 +123,18 @@ func runCI(args []string, stdout, stderr io.Writer) error {
 	if !discovery.Discovered {
 		return &CLIError{ExitCode: 1, Message: "reconc ci: no policy markers found"}
 	}
-	if reads, commands, results, claims, err := agentsession.ActiveEvidence(discovery.RepoRoot); err == nil {
-		inputs.ReadPaths = append(inputs.ReadPaths, reads...)
-		inputs.Commands = append(inputs.Commands, commands...)
-		for _, result := range results {
+	activeEvidence, activeEvidenceErr := agentsession.ActiveEvidence(discovery.RepoRoot)
+	if activeEvidenceErr == nil {
+		inputs.ReadPaths = append(inputs.ReadPaths, activeEvidence.ReadPaths...)
+		inputs.Commands = append(inputs.Commands, activeEvidence.Commands...)
+		for _, result := range activeEvidence.CommandResults {
 			inputs.CommandResults = append(inputs.CommandResults, runtime.CommandResult{
-				Command: result.Command,
-				Outcome: result.Outcome,
+				Command:       result.Command,
+				Outcome:       result.Outcome,
+				EvidenceEpoch: result.EvidenceEpoch,
 			})
 		}
-		inputs.Claims = append(inputs.Claims, claims...)
+		inputs.Claims = append(inputs.Claims, activeEvidence.Claims...)
 	}
 
 	gitPaths, gitMeta, err := runtime.CollectGitWritePaths(discovery.RepoRoot, staged, base, head)
@@ -140,6 +142,20 @@ func runCI(args []string, stdout, stderr io.Writer) error {
 		return &CLIError{ExitCode: 1, Message: "reconc ci: " + err.Error()}
 	}
 	inputs.WritePaths = append(inputs.WritePaths, gitPaths...)
+	if inputs.WriteEpochs == nil {
+		inputs.WriteEpochs = map[string]uint64{}
+	}
+	gitEpoch := activeEvidence.EvidenceEpoch
+	if gitEpoch < runtime.ExplicitEvidenceEpoch-1 {
+		gitEpoch++
+	}
+	for _, path := range gitPaths {
+		epoch := activeEvidence.WriteEpochs[path]
+		if epoch == 0 {
+			epoch = gitEpoch
+		}
+		inputs.WriteEpochs[path] = epoch
+	}
 
 	startCI := time.Now()
 	report, err := runtime.CheckRepoPolicy(repo, inputs)

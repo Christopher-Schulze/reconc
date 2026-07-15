@@ -78,8 +78,9 @@ func TestLoadSessionStateRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	initial = AppendReadPath(initial, "docs/x.md")
-	initial = AppendWritePath(initial, "src/a.go")
+	initial = RecordWriteEvent(initial, []string{"src/a.go"})
 	initial = AppendCommand(initial, "go test ./...")
+	initial = AppendCommandResult(initial, CommandResult{Command: "go test ./...", Outcome: "success", EvidenceEpoch: initial.EvidenceEpoch})
 	initial = AppendClaim(initial, "ci-green")
 	if err := SaveSessionState(initial); err != nil {
 		t.Fatal(err)
@@ -92,8 +93,40 @@ func TestLoadSessionStateRoundTrip(t *testing.T) {
 	if len(loaded.WritePaths) != 1 || loaded.WritePaths[0] != "src/a.go" {
 		t.Errorf("WritePaths roundtrip failed: %v", loaded.WritePaths)
 	}
+	if loaded.WriteEpochs["src/a.go"] != 1 || loaded.CommandResults[0].EvidenceEpoch != 1 {
+		t.Fatalf("causal evidence roundtrip failed: %+v", loaded)
+	}
 	if len(loaded.Claims) != 1 || loaded.Claims[0] != "ci-green" {
 		t.Errorf("Claims roundtrip failed: %v", loaded.Claims)
+	}
+}
+
+func TestLoadLegacyStateInvalidatesUnorderedCommandSuccess(t *testing.T) {
+	_, repo := withStateRoot(t)
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := emptyState(root, "legacy")
+	legacy.WritePaths = []string{"src/a.go"}
+	legacy.CommandResults = []CommandResult{{Command: "go test ./...", Outcome: "success"}}
+	body, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := sessionStatePath(root, "legacy")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadSessionState(repo, "legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.WriteEpochs["src/a.go"] != 1 || loaded.CommandResults[0].EvidenceEpoch != 0 {
+		t.Fatalf("legacy evidence did not fail closed: %+v", loaded)
 	}
 }
 
