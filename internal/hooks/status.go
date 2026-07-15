@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"reconc.dev/reconc/internal/execfile"
 )
 
 // ActivationState is configuration truth, not proof that a live process has
@@ -257,8 +259,7 @@ func envTruthy(name string) bool {
 }
 
 func executableFile(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0
+	return execfile.Is(path)
 }
 
 func tomlSectionBoolean(path, section, key string) (bool, bool, error) {

@@ -87,6 +87,10 @@ go build -o reconc ./cmd/reconc
 ./reconc --help
 ```
 
+Windows binaries run natively. Shell-based hook wrappers plus `.sh` and
+extensionless policy scripts require `sh` on `PATH`; Git for Windows supplies
+it. Native `.exe` and `.com` policy scripts execute directly.
+
 After installing or placing the binary on `PATH`, use `reconc` directly.
 
 Add Reconc to a target repo:

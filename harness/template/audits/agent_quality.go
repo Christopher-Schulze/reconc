@@ -215,7 +215,7 @@ func auditReconcBinaryFreshness(root string) []string {
 		return nil
 	}
 	var failures []string
-	if binaryInfo.Mode()&0o111 == 0 {
+	if runtime.GOOS != "windows" && binaryInfo.Mode()&0o111 == 0 {
 		failures = append(failures, binaryRel+" is not executable; live agent hooks need an executable repo-local Reconc binary")
 	}
 	newest, newestRel, ok := newestReconcSource(root)

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -332,14 +333,14 @@ func auditRepoLayout(root string) []string {
 func auditDependencyLocality(root string) []string {
 	var failures []string
 	frontendPrefix := projectRel(root, "frontend")
-	allowedNodeModules := filepath.Clean(frontendPrefix + "/node_modules")
+	allowedNodeModules := filepath.ToSlash(filepath.Clean(frontendPrefix + "/node_modules"))
 	allowedPackageFiles := map[string]bool{
-		filepath.Clean(frontendPrefix + "/package.json"):      true,
-		filepath.Clean(frontendPrefix + "/bun.lock"):          true,
-		filepath.Clean(frontendPrefix + "/bun.lockb"):         true,
-		filepath.Clean(frontendPrefix + "/package-lock.json"): false,
-		filepath.Clean(frontendPrefix + "/pnpm-lock.yaml"):    false,
-		filepath.Clean(frontendPrefix + "/yarn.lock"):         false,
+		filepath.ToSlash(filepath.Clean(frontendPrefix + "/package.json")):      true,
+		filepath.ToSlash(filepath.Clean(frontendPrefix + "/bun.lock")):          true,
+		filepath.ToSlash(filepath.Clean(frontendPrefix + "/bun.lockb")):         true,
+		filepath.ToSlash(filepath.Clean(frontendPrefix + "/package-lock.json")): false,
+		filepath.ToSlash(filepath.Clean(frontendPrefix + "/pnpm-lock.yaml")):    false,
+		filepath.ToSlash(filepath.Clean(frontendPrefix + "/yarn.lock")):         false,
 	}
 	skipDirs := map[string]bool{
 		".git": true, ".reconc": true, "_drop": true, "research": true,
@@ -350,17 +351,18 @@ func auditDependencyLocality(root string) []string {
 			failures = append(failures, fmt.Sprintf("walk %s: %v", rel(root, path), err))
 			return nil
 		}
-		relative := rel(root, path)
+		relative := filepath.ToSlash(rel(root, path))
 		if entry.IsDir() {
 			if relative == "." {
 				return nil
 			}
-			parts := strings.Split(relative, string(filepath.Separator))
+			parts := strings.Split(relative, "/")
 			if skipDirs[parts[0]] {
 				return filepath.SkipDir
 			}
-			if entry.Name() == "node_modules" && filepath.Clean(relative) != allowedNodeModules {
-				if filepath.Clean(relative) == "codebase/frontend/node_modules" || strings.HasPrefix(filepath.Clean(relative), "codebase/frontend/node_modules/") {
+			clean := filepath.ToSlash(filepath.Clean(relative))
+			if entry.Name() == "node_modules" && clean != allowedNodeModules {
+				if clean == "codebase/frontend/node_modules" || strings.HasPrefix(clean, "codebase/frontend/node_modules/") {
 					return filepath.SkipDir
 				}
 				failures = append(failures, fmt.Sprintf("node_modules found at %s; only %s is allowed", relative, allowedNodeModules))
@@ -371,7 +373,7 @@ func auditDependencyLocality(root string) []string {
 		name := entry.Name()
 		switch name {
 		case "package.json", "bun.lock", "bun.lockb", "package-lock.json", "pnpm-lock.yaml", "yarn.lock":
-			clean := filepath.Clean(relative)
+			clean := filepath.ToSlash(filepath.Clean(relative))
 			allowed, ok := allowedPackageFiles[clean]
 			if !ok || !allowed {
 				failures = append(failures, fmt.Sprintf("dependency file %s violates single Bun workspace policy", relative))
@@ -397,7 +399,7 @@ func auditGitHooks(root string) []string {
 	info, err := os.Stat(hookPath)
 	if err != nil {
 		failures = append(failures, fmt.Sprintf(".githooks/pre-commit missing or unreadable: %v (run `reconc hook install git-pre-commit` and copy/commit the result to .githooks/pre-commit)", err))
-	} else if info.Mode()&0o111 == 0 {
+	} else if runtime.GOOS != "windows" && info.Mode()&0o111 == 0 {
 		failures = append(failures, ".githooks/pre-commit is not executable (run `chmod +x .githooks/pre-commit`)")
 	}
 	cmd, cancel := commandWithTimeout(shortAuditCommandTimeout, "git", "-C", root, "config", "--get", "core.hooksPath")
@@ -1154,7 +1156,7 @@ func auditAgentHooks(root string) []string {
 		".github/hooks/reconc.json":   {`"PreCompact"`, `"UserPromptSubmit"`, "copilot-user-prompt-submit", "copilot-post-compaction"},
 	}
 	for path, required := range hooks {
-		relative := rel(root, path)
+		relative := filepath.ToSlash(rel(root, path))
 		contentBytes, err := os.ReadFile(path)
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("%s missing or unreadable: %v", relative, err))

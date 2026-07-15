@@ -7,7 +7,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 )
 
@@ -434,9 +433,6 @@ Current: TASK-0001-First -> tasks/TASK-0001-First.md
 }
 
 func TestPromoteLockingPreventsConcurrentMutation(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("flock is unix-only")
-	}
 	root := newRepo(t)
 	writeFile(t, root, "docs/tasks.md", `# Tasks
 
@@ -455,10 +451,11 @@ Current: TASK-0001-First -> tasks/TASK-0001-First.md
 		t.Fatalf("open lock: %v", err)
 	}
 	defer holder.Close()
-	if err := syscall.Flock(int(holder.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	unlock, err := tryPromoteLock(holder)
+	if err != nil {
 		t.Fatalf("acquire lock: %v", err)
 	}
-	defer syscall.Flock(int(holder.Fd()), syscall.LOCK_UN)
+	defer unlock()
 
 	err = runWithLock(root, options{allowEmptyCurrent: true})
 	if err == nil || !strings.Contains(err.Error(), "promote-task-done holds") {
@@ -467,9 +464,6 @@ Current: TASK-0001-First -> tasks/TASK-0001-First.md
 }
 
 func TestPromoteParallelWithLockHasOneWinner(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("flock is unix-only")
-	}
 	root := newRepo(t)
 	writeFile(t, root, "docs/tasks.md", `# Tasks
 
@@ -699,6 +693,9 @@ None.
 		repoRoot = filepath.Dir(repoRoot)
 	}
 	auditBin := filepath.Join(t.TempDir(), "workflow-audit")
+	if runtime.GOOS == "windows" {
+		auditBin += ".exe"
+	}
 	build := exec.Command("go", "build", "-o", auditBin, "./audits")
 	build.Dir = repoRoot
 	if out, err := build.CombinedOutput(); err != nil {

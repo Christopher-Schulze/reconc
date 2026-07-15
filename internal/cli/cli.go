@@ -2795,7 +2795,7 @@ func sourceMTimeSignature(repoRoot string) string {
 		if !e.IsDir() {
 			n := e.Name()
 			if strings.HasSuffix(n, ".yml") || strings.HasSuffix(n, ".yaml") {
-				candidates = append(candidates, filepath.Join("policies", n))
+				candidates = append(candidates, filepath.ToSlash(filepath.Join("policies", n)))
 			}
 		}
 	}

@@ -83,14 +83,7 @@ func TestRunDoctorDeepChecks(t *testing.T) {
 		repo := makeCheckRepo(t,
 			"rules:\n  - id: deny-generated\n    kind: deny_write\n    paths: ['generated/**']\n    mode: warn\n    message: generated files are read-only\n")
 		lockfile := filepath.Join(repo, ".reconc", "policy.lock.json")
-		data, err := os.ReadFile(lockfile)
-		if err != nil {
-			t.Fatalf("read lockfile: %v", err)
-		}
-		moved := strings.ReplaceAll(string(data), repo, filepath.Join(t.TempDir(), "old-root"))
-		if err := os.WriteFile(lockfile, []byte(moved), 0o644); err != nil {
-			t.Fatalf("rewrite lockfile root: %v", err)
-		}
+		rewriteLockfileRoot(t, lockfile, filepath.Join(t.TempDir(), "old-root"))
 
 		report, err := runDoctorDeepJSON(t, repo)
 		if ExitCode(err) != 1 {

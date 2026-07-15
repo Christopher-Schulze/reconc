@@ -1869,17 +1869,10 @@ func TestRunPostTaskCheckFailsOnMovedLockfileRoot(t *testing.T) {
 	repo := makeAssertRepo(t,
 		"rules:\n  - id: r1\n    kind: deny_write\n    paths: ['x']\n    mode: warn\n    message: m\n")
 	lockfile := filepath.Join(repo, ".reconc", "policy.lock.json")
-	data, err := os.ReadFile(lockfile)
-	if err != nil {
-		t.Fatalf("read lockfile: %v", err)
-	}
-	moved := strings.ReplaceAll(string(data), repo, filepath.Join(t.TempDir(), "old-root"))
-	if err := os.WriteFile(lockfile, []byte(moved), 0o644); err != nil {
-		t.Fatalf("rewrite lockfile root: %v", err)
-	}
+	rewriteLockfileRoot(t, lockfile, filepath.Join(t.TempDir(), "old-root"))
 
 	var stdout, stderr bytes.Buffer
-	err = Run([]string{"post-task-check", repo}, "0.1.0-test", &stdout, &stderr)
+	err := Run([]string{"post-task-check", repo}, "0.1.0-test", &stdout, &stderr)
 	if err == nil || ExitCode(err) != 1 {
 		t.Fatalf("expected post-task-check to fail on moved root, got err=%v code=%d", err, ExitCode(err))
 	}
@@ -1968,22 +1961,35 @@ func TestRunDoneBlocksOnMovedLockfileRoot(t *testing.T) {
 	repo := makeAssertRepo(t,
 		"rules:\n  - id: r1\n    kind: deny_write\n    paths: ['x']\n    mode: warn\n    message: m\n")
 	lockfile := filepath.Join(repo, ".reconc", "policy.lock.json")
-	data, err := os.ReadFile(lockfile)
-	if err != nil {
-		t.Fatalf("read lockfile: %v", err)
-	}
-	moved := strings.ReplaceAll(string(data), repo, filepath.Join(t.TempDir(), "old-root"))
-	if err := os.WriteFile(lockfile, []byte(moved), 0o644); err != nil {
-		t.Fatalf("rewrite lockfile root: %v", err)
-	}
+	rewriteLockfileRoot(t, lockfile, filepath.Join(t.TempDir(), "old-root"))
 
 	var stdout, stderr bytes.Buffer
-	err = Run([]string{"done", repo}, "0.5.0-test", &stdout, &stderr)
+	err := Run([]string{"done", repo}, "0.5.0-test", &stdout, &stderr)
 	if err == nil || ExitCode(err) != 2 {
 		t.Fatalf("expected done to block on moved root, got err=%v code=%d", err, ExitCode(err))
 	}
 	if !strings.Contains(stdout.String(), "repo_root does not match") {
 		t.Fatalf("expected repo_root mismatch output, got %q", stdout.String())
+	}
+}
+
+func rewriteLockfileRoot(t *testing.T, lockfile, root string) {
+	t.Helper()
+	data, err := os.ReadFile(lockfile)
+	if err != nil {
+		t.Fatalf("read lockfile: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("parse lockfile: %v", err)
+	}
+	payload["repo_root"] = root
+	updated, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal lockfile: %v", err)
+	}
+	if err := os.WriteFile(lockfile, append(updated, '\n'), 0o644); err != nil {
+		t.Fatalf("rewrite lockfile root: %v", err)
 	}
 }
 

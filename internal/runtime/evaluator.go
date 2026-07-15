@@ -567,7 +567,7 @@ func normalizePaths(paths []string, root string) ([]string, error) {
 		// backslashes as separators before boundary checks and matching.
 		candidate = strings.ReplaceAll(candidate, "\\", "/")
 		var absPath string
-		if filepath.IsAbs(candidate) {
+		if path.IsAbs(candidate) || filepath.IsAbs(candidate) {
 			absPath = candidate
 		} else {
 			absPath = filepath.Join(resolvedRoot, candidate)

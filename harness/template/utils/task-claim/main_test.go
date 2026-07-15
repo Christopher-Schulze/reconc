@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -222,10 +223,23 @@ func TestAssertClaimsForwardsToBinaryStub(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 	logPath := filepath.Join(root, "calls.log")
-	stub := "#!/bin/sh\necho \"$@\" >> " + logPath + "\nexit 0\n"
-	if err := os.WriteFile(binPath, []byte(stub), 0o755); err != nil {
-		t.Fatalf("write stub: %v", err)
+	writeClaimStub(t, binPath, `package main
+
+import (
+	"os"
+	"strings"
+)
+
+func main() {
+	file, err := os.OpenFile(os.Getenv("RECONC_STUB_LOG"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		os.Exit(2)
 	}
+	defer file.Close()
+	_, _ = file.WriteString(strings.Join(os.Args[1:], " ") + "\n")
+}
+`, "#!/bin/sh\necho \"$@\" >> \"$RECONC_STUB_LOG\"\nexit 0\n")
+	t.Setenv("RECONC_STUB_LOG", logPath)
 	if err := assertClaims(root, "TASK-0001-X", []string{"alpha", "beta"}); err != nil {
 		t.Fatalf("assertClaims: %v", err)
 	}
@@ -245,12 +259,38 @@ func TestAssertClaimsPropagatesBinaryFailure(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(binPath), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	stub := "#!/bin/sh\necho synthetic-claim-failure >&2\nexit 7\n"
-	if err := os.WriteFile(binPath, []byte(stub), 0o755); err != nil {
-		t.Fatalf("write stub: %v", err)
-	}
+	writeClaimStub(t, binPath, `package main
+
+import (
+	"fmt"
+	"os"
+)
+
+func main() {
+	fmt.Fprintln(os.Stderr, "synthetic-claim-failure")
+	os.Exit(7)
+}
+`, "#!/bin/sh\necho synthetic-claim-failure >&2\nexit 7\n")
 	err := assertClaims(root, "TASK-0001-X", []string{"alpha"})
 	if err == nil || !strings.Contains(err.Error(), "reconc hook claim alpha failed") {
 		t.Fatalf("expected forwarded failure, got %v", err)
+	}
+}
+
+func writeClaimStub(t *testing.T, binPath, windowsSource, unixScript string) {
+	t.Helper()
+	if runtime.GOOS != "windows" {
+		if err := os.WriteFile(binPath, []byte(unixScript), 0o755); err != nil {
+			t.Fatalf("write stub: %v", err)
+		}
+		return
+	}
+	sourcePath := filepath.Join(t.TempDir(), "main.go")
+	if err := os.WriteFile(sourcePath, []byte(windowsSource), 0o600); err != nil {
+		t.Fatalf("write Windows stub source: %v", err)
+	}
+	build := exec.Command("go", "build", "-o", binPath, sourcePath)
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build Windows stub: %v\n%s", err, output)
 	}
 }

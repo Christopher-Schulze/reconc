@@ -3,6 +3,7 @@ package agentsession
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -143,7 +144,7 @@ func TestRepositoryRunStoreIsBoundedAndPrivate(t *testing.T) {
 	if info.Size() > repositoryRunSlotSize*2 {
 		t.Fatalf("repository run store grew to %d bytes", info.Size())
 	}
-	if info.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("repository run store mode = %04o, want 0600", info.Mode().Perm())
 	}
 }

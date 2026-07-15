@@ -44,6 +44,9 @@ Requirements:
 
 - Go `1.26`
 - Git for `reconc ci` and hook installation
+- On Windows, `sh` on `PATH` for generated shell hook wrappers plus `.sh` and
+  extensionless policy scripts; Git for Windows supplies it. Native `.exe` and
+  `.com` policy scripts execute directly.
 
 Common commands:
 
@@ -769,7 +772,9 @@ GitHub workflows:
 CI checks:
 
 - full root-module and `harness/template` tests, vet, pinned Staticcheck v0.7.0, and race checks on Ubuntu 24.04 and macOS 15; formatting, tidy, and pinned Govulncheck v1.6.0 on Linux
-- native Windows 2025 root-module package/test compilation, vet, binary build, version, and help smoke checks without claiming POSIX hook-script or harness semantics on Windows
+- full native Windows 2025 root-module and `harness/template` tests, vet,
+  pinned Staticcheck v0.7.0, race checks, and native binary version/help smoke;
+  shell hook wrappers and shell policy scripts use the documented `sh` runtime
 - clean-repository self-hosting golden path on Ubuntu and macOS across all three bootstrap profiles and nine hook platforms
 - immutable action commit pins for checkout, Go setup, and build provenance
 - least-privilege permissions, disabled checkout credential persistence, bounded job timeouts, and stale-run cancellation per branch or pull request

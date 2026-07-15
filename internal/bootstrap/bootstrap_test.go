@@ -415,6 +415,9 @@ func TestBinaryResolutionFailsClosedOnVersionAmbiguity(t *testing.T) {
 	}
 	for _, version := range []string{"0.5.0", "0.6.0"} {
 		name := "reconc-" + version + "-" + runtime.GOOS + "-" + runtime.GOARCH
+		if runtime.GOOS == "windows" {
+			name += ".exe"
+		}
 		writeBootstrapTestFile(t, directory, name, version, 0o755)
 	}
 	resolution := ResolveRepoBinary(repo, runtime.GOOS, runtime.GOARCH)
@@ -496,9 +499,8 @@ func TestRollbackRefusesExternallyReplacedDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = directory.handle.Close() })
 	if err := os.Remove(path); err != nil {
-		t.Skipf("filesystem does not permit replacing an open directory: %v", err)
+		t.Fatalf("remove captured directory: %v", err)
 	}
 	if err := os.Mkdir(path, 0o755); err != nil {
 		t.Fatal(err)
