@@ -16,9 +16,25 @@
 .idea/
 *.swp
 
+# Secrets / local environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
 # Coverage
 coverage.out
 coverage.html
+*.coverprofile
+
+# Logs / profiling
+*.log
+*.prof
+*.pprof
+*.trace
 
 # Local dev
 tmp/

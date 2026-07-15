@@ -760,8 +760,10 @@ Release:
 ## Git Ignore Policy
 
 The standalone product repository does not bootstrap Reconc into itself.
-Generated policy, hook adapters, activation files, and the installed wrapper
-belong only in target repositories and isolated bootstrap fixtures.
+The hook registry, generators, adapters, templates, `bin/hook`, and isolated
+bootstrap fixtures are committed product assets. Repo-local hook activation
+files and installed wrappers belong only in target repositories; this source
+root does not activate them.
 
 Commit:
 
@@ -802,7 +804,18 @@ Ignore:
 - `.vscode/`
 - `.idea/`
 - `*.swp`
+- `.env`
+- `.env.*` except `.env.example`
+- `*.pem`
+- `*.key`
+- `*.p12`
+- `*.pfx`
 - `tmp/`
+- `*.log`
+- `*.prof`
+- `*.pprof`
+- `*.trace`
+- `*.coverprofile`
 - `/CHANGELOG.md`
 - `/changelog.md`
 - `/CHANGES.md`
