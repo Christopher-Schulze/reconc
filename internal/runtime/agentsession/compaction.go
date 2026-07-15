@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
+
+	"reconc.dev/reconc/internal/tasklifecycle"
 )
 
 const (
@@ -65,7 +67,11 @@ func RunPostCompaction(repoRoot string, payloadBytes []byte) Result {
 }
 
 func activeTaskLine(repoRoot string) string {
-	path := filepath.Join(repoRoot, "docs", "tasks.md")
+	overview := "docs/tasks.md"
+	if cfg, err := tasklifecycle.LoadConfig(repoRoot); err == nil && cfg.OverviewPath != "" {
+		overview = cfg.OverviewPath
+	}
+	path := filepath.Join(repoRoot, filepath.FromSlash(overview))
 	file, err := os.Open(path)
 	if err != nil {
 		return ""

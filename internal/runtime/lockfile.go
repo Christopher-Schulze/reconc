@@ -28,6 +28,17 @@ func loadFreshLockfile(root string) (map[string]interface{}, error) {
 	return payload, nil
 }
 
+// lockfileDefaultMode extracts the validated default_mode from a loaded
+// lockfile payload as a checked operation, so evaluation call sites do
+// not depend on validation ordering for panic safety.
+func lockfileDefaultMode(payload map[string]interface{}) (policy.Mode, error) {
+	raw, ok := payload["default_mode"].(string)
+	if !ok {
+		return "", &rerrors.LockfileError{Message: "compiled lockfile default_mode must be a string"}
+	}
+	return policy.Mode(raw), nil
+}
+
 func lockfileRefreshRequired(err error) error {
 	var lockErr *rerrors.LockfileError
 	if !stderrors.As(err, &lockErr) {
@@ -133,7 +144,8 @@ func validateLockfileFreshness(root string, payload map[string]interface{}) erro
 		return err
 	}
 
-	if string(parsed.DefaultMode) != payload["default_mode"].(string) {
+	lockedMode, _ := payload["default_mode"].(string)
+	if string(parsed.DefaultMode) != lockedMode {
 		return &rerrors.LockfileError{Message: "compiled lockfile default_mode does not match the current policy sources"}
 	}
 	if int(numAsInt(payload["rule_count"])) != len(parsed.Rules) {

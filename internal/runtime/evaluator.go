@@ -57,7 +57,10 @@ func AssertRuleByID(startPath, ruleID string, vars map[string]string, inputs Exe
 		return nil, err
 	}
 
-	defaultMode := policy.Mode(payload["default_mode"].(string))
+	defaultMode, err := lockfileDefaultMode(payload)
+	if err != nil {
+		return nil, err
+	}
 
 	rulesRaw, _ := payload["rules"].([]interface{})
 	var target map[string]interface{}
@@ -196,7 +199,10 @@ func checkRepoPolicy(startPath string, inputs ExecutionInputs, includeKind func(
 		return nil, err
 	}
 
-	defaultMode := policy.Mode(payload["default_mode"].(string))
+	defaultMode, err := lockfileDefaultMode(payload)
+	if err != nil {
+		return nil, err
+	}
 
 	normalizedReads, err := normalizePaths(inputs.ReadPaths, root)
 	if err != nil {

@@ -144,3 +144,25 @@ func TestDiffMalformedJSON(t *testing.T) {
 		t.Fatal("expected error for malformed JSON")
 	}
 }
+
+func TestDiffIgnoresStringListReordering(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.json")
+	b := filepath.Join(dir, "b.json")
+	writeJSON := func(path, whenPaths string) {
+		t.Helper()
+		body := `{"default_mode":"warn","rules":[{"id":"r1","kind":"deny_write","when_paths":` + whenPaths + `}]}`
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeJSON(a, `["src/**","docs/**"]`)
+	writeJSON(b, `["docs/**","src/**"]`)
+	report, err := Diff(a, b)
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	if !report.IsEmpty() {
+		t.Fatalf("reordered string lists must not report a change: %+v", report.Changed)
+	}
+}

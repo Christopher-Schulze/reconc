@@ -55,6 +55,9 @@ const ReconcKiloServer = async ({ directory, worktree, client }) => {
 
   const run = async (event, payload) => {
     const budget = routeBudgets[event] || { timeoutMilliseconds: 5000, maxOutputBytes: 8192, errorPolicy: "block", timeoutPolicy: "block" }
+    // Bun.spawn has no output-size option; cap after reading. The Go
+    // runtime already bounds its own hook output per route.
+    const cap = (text) => budget.maxOutputBytes > 0 && text.length > budget.maxOutputBytes ? text.slice(0, budget.maxOutputBytes) : text
     let proc
     let timeoutID
     let timedOut = false
@@ -63,7 +66,6 @@ const ReconcKiloServer = async ({ directory, worktree, client }) => {
         stdin: "pipe",
         stdout: "pipe",
         stderr: "pipe",
-        maxBuffer: budget.maxOutputBytes,
         killSignal: "SIGKILL",
       })
       proc.stdin.write(JSON.stringify(payload))
@@ -73,7 +75,7 @@ const ReconcKiloServer = async ({ directory, worktree, client }) => {
         proc.kill("SIGKILL")
       }, budget.timeoutMilliseconds)
       const [code, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()])
-      return { code, stdout: stdout.trim(), stderr: stderr.trim(), timedOut }
+      return { code, stdout: cap(stdout.trim()), stderr: cap(stderr.trim()), timedOut }
     } catch (error) {
       if (proc) {
         try { proc.kill("SIGKILL") } catch {}
@@ -139,14 +141,19 @@ const ReconcKiloServer = async ({ directory, worktree, client }) => {
     const sessionID = await ensureSession(sessionIDFrom(event))
     const stopEvent = "kilo-stop"
     const result = await run(stopEvent, { session_id: sessionID, reconc_runtime: "kilo" })
-    if (result.code !== 0 && !shouldBlockFailure(stopEvent, result)) return
+    if (result.code !== 0) {
+      if (shouldBlockFailure(stopEvent, result)) throw new Error(result.stderr || result.stdout || "reconc blocked session stop")
+      return
+    }
     const reason = contextFrom(result)
-    if (result.code === 0 && !reason) return
-    if (reason && client?.session?.prompt) {
+    if (!reason) return
+    if (client?.session?.prompt) {
       await client.session.prompt({ path: { id: sessionID }, body: { parts: [{ type: "text", text: reason }] } })
       return
     }
-    throw new Error(result.stderr || reason || "reconc blocked session stop")
+    // No prompt API on this host: session.idle is a best-effort
+    // continuation surface, so log the nudge instead of throwing.
+    console.error("reconc continuation (host has no session.prompt API): " + reason)
   }
 
   return {

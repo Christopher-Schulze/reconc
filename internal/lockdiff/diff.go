@@ -163,12 +163,37 @@ func ruleFieldsChanged(a, b map[string]interface{}) []string {
 	}
 	var changed []string
 	for k := range keys {
-		if !reflect.DeepEqual(a[k], b[k]) {
+		if !reflect.DeepEqual(canonicalValue(a[k]), canonicalValue(b[k])) {
 			changed = append(changed, k)
 		}
 	}
 	sort.Strings(changed)
 	return changed
+}
+
+// canonicalValue sorts pure string lists before comparison. Rule-level
+// string lists (paths, commands, claims) are semantic sets for the
+// evaluator, so reordering them is not a change. Mixed or nested lists
+// are returned unchanged and compare order-sensitively.
+func canonicalValue(v interface{}) interface{} {
+	list, ok := v.([]interface{})
+	if !ok {
+		return v
+	}
+	sorted := make([]string, 0, len(list))
+	for _, item := range list {
+		s, ok := item.(string)
+		if !ok {
+			return v
+		}
+		sorted = append(sorted, s)
+	}
+	sort.Strings(sorted)
+	out := make([]interface{}, len(sorted))
+	for i, s := range sorted {
+		out[i] = s
+	}
+	return out
 }
 
 func ruleInfo(id string, m map[string]interface{}) RuleInfo {

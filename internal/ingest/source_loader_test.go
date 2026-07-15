@@ -4,6 +4,7 @@ import (
 	stderrors "errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -319,4 +320,63 @@ func sourceKinds(b *SourceBundle) []policy.SourceKind {
 		out = append(out, s.Kind)
 	}
 	return out
+}
+
+func TestInlineBlockClosingFenceMustBeAloneOnItsLine(t *testing.T) {
+	content := "# Doc\n\n```reconc\nrules: []\n```\ntrailing prose\n\n```reconc\nrules: []\n  ``` indented, not a fence\n```\n"
+	blocks := inlineBlockRegex.FindAllStringSubmatch(content, -1)
+	if len(blocks) != 2 {
+		t.Fatalf("expected 2 blocks, got %d", len(blocks))
+	}
+	if blocks[0][1] != "rules: []" {
+		t.Errorf("first block content mismatch: %q", blocks[0][1])
+	}
+	// The indented ``` is content, not a closing fence; the block runs
+	// to the next line-anchored fence.
+	if !strings.Contains(blocks[1][1], "indented, not a fence") {
+		t.Errorf("indented pseudo-fence must stay inside the block: %q", blocks[1][1])
+	}
+}
+
+func TestFragmentOutsideRootProducesWarning(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink test not applicable on windows CI runners")
+	}
+	outside := t.TempDir()
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "extra.yml"), []byte("rules: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "policies"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".reconc.yml"), []byte("default_mode: warn\ninclude:\n  - policies/*.yml\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "extra.yml"), filepath.Join(repo, "policies", "extra.yml")); err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := LoadPolicySources(repo)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	found := false
+	for _, w := range bundle.Discovery.Warnings {
+		if strings.Contains(w, "policies/extra.yml") && strings.Contains(w, "outside the repository root") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected out-of-root fragment warning, got %v", bundle.Discovery.Warnings)
+	}
+	// The fragment itself is still loaded and digest-tracked.
+	loaded := false
+	for _, s := range bundle.Sources {
+		if s.Path == "policies/extra.yml" {
+			loaded = true
+		}
+	}
+	if !loaded {
+		t.Fatal("out-of-root fragment should still load")
+	}
 }

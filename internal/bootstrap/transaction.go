@@ -305,8 +305,18 @@ func publishArtifact(root string, artifact desiredArtifact, relative, expectedSH
 		return createdRecord{}, createdDirs, combineWriteFailure("inspect staged bootstrap artifact "+relative, fmt.Errorf("staging path is not a real regular file"), nil, removeErr)
 	}
 	if err := os.Link(stage, target); err != nil {
-		removeErr := os.Remove(stage)
-		return createdRecord{}, createdDirs, combineWriteFailure("publish bootstrap artifact "+relative, err, nil, removeErr)
+		if os.IsExist(err) {
+			removeErr := os.Remove(stage)
+			return createdRecord{}, createdDirs, combineWriteFailure("publish bootstrap artifact "+relative, err, nil, removeErr)
+		}
+		// Filesystems without hardlink support (FAT/exFAT, some network
+		// mounts) fail here. Fall back to an O_EXCL copy that keeps the
+		// create-only guarantee; the published-checksum re-verification
+		// below still guards content integrity.
+		if copyErr := copyStagedExclusive(stage, target, os.FileMode(artifact.mode)); copyErr != nil {
+			removeErr := os.Remove(stage)
+			return createdRecord{}, createdDirs, combineWriteFailure("publish bootstrap artifact "+relative, fmt.Errorf("hardlink: %v; exclusive copy: %w", err, copyErr), nil, removeErr)
+		}
 	}
 	publishedInfo, err := os.Lstat(target)
 	if err != nil {
@@ -343,6 +353,36 @@ func publishArtifact(root string, artifact desiredArtifact, relative, expectedSH
 		return record, createdDirs, combineWriteFailure("remove bootstrap staging file "+relative, err, removeTargetErr, nil)
 	}
 	return record, createdDirs, nil
+}
+
+// copyStagedExclusive publishes the staged file to target with the same
+// create-only semantics as os.Link: an existing target fails with
+// os.ErrExist and is never overwritten.
+func copyStagedExclusive(stage, target string, mode os.FileMode) error {
+	source, err := os.Open(stage)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+	out, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, source); err != nil {
+		_ = out.Close()
+		_ = os.Remove(target)
+		return err
+	}
+	if err := out.Sync(); err != nil {
+		_ = out.Close()
+		_ = os.Remove(target)
+		return err
+	}
+	if err := out.Close(); err != nil {
+		_ = os.Remove(target)
+		return err
+	}
+	return nil
 }
 
 func writeArtifactBody(target *os.File, artifact desiredArtifact) error {

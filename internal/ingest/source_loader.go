@@ -23,10 +23,11 @@ const GlobalPolicyFilename = "global-policy.yml"
 // markdown context files. Block content is captured group 1.
 //
 // Pattern allows trailing whitespace after the language tag and either
-// LF or CRLF line endings. Fences must start at the beginning of a
-// line; this is a simple-but-robust approximation of CommonMark fenced
-// code block parsing sufficient for our extraction.
-var inlineBlockRegex = regexp.MustCompile("(?ms)^```reconc[ \\t]*\\r?\\n(.*?)\\r?\\n```")
+// LF or CRLF line endings. Both fences must start at the beginning of a
+// line and the closing fence must be alone on its line (modulo trailing
+// whitespace); this is a simple-but-robust approximation of CommonMark
+// fenced code block parsing sufficient for our extraction.
+var inlineBlockRegex = regexp.MustCompile("(?ms)^```reconc[ \\t]*\\r?\\n(.*?)\\r?\\n```[ \\t]*\\r?$")
 
 // SourceBundle is the ordered set of policy sources discovered for a
 // repository, plus the discovery metadata that produced them.
@@ -147,11 +148,12 @@ func LoadPolicySources(repoStartPath string) (*SourceBundle, error) {
 	sources = append(sources, presetSources...)
 
 	// 7. Policy file fragments (sorted, deduplicated).
-	fragmentSources, err := loadPolicyFragmentSources(root, includePatterns)
+	fragmentSources, fragmentWarnings, err := loadPolicyFragmentSources(root, includePatterns)
 	if err != nil {
 		return nil, err
 	}
 	sources = append(sources, fragmentSources...)
+	discovery.Warnings = append(discovery.Warnings, fragmentWarnings...)
 
 	return &SourceBundle{
 		RepoRoot:  root,
@@ -329,8 +331,11 @@ func loadPresetSources(names []string) ([]policy.PolicySource, error) {
 
 // loadPolicyFragmentSources walks the merged include patterns and
 // loads each unique repo-relative file as a policy_file source.
-// Fragments are returned in sorted order for determinism.
-func loadPolicyFragmentSources(root string, patterns []string) ([]policy.PolicySource, error) {
+// Fragments are returned in sorted order for determinism. A fragment
+// whose symlink-resolved location lies outside the repository root is
+// still loaded (its content is digest-tracked like any other source),
+// but a warning names it so the indirection is visible in the lockfile.
+func loadPolicyFragmentSources(root string, patterns []string) ([]policy.PolicySource, []string, error) {
 	// Dedupe + sort patterns first so glob expansion is deterministic.
 	patternSet := map[string]struct{}{}
 	for _, p := range patterns {
@@ -342,12 +347,15 @@ func loadPolicyFragmentSources(root string, patterns []string) ([]policy.PolicyS
 	}
 	sort.Strings(uniquePatterns)
 
+	resolvedRoot, rootResolveErr := filepath.EvalSymlinks(root)
+
 	seen := map[string]struct{}{}
 	out := []policy.PolicySource{}
+	warnings := []string{}
 	for _, pattern := range uniquePatterns {
 		matches, err := filepath.Glob(filepath.Join(root, pattern))
 		if err != nil {
-			return nil, &rerrors.PolicySourceError{
+			return nil, nil, &rerrors.PolicySourceError{
 				Message: "expand include pattern " + pattern,
 				Cause:   err,
 			}
@@ -367,9 +375,16 @@ func loadPolicyFragmentSources(root string, patterns []string) ([]policy.PolicyS
 				continue
 			}
 			seen[rel] = struct{}{}
+			if rootResolveErr == nil {
+				if resolved, resolveErr := filepath.EvalSymlinks(match); resolveErr == nil {
+					if outside, relErr := pathOutsideRoot(resolvedRoot, resolved); relErr == nil && outside {
+						warnings = append(warnings, "policy fragment "+rel+" resolves outside the repository root via symlink")
+					}
+				}
+			}
 			data, err := os.ReadFile(match)
 			if err != nil {
-				return nil, &rerrors.PolicySourceError{
+				return nil, nil, &rerrors.PolicySourceError{
 					Message: "read policy fragment " + rel,
 					Cause:   err,
 				}
@@ -381,7 +396,16 @@ func loadPolicyFragmentSources(root string, patterns []string) ([]policy.PolicyS
 			})
 		}
 	}
-	return out, nil
+	return out, warnings, nil
+}
+
+// pathOutsideRoot reports whether resolved lies outside resolvedRoot.
+func pathOutsideRoot(resolvedRoot, resolved string) (bool, error) {
+	rel, err := filepath.Rel(resolvedRoot, resolved)
+	if err != nil {
+		return false, err
+	}
+	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)), nil
 }
 
 // decodeYAMLMapping parses raw YAML into a map[string]interface{}.
