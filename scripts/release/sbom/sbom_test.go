@@ -85,6 +85,9 @@ func assertSPDX(t *testing.T, body []byte) {
 	if document.SPDXVersion != "SPDX-2.3" || len(document.Packages) != 4 {
 		t.Fatalf("unexpected SPDX document: %#v", document)
 	}
+	if !strings.HasSuffix(document.DocumentNamespace, "/"+testCommit) {
+		t.Fatalf("SPDX document does not expose source commit %q: %q", testCommit, document.DocumentNamespace)
+	}
 	if countRelationships(document.Relationships, "DESCRIBES") != 2 || countRelationships(document.Relationships, "DEPENDS_ON") != 1 {
 		t.Fatalf("SPDX relationships do not describe both roots and dependencies: %#v", document.Relationships)
 	}
@@ -102,6 +105,18 @@ func assertCycloneDX(t *testing.T, body []byte) {
 	if document.Metadata.Component.Name != "app" || len(document.Components) != 3 || len(document.Dependencies) != 4 {
 		t.Fatalf("CycloneDX inventory is incomplete: %#v", document)
 	}
+	if value, ok := cyclonedxPropertyValue(document.Metadata.Component.Properties, "reconc:source-commit"); !ok || value != testCommit {
+		t.Fatalf("CycloneDX document does not expose source commit %q: %#v", testCommit, document.Metadata.Component.Properties)
+	}
+}
+
+func cyclonedxPropertyValue(properties []cyclonedxProperty, name string) (string, bool) {
+	for _, property := range properties {
+		if property.Name == name {
+			return property.Value, true
+		}
+	}
+	return "", false
 }
 
 func countRelationships(relationships []spdxRelationship, kind string) int {
