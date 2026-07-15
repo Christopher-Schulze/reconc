@@ -306,12 +306,13 @@ and git-ignore policy.
   remains the exact flag reference.
 - `docs/rfcs/` contains frozen contracts for the lockfile, reports, rule
   kinds, presets, templates, and hooks.
-- local planning files such as `docs/todo.md`, `docs/todo/`, and
-  `CHANGELOG.md` are ignored and are not part of the published repo state.
+- local source-planning files such as `docs/tasks.md`, `docs/tasks/`,
+  `docs/todo.md`, `docs/todo/`, and `CHANGELOG.md` are ignored and are not part
+  of the published repo state.
 
-Any locally present v0.3/v0.4 `docs/todo*` corpus is frozen historical
-scratch, not current work. Current TASK truth is only `docs/tasks.md` plus its
-linked `docs/tasks/` detail files.
+This source-repository ignore policy does not change the product contract:
+governed target repositories still receive and commit their own TASK control
+plane, while Reconc's own implementation queue remains local.
 
 Security policy lives in `SECURITY.md`.
 

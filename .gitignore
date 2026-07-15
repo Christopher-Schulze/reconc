@@ -32,6 +32,8 @@ tmp/
 /todo/
 /docs/todo.md
 /docs/todo/
+/docs/tasks.md
+/docs/tasks/
 /docs/changelog.md
 /docs/changelog/
 /docs/security-review-*.md

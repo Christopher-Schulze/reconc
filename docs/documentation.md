@@ -175,10 +175,12 @@ Exit codes:
 
 ## Development Control Plane
 
-Product implementation work is tracked in `docs/tasks.md`. It is the durable
-control plane for current work and links to one detail file per TASK under
-`docs/tasks/`. Completed details move to `docs/tasks/done/`; the overview keeps
-only the ten newest completed TASKs visible.
+Governed target repositories use `docs/tasks.md` as the durable control plane
+for current work and link to one detail file per TASK under `docs/tasks/`.
+Completed details move to `docs/tasks/done/`; the overview keeps only the ten
+newest completed TASKs visible. The standalone Reconc source repository keeps
+its own implementation queue at those paths locally and Git-ignored; it is not
+part of the published product state.
 
 TASK state uses `[ ]` for queued, `[~]` for at most one active TASK, `[!]` for
 blocked, and `[x]` for done. Each detail records motivation, measurable
@@ -772,8 +774,6 @@ Commit:
 - `SECURITY.md`
 - `cmd/**`
 - `docs/documentation.md`
-- `docs/tasks.md`
-- `docs/tasks/**`
 - `docs/architecture.md`
 - `docs/commands.md`
 - `docs/rfcs/**`
@@ -811,6 +811,8 @@ Ignore:
 - `/todo/`
 - `/docs/todo.md`
 - `/docs/todo/`
+- `/docs/tasks.md`
+- `/docs/tasks/`
 - `/docs/changelog.md`
 - `/docs/changelog/`
 - `/docs/security-review-*.md`
@@ -863,21 +865,19 @@ Copyright (c) 2026 Christopher Schulze.
 Allowed supporting docs:
 
 - `docs/rfcs/**` for frozen contracts
-- `docs/tasks.md` and `docs/tasks/**` for the implementation control plane and completed TASK history
 - `README.md` as the GitHub landing page
 - `SECURITY.md` as security policy
 
-Local planning and release-note scratch files such as `todo.md`,
-`docs/todo/**`, and `CHANGELOG.md` are ignored in this repository. When
-behavior changes, update `docs/documentation.md` first. Supporting docs may
-link to it, but should not become competing current-state documentation.
-Any locally present v0.3/v0.4 `docs/todo*` corpus is frozen historical scratch
-and must never be treated as current TASK state; `docs/tasks.md` and its linked
-detail files are the only current implementation control plane.
+Local source-planning and release-note files such as `docs/tasks.md`,
+`docs/tasks/**`, `todo.md`, `docs/todo/**`, and `CHANGELOG.md` are ignored in
+this repository. These source-root ignores do not apply to TASK control planes
+that governed bootstrap creates in target repositories. When behavior changes,
+update `docs/documentation.md` first. Supporting docs may link to it, but should
+not become competing current-state documentation.
 
 ## Release State
 
-The current public release line is `v0.6.x`. The universal evolution program is
-tracked in `docs/tasks.md`; a new release is blocked until its release, install,
-self-hosting, and final verification contracts pass. Release artifacts are
-produced by the GitHub release workflow when a `reconc-v*` tag is pushed.
+The current public release line is `v0.6.x`. A new release is blocked until its
+release, install, self-hosting, and final verification contracts pass. Release
+artifacts are produced by the GitHub release workflow when a `reconc-v*` tag is
+pushed.
