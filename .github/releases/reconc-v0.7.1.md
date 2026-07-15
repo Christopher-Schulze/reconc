@@ -9,9 +9,11 @@
   directory they create. Rollback therefore refuses an externally replaced
   directory even when Linux immediately reuses its former inode number.
 - Windows CI no longer mistakes CRLF checkout normalization for Go formatting
-  drift. The platform-independent formatting and module-tidy checks now run
-  once on Linux, while tests, vet, Staticcheck, and race tests remain active on
-  Linux, macOS, and Windows.
+  drift. Full runtime tests remain active on Linux and macOS; Windows now
+  verifies native root-module package and test compilation, vet, binary
+  construction, version output, and CLI startup without pretending POSIX
+  hook-script, harness, and executable-bit semantics are native Windows
+  behavior.
 
 ## Release Artifacts
 
