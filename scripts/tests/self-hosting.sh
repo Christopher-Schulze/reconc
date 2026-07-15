@@ -65,7 +65,9 @@ require_text "$tmp/inspect.json" '"source": "tools-reconc-dist"'
 stable_binary=$(find "$governed/tools/reconc/dist" -maxdepth 1 -type f -name 'reconc-*' -print)
 [ "$(printf '%s\n' "$stable_binary" | grep -c .)" -eq 1 ] || fail "stable release-layout binary is ambiguous"
 "$stable_binary" version >"$tmp/stable-version.txt"
-require_text "$tmp/stable-version.txt" 'reconc 0.6.0'
+"$binary" version >"$tmp/source-version.txt"
+cmp -s "$tmp/source-version.txt" "$tmp/stable-version.txt" \
+  || fail "stable release-layout binary version differs from the source binary"
 
 run_json "$tmp/hook-status.json" "$stable_binary" hook status "$governed"
 [ "$(grep -c '"state": "configured"' "$tmp/hook-status.json")" -eq 9 ] || fail "not all nine hook platforms are configured"

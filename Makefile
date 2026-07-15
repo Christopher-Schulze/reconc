@@ -20,7 +20,7 @@ BIN       := reconc
 PKG       := ./...
 BINDIR    := .build/bin
 DISTDIR   := dist
-VERSION   ?= 0.6.0
+VERSION   ?= 0.7.0
 LDFLAGS   := -ldflags "-X main.Version=$(VERSION) -s -w"
 STATICCHECK_VERSION := v0.7.0
 

@@ -5,16 +5,28 @@ on:
     tags:
       - reconc-v*
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
+  attestations: write
   contents: write
+  id-token: write
 
 jobs:
   release:
     name: Build release artifacts
     runs-on: macos-15
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Check out
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
@@ -25,11 +37,44 @@ jobs:
             go.sum
             harness/template/go.sum
 
-      - name: Verify source and release trust gates
+      - name: Verify tag and source version
         run: |
+          tag_version="${GITHUB_REF_NAME#reconc-v}"
+          source_version="$(sed -n 's/^var Version = "\([^"]*\)"/\1/p' cmd/reconc/main.go)"
+          [[ "$tag_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            printf 'Tag %s does not contain a stable semantic version.\n' "$GITHUB_REF_NAME" >&2
+            exit 1
+          }
+          test "$tag_version" = "$source_version" || {
+            printf 'Tag version %s does not match source version %s.\n' "$tag_version" "$source_version" >&2
+            exit 1
+          }
+          test -f ".github/releases/${GITHUB_REF_NAME}.md" || {
+            printf 'Release notes are missing for %s.\n' "$GITHUB_REF_NAME" >&2
+            exit 1
+          }
+
+      - name: Verify source and release gates
+        run: |
+          unformatted="$(git ls-files -z -- '*.go' | xargs -0 gofmt -l)"
+          test -z "$unformatted" || {
+            printf 'Go files require gofmt:\n%s\n' "$unformatted" >&2
+            exit 1
+          }
+          go mod tidy -diff
+          (cd harness/template && go mod tidy -diff)
           go test ./...
           (cd harness/template && go test ./...)
+          go vet ./...
+          (cd harness/template && go vet ./...)
+          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+          (cd harness/template && go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...)
+          go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
+          (cd harness/template && go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...)
+          go test -race -count=1 ./...
+          (cd harness/template && go test -race -count=1 ./...)
           ./scripts/tests/release-trust.sh
+          make self-host
 
       - name: Build artifacts
         run: |
@@ -42,29 +87,27 @@ jobs:
           ./scripts/release/verify-artifacts.sh dist reconc "$version" \
             darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64
 
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v4.1.1
+        with:
+          subject-checksums: dist/SHA256SUMS
+
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
           notes_file=".github/releases/${GITHUB_REF_NAME}.md"
-          if [ -f "$notes_file" ]; then
+          release_state="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>/dev/null || true)"
+          if [ -z "$release_state" ]; then
             gh release create "$GITHUB_REF_NAME" \
-              --title "$GITHUB_REF_NAME" \
+              --title "reconc ${GITHUB_REF_NAME#reconc-v}" \
               --notes-file "$notes_file" \
               --verify-tag \
               --draft
-          else
-            gh release create "$GITHUB_REF_NAME" \
-              --title "$GITHUB_REF_NAME" \
-              --generate-notes \
-              --verify-tag \
-              --draft
+          elif [ "$release_state" != "true" ]; then
+            printf 'Release %s is already published; nothing to replace.\n' "$GITHUB_REF_NAME"
+            exit 0
           fi
-          while read -r checksum asset extra; do
-            [ -n "$checksum" ] || continue
-            [ -n "$asset" ] && [ -z "${extra:-}" ]
-            gh release upload "$GITHUB_REF_NAME" "dist/${asset#\*}"
-          done < dist/SHA256SUMS
-          gh release upload "$GITHUB_REF_NAME" dist/SHA256SUMS
+          gh release upload "$GITHUB_REF_NAME" dist/* --clobber
           gh release edit "$GITHUB_REF_NAME" --draft=false

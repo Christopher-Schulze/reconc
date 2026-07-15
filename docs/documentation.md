@@ -66,7 +66,7 @@ make lint
 make cover
 make bench
 make self-host
-make release VERSION=0.6.0
+make release VERSION=0.7.0
 ```
 
 `make release` cross-compiles five binaries into `dist/`, generates three flat
@@ -755,18 +755,22 @@ GitHub workflows:
 CI checks:
 
 - Ubuntu 24.04, macOS 15, and Windows 2025 matrix runners
-- root module and `harness/template` module formatting, tidy, test, vet, pinned Staticcheck v0.7.0, and race checks
+- root module and `harness/template` module formatting, tidy, test, vet, pinned Govulncheck v1.6.0, pinned Staticcheck v0.7.0, and race checks
 - clean-repository self-hosting golden path on Ubuntu and macOS across all three bootstrap profiles and nine hook platforms
-- immutable action commit pins for checkout and Go setup
+- immutable action commit pins for checkout, Go setup, and build provenance
+- least-privilege permissions, disabled checkout credential persistence, bounded job timeouts, and stale-run cancellation per branch or pull request
 - release and installer negative-path trust tests
+- weekly Dependabot updates for GitHub Actions and both Go modules
 
 Release:
 
 - Push a tag matching `reconc-v*`.
-- Release workflow tests both Go modules and the trust harness before building.
+- The tag version must be stable semantic versioning, match the source version, and have committed release notes.
+- Release workflow repeats formatting, tidy, test, vet, pinned Govulncheck, pinned Staticcheck, race, trust, and clean-repository self-hosting gates before building.
 - `make release VERSION=<tag-version>` builds the exact flat release inventory.
 - Every artifact is verified against `SHA256SUMS` before upload.
-- GitHub publication stays draft until every manifest-listed artifact and the manifest itself upload successfully.
+- GitHub build-provenance attestations bind every manifest-listed artifact to the tagged workflow run.
+- GitHub publication is rerun-safe and stays draft until every verified artifact and the manifest upload successfully.
 - No Docker image is built or published.
 
 ## Git Ignore Policy
@@ -779,6 +783,7 @@ root does not activate them.
 
 Commit:
 
+- `.github/dependabot.yml`
 - `.github/workflows/**`
 - `.gitignore`
 - `AGENTS.md`
@@ -916,7 +921,7 @@ not become competing current-state documentation.
 
 ## Release State
 
-The current public release line is `v0.6.x`. A new release is blocked until its
+The current public release line is `v0.7.x`. A new release is blocked until its
 release, install, self-hosting, and final verification contracts pass. Release
 artifacts are produced by the GitHub release workflow when a `reconc-v*` tag is
 pushed.

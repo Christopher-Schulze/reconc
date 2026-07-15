@@ -332,7 +332,7 @@ reconc <command> --help
 
 ## Status
 
-`reconc` is released on the `v0.6.x` line. Core local gates pass, and release
+`reconc` is released on the `v0.7.x` line. Core local gates pass, and release
 artifacts are produced by the GitHub release workflow when a `reconc-v*` tag is
 pushed.
 

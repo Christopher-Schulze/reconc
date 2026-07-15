@@ -31,6 +31,20 @@ require_text() {
   grep -Fq -- "$value" "$file" || fail "$file is missing required release-trust text: $value"
 }
 
+version_source="$root/cmd/reconc/main.go"
+project_version=$(sed -n 's/^var Version = "\([^"]*\)"/\1/p' "$version_source")
+[[ "$project_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+  || fail "$version_source does not define exactly one stable semantic version"
+release_line="v${project_version%.*}.x"
+require_text "$root/Makefile" "VERSION   ?= $project_version"
+require_text "$root/install.sh" "VERSION=\"\${1:-$project_version}\""
+require_text "$root/install.sh" "sh install.sh $project_version"
+require_text "$root/README.md" "released on the \`$release_line\` line"
+require_text "$root/SECURITY.md" "published \`$release_line\` release"
+require_text "$root/AGENTS.md" "current public release line is \`$release_line\`"
+require_text "$root/docs/documentation.md" "current public release line is \`$release_line\`"
+require_text "$root/.github/releases/reconc-v$project_version.md" "# reconc v$project_version"
+
 ci_workflow="$root/.github/workflows/reconc-ci.yml"
 release_workflow="$root/.github/workflows/reconc-release.yml"
 for workflow in "$ci_workflow" "$release_workflow"; do
@@ -41,6 +55,10 @@ for workflow in "$ci_workflow" "$release_workflow"; do
 done
 require_text "$ci_workflow" "actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c"
 require_text "$release_workflow" "actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c"
+require_text "$release_workflow" "actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a"
+require_text "$release_workflow" "subject-checksums: dist/SHA256SUMS"
+require_text "$release_workflow" 'test "$tag_version" = "$source_version"'
+require_text "$release_workflow" 'gh release upload "$GITHUB_REF_NAME" dist/* --clobber'
 for runner in ubuntu-24.04 macos-15 windows-2025; do
   require_text "$ci_workflow" "$runner"
 done
@@ -49,8 +67,11 @@ for workflow in "$ci_workflow" "$release_workflow"; do
   require_text "$workflow" "(cd harness/template && go test ./...)"
 done
 require_text "$ci_workflow" "go mod tidy -diff"
+require_text "$ci_workflow" "govulncheck@v1.6.0"
 require_text "$ci_workflow" "staticcheck@v0.7.0"
-require_text "$ci_workflow" "./scripts/tests/self-hosting.sh"
+require_text "$release_workflow" "govulncheck@v1.6.0"
+require_text "$ci_workflow" "make self-host"
+require_text "$release_workflow" "make self-host"
 require_text "$root/scripts/tests/self-hosting.sh" "--profile governed"
 require_text "$root/scripts/tests/self-hosting.sh" "--profile existing"
 require_text "$root/scripts/tests/self-hosting.sh" "--hook all"
@@ -74,21 +95,21 @@ release_assets=(
   policy-fix-plan.schema.json
   policy-lock.schema.json
   policy-report.schema.json
-  reconc-0.6.0-darwin-amd64
-  reconc-0.6.0-darwin-arm64
-  reconc-0.6.0-linux-amd64
-  reconc-0.6.0-linux-arm64
-  reconc-0.6.0-windows-amd64.exe
+  "reconc-$project_version-darwin-amd64"
+  "reconc-$project_version-darwin-arm64"
+  "reconc-$project_version-linux-amd64"
+  "reconc-$project_version-linux-arm64"
+  "reconc-$project_version-windows-amd64.exe"
 )
 for name in "${release_assets[@]}"; do
   printf '%s\n' "$name" > "$release_dir/$name"
 done
 "$root/scripts/release/write-checksums.sh" "$release_dir"
-verify_release=("$root/scripts/release/verify-artifacts.sh" "$release_dir" reconc 0.6.0 darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64)
+verify_release=("$root/scripts/release/verify-artifacts.sh" "$release_dir" reconc "$project_version" darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64)
 "${verify_release[@]}"
-printf 'corrupt\n' >> "$release_dir/reconc-0.6.0-linux-amd64"
+printf 'corrupt\n' >> "$release_dir/reconc-$project_version-linux-amd64"
 expect_failure "${verify_release[@]}"
-printf '%s\n' reconc-0.6.0-linux-amd64 > "$release_dir/reconc-0.6.0-linux-amd64"
+printf '%s\n' "reconc-$project_version-linux-amd64" > "$release_dir/reconc-$project_version-linux-amd64"
 printf 'unlisted\n' > "$release_dir/unlisted"
 expect_failure "${verify_release[@]}"
 rm "$release_dir/unlisted" "$release_dir/SHA256SUMS"
@@ -131,12 +152,12 @@ case "$(uname -m)" in
   arm64|aarch64) arch=arm64 ;;
   *) fail "installer test does not support this host architecture" ;;
 esac
-asset="reconc-0.6.0-${os}-${arch}"
+asset="reconc-${project_version}-${os}-${arch}"
 
-cat > "$fixture/$asset" <<'SCRIPT'
+cat > "$fixture/$asset" <<SCRIPT
 #!/usr/bin/env sh
-[ "${1:-}" = "--version" ] || exit 2
-printf 'reconc 0.6.0-test\n'
+[ "\${1:-}" = "--version" ] || exit 2
+printf 'reconc ${project_version}-test\n'
 SCRIPT
 chmod +x "$fixture/$asset"
 printf '%s  %s\n' "$(sha256_file "$fixture/$asset")" "$asset" > "$fixture/SHA256SUMS"
@@ -168,13 +189,13 @@ run_installer() {
     RECONC_TEST_FIXTURE="$fixture" \
     RECONC_RELEASE_BASE="https://release.invalid" \
     RECONC_INSTALL_DIR="$install_dir" \
-    sh "$root/install.sh" 0.6.0
+    sh "$root/install.sh" "$project_version"
 }
 
 printf '#!/usr/bin/env sh\nprintf "old\\n"\n' > "$install_dir/reconc"
 chmod +x "$install_dir/reconc"
 run_installer >/dev/null 2>&1
-[ "$("$install_dir/reconc" --version)" = "reconc 0.6.0-test" ] \
+[ "$("$install_dir/reconc" --version)" = "reconc ${project_version}-test" ] \
   || fail "verified installer did not publish the downloaded binary"
 
 printf '#!/usr/bin/env sh\nprintf "sentinel\\n"\n' > "$install_dir/reconc"

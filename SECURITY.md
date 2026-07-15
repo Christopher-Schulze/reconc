@@ -3,7 +3,7 @@
 ## Supported Versions
 
 Security fixes are applied to the current `main` branch and the latest
-published `v0.6.x` release.
+published `v0.7.x` release.
 
 ## Reporting A Vulnerability
 
