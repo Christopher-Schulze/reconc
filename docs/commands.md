@@ -273,13 +273,19 @@ Raw JSONL dump on stdout for external tooling. Audit tail, stats, and export
 read the two bounded archives plus the live file in chronological order.
 
 ### `reconc run on [repo] [--json]` / `reconc run off [repo] [--json]`
-AI-operated repository-wide autonomous TASK switch. `on` applies to every
-registered agent runtime. Ordinary prompts, explicit runtime interrupts,
-session end, runtime changes, and application restarts never mutate the
-durable switch. An interrupt releases only the current host invocation.
-`off` is the only manual disable action; complete or absent TASK state disables
-the switch automatically after terminal gates. Both commands are idempotent and append a
-decision record only when state actually changes. The agent executes these
+AI-operated switch scoped to one repository, not the whole machine. It routes
+continuation through all eight registered agent runtimes. Claude Code, Codex,
+Cursor, Devin CLI, Antigravity CLI, and GitHub Copilot expose synchronous Stop
+gates; OpenCode and Kilo Code use inferred `session.idle` adapters whose host
+boundary is best-effort and fail-open. Typed `continue` and `claim` states
+continue: `Current: none` or an empty Active section still claims queued
+executable work. Complete or absent state disables the switch after terminal
+gates; blocked state reaches terminal Stop without silently disabling it, and
+invalid state fails closed. An explicit interrupt or six repeated no-progress
+continuations releases only the current invocation. Ordinary prompts, session
+end, runtime changes, and application restarts never mutate the durable switch.
+`off` is the only manual disable action. Both commands are idempotent and append
+a decision record only when state actually changes. The agent executes these
 commands itself; it must not ask the user to operate Reconc.
 
 ### `reconc run status [repo] [--json]`

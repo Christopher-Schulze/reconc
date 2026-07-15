@@ -44,14 +44,16 @@ Follow `AGENTS.md`: read the task-relevant source/spec/research paths, edit surg
 When autonomous execution is requested, the agent enables the durable switch
 itself with `reconc run on .`, verifies it with `reconc run status .`, and
 disables it with `reconc run off .` on explicit user stop or a real blocker.
-Never ask the user to operate these commands. Repository mode works across all
-supported agent runtimes and continues while TASK state is executable. Prompt
-text, runtime interrupts, compaction, session boundaries, runtime changes, and
-application restarts never mutate the durable switch. An interrupt releases
-only the current invocation. `run off` is the only manual disable action;
-complete or absent TASK state disables it automatically after terminal gates.
-It claims queued work when `Current: none`, releases blocked state to the hard
-Stop gate, and fails closed on invalid TASK state. Run control is not a parallel workflow:
+Never ask the user to operate these commands. The switch is scoped to this
+repository. Claude Code, Codex, Cursor, Devin CLI, Antigravity CLI, and GitHub
+Copilot expose synchronous Stop continuation; OpenCode and Kilo Code use
+best-effort, fail-open `session.idle` adapters. It claims queued work when
+`Current: none`, disables on complete or absent state after terminal gates,
+releases blocked state to the hard Stop gate, and fails closed on invalid TASK
+state. An interrupt or six repeated no-progress continuations releases only
+the current invocation without changing the durable switch. Prompt text,
+compaction, session boundaries, runtime changes, and application restarts never
+mutate it; `run off` is the only manual disable action. Run control is not a parallel workflow:
 keep TASK progress durable, write tests with code, commit once per completed
 TASK, promote or claim the next executable TASK, never auto-push, and on
 context limits persist exact progress in the TASK control plane. Explicit user

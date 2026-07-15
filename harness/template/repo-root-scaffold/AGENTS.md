@@ -79,11 +79,15 @@ For every TASK, every agent must:
 ask the user to run these commands. Inspect durable truth with `reconc run
 status .` and bounded transition history with `reconc run log .`. Repository
 mode works through Claude Code, Codex, Cursor, OpenCode, Devin CLI,
-Antigravity CLI, GitHub Copilot, and Kilo Code. It survives internal
-continuation prompts, compaction, session boundaries, and model restarts. A
-runtime interrupt releases only the current invocation. Prompt text, interrupts,
-session lifecycle events, runtime changes, and application restarts never
-mutate durable run state. `run off` is the only manual disable action.
+Antigravity CLI, GitHub Copilot, and Kilo Code, scoped to this repository rather
+than the whole machine. Claude Code, Codex, Cursor, Devin CLI, Antigravity CLI,
+and GitHub Copilot expose synchronous Stop gates. OpenCode and Kilo Code use
+inferred `session.idle`, so their host continuation remains best-effort and
+fail-open. It survives internal continuation prompts, compaction, session
+boundaries, and model restarts. A runtime interrupt releases only the current
+invocation. Prompt text, interrupts, session lifecycle events, runtime changes,
+and application restarts never mutate durable run state. `run off` is the only
+manual disable action.
 
 Repository mode is not a second workflow. Read `Current:`, execute the active
 Sub-Task, write same-TASK tests, run checks, update docs and TASK truth,

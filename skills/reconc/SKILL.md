@@ -158,13 +158,18 @@ reconc run status .
 reconc run off .
 ```
 
-Repository mode persists across supported agent sessions and keeps Stop
-continuing while typed TASK state is executable. Use `run off` only for an
-explicit user stop or a real blocker. Pre-write, TASK mutation, pre-commit, and
-terminal Stop gates remain authoritative. Prompt text, runtime interrupts,
-session boundaries, runtime changes, and application restarts never mutate the
-durable switch; an interrupt releases only the current invocation. Complete or
-absent TASK state disables it automatically after terminal gates.
+Repository mode is durable for this repository, not machine-global. Claude
+Code, Codex, Cursor, Devin CLI, Antigravity CLI, and GitHub Copilot expose
+synchronous Stop continuation. OpenCode and Kilo Code use inferred
+`session.idle`, so their host continuation remains best-effort and fail-open.
+Typed `continue` and `claim` states continue; an empty active slot claims queued
+executable work. Complete or absent state disables the switch after terminal
+gates, blocked state reaches terminal Stop without silently disabling it, and
+invalid state fails closed. An interrupt or six repeated no-progress
+continuations releases only the current invocation. Prompt text, session
+boundaries, runtime changes, and application restarts never mutate the durable
+switch; `run off` is the only manual disable action. Pre-write, TASK mutation,
+pre-commit, and terminal Stop gates remain authoritative.
 
 If `reconc task status .` finds a configured TASK control plane, also run
 `reconc task check-done .` and use `reconc task promote .` only after every

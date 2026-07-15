@@ -128,12 +128,17 @@ reconc run status .
 reconc run off .
 ```
 
-While repository mode is on, every supported runtime continues executable
-typed TASK work. A runtime interrupt releases only the current invocation;
-ordinary messages, session boundaries, application restarts, and runtime
-changes never mutate the durable switch. `reconc run off .` is the only manual
-disable action. Complete or absent TASK state disables it automatically after
-the terminal gates; blocked or invalid state remains visible for recovery.
+The switch is durable for this repository, not machine-global. Claude Code,
+Codex, Cursor, Devin CLI, Antigravity CLI, and GitHub Copilot expose synchronous
+Stop continuation. OpenCode and Kilo Code use inferred `session.idle` adapters,
+so Reconc requests continuation there but the host boundary remains best-effort
+and fail-open. Executable active work continues; an empty active slot with
+queued executable work is claimed. Complete or absent TASK state disables the
+switch after terminal gates, blocked state reaches terminal Stop without
+silently disabling it, and invalid state fails closed. An interrupt or the
+six-event no-progress guard releases only the current invocation; ordinary
+messages, session boundaries, application restarts, and runtime changes never
+mutate the durable switch. `reconc run off .` is the only manual disable action.
 
 Inspection and enforcement commands never mutate policy or refresh the
 lockfile implicitly. If policy sources change, they fail closed with one

@@ -184,11 +184,16 @@ reconc run off .
 ```
 
 Repository mode applies to Claude Code, Codex, Cursor, OpenCode, Devin CLI,
-Antigravity CLI, GitHub Copilot, and Kilo Code. While typed TASK state is `continue`
-or `claim`, Stop returns the runtime-native continuation response without a
-full terminal policy or Git scan. PreToolUse, permission, TASK mutation,
-pre-commit, and terminal Stop gates remain active. A blocked, complete, absent,
-or invalid TASK plane never receives routine continuation.
+Antigravity CLI, GitHub Copilot, and Kilo Code, scoped to this repository rather
+than the whole machine. Claude Code, Codex, Cursor, Devin CLI, Antigravity CLI,
+and GitHub Copilot expose synchronous Stop gates. OpenCode and Kilo Code use
+inferred `session.idle`, so their host continuation is best-effort and fail-open.
+While typed TASK state is `continue` or `claim`, Reconc returns the host-specific
+continuation response without a full terminal policy or Git scan. An empty
+active slot with queued executable work yields `claim`; complete or absent
+state disables after terminal gates, blocked state reaches terminal Stop, and
+invalid state fails closed. PreToolUse, permission, TASK mutation, pre-commit,
+and terminal Stop gates remain active.
 
 `run off` is the only manual disable action. Prompt text, runtime interrupts,
 session boundaries, runtime changes, and application restarts never mutate the

@@ -601,6 +601,7 @@ capability is inferred from `session.idle`: the adapter asks the host client to
 continue, but the host boundary remains fail-open and is not equivalent to the
 synchronous native Stop gates exposed by the other six agent runtimes.
 `reconc run on|off|status|log` is the canonical AI-operated repository switch.
+Its durable state applies only to the selected repository, not the whole machine.
 Repository mode persists across sessions for Claude Code, Codex, Cursor,
 OpenCode, Devin CLI, Antigravity CLI, GitHub Copilot, and Kilo Code. The agent
 runs these commands itself; users do not need to operate Reconc. Prompt text,
