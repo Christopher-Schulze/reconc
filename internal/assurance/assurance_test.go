@@ -400,3 +400,32 @@ func containsString(values []string, wanted string) bool {
 func float64Pointer(value float64) *float64 {
 	return &value
 }
+
+func TestSubstantiveProofEmptySamplesDoesNotPanic(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC().Truncate(time.Second)
+	evidence := []byte("measured\n")
+	writeAssuranceFile(t, root, "evidence.txt", string(evidence))
+	hash := sha256.Sum256(evidence)
+	document := proofDocument{FormatVersion: "1", Proofs: []proofRecord{{
+		ID: "proof-1", Subject: "latency", Command: "go test ./...", Outcome: "pass",
+		Aggregation: "last", Comparator: "lte", Threshold: float64Pointer(9), Actual: float64Pointer(9), Samples: []float64{},
+		EvidencePath: "evidence.txt", EvidenceSHA256: hex.EncodeToString(hash[:]), VerifiedAt: now.Format(time.RFC3339),
+	}}}
+	body, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeAssuranceFile(t, root, "proofs.json", string(body))
+	// MinSamples 0 models a hand-edited lockfile that dropped the
+	// parser-defaulted floor; the gate must fail with a finding, not
+	// panic on the empty aggregation input.
+	gate := policy.AssuranceGate{ID: "proof", Type: policy.AssuranceSubstantiveProof, ProofFile: "proofs.json", MinSamples: 0, MaxAgeHours: 24}
+	findings, err := Evaluate(root, []policy.AssuranceGate{gate}, Inputs{SuccessfulCommands: []string{"go test ./..."}, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(findingsText(findings), "samples must contain at least one value") {
+		t.Fatalf("expected empty-samples finding, got: %+v", findings)
+	}
+}

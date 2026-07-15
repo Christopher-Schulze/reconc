@@ -136,6 +136,9 @@ func verifyEvidenceHash(root string, proof proofRecord, state *evaluationState) 
 }
 
 func aggregateSamples(aggregation string, samples []float64) (float64, error) {
+	if len(samples) == 0 {
+		return 0, fmt.Errorf("samples must contain at least one value")
+	}
 	for _, sample := range samples {
 		if math.IsNaN(sample) || math.IsInf(sample, 0) {
 			return 0, fmt.Errorf("samples must contain only finite numbers")

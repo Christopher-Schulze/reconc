@@ -766,9 +766,29 @@ func TestInstallClaudeCodeMalformedJSONRejected(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error on malformed JSON without --force")
 	}
-	// With --force it should overwrite.
-	if _, err := Install(KindClaudeCode, repo, true); err != nil {
+	// With --force it should overwrite, preserving the original bytes
+	// in a hash-addressed backup instead of discarding them.
+	report, err := Install(KindClaudeCode, repo, true)
+	if err != nil {
 		t.Errorf("--force should overwrite malformed JSON; got: %v", err)
+	}
+	if report.BackupPath == "" {
+		t.Fatal("expected BackupPath for forced overwrite of malformed JSON")
+	}
+	backup, err := os.ReadFile(report.BackupPath)
+	if err != nil {
+		t.Fatalf("backup file should exist: %v", err)
+	}
+	if string(backup) != "{not json" {
+		t.Errorf("backup must hold the original bytes, got %q", string(backup))
+	}
+	// A second forced install over the same malformed content must not
+	// fail on the already-existing backup.
+	if err := os.WriteFile(filepath.Join(repo, ClaudeCodeSettingsPath), []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Install(KindClaudeCode, repo, true); err != nil {
+		t.Errorf("repeated forced install must reuse the backup: %v", err)
 	}
 }
 

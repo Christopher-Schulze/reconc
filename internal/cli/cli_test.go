@@ -1786,6 +1786,34 @@ func TestRunCoveragePasses(t *testing.T) {
 	}
 }
 
+func TestRunCoverageRealGoTestOutput(t *testing.T) {
+	repo := t.TempDir()
+	// Real `go test -cover` lines carry the duration before the
+	// percentage; the duration must never be read as the coverage.
+	content := "ok  \treconc.dev/reconc/internal/cli\t0.012s\tcoverage: 87.5% of statements\n"
+	if err := os.WriteFile(filepath.Join(repo, "coverage.txt"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"coverage", "check", repo, "--min-pct", "80"}, "0.1.0-test", &stdout, &stderr); err != nil {
+		t.Fatalf("coverage check should pass on 87.5%%: %v (out: %s)", err, stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "coverage 87.5%") {
+		t.Errorf("expected parsed coverage 87.5%%, got: %s", stdout.String())
+	}
+}
+
+func TestRunCoverageBareNumberFallback(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "coverage.txt"), []byte("87.5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"coverage", "check", repo, "--min-pct", "80"}, "0.1.0-test", &stdout, &stderr); err != nil {
+		t.Fatalf("coverage check should pass on bare 87.5: %v", err)
+	}
+}
+
 func TestRunCoverageBelowMin(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, "coverage.txt"), []byte("75%"), 0o644); err != nil {

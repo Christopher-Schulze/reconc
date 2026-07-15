@@ -9,6 +9,8 @@
 package hooks
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -78,6 +80,10 @@ type InstallReport struct {
 	// merge install. Callers typically surface these as stderr
 	// warnings so users know their edits were overwritten.
 	DroppedUserEdits []string `json:"dropped_user_edits,omitempty"`
+	// BackupPath is set when --force replaced a malformed existing
+	// config; the original bytes are preserved at this repo-relative
+	// path instead of being discarded.
+	BackupPath string `json:"backup_path,omitempty"`
 }
 
 // ScaffoldSyncReport is the deterministic result of syncing generated
@@ -373,6 +379,7 @@ func installJSONHooks(kind, relPath, repoRoot string, force bool) (*InstallRepor
 	}
 
 	var merged map[string]interface{}
+	backupPath := ""
 	if len(existing) == 0 || strings.TrimSpace(string(existing)) == "{}" {
 		merged = reconcPart
 	} else {
@@ -383,6 +390,10 @@ func installJSONHooks(kind, relPath, repoRoot string, force bool) (*InstallRepor
 					Message: target + " is not valid JSON; pass --force to overwrite with a fresh reconc config",
 					Cause:   err,
 				}
+			}
+			backupPath, err = backupMalformedConfig(target, existing)
+			if err != nil {
+				return nil, err
 			}
 			merged = reconcPart
 		} else {
@@ -412,7 +423,32 @@ func installJSONHooks(kind, relPath, repoRoot string, force bool) (*InstallRepor
 		Executable:       false,
 		NextAction:       nextAction,
 		DroppedUserEdits: mergeDiff.Removed,
+		BackupPath:       backupPath,
 	}, nil
+}
+
+// backupMalformedConfig preserves the original bytes of a malformed
+// config that --force is about to replace. The backup is hash-addressed
+// and create-only, so identical content maps to one stable file and an
+// existing backup with the same digest counts as already written.
+func backupMalformedConfig(target string, existing []byte) (string, error) {
+	sum := sha256.Sum256(existing)
+	backup := target + ".reconc-backup-" + hex.EncodeToString(sum[:4])
+	file, err := os.OpenFile(backup, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		if os.IsExist(err) {
+			return backup, nil
+		}
+		return "", &rerrors.PolicySourceError{Message: "back up malformed config to " + backup, Cause: err}
+	}
+	if _, err := file.Write(existing); err != nil {
+		_ = file.Close()
+		return "", &rerrors.PolicySourceError{Message: "back up malformed config to " + backup, Cause: err}
+	}
+	if err := file.Close(); err != nil {
+		return "", &rerrors.PolicySourceError{Message: "back up malformed config to " + backup, Cause: err}
+	}
+	return backup, nil
 }
 
 func installOpenCode(repoRoot string, force bool) (*InstallReport, error) {
@@ -485,6 +521,7 @@ func installAntigravity(repoRoot string, force bool) (*InstallReport, error) {
 	}
 
 	merged := map[string]interface{}{}
+	backupPath := ""
 	if len(existing) == 0 || strings.TrimSpace(string(existing)) == "{}" {
 		merged = reconcPart
 	} else {
@@ -495,6 +532,10 @@ func installAntigravity(repoRoot string, force bool) (*InstallReport, error) {
 					Message: target + " is not valid JSON; pass --force to overwrite with a fresh reconc config",
 					Cause:   err,
 				}
+			}
+			backupPath, err = backupMalformedConfig(target, existing)
+			if err != nil {
+				return nil, err
 			}
 			merged = reconcPart
 		} else if existingReconc, ok := merged["reconc"]; ok && !force && !antigravityHookObjectIsReconcManaged(existingReconc) {
@@ -522,6 +563,7 @@ func installAntigravity(repoRoot string, force bool) (*InstallReport, error) {
 		Action:     action,
 		Executable: false,
 		NextAction: "Restart Antigravity CLI in this repository so it reloads .agents/hooks.json.",
+		BackupPath: backupPath,
 	}, nil
 }
 

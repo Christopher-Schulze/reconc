@@ -39,9 +39,18 @@ func RunStop(repoRoot string, payloadBytes []byte) (result Result) {
 	}
 	if runFile != nil {
 		defer func() {
-			if closeErr := runFile.Close(); closeErr != nil && result.ExitCode == 0 {
-				result = Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc run: close state: %s", closeErr)}
+			closeErr := runFile.Close()
+			if closeErr == nil || result.ExitCode != 0 {
+				return
 			}
+			// Never discard a computed decision payload (block report or
+			// continuation prompt); surface the close error alongside it.
+			warn := fmt.Sprintf("reconc run: close state: %s", closeErr)
+			if result.Stdout != "" {
+				result.Stderr = joinStderr(result.Stderr, warn)
+				return
+			}
+			result = Result{ExitCode: 2, Stderr: warn}
 		}()
 	}
 	runState := runSnapshot.State
@@ -302,4 +311,16 @@ func runRepositoryContinuation(root string, runFile *os.File, payload *HookPaylo
 		logRunStopDecision(root, decisionBranch, payload, runtimeName, before, after, false, 0)
 	}
 	return contResult, contHandled, nil
+}
+
+// joinStderr combines two stderr fragments with a newline, tolerating
+// either side being empty.
+func joinStderr(existing, extra string) string {
+	if existing == "" {
+		return extra
+	}
+	if extra == "" {
+		return existing
+	}
+	return existing + "\n" + extra
 }

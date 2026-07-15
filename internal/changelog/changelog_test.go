@@ -232,3 +232,63 @@ func writeFile(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestRotateCrashRecoveryDoesNotDuplicateArchive(t *testing.T) {
+	repo := mkRepo(t)
+	writeFile(t, filepath.Join(repo, "docs", "changelog.md"), sampleChangelog)
+	now := func() time.Time { return time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC) }
+
+	// First rotation archives the oldest sections.
+	first, err := Rotate(repo, Options{ThresholdLines: 10, Now: now})
+	if err != nil {
+		t.Fatalf("Rotate: %v", err)
+	}
+	if !first.Rotated || first.SectionsArchived == 0 {
+		t.Fatalf("expected first rotation to archive, got %+v", first)
+	}
+	archivePath := filepath.Join(repo, first.ArchivePath)
+	before, err := os.ReadFile(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate the crash-recovery shape: the changelog still holds the
+	// already-archived sections (as if the rewrite never happened).
+	writeFile(t, filepath.Join(repo, "docs", "changelog.md"), sampleChangelog)
+	if _, err := Rotate(repo, Options{ThresholdLines: 10, Now: now}); err != nil {
+		t.Fatalf("re-Rotate: %v", err)
+	}
+	after, err := os.ReadFile(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Errorf("re-rotation duplicated archive content:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
+func TestRotateTrailerDoesNotStack(t *testing.T) {
+	repo := mkRepo(t)
+	writeFile(t, filepath.Join(repo, "docs", "changelog.md"), sampleChangelog)
+	now := func() time.Time { return time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC) }
+
+	for i := 0; i < 3; i++ {
+		if _, err := Rotate(repo, Options{ThresholdLines: 1, Force: true, Now: now}); err != nil {
+			t.Fatalf("Rotate %d: %v", i, err)
+		}
+	}
+	data, err := os.ReadFile(filepath.Join(repo, "docs", "changelog.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(data), "_Older entries rotated to"); got != 1 {
+		t.Errorf("expected exactly one archive trailer, got %d:\n%s", got, data)
+	}
+	archive, err := os.ReadFile(filepath.Join(repo, "docs", "changelog", "archive", "2026-Q2.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(archive), "_Older entries rotated to") {
+		t.Errorf("trailer must not leak into the archive:\n%s", archive)
+	}
+}

@@ -18,6 +18,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/filelock"
 )
 
 // Default lets rotate work with no config on a fresh repo. 200 lines
@@ -60,6 +63,11 @@ type Result struct {
 // Rotate applies the rotation policy to repoRoot's changelog. It is a
 // no-op if the changelog is below the threshold and Force is false.
 // Returns a Result describing what happened.
+//
+// The read-modify-write cycle runs under a cross-process lock, both file
+// publications are atomic, and archive appends skip sections whose exact
+// content is already archived, so a crash between the two writes (or a
+// repeated --force run) never duplicates history.
 func Rotate(repoRoot string, opts Options) (*Result, error) {
 	if opts.Now == nil {
 		opts.Now = time.Now
@@ -74,6 +82,12 @@ func Rotate(repoRoot string, opts Options) (*Result, error) {
 	if threshold <= 0 {
 		threshold = DefaultThresholdLines
 	}
+
+	unlock, err := acquireRotateLock(repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = unlock() }()
 
 	clPath := filepath.Join(repoRoot, opts.ChangelogPath)
 	data, err := os.ReadFile(clPath)
@@ -99,6 +113,10 @@ func Rotate(repoRoot string, opts Options) (*Result, error) {
 		result.Reason = fmt.Sprintf("under threshold (%d <= %d lines)", len(lines), threshold)
 		return result, nil
 	}
+
+	// Strip archive-pointer trailers from previous rotations so they
+	// neither ride along into the archive nor stack up in the rewrite.
+	lines = stripArchiveTrailer(lines)
 
 	preamble, sections := splitSections(lines)
 	if len(sections) <= 1 {
@@ -129,6 +147,7 @@ func Rotate(repoRoot string, opts Options) (*Result, error) {
 
 	var archiveBuf strings.Builder
 	existingArchive, _ := os.ReadFile(archivePath)
+	archived := archivedSectionSet(existingArchive)
 	if len(existingArchive) > 0 {
 		archiveBuf.Write(existingArchive)
 		if !strings.HasSuffix(string(existingArchive), "\n") {
@@ -140,13 +159,15 @@ func Rotate(repoRoot string, opts Options) (*Result, error) {
 	}
 
 	for _, s := range toArchive {
-		archiveBuf.WriteString(strings.Join(s.Lines, "\n"))
-		if !strings.HasSuffix(archiveBuf.String(), "\n") {
-			archiveBuf.WriteString("\n")
+		content := sectionContent(s)
+		if archived[content] {
+			continue
 		}
+		archiveBuf.WriteString(content)
+		archiveBuf.WriteString("\n\n")
 	}
 
-	if err := os.WriteFile(archivePath, []byte(archiveBuf.String()), 0o644); err != nil {
+	if _, err := atomicfile.WriteIfChanged(archivePath, []byte(archiveBuf.String()), 0o644); err != nil {
 		return nil, fmt.Errorf("write archive: %w", err)
 	}
 
@@ -157,16 +178,14 @@ func Rotate(repoRoot string, opts Options) (*Result, error) {
 		newBuf.WriteString("\n")
 	}
 	for _, s := range remaining {
-		newBuf.WriteString(strings.Join(s.Lines, "\n"))
-		if !strings.HasSuffix(newBuf.String(), "\n") {
-			newBuf.WriteString("\n")
-		}
+		newBuf.WriteString(sectionContent(s))
+		newBuf.WriteString("\n\n")
 	}
 	// Trailer pointer to the archive.
-	newBuf.WriteString("\n---\n\n")
+	newBuf.WriteString("---\n\n")
 	newBuf.WriteString("_Older entries rotated to `" + filepath.Join(opts.ArchiveDir, archiveName) + "`._\n")
 
-	if err := os.WriteFile(clPath, []byte(newBuf.String()), 0o644); err != nil {
+	if _, err := atomicfile.WriteIfChanged(clPath, []byte(newBuf.String()), 0o644); err != nil {
 		return nil, fmt.Errorf("rewrite changelog: %w", err)
 	}
 
@@ -227,6 +246,82 @@ type ArchiveInfo struct {
 }
 
 // -------- internals --------------------------------------------------
+
+// acquireRotateLock serializes concurrent Rotate calls for one repository.
+// The lock file lives under .reconc/locks/, the runtime state directory
+// covered by the repository ignore policy and retention.
+func acquireRotateLock(repoRoot string) (func() error, error) {
+	lockPath := filepath.Join(repoRoot, ".reconc", "locks", "changelog.lock")
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
+		return nil, fmt.Errorf("create lock dir: %w", err)
+	}
+	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("open rotate lock: %w", err)
+	}
+	unlock, err := filelock.Lock(lock)
+	if err != nil {
+		_ = lock.Close()
+		return nil, fmt.Errorf("acquire rotate lock: %w", err)
+	}
+	return func() error {
+		err := unlock()
+		_ = lock.Close()
+		return err
+	}, nil
+}
+
+// stripArchiveTrailer removes the "---" + archive-pointer trailer blocks
+// appended by previous rotations from the end of the changelog lines so
+// they neither stack up nor get carried into the archive.
+func stripArchiveTrailer(lines []string) []string {
+	for {
+		end := len(lines)
+		for end > 0 && strings.TrimSpace(lines[end-1]) == "" {
+			end--
+		}
+		if end == 0 {
+			return lines
+		}
+		last := strings.TrimSpace(lines[end-1])
+		if !strings.HasPrefix(last, "_Older entries rotated to ") || !strings.HasSuffix(last, "._") {
+			return lines
+		}
+		cut := end - 1
+		for cut > 0 && strings.TrimSpace(lines[cut-1]) == "" {
+			cut--
+		}
+		if cut == 0 || strings.TrimSpace(lines[cut-1]) != "---" {
+			return lines
+		}
+		cut--
+		for cut > 0 && strings.TrimSpace(lines[cut-1]) == "" {
+			cut--
+		}
+		lines = lines[:cut]
+	}
+}
+
+// sectionContent renders one section as newline-joined text without a
+// trailing newline. Used both for writing and for duplicate detection.
+func sectionContent(s section) string {
+	return strings.TrimRight(strings.Join(s.Lines, "\n"), "\n")
+}
+
+// archivedSectionSet indexes the exact content of every section already
+// present in an archive file, so appends after a crash or a repeated
+// forced rotation skip sections that were already archived.
+func archivedSectionSet(archive []byte) map[string]bool {
+	set := map[string]bool{}
+	if len(archive) == 0 {
+		return set
+	}
+	_, sections := splitSections(splitLines(string(archive)))
+	for _, s := range sections {
+		set[sectionContent(s)] = true
+	}
+	return set
+}
 
 // section is one `## ` delimited block in the changelog.
 type section struct {

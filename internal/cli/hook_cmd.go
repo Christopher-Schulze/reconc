@@ -239,6 +239,10 @@ func runHookInstall(args []string, stdout, stderr io.Writer) error {
 		}
 		fmt.Fprintln(stderr, "  (If this was intentional, redo the edit via a wrapper command)")
 	}
+	if report.BackupPath != "" {
+		fmt.Fprintf(stderr, "reconc hook install: replaced malformed config; original preserved at %s\n",
+			report.BackupPath)
+	}
 	return nil
 }
 

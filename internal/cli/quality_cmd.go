@@ -244,15 +244,28 @@ func runCoverage(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
-// firstPercent extracts the first float-like number from s. Accepts:
+// firstPercent extracts the coverage percentage from s. Accepts:
 //   - "87.5%"       -> 87.5
 //   - "coverage: 87.5% of statements"  -> 87.5
 //   - "87.5"        -> 87.5
 //
+// A number directly followed by '%' wins over any earlier bare number,
+// so a real `go test -cover` line ("ok  pkg  0.012s  coverage: 87.5% of
+// statements") yields the coverage, not the duration. Files without any
+// percent sign fall back to the first bare number.
+//
 // Returns (pct, true) on success, (0, false) otherwise.
 func firstPercent(s string) (float64, bool) {
-	// Scan char-by-char looking for a digit run that may contain a
-	// decimal point. Stops at first complete number.
+	if pct, ok := scanCoverageNumber(s, true); ok {
+		return pct, true
+	}
+	return scanCoverageNumber(s, false)
+}
+
+// scanCoverageNumber finds the first digit run (optionally with a
+// decimal point) in s. With requirePercent set, only a run immediately
+// followed by '%' counts.
+func scanCoverageNumber(s string, requirePercent bool) (float64, bool) {
 	var buf []byte
 	seenDigit := false
 	for i := 0; i < len(s); i++ {
@@ -264,13 +277,14 @@ func firstPercent(s string) (float64, bool) {
 		case c == '.' && seenDigit:
 			buf = append(buf, c)
 		default:
-			if seenDigit {
+			if seenDigit && (!requirePercent || c == '%') {
 				return parseFloatSimple(string(buf))
 			}
 			buf = nil
+			seenDigit = false
 		}
 	}
-	if seenDigit {
+	if seenDigit && !requirePercent {
 		return parseFloatSimple(string(buf))
 	}
 	return 0, false
