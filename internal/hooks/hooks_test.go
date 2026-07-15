@@ -410,11 +410,11 @@ func TestInstallGitPreCommit(t *testing.T) {
 		t.Errorf("target path wrong: %s", report.TargetPath)
 	}
 	target := filepath.Join(repo, ".git", "hooks", "pre-commit")
-	info, err := os.Stat(target)
+	_, err = os.Stat(target)
 	if err != nil {
 		t.Fatalf("hook missing: %v", err)
 	}
-	if info.Mode()&0o111 == 0 {
+	if !executableFile(target) {
 		t.Error("hook should be executable")
 	}
 }
@@ -1085,10 +1085,10 @@ func TestSyncRepoRootScaffoldWritesGeneratorArtifacts(t *testing.T) {
 		if err != nil {
 			t.Fatalf("stat synced %s: %v", kind, err)
 		}
-		if artifact.Executable && info.Mode()&0o111 == 0 {
+		if artifact.Executable && !executableFile(target) {
 			t.Fatalf("synced %s must be executable", kind)
 		}
-		if !artifact.Executable && info.Mode()&0o111 != 0 {
+		if runtime.GOOS != "windows" && !artifact.Executable && info.Mode()&0o111 != 0 {
 			t.Fatalf("synced %s must not be executable, mode=%v", kind, info.Mode())
 		}
 	}
@@ -1145,10 +1145,10 @@ func TestTemplateRepoRootScaffoldHooksMatchGenerator(t *testing.T) {
 		if err != nil {
 			t.Fatalf("stat template scaffold %s: %v", kind, err)
 		}
-		if artifact.Executable && info.Mode()&0o111 == 0 {
+		if artifact.Executable && !executableFile(target) {
 			t.Fatalf("template scaffold %s must be executable", kind)
 		}
-		if !artifact.Executable && info.Mode()&0o111 != 0 {
+		if runtime.GOOS != "windows" && !artifact.Executable && info.Mode()&0o111 != 0 {
 			t.Fatalf("template scaffold %s must not be executable, mode=%v", kind, info.Mode())
 		}
 	}

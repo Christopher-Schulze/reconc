@@ -10,11 +10,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"syscall"
 
 	"reconc-harness/template/audits/lib/donecheck"
 )
@@ -124,12 +122,11 @@ func runWithLock(root string, opts options) error {
 		return fmt.Errorf("open lock file: %w", err)
 	}
 	defer lockFile.Close()
-	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	unlock, err := tryPromoteLock(lockFile)
+	if err != nil {
 		return fmt.Errorf("another promote-task-done holds %s; refusing to race", lockRel)
 	}
-	defer func() {
-		_ = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
-	}()
+	defer unlock()
 	return promote(root, opts)
 }
 
@@ -490,7 +487,7 @@ func buildPlan(srcRel string, dstRel string, promoting string, nextName string, 
 }
 
 func runAuditTaskState(root string) error {
-	cmd := exec.Command(filepath.Join(root, filepath.FromSlash(auditRunner)), "task-state")
+	cmd := auditTaskStateCommand(filepath.Join(root, filepath.FromSlash(auditRunner)))
 	cmd.Dir = root
 	output, err := cmd.CombinedOutput()
 	if err != nil {

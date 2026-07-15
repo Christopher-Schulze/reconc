@@ -13,9 +13,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	rerrors "reconc.dev/reconc/internal/errors"
+	"reconc.dev/reconc/internal/execfile"
 )
 
 // Hook artifact paths.
@@ -267,11 +269,11 @@ func installGitPreCommit(repoRoot string, force bool) (*InstallReport, error) {
 	artifact := generateGitPreCommit()
 	action := "created"
 	if existing, err := os.ReadFile(target); err == nil {
-		info, statErr := os.Stat(target)
+		_, statErr := os.Stat(target)
 		if statErr != nil {
 			return nil, &rerrors.PolicySourceError{Message: "stat " + target, Cause: statErr}
 		}
-		if string(existing) == artifact.Content && info.Mode().Perm() == 0o755 {
+		if string(existing) == artifact.Content && execfile.Is(target) {
 			action = "unchanged"
 		} else if !force {
 			return nil, &rerrors.PolicySourceError{
@@ -310,7 +312,8 @@ func writeGeneratedArtifact(target, content string, executable bool) (string, er
 	if existing, err := os.ReadFile(target); err == nil {
 		action = "updated"
 		info, statErr := os.Stat(target)
-		if statErr == nil && string(existing) == content && info.Mode()&0o777 == perm {
+		modeMatches := statErr == nil && generatedModeMatches(target, info, executable, perm)
+		if string(existing) == content && modeMatches {
 			return "unchanged", nil
 		}
 	} else if err != nil && !os.IsNotExist(err) {
@@ -323,6 +326,13 @@ func writeGeneratedArtifact(target, content string, executable bool) (string, er
 		return "", &rerrors.PolicySourceError{Message: "chmod " + target, Cause: err}
 	}
 	return action, nil
+}
+
+func generatedModeMatches(target string, info os.FileInfo, executable bool, permission os.FileMode) bool {
+	if executable {
+		return execfile.Is(target)
+	}
+	return runtime.GOOS == "windows" || info.Mode().Perm() == permission
 }
 
 // installJSONHooks merges reconc's hook entries into a nested JSON settings

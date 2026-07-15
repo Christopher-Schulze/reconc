@@ -44,6 +44,9 @@ Requirements:
 
 - Go `1.26`
 - Git for `reconc ci` and hook installation
+- On Windows, `sh` on `PATH` for generated shell hook wrappers plus `.sh` and
+  extensionless policy scripts; Git for Windows supplies it. Native `.exe` and
+  `.com` policy scripts execute directly.
 
 Common commands:
 
@@ -66,8 +69,8 @@ make lint
 make cover
 make bench
 make self-host
-make sbom VERSION=0.7.1
-make release VERSION=0.7.1
+make sbom VERSION=0.7.2
+make release VERSION=0.7.2
 ```
 
 `make release` cross-compiles five binaries into `dist/`, generates three flat
@@ -769,12 +772,24 @@ GitHub workflows:
 CI checks:
 
 - full root-module and `harness/template` tests, vet, pinned Staticcheck v0.7.0, and race checks on Ubuntu 24.04 and macOS 15; formatting, tidy, and pinned Govulncheck v1.6.0 on Linux
-- native Windows 2025 root-module package/test compilation, vet, binary build, version, and help smoke checks without claiming POSIX hook-script or harness semantics on Windows
+- full native Windows 2025 root-module and `harness/template` tests, vet,
+  pinned Staticcheck v0.7.0, race checks, and native binary version/help smoke;
+  shell hook wrappers and shell policy scripts use the documented `sh` runtime
 - clean-repository self-hosting golden path on Ubuntu and macOS across all three bootstrap profiles and nine hook platforms
 - immutable action commit pins for checkout, Go setup, and build provenance
 - least-privilege permissions, disabled checkout credential persistence, bounded job timeouts, and stale-run cancellation per branch or pull request
 - release and installer negative-path trust tests
 - weekly Dependabot updates for GitHub Actions and both Go modules
+
+The public source repository protects its default branch with the active
+`Protect main` ruleset. GitHub Actions checks from application ID `15368` named
+`Go checks (ubuntu-24.04)`, `Go checks (macos-15)`, `Windows build and smoke`,
+and `Release trust` must pass before the ref can advance. The same ruleset
+blocks force pushes and deletion and has no actor bypass. Effective rules are
+read back with `gh api repos/Christopher-Schulze/reconc/rules/branches/main`.
+An administrator emergency requires explicitly disabling ruleset `18998289`,
+performing the recovery, and re-enabling it through the GitHub API; there is no
+silent owner or administrator bypass during normal operation.
 
 Release:
 
@@ -937,7 +952,7 @@ not become competing current-state documentation.
 
 ## Release State
 
-The current public release line is `v0.7.x`. A new release is blocked until its
-release, install, self-hosting, and final verification contracts pass. Release
-artifacts are produced by the GitHub release workflow when a `reconc-v*` tag is
-pushed.
+The current public release line is `v0.7.x`; the current patch is `v0.7.2`. A
+new release is blocked until its release, install, self-hosting, and final
+verification contracts pass. Release artifacts are produced by the GitHub
+release workflow when a `reconc-v*` tag is pushed.

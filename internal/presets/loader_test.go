@@ -219,7 +219,7 @@ func TestHomeRespectsEnvVar(t *testing.T) {
 func TestHomeFallsBackToHomeDotReconc(t *testing.T) {
 	t.Setenv(HomeEnvVar, "")
 	got := Home()
-	if !strings.HasSuffix(got, "/.reconc") {
-		t.Errorf("expected suffix /.reconc, got %s", got)
+	if filepath.Base(got) != ".reconc" {
+		t.Errorf("expected final path component .reconc, got %s", got)
 	}
 }

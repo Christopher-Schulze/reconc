@@ -87,6 +87,10 @@ go build -o reconc ./cmd/reconc
 ./reconc --help
 ```
 
+Windows binaries run natively. Shell-based hook wrappers plus `.sh` and
+extensionless policy scripts require `sh` on `PATH`; Git for Windows supplies
+it. Native `.exe` and `.com` policy scripts execute directly.
+
 After installing or placing the binary on `PATH`, use `reconc` directly.
 
 Add Reconc to a target repo:
@@ -334,10 +338,10 @@ reconc <command> --help
 
 ## Status
 
-`reconc` is released on the `v0.7.x` line. Core local gates pass, and release
-artifacts are produced by the GitHub release workflow when a `reconc-v*` tag is
-pushed. Every release SBOM is regenerated and byte-verified before its checksum
-and build provenance are published.
+`reconc` is released on the `v0.7.x` line; the current patch is `v0.7.2`. Core
+local gates pass, and release artifacts are produced by the GitHub release
+workflow when a `reconc-v*` tag is pushed. Every release SBOM is regenerated
+and byte-verified before its checksum and build provenance are published.
 
 `make self-host` builds the local binary and runs the clean-repository golden
 path across all three bootstrap profiles, all nine hook platforms, TASK

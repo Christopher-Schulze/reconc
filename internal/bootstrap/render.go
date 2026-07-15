@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"reconc.dev/reconc/internal/execfile"
 	"reconc.dev/reconc/internal/hooks"
 )
 
@@ -405,6 +406,5 @@ func trustedExistingWrapper(root string, trust bool) bool {
 	if !trust {
 		return false
 	}
-	info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(hooks.WrapperPath)))
-	return err == nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 && info.Mode()&0o111 != 0
+	return execfile.Is(filepath.Join(root, filepath.FromSlash(hooks.WrapperPath)))
 }

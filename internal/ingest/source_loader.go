@@ -3,6 +3,7 @@ package ingest
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -255,7 +256,7 @@ func loadIncludePatterns(configText, context string) ([]string, error) {
 			}
 		}
 		normalized := strings.TrimSpace(str)
-		if filepath.IsAbs(normalized) || strings.Contains(normalized, "..") {
+		if path.IsAbs(normalized) || filepath.IsAbs(normalized) || strings.Contains(normalized, "..") {
 			return nil, &rerrors.PolicySourceError{
 				Message: "include patterns must stay within the repo root",
 			}

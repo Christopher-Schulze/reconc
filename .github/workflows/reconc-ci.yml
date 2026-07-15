@@ -93,10 +93,10 @@ jobs:
           go test -race -count=1 ./...
           (cd harness/template && go test -race -count=1 ./...)
 
-  windows-build:
+  windows-runtime:
     name: Windows build and smoke
     runs-on: windows-2025
-    timeout-minutes: 20
+    timeout-minutes: 40
     defaults:
       run:
         shell: bash
@@ -115,10 +115,30 @@ jobs:
             go.sum
             harness/template/go.sum
 
-      - name: Compile packages and tests
+      - name: Download modules
         run: |
-          go test -run '^$' ./...
+          go mod download
+          (cd harness/template && go mod download)
+
+      - name: Test
+        run: |
+          go test ./...
+          (cd harness/template && go test ./...)
+
+      - name: Vet
+        run: |
           go vet ./...
+          (cd harness/template && go vet ./...)
+
+      - name: Staticcheck
+        run: |
+          go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
+          (cd harness/template && go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...)
+
+      - name: Race tests
+        run: |
+          go test -race -count=1 ./...
+          (cd harness/template && go test -race -count=1 ./...)
 
       - name: Build and smoke CLI
         run: |

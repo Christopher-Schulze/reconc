@@ -99,9 +99,6 @@ func RunScript(repoRoot, scriptPath string, args []string, input ScriptInput, ti
 	if info.IsDir() {
 		return ScriptOutcome{Status: "error"}, fmt.Errorf("script path is a directory: %s", scriptPath)
 	}
-	if info.Mode()&0o111 == 0 {
-		return ScriptOutcome{Status: "error"}, fmt.Errorf("script is not executable (no +x bit): %s", scriptPath)
-	}
 
 	// Build the JSON stdin payload.
 	stdinJSON, err := json.Marshal(input)
@@ -113,7 +110,10 @@ func RunScript(repoRoot, scriptPath string, args []string, input ScriptInput, ti
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, full, args...)
+	cmd, err := scriptCommand(ctx, full, args)
+	if err != nil {
+		return ScriptOutcome{Status: "error"}, err
+	}
 	cmd.Dir = repoRoot
 	cmd.Env = sanitizedEnv()
 	cmd.Stdin = bytes.NewReader(stdinJSON)

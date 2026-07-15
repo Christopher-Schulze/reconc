@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -153,6 +154,12 @@ func TestInspectGitHookRequiresExecutableArtifact(t *testing.T) {
 	path := filepath.Join(repo, filepath.FromSlash(GitPreCommitPath))
 	if err := os.Chmod(path, 0o644); err != nil {
 		t.Fatal(err)
+	}
+	if runtime.GOOS == "windows" {
+		if got := statusForKind(t, repo, KindGitPreCommit).State; got != StateConfigured {
+			t.Fatalf("regular Windows git hook = %s, want configured", got)
+		}
+		return
 	}
 	if got := statusForKind(t, repo, KindGitPreCommit).State; got != StateDegraded {
 		t.Fatalf("non-executable git hook = %s, want degraded", got)

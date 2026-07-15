@@ -22,8 +22,8 @@ type createdRecord struct {
 }
 
 type createdDirectory struct {
-	path   string
-	handle *os.File
+	path     string
+	identity directoryIdentity
 }
 
 func Apply(plan *Plan, productVersion string) (*Report, error) {
@@ -68,7 +68,7 @@ func apply(plan *Plan, productVersion string, options applyOptions) (*Report, er
 	}
 	if len(conflicts) > 0 {
 		created, dirs, err := materializeCandidates(plan, conflicts, artifactByPath, options)
-		defer closeCreatedDirectoryHandles(dirs)
+		defer closeCreatedDirectoryIdentities(dirs)
 		if err != nil {
 			rolledBack, rollbackErr := rollbackCreated(plan.RepoRoot, created, dirs)
 			report.RolledBack = rolledBack
@@ -84,7 +84,9 @@ func apply(plan *Plan, productVersion string, options applyOptions) (*Report, er
 
 	created := []createdRecord{}
 	createdDirs := []createdDirectory{}
-	defer func() { closeCreatedDirectoryHandles(createdDirs) }()
+	defer func() {
+		closeCreatedDirectoryIdentities(createdDirs)
+	}()
 	for _, action := range plan.Actions {
 		if action.State != ActionCreate {
 			continue
@@ -298,11 +300,21 @@ func publishArtifact(root string, artifact desiredArtifact, relative, expectedSH
 		removeErr := os.Remove(stage)
 		return createdRecord{}, createdDirs, combineWriteFailure("inspect staged bootstrap artifact "+relative, err, nil, removeErr)
 	}
+	if !stagedInfo.Mode().IsRegular() || stagedInfo.Mode()&os.ModeSymlink != 0 {
+		removeErr := os.Remove(stage)
+		return createdRecord{}, createdDirs, combineWriteFailure("inspect staged bootstrap artifact "+relative, fmt.Errorf("staging path is not a real regular file"), nil, removeErr)
+	}
 	if err := os.Link(stage, target); err != nil {
 		removeErr := os.Remove(stage)
 		return createdRecord{}, createdDirs, combineWriteFailure("publish bootstrap artifact "+relative, err, nil, removeErr)
 	}
-	record := createdRecord{path: target, sha256: expectedSHA, file: stagedInfo}
+	publishedInfo, err := os.Lstat(target)
+	if err != nil {
+		removeTargetErr := os.Remove(target)
+		removeStageErr := os.Remove(stage)
+		return createdRecord{}, createdDirs, combineWriteFailure("inspect published bootstrap artifact "+relative, err, removeTargetErr, removeStageErr)
+	}
+	record := createdRecord{path: target, sha256: expectedSHA, file: publishedInfo}
 	if err := os.Chmod(target, os.FileMode(artifact.mode)); err != nil {
 		removeTargetErr := removeCreatedRecord(record)
 		removeStageErr := os.Remove(stage)
@@ -414,7 +426,7 @@ func createSafeParents(root, parent string) ([]createdDirectory, error) {
 }
 
 func rollbackCreated(root string, created []createdRecord, dirs []createdDirectory) ([]string, error) {
-	defer closeCreatedDirectoryHandles(dirs)
+	defer closeCreatedDirectoryIdentities(dirs)
 	rolledBack := []string{}
 	errors := []string{}
 	for index := len(created) - 1; index >= 0; index-- {
@@ -438,16 +450,7 @@ func rollbackCreated(root string, created []createdRecord, dirs []createdDirecto
 			errors = append(errors, "inspect rollback directory "+directory.path+": "+err.Error())
 			continue
 		}
-		if directory.handle == nil {
-			errors = append(errors, "refuse rollback without directory identity handle "+directory.path)
-			continue
-		}
-		expected, err := directory.handle.Stat()
-		if err != nil {
-			errors = append(errors, "inspect rollback directory identity "+directory.path+": "+err.Error())
-			continue
-		}
-		if !os.SameFile(info, expected) {
+		if !sameDirectoryIdentity(directory.identity, info) {
 			errors = append(errors, "refuse rollback of externally replaced directory "+directory.path)
 			continue
 		}
@@ -461,7 +464,7 @@ func rollbackCreated(root string, created []createdRecord, dirs []createdDirecto
 			continue
 		}
 		current, err := os.Lstat(directory.path)
-		if err != nil || !os.SameFile(current, expected) {
+		if err != nil || !sameDirectoryIdentity(directory.identity, current) {
 			if err == nil {
 				err = fmt.Errorf("directory identity changed")
 			}
@@ -480,28 +483,11 @@ func rollbackCreated(root string, created []createdRecord, dirs []createdDirecto
 }
 
 func captureCreatedDirectory(path string) (createdDirectory, error) {
-	handle, err := os.Open(path)
+	identity, err := captureDirectoryIdentity(path)
 	if err != nil {
 		return createdDirectory{}, err
 	}
-	info, err := handle.Stat()
-	if err != nil {
-		_ = handle.Close()
-		return createdDirectory{}, err
-	}
-	if !info.IsDir() {
-		_ = handle.Close()
-		return createdDirectory{}, fmt.Errorf("created path is not a directory: %s", path)
-	}
-	return createdDirectory{path: path, handle: handle}, nil
-}
-
-func closeCreatedDirectoryHandles(directories []createdDirectory) {
-	for _, directory := range directories {
-		if directory.handle != nil {
-			_ = directory.handle.Close()
-		}
-	}
+	return createdDirectory{path: path, identity: identity}, nil
 }
 
 func removeCreatedRecord(record createdRecord) error {
@@ -556,9 +542,17 @@ func appendUniqueDirectories(directories []createdDirectory, additions ...create
 		if !seen[directory.path] {
 			seen[directory.path] = true
 			directories = append(directories, directory)
+			continue
 		}
+		closeDirectoryIdentity(directory.identity)
 	}
 	return directories
+}
+
+func closeCreatedDirectoryIdentities(directories []createdDirectory) {
+	for _, directory := range directories {
+		closeDirectoryIdentity(directory.identity)
+	}
 }
 
 func deepestDirectoriesFirst(directories []createdDirectory) []createdDirectory {

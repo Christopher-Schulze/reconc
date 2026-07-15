@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,7 +61,7 @@ func TestRepositoryRunControlReturnsContinuationForEveryAgentAdapter(t *testing.
 	}{
 		{name: "Claude Code", event: "claude-stop", payload: `{"session_id":"claude-run"}`, want: `"decision":"block"`},
 		{name: "Codex", event: "codex-stop", payload: `{"session_id":"codex-run"}`, want: `"decision":"block"`},
-		{name: "Cursor", event: "cursor-stop", payload: `{"sessionId":"cursor-run","cursor_version":"3.5.17","hook_event_name":"stop","workspace_roots":["` + repo + `"]}`, want: `"followup_message"`},
+		{name: "Cursor", event: "cursor-stop", payload: fmt.Sprintf(`{"sessionId":"cursor-run","cursor_version":"3.5.17","hook_event_name":"stop","workspace_roots":[%q]}`, repo), want: `"followup_message"`},
 		{name: "OpenCode", event: "opencode-stop", payload: `{"session_id":"opencode-run","reconc_runtime":"opencode"}`, want: `"decision":"block"`},
 		{name: "Devin CLI", event: "devin-stop", payload: `{"session_id":"devin-run"}`, want: `"decision":"block"`},
 		{name: "Antigravity CLI", event: "antigravity-stop", payload: `{"session_id":"antigravity-run"}`, want: `"decision":"continue"`},
