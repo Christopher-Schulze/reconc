@@ -141,3 +141,96 @@ func Start() {
 		})
 	}
 }
+
+func TestGoConcurrencyBoundaryAcceptsStructFieldWaitGroup(t *testing.T) {
+	root := t.TempDir()
+	production := `package worker
+
+import "sync"
+
+type Server struct{ wg sync.WaitGroup }
+
+func (s *Server) Start() {
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		work()
+	}()
+	s.wg.Wait()
+}
+
+func work() {}
+`
+	if err := os.WriteFile(filepath.Join(root, "worker.go"), []byte(production), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gate := policy.AssuranceGate{
+		ID: "go-concurrency", Type: policy.AssuranceGoConcurrency,
+		ScanPaths: []string{"**/*.go"},
+	}
+	findings, err := Evaluate(root, []policy.AssuranceGate{gate}, Inputs{ChangedPaths: []string{"worker.go"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) != 0 {
+		t.Fatalf("struct-field WaitGroup ownership must not be flagged: %+v", findings)
+	}
+}
+
+func TestGoConcurrencyBoundaryAcceptsNamedWorkerWithWaitGroupPointer(t *testing.T) {
+	root := t.TempDir()
+	production := `package worker
+
+import "sync"
+
+func Start() {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go work(&wg)
+	wg.Wait()
+}
+
+func work(wg *sync.WaitGroup) { defer wg.Done() }
+`
+	if err := os.WriteFile(filepath.Join(root, "worker.go"), []byte(production), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gate := policy.AssuranceGate{
+		ID: "go-concurrency", Type: policy.AssuranceGoConcurrency,
+		ScanPaths: []string{"**/*.go"},
+	}
+	findings, err := Evaluate(root, []policy.AssuranceGate{gate}, Inputs{ChangedPaths: []string{"worker.go"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) != 0 {
+		t.Fatalf("go worker(&wg) delegation must not be flagged: %+v", findings)
+	}
+}
+
+func TestGoConcurrencyBoundaryStillFlagsWaitlessLaunch(t *testing.T) {
+	root := t.TempDir()
+	// A named call without a WaitGroup pointer argument stays a finding.
+	production := `package worker
+
+func Start() {
+	go work()
+}
+
+func work() {}
+`
+	if err := os.WriteFile(filepath.Join(root, "worker.go"), []byte(production), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gate := policy.AssuranceGate{
+		ID: "go-concurrency", Type: policy.AssuranceGoConcurrency,
+		ScanPaths: []string{"**/*.go"},
+	}
+	findings, err := Evaluate(root, []policy.AssuranceGate{gate}, Inputs{ChangedPaths: []string{"worker.go"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("unowned named launch must stay flagged: %+v", findings)
+	}
+}

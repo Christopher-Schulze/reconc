@@ -19,19 +19,21 @@ const (
 // WriteToolNames are Claude Code tool names that represent a file
 // write. Mirrors the Python WRITE_TOOL_NAMES set.
 var WriteToolNames = map[string]struct{}{
-	"Edit":        {},
-	"MultiEdit":   {},
-	"Write":       {},
-	"TabWrite":    {},
-	"StrReplace":  {},
-	"Delete":      {},
-	"apply_patch": {},
-	"edit":        {},
-	"multiedit":   {},
-	"write":       {},
-	"tabwrite":    {},
-	"strreplace":  {},
-	"delete":      {},
+	"Edit":         {},
+	"MultiEdit":    {},
+	"Write":        {},
+	"NotebookEdit": {},
+	"TabWrite":     {},
+	"StrReplace":   {},
+	"Delete":       {},
+	"apply_patch":  {},
+	"edit":         {},
+	"multiedit":    {},
+	"write":        {},
+	"notebookedit": {},
+	"tabwrite":     {},
+	"strreplace":   {},
+	"delete":       {},
 }
 
 // ReadToolNames are tools that represent a file read.
@@ -119,7 +121,7 @@ func (p *HookPayload) FilePaths() []string {
 		return nil
 	}
 	var paths []string
-	for _, key := range []string{"file_path", "filePath", "path", "file", "target", "absolute_path", "absolutePath", "relative_path", "relativePath", "target_file", "targetFile"} {
+	for _, key := range []string{"file_path", "filePath", "path", "file", "target", "absolute_path", "absolutePath", "relative_path", "relativePath", "target_file", "targetFile", "notebook_path", "notebookPath"} {
 		if v, _ := p.ToolInput[key].(string); strings.TrimSpace(v) != "" {
 			paths = appendUniquePath(paths, strings.TrimSpace(v))
 		}

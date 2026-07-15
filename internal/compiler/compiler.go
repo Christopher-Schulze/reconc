@@ -14,8 +14,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	rerrors "reconc.dev/reconc/internal/errors"
@@ -137,6 +139,7 @@ func CompileRepoPolicy(repoStartPath, compilerVersion string) (*CompiledPolicy, 
 		}
 		compiledDiscovery.Warnings = append(compiledDiscovery.Warnings, w)
 	}
+	compiledDiscovery.Warnings = append(compiledDiscovery.Warnings, braceVariableWarnings(parsed.Rules)...)
 
 	payload := buildLockPayload(root, bundle, parsed, digest, compilerVersion, compiledDiscovery)
 
@@ -584,6 +587,56 @@ func stripLockfileMissingWarning(d ingest.DiscoveryResult) ingest.DiscoveryResul
 		out.Warnings = append(out.Warnings, w)
 	}
 	return out
+}
+
+// braceVariableRegex matches a single-identifier brace group like
+// {task_id}. Alternations such as {js,ts} contain a comma and never
+// match.
+var braceVariableRegex = regexp.MustCompile(`\{[A-Za-z_][A-Za-z0-9_]*\}`)
+
+// templateCaptureKinds are the rule kinds whose glob fields compile
+// {var} patterns into template captures. Every other kind matches globs
+// through doublestar, where {task_id} is a one-element brace group
+// matching the LITERAL text "task_id" - almost never what the author
+// meant.
+var templateCaptureKinds = map[policy.Kind]struct{}{
+	policy.KindRequireFreshFile: {},
+	policy.KindRequireEvidence:  {},
+	policy.KindRequireScript:    {},
+	policy.KindAllOf:            {},
+	policy.KindAnyOf:            {},
+	policy.KindNot:              {},
+}
+
+// braceVariableWarnings flags {identifier} brace groups in glob fields
+// of kinds without template capture, so a misauthored rule fails loud
+// at compile time instead of silently matching one literal path.
+func braceVariableWarnings(rules []policy.Rule) []string {
+	type globField struct {
+		name     string
+		patterns []string
+	}
+	warnings := []string{}
+	for _, r := range rules {
+		fields := []globField{{"scope_paths", r.ScopePaths}}
+		if _, captures := templateCaptureKinds[r.Kind]; !captures {
+			fields = append(fields,
+				globField{"when_paths", r.WhenPaths},
+				globField{"paths", r.Paths},
+				globField{"before_paths", r.BeforePaths},
+			)
+		}
+		for _, field := range fields {
+			for _, pattern := range field.patterns {
+				if match := braceVariableRegex.FindString(pattern); match != "" {
+					warnings = append(warnings, fmt.Sprintf(
+						"rule '%s': %s pattern %q uses %s, but kind %s does not capture template variables; doublestar matches it as the literal text %q",
+						r.ID, field.name, pattern, match, r.Kind, strings.Trim(match, "{}")))
+				}
+			}
+		}
+	}
+	return warnings
 }
 
 // sourcePathsOf returns the path strings of every source in the bundle.

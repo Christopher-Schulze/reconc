@@ -511,3 +511,31 @@ func TestRuleToMapCoversOptionalFields(t *testing.T) {
 		t.Fatalf("checks[0] wrong content: %#v", checkItem)
 	}
 }
+
+func TestCompileWarnsOnBraceVariableInNonCaptureKind(t *testing.T) {
+	withRECONCHome(t)
+	repo := t.TempDir()
+	writeFile(t, repo, "AGENTS.md", "# project\n")
+	writeFile(t, repo, "policies/rules.yml",
+		"rules:\n"+
+			"  - id: literal-brace\n    kind: deny_write\n    paths: ['docs/{task_id}.md']\n    mode: block\n    message: m\n"+
+			"  - id: alternation-ok\n    kind: deny_write\n    paths: ['src/**/*.{js,ts}']\n    mode: block\n    message: m\n"+
+			"  - id: capture-ok\n    kind: require_fresh_file\n    when_paths: ['docs/todo/{task_id}.md']\n    required_files:\n      - path: 'docs/fidelity/{task_id}.json'\n        max_age_hours: 24\n    mode: block\n    message: m\n")
+
+	compiled, err := CompileRepoPolicy(repo, "0.1.0-test")
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	hits := 0
+	for _, w := range compiled.Warnings {
+		if strings.Contains(w, "does not capture template variables") {
+			hits++
+			if !strings.Contains(w, "literal-brace") {
+				t.Errorf("warning should name the offending rule: %s", w)
+			}
+		}
+	}
+	if hits != 1 {
+		t.Fatalf("expected exactly one brace-variable warning (not for alternation or capture kinds), got %d: %v", hits, compiled.Warnings)
+	}
+}

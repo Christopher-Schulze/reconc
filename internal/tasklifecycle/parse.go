@@ -513,6 +513,9 @@ func (board *Board) validateInvariants() []Issue {
 		if task.State == StateQueued && activeSubs > 0 {
 			issues = append(issues, issue("task/detail/queued-active-subtask", task.Path, 0, "queued TASK already has an active Sub-Task", "keep queued Sub-Tasks [ ] until the TASK is claimed"))
 		}
+		if _, unknown := splitDependencies(board, task); len(unknown) > 0 {
+			issues = append(issues, issue("task/detail/unknown-dependency", task.Path, 0, "Depends On references no TASK on the board: "+strings.Join(unknown, ", "), "fix the dependency id or remove the stale entry; an unknown id keeps this TASK unclaimable forever"))
+		}
 	}
 	return issues
 }

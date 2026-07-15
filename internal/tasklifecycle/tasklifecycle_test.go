@@ -601,3 +601,29 @@ func writeFile(t interface {
 		t.Fatal(err)
 	}
 }
+
+func TestInspectFlagsUnknownDependencyID(t *testing.T) {
+	repo := t.TempDir()
+	writeFile(t, repo, ".reconc.yml", []byte("task_lifecycle:\n  profile: logbook-v1\n"))
+	writeFile(t, repo, "docs/tasks.md", []byte("# Tasks\n\nCurrent: none\n\n- [ ] TASK-0002-Waiting - Waiting work -> tasks/TASK-0002-Waiting.md\n"))
+	waiting := logbookDetail("TASK-0002-Waiting", "Queued", "- [ ] Start")
+	waiting = bytes.Replace(waiting, []byte("- Depends On: none"), []byte("- Depends On: TASK-9999-Typo"), 1)
+	writeFile(t, repo, "docs/tasks/TASK-0002-Waiting.md", waiting)
+	_, err := Inspect(repo)
+	if err == nil {
+		t.Fatal("expected validation error for unknown dependency id")
+	}
+	var vErr *ValidationError
+	if !errors.As(err, &vErr) {
+		t.Fatalf("expected *ValidationError, got %T: %v", err, err)
+	}
+	found := false
+	for _, issue := range vErr.Issues {
+		if issue.ID == "task/detail/unknown-dependency" && strings.Contains(issue.Message, "TASK-9999-Typo") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected unknown-dependency issue naming the id, got %+v", vErr.Issues)
+	}
+}

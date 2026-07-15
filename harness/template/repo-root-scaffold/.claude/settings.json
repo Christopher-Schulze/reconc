@@ -13,7 +13,7 @@
             "type": "command"
           }
         ],
-        "matcher": "Edit|Write|MultiEdit|Bash"
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash"
       }
     ],
     "PostToolUse": [
@@ -29,7 +29,7 @@
             "type": "command"
           }
         ],
-        "matcher": "Read|Edit|Write|MultiEdit|Bash"
+        "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash"
       }
     ],
     "PostToolUseFailure": [
@@ -61,7 +61,7 @@
             "type": "command"
           }
         ],
-        "matcher": "Edit|Write|MultiEdit|Bash"
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash"
       }
     ],
     "SessionEnd": [

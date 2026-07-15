@@ -88,7 +88,7 @@ func generateClaudeCode() *Artifact {
 			},
 			"PreToolUse": []interface{}{
 				map[string]interface{}{
-					"matcher": "Edit|Write|MultiEdit|Bash",
+					"matcher": "Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash",
 					"hooks": []interface{}{
 						command("claude-pre-tool-use", EventPreToolUse),
 					},
@@ -96,7 +96,7 @@ func generateClaudeCode() *Artifact {
 			},
 			"PermissionRequest": []interface{}{
 				map[string]interface{}{
-					"matcher": "Edit|Write|MultiEdit|Bash",
+					"matcher": "Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash",
 					"hooks": []interface{}{
 						command("claude-permission-request", EventPermissionRequest),
 					},
@@ -104,7 +104,7 @@ func generateClaudeCode() *Artifact {
 			},
 			"PostToolUse": []interface{}{
 				map[string]interface{}{
-					"matcher": "Read|Edit|Write|MultiEdit|Bash",
+					"matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash",
 					"hooks": []interface{}{
 						command("claude-post-tool-use", EventPostToolUse),
 					},

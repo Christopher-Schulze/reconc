@@ -33,7 +33,7 @@ func Claim(repoRoot, id string) (MutationResult, error) {
 			return MutationResult{}, nil, nil, err
 		}
 		if !dependenciesDone(board, task) {
-			return MutationResult{}, nil, nil, fmt.Errorf("TASK %s has unfinished dependencies: %s", task.ID, strings.Join(task.Dependencies, ", "))
+			return MutationResult{}, nil, nil, fmt.Errorf("TASK %s has %s", task.ID, dependencyBlockReason(board, task))
 		}
 		detail, err := activateDetail(board.Profile, task.rawDetail)
 		if err != nil {
@@ -700,8 +700,18 @@ func blockedSuffix(allow bool) string {
 }
 
 func dependenciesDone(board *Board, task *Task) bool {
+	unfinished, unknown := splitDependencies(board, task)
+	return len(unfinished) == 0 && len(unknown) == 0
+}
+
+// splitDependencies partitions a task's dependencies into ids that
+// reference known-but-unfinished TASKs and ids that reference nothing
+// on the board at all. The distinction matters for diagnostics: an
+// unknown id (typo or removed TASK) can never finish and would
+// otherwise make the task silently unclaimable forever.
+func splitDependencies(board *Board, task *Task) (unfinished, unknown []string) {
 	if len(task.Dependencies) == 0 {
-		return true
+		return nil, nil
 	}
 	done := make(map[string]bool, len(board.doneIDs)+len(board.Done)*2)
 	for id := range board.doneIDs {
@@ -711,12 +721,33 @@ func dependenciesDone(board *Board, task *Task) bool {
 		done[item.ID] = true
 		done[item.Name] = true
 	}
+	known := map[string]bool{}
+	for _, live := range board.allTasks() {
+		known[live.ID] = true
+		known[live.Name] = true
+	}
 	for _, dependency := range task.Dependencies {
-		if !done[dependency] {
-			return false
+		switch {
+		case done[dependency]:
+		case known[dependency]:
+			unfinished = append(unfinished, dependency)
+		default:
+			unknown = append(unknown, dependency)
 		}
 	}
-	return true
+	return unfinished, unknown
+}
+
+func dependencyBlockReason(board *Board, task *Task) string {
+	unfinished, unknown := splitDependencies(board, task)
+	parts := []string{}
+	if len(unfinished) > 0 {
+		parts = append(parts, "unfinished dependencies: "+strings.Join(unfinished, ", "))
+	}
+	if len(unknown) > 0 {
+		parts = append(parts, "unknown dependency ids (no TASK on the board): "+strings.Join(unknown, ", "))
+	}
+	return strings.Join(parts, "; ")
 }
 
 func requireTask(board *Board, id string, states ...State) (*Task, error) {

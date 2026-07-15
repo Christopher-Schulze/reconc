@@ -6,6 +6,7 @@ import (
 	"go/parser"
 	"go/token"
 	"path/filepath"
+	"strings"
 
 	"reconc.dev/reconc/internal/policy"
 )
@@ -96,11 +97,46 @@ func markWaitGroupOwnedLaunches(body *ast.BlockStmt, owned map[*ast.GoStmt]bool)
 	})
 	for _, launch := range launches {
 		receiver, ok := deferredWaitGroupDoneReceiver(launch)
-		if !ok || !waitGroups[receiver] || !positionBefore(adds[receiver], launch.Pos()) || !positionAfter(waits[receiver], launch.Pos()) {
+		if !ok {
+			receiver, ok = waitGroupArgumentReceiver(launch, waitGroups)
+		}
+		if !ok {
+			continue
+		}
+		// Local declarations prove the sync.WaitGroup type. A dotted
+		// receiver (struct field like s.wg) cannot be type-checked
+		// statically here, but the full Add-before / deferred-Done /
+		// Wait-after signature on one receiver path is accepted as
+		// ownership evidence.
+		if !waitGroups[receiver] && !strings.Contains(receiver, ".") {
+			continue
+		}
+		if !positionBefore(adds[receiver], launch.Pos()) || !positionAfter(waits[receiver], launch.Pos()) {
 			continue
 		}
 		owned[launch] = true
 	}
+}
+
+// waitGroupArgumentReceiver recognizes the delegation shape
+// `go worker(&wg)` for a locally declared WaitGroup: the callee owns
+// Done while the caller keeps Add and Wait.
+func waitGroupArgumentReceiver(launch *ast.GoStmt, waitGroups map[string]bool) (string, bool) {
+	if _, literal := launch.Call.Fun.(*ast.FuncLit); literal {
+		return "", false
+	}
+	for _, argument := range launch.Call.Args {
+		address, ok := argument.(*ast.UnaryExpr)
+		if !ok || address.Op != token.AND {
+			continue
+		}
+		name, ok := address.X.(*ast.Ident)
+		if !ok || !waitGroups[name.Name] {
+			continue
+		}
+		return name.Name, true
+	}
+	return "", false
 }
 
 func collectWaitGroupValueSpec(spec *ast.ValueSpec, waitGroups map[string]bool) {
@@ -180,11 +216,27 @@ func waitGroupMethod(call *ast.CallExpr) (string, string, bool) {
 	if !ok {
 		return "", "", false
 	}
-	receiver, ok := selector.X.(*ast.Ident)
+	receiver, ok := receiverPath(selector.X)
 	if !ok {
 		return "", "", false
 	}
-	return receiver.Name, selector.Sel.Name, true
+	return receiver, selector.Sel.Name, true
+}
+
+// receiverPath renders an identifier or identifier-only selector chain
+// (wg, s.wg, s.inner.wg) as a stable dotted path for receiver matching.
+func receiverPath(expression ast.Expr) (string, bool) {
+	switch v := expression.(type) {
+	case *ast.Ident:
+		return v.Name, true
+	case *ast.SelectorExpr:
+		prefix, ok := receiverPath(v.X)
+		if !ok {
+			return "", false
+		}
+		return prefix + "." + v.Sel.Name, true
+	}
+	return "", false
 }
 
 func positionBefore(positions []token.Pos, boundary token.Pos) bool {

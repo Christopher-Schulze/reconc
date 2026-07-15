@@ -163,16 +163,17 @@ func TestGenerateClaudeCodeIsValidJSON(t *testing.T) {
 	if strings.Contains(a.Content, "tools/reconc/dist/reconc-0.6.0-darwin-arm64") {
 		t.Errorf("Claude Code hooks should delegate binary fallback to the repo-local wrapper")
 	}
-	if !strings.Contains(a.Content, `"matcher": "Edit|Write|MultiEdit|Bash"`) {
+	writeMatchers := "Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash"
+	if !strings.Contains(a.Content, `"matcher": "`+writeMatchers+`"`) {
 		t.Errorf("expected Claude Code PreToolUse/PermissionRequest to cover write/shell matchers")
 	}
-	if got := matchersForEvent(t, a.Content, "hooks", "PreToolUse"); strings.Join(got, "|") != "Edit|Write|MultiEdit|Bash" {
+	if got := matchersForEvent(t, a.Content, "hooks", "PreToolUse"); strings.Join(got, "|") != writeMatchers {
 		t.Errorf("Claude PreToolUse matcher = %v", got)
 	}
-	if got := matchersForEvent(t, a.Content, "hooks", "PermissionRequest"); strings.Join(got, "|") != "Edit|Write|MultiEdit|Bash" {
+	if got := matchersForEvent(t, a.Content, "hooks", "PermissionRequest"); strings.Join(got, "|") != writeMatchers {
 		t.Errorf("Claude PermissionRequest matcher = %v", got)
 	}
-	if got := matchersForEvent(t, a.Content, "hooks", "PostToolUse"); strings.Join(got, "|") != "Read|Edit|Write|MultiEdit|Bash" {
+	if got := matchersForEvent(t, a.Content, "hooks", "PostToolUse"); strings.Join(got, "|") != "Read|"+writeMatchers {
 		t.Errorf("Claude PostToolUse matcher = %v", got)
 	}
 }
