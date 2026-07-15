@@ -57,7 +57,8 @@ why a task is allowed to be called done.
 - bounds session/report state, audit and run-decision logs, generated audit binaries,
   and owned temp residue outside the Stop path
 - publishes deterministic SPDX 2.3 and CycloneDX 1.6 release SBOMs covering
-  both Go modules, selected dependencies, toolchain, version, and release commit
+  both Go modules, selected dependencies, toolchain, version, and an explicit
+  full release commit
 - gives agents one short remediation path with `reconc next .` and one final
   task gate with `reconc done .`
 
@@ -338,7 +339,7 @@ reconc <command> --help
 
 ## Status
 
-`reconc` is released on the `v0.7.x` line; the current patch is `v0.7.2`. Core
+`reconc` is released on the `v0.7.x` line; the current patch is `v0.7.3`. Core
 local gates pass, and release artifacts are produced by the GitHub release
 workflow when a `reconc-v*` tag is pushed. Every release SBOM is regenerated
 and byte-verified before its checksum and build provenance are published.

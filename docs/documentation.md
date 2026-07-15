@@ -69,8 +69,8 @@ make lint
 make cover
 make bench
 make self-host
-make sbom VERSION=0.7.2
-make release VERSION=0.7.2
+make sbom VERSION=0.7.3
+make release VERSION=0.7.3
 ```
 
 `make release` cross-compiles five binaries into `dist/`, generates three flat
@@ -84,10 +84,12 @@ be committed.
 
 The stdlib-only SBOM generator inventories both repository Go modules with
 `go list -m -json all`, resolves their selected dependency graph, and records
-the Go toolchain, release version, full commit ID, and commit timestamp. Fixed
-inputs produce byte-identical documents. Verification regenerates both files
-from the tagged source and rejects missing, malformed, stale-version, or
-otherwise non-identical output before checksums and provenance are accepted.
+the Go toolchain, release version, full commit ID, and commit timestamp. SPDX
+exposes the commit in its document namespace; CycloneDX exposes it as the root
+component property `reconc:source-commit`. Fixed inputs produce byte-identical
+documents. Verification regenerates both files from the tagged source and
+rejects missing, malformed, stale-version, or otherwise non-identical output
+before checksums and provenance are accepted.
 
 `install.sh [VERSION]` downloads both the platform binary and the published
 `SHA256SUMS`, requires exactly one matching SHA-256 entry, verifies the payload
@@ -952,7 +954,7 @@ not become competing current-state documentation.
 
 ## Release State
 
-The current public release line is `v0.7.x`; the current patch is `v0.7.2`. A
+The current public release line is `v0.7.x`; the current patch is `v0.7.3`. A
 new release is blocked until its release, install, self-hosting, and final
 verification contracts pass. Release artifacts are produced by the GitHub
 release workflow when a `reconc-v*` tag is pushed.

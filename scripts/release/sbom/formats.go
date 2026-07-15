@@ -168,6 +168,8 @@ func spdxRelationships(inventory inventory) []spdxRelationship {
 
 func buildCycloneDX(inventory inventory) cyclonedxDocument {
 	root := primaryRootModule(inventory.Modules)
+	rootComponent := cyclonedxModuleComponent(root)
+	rootComponent.Properties = append(rootComponent.Properties, cyclonedxProperty{Name: "reconc:source-commit", Value: inventory.Commit})
 	components := make([]cyclonedxComponent, 0, len(inventory.Modules))
 	for _, module := range inventory.Modules {
 		if module.Path != root.Path {
@@ -178,7 +180,7 @@ func buildCycloneDX(inventory inventory) cyclonedxDocument {
 	return cyclonedxDocument{
 		BOMFormat: "CycloneDX", SpecVersion: "1.6", SerialNumber: deterministicSerial(inventory), Version: 1,
 		Metadata: cyclonedxMetadata{
-			Timestamp: inventory.Created.Format("2006-01-02T15:04:05Z"), Component: cyclonedxModuleComponent(root),
+			Timestamp: inventory.Created.Format("2006-01-02T15:04:05Z"), Component: rootComponent,
 			Tools: cyclonedxTools{Components: []cyclonedxComponent{{Type: "application", BOMRef: "pkg:generic/reconc-sbom-generator@" + inventory.Version, Name: "reconc-sbom-generator", Version: inventory.Version}}},
 		},
 		Components: components, Dependencies: cyclonedxDependencies(inventory),
