@@ -116,6 +116,16 @@ require_text "$release_workflow" 'gh release upload "$GITHUB_REF_NAME" dist/* --
 for runner in ubuntu-24.04 macos-15 windows-2025; do
   require_text "$ci_workflow" "$runner"
 done
+require_text "$ci_workflow" "  push:"
+require_text "$ci_workflow" "      - main"
+require_text "$ci_workflow" "  pull_request:"
+require_text "$ci_workflow" "  workflow_dispatch:"
+if grep -Eq 'pull-requests:[[:space:]]*write|issues:[[:space:]]*write' "$ci_workflow"; then
+  fail "$ci_workflow must not create or mutate pull requests or issues"
+fi
+if [ -e "$root/.github/dependabot.yml" ] || [ -e "$root/.github/dependabot.yaml" ]; then
+  fail "automated dependency pull requests are not part of the repository contract"
+fi
 for workflow in "$ci_workflow" "$release_workflow"; do
   require_text "$workflow" "go test ./..."
   require_text "$workflow" "(cd harness/template && go test ./...)"

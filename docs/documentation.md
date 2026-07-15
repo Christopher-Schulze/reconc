@@ -790,20 +790,19 @@ CI checks:
 - least-privilege permissions, disabled checkout credential persistence, bounded job timeouts, and stale-run cancellation per branch or pull request
 - release and installer negative-path trust tests
 
-CI runs on pull requests and explicit manual dispatch only. Protected `main`
-does not repeat the complete suite after a pull request has already passed the
-required checks. Dependency and action updates are deliberate maintainer work;
-the repository does not generate automated version-update pull requests.
+CI runs after direct pushes to `main`, on contributor pull requests, and through
+explicit manual dispatch. These runs are diagnostic and do not block branch
+advancement. The pull-request trigger only tests a pull request that somebody
+already opened; it never creates one. Dependency and action updates are
+deliberate maintainer work; the repository does not generate automated
+version-update pull requests or enable auto-merge.
 
 The public source repository protects its default branch with the active
-`Protect main` ruleset. GitHub Actions checks from application ID `15368` named
-`Go checks (ubuntu-24.04)`, `Go checks (macos-15)`, `Windows build and smoke`,
-and `Release trust` must pass before the ref can advance. The same ruleset
-blocks force pushes and deletion and has no actor bypass. Effective rules are
-read back with `gh api repos/Christopher-Schulze/reconc/rules/branches/main`.
-An administrator emergency requires explicitly disabling ruleset `18998289`,
-performing the recovery, and re-enabling it through the GitHub API; there is no
-silent owner or administrator bypass during normal operation.
+`Protect main` ruleset. It blocks branch deletion and non-fast-forward updates,
+but does not require a pull request or status checks. Ordinary fast-forward
+pushes therefore land immediately and start informational CI afterward.
+Effective rules are read back with
+`gh api repos/Christopher-Schulze/reconc/rulesets/18998289`.
 Repository Actions settings allow only GitHub-owned actions and require full
 commit-SHA pins. Private vulnerability reporting is enabled. The active release
 tag ruleset protects `reconc-v*` tags from update and deletion.

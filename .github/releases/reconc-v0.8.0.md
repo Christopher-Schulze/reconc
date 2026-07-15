@@ -39,3 +39,10 @@ the integrations maintained by the project.
 - man page
 - four public v1 JSON schemas
 - `SHA256SUMS`
+
+## CI
+
+- Direct pushes to `main`, contributor pull requests, and manual dispatch run
+  the full cross-platform checks without making those checks a branch blocker.
+- CI has read-only repository permissions and cannot create pull requests,
+  issues, or auto-merges.
