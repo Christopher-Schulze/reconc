@@ -776,6 +776,16 @@ CI checks:
 - release and installer negative-path trust tests
 - weekly Dependabot updates for GitHub Actions and both Go modules
 
+The public source repository protects its default branch with the active
+`Protect main` ruleset. GitHub Actions checks from application ID `15368` named
+`Go checks (ubuntu-24.04)`, `Go checks (macos-15)`, `Windows build and smoke`,
+and `Release trust` must pass before the ref can advance. The same ruleset
+blocks force pushes and deletion and has no actor bypass. Effective rules are
+read back with `gh api repos/Christopher-Schulze/reconc/rules/branches/main`.
+An administrator emergency requires explicitly disabling ruleset `18998289`,
+performing the recovery, and re-enabling it through the GitHub API; there is no
+silent owner or administrator bypass during normal operation.
+
 Release:
 
 - Push a tag matching `reconc-v*`.
