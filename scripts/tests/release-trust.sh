@@ -31,6 +31,51 @@ require_text() {
   grep -Fq -- "$value" "$file" || fail "$file is missing required release-trust text: $value"
 }
 
+action_refs() {
+  sed -nE 's/^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]+([^[:space:]#]+).*/\2/p' "$1"
+}
+
+verify_action_pins() {
+  local workflow="$1"
+  local ref action revision
+  local found=false
+  while IFS= read -r ref; do
+    [ -n "$ref" ] || continue
+    found=true
+    case "$ref" in
+      ./*) continue ;;
+    esac
+    action="${ref%@*}"
+    revision="${ref##*@}"
+    if [ "$action" = "$ref" ]; then
+      printf '%s\n' "$workflow contains an action without a revision: $ref" >&2
+      return 1
+    fi
+    case "$action" in
+      actions/checkout|actions/setup-go|actions/attest-build-provenance) ;;
+      *)
+        printf '%s\n' "$workflow uses an action outside the allowlist: $action" >&2
+        return 1
+        ;;
+    esac
+    if [[ ! "$revision" =~ ^[0-9a-f]{40}$ ]]; then
+      printf '%s\n' "$workflow action $action is not pinned to a full commit SHA: $revision" >&2
+      return 1
+    fi
+  done < <(action_refs "$workflow")
+  if [ "$found" != true ]; then
+    printf '%s\n' "$workflow contains no actions" >&2
+    return 1
+  fi
+}
+
+require_action() {
+  local workflow="$1"
+  local action="$2"
+  action_refs "$workflow" | grep -Eq "^${action}@[0-9a-f]{40}$" \
+    || fail "$workflow is missing required SHA-pinned action: $action"
+}
+
 version_source="$root/cmd/reconc/main.go"
 project_version=$(sed -n 's/^var Version = "\([^"]*\)"/\1/p' "$version_source")
 [[ "$project_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
@@ -47,15 +92,22 @@ require_text "$root/.github/releases/reconc-v$project_version.md" "# reconc v$pr
 
 ci_workflow="$root/.github/workflows/reconc-ci.yml"
 release_workflow="$root/.github/workflows/reconc-release.yml"
+
+action_fixture="$tmp/action-pins.yml"
+printf '%s\n' 'steps:' '  - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd' > "$action_fixture"
+verify_action_pins "$action_fixture" || fail "valid action pin fixture failed"
+printf '%s\n' 'steps:' '  - uses: actions/checkout@v7' > "$action_fixture"
+expect_failure verify_action_pins "$action_fixture"
+printf '%s\n' 'steps:' '  - uses: third-party/example@0123456789012345678901234567890123456789' > "$action_fixture"
+expect_failure verify_action_pins "$action_fixture"
+
 for workflow in "$ci_workflow" "$release_workflow"; do
-  if grep -Eq 'uses:[[:space:]]+[^[:space:]]+@v[0-9]' "$workflow"; then
-    fail "$workflow contains a floating action version"
-  fi
-  require_text "$workflow" "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
+  verify_action_pins "$workflow" || fail "$workflow action trust validation failed"
+  require_action "$workflow" "actions/checkout"
 done
-require_text "$ci_workflow" "actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c"
-require_text "$release_workflow" "actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c"
-require_text "$release_workflow" "actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a"
+require_action "$ci_workflow" "actions/setup-go"
+require_action "$release_workflow" "actions/setup-go"
+require_action "$release_workflow" "actions/attest-build-provenance"
 require_text "$release_workflow" "subject-checksums: dist/SHA256SUMS"
 require_text "$release_workflow" 'test "$tag_version" = "$source_version"'
 require_text "$release_workflow" 'gh release upload "$GITHUB_REF_NAME" dist/* --clobber'
