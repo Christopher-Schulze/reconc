@@ -53,8 +53,7 @@ go test -race -count=1 ./...
 go vet ./...
 go build ./cmd/reconc
 go run ./cmd/reconc --help
-go run ./cmd/reconc refresh .
-go run ./cmd/reconc doctor . --deep
+make self-host
 ```
 
 Make targets:
@@ -321,16 +320,12 @@ For exact flags, run `reconc <command> --help`.
 
 ## Repository Policy
 
-Repo-local policy lives in `.reconc.yml`. It should be committed.
-
-The generated lockfile is `.reconc/policy.lock.json`. It is intentionally
-ignored in this repository because the current lockfile format records absolute
-local paths in `repo_root` and `discovery.start_path`. Contributors should
-regenerate it locally with:
-
-```bash
-reconc refresh .
-```
+In governed target repositories, repo-local policy lives in `.reconc.yml` and
+should be committed. The generated `.reconc/policy.lock.json` remains local
+because it records absolute paths. This standalone product repository does not
+carry either file and must exercise policy compilation only inside isolated
+test repositories. Its ignore patterns remain as a defensive boundary against
+accidental local state and for nested bootstrap fixtures.
 
 Runtime state is local and ignored:
 
@@ -761,20 +756,14 @@ Release:
 
 ## Git Ignore Policy
 
+The standalone product repository does not bootstrap Reconc into itself.
+Generated policy, hook adapters, activation files, and the installed wrapper
+belong only in target repositories and isolated bootstrap fixtures.
+
 Commit:
 
-- `.agents/hooks.json`
-- `.claude/settings.json`
-- `.codex/config.toml`
-- `.codex/hooks.json`
-- `.cursor/hooks.json`
-- `.devin/hooks.v1.json`
-- `.github/hooks/reconc.json`
 - `.github/workflows/**`
-- `.kilo/plugin/reconc.js`
-- `.opencode/plugins/reconc.js`
 - `.gitignore`
-- `.reconc.yml`
 - `AGENTS.md`
 - `LICENSE`
 - `Makefile`
@@ -796,7 +785,6 @@ Commit:
 - `scripts/tests/**`
 - `skills/**`
 - `bin/hook`
-- `tools/reconc/bin/hook`
 
 Ignore:
 

@@ -26,8 +26,7 @@ go test -race -count=1 ./...
 go vet ./...
 go build ./cmd/reconc
 go run ./cmd/reconc --help
-go run ./cmd/reconc compile .
-go run ./cmd/reconc doctor . --deep
+make self-host
 ```
 
 ## Conventions
@@ -41,6 +40,9 @@ go run ./cmd/reconc doctor . --deep
 - Put behavior in internal packages; keep `cmd/reconc/main.go` thin.
 - Update tests and user-facing docs with behavior changes.
 - Keep the repository self-contained; do not depend on files outside this root.
+- Never bootstrap Reconc, compile policy, install generated hooks, or run
+  repository-targeted Reconc commands against this product repository. Use the
+  isolated temporary repositories created by `make self-host`.
 
 ## Current Release State
 

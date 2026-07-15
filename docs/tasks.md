@@ -8,6 +8,7 @@
 
 ## Done
 
+- [x] 017 Remove standalone repository self-hosting -> tasks/done/017-remove-standalone-repository-self-hosting.md
 - [x] 016 Machine-readable agent handshake and context accuracy -> tasks/done/016-machine-readable-agent-handshake-and-context-accuracy.md
 - [x] 015 Universal source hygiene and final polish -> tasks/done/015-universal-source-hygiene-and-final-polish.md
 - [x] 014 Hook reality and Stop hotpath -> tasks/done/014-hook-reality-and-stop-hotpath.md
@@ -17,4 +18,3 @@
 - [x] 010 Self-hosting and final proof -> tasks/done/010-self-hosting-and-final-proof.md
 - [x] 009 Architecture and release trust -> tasks/done/009-architecture-and-release-trust.md
 - [x] 008 Transactional bootstrap and artifact resolution -> tasks/done/008-transactional-bootstrap-and-artifact-resolution.md
-- [x] 007 Policy packs and assurance gates -> tasks/done/007-policy-packs-and-assurance-gates.md
