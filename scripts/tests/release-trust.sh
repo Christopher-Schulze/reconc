@@ -76,6 +76,20 @@ require_action() {
     || fail "$workflow is missing required SHA-pinned action: $action"
 }
 
+verify_manual_dispatch_only() {
+  local workflow="$1"
+  local trigger_keys
+  trigger_keys=$(
+    sed -n '/^on:$/,/^[^[:space:]#][^:]*:/p' "$workflow" \
+      | sed -nE 's/^  ([[:alnum:]_-]+):.*/\1/p' \
+      | sort -u
+  )
+  if [ "$trigger_keys" != "workflow_dispatch" ]; then
+    printf '%s\n' "$workflow release triggers must contain only workflow_dispatch" >&2
+    return 1
+  fi
+}
+
 version_source="$root/cmd/reconc/main.go"
 project_version=$(sed -n 's/^var Version = "\([^"]*\)"/\1/p' "$version_source")
 [[ "$project_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
@@ -101,6 +115,12 @@ expect_failure verify_action_pins "$action_fixture"
 printf '%s\n' 'steps:' '  - uses: third-party/example@0123456789012345678901234567890123456789' > "$action_fixture"
 expect_failure verify_action_pins "$action_fixture"
 
+trigger_fixture="$tmp/release-trigger.yml"
+printf '%s\n' 'on:' '  workflow_dispatch:' 'jobs:' > "$trigger_fixture"
+verify_manual_dispatch_only "$trigger_fixture" || fail "valid manual release trigger fixture failed"
+printf '%s\n' 'on:' '  workflow_dispatch:' '  push:' 'jobs:' > "$trigger_fixture"
+expect_failure verify_manual_dispatch_only "$trigger_fixture"
+
 for workflow in "$ci_workflow" "$release_workflow"; do
   verify_action_pins "$workflow" || fail "$workflow action trust validation failed"
   require_action "$workflow" "actions/checkout"
@@ -109,10 +129,16 @@ require_action "$ci_workflow" "actions/setup-go"
 require_action "$release_workflow" "actions/setup-go"
 require_action "$release_workflow" "actions/attest-build-provenance"
 require_text "$release_workflow" "subject-checksums: dist/SHA256SUMS"
+require_text "$release_workflow" "  workflow_dispatch:"
+require_text "$release_workflow" "      tag:"
+# shellcheck disable=SC2016 # Match workflow expressions literally.
+require_text "$release_workflow" 'ref: ${{ inputs.tag }}'
+verify_manual_dispatch_only "$release_workflow" \
+  || fail "$release_workflow must be manual-dispatch only"
 # shellcheck disable=SC2016 # Match workflow shell expressions literally.
 require_text "$release_workflow" 'test "$tag_version" = "$source_version"'
 # shellcheck disable=SC2016 # Match workflow shell expressions literally.
-require_text "$release_workflow" 'gh release upload "$GITHUB_REF_NAME" dist/* --clobber'
+require_text "$release_workflow" 'gh release upload "$RELEASE_TAG" dist/* --clobber'
 for runner in ubuntu-24.04 macos-15 windows-2025; do
   require_text "$ci_workflow" "$runner"
 done

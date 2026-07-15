@@ -809,7 +809,8 @@ tag ruleset protects `reconc-v*` tags from update and deletion.
 
 Release:
 
-- Push a tag matching `reconc-v*`.
+- Create the protected `reconc-vX.Y.Z` tag, then explicitly start the Release
+  workflow and supply that existing tag. Tag pushes never trigger a release.
 - The tag version must be stable semantic versioning, match the source version, and have committed release notes.
 - Release workflow repeats formatting, tidy, test, vet, pinned Govulncheck, pinned Staticcheck, race, trust, and clean-repository self-hosting gates before building.
 - `make release VERSION=<tag-version>` builds the exact flat release inventory.
@@ -969,5 +970,6 @@ not become competing current-state documentation.
 
 The current public release line is `v0.8.x`; the source version is `v0.8.0`. A
 new release is blocked until its release, install, self-hosting, and final
-verification contracts pass. Release artifacts are produced by the GitHub
-release workflow when a `reconc-v*` tag is pushed.
+verification contracts pass. Release artifacts are produced only through an
+explicit manual Release workflow dispatch for an existing `reconc-vX.Y.Z` tag;
+tag pushes never publish a release.
