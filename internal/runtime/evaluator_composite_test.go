@@ -191,3 +191,56 @@ func TestNotRejectsMultipleChecksAtParseTime(t *testing.T) {
 		t.Errorf("expected 'exactly one' in error, got: %v", err)
 	}
 }
+
+// --- epoch freshness inside composites ---
+
+func TestAllOfRequireCommandSuccessEnforcesWriteEpoch(t *testing.T) {
+	repo := makeRepoWithFiles(t,
+		"rules:\n  - id: gate\n    kind: all_of\n    when_paths: ['src/**']\n    checks:\n      - kind: require_command_success\n        commands: ['go test ./...']\n    mode: block\n    message: m\n",
+		nil)
+
+	// A success recorded BEFORE the triggering write must not satisfy
+	// the sub-check (same anti-staleness contract as the top-level kind).
+	inputs := Empty()
+	inputs.WritePaths = []string{"src/main.go"}
+	inputs.WriteEpochs = map[string]uint64{"src/main.go": 5}
+	inputs.CommandResults = []CommandResult{{Command: "go test ./...", Outcome: CommandOutcomeSuccess, EvidenceEpoch: 3}}
+	report, err := CheckRepoPolicy(repo, inputs)
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if report.Decision != DecisionBlock {
+		t.Errorf("stale success inside all_of must block, got %s", report.Decision)
+	}
+
+	// A success at or after the write epoch passes.
+	inputs.CommandResults = []CommandResult{{Command: "go test ./...", Outcome: CommandOutcomeSuccess, EvidenceEpoch: 5}}
+	report, err = CheckRepoPolicy(repo, inputs)
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if report.Decision != DecisionPass {
+		t.Errorf("fresh success inside all_of must pass, got %s; violations: %+v", report.Decision, report.Violations)
+	}
+}
+
+// --- not fails closed on unevaluable inner checks ---
+
+func TestNotFailsClosedOnBrokenScript(t *testing.T) {
+	repo := makeRepoWithFiles(t,
+		"rules:\n  - id: gate\n    kind: not\n    when_paths: ['src/**']\n    checks:\n      - kind: require_script\n        script: 'scripts/does-not-exist.sh'\n    mode: block\n    message: m\n",
+		nil)
+
+	inputs := Empty()
+	inputs.WritePaths = []string{"src/main.go"}
+	report, err := CheckRepoPolicy(repo, inputs)
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if report.Decision != DecisionBlock {
+		t.Errorf("a missing script under not must fail closed (block), got %s", report.Decision)
+	}
+	if len(report.Violations) == 0 || !strings.Contains(report.Violations[0].Explanation, "could not be evaluated") {
+		t.Errorf("explanation should say the inner check could not be evaluated: %+v", report.Violations)
+	}
+}

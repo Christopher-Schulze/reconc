@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -39,9 +40,13 @@ func evalAllOf(ctx *evalContext, rule map[string]interface{}, defaultMode policy
 	failures := []string{}
 	for _, mc := range contexts {
 		for i, c := range checks {
-			ok, reason, err := evalCheck(ctx, c, mc.captures, inputs)
+			ok, reason, err := evalCheck(ctx, c, mc.captures, inputs, inputs.WriteEpochs[mc.path])
 			if err != nil {
-				return nil, err
+				var evalErr *checkEvalError
+				if !errors.As(err, &evalErr) {
+					return nil, err
+				}
+				ok, reason = false, evalErr.reason
 			}
 			if !ok {
 				failures = append(failures, fmt.Sprintf("[%s][check #%d %s] %s", mc.path, i+1, c.Kind, reason))
@@ -64,9 +69,13 @@ func evalAnyOf(ctx *evalContext, rule map[string]interface{}, defaultMode policy
 		anyPassed := false
 		perCheckReasons := []string{}
 		for i, c := range checks {
-			ok, reason, err := evalCheck(ctx, c, mc.captures, inputs)
+			ok, reason, err := evalCheck(ctx, c, mc.captures, inputs, inputs.WriteEpochs[mc.path])
 			if err != nil {
-				return nil, err
+				var evalErr *checkEvalError
+				if !errors.As(err, &evalErr) {
+					return nil, err
+				}
+				ok, reason = false, evalErr.reason
 			}
 			if ok {
 				anyPassed = true
@@ -96,9 +105,17 @@ func evalNot(ctx *evalContext, rule map[string]interface{}, defaultMode policy.M
 	}
 	failures := []string{}
 	for _, mc := range contexts {
-		ok, _, err := evalCheck(ctx, checks[0], mc.captures, inputs)
+		ok, _, err := evalCheck(ctx, checks[0], mc.captures, inputs, inputs.WriteEpochs[mc.path])
 		if err != nil {
-			return nil, err
+			var evalErr *checkEvalError
+			if !errors.As(err, &evalErr) {
+				return nil, err
+			}
+			// An inner check that could not be evaluated (missing or
+			// crashing script) must fail closed: treating it as "did
+			// not pass" would make `not` succeed on broken tooling.
+			failures = append(failures, fmt.Sprintf("[%s] inner check could not be evaluated (%s); not fails closed", mc.path, evalErr.reason))
+			continue
 		}
 		if ok {
 			// `not` fails when the inner check passes.
@@ -207,15 +224,30 @@ func checkFromMap(m map[string]interface{}) (policy.Check, bool) {
 	return c, true
 }
 
+// checkEvalError marks a sub-check that could not be evaluated at all
+// (missing or crashing script, timeout) as opposed to one that ran and
+// failed. all_of/any_of fold it into a normal check failure; `not`
+// fails closed on it instead of treating "could not evaluate" as "did
+// not pass".
+type checkEvalError struct {
+	reason string
+}
+
+func (e *checkEvalError) Error() string { return e.reason }
+
 // evalCheck evaluates one sub-check given parent template captures.
+// minimumEpoch carries the triggering write path's evidence epoch so
+// require_command_success sub-checks enforce the same anti-staleness
+// ordering as the top-level rule kind.
 // Returns (ok, reason, err):
 //   - ok=true means the check passed
 //   - ok=false + non-empty reason means the check failed, with detail
-//   - non-nil err is a hard error (IO, malformed rule, etc.)
+//   - non-nil err is a hard error (IO, malformed rule, etc.); a
+//     *checkEvalError specifically means "could not be evaluated"
 //
 // Each check kind has its own evaluation path. Template substitution
 // applies to path-shaped fields before any file IO.
-func evalCheck(ctx *evalContext, c policy.Check, captures map[string]string, inputs ExecutionInputs) (bool, string, error) {
+func evalCheck(ctx *evalContext, c policy.Check, captures map[string]string, inputs ExecutionInputs, minimumEpoch uint64) (bool, string, error) {
 	switch c.Kind {
 	case policy.KindRequireFreshFile:
 		return evalCheckRequireFreshFile(ctx, c, captures)
@@ -224,9 +256,9 @@ func evalCheck(ctx *evalContext, c policy.Check, captures map[string]string, inp
 	case policy.KindRequireClaim:
 		return evalCheckRequireClaim(c, inputs)
 	case policy.KindRequireCommand:
-		return evalCheckRequireCommand(ctx, c, inputs, false)
+		return evalCheckRequireCommand(ctx, c, inputs, false, 0)
 	case policy.KindRequireCommandSuccess:
-		return evalCheckRequireCommand(ctx, c, inputs, true)
+		return evalCheckRequireCommand(ctx, c, inputs, true, minimumEpoch)
 	case policy.KindForbidCommand:
 		return evalCheckForbidCommand(ctx, c, inputs)
 	case policy.KindDenyWrite:
@@ -239,7 +271,7 @@ func evalCheck(ctx *evalContext, c policy.Check, captures map[string]string, inp
 
 func evalCheckRequireScript(ctx *evalContext, c policy.Check, captures map[string]string, inputs ExecutionInputs) (bool, string, error) {
 	if c.Script == "" {
-		return false, "missing script field in sub-check", nil
+		return false, "", &checkEvalError{reason: "missing script field in sub-check"}
 	}
 	args, err := SubstituteTemplateInList(c.Args, captures)
 	if err != nil {
@@ -258,9 +290,9 @@ func evalCheckRequireScript(ctx *evalContext, c policy.Check, captures map[strin
 	outcome, err := RunScript(ctx.repoRoot, c.Script, args, input, c.TimeoutSec, 0)
 	if err != nil {
 		if outcome.TimedOut {
-			return false, fmt.Sprintf("script %s timed out after %.1fs", c.Script, outcome.Duration.Seconds()), nil
+			return false, "", &checkEvalError{reason: fmt.Sprintf("script %s timed out after %.1fs", c.Script, outcome.Duration.Seconds())}
 		}
-		return false, fmt.Sprintf("script %s error: %v", c.Script, err), nil
+		return false, "", &checkEvalError{reason: fmt.Sprintf("script %s error: %v", c.Script, err)}
 	}
 	if outcome.Status == "block" {
 		detail := strings.TrimSpace(outcome.Stdout)
@@ -365,11 +397,11 @@ func evalCheckRequireClaim(c policy.Check, inputs ExecutionInputs) (bool, string
 	return false, "no required claim asserted; expected one of: " + strings.Join(c.Claims, ", "), nil
 }
 
-func evalCheckRequireCommand(ctx *evalContext, c policy.Check, inputs ExecutionInputs, requireSuccess bool) (bool, string, error) {
+func evalCheckRequireCommand(ctx *evalContext, c policy.Check, inputs ExecutionInputs, requireSuccess bool, minimumEpoch uint64) (bool, string, error) {
 	var matched []string
 	repoRoot := ctxRepoRoot(ctx)
 	if requireSuccess {
-		matched = matchingCommandResults(inputs.CommandResults, c.Commands, CommandOutcomeSuccess, repoRoot)
+		matched = matchingCommandResultsSince(inputs.CommandResults, c.Commands, CommandOutcomeSuccess, repoRoot, minimumEpoch)
 	} else {
 		matched = matchingCommands(inputs.Commands, c.Commands, repoRoot)
 	}
@@ -378,7 +410,7 @@ func evalCheckRequireCommand(ctx *evalContext, c policy.Check, inputs ExecutionI
 	}
 	verb := "ran"
 	if requireSuccess {
-		verb = "completed successfully"
+		verb = "completed successfully (after the triggering write)"
 	}
 	return false, fmt.Sprintf("no required command %s; expected one of: %s", verb, strings.Join(c.Commands, ", ")), nil
 }
