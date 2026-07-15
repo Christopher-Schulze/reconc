@@ -12,6 +12,7 @@
 #   make tidy               -- go mod tidy
 #   make release            -- build release binaries for dist/ (darwin, linux, windows)
 #   make completion         -- emit flat shell completion artifacts into dist/
+#   make sbom               -- emit deterministic SPDX and CycloneDX SBOMs
 #   make checksums          -- generate dist/SHA256SUMS over release artefacts
 #   make self-host          -- run the clean-repository bootstrap golden path
 
@@ -23,6 +24,8 @@ DISTDIR   := dist
 VERSION   ?= 0.7.1
 LDFLAGS   := -ldflags "-X main.Version=$(VERSION) -s -w"
 STATICCHECK_VERSION := v0.7.0
+RELEASE_COMMIT ?= $(shell git rev-parse HEAD)
+SOURCE_DATE_EPOCH ?= $(shell git show -s --format=%ct $(RELEASE_COMMIT))
 
 # Release matrix. Each entry is OS/ARCH separated by '/'. Extend here
 # to ship another platform -- nothing else needs to change.
@@ -33,7 +36,7 @@ RELEASE_TARGETS := \
 	linux/arm64 \
 	windows/amd64
 
-.PHONY: build test test-release-trust self-host fmt vet lint cover clean run tidy release completion manpage checksums release-all bench
+.PHONY: build test test-release-trust self-host fmt vet lint cover clean run tidy release completion manpage sbom checksums release-all bench
 
 build:
 	@mkdir -p $(BINDIR)
@@ -110,9 +113,13 @@ manpage:
 	@$(GO) run ./cmd/reconc manpage > $(DISTDIR)/reconc.1
 	@echo "man page -> $(DISTDIR)/reconc.1"
 
-checksums:
+sbom:
+	@$(GO) run ./scripts/release/sbom generate --root . --output-dir $(DISTDIR) --version $(VERSION) --commit $(RELEASE_COMMIT) --source-date-epoch $(SOURCE_DATE_EPOCH)
+	@echo "SBOMs -> $(DISTDIR)/"
+
+checksums: sbom
 	@mkdir -p $(DISTDIR)
 	@cp schemas/v1/*.schema.json $(DISTDIR)/
 	@./scripts/release/write-checksums.sh $(DISTDIR)
-	@./scripts/release/verify-artifacts.sh $(DISTDIR) $(BIN) $(VERSION) $(RELEASE_TARGETS)
+	@GO="$(GO)" ./scripts/release/verify-artifacts.sh $(DISTDIR) $(BIN) $(VERSION) $(RELEASE_TARGETS)
 	@echo "checksums -> $(DISTDIR)/SHA256SUMS"

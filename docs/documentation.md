@@ -66,16 +66,25 @@ make lint
 make cover
 make bench
 make self-host
+make sbom VERSION=0.7.1
 make release VERSION=0.7.1
 ```
 
 `make release` cross-compiles five binaries into `dist/`, generates three flat
 shell-completion artifacts, generates a man page, copies the three public v1
-JSON schemas, and writes `dist/SHA256SUMS`. The target stops on the first build
-or checksum failure. The release verifier requires exactly those twelve
+JSON schemas, generates deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs, and
+writes `dist/SHA256SUMS`. The target stops on the first build, SBOM, or checksum
+failure. The release verifier requires exactly those fourteen
 checksummed artifacts, rejects missing, extra, duplicate, unsafe, or corrupted
 entries, and never accepts an empty manifest. `dist/` is ignored and should not
 be committed.
+
+The stdlib-only SBOM generator inventories both repository Go modules with
+`go list -m -json all`, resolves their selected dependency graph, and records
+the Go toolchain, release version, full commit ID, and commit timestamp. Fixed
+inputs produce byte-identical documents. Verification regenerates both files
+from the tagged source and rejects missing, malformed, stale-version, or
+otherwise non-identical output before checksums and provenance are accepted.
 
 `install.sh [VERSION]` downloads both the platform binary and the published
 `SHA256SUMS`, requires exactly one matching SHA-256 entry, verifies the payload
@@ -773,6 +782,8 @@ Release:
 - The tag version must be stable semantic versioning, match the source version, and have committed release notes.
 - Release workflow repeats formatting, tidy, test, vet, pinned Govulncheck, pinned Staticcheck, race, trust, and clean-repository self-hosting gates before building.
 - `make release VERSION=<tag-version>` builds the exact flat release inventory.
+- Release output includes deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs for
+  both Go modules, selected dependencies, the Go toolchain, version, and commit.
 - Every artifact is verified against `SHA256SUMS` before upload.
 - GitHub build-provenance attestations bind every manifest-listed artifact to the tagged workflow run.
 - GitHub publication is rerun-safe and stays draft until every verified artifact and the manifest upload successfully.

@@ -104,6 +104,20 @@ release_assets=(
 for name in "${release_assets[@]}"; do
   printf '%s\n' "$name" > "$release_dir/$name"
 done
+release_commit=$(git -C "$root" rev-parse HEAD)
+release_epoch=$(git -C "$root" show -s --format=%ct "$release_commit")
+generate_sbom() {
+  (
+    cd "$root"
+    go run ./scripts/release/sbom generate \
+      --root "$root" \
+      --output-dir "$1" \
+      --version "$2" \
+      --commit "$release_commit" \
+      --source-date-epoch "$release_epoch"
+  )
+}
+generate_sbom "$release_dir" "$project_version"
 "$root/scripts/release/write-checksums.sh" "$release_dir"
 verify_release=("$root/scripts/release/verify-artifacts.sh" "$release_dir" reconc "$project_version" darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64)
 "${verify_release[@]}"
@@ -112,7 +126,38 @@ expect_failure "${verify_release[@]}"
 printf '%s\n' "reconc-$project_version-linux-amd64" > "$release_dir/reconc-$project_version-linux-amd64"
 printf 'unlisted\n' > "$release_dir/unlisted"
 expect_failure "${verify_release[@]}"
-rm "$release_dir/unlisted" "$release_dir/SHA256SUMS"
+rm "$release_dir/unlisted"
+
+spdx="$release_dir/reconc-$project_version.spdx.json"
+cyclonedx="$release_dir/reconc-$project_version.cdx.json"
+mv "$spdx" "$spdx.missing"
+expect_failure "${verify_release[@]}"
+mv "$spdx.missing" "$spdx"
+
+head -n 1 "$release_dir/SHA256SUMS" >> "$release_dir/SHA256SUMS"
+expect_failure "${verify_release[@]}"
+"$root/scripts/release/write-checksums.sh" "$release_dir"
+
+printf '{\n' >> "$cyclonedx"
+"$root/scripts/release/write-checksums.sh" "$release_dir"
+expect_failure "${verify_release[@]}"
+generate_sbom "$release_dir" "$project_version"
+"$root/scripts/release/write-checksums.sh" "$release_dir"
+
+stale_dir="$tmp/stale-sbom"
+generate_sbom "$stale_dir" "9.8.7"
+cp "$stale_dir/reconc-9.8.7.spdx.json" "$spdx"
+cp "$stale_dir/reconc-9.8.7.cdx.json" "$cyclonedx"
+"$root/scripts/release/write-checksums.sh" "$release_dir"
+expect_failure "${verify_release[@]}"
+generate_sbom "$release_dir" "$project_version"
+"$root/scripts/release/write-checksums.sh" "$release_dir"
+
+grep -v "  reconc-$project_version.spdx.json$" "$release_dir/SHA256SUMS" > "$release_dir/SHA256SUMS.filtered"
+mv "$release_dir/SHA256SUMS.filtered" "$release_dir/SHA256SUMS"
+expect_failure "${verify_release[@]}"
+
+rm "$release_dir/SHA256SUMS"
 mkdir -p "$tmp/broken-hash-bin"
 cat > "$tmp/broken-hash-bin/shasum" <<'SCRIPT'
 #!/usr/bin/env sh

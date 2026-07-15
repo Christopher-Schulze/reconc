@@ -56,6 +56,8 @@ why a task is allowed to be called done.
   resume, split, promotion, and archive transitions
 - bounds session/report state, audit and run-decision logs, generated audit binaries,
   and owned temp residue outside the Stop path
+- publishes deterministic SPDX 2.3 and CycloneDX 1.6 release SBOMs covering
+  both Go modules, selected dependencies, toolchain, version, and release commit
 - gives agents one short remediation path with `reconc next .` and one final
   task gate with `reconc done .`
 
@@ -334,7 +336,8 @@ reconc <command> --help
 
 `reconc` is released on the `v0.7.x` line. Core local gates pass, and release
 artifacts are produced by the GitHub release workflow when a `reconc-v*` tag is
-pushed.
+pushed. Every release SBOM is regenerated and byte-verified before its checksum
+and build provenance are published.
 
 `make self-host` builds the local binary and runs the clean-repository golden
 path across all three bootstrap profiles, all nine hook platforms, TASK

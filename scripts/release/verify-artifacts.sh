@@ -11,6 +11,11 @@ dist="$1"
 bin="$2"
 version="$3"
 shift 3
+case "$dist" in
+  /*) ;;
+  *) dist="$(pwd)/$dist" ;;
+esac
+root=$(cd "$(dirname "$0")/../.." && pwd)
 manifest="$dist/SHA256SUMS"
 [ -f "$manifest" ] || {
   printf 'error: checksum manifest not found: %s\n' "$manifest" >&2
@@ -31,7 +36,7 @@ sha256_file() {
   printf '%s\n' "$hash"
 }
 
-expected_assets="_reconc reconc.1 reconc.bash reconc.fish policy-fix-plan.schema.json policy-lock.schema.json policy-report.schema.json"
+expected_assets="_reconc reconc.1 reconc.bash reconc.fish policy-fix-plan.schema.json policy-lock.schema.json policy-report.schema.json reconc-$version.spdx.json reconc-$version.cdx.json"
 for target in "$@"; do
   os=${target%/*}
   arch=${target##*/}
@@ -118,3 +123,13 @@ for artifact in "$dist"/*; do
       ;;
   esac
 done
+
+commit=$(git -C "$root" rev-parse HEAD)
+epoch=$(git -C "$root" show -s --format=%ct "$commit")
+go_bin=${GO:-go}
+"$go_bin" -C "$root" run ./scripts/release/sbom verify \
+  --root "$root" \
+  --output-dir "$dist" \
+  --version "$version" \
+  --commit "$commit" \
+  --source-date-epoch "$epoch"
