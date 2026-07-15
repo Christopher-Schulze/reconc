@@ -342,6 +342,18 @@ Runtime state is local and ignored:
 - `.reconc/task-transaction.json`
 - `.reconc/bootstrap-*.json`
 - `*.reconc-candidate-*`
+- `**/.reconc/policy.lock.json`
+- `**/.reconc/.compile.lock`
+- `**/.reconc/audit.jsonl`
+- `**/.reconc/audit.jsonl.*`
+- `**/.reconc/cache/`
+- `**/.reconc/locks/`
+- `**/.reconc/sessions/`
+- `**/.reconc/reports/`
+- `**/.reconc/run/`
+- `**/.reconc/task-transaction.json`
+- `**/.reconc/bootstrap-*.json`
+- `**/*.reconc-candidate-*`
 
 Runtime retention is product-owned rather than harness-owned. `SessionStart`
 and `SessionEnd` run a cross-process-safe due check with a six-hour interval;
@@ -843,6 +855,20 @@ Ignore:
 - `.reconc/reports/`
 - `.reconc/run/`
 - `.reconc/task-transaction.json`
+- `.reconc/bootstrap-*.json`
+- `*.reconc-candidate-*`
+- `**/.reconc/policy.lock.json`
+- `**/.reconc/.compile.lock`
+- `**/.reconc/audit.jsonl`
+- `**/.reconc/audit.jsonl.*`
+- `**/.reconc/cache/`
+- `**/.reconc/locks/`
+- `**/.reconc/sessions/`
+- `**/.reconc/reports/`
+- `**/.reconc/run/`
+- `**/.reconc/task-transaction.json`
+- `**/.reconc/bootstrap-*.json`
+- `**/*.reconc-candidate-*`
 
 ## Security
 

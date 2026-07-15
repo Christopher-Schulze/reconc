@@ -1,4 +1,6 @@
-![RECONC Repository Control Compiler](assets/reconc-hero.png)
+<p align="center">
+  <img src="assets/reconc-hero.png" alt="RECONC Repository Control Compiler" width="100%">
+</p>
 
 # Repository Control Compiler
 
