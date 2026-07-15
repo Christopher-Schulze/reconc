@@ -8,8 +8,7 @@ published `v0.7.x` release.
 ## Reporting A Vulnerability
 
 Please report security issues privately before opening a public issue. Use
-GitHub private vulnerability reporting if it is enabled for the repository, or
-contact the repository owner directly.
+GitHub private vulnerability reporting from the repository Security tab.
 
 Include:
 

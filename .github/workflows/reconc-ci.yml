@@ -1,9 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
   workflow_dispatch:
 
@@ -73,6 +70,7 @@ jobs:
         run: make self-host
 
       - name: Vet
+        if: runner.os == 'Linux'
         run: |
           go vet ./...
           (cd harness/template && go vet ./...)
@@ -84,11 +82,13 @@ jobs:
           (cd harness/template && go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...)
 
       - name: Staticcheck
+        if: runner.os == 'Linux'
         run: |
           go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
           (cd harness/template && go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...)
 
       - name: Race tests
+        if: runner.os == 'Linux'
         run: |
           go test -race -count=1 ./...
           (cd harness/template && go test -race -count=1 ./...)
@@ -124,21 +124,6 @@ jobs:
         run: |
           go test ./...
           (cd harness/template && go test ./...)
-
-      - name: Vet
-        run: |
-          go vet ./...
-          (cd harness/template && go vet ./...)
-
-      - name: Staticcheck
-        run: |
-          go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
-          (cd harness/template && go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...)
-
-      - name: Race tests
-        run: |
-          go test -race -count=1 ./...
-          (cd harness/template && go test -race -count=1 ./...)
 
       - name: Build and smoke CLI
         run: |

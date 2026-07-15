@@ -773,15 +773,23 @@ GitHub workflows:
 
 CI checks:
 
-- full root-module and `harness/template` tests, vet, pinned Staticcheck v0.7.0, and race checks on Ubuntu 24.04 and macOS 15; formatting, tidy, and pinned Govulncheck v1.6.0 on Linux
-- full native Windows 2025 root-module and `harness/template` tests, vet,
-  pinned Staticcheck v0.7.0, race checks, and native binary version/help smoke;
+- full root-module and `harness/template` tests on Ubuntu 24.04 and macOS 15;
+  formatting, tidy, vet, pinned Govulncheck v1.6.0, pinned Staticcheck v0.7.0,
+  and race checks run once on Linux
+- native Windows 2025 root-module and `harness/template` tests plus native
+  binary version/help smoke;
   shell hook wrappers and shell policy scripts use the documented `sh` runtime
 - clean-repository self-hosting golden path on Ubuntu and macOS across all three bootstrap profiles and nine hook platforms
-- immutable action commit pins for checkout, Go setup, and build provenance
+- immutable action commit pins plus an explicit GitHub-owned action allowlist;
+  the trust gate validates pin shape and action identity without coupling
+  updates to historical commit values
 - least-privilege permissions, disabled checkout credential persistence, bounded job timeouts, and stale-run cancellation per branch or pull request
 - release and installer negative-path trust tests
-- weekly Dependabot updates for GitHub Actions and both Go modules
+
+CI runs on pull requests and explicit manual dispatch only. Protected `main`
+does not repeat the complete suite after a pull request has already passed the
+required checks. Dependency and action updates are deliberate maintainer work;
+the repository does not generate automated version-update pull requests.
 
 The public source repository protects its default branch with the active
 `Protect main` ruleset. GitHub Actions checks from application ID `15368` named
@@ -792,6 +800,9 @@ read back with `gh api repos/Christopher-Schulze/reconc/rules/branches/main`.
 An administrator emergency requires explicitly disabling ruleset `18998289`,
 performing the recovery, and re-enabling it through the GitHub API; there is no
 silent owner or administrator bypass during normal operation.
+Repository Actions settings allow only GitHub-owned actions and require full
+commit-SHA pins. Private vulnerability reporting is enabled. The active release
+tag ruleset protects `reconc-v*` tags from update and deletion.
 
 Release:
 
@@ -816,7 +827,6 @@ root does not activate them.
 
 Commit:
 
-- `.github/dependabot.yml`
 - `.github/workflows/**`
 - `.gitignore`
 - `AGENTS.md`
