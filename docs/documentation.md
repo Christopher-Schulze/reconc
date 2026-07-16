@@ -676,19 +676,25 @@ runtime, streams the answer, and submits Reconc's continuation reason back
 into the same session until the strict Stop gate is clean or the bounded
 continuation limit is reached. Second, when Grok runs in leader mode (opt-in
 via `grok --leader`, config `use_leader`, or a custom `GROK_LEADER_SOCKET`),
-the `grok-stop` route steers the TUI itself: it dials the leader socket,
-registers as a read-only client, and queues Reconc's continuation reason via
-the `x.ai/interject` extension. Grok converts an interjection that lands on an
-idle session into an immediately started prompt turn, so the TUI visibly
-continues with the injected instruction. Steering acts only when the Stop
-evaluation demands continuation from a live Grok dispatch (`GROK_SESSION_ID`
-must match the envelope), never on user interrupts, is capped at 32 attempts
-per session, and is strictly fail-open with a three-second budget; every skip
-or failure leaves the passive stop report in place. `RECONC_GROK_STEER=0`
-disables it, and `reconc grok` exports exactly that into its spawned agent so
-the strict ACP runner stays the only continuation driver there. Without a
-leader socket the TUI Stop simply remains passive. `reconc doctor --deep`
-reports leader reachability as the `Grok leader steering` check.
+the `grok-stop` route steers the TUI itself over Grok's Unix leader socket or
+Windows `\\.\pipe\grok-leader-*` named pipe. Before evaluating Stop, Reconc
+marks eligible leader stops as strict so an unchanged blocking policy report
+cannot escape on the second Stop. It registers as a read-only client and queues
+the continuation reason through the `_x.ai/interject` extension. Grok converts
+an interjection that lands on an idle session into an immediately started
+prompt turn, so the TUI visibly continues with the injected instruction.
+Steering acts only when the Stop evaluation demands continuation from a live
+Grok dispatch (`GROK_SESSION_ID` must match the envelope) and never on user
+interrupts. The 32-attempt cap applies only to one consecutive no-progress
+series for the same block; material write/command progress, a new block, or a
+clean Stop resets it. Multiple leader endpoints divide the three-second budget
+fairly, framed messages complete short writes, and every failure remains
+fail-open to the passive stop report. `RECONC_GROK_STEER=0` disables steering,
+and `reconc grok` exports exactly that into its spawned agent so the strict ACP
+runner stays the only continuation driver there. Without a leader endpoint the
+TUI Stop remains passive. `reconc doctor --deep` registers, requires leader
+protocol version 1, and verifies `_x.ai/interject` with a random nonexistent
+session before reporting the `Grok leader steering` check as active.
 `reconc run on|off|status|log` is the canonical AI-operated repository switch.
 Its durable state applies only to the selected repository, not the whole machine.
 Repository mode persists across sessions for Claude Code, Codex, Cursor,

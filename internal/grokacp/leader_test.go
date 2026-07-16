@@ -1,3 +1,5 @@
+//go:build !windows
+
 package grokacp
 
 import (
@@ -99,7 +101,7 @@ func serveInterject(response string, before ...string) func(*fakeLeader, net.Con
 		if _, err := f.read(conn); err != nil {
 			return
 		}
-		f.write(conn, `{"type":"registered","client_id":7,"ready":true}`)
+		f.write(conn, `{"type":"registered","client_id":7,"ready":true,"leader_protocol_version":1,"leader_binary_version":"test"}`)
 		if _, err := f.read(conn); err != nil {
 			return
 		}
@@ -124,7 +126,7 @@ func TestLeaderInterjectHappyPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.close()
-	if err := conn.register(); err != nil {
+	if _, err := conn.register(); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 	if err := conn.interject("session-1", "keep going"); err != nil {
@@ -177,7 +179,7 @@ func TestLeaderRegisterWaitsForLeaderReady(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.close()
-	if err := conn.register(); err != nil {
+	if _, err := conn.register(); err != nil {
 		t.Fatalf("register must wait for leader_ready: %v", err)
 	}
 	if err := conn.interject("session-1", "go"); err != nil {
@@ -198,7 +200,7 @@ func TestLeaderInterjectSkipsBroadcastNoise(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.close()
-	if err := conn.register(); err != nil {
+	if _, err := conn.register(); err != nil {
 		t.Fatal(err)
 	}
 	if err := conn.interject("session-1", "go"); err != nil {
@@ -216,7 +218,7 @@ func TestLeaderInterjectSurfacesJSONRPCError(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.close()
-	if err := conn.register(); err != nil {
+	if _, err := conn.register(); err != nil {
 		t.Fatal(err)
 	}
 	err = conn.interject("session-1", "go")
@@ -247,7 +249,7 @@ func TestLeaderRegisterRejectionAndShutdownFail(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer conn.close()
-			err = conn.register()
+			_, err = conn.register()
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("register error = %v, want %q", err, test.want)
 			}
@@ -269,7 +271,7 @@ func TestLeaderReadRejectsOversizedFrame(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.close()
-	err = conn.register()
+	_, err = conn.register()
 	if err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("oversized frame must fail, got %v", err)
 	}
@@ -286,7 +288,7 @@ func TestLeaderDeadlineBoundsSilentServer(t *testing.T) {
 	}
 	defer conn.close()
 	start := time.Now()
-	if err := conn.register(); err == nil {
+	if _, err := conn.register(); err == nil {
 		t.Fatal("register against a silent leader must time out")
 	}
 	if elapsed := time.Since(start); elapsed > time.Second {
@@ -344,26 +346,33 @@ func TestLeaderSocketCandidatesGrokHomeGlob(t *testing.T) {
 }
 
 func TestProbeLeaderSteering(t *testing.T) {
-	t.Run("no socket", func(t *testing.T) {
+	t.Run("no endpoint", func(t *testing.T) {
 		t.Setenv(leaderSocketEnv, "")
 		t.Setenv(grokHomeEnv, t.TempDir())
 		probe := ProbeLeaderSteering(time.Second)
-		if probe.SocketPath != "" || probe.Reachable {
-			t.Fatalf("probe without socket = %+v", probe)
+		if probe.Endpoint != "" || probe.Reachable || probe.Compatible {
+			t.Fatalf("probe without endpoint = %+v", probe)
 		}
 	})
-	t.Run("reachable", func(t *testing.T) {
+	t.Run("compatible", func(t *testing.T) {
 		leader := newFakeLeader(t, func(f *fakeLeader, conn net.Conn) {
 			if _, err := f.read(conn); err != nil {
 				return
 			}
-			f.write(conn, `{"type":"registered","client_id":1,"ready":true}`)
+			f.write(conn, `{"type":"registered","client_id":1,"ready":true,"leader_protocol_version":1,"leader_binary_version":"0.2.101"}`)
+			if _, err := f.read(conn); err != nil {
+				return
+			}
+			f.write(conn, `{"type":"acp","payload":`+encodeJSONString(`{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"Invalid params","data":"session not found"}}`)+`}`)
 			_, _ = f.read(conn) // disconnect
 		})
 		t.Setenv(leaderSocketEnv, leader.socket)
 		probe := ProbeLeaderSteering(time.Second)
-		if !probe.Reachable || probe.SocketPath != leader.socket || probe.Detail != "" {
+		if !probe.Reachable || !probe.Compatible || probe.Endpoint != leader.socket || probe.Detail != "" {
 			t.Fatalf("probe = %+v", probe)
+		}
+		if probe.ProtocolVersion == nil || *probe.ProtocolVersion != 1 || probe.BinaryVersion != "0.2.101" {
+			t.Fatalf("probe metadata = %+v", probe)
 		}
 	})
 	t.Run("handshake failure", func(t *testing.T) {
@@ -379,4 +388,94 @@ func TestProbeLeaderSteering(t *testing.T) {
 			t.Fatalf("probe = %+v", probe)
 		}
 	})
+	t.Run("protocol mismatch", func(t *testing.T) {
+		leader := newFakeLeader(t, func(f *fakeLeader, conn net.Conn) {
+			if _, err := f.read(conn); err != nil {
+				return
+			}
+			f.write(conn, `{"type":"registered","client_id":1,"ready":true,"leader_protocol_version":2}`)
+			_, _ = f.read(conn)
+		})
+		t.Setenv(leaderSocketEnv, leader.socket)
+		probe := ProbeLeaderSteering(time.Second)
+		if !probe.Reachable || probe.Compatible || !strings.Contains(probe.Detail, "protocol 2") {
+			t.Fatalf("probe = %+v", probe)
+		}
+	})
+	t.Run("interject method missing", func(t *testing.T) {
+		leader := newFakeLeader(t, func(f *fakeLeader, conn net.Conn) {
+			if _, err := f.read(conn); err != nil {
+				return
+			}
+			f.write(conn, `{"type":"registered","client_id":1,"ready":true,"leader_protocol_version":1}`)
+			if _, err := f.read(conn); err != nil {
+				return
+			}
+			f.write(conn, `{"type":"acp","payload":`+encodeJSONString(`{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}`)+`}`)
+			_, _ = f.read(conn)
+		})
+		t.Setenv(leaderSocketEnv, leader.socket)
+		probe := ProbeLeaderSteering(time.Second)
+		if !probe.Reachable || probe.Compatible || !strings.Contains(probe.Detail, interjectMethod) {
+			t.Fatalf("probe = %+v", probe)
+		}
+	})
+}
+
+type shortWriteConn struct {
+	net.Conn
+	maxBytes int
+}
+
+func (c shortWriteConn) Write(body []byte) (int, error) {
+	if len(body) > c.maxBytes {
+		body = body[:c.maxBytes]
+	}
+	return c.Conn.Write(body)
+}
+
+func TestLeaderWriteMessageCompletesShortWrites(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	conn := &leaderConn{conn: shortWriteConn{Conn: client, maxBytes: 3}}
+	read := make(chan leaderClientMessage, 1)
+	go func() {
+		var lengthPrefix [4]byte
+		if _, err := io.ReadFull(server, lengthPrefix[:]); err != nil {
+			return
+		}
+		body := make([]byte, binary.BigEndian.Uint32(lengthPrefix[:]))
+		if _, err := io.ReadFull(server, body); err != nil {
+			return
+		}
+		var message leaderClientMessage
+		if json.Unmarshal(body, &message) == nil {
+			read <- message
+		}
+	}()
+	if err := conn.writeMessage(leaderClientMessage{Type: "disconnect"}); err != nil {
+		t.Fatalf("writeMessage: %v", err)
+	}
+	select {
+	case message := <-read:
+		if message.Type != "disconnect" {
+			t.Fatalf("message = %+v", message)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("short-write frame was not completed")
+	}
+}
+
+func TestFairCandidateDeadlineReservesTimeForLaterLeaders(t *testing.T) {
+	start := time.Now()
+	overall := start.Add(300 * time.Millisecond)
+	first := fairCandidateDeadline(overall, 3)
+	firstShare := first.Sub(start)
+	if firstShare < 75*time.Millisecond || firstShare > 150*time.Millisecond {
+		t.Fatalf("first candidate share = %s, want about one third", firstShare)
+	}
+	if final := fairCandidateDeadline(overall, 1); !final.Equal(overall) {
+		t.Fatalf("final candidate deadline = %s, want %s", final, overall)
+	}
 }

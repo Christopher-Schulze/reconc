@@ -49,7 +49,7 @@ why a task is allowed to be called done.
 - fails closed on stale lockfiles, schema drift, invalid globs, unsupported rule
   kinds, and repository-root mismatch
 - installs explicitly selected git, Claude Code, Codex, Cursor, OpenCode,
-  Devin CLI, Antigravity CLI, and Kilo Code integrations
+  Devin CLI, Antigravity CLI, Kilo Code, and Grok Build integrations
 - controls autonomous agent continuation with repo-scoped
   `reconc run on|off|status|log`, no-progress guards, and bounded logs
 - adopts typed repository TASK state and performs recoverable claim, block,

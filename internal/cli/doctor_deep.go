@@ -203,13 +203,24 @@ func doctorCheckGrokLeaderSteering(discovery ingest.DiscoveryResult) doctorCheck
 	}
 	probe := doctorProbeGrokLeader(2 * time.Second)
 	switch {
-	case probe.SocketPath == "":
-		check.Detail = "no Grok leader socket; TUI Stop stays passive (leader mode is opt-in: `grok --leader` or config `use_leader`)"
+	case probe.Endpoint == "":
+		check.Detail = "no Grok leader endpoint; TUI Stop stays passive (leader mode is opt-in: `grok --leader` or config `use_leader`)"
+	case probe.Compatible:
+		version := "unknown"
+		if probe.ProtocolVersion != nil {
+			version = fmt.Sprintf("%d", *probe.ProtocolVersion)
+		}
+		binary := strings.TrimSpace(probe.BinaryVersion)
+		if binary == "" {
+			binary = "unknown"
+		}
+		check.Detail = fmt.Sprintf("Grok leader compatible at %s (protocol %s, binary %s); TUI stop steering active", probe.Endpoint, version, binary)
 	case probe.Reachable:
-		check.Detail = "Grok leader reachable at " + probe.SocketPath + "; TUI stop steering active"
+		check.Status = doctorStatusWarn
+		check.Detail = "Grok leader " + probe.Endpoint + " reachable but incompatible: " + probe.Detail
 	default:
 		check.Status = doctorStatusWarn
-		check.Detail = "Grok leader socket " + probe.SocketPath + " present but handshake failed: " + probe.Detail
+		check.Detail = "Grok leader endpoint " + probe.Endpoint + " present but handshake failed: " + probe.Detail
 	}
 	return check
 }

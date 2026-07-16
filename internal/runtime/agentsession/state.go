@@ -87,6 +87,8 @@ type SessionState struct {
 	MaterialEvents             uint64                     `json:"material_events,omitempty"`
 	LastMaterialSignature      string                     `json:"last_material_signature,omitempty"`
 	GrokSteerAttempts          uint64                     `json:"grok_steer_attempts,omitempty"`
+	GrokSteerContinuationKey   string                     `json:"grok_steer_continuation_key,omitempty"`
+	GrokSteerMaterialEvents    uint64                     `json:"grok_steer_material_events,omitempty"`
 	EvidenceOverflow           bool                       `json:"evidence_overflow,omitempty"`
 	EvidenceOverflowReason     string                     `json:"evidence_overflow_reason,omitempty"`
 }

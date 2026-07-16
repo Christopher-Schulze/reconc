@@ -1,26 +1,28 @@
 package grokacp
 
 import (
+	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
-	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 )
 
 // Grok's leader-follower IPC contract, verified against
 // xai-org/grok-build@c68e39f: one leader process per machine listens on a Unix
-// socket; every frame is a 4-byte big-endian length prefix followed by one
-// JSON message. Clients register first, then exchange ACP JSON-RPC strings
-// wrapped in {"type":"acp","payload":...} envelopes.
+// socket or Windows named pipe; every frame is a 4-byte big-endian length
+// prefix followed by one JSON message. Clients register first, then exchange
+// ACP JSON-RPC strings wrapped in {"type":"acp","payload":...} envelopes.
 const (
 	leaderSocketEnv = "GROK_LEADER_SOCKET"
 	grokHomeEnv     = "GROK_HOME"
+
+	leaderProtocolVersion uint32 = 1
 
 	// Grok caps frames at 64 MiB; every message this client exchanges is a
 	// few hundred bytes, so a much smaller read cap bounds memory while
@@ -50,124 +52,109 @@ type leaderClientCapabilities struct {
 }
 
 type leaderServerMessage struct {
-	Type    string `json:"type"`
-	Ready   *bool  `json:"ready,omitempty"`
-	Payload string `json:"payload,omitempty"`
-	Code    int    `json:"code,omitempty"`
-	Message string `json:"message,omitempty"`
+	Type                  string  `json:"type"`
+	Ready                 *bool   `json:"ready,omitempty"`
+	LeaderProtocolVersion *uint32 `json:"leader_protocol_version,omitempty"`
+	LeaderBinaryVersion   string  `json:"leader_binary_version,omitempty"`
+	Payload               string  `json:"payload,omitempty"`
+	Code                  int     `json:"code,omitempty"`
+	Message               string  `json:"message,omitempty"`
 }
 
-// leaderSocketCandidates lists the sockets a running Grok leader may be bound
-// to, most specific first. Hooks dispatched by a leader-hosted session inherit
-// the leader's environment, so GROK_LEADER_SOCKET is authoritative when set;
-// otherwise every leader<suffix>.sock under the Grok home is a candidate
-// (non-default relay URLs derive suffixed socket names).
-func leaderSocketCandidates() []string {
-	if override := strings.TrimSpace(os.Getenv(leaderSocketEnv)); override != "" {
-		if socketExists(override) {
-			return []string{override}
-		}
-		return nil
-	}
-	home := strings.TrimSpace(os.Getenv(grokHomeEnv))
-	if home == "" {
-		userHome, err := os.UserHomeDir()
-		if err != nil {
-			return nil
-		}
-		home = filepath.Join(userHome, ".grok")
-	}
-	matches, err := filepath.Glob(filepath.Join(home, "leader*.sock"))
-	if err != nil {
-		return nil
-	}
-	sort.Strings(matches)
-	defaultSocket := filepath.Join(home, "leader.sock")
-	candidates := make([]string, 0, len(matches))
-	for _, match := range matches {
-		if match == defaultSocket && socketExists(match) {
-			candidates = append([]string{match}, candidates...)
-			continue
-		}
-		if socketExists(match) {
-			candidates = append(candidates, match)
-		}
-	}
-	return candidates
+type leaderRegistration struct {
+	ProtocolVersion *uint32
+	BinaryVersion   string
 }
 
-// socketExists reports whether path exists as a Unix socket (symlinks are
-// followed). On Windows Grok uses named pipes that never appear on the
-// filesystem, so discovery degrades to "no leader" there and steering stays
-// passive by construction.
-func socketExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.Mode()&os.ModeSocket != 0
+type leaderRPCError struct {
+	Code    int
+	Message string
+	Data    json.RawMessage
 }
 
-// LeaderProbe is the result of a read-only leader reachability probe.
+func (e *leaderRPCError) Error() string {
+	detail := strings.TrimSpace(e.Message)
+	if data := rpcErrorDataText(e.Data); data != "" {
+		if detail != "" {
+			detail += ": "
+		}
+		detail += data
+	}
+	if detail == "" {
+		detail = "unknown JSON-RPC error"
+	}
+	return fmt.Sprintf("%s (code %d)", detail, e.Code)
+}
+
+// LeaderProbe is the result of a non-mutating leader compatibility probe.
 type LeaderProbe struct {
-	// SocketPath is the probed socket, or "" when none was found.
-	SocketPath string
+	// Endpoint is the probed Unix socket or Windows named pipe.
+	Endpoint string
 	// Reachable reports a completed register handshake.
 	Reachable bool
-	// Detail carries the failure reason when a socket exists but the
-	// handshake failed.
+	// Compatible reports the expected protocol version and interject method.
+	Compatible bool
+	// ProtocolVersion and BinaryVersion come from the registered response.
+	ProtocolVersion *uint32
+	BinaryVersion   string
+	// Detail carries the latest transport or compatibility failure.
 	Detail string
 }
 
-// ProbeLeaderSteering checks whether a Grok leader is reachable, i.e. whether
-// TUI stop steering can act. It registers and immediately disconnects; it
-// never spawns a leader and never touches sessions.
+// ProbeLeaderSteering verifies the registration protocol and _x.ai/interject
+// extension. It targets a cryptographically random nonexistent session and
+// requires Grok's session-not-found response, so no live session is mutated.
 func ProbeLeaderSteering(budget time.Duration) LeaderProbe {
 	candidates := leaderSocketCandidates()
 	if len(candidates) == 0 {
 		return LeaderProbe{}
 	}
-	deadline := time.Now().Add(budget)
-	probe := LeaderProbe{SocketPath: candidates[0]}
-	for _, socketPath := range candidates {
-		probe.SocketPath = socketPath
-		conn, err := steerDial(socketPath, deadline)
+	overallDeadline := time.Now().Add(budget)
+	lastProbe := LeaderProbe{Endpoint: candidates[0]}
+	var reachableProbe *LeaderProbe
+	for index, endpoint := range candidates {
+		probe := LeaderProbe{Endpoint: endpoint}
+		deadline := fairCandidateDeadline(overallDeadline, len(candidates)-index)
+		conn, err := steerDial(endpoint, deadline)
 		if err != nil {
 			probe.Detail = err.Error()
+			lastProbe = probe
 			continue
 		}
-		err = conn.register()
+		registration, err := conn.register()
+		if err == nil {
+			probe.Reachable = true
+			probe.ProtocolVersion = registration.ProtocolVersion
+			probe.BinaryVersion = registration.BinaryVersion
+			err = verifyLeaderCompatibility(conn, registration)
+		}
 		conn.close()
 		if err != nil {
 			probe.Detail = err.Error()
+			lastProbe = probe
+			if probe.Reachable {
+				snapshot := probe
+				reachableProbe = &snapshot
+			}
 			continue
 		}
-		probe.Reachable = true
+		probe.Compatible = true
 		probe.Detail = ""
 		return probe
 	}
-	return probe
+	if reachableProbe != nil {
+		return *reachableProbe
+	}
+	return lastProbe
 }
 
 type leaderConn struct {
 	conn net.Conn
 }
 
-// dialLeader connects to one leader socket and applies deadline to every
-// subsequent read and write on the connection.
-func dialLeader(socketPath string, deadline time.Time) (*leaderConn, error) {
-	dialer := net.Dialer{Deadline: deadline}
-	conn, err := dialer.Dial("unix", socketPath)
-	if err != nil {
-		return nil, fmt.Errorf("dial Grok leader %s: %w", socketPath, err)
-	}
-	if err := conn.SetDeadline(deadline); err != nil {
-		_ = conn.Close()
-		return nil, fmt.Errorf("set Grok leader deadline: %w", err)
-	}
-	return &leaderConn{conn: conn}, nil
-}
-
 // register performs the client handshake and waits until the leader is ready
 // to forward ACP traffic.
-func (c *leaderConn) register() error {
+func (c *leaderConn) register() (leaderRegistration, error) {
 	err := c.writeMessage(leaderClientMessage{
 		Type:         "register",
 		ClientType:   "reconc-hook",
@@ -175,31 +162,34 @@ func (c *leaderConn) register() error {
 		Capabilities: &leaderClientCapabilities{},
 	})
 	if err != nil {
-		return fmt.Errorf("register with Grok leader: %w", err)
+		return leaderRegistration{}, fmt.Errorf("register with Grok leader: %w", err)
 	}
+	var registration leaderRegistration
 	ready := false
 	registered := false
 	for !registered || !ready {
 		message, err := c.readMessage()
 		if err != nil {
-			return fmt.Errorf("read Grok leader registration: %w", err)
+			return leaderRegistration{}, fmt.Errorf("read Grok leader registration: %w", err)
 		}
 		switch message.Type {
 		case "registered":
 			registered = true
+			registration.ProtocolVersion = message.LeaderProtocolVersion
+			registration.BinaryVersion = strings.TrimSpace(message.LeaderBinaryVersion)
 			// Leaders that predate the ready field are already initialised.
 			ready = message.Ready == nil || *message.Ready
 		case "leader_ready":
 			ready = true
 		case "error":
-			return fmt.Errorf("grok leader rejected registration: %s", message.Message)
+			return leaderRegistration{}, fmt.Errorf("grok leader rejected registration: %s", message.Message)
 		case "shutting_down", "shutdown":
-			return fmt.Errorf("grok leader is shutting down")
+			return leaderRegistration{}, fmt.Errorf("grok leader is shutting down")
 		default:
 			// Pongs and broadcast ACP traffic may interleave; skip them.
 		}
 	}
-	return nil
+	return registration, nil
 }
 
 // interject queues text as a mid-turn interjection into sessionID. Grok merges
@@ -231,11 +221,7 @@ func (c *leaderConn) interject(sessionID, text string) error {
 			var response struct {
 				ID     *int64          `json:"id"`
 				Result json.RawMessage `json:"result"`
-				Error  *struct {
-					Code    int    `json:"code"`
-					Message string `json:"message"`
-					Data    string `json:"data"`
-				} `json:"error"`
+				Error  *leaderRPCError `json:"error"`
 			}
 			if json.Unmarshal([]byte(message.Payload), &response) != nil ||
 				response.ID == nil || *response.ID != 1 {
@@ -243,11 +229,7 @@ func (c *leaderConn) interject(sessionID, text string) error {
 				continue
 			}
 			if response.Error != nil {
-				detail := response.Error.Message
-				if response.Error.Data != "" {
-					detail += ": " + response.Error.Data
-				}
-				return fmt.Errorf("grok leader rejected interjection: %s", detail)
+				return fmt.Errorf("grok leader rejected interjection: %w", response.Error)
 			}
 			return nil
 		case "error":
@@ -277,8 +259,7 @@ func (c *leaderConn) writeMessage(message leaderClientMessage) error {
 	frame := make([]byte, 4+len(body))
 	binary.BigEndian.PutUint32(frame[:4], uint32(len(body)))
 	copy(frame[4:], body)
-	_, err = c.conn.Write(frame)
-	return err
+	return writeFull(c.conn, frame)
 }
 
 func (c *leaderConn) readMessage() (leaderServerMessage, error) {
@@ -299,4 +280,84 @@ func (c *leaderConn) readMessage() (leaderServerMessage, error) {
 		return leaderServerMessage{}, fmt.Errorf("decode leader message: %w", err)
 	}
 	return message, nil
+}
+
+func verifyLeaderCompatibility(conn *leaderConn, registration leaderRegistration) error {
+	if err := validateLeaderProtocol(registration); err != nil {
+		return err
+	}
+	sessionID, err := randomProbeSessionID()
+	if err != nil {
+		return err
+	}
+	err = conn.interject(sessionID, "reconc leader compatibility probe")
+	if err == nil {
+		return fmt.Errorf("%s unexpectedly accepted a nonexistent probe session", interjectMethod)
+	}
+	var rpcErr *leaderRPCError
+	if !errors.As(err, &rpcErr) {
+		return fmt.Errorf("%s compatibility probe failed: %w", interjectMethod, err)
+	}
+	if rpcErr.Code != -32602 || !strings.Contains(strings.ToLower(rpcErr.Error()), "session not found") {
+		return fmt.Errorf("%s compatibility probe returned %w", interjectMethod, rpcErr)
+	}
+	return nil
+}
+
+func validateLeaderProtocol(registration leaderRegistration) error {
+	if registration.ProtocolVersion == nil {
+		return fmt.Errorf("grok leader registration omitted protocol version")
+	}
+	if *registration.ProtocolVersion != leaderProtocolVersion {
+		return fmt.Errorf("grok leader protocol %d is incompatible with supported protocol %d", *registration.ProtocolVersion, leaderProtocolVersion)
+	}
+	return nil
+}
+
+func randomProbeSessionID() (string, error) {
+	var value [16]byte
+	if _, err := rand.Read(value[:]); err != nil {
+		return "", fmt.Errorf("generate Grok leader probe session: %w", err)
+	}
+	return "reconc-doctor-probe-" + hex.EncodeToString(value[:]), nil
+}
+
+func rpcErrorDataText(raw json.RawMessage) string {
+	raw = json.RawMessage(strings.TrimSpace(string(raw)))
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return strings.TrimSpace(text)
+	}
+	return string(raw)
+}
+
+func writeFull(writer io.Writer, body []byte) error {
+	for len(body) > 0 {
+		written, err := writer.Write(body)
+		if err != nil {
+			return err
+		}
+		if written <= 0 {
+			return io.ErrShortWrite
+		}
+		if written > len(body) {
+			return io.ErrShortWrite
+		}
+		body = body[written:]
+	}
+	return nil
+}
+
+func fairCandidateDeadline(overallDeadline time.Time, remainingCandidates int) time.Time {
+	if remainingCandidates <= 1 {
+		return overallDeadline
+	}
+	remaining := time.Until(overallDeadline)
+	if remaining <= 0 {
+		return time.Now()
+	}
+	return time.Now().Add(remaining / time.Duration(remainingCandidates))
 }

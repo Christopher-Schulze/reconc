@@ -402,6 +402,16 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintln(stderr, "reconc hook runtime warning: "+err.Error())
 		return nil
 	}
+	grokPrepareWarning := ""
+	if route.PlatformKind == hooks.KindGrok && event == "grok-stop" {
+		prepared, _, prepareErr := grokacp.PrepareStrictTUIStop(payload)
+		if prepareErr != nil {
+			grokPrepareWarning = "reconc grok strict stop (warn): " + prepareErr.Error()
+		} else {
+			payload = prepared
+		}
+		timing.mark("grok_strict_prepare")
+	}
 
 	previousRuntime, hadRuntime := os.LookupEnv("RECONC_HOOK_RUNTIME")
 	_ = os.Setenv("RECONC_HOOK_RUNTIME", event)
@@ -454,6 +464,12 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 	timing.mark("handler")
 	if result.ExitCode != 0 && route.ErrorPolicy == hooks.FailureAllow {
 		result.ExitCode = 0
+	}
+	if grokPrepareWarning != "" {
+		if result.Stderr != "" {
+			result.Stderr += "; "
+		}
+		result.Stderr += grokPrepareWarning
 	}
 	if err := agentsession.RecordHookLiveness(repo, event, event); err != nil {
 		if result.Stderr != "" {

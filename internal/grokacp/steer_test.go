@@ -1,3 +1,5 @@
+//go:build !windows
+
 package grokacp
 
 import (
@@ -6,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
@@ -124,6 +127,33 @@ func TestSteerTUIStopGateConditions(t *testing.T) {
 	}
 }
 
+func TestPrepareStrictTUIStop(t *testing.T) {
+	_ = steerTestRepo(t)
+	leader := newFakeLeader(t, func(f *fakeLeader, conn net.Conn) {})
+	t.Setenv(leaderSocketEnv, leader.socket)
+	steerSession(t, "s-strict")
+
+	prepared, strict, err := PrepareStrictTUIStop(steerPayload("s-strict", false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strict {
+		t.Fatal("live leader stop must enable strict continuation")
+	}
+	payload, err := agentsession.ParsePayload(prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !payload.StrictContinuation {
+		t.Fatalf("prepared payload = %s", prepared)
+	}
+
+	prepared, strict, err = PrepareStrictTUIStop(steerPayload("s-strict", true))
+	if err != nil || strict {
+		t.Fatalf("interrupt preparation = strict=%v err=%v payload=%s", strict, err, prepared)
+	}
+}
+
 func TestSteerTUIStopInterjectsAndCounts(t *testing.T) {
 	repo := steerTestRepo(t)
 	leader := newFakeLeader(t, serveInterject(`{"jsonrpc":"2.0","id":1,"result":{"status":"queued"}}`))
@@ -169,6 +199,8 @@ func TestSteerTUIStopBudgetExhaustion(t *testing.T) {
 
 	if _, err := agentsession.MutateSessionState(repo, "s-cap", func(state agentsession.SessionState) agentsession.SessionState {
 		state.GrokSteerAttempts = maxStopSteerAttempts
+		state.GrokSteerContinuationKey = steerContinuationKey("more work")
+		state.GrokSteerMaterialEvents = state.MaterialEvents
 		return state
 	}); err != nil {
 		t.Fatal(err)
@@ -181,6 +213,46 @@ func TestSteerTUIStopBudgetExhaustion(t *testing.T) {
 	}
 	if got := len(leader.messages()); got != 0 {
 		t.Fatalf("exhausted budget must not reach the leader, saw %d messages", got)
+	}
+}
+
+func TestSteerBudgetResetsOnProgressNewBlockAndCleanStop(t *testing.T) {
+	repo := steerTestRepo(t)
+	leader := newFakeLeader(t, func(f *fakeLeader, conn net.Conn) {})
+	t.Setenv(leaderSocketEnv, leader.socket)
+	steerSession(t, "s-reset")
+
+	firstReason := "reconc: block\nFeedback: RB-111"
+	if attempts, allowed, err := reserveSteerAttempt(repo, "s-reset", firstReason); err != nil || !allowed || attempts != 1 {
+		t.Fatalf("first reserve = attempts=%d allowed=%v err=%v", attempts, allowed, err)
+	}
+	if attempts, allowed, err := reserveSteerAttempt(repo, "s-reset", "same report\nFeedback: RB-111"); err != nil || !allowed || attempts != 2 {
+		t.Fatalf("same-block reserve = attempts=%d allowed=%v err=%v", attempts, allowed, err)
+	}
+
+	if _, err := agentsession.MutateSessionState(repo, "s-reset", func(state agentsession.SessionState) agentsession.SessionState {
+		state.MaterialEvents++
+		return state
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if attempts, allowed, err := reserveSteerAttempt(repo, "s-reset", firstReason); err != nil || !allowed || attempts != 1 {
+		t.Fatalf("progress reset = attempts=%d allowed=%v err=%v", attempts, allowed, err)
+	}
+	if attempts, allowed, err := reserveSteerAttempt(repo, "s-reset", "different block\nFeedback: RB-222"); err != nil || !allowed || attempts != 1 {
+		t.Fatalf("new-block reset = attempts=%d allowed=%v err=%v", attempts, allowed, err)
+	}
+
+	t.Setenv(leaderSocketEnv, "")
+	if note := SteerTUIStop(repo, steerPayload("s-reset", false), agentsession.Result{ExitCode: 0}); note != "" {
+		t.Fatalf("clean stop reset note = %q", note)
+	}
+	state, err := agentsession.LoadSessionState(repo, "s-reset")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.GrokSteerAttempts != 0 || state.GrokSteerContinuationKey != "" || state.GrokSteerMaterialEvents != 0 {
+		t.Fatalf("clean stop did not reset budget: %+v", state)
 	}
 }
 
@@ -202,6 +274,24 @@ func TestSteerTUIStopFailsOpenOnLeaderRejection(t *testing.T) {
 	}
 	if state.GrokSteerAttempts != 1 {
 		t.Fatalf("failed attempts must still count, got %d", state.GrokSteerAttempts)
+	}
+}
+
+func TestSteerTUIStopRejectsIncompatibleLeaderProtocol(t *testing.T) {
+	repo := steerTestRepo(t)
+	leader := newFakeLeader(t, func(f *fakeLeader, conn net.Conn) {
+		if _, err := f.read(conn); err != nil {
+			return
+		}
+		f.write(conn, `{"type":"registered","client_id":1,"ready":true,"leader_protocol_version":2}`)
+		_, _ = f.read(conn)
+	})
+	t.Setenv(leaderSocketEnv, leader.socket)
+	steerSession(t, "s-protocol")
+
+	note := SteerTUIStop(repo, steerPayload("s-protocol", false), continuationResult("more work"))
+	if !strings.Contains(note, "protocol 2") || !strings.Contains(note, "steer failed") {
+		t.Fatalf("note = %q", note)
 	}
 }
 
@@ -232,5 +322,37 @@ func TestSteerTUIStopFallsBackAcrossCandidates(t *testing.T) {
 	note := SteerTUIStop(repo, steerPayload("s-fb", false), continuationResult("continue"))
 	if !strings.Contains(note, "continuation interjected") {
 		t.Fatalf("note = %q", note)
+	}
+}
+
+func TestSteerTUIStopGivesLaterCandidatesTheirOwnDeadline(t *testing.T) {
+	repo := steerTestRepo(t)
+	home, err := os.MkdirTemp("", "grkfair")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	t.Setenv(grokHomeEnv, home)
+
+	silent := newFakeLeader(t, func(f *fakeLeader, conn net.Conn) {
+		_, _ = f.read(conn)
+		time.Sleep(2 * time.Second)
+	})
+	live := newFakeLeader(t, serveInterject(`{"jsonrpc":"2.0","id":1,"result":{"status":"queued"}}`))
+	if err := os.Symlink(silent.socket, home+"/leader.sock"); err != nil {
+		t.Skipf("cannot symlink socket: %v", err)
+	}
+	if err := os.Symlink(live.socket, home+"/leader-live.sock"); err != nil {
+		t.Skipf("cannot symlink socket: %v", err)
+	}
+
+	steerSession(t, "s-fair")
+	start := time.Now()
+	note := SteerTUIStop(repo, steerPayload("s-fair", false), continuationResult("continue fairly"))
+	if !strings.Contains(note, "continuation interjected") {
+		t.Fatalf("note = %q", note)
+	}
+	if elapsed := time.Since(start); elapsed >= steerBudget {
+		t.Fatalf("later candidate received no usable budget; elapsed=%s", elapsed)
 	}
 }

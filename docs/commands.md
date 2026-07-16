@@ -35,8 +35,9 @@ Runtime:
 - `RECONC_SCHEMA_BASE_URL` -- enterprise override for schema URLs; defaults to the format-versioned repository contracts under `schemas/v1/`
 - `RECONC_STOP_FINGERPRINT_UNTRACKED` (`normal` default, `all`, `no`) --
   untracked-file mode for the Stop fingerprint's git status snapshot
-- `RECONC_GROK_STEER=0` -- disable Grok TUI stop steering over the leader
-  socket (steering also honours Grok's own `GROK_LEADER_SOCKET` override)
+- `RECONC_GROK_STEER=0` -- disable Grok TUI stop steering over the Unix leader
+  socket or Windows named pipe (steering also honours Grok's own
+  `GROK_LEADER_SOCKET` override)
 
 Debugging:
 
@@ -119,7 +120,7 @@ patterns). Emits suggestions in the same format as `adopt`.
 ### `reconc doctor [repo] [--deep] [--json] [--output PATH]`
 Default mode inspects discovery state only. `--deep` adds eight
 diagnostic checks: hook-runtime compatibility, native Grok hook trust/loading,
-Grok leader steering reachability, lockfile freshness, audit-log size,
+Grok leader steering protocol/extension compatibility, lockfile freshness, audit-log size,
 preset/template reference resolution, session-claim age, and static rule
 conflicts. Deep mode exits 1 when any check is `FAIL`, 0 when all rows are
 `OK` or `WARN`.
@@ -261,7 +262,10 @@ that the host can discover a complete static artifact. Codex accepts
 `session.idle`, not a synchronous native Stop gate. Grok's native `Stop` event
 is passive; use `reconc grok` when hard automatic continuation is required, or
 run Grok in leader mode so the `grok-stop` route can interject continuations
-into the live TUI session (see `Grok leader steering` in `doctor --deep`).
+into the live TUI session over its Unix socket or Windows named pipe (see
+`Grok leader steering` in `doctor --deep`). Deep doctor requires protocol
+version 1 and a recognized `_x.ai/interject` response, not just a successful
+register handshake.
 
 ### `reconc hook sync-scaffold <repo-root-scaffold> [--json]`
 Regenerate source-controlled hook artifacts inside a template
@@ -325,7 +329,10 @@ gates; OpenCode and Kilo Code use inferred `session.idle` adapters whose host
 boundary is best-effort and fail-open. Grok's stock TUI exposes only a passive
 Stop notification; `reconc grok` supplies strict same-session continuation
 through the official ACP runtime, and leader-mode TUI sessions are steered
-directly via `x.ai/interject` over the leader socket. Typed `continue` and `claim` states
+directly via `_x.ai/interject` over the Unix leader socket or Windows named
+pipe. Eligible leader Stops use strict continuation before policy evaluation.
+The 32-interjection cap resets on material progress, a changed block, or a
+clean Stop. Typed `continue` and `claim` states
 continue: `Current: none` or an empty Active section still claims queued
 executable work. Complete or absent state disables the switch after terminal
 gates; blocked state reaches terminal Stop without silently disabling it, and

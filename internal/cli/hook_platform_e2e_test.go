@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -161,7 +162,7 @@ func e2eFakeGrokLeader(t *testing.T) (string, <-chan string) {
 	}
 	t.Cleanup(func() { _ = listener.Close() })
 
-	interjected := make(chan string, 1)
+	interjected := make(chan string, 4)
 	readFrame := func(conn net.Conn) (map[string]interface{}, error) {
 		var lengthPrefix [4]byte
 		if _, err := io.ReadFull(conn, lengthPrefix[:]); err != nil {
@@ -181,29 +182,31 @@ func e2eFakeGrokLeader(t *testing.T) (string, <-chan string) {
 		_, _ = conn.Write(frame)
 	}
 	go func() {
-		conn, err := listener.Accept()
-		if err != nil {
-			return
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			if _, err := readFrame(conn); err == nil {
+				writeFrame(conn, `{"type":"registered","client_id":1,"ready":true,"leader_protocol_version":1}`)
+				if message, readErr := readFrame(conn); readErr == nil {
+					payload, _ := message["payload"].(string)
+					interjected <- payload
+					response, _ := json.Marshal(`{"jsonrpc":"2.0","id":1,"result":{"status":"queued"}}`)
+					writeFrame(conn, `{"type":"acp","payload":`+string(response)+`}`)
+					_, _ = readFrame(conn) // disconnect
+				}
+			}
+			_ = conn.Close()
 		}
-		defer conn.Close()
-		if _, err := readFrame(conn); err != nil {
-			return
-		}
-		writeFrame(conn, `{"type":"registered","client_id":1,"ready":true}`)
-		message, err := readFrame(conn)
-		if err != nil {
-			return
-		}
-		payload, _ := message["payload"].(string)
-		interjected <- payload
-		response, _ := json.Marshal(`{"jsonrpc":"2.0","id":1,"result":{"status":"queued"}}`)
-		writeFrame(conn, `{"type":"acp","payload":`+string(response)+`}`)
-		_, _ = readFrame(conn) // disconnect
 	}()
 	return socket, interjected
 }
 
 func TestHookRuntimeGrokStopSteersLeaderContinuation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix fake leader; Windows named-pipe transport is covered in internal/grokacp")
+	}
 	repo := bootstrapE2ERepo(t)
 	writeHookRuntimeTaskFixture(t, repo)
 	if _, err := agentsession.SetRepositoryRun(repo, true); err != nil {
@@ -245,7 +248,42 @@ func TestHookRuntimeGrokStopSteersLeaderContinuation(t *testing.T) {
 	}
 }
 
+func TestHookRuntimeGrokRepeatedPolicyBlockStaysStrict(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix fake leader; Windows named-pipe transport is covered in internal/grokacp")
+	}
+	repo := bootstrapE2ERepo(t)
+	if _, err := agentsession.MutateSessionState(repo, "grok-strict", func(state agentsession.SessionState) agentsession.SessionState {
+		return agentsession.AppendWritePath(state, "generated/out.go")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	socket, interjected := e2eFakeGrokLeader(t)
+	t.Setenv("GROK_LEADER_SOCKET", socket)
+	t.Setenv("GROK_SESSION_ID", "grok-strict")
+	payload := fmt.Sprintf(`{"hookEventName":"stop","sessionId":"grok-strict","workspaceRoot":%q,"reason":"completed"}`, repo)
+
+	for attempt := 1; attempt <= 2; attempt++ {
+		stdout, stderr, code := runWithStdin(t, payload, "hook", "runtime", "grok-stop", repo)
+		if code != 0 || stdout != "" {
+			t.Fatalf("strict Grok stop %d failed: code=%d stdout=%q stderr=%q", attempt, code, stdout, stderr)
+		}
+		want := fmt.Sprintf("continuation interjected (%d/32)", attempt)
+		if !strings.Contains(stderr, want) || !strings.Contains(stderr, "deny-gen") {
+			t.Fatalf("strict Grok stop %d missing %q and policy report: %q", attempt, want, stderr)
+		}
+		select {
+		case <-interjected:
+		default:
+			t.Fatalf("strict Grok stop %d did not reach leader", attempt)
+		}
+	}
+}
+
 func TestHookRuntimeGrokStopInterruptStaysPassive(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix fake leader; Windows named-pipe transport is covered in internal/grokacp")
+	}
 	repo := bootstrapE2ERepo(t)
 	writeHookRuntimeTaskFixture(t, repo)
 	if _, err := agentsession.SetRepositoryRun(repo, true); err != nil {

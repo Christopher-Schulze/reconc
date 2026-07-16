@@ -56,7 +56,7 @@ internal/
   contextsize/    token-budget guard for canonical entrypoints + active TASK
   errors/         typed exception hierarchy (PolicySourceError, LockfileError, ...)
   extractor/      prose-to-rule heuristic scanner (regex-only, no LLM)
-  grokacp/        strict client for the external Grok ACP stdio runtime + leader-socket stop steering
+  grokacp/        strict Grok ACP stdio client + cross-platform leader IPC stop steering/probing
   hooks/          typed platform registry + generators + installers + activation probes + scaffold sync
   ingest/         discovery + source loading (AGENTS.md, .reconc.yml, presets, globals)
   lockdiff/       structural lockfile comparison (ignore-provenance semantics)
@@ -443,6 +443,9 @@ reconc's non-stdlib dependencies processing the payload:
   to this threat model).
 - `github.com/bmatcuk/doublestar/v4` (glob matching — string-only
   surface, no eval).
+- `github.com/Microsoft/go-winio` plus `golang.org/x/sys/windows` (Windows-only
+  named-pipe dialing and enumeration for Grok leader IPC; no network access,
+  command execution, or JSON decoding).
 
 No dep is used for JSON decoding; the stdlib `encoding/json` with
 our own depth-limited decoder is the only entry point.
@@ -459,4 +462,5 @@ our own depth-limited decoder is the only entry point.
 - Network-borne attacks against Reconc's policy compiler/runtime (the core is
   offline and has no network surface). The explicit `reconc grok` command
   starts the external Grok ACP process; Grok owns its inference network,
-  authentication, sandbox, and provider security boundaries.
+  authentication, sandbox, and provider security boundaries. Leader steering
+  uses only same-machine Unix sockets or Windows named pipes.

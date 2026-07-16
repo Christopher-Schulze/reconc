@@ -68,5 +68,8 @@ the generated `.grok/hooks/reconc.json` still supplies native lifecycle,
 evidence, compaction, permission, subagent, and fail-closed tool policy routes.
 When Grok runs in leader mode (`grok --leader` or config `use_leader`), the
 Stop route additionally steers the live TUI session by interjecting the
-continuation over the leader socket; `reconc doctor --deep` reports this as
-`Grok leader steering`.
+continuation over the Unix leader socket or Windows named pipe. Eligible
+leader Stops are strict before policy evaluation, and the 32-attempt
+no-progress series resets on material progress, a changed block, or a clean
+Stop. `reconc doctor --deep` verifies protocol version 1 and
+`_x.ai/interject` before reporting `Grok leader steering` as active.

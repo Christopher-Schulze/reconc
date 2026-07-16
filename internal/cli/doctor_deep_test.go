@@ -97,15 +97,17 @@ func TestDoctorGrokLeaderSteering(t *testing.T) {
 	if _, err := hooks.Install(hooks.KindGrok, repo, false); err != nil {
 		t.Fatal(err)
 	}
+	protocolVersion := uint32(1)
 	tests := []struct {
 		name   string
 		probe  grokacp.LeaderProbe
 		status string
 		detail string
 	}{
-		{name: "no socket", probe: grokacp.LeaderProbe{}, status: doctorStatusOK, detail: "stays passive"},
-		{name: "reachable", probe: grokacp.LeaderProbe{SocketPath: "/tmp/leader.sock", Reachable: true}, status: doctorStatusOK, detail: "steering active"},
-		{name: "handshake failed", probe: grokacp.LeaderProbe{SocketPath: "/tmp/leader.sock", Detail: "connection refused"}, status: doctorStatusWarn, detail: "connection refused"},
+		{name: "no endpoint", probe: grokacp.LeaderProbe{}, status: doctorStatusOK, detail: "stays passive"},
+		{name: "compatible", probe: grokacp.LeaderProbe{Endpoint: "/tmp/leader.sock", Reachable: true, Compatible: true, ProtocolVersion: &protocolVersion, BinaryVersion: "0.2.101"}, status: doctorStatusOK, detail: "protocol 1"},
+		{name: "incompatible", probe: grokacp.LeaderProbe{Endpoint: "/tmp/leader.sock", Reachable: true, Detail: "_x.ai/interject missing"}, status: doctorStatusWarn, detail: "incompatible"},
+		{name: "handshake failed", probe: grokacp.LeaderProbe{Endpoint: "/tmp/leader.sock", Detail: "connection refused"}, status: doctorStatusWarn, detail: "connection refused"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

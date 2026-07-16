@@ -1,6 +1,9 @@
 package grokacp
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -15,9 +18,8 @@ import (
 const SteerEnv = "RECONC_GROK_STEER"
 
 const (
-	// maxStopSteerAttempts bounds interjections per session, mirroring the
-	// ACP runner's continuation budget, so a policy that can never be
-	// satisfied cannot ping-pong the TUI forever.
+	// maxStopSteerAttempts bounds each consecutive no-progress series,
+	// mirroring the ACP runner's continuation budget.
 	maxStopSteerAttempts = 32
 	steerBudget          = 3 * time.Second
 )
@@ -25,9 +27,26 @@ const (
 // steerDial is swappable for tests.
 var steerDial = dialLeader
 
+// PrepareStrictTUIStop marks an eligible native Grok leader Stop as strict
+// before policy evaluation. Without this bit the generic repeated-block escape
+// releases the same violation on the second Stop before steering can interject
+// another continuation.
+func PrepareStrictTUIStop(payloadBytes []byte) ([]byte, bool, error) {
+	payload, candidates, err := activeSteerTarget(payloadBytes)
+	if err != nil || payload == nil || len(candidates) == 0 {
+		return payloadBytes, false, err
+	}
+	payload.Raw["strict_continuation"] = true
+	body, err := json.Marshal(payload.Raw)
+	if err != nil {
+		return payloadBytes, false, fmt.Errorf("encode strict Grok stop payload: %w", err)
+	}
+	return body, true, nil
+}
+
 // SteerTUIStop upgrades a passive Grok TUI Stop into an active continuation.
 // Grok ignores Stop hook output, but a leader-hosted session accepts
-// x.ai/interject over the leader socket, and an interjection landing on an
+// _x.ai/interject over the leader endpoint, and an interjection landing on an
 // idle session starts a new prompt turn immediately. Called from the
 // grok-stop hook route with the normalized payload and the Stop evaluation
 // result; returns a stderr note ("" when steering does not apply). Strictly
@@ -36,45 +55,35 @@ func SteerTUIStop(repoRoot string, payloadBytes []byte, stopResult agentsession.
 	if stopResult.ExitCode != 0 {
 		return ""
 	}
+	payload, err := activeSteerPayload(payloadBytes)
+	if err != nil || payload == nil {
+		return ""
+	}
 	reason := continuationReason(stopResult.Stdout)
 	if reason == "" {
-		return ""
-	}
-	if SteeringDisabled() {
-		return ""
-	}
-	payload, err := agentsession.ParsePayload(payloadBytes)
-	if err != nil || strings.TrimSpace(payload.SessionID) == "" {
-		return ""
-	}
-	if payload.IsInterrupt != nil && *payload.IsInterrupt {
-		return ""
-	}
-	// Grok exports GROK_SESSION_ID into every dispatched hook process. Its
-	// absence means this Stop did not come from a live Grok dispatch, so
-	// there is no session worth steering (and no risk of poking a leader
-	// with a hand-crafted envelope).
-	if strings.TrimSpace(os.Getenv("GROK_SESSION_ID")) != payload.SessionID {
+		if err := resetSteerBudget(repoRoot, payload.SessionID); err != nil {
+			return "reconc grok steer: " + err.Error()
+		}
 		return ""
 	}
 	candidates := leaderSocketCandidates()
 	if len(candidates) == 0 {
-		// The normal non-leader TUI: no socket, steering silently passive.
 		return ""
 	}
 
-	attempts, err := incrementSteerAttempts(repoRoot, payload.SessionID)
+	attempts, allowed, err := reserveSteerAttempt(repoRoot, payload.SessionID, reason)
 	if err != nil {
 		return "reconc grok steer: " + err.Error()
 	}
-	if attempts > maxStopSteerAttempts {
+	if !allowed {
 		return fmt.Sprintf("reconc grok steer: %d-attempt budget exhausted; continuation left passive", maxStopSteerAttempts)
 	}
 
-	deadline := time.Now().Add(steerBudget)
+	overallDeadline := time.Now().Add(steerBudget)
 	var lastErr error
-	for _, socketPath := range candidates {
-		if err := interjectViaLeader(socketPath, deadline, payload.SessionID, reason); err != nil {
+	for index, endpoint := range candidates {
+		deadline := fairCandidateDeadline(overallDeadline, len(candidates)-index)
+		if err := interjectViaLeader(endpoint, deadline, payload.SessionID, reason); err != nil {
 			lastErr = err
 			continue
 		}
@@ -83,13 +92,17 @@ func SteerTUIStop(repoRoot string, payloadBytes []byte, stopResult agentsession.
 	return "reconc grok steer failed: " + lastErr.Error()
 }
 
-func interjectViaLeader(socketPath string, deadline time.Time, sessionID, text string) error {
-	conn, err := steerDial(socketPath, deadline)
+func interjectViaLeader(endpoint string, deadline time.Time, sessionID, text string) error {
+	conn, err := steerDial(endpoint, deadline)
 	if err != nil {
 		return err
 	}
 	defer conn.close()
-	if err := conn.register(); err != nil {
+	registration, err := conn.register()
+	if err != nil {
+		return err
+	}
+	if err := validateLeaderProtocol(registration); err != nil {
 		return err
 	}
 	return conn.interject(sessionID, text)
@@ -106,18 +119,88 @@ func SteeringDisabled() bool {
 	}
 }
 
-// incrementSteerAttempts advances the per-session steering counter under the
-// session lock and returns the new value. Counting attempts (not successes)
-// keeps the budget monotonic even when interjections fail mid-flight.
-func incrementSteerAttempts(repoRoot, sessionID string) (uint64, error) {
+func activeSteerTarget(payloadBytes []byte) (*agentsession.HookPayload, []string, error) {
+	payload, err := activeSteerPayload(payloadBytes)
+	if err != nil || payload == nil {
+		return nil, nil, err
+	}
+	candidates := leaderSocketCandidates()
+	if len(candidates) == 0 {
+		return nil, nil, nil
+	}
+	return payload, candidates, nil
+}
+
+func activeSteerPayload(payloadBytes []byte) (*agentsession.HookPayload, error) {
+	if SteeringDisabled() {
+		return nil, nil
+	}
+	payload, err := agentsession.ParsePayload(payloadBytes)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(payload.SessionID) == "" {
+		return nil, nil
+	}
+	if payload.IsInterrupt != nil && *payload.IsInterrupt {
+		return nil, nil
+	}
+	// Grok exports GROK_SESSION_ID into every dispatched hook process. Its
+	// absence means this Stop did not come from a live Grok dispatch, so
+	// there is no session worth steering.
+	if strings.TrimSpace(os.Getenv("GROK_SESSION_ID")) != payload.SessionID {
+		return nil, nil
+	}
+	return payload, nil
+}
+
+// reserveSteerAttempt counts only consecutive no-progress continuations for
+// the same policy block. Material progress or a different continuation resets
+// the series before reserving its next attempt.
+func reserveSteerAttempt(repoRoot, sessionID, reason string) (uint64, bool, error) {
+	key := steerContinuationKey(reason)
+	allowed := false
 	state, err := agentsession.MutateSessionState(repoRoot, sessionID, func(state agentsession.SessionState) agentsession.SessionState {
-		if state.GrokSteerAttempts < ^uint64(0) {
+		if state.GrokSteerContinuationKey != key || state.GrokSteerMaterialEvents != state.MaterialEvents {
+			state.GrokSteerAttempts = 0
+		}
+		state.GrokSteerContinuationKey = key
+		state.GrokSteerMaterialEvents = state.MaterialEvents
+		if state.GrokSteerAttempts < maxStopSteerAttempts {
 			state.GrokSteerAttempts++
+			allowed = true
 		}
 		return state
 	})
 	if err != nil {
-		return 0, fmt.Errorf("record steer attempt: %s", err)
+		return 0, false, fmt.Errorf("record steer attempt: %s", err)
 	}
-	return state.GrokSteerAttempts, nil
+	return state.GrokSteerAttempts, allowed, nil
+}
+
+func resetSteerBudget(repoRoot, sessionID string) error {
+	_, err := agentsession.MutateSessionState(repoRoot, sessionID, func(state agentsession.SessionState) agentsession.SessionState {
+		state.GrokSteerAttempts = 0
+		state.GrokSteerContinuationKey = ""
+		state.GrokSteerMaterialEvents = 0
+		return state
+	})
+	if err != nil {
+		return fmt.Errorf("reset steer budget: %s", err)
+	}
+	return nil
+}
+
+func steerContinuationKey(reason string) string {
+	for _, line := range strings.Split(reason, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Feedback:") {
+			feedback := strings.TrimSpace(strings.TrimPrefix(line, "Feedback:"))
+			if feedback != "" {
+				return "feedback:" + feedback
+			}
+		}
+	}
+	sum := sha256.Sum256([]byte(strings.TrimSpace(reason)))
+	return "reason:" + hex.EncodeToString(sum[:])
 }

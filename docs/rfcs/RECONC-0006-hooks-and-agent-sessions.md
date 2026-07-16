@@ -78,11 +78,17 @@ Stop is passive and cannot force another TUI turn. `reconc grok` provides the
 strict path by driving the unmodified official ACP stdio runtime and
 re-prompting the same session while Reconc returns a continuation reason.
 When Grok runs in leader mode, the `grok-stop` route additionally steers the
-TUI itself: it registers on the leader socket and queues the continuation
-reason via `x.ai/interject`, which Grok turns into an immediate prompt turn on
-an idle session. Steering requires a matching `GROK_SESSION_ID`, skips user
-interrupts, is capped at 32 attempts per session, honours
-`RECONC_GROK_STEER=0`, and fails open to the passive report.
+TUI itself over the Unix leader socket or Windows named pipe. Eligible stops
+enable strict continuation before policy evaluation, then register and queue
+the continuation reason via `_x.ai/interject`, which Grok turns into an
+immediate prompt turn on an idle session. Steering requires a matching
+`GROK_SESSION_ID`, skips user interrupts, and caps only consecutive
+no-progress attempts for the same block at 32; material progress, a new block,
+or a clean Stop resets the series. Multiple endpoints receive fair shares of
+the bounded transport budget. `RECONC_GROK_STEER=0` disables steering, and all
+transport/protocol failures remain fail-open to the passive report. Deep
+doctor requires leader protocol version 1 plus a recognized
+`_x.ai/interject` response.
 
 ## Generic Agents
 
