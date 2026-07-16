@@ -42,6 +42,80 @@ func generateKilo() *Artifact {
 	return generateBunAgentPlugin(KindKilo, KiloPluginPath, "kilo", true)
 }
 
+func generateGrok() *Artifact {
+	command := func(event string, lifecycle Event) map[string]interface{} {
+		commandText := fmt.Sprintf("tools/reconc/bin/hook %s .", event)
+		if lifecycle == EventPreToolUse {
+			commandText += ` || printf '%s\n' '{"decision":"deny","reason":"Reconc could not evaluate this Grok tool call. Reinstall the Grok hook and tools/reconc/bin/hook."}'`
+		}
+		return map[string]interface{}{
+			"type":    "command",
+			"command": commandText,
+			"timeout": mustTimeoutSeconds(KindGrok, lifecycle),
+		}
+	}
+	entry := func(event string, lifecycle Event, matcher string) map[string]interface{} {
+		group := map[string]interface{}{
+			"hooks": []interface{}{command(event, lifecycle)},
+		}
+		if matcher != "" {
+			group["matcher"] = matcher
+		}
+		return group
+	}
+	const evidenceTools = "^(read_file|hashline_read|grep|hashline_grep|list_dir|write|search_replace|hashline_edit|run_terminal_command|run_terminal_cmd)$"
+	const guardedTools = "^(write|search_replace|hashline_edit|run_terminal_command|run_terminal_cmd)$"
+	template := map[string]interface{}{
+		"reconcManaged": true,
+		"hooks": map[string]interface{}{
+			"SessionStart": []interface{}{
+				entry("grok-session-start", EventSessionStart, ""),
+			},
+			"UserPromptSubmit": []interface{}{
+				entry("grok-user-prompt-submit", EventUserPromptSubmit, ""),
+			},
+			"PreToolUse": []interface{}{
+				entry("grok-pre-tool-use", EventPreToolUse, guardedTools),
+			},
+			"PostToolUse": []interface{}{
+				entry("grok-post-tool-use", EventPostToolUse, evidenceTools),
+			},
+			"PostToolUseFailure": []interface{}{
+				entry("grok-post-tool-use-failure", EventPostToolUseFailure, evidenceTools),
+			},
+			"PermissionDenied": []interface{}{
+				entry("grok-permission-denied", EventPermissionDenied, guardedTools),
+			},
+			"Stop": []interface{}{
+				entry("grok-stop", EventStop, ""),
+			},
+			"StopFailure": []interface{}{
+				entry("grok-stop-failure", EventStopFailure, ""),
+			},
+			"Notification": []interface{}{
+				entry("grok-notification", EventNotification, ""),
+			},
+			"SubagentStart": []interface{}{
+				entry("grok-subagent-start", EventSubagentStart, ""),
+			},
+			"SubagentStop": []interface{}{
+				entry("grok-subagent-stop", EventSubagentStop, ""),
+			},
+			"PreCompact": []interface{}{
+				entry("grok-pre-compaction", EventPreCompaction, ""),
+			},
+			"PostCompact": []interface{}{
+				entry("grok-post-compaction", EventPostCompaction, ""),
+			},
+			"SessionEnd": []interface{}{
+				entry("grok-session-end", EventSessionEnd, ""),
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(template, "", "  ")
+	return &Artifact{Kind: KindGrok, TargetPath: GrokHooksPath, Content: string(data) + "\n"}
+}
+
 func generateBunAgentPlugin(kind, targetPath, prefix string, descriptorExport bool) *Artifact {
 	exportHead := "export const ReconcOpenCodePlugin ="
 	exportTail := ""

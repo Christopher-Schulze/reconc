@@ -64,6 +64,7 @@ type agentHooksConfig struct {
 	RequireDevinHooks       bool `yaml:"require_devin_hooks"`
 	RequireAntigravityHooks bool `yaml:"require_antigravity_hooks"`
 	RequireKiloPlugin       bool `yaml:"require_kilo_plugin"`
+	RequireGrokHooks        bool `yaml:"require_grok_hooks"`
 }
 
 func stackConfigPath(root string) string {
@@ -117,6 +118,7 @@ func defaultStackConfig() stackConfig {
 			RequireDevinHooks:       true,
 			RequireAntigravityHooks: true,
 			RequireKiloPlugin:       true,
+			RequireGrokHooks:        true,
 		},
 	}
 	return cfg

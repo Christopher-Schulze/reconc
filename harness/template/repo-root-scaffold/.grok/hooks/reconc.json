@@ -1,0 +1,163 @@
+{
+  "hooks": {
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "command": "tools/reconc/bin/hook grok-notification .",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PermissionDenied": [
+      {
+        "hooks": [
+          {
+            "command": "tools/reconc/bin/hook grok-permission-denied .",
+            "timeout": 5,
+            "type": "command"
+          }
+        ],
+        "matcher": "^(write|search_replace|hashline_edit|run_terminal_command|run_terminal_cmd)$"
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "command": "tools/reconc/bin/hook grok-post-compaction .",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "tools/reconc/bin/hook grok-post-tool-use .",
+            "timeout": 5,
+            "type": "command"
+          }
+        ],
+        "matcher": "^(read_file|hashline_read|grep|hashline_grep|list_dir|write|search_replace|hashline_edit|run_terminal_command|run_terminal_cmd)$"
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "command": "tools/reconc/bin/hook grok-post-tool-use-failure .",
+            "timeout": 5,
+            "type": "command"
+          }
+        ],
+        "matcher": "^(read_file|hashline_read|grep|hashline_grep|list_dir|write|search_replace|hashline_edit|run_terminal_command|run_terminal_cmd)$"
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "command": "tools/reconc/bin/hook grok-pre-compaction .",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "tools/reconc/bin/hook grok-pre-tool-use . || printf '%s\\n' '{\"decision\":\"deny\",\"reason\":\"Reconc could not evaluate this Grok tool call. Reinstall the Grok hook and tools/reconc/bin/hook.\"}'",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "^(write|search_replace|hashline_edit|run_terminal_command|run_terminal_cmd)$"
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "command": "tools/reconc/bin/hook grok-session-end .",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "tools/reconc/bin/hook grok-session-start .",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "tools/reconc/bin/hook grok-stop .",
+            "timeout": 30,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "command": "tools/reconc/bin/hook grok-stop-failure .",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "command": "tools/reconc/bin/hook grok-subagent-start .",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "command": "tools/reconc/bin/hook grok-subagent-stop .",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "command": "tools/reconc/bin/hook grok-user-prompt-submit .",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  },
+  "reconcManaged": true
+}

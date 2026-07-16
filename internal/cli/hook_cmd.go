@@ -351,6 +351,10 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 
 	payload, err := agentsession.ReadPayload(os.Stdin)
 	if err != nil {
+		if route.PlatformKind == hooks.KindGrok && route.Event == hooks.EventPreToolUse {
+			writeGrokRuntimeDeny(stdout, "Reconc could not read the Grok hook payload: "+err.Error())
+			return nil
+		}
 		if route.ErrorPolicy == hooks.FailureBlock {
 			exitCode = 2
 			return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + err.Error()}
@@ -369,6 +373,11 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 			return nil
 		}
 	}
+	if route.PlatformKind != hooks.KindGrok && agentsession.PayloadLooksLikeGrok(payload) {
+		if dedupToFirstClassRoute(repo, hooks.GrokHooksPath, event, stderr) {
+			return nil
+		}
+	}
 	switch route.PlatformKind {
 	case hooks.KindCursor:
 		payload, err = agentsession.NormalizeCursorPayload(event, payload)
@@ -376,8 +385,15 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 	case hooks.KindDevinCLI:
 		payload, err = agentsession.NormalizeDevinPayload(event, payload, repo)
 		timing.mark("devin_normalize")
+	case hooks.KindGrok:
+		payload, err = agentsession.NormalizeGrokPayload(event, payload, repo)
+		timing.mark("grok_normalize")
 	}
 	if err != nil {
+		if route.PlatformKind == hooks.KindGrok && route.Event == hooks.EventPreToolUse {
+			writeGrokRuntimeDeny(stdout, "Reconc rejected the Grok hook payload: "+err.Error())
+			return nil
+		}
 		if route.ErrorPolicy == hooks.FailureBlock {
 			exitCode = 2
 			return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + err.Error()}
@@ -403,6 +419,14 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 		switch route.Event {
 		case hooks.EventSessionStart:
 			result = agentsession.RunSessionStart(repo, payload)
+		case hooks.EventUserPromptSubmit,
+			hooks.EventPermissionDenied,
+			hooks.EventStopFailure,
+			hooks.EventNotification,
+			hooks.EventSubagentStart,
+			hooks.EventSubagentStop,
+			hooks.EventPreCompaction:
+			result = agentsession.RunPassiveEvent(repo, payload)
 		case hooks.EventPreToolUse:
 			result = agentsession.RunPreToolUse(repo, payload)
 		case hooks.EventPermissionRequest:
@@ -445,6 +469,9 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 	case hooks.KindCursor:
 		result = agentsession.AdaptCursorResult(event, result)
 		timing.mark("cursor_adapt")
+	case hooks.KindGrok:
+		result = agentsession.AdaptGrokResult(event, result)
+		timing.mark("grok_adapt")
 	}
 	result = boundHookResult(result, route)
 
@@ -459,6 +486,14 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 		return &CLIError{ExitCode: result.ExitCode, Message: ""}
 	}
 	return nil
+}
+
+func writeGrokRuntimeDeny(stdout io.Writer, reason string) {
+	body, _ := json.Marshal(map[string]string{
+		"decision": "deny",
+		"reason":   strings.TrimSpace(reason),
+	})
+	fmt.Fprintln(stdout, string(body))
 }
 
 func runAntigravityHookRuntime(event, repo string, payload []byte) agentsession.Result {
@@ -591,7 +626,17 @@ func isObservationOnlyHookEvent(event string) bool {
 		return false
 	}
 	switch route.Event {
-	case hooks.EventPostToolUse, hooks.EventPostToolUseFailure, hooks.EventSessionEnd, hooks.EventPostCompaction:
+	case hooks.EventUserPromptSubmit,
+		hooks.EventPermissionDenied,
+		hooks.EventPostToolUse,
+		hooks.EventPostToolUseFailure,
+		hooks.EventStopFailure,
+		hooks.EventSessionEnd,
+		hooks.EventNotification,
+		hooks.EventSubagentStart,
+		hooks.EventSubagentStop,
+		hooks.EventPreCompaction,
+		hooks.EventPostCompaction:
 		return true
 	default:
 		return false

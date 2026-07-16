@@ -135,7 +135,7 @@ Claims can also be supplied via an events file, stdin JSON, or by a registered h
 ## Platform Integration
 
 The typed registry supports Claude Code, Codex, Cursor, OpenCode, Devin CLI,
-Antigravity CLI and Kilo Code. Run `reconc hook status . --json`
+Antigravity CLI, Kilo Code, and Grok Build. Run `reconc hook status . --json`
 instead of guessing whether an artifact is installed, configured, degraded,
 shadowed, or unsupported. `configured` is static discovery truth, not live
 execution proof. Static activation and rate-limited per-route
@@ -160,6 +160,11 @@ execution proof. Static activation and rate-limited per-route
 - **Kilo Code**: `.kilo/plugin/reconc.js` is a thin adapter; `KILO_PURE` must
   be unset for project plugins to load. Like OpenCode, continuation is inferred
   from `session.idle`.
+- **Grok Build**: `reconc hook install grok .` owns
+  `.grok/hooks/reconc.json`. Run `/hooks-trust` once. Native PreToolUse is a
+  hard policy gate, while native Stop is passive. Use `reconc grok . --prompt
+  "..."` for strict same-session continuation through Grok's official ACP
+  runtime.
 - **Generic / other agents (Aider, ...)**: invoke the CLI
   directly. `reconc can`, `reconc check --terse`, `reconc next`, and
   `reconc done` are token-optimised for this path.
@@ -182,10 +187,12 @@ reconc run off .
 ```
 
 Repository mode applies to Claude Code, Codex, Cursor, OpenCode, Devin CLI,
-Antigravity CLI and Kilo Code, scoped to this repository rather
+Antigravity CLI, Kilo Code, and Grok Build, scoped to this repository rather
 than the whole machine. Claude Code, Codex, Cursor, Devin CLI, and Antigravity
 CLI expose synchronous Stop gates. OpenCode and Kilo Code use
 inferred `session.idle`, so their host continuation is best-effort and fail-open.
+Grok's TUI Stop event is passive; `reconc grok` is the strict ACP continuation
+path.
 While typed TASK state is `continue` or `claim`, Reconc returns the host-specific
 continuation response without a full terminal policy or Git scan. An empty
 active slot with queued executable work yields `claim`; complete or absent

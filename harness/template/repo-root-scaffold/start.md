@@ -61,3 +61,8 @@ TASK, promote or claim the next executable TASK, never auto-push, and on
 context limits persist exact progress in the TASK control plane. Explicit user
 interrupt always stops the current invocation without changing durable run
 state.
+
+Grok Build has a native hard PreToolUse boundary but only a passive native Stop
+event. Use `reconc grok . --prompt "..."` for strict same-session continuation;
+the generated `.grok/hooks/reconc.json` still supplies native lifecycle,
+evidence, compaction, permission, subagent, and fail-closed tool policy routes.

@@ -33,6 +33,7 @@ const (
 	DevinHooksPath           = ".devin/hooks.v1.json"
 	AntigravityHooksPath     = ".agents/hooks.json"
 	KiloPluginPath           = ".kilo/plugin/reconc.js"
+	GrokHooksPath            = ".grok/hooks/reconc.json"
 )
 
 // Supported hook kinds.
@@ -45,6 +46,7 @@ const (
 	KindDevinCLI     = "devin-cli"
 	KindAntigravity  = "antigravity"
 	KindKilo         = "kilo"
+	KindGrok         = "grok"
 )
 
 // SupportedKinds returns every kind reconc hook generate can produce.
@@ -128,6 +130,8 @@ func Generate(kind string) (*Artifact, error) {
 		return generateAntigravity(), nil
 	case generatorKilo:
 		return generateKilo(), nil
+	case generatorGrok:
+		return generateGrok(), nil
 	}
 	return nil, &rerrors.PolicySourceError{Message: fmt.Sprintf("hook kind %q has no generator", kind)}
 }
@@ -170,6 +174,8 @@ func Install(kind, repoRoot string, force bool) (*InstallReport, error) {
 			return installOpenCode(repoRoot, force)
 		}
 		return installKilo(repoRoot, force)
+	case InstallManagedJSON:
+		return installGrok(repoRoot, force)
 	}
 	return nil, &rerrors.PolicySourceError{Message: fmt.Sprintf("hook kind %q has no installer", kind)}
 }

@@ -37,6 +37,72 @@ func TestHookRuntimeKiloAdapterShapeBlocksDeniedWrite(t *testing.T) {
 	}
 }
 
+func TestHookRuntimeGrokNativeShapeBlocksDeniedWrite(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	payload := fmt.Sprintf(`{
+		"hookEventName":"pre_tool_use",
+		"sessionId":"grok-1",
+		"workspaceRoot":%q,
+		"toolName":"search_replace",
+		"toolUseId":"call-1",
+		"toolInput":{"path":"generated/blocked.go","old_string":"a","new_string":"b"},
+		"toolInputTruncated":false
+	}`, repo)
+	stdout, stderr, code := runWithStdin(t, payload,
+		"hook", "runtime", "grok-pre-tool-use", repo)
+	if code != 0 || stderr != "" {
+		t.Fatalf("Grok explicit deny transport failed, code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	var decision map[string]string
+	if err := json.Unmarshal([]byte(stdout), &decision); err != nil {
+		t.Fatalf("decode Grok decision: %v\n%s", err, stdout)
+	}
+	if decision["decision"] != "deny" || !strings.Contains(decision["reason"], "deny-gen") {
+		t.Fatalf("Grok denied write payload = %#v", decision)
+	}
+}
+
+func TestHookRuntimeGrokMalformedPreToolFailsClosedExplicitly(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	stdout, stderr, code := runWithStdin(t,
+		`{"hookEventName":"pre_tool_use","sessionId":"grok-1","toolInputTruncated":true}`,
+		"hook", "runtime", "grok-pre-tool-use", repo)
+	if code != 0 || stderr != "" {
+		t.Fatalf("Grok malformed payload transport failed, code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	var decision map[string]string
+	if err := json.Unmarshal([]byte(stdout), &decision); err != nil {
+		t.Fatalf("decode Grok decision: %v\n%s", err, stdout)
+	}
+	if decision["decision"] != "deny" || !strings.Contains(decision["reason"], "truncated") {
+		t.Fatalf("Grok malformed payload did not fail closed: %#v", decision)
+	}
+}
+
+func TestHookRuntimeGrokCompatibilityRouteDeduplicatesOnlyWhenNativeInstalled(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	payload := fmt.Sprintf(`{
+		"hookEventName":"pre_tool_use",
+		"sessionId":"grok-dedup",
+		"workspaceRoot":%q,
+		"toolName":"search_replace",
+		"toolInput":{"path":"generated/blocked.go"}
+	}`, repo)
+	_, stderr, code := runWithStdin(t, payload,
+		"hook", "runtime", "claude-pre-tool-use", repo)
+	if code != 2 || !strings.Contains(stderr, "session_id") {
+		t.Fatalf("without native Grok hook, the incompatible Claude route must fail visibly: code=%d stderr=%q", code, stderr)
+	}
+	if _, err := hooks.Install(hooks.KindGrok, repo, false); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, code := runWithStdin(t, payload,
+		"hook", "runtime", "claude-pre-tool-use", repo)
+	if code != 0 || stdout != "" || !strings.Contains(stderr, "deduplicated") {
+		t.Fatalf("native Grok hook must own duplicate route: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}
+
 func TestRepositoryRunControlReturnsContinuationForEveryAgentAdapter(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
 	writeHookRuntimeTaskFixture(t, repo)

@@ -1,7 +1,7 @@
 # RECONC-0006: Hooks And Agent Sessions
 
 - Status: Frozen
-- Contract: git, Claude Code, Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, and generic-agent integration
+- Contract: git, Claude Code, Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Grok Build, and generic-agent integration
 
 ## Hook Kinds
 
@@ -17,13 +17,15 @@
 | `devin-cli` | `.devin/hooks.v1.json` | Session, tool, permission, stop, cleanup, and post-compaction hooks. |
 | `antigravity` | `.agents/hooks.json` | Invocation, tool, and stop hook group under the top-level `reconc` key. |
 | `kilo` | `.kilo/plugin/reconc.js` | Thin project plugin for session, tool, permission, compaction, and idle handling. |
+| `grok` | `.grok/hooks/reconc.json` | Native lifecycle, strict PreToolUse decisions, passive Stop reporting, compaction, permission-denial, and subagent events. |
 
 Installers are idempotent. Reconc-owned JSON hook entries are
 identified by `reconc hook runtime` command tokens and replaced on
 reinstall; unrelated user config is preserved. The OpenCode installer
 updates only the reconc-managed project plugin and refuses to overwrite
-non-reconc plugin content without `--force`. Kilo Code managed files use
-the same refusal rule.
+non-reconc plugin content without `--force`. Kilo Code and Grok managed files
+use the same refusal rule; Grok owns only `reconc.json` and preserves every
+other file under `.grok/hooks/`.
 
 The typed registry owns event coverage, native names, fallbacks, failure and
 timeout policy, timeout/output budgets, paths, install strategies, and
@@ -35,7 +37,7 @@ source-controlled scaffold twins from the same generator:
 `.githooks/pre-commit`, `.codex/hooks.json`, `.cursor/hooks.json`,
 `.agents/hooks.json`, `.claude/settings.json`, and
 `.opencode/plugins/reconc.js`, `.devin/hooks.v1.json`,
-and `.kilo/plugin/reconc.js`. Template scaffolds are never synced from
+`.kilo/plugin/reconc.js`, and `.grok/hooks/reconc.json`. Template scaffolds are never synced from
 a source-specific harness.
 
 ## Claude Code Guarantee
@@ -58,6 +60,23 @@ intercepts shell commands, records successful and failed evidence, and blocks
 Stop on unmet invariants. Codex has no `SessionEnd` route. Bootstrap writes
 `hooks = true` under `[features]`; a root-level lookalike does not activate the
 host. Git pre-commit remains the hard repository backstop.
+
+## Grok Build Guarantee
+
+Grok's native hook envelope is camelCase and uses Grok tool names. Reconc
+normalizes those fields and maps `run_terminal_command`, `run_terminal_cmd`, `write`,
+`search_replace`, `hashline_edit`, `read_file`, `hashline_read`, `grep`,
+`hashline_grep`, and `list_dir` into the canonical policy/evidence contract.
+PreToolUse emits Grok's exact allow/deny JSON. The Grok host is fail-open on
+hook errors and timeouts, so the generated route plus wrapper convert ordinary
+Reconc execution failures into an explicit deny. Grok's own hard process
+timeout remains fail-open.
+
+Project hooks require Grok folder trust. `reconc doctor --deep` uses
+`grok inspect --json` to verify trust and all generated native routes. Native
+Stop is passive and cannot force another TUI turn. `reconc grok` provides the
+strict path by driving the unmodified official ACP stdio runtime and
+re-prompting the same session while Reconc returns a continuation reason.
 
 ## Generic Agents
 

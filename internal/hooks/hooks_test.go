@@ -126,6 +126,65 @@ func TestHookWrapperResolvesStableAndUnambiguousArtifacts(t *testing.T) {
 	}
 }
 
+func TestHookWrapperGrokPreToolFailsClosedWhenRuntimeIsUnavailable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX wrapper execution is covered on POSIX hosts")
+	}
+	repo := t.TempDir()
+	wrapper := filepath.Join(repo, filepath.FromSlash(WrapperPath))
+	if err := os.MkdirAll(filepath.Dir(wrapper), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(wrapper, []byte(GenerateWrapper().Content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(wrapper, "grok-pre-tool-use", repo)
+	cmd.Env = []string{"PATH=/usr/bin:/bin"}
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("Grok fail-closed wrapper returned an error: %v\n%s", err, output)
+	}
+	var decision map[string]string
+	if err := json.Unmarshal(output, &decision); err != nil {
+		t.Fatalf("Grok wrapper output is not decision JSON: %v\n%s", err, output)
+	}
+	if decision["decision"] != "deny" || decision["reason"] == "" {
+		t.Fatalf("Grok wrapper did not deny: %#v", decision)
+	}
+}
+
+func TestHookWrapperGrokPreToolFailsClosedOnMalformedRuntimeOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX wrapper execution is covered on POSIX hosts")
+	}
+	repo := t.TempDir()
+	wrapper := filepath.Join(repo, filepath.FromSlash(WrapperPath))
+	if err := os.MkdirAll(filepath.Dir(wrapper), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(wrapper, []byte(GenerateWrapper().Content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	binary := filepath.Join(repo, ".build", "bin", "reconc")
+	if err := os.MkdirAll(filepath.Dir(binary), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf 'not-json\\n'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	output, err := exec.Command(wrapper, "grok-pre-tool-use", repo).CombinedOutput()
+	if err != nil {
+		t.Fatalf("Grok fail-closed wrapper returned an error: %v\n%s", err, output)
+	}
+	var decision map[string]string
+	if err := json.Unmarshal(output, &decision); err != nil {
+		t.Fatalf("Grok wrapper output is not decision JSON: %v\n%s", err, output)
+	}
+	if decision["decision"] != "deny" || decision["reason"] == "" {
+		t.Fatalf("malformed runtime output did not fail closed: %#v", decision)
+	}
+}
+
 func TestGenerateClaudeCodeIsValidJSON(t *testing.T) {
 	a, err := Generate(KindClaudeCode)
 	if err != nil {

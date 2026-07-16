@@ -216,7 +216,7 @@ func codexRouteBudgetIssues(data []byte, platform Platform) []string {
 
 func managedArtifactRequiresExactMatch(mode InstallMode) bool {
 	switch mode {
-	case InstallExecutable, InstallPlugin:
+	case InstallExecutable, InstallPlugin, InstallManagedJSON:
 		return true
 	default:
 		return false
@@ -225,7 +225,7 @@ func managedArtifactRequiresExactMatch(mode InstallMode) bool {
 
 func requiresJSON(mode InstallMode) bool {
 	switch mode {
-	case InstallNestedJSON, InstallFlatJSON, InstallOwnedJSON:
+	case InstallNestedJSON, InstallFlatJSON, InstallOwnedJSON, InstallManagedJSON:
 		return true
 	default:
 		return false

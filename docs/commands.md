@@ -1,6 +1,6 @@
 # reconc -- Command Reference
 
-Full reference for all 40 subcommands. See `reconc <subcommand> --help` for
+Full reference for all 41 subcommands. See `reconc <subcommand> --help` for
 the exact flag details emitted by the installed binary.
 
 ## Daily path
@@ -115,9 +115,9 @@ hints (don't-edit / generated / run-before-commit / secrets / ci-green
 patterns). Emits suggestions in the same format as `adopt`.
 
 ### `reconc doctor [repo] [--deep] [--json] [--output PATH]`
-Default mode inspects discovery state only. `--deep` adds six
-diagnostic checks: hook-runtime compatibility, lockfile freshness,
-audit-log size, preset/template reference resolution, session-claim
+Default mode inspects discovery state only. `--deep` adds seven
+diagnostic checks: hook-runtime compatibility, native Grok hook trust/loading,
+lockfile freshness, audit-log size, preset/template reference resolution, session-claim
 age, and static rule conflicts. Deep mode exits 1 when any check is
 `FAIL`, 0 when all rows are `OK` or `WARN`.
 
@@ -225,10 +225,10 @@ Rule shape templates (`tests-follow-source`, `docs-follow-code`,
 `no-generated-writes`, `ci-green-before-merge`). User overrides in
 `$RECONC_HOME/templates/*.yml`.
 
-### `reconc hook generate <git-pre-commit|claude-code|codex|cursor|opencode|devin-cli|antigravity|kilo> [--json] [--output PATH]`
+### `reconc hook generate <git-pre-commit|claude-code|codex|cursor|opencode|devin-cli|antigravity|kilo|grok> [--json] [--output PATH]`
 Emit the hook artefact content without writing to disk.
 
-### `reconc hook install <git-pre-commit|claude-code|codex|cursor|opencode|devin-cli|antigravity|kilo> [repo] [--force] [--json] [--output PATH]`
+### `reconc hook install <git-pre-commit|claude-code|codex|cursor|opencode|devin-cli|antigravity|kilo|grok> [repo] [--force] [--json] [--output PATH]`
 Write the hook into the repo. Git pre-commit reuses an identical managed
 `.git/hooks` file and refuses different content without `--force`; Claude Code
 and Codex JSON configs are merged non-destructively;
@@ -237,7 +237,9 @@ Cursor writes `.cursor/hooks.json`; OpenCode writes
 Antigravity merges the top-level
 `reconc` hook definition into `.agents/hooks.json`, preserving
 non-reconc hook groups; and Kilo Code owns
-`.kilo/plugin/reconc.js`. Managed plugin/files refuse unrelated existing
+`.kilo/plugin/reconc.js`. Grok Build owns the dedicated
+`.grok/hooks/reconc.json` file and preserves every other project hook file.
+Managed plugin/files refuse unrelated existing
 content unless `--force` is passed.
 
 ### `reconc hook status [repo] [--json]`
@@ -245,20 +247,23 @@ Validate registered artifacts and activation requirements. States are
 `absent`, `installed`, `configured`, `degraded`, `shadowed`, and `unsupported`.
 The command checks malformed, incomplete, non-executable, or drifted managed
 artifacts, the repo-local wrapper, Codex's enable flag, Git `core.hooksPath`,
-Kilo Code pure mode and legacy Kilo Code plugin placement.
+Kilo Code pure mode, legacy Kilo Code plugin placement, and Grok's native
+project-hook artifact. Static Grok status cannot prove folder trust; `doctor
+--deep` additionally runs `grok inspect --json` when the artifact exists.
 Each platform also reports rate-limited `last_seen`/`last_event` live-runtime
 evidence separately from static activation state. `configured` proves only
 that the host can discover a complete static artifact. Codex accepts
 `hooks = true` under `[features]`, rejects root-level `hooks=true`, and has no
 `SessionEnd` route. OpenCode and Kilo Code continuation is inferred from
-`session.idle`, not a synchronous native Stop gate.
+`session.idle`, not a synchronous native Stop gate. Grok's native `Stop` event
+is passive; use `reconc grok` when hard automatic continuation is required.
 
 ### `reconc hook sync-scaffold <repo-root-scaffold> [--json]`
 Regenerate source-controlled hook artifacts inside a template
 `repo-root-scaffold`: `.githooks/pre-commit`, `.codex/hooks.json`,
 `.cursor/hooks.json`, `.agents/hooks.json`, `.claude/settings.json`,
 `.opencode/plugins/reconc.js`, `.devin/hooks.v1.json`,
-and `.kilo/plugin/reconc.js`. This keeps scaffolded repos on the
+`.kilo/plugin/reconc.js`, and `.grok/hooks/reconc.json`. This keeps scaffolded repos on the
 same generator truth as `reconc hook install`; do not copy these files
 from a source-specific harness.
 
@@ -268,8 +273,18 @@ state consulted by later hook-runtime checks and `ci` calls.
 
 ### `reconc hook runtime <event> <repo>`
 Registry-owned agent-platform event dispatcher. Called from Claude Code,
-Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, and Kilo Code
+Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, and Grok Build
 hook configs, not by users directly.
+
+### `reconc grok [repo] [--model ID] [--grok-binary PATH] [--max-continuations N] --prompt TEXT`
+Starts the unmodified official `grok agent stdio` ACP runtime in the target
+repository. Preflight requires the generated `.grok/hooks/reconc.json`, the
+repo-local wrapper, project trust, and a live `grok inspect --json` report that
+contains every native route. The driver streams Grok's answer and re-prompts
+the same ACP session while Reconc's strict Stop evaluation returns a
+continuation reason. Ctrl-C terminates immediately. The default continuation
+limit is 32. ACP uses Grok's `--always-approve` transport because it has no TUI
+permission modal; Reconc PreToolUse and Grok's explicit deny rules still run.
 
 ---
 
@@ -299,10 +314,12 @@ read the two bounded archives plus the live file in chronological order.
 
 ### `reconc run on [repo] [--json]` / `reconc run off [repo] [--json]`
 AI-operated switch scoped to one repository, not the whole machine. It routes
-continuation through all seven registered agent runtimes. Claude Code, Codex,
+continuation through all eight registered agent runtimes. Claude Code, Codex,
 Cursor, Devin CLI, and Antigravity CLI expose synchronous Stop
 gates; OpenCode and Kilo Code use inferred `session.idle` adapters whose host
-boundary is best-effort and fail-open. Typed `continue` and `claim` states
+boundary is best-effort and fail-open. Grok's stock TUI exposes only a passive
+Stop notification; `reconc grok` supplies strict same-session continuation
+through the official ACP runtime. Typed `continue` and `claim` states
 continue: `Current: none` or an empty Active section still claims queued
 executable work. Complete or absent state disables the switch after terminal
 gates; blocked state reaches terminal Stop without silently disabling it, and

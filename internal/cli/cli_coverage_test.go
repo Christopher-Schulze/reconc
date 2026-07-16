@@ -990,6 +990,14 @@ func TestObservationOnlyHookEventClassification(t *testing.T) {
 		"cursor-after-file-edit",
 		"opencode-post-tool-use",
 		"antigravity-post-invocation",
+		"grok-user-prompt-submit",
+		"grok-permission-denied",
+		"grok-stop-failure",
+		"grok-notification",
+		"grok-subagent-start",
+		"grok-subagent-stop",
+		"grok-pre-compaction",
+		"grok-post-compaction",
 	} {
 		if !isObservationOnlyHookEvent(event) {
 			t.Fatalf("%s should be observation-only", event)

@@ -82,6 +82,20 @@ func installKilo(repoRoot string, force bool) (*InstallReport, error) {
 	)
 }
 
+func installGrok(repoRoot string, force bool) (*InstallReport, error) {
+	return installManagedPlatformFile(
+		KindGrok,
+		repoRoot,
+		force,
+		func(data []byte) bool {
+			text := string(data)
+			return strings.Contains(text, `"reconcManaged": true`) &&
+				strings.Contains(text, "grok-pre-tool-use")
+		},
+		"Restart Grok Build or reload /hooks, then run /hooks-trust once for this project so .grok/hooks/reconc.json can execute.",
+	)
+}
+
 func installManagedPlatformFile(kind, repoRoot string, force bool, managed func([]byte) bool, nextAction string) (*InstallReport, error) {
 	root, err := existingRepoRoot(repoRoot)
 	if err != nil {

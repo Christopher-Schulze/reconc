@@ -73,6 +73,8 @@ func Run(argv []string, version string, stdout, stderr io.Writer) error {
 		return runCI(argv[1:], stdout, stderr)
 	case "hook":
 		return runHook(argv[1:], stdout, stderr)
+	case "grok":
+		return runGrok(argv[1:], stdout, stderr)
 	case "preset":
 		return runPreset(argv[1:], stdout, stderr)
 	case "bootstrap":
@@ -182,6 +184,7 @@ Packs & wiring:
   preset           list / show bundled and user presets
   template         list / show bundled and user rule templates (W18)
   hook             generate / install / status / sync-scaffold / claim registered platform hooks
+  grok             strict Grok ACP runner with Reconc continuation enforcement
 
 Workflow maintenance:
   changelog        rotate docs/changelog.md / list-archives

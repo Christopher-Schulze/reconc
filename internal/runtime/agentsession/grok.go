@@ -1,0 +1,226 @@
+package agentsession
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// NormalizeGrokPayload converts Grok Build's camelCase hook envelope into the
+// internal session payload contract. The runner-provided identity variables
+// are cross-checked when present so a hand-crafted envelope cannot silently
+// claim another Grok session or workspace.
+func NormalizeGrokPayload(event string, payloadBytes []byte, repoRoot string) ([]byte, error) {
+	if len(bytes.TrimSpace(payloadBytes)) == 0 {
+		return nil, fmt.Errorf("grok payload is empty")
+	}
+	if err := checkJSONDepth(payloadBytes, MaxJSONDepth); err != nil {
+		return nil, err
+	}
+	var raw map[string]interface{}
+	if err := json.Unmarshal(payloadBytes, &raw); err != nil {
+		return nil, fmt.Errorf("grok payload is not valid JSON: %w", err)
+	}
+	if raw == nil {
+		return nil, fmt.Errorf("grok payload must be a JSON object")
+	}
+	if err := validateGrokEvent(event, raw); err != nil {
+		return nil, err
+	}
+
+	sessionID := cursorFirstString(raw, "sessionId", "session_id")
+	envSessionID := strings.TrimSpace(os.Getenv("GROK_SESSION_ID"))
+	if sessionID == "" {
+		sessionID = envSessionID
+	}
+	if sessionID == "" {
+		return nil, fmt.Errorf("grok payload must include a non-empty sessionId")
+	}
+	if envSessionID != "" && sessionID != envSessionID {
+		return nil, fmt.Errorf("grok payload sessionId %q does not match GROK_SESSION_ID %q", sessionID, envSessionID)
+	}
+	if err := validateGrokWorkspace(raw, repoRoot); err != nil {
+		return nil, err
+	}
+	if event == "grok-pre-tool-use" {
+		if truncated, _ := raw["toolInputTruncated"].(bool); truncated {
+			return nil, fmt.Errorf("grok PreToolUse toolInput is truncated; refusing to evaluate incomplete policy input")
+		}
+	}
+
+	out := cloneCursorObject(raw)
+	out["session_id"] = sessionID
+	out["reconc_runtime"] = "grok"
+	out["grok_event"] = event
+	if prompt := cursorFirstString(raw, "prompt"); prompt != "" {
+		out["prompt"] = prompt
+	}
+	if toolUseID := cursorFirstString(raw, "toolUseId", "tool_use_id"); toolUseID != "" {
+		out["tool_use_id"] = toolUseID
+	}
+	if toolName := normalizeGrokToolName(cursorFirstString(raw, "toolName", "tool_name")); toolName != "" {
+		out["tool_name"] = toolName
+	}
+	if input, ok := raw["toolInput"]; ok {
+		out["tool_input"] = grokObject(input)
+	} else if input, ok := raw["tool_input"]; ok {
+		out["tool_input"] = grokObject(input)
+	}
+	if result, ok := raw["toolResult"]; ok {
+		out["tool_response"] = grokObject(result)
+	} else if result, ok := raw["tool_result"]; ok {
+		out["tool_response"] = grokObject(result)
+	}
+	if errText := cursorFirstString(raw, "error"); errText != "" {
+		out["error"] = errText
+	}
+	if event == "grok-stop" && grokStopIsInterrupt(cursorFirstString(raw, "reason")) {
+		out["is_interrupt"] = true
+	}
+
+	body, err := json.Marshal(out)
+	if err != nil {
+		return nil, fmt.Errorf("grok payload normalize: %w", err)
+	}
+	return body, nil
+}
+
+// PayloadLooksLikeGrok identifies Grok's native camelCase envelope. Grok also
+// reads compatible Claude/Cursor hook files; this signal lets the CLI suppress
+// those duplicate routes only when the first-class .grok hook is installed.
+func PayloadLooksLikeGrok(payloadBytes []byte) bool {
+	if len(bytes.TrimSpace(payloadBytes)) == 0 ||
+		!bytes.Contains(payloadBytes, []byte(`"hookEventName"`)) ||
+		!bytes.Contains(payloadBytes, []byte(`"workspaceRoot"`)) {
+		return false
+	}
+	var raw map[string]interface{}
+	if json.Unmarshal(payloadBytes, &raw) != nil {
+		return false
+	}
+	return cursorFirstString(raw, "sessionId") != ""
+}
+
+// AdaptGrokResult emits Grok's exact blocking wire contract. Denials use exit
+// zero deliberately: the repo-local wrapper reserves non-zero for a broken or
+// obsolete Reconc binary and can therefore translate every infrastructure
+// failure into its own explicit deny instead of falling into Grok's fail-open
+// error path.
+func AdaptGrokResult(event string, result Result) Result {
+	if event == "grok-pre-tool-use" {
+		if result.ExitCode != 0 {
+			reason := cursorResultReason(result)
+			body, _ := json.Marshal(map[string]string{"decision": "deny", "reason": reason})
+			return Result{ExitCode: 0, Stdout: string(body)}
+		}
+		body, _ := json.Marshal(map[string]string{"decision": "allow"})
+		return Result{ExitCode: 0, Stdout: string(body), Stderr: result.Stderr}
+	}
+
+	if event == "grok-stop" && strings.TrimSpace(result.Stdout) != "" {
+		if reason := cursorStopReason(result.Stdout); reason != "" {
+			result.Stderr = joinStderr(result.Stderr, "reconc stop report: "+reason)
+		}
+	}
+	result.ExitCode = 0
+	result.Stdout = ""
+	return result
+}
+
+func validateGrokEvent(event string, raw map[string]interface{}) error {
+	native := cursorFirstString(raw, "hookEventName", "hook_event_name")
+	if native == "" {
+		return nil
+	}
+	expected := map[string]string{
+		"grok-session-start":         "session_start",
+		"grok-user-prompt-submit":    "user_prompt_submit",
+		"grok-pre-tool-use":          "pre_tool_use",
+		"grok-post-tool-use":         "post_tool_use",
+		"grok-post-tool-use-failure": "post_tool_use_failure",
+		"grok-permission-denied":     "permission_denied",
+		"grok-stop":                  "stop",
+		"grok-stop-failure":          "stop_failure",
+		"grok-notification":          "notification",
+		"grok-subagent-start":        "subagent_start",
+		"grok-subagent-stop":         "subagent_stop",
+		"grok-pre-compaction":        "pre_compact",
+		"grok-post-compaction":       "post_compact",
+		"grok-session-end":           "session_end",
+	}[event]
+	if expected == "" || native == expected {
+		return nil
+	}
+	return fmt.Errorf("grok payload hookEventName %q does not match route %q", native, event)
+}
+
+func validateGrokWorkspace(raw map[string]interface{}, repoRoot string) error {
+	root, err := canonicalGrokPath(repoRoot)
+	if err != nil {
+		return fmt.Errorf("resolve Grok repository root: %w", err)
+	}
+	envelopeRoot := cursorFirstString(raw, "workspaceRoot", "cwd")
+	envRoot := strings.TrimSpace(os.Getenv("GROK_WORKSPACE_ROOT"))
+	for name, candidate := range map[string]string{
+		"workspaceRoot":       envelopeRoot,
+		"GROK_WORKSPACE_ROOT": envRoot,
+	} {
+		if candidate == "" {
+			continue
+		}
+		canonical, err := canonicalGrokPath(candidate)
+		if err != nil {
+			return fmt.Errorf("resolve Grok %s: %w", name, err)
+		}
+		if canonical != root {
+			return fmt.Errorf("grok %s %q does not match repository root %q", name, candidate, root)
+		}
+	}
+	return nil
+}
+
+func canonicalGrokPath(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(absolute); err == nil {
+		return filepath.Clean(resolved), nil
+	}
+	return filepath.Clean(absolute), nil
+}
+
+func grokObject(value interface{}) map[string]interface{} {
+	if object, ok := value.(map[string]interface{}); ok {
+		return cloneCursorObject(object)
+	}
+	return map[string]interface{}{"value": value}
+}
+
+func normalizeGrokToolName(name string) string {
+	trimmed := strings.TrimSpace(name)
+	switch strings.ToLower(trimmed) {
+	case "read_file", "hashline_read", "grep", "hashline_grep", "list_dir":
+		return "Read"
+	case "write":
+		return "Write"
+	case "search_replace", "hashline_edit":
+		return "Edit"
+	case "run_terminal_command", "run_terminal_cmd":
+		return "Bash"
+	default:
+		return trimmed
+	}
+}
+
+func grokStopIsInterrupt(reason string) bool {
+	switch strings.ToLower(strings.TrimSpace(reason)) {
+	case "cancelled", "canceled", "interrupt", "interrupted", "aborted", "user_abort":
+		return true
+	default:
+		return false
+	}
+}

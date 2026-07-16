@@ -17,6 +17,7 @@ func TestPlatformRegistryOwnsEveryHookKind(t *testing.T) {
 		KindDevinCLI,
 		KindAntigravity,
 		KindKilo,
+		KindGrok,
 	}
 	if got := SupportedKinds(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("SupportedKinds() = %v, want %v", got, want)
@@ -107,9 +108,16 @@ func TestGenerateEveryRegisteredArtifact(t *testing.T) {
 			for _, missing := range missingRuntimeEvents(platform, artifact.Content) {
 				t.Errorf("generated artifact misses registry route %s", missing)
 			}
-			for _, removed := range []string{"UserPromptSubmit", "beforeSubmitPrompt", "chat.message", "-user-prompt-submit"} {
+			for _, removed := range []string{"beforeSubmitPrompt", "chat.message"} {
 				if strings.Contains(artifact.Content, removed) {
 					t.Errorf("generated artifact retained removed prompt route %q", removed)
+				}
+			}
+			if platform.Kind != KindGrok {
+				for _, removed := range []string{"UserPromptSubmit", "-user-prompt-submit"} {
+					if strings.Contains(artifact.Content, removed) {
+						t.Errorf("generated artifact retained removed prompt route %q", removed)
+					}
 				}
 			}
 		})
@@ -160,6 +168,31 @@ func TestNewPlatformArtifactsUseCurrentContracts(t *testing.T) {
 	if strings.Contains(antigravity.Content, `"timeout": 120`) {
 		t.Fatal("Antigravity retained the old 120-second blanket timeout")
 	}
+
+	grok, err := Generate(KindGrok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{
+		`"reconcManaged": true`,
+		`"UserPromptSubmit"`,
+		`"PermissionDenied"`,
+		`"SubagentStart"`,
+		`"PreCompact"`,
+		`grok-pre-tool-use`,
+		`{\"decision\":\"deny\"`,
+		`"timeout": 10`,
+		`run_terminal_command`,
+		`run_terminal_cmd`,
+		`hashline_edit`,
+	} {
+		if !strings.Contains(grok.Content, token) {
+			t.Fatalf("Grok artifact missing %q:\n%s", token, grok.Content)
+		}
+	}
+	if strings.Contains(grok.Content, "claude-") || strings.Contains(grok.Content, "cursor-") {
+		t.Fatalf("Grok artifact is not first-class:\n%s", grok.Content)
+	}
 }
 
 func TestBunAdapterRoutesAreRegistered(t *testing.T) {
@@ -193,6 +226,27 @@ func TestBunAdapterRoutesAreRegistered(t *testing.T) {
 	} {
 		if _, ok := RuntimeEvent(event); ok {
 			t.Fatalf("removed user-prompt route %s is still registered", event)
+		}
+	}
+	for _, event := range []string{
+		"grok-session-start",
+		"grok-user-prompt-submit",
+		"grok-pre-tool-use",
+		"grok-post-tool-use",
+		"grok-post-tool-use-failure",
+		"grok-permission-denied",
+		"grok-stop",
+		"grok-stop-failure",
+		"grok-notification",
+		"grok-subagent-start",
+		"grok-subagent-stop",
+		"grok-pre-compaction",
+		"grok-post-compaction",
+		"grok-session-end",
+	} {
+		route, ok := RuntimeEvent(event)
+		if !ok || route.PlatformKind != KindGrok {
+			t.Fatalf("Grok route %s = %+v, %t", event, route, ok)
 		}
 	}
 }

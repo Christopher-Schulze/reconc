@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +16,8 @@ import (
 
 	"reconc.dev/reconc/internal/audit"
 	"reconc.dev/reconc/internal/compiler"
+	"reconc.dev/reconc/internal/grokacp"
+	"reconc.dev/reconc/internal/hooks"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/parser"
 	"reconc.dev/reconc/internal/presets"
@@ -23,9 +27,10 @@ import (
 )
 
 const (
-	doctorStatusOK   = "OK"
-	doctorStatusWarn = "WARN"
-	doctorStatusFail = "FAIL"
+	doctorStatusOK            = "OK"
+	doctorStatusWarn          = "WARN"
+	doctorStatusFail          = "FAIL"
+	doctorGrokInspectMaxBytes = 4 << 20
 
 	// doctorAuditWarnBytes is the live+archive ring ceiling: the writer
 	// rotates the live file at audit.DefaultMaxSizeBytes and keeps
@@ -67,6 +72,7 @@ func buildDoctorDeepReport(repo string) (*doctorDeepReport, error) {
 		Deep:     true,
 		Checks: []doctorCheck{
 			doctorCheckHookRuntimeCompatibility(discovery),
+			doctorCheckGrokRuntime(discovery),
 			doctorCheckLockfileFreshness(discovery),
 			doctorCheckAuditSize(discovery),
 			doctorCheckUnknownRefs(discovery),
@@ -75,6 +81,103 @@ func buildDoctorDeepReport(repo string) (*doctorDeepReport, error) {
 		},
 	}
 	return report, nil
+}
+
+var doctorGrokInspect = func(ctx context.Context, repoRoot string) ([]byte, error) {
+	return grokacp.InspectJSON(ctx, repoRoot, "grok")
+}
+
+func doctorCheckGrokRuntime(discovery ingest.DiscoveryResult) doctorCheck {
+	check := doctorCheck{
+		Name:   "Grok native hook",
+		Status: doctorStatusOK,
+		Detail: "native Grok hook not installed",
+	}
+	if !discovery.Discovered {
+		check.Status = doctorStatusWarn
+		check.Detail = "cannot inspect Grok hook without a discovered reconc repo"
+		return check
+	}
+	target := filepath.Join(discovery.RepoRoot, filepath.FromSlash(hooks.GrokHooksPath))
+	if _, err := os.Stat(target); os.IsNotExist(err) {
+		return check
+	} else if err != nil {
+		check.Status = doctorStatusWarn
+		check.Detail = "cannot stat native Grok hook: " + err.Error()
+		return check
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	output, err := doctorGrokInspect(ctx, discovery.RepoRoot)
+	if len(output) > doctorGrokInspectMaxBytes {
+		check.Status = doctorStatusWarn
+		check.Detail = fmt.Sprintf("grok inspect output exceeds %d bytes", doctorGrokInspectMaxBytes)
+		return check
+	}
+	if err != nil {
+		check.Status = doctorStatusWarn
+		check.Detail = "cannot execute `grok inspect --json`: " + strings.TrimSpace(string(output))
+		if strings.TrimSpace(string(output)) == "" {
+			check.Detail = "cannot execute `grok inspect --json`: " + err.Error()
+		}
+		return check
+	}
+	var inspection struct {
+		GrokVersion    string `json:"grokVersion"`
+		ProjectTrusted bool   `json:"projectTrusted"`
+		Hooks          []struct {
+			Target string `json:"target"`
+			Source struct {
+				Type string `json:"type"`
+				Path string `json:"path"`
+			} `json:"source"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(output, &inspection); err != nil {
+		check.Status = doctorStatusWarn
+		check.Detail = "invalid `grok inspect --json` output: " + err.Error()
+		return check
+	}
+	if !inspection.ProjectTrusted {
+		check.Status = doctorStatusWarn
+		check.Detail = "project hook is installed but Grok does not trust this folder; run `/hooks-trust` or launch Grok with `--trust`"
+		return check
+	}
+	platform, _ := hooks.PlatformForKind(hooks.KindGrok)
+	expected := []string{}
+	for _, capability := range platform.Capabilities {
+		expected = append(expected, capability.RuntimeEvents...)
+	}
+	seen := map[string]bool{}
+	grokSource := filepath.Clean(filepath.Join(discovery.RepoRoot, ".grok"))
+	for _, hook := range inspection.Hooks {
+		if hook.Source.Type != "project" && !strings.HasPrefix(filepath.Clean(hook.Source.Path), grokSource) {
+			continue
+		}
+		for _, event := range expected {
+			if strings.Contains(hook.Target, event) {
+				seen[event] = true
+			}
+		}
+	}
+	missing := []string{}
+	for _, event := range expected {
+		if !seen[event] {
+			missing = append(missing, event)
+		}
+	}
+	if len(missing) > 0 {
+		check.Status = doctorStatusWarn
+		check.Detail = "Grok did not load native Reconc routes: " + strings.Join(missing, ", ") + "; reload `/hooks` and verify project trust"
+		return check
+	}
+	version := strings.TrimSpace(inspection.GrokVersion)
+	if version == "" {
+		version = "unknown version"
+	}
+	check.Detail = fmt.Sprintf("Grok %s loaded all %d native Reconc routes from .grok/hooks/reconc.json", version, len(expected))
+	return check
 }
 
 func doctorCheckHookRuntimeCompatibility(discovery ingest.DiscoveryResult) doctorCheck {

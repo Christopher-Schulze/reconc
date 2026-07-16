@@ -138,7 +138,7 @@ func RunStop(repoRoot string, payloadBytes []byte) (result Result) {
 		// through: the agent has seen the report once and either cannot or was
 		// told not to resolve it. This is the Cursor-equivalent of the
 		// StopHookActive escape above.
-		if vh := hashBlockingViolations(violations); vh != "" && state.LastStopBlockViolationHash == vh {
+		if vh := hashBlockingViolations(violations); !payload.StrictContinuation && vh != "" && state.LastStopBlockViolationHash == vh {
 			logRunStopDecision(root, "policy_block_released_on_repeat", payload, runtimeName, currentRun, currentRun, true, len(violations))
 			return Result{ExitCode: 0}
 		}
@@ -279,7 +279,7 @@ func runRepositoryContinuation(root string, runFile *os.File, payload *HookPaylo
 		} else {
 			nudges = 0
 		}
-		if nudges >= 6 {
+		if !payload.StrictContinuation && nudges >= 6 {
 			after := current
 			after.NoProgressNudges = 0
 			after.LastProgressHash = progressHash

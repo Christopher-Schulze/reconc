@@ -37,9 +37,34 @@ if [ "${RECONC_HOOK_REPO_RESOLVED:-}" != "1" ] && [ ! -x "$repo/tools/reconc/bin
   repo="$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null || printf "%s" "$repo")"
 fi
 
+grok_fail_closed() {
+  printf '%s\n' '{"decision":"deny","reason":"Reconc could not evaluate this Grok tool call. Repair the Reconc binary or hook installation before retrying."}'
+  exit 0
+}
+
+run_reconc_hook() {
+  reconc_binary="$1"
+  if [ "$event" = "grok-pre-tool-use" ]; then
+    set +e
+    grok_output=$("$reconc_binary" hook runtime "$event" "$repo")
+    grok_status=$?
+    set -e
+    if [ "$grok_status" -ne 0 ] || [ -z "$grok_output" ]; then
+      grok_fail_closed
+    fi
+    case "$grok_output" in
+      '{"decision":"allow"}'|'{"decision":"deny","reason":'*'}') ;;
+      *) grok_fail_closed ;;
+    esac
+    printf '%s\n' "$grok_output"
+    exit 0
+  fi
+  exec "$reconc_binary" hook runtime "$event" "$repo"
+}
+
 for dev_reconc in "$repo/.build/bin/reconc" "$repo/reconc"; do
   if [ -x "$dev_reconc" ]; then
-    exec "$dev_reconc" hook runtime "$event" "$repo"
+    run_reconc_hook "$dev_reconc"
   fi
 done
 
@@ -48,17 +73,23 @@ for reconc_dir in "$repo/tools/reconc/dist" "$repo/dist"; do
   resolve_status=0
   resolve_reconc_dir "$reconc_dir" || resolve_status=$?
   if [ "$resolve_status" -eq 0 ]; then
-    exec "$resolved_reconc" hook runtime "$event" "$repo"
+    run_reconc_hook "$resolved_reconc"
   fi
   if [ "$resolve_status" -eq 2 ]; then
+    if [ "$event" = "grok-pre-tool-use" ]; then
+      grok_fail_closed
+    fi
     exit 2
   fi
 done
 
 if command -v reconc >/dev/null 2>&1; then
-  exec reconc hook runtime "$event" "$repo"
+  run_reconc_hook "$(command -v reconc)"
 fi
 
+if [ "$event" = "grok-pre-tool-use" ]; then
+  grok_fail_closed
+fi
 echo "reconc hook wrapper: no executable Reconc binary found" >&2
 echo "expected one stable or unambiguous versioned repo-local binary, a dev binary, or reconc on PATH" >&2
 exit 2

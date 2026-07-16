@@ -56,6 +56,7 @@ internal/
   contextsize/    token-budget guard for canonical entrypoints + active TASK
   errors/         typed exception hierarchy (PolicySourceError, LockfileError, ...)
   extractor/      prose-to-rule heuristic scanner (regex-only, no LLM)
+  grokacp/        strict client for the external Grok ACP stdio runtime
   hooks/          typed platform registry + generators + installers + activation probes + scaffold sync
   ingest/         discovery + source loading (AGENTS.md, .reconc.yml, presets, globals)
   lockdiff/       structural lockfile comparison (ignore-provenance semantics)
@@ -78,7 +79,7 @@ internal/
 
 `cmd/reconc/main.go` is ~20 lines: parse argv, delegate to
 `cli.Run`, translate the returned error into an exit code.
-Within `internal/cli`, the 209-line `cli.go` owns only public errors, top-level
+Within `internal/cli`, the 212-line `cli.go` owns only public errors, top-level
 dispatch, and canonical usage. Compile, evaluate, inspect, explain, CI,
 bootstrap, scaffold, source analysis, quality, maintenance, catalog, metadata,
 hook, workflow/session, TASK lifecycle, repository-run, and deep-doctor logic
@@ -455,4 +456,7 @@ our own depth-limited decoder is the only entry point.
   protected remote CI or branch rules must own that adversarial boundary.
 - Kernel-level attacks (e.g. PID reuse allowing session-state
   tampering between runs). Out of scope; we assume the OS is sound.
-- Network-borne attacks (reconc is offline; no network surface).
+- Network-borne attacks against Reconc's policy compiler/runtime (the core is
+  offline and has no network surface). The explicit `reconc grok` command
+  starts the external Grok ACP process; Grok owns its inference network,
+  authentication, sandbox, and provider security boundaries.

@@ -251,7 +251,7 @@ First sync generated hook artifacts from the repo-local Reconc generator:
 tools/reconc/dist/<local-reconc-binary> hook sync-scaffold tools/reconc/harness/<project-name>/repo-root-scaffold
 ```
 
-This writes `.githooks/pre-commit`, `.codex/hooks.json`, `.cursor/hooks.json`, `.agents/hooks.json`, `.claude/settings.json`, `.opencode/plugins/reconc.js`, `.devin/hooks.v1.json`, and `.kilo/plugin/reconc.js` from the same generator used by `reconc hook install`. Do not edit these hook artifacts manually and do not copy them from any source-specific harness.
+This writes `.githooks/pre-commit`, `.codex/hooks.json`, `.cursor/hooks.json`, `.agents/hooks.json`, `.claude/settings.json`, `.opencode/plugins/reconc.js`, `.devin/hooks.v1.json`, `.kilo/plugin/reconc.js`, and `.grok/hooks/reconc.json` from the same generator used by `reconc hook install`. Do not edit these hook artifacts manually and do not copy them from any source-specific harness.
 
 Direct-copy files when the target file is missing:
 
@@ -266,6 +266,7 @@ Direct-copy files when the target file is missing:
 - `.opencode/plugins/reconc.js`
 - `.devin/hooks.v1.json`
 - `.kilo/plugin/reconc.js`
+- `.grok/hooks/reconc.json`
 - `.cursorindexingignore`
 - `.codeiumignore`
 - `.windsurfignore`
@@ -424,7 +425,7 @@ The scaffold hook configs must first call the repo-local wrapper:
 
 - `tools/reconc/bin/hook`
 
-Hook files in `repo-root-scaffold/` are generated with `reconc hook sync-scaffold`. The typed registry is the source of truth for Claude Code, Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, and the source-controlled `.githooks/pre-commit` twin. Root repo artifacts and template scaffold artifacts must never be reconciled by copying from each other; both are regenerated from the same Reconc binary. A target repo must never compare against, depend on, or copy from a source-specific harness.
+Hook files in `repo-root-scaffold/` are generated with `reconc hook sync-scaffold`. The typed registry is the source of truth for Claude Code, Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Grok Build, and the source-controlled `.githooks/pre-commit` twin. Root repo artifacts and template scaffold artifacts must never be reconciled by copying from each other; both are regenerated from the same Reconc binary. A target repo must never compare against, depend on, or copy from a source-specific harness.
 
 After copying or installing hooks, run:
 
@@ -441,7 +442,9 @@ rate-limited to one external-state write every six hours.
 
 Claude Code generated hooks use exec-form `command` plus `args`, pass `${CLAUDE_PROJECT_DIR}` directly to the wrapper, and use the context-capable `SessionStart` `compact` matcher for recovery instead of spawning the notification-only `PostCompact` event. Codex bootstrap writes `hooks = true` under `[features]`; root-level `hooks=true` is invalid, and Codex has no `SessionEnd` event. Devin uses `.devin/hooks.v1.json`, passes `DEVIN_PROJECT_DIR`, and includes `PostCompaction`. OpenCode and Kilo Code plugins are transport adapters only: policy, session state, continuation, and context recovery remain in the Go runtime. Their continuation trigger is inferred from `session.idle`, not a synchronous native Stop gate. Kilo Code requires `KILO_PURE` to be unset so project plugins load.
 
-The registry assigns 5-second observation/session timeouts, 10-second pre-tool/permission timeouts, and a 30-second Stop timeout. Claude/Codex/Devin/Antigravity generators emit those host budgets; OpenCode/Kilo Code adapters enforce them internally, kill slow subprocesses, cap combined output at 8 KiB, and never embed a versioned release filename. Generated Claude/Codex/Cursor/Devin/Antigravity configs do not spawn PreToolUse for read-only matchers; read evidence remains in PostToolUse while pre-execution hooks stay focused on write/shell/apply_patch policy checks. Shell-command runtimes first exec `./tools/reconc/bin/hook` directly when their cwd is already the repo root, and only fall back to `git rev-parse` plus `RECONC_HOOK_REPO_RESOLVED=1` when needed. The agent-hooks audit rejects git-first launchers, Claude/Devin shell/git launchers, project-specific OpenCode/Kilo Code state logic, version-pinned OpenCode/Kilo Code binaries, stale 120-second Antigravity timeouts, and wrapper configs that omit the direct-wrapper fast path. The wrapper trusts the resolved marker or an already-valid repo-local wrapper/dist path, normalizes only direct/manual calls, and execs the first available repo-local Reconc binary. The Go hook runtime lowers observation-only hook priority on Unix for post/after/session-end events; PreToolUse, permission and Stop keep normal priority. The final `exec` keeps hook process trees shallow and avoids idle parent shells where the host runtime allows it.
+Grok Build loads `.grok/hooks/reconc.json` only after project trust is granted with `/hooks-trust` or `--trust`. Its native PreToolUse event is a hard explicit allow/deny boundary, but its native Stop event is passive and Grok treats hook crashes, malformed output, and timeouts as fail-open. The generated wrapper therefore converts Reconc runtime failures into valid Grok deny JSON. Use `reconc grok . --prompt "..."` when strict same-session continuation is required without modifying the Grok binary.
+
+The registry assigns 5-second observation/session timeouts, 10-second pre-tool/permission timeouts, and a 30-second Stop timeout. Claude/Codex/Devin/Antigravity/Grok generators emit those host budgets; OpenCode/Kilo Code adapters enforce them internally, kill slow subprocesses, cap combined output at 8 KiB, and never embed a versioned release filename. Generated Claude/Codex/Cursor/Devin/Antigravity/Grok configs do not spawn PreToolUse for read-only matchers; read evidence remains in PostToolUse while pre-execution hooks stay focused on write/shell/apply_patch policy checks. Shell-command runtimes first exec `./tools/reconc/bin/hook` directly when their cwd is already the repo root, and only fall back to `git rev-parse` plus `RECONC_HOOK_REPO_RESOLVED=1` when needed. The agent-hooks audit rejects git-first launchers, Claude/Devin shell/git launchers, project-specific OpenCode/Kilo Code state logic, version-pinned OpenCode/Kilo Code binaries, stale 120-second Antigravity timeouts, and wrapper configs that omit the direct-wrapper fast path. The wrapper trusts the resolved marker or an already-valid repo-local wrapper/dist path, normalizes only direct/manual calls, and execs the first available repo-local Reconc binary. The Go hook runtime lowers observation-only hook priority on Unix for post/after/session-end events; PreToolUse, permission and Stop keep normal priority. The final `exec` keeps hook process trees shallow and avoids idle parent shells where the host runtime allows it.
 
 The wrapper resolves binaries without pinning a Reconc release number. It
 tries this exact order:
@@ -553,6 +556,7 @@ The rollout is not done until all of this is true:
 - POSIX hook routes call `tools/reconc/bin/hook` first and retain local-dist/PATH fallback; native Windows shell routes have `sh` on `PATH`, and native `.exe`/`.com` policy scripts execute directly.
 - `hook status . --json` reports every selected platform as `configured`; no platform is degraded, shadowed, unsupported, or accidentally left only installed.
 - OpenCode and Kilo Code plugins contain no project-specific run state or prompts; Antigravity contains no blanket 120-second timeout.
+- When Grok is selected, `reconc doctor --deep` proves project trust and every native Grok route; strict continuation uses `reconc grok`, not the passive stock-TUI Stop event.
 - Cursor/Windsurf/Codeium/VS Code indexing excludes are installed as local-tool performance controls only, not Git ignores.
 - `AGENTS.md` contains the workflow excerpt and any user-approved stack-specific style rules.
 - `.gitignore` contains Reconc runtime ignores and relevant dual-layout build/dependency ignores.

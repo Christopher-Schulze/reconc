@@ -1129,6 +1129,30 @@ func auditAgentHooks(root string) []string {
 			`export default { id: "reconc", server: ReconcKiloServer }`,
 		}
 	}
+	if cfg.AgentHooks.RequireGrokHooks {
+		hooks[filepath.Join(root, ".grok/hooks/reconc.json")] = []string{
+			`"reconcManaged": true`,
+			"tools/reconc/bin/hook",
+			"grok-session-start",
+			"grok-user-prompt-submit",
+			"grok-pre-tool-use",
+			"grok-post-tool-use",
+			"grok-post-tool-use-failure",
+			"grok-permission-denied",
+			"grok-stop",
+			"grok-stop-failure",
+			"grok-notification",
+			"grok-subagent-start",
+			"grok-subagent-stop",
+			"grok-pre-compaction",
+			"grok-post-compaction",
+			"grok-session-end",
+			`{\"decision\":\"deny\"`,
+			"run_terminal_command",
+			"run_terminal_cmd",
+			"hashline_edit",
+		}
+	}
 	forbidden := map[string][]string{
 		".claude/settings.json":       {`"PostCompact"`, `"UserPromptSubmit"`, "claude-user-prompt-submit"},
 		".codex/hooks.json":           {`"UserPromptSubmit"`, "codex-user-prompt-submit", `"SessionEnd"`, "codex-session-end"},
@@ -1137,6 +1161,7 @@ func auditAgentHooks(root string) []string {
 		".devin/hooks.v1.json":        {`"UserPromptSubmit"`, "devin-user-prompt-submit"},
 		".kilo/plugin/reconc.js":      {".reconc/runloop", "chat.message", "kilo-user-prompt-submit", "runloop autocontinue", "opencode_continuation_driver", "STFU", "tools/reconc/dist", "reconc-0.6.0-"},
 		".agents/hooks.json":          {`"timeout": 120`},
+		".grok/hooks/reconc.json":     {"claude-", "cursor-", "opencode-", "kilo-"},
 	}
 	for path, required := range hooks {
 		relative := filepath.ToSlash(rel(root, path))

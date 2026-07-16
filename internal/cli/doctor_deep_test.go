@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"reconc.dev/reconc/internal/hooks"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
@@ -17,6 +19,57 @@ type doctorDeepJSON struct {
 	RepoRoot string        `json:"repo_root"`
 	Deep     bool          `json:"deep"`
 	Checks   []doctorCheck `json:"checks"`
+}
+
+func TestDoctorGrokRuntimeChecksTrustAndEveryNativeRoute(t *testing.T) {
+	repo := makeCheckRepo(t,
+		"rules:\n  - id: deny-generated\n    kind: deny_write\n    paths: ['generated/**']\n    mode: warn\n    message: generated files are read-only\n")
+	if _, err := hooks.Install(hooks.KindGrok, repo, false); err != nil {
+		t.Fatal(err)
+	}
+	wrapper := filepath.Join(repo, filepath.FromSlash(hooks.WrapperPath))
+	if err := os.MkdirAll(filepath.Dir(wrapper), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(wrapper, []byte(hooks.GenerateWrapper().Content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	discovery, err := ingest.DiscoverPolicyRepo(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := doctorGrokInspect
+	defer func() { doctorGrokInspect = original }()
+
+	doctorGrokInspect = func(_ context.Context, root string) ([]byte, error) {
+		platform, _ := hooks.PlatformForKind(hooks.KindGrok)
+		loaded := []map[string]interface{}{}
+		for _, capability := range platform.Capabilities {
+			for _, event := range capability.RuntimeEvents {
+				loaded = append(loaded, map[string]interface{}{
+					"target": "tools/reconc/bin/hook " + event + " .",
+					"source": map[string]string{"type": "project", "path": filepath.Join(root, ".grok", "hooks")},
+				})
+			}
+		}
+		return json.Marshal(map[string]interface{}{
+			"grokVersion":    "0.2.101",
+			"projectTrusted": true,
+			"hooks":          loaded,
+		})
+	}
+	check := doctorCheckGrokRuntime(discovery)
+	if check.Status != doctorStatusOK || !strings.Contains(check.Detail, "all 14 native Reconc routes") {
+		t.Fatalf("Grok doctor check = %+v", check)
+	}
+
+	doctorGrokInspect = func(context.Context, string) ([]byte, error) {
+		return []byte(`{"projectTrusted":false,"hooks":[]}`), nil
+	}
+	check = doctorCheckGrokRuntime(discovery)
+	if check.Status != doctorStatusWarn || !strings.Contains(check.Detail, "/hooks-trust") {
+		t.Fatalf("untrusted Grok doctor check = %+v", check)
+	}
 }
 
 func TestRunDoctorDeepOK(t *testing.T) {

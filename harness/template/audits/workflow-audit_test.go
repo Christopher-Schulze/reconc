@@ -811,6 +811,7 @@ agent_hooks:
   require_opencode_plugin: true
   require_devin_hooks: false
   require_kilo_plugin: false
+  require_grok_hooks: false
 `)
 }
 
@@ -860,6 +861,7 @@ agent_hooks:
   require_opencode_plugin: true
   require_devin_hooks: false
   require_kilo_plugin: false
+  require_grok_hooks: false
 `)
 }
 

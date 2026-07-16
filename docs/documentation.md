@@ -586,8 +586,8 @@ skill documents the same reconc workflow for every agent runtime:
 - distinguish native hook enforcement from CLI self-checks
 
 The typed platform registry is the source of truth for Git pre-commit, Claude
-Code, Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, and
-Kilo Code. It owns native event names, normalized lifecycle coverage, compatibility
+Code, Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, and
+Grok Build. It owns native event names, normalized lifecycle coverage, compatibility
 routes, config and scaffold paths, failure behavior, timeout budgets, output
 budgets, installation strategy, and activation probes. `reconc hook status
 [repo] [--json]` validates every registered artifact and reports `absent`,
@@ -600,12 +600,12 @@ outside the repository and each route writes at most once every six hours.
 
 The registry assigns 5-second observation/session budgets, 10-second pre-tool
 and permission budgets, and 30-second Stop budgets instead of one blanket
-timeout. Claude, Codex, Devin, and Antigravity generators emit those
+timeout. Claude, Codex, Devin, Antigravity, and Grok generators emit those
 host timeouts; OpenCode and Kilo Code enforce them inside their adapters. Each runtime
 route caps combined process output at 8 KiB.
 Post-compaction recovery context is deduplicated and capped at 4 KiB.
 
-Claude Code, Codex, Cursor, Devin, and Antigravity generated configs
+Claude Code, Codex, Cursor, Devin, Antigravity, and Grok generated configs
 use `tools/reconc/bin/hook` on POSIX; the wrapper owns repo-local binary
 selection and PATH `reconc` as last fallback.
 For development and self-hosting, the wrapper checks `.build/bin/reconc` and
@@ -653,10 +653,31 @@ to `tools/reconc/bin/hook` instead of embedding a release number. Their Stop
 capability is inferred from `session.idle`: the adapter asks the host client to
 continue, but the host boundary remains fail-open and is not equivalent to the
 synchronous native Stop gates exposed by the other five agent runtimes.
+Grok Build uses the dedicated `.grok/hooks/reconc.json` native artifact.
+Its camelCase envelopes and native tools (`run_terminal_command`,
+`run_terminal_cmd`,
+`read_file`, `write`, `search_replace`, `hashline_*`, `grep`, and `list_dir`)
+are normalized in Go instead of being routed through a Claude or Cursor
+adapter. Project hooks require Grok folder trust. `reconc doctor --deep`
+executes `grok inspect --json` when the artifact is installed and verifies
+trust plus all 14 generated routes. Grok runs PreToolUse before its own
+permission rules, so Reconc still blocks under Grok's always-approve mode.
+Grok itself treats hook crashes, malformed output, and timeouts as fail-open.
+The generated PreTool route and repo-local wrapper therefore reserve non-zero
+runtime failures for an explicit `{"decision":"deny"}` fallback; normal Reconc
+allow and deny outcomes both travel as valid Grok decision JSON. A hard Grok
+process timeout remains host-owned and fail-open.
+
+Grok's native `Stop` hook is passive, so the stock TUI can display Reconc's
+stop report but cannot be forced to submit another turn. `reconc grok` closes
+that boundary without modifying Grok: it preflights the native hook and folder
+trust, starts the official `grok agent stdio` ACP runtime, streams the answer,
+and submits Reconc's continuation reason back into the same session until the
+strict Stop gate is clean or the bounded continuation limit is reached.
 `reconc run on|off|status|log` is the canonical AI-operated repository switch.
 Its durable state applies only to the selected repository, not the whole machine.
 Repository mode persists across sessions for Claude Code, Codex, Cursor,
-OpenCode, Devin CLI, Antigravity CLI, and Kilo Code. The agent
+OpenCode, Devin CLI, Antigravity CLI, Kilo Code, and Grok Build. The agent
 runs these commands itself; users do not need to operate Reconc. Prompt text,
 runtime interrupts, compaction, session boundaries, runtime changes, and
 application restarts never mutate the switch. An interrupt releases only the
@@ -697,7 +718,7 @@ identifiers and reasons. The live log and two archives are each bounded at
 Repeated identical policy feedback shrinks to stable `RB-*` feedback IDs,
 rule IDs, and the saved report path. PreToolUse evaluates only pre-execution
 write/shell rules,
-generated Claude/Codex/Cursor/Devin/Antigravity configs do not spawn PreToolUse for
+generated Claude/Codex/Cursor/Devin/Antigravity/Grok configs do not spawn PreToolUse for
 read-only matchers, all PostToolUse / after-shell events record evidence only,
 and repo-wide policy audits run at terminal Stop, explicit Reconc checks, or a
 bounded repository-run checkpoint. Checkpoints occur after 64 material events,
@@ -804,7 +825,7 @@ CI checks:
 - native Windows 2025 root-module and `harness/template` tests plus native
   binary version/help smoke;
   shell hook wrappers and shell policy scripts use the documented `sh` runtime
-- clean-repository self-hosting golden path on Ubuntu and macOS across all three bootstrap profiles and eight hook platforms
+- clean-repository self-hosting golden path on Ubuntu and macOS across all three bootstrap profiles and nine hook platforms
 - immutable action commit pins plus an explicit GitHub-owned action allowlist;
   the trust gate validates pin shape and action identity without coupling
   updates to historical commit values

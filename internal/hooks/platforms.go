@@ -6,12 +6,19 @@ type Event string
 const (
 	EventPreCommit          Event = "pre-commit"
 	EventSessionStart       Event = "session-start"
+	EventUserPromptSubmit   Event = "user-prompt-submit"
 	EventPreToolUse         Event = "pre-tool-use"
 	EventPermissionRequest  Event = "permission-request"
+	EventPermissionDenied   Event = "permission-denied"
 	EventPostToolUse        Event = "post-tool-use"
 	EventPostToolUseFailure Event = "post-tool-use-failure"
 	EventStop               Event = "stop"
+	EventStopFailure        Event = "stop-failure"
 	EventSessionEnd         Event = "session-end"
+	EventNotification       Event = "notification"
+	EventSubagentStart      Event = "subagent-start"
+	EventSubagentStop       Event = "subagent-stop"
+	EventPreCompaction      Event = "pre-compaction"
 	EventPostCompaction     Event = "post-compaction"
 )
 
@@ -40,11 +47,12 @@ const (
 type InstallMode string
 
 const (
-	InstallExecutable InstallMode = "executable"
-	InstallNestedJSON InstallMode = "nested-json-merge"
-	InstallFlatJSON   InstallMode = "flat-json-merge"
-	InstallOwnedJSON  InstallMode = "owned-json-key"
-	InstallPlugin     InstallMode = "managed-plugin"
+	InstallExecutable  InstallMode = "executable"
+	InstallNestedJSON  InstallMode = "nested-json-merge"
+	InstallFlatJSON    InstallMode = "flat-json-merge"
+	InstallOwnedJSON   InstallMode = "owned-json-key"
+	InstallPlugin      InstallMode = "managed-plugin"
+	InstallManagedJSON InstallMode = "managed-json-file"
 )
 
 // ActivationMode defines how a correct artifact becomes discoverable.
@@ -113,6 +121,7 @@ const (
 	generatorDevinCLI
 	generatorAntigravity
 	generatorKilo
+	generatorGrok
 )
 
 const defaultHookOutputBytes = 8 * 1024
@@ -214,6 +223,26 @@ var platformRegistry = []platformDefinition{
 			capability(EventPostCompaction, "experimental.session.compacting", SupportExperimental, FailureAllow, FailureAllow, 5, "kilo-post-compaction"),
 		}},
 		generator: generatorKilo,
+	},
+	{
+		Platform: Platform{Kind: KindGrok, DisplayName: "Grok Build", TargetPath: GrokHooksPath, ScaffoldPath: GrokHooksPath, InstallMode: InstallManagedJSON, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".grok"}, RequiresWrapper: true}, Capabilities: []Capability{
+			capability(EventSessionStart, "SessionStart", SupportNative, FailureAllow, FailureAllow, 5, "grok-session-start"),
+			capability(EventUserPromptSubmit, "UserPromptSubmit", SupportNative, FailureAllow, FailureAllow, 5, "grok-user-prompt-submit"),
+			capability(EventPreToolUse, "PreToolUse", SupportNative, FailureBlock, FailureAllow, 10, "grok-pre-tool-use"),
+			fallback(EventPermissionRequest, EventPreToolUse),
+			capability(EventPermissionDenied, "PermissionDenied", SupportNative, FailureAllow, FailureAllow, 5, "grok-permission-denied"),
+			capability(EventPostToolUse, "PostToolUse", SupportNative, FailureAllow, FailureAllow, 5, "grok-post-tool-use"),
+			capability(EventPostToolUseFailure, "PostToolUseFailure", SupportNative, FailureAllow, FailureAllow, 5, "grok-post-tool-use-failure"),
+			capability(EventStop, "Stop", SupportNative, FailureAllow, FailureAllow, 30, "grok-stop"),
+			capability(EventStopFailure, "StopFailure", SupportNative, FailureAllow, FailureAllow, 5, "grok-stop-failure"),
+			capability(EventSessionEnd, "SessionEnd", SupportNative, FailureAllow, FailureAllow, 5, "grok-session-end"),
+			capability(EventNotification, "Notification", SupportNative, FailureAllow, FailureAllow, 5, "grok-notification"),
+			capability(EventSubagentStart, "SubagentStart", SupportNative, FailureAllow, FailureAllow, 5, "grok-subagent-start"),
+			capability(EventSubagentStop, "SubagentStop", SupportNative, FailureAllow, FailureAllow, 5, "grok-subagent-stop"),
+			capability(EventPreCompaction, "PreCompact", SupportNative, FailureAllow, FailureAllow, 5, "grok-pre-compaction"),
+			capability(EventPostCompaction, "PostCompact", SupportNative, FailureAllow, FailureAllow, 5, "grok-post-compaction"),
+		}},
+		generator: generatorGrok,
 	},
 }
 

@@ -18,11 +18,13 @@ func TestAuditAgentHooksAcceptsGeneratedExtendedPlatforms(t *testing.T) {
   require_antigravity_hooks: false
   require_devin_hooks: true
   require_kilo_plugin: true
+  require_grok_hooks: true
 `)
 	for _, relative := range []string{
 		".claude/settings.json",
 		".devin/hooks.v1.json",
 		".kilo/plugin/reconc.js",
+		".grok/hooks/reconc.json",
 	} {
 		data, err := os.ReadFile(filepath.Join("..", "repo-root-scaffold", filepath.FromSlash(relative)))
 		if err != nil {
@@ -46,6 +48,7 @@ func TestAuditAgentHooksRejectsProjectSpecificPluginState(t *testing.T) {
   require_antigravity_hooks: false
   require_devin_hooks: false
   require_kilo_plugin: false
+  require_grok_hooks: false
   require_opencode_plugin: true
 `)
 	data, err := os.ReadFile(filepath.Join("..", "repo-root-scaffold", ".opencode", "plugins", "reconc.js"))
@@ -71,6 +74,7 @@ func TestAuditAgentHooksRejectsVersionPinnedPluginBinary(t *testing.T) {
   require_antigravity_hooks: false
   require_devin_hooks: false
   require_kilo_plugin: true
+  require_grok_hooks: false
 `)
 	data, err := os.ReadFile(filepath.Join("..", "repo-root-scaffold", ".kilo", "plugin", "reconc.js"))
 	if err != nil {

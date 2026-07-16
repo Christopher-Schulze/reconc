@@ -81,12 +81,31 @@ func runtimeFromPayload(payload *HookPayload) string {
 
 func normalizeRuntimeName(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
-	for _, prefix := range []string{"cursor-", "codex-", "claude-", "opencode-", "devin-", "antigravity-", "kilo-"} {
+	for _, prefix := range []string{"cursor-", "codex-", "claude-", "opencode-", "devin-", "antigravity-", "kilo-", "grok-"} {
 		if strings.HasPrefix(value, prefix) {
 			return strings.TrimSuffix(prefix, "-")
 		}
 	}
 	return value
+}
+
+// RunPassiveEvent validates a lifecycle payload and ensures its session exists
+// without treating passive host events as policy evidence. Grok exposes a
+// richer lifecycle than Reconc needs for policy evaluation; liveness is
+// recorded by the central dispatcher after this handler succeeds.
+func RunPassiveEvent(repoRoot string, payloadBytes []byte) Result {
+	payload, err := ParsePayload(payloadBytes)
+	if err != nil {
+		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (passive, warn): %s", err)}
+	}
+	root, err := ResolveRepoRoot(repoRoot)
+	if err != nil {
+		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (passive, warn): %s", err)}
+	}
+	if _, err := EnsureSessionState(root, payload.SessionID); err != nil {
+		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (passive, warn): %s", err)}
+	}
+	return Result{ExitCode: 0}
 }
 
 func logRunStopDecision(repoRoot, branch string, payload *HookPayload, runtime string, before, after repositoryRunState, policyBlocked bool, violationCount int) {

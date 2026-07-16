@@ -96,6 +96,7 @@ var Subcommands = []Subcommand{
 	{Name: "why", Help: "print full details of one rule", Flags: []string{"--json", "--terse"}},
 	// packs & wiring
 	{Name: "hook", Help: "generate / install / sync-scaffold / claim hooks", Flags: []string{"--force", "--json", "--output"}},
+	{Name: "grok", Help: "strict Grok ACP runner", Flags: []string{"--prompt", "--model", "--grok-binary", "--max-continuations"}},
 	{Name: "preset", Help: "list / show bundled presets", Flags: []string{"--json", "--output"}},
 	{Name: "template", Help: "list / show rule templates", Flags: []string{"--json"}},
 	// workflow maintenance

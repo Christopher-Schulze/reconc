@@ -654,6 +654,27 @@ func TestCursorStopReleasesStopLoopOnRepeatedBlockEndToEnd(t *testing.T) {
 	}
 }
 
+func TestStrictContinuationDoesNotReleaseRepeatedBlockingStop(t *testing.T) {
+	counterPath := filepath.Join(t.TempDir(), "counter")
+	repo := setupStopScriptPolicyRepo(t, counterPath, 2, "unresolved blocker")
+	if _, err := InitializeSessionState(repo, "grok-strict"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MutateSessionState(repo, "grok-strict", func(state SessionState) SessionState {
+		return AppendWritePath(state, "src/a.go")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte(`{"session_id":"grok-strict","reconc_runtime":"grok-acp","strict_continuation":true}`)
+	first := RunStop(repo, payload)
+	second := RunStop(repo, payload)
+	for index, result := range []Result{first, second} {
+		if !strings.Contains(result.Stdout, `"decision":"block"`) {
+			t.Fatalf("strict stop %d was released: %+v", index+1, result)
+		}
+	}
+}
+
 func TestRunStopHappyPath(t *testing.T) {
 	repo := setupPolicyRepo(t)
 	_ = RunSessionStart(repo, []byte(`{"session_id":"s1"}`))
