@@ -340,7 +340,7 @@ reconc <command> --help
 
 ## Status
 
-`reconc` is released on the `v0.8.x` line; the source version is `v0.8.0`. Core
+`reconc` is released on the `v0.8.x` line; the source version is `v0.8.1`. Core
 local gates pass, and release artifacts are produced by the GitHub release
 workflow only after an explicit manual dispatch for an existing
 `reconc-vX.Y.Z` tag. Tag pushes never publish a release. Every release SBOM is
