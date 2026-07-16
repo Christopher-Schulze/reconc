@@ -96,6 +96,9 @@ func run(ctx context.Context, options Options, dependencies runnerDependencies) 
 	args = append(args, "stdio")
 	cmd := dependencies.command(ctx, options.GrokBinary, args...)
 	cmd.Dir = root
+	// The runner's prompt loop is the only continuation driver for this
+	// session; hooks fired by the spawned agent must never leader-steer.
+	cmd.Env = append(os.Environ(), SteerEnv+"=0")
 	serializedStderr := &lockedWriter{writer: options.Stderr}
 	cmd.Stderr = serializedStderr
 	stdin, err := cmd.StdinPipe()

@@ -163,7 +163,9 @@ Code, Codex, Cursor, Devin CLI, and Antigravity CLI expose
 synchronous Stop continuation. OpenCode and Kilo Code use inferred
 `session.idle`, so their host continuation remains best-effort and fail-open.
 Grok Build has hard native PreToolUse but a passive native Stop event; use
-`reconc grok . --prompt "..."` for strict same-session ACP continuation.
+`reconc grok . --prompt "..."` for strict same-session ACP continuation, or
+run Grok in leader mode so the Stop route interjects continuations into the
+live TUI session (`RECONC_GROK_STEER=0` disables this).
 Typed `continue` and `claim` states continue; an empty active slot claims queued
 executable work. Complete or absent state disables the switch after terminal
 gates, blocked state reaches terminal Stop without silently disabling it, and

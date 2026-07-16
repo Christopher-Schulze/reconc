@@ -2,8 +2,11 @@ package cli
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -136,6 +139,134 @@ func TestRepositoryRunControlReturnsContinuationForEveryAgentAdapter(t *testing.
 				t.Fatalf("adapter continuation missing: want=%q stdout=%q", test.want, stdout)
 			}
 		})
+	}
+}
+
+// e2eFakeGrokLeader serves one leader IPC connection: register, one
+// interjection (answered "queued"), disconnect. Returns the socket path and a
+// channel delivering the interjected JSON-RPC payload.
+func e2eFakeGrokLeader(t *testing.T) (string, <-chan string) {
+	t.Helper()
+	// Deliberately rooted at /tmp: bootstrapE2ERepo points TMPDIR at a deep
+	// per-test dir, and Unix socket paths are capped at ~104 bytes.
+	dir, err := os.MkdirTemp("/tmp", "grke2e")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	socket := filepath.Join(dir, "leader.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+
+	interjected := make(chan string, 1)
+	readFrame := func(conn net.Conn) (map[string]interface{}, error) {
+		var lengthPrefix [4]byte
+		if _, err := io.ReadFull(conn, lengthPrefix[:]); err != nil {
+			return nil, err
+		}
+		body := make([]byte, binary.BigEndian.Uint32(lengthPrefix[:]))
+		if _, err := io.ReadFull(conn, body); err != nil {
+			return nil, err
+		}
+		var message map[string]interface{}
+		return message, json.Unmarshal(body, &message)
+	}
+	writeFrame := func(conn net.Conn, raw string) {
+		frame := make([]byte, 4+len(raw))
+		binary.BigEndian.PutUint32(frame[:4], uint32(len(raw)))
+		copy(frame[4:], raw)
+		_, _ = conn.Write(frame)
+	}
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		if _, err := readFrame(conn); err != nil {
+			return
+		}
+		writeFrame(conn, `{"type":"registered","client_id":1,"ready":true}`)
+		message, err := readFrame(conn)
+		if err != nil {
+			return
+		}
+		payload, _ := message["payload"].(string)
+		interjected <- payload
+		response, _ := json.Marshal(`{"jsonrpc":"2.0","id":1,"result":{"status":"queued"}}`)
+		writeFrame(conn, `{"type":"acp","payload":`+string(response)+`}`)
+		_, _ = readFrame(conn) // disconnect
+	}()
+	return socket, interjected
+}
+
+func TestHookRuntimeGrokStopSteersLeaderContinuation(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	writeHookRuntimeTaskFixture(t, repo)
+	if _, err := agentsession.SetRepositoryRun(repo, true); err != nil {
+		t.Fatal(err)
+	}
+	socket, interjected := e2eFakeGrokLeader(t)
+	t.Setenv("GROK_LEADER_SOCKET", socket)
+	t.Setenv("GROK_SESSION_ID", "grok-steer")
+
+	payload := fmt.Sprintf(`{"hookEventName":"stop","sessionId":"grok-steer","workspaceRoot":%q,"reason":"completed"}`, repo)
+	stdout, stderr, code := runWithStdin(t, payload, "hook", "runtime", "grok-stop", repo)
+	if code != 0 || stdout != "" {
+		t.Fatalf("Grok stop wire contract violated: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if !strings.Contains(stderr, "continuation interjected (1/32)") {
+		t.Fatalf("steering note missing from stderr: %q", stderr)
+	}
+
+	select {
+	case raw := <-interjected:
+		var request struct {
+			Method string `json:"method"`
+			Params struct {
+				SessionID string `json:"sessionId"`
+				Text      string `json:"text"`
+			} `json:"params"`
+		}
+		if err := json.Unmarshal([]byte(raw), &request); err != nil {
+			t.Fatalf("decode interjected payload: %v\n%s", err, raw)
+		}
+		if request.Method != "_x.ai/interject" || request.Params.SessionID != "grok-steer" {
+			t.Fatalf("interjected request = %+v", request)
+		}
+		if !strings.Contains(request.Params.Text, "Reconc run is ON") {
+			t.Fatalf("interjected text must carry the continuation prompt: %q", request.Params.Text)
+		}
+	default:
+		t.Fatal("leader never received the interjection")
+	}
+}
+
+func TestHookRuntimeGrokStopInterruptStaysPassive(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	writeHookRuntimeTaskFixture(t, repo)
+	if _, err := agentsession.SetRepositoryRun(repo, true); err != nil {
+		t.Fatal(err)
+	}
+	socket, interjected := e2eFakeGrokLeader(t)
+	t.Setenv("GROK_LEADER_SOCKET", socket)
+	t.Setenv("GROK_SESSION_ID", "grok-int")
+
+	payload := fmt.Sprintf(`{"hookEventName":"stop","sessionId":"grok-int","workspaceRoot":%q,"reason":"cancelled"}`, repo)
+	stdout, stderr, code := runWithStdin(t, payload, "hook", "runtime", "grok-stop", repo)
+	if code != 0 || stdout != "" {
+		t.Fatalf("Grok interrupt stop must stay clean: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if strings.Contains(stderr, "interjected") {
+		t.Fatalf("interrupt must never steer: %q", stderr)
+	}
+	select {
+	case raw := <-interjected:
+		t.Fatalf("leader must not be contacted on interrupt, got %s", raw)
+	default:
 	}
 }
 

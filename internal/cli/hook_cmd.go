@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"reconc.dev/reconc/internal/grokacp"
 	"reconc.dev/reconc/internal/hooks"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
@@ -470,6 +471,15 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 		result = agentsession.AdaptCursorResult(event, result)
 		timing.mark("cursor_adapt")
 	case hooks.KindGrok:
+		if event == "grok-stop" {
+			if note := grokacp.SteerTUIStop(repo, payload, result); note != "" {
+				if result.Stderr != "" {
+					result.Stderr += "; "
+				}
+				result.Stderr += note
+			}
+			timing.mark("grok_steer")
+		}
 		result = agentsession.AdaptGrokResult(event, result)
 		timing.mark("grok_adapt")
 	}

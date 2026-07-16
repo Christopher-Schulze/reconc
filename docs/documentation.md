@@ -669,11 +669,26 @@ allow and deny outcomes both travel as valid Grok decision JSON. A hard Grok
 process timeout remains host-owned and fail-open.
 
 Grok's native `Stop` hook is passive, so the stock TUI can display Reconc's
-stop report but cannot be forced to submit another turn. `reconc grok` closes
-that boundary without modifying Grok: it preflights the native hook and folder
-trust, starts the official `grok agent stdio` ACP runtime, streams the answer,
-and submits Reconc's continuation reason back into the same session until the
-strict Stop gate is clean or the bounded continuation limit is reached.
+stop report but cannot be forced to submit another turn. Reconc closes that
+boundary twice without modifying Grok. First, `reconc grok` preflights the
+native hook and folder trust, starts the official `grok agent stdio` ACP
+runtime, streams the answer, and submits Reconc's continuation reason back
+into the same session until the strict Stop gate is clean or the bounded
+continuation limit is reached. Second, when Grok runs in leader mode (opt-in
+via `grok --leader`, config `use_leader`, or a custom `GROK_LEADER_SOCKET`),
+the `grok-stop` route steers the TUI itself: it dials the leader socket,
+registers as a read-only client, and queues Reconc's continuation reason via
+the `x.ai/interject` extension. Grok converts an interjection that lands on an
+idle session into an immediately started prompt turn, so the TUI visibly
+continues with the injected instruction. Steering acts only when the Stop
+evaluation demands continuation from a live Grok dispatch (`GROK_SESSION_ID`
+must match the envelope), never on user interrupts, is capped at 32 attempts
+per session, and is strictly fail-open with a three-second budget; every skip
+or failure leaves the passive stop report in place. `RECONC_GROK_STEER=0`
+disables it, and `reconc grok` exports exactly that into its spawned agent so
+the strict ACP runner stays the only continuation driver there. Without a
+leader socket the TUI Stop simply remains passive. `reconc doctor --deep`
+reports leader reachability as the `Grok leader steering` check.
 `reconc run on|off|status|log` is the canonical AI-operated repository switch.
 Its durable state applies only to the selected repository, not the whole machine.
 Repository mode persists across sessions for Claude Code, Codex, Cursor,

@@ -73,6 +73,7 @@ func buildDoctorDeepReport(repo string) (*doctorDeepReport, error) {
 		Checks: []doctorCheck{
 			doctorCheckHookRuntimeCompatibility(discovery),
 			doctorCheckGrokRuntime(discovery),
+			doctorCheckGrokLeaderSteering(discovery),
 			doctorCheckLockfileFreshness(discovery),
 			doctorCheckAuditSize(discovery),
 			doctorCheckUnknownRefs(discovery),
@@ -177,6 +178,39 @@ func doctorCheckGrokRuntime(discovery ingest.DiscoveryResult) doctorCheck {
 		version = "unknown version"
 	}
 	check.Detail = fmt.Sprintf("Grok %s loaded all %d native Reconc routes from .grok/hooks/reconc.json", version, len(expected))
+	return check
+}
+
+// doctorProbeGrokLeader is swappable for tests.
+var doctorProbeGrokLeader = grokacp.ProbeLeaderSteering
+
+func doctorCheckGrokLeaderSteering(discovery ingest.DiscoveryResult) doctorCheck {
+	check := doctorCheck{
+		Name:   "Grok leader steering",
+		Status: doctorStatusOK,
+	}
+	if !discovery.Discovered {
+		check.Detail = "cannot probe Grok leader without a discovered reconc repo"
+		return check
+	}
+	if _, err := os.Stat(filepath.Join(discovery.RepoRoot, filepath.FromSlash(hooks.GrokHooksPath))); err != nil {
+		check.Detail = "native Grok hook not installed; steering not applicable"
+		return check
+	}
+	if grokacp.SteeringDisabled() {
+		check.Detail = "steering disabled via " + grokacp.SteerEnv
+		return check
+	}
+	probe := doctorProbeGrokLeader(2 * time.Second)
+	switch {
+	case probe.SocketPath == "":
+		check.Detail = "no Grok leader socket; TUI Stop stays passive (leader mode is opt-in: `grok --leader` or config `use_leader`)"
+	case probe.Reachable:
+		check.Detail = "Grok leader reachable at " + probe.SocketPath + "; TUI stop steering active"
+	default:
+		check.Status = doctorStatusWarn
+		check.Detail = "Grok leader socket " + probe.SocketPath + " present but handshake failed: " + probe.Detail
+	}
 	return check
 }
 

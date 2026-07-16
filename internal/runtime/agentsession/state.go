@@ -86,6 +86,7 @@ type SessionState struct {
 	PendingToolCalls           map[string]PendingToolCall `json:"pending_tool_calls,omitempty"`
 	MaterialEvents             uint64                     `json:"material_events,omitempty"`
 	LastMaterialSignature      string                     `json:"last_material_signature,omitempty"`
+	GrokSteerAttempts          uint64                     `json:"grok_steer_attempts,omitempty"`
 	EvidenceOverflow           bool                       `json:"evidence_overflow,omitempty"`
 	EvidenceOverflowReason     string                     `json:"evidence_overflow_reason,omitempty"`
 }

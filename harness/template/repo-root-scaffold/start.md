@@ -66,3 +66,7 @@ Grok Build has a native hard PreToolUse boundary but only a passive native Stop
 event. Use `reconc grok . --prompt "..."` for strict same-session continuation;
 the generated `.grok/hooks/reconc.json` still supplies native lifecycle,
 evidence, compaction, permission, subagent, and fail-closed tool policy routes.
+When Grok runs in leader mode (`grok --leader` or config `use_leader`), the
+Stop route additionally steers the live TUI session by interjecting the
+continuation over the leader socket; `reconc doctor --deep` reports this as
+`Grok leader steering`.

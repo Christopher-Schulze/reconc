@@ -27,6 +27,11 @@ func TestRunContinuesSameGrokACPSessionUntilReconcIsClean(t *testing.T) {
 	var stops atomic.Int32
 	dependencies := defaultDependencies
 	dependencies.preflight = func(context.Context, string, string, commandRunner) error { return nil }
+	var agentCmd *exec.Cmd
+	dependencies.command = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		agentCmd = exec.CommandContext(ctx, name, args...)
+		return agentCmd
+	}
 	dependencies.stop = func(_ string, payload []byte) agentsession.Result {
 		var body map[string]interface{}
 		if err := json.Unmarshal(payload, &body); err != nil {
@@ -57,6 +62,15 @@ func TestRunContinuesSameGrokACPSessionUntilReconcIsClean(t *testing.T) {
 	}
 	if stdout.String() != "first turn\nsecond turn\n" {
 		t.Fatalf("streamed output = %q", stdout.String())
+	}
+	steerDisabledInAgent := false
+	for _, entry := range agentCmd.Env {
+		if entry == SteerEnv+"=0" {
+			steerDisabledInAgent = true
+		}
+	}
+	if !steerDisabledInAgent {
+		t.Fatalf("spawned agent must inherit %s=0 so hooks never leader-steer, env=%v", SteerEnv, agentCmd.Env)
 	}
 	if !strings.Contains(stderr.String(), "continuation 1/2") {
 		t.Fatalf("continuation status missing: %q", stderr.String())

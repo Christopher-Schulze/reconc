@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"reconc.dev/reconc/internal/grokacp"
 	"reconc.dev/reconc/internal/hooks"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/runtime/agentsession"
@@ -70,6 +71,60 @@ func TestDoctorGrokRuntimeChecksTrustAndEveryNativeRoute(t *testing.T) {
 	if check.Status != doctorStatusWarn || !strings.Contains(check.Detail, "/hooks-trust") {
 		t.Fatalf("untrusted Grok doctor check = %+v", check)
 	}
+}
+
+func TestDoctorGrokLeaderSteering(t *testing.T) {
+	repo := makeCheckRepo(t,
+		"rules:\n  - id: deny-generated\n    kind: deny_write\n    paths: ['generated/**']\n    mode: warn\n    message: generated files are read-only\n")
+	discovery, err := ingest.DiscoverPolicyRepo(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := doctorProbeGrokLeader
+	defer func() { doctorProbeGrokLeader = original }()
+	t.Setenv(grokacp.SteerEnv, "")
+	probed := false
+	doctorProbeGrokLeader = func(time.Duration) grokacp.LeaderProbe {
+		probed = true
+		return grokacp.LeaderProbe{}
+	}
+
+	check := doctorCheckGrokLeaderSteering(discovery)
+	if check.Status != doctorStatusOK || !strings.Contains(check.Detail, "not applicable") || probed {
+		t.Fatalf("without Grok hook = %+v probed=%v", check, probed)
+	}
+
+	if _, err := hooks.Install(hooks.KindGrok, repo, false); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name   string
+		probe  grokacp.LeaderProbe
+		status string
+		detail string
+	}{
+		{name: "no socket", probe: grokacp.LeaderProbe{}, status: doctorStatusOK, detail: "stays passive"},
+		{name: "reachable", probe: grokacp.LeaderProbe{SocketPath: "/tmp/leader.sock", Reachable: true}, status: doctorStatusOK, detail: "steering active"},
+		{name: "handshake failed", probe: grokacp.LeaderProbe{SocketPath: "/tmp/leader.sock", Detail: "connection refused"}, status: doctorStatusWarn, detail: "connection refused"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			doctorProbeGrokLeader = func(time.Duration) grokacp.LeaderProbe { return test.probe }
+			check := doctorCheckGrokLeaderSteering(discovery)
+			if check.Status != test.status || !strings.Contains(check.Detail, test.detail) {
+				t.Fatalf("check = %+v, want status %s detail containing %q", check, test.status, test.detail)
+			}
+		})
+	}
+
+	t.Run("disabled via env", func(t *testing.T) {
+		t.Setenv(grokacp.SteerEnv, "0")
+		probed = false
+		check := doctorCheckGrokLeaderSteering(discovery)
+		if check.Status != doctorStatusOK || !strings.Contains(check.Detail, grokacp.SteerEnv) || probed {
+			t.Fatalf("disabled check = %+v probed=%v", check, probed)
+		}
+	})
 }
 
 func TestRunDoctorDeepOK(t *testing.T) {

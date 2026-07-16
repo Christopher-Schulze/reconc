@@ -56,7 +56,7 @@ internal/
   contextsize/    token-budget guard for canonical entrypoints + active TASK
   errors/         typed exception hierarchy (PolicySourceError, LockfileError, ...)
   extractor/      prose-to-rule heuristic scanner (regex-only, no LLM)
-  grokacp/        strict client for the external Grok ACP stdio runtime
+  grokacp/        strict client for the external Grok ACP stdio runtime + leader-socket stop steering
   hooks/          typed platform registry + generators + installers + activation probes + scaffold sync
   ingest/         discovery + source loading (AGENTS.md, .reconc.yml, presets, globals)
   lockdiff/       structural lockfile comparison (ignore-provenance semantics)

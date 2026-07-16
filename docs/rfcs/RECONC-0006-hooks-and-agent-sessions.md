@@ -77,6 +77,12 @@ Project hooks require Grok folder trust. `reconc doctor --deep` uses
 Stop is passive and cannot force another TUI turn. `reconc grok` provides the
 strict path by driving the unmodified official ACP stdio runtime and
 re-prompting the same session while Reconc returns a continuation reason.
+When Grok runs in leader mode, the `grok-stop` route additionally steers the
+TUI itself: it registers on the leader socket and queues the continuation
+reason via `x.ai/interject`, which Grok turns into an immediate prompt turn on
+an idle session. Steering requires a matching `GROK_SESSION_ID`, skips user
+interrupts, is capped at 32 attempts per session, honours
+`RECONC_GROK_STEER=0`, and fails open to the passive report.
 
 ## Generic Agents
 
