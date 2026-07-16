@@ -326,6 +326,8 @@ run_installer() {
     RECONC_TEST_FIXTURE="$fixture" \
     RECONC_RELEASE_BASE="https://release.invalid" \
     RECONC_INSTALL_DIR="$install_dir" \
+    RECONC_ATTESTATION_TOOL="${RECONC_TEST_ATTESTATION_TOOL:-reconc-attestation-absent}" \
+    RECONC_REQUIRE_ATTESTATION="${RECONC_TEST_REQUIRE_ATTESTATION:-0}" \
     sh "$root/install.sh" "$project_version"
 }
 
@@ -359,5 +361,53 @@ printf '%s  %s\n' "$(sha256_file "$fixture/$asset")" "$asset" > "$fixture/SHA256
 expect_failure run_installer
 [ "$("$install_dir/reconc")" = "sentinel" ] \
   || fail "non-executable release payload replaced the installed binary"
+
+# --- Attestation verification paths -----------------------------------
+
+# Restore a healthy fixture for the attestation cases.
+cat > "$fixture/$asset" <<SCRIPT
+#!/usr/bin/env sh
+[ "\${1:-}" = "--version" ] || exit 2
+printf 'reconc ${project_version}-test\n'
+SCRIPT
+chmod +x "$fixture/$asset"
+printf '%s  %s\n' "$(sha256_file "$fixture/$asset")" "$asset" > "$fixture/SHA256SUMS"
+
+# Required attestation with the tool absent must fail before install.
+printf '#!/usr/bin/env sh\nprintf "sentinel\\n"\n' > "$install_dir/reconc"
+chmod +x "$install_dir/reconc"
+RECONC_TEST_REQUIRE_ATTESTATION=1 expect_failure run_installer
+[ "$("$install_dir/reconc")" = "sentinel" ] \
+  || fail "required attestation without gh replaced the installed binary"
+
+# A succeeding attestation tool lets the install proceed.
+cat > "$fake_bin/reconc-attestation-pass" <<'SCRIPT'
+#!/usr/bin/env sh
+[ "${1:-}" = "attestation" ] && [ "${2:-}" = "verify" ] || exit 2
+exit 0
+SCRIPT
+chmod +x "$fake_bin/reconc-attestation-pass"
+RECONC_TEST_ATTESTATION_TOOL=reconc-attestation-pass \
+  RECONC_TEST_REQUIRE_ATTESTATION=1 run_installer >/dev/null 2>&1
+[ "$("$install_dir/reconc" --version)" = "reconc ${project_version}-test" ] \
+  || fail "verified attestation did not publish the downloaded binary"
+
+# A failing attestation tool blocks the install when required...
+cat > "$fake_bin/reconc-attestation-fail" <<'SCRIPT'
+#!/usr/bin/env sh
+exit 1
+SCRIPT
+chmod +x "$fake_bin/reconc-attestation-fail"
+printf '#!/usr/bin/env sh\nprintf "sentinel\\n"\n' > "$install_dir/reconc"
+chmod +x "$install_dir/reconc"
+RECONC_TEST_ATTESTATION_TOOL=reconc-attestation-fail \
+  RECONC_TEST_REQUIRE_ATTESTATION=1 expect_failure run_installer
+[ "$("$install_dir/reconc")" = "sentinel" ] \
+  || fail "failed required attestation replaced the installed binary"
+
+# ...and only warns when not required.
+RECONC_TEST_ATTESTATION_TOOL=reconc-attestation-fail run_installer >/dev/null 2>&1
+[ "$("$install_dir/reconc" --version)" = "reconc ${project_version}-test" ] \
+  || fail "optional failed attestation must not block the install"
 
 printf 'release-trust: ok\n'

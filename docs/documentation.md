@@ -97,6 +97,14 @@ before executing it, stages and re-verifies it inside the install directory,
 then atomically replaces the target. A download, manifest, checksum, execution,
 staging, or publication failure leaves an existing installation untouched.
 
+When the GitHub CLI (`gh`) is available, the installer additionally verifies
+the GitHub build-provenance attestation over `SHA256SUMS` before trusting any
+checksum, which breaks the binary-and-manifest-share-one-origin loop.
+Verification is skipped with a note when `gh` is absent and downgraded to a
+warning when it fails; `RECONC_REQUIRE_ATTESTATION=1` makes both cases fatal.
+`RECONC_ATTESTATION_TOOL` and `RECONC_ATTESTATION_REPO` override the tool and
+repository for mirrors.
+
 ## Transactional Bootstrap
 
 New repositories use an explicit inspect, plan, apply, and verify contract:
@@ -820,6 +828,14 @@ Release:
 - GitHub build-provenance attestations bind every manifest-listed artifact to the tagged workflow run.
 - GitHub publication is rerun-safe and stays draft until every verified artifact and the manifest upload successfully.
 - No Docker image is built or published.
+
+Reproducibility basis: release binaries are cross-compiled with a pinned Go
+toolchain, `-trimpath`, and `CGO_ENABLED=0`, so identical toolchain and
+source produce identical binaries. `SOURCE_DATE_EPOCH` feeds the SBOM
+generator only; the Go compiler embeds no timestamps. There is no
+independent rebuild attestation; the GitHub provenance attestation over
+`SHA256SUMS` is the cryptographic binding between artifacts and the tagged
+workflow run.
 
 ## Git Ignore Policy
 
