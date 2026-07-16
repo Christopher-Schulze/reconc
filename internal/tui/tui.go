@@ -8,7 +8,6 @@ package tui
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"reconc.dev/reconc/internal/audit"
 	"reconc.dev/reconc/internal/compiler"
@@ -178,12 +177,19 @@ func RenderText(view *View) string {
 	if len(view.Sources) == 0 {
 		fmt.Fprintf(&b, "  none\n")
 	} else {
-		for _, source := range view.Sources {
+		limit := len(view.Sources)
+		if limit > 30 {
+			limit = 30
+		}
+		for _, source := range view.Sources[:limit] {
 			label := source.Path
 			if source.Block != "" {
 				label += "#" + source.Block
 			}
 			fmt.Fprintf(&b, "  %-16s %s\n", source.Kind, label)
+		}
+		if len(view.Sources) > limit {
+			fmt.Fprintf(&b, "  ... %d more source(s)\n", len(view.Sources)-limit)
 		}
 	}
 
@@ -214,6 +220,5 @@ func RenderText(view *View) string {
 		}
 	}
 
-	fmt.Fprintf(&b, "\nGenerated: %s\n", time.Now().UTC().Format(time.RFC3339))
 	return b.String()
 }

@@ -102,7 +102,7 @@ func TestRunDoctorDeepChecks(t *testing.T) {
 		if err := os.MkdirAll(filepath.Dir(auditPath), 0o755); err != nil {
 			t.Fatalf("mkdir .reconc: %v", err)
 		}
-		payload := bytes.Repeat([]byte("x"), doctorAuditWarnBytes+1)
+		payload := bytes.Repeat([]byte("x"), int(doctorAuditWarnBytes)+1)
 		if err := os.WriteFile(auditPath, payload, 0o644); err != nil {
 			t.Fatalf("write audit log: %v", err)
 		}

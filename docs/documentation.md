@@ -426,6 +426,18 @@ reported only when their exact trigger scopes overlap and that single forbid
 rule blocks every required alternative. A partial overlap is satisfiable and
 is not reported as a contradiction.
 
+Command matching is exact (normalized whole strings) by default. The command
+kinds accept an additive `command_match: prefix` opt-in that also matches a
+recorded command extending an expected command at a token boundary
+(`pip install` matches `pip install requests`, never `pip installer`); for
+`require_command_success` that includes runs with extra arguments such as a
+`-run` filter, so authors opt in deliberately. Ordering semantics differ by
+design: `require_command` is presence-only (the command may have run before
+the triggering write), while `require_command_success` additionally enforces
+the write-epoch freshness contract. After upgrading, existing repositories
+must re-run `reconc hook install claude-code` once to pick up the extended
+Claude write-tool matchers (NotebookEdit and related tools).
+
 `reconc adopt .` detects Go and Bun stack evidence and may propose
 `go-assurance` or `bun-assurance`. A proposal is review-only. `adopt --apply`
 adds individual rule suggestions but never mutates `extends`; the agent or user

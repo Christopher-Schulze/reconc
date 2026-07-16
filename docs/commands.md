@@ -1,6 +1,6 @@
 # reconc -- Command Reference
 
-Full reference for all 41 subcommands. See `reconc <subcommand> --help` for
+Full reference for all 40 subcommands. See `reconc <subcommand> --help` for
 the exact flag details emitted by the installed binary.
 
 ## Daily path
@@ -25,10 +25,35 @@ Everything below is the full automation and diagnostic surface.
 
 ## Environment
 
+Runtime:
+
 - `RECONC_HOME` (default `~/.reconc`) -- user config, presets, templates
 - `RECONC_AUDIT=1` -- enable the opt-in append-only audit log
+- `RECONC_AUDIT_VERBOSE=1` -- store full command strings in audit records
+  instead of the redacted first token (may capture secrets in arguments)
 - `RECONC_CLAUDE_STATE_DIR` -- override the global session-state root
 - `RECONC_SCHEMA_BASE_URL` -- enterprise override for schema URLs; defaults to the format-versioned repository contracts under `schemas/v1/`
+- `RECONC_STOP_FINGERPRINT_UNTRACKED` (`normal` default, `all`, `no`) --
+  untracked-file mode for the Stop fingerprint's git status snapshot
+
+Debugging:
+
+- `RECONC_HOOK_TIMING=1` -- print per-stage hook-runtime timings to stderr
+- `RECONC_HOOK_TIMING_THRESHOLD_MS` -- only print timings above this bound
+- `RECONC_AUDIT_NO_CACHE=1` -- bypass the audit stats cache
+
+Installer (`install.sh` only):
+
+- `RECONC_INSTALL_DIR` (default `/usr/local/bin`) -- install target
+- `RECONC_RELEASE_BASE` -- release download mirror
+- `RECONC_REQUIRE_ATTESTATION=1` -- make GitHub provenance verification
+  of `SHA256SUMS` mandatory
+- `RECONC_ATTESTATION_TOOL` / `RECONC_ATTESTATION_REPO` -- override the
+  verification tool (default `gh`) and repository
+
+Variables prefixed `RECONC_HOOK_` other than the timing pair (for example
+`RECONC_HOOK_REPO_RESOLVED`, `RECONC_HOOK_RUNTIME`) are internal wrapper
+plumbing, not user configuration.
 
 ---
 
@@ -391,6 +416,14 @@ Emit a shell completion script. Install one-liners:
 reconc completion bash > /usr/local/etc/bash_completion.d/reconc
 reconc completion zsh  > /usr/local/share/zsh/site-functions/_reconc
 reconc completion fish > ~/.config/fish/completions/reconc.fish
+```
+
+### `reconc manpage`
+Emit the roff man page (section 1) on stdout, generated from the same
+subcommand table as shell completion. Install example:
+
+```bash
+reconc manpage > /usr/local/share/man/man1/reconc.1
 ```
 
 ### `reconc version [--json]`

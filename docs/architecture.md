@@ -66,6 +66,9 @@ internal/
   presets/        bundled policy packs (embed.FS) + user overlays
   runtime/        evaluator + remediation + git integration + subprocess runner
   retention/      bounded runtime storage lifecycle + owned temp cleanup
+  runtime/agentsession/  hook payload handlers, session evidence state,
+                  stop policy cache, run-state store (the package the
+                  hook-runtime threat model below describes)
   scaffold/       reconc init implementation
   schema/         canonical public JSON contract URLs + enterprise override
   tasklifecycle/  typed TASK profiles + recoverable state transactions
@@ -292,15 +295,20 @@ Every path in the payload is:
 4. Tested for containment in the (symlink-resolved) project root.
 5. Rejected with `RepoBoundaryError` if outside.
 
-Shared helpers: `canonicalRoot` + `canonicalPath`.
+Implemented in the agentsession handlers (`filepath.EvalSymlinks`
+containment in `handlers.go` and `state.go`) and mirrored by the
+evaluator's `normalizePaths`/`sameCanonicalPath`; the assurance file
+walker uses its own `canonicalRoot`.
 
 ### Command-injection
 
 Command / tool-use strings in the payload are **data**, never
 executed by reconc. The evaluator's rule-matching compares them as
 strings; no `exec.Command` call path in the runtime handlers takes
-user data as the binary name or unescaped argument. Verified by a
-grep-guard test.
+user data as the binary name or unescaped argument. Enforced by a
+source-scan guard test (`TestNoExecCommandTakesNonLiteralBinary` in
+`internal/runtime/agentsession`): every exec.Command binary in the
+payload-handling package must be a string literal.
 
 ### Session identity boundary
 

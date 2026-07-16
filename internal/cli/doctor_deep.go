@@ -27,7 +27,11 @@ const (
 	doctorStatusWarn = "WARN"
 	doctorStatusFail = "FAIL"
 
-	doctorAuditWarnBytes = 10 * 1024 * 1024
+	// doctorAuditWarnBytes is the live+archive ring ceiling: the writer
+	// rotates the live file at audit.DefaultMaxSizeBytes and keeps
+	// audit.MaxArchiveFiles archives, so exceeding the ring total means
+	// rotation itself is broken, not that the user forgot housekeeping.
+	doctorAuditWarnBytes = int64(audit.DefaultMaxSizeBytes) * int64(1+audit.MaxArchiveFiles)
 )
 
 var doctorInlineBlockRegex = regexp.MustCompile("(?ms)^```reconc[ \\t]*\\r?\\n(.*?)\\r?\\n```")
@@ -123,12 +127,19 @@ func doctorCheckAuditSize(discovery ingest.DiscoveryResult) doctorCheck {
 		check.Detail = "cannot stat audit log: " + err.Error()
 		return check
 	}
-	if info.Size() > doctorAuditWarnBytes {
+	// Measure the whole ring: live file plus rotation archives.
+	total := info.Size()
+	for index := 1; index <= audit.MaxArchiveFiles; index++ {
+		if archiveInfo, archiveErr := os.Stat(fmt.Sprintf("%s.%d", path, index)); archiveErr == nil {
+			total += archiveInfo.Size()
+		}
+	}
+	if total > doctorAuditWarnBytes {
 		check.Status = doctorStatusWarn
-		check.Detail = fmt.Sprintf("%s is %.1f MiB (>10 MiB); rotate or archive old audit data", audit.AuditFileRelative, float64(info.Size())/1024.0/1024.0)
+		check.Detail = fmt.Sprintf("%s ring is %.1f MiB (> %.0f MiB ceiling); rotation appears broken - inspect the live file and archives", audit.AuditFileRelative, float64(total)/1024.0/1024.0, float64(doctorAuditWarnBytes)/1024.0/1024.0)
 		return check
 	}
-	check.Detail = fmt.Sprintf("%s is %.1f KiB", audit.AuditFileRelative, float64(info.Size())/1024.0)
+	check.Detail = fmt.Sprintf("%s ring is %.1f KiB (live + %d archives)", audit.AuditFileRelative, float64(total)/1024.0, audit.MaxArchiveFiles)
 	return check
 }
 
