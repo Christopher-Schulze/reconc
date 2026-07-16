@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -295,6 +296,22 @@ func runHookSyncScaffold(args []string, stdout, stderr io.Writer) error {
 // the per-event handler, and translates the Result into exit code +
 // stdout/stderr.
 //
+// dedupToFirstClassRoute suppresses a cross-runtime duplicate event only
+// when the first-class platform's hooks are actually installed in this
+// repository. Without that gate, a stray environment variable
+// (DEVIN_PROJECT_DIR) or overlapping payload field names could silently
+// no-op the ONLY enforcement route in arbitrary repos. The dedup is
+// recorded (stderr note + liveness) so `reconc hook status` reflects
+// activity instead of showing dead routes.
+func dedupToFirstClassRoute(repo, configRelPath, event string, stderr io.Writer) bool {
+	if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(configRelPath))); err != nil {
+		return false
+	}
+	fmt.Fprintf(stderr, "reconc hook runtime: %s deduplicated; first-class %s owns this event\n", event, configRelPath)
+	_ = agentsession.RecordHookLiveness(repo, event, event)
+	return true
+}
+
 // Design anchor: the threat model in docs/architecture.md#threat-model-hook-runtime
 // specifies the behaviour for every failure mode (fail-closed vs
 // fail-open per event, max payload size, depth limits, timeout).
@@ -343,10 +360,14 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 	}
 	timing.mark("payload_read")
 	if route.PlatformKind != hooks.KindCursor && agentsession.PayloadLooksLikeCursor(payload) {
-		return nil
+		if dedupToFirstClassRoute(repo, hooks.CursorHooksPath, event, stderr) {
+			return nil
+		}
 	}
 	if route.PlatformKind != hooks.KindDevinCLI && agentsession.PayloadLooksLikeDevin(payload) {
-		return nil
+		if dedupToFirstClassRoute(repo, hooks.DevinHooksPath, event, stderr) {
+			return nil
+		}
 	}
 	switch route.PlatformKind {
 	case hooks.KindCursor:

@@ -47,20 +47,46 @@ var CommandToolNames = map[string]struct{}{"Bash": {}, "bash": {}}
 // Stop per the threat model.
 var ErrPayloadTooLarge = errors.New("hook payload exceeds 1 MiB limit")
 
+// ErrPayloadReadTimeout is returned when the host does not deliver the
+// payload (EOF included) within StdinTimeout. Without this bound a host
+// that spawns the hook but withholds stdin would wedge the process
+// forever on platforms whose plugin layer has no own kill timer.
+var ErrPayloadReadTimeout = errors.New("hook payload read timed out")
+
 // ReadPayload reads up to MaxPayloadBytes from r, enforcing the size
-// cap. A deadline-enforcing reader is the caller's responsibility
-// (typically the CLI wires an io.Reader derived from os.Stdin with a
-// deadline or SetReadDeadline on the underlying *os.File).
+// cap and the StdinTimeout deadline. The read runs in a goroutine
+// because os.Stdin does not reliably support SetReadDeadline across
+// platforms; on timeout the goroutine is abandoned (the process exits
+// shortly after, so nothing leaks in practice).
 func ReadPayload(r io.Reader) ([]byte, error) {
-	limited := io.LimitReader(r, MaxPayloadBytes+1)
-	data, err := io.ReadAll(limited)
-	if err != nil {
-		return nil, fmt.Errorf("read stdin: %w", err)
+	return readPayloadWithTimeout(r, StdinTimeout)
+}
+
+func readPayloadWithTimeout(r io.Reader, timeout time.Duration) ([]byte, error) {
+	type outcome struct {
+		data []byte
+		err  error
 	}
-	if int64(len(data)) > MaxPayloadBytes {
-		return nil, ErrPayloadTooLarge
+	done := make(chan outcome, 1)
+	go func() {
+		limited := io.LimitReader(r, MaxPayloadBytes+1)
+		data, err := io.ReadAll(limited)
+		done <- outcome{data: data, err: err}
+	}()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case result := <-done:
+		if result.err != nil {
+			return nil, fmt.Errorf("read stdin: %w", result.err)
+		}
+		if int64(len(result.data)) > MaxPayloadBytes {
+			return nil, ErrPayloadTooLarge
+		}
+		return result.data, nil
+	case <-timer.C:
+		return nil, ErrPayloadReadTimeout
 	}
-	return data, nil
 }
 
 // ParsePayload decodes one hook payload with depth-limited JSON

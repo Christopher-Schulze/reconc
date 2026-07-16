@@ -127,6 +127,13 @@ func RunPreToolUse(repoRoot string, payloadBytes []byte) Result {
 	}
 	pendingWrites := payload.FilePaths()
 	if len(pendingWrites) == 0 {
+		// An apply_patch call whose patch body parses to zero file
+		// operations means the envelope format drifted; passing it
+		// through would silently ungate every Codex write. Fail closed
+		// like any other malformed pre-write payload.
+		if payload.ToolName == "apply_patch" && payload.Command() != "" {
+			return Result{ExitCode: 2, Stderr: "reconc hook (pre): apply_patch payload contains no parseable file operations; refusing to pass an unparseable write through the gate"}
+		}
 		return Result{ExitCode: 0}
 	}
 	root, err := ResolveRepoRoot(repoRoot)

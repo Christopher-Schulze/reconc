@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestReadPayloadUnderLimit(t *testing.T) {
@@ -205,5 +206,19 @@ func TestParsePayloadStopHookActive(t *testing.T) {
 	p2, _ := ParsePayload([]byte(`{"session_id":"s1"}`))
 	if p2.StopHookActive {
 		t.Error("expected StopHookActive=false when absent")
+	}
+}
+
+type neverEndingReader struct{}
+
+func (neverEndingReader) Read(p []byte) (int, error) {
+	time.Sleep(10 * time.Millisecond)
+	return 0, nil
+}
+
+func TestReadPayloadTimesOutOnWithheldStdin(t *testing.T) {
+	_, err := readPayloadWithTimeout(neverEndingReader{}, 50*time.Millisecond)
+	if !errors.Is(err, ErrPayloadReadTimeout) {
+		t.Fatalf("expected ErrPayloadReadTimeout, got %v", err)
 	}
 }

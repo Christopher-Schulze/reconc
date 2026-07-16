@@ -555,3 +555,52 @@ func TestHookRuntimePayloadSizeLimit(t *testing.T) {
 		t.Errorf("payload > 1 MiB should fail-closed exit 2 for PreToolUse, got %d", code)
 	}
 }
+
+// A stray DEVIN_PROJECT_DIR must not silently no-op non-Devin routes
+// when no first-class Devin hooks are installed in the repository.
+func TestHookRuntimeDevinEnvDoesNotDisableClaudeRouteWithoutDevinHooks(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	t.Setenv("DEVIN_PROJECT_DIR", "/somewhere/else")
+
+	payload := `{"session_id":"ses_devenv1","tool_name":"Write","tool_input":{"file_path":"generated/out.txt"}}`
+	_, stderrStr, code := runWithStdin(t, payload, "hook", "runtime", "claude-pre-tool-use", repo)
+	if code != 2 {
+		t.Fatalf("deny_write must still block with stray Devin env and no .devin hooks; code=%d stderr=%s", code, stderrStr)
+	}
+}
+
+// With first-class Devin hooks installed, the duplicate Claude route is
+// deduplicated and says so on stderr instead of silently exiting.
+func TestHookRuntimeDevinDedupIsVisibleWhenDevinHooksInstalled(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	t.Setenv("DEVIN_PROJECT_DIR", repo)
+	if err := os.MkdirAll(filepath.Join(repo, ".devin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".devin", "hooks.v1.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	payload := `{"session_id":"ses_devenv2","tool_name":"Write","tool_input":{"file_path":"generated/out.txt"}}`
+	_, stderrStr, code := runWithStdin(t, payload, "hook", "runtime", "claude-pre-tool-use", repo)
+	if code != 0 {
+		t.Fatalf("dedup to first-class Devin route should exit 0, got %d", code)
+	}
+	if !strings.Contains(stderrStr, "deduplicated") {
+		t.Fatalf("dedup must be visible on stderr, got: %q", stderrStr)
+	}
+}
+
+// An apply_patch payload whose patch parses to zero file operations
+// must fail closed instead of silently ungating the write.
+func TestHookRuntimeApplyPatchWithoutParseablePathsFailsClosed(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	payload := `{"session_id":"ses_patch1","tool_name":"apply_patch","tool_input":{"command":"*** Begin Patch\n*** Renamed File: a.txt\n*** End Patch"}}`
+	_, stderrStr, code := runWithStdin(t, payload, "hook", "runtime", "codex-pre-tool-use", repo)
+	if code != 2 {
+		t.Fatalf("unparseable apply_patch must fail closed; code=%d stderr=%s", code, stderrStr)
+	}
+	if !strings.Contains(stderrStr, "no parseable file operations") {
+		t.Fatalf("expected parse-failure explanation, got: %q", stderrStr)
+	}
+}
