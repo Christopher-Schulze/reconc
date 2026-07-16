@@ -161,6 +161,7 @@
         "when_paths": { "$ref": "#/$defs/stringArray" },
         "commands": { "$ref": "#/$defs/stringArray" },
         "claims": { "$ref": "#/$defs/stringArray" },
+        "command_match": { "enum": ["exact", "prefix"] },
         "optional": { "type": "boolean" }
       }
     },
@@ -234,6 +235,7 @@
         "when_paths": { "$ref": "#/$defs/stringArray" },
         "commands": { "$ref": "#/$defs/stringArray" },
         "claims": { "$ref": "#/$defs/stringArray" },
+        "command_match": { "enum": ["exact", "prefix"] },
         "required_files": {
           "type": "array",
           "items": { "$ref": "#/$defs/requiredFile" }

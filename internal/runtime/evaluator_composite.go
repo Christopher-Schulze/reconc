@@ -220,6 +220,9 @@ func checkFromMap(m map[string]interface{}) (policy.Check, bool) {
 			}
 		}
 	}
+	if matchMode, ok := m["command_match"].(string); ok {
+		c.CommandMatch = policy.CommandMatch(matchMode)
+	}
 	c.Optional, _ = m["optional"].(bool)
 	return c, true
 }
@@ -401,9 +404,9 @@ func evalCheckRequireCommand(ctx *evalContext, c policy.Check, inputs ExecutionI
 	var matched []string
 	repoRoot := ctxRepoRoot(ctx)
 	if requireSuccess {
-		matched = matchingCommandResultsSince(inputs.CommandResults, c.Commands, CommandOutcomeSuccess, repoRoot, minimumEpoch)
+		matched = matchingCommandResultsSince(inputs.CommandResults, c.Commands, CommandOutcomeSuccess, repoRoot, minimumEpoch, c.CommandMatch)
 	} else {
-		matched = matchingCommands(inputs.Commands, c.Commands, repoRoot)
+		matched = matchingCommands(inputs.Commands, c.Commands, repoRoot, c.CommandMatch)
 	}
 	if len(matched) > 0 {
 		return true, "", nil
@@ -416,7 +419,7 @@ func evalCheckRequireCommand(ctx *evalContext, c policy.Check, inputs ExecutionI
 }
 
 func evalCheckForbidCommand(ctx *evalContext, c policy.Check, inputs ExecutionInputs) (bool, string, error) {
-	hit := matchingCommands(inputs.Commands, c.Commands, ctxRepoRoot(ctx))
+	hit := matchingCommands(inputs.Commands, c.Commands, ctxRepoRoot(ctx), c.CommandMatch)
 	if len(hit) == 0 {
 		return true, "", nil
 	}

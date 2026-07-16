@@ -86,7 +86,13 @@ rules:
       - "**/pyproject.toml"
       - "requirements.txt"
       - "**/requirements.txt"
+    # Prefix matching catches every argument form (`pip install requests`,
+    # `pip install --user x`); exact matching would only stop the bare
+    # command.
+    command_match: prefix
     commands:
       - "pip install"
-      - "pip install -r requirements.txt"
+      - "pip3 install"
+      - "python -m pip install"
+      - "python3 -m pip install"
     message: Do not run `pip install` against manifest edits; use the repo's canonical installer (uv sync, poetry install, pip-sync).

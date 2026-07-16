@@ -24,6 +24,16 @@
 | `couple_change` | `paths`, `when_paths` | A primary write matching `paths` requires a separate companion write matching `when_paths`; a path matching both is classified as a companion. |
 | `require_claim` | `claims`, `when_paths` | Writes matching `when_paths` require at least one listed claim. |
 
+The command kinds (`require_command`, `require_command_success`,
+`forbid_command`) accept an optional additive `command_match` field:
+`exact` (default) compares normalized whole strings; `prefix` also
+matches a recorded command that extends an expected command at a token
+boundary (`pip install` matches `pip install requests`, never
+`pip installer`). For `require_command_success`, prefix mode also
+accepts runs carrying extra arguments (such as a `-run` filter), so
+authors opt in deliberately. Composite sub-checks carry the field on
+the check entry.
+
 ## Evidence Rule Kinds
 
 | Kind | Required fields | Semantics |

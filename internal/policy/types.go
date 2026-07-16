@@ -44,6 +44,29 @@ func (m Mode) Valid() bool {
 	return false
 }
 
+// CommandMatch selects how command rules compare a recorded command
+// against the rule's expected commands after normalization.
+type CommandMatch string
+
+const (
+	// CommandMatchExact is the default: normalized whole-string equality
+	// (plus the documented trailing-redirect tolerance for
+	// require_command_success).
+	CommandMatchExact CommandMatch = "exact"
+	// CommandMatchPrefix matches when the recorded command equals the
+	// expected command or extends it at a token boundary
+	// ("pip install" matches "pip install requests"). Opt-in per rule:
+	// for require_command_success it also accepts runs with EXTRA
+	// arguments (e.g. a -run filter), so authors must want that.
+	CommandMatchPrefix CommandMatch = "prefix"
+)
+
+// Valid reports whether m is a recognized command match mode. The empty
+// string is valid and means exact.
+func (m CommandMatch) Valid() bool {
+	return m == "" || m == CommandMatchExact || m == CommandMatchPrefix
+}
+
 // Kind identifies the semantic class of a rule.
 //
 // The kinds below are the core rule kinds plus native reconc extensions such
@@ -131,6 +154,10 @@ type Rule struct {
 	WhenPaths   []string `json:"when_paths,omitempty" yaml:"when_paths,omitempty"`
 	Commands    []string `json:"commands,omitempty" yaml:"commands,omitempty"`
 	Claims      []string `json:"claims,omitempty" yaml:"claims,omitempty"`
+	// CommandMatch selects exact (default) or prefix comparison for the
+	// command rule kinds (require_command, require_command_success,
+	// forbid_command). Ignored by other kinds.
+	CommandMatch CommandMatch `json:"command_match,omitempty" yaml:"command_match,omitempty"`
 
 	// Phase 4A (W22) fields: filesystem-evidence checks.
 	RequiredFiles []RequiredFile  `json:"required_files,omitempty" yaml:"required_files,omitempty"`
@@ -347,6 +374,8 @@ type Check struct {
 	WhenPaths   []string `json:"when_paths,omitempty" yaml:"when_paths,omitempty"`
 	Commands    []string `json:"commands,omitempty" yaml:"commands,omitempty"`
 	Claims      []string `json:"claims,omitempty" yaml:"claims,omitempty"`
+	// CommandMatch mirrors Rule.CommandMatch for command sub-checks.
+	CommandMatch CommandMatch `json:"command_match,omitempty" yaml:"command_match,omitempty"`
 
 	// Optional skips the check on a soft failure (e.g. file missing
 	// when it's a source-of-information lookup, not an assertion).

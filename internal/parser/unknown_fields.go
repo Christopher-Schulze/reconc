@@ -11,9 +11,9 @@ import (
 
 var ruleFields = fieldSet(
 	"id", "kind", "mode", "message", "paths", "before_paths", "when_paths",
-	"commands", "claims", "required_files", "evidence", "checks", "script", "args",
-	"timeout_sec", "kill_timeout_sec", "assurance", "template", "deprecated",
-	"deprecated_reason", "deprecated_since", "deprecated_replaced_by",
+	"commands", "claims", "command_match", "required_files", "evidence", "checks",
+	"script", "args", "timeout_sec", "kill_timeout_sec", "assurance", "template",
+	"deprecated", "deprecated_reason", "deprecated_since", "deprecated_replaced_by",
 )
 
 func validateDocumentFields(src policy.PolicySource, doc map[string]interface{}) error {
@@ -114,7 +114,7 @@ func validateCheckFields(check map[string]interface{}, context string) error {
 	case policy.KindRequireClaim:
 		addFields(allowed, "claims")
 	case policy.KindRequireCommand, policy.KindRequireCommandSuccess, policy.KindForbidCommand:
-		addFields(allowed, "commands")
+		addFields(allowed, "commands", "command_match")
 	case policy.KindDenyWrite:
 		addFields(allowed, "paths")
 	case policy.KindRequireScript:

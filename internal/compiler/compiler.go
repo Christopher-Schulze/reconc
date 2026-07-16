@@ -286,6 +286,9 @@ func ruleToMap(r policy.Rule) map[string]interface{} {
 	if len(r.Claims) > 0 {
 		m["claims"] = r.Claims
 	}
+	if r.CommandMatch != "" {
+		m["command_match"] = string(r.CommandMatch)
+	}
 	if len(r.RequiredFiles) > 0 {
 		out := make([]interface{}, len(r.RequiredFiles))
 		for i, rf := range r.RequiredFiles {
@@ -480,6 +483,9 @@ func checkToMap(c policy.Check) map[string]interface{} {
 	}
 	if len(c.Claims) > 0 {
 		m["claims"] = c.Claims
+	}
+	if c.CommandMatch != "" {
+		m["command_match"] = string(c.CommandMatch)
 	}
 	if c.Optional {
 		m["optional"] = true

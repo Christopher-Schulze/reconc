@@ -20,6 +20,7 @@
   },
   "$defs": {
     "mode": { "enum": ["observe", "warn", "block", "fix"] },
+    "commandMatch": { "enum": ["exact", "prefix"] },
     "kind": {
       "enum": [
         "deny_write", "require_read", "require_command", "require_command_success",
@@ -105,7 +106,8 @@
         "timeout_sec": { "type": "integer", "minimum": 0 },
         "paths": { "$ref": "#/$defs/nonEmptyStrings" },
         "commands": { "$ref": "#/$defs/nonEmptyStrings" },
-        "claims": { "$ref": "#/$defs/nonEmptyStrings" }
+        "claims": { "$ref": "#/$defs/nonEmptyStrings" },
+        "command_match": { "$ref": "#/$defs/commandMatch" }
       }
     },
     "assuranceExemption": {
@@ -165,6 +167,7 @@
         "when_paths": { "$ref": "#/$defs/nonEmptyStrings" },
         "commands": { "$ref": "#/$defs/nonEmptyStrings" },
         "claims": { "$ref": "#/$defs/nonEmptyStrings" },
+        "command_match": { "$ref": "#/$defs/commandMatch" },
         "required_files": { "type": "array", "items": { "$ref": "#/$defs/requiredFile" } },
         "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
         "checks": { "type": "array", "items": { "$ref": "#/$defs/check" } },

@@ -936,7 +936,7 @@ func TestMatchingCommandsForbidSafety(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := matchingCommands(tc.actual, expected, "")
+			got := matchingCommands(tc.actual, expected, "", policy.CommandMatchExact)
 			if len(got) != len(tc.want) {
 				t.Fatalf("got %v, want %v", got, tc.want)
 			}
@@ -1097,5 +1097,64 @@ func TestStripTrailingRedirects(t *testing.T) {
 		if got := stripTrailingRedirects(c.in); got != c.want {
 			t.Errorf("stripTrailingRedirects(%q) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+func TestCommandMatchPrefixForbidsArgumentForms(t *testing.T) {
+	repo := makeRepoWithFiles(t,
+		"rules:\n  - id: no-pip\n    kind: forbid_command\n    command_match: prefix\n    commands: ['pip install']\n    mode: block\n    message: m\n",
+		nil)
+
+	inputs := Empty()
+	inputs.Commands = []string{"pip install requests"}
+	report, err := CheckRepoPolicy(repo, inputs)
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if report.Decision != DecisionBlock {
+		t.Errorf("prefix forbid must catch argument form, got %s", report.Decision)
+	}
+
+	// Token boundary: an extended WORD is not a prefix hit.
+	inputs.Commands = []string{"pip installer x"}
+	report, err = CheckRepoPolicy(repo, inputs)
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if report.Decision != DecisionPass {
+		t.Errorf("'pip installer' must not match prefix 'pip install', got %s", report.Decision)
+	}
+}
+
+func TestCommandMatchDefaultStaysExact(t *testing.T) {
+	repo := makeRepoWithFiles(t,
+		"rules:\n  - id: no-pip\n    kind: forbid_command\n    commands: ['pip install']\n    mode: block\n    message: m\n",
+		nil)
+
+	inputs := Empty()
+	inputs.Commands = []string{"pip install requests"}
+	report, err := CheckRepoPolicy(repo, inputs)
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if report.Decision != DecisionPass {
+		t.Errorf("without command_match the default must stay exact, got %s", report.Decision)
+	}
+}
+
+func TestCommandMatchPrefixSatisfiesRequireCommandSuccess(t *testing.T) {
+	repo := makeRepoWithFiles(t,
+		"rules:\n  - id: tests-first\n    kind: require_command_success\n    command_match: prefix\n    when_paths: ['src/**']\n    commands: ['go test ./...']\n    mode: block\n    message: m\n",
+		nil)
+
+	inputs := Empty()
+	inputs.WritePaths = []string{"src/main.go"}
+	inputs.CommandResults = []CommandResult{{Command: "go test ./... -run TestFoo", Outcome: CommandOutcomeSuccess}}
+	report, err := CheckRepoPolicy(repo, inputs)
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if report.Decision != DecisionPass {
+		t.Errorf("prefix mode must accept extra trailing arguments, got %s; violations: %+v", report.Decision, report.Violations)
 	}
 }

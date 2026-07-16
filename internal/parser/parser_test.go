@@ -2,6 +2,7 @@ package parser
 
 import (
 	stderrors "errors"
+	"strings"
 	"testing"
 
 	rerrors "reconc.dev/reconc/internal/errors"
@@ -1098,4 +1099,42 @@ func contains(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func parseCommandMatchYAML(t *testing.T, yaml string) (*ParsedPolicy, error) {
+	t.Helper()
+	return ParseRuleDocuments(makeBundle(policy.PolicySource{
+		Kind:    policy.SourcePolicyFile,
+		Path:    "policies/x.yml",
+		Content: yaml,
+	}))
+}
+
+func TestCommandMatchValidation(t *testing.T) {
+	// Invalid value fails loud.
+	_, err := parseCommandMatchYAML(t, "rules:\n  - id: r1\n    kind: forbid_command\n    command_match: fuzzy\n    commands: ['x']\n    mode: block\n    message: m\n")
+	if err == nil || !strings.Contains(err.Error(), "command_match must be 'exact' or 'prefix'") {
+		t.Fatalf("expected invalid command_match error, got %v", err)
+	}
+	// Wrong kind fails loud.
+	_, err = parseCommandMatchYAML(t, "rules:\n  - id: r2\n    kind: deny_write\n    command_match: prefix\n    paths: ['gen/**']\n    mode: block\n    message: m\n")
+	if err == nil || !strings.Contains(err.Error(), "only valid for require_command") {
+		t.Fatalf("expected kind-restriction error, got %v", err)
+	}
+	// Exact normalizes to empty (lockfile stays clean).
+	parsed, err := parseCommandMatchYAML(t, "rules:\n  - id: r3\n    kind: forbid_command\n    command_match: exact\n    commands: ['x']\n    mode: block\n    message: m\n")
+	if err != nil {
+		t.Fatalf("exact must be accepted: %v", err)
+	}
+	if parsed.Rules[0].CommandMatch != "" {
+		t.Errorf("exact should normalize to empty, got %q", parsed.Rules[0].CommandMatch)
+	}
+	// Prefix round-trips.
+	parsed, err = parseCommandMatchYAML(t, "rules:\n  - id: r4\n    kind: forbid_command\n    command_match: prefix\n    commands: ['x']\n    mode: block\n    message: m\n")
+	if err != nil {
+		t.Fatalf("prefix must be accepted: %v", err)
+	}
+	if parsed.Rules[0].CommandMatch != policy.CommandMatchPrefix {
+		t.Errorf("prefix should survive parsing, got %q", parsed.Rules[0].CommandMatch)
+	}
 }

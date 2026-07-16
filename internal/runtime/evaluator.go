@@ -1517,7 +1517,7 @@ func evalRequireClaim(rule map[string]interface{}, defaultMode policy.Mode, inpu
 
 func evalForbidCommand(ctx *evalContext, rule map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
 	required := stringListField(rule, "commands")
-	forbidden := matchingCommands(inputs.Commands, required, ctxRepoRoot(ctx))
+	forbidden := matchingCommands(inputs.Commands, required, ctxRepoRoot(ctx), ruleCommandMatchMode(rule))
 	if len(forbidden) == 0 {
 		return nil, nil
 	}
@@ -1549,9 +1549,9 @@ func evalRequireCommand(ctx *evalContext, rule map[string]interface{}, defaultMo
 	repoRoot := ctxRepoRoot(ctx)
 	if requireSuccess {
 		minimumEpoch := latestWriteEpoch(triggered, inputs.WriteEpochs)
-		matched = matchingCommandResultsSince(inputs.CommandResults, required, CommandOutcomeSuccess, repoRoot, minimumEpoch)
+		matched = matchingCommandResultsSince(inputs.CommandResults, required, CommandOutcomeSuccess, repoRoot, minimumEpoch, ruleCommandMatchMode(rule))
 	} else {
-		matched = matchingCommands(inputs.Commands, required, repoRoot)
+		matched = matchingCommands(inputs.Commands, required, repoRoot, ruleCommandMatchMode(rule))
 	}
 	if len(matched) > 0 {
 		return nil, nil
@@ -1588,7 +1588,7 @@ func matchingPaths(paths, patterns []string) ([]string, error) {
 	return out, nil
 }
 
-func matchingCommands(commands, expected []string, repoRoot string) []string {
+func matchingCommands(commands, expected []string, repoRoot string, match policy.CommandMatch) []string {
 	if len(expected) == 0 {
 		return nil
 	}
@@ -1599,13 +1599,10 @@ func matchingCommands(commands, expected []string, repoRoot string) []string {
 	// repo path by the agent runtime (e.g.
 	// `cd /Users/.../repo/sub && ...`). normalizeCommandSemantics
 	// applies both transformations to expected and recorded sides.
-	expectedSet := map[string]struct{}{}
-	for _, e := range expected {
-		expectedSet[normalizeCommandSemantics(e, repoRoot)] = struct{}{}
-	}
+	normalizedExpected := normalizeExpectedCommands(expected, repoRoot)
 	out := []string{}
 	for _, c := range commands {
-		if _, ok := expectedSet[normalizeCommandSemantics(c, repoRoot)]; ok {
+		if commandMatchesExpected(normalizeCommandSemantics(c, repoRoot), normalizedExpected, match) {
 			out = append(out, c)
 		}
 	}
@@ -1613,26 +1610,23 @@ func matchingCommands(commands, expected []string, repoRoot string) []string {
 }
 
 func matchingCommandResults(results []CommandResult, expected []string, outcome string, repoRoot string) []string {
-	return matchingCommandResultsSince(results, expected, outcome, repoRoot, 0)
+	return matchingCommandResultsSince(results, expected, outcome, repoRoot, 0, policy.CommandMatchExact)
 }
 
-func matchingCommandResultsSince(results []CommandResult, expected []string, outcome string, repoRoot string, minimumEpoch uint64) []string {
+func matchingCommandResultsSince(results []CommandResult, expected []string, outcome string, repoRoot string, minimumEpoch uint64, match policy.CommandMatch) []string {
 	if len(expected) == 0 {
 		return nil
 	}
 	// Normalise both sides of the comparison (whitespace + RTK prefix +
 	// absolute repoRoot in cd). See matchingCommands for the rationale.
-	expectedSet := map[string]struct{}{}
-	for _, e := range expected {
-		expectedSet[normalizeCommandSemantics(e, repoRoot)] = struct{}{}
-	}
+	normalizedExpected := normalizeExpectedCommands(expected, repoRoot)
 	out := []string{}
 	for _, r := range results {
 		if r.Outcome != outcome || r.EvidenceEpoch < minimumEpoch {
 			continue
 		}
 		norm := normalizeCommandSemantics(r.Command, repoRoot)
-		if _, ok := expectedSet[norm]; ok {
+		if commandMatchesExpected(norm, normalizedExpected, match) {
 			out = append(out, r.Command)
 			continue
 		}
@@ -1645,12 +1639,45 @@ func matchingCommandResultsSince(results []CommandResult, expected []string, out
 		// record success even when the test failed - tolerating it would
 		// weaken require_command_success.
 		if stripped := stripTrailingRedirects(norm); stripped != norm {
-			if _, ok := expectedSet[stripped]; ok {
+			if commandMatchesExpected(stripped, normalizedExpected, match) {
 				out = append(out, r.Command)
 			}
 		}
 	}
 	return out
+}
+
+func normalizeExpectedCommands(expected []string, repoRoot string) []string {
+	out := make([]string, 0, len(expected))
+	for _, e := range expected {
+		out = append(out, normalizeCommandSemantics(e, repoRoot))
+	}
+	return out
+}
+
+// commandMatchesExpected compares one normalized recorded command
+// against the normalized expected commands. Exact mode requires
+// equality; prefix mode (opt-in via command_match) also accepts the
+// expected command extended at a token boundary, so
+// "pip install" matches "pip install requests" but never
+// "pip installer".
+func commandMatchesExpected(normalized string, normalizedExpected []string, match policy.CommandMatch) bool {
+	for _, e := range normalizedExpected {
+		if normalized == e {
+			return true
+		}
+		if match == policy.CommandMatchPrefix && strings.HasPrefix(normalized, e+" ") {
+			return true
+		}
+	}
+	return false
+}
+
+// ruleCommandMatchMode extracts the compiled command_match mode from a
+// lockfile rule map; absent means exact.
+func ruleCommandMatchMode(rule map[string]interface{}) policy.CommandMatch {
+	value, _ := rule["command_match"].(string)
+	return policy.CommandMatch(value)
 }
 
 func latestWriteEpoch(paths []string, epochs map[string]uint64) uint64 {

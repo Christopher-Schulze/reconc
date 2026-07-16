@@ -42,6 +42,11 @@ rules:
       - "README.md"
     message: Release or version-affecting changes should update changelog and user-facing docs.
 
+  # NOTE: this coupling assumes the repo allows dist/** writes during a
+  # release flow. The `default` pack blocks agent writes to dist/**;
+  # when both packs are extended, release artifacts must be produced by
+  # the build system outside agent sessions (the coupling then simply
+  # never triggers).
   - id: preset-release-artifacts-need-checksums
     kind: couple_change
     mode: warn
@@ -64,6 +69,8 @@ rules:
       - ".github/workflows/**"
     commands:
       - "go test ./..."
+      - "go test -race ./..."
+      - "go test -race -count=1 ./..."
       - "go vet ./..."
       - "make test"
       - "make lint"

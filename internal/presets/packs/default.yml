@@ -26,6 +26,12 @@ rules:
     mode: block
     paths:
       # Top-level output directories.
+      #
+      # NOTE: dist/** here blocks agent writes to release artifacts.
+      # Repos that intentionally build release artifacts through an
+      # agent (see the `release` pack's checksum coupling) must not
+      # combine that flow with this pack, or must let the build system
+      # own dist/ outside agent sessions.
       - "generated/**"
       - "dist/**"
       - "build/**"

@@ -329,6 +329,10 @@ func validateRuleItem(item map[string]interface{}, src policy.PolicySource, inde
 	if err != nil {
 		return policy.Rule{}, err
 	}
+	commandMatch, err := parseCommandMatch(item, kind, id)
+	if err != nil {
+		return policy.Rule{}, err
+	}
 
 	// Verify required fields per kind are populated and non-empty.
 	fieldValues := map[string][]string{
@@ -497,6 +501,7 @@ func validateRuleItem(item map[string]interface{}, src policy.PolicySource, inde
 		WhenPaths:            whenPaths,
 		Commands:             commands,
 		Claims:               claims,
+		CommandMatch:         commandMatch,
 		RequiredFiles:        requiredFiles,
 		Evidence:             evidence,
 		Checks:               checks,
@@ -512,6 +517,40 @@ func validateRuleItem(item map[string]interface{}, src policy.PolicySource, inde
 		DeprecatedSince:      deprecatedSince,
 		DeprecatedReplacedBy: deprecatedReplacedBy,
 	}, nil
+}
+
+// commandMatchKinds are the rule kinds that compare commands and may
+// therefore carry a command_match mode.
+var commandMatchKinds = map[policy.Kind]struct{}{
+	policy.KindRequireCommand:        {},
+	policy.KindRequireCommandSuccess: {},
+	policy.KindForbidCommand:         {},
+}
+
+// parseCommandMatch validates the optional command_match field: only
+// exact|prefix, and only on command rule kinds (composites carry it on
+// their sub-checks instead).
+func parseCommandMatch(item map[string]interface{}, kind policy.Kind, id string) (policy.CommandMatch, error) {
+	raw, present := item["command_match"]
+	if !present || raw == nil {
+		return "", nil
+	}
+	value, isString := raw.(string)
+	if !isString {
+		return "", &rerrors.RuleValidationError{Message: "rule '" + id + "' command_match must be a string"}
+	}
+	match := policy.CommandMatch(strings.TrimSpace(value))
+	if !match.Valid() {
+		return "", &rerrors.RuleValidationError{Message: "rule '" + id + "' command_match must be 'exact' or 'prefix', got: " + value}
+	}
+	if _, allowed := commandMatchKinds[kind]; !allowed {
+		return "", &rerrors.RuleValidationError{Message: "rule '" + id + "' command_match is only valid for require_command, require_command_success, and forbid_command (put it on the sub-check inside composites)"}
+	}
+	if match == policy.CommandMatchExact {
+		// Exact is the default; keep the lockfile free of redundant keys.
+		return "", nil
+	}
+	return match, nil
 }
 
 // isRepoRelativePath reports whether p is safe to interpret as
@@ -679,6 +718,11 @@ func parseCheck(item map[string]interface{}, ruleID, listKey string, index int) 
 			}
 		}
 		check.Commands = commands
+		match, err := parseCommandMatch(item, kind, ruleID)
+		if err != nil {
+			return policy.Check{}, err
+		}
+		check.CommandMatch = match
 
 	case policy.KindDenyWrite:
 		paths, err := optionalContainList(item, "paths", ruleID, listKey, index)

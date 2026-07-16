@@ -47,11 +47,17 @@ rules:
       - "Cargo.toml"
     commands:
       - "go test ./..."
+      - "go test -race ./..."
+      - "go test -count=1 ./..."
+      - "go test -race -count=1 ./..."
       - "pytest -q"
+      - "pytest"
       - "uv run pytest -q"
+      - "uv run pytest"
       - "npm test"
       - "pnpm test"
       - "bun test"
+      - "bun run test"
       - "cargo test"
     message: Source or dependency changes should be backed by a successful test run.
 
