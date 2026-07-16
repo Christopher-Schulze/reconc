@@ -628,7 +628,6 @@ func TestInspectFlagsUnknownDependencyID(t *testing.T) {
 	}
 }
 
-
 func TestDetectProfileAcceptsHeadingAsFirstLine(t *testing.T) {
 	repo := t.TempDir()
 	// A sections board whose very first line is "## Active" (no title

@@ -584,7 +584,6 @@ func contains(haystack []byte, needle string) bool {
 	return strings.Contains(string(haystack), needle)
 }
 
-
 // hasScript checks whether package.json declares a given npm script.
 // Uses a permissive string match rather than full JSON parsing because
 // a single missing quote shouldn't defeat detection.
