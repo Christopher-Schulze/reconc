@@ -160,7 +160,10 @@ func detectProfile(configured Profile, content string) (Profile, error) {
 	if configured != ProfileAuto {
 		return configured, nil
 	}
-	hasSections := strings.Contains(content, "\n## Active\n") && strings.Contains(content, "\n## Queue\n")
+	// Prefixing with "\n" makes the heading checks line-anchored while
+	// still accepting a board whose very first line is a heading.
+	anchored := "\n" + content
+	hasSections := strings.Contains(anchored, "\n## Active\n") && strings.Contains(anchored, "\n## Queue\n")
 	currentLine := firstMatchingLine(content, "Current:")
 	hasLogbook := logbookCurRE.MatchString(currentLine) || logbookNoneRE.MatchString(currentLine)
 	switch {

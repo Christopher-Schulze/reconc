@@ -397,6 +397,13 @@ func evaluateBatchedRequireScripts(ctx *evalContext, rules []map[string]interfac
 	return results, nil
 }
 
+// workflowAuditBatchCandidate recognizes the documented batch-capable
+// audit convention: a require_script whose script is named
+// `run-workflow-audit` inside an `audits/` directory (any repo
+// location) and whose single argument is the audit mode. Scripts that
+// match the shape but do not speak the `--batch-json` protocol fall
+// back to normal per-rule execution because unparseable batch output
+// is never treated as handled.
 func workflowAuditBatchCandidate(rule map[string]interface{}) (scriptPath, mode string, timeoutSec, killTimeoutSec int, ok bool) {
 	kindStr, _ := rule["kind"].(string)
 	if policy.Kind(kindStr) != policy.KindRequireScript {
@@ -404,7 +411,8 @@ func workflowAuditBatchCandidate(rule map[string]interface{}) (scriptPath, mode 
 	}
 	scriptPath, _ = rule["script"].(string)
 	slashScriptPath := filepath.ToSlash(scriptPath)
-	if scriptPath == "" || HasTemplateVars(scriptPath) || !strings.HasPrefix(slashScriptPath, "tools/reconc/harness/") || !strings.HasSuffix(slashScriptPath, "/audits/run-workflow-audit") {
+	batchConvention := strings.HasSuffix(slashScriptPath, "/audits/run-workflow-audit") || slashScriptPath == "audits/run-workflow-audit"
+	if scriptPath == "" || HasTemplateVars(scriptPath) || !batchConvention {
 		return "", "", 0, 0, false
 	}
 	rawArgs, _ := rule["args"].([]interface{})

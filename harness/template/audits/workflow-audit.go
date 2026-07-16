@@ -1051,8 +1051,8 @@ func auditAgentHooks(root string) []string {
 	}
 	if cfg.AgentHooks.RequireClaudeSettings {
 		hooks[filepath.Join(root, ".claude/settings.json")] = []string{
-			"Edit|Write|MultiEdit|Bash",
-			"Read|Edit|Write|MultiEdit|Bash",
+			"Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash",
+			"Read|Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash",
 			"tools/reconc/bin/hook",
 			"\"args\"",
 			"claude-session-start",
@@ -1317,7 +1317,8 @@ func auditStartEntrypoint(root string) []string {
 	required := []string{
 		"AGENTS.md",
 		"docs/tasks.md",
-		"tools/reconc/dist/reconc-darwin-arm64 session-briefing . --json",
+		"session-briefing . --json",
+		"tools/reconc/dist/reconc-<os>-<arch>",
 		"No file writes",
 		"_drop/",
 		"reconc run on .",

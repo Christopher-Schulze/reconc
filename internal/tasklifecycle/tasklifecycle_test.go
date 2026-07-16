@@ -627,3 +627,21 @@ func TestInspectFlagsUnknownDependencyID(t *testing.T) {
 		t.Fatalf("expected unknown-dependency issue naming the id, got %+v", vErr.Issues)
 	}
 }
+
+
+func TestDetectProfileAcceptsHeadingAsFirstLine(t *testing.T) {
+	repo := t.TempDir()
+	// A sections board whose very first line is "## Active" (no title
+	// preamble) must auto-detect; the parser itself accepts it.
+	overview := "## Active\n\n## Queue\n\n- [ ] 001 Work -> tasks/001-work.md\n\n## Blocked\n\n## Done\n"
+	writeFile(t, repo, "docs/tasks.md", []byte(overview))
+	detail := "# TASK 001: Work\n\n## Why\n\nTest motivation.\n\n## Acceptance\n\n- Measurable result.\n\n## Sub-Tasks\n\n- [ ] Work\n\n## Notes\n\nNone.\n\n## Deviations\n\nNone.\n"
+	writeFile(t, repo, "docs/tasks/001-work.md", []byte(detail))
+	board, err := Inspect(repo)
+	if err != nil {
+		t.Fatalf("Inspect: %v", err)
+	}
+	if board.Profile != ProfileSections {
+		t.Fatalf("expected sections profile, got %s", board.Profile)
+	}
+}

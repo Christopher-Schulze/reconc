@@ -275,6 +275,12 @@ Direct-copy files when the target file is missing:
 - `docs/tasks/TASK-0001-Bootstrap-Reconc.md`
 - `docs/documentation.md`
 
+Note on TASK grammar: this harness ships the logbook-v1 profile
+(`Current:` header plus `TASK-NNNN-Name` rows) and declares it in the
+scaffold `.reconc.yml`. The `reconc bootstrap` governed profile emits
+the sections-v1 grammar instead. Both are first-class reconc profiles;
+never mix the two grammars in one overview file.
+
 Merge-only files:
 
 - `AGENTS.md`

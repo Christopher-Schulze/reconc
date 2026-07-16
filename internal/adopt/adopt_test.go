@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestScanEmptyRepoProducesNoSuggestions(t *testing.T) {
@@ -283,4 +285,107 @@ func mustScan(t *testing.T, repo string) Report {
 		t.Fatalf("Scan: %v", err)
 	}
 	return report
+}
+
+func TestApplyAfterInitScaffoldProducesValidYAML(t *testing.T) {
+	repo := t.TempDir()
+	// The `reconc init` scaffold declares an inline empty list. Adopt
+	// must convert it to block form, not append orphaned items.
+	if err := os.WriteFile(filepath.Join(repo, ".reconc.yml"), []byte("default_mode: warn\nrules: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "go.mod"), []byte("module x\n\ngo 1.26\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Scan(repo)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	added, err := Apply(repo, report)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if len(added) == 0 {
+		t.Fatal("expected at least one suggestion for a Go repo")
+	}
+	body, err := os.ReadFile(filepath.Join(repo, ".reconc.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "rules: []") {
+		t.Fatalf("inline empty list must be converted to block form:\n%s", body)
+	}
+	var doc map[string]interface{}
+	if err := yaml.Unmarshal(body, &doc); err != nil {
+		t.Fatalf("adopted config must stay valid YAML: %v\n%s", err, body)
+	}
+	rules, ok := doc["rules"].([]interface{})
+	if !ok || len(rules) != len(added) {
+		t.Fatalf("expected %d parsed rules, got %#v", len(added), doc["rules"])
+	}
+}
+
+func TestApplyInsertsBeforeTrailingTopLevelKeys(t *testing.T) {
+	repo := t.TempDir()
+	config := "default_mode: warn\nrules:\n  - id: existing\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: m\nextends:\n  - default\n"
+	if err := os.WriteFile(filepath.Join(repo, ".reconc.yml"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "go.mod"), []byte("module x\n\ngo 1.26\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Scan(repo)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if _, err := Apply(repo, report); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(repo, ".reconc.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]interface{}
+	if err := yaml.Unmarshal(body, &doc); err != nil {
+		t.Fatalf("config must stay valid YAML: %v\n%s", err, body)
+	}
+	// New items must land inside rules, not under extends.
+	extends, ok := doc["extends"].([]interface{})
+	if !ok || len(extends) != 1 {
+		t.Fatalf("extends must stay a one-element list, got %#v", doc["extends"])
+	}
+	rules, ok := doc["rules"].([]interface{})
+	if !ok || len(rules) < 2 {
+		t.Fatalf("new rules must join the rules block, got %#v", doc["rules"])
+	}
+}
+
+func TestApplyLineAnchoredIDDedup(t *testing.T) {
+	repo := t.TempDir()
+	// A rule id appearing inside a message must not suppress adoption,
+	// and a longer id sharing the prefix must not either.
+	config := "default_mode: warn\nrules:\n  - id: adopt-go-test-extended\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: 'mentions adopt-go-test inline'\n"
+	if err := os.WriteFile(filepath.Join(repo, ".reconc.yml"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "go.mod"), []byte("module x\n\ngo 1.26\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Scan(repo)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	added, err := Apply(repo, report)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	found := false
+	for _, id := range added {
+		if strings.HasPrefix(id, "adopt-go") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("prefix-sharing id and message mention must not block adoption; added=%v", added)
+	}
 }

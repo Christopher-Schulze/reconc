@@ -395,9 +395,17 @@ from the recorded side. So a rule authored as `cd x && go test ./...` is
 satisfied by a recorded `... 2>&1` or `... > out.log`. Pipes are
 deliberately not stripped - a pipeline's exit status is the last stage's,
 so `go test ./... | tail` could record success even when the test failed -
-and extra arguments are not stripped, so the matched command is the same
-command that succeeded. `forbid_command`/`require_command`
-(`matchingCommands`) keep exact normalized matching and are untouched.
+and extra arguments are not stripped by default, so the matched command is
+the same command that succeeded. Rules may opt into token-boundary prefix
+matching via `command_match: prefix` (RECONC-0004); without it,
+`forbid_command`/`require_command` (`matchingCommands`) keep exact
+normalized matching.
+
+The RTK-prefix strip in `normalizeCommandSemantics` is a compatibility
+shim for transparent CLI proxies: a command recorded as `rtk go test
+./...` satisfies a rule authored as `go test ./...` because the proxy
+preserves the wrapped command's semantics and exit status. It is not a
+coupling to any specific tool beyond recognizing that prefix.
 
 ### Resource exhaustion
 

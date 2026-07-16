@@ -17,7 +17,9 @@ You are an agent joining the Project repository. This file is the only onboardin
 
 Run these read-only checks from the repo root after reading the files above:
 
-- `tools/reconc/dist/reconc-darwin-arm64 session-briefing . --json`
+- `reconc session-briefing . --json` (if `reconc` is not on PATH, use the
+  repo-local binary matching your platform: `tools/reconc/dist/reconc-<os>-<arch>`,
+  e.g. `tools/reconc/dist/reconc-linux-amd64`)
 
 That single versioned response carries current TASK/Sub-Task, policy delta,
 exact remediation, and durable repository-run state without a Git process or
