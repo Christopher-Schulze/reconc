@@ -6,19 +6,42 @@ import (
 	"testing"
 )
 
+type grokTestPayload struct {
+	HookEventName      string            `json:"hookEventName"`
+	SessionID          string            `json:"sessionId"`
+	WorkspaceRoot      string            `json:"workspaceRoot"`
+	ToolName           string            `json:"toolName,omitempty"`
+	ToolUseID          string            `json:"toolUseId,omitempty"`
+	ToolInput          map[string]string `json:"toolInput,omitempty"`
+	ToolResult         string            `json:"toolResult,omitempty"`
+	ToolInputTruncated bool              `json:"toolInputTruncated,omitempty"`
+}
+
+func marshalGrokTestPayload(t *testing.T, payload grokTestPayload) []byte {
+	t.Helper()
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal Grok test payload: %v", err)
+	}
+	return body
+}
+
 func TestNormalizeGrokPayloadPreToolUse(t *testing.T) {
 	repo := t.TempDir()
 	t.Setenv("GROK_SESSION_ID", "grok-session")
 	t.Setenv("GROK_WORKSPACE_ROOT", repo)
-	body, err := NormalizeGrokPayload("grok-pre-tool-use", []byte(`{
-		"hookEventName":"pre_tool_use",
-		"sessionId":"grok-session",
-		"workspaceRoot":"`+repo+`",
-		"toolName":"search_replace",
-		"toolUseId":"call-1",
-		"toolInput":{"path":"src/app.go","old_string":"a","new_string":"b"},
-		"toolInputTruncated":false
-	}`), repo)
+	body, err := NormalizeGrokPayload("grok-pre-tool-use", marshalGrokTestPayload(t, grokTestPayload{
+		HookEventName: "pre_tool_use",
+		SessionID:     "grok-session",
+		WorkspaceRoot: repo,
+		ToolName:      "search_replace",
+		ToolUseID:     "call-1",
+		ToolInput: map[string]string{
+			"path":       "src/app.go",
+			"old_string": "a",
+			"new_string": "b",
+		},
+	}), repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,30 +59,33 @@ func TestNormalizeGrokPayloadPreToolUse(t *testing.T) {
 }
 
 func TestNormalizeGrokToolCoverage(t *testing.T) {
-	tests := map[string]string{
-		"read_file":            "Read",
-		"hashline_read":        "Read",
-		"grep":                 "Read",
-		"hashline_grep":        "Read",
-		"list_dir":             "Read",
-		"write":                "Write",
-		"search_replace":       "Edit",
-		"hashline_edit":        "Edit",
-		"run_terminal_command": "Bash",
-		"run_terminal_cmd":     "Bash",
-		"linear__save_issue":   "linear__save_issue",
+	tests := []struct {
+		name string
+		want string
+	}{
+		{name: "read_file", want: "Read"},
+		{name: "hashline_read", want: "Read"},
+		{name: "grep", want: "Read"},
+		{name: "hashline_grep", want: "Read"},
+		{name: "list_dir", want: "Read"},
+		{name: "write", want: "Write"},
+		{name: "search_replace", want: "Edit"},
+		{name: "hashline_edit", want: "Edit"},
+		{name: "run_terminal_command", want: "Bash"},
+		{name: "run_terminal_cmd", want: "Bash"},
+		{name: "linear__save_issue", want: "linear__save_issue"},
 	}
 	repo := t.TempDir()
-	for name, want := range tests {
-		t.Run(name, func(t *testing.T) {
-			body, err := NormalizeGrokPayload("grok-post-tool-use", []byte(`{
-				"hookEventName":"post_tool_use",
-				"sessionId":"s1",
-				"workspaceRoot":"`+repo+`",
-				"toolName":"`+name+`",
-				"toolInput":{},
-				"toolResult":"ok"
-			}`), repo)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body, err := NormalizeGrokPayload("grok-post-tool-use", marshalGrokTestPayload(t, grokTestPayload{
+				HookEventName: "post_tool_use",
+				SessionID:     "s1",
+				WorkspaceRoot: repo,
+				ToolName:      test.name,
+				ToolInput:     map[string]string{},
+				ToolResult:    "ok",
+			}), repo)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -67,8 +93,8 @@ func TestNormalizeGrokToolCoverage(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if payload.ToolName != want {
-				t.Fatalf("tool %s normalized to %s, want %s", name, payload.ToolName, want)
+			if payload.ToolName != test.want {
+				t.Fatalf("tool %s normalized to %s, want %s", test.name, payload.ToolName, test.want)
 			}
 			if payload.ToolResponse["value"] != "ok" {
 				t.Fatalf("scalar tool result was lost: %#v", payload.ToolResponse)
@@ -83,19 +109,19 @@ func TestNormalizeGrokPayloadRejectsIdentityDriftAndTruncation(t *testing.T) {
 	tests := []struct {
 		name    string
 		event   string
-		payload string
+		payload grokTestPayload
 		envID   string
 		want    string
 	}{
-		{name: "event", event: "grok-pre-tool-use", payload: `{"hookEventName":"post_tool_use","sessionId":"s","workspaceRoot":"` + repo + `"}`, want: "does not match route"},
-		{name: "workspace", event: "grok-pre-tool-use", payload: `{"hookEventName":"pre_tool_use","sessionId":"s","workspaceRoot":"` + other + `"}`, want: "does not match repository root"},
-		{name: "session", event: "grok-pre-tool-use", payload: `{"hookEventName":"pre_tool_use","sessionId":"s","workspaceRoot":"` + repo + `"}`, envID: "other", want: "does not match GROK_SESSION_ID"},
-		{name: "truncated", event: "grok-pre-tool-use", payload: `{"hookEventName":"pre_tool_use","sessionId":"s","workspaceRoot":"` + repo + `","toolInputTruncated":true}`, want: "truncated"},
+		{name: "event", event: "grok-pre-tool-use", payload: grokTestPayload{HookEventName: "post_tool_use", SessionID: "s", WorkspaceRoot: repo}, want: "does not match route"},
+		{name: "workspace", event: "grok-pre-tool-use", payload: grokTestPayload{HookEventName: "pre_tool_use", SessionID: "s", WorkspaceRoot: other}, want: "does not match repository root"},
+		{name: "session", event: "grok-pre-tool-use", payload: grokTestPayload{HookEventName: "pre_tool_use", SessionID: "s", WorkspaceRoot: repo}, envID: "other", want: "does not match GROK_SESSION_ID"},
+		{name: "truncated", event: "grok-pre-tool-use", payload: grokTestPayload{HookEventName: "pre_tool_use", SessionID: "s", WorkspaceRoot: repo, ToolInputTruncated: true}, want: "truncated"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv("GROK_SESSION_ID", test.envID)
-			_, err := NormalizeGrokPayload(test.event, []byte(test.payload), repo)
+			_, err := NormalizeGrokPayload(test.event, marshalGrokTestPayload(t, test.payload), repo)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want %q", err, test.want)
 			}
