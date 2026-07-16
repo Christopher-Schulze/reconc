@@ -21,7 +21,7 @@ BIN       := reconc
 PKG       := ./...
 BINDIR    := .build/bin
 DISTDIR   := dist
-VERSION   ?= 0.8.1
+VERSION   ?= 0.8.2
 LDFLAGS   := -ldflags "-X main.Version=$(VERSION) -s -w"
 STATICCHECK_VERSION := v0.7.0
 RELEASE_COMMIT ?= $(shell git rev-parse HEAD)
