@@ -98,8 +98,9 @@ then atomically replaces the target. A download, manifest, checksum, execution,
 staging, or publication failure leaves an existing installation untouched.
 
 When the GitHub CLI (`gh`) is available, the installer additionally verifies
-the GitHub build-provenance attestation over `SHA256SUMS` before trusting any
-checksum, which breaks the binary-and-manifest-share-one-origin loop.
+the downloaded binary against its GitHub build-provenance attestation before
+installing, which breaks the binary-and-manifest-share-one-origin loop (the
+manifest is bound transitively through the checksum comparison).
 Verification is skipped with a note when `gh` is absent and downgraded to a
 warning when it fails; `RECONC_REQUIRE_ATTESTATION=1` makes both cases fatal.
 `RECONC_ATTESTATION_TOOL` and `RECONC_ATTESTATION_REPO` override the tool and

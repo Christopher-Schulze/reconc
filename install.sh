@@ -42,28 +42,30 @@ log "target: ${os}/${arch}"
 log "asset:  ${asset}"
 log "url:    ${url}"
 
-# Provenance: the release workflow publishes a GitHub build-provenance
-# attestation over SHA256SUMS. When the GitHub CLI is available the
-# manifest is verified against it before any checksum is trusted, which
-# breaks the binary-and-manifest-share-one-origin loop. Optional by
-# default; RECONC_REQUIRE_ATTESTATION=1 makes it mandatory.
+# Provenance: the release workflow publishes GitHub build-provenance
+# attestations for every artifact listed in SHA256SUMS. When the GitHub
+# CLI is available, the downloaded binary is verified against its
+# attestation before installation, which breaks the
+# binary-and-manifest-share-one-origin loop (the manifest is bound
+# transitively through the checksum comparison). Optional by default;
+# RECONC_REQUIRE_ATTESTATION=1 makes it mandatory.
 ATTESTATION_TOOL="${RECONC_ATTESTATION_TOOL:-gh}"
 ATTESTATION_REPO="${RECONC_ATTESTATION_REPO:-Christopher-Schulze/reconc}"
 
 verify_attestation() {
-  manifest="$1"
+  artifact="$1"
   if ! command -v "$ATTESTATION_TOOL" >/dev/null 2>&1; then
     [ "${RECONC_REQUIRE_ATTESTATION:-0}" != "1" ] \
       || die "RECONC_REQUIRE_ATTESTATION=1 but '${ATTESTATION_TOOL}' is not installed"
     log "attestation: '${ATTESTATION_TOOL}' not found; skipping provenance verification (set RECONC_REQUIRE_ATTESTATION=1 to require it)"
     return 0
   fi
-  if "$ATTESTATION_TOOL" attestation verify "$manifest" --repo "$ATTESTATION_REPO" >/dev/null 2>&1; then
-    log "attestation: SHA256SUMS provenance verified (${ATTESTATION_REPO})"
+  if "$ATTESTATION_TOOL" attestation verify "$artifact" --repo "$ATTESTATION_REPO" >/dev/null 2>&1; then
+    log "attestation: release binary provenance verified (${ATTESTATION_REPO})"
     return 0
   fi
   [ "${RECONC_REQUIRE_ATTESTATION:-0}" != "1" ] \
-    || die "attestation verification failed for SHA256SUMS (repo ${ATTESTATION_REPO})"
+    || die "attestation verification failed for ${asset} (repo ${ATTESTATION_REPO})"
   log "attestation: WARNING verification failed or unavailable; continuing without provenance proof (set RECONC_REQUIRE_ATTESTATION=1 to make this fatal)"
 }
 
@@ -103,7 +105,7 @@ trap 'rm -f "$tmp" "$checksums"; if [ -n "$staged" ]; then rm -f "$staged"; fi' 
 
 download "$tmp" "$url"
 download "$checksums" "$checksum_url"
-verify_attestation "$checksums"
+verify_attestation "$tmp"
 
 expected=""
 matches=0
