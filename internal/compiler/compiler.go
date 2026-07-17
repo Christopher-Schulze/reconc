@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"strings"
 
+	"reconc.dev/reconc/internal/atomicfile"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/parser"
@@ -589,27 +590,8 @@ func writeLockfile(repoRoot string, payload map[string]interface{}) error {
 		return &rerrors.LockfileError{Message: "marshal lockfile", Cause: err}
 	}
 	full := filepath.Join(lockDir, "policy.lock.json")
-	tmpFile, err := os.CreateTemp(lockDir, "policy.lock.json.*.tmp")
-	if err != nil {
-		return &rerrors.LockfileError{Message: "create lockfile tmp", Cause: err}
-	}
-	tmp := tmpFile.Name()
-	if _, err := tmpFile.Write(append(data, '\n')); err != nil {
-		_ = tmpFile.Close()
-		_ = os.Remove(tmp)
-		return &rerrors.LockfileError{Message: "write lockfile tmp", Cause: err}
-	}
-	if err := tmpFile.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return &rerrors.LockfileError{Message: "close lockfile tmp", Cause: err}
-	}
-	if err := os.Chmod(tmp, 0o644); err != nil {
-		_ = os.Remove(tmp)
-		return &rerrors.LockfileError{Message: "chmod lockfile tmp", Cause: err}
-	}
-	if err := os.Rename(tmp, full); err != nil {
-		_ = os.Remove(tmp)
-		return &rerrors.LockfileError{Message: "rename lockfile", Cause: err}
+	if _, err := atomicfile.WriteIfChanged(full, append(data, '\n'), 0o644); err != nil {
+		return &rerrors.LockfileError{Message: "write lockfile", Cause: err}
 	}
 	return nil
 }

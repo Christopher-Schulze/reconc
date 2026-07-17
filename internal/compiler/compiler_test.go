@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/ingest"
@@ -107,6 +108,30 @@ func TestCompileLockfileIsByteStable(t *testing.T) {
 	}
 	if c1.SourceDigest != c2.SourceDigest {
 		t.Errorf("source_digest differs: %s vs %s", c1.SourceDigest, c2.SourceDigest)
+	}
+}
+
+func TestCompileLockfileSkipsUnchangedPublication(t *testing.T) {
+	withRECONCHome(t)
+	repo := t.TempDir()
+	writeFile(t, repo, "AGENTS.md", "# project\n")
+	if _, err := CompileRepoPolicy(repo, "0.1.0-test"); err != nil {
+		t.Fatalf("compile 1: %v", err)
+	}
+	path := filepath.Join(repo, LockfileRelativePath)
+	fixed := time.Unix(1_700_000_000, 0)
+	if err := os.Chtimes(path, fixed, fixed); err != nil {
+		t.Fatalf("set lockfile timestamp: %v", err)
+	}
+	if _, err := CompileRepoPolicy(repo, "0.1.0-test"); err != nil {
+		t.Fatalf("compile 2: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat lockfile: %v", err)
+	}
+	if !info.ModTime().Equal(fixed) {
+		t.Fatalf("unchanged compile republished lockfile: mtime=%s want=%s", info.ModTime(), fixed)
 	}
 }
 

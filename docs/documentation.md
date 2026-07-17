@@ -359,11 +359,13 @@ In governed target repositories, repo-local policy lives in `.reconc.yml` and
 should be committed. The generated `.reconc/policy.lock.json` remains local to
 avoid generated-file churn, but format 2 is checkout-independent and
 byte-identical across equivalent clones and worktrees. Format-1 lockfiles are
-migrated in memory after their legacy schema identity is validated. This standalone
-product repository does not carry either file and must exercise policy
-compilation only inside isolated test repositories. Its ignore patterns remain
-as a defensive boundary against accidental local state and for nested
-bootstrap fixtures.
+migrated in memory after their legacy schema identity is validated. Publication
+uses atomic replacement and skips the write entirely when the canonical bytes
+are unchanged, so readers never see partial JSON and repeated compiles do not
+create needless filesystem churn. This standalone product repository does not
+carry either file and must exercise policy compilation only inside isolated
+test repositories. Its ignore patterns remain as a defensive boundary against
+accidental local state and for nested bootstrap fixtures.
 
 Policy authoring is strict. Unknown keys at the document, scope, rule,
 evidence, composite-check, and TASK-lifecycle levels fail compilation instead

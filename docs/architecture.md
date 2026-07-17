@@ -106,8 +106,10 @@ handling.
    treating the situation as "pass".
 
 3. **Owned publication.** Write paths publish atomically or through an explicit
-   transaction. Bootstrap is create-only, emits candidate files for drift, and
-   rolls back only transaction-owned unchanged files. Hook merges preserve
+   transaction. Canonical lockfile bytes are compared before publication, so an
+   unchanged compile performs no filesystem write. Bootstrap is create-only,
+   emits candidate files for drift, and rolls back only transaction-owned
+   unchanged files. Hook merges preserve
    unrelated host configuration. Bounded JSONL writers rotate under a process
    lock before append.
 
