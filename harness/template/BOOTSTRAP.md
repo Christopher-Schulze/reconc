@@ -383,7 +383,7 @@ Reconc owns runtime retention in the product binary. SessionStart and
 SessionEnd perform a cheap six-hour due check; Stop never performs cleanup.
 The same pass is available to an agent as `reconc prune . --json` and can be
 inspected without mutation via `reconc prune . --dry-run --json`. It bounds
-session/report/lock state, audit and run-decision JSONL rings, generated audit
+product-wide project roots, session/report/lock state, audit and run-decision JSONL rings, generated audit
 binaries, abandoned atomic/build temps, and owned `reconc-proof-*` temp trees.
 Proof temp trees use a two-hour inactivity grace to bound hard-kill residue
 while preserving recent work.

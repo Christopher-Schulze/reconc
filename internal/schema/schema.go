@@ -7,9 +7,11 @@ import (
 	"strings"
 )
 
-// DefaultBaseURL is the format-versioned repository location for Reconc's
-// public JSON contracts.
+// DefaultBaseURL is the repository location for Reconc's format-1 contracts.
+// Policy lockfiles evolved independently and use PolicyLockBaseURL.
 const DefaultBaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1"
+
+const PolicyLockBaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v2"
 
 // Artifact identifies one stable JSON contract emitted by Reconc.
 type Artifact string
@@ -20,10 +22,11 @@ const (
 	PolicyReport  Artifact = "policy-report"
 	PolicyFixPlan Artifact = "policy-fix-plan"
 
-	PolicyLockURL    = DefaultBaseURL + "/policy-lock.schema.json"
-	PolicyConfigURL  = DefaultBaseURL + "/policy-config.schema.json"
-	PolicyReportURL  = DefaultBaseURL + "/policy-report.schema.json"
-	PolicyFixPlanURL = DefaultBaseURL + "/policy-fix-plan.schema.json"
+	LegacyPolicyLockURL = DefaultBaseURL + "/policy-lock.schema.json"
+	PolicyLockURL       = PolicyLockBaseURL + "/policy-lock.schema.json"
+	PolicyConfigURL     = DefaultBaseURL + "/policy-config.schema.json"
+	PolicyReportURL     = DefaultBaseURL + "/policy-report.schema.json"
+	PolicyFixPlanURL    = DefaultBaseURL + "/policy-fix-plan.schema.json"
 )
 
 // DefaultURL returns the repository-hosted, format-versioned schema URL.
@@ -49,5 +52,9 @@ func Resolve(artifact Artifact) string {
 	if base == "" {
 		return DefaultURL(artifact)
 	}
-	return base + "/schemas/" + string(artifact) + "/v1"
+	version := "v1"
+	if artifact == PolicyLock {
+		version = "v2"
+	}
+	return base + "/schemas/" + string(artifact) + "/" + version
 }

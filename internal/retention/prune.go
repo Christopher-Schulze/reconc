@@ -41,14 +41,14 @@ func RunIfDue(options Options) Report {
 	if options.DryRun {
 		marker := filepath.Join(ProjectDir(options.StateRoot, options.RepoRoot), ".last-retention")
 		if info, err := os.Stat(marker); err == nil && options.Now.Sub(info.ModTime()) < options.Policy.Interval {
-			return Report{DryRun: true, StateByteBudget: options.Policy.StateTotalBytes, RepoByteBudget: options.Policy.RepoRuntimeBytes, OwnedTempBudget: options.Policy.OwnedTempTotalBytes}
+			return emptyReport(options, true)
 		}
 		return runLocked(options, false)
 	}
 	return withPruneLock(options, func() Report {
 		marker := filepath.Join(ProjectDir(options.StateRoot, options.RepoRoot), ".last-retention")
 		if info, err := os.Stat(marker); err == nil && options.Now.Sub(info.ModTime()) < options.Policy.Interval {
-			return Report{DryRun: options.DryRun, StateByteBudget: options.Policy.StateTotalBytes, RepoByteBudget: options.Policy.RepoRuntimeBytes, OwnedTempBudget: options.Policy.OwnedTempTotalBytes}
+			return emptyReport(options, options.DryRun)
 		}
 		report := runLocked(options, false)
 		if !options.DryRun {
@@ -64,11 +64,12 @@ func RunIfDue(options Options) Report {
 func runLocked(options Options, forceOwnedTemp bool) Report {
 	policy := options.Policy
 	report := Report{
-		Ran:             true,
-		DryRun:          options.DryRun,
-		StateByteBudget: policy.StateTotalBytes,
-		RepoByteBudget:  policy.RepoRuntimeBytes,
-		OwnedTempBudget: policy.OwnedTempTotalBytes,
+		Ran:                true,
+		DryRun:             options.DryRun,
+		ProjectStateBudget: policy.ProjectRoots.MaxBytes,
+		StateByteBudget:    policy.StateTotalBytes,
+		RepoByteBudget:     policy.RepoRuntimeBytes,
+		OwnedTempBudget:    policy.OwnedTempTotalBytes,
 	}
 	project := ProjectDir(options.StateRoot, options.RepoRoot)
 	active := liveActiveSession(project, options.ActiveSession, options.Now, policy.Locks.MaxAge)
@@ -107,7 +108,8 @@ func runLocked(options Options, forceOwnedTemp bool) Report {
 		pruneRepoTemps(options, &report),
 	)
 	ownedTempClass, ownedTempScanned := pruneOwnedTempRootsInterval(options, forceOwnedTemp, &report)
-	report.Classes = append(report.Classes, ownedTempClass)
+	projectRootsClass, projectRootsScanned := pruneProjectRootsInterval(options, forceOwnedTemp, &report)
+	report.Classes = append(report.Classes, ownedTempClass, projectRootsClass)
 	projectedRepoBefore, projectedRepoAfter := classTotals(report.Classes, "audit", "run-decisions", "generated-binaries")
 	repoTotal := enforceRepoTotal(options, &report)
 	if options.DryRun {
@@ -120,6 +122,9 @@ func runLocked(options Options, forceOwnedTemp bool) Report {
 	if ownedTempScanned {
 		report.OwnedTempBytes = ownedTempClass.BytesAfter
 	}
+	if projectRootsScanned {
+		report.ProjectStateBytes = projectRootsClass.BytesAfter
+	}
 	if report.StateBytesAfter > policy.StateTotalBytes {
 		report.Errors = append(report.Errors, fmt.Sprintf("protected state uses %d bytes above %d-byte total budget", report.StateBytesAfter, policy.StateTotalBytes))
 	}
@@ -129,7 +134,150 @@ func runLocked(options Options, forceOwnedTemp bool) Report {
 	if ownedTempScanned && report.OwnedTempBytes > policy.OwnedTempTotalBytes {
 		report.Errors = append(report.Errors, fmt.Sprintf("recent owned temp trees use %d bytes above %d-byte budget; active-age grace preserved them", report.OwnedTempBytes, policy.OwnedTempTotalBytes))
 	}
+	overProjectBytes := policy.ProjectRoots.MaxBytes >= 0 && report.ProjectStateBytes > policy.ProjectRoots.MaxBytes
+	overProjectCount := policy.ProjectRoots.MaxFiles >= 0 && projectRootsClass.FilesKept > policy.ProjectRoots.MaxFiles
+	if projectRootsScanned && (overProjectBytes || overProjectCount) {
+		report.Errors = append(report.Errors, fmt.Sprintf("protected project state uses %d bytes in %d roots above the %d-byte/%d-root global budget", report.ProjectStateBytes, projectRootsClass.FilesKept, policy.ProjectRoots.MaxBytes, policy.ProjectRoots.MaxFiles))
+	}
 	return report
+}
+
+func emptyReport(options Options, dryRun bool) Report {
+	return Report{
+		DryRun:             dryRun,
+		ProjectStateBudget: options.Policy.ProjectRoots.MaxBytes,
+		StateByteBudget:    options.Policy.StateTotalBytes,
+		RepoByteBudget:     options.Policy.RepoRuntimeBytes,
+		OwnedTempBudget:    options.Policy.OwnedTempTotalBytes,
+	}
+}
+
+func pruneProjectRootsInterval(options Options, force bool, report *Report) (ClassReport, bool) {
+	class := ClassReport{Name: "project-state-roots"}
+	if options.DryRun {
+		return pruneProjectRoots(options, report, !force), true
+	}
+	if err := os.MkdirAll(options.StateRoot, 0o700); err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("create project retention dir: %v", err))
+		return class, false
+	}
+	lockPath := filepath.Join(options.StateRoot, ".project-root-retention.lock")
+	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("open project retention lock: %v", err))
+		return class, false
+	}
+	defer lock.Close()
+	unlock, err := filelock.Lock(lock)
+	if err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("lock project retention: %v", err))
+		return class, false
+	}
+	defer func() { _ = unlock() }()
+	marker := filepath.Join(options.StateRoot, ".last-project-root-retention")
+	if !force {
+		if info, err := os.Stat(marker); err == nil && options.Now.Sub(info.ModTime()) < options.Policy.Interval {
+			return class, false
+		}
+	}
+	class = pruneProjectRoots(options, report, !force)
+	body := []byte(options.Now.UTC().Format(time.RFC3339Nano) + "\n")
+	if _, err := atomicfile.WriteIfChanged(marker, body, 0o600); err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("write project retention marker: %v", err))
+	}
+	return class, true
+}
+
+func pruneProjectRoots(options Options, report *Report, preserveRecent bool) ClassReport {
+	class := ClassReport{Name: "project-state-roots"}
+	projects := filepath.Join(options.StateRoot, "projects")
+	entries, err := os.ReadDir(projects)
+	if errors.Is(err, os.ErrNotExist) {
+		return class
+	}
+	if err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("read project state roots: %v", err))
+		return class
+	}
+	current := filepath.Clean(ProjectDir(options.StateRoot, options.RepoRoot))
+	protected := make([]candidate, 0, len(entries))
+	removable := make([]candidate, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() || !isProjectKey(entry.Name()) {
+			continue
+		}
+		path := filepath.Join(projects, entry.Name())
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("stat project state root %s: %v", path, infoErr))
+			continue
+		}
+		size, latest, sizeErr := projectTreeSizeAndLatest(path, info.ModTime())
+		if sizeErr != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("inspect project state root %s: %v", path, sizeErr))
+			continue
+		}
+		live := path == current || liveActiveSession(path, "", options.Now, options.Policy.Locks.MaxAge) != ""
+		recent := preserveRecent && options.Policy.Locks.MaxAge > 0 && options.Now.Sub(latest) <= options.Policy.Locks.MaxAge
+		item := candidate{path: path, name: entry.Name(), size: size, mtime: latest, active: live || recent, dir: true}
+		class.BytesBefore += size
+		if item.active {
+			protected = append(protected, item)
+		} else {
+			removable = append(removable, item)
+		}
+	}
+	class.FilesKept = len(protected)
+	for _, item := range protected {
+		class.BytesAfter += item.size
+	}
+	sort.Slice(removable, func(i, j int) bool {
+		if removable[i].mtime.Equal(removable[j].mtime) {
+			return removable[i].name < removable[j].name
+		}
+		return removable[i].mtime.After(removable[j].mtime)
+	})
+	policy := options.Policy.ProjectRoots
+	for _, item := range removable {
+		expired := policy.MaxAge > 0 && options.Now.Sub(item.mtime) > policy.MaxAge
+		exceeds := policy.MaxFiles >= 0 && class.FilesKept >= policy.MaxFiles || policy.MaxBytes >= 0 && class.BytesAfter+item.size > policy.MaxBytes
+		if expired || exceeds {
+			if removeCandidate(item, options.DryRun, report) {
+				class.FilesDeleted++
+				class.BytesFreed += item.size
+				continue
+			}
+		}
+		class.FilesKept++
+		class.BytesAfter += item.size
+	}
+	return class
+}
+
+func projectTreeSizeAndLatest(root string, initial time.Time) (int64, time.Time, error) {
+	var size int64
+	latest := initial
+	err := filepath.WalkDir(root, func(_ string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		switch {
+		case entry.IsDir():
+		case info.Mode().IsRegular():
+			size += info.Size()
+		default:
+			return fmt.Errorf("unsupported non-regular entry %s", entry.Name())
+		}
+		if info.ModTime().After(latest) {
+			latest = info.ModTime()
+		}
+		return nil
+	})
+	return size, latest, err
 }
 
 func pruneOwnedTempRootsInterval(options Options, force bool, report *Report) (ClassReport, bool) {

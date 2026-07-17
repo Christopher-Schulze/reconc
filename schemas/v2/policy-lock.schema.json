@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v2/policy-lock.schema.json",
+  "title": "Reconc compiled policy lock v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "compiler_version",
+    "format_version",
+    "repo_root",
+    "default_mode",
+    "rule_count",
+    "source_count",
+    "source_digest",
+    "source_precedence",
+    "discovery",
+    "sources",
+    "rules"
+  ],
+  "properties": {
+    "$schema": { "type": "string", "format": "uri" },
+    "compiler_version": { "type": "string", "minLength": 1 },
+    "format_version": { "const": "2" },
+    "repo_root": { "const": "." },
+    "default_mode": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/policy-lock.schema.json#/$defs/mode" },
+    "rule_count": { "type": "integer", "minimum": 0 },
+    "source_count": { "type": "integer", "minimum": 0 },
+    "source_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "source_precedence": {
+      "type": "array",
+      "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/policy-lock.schema.json#/$defs/sourceKind" },
+      "uniqueItems": true
+    },
+    "discovery": {
+      "allOf": [
+        { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/policy-lock.schema.json#/$defs/discovery" },
+        {
+          "type": "object",
+          "properties": {
+            "start_path": { "const": "." },
+            "repo_root": { "const": "." }
+          }
+        }
+      ]
+    },
+    "sources": {
+      "type": "array",
+      "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/policy-lock.schema.json#/$defs/source" }
+    },
+    "rules": {
+      "type": "array",
+      "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/policy-lock.schema.json#/$defs/rule" }
+    }
+  }
+}

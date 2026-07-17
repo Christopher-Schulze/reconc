@@ -18,6 +18,7 @@ type ClassPolicy struct {
 
 // Policy is the complete product retention contract.
 type Policy struct {
+	ProjectRoots         ClassPolicy
 	Sessions             ClassPolicy
 	Reports              ClassPolicy
 	Locks                ClassPolicy
@@ -37,6 +38,7 @@ type Policy struct {
 // ceilings on write amplification and persistent disk use.
 func DefaultPolicy() Policy {
 	return Policy{
+		ProjectRoots:         ClassPolicy{MaxFiles: 256, MaxBytes: 128 * 1024 * 1024, MaxAge: 30 * 24 * time.Hour},
 		Sessions:             ClassPolicy{MaxFiles: 32, MaxBytes: 8 * 1024 * 1024, MaxAge: 14 * 24 * time.Hour},
 		Reports:              ClassPolicy{MaxFiles: 32, MaxBytes: 8 * 1024 * 1024, MaxAge: 14 * 24 * time.Hour},
 		Locks:                ClassPolicy{MaxFiles: 128, MaxBytes: 1024 * 1024, MaxAge: 24 * time.Hour},
@@ -65,16 +67,18 @@ type ClassReport struct {
 
 // Report describes one complete retention pass.
 type Report struct {
-	Ran             bool          `json:"ran"`
-	DryRun          bool          `json:"dry_run"`
-	Classes         []ClassReport `json:"classes"`
-	StateBytesAfter int64         `json:"state_bytes_after"`
-	StateByteBudget int64         `json:"state_byte_budget"`
-	RepoBytesAfter  int64         `json:"repo_runtime_bytes_after"`
-	RepoByteBudget  int64         `json:"repo_runtime_byte_budget"`
-	OwnedTempBytes  int64         `json:"owned_temp_bytes_after"`
-	OwnedTempBudget int64         `json:"owned_temp_byte_budget"`
-	Errors          []string      `json:"errors,omitempty"`
+	Ran                bool          `json:"ran"`
+	DryRun             bool          `json:"dry_run"`
+	Classes            []ClassReport `json:"classes"`
+	ProjectStateBytes  int64         `json:"project_state_bytes_after"`
+	ProjectStateBudget int64         `json:"project_state_byte_budget"`
+	StateBytesAfter    int64         `json:"state_bytes_after"`
+	StateByteBudget    int64         `json:"state_byte_budget"`
+	RepoBytesAfter     int64         `json:"repo_runtime_bytes_after"`
+	RepoByteBudget     int64         `json:"repo_runtime_byte_budget"`
+	OwnedTempBytes     int64         `json:"owned_temp_bytes_after"`
+	OwnedTempBudget    int64         `json:"owned_temp_byte_budget"`
+	Errors             []string      `json:"errors,omitempty"`
 }
 
 // Options configures one pass. Now and TempRoot exist for deterministic tests;

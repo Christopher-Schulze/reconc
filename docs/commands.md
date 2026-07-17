@@ -133,7 +133,7 @@ WARN rows flag optional misses.
 
 ### `reconc status [repo] [--json] [--output PATH]`
 One-line, read-only policy health summary. Missing, stale, malformed,
-schema-drifted, migration-drifted, and wrong-root lockfiles surface as issues
+schema-drifted, migration-drifted, and non-portable current lockfiles surface as issues
 with explicit `reconc refresh .` remediation. Useful as a session-start ping.
 
 ### `reconc done [repo] [--window N] [--require-clean-git] [--json]`
@@ -386,10 +386,13 @@ reject symlinked paths, preserve file modes, and cap journals at 4 MiB.
 
 ### `reconc prune [repo] [--dry-run] [--json]`
 Run the product retention core immediately. It bounds external session,
-report, and lock state; audit and run-decision JSONL rings; generated workflow-audit
-binaries; abandoned repo-local atomic/build temps; and owned
+report, lock, and product-wide project-root state; audit and run-decision JSONL
+rings; generated workflow-audit binaries; abandoned repo-local atomic/build temps; and owned
 `reconc-proof-*` temp trees. `--dry-run` reports file candidates without
-deleting them. Owned proof temp trees use a two-hour inactivity grace.
+deleting them. Owned proof temp trees use a two-hour inactivity grace. The
+global project-state contract keeps at most 256 recognized roots / 128 MiB /
+30 days while preserving the current project, live sessions, unknown
+directories, and recently active lifecycle roots.
 SessionStart and SessionEnd invoke the same core through a
 six-hour due check; Stop never prunes. `--force` remains accepted as a no-op
 compatibility flag for the former harness utility.

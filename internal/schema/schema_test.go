@@ -30,15 +30,18 @@ func TestPublicSchemaAliasesHaveOneOwner(t *testing.T) {
 
 func TestResolveEnterpriseSchemaBase(t *testing.T) {
 	t.Setenv("RECONC_SCHEMA_BASE_URL", "https://schemas.example.test/")
-	if got, want := schema.Resolve(schema.PolicyLock), "https://schemas.example.test/schemas/policy-lock/v1"; got != want {
+	if got, want := schema.Resolve(schema.PolicyLock), "https://schemas.example.test/schemas/policy-lock/v2"; got != want {
 		t.Fatalf("Resolve() = %q, want %q", got, want)
+	}
+	if got, want := schema.Resolve(schema.PolicyReport), "https://schemas.example.test/schemas/policy-report/v1"; got != want {
+		t.Fatalf("Resolve(report) = %q, want %q", got, want)
 	}
 }
 
 func TestPublishedSchemasAreVersionedJSONContracts(t *testing.T) {
 	contracts := map[string]string{
 		"policy-config.schema.json":   schema.PolicyConfigURL,
-		"policy-lock.schema.json":     schema.PolicyLockURL,
+		"policy-lock.schema.json":     schema.LegacyPolicyLockURL,
 		"policy-report.schema.json":   schema.PolicyReportURL,
 		"policy-fix-plan.schema.json": schema.PolicyFixPlanURL,
 	}
@@ -69,10 +72,32 @@ func TestPublishedSchemasAreVersionedJSONContracts(t *testing.T) {
 			t.Fatalf("%s root type = %v", name, got)
 		}
 	}
+	assertPublishedSchema(t, filepath.Join("..", "..", "schemas", "v2", "policy-lock.schema.json"), schema.PolicyLockURL)
+}
+
+func assertPublishedSchema(t *testing.T, path, wantID string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	var document map[string]interface{}
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	if got := document["$id"]; got != wantID {
+		t.Fatalf("%s $id = %v, want %s", path, got, wantID)
+	}
+	if got := document["$schema"]; got != "https://json-schema.org/draft/2020-12/schema" {
+		t.Fatalf("%s draft = %v", path, got)
+	}
+	if got := document["type"]; got != "object" {
+		t.Fatalf("%s root type = %v", path, got)
+	}
 }
 
 func TestPublishedSchemaPropertiesMatchEmittedGoTypes(t *testing.T) {
-	lock := readSchemaDocument(t, "policy-lock.schema.json")
+	lock := readLegacyLockSchemaDocument(t)
 	report := readSchemaDocument(t, "policy-report.schema.json")
 	fixPlan := readSchemaDocument(t, "policy-fix-plan.schema.json")
 
@@ -95,7 +120,7 @@ func TestPublishedSchemaPropertiesMatchEmittedGoTypes(t *testing.T) {
 }
 
 func TestPublishedAssuranceEnumMatchesPolicyKinds(t *testing.T) {
-	lock := readSchemaDocument(t, "policy-lock.schema.json")
+	lock := readLegacyLockSchemaDocument(t)
 	definitions := lock["$defs"].(map[string]interface{})
 	assurance := definitions["assurance"].(map[string]interface{})
 	properties := assurance["properties"].(map[string]interface{})
@@ -115,9 +140,45 @@ func TestPublishedAssuranceEnumMatchesPolicyKinds(t *testing.T) {
 	}
 }
 
+func TestCurrentLockSchemaRequiresPortableIdentity(t *testing.T) {
+	lock := readSchemaDocument(t, "policy-lock.schema.json")
+	properties := schemaRootProperties(t, lock)
+	if got := properties["format_version"].(map[string]interface{})["const"]; got != "2" {
+		t.Fatalf("format_version const = %v, want 2", got)
+	}
+	if got := properties["repo_root"].(map[string]interface{})["const"]; got != "." {
+		t.Fatalf("repo_root const = %v, want .", got)
+	}
+	discovery := properties["discovery"].(map[string]interface{})
+	allOf := discovery["allOf"].([]interface{})
+	portable := allOf[1].(map[string]interface{})["properties"].(map[string]interface{})
+	for _, field := range []string{"repo_root", "start_path"} {
+		if got := portable[field].(map[string]interface{})["const"]; got != "." {
+			t.Fatalf("discovery.%s const = %v, want .", field, got)
+		}
+	}
+}
+
+func readLegacyLockSchemaDocument(t *testing.T) map[string]interface{} {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", "schemas", "v1", "policy-lock.schema.json"))
+	if err != nil {
+		t.Fatalf("read legacy lock schema: %v", err)
+	}
+	var document map[string]interface{}
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatalf("parse legacy lock schema: %v", err)
+	}
+	return document
+}
+
 func readSchemaDocument(t *testing.T, name string) map[string]interface{} {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "schemas", "v1", name))
+	version := "v1"
+	if name == "policy-lock.schema.json" {
+		version = "v2"
+	}
+	data, err := os.ReadFile(filepath.Join("..", "..", "schemas", version, name))
 	if err != nil {
 		t.Fatalf("read %s: %v", name, err)
 	}

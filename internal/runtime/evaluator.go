@@ -542,32 +542,6 @@ func resolveAncestorSymlinks(path string) string {
 	}
 }
 
-// sameCanonicalPath reports whether two paths refer to the same
-// filesystem location after symlink resolution. Used by the lockfile
-// loader so macOS /var <-> /private/var symlink drift and case-variant
-// mount aliases don't reject a legitimate lockfile.
-//
-// EvalSymlinks can fail when a path doesn't exist. In that case we
-// fall back to filepath.Clean comparison, which is the best we can
-// do without resolving.
-func sameCanonicalPath(a, b string) bool {
-	if a == b {
-		return true
-	}
-	ca, aerr := filepath.EvalSymlinks(a)
-	cb, berr := filepath.EvalSymlinks(b)
-	if aerr == nil && berr == nil {
-		if ca == cb {
-			return true
-		}
-		aInfo, aStatErr := os.Stat(ca)
-		bInfo, bStatErr := os.Stat(cb)
-		return aStatErr == nil && bStatErr == nil && os.SameFile(aInfo, bInfo)
-	}
-	// One or both paths don't resolve; fall back to cleaned strings.
-	return filepath.Clean(a) == filepath.Clean(b)
-}
-
 func normalizePaths(paths []string, root string) ([]string, error) {
 	resolvedRoot, err := filepath.Abs(root)
 	if err != nil {

@@ -36,7 +36,7 @@ sha256_file() {
   printf '%s\n' "$hash"
 }
 
-expected_assets="_reconc reconc.1 reconc.bash reconc.fish policy-config.schema.json policy-fix-plan.schema.json policy-lock.schema.json policy-report.schema.json reconc-$version.spdx.json reconc-$version.cdx.json"
+expected_assets="_reconc reconc.1 reconc.bash reconc.fish policy-config.schema.json policy-fix-plan.schema.json policy-lock-v1.schema.json policy-lock.schema.json policy-report.schema.json reconc-$version.spdx.json reconc-$version.cdx.json"
 for target in "$@"; do
   os=${target%/*}
   arch=${target##*/}

@@ -21,8 +21,8 @@ BIN       := reconc
 PKG       := ./...
 BINDIR    := .build/bin
 DISTDIR   := dist
-VERSION   ?= 0.8.2
-LDFLAGS   := -ldflags "-X main.Version=$(VERSION) -s -w"
+VERSION   ?= 0.8.4
+PROVENANCE_PKG := reconc.dev/reconc/buildprovenance
 STATICCHECK_VERSION := v0.7.0
 RELEASE_COMMIT ?= $(shell git rev-parse HEAD)
 SOURCE_DATE_EPOCH ?= $(shell git show -s --format=%ct $(RELEASE_COMMIT))
@@ -40,7 +40,13 @@ RELEASE_TARGETS := \
 
 build:
 	@mkdir -p $(BINDIR)
-	$(GO) build $(LDFLAGS) -o $(BINDIR)/$(BIN) ./cmd/reconc
+	@goos=$$($(GO) env GOOS); \
+	 goarch=$$($(GO) env GOARCH); \
+	 marker=$$($(GO) run ./cmd/reconc-build-provenance --root . --goos "$$goos" --goarch "$$goarch" --version "$(VERSION)") || exit $$?; \
+	 CGO_ENABLED=0 $(GO) build -trimpath \
+	   -ldflags "-X main.Version=$(VERSION) -X $(PROVENANCE_PKG).BuildMarker=$$marker -s -w" \
+	   -o $(BINDIR)/$(BIN) ./cmd/reconc; \
+	 $(GO) run ./cmd/reconc-build-provenance --root . --goos "$$goos" --goarch "$$goarch" --version "$(VERSION)" --verify-binary $(BINDIR)/$(BIN)
 
 test:
 	$(GO) test -race -count=1 $(PKG)
@@ -85,9 +91,13 @@ release-one:
 	@os=$${TARGET%/*}; arch=$${TARGET##*/}; \
 	 ext=$$( [ "$$os" = "windows" ] && echo ".exe" || echo "" ); \
 	 out=$(DISTDIR)/$(BIN)-$(VERSION)-$$os-$$arch$$ext; \
+	 marker=$$($(GO) run ./cmd/reconc-build-provenance --root . --goos "$$os" --goarch "$$arch" --version "$(VERSION)") || exit $$?; \
 	 echo "building $$out"; \
 	 GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 \
-	   $(GO) build $(LDFLAGS) -trimpath -o $$out ./cmd/reconc
+	   $(GO) build -trimpath \
+	     -ldflags "-X main.Version=$(VERSION) -X $(PROVENANCE_PKG).BuildMarker=$$marker -s -w" \
+	     -o $$out ./cmd/reconc; \
+	 $(GO) run ./cmd/reconc-build-provenance --root . --goos "$$os" --goarch "$$arch" --version "$(VERSION)" --verify-binary $$out
 
 release: clean
 	@mkdir -p $(DISTDIR)
@@ -119,7 +129,9 @@ sbom:
 
 checksums: sbom
 	@mkdir -p $(DISTDIR)
-	@cp schemas/v1/*.schema.json $(DISTDIR)/
+	@cp schemas/v1/policy-config.schema.json schemas/v1/policy-fix-plan.schema.json schemas/v1/policy-report.schema.json $(DISTDIR)/
+	@cp schemas/v1/policy-lock.schema.json $(DISTDIR)/policy-lock-v1.schema.json
+	@cp schemas/v2/policy-lock.schema.json $(DISTDIR)/policy-lock.schema.json
 	@./scripts/release/write-checksums.sh $(DISTDIR)
 	@GO="$(GO)" ./scripts/release/verify-artifacts.sh $(DISTDIR) $(BIN) $(VERSION) $(RELEASE_TARGETS)
 	@echo "checksums -> $(DISTDIR)/SHA256SUMS"

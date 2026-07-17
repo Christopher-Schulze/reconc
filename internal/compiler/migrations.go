@@ -2,6 +2,8 @@ package compiler
 
 import (
 	"fmt"
+	"os"
+	"strings"
 
 	rerrors "reconc.dev/reconc/internal/errors"
 )
@@ -20,8 +22,7 @@ type Migration struct {
 }
 
 // Migrations registers the full chain of lockfile migrations, ordered
-// from oldest FromVersion to newest. Empty until the format version
-// bumps past "1".
+// from oldest FromVersion to newest.
 //
 // When you bump LockfileFormatVersion, append a Migration here that
 // transforms the previous layout to the new one. MigrateLockfile then
@@ -29,7 +30,57 @@ type Migration struct {
 //
 // Never edit or reorder existing entries -- migrations are load-bearing
 // for every deployed artefact out there. Only append.
-var Migrations = []Migration{}
+var Migrations = []Migration{
+	{
+		FromVersion: "1",
+		ToVersion:   "2",
+		Apply:       migrateLockfileV1ToV2,
+	},
+}
+
+func migrateLockfileV1ToV2(payload map[string]interface{}) (map[string]interface{}, error) {
+	schemaURL, _ := payload["$schema"].(string)
+	if schemaURL != LegacyLockfileSchemaV1 && schemaURL != legacyLockfileSchemaForEnterprise() {
+		return nil, fmt.Errorf("legacy lockfile schema %q is not recognized", schemaURL)
+	}
+	if root, ok := payload["repo_root"].(string); !ok || strings.TrimSpace(root) == "" {
+		return nil, fmt.Errorf("legacy lockfile repo_root must be a non-empty string")
+	}
+	discovery, ok := payload["discovery"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("legacy lockfile discovery must contain an object")
+	}
+	for _, field := range []string{"repo_root", "start_path"} {
+		if value, ok := discovery[field].(string); !ok || strings.TrimSpace(value) == "" {
+			return nil, fmt.Errorf("legacy lockfile discovery.%s must be a non-empty string", field)
+		}
+	}
+
+	out := cloneLockfileMap(payload)
+	portableDiscovery := cloneLockfileMap(discovery)
+	out["$schema"] = LockfileSchema()
+	out["repo_root"] = PortableRepoRoot
+	portableDiscovery["repo_root"] = PortableRepoRoot
+	portableDiscovery["start_path"] = PortableRepoRoot
+	out["discovery"] = portableDiscovery
+	return out, nil
+}
+
+func legacyLockfileSchemaForEnterprise() string {
+	base := strings.TrimRight(os.Getenv("RECONC_SCHEMA_BASE_URL"), "/")
+	if base == "" {
+		return LegacyLockfileSchemaV1
+	}
+	return base + "/schemas/policy-lock/v1"
+}
+
+func cloneLockfileMap(input map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(input))
+	for key, value := range input {
+		out[key] = value
+	}
+	return out
+}
 
 // MigrateLockfile walks the Migrations chain from the payload's
 // `format_version` to LockfileFormatVersion. Returns the migrated

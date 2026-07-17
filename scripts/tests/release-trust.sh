@@ -184,6 +184,7 @@ release_assets=(
   reconc.fish
   policy-fix-plan.schema.json
   policy-config.schema.json
+  policy-lock-v1.schema.json
   policy-lock.schema.json
   policy-report.schema.json
   "reconc-$project_version-darwin-amd64"

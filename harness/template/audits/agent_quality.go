@@ -9,7 +9,8 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-	"time"
+
+	"reconc.dev/reconc/buildprovenance"
 )
 
 type gitDiffFile struct {
@@ -211,19 +212,31 @@ func auditReconcBinaryFreshness(root string) []string {
 	binaryRel := localReconcBinaryRel()
 	binary := filepath.Join(root, filepath.FromSlash(binaryRel))
 	binaryInfo, err := os.Stat(binary)
-	if err != nil {
+	if os.IsNotExist(err) {
 		return nil
+	}
+	if err != nil {
+		return []string{fmt.Sprintf("%s cannot be inspected: %v", binaryRel, err)}
 	}
 	var failures []string
 	if runtime.GOOS != "windows" && binaryInfo.Mode()&0o111 == 0 {
 		failures = append(failures, binaryRel+" is not executable; live agent hooks need an executable repo-local Reconc binary")
 	}
-	newest, newestRel, ok := newestReconcSource(root)
-	if !ok {
+	expected, err := buildprovenance.ComputeSourceDigest(filepath.Join(root, "tools", "reconc"), runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		failures = append(failures, fmt.Sprintf("%s production source digest failed: %v", binaryRel, err))
 		return failures
 	}
-	if newest.After(binaryInfo.ModTime()) {
-		failures = append(failures, fmt.Sprintf("%s is older than %s; rebuild the live Reconc binary before relying on agent hooks", binaryRel, newestRel))
+	provenance, err := buildprovenance.InspectBinary(binary)
+	if err != nil {
+		failures = append(failures, fmt.Sprintf("%s has missing or malformed embedded build provenance: %v", binaryRel, err))
+		return failures
+	}
+	if provenance.GOOS != runtime.GOOS || provenance.GOARCH != runtime.GOARCH {
+		failures = append(failures, fmt.Sprintf("%s embeds target %s/%s, want %s/%s", binaryRel, provenance.GOOS, provenance.GOARCH, runtime.GOOS, runtime.GOARCH))
+	}
+	if provenance.SourceDigest != expected {
+		failures = append(failures, fmt.Sprintf("%s source digest does not match current production inputs; rebuild the live Reconc binary before relying on agent hooks", binaryRel))
 	}
 	return failures
 }
@@ -234,38 +247,4 @@ func localReconcBinaryRel() string {
 		name += ".exe"
 	}
 	return filepath.ToSlash(filepath.Join("tools", "reconc", "dist", name))
-}
-
-func newestReconcSource(root string) (time.Time, string, bool) {
-	var newest time.Time
-	var newestRel string
-	for _, relative := range []string{"tools/reconc/cmd", "tools/reconc/internal", "tools/reconc/go.mod", "tools/reconc/go.sum"} {
-		path := filepath.Join(root, filepath.FromSlash(relative))
-		info, err := os.Stat(path)
-		if err != nil {
-			continue
-		}
-		if !info.IsDir() {
-			if info.ModTime().After(newest) {
-				newest = info.ModTime()
-				newestRel = filepath.ToSlash(relative)
-			}
-			continue
-		}
-		_ = filepath.WalkDir(path, func(walkPath string, entry os.DirEntry, err error) error {
-			if err != nil || entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
-				return nil
-			}
-			info, err := entry.Info()
-			if err != nil {
-				return nil
-			}
-			if info.ModTime().After(newest) {
-				newest = info.ModTime()
-				newestRel = filepath.ToSlash(rel(root, walkPath))
-			}
-			return nil
-		})
-	}
-	return newest, newestRel, !newest.IsZero()
 }

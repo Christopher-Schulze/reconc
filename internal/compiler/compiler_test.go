@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"bytes"
 	"encoding/json"
 	stderrors "errors"
 	"os"
@@ -106,6 +107,58 @@ func TestCompileLockfileIsByteStable(t *testing.T) {
 	}
 	if c1.SourceDigest != c2.SourceDigest {
 		t.Errorf("source_digest differs: %s vs %s", c1.SourceDigest, c2.SourceDigest)
+	}
+}
+
+func TestCompileLockfileIsPortableAcrossRepoRoots(t *testing.T) {
+	withRECONCHome(t)
+	createRepo := func() string {
+		repo := t.TempDir()
+		writeFile(t, repo, "AGENTS.md", "# project\n")
+		writeFile(t, repo, ".reconc.yml", "default_mode: warn\n")
+		writeFile(t, repo, "policies/rules.yml",
+			"rules:\n  - id: r1\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: m1\n")
+		return repo
+	}
+
+	repoA := createRepo()
+	repoB := createRepo()
+	if _, err := CompileRepoPolicy(repoA, "0.1.0-test"); err != nil {
+		t.Fatalf("compile repo A: %v", err)
+	}
+	if _, err := CompileRepoPolicy(repoB, "0.1.0-test"); err != nil {
+		t.Fatalf("compile repo B: %v", err)
+	}
+	lockA, err := os.ReadFile(filepath.Join(repoA, LockfileRelativePath))
+	if err != nil {
+		t.Fatalf("read repo A lockfile: %v", err)
+	}
+	lockB, err := os.ReadFile(filepath.Join(repoB, LockfileRelativePath))
+	if err != nil {
+		t.Fatalf("read repo B lockfile: %v", err)
+	}
+	if !bytes.Equal(lockA, lockB) {
+		t.Fatal("identical sources at different roots must produce byte-identical lockfiles")
+	}
+	if bytes.Contains(lockA, []byte(repoA)) || bytes.Contains(lockA, []byte(repoB)) {
+		t.Fatal("portable lockfile must not contain a physical checkout root")
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(lockA, &payload); err != nil {
+		t.Fatalf("decode portable lockfile: %v", err)
+	}
+	if payload["repo_root"] != PortableRepoRoot {
+		t.Fatalf("repo_root=%v want %q", payload["repo_root"], PortableRepoRoot)
+	}
+	discovery, ok := payload["discovery"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("discovery has unexpected type %T", payload["discovery"])
+	}
+	for _, field := range []string{"repo_root", "start_path"} {
+		if discovery[field] != PortableRepoRoot {
+			t.Fatalf("discovery.%s=%v want %q", field, discovery[field], PortableRepoRoot)
+		}
 	}
 }
 
@@ -264,7 +317,7 @@ func TestLockfileSchemaDefault(t *testing.T) {
 func TestLockfileSchemaHonorsEnvOverride(t *testing.T) {
 	t.Setenv("RECONC_SCHEMA_BASE_URL", "https://reconc.acme.com")
 	got := LockfileSchema()
-	want := "https://reconc.acme.com/schemas/policy-lock/v1"
+	want := "https://reconc.acme.com/schemas/policy-lock/v2"
 	if got != want {
 		t.Errorf("expected %q, got %q", want, got)
 	}
@@ -273,7 +326,7 @@ func TestLockfileSchemaHonorsEnvOverride(t *testing.T) {
 func TestLockfileSchemaStripsTrailingSlash(t *testing.T) {
 	t.Setenv("RECONC_SCHEMA_BASE_URL", "https://acme.com/")
 	got := LockfileSchema()
-	want := "https://acme.com/schemas/policy-lock/v1"
+	want := "https://acme.com/schemas/policy-lock/v2"
 	if got != want {
 		t.Errorf("trailing slash should be stripped; got %q", got)
 	}
@@ -296,7 +349,7 @@ func TestCompileWritesCustomSchemaURL(t *testing.T) {
 	if err := json.Unmarshal(data, &payload); err != nil {
 		t.Fatal(err)
 	}
-	want := "https://internal.corp/schemas/policy-lock/v1"
+	want := "https://internal.corp/schemas/policy-lock/v2"
 	if payload["$schema"] != want {
 		t.Errorf("expected $schema %q, got %v", want, payload["$schema"])
 	}

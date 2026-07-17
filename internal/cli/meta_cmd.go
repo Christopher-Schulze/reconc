@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+
+	"reconc.dev/reconc/buildprovenance"
 	"reconc.dev/reconc/internal/completion"
 	"reconc.dev/reconc/internal/manpage"
 )
@@ -49,12 +51,24 @@ func runVersion(args []string, version string, stdout io.Writer) error {
 		}
 	}
 	if jsonOut {
+		sourceDigest := "unavailable"
+		buildGOOS := "unavailable"
+		buildGOARCH := "unavailable"
+		if provenance, err := buildprovenance.EmbeddedProvenance(); err == nil {
+			sourceDigest = provenance.SourceDigest
+			buildGOOS = provenance.GOOS
+			buildGOARCH = provenance.GOARCH
+		}
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(map[string]string{
-			"version":    version,
-			"binary":     "reconc",
-			"go_runtime": runtimeVersion(),
+			"version":           version,
+			"binary":            "reconc",
+			"go_runtime":        runtimeVersion(),
+			"provenance_format": buildprovenance.MarkerPrefix,
+			"source_digest":     sourceDigest,
+			"build_goos":        buildGOOS,
+			"build_goarch":      buildGOARCH,
 		})
 	}
 	fmt.Fprintf(stdout, "reconc %s\n", version)

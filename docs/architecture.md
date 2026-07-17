@@ -42,6 +42,7 @@ also use the runtime then render the result. `why` / `diff` /
 ## Package map
 
 ```
+buildprovenance/ deterministic target/source identity + byte-only binary inspection
 internal/
   adopt/          convention detector (JS/TS, Python, Rust, Go, CI, dirs)
   agentguide/     embedded agent-integration guide + section lookup
@@ -92,14 +93,15 @@ handling.
 
 ## Key invariants
 
-1. **Byte-stable lockfile.** Two compiles of identical sources produce
-   identical bytes. Compiler emits canonical JSON (sorted keys,
+1. **Byte-stable portable lockfile.** Two compiles of identical sources in
+   different clones or worktrees produce identical bytes. Format 2 uses `.` as
+   its repository/discovery root marker. Compiler emits canonical JSON (sorted keys,
    indent-2, trailing newline). Source digest is SHA-256 over the
    same canonical form. Enables rsync-style drift detection and
    git-friendly diffs.
 
 2. **Fail-closed on tampering.** Unknown document or rule field, unknown rule kind, malformed YAML,
-   stale lockfile, mismatched repo_root, unsupported schema URL --
+   stale lockfile, non-portable current root marker, unsupported schema URL --
    every degradation path raises a typed error rather than silently
    treating the situation as "pass".
 
@@ -234,7 +236,9 @@ responsibility-owned command file, completion metadata, focused tests, and
 Nothing below `cli` imports `cli`. The compiler does not know about the runtime;
 the serialized lockfile is the boundary. `schema` is the single owner of public
 contract URLs. Runtime lockfile loading imports compiler only for registered
-migrations and source-digest freshness validation.
+migrations, current-envelope validation, and source-digest freshness
+validation. Format-1 absolute-root lockfiles migrate in memory to the portable
+format-2 envelope; freshly compiled lockfiles never persist a checkout root.
 
 ## Threat model: hook runtime
 
@@ -423,8 +427,9 @@ coupling to any specific tool beyond recognizing that prefix.
 - Session evidence has per-field item and byte caps plus a 1 MiB serialized
   ceiling. Overflow persists a fail-closed marker used by PreToolUse and Stop.
 - Audit and run-decision JSONL writes rotate before append through fixed archive
-  rings; lifecycle retention bounds sessions, reports, locks, generated
-  binaries, and owned temp residue outside the Stop path.
+  rings; lifecycle retention bounds sessions, reports, locks, the product-wide
+  project-root set, generated binaries, and owned temp residue outside the Stop
+  path.
 - Native assurance source gates scan matching changed files only. Layout and
   substantive-proof authority gates inspect their complete configured surface;
   unreadable or over-budget authority fails closed.

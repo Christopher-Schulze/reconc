@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -113,6 +114,105 @@ func TestRunCoversLogsBinariesAndOwnedTemp(t *testing.T) {
 		if _, err := os.Stat(base + ".2"); !os.IsNotExist(err) {
 			t.Fatalf("extra archive survived: %s", base+".2")
 		}
+	}
+}
+
+func TestRunBoundsGlobalProjectStateAndPreservesLiveRecentAndUnknownRoots(t *testing.T) {
+	repo := t.TempDir()
+	stateRoot := t.TempDir()
+	now := time.Now().UTC()
+	policy := DefaultPolicy()
+	policy.ProjectRoots = ClassPolicy{MaxFiles: 3, MaxBytes: 48, MaxAge: 30 * 24 * time.Hour}
+	policy.Locks.MaxAge = 24 * time.Hour
+	current := ProjectDir(stateRoot, repo)
+	writeTimed(t, filepath.Join(current, "sessions", "current.json"), []byte("current"), now.Add(-60*24*time.Hour))
+	live := filepath.Join(stateRoot, "projects", "1111111111111111")
+	writeTimed(t, filepath.Join(live, "sessions", "live.json"), []byte("live"), now)
+	writeTimed(t, filepath.Join(live, "active-session.txt"), []byte("live\n"), now)
+	recent := filepath.Join(stateRoot, "projects", "2222222222222222")
+	writeTimed(t, filepath.Join(recent, "recent"), []byte("recent"), now.Add(-time.Hour))
+	stale := filepath.Join(stateRoot, "projects", "3333333333333333")
+	writeTimed(t, filepath.Join(stale, "stale"), []byte("stale"), now.Add(-60*24*time.Hour))
+	overflow := filepath.Join(stateRoot, "projects", "4444444444444444")
+	writeTimed(t, filepath.Join(overflow, "overflow"), []byte("overflow"), now.Add(-48*time.Hour))
+	for path, modTime := range map[string]time.Time{stale: now.Add(-60 * 24 * time.Hour), overflow: now.Add(-48 * time.Hour)} {
+		if err := os.Chtimes(path, modTime, modTime); err != nil {
+			t.Fatal(err)
+		}
+	}
+	unknown := filepath.Join(stateRoot, "projects", "operator-notes")
+	writeTimed(t, filepath.Join(unknown, "keep"), []byte("keep"), now.Add(-365*24*time.Hour))
+
+	report := RunIfDue(Options{RepoRoot: repo, StateRoot: stateRoot, Policy: policy, Now: now, TempRoot: t.TempDir()})
+	if len(report.Errors) != 0 {
+		t.Fatalf("retention errors: %v", report.Errors)
+	}
+	for _, path := range []string{current, live, recent, unknown} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("protected root removed: %s: %v", path, err)
+		}
+	}
+	for _, path := range []string{stale, overflow} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("unbounded project root survived: %s: %v", path, err)
+		}
+	}
+	if report.ProjectStateBytes > policy.ProjectRoots.MaxBytes {
+		t.Fatalf("global project state not bounded: %+v", report)
+	}
+}
+
+func TestExplicitRunEnforcesProjectCountWithoutLifecycleGrace(t *testing.T) {
+	repo := t.TempDir()
+	stateRoot := t.TempDir()
+	now := time.Now().UTC()
+	policy := DefaultPolicy()
+	policy.ProjectRoots = ClassPolicy{MaxFiles: 2, MaxBytes: 1024, MaxAge: 30 * 24 * time.Hour}
+	current := ProjectDir(stateRoot, repo)
+	writeTimed(t, filepath.Join(current, "current"), []byte("current"), now)
+	for index, key := range []string{"1111111111111111", "2222222222222222", "3333333333333333"} {
+		writeTimed(t, filepath.Join(stateRoot, "projects", key, "state"), []byte(key), now.Add(time.Duration(index)*time.Minute))
+	}
+
+	report := Run(Options{RepoRoot: repo, StateRoot: stateRoot, Policy: policy, Now: now.Add(time.Hour), TempRoot: t.TempDir()})
+	if len(report.Errors) != 0 {
+		t.Fatalf("retention errors: %v", report.Errors)
+	}
+	if report.ProjectStateBytes > policy.ProjectRoots.MaxBytes {
+		t.Fatalf("global byte limit not enforced: %+v", report)
+	}
+	projectClass := ClassReport{}
+	for _, class := range report.Classes {
+		if class.Name == "project-state-roots" {
+			projectClass = class
+		}
+	}
+	if projectClass.FilesKept != 2 || projectClass.FilesDeleted != 2 {
+		t.Fatalf("explicit project count result: %+v", projectClass)
+	}
+	if _, err := os.Stat(current); err != nil {
+		t.Fatalf("current project was removed: %v", err)
+	}
+}
+
+func TestProjectRootSizingFailsClosedOnIrregularEntries(t *testing.T) {
+	repo := t.TempDir()
+	stateRoot := t.TempDir()
+	now := time.Now().UTC()
+	root := filepath.Join(stateRoot, "projects", "1111111111111111")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(stateRoot, "outside"), filepath.Join(root, "external")); err != nil {
+		t.Fatal(err)
+	}
+
+	report := Run(Options{RepoRoot: repo, StateRoot: stateRoot, Policy: DefaultPolicy(), Now: now, TempRoot: t.TempDir()})
+	if len(report.Errors) == 0 || !strings.Contains(strings.Join(report.Errors, "\n"), "unsupported non-regular entry") {
+		t.Fatalf("irregular project state must fail closed: %+v", report)
+	}
+	if _, err := os.Lstat(root); err != nil {
+		t.Fatalf("uninspectable project root was removed: %v", err)
 	}
 }
 
@@ -235,6 +335,8 @@ func TestRunDryRunDoesNotDelete(t *testing.T) {
 		filepath.Join(ProjectDir(stateRoot, repo), ".retention.lock"),
 		filepath.Join(stateRoot, ".owned-temp-retention.lock"),
 		filepath.Join(stateRoot, ".last-owned-temp-retention"),
+		filepath.Join(stateRoot, ".project-root-retention.lock"),
+		filepath.Join(stateRoot, ".last-project-root-retention"),
 	} {
 		if _, err := os.Stat(candidate); !os.IsNotExist(err) {
 			t.Fatalf("dry run created runtime state %s: %v", candidate, err)

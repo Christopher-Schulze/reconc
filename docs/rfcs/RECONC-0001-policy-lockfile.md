@@ -2,8 +2,8 @@
 
 - Status: Frozen
 - Contract: `.reconc/policy.lock.json`
-- Schema: `https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/policy-lock.schema.json`
-- Format version: `1`
+- Schema: `https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v2/policy-lock.schema.json`
+- Format version: `2`
 
 ## Purpose
 
@@ -11,7 +11,7 @@
 policy artifact trusted by runtime commands. `check`, `ci`, `explain`,
 `fix`, `assert`, `can`, hooks, and agent-session gates must load this
 file and reject it when schema, format, repo root, or source digest do
-not match current sources.
+not satisfy the current portable envelope or source state.
 
 ## Source Inputs
 
@@ -36,9 +36,9 @@ The compiled `source_precedence` field is:
 | Field | Type | Rule |
 |---|---|---|
 | `$schema` | string | Must equal the schema URL above unless `RECONC_SCHEMA_BASE_URL` deliberately rewrites the base. |
-| `format_version` | string | Must equal `1`. |
+| `format_version` | string | Must equal `2`. |
 | `compiler_version` | string | Build version that wrote the lockfile. |
-| `repo_root` | string | Absolute canonical repository root. Runtime refuses cross-root lockfiles. |
+| `repo_root` | string | Portable marker `.`. Physical checkout roots never enter current lockfiles. |
 | `default_mode` | string | One of `observe`, `warn`, `block`, `fix`. |
 | `rule_count` | integer | Must equal `len(rules)`. |
 | `source_count` | integer | Must equal `len(sources)`. |
@@ -81,9 +81,11 @@ parse time, never degrade to pass.
 
 Runtime loaders must:
 
-1. Refuse missing, malformed, stale, schema-drifted, or cross-root
+1. Refuse missing, malformed, stale, schema-drifted, or non-portable current
    lockfiles.
-2. Apply registered migrations only when the payload format is known.
+2. Validate the immutable v1 schema identity and migrate known format-1
+   absolute-root lockfiles in memory to the format-2 `.` envelope without
+   mutating the input.
 3. Validate rule count and source count consistency.
 4. Treat generated lockfiles as generated output; users must re-run
    `reconc compile` instead of editing them by hand.

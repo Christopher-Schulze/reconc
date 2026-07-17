@@ -396,28 +396,11 @@ func readLockfileSummary(repoRoot string) (map[string]interface{}, error) {
 	if payload == nil {
 		return nil, fmt.Errorf("lockfile must contain a JSON object")
 	}
-	return payload, nil
-}
-
-func samePathForCompare(a, b string) bool {
-	if canonicalPathForCompare(a) == canonicalPathForCompare(b) {
-		return true
-	}
-	aInfo, aErr := os.Stat(a)
-	bInfo, bErr := os.Stat(b)
-	return aErr == nil && bErr == nil && os.SameFile(aInfo, bInfo)
-}
-
-func canonicalPathForCompare(path string) string {
-	abs, err := filepath.Abs(path)
+	migrated, _, err := compiler.MigrateLockfile(payload)
 	if err != nil {
-		abs = path
+		return nil, err
 	}
-	resolved, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		return filepath.Clean(abs)
-	}
-	return filepath.Clean(resolved)
+	return migrated, nil
 }
 
 type readOnlyPolicyValidation struct {

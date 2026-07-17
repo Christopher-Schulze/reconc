@@ -44,8 +44,62 @@ func TestCheckRejectsOldLockfileWithoutRegisteredMigration(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for old lockfile without migration")
 	}
-	if !strings.Contains(err.Error(), "no migration registered from format_version 0 to 1") {
+	if !strings.Contains(err.Error(), "no migration registered from format_version 0 to 2") {
 		t.Fatalf("expected missing-migration error, got: %v", err)
+	}
+}
+
+func TestCheckAcceptsMigratedV1LockfileFromEquivalentCheckout(t *testing.T) {
+	withRECONCHome(t)
+	policyText := "rules:\n  - id: r\n    kind: deny_write\n    paths: ['x']\n    mode: warn\n    message: x\n"
+	repoA := makeRepo(t, "# project\n", "", policyText)
+	repoB := makeRepo(t, "# project\n", "", policyText)
+
+	lockfileA := filepath.Join(repoA, ".reconc", "policy.lock.json")
+	data, err := os.ReadFile(lockfileA)
+	if err != nil {
+		t.Fatalf("read source lockfile: %v", err)
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("decode source lockfile: %v", err)
+	}
+	payload["$schema"] = compiler.LegacyLockfileSchemaV1
+	payload["format_version"] = "1"
+	payload["repo_root"] = repoA
+	discovery, ok := payload["discovery"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("discovery has type %T", payload["discovery"])
+	}
+	discovery["repo_root"] = repoA
+	discovery["start_path"] = filepath.Join(repoA, "subdir")
+	legacy, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		t.Fatalf("encode legacy lockfile: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoB, ".reconc", "policy.lock.json"), append(legacy, '\n'), 0o644); err != nil {
+		t.Fatalf("write legacy lockfile: %v", err)
+	}
+
+	report, err := CheckRepoPolicy(repoB, Empty())
+	if err != nil {
+		t.Fatalf("migrated equivalent checkout rejected: %v", err)
+	}
+	if !report.OK || report.Decision != DecisionPass {
+		t.Fatalf("migrated equivalent checkout decision=%s ok=%v", report.Decision, report.OK)
+	}
+}
+
+func TestCheckRejectsCurrentLockfileWithPhysicalRoot(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "", "rules: []\n")
+	rewriteLockfile(t, repo, func(payload map[string]interface{}) {
+		payload["repo_root"] = repo
+	})
+
+	_, err := CheckRepoPolicy(repo, Empty())
+	if err == nil || !strings.Contains(err.Error(), "portable '.' marker") {
+		t.Fatalf("expected non-portable identity rejection, got %v", err)
 	}
 }
 

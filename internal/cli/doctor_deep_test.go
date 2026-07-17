@@ -189,7 +189,7 @@ func TestRunDoctorDeepChecks(t *testing.T) {
 		}
 	})
 
-	t.Run("moved lockfile root fails", func(t *testing.T) {
+	t.Run("non-portable lockfile root fails", func(t *testing.T) {
 		repo := makeCheckRepo(t,
 			"rules:\n  - id: deny-generated\n    kind: deny_write\n    paths: ['generated/**']\n    mode: warn\n    message: generated files are read-only\n")
 		lockfile := filepath.Join(repo, ".reconc", "policy.lock.json")
@@ -197,11 +197,11 @@ func TestRunDoctorDeepChecks(t *testing.T) {
 
 		report, err := runDoctorDeepJSON(t, repo)
 		if ExitCode(err) != 1 {
-			t.Fatalf("expected exit 1 for moved lockfile root, got %d", ExitCode(err))
+			t.Fatalf("expected exit 1 for non-portable lockfile root, got %d", ExitCode(err))
 		}
 		detail := doctorCheckDetail(t, report, "lockfile freshness")
-		if !strings.Contains(detail, "repo_root does not match") {
-			t.Fatalf("expected repo_root mismatch detail, got %q", detail)
+		if !strings.Contains(detail, "portable '.' marker") {
+			t.Fatalf("expected portable marker detail, got %q", detail)
 		}
 	})
 

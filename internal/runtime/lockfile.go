@@ -68,34 +68,16 @@ func loadLockfile(root string) (map[string]interface{}, error) {
 	if payload == nil {
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile must contain a JSON object at the top level"}
 	}
-	// Route every non-current payload through the migration table
-	// before validating the rest of the contract. Today v0.4 keeps
-	// format_version at "1", so this is a no-op; when a future
-	// release does bump the shape, older lockfiles get either a real
-	// migration path or a precise "no migration registered" error
-	// instead of the generic version mismatch.
+	// Route every non-current payload through the migration table before
+	// validating the rest of the contract.
 	migrated, _, err := compiler.MigrateLockfile(payload)
 	if err != nil {
 		return nil, err
 	}
 	payload = migrated
 
-	// Accept the lockfile's schema URL if it matches either the
-	// default upstream URL or the current resolver output (so enterprise
-	// deployments with a custom RECONC_SCHEMA_BASE_URL can still read
-	// lockfiles written by upstream reconc, and vice versa).
-	schemaGot, _ := payload["$schema"].(string)
-	if schemaGot != compiler.DefaultLockfileSchema && schemaGot != compiler.LockfileSchema() {
-		return nil, &rerrors.LockfileError{Message: "compiled lockfile schema does not match this checker"}
-	}
-	// Compare both sides after EvalSymlinks so macOS /var <->
-	// /private/var drift doesn't reject legitimate lockfiles.
-	// Fall back to the raw path on EvalSymlinks error (path may no
-	// longer exist, which produces a different error in the next
-	// stage of evaluation).
-	storedRoot, _ := payload["repo_root"].(string)
-	if !sameCanonicalPath(storedRoot, root) {
-		return nil, &rerrors.LockfileError{Message: "compiled lockfile repo_root does not match the discovered repository root"}
+	if err := compiler.ValidateLockfileEnvelope(payload); err != nil {
+		return nil, err
 	}
 
 	defaultMode, _ := payload["default_mode"].(string)

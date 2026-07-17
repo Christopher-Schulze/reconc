@@ -27,9 +27,18 @@ import (
 	"reconc.dev/reconc/internal/schema"
 )
 
-// LockfileFormatVersion is bumped whenever lockfile JSON changes shape
-// in a non-additive way. Stays at "1" through W9-W51.
-const LockfileFormatVersion = "1"
+// LockfileFormatVersion is bumped whenever the lockfile contract changes in a
+// non-additive way. Version 2 replaces physical checkout identity with a
+// portable repository-root marker.
+const LockfileFormatVersion = "2"
+
+// PortableRepoRoot is the only repository identity serialized into current
+// lockfiles. Runtime binds it to the discovered checkout and verifies semantic
+// identity through source_digest.
+const PortableRepoRoot = "."
+
+// LegacyLockfileSchemaV1 is accepted only during the format-1 migration.
+const LegacyLockfileSchemaV1 = schema.LegacyPolicyLockURL
 
 // DefaultLockfileSchema is the canonical JSON-schema URL recorded in every
 // lockfile by default. Deployments can override the base via
@@ -141,7 +150,7 @@ func CompileRepoPolicy(repoStartPath, compilerVersion string) (*CompiledPolicy, 
 	}
 	compiledDiscovery.Warnings = append(compiledDiscovery.Warnings, braceVariableWarnings(parsed.Rules)...)
 
-	payload := buildLockPayload(root, bundle, parsed, digest, compilerVersion, compiledDiscovery)
+	payload := buildLockPayload(bundle, parsed, digest, compilerVersion, compiledDiscovery)
 
 	if err := writeLockfile(root, payload); err != nil {
 		return nil, err
@@ -223,7 +232,6 @@ func marshalCanonical(v interface{}) ([]byte, error) {
 // (lockfile path set, missing-lockfile warning stripped) so that
 // re-compiles produce byte-identical lockfiles.
 func buildLockPayload(
-	repoRoot string,
 	bundle *ingest.SourceBundle,
 	parsed *parser.ParsedPolicy,
 	digest string,
@@ -244,7 +252,7 @@ func buildLockPayload(
 		"$schema":           LockfileSchema(),
 		"compiler_version":  compilerVersion,
 		"format_version":    LockfileFormatVersion,
-		"repo_root":         repoRoot,
+		"repo_root":         PortableRepoRoot,
 		"default_mode":      string(parsed.DefaultMode),
 		"rule_count":        len(parsed.Rules),
 		"source_count":      len(bundle.Sources),
@@ -514,8 +522,8 @@ func sourceToMap(s policy.PolicySource) map[string]interface{} {
 // (nil -> absent key) for a stable lockfile shape.
 func discoveryToMap(d ingest.DiscoveryResult) map[string]interface{} {
 	m := map[string]interface{}{
-		"start_path":        d.StartPath,
-		"repo_root":         d.RepoRoot,
+		"start_path":        PortableRepoRoot,
+		"repo_root":         PortableRepoRoot,
 		"discovered":        d.Discovered,
 		"config_candidates": d.ConfigCandidates,
 		"policy_paths":      d.PolicyPaths,
@@ -537,6 +545,32 @@ func discoveryToMap(d ingest.DiscoveryResult) map[string]interface{} {
 		m["lockfile_path"] = *d.LockfilePath
 	}
 	return m
+}
+
+// ValidateLockfileEnvelope verifies current lockfile metadata independent of
+// policy contents. Callers must migrate the payload before invoking it.
+func ValidateLockfileEnvelope(payload map[string]interface{}) error {
+	formatVersion, _ := payload["format_version"].(string)
+	if formatVersion != LockfileFormatVersion {
+		return &rerrors.LockfileError{Message: "compiled lockfile format_version does not match this checker; re-run `reconc compile`"}
+	}
+	schemaURL, _ := payload["$schema"].(string)
+	if schemaURL != DefaultLockfileSchema && schemaURL != LockfileSchema() {
+		return &rerrors.LockfileError{Message: "compiled lockfile schema does not match this checker; re-run `reconc compile`"}
+	}
+	if root, _ := payload["repo_root"].(string); root != PortableRepoRoot {
+		return &rerrors.LockfileError{Message: "compiled lockfile repo_root must use the portable '.' marker; re-run `reconc compile`"}
+	}
+	discovery, ok := payload["discovery"].(map[string]interface{})
+	if !ok {
+		return &rerrors.LockfileError{Message: "compiled lockfile discovery must contain an object; re-run `reconc compile`"}
+	}
+	for _, field := range []string{"repo_root", "start_path"} {
+		if value, _ := discovery[field].(string); value != PortableRepoRoot {
+			return &rerrors.LockfileError{Message: "compiled lockfile discovery." + field + " must use the portable '.' marker; re-run `reconc compile`"}
+		}
+	}
+	return nil
 }
 
 // writeLockfile materializes payload at $repoRoot/.reconc/policy.lock.json

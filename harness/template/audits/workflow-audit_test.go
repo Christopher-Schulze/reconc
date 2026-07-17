@@ -5,9 +5,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"reconc.dev/reconc/buildprovenance"
 )
 
 func TestBatchAuditResultsReportsModesIndependently(t *testing.T) {
@@ -153,14 +156,27 @@ func TestAuditAgentQualityRejectsTaskPlaceholderPhrases(t *testing.T) {
 	}
 }
 
-func TestAuditReconcBinaryFreshnessRejectsStaleLiveBinary(t *testing.T) {
+func TestAuditReconcBinaryFreshnessUsesDeterministicProvenance(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, root, localReconcBinaryRel(), "#!/bin/sh\n")
-	writeFile(t, root, "tools/reconc/internal/runtime/agentsession/handlers.go", "package agentsession\n")
+	writeReconcProvenanceFixture(t, root)
+	digest, err := buildprovenance.ComputeSourceDigest(filepath.Join(root, "tools", "reconc"), runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker, err := buildprovenance.FormatMarker(buildprovenance.Provenance{
+		Version:      "0.8.4",
+		GOOS:         runtime.GOOS,
+		GOARCH:       runtime.GOARCH,
+		SourceDigest: digest,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, root, localReconcBinaryRel(), "binary\x00"+marker)
 	oldTime := time.Unix(100, 0)
 	newTime := time.Unix(200, 0)
 	binary := filepath.Join(root, filepath.FromSlash(localReconcBinaryRel()))
-	source := filepath.Join(root, "tools/reconc/internal/runtime/agentsession/handlers.go")
+	source := filepath.Join(root, "tools/reconc/internal/feature/feature.go")
 	if err := os.Chmod(binary, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -172,9 +188,92 @@ func TestAuditReconcBinaryFreshnessRejectsStaleLiveBinary(t *testing.T) {
 	}
 
 	failures := auditReconcBinaryFreshness(root)
-	if !containsFailure(failures, "is older than tools/reconc/internal/runtime/agentsession/handlers.go") {
-		t.Fatalf("expected stale binary failure, got:\n%s", strings.Join(failures, "\n"))
+	if len(failures) != 0 {
+		t.Fatalf("mtime-only drift must not invalidate provenance:\n%s", strings.Join(failures, "\n"))
 	}
+
+	copiedRoot := t.TempDir()
+	writeReconcProvenanceFixture(t, copiedRoot)
+	writeFile(t, copiedRoot, localReconcBinaryRel(), "binary\x00"+marker)
+	copiedBinary := filepath.Join(copiedRoot, filepath.FromSlash(localReconcBinaryRel()))
+	if err := os.Chmod(copiedBinary, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if failures := auditReconcBinaryFreshness(copiedRoot); len(failures) != 0 {
+		t.Fatalf("copied binary must stay fresh for byte-identical production inputs:\n%s", strings.Join(failures, "\n"))
+	}
+
+	writeFile(t, root, "tools/reconc/internal/feature/feature_test.go", "package feature\n\nfunc testOnly() string { return \"changed\" }\n")
+	if failures := auditReconcBinaryFreshness(root); len(failures) != 0 {
+		t.Fatalf("test-only source must not invalidate provenance:\n%s", strings.Join(failures, "\n"))
+	}
+
+	writeFile(t, root, "tools/reconc/internal/feature/feature.go", "package feature\n\nfunc Value() string { return \"changed\" }\n")
+	failures = auditReconcBinaryFreshness(root)
+	if !containsFailure(failures, "source digest does not match") {
+		t.Fatalf("expected production source drift failure, got:\n%s", strings.Join(failures, "\n"))
+	}
+}
+
+func TestAuditReconcBinaryFreshnessRejectsWrongTarget(t *testing.T) {
+	root := t.TempDir()
+	writeReconcProvenanceFixture(t, root)
+	digest, err := buildprovenance.ComputeSourceDigest(filepath.Join(root, "tools", "reconc"), runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongOS := "linux"
+	if runtime.GOOS == wrongOS {
+		wrongOS = "darwin"
+	}
+	marker, err := buildprovenance.FormatMarker(buildprovenance.Provenance{
+		Version:      "0.8.4",
+		GOOS:         wrongOS,
+		GOARCH:       runtime.GOARCH,
+		SourceDigest: digest,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, root, localReconcBinaryRel(), "binary\x00"+marker)
+	binary := filepath.Join(root, filepath.FromSlash(localReconcBinaryRel()))
+	if err := os.Chmod(binary, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if failures := auditReconcBinaryFreshness(root); !containsFailure(failures, "embeds target") {
+		t.Fatalf("expected target mismatch, got:\n%s", strings.Join(failures, "\n"))
+	}
+}
+
+func TestAuditReconcBinaryFreshnessFailsClosedOnMalformedProvenance(t *testing.T) {
+	root := t.TempDir()
+	writeReconcProvenanceFixture(t, root)
+	writeFile(t, root, localReconcBinaryRel(), "binary without provenance")
+	binary := filepath.Join(root, filepath.FromSlash(localReconcBinaryRel()))
+	if err := os.Chmod(binary, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if failures := auditReconcBinaryFreshness(root); !containsFailure(failures, "missing or malformed embedded build provenance") {
+		t.Fatalf("expected malformed provenance failure, got:\n%s", strings.Join(failures, "\n"))
+	}
+}
+
+func TestWorkflowAuditRunnerTracksBuildProvenanceDependency(t *testing.T) {
+	content, err := os.ReadFile("run-workflow-audit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "tools/reconc/buildprovenance/*.go") {
+		t.Fatal("workflow audit cache must rebuild when shared build provenance changes")
+	}
+}
+
+func writeReconcProvenanceFixture(t *testing.T, root string) {
+	t.Helper()
+	writeFile(t, root, "tools/reconc/go.mod", "module example.test/reconc\n\ngo 1.26\n")
+	writeFile(t, root, "tools/reconc/cmd/reconc/main.go", "package main\n\nimport \"example.test/reconc/internal/feature\"\n\nfunc main() { _ = feature.Value() }\n")
+	writeFile(t, root, "tools/reconc/internal/feature/feature.go", "package feature\n\nfunc Value() string { return \"production\" }\n")
+	writeFile(t, root, "tools/reconc/internal/feature/feature_test.go", "package feature\n\nfunc testOnly() string { return \"test\" }\n")
 }
 
 func TestAuditTaskStateAllowsCurrentBeyondBlockedFirstOpen(t *testing.T) {

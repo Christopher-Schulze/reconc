@@ -1367,6 +1367,12 @@ func TestRunVersionJSON(t *testing.T) {
 	if payload["go_runtime"] == "" {
 		t.Error("expected go_runtime to be populated")
 	}
+	if payload["provenance_format"] != "reconc-build-provenance-v1" {
+		t.Errorf("expected provenance format, got %q", payload["provenance_format"])
+	}
+	if payload["source_digest"] == "" {
+		t.Error("expected source_digest status to be populated")
+	}
 }
 
 func TestRunVersionFlagStillWorks(t *testing.T) {
@@ -1892,7 +1898,7 @@ func TestRunPostTaskCheckFailsOnRecentBlock(t *testing.T) {
 	}
 }
 
-func TestRunPostTaskCheckFailsOnMovedLockfileRoot(t *testing.T) {
+func TestRunPostTaskCheckRejectsNonPortableLockfileRoot(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := makeAssertRepo(t,
 		"rules:\n  - id: r1\n    kind: deny_write\n    paths: ['x']\n    mode: warn\n    message: m\n")
@@ -1902,10 +1908,10 @@ func TestRunPostTaskCheckFailsOnMovedLockfileRoot(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := Run([]string{"post-task-check", repo}, "0.1.0-test", &stdout, &stderr)
 	if err == nil || ExitCode(err) != 1 {
-		t.Fatalf("expected post-task-check to fail on moved root, got err=%v code=%d", err, ExitCode(err))
+		t.Fatalf("expected post-task-check to reject non-portable root, got err=%v code=%d", err, ExitCode(err))
 	}
-	if !strings.Contains(stdout.String(), "repo_root does not match") {
-		t.Fatalf("expected repo_root mismatch output, got %q", stdout.String())
+	if !strings.Contains(stdout.String(), "portable '.' marker") {
+		t.Fatalf("expected portable marker output, got %q", stdout.String())
 	}
 }
 
@@ -1984,7 +1990,7 @@ func TestRunDoneBlocksOnRecentBlock(t *testing.T) {
 	}
 }
 
-func TestRunDoneBlocksOnMovedLockfileRoot(t *testing.T) {
+func TestRunDoneBlocksOnNonPortableLockfileRoot(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := makeAssertRepo(t,
 		"rules:\n  - id: r1\n    kind: deny_write\n    paths: ['x']\n    mode: warn\n    message: m\n")
@@ -1994,10 +2000,10 @@ func TestRunDoneBlocksOnMovedLockfileRoot(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := Run([]string{"done", repo}, "0.5.0-test", &stdout, &stderr)
 	if err == nil || ExitCode(err) != 2 {
-		t.Fatalf("expected done to block on moved root, got err=%v code=%d", err, ExitCode(err))
+		t.Fatalf("expected done to block on non-portable root, got err=%v code=%d", err, ExitCode(err))
 	}
-	if !strings.Contains(stdout.String(), "repo_root does not match") {
-		t.Fatalf("expected repo_root mismatch output, got %q", stdout.String())
+	if !strings.Contains(stdout.String(), "portable '.' marker") {
+		t.Fatalf("expected portable marker output, got %q", stdout.String())
 	}
 }
 
@@ -2035,25 +2041,6 @@ func TestRunDoneJSON(t *testing.T) {
 	}
 	if payload["ok"] != true {
 		t.Fatalf("expected ok=true, got %v", payload)
-	}
-}
-
-func TestSamePathForCompareAcceptsCaseVariantSameFile(t *testing.T) {
-	dir := t.TempDir()
-	alias := strings.ToUpper(dir)
-	if alias == dir {
-		t.Skip("path has no case-variant alias")
-	}
-	dirInfo, err := os.Stat(dir)
-	if err != nil {
-		t.Fatalf("stat dir: %v", err)
-	}
-	aliasInfo, err := os.Stat(alias)
-	if err != nil || !os.SameFile(dirInfo, aliasInfo) {
-		t.Skip("filesystem does not expose case-variant paths as the same directory")
-	}
-	if !samePathForCompare(dir, alias) {
-		t.Fatalf("expected samePathForCompare to accept same-file case alias: %q vs %q", dir, alias)
 	}
 }
 

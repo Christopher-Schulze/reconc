@@ -30,28 +30,7 @@ func writeFile(t *testing.T, dir, name, content string) {
 	}
 }
 
-func TestSameCanonicalPathAcceptsCaseVariantSameFile(t *testing.T) {
-	dir := t.TempDir()
-	alias := strings.ToUpper(dir)
-	if alias == dir {
-		t.Skip("path has no case-variant alias")
-	}
-	dirInfo, err := os.Stat(dir)
-	if err != nil {
-		t.Fatalf("stat dir: %v", err)
-	}
-	aliasInfo, err := os.Stat(alias)
-	if err != nil || !os.SameFile(dirInfo, aliasInfo) {
-		t.Skip("filesystem does not expose case-variant paths as the same directory")
-	}
-	if !sameCanonicalPath(dir, alias) {
-		t.Fatalf("expected sameCanonicalPath to accept same-file case alias: %q vs %q", dir, alias)
-	}
-}
-
-// makeRepo creates a minimal repo + compiles it. Returns the same
-// path that was passed to compile so check() sees identical input
-// (avoids macOS /var -> /private/var symlink mismatch).
+// makeRepo creates a minimal repo and compiles it.
 func makeRepo(t *testing.T, agentsContent, configContent, policiesContent string) string {
 	t.Helper()
 	repo := t.TempDir()
@@ -80,6 +59,29 @@ func TestCheckPassesWhenNoEvidenceTriggers(t *testing.T) {
 	}
 	if !report.OK || report.Decision != DecisionPass {
 		t.Errorf("expected pass, got %s (ok=%v)", report.Decision, report.OK)
+	}
+}
+
+func TestCheckAcceptsLockfileFromEquivalentCheckout(t *testing.T) {
+	withRECONCHome(t)
+	policyText := "rules:\n  - id: deny-gen\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: m\n"
+	repoA := makeRepo(t, "# project\n", "", policyText)
+	repoB := makeRepo(t, "# project\n", "", policyText)
+
+	lockA, err := os.ReadFile(filepath.Join(repoA, ingest.LockfilePath))
+	if err != nil {
+		t.Fatalf("read source lockfile: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoB, ingest.LockfilePath), lockA, 0o644); err != nil {
+		t.Fatalf("copy lockfile: %v", err)
+	}
+
+	report, err := CheckRepoPolicy(repoB, Empty())
+	if err != nil {
+		t.Fatalf("equivalent checkout rejected: %v", err)
+	}
+	if !report.OK || report.Decision != DecisionPass {
+		t.Fatalf("equivalent checkout decision=%s ok=%v", report.Decision, report.OK)
 	}
 }
 

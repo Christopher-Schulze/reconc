@@ -69,18 +69,25 @@ make lint
 make cover
 make bench
 make self-host
-make sbom VERSION=0.8.2
-make release VERSION=0.8.2
+make sbom VERSION=0.8.4
+make release VERSION=0.8.4
 ```
 
 `make release` cross-compiles five binaries into `dist/`, generates three flat
-shell-completion artifacts, generates a man page, copies the four public v1
-JSON schemas, generates deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs, and
-writes `dist/SHA256SUMS`. The target stops on the first build, SBOM, or checksum
-failure. The release verifier requires exactly those fifteen
+shell-completion artifacts, generates a man page, copies the four immutable v1
+schemas plus the current v2 policy-lock schema, generates deterministic SPDX
+2.3 and CycloneDX 1.6 SBOMs, and writes `dist/SHA256SUMS`. The target stops on
+the first build, SBOM, or checksum
+failure. The release verifier requires exactly those sixteen
 checksummed artifacts, rejects missing, extra, duplicate, unsafe, or corrupted
 entries, and never accepts an empty manifest. `dist/` is ignored and should not
 be committed.
+
+Every host and release build embeds a deterministic version, target, and
+production-source digest. The build verifies that marker directly from the
+finished binary bytes without executing the artifact. Timestamps, test-only
+files, and physical checkout paths do not affect the digest; target-selected
+production Go files, embedded assets, `go.mod`, and `go.sum` do.
 
 The stdlib-only SBOM generator inventories both repository Go modules with
 `go list -m -json all`, resolves their selected dependency graph, and records
@@ -185,7 +192,7 @@ state without Git or writes. Static reference material stays on demand through
 `status`, `doctor`, `verify`, `check`, `ci`, `assert`, `can`, `why`,
 `task status`, `task validate`, `task check-done`, `run status`, `run log`,
 `session-briefing`, `post-task-check`, `done`, and `tui` never compile or write
-the lockfile. Missing, stale, malformed, schema-drifted, or wrong-root
+the lockfile. Missing, stale, malformed, schema-drifted, or non-portable current
 lockfiles fail closed with one explicit remediation: `reconc refresh .`.
 When `RECONC_AUDIT=1`, enforcement commands may still append decision records;
 that opt-in audit write is independent of policy refresh.
@@ -349,11 +356,14 @@ For exact flags, run `reconc <command> --help`.
 ## Repository Policy
 
 In governed target repositories, repo-local policy lives in `.reconc.yml` and
-should be committed. The generated `.reconc/policy.lock.json` remains local
-because it records absolute paths. This standalone product repository does not
-carry either file and must exercise policy compilation only inside isolated
-test repositories. Its ignore patterns remain as a defensive boundary against
-accidental local state and for nested bootstrap fixtures.
+should be committed. The generated `.reconc/policy.lock.json` remains local to
+avoid generated-file churn, but format 2 is checkout-independent and
+byte-identical across equivalent clones and worktrees. Format-1 lockfiles are
+migrated in memory after their legacy schema identity is validated. This standalone
+product repository does not carry either file and must exercise policy
+compilation only inside isolated test repositories. Its ignore patterns remain
+as a defensive boundary against accidental local state and for nested
+bootstrap fixtures.
 
 Policy authoring is strict. Unknown keys at the document, scope, rule,
 evidence, composite-check, and TASK-lifecycle levels fail compilation instead
@@ -401,16 +411,21 @@ evidence sets a persisted overflow marker that blocks PreToolUse and Stop.
 
 Default persistent budgets are 32 session files / 8 MiB / 14 days, 32 reports
 / 8 MiB / 14 days, 128 locks / 1 MiB / 24 hours, 16 MiB total external state,
-and 32 MiB / 14 days for generated audit binaries. Audit and run-decision
-JSONL each use a 2 MiB live file plus two archives, with file-locked append and
+and 32 MiB / 14 days for generated audit binaries. The product-wide project
+state root is independently bounded to 256 recognized project roots, 128 MiB,
+and 30 days. Explicit prune enforces that global bound immediately; lifecycle
+passes protect the current project, live sessions, and roots touched within the
+24-hour concurrency grace. Unknown directories are never treated as
+product-owned. Audit and run-decision JSONL each use a 2 MiB live file plus two
+archives, with file-locked append and
 pre-append rotation. Repo runtime is capped at 48 MiB. Known
 `reconc-proof-neg-*`, `reconc-proof-neg-copy-*`, and
 `reconc-proof-gocache-*` temp trees are removed after a two-hour inactive
 grace, retaining recent work while removing hard-kill residue before a full
 working day passes. Active session/report/lock files, live build-lock targets,
 run state/locks, and recent temp trees are never deleted to force a budget.
-Global temp scanning has its own six-hour marker, so multiple repos do not
-re-walk the same temp tree on every session start.
+Global temp and project-root scanning use independent six-hour markers, so
+multiple repos do not re-walk either tree on every session start.
 
 ## Policy Packs And Native Assurance
 
@@ -543,6 +558,7 @@ repo root -> ingest -> parser -> compiler -> .reconc/policy.lock.json -> runtime
 Package responsibilities:
 
 - `cmd/reconc`: CLI entry point only
+- `buildprovenance`: deterministic target/source build identity and byte-only binary inspection
 - `internal/cli`: argument parsing and command dispatch
 - `internal/ingest`: repository discovery and source loading
 - `internal/parser`: YAML-to-policy validation and normalization
@@ -567,8 +583,8 @@ Package responsibilities:
 Key invariants:
 
 - Deterministic JSON artifacts
-- Stable schema and `format_version` fields; public v1 contracts live under `schemas/v1/` and ship in every release
-- Fail closed on malformed policy, stale lockfiles, schema drift, invalid globs, unsupported rule kinds, and lockfile root mismatch
+- Stable schema and `format_version` fields; immutable v1 contracts live under `schemas/v1/`, while current portable policy locks use `schemas/v2/`; both lock schemas ship in every release
+- Fail closed on malformed policy, stale lockfiles, schema drift, invalid globs, unsupported rule kinds, and non-portable current lock envelopes
 - No runtime network calls
 - Behavior in internal packages, thin `cmd/reconc/main.go`
 
@@ -880,7 +896,7 @@ Release:
 - Release output includes deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs for
   both Go modules, selected dependencies, the Go toolchain, version, and commit.
 - Every artifact is verified against `SHA256SUMS` before upload.
-- GitHub build-provenance attestations bind every manifest-listed artifact to the tagged workflow run.
+- Embedded deterministic build provenance binds every binary to its target and production-source digest; GitHub build-provenance attestations bind every manifest-listed artifact to the tagged workflow run.
 - GitHub publication is rerun-safe and stays draft until every verified artifact and the manifest upload successfully.
 - No Docker image is built or published.
 
@@ -1039,7 +1055,7 @@ not become competing current-state documentation.
 
 ## Release State
 
-The current public release line is `v0.8.x`; the source version is `v0.8.2`. A
+The current public release line is `v0.8.x`; the source version is `v0.8.4`. A
 new release is blocked until its release, install, self-hosting, and final
 verification contracts pass. Release artifacts are produced only through an
 explicit manual Release workflow dispatch for an existing `reconc-vX.Y.Z` tag;

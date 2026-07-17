@@ -255,7 +255,7 @@ func runPrune(args []string, stdout io.Writer) error {
 			// already immediate, so --force has no additional effect.
 		case "-h", "--help":
 			fmt.Fprintln(stdout, "Usage: reconc prune [repo] [--dry-run] [--json]")
-			fmt.Fprintln(stdout, "Bound sessions, reports, locks, audit/run JSONL, generated audit binaries, and owned temp residue.")
+			fmt.Fprintln(stdout, "Bound project state, sessions, reports, locks, audit/run JSONL, generated audit binaries, and owned temp residue.")
 			return nil
 		default:
 			if strings.HasPrefix(arg, "-") {
@@ -289,7 +289,7 @@ func runPrune(args []string, stdout io.Writer) error {
 		for _, class := range report.Classes {
 			fmt.Fprintf(stdout, "%s %s: deleted=%d freed=%dB kept=%d after=%dB\n", verb, class.Name, class.FilesDeleted, class.BytesFreed, class.FilesKept, class.BytesAfter)
 		}
-		fmt.Fprintf(stdout, "budgets: state=%d/%dB repo=%d/%dB temp=%d/%dB\n", report.StateBytesAfter, report.StateByteBudget, report.RepoBytesAfter, report.RepoByteBudget, report.OwnedTempBytes, report.OwnedTempBudget)
+		fmt.Fprintf(stdout, "budgets: projects=%d/%dB state=%d/%dB repo=%d/%dB temp=%d/%dB\n", report.ProjectStateBytes, report.ProjectStateBudget, report.StateBytesAfter, report.StateByteBudget, report.RepoBytesAfter, report.RepoByteBudget, report.OwnedTempBytes, report.OwnedTempBudget)
 	}
 	if len(report.Errors) > 0 {
 		return &CLIError{ExitCode: 1, Message: "reconc prune: " + strings.Join(report.Errors, "; ")}

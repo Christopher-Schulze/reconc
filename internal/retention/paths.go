@@ -29,6 +29,20 @@ func ProjectDir(stateRoot, repoRoot string) string {
 	return filepath.Join(stateRoot, "projects", key)
 }
 
+func isProjectKey(name string) bool {
+	if len(name) != 16 {
+		return false
+	}
+	for _, char := range name {
+		if char < '0' || char > '9' {
+			if char < 'a' || char > 'f' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func sessionFileID(id string) string {
 	id = strings.TrimSpace(id)
 	var builder strings.Builder
