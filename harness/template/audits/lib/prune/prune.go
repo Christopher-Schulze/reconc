@@ -2,9 +2,10 @@
 //
 // Current Reconc binaries own full lifecycle retention. This package keeps the
 // former narrow manual utility safe for repositories that have not refreshed
-// their bootstrap yet. It covers four legacy classes:
+// their bootstrap yet. It covers five legacy classes:
 //   - sessions JSONs at ~/.reconc/sessions/claude/projects/<key>/sessions/
 //   - reports JSONs at  ~/.reconc/sessions/claude/projects/<key>/reports/
+//   - staged command proofs at ~/.reconc/sessions/claude/projects/<key>/command-proofs/
 //   - the append-only audit log at <repo>/.reconc/audit.jsonl
 //   - locks at ~/.reconc/sessions/claude/projects/<key>/locks/ (transient)
 //
@@ -37,22 +38,24 @@ import (
 // Policy holds the retention thresholds. Zero-value defaults to a safe
 // budget so a missing YAML file does not silently disable pruning.
 type Policy struct {
-	SessionsRetention    int   `yaml:"sessions_retention"`
-	ReportsRetention     int   `yaml:"reports_retention"`
-	AuditJsonlMaxBytes   int64 `yaml:"audit_jsonl_max_bytes"`
-	AuditJsonlMaxLines   int   `yaml:"audit_jsonl_max_lines"`
-	PruneIntervalSeconds int64 `yaml:"prune_interval_seconds"`
+	SessionsRetention      int   `yaml:"sessions_retention"`
+	ReportsRetention       int   `yaml:"reports_retention"`
+	CommandProofsRetention int   `yaml:"command_proofs_retention"`
+	AuditJsonlMaxBytes     int64 `yaml:"audit_jsonl_max_bytes"`
+	AuditJsonlMaxLines     int   `yaml:"audit_jsonl_max_lines"`
+	PruneIntervalSeconds   int64 `yaml:"prune_interval_seconds"`
 }
 
 // DefaultPolicy mirrors the current compatibility YAML. Product-core
 // retention has additional byte, age, archive, temp, and total budgets.
 func DefaultPolicy() Policy {
 	return Policy{
-		SessionsRetention:    32,
-		ReportsRetention:     32,
-		AuditJsonlMaxBytes:   2_097_152,
-		AuditJsonlMaxLines:   5_000,
-		PruneIntervalSeconds: 21_600,
+		SessionsRetention:      32,
+		ReportsRetention:       32,
+		CommandProofsRetention: 64,
+		AuditJsonlMaxBytes:     2_097_152,
+		AuditJsonlMaxLines:     5_000,
+		PruneIntervalSeconds:   21_600,
 	}
 }
 
@@ -78,6 +81,9 @@ func LoadPolicy(path string) (Policy, error) {
 	if loaded.ReportsRetention > 0 {
 		policy.ReportsRetention = loaded.ReportsRetention
 	}
+	if loaded.CommandProofsRetention > 0 {
+		policy.CommandProofsRetention = loaded.CommandProofsRetention
+	}
 	if loaded.AuditJsonlMaxBytes > 0 {
 		policy.AuditJsonlMaxBytes = loaded.AuditJsonlMaxBytes
 	}
@@ -92,14 +98,16 @@ func LoadPolicy(path string) (Policy, error) {
 
 // Report describes what one Run did.
 type Report struct {
-	SessionsDeleted   int
-	SessionsKept      int
-	ReportsDeleted    int
-	ReportsKept       int
-	LocksDeleted      int
-	JsonlLinesDropped int
-	JsonlBytesFreed   int64
-	Errors            []string
+	SessionsDeleted      int
+	SessionsKept         int
+	ReportsDeleted       int
+	ReportsKept          int
+	CommandProofsDeleted int
+	CommandProofsKept    int
+	LocksDeleted         int
+	JsonlLinesDropped    int
+	JsonlBytesFreed      int64
+	Errors               []string
 }
 
 // Options configures a Run. RepoRoot is used to locate audit.jsonl and to
@@ -122,6 +130,7 @@ func Run(opts Options) Report {
 		projectDir := filepath.Join(stateRoot, "projects", projectKey(opts.RepoRoot))
 		report.SessionsKept, report.SessionsDeleted = pruneDir(filepath.Join(projectDir, "sessions"), policy.SessionsRetention, opts.DryRun, &report)
 		report.ReportsKept, report.ReportsDeleted = pruneDir(filepath.Join(projectDir, "reports"), policy.ReportsRetention, opts.DryRun, &report)
+		report.CommandProofsKept, report.CommandProofsDeleted = pruneDir(filepath.Join(projectDir, "command-proofs"), policy.CommandProofsRetention, opts.DryRun, &report)
 		report.LocksDeleted = pruneStaleLocks(filepath.Join(projectDir, "locks"), 24*time.Hour, opts.DryRun, &report)
 	}
 	jsonlPath := filepath.Join(opts.RepoRoot, ".reconc", "audit.jsonl")

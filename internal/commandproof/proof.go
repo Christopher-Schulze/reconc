@@ -1,0 +1,388 @@
+// Package commandproof records successful commands against the exact staged
+// Git state they verified. The receipts live in Reconc-owned state outside the
+// repository, so policy gates do not depend on an editor-specific tool hook.
+package commandproof
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/filelock"
+	"reconc.dev/reconc/internal/retention"
+)
+
+const (
+	proofSchema  = "reconc.command-proof/v1"
+	proofScope   = "staged-index"
+	maxProofSize = 16 * 1024
+)
+
+// Snapshot identifies the exact commit candidate verified by a command.
+type Snapshot struct {
+	RepoRoot  string `json:"repo_root"`
+	Head      string `json:"head"`
+	IndexTree string `json:"index_tree"`
+}
+
+// Proof is a tamper-evident successful command receipt.
+type Proof struct {
+	Schema        string    `json:"schema"`
+	Scope         string    `json:"scope"`
+	RepoRoot      string    `json:"repo_root"`
+	Head          string    `json:"head"`
+	IndexTree     string    `json:"index_tree"`
+	Command       string    `json:"command"`
+	ExecutionMode string    `json:"execution_mode"`
+	Outcome       string    `json:"outcome"`
+	ExitCode      int       `json:"exit_code"`
+	StartedAt     time.Time `json:"started_at"`
+	CompletedAt   time.Time `json:"completed_at"`
+	Digest        string    `json:"digest"`
+}
+
+type proofPayload struct {
+	Schema        string    `json:"schema"`
+	Scope         string    `json:"scope"`
+	RepoRoot      string    `json:"repo_root"`
+	Head          string    `json:"head"`
+	IndexTree     string    `json:"index_tree"`
+	Command       string    `json:"command"`
+	ExecutionMode string    `json:"execution_mode"`
+	Outcome       string    `json:"outcome"`
+	ExitCode      int       `json:"exit_code"`
+	StartedAt     time.Time `json:"started_at"`
+	CompletedAt   time.Time `json:"completed_at"`
+}
+
+// CaptureStagedClean captures HEAD and the index tree only when the working
+// tree contains no tracked or untracked changes outside the staged candidate.
+// It checks twice so a concurrent mutation cannot silently race the snapshot.
+func CaptureStagedClean(repoRoot string) (Snapshot, error) {
+	root, err := canonicalRepoRoot(repoRoot)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	if err := requireCleanAgainstIndex(root); err != nil {
+		return Snapshot{}, err
+	}
+	first, err := capture(root)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	if err := requireCleanAgainstIndex(root); err != nil {
+		return Snapshot{}, err
+	}
+	second, err := capture(root)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	if first != second {
+		return Snapshot{}, errors.New("git HEAD or staged index changed while capturing command proof")
+	}
+	return first, nil
+}
+
+// VerifyStagedClean proves that the command left HEAD, the index, and the
+// tracked/untracked working tree unchanged.
+func VerifyStagedClean(before Snapshot) error {
+	after, err := CaptureStagedClean(before.RepoRoot)
+	if err != nil {
+		return err
+	}
+	if before != after {
+		return errors.New("git HEAD or staged index changed while the command ran")
+	}
+	return nil
+}
+
+// StoreSuccess atomically publishes one successful proof outside the repo.
+func StoreSuccess(snapshot Snapshot, command, executionMode string, startedAt, completedAt time.Time) (Proof, error) {
+	current, err := capture(snapshot.RepoRoot)
+	if err != nil {
+		return Proof{}, err
+	}
+	if current != snapshot {
+		return Proof{}, errors.New("git HEAD or staged index changed before command proof publication")
+	}
+	proof := Proof{
+		Schema:        proofSchema,
+		Scope:         proofScope,
+		RepoRoot:      snapshot.RepoRoot,
+		Head:          snapshot.Head,
+		IndexTree:     snapshot.IndexTree,
+		Command:       strings.TrimSpace(command),
+		ExecutionMode: executionMode,
+		Outcome:       "success",
+		ExitCode:      0,
+		StartedAt:     startedAt.UTC(),
+		CompletedAt:   completedAt.UTC(),
+	}
+	if err := validateProof(proof, snapshot, completedAt.UTC(), 0); err != nil {
+		return Proof{}, err
+	}
+	digest, err := proofDigest(proof)
+	if err != nil {
+		return Proof{}, err
+	}
+	proof.Digest = digest
+	data, err := json.MarshalIndent(proof, "", "  ")
+	if err != nil {
+		return Proof{}, fmt.Errorf("marshal command proof: %w", err)
+	}
+	data = append(data, '\n')
+	dir := proofDir(snapshot.RepoRoot)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return Proof{}, fmt.Errorf("create command proof directory: %w", err)
+	}
+	path := filepath.Join(dir, proofIdentity(proof)+".json")
+	if _, err := atomicfile.WriteIfChanged(path, data, 0o600); err != nil {
+		return Proof{}, fmt.Errorf("write command proof: %w", err)
+	}
+	retention.RunIfDue(retention.Options{RepoRoot: snapshot.RepoRoot, StateRoot: retention.ResolveStateRoot()})
+	return proof, nil
+}
+
+// LoadCurrentSuccesses returns only unexpired, untampered successes for the
+// current HEAD and staged index. Invalid receipts never become policy evidence.
+func LoadCurrentSuccesses(repoRoot string, now time.Time) ([]Proof, error) {
+	root, err := canonicalRepoRoot(repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	current, err := capture(root)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(proofDir(root))
+	if errors.Is(err, os.ErrNotExist) {
+		return []Proof{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read command proofs: %w", err)
+	}
+	maxAge := retention.DefaultPolicy().CommandProofs.MaxAge
+	proofs := make([]Proof, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil || !info.Mode().IsRegular() || info.Size() > maxProofSize {
+			continue
+		}
+		data, readErr := os.ReadFile(filepath.Join(proofDir(root), entry.Name()))
+		if readErr != nil {
+			continue
+		}
+		var proof Proof
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.DisallowUnknownFields()
+		if decodeErr := decoder.Decode(&proof); decodeErr != nil {
+			continue
+		}
+		if trailingErr := decoder.Decode(&struct{}{}); !errors.Is(trailingErr, io.EOF) {
+			continue
+		}
+		if validateProof(proof, current, now.UTC(), maxAge) != nil {
+			continue
+		}
+		digest, digestErr := proofDigest(proof)
+		if digestErr != nil || !equalDigest(proof.Digest, digest) || entry.Name() != proofIdentity(proof)+".json" {
+			continue
+		}
+		proofs = append(proofs, proof)
+	}
+	confirmed, err := capture(root)
+	if err != nil {
+		return nil, err
+	}
+	if confirmed != current {
+		return nil, errors.New("git HEAD or staged index changed while loading command proofs")
+	}
+	return proofs, nil
+}
+
+func proofDir(repoRoot string) string {
+	return filepath.Join(retention.ProjectDir(retention.ResolveStateRoot(), repoRoot), "command-proofs")
+}
+
+func capture(repoRoot string) (Snapshot, error) {
+	project := retention.ProjectDir(retention.ResolveStateRoot(), repoRoot)
+	if err := os.MkdirAll(project, 0o700); err != nil {
+		return Snapshot{}, fmt.Errorf("create command proof state directory: %w", err)
+	}
+	lock, err := os.OpenFile(filepath.Join(project, "command-proof.snapshot.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("open command proof snapshot lock: %w", err)
+	}
+	defer lock.Close()
+	unlock, err := filelock.Lock(lock)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("lock command proof snapshot: %w", err)
+	}
+	defer func() { _ = unlock() }()
+	return captureLocked(repoRoot)
+}
+
+func captureLocked(repoRoot string) (Snapshot, error) {
+	head, err := gitHead(repoRoot)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	indexTree, err := gitWriteTree(repoRoot)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	return Snapshot{RepoRoot: repoRoot, Head: head, IndexTree: indexTree}, nil
+}
+
+func gitWriteTree(repoRoot string) (string, error) {
+	var lastErr error
+	for attempt := 0; attempt < 40; attempt++ {
+		indexTree, err := gitOutput(repoRoot, "write-tree")
+		if err == nil {
+			return indexTree, nil
+		}
+		lastErr = err
+		if !strings.Contains(err.Error(), "index.lock") {
+			return "", err
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return "", fmt.Errorf("git index remained locked for command proof snapshot: %w", lastErr)
+}
+
+func gitHead(repoRoot string) (string, error) {
+	head, err := gitOutput(repoRoot, "rev-parse", "--verify", "HEAD")
+	if err == nil {
+		return head, nil
+	}
+	if _, symbolicErr := gitOutput(repoRoot, "symbolic-ref", "--quiet", "HEAD"); symbolicErr == nil {
+		return "UNBORN", nil
+	}
+	return "", err
+}
+
+func canonicalRepoRoot(repoRoot string) (string, error) {
+	abs, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolve repo root: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", fmt.Errorf("resolve repo root symlinks: %w", err)
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", fmt.Errorf("stat repo root: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("repo root is not a directory: %s", resolved)
+	}
+	inside, err := gitOutput(resolved, "rev-parse", "--is-inside-work-tree")
+	if err != nil {
+		return "", err
+	}
+	if inside != "true" {
+		return "", fmt.Errorf("path is not inside a Git working tree: %s", resolved)
+	}
+	return resolved, nil
+}
+
+func requireCleanAgainstIndex(repoRoot string) error {
+	cmd := exec.Command("git", "diff", "--quiet", "--")
+	cmd.Dir = repoRoot
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return errors.New("tracked unstaged changes exist; stage or revert them before reconc exec --staged")
+		}
+		return fmt.Errorf("inspect tracked unstaged changes: %w", err)
+	}
+	untracked, err := gitOutputBytes(repoRoot, "ls-files", "--others", "--exclude-standard", "-z")
+	if err != nil {
+		return err
+	}
+	if len(untracked) != 0 {
+		first := string(bytes.SplitN(untracked, []byte{0}, 2)[0])
+		return fmt.Errorf("untracked path %q exists; stage or remove it before reconc exec --staged", first)
+	}
+	return nil
+}
+
+func gitOutput(repoRoot string, args ...string) (string, error) {
+	out, err := gitOutputBytes(repoRoot, args...)
+	return strings.TrimSpace(string(out)), err
+}
+
+func gitOutputBytes(repoRoot string, args ...string) ([]byte, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = repoRoot
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return out, nil
+}
+
+func validateProof(proof Proof, snapshot Snapshot, now time.Time, maxAge time.Duration) error {
+	switch {
+	case proof.Schema != proofSchema:
+		return errors.New("unsupported command proof schema")
+	case proof.Scope != proofScope:
+		return errors.New("unsupported command proof scope")
+	case proof.RepoRoot != snapshot.RepoRoot || proof.Head != snapshot.Head || proof.IndexTree != snapshot.IndexTree:
+		return errors.New("command proof does not match the current staged state")
+	case strings.TrimSpace(proof.Command) == "":
+		return errors.New("command proof command is empty")
+	case proof.ExecutionMode != "direct" && proof.ExecutionMode != "shell":
+		return errors.New("command proof execution mode is invalid")
+	case proof.Outcome != "success" || proof.ExitCode != 0:
+		return errors.New("command proof is not a successful execution")
+	case proof.StartedAt.IsZero() || proof.CompletedAt.IsZero() || proof.CompletedAt.Before(proof.StartedAt):
+		return errors.New("command proof timestamps are invalid")
+	case proof.CompletedAt.After(now.Add(time.Minute)):
+		return errors.New("command proof completion is in the future")
+	case maxAge > 0 && now.Sub(proof.CompletedAt) > maxAge:
+		return errors.New("command proof expired")
+	}
+	return nil
+}
+
+func proofDigest(proof Proof) (string, error) {
+	payload := proofPayload{
+		Schema: proof.Schema, Scope: proof.Scope, RepoRoot: proof.RepoRoot,
+		Head: proof.Head, IndexTree: proof.IndexTree, Command: proof.Command,
+		ExecutionMode: proof.ExecutionMode, Outcome: proof.Outcome, ExitCode: proof.ExitCode,
+		StartedAt: proof.StartedAt, CompletedAt: proof.CompletedAt,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal command proof digest: %w", err)
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func proofIdentity(proof Proof) string {
+	data := strings.Join([]string{proof.Schema, proof.Scope, proof.RepoRoot, proof.Head, proof.IndexTree, proof.Command, proof.ExecutionMode}, "\x00")
+	sum := sha256.Sum256([]byte(data))
+	return hex.EncodeToString(sum[:])
+}
+
+func equalDigest(left, right string) bool {
+	leftBytes, leftErr := hex.DecodeString(left)
+	rightBytes, rightErr := hex.DecodeString(right)
+	return leftErr == nil && rightErr == nil && bytes.Equal(leftBytes, rightBytes)
+}

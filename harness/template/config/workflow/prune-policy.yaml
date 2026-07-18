@@ -2,8 +2,9 @@
 #
 # Reconc accumulates per-session state under
 # `~/.reconc/sessions/claude/projects/<sha256(repo)[:16]>/sessions/` plus a
-# matching `reports/` sibling. Product-owned retention now lives in the Reconc
-# binary and runs from SessionStart/SessionEnd; Stop never prunes.
+# matching `reports/` and `command-proofs/` siblings. Product-owned retention
+# now lives in the Reconc binary and runs from SessionStart/SessionEnd; Stop
+# never prunes.
 #
 # Retention is COUNT-based for sessions/reports (so the budget is exact,
 # independent of how often a vacation lasts), and SIZE+LINE-bounded for the
@@ -14,6 +15,7 @@
 
 sessions_retention: 32
 reports_retention: 32
+command_proofs_retention: 64
 audit_jsonl_max_bytes: 2097152     # 2 MiB compatibility ceiling
 audit_jsonl_max_lines: 5000
 prune_interval_seconds: 21600      # 6 hours

@@ -415,16 +415,17 @@ Runtime retention is product-owned rather than harness-owned. `SessionStart`
 and `SessionEnd` run a cross-process-safe due check with a six-hour interval;
 Stop never prunes. `reconc prune [repo] [--dry-run] [--json]` runs the same
 core explicitly. Unchanged session files, active-session pointers, reports,
-and run state are byte-compared and never republished. Disabled and unchanged
-hook events do not create run state, and run
+command proofs, and run state are byte-compared and never republished. Disabled
+and unchanged hook events do not create run state, and run
 decisions are appended only for material transitions. Session state is
 hard-capped at 1 MiB; every evidence collection has both item and byte limits,
 repeated command results are deduplicated, and any omitted security-relevant
 evidence sets a persisted overflow marker that blocks PreToolUse and Stop.
 
 Default persistent budgets are 32 session files / 8 MiB / 14 days, 32 reports
-/ 8 MiB / 14 days, 128 locks / 1 MiB / 24 hours, 16 MiB total external state,
-and 32 MiB / 14 days for generated audit binaries. The product-wide project
+/ 8 MiB / 14 days, 128 locks / 1 MiB / 24 hours, 64 staged command proofs /
+256 KiB / 24 hours, 16 MiB total external state, and 32 MiB / 14 days for
+generated audit binaries. The product-wide project
 state root is independently bounded to 256 recognized project roots, 128 MiB,
 and 30 days. Explicit prune enforces that global bound immediately; lifecycle
 passes protect the current project, live sessions, and roots touched within the
@@ -587,6 +588,7 @@ Package responsibilities:
 - `internal/filelock`: Unix/Windows cross-process file locking
 - `internal/grokacp`: strict Grok ACP client plus Unix-socket and Windows named-pipe leader steering/probing
 - `internal/jsonl`: bounded, locked JSONL append and archive rings
+- `internal/commandproof`: commit-candidate-bound staged command-success receipts
 - `internal/retention`: runtime storage classes, lifecycle due checks, and cleanup
 - `internal/presets`: bundled and user policy packs
 - `internal/templates`: bundled and user rule templates

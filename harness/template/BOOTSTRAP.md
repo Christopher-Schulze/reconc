@@ -383,8 +383,9 @@ Reconc owns runtime retention in the product binary. SessionStart and
 SessionEnd perform a cheap six-hour due check; Stop never performs cleanup.
 The same pass is available to an agent as `reconc prune . --json` and can be
 inspected without mutation via `reconc prune . --dry-run --json`. It bounds
-product-wide project roots, session/report/lock state, audit and run-decision JSONL rings, generated audit
-binaries, abandoned atomic/build temps, and owned `reconc-proof-*` temp trees.
+product-wide project roots, session/report/lock/command-proof state, audit and
+run-decision JSONL rings, generated audit binaries, abandoned atomic/build
+temps, and owned `reconc-proof-*` temp trees.
 Proof temp trees use a two-hour inactivity grace to bound hard-kill residue
 while preserving recent work.
 Do not add another project-specific cleanup loop or attach cleanup to the
@@ -485,7 +486,15 @@ cross the nested Go module boundary.
 
 ### Step 7b: Activate source-controlled git hooks
 
-The repo-root scaffold ships `.githooks/pre-commit`. This is the source-controlled twin of the hook that `reconc hook install git-pre-commit` would write to `.git/hooks/pre-commit`. It runs `reconc ci --staged` so that commits made via Bash (not just agent-runtime hooks) are also gated by the compiled policy lockfile — this closes the gap where an agent could `git commit` before the agent-runtime Stop hook fires.
+The repo-root scaffold ships `.githooks/pre-commit`. This is the
+source-controlled twin of the hook that `reconc hook install git-pre-commit`
+would write to `.git/hooks/pre-commit`. It runs `reconc ci --staged` so that
+commits made via Bash (not just agent-runtime hooks) are also gated by the
+compiled policy lockfile. This closes the gap where an agent could `git commit`
+before the agent-runtime Stop hook fires. Required successful commands first
+run through `reconc exec . --staged -- COMMAND`; bounded receipts are tied to
+the exact HEAD and staged index independently of agent-runtime PostToolUse
+coverage.
 
 Activate it once per fresh clone:
 

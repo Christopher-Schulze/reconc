@@ -196,10 +196,14 @@ Treat `done` as the minimal task-finish gate:
 For staged git work, prefer:
 
 ```bash
+reconc exec . --staged -- go test ./...
 reconc ci . --staged \
-  --read docs/documentation.md \
-  --command-success 'go test ./...'
+  --read docs/documentation.md
 ```
+
+`exec --staged` publishes command success only when the real exit code is zero
+and HEAD plus the staged index remain unchanged. Do not substitute mutable
+agent-hook outcomes or `ci --command-success` for a staged proof.
 
 ## Evidence Rules
 

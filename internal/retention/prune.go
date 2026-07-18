@@ -78,6 +78,7 @@ func runLocked(options Options, forceOwnedTemp bool) Report {
 	sessions := filepath.Join(project, "sessions")
 	reports := filepath.Join(project, "reports")
 	locks := filepath.Join(project, "locks")
+	commandProofs := filepath.Join(project, "command-proofs")
 	report.Classes = append(report.Classes,
 		pruneClass("sessions", sessions, policy.Sessions, options.Now, options.DryRun, map[string]bool{activeID + ".json": active != ""}, nil, &report),
 		pruneClass("reports", reports, policy.Reports, options.Now, options.DryRun, map[string]bool{activeID + ".json": active != ""}, nil, &report),
@@ -85,8 +86,9 @@ func runLocked(options Options, forceOwnedTemp bool) Report {
 			activeID + ".lock":             active != "",
 			activeID + ".stop-policy.lock": active != "",
 		}, nil, &report),
+		pruneClass("command-proofs", commandProofs, policy.CommandProofs, options.Now, options.DryRun, nil, nil, &report),
 	)
-	projectedStateBefore, projectedStateAfter := classTotals(report.Classes, "sessions", "reports", "locks")
+	projectedStateBefore, projectedStateAfter := classTotals(report.Classes, "sessions", "reports", "locks", "command-proofs")
 	stateTotal := enforceStateTotal(options, project, activeID, active != "", &report)
 	if options.DryRun {
 		stateTotal.BytesBefore = projectedStateBefore

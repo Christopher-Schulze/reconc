@@ -9,6 +9,7 @@
 //	0 -- clean run, or a non-blocking decision (pass/warn)
 //	1 -- runtime or input error
 //	2 -- at least one blocking policy violation (block)
+//	3..255 -- a non-zero child exit propagated by reconc exec
 package cli
 
 import (
@@ -71,6 +72,8 @@ func Run(argv []string, version string, stdout, stderr io.Writer) error {
 		return runStatus(argv[1:], stdout, stderr)
 	case "ci":
 		return runCI(argv[1:], stdout, stderr)
+	case "exec":
+		return runExec(argv[1:], stdout, stderr)
 	case "hook":
 		return runHook(argv[1:], stdout, stderr)
 	case "grok":
@@ -171,6 +174,7 @@ Compile & evaluate:
   compile          Compile policy sources into .reconc/policy.lock.json
   refresh          Explicitly refresh .reconc/policy.lock.json
   ci               Derive write_paths from git diff and run check
+  exec             Execute a command and bind success to the staged Git state
   assert           Evaluate one rule by id with --var key=value substitution
   can              Ultra-terse yes/no for an action (e.g. 'reconc can write src/app.go')
   diff             Compare two compiled lockfiles (added / removed / changed rules)

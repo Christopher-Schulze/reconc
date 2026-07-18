@@ -35,7 +35,7 @@ func setupSessionTree(t *testing.T) (repoRoot string, reconcHome string, project
 
 func TestDefaultPolicy(t *testing.T) {
 	p := DefaultPolicy()
-	if p.SessionsRetention != 32 || p.ReportsRetention != 32 {
+	if p.SessionsRetention != 32 || p.ReportsRetention != 32 || p.CommandProofsRetention != 64 {
 		t.Fatalf("unexpected retention: %+v", p)
 	}
 	if p.AuditJsonlMaxBytes != 2_097_152 || p.AuditJsonlMaxLines != 5_000 {
@@ -43,6 +43,20 @@ func TestDefaultPolicy(t *testing.T) {
 	}
 	if p.PruneIntervalSeconds != 21_600 {
 		t.Fatalf("unexpected interval: %d", p.PruneIntervalSeconds)
+	}
+}
+
+func TestRunKeepsNewestCommandProofs(t *testing.T) {
+	repoRoot, home, projectDir := setupSessionTree(t)
+	now := time.Now()
+	for index := 0; index < 5; index++ {
+		writeFile(t, filepath.Join(projectDir, "command-proofs", fmt.Sprintf("proof-%d.json", index)), "{}", now.Add(time.Duration(index)*time.Minute))
+	}
+	policy := DefaultPolicy()
+	policy.CommandProofsRetention = 2
+	report := Run(Options{RepoRoot: repoRoot, ReconcHome: home, Policy: policy})
+	if report.CommandProofsKept != 2 || report.CommandProofsDeleted != 3 {
+		t.Fatalf("unexpected command-proof retention: %+v", report)
 	}
 }
 

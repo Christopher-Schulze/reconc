@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"time"
+
+	"reconc.dev/reconc/internal/commandproof"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
-	"time"
 )
 
 // runCI implements `reconc ci [repo] (--staged | --base REF [--head REF])
@@ -28,6 +30,7 @@ func runCI(args []string, stdout, stderr io.Writer) error {
 	outputPath := ""
 	base := ""
 	head := ""
+	explicitCommandOutcome := false
 	inputs := runtime.Empty()
 
 	i := 0
@@ -69,6 +72,7 @@ func runCI(args []string, stdout, stderr io.Writer) error {
 			}
 			inputs.Commands = append(inputs.Commands, val)
 		case "--command-success":
+			explicitCommandOutcome = true
 			val, ok := nextArgValue(args, &i, a)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc ci: --command-success requires a value"}
@@ -78,6 +82,7 @@ func runCI(args []string, stdout, stderr io.Writer) error {
 				Command: val, Outcome: runtime.CommandOutcomeSuccess, EvidenceEpoch: runtime.ExplicitEvidenceEpoch,
 			})
 		case "--command-failure":
+			explicitCommandOutcome = true
 			val, ok := nextArgValue(args, &i, a)
 			if !ok {
 				return &CLIError{ExitCode: 1, Message: "reconc ci: --command-failure requires a value"}
@@ -104,6 +109,7 @@ func runCI(args []string, stdout, stderr io.Writer) error {
 			fmt.Fprintln(stdout, "Derive write_paths from git diff and run policy check.")
 			fmt.Fprintln(stdout, "  --staged              git diff --cached --name-only (pre-commit)")
 			fmt.Fprintln(stdout, "  --base REF [--head REF]  git diff base...head --name-only (PR/CI)")
+			fmt.Fprintln(stdout, "  --staged rejects explicit command outcome flags; use reconc exec --staged")
 			fmt.Fprintln(stdout, "Exit codes: 0 = pass/warn, 1 = error, 2 = blocking violation.")
 			return nil
 		default:
@@ -114,6 +120,9 @@ func runCI(args []string, stdout, stderr io.Writer) error {
 		}
 		i++
 	}
+	if staged && explicitCommandOutcome {
+		return &CLIError{ExitCode: 1, Message: "reconc ci: --command-success and --command-failure are not accepted with --staged; run commands through reconc exec --staged"}
+	}
 
 	// Need to discover the repo to know what dir to run git from.
 	discovery, err := ingest.DiscoverPolicyRepo(repo)
@@ -123,16 +132,30 @@ func runCI(args []string, stdout, stderr io.Writer) error {
 	if !discovery.Discovered {
 		return &CLIError{ExitCode: 1, Message: "reconc ci: no policy markers found"}
 	}
+	if staged {
+		proofs, err := commandproof.LoadCurrentSuccesses(discovery.RepoRoot, time.Now())
+		if err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc ci: load staged command proofs: " + err.Error()}
+		}
+		for _, proof := range proofs {
+			inputs.Commands = append(inputs.Commands, proof.Command)
+			inputs.CommandResults = append(inputs.CommandResults, runtime.CommandResult{
+				Command: proof.Command, Outcome: runtime.CommandOutcomeSuccess, EvidenceEpoch: runtime.ExplicitEvidenceEpoch,
+			})
+		}
+	}
 	activeEvidence, activeEvidenceErr := agentsession.ActiveEvidence(discovery.RepoRoot)
 	if activeEvidenceErr == nil {
 		inputs.ReadPaths = append(inputs.ReadPaths, activeEvidence.ReadPaths...)
 		inputs.Commands = append(inputs.Commands, activeEvidence.Commands...)
-		for _, result := range activeEvidence.CommandResults {
-			inputs.CommandResults = append(inputs.CommandResults, runtime.CommandResult{
-				Command:       result.Command,
-				Outcome:       result.Outcome,
-				EvidenceEpoch: result.EvidenceEpoch,
-			})
+		if !staged {
+			for _, result := range activeEvidence.CommandResults {
+				inputs.CommandResults = append(inputs.CommandResults, runtime.CommandResult{
+					Command:       result.Command,
+					Outcome:       result.Outcome,
+					EvidenceEpoch: result.EvidenceEpoch,
+				})
+			}
 		}
 		inputs.Claims = append(inputs.Claims, activeEvidence.Claims...)
 	}

@@ -21,7 +21,7 @@ Treat exit 2 as "stop writing and remediate first".
 | `deny_write` | Path is protected | Do NOT write to matched paths |
 | `require_read` | Reads required before writing | Read the required file(s), then re-check |
 | `require_command` | Command must be attempted | Run the command, assert via `--command` |
-| `require_command_success` | Command must succeed | Run it, assert via `--command-success` |
+| `require_command_success` | Command must succeed | Run it; use `reconc exec --staged` for commit evidence |
 | `forbid_command` | Command is banned | Do not run it; use the suggested alternative |
 | `couple_change` | Writes must come in pairs | Edit the paired path(s) in the same change |
 | `require_claim` | Workflow sign-off required | Assert via `reconc hook claim . <name>` |
@@ -82,10 +82,14 @@ reconc check . --write <path> --terse    # ~50-token decision
 If `decision == "block"`, do NOT write. Read `violations[].recommended_action`.
 
 ### After Finishing Work
-Check staged changes against policy:
+Execute required commands against the exact staged candidate, then check it:
 ```bash
+reconc exec . --staged -- go test ./...
 reconc ci . --staged --json
 ```
+
+Staged CI accepts successful-command evidence only from an untampered,
+unexpired `reconc exec --staged` receipt for the same HEAD and index tree.
 
 Or explicit multi-path check:
 ```bash
@@ -147,7 +151,8 @@ execution proof. Static activation and rate-limited per-route
   restores a bounded context packet after compaction.
 - **Codex**: session, Bash, `apply_patch`, permission, evidence, and Stop
   hooks. Bootstrap writes `hooks = true` under `[features]`; Codex has no
-  `SessionEnd` event.
+  `SessionEnd` event. Code-hosted command tools that omit PostToolUse results
+  use `reconc exec --staged` for commit-bound success evidence.
 - **Cursor**: `.cursor/hooks.json` covers file, shell, evidence,
   and Stop events exposed by Cursor.
 - **OpenCode**: use `reconc hook install opencode .` for the

@@ -55,6 +55,29 @@ func TestRunEnforcesClassesAndPreservesLiveSession(t *testing.T) {
 	}
 }
 
+func TestRunBoundsCommandProofs(t *testing.T) {
+	repo := t.TempDir()
+	stateRoot := t.TempDir()
+	now := time.Now().UTC()
+	project := ProjectDir(stateRoot, repo)
+	policy := DefaultPolicy()
+	policy.CommandProofs = ClassPolicy{MaxFiles: 1, MaxBytes: 64, MaxAge: 24 * time.Hour}
+	for index := 0; index < 3; index++ {
+		writeTimed(t, filepath.Join(project, "command-proofs", fmt.Sprintf("proof-%d.json", index)), []byte("proof"), now.Add(time.Duration(index-3)*time.Hour))
+	}
+	report := Run(Options{RepoRoot: repo, StateRoot: stateRoot, Policy: policy, Now: now, TempRoot: t.TempDir()})
+	if len(report.Errors) != 0 {
+		t.Fatalf("retention errors: %v", report.Errors)
+	}
+	entries, err := os.ReadDir(filepath.Join(project, "command-proofs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "proof-2.json" {
+		t.Fatalf("command-proof retention kept %+v", entries)
+	}
+}
+
 func TestRunCoversLogsBinariesAndOwnedTemp(t *testing.T) {
 	repo := t.TempDir()
 	stateRoot := t.TempDir()

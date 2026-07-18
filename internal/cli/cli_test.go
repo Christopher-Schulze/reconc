@@ -3148,7 +3148,7 @@ func TestRunCIStagedFailsOnNonGit(t *testing.T) {
 	}
 }
 
-func TestRunCIStagedInheritsActiveSessionEvidence(t *testing.T) {
+func TestRunCIStagedInheritsReadButRejectsUnboundCommandEvidence(t *testing.T) {
 	repo := makeCheckRepo(t,
 		"rules:\n  - id: tests-must-pass\n    kind: require_command_success\n    when_paths: ['src/**']\n    commands: ['cd tools/reconc && go test ./...']\n    mode: block\n    message: tests must pass\n  - id: architecture-read\n    kind: require_read\n    paths: ['src/**']\n    before_paths: ['docs/architecture.md']\n    mode: block\n    message: architecture read required\n")
 	initGitRepo(t, repo)
@@ -3187,13 +3187,12 @@ func TestRunCIStagedInheritsActiveSessionEvidence(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"ci", repo, "--staged"}, "0.5.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("ci should inherit active command success evidence: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	err := Run([]string{"ci", repo, "--staged"}, "0.5.0-test", &stdout, &stderr)
+	if ExitCode(err) != 2 || !strings.Contains(stdout.String(), "tests-must-pass") {
+		t.Fatalf("ci accepted unbound active-session command evidence: err=%v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
 	}
-	for _, ruleID := range []string{"tests-must-pass", "architecture-read"} {
-		if strings.Contains(stdout.String(), ruleID) {
-			t.Fatalf("ci still reported inherited-evidence violation %s:\n%s", ruleID, stdout.String())
-		}
+	if strings.Contains(stdout.String(), "architecture-read") {
+		t.Fatalf("ci did not inherit active-session read evidence:\n%s", stdout.String())
 	}
 }
 

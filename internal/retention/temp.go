@@ -14,7 +14,7 @@ import (
 func enforceStateTotal(options Options, project, activeID string, hasActive bool, report *Report) ClassReport {
 	class := ClassReport{Name: "state-total"}
 	candidates := []candidate{}
-	for _, dir := range []string{"sessions", "reports", "locks"} {
+	for _, dir := range []string{"sessions", "reports", "locks", "command-proofs"} {
 		path := filepath.Join(project, dir)
 		entries, _ := os.ReadDir(path)
 		for _, entry := range entries {

@@ -403,6 +403,15 @@ is upgraded fail-closed by placing its writes one epoch ahead. Explicit
 `--command-success` evidence uses the maximum epoch because it asserts the
 complete evaluation snapshot.
 
+Staged commit gates use a stricter boundary. `reconc exec --staged` owns the
+real child process and publishes a tamper-evident success receipt bound to the
+canonical repository, HEAD, index tree, exact command, execution mode, exit
+code, and timestamps. `ci --staged` accepts only a current receipt for that
+same Git candidate and ignores mutable agent-session command outcomes. Parallel
+snapshot capture is cross-process serialized and transient Git index locks are
+retried for two seconds. When an active session exists, `reconc exec` records
+the outcome at the current causal evidence epoch with `reconc-exec` provenance.
+
 Ordered JSON `events` derive the same epochs during ingestion. Check reports
 publish optional `write_epochs` and `evidence_epoch` fields so the decision is
 auditable without expanding the normal zero-value payload.
@@ -437,7 +446,8 @@ coupling to any specific tool beyond recognizing that prefix.
 - Session evidence has per-field item and byte caps plus a 1 MiB serialized
   ceiling. Overflow persists a fail-closed marker used by PreToolUse and Stop.
 - Audit and run-decision JSONL writes rotate before append through fixed archive
-  rings; lifecycle retention bounds sessions, reports, locks, the product-wide
+  rings; lifecycle retention bounds sessions, reports, locks, staged command
+  proofs, the product-wide
   project-root set, generated binaries, and owned temp residue outside the Stop
   path.
 - Native assurance source gates scan matching changed files only. Layout and

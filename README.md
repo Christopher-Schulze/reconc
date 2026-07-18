@@ -157,10 +157,15 @@ append decision records.
 For staged changes:
 
 ```bash
+reconc exec . --staged -- go test ./...
 reconc ci . --staged \
-  --read docs/documentation.md \
-  --command-success 'go test ./...'
+  --read docs/documentation.md
 ```
+
+`exec --staged` runs the real command from the repository root and publishes
+success only for the unchanged HEAD and staged index. `ci --staged` ignores
+mutable agent-session outcomes and accepts only an untampered, unexpired proof
+for that exact commit candidate.
 
 ## Rollout Modes
 

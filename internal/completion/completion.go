@@ -87,6 +87,7 @@ var Subcommands = []Subcommand{
 	{Name: "compile", Help: "build the policy lockfile", Flags: []string{"--json", "--strict-conflicts", "--output"}},
 	{Name: "diff", Help: "compare two compiled lockfiles", Flags: []string{"--json"}},
 	{Name: "done", Help: "task-finish gate", Flags: []string{"--window", "--require-clean-git", "--json"}},
+	{Name: "exec", Help: "execute and record command evidence", Flags: []string{"--staged", "--shell"}},
 	{Name: "refresh", Help: "explicitly refresh the policy lockfile", Flags: []string{"--json", "--strict-conflicts", "--output"}},
 	{Name: "watch", Help: "poll sources and recompile", Flags: []string{"--interval-ms"}},
 	// explain & remediate

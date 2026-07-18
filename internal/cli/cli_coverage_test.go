@@ -405,7 +405,7 @@ func TestRunCIAutoClaimAndBaseHeadJSON(t *testing.T) {
 	}
 }
 
-func TestRunCITextWithCommandFlags(t *testing.T) {
+func TestRunCITextWithCommandFlagsForRange(t *testing.T) {
 	repo := makeCheckRepo(t, "rules: []\n")
 	initGitRepo(t, repo)
 	gitRun(t, repo, "add", ".")
@@ -418,10 +418,11 @@ func TestRunCITextWithCommandFlags(t *testing.T) {
 		t.Fatal(err)
 	}
 	gitRun(t, repo, "add", "src/main.go")
+	gitRun(t, repo, "commit", "-m", "head change")
 
 	var stdout, stderr bytes.Buffer
 	if err := Run([]string{
-		"ci", repo, "--staged",
+		"ci", repo, "--base", "HEAD~1", "--head", "HEAD",
 		"--read", "docs/spec.md",
 		"--command-success", "go test ./...",
 		"--command-failure", "go vet ./...",

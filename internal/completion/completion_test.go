@@ -13,11 +13,35 @@ func TestGenerateBashContainsSubcommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	for _, want := range []string{"_reconc()", "complete -F _reconc reconc", "compile", "bootstrap", "audit", "hook"} {
+	for _, want := range []string{"_reconc()", "complete -F _reconc reconc", "compile", "exec", "bootstrap", "audit", "hook"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("bash completion missing %q", want)
 		}
 	}
+}
+
+func TestExecCompletionFlags(t *testing.T) {
+	for _, command := range Subcommands {
+		if command.Name != "exec" {
+			continue
+		}
+		for _, want := range []string{"--staged", "--shell"} {
+			if !contains(command.Flags, want) {
+				t.Fatalf("exec completion missing %q: %v", want, command.Flags)
+			}
+		}
+		return
+	}
+	t.Fatal("exec completion command is not registered")
+}
+
+func contains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestGenerateCompletionIncludesHookSyncScaffold(t *testing.T) {

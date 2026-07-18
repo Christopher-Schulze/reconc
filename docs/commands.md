@@ -169,10 +169,23 @@ Missing or stale lockfiles fail closed without writing and require
 ### `reconc ci [repo] (--staged | --base REF [--head REF]) [--read PATH] [--command CMD] [--command-success CMD] [--command-failure CMD] [--claim NAME] [--auto-claim] [--json] [--output PATH]`
 Git-aware check. Derives write paths from the working-tree index or a
 `base..head` range instead of explicit `--write` flags. It inherits recorded
-read paths, commands, command results, and claims from the active agent session,
-so pre-commit evaluates the same evidence without repeating warnings.
+read paths, commands, and claims from the active agent session. In `--staged`
+mode, successful-command rules accept only current `reconc exec --staged`
+proofs bound to the exact HEAD and index; mutable active-session command
+outcomes are not commit evidence. The CLI and its help reject explicit
+`--command-success` and `--command-failure` flags with `--staged`; they remain
+available for `--base`/`--head` CI ranges.
 Missing or stale lockfiles fail closed without writing and require
 `reconc refresh .`.
+
+### `reconc exec [repo] [--staged] [--shell] -- COMMAND [ARG ...]`
+Execute a command from the repository root and record its real exit status in
+the active Reconc session when one exists. `--staged` additionally requires no
+tracked-unstaged or untracked paths, verifies that the command leaves HEAD,
+the index, and the working tree unchanged, then atomically publishes a bounded
+SHA-256 receipt outside the repository. `--shell` accepts one literal command
+for platform-shell syntax; direct argv execution is the default. Failed
+commands propagate their child exit code and never publish a proof.
 
 ### `reconc assert <rule-id> [repo] [--var K=V] [--read PATH] [--write PATH] [--command CMD] [--claim NAME] [--json]`
 Evaluate exactly one rule, ignoring the rest of the lockfile. Useful
@@ -391,10 +404,11 @@ reject symlinked paths, preserve file modes, and cap journals at 4 MiB.
 
 ### `reconc prune [repo] [--dry-run] [--json]`
 Run the product retention core immediately. It bounds external session,
-report, lock, and product-wide project-root state; audit and run-decision JSONL
-rings; generated workflow-audit binaries; abandoned repo-local atomic/build temps; and owned
-`reconc-proof-*` temp trees. `--dry-run` reports file candidates without
-deleting them. Owned proof temp trees use a two-hour inactivity grace. The
+report, lock, staged command-proof, and product-wide project-root state; audit
+and run-decision JSONL rings; generated workflow-audit binaries; abandoned
+repo-local atomic/build temps; and owned `reconc-proof-*` temp trees.
+`--dry-run` reports file candidates without deleting them. Owned proof temp
+trees use a two-hour inactivity grace. The
 global project-state contract keeps at most 256 recognized roots / 128 MiB /
 30 days while preserving the current project, live sessions, unknown
 directories, and recently active lifecycle roots.
