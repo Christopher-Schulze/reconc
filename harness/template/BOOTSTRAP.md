@@ -467,6 +467,22 @@ On native Windows, generated shell hook routes and `.sh` or extensionless policy
 scripts require `sh` on `PATH`; Git for Windows supplies it. Native `.exe` and
 `.com` policy scripts execute directly. Do not invent a per-project wrapper variant.
 
+### Step 7a: Assert TASK-scoped claims
+
+Run the task-claim helper from the target repository root through its owning
+nested Go module. The command name comes first, followed by the optional
+validated TASK override:
+
+```sh
+go -C tools/reconc/harness/<project-name> run ./utils/task-claim show
+go -C tools/reconc/harness/<project-name> run ./utils/task-claim assert --task TASK-0001-Bootstrap-Reconc
+```
+
+The helper walks upward from the harness module and accepts a root only when
+both `docs/tasks.md` and the project claim bindings exist. Do not use the
+root-module form `go run ./tools/reconc/harness/.../utils/task-claim`; it cannot
+cross the nested Go module boundary.
+
 ### Step 7b: Activate source-controlled git hooks
 
 The repo-root scaffold ships `.githooks/pre-commit`. This is the source-controlled twin of the hook that `reconc hook install git-pre-commit` would write to `.git/hooks/pre-commit`. It runs `reconc ci --staged` so that commits made via Bash (not just agent-runtime hooks) are also gated by the compiled policy lockfile — this closes the gap where an agent could `git commit` before the agent-runtime Stop hook fires.

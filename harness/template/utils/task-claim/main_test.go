@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,62 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestPrintUsageMatchesCommandFirstFlagOrder(t *testing.T) {
+	var output bytes.Buffer
+	printUsage(&output)
+	if !strings.Contains(output.String(), "task-claim <show|assert> [--task TASK-NNNN-Name]") {
+		t.Fatalf("usage does not document the accepted command-first flag order:\n%s", output.String())
+	}
+}
+
+func TestParseCommandDocumentedForms(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want commandOptions
+	}{
+		{name: "show current", args: []string{"show"}, want: commandOptions{command: "show"}},
+		{name: "assert current", args: []string{"assert"}, want: commandOptions{command: "assert"}},
+		{
+			name: "show override",
+			args: []string{"show", "--task", "TASK-0099-Explicit"},
+			want: commandOptions{command: "show", taskOverride: "TASK-0099-Explicit"},
+		},
+		{
+			name: "assert override equals",
+			args: []string{"assert", "--task=TASK-9999-Explicit"},
+			want: commandOptions{command: "assert", taskOverride: "TASK-9999-Explicit"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseCommand(tt.args)
+			if err != nil {
+				t.Fatalf("parseCommand: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("got %+v want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseCommandRejectsInvalidInput(t *testing.T) {
+	tests := [][]string{
+		nil,
+		{"unknown"},
+		{"show", "--unknown"},
+		{"show", "trailing"},
+		{"assert", "--task", "not-a-task"},
+		{"assert", "--task"},
+	}
+	for _, args := range tests {
+		if _, err := parseCommand(args); err == nil {
+			t.Fatalf("expected error for args %q", args)
+		}
+	}
+}
 
 func writeFixture(t *testing.T, root string, rel string, content string) {
 	t.Helper()
@@ -19,6 +76,15 @@ func writeFixture(t *testing.T, root string, rel string, content string) {
 	if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
+}
+
+func copyFixture(t *testing.T, source string, root string, rel string) {
+	t.Helper()
+	content, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatalf("read fixture source: %v", err)
+	}
+	writeFixture(t, root, rel, string(content))
 }
 
 func TestResolveTaskFromCurrent(t *testing.T) {
@@ -35,6 +101,65 @@ Current: TASK-0042-Foo-Bar -> tasks/TASK-0042-Foo-Bar.md
 	}
 	if got != "TASK-0042-Foo-Bar" {
 		t.Fatalf("expected TASK-0042-Foo-Bar, got %q", got)
+	}
+}
+
+func TestFindRepoRootFromNestedHarnessDirectory(t *testing.T) {
+	root := t.TempDir()
+	writeFixture(t, root, tasksRel, "# Tasks\n")
+	writeFixture(t, root, bindingsRel, "default_claims: []\nbindings: []\n")
+	nested := filepath.Join(root, "tools", "reconc", "harness", "template", "utils", "task-claim")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("mkdir nested: %v", err)
+	}
+
+	got, err := findRepoRoot(nested)
+	if err != nil {
+		t.Fatalf("findRepoRoot: %v", err)
+	}
+	if got != root {
+		t.Fatalf("got %q want %q", got, root)
+	}
+}
+
+func TestFindRepoRootFailsClosedWithoutBothMarkers(t *testing.T) {
+	root := t.TempDir()
+	writeFixture(t, root, tasksRel, "# Tasks\n")
+	if _, err := findRepoRoot(root); err == nil || !strings.Contains(err.Error(), bindingsRel) {
+		t.Fatalf("expected missing bindings marker error, got %v", err)
+	}
+}
+
+func TestDocumentedGoCInvocationFromRepoRoot(t *testing.T) {
+	workingDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	templateModule := filepath.Clean(filepath.Join(workingDir, "..", ".."))
+	root := t.TempDir()
+	for _, rel := range []string{
+		"go.mod",
+		"go.sum",
+		"utils/task-claim/main.go",
+		"config/workflow/task-claim-bindings.yaml",
+	} {
+		copyFixture(t, filepath.Join(templateModule, filepath.FromSlash(rel)), root, filepath.ToSlash(filepath.Join("tools/reconc/harness/template", rel)))
+	}
+	writeFixture(t, root, tasksRel, "# Tasks\n")
+
+	cmd := exec.Command(
+		"go",
+		"-C", filepath.FromSlash("tools/reconc/harness/template"),
+		"run", "./utils/task-claim",
+		"show", "--task", "TASK-9999-Standalone-Probe",
+	)
+	cmd.Dir = root
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("documented go -C invocation failed: %v\n%s", err, output)
+	}
+	if !strings.Contains(string(output), "task: TASK-9999-Standalone-Probe") {
+		t.Fatalf("documented invocation ignored TASK override:\n%s", output)
 	}
 }
 

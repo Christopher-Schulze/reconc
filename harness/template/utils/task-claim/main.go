@@ -9,11 +9,11 @@
 // to `reconc hook claim <repo> <claim-name>` -- the public CLI wrapper around
 // the agentsession.RecordClaim internal API.
 //
-// Usage:
+// Run from the repository root:
 //
-//	go run ./tools/reconc/harness/template/utils/task-claim assert    # assert claims for active TASK
-//	go run ./tools/reconc/harness/template/utils/task-claim show      # print plan, no assertions
-//	go run ./tools/reconc/harness/template/utils/task-claim assert --task TASK-0099-X  # explicit TASK
+//	go -C tools/reconc/harness/template run ./utils/task-claim assert
+//	go -C tools/reconc/harness/template run ./utils/task-claim show
+//	go -C tools/reconc/harness/template run ./utils/task-claim assert --task TASK-0099-X
 //
 // The tool fails closed: missing tasks.md, missing bindings file, malformed
 // YAML, or `reconc hook claim` non-zero exit each abort with a clear error.
@@ -22,6 +22,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,6 +40,12 @@ const (
 )
 
 var currentRe = regexp.MustCompile(`(?m)^Current: (TASK-[0-9]{4}-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*) -> tasks/`)
+var taskNameRe = regexp.MustCompile(`^TASK-[0-9]{4}-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$`)
+
+type commandOptions struct {
+	command      string
+	taskOverride string
+}
 
 type binding struct {
 	Match  string   `yaml:"match"`
@@ -51,25 +58,20 @@ type bindingsConfig struct {
 }
 
 func main() {
-	taskFlag := flag.String("task", "", "explicit TASK name; defaults to Current: from tasks.md")
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr,
-			"usage: task-claim <show|assert> [--task TASK-NNNN-Name]\n\n"+
-				"show   - print the claim set that would be asserted, no side effects\n"+
-				"assert - call `reconc hook claim` for every claim in the set\n")
+	options, err := parseCommand(os.Args[1:])
+	if err != nil {
+		printUsage(os.Stderr)
+		fail("%v", err)
 	}
-	flag.Parse()
-	args := flag.Args()
-	if len(args) == 0 {
-		flag.Usage()
-		os.Exit(2)
-	}
-	cmd := args[0]
-	root, err := os.Getwd()
+	workingDir, err := os.Getwd()
 	if err != nil {
 		fail("get cwd: %v", err)
 	}
-	taskName, err := resolveTask(root, *taskFlag)
+	root, err := findRepoRoot(workingDir)
+	if err != nil {
+		fail("%v", err)
+	}
+	taskName, err := resolveTask(root, options.taskOverride)
 	if err != nil {
 		fail("%v", err)
 	}
@@ -78,17 +80,68 @@ func main() {
 		fail("%v", err)
 	}
 	claims := claimsForTask(taskName, bindings)
-	switch cmd {
+	switch options.command {
 	case "show":
 		printPlan(taskName, claims)
 	case "assert":
 		if err := assertClaims(root, taskName, claims); err != nil {
 			fail("%v", err)
 		}
-	default:
-		flag.Usage()
-		os.Exit(2)
 	}
+}
+
+func parseCommand(args []string) (commandOptions, error) {
+	if len(args) == 0 {
+		return commandOptions{}, fmt.Errorf("missing command")
+	}
+	command := args[0]
+	if command != "show" && command != "assert" {
+		return commandOptions{}, fmt.Errorf("unknown command %q", command)
+	}
+	flags := flag.NewFlagSet("task-claim "+command, flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	taskOverride := flags.String("task", "", "explicit TASK name; defaults to Current: from tasks.md")
+	if err := flags.Parse(args[1:]); err != nil {
+		return commandOptions{}, fmt.Errorf("parse %s flags: %w", command, err)
+	}
+	if flags.NArg() != 0 {
+		return commandOptions{}, fmt.Errorf("unexpected argument %q", flags.Arg(0))
+	}
+	if *taskOverride != "" && !taskNameRe.MatchString(*taskOverride) {
+		return commandOptions{}, fmt.Errorf("invalid TASK name %q", *taskOverride)
+	}
+	return commandOptions{command: command, taskOverride: *taskOverride}, nil
+}
+
+func printUsage(w io.Writer) {
+	fmt.Fprintln(w, "usage: task-claim <show|assert> [--task TASK-NNNN-Name]")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "show   - print the claim set that would be asserted, no side effects")
+	fmt.Fprintln(w, "assert - call `reconc hook claim` for every claim in the set")
+}
+
+func findRepoRoot(start string) (string, error) {
+	dir, err := filepath.Abs(start)
+	if err != nil {
+		return "", fmt.Errorf("resolve start path %s: %w", start, err)
+	}
+	for {
+		if isRegularFile(filepath.Join(dir, filepath.FromSlash(tasksRel))) &&
+			isRegularFile(filepath.Join(dir, filepath.FromSlash(bindingsRel))) {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "", fmt.Errorf("repository root not found from %s: require %s and %s", start, tasksRel, bindingsRel)
+}
+
+func isRegularFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
 }
 
 func resolveTask(root string, override string) (string, error) {
