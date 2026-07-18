@@ -600,6 +600,7 @@ State: Done
 - Order Rationale: This task sits here because its outputs unblock the dependency layer aligned with the spec ownership graph.
 - Scope Type: Audit Repair
 - Spec Lines: none
+- Spec Bindings: none
 - Research Refs: none
 - Completion Claim: Done means the workflow audit fixture remains valid against the real task-state audit.
 
@@ -652,6 +653,7 @@ State: Queued
 - Order Rationale: This task sits here because its outputs unblock the dependency layer aligned with the spec ownership graph.
 - Scope Type: Audit Repair
 - Spec Lines: none
+- Spec Bindings: none
 - Research Refs: none
 - Completion Claim: Done means the workflow audit fixture remains valid against the real task-state audit.
 

@@ -13,7 +13,7 @@ needs_rebuild() {
   if [ ! -x "$bin" ]; then
     return 0
   fi
-  for src in "$harness/go.mod" "$harness/go.sum" "$harness/audits/"*.go "$harness/audits/lib/donecheck/"*.go "$harness/audits/lib/prune/"*.go tools/reconc/buildprovenance/*.go; do
+  for src in "$harness/go.mod" "$harness/go.sum" "$harness/audits/"*.go "$harness/audits/lib/"*/*.go tools/reconc/buildprovenance/*.go; do
     [ -f "$src" ] || continue
     if [ "$src" -nt "$bin" ]; then
       return 0

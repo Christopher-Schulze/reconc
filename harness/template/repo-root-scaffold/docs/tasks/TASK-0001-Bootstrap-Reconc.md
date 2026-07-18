@@ -16,7 +16,8 @@ State: Active
 - Expected Touch Surfaces: AGENTS.md, start.md, docs/**, tools/reconc/**, .reconc.yml, .codex/**, .cursor/**, .agents/**, .claude/**, .opencode/**
 - Order Rationale: Bootstrap must run before any product TASK so every later edit is governed by the same task, hook, audit, and documentation rules.
 - Scope Type: Audit Repair
-- Spec Lines: docs/spec.md:L1-L1
+- Spec Lines: docs/spec.md:L1-L3
+- Spec Bindings: docs/spec.md:L1-L3@sha256:ea76978a6f90e675e28c9a3fbaf06b30ad8cec0268d6a6898af67bcf31f8f321@project+workflow
 - Research Refs: none
 - Completion Claim: Done means Reconc governance is installed, rebranded, verified, and ready to govern the next project TASK.
 

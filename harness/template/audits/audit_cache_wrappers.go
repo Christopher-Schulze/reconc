@@ -42,6 +42,7 @@ func taskStateCacheInputs(root string) *cacheInputs {
 	}
 	inputs.AddPathMetadata(filepath.Join(root, "docs/tasks"))
 	inputs.AddPathMetadata(filepath.Join(root, "docs/tasks/done"))
+	inputs.AddFile(filepath.Join(root, "docs/spec.md"))
 	inputs.AddFile(filepath.Join(root, filepath.FromSlash(schemaRel)))
 	return inputs
 }

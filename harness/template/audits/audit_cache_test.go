@@ -512,6 +512,7 @@ func TestTaskStateCacheInputsHashOnlyOpenTaskBodies(t *testing.T) {
 	writeCacheFixture(t, root, "docs/tasks.md", "# Tasks\n\nCurrent: TASK-0002-Open -> tasks/TASK-0002-Open.md\n\n- [x] TASK-0001-Done - done -> tasks/done/TASK-0001-Done.md\n- [ ] TASK-0002-Open - open -> tasks/TASK-0002-Open.md\n")
 	writeCacheFixture(t, root, "docs/tasks/TASK-0002-Open.md", "open-v1")
 	writeCacheFixture(t, root, "docs/tasks/done/TASK-0001-Done.md", "done-v1")
+	writeCacheFixture(t, root, "docs/spec.md", "spec-v1")
 	inputs := taskStateCacheInputs(root)
 	donePath := filepath.Join(root, "docs/tasks/done/TASK-0001-Done.md")
 	for _, path := range inputs.files {
@@ -538,6 +539,14 @@ func TestTaskStateCacheInputsHashOnlyOpenTaskBodies(t *testing.T) {
 	}
 	if secondHash == thirdHash {
 		t.Fatal("open TASK body edits must invalidate task-state cache")
+	}
+	writeCacheFixture(t, root, "docs/spec.md", "spec-v2")
+	fourthHash, err := taskStateCacheInputs(root).Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if thirdHash == fourthHash {
+		t.Fatal("spec edits must invalidate task-state cache")
 	}
 }
 

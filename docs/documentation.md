@@ -217,6 +217,16 @@ blocked, and `[x]` for done. Each detail records motivation, measurable
 acceptance, sub-tasks, temporary notes, and deviations. Runtime task tracking
 may assist within one session, but it never replaces these repository files.
 
+Repository harness TASKs bind every non-`none` `Spec Lines` entry one-to-one and
+in the same order through `Spec Bindings` using
+`docs/spec.md:Lx-Ly@sha256:<range-digest>@term1+term2`. The SHA-256 pins the
+exact LF-normalized range bytes, and at least two meaningful terms must occur
+in both the TASK claim surface and cited range. `Spec Lines: none` requires
+`Spec Bindings: none`. The task-state audit rejects missing, malformed,
+duplicated, reordered, stale, out-of-range, or lexically unsupported bindings.
+This deterministic check detects byte drift and gross semantic mismatches; it
+does not replace the repository's human line-by-line spec-parity review.
+
 `task_lifecycle` in `.reconc.yml` adopts the repository without migration.
 `sections-v1` is the bounded canonical profile for new repositories;
 `logbook-v1` accepts a `Current:` line, including `Current: none` when no TASK
@@ -829,7 +839,7 @@ Independent cold workflow-audit keys execute concurrently behind per-key
 singleflight locks. Only short cache read/merge/atomic-publication sections are
 globally serialized, so parallel results cannot overwrite each other. Runtime
 retention no longer piggybacks on audit-cache publication. The task-state cache hashes only
-`docs/tasks.md`, schema, and open TASK bodies on its hot path. A clean completed
+`docs/tasks.md`, `docs/spec.md`, schema, and open TASK bodies on its hot path. A clean completed
 TASK archive is represented by its committed Git tree ID plus directory
 metadata; dirty or unreadable archive state bypasses caching entirely, avoiding
 full archive reads without hiding archived-file changes. Cache input tree walks

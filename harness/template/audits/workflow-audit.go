@@ -537,7 +537,7 @@ func auditTaskState(root string) []string {
 			continue
 		}
 		loopRequired := entry.icon == "x" && changedFiles["docs/"+entry.target] != nil
-		info, detailFailures := auditTaskDetail(detailPath, entry, isCurrent, loopRequired)
+		info, detailFailures := auditTaskDetail(root, detailPath, entry, isCurrent, loopRequired)
 		detailInfos[entry.name] = info
 		failures = append(failures, detailFailures...)
 	}
@@ -612,7 +612,7 @@ func parseTaskIndex(content string) (taskIndex, []string) {
 	return index, failures
 }
 
-func auditTaskDetail(path string, entry taskEntry, isCurrent bool, loopRequired bool) (taskDetailInfo, []string) {
+func auditTaskDetail(root string, path string, entry taskEntry, isCurrent bool, loopRequired bool) (taskDetailInfo, []string) {
 	var info taskDetailInfo
 	var failures []string
 	contentBytes, err := os.ReadFile(path)
@@ -657,6 +657,7 @@ func auditTaskDetail(path string, entry taskEntry, isCurrent bool, loopRequired 
 		failures = append(failures, fmt.Sprintf("%s: Acceptance must contain at least one concrete bullet", relative))
 	}
 	failures = append(failures, auditSchedulingFields(relative, info, entry.icon == " ")...)
+	failures = append(failures, auditTaskSpecBindings(root, relative, content, info, entry.icon == " ")...)
 	failures = append(failures, auditTaskScopeTruth(relative, content, info, entry.icon)...)
 	if taskHasCodeSurface(info) {
 		if !donecheck.HasTestIntent(donecheck.ExtractSection(content, "## Technical Plan"), loadedSchema) {

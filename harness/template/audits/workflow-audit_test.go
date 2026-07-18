@@ -266,6 +266,9 @@ func TestWorkflowAuditRunnerTracksBuildProvenanceDependency(t *testing.T) {
 	if !strings.Contains(string(content), "tools/reconc/buildprovenance/*.go") {
 		t.Fatal("workflow audit cache must rebuild when shared build provenance changes")
 	}
+	if !strings.Contains(string(content), `"$harness/audits/lib/"*/*.go`) {
+		t.Fatal("workflow audit cache must rebuild when any shared audit library changes")
+	}
 }
 
 func writeReconcProvenanceFixture(t *testing.T, root string) {
@@ -1020,6 +1023,7 @@ State: ` + state + `
 - Order Rationale: This task is ordered by dependency readiness and queue efficiency.
 - Scope Type: Audit Repair
 - Spec Lines: none
+- Spec Bindings: none
 - Research Refs: none
 - Completion Claim: Done means the declared workflow audit repair is implemented, tested if code changed, and verified by Reconc.
 

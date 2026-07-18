@@ -17,7 +17,7 @@ import (
 // cacheVersion is bumped whenever audit logic changes in a way that should
 // invalidate every cached pass. The cache key embeds this constant so a
 // stale binary cannot return a false pass after the rules tightened.
-const cacheVersion = "v4-2026-07-15"
+const cacheVersion = "v5-2026-07-18"
 
 const (
 	cacheRel     = ".reconc/cache/audit-results.json"

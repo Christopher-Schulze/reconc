@@ -84,8 +84,13 @@ for event in \
   grok-session-start
 do
   session=${event%%-*}
-  printf '{"session_id":"golden-%s","reconc_runtime":"%s"}\n' "$session" "$session" \
-    | "$wrapper" "$event" "$governed" >"$tmp/hook-$session.json"
+  if [ "$event" = "grok-session-start" ]; then
+    printf '{"hookEventName":"session_start","sessionId":"golden-grok","workspaceRoot":"%s"}\n' "$governed" \
+      | "$wrapper" "$event" "$governed" >"$tmp/hook-$session.json"
+  else
+    printf '{"session_id":"golden-%s","reconc_runtime":"%s"}\n' "$session" "$session" \
+      | "$wrapper" "$event" "$governed" >"$tmp/hook-$session.json"
+  fi
 done
 git -C "$governed" add -A
 (cd "$governed" && .git/hooks/pre-commit) >"$tmp/git-pre-commit.txt"
