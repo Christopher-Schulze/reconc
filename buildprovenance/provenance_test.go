@@ -61,7 +61,7 @@ func TestComputeSourceDigestIsRepoLocationIndependent(t *testing.T) {
 func TestBuildMarkerRoundTripAndBinaryInspection(t *testing.T) {
 	digest := strings.Repeat("a", 64)
 	marker, err := FormatMarker(Provenance{
-		Version:      "0.8.4",
+		Version:      "0.8.5",
 		GOOS:         "darwin",
 		GOARCH:       "arm64",
 		SourceDigest: digest,
@@ -73,7 +73,7 @@ func TestBuildMarkerRoundTripAndBinaryInspection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse marker: %v", err)
 	}
-	if parsed.Version != "0.8.4" || parsed.GOOS != "darwin" || parsed.GOARCH != "arm64" || parsed.SourceDigest != digest {
+	if parsed.Version != "0.8.5" || parsed.GOOS != "darwin" || parsed.GOARCH != "arm64" || parsed.SourceDigest != digest {
 		t.Fatalf("unexpected parsed provenance: %#v", parsed)
 	}
 
@@ -92,7 +92,7 @@ func TestBuildMarkerRoundTripAndBinaryInspection(t *testing.T) {
 
 func TestInspectBinaryFailsClosedOnMissingMalformedAndAmbiguousMarkers(t *testing.T) {
 	validA, err := FormatMarker(Provenance{
-		Version:      "0.8.4",
+		Version:      "0.8.5",
 		GOOS:         "darwin",
 		GOARCH:       "arm64",
 		SourceDigest: strings.Repeat("a", 64),
@@ -101,7 +101,7 @@ func TestInspectBinaryFailsClosedOnMissingMalformedAndAmbiguousMarkers(t *testin
 		t.Fatal(err)
 	}
 	validB, err := FormatMarker(Provenance{
-		Version:      "0.8.4",
+		Version:      "0.8.5",
 		GOOS:         "darwin",
 		GOARCH:       "arm64",
 		SourceDigest: strings.Repeat("b", 64),
@@ -114,7 +114,7 @@ func TestInspectBinaryFailsClosedOnMissingMalformedAndAmbiguousMarkers(t *testin
 		data string
 	}{
 		{name: "missing", data: "plain binary bytes"},
-		{name: "malformed", data: MarkerPrefix + "|version=0.8.4|goos=darwin|goarch=arm64|source=bad|end"},
+		{name: "malformed", data: MarkerPrefix + "|version=0.8.5|goos=darwin|goarch=arm64|source=bad|end"},
 		{name: "duplicate", data: validA + "\x00" + validA},
 		{name: "ambiguous", data: validA + "\x00" + validB},
 	}
@@ -134,9 +134,9 @@ func TestInspectBinaryFailsClosedOnMissingMalformedAndAmbiguousMarkers(t *testin
 func TestFormatMarkerRejectsInvalidFields(t *testing.T) {
 	tests := []Provenance{
 		{Version: "", GOOS: "darwin", GOARCH: "arm64", SourceDigest: strings.Repeat("a", 64)},
-		{Version: "0.8.4|bad", GOOS: "darwin", GOARCH: "arm64", SourceDigest: strings.Repeat("a", 64)},
-		{Version: "0.8.4", GOOS: "Darwin", GOARCH: "arm64", SourceDigest: strings.Repeat("a", 64)},
-		{Version: "0.8.4", GOOS: "darwin", GOARCH: "arm64", SourceDigest: "ABC"},
+		{Version: "0.8.5|bad", GOOS: "darwin", GOARCH: "arm64", SourceDigest: strings.Repeat("a", 64)},
+		{Version: "0.8.5", GOOS: "Darwin", GOARCH: "arm64", SourceDigest: strings.Repeat("a", 64)},
+		{Version: "0.8.5", GOOS: "darwin", GOARCH: "arm64", SourceDigest: "ABC"},
 	}
 	for _, provenance := range tests {
 		if _, err := FormatMarker(provenance); err == nil {

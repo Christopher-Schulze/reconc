@@ -69,8 +69,8 @@ make lint
 make cover
 make bench
 make self-host
-make sbom VERSION=0.8.4
-make release VERSION=0.8.4
+make sbom VERSION=0.8.5
+make release VERSION=0.8.5
 ```
 
 `make release` cross-compiles five binaries into `dist/`, generates three flat
@@ -1065,7 +1065,7 @@ current-state documentation.
 
 ## Release State
 
-The current public release line is `v0.8.x`; the source version is `v0.8.4`. A
+The current public release line is `v0.8.x`; the source version is `v0.8.5`. A
 new release is blocked until its release, install, self-hosting, and final
 verification contracts pass. Release artifacts are produced only through an
 explicit manual Release workflow dispatch for an existing `reconc-vX.Y.Z` tag;

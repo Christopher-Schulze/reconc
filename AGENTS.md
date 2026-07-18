@@ -46,6 +46,6 @@ make self-host
 
 ## Current Release State
 
-The current public release line is `v0.8.x`; the source version is `v0.8.4`.
+The current public release line is `v0.8.x`; the source version is `v0.8.5`.
 Core tests, race tests, vet, static analysis, and release artifact generation
 are expected to pass before release.

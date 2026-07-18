@@ -164,7 +164,7 @@ func TestAuditReconcBinaryFreshnessUsesDeterministicProvenance(t *testing.T) {
 		t.Fatal(err)
 	}
 	marker, err := buildprovenance.FormatMarker(buildprovenance.Provenance{
-		Version:      "0.8.4",
+		Version:      "0.8.5",
 		GOOS:         runtime.GOOS,
 		GOARCH:       runtime.GOARCH,
 		SourceDigest: digest,
@@ -227,7 +227,7 @@ func TestAuditReconcBinaryFreshnessRejectsWrongTarget(t *testing.T) {
 		wrongOS = "darwin"
 	}
 	marker, err := buildprovenance.FormatMarker(buildprovenance.Provenance{
-		Version:      "0.8.4",
+		Version:      "0.8.5",
 		GOOS:         wrongOS,
 		GOARCH:       runtime.GOARCH,
 		SourceDigest: digest,

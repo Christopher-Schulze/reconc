@@ -4,7 +4,7 @@
 #
 # Usage:
 #   sh install.sh                      # install the current default version
-#   sh install.sh 0.8.4                # pin version
+#   sh install.sh 0.8.5                # pin version
 #   RECONC_INSTALL_DIR=/tmp sh install.sh
 #
 # Pre-install-bootstrap exception: this is the one shell script in
@@ -13,7 +13,7 @@
 
 set -eu
 
-VERSION="${1:-0.8.4}"
+VERSION="${1:-0.8.5}"
 RELEASE_BASE="${RECONC_RELEASE_BASE:-https://github.com/Christopher-Schulze/reconc/releases/download}"
 INSTALL_DIR="${RECONC_INSTALL_DIR:-/usr/local/bin}"
 BIN_NAME="reconc"

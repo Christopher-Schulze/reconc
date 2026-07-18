@@ -16,7 +16,7 @@ func TestRunPrintsDeterministicBuildMarker(t *testing.T) {
 	writeCommandFile(t, root, "cmd/reconc/main.go", "package main\n\nfunc main() {}\n")
 
 	var stdout bytes.Buffer
-	if err := run([]string{"--root", root, "--goos", "darwin", "--goarch", "arm64", "--version", "0.8.4"}, &stdout); err != nil {
+	if err := run([]string{"--root", root, "--goos", "darwin", "--goarch", "arm64", "--version", "0.8.5"}, &stdout); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	marker := strings.TrimSpace(stdout.String())
@@ -24,14 +24,14 @@ func TestRunPrintsDeterministicBuildMarker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse marker: %v", err)
 	}
-	if provenance.Version != "0.8.4" || provenance.GOOS != "darwin" || provenance.GOARCH != "arm64" || len(provenance.SourceDigest) != 64 {
+	if provenance.Version != "0.8.5" || provenance.GOOS != "darwin" || provenance.GOARCH != "arm64" || len(provenance.SourceDigest) != 64 {
 		t.Fatalf("unexpected provenance: %#v", provenance)
 	}
 }
 
 func TestRunRequiresCompleteTarget(t *testing.T) {
 	var stdout bytes.Buffer
-	if err := run([]string{"--root", t.TempDir(), "--goos", "darwin", "--version", "0.8.4"}, &stdout); err == nil {
+	if err := run([]string{"--root", t.TempDir(), "--goos", "darwin", "--version", "0.8.5"}, &stdout); err == nil {
 		t.Fatal("expected missing GOARCH to fail")
 	}
 }
@@ -41,7 +41,7 @@ func TestRunVerifiesBinaryWithoutExecutingIt(t *testing.T) {
 	writeCommandFile(t, root, "go.mod", "module example.test/reconc\n\ngo 1.23\n")
 	writeCommandFile(t, root, "cmd/reconc/main.go", "package main\n\nfunc main() {}\n")
 	var marker bytes.Buffer
-	args := []string{"--root", root, "--goos", "darwin", "--goarch", "arm64", "--version", "0.8.4"}
+	args := []string{"--root", root, "--goos", "darwin", "--goarch", "arm64", "--version", "0.8.5"}
 	if err := run(args, &marker); err != nil {
 		t.Fatalf("create marker: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestRunVerifiesBinaryWithoutExecutingIt(t *testing.T) {
 	if stdout.Len() != 0 {
 		t.Fatalf("verification wrote output: %q", stdout.String())
 	}
-	if err := os.WriteFile(binary, []byte("not executable\x00"+strings.Replace(marker.String(), "version=0.8.4", "version=0.8.3", 1)+"\x00"), 0o600); err != nil {
+	if err := os.WriteFile(binary, []byte("not executable\x00"+strings.Replace(marker.String(), "version=0.8.5", "version=0.8.4", 1)+"\x00"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := run(append(args, "--verify-binary", binary), &stdout); err == nil {

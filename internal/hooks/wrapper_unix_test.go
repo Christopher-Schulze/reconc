@@ -52,7 +52,7 @@ func TestGrokWrapperFailsClosedAndPassesOnlyExactDecisionJSON(t *testing.T) {
 
 func TestGrokWrapperFailsClosedOnAmbiguousHostArtifacts(t *testing.T) {
 	repo := t.TempDir()
-	for _, version := range []string{"0.5.0", "0.8.4"} {
+	for _, version := range []string{"0.5.0", "0.8.5"} {
 		name := "reconc-" + version + "-" + runtime.GOOS + "-" + runtime.GOARCH
 		writeExecutableTestFile(t, filepath.Join(repo, "tools/reconc/dist", name), "#!/bin/sh\nprintf '{\"decision\":\"allow\"}\\n'\n")
 	}
