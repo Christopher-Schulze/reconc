@@ -24,7 +24,7 @@ Treat exit 2 as "stop writing and remediate first".
 | `require_command_success` | Command must succeed | Run it, assert via `--command-success` |
 | `forbid_command` | Command is banned | Do not run it; use the suggested alternative |
 | `couple_change` | Writes must come in pairs | Edit the paired path(s) in the same change |
-| `require_claim` | Workflow sign-off required | Assert via `reconc hook claim <name>` |
+| `require_claim` | Workflow sign-off required | Assert via `reconc hook claim . <name>` |
 | `require_fresh_file` | Artifact must be recent | Regenerate / touch the referenced file |
 | `require_evidence` | Text must (not) appear in a file | Update the evidence file to satisfy assertions |
 | `require_script` | A script must pass | Run it; fix whatever it flags; re-check |

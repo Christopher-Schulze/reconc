@@ -32,7 +32,9 @@ Runtime:
 - `RECONC_AUDIT_VERBOSE=1` -- store full command strings in audit records
   instead of the redacted first token (may capture secrets in arguments)
 - `RECONC_CLAUDE_STATE_DIR` -- override the global session-state root
-- `RECONC_SCHEMA_BASE_URL` -- enterprise override for schema URLs; defaults to the format-versioned repository contracts under `schemas/v1/`
+- `RECONC_SCHEMA_BASE_URL` -- enterprise override for schema URLs; without an
+  override, config/report/fix-plan contracts use `schemas/v1/` and current
+  policy lockfiles use `schemas/v2/`
 - `RECONC_STOP_FINGERPRINT_UNTRACKED` (`normal` default, `all`, `no`) --
   untracked-file mode for the Stop fingerprint's git status snapshot
 - `RECONC_GROK_STEER=0` -- disable Grok TUI stop steering over the Unix leader

@@ -93,7 +93,7 @@ reconc session-briefing . --json
 `bootstrap` is the minimal CLI onboarding path. It scaffolds `.reconc.yml` and
 `AGENTS.md` when missing, compiles the lockfile, installs git hooks, and wires
 native agent hooks when supported directories such as `.claude/`, `.codex/`,
-`.cursor/`, `.opencode/`, `.devin/`, `.agents/`, `.github/hooks/`, or `.kilo/`
+`.cursor/`, `.opencode/`, `.devin/`, `.agents/`, `.kilo/`, or `.grok/`
 already exist.
 
 For the full repo-local governance rollout with copied Reconc toolkit, harness,

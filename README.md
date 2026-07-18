@@ -47,7 +47,7 @@ why a task is allowed to be called done.
   Go-format, network/process, substantive-proof, and live-verification gates
   without extra subprocesses
 - fails closed on stale lockfiles, schema drift, invalid globs, unsupported rule
-  kinds, and repository-root mismatch
+  kinds, and non-portable current lockfile root markers
 - installs explicitly selected git, Claude Code, Codex, Cursor, OpenCode,
   Devin CLI, Antigravity CLI, Kilo Code, and Grok Build integrations
 - controls autonomous agent continuation with repo-scoped
@@ -216,6 +216,7 @@ a transaction reports drift or a mature repository needs surgical adaptation.
 | Devin CLI | native session, tool, permission, stop, and post-compaction hooks |
 | Antigravity CLI | invocation, tool, post-tool, and stop hook coverage |
 | Kilo Code | thin project plugin with tool, permission, compaction, and `session.idle` continuation handling |
+| Grok Build | native lifecycle and hard PreToolUse hooks, strict ACP continuation, and leader-mode TUI steering |
 
 Claude Code, Codex, Cursor, Devin CLI, and Antigravity CLI expose
 a synchronous Stop event. OpenCode and Kilo Code expose `session.idle`; Reconc can
@@ -348,7 +349,7 @@ regenerated and byte-verified before its checksum and build provenance are
 published.
 
 `make self-host` builds the local binary and runs the clean-repository golden
-path across all three bootstrap profiles, all eight hook platforms, TASK
+path across all three bootstrap profiles, all nine hook platforms, TASK
 lifecycle, retention, and stable release-layout binary resolution.
 
 ## License

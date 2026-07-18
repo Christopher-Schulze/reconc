@@ -30,6 +30,12 @@ func TestRenderUsesCanonicalSchemaBase(t *testing.T) {
 	if !strings.Contains(buf.String(), schema.DefaultBaseURL) {
 		t.Fatalf("man page omitted canonical schema base %q", schema.DefaultBaseURL)
 	}
+	if !strings.Contains(buf.String(), schema.PolicyLockBaseURL) {
+		t.Fatalf("man page omitted canonical policy-lock schema base %q", schema.PolicyLockBaseURL)
+	}
+	if !strings.Contains(buf.String(), "RECONC_GROK_STEER") {
+		t.Fatal("man page omitted Grok steering control")
+	}
 }
 
 func TestRenderIncludesStandardSections(t *testing.T) {

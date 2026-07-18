@@ -56,6 +56,7 @@ internal/
   completion/     bash / zsh / fish completion generators
   contextsize/    token-budget guard for canonical entrypoints + active TASK
   errors/         typed exception hierarchy (PolicySourceError, LockfileError, ...)
+  execfile/       cross-platform regular-file and executable validation
   extractor/      prose-to-rule heuristic scanner (regex-only, no LLM)
   grokacp/        strict Grok ACP stdio client + cross-platform leader IPC stop steering/probing
   hooks/          typed platform registry + generators + installers + activation probes + scaffold sync
@@ -63,6 +64,7 @@ internal/
   lockdiff/       structural lockfile comparison (ignore-provenance semantics)
   filelock/       cross-platform process locks
   jsonl/          bounded locked JSONL append + archive rings
+  manpage/        groff reconc(1) generation from the canonical command table
   parser/         YAML-to-Rule validation + template expansion + scope expansion
   policy/         Rule / Scope / Source / Kind / Mode types
   presets/        bundled policy packs (embed.FS) + user overlays
@@ -136,18 +138,24 @@ handling.
 - **CheckReport / FixPlan schemas**: same policy. Additive changes
   (new optional fields) don't bump the version; breaking changes do.
 
-- **Published schema documents**: `schemas/v1/*.schema.json` are the canonical
-  Draft 2020-12 contracts, use format-versioned repository URLs as `$id`, and
-  ship in the checksummed release inventory. `policy-config.schema.json` is the
-  strict authoring contract; lock, report, and fix-plan schemas describe emitted artifacts.
+- **Published schema documents**: the four immutable
+  `schemas/v1/*.schema.json` contracts and the current
+  `schemas/v2/policy-lock.schema.json` are canonical Draft 2020-12 documents,
+  use format-versioned repository URLs as `$id`, and ship in the checksummed
+  release inventory. `policy-config.schema.json` is the strict authoring
+  contract; the v2 lock schema describes current portable lockfiles, while the
+  v1 lock schema remains the validated migration input.
 
 - **Exit codes 0/1/2**: stable across all subcommands for agent
   consumption. 0 = pass or warn, 1 = runtime/input error, 2 = at
   least one blocking violation.
 
-- **Env vars** (`RECONC_HOME`, `RECONC_AUDIT`, `RECONC_SCHEMA_BASE_URL`):
-  stable names. Adding a new one is additive; renaming or removing
-  needs a major version bump.
+- **Public runtime env vars** (`RECONC_HOME`, `RECONC_AUDIT`,
+  `RECONC_AUDIT_VERBOSE`, `RECONC_CLAUDE_STATE_DIR`,
+  `RECONC_SCHEMA_BASE_URL`, `RECONC_STOP_FINGERPRINT_UNTRACKED`, and
+  `RECONC_GROK_STEER`): stable names. Adding a new one is additive; renaming or
+  removing needs a major version bump. Debug and installer variables are
+  catalogued separately in `docs/commands.md`.
 
 ## Request flow example: `reconc check --write src/x.go`
 

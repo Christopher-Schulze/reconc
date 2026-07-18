@@ -34,7 +34,7 @@ The template package is expected to contain:
 - `tools/reconc/harness/template/repo-root-scaffold/AGENTS.md` - workflow excerpt, not necessarily the whole target AGENTS file.
 - `tools/reconc/harness/template/repo-root-scaffold/start.md` - onboarding entrypoint.
 - `tools/reconc/harness/template/repo-root-scaffold/.reconc.yml` - Reconc rules wired to `tools/reconc/harness/project/...`.
-- `tools/reconc/harness/template/repo-root-scaffold/.codex/`, `.cursor/`, `.agents/`, `.claude/`, `.opencode/`, `.devin/`, `.github/hooks/`, `.kilo/`, `.githooks/` - generated local hook/plugin configs and source-controlled git hook twin.
+- `tools/reconc/harness/template/repo-root-scaffold/.codex/`, `.cursor/`, `.agents/`, `.claude/`, `.opencode/`, `.devin/`, `.kilo/`, `.grok/`, `.githooks/` - generated local hook/plugin configs and source-controlled git hook twin.
 - `tools/reconc/harness/template/repo-root-scaffold/.cursorindexingignore`, `.codeiumignore`, `.windsurfignore`, `.ignore`, `.vscode/settings.json` - local indexing/search/watcher load-shed surfaces only; never mirror these into `.gitignore`.
 - `tools/reconc/harness/template/repo-root-scaffold/.gitignore.excerpt` - gitignore entries to merge.
 - `tools/reconc/harness/template/repo-root-scaffold/docs/` - starter TASK/documentation files for empty repos.

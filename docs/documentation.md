@@ -330,6 +330,7 @@ Packs and wiring:
 - `preset`
 - `template`
 - `hook`
+- `grok`
 
 Workflow maintenance:
 
@@ -574,6 +575,7 @@ Package responsibilities:
 - `internal/audit`: opt-in JSONL decision log and rotation
 - `internal/atomicfile`: atomic write-on-change publication
 - `internal/filelock`: Unix/Windows cross-process file locking
+- `internal/grokacp`: strict Grok ACP client plus Unix-socket and Windows named-pipe leader steering/probing
 - `internal/jsonl`: bounded, locked JSONL append and archive rings
 - `internal/retention`: runtime storage classes, lifecycle due checks, and cleanup
 - `internal/presets`: bundled and user policy packs
@@ -1026,7 +1028,8 @@ Security posture:
 - Payload command strings are matched as data and are not executed.
 - Only policy-authored `require_script` entries execute subprocesses.
 - Audit log is opt-in via `RECONC_AUDIT=1`.
-- Lockfile root mismatch is a hard stale/fail condition.
+- Non-portable current lockfile root markers are a hard stale/fail condition;
+  equivalent clones and worktrees share the portable `.` identity.
 
 Reconc is a deterministic repository control plane, not an operating-system
 sandbox. A deliberately hostile same-user process can replace local policy,

@@ -52,12 +52,20 @@ The input object contains normalized runtime evidence:
 |---|---|
 | `read_paths` | string array |
 | `write_paths` | string array |
+| `write_epochs` | optional object from repo-relative path to non-negative integer |
 | `commands` | string array |
 | `command_results` | object array |
 | `claims` | string array |
 
 Paths must be repo-relative POSIX paths after normalization. Any path
 that resolves outside the repository root must fail before evaluation.
+
+Each `command_results` entry requires `command` and `outcome` (`success` or
+`failure`) and may carry a non-negative `evidence_epoch`. Together with
+`write_epochs`, that optional value proves whether a successful command is at
+least as recent as the newest write that triggered its rule. Omitting the
+epoch preserves the explicit CLI snapshot contract; migrated legacy session
+evidence is ordered fail-closed.
 
 ## Violation Object
 

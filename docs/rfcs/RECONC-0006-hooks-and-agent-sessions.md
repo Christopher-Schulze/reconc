@@ -73,22 +73,29 @@ Reconc execution failures into an explicit deny. Grok's own hard process
 timeout remains fail-open.
 
 Project hooks require Grok folder trust. `reconc doctor --deep` uses
-`grok inspect --json` to verify trust and all generated native routes. Native
-Stop is passive and cannot force another TUI turn. `reconc grok` provides the
-strict path by driving the unmodified official ACP stdio runtime and
-re-prompting the same session while Reconc returns a continuation reason.
+`grok inspect --json` to verify trust, project-owned source metadata, the
+generator-exact managed hook and executable wrapper, and all 14 exact native
+route command tokens; prefix collisions do not count. The guarded PreToolUse
+path accepts only one exact allow/deny JSON object and converts runtime errors,
+timeouts, empty or multiline output, and malformed decisions into explicit
+deny JSON. Native Stop is passive and cannot force another TUI turn. `reconc
+grok` provides the strict path by driving the unmodified official ACP stdio
+runtime and re-prompting the same session while Reconc returns a continuation
+reason.
 When Grok runs in leader mode, the `grok-stop` route additionally steers the
 TUI itself over the Unix leader socket or Windows named pipe. Eligible stops
 enable strict continuation before policy evaluation, then register and queue
 the continuation reason via `_x.ai/interject`, which Grok turns into an
 immediate prompt turn on an idle session. Steering requires a matching
-`GROK_SESSION_ID`, skips user interrupts, and caps only consecutive
-no-progress attempts for the same block at 32; material progress, a new block,
-or a clean Stop resets the series. Multiple endpoints receive fair shares of
-the bounded transport budget. `RECONC_GROK_STEER=0` disables steering, and all
-transport/protocol failures remain fail-open to the passive report. Deep
-doctor requires leader protocol version 1 plus a recognized
-`_x.ai/interject` response.
+`GROK_SESSION_ID`, skips user interrupts, and counts only successfully
+delivered interjections toward the consecutive no-progress cap of 32 for the
+same block. Transport and protocol failures do not consume that budget;
+material progress, a new block, or a clean Stop resets the series. Multiple
+endpoints receive fair shares of the bounded transport budget and framed
+writes complete short writes. `RECONC_GROK_STEER=0` disables steering, and all
+transport/protocol failures remain fail-open to the passive report. Deep doctor
+requires leader protocol version 1 plus a recognized `_x.ai/interject`
+response.
 
 ## Generic Agents
 

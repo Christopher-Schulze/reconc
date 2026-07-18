@@ -52,7 +52,7 @@ network calls while compiling or checking repository policy.
 Security-relevant defaults:
 
 - generated policy lockfiles are validated before use
-- stale lockfiles and repository-root mismatches fail closed
+- stale lockfiles and non-portable current lockfile root markers fail closed
 - hook payloads are treated as untrusted input
 - hook payload size, read time, and JSON nesting depth are bounded
 - paths are normalized and constrained to the discovered repository root
