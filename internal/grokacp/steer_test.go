@@ -223,11 +223,11 @@ func TestSteerBudgetResetsOnProgressNewBlockAndCleanStop(t *testing.T) {
 	steerSession(t, "s-reset")
 
 	firstReason := "reconc: block\nFeedback: RB-111"
-	if attempts, allowed, err := reserveSteerAttempt(repo, "s-reset", firstReason); err != nil || !allowed || attempts != 1 {
-		t.Fatalf("first reserve = attempts=%d allowed=%v err=%v", attempts, allowed, err)
+	if attempts, allowed, err := recordSuccessfulSteerAttemptForTest(repo, "s-reset", firstReason); err != nil || !allowed || attempts != 1 {
+		t.Fatalf("first attempt = attempts=%d allowed=%v err=%v", attempts, allowed, err)
 	}
-	if attempts, allowed, err := reserveSteerAttempt(repo, "s-reset", "same report\nFeedback: RB-111"); err != nil || !allowed || attempts != 2 {
-		t.Fatalf("same-block reserve = attempts=%d allowed=%v err=%v", attempts, allowed, err)
+	if attempts, allowed, err := recordSuccessfulSteerAttemptForTest(repo, "s-reset", "same report\nFeedback: RB-111"); err != nil || !allowed || attempts != 2 {
+		t.Fatalf("same-block attempt = attempts=%d allowed=%v err=%v", attempts, allowed, err)
 	}
 
 	if _, err := agentsession.MutateSessionState(repo, "s-reset", func(state agentsession.SessionState) agentsession.SessionState {
@@ -236,10 +236,10 @@ func TestSteerBudgetResetsOnProgressNewBlockAndCleanStop(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if attempts, allowed, err := reserveSteerAttempt(repo, "s-reset", firstReason); err != nil || !allowed || attempts != 1 {
+	if attempts, allowed, err := recordSuccessfulSteerAttemptForTest(repo, "s-reset", firstReason); err != nil || !allowed || attempts != 1 {
 		t.Fatalf("progress reset = attempts=%d allowed=%v err=%v", attempts, allowed, err)
 	}
-	if attempts, allowed, err := reserveSteerAttempt(repo, "s-reset", "different block\nFeedback: RB-222"); err != nil || !allowed || attempts != 1 {
+	if attempts, allowed, err := recordSuccessfulSteerAttemptForTest(repo, "s-reset", "different block\nFeedback: RB-222"); err != nil || !allowed || attempts != 1 {
 		t.Fatalf("new-block reset = attempts=%d allowed=%v err=%v", attempts, allowed, err)
 	}
 
@@ -272,8 +272,8 @@ func TestSteerTUIStopFailsOpenOnLeaderRejection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.GrokSteerAttempts != 1 {
-		t.Fatalf("failed attempts must still count, got %d", state.GrokSteerAttempts)
+	if state.GrokSteerAttempts != 0 {
+		t.Fatalf("transport failure must not consume the no-progress budget, got %d", state.GrokSteerAttempts)
 	}
 }
 
@@ -293,6 +293,22 @@ func TestSteerTUIStopRejectsIncompatibleLeaderProtocol(t *testing.T) {
 	if !strings.Contains(note, "protocol 2") || !strings.Contains(note, "steer failed") {
 		t.Fatalf("note = %q", note)
 	}
+	state, err := agentsession.LoadSessionState(repo, "s-protocol")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.GrokSteerAttempts != 0 {
+		t.Fatalf("protocol failure must not consume the no-progress budget, got %d", state.GrokSteerAttempts)
+	}
+}
+
+func recordSuccessfulSteerAttemptForTest(repo, sessionID, reason string) (uint64, bool, error) {
+	attempt, allowed, err := prepareSteerAttempt(repo, sessionID, reason)
+	if err != nil || !allowed {
+		return 0, allowed, err
+	}
+	attempts, counted, err := commitSteerAttempt(repo, sessionID, attempt)
+	return attempts, counted, err
 }
 
 func TestSteerTUIStopFallsBackAcrossCandidates(t *testing.T) {

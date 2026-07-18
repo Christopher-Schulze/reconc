@@ -29,20 +29,30 @@ grok_fail_closed() {
   exit 0
 }
 
+grok_decision_valid() {
+  case "$1" in
+    *'
+'*) return 1 ;;
+  esac
+  if printf '%s' "$1" | LC_ALL=C grep -q '[[:cntrl:]]'; then
+    return 1
+  fi
+  printf '%s\n' "$1" | grep -Eq '^\{"decision":"allow"\}$|^\{"decision":"deny","reason":"([^"\\]|\\(["\\/bfnrt]|u[0-9A-Fa-f]{4}))*"\}$'
+}
+
 run_reconc_hook() {
   reconc_binary="$1"
   if [ "$event" = "grok-pre-tool-use" ]; then
     set +e
-    grok_output=$("$reconc_binary" hook runtime "$event" "$repo")
+    grok_output=$("$reconc_binary" hook grok-pre-tool-guard "$repo")
     grok_status=$?
     set -e
     if [ "$grok_status" -ne 0 ] || [ -z "$grok_output" ]; then
       grok_fail_closed
     fi
-    case "$grok_output" in
-      '{"decision":"allow"}'|'{"decision":"deny","reason":'*'}') ;;
-      *) grok_fail_closed ;;
-    esac
+    if ! grok_decision_valid "$grok_output"; then
+      grok_fail_closed
+    fi
     printf '%s\n' "$grok_output"
     exit 0
   fi

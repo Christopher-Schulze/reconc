@@ -678,18 +678,22 @@ Its camelCase envelopes and native tools (`run_terminal_command`,
 are normalized in Go instead of being routed through a Claude or Cursor
 adapter. Project hooks require Grok folder trust. `reconc doctor --deep`
 executes `grok inspect --json` when the artifact is installed and verifies
-trust plus all 14 generated routes. Grok runs PreToolUse before its own
+trust plus all 14 generated routes by exact command-token identity; route-name
+prefix collisions do not count. Grok runs PreToolUse before its own
 permission rules, so Reconc still blocks under Grok's always-approve mode.
 Grok itself treats hook crashes, malformed output, and timeouts as fail-open.
-The generated PreTool route and repo-local wrapper therefore reserve non-zero
-runtime failures for an explicit `{"decision":"deny"}` fallback; normal Reconc
-allow and deny outcomes both travel as valid Grok decision JSON. A hard Grok
-process timeout remains host-owned and fail-open.
+The generated PreTool route and repo-local wrapper therefore run a bounded
+five-second guard inside the host budget and convert non-zero, timed-out,
+empty, multiline, or non-exact decision output into explicit deny JSON. Normal
+Reconc allow and deny outcomes pass only when they are one exact valid JSON
+object. The hard outer Grok process timeout remains host-owned and fail-open.
 
 Grok's native `Stop` hook is passive, so the stock TUI can display Reconc's
 stop report but cannot be forced to submit another turn. Reconc closes that
 boundary twice without modifying Grok. First, `reconc grok` preflights the
-native hook and folder trust, starts the official `grok agent stdio` ACP
+generator-exact native hook, generator-exact executable wrapper, folder trust,
+project-owned inspect source, and exact route set, then starts the official
+`grok agent stdio` ACP
 runtime, streams the answer, and submits Reconc's continuation reason back
 into the same session until the strict Stop gate is clean or the bounded
 continuation limit is reached. Second, when Grok runs in leader mode (opt-in
@@ -703,9 +707,10 @@ an interjection that lands on an idle session into an immediately started
 prompt turn, so the TUI visibly continues with the injected instruction.
 Steering acts only when the Stop evaluation demands continuation from a live
 Grok dispatch (`GROK_SESSION_ID` must match the envelope) and never on user
-interrupts. The 32-attempt cap applies only to one consecutive no-progress
-series for the same block; material write/command progress, a new block, or a
-clean Stop resets it. Multiple leader endpoints divide the three-second budget
+interrupts. The 32-attempt cap applies only to successfully delivered
+interjections in one consecutive no-progress series for the same block;
+transport and protocol failures do not consume it. Material write/command
+progress, a new block, or a clean Stop resets it. Multiple leader endpoints divide the three-second budget
 fairly, framed messages complete short writes, and every failure remains
 fail-open to the passive stop report. `RECONC_GROK_STEER=0` disables steering,
 and `reconc grok` exports exactly that into its spawned agent so the strict ACP
@@ -1052,8 +1057,11 @@ Local source-planning and release-note files such as `docs/tasks.md`,
 `docs/tasks/**`, `todo.md`, `docs/todo/**`, and `CHANGELOG.md` are ignored in
 this repository. These source-root ignores do not apply to TASK control planes
 that governed bootstrap creates in target repositories. When behavior changes,
-update `docs/documentation.md` first. Supporting docs may link to it, but should
-not become competing current-state documentation.
+update `docs/documentation.md` first. Generic Reconc behavior is ported into
+this standalone repository before project-specific forks claim parity;
+project-only workflow or policy behavior stays in its owning repository.
+Supporting docs may link to this file, but should not become competing
+current-state documentation.
 
 ## Release State
 

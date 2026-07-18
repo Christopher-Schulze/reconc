@@ -167,9 +167,11 @@ Grok Build has hard native PreToolUse but a passive native Stop event; use
 run Grok in leader mode so the Stop route interjects continuations into the
 live TUI session over its Unix socket or Windows named pipe
 (`RECONC_GROK_STEER=0` disables this). Leader Stops are strict before policy
-evaluation, and the 32-attempt no-progress series resets on material progress,
-a changed block, or a clean Stop. `reconc doctor --deep` requires protocol
-version 1 and a recognized `_x.ai/interject` response.
+evaluation. Only successfully delivered interjections consume the 32-attempt
+no-progress series; it resets on material progress, a changed block, or a clean
+Stop. Managed Grok activation requires generator-exact hook/wrapper artifacts
+and exact route tokens. `reconc doctor --deep` requires protocol version 1 and
+a recognized `_x.ai/interject` response.
 Typed `continue` and `claim` states continue; an empty active slot claims queued
 executable work. Complete or absent state disables the switch after terminal
 gates, blocked state reaches terminal Stop without silently disabling it, and

@@ -36,6 +36,21 @@ full Omnimus workflow proof run.
 - Global project and owned-temp scans remain serialized and rate-limited, so
   the added bound does not turn every session start into a full disk walk.
 
+## Grok enforcement hardening
+
+- Managed Grok activation and ACP preflight require generator-exact hook and
+  executable wrapper artifacts, project-owned inspect metadata, and all 14
+  exact route command tokens.
+- PreToolUse runs through a bounded guard; only one exact allow/deny JSON object
+  passes through, while crashes, timeouts, empty output, multiline output, and
+  malformed decisions become explicit deny JSON.
+- Leader steering counts only successfully delivered interjections toward its
+  32-attempt no-progress cap; transport and protocol failures do not consume
+  enforcement budget.
+- Framed ACP and leader writes complete short writes, cancellation terminates
+  cleanly, and deep doctor separates inspect output while verifying protocol
+  version 1 and `_x.ai/interject`.
+
 ## Release assets
 
 - Five platform binaries

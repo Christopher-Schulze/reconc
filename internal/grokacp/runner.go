@@ -86,6 +86,9 @@ func run(ctx context.Context, options Options, dependencies runnerDependencies) 
 		return err
 	}
 	if err := dependencies.preflight(ctx, root, options.GrokBinary, dependencies.command); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
 		return err
 	}
 
@@ -130,6 +133,9 @@ func run(ctx context.Context, options Options, dependencies runnerDependencies) 
 		"protocolVersion":    1,
 		"clientCapabilities": grokClientCapabilities(),
 	}, &initialized); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
 		return fmt.Errorf("initialize Grok ACP: %w", err)
 	}
 	if method := selectAuthMethod(initialized.AuthMethods); method != "" {
@@ -137,6 +143,9 @@ func run(ctx context.Context, options Options, dependencies runnerDependencies) 
 			"methodId": method,
 			"_meta":    map[string]bool{"headless": true},
 		}, nil); err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
 			return fmt.Errorf("authenticate Grok ACP: %w", err)
 		}
 	} else if len(initialized.AuthMethods) > 0 {
@@ -150,6 +159,9 @@ func run(ctx context.Context, options Options, dependencies runnerDependencies) 
 		"cwd":        root,
 		"mcpServers": []interface{}{},
 	}, &session); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
 		return fmt.Errorf("create Grok ACP session: %w", err)
 	}
 	if strings.TrimSpace(session.SessionID) == "" {
@@ -181,7 +193,7 @@ func run(ctx context.Context, options Options, dependencies runnerDependencies) 
 				{"type": "text", "text": prompt},
 			},
 		}, &promptResult); err != nil {
-			if errors.Is(err, context.Canceled) {
+			if errors.Is(err, context.Canceled) || ctx.Err() != nil {
 				return nil
 			}
 			return fmt.Errorf("run Grok ACP prompt: %w", err)

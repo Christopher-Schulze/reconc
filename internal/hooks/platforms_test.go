@@ -259,6 +259,19 @@ func BenchmarkRuntimeEventLookup(b *testing.B) {
 	}
 }
 
+func TestGrokRuntimeEventsAndExactTargetMatching(t *testing.T) {
+	events := GrokRuntimeEvents()
+	if len(events) != 14 {
+		t.Fatalf("Grok runtime routes = %d, want 14: %v", len(events), events)
+	}
+	if !GrokTargetHasRuntimeEvent("tools/reconc/bin/hook grok-stop .", "grok-stop") {
+		t.Fatal("exact Grok route was not matched")
+	}
+	if GrokTargetHasRuntimeEvent("tools/reconc/bin/hook grok-stop-failure .", "grok-stop") {
+		t.Fatal("grok-stop-failure must not satisfy grok-stop")
+	}
+}
+
 func BenchmarkGenerateAgentArtifacts(b *testing.B) {
 	kinds := platformKinds(true)
 	b.ResetTimer()

@@ -71,7 +71,7 @@ func SteerTUIStop(repoRoot string, payloadBytes []byte, stopResult agentsession.
 		return ""
 	}
 
-	attempts, allowed, err := reserveSteerAttempt(repoRoot, payload.SessionID, reason)
+	attempt, allowed, err := prepareSteerAttempt(repoRoot, payload.SessionID, reason)
 	if err != nil {
 		return "reconc grok steer: " + err.Error()
 	}
@@ -87,7 +87,17 @@ func SteerTUIStop(repoRoot string, payloadBytes []byte, stopResult agentsession.
 			lastErr = err
 			continue
 		}
+		attempts, counted, err := commitSteerAttempt(repoRoot, payload.SessionID, attempt)
+		if err != nil {
+			return "reconc grok steer: continuation interjected; " + err.Error()
+		}
+		if !counted {
+			return "reconc grok steer: continuation interjected after material progress; no-progress budget unchanged"
+		}
 		return fmt.Sprintf("reconc grok steer: continuation interjected (%d/%d)", attempts, maxStopSteerAttempts)
+	}
+	if lastErr == nil {
+		return ""
 	}
 	return "reconc grok steer failed: " + lastErr.Error()
 }
@@ -154,28 +164,53 @@ func activeSteerPayload(payloadBytes []byte) (*agentsession.HookPayload, error) 
 	return payload, nil
 }
 
-// reserveSteerAttempt counts only consecutive no-progress continuations for
-// the same policy block. Material progress or a different continuation resets
-// the series before reserving its next attempt.
-func reserveSteerAttempt(repoRoot, sessionID, reason string) (uint64, bool, error) {
-	key := steerContinuationKey(reason)
+type steerAttempt struct {
+	continuationKey string
+	materialEvents  uint64
+}
+
+// prepareSteerAttempt validates the current no-progress series without
+// consuming budget. Only a successfully delivered interjection is committed.
+func prepareSteerAttempt(repoRoot, sessionID, reason string) (steerAttempt, bool, error) {
+	attempt := steerAttempt{continuationKey: steerContinuationKey(reason)}
 	allowed := false
 	state, err := agentsession.MutateSessionState(repoRoot, sessionID, func(state agentsession.SessionState) agentsession.SessionState {
-		if state.GrokSteerContinuationKey != key || state.GrokSteerMaterialEvents != state.MaterialEvents {
+		if state.GrokSteerContinuationKey != attempt.continuationKey || state.GrokSteerMaterialEvents != state.MaterialEvents {
 			state.GrokSteerAttempts = 0
 		}
-		state.GrokSteerContinuationKey = key
+		state.GrokSteerContinuationKey = attempt.continuationKey
 		state.GrokSteerMaterialEvents = state.MaterialEvents
+		attempt.materialEvents = state.MaterialEvents
+		allowed = state.GrokSteerAttempts < maxStopSteerAttempts
+		return state
+	})
+	if err != nil {
+		return steerAttempt{}, false, fmt.Errorf("prepare steer attempt: %s", err)
+	}
+	if !allowed {
+		attempt.materialEvents = state.MaterialEvents
+	}
+	return attempt, allowed, nil
+}
+
+func commitSteerAttempt(repoRoot, sessionID string, attempt steerAttempt) (uint64, bool, error) {
+	counted := false
+	state, err := agentsession.MutateSessionState(repoRoot, sessionID, func(state agentsession.SessionState) agentsession.SessionState {
+		if state.GrokSteerContinuationKey != attempt.continuationKey ||
+			state.MaterialEvents != attempt.materialEvents ||
+			state.GrokSteerMaterialEvents != attempt.materialEvents {
+			return state
+		}
 		if state.GrokSteerAttempts < maxStopSteerAttempts {
 			state.GrokSteerAttempts++
-			allowed = true
+			counted = true
 		}
 		return state
 	})
 	if err != nil {
-		return 0, false, fmt.Errorf("record steer attempt: %s", err)
+		return 0, false, fmt.Errorf("record successful steer attempt: %s", err)
 	}
-	return state.GrokSteerAttempts, allowed, nil
+	return state.GrokSteerAttempts, counted, nil
 }
 
 func resetSteerBudget(repoRoot, sessionID string) error {

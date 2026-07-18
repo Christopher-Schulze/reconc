@@ -70,6 +70,8 @@ When Grok runs in leader mode (`grok --leader` or config `use_leader`), the
 Stop route additionally steers the live TUI session by interjecting the
 continuation over the Unix leader socket or Windows named pipe. Eligible
 leader Stops are strict before policy evaluation, and the 32-attempt
-no-progress series resets on material progress, a changed block, or a clean
-Stop. `reconc doctor --deep` verifies protocol version 1 and
+no-progress series counts only successfully delivered interjections and resets
+on material progress, a changed block, or a clean Stop. Managed activation
+requires generator-exact hook/wrapper artifacts and exact route tokens.
+`reconc doctor --deep` verifies protocol version 1 and
 `_x.ai/interject` before reporting `Grok leader steering` as active.

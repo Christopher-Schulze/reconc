@@ -15,6 +15,7 @@ type grokTestPayload struct {
 	ToolInput          map[string]string `json:"toolInput,omitempty"`
 	ToolResult         string            `json:"toolResult,omitempty"`
 	ToolInputTruncated bool              `json:"toolInputTruncated,omitempty"`
+	Reason             string            `json:"reason,omitempty"`
 }
 
 func marshalGrokTestPayload(t *testing.T, payload grokTestPayload) []byte {
@@ -114,7 +115,10 @@ func TestNormalizeGrokPayloadRejectsIdentityDriftAndTruncation(t *testing.T) {
 		want    string
 	}{
 		{name: "event", event: "grok-pre-tool-use", payload: grokTestPayload{HookEventName: "post_tool_use", SessionID: "s", WorkspaceRoot: repo}, want: "does not match route"},
+		{name: "missing event", event: "grok-pre-tool-use", payload: grokTestPayload{SessionID: "s", WorkspaceRoot: repo}, want: "must include hookEventName"},
+		{name: "unsupported route", event: "grok-unknown", payload: grokTestPayload{HookEventName: "pre_tool_use", SessionID: "s", WorkspaceRoot: repo}, want: "unsupported Grok hook route"},
 		{name: "workspace", event: "grok-pre-tool-use", payload: grokTestPayload{HookEventName: "pre_tool_use", SessionID: "s", WorkspaceRoot: other}, want: "does not match repository root"},
+		{name: "missing workspace", event: "grok-pre-tool-use", payload: grokTestPayload{HookEventName: "pre_tool_use", SessionID: "s"}, want: "must include workspaceRoot"},
 		{name: "session", event: "grok-pre-tool-use", payload: grokTestPayload{HookEventName: "pre_tool_use", SessionID: "s", WorkspaceRoot: repo}, envID: "other", want: "does not match GROK_SESSION_ID"},
 		{name: "truncated", event: "grok-pre-tool-use", payload: grokTestPayload{HookEventName: "pre_tool_use", SessionID: "s", WorkspaceRoot: repo, ToolInputTruncated: true}, want: "truncated"},
 	}
@@ -129,9 +133,68 @@ func TestNormalizeGrokPayloadRejectsIdentityDriftAndTruncation(t *testing.T) {
 	}
 }
 
+func TestNormalizeGrokPreToolRejectsMalformedGuardInput(t *testing.T) {
+	repo := t.TempDir()
+	tests := []struct {
+		name    string
+		changes map[string]interface{}
+		want    string
+	}{
+		{name: "truncation type", changes: map[string]interface{}{"toolInputTruncated": "true"}, want: "must be a boolean"},
+		{name: "unsupported tool", changes: map[string]interface{}{"toolName": "read_file"}, want: "not a supported guarded tool"},
+		{name: "missing input", changes: map[string]interface{}{"toolInput": nil}, want: "must be a JSON object"},
+		{name: "scalar input", changes: map[string]interface{}{"toolInput": "src/a.go"}, want: "must be a JSON object"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			payload := map[string]interface{}{
+				"hookEventName": "pre_tool_use",
+				"sessionId":     "s",
+				"workspaceRoot": repo,
+				"toolName":      "write",
+				"toolInput":     map[string]interface{}{"path": "src/a.go"},
+			}
+			for key, value := range test.changes {
+				payload[key] = value
+			}
+			body, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = NormalizeGrokPayload("grok-pre-tool-use", body, repo)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeGrokStopInterrupt(t *testing.T) {
+	repo := t.TempDir()
+	body, err := NormalizeGrokPayload("grok-stop", marshalGrokTestPayload(t, grokTestPayload{
+		HookEventName: "stop",
+		SessionID:     "s1",
+		WorkspaceRoot: repo,
+		Reason:        "cancelled",
+	}), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := ParsePayload(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.IsInterrupt == nil || !*payload.IsInterrupt {
+		t.Fatalf("cancelled Grok Stop must normalize to interrupt: %+v", payload)
+	}
+}
+
 func TestPayloadLooksLikeGrok(t *testing.T) {
 	if !PayloadLooksLikeGrok([]byte(`{"hookEventName":"pre_tool_use","sessionId":"s","workspaceRoot":"/repo"}`)) {
 		t.Fatal("native Grok envelope was not detected")
+	}
+	if !PayloadLooksLikeGrok([]byte(`{"hookEventName":"pre_tool_use","workspaceRoot":"/repo"}`)) {
+		t.Fatal("native Grok envelope using GROK_SESSION_ID fallback was not detected")
 	}
 	if PayloadLooksLikeGrok([]byte(`{"hook_event_name":"PreToolUse","session_id":"s","workspace_root":"/repo"}`)) {
 		t.Fatal("Claude-shaped payload was misdetected as native Grok")

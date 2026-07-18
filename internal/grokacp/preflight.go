@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -20,30 +22,18 @@ const grokInspectTimeout = 10 * time.Second
 type commandRunner func(context.Context, string, ...string) *exec.Cmd
 
 func preflight(ctx context.Context, repoRoot, grokBinary string, command commandRunner) error {
-	reports, err := hooks.InspectPlatforms(repoRoot)
-	if err != nil {
-		return fmt.Errorf("inspect Reconc hooks: %w", err)
-	}
-	var grokStatus *hooks.PlatformStatus
-	for index := range reports {
-		if reports[index].Kind == hooks.KindGrok {
-			grokStatus = &reports[index]
-			break
-		}
-	}
-	if grokStatus == nil || grokStatus.State != hooks.StateConfigured {
-		detail := "native Grok hook is not installed"
-		if grokStatus != nil {
-			detail = grokStatus.Detail
-		}
-		return fmt.Errorf("%s; run `reconc hook install grok %s` and ensure tools/reconc/bin/hook exists", detail, repoRoot)
+	if err := validateManagedGrokFiles(repoRoot); err != nil {
+		return err
 	}
 
 	inspectCtx, cancel := context.WithTimeout(ctx, grokInspectTimeout)
 	defer cancel()
 	output, err := inspectJSONWithCommand(inspectCtx, repoRoot, grokBinary, command)
 	if err != nil {
-		return fmt.Errorf("grok inspect failed: %w: %s", err, strings.TrimSpace(string(output)))
+		if detail := strings.TrimSpace(string(output)); detail != "" {
+			return fmt.Errorf("grok inspect failed: %w; stdout: %s", err, detail)
+		}
+		return fmt.Errorf("grok inspect failed: %w", err)
 	}
 	var inspection struct {
 		ProjectTrusted bool `json:"projectTrusted"`
@@ -61,22 +51,15 @@ func preflight(ctx context.Context, repoRoot, grokBinary string, command command
 	if !inspection.ProjectTrusted {
 		return fmt.Errorf("grok does not trust this project; run Grok once with `--trust` or use `/hooks-trust`")
 	}
-	platform, ok := hooks.PlatformForKind(hooks.KindGrok)
-	if !ok {
-		return fmt.Errorf("internal: Grok hook platform is not registered")
-	}
-	expected := make([]string, 0, len(platform.Capabilities))
-	for _, capability := range platform.Capabilities {
-		expected = append(expected, capability.RuntimeEvents...)
-	}
+	expected := hooks.GrokRuntimeEvents()
 	seen := map[string]bool{}
-	expectedSource := filepath.Clean(filepath.Join(repoRoot, ".grok"))
+	expectedSource := filepath.Clean(filepath.Join(repoRoot, filepath.Dir(filepath.FromSlash(hooks.GrokHooksPath))))
 	for _, hook := range inspection.Hooks {
-		if hook.Source.Type != "project" && !strings.HasPrefix(filepath.Clean(hook.Source.Path), expectedSource) {
+		if hook.Source.Type != "project" || !pathWithin(expectedSource, hook.Source.Path) {
 			continue
 		}
 		for _, event := range expected {
-			if strings.Contains(hook.Target, event) {
+			if hooks.GrokTargetHasRuntimeEvent(hook.Target, event) {
 				seen[event] = true
 			}
 		}
@@ -93,6 +76,43 @@ func preflight(ctx context.Context, repoRoot, grokBinary string, command command
 	return fmt.Errorf("grok did not load native Reconc routes from .grok/hooks/reconc.json: %s; reload `/hooks` and verify project trust", strings.Join(missing, ", "))
 }
 
+func validateManagedGrokFiles(repoRoot string) error {
+	generated, err := hooks.Generate(hooks.KindGrok)
+	if err != nil {
+		return fmt.Errorf("generate native Grok hook: %w", err)
+	}
+	target := filepath.Join(repoRoot, filepath.FromSlash(generated.TargetPath))
+	data, err := os.ReadFile(target)
+	if err != nil {
+		return fmt.Errorf("native Grok hook is not installed at %s; run `reconc hook install grok %s`", generated.TargetPath, repoRoot)
+	}
+	if string(data) != generated.Content {
+		return fmt.Errorf("native Grok hook differs from the current generator; run `reconc hook install grok %s --force`", repoRoot)
+	}
+	wrapper := filepath.Join(repoRoot, filepath.FromSlash(hooks.WrapperPath))
+	info, err := os.Stat(wrapper)
+	if err != nil || info.IsDir() || (runtime.GOOS != "windows" && info.Mode()&0o111 == 0) {
+		return fmt.Errorf("%s is missing or not executable; restore it before running `reconc grok`", hooks.WrapperPath)
+	}
+	wrapperData, err := os.ReadFile(wrapper)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", hooks.WrapperPath, err)
+	}
+	if string(wrapperData) != hooks.GenerateWrapper().Content {
+		return fmt.Errorf("%s differs from the current Reconc generator; restore the managed wrapper before running `reconc grok`", hooks.WrapperPath)
+	}
+	return nil
+}
+
+func pathWithin(root, candidate string) bool {
+	cleaned := filepath.Clean(strings.TrimSpace(candidate))
+	if cleaned == "." || cleaned == "" {
+		return false
+	}
+	rel, err := filepath.Rel(root, cleaned)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
 // InspectJSON runs Grok's read-only inspect command with a hard output cap.
 func InspectJSON(ctx context.Context, repoRoot, grokBinary string) ([]byte, error) {
 	return inspectJSONWithCommand(ctx, repoRoot, grokBinary, exec.CommandContext)
@@ -100,14 +120,23 @@ func InspectJSON(ctx context.Context, repoRoot, grokBinary string) ([]byte, erro
 
 func inspectJSONWithCommand(ctx context.Context, repoRoot, grokBinary string, command commandRunner) ([]byte, error) {
 	cmd := command(ctx, grokBinary, "--cwd", repoRoot, "inspect", "--json")
-	output := &cappedOutput{limit: maxGrokInspectBytes}
-	cmd.Stdout = output
-	cmd.Stderr = output
+	stdout := &cappedOutput{limit: maxGrokInspectBytes}
+	stderr := &cappedOutput{limit: maxGrokInspectBytes}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	err := cmd.Run()
-	if output.truncatedOutput() {
-		return output.bytes(), fmt.Errorf("grok inspect output exceeds %d bytes", maxGrokInspectBytes)
+	if stdout.truncatedOutput() {
+		return stdout.bytes(), fmt.Errorf("grok inspect stdout exceeds %d bytes", maxGrokInspectBytes)
 	}
-	return output.bytes(), err
+	if stderr.truncatedOutput() {
+		return stdout.bytes(), fmt.Errorf("grok inspect stderr exceeds %d bytes", maxGrokInspectBytes)
+	}
+	if err != nil {
+		if detail := strings.TrimSpace(string(stderr.bytes())); detail != "" {
+			return stdout.bytes(), fmt.Errorf("%w: %s", err, detail)
+		}
+	}
+	return stdout.bytes(), err
 }
 
 type cappedOutput struct {

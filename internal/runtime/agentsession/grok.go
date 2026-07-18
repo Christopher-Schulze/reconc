@@ -46,8 +46,25 @@ func NormalizeGrokPayload(event string, payloadBytes []byte, repoRoot string) ([
 		return nil, err
 	}
 	if event == "grok-pre-tool-use" {
-		if truncated, _ := raw["toolInputTruncated"].(bool); truncated {
-			return nil, fmt.Errorf("grok PreToolUse toolInput is truncated; refusing to evaluate incomplete policy input")
+		if truncatedValue, exists := raw["toolInputTruncated"]; exists {
+			truncated, ok := truncatedValue.(bool)
+			if !ok {
+				return nil, fmt.Errorf("grok PreToolUse toolInputTruncated must be a boolean")
+			}
+			if truncated {
+				return nil, fmt.Errorf("grok PreToolUse toolInput is truncated; refusing to evaluate incomplete policy input")
+			}
+		}
+		toolName := strings.ToLower(strings.TrimSpace(cursorFirstString(raw, "toolName", "tool_name")))
+		if !isGuardedGrokTool(toolName) {
+			return nil, fmt.Errorf("grok PreToolUse toolName %q is not a supported guarded tool", toolName)
+		}
+		input, exists := raw["toolInput"]
+		if !exists {
+			input, exists = raw["tool_input"]
+		}
+		if _, ok := input.(map[string]interface{}); !exists || !ok {
+			return nil, fmt.Errorf("grok PreToolUse toolInput must be a JSON object")
 		}
 	}
 
@@ -101,7 +118,8 @@ func PayloadLooksLikeGrok(payloadBytes []byte) bool {
 	if json.Unmarshal(payloadBytes, &raw) != nil {
 		return false
 	}
-	return cursorFirstString(raw, "sessionId") != ""
+	return cursorFirstString(raw, "hookEventName") != "" &&
+		cursorFirstString(raw, "workspaceRoot") != ""
 }
 
 // AdaptGrokResult emits Grok's exact blocking wire contract. Denials use exit
@@ -133,7 +151,7 @@ func AdaptGrokResult(event string, result Result) Result {
 func validateGrokEvent(event string, raw map[string]interface{}) error {
 	native := cursorFirstString(raw, "hookEventName", "hook_event_name")
 	if native == "" {
-		return nil
+		return fmt.Errorf("grok payload must include hookEventName")
 	}
 	expected := map[string]string{
 		"grok-session-start":         "session_start",
@@ -151,7 +169,10 @@ func validateGrokEvent(event string, raw map[string]interface{}) error {
 		"grok-post-compaction":       "post_compact",
 		"grok-session-end":           "session_end",
 	}[event]
-	if expected == "" || native == expected {
+	if expected == "" {
+		return fmt.Errorf("unsupported Grok hook route %q", event)
+	}
+	if native == expected {
 		return nil
 	}
 	return fmt.Errorf("grok payload hookEventName %q does not match route %q", native, event)
@@ -163,23 +184,39 @@ func validateGrokWorkspace(raw map[string]interface{}, repoRoot string) error {
 		return fmt.Errorf("resolve Grok repository root: %w", err)
 	}
 	envelopeRoot := cursorFirstString(raw, "workspaceRoot", "cwd")
+	if envelopeRoot == "" {
+		return fmt.Errorf("grok payload must include workspaceRoot")
+	}
 	envRoot := strings.TrimSpace(os.Getenv("GROK_WORKSPACE_ROOT"))
-	for name, candidate := range map[string]string{
-		"workspaceRoot":       envelopeRoot,
-		"GROK_WORKSPACE_ROOT": envRoot,
-	} {
-		if candidate == "" {
+	candidates := []struct {
+		name string
+		path string
+	}{
+		{name: "workspaceRoot", path: envelopeRoot},
+		{name: "GROK_WORKSPACE_ROOT", path: envRoot},
+	}
+	for _, candidate := range candidates {
+		if candidate.path == "" {
 			continue
 		}
-		canonical, err := canonicalGrokPath(candidate)
+		canonical, err := canonicalGrokPath(candidate.path)
 		if err != nil {
-			return fmt.Errorf("resolve Grok %s: %w", name, err)
+			return fmt.Errorf("resolve Grok %s: %w", candidate.name, err)
 		}
-		if canonical != root {
-			return fmt.Errorf("grok %s %q does not match repository root %q", name, candidate, root)
+		if !sameGrokPath(canonical, root) {
+			return fmt.Errorf("grok %s %q does not match repository root %q", candidate.name, candidate.path, root)
 		}
 	}
 	return nil
+}
+
+func sameGrokPath(left, right string) bool {
+	if left == right {
+		return true
+	}
+	leftInfo, leftErr := os.Stat(left)
+	rightInfo, rightErr := os.Stat(right)
+	return leftErr == nil && rightErr == nil && os.SameFile(leftInfo, rightInfo)
 }
 
 func canonicalGrokPath(path string) (string, error) {
@@ -213,6 +250,15 @@ func normalizeGrokToolName(name string) string {
 		return "Bash"
 	default:
 		return trimmed
+	}
+}
+
+func isGuardedGrokTool(name string) bool {
+	switch name {
+	case "write", "search_replace", "hashline_edit", "run_terminal_command", "run_terminal_cmd":
+		return true
+	default:
+		return false
 	}
 }
 

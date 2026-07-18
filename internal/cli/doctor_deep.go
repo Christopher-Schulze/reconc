@@ -118,9 +118,9 @@ func doctorCheckGrokRuntime(discovery ingest.DiscoveryResult) doctorCheck {
 	}
 	if err != nil {
 		check.Status = doctorStatusWarn
-		check.Detail = "cannot execute `grok inspect --json`: " + strings.TrimSpace(string(output))
-		if strings.TrimSpace(string(output)) == "" {
-			check.Detail = "cannot execute `grok inspect --json`: " + err.Error()
+		check.Detail = "cannot execute `grok inspect --json`: " + err.Error()
+		if detail := strings.TrimSpace(string(output)); detail != "" {
+			check.Detail += "; stdout: " + detail
 		}
 		return check
 	}
@@ -145,19 +145,15 @@ func doctorCheckGrokRuntime(discovery ingest.DiscoveryResult) doctorCheck {
 		check.Detail = "project hook is installed but Grok does not trust this folder; run `/hooks-trust` or launch Grok with `--trust`"
 		return check
 	}
-	platform, _ := hooks.PlatformForKind(hooks.KindGrok)
-	expected := []string{}
-	for _, capability := range platform.Capabilities {
-		expected = append(expected, capability.RuntimeEvents...)
-	}
+	expected := hooks.GrokRuntimeEvents()
 	seen := map[string]bool{}
-	grokSource := filepath.Clean(filepath.Join(discovery.RepoRoot, ".grok"))
+	grokSource := filepath.Clean(filepath.Join(discovery.RepoRoot, filepath.Dir(filepath.FromSlash(hooks.GrokHooksPath))))
 	for _, hook := range inspection.Hooks {
-		if hook.Source.Type != "project" && !strings.HasPrefix(filepath.Clean(hook.Source.Path), grokSource) {
+		if hook.Source.Type != "project" || !doctorPathWithin(grokSource, hook.Source.Path) {
 			continue
 		}
 		for _, event := range expected {
-			if strings.Contains(hook.Target, event) {
+			if hooks.GrokTargetHasRuntimeEvent(hook.Target, event) {
 				seen[event] = true
 			}
 		}
@@ -181,7 +177,15 @@ func doctorCheckGrokRuntime(discovery ingest.DiscoveryResult) doctorCheck {
 	return check
 }
 
-// doctorProbeGrokLeader is swappable for tests.
+func doctorPathWithin(root, candidate string) bool {
+	cleaned := filepath.Clean(strings.TrimSpace(candidate))
+	if cleaned == "." || cleaned == "" {
+		return false
+	}
+	rel, err := filepath.Rel(root, cleaned)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
 var doctorProbeGrokLeader = grokacp.ProbeLeaderSteering
 
 func doctorCheckGrokLeaderSteering(discovery ingest.DiscoveryResult) doctorCheck {

@@ -176,7 +176,7 @@ func (c *acpClient) writeJSON(value interface{}) error {
 	}
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
-	if _, err := c.writer.Write(append(body, '\n')); err != nil {
+	if err := writeFull(c.writer, append(body, '\n')); err != nil {
 		return fmt.Errorf("write Grok ACP request: %w", err)
 	}
 	return nil

@@ -1,5 +1,7 @@
 package hooks
 
+import "strings"
+
 // Event is Reconc's platform-neutral hook lifecycle.
 type Event string
 
@@ -396,4 +398,34 @@ func RuntimeEvents() []string {
 		}
 	}
 	return events
+}
+
+// GrokRuntimeEvents returns every first-class Grok runtime route in registry
+// order. Hook generation, preflight, doctor, and audits share this owner.
+func GrokRuntimeEvents() []string {
+	platform, ok := PlatformForKind(KindGrok)
+	if !ok {
+		return nil
+	}
+	events := make([]string, 0, len(platform.Capabilities))
+	for _, capability := range platform.Capabilities {
+		events = append(events, capability.RuntimeEvents...)
+	}
+	return events
+}
+
+// GrokTargetHasRuntimeEvent matches one exact event argument in an inspected
+// Grok command. Prefix collisions such as grok-stop-failure cannot satisfy
+// grok-stop coverage.
+func GrokTargetHasRuntimeEvent(target, event string) bool {
+	event = strings.TrimSpace(event)
+	if event == "" {
+		return false
+	}
+	for _, field := range strings.Fields(target) {
+		if strings.Trim(field, `"'`) == event {
+			return true
+		}
+	}
+	return false
 }

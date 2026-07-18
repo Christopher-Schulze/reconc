@@ -43,15 +43,12 @@ func TestDoctorGrokRuntimeChecksTrustAndEveryNativeRoute(t *testing.T) {
 	defer func() { doctorGrokInspect = original }()
 
 	doctorGrokInspect = func(_ context.Context, root string) ([]byte, error) {
-		platform, _ := hooks.PlatformForKind(hooks.KindGrok)
 		loaded := []map[string]interface{}{}
-		for _, capability := range platform.Capabilities {
-			for _, event := range capability.RuntimeEvents {
-				loaded = append(loaded, map[string]interface{}{
-					"target": "tools/reconc/bin/hook " + event + " .",
-					"source": map[string]string{"type": "project", "path": filepath.Join(root, ".grok", "hooks")},
-				})
-			}
+		for _, event := range hooks.GrokRuntimeEvents() {
+			loaded = append(loaded, map[string]interface{}{
+				"target": "tools/reconc/bin/hook " + event + " .",
+				"source": map[string]string{"type": "project", "path": filepath.Join(root, ".grok", "hooks")},
+			})
 		}
 		return json.Marshal(map[string]interface{}{
 			"grokVersion":    "0.2.101",
@@ -62,6 +59,28 @@ func TestDoctorGrokRuntimeChecksTrustAndEveryNativeRoute(t *testing.T) {
 	check := doctorCheckGrokRuntime(discovery)
 	if check.Status != doctorStatusOK || !strings.Contains(check.Detail, "all 14 native Reconc routes") {
 		t.Fatalf("Grok doctor check = %+v", check)
+	}
+
+	doctorGrokInspect = func(_ context.Context, root string) ([]byte, error) {
+		loaded := []map[string]interface{}{}
+		for _, event := range hooks.GrokRuntimeEvents() {
+			if event == "grok-stop" {
+				continue
+			}
+			loaded = append(loaded, map[string]interface{}{
+				"target": "tools/reconc/bin/hook " + event + " .",
+				"source": map[string]string{"type": "project", "path": filepath.Join(root, ".grok", "hooks")},
+			})
+		}
+		return json.Marshal(map[string]interface{}{
+			"grokVersion":    "0.2.101",
+			"projectTrusted": true,
+			"hooks":          loaded,
+		})
+	}
+	check = doctorCheckGrokRuntime(discovery)
+	if check.Status != doctorStatusWarn || !strings.Contains(check.Detail, "grok-stop") {
+		t.Fatalf("Grok doctor must reject prefix-collision route coverage: %+v", check)
 	}
 
 	doctorGrokInspect = func(context.Context, string) ([]byte, error) {

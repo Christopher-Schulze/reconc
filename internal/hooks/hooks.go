@@ -61,6 +61,17 @@ func InstallableKinds() []string {
 	return platformKinds(false)
 }
 
+// HasManagedGrokHook reports whether the native Grok artifact is exactly the
+// current generated file. Compatibility-route dedup must never trust a stale
+// or merely self-labelled hook.
+func HasManagedGrokHook(repoRoot string) bool {
+	data, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(GrokHooksPath)))
+	if err != nil {
+		return false
+	}
+	return string(data) == generateGrok().Content
+}
+
 // Artifact is one generated hook script + enough context to render it.
 type Artifact struct {
 	Kind       string `json:"kind"`

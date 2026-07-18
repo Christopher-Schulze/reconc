@@ -99,6 +99,24 @@ func TestRunReturnsPolicyBlockedAfterContinuationLimit(t *testing.T) {
 	}
 }
 
+func TestRunTreatsContextCancellationAsUserStop(t *testing.T) {
+	repo := configuredGrokRepo(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	dependencies := defaultDependencies
+	dependencies.preflight = func(context.Context, string, string, commandRunner) error {
+		cancel()
+		return context.Canceled
+	}
+	err := run(ctx, Options{
+		RepoRoot:   repo,
+		GrokBinary: "grok",
+		Prompt:     "do the work",
+	}, dependencies)
+	if err != nil {
+		t.Fatalf("user cancellation must stop cleanly, got %v", err)
+	}
+}
+
 func TestGrokClientDoesNotAdvertiseUnimplementedReverseTools(t *testing.T) {
 	body, err := json.Marshal(grokClientCapabilities())
 	if err != nil {
@@ -143,12 +161,20 @@ func TestPreflightRejectsUntrustedOrUnloadedGrokHook(t *testing.T) {
 	}
 }
 
+func TestPreflightRequiresGeneratorExactWrapper(t *testing.T) {
+	repo := configuredGrokRepo(t)
+	wrapper := filepath.Join(repo, filepath.FromSlash(hooks.WrapperPath))
+	if err := os.WriteFile(wrapper, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := preflight(context.Background(), repo, "grok", exec.CommandContext)
+	if err == nil || !strings.Contains(err.Error(), "differs from the current Reconc generator") {
+		t.Fatalf("drifted wrapper must fail preflight before grok inspect, got %v", err)
+	}
+}
+
 func TestPreflightAcceptsEveryLoadedNativeGrokRoute(t *testing.T) {
 	repo := configuredGrokRepo(t)
-	platform, ok := hooks.PlatformForKind(hooks.KindGrok)
-	if !ok {
-		t.Fatal("Grok platform is not registered")
-	}
 	type source struct {
 		Type string `json:"type"`
 		Path string `json:"path"`
@@ -161,13 +187,11 @@ func TestPreflightAcceptsEveryLoadedNativeGrokRoute(t *testing.T) {
 		ProjectTrusted bool            `json:"projectTrusted"`
 		Hooks          []inspectedHook `json:"hooks"`
 	}{ProjectTrusted: true}
-	for _, capability := range platform.Capabilities {
-		for _, event := range capability.RuntimeEvents {
-			inspection.Hooks = append(inspection.Hooks, inspectedHook{
-				Target: event,
-				Source: source{Type: "project", Path: filepath.Join(repo, ".grok", "hooks")},
-			})
-		}
+	for _, event := range hooks.GrokRuntimeEvents() {
+		inspection.Hooks = append(inspection.Hooks, inspectedHook{
+			Target: event,
+			Source: source{Type: "project", Path: filepath.Join(repo, ".grok", "hooks")},
+		})
 	}
 	body, err := json.Marshal(inspection)
 	if err != nil {
@@ -179,6 +203,100 @@ func TestPreflightAcceptsEveryLoadedNativeGrokRoute(t *testing.T) {
 	t.Setenv("GROK_INSPECT", string(body))
 	if err := preflight(context.Background(), repo, "grok", command); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPreflightParsesInspectStdoutIndependentlyFromStderr(t *testing.T) {
+	repo := configuredGrokRepo(t)
+	type source struct {
+		Type string `json:"type"`
+		Path string `json:"path"`
+	}
+	type inspectedHook struct {
+		Target string `json:"target"`
+		Source source `json:"source"`
+	}
+	inspection := struct {
+		ProjectTrusted bool            `json:"projectTrusted"`
+		Hooks          []inspectedHook `json:"hooks"`
+	}{ProjectTrusted: true}
+	for _, event := range hooks.GrokRuntimeEvents() {
+		inspection.Hooks = append(inspection.Hooks, inspectedHook{
+			Target: "tools/reconc/bin/hook " + event + " .",
+			Source: source{Type: "project", Path: filepath.Join(repo, ".grok", "hooks")},
+		})
+	}
+	body, err := json.Marshal(inspection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "sh", "-c", "printf '%s' \"$GROK_INSPECT\"; printf 'diagnostic\\n' >&2")
+	}
+	t.Setenv("GROK_INSPECT", string(body))
+	if err := preflight(context.Background(), repo, "grok", command); err != nil {
+		t.Fatalf("successful JSON stdout must not be corrupted by stderr diagnostics: %v", err)
+	}
+}
+
+func TestPreflightRejectsPrefixCollisionForMissingNativeRoute(t *testing.T) {
+	repo := configuredGrokRepo(t)
+	hooksList := make([]map[string]interface{}, 0, len(hooks.GrokRuntimeEvents())-1)
+	for _, event := range hooks.GrokRuntimeEvents() {
+		if event == "grok-stop" {
+			continue
+		}
+		hooksList = append(hooksList, map[string]interface{}{
+			"target": "tools/reconc/bin/hook " + event + " .",
+			"source": map[string]string{
+				"type": "project",
+				"path": filepath.Join(repo, ".grok", "hooks"),
+			},
+		})
+	}
+	body, err := json.Marshal(map[string]interface{}{
+		"projectTrusted": true,
+		"hooks":          hooksList,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "sh", "-c", "printf '%s' \"$GROK_INSPECT\"")
+	}
+	t.Setenv("GROK_INSPECT", string(body))
+	err = preflight(context.Background(), repo, "grok", command)
+	if err == nil || !strings.Contains(err.Error(), "grok-stop") {
+		t.Fatalf("grok-stop-failure must not satisfy missing grok-stop route: %v", err)
+	}
+}
+
+func TestPreflightRejectsCompatibleRouteFromNonProjectSource(t *testing.T) {
+	repo := configuredGrokRepo(t)
+	hooksList := make([]map[string]interface{}, 0, len(hooks.GrokRuntimeEvents()))
+	for _, event := range hooks.GrokRuntimeEvents() {
+		hooksList = append(hooksList, map[string]interface{}{
+			"target": event,
+			"source": map[string]string{
+				"type": "user",
+				"path": filepath.Join(repo, ".grok", "hooks"),
+			},
+		})
+	}
+	body, err := json.Marshal(map[string]interface{}{
+		"projectTrusted": true,
+		"hooks":          hooksList,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "sh", "-c", "printf '%s' \"$GROK_INSPECT\"")
+	}
+	t.Setenv("GROK_INSPECT", string(body))
+	err = preflight(context.Background(), repo, "grok", command)
+	if err == nil || !strings.Contains(err.Error(), "did not load native Reconc routes") {
+		t.Fatalf("non-project hook source must fail preflight, got %v", err)
 	}
 }
 

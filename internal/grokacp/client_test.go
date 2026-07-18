@@ -65,6 +65,22 @@ func TestACPClientReturnsFinalResponseBeforeEOF(t *testing.T) {
 	}
 }
 
+func TestACPClientCompletesShortWrites(t *testing.T) {
+	writer := &shortWriteCloser{maxWrite: 3}
+	client := &acpClient{writer: writer}
+	if err := client.writeJSON(map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "initialize",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := writer.String(); !strings.HasSuffix(got, "\n") ||
+		!strings.Contains(got, `"method":"initialize"`) {
+		t.Fatalf("incomplete ACP request: %q", got)
+	}
+}
+
 type bufferWriteCloser struct {
 	bytes.Buffer
 }
@@ -87,5 +103,21 @@ func (w *signalingWriteCloser) Write(data []byte) (int, error) {
 }
 
 func (*signalingWriteCloser) Close() error {
+	return nil
+}
+
+type shortWriteCloser struct {
+	bytes.Buffer
+	maxWrite int
+}
+
+func (w *shortWriteCloser) Write(data []byte) (int, error) {
+	if len(data) > w.maxWrite {
+		data = data[:w.maxWrite]
+	}
+	return w.Buffer.Write(data)
+}
+
+func (*shortWriteCloser) Close() error {
 	return nil
 }

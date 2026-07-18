@@ -1185,6 +1185,9 @@ func auditAgentHooks(root string) []string {
 				failures = append(failures, fmt.Sprintf("%s contains forbidden Reconc hook token %q", relative, token))
 			}
 		}
+		if relative == ".grok/hooks/reconc.json" {
+			failures = append(failures, auditGrokRouteCoverage(relative, content)...)
+		}
 		if relative == ".codex/hooks.json" || relative == ".cursor/hooks.json" || relative == ".claude/settings.json" || relative == ".agents/hooks.json" {
 			for _, stale := range []string{"reconc hook runtime ", "tools/reconc/dist/reconc-0.5.0-", "for bin in "} {
 				if strings.Contains(content, stale) {
@@ -1201,6 +1204,47 @@ func auditAgentHooks(root string) []string {
 			failures = append(failures, auditHookLauncherShape(relative, content)...)
 		} else if relative == ".devin/hooks.v1.json" {
 			failures = append(failures, auditHookLauncherShape(relative, content)...)
+		}
+	}
+	return failures
+}
+
+func auditGrokRouteCoverage(relative string, content string) []string {
+	var decoded interface{}
+	if err := json.Unmarshal([]byte(content), &decoded); err != nil {
+		return []string{fmt.Sprintf("%s is not valid JSON: %v", relative, err)}
+	}
+	expected := []string{
+		"grok-session-start",
+		"grok-user-prompt-submit",
+		"grok-pre-tool-use",
+		"grok-post-tool-use",
+		"grok-post-tool-use-failure",
+		"grok-permission-denied",
+		"grok-stop",
+		"grok-stop-failure",
+		"grok-notification",
+		"grok-subagent-start",
+		"grok-subagent-stop",
+		"grok-pre-compaction",
+		"grok-post-compaction",
+		"grok-session-end",
+	}
+	seen := make(map[string]bool, len(expected))
+	visitJSONCommands(decoded, func(command string, _ interface{}) {
+		for _, field := range strings.Fields(command) {
+			field = strings.Trim(field, "'\"")
+			for _, route := range expected {
+				if field == route {
+					seen[route] = true
+				}
+			}
+		}
+	})
+	var failures []string
+	for _, route := range expected {
+		if !seen[route] {
+			failures = append(failures, fmt.Sprintf("%s missing exact native Grok route %q", relative, route))
 		}
 	}
 	return failures

@@ -71,6 +71,27 @@ func TestInstallGrokIsOwnedIdempotentAndPreservesOtherFiles(t *testing.T) {
 	}
 }
 
+func TestHasManagedGrokHookRequiresGeneratorExactness(t *testing.T) {
+	repo := t.TempDir()
+	if _, err := Install(KindGrok, repo, false); err != nil {
+		t.Fatal(err)
+	}
+	if !HasManagedGrokHook(repo) {
+		t.Fatal("generator-exact Grok hook was not recognized")
+	}
+	target := filepath.Join(repo, filepath.FromSlash(GrokHooksPath))
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, append(data, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if HasManagedGrokHook(repo) {
+		t.Fatal("drifted Grok hook was accepted as managed")
+	}
+}
+
 func TestInstallGrokRefusesUnmanagedTargetWithoutForce(t *testing.T) {
 	repo := t.TempDir()
 	target := filepath.Join(repo, filepath.FromSlash(GrokHooksPath))

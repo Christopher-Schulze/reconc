@@ -167,9 +167,11 @@ execution proof. Static activation and rate-limited per-route
   runtime. When Grok runs in leader mode (`grok --leader` or config
   `use_leader`), the Stop route steers the TUI directly by interjecting the
   continuation over the Unix leader socket or Windows named pipe. Eligible
-  leader Stops are strict before policy evaluation; the 32-attempt cap resets
-  on material progress, a new block, or a clean Stop. `reconc doctor --deep`
-  verifies protocol version 1 and `_x.ai/interject` before showing the
+  leader Stops are strict before policy evaluation; only successfully delivered
+  interjections consume the 32-attempt cap, which resets on material progress,
+  a new block, or a clean Stop. Generator-exact hook/wrapper checks and exact
+  route tokens prevent drift or prefix collisions from being treated as active.
+  `reconc doctor --deep` verifies protocol version 1 and `_x.ai/interject` before showing the
   `Grok leader steering` status; `RECONC_GROK_STEER=0` disables it.
 - **Generic / other agents (Aider, ...)**: invoke the CLI
   directly. `reconc can`, `reconc check --terse`, `reconc next`, and

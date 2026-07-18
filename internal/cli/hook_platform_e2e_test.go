@@ -69,7 +69,7 @@ func TestHookRuntimeGrokNativeShapeBlocksDeniedWrite(t *testing.T) {
 func TestHookRuntimeGrokMalformedPreToolFailsClosedExplicitly(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
 	stdout, stderr, code := runWithStdin(t,
-		`{"hookEventName":"pre_tool_use","sessionId":"grok-1","toolInputTruncated":true}`,
+		fmt.Sprintf(`{"hookEventName":"pre_tool_use","sessionId":"grok-1","workspaceRoot":%q,"toolInputTruncated":true}`, repo),
 		"hook", "runtime", "grok-pre-tool-use", repo)
 	if code != 0 || stderr != "" {
 		t.Fatalf("Grok malformed payload transport failed, code=%d stdout=%q stderr=%q", code, stdout, stderr)
@@ -104,6 +104,19 @@ func TestHookRuntimeGrokCompatibilityRouteDeduplicatesOnlyWhenNativeInstalled(t 
 		"hook", "runtime", "claude-pre-tool-use", repo)
 	if code != 0 || stdout != "" || !strings.Contains(stderr, "deduplicated") {
 		t.Fatalf("native Grok hook must own duplicate route: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	target := filepath.Join(repo, filepath.FromSlash(hooks.GrokHooksPath))
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, append(data, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, code = runWithStdin(t, payload,
+		"hook", "runtime", "claude-pre-tool-use", repo)
+	if code != 2 || strings.Contains(stderr, "deduplicated") {
+		t.Fatalf("drifted native Grok hook must not suppress compatibility enforcement: code=%d stderr=%q", code, stderr)
 	}
 }
 

@@ -19,7 +19,7 @@ import (
 // agent-session packages.
 func runHook(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return &CLIError{ExitCode: 1, Message: "reconc hook: missing subcommand (generate | install | status | sync-scaffold | runtime | claim)"}
+		return &CLIError{ExitCode: 1, Message: "reconc hook: missing subcommand (generate | install | status | sync-scaffold | runtime | grok-pre-tool-guard | claim)"}
 	}
 	switch args[0] {
 	case "-h", "--help":
@@ -28,6 +28,7 @@ func runHook(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintln(stdout, "       reconc hook status   [repo] [--json]")
 		fmt.Fprintln(stdout, "       reconc hook sync-scaffold <repo-root-scaffold> [--json]")
 		fmt.Fprintln(stdout, "       reconc hook runtime  <event> <repo>            (reads stdin JSON)")
+		fmt.Fprintln(stdout, "       reconc hook grok-pre-tool-guard <repo>         (internal fail-closed guard)")
 		fmt.Fprintln(stdout, "       reconc hook claim    <repo> <claim-name> [--session ID] [--json] [--output PATH]")
 		fmt.Fprintln(stdout, "")
 		fmt.Fprintf(stdout, "Kinds: %s (all installable)\n", strings.Join(hooks.SupportedKinds(), ", "))
@@ -43,10 +44,12 @@ func runHook(args []string, stdout, stderr io.Writer) error {
 		return runHookSyncScaffold(args[1:], stdout, stderr)
 	case "runtime":
 		return runHookRuntime(args[1:], stdout, stderr)
+	case "grok-pre-tool-guard":
+		return runGrokPreToolGuard(args[1:], stdout, stderr)
 	case "claim":
 		return runHookClaim(args[1:], stdout, stderr)
 	}
-	return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook: unknown subcommand %q (expected generate | install | status | sync-scaffold | runtime | claim)", args[0])}
+	return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook: unknown subcommand %q (expected generate | install | status | sync-scaffold | runtime | grok-pre-tool-guard | claim)", args[0])}
 }
 
 func runHookStatus(args []string, stdout io.Writer) error {
@@ -375,7 +378,9 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 		}
 	}
 	if route.PlatformKind != hooks.KindGrok && agentsession.PayloadLooksLikeGrok(payload) {
-		if dedupToFirstClassRoute(repo, hooks.GrokHooksPath, event, stderr) {
+		if hooks.HasManagedGrokHook(repo) {
+			fmt.Fprintf(stderr, "reconc hook runtime: %s deduplicated; first-class %s owns this event\n", event, hooks.GrokHooksPath)
+			_ = agentsession.RecordHookLiveness(repo, event, event)
 			return nil
 		}
 	}

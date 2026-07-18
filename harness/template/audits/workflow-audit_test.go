@@ -743,6 +743,14 @@ func TestAuditHookLauncherShapeRejectsClaudeShellLauncher(t *testing.T) {
 	}
 }
 
+func TestAuditGrokRouteCoverageRejectsPrefixCollision(t *testing.T) {
+	content := `{"hooks":{"StopFailure":[{"hooks":[{"command":"tools/reconc/bin/hook grok-stop-failure ."}]}]}}`
+	failures := auditGrokRouteCoverage(".grok/hooks/reconc.json", content)
+	if !containsFailure(failures, `missing exact native Grok route "grok-stop"`) {
+		t.Fatalf("prefix route must not satisfy exact Grok route coverage, got:\n%s", strings.Join(failures, "\n"))
+	}
+}
+
 func TestAuditStartEntrypointRequiresRepositoryRunContract(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "start.md", `# START

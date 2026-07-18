@@ -265,7 +265,8 @@ run Grok in leader mode so the `grok-stop` route can interject continuations
 into the live TUI session over its Unix socket or Windows named pipe (see
 `Grok leader steering` in `doctor --deep`). Deep doctor requires protocol
 version 1 and a recognized `_x.ai/interject` response, not just a successful
-register handshake.
+register handshake. It also requires project-owned inspect metadata and exact
+route command tokens; prefix collisions do not satisfy route coverage.
 
 ### `reconc hook sync-scaffold <repo-root-scaffold> [--json]`
 Regenerate source-controlled hook artifacts inside a template
@@ -289,8 +290,9 @@ hook configs, not by users directly.
 Starts the unmodified official `grok agent stdio` ACP runtime in the target
 repository. Preflight requires the generated `.grok/hooks/reconc.json`, the
 repo-local wrapper, project trust, and a live `grok inspect --json` report that
-contains every native route. The driver streams Grok's answer and re-prompts
-the same ACP session while Reconc's strict Stop evaluation returns a
+contains the generator-exact managed artifact, generator-exact executable
+wrapper, project-owned source metadata, and every exact native route. The
+driver streams Grok's answer and re-prompts the same ACP session while Reconc's strict Stop evaluation returns a
 continuation reason. Ctrl-C terminates immediately. The default continuation
 limit is 32. ACP uses Grok's `--always-approve` transport because it has no TUI
 permission modal; Reconc PreToolUse and Grok's explicit deny rules still run.
@@ -331,8 +333,9 @@ Stop notification; `reconc grok` supplies strict same-session continuation
 through the official ACP runtime, and leader-mode TUI sessions are steered
 directly via `_x.ai/interject` over the Unix leader socket or Windows named
 pipe. Eligible leader Stops use strict continuation before policy evaluation.
-The 32-interjection cap resets on material progress, a changed block, or a
-clean Stop. Typed `continue` and `claim` states
+Only successfully delivered interjections consume the 32-attempt cap;
+transport or protocol failures do not. The cap resets on material progress, a
+changed block, or a clean Stop. Typed `continue` and `claim` states
 continue: `Current: none` or an empty Active section still claims queued
 executable work. Complete or absent state disables the switch after terminal
 gates; blocked state reaches terminal Stop without silently disabling it, and
