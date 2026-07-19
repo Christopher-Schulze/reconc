@@ -124,6 +124,7 @@ func TestDoctorGrokLeaderSteering(t *testing.T) {
 		detail string
 	}{
 		{name: "no endpoint", probe: grokacp.LeaderProbe{}, status: doctorStatusOK, detail: "stays passive"},
+		{name: "discovery failed", probe: grokacp.LeaderProbe{Detail: "discover Grok leader endpoints: permission denied"}, status: doctorStatusWarn, detail: "discovery failed"},
 		{name: "compatible", probe: grokacp.LeaderProbe{Endpoint: "/tmp/leader.sock", Reachable: true, Compatible: true, ProtocolVersion: &protocolVersion, BinaryVersion: "0.2.101"}, status: doctorStatusOK, detail: "protocol 1"},
 		{name: "incompatible", probe: grokacp.LeaderProbe{Endpoint: "/tmp/leader.sock", Reachable: true, Detail: "_x.ai/interject missing"}, status: doctorStatusWarn, detail: "incompatible"},
 		{name: "handshake failed", probe: grokacp.LeaderProbe{Endpoint: "/tmp/leader.sock", Detail: "connection refused"}, status: doctorStatusWarn, detail: "connection refused"},

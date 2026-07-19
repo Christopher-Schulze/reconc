@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"sort"
 	"strings"
+
+	"reconc.dev/reconc/internal/retention"
 )
 
 const (
@@ -28,6 +30,7 @@ const (
 	maxClaimBytes       = 4 * 1024
 	maxResultErrorBytes = 4 * 1024
 	maxToolUseIDBytes   = 1024
+	maxSessionIDBytes   = retention.MaxSessionIDBytes
 )
 
 func normalizeSessionState(state SessionState) SessionState {
@@ -128,7 +131,7 @@ func appendBoundedCommandResult(state *SessionState, result CommandResult) {
 // deterministic bounds as the rest of session state.
 func PutPendingToolCall(state SessionState, key string, call PendingToolCall) SessionState {
 	key = strings.TrimSpace(key)
-	if key == "" {
+	if key == "" || len(key) > maxToolUseIDBytes {
 		markEvidenceOverflow(&state, "pending_tool_calls")
 		return state
 	}

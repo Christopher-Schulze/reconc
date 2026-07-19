@@ -23,7 +23,7 @@ import (
 //   - reconc ci --staged                  (used by git pre-commit hook)
 //   - reconc ci --base main               (used by PR / CI pipelines)
 //   - reconc ci --base main --head HEAD   (explicit range)
-func runCI(args []string, stdout, stderr io.Writer) error {
+func runCI(args []string, stdout, stderr io.Writer) (resultErr error) {
 	repo := "."
 	jsonOut := false
 	staged := false
@@ -190,7 +190,7 @@ func runCI(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc ci: open output file: " + err.Error()}
 	}
-	defer func() { _ = closeOutput() }()
+	defer joinOutputCloseError(&resultErr, closeOutput)
 
 	if jsonOut {
 		// Embed git metadata into the JSON output for auditability.

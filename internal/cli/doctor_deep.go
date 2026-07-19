@@ -207,6 +207,9 @@ func doctorCheckGrokLeaderSteering(discovery ingest.DiscoveryResult) doctorCheck
 	}
 	probe := doctorProbeGrokLeader(2 * time.Second)
 	switch {
+	case probe.Endpoint == "" && probe.Detail != "":
+		check.Status = doctorStatusWarn
+		check.Detail = "Grok leader discovery failed: " + probe.Detail
 	case probe.Endpoint == "":
 		check.Detail = "no Grok leader endpoint; TUI Stop stays passive (leader mode is opt-in: `grok --leader` or config `use_leader`)"
 	case probe.Compatible:

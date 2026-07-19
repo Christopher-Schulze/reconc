@@ -7,12 +7,15 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"reconc-harness/template/audits/lib/donecheck"
 )
@@ -35,11 +38,10 @@ const (
 	lockRel         = ".reconc/promote-task-done.lock"
 	auditRunner     = "tools/reconc/harness/template/audits/run-workflow-audit"
 	schemaRel       = "tools/reconc/harness/template/config/workflow/task-schema.yaml"
+	auditTimeout    = 2 * time.Minute
 )
 
-// loadedSchema is the workflow Schema used by every donecheck call. Loaded
-// once at startup from task-schema.yaml; falls back to DefaultSchema() if the
-// YAML cannot be read so the tool fails visibly rather than silently.
+// loadedSchema is the workflow Schema used by every donecheck call.
 var loadedSchema = donecheck.DefaultSchema()
 
 var (
@@ -96,9 +98,11 @@ func main() {
 	if err != nil {
 		fail("resolve repository root: %v", err)
 	}
-	if schema, schemaErr := donecheck.LoadSchema(filepath.Join(root, filepath.FromSlash(schemaRel))); schemaErr == nil {
-		loadedSchema = schema
+	schema, schemaErr := donecheck.LoadSchema(filepath.Join(root, filepath.FromSlash(schemaRel)))
+	if schemaErr != nil {
+		fail("load workflow schema: %v", schemaErr)
 	}
+	loadedSchema = schema
 	opts := options{
 		dryRun:            *dryRun,
 		verify:            *verify,
@@ -117,7 +121,7 @@ func resolveCommandRoot(explicit string) (string, error) {
 	return filepath.Abs(explicit)
 }
 
-func runWithLock(root string, opts options) error {
+func runWithLock(root string, opts options) (runErr error) {
 	if opts.dryRun {
 		return promote(root, opts)
 	}
@@ -129,12 +133,13 @@ func runWithLock(root string, opts options) error {
 	if err != nil {
 		return fmt.Errorf("open lock file: %w", err)
 	}
-	defer lockFile.Close()
 	unlock, err := tryPromoteLock(lockFile)
 	if err != nil {
-		return fmt.Errorf("another promote-task-done holds %s; refusing to race", lockRel)
+		return errors.Join(fmt.Errorf("another promote-task-done holds %s; refusing to race", lockRel), lockFile.Close())
 	}
-	defer unlock()
+	defer func() {
+		runErr = errors.Join(runErr, unlock(), lockFile.Close())
+	}()
 	return promote(root, opts)
 }
 
@@ -187,7 +192,10 @@ func promote(root string, opts options) error {
 	}
 	doneSet := collectDoneSet(index.rows)
 	doneSet[taskName] = true
-	nextName, nextRow, nextInfo := pickNextExecutable(index, root, doneSet, taskName)
+	nextName, nextRow, nextInfo, err := pickNextExecutable(index, root, doneSet, taskName)
+	if err != nil {
+		return err
+	}
 	if nextName == "" && !opts.allowEmptyCurrent {
 		return fmt.Errorf("no next executable [ ] TASK after promoting %s; refusing to leave Current pointing at a checked row. Either:\n  - add a new TASK row + detail file, or\n  - report zero-finding Terminal Gate status from workflow-complete-loop.md, or\n  - re-run with --allow-empty-current to accept the resulting audit failure", taskName)
 	}
@@ -203,7 +211,10 @@ func promote(root string, opts options) error {
 	}
 	if opts.verify {
 		if vErr := runAuditTaskState(root); vErr != nil {
-			rollback()
+			rollbackErr := rollback()
+			if rollbackErr != nil {
+				return errors.Join(fmt.Errorf("post-mutation verify failed: %w", vErr), fmt.Errorf("rollback failed: %w", rollbackErr))
+			}
 			return fmt.Errorf("post-mutation verify failed; rolled back: %w", vErr)
 		}
 	}
@@ -279,14 +290,14 @@ func collectDoneSet(rows []taskRow) map[string]bool {
 // On a hit it returns (name, row, info). On a miss it returns ("", taskRow{},
 // detailInfo{}) -- callers gate on the empty name to avoid relying on the
 // info value, so no pointer is exposed and no nil-deref class exists.
-func pickNextExecutable(index taskIndex, root string, doneSet map[string]bool, promoting string) (string, taskRow, detailInfo) {
+func pickNextExecutable(index taskIndex, root string, doneSet map[string]bool, promoting string) (string, taskRow, detailInfo, error) {
 	for _, row := range index.rows {
 		if row.icon == doneIcon || row.name == promoting {
 			continue
 		}
 		info, err := readDetailInfo(root, row.target)
 		if err != nil {
-			continue
+			return "", taskRow{}, detailInfo{}, fmt.Errorf("read candidate TASK %s: %w", row.name, err)
 		}
 		if info.state != stateActive && info.state != stateQueued {
 			continue
@@ -301,9 +312,9 @@ func pickNextExecutable(index taskIndex, root string, doneSet map[string]bool, p
 		if !ready {
 			continue
 		}
-		return row.name, row, info
+		return row.name, row, info, nil
 	}
-	return "", taskRow{}, detailInfo{}
+	return "", taskRow{}, detailInfo{}, nil
 }
 
 func readDetailInfo(root string, target string) (detailInfo, error) {
@@ -414,7 +425,7 @@ func mutateNextDetail(content string) (string, error) {
 	return "", fmt.Errorf("next detail file has no [ ] Sub-Task to mark active")
 }
 
-type rollbackFunc func()
+type rollbackFunc func() error
 
 func applyChanges(root string, tasksPath string, newTasks string, srcAbs string, dstAbs string, nextName string, nextRow taskRow) (rollbackFunc, error) {
 	var nextPath string
@@ -441,24 +452,31 @@ func applyChanges(root string, tasksPath string, newTasks string, srcAbs string,
 		return nil, fmt.Errorf("write %s: %w", tasksRel, err)
 	}
 	if err := os.Rename(srcAbs, dstAbs); err != nil {
-		_ = writeAtomic(tasksPath, origTasks)
-		return nil, fmt.Errorf("move detail file: %w", err)
+		rollbackErr := writeAtomic(tasksPath, origTasks)
+		return nil, errors.Join(fmt.Errorf("move detail file: %w", err), wrapRollbackError(rollbackErr))
 	}
 	if nextName != "" {
 		if err := writeAtomic(nextPath, []byte(newNextContent)); err != nil {
-			_ = os.Rename(dstAbs, srcAbs)
-			_ = writeAtomic(tasksPath, origTasks)
-			return nil, fmt.Errorf("write next detail %s: %w", nextRow.target, err)
+			rollbackErr := errors.Join(os.Rename(dstAbs, srcAbs), writeAtomic(tasksPath, origTasks))
+			return nil, errors.Join(fmt.Errorf("write next detail %s: %w", nextRow.target, err), wrapRollbackError(rollbackErr))
 		}
 	}
-	rollback := func() {
+	rollback := func() error {
+		var rollbackErr error
 		if nextName != "" {
-			_ = writeAtomic(nextPath, origNextContent)
+			rollbackErr = errors.Join(rollbackErr, writeAtomic(nextPath, origNextContent))
 		}
-		_ = os.Rename(dstAbs, srcAbs)
-		_ = writeAtomic(tasksPath, origTasks)
+		rollbackErr = errors.Join(rollbackErr, os.Rename(dstAbs, srcAbs), writeAtomic(tasksPath, origTasks))
+		return rollbackErr
 	}
 	return rollback, nil
+}
+
+func wrapRollbackError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("rollback failed: %w", err)
 }
 
 func writeAtomic(path string, content []byte) error {
@@ -468,16 +486,32 @@ func writeAtomic(path string, content []byte) error {
 		return err
 	}
 	tmpName := tmp.Name()
-	if _, err := tmp.Write(content); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
+	mode := os.FileMode(0o644)
+	if info, statErr := os.Stat(path); statErr == nil {
+		mode = info.Mode().Perm()
+	} else if !os.IsNotExist(statErr) {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return statErr
+	}
+	if err := tmp.Chmod(mode); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
 		return err
+	}
+	if _, err := tmp.Write(content); err != nil {
+		return errors.Join(err, tmp.Close(), os.Remove(tmpName))
+	}
+	if err := tmp.Sync(); err != nil {
+		return errors.Join(err, tmp.Close(), os.Remove(tmpName))
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return err
+		return errors.Join(err, os.Remove(tmpName))
 	}
-	return os.Rename(tmpName, path)
+	if err := os.Rename(tmpName, path); err != nil {
+		return errors.Join(err, os.Remove(tmpName))
+	}
+	return nil
 }
 
 func buildPlan(srcRel string, dstRel string, promoting string, nextName string, nextState string) string {
@@ -495,9 +529,15 @@ func buildPlan(srcRel string, dstRel string, promoting string, nextName string, 
 }
 
 func runAuditTaskState(root string) error {
-	cmd := auditTaskStateCommand(filepath.Join(root, filepath.FromSlash(auditRunner)))
+	ctx, cancel := context.WithTimeout(context.Background(), auditTimeout)
+	defer cancel()
+	cmd := auditTaskStateCommand(ctx, filepath.Join(root, filepath.FromSlash(auditRunner)))
 	cmd.Dir = root
+	cmd.WaitDelay = 2 * time.Second
 	output, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return fmt.Errorf("audit task-state timed out after %s", auditTimeout)
+	}
 	if err != nil {
 		trimmed := strings.TrimSpace(string(output))
 		if trimmed == "" {

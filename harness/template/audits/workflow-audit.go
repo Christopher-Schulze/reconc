@@ -1313,7 +1313,13 @@ func auditRepoCleanliness(root string) []string {
 	insideCommand, cancel := commandWithTimeout(shortAuditCommandTimeout, "git", "-C", root, "rev-parse", "--is-inside-work-tree")
 	inside, err := insideCommand.CombinedOutput()
 	cancel()
-	if err != nil || strings.TrimSpace(string(inside)) != "true" {
+	if err != nil {
+		if _, statErr := os.Stat(filepath.Join(root, ".git")); statErr == nil {
+			return []string{fmt.Sprintf("git rev-parse --is-inside-work-tree failed: %v: %s", err, strings.TrimSpace(string(inside)))}
+		}
+		return nil
+	}
+	if strings.TrimSpace(string(inside)) != "true" {
 		return nil
 	}
 	cleanCommand, cancel := commandWithTimeout(shortAuditCommandTimeout, "git", "-C", root, "clean", "-nd")
@@ -1446,14 +1452,10 @@ func auditSpecFormat(root string) []string {
 	return failures
 }
 
-// auditGeneratedReferences runs the generated-reference drift audit. Two
-// optimisations vs. a naive `go run` pipe-through:
-//  1. The audit subprocess binary is cached at .reconc/cache/generated-reference-audit
-//     so we skip the ~2s `go run` compile after the first call.
-//  2. An input-fingerprint cache short-circuits the entire subprocess when
-//     contracts.yaml + the generated/* tree haven't changed. The fingerprint
-//     covers what the inner generator reads, so a true content change still
-//     re-runs the full check.
+// auditGeneratedReferences runs the generated-reference drift audit. Its input
+// fingerprint cache skips the subprocess only when every declared input is
+// unchanged. On a cache miss the audit binary is rebuilt from source rather
+// than trusted by mtime, so restored timestamps cannot validate stale code.
 func auditGeneratedReferences(root string) []string {
 	cfg, cfgFailures := loadStackConfig(root)
 	if len(cfgFailures) > 0 {
@@ -1471,14 +1473,15 @@ func auditGeneratedReferences(root string) []string {
 	return runWithCache(root, "generated-references", inputs, func() []string {
 		bin := filepath.Join(root, ".reconc/cache/generated-reference-audit")
 		src := filepath.Join(root, "tools/reconc/harness/template/audits/generated_reference")
-		if needsRebuild(bin, src) {
-			build, cancel := commandWithTimeout(buildAuditCommandTimeout, "go", "build", "-ldflags=-s -w", "-trimpath", "-buildvcs=false", "-o", bin, "./audits/generated_reference")
-			build.Dir = filepath.Join(root, "tools/reconc/harness/template")
-			out, err := build.CombinedOutput()
-			cancel()
-			if err != nil {
-				return []string{fmt.Sprintf("generated-references audit build failed: %v\n%s", err, string(out))}
-			}
+		if err := validateGeneratedReferenceSource(src); err != nil {
+			return []string{err.Error()}
+		}
+		build, cancel := commandWithTimeout(buildAuditCommandTimeout, "go", "build", "-ldflags=-s -w", "-trimpath", "-buildvcs=false", "-o", bin, "./audits/generated_reference")
+		build.Dir = filepath.Join(root, "tools/reconc/harness/template")
+		out, err := build.CombinedOutput()
+		cancel()
+		if err != nil {
+			return []string{fmt.Sprintf("generated-references audit build failed: %v\n%s", err, string(out))}
 		}
 		cmd, cancel := commandWithTimeout(buildAuditCommandTimeout, bin)
 		cmd.Dir = root
@@ -1491,32 +1494,28 @@ func auditGeneratedReferences(root string) []string {
 	})
 }
 
-// needsRebuild reports whether bin is missing or older than any *.go file
-// under srcDir.
-func needsRebuild(bin string, srcDir string) bool {
-	binStat, err := os.Stat(bin)
-	if err != nil {
-		return true
-	}
-	binMtime := binStat.ModTime()
-	stale := false
-	_ = filepath.WalkDir(srcDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+func validateGeneratedReferenceSource(srcDir string) error {
+	found := false
+	err := filepath.WalkDir(srcDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
 			return nil
 		}
 		if !strings.HasSuffix(path, ".go") {
 			return nil
 		}
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-		if info.ModTime().After(binMtime) {
-			stale = true
-		}
+		found = true
 		return nil
 	})
-	return stale
+	if err != nil {
+		return fmt.Errorf("generated-references audit source unavailable: %w", err)
+	}
+	if !found {
+		return fmt.Errorf("generated-references audit source contains no Go files: %s", srcDir)
+	}
+	return nil
 }
 
 func auditBuildBaseline(root string) []string {

@@ -23,7 +23,7 @@ func runRefresh(args []string, version string, stdout, stderr io.Writer) error {
 	return runCompileCommand("refresh", args, version, stdout, stderr)
 }
 
-func runCompileCommand(command string, args []string, version string, stdout, stderr io.Writer) error {
+func runCompileCommand(command string, args []string, version string, stdout, stderr io.Writer) (resultErr error) {
 	repo := "."
 	jsonOut := false
 	strictConflicts := false
@@ -65,7 +65,7 @@ func runCompileCommand(command string, args []string, version string, stdout, st
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc " + command + ": open output file: " + err.Error()}
 	}
-	defer func() { _ = closeOutput() }()
+	defer joinOutputCloseError(&resultErr, closeOutput)
 
 	if jsonOut {
 		enc := json.NewEncoder(out)

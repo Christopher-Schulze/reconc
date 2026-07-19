@@ -144,7 +144,11 @@ func Tail(repoRoot string, opts TailOptions) ([]Entry, error) {
 	}
 	var all []Entry
 	path := filepath.Join(repoRoot, AuditFileRelative)
-	for _, source := range jsonl.PathsOldestFirst(path, MaxArchiveFiles) {
+	sources, err := jsonl.PathsOldestFirst(path, MaxArchiveFiles)
+	if err != nil {
+		return nil, fmt.Errorf("audit: enumerate archive ring: %w", err)
+	}
+	for _, source := range sources {
 		if err := scanEntries(source, opts, &all); err != nil {
 			return nil, err
 		}
@@ -291,7 +295,11 @@ func Stats(repoRoot string) (*StatsReport, error) {
 // tooling or cross-repo aggregation.
 func ExportJSONL(repoRoot string, w io.Writer) error {
 	path := filepath.Join(repoRoot, AuditFileRelative)
-	for _, source := range jsonl.PathsOldestFirst(path, MaxArchiveFiles) {
+	sources, err := jsonl.PathsOldestFirst(path, MaxArchiveFiles)
+	if err != nil {
+		return fmt.Errorf("audit: enumerate archive ring: %w", err)
+	}
+	for _, source := range sources {
 		file, err := os.Open(source)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {

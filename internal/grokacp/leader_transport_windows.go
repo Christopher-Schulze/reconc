@@ -27,19 +27,19 @@ var findWindowsLeaderPipes = listWindowsLeaderPipes
 // enumerating the private grok-leader-* namespace avoids duplicating that
 // language-specific path hash. Registration plus session identity selects the
 // correct leader when several instances exist.
-func leaderSocketCandidates() []string {
+func leaderSocketCandidates() ([]string, error) {
 	if override := strings.TrimSpace(os.Getenv(leaderSocketEnv)); strings.HasPrefix(strings.ToLower(override), strings.ToLower(windowsPipeRoot)) {
-		return []string{override}
+		return []string{override}, nil
 	}
 	candidates, err := findWindowsLeaderPipes()
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	sort.Strings(candidates)
-	return candidates
+	return candidates, nil
 }
 
-func listWindowsLeaderPipes() ([]string, error) {
+func listWindowsLeaderPipes() (candidates []string, err error) {
 	pattern, err := windows.UTF16PtrFromString(windowsPipeRoot + grokPipeNamePrefix + "*")
 	if err != nil {
 		return nil, fmt.Errorf("encode Grok leader pipe pattern: %w", err)
@@ -54,9 +54,13 @@ func listWindowsLeaderPipes() ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("enumerate Grok leader pipes: %w", err)
 	}
-	defer func() { _ = windows.FindClose(handle) }()
+	defer func() {
+		if closeErr := windows.FindClose(handle); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close Grok leader pipe enumeration: %w", closeErr))
+		}
+	}()
 
-	candidates := []string{}
+	candidates = []string{}
 	for {
 		name := windows.UTF16ToString(data.FileName[:])
 		if strings.HasPrefix(strings.ToLower(name), grokPipeNamePrefix) {

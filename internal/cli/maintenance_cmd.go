@@ -268,7 +268,10 @@ func runPrune(args []string, stdout io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc prune: " + err.Error()}
 	}
-	active, _ := agentsession.ResolveActiveSessionID(root)
+	active, err := agentsession.ResolveActiveSessionID(root)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc prune: resolve active session: " + err.Error()}
+	}
 	report := retention.Run(retention.Options{
 		RepoRoot:      root,
 		StateRoot:     retention.ResolveStateRoot(),

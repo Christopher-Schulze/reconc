@@ -1,6 +1,7 @@
 package agentsession
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -105,8 +106,17 @@ func ParsePayload(data []byte) (*HookPayload, error) {
 	}
 
 	var raw map[string]interface{}
-	if err := json.Unmarshal(data, &raw); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&raw); err != nil {
 		return nil, fmt.Errorf("hook payload is not valid JSON: %w", err)
+	}
+	var trailing interface{}
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return nil, errors.New("hook payload contains multiple JSON values")
+		}
+		return nil, fmt.Errorf("hook payload has trailing data: %w", err)
 	}
 	if raw == nil {
 		return nil, errors.New("hook payload must be a JSON object")
@@ -186,10 +196,19 @@ func (p *HookPayload) ExitCode() *int {
 		if !ok {
 			continue
 		}
-		// JSON numbers decode as float64 by default.
 		switch n := v.(type) {
+		case json.Number:
+			i64, err := n.Int64()
+			if err != nil || int64(int(i64)) != i64 {
+				continue
+			}
+			i := int(i64)
+			return &i
 		case float64:
 			i := int(n)
+			if float64(i) != n {
+				continue
+			}
 			return &i
 		case int:
 			return &n
@@ -261,10 +280,12 @@ func (p *HookPayload) IsCommandTool() bool {
 // with the normalized session_id validated. Platform adapters must derive a
 // stable identity before this boundary when the host omits one.
 func payloadFromMap(raw map[string]interface{}) (*HookPayload, error) {
-	sessionID, _ := raw["session_id"].(string)
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
+	sessionID, ok := raw["session_id"].(string)
+	if !ok {
 		return nil, errors.New("hook payload must include a non-empty 'session_id'")
+	}
+	if err := validateSessionID(sessionID); err != nil {
+		return nil, fmt.Errorf("hook payload has invalid 'session_id': %w", err)
 	}
 
 	toolName, _ := raw["tool_name"].(string)

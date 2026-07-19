@@ -113,16 +113,18 @@ handling.
    emits candidate files for drift, and rolls back only transaction-owned
    unchanged files. Hook merges preserve
    unrelated host configuration. Bounded JSONL writers rotate under a process
-   lock before append.
+   lock before append. Write, sync, close, unlock, and CLI output failures are
+   propagated instead of being reported as successful publication.
 
 4. **Explicit side effects.** Compile, bootstrap, hook installation, TASK
    mutation, retention, and hook event handling own their documented files.
    Read-only commands never refresh policy. `RECONC_AUDIT=1` is still required
    for the optional decision audit log.
 
-5. **Advisory compile lock.** `.reconc/.compile.lock` via O_EXCL
-   prevents two `reconc compile` from racing. 60s stale-reap so a
-   crashed compile doesn't wedge the repo forever.
+5. **Advisory compile lock.** `.reconc/.compile.lock` is a reusable OS-backed
+   exclusive file lock. A second compiler fails immediately, process exit
+   releases ownership automatically, and no timestamp-based stale reaping can
+   steal a live lock.
 
 6. **Satisfiable conflict analysis.** Static command contradictions follow
    runtime `require_command` semantics: any configured alternative can satisfy
@@ -327,12 +329,20 @@ payload-handling package must be a string literal.
 
 ### Session identity boundary
 
-The host runtime supplies `session_id`; Reconc sanitizes it for the filename and
-stores evidence in that session-specific file under the canonical repo hash.
-Different IDs therefore cannot merge accidentally. Reconc does not generate,
-authenticate, HMAC, or expire host session IDs, so a hostile host process with
-the same user/filesystem authority remains outside this boundary. Malformed
-state fails closed instead of being reset silently.
+- The host-provided session ID is validated exactly (non-empty, at most 512
+  bytes, no surrounding whitespace or control characters) and mapped to a
+  collision-resistant storage key; sanitized-name collisions cannot alias two
+  sessions.
+- Every loaded state file must match the requested session ID, canonical
+  repository root, and computed report path. Mismatches, oversized input, and
+  corrupt JSON fail closed instead of being replaced with empty state.
+- Session state, active pointers, reports, and lock files use private
+  permissions, bounded reads, atomic publication, and cross-process locks.
+- Legacy sanitized paths are migrated only after the same identity checks.
+
+Reconc does not generate, authenticate, HMAC, or expire host session IDs, so a
+hostile process with the same user and filesystem authority remains outside
+this boundary.
 
 ### Run state concurrency and Stop routing
 

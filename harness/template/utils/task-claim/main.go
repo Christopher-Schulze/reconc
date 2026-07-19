@@ -20,6 +20,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -30,13 +31,15 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
 const (
-	tasksRel    = "docs/tasks.md"
-	bindingsRel = "tools/reconc/harness/template/config/workflow/task-claim-bindings.yaml"
+	tasksRel     = "docs/tasks.md"
+	bindingsRel  = "tools/reconc/harness/template/config/workflow/task-claim-bindings.yaml"
+	claimTimeout = 30 * time.Second
 )
 
 var currentRe = regexp.MustCompile(`(?m)^Current: (TASK-[0-9]{4}-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*) -> tasks/`)
@@ -212,6 +215,10 @@ func printPlan(taskName string, claims []string) {
 }
 
 func assertClaims(root string, taskName string, claims []string) error {
+	return assertClaimsWithTimeout(root, taskName, claims, claimTimeout)
+}
+
+func assertClaimsWithTimeout(root string, taskName string, claims []string, timeout time.Duration) error {
 	if len(claims) == 0 {
 		fmt.Printf("task: %s\nclaims: (none -- nothing to assert)\n", taskName)
 		return nil
@@ -223,8 +230,15 @@ func assertClaims(root string, taskName string, claims []string) error {
 	}
 	fmt.Printf("task: %s\n", taskName)
 	for _, claim := range claims {
-		cmd := exec.Command(binPath, "hook", "claim", root, claim)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		cmd := exec.CommandContext(ctx, binPath, "hook", "claim", root, claim)
+		cmd.WaitDelay = 2 * time.Second
 		out, err := cmd.CombinedOutput()
+		timedOut := ctx.Err() == context.DeadlineExceeded
+		cancel()
+		if timedOut {
+			return fmt.Errorf("reconc hook claim %s timed out after %s", claim, timeout)
+		}
 		if err != nil {
 			return fmt.Errorf("reconc hook claim %s failed: %v\n%s", claim, err, strings.TrimSpace(string(out)))
 		}

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,7 +11,8 @@ import (
 
 func teeToFile(w io.Writer, path string) (io.Writer, func() error, error) {
 	if path == "" {
-		return w, func() error { return nil }, nil
+		tracked := &trackedOutputWriter{writer: w}
+		return tracked, tracked.Err, nil
 	}
 	dir := filepath.Dir(path)
 	if dir != "" && dir != "." {
@@ -22,7 +24,15 @@ func teeToFile(w io.Writer, path string) (io.Writer, func() error, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return io.MultiWriter(w, file), file.Close, nil
+	tracked := &trackedOutputWriter{writer: io.MultiWriter(w, file)}
+	closeOutput := func() error {
+		return errors.Join(tracked.Err(), file.Sync(), file.Close())
+	}
+	return tracked, closeOutput, nil
+}
+
+func joinOutputCloseError(resultErr *error, closeOutput func() error) {
+	*resultErr = errors.Join(*resultErr, closeOutput())
 }
 
 // nextArgValue advances i and returns the next argument as the value

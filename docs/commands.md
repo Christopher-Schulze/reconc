@@ -280,8 +280,10 @@ run Grok in leader mode so the `grok-stop` route can interject continuations
 into the live TUI session over its Unix socket or Windows named pipe (see
 `Grok leader steering` in `doctor --deep`). Deep doctor requires protocol
 version 1 and a recognized `_x.ai/interject` response, not just a successful
-register handshake. It also requires project-owned inspect metadata and exact
-route command tokens; prefix collisions do not satisfy route coverage.
+register handshake; endpoint discovery failures are reported as diagnostic
+failures rather than being collapsed into "not active". It also requires
+project-owned inspect metadata and exact route command tokens; prefix
+collisions do not satisfy route coverage.
 
 ### `reconc hook sync-scaffold <repo-root-scaffold> [--json]`
 Regenerate source-controlled hook artifacts inside a template

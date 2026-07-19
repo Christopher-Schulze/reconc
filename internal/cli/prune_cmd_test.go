@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,5 +57,28 @@ func TestPruneCommandUsesCoreRetention(t *testing.T) {
 	}
 	if len(entries) > retention.DefaultPolicy().Sessions.MaxFiles {
 		t.Fatalf("CLI did not enforce session count: %d", len(entries))
+	}
+}
+
+func TestPruneFailsClosedOnCorruptActiveSessionPointer(t *testing.T) {
+	repo := t.TempDir()
+	resolvedRepo, err := filepath.EvalSymlinks(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateRoot := t.TempDir()
+	t.Setenv(retention.StateRootEnv, stateRoot)
+	activePath := filepath.Join(retention.ProjectDir(stateRoot, resolvedRepo), "active-session.txt")
+	if err := os.MkdirAll(filepath.Dir(activePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	invalidSessionID := strings.Repeat("x", retention.MaxSessionIDBytes+1)
+	if err := os.WriteFile(activePath, []byte(invalidSessionID+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	err = Run([]string{"prune", repo}, "test", &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "resolve active session") {
+		t.Fatalf("expected active-session failure, got %v", err)
 	}
 }

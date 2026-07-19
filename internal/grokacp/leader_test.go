@@ -299,13 +299,16 @@ func TestLeaderDeadlineBoundsSilentServer(t *testing.T) {
 func TestLeaderSocketCandidatesEnvOverride(t *testing.T) {
 	leader := newFakeLeader(t, func(f *fakeLeader, conn net.Conn) {})
 	t.Setenv(leaderSocketEnv, leader.socket)
-	candidates := leaderSocketCandidates()
+	candidates, err := leaderSocketCandidates()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(candidates) != 1 || candidates[0] != leader.socket {
 		t.Fatalf("override candidates = %v", candidates)
 	}
 
 	t.Setenv(leaderSocketEnv, filepath.Join(t.TempDir(), "missing.sock"))
-	if candidates := leaderSocketCandidates(); candidates != nil {
+	if candidates, err := leaderSocketCandidates(); err != nil || candidates != nil {
 		t.Fatalf("missing override socket must yield none, got %v", candidates)
 	}
 }
@@ -319,7 +322,7 @@ func TestLeaderSocketCandidatesGrokHomeGlob(t *testing.T) {
 	t.Setenv(leaderSocketEnv, "")
 	t.Setenv(grokHomeEnv, dir)
 
-	if candidates := leaderSocketCandidates(); len(candidates) != 0 {
+	if candidates, err := leaderSocketCandidates(); err != nil || len(candidates) != 0 {
 		t.Fatalf("empty home must yield no candidates, got %v", candidates)
 	}
 
@@ -338,10 +341,29 @@ func TestLeaderSocketCandidatesGrokHomeGlob(t *testing.T) {
 	}
 	defer defaultListener.Close()
 
-	candidates := leaderSocketCandidates()
+	candidates, err := leaderSocketCandidates()
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := []string{filepath.Join(dir, "leader.sock"), filepath.Join(dir, "leader-zzzz.sock")}
 	if fmt.Sprint(candidates) != fmt.Sprint(want) {
 		t.Fatalf("candidates = %v, want default first then suffixed: %v", candidates, want)
+	}
+}
+
+func TestLeaderSocketCandidatesReportsUnreadableHome(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(home, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(leaderSocketEnv, "")
+	t.Setenv(grokHomeEnv, home)
+	if _, err := leaderSocketCandidates(); err == nil {
+		t.Fatal("leader discovery error was hidden")
+	}
+	probe := ProbeLeaderSteering(time.Second)
+	if !strings.Contains(probe.Detail, "discover Grok leader endpoints") {
+		t.Fatalf("probe did not surface discovery failure: %+v", probe)
 	}
 }
 

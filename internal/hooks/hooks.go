@@ -15,9 +15,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
+	"reconc.dev/reconc/internal/atomicfile"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/execfile"
 )
@@ -326,30 +326,19 @@ func writeGeneratedArtifact(target, content string, executable bool) (string, er
 		perm = 0o755
 	}
 	action := "created"
-	if existing, err := os.ReadFile(target); err == nil {
+	if _, err := os.Lstat(target); err == nil {
 		action = "updated"
-		info, statErr := os.Stat(target)
-		modeMatches := statErr == nil && generatedModeMatches(target, info, executable, perm)
-		if string(existing) == content && modeMatches {
-			return "unchanged", nil
-		}
-	} else if err != nil && !os.IsNotExist(err) {
-		return "", &rerrors.PolicySourceError{Message: "read " + target, Cause: err}
+	} else if !os.IsNotExist(err) {
+		return "", &rerrors.PolicySourceError{Message: "inspect " + target, Cause: err}
 	}
-	if err := os.WriteFile(target, []byte(content), perm); err != nil {
+	changed, err := atomicfile.WriteIfChanged(target, []byte(content), perm)
+	if err != nil {
 		return "", &rerrors.PolicySourceError{Message: "write " + target, Cause: err}
 	}
-	if err := os.Chmod(target, perm); err != nil {
-		return "", &rerrors.PolicySourceError{Message: "chmod " + target, Cause: err}
+	if !changed {
+		return "unchanged", nil
 	}
 	return action, nil
-}
-
-func generatedModeMatches(target string, info os.FileInfo, executable bool, permission os.FileMode) bool {
-	if executable {
-		return execfile.Is(target)
-	}
-	return runtime.GOOS == "windows" || info.Mode().Perm() == permission
 }
 
 // installJSONHooks merges reconc's hook entries into a nested JSON settings

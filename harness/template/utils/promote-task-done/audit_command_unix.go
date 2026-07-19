@@ -2,8 +2,11 @@
 
 package main
 
-import "os/exec"
+import (
+	"context"
+	"os/exec"
+)
 
-func auditTaskStateCommand(path string) *exec.Cmd {
-	return exec.Command(path, "task-state")
+func auditTaskStateCommand(ctx context.Context, path string) *exec.Cmd {
+	return exec.CommandContext(ctx, path, "task-state")
 }

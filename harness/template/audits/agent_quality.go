@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -34,7 +33,9 @@ func auditAgentQuality(root string) []string {
 }
 
 func collectGitDiffFiles(root string) (map[string]*gitDiffFile, []string) {
-	inside, err := exec.Command("git", "-C", root, "rev-parse", "--is-inside-work-tree").CombinedOutput()
+	insideCommand, cancel := commandWithTimeout(shortAuditCommandTimeout, "git", "-C", root, "rev-parse", "--is-inside-work-tree")
+	inside, err := insideCommand.CombinedOutput()
+	cancel()
 	if err != nil {
 		if _, statErr := os.Stat(filepath.Join(root, ".git")); statErr == nil {
 			return nil, []string{fmt.Sprintf("git rev-parse --is-inside-work-tree failed: %v: %s", err, strings.TrimSpace(string(inside)))}
@@ -50,8 +51,9 @@ func collectGitDiffFiles(root string) (map[string]*gitDiffFile, []string) {
 		{"diff", "--cached", "--unified=0", "--no-ext-diff", "--"},
 		{"diff", "--unified=0", "--no-ext-diff", "--"},
 	} {
-		cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
+		cmd, cancel := commandWithTimeout(shortAuditCommandTimeout, "git", append([]string{"-C", root}, args...)...)
 		out, err := cmd.CombinedOutput()
+		cancel()
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("git %s failed: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out))))
 			continue

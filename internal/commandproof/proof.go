@@ -5,6 +5,7 @@ package commandproof
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -23,9 +24,11 @@ import (
 )
 
 const (
-	proofSchema  = "reconc.command-proof/v1"
-	proofScope   = "staged-index"
-	maxProofSize = 16 * 1024
+	proofSchema       = "reconc.command-proof/v1"
+	proofScope        = "staged-index"
+	maxProofSize      = 16 * 1024
+	maxGitOutputBytes = 16 << 20
+	gitCommandTimeout = 30 * time.Second
 )
 
 // Snapshot identifies the exact commit candidate verified by a command.
@@ -141,9 +144,15 @@ func StoreSuccess(snapshot Snapshot, command, executionMode string, startedAt, c
 		return Proof{}, fmt.Errorf("marshal command proof: %w", err)
 	}
 	data = append(data, '\n')
+	if len(data) > maxProofSize {
+		return Proof{}, fmt.Errorf("command proof exceeds %d bytes", maxProofSize)
+	}
 	dir := proofDir(snapshot.RepoRoot)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return Proof{}, fmt.Errorf("create command proof directory: %w", err)
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return Proof{}, fmt.Errorf("secure command proof directory: %w", err)
 	}
 	path := filepath.Join(dir, proofIdentity(proof)+".json")
 	if _, err := atomicfile.WriteIfChanged(path, data, 0o600); err != nil {
@@ -222,17 +231,24 @@ func capture(repoRoot string) (Snapshot, error) {
 	if err := os.MkdirAll(project, 0o700); err != nil {
 		return Snapshot{}, fmt.Errorf("create command proof state directory: %w", err)
 	}
+	if err := os.Chmod(project, 0o700); err != nil {
+		return Snapshot{}, fmt.Errorf("secure command proof state directory: %w", err)
+	}
 	lock, err := os.OpenFile(filepath.Join(project, "command-proof.snapshot.lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("open command proof snapshot lock: %w", err)
 	}
-	defer lock.Close()
 	unlock, err := filelock.Lock(lock)
 	if err != nil {
-		return Snapshot{}, fmt.Errorf("lock command proof snapshot: %w", err)
+		return Snapshot{}, errors.Join(fmt.Errorf("lock command proof snapshot: %w", err), lock.Close())
 	}
-	defer func() { _ = unlock() }()
-	return captureLocked(repoRoot)
+	snapshot, captureErr := captureLocked(repoRoot)
+	unlockErr := unlock()
+	closeErr := lock.Close()
+	if err := errors.Join(captureErr, unlockErr, closeErr); err != nil {
+		return Snapshot{}, fmt.Errorf("capture command proof snapshot: %w", err)
+	}
+	return snapshot, nil
 }
 
 func captureLocked(repoRoot string) (Snapshot, error) {
@@ -301,9 +317,14 @@ func canonicalRepoRoot(repoRoot string) (string, error) {
 }
 
 func requireCleanAgainstIndex(repoRoot string) error {
-	cmd := exec.Command("git", "diff", "--quiet", "--")
+	ctx, cancel := context.WithTimeout(context.Background(), gitCommandTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "diff", "--quiet", "--")
 	cmd.Dir = repoRoot
 	if err := cmd.Run(); err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return fmt.Errorf("inspect tracked unstaged changes: git diff timed out after %s", gitCommandTimeout)
+		}
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 			return errors.New("tracked unstaged changes exist; stage or revert them before reconc exec --staged")
@@ -327,13 +348,46 @@ func gitOutput(repoRoot string, args ...string) (string, error) {
 }
 
 func gitOutputBytes(repoRoot string, args ...string) ([]byte, error) {
-	cmd := exec.Command("git", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), gitCommandTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = repoRoot
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	stdout := &boundedCommandOutput{limit: maxGitOutputBytes}
+	stderr := &boundedCommandOutput{limit: maxGitOutputBytes}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	err := cmd.Run()
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return nil, fmt.Errorf("git %s timed out after %s", strings.Join(args, " "), gitCommandTimeout)
 	}
-	return out, nil
+	if stdout.overflow || stderr.overflow {
+		return nil, fmt.Errorf("git %s output exceeds %d bytes", strings.Join(args, " "), maxGitOutputBytes)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+	}
+	return append([]byte(nil), stdout.Bytes()...), nil
+}
+
+type boundedCommandOutput struct {
+	bytes.Buffer
+	limit    int
+	overflow bool
+}
+
+func (w *boundedCommandOutput) Write(data []byte) (int, error) {
+	remaining := w.limit - w.Len()
+	if remaining > 0 {
+		writeCount := len(data)
+		if writeCount > remaining {
+			writeCount = remaining
+		}
+		_, _ = w.Buffer.Write(data[:writeCount])
+	}
+	if len(data) > remaining {
+		w.overflow = true
+	}
+	return len(data), nil
 }
 
 func validateProof(proof Proof, snapshot Snapshot, now time.Time, maxAge time.Duration) error {

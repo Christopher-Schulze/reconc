@@ -23,7 +23,7 @@ import (
 // structured rendering suitable for PRs / issue bodies / docs.
 //
 // Always exits 0 (it's a renderer, not an enforcement command).
-func runExplain(args []string, stdout, stderr io.Writer) error {
+func runExplain(args []string, stdout, stderr io.Writer) (resultErr error) {
 	repo := "."
 	jsonOut := false
 	outputPath := ""
@@ -122,7 +122,7 @@ func runExplain(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc explain: open output file: " + err.Error()}
 	}
-	defer func() { _ = closeOutput() }()
+	defer joinOutputCloseError(&resultErr, closeOutput)
 
 	if jsonOut {
 		enc := json.NewEncoder(out)

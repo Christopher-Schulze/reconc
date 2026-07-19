@@ -19,7 +19,7 @@ import (
 //
 // The default doctor path runs discovery checks. Deep mode adds source parsing,
 // lockfile validation, hook checks, and release-readiness diagnostics.
-func runDoctor(args []string, stdout, stderr io.Writer) error {
+func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 	repo := "."
 	deep := false
 	jsonOut := false
@@ -61,7 +61,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 		if err != nil {
 			return &CLIError{ExitCode: 1, Message: "reconc doctor: open output file: " + err.Error()}
 		}
-		defer func() { _ = closeOutput() }()
+		defer joinOutputCloseError(&resultErr, closeOutput)
 
 		if jsonOut {
 			enc := json.NewEncoder(out)
@@ -86,7 +86,7 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc doctor: open output file: " + err.Error()}
 	}
-	defer func() { _ = closeOutput() }()
+	defer joinOutputCloseError(&resultErr, closeOutput)
 
 	if jsonOut {
 		enc := json.NewEncoder(out)
@@ -222,7 +222,7 @@ func runVerify(args []string, stdout, stderr io.Writer) error {
 //
 // One-line policy health summary. Returns exit 0 always (it's a
 // diagnostic, not an enforcement command).
-func runStatus(args []string, stdout, stderr io.Writer) error {
+func runStatus(args []string, stdout, stderr io.Writer) (resultErr error) {
 	repo := "."
 	jsonOut := false
 	outputPath := ""
@@ -289,7 +289,7 @@ func runStatus(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc status: open output file: " + err.Error()}
 	}
-	defer func() { _ = closeOutput() }()
+	defer joinOutputCloseError(&resultErr, closeOutput)
 
 	if jsonOut {
 		payload := map[string]interface{}{
@@ -332,7 +332,7 @@ func runStatus(args []string, stdout, stderr io.Writer) error {
 //
 // This is a dependency-free terminal dashboard: it gives a useful inspection
 // view without pulling in a framework or making daily usage heavier.
-func runTUI(args []string, stdout, stderr io.Writer) error {
+func runTUI(args []string, stdout, stderr io.Writer) (resultErr error) {
 	repo := "."
 	jsonOut := false
 	outputPath := ""
@@ -369,7 +369,7 @@ func runTUI(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc tui: open output file: " + err.Error()}
 	}
-	defer func() { _ = closeOutput() }()
+	defer joinOutputCloseError(&resultErr, closeOutput)
 
 	if jsonOut {
 		enc := json.NewEncoder(out)
@@ -420,10 +420,14 @@ func validatePolicyReadOnly(repoRoot string) (*readOnlyPolicyValidation, error) 
 		return nil, err
 	}
 	conflicts := compiler.DetectConflicts(parsed.Rules)
+	sourceDigest, err := compiler.ComputeSourceDigest(bundle)
+	if err != nil {
+		return nil, fmt.Errorf("compute source digest: %w", err)
+	}
 	return &readOnlyPolicyValidation{
 		ruleCount:    len(parsed.Rules),
 		sourceCount:  len(bundle.Sources),
-		sourceDigest: compiler.ComputeSourceDigest(bundle),
+		sourceDigest: sourceDigest,
 		conflicts:    len(conflicts),
 	}, nil
 }

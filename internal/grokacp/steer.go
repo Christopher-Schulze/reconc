@@ -32,8 +32,8 @@ var steerDial = dialLeader
 // releases the same violation on the second Stop before steering can interject
 // another continuation.
 func PrepareStrictTUIStop(payloadBytes []byte) ([]byte, bool, error) {
-	payload, candidates, err := activeSteerTarget(payloadBytes)
-	if err != nil || payload == nil || len(candidates) == 0 {
+	payload, err := activeSteerPayload(payloadBytes)
+	if err != nil || payload == nil {
 		return payloadBytes, false, err
 	}
 	payload.Raw["strict_continuation"] = true
@@ -66,7 +66,10 @@ func SteerTUIStop(repoRoot string, payloadBytes []byte, stopResult agentsession.
 		}
 		return ""
 	}
-	candidates := leaderSocketCandidates()
+	candidates, err := leaderSocketCandidates()
+	if err != nil {
+		return "reconc grok steer: discover leader endpoints: " + err.Error()
+	}
 	if len(candidates) == 0 {
 		return ""
 	}
@@ -127,18 +130,6 @@ func SteeringDisabled() bool {
 	default:
 		return false
 	}
-}
-
-func activeSteerTarget(payloadBytes []byte) (*agentsession.HookPayload, []string, error) {
-	payload, err := activeSteerPayload(payloadBytes)
-	if err != nil || payload == nil {
-		return nil, nil, err
-	}
-	candidates := leaderSocketCandidates()
-	if len(candidates) == 0 {
-		return nil, nil, nil
-	}
-	return payload, candidates, nil
 }
 
 func activeSteerPayload(payloadBytes []byte) (*agentsession.HookPayload, error) {

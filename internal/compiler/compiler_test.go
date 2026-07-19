@@ -386,10 +386,22 @@ func TestComputeSourceDigestStableAndSensitive(t *testing.T) {
 			{Kind: policy.SourcePolicyFile, Path: "policies/a.yml", Content: "rules: []\n"},
 		},
 	}
-	if got := ComputeSourceDigest(base); got == "" {
+	got, err := ComputeSourceDigest(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == "" {
 		t.Fatal("expected non-empty digest")
 	}
-	if got1, got2 := ComputeSourceDigest(base), ComputeSourceDigest(base); got1 != got2 {
+	got1, err := ComputeSourceDigest(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got2, err := ComputeSourceDigest(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got1 != got2 {
 		t.Fatalf("digest must be stable for identical bundle: %s vs %s", got1, got2)
 	}
 
@@ -398,7 +410,11 @@ func TestComputeSourceDigestStableAndSensitive(t *testing.T) {
 			{Kind: policy.SourcePolicyFile, Path: "policies/a.yml", Content: "rules:\n  - id: x\n"},
 		},
 	}
-	if ComputeSourceDigest(base) == ComputeSourceDigest(changed) {
+	changedDigest, err := ComputeSourceDigest(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got1 == changedDigest {
 		t.Fatal("digest must change when source content changes")
 	}
 }

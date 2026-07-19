@@ -3,6 +3,7 @@ package retention
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -72,24 +73,34 @@ func runLocked(options Options, forceOwnedTemp bool) Report {
 		OwnedTempBudget:    policy.OwnedTempTotalBytes,
 	}
 	project := ProjectDir(options.StateRoot, options.RepoRoot)
-	active := liveActiveSession(project, options.ActiveSession, options.Now, policy.Locks.MaxAge)
-	activeID := sessionFileID(active)
+	active, activeErr := liveActiveSession(project, options.ActiveSession, options.Now, policy.Locks.MaxAge)
+	stateOptions := options
+	if activeErr != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("resolve active session: %v", activeErr))
+		noDelete := ClassPolicy{MaxFiles: -1, MaxBytes: -1}
+		stateOptions.Policy.Sessions = noDelete
+		stateOptions.Policy.Reports = noDelete
+		stateOptions.Policy.Locks = noDelete
+		stateOptions.Policy.CommandProofs = noDelete
+		stateOptions.Policy.StateTotalBytes = int64(^uint64(0) >> 1)
+	}
+	activeID := SessionFileID(active)
 
 	sessions := filepath.Join(project, "sessions")
 	reports := filepath.Join(project, "reports")
 	locks := filepath.Join(project, "locks")
 	commandProofs := filepath.Join(project, "command-proofs")
 	report.Classes = append(report.Classes,
-		pruneClass("sessions", sessions, policy.Sessions, options.Now, options.DryRun, map[string]bool{activeID + ".json": active != ""}, nil, &report),
-		pruneClass("reports", reports, policy.Reports, options.Now, options.DryRun, map[string]bool{activeID + ".json": active != ""}, nil, &report),
-		pruneClass("locks", locks, policy.Locks, options.Now, options.DryRun, map[string]bool{
+		pruneClass("sessions", sessions, stateOptions.Policy.Sessions, options.Now, options.DryRun, map[string]bool{activeID + ".json": active != ""}, nil, &report),
+		pruneClass("reports", reports, stateOptions.Policy.Reports, options.Now, options.DryRun, map[string]bool{activeID + ".json": active != ""}, nil, &report),
+		pruneClass("locks", locks, stateOptions.Policy.Locks, options.Now, options.DryRun, map[string]bool{
 			activeID + ".lock":             active != "",
 			activeID + ".stop-policy.lock": active != "",
 		}, nil, &report),
-		pruneClass("command-proofs", commandProofs, policy.CommandProofs, options.Now, options.DryRun, nil, nil, &report),
+		pruneClass("command-proofs", commandProofs, stateOptions.Policy.CommandProofs, options.Now, options.DryRun, nil, nil, &report),
 	)
 	projectedStateBefore, projectedStateAfter := classTotals(report.Classes, "sessions", "reports", "locks", "command-proofs")
-	stateTotal := enforceStateTotal(options, project, activeID, active != "", &report)
+	stateTotal := enforceStateTotal(stateOptions, project, activeID, active != "", &report)
 	if options.DryRun {
 		stateTotal.BytesBefore = projectedStateBefore
 		stateTotal.BytesAfter = minInt64(stateTotal.BytesAfter, projectedStateAfter)
@@ -105,8 +116,14 @@ func runLocked(options Options, forceOwnedTemp bool) Report {
 		enforceJSONL("run-decisions", runDecisionPath, policy.RunDecisionFileBytes, policy.RunDecisionArchives, options.DryRun, &report),
 	)
 	cacheDir := filepath.Join(options.RepoRoot, ".reconc", "cache")
+	generatedActive, generatedActiveErr := generatedBinaryActiveNames(cacheDir, options.Now, policy.AbandonedTempAge)
+	generatedPolicy := policy.GeneratedBinaries
+	if generatedActiveErr != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("inspect generated binary activity: %v", generatedActiveErr))
+		generatedPolicy = ClassPolicy{MaxFiles: -1, MaxBytes: -1}
+	}
 	report.Classes = append(report.Classes,
-		pruneClass("generated-binaries", cacheDir, policy.GeneratedBinaries, options.Now, options.DryRun, generatedBinaryActiveNames(cacheDir, options.Now, policy.AbandonedTempAge), isGeneratedBinary, &report),
+		pruneClass("generated-binaries", cacheDir, generatedPolicy, options.Now, options.DryRun, generatedActive, isGeneratedBinary, &report),
 		pruneRepoTemps(options, &report),
 	)
 	ownedTempClass, ownedTempScanned := pruneOwnedTempRootsInterval(options, forceOwnedTemp, &report)
@@ -175,7 +192,11 @@ func pruneProjectRootsInterval(options Options, force bool, report *Report) (Cla
 		report.Errors = append(report.Errors, fmt.Sprintf("lock project retention: %v", err))
 		return class, false
 	}
-	defer func() { _ = unlock() }()
+	defer func() {
+		if err := unlock(); err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("unlock project retention: %v", err))
+		}
+	}()
 	marker := filepath.Join(options.StateRoot, ".last-project-root-retention")
 	if !force {
 		if info, err := os.Stat(marker); err == nil && options.Now.Sub(info.ModTime()) < options.Policy.Interval {
@@ -212,14 +233,18 @@ func pruneProjectRoots(options Options, report *Report, preserveRecent bool) Cla
 		info, infoErr := entry.Info()
 		if infoErr != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("stat project state root %s: %v", path, infoErr))
-			continue
+			return class
 		}
 		size, latest, sizeErr := projectTreeSizeAndLatest(path, info.ModTime())
 		if sizeErr != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("inspect project state root %s: %v", path, sizeErr))
-			continue
+			return class
 		}
-		live := path == current || liveActiveSession(path, "", options.Now, options.Policy.Locks.MaxAge) != ""
+		activeSession, activeErr := liveActiveSession(path, "", options.Now, options.Policy.Locks.MaxAge)
+		if activeErr != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("resolve active session for project state root %s: %v", path, activeErr))
+		}
+		live := path == current || activeSession != "" || activeErr != nil
 		recent := preserveRecent && options.Policy.Locks.MaxAge > 0 && options.Now.Sub(latest) <= options.Policy.Locks.MaxAge
 		item := candidate{path: path, name: entry.Name(), size: size, mtime: latest, active: live || recent, dir: true}
 		class.BytesBefore += size
@@ -303,7 +328,11 @@ func pruneOwnedTempRootsInterval(options Options, force bool, report *Report) (C
 		report.Errors = append(report.Errors, fmt.Sprintf("lock global retention: %v", err))
 		return class, false
 	}
-	defer func() { _ = unlock() }()
+	defer func() {
+		if err := unlock(); err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("unlock global retention: %v", err))
+		}
+	}()
 	marker := filepath.Join(options.StateRoot, ".last-owned-temp-retention")
 	if !force {
 		if info, err := os.Stat(marker); err == nil && options.Now.Sub(info.ModTime()) < options.Policy.Interval {
@@ -352,8 +381,11 @@ func withPruneLock(options Options, run func() Report) Report {
 	if err != nil {
 		return Report{Errors: []string{fmt.Sprintf("lock retention: %v", err)}}
 	}
-	defer func() { _ = unlock() }()
-	return run()
+	report := run()
+	if err := unlock(); err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("unlock retention: %v", err))
+	}
+	return report
 }
 
 func pruneClass(name, dir string, policy ClassPolicy, now time.Time, dryRun bool, activeNames map[string]bool, include func(os.DirEntry) bool, report *Report) ClassReport {
@@ -372,7 +404,11 @@ func pruneClass(name, dir string, policy ClassPolicy, now time.Time, dryRun bool
 			continue
 		}
 		info, err := entry.Info()
-		if err != nil || !info.Mode().IsRegular() {
+		if err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("stat %s entry %s: %v", name, filepath.Join(dir, entry.Name()), err))
+			return class
+		}
+		if !info.Mode().IsRegular() {
 			continue
 		}
 		item := candidate{path: filepath.Join(dir, entry.Name()), name: entry.Name(), size: info.Size(), mtime: info.ModTime(), active: activeNames != nil && activeNames[entry.Name()]}
@@ -422,27 +458,56 @@ func removeCandidate(item candidate, dryRun bool, report *Report) bool {
 	return true
 }
 
-func liveActiveSession(project, requested string, now time.Time, maxAge time.Duration) string {
-	requested = strings.TrimSpace(requested)
+func liveActiveSession(project, requested string, now time.Time, maxAge time.Duration) (string, error) {
 	if requested == "" {
-		data, err := os.ReadFile(filepath.Join(project, "active-session.txt"))
-		if err == nil {
-			requested = strings.TrimSpace(string(data))
+		path := filepath.Join(project, "active-session.txt")
+		file, err := os.Open(path)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return "", nil
+			}
+			return "", fmt.Errorf("read %s: %w", path, err)
 		}
+		data, readErr := io.ReadAll(io.LimitReader(file, MaxSessionIDBytes+2))
+		closeErr := file.Close()
+		if readErr != nil {
+			return "", fmt.Errorf("read %s: %w", path, readErr)
+		}
+		if closeErr != nil {
+			return "", fmt.Errorf("close %s: %w", path, closeErr)
+		}
+		if len(data) > MaxSessionIDBytes+1 {
+			return "", fmt.Errorf("%s exceeds %d bytes", path, MaxSessionIDBytes+1)
+		}
+		requested = strings.TrimSuffix(string(data), "\n")
 	}
 	if requested == "" {
-		return ""
+		return "", nil
 	}
-	info, err := os.Stat(filepath.Join(project, "sessions", sessionFileID(requested)+".json"))
-	if err != nil || maxAge > 0 && now.Sub(info.ModTime()) > maxAge {
-		return ""
+	if err := ValidateSessionID(requested); err != nil {
+		return "", err
 	}
-	return requested
+	info, err := os.Stat(filepath.Join(project, "sessions", SessionFileID(requested)+".json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("stat active session state: %w", err)
+	}
+	if maxAge > 0 && now.Sub(info.ModTime()) > maxAge {
+		return "", nil
+	}
+	return requested, nil
 }
 
 func enforceJSONL(name, path string, maxBytes int64, archives int, dryRun bool, report *Report) ClassReport {
 	class := ClassReport{Name: name}
-	class.BytesBefore, class.FilesKept = jsonlRingSize(path, archives+32)
+	var err error
+	class.BytesBefore, class.FilesKept, err = jsonlRingSize(path, archives+32)
+	if err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("inspect %s ring: %v", name, err))
+		return class
+	}
 	if dryRun {
 		result, err := jsonl.Inspect(path, jsonl.Policy{MaxBytes: maxBytes, MaxArchives: archives})
 		if err != nil {
@@ -460,11 +525,14 @@ func enforceJSONL(name, path string, maxBytes int64, archives int, dryRun bool, 
 	}
 	class.BytesFreed = result.BytesFreed
 	class.FilesDeleted = result.FilesRemoved
-	class.BytesAfter, class.FilesKept = jsonlRingSize(path, archives)
+	class.BytesAfter, class.FilesKept, err = jsonlRingSize(path, archives)
+	if err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("inspect enforced %s ring: %v", name, err))
+	}
 	return class
 }
 
-func jsonlRingSize(path string, maxArchives int) (int64, int) {
+func jsonlRingSize(path string, maxArchives int) (int64, int, error) {
 	var bytes int64
 	files := 0
 	for index := 0; index <= maxArchives; index++ {
@@ -472,12 +540,19 @@ func jsonlRingSize(path string, maxArchives int) (int64, int) {
 		if index > 0 {
 			candidate = fmt.Sprintf("%s.%d", path, index)
 		}
-		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() {
+		info, err := os.Stat(candidate)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return bytes, files, err
+		}
+		if info.Mode().IsRegular() {
 			bytes += info.Size()
 			files++
 		}
 	}
-	return bytes, files
+	return bytes, files, nil
 }
 
 func isGeneratedBinary(entry os.DirEntry) bool {
@@ -485,16 +560,26 @@ func isGeneratedBinary(entry os.DirEntry) bool {
 	return strings.HasPrefix(name, "workflow-audit-") || name == "generated-reference-audit" || name == "promote-task-done"
 }
 
-func generatedBinaryActiveNames(cacheDir string, now time.Time, grace time.Duration) map[string]bool {
+func generatedBinaryActiveNames(cacheDir string, now time.Time, grace time.Duration) (map[string]bool, error) {
 	active := map[string]bool{}
-	entries, _ := os.ReadDir(cacheDir)
+	entries, err := os.ReadDir(cacheDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return active, nil
+	}
+	if err != nil {
+		return nil, err
+	}
 	for _, entry := range entries {
 		if entry.IsDir() || !isGeneratedBinary(entry) {
 			continue
 		}
-		active[entry.Name()] = generatedBinaryBuildActive(cacheDir, entry.Name(), now, grace)
+		buildActive, err := generatedBinaryBuildActive(cacheDir, entry.Name(), now, grace)
+		if err != nil {
+			return nil, err
+		}
+		active[entry.Name()] = buildActive
 	}
-	return active
+	return active, nil
 }
 
 func classTotals(classes []ClassReport, names ...string) (int64, int64) {

@@ -35,7 +35,11 @@ func TestAppendBoundedUnderConcurrency(t *testing.T) {
 	for err := range errors {
 		t.Fatal(err)
 	}
-	for _, source := range PathsOldestFirst(path, policy.MaxArchives) {
+	paths, err := PathsOldestFirst(path, policy.MaxArchives)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range paths {
 		info, err := os.Stat(source)
 		if err != nil {
 			t.Fatal(err)
@@ -86,7 +90,11 @@ func TestEnforceCompactsLegacyFilesAndArchives(t *testing.T) {
 	if result.BytesFreed == 0 || result.FilesRemoved != 2 {
 		t.Fatalf("unexpected enforce result: %+v", result)
 	}
-	for _, source := range PathsOldestFirst(path, 2) {
+	paths, err := PathsOldestFirst(path, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range paths {
 		info, err := os.Stat(source)
 		if err != nil {
 			t.Fatal(err)
@@ -110,11 +118,21 @@ func TestAppendCompactsLegacyFilesBeforeRotation(t *testing.T) {
 	if err := Append(path, []byte(`{"new":true}`), policy); err != nil {
 		t.Fatal(err)
 	}
-	for _, source := range PathsOldestFirst(path, policy.MaxArchives) {
+	paths, err := PathsOldestFirst(path, policy.MaxArchives)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range paths {
 		info, err := os.Stat(source)
 		if err != nil || info.Size() > policy.MaxBytes {
 			t.Fatalf("legacy rotation escaped bound for %s: info=%v err=%v", source, info, err)
 		}
+	}
+}
+
+func TestPathsOldestFirstRejectsInvalidArchiveBound(t *testing.T) {
+	if _, err := PathsOldestFirst(filepath.Join(t.TempDir(), "events.jsonl"), 33); err == nil {
+		t.Fatal("expected invalid archive bound to fail")
 	}
 }
 

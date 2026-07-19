@@ -475,7 +475,7 @@ func evidenceOverflowMessage(state SessionState) string {
 // reports/<id>.json path. Atomic via tmp-rename.
 func writeLatestReport(repoRoot, sessionID string, report *runtime.CheckReport) error {
 	path := sessionReportPath(repoRoot, sessionID)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := ensurePrivateStateDir(filepath.Dir(path)); err != nil {
 		return fmt.Errorf("mkdir reports dir: %w", err)
 	}
 	body, err := json.MarshalIndent(report, "", "  ")
@@ -483,7 +483,10 @@ func writeLatestReport(repoRoot, sessionID string, report *runtime.CheckReport) 
 		return fmt.Errorf("marshal report: %w", err)
 	}
 	body = append(body, '\n')
-	if _, err := atomicfile.WriteIfChanged(path, body, 0o644); err != nil {
+	if len(body) > maxStopReportBytes {
+		return fmt.Errorf("report exceeds %d bytes", maxStopReportBytes)
+	}
+	if _, err := atomicfile.WriteIfChanged(path, body, 0o600); err != nil {
 		return fmt.Errorf("write report: %w", err)
 	}
 	return nil

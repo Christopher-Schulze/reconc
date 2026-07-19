@@ -440,6 +440,19 @@ func TestRunWithCacheFailsClosedOnTreeWalkError(t *testing.T) {
 	}
 }
 
+func TestCacheInputsHashFailsClosedOnStructureStatError(t *testing.T) {
+	root := t.TempDir()
+	notDirectory := filepath.Join(root, "file")
+	if err := os.WriteFile(notDirectory, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inputs := newCacheInputs()
+	inputs.structurePaths = append(inputs.structurePaths, filepath.Join(notDirectory, "child"))
+	if _, err := inputs.Hash(); err == nil || !strings.Contains(err.Error(), "hash structure metadata") {
+		t.Fatalf("structure metadata failure was hidden: %v", err)
+	}
+}
+
 func TestCacheInputsHashStable(t *testing.T) {
 	root := t.TempDir()
 	writeCacheFixture(t, root, "a.txt", "alpha")

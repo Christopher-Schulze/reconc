@@ -28,6 +28,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -133,11 +134,11 @@ func projectDir(repoRoot string) string {
 }
 
 func sessionStatePath(repoRoot, sessionID string) string {
-	return filepath.Join(projectDir(repoRoot), "sessions", sanitiseID(sessionID)+".json")
+	return filepath.Join(projectDir(repoRoot), "sessions", sessionFileKey(sessionID)+".json")
 }
 
 func sessionReportPath(repoRoot, sessionID string) string {
-	return filepath.Join(projectDir(repoRoot), "reports", sanitiseID(sessionID)+".json")
+	return filepath.Join(projectDir(repoRoot), "reports", sessionFileKey(sessionID)+".json")
 }
 
 func activeSessionPath(repoRoot string) string {
@@ -145,7 +146,15 @@ func activeSessionPath(repoRoot string) string {
 }
 
 func sessionLockPath(repoRoot, sessionID string) string {
-	return filepath.Join(projectDir(repoRoot), "locks", sanitiseID(sessionID)+".lock")
+	return filepath.Join(projectDir(repoRoot), "locks", sessionFileKey(sessionID)+".lock")
+}
+
+func legacySessionStatePath(repoRoot, sessionID string) string {
+	return filepath.Join(projectDir(repoRoot), "sessions", sanitiseID(sessionID)+".json")
+}
+
+func legacySessionReportPath(repoRoot, sessionID string) string {
+	return filepath.Join(projectDir(repoRoot), "reports", sanitiseID(sessionID)+".json")
 }
 
 // sanitiseID scrubs a session id to a safe filename. Claude Code sends
@@ -168,6 +177,14 @@ func sanitiseID(id string) string {
 		return "unknown"
 	}
 	return out
+}
+
+func sessionFileKey(id string) string {
+	return retention.SessionFileID(id)
+}
+
+func validateSessionID(sessionID string) error {
+	return retention.ValidateSessionID(sessionID)
 }
 
 // --- resolve repo root ----------------------------------------------
@@ -205,6 +222,9 @@ func ResolveRepoRoot(repoRoot string) (string, error) {
 // content is a hard error; we refuse to keep running with a state
 // file we can't trust.
 func LoadSessionState(repoRoot, sessionID string) (SessionState, error) {
+	if err := validateSessionID(sessionID); err != nil {
+		return SessionState{}, err
+	}
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
 		return SessionState{}, err
@@ -213,18 +233,30 @@ func LoadSessionState(repoRoot, sessionID string) (SessionState, error) {
 }
 
 func loadSessionStateResolved(root, sessionID string) (SessionState, error) {
+	if err := validateSessionID(sessionID); err != nil {
+		return SessionState{}, err
+	}
 	path := sessionStatePath(root, sessionID)
 	file, err := os.Open(path)
+	loadedLegacyPath := false
+	legacyPath := legacySessionStatePath(root, sessionID)
+	if os.IsNotExist(err) && legacyPath != path {
+		file, err = os.Open(legacyPath)
+		if err == nil {
+			path = legacyPath
+			loadedLegacyPath = true
+		}
+	}
 	if err != nil {
 		if os.IsNotExist(err) {
 			return emptyState(root, sessionID), nil
 		}
 		return SessionState{}, fmt.Errorf("read session state %s: %w", path, err)
 	}
-	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, maxLegacySessionStateBytes+1))
-	if err != nil {
-		return SessionState{}, fmt.Errorf("read session state %s: %w", path, err)
+	data, readErr := io.ReadAll(io.LimitReader(file, maxLegacySessionStateBytes+1))
+	closeErr := file.Close()
+	if readErr != nil || closeErr != nil {
+		return SessionState{}, fmt.Errorf("read session state %s: %w", path, errors.Join(readErr, closeErr))
 	}
 	if len(data) > maxLegacySessionStateBytes {
 		return SessionState{}, fmt.Errorf("session state exceeds %d-byte recovery limit: %s", maxLegacySessionStateBytes, path)
@@ -234,7 +266,8 @@ func loadSessionStateResolved(root, sessionID string) (SessionState, error) {
 	if err := json.Unmarshal(data, &state); err != nil {
 		return SessionState{}, fmt.Errorf("session state is not valid JSON: %s: %w", path, err)
 	}
-	// Validate every field so the rest of the adapter can trust it.
+	// Validate identity and command-result invariants before normalizing the
+	// bounded evidence collections below.
 	if state.SessionID != "" && state.SessionID != sessionID {
 		return SessionState{}, fmt.Errorf("%s: session_id %q does not match requested session %q", path, state.SessionID, sessionID)
 	}
@@ -254,18 +287,6 @@ func loadSessionStateResolved(root, sessionID string) (SessionState, error) {
 			state.WriteEpochs[writePath] = state.EvidenceEpoch
 		}
 	}
-	if err := validateStringList(state.ReadPaths, "read_paths", path); err != nil {
-		return SessionState{}, err
-	}
-	if err := validateStringList(state.WritePaths, "write_paths", path); err != nil {
-		return SessionState{}, err
-	}
-	if err := validateStringList(state.Commands, "commands", path); err != nil {
-		return SessionState{}, err
-	}
-	if err := validateStringList(state.Claims, "claims", path); err != nil {
-		return SessionState{}, err
-	}
 	for i, cr := range state.CommandResults {
 		if strings.TrimSpace(cr.Command) == "" {
 			return SessionState{}, fmt.Errorf("%s: command_results[%d].command is empty", path, i)
@@ -276,20 +297,13 @@ func loadSessionStateResolved(root, sessionID string) (SessionState, error) {
 	}
 	expectedReportPath := sessionReportPath(root, sessionID)
 	if state.ReportPath != "" && filepath.Clean(state.ReportPath) != filepath.Clean(expectedReportPath) {
-		return SessionState{}, fmt.Errorf("%s: report_path %q does not match session report %q", path, state.ReportPath, expectedReportPath)
+		legacyReportPath := legacySessionReportPath(root, sessionID)
+		if !loadedLegacyPath || filepath.Clean(state.ReportPath) != filepath.Clean(legacyReportPath) {
+			return SessionState{}, fmt.Errorf("%s: report_path %q does not match session report %q", path, state.ReportPath, expectedReportPath)
+		}
 	}
 	state.ReportPath = expectedReportPath
 	return normalizeSessionState(state), nil
-}
-
-func validateStringList(xs []string, field, srcPath string) error {
-	for i, v := range xs {
-		_ = v // just the type assertion matters; stringy by Go type system
-		if i < 0 {
-			return fmt.Errorf("%s: %s index negative", srcPath, field)
-		}
-	}
-	return nil
 }
 
 // saveSessionState writes the state file atomically. Tmp-file-then-
@@ -300,18 +314,31 @@ func saveSessionStateLocked(state SessionState) error {
 }
 
 func saveSessionStateLockedIfChanged(state SessionState) (bool, error) {
+	if err := validateSessionID(state.SessionID); err != nil {
+		return false, err
+	}
 	path := sessionStatePath(state.RepoRoot, state.SessionID)
+	if err := ensurePrivateStateDir(filepath.Dir(path)); err != nil {
+		return false, fmt.Errorf("mkdir session dir: %w", err)
+	}
 	// Deterministic marshalling (sorted keys, 2-space indent, trailing
 	// newline) so diffing session state across runs is git-friendly.
 	data, err := marshalStateDeterministic(state)
 	if err != nil {
 		return false, fmt.Errorf("marshal session state: %w", err)
 	}
-	written, err := atomicfile.WriteIfChanged(path, data, 0o644)
+	written, err := atomicfile.WriteIfChanged(path, data, 0o600)
 	if err != nil {
 		return false, fmt.Errorf("write session state: %w", err)
 	}
 	return written, nil
+}
+
+func ensurePrivateStateDir(path string) error {
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o700)
 }
 
 func saveSessionState(state SessionState) error {
@@ -326,21 +353,33 @@ func saveSessionState(state SessionState) error {
 }
 
 func withSessionLock(repoRoot, sessionID string, fn func() error) error {
+	if err := validateSessionID(sessionID); err != nil {
+		return err
+	}
 	lockPath := sessionLockPath(repoRoot, sessionID)
-	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
+	if err := ensurePrivateStateDir(filepath.Dir(lockPath)); err != nil {
 		return fmt.Errorf("mkdir session lock dir: %w", err)
 	}
-	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return fmt.Errorf("open session lock: %w", err)
 	}
-	defer file.Close()
 	unlock, err := filelock.Lock(file)
 	if err != nil {
-		return fmt.Errorf("lock session state: %w", err)
+		closeErr := file.Close()
+		return errors.Join(fmt.Errorf("lock session state: %w", err), wrapOperationError("close session lock", closeErr))
 	}
-	defer func() { _ = unlock() }()
-	return fn()
+	fnErr := fn()
+	unlockErr := unlock()
+	closeErr := file.Close()
+	return errors.Join(fnErr, wrapOperationError("unlock session state", unlockErr), wrapOperationError("close session lock", closeErr))
+}
+
+func wrapOperationError(operation string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s: %w", operation, err)
 }
 
 // MutateSessionState serializes load -> mutate -> save for one session.
@@ -422,6 +461,9 @@ func InitializeSessionState(repoRoot, sessionID string) (SessionState, error) {
 }
 
 func initializeSessionState(repoRoot, sessionID, runtime string) (SessionState, error) {
+	if err := validateSessionID(sessionID); err != nil {
+		return SessionState{}, err
+	}
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
 		return SessionState{}, err
@@ -471,21 +513,31 @@ func EnsureSessionState(repoRoot, sessionID string) (SessionState, error) {
 // (called at SessionEnd). The corresponding report file is preserved
 // so post-session diagnostics remain available.
 func CleanupSessionState(repoRoot, sessionID string) error {
+	if err := validateSessionID(sessionID); err != nil {
+		return err
+	}
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
 		return err
 	}
-	statePath := sessionStatePath(root, sessionID)
-	if err := os.Remove(statePath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove session state: %w", err)
-	}
-	activePath := activeSessionPath(root)
-	if data, err := os.ReadFile(activePath); err == nil {
-		if strings.TrimSpace(string(data)) == sessionID {
-			_ = os.Remove(activePath)
+	return withSessionLock(root, sessionID, func() error {
+		activePath := activeSessionPath(root)
+		activeID, err := readActiveSessionID(activePath)
+		if err != nil && !os.IsNotExist(err) {
+			return err
 		}
-	}
-	return nil
+		for _, statePath := range []string{sessionStatePath(root, sessionID), legacySessionStatePath(root, sessionID)} {
+			if err := os.Remove(statePath); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("remove session state: %w", err)
+			}
+		}
+		if activeID == sessionID {
+			if err := os.Remove(activePath); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("remove active session file: %w", err)
+			}
+		}
+		return nil
+	})
 }
 
 // ResolveActiveSessionID returns the last-known active session id for
@@ -496,14 +548,30 @@ func ResolveActiveSessionID(repoRoot string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(activeSessionPath(root))
+	return readActiveSessionID(activeSessionPath(root))
+}
+
+func readActiveSessionID(path string) (string, error) {
+	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil
 		}
 		return "", fmt.Errorf("read active session file: %w", err)
 	}
-	return strings.TrimSpace(string(data)), nil
+	data, readErr := io.ReadAll(io.LimitReader(file, maxSessionIDBytes+2))
+	closeErr := file.Close()
+	if readErr != nil || closeErr != nil {
+		return "", fmt.Errorf("read active session file: %w", errors.Join(readErr, closeErr))
+	}
+	if len(data) > maxSessionIDBytes+1 {
+		return "", fmt.Errorf("active session file exceeds %d bytes", maxSessionIDBytes+1)
+	}
+	sessionID := strings.TrimSuffix(string(data), "\n")
+	if err := validateSessionID(sessionID); err != nil {
+		return "", fmt.Errorf("invalid active session file: %w", err)
+	}
+	return sessionID, nil
 }
 
 func writeActiveSession(repoRoot, sessionID string) error {
@@ -512,8 +580,14 @@ func writeActiveSession(repoRoot, sessionID string) error {
 }
 
 func writeActiveSessionIfChanged(repoRoot, sessionID string) (bool, error) {
+	if err := validateSessionID(sessionID); err != nil {
+		return false, err
+	}
 	path := activeSessionPath(repoRoot)
-	written, err := atomicfile.WriteIfChanged(path, []byte(sessionID+"\n"), 0o644)
+	if err := ensurePrivateStateDir(filepath.Dir(path)); err != nil {
+		return false, fmt.Errorf("mkdir active-session dir: %w", err)
+	}
+	written, err := atomicfile.WriteIfChanged(path, []byte(sessionID+"\n"), 0o600)
 	if err != nil {
 		return false, fmt.Errorf("write active session: %w", err)
 	}

@@ -34,7 +34,11 @@ func Inspect(path string, policy Policy) (EnforceResult, error) {
 		return EnforceResult{}, err
 	}
 	result := EnforceResult{}
-	for _, candidate := range archiveCandidates(path) {
+	candidates, err := archiveCandidates(path)
+	if err != nil {
+		return result, err
+	}
+	for _, candidate := range candidates {
 		if candidate.index <= policy.MaxArchives {
 			continue
 		}
@@ -86,7 +90,7 @@ func Append(path string, record []byte, policy Policy) error {
 		if err != nil {
 			return err
 		}
-		_, writeErr := file.Write(record)
+		writeErr := writeFull(file, record)
 		closeErr := file.Close()
 		if writeErr != nil {
 			return writeErr
@@ -103,7 +107,11 @@ func Enforce(path string, policy Policy) (EnforceResult, error) {
 	}
 	result := EnforceResult{}
 	err := withLock(path, func() error {
-		for _, candidate := range archiveCandidates(path) {
+		candidates, err := archiveCandidates(path)
+		if err != nil {
+			return err
+		}
+		for _, candidate := range candidates {
 			if candidate.index > policy.MaxArchives {
 				info, err := os.Stat(candidate.path)
 				if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -136,18 +144,25 @@ func Enforce(path string, policy Policy) (EnforceResult, error) {
 
 // PathsOldestFirst returns existing bounded-ring files in chronological
 // order, then the live file. Readers use this to preserve append order.
-func PathsOldestFirst(path string, maxArchives int) []string {
+func PathsOldestFirst(path string, maxArchives int) ([]string, error) {
+	if maxArchives < 0 || maxArchives > 32 {
+		return nil, errors.New("jsonl maxArchives must be between 0 and 32")
+	}
 	paths := make([]string, 0, maxArchives+1)
 	for index := maxArchives; index >= 1; index-- {
 		candidate := fmt.Sprintf("%s.%d", path, index)
 		if _, err := os.Stat(candidate); err == nil {
 			paths = append(paths, candidate)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
 		}
 	}
 	if _, err := os.Stat(path); err == nil {
 		paths = append(paths, path)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
 	}
-	return paths
+	return paths, nil
 }
 
 func validatePolicy(policy Policy) error {
@@ -173,8 +188,29 @@ func withLock(path string, fn func() error) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = unlock() }()
-	return fn()
+	fnErr := fn()
+	unlockErr := unlock()
+	if fnErr != nil {
+		return fnErr
+	}
+	if unlockErr != nil {
+		return fmt.Errorf("unlock JSONL: %w", unlockErr)
+	}
+	return nil
+}
+
+func writeFull(writer io.Writer, data []byte) error {
+	for len(data) > 0 {
+		written, err := writer.Write(data)
+		if err != nil {
+			return err
+		}
+		if written <= 0 || written > len(data) {
+			return io.ErrShortWrite
+		}
+		data = data[written:]
+	}
+	return nil
 }
 
 func rotate(path string, maxArchives int, maxBytes int64) error {
@@ -264,15 +300,26 @@ type archiveCandidate struct {
 	index int
 }
 
-func archiveCandidates(path string) []archiveCandidate {
-	matches, _ := filepath.Glob(path + ".*")
-	out := make([]archiveCandidate, 0, len(matches))
-	for _, match := range matches {
-		suffix := strings.TrimPrefix(match, path+".")
+func archiveCandidates(path string) ([]archiveCandidate, error) {
+	directory := filepath.Dir(path)
+	entries, err := os.ReadDir(directory)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	prefix := filepath.Base(path) + "."
+	out := make([]archiveCandidate, 0, len(entries))
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), prefix) {
+			continue
+		}
+		suffix := strings.TrimPrefix(entry.Name(), prefix)
 		index, err := strconv.Atoi(suffix)
 		if err == nil && index > 0 {
-			out = append(out, archiveCandidate{path: match, index: index})
+			out = append(out, archiveCandidate{path: filepath.Join(directory, entry.Name()), index: index})
 		}
 	}
-	return out
+	return out, nil
 }

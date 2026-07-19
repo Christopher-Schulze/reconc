@@ -1,7 +1,9 @@
 package agentsession
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -34,5 +36,44 @@ func TestRecordCommandOutcomeNeedsNoActiveSession(t *testing.T) {
 	t.Setenv(StateRootEnv, filepath.Join(t.TempDir(), "state"))
 	if err := RecordCommandOutcome(t.TempDir(), "go test ./...", "success", 0); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestActiveEvidenceRejectsCorruptActiveState(t *testing.T) {
+	t.Setenv(StateRootEnv, filepath.Join(t.TempDir(), "state"))
+	repo := t.TempDir()
+	if _, err := InitializeSessionState(repo, "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sessionStatePath(root, "session-1"), []byte("{invalid"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ActiveEvidence(repo); err == nil || !strings.Contains(err.Error(), "not valid JSON") {
+		t.Fatalf("expected corrupt active-state error, got %v", err)
+	}
+}
+
+func TestRecordClaimSurfacesReportRefreshFailure(t *testing.T) {
+	t.Setenv(StateRootEnv, filepath.Join(t.TempDir(), "state"))
+	repo := t.TempDir()
+	if _, err := InitializeSessionState(repo, "session-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".reconc.yml"), []byte("rules: [\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RecordClaim(repo, "ci-green", "session-1"); err == nil || !strings.Contains(err.Error(), "refresh report") {
+		t.Fatalf("expected report-refresh error, got %v", err)
+	}
+	state, err := LoadSessionState(repo, "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Claims) != 1 || state.Claims[0] != "ci-green" {
+		t.Fatalf("idempotent claim mutation was not preserved: %+v", state.Claims)
 	}
 }

@@ -32,15 +32,19 @@ type Options struct {
 }
 
 type runnerDependencies struct {
-	command   commandRunner
-	stop      func(string, []byte) agentsession.Result
-	preflight func(context.Context, string, string, commandRunner) error
+	command      commandRunner
+	stop         func(string, []byte) agentsession.Result
+	sessionStart func(string, []byte) agentsession.Result
+	sessionEnd   func(string, []byte) agentsession.Result
+	preflight    func(context.Context, string, string, commandRunner) error
 }
 
 var defaultDependencies = runnerDependencies{
-	command:   exec.CommandContext,
-	stop:      agentsession.RunStop,
-	preflight: preflight,
+	command:      exec.CommandContext,
+	stop:         agentsession.RunStop,
+	sessionStart: agentsession.RunSessionStart,
+	sessionEnd:   agentsession.RunSessionEnd,
+	preflight:    preflight,
 }
 
 // PolicyBlockedError means Grok exhausted the bounded continuation budget while
@@ -59,7 +63,7 @@ func Run(ctx context.Context, options Options) error {
 	return run(ctx, options, defaultDependencies)
 }
 
-func run(ctx context.Context, options Options, dependencies runnerDependencies) error {
+func run(ctx context.Context, options Options, dependencies runnerDependencies) (runErr error) {
 	if options.Stdout == nil {
 		options.Stdout = io.Discard
 	}
@@ -117,7 +121,13 @@ func run(ctx context.Context, options Options, dependencies runnerDependencies) 
 	}
 	wait := make(chan error, 1)
 	go func() { wait <- cmd.Wait() }()
-	defer stopAgentProcess(stdin, cmd, wait)
+	defer func() {
+		cleanupErr := stopAgentProcess(stdin, cmd, wait)
+		if ctx.Err() != nil && runErr == nil {
+			return
+		}
+		runErr = errors.Join(runErr, cleanupErr)
+	}()
 
 	renderer := &streamRenderer{writer: options.Stdout}
 	client := newACPClient(stdout, stdin, renderer.handle)
@@ -167,19 +177,28 @@ func run(ctx context.Context, options Options, dependencies runnerDependencies) 
 	if strings.TrimSpace(session.SessionID) == "" {
 		return fmt.Errorf("grok ACP returned an empty sessionId")
 	}
-	startPayload, _ := json.Marshal(map[string]interface{}{
+	startPayload, err := json.Marshal(map[string]interface{}{
 		"session_id":     session.SessionID,
 		"reconc_runtime": "grok-acp",
 	})
-	if result := agentsession.RunSessionStart(root, startPayload); result.ExitCode != 0 {
+	if err != nil {
+		return fmt.Errorf("encode Reconc Grok session start: %w", err)
+	}
+	if result := dependencies.sessionStart(root, startPayload); result.ExitCode != 0 {
 		return fmt.Errorf("initialize Reconc Grok session: %s", strings.TrimSpace(result.Stderr))
 	}
 	defer func() {
-		endPayload, _ := json.Marshal(map[string]interface{}{
+		endPayload, err := json.Marshal(map[string]interface{}{
 			"session_id":     session.SessionID,
 			"reconc_runtime": "grok-acp",
 		})
-		_ = agentsession.RunSessionEnd(root, endPayload)
+		if err != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("encode Reconc Grok session end: %w", err))
+			return
+		}
+		if result := dependencies.sessionEnd(root, endPayload); result.ExitCode != 0 {
+			runErr = errors.Join(runErr, fmt.Errorf("finalize Reconc Grok session: %s", strings.TrimSpace(result.Stderr)))
+		}
 	}()
 
 	prompt := options.Prompt
@@ -198,14 +217,19 @@ func run(ctx context.Context, options Options, dependencies runnerDependencies) 
 			}
 			return fmt.Errorf("run Grok ACP prompt: %w", err)
 		}
-		renderer.endTurn()
+		if err := renderer.endTurn(); err != nil {
+			return fmt.Errorf("render Grok ACP output: %w", err)
+		}
 
-		stopPayload, _ := json.Marshal(map[string]interface{}{
+		stopPayload, err := json.Marshal(map[string]interface{}{
 			"session_id":          session.SessionID,
 			"reconc_runtime":      "grok-acp",
 			"strict_continuation": true,
 			"reason":              promptResult.StopReason,
 		})
+		if err != nil {
+			return fmt.Errorf("encode strict Grok Stop payload: %w", err)
+		}
 		stopResult := dependencies.stop(root, stopPayload)
 		if stopResult.ExitCode != 0 {
 			return fmt.Errorf("evaluate strict Grok Stop gate: %s", strings.TrimSpace(stopResult.Stderr))
@@ -217,7 +241,9 @@ func run(ctx context.Context, options Options, dependencies runnerDependencies) 
 		if continuation >= options.MaxContinuations {
 			return &PolicyBlockedError{Reason: fmt.Sprintf("Reconc still blocks Grok after %d continuation prompts: %s", options.MaxContinuations, reason)}
 		}
-		fmt.Fprintf(serializedStderr, "reconc grok: continuation %d/%d\n", continuation+1, options.MaxContinuations)
+		if _, err := fmt.Fprintf(serializedStderr, "reconc grok: continuation %d/%d\n", continuation+1, options.MaxContinuations); err != nil {
+			return fmt.Errorf("render Grok continuation status: %w", err)
+		}
 		prompt = reason
 	}
 }
@@ -261,17 +287,25 @@ func continuationReason(stdout string) string {
 	return ""
 }
 
-func stopAgentProcess(stdin io.Closer, cmd *exec.Cmd, wait <-chan error) {
-	_ = stdin.Close()
+func stopAgentProcess(stdin io.Closer, cmd *exec.Cmd, wait <-chan error) error {
+	closeErr := stdin.Close()
 	select {
-	case <-wait:
-		return
+	case waitErr := <-wait:
+		return errors.Join(closeErr, waitErr)
 	case <-time.After(2 * time.Second):
 	}
-	if cmd.Process != nil {
-		_ = cmd.Process.Kill()
+	if cmd.Process == nil {
+		return errors.Join(closeErr, errors.New("grok ACP process is unavailable during cleanup"))
 	}
-	<-wait
+	if err := cmd.Process.Kill(); err != nil {
+		return errors.Join(closeErr, fmt.Errorf("kill Grok ACP process: %w", err))
+	}
+	select {
+	case waitErr := <-wait:
+		return errors.Join(closeErr, waitErr)
+	case <-time.After(2 * time.Second):
+		return errors.Join(closeErr, errors.New("grok ACP process did not exit after kill"))
+	}
 }
 
 type streamRenderer struct {
@@ -279,6 +313,7 @@ type streamRenderer struct {
 	writer      io.Writer
 	wrote       bool
 	lastNewline bool
+	err         error
 }
 
 type lockedWriter struct {
@@ -308,17 +343,23 @@ func (r *streamRenderer) handle(params json.RawMessage) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	_, _ = io.WriteString(r.writer, notification.Update.Content.Text)
+	_, err := io.WriteString(r.writer, notification.Update.Content.Text)
+	if err != nil && r.err == nil {
+		r.err = err
+	}
 	r.wrote = true
 	r.lastNewline = strings.HasSuffix(notification.Update.Content.Text, "\n")
 }
 
-func (r *streamRenderer) endTurn() {
+func (r *streamRenderer) endTurn() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.wrote && !r.lastNewline {
-		_, _ = io.WriteString(r.writer, "\n")
+	if r.err == nil && r.wrote && !r.lastNewline {
+		_, r.err = io.WriteString(r.writer, "\n")
 	}
+	err := r.err
 	r.wrote = false
 	r.lastNewline = false
+	r.err = nil
+	return err
 }

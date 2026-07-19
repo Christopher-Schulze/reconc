@@ -95,7 +95,10 @@ func TestWindowsLeaderPipeDiscovery(t *testing.T) {
 	t.Cleanup(func() { findWindowsLeaderPipes = original })
 	t.Setenv(leaderSocketEnv, "")
 
-	candidates := leaderSocketCandidates()
+	candidates, err := leaderSocketCandidates()
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := []string{windowsPipeRoot + "grok-leader-aaaa", windowsPipeRoot + "grok-leader-bbbb"}
 	if strings.Join(candidates, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("candidates = %v, want %v", candidates, want)

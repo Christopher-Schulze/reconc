@@ -146,7 +146,10 @@ func Rotate(repoRoot string, opts Options) (*Result, error) {
 	}
 
 	var archiveBuf strings.Builder
-	existingArchive, _ := os.ReadFile(archivePath)
+	existingArchive, err := os.ReadFile(archivePath)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("read existing archive: %w", err)
+	}
 	archived := archivedSectionSet(existingArchive)
 	if len(existingArchive) > 0 {
 		archiveBuf.Write(existingArchive)
@@ -226,7 +229,7 @@ func ListArchives(repoRoot string, opts Options) ([]ArchiveInfo, error) {
 		}
 		info, err := e.Info()
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("stat archive %s: %w", filepath.Join(archiveDir, e.Name()), err)
 		}
 		relPath := filepath.Join(opts.ArchiveDir, e.Name())
 		out = append(out, ArchiveInfo{

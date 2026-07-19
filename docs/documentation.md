@@ -421,6 +421,10 @@ decisions are appended only for material transitions. Session state is
 hard-capped at 1 MiB; every evidence collection has both item and byte limits,
 repeated command results are deduplicated, and any omitted security-relevant
 evidence sets a persisted overflow marker that blocks PreToolUse and Stop.
+Host session IDs are validated exactly and mapped to collision-resistant file
+keys. State, reports, active pointers, and locks use bounded reads, private
+permissions, atomic publication, and cross-process locking; legacy sanitized
+paths migrate only after their stored identity and repository binding pass.
 
 Default persistent budgets are 32 session files / 8 MiB / 14 days, 32 reports
 / 8 MiB / 14 days, 128 locks / 1 MiB / 24 hours, 64 staged command proofs /
@@ -440,6 +444,8 @@ working day passes. Active session/report/lock files, live build-lock targets,
 run state/locks, and recent temp trees are never deleted to force a budget.
 Global temp and project-root scanning use independent six-hour markers, so
 multiple repos do not re-walk either tree on every session start.
+Durable publication and CLI output paths propagate write, sync, close, and
+unlock failures instead of reporting partial output as success.
 
 ## Policy Packs And Native Assurance
 
@@ -731,7 +737,8 @@ and `reconc grok` exports exactly that into its spawned agent so the strict ACP
 runner stays the only continuation driver there. Without a leader endpoint the
 TUI Stop remains passive. `reconc doctor --deep` registers, requires leader
 protocol version 1, and verifies `_x.ai/interject` with a random nonexistent
-session before reporting the `Grok leader steering` check as active.
+session before reporting the `Grok leader steering` check as active; endpoint
+discovery failures remain explicit diagnostic failures.
 `reconc run on|off|status|log` is the canonical AI-operated repository switch.
 Its durable state applies only to the selected repository, not the whole machine.
 Repository mode persists across sessions for Claude Code, Codex, Cursor,
@@ -830,7 +837,9 @@ to stderr for hook latency diagnosis.
 Require-script subprocesses run in their own process group; on timeout Reconc
 sends SIGTERM to the group and escalates to SIGKILL after the configured kill
 grace period, so shell grandchildren such as `go build` compiler workers cannot
-survive as orphans after a blocked hook. Workflow-audit launchers build their
+survive as orphans after a blocked hook. Workflow-audit launchers bind their
+cache keys to a recursive content digest of the runner source, module files,
+and generated inputs; missing or unreadable inputs fail closed. They build
 cached binaries behind an atomic mkdir build lock and publish via temp binary +
 rename; parallel agent hooks therefore wait for one rebuild instead of stampeding
 the Go compiler or exposing a partially written cache binary. Direct audit Git

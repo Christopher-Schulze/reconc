@@ -16,6 +16,7 @@ import (
 	stderrors "errors"
 	"fmt"
 	"io"
+	"sync"
 )
 
 // CLIError carries an exit code alongside an error message so the CLI
@@ -45,7 +46,14 @@ func ExitCode(err error) int {
 
 // Run parses argv and dispatches to the matching subcommand. stdout and
 // stderr are explicit so tests can capture output without touching os.Stdout.
-func Run(argv []string, version string, stdout, stderr io.Writer) error {
+func Run(argv []string, version string, stdout, stderr io.Writer) (runErr error) {
+	trackedStdout := &trackedOutputWriter{writer: stdout}
+	trackedStderr := &trackedOutputWriter{writer: stderr}
+	stdout = trackedStdout
+	stderr = trackedStderr
+	defer func() {
+		runErr = stderrors.Join(runErr, trackedStdout.Err(), trackedStderr.Err())
+	}()
 	if len(argv) == 0 {
 		printUsage(stdout, version)
 		return nil
@@ -144,6 +152,34 @@ func Run(argv []string, version string, stdout, stderr io.Writer) error {
 			Message:  fmt.Sprintf("reconc: subcommand %q is not yet implemented in this build; run `reconc --help` for the current surface", argv[0]),
 		}
 	}
+}
+
+type trackedOutputWriter struct {
+	mu     sync.Mutex
+	writer io.Writer
+	err    error
+}
+
+func (w *trackedOutputWriter) Write(data []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.err != nil {
+		return 0, w.err
+	}
+	written, err := w.writer.Write(data)
+	if err == nil && written != len(data) {
+		err = io.ErrShortWrite
+	}
+	if err != nil {
+		w.err = err
+	}
+	return written, err
+}
+
+func (w *trackedOutputWriter) Err() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.err
 }
 
 func printUsage(w io.Writer, version string) {

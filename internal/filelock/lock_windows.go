@@ -9,7 +9,10 @@ import (
 	"unsafe"
 )
 
-const lockfileExclusiveLock = 0x00000002
+const (
+	lockfileFailImmediately = 0x00000001
+	lockfileExclusiveLock   = 0x00000002
+)
 
 var (
 	kernel32         = syscall.NewLazyDLL("kernel32.dll")
@@ -20,9 +23,18 @@ var (
 // Lock takes a blocking exclusive lock on file and returns its unlock
 // function. The caller must keep file open until after unlock.
 func Lock(file *os.File) (func() error, error) {
+	return lock(file, lockfileExclusiveLock)
+}
+
+// TryLock takes an exclusive lock without waiting for another owner.
+func TryLock(file *os.File) (func() error, error) {
+	return lock(file, lockfileExclusiveLock|lockfileFailImmediately)
+}
+
+func lock(file *os.File, flags uint32) (func() error, error) {
 	handle := syscall.Handle(file.Fd())
 	overlapped := &syscall.Overlapped{}
-	if err := lockFileEx(handle, lockfileExclusiveLock, 0, 1, 0, overlapped); err != nil {
+	if err := lockFileEx(handle, flags, 0, 1, 0, overlapped); err != nil {
 		return nil, err
 	}
 	return func() error {

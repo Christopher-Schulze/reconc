@@ -14,6 +14,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -89,7 +90,7 @@ type CompiledPolicy struct {
 // The compilerVersion string is recorded in the lockfile and surfaced
 // in the returned CompiledPolicy so callers can show "compiled with
 // reconc X.Y.Z" diagnostics.
-func CompileRepoPolicy(repoStartPath, compilerVersion string) (*CompiledPolicy, error) {
+func CompileRepoPolicy(repoStartPath, compilerVersion string) (compiled *CompiledPolicy, err error) {
 	bundle, err := ingest.LoadPolicySources(repoStartPath)
 	if err != nil {
 		return nil, err
@@ -105,7 +106,12 @@ func CompileRepoPolicy(repoStartPath, compilerVersion string) (*CompiledPolicy, 
 		if lockErr != nil {
 			return nil, lockErr
 		}
-		defer release()
+		defer func() {
+			if releaseErr := release(); releaseErr != nil {
+				compiled = nil
+				err = errors.Join(err, fmt.Errorf("release compile lock: %w", releaseErr))
+			}
+		}()
 	}
 	parsed, err := parser.ParseRuleDocuments(bundle)
 	if err != nil {
@@ -113,7 +119,10 @@ func CompileRepoPolicy(repoStartPath, compilerVersion string) (*CompiledPolicy, 
 	}
 
 	root := bundle.RepoRoot
-	digest := computeSourceDigest(bundle)
+	digest, err := computeSourceDigest(bundle)
+	if err != nil {
+		return nil, &rerrors.LockfileError{Message: "compute source digest", Cause: err}
+	}
 
 	// Normalize discovery for the post-compile world: the lockfile
 	// will exist immediately after this run, and the "lockfile not
@@ -181,26 +190,23 @@ func CompileRepoPolicy(repoStartPath, compilerVersion string) (*CompiledPolicy, 
 // Exported so the runtime evaluator can verify a lockfile's
 // source_digest against the current source state during freshness
 // validation.
-func ComputeSourceDigest(bundle *ingest.SourceBundle) string {
+func ComputeSourceDigest(bundle *ingest.SourceBundle) (string, error) {
 	return computeSourceDigest(bundle)
 }
 
 // computeSourceDigest is the internal implementation; ComputeSourceDigest
 // is the exported wrapper.
-func computeSourceDigest(bundle *ingest.SourceBundle) string {
+func computeSourceDigest(bundle *ingest.SourceBundle) (string, error) {
 	canonical := map[string]interface{}{
 		"source_precedence": stringifyKinds(policy.SourcePrecedence()),
 		"sources":           bundle.Sources,
 	}
 	data, err := marshalCanonical(canonical)
 	if err != nil {
-		// Internal error: bundle structures are guaranteed-marshalable.
-		// Returning empty digest would silently corrupt the lockfile;
-		// panic surfaces the bug in tests.
-		panic("internal: source digest marshal failed: " + err.Error())
+		return "", err
 	}
 	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // stringifyKinds turns a []SourceKind into a []string so it serializes

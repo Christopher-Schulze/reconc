@@ -12,7 +12,7 @@ import (
 // Scaffolds .reconc.yml + AGENTS.md in a fresh repo. Idempotent for
 // AGENTS.md (never overwrites). Refuses to overwrite .reconc.yml
 // without --force.
-func runInit(args []string, stdout, stderr io.Writer) error {
+func runInit(args []string, stdout, stderr io.Writer) (resultErr error) {
 	repo := "."
 	jsonOut := false
 	outputPath := ""
@@ -63,7 +63,7 @@ func runInit(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc init: open output file: " + err.Error()}
 	}
-	defer func() { _ = closeOutput() }()
+	defer joinOutputCloseError(&resultErr, closeOutput)
 
 	if jsonOut {
 		enc := json.NewEncoder(out)

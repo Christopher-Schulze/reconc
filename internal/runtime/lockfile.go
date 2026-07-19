@@ -137,7 +137,10 @@ func validateLockfileFreshness(root string, payload map[string]interface{}) erro
 		return &rerrors.LockfileError{Message: "compiled lockfile source_count does not match the current policy sources"}
 	}
 
-	currentDigest := compiler.ComputeSourceDigest(bundle)
+	currentDigest, err := compiler.ComputeSourceDigest(bundle)
+	if err != nil {
+		return &rerrors.LockfileError{Message: "compute current source digest", Cause: err}
+	}
 	stored, _ := payload["source_digest"].(string)
 	if len(stored) != 64 {
 		return &rerrors.LockfileError{Message: "compiled lockfile source_digest is missing or invalid"}

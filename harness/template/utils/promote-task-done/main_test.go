@@ -360,6 +360,21 @@ Current: TASK-0001-First -> tasks/TASK-0001-First.md
 	}
 }
 
+func TestPromoteFailsClosedOnMissingCandidateDetail(t *testing.T) {
+	root := newRepo(t)
+	writeFile(t, root, "docs/tasks.md", `# Tasks
+
+Current: TASK-0001-First -> tasks/TASK-0001-First.md
+
+- [ ] TASK-0001-First - first work -> tasks/TASK-0001-First.md
+- [ ] TASK-0002-Missing - missing detail -> tasks/TASK-0002-Missing.md
+`)
+	writeFile(t, root, "docs/tasks/TASK-0001-First.md", taskDetail("TASK-0001-First", "Done", "- [x] Done", true))
+	if err := promote(root, defaultOpts()); err == nil || !strings.Contains(err.Error(), "read candidate TASK TASK-0002-Missing") {
+		t.Fatalf("missing candidate detail must fail closed, got %v", err)
+	}
+}
+
 func TestPromoteRequiresUnsatisfiedDepsInNext(t *testing.T) {
 	root := newRepo(t)
 	writeFile(t, root, "docs/tasks.md", `# Tasks
@@ -406,6 +421,42 @@ Current: TASK-0001-First -> tasks/TASK-0001-First.md
 	}
 	if _, err := os.Stat(filepath.Join(root, "docs/tasks/TASK-0001-First.md")); err != nil {
 		t.Fatalf("dry-run moved detail file: %v", err)
+	}
+}
+
+func TestWriteAtomicPreservesExistingMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tasks.md")
+	if err := os.WriteFile(path, []byte("before"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeAtomic(path, []byte("after")); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o640 {
+		t.Fatalf("mode changed to %o", info.Mode().Perm())
+	}
+}
+
+func TestApplyChangesRollbackSurfacesIncompleteRestore(t *testing.T) {
+	root := newRepo(t)
+	tasksPath := filepath.Join(root, "docs/tasks.md")
+	src := filepath.Join(root, "docs/tasks/TASK-0001-First.md")
+	dst := filepath.Join(root, "docs/tasks/done/TASK-0001-First.md")
+	writeFile(t, root, "docs/tasks.md", "before")
+	writeFile(t, root, "docs/tasks/TASK-0001-First.md", "detail")
+	rollback, err := applyChanges(root, tasksPath, "after", src, dst, "", taskRow{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(dst); err != nil {
+		t.Fatal(err)
+	}
+	if err := rollback(); err == nil {
+		t.Fatal("incomplete rollback was reported as successful")
 	}
 }
 

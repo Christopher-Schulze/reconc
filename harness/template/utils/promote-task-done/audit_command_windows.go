@@ -3,10 +3,11 @@
 package main
 
 import (
+	"context"
 	"os/exec"
 	"path/filepath"
 )
 
-func auditTaskStateCommand(path string) *exec.Cmd {
-	return exec.Command("sh", filepath.ToSlash(path), "task-state")
+func auditTaskStateCommand(ctx context.Context, path string) *exec.Cmd {
+	return exec.CommandContext(ctx, "sh", filepath.ToSlash(path), "task-state")
 }

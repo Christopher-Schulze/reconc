@@ -6,19 +6,55 @@ repo_root="$(pwd)"
 harness="tools/reconc/harness/template"
 cache_dir=".reconc/cache"
 bin="$cache_dir/workflow-audit-template"
+digest_file="$bin.source-digest"
 lock_dir="$bin.build.lock"
 mkdir -p "$cache_dir"
+
+source_digest() {
+  sources="$cache_dir/.workflow-audit-sources.$$"
+  manifest="$cache_dir/.workflow-audit-manifest.$$"
+  : >"$sources"
+  for src in "$harness/go.mod" "$harness/go.sum"; do
+    [ -f "$src" ] && printf '%s\n' "$src" >>"$sources"
+  done
+  if ! find "$harness/audits" -type f -name '*.go' ! -name '*_test.go' -print >>"$sources"; then
+    rm -f "$sources" "$manifest"
+    return 1
+  fi
+  if ! find tools/reconc/buildprovenance -type f -name '*.go' ! -name '*_test.go' -print >>"$sources"; then
+    rm -f "$sources" "$manifest"
+    return 1
+  fi
+  if ! LC_ALL=C sort -u "$sources" -o "$sources"; then
+    rm -f "$sources" "$manifest"
+    return 1
+  fi
+  : >"$manifest"
+  while IFS= read -r src; do
+    hash="$(git hash-object -- "$src")" || {
+      rm -f "$sources" "$manifest"
+      return 1
+    }
+    printf '%s\0%s\n' "$src" "$hash" >>"$manifest" || {
+      rm -f "$sources" "$manifest"
+      return 1
+    }
+  done <"$sources"
+  digest="$(git hash-object -- "$manifest")" || {
+    rm -f "$sources" "$manifest"
+    return 1
+  }
+  rm -f "$sources" "$manifest"
+  printf '%s\n' "$digest"
+}
 
 needs_rebuild() {
   if [ ! -x "$bin" ]; then
     return 0
   fi
-  for src in "$harness/go.mod" "$harness/go.sum" "$harness/audits/"*.go "$harness/audits/lib/"*/*.go tools/reconc/buildprovenance/*.go; do
-    [ -f "$src" ] || continue
-    if [ "$src" -nt "$bin" ]; then
-      return 0
-    fi
-  done
+  [ -f "$digest_file" ] || return 0
+  cached_digest="$(cat "$digest_file")" || return 0
+  [ "$cached_digest" = "$expected_digest" ] || return 0
   return 1
 }
 
@@ -42,14 +78,19 @@ acquire_lock() {
   printf '%s\n' "$$" >"$lock_dir/pid"
 }
 
+expected_digest="$(source_digest)"
 if needs_rebuild; then
   acquire_lock
   tmp="$bin.tmp.$$"
-  trap 'rm -f "$tmp"; rm -rf "$lock_dir"' EXIT INT TERM
+  digest_tmp="$digest_file.tmp.$$"
+  trap 'rm -f "$tmp" "$digest_tmp"; rm -rf "$lock_dir"' EXIT INT TERM
+  expected_digest="$(source_digest)"
   if needs_rebuild; then
     (cd "$harness" && go build -ldflags="-s -w" -trimpath -buildvcs=false -o "$repo_root/$tmp" ./audits)
     chmod 755 "$tmp"
+    printf '%s\n' "$expected_digest" >"$digest_tmp"
     mv "$tmp" "$bin"
+    mv "$digest_tmp" "$digest_file"
   fi
   rm -rf "$lock_dir"
   trap - EXIT INT TERM

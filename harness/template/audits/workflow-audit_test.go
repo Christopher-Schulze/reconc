@@ -263,10 +263,10 @@ func TestWorkflowAuditRunnerTracksBuildProvenanceDependency(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(content), "tools/reconc/buildprovenance/*.go") {
+	if !strings.Contains(string(content), "find tools/reconc/buildprovenance -type f -name '*.go'") {
 		t.Fatal("workflow audit cache must rebuild when shared build provenance changes")
 	}
-	if !strings.Contains(string(content), `"$harness/audits/lib/"*/*.go`) {
+	if !strings.Contains(string(content), `find "$harness/audits" -type f -name '*.go'`) {
 		t.Fatal("workflow audit cache must rebuild when any shared audit library changes")
 	}
 }

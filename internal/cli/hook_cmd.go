@@ -134,7 +134,7 @@ func hookRuntimeName(kind string) string {
 	}
 }
 
-func runHookGenerate(args []string, stdout, stderr io.Writer) error {
+func runHookGenerate(args []string, stdout, stderr io.Writer) (resultErr error) {
 	if len(args) == 0 {
 		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook generate: missing kind (one of: %v)", hooks.SupportedKinds())}
 	}
@@ -169,7 +169,7 @@ func runHookGenerate(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc hook generate: open output file: " + err.Error()}
 	}
-	defer func() { _ = closeOutput() }()
+	defer joinOutputCloseError(&resultErr, closeOutput)
 	if jsonOut {
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
@@ -183,7 +183,7 @@ func runHookGenerate(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
-func runHookInstall(args []string, stdout, stderr io.Writer) error {
+func runHookInstall(args []string, stdout, stderr io.Writer) (resultErr error) {
 	if len(args) == 0 {
 		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook install: missing kind (one of: %v)", hooks.InstallableKinds())}
 	}
@@ -223,7 +223,7 @@ func runHookInstall(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc hook install: open output file: " + err.Error()}
 	}
-	defer func() { _ = closeOutput() }()
+	defer joinOutputCloseError(&resultErr, closeOutput)
 	if jsonOut {
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
@@ -675,7 +675,7 @@ func isObservationOnlyHookEvent(event string) bool {
 }
 
 // runHookClaim appends one explicit claim to the active session state.
-func runHookClaim(args []string, stdout, stderr io.Writer) error {
+func runHookClaim(args []string, stdout, stderr io.Writer) (resultErr error) {
 	repo := ""
 	claim := ""
 	sessionID := ""
@@ -734,7 +734,7 @@ func runHookClaim(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc hook claim: open output file: " + err.Error()}
 	}
-	defer func() { _ = closeOutput() }()
+	defer joinOutputCloseError(&resultErr, closeOutput)
 
 	if jsonOut {
 		enc := json.NewEncoder(out)

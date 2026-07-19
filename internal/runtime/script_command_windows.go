@@ -14,7 +14,7 @@ import (
 
 func scriptCommand(ctx context.Context, path string, args []string) (*exec.Cmd, error) {
 	if !execfile.Is(path) {
-		return nil, fmt.Errorf("script is not a real regular file: %s", path)
+		return nil, fmt.Errorf("script is not a regular file: %s", path)
 	}
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".exe", ".com":

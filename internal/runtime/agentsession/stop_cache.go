@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,6 +22,9 @@ import (
 const (
 	stopPolicyFingerprintVersion = "stop-policy-report-v5"
 	stopPolicyUntrackedModeEnv   = "RECONC_STOP_FINGERPRINT_UNTRACKED"
+	maxStopReportBytes           = 32 << 20
+	maxGitControlFileBytes       = 1 << 20
+	maxPackedRefsBytes           = 64 << 20
 )
 
 type stopPolicyFingerprintInput struct {
@@ -115,7 +119,7 @@ func runStopPolicyCheckLocked(repoRoot string, state SessionState) (stopPolicyCh
 		initialEvidenceHash := stopPolicyEvidenceHash(state)
 		fingerprintInput.PolicyLockHash = fileContentHash(filepath.Join(repoRoot, ".reconc", "policy.lock.json"))
 		reportFingerprint := hashStopPolicyFingerprintInput(fingerprintInput)
-		_, _ = MutateSessionState(repoRoot, state.SessionID, func(current SessionState) SessionState {
+		if _, err := MutateSessionState(repoRoot, state.SessionID, func(current SessionState) SessionState {
 			if stopPolicyEvidenceHash(current) == initialEvidenceHash {
 				current.StopPolicyFingerprint = reportFingerprint
 				current.StopPolicyEvidenceHash = initialEvidenceHash
@@ -123,7 +127,9 @@ func runStopPolicyCheckLocked(repoRoot string, state SessionState) (stopPolicyCh
 				current.ReportPath = sessionReportPath(repoRoot, state.SessionID)
 			}
 			return current
-		})
+		}); err != nil {
+			return stopPolicyCheckResult{}, fmt.Errorf("persist stop-policy cache metadata: %w", err)
+		}
 	}
 	return stopPolicyCheckResult{Report: report, GitSnapshot: snapshot}, nil
 }
@@ -230,21 +236,29 @@ func cachedCleanStopPolicyReportForEvidence(repoRoot string, state SessionState,
 }
 
 func withStopPolicyReportLock(repoRoot, sessionID string, fn func() (stopPolicyCheckResult, error)) (stopPolicyCheckResult, error) {
-	lockPath := filepath.Join(projectDir(repoRoot), "locks", sanitiseID(sessionID)+".stop-policy.lock")
-	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+	if err := validateSessionID(sessionID); err != nil {
+		return stopPolicyCheckResult{}, err
+	}
+	lockPath := filepath.Join(projectDir(repoRoot), "locks", sessionFileKey(sessionID)+".stop-policy.lock")
+	if err := ensurePrivateStateDir(filepath.Dir(lockPath)); err != nil {
 		return stopPolicyCheckResult{}, fmt.Errorf("create stop-policy lock dir: %w", err)
 	}
 	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return stopPolicyCheckResult{}, fmt.Errorf("open stop-policy lock: %w", err)
 	}
-	defer file.Close()
 	unlock, err := filelock.Lock(file)
 	if err != nil {
-		return stopPolicyCheckResult{}, fmt.Errorf("lock stop-policy report: %w", err)
+		closeErr := file.Close()
+		return stopPolicyCheckResult{}, errors.Join(fmt.Errorf("lock stop-policy report: %w", err), wrapOperationError("close stop-policy lock", closeErr))
 	}
-	defer unlock()
-	return fn()
+	result, fnErr := fn()
+	unlockErr := unlock()
+	closeErr := file.Close()
+	if err := errors.Join(fnErr, wrapOperationError("unlock stop-policy report", unlockErr), wrapOperationError("close stop-policy lock", closeErr)); err != nil {
+		return stopPolicyCheckResult{}, err
+	}
+	return result, nil
 }
 
 func stopPolicyFingerprint(repoRoot string, state SessionState) string {
@@ -334,7 +348,7 @@ func stopPolicyEvidenceHash(state SessionState) string {
 
 func readLatestReport(repoRoot, sessionID string) (*runtime.CheckReport, string, error) {
 	path := sessionReportPath(repoRoot, sessionID)
-	body, err := os.ReadFile(path)
+	body, err := readBoundedFile(path, maxStopReportBytes)
 	if err != nil {
 		return nil, "", err
 	}
@@ -370,11 +384,11 @@ func hashBytes(body []byte) string {
 }
 
 func fileContentHash(path string) string {
-	body, err := os.ReadFile(path)
+	hash, err := hashFileContent(path)
 	if err != nil {
 		return "error:" + err.Error()
 	}
-	return hashBytes(body)
+	return hash
 }
 
 func gitCommandOutput(repoRoot string, args ...string) (string, error) {
@@ -398,7 +412,7 @@ func gitHeadFingerprint(repoRoot string) string {
 	if err != nil {
 		return "error:" + err.Error()
 	}
-	headBody, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
+	headBody, err := readBoundedFile(filepath.Join(gitDir, "HEAD"), maxGitControlFileBytes)
 	if err != nil {
 		return "error:" + err.Error()
 	}
@@ -435,7 +449,11 @@ func cleanGitRefPath(ref string) (string, error) {
 }
 
 func gitRefObjectID(gitDir, cleanRef, ref string) (string, bool, error) {
-	roots := sortedUnique([]string{gitDir, gitCommonDir(gitDir)})
+	commonDir, err := gitCommonDir(gitDir)
+	if err != nil {
+		return "", false, err
+	}
+	roots := sortedUnique([]string{gitDir, commonDir})
 	if objectID, found, err := readLooseGitRef(roots, cleanRef); found || err != nil {
 		return objectID, found, err
 	}
@@ -444,7 +462,7 @@ func gitRefObjectID(gitDir, cleanRef, ref string) (string, bool, error) {
 
 func readLooseGitRef(roots []string, cleanRef string) (string, bool, error) {
 	for _, root := range roots {
-		body, err := os.ReadFile(filepath.Join(root, cleanRef))
+		body, err := readBoundedFile(filepath.Join(root, cleanRef), maxGitControlFileBytes)
 		if err == nil {
 			return strings.TrimSpace(string(body)), true, nil
 		}
@@ -457,7 +475,7 @@ func readLooseGitRef(roots []string, cleanRef string) (string, bool, error) {
 
 func readPackedGitRef(roots []string, ref string) (string, bool, error) {
 	for _, root := range roots {
-		body, err := os.ReadFile(filepath.Join(root, "packed-refs"))
+		body, err := readBoundedFile(filepath.Join(root, "packed-refs"), maxPackedRefsBytes)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				continue
@@ -483,7 +501,7 @@ func resolveGitDir(repoRoot string) (string, error) {
 	if info.IsDir() {
 		return dotGit, nil
 	}
-	body, err := os.ReadFile(dotGit)
+	body, err := readBoundedFile(dotGit, maxGitControlFileBytes)
 	if err != nil {
 		return "", fmt.Errorf("read .git: %w", err)
 	}
@@ -498,16 +516,22 @@ func resolveGitDir(repoRoot string) (string, error) {
 	return filepath.Clean(gitDir), nil
 }
 
-func gitCommonDir(gitDir string) string {
-	body, err := os.ReadFile(filepath.Join(gitDir, "commondir"))
+func gitCommonDir(gitDir string) (string, error) {
+	body, err := readBoundedFile(filepath.Join(gitDir, "commondir"), maxGitControlFileBytes)
 	if err != nil {
-		return gitDir
+		if errors.Is(err, os.ErrNotExist) {
+			return gitDir, nil
+		}
+		return "", fmt.Errorf("read git commondir: %w", err)
 	}
 	commonDir := strings.TrimSpace(string(body))
+	if commonDir == "" {
+		return "", fmt.Errorf("git commondir is empty")
+	}
 	if !filepath.IsAbs(commonDir) {
 		commonDir = filepath.Join(gitDir, commonDir)
 	}
-	return filepath.Clean(commonDir)
+	return filepath.Clean(commonDir), nil
 }
 
 func gitDirtyFiles(repoRoot string, status string) []gitDirtyFile {
@@ -618,11 +642,41 @@ func worktreePathHash(repoRoot string, path string) string {
 	if !info.Mode().IsRegular() {
 		return "mode:" + info.Mode().String()
 	}
-	body, err := os.ReadFile(fullPath)
+	hash, err := hashFileContent(fullPath)
 	if err != nil {
 		return "error:" + err.Error()
 	}
-	return hashBytes(body)
+	return hash
+}
+
+func readBoundedFile(path string, maxBytes int64) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	body, readErr := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	closeErr := file.Close()
+	if err := errors.Join(readErr, closeErr); err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > maxBytes {
+		return nil, fmt.Errorf("%s exceeds %d bytes", path, maxBytes)
+	}
+	return body, nil
+}
+
+func hashFileContent(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	hash := sha256.New()
+	_, readErr := io.CopyBuffer(hash, file, make([]byte, 64*1024))
+	closeErr := file.Close()
+	if err := errors.Join(readErr, closeErr); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func filterStopPolicyGitStatus(raw string) string {

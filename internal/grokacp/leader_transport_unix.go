@@ -17,43 +17,66 @@ import (
 // inherit the leader's environment, so GROK_LEADER_SOCKET is authoritative
 // when set. Otherwise every leader<suffix>.sock under the Grok home is a
 // candidate because non-default relay URLs derive suffixed socket names.
-func leaderSocketCandidates() []string {
+func leaderSocketCandidates() ([]string, error) {
 	if override := strings.TrimSpace(os.Getenv(leaderSocketEnv)); override != "" {
-		if socketExists(override) {
-			return []string{override}
+		exists, err := socketExists(override)
+		if err != nil {
+			return nil, err
 		}
-		return nil
+		if exists {
+			return []string{override}, nil
+		}
+		return nil, nil
 	}
 	home := strings.TrimSpace(os.Getenv(grokHomeEnv))
 	if home == "" {
 		userHome, err := os.UserHomeDir()
 		if err != nil {
-			return nil
+			return nil, err
 		}
 		home = filepath.Join(userHome, ".grok")
 	}
-	matches, err := filepath.Glob(filepath.Join(home, "leader*.sock"))
+	entries, err := os.ReadDir(home)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
 	if err != nil {
-		return nil
+		return nil, err
+	}
+	matches := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "leader") && strings.HasSuffix(entry.Name(), ".sock") {
+			matches = append(matches, filepath.Join(home, entry.Name()))
+		}
 	}
 	sort.Strings(matches)
 	defaultSocket := filepath.Join(home, "leader.sock")
 	candidates := make([]string, 0, len(matches))
 	for _, match := range matches {
-		if match == defaultSocket && socketExists(match) {
+		exists, err := socketExists(match)
+		if err != nil {
+			return nil, err
+		}
+		if match == defaultSocket && exists {
 			candidates = append([]string{match}, candidates...)
 			continue
 		}
-		if socketExists(match) {
+		if exists {
 			candidates = append(candidates, match)
 		}
 	}
-	return candidates
+	return candidates, nil
 }
 
-func socketExists(path string) bool {
+func socketExists(path string) (bool, error) {
 	info, err := os.Stat(path)
-	return err == nil && info.Mode()&os.ModeSocket != 0
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return info.Mode()&os.ModeSocket != 0, nil
 }
 
 func dialLeader(endpoint string, deadline time.Time) (*leaderConn, error) {

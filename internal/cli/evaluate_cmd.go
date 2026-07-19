@@ -15,7 +15,7 @@ import (
 //
 // Returns *CLIError exit 2 on a blocking decision, exit 1 on runtime
 // errors, exit 0 on pass/warn.
-func runCheck(args []string, stdout, stderr io.Writer) error {
+func runCheck(args []string, stdout, stderr io.Writer) (resultErr error) {
 	repo := "."
 	jsonOut := false
 	terse := false
@@ -117,7 +117,7 @@ func runCheck(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc check: open output file: " + err.Error()}
 	}
-	defer func() { _ = closeOutput() }()
+	defer joinOutputCloseError(&resultErr, closeOutput)
 
 	switch {
 	case terse:
@@ -278,7 +278,7 @@ func runAssert(args []string, stdout, stderr io.Writer) error {
 //
 // Wraps check + BuildFixPlan to produce action-focused remediation
 // output. Same exit codes as check (0 = pass/warn, 2 = block).
-func runFix(args []string, stdout, stderr io.Writer) error {
+func runFix(args []string, stdout, stderr io.Writer) (resultErr error) {
 	repo := "."
 	jsonOut := false
 	nextOnly := false
@@ -370,7 +370,7 @@ func runFix(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc fix: open output file: " + err.Error()}
 	}
-	defer func() { _ = closeOutput() }()
+	defer joinOutputCloseError(&resultErr, closeOutput)
 	if nextOnly {
 		next := nextRemediation(plan)
 		if next == nil {

@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 
+	"reconc.dev/reconc/internal/atomicfile"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/presets"
 )
@@ -110,12 +111,12 @@ func Initialize(repoRoot string, opts Options) (*Report, error) {
 					"; pass Force=true (or `--force` from the CLI) to overwrite",
 			}
 		}
-		if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
+		if _, err := atomicfile.WriteIfChanged(configPath, []byte(configContent), 0o644); err != nil {
 			return nil, &rerrors.PolicySourceError{Message: "write " + CompilerConfigFilename, Cause: err}
 		}
 		report.Updated = append(report.Updated, CompilerConfigFilename)
 	} else {
-		if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
+		if _, err := atomicfile.WriteIfChanged(configPath, []byte(configContent), 0o644); err != nil {
 			return nil, &rerrors.PolicySourceError{Message: "write " + CompilerConfigFilename, Cause: err}
 		}
 		report.Created = append(report.Created, CompilerConfigFilename)
@@ -132,7 +133,7 @@ func Initialize(repoRoot string, opts Options) (*Report, error) {
 		report.Skipped = append(report.Skipped, AgentsFilename)
 	default:
 		stub := renderAgentsStub(filepath.Base(root))
-		if err := os.WriteFile(agentsPath, []byte(stub), 0o644); err != nil {
+		if _, err := atomicfile.WriteIfChanged(agentsPath, []byte(stub), 0o644); err != nil {
 			return nil, &rerrors.PolicySourceError{Message: "write " + AgentsFilename, Cause: err}
 		}
 		report.Created = append(report.Created, AgentsFilename)
@@ -226,7 +227,7 @@ func exists(path string) bool {
 // pathState reports whether the path exists and, if so, whether it's
 // a regular file (not a directory or symlink target).
 func pathState(path string) (bool, bool) {
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if err != nil {
 		return false, false
 	}

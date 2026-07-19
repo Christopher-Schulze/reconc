@@ -75,7 +75,11 @@ func ReadRunDecisions(repoRoot string, limit int) ([]RunDecision, error) {
 		return nil, err
 	}
 	var out []RunDecision
-	for _, source := range jsonl.PathsOldestFirst(path, runDecisionMaxArchives) {
+	sources, err := jsonl.PathsOldestFirst(path, runDecisionMaxArchives)
+	if err != nil {
+		return nil, err
+	}
+	for _, source := range sources {
 		if err := readRunDecisionFile(source, &out); err != nil {
 			return out, err
 		}

@@ -105,7 +105,10 @@ type LeaderProbe struct {
 // extension. It targets a cryptographically random nonexistent session and
 // requires Grok's session-not-found response, so no live session is mutated.
 func ProbeLeaderSteering(budget time.Duration) LeaderProbe {
-	candidates := leaderSocketCandidates()
+	candidates, err := leaderSocketCandidates()
+	if err != nil {
+		return LeaderProbe{Detail: fmt.Sprintf("discover Grok leader endpoints: %v", err)}
+	}
 	if len(candidates) == 0 {
 		return LeaderProbe{}
 	}

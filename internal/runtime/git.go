@@ -1,11 +1,20 @@
 package runtime
 
 import (
+	"bytes"
+	"context"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
+	"time"
 
 	rerrors "reconc.dev/reconc/internal/errors"
+)
+
+const (
+	gitDiffTimeout        = 15 * time.Second
+	maxGitDiffOutputBytes = 4 << 20
 )
 
 // GitMode names which kind of diff was requested.
@@ -73,15 +82,23 @@ func CollectGitWritePaths(repoRoot string, staged bool, base, head string) ([]st
 		commandStr = "git diff " + spec + " --name-only -z"
 	}
 
-	cmd := exec.Command("git", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), gitDiffTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = repoRoot
-	out, err := cmd.Output()
+	stdout := &boundedGitOutput{limit: maxGitDiffOutputBytes}
+	stderr := &boundedGitOutput{limit: maxGitDiffOutputBytes}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	err := cmd.Run()
+	if ctx.Err() == context.DeadlineExceeded {
+		return nil, GitDiffMetadata{}, &rerrors.GitError{Message: commandStr + " timed out", Cause: ctx.Err()}
+	}
+	if stdout.overflow || stderr.overflow {
+		return nil, GitDiffMetadata{}, &rerrors.GitError{Message: fmt.Sprintf("%s output exceeds %d bytes", commandStr, maxGitDiffOutputBytes)}
+	}
 	if err != nil {
-		stderrText := ""
-		var exitErr *exec.ExitError
-		if asExitErr(err, &exitErr) {
-			stderrText = strings.TrimSpace(string(exitErr.Stderr))
-		}
+		stderrText := strings.TrimSpace(stderr.String())
 		msg := commandStr + " failed"
 		if stderrText != "" {
 			msg += ": " + stderrText
@@ -92,7 +109,7 @@ func CollectGitWritePaths(repoRoot string, staged bool, base, head string) ([]st
 	// Parse output: NUL-terminated records, possibly one empty
 	// trailing record. Path bytes are verbatim (git already returns
 	// POSIX-style paths) and must not be trimmed.
-	records := strings.Split(string(out), "\x00")
+	records := strings.Split(stdout.String(), "\x00")
 	paths := make([]string, 0, len(records))
 	for _, record := range records {
 		if record == "" {
@@ -114,3 +131,28 @@ func CollectGitWritePaths(repoRoot string, staged bool, base, head string) ([]st
 	}
 	return paths, metadata, nil
 }
+
+type boundedGitOutput struct {
+	bytes.Buffer
+	limit    int
+	overflow bool
+}
+
+func (w *boundedGitOutput) Write(data []byte) (int, error) {
+	remaining := w.limit - w.Len()
+	if remaining > 0 {
+		writeCount := len(data)
+		if writeCount > remaining {
+			writeCount = remaining
+		}
+		if _, err := w.Buffer.Write(data[:writeCount]); err != nil {
+			return 0, err
+		}
+	}
+	if len(data) > remaining {
+		w.overflow = true
+	}
+	return len(data), nil
+}
+
+var _ io.Writer = (*boundedGitOutput)(nil)

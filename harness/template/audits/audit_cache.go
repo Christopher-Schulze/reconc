@@ -17,7 +17,7 @@ import (
 // cacheVersion is bumped whenever audit logic changes in a way that should
 // invalidate every cached pass. The cache key embeds this constant so a
 // stale binary cannot return a false pass after the rules tightened.
-const cacheVersion = "v5-2026-07-18"
+const cacheVersion = "v7-2026-07-19"
 
 const (
 	cacheRel     = ".reconc/cache/audit-results.json"
@@ -56,11 +56,10 @@ func newCacheInputs() *cacheInputs {
 	return &cacheInputs{}
 }
 
-// AddFile appends a single file to the input set if it exists.
+// AddFile appends a declared file path. Missing and unreadable paths remain
+// explicit inputs so their later creation or accessibility changes the key.
 func (c *cacheInputs) AddFile(path string) {
-	if _, err := os.Stat(path); err == nil {
-		c.files = append(c.files, path)
-	}
+	c.files = append(c.files, path)
 }
 
 // AddPathMetadata records one path without reading its contents. Directory
@@ -133,8 +132,9 @@ func (c *cacheInputs) AddTree(root string, suffixes []string) {
 }
 
 // Hash returns a deterministic SHA256 over the cache version, the sorted file
-// list, and each file's content. Files that cannot be read are encoded as a
-// canonical absent marker so missing-vs-present is also part of the hash.
+// list, and each file's content. Missing files use a canonical absent marker;
+// every other read or metadata failure aborts hashing so no partial tree can
+// reuse a cached pass.
 // Structure paths (added via AddTreeStructure) contribute only their path
 // and existence, not their content, so content-only edits do not invalidate
 // audits whose result depends only on the directory tree shape.
@@ -170,8 +170,10 @@ func (c *cacheInputs) Hash() (string, error) {
 		digest.Write([]byte{0})
 		if _, err := os.Stat(path); err == nil {
 			digest.Write([]byte("PRESENT"))
-		} else {
+		} else if errors.Is(err, os.ErrNotExist) {
 			digest.Write([]byte("ABSENT"))
+		} else {
+			return "", fmt.Errorf("hash structure metadata %s: %w", path, err)
 		}
 		digest.Write([]byte{0})
 	}
@@ -319,8 +321,7 @@ func withAuditCacheNamedLock(lockPath string, fn func() error) (err error) {
 	}
 	unlock, err := lockAuditCacheFile(file)
 	if err != nil {
-		_ = file.Close()
-		return err
+		return errors.Join(err, file.Close())
 	}
 	defer func() {
 		if unlockErr := unlock(); err == nil && unlockErr != nil {

@@ -125,7 +125,7 @@ func runPreset(args []string, stdout, stderr io.Writer) error {
 	return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc preset: unknown subcommand %q", args[0])}
 }
 
-func runPresetList(args []string, stdout, stderr io.Writer) error {
+func runPresetList(args []string, stdout, stderr io.Writer) (resultErr error) {
 	jsonOut := false
 	outputPath := ""
 	i := 0
@@ -156,7 +156,7 @@ func runPresetList(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc preset list: open output file: " + err.Error()}
 	}
-	defer func() { _ = closeOutput() }()
+	defer joinOutputCloseError(&resultErr, closeOutput)
 	if jsonOut {
 		payload := map[string]interface{}{
 			"preset_count": len(list),
@@ -181,7 +181,7 @@ func runPresetList(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
-func runPresetShow(args []string, stdout, stderr io.Writer) error {
+func runPresetShow(args []string, stdout, stderr io.Writer) (resultErr error) {
 	if len(args) == 0 {
 		return &CLIError{ExitCode: 1, Message: "reconc preset show: missing preset name"}
 	}
@@ -220,7 +220,7 @@ func runPresetShow(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc preset show: open output file: " + err.Error()}
 	}
-	defer func() { _ = closeOutput() }()
+	defer joinOutputCloseError(&resultErr, closeOutput)
 	if jsonOut {
 		payload := map[string]interface{}{
 			"name":    name,

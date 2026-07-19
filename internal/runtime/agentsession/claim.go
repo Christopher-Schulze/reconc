@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"reconc.dev/reconc/internal/ingest"
 )
 
 // ClaimReport is the outcome of appending one claim to the active
@@ -55,11 +57,20 @@ func RecordClaim(repoRoot, claim, sessionID string) (*ClaimReport, error) {
 	if updated.EvidenceOverflow {
 		return nil, errors.New(evidenceOverflowMessage(updated))
 	}
-	// Re-run check so the saved report reflects the new claim set.
-	// Ignore check errors here -- the claim record is the primary
-	// artefact; the report refresh is a courtesy for later inspection.
-	_, _ = runCheckAndSave(root, sessionID, updated.ReadPaths,
-		updated.WritePaths, updated.WriteEpochs, updated.Commands, updated.CommandResults, updated.Claims)
+	// Re-run the check so the saved report reflects the new claim set when the
+	// target is policy-enabled. Bare repositories can still store claims for a
+	// policy that will be bootstrapped later. The mutation is idempotent, so
+	// reporting a real refresh failure is safe for callers to retry.
+	discovery, err := ingest.DiscoverPolicyRepo(root)
+	if err != nil {
+		return nil, fmt.Errorf("discover policy after recording claim: %w", err)
+	}
+	if discovery.Discovered {
+		if _, err := runCheckAndSave(root, sessionID, updated.ReadPaths,
+			updated.WritePaths, updated.WriteEpochs, updated.Commands, updated.CommandResults, updated.Claims); err != nil {
+			return nil, fmt.Errorf("refresh report after recording claim: %w", err)
+		}
+	}
 
 	return &ClaimReport{
 		RepoRoot:   root,
@@ -99,7 +110,7 @@ func ActiveEvidence(repoRoot string) (ActiveEvidenceSnapshot, error) {
 	}
 	state, err := LoadSessionState(root, sessionID)
 	if err != nil {
-		return ActiveEvidenceSnapshot{}, nil
+		return ActiveEvidenceSnapshot{}, fmt.Errorf("load active session %q: %w", sessionID, err)
 	}
 	return ActiveEvidenceSnapshot{
 		ReadPaths:      append([]string{}, state.ReadPaths...),
