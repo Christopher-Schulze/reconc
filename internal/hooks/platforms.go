@@ -235,7 +235,7 @@ var platformRegistry = []platformDefinition{
 			capability(EventPermissionDenied, "PermissionDenied", SupportNative, FailureAllow, FailureAllow, 5, "grok-permission-denied"),
 			capability(EventPostToolUse, "PostToolUse", SupportNative, FailureAllow, FailureAllow, 5, "grok-post-tool-use"),
 			capability(EventPostToolUseFailure, "PostToolUseFailure", SupportNative, FailureAllow, FailureAllow, 5, "grok-post-tool-use-failure"),
-			capability(EventStop, "Stop", SupportNative, FailureAllow, FailureAllow, 30, "grok-stop"),
+			capability(EventStop, "Stop", SupportNative, FailureBlock, FailureAllow, 600, "grok-stop"),
 			capability(EventStopFailure, "StopFailure", SupportNative, FailureAllow, FailureAllow, 5, "grok-stop-failure"),
 			capability(EventSessionEnd, "SessionEnd", SupportNative, FailureAllow, FailureAllow, 5, "grok-session-end"),
 			capability(EventNotification, "Notification", SupportNative, FailureAllow, FailureAllow, 5, "grok-notification"),

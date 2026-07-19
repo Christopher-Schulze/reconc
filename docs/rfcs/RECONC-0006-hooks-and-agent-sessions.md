@@ -17,7 +17,7 @@
 | `devin-cli` | `.devin/hooks.v1.json` | Session, tool, permission, stop, cleanup, and post-compaction hooks. |
 | `antigravity` | `.agents/hooks.json` | Invocation, tool, and stop hook group under the top-level `reconc` key. |
 | `kilo` | `.kilo/plugin/reconc.js` | Thin project plugin for session, tool, permission, compaction, and idle handling. |
-| `grok` | `.grok/hooks/reconc.json` | Native lifecycle, strict PreToolUse decisions, passive Stop reporting, compaction, permission-denial, and subagent events. |
+| `grok` | `.grok/hooks/reconc.json` | Native lifecycle, strict PreToolUse, no-leader Stop on Grok 0.2.106+, compaction, permission-denial, and subagent events. |
 
 Installers are idempotent. Reconc-owned JSON hook entries are
 identified by `reconc hook runtime` command tokens and replaced on
@@ -78,24 +78,22 @@ generator-exact managed hook and executable wrapper, and all 14 exact native
 route command tokens; prefix collisions do not count. The guarded PreToolUse
 path accepts only one exact allow/deny JSON object and converts runtime errors,
 timeouts, empty or multiline output, and malformed decisions into explicit
-deny JSON. Native Stop is passive and cannot force another TUI turn. `reconc
-grok` provides the strict path by driving the unmodified official ACP stdio
-runtime and re-prompting the same session while Reconc returns a continuation
-reason.
-When Grok runs in leader mode, the `grok-stop` route additionally steers the
-TUI itself over the Unix leader socket or Windows named pipe. Eligible stops
-enable strict continuation before policy evaluation, then register and queue
-the continuation reason via `_x.ai/interject`, which Grok turns into an
-immediate prompt turn on an idle session. Steering requires a matching
-`GROK_SESSION_ID`, skips user interrupts, and counts only successfully
-delivered interjections toward the consecutive no-progress cap of 32 for the
-same block. Transport and protocol failures do not consume that budget;
-material progress, a new block, or a clean Stop resets the series. Multiple
-endpoints receive fair shares of the bounded transport budget and framed
-writes complete short writes. `RECONC_GROK_STEER=0` disables steering, and all
-transport/protocol failures remain fail-open to the passive report. Deep doctor
-requires leader protocol version 1 plus a recognized `_x.ai/interject`
-response.
+deny JSON. Grok 0.2.106+ also accepts exact native Stop block JSON without a
+leader. Reconc marks eligible live Stops strict across `stopHookActive`
+re-entry, while interrupts and session-end reasons release; Grok bounds native
+continuation to eight repeats per turn. The 600-second generated Stop budget
+matches Grok's host default. `reconc grok` remains the explicit strict ACP
+path.
+
+For older Grok versions, optional leader mode additionally steers the TUI over
+the Unix socket or Windows named pipe. Protocol-1 `_x.ai/interject` requires a
+matching `GROK_SESSION_ID`; only delivered interjections count toward the
+32-attempt no-progress cap. Material progress, a new block, or a clean Stop
+resets the series. Native-capable leaders suppress duplicate interjection.
+Multiple endpoints receive fair shares of the transport budget and framed
+writes complete short writes. `RECONC_GROK_STEER=0` disables only leader
+steering. Deep doctor reports native Stop support separately and requires a
+recognized `_x.ai/interject` response for leader compatibility.
 
 ## Generic Agents
 

@@ -42,6 +42,7 @@ func TestDoctorGrokRuntimeChecksTrustAndEveryNativeRoute(t *testing.T) {
 	original := doctorGrokInspect
 	defer func() { doctorGrokInspect = original }()
 
+	runtimeVersion := "0.2.106"
 	doctorGrokInspect = func(_ context.Context, root string) ([]byte, error) {
 		loaded := []map[string]interface{}{}
 		for _, event := range hooks.GrokRuntimeEvents() {
@@ -51,14 +52,19 @@ func TestDoctorGrokRuntimeChecksTrustAndEveryNativeRoute(t *testing.T) {
 			})
 		}
 		return json.Marshal(map[string]interface{}{
-			"grokVersion":    "0.2.101",
+			"grokVersion":    runtimeVersion,
 			"projectTrusted": true,
 			"hooks":          loaded,
 		})
 	}
 	check := doctorCheckGrokRuntime(discovery)
-	if check.Status != doctorStatusOK || !strings.Contains(check.Detail, "all 14 native Reconc routes") {
+	if check.Status != doctorStatusOK || !strings.Contains(check.Detail, "native no-leader Stop enforcement is active") {
 		t.Fatalf("Grok doctor check = %+v", check)
+	}
+	runtimeVersion = "0.2.101"
+	check = doctorCheckGrokRuntime(discovery)
+	if check.Status != doctorStatusWarn || !strings.Contains(check.Detail, grokacp.NativeStopGateMinimumVersion) {
+		t.Fatalf("old Grok runtime capability check = %+v", check)
 	}
 
 	doctorGrokInspect = func(_ context.Context, root string) ([]byte, error) {
@@ -123,9 +129,10 @@ func TestDoctorGrokLeaderSteering(t *testing.T) {
 		status string
 		detail string
 	}{
-		{name: "no endpoint", probe: grokacp.LeaderProbe{}, status: doctorStatusOK, detail: "stays passive"},
+		{name: "no endpoint", probe: grokacp.LeaderProbe{}, status: doctorStatusOK, detail: "optional backward-compatible steering is inactive"},
 		{name: "discovery failed", probe: grokacp.LeaderProbe{Detail: "discover Grok leader endpoints: permission denied"}, status: doctorStatusWarn, detail: "discovery failed"},
 		{name: "compatible", probe: grokacp.LeaderProbe{Endpoint: "/tmp/leader.sock", Reachable: true, Compatible: true, ProtocolVersion: &protocolVersion, BinaryVersion: "0.2.101"}, status: doctorStatusOK, detail: "protocol 1"},
+		{name: "native compatible", probe: grokacp.LeaderProbe{Endpoint: "/tmp/leader.sock", Reachable: true, Compatible: true, ProtocolVersion: &protocolVersion, BinaryVersion: "0.2.106"}, status: doctorStatusOK, detail: "duplicate leader interjection is suppressed"},
 		{name: "incompatible", probe: grokacp.LeaderProbe{Endpoint: "/tmp/leader.sock", Reachable: true, Detail: "_x.ai/interject missing"}, status: doctorStatusWarn, detail: "incompatible"},
 		{name: "handshake failed", probe: grokacp.LeaderProbe{Endpoint: "/tmp/leader.sock", Detail: "connection refused"}, status: doctorStatusWarn, detail: "connection refused"},
 	}

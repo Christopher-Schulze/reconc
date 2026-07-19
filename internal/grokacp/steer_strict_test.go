@@ -8,7 +8,7 @@ import (
 
 func TestPrepareStrictTUIStopDoesNotDependOnLeaderDiscovery(t *testing.T) {
 	t.Setenv("GROK_SESSION_ID", "strict-without-leader")
-	t.Setenv(SteerEnv, "")
+	t.Setenv(SteerEnv, "0")
 	t.Setenv(leaderSocketEnv, t.TempDir()+"/missing.sock")
 	payload := []byte(`{"session_id":"strict-without-leader","reconc_runtime":"grok"}`)
 
@@ -25,5 +25,10 @@ func TestPrepareStrictTUIStopDoesNotDependOnLeaderDiscovery(t *testing.T) {
 	}
 	if !parsed.StrictContinuation {
 		t.Fatalf("prepared payload = %s", prepared)
+	}
+
+	ending := []byte(`{"session_id":"strict-without-leader","reconc_runtime":"grok","reason":"shutdown"}`)
+	if _, strict, err := PrepareStrictTUIStop(ending); err != nil || strict {
+		t.Fatalf("session-ending Stop preparation = strict=%t err=%v", strict, err)
 	}
 }

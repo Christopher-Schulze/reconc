@@ -106,7 +106,7 @@ func RunStop(repoRoot string, payloadBytes []byte) (result Result) {
 		return Result{ExitCode: 0, Stdout: repositoryRunBlockJSON(evidenceOverflowMessage(state))}
 	}
 
-	if payload.StopHookActive && !checkpointDue {
+	if payload.StopHookActive && !payload.StrictContinuation && !checkpointDue {
 		evidenceHash := stopPolicyEvidenceHash(state)
 		if _, ok := cachedCleanStopPolicyReportForEvidence(root, state, evidenceHash); ok {
 			currentRun, _ := loadRepositoryRunStateResolved(root)
@@ -127,7 +127,7 @@ func RunStop(repoRoot string, payloadBytes []byte) (result Result) {
 		currentRun, _ := loadRepositoryRunStateResolved(root)
 		// Avoid endless loops when the agent is already continuing because
 		// of this hook.
-		if payload.StopHookActive {
+		if payload.StopHookActive && !payload.StrictContinuation {
 			logRunStopDecision(root, "policy_block_stop_hook_active", payload, runtimeName, currentRun, currentRun, true, len(violations))
 			return Result{ExitCode: 0}
 		}

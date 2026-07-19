@@ -166,18 +166,17 @@ execution proof. Static activation and rate-limited per-route
   be unset for project plugins to load. Like OpenCode, continuation is inferred
   from `session.idle`.
 - **Grok Build**: `reconc hook install grok .` owns
-  `.grok/hooks/reconc.json`. Run `/hooks-trust` once. Native PreToolUse is a
-  hard policy gate, while native Stop is passive. Use `reconc grok . --prompt
-  "..."` for strict same-session continuation through Grok's official ACP
-  runtime. When Grok runs in leader mode (`grok --leader` or config
-  `use_leader`), the Stop route steers the TUI directly by interjecting the
-  continuation over the Unix leader socket or Windows named pipe. Eligible
-  leader Stops are strict before policy evaluation; only successfully delivered
-  interjections consume the 32-attempt cap, which resets on material progress,
-  a new block, or a clean Stop. Generator-exact hook/wrapper checks and exact
-  route tokens prevent drift or prefix collisions from being treated as active.
-  `reconc doctor --deep` verifies protocol version 1 and `_x.ai/interject` before showing the
-  `Grok leader steering` status; `RECONC_GROK_STEER=0` disables it.
+  `.grok/hooks/reconc.json`. Run `/hooks-trust` once. Native PreToolUse is hard,
+  and Grok 0.2.106+ also enforces exact Stop block JSON without a leader. Reconc
+  keeps `stopHookActive` re-entry strict; user interrupts and session-end
+  reasons release, and Grok caps native continuation at eight repeats per turn.
+  `reconc grok . --prompt "..."` remains the explicit ACP path. Older Grok
+  versions can use optional leader steering over Unix sockets or Windows named
+  pipes. Only delivered interjections consume its 32-attempt cap, and native-
+  capable leaders suppress duplicate prompts. Generator-exact hook/wrapper
+  checks and exact route tokens prevent drift. Deep doctor reports native Stop
+  support separately and probes protocol 1 plus `_x.ai/interject` for leaders;
+  `RECONC_GROK_STEER=0` disables only leader steering.
 - **Generic / other agents (Aider, ...)**: invoke the CLI
   directly. `reconc can`, `reconc check --terse`, `reconc next`, and
   `reconc done` are token-optimised for this path.
@@ -204,9 +203,9 @@ Antigravity CLI, Kilo Code, and Grok Build, scoped to this repository rather
 than the whole machine. Claude Code, Codex, Cursor, Devin CLI, and Antigravity
 CLI expose synchronous Stop gates. OpenCode and Kilo Code use
 inferred `session.idle`, so their host continuation is best-effort and fail-open.
-Grok's TUI Stop event is passive; `reconc grok` is the strict ACP continuation
-path, and leader-mode TUI sessions are steered via `_x.ai/interject` over Unix
-sockets or Windows named pipes.
+Grok 0.2.106+ has a native synchronous Stop gate without a leader. `reconc
+grok` remains the explicit ACP path, and older leader-mode TUI sessions can be
+steered via `_x.ai/interject` over Unix sockets or Windows named pipes.
 While typed TASK state is `continue` or `claim`, Reconc returns the host-specific
 continuation response without a full terminal policy or Git scan. An empty
 active slot with queued executable work yields `claim`; complete or absent

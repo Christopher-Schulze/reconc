@@ -67,6 +67,13 @@ func NormalizeGrokPayload(event string, payloadBytes []byte, repoRoot string) ([
 			return nil, fmt.Errorf("grok PreToolUse toolInput must be a JSON object")
 		}
 	}
+	if event == "grok-stop" {
+		if activeValue, exists := raw["stopHookActive"]; exists {
+			if _, ok := activeValue.(bool); !ok {
+				return nil, fmt.Errorf("grok Stop stopHookActive must be a boolean")
+			}
+		}
+	}
 
 	out := cloneCursorObject(raw)
 	out["session_id"] = sessionID
@@ -94,8 +101,13 @@ func NormalizeGrokPayload(event string, payloadBytes []byte, repoRoot string) ([
 	if errText := cursorFirstString(raw, "error"); errText != "" {
 		out["error"] = errText
 	}
-	if event == "grok-stop" && grokStopIsInterrupt(cursorFirstString(raw, "reason")) {
-		out["is_interrupt"] = true
+	if event == "grok-stop" {
+		if active, ok := raw["stopHookActive"].(bool); ok {
+			out["stop_hook_active"] = active
+		}
+		if grokStopIsInterrupt(cursorFirstString(raw, "reason")) {
+			out["is_interrupt"] = true
+		}
 	}
 
 	body, err := json.Marshal(out)
@@ -130,7 +142,7 @@ func PayloadLooksLikeGrok(payloadBytes []byte) bool {
 func AdaptGrokResult(event string, result Result) Result {
 	if event == "grok-pre-tool-use" {
 		if result.ExitCode != 0 {
-			reason := cursorResultReason(result)
+			reason := grokResultReason(result)
 			body, _ := json.Marshal(map[string]string{"decision": "deny", "reason": reason})
 			return Result{ExitCode: 0, Stdout: string(body)}
 		}
@@ -138,14 +150,45 @@ func AdaptGrokResult(event string, result Result) Result {
 		return Result{ExitCode: 0, Stdout: string(body), Stderr: result.Stderr}
 	}
 
-	if event == "grok-stop" && strings.TrimSpace(result.Stdout) != "" {
-		if reason := cursorStopReason(result.Stdout); reason != "" {
-			result.Stderr = joinStderr(result.Stderr, "reconc stop report: "+reason)
+	if event == "grok-stop" {
+		if result.ExitCode != 0 {
+			return grokStopBlockResult("Reconc could not evaluate this Grok Stop: " + grokResultReason(result))
 		}
+		stdout := strings.TrimSpace(result.Stdout)
+		if stdout == "" {
+			return Result{ExitCode: 0, Stderr: result.Stderr}
+		}
+		var decision struct {
+			Decision string `json:"decision"`
+			Reason   string `json:"reason"`
+		}
+		if err := json.Unmarshal([]byte(stdout), &decision); err != nil ||
+			decision.Decision != "block" || strings.TrimSpace(decision.Reason) == "" {
+			return grokStopBlockResult("Reconc produced an invalid non-empty Grok Stop decision")
+		}
+		body, _ := json.Marshal(map[string]string{
+			"decision": "block",
+			"reason":   strings.TrimSpace(decision.Reason),
+		})
+		return Result{ExitCode: 0, Stdout: string(body), Stderr: result.Stderr}
 	}
 	result.ExitCode = 0
 	result.Stdout = ""
 	return result
+}
+
+func grokStopBlockResult(reason string) Result {
+	body, _ := json.Marshal(map[string]string{"decision": "block", "reason": strings.TrimSpace(reason)})
+	return Result{ExitCode: 0, Stdout: string(body)}
+}
+
+func grokResultReason(result Result) string {
+	for _, candidate := range []string{result.Stderr, result.Stdout} {
+		if reason := strings.TrimSpace(candidate); reason != "" {
+			return reason
+		}
+	}
+	return "Reconc runtime returned no diagnostic"
 }
 
 func validateGrokEvent(event string, raw map[string]interface{}) error {
@@ -264,7 +307,7 @@ func isGuardedGrokTool(name string) bool {
 
 func grokStopIsInterrupt(reason string) bool {
 	switch strings.ToLower(strings.TrimSpace(reason)) {
-	case "cancelled", "canceled", "interrupt", "interrupted", "aborted", "user_abort":
+	case "cancelled", "canceled", "interrupt", "interrupted", "aborted", "user_abort", "channel_closed", "shutdown":
 		return true
 	default:
 		return false

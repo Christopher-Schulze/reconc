@@ -47,6 +47,8 @@ func generateGrok() *Artifact {
 		commandText := fmt.Sprintf("tools/reconc/bin/hook %s .", event)
 		if lifecycle == EventPreToolUse {
 			commandText += ` || printf '%s\n' '{"decision":"deny","reason":"Reconc could not evaluate this Grok tool call. Reinstall the Grok hook and tools/reconc/bin/hook."}'`
+		} else if lifecycle == EventStop {
+			commandText += ` || printf '%s\n' '{"decision":"block","reason":"Reconc could not evaluate this Grok Stop. Reinstall the Grok hook and tools/reconc/bin/hook."}'`
 		}
 		return map[string]interface{}{
 			"type":    "command",

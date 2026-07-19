@@ -37,9 +37,9 @@ Runtime:
   policy lockfiles use `schemas/v2/`
 - `RECONC_STOP_FINGERPRINT_UNTRACKED` (`normal` default, `all`, `no`) --
   untracked-file mode for the Stop fingerprint's git status snapshot
-- `RECONC_GROK_STEER=0` -- disable Grok TUI stop steering over the Unix leader
-  socket or Windows named pipe (steering also honours Grok's own
-  `GROK_LEADER_SOCKET` override)
+- `RECONC_GROK_STEER=0` -- disable optional old-version Grok TUI leader
+  steering over the Unix socket or Windows named pipe; native Stop and
+  PreToolUse remain enforced (steering also honours `GROK_LEADER_SOCKET`)
 
 Debugging:
 
@@ -277,16 +277,14 @@ evidence separately from static activation state. `configured` proves only
 that the host can discover a complete static artifact. Codex accepts
 `hooks = true` under `[features]`, rejects root-level `hooks=true`, and has no
 `SessionEnd` route. OpenCode and Kilo Code continuation is inferred from
-`session.idle`, not a synchronous native Stop gate. Grok's native `Stop` event
-is passive; use `reconc grok` when hard automatic continuation is required, or
-run Grok in leader mode so the `grok-stop` route can interject continuations
-into the live TUI session over its Unix socket or Windows named pipe (see
-`Grok leader steering` in `doctor --deep`). Deep doctor requires protocol
+`session.idle`, not a synchronous native Stop gate. Grok 0.2.106+ consumes
+Reconc's native `Stop` block directly in the normal TUI without a leader.
+Older Grok versions can use `reconc grok` or optional leader steering over the
+Unix socket or Windows named pipe. Deep doctor reports native Stop capability
+separately from route loading; its optional leader probe requires protocol
 version 1 and a recognized `_x.ai/interject` response, not just a successful
-register handshake; endpoint discovery failures are reported as diagnostic
-failures rather than being collapsed into "not active". It also requires
-project-owned inspect metadata and exact route command tokens; prefix
-collisions do not satisfy route coverage.
+register handshake. It also requires project-owned inspect metadata and exact
+route command tokens; prefix collisions do not satisfy route coverage.
 
 ### `reconc hook sync-scaffold <repo-root-scaffold> [--json]`
 Regenerate source-controlled hook artifacts inside a template
@@ -348,11 +346,12 @@ AI-operated switch scoped to one repository, not the whole machine. It routes
 continuation through all eight registered agent runtimes. Claude Code, Codex,
 Cursor, Devin CLI, and Antigravity CLI expose synchronous Stop
 gates; OpenCode and Kilo Code use inferred `session.idle` adapters whose host
-boundary is best-effort and fail-open. Grok's stock TUI exposes only a passive
-Stop notification; `reconc grok` supplies strict same-session continuation
-through the official ACP runtime, and leader-mode TUI sessions are steered
-directly via `_x.ai/interject` over the Unix leader socket or Windows named
-pipe. Eligible leader Stops use strict continuation before policy evaluation.
+boundary is best-effort and fail-open. Grok 0.2.106+ supplies a synchronous
+native Stop gate in the stock TUI; Reconc emits exact block JSON without a
+leader and preserves Grok's eight-continuation per-turn bound. `reconc grok`
+remains the explicit ACP path, while older leader-mode sessions can be steered
+through `_x.ai/interject` over the Unix socket or Windows named pipe. Eligible
+old-version leader Stops use strict continuation before policy evaluation.
 Only successfully delivered interjections consume the 32-attempt cap;
 transport or protocol failures do not. The cap resets on material progress, a
 changed block, or a clean Stop. Typed `continue` and `claim` states

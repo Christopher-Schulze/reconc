@@ -25,11 +25,15 @@ if [ "${RECONC_HOOK_REPO_RESOLVED:-}" != "1" ] && [ ! -x "$repo/tools/reconc/bin
 fi
 
 grok_fail_closed() {
-  printf '%s\n' '{"decision":"deny","reason":"Reconc could not evaluate this Grok tool call. Repair the Reconc binary or hook installation before retrying."}'
+  if [ "$event" = "grok-stop" ]; then
+    printf '%s\n' '{"decision":"block","reason":"Reconc could not evaluate this Grok Stop. Repair the Reconc binary or hook installation before retrying."}'
+  else
+    printf '%s\n' '{"decision":"deny","reason":"Reconc could not evaluate this Grok tool call. Repair the Reconc binary or hook installation before retrying."}'
+  fi
   exit 0
 }
 
-grok_decision_valid() {
+grok_output_is_single_line() {
   case "$1" in
     *'
 '*) return 1 ;;
@@ -37,21 +41,42 @@ grok_decision_valid() {
   if printf '%s' "$1" | LC_ALL=C grep -q '[[:cntrl:]]'; then
     return 1
   fi
+}
+
+grok_pre_tool_decision_valid() {
+  grok_output_is_single_line "$1" || return 1
   printf '%s\n' "$1" | grep -Eq '^\{"decision":"allow"\}$|^\{"decision":"deny","reason":"([^"\\]|\\(["\\/bfnrt]|u[0-9A-Fa-f]{4}))*"\}$'
+}
+
+grok_stop_decision_valid() {
+  grok_output_is_single_line "$1" || return 1
+  printf '%s\n' "$1" | grep -Eq '^\{"decision":"block","reason":"([^"\\]|\\(["\\/bfnrt]|u[0-9A-Fa-f]{4}))+"\}$'
 }
 
 run_reconc_hook() {
   reconc_binary="$1"
-  if [ "$event" = "grok-pre-tool-use" ]; then
+  if [ "$event" = "grok-pre-tool-use" ] || [ "$event" = "grok-stop" ]; then
     set +e
-    grok_output=$("$reconc_binary" hook grok-pre-tool-guard "$repo")
+    if [ "$event" = "grok-pre-tool-use" ]; then
+      grok_output=$("$reconc_binary" hook grok-pre-tool-guard "$repo")
+    else
+      grok_output=$("$reconc_binary" hook runtime grok-stop "$repo")
+    fi
     grok_status=$?
     set -e
-    if [ "$grok_status" -ne 0 ] || [ -z "$grok_output" ]; then
+    if [ "$grok_status" -ne 0 ]; then
       grok_fail_closed
     fi
-    if ! grok_decision_valid "$grok_output"; then
-      grok_fail_closed
+    if [ "$event" = "grok-stop" ]; then
+      if [ -z "$grok_output" ]; then
+        exit 0
+      fi
+      grok_stop_decision_valid "$grok_output" || grok_fail_closed
+    else
+      if [ -z "$grok_output" ]; then
+        grok_fail_closed
+      fi
+      grok_pre_tool_decision_valid "$grok_output" || grok_fail_closed
     fi
     printf '%s\n' "$grok_output"
     exit 0
@@ -117,7 +142,7 @@ for reconc_dir in "$repo/tools/reconc/dist" "$repo/dist"; do
     run_reconc_hook "$resolved_reconc"
   fi
   if [ "$resolve_status" -eq 2 ]; then
-    if [ "$event" = "grok-pre-tool-use" ]; then
+    if [ "$event" = "grok-pre-tool-use" ] || [ "$event" = "grok-stop" ]; then
       grok_fail_closed
     fi
     exit 2
@@ -128,7 +153,7 @@ if command -v reconc >/dev/null 2>&1; then
   run_reconc_hook "$(command -v reconc)"
 fi
 
-if [ "$event" = "grok-pre-tool-use" ]; then
+if [ "$event" = "grok-pre-tool-use" ] || [ "$event" = "grok-stop" ]; then
   grok_fail_closed
 fi
 echo "reconc hook wrapper: no executable Reconc binary found" >&2

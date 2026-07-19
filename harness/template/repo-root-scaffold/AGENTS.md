@@ -83,9 +83,10 @@ Antigravity CLI, Kilo Code, and Grok Build, scoped to this repository rather
 than the whole machine. Claude Code, Codex, Cursor, Devin CLI, and Antigravity
 CLI expose synchronous Stop gates. OpenCode and Kilo Code use
 inferred `session.idle`, so their host continuation remains best-effort and
-fail-open. Grok's native PreToolUse gate is hard, but its native Stop event is
-passive; use `reconc grok . --prompt "..."` for strict ACP same-session
-continuation. It survives internal continuation prompts, compaction, session
+fail-open. Grok's native PreToolUse gate is hard, and Grok 0.2.106+ also
+enforces Reconc Stop blocks without a leader. Older Grok versions use
+`reconc grok . --prompt "..."` or optional leader fallback for strict
+same-session continuation. It survives internal continuation prompts, compaction, session
 boundaries, and model restarts. A runtime interrupt releases only the current
 invocation. Prompt text, interrupts, session lifecycle events, runtime changes,
 and application restarts never mutate durable run state. `run off` is the only

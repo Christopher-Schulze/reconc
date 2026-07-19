@@ -162,16 +162,15 @@ Repository mode is durable for this repository, not machine-global. Claude
 Code, Codex, Cursor, Devin CLI, and Antigravity CLI expose
 synchronous Stop continuation. OpenCode and Kilo Code use inferred
 `session.idle`, so their host continuation remains best-effort and fail-open.
-Grok Build has hard native PreToolUse but a passive native Stop event; use
-`reconc grok . --prompt "..."` for strict same-session ACP continuation, or
-run Grok in leader mode so the Stop route interjects continuations into the
-live TUI session over its Unix socket or Windows named pipe
-(`RECONC_GROK_STEER=0` disables this). Leader Stops are strict before policy
-evaluation. Only successfully delivered interjections consume the 32-attempt
-no-progress series; it resets on material progress, a changed block, or a clean
-Stop. Managed Grok activation requires generator-exact hook/wrapper artifacts
-and exact route tokens. `reconc doctor --deep` requires protocol version 1 and
-a recognized `_x.ai/interject` response.
+Grok Build has hard native PreToolUse. Grok 0.2.106+ also enforces exact native
+Stop blocks without a leader, with strict `stopHookActive` re-entry and the
+host's eight-continuation per-turn bound. Older Grok versions use `reconc grok
+. --prompt "..."` or optional leader steering over the Unix socket or Windows
+named pipe. Only delivered interjections consume the 32-attempt no-progress
+series; native-capable leaders suppress duplicate interjection.
+`RECONC_GROK_STEER=0` disables only leader steering. Managed activation
+requires exact hook/wrapper artifacts and route tokens. Deep doctor reports
+native Stop capability and separately probes protocol 1 plus `_x.ai/interject`.
 Typed `continue` and `claim` states continue; an empty active slot claims queued
 executable work. Complete or absent state disables the switch after terminal
 gates, blocked state reaches terminal Stop without silently disabling it, and

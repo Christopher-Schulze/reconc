@@ -27,12 +27,11 @@ const (
 // steerDial is swappable for tests.
 var steerDial = dialLeader
 
-// PrepareStrictTUIStop marks an eligible native Grok leader Stop as strict
-// before policy evaluation. Without this bit the generic repeated-block escape
-// releases the same violation on the second Stop before steering can interject
-// another continuation.
+// PrepareStrictTUIStop marks every eligible live Grok Stop as strict before
+// policy evaluation. Native Stop enforcement must not depend on a leader or on
+// the optional leader-steering switch.
 func PrepareStrictTUIStop(payloadBytes []byte) ([]byte, bool, error) {
-	payload, err := activeSteerPayload(payloadBytes)
+	payload, err := liveTUIStopPayload(payloadBytes)
 	if err != nil || payload == nil {
 		return payloadBytes, false, err
 	}
@@ -44,13 +43,9 @@ func PrepareStrictTUIStop(payloadBytes []byte) ([]byte, bool, error) {
 	return body, true, nil
 }
 
-// SteerTUIStop upgrades a passive Grok TUI Stop into an active continuation.
-// Grok ignores Stop hook output, but a leader-hosted session accepts
-// _x.ai/interject over the leader endpoint, and an interjection landing on an
-// idle session starts a new prompt turn immediately. Called from the
-// grok-stop hook route with the normalized payload and the Stop evaluation
-// result; returns a stderr note ("" when steering does not apply). Strictly
-// fail-open: any failure leaves the passive stop report in place.
+// SteerTUIStop supplies backward-compatible continuation through an optional
+// leader. Native-Stop-capable leaders are not interjected to avoid delivering
+// the same continuation twice.
 func SteerTUIStop(repoRoot string, payloadBytes []byte, stopResult agentsession.Result) string {
 	if stopResult.ExitCode != 0 {
 		return ""
@@ -79,15 +74,21 @@ func SteerTUIStop(repoRoot string, payloadBytes []byte, stopResult agentsession.
 		return "reconc grok steer: " + err.Error()
 	}
 	if !allowed {
-		return fmt.Sprintf("reconc grok steer: %d-attempt budget exhausted; continuation left passive", maxStopSteerAttempts)
+		return fmt.Sprintf("reconc grok steer: %d-attempt leader fallback budget exhausted", maxStopSteerAttempts)
 	}
 
 	overallDeadline := time.Now().Add(steerBudget)
 	var lastErr error
+	nativeLeaderSeen := false
 	for index, endpoint := range candidates {
 		deadline := fairCandidateDeadline(overallDeadline, len(candidates)-index)
-		if err := interjectViaLeader(endpoint, deadline, payload.SessionID, reason); err != nil {
+		interjected, err := interjectViaLeader(endpoint, deadline, payload.SessionID, reason)
+		if err != nil {
 			lastErr = err
+			continue
+		}
+		if !interjected {
+			nativeLeaderSeen = true
 			continue
 		}
 		attempts, counted, err := commitSteerAttempt(repoRoot, payload.SessionID, attempt)
@@ -99,26 +100,35 @@ func SteerTUIStop(repoRoot string, payloadBytes []byte, stopResult agentsession.
 		}
 		return fmt.Sprintf("reconc grok steer: continuation interjected (%d/%d)", attempts, maxStopSteerAttempts)
 	}
+	if nativeLeaderSeen {
+		return ""
+	}
 	if lastErr == nil {
 		return ""
 	}
 	return "reconc grok steer failed: " + lastErr.Error()
 }
 
-func interjectViaLeader(endpoint string, deadline time.Time, sessionID, text string) error {
+func interjectViaLeader(endpoint string, deadline time.Time, sessionID, text string) (bool, error) {
 	conn, err := steerDial(endpoint, deadline)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer conn.close()
 	registration, err := conn.register()
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err := validateLeaderProtocol(registration); err != nil {
-		return err
+		return false, err
 	}
-	return conn.interject(sessionID, text)
+	if SupportsNativeStopGate(registration.BinaryVersion) {
+		return false, nil
+	}
+	if err := conn.interject(sessionID, text); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // SteeringDisabled reports whether RECONC_GROK_STEER turns leader stop
@@ -136,6 +146,10 @@ func activeSteerPayload(payloadBytes []byte) (*agentsession.HookPayload, error) 
 	if SteeringDisabled() {
 		return nil, nil
 	}
+	return liveTUIStopPayload(payloadBytes)
+}
+
+func liveTUIStopPayload(payloadBytes []byte) (*agentsession.HookPayload, error) {
 	payload, err := agentsession.ParsePayload(payloadBytes)
 	if err != nil {
 		return nil, err
@@ -146,6 +160,10 @@ func activeSteerPayload(payloadBytes []byte) (*agentsession.HookPayload, error) 
 	if payload.IsInterrupt != nil && *payload.IsInterrupt {
 		return nil, nil
 	}
+	switch strings.ToLower(strings.TrimSpace(payloadReason(payload))) {
+	case "channel_closed", "shutdown":
+		return nil, nil
+	}
 	// Grok exports GROK_SESSION_ID into every dispatched hook process. Its
 	// absence means this Stop did not come from a live Grok dispatch, so
 	// there is no session worth steering.
@@ -153,6 +171,11 @@ func activeSteerPayload(payloadBytes []byte) (*agentsession.HookPayload, error) 
 		return nil, nil
 	}
 	return payload, nil
+}
+
+func payloadReason(payload *agentsession.HookPayload) string {
+	reason, _ := payload.Raw["reason"].(string)
+	return reason
 }
 
 type steerAttempt struct {

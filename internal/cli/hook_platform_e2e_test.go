@@ -231,7 +231,7 @@ func TestHookRuntimeGrokStopSteersLeaderContinuation(t *testing.T) {
 
 	payload := fmt.Sprintf(`{"hookEventName":"stop","sessionId":"grok-steer","workspaceRoot":%q,"reason":"completed"}`, repo)
 	stdout, stderr, code := runWithStdin(t, payload, "hook", "runtime", "grok-stop", repo)
-	if code != 0 || stdout != "" {
+	if code != 0 || !strings.Contains(stdout, `"decision":"block"`) || !strings.Contains(stdout, "Reconc run is ON") {
 		t.Fatalf("Grok stop wire contract violated: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 	if !strings.Contains(stderr, "continuation interjected (1/32)") {
@@ -278,18 +278,37 @@ func TestHookRuntimeGrokRepeatedPolicyBlockStaysStrict(t *testing.T) {
 
 	for attempt := 1; attempt <= 2; attempt++ {
 		stdout, stderr, code := runWithStdin(t, payload, "hook", "runtime", "grok-stop", repo)
-		if code != 0 || stdout != "" {
+		if code != 0 || !strings.Contains(stdout, `"decision":"block"`) || !strings.Contains(stdout, "deny-gen") {
 			t.Fatalf("strict Grok stop %d failed: code=%d stdout=%q stderr=%q", attempt, code, stdout, stderr)
 		}
 		want := fmt.Sprintf("continuation interjected (%d/32)", attempt)
-		if !strings.Contains(stderr, want) || !strings.Contains(stderr, "deny-gen") {
-			t.Fatalf("strict Grok stop %d missing %q and policy report: %q", attempt, want, stderr)
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("strict Grok stop %d missing %q: %q", attempt, want, stderr)
 		}
 		select {
 		case <-interjected:
 		default:
 			t.Fatalf("strict Grok stop %d did not reach leader", attempt)
 		}
+	}
+}
+
+func TestHookRuntimeGrokStopBlocksWithoutLeader(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	writeHookRuntimeTaskFixture(t, repo)
+	if _, err := agentsession.SetRepositoryRun(repo, true); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GROK_LEADER_SOCKET", filepath.Join(t.TempDir(), "missing.sock"))
+	t.Setenv("GROK_SESSION_ID", "grok-native")
+
+	payload := fmt.Sprintf(`{"hookEventName":"stop","sessionId":"grok-native","workspaceRoot":%q,"reason":"end_turn","stopHookActive":true}`, repo)
+	stdout, stderr, code := runWithStdin(t, payload, "hook", "runtime", "grok-stop", repo)
+	if code != 0 || !strings.Contains(stdout, `"decision":"block"`) || !strings.Contains(stdout, "Reconc run is ON") {
+		t.Fatalf("native no-leader Grok Stop failed: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if strings.Contains(stderr, "interjected") {
+		t.Fatalf("no-leader Stop attempted duplicate steering: %q", stderr)
 	}
 }
 

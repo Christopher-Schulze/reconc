@@ -16,6 +16,7 @@ type grokTestPayload struct {
 	ToolResult         string            `json:"toolResult,omitempty"`
 	ToolInputTruncated bool              `json:"toolInputTruncated,omitempty"`
 	Reason             string            `json:"reason,omitempty"`
+	StopHookActive     bool              `json:"stopHookActive,omitempty"`
 }
 
 func marshalGrokTestPayload(t *testing.T, payload grokTestPayload) []byte {
@@ -171,11 +172,36 @@ func TestNormalizeGrokPreToolRejectsMalformedGuardInput(t *testing.T) {
 
 func TestNormalizeGrokStopInterrupt(t *testing.T) {
 	repo := t.TempDir()
+	for _, reason := range []string{"cancelled", "channel_closed", "shutdown"} {
+		t.Run(reason, func(t *testing.T) {
+			body, err := NormalizeGrokPayload("grok-stop", marshalGrokTestPayload(t, grokTestPayload{
+				HookEventName: "stop",
+				SessionID:     "s1",
+				WorkspaceRoot: repo,
+				Reason:        reason,
+			}), repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			payload, err := ParsePayload(body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if payload.IsInterrupt == nil || !*payload.IsInterrupt {
+				t.Fatalf("%s Grok Stop must normalize to release: %+v", reason, payload)
+			}
+		})
+	}
+}
+
+func TestNormalizeGrokStopContinuationState(t *testing.T) {
+	repo := t.TempDir()
 	body, err := NormalizeGrokPayload("grok-stop", marshalGrokTestPayload(t, grokTestPayload{
-		HookEventName: "stop",
-		SessionID:     "s1",
-		WorkspaceRoot: repo,
-		Reason:        "cancelled",
+		HookEventName:  "stop",
+		SessionID:      "s1",
+		WorkspaceRoot:  repo,
+		Reason:         "end_turn",
+		StopHookActive: true,
 	}), repo)
 	if err != nil {
 		t.Fatal(err)
@@ -184,8 +210,8 @@ func TestNormalizeGrokStopInterrupt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if payload.IsInterrupt == nil || !*payload.IsInterrupt {
-		t.Fatalf("cancelled Grok Stop must normalize to interrupt: %+v", payload)
+	if !payload.StopHookActive || payload.IsInterrupt != nil {
+		t.Fatalf("Grok Stop continuation state was not normalized: %+v", payload)
 	}
 }
 
@@ -220,12 +246,23 @@ func TestAdaptGrokResultUsesExplicitDecisionJSON(t *testing.T) {
 	}
 }
 
-func TestAdaptGrokStopIsPassiveButVisible(t *testing.T) {
-	result := AdaptGrokResult("grok-stop", Result{
-		Stdout: `{"decision":"block","reason":"finish the task"}`,
-	})
-	if result.ExitCode != 0 || result.Stdout != "" ||
-		!strings.Contains(result.Stderr, "finish the task") {
-		t.Fatalf("Grok passive Stop adaptation = %+v", result)
+func TestAdaptGrokStopUsesNativeBlockingContract(t *testing.T) {
+	tests := []struct {
+		name   string
+		result Result
+		want   string
+	}{
+		{name: "allow", result: Result{}, want: ""},
+		{name: "block", result: Result{Stdout: `{"decision":"block","reason":" finish the task "}`}, want: `{"decision":"block","reason":"finish the task"}`},
+		{name: "runtime failure", result: Result{ExitCode: 2, Stderr: "policy unavailable"}, want: `{"decision":"block","reason":"Reconc could not evaluate this Grok Stop: policy unavailable"}`},
+		{name: "invalid output", result: Result{Stdout: `{"decision":"allow"}`}, want: `{"decision":"block","reason":"Reconc produced an invalid non-empty Grok Stop decision"}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := AdaptGrokResult("grok-stop", test.result)
+			if got.ExitCode != 0 || got.Stdout != test.want {
+				t.Fatalf("Grok Stop adaptation = %+v, want stdout %q", got, test.want)
+			}
+		})
 	}
 }

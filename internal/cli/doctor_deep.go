@@ -170,10 +170,16 @@ func doctorCheckGrokRuntime(discovery ingest.DiscoveryResult) doctorCheck {
 		return check
 	}
 	version := strings.TrimSpace(inspection.GrokVersion)
-	if version == "" {
-		version = "unknown version"
+	displayVersion := version
+	if displayVersion == "" {
+		displayVersion = "unknown version"
 	}
-	check.Detail = fmt.Sprintf("Grok %s loaded all %d native Reconc routes from .grok/hooks/reconc.json", version, len(expected))
+	if !grokacp.SupportsNativeStopGate(version) {
+		check.Status = doctorStatusWarn
+		check.Detail = fmt.Sprintf("Grok %s loaded all %d native Reconc routes, but native no-leader Stop enforcement requires Grok %s or newer; guarded tool gates remain hard and optional leader steering or `reconc grok` supplies strict Stop fallback", displayVersion, len(expected), grokacp.NativeStopGateMinimumVersion)
+		return check
+	}
+	check.Detail = fmt.Sprintf("Grok %s loaded all %d native Reconc routes from .grok/hooks/reconc.json; native no-leader Stop enforcement is active", displayVersion, len(expected))
 	return check
 }
 
@@ -202,7 +208,7 @@ func doctorCheckGrokLeaderSteering(discovery ingest.DiscoveryResult) doctorCheck
 		return check
 	}
 	if grokacp.SteeringDisabled() {
-		check.Detail = "steering disabled via " + grokacp.SteerEnv
+		check.Detail = "optional leader steering disabled via " + grokacp.SteerEnv + "; native Stop enforcement is unaffected"
 		return check
 	}
 	probe := doctorProbeGrokLeader(2 * time.Second)
@@ -211,7 +217,7 @@ func doctorCheckGrokLeaderSteering(discovery ingest.DiscoveryResult) doctorCheck
 		check.Status = doctorStatusWarn
 		check.Detail = "Grok leader discovery failed: " + probe.Detail
 	case probe.Endpoint == "":
-		check.Detail = "no Grok leader endpoint; TUI Stop stays passive (leader mode is opt-in: `grok --leader` or config `use_leader`)"
+		check.Detail = "no Grok leader endpoint; optional backward-compatible steering is inactive and native Stop capability is reported separately"
 	case probe.Compatible:
 		version := "unknown"
 		if probe.ProtocolVersion != nil {
@@ -221,7 +227,11 @@ func doctorCheckGrokLeaderSteering(discovery ingest.DiscoveryResult) doctorCheck
 		if binary == "" {
 			binary = "unknown"
 		}
-		check.Detail = fmt.Sprintf("Grok leader compatible at %s (protocol %s, binary %s); TUI stop steering active", probe.Endpoint, version, binary)
+		if grokacp.SupportsNativeStopGate(binary) {
+			check.Detail = fmt.Sprintf("Grok leader compatible at %s (protocol %s, binary %s); native Stop is active and duplicate leader interjection is suppressed", probe.Endpoint, version, binary)
+		} else {
+			check.Detail = fmt.Sprintf("Grok leader compatible at %s (protocol %s, binary %s); backward-compatible TUI Stop steering is active", probe.Endpoint, version, binary)
+		}
 	case probe.Reachable:
 		check.Status = doctorStatusWarn
 		check.Detail = "Grok leader " + probe.Endpoint + " reachable but incompatible: " + probe.Detail

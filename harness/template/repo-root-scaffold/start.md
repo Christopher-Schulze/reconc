@@ -62,16 +62,13 @@ context limits persist exact progress in the TASK control plane. Explicit user
 interrupt always stops the current invocation without changing durable run
 state.
 
-Grok Build has a native hard PreToolUse boundary but only a passive native Stop
-event. Use `reconc grok . --prompt "..."` for strict same-session continuation;
-the generated `.grok/hooks/reconc.json` still supplies native lifecycle,
-evidence, compaction, permission, subagent, and fail-closed tool policy routes.
-When Grok runs in leader mode (`grok --leader` or config `use_leader`), the
-Stop route additionally steers the live TUI session by interjecting the
-continuation over the Unix leader socket or Windows named pipe. Eligible
-leader Stops are strict before policy evaluation, and the 32-attempt
-no-progress series counts only successfully delivered interjections and resets
-on material progress, a changed block, or a clean Stop. Managed activation
-requires generator-exact hook/wrapper artifacts and exact route tokens.
-`reconc doctor --deep` verifies protocol version 1 and
-`_x.ai/interject` before reporting `Grok leader steering` as active.
+Grok Build has a native hard PreToolUse boundary. Grok 0.2.106+ also enforces
+exact Reconc Stop block JSON in the normal TUI without a leader, with strict
+`stopHookActive` re-entry and Grok's eight-continuation per-turn bound. User
+interrupts and session-end reasons release. `reconc grok . --prompt "..."`
+remains the explicit strict ACP path. Older Grok versions can use optional
+leader fallback over the Unix socket or Windows named pipe; only delivered
+interjections count toward the 32-attempt no-progress series, and native-
+capable leaders suppress duplicate prompts. Managed activation requires exact
+hook/wrapper artifacts and route tokens. `reconc doctor --deep` reports native
+Stop support and separately verifies protocol 1 plus `_x.ai/interject`.

@@ -39,6 +39,14 @@ func TestGenerateGrokOwnsNativeLifecycle(t *testing.T) {
 	if !strings.Contains(artifact.Content, `"matcher": "^(write|search_replace|hashline_edit|run_terminal_command|run_terminal_cmd)$"`) {
 		t.Fatalf("Grok pre-tool matcher drifted:\n%s", artifact.Content)
 	}
+	for _, token := range []string{
+		`"timeout": 600`,
+		`{\"decision\":\"block\",\"reason\":\"Reconc could not evaluate this Grok Stop.`,
+	} {
+		if !strings.Contains(artifact.Content, token) {
+			t.Fatalf("Grok native Stop contract missing %q:\n%s", token, artifact.Content)
+		}
+	}
 }
 
 func TestInstallGrokIsOwnedIdempotentAndPreservesOtherFiles(t *testing.T) {

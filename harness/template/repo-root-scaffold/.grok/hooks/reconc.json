@@ -107,8 +107,8 @@
       {
         "hooks": [
           {
-            "command": "tools/reconc/bin/hook grok-stop .",
-            "timeout": 30,
+            "command": "tools/reconc/bin/hook grok-stop . || printf '%s\\n' '{\"decision\":\"block\",\"reason\":\"Reconc could not evaluate this Grok Stop. Reinstall the Grok hook and tools/reconc/bin/hook.\"}'",
+            "timeout": 600,
             "type": "command"
           }
         ]
