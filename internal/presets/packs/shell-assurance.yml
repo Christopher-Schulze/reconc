@@ -1,0 +1,38 @@
+# reconc preset: shell-assurance
+#
+# Explicit opt-in shell gates. Detection only recommends this pack; it never
+# installs ShellCheck, shfmt, Bats, or another repository tool.
+
+pack:
+  format_version: "1"
+  name: shell-assurance
+  summary: Current project-native shell verification plus changed-source hygiene.
+  stacks: ["shell"]
+  capabilities:
+    - id: shell-live-verification
+      inputs: ["**/*.{sh,bash,zsh,ksh}", ".shellcheckrc"]
+      evidence: ["command-success"]
+      rules: ["preset-shell-assurance"]
+    - id: shell-source-hygiene
+      inputs: ["changed shell source"]
+      evidence: ["native-source-scan"]
+      rules: ["preset-shell-assurance"]
+  conflicts: []
+
+rules:
+  - id: preset-shell-assurance
+    kind: require_assurance
+    mode: warn
+    when_paths: ["**/*.{sh,bash,zsh,ksh}", ".shellcheckrc"]
+    message: Shell changes require current project-native verification and shipped-source hygiene.
+    assurance:
+      - id: shell-verification
+        type: live_verification
+        applicable_if: ["**/*.{sh,bash,zsh,ksh}", ".shellcheckrc"]
+        commands: ["find . -type f -name '*.sh' -not -path './.git/*' -not -path './vendor/*' -exec shellcheck {} +", "shfmt -d .", "bats .", "make lint", "make test"]
+        command_policy: any
+      - id: shell-source-hygiene
+        type: source_hygiene
+        applicable_if: ["**/*.{sh,bash,zsh,ksh}", ".shellcheckrc"]
+        scan_paths: ["**/*.{sh,bash,zsh,ksh}"]
+        exclude_paths: ["test/**", "tests/**", "**/test/**", "**/tests/**", "**/fixtures/**", "vendor/**", "generated/**", "**/generated/**", "dist/**", "build/**"]

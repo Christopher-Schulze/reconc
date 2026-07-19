@@ -22,6 +22,11 @@ Current bundled presets:
 | `bun-assurance` | Exact JSON dependency pins and current Bun test evidence. |
 | `python-assurance` | Current Python test evidence plus changed-source hygiene. |
 | `rust-assurance` | Current Rust test, format, warning-free Clippy, and changed-source hygiene evidence. |
+| `shell-assurance` | Current project-native shell verification plus changed-source hygiene. |
+| `cpp-assurance` | Current C/C++ build or test evidence plus changed-source hygiene. |
+| `java-assurance` | Current Maven or Gradle verification plus changed Java source hygiene. |
+| `php-assurance` | Current project-native PHP verification plus changed-source hygiene. |
+| `csharp-assurance` | Current .NET test evidence plus changed C# source hygiene. |
 
 Repos opt in through `.reconc.yml`:
 
@@ -38,9 +43,12 @@ rule IDs. Selection rejects conflicts deterministically regardless of argument
 order. Legacy user presets without manifests remain loadable, but cannot be
 stack-recommended and declare no capabilities.
 
-Stack detection may propose manifested packs with specific evidence. It never
-selects wildcard packs and never mutates `extends`; pack adoption remains an
-explicit reviewed decision.
+Shared bounded stack detection may propose manifested packs with specific
+manifest or source evidence. It never follows symlinks, enters dependency/build
+trees, selects wildcard packs, or mutates `extends`; pack adoption remains an
+explicit reviewed decision. Assurance packs evaluate native source gates and
+recorded command evidence only. They never install or execute a target
+toolchain.
 
 ## Default Bootstrap
 

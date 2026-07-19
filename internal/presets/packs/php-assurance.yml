@@ -1,0 +1,38 @@
+# reconc preset: php-assurance
+#
+# Explicit opt-in PHP gates. Detection only recommends this pack; Composer,
+# PHPUnit, and project dependencies remain owned by the target repository.
+
+pack:
+  format_version: "1"
+  name: php-assurance
+  summary: Current project-native PHP verification plus changed-source hygiene.
+  stacks: ["php"]
+  capabilities:
+    - id: php-live-verification
+      inputs: ["**/*.php", "**/composer.json", "**/phpunit.xml*"]
+      evidence: ["command-success"]
+      rules: ["preset-php-assurance"]
+    - id: php-source-hygiene
+      inputs: ["changed PHP source"]
+      evidence: ["native-source-scan"]
+      rules: ["preset-php-assurance"]
+  conflicts: []
+
+rules:
+  - id: preset-php-assurance
+    kind: require_assurance
+    mode: warn
+    when_paths: ["**/*.php", "**/composer.json", "**/phpunit.xml", "**/phpunit.xml.dist"]
+    message: PHP changes require current project-native verification and shipped-source hygiene.
+    assurance:
+      - id: php-verification
+        type: live_verification
+        applicable_if: ["**/*.php", "**/composer.json", "**/phpunit.xml", "**/phpunit.xml.dist"]
+        commands: ["composer test", "vendor/bin/phpunit", "./vendor/bin/phpunit", "php vendor/bin/phpunit", "phpunit"]
+        command_policy: any
+      - id: php-source-hygiene
+        type: source_hygiene
+        applicable_if: ["**/*.php", "**/composer.json", "**/phpunit.xml", "**/phpunit.xml.dist"]
+        scan_paths: ["**/*.php"]
+        exclude_paths: ["test/**", "tests/**", "**/test/**", "**/tests/**", "**/fixtures/**", "vendor/**", "generated/**", "**/generated/**", "dist/**", "build/**"]

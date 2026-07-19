@@ -71,10 +71,10 @@ Scaffolds `.reconc.yml` + a stub `AGENTS.md` for a fresh repo. Multiple
 to a file while still printing to stdout.
 
 ### `reconc bootstrap inspect [repo] [--json]`
-Read-only discovery of canonical repository root, detected Go, Bun, Python,
-and Rust stacks, review-only pack suggestions, detected agent-platform
-directories, existing control paths, and platform-correct repo-local binary
-resolution.
+Read-only discovery of canonical repository root; detected Go, Bun, Python,
+Rust, Shell, C/C++, Java, PHP, and C# stacks; review-only pack suggestions;
+detected agent-platform directories, existing control paths, and
+platform-correct repo-local binary resolution.
 
 ### `reconc bootstrap profiles [--json]`
 List the three explicit profiles. `minimal` selects policy plus a managed AI
@@ -110,8 +110,8 @@ for detected repo-local platform directories. `--force` is rejected; drift must
 be resolved through candidate review.
 
 ### `reconc adopt [repo] [--yaml | --json | --apply]`
-Detects common tooling (JS/TS, Python, Rust, Go, CI, generated dirs)
-and emits matching-rule suggestions. Go, Bun, Python, and Rust evidence can
+Detects common tooling (JS/TS, Python, Rust, Go, Shell, C/C++, Java, PHP, C#,
+CI, generated dirs) and emits matching-rule suggestions. Stack evidence can
 also produce review-only manifested policy-pack recommendations. `--apply`
 appends individual rules to `.reconc.yml` idempotently and never changes
 `extends`.
@@ -236,7 +236,9 @@ first path, and a shortened message.
 
 ### `reconc preset list [--json] [--output PATH]` / `reconc preset show <name> [--json] [--output PATH]`
 Built-in (`default`, `agent`, `docs-sync`, `release`, `strict`,
-`go-assurance`, `bun-assurance`, `python-assurance`, `rust-assurance`) + user
+`go-assurance`, `bun-assurance`, `python-assurance`, `rust-assurance`,
+`shell-assurance`, `cpp-assurance`, `java-assurance`, `php-assurance`,
+`csharp-assurance`) + user
 presets from `$RECONC_HOME/presets/*.yml`. User-authored presets override bundled
 ones on name collision. JSON listing includes each validated manifest and its
 declared capabilities when present.

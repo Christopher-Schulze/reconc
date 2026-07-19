@@ -20,6 +20,7 @@ import (
 
 	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/presets"
+	"reconc.dev/reconc/internal/stackdetect"
 )
 
 // Suggestion is one rule the detector wants to propose. Kept small +
@@ -80,8 +81,10 @@ func Scan(repoRoot string) (Report, error) {
 		Suggestions:     []Suggestion{},
 		PackSuggestions: []PackSuggestion{},
 	}
-	detectedStacks := []string{}
-	stackEvidence := map[string][]string{}
+	detection, err := stackdetect.Detect(repoRoot)
+	if err != nil {
+		return Report{}, err
+	}
 
 	// --- JS / TS ---
 	if exists(filepath.Join(repoRoot, "package.json")) {
@@ -111,10 +114,6 @@ func Scan(repoRoot string) (Report, error) {
 				Reason:    "package.json declares a 'lint' script",
 			})
 		}
-	}
-	if exists(filepath.Join(repoRoot, "package.json")) && (exists(filepath.Join(repoRoot, "bun.lock")) || exists(filepath.Join(repoRoot, "bun.lockb"))) {
-		detectedStacks = append(detectedStacks, "bun")
-		stackEvidence["bun"] = []string{"package.json", firstExisting(repoRoot, "bun.lock", "bun.lockb")}
 	}
 	if exists(filepath.Join(repoRoot, "tsconfig.json")) {
 		r.Detected = append(r.Detected, "tsconfig.json")
@@ -171,15 +170,8 @@ func Scan(repoRoot string) (Report, error) {
 			})
 		}
 	}
-	if evidence := firstExisting(repoRoot, "pyproject.toml", "requirements.txt", "setup.cfg", "setup.py"); evidence != "" {
-		detectedStacks = append(detectedStacks, "python")
-		stackEvidence["python"] = []string{evidence}
-	}
-
 	// --- Rust ---
 	if exists(filepath.Join(repoRoot, "Cargo.toml")) {
-		detectedStacks = append(detectedStacks, "rust")
-		stackEvidence["rust"] = []string{"Cargo.toml"}
 		r.Detected = append(r.Detected, "Cargo.toml")
 		r.Suggestions = append(r.Suggestions, Suggestion{
 			ID:        "adopt-rust-test",
@@ -205,8 +197,6 @@ func Scan(repoRoot string) (Report, error) {
 
 	// --- Go ---
 	if exists(filepath.Join(repoRoot, "go.mod")) {
-		detectedStacks = append(detectedStacks, "go")
-		stackEvidence["go"] = []string{"go.mod"}
 		r.Detected = append(r.Detected, "go.mod")
 		r.Suggestions = append(r.Suggestions, Suggestion{
 			ID:        "adopt-go-test",
@@ -275,12 +265,12 @@ func Scan(repoRoot string) (Report, error) {
 		}
 	}
 
-	packs, err := presets.SuggestForStacks(detectedStacks)
+	packs, err := presets.SuggestForStacks(detection.Stacks)
 	if err != nil {
 		return Report{}, err
 	}
 	for _, metadata := range packs {
-		matchedStack := matchingManifestStack(metadata.Manifest.Stacks, detectedStacks)
+		matchedStack := matchingManifestStack(metadata.Manifest.Stacks, detection.Stacks)
 		capabilities := make([]string, 0, len(metadata.Manifest.Capabilities))
 		for _, capability := range metadata.Manifest.Capabilities {
 			capabilities = append(capabilities, capability.ID)
@@ -288,7 +278,7 @@ func Scan(repoRoot string) (Report, error) {
 		r.PackSuggestions = append(r.PackSuggestions, PackSuggestion{
 			Name:          metadata.Name,
 			DetectedStack: matchedStack,
-			Evidence:      stackEvidence[matchedStack],
+			Evidence:      detection.Evidence[matchedStack],
 			Reason:        metadata.Manifest.Summary,
 			Capabilities:  capabilities,
 		})
@@ -614,15 +604,6 @@ func detectJSRunner(repoRoot string) string {
 		return "yarn"
 	}
 	return "npm run"
-}
-
-func firstExisting(repoRoot string, names ...string) string {
-	for _, name := range names {
-		if exists(filepath.Join(repoRoot, name)) {
-			return name
-		}
-	}
-	return ""
 }
 
 func matchingManifestStack(selectors, detected []string) string {

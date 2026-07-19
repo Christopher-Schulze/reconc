@@ -1,0 +1,38 @@
+# reconc preset: java-assurance
+#
+# Explicit opt-in Java gates. Detection only recommends this pack; Gradle and
+# Maven remain target-repository dependencies.
+
+pack:
+  format_version: "1"
+  name: java-assurance
+  summary: Current Maven or Gradle verification plus changed Java source hygiene.
+  stacks: ["java"]
+  capabilities:
+    - id: java-live-verification
+      inputs: ["**/*.java", "**/pom.xml", "**/*gradle*"]
+      evidence: ["command-success"]
+      rules: ["preset-java-assurance"]
+    - id: java-source-hygiene
+      inputs: ["changed Java source"]
+      evidence: ["native-source-scan"]
+      rules: ["preset-java-assurance"]
+  conflicts: []
+
+rules:
+  - id: preset-java-assurance
+    kind: require_assurance
+    mode: warn
+    when_paths: ["**/*.java", "**/pom.xml", "**/build.gradle", "**/build.gradle.kts", "**/settings.gradle", "**/settings.gradle.kts"]
+    message: Java changes require current Maven or Gradle verification and shipped-source hygiene.
+    assurance:
+      - id: java-verification
+        type: live_verification
+        applicable_if: ["**/*.java", "**/pom.xml", "**/build.gradle", "**/build.gradle.kts", "**/settings.gradle", "**/settings.gradle.kts"]
+        commands: ["./gradlew test", "./gradlew check", "gradle test", "gradle check", "./mvnw test", "./mvnw verify", "mvn test", "mvn verify"]
+        command_policy: any
+      - id: java-source-hygiene
+        type: source_hygiene
+        applicable_if: ["**/*.java", "**/pom.xml", "**/build.gradle", "**/build.gradle.kts", "**/settings.gradle", "**/settings.gradle.kts"]
+        scan_paths: ["**/*.java"]
+        exclude_paths: ["test/**", "tests/**", "src/test/**", "**/src/test/**", "**/fixtures/**", "vendor/**", "generated/**", "**/generated/**", "target/**", "build/**"]

@@ -1,0 +1,38 @@
+# reconc preset: csharp-assurance
+#
+# Explicit opt-in C#/.NET gates. Detection only recommends this pack; the .NET
+# SDK and project dependencies remain owned by the target repository.
+
+pack:
+  format_version: "1"
+  name: csharp-assurance
+  summary: Current .NET test evidence plus changed C# source hygiene.
+  stacks: ["csharp"]
+  capabilities:
+    - id: csharp-live-verification
+      inputs: ["**/*.cs", "**/*.{csproj,sln,slnx}", "global.json"]
+      evidence: ["command-success"]
+      rules: ["preset-csharp-assurance"]
+    - id: csharp-source-hygiene
+      inputs: ["changed C# source"]
+      evidence: ["native-source-scan"]
+      rules: ["preset-csharp-assurance"]
+  conflicts: []
+
+rules:
+  - id: preset-csharp-assurance
+    kind: require_assurance
+    mode: warn
+    when_paths: ["**/*.cs", "**/*.{csproj,sln,slnx}", "global.json", "**/Directory.Build.props", "**/Directory.Build.targets"]
+    message: C# changes require current .NET test evidence and shipped-source hygiene.
+    assurance:
+      - id: csharp-verification
+        type: live_verification
+        applicable_if: ["**/*.cs", "**/*.{csproj,sln,slnx}", "global.json", "**/Directory.Build.props", "**/Directory.Build.targets"]
+        commands: ["dotnet test", "dotnet test --no-restore", "dotnet test --configuration Release"]
+        command_policy: any
+      - id: csharp-source-hygiene
+        type: source_hygiene
+        applicable_if: ["**/*.cs", "**/*.{csproj,sln,slnx}", "global.json", "**/Directory.Build.props", "**/Directory.Build.targets"]
+        scan_paths: ["**/*.cs"]
+        exclude_paths: ["test/**", "tests/**", "**/test/**", "**/tests/**", "**/fixtures/**", "vendor/**", "generated/**", "**/generated/**", "bin/**", "obj/**"]

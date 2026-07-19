@@ -64,6 +64,19 @@ func TestSuggestForPortableStacksReturnsSpecificPacks(t *testing.T) {
 	}
 }
 
+func TestSuggestForAdditionalPortableStacksReturnsSpecificPacks(t *testing.T) {
+	withRECONCHome(t)
+	suggestions, err := SuggestForStacks([]string{"shell", "cpp", "java", "php", "csharp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"shell-assurance", "cpp-assurance", "java-assurance", "php-assurance", "csharp-assurance"} {
+		if !metadataContains(suggestions, expected) {
+			t.Fatalf("expected %s suggestion, got %+v", expected, suggestions)
+		}
+	}
+}
+
 func writeManifestPreset(t *testing.T, dir, name string, conflicts []string) {
 	t.Helper()
 	conflictYAML := "[]"

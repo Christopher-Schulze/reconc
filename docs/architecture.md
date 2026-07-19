@@ -44,7 +44,7 @@ also use the runtime then render the result. `why` / `diff` /
 ```
 buildprovenance/ deterministic target/source identity + byte-only binary inspection
 internal/
-  adopt/          convention detector (JS/TS, Python, Rust, Go, CI, dirs)
+  adopt/          convention detector, rule suggestions, and stack-pack recommendations
   agentguide/     embedded agent-integration guide + section lookup
   assurance/      bounded native layout/source/manifest/proof gates
   atomicfile/     write-on-change and atomic publication primitives
@@ -75,6 +75,7 @@ internal/
                   hook-runtime threat model below describes)
   scaffold/       reconc init implementation
   schema/         canonical public JSON contract URLs + enterprise override
+  stackdetect/    shared bounded manifest/source stack discovery
   tasklifecycle/  typed TASK profiles + recoverable state transactions
   templates/      bundled rule-shape templates (embed.FS) + user overlays
   tui/            dependency-free terminal dashboard
@@ -232,7 +233,8 @@ responsibility-owned command file, completion metadata, focused tests, and
         │              └── template substitution, script runner, git
         │
         ├──► hooks
-        ├──► adopt
+        ├──► bootstrap ──► stackdetect
+        ├──► adopt ──► stackdetect, presets
         ├──► extractor
         ├──► lockdiff
         ├──► audit

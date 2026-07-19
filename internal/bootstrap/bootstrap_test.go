@@ -68,6 +68,31 @@ func TestInspectSuggestsPythonAndRustAssurancePacks(t *testing.T) {
 	}
 }
 
+func TestInspectSuggestsPortableAssurancePacksWithoutToolchains(t *testing.T) {
+	bootstrapTestHome(t)
+	t.Setenv("PATH", "")
+	repo := t.TempDir()
+	writeBootstrapTestFile(t, repo, "scripts/check.sh", "#!/bin/sh\n", 0o755)
+	writeBootstrapTestFile(t, repo, "native/main.cpp", "int main() { return 0; }\n", 0o644)
+	writeBootstrapTestFile(t, repo, "java/pom.xml", "<project/>\n", 0o644)
+	writeBootstrapTestFile(t, repo, "php/composer.json", "{}\n", 0o644)
+	writeBootstrapTestFile(t, repo, "dotnet/App.csproj", "<Project/>\n", 0o644)
+
+	inspection, err := Inspect(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStacks := "cpp,csharp,java,php,shell"
+	if strings.Join(inspection.DetectedStacks, ",") != wantStacks {
+		t.Fatalf("detected stacks = %v, want %s", inspection.DetectedStacks, wantStacks)
+	}
+	for _, expected := range []string{"cpp-assurance", "csharp-assurance", "java-assurance", "php-assurance", "shell-assurance"} {
+		if !containsString(inspection.PackSuggestions, expected) {
+			t.Fatalf("inspection missing %s suggestion: %+v", expected, inspection)
+		}
+	}
+}
+
 func TestPlanIsDeterministicAndStrictlyLoadable(t *testing.T) {
 	bootstrapTestHome(t)
 	repo := t.TempDir()

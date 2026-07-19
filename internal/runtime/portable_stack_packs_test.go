@@ -38,10 +38,56 @@ func TestPortableStackAssurancePacksEnforceLiveVerification(t *testing.T) {
 				"cargo clippy --all-targets --all-features -- -D warnings",
 			},
 		},
+		{
+			name:       "Shell",
+			preset:     "shell-assurance",
+			markerPath: ".shellcheckrc",
+			marker:     "shell=bash\n",
+			sourcePath: "scripts/check.sh",
+			source:     "#!/bin/sh\nexit 0\n",
+			commands:   []string{"find . -type f -name '*.sh' -not -path './.git/*' -not -path './vendor/*' -exec shellcheck {} +"},
+		},
+		{
+			name:       "C++",
+			preset:     "cpp-assurance",
+			markerPath: "CMakeLists.txt",
+			marker:     "cmake_minimum_required(VERSION 3.20)\n",
+			sourcePath: "src/main.cpp",
+			source:     "int main() { return 0; }\n",
+			commands:   []string{"ctest --test-dir build --output-on-failure"},
+		},
+		{
+			name:       "Java",
+			preset:     "java-assurance",
+			markerPath: "pom.xml",
+			marker:     "<project/>\n",
+			sourcePath: "src/main/java/Main.java",
+			source:     "final class Main {}\n",
+			commands:   []string{"mvn test"},
+		},
+		{
+			name:       "PHP",
+			preset:     "php-assurance",
+			markerPath: "composer.json",
+			marker:     "{}\n",
+			sourcePath: "src/index.php",
+			source:     "<?php\nfunction main(): int { return 1; }\n",
+			commands:   []string{"composer test"},
+		},
+		{
+			name:       "C#",
+			preset:     "csharp-assurance",
+			markerPath: "Example.csproj",
+			marker:     "<Project/>\n",
+			sourcePath: "src/Program.cs",
+			source:     "internal static class Program {}\n",
+			commands:   []string{"dotnet test"},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			withRECONCHome(t)
+			t.Setenv("PATH", "")
 			repo := t.TempDir()
 			writeFile(t, repo, "AGENTS.md", "# project\n")
 			writeFile(t, repo, ".reconc.yml", "extends:\n  - "+test.preset+"\n")

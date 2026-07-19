@@ -226,10 +226,14 @@ reconc adopt . --json
 Treat `pack_suggestions` from either command as evidence-backed candidates, never automatic
 configuration. Inspect each pack manifest's capabilities, inputs, evidence,
 rules, and conflicts. Add a pack to `.reconc.yml` `extends` only when the real
-repository stack and control intent match. `go-assurance` and `bun-assurance`
+repository stack and control intent match. All stack packs (`go-assurance`,
+`bun-assurance`, `python-assurance`, `rust-assurance`, `shell-assurance`,
+`cpp-assurance`, `java-assurance`, `php-assurance`, and `csharp-assurance`)
 start in warn mode so a new rollout can measure friction before explicitly
-tightening selected repo-local rules. Never copy source-harness-specific gate
-paths, baselines, exemptions, or proof ledgers into a target repo.
+tightening selected repo-local rules. Packs consume native scans and successful
+command evidence; they do not install or invoke a target toolchain. Never copy
+source-harness-specific gate paths, baselines, exemptions, or proof ledgers
+into a target repo.
 `go-assurance` is only for repositories with real Go stack evidence. Its native
 changed-file gates enforce canonical Go formatting and flag bare goroutine
 launches unless the same function proves `WaitGroup.Add`, deferred

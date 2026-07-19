@@ -9,6 +9,7 @@ import (
 
 	"reconc.dev/reconc/internal/hooks"
 	"reconc.dev/reconc/internal/presets"
+	"reconc.dev/reconc/internal/stackdetect"
 )
 
 func Inspect(repoRoot string) (*Inspection, error) {
@@ -16,8 +17,11 @@ func Inspect(repoRoot string) (*Inspection, error) {
 	if err != nil {
 		return nil, err
 	}
-	stacks := detectStacks(root)
-	suggestions, err := presets.SuggestForStacks(stacks)
+	detection, err := stackdetect.Detect(root)
+	if err != nil {
+		return nil, err
+	}
+	suggestions, err := presets.SuggestForStacks(detection.Stacks)
 	if err != nil {
 		return nil, fmt.Errorf("suggest policy packs: %w", err)
 	}
@@ -44,7 +48,7 @@ func Inspect(repoRoot string) (*Inspection, error) {
 	sort.Strings(existing)
 	return &Inspection{
 		FormatVersion: InspectFormatVersion, RepoRoot: root,
-		DetectedStacks: stacks, PackSuggestions: packNames,
+		DetectedStacks: detection.Stacks, PackSuggestions: packNames,
 		DetectedPlatforms: platforms, ExistingPaths: existing,
 		BinaryResolution: ResolveRepoBinary(root, runtime.GOOS, runtime.GOARCH),
 	}, nil
@@ -69,28 +73,6 @@ func canonicalRepoRoot(repoRoot string) (string, error) {
 	return filepath.Clean(resolved), nil
 }
 
-func detectStacks(root string) []string {
-	stacks := []string{}
-	if regularPath(filepath.Join(root, "go.mod")) {
-		stacks = append(stacks, "go")
-	}
-	if regularPath(filepath.Join(root, "package.json")) &&
-		(regularPath(filepath.Join(root, "bun.lock")) || regularPath(filepath.Join(root, "bun.lockb"))) {
-		stacks = append(stacks, "bun")
-	}
-	if regularPath(filepath.Join(root, "Cargo.toml")) {
-		stacks = append(stacks, "rust")
-	}
-	if regularPath(filepath.Join(root, "pyproject.toml")) ||
-		regularPath(filepath.Join(root, "requirements.txt")) ||
-		regularPath(filepath.Join(root, "setup.cfg")) ||
-		regularPath(filepath.Join(root, "setup.py")) {
-		stacks = append(stacks, "python")
-	}
-	sort.Strings(stacks)
-	return stacks
-}
-
 func platformDetected(root string, platform hooks.Platform) bool {
 	for _, relative := range platform.Activation.ConfigDirs {
 		info, err := os.Stat(filepath.Join(root, filepath.FromSlash(relative)))
@@ -99,11 +81,6 @@ func platformDetected(root string, platform hooks.Platform) bool {
 		}
 	}
 	return false
-}
-
-func regularPath(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.Mode().IsRegular()
 }
 
 func inspectionPaths() []string {

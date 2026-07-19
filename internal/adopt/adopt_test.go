@@ -91,6 +91,29 @@ func TestScanGoRepoSuggestsTestAndVet(t *testing.T) {
 	}
 }
 
+func TestScanSuggestsPortableAssurancePacksFromNestedEvidence(t *testing.T) {
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "scripts", "check.sh"), "#!/bin/sh\n")
+	mustWrite(t, filepath.Join(repo, "native", "main.cpp"), "int main() { return 0; }\n")
+	mustWrite(t, filepath.Join(repo, "java", "pom.xml"), "<project/>\n")
+	mustWrite(t, filepath.Join(repo, "php", "composer.json"), "{}\n")
+	mustWrite(t, filepath.Join(repo, "dotnet", "App.csproj"), "<Project/>\n")
+
+	report := mustScan(t, repo)
+	names := make([]string, 0, len(report.PackSuggestions))
+	for _, suggestion := range report.PackSuggestions {
+		names = append(names, suggestion.Name)
+		if len(suggestion.Evidence) == 0 {
+			t.Errorf("pack suggestion %s has no evidence", suggestion.Name)
+		}
+	}
+	for _, expected := range []string{"cpp-assurance", "csharp-assurance", "java-assurance", "php-assurance", "shell-assurance"} {
+		if !containsString(names, expected) {
+			t.Fatalf("missing %s suggestion: %+v", expected, report.PackSuggestions)
+		}
+	}
+}
+
 func TestScanCIAndGeneratedDirs(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, ".github", "workflows"), 0o755); err != nil {

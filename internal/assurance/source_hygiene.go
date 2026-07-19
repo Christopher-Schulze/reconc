@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"reconc.dev/reconc/internal/policy"
 )
@@ -58,6 +59,7 @@ func evaluateSourceHygiene(root string, gate policy.AssuranceGate, changed []str
 }
 
 func sourceHygieneProblem(extension string, line []byte) string {
+	extension = strings.ToLower(extension)
 	trimmed := bytes.TrimSpace(line)
 	if comment, ok := sourceCommentBody(extension, trimmed); ok {
 		comment = trimCommentDecoration(comment)
@@ -84,16 +86,39 @@ func sourceHygieneProblem(extension string, line []byte) string {
 		}
 	case ".js", ".jsx", ".ts", ".tsx":
 		for _, sentinel := range javaScriptUnimplementedSentinels {
-			if containsCodeFold(trimmed, sentinel) {
+			if containsCodeFoldWithSingleQuoteStrings(trimmed, sentinel) {
 				return "unimplemented JavaScript/TypeScript throw sentinel"
 			}
+		}
+	case ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx":
+		if hasFoldedTokenPrefix(trimmed, []byte("#error")) && bytes.Contains(bytes.ToLower(trimmed), []byte("not implemented")) {
+			return "unimplemented C/C++ preprocessor sentinel"
+		}
+		if containsCodeFold(trimmed, []byte(`throw std::logic_error("not implemented")`)) ||
+			containsCodeFold(trimmed, []byte(`throw std::runtime_error("not implemented")`)) {
+			return "unimplemented C++ throw sentinel"
+		}
+	case ".java":
+		if containsCodeFold(trimmed, []byte(`throw new unsupportedoperationexception("not implemented")`)) {
+			return "unimplemented Java exception sentinel"
+		}
+	case ".cs":
+		if containsCodeFold(trimmed, []byte("new notimplementedexception(")) ||
+			containsCodeFold(trimmed, []byte("new system.notimplementedexception(")) {
+			return "unimplemented C# exception sentinel"
+		}
+	case ".php":
+		if containsCodeFoldWithSingleQuoteStrings(trimmed, []byte(`throw new logicexception("not implemented")`)) ||
+			containsCodeFoldWithSingleQuoteStrings(trimmed, []byte(`throw new runtimeexception("not implemented")`)) {
+			return "unimplemented PHP exception sentinel"
 		}
 	}
 	return ""
 }
 
 func sourceCommentBody(extension string, line []byte) ([]byte, bool) {
-	if extension == ".py" && len(line) > 0 && line[0] == '#' {
+	if hashCommentLanguage(extension) && len(line) > 0 && line[0] == '#' &&
+		!(extension == ".php" && len(line) > 1 && line[1] == '[') {
 		return line[1:], true
 	}
 	if len(line) >= 2 && line[0] == '/' && (line[1] == '/' || line[1] == '*') {
@@ -106,6 +131,15 @@ func sourceCommentBody(extension string, line []byte) ([]byte, bool) {
 		return line[1:], true
 	}
 	return nil, false
+}
+
+func hashCommentLanguage(extension string) bool {
+	switch extension {
+	case ".py", ".sh", ".bash", ".zsh", ".ksh", ".php":
+		return true
+	default:
+		return false
+	}
 }
 
 func trimCommentDecoration(comment []byte) []byte {
@@ -137,18 +171,26 @@ func hasFoldedTokenPrefix(value, prefix []byte) bool {
 }
 
 func containsCodeFold(value, target []byte) bool {
+	return containsCodeFoldWithQuoteMode(value, target, false)
+}
+
+func containsCodeFoldWithSingleQuoteStrings(value, target []byte) bool {
+	return containsCodeFoldWithQuoteMode(value, target, true)
+}
+
+func containsCodeFoldWithQuoteMode(value, target []byte, singleQuoteStrings bool) bool {
 	if len(target) == 0 {
 		return true
 	}
 	for start := 0; start+len(target) <= len(value); start++ {
-		if bytes.EqualFold(value[start:start+len(target)], target) && codePosition(value, start) {
+		if bytes.EqualFold(value[start:start+len(target)], target) && codePosition(value, start, singleQuoteStrings) {
 			return true
 		}
 	}
 	return false
 }
 
-func codePosition(line []byte, end int) bool {
+func codePosition(line []byte, end int, singleQuoteStrings bool) bool {
 	var quote byte
 	for index := 0; index < end; index++ {
 		current := line[index]
@@ -165,7 +207,7 @@ func codePosition(line []byte, end int) bool {
 		case '"', '`':
 			quote = current
 		case '\'':
-			if hasClosingQuote(line, index+1, end, current) {
+			if singleQuoteStrings || hasClosingQuote(line, index+1, end, current) {
 				quote = current
 			}
 		}

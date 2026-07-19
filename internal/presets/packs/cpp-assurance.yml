@@ -1,0 +1,38 @@
+# reconc preset: cpp-assurance
+#
+# Explicit opt-in C/C++ gates. Detection only recommends this pack; build and
+# test tools remain owned by the target repository.
+
+pack:
+  format_version: "1"
+  name: cpp-assurance
+  summary: Current C/C++ build or test evidence plus changed-source hygiene.
+  stacks: ["cpp"]
+  capabilities:
+    - id: cpp-live-verification
+      inputs: ["**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx}", "**/CMakeLists.txt", "**/meson.build"]
+      evidence: ["command-success"]
+      rules: ["preset-cpp-assurance"]
+    - id: cpp-source-hygiene
+      inputs: ["changed C/C++ source"]
+      evidence: ["native-source-scan"]
+      rules: ["preset-cpp-assurance"]
+  conflicts: []
+
+rules:
+  - id: preset-cpp-assurance
+    kind: require_assurance
+    mode: warn
+    when_paths: ["**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx}", "**/CMakeLists.txt", "**/meson.build"]
+    message: C/C++ changes require current project-native build or test evidence and shipped-source hygiene.
+    assurance:
+      - id: cpp-verification
+        type: live_verification
+        applicable_if: ["**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx}", "**/CMakeLists.txt", "**/meson.build"]
+        commands: ["cmake --build build", "cmake --build build --parallel", "ctest --test-dir build", "ctest --test-dir build --output-on-failure", "meson compile -C build", "meson test -C build", "make", "make test", "make check", "ninja -C build", "ninja -C build test"]
+        command_policy: any
+      - id: cpp-source-hygiene
+        type: source_hygiene
+        applicable_if: ["**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx}", "**/CMakeLists.txt", "**/meson.build"]
+        scan_paths: ["**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx}"]
+        exclude_paths: ["test/**", "tests/**", "**/test/**", "**/tests/**", "**/fixtures/**", "vendor/**", "generated/**", "**/generated/**", "dist/**", "build/**"]

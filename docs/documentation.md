@@ -475,8 +475,11 @@ must re-run `reconc hook install` for `claude-code`, `codex`, `opencode`, and
 `kilo` once to pick up the current host event contracts, matchers, bounded
 timeouts, and payload adapters.
 
-`reconc adopt .` detects Go, Bun, Python, and Rust stack evidence and may
-propose the matching `*-assurance` pack. A proposal is review-only.
+`reconc adopt .` and `reconc bootstrap inspect .` share deterministic stack
+detection for Go, Bun, Python, Rust, Shell, C/C++, Java, PHP, and C#. Detection
+uses conventional manifests and source extensions through six repository
+levels, skips dependency/build trees and symlinks, and may propose the matching
+`*-assurance` pack. A proposal is review-only.
 `adopt --apply` adds individual rule suggestions but never mutates `extends`;
 the agent or user must explicitly select a pack in `.reconc.yml` after
 confirming that its contract fits the repository.
@@ -487,12 +490,16 @@ network/process-boundary, test, and vet evidence; `bun-assurance` adds exact
 dependency pins, source hygiene, and Bun test evidence; `python-assurance`
 adds Python source hygiene plus successful project-native Python or pytest
 evidence; `rust-assurance` adds source hygiene plus cargo test, format, and
-Clippy-with-warnings-denied evidence. They reuse the repository's own commands
-and toolchain, remain inert until selected through `extends`, and can be
-overridden or supplemented when a repository uses different canonical
-commands. Reconc governance itself remains language-independent: unsupported
-stacks use the same path, command, script, template, and evidence rules without
-requiring a built-in assurance pack.
+Clippy-with-warnings-denied evidence. `shell-assurance`, `cpp-assurance`,
+`java-assurance`, `php-assurance`, and `csharp-assurance` add changed-source
+hygiene plus common project-native verification alternatives for their stacks.
+They reuse successful command evidence from the repository's own toolchain,
+remain inert until selected through `extends`, and never install or execute a
+compiler, framework, package manager, or test runner themselves. Repositories
+with different canonical commands can override or supplement the bundled
+alternatives. Reconc governance itself remains language-independent:
+unsupported stacks use the same path, command, script, template, and evidence
+rules without requiring a built-in assurance pack.
 
 The portable builtin template set covers source/test and docs coupling,
 generated-output protection, CI claims, authority-change approval, bounded
@@ -584,12 +591,15 @@ fails closed on invalid Go. Both run through `go-assurance`; formatting covers
 tests while concurrency excludes tests, and both exclude `vendor/**`.
 
 The default `agent` pack runs `source_hygiene` in warn mode over changed shipped
-Go, Rust, Python, JavaScript/TypeScript, JVM, C/C++, C#, and Swift source. It
+Go, Rust, Python, Shell, JavaScript/TypeScript, JVM, C/C++, C#, PHP, and Swift
+source. It
 ignores tests, fixtures, dependency trees, generated output, and build output.
 The fixed high-signal contract catches leading `TODO`, `FIXME`, `XXX`, `STUB`,
 `PLACEHOLDER`, `TEMPORARY`, and `NOT IMPLEMENTED` comments, ignored Go
 `_ = err`, unimplemented Go panics, Rust `todo!`/`unimplemented!`, and
-JavaScript/TypeScript `throw new Error("not implemented")` sentinels. Narrow
+JavaScript/TypeScript `throw new Error("not implemented")`, C/C++ `#error` and
+standard exception, Java `UnsupportedOperationException`, C#
+`NotImplementedException`, and PHP standard exception sentinels. Narrow
 path exemptions require a reason. Neither gate spawns Git or another tool, and
 both have zero effect on files outside the configured changed-file surface.
 
@@ -610,6 +620,7 @@ Package responsibilities:
 - `internal/parser`: YAML-to-policy validation and normalization
 - `internal/compiler`: canonical JSON lockfile generation, digesting, conflicts, migrations, compile lock
 - `internal/bootstrap`: deterministic inspect/plan/apply/verify transactions and binary resolution
+- `internal/stackdetect`: shared bounded manifest/source stack discovery
 - `internal/runtime`: policy evaluation, remediation, git integration, scripts, templates
 - `internal/schema`: canonical format-versioned public JSON schema locations and enterprise URL resolution
 - `internal/assurance`: bounded native repository assurance evaluators

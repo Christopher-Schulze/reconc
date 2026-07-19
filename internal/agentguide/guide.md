@@ -49,7 +49,10 @@ reconc adopt . --apply      # append to .reconc.yml (idempotent)
 
 Stack-aware policy-pack recommendations are review-only. `adopt --apply` never
 adds them to `extends`. Inspect the declared capabilities and select a pack
-explicitly only when its inputs, evidence, and gates fit the repository.
+explicitly only when its inputs, evidence, and gates fit the repository. Go,
+Bun, Python, Rust, Shell, C/C++, Java, PHP, and C# have bundled assurance packs.
+The packs never install or execute toolchains; they evaluate native source
+checks and successful command evidence supplied by the target repository.
 
 Verify installation health end-to-end:
 ```bash
