@@ -470,19 +470,20 @@ scripts require `sh` on `PATH`; Git for Windows supplies it. Native `.exe` and
 
 ### Step 7a: Assert TASK-scoped claims
 
-Run the task-claim helper from the target repository root through its owning
-nested Go module. The command name comes first, followed by the optional
-validated TASK override:
+Run the task-claim helper from the target repository root through its root-safe
+launcher. The command name comes first, followed by the optional validated TASK
+override:
 
 ```sh
-go -C tools/reconc/harness/<project-name> run ./utils/task-claim show
-go -C tools/reconc/harness/<project-name> run ./utils/task-claim assert --task TASK-0001-Bootstrap-Reconc
+tools/reconc/harness/<project-name>/utils/task-claim/run-task-claim show
+tools/reconc/harness/<project-name>/utils/task-claim/run-task-claim assert --task TASK-0001-Bootstrap-Reconc
 ```
 
-The helper walks upward from the harness module and accepts a root only when
-both `docs/tasks.md` and the project claim bindings exist. Do not use the
-root-module form `go run ./tools/reconc/harness/.../utils/task-claim`; it cannot
-cross the nested Go module boundary.
+The launcher enters the owning nested Go module before starting the helper. The
+helper then walks upward and accepts a root only when both `docs/tasks.md` and
+the project claim bindings exist. Do not use the root-module form
+`go run ./tools/reconc/harness/.../utils/task-claim`; it cannot cross the nested
+Go module boundary.
 
 ### Step 7b: Activate source-controlled git hooks
 

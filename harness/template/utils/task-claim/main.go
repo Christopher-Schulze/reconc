@@ -11,9 +11,9 @@
 //
 // Run from the repository root:
 //
-//	go -C tools/reconc/harness/template run ./utils/task-claim assert
-//	go -C tools/reconc/harness/template run ./utils/task-claim show
-//	go -C tools/reconc/harness/template run ./utils/task-claim assert --task TASK-0099-X
+//	tools/reconc/harness/template/utils/task-claim/run-task-claim assert
+//	tools/reconc/harness/template/utils/task-claim/run-task-claim show
+//	tools/reconc/harness/template/utils/task-claim/run-task-claim assert --task TASK-0099-X
 //
 // The tool fails closed: missing tasks.md, missing bindings file, malformed
 // YAML, or `reconc hook claim` non-zero exit each abort with a clear error.

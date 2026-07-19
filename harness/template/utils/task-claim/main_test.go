@@ -130,7 +130,7 @@ func TestFindRepoRootFailsClosedWithoutBothMarkers(t *testing.T) {
 	}
 }
 
-func TestDocumentedGoCInvocationFromRepoRoot(t *testing.T) {
+func TestRootLauncherFromRepoRoot(t *testing.T) {
 	workingDir, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
@@ -141,25 +141,25 @@ func TestDocumentedGoCInvocationFromRepoRoot(t *testing.T) {
 		"go.mod",
 		"go.sum",
 		"utils/task-claim/main.go",
+		"utils/task-claim/run-task-claim",
 		"config/workflow/task-claim-bindings.yaml",
 	} {
 		copyFixture(t, filepath.Join(templateModule, filepath.FromSlash(rel)), root, filepath.ToSlash(filepath.Join("tools/reconc/harness/template", rel)))
 	}
+	launcher := filepath.Join(root, filepath.FromSlash("tools/reconc/harness/template/utils/task-claim/run-task-claim"))
+	if err := os.Chmod(launcher, 0o755); err != nil {
+		t.Fatalf("chmod launcher: %v", err)
+	}
 	writeFixture(t, root, tasksRel, "# Tasks\n")
 
-	cmd := exec.Command(
-		"go",
-		"-C", filepath.FromSlash("tools/reconc/harness/template"),
-		"run", "./utils/task-claim",
-		"show", "--task", "TASK-9999-Standalone-Probe",
-	)
-	cmd.Dir = root
+	cmd := exec.Command(launcher, "show", "--task", "TASK-9999-Standalone-Probe")
+	cmd.Dir = t.TempDir()
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("documented go -C invocation failed: %v\n%s", err, output)
+		t.Fatalf("root launcher failed: %v\n%s", err, output)
 	}
 	if !strings.Contains(string(output), "task: TASK-9999-Standalone-Probe") {
-		t.Fatalf("documented invocation ignored TASK override:\n%s", output)
+		t.Fatalf("root launcher ignored TASK override:\n%s", output)
 	}
 }
 

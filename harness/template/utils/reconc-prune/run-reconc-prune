@@ -1,0 +1,10 @@
+#!/bin/sh
+# Root-safe reconc-prune launcher for the nested template harness Go module.
+set -eu
+
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+harness_dir="$(CDPATH= cd -- "$script_dir/../.." && pwd)"
+repo_root="$(git -C "$harness_dir" rev-parse --show-toplevel)"
+
+cd "$harness_dir"
+exec go run ./utils/reconc-prune --repo-root "$repo_root" "$@"

@@ -83,17 +83,18 @@ func main() {
 	dryRun := flag.Bool("dry-run", false, "validate and print plan without writing changes")
 	verify := flag.Bool("verify", false, "after a successful mutation run `run-workflow-audit task-state`; rollback on failure")
 	allowEmpty := flag.Bool("allow-empty-current", false, "permit promotion when no next executable TASK exists; otherwise refuse to leave Current pointing at a checked row")
+	repoRoot := flag.String("repo-root", "", "repository root; the root launcher supplies this for the nested Go module")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr,
-			"usage: promote-task-done [--dry-run] [--verify] [--allow-empty-current] [TASK-NNNN-Name]\n\n"+
+			"usage: promote-task-done [--dry-run] [--verify] [--allow-empty-current] [--repo-root PATH] [TASK-NNNN-Name]\n\n"+
 				"Atomically promotes a TASK from docs/tasks/ to docs/tasks/done/.\n"+
 				"Without an explicit TASK name the Current TASK is promoted.\n"+
 				"Validation is shared with run-workflow-audit via the donecheck library.\n")
 	}
 	flag.Parse()
-	root, err := os.Getwd()
+	root, err := resolveCommandRoot(*repoRoot)
 	if err != nil {
-		fail("get cwd: %v", err)
+		fail("resolve repository root: %v", err)
 	}
 	if schema, schemaErr := donecheck.LoadSchema(filepath.Join(root, filepath.FromSlash(schemaRel))); schemaErr == nil {
 		loadedSchema = schema
@@ -107,6 +108,13 @@ func main() {
 	if err := runWithLock(root, opts); err != nil {
 		fail("%v", err)
 	}
+}
+
+func resolveCommandRoot(explicit string) (string, error) {
+	if explicit == "" {
+		return os.Getwd()
+	}
+	return filepath.Abs(explicit)
 }
 
 func runWithLock(root string, opts options) error {

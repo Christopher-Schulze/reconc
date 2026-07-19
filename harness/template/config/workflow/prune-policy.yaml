@@ -11,7 +11,8 @@
 # JSONL log (whichever stricter applies).
 #
 # This file remains only for older bootstraps that still invoke the nested Go
-# utility. New repos and agents use `reconc prune . [--dry-run] [--json]`.
+# utility through `tools/reconc/harness/<project-name>/utils/reconc-prune/run-reconc-prune`.
+# New repos and agents use `reconc prune . [--dry-run] [--json]`.
 
 sessions_retention: 32
 reports_retention: 32

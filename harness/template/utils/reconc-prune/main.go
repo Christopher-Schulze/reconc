@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"reconc-harness/template/audits/lib/prune"
 )
@@ -21,18 +22,19 @@ import (
 func main() {
 	dryRun := flag.Bool("dry-run", false, "report what would be deleted without touching anything")
 	force := flag.Bool("force", false, "compatibility flag; this utility always prunes immediately")
+	repoRoot := flag.String("repo-root", "", "repository root; the root launcher supplies this for the nested Go module")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr,
-			"usage: reconc-prune [--dry-run] [--force]\n\n"+
+			"usage: reconc-prune [--dry-run] [--force] [--repo-root PATH]\n\n"+
 				"Trims Reconc state to the budget defined in\n"+
 				"tools/reconc/harness/template/config/workflow/prune-policy.yaml.\n"+
 				"Prefer the product command: reconc prune . [--dry-run] [--json].\n")
 	}
 	flag.Parse()
 	_ = *force
-	root, err := os.Getwd()
+	root, err := resolveCommandRoot(*repoRoot)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "reconc-prune: get cwd: %v\n", err)
+		fmt.Fprintf(os.Stderr, "reconc-prune: resolve repository root: %v\n", err)
 		os.Exit(2)
 	}
 	policy, err := prune.LoadPolicy(prune.PolicyPathFromRepo(root))
@@ -41,6 +43,13 @@ func main() {
 	}
 	report := prune.Run(prune.Options{RepoRoot: root, Policy: policy, DryRun: *dryRun})
 	printReport(os.Stdout, os.Stderr, report, *dryRun)
+}
+
+func resolveCommandRoot(explicit string) (string, error) {
+	if explicit == "" {
+		return os.Getwd()
+	}
+	return filepath.Abs(explicit)
 }
 
 func printReport(stdout, stderr io.Writer, r prune.Report, dryRun bool) {

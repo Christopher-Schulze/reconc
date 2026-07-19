@@ -2,11 +2,50 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"reconc-harness/template/audits/lib/prune"
 )
+
+func TestResolveCommandRoot(t *testing.T) {
+	root := t.TempDir()
+	got, err := resolveCommandRoot(root)
+	if err != nil {
+		t.Fatalf("resolveCommandRoot: %v", err)
+	}
+	if got != root {
+		t.Fatalf("got %q want %q", got, root)
+	}
+}
+
+func TestRootLauncherCrossesNestedModuleBoundary(t *testing.T) {
+	workingDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	launcher := filepath.Join(workingDir, "run-reconc-prune")
+	info, err := os.Stat(launcher)
+	if err != nil {
+		t.Fatalf("stat launcher: %v", err)
+	}
+	if runtime.GOOS != "windows" && info.Mode()&0o111 == 0 {
+		t.Fatalf("launcher is not executable: %s", launcher)
+	}
+	cmd := exec.Command("sh", launcher, "--help")
+	cmd.Dir = t.TempDir()
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("launcher failed: %v\n%s", err, output)
+	}
+	if !strings.Contains(string(output), "usage: reconc-prune") || !strings.Contains(string(output), "--repo-root PATH") {
+		t.Fatalf("launcher did not reach the nested utility:\n%s", output)
+	}
+}
 
 func TestPrintReportShowsAllCounts(t *testing.T) {
 	report := prune.Report{

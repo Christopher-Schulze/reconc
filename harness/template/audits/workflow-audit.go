@@ -1369,7 +1369,7 @@ func auditUnreferencedTaskFiles(root string, referenced map[string]bool) []strin
 			}
 			target := filepath.ToSlash(rel(filepath.Join(root, "docs"), match))
 			if !referenced[filepath.Clean(target)] {
-				failures = append(failures, fmt.Sprintf("docs/%s exists but is not referenced from docs/tasks.md; if you are completing a TASK, run `go run ./tools/reconc/harness/template/utils/promote-task-done` (or with --dry-run) to atomically move the detail file and update tasks.md instead of editing them separately", target))
+				failures = append(failures, fmt.Sprintf("docs/%s exists but is not referenced from docs/tasks.md; if you are completing a TASK, run `tools/reconc/harness/template/utils/promote-task-done/run-promote-task-done` (or with --dry-run) to atomically move the detail file and update tasks.md instead of editing them separately", target))
 			}
 		}
 	}
