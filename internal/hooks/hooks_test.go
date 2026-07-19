@@ -202,8 +202,8 @@ func TestGenerateClaudeCodeIsValidJSON(t *testing.T) {
 		strings.Contains(a.Content, "reconc hook runtime") {
 		t.Errorf("expected reconc routes in template")
 	}
-	if strings.Contains(a.Content, "claude-user-prompt-submit") {
-		t.Errorf("Claude Code template retained removed user-prompt route")
+	if !strings.Contains(a.Content, "claude-user-prompt-submit") {
+		t.Errorf("Claude Code template misses native user-prompt route")
 	}
 	if !strings.Contains(a.Content, "claude-permission-request") {
 		t.Errorf("expected Claude Code permission-request route in template")
@@ -252,11 +252,11 @@ func TestGenerateCodexIsValidJSON(t *testing.T) {
 	if strings.Contains(a.Content, "codex-session-end") || strings.Contains(a.Content, `"SessionEnd"`) {
 		t.Errorf("Codex template retained unsupported SessionEnd routing")
 	}
-	if !strings.Contains(a.Content, "codex-post-tool-use-failure") {
-		t.Errorf("expected codex post-tool-use-failure route in template")
+	if strings.Contains(a.Content, "codex-post-tool-use-failure") || strings.Contains(a.Content, `"PostToolUseFailure"`) {
+		t.Errorf("Codex template retained unsupported PostToolUseFailure routing")
 	}
-	if strings.Contains(a.Content, "codex-user-prompt-submit") {
-		t.Errorf("Codex template retained removed user-prompt route")
+	if !strings.Contains(a.Content, "codex-user-prompt-submit") {
+		t.Errorf("Codex template misses native user-prompt route")
 	}
 	if !strings.Contains(a.Content, "codex-permission-request") {
 		t.Errorf("expected codex permission-request route in template")
@@ -1033,8 +1033,8 @@ func TestGenerateOpenCodePlugin(t *testing.T) {
 			t.Fatalf("OpenCode plugin missing %q:\n%s", token, a.Content)
 		}
 	}
-	if strings.Contains(a.Content, "chat.message") || strings.Contains(a.Content, "opencode-user-prompt-submit") {
-		t.Fatalf("OpenCode plugin retained removed user-prompt route:\n%s", a.Content)
+	if !strings.Contains(a.Content, "chat.message") || !strings.Contains(a.Content, "opencode-user-prompt-submit") {
+		t.Fatalf("OpenCode plugin misses native user-prompt route:\n%s", a.Content)
 	}
 }
 

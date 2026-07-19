@@ -97,7 +97,10 @@ func postCompactionJSONOutput(context string) string {
 			"additionalContext": context,
 		},
 	}
-	body, _ := json.Marshal(payload)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
 	return string(body)
 }
 
@@ -117,6 +120,31 @@ func AdaptPostCompactionResult(result Result, hookEventName string) Result {
 	}
 	hookOutput["hookEventName"] = hookEventName
 	body, err := json.Marshal(payload)
+	if err == nil {
+		result.Stdout = string(body)
+	}
+	return result
+}
+
+// AdaptCodexCompactionResult emits Codex's documented common-output field.
+func AdaptCodexCompactionResult(result Result) Result {
+	if result.Stdout == "" {
+		return result
+	}
+	var payload map[string]interface{}
+	if json.Unmarshal([]byte(result.Stdout), &payload) != nil {
+		return result
+	}
+	hookOutput, ok := payload["hookSpecificOutput"].(map[string]interface{})
+	if !ok {
+		return result
+	}
+	context, _ := hookOutput["additionalContext"].(string)
+	if context == "" {
+		result.Stdout = ""
+		return result
+	}
+	body, err := json.Marshal(map[string]interface{}{"systemMessage": context})
 	if err == nil {
 		result.Stdout = string(body)
 	}

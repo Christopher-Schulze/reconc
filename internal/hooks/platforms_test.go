@@ -108,17 +108,8 @@ func TestGenerateEveryRegisteredArtifact(t *testing.T) {
 			for _, missing := range missingRuntimeEvents(platform, artifact.Content) {
 				t.Errorf("generated artifact misses registry route %s", missing)
 			}
-			for _, removed := range []string{"beforeSubmitPrompt", "chat.message"} {
-				if strings.Contains(artifact.Content, removed) {
-					t.Errorf("generated artifact retained removed prompt route %q", removed)
-				}
-			}
-			if platform.Kind != KindGrok {
-				for _, removed := range []string{"UserPromptSubmit", "-user-prompt-submit"} {
-					if strings.Contains(artifact.Content, removed) {
-						t.Errorf("generated artifact retained removed prompt route %q", removed)
-					}
-				}
+			if strings.Contains(artifact.Content, "beforeSubmitPrompt") {
+				t.Error("generated artifact retained retired Cursor prompt route beforeSubmitPrompt")
 			}
 		})
 	}
@@ -129,13 +120,10 @@ func TestNewPlatformArtifactsUseCurrentContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, token := range []string{`"matcher": "compact"`, "claude-post-compaction", `"timeout": 5`, `"timeout": 10`, `"timeout": 30`} {
+	for _, token := range []string{`"matcher": "compact"`, "claude-compaction-recovery", `"PostCompact"`, "claude-post-compaction", `"timeout": 5`, `"timeout": 10`, `"timeout": 30`} {
 		if !strings.Contains(claude.Content, token) {
 			t.Fatalf("Claude artifact missing %q:\n%s", token, claude.Content)
 		}
-	}
-	if strings.Contains(claude.Content, `"PostCompact"`) {
-		t.Fatal("Claude PostCompact cannot inject recovery context; use SessionStart(compact) without an extra process")
 	}
 
 	devin, err := Generate(KindDevinCLI)
@@ -198,14 +186,14 @@ func TestNewPlatformArtifactsUseCurrentContracts(t *testing.T) {
 func TestBunAdapterRoutesAreRegistered(t *testing.T) {
 	for kind, events := range map[string][]string{
 		KindOpenCode: {
-			"opencode-session-start", "opencode-pre-tool-use",
+			"opencode-session-start", "opencode-user-prompt-submit", "opencode-pre-tool-use",
 			"opencode-permission-request", "opencode-post-tool-use", "opencode-post-tool-use-failure",
-			"opencode-post-compaction", "opencode-session-end", "opencode-stop",
+			"opencode-pre-compaction", "opencode-post-compaction", "opencode-session-end", "opencode-stop",
 		},
 		KindKilo: {
-			"kilo-session-start", "kilo-pre-tool-use",
+			"kilo-session-start", "kilo-user-prompt-submit", "kilo-pre-tool-use",
 			"kilo-permission-request", "kilo-post-tool-use", "kilo-post-tool-use-failure",
-			"kilo-post-compaction", "kilo-session-end", "kilo-stop",
+			"kilo-pre-compaction", "kilo-post-compaction", "kilo-session-end", "kilo-stop",
 		},
 	} {
 		for _, event := range events {
@@ -218,14 +206,20 @@ func TestBunAdapterRoutesAreRegistered(t *testing.T) {
 	for _, event := range []string{
 		"claude-user-prompt-submit",
 		"codex-user-prompt-submit",
-		"cursor-user-prompt-submit",
 		"opencode-user-prompt-submit",
-		"devin-user-prompt-submit",
-		"antigravity-user-prompt-submit",
 		"kilo-user-prompt-submit",
 	} {
+		if _, ok := RuntimeEvent(event); !ok {
+			t.Fatalf("native user-prompt route %s is not registered", event)
+		}
+	}
+	for _, event := range []string{
+		"cursor-user-prompt-submit",
+		"devin-user-prompt-submit",
+		"antigravity-user-prompt-submit",
+	} {
 		if _, ok := RuntimeEvent(event); ok {
-			t.Fatalf("removed user-prompt route %s is still registered", event)
+			t.Fatalf("unsupported user-prompt route %s is registered", event)
 		}
 	}
 	for _, event := range []string{

@@ -10,13 +10,13 @@
 | Kind | Target | Enforcement |
 |---|---|---|
 | `git-pre-commit` | `.git/hooks/pre-commit` | Runs `reconc ci --staged` before commit. |
-| `claude-code` | `.claude/settings.json` | Session, pre-write, post-tool, stop, and cleanup hooks. |
-| `codex` | `.codex/hooks.json` | Session, Bash pre/post hooks, and stop gate. |
+| `claude-code` | `.claude/settings.json` | Prompt, permission, tool, failure, compaction, subagent, session, and stop hooks. |
+| `codex` | `.codex/hooks.json` | Released prompt, permission, tool, compaction, subagent, session-start, and stop hooks. |
 | `cursor` | `.cursor/hooks.json` | Session, prompt, write/shell policy, post-tool evidence, and stop gate. |
-| `opencode` | `.opencode/plugins/reconc.js` | Project plugin for session start, tool before/after, and idle stop gate. |
+| `opencode` | `.opencode/plugins/reconc.js` | Project plugin for prompt, permission, complete tool outcomes, terminal errors, compaction, session lifecycle, and idle stop gate. |
 | `devin-cli` | `.devin/hooks.v1.json` | Session, tool, permission, stop, cleanup, and post-compaction hooks. |
 | `antigravity` | `.agents/hooks.json` | Invocation, tool, and stop hook group under the top-level `reconc` key. |
-| `kilo` | `.kilo/plugin/reconc.js` | Thin project plugin for session, tool, permission, compaction, and idle handling. |
+| `kilo` | `.kilo/plugin/reconc.js` | Thin project plugin for prompt, permission, complete tool outcomes, terminal errors, compaction, session lifecycle, and idle handling. |
 | `grok` | `.grok/hooks/reconc.json` | Native lifecycle, strict PreToolUse, no-leader Stop on Grok 0.2.106+, compaction, permission-denial, and subagent events. |
 
 Installers are idempotent. Reconc-owned JSON hook entries are
@@ -50,16 +50,30 @@ Claude Code provides file-tool hooks, so `reconc` can enforce:
 - stop-gate blocking for unmet command, claim, coupling, evidence, and
   script requirements
 - bounded context recovery through `SessionStart` with matcher `compact`
+- native prompt, permission-denied, failed-tool, Stop-failure, subagent, and
+  pre/post-compaction observation with explicit route timeouts
 - session-end cleanup while saved reports remain available
 
 ## Codex Guarantee
 
-Codex exposes session, tool, permission, evidence, and Stop routes. Reconc
-extracts write paths from native tool fields and `apply_patch` headers,
-intercepts shell commands, records successful and failed evidence, and blocks
-Stop on unmet invariants. Codex has no `SessionEnd` route. Bootstrap writes
+Codex exposes prompt, session-start, tool, permission, pre/post-compaction,
+subagent, evidence, and Stop routes. Reconc extracts write paths from native
+tool fields and `apply_patch` headers, intercepts shell commands, infers failed
+Bash outcomes from the single `PostToolUse` contract, and blocks Stop on unmet
+invariants. Codex has no `SessionEnd` or separate failed-tool route. Bootstrap writes
 `hooks = true` under `[features]`; a root-level lookalike does not activate the
 host. Git pre-commit remains the hard repository backstop.
+
+## OpenCode And Kilo Code Guarantee
+
+Both thin Bun adapters preserve complete `tool.execute.after`
+title/output/metadata, block pre-tool and permission runtime failures, route
+user prompts plus pre/post-compaction and session lifecycle, and convert
+terminal `message.part.updated` tool errors into deduplicated failure evidence.
+Policy, session state, and recovery context remain in the Go runtime. Their
+`session.idle` continuation boundary is best-effort and fail-open rather than a
+synchronous native Stop gate; git pre-commit remains the hard repository
+backstop.
 
 ## Grok Build Guarantee
 

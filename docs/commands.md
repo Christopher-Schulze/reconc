@@ -276,7 +276,10 @@ Each platform also reports rate-limited `last_seen`/`last_event` live-runtime
 evidence separately from static activation state. `configured` proves only
 that the host can discover a complete static artifact. Codex accepts
 `hooks = true` under `[features]`, rejects root-level `hooks=true`, and has no
-`SessionEnd` route. OpenCode and Kilo Code continuation is inferred from
+`SessionEnd` or separate failed-tool route; failed Bash outcomes are inferred
+from `PostToolUse`. OpenCode and Kilo Code preserve complete post-tool output,
+deduplicate terminal tool errors from `message.part.updated`, and route user
+prompts plus pre/post-compaction lifecycle. Their continuation is inferred from
 `session.idle`, not a synchronous native Stop gate. Grok 0.2.106+ consumes
 Reconc's native `Stop` block directly in the normal TUI without a leader.
 Older Grok versions can use `reconc grok` or optional leader steering over the
@@ -302,7 +305,10 @@ state consulted by later hook-runtime checks and `ci` calls.
 ### `reconc hook runtime <event> <repo>`
 Registry-owned agent-platform event dispatcher. Called from Claude Code,
 Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, and Grok Build
-hook configs, not by users directly.
+hook configs, not by users directly. Codex uses only released routes and
+infers failed Bash outcomes from `PostToolUse`; OpenCode and Kilo preserve
+complete post-tool output, deduplicate terminal tool errors, and route prompt,
+compaction, and session lifecycle.
 
 ### `reconc grok [repo] [--model ID] [--grok-binary PATH] [--max-continuations N] --prompt TEXT`
 Starts the unmodified official `grok agent stdio` ACP runtime in the target

@@ -70,6 +70,8 @@ func generateClaudeCode() *Artifact {
 			"timeout": mustTimeoutSeconds(KindClaudeCode, lifecycle),
 		}
 	}
+	const guardedTools = "Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash"
+	const evidenceTools = "Read|Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash"
 	template := map[string]interface{}{
 		"hooks": map[string]interface{}{
 			"SessionStart": []interface{}{
@@ -82,13 +84,18 @@ func generateClaudeCode() *Artifact {
 				map[string]interface{}{
 					"matcher": "compact",
 					"hooks": []interface{}{
-						command("claude-post-compaction", EventPostCompaction),
+						command("claude-compaction-recovery", EventPostCompaction),
 					},
+				},
+			},
+			"UserPromptSubmit": []interface{}{
+				map[string]interface{}{
+					"hooks": []interface{}{command("claude-user-prompt-submit", EventUserPromptSubmit)},
 				},
 			},
 			"PreToolUse": []interface{}{
 				map[string]interface{}{
-					"matcher": "Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash",
+					"matcher": guardedTools,
 					"hooks": []interface{}{
 						command("claude-pre-tool-use", EventPreToolUse),
 					},
@@ -96,15 +103,21 @@ func generateClaudeCode() *Artifact {
 			},
 			"PermissionRequest": []interface{}{
 				map[string]interface{}{
-					"matcher": "Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash",
+					"matcher": guardedTools,
 					"hooks": []interface{}{
 						command("claude-permission-request", EventPermissionRequest),
 					},
 				},
 			},
+			"PermissionDenied": []interface{}{
+				map[string]interface{}{
+					"matcher": guardedTools,
+					"hooks":   []interface{}{command("claude-permission-denied", EventPermissionDenied)},
+				},
+			},
 			"PostToolUse": []interface{}{
 				map[string]interface{}{
-					"matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash",
+					"matcher": evidenceTools,
 					"hooks": []interface{}{
 						command("claude-post-tool-use", EventPostToolUse),
 					},
@@ -112,12 +125,16 @@ func generateClaudeCode() *Artifact {
 			},
 			"PostToolUseFailure": []interface{}{
 				map[string]interface{}{
-					"matcher": "Bash",
+					"matcher": evidenceTools,
 					"hooks": []interface{}{
 						command("claude-post-tool-use-failure", EventPostToolUseFailure),
 					},
 				},
 			},
+			"SubagentStart": []interface{}{map[string]interface{}{"hooks": []interface{}{command("claude-subagent-start", EventSubagentStart)}}},
+			"SubagentStop":  []interface{}{map[string]interface{}{"hooks": []interface{}{command("claude-subagent-stop", EventSubagentStop)}}},
+			"PreCompact":    []interface{}{map[string]interface{}{"hooks": []interface{}{command("claude-pre-compaction", EventPreCompaction)}}},
+			"PostCompact":   []interface{}{map[string]interface{}{"hooks": []interface{}{command("claude-post-compaction", EventPostCompaction)}}},
 			"Stop": []interface{}{
 				map[string]interface{}{
 					"hooks": []interface{}{
@@ -125,6 +142,7 @@ func generateClaudeCode() *Artifact {
 					},
 				},
 			},
+			"StopFailure": []interface{}{map[string]interface{}{"hooks": []interface{}{command("claude-stop-failure", EventStopFailure)}}},
 			"SessionEnd": []interface{}{
 				map[string]interface{}{
 					"hooks": []interface{}{
@@ -144,30 +162,37 @@ func generateClaudeCode() *Artifact {
 }
 
 func generateCodex() *Artifact {
+	command := func(event string, lifecycle Event, statusMessage string) map[string]interface{} {
+		entry := map[string]interface{}{
+			"type":    "command",
+			"command": shellRuntimeCommand(".", event),
+			"timeout": mustTimeoutSeconds(KindCodex, lifecycle),
+		}
+		if statusMessage != "" {
+			entry["statusMessage"] = statusMessage
+		}
+		return entry
+	}
 	template := map[string]interface{}{
 		"hooks": map[string]interface{}{
 			"SessionStart": []interface{}{
 				map[string]interface{}{
-					"matcher": "startup|resume|clear",
+					"matcher": "startup|resume|clear|compact",
 					"hooks": []interface{}{
-						map[string]interface{}{
-							"type":          "command",
-							"command":       shellRuntimeCommand(".", "codex-session-start"),
-							"timeout":       mustTimeoutSeconds(KindCodex, EventSessionStart),
-							"statusMessage": "reconc: initializing policy session",
-						},
+						command("codex-session-start", EventSessionStart, "reconc: initializing policy session"),
 					},
+				},
+			},
+			"UserPromptSubmit": []interface{}{
+				map[string]interface{}{
+					"hooks": []interface{}{command("codex-user-prompt-submit", EventUserPromptSubmit, "")},
 				},
 			},
 			"PreToolUse": []interface{}{
 				map[string]interface{}{
 					"matcher": "Write|Edit|MultiEdit|Bash|apply_patch",
 					"hooks": []interface{}{
-						map[string]interface{}{
-							"type":    "command",
-							"command": shellRuntimeCommand(".", "codex-pre-tool-use"),
-							"timeout": mustTimeoutSeconds(KindCodex, EventPreToolUse),
-						},
+						command("codex-pre-tool-use", EventPreToolUse, ""),
 					},
 				},
 			},
@@ -175,11 +200,7 @@ func generateCodex() *Artifact {
 				map[string]interface{}{
 					"matcher": "Write|Edit|MultiEdit|Bash|apply_patch",
 					"hooks": []interface{}{
-						map[string]interface{}{
-							"type":    "command",
-							"command": shellRuntimeCommand(".", "codex-permission-request"),
-							"timeout": mustTimeoutSeconds(KindCodex, EventPermissionRequest),
-						},
+						command("codex-permission-request", EventPermissionRequest, ""),
 					},
 				},
 			},
@@ -187,34 +208,18 @@ func generateCodex() *Artifact {
 				map[string]interface{}{
 					"matcher": "Read|Edit|Write|MultiEdit|Bash|apply_patch",
 					"hooks": []interface{}{
-						map[string]interface{}{
-							"type":    "command",
-							"command": shellRuntimeCommand(".", "codex-post-tool-use"),
-							"timeout": mustTimeoutSeconds(KindCodex, EventPostToolUse),
-						},
+						command("codex-post-tool-use", EventPostToolUse, ""),
 					},
 				},
 			},
-			"PostToolUseFailure": []interface{}{
-				map[string]interface{}{
-					"matcher": "Bash",
-					"hooks": []interface{}{
-						map[string]interface{}{
-							"type":    "command",
-							"command": shellRuntimeCommand(".", "codex-post-tool-use-failure"),
-							"timeout": mustTimeoutSeconds(KindCodex, EventPostToolUseFailure),
-						},
-					},
-				},
-			},
+			"PreCompact":    []interface{}{map[string]interface{}{"hooks": []interface{}{command("codex-pre-compaction", EventPreCompaction, "")}}},
+			"PostCompact":   []interface{}{map[string]interface{}{"hooks": []interface{}{command("codex-post-compaction", EventPostCompaction, "")}}},
+			"SubagentStart": []interface{}{map[string]interface{}{"hooks": []interface{}{command("codex-subagent-start", EventSubagentStart, "")}}},
+			"SubagentStop":  []interface{}{map[string]interface{}{"hooks": []interface{}{command("codex-subagent-stop", EventSubagentStop, "")}}},
 			"Stop": []interface{}{
 				map[string]interface{}{
 					"hooks": []interface{}{
-						map[string]interface{}{
-							"type":    "command",
-							"command": shellRuntimeCommand(".", "codex-stop"),
-							"timeout": mustTimeoutSeconds(KindCodex, EventStop),
-						},
+						command("codex-stop", EventStop, ""),
 					},
 				},
 			},

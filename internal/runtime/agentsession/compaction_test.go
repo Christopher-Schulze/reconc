@@ -54,6 +54,13 @@ func TestAdaptPostCompactionResultChangesNativeEvent(t *testing.T) {
 	}
 }
 
+func TestAdaptCodexCompactionResultUsesSystemMessage(t *testing.T) {
+	result := AdaptCodexCompactionResult(Result{Stdout: postCompactionJSONOutput("context")})
+	if result.Stdout != `{"systemMessage":"context"}` {
+		t.Fatalf("Codex compaction output = %s", result.Stdout)
+	}
+}
+
 func compactionContextFromResult(t *testing.T, result Result) string {
 	t.Helper()
 	var body map[string]interface{}

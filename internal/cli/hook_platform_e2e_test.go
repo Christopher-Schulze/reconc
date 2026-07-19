@@ -361,7 +361,7 @@ func TestHookRuntimeClaudeCompactSessionReturnsRecoveryPacket(t *testing.T) {
 		"hook", "runtime", "claude-session-start", repo)
 
 	stdout, stderr, code := runWithStdin(t, `{"session_id":"claude-compact","source":"compact","compact_summary":"provider summary"}`,
-		"hook", "runtime", "claude-post-compaction", repo)
+		"hook", "runtime", "claude-compaction-recovery", repo)
 	if code != 0 || stderr != "" {
 		t.Fatalf("Claude compact SessionStart should fail open with clean input, code=%d stderr=%q", code, stderr)
 	}

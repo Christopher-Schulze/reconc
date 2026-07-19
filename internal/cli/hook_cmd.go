@@ -440,15 +440,20 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 			hooks.EventStopFailure,
 			hooks.EventNotification,
 			hooks.EventSubagentStart,
-			hooks.EventSubagentStop,
-			hooks.EventPreCompaction:
+			hooks.EventSubagentStop:
 			result = agentsession.RunPassiveEvent(repo, payload)
+		case hooks.EventPreCompaction:
+			if route.PlatformKind == hooks.KindOpenCode || route.PlatformKind == hooks.KindKilo {
+				result = agentsession.RunPostCompaction(repo, payload)
+			} else {
+				result = agentsession.RunPassiveEvent(repo, payload)
+			}
 		case hooks.EventPreToolUse:
 			result = agentsession.RunPreToolUse(repo, payload)
 		case hooks.EventPermissionRequest:
 			result = agentsession.RunPermissionRequest(repo, payload)
 		case hooks.EventPostToolUse:
-			if event == "cursor-after-shell-execution" || event == "devin-post-tool-use" {
+			if event == "codex-post-tool-use" || event == "cursor-after-shell-execution" || event == "devin-post-tool-use" {
 				result = agentsession.RunPostToolUseComplete(repo, payload)
 			} else {
 				result = agentsession.RunPostToolUse(repo, payload)
@@ -460,7 +465,11 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 		case hooks.EventSessionEnd:
 			result = agentsession.RunSessionEnd(repo, payload)
 		case hooks.EventPostCompaction:
-			result = agentsession.RunPostCompaction(repo, payload)
+			if route.PlatformKind == hooks.KindOpenCode || route.PlatformKind == hooks.KindKilo {
+				result = agentsession.RunPassiveEvent(repo, payload)
+			} else {
+				result = agentsession.RunPostCompaction(repo, payload)
+			}
 		default:
 			exitCode = 1
 			return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook runtime: event %q is not executable", event)}
@@ -485,8 +494,17 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 	switch route.PlatformKind {
 	case hooks.KindClaudeCode:
 		if route.Event == hooks.EventPostCompaction {
-			result = agentsession.AdaptPostCompactionResult(result, "SessionStart")
+			hookEventName := "PostCompact"
+			if event == "claude-compaction-recovery" {
+				hookEventName = "SessionStart"
+			}
+			result = agentsession.AdaptPostCompactionResult(result, hookEventName)
 			timing.mark("claude_compaction_adapt")
+		}
+	case hooks.KindCodex:
+		if route.Event == hooks.EventPostCompaction {
+			result = agentsession.AdaptCodexCompactionResult(result)
+			timing.mark("codex_compaction_adapt")
 		}
 	case hooks.KindCursor:
 		result = agentsession.AdaptCursorResult(event, result)

@@ -471,14 +471,28 @@ recorded command extending an expected command at a token boundary
 design: `require_command` is presence-only (the command may have run before
 the triggering write), while `require_command_success` additionally enforces
 the write-epoch freshness contract. After upgrading, existing repositories
-must re-run `reconc hook install claude-code` once to pick up the extended
-Claude write-tool matchers (NotebookEdit and related tools).
+must re-run `reconc hook install` for `claude-code`, `codex`, `opencode`, and
+`kilo` once to pick up the current host event contracts, matchers, bounded
+timeouts, and payload adapters.
 
 `reconc adopt .` detects Go, Bun, Python, and Rust stack evidence and may
 propose the matching `*-assurance` pack. A proposal is review-only.
 `adopt --apply` adds individual rule suggestions but never mutates `extends`;
 the agent or user must explicitly select a pack in `.reconc.yml` after
 confirming that its contract fits the repository.
+
+Assurance packs are opt-in policy bundles, not compilers or dependency
+installers. `go-assurance` adds canonical formatting, owned-concurrency,
+network/process-boundary, test, and vet evidence; `bun-assurance` adds exact
+dependency pins, source hygiene, and Bun test evidence; `python-assurance`
+adds Python source hygiene plus successful project-native Python or pytest
+evidence; `rust-assurance` adds source hygiene plus cargo test, format, and
+Clippy-with-warnings-denied evidence. They reuse the repository's own commands
+and toolchain, remain inert until selected through `extends`, and can be
+overridden or supplemented when a repository uses different canonical
+commands. Reconc governance itself remains language-independent: unsupported
+stacks use the same path, command, script, template, and evidence rules without
+requiring a built-in assurance pack.
 
 The portable builtin template set covers source/test and docs coupling,
 generated-output protection, CI claims, authority-change approval, bounded
@@ -673,8 +687,12 @@ bootstrap still writes `hooks = true` under the `[features]` table. A
 root-level `hooks=true` lookalike is invalid, while `hooks = false` under
 `[features]` leaves the artifact installed but disabled. Codex
 does not expose `SessionEnd`; Reconc generates only supported routes and gives
-each route its exact 5, 10, or 30 second host timeout. `apply_patch` is routed
-through Reconc by parsing patch headers from `tool_input.command`. Cursor
+each route its exact 5, 10, or 30 second host timeout. Codex also has no
+separate failed-tool event: Reconc classifies non-successful Bash outcomes from
+the released `PostToolUse` payload and records them through the failure path.
+User prompts, pre/post compaction, subagent start/stop, permission, tool, and
+Stop lifecycles are all routed. `apply_patch` is routed through Reconc by
+parsing patch headers from `tool_input.command`. Cursor
 Desktop uses `.cursor/hooks.json` with
 `preToolUse` as the pre-write gate, `afterFileEdit`/`afterTabFileEdit` plus
 `postToolUse` as evidence backstops for Cursor write aliases including
@@ -684,9 +702,11 @@ hook paths emit explicit `{"continue":true,"permission":"allow"}` JSON because
 Cursor fail-closed hooks treat empty stdout as hook failure. If Cursor also
 executes compatible `.claude/settings.json` hooks, Reconc detects Cursor-native
 payload markers and no-ops those non-native Claude hook invocations before they
-can duplicate Cursor session evidence. After compaction, Claude routes the
-context-capable `SessionStart` `compact` matcher through Reconc; it does not
-spawn the notification-only `PostCompact` event. Devin uses
+can duplicate Cursor session evidence. Claude routes its native prompt,
+permission-denied, failed-tool, Stop-failure, subagent, pre/post-compaction,
+and session events. After compaction, the context-capable `SessionStart`
+`compact` matcher restores a bounded recovery packet; native `PostCompact` is
+retained as an observation event because it cannot inject context. Devin uses
 `.devin/hooks.v1.json`, including `PostCompaction`, and suppresses compatible
 Claude-hook duplicates.
 Antigravity uses `.agents/hooks.json` with `PreInvocation`, `PreToolUse`,
@@ -694,6 +714,10 @@ Antigravity uses `.agents/hooks.json` with `PreInvocation`, `PreToolUse`,
 metadata as pending evidence so PostToolUse can record exact evidence when the
 post payload only carries a step index/result. OpenCode and Kilo Code use thin Bun
 adapters at `.opencode/plugins/reconc.js` and `.kilo/plugin/reconc.js`. They
+route `chat.message`, hard pre-tool and permission hooks, complete
+`tool.execute.after` title/output/metadata, terminal tool errors from
+`message.part.updated`, pre/post-compaction, and session lifecycle. Repeated
+terminal error notifications are bounded and deduplicated by tool call. They
 translate host events only; policy, session state, compaction context, and
 continuation decisions stay in the Go runtime, so the plugins do not maintain
 parallel run-state files or inject project-specific prompts. Their subprocess

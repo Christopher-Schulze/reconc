@@ -986,7 +986,7 @@ func TestRunHookValidationExtras(t *testing.T) {
 func TestObservationOnlyHookEventClassification(t *testing.T) {
 	for _, event := range []string{
 		"claude-post-tool-use",
-		"codex-post-tool-use-failure",
+		"codex-post-tool-use",
 		"cursor-after-shell-execution",
 		"cursor-after-file-edit",
 		"opencode-post-tool-use",

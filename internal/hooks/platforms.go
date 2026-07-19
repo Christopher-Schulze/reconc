@@ -138,26 +138,36 @@ var platformRegistry = []platformDefinition{
 	{
 		Platform: Platform{Kind: KindClaudeCode, DisplayName: "Claude Code", TargetPath: ClaudeCodeSettingsPath, ScaffoldPath: ClaudeCodeSettingsPath, InstallMode: InstallNestedJSON, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".claude"}, RequiresWrapper: true}, Capabilities: []Capability{
 			capability(EventSessionStart, "SessionStart", SupportNative, FailureAllow, FailureAllow, 5, "claude-session-start"),
+			capability(EventUserPromptSubmit, "UserPromptSubmit", SupportNative, FailureAllow, FailureAllow, 5, "claude-user-prompt-submit"),
 			capability(EventPreToolUse, "PreToolUse", SupportNative, FailureBlock, FailureBlock, 10, "claude-pre-tool-use"),
 			capability(EventPermissionRequest, "PermissionRequest", SupportNative, FailureBlock, FailureBlock, 10, "claude-permission-request"),
+			capability(EventPermissionDenied, "PermissionDenied", SupportNative, FailureAllow, FailureAllow, 5, "claude-permission-denied"),
 			capability(EventPostToolUse, "PostToolUse", SupportNative, FailureAllow, FailureAllow, 5, "claude-post-tool-use"),
 			capability(EventPostToolUseFailure, "PostToolUseFailure", SupportNative, FailureAllow, FailureAllow, 5, "claude-post-tool-use-failure"),
 			capability(EventStop, "Stop", SupportNative, FailureBlock, FailureBlock, 30, "claude-stop"),
+			capability(EventStopFailure, "StopFailure", SupportNative, FailureAllow, FailureAllow, 5, "claude-stop-failure"),
 			capability(EventSessionEnd, "SessionEnd", SupportNative, FailureAllow, FailureAllow, 5, "claude-session-end"),
-			capability(EventPostCompaction, "SessionStart(compact)", SupportAdapted, FailureAllow, FailureAllow, 5, "claude-post-compaction"),
+			capability(EventSubagentStart, "SubagentStart", SupportNative, FailureAllow, FailureAllow, 5, "claude-subagent-start"),
+			capability(EventSubagentStop, "SubagentStop", SupportNative, FailureAllow, FailureAllow, 5, "claude-subagent-stop"),
+			capability(EventPreCompaction, "PreCompact", SupportNative, FailureAllow, FailureAllow, 5, "claude-pre-compaction"),
+			claudePostCompactionCapability(),
 		}},
 		generator: generatorClaudeCode,
 	},
 	{
 		Platform: Platform{Kind: KindCodex, DisplayName: "Codex", TargetPath: CodexHooksPath, ScaffoldPath: CodexHooksPath, InstallMode: InstallNestedJSON, Activation: ActivationProbe{Mode: ActivationFlag, ConfigDirs: []string{".codex"}, EnablePath: ".codex/config.toml", EnableSection: "features", EnableKey: "hooks", EnabledByDefault: true, RequiresWrapper: true}, Capabilities: []Capability{
 			capability(EventSessionStart, "SessionStart", SupportNative, FailureAllow, FailureAllow, 5, "codex-session-start"),
+			capability(EventUserPromptSubmit, "UserPromptSubmit", SupportNative, FailureAllow, FailureAllow, 5, "codex-user-prompt-submit"),
 			capability(EventPreToolUse, "PreToolUse", SupportNative, FailureBlock, FailureBlock, 10, "codex-pre-tool-use"),
 			capability(EventPermissionRequest, "PermissionRequest", SupportNative, FailureBlock, FailureBlock, 10, "codex-permission-request"),
 			capability(EventPostToolUse, "PostToolUse", SupportNative, FailureAllow, FailureAllow, 5, "codex-post-tool-use"),
-			capability(EventPostToolUseFailure, "PostToolUseFailure", SupportNative, FailureAllow, FailureAllow, 5, "codex-post-tool-use-failure"),
+			capability(EventPostToolUseFailure, "PostToolUse", SupportAdapted, FailureAllow, FailureAllow, 5),
 			capability(EventStop, "Stop", SupportNative, FailureBlock, FailureBlock, 30, "codex-stop"),
 			unsupportedNative(EventSessionEnd, "SessionEnd"),
-			unsupported(EventPostCompaction),
+			capability(EventSubagentStart, "SubagentStart", SupportNative, FailureAllow, FailureAllow, 5, "codex-subagent-start"),
+			capability(EventSubagentStop, "SubagentStop", SupportNative, FailureAllow, FailureAllow, 5, "codex-subagent-stop"),
+			capability(EventPreCompaction, "PreCompact", SupportNative, FailureAllow, FailureAllow, 5, "codex-pre-compaction"),
+			capability(EventPostCompaction, "PostCompact", SupportNative, FailureAllow, FailureAllow, 5, "codex-post-compaction"),
 		}},
 		generator: generatorCodex,
 	},
@@ -176,13 +186,15 @@ var platformRegistry = []platformDefinition{
 	},
 	{
 		Platform: Platform{Kind: KindOpenCode, DisplayName: "OpenCode", TargetPath: OpenCodePluginPath, ScaffoldPath: OpenCodePluginPath, InstallMode: InstallPlugin, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".opencode"}}, Capabilities: []Capability{
-			capability(EventSessionStart, "plugin-load", SupportInferred, FailureAllow, FailureAllow, 5, "opencode-session-start"),
+			capability(EventSessionStart, "session.created", SupportNative, FailureAllow, FailureAllow, 5, "opencode-session-start"),
+			capability(EventUserPromptSubmit, "chat.message", SupportNative, FailureAllow, FailureAllow, 5, "opencode-user-prompt-submit"),
 			capability(EventPreToolUse, "tool.execute.before", SupportNative, FailureBlock, FailureBlock, 10, "opencode-pre-tool-use"),
 			capability(EventPermissionRequest, "permission.ask", SupportNative, FailureBlock, FailureBlock, 10, "opencode-permission-request"),
 			capability(EventPostToolUse, "tool.execute.after", SupportNative, FailureAllow, FailureAllow, 5, "opencode-post-tool-use"),
-			capability(EventPostToolUseFailure, "tool.execute.after", SupportAdapted, FailureAllow, FailureAllow, 5, "opencode-post-tool-use-failure"),
+			capability(EventPostToolUseFailure, "message.part.updated(error)", SupportAdapted, FailureAllow, FailureAllow, 5, "opencode-post-tool-use-failure"),
 			capability(EventStop, "session.idle", SupportInferred, FailureBlock, FailureAllow, 30, "opencode-stop"),
 			capability(EventSessionEnd, "session.deleted", SupportNative, FailureAllow, FailureAllow, 5, "opencode-session-end"),
+			capability(EventPreCompaction, "experimental.session.compacting", SupportExperimental, FailureAllow, FailureAllow, 5, "opencode-pre-compaction"),
 			capability(EventPostCompaction, "session.compacted", SupportNative, FailureAllow, FailureAllow, 5, "opencode-post-compaction"),
 		}},
 		generator: generatorOpenCode,
@@ -216,13 +228,15 @@ var platformRegistry = []platformDefinition{
 	{
 		Platform: Platform{Kind: KindKilo, DisplayName: "Kilo Code", TargetPath: KiloPluginPath, ScaffoldPath: KiloPluginPath, InstallMode: InstallPlugin, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".kilo", ".kilocode"}, DisabledByEnv: "KILO_PURE", LegacyArtifactPath: ".kilocode/plugin/reconc.js"}, Capabilities: []Capability{
 			capability(EventSessionStart, "session.created", SupportNative, FailureAllow, FailureAllow, 5, "kilo-session-start"),
+			capability(EventUserPromptSubmit, "chat.message", SupportNative, FailureAllow, FailureAllow, 5, "kilo-user-prompt-submit"),
 			capability(EventPreToolUse, "tool.execute.before", SupportNative, FailureBlock, FailureBlock, 10, "kilo-pre-tool-use"),
 			capability(EventPermissionRequest, "permission.ask", SupportNative, FailureBlock, FailureBlock, 10, "kilo-permission-request"),
 			capability(EventPostToolUse, "tool.execute.after", SupportNative, FailureAllow, FailureAllow, 5, "kilo-post-tool-use"),
-			capability(EventPostToolUseFailure, "tool.execute.after", SupportAdapted, FailureAllow, FailureAllow, 5, "kilo-post-tool-use-failure"),
+			capability(EventPostToolUseFailure, "message.part.updated(error)", SupportAdapted, FailureAllow, FailureAllow, 5, "kilo-post-tool-use-failure"),
 			capability(EventStop, "session.idle", SupportInferred, FailureBlock, FailureAllow, 30, "kilo-stop"),
 			capability(EventSessionEnd, "session.deleted", SupportNative, FailureAllow, FailureAllow, 5, "kilo-session-end"),
-			capability(EventPostCompaction, "experimental.session.compacting", SupportExperimental, FailureAllow, FailureAllow, 5, "kilo-post-compaction"),
+			capability(EventPreCompaction, "experimental.session.compacting", SupportExperimental, FailureAllow, FailureAllow, 5, "kilo-pre-compaction"),
+			capability(EventPostCompaction, "session.compacted", SupportNative, FailureAllow, FailureAllow, 5, "kilo-post-compaction"),
 		}},
 		generator: generatorKilo,
 	},
@@ -261,6 +275,12 @@ func capabilityMany(event Event, native string, support SupportMode, errors, tim
 func cursorPreToolCapability() Capability {
 	capability := capabilityMany(EventPreToolUse, "preToolUse", SupportNative, FailureBlock, FailureBlock, 10, "cursor-pre-tool-use", "cursor-before-shell-execution")
 	capability.CompatibilityEvents = []string{"cursor-before-read-file", "cursor-before-tab-file-read"}
+	return capability
+}
+
+func claudePostCompactionCapability() Capability {
+	capability := capability(EventPostCompaction, "PostCompact", SupportNative, FailureAllow, FailureAllow, 5, "claude-post-compaction")
+	capability.CompatibilityEvents = []string{"claude-compaction-recovery"}
 	return capability
 }
 

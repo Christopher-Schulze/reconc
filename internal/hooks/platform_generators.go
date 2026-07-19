@@ -184,6 +184,8 @@ const bunAgentPluginTemplate = `// Managed by reconc. Project-local __PREFIX__ p
 
 const fallbackSessionID = globalThis.crypto?.randomUUID?.() ?? "__PREFIX__-" + Date.now()
 const startedSessions = new Set()
+const terminalToolFailures = new Set()
+const maxRememberedToolFailures = 1024
 const routeBudgets = __ROUTE_BUDGETS__
 
 const sessionIDFrom = (value, depth = 0) => {
@@ -289,12 +291,23 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
       reconc_runtime: "__PREFIX__",
       tool_name: normalizeTool(input?.tool || output?.tool),
       tool_input: output?.args || input?.args || {},
-      tool_response: output?.result || output?.response || {},
+      tool_response: {
+        title: output?.title || "",
+        output: output?.output ?? output?.result ?? output?.response ?? "",
+        metadata: output?.metadata || {},
+      },
     }
-    const error = output?.error || output?.metadata?.error
-    if (error) payload.error = String(error)
     return payload
   }
+
+  const failurePayload = (part) => ({
+    session_id: part?.sessionID || fallbackSessionID,
+    reconc_runtime: "__PREFIX__",
+    tool_name: normalizeTool(part?.tool),
+    tool_input: part?.state?.input || {},
+    tool_response: { error: part?.state?.error || "tool execution failed", metadata: part?.state?.metadata || {} },
+    error: String(part?.state?.error || "tool execution failed"),
+  })
 
   const denied = (event, result) => {
     if (shouldBlockFailure(event, result)) return true
@@ -318,6 +331,32 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
     }
   }
 
+  const collectText = (value, output = []) => {
+    if (!value) return output
+    if (typeof value === "string") {
+      output.push(value)
+      return output
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) collectText(item, output)
+      return output
+    }
+    if (typeof value !== "object") return output
+    for (const key of ["text", "content", "message"]) {
+      if (typeof value[key] === "string") output.push(value[key])
+    }
+    for (const key of ["parts", "children"]) collectText(value[key], output)
+    return output
+  }
+
+  const rememberTerminalFailure = (part) => {
+    const key = [part?.sessionID, part?.messageID, part?.callID || part?.id].filter(Boolean).join(":")
+    if (!key || terminalToolFailures.has(key)) return false
+    if (terminalToolFailures.size >= maxRememberedToolFailures) terminalToolFailures.delete(terminalToolFailures.values().next().value)
+    terminalToolFailures.add(key)
+    return true
+  }
+
   const handleStop = async (event) => {
     const sessionID = await ensureSession(sessionIDFrom(event))
     const stopEvent = "__PREFIX__-stop"
@@ -338,6 +377,14 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
   }
 
   return {
+    "chat.message": async (input, output) => {
+      const sessionID = await ensureSession(input?.sessionID)
+      await run("__PREFIX__-user-prompt-submit", {
+        session_id: sessionID,
+        reconc_runtime: "__PREFIX__",
+        prompt: collectText(output?.parts || []).join("\n"),
+      })
+    },
     "tool.execute.before": async (input, output) => {
       await ensureSession(sessionIDFrom(input))
       const event = "__PREFIX__-pre-tool-use"
@@ -346,9 +393,7 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
     },
     "tool.execute.after": async (input, output) => {
       await ensureSession(sessionIDFrom(input))
-      const payload = toolPayload(input, output)
-      const event = payload.error ? "__PREFIX__-post-tool-use-failure" : "__PREFIX__-post-tool-use"
-      await run(event, payload)
+      await run("__PREFIX__-post-tool-use", toolPayload(input, output))
     },
     "permission.ask": async (input, output) => {
       const sessionID = await ensureSession(sessionIDFrom(input))
@@ -364,13 +409,19 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
     },
     "experimental.session.compacting": async (input, output) => {
       const sessionID = await ensureSession(sessionIDFrom(input))
-      const result = await run("__PREFIX__-post-compaction", { session_id: sessionID, reconc_runtime: "__PREFIX__", summary: input?.message?.summary || "" })
+      const result = await run("__PREFIX__-pre-compaction", { session_id: sessionID, reconc_runtime: "__PREFIX__" })
       const context = contextFrom(result)
       if (context && Array.isArray(output?.context)) output.context.push(context)
     },
     event: async ({ event }) => {
       const sessionID = sessionIDFrom(event) || fallbackSessionID
-      if (event?.type === "session.created") {
+      if (event?.type === "message.part.updated") {
+        const part = event?.properties?.part
+        if (part?.type === "tool" && part?.state?.status === "error" && rememberTerminalFailure(part)) {
+          await ensureSession(part?.sessionID || sessionID)
+          await run("__PREFIX__-post-tool-use-failure", failurePayload(part))
+        }
+      } else if (event?.type === "session.created") {
         await ensureSession(sessionID)
       } else if (event?.type === "session.compacted") {
         await run("__PREFIX__-post-compaction", { session_id: sessionID, reconc_runtime: "__PREFIX__" })
