@@ -476,10 +476,14 @@ must re-run `reconc hook install` for `claude-code`, `codex`, `opencode`, and
 timeouts, and payload adapters.
 
 `reconc adopt .` and `reconc bootstrap inspect .` share deterministic stack
-detection for Go, Bun, Python, Rust, Shell, C/C++, Java, PHP, and C#. Detection
-uses conventional manifests and source extensions through six repository
-levels, skips dependency/build trees and symlinks, and may propose the matching
-`*-assurance` pack. A proposal is review-only.
+detection for Go, Bun, Python, Rust, Shell, C/C++, Java, PHP, C#, Next.js,
+Svelte/SvelteKit, Zig, Elixir, and PowerShell. Detection uses conventional
+manifests and source extensions through six repository levels, skips
+dependency/build trees and symlinks, and may propose the matching
+`*-assurance` pack. Next.js and Svelte detection additionally requires their
+declared package dependency in a bounded, valid `package.json`; generic React
+or package metadata alone does not create a framework recommendation. A
+proposal is review-only.
 `adopt --apply` adds individual rule suggestions but never mutates `extends`;
 the agent or user must explicitly select a pack in `.reconc.yml` after
 confirming that its contract fits the repository.
@@ -493,6 +497,14 @@ evidence; `rust-assurance` adds source hygiene plus cargo test, format, and
 Clippy-with-warnings-denied evidence. `shell-assurance`, `cpp-assurance`,
 `java-assurance`, `php-assurance`, and `csharp-assurance` add changed-source
 hygiene plus common project-native verification alternatives for their stacks.
+`nextjs-assurance` requires a production build, separate lint evidence,
+route-aware `next typegen` plus TypeScript evidence, and source hygiene;
+`svelte-assurance` requires a production build, `sv check` or the canonical
+project check script, and source hygiene. `zig-assurance`, `elixir-assurance`,
+and `powershell-assurance` add their native test/format or analyzer evidence
+plus source hygiene. Framework and language packs accept common Bun, npm,
+pnpm, Yarn, Zig, Mix, Pester, and PSScriptAnalyzer command forms without
+installing any of those tools.
 They reuse successful command evidence from the repository's own toolchain,
 remain inert until selected through `extends`, and never install or execute a
 compiler, framework, package manager, or test runner themselves. Repositories
@@ -591,17 +603,18 @@ fails closed on invalid Go. Both run through `go-assurance`; formatting covers
 tests while concurrency excludes tests, and both exclude `vendor/**`.
 
 The default `agent` pack runs `source_hygiene` in warn mode over changed shipped
-Go, Rust, Python, Shell, JavaScript/TypeScript, JVM, C/C++, C#, PHP, and Swift
-source. It
+Go, Rust, Python, Shell, JavaScript/TypeScript, Svelte, JVM, C/C++, C#, PHP,
+Zig, Elixir/HEEx, PowerShell, and Swift source. It
 ignores tests, fixtures, dependency trees, generated output, and build output.
 The fixed high-signal contract catches leading `TODO`, `FIXME`, `XXX`, `STUB`,
 `PLACEHOLDER`, `TEMPORARY`, and `NOT IMPLEMENTED` comments, ignored Go
 `_ = err`, unimplemented Go panics, Rust `todo!`/`unimplemented!`, and
 JavaScript/TypeScript `throw new Error("not implemented")`, C/C++ `#error` and
 standard exception, Java `UnsupportedOperationException`, C#
-`NotImplementedException`, and PHP standard exception sentinels. Narrow
-path exemptions require a reason. Neither gate spawns Git or another tool, and
-both have zero effect on files outside the configured changed-file surface.
+`NotImplementedException`, PHP standard exception, Zig `@panic`/
+`@compileError`, Elixir `raise`, and PowerShell `throw` sentinels. Narrow path
+exemptions require a reason. Neither gate spawns Git or another tool, and both
+have zero effect on files outside the configured changed-file surface.
 
 ## Architecture
 

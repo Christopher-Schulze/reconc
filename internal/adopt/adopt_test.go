@@ -114,6 +114,30 @@ func TestScanSuggestsPortableAssurancePacksFromNestedEvidence(t *testing.T) {
 	}
 }
 
+func TestScanSuggestsFrameworkAndAdditionalLanguagePacksFromNestedEvidence(t *testing.T) {
+	t.Setenv("PATH", "")
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "web", "next", "package.json"), "{\"dependencies\":{\"next\":\"16.0.0\"}}\n")
+	mustWrite(t, filepath.Join(repo, "web", "svelte", "package.json"), "{\"dependencies\":{\"svelte\":\"5.0.0\"}}\n")
+	mustWrite(t, filepath.Join(repo, "native", "build.zig"), "const std = @import(\"std\");\n")
+	mustWrite(t, filepath.Join(repo, "services", "elixir", "mix.exs"), "defmodule Demo.MixProject do\nend\n")
+	mustWrite(t, filepath.Join(repo, "scripts", "check.ps1"), "exit 0\n")
+
+	report := mustScan(t, repo)
+	names := make([]string, 0, len(report.PackSuggestions))
+	for _, suggestion := range report.PackSuggestions {
+		names = append(names, suggestion.Name)
+		if len(suggestion.Evidence) == 0 {
+			t.Errorf("pack suggestion %s has no evidence", suggestion.Name)
+		}
+	}
+	for _, expected := range []string{"elixir-assurance", "nextjs-assurance", "powershell-assurance", "svelte-assurance", "zig-assurance"} {
+		if !containsString(names, expected) {
+			t.Fatalf("missing %s suggestion: %+v", expected, report.PackSuggestions)
+		}
+	}
+}
+
 func TestScanCIAndGeneratedDirs(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, ".github", "workflows"), 0o755); err != nil {

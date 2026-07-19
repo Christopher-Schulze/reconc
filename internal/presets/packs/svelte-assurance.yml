@@ -1,0 +1,43 @@
+# reconc preset: svelte-assurance
+#
+# Explicit opt-in Svelte/SvelteKit gates. Detection requires a declared Svelte
+# or SvelteKit package dependency and never installs frontend dependencies.
+
+pack:
+  format_version: "1"
+  name: svelte-assurance
+  summary: Current Svelte build, svelte-check, and changed-source hygiene evidence.
+  stacks: ["svelte"]
+  capabilities:
+    - id: svelte-live-verification
+      inputs: ["**/*.svelte", "**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}", "**/package.json", "**/svelte.config.*"]
+      evidence: ["command-success"]
+      rules: ["preset-svelte-assurance"]
+    - id: svelte-source-hygiene
+      inputs: ["changed Svelte source"]
+      evidence: ["native-source-scan"]
+      rules: ["preset-svelte-assurance"]
+  conflicts: []
+
+rules:
+  - id: preset-svelte-assurance
+    kind: require_assurance
+    mode: warn
+    when_paths: ["**/*.svelte", "**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}", "**/package.json", "**/svelte.config.*"]
+    message: Svelte changes require a production build, svelte-check, and shipped-source hygiene.
+    assurance:
+      - id: svelte-production-build
+        type: live_verification
+        applicable_if: ["**/package.json"]
+        commands: ["bun run build", "npm run build", "pnpm run build", "yarn build"]
+        command_policy: any
+      - id: svelte-check
+        type: live_verification
+        applicable_if: ["**/package.json"]
+        commands: ["bun run check", "npm run check", "pnpm run check", "yarn check", "bunx sv check --fail-on-warnings", "npx sv check --fail-on-warnings", "pnpm exec sv check --fail-on-warnings", "yarn sv check --fail-on-warnings"]
+        command_policy: any
+      - id: svelte-source-hygiene
+        type: source_hygiene
+        applicable_if: ["**/package.json"]
+        scan_paths: ["**/*.svelte", "**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}"]
+        exclude_paths: ["**/*.test.*", "**/*.spec.*", "**/__tests__/**", "**/fixtures/**", "node_modules/**", "**/node_modules/**", ".svelte-kit/**", "**/.svelte-kit/**", "dist/**", "**/dist/**", "build/**", "**/build/**", "generated/**", "**/generated/**", "**/*.gen.*", "**/*.generated.*"]

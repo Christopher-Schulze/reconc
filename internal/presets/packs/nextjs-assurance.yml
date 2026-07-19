@@ -1,0 +1,48 @@
+# reconc preset: nextjs-assurance
+#
+# Explicit opt-in Next.js gates. Detection requires a declared Next.js package
+# dependency; package-manager commands remain owned by the target repository.
+
+pack:
+  format_version: "1"
+  name: nextjs-assurance
+  summary: Current Next.js build, lint, route-aware type, and changed-source hygiene evidence.
+  stacks: ["nextjs"]
+  capabilities:
+    - id: nextjs-live-verification
+      inputs: ["**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}", "**/package.json", "**/next.config.*", "**/app/**", "**/pages/**"]
+      evidence: ["command-success"]
+      rules: ["preset-nextjs-assurance"]
+    - id: nextjs-source-hygiene
+      inputs: ["changed Next.js source"]
+      evidence: ["native-source-scan"]
+      rules: ["preset-nextjs-assurance"]
+  conflicts: []
+
+rules:
+  - id: preset-nextjs-assurance
+    kind: require_assurance
+    mode: warn
+    when_paths: ["**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}", "**/package.json", "**/next.config.*", "**/app/**", "**/pages/**"]
+    message: Next.js changes require a production build, lint, route-aware type verification, and shipped-source hygiene.
+    assurance:
+      - id: nextjs-production-build
+        type: live_verification
+        applicable_if: ["**/package.json"]
+        commands: ["bun run build", "npm run build", "pnpm run build", "yarn build"]
+        command_policy: any
+      - id: nextjs-lint
+        type: live_verification
+        applicable_if: ["**/package.json"]
+        commands: ["bun run lint", "npm run lint", "pnpm run lint", "yarn lint", "bunx eslint .", "npx eslint .", "pnpm exec eslint .", "yarn eslint ."]
+        command_policy: any
+      - id: nextjs-route-types
+        type: live_verification
+        applicable_if: ["**/package.json"]
+        commands: ["bunx next typegen && bunx tsc --noEmit", "npx next typegen && npx tsc --noEmit", "pnpm exec next typegen && pnpm exec tsc --noEmit", "yarn next typegen && yarn tsc --noEmit"]
+        command_policy: any
+      - id: nextjs-source-hygiene
+        type: source_hygiene
+        applicable_if: ["**/package.json"]
+        scan_paths: ["**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}"]
+        exclude_paths: ["**/*.test.*", "**/*.spec.*", "**/__tests__/**", "**/fixtures/**", "node_modules/**", "**/node_modules/**", ".next/**", "**/.next/**", "dist/**", "**/dist/**", "build/**", "**/build/**", "generated/**", "**/generated/**", "**/*.gen.*", "**/*.generated.*"]

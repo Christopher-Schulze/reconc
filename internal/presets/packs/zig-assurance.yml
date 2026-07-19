@@ -1,0 +1,38 @@
+# reconc preset: zig-assurance
+#
+# Explicit opt-in Zig gates. Detection only recommends this pack; Zig remains
+# a target-repository toolchain and is never installed or executed by Reconc.
+
+pack:
+  format_version: "1"
+  name: zig-assurance
+  summary: Current Zig test, format, and changed-source hygiene evidence.
+  stacks: ["zig"]
+  capabilities:
+    - id: zig-live-verification
+      inputs: ["**/*.zig", "**/build.zig", "**/build.zig.zon"]
+      evidence: ["command-success"]
+      rules: ["preset-zig-assurance"]
+    - id: zig-source-hygiene
+      inputs: ["changed Zig source"]
+      evidence: ["native-source-scan"]
+      rules: ["preset-zig-assurance"]
+  conflicts: []
+
+rules:
+  - id: preset-zig-assurance
+    kind: require_assurance
+    mode: warn
+    when_paths: ["**/*.zig", "**/build.zig", "**/build.zig.zon"]
+    message: Zig changes require current tests, canonical formatting, and shipped-source hygiene.
+    assurance:
+      - id: zig-verification
+        type: live_verification
+        applicable_if: ["**/build.zig"]
+        commands: ["zig build test", "zig fmt --check ."]
+        command_policy: all
+      - id: zig-source-hygiene
+        type: source_hygiene
+        applicable_if: ["**/build.zig"]
+        scan_paths: ["**/*.zig"]
+        exclude_paths: ["**/fixtures/**", ".zig-cache/**", "**/.zig-cache/**", "zig-out/**", "**/zig-out/**", "vendor/**", "**/vendor/**", "generated/**", "**/generated/**"]

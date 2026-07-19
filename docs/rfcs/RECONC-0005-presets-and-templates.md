@@ -27,6 +27,11 @@ Current bundled presets:
 | `java-assurance` | Current Maven or Gradle verification plus changed Java source hygiene. |
 | `php-assurance` | Current project-native PHP verification plus changed-source hygiene. |
 | `csharp-assurance` | Current .NET test evidence plus changed C# source hygiene. |
+| `nextjs-assurance` | Current production build, lint, route-aware type, and changed-source hygiene evidence. |
+| `svelte-assurance` | Current production build, Svelte diagnostics, and changed-source hygiene evidence. |
+| `zig-assurance` | Current Zig test, format, and changed-source hygiene evidence. |
+| `elixir-assurance` | Current Elixir test, format, and changed-source hygiene evidence. |
+| `powershell-assurance` | Current Pester, PSScriptAnalyzer, and changed-source hygiene evidence. |
 
 Repos opt in through `.reconc.yml`:
 
@@ -46,7 +51,9 @@ stack-recommended and declare no capabilities.
 Shared bounded stack detection may propose manifested packs with specific
 manifest or source evidence. It never follows symlinks, enters dependency/build
 trees, selects wildcard packs, or mutates `extends`; pack adoption remains an
-explicit reviewed decision. Assurance packs evaluate native source gates and
+explicit reviewed decision. Framework detection requires declared Next.js or
+Svelte/SvelteKit package dependencies rather than inferring from generic
+JavaScript source. Assurance packs evaluate native source gates and
 recorded command evidence only. They never install or execute a target
 toolchain.
 

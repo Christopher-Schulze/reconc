@@ -93,6 +93,31 @@ func TestInspectSuggestsPortableAssurancePacksWithoutToolchains(t *testing.T) {
 	}
 }
 
+func TestInspectSuggestsFrameworkAndAdditionalLanguagePacksWithoutToolchains(t *testing.T) {
+	bootstrapTestHome(t)
+	t.Setenv("PATH", "")
+	repo := t.TempDir()
+	writeBootstrapTestFile(t, repo, "web/next/package.json", "{\"dependencies\":{\"next\":\"16.0.0\"}}\n", 0o644)
+	writeBootstrapTestFile(t, repo, "web/svelte/package.json", "{\"devDependencies\":{\"@sveltejs/kit\":\"2.0.0\"}}\n", 0o644)
+	writeBootstrapTestFile(t, repo, "native/build.zig", "const std = @import(\"std\");\n", 0o644)
+	writeBootstrapTestFile(t, repo, "services/elixir/mix.exs", "defmodule Demo.MixProject do\nend\n", 0o644)
+	writeBootstrapTestFile(t, repo, "scripts/check.ps1", "exit 0\n", 0o644)
+
+	inspection, err := Inspect(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStacks := "elixir,nextjs,powershell,svelte,zig"
+	if strings.Join(inspection.DetectedStacks, ",") != wantStacks {
+		t.Fatalf("detected stacks = %v, want %s", inspection.DetectedStacks, wantStacks)
+	}
+	for _, expected := range []string{"elixir-assurance", "nextjs-assurance", "powershell-assurance", "svelte-assurance", "zig-assurance"} {
+		if !containsString(inspection.PackSuggestions, expected) {
+			t.Fatalf("inspection missing %s suggestion: %+v", expected, inspection)
+		}
+	}
+}
+
 func TestPlanIsDeterministicAndStrictlyLoadable(t *testing.T) {
 	bootstrapTestHome(t)
 	repo := t.TempDir()
@@ -531,6 +556,35 @@ func TestStackSpecificPackRequiresDetectedApplicability(t *testing.T) {
 	writeBootstrapTestFile(t, repo, "go.mod", "module example\n", 0o644)
 	if _, err := BuildPlan(Request{RepoRoot: repo, Profile: ProfileMinimal, Packs: []string{"go-assurance"}}, "test-version"); err != nil {
 		t.Fatalf("go pack should apply after go.mod exists: %v", err)
+	}
+}
+
+func TestFrameworkAndAdditionalLanguagePacksRequireDetectedApplicability(t *testing.T) {
+	bootstrapTestHome(t)
+	tests := []struct {
+		name string
+		pack string
+		path string
+		body string
+	}{
+		{name: "Next.js", pack: "nextjs-assurance", path: "package.json", body: "{\"dependencies\":{\"next\":\"16.0.0\"}}\n"},
+		{name: "Svelte", pack: "svelte-assurance", path: "package.json", body: "{\"devDependencies\":{\"svelte\":\"5.0.0\"}}\n"},
+		{name: "Zig", pack: "zig-assurance", path: "build.zig", body: "const std = @import(\"std\");\n"},
+		{name: "Elixir", pack: "elixir-assurance", path: "mix.exs", body: "defmodule Demo.MixProject do\nend\n"},
+		{name: "PowerShell", pack: "powershell-assurance", path: "scripts/check.ps1", body: "exit 0\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repo := t.TempDir()
+			request := Request{RepoRoot: repo, Profile: ProfileMinimal, Packs: []string{test.pack}}
+			if _, err := BuildPlan(request, "test-version"); err == nil || !strings.Contains(err.Error(), "not applicable") {
+				t.Fatalf("%s without stack evidence must fail: %v", test.pack, err)
+			}
+			writeBootstrapTestFile(t, repo, test.path, test.body, 0o644)
+			if _, err := BuildPlan(request, "test-version"); err != nil {
+				t.Fatalf("%s should apply after stack evidence exists: %v", test.pack, err)
+			}
+		})
 	}
 }
 

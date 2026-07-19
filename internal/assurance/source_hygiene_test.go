@@ -17,16 +17,21 @@ func TestSourceHygieneFindsHighSignalShippedCodeDebt(t *testing.T) {
 	writeAssuranceFile(t, root, "src/Service.java", "throw new UnsupportedOperationException(\"not implemented\");\n")
 	writeAssuranceFile(t, root, "src/Service.cs", "throw new NotImplementedException();\n")
 	writeAssuranceFile(t, root, "src/service.php", "# FIXME: implement\nthrow new LogicException(\"not implemented\");\n")
+	writeAssuranceFile(t, root, "src/Page.svelte", "<!-- TODO: implement -->\n<script>throw new Error('not implemented');</script>\n")
+	writeAssuranceFile(t, root, "src/main.zig", "// FIXME: implement\n@compileError(\"not implemented\");\n")
+	writeAssuranceFile(t, root, "src/service.ex", "# XXX: implement\nraise RuntimeError, \"not implemented\"\n")
+	writeAssuranceFile(t, root, "src/page.heex", "<%!-- PLACEHOLDER: implement --%>\n")
+	writeAssuranceFile(t, root, "src/check.ps1", "<# STUB: implement #>\nthrow [System.NotImplementedException]::new()\n")
 	gate := policy.AssuranceGate{ID: "hygiene", Type: policy.AssuranceSourceHygiene, ScanPaths: []string{"src/**"}}
 
 	findings, err := Evaluate(root, []policy.AssuranceGate{gate}, Inputs{
-		ChangedPaths: []string{"src/main.go", "src/lib.rs", "src/client.ts", "src/check.sh", "src/native.cpp", "src/Service.java", "src/Service.cs", "src/service.php"},
+		ChangedPaths: []string{"src/main.go", "src/lib.rs", "src/client.ts", "src/check.sh", "src/native.cpp", "src/Service.java", "src/Service.cs", "src/service.php", "src/Page.svelte", "src/main.zig", "src/service.ex", "src/page.heex", "src/check.ps1"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(findings) != 15 {
-		t.Fatalf("expected 15 high-signal findings, got %d: %+v", len(findings), findings)
+	if len(findings) != 24 {
+		t.Fatalf("expected 24 high-signal findings, got %d: %+v", len(findings), findings)
 	}
 	joined := findingsText(findings)
 	for _, expected := range []string{
@@ -42,6 +47,12 @@ func TestSourceHygieneFindsHighSignalShippedCodeDebt(t *testing.T) {
 		"unimplemented C# exception sentinel",
 		"implementation-debt marker FIXME at src/service.php:1",
 		"unimplemented PHP exception sentinel",
+		"implementation-debt marker TODO at src/Page.svelte:1",
+		"unimplemented JavaScript/TypeScript throw sentinel at src/Page.svelte:2",
+		"unimplemented Zig sentinel",
+		"unimplemented Elixir raise sentinel",
+		"implementation-debt marker PLACEHOLDER at src/page.heex:1",
+		"unimplemented PowerShell throw sentinel",
 	} {
 		if !strings.Contains(joined, expected) {
 			t.Errorf("expected %q in findings: %s", expected, joined)
@@ -59,6 +70,10 @@ func TestSourceHygieneAvoidsExamplesAndHonorsReasonedExemptions(t *testing.T) {
 	writeAssuranceFile(t, root, "src/example.java", "String example = \"throw new UnsupportedOperationException(\\\"not implemented\\\")\";\n")
 	writeAssuranceFile(t, root, "src/example.cs", "string example = \"new NotImplementedException()\";\n")
 	writeAssuranceFile(t, root, "src/example.php", "<?php\n#[Example(\"TODO\")]\n$example = 'throw new LogicException(\"not implemented\")';\n")
+	writeAssuranceFile(t, root, "src/example.svelte", "<script>const example = \"throw new Error('not implemented')\";</script>\n")
+	writeAssuranceFile(t, root, "src/example.zig", "const example = \"@panic(\\\"not implemented\\\")\";\n")
+	writeAssuranceFile(t, root, "src/example.ex", "example = \"raise \\\"not implemented\\\"\"\n")
+	writeAssuranceFile(t, root, "src/example.ps1", "$example = \"throw 'not implemented'\"\n")
 	gate := policy.AssuranceGate{
 		ID: "hygiene", Type: policy.AssuranceSourceHygiene,
 		ScanPaths: []string{"src/**"}, ExcludePaths: []string{"**/*_test.go"},
@@ -66,7 +81,7 @@ func TestSourceHygieneAvoidsExamplesAndHonorsReasonedExemptions(t *testing.T) {
 	}
 
 	findings, err := Evaluate(root, []policy.AssuranceGate{gate}, Inputs{
-		ChangedPaths: []string{"src/clean.go", "src/legacy.go", "src/clean_test.go", "src/example.rs", "src/example.ts", "src/example.java", "src/example.cs", "src/example.php"},
+		ChangedPaths: []string{"src/clean.go", "src/legacy.go", "src/clean_test.go", "src/example.rs", "src/example.ts", "src/example.java", "src/example.cs", "src/example.php", "src/example.svelte", "src/example.zig", "src/example.ex", "src/example.ps1"},
 	})
 	if err != nil || len(findings) != 0 {
 		t.Fatalf("examples, token continuations, tests, and exemptions must not create friction: findings=%+v err=%v", findings, err)

@@ -3,6 +3,7 @@
 package stackdetect
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -15,13 +16,16 @@ const (
 	maxDepth            = 6
 	maxEntries          = 100_000
 	maxEvidencePerStack = 8
+	maxPackageJSONBytes = 1 << 20
 )
 
 var ignoredDirectories = map[string]bool{
-	".git": true, ".gradle": true, ".idea": true, ".reconc": true,
-	".venv": true, "build": true, "coverage": true,
+	".git": true, ".gradle": true, ".idea": true, ".next": true,
+	".reconc": true, ".svelte-kit": true, ".venv": true, ".zig-cache": true,
+	"_build": true, "build": true, "coverage": true, "deps": true,
 	"dist": true, "generated": true, "node_modules": true, "obj": true,
 	"out": true, "target": true, "vendor": true, "venv": true,
+	"zig-out": true,
 }
 
 // Result contains sorted stack names and bounded, sorted repository-relative
@@ -77,7 +81,11 @@ func Detect(root string) (Result, error) {
 			return nil
 		}
 		relative = filepath.ToSlash(relative)
-		for _, stack := range stacksForFile(path, entry.Name()) {
+		stacks, err := stacksForFile(path, entry)
+		if err != nil {
+			return err
+		}
+		for _, stack := range stacks {
 			if len(evidence[stack]) < maxEvidencePerStack {
 				evidence[stack] = append(evidence[stack], relative)
 			}
@@ -97,7 +105,8 @@ func Detect(root string) (Result, error) {
 	return Result{Stacks: stacks, Evidence: evidence}, nil
 }
 
-func stacksForFile(path, name string) []string {
+func stacksForFile(path string, entry fs.DirEntry) ([]string, error) {
+	name := entry.Name()
 	lowerName := strings.ToLower(name)
 	extension := strings.ToLower(filepath.Ext(name))
 	stacks := []string{}
@@ -125,9 +134,21 @@ func stacksForFile(path, name string) []string {
 		add("java")
 	case "composer.json", "phpunit.xml", "phpunit.xml.dist":
 		add("php")
+	case "build.zig", "build.zig.zon":
+		add("zig")
+	case "mix.exs", "mix.lock":
+		add("elixir")
 	case "bun.lock", "bun.lockb":
 		if regularFile(filepath.Join(filepath.Dir(path), "package.json")) {
 			add("bun")
+		}
+	case "package.json":
+		frameworks, err := packageFrameworks(path, entry)
+		if err != nil {
+			return nil, err
+		}
+		for _, framework := range frameworks {
+			add(framework)
 		}
 	}
 
@@ -142,9 +163,70 @@ func stacksForFile(path, name string) []string {
 		add("php")
 	case ".cs", ".csproj":
 		add("csharp")
+	case ".zig":
+		add("zig")
+	case ".ex", ".exs":
+		add("elixir")
+	case ".ps1", ".psm1", ".psd1":
+		add("powershell")
 	}
 	sort.Strings(stacks)
-	return stacks
+	return stacks, nil
+}
+
+type packageManifest struct {
+	Dependencies         map[string]string `json:"dependencies"`
+	DevDependencies      map[string]string `json:"devDependencies"`
+	PeerDependencies     map[string]string `json:"peerDependencies"`
+	OptionalDependencies map[string]string `json:"optionalDependencies"`
+}
+
+func packageFrameworks(path string, entry fs.DirEntry) ([]string, error) {
+	info, err := entry.Info()
+	if err != nil {
+		return nil, fmt.Errorf("inspect package manifest %s: %w", path, err)
+	}
+	// Framework recommendations are optional discovery signals, not policy
+	// validation. Only a bounded, valid manifest is strong enough evidence.
+	if info.Size() > maxPackageJSONBytes {
+		return nil, nil
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read package manifest %s: %w", path, err)
+	}
+	var manifest packageManifest
+	if err := json.Unmarshal(body, &manifest); err != nil {
+		return nil, nil
+	}
+	frameworks := []string{}
+	for _, dependencies := range []map[string]string{
+		manifest.Dependencies,
+		manifest.DevDependencies,
+		manifest.PeerDependencies,
+		manifest.OptionalDependencies,
+	} {
+		if _, ok := dependencies["next"]; ok {
+			frameworks = appendUnique(frameworks, "nextjs")
+		}
+		if _, ok := dependencies["svelte"]; ok {
+			frameworks = appendUnique(frameworks, "svelte")
+		}
+		if _, ok := dependencies["@sveltejs/kit"]; ok {
+			frameworks = appendUnique(frameworks, "svelte")
+		}
+	}
+	sort.Strings(frameworks)
+	return frameworks, nil
+}
+
+func appendUnique(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
 }
 
 func pathDepth(relative string) int {

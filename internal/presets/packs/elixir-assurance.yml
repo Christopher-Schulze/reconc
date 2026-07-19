@@ -1,0 +1,38 @@
+# reconc preset: elixir-assurance
+#
+# Explicit opt-in Elixir gates. Detection only recommends this pack; Mix and
+# the Erlang/Elixir runtime remain owned by the target repository.
+
+pack:
+  format_version: "1"
+  name: elixir-assurance
+  summary: Current Elixir test, format, and changed-source hygiene evidence.
+  stacks: ["elixir"]
+  capabilities:
+    - id: elixir-live-verification
+      inputs: ["**/*.{ex,exs,heex}", "**/mix.exs", "**/mix.lock"]
+      evidence: ["command-success"]
+      rules: ["preset-elixir-assurance"]
+    - id: elixir-source-hygiene
+      inputs: ["changed Elixir source"]
+      evidence: ["native-source-scan"]
+      rules: ["preset-elixir-assurance"]
+  conflicts: []
+
+rules:
+  - id: preset-elixir-assurance
+    kind: require_assurance
+    mode: warn
+    when_paths: ["**/*.{ex,exs,heex}", "**/mix.exs", "**/mix.lock"]
+    message: Elixir changes require current tests, canonical formatting, and shipped-source hygiene.
+    assurance:
+      - id: elixir-verification
+        type: live_verification
+        applicable_if: ["**/mix.exs"]
+        commands: ["mix test", "mix format --check-formatted"]
+        command_policy: all
+      - id: elixir-source-hygiene
+        type: source_hygiene
+        applicable_if: ["**/mix.exs"]
+        scan_paths: ["**/*.{ex,exs,heex}"]
+        exclude_paths: ["test/**", "**/test/**", "**/fixtures/**", "_build/**", "**/_build/**", "deps/**", "**/deps/**", "generated/**", "**/generated/**"]

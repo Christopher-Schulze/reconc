@@ -84,7 +84,7 @@ func sourceHygieneProblem(extension string, line []byte) string {
 		if containsCodeFold(trimmed, []byte("todo!(")) || containsCodeFold(trimmed, []byte("unimplemented!(")) {
 			return "unimplemented Rust macro sentinel"
 		}
-	case ".js", ".jsx", ".ts", ".tsx":
+	case ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts", ".svelte":
 		for _, sentinel := range javaScriptUnimplementedSentinels {
 			if containsCodeFoldWithSingleQuoteStrings(trimmed, sentinel) {
 				return "unimplemented JavaScript/TypeScript throw sentinel"
@@ -112,6 +112,29 @@ func sourceHygieneProblem(extension string, line []byte) string {
 			containsCodeFoldWithSingleQuoteStrings(trimmed, []byte(`throw new runtimeexception("not implemented")`)) {
 			return "unimplemented PHP exception sentinel"
 		}
+	case ".zig":
+		if containsCodeFold(trimmed, []byte(`@panic("not implemented")`)) ||
+			containsCodeFold(trimmed, []byte(`@compileerror("not implemented")`)) {
+			return "unimplemented Zig sentinel"
+		}
+	case ".ex", ".exs":
+		if containsCodeFoldWithSingleQuoteStrings(trimmed, []byte(`raise "not implemented"`)) ||
+			containsCodeFoldWithSingleQuoteStrings(trimmed, []byte(`raise 'not implemented'`)) ||
+			containsCodeFoldWithSingleQuoteStrings(trimmed, []byte(`raise("not implemented")`)) ||
+			containsCodeFoldWithSingleQuoteStrings(trimmed, []byte(`raise('not implemented')`)) ||
+			containsCodeFoldWithSingleQuoteStrings(trimmed, []byte(`raise runtimeerror, "not implemented"`)) ||
+			containsCodeFoldWithSingleQuoteStrings(trimmed, []byte(`raise runtimeerror, 'not implemented'`)) ||
+			containsCodeFoldWithSingleQuoteStrings(trimmed, []byte(`raise runtimeerror, message: "not implemented"`)) ||
+			containsCodeFoldWithSingleQuoteStrings(trimmed, []byte(`raise runtimeerror, message: 'not implemented'`)) {
+			return "unimplemented Elixir raise sentinel"
+		}
+	case ".ps1", ".psm1", ".psd1":
+		if containsCodeFoldWithSingleQuoteStrings(trimmed, []byte(`throw "not implemented"`)) ||
+			containsCodeFoldWithSingleQuoteStrings(trimmed, []byte(`throw 'not implemented'`)) ||
+			containsCodeFoldWithSingleQuoteStrings(trimmed, []byte(`throw [notimplementedexception]::new(`)) ||
+			containsCodeFoldWithSingleQuoteStrings(trimmed, []byte(`throw [system.notimplementedexception]::new(`)) {
+			return "unimplemented PowerShell throw sentinel"
+		}
 	}
 	return ""
 }
@@ -121,11 +144,17 @@ func sourceCommentBody(extension string, line []byte) ([]byte, bool) {
 		!(extension == ".php" && len(line) > 1 && line[1] == '[') {
 		return line[1:], true
 	}
+	if powerShellExtension(extension) && len(line) >= 2 && line[0] == '<' && line[1] == '#' {
+		return line[2:], true
+	}
 	if len(line) >= 2 && line[0] == '/' && (line[1] == '/' || line[1] == '*') {
 		return line[2:], true
 	}
 	if len(line) >= 4 && line[0] == '<' && line[1] == '!' && line[2] == '-' && line[3] == '-' {
 		return line[4:], true
+	}
+	if extension == ".heex" && len(line) >= 5 && bytes.Equal(line[:5], []byte("<%!--")) {
+		return line[5:], true
 	}
 	if len(line) > 0 && line[0] == '*' && (len(line) == 1 || isSpace(line[1]) || line[1] == '/') {
 		return line[1:], true
@@ -133,9 +162,13 @@ func sourceCommentBody(extension string, line []byte) ([]byte, bool) {
 	return nil, false
 }
 
+func powerShellExtension(extension string) bool {
+	return extension == ".ps1" || extension == ".psm1" || extension == ".psd1"
+}
+
 func hashCommentLanguage(extension string) bool {
 	switch extension {
-	case ".py", ".sh", ".bash", ".zsh", ".ksh", ".php":
+	case ".py", ".sh", ".bash", ".zsh", ".ksh", ".php", ".ex", ".exs", ".ps1", ".psm1", ".psd1":
 		return true
 	default:
 		return false

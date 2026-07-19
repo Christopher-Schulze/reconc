@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -11,10 +12,14 @@ func TestDetectFindsPortableStacksInMonoreposDeterministically(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
 		"backend/go.mod":                  "module example\n",
-		"frontend/package.json":           "{}\n",
+		"frontend/package.json":           "{\"dependencies\":{\"next\":\"16.0.0\"}}\n",
 		"frontend/bun.lock":               "lock\n",
+		"frontend/svelte/package.json":    "{\"devDependencies\":{\"@sveltejs/kit\":\"2.0.0\"}}\n",
 		"native/src/main.cpp":             "int main() { return 0; }\n",
+		"native/zig/build.zig":            "const std = @import(\"std\");\n",
 		"ops/scripts/check.sh":            "#!/bin/sh\n",
+		"ops/scripts/check.ps1":           "exit 0\n",
+		"services/elixir/mix.exs":         "defmodule Demo.MixProject do\nend\n",
 		"services/jvm/pom.xml":            "<project/>\n",
 		"services/php/composer.json":      "{}\n",
 		"services/python/pyproject.toml":  "[project]\nname = 'example'\n",
@@ -33,7 +38,7 @@ func TestDetectFindsPortableStacksInMonoreposDeterministically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"bun", "cpp", "csharp", "go", "java", "php", "python", "rust", "shell"}
+	want := []string{"bun", "cpp", "csharp", "elixir", "go", "java", "nextjs", "php", "powershell", "python", "rust", "shell", "svelte", "zig"}
 	if !reflect.DeepEqual(first.Stacks, want) {
 		t.Fatalf("stacks = %v, want %v", first.Stacks, want)
 	}
@@ -47,6 +52,30 @@ func TestDetectFindsPortableStacksInMonoreposDeterministically(t *testing.T) {
 	}
 }
 
+func TestDetectFrameworksRequireDeclaredPackageDependencies(t *testing.T) {
+	root := t.TempDir()
+	writeDetectionFile(t, root, "plain/package.json", "{\"dependencies\":{\"react\":\"19.0.0\"}}\n")
+	writeDetectionFile(t, root, "invalid/package.json", "{invalid\n")
+	writeDetectionFile(t, root, "oversized/package.json", strings.Repeat(" ", maxPackageJSONBytes+1))
+	writeDetectionFile(t, root, "next/package.json", "{\"peerDependencies\":{\"next\":\"16.0.0\"}}\n")
+	writeDetectionFile(t, root, "svelte/package.json", "{\"optionalDependencies\":{\"svelte\":\"5.0.0\"}}\n")
+
+	result, err := Detect(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"nextjs", "svelte"}
+	if !reflect.DeepEqual(result.Stacks, want) {
+		t.Fatalf("framework stacks = %v, want %v", result.Stacks, want)
+	}
+	if !reflect.DeepEqual(result.Evidence["nextjs"], []string{"next/package.json"}) {
+		t.Fatalf("Next.js evidence = %v", result.Evidence["nextjs"])
+	}
+	if !reflect.DeepEqual(result.Evidence["svelte"], []string{"svelte/package.json"}) {
+		t.Fatalf("Svelte evidence = %v", result.Evidence["svelte"])
+	}
+}
+
 func TestDetectIgnoresDependenciesBuildOutputAndUnpairedBunLocks(t *testing.T) {
 	root := t.TempDir()
 	writeDetectionFile(t, root, "bun.lock", "lock\n")
@@ -55,6 +84,10 @@ func TestDetectIgnoresDependenciesBuildOutputAndUnpairedBunLocks(t *testing.T) {
 	writeDetectionFile(t, root, "node_modules/tool/index.java", "class Tool {}\n")
 	writeDetectionFile(t, root, "build/generated/main.cpp", "int main() {}\n")
 	writeDetectionFile(t, root, "vendor/tool.php", "<?php\n")
+	writeDetectionFile(t, root, ".next/server/index.ps1", "exit 0\n")
+	writeDetectionFile(t, root, ".svelte-kit/output/server/index.ex", "defmodule Generated do\nend\n")
+	writeDetectionFile(t, root, ".zig-cache/o/generated.zig", "const generated = true;\n")
+	writeDetectionFile(t, root, "_build/lib/generated.ex", "defmodule Generated do\nend\n")
 
 	result, err := Detect(root)
 	if err != nil {

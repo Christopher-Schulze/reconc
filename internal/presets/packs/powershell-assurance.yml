@@ -1,0 +1,38 @@
+# reconc preset: powershell-assurance
+#
+# Explicit opt-in PowerShell gates. Detection only recommends this pack; Pester
+# and PSScriptAnalyzer remain target-repository dependencies.
+
+pack:
+  format_version: "1"
+  name: powershell-assurance
+  summary: Current Pester, PSScriptAnalyzer, and changed-source hygiene evidence.
+  stacks: ["powershell"]
+  capabilities:
+    - id: powershell-live-verification
+      inputs: ["**/*.{ps1,psm1,psd1}"]
+      evidence: ["command-success"]
+      rules: ["preset-powershell-assurance"]
+    - id: powershell-source-hygiene
+      inputs: ["changed PowerShell source"]
+      evidence: ["native-source-scan"]
+      rules: ["preset-powershell-assurance"]
+  conflicts: []
+
+rules:
+  - id: preset-powershell-assurance
+    kind: require_assurance
+    mode: warn
+    when_paths: ["**/*.{ps1,psm1,psd1}"]
+    message: PowerShell changes require current Pester, PSScriptAnalyzer, and shipped-source hygiene evidence.
+    assurance:
+      - id: powershell-verification
+        type: live_verification
+        applicable_if: ["**/*.{ps1,psm1,psd1}"]
+        commands: ["Invoke-Pester -CI", "Invoke-ScriptAnalyzer -Path . -Recurse -EnableExit"]
+        command_policy: all
+      - id: powershell-source-hygiene
+        type: source_hygiene
+        applicable_if: ["**/*.{ps1,psm1,psd1}"]
+        scan_paths: ["**/*.{ps1,psm1,psd1}"]
+        exclude_paths: ["**/*.Tests.ps1", "test/**", "tests/**", "**/test/**", "**/tests/**", "**/fixtures/**", "vendor/**", "**/vendor/**", "generated/**", "**/generated/**", "dist/**", "**/dist/**", "build/**", "**/build/**"]

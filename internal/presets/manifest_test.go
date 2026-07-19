@@ -77,6 +77,19 @@ func TestSuggestForAdditionalPortableStacksReturnsSpecificPacks(t *testing.T) {
 	}
 }
 
+func TestSuggestForFrameworkAndAdditionalLanguageStacksReturnsSpecificPacks(t *testing.T) {
+	withRECONCHome(t)
+	suggestions, err := SuggestForStacks([]string{"nextjs", "svelte", "zig", "elixir", "powershell"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"nextjs-assurance", "svelte-assurance", "zig-assurance", "elixir-assurance", "powershell-assurance"} {
+		if !metadataContains(suggestions, expected) {
+			t.Fatalf("expected %s suggestion, got %+v", expected, suggestions)
+		}
+	}
+}
+
 func writeManifestPreset(t *testing.T, dir, name string, conflicts []string) {
 	t.Helper()
 	conflictYAML := "[]"
