@@ -51,6 +51,19 @@ func TestSuggestForStacksProposesButDoesNotSelect(t *testing.T) {
 	}
 }
 
+func TestSuggestForPortableStacksReturnsSpecificPacks(t *testing.T) {
+	withRECONCHome(t)
+	suggestions, err := SuggestForStacks([]string{"python", "rust"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"python-assurance", "rust-assurance"} {
+		if !metadataContains(suggestions, expected) {
+			t.Fatalf("expected %s suggestion, got %+v", expected, suggestions)
+		}
+	}
+}
+
 func writeManifestPreset(t *testing.T, dir, name string, conflicts []string) {
 	t.Helper()
 	conflictYAML := "[]"

@@ -171,9 +171,15 @@ func Scan(repoRoot string) (Report, error) {
 			})
 		}
 	}
+	if evidence := firstExisting(repoRoot, "pyproject.toml", "requirements.txt", "setup.cfg", "setup.py"); evidence != "" {
+		detectedStacks = append(detectedStacks, "python")
+		stackEvidence["python"] = []string{evidence}
+	}
 
 	// --- Rust ---
 	if exists(filepath.Join(repoRoot, "Cargo.toml")) {
+		detectedStacks = append(detectedStacks, "rust")
+		stackEvidence["rust"] = []string{"Cargo.toml"}
 		r.Detected = append(r.Detected, "Cargo.toml")
 		r.Suggestions = append(r.Suggestions, Suggestion{
 			ID:        "adopt-rust-test",

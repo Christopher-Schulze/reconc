@@ -78,6 +78,15 @@ func detectStacks(root string) []string {
 		(regularPath(filepath.Join(root, "bun.lock")) || regularPath(filepath.Join(root, "bun.lockb"))) {
 		stacks = append(stacks, "bun")
 	}
+	if regularPath(filepath.Join(root, "Cargo.toml")) {
+		stacks = append(stacks, "rust")
+	}
+	if regularPath(filepath.Join(root, "pyproject.toml")) ||
+		regularPath(filepath.Join(root, "requirements.txt")) ||
+		regularPath(filepath.Join(root, "setup.cfg")) ||
+		regularPath(filepath.Join(root, "setup.py")) {
+		stacks = append(stacks, "python")
+	}
 	sort.Strings(stacks)
 	return stacks
 }

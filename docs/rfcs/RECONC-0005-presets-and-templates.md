@@ -20,6 +20,8 @@ Current bundled presets:
 | `release` | Release-manifest, checksum, and verification hygiene. |
 | `go-assurance` | Current Go test/vet evidence plus changed-file format, network, process, and concurrency boundaries. |
 | `bun-assurance` | Exact JSON dependency pins and current Bun test evidence. |
+| `python-assurance` | Current Python test evidence plus changed-source hygiene. |
+| `rust-assurance` | Current Rust test, format, warning-free Clippy, and changed-source hygiene evidence. |
 
 Repos opt in through `.reconc.yml`:
 
@@ -54,10 +56,14 @@ builtins with the same name.
 
 Current builtin templates:
 
-- `tests-follow-source`
-- `docs-follow-code`
-- `no-generated-writes`
+- `authority-change-approval`
 - `ci-green-before-merge`
+- `custom-gate-on-change`
+- `docs-follow-code`
+- `local-secret-state-read-only`
+- `no-generated-writes`
+- `tests-follow-source`
+- `verified-change`
 
 A rule using `template: <name>` receives the template's fields as
 defaults. User-provided fields win. Template expansion happens before

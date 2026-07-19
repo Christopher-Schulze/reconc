@@ -8,8 +8,10 @@ import (
 func TestBundledHygienePacksExposeNativeGates(t *testing.T) {
 	withRECONCHome(t)
 	checks := map[string]string{
-		"agent":        "type: source_hygiene",
-		"go-assurance": "type: go_format",
+		"agent":            "type: source_hygiene",
+		"go-assurance":     "type: go_format",
+		"python-assurance": "type: source_hygiene",
+		"rust-assurance":   "type: source_hygiene",
 	}
 	for pack, expected := range checks {
 		content, err := Load(pack)

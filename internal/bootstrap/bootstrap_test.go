@@ -48,6 +48,26 @@ func TestInspectIsReadOnlyAndSuggestsApplicablePacks(t *testing.T) {
 	}
 }
 
+func TestInspectSuggestsPythonAndRustAssurancePacks(t *testing.T) {
+	bootstrapTestHome(t)
+	repo := t.TempDir()
+	writeBootstrapTestFile(t, repo, "pyproject.toml", "[project]\nname = 'example'\n", 0o644)
+	writeBootstrapTestFile(t, repo, "Cargo.toml", "[package]\nname = \"example\"\nversion = \"0.1.0\"\n", 0o644)
+
+	inspection, err := Inspect(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(inspection.DetectedStacks, ",") != "python,rust" {
+		t.Fatalf("detected stacks = %v", inspection.DetectedStacks)
+	}
+	for _, expected := range []string{"python-assurance", "rust-assurance"} {
+		if !containsString(inspection.PackSuggestions, expected) {
+			t.Fatalf("inspection missing %s suggestion: %+v", expected, inspection)
+		}
+	}
+}
+
 func TestPlanIsDeterministicAndStrictlyLoadable(t *testing.T) {
 	bootstrapTestHome(t)
 	repo := t.TempDir()

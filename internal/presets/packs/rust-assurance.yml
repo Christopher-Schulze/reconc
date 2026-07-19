@@ -1,0 +1,38 @@
+# reconc preset: rust-assurance
+#
+# Explicit opt-in Rust gates. Detection only recommends this pack; selecting
+# it requires test, format, and warning-free Clippy evidence.
+
+pack:
+  format_version: "1"
+  name: rust-assurance
+  summary: Current Rust test, format, Clippy, and changed-source hygiene evidence.
+  stacks: ["rust"]
+  capabilities:
+    - id: rust-live-verification
+      inputs: ["**/*.rs", "Cargo.toml", "Cargo.lock"]
+      evidence: ["command-success"]
+      rules: ["preset-rust-assurance"]
+    - id: rust-source-hygiene
+      inputs: ["changed Rust source"]
+      evidence: ["native-source-scan"]
+      rules: ["preset-rust-assurance"]
+  conflicts: []
+
+rules:
+  - id: preset-rust-assurance
+    kind: require_assurance
+    mode: warn
+    when_paths: ["**/*.rs", "Cargo.toml", "Cargo.lock"]
+    message: Rust changes require current tests, canonical formatting, warning-free Clippy, and shipped-source hygiene.
+    assurance:
+      - id: rust-verification
+        type: live_verification
+        applicable_if: ["Cargo.toml"]
+        commands: ["cargo test", "cargo fmt --all -- --check", "cargo clippy --all-targets --all-features -- -D warnings"]
+        command_policy: all
+      - id: rust-source-hygiene
+        type: source_hygiene
+        applicable_if: ["Cargo.toml"]
+        scan_paths: ["**/*.rs"]
+        exclude_paths: ["tests/**", "benches/**", "examples/**", "target/**", "vendor/**", "generated/**", "**/generated/**"]

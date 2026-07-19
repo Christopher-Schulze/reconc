@@ -1,0 +1,7 @@
+description: "Require current successful command evidence for an owned change surface."
+kind: require_command_success
+mode: block
+message: "Run the configured verification command successfully for this change."
+# User must supply:
+#   commands:   exact accepted verification commands
+#   when_paths: change patterns that require verification

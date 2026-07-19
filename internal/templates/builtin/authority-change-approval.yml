@@ -1,0 +1,8 @@
+description: "Require an explicit approval claim before protected authority files change."
+kind: require_claim
+mode: block
+message: "Authority-file changes require an explicit, auditable approval claim."
+claims:
+  - "authority-change-approved"
+# User must supply:
+#   when_paths: protected authority files (for example ['AGENTS.md', 'docs/spec.md'])

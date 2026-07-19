@@ -1,0 +1,11 @@
+description: "Run a bounded repository-local gate when its owned surface changes."
+kind: require_script
+mode: block
+message: "The repository-local verification gate must pass for this change."
+timeout_sec: 60
+kill_timeout_sec: 5
+# User must supply:
+#   script:     repo-relative executable path
+#   when_paths: change patterns that activate the gate
+# Optional:
+#   args:       arguments passed directly to the executable

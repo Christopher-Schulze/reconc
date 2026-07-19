@@ -669,7 +669,7 @@ Current: TASK-0001-Cover-Spec -> tasks/TASK-0001-Cover-Spec.md
 
 func TestAuditDependencyLocalitySkipsLocalAgentStateDirs(t *testing.T) {
 	root := newWorkflowAuditRepo(t)
-	for _, dir := range []string{".agents", ".cursor", ".kilo", ".vscode"} {
+	for _, dir := range []string{".agents", ".claude", ".codex", ".cursor", ".devin", ".grok", ".kilo", ".kilocode", ".opencode", ".vscode"} {
 		writeFile(t, root, filepath.Join(dir, "package.json"), `{"private": true}`)
 		writeFile(t, root, filepath.Join(dir, "package-lock.json"), `{"lockfileVersion": 3}`)
 		writeFile(t, root, filepath.Join(dir, "node_modules", "agent-package", "package.json"), `{"name": "agent-package"}`)

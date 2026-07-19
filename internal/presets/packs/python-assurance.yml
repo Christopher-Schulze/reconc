@@ -1,0 +1,39 @@
+# reconc preset: python-assurance
+#
+# Explicit opt-in Python gates. Detection only recommends this pack; teams
+# choose the test runner command that matches their environment by recording
+# one of the accepted successful commands.
+
+pack:
+  format_version: "1"
+  name: python-assurance
+  summary: Current Python test evidence plus changed-source hygiene.
+  stacks: ["python"]
+  capabilities:
+    - id: python-live-verification
+      inputs: ["**/*.py", "pyproject.toml", "requirements.txt", "setup.cfg", "setup.py"]
+      evidence: ["command-success"]
+      rules: ["preset-python-assurance"]
+    - id: python-source-hygiene
+      inputs: ["changed Python source"]
+      evidence: ["native-source-scan"]
+      rules: ["preset-python-assurance"]
+  conflicts: []
+
+rules:
+  - id: preset-python-assurance
+    kind: require_assurance
+    mode: warn
+    when_paths: ["**/*.py", "pyproject.toml", "requirements.txt", "setup.cfg", "setup.py"]
+    message: Python changes require current test evidence and shipped-source hygiene.
+    assurance:
+      - id: python-tests
+        type: live_verification
+        applicable_if: ["pyproject.toml", "requirements.txt", "setup.cfg", "setup.py"]
+        commands: ["uv run pytest -q", "python -m pytest -q", "python3 -m pytest -q", "pytest -q"]
+        command_policy: any
+      - id: python-source-hygiene
+        type: source_hygiene
+        applicable_if: ["pyproject.toml", "requirements.txt", "setup.cfg", "setup.py"]
+        scan_paths: ["**/*.py"]
+        exclude_paths: ["test_*.py", "**/test_*.py", "**/*_test.py", "test/**", "tests/**", "**/fixtures/**", ".venv/**", "venv/**", "dist/**", "build/**", "generated/**", "**/generated/**"]

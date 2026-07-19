@@ -56,6 +56,9 @@ func TestScanPythonRepoWithRuffAndPytest(t *testing.T) {
 			t.Errorf("expected suggestion %q; got %v", want, ids)
 		}
 	}
+	if len(r.PackSuggestions) != 1 || r.PackSuggestions[0].Name != "python-assurance" {
+		t.Fatalf("expected review-only python-assurance recommendation, got %+v", r.PackSuggestions)
+	}
 }
 
 func TestScanRustRepoSuggestsCargoTestAndClippy(t *testing.T) {
@@ -67,6 +70,9 @@ func TestScanRustRepoSuggestsCargoTestAndClippy(t *testing.T) {
 		if !containsString(ids, want) {
 			t.Errorf("expected suggestion %q; got %v", want, ids)
 		}
+	}
+	if len(r.PackSuggestions) != 1 || r.PackSuggestions[0].Name != "rust-assurance" {
+		t.Fatalf("expected review-only rust-assurance recommendation, got %+v", r.PackSuggestions)
 	}
 }
 

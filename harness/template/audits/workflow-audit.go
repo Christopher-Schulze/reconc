@@ -344,7 +344,7 @@ func auditDependencyLocality(root string) []string {
 	}
 	skipDirs := map[string]bool{
 		".git": true, ".reconc": true, "_drop": true, "research": true,
-		".agents": true, ".claude": true, ".codex": true, ".cursor": true, ".kilo": true, ".opencode": true, ".vscode": true,
+		".agents": true, ".claude": true, ".codex": true, ".cursor": true, ".devin": true, ".grok": true, ".kilo": true, ".kilocode": true, ".opencode": true, ".vscode": true,
 	}
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {

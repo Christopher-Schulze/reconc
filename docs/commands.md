@@ -71,9 +71,10 @@ Scaffolds `.reconc.yml` + a stub `AGENTS.md` for a fresh repo. Multiple
 to a file while still printing to stdout.
 
 ### `reconc bootstrap inspect [repo] [--json]`
-Read-only discovery of canonical repository root, detected Go/Bun stacks,
-review-only pack suggestions, detected agent-platform directories, existing
-control paths, and platform-correct repo-local binary resolution.
+Read-only discovery of canonical repository root, detected Go, Bun, Python,
+and Rust stacks, review-only pack suggestions, detected agent-platform
+directories, existing control paths, and platform-correct repo-local binary
+resolution.
 
 ### `reconc bootstrap profiles [--json]`
 List the three explicit profiles. `minimal` selects policy plus a managed AI
@@ -110,9 +111,10 @@ be resolved through candidate review.
 
 ### `reconc adopt [repo] [--yaml | --json | --apply]`
 Detects common tooling (JS/TS, Python, Rust, Go, CI, generated dirs)
-and emits matching-rule suggestions. Go and Bun evidence can also produce
-review-only manifested policy-pack recommendations. `--apply` appends
-individual rules to `.reconc.yml` idempotently and never changes `extends`.
+and emits matching-rule suggestions. Go, Bun, Python, and Rust evidence can
+also produce review-only manifested policy-pack recommendations. `--apply`
+appends individual rules to `.reconc.yml` idempotently and never changes
+`extends`.
 
 ### `reconc extract [repo] [--from PATH] [--yaml | --json]`
 Regex-heuristic scan of AGENTS.md / CLAUDE.md prose for concrete rule
@@ -234,15 +236,16 @@ first path, and a shortened message.
 
 ### `reconc preset list [--json] [--output PATH]` / `reconc preset show <name> [--json] [--output PATH]`
 Built-in (`default`, `agent`, `docs-sync`, `release`, `strict`,
-`go-assurance`, `bun-assurance`) + user presets from
-`$RECONC_HOME/presets/*.yml`. User-authored presets override bundled
+`go-assurance`, `bun-assurance`, `python-assurance`, `rust-assurance`) + user
+presets from `$RECONC_HOME/presets/*.yml`. User-authored presets override bundled
 ones on name collision. JSON listing includes each validated manifest and its
 declared capabilities when present.
 
 ### `reconc template list [--json]` / `reconc template show <name> [--json]`
 Rule shape templates (`tests-follow-source`, `docs-follow-code`,
-`no-generated-writes`, `ci-green-before-merge`). User overrides in
-`$RECONC_HOME/templates/*.yml`.
+`no-generated-writes`, `ci-green-before-merge`, `authority-change-approval`,
+`custom-gate-on-change`, `local-secret-state-read-only`, `verified-change`).
+User overrides in `$RECONC_HOME/templates/*.yml`.
 
 ### `reconc hook generate <git-pre-commit|claude-code|codex|cursor|opencode|devin-cli|antigravity|kilo|grok> [--json] [--output PATH]`
 Emit the hook artefact content without writing to disk.

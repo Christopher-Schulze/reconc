@@ -474,11 +474,23 @@ the write-epoch freshness contract. After upgrading, existing repositories
 must re-run `reconc hook install claude-code` once to pick up the extended
 Claude write-tool matchers (NotebookEdit and related tools).
 
-`reconc adopt .` detects Go and Bun stack evidence and may propose
-`go-assurance` or `bun-assurance`. A proposal is review-only. `adopt --apply`
-adds individual rule suggestions but never mutates `extends`; the agent or user
-must explicitly select a pack in `.reconc.yml` after confirming that its
-contract fits the repository.
+`reconc adopt .` detects Go, Bun, Python, and Rust stack evidence and may
+propose the matching `*-assurance` pack. A proposal is review-only.
+`adopt --apply` adds individual rule suggestions but never mutates `extends`;
+the agent or user must explicitly select a pack in `.reconc.yml` after
+confirming that its contract fits the repository.
+
+The portable builtin template set covers source/test and docs coupling,
+generated-output protection, CI claims, authority-change approval, bounded
+repo-local gates, local secret/database-state write protection, and current
+successful-command evidence. Templates remain inert until a policy references
+them and supplies the repository-owned paths, commands, or script where the
+shape requires those inputs.
+
+Generic dependency-locality audits exclude supported agent-runtime state trees,
+including `.devin/`, `.grok/`, `.kilo/`, legacy `.kilocode/`, and the other
+registered platform directories, so plugin dependencies are not mistaken for
+product dependency leakage.
 
 `require_assurance` is the native, no-subprocess rule kind used by assurance
 packs. The parent `when_paths` controls when the gate set runs. Every gate has

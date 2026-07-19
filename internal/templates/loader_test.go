@@ -68,14 +68,23 @@ func TestListReturnsAllBuiltins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(list) < 4 {
-		t.Errorf("expected at least 4 builtin templates, got %d: %v", len(list), list)
+	if len(list) < 8 {
+		t.Errorf("expected at least 8 builtin templates, got %d: %v", len(list), list)
 	}
 	names := map[string]bool{}
 	for _, t := range list {
 		names[t.Name] = true
 	}
-	for _, want := range []string{"tests-follow-source", "no-generated-writes", "ci-green-before-merge", "docs-follow-code"} {
+	for _, want := range []string{
+		"authority-change-approval",
+		"ci-green-before-merge",
+		"custom-gate-on-change",
+		"docs-follow-code",
+		"local-secret-state-read-only",
+		"no-generated-writes",
+		"tests-follow-source",
+		"verified-change",
+	} {
 		if !names[want] {
 			t.Errorf("expected template %q in list", want)
 		}

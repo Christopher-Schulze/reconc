@@ -542,6 +542,70 @@ func TestParseRuleTemplateInheritsPaths(t *testing.T) {
 	}
 }
 
+func TestParseGolemDerivedBuiltinTemplates(t *testing.T) {
+	tests := []struct {
+		name     string
+		yaml     string
+		wantKind policy.Kind
+		check    func(*testing.T, policy.Rule)
+	}{
+		{
+			name:     "authority approval",
+			yaml:     "rules:\n  - id: authority\n    template: authority-change-approval\n    when_paths: ['AGENTS.md']\n",
+			wantKind: policy.KindRequireClaim,
+			check: func(t *testing.T, rule policy.Rule) {
+				if len(rule.Claims) != 1 || rule.Claims[0] != "authority-change-approved" {
+					t.Fatalf("unexpected authority claims: %v", rule.Claims)
+				}
+			},
+		},
+		{
+			name:     "custom gate",
+			yaml:     "rules:\n  - id: gate\n    template: custom-gate-on-change\n    script: scripts/audit.sh\n    when_paths: ['src/**']\n",
+			wantKind: policy.KindRequireScript,
+			check: func(t *testing.T, rule policy.Rule) {
+				if rule.TimeoutSec != 60 || rule.KillTimeoutSec != 5 {
+					t.Fatalf("unexpected gate budgets: timeout=%d kill=%d", rule.TimeoutSec, rule.KillTimeoutSec)
+				}
+			},
+		},
+		{
+			name:     "local secret state",
+			yaml:     "rules:\n  - id: local-state\n    template: local-secret-state-read-only\n",
+			wantKind: policy.KindDenyWrite,
+			check: func(t *testing.T, rule policy.Rule) {
+				if len(rule.Paths) < 10 {
+					t.Fatalf("local-state paths are incomplete: %v", rule.Paths)
+				}
+			},
+		},
+		{
+			name:     "verified change",
+			yaml:     "rules:\n  - id: verify\n    template: verified-change\n    commands: ['go test ./...']\n    when_paths: ['**/*.go']\n",
+			wantKind: policy.KindRequireCommandSuccess,
+			check: func(t *testing.T, rule policy.Rule) {
+				if len(rule.Commands) != 1 || rule.Commands[0] != "go test ./..." {
+					t.Fatalf("unexpected verification commands: %v", rule.Commands)
+				}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			parsed, err := ParseRuleDocuments(makeBundle(policy.PolicySource{
+				Kind: policy.SourcePolicyFile, Path: "p.yml", Content: test.yaml,
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(parsed.Rules) != 1 || parsed.Rules[0].Kind != test.wantKind {
+				t.Fatalf("unexpected parsed rule: %+v", parsed.Rules)
+			}
+			test.check(t, parsed.Rules[0])
+		})
+	}
+}
+
 // --- W17: scoped rules (monorepo) ------------------------------------
 
 func TestParseScopedRules(t *testing.T) {
