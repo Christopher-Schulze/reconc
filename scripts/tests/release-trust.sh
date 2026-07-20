@@ -130,6 +130,10 @@ require_action "$release_workflow" "actions/setup-go"
 require_action "$ci_workflow" "oven-sh/setup-bun"
 require_action "$release_workflow" "oven-sh/setup-bun"
 require_action "$release_workflow" "actions/attest-build-provenance"
+[ "$(grep -Fc 'uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0' "$ci_workflow")" -eq 3 ] \
+  || fail "$ci_workflow must provision pinned Go in all three jobs"
+[ "$(grep -Fc 'go-version-file: go.mod' "$ci_workflow")" -eq 3 ] \
+  || fail "$ci_workflow must derive Go from go.mod in all three jobs"
 require_text "$ci_workflow" "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0"
 require_text "$release_workflow" "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0"
 [ "$(grep -Fc 'bun-version: 1.3.14' "$ci_workflow")" -eq 2 ] \

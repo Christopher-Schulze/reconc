@@ -956,6 +956,8 @@ CI checks:
 - SHA-pinned `oven-sh/setup-bun` provisions Bun 1.3.14 in every job that
   executes OpenCode/Kilo adapter contracts; missing Bun can never be mistaken
   for an adapter regression
+- every CI job that executes Go provisions the SHA-pinned `actions/setup-go`
+  action from `go.mod`, including the isolated release-trust job
 - clean-repository self-hosting golden path on Ubuntu and macOS across all three bootstrap profiles and nine hook platforms
 - immutable action commit pins plus an explicit GitHub-owned action allowlist;
   the trust gate validates pin shape and action identity without coupling
