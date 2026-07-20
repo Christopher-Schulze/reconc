@@ -52,7 +52,7 @@ verify_action_pins() {
       return 1
     fi
     case "$action" in
-      actions/checkout|actions/setup-go|actions/attest-build-provenance|oven-sh/setup-bun) ;;
+      actions/checkout|actions/setup-go|actions/setup-node|actions/attest-build-provenance) ;;
       *)
         printf '%s\n' "$workflow uses an action outside the allowlist: $action" >&2
         return 1
@@ -114,6 +114,8 @@ printf '%s\n' 'steps:' '  - uses: actions/checkout@v7' > "$action_fixture"
 expect_failure verify_action_pins "$action_fixture"
 printf '%s\n' 'steps:' '  - uses: third-party/example@0123456789012345678901234567890123456789' > "$action_fixture"
 expect_failure verify_action_pins "$action_fixture"
+printf '%s\n' 'steps:' '  - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6' > "$action_fixture"
+expect_failure verify_action_pins "$action_fixture"
 
 trigger_fixture="$tmp/release-trigger.yml"
 printf '%s\n' 'on:' '  workflow_dispatch:' 'jobs:' > "$trigger_fixture"
@@ -127,19 +129,32 @@ for workflow in "$ci_workflow" "$release_workflow"; do
 done
 require_action "$ci_workflow" "actions/setup-go"
 require_action "$release_workflow" "actions/setup-go"
-require_action "$ci_workflow" "oven-sh/setup-bun"
-require_action "$release_workflow" "oven-sh/setup-bun"
+require_action "$ci_workflow" "actions/setup-node"
+require_action "$release_workflow" "actions/setup-node"
 require_action "$release_workflow" "actions/attest-build-provenance"
 [ "$(grep -Fc 'uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0' "$ci_workflow")" -eq 3 ] \
   || fail "$ci_workflow must provision pinned Go in all three jobs"
 [ "$(grep -Fc 'go-version-file: go.mod' "$ci_workflow")" -eq 3 ] \
   || fail "$ci_workflow must derive Go from go.mod in all three jobs"
-require_text "$ci_workflow" "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0"
-require_text "$release_workflow" "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0"
-[ "$(grep -Fc 'bun-version: 1.3.14' "$ci_workflow")" -eq 2 ] \
-  || fail "$ci_workflow must provision Bun 1.3.14 in both executable-test jobs"
-[ "$(grep -Fc 'bun-version: 1.3.14' "$release_workflow")" -eq 1 ] \
-  || fail "$release_workflow must provision Bun 1.3.14 exactly once"
+for workflow in "$ci_workflow" "$release_workflow"; do
+  require_text "$workflow" "uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0"
+done
+[ "$(grep -Fc 'node-version: 24.18.0' "$ci_workflow")" -eq 2 ] \
+  || fail "$ci_workflow must provision Node.js 24.18.0 in both executable-test jobs"
+[ "$(grep -Fc 'node-version: 24.18.0' "$release_workflow")" -eq 1 ] \
+  || fail "$release_workflow must provision Node.js 24.18.0 exactly once"
+[ "$(grep -Fc 'package-manager-cache: false' "$ci_workflow")" -eq 2 ] \
+  || fail "$ci_workflow must disable implicit package-manager caching in both executable-test jobs"
+[ "$(grep -Fc 'package-manager-cache: false' "$release_workflow")" -eq 1 ] \
+  || fail "$release_workflow must disable implicit package-manager caching exactly once"
+[ "$(grep -Fc 'npm install --global bun@1.3.14' "$ci_workflow")" -eq 2 ] \
+  || fail "$ci_workflow must install Bun 1.3.14 in both executable-test jobs"
+[ "$(grep -Fc 'npm install --global bun@1.3.14' "$release_workflow")" -eq 1 ] \
+  || fail "$release_workflow must install Bun 1.3.14 exactly once"
+[ "$(grep -Fc 'test "$(bun --version)" = "1.3.14"' "$ci_workflow")" -eq 2 ] \
+  || fail "$ci_workflow must verify Bun 1.3.14 in both executable-test jobs"
+[ "$(grep -Fc 'test "$(bun --version)" = "1.3.14"' "$release_workflow")" -eq 1 ] \
+  || fail "$release_workflow must verify Bun 1.3.14 exactly once"
 require_text "$release_workflow" "subject-checksums: dist/SHA256SUMS"
 require_text "$release_workflow" "  workflow_dispatch:"
 require_text "$release_workflow" "      tag:"

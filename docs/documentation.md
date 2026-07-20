@@ -953,9 +953,11 @@ CI checks:
 - native Windows 2025 root-module and `harness/template` tests plus native
   binary version/help smoke;
   shell hook wrappers and shell policy scripts use the documented `sh` runtime
-- SHA-pinned `oven-sh/setup-bun` provisions Bun 1.3.14 in every job that
-  executes OpenCode/Kilo adapter contracts; missing Bun can never be mistaken
-  for an adapter regression
+- SHA-pinned GitHub-owned `actions/setup-node` provisions Node.js 24.18.0 with
+  implicit package-manager caching disabled, then the exact official npm
+  package installs and verifies Bun 1.3.14 in every job that executes
+  OpenCode/Kilo adapter contracts; missing Bun can never be mistaken for an
+  adapter regression or bypass the repository's action policy
 - every CI job that executes Go provisions the SHA-pinned `actions/setup-go`
   action from `go.mod`, including the isolated release-trust job
 - clean-repository self-hosting golden path on Ubuntu and macOS across all three bootstrap profiles and nine hook platforms
@@ -987,7 +989,10 @@ Release:
 - Create the protected `reconc-vX.Y.Z` tag, then explicitly start the Release
   workflow and supply that existing tag. Tag pushes never trigger a release.
 - The tag version must be stable semantic versioning, match the source version, and have committed release notes.
-- Release workflow provisions the same pinned Bun runtime, then repeats formatting, tidy, test, vet, pinned Govulncheck, pinned Staticcheck, race, trust, and clean-repository self-hosting gates before building.
+- Release workflow provisions the same pinned GitHub-owned Node.js runtime and
+  exact verified Bun runtime, then repeats formatting, tidy, test, vet, pinned
+  Govulncheck, pinned Staticcheck, race, trust, and clean-repository
+  self-hosting gates before building.
 - `make release VERSION=<tag-version>` builds the exact flat release inventory.
 - Release output includes deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs for
   both Go modules, selected dependencies, the Go toolchain, version, and commit.
