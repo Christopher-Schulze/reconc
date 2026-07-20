@@ -174,6 +174,7 @@ var platformRegistry = []platformDefinition{
 	{
 		Platform: Platform{Kind: KindCursor, DisplayName: "Cursor", TargetPath: CursorHooksPath, ScaffoldPath: CursorHooksPath, InstallMode: InstallNestedJSON, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".cursor"}, RequiresWrapper: true}, Capabilities: []Capability{
 			capability(EventSessionStart, "sessionStart", SupportNative, FailureAllow, FailureAllow, 5, "cursor-session-start"),
+			capability(EventUserPromptSubmit, "beforeSubmitPrompt", SupportNative, FailureBlock, FailureBlock, 5, "cursor-user-prompt-submit"),
 			cursorPreToolCapability(),
 			fallback(EventPermissionRequest, EventPreToolUse),
 			capabilityMany(EventPostToolUse, "postToolUse", SupportNative, FailureAllow, FailureAllow, 5, "cursor-post-tool-use", "cursor-after-shell-execution", "cursor-after-file-edit", "cursor-after-tab-file-edit"),

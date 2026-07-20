@@ -40,7 +40,14 @@ func TestDoctorGrokRuntimeChecksTrustAndEveryNativeRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 	original := doctorGrokInspect
-	defer func() { doctorGrokInspect = original }()
+	originalCapabilityProbe := doctorProbeGrokNativeStop
+	defer func() {
+		doctorGrokInspect = original
+		doctorProbeGrokNativeStop = originalCapabilityProbe
+	}()
+	doctorProbeGrokNativeStop = func() grokacp.NativeStopGateProbe {
+		return grokacp.NativeStopGateProbe{Supported: true, DocumentationPath: "/tmp/grok/docs/user-guide/10-hooks.md"}
+	}
 
 	runtimeVersion := "0.2.106"
 	doctorGrokInspect = func(_ context.Context, root string) ([]byte, error) {
@@ -61,10 +68,13 @@ func TestDoctorGrokRuntimeChecksTrustAndEveryNativeRoute(t *testing.T) {
 	if check.Status != doctorStatusOK || !strings.Contains(check.Detail, "native no-leader Stop enforcement is active") {
 		t.Fatalf("Grok doctor check = %+v", check)
 	}
-	runtimeVersion = "0.2.101"
+	runtimeVersion = "0.2.106"
+	doctorProbeGrokNativeStop = func() grokacp.NativeStopGateProbe {
+		return grokacp.NativeStopGateProbe{Detail: "installed Grok hook guide does not advertise blocking Stop decision control"}
+	}
 	check = doctorCheckGrokRuntime(discovery)
-	if check.Status != doctorStatusWarn || !strings.Contains(check.Detail, grokacp.NativeStopGateMinimumVersion) {
-		t.Fatalf("old Grok runtime capability check = %+v", check)
+	if check.Status != doctorStatusWarn || !strings.Contains(check.Detail, "does not advertise") {
+		t.Fatalf("passive Grok runtime capability check = %+v", check)
 	}
 
 	doctorGrokInspect = func(_ context.Context, root string) ([]byte, error) {
@@ -106,7 +116,11 @@ func TestDoctorGrokLeaderSteering(t *testing.T) {
 		t.Fatal(err)
 	}
 	original := doctorProbeGrokLeader
-	defer func() { doctorProbeGrokLeader = original }()
+	originalCapabilityProbe := doctorProbeGrokNativeStop
+	defer func() {
+		doctorProbeGrokLeader = original
+		doctorProbeGrokNativeStop = originalCapabilityProbe
+	}()
 	t.Setenv(grokacp.SteerEnv, "")
 	probed := false
 	doctorProbeGrokLeader = func(time.Duration) grokacp.LeaderProbe {
@@ -124,21 +138,25 @@ func TestDoctorGrokLeaderSteering(t *testing.T) {
 	}
 	protocolVersion := uint32(1)
 	tests := []struct {
-		name   string
-		probe  grokacp.LeaderProbe
-		status string
-		detail string
+		name       string
+		probe      grokacp.LeaderProbe
+		nativeStop bool
+		status     string
+		detail     string
 	}{
 		{name: "no endpoint", probe: grokacp.LeaderProbe{}, status: doctorStatusOK, detail: "optional backward-compatible steering is inactive"},
 		{name: "discovery failed", probe: grokacp.LeaderProbe{Detail: "discover Grok leader endpoints: permission denied"}, status: doctorStatusWarn, detail: "discovery failed"},
 		{name: "compatible", probe: grokacp.LeaderProbe{Endpoint: "/tmp/leader.sock", Reachable: true, Compatible: true, ProtocolVersion: &protocolVersion, BinaryVersion: "0.2.101"}, status: doctorStatusOK, detail: "protocol 1"},
-		{name: "native compatible", probe: grokacp.LeaderProbe{Endpoint: "/tmp/leader.sock", Reachable: true, Compatible: true, ProtocolVersion: &protocolVersion, BinaryVersion: "0.2.106"}, status: doctorStatusOK, detail: "duplicate leader interjection is suppressed"},
+		{name: "native compatible", probe: grokacp.LeaderProbe{Endpoint: "/tmp/leader.sock", Reachable: true, Compatible: true, ProtocolVersion: &protocolVersion, BinaryVersion: "0.2.106"}, nativeStop: true, status: doctorStatusOK, detail: "duplicate leader interjection is suppressed"},
 		{name: "incompatible", probe: grokacp.LeaderProbe{Endpoint: "/tmp/leader.sock", Reachable: true, Detail: "_x.ai/interject missing"}, status: doctorStatusWarn, detail: "incompatible"},
 		{name: "handshake failed", probe: grokacp.LeaderProbe{Endpoint: "/tmp/leader.sock", Detail: "connection refused"}, status: doctorStatusWarn, detail: "connection refused"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			doctorProbeGrokLeader = func(time.Duration) grokacp.LeaderProbe { return test.probe }
+			doctorProbeGrokNativeStop = func() grokacp.NativeStopGateProbe {
+				return grokacp.NativeStopGateProbe{Supported: test.nativeStop}
+			}
 			check := doctorCheckGrokLeaderSteering(discovery)
 			if check.Status != test.status || !strings.Contains(check.Detail, test.detail) {
 				t.Fatalf("check = %+v, want status %s detail containing %q", check, test.status, test.detail)

@@ -159,6 +159,11 @@ func TestRunPreToolUseBlocksDestructiveGitCommands(t *testing.T) {
 			command: `sh -lc 'git clean -fd'`,
 			want:    "git clean",
 		},
+		{
+			name:    "line continuation git clean",
+			command: "git \\\nclean -fd",
+			want:    "git clean",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -193,6 +198,85 @@ func TestRunPreToolUseBlocksDestructiveGitCommandsWithoutSessionState(t *testing
 	}
 }
 
+func TestRunPreToolUseEnforcesPolicyForbidCommandBeforeExecution(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	policyPath := filepath.Join(repo, "policies", "rules.yml")
+	file, err := os.OpenFile(policyPath, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, writeErr := file.WriteString("  - id: forbid-protected-rm\n    kind: forbid_command\n    command_match: prefix\n    commands: ['rm -f protected.txt']\n    mode: block\n    message: protected command\n")
+	closeErr := file.Close()
+	if writeErr != nil || closeErr != nil {
+		t.Fatalf("append policy: write=%v close=%v", writeErr, closeErr)
+	}
+	if _, err := compiler.CompileRepoPolicy(repo, "test"); err != nil {
+		t.Fatalf("compile policy: %v", err)
+	}
+
+	blocked := `{"session_id":"s-policy-command","tool_name":"Bash","tool_input":{"command":"rm -f protected.txt --verbose"}}`
+	if result := RunPreToolUse(repo, []byte(blocked)); result.ExitCode != 2 || !strings.Contains(result.Stderr, "forbid-protected-rm") {
+		t.Fatalf("policy-forbidden command was not blocked before execution: %+v", result)
+	}
+	allowed := `{"session_id":"s-policy-command","tool_name":"Bash","tool_input":{"command":"rm -f other.txt"}}`
+	if result := RunPreToolUse(repo, []byte(allowed)); result.ExitCode != 0 {
+		t.Fatalf("unmatched command was blocked: %+v", result)
+	}
+}
+
+func TestRunPreToolUseEnforcesConditionalForbidAfterMatchingWrite(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	policyPath := filepath.Join(repo, "policies", "rules.yml")
+	file, err := os.OpenFile(policyPath, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, writeErr := file.WriteString("  - id: forbid-raw-pip-after-manifest\n    kind: forbid_command\n    command_match: prefix\n    when_paths: ['requirements.txt']\n    commands: ['pip install']\n    mode: block\n    message: use the canonical installer\n")
+	closeErr := file.Close()
+	if writeErr != nil || closeErr != nil {
+		t.Fatalf("append policy: write=%v close=%v", writeErr, closeErr)
+	}
+	if _, err := compiler.CompileRepoPolicy(repo, "test"); err != nil {
+		t.Fatalf("compile policy: %v", err)
+	}
+	writePayload := `{"session_id":"s-conditional-command","tool_name":"Write","tool_input":{"file_path":"requirements.txt","content":"requests"}}`
+	if result := RunPreToolUse(repo, []byte(writePayload)); result.ExitCode != 0 {
+		t.Fatalf("manifest write pre-hook failed: %+v", result)
+	}
+	if result := RunPostToolUse(repo, []byte(writePayload)); result.ExitCode != 0 {
+		t.Fatalf("manifest write post-hook failed: %+v", result)
+	}
+	commandPayload := `{"session_id":"s-conditional-command","tool_name":"Bash","tool_input":{"command":"echo ready && pip install requests"}}`
+	if result := RunPreToolUse(repo, []byte(commandPayload)); result.ExitCode != 2 || !strings.Contains(result.Stderr, "forbid-raw-pip-after-manifest") {
+		t.Fatalf("conditional forbidden command was not blocked before execution: %+v", result)
+	}
+}
+
+func TestRunPreToolUseEnforcesCompositeForbidBeforeExecution(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	policyPath := filepath.Join(repo, "policies", "rules.yml")
+	file, err := os.OpenFile(policyPath, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, writeErr := file.WriteString("  - id: composite-forbid\n    kind: all_of\n    when_paths: ['requirements.txt']\n    checks:\n      - kind: forbid_command\n        command_match: prefix\n        commands: ['pip install']\n    mode: block\n    message: use the canonical installer\n")
+	closeErr := file.Close()
+	if writeErr != nil || closeErr != nil {
+		t.Fatalf("append policy: write=%v close=%v", writeErr, closeErr)
+	}
+	if _, err := compiler.CompileRepoPolicy(repo, "test"); err != nil {
+		t.Fatalf("compile policy: %v", err)
+	}
+	writePayload := `{"session_id":"s-composite-command","tool_name":"Write","tool_input":{"file_path":"requirements.txt","content":"requests"}}`
+	if result := RunPostToolUse(repo, []byte(writePayload)); result.ExitCode != 0 {
+		t.Fatalf("manifest write post-hook failed: %+v", result)
+	}
+	commandPayload := `{"session_id":"s-composite-command","tool_name":"Bash","tool_input":{"command":"echo ready && pip install requests"}}`
+	if result := RunPreToolUse(repo, []byte(commandPayload)); result.ExitCode != 2 || !strings.Contains(result.Stderr, "composite-forbid") {
+		t.Fatalf("composite forbidden command was not blocked before execution: %+v", result)
+	}
+}
+
 func TestRunPreToolUseAllowsSafeGitCommands(t *testing.T) {
 	repo := setupPolicyRepo(t)
 	_ = RunSessionStart(repo, []byte(`{"session_id":"s1"}`))
@@ -202,6 +286,7 @@ func TestRunPreToolUseAllowsSafeGitCommands(t *testing.T) {
 		`git -C "$repo" clean --dry-run -d`,
 		`rg -n "git clean" tools/reconc/internal/runtime/agentsession`,
 		`grep -R "git reset --hard" docs`,
+		`echo git clean -fd`,
 	} {
 		payload := fmt.Sprintf(`{"session_id":"s1","tool_name":"Bash","tool_input":{"command":%q}}`, command)
 		result := RunPreToolUse(repo, []byte(payload))
@@ -216,6 +301,7 @@ func TestForbiddenShellCommandReasonOnlyRecursesExecutableShellStrings(t *testin
 		`rg -n "git clean" tools/reconc`,
 		`grep -R "git reset --hard" docs`,
 		`printf '%s\n' "git clean -fd"`,
+		`printf '%s\n' '$(git clean -fd)'`,
 	}
 	for _, command := range allowed {
 		if reason := forbiddenShellCommandReason(command); reason != "" {
@@ -228,11 +314,21 @@ func TestForbiddenShellCommandReasonOnlyRecursesExecutableShellStrings(t *testin
 		`bash -c "git reset --hard HEAD"`,
 		`eval "git clean -fd"`,
 		`find . -exec sh -c 'git clean -fd' \;`,
+		`printf '%s\n' x | xargs -n 1 sh -c 'git clean -fd'`,
+		`echo "$(git reset --hard HEAD)"`,
+		"echo `git clean -fd`",
 	}
 	for _, command := range blocked {
 		if reason := forbiddenShellCommandReason(command); reason == "" {
 			t.Fatalf("executable nested shell command %q should block", command)
 		}
+	}
+	deep := "git clean -fd"
+	for range maxShellGuardDepth + 2 {
+		deep = "echo $(" + deep + ")"
+	}
+	if reason := forbiddenShellCommandReason(deep); reason == "" {
+		t.Fatal("over-deep shell nesting must fail closed")
 	}
 }
 

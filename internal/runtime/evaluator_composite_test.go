@@ -244,3 +244,20 @@ func TestNotFailsClosedOnBrokenScript(t *testing.T) {
 		t.Errorf("explanation should say the inner check could not be evaluated: %+v", report.Violations)
 	}
 }
+
+func TestCompositeForbidCommandChecksEveryCompoundSegment(t *testing.T) {
+	repo := makeRepoWithFiles(t,
+		"rules:\n  - id: gate\n    kind: all_of\n    when_paths: ['src/**']\n    checks:\n      - kind: forbid_command\n        command_match: prefix\n        commands: ['pip install']\n    mode: block\n    message: m\n",
+		nil)
+
+	inputs := Empty()
+	inputs.WritePaths = []string{"src/main.go"}
+	inputs.Commands = []string{"echo ready && pip install requests"}
+	report, err := CheckRepoPolicy(repo, inputs)
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if report.Decision != DecisionBlock {
+		t.Fatalf("compound forbidden command inside composite must block, got %s", report.Decision)
+	}
+}

@@ -298,6 +298,7 @@ func TestGenerateCursorIsValidJSON(t *testing.T) {
 	}
 	for _, token := range []string{
 		`"version": 1`,
+		`"beforeSubmitPrompt"`,
 		`"preToolUse"`,
 		`"beforeShellExecution"`,
 		`"afterShellExecution"`,
@@ -309,6 +310,7 @@ func TestGenerateCursorIsValidJSON(t *testing.T) {
 		`"matcher": "Read|Write|Edit|MultiEdit|StrReplace|Delete|FileEdit|TabRead|TabWrite"`,
 		`"matcher": "Write|Edit|MultiEdit|StrReplace|Delete|FileEdit|TabWrite"`,
 		"cursor-pre-tool-use",
+		"cursor-user-prompt-submit",
 		"cursor-after-file-edit",
 		"cursor-stop",
 		"tools/reconc/bin/hook",
@@ -317,7 +319,7 @@ func TestGenerateCursorIsValidJSON(t *testing.T) {
 			t.Fatalf("Cursor hook template missing %q:\n%s", token, a.Content)
 		}
 	}
-	for _, forbidden := range []string{"beforeSubmitPrompt", "cursor-user-prompt-submit", "beforeReadFile", "beforeTabFileRead", "cursor-before-read-file", "cursor-before-tab-file-read"} {
+	for _, forbidden := range []string{"beforeReadFile", "beforeTabFileRead", "cursor-before-read-file", "cursor-before-tab-file-read"} {
 		if strings.Contains(a.Content, forbidden) {
 			t.Fatalf("Cursor hook template should not spawn pre-execution hooks for read-only events %q:\n%s", forbidden, a.Content)
 		}
@@ -449,9 +451,6 @@ func matchersForEvent(t *testing.T, content string, rootKey string, event string
 }
 
 func TestInstallGitPreCommit(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not installed")
-	}
 	repo := t.TempDir()
 	c := exec.Command("git", "init", "--quiet")
 	c.Dir = repo
@@ -490,10 +489,22 @@ func gitInitRepo(t *testing.T, dir string) {
 	}
 }
 
-func TestInstallGitPreCommitIsIdempotentWithoutForce(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not installed")
+func statusByKind(t *testing.T, repo, kind string) PlatformStatus {
+	t.Helper()
+	reports, err := InspectPlatforms(repo)
+	if err != nil {
+		t.Fatal(err)
 	}
+	for _, report := range reports {
+		if report.Kind == kind {
+			return report
+		}
+	}
+	t.Fatalf("status for %s not found", kind)
+	return PlatformStatus{}
+}
+
+func TestInstallGitPreCommitIsIdempotentWithoutForce(t *testing.T) {
 	repo := t.TempDir()
 	gitInitRepo(t, repo)
 
@@ -510,9 +521,6 @@ func TestInstallGitPreCommitIsIdempotentWithoutForce(t *testing.T) {
 }
 
 func TestInstallGitPreCommitRefusesDifferentHookWithoutForce(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not installed")
-	}
 	repo := t.TempDir()
 	gitInitRepo(t, repo)
 	target := filepath.Join(repo, ".git", "hooks", "pre-commit")
@@ -521,15 +529,94 @@ func TestInstallGitPreCommitRefusesDifferentHookWithoutForce(t *testing.T) {
 	}
 
 	_, err := Install(KindGitPreCommit, repo, false)
-	if err == nil || !strings.Contains(err.Error(), "already exists") {
+	if err == nil || !strings.Contains(err.Error(), "foreign hook") {
 		t.Fatalf("expected existing-hook refusal, got %v", err)
 	}
 }
 
-func TestInstallGitPreCommitForceOverwrites(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not installed")
+func TestInstallGitPreCommitUsesActiveCoreHooksPath(t *testing.T) {
+	repo := t.TempDir()
+	gitInitRepo(t, repo)
+	command := exec.Command("git", "-C", repo, "config", "core.hooksPath", ".githooks")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git config: %v: %s", err, output)
 	}
+	legacy := filepath.Join(repo, ".git", "hooks", "pre-commit")
+	if err := os.WriteFile(legacy, []byte("foreign legacy hook\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Install(KindGitPreCommit, repo, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.TargetPath != ".githooks/pre-commit" {
+		t.Fatalf("target = %q, want .githooks/pre-commit", report.TargetPath)
+	}
+	if data, err := os.ReadFile(legacy); err != nil || string(data) != "foreign legacy hook\n" {
+		t.Fatalf("inactive legacy hook changed: data=%q err=%v", data, err)
+	}
+	if status := statusByKind(t, repo, KindGitPreCommit); status.State != StateConfigured {
+		t.Fatalf("installed active hook status = %+v", status)
+	}
+}
+
+func TestInstallGitPreCommitRefusesSharedExternalHooksPath(t *testing.T) {
+	repo := t.TempDir()
+	gitInitRepo(t, repo)
+	external := t.TempDir()
+	command := exec.Command("git", "-C", repo, "config", "core.hooksPath", external)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git config: %v: %s", err, output)
+	}
+	if _, err := Install(KindGitPreCommit, repo, false); err == nil || !strings.Contains(err.Error(), "shared hooks directory") {
+		t.Fatalf("external hooks path error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(external, "pre-commit")); !os.IsNotExist(err) {
+		t.Fatalf("external hooks directory was modified: %v", err)
+	}
+}
+
+func TestInstallGitPreCommitRefusesRepositorySymlinkToExternalHooksPath(t *testing.T) {
+	repo := t.TempDir()
+	gitInitRepo(t, repo)
+	external := t.TempDir()
+	createDirectoryLinkForTest(t, external, filepath.Join(repo, ".githooks"))
+	command := exec.Command("git", "-C", repo, "config", "core.hooksPath", ".githooks")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git config: %v: %s", err, output)
+	}
+	if _, err := Install(KindGitPreCommit, repo, false); err == nil || !strings.Contains(err.Error(), "shared hooks directory") {
+		t.Fatalf("symlinked hooks path error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(external, "pre-commit")); !os.IsNotExist(err) {
+		t.Fatalf("external hooks directory was modified through symlink: %v", err)
+	}
+}
+
+func TestInstallGitPreCommitSupportsLinkedWorktreeCommonHooks(t *testing.T) {
+	mainRepo := t.TempDir()
+	gitInitRepo(t, mainRepo)
+	commit := exec.Command("git", "-C", mainRepo, "-c", "user.name=reconc-test", "-c", "user.email=reconc-test@example.com", "commit", "--quiet", "--allow-empty", "-m", "initial")
+	if output, err := commit.CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v: %s", err, output)
+	}
+	worktree := filepath.Join(t.TempDir(), "linked")
+	add := exec.Command("git", "-C", mainRepo, "worktree", "add", "--quiet", "--detach", worktree)
+	if output, err := add.CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add: %v: %s", err, output)
+	}
+	if _, err := Install(KindGitPreCommit, worktree, false); err != nil {
+		t.Fatalf("install in linked worktree: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(mainRepo, ".git", "hooks", "pre-commit")); err != nil {
+		t.Fatalf("common hook missing: %v", err)
+	}
+	if status := statusByKind(t, worktree, KindGitPreCommit); status.State != StateConfigured {
+		t.Fatalf("linked-worktree status = %+v", status)
+	}
+}
+
+func TestInstallGitPreCommitForceOverwrites(t *testing.T) {
 	repo := t.TempDir()
 	gitInitRepo(t, repo)
 
@@ -555,8 +642,8 @@ func TestInstallGitPreCommitNonGitDirReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for non-git dir")
 	}
-	if !strings.Contains(err.Error(), "no .git") {
-		t.Errorf("expected 'no .git' in error, got: %v", err)
+	if !strings.Contains(err.Error(), "active Git hooks path") {
+		t.Errorf("expected active Git hooks path error, got: %v", err)
 	}
 }
 

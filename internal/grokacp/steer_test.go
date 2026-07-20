@@ -15,6 +15,9 @@ import (
 
 func steerTestRepo(t *testing.T) string {
 	t.Helper()
+	originalCapabilityProbe := nativeStopGateAvailable
+	nativeStopGateAvailable = func() bool { return false }
+	t.Cleanup(func() { nativeStopGateAvailable = originalCapabilityProbe })
 	t.Setenv("RECONC_CLAUDE_STATE_DIR", t.TempDir())
 	t.Setenv(leaderSocketEnv, "")
 	t.Setenv(grokHomeEnv, t.TempDir())
@@ -194,6 +197,7 @@ func TestSteerTUIStopInterjectsAndCounts(t *testing.T) {
 
 func TestSteerTUIStopSkipsNativeStopCapableLeader(t *testing.T) {
 	repo := steerTestRepo(t)
+	nativeStopGateAvailable = func() bool { return true }
 	leader := newFakeLeader(t, func(f *fakeLeader, conn net.Conn) {
 		if _, err := f.read(conn); err != nil {
 			return
@@ -218,6 +222,28 @@ func TestSteerTUIStopSkipsNativeStopCapableLeader(t *testing.T) {
 	}
 	if state.GrokSteerAttempts != 0 {
 		t.Fatalf("suppressed native leader consumed fallback budget: %d", state.GrokSteerAttempts)
+	}
+}
+
+func TestSteerTUIStopDoesNotInferNativeStopFromVersion(t *testing.T) {
+	repo := steerTestRepo(t)
+	leader := newFakeLeader(t, func(f *fakeLeader, conn net.Conn) {
+		if _, err := f.read(conn); err != nil {
+			return
+		}
+		f.write(conn, `{"type":"registered","client_id":7,"ready":true,"leader_protocol_version":1,"leader_binary_version":"0.2.106"}`)
+		if _, err := f.read(conn); err != nil {
+			return
+		}
+		f.write(conn, `{"type":"acp","payload":"{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"status\":\"queued\"}}"}`)
+		_, _ = f.read(conn)
+	})
+	t.Setenv(leaderSocketEnv, leader.socket)
+	steerSession(t, "s-version")
+
+	note := SteerTUIStop(repo, steerPayload("s-version", false), continuationResult("run the tests"))
+	if !strings.Contains(note, "continuation interjected") {
+		t.Fatalf("version-only capability must retain leader fallback, note = %q", note)
 	}
 }
 

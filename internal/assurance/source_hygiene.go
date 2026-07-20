@@ -25,6 +25,11 @@ var javaScriptUnimplementedSentinels = [][]byte{
 	[]byte("throw new error(`not implemented`)"),
 }
 
+var goUnimplementedPanicSentinels = [][]byte{
+	[]byte("panic(" + `"not implemented")`),
+	[]byte("panic(" + "`not implemented`)"),
+}
+
 func evaluateSourceHygiene(root string, gate policy.AssuranceGate, changed []string, state *evaluationState) ([]Finding, error) {
 	files, err := changedFiles(root, changed, gate.ScanPaths, gate.ExcludePaths, gate.Exemptions, state)
 	if err != nil {
@@ -76,9 +81,10 @@ func sourceHygieneProblem(extension string, line []byte) string {
 		if bytes.Equal(trimmed, []byte("_ = err")) {
 			return "ignored Go error sentinel"
 		}
-		if containsCodeFold(trimmed, []byte(`panic("not implemented")`)) ||
-			containsCodeFold(trimmed, []byte("panic(`not implemented`)")) {
-			return "unimplemented Go panic sentinel"
+		for _, sentinel := range goUnimplementedPanicSentinels {
+			if containsCodeFold(trimmed, sentinel) {
+				return "unimplemented Go panic sentinel"
+			}
 		}
 	case ".rs":
 		if containsCodeFold(trimmed, []byte("todo!(")) || containsCodeFold(trimmed, []byte("unimplemented!(")) {
@@ -113,7 +119,7 @@ func sourceHygieneProblem(extension string, line []byte) string {
 			return "unimplemented PHP exception sentinel"
 		}
 	case ".zig":
-		if containsCodeFold(trimmed, []byte(`@panic("not implemented")`)) ||
+		if containsCodeFold(trimmed, []byte("@panic("+`"not implemented")`)) ||
 			containsCodeFold(trimmed, []byte(`@compileerror("not implemented")`)) {
 			return "unimplemented Zig sentinel"
 		}

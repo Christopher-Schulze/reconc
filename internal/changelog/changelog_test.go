@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -290,5 +291,40 @@ func TestRotateTrailerDoesNotStack(t *testing.T) {
 	}
 	if strings.Contains(string(archive), "_Older entries rotated to") {
 		t.Errorf("trailer must not leak into the archive:\n%s", archive)
+	}
+}
+
+func TestRotateConcurrentCallsDoNotDuplicateArchive(t *testing.T) {
+	repo := mkRepo(t)
+	writeFile(t, filepath.Join(repo, "docs", "changelog.md"), sampleChangelog)
+	now := func() time.Time { return time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC) }
+	start := make(chan struct{})
+	errors := make(chan error, 2)
+	var workers sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-start
+			_, err := Rotate(repo, Options{ThresholdLines: 1, Force: true, Now: now})
+			errors <- err
+		}()
+	}
+	close(start)
+	workers.Wait()
+	close(errors)
+	for err := range errors {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	archive, err := os.ReadFile(filepath.Join(repo, "docs", "changelog", "archive", "2026-Q2.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, title := range []string{"2026-04-11 Feature Y", "2026-04-10 Bug fix", "2026-04-09 Docs pass", "2026-04-08 Setup"} {
+		if count := strings.Count(string(archive), title); count != 1 {
+			t.Fatalf("archived section %q occurs %d times", title, count)
+		}
 	}
 }

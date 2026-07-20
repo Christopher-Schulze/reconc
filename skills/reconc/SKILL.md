@@ -162,12 +162,13 @@ Repository mode is durable for this repository, not machine-global. Claude
 Code, Codex, Cursor, Devin CLI, and Antigravity CLI expose
 synchronous Stop continuation. OpenCode and Kilo Code use inferred
 `session.idle`, so their host continuation remains best-effort and fail-open.
-Grok Build has hard native PreToolUse. Grok 0.2.106+ also enforces exact native
-Stop blocks without a leader, with strict `stopHookActive` re-entry and the
-host's eight-continuation per-turn bound. Older Grok versions use `reconc grok
-. --prompt "..."` or optional leader steering over the Unix socket or Windows
-named pipe. Only delivered interjections consume the 32-attempt no-progress
-series; native-capable leaders suppress duplicate interjection.
+Grok Build has hard native PreToolUse. Reconc also emits exact native Stop
+blocks without a leader, but accepts synchronous enforcement only when the
+installed Grok hook guide advertises blocking Stop decision control. Passive
+Stop distributions use `reconc grok . --prompt "..."` or optional leader
+steering over the Unix socket or Windows named pipe. Only delivered
+interjections consume the 32-attempt no-progress series; capability-proven
+native hosts suppress duplicate interjection.
 `RECONC_GROK_STEER=0` disables only leader steering. Managed activation
 requires exact hook/wrapper artifacts and route tokens. Deep doctor reports
 native Stop capability and separately probes protocol 1 plus `_x.ai/interject`.

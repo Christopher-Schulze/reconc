@@ -28,6 +28,9 @@ func NormalizeCursorPayload(event string, payloadBytes []byte) ([]byte, error) {
 	out := cloneCursorObject(raw)
 	out["session_id"] = cursorSessionID(raw)
 	out["cursor_event"] = event
+	if prompt := cursorFirstString(raw, "prompt", "user_prompt", "userPrompt", "message", "text", "input"); prompt != "" {
+		out["prompt"] = prompt
+	}
 	if v, ok := cursorFirstBool(raw, "stop_hook_active", "stopHookActive", "isStopHookActive"); ok {
 		out["stop_hook_active"] = v
 	}
@@ -147,6 +150,19 @@ func AdaptCursorResult(event string, result Result) Result {
 		return Result{
 			ExitCode: 0,
 			Stdout:   cursorJSON(map[string]interface{}{"followup_message": reason}),
+		}
+	}
+	if event == "cursor-user-prompt-submit" {
+		if result.ExitCode == 0 {
+			if strings.TrimSpace(result.Stdout) == "" {
+				return Result{ExitCode: 0, Stdout: cursorJSON(map[string]interface{}{"continue": true})}
+			}
+			return result
+		}
+		reason := cursorResultReason(result)
+		return Result{
+			ExitCode: 0,
+			Stdout:   cursorJSON(map[string]interface{}{"continue": false, "user_message": reason}),
 		}
 	}
 	if isCursorPreDecisionEvent(event) && result.ExitCode != 0 {

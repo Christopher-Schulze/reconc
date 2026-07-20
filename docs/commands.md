@@ -37,9 +37,10 @@ Runtime:
   policy lockfiles use `schemas/v2/`
 - `RECONC_STOP_FINGERPRINT_UNTRACKED` (`normal` default, `all`, `no`) --
   untracked-file mode for the Stop fingerprint's git status snapshot
-- `RECONC_GROK_STEER=0` -- disable optional old-version Grok TUI leader
-  steering over the Unix socket or Windows named pipe; native Stop and
-  PreToolUse remain enforced (steering also honours `GROK_LEADER_SOCKET`)
+- `RECONC_GROK_STEER=0` -- disable optional Grok TUI leader steering over the
+  Unix socket or Windows named pipe; PreToolUse remains enforced and native
+  Stop remains available only when the installed Grok guide advertises it
+  (steering also honours `GROK_LEADER_SOCKET`)
 
 Debugging:
 
@@ -256,9 +257,11 @@ User overrides in `$RECONC_HOME/templates/*.yml`.
 Emit the hook artefact content without writing to disk.
 
 ### `reconc hook install <git-pre-commit|claude-code|codex|cursor|opencode|devin-cli|antigravity|kilo|grok> [repo] [--force] [--json] [--output PATH]`
-Write the hook into the repo. Git pre-commit reuses an identical managed
-`.git/hooks` file and refuses different content without `--force`; Claude Code
-and Codex JSON configs are merged non-destructively;
+Write the hook into the repo. Git pre-commit uses Git's active hooks path
+(`core.hooksPath`, otherwise `.git/hooks`), updates a Reconc-owned hook
+idempotently, preserves inactive legacy hooks, requires `--force` for a foreign
+active hook, and always refuses shared external targets. Claude Code and
+Codex JSON configs are merged non-destructively;
 Cursor writes `.cursor/hooks.json`; OpenCode writes
 `.opencode/plugins/reconc.js`; Devin merges `.devin/hooks.v1.json`;
 Antigravity merges the top-level
@@ -268,6 +271,9 @@ non-reconc hook groups; and Kilo Code owns
 `.grok/hooks/reconc.json` file and preserves every other project hook file.
 Managed plugin/files refuse unrelated existing
 content unless `--force` is passed.
+All non-Git targets are resolved through existing parent symlinks and must stay
+inside the selected repository. Forced malformed-config backups are private,
+content-addressed, create-only, and durably synced before publication.
 
 ### `reconc hook status [repo] [--json]`
 Validate registered artifacts and activation requirements. States are
@@ -277,19 +283,22 @@ artifacts, the repo-local wrapper, Codex's enable flag, Git `core.hooksPath`,
 Kilo Code pure mode, legacy Kilo Code plugin placement, and Grok's native
 project-hook artifact. Static Grok status cannot prove folder trust; `doctor
 --deep` additionally runs `grok inspect --json` when the artifact exists.
-Each platform also reports rate-limited `last_seen`/`last_event` live-runtime
-evidence separately from static activation state. `configured` proves only
-that the host can discover a complete static artifact. Codex accepts
+Each platform also reports registry-derived `expected_events`, rate-limited
+`live_events`, `unseen_events`, `last_seen`, and `last_event` runtime evidence
+separately from static activation state. `configured` proves only that the host
+can discover a complete static artifact. Codex accepts
 `hooks = true` under `[features]`, rejects root-level `hooks=true`, and has no
 `SessionEnd` or separate failed-tool route; failed Bash outcomes are inferred
 from `PostToolUse`. OpenCode and Kilo Code preserve complete post-tool output,
 deduplicate terminal tool errors from `message.part.updated`, and route user
 prompts plus pre/post-compaction lifecycle. Their continuation is inferred from
-`session.idle`, not a synchronous native Stop gate. Grok 0.2.106+ consumes
-Reconc's native `Stop` block directly in the normal TUI without a leader.
-Older Grok versions can use `reconc grok` or optional leader steering over the
-Unix socket or Windows named pipe. Deep doctor reports native Stop capability
-separately from route loading; its optional leader probe requires protocol
+`session.idle`, not a synchronous native Stop gate. Reconc emits native Grok
+`Stop` block JSON directly in the normal TUI without a leader, but treats it as
+synchronously enforced only when the installed Grok hook guide advertises
+blocking Stop decision control. Otherwise `reconc grok` or optional leader
+steering over the Unix socket or Windows named pipe provides strict
+continuation. Deep doctor reports native Stop capability separately from route
+loading; its optional leader probe requires protocol
 version 1 and a recognized `_x.ai/interject` response, not just a successful
 register handshake. It also requires project-owned inspect metadata and exact
 route command tokens; prefix collisions do not satisfy route coverage.
@@ -301,7 +310,9 @@ Regenerate source-controlled hook artifacts inside a template
 `.opencode/plugins/reconc.js`, `.devin/hooks.v1.json`,
 `.kilo/plugin/reconc.js`, and `.grok/hooks/reconc.json`. This keeps scaffolded repos on the
 same generator truth as `reconc hook install`; do not copy these files
-from a source-specific harness.
+from a source-specific harness. Reconc preflights containment for every target
+before the first write, preventing both parent-symlink escapes and partial
+scaffold updates.
 
 ### `reconc hook claim <repo> <claim-name> [--json] [--output PATH]`
 Assert a workflow claim (e.g. `ci-green`). Written to the session
@@ -333,7 +344,9 @@ permission modal; Reconc PreToolUse and Grok's explicit deny rules still run.
 ### `reconc changelog rotate [repo] [--force] [--lines N] [--json]` / `reconc changelog list-archives [repo] [--json]`
 Rotate `docs/changelog.md` when it exceeds the line threshold (default
 200). Moves older `##`-sections into
-`docs/changelog/archive/YYYY-QN.md`. Idempotent.
+`docs/changelog/archive/YYYY-QN.md`. Rotation is cross-process locked,
+crash-idempotent, duplicate-safe, and preserves unrelated archive content when
+multiple writers race.
 
 ### `reconc agent-intro [--section NAME] [--list-sections] [--json]`
 Prints the embedded reconc integration guide. Section lookup is
@@ -357,12 +370,13 @@ AI-operated switch scoped to one repository, not the whole machine. It routes
 continuation through all eight registered agent runtimes. Claude Code, Codex,
 Cursor, Devin CLI, and Antigravity CLI expose synchronous Stop
 gates; OpenCode and Kilo Code use inferred `session.idle` adapters whose host
-boundary is best-effort and fail-open. Grok 0.2.106+ supplies a synchronous
-native Stop gate in the stock TUI; Reconc emits exact block JSON without a
-leader and preserves Grok's eight-continuation per-turn bound. `reconc grok`
-remains the explicit ACP path, while older leader-mode sessions can be steered
-through `_x.ai/interject` over the Unix socket or Windows named pipe. Eligible
-old-version leader Stops use strict continuation before policy evaluation.
+boundary is best-effort and fail-open. Reconc emits exact Grok Stop block JSON
+without a leader; synchronous stock-TUI enforcement and its continuation bound
+are accepted only when the installed Grok guide explicitly advertises the
+contract. `reconc grok` remains the explicit ACP path, while passive Stop
+sessions can be steered through `_x.ai/interject` over the Unix socket or
+Windows named pipe. Eligible leader Stops use strict continuation before policy
+evaluation.
 Only successfully delivered interjections consume the 32-attempt cap;
 transport or protocol failures do not. The cap resets on material progress, a
 changed block, or a clean Stop. Typed `continue` and `claim` states

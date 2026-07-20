@@ -1,0 +1,1008 @@
+// Package shellcommand performs bounded, AST-based discovery of commands that
+// a Bash-compatible shell string can execute. It covers compound commands,
+// common command wrappers, nested shell -c/eval bodies, and command/process
+// substitutions without executing or expanding untrusted input.
+package shellcommand
+
+import (
+	"strings"
+
+	"mvdan.cc/sh/v3/syntax"
+)
+
+const maxCommandBytes = 256 << 10
+
+// Invocation is one executable command position. Source retains the command
+// text used for policy matching; Words starts with the effective executable
+// after supported wrappers such as env, sudo, command, and exec.
+type Invocation struct {
+	Source       string
+	Words        []string
+	DynamicWords []bool
+}
+
+// Match reports whether invocation is the static command expected by a policy.
+// Prefix mode permits additional arguments. Uncertain is true only when a
+// dynamic word can occupy an expected position, allowing enforcement callers
+// to fail closed without blocking unrelated commands that merely use dynamic
+// arguments.
+func Match(invocation Invocation, expected string, prefix bool) (matched, uncertain bool) {
+	expectedInvocations, complete := Invocations(expected, 8)
+	if !complete || len(expectedInvocations) != 1 {
+		return false, true
+	}
+	target := expectedInvocations[0]
+	if anyDynamic(target.DynamicWords) || len(target.Words) == 0 || len(invocation.Words) == 0 {
+		return false, true
+	}
+	for index, word := range target.Words {
+		if index >= len(invocation.Words) {
+			return false, false
+		}
+		if index < len(invocation.DynamicWords) && invocation.DynamicWords[index] {
+			return false, true
+		}
+		if index == 0 && executableWordMatches(invocation.Words[index], word) {
+			continue
+		}
+		if invocation.Words[index] != word {
+			return false, false
+		}
+	}
+	if prefix || len(invocation.Words) == len(target.Words) {
+		return true, false
+	}
+	if anyDynamic(invocation.DynamicWords[len(target.Words):]) {
+		return false, true
+	}
+	return false, false
+}
+
+func executableWordMatches(actual, expected string) bool {
+	if strings.Contains(expected, "/") {
+		return actual == expected
+	}
+	return baseName(actual) == expected
+}
+
+func anyDynamic(dynamic []bool) bool {
+	for _, value := range dynamic {
+		if value {
+			return true
+		}
+	}
+	return false
+}
+
+// Invocations returns direct and nested executable command positions. Complete
+// is false only when nested analysis exceeds maxDepth, allowing callers to fail
+// closed instead of silently accepting an adversarially deep command.
+func Invocations(command string, maxDepth int) ([]Invocation, bool) {
+	if len(command) > maxCommandBytes || maxDepth < 0 {
+		return nil, false
+	}
+	return invocationsAt(command, maxDepth, 0)
+}
+
+func invocationsAt(command string, maxDepth, depth int) ([]Invocation, bool) {
+	if depth > maxDepth {
+		return nil, false
+	}
+	file, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(command), "hook-command")
+	if err != nil {
+		return nil, false
+	}
+	result := make([]Invocation, 0, 4)
+	complete := true
+	nestingDepth := depth
+	stack := make([]bool, 0, 32)
+	syntax.Walk(file, func(node syntax.Node) bool {
+		if node == nil {
+			if len(stack) == 0 {
+				complete = false
+				return true
+			}
+			last := len(stack) - 1
+			if stack[last] {
+				nestingDepth--
+			}
+			stack = stack[:last]
+			return true
+		}
+		nested := shellNestingNode(node)
+		stack = append(stack, nested)
+		if nested {
+			nestingDepth++
+			if nestingDepth > maxDepth {
+				complete = false
+				nestingDepth--
+				stack = stack[:len(stack)-1]
+				return false
+			}
+		}
+		call, ok := node.(*syntax.CallExpr)
+		if !ok || nestingDepth > maxDepth || len(call.Args) == 0 {
+			return true
+		}
+		words := commandWords(call.Args)
+		effective, wrapped, resolved := effectiveWords(words)
+		if !resolved || len(effective) == 0 || effective[0].dynamic {
+			complete = false
+			return true
+		}
+		invocation := invocationFromWords(effective)
+		if !wrapped {
+			invocation.Source = wordsSource(words)
+		}
+		result = append(result, invocation)
+
+		nestedCommand, nestedResolved := nestedCommandString(effective)
+		if !nestedResolved {
+			complete = false
+		} else if nestedCommand != "" {
+			nestedInvocations, nestedComplete := invocationsAt(nestedCommand, maxDepth, nestingDepth+1)
+			result = append(result, nestedInvocations...)
+			complete = complete && nestedComplete
+		}
+		launchedCommands, launchersResolved := launcherCommands(effective)
+		if !launchersResolved {
+			complete = false
+		}
+		for _, launchedWords := range launchedCommands {
+			launched, launchedWrapped, launchedResolved := effectiveWords(launchedWords)
+			if !launchedResolved || len(launched) == 0 || launched[0].dynamic {
+				complete = false
+				continue
+			}
+			launchedInvocation := invocationFromWords(launched)
+			if !launchedWrapped {
+				launchedInvocation.Source = wordsSource(launchedWords)
+			}
+			result = append(result, launchedInvocation)
+			launchedNested, launchedNestedResolved := nestedCommandString(launched)
+			if !launchedNestedResolved {
+				complete = false
+				continue
+			}
+			if launchedNested == "" {
+				continue
+			}
+			nestedInvocations, nestedComplete := invocationsAt(launchedNested, maxDepth, nestingDepth+1)
+			result = append(result, nestedInvocations...)
+			complete = complete && nestedComplete
+		}
+		return true
+	})
+	return dedupe(result), complete
+}
+
+type commandWord struct {
+	value   string
+	dynamic bool
+}
+
+func shellNestingNode(node syntax.Node) bool {
+	switch node.(type) {
+	case *syntax.CmdSubst, *syntax.ProcSubst, *syntax.Subshell:
+		return true
+	default:
+		return false
+	}
+}
+
+func commandWords(words []*syntax.Word) []commandWord {
+	result := make([]commandWord, 0, len(words))
+	for _, word := range words {
+		value, static := staticWordParts(word.Parts)
+		if !static {
+			value = renderedWord(word)
+		}
+		result = append(result, commandWord{value: value, dynamic: !static})
+	}
+	return result
+}
+
+func staticWordParts(parts []syntax.WordPart) (string, bool) {
+	var value strings.Builder
+	for _, part := range parts {
+		switch typed := part.(type) {
+		case *syntax.Lit:
+			value.WriteString(typed.Value)
+		case *syntax.SglQuoted:
+			value.WriteString(typed.Value)
+		case *syntax.DblQuoted:
+			inside, static := staticWordParts(typed.Parts)
+			if !static {
+				return "", false
+			}
+			value.WriteString(inside)
+		default:
+			return "", false
+		}
+	}
+	return value.String(), true
+}
+
+func renderedWord(word *syntax.Word) string {
+	var rendered strings.Builder
+	if err := syntax.NewPrinter().Print(&rendered, word); err != nil {
+		return "<dynamic>"
+	}
+	return rendered.String()
+}
+
+func invocationFromWords(words []commandWord) Invocation {
+	invocation := Invocation{
+		Source:       wordsSource(words),
+		Words:        make([]string, len(words)),
+		DynamicWords: make([]bool, len(words)),
+	}
+	for index, word := range words {
+		invocation.Words[index] = word.value
+		invocation.DynamicWords[index] = word.dynamic
+	}
+	return invocation
+}
+
+func wordsSource(words []commandWord) string {
+	values := make([]string, len(words))
+	for index, word := range words {
+		values[index] = word.value
+	}
+	return strings.Join(values, " ")
+}
+
+func nestedCommandString(words []commandWord) (string, bool) {
+	if len(words) == 0 {
+		return "", true
+	}
+	switch {
+	case isShell(words[0].value):
+		return shellCommandArgument(words[1:])
+	case baseName(words[0].value) == "eval":
+		for _, word := range words[1:] {
+			if word.dynamic {
+				return "", false
+			}
+		}
+		return wordsSource(words[1:]), true
+	default:
+		return "", true
+	}
+}
+
+// StripLineContinuations applies shell backslash-newline folding everywhere
+// except single-quoted literal text.
+func StripLineContinuations(command string) string {
+	var out strings.Builder
+	out.Grow(len(command))
+	var quote byte
+	escaped := false
+	for index := 0; index < len(command); index++ {
+		current := command[index]
+		if escaped {
+			out.WriteByte(current)
+			escaped = false
+			continue
+		}
+		if quote == '\'' {
+			out.WriteByte(current)
+			if current == '\'' {
+				quote = 0
+			}
+			continue
+		}
+		if current == '\\' {
+			if index+1 < len(command) && command[index+1] == '\n' {
+				index++
+				continue
+			}
+			if index+2 < len(command) && command[index+1] == '\r' && command[index+2] == '\n' {
+				index += 2
+				continue
+			}
+			out.WriteByte(current)
+			escaped = true
+			continue
+		}
+		out.WriteByte(current)
+		if current == '\'' || current == '"' || current == '`' {
+			if quote == current {
+				quote = 0
+			} else if quote == 0 {
+				quote = current
+			}
+		}
+	}
+	return out.String()
+}
+
+func effectiveWords(words []commandWord) ([]commandWord, bool, bool) {
+	index := 0
+	wrapped := false
+	for index < len(words) {
+		switch {
+		case words[index].dynamic:
+			return nil, wrapped, false
+		case isAssignment(words[index].value), isControlPrefix(words[index].value):
+			index++
+			wrapped = true
+		case isRedirection(words[index].value):
+			exact := isExactRedirection(words[index].value)
+			index++
+			if exact && index < len(words) {
+				index++
+			}
+			wrapped = true
+		default:
+			goto wrappers
+		}
+	}
+
+wrappers:
+	for index < len(words) {
+		if words[index].dynamic {
+			return nil, wrapped, false
+		}
+		switch baseName(words[index].value) {
+		case "command":
+			index++
+			wrapped = true
+			if index < len(words) && (words[index].value == "-v" || words[index].value == "-V") {
+				return words[index-1:], false, true
+			}
+			for index < len(words) && (words[index].value == "-p" || words[index].value == "--") {
+				index++
+			}
+		case "builtin":
+			index++
+			wrapped = true
+		case "exec":
+			index++
+			wrapped = true
+			var resolved bool
+			index, resolved = skipExecOptions(words, index)
+			if !resolved {
+				return nil, wrapped, false
+			}
+		case "env":
+			index++
+			wrapped = true
+			var resolved bool
+			index, resolved = skipEnvOptions(words, index)
+			if !resolved {
+				return nil, wrapped, false
+			}
+		case "sudo", "doas":
+			index++
+			wrapped = true
+			var resolved bool
+			index, resolved = skipPrivilegeOptions(words, index)
+			if !resolved {
+				return nil, wrapped, false
+			}
+		case "nohup":
+			index++
+			wrapped = true
+			if index < len(words) && words[index].value == "--" {
+				index++
+			} else if index < len(words) && strings.HasPrefix(words[index].value, "-") {
+				return nil, wrapped, false
+			}
+		case "rtk":
+			index++
+			wrapped = true
+		case "nice":
+			index++
+			wrapped = true
+			var resolved bool
+			index, resolved = skipNiceOptions(words, index)
+			if !resolved {
+				return nil, wrapped, false
+			}
+		case "timeout":
+			index++
+			wrapped = true
+			var resolved bool
+			index, resolved = skipTimeoutOptions(words, index)
+			if !resolved {
+				return nil, wrapped, false
+			}
+		case "setsid":
+			index++
+			wrapped = true
+			var resolved bool
+			index, resolved = skipNoArgumentOptions(words, index, "-c", "--ctty", "-f", "--fork", "-w", "--wait")
+			if !resolved {
+				return nil, wrapped, false
+			}
+		case "stdbuf":
+			index++
+			wrapped = true
+			var resolved bool
+			index, resolved = skipStdbufOptions(words, index)
+			if !resolved {
+				return nil, wrapped, false
+			}
+		case "time":
+			index++
+			wrapped = true
+			var resolved bool
+			index, resolved = skipTimeOptions(words, index)
+			if !resolved {
+				return nil, wrapped, false
+			}
+		case "chroot":
+			index++
+			wrapped = true
+			var resolved bool
+			index, resolved = skipChrootOptions(words, index)
+			if !resolved {
+				return nil, wrapped, false
+			}
+		default:
+			return words[index:], wrapped, true
+		}
+	}
+	return nil, wrapped, true
+}
+
+func isRedirection(word string) bool {
+	trimmed := strings.TrimLeft(word, "0123456789")
+	for _, prefix := range []string{"<<<", "<<-", "<<", ">>", "<>", ">&", "<&", ">|", ">", "<"} {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func isExactRedirection(word string) bool {
+	trimmed := strings.TrimLeft(word, "0123456789")
+	switch trimmed {
+	case "<<<", "<<-", "<<", ">>", "<>", ">&", "<&", ">|", ">", "<":
+		return true
+	default:
+		return false
+	}
+}
+
+func skipEnvOptions(words []commandWord, index int) (int, bool) {
+	for index < len(words) {
+		if words[index].dynamic && !dynamicAssignment(words[index]) {
+			return index, false
+		}
+		word := words[index].value
+		if isAssignment(word) {
+			index++
+			continue
+		}
+		if word == "--" {
+			return index + 1, true
+		}
+		if word == "-S" || word == "--split-string" || strings.HasPrefix(word, "--split-string=") {
+			return index, false
+		}
+		if word == "-u" || word == "--unset" || word == "-C" || word == "--chdir" {
+			if index+1 >= len(words) || words[index+1].dynamic {
+				return index, false
+			}
+			index += 2
+			continue
+		}
+		if strings.HasPrefix(word, "--unset=") || strings.HasPrefix(word, "--chdir=") || word == "-i" || word == "--ignore-environment" || word == "-0" || word == "--null" || word == "-v" || word == "--debug" {
+			index++
+			continue
+		}
+		if strings.HasPrefix(word, "-") {
+			return index, false
+		}
+		break
+	}
+	return index, true
+}
+
+func dynamicAssignment(word commandWord) bool {
+	if !word.dynamic {
+		return isAssignment(word.value)
+	}
+	separator := strings.IndexByte(word.value, '=')
+	return separator > 0 && isAssignment(word.value[:separator]+"=x")
+}
+
+func skipPrivilegeOptions(words []commandWord, index int) (int, bool) {
+	for index < len(words) {
+		if words[index].dynamic {
+			return index, false
+		}
+		word := words[index].value
+		if isAssignment(word) {
+			index++
+			continue
+		}
+		if word == "--" {
+			return index + 1, true
+		}
+		if word == "-u" || word == "-g" || word == "-h" || word == "-p" || word == "-r" || word == "-t" || word == "-C" || word == "-D" || word == "--user" || word == "--group" || word == "--host" || word == "--prompt" || word == "--role" || word == "--type" || word == "--chdir" {
+			if index+1 >= len(words) || words[index+1].dynamic {
+				return index, false
+			}
+			index += 2
+			continue
+		}
+		if strings.HasPrefix(word, "--user=") || strings.HasPrefix(word, "--group=") || strings.HasPrefix(word, "--host=") || strings.HasPrefix(word, "--prompt=") || strings.HasPrefix(word, "--role=") || strings.HasPrefix(word, "--type=") || strings.HasPrefix(word, "--chdir=") || word == "-A" || word == "--askpass" || word == "-E" || word == "--preserve-env" || word == "-H" || word == "--set-home" || word == "-n" || word == "--non-interactive" || word == "-S" || word == "--stdin" || word == "-i" || word == "--login" {
+			index++
+			continue
+		}
+		if strings.HasPrefix(word, "-") {
+			return index, false
+		}
+		break
+	}
+	return index, true
+}
+
+func skipExecOptions(words []commandWord, index int) (int, bool) {
+	for index < len(words) {
+		if words[index].dynamic {
+			return index, false
+		}
+		word := words[index].value
+		switch {
+		case word == "--":
+			return index + 1, true
+		case word == "-a" || word == "--argv0":
+			if index+1 >= len(words) || words[index+1].dynamic {
+				return index, false
+			}
+			index += 2
+		case strings.HasPrefix(word, "--argv0=") || word == "-c" || word == "-l" || word == "-cl" || word == "-lc":
+			index++
+		case strings.HasPrefix(word, "-"):
+			return index, false
+		default:
+			return index, true
+		}
+	}
+	return index, true
+}
+
+func skipNiceOptions(words []commandWord, index int) (int, bool) {
+	for index < len(words) {
+		if words[index].dynamic {
+			return index, false
+		}
+		word := words[index].value
+		switch {
+		case word == "--":
+			return index + 1, true
+		case word == "-n" || word == "--adjustment":
+			if index+1 >= len(words) || words[index+1].dynamic {
+				return index, false
+			}
+			index += 2
+		case strings.HasPrefix(word, "--adjustment=") || negativeDecimal(word):
+			index++
+		case strings.HasPrefix(word, "-"):
+			return index, false
+		default:
+			return index, true
+		}
+	}
+	return index, true
+}
+
+func negativeDecimal(word string) bool {
+	if len(word) < 2 || word[0] != '-' {
+		return false
+	}
+	for _, character := range word[1:] {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func skipTimeoutOptions(words []commandWord, index int) (int, bool) {
+	afterOptions := false
+	for index < len(words) {
+		if words[index].dynamic {
+			return index, false
+		}
+		word := words[index].value
+		if afterOptions || !strings.HasPrefix(word, "-") || word == "-" {
+			if index+1 >= len(words) {
+				return index, false
+			}
+			return index + 1, true
+		}
+		switch {
+		case word == "--":
+			afterOptions = true
+			index++
+		case word == "-k" || word == "--kill-after" || word == "-s" || word == "--signal":
+			if index+1 >= len(words) || words[index+1].dynamic {
+				return index, false
+			}
+			index += 2
+		case strings.HasPrefix(word, "--kill-after=") || strings.HasPrefix(word, "--signal=") || word == "--foreground" || word == "--preserve-status" || word == "--verbose":
+			index++
+		default:
+			return index, false
+		}
+	}
+	return index, false
+}
+
+func skipNoArgumentOptions(words []commandWord, index int, allowed ...string) (int, bool) {
+	allowedSet := make(map[string]struct{}, len(allowed))
+	for _, option := range allowed {
+		allowedSet[option] = struct{}{}
+	}
+	for index < len(words) {
+		if words[index].dynamic {
+			return index, false
+		}
+		word := words[index].value
+		if word == "--" {
+			return index + 1, true
+		}
+		if !strings.HasPrefix(word, "-") {
+			return index, true
+		}
+		if _, ok := allowedSet[word]; !ok {
+			return index, false
+		}
+		index++
+	}
+	return index, true
+}
+
+func skipStdbufOptions(words []commandWord, index int) (int, bool) {
+	for index < len(words) {
+		if words[index].dynamic {
+			return index, false
+		}
+		word := words[index].value
+		if word == "--" {
+			return index + 1, true
+		}
+		if word == "-i" || word == "-o" || word == "-e" || word == "--input" || word == "--output" || word == "--error" {
+			if index+1 >= len(words) || words[index+1].dynamic {
+				return index, false
+			}
+			index += 2
+			continue
+		}
+		if strings.HasPrefix(word, "-i") || strings.HasPrefix(word, "-o") || strings.HasPrefix(word, "-e") || strings.HasPrefix(word, "--input=") || strings.HasPrefix(word, "--output=") || strings.HasPrefix(word, "--error=") {
+			index++
+			continue
+		}
+		if strings.HasPrefix(word, "-") {
+			return index, false
+		}
+		return index, true
+	}
+	return index, true
+}
+
+func skipTimeOptions(words []commandWord, index int) (int, bool) {
+	for index < len(words) {
+		if words[index].dynamic {
+			return index, false
+		}
+		word := words[index].value
+		if word == "--" {
+			return index + 1, true
+		}
+		if word == "-o" || word == "--output" || word == "-f" || word == "--format" {
+			if index+1 >= len(words) || words[index+1].dynamic {
+				return index, false
+			}
+			index += 2
+			continue
+		}
+		if strings.HasPrefix(word, "--output=") || strings.HasPrefix(word, "--format=") || word == "-a" || word == "--append" || word == "-p" || word == "--portability" || word == "-v" || word == "--verbose" || word == "-q" || word == "--quiet" {
+			index++
+			continue
+		}
+		if strings.HasPrefix(word, "-") {
+			return index, false
+		}
+		return index, true
+	}
+	return index, true
+}
+
+func skipChrootOptions(words []commandWord, index int) (int, bool) {
+	for index < len(words) {
+		if words[index].dynamic {
+			return index, false
+		}
+		word := words[index].value
+		if word == "--" {
+			index++
+			break
+		}
+		if word == "--userspec" || word == "--groups" || word == "--skip-chdir" {
+			if word == "--skip-chdir" {
+				index++
+				continue
+			}
+			if index+1 >= len(words) || words[index+1].dynamic {
+				return index, false
+			}
+			index += 2
+			continue
+		}
+		if strings.HasPrefix(word, "--userspec=") || strings.HasPrefix(word, "--groups=") {
+			index++
+			continue
+		}
+		if strings.HasPrefix(word, "-") {
+			return index, false
+		}
+		break
+	}
+	if index >= len(words) || words[index].dynamic || index+1 >= len(words) {
+		return index, false
+	}
+	return index + 1, true
+}
+
+func shellCommandArgument(words []commandWord) (string, bool) {
+	for index, word := range words {
+		if word.dynamic {
+			return "", false
+		}
+		if word.value == "-c" || word.value == "-lc" || (strings.HasPrefix(word.value, "-") && !strings.HasPrefix(word.value, "--") && strings.Contains(word.value, "c")) {
+			if index+1 < len(words) {
+				if words[index+1].dynamic {
+					return "", false
+				}
+				return words[index+1].value, true
+			}
+			return "", false
+		}
+	}
+	return "", true
+}
+
+func launcherCommands(words []commandWord) ([][]commandWord, bool) {
+	if len(words) == 0 {
+		return nil, true
+	}
+	switch baseName(words[0].value) {
+	case "find":
+		var commands [][]commandWord
+		complete := true
+		for index := 1; index < len(words); index++ {
+			if words[index].dynamic {
+				continue
+			}
+			if words[index].value != "-exec" && words[index].value != "-execdir" && words[index].value != "-ok" && words[index].value != "-okdir" {
+				continue
+			}
+			start := index + 1
+			end := start
+			for end < len(words) && (words[end].dynamic || words[end].value != ";" && words[end].value != `\;` && words[end].value != "+") {
+				end++
+			}
+			if start < end {
+				commands = append(commands, words[start:end])
+				for _, word := range words[start:end] {
+					complete = complete && !word.dynamic
+				}
+			} else {
+				complete = false
+			}
+			index = end
+		}
+		return commands, complete
+	case "xargs":
+		command, complete := xargsCommand(words[1:])
+		if len(command) > 0 {
+			return [][]commandWord{command}, complete
+		}
+		return nil, complete
+	case "flock":
+		command, complete := flockCommand(words[1:])
+		if len(command) > 0 {
+			return [][]commandWord{command}, complete
+		}
+		return nil, complete
+	case "watch":
+		command, complete := watchCommand(words[1:])
+		if len(command) > 0 {
+			return [][]commandWord{command}, complete
+		}
+		return nil, complete
+	}
+	return nil, true
+}
+
+func flockCommand(words []commandWord) ([]commandWord, bool) {
+	index := 0
+	for index < len(words) {
+		if words[index].dynamic {
+			return nil, false
+		}
+		word := words[index].value
+		switch {
+		case word == "--":
+			index++
+			goto lockTarget
+		case word == "-w" || word == "--wait" || word == "-E" || word == "--conflict-exit-code":
+			if index+1 >= len(words) || words[index+1].dynamic {
+				return nil, false
+			}
+			index += 2
+		case strings.HasPrefix(word, "--wait=") || strings.HasPrefix(word, "--conflict-exit-code=") || strings.HasPrefix(word, "-w") && len(word) > 2 || strings.HasPrefix(word, "-E") && len(word) > 2:
+			index++
+		case word == "-s" || word == "--shared" || word == "-x" || word == "--exclusive" || word == "-u" || word == "--unlock" || word == "-n" || word == "--nb" || word == "--nonblock" || word == "-o" || word == "--close" || word == "-F" || word == "--no-fork" || word == "--verbose":
+			index++
+		case strings.HasPrefix(word, "-"):
+			return nil, false
+		default:
+			goto lockTarget
+		}
+	}
+
+lockTarget:
+	if index >= len(words) || words[index].dynamic {
+		return nil, false
+	}
+	index++ // lock file, directory, or descriptor
+	if index >= len(words) {
+		return nil, true
+	}
+	if words[index].dynamic {
+		return nil, false
+	}
+	if words[index].value == "-c" || words[index].value == "--command" {
+		if index+1 >= len(words) || words[index+1].dynamic {
+			return nil, false
+		}
+		return []commandWord{{value: "sh"}, {value: "-c"}, words[index+1]}, true
+	}
+	return words[index:], allStatic(words[index:])
+}
+
+func watchCommand(words []commandWord) ([]commandWord, bool) {
+	for index := 0; index < len(words); index++ {
+		if words[index].dynamic {
+			return nil, false
+		}
+		word := words[index].value
+		if word == "--" {
+			return words[index+1:], allStatic(words[index+1:])
+		}
+		if word == "-n" || word == "--interval" || word == "-q" || word == "--equexit" || word == "--shotsdir" {
+			if index+1 >= len(words) || words[index+1].dynamic {
+				return nil, false
+			}
+			index++
+			continue
+		}
+		if strings.HasPrefix(word, "--interval=") || strings.HasPrefix(word, "--equexit=") || strings.HasPrefix(word, "--shotsdir=") || strings.HasPrefix(word, "-n") && len(word) > 2 || strings.HasPrefix(word, "-q") && len(word) > 2 {
+			continue
+		}
+		if word == "-b" || word == "--beep" || word == "-c" || word == "--color" || word == "-d" || word == "--differences" || word == "-e" || word == "--errexit" || word == "-g" || word == "--chgexit" || word == "-p" || word == "--precise" || word == "-t" || word == "--no-title" || word == "-w" || word == "--no-wrap" || word == "-x" || word == "--exec" {
+			continue
+		}
+		if strings.HasPrefix(word, "-") {
+			return nil, false
+		}
+		return words[index:], allStatic(words[index:])
+	}
+	return nil, true
+}
+
+func xargsCommand(words []commandWord) ([]commandWord, bool) {
+	for index := 0; index < len(words); index++ {
+		if words[index].dynamic {
+			return nil, false
+		}
+		word := words[index].value
+		if word == "--" {
+			return words[index+1:], allStatic(words[index+1:])
+		}
+		if word == "-a" || word == "--arg-file" || word == "-E" || word == "--eof" || word == "-I" || word == "--replace" || word == "-L" || word == "--max-lines" || word == "-n" || word == "--max-args" || word == "-P" || word == "--max-procs" || word == "-s" || word == "--max-chars" {
+			if index+1 >= len(words) || words[index+1].dynamic {
+				return nil, false
+			}
+			index++
+			continue
+		}
+		if strings.HasPrefix(word, "--arg-file=") || strings.HasPrefix(word, "--eof=") || strings.HasPrefix(word, "--replace=") || strings.HasPrefix(word, "--max-lines=") || strings.HasPrefix(word, "--max-args=") || strings.HasPrefix(word, "--max-procs=") || strings.HasPrefix(word, "--max-chars=") || word == "-0" || word == "--null" || word == "-r" || word == "--no-run-if-empty" || word == "-t" || word == "--verbose" || word == "-x" || word == "--exit" {
+			continue
+		}
+		if word == "-d" || word == "--delimiter" {
+			if index+1 >= len(words) || words[index+1].dynamic {
+				return nil, false
+			}
+			index++
+			continue
+		}
+		if strings.HasPrefix(word, "--delimiter=") {
+			continue
+		}
+		if strings.HasPrefix(word, "-") {
+			return nil, false
+		}
+		return words[index:], allStatic(words[index:])
+	}
+	return nil, true
+}
+
+func allStatic(words []commandWord) bool {
+	for _, word := range words {
+		if word.dynamic {
+			return false
+		}
+	}
+	return true
+}
+
+func isAssignment(word string) bool {
+	separator := strings.IndexByte(word, '=')
+	if separator <= 0 {
+		return false
+	}
+	for index, current := range word[:separator] {
+		if (current >= 'a' && current <= 'z') || (current >= 'A' && current <= 'Z') || current == '_' || (index > 0 && current >= '0' && current <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func isControlPrefix(word string) bool {
+	switch word {
+	case "!", "if", "then", "elif", "else", "while", "until", "do", "(", ")", "{", "}":
+		return true
+	default:
+		return false
+	}
+}
+
+func isShell(word string) bool {
+	switch baseName(word) {
+	case "sh", "bash", "zsh", "dash", "ksh", "fish":
+		return true
+	default:
+		return false
+	}
+}
+
+func baseName(word string) string {
+	word = strings.TrimSpace(word)
+	if index := strings.LastIndexByte(word, '/'); index >= 0 {
+		return word[index+1:]
+	}
+	return word
+}
+
+func dedupe(invocations []Invocation) []Invocation {
+	seen := make(map[string]struct{}, len(invocations))
+	result := make([]Invocation, 0, len(invocations))
+	for _, invocation := range invocations {
+		var dynamicKey strings.Builder
+		for _, dynamic := range invocation.DynamicWords {
+			if dynamic {
+				dynamicKey.WriteByte('1')
+			} else {
+				dynamicKey.WriteByte('0')
+			}
+		}
+		key := invocation.Source + "\x00" + strings.Join(invocation.Words, "\x00") + "\x00" + dynamicKey.String()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, invocation)
+	}
+	return result
+}

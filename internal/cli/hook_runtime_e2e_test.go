@@ -547,12 +547,11 @@ func TestHookRuntimePayloadSizeLimit(t *testing.T) {
 	_, _, _ = runWithStdin(t, `{"session_id":"s11"}`,
 		"hook", "runtime", "claude-session-start", repo)
 
-	// 2 MiB of noise; cap is 1 MiB.
-	big := strings.Repeat("x", 2*1024*1024)
+	big := strings.Repeat("x", agentsession.MaxPayloadBytes+1)
 	_, _, code := runWithStdin(t, big,
 		"hook", "runtime", "claude-pre-tool-use", repo)
 	if code != 2 {
-		t.Errorf("payload > 1 MiB should fail-closed exit 2 for PreToolUse, got %d", code)
+		t.Errorf("payload above the %d-byte cap should fail-closed exit 2 for PreToolUse, got %d", agentsession.MaxPayloadBytes, code)
 	}
 }
 

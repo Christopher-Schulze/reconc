@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -58,17 +60,41 @@ func InspectPlatforms(repoRoot string) ([]PlatformStatus, error) {
 func inspectPlatform(root string, platform Platform) PlatformStatus {
 	report := PlatformStatus{Kind: platform.Kind, DisplayName: platform.DisplayName, TargetPath: platform.TargetPath, State: StateAbsent, Detail: "artifact not installed", ExpectedEvents: platformRuntimeEvents(platform)}
 	target := filepath.Join(root, filepath.FromSlash(platform.TargetPath))
-	data, err := os.ReadFile(target)
+	defaultTarget := target
+	if platform.Activation.Mode == ActivationGitPath {
+		activeTarget, displayPath, err := activeGitPreCommitPath(root)
+		if err != nil {
+			_, gitErr := os.Stat(filepath.Join(root, ".git"))
+			_, targetErr := os.Stat(defaultTarget)
+			if gitErr == nil && targetErr != nil {
+				report.State = StateDegraded
+				report.Detail = "cannot resolve active Git hooks path: " + err.Error()
+				return report
+			}
+		} else {
+			target = activeTarget
+			report.TargetPath = displayPath
+		}
+	}
+	data, err := readManagedArtifact(target)
 	if os.IsNotExist(err) && platform.Activation.LegacyArtifactPath != "" {
 		legacyTarget := filepath.Join(root, filepath.FromSlash(platform.Activation.LegacyArtifactPath))
-		if legacyData, legacyErr := os.ReadFile(legacyTarget); legacyErr == nil {
+		if legacyData, legacyErr := readManagedArtifact(legacyTarget); legacyErr == nil {
 			data = legacyData
 			err = nil
+			target = legacyTarget
 			report.TargetPath = platform.Activation.LegacyArtifactPath
 			report.Detail = "legacy artifact path is selected; reinstall to migrate to " + platform.TargetPath
 		}
 	}
 	if err != nil {
+		if platform.Activation.Mode == ActivationGitPath && os.IsNotExist(err) && filepath.Clean(target) != filepath.Clean(defaultTarget) {
+			if _, defaultErr := os.Stat(defaultTarget); defaultErr == nil {
+				report.State = StateShadowed
+				report.Detail = "git core.hooksPath selects " + report.TargetPath + " but the managed hook exists only at " + platform.TargetPath
+				return report
+			}
+		}
 		if !os.IsNotExist(err) {
 			report.State = StateDegraded
 			report.Detail = "artifact is unreadable: " + err.Error()
@@ -85,9 +111,14 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 		report.Detail = "artifact is installed but not executable; reinstall the hook"
 		return report
 	}
+	generated, generateErr := Generate(platform.Kind)
+	if generateErr != nil {
+		report.State = StateDegraded
+		report.Detail = "cannot generate current artifact contract: " + generateErr.Error()
+		return report
+	}
 	if managedArtifactRequiresExactMatch(platform.InstallMode) {
-		generated, generateErr := Generate(platform.Kind)
-		if generateErr != nil || string(data) != generated.Content {
+		if string(data) != generated.Content {
 			report.State = StateDegraded
 			report.Detail = "managed artifact differs from the current generator; reinstall the hook"
 			return report
@@ -101,6 +132,19 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 		report.State = StateDegraded
 		report.Detail = "artifact contract drift: " + strings.Join(contractIssues, "; ") + "; reinstall the hook"
 		return report
+	}
+	if requiresJSON(platform.InstallMode) && platform.InstallMode != InstallManagedJSON {
+		missingEntries, entryErr := missingGeneratedJSONEntries(platform.InstallMode, []byte(generated.Content), data)
+		if entryErr != nil {
+			report.State = StateDegraded
+			report.Detail = "artifact contract cannot be inspected: " + entryErr.Error()
+			return report
+		}
+		if len(missingEntries) > 0 {
+			report.State = StateDegraded
+			report.Detail = "artifact contract drift: missing " + strings.Join(missingEntries, ", ") + "; reinstall the hook"
+			return report
+		}
 	}
 
 	report.MissingEvents = missingRuntimeEvents(platform, string(data))
@@ -140,12 +184,6 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 			report.Detail = "artifact is installed but " + platform.Activation.EnablePath + " does not enable " + platform.Activation.EnableSection + "." + platform.Activation.EnableKey
 			return report
 		}
-	case ActivationGitPath:
-		if shadowPath := gitHooksShadowPath(root); shadowPath != "" {
-			report.State = StateShadowed
-			report.Detail = "git core.hooksPath=" + shadowPath + " bypasses " + platform.TargetPath
-			return report
-		}
 	}
 
 	report.State = StateConfigured
@@ -153,6 +191,66 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 		report.Detail = "configuration is complete and host-discoverable; live execution is reported separately"
 	}
 	return report
+}
+
+func missingGeneratedJSONEntries(mode InstallMode, generated, installed []byte) ([]string, error) {
+	var generatedDocument map[string]interface{}
+	if err := json.Unmarshal(generated, &generatedDocument); err != nil {
+		return nil, err
+	}
+	var installedDocument map[string]interface{}
+	if err := json.Unmarshal(installed, &installedDocument); err != nil {
+		return nil, err
+	}
+	generatedHooks, err := hookEventMap(mode, generatedDocument)
+	if err != nil {
+		return nil, err
+	}
+	installedHooks, err := hookEventMap(mode, installedDocument)
+	if err != nil {
+		return nil, err
+	}
+	missing := []string{}
+	for event, expectedRaw := range generatedHooks {
+		expected, ok := expectedRaw.([]interface{})
+		if !ok {
+			return nil, fmt.Errorf("generated event %s is not an array", event)
+		}
+		actual, _ := installedHooks[event].([]interface{})
+		used := make([]bool, len(actual))
+		for index, expectedEntry := range expected {
+			found := false
+			for actualIndex, actualEntry := range actual {
+				if !used[actualIndex] && reflect.DeepEqual(actualEntry, expectedEntry) {
+					used[actualIndex] = true
+					found = true
+					break
+				}
+			}
+			if !found {
+				missing = append(missing, fmt.Sprintf("%s[%d]", event, index))
+			}
+		}
+	}
+	sort.Strings(missing)
+	return missing, nil
+}
+
+func hookEventMap(mode InstallMode, document map[string]interface{}) (map[string]interface{}, error) {
+	var raw interface{}
+	switch mode {
+	case InstallFlatJSON:
+		return document, nil
+	case InstallOwnedJSON:
+		raw = document["reconc"]
+	default:
+		raw = document["hooks"]
+	}
+	events, ok := raw.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("hook event map is missing or invalid")
+	}
+	return events, nil
 }
 
 func platformRuntimeEvents(platform Platform) []string {
@@ -258,7 +356,7 @@ func executableFile(path string) bool {
 }
 
 func tomlSectionBoolean(path, section, key string) (bool, bool, error) {
-	data, err := os.ReadFile(path)
+	data, err := readManagedArtifact(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, false, nil
@@ -314,17 +412,96 @@ func tomlSectionBoolean(path, section, key string) (bool, bool, error) {
 	return enabled, found, nil
 }
 
-func gitHooksShadowPath(root string) string {
+func activeGitPreCommitPath(root string) (string, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	command := exec.CommandContext(ctx, "git", "-C", root, "config", "--get", "core.hooksPath")
+	command := exec.CommandContext(ctx, "git", "-C", root, "rev-parse", "--git-path", "hooks")
 	output, err := command.Output()
 	if err != nil {
-		return ""
+		return "", "", err
 	}
-	value := strings.TrimSpace(string(output))
-	if value == "" || value == ".git/hooks" {
-		return ""
+	hooksPath := strings.TrimSpace(string(output))
+	if hooksPath == "" {
+		return "", "", fmt.Errorf("git returned an empty hooks path")
 	}
-	return value
+	if !filepath.IsAbs(hooksPath) {
+		hooksPath = filepath.Join(root, hooksPath)
+	}
+	target := filepath.Clean(filepath.Join(hooksPath, "pre-commit"))
+	display := target
+	if rel, relErr := filepath.Rel(root, target); relErr == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		display = filepath.ToSlash(rel)
+	}
+	return target, display, nil
+}
+
+func gitHookTargetIsRepositoryOwned(root, target string) (bool, error) {
+	owned, err := resolvedPathWithinDirectory(root, target)
+	if err != nil {
+		return false, err
+	}
+	if owned {
+		return true, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, "git", "-C", root, "rev-parse", "--git-common-dir")
+	output, err := command.Output()
+	if err != nil {
+		return false, err
+	}
+	commonDir := strings.TrimSpace(string(output))
+	if commonDir == "" {
+		return false, fmt.Errorf("git returned an empty common directory")
+	}
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(root, commonDir)
+	}
+	return resolvedPathWithinDirectory(filepath.Clean(commonDir), target)
+}
+
+func pathWithinDirectory(root, target string) bool {
+	relative, err := filepath.Rel(filepath.Clean(root), filepath.Clean(target))
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+func resolvedPathWithinDirectory(root, target string) (bool, error) {
+	resolvedRoot, err := resolveProspectivePath(root)
+	if err != nil {
+		return false, err
+	}
+	resolvedTarget, err := resolveProspectivePath(target)
+	if err != nil {
+		return false, err
+	}
+	return pathWithinDirectory(resolvedRoot, resolvedTarget), nil
+}
+
+func resolveProspectivePath(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	cursor := filepath.Clean(absolute)
+	missing := []string{}
+	for {
+		if _, statErr := os.Lstat(cursor); statErr == nil {
+			resolved, resolveErr := filepath.EvalSymlinks(cursor)
+			if resolveErr != nil {
+				return "", resolveErr
+			}
+			for index := len(missing) - 1; index >= 0; index-- {
+				resolved = filepath.Join(resolved, missing[index])
+			}
+			return filepath.Clean(resolved), nil
+		} else if !os.IsNotExist(statErr) {
+			return "", statErr
+		}
+		parent := filepath.Dir(cursor)
+		if parent == cursor {
+			return "", fmt.Errorf("cannot resolve existing ancestor for %s", path)
+		}
+		missing = append(missing, filepath.Base(cursor))
+		cursor = parent
+	}
 }

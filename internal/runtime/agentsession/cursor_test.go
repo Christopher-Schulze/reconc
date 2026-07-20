@@ -50,6 +50,23 @@ func TestNormalizeCursorPayloadBeforeShellExecution(t *testing.T) {
 	}
 }
 
+func TestNormalizeCursorBeforeSubmitPrompt(t *testing.T) {
+	body, err := NormalizeCursorPayload("cursor-user-prompt-submit", []byte(`{
+		"sessionId":"cursor-prompt",
+		"text":"run the repository checks"
+	}`))
+	if err != nil {
+		t.Fatalf("NormalizeCursorPayload: %v", err)
+	}
+	payload, err := ParsePayload(body)
+	if err != nil {
+		t.Fatalf("ParsePayload: %v", err)
+	}
+	if payload.SessionID != "cursor-prompt" || payload.Prompt != "run the repository checks" {
+		t.Fatalf("normalized prompt payload = %#v", payload)
+	}
+}
+
 func TestPayloadLooksLikeCursor(t *testing.T) {
 	tests := []struct {
 		name string
@@ -106,6 +123,17 @@ func TestAdaptCursorPreDecisionDeny(t *testing.T) {
 	}
 	if payload["permission"] != "deny" || payload["user_message"] != "blocked" {
 		t.Fatalf("unexpected deny payload: %#v", payload)
+	}
+}
+
+func TestAdaptCursorBeforeSubmitPromptUsesDocumentedResponse(t *testing.T) {
+	blocked := AdaptCursorResult("cursor-user-prompt-submit", Result{ExitCode: 2, Stderr: "blocked"})
+	if blocked.ExitCode != 0 || blocked.Stdout != `{"continue":false,"user_message":"blocked"}` {
+		t.Fatalf("blocked prompt result = %#v", blocked)
+	}
+	allowed := AdaptCursorResult("cursor-user-prompt-submit", Result{ExitCode: 0})
+	if allowed.ExitCode != 0 || allowed.Stdout != `{"continue":true}` {
+		t.Fatalf("allowed prompt result = %#v", allowed)
 	}
 }
 

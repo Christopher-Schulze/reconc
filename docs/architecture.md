@@ -268,7 +268,7 @@ class of hostile input.
 
 | Limit | Value | Rationale |
 |---|---|---|
-| Max payload bytes | **1 MiB** (1 048 576) | No legitimate tool-use payload exceeds ~100 KiB; 1 MiB leaves 10x headroom + stops JSON bombs. |
+| Max payload bytes | **64 MiB** (67 108 864) | Large file-edit and generated-document bodies remain usable while the bounded reader still rejects unbounded JSON input. |
 | stdin read timeout | **5 seconds** | Prevents agent hangs from wedging the hook call. Typical payloads arrive < 50 ms. |
 | Max JSON nesting depth | **32 levels** | Prevents stack-busting via deeply nested payloads. |
 | Max persisted session state | **1 MiB** | Bounds full-file state publication and recovery cost. |
@@ -443,7 +443,17 @@ and extra arguments are not stripped by default, so the matched command is
 the same command that succeeded. Rules may opt into token-boundary prefix
 matching via `command_match: prefix` (RECONC-0004); without it,
 `forbid_command`/`require_command` (`matchingCommands`) keep exact
-normalized matching.
+normalized matching. An unqualified expected executable also matches the
+basename of an absolute executable path, while explicitly path-qualified rules
+remain exact. PreToolUse command prevention additionally walks quote-
+aware executable shell segments including groups and process substitutions,
+folds unquoted backslash-newline continuations, skips leading redirections,
+resolves common wrappers and command launchers without treating ordinary
+arguments or comments as executable positions, and fails closed on dynamic
+executable names or exhausted bounded nested-shell analysis. During
+PreToolUse, a composite violation is blocking only when the current command
+itself hits a direct `forbid_command`; historical command evidence and other
+failing composite subchecks cannot poison a later safe command.
 
 The RTK-prefix strip in `normalizeCommandSemantics` is a compatibility
 shim for transparent CLI proxies: a command recorded as `rtk go test
@@ -453,7 +463,7 @@ coupling to any specific tool beyond recognizing that prefix.
 
 ### Resource exhaustion
 
-- `ResourceLimitedJSONReader` wraps stdin: bails at 1 MiB + 5s
+- `ResourceLimitedJSONReader` wraps stdin: bails at 64 MiB + 5s
   timeout + 32-level depth.
 - Session evidence has per-field item and byte caps plus a 1 MiB serialized
   ceiling. Overflow persists a fail-closed marker used by PreToolUse and Stop.
@@ -480,6 +490,9 @@ reconc's non-stdlib dependencies processing the payload:
   to this threat model).
 - `github.com/bmatcuk/doublestar/v4` (glob matching — string-only
   surface, no eval).
+- `mvdan.cc/sh/v3/syntax` (bounded AST parsing of untrusted shell text for
+  command matching only; parsed input is never executed and unsupported or
+  over-deep executable structure fails closed).
 - `github.com/Microsoft/go-winio` plus `golang.org/x/sys/windows` (Windows-only
   named-pipe dialing and enumeration for Grok leader IPC; no network access,
   command execution, or JSON decoding).

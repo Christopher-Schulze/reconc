@@ -19,7 +19,7 @@ func TestReadPayloadUnderLimit(t *testing.T) {
 }
 
 func TestReadPayloadRejectsOversizePayload(t *testing.T) {
-	// 1 MiB + 1 byte of padding.
+	// The configured finite cap plus padding.
 	big := make([]byte, MaxPayloadBytes+100)
 	for i := range big {
 		big[i] = 'x'
@@ -27,6 +27,18 @@ func TestReadPayloadRejectsOversizePayload(t *testing.T) {
 	_, err := ReadPayload(bytes.NewReader(big))
 	if !errors.Is(err, ErrPayloadTooLarge) {
 		t.Errorf("expected ErrPayloadTooLarge, got %v", err)
+	}
+}
+
+func TestParsePayloadAcceptsMultiMegabyteWrite(t *testing.T) {
+	body := strings.Repeat("x", 2<<20)
+	raw := []byte(`{"session_id":"s1","tool_name":"Write","tool_input":{"file_path":"large.bin","content":"` + body + `"}}`)
+	payload, err := ParsePayload(raw)
+	if err != nil {
+		t.Fatalf("ParsePayload rejected a valid multi-megabyte write: %v", err)
+	}
+	if payload.ToolName != "Write" || payload.FilePath() != "large.bin" {
+		t.Fatalf("unexpected parsed payload: tool=%q path=%q", payload.ToolName, payload.FilePath())
 	}
 }
 

@@ -15,6 +15,9 @@ func installDevinCLI(repoRoot string, force bool) (*InstallReport, error) {
 		return nil, err
 	}
 	target := filepath.Join(root, DevinHooksPath)
+	if err := requireManagedTargetWithin(root, target); err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "create parent dir of " + target, Cause: err}
 	}
@@ -28,18 +31,23 @@ func installDevinCLI(repoRoot string, force bool) (*InstallReport, error) {
 	}
 
 	action := "created"
-	existing, err := os.ReadFile(target)
+	existing, err := readManagedArtifact(target)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, &rerrors.PolicySourceError{Message: "read " + target, Cause: err}
 	}
 	mergedHooks := generatedHooks
 	var mergeDiff MergeDiff
+	backupPath := ""
 	if len(existing) != 0 && strings.TrimSpace(string(existing)) != "{}" {
 		action = "updated"
 		var existingHooks map[string]interface{}
 		if err := json.Unmarshal(existing, &existingHooks); err != nil {
 			if !force {
 				return nil, &rerrors.PolicySourceError{Message: target + " is not valid JSON; pass --force to overwrite with a fresh reconc config", Cause: err}
+			}
+			backupPath, err = backupMalformedConfig(target, existing)
+			if err != nil {
+				return nil, err
 			}
 		} else {
 			wrappedDest := map[string]interface{}{"hooks": existingHooks}
@@ -66,6 +74,7 @@ func installDevinCLI(repoRoot string, force bool) (*InstallReport, error) {
 		Action:           action,
 		NextAction:       "Restart Devin CLI in this repository or run `/hooks` to verify .devin/hooks.v1.json is loaded.",
 		DroppedUserEdits: mergeDiff.Removed,
+		BackupPath:       backupPath,
 	}, nil
 }
 
@@ -106,11 +115,14 @@ func installManagedPlatformFile(kind, repoRoot string, force bool, managed func(
 		return nil, err
 	}
 	target := filepath.Join(root, artifact.TargetPath)
+	if err := requireManagedTargetWithin(root, target); err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "create parent dir of " + target, Cause: err}
 	}
 	action := "created"
-	if existing, err := os.ReadFile(target); err == nil {
+	if existing, err := readManagedArtifact(target); err == nil {
 		action = "updated"
 		if !force && !managed(existing) {
 			return nil, &rerrors.PolicySourceError{Message: artifact.TargetPath + " exists and is not reconc-managed; pass --force to overwrite"}

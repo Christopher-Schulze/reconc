@@ -88,6 +88,8 @@ var doctorGrokInspect = func(ctx context.Context, repoRoot string) ([]byte, erro
 	return grokacp.InspectJSON(ctx, repoRoot, "grok")
 }
 
+var doctorProbeGrokNativeStop = grokacp.ProbeNativeStopGate
+
 func doctorCheckGrokRuntime(discovery ingest.DiscoveryResult) doctorCheck {
 	check := doctorCheck{
 		Name:   "Grok native hook",
@@ -174,12 +176,13 @@ func doctorCheckGrokRuntime(discovery ingest.DiscoveryResult) doctorCheck {
 	if displayVersion == "" {
 		displayVersion = "unknown version"
 	}
-	if !grokacp.SupportsNativeStopGate(version) {
+	capability := doctorProbeGrokNativeStop()
+	if !capability.Supported {
 		check.Status = doctorStatusWarn
-		check.Detail = fmt.Sprintf("Grok %s loaded all %d native Reconc routes, but native no-leader Stop enforcement requires Grok %s or newer; guarded tool gates remain hard and optional leader steering or `reconc grok` supplies strict Stop fallback", displayVersion, len(expected), grokacp.NativeStopGateMinimumVersion)
+		check.Detail = fmt.Sprintf("Grok %s loaded all %d native Reconc routes, but %s; guarded PreToolUse gates remain hard and optional leader steering or `reconc grok` supplies strict Stop fallback", displayVersion, len(expected), capability.Detail)
 		return check
 	}
-	check.Detail = fmt.Sprintf("Grok %s loaded all %d native Reconc routes from .grok/hooks/reconc.json; native no-leader Stop enforcement is active", displayVersion, len(expected))
+	check.Detail = fmt.Sprintf("Grok %s loaded all %d native Reconc routes from .grok/hooks/reconc.json; native no-leader Stop enforcement is active and capability-probed from %s", displayVersion, len(expected), capability.DocumentationPath)
 	return check
 }
 
@@ -208,7 +211,7 @@ func doctorCheckGrokLeaderSteering(discovery ingest.DiscoveryResult) doctorCheck
 		return check
 	}
 	if grokacp.SteeringDisabled() {
-		check.Detail = "optional leader steering disabled via " + grokacp.SteerEnv + "; native Stop enforcement is unaffected"
+		check.Detail = "optional leader steering disabled via " + grokacp.SteerEnv + "; native Stop capability is reported separately"
 		return check
 	}
 	probe := doctorProbeGrokLeader(2 * time.Second)
@@ -227,7 +230,7 @@ func doctorCheckGrokLeaderSteering(discovery ingest.DiscoveryResult) doctorCheck
 		if binary == "" {
 			binary = "unknown"
 		}
-		if grokacp.SupportsNativeStopGate(binary) {
+		if doctorProbeGrokNativeStop().Supported {
 			check.Detail = fmt.Sprintf("Grok leader compatible at %s (protocol %s, binary %s); native Stop is active and duplicate leader interjection is suppressed", probe.Endpoint, version, binary)
 		} else {
 			check.Detail = fmt.Sprintf("Grok leader compatible at %s (protocol %s, binary %s); backward-compatible TUI Stop steering is active", probe.Endpoint, version, binary)

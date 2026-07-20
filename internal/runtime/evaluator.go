@@ -13,13 +13,17 @@ import (
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/policy"
+	"reconc.dev/reconc/internal/shellcommand"
 )
 
 // repoRootKey is a context-only constant used by evidence-evaluating
 // rule kinds (require_fresh_file, require_evidence) so they can resolve
 // repo-relative paths against the discovered root without re-discovering.
 type evalContext struct {
-	repoRoot string
+	repoRoot        string
+	rawCommands     []string
+	currentCommands []string
+	preCommand      bool
 }
 
 // AssertRuleByID evaluates a SINGLE rule (selected by id) against the
@@ -117,6 +121,7 @@ func AssertRuleByID(startPath, ruleID string, vars map[string]string, inputs Exe
 		return nil, err
 	}
 	normalizedResults := normalizeCommandResults(merged.CommandResults)
+	rawCommands := rawCommandsPreservingSyntax(merged.Commands, merged.CommandResults)
 	commandsForDedupe := append([]string{}, merged.Commands...)
 	for _, r := range normalizedResults {
 		commandsForDedupe = append(commandsForDedupe, r.Command)
@@ -134,7 +139,7 @@ func AssertRuleByID(startPath, ruleID string, vars map[string]string, inputs Exe
 	}
 
 	report := NewEmptyReport(root, ingest.LockfilePath, defaultMode, normalizedInputs)
-	ctx := &evalContext{repoRoot: root}
+	ctx := &evalContext{repoRoot: root, rawCommands: rawCommands}
 
 	v, err := evaluateRule(ctx, target, defaultMode, normalizedInputs)
 	if err != nil {
@@ -167,20 +172,42 @@ func AssertRuleByID(startPath, ruleID string, vars map[string]string, inputs Exe
 // inputs carry the runtime evidence (typically merged from CLI flags
 // + events file + stdin payload before this call).
 func CheckRepoPolicy(startPath string, inputs ExecutionInputs) (*CheckReport, error) {
-	return checkRepoPolicy(startPath, inputs, nil)
+	return checkRepoPolicy(startPath, inputs, nil, false)
 }
 
 // CheckRepoPolicyForKinds evaluates only the requested top-level rule kinds
 // while keeping lockfile loading, freshness checks, path normalization and
 // unsupported-kind validation identical to CheckRepoPolicy.
 func CheckRepoPolicyForKinds(startPath string, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}) (*CheckReport, error) {
-	return checkRepoPolicy(startPath, inputs, func(kind policy.Kind) bool {
+	return checkRepoPolicy(startPath, inputs, func(_ map[string]interface{}, kind policy.Kind) bool {
 		_, ok := allowedKinds[kind]
 		return ok
-	})
+	}, false)
 }
 
-func checkRepoPolicy(startPath string, inputs ExecutionInputs, includeKind func(policy.Kind) bool) (*CheckReport, error) {
+// CheckRepoPolicyForPreCommand evaluates prevention rules before a shell
+// command executes. Top-level forbid_command rules and composites containing a
+// forbid_command sub-check are included so composing a prevention rule never
+// silently demotes it to Stop-time detection.
+func CheckRepoPolicyForPreCommand(startPath string, inputs ExecutionInputs) (*CheckReport, error) {
+	return checkRepoPolicy(startPath, inputs, func(rule map[string]interface{}, kind policy.Kind) bool {
+		return kind == policy.KindForbidCommand || compositeContainsForbidCommand(rule, kind)
+	}, true)
+}
+
+func compositeContainsForbidCommand(rule map[string]interface{}, kind policy.Kind) bool {
+	if kind != policy.KindAllOf && kind != policy.KindAnyOf && kind != policy.KindNot {
+		return false
+	}
+	for _, check := range checksFromRule(rule) {
+		if check.Kind == policy.KindForbidCommand {
+			return true
+		}
+	}
+	return false
+}
+
+func checkRepoPolicy(startPath string, inputs ExecutionInputs, includeRule func(map[string]interface{}, policy.Kind) bool, preCommand bool) (*CheckReport, error) {
 	discovery, err := ingest.DiscoverPolicyRepo(startPath)
 	if err != nil {
 		return nil, err
@@ -217,6 +244,7 @@ func checkRepoPolicy(startPath string, inputs ExecutionInputs, includeKind func(
 		return nil, err
 	}
 	normalizedResults := normalizeCommandResults(inputs.CommandResults)
+	rawCommands := rawCommandsPreservingSyntax(inputs.Commands, inputs.CommandResults)
 	commandsForDedupe := append([]string{}, inputs.Commands...)
 	for _, r := range normalizedResults {
 		commandsForDedupe = append(commandsForDedupe, r.Command)
@@ -239,7 +267,12 @@ func checkRepoPolicy(startPath string, inputs ExecutionInputs, includeKind func(
 	if !ok {
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile must contain a 'rules' list"}
 	}
-	ctx := &evalContext{repoRoot: root}
+	ctx := &evalContext{
+		repoRoot:        root,
+		rawCommands:     rawCommands,
+		currentCommands: rawCommandsPreservingSyntax(inputs.Commands, nil),
+		preCommand:      preCommand,
+	}
 	rules := make([]map[string]interface{}, 0, len(rulesRaw))
 	for _, ruleRaw := range rulesRaw {
 		ruleMap, ok := ruleRaw.(map[string]interface{})
@@ -251,13 +284,13 @@ func checkRepoPolicy(startPath string, inputs ExecutionInputs, includeKind func(
 		if !kind.Valid() {
 			return nil, &rerrors.LockfileError{Message: "compiled lockfile contains unsupported rule kind: " + kindStr}
 		}
-		if includeKind != nil && !includeKind(kind) {
+		if includeRule != nil && !includeRule(ruleMap, kind) {
 			continue
 		}
 		rules = append(rules, ruleMap)
 	}
 
-	batchedScripts, err := evaluateBatchedRequireScripts(ctx, rules, defaultMode, normalizedInputs, includeKind)
+	batchedScripts, err := evaluateBatchedRequireScripts(ctx, rules, defaultMode, normalizedInputs)
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +305,7 @@ func checkRepoPolicy(startPath string, inputs ExecutionInputs, includeKind func(
 		if err != nil {
 			return nil, err
 		}
-		if v != nil {
+		if v != nil && (!preCommand || !compositeContainsForbidCommand(ruleMap, v.Kind) || compositeForbiddenCommandMatches(ctx, ruleMap)) {
 			report.Violations = append(report.Violations, *v)
 		}
 	}
@@ -310,15 +343,11 @@ type workflowAuditBatchResult struct {
 	Failures []string `json:"failures"`
 }
 
-func evaluateBatchedRequireScripts(ctx *evalContext, rules []map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs, includeKind func(policy.Kind) bool) (batchedScriptEvaluations, error) {
+func evaluateBatchedRequireScripts(ctx *evalContext, rules []map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs) (batchedScriptEvaluations, error) {
 	results := batchedScriptEvaluations{
 		handled:    map[int]bool{},
 		violations: map[int]*Violation{},
 	}
-	if includeKind != nil && !includeKind(policy.KindRequireScript) {
-		return results, nil
-	}
-
 	groups := map[workflowAuditBatchKey][]workflowAuditBatchItem{}
 	groupOrder := []workflowAuditBatchKey{}
 	for i, rule := range rules {
@@ -686,8 +715,8 @@ func normalizeWhitespace(s string) string {
 // Two normalisations are layered on top of normalizeWhitespace:
 //
 //  1. RTK proxy prefix: the literal token "rtk " is stripped at the
-//     start of the command and after every shell compound boundary
-//     (" && ", " || ", " ; ", " | ", " & "). The trailing space in the
+//     start of the command and after every unquoted shell compound boundary
+//     (&&, ||, ;, |, |&, &), with or without surrounding whitespace. The trailing space in the
 //     match prevents false positives like a directory named /rtkfoo or
 //     a literal command named rtk-tool.
 //  2. Absolute repo path in cd: "cd <repoRoot>" becomes "cd ." and
@@ -704,7 +733,7 @@ func normalizeWhitespace(s string) string {
 // Applied repeatedly the function is idempotent: every pass after the
 // first returns the same string.
 func normalizeCommandSemantics(cmd, repoRoot string) string {
-	cmd = normalizeWhitespace(cmd)
+	cmd = normalizeShellWhitespace(cmd)
 	if cmd == "" {
 		return ""
 	}
@@ -729,7 +758,7 @@ func normalizeCommandSemantics(cmd, repoRoot string) string {
 		}
 		out.WriteString(s.body)
 	}
-	return normalizeWhitespace(out.String())
+	return normalizeShellWhitespace(out.String())
 }
 
 // commandSegment is one slice of a normalized command between shell
@@ -739,47 +768,126 @@ type commandSegment struct {
 	body string
 }
 
-// commandSegmentSeparators lists the shell compound boundaries that
-// start a new command position. Order matters: longer separators
-// must precede shorter overlapping ones so " && " is preferred over
-// " & " when both could match. After normalizeWhitespace these
-// boundaries always appear in their single-space canonical form.
-var commandSegmentSeparators = []string{" && ", " || ", " ; ", " | ", " & "}
+// commandSegmentSeparators lists the shell compound boundaries that start a
+// new command position. Shell does not require surrounding whitespace, so the
+// scanner canonicalizes both `a&&b` and `a && b` without inspecting quoted
+// literal data.
+var commandSegmentSeparators = []string{"&&", "||", "|&", ";", "|", "&"}
 
 // splitCommandSegments splits a whitespace-normalized command into
 // segments at every shell compound boundary while preserving the
 // separators so the command can be reconstructed verbatim.
 func splitCommandSegments(cmd string) []commandSegment {
-	segments := []commandSegment{{sep: "", body: cmd}}
-	for {
-		progress := false
-		next := make([]commandSegment, 0, len(segments)+1)
-		for _, s := range segments {
-			bestIdx := -1
-			bestSep := ""
-			for _, sep := range commandSegmentSeparators {
-				if i := strings.Index(s.body, sep); i >= 0 {
-					if bestIdx < 0 || i < bestIdx {
-						bestIdx = i
-						bestSep = sep
-					}
-				}
+	segments := make([]commandSegment, 0, 4)
+	start := 0
+	nextSeparator := ""
+	var quote byte
+	escaped := false
+	for index := 0; index < len(cmd); index++ {
+		current := cmd[index]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if current == '\\' && quote != '\'' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if current == quote {
+				quote = 0
 			}
-			if bestIdx < 0 {
-				next = append(next, s)
+			continue
+		}
+		if current == '\'' || current == '"' || current == '`' {
+			quote = current
+			continue
+		}
+		for _, separator := range commandSegmentSeparators {
+			if !strings.HasPrefix(cmd[index:], separator) {
 				continue
 			}
-			next = append(next,
-				commandSegment{sep: s.sep, body: s.body[:bestIdx]},
-				commandSegment{sep: bestSep, body: s.body[bestIdx+len(bestSep):]},
-			)
-			progress = true
-		}
-		segments = next
-		if !progress {
-			return segments
+			if separator == "&" && ((index > 0 && cmd[index-1] == '>') || (index+1 < len(cmd) && cmd[index+1] == '>')) {
+				continue
+			}
+			segments = append(segments, commandSegment{sep: nextSeparator, body: cmd[start:index]})
+			nextSeparator = " " + separator + " "
+			index += len(separator) - 1
+			start = index + 1
+			break
 		}
 	}
+	segments = append(segments, commandSegment{sep: nextSeparator, body: cmd[start:]})
+	return segments
+}
+
+// normalizeShellWhitespace collapses only unquoted shell whitespace. Literal
+// spaces inside single quotes, double quotes, backticks, or an escaped token
+// are semantic data and must survive command normalization byte-for-byte.
+func normalizeShellWhitespace(command string) string {
+	command = shellcommand.StripLineContinuations(command)
+	var normalized strings.Builder
+	normalized.Grow(len(command))
+	var quote byte
+	escaped := false
+	pendingSpace := false
+	lastUnquotedSeparator := false
+	flushSpace := func() {
+		if pendingSpace && normalized.Len() > 0 {
+			normalized.WriteByte(' ')
+		}
+		pendingSpace = false
+	}
+	for index := 0; index < len(command); index++ {
+		current := command[index]
+		if escaped {
+			flushSpace()
+			normalized.WriteByte(current)
+			lastUnquotedSeparator = false
+			escaped = false
+			continue
+		}
+		if current == '\\' && quote != '\'' {
+			flushSpace()
+			normalized.WriteByte(current)
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			normalized.WriteByte(current)
+			lastUnquotedSeparator = false
+			if current == quote {
+				quote = 0
+			}
+			continue
+		}
+		if current == '\'' || current == '"' || current == '`' {
+			flushSpace()
+			quote = current
+			normalized.WriteByte(current)
+			lastUnquotedSeparator = false
+			continue
+		}
+		if current == '\r' || current == '\n' {
+			flushSpace()
+			if normalized.Len() > 0 && !lastUnquotedSeparator {
+				normalized.WriteString(" ; ")
+			}
+			lastUnquotedSeparator = true
+			if current == '\r' && index+1 < len(command) && command[index+1] == '\n' {
+				index++
+			}
+			continue
+		}
+		if current == ' ' || current == '\t' {
+			pendingSpace = true
+			continue
+		}
+		flushSpace()
+		normalized.WriteByte(current)
+		lastUnquotedSeparator = current == ';' || current == '|' || current == '&'
+	}
+	return normalized.String()
 }
 
 // normalizeSegmentBody applies the two semantic normalisations to one
@@ -818,7 +926,7 @@ func normalizeSegmentBody(body, repoRoot string) string {
 func normalizeCommands(commands []string) []string {
 	out := make([]string, 0, len(commands))
 	for _, c := range commands {
-		norm := normalizeWhitespace(c)
+		norm := normalizeShellWhitespace(c)
 		if norm != "" {
 			out = append(out, norm)
 		}
@@ -829,7 +937,7 @@ func normalizeCommands(commands []string) []string {
 func normalizeCommandResults(results []CommandResult) []CommandResult {
 	out := make([]CommandResult, 0, len(results))
 	for _, r := range results {
-		c := normalizeWhitespace(r.Command)
+		c := normalizeShellWhitespace(r.Command)
 		if c == "" {
 			continue
 		}
@@ -1551,7 +1659,7 @@ func evalRequireClaim(rule map[string]interface{}, defaultMode policy.Mode, inpu
 
 func evalForbidCommand(ctx *evalContext, rule map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
 	required := stringListField(rule, "commands")
-	forbidden := matchingCommands(inputs.Commands, required, ctxRepoRoot(ctx), ruleCommandMatchMode(rule))
+	forbidden := matchingForbiddenCommands(commandsForShellAnalysis(ctx, inputs.Commands), required, ctxRepoRoot(ctx), ruleCommandMatchMode(rule))
 	if len(forbidden) == 0 {
 		return nil, nil
 	}
@@ -1568,6 +1676,49 @@ func evalForbidCommand(ctx *evalContext, rule map[string]interface{}, defaultMod
 		}
 	}
 	return buildViolation(rule, defaultMode, triggered, forbidden, nil, nil, nil, nil), nil
+}
+
+func commandsForShellAnalysis(ctx *evalContext, fallback []string) []string {
+	if ctx != nil && ctx.preCommand {
+		return ctx.currentCommands
+	}
+	if ctx != nil && ctx.rawCommands != nil {
+		return ctx.rawCommands
+	}
+	return fallback
+}
+
+func compositeForbiddenCommandMatches(ctx *evalContext, rule map[string]interface{}) bool {
+	for _, check := range checksFromRule(rule) {
+		if check.Kind != policy.KindForbidCommand {
+			continue
+		}
+		if len(matchingForbiddenCommands(ctx.currentCommands, check.Commands, ctx.repoRoot, check.CommandMatch)) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func rawCommandsPreservingSyntax(commands []string, results []CommandResult) []string {
+	all := make([]string, 0, len(commands)+len(results))
+	all = append(all, commands...)
+	for _, result := range results {
+		all = append(all, result.Command)
+	}
+	seen := make(map[string]struct{}, len(all))
+	kept := make([]string, 0, len(all))
+	for _, command := range all {
+		if strings.TrimSpace(command) == "" {
+			continue
+		}
+		if _, ok := seen[command]; ok {
+			continue
+		}
+		seen[command] = struct{}{}
+		kept = append(kept, command)
+	}
+	return kept
 }
 
 func evalRequireCommand(ctx *evalContext, rule map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs, requireSuccess bool) (*Violation, error) {
@@ -1643,6 +1794,51 @@ func matchingCommands(commands, expected []string, repoRoot string, match policy
 	return out
 }
 
+func matchingForbiddenCommands(commands, expected []string, repoRoot string, match policy.CommandMatch) []string {
+	normalizedExpected := normalizeExpectedCommands(expected, repoRoot)
+	if len(normalizedExpected) == 0 {
+		return nil
+	}
+	out := []string{}
+	for _, command := range commands {
+		segments, complete := executableCommandSegments(command, 0)
+		if !complete {
+			out = append(out, command)
+			continue
+		}
+		commandMatched := false
+		for _, invocation := range segments {
+			for _, expectedCommand := range normalizedExpected {
+				matched, uncertain := shellcommand.Match(invocation, expectedCommand, match == policy.CommandMatchPrefix)
+				if matched || uncertain {
+					commandMatched = true
+					break
+				}
+			}
+			if commandMatched {
+				break
+			}
+		}
+		if commandMatched {
+			out = append(out, command)
+		}
+	}
+	return out
+}
+
+const maxCommandSubstitutionDepth = 16
+
+// executableCommandSegments returns every directly executable shell segment,
+// including command substitutions inside double quotes and backticks. Single
+// quoted text remains literal. The bounded recursion prevents adversarial hook
+// payloads from turning policy evaluation into unbounded work.
+func executableCommandSegments(command string, depth int) ([]shellcommand.Invocation, bool) {
+	if depth > maxCommandSubstitutionDepth {
+		return nil, false
+	}
+	return shellcommand.Invocations(command, maxCommandSubstitutionDepth-depth)
+}
+
 func matchingCommandResults(results []CommandResult, expected []string, outcome string, repoRoot string) []string {
 	return matchingCommandResultsSince(results, expected, outcome, repoRoot, 0, policy.CommandMatchExact)
 }
@@ -1684,7 +1880,9 @@ func matchingCommandResultsSince(results []CommandResult, expected []string, out
 func normalizeExpectedCommands(expected []string, repoRoot string) []string {
 	out := make([]string, 0, len(expected))
 	for _, e := range expected {
-		out = append(out, normalizeCommandSemantics(e, repoRoot))
+		if normalized := normalizeCommandSemantics(e, repoRoot); normalized != "" {
+			out = append(out, normalized)
+		}
 	}
 	return out
 }

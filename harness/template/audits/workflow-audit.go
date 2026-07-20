@@ -1045,6 +1045,8 @@ func auditAgentHooks(root string) []string {
 			"tools/reconc/bin/hook",
 			"RECONC_HOOK_REPO_RESOLVED=1",
 			"cursor-session-start",
+			"cursor-user-prompt-submit",
+			`"beforeSubmitPrompt"`,
 			"cursor-session-end",
 			"cursor-pre-tool-use",
 			"cursor-post-tool-use",
@@ -1178,7 +1180,6 @@ func auditAgentHooks(root string) []string {
 	}
 	forbidden := map[string][]string{
 		".codex/hooks.json":           {`"SessionEnd"`, "codex-session-end"},
-		".cursor/hooks.json":          {`"beforeSubmitPrompt"`, "cursor-user-prompt-submit"},
 		".opencode/plugins/reconc.js": {".reconc/runloop", "runloop autocontinue", "opencode_continuation_driver", "STFU", "tools/reconc/dist", "reconc-0.6.0-"},
 		".kilo/plugin/reconc.js":      {".reconc/runloop", "runloop autocontinue", "opencode_continuation_driver", "STFU", "tools/reconc/dist", "reconc-0.6.0-"},
 		".agents/hooks.json":          {`"timeout": 120`},

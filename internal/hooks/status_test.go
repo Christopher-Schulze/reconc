@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -8,6 +9,37 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestInspectPlatformsDetectsJSONContractDriftBeyondRouteStrings(t *testing.T) {
+	repo := t.TempDir()
+	writeExecutableWrapper(t, repo)
+	if _, err := Install(KindCodex, repo, false); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(repo, filepath.FromSlash(CodexHooksPath))
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]interface{}
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	hooksMap := document["hooks"].(map[string]interface{})
+	preTool := hooksMap["PreToolUse"].([]interface{})[0].(map[string]interface{})
+	preTool["matcher"] = "Read"
+	altered, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, append(altered, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	status := statusForKind(t, repo, KindCodex)
+	if status.State != StateDegraded || !strings.Contains(status.Detail, "contract drift") {
+		t.Fatalf("matcher-only drift not detected: %+v", status)
+	}
+}
 
 func TestInspectPlatformsActivationStates(t *testing.T) {
 	t.Run("absent", func(t *testing.T) {
@@ -122,6 +154,21 @@ func TestInspectGitHookShadowedByCoreHooksPath(t *testing.T) {
 	}
 	if got := statusForKind(t, repo, KindGitPreCommit).State; got != StateShadowed {
 		t.Fatalf("git hook = %s, want shadowed", got)
+	}
+	generated, err := Generate(KindGitPreCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active := filepath.Join(repo, ".githooks", "pre-commit")
+	if err := os.MkdirAll(filepath.Dir(active), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(active, []byte(generated.Content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	status := statusForKind(t, repo, KindGitPreCommit)
+	if status.State != StateConfigured || status.TargetPath != ".githooks/pre-commit" {
+		t.Fatalf("active managed hook = %+v, want configured .githooks/pre-commit", status)
 	}
 }
 

@@ -12,7 +12,11 @@ import (
 
 // Hard limits per the threat model in docs/architecture.md.
 const (
-	MaxPayloadBytes = 1 << 20 // 1 MiB
+	// Hook payloads can contain complete file bodies for Read, Write, Edit, and
+	// apply_patch events. Keep the cap finite for memory safety, but large
+	// enough for real repository artifacts such as generated lockfiles and
+	// multi-megabyte specifications.
+	MaxPayloadBytes = 64 << 20 // 64 MiB
 	MaxJSONDepth    = 32
 	StdinTimeout    = 5 * time.Second
 )
@@ -46,7 +50,7 @@ var CommandToolNames = map[string]struct{}{"Bash": {}, "bash": {}}
 // ErrPayloadTooLarge is returned when stdin produces more than
 // MaxPayloadBytes. Callers treat this as fail-closed for PreToolUse /
 // Stop per the threat model.
-var ErrPayloadTooLarge = errors.New("hook payload exceeds 1 MiB limit")
+var ErrPayloadTooLarge = errors.New("hook payload exceeds 64 MiB limit")
 
 // ErrPayloadReadTimeout is returned when the host does not deliver the
 // payload (EOF included) within StdinTimeout. Without this bound a host

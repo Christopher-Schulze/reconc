@@ -9,6 +9,7 @@
 package hooks
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -19,7 +20,6 @@ import (
 
 	"reconc.dev/reconc/internal/atomicfile"
 	rerrors "reconc.dev/reconc/internal/errors"
-	"reconc.dev/reconc/internal/execfile"
 )
 
 // Hook artifact paths.
@@ -65,7 +65,7 @@ func InstallableKinds() []string {
 // current generated file. Compatibility-route dedup must never trust a stale
 // or merely self-labelled hook.
 func HasManagedGrokHook(repoRoot string) bool {
-	data, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(GrokHooksPath)))
+	data, err := readManagedArtifact(filepath.Join(repoRoot, filepath.FromSlash(GrokHooksPath)))
 	if err != nil {
 		return false
 	}
@@ -94,8 +94,8 @@ type InstallReport struct {
 	// warnings so users know their edits were overwritten.
 	DroppedUserEdits []string `json:"dropped_user_edits,omitempty"`
 	// BackupPath is set when --force replaced a malformed existing
-	// config; the original bytes are preserved at this repo-relative
-	// path instead of being discarded.
+	// config; the original bytes are preserved at this absolute path
+	// instead of being discarded.
 	BackupPath string `json:"backup_path,omitempty"`
 }
 
@@ -229,16 +229,29 @@ func SyncRepoRootScaffold(scaffoldRoot string) (*ScaffoldSyncReport, error) {
 		return nil, &rerrors.PolicySourceError{Message: "scaffold path is not a directory: " + root}
 	}
 
-	report := &ScaffoldSyncReport{
-		ScaffoldRoot: root,
-		Artifacts:    []ScaffoldArtifactReport{},
+	type plannedScaffoldArtifact struct {
+		artifact *Artifact
+		target   string
 	}
+	planned := make([]plannedScaffoldArtifact, 0, len(ScaffoldKinds()))
 	for _, kind := range ScaffoldKinds() {
 		artifact, err := GenerateScaffoldArtifact(kind)
 		if err != nil {
 			return nil, err
 		}
 		target := filepath.Join(root, filepath.FromSlash(artifact.TargetPath))
+		if err := requireManagedTargetWithin(root, target); err != nil {
+			return nil, err
+		}
+		planned = append(planned, plannedScaffoldArtifact{artifact: artifact, target: target})
+	}
+	report := &ScaffoldSyncReport{
+		ScaffoldRoot: root,
+		Artifacts:    make([]ScaffoldArtifactReport, 0, len(planned)),
+	}
+	for _, item := range planned {
+		artifact := item.artifact
+		target := item.target
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return nil, &rerrors.PolicySourceError{Message: "create parent dir of " + target, Cause: err}
 		}
@@ -247,7 +260,7 @@ func SyncRepoRootScaffold(scaffoldRoot string) (*ScaffoldSyncReport, error) {
 			return nil, err
 		}
 		report.Artifacts = append(report.Artifacts, ScaffoldArtifactReport{
-			Kind:       kind,
+			Kind:       artifact.Kind,
 			TargetPath: artifact.TargetPath,
 			Action:     action,
 			Executable: artifact.Executable,
@@ -269,51 +282,59 @@ func installGitPreCommit(repoRoot string, force bool) (*InstallReport, error) {
 		return nil, &rerrors.PolicySourceError{Message: "repo path is not a directory: " + root}
 	}
 
-	gitDir := filepath.Join(root, ".git")
-	gitInfo, err := os.Stat(gitDir)
-	if err != nil || !gitInfo.IsDir() {
+	target, displayPath, err := activeGitPreCommitPath(root)
+	if err != nil {
 		return nil, &rerrors.PolicySourceError{
-			Message: "no .git directory at " + gitDir + "; run `git init` before installing the pre-commit hook",
+			Message: "cannot resolve the active Git hooks path; run `git init` before installing the pre-commit hook",
+			Cause:   err,
 		}
 	}
-
-	hooksDir := filepath.Join(gitDir, "hooks")
-	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
-		return nil, &rerrors.PolicySourceError{Message: "create .git/hooks/", Cause: err}
+	owned, err := gitHookTargetIsRepositoryOwned(root, target)
+	if err != nil {
+		return nil, &rerrors.PolicySourceError{Message: "validate active Git hooks path", Cause: err}
 	}
-	target := filepath.Join(hooksDir, "pre-commit")
+	if !owned {
+		return nil, &rerrors.PolicySourceError{Message: "active Git hooks path is outside the repository and its Git common directory: " + target + "; refusing to modify a shared hooks directory"}
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return nil, &rerrors.PolicySourceError{Message: "create active Git hooks directory", Cause: err}
+	}
 
 	artifact := generateGitPreCommit()
 	action := "created"
-	if existing, err := os.ReadFile(target); err == nil {
-		_, statErr := os.Stat(target)
-		if statErr != nil {
-			return nil, &rerrors.PolicySourceError{Message: "stat " + target, Cause: statErr}
+	if info, statErr := os.Lstat(target); statErr == nil {
+		if !info.Mode().IsRegular() {
+			return nil, &rerrors.PolicySourceError{Message: displayPath + " is not a regular file"}
 		}
-		if string(existing) == artifact.Content && execfile.Is(target) {
-			action = "unchanged"
-		} else if !force {
+		if info.Size() > 1<<20 {
+			return nil, &rerrors.PolicySourceError{Message: displayPath + " exceeds the 1 MiB managed-hook limit"}
+		}
+		existing, readErr := readManagedArtifact(target)
+		if readErr != nil {
+			return nil, &rerrors.PolicySourceError{Message: "read " + displayPath, Cause: readErr}
+		}
+		managed := strings.HasPrefix(string(existing), "#!/bin/sh\n# Managed by `reconc hook install git-pre-commit`.\n")
+		if !force && !managed && string(existing) != artifact.Content {
 			return nil, &rerrors.PolicySourceError{
-				Message: GitPreCommitPath + " already exists; pass --force to overwrite",
+				Message: displayPath + " already contains a foreign hook; pass --force to overwrite",
 			}
-		} else {
-			action = "updated"
 		}
-	} else if !os.IsNotExist(err) {
-		return nil, &rerrors.PolicySourceError{Message: "read " + target, Cause: err}
+		action = "updated"
+	} else if !os.IsNotExist(statErr) {
+		return nil, &rerrors.PolicySourceError{Message: "inspect " + displayPath, Cause: statErr}
 	}
-	if action != "unchanged" {
-		writeAction, err := writeGeneratedArtifact(target, artifact.Content, true)
-		if err != nil {
-			return nil, err
-		}
+	if writeAction, writeErr := writeGeneratedArtifact(target, artifact.Content, true); writeErr != nil {
+		return nil, writeErr
+	} else if writeAction == "unchanged" {
+		action = "unchanged"
+	} else if action == "created" {
 		action = writeAction
 	}
 
 	return &InstallReport{
 		Kind:       KindGitPreCommit,
 		RepoRoot:   root,
-		TargetPath: GitPreCommitPath,
+		TargetPath: displayPath,
 		Action:     action,
 		Executable: true,
 		NextAction: "Stage a change and run `git commit` to verify the hook fires; use `git commit --no-verify` to bypass it for a single commit.",
@@ -326,7 +347,13 @@ func writeGeneratedArtifact(target, content string, executable bool) (string, er
 		perm = 0o755
 	}
 	action := "created"
-	if _, err := os.Lstat(target); err == nil {
+	if info, err := os.Lstat(target); err == nil {
+		if !info.Mode().IsRegular() {
+			return "", &rerrors.PolicySourceError{Message: target + " is not a regular file"}
+		}
+		if info.Size() > maxManagedArtifactBytes {
+			return "", &rerrors.PolicySourceError{Message: fmt.Sprintf("%s exceeds the %d-byte managed-artifact limit", target, maxManagedArtifactBytes)}
+		}
 		action = "updated"
 	} else if !os.IsNotExist(err) {
 		return "", &rerrors.PolicySourceError{Message: "inspect " + target, Cause: err}
@@ -339,6 +366,20 @@ func writeGeneratedArtifact(target, content string, executable bool) (string, er
 		return "unchanged", nil
 	}
 	return action, nil
+}
+
+// requireManagedTargetWithin prevents a repository-controlled symlinked
+// parent (for example .claude -> ~/.claude) from redirecting an install or
+// scaffold sync outside the caller-owned root.
+func requireManagedTargetWithin(root, target string) error {
+	owned, err := resolvedPathWithinDirectory(root, target)
+	if err != nil {
+		return &rerrors.PolicySourceError{Message: "validate managed artifact target " + target, Cause: err}
+	}
+	if !owned {
+		return &rerrors.PolicySourceError{Message: "managed artifact target resolves outside its root: " + target}
+	}
+	return nil
 }
 
 // installJSONHooks merges reconc's hook entries into a nested JSON settings
@@ -365,6 +406,9 @@ func installJSONHooks(kind, relPath, repoRoot string, force bool) (*InstallRepor
 	}
 
 	target := filepath.Join(root, relPath)
+	if err := requireManagedTargetWithin(root, target); err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "create parent dir of " + target, Cause: err}
 	}
@@ -379,7 +423,7 @@ func installJSONHooks(kind, relPath, repoRoot string, force bool) (*InstallRepor
 	}
 
 	action := "created"
-	existing, err := os.ReadFile(target)
+	existing, err := readManagedArtifact(target)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, &rerrors.PolicySourceError{Message: "read " + target, Cause: err}
 	}
@@ -440,19 +484,42 @@ func installJSONHooks(kind, relPath, repoRoot string, force bool) (*InstallRepor
 func backupMalformedConfig(target string, existing []byte) (string, error) {
 	sum := sha256.Sum256(existing)
 	backup := target + ".reconc-backup-" + hex.EncodeToString(sum[:4])
-	file, err := os.OpenFile(backup, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	file, err := os.OpenFile(backup, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		if os.IsExist(err) {
+			backupData, readErr := readManagedArtifact(backup)
+			if readErr != nil {
+				return "", &rerrors.PolicySourceError{Message: "verify existing malformed-config backup " + backup, Cause: readErr}
+			}
+			if !bytes.Equal(backupData, existing) {
+				return "", &rerrors.PolicySourceError{Message: "existing malformed-config backup does not match the source: " + backup}
+			}
+			if chmodErr := os.Chmod(backup, 0o600); chmodErr != nil {
+				return "", &rerrors.PolicySourceError{Message: "secure existing malformed-config backup " + backup, Cause: chmodErr}
+			}
 			return backup, nil
 		}
 		return "", &rerrors.PolicySourceError{Message: "back up malformed config to " + backup, Cause: err}
 	}
-	if _, err := file.Write(existing); err != nil {
+	if written, err := file.Write(existing); err != nil || written != len(existing) {
 		_ = file.Close()
+		_ = os.Remove(backup)
+		if err == nil {
+			err = fmt.Errorf("short write: wrote %d of %d bytes", written, len(existing))
+		}
 		return "", &rerrors.PolicySourceError{Message: "back up malformed config to " + backup, Cause: err}
 	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		_ = os.Remove(backup)
+		return "", &rerrors.PolicySourceError{Message: "sync malformed-config backup " + backup, Cause: err}
+	}
 	if err := file.Close(); err != nil {
+		_ = os.Remove(backup)
 		return "", &rerrors.PolicySourceError{Message: "back up malformed config to " + backup, Cause: err}
+	}
+	if err := syncManagedArtifactParent(backup); err != nil {
+		return "", &rerrors.PolicySourceError{Message: "sync malformed-config backup directory for " + backup, Cause: err}
 	}
 	return backup, nil
 }
@@ -467,6 +534,9 @@ func installOpenCode(repoRoot string, force bool) (*InstallReport, error) {
 		return nil, &rerrors.PolicySourceError{Message: "repo path is not a directory: " + root, Cause: err}
 	}
 	target := filepath.Join(root, OpenCodePluginPath)
+	if err := requireManagedTargetWithin(root, target); err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "create parent dir of " + target, Cause: err}
 	}
@@ -475,7 +545,7 @@ func installOpenCode(repoRoot string, force bool) (*InstallReport, error) {
 		return nil, err
 	}
 	action := "created"
-	if existing, err := os.ReadFile(target); err == nil {
+	if existing, err := readManagedArtifact(target); err == nil {
 		action = "updated"
 		text := string(existing)
 		if !force && !strings.Contains(text, "Managed by reconc") && !strings.Contains(text, "reconc hook runtime") {
@@ -511,6 +581,9 @@ func installAntigravity(repoRoot string, force bool) (*InstallReport, error) {
 		return nil, &rerrors.PolicySourceError{Message: "repo path is not a directory: " + root, Cause: err}
 	}
 	target := filepath.Join(root, AntigravityHooksPath)
+	if err := requireManagedTargetWithin(root, target); err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "create parent dir of " + target, Cause: err}
 	}
@@ -521,7 +594,7 @@ func installAntigravity(repoRoot string, force bool) (*InstallReport, error) {
 	}
 
 	action := "created"
-	existing, err := os.ReadFile(target)
+	existing, err := readManagedArtifact(target)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, &rerrors.PolicySourceError{Message: "read " + target, Cause: err}
 	}

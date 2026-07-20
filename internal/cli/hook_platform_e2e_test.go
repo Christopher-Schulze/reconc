@@ -306,7 +306,7 @@ func TestHookRuntimeGrokRepeatedPolicyBlockStaysStrict(t *testing.T) {
 	}
 }
 
-func TestHookRuntimeGrokStopBlocksWithoutLeader(t *testing.T) {
+func TestHookRuntimeGrokStopEmitsBlockWithoutLeader(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
 	writeHookRuntimeTaskFixture(t, repo)
 	if _, err := agentsession.SetRepositoryRun(repo, true); err != nil {
@@ -318,7 +318,7 @@ func TestHookRuntimeGrokStopBlocksWithoutLeader(t *testing.T) {
 	payload := fmt.Sprintf(`{"hookEventName":"stop","sessionId":"grok-native","workspaceRoot":%q,"reason":"end_turn","stopHookActive":true}`, repo)
 	stdout, stderr, code := runWithStdin(t, payload, "hook", "runtime", "grok-stop", repo)
 	if code != 0 || !strings.Contains(stdout, `"decision":"block"`) || !strings.Contains(stdout, "Reconc run is ON") {
-		t.Fatalf("native no-leader Grok Stop failed: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+		t.Fatalf("no-leader Grok Stop output failed: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 	if strings.Contains(stderr, "interjected") {
 		t.Fatalf("no-leader Stop attempted duplicate steering: %q", stderr)

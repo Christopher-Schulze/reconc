@@ -25,11 +25,14 @@ const (
 )
 
 // steerDial is swappable for tests.
-var steerDial = dialLeader
+var (
+	steerDial               = dialLeader
+	nativeStopGateAvailable = func() bool { return ProbeNativeStopGate().Supported }
+)
 
 // PrepareStrictTUIStop marks every eligible live Grok Stop as strict before
-// policy evaluation. Native Stop enforcement must not depend on a leader or on
-// the optional leader-steering switch.
+// policy evaluation. Strict payload semantics do not depend on a leader or on
+// the optional leader-steering switch; host enforcement is capability-probed.
 func PrepareStrictTUIStop(payloadBytes []byte) ([]byte, bool, error) {
 	payload, err := liveTUIStopPayload(payloadBytes)
 	if err != nil || payload == nil {
@@ -44,8 +47,9 @@ func PrepareStrictTUIStop(payloadBytes []byte) ([]byte, bool, error) {
 }
 
 // SteerTUIStop supplies backward-compatible continuation through an optional
-// leader. Native-Stop-capable leaders are not interjected to avoid delivering
-// the same continuation twice.
+// leader. When the installed Grok distribution advertises native Stop
+// enforcement, leader interjection is suppressed to avoid delivering the same
+// continuation twice.
 func SteerTUIStop(repoRoot string, payloadBytes []byte, stopResult agentsession.Result) string {
 	if stopResult.ExitCode != 0 {
 		return ""
@@ -122,7 +126,7 @@ func interjectViaLeader(endpoint string, deadline time.Time, sessionID, text str
 	if err := validateLeaderProtocol(registration); err != nil {
 		return false, err
 	}
-	if SupportsNativeStopGate(registration.BinaryVersion) {
+	if nativeStopGateAvailable() {
 		return false, nil
 	}
 	if err := conn.interject(sessionID, text); err != nil {

@@ -419,7 +419,7 @@ func evalCheckRequireCommand(ctx *evalContext, c policy.Check, inputs ExecutionI
 }
 
 func evalCheckForbidCommand(ctx *evalContext, c policy.Check, inputs ExecutionInputs) (bool, string, error) {
-	hit := matchingCommands(inputs.Commands, c.Commands, ctxRepoRoot(ctx), c.CommandMatch)
+	hit := matchingForbiddenCommands(commandsForShellAnalysis(ctx, inputs.Commands), c.Commands, ctxRepoRoot(ctx), c.CommandMatch)
 	if len(hit) == 0 {
 		return true, "", nil
 	}

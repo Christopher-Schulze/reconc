@@ -108,9 +108,6 @@ func TestGenerateEveryRegisteredArtifact(t *testing.T) {
 			for _, missing := range missingRuntimeEvents(platform, artifact.Content) {
 				t.Errorf("generated artifact misses registry route %s", missing)
 			}
-			if strings.Contains(artifact.Content, "beforeSubmitPrompt") {
-				t.Error("generated artifact retained retired Cursor prompt route beforeSubmitPrompt")
-			}
 		})
 	}
 }
@@ -215,7 +212,6 @@ func TestBunAdapterRoutesAreRegistered(t *testing.T) {
 		}
 	}
 	for _, event := range []string{
-		"cursor-user-prompt-submit",
 		"antigravity-user-prompt-submit",
 	} {
 		if _, ok := RuntimeEvent(event); ok {

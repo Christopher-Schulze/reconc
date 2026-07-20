@@ -46,6 +46,16 @@ var preWriteBlockKinds = map[policy.Kind]struct{}{
 	policy.KindRequireRead: {},
 }
 
+// preCommandBlockKinds are the policy rules whose effect must happen before a
+// shell command executes. Evidence-requiring command rules stay at Stop; a
+// forbid_command rule is a prevention control and therefore belongs here.
+var preCommandBlockKinds = map[policy.Kind]struct{}{
+	policy.KindForbidCommand: {},
+	policy.KindAllOf:         {},
+	policy.KindAnyOf:         {},
+	policy.KindNot:           {},
+}
+
 // RunSessionStart initialises fresh session state. The handler reports errors;
 // the central route registry converts them to success for fail-open
 // SessionStart integrations so a state failure cannot wedge the host session.
@@ -140,6 +150,22 @@ func RunPreToolUse(repoRoot string, payloadBytes []byte) Result {
 		if reason := forbiddenShellCommandReason(payload.Command()); reason != "" {
 			return Result{ExitCode: 2, Stderr: reason}
 		}
+		root, err := ResolveRepoRoot(repoRoot)
+		if err != nil {
+			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}
+		}
+		state, err := EnsureSessionState(root, payload.SessionID)
+		if err != nil {
+			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}
+		}
+		report, err := runPreCommandPolicyCheck(root, state, payload.Command())
+		if err != nil {
+			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): command check failed: %s", err)}
+		}
+		violations := blockingViolationsForKinds(report, preCommandBlockKinds)
+		if len(violations) > 0 {
+			return Result{ExitCode: 2, Stderr: firstLinesForViolations(violations, "reconc blocked this command before execution.")}
+		}
 	}
 	if !payload.IsWriteTool() {
 		return Result{ExitCode: 0}
@@ -155,16 +181,16 @@ func RunPreToolUse(repoRoot string, payloadBytes []byte) Result {
 		}
 		return Result{ExitCode: 0}
 	}
-	// Agent persistent-memory writes (~/.claude/projects/<p>/memory/**) are
-	// harness runtime state, not repository writes: they are excluded from the
-	// repo write policy instead of being denied as boundary escapes.
-	pendingWrites = withoutAgentMemoryPaths(pendingWrites)
-	if len(pendingWrites) == 0 {
-		return Result{ExitCode: 0}
-	}
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}
+	}
+	// Agent persistent-memory writes (~/.claude/projects/<p>/memory/**) are
+	// harness runtime state, not repository writes: they are excluded from the
+	// repo write policy instead of being denied as boundary escapes.
+	pendingWrites = withoutAgentMemoryPaths(root, pendingWrites)
+	if len(pendingWrites) == 0 {
+		return Result{ExitCode: 0}
 	}
 	state, err := EnsureSessionState(root, payload.SessionID)
 	if err != nil {
@@ -327,7 +353,7 @@ func recordToolUse(state SessionState, payload *HookPayload) SessionState {
 		return AppendReadPath(state, path)
 	case payload.IsWriteTool():
 		// Agent memory writes are runtime state, never repo write evidence.
-		paths := withoutAgentMemoryPaths(payload.FilePaths())
+		paths := withoutAgentMemoryPaths(state.RepoRoot, payload.FilePaths())
 		if len(paths) > 0 {
 			state = RecordWriteEvent(state, paths)
 			state = RecordMaterialEvent(state, materialEventSignature(payload, "success"))
@@ -424,6 +450,11 @@ func runPreWritePolicyCheck(
 	return runtime.CheckRepoPolicyForKinds(repoRoot, inputs, preWriteBlockKinds)
 }
 
+func runPreCommandPolicyCheck(repoRoot string, state SessionState, command string) (*runtime.CheckReport, error) {
+	inputs := executionInputs(filterRepoScopedReadPaths(repoRoot, state.ReadPaths), state.WritePaths, state.WriteEpochs, []string{command}, state.CommandResults, state.Claims)
+	return runtime.CheckRepoPolicyForPreCommand(repoRoot, inputs)
+}
+
 func filterRepoScopedReadPaths(repoRoot string, paths []string) []string {
 	out := make([]string, 0, len(paths))
 	for _, path := range paths {
@@ -518,12 +549,16 @@ func writeLatestReport(repoRoot, sessionID string, report *runtime.CheckReport) 
 // --- violation helpers ---------------------------------------------
 
 func preWriteBlockingViolations(report *runtime.CheckReport) []runtime.Violation {
+	return blockingViolationsForKinds(report, preWriteBlockKinds)
+}
+
+func blockingViolationsForKinds(report *runtime.CheckReport, kinds map[policy.Kind]struct{}) []runtime.Violation {
 	out := []runtime.Violation{}
 	for _, v := range report.Violations {
 		if _, blocking := blockingModes[v.Mode]; !blocking {
 			continue
 		}
-		if _, ok := preWriteBlockKinds[v.Kind]; !ok {
+		if _, ok := kinds[v.Kind]; !ok {
 			continue
 		}
 		out = append(out, v)

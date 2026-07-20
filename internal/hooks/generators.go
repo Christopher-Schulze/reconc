@@ -254,6 +254,9 @@ func generateCursor() *Artifact {
 			"sessionStart": []interface{}{
 				entry("cursor-session-start", true),
 			},
+			"beforeSubmitPrompt": []interface{}{
+				entry("cursor-user-prompt-submit", true),
+			},
 			"preToolUse": []interface{}{
 				preToolEntry,
 			},

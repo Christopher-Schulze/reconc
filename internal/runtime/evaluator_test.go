@@ -183,6 +183,31 @@ esac
 	}
 }
 
+func TestWorkflowAuditBatchCandidateAcceptsPortableAuditPath(t *testing.T) {
+	tests := []struct {
+		name   string
+		script string
+		want   bool
+	}{
+		{name: "root audits", script: "audits/run-workflow-audit", want: true},
+		{name: "nested audits", script: "quality/audits/run-workflow-audit", want: true},
+		{name: "different script", script: "quality/audits/run-other-audit", want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rule := map[string]interface{}{
+				"kind":   string(policy.KindRequireScript),
+				"script": test.script,
+				"args":   []interface{}{"full"},
+			}
+			_, _, _, _, got := workflowAuditBatchCandidate(rule)
+			if got != test.want {
+				t.Fatalf("candidate=%v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
 func TestCheckRequireRead(t *testing.T) {
 	withRECONCHome(t)
 	repo := makeRepo(t, "# project\n", "",
@@ -998,32 +1023,76 @@ func TestNormalizeCommandSemantics_RTKHookClaudeAware(t *testing.T) {
 	}
 }
 
-// TestNormalizeCommandSemantics_QuoteSplitterLimitation documents the
-// known limitation of the segment splitter: it does not understand
-// shell quoting, so a literal `&&` that lives inside a quoted string
-// AND is surrounded by spaces will be treated as a compound boundary.
-// The transformation still applies symmetrically on both sides of the
-// match, so a rule authored against the same quoted form continues to
-// match correctly. Quote-wrapped commands without space around the
-// boundary are unaffected because the literal separator is ` && `
-// (single-space pads).
-func TestNormalizeCommandSemantics_QuoteSplitterLimitation(t *testing.T) {
-	t.Run("quotes_without_space_around_compound_preserved", func(t *testing.T) {
-		got := normalizeCommandSemantics(`echo "&& rtk x"`, "")
-		want := `echo "&& rtk x"`
-		if got != want {
-			t.Errorf("got %q, want %q", got, want)
+func TestNormalizeCommandSemanticsPreservesQuotedShellData(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"double-quoted separator", `echo "a && rtk b"`, `echo "a && rtk b"`},
+		{"single-quoted pipe", `printf 'a | rtk b' && rtk go test ./...`, `printf 'a | rtk b' && go test ./...`},
+		{"backtick body", "echo `printf 'a && rtk b'`", "echo `printf 'a && rtk b'`"},
+		{"escaped separator", `echo a\ \&\&\ rtk b`, `echo a\ \&\&\ rtk b`},
+		{"quoted whitespace", "echo \"a   b\"\t&&\trtk go test", "echo \"a   b\" && go test"},
+		{"compact compound", "echo ready&&rtk go test", "echo ready && go test"},
+		{"newline compound", "echo ready\nrtk go test", "echo ready ; go test"},
+		{"existing separator before newline", "echo ready;\nrtk go test", "echo ready ; go test"},
+		{"line continuation", "rtk go \\\ntest ./...", "go test ./..."},
+		{"redirect ampersand", "go test &>out.log", "go test &>out.log"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := normalizeCommandSemantics(test.in, ""); got != test.want {
+				t.Fatalf("normalizeCommandSemantics(%q)=%q, want %q", test.in, got, test.want)
+			}
+		})
+	}
+}
+
+func TestMatchingForbiddenCommandsChecksEveryCompoundSegment(t *testing.T) {
+	expected := []string{"pip install"}
+	for _, command := range []string{
+		"echo ready && pip install requests",
+		"echo ready&&pip install requests",
+		"echo ready\npip install requests",
+		"echo ready && pip \\\ninstall requests",
+		`echo "$(pip install requests)"`,
+		"echo `pip install requests`",
+		`sh -lc 'pip install requests'`,
+		`eval "pip install requests"`,
+		`find . -exec sh -c 'pip install requests' \;`,
+		`printf '%s\n' x | xargs -n 1 sh -c 'pip install requests'`,
+	} {
+		matched := matchingForbiddenCommands([]string{command}, expected, "", policy.CommandMatchPrefix)
+		if len(matched) != 1 {
+			t.Fatalf("forbidden compound command %q matched=%v", command, matched)
 		}
-	})
-	t.Run("quotes_with_space_around_compound_naively_split", func(t *testing.T) {
-		// Acknowledged limitation: splitter is naive, transformation
-		// still symmetric so production rule-matching is unaffected.
-		got := normalizeCommandSemantics(`echo "a && rtk b"`, "")
-		want := `echo "a && b"`
-		if got != want {
-			t.Errorf("got %q, want %q", got, want)
-		}
-	})
+	}
+	if matched := matchingForbiddenCommands([]string{`echo "pip install requests"`}, expected, "", policy.CommandMatchPrefix); len(matched) != 0 {
+		t.Fatalf("quoted literal must not match a forbidden command: %v", matched)
+	}
+	if matched := matchingForbiddenCommands([]string{`echo pip install requests`}, expected, "", policy.CommandMatchPrefix); len(matched) != 0 {
+		t.Fatalf("ordinary command arguments must not match a forbidden command: %v", matched)
+	}
+	if matched := matchingForbiddenCommands([]string{`echo '$(pip install requests)'`}, expected, "", policy.CommandMatchPrefix); len(matched) != 0 {
+		t.Fatalf("single-quoted substitution literal must not match a forbidden command: %v", matched)
+	}
+	if matched := matchingForbiddenCommands([]string{"cat <<'EOF'\npip install requests\nEOF"}, expected, "", policy.CommandMatchPrefix); len(matched) != 0 {
+		t.Fatalf("literal here-document content must not match a forbidden command: %v", matched)
+	}
+	if matched := matchingForbiddenCommands([]string{`pip "$ACTION" requests`}, expected, "", policy.CommandMatchPrefix); len(matched) != 1 {
+		t.Fatalf("dynamic argument in a relevant command position must fail closed: %v", matched)
+	}
+	if matched := matchingForbiddenCommands([]string{`echo "$ACTION"`}, expected, "", policy.CommandMatchPrefix); len(matched) != 0 {
+		t.Fatalf("unrelated dynamic arguments must not cause a false block: %v", matched)
+	}
+	deep := "pip install requests"
+	for range maxCommandSubstitutionDepth + 2 {
+		deep = "echo $(" + deep + ")"
+	}
+	if matched := matchingForbiddenCommands([]string{deep}, expected, "", policy.CommandMatchPrefix); len(matched) != 1 {
+		t.Fatalf("over-deep executable nesting must fail closed: %v", matched)
+	}
 }
 
 // TestMatchingCommandResultsAppliesNormalization pins the integration
@@ -1127,6 +1196,74 @@ func TestCommandMatchPrefixForbidsArgumentForms(t *testing.T) {
 	}
 	if report.Decision != DecisionPass {
 		t.Errorf("'pip installer' must not match prefix 'pip install', got %s", report.Decision)
+	}
+}
+
+func TestPreCommandForbidUsesOnlyTheCurrentCommand(t *testing.T) {
+	repo := makeRepoWithFiles(t,
+		"rules:\n  - id: no-pip\n    kind: forbid_command\n    command_match: prefix\n    commands: ['pip install']\n    mode: block\n    message: m\n",
+		nil)
+
+	inputs := Empty()
+	inputs.Commands = []string{"echo safe"}
+	inputs.CommandResults = []CommandResult{{Command: "pip install old-package", Outcome: CommandOutcomeSuccess}}
+	report, err := CheckRepoPolicyForPreCommand(repo, inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Decision != DecisionPass {
+		t.Fatalf("historical forbidden evidence must not poison later safe commands: %+v", report.Violations)
+	}
+}
+
+func TestPreCommandCompositeBlocksOnlyWhenCurrentCommandHitsForbidCheck(t *testing.T) {
+	repo := makeRepoWithFiles(t,
+		"rules:\n  - id: composite\n    kind: all_of\n    when_paths: ['requirements.txt']\n    checks:\n      - kind: forbid_command\n        command_match: prefix\n        commands: ['pip install']\n      - kind: require_claim\n        claims: ['approved']\n    mode: block\n    message: m\n",
+		nil)
+
+	inputs := Empty()
+	inputs.WritePaths = []string{"requirements.txt"}
+	inputs.Commands = []string{"echo safe"}
+	report, err := CheckRepoPolicyForPreCommand(repo, inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Decision != DecisionPass {
+		t.Fatalf("an unrelated failing composite check must remain a Stop-time gate: %+v", report.Violations)
+	}
+
+	inputs.Commands = []string{"pip install requests"}
+	report, err = CheckRepoPolicyForPreCommand(repo, inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Decision != DecisionBlock {
+		t.Fatalf("a current forbidden command must still block the composite before execution: %+v", report.Violations)
+	}
+}
+
+func TestCommandMatchPrefixPreservesHeredocSyntaxBeforeForbidAnalysis(t *testing.T) {
+	repo := makeRepoWithFiles(t,
+		"rules:\n  - id: no-pip\n    kind: forbid_command\n    command_match: prefix\n    commands: ['pip install']\n    mode: block\n    message: m\n",
+		nil)
+
+	inputs := Empty()
+	inputs.Commands = []string{"cat <<'EOF'\npip install requests\nEOF"}
+	report, err := CheckRepoPolicy(repo, inputs)
+	if err != nil {
+		t.Fatalf("check literal heredoc: %v", err)
+	}
+	if report.Decision != DecisionPass {
+		t.Fatalf("literal heredoc content must not become executable during normalization: %+v", report.Violations)
+	}
+
+	inputs.Commands = []string{"cat <<'EOF'\ntext\nEOF\npip install requests"}
+	report, err = CheckRepoPolicy(repo, inputs)
+	if err != nil {
+		t.Fatalf("check command after heredoc: %v", err)
+	}
+	if report.Decision != DecisionBlock {
+		t.Fatalf("real command after heredoc must still be blocked: %+v", report.Violations)
 	}
 }
 

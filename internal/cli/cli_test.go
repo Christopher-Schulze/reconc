@@ -2866,11 +2866,8 @@ func TestRunHookGenerateUnknownKindErrors(t *testing.T) {
 
 func TestRunHookInstallGitPreCommit(t *testing.T) {
 	repo := t.TempDir()
-	// Must be a git repo for pre-commit install.
+	initGitRepo(t, repo)
 	gitDir := filepath.Join(repo, ".git")
-	if err := os.MkdirAll(gitDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	var stdout, stderr bytes.Buffer
 	if err := Run([]string{"hook", "install", "git-pre-commit", repo}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("hook install: %v", err)
@@ -2941,10 +2938,7 @@ func TestGitIsCleanOnNonGitRepo(t *testing.T) {
 func TestRunBootstrapFull(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
-	// Include .git so pre-commit install runs.
-	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	initGitRepo(t, repo)
 	var stdout, stderr bytes.Buffer
 	if err := Run([]string{"bootstrap", repo}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("bootstrap: %v", err)
@@ -3318,9 +3312,7 @@ func TestRunHookGenerateWritesOutputFile(t *testing.T) {
 
 func TestRunHookInstallWritesOutputFile(t *testing.T) {
 	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	initGitRepo(t, repo)
 	stdout, _ := runCommandWithOutputFile(t, "0.5.0-test", []string{"hook", "install", "git-pre-commit", repo})
 	if !strings.Contains(stdout, "Installed git-pre-commit hook") {
 		t.Errorf("expected hook install summary in stdout, got: %s", stdout)

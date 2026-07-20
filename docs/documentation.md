@@ -427,10 +427,14 @@ decisions are appended only for material transitions. Session state is
 hard-capped at 1 MiB; every evidence collection has both item and byte limits,
 repeated command results are deduplicated, and any omitted security-relevant
 evidence sets a persisted overflow marker that blocks PreToolUse and Stop.
-Agent persistent-memory writes (`~/.claude/projects/<project>/memory/**`) are
-harness runtime state, not repository writes: the pre-tool gate excludes them
-from the repo write policy (symlink-hardened, so a memory directory that
-resolves elsewhere stays gated) and they are never recorded as write evidence.
+Agent persistent-memory writes (`$CLAUDE_CONFIG_DIR/projects/<project>/memory/**`,
+defaulting to `~/.claude/projects/<project>/memory/**`) are harness runtime
+state, not repository writes. The pre-tool gate excludes only the current
+repository's canonical project key plus its Git-common-dir/worktree aliases
+from the repo write policy. Unrelated project memory remains gated. Resolution
+is symlink-hardened, including first writes below a not-yet-existing leaf, so a
+memory-looking path that resolves elsewhere stays gated; accepted memory writes
+are never recorded as repository write evidence.
 Host session IDs are validated exactly and mapped to collision-resistant file
 keys. State, reports, active pointers, and locks use bounded reads, private
 permissions, atomic publication, and cross-process locking; legacy sanitized
@@ -495,6 +499,26 @@ the write-epoch freshness contract. After upgrading, existing repositories
 must re-run `reconc hook install` for `claude-code`, `codex`, `opencode`, and
 `kilo` once to pick up the current host event contracts, matchers, bounded
 timeouts, and payload adapters.
+
+Command-prevention checks examine executable shell segments rather than one
+flat string. Top-level and composite `forbid_command` rules therefore run at
+PreToolUse and cannot be hidden behind `sh -c`, `bash -lc`, literal `eval`,
+command substitutions, backticks, process substitutions, command groups,
+sequencing, boolean joins, or pipelines. Parsing is quote-aware: single-quoted
+text and shell comments stay literal, substitutions inside double quotes
+remain executable, leading redirections are skipped, and unquoted backslash-
+newline continuations are folded before matching. Common
+`env`/`sudo`/`command`, `flock`, and `watch` wrappers plus `find
+-exec`/`-ok`/`-execdir`/`-okdir` and `xargs` command launchers are resolved,
+while ordinary literal arguments such as `echo git clean` never become
+executable-command matches. An unqualified rule executable matches the basename
+of an absolute executable path; explicitly path-qualified rules remain exact.
+During PreToolUse, a composite violation blocks only when the current command
+itself hits a direct `forbid_command`, so historical results and unrelated
+failing subchecks cannot poison later safe commands. Recursion is bounded;
+unresolved dynamic executable names and exhausted nesting fail closed. The built-in
+destructive Git guard uses the same model for `git clean` and `git reset
+--hard`.
 
 `reconc adopt .` and `reconc bootstrap inspect .` share deterministic stack
 detection for Go, Bun, Python, Rust, Shell, C/C++, Java, PHP, C#, Next.js,
@@ -707,6 +731,14 @@ it is not proof that a host process executed it. Separate `expected_events`,
 which registry routes a live runtime actually executed. Liveness is stored
 outside the repository and each route writes at most once every six hours.
 
+Before any non-Git installer write, Reconc resolves the prospective target
+through existing parent symlinks and rejects paths outside the selected
+repository. Scaffold sync validates every prospective artifact target before
+its first write, so one escaping parent symlink cannot produce a partial or
+external rollout. Forced malformed-config backups are content-addressed,
+create-only, private (`0600`), file-synced, and parent-directory-synced before
+the managed artifact is published.
+
 The registry assigns 5-second observation/session budgets, 10-second pre-tool
 and permission budgets, and 30-second Stop budgets instead of one blanket
 timeout. Claude, Codex, Devin, Antigravity, and Grok generators emit those
@@ -737,13 +769,16 @@ separate failed-tool event: Reconc classifies non-successful Bash outcomes from
 the released `PostToolUse` payload and records them through the failure path.
 User prompts, pre/post compaction, subagent start/stop, permission, tool, and
 Stop lifecycles are all routed. `apply_patch` is routed through Reconc by
-parsing patch headers from `tool_input.command`. Cursor
-Desktop uses `.cursor/hooks.json` with
+parsing patch headers from `tool_input.command`; a non-empty patch with zero
+parseable file operations fails closed instead of silently bypassing the write
+gate. Cursor Desktop uses `.cursor/hooks.json` with native
+`beforeSubmitPrompt`,
 `preToolUse` as the pre-write gate, `afterFileEdit`/`afterTabFileEdit` plus
 `postToolUse` as evidence backstops for Cursor write aliases including
 `StrReplace`, `Delete`, and `FileEdit`, and `stop` via Cursor-native
-`followup_message`. Clean Cursor
-hook paths emit explicit `{"continue":true,"permission":"allow"}` JSON because
+`followup_message`. Prompt blocks use only Cursor's supported
+`{"continue":false,"user_message":"..."}` response fields. Clean Cursor hook
+paths emit explicit `{"continue":true,"permission":"allow"}` JSON because
 Cursor fail-closed hooks treat empty stdout as hook failure. If Cursor also
 executes compatible `.claude/settings.json` hooks, Reconc detects Cursor-native
 payload markers and no-ops those non-native Claude hook invocations before they
@@ -791,31 +826,35 @@ empty, multiline, or non-exact decision output into explicit deny JSON. Normal
 Reconc allow and deny outcomes pass only when they are one exact valid JSON
 object. The hard outer Grok process timeout remains host-owned and fail-open.
 
-Grok 0.2.106+ turns native `Stop` into a synchronous gate. The standard stock
-TUI path therefore needs no leader: Reconc validates `stopHookActive`, marks
-eligible live Stops strict, and emits exact `{"decision":"block","reason":"..."}`
-JSON. Empty clean output allows completion. Missing, broken, or ambiguous
-binaries, malformed payloads, runtime failures, and invalid non-empty Stop
-output become block JSON while the wrapper can still respond. The generated
-Stop route uses Grok's 600-second default; host timeout or OS kill before any
-wrapper output remains Grok-owned fail-open behavior. Grok feeds a block reason
-back into the same turn, sets `stopHookActive` on re-entry, and bounds native
-continuation to eight repeats per turn. Explicit user interrupts, API failure,
+Reconc emits exact native `Stop` block JSON in the standard stock TUI without a
+leader: it validates `stopHookActive`, marks eligible live Stops strict, and
+emits exact `{"decision":"block","reason":"..."}` JSON. Empty clean output
+allows completion. Missing, broken, or ambiguous binaries, malformed payloads,
+runtime failures, and invalid non-empty Stop output become block JSON while the
+wrapper can still respond. The generated Stop route uses a 600-second budget;
+host timeout or OS kill before any wrapper output remains Grok-owned fail-open
+behavior. Reconc treats the Stop output as synchronously enforced only when the
+hook guide shipped with the installed Grok distribution contains both a
+blocking Stop event row and `Stop Decision Control`; it never infers the
+capability from a version string. When advertised, the host's documented
+re-entry and continuation bound apply. Explicit user interrupts, API failure,
 max-turn termination, and session-end reasons `channel_closed`/`shutdown` are
 never continued. Subagent lifecycle remains evidence-only in Reconc because
 repository TASK completion belongs to the parent session.
 
-`reconc grok` remains the explicit strict ACP driver. For Grok versions older
-than 0.2.106, optional leader mode (`grok --leader`, config `use_leader`, or
-`GROK_LEADER_SOCKET`) supplies backward-compatible TUI continuation through
-protocol 1 `_x.ai/interject` over Unix sockets or Windows named pipes. Reconc
-recognizes native-Stop-capable leader versions and suppresses the interjection,
-preventing duplicate prompts. The 32-attempt leader cap counts only delivered
+`reconc grok` remains the explicit strict ACP driver. When the installed Grok
+guide documents passive Stop, optional leader mode (`grok --leader`, config
+`use_leader`, or `GROK_LEADER_SOCKET`) supplies backward-compatible TUI
+continuation through protocol 1 `_x.ai/interject` over Unix sockets or Windows
+named pipes. Reconc suppresses the interjection only when native Stop capability
+is explicitly advertised, preventing duplicate prompts without creating a
+version-based enforcement gap. The 32-attempt leader cap counts only delivered
 interjections in one no-progress series; material progress, a new block, or a
 clean Stop resets it. Multiple endpoints divide the three-second budget fairly
 and framed messages complete short writes. `RECONC_GROK_STEER=0` disables only
-leader steering, not native Stop or PreToolUse. Deep doctor reports installed
-native Stop capability and separately probes optional leader protocol plus
+leader steering; PreToolUse remains hard while native Stop remains dependent on
+the installed host capability. Deep doctor reports installed native Stop
+capability and separately probes optional leader protocol plus
 `_x.ai/interject` with a random nonexistent session.
 `reconc run on|off|status|log` is the canonical AI-operated repository switch.
 Its durable state applies only to the selected repository, not the whole machine.

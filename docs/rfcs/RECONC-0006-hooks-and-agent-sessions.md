@@ -9,15 +9,15 @@
 
 | Kind | Target | Enforcement |
 |---|---|---|
-| `git-pre-commit` | `.git/hooks/pre-commit` | Runs `reconc ci --staged` before commit. |
+| `git-pre-commit` | active Git hooks path (`.git/hooks/pre-commit` by default) | Runs `reconc ci --staged` before commit. |
 | `claude-code` | `.claude/settings.json` | Prompt, permission, tool, failure, compaction, subagent, session, and stop hooks. |
 | `codex` | `.codex/hooks.json` | Released prompt, permission, tool, compaction, subagent, session-start, and stop hooks. |
-| `cursor` | `.cursor/hooks.json` | Session, prompt, write/shell policy, post-tool evidence, and stop gate. |
+| `cursor` | `.cursor/hooks.json` | Session, native `beforeSubmitPrompt`, write/shell policy, post-tool evidence, and stop gate. |
 | `opencode` | `.opencode/plugins/reconc.js` | Project plugin for prompt, permission, complete tool outcomes, terminal errors, compaction, session lifecycle, and idle stop gate. |
 | `devin-cli` | `.devin/hooks.v1.json` | Session, tool, permission, stop, cleanup, and post-compaction hooks. |
 | `antigravity` | `.agents/hooks.json` | Invocation, tool, and stop hook group under the top-level `reconc` key. |
 | `kilo` | `.kilo/plugin/reconc.js` | Thin project plugin for prompt, permission, complete tool outcomes, terminal errors, compaction, session lifecycle, and idle handling. |
-| `grok` | `.grok/hooks/reconc.json` | Native lifecycle, strict PreToolUse, no-leader Stop on Grok 0.2.106+, compaction, permission-denial, and subagent events. |
+| `grok` | `.grok/hooks/reconc.json` | Native lifecycle, strict PreToolUse, capability-probed no-leader Stop, compaction, permission-denial, and subagent events. |
 
 Installers are idempotent. Reconc-owned JSON hook entries are
 identified by `reconc hook runtime` command tokens and replaced on
@@ -26,6 +26,14 @@ updates only the reconc-managed project plugin and refuses to overwrite
 non-reconc plugin content without `--force`. Kilo Code and Grok managed files
 use the same refusal rule; Grok owns only `reconc.json` and preserves every
 other file under `.grok/hooks/`.
+The Git installer resolves the same active `core.hooksPath` used by status,
+updates managed content idempotently, supports linked-worktree common Git
+storage, and refuses to write into a shared external hooks directory.
+Every non-Git installer target is resolved through existing parent symlinks and
+must remain inside the selected repository. Scaffold sync preflights all target
+paths before its first write. Forced malformed-config backups are
+content-addressed, create-only, `0600`, file-synced, and parent-directory-synced
+before the managed artifact is published.
 
 The typed registry owns event coverage, native names, fallbacks, failure and
 timeout policy, timeout/output budgets, paths, install strategies, and
@@ -92,18 +100,21 @@ generator-exact managed hook and executable wrapper, and all 14 exact native
 route command tokens; prefix collisions do not count. The guarded PreToolUse
 path accepts only one exact allow/deny JSON object and converts runtime errors,
 timeouts, empty or multiline output, and malformed decisions into explicit
-deny JSON. Grok 0.2.106+ also accepts exact native Stop block JSON without a
-leader. Reconc marks eligible live Stops strict across `stopHookActive`
-re-entry, while interrupts and session-end reasons release; Grok bounds native
-continuation to eight repeats per turn. The 600-second generated Stop budget
-matches Grok's host default. `reconc grok` remains the explicit strict ACP
-path.
+deny JSON. Reconc also emits exact native Stop block JSON without a leader and
+marks eligible live Stops strict across `stopHookActive` re-entry. It treats
+that output as synchronously enforced only when the hook guide shipped with the
+installed Grok distribution explicitly advertises blocking Stop decision
+control; version strings are not accepted as capability proof. Interrupts and
+session-end reasons release. The generated Stop budget is 600 seconds. `reconc
+grok` remains the explicit strict ACP path.
 
-For older Grok versions, optional leader mode additionally steers the TUI over
-the Unix socket or Windows named pipe. Protocol-1 `_x.ai/interject` requires a
+For Grok distributions with a passive Stop contract, optional leader mode
+additionally steers the TUI over the Unix socket or Windows named pipe.
+Protocol-1 `_x.ai/interject` requires a
 matching `GROK_SESSION_ID`; only delivered interjections count toward the
 32-attempt no-progress cap. Material progress, a new block, or a clean Stop
-resets the series. Native-capable leaders suppress duplicate interjection.
+resets the series. Capability-proven native hosts suppress duplicate
+interjection.
 Multiple endpoints receive fair shares of the transport budget and framed
 writes complete short writes. `RECONC_GROK_STEER=0` disables only leader
 steering. Deep doctor reports native Stop support separately and requires a
@@ -129,7 +140,7 @@ cleanup for later inspection.
 
 Hook runtime payloads are untrusted:
 
-- stdin payload size is capped
+- stdin payload size is capped at 64 MiB so multi-megabyte edit bodies work without permitting unbounded input
 - JSON depth is capped before unmarshal
 - malformed pre-write and stop payloads fail closed
 - post-tool observation payload failures fail open with warnings

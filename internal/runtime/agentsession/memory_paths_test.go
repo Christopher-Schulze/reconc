@@ -23,7 +23,12 @@ func setTestHome(t *testing.T) string {
 // adjacent: settings, hooks, project roots, and repo paths stay policy-gated.
 func TestAgentMemoryWritePathScopesExactlyTheMemoryTree(t *testing.T) {
 	home := setTestHome(t)
-	memoryDir := filepath.Join(home, ".claude", "projects", "-Users-x-repo", "memory")
+	repo := filepath.Join(home, "workspace", "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	projectKey := claudeProjectKey(repo)
+	memoryDir := filepath.Join(home, ".claude", "projects", projectKey, "memory")
 	if err := os.MkdirAll(memoryDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -38,6 +43,7 @@ func TestAgentMemoryWritePathScopesExactlyTheMemoryTree(t *testing.T) {
 		{"memory dir itself has no file target", memoryDir, false},
 		{"claude settings stay gated", filepath.Join(home, ".claude", "settings.json"), false},
 		{"project root outside memory", filepath.Join(home, ".claude", "projects", "-Users-x-repo", "notes.md"), false},
+		{"different project memory", filepath.Join(home, ".claude", "projects", "-Users-other-repo", "memory", "MEMORY.md"), false},
 		{"projects root", filepath.Join(home, ".claude", "projects"), false},
 		{"memory-named dir outside claude tree", filepath.Join(home, "memory", "MEMORY.md"), false},
 		{"relative path", ".claude/projects/x/memory/MEMORY.md", false},
@@ -46,8 +52,8 @@ func TestAgentMemoryWritePathScopesExactlyTheMemoryTree(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := agentMemoryWritePath(tc.path); got != tc.want {
-				t.Fatalf("agentMemoryWritePath(%q)=%v, want %v", tc.path, got, tc.want)
+			if got := agentMemoryWritePath(repo, tc.path); got != tc.want {
+				t.Fatalf("agentMemoryWritePath(%q, %q)=%v, want %v", repo, tc.path, got, tc.want)
 			}
 		})
 	}
@@ -58,7 +64,11 @@ func TestAgentMemoryWritePathScopesExactlyTheMemoryTree(t *testing.T) {
 // NOT treated as memory, so the normal repo write policy still applies.
 func TestAgentMemoryWritePathRefusesSymlinkedMemoryEscape(t *testing.T) {
 	home := setTestHome(t)
-	project := filepath.Join(home, ".claude", "projects", "-Users-x-repo")
+	repo := filepath.Join(home, "workspace", "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	project := filepath.Join(home, ".claude", "projects", claudeProjectKey(repo))
 	if err := os.MkdirAll(project, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +86,7 @@ func TestAgentMemoryWritePathRefusesSymlinkedMemoryEscape(t *testing.T) {
 		}
 		t.Fatal(err)
 	}
-	if agentMemoryWritePath(filepath.Join(project, "memory", "MEMORY.md")) {
+	if agentMemoryWritePath(repo, filepath.Join(project, "memory", "MEMORY.md")) {
 		t.Fatal("symlinked memory dir must not bypass the write policy")
 	}
 }
@@ -87,7 +97,7 @@ func TestAgentMemoryWritePathRefusesSymlinkedMemoryEscape(t *testing.T) {
 func TestRunPreToolUseAllowsAgentMemoryWrites(t *testing.T) {
 	home := setTestHome(t)
 	repo := setupPolicyRepo(t)
-	memoryFile := filepath.Join(home, ".claude", "projects", "-p", "memory", "MEMORY.md")
+	memoryFile := filepath.Join(home, ".claude", "projects", claudeProjectKey(repo), "memory", "MEMORY.md")
 	if err := os.MkdirAll(filepath.Dir(memoryFile), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -108,5 +118,22 @@ func TestRunPreToolUseAllowsAgentMemoryWrites(t *testing.T) {
 		if path == memoryFile {
 			t.Fatalf("memory write leaked into repo write evidence: %v", state.WritePaths)
 		}
+	}
+}
+
+func TestAgentMemoryWritePathHonorsClaudeConfigDir(t *testing.T) {
+	home := setTestHome(t)
+	repo := filepath.Join(home, "workspace", "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configRoot := filepath.Join(home, "claude-config")
+	t.Setenv("CLAUDE_CONFIG_DIR", configRoot)
+	memoryFile := filepath.Join(configRoot, "projects", claudeProjectKey(repo), "memory", "MEMORY.md")
+	if err := os.MkdirAll(filepath.Dir(memoryFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !agentMemoryWritePath(repo, memoryFile) {
+		t.Fatalf("current project memory under CLAUDE_CONFIG_DIR must be allowed: %s", memoryFile)
 	}
 }

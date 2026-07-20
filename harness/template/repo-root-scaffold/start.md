@@ -62,13 +62,14 @@ context limits persist exact progress in the TASK control plane. Explicit user
 interrupt always stops the current invocation without changing durable run
 state.
 
-Grok Build has a native hard PreToolUse boundary. Grok 0.2.106+ also enforces
-exact Reconc Stop block JSON in the normal TUI without a leader, with strict
-`stopHookActive` re-entry and Grok's eight-continuation per-turn bound. User
-interrupts and session-end reasons release. `reconc grok . --prompt "..."`
-remains the explicit strict ACP path. Older Grok versions can use optional
-leader fallback over the Unix socket or Windows named pipe; only delivered
-interjections count toward the 32-attempt no-progress series, and native-
-capable leaders suppress duplicate prompts. Managed activation requires exact
+Grok Build has a native hard PreToolUse boundary. Reconc also emits exact Stop
+block JSON in the normal TUI without a leader, but only an installed Grok guide
+that advertises blocking Stop decision control proves synchronous enforcement.
+User interrupts and session-end reasons release. `reconc grok . --prompt "..."`
+remains the explicit strict ACP path. Passive Stop distributions can use
+optional leader fallback over the Unix socket or Windows named pipe; only
+delivered interjections count toward the 32-attempt no-progress series, and
+capability-proven native hosts suppress duplicate prompts. Managed activation
+requires exact
 hook/wrapper artifacts and route tokens. `reconc doctor --deep` reports native
 Stop support and separately verifies protocol 1 plus `_x.ai/interject`.
