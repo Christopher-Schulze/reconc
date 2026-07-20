@@ -871,7 +871,7 @@ func TestPolicySourceErrorTypeUsed(t *testing.T) {
 
 func TestClassifyHookEntryCanonicalVsModified(t *testing.T) {
 	canonical := `reconc hook runtime claude-session-start "$CLAUDE_PROJECT_DIR"`
-	canonicalSignature := commandSignature(canonical, nil)
+	canonicalSignatures := map[string]struct{}{commandSignature(canonical, nil): {}}
 	mkEntry := func(cmd string) map[string]interface{} {
 		return map[string]interface{}{
 			"hooks": []interface{}{
@@ -891,7 +891,7 @@ func TestClassifyHookEntryCanonicalVsModified(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := classifyHookEntry(mkEntry(c.cmd), canonicalSignature)
+			got := classifyHookEntry(mkEntry(c.cmd), canonicalSignatures)
 			if got != c.want {
 				t.Errorf("classifyHookEntry(%q) = %d, want %d", c.cmd, got, c.want)
 			}
@@ -901,7 +901,7 @@ func TestClassifyHookEntryCanonicalVsModified(t *testing.T) {
 
 func TestClassifyCursorDirectCommandEntry(t *testing.T) {
 	canonical := `sh -lc 'reconc hook runtime cursor-pre-tool-use .'`
-	canonicalSignature := commandSignature(canonical, nil)
+	canonicalSignatures := map[string]struct{}{commandSignature(canonical, nil): {}}
 	entry := map[string]interface{}{
 		"command":    canonical,
 		"failClosed": true,
@@ -909,11 +909,11 @@ func TestClassifyCursorDirectCommandEntry(t *testing.T) {
 	if firstHookCommand([]interface{}{entry}) != canonical {
 		t.Fatalf("direct Cursor command was not discovered")
 	}
-	if got := classifyHookEntry(entry, canonicalSignature); got != CanonicalReconc {
+	if got := classifyHookEntry(entry, canonicalSignatures); got != CanonicalReconc {
 		t.Fatalf("direct Cursor command classified as %d", got)
 	}
 	modified := map[string]interface{}{"command": canonical + " --debug"}
-	if got := classifyHookEntry(modified, canonicalSignature); got != ModifiedReconc {
+	if got := classifyHookEntry(modified, canonicalSignatures); got != ModifiedReconc {
 		t.Fatalf("modified direct Cursor command classified as %d", got)
 	}
 }
@@ -928,8 +928,8 @@ func TestClassifyClaudeExecArgsByFullArgv(t *testing.T) {
 			},
 		},
 	}
-	canonicalSignature := hookEntrySignature(canonical)
-	if got := classifyHookEntry(canonical, canonicalSignature); got != CanonicalReconc {
+	canonicalSignatures := hookSignatureSet([]interface{}{canonical})
+	if got := classifyHookEntry(canonical, canonicalSignatures); got != CanonicalReconc {
 		t.Fatalf("canonical exec-form hook classified as %d", got)
 	}
 	wrongArgs := map[string]interface{}{
@@ -941,7 +941,7 @@ func TestClassifyClaudeExecArgsByFullArgv(t *testing.T) {
 			},
 		},
 	}
-	if got := classifyHookEntry(wrongArgs, canonicalSignature); got != ModifiedReconc {
+	if got := classifyHookEntry(wrongArgs, canonicalSignatures); got != ModifiedReconc {
 		t.Fatalf("same command with wrong args must be modified, got %d", got)
 	}
 }
@@ -1264,5 +1264,47 @@ func TestInstallSurfacesNonArrayHooksEvent(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected non-array SessionStart to be reported, got: %v", report.DroppedUserEdits)
+	}
+}
+
+
+// TestMergeReconcHooksAcceptsEveryCanonicalEntry proves a multi-entry event
+// (SessionStart carries session-start plus compaction-recovery) reinstalls
+// without falsely reporting its second canonical entry as a replaced user
+// edit.
+func TestMergeReconcHooksAcceptsEveryCanonicalEntry(t *testing.T) {
+	entry := func(route string) interface{} {
+		return map[string]interface{}{
+			"hooks": []interface{}{
+				map[string]interface{}{
+					"type":    "command",
+					"command": "${CLAUDE_PROJECT_DIR}/tools/reconc/bin/hook",
+					"args":    []interface{}{route, "${CLAUDE_PROJECT_DIR}"},
+				},
+			},
+		}
+	}
+	generated := map[string]interface{}{
+		"hooks": map[string]interface{}{
+			"SessionStart": []interface{}{entry("claude-session-start"), entry("claude-compaction-recovery")},
+		},
+	}
+	existing := map[string]interface{}{
+		"hooks": map[string]interface{}{
+			"SessionStart": []interface{}{entry("claude-session-start"), entry("claude-compaction-recovery")},
+		},
+	}
+	diff := mergeReconcHooks(existing, generated, MergeOptions{KeepUserEdits: false})
+	if len(diff.Removed) != 0 {
+		t.Fatalf("identical canonical entries must never be reported as replaced user edits: %v", diff.Removed)
+	}
+	modified := map[string]interface{}{
+		"hooks": map[string]interface{}{
+			"SessionStart": []interface{}{entry("claude-session-start"), entry("claude-tampered-route")},
+		},
+	}
+	diff = mergeReconcHooks(modified, generated, MergeOptions{KeepUserEdits: false})
+	if len(diff.Removed) != 1 {
+		t.Fatalf("a genuinely modified reconc entry must still be reported: %v", diff.Removed)
 	}
 }

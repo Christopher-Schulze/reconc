@@ -90,16 +90,17 @@ for dev_reconc in "$repo/.build/bin/reconc" "$repo/reconc"; do
   fi
 done
 
-case "$(uname -s)" in
-  Darwin) reconc_os="darwin" ;;
-  Linux) reconc_os="linux" ;;
+reconc_uname="$(uname -sm)"
+case "$reconc_uname" in
+  Darwin*) reconc_os="darwin" ;;
+  Linux*) reconc_os="linux" ;;
   CYGWIN*|MINGW*|MSYS*) reconc_os="windows" ;;
   *) reconc_os="" ;;
 esac
 
-case "$(uname -m)" in
-  arm64|aarch64) reconc_arch="arm64" ;;
-  x86_64|amd64) reconc_arch="amd64" ;;
+case "$reconc_uname" in
+  *arm64|*aarch64) reconc_arch="arm64" ;;
+  *x86_64|*amd64) reconc_arch="amd64" ;;
   *) reconc_arch="" ;;
 esac
 

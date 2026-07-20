@@ -7,8 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"unicode"
 )
+
+// canonicalCaseCache memoizes CanonicalizePathCase per process: hook
+// invocations resolve the same repo root many times (state, report,
+// active-session, lock paths) and the directory walk would otherwise repeat.
+var canonicalCaseCache sync.Map
 
 const (
 	MaxSessionIDBytes  = 512
@@ -30,10 +36,71 @@ func ResolveStateRoot() string {
 }
 
 // ProjectDir is the exact hash-keyed directory used by agent session state.
+// The repo root is case-canonicalized before hashing so spelling variants of
+// the same checkout on case-insensitive filesystems (macOS /Users/x/repo vs
+// /Users/x/REPO) share one project bucket instead of silently splitting
+// sessions, claims, and command proofs across two.
 func ProjectDir(stateRoot, repoRoot string) string {
-	sum := sha256.Sum256([]byte(repoRoot))
+	sum := sha256.Sum256([]byte(CanonicalizePathCase(repoRoot)))
 	key := hex.EncodeToString(sum[:])[:16]
 	return filepath.Join(stateRoot, "projects", key)
+}
+
+// CanonicalizePathCase returns the on-disk spelling of an existing absolute
+// path by walking its components and preferring the directory entry the
+// filesystem actually stores. It rewrites only when the rewritten path is
+// verifiably the SAME file as the input (os.SameFile), so on case-sensitive
+// filesystems - where a case variant is a different file - the input is
+// always returned unchanged. Missing paths are returned unchanged.
+func CanonicalizePathCase(path string) string {
+	if !filepath.IsAbs(path) {
+		return path
+	}
+	if cached, ok := canonicalCaseCache.Load(path); ok {
+		return cached.(string)
+	}
+	canonical := canonicalizePathCaseUncached(path)
+	canonicalCaseCache.Store(path, canonical)
+	return canonical
+}
+
+func canonicalizePathCaseUncached(path string) string {
+	originalInfo, err := os.Stat(path)
+	if err != nil {
+		return path
+	}
+	volume := filepath.VolumeName(path)
+	rest := strings.Trim(strings.TrimPrefix(filepath.Clean(path), volume), string(filepath.Separator))
+	canonical := volume + string(filepath.Separator)
+	if rest != "" {
+		for _, component := range strings.Split(rest, string(filepath.Separator)) {
+			next := filepath.Join(canonical, component)
+			if _, err := os.Lstat(next); err != nil {
+				return path
+			}
+			entries, err := os.ReadDir(canonical)
+			if err != nil {
+				canonical = next
+				continue
+			}
+			resolved := component
+			for _, entry := range entries {
+				if entry.Name() == component {
+					resolved = component
+					break
+				}
+				if strings.EqualFold(entry.Name(), component) {
+					resolved = entry.Name()
+				}
+			}
+			canonical = filepath.Join(canonical, resolved)
+		}
+	}
+	canonicalInfo, err := os.Stat(canonical)
+	if err != nil || !os.SameFile(originalInfo, canonicalInfo) {
+		return path
+	}
+	return canonical
 }
 
 func isProjectKey(name string) bool {

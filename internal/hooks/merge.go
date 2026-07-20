@@ -70,10 +70,14 @@ func mergeReconcHooks(dest, reconcPart map[string]interface{}, opts MergeOptions
 			}
 		}
 
-		// Build per-event canonical signature for classification. We
-		// include args because Claude Code exec-form hooks use the same
-		// command path for every event and distinguish routes by argv.
-		canonical := firstHookSignature(newEntries)
+		// Build the per-event canonical signature SET for classification.
+		// We include args because Claude Code exec-form hooks use the same
+		// command path for every event and distinguish routes by argv, and
+		// an event may carry several canonical reconc entries (SessionStart
+		// runs session-start plus compaction-recovery): comparing against
+		// only the first signature misclassifies every further canonical
+		// entry as user-modified and emits a false replacement warning.
+		canonical := hookSignatureSet(newEntries)
 
 		filtered := make([]interface{}, 0, len(existingEntries))
 		for _, e := range existingEntries {
@@ -105,7 +109,7 @@ func mergeReconcHooks(dest, reconcPart map[string]interface{}, opts MergeOptions
 		}
 		filtered := make([]interface{}, 0, len(existingEntries))
 		for _, e := range existingEntries {
-			switch classifyHookEntry(e, "") {
+			switch classifyHookEntry(e, nil) {
 			case NonReconc:
 				filtered = append(filtered, e)
 			case CanonicalReconc, ModifiedReconc:
@@ -176,11 +180,17 @@ func firstHookCommand(entries []interface{}) string {
 	return strings.TrimSpace(cmd)
 }
 
-func firstHookSignature(entries []interface{}) string {
-	if len(entries) == 0 {
-		return ""
+// hookSignatureSet collects the canonical signature of every generated entry
+// for one event, so classification recognizes each of them instead of only
+// the first.
+func hookSignatureSet(entries []interface{}) map[string]struct{} {
+	set := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		if signature := hookEntrySignature(entry); signature != "" {
+			set[signature] = struct{}{}
+		}
 	}
-	return hookEntrySignature(entries[0])
+	return set
 }
 
 func hookEntrySignature(entry interface{}) string {
@@ -241,7 +251,7 @@ const (
 // a hooks.<event> array. Looks at Cursor-style direct `command` first,
 // then Claude/Codex-style `hooks[0].command`; the generator never emits
 // multi-hook entries so this is the correct granularity.
-func classifyHookEntry(entry interface{}, canonicalSignature string) HookEntryClass {
+func classifyHookEntry(entry interface{}, canonicalSignatures map[string]struct{}) HookEntryClass {
 	m, ok := entry.(map[string]interface{})
 	if !ok {
 		return NonReconc
@@ -267,7 +277,7 @@ func classifyHookEntry(entry interface{}, canonicalSignature string) HookEntryCl
 		!strings.Contains(trimmed, "tools/reconc/bin/hook") {
 		return NonReconc
 	}
-	if canonicalSignature != "" && hookEntrySignature(entry) == canonicalSignature {
+	if _, ok := canonicalSignatures[hookEntrySignature(entry)]; ok {
 		return CanonicalReconc
 	}
 	return ModifiedReconc

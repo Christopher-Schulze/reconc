@@ -133,16 +133,17 @@ exit 2
 }
 
 func shellBinaryResolver() string {
-	return `case "$(uname -s)" in
-  Darwin) reconc_os="darwin" ;;
-  Linux) reconc_os="linux" ;;
+	return `reconc_uname="$(uname -sm)"
+case "$reconc_uname" in
+  Darwin*) reconc_os="darwin" ;;
+  Linux*) reconc_os="linux" ;;
   CYGWIN*|MINGW*|MSYS*) reconc_os="windows" ;;
   *) reconc_os="" ;;
 esac
 
-case "$(uname -m)" in
-  arm64|aarch64) reconc_arch="arm64" ;;
-  x86_64|amd64) reconc_arch="amd64" ;;
+case "$reconc_uname" in
+  *arm64|*aarch64) reconc_arch="arm64" ;;
+  *x86_64|*amd64) reconc_arch="amd64" ;;
   *) reconc_arch="" ;;
 esac
 
