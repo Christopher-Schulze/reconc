@@ -152,7 +152,7 @@ func TestRootLauncherFromRepoRoot(t *testing.T) {
 	}
 	writeFixture(t, root, tasksRel, "# Tasks\n")
 
-	cmd := exec.Command(launcher, "show", "--task", "TASK-9999-Standalone-Probe")
+	cmd := exec.Command("sh", launcher, "show", "--task", "TASK-9999-Standalone-Probe")
 	cmd.Dir = t.TempDir()
 	output, err := cmd.CombinedOutput()
 	if err != nil {

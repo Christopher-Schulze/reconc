@@ -99,8 +99,13 @@ func (c *cacheInputs) AddTreeStructure(root string, suffixes []string) {
 		}
 		return nil
 	})
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		c.inputErrors = append(c.inputErrors, fmt.Errorf("walk tree structure %s: %w", root, err))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			err = validateAbsentCachePath(root)
+		}
+		if err != nil {
+			c.inputErrors = append(c.inputErrors, fmt.Errorf("walk tree structure %s: %w", root, err))
+		}
 	}
 }
 
@@ -126,8 +131,43 @@ func (c *cacheInputs) AddTree(root string, suffixes []string) {
 		}
 		return nil
 	})
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		c.inputErrors = append(c.inputErrors, fmt.Errorf("walk tree %s: %w", root, err))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			err = validateAbsentCachePath(root)
+		}
+		if err != nil {
+			c.inputErrors = append(c.inputErrors, fmt.Errorf("walk tree %s: %w", root, err))
+		}
+	}
+}
+
+// validateAbsentCachePath distinguishes a genuinely absent path from a path
+// that only appears absent because an ancestor is not a usable directory.
+func validateAbsentCachePath(path string) error {
+	ancestor := filepath.Dir(filepath.Clean(path))
+	for {
+		info, err := os.Lstat(ancestor)
+		if err == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				target, statErr := os.Stat(ancestor)
+				if statErr != nil {
+					return fmt.Errorf("inspect ancestor %s: %w", ancestor, statErr)
+				}
+				info = target
+			}
+			if !info.IsDir() {
+				return fmt.Errorf("ancestor %s is not a directory", ancestor)
+			}
+			return nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("inspect ancestor %s: %w", ancestor, err)
+		}
+		parent := filepath.Dir(ancestor)
+		if parent == ancestor {
+			return fmt.Errorf("no existing directory ancestor for %s", path)
+		}
+		ancestor = parent
 	}
 }
 
@@ -157,6 +197,9 @@ func (c *cacheInputs) Hash() (string, error) {
 			if !errors.Is(err, os.ErrNotExist) {
 				return "", fmt.Errorf("hash read %s: %w", path, err)
 			}
+			if err := validateAbsentCachePath(path); err != nil {
+				return "", fmt.Errorf("hash read %s: %w", path, err)
+			}
 			digest.Write([]byte("ABSENT"))
 		} else {
 			digest.Write(content)
@@ -171,6 +214,9 @@ func (c *cacheInputs) Hash() (string, error) {
 		if _, err := os.Stat(path); err == nil {
 			digest.Write([]byte("PRESENT"))
 		} else if errors.Is(err, os.ErrNotExist) {
+			if err := validateAbsentCachePath(path); err != nil {
+				return "", fmt.Errorf("hash structure metadata %s: %w", path, err)
+			}
 			digest.Write([]byte("ABSENT"))
 		} else {
 			return "", fmt.Errorf("hash structure metadata %s: %w", path, err)
@@ -185,6 +231,9 @@ func (c *cacheInputs) Hash() (string, error) {
 		info, err := os.Lstat(path)
 		if err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
+				return "", fmt.Errorf("hash metadata %s: %w", path, err)
+			}
+			if err := validateAbsentCachePath(path); err != nil {
 				return "", fmt.Errorf("hash metadata %s: %w", path, err)
 			}
 			digest.Write([]byte("ABSENT"))

@@ -429,6 +429,11 @@ func TestWriteAtomicPreservesExistingMode(t *testing.T) {
 	if err := os.WriteFile(path, []byte("before"), 0o640); err != nil {
 		t.Fatal(err)
 	}
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantMode := before.Mode().Perm()
 	if err := writeAtomic(path, []byte("after")); err != nil {
 		t.Fatal(err)
 	}
@@ -436,8 +441,8 @@ func TestWriteAtomicPreservesExistingMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o640 {
-		t.Fatalf("mode changed to %o", info.Mode().Perm())
+	if info.Mode().Perm() != wantMode {
+		t.Fatalf("mode changed from %o to %o", wantMode, info.Mode().Perm())
 	}
 }
 

@@ -440,16 +440,53 @@ func TestRunWithCacheFailsClosedOnTreeWalkError(t *testing.T) {
 	}
 }
 
-func TestCacheInputsHashFailsClosedOnStructureStatError(t *testing.T) {
-	root := t.TempDir()
-	notDirectory := filepath.Join(root, "file")
-	if err := os.WriteFile(notDirectory, []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
+func TestCacheInputsHashFailsClosedOnAncestorTypeError(t *testing.T) {
+	tests := []struct {
+		name    string
+		context string
+		add     func(*cacheInputs, string)
+	}{
+		{name: "content", context: "hash read", add: func(inputs *cacheInputs, path string) { inputs.AddFile(path) }},
+		{name: "structure", context: "hash structure metadata", add: func(inputs *cacheInputs, path string) { inputs.structurePaths = append(inputs.structurePaths, path) }},
+		{name: "metadata", context: "hash metadata", add: func(inputs *cacheInputs, path string) { inputs.AddPathMetadata(path) }},
 	}
-	inputs := newCacheInputs()
-	inputs.structurePaths = append(inputs.structurePaths, filepath.Join(notDirectory, "child"))
-	if _, err := inputs.Hash(); err == nil || !strings.Contains(err.Error(), "hash structure metadata") {
-		t.Fatalf("structure metadata failure was hidden: %v", err)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			notDirectory := filepath.Join(root, "file")
+			if err := os.WriteFile(notDirectory, []byte("x"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			inputs := newCacheInputs()
+			test.add(inputs, filepath.Join(notDirectory, "child"))
+			if _, err := inputs.Hash(); err == nil || !strings.Contains(err.Error(), test.context) {
+				t.Fatalf("ancestor type failure was hidden: %v", err)
+			}
+		})
+	}
+}
+
+func TestCacheInputsTreeFailsClosedOnAncestorTypeError(t *testing.T) {
+	tests := []struct {
+		name string
+		add  func(*cacheInputs, string)
+	}{
+		{name: "content", add: func(inputs *cacheInputs, path string) { inputs.AddTree(path, nil) }},
+		{name: "structure", add: func(inputs *cacheInputs, path string) { inputs.AddTreeStructure(path, nil) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			notDirectory := filepath.Join(root, "file")
+			if err := os.WriteFile(notDirectory, []byte("x"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			inputs := newCacheInputs()
+			test.add(inputs, filepath.Join(notDirectory, "child"))
+			if _, err := inputs.Hash(); err == nil || !strings.Contains(err.Error(), "walk tree") {
+				t.Fatalf("tree ancestor type failure was hidden: %v", err)
+			}
+		})
 	}
 }
 
