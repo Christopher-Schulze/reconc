@@ -432,9 +432,10 @@ defaulting to `~/.claude/projects/<project>/memory/**`) are harness runtime
 state, not repository writes. The pre-tool gate excludes only the current
 repository's canonical project key plus its Git-common-dir/worktree aliases
 from the repo write policy. Unrelated project memory remains gated. Resolution
-is symlink-hardened, including first writes below a not-yet-existing leaf, so a
-memory-looking path that resolves elsewhere stays gated; accepted memory writes
-are never recorded as repository write evidence.
+is filesystem-identity-hardened, including Unix symlinks, Windows junctions,
+Windows 8.3/long-path aliases, and first writes below a not-yet-existing leaf.
+A memory-looking path that resolves elsewhere stays gated; accepted memory
+writes are never recorded as repository write evidence.
 Host session IDs are validated exactly and mapped to collision-resistant file
 keys. State, reports, active pointers, and locks use bounded reads, private
 permissions, atomic publication, and cross-process locking; legacy sanitized
@@ -689,6 +690,7 @@ Package responsibilities:
 - `internal/filelock`: Unix/Windows cross-process file locking
 - `internal/grokacp`: strict Grok ACP client plus Unix-socket and Windows named-pipe leader steering/probing
 - `internal/jsonl`: bounded, locked JSONL append and archive rings
+- `internal/pathidentity`: Unix symlink and Windows reparse-point/8.3 filesystem identity
 - `internal/commandproof`: commit-candidate-bound staged command-success receipts
 - `internal/retention`: runtime storage classes, lifecycle due checks, and cleanup
 - `internal/presets`: bundled and user policy packs
@@ -732,10 +734,12 @@ which registry routes a live runtime actually executed. Liveness is stored
 outside the repository and each route writes at most once every six hours.
 
 Before any non-Git installer write, Reconc resolves the prospective target
-through existing parent symlinks and rejects paths outside the selected
-repository. Scaffold sync validates every prospective artifact target before
-its first write, so one escaping parent symlink cannot produce a partial or
-external rollout. Forced malformed-config backups are content-addressed,
+through the operating system's filesystem identity and rejects paths outside
+the selected repository. This follows Unix symlinks and Windows reparse points,
+including directory junctions, while normalizing Windows 8.3 aliases. Scaffold
+sync validates every prospective artifact target before its first write, so one
+escaping parent cannot produce a partial or external rollout. Forced
+malformed-config backups are content-addressed,
 create-only, private (`0600`), file-synced, and parent-directory-synced before
 the managed artifact is published.
 
@@ -1172,7 +1176,8 @@ Security posture:
 
 - Agent payloads are untrusted input.
 - Hook runtime payloads are size and depth bounded.
-- Paths are normalized and constrained to the discovered repository root.
+- Paths use operating-system filesystem identity and are constrained to the
+  discovered repository root, including Windows junction and 8.3 aliases.
 - Payload command strings are matched as data and are not executed.
 - Only policy-authored `require_script` entries execute subprocesses.
 - Audit log is opt-in via `RECONC_AUDIT=1`.

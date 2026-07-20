@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+	"reconc.dev/reconc/internal/pathidentity"
 )
 
 // Profile selects one of the two TASK formats Reconc can adopt without
@@ -231,13 +232,9 @@ func validateRepoRelativePath(path string) error {
 }
 
 func canonicalRepoRoot(repoRoot string) (string, error) {
-	root, err := filepath.Abs(repoRoot)
+	root, err := pathidentity.ResolveExisting(repoRoot)
 	if err != nil {
-		return "", fmt.Errorf("resolve repository root: %w", err)
-	}
-	root, err = filepath.EvalSymlinks(root)
-	if err != nil {
-		return "", fmt.Errorf("resolve repository root symlinks: %w", err)
+		return "", fmt.Errorf("resolve repository root filesystem identity: %w", err)
 	}
 	info, err := os.Stat(root)
 	if err != nil || !info.IsDir() {
@@ -264,7 +261,7 @@ func rejectSymlinkComponents(repoRoot, abs string) error {
 		if statErr != nil {
 			return fmt.Errorf("inspect path component %s: %w", current, statErr)
 		}
-		if info.Mode()&os.ModeSymlink != 0 {
+		if info.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
 			return fmt.Errorf("path uses symlink component %s", current)
 		}
 	}

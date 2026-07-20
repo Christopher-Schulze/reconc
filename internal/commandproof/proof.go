@@ -20,6 +20,7 @@ import (
 
 	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/filelock"
+	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/retention"
 )
 
@@ -291,13 +292,9 @@ func gitHead(repoRoot string) (string, error) {
 }
 
 func canonicalRepoRoot(repoRoot string) (string, error) {
-	abs, err := filepath.Abs(repoRoot)
+	resolved, err := pathidentity.ResolveExisting(repoRoot)
 	if err != nil {
-		return "", fmt.Errorf("resolve repo root: %w", err)
-	}
-	resolved, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		return "", fmt.Errorf("resolve repo root symlinks: %w", err)
+		return "", fmt.Errorf("resolve repo root filesystem identity: %w", err)
 	}
 	info, err := os.Stat(resolved)
 	if err != nil {

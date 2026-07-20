@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+
+	"reconc.dev/reconc/internal/pathidentity"
 )
 
 const maxBinaryBytes int64 = 256 << 20
@@ -19,9 +21,9 @@ func CurrentBinarySelection() (*BinarySelection, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve running reconc executable: %w", err)
 	}
-	resolved, err := filepath.EvalSymlinks(path)
+	resolved, err := pathidentity.ResolveExisting(path)
 	if err != nil {
-		return nil, fmt.Errorf("resolve running reconc executable symlinks: %w", err)
+		return nil, fmt.Errorf("resolve running reconc executable identity: %w", err)
 	}
 	return BinarySelectionFor(resolved, "", runtime.GOOS, runtime.GOARCH)
 }
@@ -30,9 +32,9 @@ func BinarySelectionFor(path, expectedSHA, targetOS, targetArch string) (*Binary
 	if err := validatePlatform(targetOS, targetArch); err != nil {
 		return nil, err
 	}
-	abs, err := filepath.Abs(path)
+	abs, err := pathidentity.ResolveExisting(path)
 	if err != nil {
-		return nil, fmt.Errorf("resolve binary artifact: %w", err)
+		return nil, fmt.Errorf("resolve binary artifact identity: %w", err)
 	}
 	info, err := os.Stat(abs)
 	if err != nil {

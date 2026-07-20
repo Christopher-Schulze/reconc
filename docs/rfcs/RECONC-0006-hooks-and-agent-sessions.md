@@ -29,9 +29,11 @@ other file under `.grok/hooks/`.
 The Git installer resolves the same active `core.hooksPath` used by status,
 updates managed content idempotently, supports linked-worktree common Git
 storage, and refuses to write into a shared external hooks directory.
-Every non-Git installer target is resolved through existing parent symlinks and
-must remain inside the selected repository. Scaffold sync preflights all target
-paths before its first write. Forced malformed-config backups are
+Every non-Git installer target is resolved through the operating system's
+filesystem identity and must remain inside the selected repository. Unix
+symlinks and Windows reparse points, including junctions, are followed;
+Windows 8.3 aliases are normalized. Scaffold sync preflights all target paths
+before its first write. Forced malformed-config backups are
 content-addressed, create-only, `0600`, file-synced, and parent-directory-synced
 before the managed artifact is published.
 
@@ -134,7 +136,9 @@ Agents without hooks should use the CLI loop:
 Agent session state is stored under `$RECONC_HOME` and keyed by
 repository/project plus session id. It records deduped reads, writes,
 commands, command results, and claims. Saved reports survive session
-cleanup for later inspection.
+cleanup for later inspection. Repository identity follows symlinks and Windows
+reparse points, and Claude memory matching accepts only operating-system-
+confirmed 8.3/long-path aliases of the current repository.
 
 ## Payload Safety
 

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"reconc.dev/reconc/internal/pathidentity"
 )
 
 const (
@@ -47,9 +49,9 @@ func Detect(root string) (Result, error) {
 	if !info.IsDir() {
 		return Result{}, fmt.Errorf("inspect stack root is not a directory: %s", root)
 	}
-	root, err = filepath.EvalSymlinks(root)
+	root, err = pathidentity.ResolveExisting(root)
 	if err != nil {
-		return Result{}, fmt.Errorf("resolve stack root symlinks: %w", err)
+		return Result{}, fmt.Errorf("resolve stack root filesystem identity: %w", err)
 	}
 	root = filepath.Clean(root)
 

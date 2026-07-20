@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
+	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/policy"
 )
 
@@ -185,13 +186,9 @@ func gateApplies(root string, patterns []string) (bool, error) {
 }
 
 func canonicalRoot(root string) (string, error) {
-	abs, err := filepath.Abs(root)
+	resolved, err := pathidentity.ResolveExisting(root)
 	if err != nil {
-		return "", fmt.Errorf("resolve repository root: %w", err)
-	}
-	resolved, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		return "", fmt.Errorf("resolve repository root symlinks: %w", err)
+		return "", fmt.Errorf("resolve repository root filesystem identity: %w", err)
 	}
 	return resolved, nil
 }
@@ -202,20 +199,20 @@ func safeExistingPath(root, relative string) (string, bool, error) {
 		return "", false, fmt.Errorf("path escapes repository: %q", relative)
 	}
 	full := filepath.Join(root, clean)
-	_, err := os.Lstat(full)
-	if os.IsNotExist(err) {
-		return full, false, nil
-	}
-	if err != nil {
-		return "", false, err
-	}
-	resolved, err := filepath.EvalSymlinks(full)
+	resolved, err := pathidentity.ResolveProspective(full)
 	if err != nil {
 		return "", false, err
 	}
 	rel, err := filepath.Rel(root, resolved)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", false, fmt.Errorf("path resolves outside repository: %q", relative)
+	}
+	_, err = os.Lstat(full)
+	if os.IsNotExist(err) {
+		return resolved, false, nil
+	}
+	if err != nil {
+		return "", false, err
 	}
 	return resolved, true, nil
 }

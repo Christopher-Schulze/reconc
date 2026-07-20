@@ -12,6 +12,7 @@ import (
 	"reconc.dev/reconc/internal/assurance"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/ingest"
+	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/shellcommand"
 )
@@ -530,58 +531,10 @@ func scriptRecommendedAction(failures []string) string {
 
 // --- Path / command normalization ---
 
-// resolveAncestorSymlinks walks up from the given path until it
-// finds an existing directory, resolves THAT directory's symlinks,
-// then re-appends the unresolved suffix. Used by normalizePaths so
-// a --write input for a not-yet-existing file still catches a
-// symlinked-parent escape.
-//
-// Example:
-//
-//	path:   /repo/escape/secret          (doesn't exist)
-//	parent: /repo/escape                 (exists, symlink to /tmp/x)
-//	result: /tmp/x/secret
-func resolveAncestorSymlinks(path string) string {
-	suffix := ""
-	current := path
-	for {
-		if current == "" || current == "/" || current == "." {
-			return path
-		}
-		if _, err := os.Stat(current); err == nil {
-			if resolved, err := filepath.EvalSymlinks(current); err == nil {
-				if suffix == "" {
-					return resolved
-				}
-				return filepath.Join(resolved, suffix)
-			}
-			return path
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			return path
-		}
-		base := filepath.Base(current)
-		if suffix == "" {
-			suffix = base
-		} else {
-			suffix = filepath.Join(base, suffix)
-		}
-		current = parent
-	}
-}
-
 func normalizePaths(paths []string, root string) ([]string, error) {
-	resolvedRoot, err := filepath.Abs(root)
+	resolvedRoot, err := pathidentity.ResolveExisting(root)
 	if err != nil {
-		return nil, fmt.Errorf("resolve repo root: %w", err)
-	}
-	// Canonicalise the root via EvalSymlinks so the symlink-resolved
-	// input paths have a matching root to compute Rel against.
-	// Without this the macOS /var vs /private/var drift makes every
-	// post-symlink-resolved input look like it escapes.
-	if canon, err := filepath.EvalSymlinks(resolvedRoot); err == nil {
-		resolvedRoot = canon
+		return nil, fmt.Errorf("resolve repo filesystem identity: %w", err)
 	}
 	out := []string{}
 	for _, raw := range paths {
@@ -599,27 +552,14 @@ func normalizePaths(paths []string, root string) ([]string, error) {
 		} else {
 			absPath = filepath.Join(resolvedRoot, candidate)
 		}
-		// Resolve symlinks where possible; tolerate non-existent paths
-		// (we may be checking writes BEFORE the file is created).
 		cleaned := filepath.Clean(absPath)
-		// Follow symlinks after Clean so an attacker-controlled symlink
-		// (e.g. `src/evil -> /etc/passwd`) cannot escape the repo boundary.
-		//
-		// Two-phase resolution: first try the full path (works for
-		// existing files). If that fails (which is the common case
-		// for --write inputs where the target is about to be
-		// created), walk up to the closest EXISTING parent, resolve
-		// it, and re-join with the unresolved suffix. This catches
-		// escape-via-symlinked-parent even when the leaf doesn't
-		// exist yet.
-		if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
-			cleaned = resolved
-		} else {
-			cleaned = resolveAncestorSymlinks(cleaned)
+		cleaned, err = pathidentity.ResolveProspective(cleaned)
+		if err != nil {
+			return nil, fmt.Errorf("resolve evidence path %q: %w", raw, err)
 		}
 
 		rel, err := filepath.Rel(resolvedRoot, cleaned)
-		if err != nil || strings.HasPrefix(rel, "..") || rel == ".." {
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return nil, &rerrors.RepoBoundaryError{Path: raw, RepoRoot: resolvedRoot}
 		}
 		// Convert OS-native to POSIX
@@ -664,12 +604,9 @@ func RelativizeEpochKeys(root string, epochs map[string]uint64) map[string]uint6
 	if len(epochs) == 0 {
 		return epochs
 	}
-	resolvedRoot, err := filepath.Abs(root)
+	resolvedRoot, err := pathidentity.ResolveExisting(root)
 	if err != nil {
 		return epochs
-	}
-	if canon, err := filepath.EvalSymlinks(resolvedRoot); err == nil {
-		resolvedRoot = canon
 	}
 	out := make(map[string]uint64, len(epochs)*2)
 	for key, epoch := range epochs {
@@ -680,9 +617,9 @@ func RelativizeEpochKeys(root string, epochs map[string]uint64) map[string]uint6
 		if !filepath.IsAbs(candidate) {
 			continue
 		}
-		cleaned := filepath.Clean(candidate)
-		if resolved, resolveErr := filepath.EvalSymlinks(cleaned); resolveErr == nil {
-			cleaned = resolved
+		cleaned, resolveErr := pathidentity.ResolveProspective(filepath.Clean(candidate))
+		if resolveErr != nil {
+			continue
 		}
 		rel, relErr := filepath.Rel(resolvedRoot, cleaned)
 		if relErr != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {

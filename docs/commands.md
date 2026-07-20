@@ -271,9 +271,11 @@ non-reconc hook groups; and Kilo Code owns
 `.grok/hooks/reconc.json` file and preserves every other project hook file.
 Managed plugin/files refuse unrelated existing
 content unless `--force` is passed.
-All non-Git targets are resolved through existing parent symlinks and must stay
-inside the selected repository. Forced malformed-config backups are private,
-content-addressed, create-only, and durably synced before publication.
+All non-Git targets are resolved through operating-system filesystem identity
+and must stay inside the selected repository. Unix symlinks, Windows reparse
+points and 8.3 aliases are handled before containment. Forced malformed-config
+backups are private, content-addressed, create-only, and durably synced before
+publication.
 
 ### `reconc hook status [repo] [--json]`
 Validate registered artifacts and activation requirements. States are

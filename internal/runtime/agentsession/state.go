@@ -15,9 +15,9 @@
 // docs/architecture.md#threat-model-hook-runtime. Key invariants:
 //
 //   - session_id mismatch across events -> rejected.
-//   - repo_root stored in state file is EvalSymlinks-canonicalised
-//     so macOS /var vs /private/var drift doesn't reject legitimate
-//     events.
+//   - repo_root stored in state is canonicalised to the operating-system
+//     filesystem identity, so aliases such as macOS /var vs /private/var and
+//     Windows 8.3 paths do not reject legitimate events.
 //   - state is rewritten atomically via a tmp-then-rename dance so a
 //     crash mid-write doesn't produce a half-parsed file.
 //   - session mutations are serialized with a per-session file lock and
@@ -38,6 +38,7 @@ import (
 
 	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/filelock"
+	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/retention"
 )
 
@@ -189,10 +190,10 @@ func validateSessionID(sessionID string) error {
 
 // --- resolve repo root ----------------------------------------------
 
-// ResolveRepoRoot resolves the repo root to a canonical form that
-// survives macOS /var <-> /private/var symlink drift. Returned path
-// is the one that gets stamped into every state file so all events
-// compare consistently.
+// ResolveRepoRoot resolves the repo root to its operating-system filesystem
+// identity. This follows Unix symlinks and Windows reparse points and expands
+// Windows 8.3 aliases. The returned path is stamped into every state file so
+// all events compare consistently.
 //
 // Errors if the path does not exist or is not a directory -- we want
 // the hook adapter to fail fast on bogus paths rather than silently
@@ -209,10 +210,11 @@ func ResolveRepoRoot(repoRoot string) (string, error) {
 	if !info.IsDir() {
 		return "", fmt.Errorf("repo path is not a directory: %s", abs)
 	}
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		return resolved, nil
+	resolved, err := pathidentity.ResolveExisting(abs)
+	if err != nil {
+		return "", fmt.Errorf("resolve repo filesystem identity: %w", err)
 	}
-	return abs, nil
+	return resolved, nil
 }
 
 // --- load / save -----------------------------------------------------

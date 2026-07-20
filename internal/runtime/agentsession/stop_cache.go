@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/filelock"
+	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/runtime"
 )
 
@@ -199,16 +200,13 @@ func stopRepoRelPosix(repoRoot, raw string) string {
 		}
 		return filepath.ToSlash(cleaned)
 	}
-	root, err := filepath.Abs(repoRoot)
+	root, err := pathidentity.ResolveExisting(repoRoot)
 	if err != nil {
 		return ""
 	}
-	if resolved, err := filepath.EvalSymlinks(root); err == nil {
-		root = resolved
-	}
-	cleaned := filepath.Clean(path)
-	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
-		cleaned = resolved
+	cleaned, err := pathidentity.ResolveProspective(filepath.Clean(path))
+	if err != nil {
+		return ""
 	}
 	rel, err := filepath.Rel(root, cleaned)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {

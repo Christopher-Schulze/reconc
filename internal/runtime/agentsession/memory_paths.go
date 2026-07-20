@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/retention"
 )
 
@@ -17,11 +18,11 @@ import (
 // blocking it as a repo-boundary escape breaks the harness memory feature,
 // and recording it as repo write evidence would poison policy triggers.
 //
-// The check is symlink-hardened fail-closed: the path (or, for a not-yet
-// created leaf, its closest existing ancestor) must RESOLVE inside the memory
-// tree. A memory-looking path that resolves elsewhere (for example a
-// symlinked memory directory pointing into a repository) is NOT treated as
-// memory, so the normal write policy applies to it.
+// The check is filesystem-identity-hardened and fail-closed: the path (or, for
+// a not-yet-created leaf, its closest existing ancestor) must resolve inside
+// the memory tree. A memory-looking path redirected elsewhere by a Unix
+// symlink or Windows reparse point is not treated as memory, so the normal
+// write policy applies to it.
 func agentMemoryWritePath(repoRoot, raw string) bool {
 	configRoot, ok := claudeConfigRoot()
 	if !ok || strings.TrimSpace(repoRoot) == "" {
@@ -36,17 +37,16 @@ func agentMemoryWritePathInProjects(projectsRoot string, allowedProjectKeys map[
 	if path == "" || !filepath.IsAbs(path) {
 		return false
 	}
-	cleaned := filepath.Clean(path)
-	projectKey, ok := agentMemoryProjectKey(projectsRoot, cleaned)
-	if !ok || !allowedProjectKeys[projectKey] {
+	resolvedRoot, err := pathidentity.ResolveExisting(projectsRoot)
+	if err != nil {
 		return false
 	}
-	if resolvedRoot, err := filepath.EvalSymlinks(projectsRoot); err == nil {
-		projectsRoot = resolvedRoot
+	resolved, err := pathidentity.ResolveProspective(filepath.Clean(path))
+	if err != nil {
+		return false
 	}
-	resolved := resolveClosestExistingAncestor(cleaned)
-	resolvedKey, ok := agentMemoryProjectKey(projectsRoot, resolved)
-	return ok && resolvedKey == projectKey
+	projectKey, ok := agentMemoryProjectKey(resolvedRoot, resolved)
+	return ok && allowedProjectKeys[projectKey]
 }
 
 func claudeConfigRoot() (string, bool) {
@@ -81,9 +81,12 @@ func expectedClaudeProjectKeys(repoRoot string) map[string]bool {
 	keys := map[string]bool{}
 	if root, err := filepath.Abs(repoRoot); err == nil {
 		root = retention.CanonicalizePathCase(root)
-		addClaudeProjectKey(keys, root)
-		if resolved, resolveErr := filepath.EvalSymlinks(root); resolveErr == nil {
-			addClaudeProjectKey(keys, resolved)
+		if aliases, aliasErr := pathidentity.ExistingAliases(root); aliasErr == nil {
+			for _, alias := range aliases {
+				addClaudeProjectKey(keys, alias)
+			}
+		} else {
+			addClaudeProjectKey(keys, root)
 		}
 		if gitInfo, gitErr := os.Stat(filepath.Join(root, ".git")); gitErr == nil && gitInfo.IsDir() {
 			return keys
@@ -130,33 +133,6 @@ func claudeProjectKey(repoRoot string) string {
 		}
 	}
 	return key.String()
-}
-
-// resolveClosestExistingAncestor resolves symlinks on the longest existing
-// prefix of path and re-joins the not-yet-existing suffix, so a first Write to
-// a fresh memory file still gets an honest resolution.
-func resolveClosestExistingAncestor(path string) string {
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		return resolved
-	}
-	current := path
-	suffix := ""
-	for {
-		parent := filepath.Dir(current)
-		if parent == current {
-			return path
-		}
-		base := filepath.Base(current)
-		if suffix == "" {
-			suffix = base
-		} else {
-			suffix = filepath.Join(base, suffix)
-		}
-		if resolved, err := filepath.EvalSymlinks(parent); err == nil {
-			return filepath.Join(resolved, suffix)
-		}
-		current = parent
-	}
 }
 
 // withoutAgentMemoryPaths returns paths minus every agent-memory target.

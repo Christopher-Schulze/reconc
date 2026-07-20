@@ -66,6 +66,7 @@ internal/
   jsonl/          bounded locked JSONL append + archive rings
   manpage/        groff reconc(1) generation from the canonical command table
   parser/         YAML-to-Rule validation + template expansion + scope expansion
+  pathidentity/   Unix symlink + Windows reparse/8.3 filesystem identity
   policy/         Rule / Scope / Source / Kind / Mode types
   presets/        bundled policy packs (embed.FS) + user overlays
   runtime/        evaluator + remediation + git integration + subprocess runner
@@ -310,14 +311,16 @@ bounded aggregate status used by `reconc hook status`.
 Every path in the payload is:
 1. Joined with the project root.
 2. `filepath.Clean`'d.
-3. `filepath.EvalSymlinks`'d where the path exists.
-4. Tested for containment in the (symlink-resolved) project root.
+3. Resolved to its operating-system identity at the longest existing ancestor.
+   Unix symlinks and Windows reparse points, including directory junctions,
+   are followed; Windows 8.3 aliases are expanded.
+4. Tested for containment in the resolved project root before the missing
+   suffix is created.
 5. Rejected with `RepoBoundaryError` if outside.
 
-Implemented in the agentsession handlers (`filepath.EvalSymlinks`
-containment in `handlers.go` and `state.go`) and mirrored by the
-evaluator's `normalizePaths`/`sameCanonicalPath`; the assurance file
-walker uses its own `canonicalRoot`.
+Prospective hook-install targets, agent-session repository identities, evaluator
+evidence paths, and assurance inputs share `internal/pathidentity`; each caller
+retains only its bounded purpose-specific containment policy.
 
 ### Command-injection
 

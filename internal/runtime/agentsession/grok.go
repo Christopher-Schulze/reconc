@@ -5,8 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
+
+	"reconc.dev/reconc/internal/pathidentity"
 )
 
 // NormalizeGrokPayload converts Grok Build's camelCase hook envelope into the
@@ -263,14 +264,7 @@ func sameGrokPath(left, right string) bool {
 }
 
 func canonicalGrokPath(path string) (string, error) {
-	absolute, err := filepath.Abs(path)
-	if err != nil {
-		return "", err
-	}
-	if resolved, err := filepath.EvalSymlinks(absolute); err == nil {
-		return filepath.Clean(resolved), nil
-	}
-	return filepath.Clean(absolute), nil
+	return pathidentity.ResolveExisting(path)
 }
 
 func grokObject(value interface{}) map[string]interface{} {

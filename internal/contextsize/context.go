@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"reconc.dev/reconc/internal/pathidentity"
 )
 
 // Default budget in approximate tokens. ~20 KTokens = ~80 KB assuming
@@ -68,13 +70,9 @@ func Scan(repoRoot string, files []string, tokenBudget int) (ScanReport, error) 
 	if tokenBudget <= 0 {
 		tokenBudget = DefaultTokenBudget
 	}
-	root, err := filepath.Abs(repoRoot)
+	root, err := pathidentity.ResolveExisting(repoRoot)
 	if err != nil {
-		return ScanReport{}, fmt.Errorf("resolve repository root: %w", err)
-	}
-	root, err = filepath.EvalSymlinks(root)
-	if err != nil {
-		return ScanReport{}, fmt.Errorf("resolve repository root symlinks: %w", err)
+		return ScanReport{}, fmt.Errorf("resolve repository root filesystem identity: %w", err)
 	}
 	out := ScanReport{
 		FormatVersion: "1",
@@ -141,9 +139,9 @@ func contextFileInfo(root, relative string) (os.FileInfo, bool, error) {
 		}
 		return nil, false, fmt.Errorf("inspect context file %s: %w", relative, err)
 	}
-	resolved, err := filepath.EvalSymlinks(full)
+	resolved, err := pathidentity.ResolveExisting(full)
 	if err != nil {
-		return nil, false, fmt.Errorf("resolve context file %s: %w", relative, err)
+		return nil, false, fmt.Errorf("resolve context file identity %s: %w", relative, err)
 	}
 	rel, err := filepath.Rel(root, resolved)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {

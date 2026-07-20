@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/execfile"
+	"reconc.dev/reconc/internal/pathidentity"
 )
 
 // ActivationState is configuration truth, not proof that a live process has
@@ -478,30 +479,5 @@ func resolvedPathWithinDirectory(root, target string) (bool, error) {
 }
 
 func resolveProspectivePath(path string) (string, error) {
-	absolute, err := filepath.Abs(path)
-	if err != nil {
-		return "", err
-	}
-	cursor := filepath.Clean(absolute)
-	missing := []string{}
-	for {
-		if _, statErr := os.Lstat(cursor); statErr == nil {
-			resolved, resolveErr := filepath.EvalSymlinks(cursor)
-			if resolveErr != nil {
-				return "", resolveErr
-			}
-			for index := len(missing) - 1; index >= 0; index-- {
-				resolved = filepath.Join(resolved, missing[index])
-			}
-			return filepath.Clean(resolved), nil
-		} else if !os.IsNotExist(statErr) {
-			return "", statErr
-		}
-		parent := filepath.Dir(cursor)
-		if parent == cursor {
-			return "", fmt.Errorf("cannot resolve existing ancestor for %s", path)
-		}
-		missing = append(missing, filepath.Base(cursor))
-		cursor = parent
-	}
+	return pathidentity.ResolveProspective(path)
 }

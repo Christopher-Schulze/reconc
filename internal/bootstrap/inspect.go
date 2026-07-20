@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"reconc.dev/reconc/internal/hooks"
+	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/presets"
 	"reconc.dev/reconc/internal/stackdetect"
 )
@@ -55,20 +56,16 @@ func Inspect(repoRoot string) (*Inspection, error) {
 }
 
 func canonicalRepoRoot(repoRoot string) (string, error) {
-	abs, err := filepath.Abs(repoRoot)
+	resolved, err := pathidentity.ResolveExisting(repoRoot)
 	if err != nil {
-		return "", fmt.Errorf("resolve repository path: %w", err)
+		return "", fmt.Errorf("resolve repository filesystem identity: %w", err)
 	}
-	info, err := os.Stat(abs)
+	info, err := os.Stat(resolved)
 	if err != nil {
-		return "", fmt.Errorf("repository path does not exist: %s: %w", abs, err)
+		return "", fmt.Errorf("repository path does not exist: %s: %w", resolved, err)
 	}
 	if !info.IsDir() {
-		return "", fmt.Errorf("repository path is not a directory: %s", abs)
-	}
-	resolved, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		return "", fmt.Errorf("resolve repository symlinks: %w", err)
+		return "", fmt.Errorf("repository path is not a directory: %s", resolved)
 	}
 	return filepath.Clean(resolved), nil
 }

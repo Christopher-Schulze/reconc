@@ -831,6 +831,18 @@ func TestNormalizeRejectsSymlinkEscapingRepo(t *testing.T) {
 	}
 }
 
+func TestNormalizeAllowsRepositoryNameBeginningWithTwoDots(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# t\n", "", "rules: []\n")
+	report, err := CheckRepoPolicy(repo, ExecutionInputs{WritePaths: []string{"..config"}})
+	if err != nil {
+		t.Fatalf("repository-local dot-prefixed name was rejected: %v", err)
+	}
+	if len(report.Inputs.WritePaths) != 1 || report.Inputs.WritePaths[0] != "..config" {
+		t.Fatalf("normalized writes = %v, want [..config]", report.Inputs.WritePaths)
+	}
+}
+
 // TestNormalizeCommandSemantics_RTKPrefix pins that "rtk " is stripped
 // when it appears at the start of a command position (start of command
 // or after a shell compound boundary), but not when it appears mid-token.

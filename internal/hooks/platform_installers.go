@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	rerrors "reconc.dev/reconc/internal/errors"
+	"reconc.dev/reconc/internal/pathidentity"
 )
 
 func installDevinCLI(repoRoot string, force bool) (*InstallReport, error) {
@@ -139,9 +140,9 @@ func installManagedPlatformFile(kind, repoRoot string, force bool, managed func(
 }
 
 func existingRepoRoot(repoRoot string) (string, error) {
-	root, err := filepath.Abs(repoRoot)
+	root, err := pathidentity.ResolveExisting(repoRoot)
 	if err != nil {
-		return "", &rerrors.PolicySourceError{Message: "resolve repo path", Cause: err}
+		return "", &rerrors.PolicySourceError{Message: "resolve repository filesystem identity", Cause: err}
 	}
 	info, err := os.Stat(root)
 	if err != nil || !info.IsDir() {

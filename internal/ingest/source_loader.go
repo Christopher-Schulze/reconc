@@ -11,6 +11,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 	rerrors "reconc.dev/reconc/internal/errors"
+	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/presets"
 )
@@ -332,7 +333,7 @@ func loadPresetSources(names []string) ([]policy.PolicySource, error) {
 // loadPolicyFragmentSources walks the merged include patterns and
 // loads each unique repo-relative file as a policy_file source.
 // Fragments are returned in sorted order for determinism. A fragment
-// whose symlink-resolved location lies outside the repository root is
+// whose filesystem identity lies outside the repository root is
 // still loaded (its content is digest-tracked like any other source),
 // but a warning names it so the indirection is visible in the lockfile.
 func loadPolicyFragmentSources(root string, patterns []string) ([]policy.PolicySource, []string, error) {
@@ -347,7 +348,7 @@ func loadPolicyFragmentSources(root string, patterns []string) ([]policy.PolicyS
 	}
 	sort.Strings(uniquePatterns)
 
-	resolvedRoot, rootResolveErr := filepath.EvalSymlinks(root)
+	resolvedRoot, rootResolveErr := pathidentity.ResolveExisting(root)
 
 	seen := map[string]struct{}{}
 	out := []policy.PolicySource{}
@@ -376,9 +377,9 @@ func loadPolicyFragmentSources(root string, patterns []string) ([]policy.PolicyS
 			}
 			seen[rel] = struct{}{}
 			if rootResolveErr == nil {
-				if resolved, resolveErr := filepath.EvalSymlinks(match); resolveErr == nil {
+				if resolved, resolveErr := pathidentity.ResolveExisting(match); resolveErr == nil {
 					if outside, relErr := pathOutsideRoot(resolvedRoot, resolved); relErr == nil && outside {
-						warnings = append(warnings, "policy fragment "+rel+" resolves outside the repository root via symlink")
+						warnings = append(warnings, "policy fragment "+rel+" resolves outside the repository root via filesystem indirection")
 					}
 				}
 			}

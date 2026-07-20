@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/retention"
 	"reconc.dev/reconc/internal/runtime"
@@ -474,16 +475,13 @@ func isRepoScopedReadEvidence(repoRoot, raw string) bool {
 	if !filepath.IsAbs(path) {
 		return true
 	}
-	root, err := filepath.Abs(repoRoot)
+	root, err := pathidentity.ResolveExisting(repoRoot)
 	if err != nil {
 		return false
 	}
-	if resolved, err := filepath.EvalSymlinks(root); err == nil {
-		root = resolved
-	}
-	cleaned := filepath.Clean(path)
-	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
-		cleaned = resolved
+	cleaned, err := pathidentity.ResolveProspective(filepath.Clean(path))
+	if err != nil {
+		return false
 	}
 	rel, err := filepath.Rel(root, cleaned)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
