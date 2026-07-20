@@ -48,7 +48,10 @@ export const ReconcOpenCodePlugin = async ({ directory, worktree, client }) => {
   const binaries = [repo + "/.build/bin/reconc", repo + "/reconc"]
 
   const commandFor = async (event) => {
-    if (await Bun.file(wrapper).exists()) return [wrapper, event, repo]
+    if (await Bun.file(wrapper).exists()) {
+      if (process.platform === "win32") return ["sh", wrapper, event, repo]
+      return [wrapper, event, repo]
+    }
     for (const binary of binaries) {
       if (await Bun.file(binary).exists()) return [binary, "hook", "runtime", event, repo]
     }

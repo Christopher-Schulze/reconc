@@ -753,7 +753,9 @@ continuation decisions stay in the Go runtime, so the plugins do not maintain
 parallel run-state files or inject project-specific prompts. Their subprocess
 budgets are generated from the same registry, cap output at 8 KiB, terminate
 slow routes after 5, 10, or 30 seconds, and delegate versioned binary discovery
-to `tools/reconc/bin/hook` instead of embedding a release number. Their Stop
+to `tools/reconc/bin/hook` instead of embedding a release number. On Windows,
+they invoke that extensionless POSIX wrapper through `sh` instead of asking Bun
+to execute an unsupported script shape directly. Their Stop
 capability is inferred from `session.idle`: the adapter asks the host client to
 continue, but the host boundary remains fail-open and is not equivalent to the
 synchronous native Stop gates exposed by the other five agent runtimes.

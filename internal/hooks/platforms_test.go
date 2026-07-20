@@ -140,7 +140,7 @@ func TestNewPlatformArtifactsUseCurrentContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, token := range []string{`export default { id: "reconc", server: ReconcKiloServer }`, `"experimental.session.compacting"`, "kilo-pre-tool-use", `"timeoutMilliseconds":10000`, `text.slice(0, budget.maxOutputBytes)`, `killSignal: "SIGKILL"`} {
+	for _, token := range []string{`export default { id: "reconc", server: ReconcKiloServer }`, `"experimental.session.compacting"`, "kilo-pre-tool-use", `"timeoutMilliseconds":10000`, `text.slice(0, budget.maxOutputBytes)`, `killSignal: "SIGKILL"`, `process.platform === "win32"`, `["sh", wrapper, event, repo]`} {
 		if !strings.Contains(kilo.Content, token) {
 			t.Fatalf("Kilo artifact missing %q:\n%s", token, kilo.Content)
 		}

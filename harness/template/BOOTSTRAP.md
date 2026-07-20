@@ -470,9 +470,10 @@ avoid OS/architecture subprocess probes on development and self-hosting paths.
 
 Do not require a global `reconc` install. PATH fallback is only a last fallback. POSIX routes in generated JSON hook configs must not inline binary fallback loops; they call `tools/reconc/bin/hook` and let the wrapper own binary selection. PreToolUse, permission and Stop hooks remain hard/interactive priority; only observation hooks are lowered.
 
-On native Windows, generated shell hook routes and `.sh` or extensionless policy
-scripts require `sh` on `PATH`; Git for Windows supplies it. Native `.exe` and
-`.com` policy scripts execute directly. Do not invent a per-project wrapper variant.
+On native Windows, generated shell hook routes, the OpenCode/Kilo transport to
+the extensionless Reconc wrapper, and `.sh` or extensionless policy scripts
+require `sh` on `PATH`; Git for Windows supplies it. Native `.exe` and `.com`
+policy scripts execute directly. Do not invent a per-project wrapper variant.
 
 ### Step 7a: Assert TASK-scoped claims
 
