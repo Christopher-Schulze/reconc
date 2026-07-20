@@ -138,7 +138,8 @@ repository/project plus session id. It records deduped reads, writes,
 commands, command results, and claims. Saved reports survive session
 cleanup for later inspection. Repository identity follows symlinks and Windows
 reparse points, and Claude memory matching accepts only operating-system-
-confirmed 8.3/long-path aliases of the current repository.
+confirmed component-wise mixtures of 8.3 and long-path aliases for the current
+repository.
 
 ## Payload Safety
 

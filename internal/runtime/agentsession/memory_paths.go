@@ -32,7 +32,7 @@ func agentMemoryWritePath(repoRoot, raw string) bool {
 	return agentMemoryWritePathInProjects(projectsRoot, expectedClaudeProjectKeys(repoRoot), raw)
 }
 
-func agentMemoryWritePathInProjects(projectsRoot string, allowedProjectKeys map[string]bool, raw string) bool {
+func agentMemoryWritePathInProjects(projectsRoot string, allowedProjectKeys claudeProjectKeyMatcher, raw string) bool {
 	path := strings.TrimSpace(raw)
 	if path == "" || !filepath.IsAbs(path) {
 		return false
@@ -46,7 +46,7 @@ func agentMemoryWritePathInProjects(projectsRoot string, allowedProjectKeys map[
 		return false
 	}
 	projectKey, ok := agentMemoryProjectKey(resolvedRoot, resolved)
-	return ok && allowedProjectKeys[projectKey]
+	return ok && allowedProjectKeys.allows(projectKey)
 }
 
 func claudeConfigRoot() (string, bool) {
@@ -77,19 +77,53 @@ func agentMemoryProjectKey(projectsRoot, cleaned string) (string, bool) {
 	return parts[0], true
 }
 
-func expectedClaudeProjectKeys(repoRoot string) map[string]bool {
-	keys := map[string]bool{}
-	if root, err := filepath.Abs(repoRoot); err == nil {
-		root = retention.CanonicalizePathCase(root)
-		if aliases, aliasErr := pathidentity.ExistingAliases(root); aliasErr == nil {
-			for _, alias := range aliases {
-				addClaudeProjectKey(keys, alias)
-			}
-		} else {
-			addClaudeProjectKey(keys, root)
+type claudeProjectKeyMatcher struct {
+	exact map[string]bool
+	roots []string
+}
+
+func (matcher claudeProjectKeyMatcher) allows(projectKey string) bool {
+	if matcher.exact[projectKey] {
+		return true
+	}
+	for _, root := range matcher.roots {
+		if claudeProjectKeyMatchesFilesystemAliases(root, projectKey) {
+			return true
 		}
+	}
+	return false
+}
+
+func (matcher *claudeProjectKeyMatcher) addRoot(root string) {
+	if matcher.exact == nil {
+		matcher.exact = map[string]bool{}
+	}
+	root = retention.CanonicalizePathCase(root)
+	aliases, err := pathidentity.ExistingAliases(root)
+	if err != nil {
+		addClaudeProjectKey(matcher.exact, root)
+		return
+	}
+	for _, alias := range aliases {
+		addClaudeProjectKey(matcher.exact, alias)
+	}
+	resolved, err := pathidentity.ResolveExisting(root)
+	if err == nil {
+		for _, existing := range matcher.roots {
+			if existing == resolved {
+				return
+			}
+		}
+		matcher.roots = append(matcher.roots, resolved)
+	}
+}
+
+func expectedClaudeProjectKeys(repoRoot string) claudeProjectKeyMatcher {
+	matcher := claudeProjectKeyMatcher{exact: map[string]bool{}}
+	if root, err := filepath.Abs(repoRoot); err == nil {
+		matcher.addRoot(root)
 		if gitInfo, gitErr := os.Stat(filepath.Join(root, ".git")); gitErr == nil && gitInfo.IsDir() {
-			return keys
+			return matcher
 		}
 	}
 	// Claude shares project memory across Git worktrees. The common Git
@@ -104,10 +138,10 @@ func expectedClaudeProjectKeys(repoRoot string) map[string]bool {
 			common = filepath.Join(repoRoot, common)
 		}
 		if filepath.Base(common) == ".git" {
-			keys[claudeProjectKey(filepath.Dir(common))] = true
+			matcher.addRoot(filepath.Dir(common))
 		}
 	}
-	return keys
+	return matcher
 }
 
 func addClaudeProjectKey(keys map[string]bool, root string) {

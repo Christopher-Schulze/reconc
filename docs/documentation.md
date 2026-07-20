@@ -433,7 +433,8 @@ state, not repository writes. The pre-tool gate excludes only the current
 repository's canonical project key plus its Git-common-dir/worktree aliases
 from the repo write policy. Unrelated project memory remains gated. Resolution
 is filesystem-identity-hardened, including Unix symlinks, Windows junctions,
-Windows 8.3/long-path aliases, and first writes below a not-yet-existing leaf.
+component-wise Windows 8.3/long-path alias mixtures, and first writes below a
+not-yet-existing leaf.
 A memory-looking path that resolves elsewhere stays gated; accepted memory
 writes are never recorded as repository write evidence.
 Host session IDs are validated exactly and mapped to collision-resistant file
