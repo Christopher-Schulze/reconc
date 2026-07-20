@@ -3,7 +3,6 @@ package retention
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -85,7 +84,7 @@ func TestCanonicalizePathCaseCacheReturnsStableResults(t *testing.T) {
 	dir := t.TempDir()
 	first := CanonicalizePathCase(dir)
 	second := CanonicalizePathCase(dir)
-	if first != second || !strings.HasPrefix(first, string(filepath.Separator)) {
+	if first != second || !filepath.IsAbs(first) {
 		t.Fatalf("memoized result drifted: %q vs %q", first, second)
 	}
 }

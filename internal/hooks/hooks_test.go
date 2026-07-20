@@ -1267,7 +1267,6 @@ func TestInstallSurfacesNonArrayHooksEvent(t *testing.T) {
 	}
 }
 
-
 // TestMergeReconcHooksAcceptsEveryCanonicalEntry proves a multi-entry event
 // (SessionStart carries session-start plus compaction-recovery) reinstalls
 // without falsely reporting its second canonical entry as a replaced user
