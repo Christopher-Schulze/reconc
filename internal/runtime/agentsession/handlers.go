@@ -155,6 +155,13 @@ func RunPreToolUse(repoRoot string, payloadBytes []byte) Result {
 		}
 		return Result{ExitCode: 0}
 	}
+	// Agent persistent-memory writes (~/.claude/projects/<p>/memory/**) are
+	// harness runtime state, not repository writes: they are excluded from the
+	// repo write policy instead of being denied as boundary escapes.
+	pendingWrites = withoutAgentMemoryPaths(pendingWrites)
+	if len(pendingWrites) == 0 {
+		return Result{ExitCode: 0}
+	}
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}
@@ -319,7 +326,8 @@ func recordToolUse(state SessionState, payload *HookPayload) SessionState {
 		}
 		return AppendReadPath(state, path)
 	case payload.IsWriteTool():
-		paths := payload.FilePaths()
+		// Agent memory writes are runtime state, never repo write evidence.
+		paths := withoutAgentMemoryPaths(payload.FilePaths())
 		if len(paths) > 0 {
 			state = RecordWriteEvent(state, paths)
 			state = RecordMaterialEvent(state, materialEventSignature(payload, "success"))

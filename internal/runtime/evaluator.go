@@ -624,6 +624,49 @@ func normalizeWriteEpochs(paths []string, epochs map[string]uint64, root string)
 	return out, nil
 }
 
+// RelativizeEpochKeys bridges the write-epoch key formats between agent
+// sessions and git-derived paths: session hooks record epochs under the
+// absolute tool payload path, while ci derives write paths repo-relative from
+// git diff. Every absolute key under root gains a repo-relative slash alias
+// (the original key is kept), so epoch lookups by either spelling hit the
+// recorded value instead of silently reading zero and disabling the
+// command-after-last-edit binding.
+func RelativizeEpochKeys(root string, epochs map[string]uint64) map[string]uint64 {
+	if len(epochs) == 0 {
+		return epochs
+	}
+	resolvedRoot, err := filepath.Abs(root)
+	if err != nil {
+		return epochs
+	}
+	if canon, err := filepath.EvalSymlinks(resolvedRoot); err == nil {
+		resolvedRoot = canon
+	}
+	out := make(map[string]uint64, len(epochs)*2)
+	for key, epoch := range epochs {
+		if epoch > out[key] {
+			out[key] = epoch
+		}
+		candidate := strings.ReplaceAll(strings.TrimSpace(key), "\\", "/")
+		if !filepath.IsAbs(candidate) {
+			continue
+		}
+		cleaned := filepath.Clean(candidate)
+		if resolved, resolveErr := filepath.EvalSymlinks(cleaned); resolveErr == nil {
+			cleaned = resolved
+		}
+		rel, relErr := filepath.Rel(resolvedRoot, cleaned)
+		if relErr != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		relKey := filepath.ToSlash(rel)
+		if epoch > out[relKey] {
+			out[relKey] = epoch
+		}
+	}
+	return out
+}
+
 // normalizeWhitespace collapses every run of whitespace (spaces,
 // tabs, newlines) into a single space and trims leading/trailing
 // whitespace. Used for command + claim matching so policy-side
@@ -669,6 +712,15 @@ func normalizeCommandSemantics(cmd, repoRoot string) string {
 	segments := splitCommandSegments(cmd)
 	for i := range segments {
 		segments[i].body = normalizeSegmentBody(segments[i].body, repoRoot)
+	}
+	// Drop leading `cd .` segments left by agents that anchor commands with
+	// an explicit cd into the repo root: `cd /abs/repo && X` is semantically
+	// `X` when /abs/repo IS the repo root. Only `&&` and `;` joins are safe
+	// to drop; `cd . || X` or `cd . | X` would change meaning and stay as-is.
+	for len(segments) >= 2 && segments[0].body == "cd ." &&
+		(segments[1].sep == " && " || segments[1].sep == " ; ") {
+		segments = segments[1:]
+		segments[0].sep = ""
 	}
 	var out strings.Builder
 	for i, s := range segments {

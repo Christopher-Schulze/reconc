@@ -8,6 +8,7 @@ import (
 
 	"reconc.dev/reconc/internal/commandproof"
 	"reconc.dev/reconc/internal/ingest"
+	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
@@ -166,6 +167,12 @@ func runCI(args []string, stdout, stderr io.Writer) (resultErr error) {
 	}
 	inputs.WritePaths = append(inputs.WritePaths, gitPaths...)
 	if inputs.WriteEpochs == nil {
+		// Session hooks key write epochs by the absolute payload path while
+		// git paths below are repo-relative; relativized aliases keep the
+		// command-after-last-edit binding working across both spellings.
+		inputs.WriteEpochs = runtime.RelativizeEpochKeys(discovery.RepoRoot, activeEvidence.WriteEpochs)
+	}
+	if inputs.WriteEpochs == nil {
 		inputs.WriteEpochs = map[string]uint64{}
 	}
 	gitEpoch := activeEvidence.EvidenceEpoch
@@ -173,7 +180,7 @@ func runCI(args []string, stdout, stderr io.Writer) (resultErr error) {
 		gitEpoch++
 	}
 	for _, path := range gitPaths {
-		epoch := activeEvidence.WriteEpochs[path]
+		epoch := inputs.WriteEpochs[path]
 		if epoch == 0 {
 			epoch = gitEpoch
 		}
@@ -184,6 +191,9 @@ func runCI(args []string, stdout, stderr io.Writer) (resultErr error) {
 	report, err := runtime.CheckRepoPolicy(repo, inputs)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc ci: " + err.Error()}
+	}
+	if staged {
+		annotateStagedCommandViolations(report, discovery.RepoRoot)
 	}
 	maybeAudit("ci", report, startCI)
 	out, closeOutput, err := teeToFile(stdout, outputPath)
@@ -212,4 +222,29 @@ func runCI(args []string, stdout, stderr io.Writer) (resultErr error) {
 		return &CLIError{ExitCode: 2, Message: ""}
 	}
 	return nil
+}
+
+// annotateStagedCommandViolations explains the staged evidence contract on
+// require_command_success violations. The staged gate deliberately accepts
+// only index-bound command proofs (reconc exec --staged) and never plain
+// session command results, because a session run does not prove it executed
+// against the exact staged tree. Without this note agents burn cycles
+// re-running already-green commands that can never satisfy the gate.
+func annotateStagedCommandViolations(report *runtime.CheckReport, repoRoot string) {
+	if report == nil {
+		return
+	}
+	for i := range report.Violations {
+		violation := &report.Violations[i]
+		if violation.Kind != policy.KindRequireCommandSuccess {
+			continue
+		}
+		example := "<command>"
+		if len(violation.RequiredCommands) > 0 {
+			example = violation.RequiredCommands[0]
+		}
+		violation.RecommendedAction += fmt.Sprintf(
+			" Staged commits accept only index-bound command proofs, not session command history; record one with: reconc exec %s --staged --shell -- %q.",
+			repoRoot, example)
+	}
 }

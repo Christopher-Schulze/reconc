@@ -851,7 +851,9 @@ func TestNormalizeCommandSemantics_RepoRootCD(t *testing.T) {
 	}{
 		{"cd_into_repo_subdir", "cd " + repo + "/tools/reconc && go test", "cd tools/reconc && go test"},
 		{"cd_into_repo_root", "cd " + repo, "cd ."},
-		{"cd_into_repo_root_then_cmd", "cd " + repo + " && go build", "cd . && go build"},
+		// A leading cd into the repo root is a no-op anchor: `cd <root> && X`
+		// is semantically X, so it must satisfy the literal rule form X.
+		{"cd_into_repo_root_then_cmd", "cd " + repo + " && go build", "go build"},
 		{"cd_into_different_dir_unchanged", "cd /tmp/other && go test", "cd /tmp/other && go test"},
 		{"cd_into_similar_prefix_not_substring", "cd " + repo + "Backup && ls", "cd " + repo + "Backup && ls"},
 		{"echo_path_unchanged", "echo " + repo + "/sub", "echo " + repo + "/sub"},
