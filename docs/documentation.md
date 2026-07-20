@@ -427,6 +427,10 @@ decisions are appended only for material transitions. Session state is
 hard-capped at 1 MiB; every evidence collection has both item and byte limits,
 repeated command results are deduplicated, and any omitted security-relevant
 evidence sets a persisted overflow marker that blocks PreToolUse and Stop.
+Agent persistent-memory writes (`~/.claude/projects/<project>/memory/**`) are
+harness runtime state, not repository writes: the pre-tool gate excludes them
+from the repo write policy (symlink-hardened, so a memory directory that
+resolves elsewhere stays gated) and they are never recorded as write evidence.
 Host session IDs are validated exactly and mapped to collision-resistant file
 keys. State, reports, active pointers, and locks use bounded reads, private
 permissions, atomic publication, and cross-process locking; legacy sanitized
@@ -468,7 +472,18 @@ reported only when their exact trigger scopes overlap and that single forbid
 rule blocks every required alternative. A partial overlap is satisfiable and
 is not reported as a contradiction.
 
-Command matching is exact (normalized whole strings) by default. The command
+Command matching is exact (normalized whole strings) by default.
+Normalization is wrapper- and anchor-tolerant without weakening semantics: a
+transparent `rtk ` proxy prefix is stripped at command position, an absolute
+repo path inside `cd` becomes repo-relative, and a leading `cd <repo-root> &&`
+(or `;`) anchor collapses away entirely because it is a no-op inside the repo
+(`||` and pipe joins are never collapsed). Session write epochs recorded under
+absolute payload paths are aliased to repo-relative spellings during `ci`, so
+the `require_command_success` write-epoch freshness contract binds instead of
+silently reading zero. In `ci --staged`, `require_command_success` violations
+name the exact index-bound remediation (`reconc exec <repo> --staged --shell
+-- '<command>'`) because the staged gate accepts only index-bound proofs,
+never session command history. The command
 kinds accept an additive `command_match: prefix` opt-in that also matches a
 recorded command extending an expected command at a token boundary
 (`pip install` matches `pip install requests`, never `pip installer`); for
