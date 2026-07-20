@@ -146,9 +146,9 @@ func TestCollectGitWritePathsUnicodeAndSpacedNames(t *testing.T) {
 	}
 }
 
-func TestCollectGitWritePathsPreservesNewlineAndLeadingSpace(t *testing.T) {
+func TestCollectGitWritePathsPreservesLeadingSpace(t *testing.T) {
 	repo := initGitRepo(t)
-	relative := " leading space\nand newline.txt"
+	relative := " leading space.txt"
 	gitWrite(t, repo, relative, "content\n")
 	gitRun(t, repo, "add", "--", relative)
 

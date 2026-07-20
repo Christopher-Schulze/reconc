@@ -23,6 +23,7 @@ func generateDevinCLI() *Artifact {
 	}
 	template := map[string]interface{}{
 		"SessionStart":      []interface{}{entry("devin-session-start", EventSessionStart, "")},
+		"UserPromptSubmit":  []interface{}{entry("devin-user-prompt-submit", EventUserPromptSubmit, "")},
 		"PreToolUse":        []interface{}{entry("devin-pre-tool-use", EventPreToolUse, "^(exec|edit)$")},
 		"PermissionRequest": []interface{}{entry("devin-permission-request", EventPermissionRequest, "^(exec|edit)$")},
 		"PostToolUse":       []interface{}{entry("devin-post-tool-use", EventPostToolUse, "^(read|edit|grep|glob|exec|mcp__.*)$")},

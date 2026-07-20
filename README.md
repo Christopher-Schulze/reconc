@@ -88,6 +88,10 @@ go build -o reconc ./cmd/reconc
 ./reconc --help
 ```
 
+The shipped CLI has no Bun dependency. Contributors need Bun `1.3.14` only for
+the executable OpenCode and Kilo Code adapter contract tests included in the
+canonical `make test` target.
+
 Windows binaries run natively. Shell-based hook wrappers plus `.sh` and
 extensionless policy scripts require `sh` on `PATH`; Git for Windows supplies
 it. Native `.exe` and `.com` policy scripts execute directly.
@@ -218,7 +222,7 @@ a transaction reports drift or a mature repository needs surgical adaptation.
 | Codex | session, tool, permission, evidence, and Stop hooks with `apply_patch` path extraction |
 | Cursor | pre-write, post-write, shell, evidence, and Stop hook coverage |
 | OpenCode | thin tool, permission, compaction, and `session.idle` continuation adapter |
-| Devin CLI | native session, tool, permission, stop, and post-compaction hooks |
+| Devin CLI | native session, prompt, tool, permission, stop, and post-compaction hooks |
 | Antigravity CLI | invocation, tool, post-tool, and stop hook coverage |
 | Kilo Code | thin project plugin with tool, permission, compaction, and `session.idle` continuation handling |
 | Grok Build | native lifecycle and hard PreToolUse hooks, strict ACP continuation, and leader-mode TUI steering |
@@ -346,12 +350,11 @@ reconc <command> --help
 
 ## Status
 
-`reconc` is released on the `v0.8.x` line; the source version is `v0.8.5`. Core
-local gates pass, and release artifacts are produced by the GitHub release
-workflow only after an explicit manual dispatch for an existing
-`reconc-vX.Y.Z` tag. Tag pushes never publish a release. Every release SBOM is
-regenerated and byte-verified before its checksum and build provenance are
-published.
+The source line is `v0.8.x`, and the current source version is `v0.8.5`. No
+GitHub Release is currently published. Release artifacts are produced only by
+an explicit manual workflow dispatch for an existing `reconc-vX.Y.Z` tag; tag
+pushes never publish a release. Every published release SBOM is regenerated and
+byte-verified before its checksum and build provenance are published.
 
 `make self-host` builds the local binary and runs the clean-repository golden
 path across all three bootstrap profiles, all nine hook platforms, TASK

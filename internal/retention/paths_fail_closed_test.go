@@ -62,3 +62,33 @@ func TestGeneratedBinaryActivityScanReportsUnreadableCache(t *testing.T) {
 		t.Fatal("non-directory cache must fail activity discovery closed")
 	}
 }
+
+func TestRepoRuntimeRetentionRejectsNonDirectoryCacheWithoutDeletingIt(t *testing.T) {
+	repo := t.TempDir()
+	cachePath := filepath.Join(repo, ".reconc", "cache")
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cachePath, []byte("owned state, not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ownedRepoRuntimeBytes(repo); err == nil {
+		t.Fatal("non-directory repository cache must fail byte accounting closed")
+	}
+
+	policy := DefaultPolicy()
+	policy.RepoRuntimeBytes = 0
+	report := Run(Options{
+		RepoRoot:  repo,
+		StateRoot: t.TempDir(),
+		TempRoot:  t.TempDir(),
+		Policy:    policy,
+		Now:       time.Now(),
+	})
+	if !strings.Contains(strings.Join(report.Errors, "\n"), "not a directory") {
+		t.Fatalf("non-directory repository cache was not reported: %+v", report.Errors)
+	}
+	if content, err := os.ReadFile(cachePath); err != nil || string(content) != "owned state, not a directory" {
+		t.Fatalf("invalid cache path was modified: content=%q err=%v", content, err)
+	}
+}

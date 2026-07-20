@@ -54,6 +54,28 @@ func TestNormalizeDevinToolCoverage(t *testing.T) {
 	}
 }
 
+func TestNormalizeDevinSuccessfulStderrRemainsDiagnosticOutput(t *testing.T) {
+	body, err := NormalizeDevinPayload("devin-post-tool-use", []byte(`{
+  "session_id":"s1",
+  "tool_name":"exec",
+  "tool_response":{"success":true,"output":"ok"},
+  "stderr":"warning: cache miss"
+}`), "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := ParsePayload(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.Error != "" {
+		t.Fatalf("successful stderr must not become a command failure: %q", payload.Error)
+	}
+	if payload.ToolResponse["stderr"] != "warning: cache miss" {
+		t.Fatalf("stderr diagnostic was not preserved: %#v", payload.ToolResponse)
+	}
+}
+
 func TestPayloadLooksLikeDevin(t *testing.T) {
 	if !PayloadLooksLikeDevin([]byte(`{"source":"devin-cli"}`)) {
 		t.Fatal("source marker should identify Devin")

@@ -202,6 +202,7 @@ var platformRegistry = []platformDefinition{
 	{
 		Platform: Platform{Kind: KindDevinCLI, DisplayName: "Devin CLI", TargetPath: DevinHooksPath, ScaffoldPath: DevinHooksPath, InstallMode: InstallFlatJSON, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".devin"}, RequiresWrapper: true}, Capabilities: []Capability{
 			capability(EventSessionStart, "SessionStart", SupportNative, FailureAllow, FailureAllow, 5, "devin-session-start"),
+			capability(EventUserPromptSubmit, "UserPromptSubmit", SupportNative, FailureAllow, FailureAllow, 5, "devin-user-prompt-submit"),
 			capability(EventPreToolUse, "PreToolUse", SupportNative, FailureBlock, FailureAllow, 10, "devin-pre-tool-use"),
 			capability(EventPermissionRequest, "PermissionRequest", SupportNative, FailureBlock, FailureAllow, 10, "devin-permission-request"),
 			capability(EventPostToolUse, "PostToolUse", SupportNative, FailureAllow, FailureAllow, 5, "devin-post-tool-use"),

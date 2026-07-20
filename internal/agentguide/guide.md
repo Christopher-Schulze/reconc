@@ -162,7 +162,7 @@ execution proof. Static activation and rate-limited per-route
 - **OpenCode**: use `reconc hook install opencode .` for the
   thin project-local `.opencode/plugins/reconc.js` adapter. Continuation is
   inferred from `session.idle`, not a synchronous native Stop gate.
-- **Devin CLI**: `.devin/hooks.v1.json` covers session, tool,
+- **Devin CLI**: `.devin/hooks.v1.json` covers session, user-prompt, tool,
   permission, Stop, cleanup, and post-compaction recovery.
 - **Antigravity CLI**: `.agents/hooks.json` covers invocation, tool,
   observation, and Stop events.

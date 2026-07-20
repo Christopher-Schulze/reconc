@@ -60,9 +60,6 @@ func NormalizeDevinPayload(event string, payloadBytes []byte, repoRoot string) (
 		if len(response) > 0 {
 			out["tool_response"] = response
 		}
-		if errText := cursorFirstString(raw, "error", "stderr"); errText != "" {
-			out["error"] = errText
-		}
 	}
 
 	body, err := json.Marshal(out)

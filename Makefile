@@ -5,7 +5,7 @@
 #   make test               -- run all tests with -race
 #   make fmt                -- format all Go sources
 #   make vet                -- run go vet
-#   make lint               -- run staticcheck (if installed)
+#   make lint               -- run pinned staticcheck
 #   make cover              -- tests with coverage -> coverage.html
 #   make clean              -- remove build artifacts + dist/
 #   make run ARGS="--help"  -- build and run with args
@@ -50,6 +50,7 @@ build:
 
 test:
 	$(GO) test -race -count=1 $(PKG)
+	(cd harness/template && $(GO) test -race -count=1 ./...)
 	./scripts/tests/release-trust.sh
 
 test-release-trust:
@@ -60,12 +61,15 @@ self-host: build
 
 fmt:
 	$(GO) fmt $(PKG)
+	(cd harness/template && $(GO) fmt ./...)
 
 vet:
 	$(GO) vet $(PKG)
+	(cd harness/template && $(GO) vet ./...)
 
 lint:
 	$(GO) run honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION) $(PKG)
+	(cd harness/template && $(GO) run honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION) ./...)
 
 cover:
 	$(GO) test -cover -coverprofile=coverage.out $(PKG)
@@ -82,6 +86,7 @@ run: build
 
 tidy:
 	$(GO) mod tidy
+	(cd harness/template && $(GO) mod tidy)
 
 # Cross-compile one target from RELEASE_TARGETS. Invoked by `release`.
 # Usage: make release-one TARGET=darwin/arm64

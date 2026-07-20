@@ -25,13 +25,11 @@ func WriteIfChanged(path string, data []byte, mode os.FileMode) (bool, error) {
 		if statErr != nil {
 			return false, fmt.Errorf("stat current %s: %w", path, statErr)
 		}
-		if info.Mode().Perm() == mode.Perm() {
-			return false, nil
+		modeChanged, modeErr := reconcileMode(path, info.Mode(), mode)
+		if modeErr != nil {
+			return false, fmt.Errorf("reconcile mode for current %s: %w", path, modeErr)
 		}
-		if err := os.Chmod(path, mode); err != nil {
-			return false, fmt.Errorf("chmod current %s: %w", path, err)
-		}
-		return true, nil
+		return modeChanged, nil
 	}
 	if err != nil && !os.IsNotExist(err) {
 		return false, fmt.Errorf("read current %s: %w", path, err)

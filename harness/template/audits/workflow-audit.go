@@ -1027,8 +1027,14 @@ func auditAgentHooks(root string) []string {
 			"tools/reconc/bin/hook",
 			"RECONC_HOOK_REPO_RESOLVED=1",
 			"codex-session-start",
+			"codex-user-prompt-submit",
 			"codex-pre-tool-use",
+			"codex-permission-request",
 			"codex-post-tool-use",
+			"codex-pre-compaction",
+			"codex-post-compaction",
+			"codex-subagent-start",
+			"codex-subagent-stop",
 			"codex-stop",
 		}
 	}
@@ -1039,6 +1045,7 @@ func auditAgentHooks(root string) []string {
 			"tools/reconc/bin/hook",
 			"RECONC_HOOK_REPO_RESOLVED=1",
 			"cursor-session-start",
+			"cursor-session-end",
 			"cursor-pre-tool-use",
 			"cursor-post-tool-use",
 			"cursor-before-shell-execution",
@@ -1057,12 +1064,22 @@ func auditAgentHooks(root string) []string {
 			"tools/reconc/bin/hook",
 			"\"args\"",
 			"claude-session-start",
+			"claude-session-end",
+			"claude-user-prompt-submit",
+			"claude-pre-tool-use",
+			"claude-permission-request",
+			"claude-permission-denied",
+			"claude-post-tool-use",
+			"claude-post-tool-use-failure",
+			"claude-pre-compaction",
 			"claude-post-compaction",
+			"claude-compaction-recovery",
+			"claude-subagent-start",
+			"claude-subagent-stop",
+			"claude-stop",
+			"claude-stop-failure",
 			`"compact"`,
 			`"timeout"`,
-			"claude-pre-tool-use",
-			"claude-post-tool-use",
-			"claude-stop",
 			"CLAUDE_PROJECT_DIR",
 		}
 	}
@@ -1074,12 +1091,14 @@ func auditAgentHooks(root string) []string {
 			`return [wrapper, event, repo]`,
 			`killSignal: "SIGKILL"`,
 			"opencode-session-start",
+			"opencode-session-end",
+			"opencode-user-prompt-submit",
 			"opencode-pre-tool-use",
 			"opencode-permission-request",
 			"opencode-post-tool-use",
 			"opencode-post-tool-use-failure",
+			"opencode-pre-compaction",
 			"opencode-post-compaction",
-			"opencode-session-end",
 			"opencode-stop",
 			"session.idle",
 			"client.session.prompt",
@@ -1090,6 +1109,7 @@ func auditAgentHooks(root string) []string {
 			"DEVIN_PROJECT_DIR",
 			"tools/reconc/bin/hook",
 			"devin-session-start",
+			"devin-user-prompt-submit",
 			"devin-pre-tool-use",
 			"devin-permission-request",
 			"devin-post-tool-use",
@@ -1120,12 +1140,14 @@ func auditAgentHooks(root string) []string {
 			`return [wrapper, event, repo]`,
 			`killSignal: "SIGKILL"`,
 			"kilo-session-start",
+			"kilo-session-end",
+			"kilo-user-prompt-submit",
 			"kilo-pre-tool-use",
 			"kilo-permission-request",
 			"kilo-post-tool-use",
 			"kilo-post-tool-use-failure",
+			"kilo-pre-compaction",
 			"kilo-post-compaction",
-			"kilo-session-end",
 			"kilo-stop",
 			`export default { id: "reconc", server: ReconcKiloServer }`,
 		}
@@ -1155,12 +1177,10 @@ func auditAgentHooks(root string) []string {
 		}
 	}
 	forbidden := map[string][]string{
-		".claude/settings.json":       {`"PostCompact"`, `"UserPromptSubmit"`, "claude-user-prompt-submit"},
-		".codex/hooks.json":           {`"UserPromptSubmit"`, "codex-user-prompt-submit", `"SessionEnd"`, "codex-session-end"},
+		".codex/hooks.json":           {`"SessionEnd"`, "codex-session-end"},
 		".cursor/hooks.json":          {`"beforeSubmitPrompt"`, "cursor-user-prompt-submit"},
-		".opencode/plugins/reconc.js": {".reconc/runloop", "chat.message", "opencode-user-prompt-submit", "runloop autocontinue", "opencode_continuation_driver", "STFU", "tools/reconc/dist", "reconc-0.6.0-"},
-		".devin/hooks.v1.json":        {`"UserPromptSubmit"`, "devin-user-prompt-submit"},
-		".kilo/plugin/reconc.js":      {".reconc/runloop", "chat.message", "kilo-user-prompt-submit", "runloop autocontinue", "opencode_continuation_driver", "STFU", "tools/reconc/dist", "reconc-0.6.0-"},
+		".opencode/plugins/reconc.js": {".reconc/runloop", "runloop autocontinue", "opencode_continuation_driver", "STFU", "tools/reconc/dist", "reconc-0.6.0-"},
+		".kilo/plugin/reconc.js":      {".reconc/runloop", "runloop autocontinue", "opencode_continuation_driver", "STFU", "tools/reconc/dist", "reconc-0.6.0-"},
 		".agents/hooks.json":          {`"timeout": 120`},
 		".grok/hooks/reconc.json":     {"claude-", "cursor-", "opencode-", "kilo-"},
 	}
@@ -1189,8 +1209,46 @@ func auditAgentHooks(root string) []string {
 		if relative == ".grok/hooks/reconc.json" {
 			failures = append(failures, auditGrokRouteCoverage(relative, content)...)
 		}
+		switch relative {
+		case ".devin/hooks.v1.json":
+			failures = append(failures, auditHookTimeoutBudgets(relative, content, []hookTimeoutExpectation{
+				{event: "devin-session-start", seconds: 5},
+				{event: "devin-user-prompt-submit", seconds: 5},
+				{event: "devin-pre-tool-use", seconds: 10},
+				{event: "devin-permission-request", seconds: 10},
+				{event: "devin-post-tool-use", seconds: 5},
+				{event: "devin-post-compaction", seconds: 5},
+				{event: "devin-stop", seconds: 30},
+				{event: "devin-session-end", seconds: 5},
+			})...)
+		case ".agents/hooks.json":
+			failures = append(failures, auditHookTimeoutBudgets(relative, content, []hookTimeoutExpectation{
+				{event: "antigravity-pre-invocation", seconds: 5},
+				{event: "antigravity-pre-tool-use", seconds: 10},
+				{event: "antigravity-post-tool-use", seconds: 5},
+				{event: "antigravity-post-invocation", seconds: 5},
+				{event: "antigravity-stop", seconds: 30},
+			})...)
+		case ".grok/hooks/reconc.json":
+			failures = append(failures, auditHookTimeoutBudgets(relative, content, []hookTimeoutExpectation{
+				{event: "grok-session-start", seconds: 5},
+				{event: "grok-user-prompt-submit", seconds: 5},
+				{event: "grok-pre-tool-use", seconds: 10},
+				{event: "grok-permission-denied", seconds: 5},
+				{event: "grok-post-tool-use", seconds: 5},
+				{event: "grok-post-tool-use-failure", seconds: 5},
+				{event: "grok-stop", seconds: 600},
+				{event: "grok-stop-failure", seconds: 5},
+				{event: "grok-notification", seconds: 5},
+				{event: "grok-subagent-start", seconds: 5},
+				{event: "grok-subagent-stop", seconds: 5},
+				{event: "grok-pre-compaction", seconds: 5},
+				{event: "grok-post-compaction", seconds: 5},
+				{event: "grok-session-end", seconds: 5},
+			})...)
+		}
 		if relative == ".codex/hooks.json" || relative == ".cursor/hooks.json" || relative == ".claude/settings.json" || relative == ".agents/hooks.json" {
-			for _, stale := range []string{"reconc hook runtime ", "tools/reconc/dist/reconc-0.5.0-", "for bin in "} {
+			for _, stale := range []string{"reconc hook runtime ", "tools/reconc/dist/reconc-", "for bin in "} {
 				if strings.Contains(content, stale) {
 					failures = append(failures, fmt.Sprintf("%s uses stale heavy hook command token %q; reinstall hooks so configs exec tools/reconc/bin/hook only", relative, stale))
 				}
@@ -1252,6 +1310,8 @@ func auditGrokRouteCoverage(relative string, content string) []string {
 }
 
 func auditHookLauncherShape(relative string, content string) []string {
+	// Keep timeout verification separate from launcher-shape verification so
+	// stale budgets cannot hide behind otherwise valid generated commands.
 	var decoded interface{}
 	if err := json.Unmarshal([]byte(content), &decoded); err != nil {
 		return []string{fmt.Sprintf("%s is not valid JSON: %v", relative, err)}
@@ -1290,6 +1350,67 @@ func auditHookLauncherShape(relative string, content string) []string {
 			}
 		}
 	})
+	return failures
+}
+
+type hookTimeoutExpectation struct {
+	event   string
+	seconds int
+}
+
+func auditHookTimeoutBudgets(relative, content string, expectations []hookTimeoutExpectation) []string {
+	var decoded interface{}
+	if err := json.Unmarshal([]byte(content), &decoded); err != nil {
+		return nil
+	}
+	expected := make(map[string]int, len(expectations))
+	for _, expectation := range expectations {
+		expected[expectation.event] = expectation.seconds
+	}
+	seen := make(map[string]int, len(expectations))
+	wrong := make(map[string][]string, len(expectations))
+	var visit func(interface{})
+	visit = func(value interface{}) {
+		switch current := value.(type) {
+		case map[string]interface{}:
+			if command, ok := current["command"].(string); ok {
+				matched := make(map[string]bool)
+				for _, field := range strings.Fields(command) {
+					event := strings.Trim(field, `"'\`)
+					want, ok := expected[event]
+					if !ok || matched[event] {
+						continue
+					}
+					matched[event] = true
+					seen[event]++
+					timeout, numeric := current["timeout"].(float64)
+					if !numeric || timeout != float64(want) {
+						wrong[event] = append(wrong[event], fmt.Sprintf("%v", current["timeout"]))
+					}
+				}
+			}
+			for _, child := range current {
+				visit(child)
+			}
+		case []interface{}:
+			for _, child := range current {
+				visit(child)
+			}
+		}
+	}
+	visit(decoded)
+
+	var failures []string
+	for _, expectation := range expectations {
+		switch {
+		case seen[expectation.event] == 0:
+			failures = append(failures, fmt.Sprintf("%s missing timeout contract for %q", relative, expectation.event))
+		case seen[expectation.event] > 1:
+			failures = append(failures, fmt.Sprintf("%s has %d timeout contracts for %q; want exactly one", relative, seen[expectation.event], expectation.event))
+		case len(wrong[expectation.event]) > 0:
+			failures = append(failures, fmt.Sprintf("%s timeout for %q = %s; want %d seconds", relative, expectation.event, strings.Join(wrong[expectation.event], ","), expectation.seconds))
+		}
+	}
 	return failures
 }
 

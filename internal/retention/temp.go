@@ -176,7 +176,7 @@ func enforceRepoTotal(options Options, report *Report) ClassReport {
 	}
 	var removable []candidate
 	cache := filepath.Join(options.RepoRoot, ".reconc", "cache")
-	entries, err := os.ReadDir(cache)
+	entries, err := readOwnedDirectory(cache)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		report.Errors = append(report.Errors, fmt.Sprintf("read runtime cache %s: %v", cache, err))
 		return class
@@ -302,7 +302,7 @@ func ownedRepoRuntimeBytes(repoRoot string) (int64, error) {
 		}
 	}
 	cacheDir := filepath.Join(repoRoot, ".reconc", "cache")
-	entries, err := os.ReadDir(cacheDir)
+	entries, err := readOwnedDirectory(cacheDir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return total, nil

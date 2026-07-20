@@ -2,8 +2,9 @@
 
 ## Supported Versions
 
-Security fixes are applied to the current `main` branch and the latest
-published `v0.8.x` release.
+Security fixes are applied to the current `main` branch. Binary support applies
+only to the latest GitHub Release when one exists; a tag without a GitHub
+Release is not a published binary support line.
 
 ## Reporting A Vulnerability
 

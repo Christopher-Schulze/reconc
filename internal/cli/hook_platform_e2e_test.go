@@ -31,6 +31,19 @@ func TestHookRuntimeDevinNativeShapeBlocksDeniedWrite(t *testing.T) {
 	}
 }
 
+func TestHookRuntimeDevinUserPromptSubmitCreatesSession(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	stdout, stderr, code := runWithStdin(t,
+		`{"session_id":"devin-prompt","prompt":"continue the task"}`,
+		"hook", "runtime", "devin-user-prompt-submit", repo)
+	if code != 0 || stdout != "" || stderr != "" {
+		t.Fatalf("Devin UserPromptSubmit failed: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if _, err := agentsession.LoadSessionState(repo, "devin-prompt"); err != nil {
+		t.Fatalf("Devin UserPromptSubmit did not establish session state: %v", err)
+	}
+}
+
 func TestHookRuntimeKiloAdapterShapeBlocksDeniedWrite(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
 	payload := `{"session_id":"kilo-1","reconc_runtime":"kilo","tool_name":"Write","tool_input":{"file_path":"generated/blocked.go"}}`

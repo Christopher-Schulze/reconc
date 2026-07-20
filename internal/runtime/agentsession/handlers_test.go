@@ -434,6 +434,57 @@ func TestRunPostToolUseFailureRecordsOutcome(t *testing.T) {
 	}
 }
 
+func TestRunPostToolUseCompleteClassifiesCommandOutcome(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		response    string
+		wantOutcome string
+	}{
+		{name: "success", response: `"tool_response":{"success":true}`, wantOutcome: "success"},
+		{name: "top-level error", response: `"error":"command failed"`, wantOutcome: "failure"},
+		{name: "non-zero exit", response: `"tool_response":{"exit_code":2}`, wantOutcome: "failure"},
+		{name: "explicit unsuccessful response", response: `"tool_response":{"success":false}`, wantOutcome: "failure"},
+		{name: "nested response error", response: `"tool_response":{"error":"command failed"}`, wantOutcome: "failure"},
+		{name: "structured response error", response: `"tool_response":{"error":{"message":"command failed"}}`, wantOutcome: "failure"},
+		{name: "null response error", response: `"tool_response":{"success":true,"error":null}`, wantOutcome: "success"},
+		{name: "successful stderr", response: `"tool_response":{"success":true,"stderr":"warning"}`, wantOutcome: "success"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo := setupPolicyRepo(t)
+			_ = RunSessionStart(repo, []byte(`{"session_id":"complete"}`))
+			payload := `{"session_id":"complete","tool_name":"Bash","tool_input":{"command":"go test ./..."},` + test.response + `}`
+			result := RunPostToolUseComplete(repo, []byte(payload))
+			if result.ExitCode != 0 {
+				t.Fatalf("completed command observation must fail open: %+v", result)
+			}
+			state, err := LoadSessionState(repo, "complete")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(state.CommandResults) != 1 || state.CommandResults[0].Outcome != test.wantOutcome {
+				t.Fatalf("command results = %+v, want outcome %q", state.CommandResults, test.wantOutcome)
+			}
+		})
+	}
+}
+
+func TestRunPostToolUseCompleteDoesNotRecordFailedWriteEvidence(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	_ = RunSessionStart(repo, []byte(`{"session_id":"failed-write"}`))
+	payload := `{"session_id":"failed-write","tool_name":"Write","tool_input":{"file_path":"src/not-written.go"},"tool_response":{"success":false,"error":"write rejected"}}`
+	result := RunPostToolUseComplete(repo, []byte(payload))
+	if result.ExitCode != 0 {
+		t.Fatalf("failed write observation must fail open: %+v", result)
+	}
+	state, err := LoadSessionState(repo, "failed-write")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.WritePaths) != 0 {
+		t.Fatalf("failed write became successful evidence: %+v", state.WritePaths)
+	}
+}
+
 func TestRunPostToolUseIgnoresExternalReadEvidence(t *testing.T) {
 	repo := setupPolicyRepo(t)
 	_ = RunSessionStart(repo, []byte(`{"session_id":"s1"}`))

@@ -52,7 +52,7 @@ verify_action_pins() {
       return 1
     fi
     case "$action" in
-      actions/checkout|actions/setup-go|actions/attest-build-provenance) ;;
+      actions/checkout|actions/setup-go|actions/attest-build-provenance|oven-sh/setup-bun) ;;
       *)
         printf '%s\n' "$workflow uses an action outside the allowlist: $action" >&2
         return 1
@@ -98,10 +98,10 @@ release_line="v${project_version%.*}.x"
 require_text "$root/Makefile" "VERSION   ?= $project_version"
 require_text "$root/install.sh" "VERSION=\"\${1:-$project_version}\""
 require_text "$root/install.sh" "sh install.sh $project_version"
-require_text "$root/README.md" "released on the \`$release_line\` line"
-require_text "$root/SECURITY.md" "published \`$release_line\` release"
-require_text "$root/AGENTS.md" "current public release line is \`$release_line\`"
-require_text "$root/docs/documentation.md" "current public release line is \`$release_line\`"
+require_text "$root/README.md" "The source line is \`$release_line\`, and the current source version is \`v$project_version\`."
+require_text "$root/SECURITY.md" "only to the latest GitHub Release when one exists"
+require_text "$root/AGENTS.md" "The current source line is \`$release_line\`; the source version is \`v$project_version\`."
+require_text "$root/docs/documentation.md" "The current source line is \`$release_line\`; the source version is \`v$project_version\`."
 require_text "$root/.github/releases/reconc-v$project_version.md" "# reconc v$project_version"
 
 ci_workflow="$root/.github/workflows/reconc-ci.yml"
@@ -127,7 +127,15 @@ for workflow in "$ci_workflow" "$release_workflow"; do
 done
 require_action "$ci_workflow" "actions/setup-go"
 require_action "$release_workflow" "actions/setup-go"
+require_action "$ci_workflow" "oven-sh/setup-bun"
+require_action "$release_workflow" "oven-sh/setup-bun"
 require_action "$release_workflow" "actions/attest-build-provenance"
+require_text "$ci_workflow" "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0"
+require_text "$release_workflow" "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0"
+[ "$(grep -Fc 'bun-version: 1.3.14' "$ci_workflow")" -eq 2 ] \
+  || fail "$ci_workflow must provision Bun 1.3.14 in both executable-test jobs"
+[ "$(grep -Fc 'bun-version: 1.3.14' "$release_workflow")" -eq 1 ] \
+  || fail "$release_workflow must provision Bun 1.3.14 exactly once"
 require_text "$release_workflow" "subject-checksums: dist/SHA256SUMS"
 require_text "$release_workflow" "  workflow_dispatch:"
 require_text "$release_workflow" "      tag:"

@@ -246,23 +246,38 @@ func RunPostToolUseFailure(repoRoot string, payloadBytes []byte) Result {
 	return Result{ExitCode: 0, Stdout: postToolFailureJSONOutput(updated)}
 }
 
-// RunPostToolUseComplete records a completed command as success or failure
-// based on the payload's exit code. Runtimes like Cursor provide one
-// after-shell event instead of separate PostToolUse/PostToolUseFailure events.
+// RunPostToolUseComplete records only successful tool evidence and routes an
+// explicit failure through the failure observer. Runtimes like Devin provide
+// one post-tool event instead of separate success and failure events.
 func RunPostToolUseComplete(repoRoot string, payloadBytes []byte) Result {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post-complete, warn): %s", err)}
 	}
-	if payload.IsCommandTool() {
-		if payload.Error != "" {
-			return RunPostToolUseFailure(repoRoot, payloadBytes)
-		}
-		if exitCode := payload.ExitCode(); exitCode != nil && *exitCode != 0 {
-			return RunPostToolUseFailure(repoRoot, payloadBytes)
-		}
+	if toolResponseFailed(payload) {
+		return RunPostToolUseFailure(repoRoot, payloadBytes)
 	}
 	return RunPostToolUse(repoRoot, payloadBytes)
+}
+
+func toolResponseFailed(payload *HookPayload) bool {
+	if payload.Error != "" {
+		return true
+	}
+	if exitCode := payload.ExitCode(); exitCode != nil && *exitCode != 0 {
+		return true
+	}
+	if success, ok := payload.ToolResponse["success"].(bool); ok && !success {
+		return true
+	}
+	errorValue, present := payload.ToolResponse["error"]
+	if !present || errorValue == nil {
+		return false
+	}
+	if errorText, ok := errorValue.(string); ok {
+		return strings.TrimSpace(errorText) != ""
+	}
+	return true
 }
 
 // RunSessionEnd cleans up the mutable session state; saved reports

@@ -562,7 +562,7 @@ func isGeneratedBinary(entry os.DirEntry) bool {
 
 func generatedBinaryActiveNames(cacheDir string, now time.Time, grace time.Duration) (map[string]bool, error) {
 	active := map[string]bool{}
-	entries, err := os.ReadDir(cacheDir)
+	entries, err := readOwnedDirectory(cacheDir)
 	if errors.Is(err, os.ErrNotExist) {
 		return active, nil
 	}
@@ -580,6 +580,17 @@ func generatedBinaryActiveNames(cacheDir string, now time.Time, grace time.Durat
 		active[entry.Name()] = buildActive
 	}
 	return active, nil
+}
+
+func readOwnedDirectory(path string) ([]os.DirEntry, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("%s is not a directory", path)
+	}
+	return os.ReadDir(path)
 }
 
 func classTotals(classes []ClassReport, names ...string) (int64, int64) {

@@ -130,7 +130,7 @@ func TestNewPlatformArtifactsUseCurrentContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, token := range []string{`"PostCompaction"`, "devin-post-compaction", `"timeout": 5`, `"matcher": "^(exec|edit)$"`} {
+	for _, token := range []string{`"UserPromptSubmit"`, "devin-user-prompt-submit", `"PostCompaction"`, "devin-post-compaction", `"timeout": 5`, `"matcher": "^(exec|edit)$"`} {
 		if !strings.Contains(devin.Content, token) {
 			t.Fatalf("Devin artifact missing %q:\n%s", token, devin.Content)
 		}
@@ -207,6 +207,7 @@ func TestBunAdapterRoutesAreRegistered(t *testing.T) {
 		"claude-user-prompt-submit",
 		"codex-user-prompt-submit",
 		"opencode-user-prompt-submit",
+		"devin-user-prompt-submit",
 		"kilo-user-prompt-submit",
 	} {
 		if _, ok := RuntimeEvent(event); !ok {
@@ -215,7 +216,6 @@ func TestBunAdapterRoutesAreRegistered(t *testing.T) {
 	}
 	for _, event := range []string{
 		"cursor-user-prompt-submit",
-		"devin-user-prompt-submit",
 		"antigravity-user-prompt-submit",
 	} {
 		if _, ok := RuntimeEvent(event); ok {

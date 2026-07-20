@@ -15,19 +15,23 @@ this root, and docs/comments should not depend on any external source tree.
 - Language: Go
 - Module: `reconc.dev/reconc`
 - Runtime dependencies: `gopkg.in/yaml.v3`, `github.com/bmatcuk/doublestar/v4`
-- Test runner: `go test`
+- Test runner: `make test` (root module, portable template module, and release trust)
 - Entry point: `cmd/reconc/main.go`
 
 ## Build, Test, And Run
 
 ```bash
-go test ./...
-go test -race -count=1 ./...
-go vet ./...
-go build ./cmd/reconc
+make test
+make vet
+make lint
+make build
 go run ./cmd/reconc --help
 make self-host
 ```
+
+Bun `1.3.14` is a test-only dependency for executing the generated OpenCode
+and Kilo Code adapter contracts; the shipped Reconc binary does not require
+Bun.
 
 ## Conventions
 
@@ -46,6 +50,6 @@ make self-host
 
 ## Current Release State
 
-The current public release line is `v0.8.x`; the source version is `v0.8.5`.
-Core tests, race tests, vet, static analysis, and release artifact generation
-are expected to pass before release.
+The current source line is `v0.8.x`; the source version is `v0.8.5`. No GitHub
+Release is currently published. Core tests, race tests, vet, static analysis,
+and release artifact generation must pass before publication.

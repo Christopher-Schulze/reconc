@@ -44,6 +44,8 @@ Requirements:
 
 - Go `1.26`
 - Git for `reconc ci` and hook installation
+- Bun `1.3.14` for executable OpenCode and Kilo Code adapter tests only; the
+  shipped Reconc binary has no Bun runtime dependency
 - On Windows, `sh` on `PATH` for generated shell hook wrappers plus `.sh` and
   extensionless policy scripts; Git for Windows supplies it. Native `.exe` and
   `.com` policy scripts execute directly.
@@ -51,13 +53,17 @@ Requirements:
 Common commands:
 
 ```bash
-go test ./...
-go test -race -count=1 ./...
-go vet ./...
-go build ./cmd/reconc
+make test
+make vet
+make lint
+make build
 go run ./cmd/reconc --help
 make self-host
 ```
+
+The canonical Make targets cover both the root Go module and
+`harness/template`; `make test` additionally runs release-trust failure-path
+checks. Direct `go test ./...` validates only the root module.
 
 Make targets:
 
@@ -731,8 +737,8 @@ permission-denied, failed-tool, Stop-failure, subagent, pre/post-compaction,
 and session events. After compaction, the context-capable `SessionStart`
 `compact` matcher restores a bounded recovery packet; native `PostCompact` is
 retained as an observation event because it cannot inject context. Devin uses
-`.devin/hooks.v1.json`, including `PostCompaction`, and suppresses compatible
-Claude-hook duplicates.
+`.devin/hooks.v1.json`, including native `UserPromptSubmit` and
+`PostCompaction`, and suppresses compatible Claude-hook duplicates.
 Antigravity uses `.agents/hooks.json` with `PreInvocation`, `PreToolUse`,
 `PostToolUse`, `PostInvocation`, and `Stop`; Reconc stores Antigravity PreTool
 metadata as pending evidence so PostToolUse can record exact evidence when the
@@ -947,6 +953,9 @@ CI checks:
 - native Windows 2025 root-module and `harness/template` tests plus native
   binary version/help smoke;
   shell hook wrappers and shell policy scripts use the documented `sh` runtime
+- SHA-pinned `oven-sh/setup-bun` provisions Bun 1.3.14 in every job that
+  executes OpenCode/Kilo adapter contracts; missing Bun can never be mistaken
+  for an adapter regression
 - clean-repository self-hosting golden path on Ubuntu and macOS across all three bootstrap profiles and nine hook platforms
 - immutable action commit pins plus an explicit GitHub-owned action allowlist;
   the trust gate validates pin shape and action identity without coupling
@@ -976,7 +985,7 @@ Release:
 - Create the protected `reconc-vX.Y.Z` tag, then explicitly start the Release
   workflow and supply that existing tag. Tag pushes never trigger a release.
 - The tag version must be stable semantic versioning, match the source version, and have committed release notes.
-- Release workflow repeats formatting, tidy, test, vet, pinned Govulncheck, pinned Staticcheck, race, trust, and clean-repository self-hosting gates before building.
+- Release workflow provisions the same pinned Bun runtime, then repeats formatting, tidy, test, vet, pinned Govulncheck, pinned Staticcheck, race, trust, and clean-repository self-hosting gates before building.
 - `make release VERSION=<tag-version>` builds the exact flat release inventory.
 - Release output includes deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs for
   both Go modules, selected dependencies, the Go toolchain, version, and commit.
@@ -1144,8 +1153,8 @@ current-state documentation.
 
 ## Release State
 
-The current public release line is `v0.8.x`; the source version is `v0.8.5`. A
-new release is blocked until its release, install, self-hosting, and final
-verification contracts pass. Release artifacts are produced only through an
-explicit manual Release workflow dispatch for an existing `reconc-vX.Y.Z` tag;
-tag pushes never publish a release.
+The current source line is `v0.8.x`; the source version is `v0.8.5`. No GitHub
+Release is currently published. Publication is blocked until the release,
+install, self-hosting, and final verification contracts pass. Release artifacts
+are produced only through an explicit manual Release workflow dispatch for an
+existing `reconc-vX.Y.Z` tag; tag pushes never publish a release.
