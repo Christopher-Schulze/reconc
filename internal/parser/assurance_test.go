@@ -198,3 +198,48 @@ func TestParseRequireAssuranceRejectsBackslashEscape(t *testing.T) {
 		t.Fatalf("expected Windows-style path escape rejection, got %v", err)
 	}
 }
+
+func TestParseRequireAssuranceValidatesPackageScriptCommands(t *testing.T) {
+	valid, err := ParseRuleDocuments(makeBundle(policy.PolicySource{
+		Kind: policy.SourcePolicyFile, Path: "policy.yml", Content: `rules:
+  - id: assurance
+    kind: require_assurance
+    mode: block
+    when_paths: ["**"]
+    message: native gates
+    assurance:
+      - id: scripts
+        type: package_scripts
+        manifest_paths: ["**/package.json"]
+        manifest_markers: ["tsconfig*.json"]
+        exclude_paths: ["fixtures/**"]
+        package_manager: pnpm
+        commands: ["pnpm run test", "npm run lint"]
+`,
+	}))
+	if err != nil {
+		t.Fatalf("valid package_scripts gate: %v", err)
+	}
+	gate := valid.Rules[0].Assurance[0]
+	if gate.PackageManager != "pnpm" || len(gate.ManifestMarkers) != 1 || len(gate.ExcludePaths) != 1 {
+		t.Fatalf("package_scripts gate = %+v", gate)
+	}
+
+	_, err = ParseRuleDocuments(makeBundle(policy.PolicySource{
+		Kind: policy.SourcePolicyFile, Path: "policy.yml", Content: `rules:
+  - id: assurance
+    kind: require_assurance
+    mode: block
+    when_paths: ["**"]
+    message: native gates
+    assurance:
+      - id: scripts
+        type: package_scripts
+        manifest_paths: ["**/package.json"]
+        commands: ["npm test"]
+`,
+	}))
+	if err == nil || !strings.Contains(err.Error(), "must use '<bun|npm|pnpm|yarn> run <script>'") {
+		t.Fatalf("expected malformed package script command rejection, got %v", err)
+	}
+}

@@ -50,8 +50,11 @@ reconc adopt . --apply      # append to .reconc.yml (idempotent)
 Stack-aware policy-pack recommendations are review-only. `adopt --apply` never
 adds them to `extends`. Inspect the declared capabilities and select a pack
 explicitly only when its inputs, evidence, and gates fit the repository. Go,
-Bun, Python, Rust, Shell, C/C++, Java, PHP, C#, Next.js, Svelte/SvelteKit, Zig,
-Elixir, and PowerShell have bundled assurance packs.
+Bun, npm, pnpm, Yarn, TypeScript, Python, Rust, Shell, C/C++, Java, PHP, C#,
+Next.js, Svelte/SvelteKit, Zig, Elixir, and PowerShell have bundled assurance
+packs. Node command suggestions require one evidenced manager and a non-empty
+matching `package.json` script. Manager conflicts are review warnings; Reconc
+never guesses a manager or invents `test`, `lint`, `build`, or `typecheck`.
 The packs never install or execute toolchains; they evaluate native source
 checks and successful command evidence supplied by the target repository.
 

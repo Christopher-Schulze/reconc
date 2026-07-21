@@ -1,0 +1,41 @@
+# reconc preset: pnpm-assurance
+#
+# Explicit opt-in pnpm gates. Detection requires package-manager evidence and
+# only recommends this pack; Reconc never installs Node or pnpm.
+
+pack:
+  format_version: "1"
+  name: pnpm-assurance
+  summary: Exact dependency pins and current evidence for declared pnpm scripts, including workspace packages.
+  stacks: ["pnpm"]
+  capabilities:
+    - id: pnpm-dependency-pins
+      inputs: ["**/package.json"]
+      evidence: ["native-manifest-scan"]
+      rules: ["preset-pnpm-assurance"]
+    - id: pnpm-declared-scripts
+      inputs: ["declared test, lint, build, and typecheck scripts"]
+      evidence: ["command-success"]
+      rules: ["preset-pnpm-assurance"]
+  conflicts: []
+
+rules:
+  - id: preset-pnpm-assurance
+    kind: require_assurance
+    mode: warn
+    when_paths: ["**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}", "**/package.json", "**/pnpm-lock.yaml", "**/pnpm-workspace.yaml"]
+    message: pnpm changes require exact dependency pins and current evidence for every declared standard verification script.
+    assurance:
+      - id: pnpm-pins
+        type: dependency_pins
+        applicable_if: ["pnpm-lock.yaml", "**/pnpm-lock.yaml"]
+        manifest_paths: ["**/package.json"]
+        dependency_sections: ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
+        allowed_version_prefixes: ["workspace:", "catalog:", "file:", "link:"]
+      - id: pnpm-declared-scripts
+        type: package_scripts
+        applicable_if: ["package.json", "**/package.json"]
+        manifest_paths: ["**/package.json"]
+        exclude_paths: ["testdata/**", "**/testdata/**", "fixtures/**", "**/fixtures/**", "examples/**", "**/examples/**", "__fixtures__/**", "**/__fixtures__/**"]
+        package_manager: pnpm
+        commands: ["pnpm run test", "pnpm run lint", "pnpm run build", "pnpm run typecheck"]

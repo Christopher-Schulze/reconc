@@ -253,6 +253,7 @@ const (
 	AssuranceGeneratedReference AssuranceKind = "generated_reference"
 	AssuranceLanguageBoundary   AssuranceKind = "language_boundary"
 	AssuranceDependencyPins     AssuranceKind = "dependency_pins"
+	AssurancePackageScripts     AssuranceKind = "package_scripts"
 	AssuranceNetworkBoundary    AssuranceKind = "network_boundary"
 	AssuranceProcessBoundary    AssuranceKind = "process_boundary"
 	AssuranceSubstantiveProof   AssuranceKind = "substantive_proof"
@@ -269,6 +270,7 @@ func AllAssuranceKinds() []AssuranceKind {
 		AssuranceGeneratedReference,
 		AssuranceLanguageBoundary,
 		AssuranceDependencyPins,
+		AssurancePackageScripts,
 		AssuranceNetworkBoundary,
 		AssuranceProcessBoundary,
 		AssuranceSubstantiveProof,
@@ -317,8 +319,10 @@ type AssuranceGate struct {
 
 	AllowedExtensions      []string `json:"allowed_extensions,omitempty" yaml:"allowed_extensions,omitempty"`
 	ManifestPaths          []string `json:"manifest_paths,omitempty" yaml:"manifest_paths,omitempty"`
+	ManifestMarkers        []string `json:"manifest_markers,omitempty" yaml:"manifest_markers,omitempty"`
 	DependencySections     []string `json:"dependency_sections,omitempty" yaml:"dependency_sections,omitempty"`
 	AllowedVersionPrefixes []string `json:"allowed_version_prefixes,omitempty" yaml:"allowed_version_prefixes,omitempty"`
+	PackageManager         string   `json:"package_manager,omitempty" yaml:"package_manager,omitempty"`
 
 	SitePatterns      []string `json:"site_patterns,omitempty" yaml:"site_patterns,omitempty"`
 	GuardMarkers      []string `json:"guard_markers,omitempty" yaml:"guard_markers,omitempty"`

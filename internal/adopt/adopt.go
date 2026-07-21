@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"reconc.dev/reconc/internal/atomicfile"
@@ -58,6 +59,7 @@ type Suggestion struct {
 type Report struct {
 	RepoRoot        string           `json:"repo_root"`
 	Detected        []string         `json:"detected"`
+	Ambiguities     []string         `json:"ambiguities"`
 	Suggestions     []Suggestion     `json:"suggestions"`
 	PackSuggestions []PackSuggestion `json:"pack_suggestions"`
 }
@@ -78,6 +80,7 @@ func Scan(repoRoot string) (Report, error) {
 	r := Report{
 		RepoRoot:        repoRoot,
 		Detected:        []string{},
+		Ambiguities:     []string{},
 		Suggestions:     []Suggestion{},
 		PackSuggestions: []PackSuggestion{},
 	}
@@ -85,48 +88,26 @@ func Scan(repoRoot string) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
+	r.Ambiguities = append(r.Ambiguities, detection.Ambiguities...)
 
 	// --- JS / TS ---
 	if exists(filepath.Join(repoRoot, "package.json")) {
 		r.Detected = append(r.Detected, "package.json")
-		pkgData, _ := os.ReadFile(filepath.Join(repoRoot, "package.json"))
-		if hasScript(pkgData, "test") {
-			r.Suggestions = append(r.Suggestions, Suggestion{
-				ID:        "adopt-js-tests",
-				Kind:      "require_command",
-				Mode:      "warn",
-				Message:   "Run the JS/TS test suite before declaring done.",
-				WhenPaths: []string{"**/*.{js,jsx,ts,tsx}"},
-				Commands:  []string{detectJSRunner(repoRoot) + " test"},
-				Evidence:  []string{"package.json"},
-				Reason:    "package.json declares a 'test' script",
-			})
-		}
-		if hasScript(pkgData, "lint") {
-			r.Suggestions = append(r.Suggestions, Suggestion{
-				ID:        "adopt-js-lint",
-				Kind:      "require_command",
-				Mode:      "warn",
-				Message:   "Run the JS/TS linter before declaring done.",
-				WhenPaths: []string{"**/*.{js,jsx,ts,tsx}"},
-				Commands:  []string{detectJSRunner(repoRoot) + " lint"},
-				Evidence:  []string{"package.json"},
-				Reason:    "package.json declares a 'lint' script",
-			})
+		pkgData, readErr := os.ReadFile(filepath.Join(repoRoot, "package.json"))
+		var manifest packageJSONDocument
+		if readErr == nil && json.Unmarshal(pkgData, &manifest) == nil {
+			if runner, unambiguous := detectRootJSRunner(detection.PackageManagers); unambiguous {
+				for _, script := range []string{"test", "lint", "build", "typecheck"} {
+					if strings.TrimSpace(manifest.Scripts[script]) == "" {
+						continue
+					}
+					r.Suggestions = append(r.Suggestions, packageScriptSuggestion(runner, script))
+				}
+			}
 		}
 	}
-	if exists(filepath.Join(repoRoot, "tsconfig.json")) {
-		r.Detected = append(r.Detected, "tsconfig.json")
-		r.Suggestions = append(r.Suggestions, Suggestion{
-			ID:        "adopt-ts-typecheck",
-			Kind:      "require_command",
-			Mode:      "warn",
-			Message:   "Run the TypeScript type checker before declaring done.",
-			WhenPaths: []string{"**/*.{ts,tsx}"},
-			Commands:  []string{"tsc --noEmit"},
-			Evidence:  []string{"tsconfig.json"},
-			Reason:    "tsconfig.json is present",
-		})
+	if config := rootTypeScriptConfig(repoRoot); config != "" {
+		r.Detected = append(r.Detected, config)
 	}
 
 	// --- Python ---
@@ -290,13 +271,21 @@ func Scan(repoRoot string) (Report, error) {
 // under `rules:`. Deterministic output (suggestions are already in
 // scan-order, which is stable).
 func RenderYAML(r Report) string {
-	if len(r.Suggestions) == 0 && len(r.PackSuggestions) == 0 {
+	if len(r.Suggestions) == 0 && len(r.PackSuggestions) == 0 && len(r.Ambiguities) == 0 {
 		return "# reconc adopt: no suggestions for this repo.\n"
 	}
 	var b strings.Builder
 	b.WriteString("# reconc adopt suggestions for ")
 	b.WriteString(r.RepoRoot)
 	b.WriteString("\n")
+	for _, ambiguity := range r.Ambiguities {
+		b.WriteString("# REVIEW REQUIRED: ")
+		b.WriteString(ambiguity)
+		b.WriteString("\n")
+	}
+	if len(r.Ambiguities) > 0 {
+		b.WriteString("# Reconc did not infer package-manager commands for ambiguous package boundaries.\n\n")
+	}
 	if len(r.Suggestions) > 0 {
 		b.WriteString("# Paste the rule body under the `rules:` key of .reconc.yml.\n")
 		b.WriteString("# Start in warn mode; switch to block once green.\n\n")
@@ -356,7 +345,7 @@ func RenderYAML(r Report) string {
 // default `reconc adopt` output.
 func RenderText(r Report) string {
 	var b strings.Builder
-	if len(r.Suggestions) == 0 && len(r.PackSuggestions) == 0 {
+	if len(r.Suggestions) == 0 && len(r.PackSuggestions) == 0 && len(r.Ambiguities) == 0 {
 		b.WriteString("reconc adopt: no conventions detected in ")
 		b.WriteString(r.RepoRoot)
 		b.WriteString("\n")
@@ -369,6 +358,14 @@ func RenderText(r Report) string {
 		b.WriteString("  - ")
 		b.WriteString(d)
 		b.WriteString("\n")
+	}
+	if len(r.Ambiguities) > 0 {
+		b.WriteString("\nReview required:\n")
+		for _, ambiguity := range r.Ambiguities {
+			b.WriteString("  - ")
+			b.WriteString(ambiguity)
+			b.WriteString("; no package-manager command was inferred for that boundary.\n")
+		}
 	}
 	if len(r.PackSuggestions) > 0 {
 		b.WriteString("\nSuggested policy packs (review only; never auto-applied):\n")
@@ -580,30 +577,65 @@ func contains(haystack []byte, needle string) bool {
 	return strings.Contains(string(haystack), needle)
 }
 
-// hasScript checks whether package.json declares a given npm script.
-// Uses a permissive string match rather than full JSON parsing because
-// a single missing quote shouldn't defeat detection.
-func hasScript(data []byte, name string) bool {
-	s := string(data)
-	return strings.Contains(s, "\""+name+"\":") || strings.Contains(s, "\""+name+"\" :")
+type packageJSONDocument struct {
+	Scripts map[string]string `json:"scripts"`
 }
 
-// detectJSRunner picks the most likely package runner based on lockfile
-// presence. Order matches the user's CLAUDE.md preference (Bun first).
-func detectJSRunner(repoRoot string) string {
-	if exists(filepath.Join(repoRoot, "bun.lockb")) || exists(filepath.Join(repoRoot, "bun.lock")) {
-		// The suggestions key on package.json scripts, so the runner
-		// must execute the script: `bun run test`, not Bun's native
-		// test runner (`bun test` ignores the "test" script).
-		return "bun run"
+func detectRootJSRunner(packageManagers map[string][]string) (string, bool) {
+	managers := []string{}
+	for _, manager := range []string{"bun", "npm", "pnpm", "yarn"} {
+		for _, evidence := range packageManagers[manager] {
+			if !strings.Contains(filepath.ToSlash(evidence), "/") {
+				managers = append(managers, manager)
+				break
+			}
+		}
 	}
-	if exists(filepath.Join(repoRoot, "pnpm-lock.yaml")) {
-		return "pnpm"
+	if len(managers) != 1 {
+		return "", false
 	}
-	if exists(filepath.Join(repoRoot, "yarn.lock")) {
-		return "yarn"
+	return managers[0] + " run", true
+}
+
+func packageScriptSuggestion(runner, script string) Suggestion {
+	labels := map[string]struct {
+		id      string
+		message string
+		reason  string
+	}{
+		"test":      {id: "adopt-js-tests", message: "Run the JS/TS test suite before declaring done.", reason: "package.json declares a non-empty 'test' script"},
+		"lint":      {id: "adopt-js-lint", message: "Run the JS/TS linter before declaring done.", reason: "package.json declares a non-empty 'lint' script"},
+		"build":     {id: "adopt-js-build", message: "Run the JS/TS build before declaring done.", reason: "package.json declares a non-empty 'build' script"},
+		"typecheck": {id: "adopt-ts-typecheck", message: "Run the TypeScript typecheck before declaring done.", reason: "package.json declares a non-empty 'typecheck' script"},
 	}
-	return "npm run"
+	label := labels[script]
+	return Suggestion{
+		ID: label.id, Kind: "require_command", Mode: "warn", Message: label.message,
+		WhenPaths: []string{"**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}"}, Commands: []string{runner + " " + script},
+		Evidence: []string{"package.json"}, Reason: label.reason,
+	}
+}
+
+func rootTypeScriptConfig(repoRoot string) string {
+	paths := []string{}
+	if exists(filepath.Join(repoRoot, "tsconfig.json")) {
+		paths = append(paths, filepath.Join(repoRoot, "tsconfig.json"))
+	}
+	variants, err := filepath.Glob(filepath.Join(repoRoot, "tsconfig.*.json"))
+	if err == nil {
+		paths = append(paths, variants...)
+	}
+	names := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if exists(path) {
+			names = append(names, filepath.Base(path))
+		}
+	}
+	sort.Strings(names)
+	if len(names) == 0 {
+		return ""
+	}
+	return names[0]
 }
 
 func matchingManifestStack(selectors, detected []string) string {

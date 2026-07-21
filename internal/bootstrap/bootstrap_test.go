@@ -35,7 +35,7 @@ func TestInspectIsReadOnlyAndSuggestsApplicablePacks(t *testing.T) {
 	if strings.Join(before, "\n") != strings.Join(after, "\n") {
 		t.Fatalf("inspect mutated the repository:\nbefore=%v\nafter=%v", before, after)
 	}
-	if strings.Join(inspection.DetectedStacks, ",") != "bun,go" {
+	if strings.Join(inspection.DetectedStacks, ",") != "bun,go,javascript" {
 		t.Fatalf("detected stacks = %v", inspection.DetectedStacks)
 	}
 	for _, expected := range []string{"bun-assurance", "go-assurance"} {
@@ -46,7 +46,7 @@ func TestInspectIsReadOnlyAndSuggestsApplicablePacks(t *testing.T) {
 	if !containsString(inspection.DetectedPlatforms, hooks.KindCodex) {
 		t.Fatalf("inspection missed Codex config: %+v", inspection)
 	}
-	if inspection.DetectionState != "known" || len(inspection.StackEvidence) != 2 {
+	if inspection.DetectionState != "known" || len(inspection.StackEvidence) != 3 {
 		t.Fatalf("inspection lost detection evidence: %+v", inspection)
 	}
 	if len(inspection.PackageManagers) != 2 {
@@ -125,7 +125,7 @@ func TestInspectSuggestsFrameworkAndAdditionalLanguagePacksWithoutToolchains(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantStacks := "elixir,nextjs,powershell,svelte,zig"
+	wantStacks := "elixir,javascript,nextjs,powershell,svelte,zig"
 	if strings.Join(inspection.DetectedStacks, ",") != wantStacks {
 		t.Fatalf("detected stacks = %v, want %s", inspection.DetectedStacks, wantStacks)
 	}
@@ -160,7 +160,33 @@ func TestInspectFirstTouchFixtureMatrixStaysEvidenceFocused(t *testing.T) {
 			name: "generic-node-typescript", files: map[string]string{
 				"package.json": "{\"scripts\":{\"test\":\"node --test\"}}\n", "package-lock.json": "{}\n", "tsconfig.json": "{}\n",
 			},
-			wantManagers: "npm", wantDetection: "known",
+			wantStacks: "javascript,npm,typescript", wantManagers: "npm", wantPacks: "npm-assurance,typescript-assurance", wantDetection: "known",
+		},
+		{
+			name: "pnpm-workspace", files: map[string]string{
+				"package.json": "{\"packageManager\":\"pnpm@10.0.0\",\"private\":true}\n", "pnpm-lock.yaml": "lockfileVersion: '9.0'\n", "packages/api/package.json": "{\"scripts\":{\"test\":\"vitest\"}}\n",
+			},
+			wantStacks: "javascript,pnpm", wantManagers: "pnpm", wantPacks: "pnpm-assurance", wantDetection: "known",
+		},
+		{
+			name: "yarn", files: map[string]string{"package.json": "{}\n", "yarn.lock": "# yarn lockfile\n"},
+			wantStacks: "javascript,yarn", wantManagers: "yarn", wantPacks: "yarn-assurance", wantDetection: "known",
+		},
+		{
+			name: "bun", files: map[string]string{"package.json": "{}\n", "bun.lock": "lock\n"},
+			wantStacks: "bun,javascript", wantManagers: "bun", wantPacks: "bun-assurance", wantDetection: "known",
+		},
+		{
+			name: "nextjs", files: map[string]string{"package.json": "{\"dependencies\":{\"next\":\"16.0.0\"}}\n", "package-lock.json": "{}\n"},
+			wantStacks: "javascript,nextjs,npm", wantManagers: "npm", wantPacks: "nextjs-assurance,npm-assurance", wantDetection: "known",
+		},
+		{
+			name: "svelte", files: map[string]string{"package.json": "{\"devDependencies\":{\"svelte\":\"5.0.0\"}}\n", "yarn.lock": "# yarn lockfile\n"},
+			wantStacks: "javascript,svelte,yarn", wantManagers: "yarn", wantPacks: "svelte-assurance,yarn-assurance", wantDetection: "known",
+		},
+		{
+			name: "ambiguous-node-manager", files: map[string]string{"package.json": "{}\n", "package-lock.json": "{}\n", "yarn.lock": "# yarn lockfile\n"},
+			wantStacks: "javascript,npm,yarn", wantManagers: "npm,yarn", wantPacks: "npm-assurance,yarn-assurance", wantDetection: "ambiguous",
 		},
 		{
 			name: "mixed", files: map[string]string{
@@ -764,6 +790,37 @@ func TestFrameworkAndAdditionalLanguagePacksRequireDetectedApplicability(t *test
 			request := Request{RepoRoot: repo, Profile: ProfileMinimal, Packs: []string{test.pack}}
 			if _, err := BuildPlan(request, "test-version"); err == nil || !strings.Contains(err.Error(), "not applicable") {
 				t.Fatalf("%s without stack evidence must fail: %v", test.pack, err)
+			}
+			writeBootstrapTestFile(t, repo, test.path, test.body, 0o644)
+			if _, err := BuildPlan(request, "test-version"); err != nil {
+				t.Fatalf("%s should apply after stack evidence exists: %v", test.pack, err)
+			}
+		})
+	}
+}
+
+func TestNodeAndTypeScriptPacksRequireDetectedApplicability(t *testing.T) {
+	bootstrapTestHome(t)
+	tests := []struct {
+		name string
+		pack string
+		path string
+		body string
+	}{
+		{name: "npm", pack: "npm-assurance", path: "package-lock.json", body: "{}\n"},
+		{name: "pnpm", pack: "pnpm-assurance", path: "pnpm-lock.yaml", body: "lockfileVersion: '9.0'\n"},
+		{name: "Yarn", pack: "yarn-assurance", path: "yarn.lock", body: "# yarn lockfile\n"},
+		{name: "TypeScript", pack: "typescript-assurance", path: "tsconfig.json", body: "{}\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repo := t.TempDir()
+			request := Request{RepoRoot: repo, Profile: ProfileMinimal, Packs: []string{test.pack}}
+			if _, err := BuildPlan(request, "test-version"); err == nil || !strings.Contains(err.Error(), "not applicable") {
+				t.Fatalf("%s without stack evidence must fail: %v", test.pack, err)
+			}
+			if test.pack != "typescript-assurance" {
+				writeBootstrapTestFile(t, repo, "package.json", "{}\n", 0o644)
 			}
 			writeBootstrapTestFile(t, repo, test.path, test.body, 0o644)
 			if _, err := BuildPlan(request, "test-version"); err != nil {

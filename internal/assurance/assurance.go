@@ -69,6 +69,8 @@ func Evaluate(repoRoot string, gates []policy.AssuranceGate, inputs Inputs) ([]F
 			gateFindings, err = evaluateLanguageBoundary(root, gate, inputs.ChangedPaths, state)
 		case policy.AssuranceDependencyPins:
 			gateFindings, err = evaluateDependencyPins(root, gate, inputs.ChangedPaths, state)
+		case policy.AssurancePackageScripts:
+			gateFindings, err = evaluatePackageScripts(root, gate, inputs.SuccessfulCommands, state)
 		case policy.AssuranceNetworkBoundary, policy.AssuranceProcessBoundary:
 			gateFindings, err = evaluateGuardBoundary(root, gate, inputs.ChangedPaths, state)
 		case policy.AssuranceSubstantiveProof:

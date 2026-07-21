@@ -244,13 +244,21 @@ rules, and conflicts. Add a pack to `.reconc.yml` `extends` only when the real
 repository stack and control intent match. All stack packs (`go-assurance`,
 `bun-assurance`, `python-assurance`, `rust-assurance`, `shell-assurance`,
 `cpp-assurance`, `java-assurance`, `php-assurance`, `csharp-assurance`,
-`nextjs-assurance`, `svelte-assurance`, `zig-assurance`, `elixir-assurance`,
-and `powershell-assurance`)
+`npm-assurance`, `pnpm-assurance`, `yarn-assurance`,
+`typescript-assurance`, `nextjs-assurance`, `svelte-assurance`,
+`zig-assurance`, `elixir-assurance`, and `powershell-assurance`)
 start in warn mode so a new rollout can measure friction before explicitly
 tightening selected repo-local rules. Packs consume native scans and successful
 command evidence; they do not install or invoke a target toolchain. Never copy
 source-harness-specific gate paths, baselines, exemptions, or proof ledgers
 into a target repo.
+For Node.js targets, accept a manager only from one unambiguous lockfile or
+`packageManager` declaration at the relevant package boundary. Never invent a
+test, lint, build, or typecheck command from source files or `tsconfig` alone.
+The npm, pnpm, and Yarn packs require current evidence only for scripts the
+package actually declares. Select `typescript-assurance` for generic
+TypeScript, or the matching Next.js/Svelte pack for those frameworks, never
+both generic and framework ownership.
 `go-assurance` is only for repositories with real Go stack evidence. Its native
 changed-file gates enforce canonical Go formatting and flag bare goroutine
 launches unless the same function proves `WaitGroup.Add`, deferred

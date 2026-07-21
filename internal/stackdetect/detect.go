@@ -169,6 +169,8 @@ func packageManagerForFile(path string, entry fs.DirEntry) string {
 		return "mix"
 	case "build.zig.zon":
 		return "zig"
+	case "package.json":
+		return packageManagerFromManifest(path, entry)
 	}
 	return ""
 }
@@ -258,13 +260,33 @@ func stacksForFile(path string, entry fs.DirEntry) ([]string, error) {
 		if regularFile(filepath.Join(filepath.Dir(path), "package.json")) {
 			add("bun")
 		}
+	case "package-lock.json", "npm-shrinkwrap.json":
+		if regularFile(filepath.Join(filepath.Dir(path), "package.json")) {
+			add("npm")
+		}
+	case "pnpm-lock.yaml":
+		if regularFile(filepath.Join(filepath.Dir(path), "package.json")) {
+			add("pnpm")
+		}
+	case "yarn.lock":
+		if regularFile(filepath.Join(filepath.Dir(path), "package.json")) {
+			add("yarn")
+		}
 	case "package.json":
+		add("javascript")
 		frameworks, err := packageFrameworks(path, entry)
 		if err != nil {
 			return nil, err
 		}
 		for _, framework := range frameworks {
 			add(framework)
+		}
+		if manager := packageManagerFromManifest(path, entry); manager != "" {
+			add(manager)
+		}
+	default:
+		if lowerName == "tsconfig.json" || (strings.HasPrefix(lowerName, "tsconfig.") && strings.HasSuffix(lowerName, ".json")) {
+			add("typescript")
 		}
 	}
 
@@ -295,6 +317,7 @@ type packageManifest struct {
 	DevDependencies      map[string]string `json:"devDependencies"`
 	PeerDependencies     map[string]string `json:"peerDependencies"`
 	OptionalDependencies map[string]string `json:"optionalDependencies"`
+	PackageManager       string            `json:"packageManager"`
 }
 
 func packageFrameworks(path string, entry fs.DirEntry) ([]string, error) {
@@ -334,6 +357,31 @@ func packageFrameworks(path string, entry fs.DirEntry) ([]string, error) {
 	}
 	sort.Strings(frameworks)
 	return frameworks, nil
+}
+
+func packageManagerFromManifest(path string, entry fs.DirEntry) string {
+	info, err := entry.Info()
+	if err != nil || info.Size() > maxPackageJSONBytes {
+		return ""
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var manifest packageManifest
+	if json.Unmarshal(body, &manifest) != nil {
+		return ""
+	}
+	name := strings.ToLower(strings.TrimSpace(manifest.PackageManager))
+	if separator := strings.IndexByte(name, '@'); separator >= 0 {
+		name = name[:separator]
+	}
+	switch name {
+	case "bun", "npm", "pnpm", "yarn":
+		return name
+	default:
+		return ""
+	}
 }
 
 func appendUnique(values []string, value string) []string {

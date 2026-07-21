@@ -38,7 +38,7 @@ func TestDetectFindsPortableStacksInMonoreposDeterministically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"bun", "cpp", "csharp", "elixir", "go", "java", "nextjs", "php", "powershell", "python", "rust", "shell", "svelte", "zig"}
+	want := []string{"bun", "cpp", "csharp", "elixir", "go", "java", "javascript", "nextjs", "php", "powershell", "python", "rust", "shell", "svelte", "zig"}
 	if !reflect.DeepEqual(first.Stacks, want) {
 		t.Fatalf("stacks = %v, want %v", first.Stacks, want)
 	}
@@ -64,7 +64,7 @@ func TestDetectFrameworksRequireDeclaredPackageDependencies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"nextjs", "svelte"}
+	want := []string{"javascript", "nextjs", "svelte"}
 	if !reflect.DeepEqual(result.Stacks, want) {
 		t.Fatalf("framework stacks = %v, want %v", result.Stacks, want)
 	}
@@ -73,6 +73,47 @@ func TestDetectFrameworksRequireDeclaredPackageDependencies(t *testing.T) {
 	}
 	if !reflect.DeepEqual(result.Evidence["svelte"], []string{"svelte/package.json"}) {
 		t.Fatalf("Svelte evidence = %v", result.Evidence["svelte"])
+	}
+}
+
+func TestDetectDistinguishesJavaScriptTypeScriptAndPackageManagers(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		"npm/package.json":         `{"scripts":{"test":"node --test"}}` + "\n",
+		"npm/package-lock.json":    "{}\n",
+		"pnpm/package.json":        `{"packageManager":"pnpm@10.0.0"}` + "\n",
+		"pnpm/tsconfig.build.json": "{}\n",
+		"yarn/package.json":        "{}\n",
+		"yarn/yarn.lock":           "lock\n",
+	}
+	for relative, body := range files {
+		writeDetectionFile(t, root, relative, body)
+	}
+
+	result, err := Detect(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStacks := []string{"javascript", "npm", "pnpm", "typescript", "yarn"}
+	if !reflect.DeepEqual(result.Stacks, wantStacks) {
+		t.Fatalf("stacks = %v, want %v", result.Stacks, wantStacks)
+	}
+	if !reflect.DeepEqual(result.PackageManagers["pnpm"], []string{"pnpm/package.json"}) {
+		t.Fatalf("packageManager metadata evidence = %+v", result.PackageManagers)
+	}
+}
+
+func TestDetectReportsMetadataAndLockfileManagerConflict(t *testing.T) {
+	root := t.TempDir()
+	writeDetectionFile(t, root, "package.json", `{"packageManager":"pnpm@10.0.0"}`+"\n")
+	writeDetectionFile(t, root, "package-lock.json", "{}\n")
+
+	result, err := Detect(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Ambiguities) != 1 || !strings.Contains(result.Ambiguities[0], "npm, pnpm") {
+		t.Fatalf("metadata/lockfile ambiguity = %v", result.Ambiguities)
 	}
 }
 

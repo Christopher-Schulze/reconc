@@ -92,9 +92,10 @@ committable. Multiple
 to a file while still printing to stdout.
 
 ### `reconc bootstrap inspect [repo] [--json]`
-Read-only discovery of canonical repository root; detected Go, Bun, Python,
-Rust, Shell, C/C++, Java, PHP, C#, Next.js, Svelte/SvelteKit, Zig, Elixir, and
-PowerShell stacks; evidence paths, package managers, repository markers,
+Read-only discovery of canonical repository root; detected Go, JavaScript,
+TypeScript, npm, pnpm, Yarn, Bun, Python, Rust, Shell, C/C++, Java, PHP, C#,
+Next.js, Svelte/SvelteKit, Zig, Elixir, and PowerShell stacks; evidence paths,
+package managers, repository markers,
 same-directory package-manager ambiguities, review-only pack suggestions;
 detected or installed agent platforms with generated/installed/executable/
 configured truth, existing control paths, and
@@ -156,9 +157,12 @@ the candidate, replans, and continues. It never accepts a whole-file or
 non-marker conflict.
 
 ### `reconc adopt [repo] [--yaml | --json | --apply]`
-Detects common tooling (JS/TS, Python, Rust, Go, Shell, C/C++, Java, PHP, C#,
-Next.js, Svelte/SvelteKit, Zig, Elixir, PowerShell, CI, generated dirs) and
-emits matching-rule suggestions. Stack evidence can
+Detects common tooling (JavaScript, TypeScript, npm, pnpm, Yarn, Bun, Python,
+Rust, Go, Shell, C/C++, Java, PHP, C#, Next.js, Svelte/SvelteKit, Zig, Elixir,
+PowerShell, CI, generated dirs) and emits matching-rule suggestions. Node
+commands are proposed only for non-empty scripts declared in `package.json`
+when one package manager is evidenced at that boundary; ambiguity is rendered
+for review and no manager is guessed. Stack evidence can
 also produce review-only manifested policy-pack recommendations. `--apply`
 appends individual rules to `.reconc.yml` idempotently and never changes
 `extends`.
@@ -292,7 +296,8 @@ first path, and a shortened message.
 
 ### `reconc preset list [--json] [--output PATH]` / `reconc preset show <name> [--json] [--output PATH]`
 Built-in (`default`, `agent`, `docs-sync`, `release`, `strict`,
-`go-assurance`, `bun-assurance`, `python-assurance`, `rust-assurance`,
+`go-assurance`, `bun-assurance`, `npm-assurance`, `pnpm-assurance`,
+`yarn-assurance`, `typescript-assurance`, `python-assurance`, `rust-assurance`,
 `shell-assurance`, `cpp-assurance`, `java-assurance`, `php-assurance`,
 `csharp-assurance`, `nextjs-assurance`, `svelte-assurance`, `zig-assurance`,
 `elixir-assurance`, `powershell-assurance`) + user

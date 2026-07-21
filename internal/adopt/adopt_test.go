@@ -46,6 +46,64 @@ func TestScanNodeRepoWithTestScript(t *testing.T) {
 	}
 }
 
+func TestScanNodeRepoRequiresRealScriptsAndUnambiguousManager(t *testing.T) {
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "package.json"), `{"packageManager":"pnpm@10.0.0","scripts":{"test":"vitest","lint":" ","build":"vite build","typecheck":"tsc --noEmit"}}`)
+	mustWrite(t, filepath.Join(repo, "tsconfig.build.json"), "{}")
+
+	report := mustScan(t, repo)
+	ids := collectIDs(report)
+	for _, want := range []string{"adopt-js-tests", "adopt-js-build", "adopt-ts-typecheck"} {
+		if !containsString(ids, want) {
+			t.Errorf("expected evidence-backed suggestion %q; got %v", want, ids)
+		}
+	}
+	if containsString(ids, "adopt-js-lint") {
+		t.Fatalf("empty lint script must not become a gate: %v", ids)
+	}
+	for _, suggestion := range report.Suggestions {
+		if len(suggestion.Commands) > 0 && !strings.HasPrefix(suggestion.Commands[0], "pnpm run ") {
+			t.Fatalf("metadata-selected command = %v", suggestion.Commands)
+		}
+	}
+	if !containsString(report.Detected, "tsconfig.build.json") {
+		t.Fatalf("TypeScript config evidence = %v", report.Detected)
+	}
+}
+
+func TestScanNodeRepoDoesNotGuessManagerOrInventTypecheck(t *testing.T) {
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "package.json"), `{"scripts":{"test":"node --test"}}`)
+	mustWrite(t, filepath.Join(repo, "tsconfig.json"), "{}")
+
+	report := mustScan(t, repo)
+	if len(report.Suggestions) != 0 {
+		t.Fatalf("manager-less package must not receive guessed commands: %+v", report.Suggestions)
+	}
+	if !containsString(report.Detected, "tsconfig.json") {
+		t.Fatalf("tsconfig should remain visible evidence: %v", report.Detected)
+	}
+}
+
+func TestScanNodeRepoSurfacesManagerConflictWithoutChoosing(t *testing.T) {
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "package.json"), `{"packageManager":"pnpm@10.0.0","scripts":{"test":"vitest"}}`)
+	mustWrite(t, filepath.Join(repo, "package-lock.json"), "{}")
+
+	report := mustScan(t, repo)
+	if len(report.Ambiguities) != 1 || !strings.Contains(report.Ambiguities[0], "npm, pnpm") {
+		t.Fatalf("ambiguities = %v", report.Ambiguities)
+	}
+	if len(report.Suggestions) != 0 {
+		t.Fatalf("ambiguous manager must not produce a command: %+v", report.Suggestions)
+	}
+	for _, rendered := range []string{RenderText(report), RenderYAML(report)} {
+		if !strings.Contains(rendered, "npm, pnpm") || !strings.Contains(strings.ToLower(rendered), "review") {
+			t.Fatalf("ambiguity missing from output:\n%s", rendered)
+		}
+	}
+}
+
 func TestScanPythonRepoWithRuffAndPytest(t *testing.T) {
 	repo := t.TempDir()
 	mustWrite(t, filepath.Join(repo, "pyproject.toml"), "[tool.ruff]\n[tool.pytest.ini_options]\n[tool.mypy]\n")

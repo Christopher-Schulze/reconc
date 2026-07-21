@@ -2,6 +2,7 @@ package policy
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -58,8 +59,8 @@ func TestAllKindsLen(t *testing.T) {
 }
 
 func TestAllAssuranceKindsValid(t *testing.T) {
-	if got := len(AllAssuranceKinds()); got != 11 {
-		t.Fatalf("expected 11 assurance kinds, got %d", got)
+	if got := len(AllAssuranceKinds()); got != 12 {
+		t.Fatalf("expected 12 assurance kinds, got %d", got)
 	}
 	for _, kind := range AllAssuranceKinds() {
 		if !kind.Valid() {
@@ -68,6 +69,18 @@ func TestAllAssuranceKindsValid(t *testing.T) {
 	}
 	if AssuranceKind("theater").Valid() {
 		t.Error("unknown assurance kind must be invalid")
+	}
+}
+
+func TestParsePackageScriptCommand(t *testing.T) {
+	parsed, err := ParsePackageScriptCommand("PNPM   run   typecheck")
+	if err != nil || parsed.Runner != "pnpm" || parsed.Script != "typecheck" {
+		t.Fatalf("parsed package script = %+v, %v", parsed, err)
+	}
+	for _, invalid := range []string{"npm test", "npx run test", "npm run --if-present"} {
+		if _, err := ParsePackageScriptCommand(invalid); err == nil || !strings.Contains(err.Error(), "package_scripts") {
+			t.Errorf("expected %q to fail, got %v", invalid, err)
+		}
 	}
 }
 

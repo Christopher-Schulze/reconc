@@ -749,8 +749,9 @@ destructive Git guard uses the same model for `git clean` and `git reset
 --hard`.
 
 `reconc adopt .` and `reconc bootstrap inspect .` share deterministic stack
-detection for Go, Bun, Python, Rust, Shell, C/C++, Java, PHP, C#, Next.js,
-Svelte/SvelteKit, Zig, Elixir, and PowerShell. Detection uses conventional
+detection for Go, JavaScript, TypeScript, npm, pnpm, Yarn, Bun, Python, Rust,
+Shell, C/C++, Java, PHP, C#, Next.js, Svelte/SvelteKit, Zig, Elixir, and
+PowerShell. Detection uses conventional
 manifests and source extensions through six repository levels, skips
 dependency/build trees and symlinks, and may propose the matching
 `*-assurance` pack. Next.js and Svelte detection additionally requires their
@@ -760,11 +761,24 @@ proposal is review-only.
 `adopt --apply` adds individual rule suggestions but never mutates `extends`;
 the agent or user must explicitly select a pack in `.reconc.yml` after
 confirming that its contract fits the repository.
+Node package-manager selection uses same-boundary lockfiles and
+`packageManager` metadata. Multiple managers at one boundary are reported as
+an explicit ambiguity; Reconc does not choose one. Individual Node command
+suggestions require both one unambiguous manager and a non-empty matching
+`package.json` script. A bare `tsconfig*.json` is stack evidence, not permission
+to invent `tsc --noEmit` or any other command.
 
 Assurance packs are opt-in policy bundles, not compilers or dependency
 installers. `go-assurance` adds canonical formatting, owned-concurrency,
 network/process-boundary, test, and vet evidence; `bun-assurance` adds exact
-dependency pins, source hygiene, and Bun test evidence; `python-assurance`
+dependency pins and Bun test evidence. `npm-assurance`, `pnpm-assurance`, and
+`yarn-assurance` add exact dependency pins plus current evidence only for the
+standard verification scripts each matching package actually declares;
+workspace package commands are scoped to their manifest directory.
+`typescript-assurance` adds declared typecheck evidence and changed-source
+hygiene only where `tsconfig*.json` exists, and explicitly conflicts with the
+framework-specific Next.js and Svelte packs to prevent duplicate ownership.
+`python-assurance`
 adds Python source hygiene plus successful project-native Python or pytest
 evidence; `rust-assurance` adds source hygiene plus cargo test, format, and
 Clippy-with-warnings-denied evidence. `shell-assurance`, `cpp-assurance`,
@@ -809,6 +823,7 @@ selected gate type are rejected instead of being silently ignored.
 | `generated_reference` | Configured generator check has current successful command evidence | Current session |
 | `language_boundary` | Changed files use configured extensions inside configured zones | Matching changed files |
 | `dependency_pins` | Changed JSON dependency manifests use exact semantic versions or explicit protocol prefixes | Matching changed manifests |
+| `package_scripts` | Every configured script that is actually declared and non-empty has current successful manager-scoped evidence; absent scripts stay optional | Matching package manifests, including inherited workspace manager evidence |
 | `network_boundary` | Changed source sites have a nearby non-comment guard marker or reasoned path exemption | Matching changed files |
 | `process_boundary` | Changed process-spawn sites have a nearby non-comment hardening marker or reasoned path exemption | Matching changed files |
 | `substantive_proof` | Fresh measured samples, computed aggregate, threshold result, live command, and byte-matched evidence agree | Full configured proof manifest |

@@ -20,6 +20,7 @@ func TestBundledHygienePacksExposeNativeGates(t *testing.T) {
 		"rust-assurance":       "type: source_hygiene",
 		"shell-assurance":      "type: source_hygiene",
 		"svelte-assurance":     "type: source_hygiene",
+		"typescript-assurance": "type: source_hygiene",
 		"zig-assurance":        "type: source_hygiene",
 	}
 	for pack, expected := range checks {

@@ -1,0 +1,41 @@
+# reconc preset: npm-assurance
+#
+# Explicit opt-in npm gates. Detection requires package-manager evidence and
+# only recommends this pack; Reconc never installs Node or npm.
+
+pack:
+  format_version: "1"
+  name: npm-assurance
+  summary: Exact dependency pins and current evidence for declared npm scripts.
+  stacks: ["npm"]
+  capabilities:
+    - id: npm-dependency-pins
+      inputs: ["**/package.json"]
+      evidence: ["native-manifest-scan"]
+      rules: ["preset-npm-assurance"]
+    - id: npm-declared-scripts
+      inputs: ["declared test, lint, build, and typecheck scripts"]
+      evidence: ["command-success"]
+      rules: ["preset-npm-assurance"]
+  conflicts: []
+
+rules:
+  - id: preset-npm-assurance
+    kind: require_assurance
+    mode: warn
+    when_paths: ["**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}", "**/package.json", "**/package-lock.json", "**/npm-shrinkwrap.json"]
+    message: npm changes require exact dependency pins and current evidence for every declared standard verification script.
+    assurance:
+      - id: npm-pins
+        type: dependency_pins
+        applicable_if: ["package-lock.json", "npm-shrinkwrap.json", "**/package-lock.json", "**/npm-shrinkwrap.json"]
+        manifest_paths: ["**/package.json"]
+        dependency_sections: ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
+        allowed_version_prefixes: ["workspace:", "file:", "link:"]
+      - id: npm-declared-scripts
+        type: package_scripts
+        applicable_if: ["package.json", "**/package.json"]
+        manifest_paths: ["**/package.json"]
+        exclude_paths: ["testdata/**", "**/testdata/**", "fixtures/**", "**/fixtures/**", "examples/**", "**/examples/**", "__fixtures__/**", "**/__fixtures__/**"]
+        package_manager: npm
+        commands: ["npm run test", "npm run lint", "npm run build", "npm run typecheck"]

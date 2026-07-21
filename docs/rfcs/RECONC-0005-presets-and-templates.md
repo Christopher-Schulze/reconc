@@ -20,6 +20,10 @@ Current bundled presets:
 | `release` | Release-manifest, checksum, and verification hygiene. |
 | `go-assurance` | Current Go test/vet evidence plus changed-file format, network, process, and concurrency boundaries. |
 | `bun-assurance` | Exact JSON dependency pins and current Bun test evidence. |
+| `npm-assurance` | Exact JSON dependency pins and current evidence for declared npm verification scripts. |
+| `pnpm-assurance` | Exact JSON dependency pins and package-scoped evidence for declared pnpm workspace scripts. |
+| `yarn-assurance` | Exact JSON dependency pins and current evidence for declared Yarn verification scripts. |
+| `typescript-assurance` | Declared typecheck evidence and changed-source hygiene where TypeScript configuration exists. |
 | `python-assurance` | Current Python test evidence plus changed-source hygiene. |
 | `rust-assurance` | Current Rust test, format, warning-free Clippy, and changed-source hygiene evidence. |
 | `shell-assurance` | Current project-native shell verification plus changed-source hygiene. |
@@ -56,6 +60,11 @@ Svelte/SvelteKit package dependencies rather than inferring from generic
 JavaScript source. Assurance packs evaluate native source gates and
 recorded command evidence only. They never install or execute a target
 toolchain.
+Node package-manager detection uses lockfile and `packageManager` evidence,
+reports same-boundary conflicts without choosing, and requires only non-empty
+scripts present in the inspected manifest. The generic TypeScript pack
+conflicts with the Next.js and Svelte packs so framework-specific verification
+retains one owner.
 
 ## Default Bootstrap
 

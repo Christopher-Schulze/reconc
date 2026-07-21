@@ -83,9 +83,9 @@ why a task is allowed to be called done.
   policy files into `.reconc/policy.lock.json`
 - blocks or warns on protected writes, missing reads, missing test commands,
   missing claims, stale evidence, and unsafe hook activity
-- evaluates bounded native layout, language, dependency, source-hygiene,
-  Go-format, network/process, substantive-proof, and live-verification gates
-  without extra subprocesses
+- evaluates bounded native layout, language, dependency, declared package
+  scripts, source-hygiene, Go-format, network/process, substantive-proof, and
+  live-verification gates without extra subprocesses
 - fails closed on stale lockfiles, schema drift, invalid globs, unsupported rule
   kinds, and non-portable current lockfile root markers
 - installs explicitly selected git, Claude Code, Codex, GitHub Copilot,
@@ -164,6 +164,13 @@ reconc adopt . --json
 ```
 
 Pack proposals are review-only. Reconc never silently adds them to `extends`.
+For Node.js repositories, detection distinguishes npm, pnpm, Yarn, and Bun from
+lockfiles or `packageManager` metadata. Ambiguous package boundaries are
+reported for review, and `adopt` proposes only non-empty scripts that actually
+exist in `package.json`; it never invents `test`, `lint`, `build`, or
+`typecheck` commands. The generic `typescript-assurance` pack activates only
+from `tsconfig*.json` evidence and yields to framework-specific Next.js or
+Svelte packs.
 
 Then use the daily loop:
 

@@ -1,0 +1,40 @@
+# reconc preset: typescript-assurance
+#
+# Generic TypeScript gates for repositories without a framework-specific pack.
+# The package script gate only requires a typecheck script when it is declared.
+
+pack:
+  format_version: "1"
+  name: typescript-assurance
+  summary: Declared TypeScript typecheck evidence and changed-source hygiene without assuming a framework or package manager.
+  stacks: ["typescript"]
+  capabilities:
+    - id: typescript-declared-typecheck
+      inputs: ["package.json beside tsconfig*.json"]
+      evidence: ["command-success"]
+      rules: ["preset-typescript-assurance"]
+    - id: typescript-source-hygiene
+      inputs: ["changed TypeScript source"]
+      evidence: ["native-source-scan"]
+      rules: ["preset-typescript-assurance"]
+  conflicts: ["nextjs-assurance", "svelte-assurance"]
+
+rules:
+  - id: preset-typescript-assurance
+    kind: require_assurance
+    mode: warn
+    when_paths: ["**/*.{ts,tsx,mts,cts}", "**/package.json", "**/tsconfig.json", "**/tsconfig.*.json"]
+    message: TypeScript changes require current evidence for declared typecheck scripts and shipped-source hygiene.
+    assurance:
+      - id: typescript-declared-typecheck
+        type: package_scripts
+        applicable_if: ["tsconfig.json", "tsconfig.*.json", "**/tsconfig.json", "**/tsconfig.*.json"]
+        manifest_paths: ["**/package.json"]
+        manifest_markers: ["tsconfig.json", "tsconfig.*.json"]
+        exclude_paths: ["testdata/**", "**/testdata/**", "fixtures/**", "**/fixtures/**", "examples/**", "**/examples/**", "__fixtures__/**", "**/__fixtures__/**"]
+        commands: ["bun run typecheck", "npm run typecheck", "pnpm run typecheck", "yarn run typecheck"]
+      - id: typescript-source-hygiene
+        type: source_hygiene
+        applicable_if: ["tsconfig.json", "tsconfig.*.json", "**/tsconfig.json", "**/tsconfig.*.json"]
+        scan_paths: ["**/*.{ts,tsx,mts,cts}"]
+        exclude_paths: ["**/*.test.*", "**/*.spec.*", "**/__tests__/**", "**/fixtures/**", "node_modules/**", "**/node_modules/**", ".next/**", "**/.next/**", ".svelte-kit/**", "**/.svelte-kit/**", "dist/**", "**/dist/**", "build/**", "**/build/**", "generated/**", "**/generated/**", "**/*.gen.*", "**/*.generated.*"]

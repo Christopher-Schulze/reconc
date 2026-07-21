@@ -26,6 +26,9 @@ var assuranceFieldsByKind = map[policy.AssuranceKind][]string{
 	policy.AssuranceDependencyPins: {
 		"manifest_paths", "dependency_sections", "allowed_version_prefixes",
 	},
+	policy.AssurancePackageScripts: {
+		"manifest_paths", "manifest_markers", "exclude_paths", "package_manager", "commands",
+	},
 	policy.AssuranceNetworkBoundary: {
 		"scan_paths", "exclude_paths", "exemptions", "site_patterns",
 		"guard_markers", "marker_window_lines",
@@ -125,6 +128,7 @@ func validateAssuranceGate(gate *policy.AssuranceGate) error {
 		{"commands", &gate.Commands},
 		{"allowed_extensions", &gate.AllowedExtensions},
 		{"manifest_paths", &gate.ManifestPaths},
+		{"manifest_markers", &gate.ManifestMarkers},
 		{"dependency_sections", &gate.DependencySections},
 		{"allowed_version_prefixes", &gate.AllowedVersionPrefixes},
 		{"site_patterns", &gate.SitePatterns},
@@ -135,7 +139,7 @@ func validateAssuranceGate(gate *policy.AssuranceGate) error {
 			return err
 		}
 	}
-	for _, value := range append(append(append([]string{}, gate.ApplicableIf...), gate.ScanPaths...), append(gate.ExcludePaths, gate.ManifestPaths...)...) {
+	for _, value := range append(append(append(append([]string{}, gate.ApplicableIf...), gate.ScanPaths...), append(gate.ExcludePaths, gate.ManifestPaths...)...), gate.ManifestMarkers...) {
 		if !isRepoRelativePath(value) {
 			return fmt.Errorf("path pattern must stay repo-relative: %q", value)
 		}
@@ -208,6 +212,19 @@ func validateAssuranceGate(gate *policy.AssuranceGate) error {
 		}
 		if len(gate.DependencySections) == 0 {
 			gate.DependencySections = []string{"dependencies", "devDependencies"}
+		}
+	case policy.AssurancePackageScripts:
+		if len(gate.ManifestPaths) == 0 || len(gate.Commands) == 0 {
+			return fmt.Errorf("package_scripts requires manifest_paths and commands")
+		}
+		gate.PackageManager = strings.ToLower(strings.TrimSpace(gate.PackageManager))
+		if gate.PackageManager != "" && gate.PackageManager != "bun" && gate.PackageManager != "npm" && gate.PackageManager != "pnpm" && gate.PackageManager != "yarn" {
+			return fmt.Errorf("package_manager must be bun, npm, pnpm, yarn, or empty")
+		}
+		for _, command := range gate.Commands {
+			if _, err := policy.ParsePackageScriptCommand(command); err != nil {
+				return err
+			}
 		}
 	case policy.AssuranceNetworkBoundary, policy.AssuranceProcessBoundary:
 		if len(gate.ScanPaths) == 0 || len(gate.SitePatterns) == 0 || len(gate.GuardMarkers) == 0 {

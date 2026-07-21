@@ -427,8 +427,12 @@ func assuranceGateToMap(g policy.AssuranceGate) map[string]interface{} {
 	}
 	putStrings("allowed_extensions", g.AllowedExtensions)
 	putStrings("manifest_paths", g.ManifestPaths)
+	putStrings("manifest_markers", g.ManifestMarkers)
 	putStrings("dependency_sections", g.DependencySections)
 	putStrings("allowed_version_prefixes", g.AllowedVersionPrefixes)
+	if g.PackageManager != "" {
+		m["package_manager"] = g.PackageManager
+	}
 	putStrings("site_patterns", g.SitePatterns)
 	putStrings("guard_markers", g.GuardMarkers)
 	if g.MarkerWindowLines > 0 {

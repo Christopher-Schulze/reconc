@@ -19,7 +19,7 @@ func TestEvaluatePositiveAllGateKinds(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	writeAssuranceFile(t, root, "go.mod", "module example\n")
 	writeAssuranceFile(t, root, "src/main.go", "package main\n\nfunc run() {\n\tNewGuardedClient()\n\thttp.Get(\"https://example.test\")\n\tApplyHardening()\n\texec.Command(\"tool\")\n}\n")
-	writeAssuranceFile(t, root, "package.json", `{"dependencies":{"react":"19.1.0","local":"workspace:*"}}`)
+	writeAssuranceFile(t, root, "package.json", `{"packageManager":"npm@11.4.2","scripts":{"test":"node --test"},"dependencies":{"react":"19.1.0","local":"workspace:*"}}`)
 	evidence := []byte("benchmark samples: 10, 11, 12\n")
 	writeAssuranceFile(t, root, "proof/evidence.txt", string(evidence))
 	hash := sha256.Sum256(evidence)
@@ -40,6 +40,7 @@ func TestEvaluatePositiveAllGateKinds(t *testing.T) {
 		{ID: "generated", Type: policy.AssuranceGeneratedReference, Commands: []string{"go generate ./..."}, CommandPolicy: "all"},
 		{ID: "language", Type: policy.AssuranceLanguageBoundary, ScanPaths: []string{"src/**"}, AllowedExtensions: []string{".go"}},
 		{ID: "pins", Type: policy.AssuranceDependencyPins, ManifestPaths: []string{"package.json"}, DependencySections: []string{"dependencies"}, AllowedVersionPrefixes: []string{"workspace:"}},
+		{ID: "scripts", Type: policy.AssurancePackageScripts, ManifestPaths: []string{"package.json"}, PackageManager: "npm", Commands: []string{"npm run test"}},
 		{ID: "network", Type: policy.AssuranceNetworkBoundary, ScanPaths: []string{"src/**"}, SitePatterns: []string{"http.Get("}, GuardMarkers: []string{"NewGuardedClient"}, MarkerWindowLines: 2},
 		{ID: "process", Type: policy.AssuranceProcessBoundary, ScanPaths: []string{"src/**"}, SitePatterns: []string{"exec.Command("}, GuardMarkers: []string{"ApplyHardening"}, MarkerWindowLines: 2},
 		{ID: "proof", Type: policy.AssuranceSubstantiveProof, ProofFile: "proof/proofs.json", MinSamples: 3, MaxAgeHours: 24},
@@ -65,7 +66,7 @@ func TestEvaluatePositiveAllGateKinds(t *testing.T) {
 	}
 	findings, err := Evaluate(root, gates, Inputs{
 		ChangedPaths:       []string{"src/main.go", "package.json"},
-		SuccessfulCommands: []string{"go generate ./...", "go test ./...", "go vet ./..."},
+		SuccessfulCommands: []string{"go generate ./...", "go test ./...", "go vet ./...", "npm run test"},
 		Now:                now,
 	})
 	if err != nil {

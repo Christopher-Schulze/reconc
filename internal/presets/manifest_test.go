@@ -90,6 +90,22 @@ func TestSuggestForFrameworkAndAdditionalLanguageStacksReturnsSpecificPacks(t *t
 	}
 }
 
+func TestSuggestForNodeAndTypeScriptStacksReturnsSpecificPacks(t *testing.T) {
+	withRECONCHome(t)
+	suggestions, err := SuggestForStacks([]string{"npm", "pnpm", "typescript", "yarn"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"npm-assurance", "pnpm-assurance", "typescript-assurance", "yarn-assurance"} {
+		if !metadataContains(suggestions, expected) {
+			t.Fatalf("expected %s suggestion, got %+v", expected, suggestions)
+		}
+	}
+	if err := ValidateSelection([]string{"typescript-assurance", "nextjs-assurance"}); err == nil || !strings.Contains(err.Error(), "nextjs-assurance <-> typescript-assurance") {
+		t.Fatalf("expected framework/generic conflict, got %v", err)
+	}
+}
+
 func writeManifestPreset(t *testing.T, dir, name string, conflicts []string) {
 	t.Helper()
 	conflictYAML := "[]"
