@@ -23,6 +23,7 @@ type Policy struct {
 	Reports              ClassPolicy
 	Locks                ClassPolicy
 	CommandProofs        ClassPolicy
+	PolicyDecisions      ClassPolicy
 	GeneratedBinaries    ClassPolicy
 	StateTotalBytes      int64
 	RepoRuntimeBytes     int64
@@ -44,6 +45,7 @@ func DefaultPolicy() Policy {
 		Reports:              ClassPolicy{MaxFiles: 32, MaxBytes: 8 * 1024 * 1024, MaxAge: 14 * 24 * time.Hour},
 		Locks:                ClassPolicy{MaxFiles: 128, MaxBytes: 1024 * 1024, MaxAge: 24 * time.Hour},
 		CommandProofs:        ClassPolicy{MaxFiles: 64, MaxBytes: 256 * 1024, MaxAge: 24 * time.Hour},
+		PolicyDecisions:      ClassPolicy{MaxFiles: 1, MaxBytes: 8 * 1024 * 1024},
 		GeneratedBinaries:    ClassPolicy{MaxFiles: 8, MaxBytes: 32 * 1024 * 1024, MaxAge: 14 * 24 * time.Hour},
 		StateTotalBytes:      16 * 1024 * 1024,
 		RepoRuntimeBytes:     48 * 1024 * 1024,

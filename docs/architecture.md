@@ -54,6 +54,7 @@ internal/
   cli/            command dispatch plus responsibility-owned command modules
   compiler/       lockfile builder: digest, writer, conflicts, migrations, lock
   completion/     bash / zsh / fish completion generators
+  completiongate/ exact final-completion report over policy, candidate, evidence, and TASK state
   contextsize/    token-budget guard for canonical entrypoints + active TASK
   errors/         typed exception hierarchy (PolicySourceError, LockfileError, ...)
   execfile/       cross-platform regular-file and executable validation
@@ -68,6 +69,7 @@ internal/
   parser/         YAML-to-Rule validation + template expansion + scope expansion
   pathidentity/   Unix symlink + Windows reparse/8.3 filesystem identity
   policy/         Rule / Scope / Source / Kind / Mode types
+  policyproof/    tamper-evident unresolved policy-decision receipts
   presets/        bundled policy packs (embed.FS) + user overlays
   runtime/        evaluator + remediation + git integration + subprocess runner
   retention/      bounded runtime storage lifecycle + owned temp cleanup
@@ -139,10 +141,10 @@ handling.
   shape-breaking changes. Migration chain in `compiler/migrations.go`
   walks older versions forward.
 
-- **CheckReport / FixPlan schemas**: same policy. Additive changes
+- **CheckReport / CompletionReport / FixPlan schemas**: same policy. Additive changes
   (new optional fields) don't bump the version; breaking changes do.
 
-- **Published schema documents**: the four immutable
+- **Published schema documents**: the five immutable
   `schemas/v1/*.schema.json` contracts and the current
   `schemas/v2/policy-lock.schema.json` are canonical Draft 2020-12 documents,
   use format-versioned repository URLs as `$id`, and ship in the checksummed
@@ -396,6 +398,12 @@ path only after 64 new material events, 30 minutes with new progress, or a
 failed command, then reuse the normal full Stop report as a policy checkpoint.
 Explicitly configured TASK state fails closed if its overview disappears, and
 optional committed completion reuses that terminal report's Git snapshot.
+The shared `completiongate` used by Stop-facing views, `done`,
+`post-task-check`, and TUI binds that snapshot to current policy, session
+evidence, staged command proofs, and typed TASK completion. It captures state
+again after evaluation and rejects races. A same-candidate explicit block is
+stored outside the repository until a later validated explicit pass clears it;
+retention cannot manufacture a pass.
 
 `BenchmarkRepositoryRunStopHotpath` measures the in-process executable-TASK
 continuation path without process startup. On Apple M1 its baseline was

@@ -82,6 +82,7 @@ func runLocked(options Options, forceOwnedTemp bool) Report {
 		stateOptions.Policy.Reports = noDelete
 		stateOptions.Policy.Locks = noDelete
 		stateOptions.Policy.CommandProofs = noDelete
+		stateOptions.Policy.PolicyDecisions = noDelete
 		stateOptions.Policy.StateTotalBytes = int64(^uint64(0) >> 1)
 	}
 	activeID := SessionFileID(active)
@@ -90,6 +91,7 @@ func runLocked(options Options, forceOwnedTemp bool) Report {
 	reports := filepath.Join(project, "reports")
 	locks := filepath.Join(project, "locks")
 	commandProofs := filepath.Join(project, "command-proofs")
+	policyDecisions := filepath.Join(project, "policy-decisions")
 	report.Classes = append(report.Classes,
 		pruneClass("sessions", sessions, stateOptions.Policy.Sessions, options.Now, options.DryRun, map[string]bool{activeID + ".json": active != ""}, nil, &report),
 		pruneClass("reports", reports, stateOptions.Policy.Reports, options.Now, options.DryRun, map[string]bool{activeID + ".json": active != ""}, nil, &report),
@@ -98,8 +100,9 @@ func runLocked(options Options, forceOwnedTemp bool) Report {
 			activeID + ".stop-policy.lock": active != "",
 		}, nil, &report),
 		pruneClass("command-proofs", commandProofs, stateOptions.Policy.CommandProofs, options.Now, options.DryRun, nil, nil, &report),
+		pruneClass("policy-decisions", policyDecisions, stateOptions.Policy.PolicyDecisions, options.Now, options.DryRun, map[string]bool{"latest.json": true}, nil, &report),
 	)
-	projectedStateBefore, projectedStateAfter := classTotals(report.Classes, "sessions", "reports", "locks", "command-proofs")
+	projectedStateBefore, projectedStateAfter := classTotals(report.Classes, "sessions", "reports", "locks", "command-proofs", "policy-decisions")
 	stateTotal := enforceStateTotal(stateOptions, project, activeID, active != "", &report)
 	if options.DryRun {
 		stateTotal.BytesBefore = projectedStateBefore
@@ -244,7 +247,11 @@ func pruneProjectRoots(options Options, report *Report, preserveRecent bool) Cla
 		if activeErr != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("resolve active session for project state root %s: %v", path, activeErr))
 		}
-		live := path == current || activeSession != "" || activeErr != nil
+		decisionPresent, decisionErr := policyDecisionPresent(path)
+		if decisionErr != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("inspect policy decision for project state root %s: %v", path, decisionErr))
+		}
+		live := path == current || activeSession != "" || activeErr != nil || decisionPresent || decisionErr != nil
 		recent := preserveRecent && options.Policy.Locks.MaxAge > 0 && options.Now.Sub(latest) <= options.Policy.Locks.MaxAge
 		item := candidate{path: path, name: entry.Name(), size: size, mtime: latest, active: live || recent, dir: true}
 		class.BytesBefore += size
@@ -279,6 +286,20 @@ func pruneProjectRoots(options Options, report *Report, preserveRecent bool) Cla
 		class.BytesAfter += item.size
 	}
 	return class
+}
+
+func policyDecisionPresent(project string) (bool, error) {
+	info, err := os.Lstat(filepath.Join(project, "policy-decisions", "latest.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !info.Mode().IsRegular() {
+		return false, fmt.Errorf("latest policy decision is not a regular file")
+	}
+	return true, nil
 }
 
 func projectTreeSizeAndLatest(root string, initial time.Time) (int64, time.Time, error) {

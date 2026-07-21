@@ -176,6 +176,192 @@ func TestStopPolicyFingerprintTracksDirtyContentWithoutFullDiff(t *testing.T) {
 	}
 }
 
+func TestCaptureCompletionStateBindsSessionIndexAndWorktree(t *testing.T) {
+	counterPath := filepath.Join(t.TempDir(), "counter")
+	repo := setupStopScriptPolicyRepo(t, counterPath, 0, "")
+	git := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("add", "-A")
+	git("commit", "-m", "fixture", "--quiet")
+
+	if _, err := InitializeSessionState(repo, "completion-a"); err != nil {
+		t.Fatal(err)
+	}
+	first, err := CaptureCompletionState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.GitAvailable || !first.GitStatusOK || first.GitIndexHash == "" || len(first.DirtyPaths) != 0 {
+		t.Fatalf("unexpected clean snapshot: %#v", first)
+	}
+
+	if _, err := InitializeSessionState(repo, "completion-b"); err != nil {
+		t.Fatal(err)
+	}
+	second, err := CaptureCompletionState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Fingerprint == first.Fingerprint || second.SessionID != "completion-b" {
+		t.Fatalf("session identity was not bound: first=%q second=%q", first.Fingerprint, second.Fingerprint)
+	}
+
+	if _, err := MutateSessionState(repo, "completion-b", func(state SessionState) SessionState {
+		state.ReadPaths = append(state.ReadPaths, filepath.Join(repo, "src", "a.go"))
+		state.EvidenceEpoch++
+		return state
+	}); err != nil {
+		t.Fatal(err)
+	}
+	withEvidence, err := CaptureCompletionState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withEvidence.Fingerprint == second.Fingerprint || withEvidence.SessionEvidenceHash == second.SessionEvidenceHash {
+		t.Fatal("active-session evidence did not change the completion candidate")
+	}
+
+	target := filepath.Join(repo, "src", "a.go")
+	if err := os.WriteFile(target, []byte("package src // staged\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "src/a.go")
+	staged, err := CaptureCompletionState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if staged.Fingerprint == withEvidence.Fingerprint || staged.GitIndexHash == withEvidence.GitIndexHash || !staged.WorktreeMatchesIndex {
+		t.Fatalf("staged index was not bound: %#v", staged)
+	}
+
+	if err := os.WriteFile(target, []byte("package src // unstaged\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unstaged, err := CaptureCompletionState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unstaged.Fingerprint == staged.Fingerprint || unstaged.GitIndexHash != staged.GitIndexHash || unstaged.WorktreeMatchesIndex {
+		t.Fatalf("worktree divergence was not bound: %#v", unstaged)
+	}
+}
+
+func TestCaptureCompletionStateRejectsUnboundSessionReport(t *testing.T) {
+	counterPath := filepath.Join(t.TempDir(), "counter")
+	repo := setupStopScriptPolicyRepo(t, counterPath, 0, "")
+	state, err := InitializeSessionState(repo, "completion-report")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runStopPolicyCheck(repo, state); err != nil {
+		t.Fatal(err)
+	}
+	bound, err := CaptureCompletionState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bound.SessionReportTrusted || bound.SessionReportHash == "" {
+		t.Fatalf("fresh bound report was rejected: %#v", bound)
+	}
+	if _, err := MutateSessionState(repo, "completion-report", func(current SessionState) SessionState {
+		current.StopPolicyReportHash = ""
+		return current
+	}); err != nil {
+		t.Fatal(err)
+	}
+	unbound, err := CaptureCompletionState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unbound.SessionReportTrusted || unbound.SessionReportHash == "" {
+		t.Fatalf("present report without a recorded hash was trusted: %#v", unbound)
+	}
+}
+
+func TestCaptureCompletionStateBindsDirtySubmoduleContent(t *testing.T) {
+	if testing.Short() {
+		t.Skip("creates a local Git submodule fixture")
+	}
+	git := func(repo string, args ...string) {
+		t.Helper()
+		command := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git -C %s %v: %v\n%s", repo, args, err, output)
+		}
+	}
+	child := t.TempDir()
+	git(child, "init", "--quiet")
+	git(child, "config", "user.name", "reconc-test")
+	git(child, "config", "user.email", "reconc-test@example.com")
+	if err := os.WriteFile(filepath.Join(child, "state.txt"), []byte("committed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(child, "add", "state.txt")
+	git(child, "commit", "-m", "fixture", "--quiet")
+
+	counterPath := filepath.Join(t.TempDir(), "counter")
+	repo := setupStopScriptPolicyRepo(t, counterPath, 0, "")
+	git(repo, "init", "--quiet")
+	git(repo, "config", "user.name", "reconc-test")
+	git(repo, "config", "user.email", "reconc-test@example.com")
+	git(repo, "add", "-A")
+	git(repo, "commit", "-m", "fixture", "--quiet")
+	git(repo, "-c", "protocol.file.allow=always", "submodule", "add", "--quiet", child, "modules/child")
+	git(repo, "commit", "-am", "add submodule", "--quiet")
+
+	childCheckout := filepath.Join(repo, "modules", "child")
+	if err := os.WriteFile(filepath.Join(childCheckout, "state.txt"), []byte("dirty-one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	first, err := CaptureCompletionState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.WorktreeTrusted {
+		t.Fatalf("readable dirty submodule was not trusted: %#v", first)
+	}
+	if err := os.WriteFile(filepath.Join(childCheckout, "state.txt"), []byte("dirty-two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	second, err := CaptureCompletionState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Fingerprint == first.Fingerprint || second.WorktreeHash == first.WorktreeHash {
+		t.Fatalf("dirty submodule content was not bound: first=%q second=%q", first.Fingerprint, second.Fingerprint)
+	}
+}
+
+func TestCompletionDirtyFilesTrustFailsClosed(t *testing.T) {
+	for _, file := range []gitDirtyFile{
+		{Path: "fifo", WorktreeHash: "mode:prw-------"},
+		{Path: "dir", WorktreeHash: "dir"},
+		{Path: "unreadable", WorktreeHash: "error:permission denied"},
+		{Path: "index", WorktreeHash: strings.Repeat("a", 64), IndexEntry: "error:index locked"},
+		{Path: "submodule", WorktreeHash: "submodule-error:not a repository", IndexEntry: "160000 abc 0"},
+		{Path: "link", WorktreeHash: "symlink:not-a-digest"},
+		{Path: "submodule", WorktreeHash: "submodule:not-a-digest", IndexEntry: "160000 abc 0"},
+	} {
+		if completionDirtyFilesTrusted([]gitDirtyFile{file}) {
+			t.Fatalf("unsafe dirty-file identity was trusted: %#v", file)
+		}
+	}
+	for _, file := range []gitDirtyFile{
+		{Path: "deleted", WorktreeHash: "missing"},
+		{Path: "regular", WorktreeHash: strings.Repeat("a", 64)},
+		{Path: "link", WorktreeHash: "symlink:" + strings.Repeat("b", 64)},
+		{Path: "submodule", WorktreeHash: "submodule:" + strings.Repeat("c", 64), IndexEntry: "160000 abc 0"},
+	} {
+		if !completionDirtyFilesTrusted([]gitDirtyFile{file}) {
+			t.Fatalf("safe dirty-file identity was rejected: %#v", file)
+		}
+	}
+}
+
 func TestStopPolicyFingerprintUntrackedModeAllIsOptIn(t *testing.T) {
 	counterPath := filepath.Join(t.TempDir(), "counter")
 	repo := setupStopScriptPolicyRepo(t, counterPath, 0, "")

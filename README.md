@@ -54,8 +54,9 @@ why a task is allowed to be called done.
   `reconc run on|off|status|log`, no-progress guards, and bounded logs
 - adopts typed repository TASK state and performs recoverable claim, block,
   resume, split, promotion, and archive transitions
-- bounds session/report state, audit and run-decision logs, generated audit binaries,
-  and owned temp residue outside the Stop path
+- bounds session/report state, unresolved policy-decision receipts, audit and
+  run-decision logs, generated audit binaries, and owned temp residue outside
+  the Stop path
 - publishes deterministic SPDX 2.3 and CycloneDX 1.6 release SBOMs covering
   both Go modules, selected dependencies, toolchain, version, and an explicit
   full release commit
@@ -156,7 +157,9 @@ mutate the durable switch. `reconc run off .` is the only manual disable action.
 Inspection and enforcement commands never mutate policy or refresh the
 lockfile implicitly. If policy sources change, they fail closed with one
 explicit remediation: `reconc refresh .`. Opt-in audit logging may still
-append decision records.
+append decision records. Explicit policy checks and final gates also maintain
+one private unresolved-block receipt under `RECONC_HOME`; they never write it
+into the governed repository.
 
 For staged changes:
 
@@ -170,6 +173,14 @@ reconc ci . --staged \
 success only for the unchanged HEAD and staged index. `ci --staged` ignores
 mutable agent-session outcomes and accepts only an untampered, unexpired proof
 for that exact commit candidate.
+
+`reconc done .` is the single final-completion contract. It binds the current
+policy lock, HEAD, index, worktree, active-session evidence, saved report,
+current policy evaluation, staged command proofs, and typed TASK completion
+into a versioned, digested report. An unresolved explicit policy block remains
+blocking until a later explicit non-blocking check clears it; waiting never
+does. `--require-clean-git` adds a clean-tree requirement. `--window` remains
+accepted only for compatibility and has no time-based pass semantics.
 
 ## Rollout Modes
 

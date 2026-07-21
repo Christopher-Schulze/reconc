@@ -80,11 +80,11 @@ make release VERSION=0.8.5
 ```
 
 `make release` cross-compiles five binaries into `dist/`, generates three flat
-shell-completion artifacts, generates a man page, copies the four immutable v1
+shell-completion artifacts, generates a man page, copies the five immutable v1
 schemas plus the current v2 policy-lock schema, generates deterministic SPDX
 2.3 and CycloneDX 1.6 SBOMs, and writes `dist/SHA256SUMS`. The target stops on
 the first build, SBOM, or checksum
-failure. The release verifier requires exactly those sixteen
+failure. The release verifier requires exactly those seventeen
 checksummed artifacts, rejects missing, extra, duplicate, unsafe, or corrupted
 entries, and never accepts an empty manifest. `dist/` is ignored and should not
 be committed.
@@ -201,7 +201,10 @@ state without Git or writes. Static reference material stays on demand through
 the lockfile. Missing, stale, malformed, schema-drifted, or non-portable current
 lockfiles fail closed with one explicit remediation: `reconc refresh .`.
 When `RECONC_AUDIT=1`, enforcement commands may still append decision records;
-that opt-in audit write is independent of policy refresh.
+that opt-in audit write is independent of policy refresh. Explicit `check`,
+`ci`, `post-task-check`, and `done` decisions may also write or clear one
+private unresolved-block receipt below `RECONC_HOME`; governed worktree content
+remains untouched.
 
 Exit codes:
 
@@ -254,6 +257,19 @@ degrading to `absent`. `completion.require_committed: true` additionally blocks
 terminal TASK completion while the configured overview or detail tree is dirty.
 The terminal gate reuses the single Git status snapshot already built for Stop;
 it adds no Git process to routine executable continuations.
+
+`reconc done` and `reconc post-task-check` share one evidence-complete final
+gate. A versioned, self-digested completion report binds the policy lock, Git
+HEAD and logical index, worktree contents, dirty paths, active-session evidence,
+saved session report, current policy result, current staged command proofs, and
+typed TASK completion. Candidate state is captured before and after evaluation;
+any change aborts the gate. A blocking explicit `check` or `ci` decision for the
+same candidate remains unresolved until a later explicit non-blocking decision
+clears its tamper-evident receipt. Time and retention never clear it. With no
+typed TASK lifecycle, the TASK check is a minimal pass; configured lifecycle
+state must be terminal and satisfy every required section, evidence field, and
+optional committed-control-plane rule. `--require-clean-git` adds a clean-tree
+check. `--window` is compatibility-only and never changes the decision.
 
 `reconc task status|validate|check-done` are read-only. `claim`, `block`,
 `resume`, `split`, `promote`, and `archive` serialize through a cross-platform
@@ -388,8 +404,9 @@ Policy authoring is strict. Unknown keys at the document, scope, rule,
 evidence, composite-check, and TASK-lifecycle levels fail compilation instead
 of being ignored. This validation applies only to structured YAML fields;
 free-form rule messages and agent prompts remain unrestricted text. Editors and
-automation can use `schemas/v1/policy-config.schema.json`; emitted lock, report,
-and fix-plan artifacts keep their separate public schemas.
+automation can use `schemas/v1/policy-config.schema.json`; emitted lock, policy
+report, completion report, and fix-plan artifacts keep their separate public
+schemas.
 
 Runtime state is local and ignored:
 
@@ -427,6 +444,9 @@ decisions are appended only for material transitions. Session state is
 hard-capped at 1 MiB; every evidence collection has both item and byte limits,
 repeated command results are deduplicated, and any omitted security-relevant
 evidence sets a persisted overflow marker that blocks PreToolUse and Stop.
+The latest unresolved policy block is retained without an age limit and also
+protects its project-state root from global cleanup. A validated non-blocking
+decision removes that receipt durably; retention never converts block to pass.
 Agent persistent-memory writes (`$CLAUDE_CONFIG_DIR/projects/<project>/memory/**`,
 defaulting to `~/.claude/projects/<project>/memory/**`) are harness runtime
 state, not repository writes. The pre-tool gate excludes only the current
@@ -693,6 +713,8 @@ Package responsibilities:
 - `internal/jsonl`: bounded, locked JSONL append and archive rings
 - `internal/pathidentity`: Unix symlink and Windows reparse-point/8.3 filesystem identity
 - `internal/commandproof`: commit-candidate-bound staged command-success receipts
+- `internal/completiongate`: final policy, candidate, command-proof, and TASK completion contract
+- `internal/policyproof`: tamper-evident unresolved policy-decision receipts
 - `internal/retention`: runtime storage classes, lifecycle due checks, and cleanup
 - `internal/presets`: bundled and user policy packs
 - `internal/templates`: bundled and user rule templates
@@ -703,7 +725,7 @@ Package responsibilities:
 Key invariants:
 
 - Deterministic JSON artifacts
-- Stable schema and `format_version` fields; immutable v1 contracts live under `schemas/v1/`, while current portable policy locks use `schemas/v2/`; both lock schemas ship in every release
+- Stable schema and `format_version` fields; immutable v1 contracts live under `schemas/v1/`, while current portable policy locks use `schemas/v2/`; all five v1 schemas and the current v2 lock schema ship in every release
 - Fail closed on malformed policy, stale lockfiles, schema drift, invalid globs, unsupported rule kinds, and non-portable current lock envelopes
 - No runtime network calls
 - Behavior in internal packages, thin `cmd/reconc/main.go`

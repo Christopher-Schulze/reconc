@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"reconc.dev/reconc/internal/runtime"
 	"strings"
 	"time"
+
+	"reconc.dev/reconc/internal/runtime"
 )
 
 // runCheck implements `reconc check [repo] [--read PATH...] [--write PATH...]
@@ -107,10 +108,17 @@ func runCheck(args []string, stdout, stderr io.Writer) (resultErr error) {
 		i++
 	}
 
+	candidate, err := capturePolicyDecisionCandidate(repo)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc check: capture candidate: " + err.Error()}
+	}
 	start := time.Now()
-	report, err := runtime.CheckRepoPolicy(repo, inputs)
+	report, err := runtime.CheckRepoPolicy(candidate.RepoRoot, inputs)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc check: " + err.Error()}
+	}
+	if err := persistPolicyDecision("check", candidate, report); err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc check: persist decision proof: " + err.Error()}
 	}
 	maybeAudit("check", report, start)
 	out, closeOutput, err := teeToFile(stdout, outputPath)

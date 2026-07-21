@@ -78,6 +78,35 @@ func TestRunBoundsCommandProofs(t *testing.T) {
 	}
 }
 
+func TestRunNeverPrunesUnresolvedPolicyDecision(t *testing.T) {
+	repo := t.TempDir()
+	stateRoot := t.TempDir()
+	now := time.Now().UTC()
+	path := filepath.Join(ProjectDir(stateRoot, repo), "policy-decisions", "latest.json")
+	writeTimed(t, path, []byte("unresolved-block"), now.Add(-365*24*time.Hour))
+	policy := DefaultPolicy()
+	policy.PolicyDecisions = ClassPolicy{MaxFiles: 0, MaxBytes: 0, MaxAge: time.Nanosecond}
+	policy.StateTotalBytes = 0
+
+	report := Run(Options{RepoRoot: repo, StateRoot: stateRoot, Policy: policy, Now: now, TempRoot: t.TempDir()})
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("unresolved policy decision was pruned: %v", err)
+	}
+	var decisions ClassReport
+	for _, class := range report.Classes {
+		if class.Name == "policy-decisions" {
+			decisions = class
+			break
+		}
+	}
+	if decisions.FilesKept != 1 || decisions.FilesDeleted != 0 {
+		t.Fatalf("policy decision retention result: %+v", decisions)
+	}
+	if !strings.Contains(strings.Join(report.Errors, "\n"), "protected state uses") {
+		t.Fatalf("protected over-budget receipt was not reported: %+v", report)
+	}
+}
+
 func TestRunCoversLogsBinariesAndOwnedTemp(t *testing.T) {
 	repo := t.TempDir()
 	stateRoot := t.TempDir()
@@ -215,6 +244,33 @@ func TestExplicitRunEnforcesProjectCountWithoutLifecycleGrace(t *testing.T) {
 	}
 	if _, err := os.Stat(current); err != nil {
 		t.Fatalf("current project was removed: %v", err)
+	}
+}
+
+func TestProjectRootRetentionProtectsUnresolvedPolicyDecision(t *testing.T) {
+	repo := t.TempDir()
+	stateRoot := t.TempDir()
+	now := time.Now().UTC()
+	policy := DefaultPolicy()
+	policy.ProjectRoots = ClassPolicy{MaxFiles: 1, MaxBytes: 1, MaxAge: time.Hour}
+	current := ProjectDir(stateRoot, repo)
+	writeTimed(t, filepath.Join(current, "current"), []byte("current"), now)
+	blocked := filepath.Join(stateRoot, "projects", "1111111111111111")
+	writeTimed(t, filepath.Join(blocked, "policy-decisions", "latest.json"), []byte("unresolved-block"), now.Add(-365*24*time.Hour))
+	stale := filepath.Join(stateRoot, "projects", "2222222222222222")
+	writeTimed(t, filepath.Join(stale, "stale"), []byte("stale"), now.Add(-365*24*time.Hour))
+
+	report := Run(Options{RepoRoot: repo, StateRoot: stateRoot, Policy: policy, Now: now, TempRoot: t.TempDir()})
+	for _, path := range []string{current, blocked} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("protected project root was removed: %s: %v", path, err)
+		}
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("unprotected stale project root survived: %v", err)
+	}
+	if !strings.Contains(strings.Join(report.Errors, "\n"), "protected project state uses") {
+		t.Fatalf("protected over-budget project roots were not reported: %+v", report)
 	}
 }
 

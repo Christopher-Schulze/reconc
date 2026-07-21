@@ -14,7 +14,7 @@ import (
 func enforceStateTotal(options Options, project, activeID string, hasActive bool, report *Report) ClassReport {
 	class := ClassReport{Name: "state-total"}
 	candidates := []candidate{}
-	for _, dir := range []string{"sessions", "reports", "locks", "command-proofs"} {
+	for _, dir := range []string{"sessions", "reports", "locks", "command-proofs", "policy-decisions"} {
 		path := filepath.Join(project, dir)
 		entries, err := os.ReadDir(path)
 		if err != nil {
@@ -38,6 +38,7 @@ func enforceStateTotal(options Options, project, activeID string, hasActive bool
 			}
 			active := hasActive && (dir == "sessions" || dir == "reports") && entry.Name() == activeID+".json"
 			active = active || hasActive && dir == "locks" && (entry.Name() == activeID+".lock" || entry.Name() == activeID+".stop-policy.lock")
+			active = active || dir == "policy-decisions" && entry.Name() == "latest.json"
 			item := candidate{path: filepath.Join(path, entry.Name()), name: dir + "/" + entry.Name(), size: info.Size(), mtime: info.ModTime(), active: active}
 			candidates = append(candidates, item)
 			class.BytesBefore += item.size

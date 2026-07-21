@@ -11,6 +11,7 @@ import (
 
 	"reconc.dev/reconc/internal/audit"
 	"reconc.dev/reconc/internal/compiler"
+	"reconc.dev/reconc/internal/completiongate"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/parser"
 	"reconc.dev/reconc/internal/policy"
@@ -37,20 +38,21 @@ type RuleSummary struct {
 // View is the complete tui snapshot. It is JSON-serializable so tests
 // and automation can assert on the same data rendered for humans.
 type View struct {
-	RepoRoot        string              `json:"repo_root"`
-	Discovered      bool                `json:"discovered"`
-	LockfileStatus  string              `json:"lockfile_status"`
-	DefaultMode     policy.Mode         `json:"default_mode,omitempty"`
-	RuleCount       int                 `json:"rule_count"`
-	SourceCount     int                 `json:"source_count"`
-	Sources         []SourceSummary     `json:"sources"`
-	Rules           []RuleSummary       `json:"rules"`
-	Conflicts       []compiler.Conflict `json:"conflicts"`
-	AuditTotal      int                 `json:"audit_total"`
-	AuditBlocking   int                 `json:"audit_blocking"`
-	ActiveSessionID string              `json:"active_session_id,omitempty"`
-	NextAction      string              `json:"next_action,omitempty"`
-	Errors          []string            `json:"errors,omitempty"`
+	RepoRoot        string                 `json:"repo_root"`
+	Discovered      bool                   `json:"discovered"`
+	LockfileStatus  string                 `json:"lockfile_status"`
+	DefaultMode     policy.Mode            `json:"default_mode,omitempty"`
+	RuleCount       int                    `json:"rule_count"`
+	SourceCount     int                    `json:"source_count"`
+	Sources         []SourceSummary        `json:"sources"`
+	Rules           []RuleSummary          `json:"rules"`
+	Conflicts       []compiler.Conflict    `json:"conflicts"`
+	AuditTotal      int                    `json:"audit_total"`
+	AuditBlocking   int                    `json:"audit_blocking"`
+	ActiveSessionID string                 `json:"active_session_id,omitempty"`
+	Completion      *completiongate.Report `json:"completion,omitempty"`
+	NextAction      string                 `json:"next_action,omitempty"`
+	Errors          []string               `json:"errors,omitempty"`
 }
 
 // Build creates a read-only terminal dashboard snapshot for repo.
@@ -79,6 +81,7 @@ func Build(repo string) (*View, error) {
 		view.LockfileStatus = "source error"
 		view.Errors = append(view.Errors, err.Error())
 		view.NextAction = "fix policy sources, then run `reconc refresh .`"
+		addCompletion(view)
 		return view, nil
 	}
 	view.SourceCount = len(bundle.Sources)
@@ -95,6 +98,7 @@ func Build(repo string) (*View, error) {
 		view.LockfileStatus = "parse error"
 		view.Errors = append(view.Errors, err.Error())
 		view.NextAction = "fix rule validation, then run `reconc refresh .`"
+		addCompletion(view)
 		return view, nil
 	}
 	view.DefaultMode = parsed.DefaultMode
@@ -128,10 +132,26 @@ func Build(repo string) (*View, error) {
 	if sessionID, err := agentsession.ResolveActiveSessionID(discovery.RepoRoot); err == nil {
 		view.ActiveSessionID = sessionID
 	}
+	addCompletion(view)
 	if len(view.Conflicts) > 0 && view.NextAction == "" {
 		view.NextAction = "inspect static conflicts with `reconc doctor . --deep`"
 	}
 	return view, nil
+}
+
+func addCompletion(view *View) {
+	report, err := completiongate.Evaluate(view.RepoRoot, completiongate.Options{})
+	if err != nil {
+		view.Errors = append(view.Errors, "completion gate: "+err.Error())
+		if view.NextAction == "" {
+			view.NextAction = "run `reconc done .` after repairing the completion-gate error"
+		}
+		return
+	}
+	view.Completion = report
+	if !report.OK && view.NextAction == "" {
+		view.NextAction = report.NextAction
+	}
 }
 
 func effectiveMode(mode, defaultMode policy.Mode) policy.Mode {
@@ -149,6 +169,22 @@ func RenderText(view *View) string {
 	fmt.Fprintf(&b, "  lockfile:   %s\n", view.LockfileStatus)
 	fmt.Fprintf(&b, "  rules:      %d\n", view.RuleCount)
 	fmt.Fprintf(&b, "  sources:    %d\n", view.SourceCount)
+	if view.Completion != nil {
+		failed := 0
+		for _, check := range view.Completion.Checks {
+			if check.Status == completiongate.StatusFail {
+				failed++
+			}
+		}
+		fmt.Fprintf(&b, "  completion: %s", view.Completion.Decision)
+		if failed > 0 {
+			fmt.Fprintf(&b, " (%d failed)", failed)
+		}
+		fmt.Fprintln(&b)
+		if view.Completion.TaskID != "" {
+			fmt.Fprintf(&b, "  task:       %s\n", view.Completion.TaskID)
+		}
+	}
 	if view.DefaultMode != "" {
 		fmt.Fprintf(&b, "  default:    %s\n", view.DefaultMode)
 	}
@@ -170,6 +206,14 @@ func RenderText(view *View) string {
 		fmt.Fprintf(&b, "\nErrors:\n")
 		for _, err := range view.Errors {
 			fmt.Fprintf(&b, "  - %s\n", err)
+		}
+	}
+	if view.Completion != nil && !view.Completion.OK {
+		fmt.Fprintf(&b, "\nCompletion blockers:\n")
+		for _, check := range view.Completion.Checks {
+			if check.Status == completiongate.StatusFail {
+				fmt.Fprintf(&b, "  - [%s] %s\n", check.ID, check.Detail)
+			}
 		}
 	}
 

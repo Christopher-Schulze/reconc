@@ -144,10 +144,16 @@ schema-drifted, migration-drifted, and non-portable current lockfiles surface as
 with explicit `reconc refresh .` remediation. Useful as a session-start ping.
 
 ### `reconc done [repo] [--window N] [--require-clean-git] [--json]`
-Terse task-finish gate. Prints `done` when the lockfile is present,
-fresh enough for the known audit window, and no recent blocking audit
-entry exists. Prints `blocked: <next action>` and exits 2 when the task
-is not ready. `--require-clean-git` also requires a clean working tree.
+Evidence-complete task-finish gate. It binds current policy, the exact
+HEAD/index/worktree candidate when Git is available, active-session evidence,
+saved report integrity, current staged command proofs, and typed TASK completion
+into a versioned, digested report. An unresolved explicit block for the same
+candidate remains blocking until a later explicit non-blocking `check` or `ci`
+decision clears it. Text mode prints every failed check and exactly one next
+action; JSON emits the full completion report. Exit 0 = done, 2 = blocked,
+1 = runtime/input error. `--require-clean-git` adds a clean-tree check.
+`--window` is accepted for compatibility but elapsed time never proves
+completion.
 
 ---
 
@@ -470,8 +476,11 @@ current state. Reuses session-briefing + audit-tail data. `--minimal`
 emits a compact 3-line summary.
 
 ### `reconc post-task-check [repo] [--window N] [--require-clean-git] [--json]`
-Read-only pre-done gate: valid fresh lockfile + no blocking audit entries in
-the last N minutes (default 10). Exit 1 on any check failure.
+Runs the same evidence-complete contract as `reconc done`. It retains exit 1
+for a failed gate so existing hook loops keep their error contract. Governed
+worktree content remains untouched; the command may update or clear the private
+unresolved policy-block receipt under `RECONC_HOME`. `--window` is
+compatibility-only and never clears a block.
 
 ### `reconc delta [repo] [--since RFC3339] [--json]`
 Audit activity since a reference point (default 1h ago), with
@@ -489,7 +498,8 @@ Reads the first percentage from a coverage artefact, compares to
 ### `reconc tui [repo] [--json] [--output PATH]`
 Dependency-free terminal dashboard for policy state. Shows discovery,
 lockfile freshness, source list, rule list, audit summary, active
-session id, conflicts, and the next action. `--json` emits the same
+session id, the exact completion decision and blockers, conflicts, and the next
+action. `--json` emits the same
 snapshot as structured data. It never refreshes policy implicitly.
 
 ### `reconc completion <bash|zsh|fish>`

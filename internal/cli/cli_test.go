@@ -1880,18 +1880,18 @@ func TestRunPostTaskCheckPassesOnCleanRepo(t *testing.T) {
 	}
 }
 
-func TestRunPostTaskCheckFailsOnRecentBlock(t *testing.T) {
+func TestRunPostTaskCheckFailsOnUnresolvedBlock(t *testing.T) {
 	t.Setenv("RECONC_AUDIT", "1")
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := makeAssertRepo(t,
 		"rules:\n  - id: r1\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: m\n")
-	// Trigger a block so there's at least one blocking audit entry.
+	// Trigger a block so the current candidate has an unresolved receipt.
 	var stdout, stderr bytes.Buffer
 	_ = Run([]string{"check", repo, "--write", "gen/x.go"}, "0.1.0-test", &stdout, &stderr)
 	stdout.Reset()
 	err := Run([]string{"post-task-check", repo}, "0.1.0-test", &stdout, &stderr)
 	if err == nil {
-		t.Fatal("expected post-task-check to fail with recent block")
+		t.Fatal("expected post-task-check to fail with unresolved block")
 	}
 	if code := ExitCode(err); code != 1 {
 		t.Errorf("expected exit 1, got %d", code)
@@ -1973,7 +1973,7 @@ func TestRunDonePassesWithTerseOutput(t *testing.T) {
 	}
 }
 
-func TestRunDoneBlocksOnRecentBlock(t *testing.T) {
+func TestRunDoneBlocksOnUnresolvedBlock(t *testing.T) {
 	t.Setenv("RECONC_AUDIT", "1")
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := makeAssertRepo(t,
@@ -1983,10 +1983,83 @@ func TestRunDoneBlocksOnRecentBlock(t *testing.T) {
 	stdout.Reset()
 	err := Run([]string{"done", repo}, "0.5.0-test", &stdout, &stderr)
 	if err == nil || ExitCode(err) != 2 {
-		t.Fatalf("expected done to exit 2 on blocking audit, got err=%v code=%d", err, ExitCode(err))
+		t.Fatalf("expected done to exit 2 on unresolved block, got err=%v code=%d", err, ExitCode(err))
 	}
 	if !strings.Contains(stdout.String(), "blocked:") {
 		t.Fatalf("expected blocked output, got %q", stdout.String())
+	}
+}
+
+func TestRunDoneRequiresCurrentCorrectedPassWithoutAudit(t *testing.T) {
+	t.Setenv("RECONC_AUDIT", "")
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repo := makeAssertRepo(t,
+		"rules:\n  - id: r1\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: m\n")
+	var stdout, stderr bytes.Buffer
+	err := Run([]string{"check", repo, "--write", "gen/x.go"}, "0.5.0-test", &stdout, &stderr)
+	if err == nil || ExitCode(err) != 2 {
+		t.Fatalf("blocking check did not exit 2: err=%v stdout=%s", err, stdout.String())
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".reconc", "audit.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("audit must remain disabled, stat err=%v", err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	err = Run([]string{"done", repo, "--window", "1000000"}, "0.5.0-test", &stdout, &stderr)
+	if err == nil || ExitCode(err) != 2 {
+		t.Fatalf("done manufactured a pass from elapsed-time compatibility input: err=%v stdout=%s", err, stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "[FAIL] policy/unresolved/r1:") {
+		t.Fatalf("done omitted the unresolved current block: %s", stdout.String())
+	}
+	if count := strings.Count(stdout.String(), "next:"); count != 1 {
+		t.Fatalf("done must emit exactly one next action, got %d: %s", count, stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"check", repo}, "0.5.0-test", &stdout, &stderr); err != nil {
+		t.Fatalf("corrected explicit check: %v\n%s", err, stdout.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"done", repo}, "0.5.0-test", &stdout, &stderr); err != nil {
+		t.Fatalf("done rejected corrected current pass: %v\n%s", err, stdout.String())
+	}
+	if strings.TrimSpace(stdout.String()) != "done" {
+		t.Fatalf("unexpected corrected output: %q", stdout.String())
+	}
+}
+
+func TestRunDoneBlockedJSONHasOneGlobalNextAction(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repo := makeAssertRepo(t,
+		"rules:\n  - id: r1\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: m\n")
+	var stdout, stderr bytes.Buffer
+	_ = Run([]string{"check", repo, "--write", "gen/x.go"}, "0.5.0-test", &stdout, &stderr)
+	stdout.Reset()
+	stderr.Reset()
+	err := Run([]string{"done", repo, "--json"}, "0.5.0-test", &stdout, &stderr)
+	if err == nil || ExitCode(err) != 2 {
+		t.Fatalf("blocked JSON exit: err=%v stdout=%s", err, stdout.String())
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("decode: %v\n%s", err, stdout.String())
+	}
+	if payload["decision"] != "block" || strings.TrimSpace(payload["next_action"].(string)) == "" {
+		t.Fatalf("missing global block action: %#v", payload)
+	}
+	checks, ok := payload["checks"].([]interface{})
+	if !ok || len(checks) == 0 {
+		t.Fatalf("missing checks: %#v", payload)
+	}
+	for _, raw := range checks {
+		check := raw.(map[string]interface{})
+		if _, exists := check["next_action"]; exists {
+			t.Fatalf("check leaked a second next action: %#v", check)
+		}
 	}
 }
 

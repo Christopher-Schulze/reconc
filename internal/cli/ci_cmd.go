@@ -145,6 +145,10 @@ func runCI(args []string, stdout, stderr io.Writer) (resultErr error) {
 			})
 		}
 	}
+	candidate, err := agentsession.CaptureCompletionState(discovery.RepoRoot)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc ci: capture candidate: " + err.Error()}
+	}
 	activeEvidence, activeEvidenceErr := agentsession.ActiveEvidence(discovery.RepoRoot)
 	if activeEvidenceErr == nil {
 		inputs.ReadPaths = append(inputs.ReadPaths, activeEvidence.ReadPaths...)
@@ -188,12 +192,15 @@ func runCI(args []string, stdout, stderr io.Writer) (resultErr error) {
 	}
 
 	startCI := time.Now()
-	report, err := runtime.CheckRepoPolicy(repo, inputs)
+	report, err := runtime.CheckRepoPolicy(candidate.RepoRoot, inputs)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc ci: " + err.Error()}
 	}
 	if staged {
 		annotateStagedCommandViolations(report, discovery.RepoRoot)
+	}
+	if err := persistPolicyDecision("ci", candidate, report); err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc ci: persist decision proof: " + err.Error()}
 	}
 	maybeAudit("ci", report, startCI)
 	out, closeOutput, err := teeToFile(stdout, outputPath)
@@ -239,6 +246,7 @@ func annotateStagedCommandViolations(report *runtime.CheckReport, repoRoot strin
 		if violation.Kind != policy.KindRequireCommandSuccess {
 			continue
 		}
+		previousAction := violation.RecommendedAction
 		example := "<command>"
 		if len(violation.RequiredCommands) > 0 {
 			example = violation.RequiredCommands[0]
@@ -246,5 +254,11 @@ func annotateStagedCommandViolations(report *runtime.CheckReport, repoRoot strin
 		violation.RecommendedAction += fmt.Sprintf(
 			" Staged commits accept only index-bound command proofs, not session command history; record one with: reconc exec %s --staged --shell -- %q.",
 			repoRoot, example)
+		if i < len(report.Actions) {
+			report.Actions[i] = violation.RecommendedAction
+		}
+		if report.NextAction == previousAction {
+			report.NextAction = violation.RecommendedAction
+		}
 	}
 }

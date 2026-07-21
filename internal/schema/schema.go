@@ -17,16 +17,18 @@ const PolicyLockBaseURL = "https://raw.githubusercontent.com/Christopher-Schulze
 type Artifact string
 
 const (
-	PolicyLock    Artifact = "policy-lock"
-	PolicyConfig  Artifact = "policy-config"
-	PolicyReport  Artifact = "policy-report"
-	PolicyFixPlan Artifact = "policy-fix-plan"
+	PolicyLock       Artifact = "policy-lock"
+	PolicyConfig     Artifact = "policy-config"
+	PolicyReport     Artifact = "policy-report"
+	PolicyFixPlan    Artifact = "policy-fix-plan"
+	CompletionReport Artifact = "completion-report"
 
 	LegacyPolicyLockURL = DefaultBaseURL + "/policy-lock.schema.json"
 	PolicyLockURL       = PolicyLockBaseURL + "/policy-lock.schema.json"
 	PolicyConfigURL     = DefaultBaseURL + "/policy-config.schema.json"
 	PolicyReportURL     = DefaultBaseURL + "/policy-report.schema.json"
 	PolicyFixPlanURL    = DefaultBaseURL + "/policy-fix-plan.schema.json"
+	CompletionReportURL = DefaultBaseURL + "/completion-report.schema.json"
 )
 
 // DefaultURL returns the repository-hosted, format-versioned schema URL.
@@ -40,6 +42,8 @@ func DefaultURL(artifact Artifact) string {
 		return PolicyReportURL
 	case PolicyFixPlan:
 		return PolicyFixPlanURL
+	case CompletionReport:
+		return CompletionReportURL
 	default:
 		return ""
 	}

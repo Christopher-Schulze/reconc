@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/completion-report.schema.json",
+  "title": "Reconc completion report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "format_version",
+    "ok",
+    "decision",
+    "repo_root",
+    "checks",
+    "candidate",
+    "digest"
+  ],
+  "properties": {
+    "$schema": { "type": "string", "format": "uri" },
+    "format_version": { "const": "1" },
+    "ok": { "type": "boolean" },
+    "decision": { "enum": ["pass", "block"] },
+    "repo_root": { "type": "string" },
+    "task_id": { "type": "string" },
+    "checks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/check" }
+    },
+    "next_action": { "type": "string" },
+    "candidate": { "$ref": "#/$defs/candidate" },
+    "policy_report": { "$ref": "policy-report.schema.json" },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  },
+  "$defs": {
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "detail"],
+      "properties": {
+        "id": { "type": "string" },
+        "status": { "enum": ["pass", "warn", "fail"] },
+        "detail": { "type": "string" }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fingerprint",
+        "policy_lock_hash",
+        "git_available",
+        "worktree_trusted",
+        "dirty_paths"
+      ],
+      "properties": {
+        "fingerprint": { "type": "string" },
+        "policy_lock_hash": { "type": "string" },
+        "git_available": { "type": "boolean" },
+        "git_head": { "type": "string" },
+        "git_index_hash": { "type": "string" },
+        "worktree_hash": { "type": "string" },
+        "worktree_trusted": { "type": "boolean" },
+        "dirty_paths": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "session_evidence_hash": { "type": "string" },
+        "session_report_hash": { "type": "string" },
+        "policy_report_hash": { "type": "string" }
+      }
+    }
+  }
+}

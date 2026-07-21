@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	stopPolicyFingerprintVersion = "stop-policy-report-v5"
+	stopPolicyFingerprintVersion = "stop-policy-report-v6"
 	stopPolicyUntrackedModeEnv   = "RECONC_STOP_FINGERPRINT_UNTRACKED"
 	maxStopReportBytes           = 32 << 20
 	maxGitControlFileBytes       = 1 << 20
@@ -31,6 +31,7 @@ const (
 type stopPolicyFingerprintInput struct {
 	Version            string            `json:"version"`
 	RepoRoot           string            `json:"repo_root"`
+	SessionID          string            `json:"session_id,omitempty"`
 	PolicyLockHash     string            `json:"policy_lock_hash"`
 	ReportFormat       string            `json:"report_format"`
 	SchemaBase         string            `json:"schema_base"`
@@ -73,6 +74,43 @@ type stopPolicyGitSnapshot struct {
 type stopPolicyCheckResult struct {
 	Report      *runtime.CheckReport
 	GitSnapshot stopPolicyGitSnapshot
+}
+
+// CompletionStateSnapshot is the read-only repository/session identity shared
+// by the final completion gate and the latency-bounded Stop fingerprint. It
+// deliberately contains hashes and normalized evidence, never raw report
+// bytes, prompts, command output, or environment values.
+type CompletionStateSnapshot struct {
+	FormatVersion          string                  `json:"format_version"`
+	RepoRoot               string                  `json:"repo_root"`
+	Fingerprint            string                  `json:"fingerprint"`
+	PolicyLockHash         string                  `json:"policy_lock_hash"`
+	SessionID              string                  `json:"session_id,omitempty"`
+	SessionEvidenceHash    string                  `json:"session_evidence_hash,omitempty"`
+	SessionReportHash      string                  `json:"session_report_hash,omitempty"`
+	SessionReportTrusted   bool                    `json:"session_report_trusted"`
+	EvidenceEpoch          uint64                  `json:"evidence_epoch,omitempty"`
+	EvidenceOverflow       bool                    `json:"evidence_overflow"`
+	EvidenceOverflowReason string                  `json:"evidence_overflow_reason,omitempty"`
+	GitAvailable           bool                    `json:"git_available"`
+	GitHead                string                  `json:"git_head,omitempty"`
+	GitIndexHash           string                  `json:"git_index_hash,omitempty"`
+	GitStatusMode          string                  `json:"git_status_mode,omitempty"`
+	GitStatusOK            bool                    `json:"git_status_ok"`
+	GitStatus              string                  `json:"git_status,omitempty"`
+	WorktreeHash           string                  `json:"worktree_hash,omitempty"`
+	WorktreeTrusted        bool                    `json:"worktree_trusted"`
+	WorktreeMatchesIndex   bool                    `json:"worktree_matches_index"`
+	DirtyPaths             []string                `json:"dirty_paths"`
+	Inputs                 runtime.ExecutionInputs `json:"inputs"`
+}
+
+type completionStateFingerprintInput struct {
+	Version                   string                     `json:"version"`
+	StopPolicyFingerprint     stopPolicyFingerprintInput `json:"stop_policy_fingerprint"`
+	SessionReportHash         string                     `json:"session_report_hash"`
+	ExpectedSessionReportHash string                     `json:"expected_session_report_hash"`
+	GitIndexHash              string                     `json:"git_index_hash,omitempty"`
 }
 
 func runStopPolicyCheck(repoRoot string, state SessionState) (*runtime.CheckReport, error) {
@@ -268,7 +306,10 @@ func stopPolicyFingerprintInputFor(repoRoot string, state SessionState) stopPoli
 	if err != nil {
 		root = repoRoot
 	}
-	gitSnapshot := stopPolicyGitSnapshotFor(root)
+	return stopPolicyFingerprintInputForSnapshot(root, state, stopPolicyGitSnapshotFor(root))
+}
+
+func stopPolicyFingerprintInputForSnapshot(root string, state SessionState, gitSnapshot stopPolicyGitSnapshot) stopPolicyFingerprintInput {
 	dirtyFiles := []gitDirtyFile{}
 	if gitSnapshot.StatusOK {
 		dirtyFiles = gitDirtyFiles(root, gitSnapshot.Status)
@@ -276,6 +317,7 @@ func stopPolicyFingerprintInputFor(repoRoot string, state SessionState) stopPoli
 	return stopPolicyFingerprintInput{
 		Version:            stopPolicyFingerprintVersion,
 		RepoRoot:           root,
+		SessionID:          state.SessionID,
 		PolicyLockHash:     fileContentHash(filepath.Join(root, ".reconc", "policy.lock.json")),
 		ReportFormat:       runtime.CheckReportFormatVersion,
 		SchemaBase:         os.Getenv("RECONC_SCHEMA_BASE_URL"),
@@ -328,6 +370,17 @@ func stopPolicyGitSnapshotFor(repoRoot string) stopPolicyGitSnapshot {
 	}
 }
 
+func completionPolicyGitSnapshotFor(repoRoot string) stopPolicyGitSnapshot {
+	raw, err := gitCommandOutput(repoRoot, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+	status := filterStopPolicyGitStatus(raw)
+	if err != nil {
+		status = "error:" + err.Error() + "\n" + status
+	}
+	return stopPolicyGitSnapshot{
+		Head: gitHeadFingerprint(repoRoot), Status: status, StatusMode: "all", StatusOK: err == nil,
+	}
+}
+
 func stopPolicyEvidenceHash(state SessionState) string {
 	input := stopPolicyEvidenceInput{
 		ReadPaths:      sortedUnique(state.ReadPaths),
@@ -342,6 +395,145 @@ func stopPolicyEvidenceHash(state SessionState) string {
 		return ""
 	}
 	return hashBytes(body)
+}
+
+// CaptureCompletionState returns a stable, content-bound snapshot without
+// evaluating policy or mutating repository/session state. Callers must capture
+// again after evaluation and require the fingerprints to match, which closes
+// the candidate-mutation race across HEAD, dirty index/worktree entries,
+// policy bytes, active-session evidence, and the saved session report.
+func CaptureCompletionState(repoRoot string) (CompletionStateSnapshot, error) {
+	root, err := ResolveRepoRoot(repoRoot)
+	if err != nil {
+		return CompletionStateSnapshot{}, err
+	}
+	state := SessionState{
+		RepoRoot: root, ReadPaths: []string{}, WritePaths: []string{},
+		WriteEpochs: map[string]uint64{}, Commands: []string{}, Claims: []string{},
+		CommandResults: []CommandResult{},
+	}
+	sessionID, err := ResolveActiveSessionID(root)
+	if err != nil {
+		return CompletionStateSnapshot{}, err
+	}
+	if sessionID != "" {
+		state, err = LoadSessionState(root, sessionID)
+		if err != nil {
+			return CompletionStateSnapshot{}, fmt.Errorf("load active session %q: %w", sessionID, err)
+		}
+	}
+
+	gitSnapshot := completionPolicyGitSnapshotFor(root)
+	gitAvailable := gitSnapshot.StatusOK || gitMetadataPresent(root)
+	gitIndexHash := ""
+	if gitAvailable {
+		gitIndexHash, err = gitIndexFingerprint(root)
+		if err != nil {
+			return CompletionStateSnapshot{}, fmt.Errorf("fingerprint Git index: %w", err)
+		}
+	}
+	fingerprintInput := stopPolicyFingerprintInputForSnapshot(root, state, gitSnapshot)
+	dirtyFiles := fingerprintInput.GitDirtyFiles
+	worktreeBody, err := json.Marshal(struct {
+		Status     string         `json:"status"`
+		DirtyFiles []gitDirtyFile `json:"dirty_files"`
+	}{Status: gitSnapshot.Status, DirtyFiles: dirtyFiles})
+	if err != nil {
+		return CompletionStateSnapshot{}, fmt.Errorf("marshal completion worktree identity: %w", err)
+	}
+
+	reportHash := ""
+	reportTrusted := true
+	if sessionID != "" {
+		if _, statErr := os.Stat(state.ReportPath); statErr == nil {
+			_, reportHash, err = readLatestReport(root, sessionID)
+			if err != nil {
+				return CompletionStateSnapshot{}, fmt.Errorf("read active session report: %w", err)
+			}
+			reportTrusted = state.StopPolicyReportHash != "" && state.StopPolicyReportHash == reportHash
+		} else if errors.Is(statErr, os.ErrNotExist) {
+			reportTrusted = state.StopPolicyReportHash == ""
+		} else {
+			return CompletionStateSnapshot{}, fmt.Errorf("inspect active session report: %w", statErr)
+		}
+	}
+	completionInput := completionStateFingerprintInput{
+		Version:                   "completion-state-v3",
+		StopPolicyFingerprint:     fingerprintInput,
+		SessionReportHash:         reportHash,
+		ExpectedSessionReportHash: state.StopPolicyReportHash,
+		GitIndexHash:              gitIndexHash,
+	}
+	completionBody, err := json.Marshal(completionInput)
+	if err != nil {
+		return CompletionStateSnapshot{}, fmt.Errorf("marshal completion state identity: %w", err)
+	}
+	inputs := executionInputs(
+		filterRepoScopedReadPaths(root, state.ReadPaths),
+		append([]string{}, state.WritePaths...), cloneWriteEpochs(state.WriteEpochs),
+		append([]string{}, state.Commands...), append([]CommandResult{}, state.CommandResults...),
+		append([]string{}, state.Claims...),
+	)
+	dirtyPaths := []string{}
+	worktreeMatchesIndex := false
+	if gitSnapshot.StatusOK {
+		dirtyPaths = dirtyPathsFromStatus(gitSnapshot.Status)
+		worktreeMatchesIndex = gitWorktreeMatchesIndex(gitSnapshot.Status)
+	}
+	return CompletionStateSnapshot{
+		FormatVersion: "3", RepoRoot: root, Fingerprint: hashBytes(completionBody),
+		PolicyLockHash: fingerprintInput.PolicyLockHash,
+		SessionID:      sessionID, SessionEvidenceHash: stopPolicyEvidenceHash(state),
+		SessionReportHash: reportHash, SessionReportTrusted: reportTrusted,
+		EvidenceEpoch:    state.EvidenceEpoch,
+		EvidenceOverflow: state.EvidenceOverflow, EvidenceOverflowReason: state.EvidenceOverflowReason,
+		GitAvailable: gitAvailable,
+		GitHead:      gitSnapshot.Head, GitIndexHash: gitIndexHash, GitStatusMode: gitSnapshot.StatusMode,
+		GitStatusOK: gitSnapshot.StatusOK, GitStatus: gitSnapshot.Status,
+		WorktreeHash: hashBytes(worktreeBody), WorktreeTrusted: completionDirtyFilesTrusted(dirtyFiles),
+		WorktreeMatchesIndex: worktreeMatchesIndex,
+		DirtyPaths:           dirtyPaths, Inputs: inputs,
+	}, nil
+}
+
+func gitMetadataPresent(repoRoot string) bool {
+	for dir := filepath.Clean(repoRoot); ; dir = filepath.Dir(dir) {
+		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil || !errors.Is(err, os.ErrNotExist) {
+			return true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return false
+		}
+	}
+}
+
+func gitIndexFingerprint(repoRoot string) (string, error) {
+	entries, err := gitCommandOutput(repoRoot, "ls-files", "-s", "-z")
+	if err != nil {
+		return "", fmt.Errorf("git ls-files --stage: %w", err)
+	}
+	return hashBytes([]byte(entries)), nil
+}
+
+func gitWorktreeMatchesIndex(status string) bool {
+	records := strings.Split(status, "\x00")
+	for index := 0; index < len(records); index++ {
+		record := records[index]
+		if record == "" {
+			continue
+		}
+		if len(record) < 4 || record[2] != ' ' {
+			return false
+		}
+		if record[0] == '?' || record[1] == '?' || record[1] != ' ' {
+			return false
+		}
+		if isRenameOrCopyStatus(record[0], record[1]) && index+1 < len(records) {
+			index++
+		}
+	}
+	return true
 }
 
 func readLatestReport(repoRoot, sessionID string) (*runtime.CheckReport, string, error) {
@@ -537,13 +729,36 @@ func gitDirtyFiles(repoRoot string, status string) []gitDirtyFile {
 	indexEntries := gitIndexEntries(repoRoot, paths)
 	files := make([]gitDirtyFile, 0, len(paths))
 	for _, path := range paths {
+		indexEntry := indexEntries[path]
 		files = append(files, gitDirtyFile{
 			Path:         path,
-			WorktreeHash: worktreePathHash(repoRoot, path),
-			IndexEntry:   indexEntries[path],
+			WorktreeHash: worktreePathHash(repoRoot, path, indexEntry),
+			IndexEntry:   indexEntry,
 		})
 	}
 	return files
+}
+
+func completionDirtyFilesTrusted(files []gitDirtyFile) bool {
+	for _, file := range files {
+		if strings.HasPrefix(file.IndexEntry, "error:") {
+			return false
+		}
+		hash := file.WorktreeHash
+		switch {
+		case hash == "missing":
+			continue
+		case strings.HasPrefix(hash, "symlink:"):
+			hash = strings.TrimPrefix(hash, "symlink:")
+		case strings.HasPrefix(hash, "submodule:"):
+			hash = strings.TrimPrefix(hash, "submodule:")
+		}
+		decoded, err := hex.DecodeString(hash)
+		if err != nil || len(decoded) != sha256.Size {
+			return false
+		}
+	}
+	return true
 }
 
 // dirtyPathsFromStatus parses `git status --porcelain=v1 -z` records.
@@ -618,7 +833,7 @@ func gitIndexEntries(repoRoot string, paths []string) map[string]string {
 	return entries
 }
 
-func worktreePathHash(repoRoot string, path string) string {
+func worktreePathHash(repoRoot string, path, indexEntry string) string {
 	fullPath := filepath.Join(repoRoot, filepath.FromSlash(path))
 	info, err := os.Lstat(fullPath)
 	if err != nil {
@@ -635,6 +850,9 @@ func worktreePathHash(repoRoot string, path string) string {
 		return "symlink:" + hashBytes([]byte(target))
 	}
 	if info.IsDir() {
+		if strings.HasPrefix(indexEntry, "160000 ") {
+			return submoduleWorktreeHash(fullPath)
+		}
 		return "dir"
 	}
 	if !info.Mode().IsRegular() {
@@ -645,6 +863,39 @@ func worktreePathHash(repoRoot string, path string) string {
 		return "error:" + err.Error()
 	}
 	return hash
+}
+
+func submoduleWorktreeHash(root string) string {
+	head, err := gitCommandOutput(root, "rev-parse", "--verify", "HEAD")
+	if err != nil {
+		return "submodule-error:" + err.Error()
+	}
+	indexHash, err := gitIndexFingerprint(root)
+	if err != nil {
+		return "submodule-error:" + err.Error()
+	}
+	rawStatus, err := gitCommandOutput(root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+	if err != nil {
+		return "submodule-error:" + err.Error()
+	}
+	status := filterStopPolicyGitStatus(rawStatus)
+	dirtyFiles := gitDirtyFiles(root, status)
+	if !completionDirtyFilesTrusted(dirtyFiles) {
+		return "submodule-error:dirty content could not be bound safely"
+	}
+	body, err := json.Marshal(struct {
+		Head       string         `json:"head"`
+		IndexHash  string         `json:"index_hash"`
+		Status     string         `json:"status"`
+		DirtyFiles []gitDirtyFile `json:"dirty_files"`
+	}{
+		Head: strings.TrimSpace(head), IndexHash: indexHash, Status: status,
+		DirtyFiles: dirtyFiles,
+	})
+	if err != nil {
+		return "submodule-error:" + err.Error()
+	}
+	return "submodule:" + hashBytes(body)
 }
 
 func readBoundedFile(path string, maxBytes int64) ([]byte, error) {

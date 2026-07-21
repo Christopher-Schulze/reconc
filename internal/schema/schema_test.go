@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"reconc.dev/reconc/internal/compiler"
+	"reconc.dev/reconc/internal/completiongate"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/runtime"
@@ -40,10 +41,11 @@ func TestResolveEnterpriseSchemaBase(t *testing.T) {
 
 func TestPublishedSchemasAreVersionedJSONContracts(t *testing.T) {
 	contracts := map[string]string{
-		"policy-config.schema.json":   schema.PolicyConfigURL,
-		"policy-lock.schema.json":     schema.LegacyPolicyLockURL,
-		"policy-report.schema.json":   schema.PolicyReportURL,
-		"policy-fix-plan.schema.json": schema.PolicyFixPlanURL,
+		"policy-config.schema.json":     schema.PolicyConfigURL,
+		"completion-report.schema.json": schema.CompletionReportURL,
+		"policy-lock.schema.json":       schema.LegacyPolicyLockURL,
+		"policy-report.schema.json":     schema.PolicyReportURL,
+		"policy-fix-plan.schema.json":   schema.PolicyFixPlanURL,
 	}
 	root := filepath.Join("..", "..", "schemas", "v1")
 	paths, err := filepath.Glob(filepath.Join(root, "*.schema.json"))
@@ -100,6 +102,7 @@ func TestPublishedSchemaPropertiesMatchEmittedGoTypes(t *testing.T) {
 	lock := readLegacyLockSchemaDocument(t)
 	report := readSchemaDocument(t, "policy-report.schema.json")
 	fixPlan := readSchemaDocument(t, "policy-fix-plan.schema.json")
+	completion := readSchemaDocument(t, "completion-report.schema.json")
 
 	assertPropertiesMatch(t, schemaDefinition(t, lock, "discovery"), ingest.DiscoveryResult{})
 	assertPropertiesMatch(t, schemaDefinition(t, lock, "source"), policy.PolicySource{})
@@ -117,6 +120,10 @@ func TestPublishedSchemaPropertiesMatchEmittedGoTypes(t *testing.T) {
 
 	assertPropertiesMatch(t, schemaRootProperties(t, fixPlan), runtime.FixPlan{})
 	assertPropertiesMatch(t, schemaDefinition(t, fixPlan, "remediation"), runtime.Remediation{})
+
+	assertPropertiesMatch(t, schemaRootProperties(t, completion), completiongate.Report{})
+	assertPropertiesMatch(t, schemaDefinition(t, completion, "check"), completiongate.Check{})
+	assertPropertiesMatch(t, schemaDefinition(t, completion, "candidate"), completiongate.CandidateBinding{})
 }
 
 func TestPublishedAssuranceEnumMatchesPolicyKinds(t *testing.T) {

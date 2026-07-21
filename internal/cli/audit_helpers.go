@@ -3,10 +3,36 @@ package cli
 import (
 	"fmt"
 	"os"
-	"reconc.dev/reconc/internal/audit"
-	"reconc.dev/reconc/internal/runtime"
 	"time"
+
+	"reconc.dev/reconc/internal/audit"
+	"reconc.dev/reconc/internal/ingest"
+	"reconc.dev/reconc/internal/policyproof"
+	"reconc.dev/reconc/internal/runtime"
+	"reconc.dev/reconc/internal/runtime/agentsession"
 )
+
+func capturePolicyDecisionCandidate(repo string) (agentsession.CompletionStateSnapshot, error) {
+	discovery, err := ingest.DiscoverPolicyRepo(repo)
+	if err != nil {
+		return agentsession.CompletionStateSnapshot{}, err
+	}
+	if !discovery.Discovered {
+		return agentsession.CompletionStateSnapshot{}, fmt.Errorf("no policy markers discovered")
+	}
+	return agentsession.CaptureCompletionState(discovery.RepoRoot)
+}
+
+func persistPolicyDecision(event string, before agentsession.CompletionStateSnapshot, report *runtime.CheckReport) error {
+	after, err := agentsession.CaptureCompletionState(before.RepoRoot)
+	if err != nil {
+		return err
+	}
+	if before.Fingerprint != after.Fingerprint {
+		return fmt.Errorf("repository, policy, or active-session state changed during policy evaluation; retry")
+	}
+	return policyproof.Store(before.RepoRoot, event, before.Fingerprint, report)
+}
 
 // auditEntryFromReport builds an audit.Entry from a finished
 // runtime.CheckReport + the original ExecutionInputs. Captures what

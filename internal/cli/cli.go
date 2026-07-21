@@ -196,7 +196,7 @@ Daily:
   status           one-line policy health summary
   check            evaluate runtime evidence against compiled policy
   next             show the next remediation
-  done             task-finish gate: prints done or blocked
+  done             evidence-complete task-finish gate: prints done or blocked
 
 Bootstrap & inspection:
   bootstrap        inspect / profiles / plan / apply / verify create-only onboarding
@@ -236,7 +236,7 @@ Workflow maintenance:
   session-briefing versioned session/reentry delta (TASK + policy + run)
   context          canonical entrypoint + active TASK token budget
   start            render / write a canonical start.md onboarding doc
-  post-task-check  pre-done gate: fresh lockfile + no recent blocks
+  post-task-check  evidence-complete pre-done gate
   delta            show audit + policy changes since a point in time
   spec             check docs/spec.md presence + freshness
   coverage         check a coverage percentage against a minimum

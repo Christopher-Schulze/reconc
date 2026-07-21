@@ -209,6 +209,7 @@ release_assets=(
   reconc.1
   reconc.bash
   reconc.fish
+  completion-report.schema.json
   policy-fix-plan.schema.json
   policy-config.schema.json
   policy-lock-v1.schema.json

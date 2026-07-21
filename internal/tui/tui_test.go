@@ -35,8 +35,11 @@ func TestBuildAndRender(t *testing.T) {
 	if view.RuleCount != 1 {
 		t.Fatalf("expected one rule, got %d", view.RuleCount)
 	}
+	if view.Completion == nil || !view.Completion.OK {
+		t.Fatalf("expected completion pass, got %+v", view.Completion)
+	}
 	text := RenderText(view)
-	for _, want := range []string{"reconc tui:", "Sources:", "Rules:", "deny"} {
+	for _, want := range []string{"reconc tui:", "completion: pass", "Sources:", "Rules:", "deny"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("rendered TUI missing %q:\n%s", want, text)
 		}
@@ -68,6 +71,9 @@ func TestBuildRejectsSchemaDriftWithoutWriting(t *testing.T) {
 	}
 	if view.LockfileStatus != "refresh required" || !strings.Contains(view.NextAction, "reconc refresh .") {
 		t.Fatalf("TUI accepted schema drift: %+v", view)
+	}
+	if view.Completion == nil || view.Completion.OK {
+		t.Fatalf("completion gate accepted schema drift: %+v", view.Completion)
 	}
 	after, err := os.ReadFile(lockPath)
 	if err != nil {

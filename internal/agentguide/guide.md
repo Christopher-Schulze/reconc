@@ -95,6 +95,20 @@ reconc ci . --staged --json
 Staged CI accepts successful-command evidence only from an untampered,
 unexpired `reconc exec --staged` receipt for the same HEAD and index tree.
 
+Before claiming completion, run the single final gate:
+```bash
+reconc done .
+reconc done . --json
+```
+
+The versioned completion report binds the current policy lock, HEAD, index,
+worktree, active-session evidence, saved report, current policy result, staged
+command proofs, and typed TASK state. A previous explicit block for the same
+candidate remains blocking until a later explicit non-blocking check clears it.
+Waiting never clears a block. Text mode prints all failed checks and one exact
+next action; exit 0 means done, exit 2 means blocked, and exit 1 means the gate
+itself failed.
+
 Or explicit multi-path check:
 ```bash
 reconc check . --write src/a.go --write src/b.go --command "go test ./..." --json

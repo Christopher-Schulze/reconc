@@ -222,25 +222,11 @@ func taskCompletionCommitGate(root string, snapshot stopPolicyGitSnapshot) (Resu
 	if !snapshot.StatusOK {
 		return Result{ExitCode: 0, Stdout: repositoryRunBlockJSON("reconc blocked terminal TASK completion because Git status could not be verified. Restore Git status visibility or interrupt explicitly.")}, true, nil
 	}
-	dirty := taskControlPlaneDirtyPaths(cfg, snapshot.Status)
+	dirty := tasklifecycle.DirtyCompletionPaths(cfg, dirtyPathsFromStatus(snapshot.Status))
 	if len(dirty) == 0 {
 		return Result{}, false, nil
 	}
 	return Result{ExitCode: 0, Stdout: repositoryRunBlockJSON("reconc blocked terminal TASK completion because the TASK control plane is not committed: " + strings.Join(dirty, ", ") + ". Commit the completed TASK or interrupt explicitly.")}, true, nil
-}
-
-func taskControlPlaneDirtyPaths(cfg tasklifecycle.Config, status string) []string {
-	paths := make([]string, 0)
-	for _, path := range dirtyPathsFromStatus(status) {
-		dirtyDir := strings.TrimSuffix(path, "/")
-		detailDir := strings.TrimSuffix(cfg.DetailDir, "/")
-		if path == cfg.OverviewPath || dirtyDir == detailDir ||
-			strings.HasPrefix(path, detailDir+"/") ||
-			(strings.HasSuffix(path, "/") && (strings.HasPrefix(cfg.OverviewPath, dirtyDir+"/") || strings.HasPrefix(detailDir, dirtyDir+"/"))) {
-			paths = append(paths, path)
-		}
-	}
-	return paths
 }
 
 // runRepositoryContinuation emits the autonomous continuation prompt. Callers

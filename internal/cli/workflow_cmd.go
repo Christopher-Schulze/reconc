@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/audit"
+	"reconc.dev/reconc/internal/completiongate"
 	"reconc.dev/reconc/internal/contextsize"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/runtime"
@@ -656,107 +657,13 @@ func renderStartMinimal(d map[string]interface{}) string {
 	return b.String()
 }
 
-// runPostTaskCheck implements `reconc post-task-check [repo]` (W46).
-//
-// Pre-done gate for an agent / human to assert before declaring a task
-// complete. Reads the audit log for recent blocking activity and
-// validates the lockfile is fresh. Exit 1 on any failure so CI /
-// hook loops can block task-completion declarations.
-//
-// Checks (all must pass):
-//  1. Repo is discovered and has a compiled lockfile
-//  2. Most recent audit entry (if any) is not a blocking decision
-//  3. No blocking audit entries in the last N minutes (default 10)
-//  4. Optional --require-clean-git: git working tree has no changes
-type taskGateCheck struct {
-	Name   string `json:"name"`
-	Status string `json:"status"` // OK | FAIL
-	Detail string `json:"detail"`
-}
-
-type taskGateReport struct {
-	RepoRoot string          `json:"repo_root"`
-	Checks   []taskGateCheck `json:"checks"`
-	OK       bool            `json:"ok"`
-}
-
-func buildTaskGateReport(repo string, windowMinutes int, requireCleanGit bool) (taskGateReport, error) {
-	abs, err := filepath.Abs(repo)
-	if err != nil {
-		return taskGateReport{}, err
-	}
-
-	report := taskGateReport{
-		RepoRoot: abs,
-		Checks:   []taskGateCheck{},
-		OK:       true,
-	}
-	addCheck := func(name, status, detail string) {
-		report.Checks = append(report.Checks, taskGateCheck{Name: name, Status: status, Detail: detail})
-		if status == "FAIL" {
-			report.OK = false
-		}
-	}
-
-	// 1. Lockfile freshness
-	discovery, derr := ingest.DiscoverPolicyRepo(abs)
-	if derr != nil {
-		addCheck("repo discovered", "FAIL", derr.Error())
-	} else if !discovery.Discovered {
-		detail := "no policy markers discovered"
-		if len(discovery.Warnings) > 0 {
-			detail = discovery.Warnings[0]
-		}
-		addCheck("repo discovered", "FAIL", detail)
-	} else if err := runtime.ValidatePolicyLockfile(discovery.RepoRoot); err != nil {
-		addCheck("lockfile fresh", "FAIL", err.Error())
-	} else {
-		addCheck("lockfile fresh", "OK", ingest.LockfilePath)
-	}
-
-	// 2 + 3. Audit log
-	recentBlockCount := 0
-	lastDecision := ""
-	if discovery.Discovered {
-		since := time.Now().Add(-time.Duration(windowMinutes) * time.Minute).UTC().Format(time.RFC3339Nano)
-		entries, err := audit.Tail(discovery.RepoRoot, audit.TailOptions{Since: since, Decision: "block"})
-		if err == nil {
-			recentBlockCount = len(entries)
-		}
-		all, _ := audit.Tail(discovery.RepoRoot, audit.TailOptions{N: 1})
-		if len(all) > 0 {
-			lastDecision = all[0].Decision
-		}
-	}
-	if recentBlockCount > 0 {
-		addCheck(fmt.Sprintf("no blocks in last %dm", windowMinutes), "FAIL",
-			fmt.Sprintf("%d blocking audit entries", recentBlockCount))
-	} else {
-		addCheck(fmt.Sprintf("no blocks in last %dm", windowMinutes), "OK", "")
-	}
-	if lastDecision == "block" {
-		addCheck("last decision not block", "FAIL", "latest audit entry is a block")
-	} else {
-		addCheck("last decision not block", "OK", lastDecision)
-	}
-
-	// 4. Optional: clean git tree
-	if requireCleanGit {
-		clean, detail := gitIsClean(abs)
-		if clean {
-			addCheck("git tree clean", "OK", "")
-		} else {
-			addCheck("git tree clean", "FAIL", detail)
-		}
-	}
-	return report, nil
-}
-
+// runPostTaskCheck exposes the same evidence-complete contract as `done`, but
+// retains exit 1 on a failed gate for compatibility with existing hook loops.
 func runPostTaskCheck(args []string, stdout, stderr io.Writer) error {
 	repo := "."
 	jsonOut := false
 	requireCleanGit := false
-	windowMinutes := 10
+	windowMinutes := 0
 	i := 0
 	for i < len(args) {
 		a := args[i]
@@ -778,8 +685,8 @@ func runPostTaskCheck(args []string, stdout, stderr io.Writer) error {
 		case "-h", "--help":
 			fmt.Fprintln(stdout, "Usage: reconc post-task-check [repo] [--window N] [--require-clean-git] [--json]")
 			fmt.Fprintln(stdout, "")
-			fmt.Fprintln(stdout, "Pre-done gate: fresh lockfile + no blocking decisions in the last N")
-			fmt.Fprintln(stdout, "minutes (default 10). Exit 1 on any failure.")
+			fmt.Fprintln(stdout, "Evidence-complete pre-done gate. --window is accepted for compatibility;")
+			fmt.Fprintln(stdout, "elapsed time never clears a block. Exit 1 on any failed check.")
 			return nil
 		default:
 			if len(a) > 0 && a[0] == '-' {
@@ -790,7 +697,10 @@ func runPostTaskCheck(args []string, stdout, stderr io.Writer) error {
 		i++
 	}
 
-	report, err := buildTaskGateReport(repo, windowMinutes, requireCleanGit)
+	report, err := completiongate.Evaluate(repo, completiongate.Options{
+		RequireCleanGit: requireCleanGit, WindowMinutes: windowMinutes,
+		PersistDecision: true, DecisionEvent: "post-task-check",
+	})
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc post-task-check: " + err.Error()}
 	}
@@ -798,17 +708,17 @@ func runPostTaskCheck(args []string, stdout, stderr io.Writer) error {
 	if jsonOut {
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
-		_ = enc.Encode(report)
+		if err := enc.Encode(report); err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc post-task-check: encode report: " + err.Error()}
+		}
 		if !report.OK {
 			return &CLIError{ExitCode: 1, Message: ""}
 		}
 		return nil
 	}
-	for _, c := range report.Checks {
-		fmt.Fprintf(stdout, "[%-4s] %-35s %s\n", c.Status, c.Name, c.Detail)
-	}
 	if !report.OK {
-		return &CLIError{ExitCode: 1, Message: "post-task-check failed"}
+		renderCompletionBlock(stdout, report)
+		return &CLIError{ExitCode: 1, Message: ""}
 	}
 	fmt.Fprintln(stdout, "All checks passed.")
 	return nil
@@ -818,7 +728,7 @@ func runDone(args []string, stdout, stderr io.Writer) error {
 	repo := "."
 	jsonOut := false
 	requireCleanGit := false
-	windowMinutes := 10
+	windowMinutes := 0
 	i := 0
 	for i < len(args) {
 		a := args[i]
@@ -840,8 +750,8 @@ func runDone(args []string, stdout, stderr io.Writer) error {
 		case "-h", "--help":
 			fmt.Fprintln(stdout, "Usage: reconc done [repo] [--window N] [--require-clean-git] [--json]")
 			fmt.Fprintln(stdout, "")
-			fmt.Fprintln(stdout, "Task-finish gate. Prints `done` when the repo is ready, otherwise")
-			fmt.Fprintln(stdout, "`blocked: <next action>`. Exit 0 = done, 2 = blocked, 1 = input error.")
+			fmt.Fprintln(stdout, "Evidence-complete task-finish gate. --window is compatibility-only;")
+			fmt.Fprintln(stdout, "elapsed time never clears a block. Exit 0 = done, 2 = blocked, 1 = error.")
 			return nil
 		default:
 			if len(a) > 0 && a[0] == '-' {
@@ -852,14 +762,19 @@ func runDone(args []string, stdout, stderr io.Writer) error {
 		i++
 	}
 
-	report, err := buildTaskGateReport(repo, windowMinutes, requireCleanGit)
+	report, err := completiongate.Evaluate(repo, completiongate.Options{
+		RequireCleanGit: requireCleanGit, WindowMinutes: windowMinutes,
+		PersistDecision: true, DecisionEvent: "done",
+	})
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc done: " + err.Error()}
 	}
 	if jsonOut {
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
-		_ = enc.Encode(report)
+		if err := enc.Encode(report); err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc done: encode report: " + err.Error()}
+		}
 		if !report.OK {
 			return &CLIError{ExitCode: 2, Message: ""}
 		}
@@ -869,20 +784,18 @@ func runDone(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintln(stdout, "done")
 		return nil
 	}
-	fmt.Fprintf(stdout, "blocked: %s\n", firstFailDetail(report.Checks))
+	renderCompletionBlock(stdout, report)
 	return &CLIError{ExitCode: 2, Message: ""}
 }
 
-func firstFailDetail(checks []taskGateCheck) string {
-	for _, c := range checks {
-		if c.Status == "FAIL" {
-			if c.Detail != "" {
-				return c.Detail
-			}
-			return c.Name
+func renderCompletionBlock(stdout io.Writer, report *completiongate.Report) {
+	fmt.Fprintln(stdout, "blocked:")
+	for _, check := range report.Checks {
+		if check.Status == completiongate.StatusFail {
+			fmt.Fprintf(stdout, "[FAIL] %s: %s\n", check.ID, check.Detail)
 		}
 	}
-	return "no failed checks"
+	fmt.Fprintf(stdout, "next: %s\n", report.NextAction)
 }
 
 // gitIsClean runs `git status --porcelain` and returns (clean, detail).

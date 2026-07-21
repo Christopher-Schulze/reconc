@@ -134,7 +134,7 @@ sbom:
 
 checksums: sbom
 	@mkdir -p $(DISTDIR)
-	@cp schemas/v1/policy-config.schema.json schemas/v1/policy-fix-plan.schema.json schemas/v1/policy-report.schema.json $(DISTDIR)/
+	@cp schemas/v1/completion-report.schema.json schemas/v1/policy-config.schema.json schemas/v1/policy-fix-plan.schema.json schemas/v1/policy-report.schema.json $(DISTDIR)/
 	@cp schemas/v1/policy-lock.schema.json $(DISTDIR)/policy-lock-v1.schema.json
 	@cp schemas/v2/policy-lock.schema.json $(DISTDIR)/policy-lock.schema.json
 	@./scripts/release/write-checksums.sh $(DISTDIR)

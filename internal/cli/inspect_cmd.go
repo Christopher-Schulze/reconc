@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/parser"
@@ -350,7 +351,7 @@ func runTUI(args []string, stdout, stderr io.Writer) (resultErr error) {
 			outputPath = val
 		case "-h", "--help":
 			fmt.Fprintln(stdout, "Usage: reconc tui [repo] [--json] [--output PATH]")
-			fmt.Fprintln(stdout, "Render a lightweight terminal dashboard for policy, sources, rules, audit, and active session state.")
+			fmt.Fprintln(stdout, "Render a lightweight terminal dashboard for policy, completion, sources, rules, audit, and active session state.")
 			return nil
 		default:
 			if len(a) > 0 && a[0] == '-' {
@@ -374,7 +375,9 @@ func runTUI(args []string, stdout, stderr io.Writer) (resultErr error) {
 	if jsonOut {
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
-		_ = enc.Encode(view)
+		if err := enc.Encode(view); err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc tui: json encode: " + err.Error()}
+		}
 		return nil
 	}
 	fmt.Fprint(out, tui.RenderText(view))
