@@ -54,6 +54,7 @@ var TaskSubcommands = []hookSubcommand{
 	{Name: "block", Help: "block current TASK and optionally activate the next"},
 	{Name: "check-done", Help: "validate completion evidence"},
 	{Name: "claim", Help: "activate one queued TASK"},
+	{Name: "new", Help: "create one grammar-correct queued TASK"},
 	{Name: "promote", Help: "archive current TASK and activate the next"},
 	{Name: "recover", Help: "roll back an interrupted TASK transaction"},
 	{Name: "resume", Help: "reactivate one blocked TASK"},
@@ -66,6 +67,7 @@ var RunSubcommands = []hookSubcommand{
 	{Name: "log", Help: "inspect bounded run decisions"},
 	{Name: "off", Help: "disable repository run control"},
 	{Name: "on", Help: "enable repository run control"},
+	{Name: "reset", Help: "recover a clean disabled run state"},
 	{Name: "status", Help: "inspect run and TASK state"},
 }
 
@@ -111,11 +113,11 @@ var Subcommands = []Subcommand{
 	{Name: "delta", Help: "audit activity since a point in time", Flags: []string{"--since", "--json"}},
 	{Name: "post-task-check", Help: "evidence-complete pre-done gate", Flags: []string{"--window", "--require-clean-git", "--json"}},
 	{Name: "prune", Help: "bound runtime state and owned temp residue", Flags: []string{"--dry-run", "--json", "--force"}},
-	{Name: "run", Help: "AI-operated repository run control", Flags: []string{"-n", "--branch", "--session", "--follow", "--json"}},
+	{Name: "run", Help: "AI-operated repository run control", Flags: []string{"-n", "--branch", "--session", "--follow", "--force", "--verbose", "--json"}},
 	{Name: "session-briefing", Help: "token-efficient session start dump", Flags: []string{"--json"}},
 	{Name: "spec", Help: "docs/spec.md freshness check", Flags: []string{"--file", "--max-age-days", "--json"}},
 	{Name: "start", Help: "render canonical start.md", Flags: []string{"--write", "--force", "--json", "--minimal"}},
-	{Name: "task", Help: "typed TASK lifecycle", Flags: []string{"--json", "--reason", "--next", "--children", "--task"}},
+	{Name: "task", Help: "typed TASK lifecycle", Flags: []string{"--json", "--reason", "--next", "--no-next", "--children", "--task", "--title", "--id"}},
 	{Name: "tui", Help: "terminal dashboard for policy and completion state", Flags: []string{"--json", "--output"}},
 	// top-level meta
 	{Name: "completion", Help: "print shell completion script", Flags: []string{}},

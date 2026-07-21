@@ -13,7 +13,7 @@ import (
 
 func runTask(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return &CLIError{ExitCode: 1, Message: "reconc task: missing subcommand (status | validate | check-done | claim | block | resume | split | promote | archive | recover)"}
+		return &CLIError{ExitCode: 1, Message: "reconc task: missing subcommand (status | validate | check-done | new | claim | block | resume | split | promote | archive | recover)"}
 	}
 	for _, arg := range args {
 		if arg == "-h" || arg == "--help" {
@@ -28,6 +28,8 @@ func runTask(args []string, stdout, stderr io.Writer) error {
 		return runTaskRead(subcommand, rest, stdout)
 	case "check-done":
 		return runTaskCheckDone(rest, stdout)
+	case "new":
+		return runTaskNew(rest, stdout)
 	case "claim", "resume":
 		return runTaskByID(subcommand, rest, stdout)
 	case "block":
@@ -50,8 +52,9 @@ func printTaskUsage(stdout io.Writer) {
 	fmt.Fprintln(stdout, "  reconc task status [repo] [--json]")
 	fmt.Fprintln(stdout, "  reconc task validate [repo] [--json]")
 	fmt.Fprintln(stdout, "  reconc task check-done [repo] [--task ID] [--json]")
+	fmt.Fprintln(stdout, "  reconc task new [repo] --title TEXT [--id ID] [--json]")
 	fmt.Fprintln(stdout, "  reconc task claim <ID> [repo] [--json]")
-	fmt.Fprintln(stdout, "  reconc task block [repo] --reason TEXT [--next ID] [--json]")
+	fmt.Fprintln(stdout, "  reconc task block [repo] --reason TEXT [--next ID | --no-next] [--json]")
 	fmt.Fprintln(stdout, "  reconc task resume <ID> [repo] [--json]")
 	fmt.Fprintln(stdout, "  reconc task split [repo] --children ID,ID [--json]")
 	fmt.Fprintln(stdout, "  reconc task promote [repo] [--next ID] [--json]")
@@ -59,6 +62,41 @@ func printTaskUsage(stdout io.Writer) {
 	fmt.Fprintln(stdout, "  reconc task recover [repo] [--json]")
 	fmt.Fprintln(stdout, "")
 	fmt.Fprintln(stdout, "Profiles: sections-v1 and logbook-v1, selected by task_lifecycle.profile or exact auto-detection.")
+}
+
+func runTaskNew(args []string, stdout io.Writer) error {
+	repo := "."
+	title := ""
+	id := ""
+	jsonOut := false
+	seenRepo := false
+	for index := 0; index < len(args); index++ {
+		switch args[index] {
+		case "--json":
+			jsonOut = true
+		case "--title", "--id":
+			if index+1 >= len(args) {
+				return taskCLIError("new", fmt.Errorf("%s requires a value", args[index]))
+			}
+			if args[index] == "--title" {
+				title = args[index+1]
+			} else {
+				id = args[index+1]
+			}
+			index++
+		default:
+			if strings.HasPrefix(args[index], "-") {
+				return taskCLIError("new", fmt.Errorf("unknown flag %q", args[index]))
+			}
+			if seenRepo {
+				return taskCLIError("new", fmt.Errorf("unexpected argument %q", args[index]))
+			}
+			repo = args[index]
+			seenRepo = true
+		}
+	}
+	result, err := tasklifecycle.Create(repo, title, id)
+	return writeTaskMutation("new", result, err, jsonOut, stdout)
 }
 
 func runTaskRead(subcommand string, args []string, stdout io.Writer) error {
@@ -150,11 +188,14 @@ func runTaskBlock(args []string, stdout io.Writer) error {
 	seenRepo := false
 	reason := ""
 	next := ""
+	noNext := false
 	jsonOut := false
 	for index := 0; index < len(args); index++ {
 		switch args[index] {
 		case "--json":
 			jsonOut = true
+		case "--no-next":
+			noNext = true
 		case "--reason", "--next":
 			if index+1 >= len(args) {
 				return taskCLIError("block", fmt.Errorf("%s requires a value", args[index]))
@@ -176,7 +217,16 @@ func runTaskBlock(args []string, stdout io.Writer) error {
 			seenRepo = true
 		}
 	}
-	result, err := tasklifecycle.Block(repo, reason, next)
+	if noNext && next != "" {
+		return taskCLIError("block", fmt.Errorf("--next and --no-next are mutually exclusive"))
+	}
+	var result tasklifecycle.MutationResult
+	var err error
+	if noNext {
+		result, err = tasklifecycle.BlockWithoutNext(repo, reason)
+	} else {
+		result, err = tasklifecycle.Block(repo, reason, next)
+	}
 	return writeTaskMutation("block", result, err, jsonOut, stdout)
 }
 
@@ -295,7 +345,11 @@ func writeTaskMutation(subcommand string, result tasklifecycle.MutationResult, e
 	if jsonOut {
 		return writeTaskJSON(stdout, result)
 	}
-	fmt.Fprintf(stdout, "TASK %s: %s %s -> %s", result.Action, result.TaskID, result.PreviousState, result.State)
+	if result.PreviousState == "" {
+		fmt.Fprintf(stdout, "TASK %s: %s -> %s", result.Action, result.TaskID, result.State)
+	} else {
+		fmt.Fprintf(stdout, "TASK %s: %s %s -> %s", result.Action, result.TaskID, result.PreviousState, result.State)
+	}
 	if result.NextTaskID != "" {
 		fmt.Fprintf(stdout, "; active=%s", result.NextTaskID)
 	}

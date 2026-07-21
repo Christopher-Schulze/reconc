@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"reconc.dev/reconc/internal/tasklifecycle"
 )
 
 func TestRunTaskStatusJSONIsCompactAndTyped(t *testing.T) {
@@ -61,10 +63,44 @@ func TestRunTaskHelpListsEveryMutation(t *testing.T) {
 	if err := Run([]string{"task", "--help"}, "test", &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
-	for _, command := range []string{"check-done", "claim", "block", "resume", "split", "promote", "archive", "recover"} {
+	for _, command := range []string{"check-done", "new", "claim", "block", "resume", "split", "promote", "archive", "recover"} {
 		if !strings.Contains(stdout.String(), "task "+command) {
 			t.Fatalf("task help missing %s: %s", command, stdout.String())
 		}
+	}
+}
+
+func TestRunTaskNewAndBlockNoNext(t *testing.T) {
+	repo := makeTaskCLIRepo(t, "- [~] 001 Active work -> tasks/001-active-work.md", "- [~] Build it")
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"task", "new", repo, "--title", "Second task", "--json"}, "test", &stdout, &stderr); err != nil {
+		t.Fatalf("task new: %v", err)
+	}
+	if !strings.Contains(stdout.String(), `"task_id": "002"`) || !strings.Contains(stdout.String(), `"state": "queued"`) {
+		t.Fatalf("task new JSON mismatch: %s", stdout.String())
+	}
+	stdout.Reset()
+	if err := Run([]string{"task", "block", repo, "--reason", "pause", "--no-next"}, "test", &stdout, &stderr); err != nil {
+		t.Fatalf("task block --no-next: %v", err)
+	}
+	if strings.Contains(stdout.String(), "active=002") {
+		t.Fatalf("--no-next activated queued work: %s", stdout.String())
+	}
+	board, err := tasklifecycle.Load(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if board.Active != nil || len(board.Queue) != 1 {
+		t.Fatalf("unexpected board after --no-next: %#v", board)
+	}
+}
+
+func TestRunTaskBlockRejectsConflictingNextFlags(t *testing.T) {
+	repo := makeTaskCLIRepo(t, "- [~] 001 Active work -> tasks/001-active-work.md", "- [~] Build it")
+	var stdout bytes.Buffer
+	err := runTaskBlock([]string{repo, "--reason", "pause", "--next", "002", "--no-next"}, &stdout)
+	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("expected conflicting flag error, got %v", err)
 	}
 }
 

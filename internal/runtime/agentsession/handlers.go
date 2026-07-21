@@ -137,6 +137,18 @@ func logRunStopDecision(repoRoot, branch string, payload *HookPayload, runtime s
 	})
 }
 
+func logRunContinuationDecision(repoRoot, branch string, payload *HookPayload, runtime string, before, after repositoryRunState, nudges int, strict bool) {
+	_ = appendRunDecisionResolved(repoRoot, RunDecision{
+		Event: "stop", Branch: branch, Runtime: strings.TrimSpace(runtime),
+		SessionID:     sessionIDFromPayload(payload),
+		EnabledBefore: before.Enabled, EnabledAfter: after.Enabled,
+		DisabledReasonBefore: before.DisabledReason.String(), DisabledReasonAfter: after.DisabledReason.String(),
+		AwaitingContinuationBefore: before.AwaitingContinuation, AwaitingContinuationAfter: after.AwaitingContinuation,
+		StopHookActive:   payload != nil && payload.StopHookActive,
+		NoProgressNudges: nudges, StrictContinuation: strict,
+	})
+}
+
 // RunPreToolUse evaluates whether the tool-use about to happen would
 // violate command safety or deny_write / blocking require_read rules.
 // If it would, returns exit 2 with a human-readable explanation on

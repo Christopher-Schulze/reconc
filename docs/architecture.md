@@ -357,16 +357,18 @@ this boundary.
 
 `.reconc/run/state.bin` uses two CRC-protected slots and is published only for
 material transitions.
-Disabled and unchanged hook events do not create or rewrite state or
-decisions. Parallel agent tool calls can still spawn concurrent
-`reconc hook runtime` processes, so two invariants keep an active run from
+Disabled hook events do not create run state or decisions. Enabled
+continuations append one bounded decision even when the coarse run snapshot is
+unchanged. Parallel agent tool calls can still spawn concurrent
+`reconc hook runtime` processes, so three invariants keep an active run from
 being silently disabled:
 
-- **Crash-safe fixed layout.** Each state update writes a fixed 56-byte payload
+- **Crash-safe fixed layout.** Each state update writes a fixed 88-byte payload
   into the inactive 512-byte slot with a monotonic sequence and CRC32C over
   both header and payload. The
-  payload stores timestamps as integers, the progress digest as 32 raw bytes,
-  and the disable reason as a bounded enum, so the hot read does not decode
+  payload stores timestamps as integers, the progress digest and canonical
+  repository-root identity as 32 raw bytes each, and the disable reason as a
+  bounded enum, so the hot read does not decode
   variable strings. Readers select the newest valid slot; a torn write leaves
   the previous slot intact and never decodes as disabled.
 - **Locked read-modify-write.** `mutateRepositoryRunStateResolved` /
@@ -378,11 +380,17 @@ being silently disabled:
   `decisions.jsonl` log uses a separate cross-process
   lock and a 2 MiB plus two-archive ring, so state-lock re-entry cannot deadlock
   decision publication.
+- **Session-isolated guard.** Each continuation updates its external session
+  state before the durable run-state mutation. No run-state lock is held while
+  taking a session lock, and each session owns its progress digest and six-stop
+  counter, preventing deadlocks and cross-session budget interference.
 
-Repository mode is controlled only by `reconc run on|off`. Prompt text,
+Repository mode is controlled normally by `reconc run on|off`; `run reset` is
+the recovery-only path for corrupt, unsupported, or foreign-root state and
+preserves the decision log. Prompt text,
 runtime interrupts, session lifecycle events, runtime changes, compaction, and
 application restarts never mutate its locked state. An explicit interrupt
-releases only the current host invocation. `run off` is the only manual
+releases only the current host invocation. `run off` is the only normal manual
 disable action; complete or absent TASK state disables it automatically after
 the terminal gates.
 
@@ -393,9 +401,11 @@ response before policy report construction and without a Git process.
 gate; `invalid` fails closed. This fast path never bypasses PreToolUse, TASK
 mutation transactions, pre-commit, or terminal policy enforcement. The
 no-progress guard compares typed TASK state plus a write/command material-event
-counter; reads and unrelated events cannot fake progress. At the limit,
-repository mode releases one Stop and resets the guard while leaving the
-explicit durable switch enabled. Repository runs leave the fast
+counter inside the locked state of that exact session; reads, unrelated events,
+and concurrent sessions cannot fake or reset progress. At six events,
+repository mode releases one Stop and resets only that session while leaving
+the explicit durable switch enabled. Strict Grok Stops bypass this guard and
+use the separate 32-delivered-interjection cap. Repository runs leave the fast
 path only after 64 new material events, 30 minutes with new progress, or a
 failed command, then reuse the normal full Stop report as a policy checkpoint.
 Explicitly configured TASK state fails closed if its overview disappears, and
@@ -409,12 +419,14 @@ retention cannot manufacture a pass.
 
 `BenchmarkRepositoryRunStopHotpath` measures the in-process executable-TASK
 continuation path without process startup. On Apple M1 its baseline was
-1,504,653 ns/op, 61,612 B/op, and 553 allocs/op. The optimized seven-run sample
-is 130,819-142,849 ns/op with a 131,483 ns/op median, 29,225-29,276 B/op, and
-245 allocs/op. The routine path starts no Git process and publishes no decision
-log record. C/cgo would not reduce the dominant filesystem syscalls and would
-add a toolchain and portability boundary, so the implementation remains pure
-Go.
+1,504,653 ns/op, 61,612 B/op, and 553 allocs/op. Before durable continuation
+records, the optimized median was 131,483 ns/op, 29,225-29,276 B/op, and 245
+allocs/op. With one bounded decision-log record per continuation, the current
+seven-run sample is 10,355,060-14,049,392 ns/op with a 10,986,170 ns/op median,
+55,561-55,707 B/op, and 457 allocs/op. The routine path starts no Git process;
+the current cost is the state and decision-log durability boundary. C/cgo would
+not reduce those filesystem syscalls and would add a toolchain and portability
+boundary, so the implementation remains pure Go.
 
 ### Causal command-success evidence
 

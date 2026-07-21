@@ -1,10 +1,13 @@
 package agentsession
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,6 +30,7 @@ type repositoryRunState struct {
 	NoProgressNudges     int
 	DisabledReason       repositoryRunDisabledReason
 	LastProgressHash     [32]byte
+	RootIdentity         [32]byte
 	AwaitingContinuation bool
 	EnabledAt            int64
 	LastPolicyCheckpoint int64
@@ -86,6 +90,44 @@ type RunDecision struct {
 	StopHookActive             bool   `json:"stop_hook_active,omitempty"`
 	PolicyBlocked              bool   `json:"policy_blocked,omitempty"`
 	ViolationCount             int    `json:"violation_count,omitempty"`
+	NoProgressNudges           int    `json:"no_progress_nudges,omitempty"`
+	StrictContinuation         bool   `json:"strict_continuation,omitempty"`
+}
+
+type repositoryRunRecoveryError struct {
+	root  string
+	cause error
+}
+
+func (err *repositoryRunRecoveryError) Error() string {
+	return fmt.Sprintf("%s; run `reconc run reset %s` to restore a clean disabled state", err.cause, strconv.Quote(err.root))
+}
+
+func (err *repositoryRunRecoveryError) Unwrap() error { return err.cause }
+
+func wrapRepositoryRunRecovery(root string, err error) error {
+	if err == nil {
+		return nil
+	}
+	var recoveryErr *repositoryRunRecoveryError
+	if errors.As(err, &recoveryErr) {
+		return err
+	}
+	return &repositoryRunRecoveryError{root: root, cause: err}
+}
+
+func repositoryRunRootIdentity(root string) [sha256.Size]byte {
+	return sha256.Sum256([]byte(root))
+}
+
+func validateRepositoryRunIdentity(root string, snapshot repositoryRunSnapshot) error {
+	if snapshot.Slot < 0 {
+		return nil
+	}
+	if snapshot.State.RootIdentity != repositoryRunRootIdentity(root) {
+		return fmt.Errorf("repository run state belongs to a different repository root")
+	}
+	return nil
 }
 
 func repositoryRunStatePath(repoRoot string) (string, error) {
@@ -98,6 +140,31 @@ func repositoryRunStatePath(repoRoot string) (string, error) {
 
 func repositoryRunStatePathResolved(root string) string {
 	return filepath.Join(root, filepath.FromSlash(repositoryRunDir), "state.bin")
+}
+
+func validateRepositoryRunStatePath(root, path string) error {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("repository run state path escapes the repository")
+	}
+	current := root
+	for _, component := range strings.Split(rel, string(filepath.Separator)) {
+		if component == "" || component == "." {
+			continue
+		}
+		current = filepath.Join(current, component)
+		info, statErr := os.Lstat(current)
+		if errors.Is(statErr, os.ErrNotExist) {
+			return nil
+		}
+		if statErr != nil {
+			return fmt.Errorf("inspect repository run state path %s: %w", current, statErr)
+		}
+		if info.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+			return fmt.Errorf("repository run state path uses a symlink component: %s", current)
+		}
+	}
+	return nil
 }
 
 func runDecisionLogPath(repoRoot string) (string, error) {
@@ -169,6 +236,9 @@ func loadRepositoryRunStateResolved(root string) (repositoryRunState, error) {
 // Missing state remains a read-only disabled result and creates no file.
 func openRepositoryRunStateResolved(root string) (*os.File, repositoryRunSnapshot, error) {
 	path := repositoryRunStatePathResolved(root)
+	if err := validateRepositoryRunStatePath(root, path); err != nil {
+		return nil, repositoryRunSnapshot{}, err
+	}
 	file, err := os.OpenFile(path, os.O_RDWR, 0)
 	if os.IsNotExist(err) {
 		return nil, repositoryRunSnapshot{Slot: -1}, nil
@@ -179,7 +249,11 @@ func openRepositoryRunStateResolved(root string) (*os.File, repositoryRunSnapsho
 	snapshot, err := readRepositoryRunSnapshotFile(file)
 	if err != nil {
 		_ = file.Close()
-		return nil, repositoryRunSnapshot{}, err
+		return nil, repositoryRunSnapshot{}, wrapRepositoryRunRecovery(root, err)
+	}
+	if err := validateRepositoryRunIdentity(root, snapshot); err != nil {
+		_ = file.Close()
+		return nil, repositoryRunSnapshot{}, wrapRepositoryRunRecovery(root, err)
 	}
 	return file, snapshot, nil
 }
@@ -187,8 +261,18 @@ func openRepositoryRunStateResolved(root string) (*os.File, repositoryRunSnapsho
 // readRepositoryRunStateResolved returns the exact persisted state used by
 // locked read-modify-write transitions. root must already be canonical.
 func readRepositoryRunStateResolved(root string) (repositoryRunState, error) {
-	snapshot, err := readRepositoryRunSnapshot(repositoryRunStatePathResolved(root))
-	return snapshot.State, err
+	path := repositoryRunStatePathResolved(root)
+	if err := validateRepositoryRunStatePath(root, path); err != nil {
+		return repositoryRunState{}, err
+	}
+	snapshot, err := readRepositoryRunSnapshot(path)
+	if err != nil {
+		return repositoryRunState{}, wrapRepositoryRunRecovery(root, err)
+	}
+	if err := validateRepositoryRunIdentity(root, snapshot); err != nil {
+		return repositoryRunState{}, wrapRepositoryRunRecovery(root, err)
+	}
+	return snapshot.State, nil
 }
 
 // withRepositoryRunFileResolved locks state.bin itself so one descriptor owns
@@ -196,6 +280,9 @@ func readRepositoryRunStateResolved(root string) (repositoryRunState, error) {
 // safe while eliminating a separate lock-file open from every Stop.
 func withRepositoryRunFileResolved(root string, fn func(*os.File) error) error {
 	path := repositoryRunStatePathResolved(root)
+	if err := validateRepositoryRunStatePath(root, path); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("mkdir repository run state dir: %w", err)
 	}
@@ -224,8 +311,12 @@ func saveRepositoryRunState(repoRoot string, state repositoryRunState) error {
 	return withRepositoryRunFileResolved(root, func(file *os.File) error {
 		snapshot, readErr := readRepositoryRunSnapshotFile(file)
 		if readErr != nil {
-			return readErr
+			return wrapRepositoryRunRecovery(root, readErr)
 		}
+		if identityErr := validateRepositoryRunIdentity(root, snapshot); identityErr != nil {
+			return wrapRepositoryRunRecovery(root, identityErr)
+		}
+		state.RootIdentity = repositoryRunRootIdentity(root)
 		return writeRepositoryRunSnapshotFile(file, state, snapshot)
 	})
 }
@@ -247,13 +338,13 @@ func mutateRepositoryRunStateResolved(root string, fn func(repositoryRunState) r
 	var before, after repositoryRunState
 	err := withRepositoryRunFileResolved(root, func(file *os.File) error {
 		var mutateErr error
-		before, after, mutateErr = mutateRepositoryRunStateLockedFile(file, fn)
+		before, after, mutateErr = mutateRepositoryRunStateLockedFile(root, file, fn)
 		return mutateErr
 	})
 	return before, after, err
 }
 
-func mutateRepositoryRunStateOpenFile(file *os.File, fn func(repositoryRunState) repositoryRunState) (repositoryRunState, repositoryRunState, error) {
+func mutateRepositoryRunStateOpenFile(root string, file *os.File, fn func(repositoryRunState) repositoryRunState) (repositoryRunState, repositoryRunState, error) {
 	if file == nil {
 		return repositoryRunState{}, repositoryRunState{}, fmt.Errorf("repository run state file is unavailable")
 	}
@@ -262,16 +353,20 @@ func mutateRepositoryRunStateOpenFile(file *os.File, fn func(repositoryRunState)
 		return repositoryRunState{}, repositoryRunState{}, fmt.Errorf("lock repository run state: %w", err)
 	}
 	defer func() { _ = unlock() }()
-	return mutateRepositoryRunStateLockedFile(file, fn)
+	return mutateRepositoryRunStateLockedFile(root, file, fn)
 }
 
-func mutateRepositoryRunStateLockedFile(file *os.File, fn func(repositoryRunState) repositoryRunState) (repositoryRunState, repositoryRunState, error) {
+func mutateRepositoryRunStateLockedFile(root string, file *os.File, fn func(repositoryRunState) repositoryRunState) (repositoryRunState, repositoryRunState, error) {
 	snapshot, err := readRepositoryRunSnapshotFile(file)
 	if err != nil {
-		return repositoryRunState{}, repositoryRunState{}, err
+		return repositoryRunState{}, repositoryRunState{}, wrapRepositoryRunRecovery(root, err)
+	}
+	if err := validateRepositoryRunIdentity(root, snapshot); err != nil {
+		return repositoryRunState{}, repositoryRunState{}, wrapRepositoryRunRecovery(root, err)
 	}
 	before := snapshot.State
 	after := fn(before)
+	after.RootIdentity = repositoryRunRootIdentity(root)
 	if before == after {
 		return before, after, nil
 	}

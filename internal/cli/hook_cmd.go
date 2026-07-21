@@ -120,9 +120,6 @@ func runHookStatus(args []string, stdout io.Writer) error {
 		} else if report.LivenessError != "" {
 			live = "liveness unavailable: " + report.LivenessError
 		}
-		if len(report.UnseenEvents) > 0 {
-			live += "; unseen " + strings.Join(report.UnseenEvents, ",")
-		}
 		fmt.Fprintf(stdout, "%s: %s (%s; %s)\n", report.Kind, style.decision(string(report.State)), report.Detail, live)
 		fmt.Fprintf(stdout, "  generated=%t installed=%t executable=%t configured=%t live=%t\n",
 			report.Generated, report.Installed, report.Executable, report.Configured, report.Live)

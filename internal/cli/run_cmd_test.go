@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
 
@@ -202,7 +203,7 @@ func TestRunControlOnOffIsIdempotent(t *testing.T) {
 	var out bytes.Buffer
 	for range 2 {
 		out.Reset()
-		if err := runRunControl([]string{"on", repo, "--json"}, &out, &out); err != nil {
+		if err := runRunControl([]string{"on", repo, "--force", "--json"}, &out, &out); err != nil {
 			t.Fatalf("run on: %v", err)
 		}
 		var info agentsession.RepositoryRunStatus
@@ -234,7 +235,7 @@ func TestRunControlOnOffIsIdempotent(t *testing.T) {
 func TestRunControlDispatchAndArguments(t *testing.T) {
 	repo := t.TempDir()
 	var out bytes.Buffer
-	if err := Run([]string{"run", "on", repo}, "test", &out, &out); err != nil {
+	if err := Run([]string{"run", "on", repo, "--force"}, "test", &out, &out); err != nil {
 		t.Fatalf("dispatch run on: %v", err)
 	}
 	if !strings.Contains(out.String(), "enabled=true") {
@@ -251,5 +252,99 @@ func TestRunControlDispatchAndArguments(t *testing.T) {
 	}
 	if err := runRunControl([]string{"unknown"}, &out, &out); err == nil {
 		t.Fatal("unknown run subcommand must fail")
+	}
+}
+
+func TestRunOnPreflightRefusesMissingPolicyWithoutStateMutation(t *testing.T) {
+	repo := t.TempDir()
+	var out bytes.Buffer
+	err := runRunControl([]string{"on", repo}, &out, &out)
+	if err == nil || ExitCode(err) != 2 || !strings.Contains(err.Error(), "policy sources are not ready") || !strings.Contains(err.Error(), "--force") {
+		t.Fatalf("missing-policy preflight mismatch: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".reconc", "run", "state.bin")); !os.IsNotExist(err) {
+		t.Fatalf("failed preflight mutated run state: %v", err)
+	}
+}
+
+func TestRunOnPreflightAcceptsReadyPolicyAndExecutableTask(t *testing.T) {
+	repo := makeTaskCLIRepo(t, "- [~] 001 Active work -> tasks/001-active-work.md", "- [~] Build it")
+	if _, err := compiler.CompileRepoPolicy(repo, "test"); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := runRunControl([]string{"on", repo}, &out, &out); err != nil {
+		t.Fatalf("ready preflight: %v", err)
+	}
+	if !strings.Contains(out.String(), "enabled=true") {
+		t.Fatalf("run on status mismatch: %s", out.String())
+	}
+}
+
+func TestRunOnPreflightRefusesInvalidTaskAndForceIsExplicit(t *testing.T) {
+	repo := makeTaskCLIRepo(t, "- [~] 001 Active work -> tasks/001-active-work.md", "- [?] broken")
+	if _, err := compiler.CompileRepoPolicy(repo, "test"); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err := runRunControl([]string{"on", repo}, &out, &out)
+	if err == nil || !strings.Contains(err.Error(), "TASK plane is invalid") || !strings.Contains(err.Error(), "task validate") {
+		t.Fatalf("invalid TASK preflight mismatch: %v", err)
+	}
+	if err := runRunControl([]string{"on", repo, "--force"}, &out, &out); err != nil {
+		t.Fatalf("explicit override failed: %v", err)
+	}
+}
+
+func TestRunStatusVerboseKeepsDefaultAndJSONContracts(t *testing.T) {
+	repo := t.TempDir()
+	if _, err := agentsession.SetRepositoryRun(repo, true); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := runRunStatus([]string{repo}, &out, &out); err != nil {
+		t.Fatal(err)
+	}
+	if got := out.String(); got != "run: enabled=true task=absent/- open=0 awaiting=false nudges=0 reason=-\n" {
+		t.Fatalf("terse status contract drifted: %q", got)
+	}
+	out.Reset()
+	if err := runRunStatus([]string{repo, "--json"}, &out, &out); err != nil {
+		t.Fatal(err)
+	}
+	if got := out.String(); got != "{\"enabled\":true,\"awaiting_continuation\":false,\"no_progress_nudges\":0,\"task_disposition\":\"absent\",\"open_tasks\":0}\n" {
+		t.Fatalf("JSON status contract drifted: %q", got)
+	}
+	out.Reset()
+	if err := runRunStatus([]string{repo, "--verbose"}, &out, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "last decision:") || !strings.Contains(out.String(), "run_command_on") {
+		t.Fatalf("verbose status lacks decision context: %s", out.String())
+	}
+	if err := runRunStatus([]string{repo, "--verbose", "--json"}, &out, &out); err == nil {
+		t.Fatal("verbose JSON combination must fail rather than alter JSON")
+	}
+}
+
+func TestRunResetCLIRecoversCorruptState(t *testing.T) {
+	repo := t.TempDir()
+	path := filepath.Join(repo, ".reconc", "run", "state.bin")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("corrupt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := runRunControl([]string{"reset", repo, "--json"}, &out, &out); err != nil {
+		t.Fatalf("run reset: %v", err)
+	}
+	if !strings.Contains(out.String(), `"enabled":false`) || !strings.Contains(out.String(), `"disabled_reason":"command_off"`) {
+		t.Fatalf("run reset JSON mismatch: %s", out.String())
+	}
+	status, err := agentsession.ReadRepositoryRunStatus(repo)
+	if err != nil || status.Enabled {
+		t.Fatalf("reset state is not readable and disabled: %+v err=%v", status, err)
 	}
 }

@@ -91,6 +91,10 @@ type SessionState struct {
 	GrokSteerAttempts          uint64                     `json:"grok_steer_attempts,omitempty"`
 	GrokSteerContinuationKey   string                     `json:"grok_steer_continuation_key,omitempty"`
 	GrokSteerMaterialEvents    uint64                     `json:"grok_steer_material_events,omitempty"`
+	RepositoryRunEnabledAt     int64                      `json:"repository_run_enabled_at,omitempty"`
+	RepositoryRunProgressHash  string                     `json:"repository_run_progress_hash,omitempty"`
+	RepositoryRunNudges        int                        `json:"repository_run_nudges,omitempty"`
+	RepositoryRunAwaiting      bool                       `json:"repository_run_awaiting,omitempty"`
 	EvidenceOverflow           bool                       `json:"evidence_overflow,omitempty"`
 	EvidenceOverflowReason     string                     `json:"evidence_overflow_reason,omitempty"`
 }

@@ -436,6 +436,25 @@ func TestRunHookStatusJSONReportsActivePlugin(t *testing.T) {
 	t.Fatal("Kilo status missing")
 }
 
+func TestHookStatusTextHidesUnseenEnumerationButJSONKeepsIt(t *testing.T) {
+	t.Setenv(agentsession.StateRootEnv, t.TempDir())
+	repo := t.TempDir()
+	var textOut bytes.Buffer
+	if err := runHookStatus([]string{repo}, &textOut); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(textOut.String(), "; unseen ") {
+		t.Fatalf("human status enumerated unseen routes: %s", textOut.String())
+	}
+	var jsonOut bytes.Buffer
+	if err := runHookStatus([]string{repo, "--json"}, &jsonOut); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(jsonOut.String(), `"unseen_events"`) {
+		t.Fatalf("JSON status lost unseen route evidence: %s", jsonOut.String())
+	}
+}
+
 func TestRunBootstrapJSONIncludesActivationTruth(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, ".devin"), 0o755); err != nil {

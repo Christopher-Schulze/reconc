@@ -1,6 +1,7 @@
 package agentsession
 
 import (
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strings"
@@ -90,7 +91,7 @@ func RunStop(repoRoot string, payloadBytes []byte) (result Result) {
 		}
 		checkpointDue = repoRunPolicyCheckpointDue(runState, state, time.Now())
 		if !checkpointDue {
-			if contResult, contHandled, err := runRepositoryContinuation(root, runFile, payload, runtimeName, taskState.RunState, state.MaterialEvents); err != nil {
+			if contResult, contHandled, err := runRepositoryContinuation(root, runFile, payload, runtimeName, taskState.RunState); err != nil {
 				return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc run: %s", err)}
 			} else if contHandled {
 				return contResult
@@ -165,7 +166,7 @@ func RunStop(repoRoot string, payloadBytes []byte) (result Result) {
 			}
 			taskState = repositoryRunTaskState{RunState: inspected}
 		}
-		if contResult, contHandled, err := runRepositoryContinuation(root, runFile, payload, runtimeName, taskState.RunState, state.MaterialEvents); err != nil {
+		if contResult, contHandled, err := runRepositoryContinuation(root, runFile, payload, runtimeName, taskState.RunState); err != nil {
 			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc run: %s", err)}
 		} else if contHandled {
 			return contResult
@@ -193,7 +194,7 @@ func repoRunPolicyCheckpointDue(run repositoryRunState, state SessionState, now 
 }
 
 func markRepoPolicyCheckpoint(root string, runFile *os.File, payload *HookPayload, runtimeName string, materialEvents uint64) error {
-	before, after, err := mutateRepositoryRunStateOpenFile(runFile, func(state repositoryRunState) repositoryRunState {
+	before, after, err := mutateRepositoryRunStateOpenFile(root, runFile, func(state repositoryRunState) repositoryRunState {
 		if !repositoryRunEnabled(state) {
 			return state
 		}
@@ -231,21 +232,64 @@ func taskCompletionCommitGate(root string, snapshot stopPolicyGitSnapshot) (Resu
 
 // runRepositoryContinuation emits the autonomous continuation prompt. Callers
 // choose whether this runs before or after the Stop policy gate.
-func runRepositoryContinuation(root string, runFile *os.File, payload *HookPayload, runtimeName string, taskState tasklifecycle.RunState, materialEvents uint64) (Result, bool, error) {
+func runRepositoryContinuation(root string, runFile *os.File, payload *HookPayload, runtimeName string, taskState tasklifecycle.RunState) (Result, bool, error) {
 	var contResult Result
 	contHandled := false
 	decisionBranch := ""
+	prompt := buildRepositoryRunPrompt(taskState)
+	var progressHash [32]byte
+	sessionNudges := 0
+	sessionReleased := false
+	strictContinuation := payload != nil && payload.StrictContinuation
+	runEpoch := int64(0)
+	if prompt != "" {
+		current, err := loadRepositoryRunStateResolved(root)
+		if err != nil {
+			return Result{}, false, err
+		}
+		if !repositoryRunEnabled(current) {
+			return Result{}, false, nil
+		}
+		runEpoch = current.EnabledAt
+		_, err = MutateSessionState(root, sessionIDFromPayload(payload), func(state SessionState) SessionState {
+			progressHash = repositoryRunProgressHash(taskState, state.MaterialEvents)
+			encodedHash := hex.EncodeToString(progressHash[:])
+			if state.RepositoryRunEnabledAt != runEpoch {
+				state.RepositoryRunNudges = 0
+				state.RepositoryRunAwaiting = false
+			}
+			noProgress := state.RepositoryRunAwaiting && state.RepositoryRunProgressHash == encodedHash
+			if strictContinuation {
+				state.RepositoryRunNudges = 0
+			} else if noProgress {
+				state.RepositoryRunNudges++
+			} else {
+				state.RepositoryRunNudges = 0
+			}
+			sessionNudges = state.RepositoryRunNudges
+			sessionReleased = !strictContinuation && sessionNudges >= 6
+			state.RepositoryRunEnabledAt = runEpoch
+			state.RepositoryRunProgressHash = encodedHash
+			state.RepositoryRunAwaiting = !sessionReleased
+			if sessionReleased {
+				state.RepositoryRunNudges = 0
+			}
+			return state
+		})
+		if err != nil {
+			return Result{}, false, fmt.Errorf("update per-session run guard: %w", err)
+		}
+	}
 	mutate := mutateRepositoryRunStateResolved
 	if runFile != nil {
 		mutate = func(_ string, fn func(repositoryRunState) repositoryRunState) (repositoryRunState, repositoryRunState, error) {
-			return mutateRepositoryRunStateOpenFile(runFile, fn)
+			return mutateRepositoryRunStateOpenFile(root, runFile, fn)
 		}
 	}
 	before, after, err := mutate(root, func(current repositoryRunState) repositoryRunState {
 		if !repositoryRunEnabled(current) {
 			return current
 		}
-		prompt := buildRepositoryRunPrompt(taskState)
 		if prompt == "" {
 			if taskState.Disposition != tasklifecycle.RunComplete && taskState.Disposition != tasklifecycle.RunAbsent {
 				return current
@@ -256,16 +300,10 @@ func runRepositoryContinuation(root string, runFile *os.File, payload *HookPaylo
 			contHandled = true
 			return after
 		}
-
-		progressHash := repositoryRunProgressHash(taskState, materialEvents)
-		noProgress := current.AwaitingContinuation && current.LastProgressHash == progressHash
-		nudges := current.NoProgressNudges
-		if noProgress {
-			nudges++
-		} else {
-			nudges = 0
+		if current.EnabledAt != runEpoch {
+			return current
 		}
-		if !payload.StrictContinuation && nudges >= 6 {
+		if sessionReleased {
 			after := current
 			after.NoProgressNudges = 0
 			after.LastProgressHash = progressHash
@@ -278,7 +316,7 @@ func runRepositoryContinuation(root string, runFile *os.File, payload *HookPaylo
 
 		after := repositoryRunState{
 			Enabled:              true,
-			NoProgressNudges:     nudges,
+			NoProgressNudges:     sessionNudges,
 			LastProgressHash:     progressHash,
 			AwaitingContinuation: true,
 			EnabledAt:            current.EnabledAt,
@@ -293,7 +331,9 @@ func runRepositoryContinuation(root string, runFile *os.File, payload *HookPaylo
 	if err != nil {
 		return Result{}, false, err
 	}
-	if decisionBranch != "" && decisionBranch != "run_followup" && before != after {
+	if decisionBranch == "run_followup" || decisionBranch == "repo_no_progress_release" {
+		logRunContinuationDecision(root, decisionBranch, payload, runtimeName, before, after, sessionNudges, strictContinuation)
+	} else if decisionBranch != "" && before != after {
 		logRunStopDecision(root, decisionBranch, payload, runtimeName, before, after, false, 0)
 	}
 	return contResult, contHandled, nil

@@ -13,8 +13,8 @@ import (
 const (
 	repositoryRunSlotSize    = 512
 	repositoryRunHeaderSize  = 24
-	repositoryRunPayloadSize = 56
-	repositoryRunVersion     = 1
+	repositoryRunPayloadSize = 88
+	repositoryRunVersion     = 2
 	repositoryRunEnabledBit  = 1 << iota
 	repositoryRunAwaitingBit
 )
@@ -121,6 +121,7 @@ func decodeRepositoryRunPayload(header, payload []byte) (repositoryRunState, boo
 		DisabledReason:       reason,
 	}
 	copy(state.LastProgressHash[:], payload[24:])
+	copy(state.RootIdentity[:], payload[56:88])
 	return state, true
 }
 
@@ -160,6 +161,7 @@ func writeRepositoryRunSnapshotFile(file *os.File, state repositoryRunState, pre
 	binary.LittleEndian.PutUint64(payload[8:16], uint64(state.EnabledAt))
 	binary.LittleEndian.PutUint64(payload[16:24], uint64(state.LastPolicyCheckpoint))
 	copy(payload[24:], state.LastProgressHash[:])
+	copy(payload[56:88], state.RootIdentity[:])
 	binary.LittleEndian.PutUint32(record[20:24], repositoryRunChecksum(record[:repositoryRunHeaderSize], payload))
 
 	written, writeErr := file.WriteAt(record[:], int64(slot*repositoryRunSlotSize))

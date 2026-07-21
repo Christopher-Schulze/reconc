@@ -51,7 +51,7 @@ why a task is allowed to be called done.
 - installs explicitly selected git, Claude Code, Codex, Cursor, OpenCode,
   Devin CLI, Antigravity CLI, Kilo Code, and Grok Build integrations
 - controls autonomous agent continuation with repo-scoped
-  `reconc run on|off|status|log`, no-progress guards, and bounded logs
+  `reconc run on|off|reset|status|log`, per-session no-progress guards, and bounded logs
 - adopts typed repository TASK state and performs recoverable claim, block,
   resume, split, promotion, and archive transitions
 - bounds session/report state, unresolved policy-decision receipts, audit and
@@ -147,7 +147,9 @@ reconc run status .
 reconc run off .
 ```
 
-The switch is durable for this repository, not machine-global. Claude Code,
+`run on` first verifies fresh compiled policy and executable typed TASK state;
+`--force` is the explicit exceptional override. The switch is durable for this
+repository, not machine-global. Claude Code,
 Codex, Cursor, Devin CLI, and Antigravity CLI expose synchronous
 Stop continuation. OpenCode and Kilo Code use inferred `session.idle` adapters,
 so Reconc requests continuation there but the host boundary remains best-effort
@@ -155,9 +157,12 @@ and fail-open. Executable active work continues; an empty active slot with
 queued executable work is claimed. Complete or absent TASK state disables the
 switch after terminal gates, blocked state reaches terminal Stop without
 silently disabling it, and invalid state fails closed. An interrupt or the
-six-event no-progress guard releases only the current invocation; ordinary
+per-session six-event no-progress guard releases only the current invocation;
+strict Grok continuation instead uses its 32-delivered-interjection bound. Ordinary
 messages, session boundaries, application restarts, and runtime changes never
-mutate the durable switch. `reconc run off .` is the only manual disable action.
+mutate the durable switch. `reconc run off .` is the only normal manual disable
+action; `reconc run reset .` is the fail-closed recovery for corrupt or foreign
+state and preserves the decision log.
 
 Inspection and enforcement commands never mutate policy or refresh the
 lockfile implicitly. If policy sources change, they fail closed with one
@@ -319,7 +324,7 @@ other coding agents. The skill gives every agent the same operating loop:
 - remediate blocks with `reconc next .`
 - run `reconc done .` before claiming completion
 - distinguish native hook enforcement from CLI self-checks
-- operate `reconc run on|off|status` itself when autonomous TASK execution is requested
+- operate `reconc run on|off|reset|status` itself when autonomous TASK execution or state recovery is requested
 
 Detailed runtime behavior lives in `docs/documentation.md` and
 `docs/architecture.md`.

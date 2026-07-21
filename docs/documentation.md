@@ -300,9 +300,12 @@ state must be terminal and satisfy every required section, evidence field, and
 optional committed-control-plane rule. `--require-clean-git` adds a clean-tree
 check. `--window` is compatibility-only and never changes the decision.
 
-`reconc task status|validate|check-done` are read-only. `claim`, `block`,
+`reconc task status|validate|check-done` are read-only. `new`, `claim`, `block`,
 `resume`, `split`, `promote`, and `archive` serialize through a cross-platform
-lock and publish one integrity-checked transaction. `split` accepts only
+lock and publish one integrity-checked transaction. `task new` adds a
+collision-free queued row and grammar-correct detail for either profile without
+rewriting existing rows. `task block --no-next` explicitly suppresses the
+normal successor auto-claim. `split` accepts only
 pre-created child TASKs whose Why section references the parent. Promotion
 checks every Sub-Task and configured evidence field before moving the detail;
 it never fabricates evidence. A crash leaves `.reconc/task-transaction.json`.
@@ -464,8 +467,9 @@ and `SessionEnd` run a cross-process-safe due check with a six-hour interval;
 Stop never prunes. `reconc prune [repo] [--dry-run] [--json]` runs the same
 core explicitly. Unchanged session files, active-session pointers, reports,
 command proofs, and run state are byte-compared and never republished. Disabled
-and unchanged hook events do not create run state, and run
-decisions are appended only for material transitions. Session state is
+and unchanged hook events do not create run state. Run decisions record every
+bounded repository continuation plus material transitions without prompt
+payloads. Session state is
 hard-capped at 1 MiB; every evidence collection has both item and byte limits,
 repeated command results are deduplicated, and any omitted security-relevant
 evidence sets a persisted overflow marker that blocks PreToolUse and Stop.
@@ -770,10 +774,12 @@ budgets, installation strategy, and activation probes. `reconc hook status
 [repo] [--json]` validates every registered artifact and reports `absent`,
 `installed`, `configured`, `degraded`, `shadowed`, or `unsupported`.
 `configured` means the static configuration is complete and host-discoverable;
-it is not proof that a host process executed it. Separate `expected_events`,
+it is not proof that a host process executed it. Separate JSON `expected_events`,
 `live_events`, `unseen_events`, `last_seen`, and `last_event` fields report
 which registry routes a live runtime actually executed. Liveness is stored
 outside the repository and each route writes at most once every six hours.
+Human output keeps only the seen/expected count and last event so large route
+registries do not dominate the terminal.
 
 Before any non-Git installer write, Reconc resolves the prospective target
 through the operating system's filesystem identity and rejects paths outside
@@ -906,15 +912,20 @@ leader steering; PreToolUse remains hard while native Stop remains dependent on
 the installed host capability. Deep doctor reports installed native Stop
 capability and separately probes optional leader protocol plus
 `_x.ai/interject` with a random nonexistent session.
-`reconc run on|off|status|log` is the canonical AI-operated repository switch.
+`reconc run on|off|reset|status|log` is the canonical AI-operated repository switch.
 Its durable state applies only to the selected repository, not the whole machine.
 Repository mode persists across sessions for Claude Code, Codex, Cursor,
 OpenCode, Devin CLI, Antigravity CLI, Kilo Code, and Grok Build. The agent
 runs these commands itself; users do not need to operate Reconc. Prompt text,
 runtime interrupts, compaction, session boundaries, runtime changes, and
 application restarts never mutate the switch. An interrupt releases only the
-current host invocation. `reconc run off` is the only manual disable action;
+current host invocation. `reconc run on` refuses before mutation unless live
+policy sources, the compiled lockfile, and executable typed TASK state are
+ready; `--force` is the explicit exceptional override. `reconc run off` is the
+only normal manual disable action;
 complete or absent TASK state disables it automatically after terminal gates.
+`reconc run reset` is recovery-only and replaces corrupt or foreign
+`state.bin` with a clean disabled state while retaining decision evidence.
 
 Repository continuation reads the configured TASK profile through the typed
 lifecycle package. An active executable TASK yields `continue`; an empty
@@ -932,20 +943,25 @@ never silently disables the durable switch; status and Stop expose the blocker
 for recovery.
 
 The durable switch uses `.reconc/run/state.bin` only. Its two alternating
-512-byte slots carry a fixed 56-byte payload, monotonic sequence, and CRC32C
-over both header and payload;
-decoding allocates no state strings, and a torn newest slot falls back to the
-previous valid slot. There is no session runloop, legacy mode discriminator,
+512-byte slots carry a fixed 88-byte payload, monotonic sequence, and CRC32C
+over both header and payload. The payload includes a SHA-256 identity of the
+canonical repository root. Copied state and older unbound formats fail closed
+with one exact `run reset` remediation. Decoding allocates no state strings,
+and a torn newest slot falls back to the previous valid slot. There is no legacy mode discriminator,
 marker cleanup, or `.reconc/runloop/` compatibility read.
 
 `awaiting_continuation` is not a hard stop reason by itself. Reads and unrelated
-hook events do not clear it. A bounded material-event counter advances only for
-write and command outcomes, so TASK changes or real tool progress reset the
-guard without a Git dirty scan or per-tool run-state write. After repeated
-no-progress stops, repository mode releases one Stop and resets its guard without
-silently changing the durable switch. Run decisions are persisted only for
-material state transitions in `.reconc/run/decisions.jsonl`, with bounded
-identifiers and reasons. The live log and two archives are each bounded at
+hook events do not clear it. Each session owns its no-progress counter and
+typed-TASK-plus-material-event fingerprint in external race-safe session state,
+so concurrent agents cannot reset or consume each other's budget. A bounded
+material-event counter advances only for write and command outcomes, so TASK
+changes or real tool progress reset that session without a Git dirty scan.
+After six no-progress Stops, repository mode releases one invocation and resets
+only that session without silently changing the durable switch. Strict Grok
+Stops bypass the six-event guard and use the separate 32-delivered-interjection
+cap. Every continuation and material transition is persisted in
+`.reconc/run/decisions.jsonl` with bounded identifiers, branch, and counters,
+never prompt text. The live log and two archives are each bounded at
 2 MiB; readers merge the ring in chronological order.
 Repeated identical policy feedback shrinks to stable `RB-*` feedback IDs,
 rule IDs, and the saved report path. PreToolUse evaluates only pre-execution
@@ -1026,10 +1042,13 @@ a pass from an incomplete tree. TASK diff-aware gates likewise report staged or
 working-tree Git diff failures instead of silently exempting changed completed
 TASKs. Lockfile JSON readers decode directly from the existing byte slice,
 avoiding one full lockfile copy per policy check and TUI summary. The in-process normal
-executable-TASK benchmark on Apple M1 improved from 1,504,653 ns/op,
-61,612 B/op, and 553 allocs/op to a seven-run range of 130,819-142,849 ns/op
-with a 131,483 ns/op median, 29,225-29,276 B/op, and 245 allocs/op. The
-benchmark excludes process startup. Reproducible Stop and concurrent-cache
+executable-TASK benchmark on Apple M1 originally improved from 1,504,653 ns/op,
+61,612 B/op, and 553 allocs/op to 131,483 ns/op, 29,225-29,276 B/op, and 245
+allocs/op before continuation records became durable. With one bounded
+decision-log record per continuation, the current seven-run range is
+10,355,060-14,049,392 ns/op with a 10,986,170 ns/op median, 55,561-55,707 B/op,
+and 457 allocs/op. The benchmark excludes process startup and Git, but includes
+the state and decision-log durability writes. Reproducible Stop and concurrent-cache
 benchmarks live beside their regression tests and run with
 `go test ./internal/runtime/agentsession -run '^$' -bench 'RepositoryRunStopHotpath|StopPolicy' -benchmem`
 and `go test ./harness/template/audits -run '^$' -bench RunWithCache -benchmem`.

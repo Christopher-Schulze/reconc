@@ -14,6 +14,11 @@ func TestRepositoryRunStateRoundTrip(t *testing.T) {
 	if err := saveRepositoryRunState(repo, want); err != nil {
 		t.Fatal(err)
 	}
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want.RootIdentity = repositoryRunRootIdentity(root)
 	got, err := loadRepositoryRunState(repo)
 	if err != nil {
 		t.Fatal(err)

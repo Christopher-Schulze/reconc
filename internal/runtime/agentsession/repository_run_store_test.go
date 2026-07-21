@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -13,6 +14,11 @@ func TestRepositoryRunStoreFallsBackFromTornNewestSlot(t *testing.T) {
 	if err := saveRepositoryRunState(repo, first); err != nil {
 		t.Fatal(err)
 	}
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.RootIdentity = repositoryRunRootIdentity(root)
 	if err := saveRepositoryRunState(repo, repositoryRunState{DisabledReason: repositoryRunDisabledCommandOff}); err != nil {
 		t.Fatal(err)
 	}
@@ -46,6 +52,11 @@ func TestRepositoryRunStoreFallsBackFromCorruptNewestHeader(t *testing.T) {
 	if err := saveRepositoryRunState(repo, first); err != nil {
 		t.Fatal(err)
 	}
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.RootIdentity = repositoryRunRootIdentity(root)
 	if err := saveRepositoryRunState(repo, repositoryRunState{DisabledReason: repositoryRunDisabledCommandOff}); err != nil {
 		t.Fatal(err)
 	}
@@ -146,5 +157,99 @@ func TestRepositoryRunStoreIsBoundedAndPrivate(t *testing.T) {
 	}
 	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("repository run store mode = %04o, want 0600", info.Mode().Perm())
+	}
+}
+
+func TestRepositoryRunStateRejectsForeignRootAndResetPreservesLog(t *testing.T) {
+	source := t.TempDir()
+	target := t.TempDir()
+	if _, err := SetRepositoryRun(source, true); err != nil {
+		t.Fatal(err)
+	}
+	sourcePath, _ := repositoryRunStatePath(source)
+	targetPath, _ := repositoryRunStatePath(target)
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(targetPath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := appendRunDecision(target, RunDecision{Event: "sentinel", Branch: "preserve_me"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadRepositoryRunState(target); err == nil || !strings.Contains(err.Error(), "different repository root") || !strings.Contains(err.Error(), "run reset") {
+		t.Fatalf("foreign state did not fail closed with remediation: %v", err)
+	}
+	status, err := ResetRepositoryRun(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Enabled || status.DisabledReason != "command_off" {
+		t.Fatalf("reset did not restore clean disabled state: %+v", status)
+	}
+	decisions, err := ReadRunDecisions(target, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decisions) != 2 || decisions[0].Branch != "preserve_me" || decisions[1].Branch != "run_state_reset" {
+		t.Fatalf("reset deleted unrelated run evidence: %#v", decisions)
+	}
+}
+
+func TestRepositoryRunResetRecoversFullyCorruptState(t *testing.T) {
+	repo := t.TempDir()
+	path := filepath.Join(repo, ".reconc", "run", "state.bin")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("both slots are corrupt"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadRepositoryRunStatus(repo); err == nil || !strings.Contains(err.Error(), "run reset") {
+		t.Fatalf("corrupt state lacks exact remediation: %v", err)
+	}
+	if _, err := ResetRepositoryRun(repo); err != nil {
+		t.Fatal(err)
+	}
+	state, err := loadRepositoryRunState(repo)
+	if err != nil || state.Enabled || state.RootIdentity == ([32]byte{}) {
+		t.Fatalf("reset state invalid: %+v err=%v", state, err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("reset state mode = %04o, want 0600", info.Mode().Perm())
+	}
+}
+
+func TestRepositoryRunResetRejectsSymlinkedStateWithoutTouchingTarget(t *testing.T) {
+	repo := t.TempDir()
+	victim := filepath.Join(t.TempDir(), "victim.bin")
+	const original = "must survive"
+	if err := os.WriteFile(victim, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(repo, ".reconc", "run", "state.bin")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, path); err != nil {
+		t.Skipf("symlink creation unavailable: %v", err)
+	}
+	if _, err := ResetRepositoryRun(repo); err == nil || !strings.Contains(err.Error(), "symlink component") {
+		t.Fatalf("reset followed a symlinked state path: %v", err)
+	}
+	body, err := os.ReadFile(victim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != original {
+		t.Fatalf("reset modified symlink target: %q", body)
 	}
 }

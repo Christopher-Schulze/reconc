@@ -1,6 +1,10 @@
 package agentsession
 
-import "time"
+import (
+	"fmt"
+	"os"
+	"time"
+)
 
 // SetRepositoryRun is the only run-state switch used by `reconc run on|off`.
 // Hook messages and session lifecycle events never mutate this state.
@@ -36,5 +40,42 @@ func SetRepositoryRun(repoRoot string, enabled bool) (RepositoryRunStatus, error
 			DisabledReasonAfter:  after.DisabledReason.String(),
 		})
 	}
+	return readRepositoryRunStatusResolved(root)
+}
+
+// ResetRepositoryRun is a recovery-only operation. It replaces only the
+// integrity-bound state.bin with a clean disabled state and preserves the
+// bounded decision log and every other repository artifact.
+func ResetRepositoryRun(repoRoot string) (RepositoryRunStatus, error) {
+	root, err := ResolveRepoRoot(repoRoot)
+	if err != nil {
+		return RepositoryRunStatus{}, err
+	}
+	err = withRepositoryRunFileResolved(root, func(file *os.File) error {
+		if err := file.Truncate(0); err != nil {
+			return fmt.Errorf("truncate repository run state: %w", err)
+		}
+		if err := file.Chmod(0o600); err != nil {
+			return fmt.Errorf("protect repository run state: %w", err)
+		}
+		state := repositoryRunState{
+			DisabledReason: repositoryRunDisabledCommandOff,
+			RootIdentity:   repositoryRunRootIdentity(root),
+		}
+		if err := writeRepositoryRunSnapshotFile(file, state, repositoryRunSnapshot{Slot: -1}); err != nil {
+			return err
+		}
+		if err := file.Sync(); err != nil {
+			return fmt.Errorf("sync repository run state: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return RepositoryRunStatus{}, err
+	}
+	_ = appendRunDecisionResolved(root, RunDecision{
+		Event: "recovery", Branch: "run_state_reset",
+		DisabledReasonAfter: repositoryRunDisabledCommandOff.String(),
+	})
 	return readRepositoryRunStatusResolved(root)
 }

@@ -234,7 +234,7 @@ Workflow maintenance:
   changelog        rotate docs/changelog.md / list-archives
   agent-intro      print the embedded reconc agent integration guide
   audit            tail / stats / export the enforcement decision log
-  run              AI-operated on / off / status / log repository run control
+  run              AI-operated on / off / reset / status / log repository run control
   task             typed TASK status / validation / atomic lifecycle mutations
   prune            bound runtime state, logs, generated binaries, and owned temp residue
   session-briefing versioned session/reentry delta (TASK + policy + run)

@@ -19,9 +19,9 @@ func BenchmarkRepositoryRunStopHotpath(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		b.StopTimer()
-		if _, _, err := mutateRepositoryRunState(repo, func(state repositoryRunState) repositoryRunState {
-			state.AwaitingContinuation = false
-			state.NoProgressNudges = 0
+		if _, err := MutateSessionState(repo, "benchmark", func(state SessionState) SessionState {
+			state.RepositoryRunAwaiting = false
+			state.RepositoryRunNudges = 0
 			return state
 		}); err != nil {
 			b.Fatal(err)

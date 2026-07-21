@@ -356,6 +356,8 @@ loading; its optional leader probe requires protocol
 version 1 and a recognized `_x.ai/interject` response, not just a successful
 register handshake. It also requires project-owned inspect metadata and exact
 route command tokens; prefix collisions do not satisfy route coverage.
+Default text reports seen/expected counts and the last event without listing
+every unseen route; the full unseen-event enumeration remains in `--json`.
 
 ### `reconc hook sync-scaffold <repo-root-scaffold> [--json]`
 Regenerate source-controlled hook artifacts inside a template
@@ -419,7 +421,7 @@ rules.
 Raw JSONL dump on stdout for external tooling. Audit tail, stats, and export
 read the two bounded archives plus the live file in chronological order.
 
-### `reconc run on [repo] [--json]` / `reconc run off [repo] [--json]`
+### `reconc run on [repo] [--force] [--json]` / `reconc run off [repo] [--json]`
 AI-operated switch scoped to one repository, not the whole machine. It routes
 continuation through all eight registered agent runtimes. Claude Code, Codex,
 Cursor, Devin CLI, and Antigravity CLI expose synchronous Stop
@@ -433,27 +435,42 @@ Windows named pipe. Eligible leader Stops use strict continuation before policy
 evaluation.
 Only successfully delivered interjections consume the 32-attempt cap;
 transport or protocol failures do not. The cap resets on material progress, a
-changed block, or a clean Stop. Typed `continue` and `claim` states
+changed block, or a clean Stop. Before enabling, `run on` validates live policy
+sources, the compiled lockfile, and an executable typed TASK disposition. It
+fails without mutating state and gives one exact remediation; `--force` is the
+explicit exceptional override. Typed `continue` and `claim` states
 continue: `Current: none` or an empty Active section still claims queued
 executable work. Complete or absent state disables the switch after terminal
 gates; blocked state reaches terminal Stop without silently disabling it, and
 invalid state fails closed. An explicit interrupt or six repeated no-progress
-continuations releases only the current invocation. Ordinary prompts, session
+continuations in the same session releases only that invocation; concurrent
+sessions have independent counters and progress fingerprints. Strict Grok
+Stops do not consume this six-event guard: their applicable safety bound is 32
+successfully delivered leader interjections. Ordinary prompts, session
 end, runtime changes, and application restarts never mutate the durable switch.
-`off` is the only manual disable action. Both commands are idempotent and append
-a decision record only when state actually changes. The agent executes these
+`off` is the only normal manual disable action. Both commands are idempotent
+and log only actual switch transitions. The agent executes these
 commands itself; it must not ask the user to operate Reconc.
 
-### `reconc run status [repo] [--json]`
+### `reconc run reset [repo] [--json]`
+Recovery-only replacement of `state.bin` with an identity-bound clean disabled
+state. Use the exact command printed after corrupt, unsupported, or foreign-root
+state errors. It preserves `decisions.jsonl`, archives, and every unrelated run
+artifact; it never enables autonomy.
+
+### `reconc run status [repo] [--verbose | --json]`
 One-line or JSON snapshot of run mode plus typed TASK disposition:
 `enabled`, `task_disposition`, current TASK/Sub-Task, open count, no-progress
 state, blocker, and reason. Invalid TASK state is reported as disposition
-`invalid`; Stop then fails closed with the validation error.
+`invalid`; Stop then fails closed with the validation error. The default line
+and JSON schema remain stable. `--verbose` adds complete TASK, blocker, and
+latest bounded-decision context.
 
 ### `reconc run log [repo] [-n N] [--branch B] [--session S] [--follow] [--json]`
-Render the bounded run decision ring: material state transitions,
-continuations, policy blocks, no-progress releases, explicit switches, and
-stop reasons. Disabled no-op events and unchanged state are not logged.
+Render the bounded run decision ring: every continuation, material state
+transition, policy block, no-progress release, explicit switch, and stop
+reason. Continuation records contain bounded identifiers, branch, and counter
+metadata, never prompt bodies. Disabled no-op events are not logged.
 `--branch`/`--session` filter, `-n` keeps the last N, and `--follow` tails new
 records until Ctrl-C.
 
@@ -472,8 +489,9 @@ work to executable TASK continuations.
 - `task status [repo] [--json]`: current TASK, current Sub-Task, bounded blockers, missing configured evidence, exact next action
 - `task validate [repo] [--json]`: full live-control-plane validation with stable issue IDs
 - `task check-done [repo] [--task ID] [--json]`: fail closed on any unfinished Sub-Task or missing configured evidence
+- `task new [repo] --title TEXT [--id ID] [--json]`: atomically add the next or requested collision-free queued row and grammar-correct detail
 - `task claim <ID> [repo] [--json]`: activate one executable queued TASK
-- `task block [repo] --reason TEXT [--next ID] [--json]`: block current and optionally activate a successor
+- `task block [repo] --reason TEXT [--next ID | --no-next] [--json]`: block current; auto-claim the next executable TASK by default or explicitly leave none active
 - `task resume <ID> [repo] [--json]`: reactivate a blocked TASK when no TASK is active
 - `task split [repo] --children ID,ID [--json]`: block the parent and activate the first pre-created, parent-linked child
 - `task promote [repo] [--next ID] [--json]`: completion-check, archive, and activate the next executable TASK

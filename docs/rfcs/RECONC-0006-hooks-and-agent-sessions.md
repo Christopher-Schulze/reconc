@@ -117,6 +117,8 @@ matching `GROK_SESSION_ID`; only delivered interjections count toward the
 32-attempt no-progress cap. Material progress, a new block, or a clean Stop
 resets the series. Capability-proven native hosts suppress duplicate
 interjection.
+Strict Grok Stop payloads do not use the repository-run six-event release;
+their applicable bound is this 32-delivered-interjection cap.
 Multiple endpoints receive fair shares of the transport budget and framed
 writes complete short writes. `RECONC_GROK_STEER=0` disables only leader
 steering. Deep doctor reports native Stop support separately and requires a

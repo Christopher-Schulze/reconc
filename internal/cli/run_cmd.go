@@ -8,11 +8,14 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	policyruntime "reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
+	"reconc.dev/reconc/internal/tasklifecycle"
 )
 
 // runRunControl implements the canonical AI-operated repository run switch.
@@ -24,27 +27,30 @@ func runRunControl(args []string, stdout, stderr io.Writer) error {
 		}
 	}
 	if len(args) == 0 {
-		return &CLIError{ExitCode: 1, Message: "reconc run: missing subcommand (on | off | status | log)"}
+		return &CLIError{ExitCode: 1, Message: "reconc run: missing subcommand (on | off | reset | status | log)"}
 	}
 	switch args[0] {
 	case "on":
 		return runRunSwitch(args[1:], true, stdout)
 	case "off":
 		return runRunSwitch(args[1:], false, stdout)
+	case "reset":
+		return runRunReset(args[1:], stdout)
 	case "status":
 		return runRunStatus(args[1:], stdout, stderr)
 	case "log":
 		return runRunLog(args[1:], stdout, stderr)
 	default:
-		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc run: unknown subcommand %q (expected on, off, status, or log)", args[0])}
+		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc run: unknown subcommand %q (expected on, off, reset, status, or log)", args[0])}
 	}
 }
 
 func printRunControlHelp(stdout io.Writer) {
 	fmt.Fprintln(stdout, "Usage:")
-	fmt.Fprintln(stdout, "  reconc run on [repo] [--json]")
+	fmt.Fprintln(stdout, "  reconc run on [repo] [--force] [--json]")
 	fmt.Fprintln(stdout, "  reconc run off [repo] [--json]")
-	fmt.Fprintln(stdout, "  reconc run status [repo] [--json]")
+	fmt.Fprintln(stdout, "  reconc run reset [repo] [--json]")
+	fmt.Fprintln(stdout, "  reconc run status [repo] [--verbose | --json]")
 	fmt.Fprintln(stdout, "  reconc run log [repo] [-n N] [--branch B] [--session S] [--follow] [--json]")
 	fmt.Fprintln(stdout, "")
 	fmt.Fprintln(stdout, "AI-operated repository run control. On keeps every supported agent runtime")
@@ -54,11 +60,14 @@ func printRunControlHelp(stdout io.Writer) {
 func runRunSwitch(args []string, enabled bool, stdout io.Writer) error {
 	repo := "."
 	jsonOut := false
+	force := false
 	repoSeen := false
 	for _, arg := range args {
 		switch {
 		case arg == "--json":
 			jsonOut = true
+		case arg == "--force":
+			force = true
 		case strings.HasPrefix(arg, "-"):
 			return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc run: unknown flag %q", arg)}
 		case repoSeen:
@@ -68,9 +77,17 @@ func runRunSwitch(args []string, enabled bool, stdout io.Writer) error {
 			repoSeen = true
 		}
 	}
+	if force && !enabled {
+		return &CLIError{ExitCode: 1, Message: "reconc run off: --force is only valid with `reconc run on`"}
+	}
 	abs, err := filepath.Abs(repo)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc run: " + err.Error()}
+	}
+	if enabled && !force {
+		if err := preflightRepositoryRun(abs); err != nil {
+			return &CLIError{ExitCode: 2, Message: "reconc run on: " + err.Error() + "; use --force only when intentionally overriding this preflight"}
+		}
 	}
 	info, err := agentsession.SetRepositoryRun(abs, enabled)
 	if err != nil {
@@ -88,14 +105,72 @@ func runRunSwitch(args []string, enabled bool, stdout io.Writer) error {
 	return nil
 }
 
+func preflightRepositoryRun(repoRoot string) error {
+	quotedRoot := strconv.Quote(repoRoot)
+	if _, err := validatePolicyReadOnly(repoRoot); err != nil {
+		return fmt.Errorf("policy sources are not ready: %w; run `reconc doctor %s --deep` and apply its remediation", err, quotedRoot)
+	}
+	if err := policyruntime.ValidatePolicyLockfile(repoRoot); err != nil {
+		return fmt.Errorf("compiled policy is not ready: %w; run `reconc refresh %s`", err, quotedRoot)
+	}
+	state, err := tasklifecycle.InspectRunState(repoRoot)
+	if err != nil {
+		return fmt.Errorf("TASK plane is invalid: %w; run `reconc task validate %s`", err, quotedRoot)
+	}
+	if state.Disposition != tasklifecycle.RunContinue && state.Disposition != tasklifecycle.RunClaim {
+		return fmt.Errorf("TASK disposition %s has no executable work; run `reconc task status %s` and make one TASK executable", state.Disposition, quotedRoot)
+	}
+	return nil
+}
+
+func runRunReset(args []string, stdout io.Writer) error {
+	repo := "."
+	jsonOut := false
+	repoSeen := false
+	for _, arg := range args {
+		switch {
+		case arg == "--json":
+			jsonOut = true
+		case strings.HasPrefix(arg, "-"):
+			return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc run reset: unknown flag %q", arg)}
+		case repoSeen:
+			return &CLIError{ExitCode: 1, Message: "reconc run reset: expected at most one repo path"}
+		default:
+			repo = arg
+			repoSeen = true
+		}
+	}
+	abs, err := filepath.Abs(repo)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc run reset: " + err.Error()}
+	}
+	info, err := agentsession.ResetRepositoryRun(abs)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc run reset: " + err.Error()}
+	}
+	if jsonOut {
+		body, err := json.Marshal(info)
+		if err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc run reset: " + err.Error()}
+		}
+		fmt.Fprintln(stdout, string(body))
+		return nil
+	}
+	fmt.Fprintln(stdout, formatRunStatus(info))
+	return nil
+}
+
 func runRunStatus(args []string, stdout, stderr io.Writer) error {
 	repo := "."
 	jsonOut := false
+	verbose := false
 	repoSeen := false
 	for _, a := range args {
 		switch {
 		case a == "--json":
 			jsonOut = true
+		case a == "--verbose":
+			verbose = true
 		case len(a) > 0 && a[0] == '-':
 			return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc run status: unknown flag %q", a)}
 		case repoSeen:
@@ -104,6 +179,9 @@ func runRunStatus(args []string, stdout, stderr io.Writer) error {
 			repo = a
 			repoSeen = true
 		}
+	}
+	if jsonOut && verbose {
+		return &CLIError{ExitCode: 1, Message: "reconc run status: --verbose and --json are mutually exclusive"}
 	}
 	abs, err := filepath.Abs(repo)
 	if err != nil {
@@ -121,7 +199,15 @@ func runRunStatus(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintln(stdout, string(body))
 		return nil
 	}
-	fmt.Fprintln(stdout, formatRunStatus(info))
+	if !verbose {
+		fmt.Fprintln(stdout, formatRunStatus(info))
+		return nil
+	}
+	decisions, err := agentsession.ReadRunDecisions(abs, 1)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc run status: " + err.Error()}
+	}
+	fmt.Fprintln(stdout, formatRunStatusVerbose(info, decisions))
 	return nil
 }
 
@@ -308,6 +394,22 @@ func formatRunStatus(info agentsession.RepositoryRunStatus) string {
 	return status
 }
 
+func formatRunStatusVerbose(info agentsession.RepositoryRunStatus, decisions []agentsession.RunDecision) string {
+	var out strings.Builder
+	out.WriteString(formatRunStatus(info))
+	fmt.Fprintf(&out, "\n  task: disposition=%s id=%s sub-task=%q open=%d", dash(info.TaskDisposition), dash(info.TaskID), info.CurrentSubTask, info.OpenTasks)
+	if info.Blocker != "" {
+		fmt.Fprintf(&out, "\n  blocker: %s", info.Blocker)
+	}
+	if len(decisions) == 0 {
+		out.WriteString("\n  last decision: none")
+		return out.String()
+	}
+	last := decisions[len(decisions)-1]
+	fmt.Fprintf(&out, "\n  last decision: %s", formatRunDecision(last))
+	return out.String()
+}
+
 func formatRunDecision(d agentsession.RunDecision) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s  %s/%s  rt=%s  en=%v->%v  await=%v->%v  reason=%s  sess=%s",
@@ -319,6 +421,13 @@ func formatRunDecision(d agentsession.RunDecision) string {
 	}
 	if d.StopHookActive {
 		b.WriteString("  [stop_hook_active]")
+	}
+	if d.Branch == "run_followup" || d.Branch == "repo_no_progress_release" {
+		if d.StrictContinuation {
+			b.WriteString("  [strict continuation; delivered-interjection bound=32]")
+		} else {
+			fmt.Fprintf(&b, "  [no_progress=%d/6]", d.NoProgressNudges)
+		}
 	}
 	return b.String()
 }

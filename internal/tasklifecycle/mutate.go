@@ -59,18 +59,33 @@ func Block(repoRoot, reason, nextID string) (MutationResult, error) {
 		return MutationResult{}, err
 	}
 	return mutate(repoRoot, "block", func(board *Board) (MutationResult, []fileMutation, []moveMutation, error) {
-		return buildBlockMutation(board, reason, nextID)
+		return buildBlockMutation(board, reason, nextID, true)
 	})
 }
 
-func buildBlockMutation(board *Board, reason, nextID string) (MutationResult, []fileMutation, []moveMutation, error) {
+// BlockWithoutNext blocks the active TASK without auto-claiming queued work.
+func BlockWithoutNext(repoRoot, reason string) (MutationResult, error) {
+	reason, err := normalizeBlocker(reason)
+	if err != nil {
+		return MutationResult{}, err
+	}
+	return mutate(repoRoot, "block", func(board *Board) (MutationResult, []fileMutation, []moveMutation, error) {
+		return buildBlockMutation(board, reason, "", false)
+	})
+}
+
+func buildBlockMutation(board *Board, reason, nextID string, selectSuccessor bool) (MutationResult, []fileMutation, []moveMutation, error) {
 	if board.Active == nil {
 		return MutationResult{}, nil, nil, fmt.Errorf("no active TASK to block")
 	}
 	current := board.Active
-	next, err := selectNext(board, nextID, false)
-	if err != nil {
-		return MutationResult{}, nil, nil, err
+	var next *Task
+	if selectSuccessor {
+		var err error
+		next, err = selectNext(board, nextID, false)
+		if err != nil {
+			return MutationResult{}, nil, nil, err
+		}
 	}
 	details, changes, err := blockedDetails(board, current, next, reason)
 	if err != nil {

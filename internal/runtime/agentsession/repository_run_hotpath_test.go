@@ -1,9 +1,12 @@
 package agentsession
 
 import (
+	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"reconc.dev/reconc/internal/compiler"
@@ -147,7 +150,7 @@ func TestRepoRunModeSkipsStopPolicyOnlyForExecutableTask(t *testing.T) {
 	}
 }
 
-func TestRepoRunExecutableStopDoesNotPublishEmptySessionState(t *testing.T) {
+func TestRepoRunExecutableStopPublishesPerSessionGuardState(t *testing.T) {
 	repo := setupPolicyRepo(t)
 	writeTaskFixture(t, repo)
 	if _, err := SetRepositoryRun(repo, true); err != nil {
@@ -157,10 +160,132 @@ func TestRepoRunExecutableStopDoesNotPublishEmptySessionState(t *testing.T) {
 	if result.ExitCode != 0 || !containsRepositoryRunBlock(result.Stdout) {
 		t.Fatalf("executable repo run did not continue: %+v", result)
 	}
-	for _, path := range []string{sessionStatePath(repo, "repo-fastpath"), activeSessionPath(repo)} {
-		if _, err := os.Stat(path); !os.IsNotExist(err) {
-			t.Fatalf("routine repo Stop published session state %s: %v", path, err)
+	state, err := LoadSessionState(repo, "repo-fastpath")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.RepositoryRunAwaiting || state.RepositoryRunNudges != 0 || state.RepositoryRunProgressHash == "" {
+		t.Fatalf("per-session run guard was not persisted: %+v", state)
+	}
+	decisions, err := ReadRunDecisions(repo, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decisions) != 2 || decisions[1].Branch != "run_followup" || decisions[1].SessionID != "repo-fastpath" {
+		t.Fatalf("continuation was not observable: %#v", decisions)
+	}
+}
+
+func TestRepoRunNoProgressGuardIsIsolatedPerSession(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	writeTaskFixture(t, repo)
+	if _, err := SetRepositoryRun(repo, true); err != nil {
+		t.Fatal(err)
+	}
+	stop := func(session string) Result {
+		return RunStop(repo, []byte(`{"session_id":"`+session+`","runtime":"codex"}`))
+	}
+	if result := stop("session-a"); !containsRepositoryRunBlock(result.Stdout) {
+		t.Fatalf("session A first continuation: %+v", result)
+	}
+	if result := stop("session-a"); !containsRepositoryRunBlock(result.Stdout) {
+		t.Fatalf("session A second continuation: %+v", result)
+	}
+	if result := stop("session-b"); !containsRepositoryRunBlock(result.Stdout) {
+		t.Fatalf("session B first continuation: %+v", result)
+	}
+	a, err := LoadSessionState(repo, "session-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := LoadSessionState(repo, "session-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.RepositoryRunNudges != 1 || b.RepositoryRunNudges != 0 {
+		t.Fatalf("session counters interfered: a=%d b=%d", a.RepositoryRunNudges, b.RepositoryRunNudges)
+	}
+	for range 5 {
+		_ = stop("session-a")
+	}
+	a, _ = LoadSessionState(repo, "session-a")
+	b, _ = LoadSessionState(repo, "session-b")
+	if a.RepositoryRunAwaiting || a.RepositoryRunNudges != 0 || !b.RepositoryRunAwaiting || b.RepositoryRunNudges != 0 {
+		t.Fatalf("one-session release affected another: a=%+v b=%+v", a, b)
+	}
+}
+
+func TestRepoRunNoProgressGuardConcurrentSessionIsolation(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	writeTaskFixture(t, repo)
+	if _, err := SetRepositoryRun(repo, true); err != nil {
+		t.Fatal(err)
+	}
+	stop := func(session string) Result {
+		return RunStop(repo, []byte(`{"session_id":"`+session+`","runtime":"codex"}`))
+	}
+	for _, session := range []string{"parallel-a", "parallel-b"} {
+		if result := stop(session); !containsRepositoryRunBlock(result.Stdout) {
+			t.Fatalf("seed %s: %+v", session, result)
 		}
+	}
+	var wait sync.WaitGroup
+	errorsOut := make(chan string, 8)
+	for _, session := range []string{"parallel-a", "parallel-b"} {
+		for range 4 {
+			wait.Add(1)
+			go func(session string) {
+				defer wait.Done()
+				if result := stop(session); !containsRepositoryRunBlock(result.Stdout) {
+					errorsOut <- fmt.Sprintf("%s: %+v", session, result)
+				}
+			}(session)
+		}
+	}
+	wait.Wait()
+	close(errorsOut)
+	for message := range errorsOut {
+		t.Error(message)
+	}
+	a, _ := LoadSessionState(repo, "parallel-a")
+	b, _ := LoadSessionState(repo, "parallel-b")
+	if a.RepositoryRunNudges != 4 || b.RepositoryRunNudges != 4 {
+		t.Fatalf("concurrent counters lost or crossed updates: a=%d b=%d", a.RepositoryRunNudges, b.RepositoryRunNudges)
+	}
+	_ = stop("parallel-a")
+	_ = stop("parallel-b")
+	if result := stop("parallel-a"); result.Stdout != "" {
+		t.Fatalf("parallel A sixth no-progress Stop did not release: %+v", result)
+	}
+	a, _ = LoadSessionState(repo, "parallel-a")
+	b, _ = LoadSessionState(repo, "parallel-b")
+	if a.RepositoryRunAwaiting || !b.RepositoryRunAwaiting || b.RepositoryRunNudges != 5 {
+		t.Fatalf("parallel release crossed sessions: a=%+v b=%+v", a, b)
+	}
+}
+
+func TestStrictContinuationUsesNoSixStopRelease(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	writeTaskFixture(t, repo)
+	if _, err := SetRepositoryRun(repo, true); err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < 8; index++ {
+		result := RunStop(repo, []byte(`{"session_id":"strict","runtime":"grok","strict_continuation":true}`))
+		if result.ExitCode != 0 || !containsRepositoryRunBlock(result.Stdout) {
+			t.Fatalf("strict continuation %d released early: %+v", index+1, result)
+		}
+	}
+	state, err := LoadSessionState(repo, "strict")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.RepositoryRunNudges != 0 || !state.RepositoryRunAwaiting {
+		t.Fatalf("strict continuation consumed six-stop guard: %+v", state)
+	}
+	decisions, err := ReadRunDecisions(repo, 1)
+	if err != nil || len(decisions) != 1 || !decisions[0].StrictContinuation {
+		t.Fatalf("strict continuation bound is not observable: %#v err=%v", decisions, err)
 	}
 }
 
@@ -174,10 +299,16 @@ func TestRepoRunNoProgressGuardReleasesOneStopWithoutDisabling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := mutateRepositoryRunState(repo, func(state repositoryRunState) repositoryRunState {
-		state.NoProgressNudges = 5
-		state.LastProgressHash = repositoryRunProgressHash(runState, 0)
-		state.AwaitingContinuation = true
+	durable, err := loadRepositoryRunState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	progressHash := repositoryRunProgressHash(runState, 0)
+	if _, err := MutateSessionState(repo, "repo-run", func(state SessionState) SessionState {
+		state.RepositoryRunEnabledAt = durable.EnabledAt
+		state.RepositoryRunProgressHash = hex.EncodeToString(progressHash[:])
+		state.RepositoryRunNudges = 5
+		state.RepositoryRunAwaiting = true
 		return state
 	}); err != nil {
 		t.Fatal(err)
@@ -237,7 +368,11 @@ func TestRepoRunAutomaticallyDisablesWhenTaskQueueIsComplete(t *testing.T) {
 	if _, err := SetRepositoryRun(repo, true); err != nil {
 		t.Fatal(err)
 	}
-	result, handled, err := runRepositoryContinuation(repo, nil, &HookPayload{SessionID: "complete"}, "codex", tasklifecycle.RunState{Disposition: tasklifecycle.RunComplete}, 0)
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, handled, err := runRepositoryContinuation(root, nil, &HookPayload{SessionID: "complete"}, "codex", tasklifecycle.RunState{Disposition: tasklifecycle.RunComplete})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,6 +386,13 @@ func TestRepoRunAutomaticallyDisablesWhenTaskQueueIsComplete(t *testing.T) {
 	if state.Enabled || state.DisabledReason != repositoryRunDisabledTaskComplete {
 		t.Fatalf("complete TASK queue did not auto-disable repository run: %+v", state)
 	}
+	decisions, err := ReadRunDecisions(repo, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decisions) != 1 || decisions[0].Branch != "disable_task_complete" || decisions[0].EnabledAfter {
+		t.Fatalf("terminal self-disable is not visible in run log: %#v", decisions)
+	}
 }
 
 func TestRepoRunBlockedOrInvalidTaskStateNeverSilentlyDisables(t *testing.T) {
@@ -260,7 +402,11 @@ func TestRepoRunBlockedOrInvalidTaskStateNeverSilentlyDisables(t *testing.T) {
 			if _, err := SetRepositoryRun(repo, true); err != nil {
 				t.Fatal(err)
 			}
-			result, handled, err := runRepositoryContinuation(repo, nil, &HookPayload{SessionID: "blocked"}, "codex", tasklifecycle.RunState{Disposition: disposition}, 0)
+			root, err := ResolveRepoRoot(repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, handled, err := runRepositoryContinuation(root, nil, &HookPayload{SessionID: "blocked"}, "codex", tasklifecycle.RunState{Disposition: disposition})
 			if err != nil {
 				t.Fatal(err)
 			}

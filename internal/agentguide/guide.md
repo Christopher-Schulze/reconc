@@ -232,15 +232,24 @@ state disables after terminal gates, blocked state reaches terminal Stop, and
 invalid state fails closed. PreToolUse, permission, TASK mutation, pre-commit,
 and terminal Stop gates remain active.
 
-`run off` is the only manual disable action. Prompt text, runtime interrupts,
+`run on` first validates live policy sources, the compiled lockfile, and an
+executable typed TASK disposition. Resolve its exact remediation before
+retrying; use `--force` only as an intentional exception. `run status
+--verbose` adds the latest bounded decision without changing the default line
+or JSON contract.
+
+`run off` is the only normal manual disable action. Prompt text, runtime interrupts,
 session boundaries, runtime changes, and application restarts never mutate the
 durable switch; an interrupt releases only the current invocation. Complete or
 absent TASK state disables it automatically after terminal gates. Six repeated
-no-progress continuations
-release one Stop without disabling repository mode, preventing an unbreakable
-host loop. Reads do not count as progress; TASK changes, writes, and command
+no-progress continuations in one session release one Stop without disabling
+repository mode or changing another session, preventing an unbreakable host
+loop. Reads do not count as progress; TASK changes, writes, and command
 outcomes do. Long runs receive bounded policy checkpoints after 64 material
 events, 30 minutes with new progress, or a failed command.
+Strict Grok Stops bypass the six-event guard and use the separate 32-delivered-
+interjection cap. `run reset` is recovery-only for corrupt or foreign-root
+state; it preserves the bounded decision log.
 
 ## Output Modes (Token Efficiency)
 
