@@ -15,6 +15,7 @@
 #   make sbom               -- emit deterministic SPDX and CycloneDX SBOMs
 #   make checksums          -- generate dist/SHA256SUMS over release artefacts
 #   make self-host          -- run the clean-repository bootstrap golden path
+#   make publication-audit  -- scan the public tree and post-boundary history
 
 GO        ?= go
 BIN       := reconc
@@ -36,7 +37,7 @@ RELEASE_TARGETS := \
 	linux/arm64 \
 	windows/amd64
 
-.PHONY: build test test-release-trust self-host fmt vet lint cover clean run tidy release completion manpage sbom checksums release-all bench
+.PHONY: build test test-release-trust self-host publication-audit fmt vet lint cover clean run tidy release completion manpage sbom checksums release-all bench
 
 build:
 	@mkdir -p $(BINDIR)
@@ -49,6 +50,7 @@ build:
 	 $(GO) run ./cmd/reconc-build-provenance --root . --goos "$$goos" --goarch "$$goarch" --version "$(VERSION)" --verify-binary $(BINDIR)/$(BIN)
 
 test:
+	$(MAKE) --no-print-directory publication-audit
 	$(GO) test -race -count=1 $(PKG)
 	(cd harness/template && $(GO) test -race -count=1 ./...)
 	./scripts/tests/release-trust.sh
@@ -58,6 +60,9 @@ test-release-trust:
 
 self-host: build
 	RECONC_BIN="$(CURDIR)/$(BINDIR)/$(BIN)" ./scripts/tests/self-hosting.sh
+
+publication-audit:
+	$(GO) run ./scripts/audits/publication --root .
 
 fmt:
 	$(GO) fmt $(PKG)
@@ -104,7 +109,7 @@ release-one:
 	     -o $$out ./cmd/reconc; \
 	 $(GO) run ./cmd/reconc-build-provenance --root . --goos "$$os" --goarch "$$arch" --version "$(VERSION)" --verify-binary $$out
 
-release: clean
+release: publication-audit clean
 	@mkdir -p $(DISTDIR)
 	@set -eu; for t in $(RELEASE_TARGETS); do \
 	  $(MAKE) --no-print-directory release-one TARGET=$$t; \

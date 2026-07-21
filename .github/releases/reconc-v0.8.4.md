@@ -3,7 +3,7 @@
 `v0.8.4` makes compiled policy portable across equivalent clones and replaces
 timestamp-based repo-binary freshness with deterministic embedded provenance.
 It also closes the product-wide project-state retention gap found during a
-full Omnimus workflow proof run.
+full production-scale monorepo workflow proof run.
 
 ## Portable policy lockfiles
 

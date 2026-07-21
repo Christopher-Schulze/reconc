@@ -37,8 +37,8 @@ func ResolveStateRoot() string {
 
 // ProjectDir is the exact hash-keyed directory used by agent session state.
 // The repo root is case-canonicalized before hashing so spelling variants of
-// the same checkout on case-insensitive filesystems (macOS /Users/x/repo vs
-// /Users/x/REPO) share one project bucket instead of silently splitting
+// the same checkout on case-insensitive filesystems (`/workspace/repo` vs
+// `/workspace/REPO`) share one project bucket instead of silently splitting
 // sessions, claims, and command proofs across two.
 func ProjectDir(stateRoot, repoRoot string) string {
 	sum := sha256.Sum256([]byte(CanonicalizePathCase(repoRoot)))

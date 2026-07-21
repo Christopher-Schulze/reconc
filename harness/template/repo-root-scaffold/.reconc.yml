@@ -415,7 +415,6 @@ rules:
       - "tools/reconc/cmd/**"
       - "tools/reconc/internal/**"
       - "tools/reconc/skills/**"
-      - "tools/reconc/stdlib/**"
     when_paths:
       - "tools/reconc/docs/**"
     message: Reconc engine source changes that alter behavior should keep the tool's own docs (tools/reconc/docs/) current, not the product documentation.md.

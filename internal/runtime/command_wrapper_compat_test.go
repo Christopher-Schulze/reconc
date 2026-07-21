@@ -12,20 +12,20 @@ import (
 // commands anchored with an explicit cd into the repo root satisfy the literal
 // rule form: `cd /abs/repo && X` (optionally rtk-wrapped) matches `X`.
 func TestNormalizeCommandSemanticsDropsLeadingCdRepoRoot(t *testing.T) {
-	root := "/Users/x/repo"
+	root := "/workspace/repo"
 	cases := []struct {
 		name     string
 		recorded string
 		want     string
 	}{
-		{"cd root and command", "cd /Users/x/repo && go test ./...", "go test ./..."},
-		{"cd root semicolon", "cd /Users/x/repo ; go test ./...", "go test ./..."},
-		{"cd root with rtk wrapper", "cd /Users/x/repo && rtk go test ./...", "go test ./..."},
-		{"cd subdir keeps cd", "cd /Users/x/repo/sub && go test ./...", "cd sub && go test ./..."},
-		{"cd root or-join is not dropped", "cd /Users/x/repo || go test ./...", "cd . || go test ./..."},
-		{"cd root pipe-join is not dropped", "cd /Users/x/repo | cat", "cd . | cat"},
-		{"bare cd root stays", "cd /Users/x/repo", "cd ."},
-		{"double anchor collapses", "cd /Users/x/repo && cd /Users/x/repo && go vet ./...", "go vet ./..."},
+		{"cd root and command", "cd /workspace/repo && go test ./...", "go test ./..."},
+		{"cd root semicolon", "cd /workspace/repo ; go test ./...", "go test ./..."},
+		{"cd root with rtk wrapper", "cd /workspace/repo && rtk go test ./...", "go test ./..."},
+		{"cd subdir keeps cd", "cd /workspace/repo/sub && go test ./...", "cd sub && go test ./..."},
+		{"cd root or-join is not dropped", "cd /workspace/repo || go test ./...", "cd . || go test ./..."},
+		{"cd root pipe-join is not dropped", "cd /workspace/repo | cat", "cd . | cat"},
+		{"bare cd root stays", "cd /workspace/repo", "cd ."},
+		{"double anchor collapses", "cd /workspace/repo && cd /workspace/repo && go vet ./...", "go vet ./..."},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -36,21 +36,21 @@ func TestNormalizeCommandSemanticsDropsLeadingCdRepoRoot(t *testing.T) {
 	}
 }
 
-// TestMatchingCommandResultsAcceptWrappedAndAnchoredForms locks the real-world
-// evidence forms from the 2026-07-20 commit-gate investigation: verbatim,
-// rtk-wrapped, and cd-root-anchored successes must all satisfy the rule.
+// TestMatchingCommandResultsAcceptWrappedAndAnchoredForms locks the portable
+// wrapper compatibility contract: verbatim, rtk-wrapped, and cd-root-anchored
+// successes must all satisfy the rule.
 func TestMatchingCommandResultsAcceptWrappedAndAnchoredForms(t *testing.T) {
-	repoRoot := "/Users/x/repo"
+	repoRoot := "/workspace/repo"
 	rootGate := []string{
 		"codebase/scripts/tests/run-root-tests.sh build",
 		"codebase/scripts/tests/run-root-tests.sh test",
 	}
-	harness := []string{"cd tools/reconc/harness/omnimus && go test ./..."}
+	harness := []string{"cd tools/reconc/harness/governed && go test ./..."}
 	results := []CommandResult{
 		{Command: "codebase/scripts/tests/run-root-tests.sh test", Outcome: CommandOutcomeSuccess, EvidenceEpoch: 45},
-		{Command: "cd tools/reconc/harness/omnimus && rtk go test ./...", Outcome: CommandOutcomeSuccess, EvidenceEpoch: 48},
-		{Command: "cd /Users/x/repo && codebase/scripts/tests/run-root-tests.sh build", Outcome: CommandOutcomeSuccess, EvidenceEpoch: 48},
-		{Command: "cd /Users/x/repo && rtk go build ./...", Outcome: CommandOutcomeFailure, EvidenceEpoch: 48},
+		{Command: "cd tools/reconc/harness/governed && rtk go test ./...", Outcome: CommandOutcomeSuccess, EvidenceEpoch: 48},
+		{Command: "cd /workspace/repo && codebase/scripts/tests/run-root-tests.sh build", Outcome: CommandOutcomeSuccess, EvidenceEpoch: 48},
+		{Command: "cd /workspace/repo && rtk go build ./...", Outcome: CommandOutcomeFailure, EvidenceEpoch: 48},
 	}
 	if got := matchingCommandResultsSince(results, rootGate, CommandOutcomeSuccess, repoRoot, 0, policy.CommandMatchExact); len(got) != 2 {
 		t.Fatalf("root gate should match verbatim and cd-anchored successes, got %v", got)

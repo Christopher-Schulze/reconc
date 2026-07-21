@@ -90,6 +90,9 @@ verify_manual_dispatch_only() {
   fi
 }
 
+(cd "$root" && go run ./scripts/audits/publication --root "$root") \
+  || fail "publication audit failed"
+
 version_source="$root/cmd/reconc/main.go"
 project_version=$(sed -n 's/^var Version = "\([^"]*\)"/\1/p' "$version_source")
 [[ "$project_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
@@ -103,6 +106,7 @@ require_text "$root/SECURITY.md" "only to the latest GitHub Release when one exi
 require_text "$root/AGENTS.md" "The current source line is \`$release_line\`; the source version is \`v$project_version\`."
 require_text "$root/docs/documentation.md" "The current source line is \`$release_line\`; the source version is \`v$project_version\`."
 require_text "$root/.github/releases/reconc-v$project_version.md" "# reconc v$project_version"
+require_text "$root/Makefile" "publication-audit:"
 
 ci_workflow="$root/.github/workflows/reconc-ci.yml"
 release_workflow="$root/.github/workflows/reconc-release.yml"
@@ -136,6 +140,10 @@ require_action "$release_workflow" "actions/attest-build-provenance"
   || fail "$ci_workflow must provision pinned Go in all three jobs"
 [ "$(grep -Fc 'go-version-file: go.mod' "$ci_workflow")" -eq 3 ] \
   || fail "$ci_workflow must derive Go from go.mod in all three jobs"
+[ "$(grep -Fc 'fetch-depth: 0' "$ci_workflow")" -eq 3 ] \
+  || fail "$ci_workflow must fetch full history in all three jobs"
+[ "$(grep -Fc 'fetch-depth: 0' "$release_workflow")" -eq 1 ] \
+  || fail "$release_workflow must fetch full history exactly once"
 for workflow in "$ci_workflow" "$release_workflow"; do
   require_text "$workflow" "uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0"
 done
@@ -156,6 +164,9 @@ done
 [ "$(grep -Fc 'test "$(bun --version)" = "1.3.14"' "$release_workflow")" -eq 1 ] \
   || fail "$release_workflow must verify Bun 1.3.14 exactly once"
 require_text "$release_workflow" "subject-checksums: dist/SHA256SUMS"
+require_text "$release_workflow" "make publication-audit"
+[ "$(grep -Fc 'make publication-audit' "$ci_workflow")" -eq 2 ] \
+  || fail "$ci_workflow must run the publication audit in both executable-test jobs"
 require_text "$release_workflow" "  workflow_dispatch:"
 require_text "$release_workflow" "      tag:"
 # shellcheck disable=SC2016 # Match workflow expressions literally.

@@ -21,9 +21,10 @@ var taskSpecGenericTerms = map[string]bool{
 	"these": true, "they": true, "this": true, "through": true, "under": true,
 	"until": true, "when": true, "where": true, "which": true, "while": true,
 	"with": true, "without": true,
-	"artemis": true, "code": true, "complete": true, "completion": true,
-	"done": true, "feature": true, "implementation": true, "omnimus": true,
-	"spec": true, "system": true, "task": true, "work": true,
+	"code": true, "complete": true, "completion": true, "done": true,
+	"feature": true, "implementation": true, "platform": true,
+	"repository": true, "spec": true, "system": true, "task": true,
+	"work": true,
 }
 
 type taskSpecBinding struct {

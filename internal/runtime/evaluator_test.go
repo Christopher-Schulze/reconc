@@ -861,7 +861,7 @@ func TestNormalizeCommandSemantics_RTKPrefix(t *testing.T) {
 		{"multiple_rtks", "rtk a && rtk b && rtk c", "a && b && c"},
 		{"no_rewrite_for_rtkfoo", "rtkfoo bar", "rtkfoo bar"},
 		{"no_rewrite_when_no_trailing_space", "rtk", "rtk"},
-		{"no_rewrite_when_rtk_inside_path", "ls /home/rtk/dir", "ls /home/rtk/dir"},
+		{"no_rewrite_when_rtk_inside_path", "ls /workspace/rtk/dir", "ls /workspace/rtk/dir"},
 		{"no_rewrite_when_rtk_in_string_literal", "echo 'rtk inside'", "echo 'rtk inside'"},
 		{"empty_input", "", ""},
 		{"whitespace_only", "   \t  ", ""},

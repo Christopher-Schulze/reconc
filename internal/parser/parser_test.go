@@ -542,7 +542,7 @@ func TestParseRuleTemplateInheritsPaths(t *testing.T) {
 	}
 }
 
-func TestParseGolemDerivedBuiltinTemplates(t *testing.T) {
+func TestParseBuiltinGovernanceTemplates(t *testing.T) {
 	tests := []struct {
 		name     string
 		yaml     string

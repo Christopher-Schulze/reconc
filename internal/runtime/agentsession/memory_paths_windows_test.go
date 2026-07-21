@@ -8,14 +8,14 @@ import (
 )
 
 func TestClaudeProjectKeyMatchesMixedWindowsAlias(t *testing.T) {
-	root := `C:\Users\runneradmin\AppData\Local\Temp\repo`
+	root := `C:\workspace\runneradmin\AppData\Local\Temp\repo`
 	aliases := func(path string) ([]string, error) {
-		if path == `C:\Users\runneradmin` {
-			return []string{path, `C:\Users\RUNNER~1`}, nil
+		if path == `C:\workspace\runneradmin` {
+			return []string{path, `C:\workspace\RUNNER~1`}, nil
 		}
 		return []string{path}, nil
 	}
-	mixed := `C:\Users\RUNNER~1\AppData\Local\Temp\repo`
+	mixed := `C:\workspace\RUNNER~1\AppData\Local\Temp\repo`
 	if !claudeProjectKeyMatchesResolvedAliases(root, claudeProjectKey(mixed), aliases) {
 		t.Fatalf("mixed Windows alias was rejected: long=%q mixed=%q", root, mixed)
 	}
@@ -32,7 +32,7 @@ func TestClaudeProjectKeyMatchesMixedWindowsAlias(t *testing.T) {
 }
 
 func TestClaudeProjectKeyMatchesMixedWindowsAliasFailsClosed(t *testing.T) {
-	root := `C:\Users\runneradmin\repo`
+	root := `C:\workspace\runneradmin\repo`
 	aliasError := func(string) ([]string, error) {
 		return nil, filepath.ErrBadPattern
 	}

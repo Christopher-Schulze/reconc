@@ -30,6 +30,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+          fetch-depth: 0
           ref: ${{ inputs.tag }}
 
       - name: Set up Go
@@ -73,6 +74,7 @@ jobs:
 
       - name: Verify source and release gates
         run: |
+          make publication-audit
           unformatted="$(git ls-files -z -- '*.go' | xargs -0 gofmt -l)"
           test -z "$unformatted" || {
             printf 'Go files require gofmt:\n%s\n' "$unformatted" >&2

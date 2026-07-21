@@ -15,7 +15,7 @@ this root, and docs/comments should not depend on any external source tree.
 - Language: Go
 - Module: `reconc.dev/reconc`
 - Runtime dependencies: `gopkg.in/yaml.v3`, `github.com/bmatcuk/doublestar/v4`
-- Test runner: `make test` (root module, portable template module, and release trust)
+- Test runner: `make test` (publication audit, root module, portable template module, and release trust)
 - Entry point: `cmd/reconc/main.go`
 
 ## Build, Test, And Run
@@ -27,6 +27,7 @@ make lint
 make build
 go run ./cmd/reconc --help
 make self-host
+make publication-audit
 ```
 
 Bun `1.3.14` is a test-only dependency for executing the generated OpenCode

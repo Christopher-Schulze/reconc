@@ -60,6 +60,9 @@ Security-relevant defaults:
 - payload command strings are matched as data and are not executed
 - subprocess execution is limited to policy-authored `require_script` checks
 - audit logging is opt-in via `RECONC_AUDIT=1`
+- `make publication-audit` rejects tracked secret-shaped values, personal
+  paths, session material, sensitive filenames, and post-boundary commit leaks
+  before release; legacy history remains an explicit documented exception
 
 ## Disclosure
 

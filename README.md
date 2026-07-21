@@ -371,6 +371,12 @@ byte-verified before its checksum and build provenance are published.
 path across all three bootstrap profiles, all nine hook platforms, TASK
 lifecycle, retention, and stable release-layout binary resolution.
 
+`make publication-audit` scans every tracked file plus every commit after the
+documented legacy-history boundary for private project vocabulary, personal
+absolute paths, session/share material, secret-shaped values, sensitive
+filenames, and placeholder residue. CI and release gates run it with full Git
+history; it does not rewrite or claim to erase older public history.
+
 ## License
 
 MIT License. Copyright (c) 2026 Christopher Schulze.

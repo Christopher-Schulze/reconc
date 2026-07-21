@@ -28,10 +28,10 @@ func TestAnnotateStagedCommandViolationsNamesTheProofCommand(t *testing.T) {
 			},
 		},
 	}
-	annotateStagedCommandViolations(report, "/Users/x/repo")
+	annotateStagedCommandViolations(report, "/workspace/repo")
 
 	commandAction := report.Violations[0].RecommendedAction
-	if !strings.Contains(commandAction, "reconc exec /Users/x/repo --staged --shell -- \"codebase/scripts/tests/run-root-tests.sh build\"") {
+	if !strings.Contains(commandAction, "reconc exec /workspace/repo --staged --shell -- \"codebase/scripts/tests/run-root-tests.sh build\"") {
 		t.Fatalf("staged hint must name the exact proof command, got %q", commandAction)
 	}
 	if !strings.Contains(commandAction, "index-bound") {
@@ -41,5 +41,5 @@ func TestAnnotateStagedCommandViolationsNamesTheProofCommand(t *testing.T) {
 		t.Fatalf("non-command violations must stay untouched, got %q", report.Violations[1].RecommendedAction)
 	}
 
-	annotateStagedCommandViolations(nil, "/Users/x/repo")
+	annotateStagedCommandViolations(nil, "/workspace/repo")
 }

@@ -17,6 +17,7 @@ usage, architecture, release, and security facts should be kept here first.
 - [Policy Packs And Native Assurance](#policy-packs-and-native-assurance)
 - [Architecture](#architecture)
 - [Agent Skill](#agent-skill)
+- [Publication Boundary](#publication-boundary)
 - [GitHub And Release](#github-and-release)
 - [Git Ignore Policy](#git-ignore-policy)
 - [Security](#security)
@@ -59,11 +60,13 @@ make lint
 make build
 go run ./cmd/reconc --help
 make self-host
+make publication-audit
 ```
 
 The canonical Make targets cover both the root Go module and
-`harness/template`; `make test` additionally runs release-trust failure-path
-checks. Direct `go test ./...` validates only the root module.
+`harness/template`; `make test` additionally runs the publication boundary and
+release-trust failure-path checks. Direct `go test ./...` validates only the
+root module.
 
 Make targets:
 
@@ -75,6 +78,7 @@ make lint
 make cover
 make bench
 make self-host
+make publication-audit
 make sbom VERSION=0.8.5
 make release VERSION=0.8.5
 ```
@@ -1021,6 +1025,30 @@ semantics: a trailing newline terminates the final line and does not add a
 phantom extra line, so spec-line-count and spec-line-range gates (for example
 the spec-code-parity audit `Spec Line Count` check) match the real file length.
 
+## Publication Boundary
+
+`make publication-audit` deterministically scans every Git-tracked working-tree
+file, including release notes, tests, assets, and the complete
+`harness/template/repo-root-scaffold` output. It rejects private project-name
+digests, personal absolute paths, agent session/share URLs and trailers,
+token/key-shaped credentials, embedded URL credentials, sensitive tracked
+filenames, transcript exports, placeholder `.gitkeep` residue, unreadable or
+oversized files, and non-canonical tracked paths. Forbidden private names are
+stored only as one-way digests, so the scanner does not reintroduce them into
+the public tree. Tests construct every negative fixture from split strings and
+prove that each rule can fail.
+
+The sole allowlist exception is history-scoped, owner-labelled, and bounded at
+commit `520dd9348c1d35acb581768c8979c29fbc025c2a`. Legacy public session trailers
+and pre-sanitization vocabulary at or before that commit remain untouched
+because history and protected tags are not rewritten. Every descendant commit
+message, changed path, and newly reachable blob is scanned for the same
+private-path, private-name, session, secret, and sensitive-filename patterns as
+the working tree. The audit therefore catches a leak even when a later commit
+removes it. It requires full Git history; all CI and release checkouts use
+`fetch-depth: 0`. This is an explicit containment boundary, not a claim that old
+public history was erased.
+
 ## GitHub And Release
 
 GitHub workflows:
@@ -1044,6 +1072,8 @@ CI checks:
 - every CI job that executes Go provisions the SHA-pinned `actions/setup-go`
   action from `go.mod`, including the isolated release-trust job
 - clean-repository self-hosting golden path on Ubuntu and macOS across all three bootstrap profiles and nine hook platforms
+- current-tree and post-boundary-history publication audit on Ubuntu, macOS,
+  native Windows, release-trust, and tagged release paths
 - immutable action commit pins plus an explicit GitHub-owned action allowlist;
   the trust gate validates pin shape and action identity without coupling
   updates to historical commit values
@@ -1074,7 +1104,7 @@ Release:
 - The tag version must be stable semantic versioning, match the source version, and have committed release notes.
 - Release workflow provisions the same pinned GitHub-owned Node.js runtime and
   exact verified Bun runtime, then repeats formatting, tidy, test, vet, pinned
-  Govulncheck, pinned Staticcheck, race, trust, and clean-repository
+  Govulncheck, pinned Staticcheck, race, publication, trust, and clean-repository
   self-hosting gates before building.
 - `make release VERSION=<tag-version>` builds the exact flat release inventory.
 - Release output includes deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs for

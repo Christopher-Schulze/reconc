@@ -27,7 +27,7 @@ Read this file completely before touching files. The goal is not to invent a new
 
 The template package is expected to contain:
 
-- `tools/reconc/` - Reconc engine, dist binaries, skills, stdlib and harnesses.
+- `tools/reconc/` - Reconc engine, dist binaries, skills, and harnesses.
 - `tools/reconc/harness/template/` - generalized harness logic.
 - `tools/reconc/harness/template/config/workflow/stack-config.yaml` - stack/layout contract used by template audits.
 - `tools/reconc/harness/template/repo-root-scaffold/` - files that are copied or merged into the target repo root.

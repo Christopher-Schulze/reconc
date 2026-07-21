@@ -1719,7 +1719,7 @@ func matchingCommands(commands, expected []string, repoRoot string, match policy
 	// rule form matches commands that were transparently wrapped by a
 	// CLI proxy (e.g. `rtk go test ...`) or anchored to an absolute
 	// repo path by the agent runtime (e.g.
-	// `cd /Users/.../repo/sub && ...`). normalizeCommandSemantics
+	// `cd /workspace/repo/sub && ...`). normalizeCommandSemantics
 	// applies both transformations to expected and recorded sides.
 	normalizedExpected := normalizeExpectedCommands(expected, repoRoot)
 	out := []string{}
