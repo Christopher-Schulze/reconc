@@ -19,7 +19,7 @@ func TestPublicREADMEContract(t *testing.T) {
 	for _, want := range []string{
 		"# Reconc\n",
 		"**AI agents say they're done. Reconc proves it.**",
-		"assets/reconc-proof-hero.png",
+		"assets/reconc.png",
 		"## See the real loop in under a minute",
 		"## OpenAI Build Week",
 		"2daa5372b08d7f479d895b2b5419a39026eb6719",
@@ -40,21 +40,9 @@ func TestPublicREADMEContract(t *testing.T) {
 	}
 }
 
-func TestPublicAssetsHaveExactDimensionsAndBoundedSize(t *testing.T) {
+func TestPublicBrandAssetHasExactDimensionsAndBoundedSize(t *testing.T) {
 	root := publicSurfaceRoot(t)
-	assets := []struct {
-		path          string
-		width, height int
-		maxBytes      int64
-	}{
-		{path: "assets/reconc-proof-hero.png", width: 2400, height: 900, maxBytes: 100_000},
-		{path: "assets/reconc-social-preview.png", width: 1280, height: 640, maxBytes: 100_000},
-		{path: "assets/reconc-mark.png", width: 512, height: 512, maxBytes: 25_000},
-	}
-	for _, asset := range assets {
-		assertPNGAsset(t, filepath.Join(root, asset.path), asset.width, asset.height, asset.maxBytes)
-	}
-	assertBoundedFile(t, filepath.Join(root, "assets/reconc-visual-system.pdf"), 100_000)
+	assertPNGAsset(t, filepath.Join(root, "assets/reconc.png"), 1774, 887, 1_000_000)
 	assertBoundedFile(t, filepath.Join(root, "assets/reconc-visual-philosophy.md"), 8_000)
 }
 

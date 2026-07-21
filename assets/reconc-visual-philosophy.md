@@ -1,45 +1,39 @@
-# Proof Signal
+# Verified Prompt
 
-Proof Signal treats software verification as a visible physical event: a claim
-approaches a narrow control gate, loses momentum when unsupported, and exits as
-a continuous evidence line only after it is proven. The system's signature is
-that single interrupted rail. It is not a decorative circuit or abstract AI
-spark; it is Reconc's block, remediation, proof, and completion contract made
-spatial.
+Verified Prompt turns the agent's working environment into the Reconc mark. A
+doubled code-chevron encloses one amber cursor, expressing repository-bounded
+execution without a shield, robot, or abstract AI symbol. The mark is not a
+workflow diagram. It is a compact command prompt with a controlled boundary.
 
-Space is disciplined and asymmetric. A compact gate mark carries the visual
-weight on the left while the wordmark and thesis occupy a calm field to the
-right. Large negative areas communicate confidence. Dense information appears
-only inside the proof strip, where monospace labels and state markers create a
-controlled rhythm of `BLOCK`, `PROVE`, and `DONE`.
+Space is horizontal, cinematic, and sparse. The prompt mark anchors the left;
+the wide `RECONC` wordmark holds the right. The two-line thesis sits beneath
+the name as a single proof statement, not a feature list. Large black areas
+keep the lockup calm at README, social-card, and video scale.
 
-The material palette is midnight graphite, warm near-white, muted steel, and
-one electric proof gradient from cyan to green. Red is reserved for the short
-blocked segment and never becomes a decorative accent. Thin construction lines
-feel measured rather than futuristic; rounded terminals make the evidence rail
-read as an active signal without turning it into neon spectacle.
+The material palette is black, warm white, proof amber, and one restrained
+green confirmation accent. Amber belongs to the prompt cursor and the word
+`Reconc` in the thesis. Green belongs only to the final confirmation mark.
+There is no red failure state, cyan rail, rainbow gradient, or metadata strip.
 
-Typography carries two roles. Big Shoulders Bold supplies a compressed,
-unmistakable product wordmark; Geist Mono owns technical labels, states, and
-microcopy. Letterspacing is deliberate, text remains sparse, and no paragraph
-is allowed onto the canvas. The thesis is the only full sentence because it is
-the product promise the diagram proves.
+Typography is wide, geometric, technical, and intentionally light. The main
+wordmark uses open counters and generous tracking; the thesis uses a smaller
+monospaced construction with disciplined spacing. Baselines and edges are
+measured, not improvised. No descriptor, runtime count, or secondary slogan is
+added to the canvas.
 
-The premium tension is refusal versus flow: most of the canvas is quiet and
-dark, while one small gate exerts enough authority to stop a false claim and
-release verified work. Every edge, baseline, gap, line weight, and export must
-remain crisp at GitHub README width and social-card scale. Nothing ornamental
-may compete with the gate moment.
+The premium tension is claim versus proof: white establishes the agent's claim,
+amber names Reconc's intervention, and the single green mark closes the result.
+Every chevron, cursor, glyph, baseline, gap, and export must remain crisp.
+Nothing ornamental may compete with the mark, name, or thesis.
 
 ## Art-direction contract
 
-- Formats: 2400x900 README hero, 1280x640 social preview, 512x512 product mark,
-  and a two-page vector PDF source.
-- Signature move: one evidence rail interrupted by a bracketed proof gate.
-- Palette: graphite `#071018`, ink `#0B1620`, warm white `#F4F2EA`, steel
-  `#71808C`, cyan `#25B9FF`, proof green `#58F28D`, block red `#FF5A66`.
-- Type: Big Shoulders Bold for the wordmark; Geist Mono for technical labels.
-- Density: low overall, concentrated only in the proof strip.
-- Focal hierarchy: gate mark, `RECONC`, thesis, proof strip, micro-labels.
-- Avoid: generic shields, locks, robots, brains, code brackets without a proof
-  relationship, stock gradients, glossy 3D, dashboard-card layouts, and fake UI.
+- Format: one 1774x887 PNG master used consistently for the README banner,
+  social preview, and video identity.
+- Signature move: a doubled code-chevron enclosing one amber prompt cursor.
+- Palette: black, warm white, proof amber, and restrained confirmation green.
+- Type: wide geometric sans for the wordmark; tracked mono for the thesis.
+- Density: minimal everywhere.
+- Focal hierarchy: prompt mark, `RECONC`, proof thesis, confirmation mark.
+- Avoid: gates, rails, dots, status strips, runtime counts, feature lists,
+  descriptors, extra copy, rainbow color, glossy effects, and fake UI.

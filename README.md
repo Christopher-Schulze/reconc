@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/reconc-proof-hero.png" alt="Reconc proof gate: an unsupported claim is blocked, evidence passes, and completion is proven" width="100%">
+  <img src="assets/reconc.png" alt="Reconc: AI agents say they're done. Reconc proves it." width="100%">
 </p>
 
 # Reconc
