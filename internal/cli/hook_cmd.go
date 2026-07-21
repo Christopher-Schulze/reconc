@@ -19,12 +19,13 @@ import (
 // agent-session packages.
 func runHook(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return &CLIError{ExitCode: 1, Message: "reconc hook: missing subcommand (generate | install | status | sync-scaffold | runtime | grok-pre-tool-guard | claim)"}
+		return &CLIError{ExitCode: 1, Message: "reconc hook: missing subcommand (generate | install | uninstall | status | sync-scaffold | runtime | grok-pre-tool-guard | claim)"}
 	}
 	switch args[0] {
 	case "-h", "--help":
 		fmt.Fprintln(stdout, "Usage: reconc hook generate <kind> [--json] [--output PATH]")
 		fmt.Fprintln(stdout, "       reconc hook install  <kind> [repo] [--force] [--json] [--output PATH]")
+		fmt.Fprintln(stdout, "       reconc hook uninstall <kind> [repo] [--json] [--output PATH]")
 		fmt.Fprintln(stdout, "       reconc hook status   [repo] [--json]")
 		fmt.Fprintln(stdout, "       reconc hook sync-scaffold <repo-root-scaffold> [--json]")
 		fmt.Fprintln(stdout, "       reconc hook runtime  <event> <repo>            (reads stdin JSON)")
@@ -38,6 +39,8 @@ func runHook(args []string, stdout, stderr io.Writer) error {
 		return runHookGenerate(args[1:], stdout, stderr)
 	case "install":
 		return runHookInstall(args[1:], stdout, stderr)
+	case "uninstall":
+		return runHookUninstall(args[1:], stdout)
 	case "status":
 		return runHookStatus(args[1:], stdout)
 	case "sync-scaffold":
@@ -49,7 +52,7 @@ func runHook(args []string, stdout, stderr io.Writer) error {
 	case "claim":
 		return runHookClaim(args[1:], stdout, stderr)
 	}
-	return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook: unknown subcommand %q (expected generate | install | status | sync-scaffold | runtime | grok-pre-tool-guard | claim)", args[0])}
+	return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook: unknown subcommand %q (expected generate | install | uninstall | status | sync-scaffold | runtime | grok-pre-tool-guard | claim)", args[0])}
 }
 
 func runHookStatus(args []string, stdout io.Writer) error {
@@ -98,6 +101,7 @@ func runHookStatus(args []string, stdout io.Writer) error {
 			} else {
 				reports[i].UnseenEvents = append(reports[i].UnseenEvents, reports[i].ExpectedEvents...)
 			}
+			reports[i].Live = reports[i].LastSeen != ""
 		}
 	}
 	if jsonOut {
@@ -108,6 +112,7 @@ func runHookStatus(args []string, stdout io.Writer) error {
 		}
 		return nil
 	}
+	style := newTextStyler(stdout)
 	for _, report := range reports {
 		live := "never seen"
 		if report.LastSeen != "" {
@@ -118,7 +123,12 @@ func runHookStatus(args []string, stdout io.Writer) error {
 		if len(report.UnseenEvents) > 0 {
 			live += "; unseen " + strings.Join(report.UnseenEvents, ",")
 		}
-		fmt.Fprintf(stdout, "%s: %s (%s; %s)\n", report.Kind, report.State, report.Detail, live)
+		fmt.Fprintf(stdout, "%s: %s (%s; %s)\n", report.Kind, style.decision(string(report.State)), report.Detail, live)
+		fmt.Fprintf(stdout, "  generated=%t installed=%t executable=%t configured=%t live=%t\n",
+			report.Generated, report.Installed, report.Executable, report.Configured, report.Live)
+		if report.Remediation != "" {
+			fmt.Fprintf(stdout, "  remediation: %s\n", report.Remediation)
+		}
 	}
 	return nil
 }
@@ -215,25 +225,33 @@ func runHookInstall(args []string, stdout, stderr io.Writer) (resultErr error) {
 			repo = a
 		}
 	}
-	report, err := hooks.Install(kind, repo, force)
-	if err != nil {
-		return &CLIError{ExitCode: 1, Message: "reconc hook install: " + err.Error()}
-	}
+	report, installErr := hooks.Install(kind, repo, force)
 	out, closeOutput, err := teeToFile(stdout, outputPath)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc hook install: open output file: " + err.Error()}
 	}
 	defer joinOutputCloseError(&resultErr, closeOutput)
-	if jsonOut {
+	if jsonOut && report != nil {
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
-		_ = enc.Encode(report)
-		return nil
+		if err := enc.Encode(report); err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc hook install: json encode: " + err.Error()}
+		}
+	} else if report != nil {
+		fmt.Fprintf(out, "Installed %s hook (%s)\n", report.Kind, report.Action)
+		fmt.Fprintf(out, "Repo:    %s\n", report.RepoRoot)
+		fmt.Fprintf(out, "Target:  %s\n", report.TargetPath)
+		if report.WrapperPath != "" {
+			fmt.Fprintf(out, "Wrapper: %s (%s)\n", report.WrapperPath, report.WrapperAction)
+		}
+		if report.ActivationPath != "" {
+			fmt.Fprintf(out, "Activate: %s (%s)\n", report.ActivationPath, report.ActivationAction)
+		}
+		fmt.Fprintf(out, "Next:    %s\n", report.NextAction)
 	}
-	fmt.Fprintf(out, "Installed %s hook (%s)\n", report.Kind, report.Action)
-	fmt.Fprintf(out, "Repo:    %s\n", report.RepoRoot)
-	fmt.Fprintf(out, "Target:  %s\n", report.TargetPath)
-	fmt.Fprintf(out, "Next:    %s\n", report.NextAction)
+	if installErr != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc hook install: " + installErr.Error()}
+	}
 	// Surface any user-modified reconc entries that got overwritten so
 	// operators notice.
 	if len(report.DroppedUserEdits) > 0 {
@@ -248,6 +266,71 @@ func runHookInstall(args []string, stdout, stderr io.Writer) (resultErr error) {
 		fmt.Fprintf(stderr, "reconc hook install: replaced malformed config; original preserved at %s\n",
 			report.BackupPath)
 	}
+	return nil
+}
+
+func runHookUninstall(args []string, stdout io.Writer) (resultErr error) {
+	if len(args) == 0 {
+		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook uninstall: missing kind (one of: %v)", hooks.InstallableKinds())}
+	}
+	kind := args[0]
+	repo := "."
+	repoSet := false
+	jsonOut := false
+	outputPath := ""
+	for index := 1; index < len(args); index++ {
+		arg := args[index]
+		switch arg {
+		case "--json":
+			jsonOut = true
+		case "--output":
+			value, ok := nextArgValue(args, &index, arg)
+			if !ok {
+				return &CLIError{ExitCode: 1, Message: "reconc hook uninstall: --output requires a path"}
+			}
+			outputPath = value
+		case "-h", "--help":
+			fmt.Fprintf(stdout, "Usage: reconc hook uninstall <kind> [repo] [--json] [--output PATH]\nUninstallable: %v\n", hooks.InstallableKinds())
+			return nil
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook uninstall: unknown flag %q", arg)}
+			}
+			if repoSet {
+				return &CLIError{ExitCode: 1, Message: "reconc hook uninstall: accepts at most one repo path"}
+			}
+			repo = arg
+			repoSet = true
+		}
+	}
+	report, err := hooks.Uninstall(kind, repo)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc hook uninstall: " + err.Error()}
+	}
+	out, closeOutput, err := teeToFile(stdout, outputPath)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc hook uninstall: open output file: " + err.Error()}
+	}
+	defer joinOutputCloseError(&resultErr, closeOutput)
+	if jsonOut {
+		encoder := json.NewEncoder(out)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(report); err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc hook uninstall: json encode: " + err.Error()}
+		}
+		return nil
+	}
+	fmt.Fprintf(out, "Uninstalled %s hook (%s)\n", report.Kind, report.Action)
+	fmt.Fprintf(out, "Repo:       %s\n", report.RepoRoot)
+	fmt.Fprintf(out, "Target:     %s\n", report.TargetPath)
+	fmt.Fprintf(out, "Entries:    %d removed\n", report.RemovedEntries)
+	if report.ActivationAction != "" {
+		fmt.Fprintf(out, "Activation: %s\n", report.ActivationAction)
+	}
+	if report.WrapperPath != "" {
+		fmt.Fprintf(out, "Wrapper:    %s (%s)\n", report.WrapperPath, report.WrapperAction)
+	}
+	fmt.Fprintf(out, "Next:       %s\n", report.NextAction)
 	return nil
 }
 

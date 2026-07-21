@@ -1,19 +1,15 @@
 # reconc preset: agent
 #
-# Lightweight defaults for AI-assisted development. Warns on missing context,
-# validation, and user-facing documentation without hard-locking the normal
-# edit loop. Pair with `default` for generated-output protection.
+# Stack-neutral defaults for AI-assisted development. Warns on missing project
+# context and user-facing documentation without guessing language commands.
+# Pair with detected, explicitly selected assurance packs for validation.
 
 pack:
   format_version: "1"
   name: agent
-  summary: Lightweight AI-agent context, verification, and documentation guidance.
+  summary: Stack-neutral AI-agent context and documentation guidance.
   stacks: ["*"]
   capabilities:
-    - id: agent-test-evidence
-      inputs: ["source", "dependency-manifest"]
-      evidence: ["command-success"]
-      rules: ["preset-agent-tests-before-done"]
     - id: agent-context-read
       inputs: ["source"]
       evidence: ["read-path"]
@@ -22,86 +18,9 @@ pack:
       inputs: ["public-surface"]
       evidence: ["write-path"]
       rules: ["preset-agent-docs-follow-public-surface"]
-    - id: shipped-source-hygiene
-      inputs: ["changed shipped source"]
-      evidence: ["native-source-scan"]
-      rules: ["preset-agent-source-hygiene"]
   conflicts: []
 
 rules:
-  - id: preset-agent-tests-before-done
-    kind: require_command_success
-    mode: warn
-    when_paths:
-      - "src/**"
-      - "cmd/**"
-      - "internal/**"
-      - "lib/**"
-      - "pkg/**"
-      - "app/**"
-      - "packages/**"
-      - "go.mod"
-      - "go.sum"
-      - "pyproject.toml"
-      - "package.json"
-      - "Cargo.toml"
-      - "**/CMakeLists.txt"
-      - "**/meson.build"
-      - "**/pom.xml"
-      - "**/build.gradle"
-      - "**/build.gradle.kts"
-      - "**/composer.json"
-      - "**/*.csproj"
-      - "**/*.{sh,bash,zsh,ksh}"
-      - "**/next.config.*"
-      - "**/svelte.config.*"
-      - "**/*.svelte"
-      - "**/build.zig"
-      - "**/build.zig.zon"
-      - "**/*.zig"
-      - "**/mix.exs"
-      - "**/mix.lock"
-      - "**/*.{ex,exs,heex}"
-      - "**/*.{ps1,psm1,psd1}"
-    commands:
-      - "go test ./..."
-      - "go test -race ./..."
-      - "go test -count=1 ./..."
-      - "go test -race -count=1 ./..."
-      - "pytest -q"
-      - "pytest"
-      - "uv run pytest -q"
-      - "uv run pytest"
-      - "npm test"
-      - "pnpm test"
-      - "bun test"
-      - "bun run test"
-      - "cargo test"
-      - "ctest --test-dir build"
-      - "ctest --test-dir build --output-on-failure"
-      - "meson test -C build"
-      - "make test"
-      - "./gradlew test"
-      - "./gradlew check"
-      - "gradle test"
-      - "gradle check"
-      - "./mvnw test"
-      - "./mvnw verify"
-      - "mvn test"
-      - "mvn verify"
-      - "composer test"
-      - "vendor/bin/phpunit"
-      - "./vendor/bin/phpunit"
-      - "php vendor/bin/phpunit"
-      - "phpunit"
-      - "dotnet test"
-      - "bats ."
-      - "zig build test"
-      - "mix test"
-      - "MIX_ENV=test mix test"
-      - "Invoke-Pester -CI"
-    message: Source or dependency changes should be backed by a successful test run.
-
   - id: preset-agent-read-project-context
     kind: require_read
     mode: warn
@@ -139,118 +58,3 @@ rules:
       - "CHANGELOG.md"
       - "docs/**"
     message: Public CLI, API, hook, or runtime changes should update user-facing docs.
-
-  - id: preset-agent-source-hygiene
-    kind: require_assurance
-    mode: warn
-    when_paths:
-      - "**/*.go"
-      - "**/*.rs"
-      - "**/*.py"
-      - "**/*.sh"
-      - "**/*.bash"
-      - "**/*.zsh"
-      - "**/*.ksh"
-      - "**/*.js"
-      - "**/*.jsx"
-      - "**/*.ts"
-      - "**/*.tsx"
-      - "**/*.mjs"
-      - "**/*.cjs"
-      - "**/*.mts"
-      - "**/*.cts"
-      - "**/*.svelte"
-      - "**/*.java"
-      - "**/*.kt"
-      - "**/*.kts"
-      - "**/*.c"
-      - "**/*.cc"
-      - "**/*.cpp"
-      - "**/*.cxx"
-      - "**/*.h"
-      - "**/*.hh"
-      - "**/*.hpp"
-      - "**/*.hxx"
-      - "**/*.cs"
-      - "**/*.php"
-      - "**/*.zig"
-      - "**/*.ex"
-      - "**/*.exs"
-      - "**/*.heex"
-      - "**/*.ps1"
-      - "**/*.psm1"
-      - "**/*.psd1"
-      - "**/*.swift"
-    message: Changed shipped source should not contain implementation-debt markers or unimplemented sentinels.
-    assurance:
-      - id: shipped-source-hygiene
-        type: source_hygiene
-        scan_paths:
-          - "**/*.go"
-          - "**/*.rs"
-          - "**/*.py"
-          - "**/*.sh"
-          - "**/*.bash"
-          - "**/*.zsh"
-          - "**/*.ksh"
-          - "**/*.js"
-          - "**/*.jsx"
-          - "**/*.ts"
-          - "**/*.tsx"
-          - "**/*.mjs"
-          - "**/*.cjs"
-          - "**/*.mts"
-          - "**/*.cts"
-          - "**/*.svelte"
-          - "**/*.java"
-          - "**/*.kt"
-          - "**/*.kts"
-          - "**/*.c"
-          - "**/*.cc"
-          - "**/*.cpp"
-          - "**/*.cxx"
-          - "**/*.h"
-          - "**/*.hh"
-          - "**/*.hpp"
-          - "**/*.hxx"
-          - "**/*.cs"
-          - "**/*.php"
-          - "**/*.zig"
-          - "**/*.ex"
-          - "**/*.exs"
-          - "**/*.heex"
-          - "**/*.ps1"
-          - "**/*.psm1"
-          - "**/*.psd1"
-          - "**/*.swift"
-        exclude_paths:
-          - "**/*_test.go"
-          - "**/test_*.py"
-          - "**/*_test.py"
-          - "**/*.test.*"
-          - "**/*.spec.*"
-          - "**/test/**"
-          - "**/tests/**"
-          - "**/__tests__/**"
-          - "**/fixtures/**"
-          - "vendor/**"
-          - "node_modules/**"
-          - "target/**"
-          - ".next/**"
-          - "**/.next/**"
-          - ".svelte-kit/**"
-          - "**/.svelte-kit/**"
-          - ".zig-cache/**"
-          - "**/.zig-cache/**"
-          - "zig-out/**"
-          - "**/zig-out/**"
-          - "_build/**"
-          - "**/_build/**"
-          - "deps/**"
-          - "**/deps/**"
-          - "dist/**"
-          - "build/**"
-          - "generated/**"
-          - "**/generated/**"
-          - "**/*.gen.*"
-          - "**/*.generated.*"

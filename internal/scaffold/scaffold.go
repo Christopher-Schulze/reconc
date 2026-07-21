@@ -19,6 +19,7 @@ import (
 	"reconc.dev/reconc/internal/atomicfile"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/presets"
+	"reconc.dev/reconc/internal/repositoryignore"
 )
 
 // CompilerConfigFilename is the canonical name of the per-repo policy
@@ -89,6 +90,11 @@ func Initialize(repoRoot string, opts Options) (*Report, error) {
 	agentsPath := filepath.Join(root, AgentsFilename)
 	claudePath := filepath.Join(root, "CLAUDE.md")
 	startPath := filepath.Join(root, "start.md")
+	ignorePath := filepath.Join(root, repositoryignore.RelativePath)
+	ignoreContent, ignoreExists, err := prepareRuntimeIgnore(ignorePath)
+	if err != nil {
+		return nil, err
+	}
 
 	report := &Report{
 		RepoRoot: root,
@@ -139,11 +145,46 @@ func Initialize(repoRoot string, opts Options) (*Report, error) {
 		report.Created = append(report.Created, AgentsFilename)
 	}
 
+	ignoreChanged, err := atomicfile.WriteIfChanged(ignorePath, []byte(ignoreContent), 0o644)
+	if err != nil {
+		return nil, &rerrors.PolicySourceError{Message: "write " + repositoryignore.RelativePath, Cause: err}
+	}
+	switch {
+	case !ignoreExists:
+		report.Created = append(report.Created, repositoryignore.RelativePath)
+	case ignoreChanged:
+		report.Updated = append(report.Updated, repositoryignore.RelativePath)
+	default:
+		report.Skipped = append(report.Skipped, repositoryignore.RelativePath)
+	}
+
 	sort.Strings(report.Created)
 	sort.Strings(report.Updated)
 	sort.Strings(report.Skipped)
 	report.NextAction = "Run `reconc refresh " + root + "` to build the lockfile from the new config."
 	return report, nil
+}
+
+func prepareRuntimeIgnore(path string) (content string, existed bool, err error) {
+	info, statErr := os.Lstat(path)
+	if os.IsNotExist(statErr) {
+		return repositoryignore.Block(), false, nil
+	}
+	if statErr != nil {
+		return "", false, &rerrors.PolicySourceError{Message: "inspect " + repositoryignore.RelativePath, Cause: statErr}
+	}
+	if !info.Mode().IsRegular() {
+		return "", true, &rerrors.PolicySourceError{Message: repositoryignore.RelativePath + " exists but is not a regular file"}
+	}
+	body, readErr := os.ReadFile(path)
+	if readErr != nil {
+		return "", true, &rerrors.PolicySourceError{Message: "read " + repositoryignore.RelativePath, Cause: readErr}
+	}
+	merged, mergeErr := repositoryignore.Merge(string(body))
+	if mergeErr != nil {
+		return "", true, &rerrors.PolicySourceError{Message: mergeErr.Error()}
+	}
+	return merged, true, nil
 }
 
 // validatePresets confirms every preset name resolves and dedupes the

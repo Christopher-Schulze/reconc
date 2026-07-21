@@ -66,6 +66,13 @@ const (
 	ActivationGitPath   ActivationMode = "git-hooks-path"
 )
 
+const (
+	// CodexActivationBlockStart and CodexActivationBlockEnd delimit the only
+	// config.toml bytes that hook uninstall may remove.
+	CodexActivationBlockStart = "# >>> reconc bootstrap hooks"
+	CodexActivationBlockEnd   = "# <<< reconc bootstrap hooks"
+)
+
 // Capability is one platform mapping onto Reconc's neutral lifecycle.
 type Capability struct {
 	Event               Event         `json:"event"`

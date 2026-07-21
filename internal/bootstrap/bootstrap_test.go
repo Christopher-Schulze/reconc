@@ -46,6 +46,24 @@ func TestInspectIsReadOnlyAndSuggestsApplicablePacks(t *testing.T) {
 	if !containsString(inspection.DetectedPlatforms, hooks.KindCodex) {
 		t.Fatalf("inspection missed Codex config: %+v", inspection)
 	}
+	if inspection.DetectionState != "known" || len(inspection.StackEvidence) != 2 {
+		t.Fatalf("inspection lost detection evidence: %+v", inspection)
+	}
+	if len(inspection.PackageManagers) != 2 {
+		t.Fatalf("inspection package-manager evidence = %+v", inspection.PackageManagers)
+	}
+	foundCodexStatus := false
+	for _, status := range inspection.PlatformStatuses {
+		if status.Kind == hooks.KindCodex {
+			foundCodexStatus = true
+			if !containsString(status.Evidence, ".codex") || status.State == "" {
+				t.Fatalf("Codex status lacks evidence or state: %+v", status)
+			}
+		}
+	}
+	if !foundCodexStatus {
+		t.Fatalf("inspection lacks Codex platform status: %+v", inspection.PlatformStatuses)
+	}
 }
 
 func TestInspectSuggestsPythonAndRustAssurancePacks(t *testing.T) {
@@ -118,6 +136,86 @@ func TestInspectSuggestsFrameworkAndAdditionalLanguagePacksWithoutToolchains(t *
 	}
 }
 
+func TestInspectFirstTouchFixtureMatrixStaysEvidenceFocused(t *testing.T) {
+	bootstrapTestHome(t)
+	tests := []struct {
+		name          string
+		files         map[string]string
+		wantStacks    string
+		wantManagers  string
+		wantPacks     string
+		wantPlatforms string
+		wantDetection string
+		wantMarker    string
+	}{
+		{
+			name: "go", files: map[string]string{"go.mod": "module example\n"},
+			wantStacks: "go", wantManagers: "go-modules", wantPacks: "go-assurance", wantDetection: "known",
+		},
+		{
+			name: "python", files: map[string]string{"pyproject.toml": "[project]\nname = 'example'\n", "uv.lock": "version = 1\n"},
+			wantStacks: "python", wantManagers: "uv", wantPacks: "python-assurance", wantDetection: "known",
+		},
+		{
+			name: "generic-node-typescript", files: map[string]string{
+				"package.json": "{\"scripts\":{\"test\":\"node --test\"}}\n", "package-lock.json": "{}\n", "tsconfig.json": "{}\n",
+			},
+			wantManagers: "npm", wantDetection: "known",
+		},
+		{
+			name: "mixed", files: map[string]string{
+				"services/api/go.mod": "module example/api\n", "services/jobs/pyproject.toml": "[project]\nname = 'jobs'\n",
+			},
+			wantStacks: "go,python", wantManagers: "go-modules", wantPacks: "go-assurance,python-assurance", wantDetection: "known",
+		},
+		{
+			name: "no-agent", files: map[string]string{"go.mod": "module example\n"},
+			wantStacks: "go", wantManagers: "go-modules", wantPacks: "go-assurance", wantDetection: "known",
+		},
+		{
+			name: "pre-existing-reconc", files: map[string]string{
+				".reconc.yml": "rules: []\n", "AGENTS.md": "# Existing contract\n", ".codex/config.toml": "[features]\nhooks = true\n",
+			},
+			wantPlatforms: hooks.KindCodex, wantDetection: "unknown", wantMarker: ".reconc.yml,AGENTS.md",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repo := t.TempDir()
+			for path, body := range test.files {
+				writeBootstrapTestFile(t, repo, path, body, 0o644)
+			}
+			inspection, err := Inspect(repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Join(inspection.DetectedStacks, ","); got != test.wantStacks {
+				t.Fatalf("stacks = %q, want %q", got, test.wantStacks)
+			}
+			managerNames := make([]string, 0, len(inspection.PackageManagers))
+			for _, manager := range inspection.PackageManagers {
+				managerNames = append(managerNames, manager.Name)
+			}
+			if got := strings.Join(managerNames, ","); got != test.wantManagers {
+				t.Fatalf("package managers = %q, want %q", got, test.wantManagers)
+			}
+			if got := strings.Join(inspection.PackSuggestions, ","); got != test.wantPacks {
+				t.Fatalf("pack suggestions = %q, want %q", got, test.wantPacks)
+			}
+			if got := strings.Join(inspection.DetectedPlatforms, ","); got != test.wantPlatforms {
+				t.Fatalf("platforms = %q, want %q", got, test.wantPlatforms)
+			}
+			if inspection.DetectionState != test.wantDetection {
+				t.Fatalf("detection state = %q, want %q", inspection.DetectionState, test.wantDetection)
+			}
+			if got := strings.Join(inspection.RepositoryMarkers, ","); got != test.wantMarker {
+				t.Fatalf("repository markers = %q, want %q", got, test.wantMarker)
+			}
+		})
+	}
+}
+
 func TestPlanIsDeterministicAndStrictlyLoadable(t *testing.T) {
 	bootstrapTestHome(t)
 	repo := t.TempDir()
@@ -147,6 +245,9 @@ func TestPlanIsDeterministicAndStrictlyLoadable(t *testing.T) {
 	if action, err := WritePlan(planPath, first); err != nil || action != "unchanged" {
 		t.Fatalf("idempotent plan write: action=%s err=%v", action, err)
 	}
+	if action, err := ReplacePlan(planPath, second); err != nil || action != "unchanged" {
+		t.Fatalf("idempotent plan replace: action=%s err=%v", action, err)
+	}
 	loaded, err := LoadPlan(planPath)
 	if err != nil {
 		t.Fatal(err)
@@ -173,6 +274,13 @@ func TestPlanIsDeterministicAndStrictlyLoadable(t *testing.T) {
 	}
 	if _, err := LoadPlan(oversizedPath); err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("oversized plan must fail before decoding: %v", err)
+	}
+	foreignPath := filepath.Join(t.TempDir(), "not-a-plan.json")
+	if err := os.WriteFile(foreignPath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReplacePlan(foreignPath, first); err == nil || !strings.Contains(err.Error(), "refuse to replace non-plan") {
+		t.Fatalf("replace accepted an arbitrary file: %v", err)
 	}
 
 	invalidSelection := *first
@@ -255,6 +363,83 @@ func TestGovernedApplyVerifyAndRerunAreIdempotent(t *testing.T) {
 	after := bootstrapTreeSnapshot(t, repo)
 	if strings.Join(before, "\n") != strings.Join(after, "\n") {
 		t.Fatalf("idempotent apply changed repository bytes:\nbefore=%v\nafter=%v", before, after)
+	}
+}
+
+func TestAcceptManagedCandidatesPreservesUserBytesAndCompletesReplan(t *testing.T) {
+	bootstrapTestHome(t)
+	repo := t.TempDir()
+	original := "# Team instructions\n\nKeep this exact.\n"
+	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	request := Request{RepoRoot: repo, Profile: ProfileMinimal}
+	plan, err := BuildPlan(request, "test-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := Apply(plan, "test-version")
+	if err != nil || report.Status != ApplyDrift || !HasManagedCandidates(plan) {
+		t.Fatalf("managed drift setup: report=%+v err=%v", report, err)
+	}
+	accepted, err := AcceptManagedCandidates(plan, report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(accepted.Updated) != 1 || accepted.Updated[0] != "AGENTS.md" || len(accepted.RemovedCandidates) != 1 {
+		t.Fatalf("managed acceptance report = %+v", accepted)
+	}
+	body, err := os.ReadFile(filepath.Join(repo, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(body), original) || !strings.Contains(string(body), agentBlockStart) {
+		t.Fatalf("managed acceptance changed user bytes: %q", body)
+	}
+	if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(accepted.RemovedCandidates[0]))); !os.IsNotExist(err) {
+		t.Fatalf("accepted candidate remains: %v", err)
+	}
+
+	replanned, err := BuildPlan(request, "test-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed, err := Apply(replanned, "test-version")
+	if err != nil || completed.Status != ApplyComplete {
+		t.Fatalf("replanned bootstrap did not complete: report=%+v err=%v", completed, err)
+	}
+	if completed.Summary.Created == 0 || completed.Summary.Drifted != 0 || !completed.Summary.LivenessKnown || !strings.HasPrefix(completed.NextAction, "reconc check ") {
+		t.Fatalf("completed bootstrap summary is not decision-complete: %+v", completed)
+	}
+}
+
+func TestAcceptManagedCandidatesRefusesTargetDriftWithoutMutation(t *testing.T) {
+	bootstrapTestHome(t)
+	repo := t.TempDir()
+	target := filepath.Join(repo, "AGENTS.md")
+	if err := os.WriteFile(target, []byte("original\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := BuildPlan(Request{RepoRoot: repo, Profile: ProfileMinimal}, "test-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := Apply(plan, "test-version")
+	if err != nil || report.Status != ApplyDrift {
+		t.Fatalf("managed drift setup: report=%+v err=%v", report, err)
+	}
+	if err := os.WriteFile(target, []byte("changed after candidate\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AcceptManagedCandidates(plan, report); err == nil || !strings.Contains(err.Error(), "drifted since planning") {
+		t.Fatalf("target drift acceptance error = %v", err)
+	}
+	body, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "changed after candidate\n" {
+		t.Fatalf("failed acceptance mutated user target: %q", body)
 	}
 }
 

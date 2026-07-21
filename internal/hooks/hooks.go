@@ -97,6 +97,16 @@ type InstallReport struct {
 	// config; the original bytes are preserved at this absolute path
 	// instead of being discarded.
 	BackupPath string `json:"backup_path,omitempty"`
+	// WrapperAction reports whether a wrapper-dependent platform created,
+	// updated, or reused the shared repository-local launcher.
+	WrapperPath   string `json:"wrapper_path,omitempty"`
+	WrapperAction string `json:"wrapper_action,omitempty"`
+	// ActivationPath and ActivationAction report explicit host-discovery
+	// configuration managed alongside the hook artifact.
+	ActivationPath   string `json:"activation_path,omitempty"`
+	ActivationAction string `json:"activation_action,omitempty"`
+	// Partial is true when the wrapper is ready but the platform target failed.
+	Partial bool `json:"partial,omitempty"`
 }
 
 // ScaffoldSyncReport is the deterministic result of syncing generated
@@ -171,24 +181,90 @@ func Install(kind, repoRoot string, force bool) (*InstallReport, error) {
 			Message: fmt.Sprintf("unknown installable hook kind: %q (installable: %v)", kind, InstallableKinds()),
 		}
 	}
+	root, err := existingRepoRoot(repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	var activationPlan *codexActivationPlan
+	if definition.Kind == KindCodex {
+		activationPlan, err = planCodexActivation(root, force)
+		if err != nil {
+			return nil, err
+		}
+	}
+	wrapperAction := ""
+	if definition.Activation.RequiresWrapper {
+		wrapperAction, err = ensureWrapper(root, force)
+		if err != nil {
+			return nil, err
+		}
+	}
+	report, installErr := installPlatform(definition, root, force)
+	if installErr != nil {
+		if definition.Activation.RequiresWrapper {
+			return &InstallReport{
+				Kind: kind, RepoRoot: root, TargetPath: definition.TargetPath, Action: "not-installed",
+				WrapperPath: WrapperPath, WrapperAction: wrapperAction, Partial: true,
+				NextAction: "Resolve the target error, then rerun `reconc hook install " + kind + " " + root + "`.",
+			}, installErr
+		}
+		return nil, installErr
+	}
+	if definition.Activation.RequiresWrapper {
+		report.WrapperPath = WrapperPath
+		report.WrapperAction = wrapperAction
+	}
+	if activationPlan != nil {
+		report.ActivationPath = codexActivationPath
+		report.ActivationAction, err = applyCodexActivation(activationPlan)
+		if err != nil {
+			report.Partial = true
+			report.NextAction = "Resolve the activation error, then rerun `reconc hook install " + kind + " " + root + "`."
+			return report, err
+		}
+	}
+	return report, nil
+}
+
+func installPlatform(definition platformDefinition, repoRoot string, force bool) (*InstallReport, error) {
 	switch definition.InstallMode {
 	case InstallExecutable:
 		return installGitPreCommit(repoRoot, force)
 	case InstallNestedJSON:
-		return installJSONHooks(kind, definition.TargetPath, repoRoot, force)
+		return installJSONHooks(definition.Kind, definition.TargetPath, repoRoot, force)
 	case InstallFlatJSON:
 		return installDevinCLI(repoRoot, force)
 	case InstallOwnedJSON:
 		return installAntigravity(repoRoot, force)
 	case InstallPlugin:
-		if kind == KindOpenCode {
+		if definition.Kind == KindOpenCode {
 			return installOpenCode(repoRoot, force)
 		}
 		return installKilo(repoRoot, force)
 	case InstallManagedJSON:
 		return installGrok(repoRoot, force)
 	}
-	return nil, &rerrors.PolicySourceError{Message: fmt.Sprintf("hook kind %q has no installer", kind)}
+	return nil, &rerrors.PolicySourceError{Message: fmt.Sprintf("hook kind %q has no installer", definition.Kind)}
+}
+
+func ensureWrapper(root string, force bool) (string, error) {
+	artifact := GenerateWrapper()
+	target := filepath.Join(root, filepath.FromSlash(artifact.TargetPath))
+	if err := requireManagedTargetWithin(root, target); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return "", &rerrors.PolicySourceError{Message: "create wrapper parent directory", Cause: err}
+	}
+	if existing, err := readManagedArtifact(target); err == nil {
+		managed := strings.Contains(string(existing), "# Managed by Reconc. Repo-local agent hook wrapper.")
+		if string(existing) != artifact.Content && !managed && !force {
+			return "", &rerrors.PolicySourceError{Message: WrapperPath + " exists and is not reconc-managed; pass --force to overwrite"}
+		}
+	} else if !os.IsNotExist(err) {
+		return "", &rerrors.PolicySourceError{Message: "read " + WrapperPath, Cause: err}
+	}
+	return writeGeneratedArtifact(target, artifact.Content, true)
 }
 
 // ScaffoldKinds returns every generated hook artifact that belongs in

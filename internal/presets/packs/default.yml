@@ -1,23 +1,18 @@
 # reconc preset: default
 #
-# Baseline guardrails most repos want. Blocks writes to generated output
-# directories and warns when lockfile-generating manifests change without
-# a matching install/sync command. Designed to be extended, not replaced.
+# Stack-neutral baseline guardrails. Blocks direct writes to conventional
+# generated output without guessing a package manager or build command.
 
 pack:
   format_version: "1"
   name: default
-  summary: Baseline generated-output protection and manifest synchronization.
+  summary: Stack-neutral generated-output protection.
   stacks: ["*"]
   capabilities:
     - id: generated-output-protection
       inputs: ["generated/**", "dist/**", "build/**"]
       evidence: ["write-path"]
       rules: ["preset-default-generated-read-only"]
-    - id: dependency-manifest-sync
-      inputs: ["package.json", "pyproject.toml", "Cargo.toml", "go.mod", "requirements.txt"]
-      evidence: ["command"]
-      rules: ["preset-default-lockfiles-follow-manifests"]
   conflicts: []
 
 rules:
@@ -44,29 +39,3 @@ rules:
       # Files explicitly flagged as generated regardless of directory.
       - "**/*.generated.*"
     message: Generated artifacts are managed by the build; edit the source, not the output.
-
-  - id: preset-default-lockfiles-follow-manifests
-    kind: require_command
-    mode: warn
-    when_paths:
-      - "package.json"
-      - "pyproject.toml"
-      - "Cargo.toml"
-      - "go.mod"
-      - "requirements.txt"
-      - "**/package.json"
-      - "**/pyproject.toml"
-      - "**/Cargo.toml"
-      - "**/go.mod"
-      - "**/requirements.txt"
-    commands:
-      - "npm install"
-      - "pnpm install"
-      - "yarn install"
-      - "uv sync"
-      - "uv sync --locked"
-      - "pip install -r requirements.txt"
-      - "cargo build"
-      - "cargo update"
-      - "go mod tidy"
-    message: Regenerate the lockfile after editing a dependency manifest.

@@ -789,10 +789,11 @@ func runDone(args []string, stdout, stderr io.Writer) error {
 }
 
 func renderCompletionBlock(stdout io.Writer, report *completiongate.Report) {
-	fmt.Fprintln(stdout, "blocked:")
+	style := newTextStyler(stdout)
+	fmt.Fprintf(stdout, "%s:\n", style.decision("blocked"))
 	for _, check := range report.Checks {
 		if check.Status == completiongate.StatusFail {
-			fmt.Fprintf(stdout, "[FAIL] %s: %s\n", check.ID, check.Detail)
+			fmt.Fprintf(stdout, "[%s] %s: %s\n", style.statusTag("FAIL", 4), style.ruleID(check.ID), check.Detail)
 		}
 	}
 	fmt.Fprintf(stdout, "next: %s\n", report.NextAction)

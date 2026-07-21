@@ -25,6 +25,7 @@ type bootstrapRequestFlags struct {
 	platformSet   bool
 	output        string
 	outputSet     bool
+	replaceOutput bool
 	jsonOut       bool
 	help          bool
 }
@@ -45,6 +46,8 @@ func runBootstrap(args []string, version string, stdout, stderr io.Writer) error
 		return runBootstrapPlan(args[1:], version, stdout)
 	case "apply":
 		return runBootstrapApply(args[1:], version, stdout)
+	case "remove":
+		return runBootstrapRemove(args[1:], stdout)
 	case "verify":
 		return runBootstrapVerify(args[1:], stdout)
 	default:
@@ -58,6 +61,7 @@ func printBootstrapHelp(stdout io.Writer) {
 	fmt.Fprintln(stdout, "       reconc bootstrap plan [repo] --profile existing|minimal|governed [selection flags]")
 	fmt.Fprintln(stdout, "       reconc bootstrap apply --plan PATH [--json]")
 	fmt.Fprintln(stdout, "       reconc bootstrap apply [repo] --profile existing|minimal|governed [selection flags]")
+	fmt.Fprintln(stdout, "       reconc bootstrap remove --plan PATH [--json]")
 	fmt.Fprintln(stdout, "       reconc bootstrap verify --plan PATH [--json]")
 	fmt.Fprintln(stdout, "")
 	fmt.Fprintln(stdout, "Selection flags:")
@@ -68,6 +72,7 @@ func printBootstrapHelp(stdout io.Writer) {
 	fmt.Fprintln(stdout, "  --checksum SHA256       Required with --binary")
 	fmt.Fprintln(stdout, "  --platform OS/ARCH      Target for --binary; defaults to the running platform")
 	fmt.Fprintln(stdout, "  --output PATH           Create the deterministic plan file; plan only")
+	fmt.Fprintln(stdout, "  --replace-output        Replace only a valid stale Reconc plan for the same repository")
 	fmt.Fprintln(stdout, "  --json                  Emit deterministic machine-readable output")
 	fmt.Fprintln(stdout, "")
 	fmt.Fprintln(stdout, "Compatibility: `reconc bootstrap [repo]` runs a create-only minimal transaction with detected hooks.")
@@ -127,9 +132,27 @@ func runBootstrapInspect(args []string, stdout io.Writer) error {
 		return writeBootstrapJSON("inspect", stdout, inspection)
 	}
 	fmt.Fprintf(stdout, "Repository: %s\n", inspection.RepoRoot)
-	fmt.Fprintf(stdout, "Stacks: %s\n", displayBootstrapList(inspection.DetectedStacks))
+	fmt.Fprintf(stdout, "Detection: %s\n", inspection.DetectionState)
+	renderBootstrapEvidence(stdout, "Stacks", inspection.StackEvidence)
+	renderBootstrapEvidence(stdout, "Package managers", inspection.PackageManagers)
+	fmt.Fprintf(stdout, "Repository markers: %s\n", displayBootstrapList(inspection.RepositoryMarkers))
+	for _, ambiguity := range inspection.Ambiguities {
+		fmt.Fprintf(stdout, "Ambiguity: %s\n", ambiguity)
+	}
 	fmt.Fprintf(stdout, "Suggested packs: %s\n", displayBootstrapList(inspection.PackSuggestions))
-	fmt.Fprintf(stdout, "Detected platforms: %s\n", displayBootstrapList(inspection.DetectedPlatforms))
+	if len(inspection.PlatformStatuses) == 0 {
+		fmt.Fprintln(stdout, "Platforms: none detected or installed")
+	} else {
+		fmt.Fprintln(stdout, "Platforms:")
+		for _, platform := range inspection.PlatformStatuses {
+			fmt.Fprintf(stdout, "  %s: %s; evidence %s; %s\n", platform.Kind, platform.State, displayBootstrapList(platform.Evidence), platform.Detail)
+			fmt.Fprintf(stdout, "    generated=%t installed=%t executable=%t configured=%t\n",
+				platform.Generated, platform.Installed, platform.Executable, platform.Configured)
+			if platform.Remediation != "" {
+				fmt.Fprintf(stdout, "    remediation: %s\n", platform.Remediation)
+			}
+		}
+	}
 	fmt.Fprintf(stdout, "Existing control paths: %s\n", displayBootstrapList(inspection.ExistingPaths))
 	if inspection.BinaryResolution.Path != "" {
 		fmt.Fprintf(stdout, "Binary: %s (%s)\n", inspection.BinaryResolution.Path, inspection.BinaryResolution.Source)
@@ -137,6 +160,17 @@ func runBootstrapInspect(args []string, stdout io.Writer) error {
 		fmt.Fprintf(stdout, "Binary: unavailable (%s)\n", inspection.BinaryResolution.Diagnostic)
 	}
 	return nil
+}
+
+func renderBootstrapEvidence(stdout io.Writer, label string, evidence []reconbootstrap.DetectionEvidence) {
+	if len(evidence) == 0 {
+		fmt.Fprintf(stdout, "%s: unknown\n", label)
+		return
+	}
+	fmt.Fprintf(stdout, "%s:\n", label)
+	for _, item := range evidence {
+		fmt.Fprintf(stdout, "  %s <- %s\n", item.Name, displayBootstrapList(item.Paths))
+	}
 }
 
 func runBootstrapPlan(args []string, version string, stdout io.Writer) error {
@@ -158,7 +192,11 @@ func runBootstrapPlan(args []string, version string, stdout io.Writer) error {
 	}
 	writeState := ""
 	if flags.output != "" {
-		writeState, err = reconbootstrap.WritePlan(flags.output, plan)
+		if flags.replaceOutput {
+			writeState, err = reconbootstrap.ReplacePlan(flags.output, plan)
+		} else {
+			writeState, err = reconbootstrap.WritePlan(flags.output, plan)
+		}
 		if err != nil {
 			return bootstrapCLIError("plan", err.Error())
 		}
@@ -229,7 +267,7 @@ func runBootstrapApply(args []string, version string, stdout io.Writer) error {
 	report, applyErr := reconbootstrap.Apply(plan, version)
 	if applyErr != nil {
 		if report != nil {
-			report.NextAction = applyErr.Error()
+			report.NextAction = bootstrapApplyRecovery(plan, planPath, applyErr)
 			if jsonOut {
 				if err := writeBootstrapJSON("apply", stdout, report); err != nil {
 					return err
@@ -297,6 +335,54 @@ func runBootstrapVerify(args []string, stdout io.Writer) error {
 		renderBootstrapVerification(stdout, verification)
 	}
 	if !verification.Valid {
+		return &CLIError{ExitCode: 1, Message: ""}
+	}
+	return nil
+}
+
+func runBootstrapRemove(args []string, stdout io.Writer) error {
+	planPath := ""
+	jsonOut := false
+	for index := 0; index < len(args); index++ {
+		switch args[index] {
+		case "--plan":
+			if planPath != "" {
+				return bootstrapCLIError("remove", "--plan may be specified only once")
+			}
+			value, ok := nextArgValue(args, &index, "--plan")
+			if !ok {
+				return bootstrapCLIError("remove", "--plan requires a path")
+			}
+			planPath = value
+		case "--json":
+			jsonOut = true
+		case "-h", "--help":
+			fmt.Fprintln(stdout, "Usage: reconc bootstrap remove --plan PATH [--json]")
+			fmt.Fprintln(stdout, "Removes only receipt-owned files and marker-delimited managed blocks.")
+			return nil
+		default:
+			return bootstrapCLIError("remove", fmt.Sprintf("unknown argument %q", args[index]))
+		}
+	}
+	if planPath == "" {
+		return bootstrapCLIError("remove", "--plan is required")
+	}
+	plan, err := reconbootstrap.LoadPlan(planPath)
+	if err != nil {
+		return bootstrapCLIError("remove", err.Error())
+	}
+	report, removeErr := reconbootstrap.Remove(plan)
+	if jsonOut {
+		if err := writeBootstrapJSON("remove", stdout, report); err != nil {
+			return err
+		}
+	} else {
+		renderBootstrapRemoval(stdout, report)
+	}
+	if removeErr != nil {
+		return bootstrapCLIError("remove", removeErr.Error())
+	}
+	if report.Status != reconbootstrap.RemovalComplete {
 		return &CLIError{ExitCode: 1, Message: ""}
 	}
 	return nil
@@ -375,6 +461,11 @@ func parseBootstrapRequestFlags(command string, args []string, allowOutput bool)
 			}
 			flags.output = value
 			flags.outputSet = true
+		case "--replace-output":
+			if !allowOutput {
+				return flags, bootstrapCLIError(command, "--replace-output is supported only by bootstrap plan")
+			}
+			flags.replaceOutput = true
 		case "--json":
 			flags.jsonOut = true
 		case "-h", "--help":
@@ -390,7 +481,32 @@ func parseBootstrapRequestFlags(command string, args []string, allowOutput bool)
 			repoSet = true
 		}
 	}
+	if flags.replaceOutput && !flags.outputSet {
+		return flags, bootstrapCLIError(command, "--replace-output requires --output PATH")
+	}
 	return flags, nil
+}
+
+func bootstrapApplyRecovery(plan *reconbootstrap.Plan, planPath string, applyErr error) string {
+	if plan == nil || planPath == "" || applyErr == nil || !strings.Contains(strings.ToLower(applyErr.Error()), "stale") {
+		if applyErr == nil {
+			return ""
+		}
+		return applyErr.Error()
+	}
+	args := []string{"reconc", "bootstrap", "plan", plan.RepoRoot, "--profile", string(plan.Selection.Profile)}
+	for _, pack := range plan.Selection.Packs {
+		args = append(args, "--pack", pack)
+	}
+	for _, kind := range plan.Selection.Hooks {
+		args = append(args, "--hook", kind)
+	}
+	if plan.Selection.Binary != nil {
+		binary := plan.Selection.Binary
+		args = append(args, "--binary", binary.SourcePath, "--checksum", binary.SHA256, "--platform", binary.OS+"/"+binary.Arch)
+	}
+	args = append(args, "--output", planPath, "--replace-output")
+	return "The saved plan is stale. Rebuild and atomically replace only that validated plan with: " + renderDirectCommand(args)
 }
 
 func (flags bootstrapRequestFlags) request() (reconbootstrap.Request, error) {
@@ -439,13 +555,14 @@ func (flags bootstrapRequestFlags) request() (reconbootstrap.Request, error) {
 }
 
 func renderBootstrapPlan(stdout io.Writer, plan *reconbootstrap.Plan, output, writeState string) {
+	style := newTextStyler(stdout)
 	fmt.Fprintf(stdout, "Bootstrap plan: %s\n", plan.PlanDigest)
 	fmt.Fprintf(stdout, "Repository: %s\n", plan.RepoRoot)
 	fmt.Fprintf(stdout, "Profile: %s\n", plan.Selection.Profile)
 	fmt.Fprintf(stdout, "Packs: %s\n", displayBootstrapList(plan.Selection.Packs))
 	fmt.Fprintf(stdout, "Hooks: %s\n", displayBootstrapList(plan.Selection.Hooks))
 	for _, action := range plan.Actions {
-		fmt.Fprintf(stdout, "  %s  %s  (%s)\n", action.State, action.Path, action.Component)
+		fmt.Fprintf(stdout, "  %s  %s  (%s)\n", style.decision(string(action.State)), action.Path, action.Component)
 		if action.CandidatePath != "" {
 			fmt.Fprintf(stdout, "    candidate: %s\n", action.CandidatePath)
 		}
@@ -459,20 +576,45 @@ func renderBootstrapPlan(stdout io.Writer, plan *reconbootstrap.Plan, output, wr
 }
 
 func renderBootstrapReport(stdout io.Writer, report *reconbootstrap.Report) {
-	fmt.Fprintf(stdout, "Bootstrap apply: %s\n", report.Status)
+	style := newTextStyler(stdout)
+	fmt.Fprintf(stdout, "Bootstrap apply: %s\n", style.decision(string(report.Status)))
 	fmt.Fprintf(stdout, "Repository: %s\n", report.RepoRoot)
+	live := fmt.Sprintf("%d", report.Summary.Live)
+	if !report.Summary.LivenessKnown {
+		live = "unknown"
+	}
+	fmt.Fprintf(stdout, "Summary: created=%d preserved=%d drifted=%d skipped=%d installed=%d configured=%d live=%s\n",
+		report.Summary.Created, report.Summary.Preserved, report.Summary.Drifted, report.Summary.Skipped,
+		report.Summary.Installed, report.Summary.Configured, live)
 	fmt.Fprintf(stdout, "Created: %s\n", displayBootstrapList(report.Created))
 	fmt.Fprintf(stdout, "Unchanged: %s\n", displayBootstrapList(report.Unchanged))
 	fmt.Fprintf(stdout, "Candidates: %s\n", displayBootstrapList(report.Candidates))
 	fmt.Fprintf(stdout, "Rolled back: %s\n", displayBootstrapList(report.RolledBack))
+	if report.ReceiptPath != "" {
+		fmt.Fprintf(stdout, "Receipt: %s\n", report.ReceiptPath)
+	}
+	fmt.Fprintf(stdout, "Next: %s\n", report.NextAction)
+}
+
+func renderBootstrapRemoval(stdout io.Writer, report *reconbootstrap.RemovalReport) {
+	style := newTextStyler(stdout)
+	fmt.Fprintf(stdout, "Bootstrap remove: %s\n", style.decision(string(report.Status)))
+	fmt.Fprintf(stdout, "Repository: %s\n", report.RepoRoot)
+	fmt.Fprintf(stdout, "Removed: %s\n", displayBootstrapList(report.Removed))
+	fmt.Fprintf(stdout, "Updated: %s\n", displayBootstrapList(report.Updated))
+	fmt.Fprintf(stdout, "Preserved: %s\n", displayBootstrapList(report.Preserved))
+	fmt.Fprintf(stdout, "Candidates: %s\n", displayBootstrapList(report.Candidates))
+	fmt.Fprintf(stdout, "Rolled back: %s\n", displayBootstrapList(report.RolledBack))
+	fmt.Fprintf(stdout, "Receipt: %s\n", report.ReceiptPath)
 	fmt.Fprintf(stdout, "Next: %s\n", report.NextAction)
 }
 
 func renderBootstrapVerification(stdout io.Writer, verification *reconbootstrap.Verification) {
+	style := newTextStyler(stdout)
 	fmt.Fprintf(stdout, "Bootstrap verify: valid=%t\n", verification.Valid)
 	fmt.Fprintf(stdout, "Repository: %s\n", verification.RepoRoot)
 	for _, check := range verification.Checks {
-		fmt.Fprintf(stdout, "  %s  %s: %s\n", check.Status, check.Name, check.Detail)
+		fmt.Fprintf(stdout, "  %s  %s: %s\n", style.statusTag(check.Status, 4), check.Name, check.Detail)
 	}
 	fmt.Fprintf(stdout, "Next: %s\n", verification.NextAction)
 }
@@ -495,13 +637,4 @@ func displayBootstrapList(values []string) string {
 		return "none"
 	}
 	return strings.Join(values, ", ")
-}
-
-func containsString(values []string, wanted string) bool {
-	for _, value := range values {
-		if value == wanted {
-			return true
-		}
-	}
-	return false
 }

@@ -39,6 +39,10 @@ runtime continuation decisions, audit trails, and fail-closed policy gates.
 The product is a standalone Go CLI. It does not require Docker, Node, Python,
 or a local service. Runtime behavior should stay offline by default.
 
+Human-readable output colors decisions, rule IDs, and `OK`/`WARN`/`FAIL` tags
+only on an interactive terminal. `NO_COLOR`, `TERM=dumb`, JSON, files, and
+pipes always remain plain.
+
 ## Install And Build
 
 Requirements:
@@ -139,12 +143,14 @@ reconc bootstrap apply --plan .reconc/bootstrap-plan.json --json
 reconc bootstrap verify --plan .reconc/bootstrap-plan.json --json
 ```
 
-Inspection is read-only. Planning is read-only unless an explicit output path
-is supplied. The `minimal` profile owns policy and a managed AI-orientation
-block. The `governed` profile adds the TASK control plane, documentation,
-`start.md`, runtime ignores, and the stable repo-local hook wrapper. Both use
-`default` and `agent` as profile defaults. Stack detection and platform
-detection produce suggestions only; packs and hooks remain explicit.
+Inspection is read-only and reports stack evidence, package managers,
+repository markers, same-directory package-manager ambiguity, and detected or
+installed platform truth. Planning is read-only unless an explicit output path
+is supplied. The `minimal` profile owns policy, a managed AI-orientation block,
+and runtime ignores. The `governed` profile adds the TASK control plane,
+documentation, `start.md`, and the stable repo-local hook wrapper. Both use
+`default` and `agent` as profile defaults. Stack and platform detection produce
+suggestions only; packs and hooks remain explicit.
 
 The `existing` profile is the mature-repository wiring path. It requires an
 already fresh compiled policy lockfile, rejects pack selection, and owns only
@@ -156,8 +162,9 @@ forcing the governed scaffold over a repository's existing control plane.
 Plans are deterministic JSON with a format version, product version, canonical
 repository root, normalized selections, sorted actions, hashes, modes,
 conflicts, compilation state, blocking issues, and a plan digest. Plan output
-is create-only. An existing byte-identical plan is unchanged; different content
-at the output path is never replaced.
+is create-only. An existing byte-identical plan is unchanged. Explicit
+`--replace-output` replaces only a strictly valid Reconc plan for the same
+canonical repository and refuses arbitrary or cross-repository files.
 
 Apply publishes only absent targets. Exact artifacts remain unchanged. A
 different file, directory, symlink, or special target produces a
@@ -169,6 +176,11 @@ still match, plus transaction-created directories that are still empty.
 Verification is read-only and checks artifacts, lockfile freshness, selected
 hooks, governed TASK state, and selected binary resolution.
 
+Successful apply writes a tamper-evident install receipt, reports
+created/preserved/drifted/skipped and installed/configured/live counts, and
+prints exactly one next command. A stale saved plan prints the exact
+selection-preserving replan command with `--replace-output`.
+
 Binary installation has no network path. `--install-binary` uses the running
 executable; `--binary PATH --checksum SHA256` accepts an explicit local artifact
 and optional `--platform OS/ARCH`. Installed artifacts use the stable
@@ -176,10 +188,19 @@ and optional `--platform OS/ARCH`. Installed artifacts use the stable
 exactly one compatible versioned fallback per searched directory, and fails on
 ambiguity before trying development binaries or PATH.
 
+`reconc bootstrap remove --plan PATH` reverses only receipt-owned artifacts.
+It removes exact owned files, strips marker-owned blocks, preserves ambiguous
+content, emits review candidates for drift, and retains a shared hook wrapper
+while another installed platform may need it. `reconc hook uninstall KIND .`
+removes one selected platform with the same ownership discipline.
+
 `reconc bootstrap .` remains a compatibility shorthand for a create-only
 minimal plan with detected hook directories. It rejects `--force`; drift must
-be reviewed through candidates. The detailed AI tutorial and manual advanced
-harness path remain in `harness/template/BOOTSTRAP.md`.
+be reviewed through candidates. When all changed bytes are one recognized
+managed block, the command offers an exact `--accept-managed-blocks` rerun.
+That explicit rerun revalidates target and candidate bytes before accepting
+only the managed section. The detailed AI tutorial and manual advanced harness
+path remain in `harness/template/BOOTSTRAP.md`.
 
 ## Daily Workflow
 
@@ -198,6 +219,10 @@ and reentry. Its versioned compact contract combines current TASK/Sub-Task,
 policy delta, required evidence, exact remediation, and durable repository-run
 state without Git or writes. Static reference material stays on demand through
 `reconc agent-intro --section NAME` instead of inflating every agent prompt.
+
+`reconc next [PATH]` loads the latest persisted blocking decision for the
+explicit or normally discovered repository. Stale or missing decision state
+fails with an exact replay remediation instead of claiming there is no work.
 
 `status`, `doctor`, `verify`, `check`, `ci`, `assert`, `can`, `why`,
 `task status`, `task validate`, `task check-done`, `run status`, `run log`,
@@ -330,7 +355,7 @@ Explicit `--command-success` evidence applies to the complete evaluation snapsho
 
 Daily:
 
-- `bootstrap` - inspect, profile, plan, apply, and verify create-only onboarding
+- `bootstrap` - inspect, profile, plan, apply, verify, and safely remove onboarding
 - `status` - one-line policy health summary
 - `check` - evaluate runtime evidence against compiled policy
 - `next` - show the next remediation
@@ -338,7 +363,7 @@ Daily:
 
 Bootstrap and inspection:
 
-- `bootstrap inspect|profiles|plan|apply|verify`
+- `bootstrap inspect|profiles|plan|apply|verify|remove`
 - `init`
 - `adopt`
 - `extract`
@@ -393,9 +418,10 @@ For exact flags, run `reconc <command> --help`.
 ## Repository Policy
 
 In governed target repositories, repo-local policy lives in `.reconc.yml` and
-should be committed. The generated `.reconc/policy.lock.json` remains local to
-avoid generated-file churn, but format 2 is checkout-independent and
-byte-identical across equivalent clones and worktrees. Format-1 lockfiles are
+should be committed. The generated `.reconc/policy.lock.json` is a portable,
+committable policy contract and should be reviewed with policy-source changes.
+Format 2 is checkout-independent and byte-identical across equivalent clones
+and worktrees. Format-1 lockfiles are
 migrated in memory after their legacy schema identity is validated. Publication
 uses atomic replacement and skips the write entirely when the canonical bytes
 are unchanged, so readers never see partial JSON and repeated compiles do not
@@ -412,31 +438,26 @@ automation can use `schemas/v1/policy-config.schema.json`; emitted lock, policy
 report, completion report, and fix-plan artifacts keep their separate public
 schemas.
 
-Runtime state is local and ignored:
+The managed target-repository block uses these exact rules. It ignores mutable
+runtime state while explicitly re-including `.reconc/policy.lock.json`:
 
-- `.reconc/.compile.lock`
-- `.reconc/audit.jsonl`
-- `.reconc/audit.jsonl.*`
+- `/tools/reconc/dist/`
+- `.reconc/*`
+- `!.reconc/`
+- `!.reconc/policy.lock.json`
+- `.reconc/audit.jsonl*`
 - `.reconc/cache/`
 - `.reconc/locks/`
-- `.reconc/sessions/`
 - `.reconc/reports/`
 - `.reconc/run/`
+- `.reconc/sessions/`
 - `.reconc/task-transaction.json`
 - `.reconc/bootstrap-*.json`
 - `*.reconc-candidate-*`
-- `**/.reconc/policy.lock.json`
-- `**/.reconc/.compile.lock`
-- `**/.reconc/audit.jsonl`
-- `**/.reconc/audit.jsonl.*`
-- `**/.reconc/cache/`
-- `**/.reconc/locks/`
-- `**/.reconc/sessions/`
-- `**/.reconc/reports/`
-- `**/.reconc/run/`
-- `**/.reconc/task-transaction.json`
-- `**/.reconc/bootstrap-*.json`
-- `**/*.reconc-candidate-*`
+- `*.reconc-remove-candidate-*`
+
+The standalone source repository additionally ignores defensive nested-fixture
+equivalents; the complete source-repository list is in Git Ignore Policy.
 
 Runtime retention is product-owned rather than harness-owned. `SessionStart`
 and `SessionEnd` run a cross-process-safe due check with a six-hour interval;
@@ -673,19 +694,13 @@ the Go standard-library formatter over the same bounded file snapshot and
 fails closed on invalid Go. Both run through `go-assurance`; formatting covers
 tests while concurrency excludes tests, and both exclude `vendor/**`.
 
-The default `agent` pack runs `source_hygiene` in warn mode over changed shipped
-Go, Rust, Python, Shell, JavaScript/TypeScript, Svelte, JVM, C/C++, C#, PHP,
-Zig, Elixir/HEEx, PowerShell, and Swift source. It
-ignores tests, fixtures, dependency trees, generated output, and build output.
-The fixed high-signal contract catches leading `TODO`, `FIXME`, `XXX`, `STUB`,
-`PLACEHOLDER`, `TEMPORARY`, and `NOT IMPLEMENTED` comments, ignored Go
-`_ = err`, unimplemented Go panics, Rust `todo!`/`unimplemented!`, and
-JavaScript/TypeScript `throw new Error("not implemented")`, C/C++ `#error` and
-standard exception, Java `UnsupportedOperationException`, C#
-`NotImplementedException`, PHP standard exception, Zig `@panic`/
-`@compileError`, Elixir `raise`, and PowerShell `throw` sentinels. Narrow path
-exemptions require a reason. Neither gate spawns Git or another tool, and both
-have zero effect on files outside the configured changed-file surface.
+The default `agent` pack is deliberately stack-neutral. It requires agents to
+read the repository context before writing and keeps public documentation in
+sync with changed public behavior. It does not guess a language, package
+manager, source-hygiene policy, test command, or build command. The default
+pack handles generated-output boundaries only. Explicit assurance packs own
+language-specific hygiene, formatting, concurrency, architecture, performance,
+and repository checks.
 
 ## Architecture
 
@@ -703,12 +718,12 @@ Package responsibilities:
 - `internal/ingest`: repository discovery and source loading
 - `internal/parser`: YAML-to-policy validation and normalization
 - `internal/compiler`: canonical JSON lockfile generation, digesting, conflicts, migrations, compile lock
-- `internal/bootstrap`: deterministic inspect/plan/apply/verify transactions and binary resolution
+- `internal/bootstrap`: deterministic inspect/plan/apply/verify/remove transactions, receipts, managed-block acceptance, and binary resolution
 - `internal/stackdetect`: shared bounded manifest/source stack discovery
 - `internal/runtime`: policy evaluation, remediation, git integration, scripts, templates
 - `internal/schema`: canonical format-versioned public JSON schema locations and enterprise URL resolution
 - `internal/assurance`: bounded native repository assurance evaluators
-- `internal/hooks`: typed hook platform registry, artifact generation, non-destructive install, scaffold sync, and activation diagnostics
+- `internal/hooks`: typed hook platform registry, artifact generation, non-destructive install/uninstall, scaffold sync, managed activation, and diagnostics
 - `internal/runtime/agentsession`: hook-runtime session state and event handling
 - `internal/audit`: opt-in JSONL decision log and rotation
 - `internal/atomicfile`: atomic write-on-change publication
@@ -790,10 +805,14 @@ Claude Code uses its exec-form
 Git lookup. Codex uses the host shell command string without a nested `sh -lc`;
 Cursor and Antigravity use portable shell launchers with a direct
 wrapper fast path before their Git fallback.
-Codex hooks are enabled by default by the current host contract; governed
-bootstrap still writes `hooks = true` under the `[features]` table. A
-root-level `hooks=true` lookalike is invalid, while `hooks = false` under
-`[features]` leaves the artifact installed but disabled. Codex
+Codex bootstrap and direct hook installation manage `hooks = true` under the
+`[features]` table. Direct installation rejects an explicit user-owned
+`hooks = false` before any artifact write unless `--force` is supplied.
+Transactional bootstrap reports the change as managed drift and requires the
+explicit marker-only acceptance path. Forced or accepted activation records
+the exact original line inside the managed block; hook uninstall and bootstrap
+removal restore that line byte-for-byte. A root-level `hooks=true` lookalike is
+invalid. Codex
 does not expose `SessionEnd`; Reconc generates only supported routes and gives
 each route its exact 5, 10, or 30 second host timeout. Codex also has no
 separate failed-tool event: Reconc classifies non-successful Bash outcomes from
@@ -1210,6 +1229,7 @@ Ignore:
 - `.reconc/task-transaction.json`
 - `.reconc/bootstrap-*.json`
 - `*.reconc-candidate-*`
+- `*.reconc-remove-candidate-*`
 - `**/.reconc/policy.lock.json`
 - `**/.reconc/.compile.lock`
 - `**/.reconc/audit.jsonl`
@@ -1222,6 +1242,7 @@ Ignore:
 - `**/.reconc/task-transaction.json`
 - `**/.reconc/bootstrap-*.json`
 - `**/*.reconc-candidate-*`
+- `**/*.reconc-remove-candidate-*`
 
 ## Security
 

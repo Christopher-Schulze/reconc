@@ -33,8 +33,11 @@ var ignoredDirectories = map[string]bool{
 // Result contains sorted stack names and bounded, sorted repository-relative
 // evidence for each stack.
 type Result struct {
-	Stacks   []string
-	Evidence map[string][]string
+	Stacks            []string            `json:"stacks"`
+	Evidence          map[string][]string `json:"evidence"`
+	PackageManagers   map[string][]string `json:"package_managers"`
+	RepositoryMarkers []string            `json:"repository_markers"`
+	Ambiguities       []string            `json:"ambiguities"`
 }
 
 // Detect scans conventional manifests and source extensions without following
@@ -56,6 +59,8 @@ func Detect(root string) (Result, error) {
 	root = filepath.Clean(root)
 
 	evidence := map[string][]string{}
+	packageManagers := map[string][]string{}
+	repositoryMarkers := []string{}
 	entries := 0
 	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -72,7 +77,11 @@ func Detect(root string) (Result, error) {
 		if relative == "." {
 			return nil
 		}
+		relative = filepath.ToSlash(relative)
 		depth := pathDepth(relative)
+		if isRepositoryMarker(relative) && entry.Type()&os.ModeSymlink == 0 {
+			repositoryMarkers = append(repositoryMarkers, relative)
+		}
 		if entry.IsDir() {
 			if ignoredDirectories[strings.ToLower(entry.Name())] || depth >= maxDepth {
 				return fs.SkipDir
@@ -82,15 +91,15 @@ func Detect(root string) (Result, error) {
 		if depth > maxDepth || entry.Type()&os.ModeSymlink != 0 {
 			return nil
 		}
-		relative = filepath.ToSlash(relative)
 		stacks, err := stacksForFile(path, entry)
 		if err != nil {
 			return err
 		}
 		for _, stack := range stacks {
-			if len(evidence[stack]) < maxEvidencePerStack {
-				evidence[stack] = append(evidence[stack], relative)
-			}
+			appendBoundedEvidence(evidence, stack, relative)
+		}
+		if manager := packageManagerForFile(path, entry); manager != "" {
+			appendBoundedEvidence(packageManagers, manager, relative)
 		}
 		return nil
 	})
@@ -103,8 +112,113 @@ func Detect(root string) (Result, error) {
 		stacks = append(stacks, stack)
 		sort.Strings(evidence[stack])
 	}
+	for manager := range packageManagers {
+		sort.Strings(packageManagers[manager])
+	}
 	sort.Strings(stacks)
-	return Result{Stacks: stacks, Evidence: evidence}, nil
+	sort.Strings(repositoryMarkers)
+	return Result{
+		Stacks: stacks, Evidence: evidence, PackageManagers: packageManagers,
+		RepositoryMarkers: repositoryMarkers, Ambiguities: packageManagerAmbiguities(packageManagers),
+	}, nil
+}
+
+func appendBoundedEvidence(target map[string][]string, name, relative string) {
+	if len(target[name]) >= maxEvidencePerStack {
+		return
+	}
+	for _, existing := range target[name] {
+		if existing == relative {
+			return
+		}
+	}
+	target[name] = append(target[name], relative)
+}
+
+func packageManagerForFile(path string, entry fs.DirEntry) string {
+	switch strings.ToLower(entry.Name()) {
+	case "bun.lock", "bun.lockb":
+		if regularFile(filepath.Join(filepath.Dir(path), "package.json")) {
+			return "bun"
+		}
+	case "package-lock.json", "npm-shrinkwrap.json":
+		return "npm"
+	case "pnpm-lock.yaml":
+		return "pnpm"
+	case "yarn.lock":
+		return "yarn"
+	case "uv.lock":
+		return "uv"
+	case "poetry.lock":
+		return "poetry"
+	case "pipfile.lock":
+		return "pipenv"
+	case "requirements.txt":
+		return "pip"
+	case "cargo.lock":
+		return "cargo"
+	case "go.mod":
+		return "go-modules"
+	case "composer.lock":
+		return "composer"
+	case "gradlew", "gradlew.bat":
+		return "gradle"
+	case "mvnw", "mvnw.cmd":
+		return "maven"
+	case "mix.lock":
+		return "mix"
+	case "build.zig.zon":
+		return "zig"
+	}
+	return ""
+}
+
+func isRepositoryMarker(relative string) bool {
+	switch strings.ToLower(filepath.ToSlash(relative)) {
+	case ".git", ".reconc", ".reconc.yml", "agents.md", "claude.md", "start.md",
+		"docs/tasks.md", "docs/documentation.md":
+		return true
+	default:
+		return false
+	}
+}
+
+func packageManagerAmbiguities(managers map[string][]string) []string {
+	nodeManagers := map[string]bool{"bun": true, "npm": true, "pnpm": true, "yarn": true}
+	byDirectory := map[string]map[string]bool{}
+	for manager, paths := range managers {
+		if !nodeManagers[manager] {
+			continue
+		}
+		for _, relative := range paths {
+			directory := "."
+			if index := strings.LastIndex(relative, "/"); index >= 0 {
+				directory = relative[:index]
+			}
+			if byDirectory[directory] == nil {
+				byDirectory[directory] = map[string]bool{}
+			}
+			byDirectory[directory][manager] = true
+		}
+	}
+	directories := make([]string, 0, len(byDirectory))
+	for directory := range byDirectory {
+		directories = append(directories, directory)
+	}
+	sort.Strings(directories)
+	ambiguities := []string{}
+	for _, directory := range directories {
+		if len(byDirectory[directory]) < 2 {
+			continue
+		}
+		names := make([]string, 0, len(byDirectory[directory]))
+		for name := range byDirectory[directory] {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		ambiguities = append(ambiguities, "multiple JavaScript package managers at "+directory+": "+strings.Join(names, ", "))
+	}
+	return ambiguities
 }
 
 func stacksForFile(path string, entry fs.DirEntry) ([]string, error) {

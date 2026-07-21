@@ -8,7 +8,6 @@ import (
 func TestBundledHygienePacksExposeNativeGates(t *testing.T) {
 	withRECONCHome(t)
 	checks := map[string]string{
-		"agent":                "type: source_hygiene",
 		"cpp-assurance":        "type: source_hygiene",
 		"csharp-assurance":     "type: source_hygiene",
 		"elixir-assurance":     "type: source_hygiene",
@@ -30,6 +29,21 @@ func TestBundledHygienePacksExposeNativeGates(t *testing.T) {
 		}
 		if !strings.Contains(content, expected) {
 			t.Errorf("bundled pack %q is missing %q", pack, expected)
+		}
+	}
+}
+
+func TestGenericPacksDoNotGuessStackCommandsOrSourceTypes(t *testing.T) {
+	withRECONCHome(t)
+	for _, pack := range []string{"agent", "default"} {
+		content, err := Load(pack)
+		if err != nil {
+			t.Fatalf("Load(%q): %v", pack, err)
+		}
+		for _, forbidden := range []string{"require_command", "type: source_hygiene", "go test", "npm ", "pytest", "cargo "} {
+			if strings.Contains(content, forbidden) {
+				t.Errorf("stack-neutral pack %q contains %q", pack, forbidden)
+			}
 		}
 	}
 }

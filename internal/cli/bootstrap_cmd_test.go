@@ -68,6 +68,21 @@ func TestBootstrapPhasesGovernedRoundTrip(t *testing.T) {
 	if report.Status != reconbootstrap.ApplyComplete || len(report.Created) != 0 || len(report.Unchanged) == 0 {
 		t.Fatalf("idempotent apply changed repository: %+v", report)
 	}
+
+	stdout.Reset()
+	if err := Run([]string{"bootstrap", "remove", "--plan", planPath, "--json"}, "test", &stdout, &stderr); err != nil {
+		t.Fatalf("remove: %v stderr=%s", err, stderr.String())
+	}
+	var removal reconbootstrap.RemovalReport
+	if err := json.Unmarshal(stdout.Bytes(), &removal); err != nil {
+		t.Fatalf("decode removal report: %v\n%s", err, stdout.String())
+	}
+	if removal.Status != reconbootstrap.RemovalComplete || len(removal.Removed) == 0 {
+		t.Fatalf("removal did not reverse owned files: %+v", removal)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".reconc.yml")); !os.IsNotExist(err) {
+		t.Fatalf("bootstrap-owned policy remains after removal: %v", err)
+	}
 }
 
 func TestBootstrapApplyReportsDriftWithoutOverwriting(t *testing.T) {

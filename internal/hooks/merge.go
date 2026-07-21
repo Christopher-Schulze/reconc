@@ -131,6 +131,52 @@ func mergeReconcHooks(dest, reconcPart map[string]interface{}, opts MergeOptions
 	return diff
 }
 
+// removeCanonicalReconcHooks strips only entries that exactly match the
+// current generator. Reconc-looking but modified entries are ambiguous and
+// fail closed before any caller writes the resulting document.
+func removeCanonicalReconcHooks(dest, reconcPart map[string]interface{}) (int, error) {
+	reconcHooks, ok := reconcPart["hooks"].(map[string]interface{})
+	if !ok {
+		return 0, fmt.Errorf("generated hook map is missing")
+	}
+	destHooks, ok := dest["hooks"].(map[string]interface{})
+	if !ok {
+		return 0, nil
+	}
+	removed := 0
+	for event, existingRaw := range destHooks {
+		existingEntries, ok := existingRaw.([]interface{})
+		if !ok {
+			continue
+		}
+		canonical := map[string]struct{}{}
+		if generatedRaw, exists := reconcHooks[event]; exists {
+			generatedEntries, _ := generatedRaw.([]interface{})
+			canonical = hookSignatureSet(generatedEntries)
+		}
+		filtered := make([]interface{}, 0, len(existingEntries))
+		for _, entry := range existingEntries {
+			switch classifyHookEntry(entry, canonical) {
+			case NonReconc:
+				filtered = append(filtered, entry)
+			case CanonicalReconc:
+				removed++
+			case ModifiedReconc:
+				return 0, fmt.Errorf("event %s contains a modified Reconc entry; refusing removal", event)
+			}
+		}
+		if len(filtered) == 0 {
+			delete(destHooks, event)
+		} else {
+			destHooks[event] = filtered
+		}
+	}
+	if len(destHooks) == 0 {
+		delete(dest, "hooks")
+	}
+	return removed, nil
+}
+
 // describeJSONType returns a human-readable label for a
 // json.Unmarshal'd value's concrete Go type, mapped to the JSON
 // vocabulary users actually recognise. Used in merge warnings so

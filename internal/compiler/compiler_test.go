@@ -214,9 +214,9 @@ func TestCompileWithExtendsBundlesPresetRules(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
-	// Default preset bundles 2 rules.
-	if compiled.RuleCount != 2 {
-		t.Errorf("expected 2 rules from default preset, got %d", compiled.RuleCount)
+	// The stack-neutral default owns only generated-output protection.
+	if compiled.RuleCount != 1 {
+		t.Errorf("expected 1 rule from default preset, got %d", compiled.RuleCount)
 	}
 }
 

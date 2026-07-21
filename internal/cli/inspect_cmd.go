@@ -213,8 +213,9 @@ func runVerify(args []string, stdout, stderr io.Writer) error {
 		_ = enc.Encode(map[string]interface{}{"checks": checks})
 		return nil
 	}
+	style := newTextStyler(stdout)
 	for _, c := range checks {
-		fmt.Fprintf(stdout, "[%-4s] %-30s  %s\n", c.Status, c.Name, c.Detail)
+		fmt.Fprintf(stdout, "[%s] %-30s  %s\n", style.statusTag(c.Status, 4), c.Name, c.Detail)
 	}
 	return nil
 }

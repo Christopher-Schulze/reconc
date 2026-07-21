@@ -21,7 +21,7 @@ Read this file completely before touching files. The goal is not to invent a new
 - Template audits are dual-path compatible: they understand both flat-root (`backend/`, `scripts/`, `config/`) and `codebase/` layout.
 - Source-specific harness folders are not part of a target rollout. A standalone toolkit copy should carry the template harness and the target repo's renamed harness only.
 - Hook artifacts are generated artifacts, not hand-maintained source. The canonical source is `reconc hook generate`; before copying hook files from `repo-root-scaffold/`, sync that scaffold with `reconc hook sync-scaffold tools/reconc/harness/<project-name>/repo-root-scaffold`.
-- Prefer the transactional `reconc bootstrap inspect|plan|apply|verify` flow for every universal surface it owns. Use the manual sections in this runbook for project-specific harness, stack, architecture, and merge decisions that the universal CLI intentionally cannot infer.
+- Prefer the transactional `reconc bootstrap inspect|plan|apply|verify|remove` flow for every universal surface it owns. Use the manual sections in this runbook for project-specific harness, stack, architecture, and merge decisions that the universal CLI intentionally cannot infer.
 
 ## Source Package
 
@@ -77,10 +77,11 @@ reconc bootstrap plan <target-repo> --profile governed \
   --json
 ```
 
-The `minimal` profile selects `.reconc.yml` plus a compact managed Reconc block
-in `AGENTS.md`. The `governed` profile additionally selects the TASK control
-plane, `docs/documentation.md`, `start.md`, runtime ignores, and the stable
-repo-local hook wrapper. Profile default packs are `default` and `agent`.
+The `minimal` profile selects `.reconc.yml`, a compact managed Reconc block in
+`AGENTS.md`, and the managed runtime-ignore block. The `governed` profile
+additionally selects the TASK control plane, `docs/documentation.md`,
+`start.md`, and the stable repo-local hook wrapper. Profile default packs are
+`default` and `agent`.
 Detected stacks, pack suggestions, and agent-platform directories are evidence
 only. Packs and hooks are installed only when they are named explicitly.
 
@@ -107,10 +108,22 @@ Apply is create-only. Exact existing artifacts remain unchanged. If any target
 differs, no normal target is installed; hash-addressed
 `*.reconc-candidate-<sha>` files are created for surgical review and apply exits
 with status `drift`. Rebuild the plan after integrating or rejecting every
-candidate. A stale plan fails before publication. A later failure rolls back
+candidate. Marker-only AGENTS or ignore drift can be accepted only through the
+exact `--accept-managed-blocks` rerun printed by the compatibility command. A
+stale saved plan fails before publication and prints the exact
+selection-preserving `bootstrap plan ... --replace-output` command. That flag
+replaces only a valid Reconc plan for the same canonical repository. A later
+failure rolls back
 only transaction-owned files whose identity and checksum still match, and
 removes only empty directories created by that transaction. It never removes
 or overwrites an external edit.
+
+Successful apply writes a tamper-evident install receipt, prints one compact
+artifact and hook-state summary, and emits exactly one next command. Reverse a
+reviewed transaction with `reconc bootstrap remove --plan <plan> --json` or one
+platform with `reconc hook uninstall <kind> <target-repo> --json`. Removal
+verifies receipt ownership and current hashes, strips only managed blocks,
+preserves ambiguous content, and emits review candidates on drift.
 
 After verification, the agent itself inspects the target once with
 `reconc session-briefing <target-repo> --json`. That versioned response carries
@@ -377,6 +390,7 @@ Required Reconc runtime ignores:
 - `.reconc/task-transaction.json`
 - `.reconc/bootstrap-*.json`
 - `*.reconc-candidate-*`
+- `*.reconc-remove-candidate-*`
 
 `.reconc/run/` holds repo-local run state: `state.bin` and the bounded,
 transition-only `decisions.jsonl`. It is gitignored above. No per-repo
@@ -449,7 +463,7 @@ and host-discoverable. `expected_events`, `live_events`, `unseen_events`,
 `last_seen`, and `last_event` are separate live-process proof; each route is
 rate-limited to one external-state write every six hours.
 
-Claude Code generated hooks use exec-form `command` plus `args`, pass `${CLAUDE_PROJECT_DIR}` directly to the wrapper, and use the context-capable `SessionStart` `compact` matcher for recovery instead of spawning the notification-only `PostCompact` event. Codex bootstrap writes `hooks = true` under `[features]`; root-level `hooks=true` is invalid, and Codex has no `SessionEnd` event. Devin uses `.devin/hooks.v1.json`, passes `DEVIN_PROJECT_DIR`, and includes `PostCompaction`. OpenCode and Kilo Code plugins are transport adapters only: policy, session state, continuation, and context recovery remain in the Go runtime. Their continuation trigger is inferred from `session.idle`, not a synchronous native Stop gate. Kilo Code requires `KILO_PURE` to be unset so project plugins load.
+Claude Code generated hooks use exec-form `command` plus `args`, pass `${CLAUDE_PROJECT_DIR}` directly to the wrapper, and use the context-capable `SessionStart` `compact` matcher for recovery instead of spawning the notification-only `PostCompact` event. Codex bootstrap and direct install manage `hooks = true` under `[features]`; root-level `hooks=true` is invalid. Direct install rejects an explicit user `hooks = false` before any hook write unless `--force` is supplied. Transactional bootstrap exposes the same change as managed drift and requires explicit marker-only acceptance. Uninstall restores the exact original line. Codex has no `SessionEnd` event. Devin uses `.devin/hooks.v1.json`, passes `DEVIN_PROJECT_DIR`, and includes `PostCompaction`. OpenCode and Kilo Code plugins are transport adapters only: policy, session state, continuation, and context recovery remain in the Go runtime. Their continuation trigger is inferred from `session.idle`, not a synchronous native Stop gate. Kilo Code requires `KILO_PURE` to be unset so project plugins load.
 
 Grok Build loads `.grok/hooks/reconc.json` only after project trust is granted with `/hooks-trust` or `--trust`. Native PreToolUse is a hard explicit allow/deny boundary. Reconc also emits exact native Stop block JSON without a leader, marks eligible live Stops strict, uses a 600-second Stop budget, and leaves user interrupts plus `channel_closed`/`shutdown` untouched. It accepts synchronous native enforcement only when the hook guide shipped with the installed Grok distribution explicitly advertises blocking Stop decision control, never from the version string. The generated wrapper converts missing/broken/ambiguous binaries, malformed payloads, runtime failures, and invalid output into deny/block JSON while it can still respond; a host timeout or OS kill before output remains fail-open. `reconc grok . --prompt "..."` remains the explicit strict ACP path. Passive Stop distributions can use optional leader fallback over the Unix socket or Windows named pipe. Protocol-1 `_x.ai/interject` attempts are bounded to 32 delivered no-progress continuations and reset on material progress, a new block, or a clean Stop; capability-proven native hosts suppress duplicate interjection. `RECONC_GROK_STEER=0` disables only leader steering. Deep doctor reports native Stop capability separately and probes optional leader protocol plus `_x.ai/interject`.
 

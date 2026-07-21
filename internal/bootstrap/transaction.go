@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"reconc.dev/reconc/internal/compiler"
+	"reconc.dev/reconc/internal/hooks"
+	"reconc.dev/reconc/internal/runtime/agentsession"
 )
 
 type applyOptions struct {
@@ -84,6 +86,7 @@ func apply(plan *Plan, productVersion string, options applyOptions) (*Report, er
 
 	created := []createdRecord{}
 	createdDirs := []createdDirectory{}
+	compiledLockSHA := ""
 	defer func() {
 		closeCreatedDirectoryIdentities(createdDirs)
 	}()
@@ -145,6 +148,7 @@ func apply(plan *Plan, productVersion string, options applyOptions) (*Report, er
 			return report, joinApplyRollbackError(fmt.Errorf("inspect compiled bootstrap lockfile: %w", err), rollbackErr)
 		}
 		created = append(created, lockRecord)
+		compiledLockSHA = lockRecord.sha256
 		report.Created = append(report.Created, ".reconc/policy.lock.json")
 	}
 	verification, err := Verify(plan)
@@ -156,11 +160,77 @@ func apply(plan *Plan, productVersion string, options applyOptions) (*Report, er
 		report.RolledBack = rolledBack
 		return report, joinApplyRollbackError(err, rollbackErr)
 	}
+	receipt, err := buildInstallReceipt(plan, productVersion, compiledLockSHA)
+	if err != nil {
+		rolledBack, rollbackErr := rollbackCreated(plan.RepoRoot, created, createdDirs)
+		report.RolledBack = rolledBack
+		return report, joinApplyRollbackError(err, rollbackErr)
+	}
+	receiptRecord, receiptDirs, receiptPath, err := writeInstallReceipt(plan, receipt)
+	createdDirs = appendUniqueDirectories(createdDirs, receiptDirs...)
+	if receiptRecord.path != "" {
+		created = append(created, receiptRecord)
+	}
+	if err != nil {
+		rolledBack, rollbackErr := rollbackCreated(plan.RepoRoot, created, createdDirs)
+		report.RolledBack = rolledBack
+		return report, joinApplyRollbackError(err, rollbackErr)
+	}
+	report.ReceiptPath = receiptPath
 	report.Status = ApplyComplete
-	report.NextAction = "Bootstrap verified. Run repository-native tests, then finish the active bootstrap TASK if the governed profile was selected."
 	sort.Strings(report.Created)
 	sort.Strings(report.Unchanged)
+	report.Summary = summarizeApply(plan, report)
+	report.NextAction = "reconc check " + quoteBootstrapArgument(plan.RepoRoot)
 	return report, nil
+}
+
+func summarizeApply(plan *Plan, report *Report) ApplySummary {
+	summary := ApplySummary{
+		Created: len(report.Created), Preserved: len(report.Unchanged),
+		Drifted: len(report.Candidates), Skipped: len(plan.BlockingIssues),
+	}
+	statuses, statusErr := hooks.InspectPlatforms(plan.RepoRoot)
+	byKind := map[string]hooks.PlatformStatus{}
+	if statusErr == nil {
+		for _, status := range statuses {
+			byKind[status.Kind] = status
+		}
+		for _, kind := range plan.Selection.Hooks {
+			status := byKind[kind]
+			if status.Installed {
+				summary.Installed++
+			}
+			if status.Configured {
+				summary.Configured++
+			}
+		}
+	}
+	liveness, livenessErr := agentsession.ReadHookLiveness(plan.RepoRoot)
+	if livenessErr == nil {
+		summary.LivenessKnown = true
+		for _, kind := range plan.Selection.Hooks {
+			if record, ok := liveness[bootstrapHookRuntimeName(kind)]; ok && record.LastSeen != "" {
+				summary.Live++
+			}
+		}
+	}
+	return summary
+}
+
+func bootstrapHookRuntimeName(kind string) string {
+	switch kind {
+	case hooks.KindClaudeCode:
+		return "claude"
+	case hooks.KindDevinCLI:
+		return "devin"
+	default:
+		return kind
+	}
+}
+
+func quoteBootstrapArgument(value string) string {
+	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
 }
 
 func materializeCandidates(plan *Plan, conflicts []Action, artifacts map[string]desiredArtifact, options applyOptions) ([]createdRecord, []createdDirectory, error) {

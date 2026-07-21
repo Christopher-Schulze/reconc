@@ -106,9 +106,14 @@ reconc bootstrap .
 ```
 
 This compatibility shorthand builds and applies a create-only minimal plan. It
-scaffolds missing policy, compiles the local lockfile, selects git when `.git/`
-exists, and selects registered agent platforms whose repo-local config directory
-already exists. It never overwrites drift; conflicts produce review candidates.
+scaffolds missing policy and runtime ignores, compiles the committable lockfile,
+selects git when `.git/` exists, and selects registered agent platforms whose
+repo-local config directory already exists. It never overwrites drift;
+conflicts produce review candidates.
+When an existing `AGENTS.md` or `.gitignore` needs only Reconc's marker-owned
+block, the command prints one exact opt-in rerun with
+`--accept-managed-blocks`. That rerun promotes only a byte-verified marker-only
+candidate and preserves every user-owned byte.
 
 For an existing repo, inspect evidence-backed rule and policy-pack proposals:
 
@@ -207,7 +212,22 @@ reconc bootstrap verify --plan .reconc/bootstrap-plan.json --json
 `--output`. Packs and hooks are explicit; stack and platform detection only
 suggest. Apply publishes absent targets, leaves exact files unchanged, creates
 hash-addressed candidates for drift, and rolls back transaction-owned files on
-failure.
+failure. A stale saved plan prints one exact `--replace-output` replan command;
+replacement is allowed only when the existing output is a valid Reconc plan
+for the same repository. Successful apply records a tamper-evident install
+receipt, reports created/preserved/drifted/skipped and installed/configured/live
+counts, and emits exactly one next command.
+
+Remove only receipt-owned bootstrap artifacts or one selected platform hook:
+
+```bash
+reconc bootstrap remove --plan .reconc/bootstrap-plan.json
+reconc hook uninstall codex .
+```
+
+Removal verifies hashes, strips only marker-owned blocks, preserves shared
+wrappers, refuses drift, and emits review candidates instead of deleting
+ambiguous user content.
 
 Mature repositories that already own policy, agent instructions, docs, and
 TASK state use `--profile existing` after `reconc refresh .`. That profile
@@ -309,12 +329,12 @@ Detailed runtime behavior lives in `docs/documentation.md` and
 Commit:
 
 - `.reconc.yml` for repo policy configuration
+- `.reconc/policy.lock.json` for the portable compiled policy contract
 - `AGENTS.md` for agent-facing project instructions
 - `skills/reconc/SKILL.md` for portable agent usage
 
-Do not commit generated runtime state:
+Do not commit mutable runtime state:
 
-- `.reconc/policy.lock.json`
 - `.reconc/audit.jsonl*`
 - `.reconc/cache/`
 - `.reconc/locks/`
@@ -322,6 +342,9 @@ Do not commit generated runtime state:
 - `.reconc/reports/`
 - `.reconc/run/`
 - `.reconc/task-transaction.json`
+- `.reconc/bootstrap-*.json`
+- `*.reconc-candidate-*`
+- `*.reconc-remove-candidate-*`
 - `dist/`
 - `tools/reconc/dist/`
 

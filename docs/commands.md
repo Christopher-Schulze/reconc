@@ -28,6 +28,8 @@ Everything below is the full automation and diagnostic surface.
 Runtime:
 
 - `RECONC_HOME` (default `~/.reconc`) -- user config, presets, templates
+- `NO_COLOR` -- disable ANSI styling even when stdout is a terminal; redirected
+  and `TERM=dumb` output is always plain
 - `RECONC_AUDIT=1` -- enable the opt-in append-only audit log
 - `RECONC_AUDIT_VERBOSE=1` -- store full command strings in audit records
   instead of the redacted first token (may capture secrets in arguments)
@@ -66,7 +68,9 @@ plumbing, not user configuration.
 ## Bootstrap & inspection
 
 ### `reconc init [repo] [--preset NAME] [--force] [--output PATH]`
-Scaffolds `.reconc.yml` + a stub `AGENTS.md` for a fresh repo. Multiple
+Scaffolds `.reconc.yml`, a stub `AGENTS.md`, and the same marker-owned Reconc
+runtime-ignore block used by bootstrap profiles. The compiled lockfile remains
+committable. Multiple
 `--preset` flags compose. Refuses to overwrite existing files unless
 `--force` is set. `--output` mirrors the primary text or JSON output
 to a file while still printing to stdout.
@@ -74,42 +78,66 @@ to a file while still printing to stdout.
 ### `reconc bootstrap inspect [repo] [--json]`
 Read-only discovery of canonical repository root; detected Go, Bun, Python,
 Rust, Shell, C/C++, Java, PHP, C#, Next.js, Svelte/SvelteKit, Zig, Elixir, and
-PowerShell stacks; review-only pack suggestions;
-detected agent-platform directories, existing control paths, and
+PowerShell stacks; evidence paths, package managers, repository markers,
+same-directory package-manager ambiguities, review-only pack suggestions;
+detected or installed agent platforms with generated/installed/executable/
+configured truth, existing control paths, and
 platform-correct repo-local binary resolution.
 
 ### `reconc bootstrap profiles [--json]`
-List the three explicit profiles. `minimal` selects policy plus a managed AI
-orientation block. `governed` adds the TASK control plane, documentation,
-`start.md`, runtime ignores, and the stable hook wrapper. Both default to the
+List the three explicit profiles. `minimal` selects policy, a managed AI
+orientation block, and runtime ignores. `governed` adds the TASK control plane,
+documentation, `start.md`, and the stable hook wrapper. Both default to the
 `default` and `agent` packs. `existing` owns only selected hooks, the wrapper,
 and an optional stable binary. It requires an already fresh compiled policy,
 accepts no packs, and never owns existing control-plane files.
 
-### `reconc bootstrap plan [repo] --profile existing|minimal|governed [--pack NAME] [--hook KIND] [--install-binary | --binary PATH --checksum SHA256 [--platform OS/ARCH]] [--output PATH] [--json]`
+### `reconc bootstrap plan [repo] --profile existing|minimal|governed [--pack NAME] [--hook KIND] [--install-binary | --binary PATH --checksum SHA256 [--platform OS/ARCH]] [--output PATH [--replace-output]] [--json]`
 Build a deterministic, versioned manifest of desired hashes, modes, current
 state, conflict candidates, compilation need, and blocking issues. Packs and
 hooks are repeatable explicit selections; detected suggestions are never
 applied automatically. The command is read-only unless `--output` is supplied.
 Plan files are create-only and an exact repeat is reported as unchanged.
+`--replace-output` is an explicit stale-plan recovery path: it replaces only a
+strictly valid Reconc plan for the same canonical repository and refuses an
+arbitrary or cross-repository file.
 
 ### `reconc bootstrap apply --plan PATH [--json]` / `reconc bootstrap apply [repo] --profile existing|minimal|governed [selection flags] [--json]`
 Apply an exact reviewed plan or build the same plan from explicit selections.
 Repository targets are create-only. Exact files remain unchanged; any drift
 creates hash-addressed candidate files and prevents all normal target installs.
-Stale plans fail before publication. Failures roll back only transaction-owned
+Stale plans fail before publication and print the full copy-paste
+`bootstrap plan ... --replace-output` command reconstructed from the saved
+selection. Failures roll back only transaction-owned
 files whose identity and checksum still match. Status `drift` exits 1.
+Successful reports contain one compact created/preserved/drifted/skipped and
+installed/configured/live summary, a tamper-evident receipt path, and exactly
+one primary next command. Human output uses TTY-only ANSI color for decisions,
+rule IDs, and OK/WARN/FAIL tags; JSON and redirected output never contain ANSI.
+
+### `reconc bootstrap remove --plan PATH [--json]`
+Reverse one applied plan using its tamper-evident install receipt. Exact
+transaction-owned files are removed; marker-delimited blocks are stripped from
+shared files. Drifted shared files produce hash-addressed removal candidates,
+all ambiguous content is preserved, and any partial failure rolls back applied
+mutations. The shared hook wrapper remains when independent platform hooks may
+still use it.
 
 ### `reconc bootstrap verify --plan PATH [--json]`
 Read-only verification of every selected artifact hash and mode, candidate
 drift, policy-lock freshness, governed TASK structure, selected hook activation,
 and selected binary checksum/resolution. Any failed check exits 1.
 
-### `reconc bootstrap [repo] [--preset NAME] [--skip-git-hook] [--skip-agent-hooks] [--json]`
+### `reconc bootstrap [repo] [--preset NAME] [--skip-git-hook] [--skip-agent-hooks] [--accept-managed-blocks] [--json]`
 Compatibility shorthand for a create-only `minimal` transaction. It explicitly
 selects the git hook when `.git/` exists and selects registered agent hooks only
 for detected repo-local platform directories. `--force` is rejected; drift must
-be resolved through candidate review.
+be resolved through candidate review. When every changed byte is one recognized
+marker-owned Reconc block, the first run emits the exact
+`--accept-managed-blocks` rerun. That explicit rerun revalidates the unchanged
+target and plan-exact candidate, promotes the block transactionally, removes
+the candidate, replans, and continues. It never accepts a whole-file or
+non-marker conflict.
 
 ### `reconc adopt [repo] [--yaml | --json | --apply]`
 Detects common tooling (JS/TS, Python, Rust, Go, Shell, C/C++, Java, PHP, C#,
@@ -230,9 +258,12 @@ suggested commands / claims, and files-to-inspect. `--next` emits only
 the top-priority remediation.
 
 ### `reconc next [repo] [--read PATH] [--write PATH] [--command CMD] [--claim NAME] [--json]`
-Friendly alias for `fix --next`. Prints only the highest-priority next
-action, so agents can ask for guidance without loading the full fix
-plan.
+With explicit evidence flags, runs the same focused evaluation as `fix --next`.
+With only a repository path, loads the latest persisted blocking decision and
+replays its top remediation when the repository/policy/session candidate is
+still current. If it is stale, Reconc reconstructs the exact original
+`reconc check` command including success/failure evidence flags instead of
+claiming that no remediation is needed.
 
 ### `reconc why <rule-id> [repo] [--json] [--terse]`
 Prints the full rule from the lockfile (kind, mode, message, paths,
@@ -275,13 +306,26 @@ Antigravity merges the top-level
 non-reconc hook groups; and Kilo Code owns
 `.kilo/plugin/reconc.js`. Grok Build owns the dedicated
 `.grok/hooks/reconc.json` file and preserves every other project hook file.
-Managed plugin/files refuse unrelated existing
+Every wrapper-dependent platform installs or verifies the exact executable
+repo-local wrapper in the same operation. Codex installation also manages its
+`[features].hooks` activation: an explicit user-owned `false` requires
+`--force`, and forced activation records the exact original line so uninstall
+can restore it. Partial wrapper/target/activation outcomes are reported
+explicitly with one recovery command. Managed plugin/files refuse unrelated existing
 content unless `--force` is passed.
 All non-Git targets are resolved through operating-system filesystem identity
 and must stay inside the selected repository. Unix symlinks, Windows reparse
 points and 8.3 aliases are handled before containment. Forced malformed-config
 backups are private, content-addressed, create-only, and durably synced before
 publication.
+
+### `reconc hook uninstall <git-pre-commit|claude-code|codex|cursor|opencode|devin-cli|antigravity|kilo|grok> [repo] [--json] [--output PATH]`
+Remove only generator-exact dedicated artifacts or canonical Reconc-owned JSON
+entries while preserving unrelated hooks and configuration. Modified or
+ambiguous Reconc-looking entries fail closed. Codex removes only its managed
+activation block and restores a force-replaced explicit `hooks = false` line
+byte-for-byte. The shared repo-local wrapper is deliberately preserved because
+another platform may still depend on it.
 
 ### `reconc hook status [repo] [--json]`
 Validate registered artifacts and activation requirements. States are
@@ -291,7 +335,9 @@ artifacts, the repo-local wrapper, Codex's enable flag, Git `core.hooksPath`,
 Kilo Code pure mode, legacy Kilo Code plugin placement, and Grok's native
 project-hook artifact. Static Grok status cannot prove folder trust; `doctor
 --deep` additionally runs `grok inspect --json` when the artifact exists.
-Each platform also reports registry-derived `expected_events`, rate-limited
+Each platform reports separate `generated`, `installed`, `executable`,
+`configured`, and `live` booleans plus one exact remediation whenever static
+configuration is incomplete. It also reports registry-derived `expected_events`, rate-limited
 `live_events`, `unseen_events`, `last_seen`, and `last_event` runtime evidence
 separately from static activation state. `configured` proves only that the host
 can discover a complete static artifact. Codex accepts

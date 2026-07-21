@@ -662,9 +662,10 @@ func firstDiscoveryWarning(discovery ingest.DiscoveryResult, fallback string) st
 }
 
 func renderDoctorDeepText(report *doctorDeepReport, w io.Writer) {
+	style := newTextStyler(w)
 	fmt.Fprintln(w, "reconc doctor --deep")
 	fmt.Fprintf(w, "  repo root:  %s\n", report.RepoRoot)
 	for _, check := range report.Checks {
-		fmt.Fprintf(w, "[%-4s] %-28s %s\n", check.Status, check.Name, check.Detail)
+		fmt.Fprintf(w, "[%s] %-28s %s\n", style.statusTag(check.Status, 4), check.Name, check.Detail)
 	}
 }

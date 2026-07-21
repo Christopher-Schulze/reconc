@@ -156,6 +156,7 @@ func TestRunFixNextBranches(t *testing.T) {
 func TestRunNextAlias(t *testing.T) {
 	repo := makeCheckRepo(t,
 		"rules:\n  - id: deny-gen\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: generated output is locked\n")
+	initGitRepo(t, repo)
 
 	var stdout, stderr bytes.Buffer
 	err := Run([]string{"next", repo, "--write", "gen/output.go"}, "0.5.0-test", &stdout, &stderr)
@@ -172,6 +173,60 @@ func TestRunNextAlias(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Usage: reconc next") {
 		t.Fatalf("expected next help, got %q", stdout.String())
+	}
+}
+
+func TestRunNextReplaysCurrentPersistedBlockingDecision(t *testing.T) {
+	repo := makeCheckRepo(t,
+		"rules:\n  - id: deny-gen\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: generated output is locked\n")
+
+	var stdout, stderr bytes.Buffer
+	checkErr := Run([]string{"check", repo, "--write", "gen/output.go"}, "0.5.0-test", &stdout, &stderr)
+	if checkErr == nil || ExitCode(checkErr) != 2 {
+		t.Fatalf("expected blocking check, got err=%v code=%d", checkErr, ExitCode(checkErr))
+	}
+	stdout.Reset()
+	stderr.Reset()
+	nextErr := Run([]string{"next", repo}, "0.5.0-test", &stdout, &stderr)
+	if nextErr == nil || ExitCode(nextErr) != 2 {
+		t.Fatalf("expected persisted next block, got err=%v code=%d", nextErr, ExitCode(nextErr))
+	}
+	if !strings.Contains(stdout.String(), "next: [blocking|") || strings.Contains(stdout.String(), "No remediation needed") {
+		t.Fatalf("persisted next did not replay the block: %q", stdout.String())
+	}
+}
+
+func TestRunNextRejectsStaleProofWithExactReplayCommand(t *testing.T) {
+	repo := makeCheckRepo(t,
+		"rules:\n  - id: deny-gen\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: generated output is locked\n")
+	initGitRepo(t, repo)
+
+	var stdout, stderr bytes.Buffer
+	checkErr := Run([]string{"check", repo, "--write", "gen/output.go", "--command-success", "go test ./..."}, "0.5.0-test", &stdout, &stderr)
+	if checkErr == nil || ExitCode(checkErr) != 2 {
+		t.Fatalf("expected blocking check, got err=%v code=%d", checkErr, ExitCode(checkErr))
+	}
+	if err := os.WriteFile(filepath.Join(repo, "changed.txt"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	nextErr := Run([]string{"next", repo}, "0.5.0-test", &stdout, &stderr)
+	if nextErr == nil || ExitCode(nextErr) != 1 {
+		t.Fatalf("expected stale proof error, got err=%v code=%d", nextErr, ExitCode(nextErr))
+	}
+	for _, want := range []string{"stored blocking decision is stale", "--write gen/output.go", "--command-success 'go test ./...'", "reconc next"} {
+		if !strings.Contains(nextErr.Error(), want) {
+			t.Fatalf("stale proof error missing %q: %q", want, nextErr.Error())
+		}
+	}
+}
+
+func TestRunNextErrorsUseNextPrefix(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run([]string{"next", "--write"}, "0.5.0-test", &stdout, &stderr)
+	if err == nil || !strings.HasPrefix(err.Error(), "reconc next:") || strings.Contains(err.Error(), "reconc fix:") {
+		t.Fatalf("next error prefix = %q", err)
 	}
 }
 
@@ -613,25 +668,21 @@ func TestRunVerifyTextWithWarningsAndGlobalPolicy(t *testing.T) {
 func TestRunBootstrapHintsAndAgentInstall(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 
-	t.Run("hints-when-tooling-missing", func(t *testing.T) {
+	t.Run("focused-next-action-when-tooling-missing", func(t *testing.T) {
 		repo := t.TempDir()
 		var stdout, stderr bytes.Buffer
 		if err := Run([]string{"bootstrap", repo}, "0.5.0-test", &stdout, &stderr); err != nil {
 			t.Fatalf("bootstrap missing-tooling repo: %v", err)
 		}
 		out := stdout.String()
-		for _, hint := range []string{
-			"no .git/ found",
-			"Claude Code: create .claude",
-			"Codex: create .codex",
-			"Cursor: create .cursor",
-			"OpenCode: create .opencode",
-			"Devin CLI: create .devin",
-			"Antigravity CLI: create .agents",
-			"Kilo Code: create .kilo or .kilocode",
-		} {
-			if !strings.Contains(out, hint) {
-				t.Fatalf("expected bootstrap hint %q, got %q", hint, out)
+		for _, expected := range []string{"no .git/ found", "Next: git init && reconc hook install git-pre-commit"} {
+			if !strings.Contains(out, expected) {
+				t.Fatalf("expected focused bootstrap output %q, got %q", expected, out)
+			}
+		}
+		for _, unrelated := range []string{"Claude Code: create", "Codex: create", "Cursor: create", "OpenCode: create", "Devin CLI: create", "Antigravity CLI: create", "Kilo Code: create"} {
+			if strings.Contains(out, unrelated) {
+				t.Fatalf("unexpected unrelated platform hint %q in %q", unrelated, out)
 			}
 		}
 	})
@@ -676,7 +727,75 @@ func TestRunBootstrapHintsAndAgentInstall(t *testing.T) {
 		if !strings.Contains(joined, "hook install claude-code") || !strings.Contains(joined, "hook install codex") || !strings.Contains(joined, "hook install cursor") || !strings.Contains(joined, "hook install opencode") || !strings.Contains(joined, "hook install antigravity") {
 			t.Fatalf("expected agent hook install steps, got %q", joined)
 		}
+		if _, exists := payload["next_hints"]; exists {
+			t.Fatalf("unexpected legacy next_hints field: %#v", payload)
+		}
+		if nextAction, ok := payload["next_action"].(string); !ok || strings.TrimSpace(nextAction) == "" {
+			t.Fatalf("expected one primary next_action, got %#v", payload)
+		}
 	})
+}
+
+func TestLegacyBootstrapOffersAndExecutesManagedBlockOptIn(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repo := t.TempDir()
+	original := "# Existing agent guide\n\nNever replace this.\n"
+	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	err := Run([]string{"bootstrap", repo}, "0.5.0-test", &stdout, &stderr)
+	if err == nil || ExitCode(err) != 1 || !strings.Contains(stdout.String(), "--accept-managed-blocks") {
+		t.Fatalf("legacy bootstrap did not offer bounded opt-in: err=%v stdout=%q stderr=%q", err, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"bootstrap", repo, "--accept-managed-blocks"}, "0.5.0-test", &stdout, &stderr); err != nil {
+		t.Fatalf("managed-block opt-in failed: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+	body, err := os.ReadFile(filepath.Join(repo, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(body), original) || !strings.Contains(string(body), "reconc-bootstrap:agent:start") {
+		t.Fatalf("managed-block opt-in changed user content: %q", body)
+	}
+}
+
+func TestBootstrapApplyStalePlanPrintsAndAcceptsSafeReplan(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repo := t.TempDir()
+	planPath := filepath.Join(t.TempDir(), "bootstrap-plan.json")
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"bootstrap", "plan", repo, "--profile", "minimal", "--output", planPath}, "0.5.0-test", &stdout, &stderr); err != nil {
+		t.Fatalf("create bootstrap plan: %v\n%s", err, stderr.String())
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("user-cache/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	err := Run([]string{"bootstrap", "apply", "--plan", planPath}, "0.5.0-test", &stdout, &stderr)
+	if err == nil || ExitCode(err) != 1 {
+		t.Fatalf("stale plan apply should fail: err=%v code=%d", err, ExitCode(err))
+	}
+	out := stdout.String()
+	for _, expected := range []string{"The saved plan is stale", "reconc bootstrap plan", "--replace-output", planPath} {
+		if !strings.Contains(out, expected) {
+			t.Fatalf("stale-plan recovery missing %q: %q", expected, out)
+		}
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"bootstrap", "plan", repo, "--profile", "minimal", "--output", planPath, "--replace-output"}, "0.5.0-test", &stdout, &stderr); err != nil {
+		t.Fatalf("advertised safe replan failed: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "(replaced)") {
+		t.Fatalf("safe replan did not replace stale plan: %q", stdout.String())
+	}
 }
 
 func TestRunHookGenerateAndPresetListText(t *testing.T) {
@@ -1032,6 +1151,19 @@ func TestRunHookInstallAndPresetShowJSON(t *testing.T) {
 	}
 	if install["kind"] != "git-pre-commit" {
 		t.Fatalf("unexpected hook install payload: %#v", install)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"hook", "uninstall", "git-pre-commit", repo, "--json"}, "0.5.0-test", &stdout, &stderr); err != nil {
+		t.Fatalf("hook uninstall git-pre-commit --json: %v", err)
+	}
+	var uninstall map[string]interface{}
+	if err := json.Unmarshal(stdout.Bytes(), &uninstall); err != nil {
+		t.Fatalf("expected hook uninstall JSON, got %v\n%s", err, stdout.String())
+	}
+	if uninstall["kind"] != "git-pre-commit" || uninstall["action"] != "removed" {
+		t.Fatalf("unexpected hook uninstall payload: %#v", uninstall)
 	}
 
 	stdout.Reset()

@@ -182,6 +182,10 @@ func (w *trackedOutputWriter) Err() error {
 	return w.err
 }
 
+func (w *trackedOutputWriter) Unwrap() io.Writer {
+	return w.writer
+}
+
 func printUsage(w io.Writer, version string) {
 	fmt.Fprintf(w, `reconc %s -- Repository Control Compiler
 
@@ -199,7 +203,7 @@ Daily:
   done             evidence-complete task-finish gate: prints done or blocked
 
 Bootstrap & inspection:
-  bootstrap        inspect / profiles / plan / apply / verify create-only onboarding
+  bootstrap        inspect / profiles / plan / apply / verify / remove onboarding
   init             Scaffold .reconc.yml (and stub AGENTS.md) for a fresh repo
   adopt            Scan repo for tooling and suggest matching rules
   extract          Heuristic scan of AGENTS.md/CLAUDE.md prose for rule hints
@@ -223,7 +227,7 @@ Explain & remediate:
 Packs & wiring:
   preset           list / show bundled and user presets
   template         list / show bundled and user rule templates (W18)
-  hook             generate / install / status / sync-scaffold / claim registered platform hooks
+  hook             generate / install / uninstall / status / sync-scaffold / claim hooks
   grok             strict Grok ACP runner with Reconc continuation enforcement
 
 Workflow maintenance:

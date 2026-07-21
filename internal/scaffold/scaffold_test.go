@@ -19,13 +19,36 @@ func TestInitializeFreshRepoCreatesBoth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("init: %v", err)
 	}
-	if len(rep.Created) != 2 {
-		t.Errorf("expected 2 created files, got %v", rep.Created)
+	if len(rep.Created) != 3 {
+		t.Errorf("expected 3 created files, got %v", rep.Created)
 	}
-	for _, want := range []string{".reconc.yml", "AGENTS.md"} {
+	for _, want := range []string{".gitignore", ".reconc.yml", "AGENTS.md"} {
 		if _, err := os.Stat(filepath.Join(repo, want)); err != nil {
 			t.Errorf("expected %s to be created: %v", want, err)
 		}
+	}
+}
+
+func TestInitializePreservesAndDeduplicatesManagedIgnoreBlock(t *testing.T) {
+	withRECONCHome(t)
+	repo := t.TempDir()
+	ignorePath := filepath.Join(repo, ".gitignore")
+	if err := os.WriteFile(ignorePath, []byte("vendor/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Initialize(repo, Options{}); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	if _, err := Initialize(repo, Options{Force: true}); err != nil {
+		t.Fatalf("force init: %v", err)
+	}
+	body, err := os.ReadFile(ignorePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(body)
+	if !strings.HasPrefix(content, "vendor/\n") || strings.Count(content, "# >>> reconc bootstrap runtime") != 1 {
+		t.Fatalf("managed ignore block is not preserved and idempotent: %q", content)
 	}
 }
 

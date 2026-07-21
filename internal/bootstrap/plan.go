@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/hooks"
 	"reconc.dev/reconc/internal/presets"
 	reconruntime "reconc.dev/reconc/internal/runtime"
@@ -86,14 +87,10 @@ func BuildPlan(request Request, productVersion string) (*Plan, error) {
 }
 
 func WritePlan(path string, plan *Plan) (string, error) {
-	if err := ValidatePlan(plan); err != nil {
+	data, err := encodePlan(plan)
+	if err != nil {
 		return "", err
 	}
-	data, err := json.MarshalIndent(plan, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("encode bootstrap plan: %w", err)
-	}
-	data = append(data, '\n')
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", fmt.Errorf("resolve bootstrap plan output: %w", err)
@@ -128,6 +125,51 @@ func WritePlan(path string, plan *Plan) (string, error) {
 		return "", combineWriteFailure("close bootstrap plan output", err, nil, removeErr)
 	}
 	return "created", nil
+}
+
+// ReplacePlan atomically replaces only a valid existing Reconc bootstrap plan
+// for the same repository. It refuses arbitrary files and cross-repository
+// reuse, making stale-plan recovery explicit without a shell-specific rm step.
+func ReplacePlan(path string, plan *Plan) (string, error) {
+	data, err := encodePlan(plan)
+	if err != nil {
+		return "", err
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve bootstrap plan output: %w", err)
+	}
+	if _, err := os.Lstat(abs); os.IsNotExist(err) {
+		return WritePlan(abs, plan)
+	} else if err != nil {
+		return "", fmt.Errorf("inspect bootstrap plan output: %w", err)
+	}
+	current, err := LoadPlan(abs)
+	if err != nil {
+		return "", fmt.Errorf("refuse to replace non-plan output %s: %w", abs, err)
+	}
+	if current.RepoRoot != plan.RepoRoot {
+		return "", fmt.Errorf("refuse to replace bootstrap plan for %s with a plan for %s", current.RepoRoot, plan.RepoRoot)
+	}
+	changed, err := atomicfile.WriteIfChanged(abs, data, 0o644)
+	if err != nil {
+		return "", fmt.Errorf("replace bootstrap plan output: %w", err)
+	}
+	if !changed {
+		return "unchanged", nil
+	}
+	return "replaced", nil
+}
+
+func encodePlan(plan *Plan) ([]byte, error) {
+	if err := ValidatePlan(plan); err != nil {
+		return nil, err
+	}
+	data, err := json.MarshalIndent(plan, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("encode bootstrap plan: %w", err)
+	}
+	return append(data, '\n'), nil
 }
 
 func LoadPlan(path string) (*Plan, error) {

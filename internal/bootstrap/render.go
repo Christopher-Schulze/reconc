@@ -9,17 +9,14 @@ import (
 
 	"reconc.dev/reconc/internal/execfile"
 	"reconc.dev/reconc/internal/hooks"
+	"reconc.dev/reconc/internal/repositoryignore"
 )
 
 const (
-	agentBlockStart  = "<!-- reconc-bootstrap:agent:start -->"
-	agentBlockEnd    = "<!-- reconc-bootstrap:agent:end -->"
-	docsBlockStart   = "<!-- reconc-bootstrap:docs:start -->"
-	docsBlockEnd     = "<!-- reconc-bootstrap:docs:end -->"
-	ignoreBlockStart = "# >>> reconc bootstrap runtime"
-	ignoreBlockEnd   = "# <<< reconc bootstrap runtime"
-	codexBlockStart  = "# >>> reconc bootstrap hooks"
-	codexBlockEnd    = "# <<< reconc bootstrap hooks"
+	agentBlockStart = "<!-- reconc-bootstrap:agent:start -->"
+	agentBlockEnd   = "<!-- reconc-bootstrap:agent:end -->"
+	docsBlockStart  = "<!-- reconc-bootstrap:docs:start -->"
+	docsBlockEnd    = "<!-- reconc-bootstrap:docs:end -->"
 )
 
 func buildDesiredArtifacts(root string, selection Selection) ([]desiredArtifact, error) {
@@ -55,7 +52,7 @@ func buildDesiredArtifacts(root string, selection Selection) ([]desiredArtifact,
 		)
 	}
 	if profile.Ignores {
-		content, err := renderManagedFile(root, ".gitignore", ignoreBlockStart, ignoreBlockEnd, renderIgnoreBlock())
+		content, err := renderManagedFile(root, repositoryignore.RelativePath, repositoryignore.BlockStart, repositoryignore.BlockEnd, repositoryignore.Body())
 		if err != nil {
 			return nil, err
 		}
@@ -121,98 +118,15 @@ func renderCodexActivation(root string) (string, error) {
 		return "", fmt.Errorf("inspect %s for Codex hook activation: %w", relative, err)
 	}
 
-	cleaned, err := removeManagedBlock(existing, codexBlockStart, codexBlockEnd)
+	content, err := hooks.RenderCodexActivation(existing, true)
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", relative, err)
 	}
-	return enableCodexHooks(cleaned)
-}
-
-func removeManagedBlock(existing, start, end string) (string, error) {
-	if strings.Count(existing, start) > 1 || strings.Count(existing, end) > 1 {
-		return "", fmt.Errorf("duplicate reconc bootstrap managed block markers")
-	}
-	startIndex := strings.Index(existing, start)
-	endIndex := strings.Index(existing, end)
-	if startIndex == -1 && endIndex == -1 {
-		return existing, nil
-	}
-	if startIndex == -1 || endIndex == -1 || endIndex < startIndex {
-		return "", fmt.Errorf("incomplete reconc bootstrap managed block")
-	}
-	endIndex += len(end)
-	if endIndex < len(existing) && existing[endIndex] == '\n' {
-		endIndex++
-	}
-	return existing[:startIndex] + existing[endIndex:], nil
+	return content, nil
 }
 
 func enableCodexHooks(existing string) (string, error) {
-	lines := strings.SplitAfter(existing, "\n")
-	sectionStart := -1
-	currentSection := ""
-	hooksIndex := -1
-	hooksEnabled := false
-	for index, raw := range lines {
-		line := strings.TrimSpace(strings.SplitN(raw, "#", 2)[0])
-		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") && !strings.HasPrefix(line, "[[") {
-			section := strings.TrimSpace(line[1 : len(line)-1])
-			currentSection = section
-			if section == "features" {
-				if sectionStart != -1 {
-					return "", fmt.Errorf("duplicate [features] table")
-				}
-				sectionStart = index
-			}
-			continue
-		}
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 || strings.TrimSpace(parts[0]) != "hooks" {
-			continue
-		}
-		if currentSection != "features" {
-			if currentSection == "" {
-				return "", fmt.Errorf("hooks must be declared inside [features]")
-			}
-			continue
-		}
-		if hooksIndex != -1 {
-			return "", fmt.Errorf("duplicate features.hooks")
-		}
-		value := strings.TrimSpace(parts[1])
-		switch value {
-		case "true":
-			hooksEnabled = true
-		case "false":
-			hooksEnabled = false
-		default:
-			return "", fmt.Errorf("features.hooks must be a boolean")
-		}
-		hooksIndex = index
-	}
-	if hooksIndex != -1 {
-		if hooksEnabled {
-			return existing, nil
-		}
-		lines[hooksIndex] = managedBlock(codexBlockStart, codexBlockEnd, "hooks = true")
-		return strings.Join(lines, ""), nil
-	}
-
-	block := managedBlock(codexBlockStart, codexBlockEnd, "hooks = true")
-	if sectionStart != -1 {
-		lines = append(lines, "")
-		copy(lines[sectionStart+2:], lines[sectionStart+1:])
-		lines[sectionStart+1] = block
-		return strings.Join(lines, ""), nil
-	}
-	separator := ""
-	if existing != "" && !strings.HasSuffix(existing, "\n") {
-		separator = "\n"
-	}
-	if strings.TrimSpace(existing) != "" {
-		separator += "\n"
-	}
-	return existing + separator + "[features]\n" + block, nil
+	return hooks.RenderCodexActivation(existing, true)
 }
 
 func renderManagedFile(root, relative, start, end, block string) (string, error) {
@@ -373,22 +287,6 @@ func renderStart() string {
 		"refresh, install hooks, or",
 		"transition TASK state until the user authorizes implementation.", "",
 	}, "\n")
-}
-
-func renderIgnoreBlock() string {
-	return `/tools/reconc/dist/
-.reconc/*
-!.reconc/
-!.reconc/policy.lock.json
-.reconc/audit.jsonl*
-.reconc/cache/
-.reconc/locks/
-.reconc/reports/
-.reconc/run/
-.reconc/sessions/
-.reconc/task-transaction.json
-.reconc/bootstrap-*.json
-*.reconc-candidate-*`
 }
 
 func textArtifact(component, path string, mode uint32, content string) desiredArtifact {

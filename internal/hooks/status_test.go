@@ -59,6 +59,9 @@ func TestInspectPlatformsActivationStates(t *testing.T) {
 		if _, err := Install(KindClaudeCode, repo, false); err != nil {
 			t.Fatal(err)
 		}
+		if err := os.Remove(filepath.Join(repo, filepath.FromSlash(WrapperPath))); err != nil {
+			t.Fatal(err)
+		}
 		if got := statusForKind(t, repo, KindClaudeCode).State; got != StateDegraded {
 			t.Fatalf("without wrapper = %s, want degraded", got)
 		}
@@ -217,7 +220,7 @@ func writeExecutableWrapper(t *testing.T, repo string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+	if err := os.WriteFile(path, []byte(GenerateWrapper().Content), 0o755); err != nil {
 		t.Fatal(err)
 	}
 }

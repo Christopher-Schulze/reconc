@@ -98,6 +98,32 @@ func TestDetectIgnoresDependenciesBuildOutputAndUnpairedBunLocks(t *testing.T) {
 	}
 }
 
+func TestDetectReportsManagersMarkersAndSameDirectoryAmbiguity(t *testing.T) {
+	root := t.TempDir()
+	writeDetectionFile(t, root, "AGENTS.md", "# Context\n")
+	writeDetectionFile(t, root, ".reconc.yml", "rules: []\n")
+	writeDetectionFile(t, root, "package.json", "{}\n")
+	writeDetectionFile(t, root, "bun.lock", "lock\n")
+	writeDetectionFile(t, root, "package-lock.json", "{}\n")
+	writeDetectionFile(t, root, "services/api/go.mod", "module example\n")
+
+	result, err := Detect(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(result.PackageManagers["bun"], []string{"bun.lock"}) ||
+		!reflect.DeepEqual(result.PackageManagers["npm"], []string{"package-lock.json"}) ||
+		!reflect.DeepEqual(result.PackageManagers["go-modules"], []string{"services/api/go.mod"}) {
+		t.Fatalf("package manager evidence = %+v", result.PackageManagers)
+	}
+	if !reflect.DeepEqual(result.RepositoryMarkers, []string{".reconc.yml", "AGENTS.md"}) {
+		t.Fatalf("repository markers = %v", result.RepositoryMarkers)
+	}
+	if len(result.Ambiguities) != 1 || !strings.Contains(result.Ambiguities[0], "bun, npm") {
+		t.Fatalf("ambiguities = %v", result.Ambiguities)
+	}
+}
+
 func writeDetectionFile(t *testing.T, root, relative, body string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(relative))

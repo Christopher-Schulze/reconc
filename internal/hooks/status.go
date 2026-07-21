@@ -43,6 +43,12 @@ type PlatformStatus struct {
 	LastSeen       string          `json:"last_seen,omitempty"`
 	LastEvent      string          `json:"last_event,omitempty"`
 	LivenessError  string          `json:"liveness_error,omitempty"`
+	Generated      bool            `json:"generated"`
+	Installed      bool            `json:"installed"`
+	Executable     bool            `json:"executable"`
+	Configured     bool            `json:"configured"`
+	Live           bool            `json:"live"`
+	Remediation    string          `json:"remediation,omitempty"`
 }
 
 // InspectPlatforms validates every registered artifact and activation probe.
@@ -53,9 +59,65 @@ func InspectPlatforms(repoRoot string) ([]PlatformStatus, error) {
 	}
 	reports := make([]PlatformStatus, 0, len(platformRegistry))
 	for _, platform := range Platforms() {
-		reports = append(reports, inspectPlatform(root, platform))
+		report := inspectPlatform(root, platform)
+		finalizePlatformStatus(root, platform, &report)
+		reports = append(reports, report)
 	}
 	return reports, nil
+}
+
+func finalizePlatformStatus(root string, platform Platform, report *PlatformStatus) {
+	_, generateErr := Generate(platform.Kind)
+	report.Generated = generateErr == nil
+	report.Installed = platformArtifactInstalled(root, platform, report.TargetPath)
+	targetExecutable := true
+	if platform.Executable {
+		target := report.TargetPath
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(root, filepath.FromSlash(target))
+		}
+		targetExecutable = executableFile(target)
+	}
+	wrapperExecutable := true
+	if platform.Activation.RequiresWrapper {
+		wrapperExecutable = executableFile(filepath.Join(root, filepath.FromSlash(WrapperPath)))
+	}
+	report.Executable = report.Installed && targetExecutable && wrapperExecutable
+	report.Configured = report.State == StateConfigured
+	if report.Configured {
+		return
+	}
+	force := ""
+	if strings.Contains(report.Detail, "invalid JSON") || strings.Contains(report.Detail, "differs from") || strings.Contains(report.Detail, "unreadable") || strings.Contains(report.Detail, "does not enable") {
+		force = " --force"
+	}
+	report.Remediation = "Run `reconc hook install " + platform.Kind + " " + quoteStatusArgument(root) + force + "`."
+}
+
+func platformArtifactInstalled(root string, platform Platform, reportedPath string) bool {
+	paths := []string{reportedPath, platform.TargetPath, platform.Activation.LegacyArtifactPath}
+	seen := map[string]bool{}
+	for _, candidate := range paths {
+		if candidate == "" {
+			continue
+		}
+		if !filepath.IsAbs(candidate) {
+			candidate = filepath.Join(root, filepath.FromSlash(candidate))
+		}
+		candidate = filepath.Clean(candidate)
+		if seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		if _, err := readManagedArtifact(candidate); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func quoteStatusArgument(value string) string {
+	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
 }
 
 func inspectPlatform(root string, platform Platform) PlatformStatus {

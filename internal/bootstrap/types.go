@@ -3,9 +3,10 @@
 package bootstrap
 
 const (
-	InspectFormatVersion = "reconc.bootstrap.inspect/v1"
+	InspectFormatVersion = "reconc.bootstrap.inspect/v2"
 	PlanFormatVersion    = "reconc.bootstrap.plan/v1"
 	ReportFormatVersion  = "reconc.bootstrap.report/v1"
+	RemovalFormatVersion = "reconc.bootstrap.remove/v1"
 	VerifyFormatVersion  = "reconc.bootstrap.verify/v1"
 )
 
@@ -37,8 +38,8 @@ func Profiles() []Profile {
 			DefaultPacks: []string{"default", "agent"},
 		},
 		{
-			Name: ProfileMinimal, Summary: "Policy and a compact AI orientation file only.",
-			Policy: true, AgentDoc: true, DefaultPacks: []string{"default", "agent"},
+			Name: ProfileMinimal, Summary: "Policy, compact AI orientation, and runtime ignores.",
+			Policy: true, AgentDoc: true, Ignores: true, DefaultPacks: []string{"default", "agent"},
 		},
 		{
 			Name: ProfileExisting, Summary: "Hooks, repo-local wrapper, and optional binary for a repository with existing fresh policy.",
@@ -72,13 +73,38 @@ type BinarySelection struct {
 }
 
 type Inspection struct {
-	FormatVersion     string             `json:"format_version"`
-	RepoRoot          string             `json:"repo_root"`
-	DetectedStacks    []string           `json:"detected_stacks"`
-	PackSuggestions   []string           `json:"pack_suggestions"`
-	DetectedPlatforms []string           `json:"detected_platforms"`
-	ExistingPaths     []string           `json:"existing_paths"`
-	BinaryResolution  ArtifactResolution `json:"binary_resolution"`
+	FormatVersion     string               `json:"format_version"`
+	RepoRoot          string               `json:"repo_root"`
+	DetectionState    string               `json:"detection_state"`
+	DetectedStacks    []string             `json:"detected_stacks"`
+	StackEvidence     []DetectionEvidence  `json:"stack_evidence"`
+	PackageManagers   []DetectionEvidence  `json:"package_managers"`
+	RepositoryMarkers []string             `json:"repository_markers"`
+	Ambiguities       []string             `json:"ambiguities"`
+	PackSuggestions   []string             `json:"pack_suggestions"`
+	DetectedPlatforms []string             `json:"detected_platforms"`
+	PlatformStatuses  []PlatformInspection `json:"platform_statuses"`
+	ExistingPaths     []string             `json:"existing_paths"`
+	BinaryResolution  ArtifactResolution   `json:"binary_resolution"`
+}
+
+type DetectionEvidence struct {
+	Name  string   `json:"name"`
+	Paths []string `json:"paths"`
+}
+
+type PlatformInspection struct {
+	Kind        string   `json:"kind"`
+	DisplayName string   `json:"display_name"`
+	TargetPath  string   `json:"target_path"`
+	State       string   `json:"state"`
+	Detail      string   `json:"detail"`
+	Evidence    []string `json:"evidence"`
+	Generated   bool     `json:"generated"`
+	Installed   bool     `json:"installed"`
+	Executable  bool     `json:"executable"`
+	Configured  bool     `json:"configured"`
+	Remediation string   `json:"remediation,omitempty"`
 }
 
 type ArtifactResolution struct {
@@ -131,15 +157,50 @@ const (
 )
 
 type Report struct {
-	FormatVersion string      `json:"format_version"`
-	RepoRoot      string      `json:"repo_root"`
-	PlanDigest    string      `json:"plan_digest"`
-	Status        ApplyStatus `json:"status"`
-	Created       []string    `json:"created"`
-	Unchanged     []string    `json:"unchanged"`
-	Candidates    []string    `json:"candidates"`
-	RolledBack    []string    `json:"rolled_back"`
-	NextAction    string      `json:"next_action"`
+	FormatVersion string       `json:"format_version"`
+	RepoRoot      string       `json:"repo_root"`
+	PlanDigest    string       `json:"plan_digest"`
+	Status        ApplyStatus  `json:"status"`
+	Created       []string     `json:"created"`
+	Unchanged     []string     `json:"unchanged"`
+	Candidates    []string     `json:"candidates"`
+	RolledBack    []string     `json:"rolled_back"`
+	ReceiptPath   string       `json:"receipt_path,omitempty"`
+	Summary       ApplySummary `json:"summary"`
+	NextAction    string       `json:"next_action"`
+}
+
+type ApplySummary struct {
+	Created       int  `json:"created"`
+	Preserved     int  `json:"preserved"`
+	Drifted       int  `json:"drifted"`
+	Skipped       int  `json:"skipped"`
+	Installed     int  `json:"installed"`
+	Configured    int  `json:"configured"`
+	Live          int  `json:"live"`
+	LivenessKnown bool `json:"liveness_known"`
+}
+
+type RemovalStatus string
+
+const (
+	RemovalComplete   RemovalStatus = "complete"
+	RemovalDrift      RemovalStatus = "drift"
+	RemovalRolledBack RemovalStatus = "rolled_back"
+)
+
+type RemovalReport struct {
+	FormatVersion string        `json:"format_version"`
+	RepoRoot      string        `json:"repo_root"`
+	PlanDigest    string        `json:"plan_digest"`
+	Status        RemovalStatus `json:"status"`
+	ReceiptPath   string        `json:"receipt_path"`
+	Removed       []string      `json:"removed"`
+	Updated       []string      `json:"updated"`
+	Preserved     []string      `json:"preserved"`
+	Candidates    []string      `json:"candidates"`
+	RolledBack    []string      `json:"rolled_back"`
+	NextAction    string        `json:"next_action"`
 }
 
 type Verification struct {

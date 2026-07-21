@@ -30,6 +30,7 @@ func runBootstrapLegacy(args []string, version string, stdout, stderr io.Writer)
 	jsonOut := false
 	skipGitHook := false
 	skipAgentHooks := false
+	acceptManagedBlocks := false
 	opts := scaffold.Options{}
 
 	i := 0
@@ -44,6 +45,8 @@ func runBootstrapLegacy(args []string, version string, stdout, stderr io.Writer)
 			skipGitHook = true
 		case "--skip-agent-hooks":
 			skipAgentHooks = true
+		case "--accept-managed-blocks":
+			acceptManagedBlocks = true
 		case "--preset":
 			val, ok := nextArgValue(args, &i, a)
 			if !ok {
@@ -52,11 +55,13 @@ func runBootstrapLegacy(args []string, version string, stdout, stderr io.Writer)
 			opts.Presets = append(opts.Presets, val)
 		case "-h", "--help":
 			fmt.Fprintln(stdout, "Usage: reconc bootstrap [repo] [--preset NAME ...]")
-			fmt.Fprintln(stdout, "                       [--skip-git-hook] [--skip-agent-hooks] [--json]")
+			fmt.Fprintln(stdout, "                       [--skip-git-hook] [--skip-agent-hooks]")
+			fmt.Fprintln(stdout, "                       [--accept-managed-blocks] [--json]")
 			fmt.Fprintln(stdout, "")
 			fmt.Fprintln(stdout, "Compatibility bootstrap: create-only minimal transaction with detected hooks.")
 			fmt.Fprintln(stdout, "- git pre-commit is installed when .git/ is present.")
 			fmt.Fprintln(stdout, "- Registered agent hooks are installed when their repo-local config dirs exist.")
+			fmt.Fprintln(stdout, "- --accept-managed-blocks explicitly promotes only byte-verified marker-only candidates.")
 			return nil
 		default:
 			if len(a) > 0 && a[0] == '-' {
@@ -80,12 +85,21 @@ func runBootstrapLegacy(args []string, version string, stdout, stderr io.Writer)
 		hookKinds = append(hookKinds, hooks.KindGitPreCommit)
 	}
 	if !skipAgentHooks {
-		hookKinds = append(hookKinds, inspection.DetectedPlatforms...)
+		agentKinds := map[string]bool{}
+		for _, platform := range hooks.AgentPlatforms() {
+			agentKinds[platform.Kind] = true
+		}
+		for _, kind := range inspection.DetectedPlatforms {
+			if agentKinds[kind] {
+				hookKinds = append(hookKinds, kind)
+			}
+		}
 	}
-	plan, err := reconbootstrap.BuildPlan(reconbootstrap.Request{
+	request := reconbootstrap.Request{
 		RepoRoot: inspection.RepoRoot, Profile: reconbootstrap.ProfileMinimal,
 		Packs: opts.Presets, Hooks: hookKinds, TrustExistingWrapper: true,
-	}, version)
+	}
+	plan, err := reconbootstrap.BuildPlan(request, version)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc bootstrap plan: " + err.Error()}
 	}
@@ -93,32 +107,76 @@ func runBootstrapLegacy(args []string, version string, stdout, stderr io.Writer)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc bootstrap apply: " + err.Error()}
 	}
+	acceptedDetails := []string{}
+	if acceptManagedBlocks && applyReport.Status == reconbootstrap.ApplyDrift {
+		accepted, acceptErr := reconbootstrap.AcceptManagedCandidates(plan, applyReport)
+		if acceptErr != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc bootstrap accept managed blocks: " + acceptErr.Error()}
+		}
+		acceptedDetails = append(acceptedDetails,
+			fmt.Sprintf("accepted marker-only updates=%v; removed candidates=%v", accepted.Updated, accepted.RemovedCandidates),
+		)
+		plan, err = reconbootstrap.BuildPlan(request, version)
+		if err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc bootstrap replan: " + err.Error()}
+		}
+		applyReport, err = reconbootstrap.Apply(plan, version)
+		if err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc bootstrap reapply: " + err.Error()}
+		}
+	}
 
 	steps := []string{fmt.Sprintf("transaction %s: created=%v, unchanged=%v, candidates=%v",
 		applyReport.Status, applyReport.Created, applyReport.Unchanged, applyReport.Candidates)}
-	hints := []string{}
+	details := []string{}
+	details = append(details, acceptedDetails...)
 	if !gitDirPresent {
-		hints = append(hints, "no .git/ found - run `git init` then `reconc hook install git-pre-commit` to enable commit-time enforcement")
+		details = append(details, "no .git/ found; commit-time enforcement is not installed")
 	}
-	for _, platform := range hooks.AgentPlatforms() {
-		if containsString(inspection.DetectedPlatforms, platform.Kind) && !skipAgentHooks {
-			steps = append(steps, "hook install "+platform.Kind+": transaction verified")
-			continue
-		}
-		if !containsString(inspection.DetectedPlatforms, platform.Kind) {
-			hints = append(hints, fmt.Sprintf("%s: create %s then `reconc hook install %s`", platform.DisplayName, strings.Join(platform.Activation.ConfigDirs, " or "), platform.Kind))
-		}
+	for _, ambiguity := range inspection.Ambiguities {
+		details = append(details, "ambiguous detection: "+ambiguity)
+	}
+	for _, kind := range hookKinds {
+		steps = append(steps, "hook install "+kind+": transaction verified")
 	}
 
-	hookStatuses, statusErr := hooks.InspectPlatforms(inspection.RepoRoot)
+	allHookStatuses, statusErr := hooks.InspectPlatforms(inspection.RepoRoot)
 	installFailed := statusErr != nil
 	if statusErr != nil {
-		hints = append(hints, "Hook activation inspection failed: "+statusErr.Error())
+		details = append(details, "hook activation inspection failed: "+statusErr.Error())
+	}
+	selectedKinds := map[string]bool{}
+	for _, kind := range hookKinds {
+		selectedKinds[kind] = true
+	}
+	hookStatuses := []hooks.PlatformStatus{}
+	for _, status := range allHookStatuses {
+		if selectedKinds[status.Kind] || status.State != hooks.StateAbsent {
+			hookStatuses = append(hookStatuses, status)
+		}
 	}
 	healthy := !installFailed && applyReport.Status == reconbootstrap.ApplyComplete
+	primaryNext := renderDirectCommand([]string{"reconc", "check", inspection.RepoRoot})
 	for _, report := range hookStatuses {
 		if report.State != hooks.StateAbsent && report.State != hooks.StateConfigured {
 			healthy = false
+			if report.Remediation != "" && primaryNext == renderDirectCommand([]string{"reconc", "check", inspection.RepoRoot}) {
+				primaryNext = strings.TrimSuffix(strings.TrimPrefix(report.Remediation, "Run `"), "`.")
+			}
+		}
+	}
+	if !gitDirPresent && applyReport.Status == reconbootstrap.ApplyComplete {
+		primaryNext = "git init && " + renderDirectCommand([]string{"reconc", "hook", "install", hooks.KindGitPreCommit, inspection.RepoRoot})
+	}
+	if applyReport.Status == reconbootstrap.ApplyDrift && len(applyReport.Candidates) > 0 {
+		if reconbootstrap.HasManagedCandidates(plan) {
+			primaryNext = renderDirectCommand([]string{"reconc", "bootstrap", inspection.RepoRoot, "--accept-managed-blocks"})
+		} else {
+			candidate := applyReport.Candidates[0]
+			primaryNext = "review " + candidate + ", integrate the approved change, remove the candidate, then rerun " + renderDirectCommand([]string{"reconc", "bootstrap", inspection.RepoRoot})
+		}
+		for _, extra := range applyReport.Candidates[1:] {
+			details = append(details, "additional removal candidate: "+extra)
 		}
 	}
 
@@ -127,7 +185,8 @@ func runBootstrapLegacy(args []string, version string, stdout, stderr io.Writer)
 			"repo_root":     inspection.RepoRoot,
 			"steps":         steps,
 			"hook_statuses": hookStatuses,
-			"next_hints":    hints,
+			"details":       details,
+			"next_action":   primaryNext,
 			"healthy":       healthy,
 		}
 		enc := json.NewEncoder(stdout)
@@ -153,10 +212,13 @@ func runBootstrapLegacy(args []string, version string, stdout, stderr io.Writer)
 		}
 	}
 	fmt.Fprintln(stdout, "")
-	fmt.Fprintln(stdout, "Next steps:")
-	for _, h := range hints {
-		fmt.Fprintf(stdout, "  - %s\n", h)
+	if len(details) > 0 {
+		fmt.Fprintln(stdout, "Details:")
+		for _, detail := range details {
+			fmt.Fprintf(stdout, "  - %s\n", detail)
+		}
 	}
+	fmt.Fprintf(stdout, "Next: %s\n", primaryNext)
 	if !healthy {
 		return &CLIError{ExitCode: 1, Message: ""}
 	}

@@ -44,7 +44,7 @@ func contains(values []string, want string) bool {
 	return false
 }
 
-func TestGenerateCompletionIncludesHookSyncScaffold(t *testing.T) {
+func TestGenerateCompletionIncludesHookLifecycle(t *testing.T) {
 	for name, generate := range map[string]func(io.Writer) error{
 		"bash": GenerateBash,
 		"zsh":  GenerateZsh,
@@ -55,8 +55,10 @@ func TestGenerateCompletionIncludesHookSyncScaffold(t *testing.T) {
 			if err := generate(&buf); err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(buf.String(), "sync-scaffold") {
-				t.Fatalf("%s completion missing hook sync-scaffold", name)
+			for _, command := range []string{"sync-scaffold", "uninstall"} {
+				if !strings.Contains(buf.String(), command) {
+					t.Fatalf("%s completion missing hook %s", name, command)
+				}
 			}
 		})
 	}
@@ -93,12 +95,12 @@ func TestGenerateCompletionIncludesBootstrapPhases(t *testing.T) {
 			if err := generate(&buf); err != nil {
 				t.Fatal(err)
 			}
-			for _, command := range []string{"inspect", "plan", "apply", "verify", "profiles"} {
+			for _, command := range []string{"inspect", "plan", "apply", "verify", "profiles", "remove"} {
 				if !strings.Contains(buf.String(), command) {
 					t.Fatalf("%s completion missing bootstrap %s", name, command)
 				}
 			}
-			for _, flag := range []string{"profile", "pack", "hook", "checksum"} {
+			for _, flag := range []string{"profile", "pack", "hook", "checksum", "replace-output", "accept-managed-blocks"} {
 				needle := "--" + flag
 				if name == "fish" {
 					needle = "-l " + flag

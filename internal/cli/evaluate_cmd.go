@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"reconc.dev/reconc/internal/policyproof"
 	"reconc.dev/reconc/internal/runtime"
 )
 
@@ -287,11 +288,16 @@ func runAssert(args []string, stdout, stderr io.Writer) error {
 // Wraps check + BuildFixPlan to produce action-focused remediation
 // output. Same exit codes as check (0 = pass/warn, 2 = block).
 func runFix(args []string, stdout, stderr io.Writer) (resultErr error) {
+	return runFixCommand("fix", args, stdout, stderr)
+}
+
+func runFixCommand(command string, args []string, stdout, stderr io.Writer) (resultErr error) {
 	repo := "."
 	jsonOut := false
 	nextOnly := false
 	outputPath := ""
 	inputs := runtime.Empty()
+	prefix := "reconc " + command + ": "
 
 	i := 0
 	for i < len(args) {
@@ -304,7 +310,7 @@ func runFix(args []string, stdout, stderr io.Writer) (resultErr error) {
 		case "--output":
 			val, ok := nextArgValue(args, &i, a)
 			if !ok {
-				return &CLIError{ExitCode: 1, Message: "reconc fix: --output requires a path"}
+				return &CLIError{ExitCode: 1, Message: prefix + "--output requires a path"}
 			}
 			outputPath = val
 		case "-h", "--help":
@@ -319,25 +325,25 @@ func runFix(args []string, stdout, stderr io.Writer) (resultErr error) {
 		case "--read":
 			val, ok := nextArgValue(args, &i, a)
 			if !ok {
-				return &CLIError{ExitCode: 1, Message: "reconc fix: --read requires a value"}
+				return &CLIError{ExitCode: 1, Message: prefix + "--read requires a value"}
 			}
 			inputs.ReadPaths = append(inputs.ReadPaths, val)
 		case "--write":
 			val, ok := nextArgValue(args, &i, a)
 			if !ok {
-				return &CLIError{ExitCode: 1, Message: "reconc fix: --write requires a value"}
+				return &CLIError{ExitCode: 1, Message: prefix + "--write requires a value"}
 			}
 			inputs.WritePaths = append(inputs.WritePaths, val)
 		case "--command":
 			val, ok := nextArgValue(args, &i, a)
 			if !ok {
-				return &CLIError{ExitCode: 1, Message: "reconc fix: --command requires a value"}
+				return &CLIError{ExitCode: 1, Message: prefix + "--command requires a value"}
 			}
 			inputs.Commands = append(inputs.Commands, val)
 		case "--command-success":
 			val, ok := nextArgValue(args, &i, a)
 			if !ok {
-				return &CLIError{ExitCode: 1, Message: "reconc fix: --command-success requires a value"}
+				return &CLIError{ExitCode: 1, Message: prefix + "--command-success requires a value"}
 			}
 			inputs.Commands = append(inputs.Commands, val)
 			inputs.CommandResults = append(inputs.CommandResults, runtime.CommandResult{
@@ -346,7 +352,7 @@ func runFix(args []string, stdout, stderr io.Writer) (resultErr error) {
 		case "--command-failure":
 			val, ok := nextArgValue(args, &i, a)
 			if !ok {
-				return &CLIError{ExitCode: 1, Message: "reconc fix: --command-failure requires a value"}
+				return &CLIError{ExitCode: 1, Message: prefix + "--command-failure requires a value"}
 			}
 			inputs.Commands = append(inputs.Commands, val)
 			inputs.CommandResults = append(inputs.CommandResults, runtime.CommandResult{
@@ -355,12 +361,12 @@ func runFix(args []string, stdout, stderr io.Writer) (resultErr error) {
 		case "--claim":
 			val, ok := nextArgValue(args, &i, a)
 			if !ok {
-				return &CLIError{ExitCode: 1, Message: "reconc fix: --claim requires a value"}
+				return &CLIError{ExitCode: 1, Message: prefix + "--claim requires a value"}
 			}
 			inputs.Claims = append(inputs.Claims, val)
 		default:
 			if len(a) > 0 && a[0] == '-' {
-				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc fix: unknown flag %q", a)}
+				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("%sunknown flag %q", prefix, a)}
 			}
 			repo = a
 		}
@@ -370,13 +376,13 @@ func runFix(args []string, stdout, stderr io.Writer) (resultErr error) {
 	startFix := time.Now()
 	report, err := runtime.CheckRepoPolicy(repo, inputs)
 	if err != nil {
-		return &CLIError{ExitCode: 1, Message: "reconc fix: " + err.Error()}
+		return &CLIError{ExitCode: 1, Message: prefix + err.Error()}
 	}
-	maybeAudit("fix", report, startFix)
+	maybeAudit(command, report, startFix)
 	plan := runtime.BuildFixPlan(report)
 	out, closeOutput, err := teeToFile(stdout, outputPath)
 	if err != nil {
-		return &CLIError{ExitCode: 1, Message: "reconc fix: open output file: " + err.Error()}
+		return &CLIError{ExitCode: 1, Message: prefix + "open output file: " + err.Error()}
 	}
 	defer joinOutputCloseError(&resultErr, closeOutput)
 	if nextOnly {
@@ -399,10 +405,10 @@ func runFix(args []string, stdout, stderr io.Writer) (resultErr error) {
 			enc := json.NewEncoder(out)
 			enc.SetIndent("", "  ")
 			if err := enc.Encode(next); err != nil {
-				return err
+				return &CLIError{ExitCode: 1, Message: prefix + "json encode: " + err.Error()}
 			}
 		} else {
-			fmt.Fprint(out, renderNextRemediationText(next))
+			writeNextRemediationText(out, next)
 		}
 		if report.Decision == runtime.DecisionBlock {
 			return &CLIError{ExitCode: 2, Message: ""}
@@ -414,7 +420,7 @@ func runFix(args []string, stdout, stderr io.Writer) (resultErr error) {
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(plan); err != nil {
-			return &CLIError{ExitCode: 1, Message: "reconc fix: json encode: " + err.Error()}
+			return &CLIError{ExitCode: 1, Message: prefix + "json encode: " + err.Error()}
 		}
 	} else {
 		fmt.Fprint(out, runtime.RenderFixPlanText(plan))
@@ -433,11 +439,150 @@ func runNext(args []string, stdout, stderr io.Writer) error {
 			fmt.Fprintln(stdout, "                   [--command CMD] [--command-success CMD]")
 			fmt.Fprintln(stdout, "                   [--command-failure CMD] [--claim NAME] [--json]")
 			fmt.Fprintln(stdout, "")
-			fmt.Fprintln(stdout, "Terse alias for `reconc fix --next`: print only the next remediation.")
+			fmt.Fprintln(stdout, "Replay the latest current blocking decision, or evaluate explicit evidence and print one remediation.")
 			return nil
 		}
 	}
-	return runFix(append(append([]string{}, args...), "--next"), stdout, stderr)
+	if hasExplicitNextEvidence(args) {
+		return runFixCommand("next", append(append([]string{}, args...), "--next"), stdout, stderr)
+	}
+	return runPersistedNext(args, stdout)
+}
+
+func hasExplicitNextEvidence(args []string) bool {
+	for _, arg := range args {
+		switch arg {
+		case "--read", "--write", "--command", "--command-success", "--command-failure", "--claim":
+			return true
+		}
+	}
+	return false
+}
+
+func runPersistedNext(args []string, stdout io.Writer) (resultErr error) {
+	repo := "."
+	repoSet := false
+	jsonOut := false
+	outputPath := ""
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		switch arg {
+		case "--json":
+			jsonOut = true
+		case "--output":
+			value, ok := nextArgValue(args, &index, arg)
+			if !ok {
+				return &CLIError{ExitCode: 1, Message: "reconc next: --output requires a path"}
+			}
+			outputPath = value
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc next: unknown flag %q", arg)}
+			}
+			if repoSet {
+				return &CLIError{ExitCode: 1, Message: "reconc next: accepts at most one repo path"}
+			}
+			repo = arg
+			repoSet = true
+		}
+	}
+
+	candidate, err := capturePolicyDecisionCandidate(repo)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc next: capture candidate: " + err.Error()}
+	}
+	record, found, err := policyproof.LoadLatest(candidate.RepoRoot)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc next: load latest blocking decision: " + err.Error()}
+	}
+	if !found {
+		return &CLIError{ExitCode: 1, Message: "reconc next: no unresolved blocking decision; run `reconc check " + quoteCommandArgument(candidate.RepoRoot) + "` with the action's --read, --write, --command-success/--command-failure, and --claim evidence first"}
+	}
+
+	out, closeOutput, err := teeToFile(stdout, outputPath)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc next: open output file: " + err.Error()}
+	}
+	defer joinOutputCloseError(&resultErr, closeOutput)
+
+	if candidate.Fingerprint != record.CandidateFingerprint {
+		replayCommand := renderPolicyReplayCommand(record.Report)
+		nextAction := replayCommand + " && " + renderDirectCommand([]string{"reconc", "next", candidate.RepoRoot})
+		if jsonOut {
+			payload := map[string]string{
+				"state":          "stale",
+				"replay_command": replayCommand,
+				"next_action":    nextAction,
+			}
+			encoder := json.NewEncoder(out)
+			encoder.SetIndent("", "  ")
+			if err := encoder.Encode(payload); err != nil {
+				return &CLIError{ExitCode: 1, Message: "reconc next: json encode: " + err.Error()}
+			}
+			return &CLIError{ExitCode: 1, Message: ""}
+		}
+		return &CLIError{ExitCode: 1, Message: "reconc next: stored blocking decision is stale because repository, policy, or active-session evidence changed; rerun `" + replayCommand + "`, then `" + renderDirectCommand([]string{"reconc", "next", candidate.RepoRoot}) + "`"}
+	}
+
+	plan := runtime.BuildFixPlan(record.Report)
+	next := nextRemediation(plan)
+	if next == nil {
+		return &CLIError{ExitCode: 1, Message: "reconc next: stored blocking decision contains no remediation"}
+	}
+	if jsonOut {
+		encoder := json.NewEncoder(out)
+		encoder.SetIndent("", "  ")
+		if err := encoder.Encode(next); err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc next: json encode: " + err.Error()}
+		}
+	} else {
+		writeNextRemediationText(out, next)
+	}
+	return &CLIError{ExitCode: 2, Message: ""}
+}
+
+func renderPolicyReplayCommand(report *runtime.CheckReport) string {
+	args := []string{"reconc", "check", report.RepoRoot}
+	for _, path := range report.Inputs.ReadPaths {
+		args = append(args, "--read", path)
+	}
+	for _, path := range report.Inputs.WritePaths {
+		args = append(args, "--write", path)
+	}
+	usedResults := make([]bool, len(report.Inputs.CommandResults))
+	for _, command := range report.Inputs.Commands {
+		flag := "--command"
+		for index, result := range report.Inputs.CommandResults {
+			if usedResults[index] || result.Command != command {
+				continue
+			}
+			usedResults[index] = true
+			switch result.Outcome {
+			case runtime.CommandOutcomeSuccess:
+				flag = "--command-success"
+			case runtime.CommandOutcomeFailure:
+				flag = "--command-failure"
+			}
+			break
+		}
+		args = append(args, flag, command)
+	}
+	for index, result := range report.Inputs.CommandResults {
+		if usedResults[index] {
+			continue
+		}
+		flag := "--command"
+		if result.Outcome == runtime.CommandOutcomeSuccess {
+			flag = "--command-success"
+		} else if result.Outcome == runtime.CommandOutcomeFailure {
+			flag = "--command-failure"
+		}
+		args = append(args, flag, result.Command)
+	}
+	for _, claim := range report.Inputs.Claims {
+		args = append(args, "--claim", claim)
+	}
+	return renderDirectCommand(args)
 }
 
 // runCan implements `reconc can <action> <path> [repo] [--terse|--json|--why]` (W41).
@@ -524,11 +669,12 @@ func runCan(args []string, stdout, stderr io.Writer) error {
 		enc := json.NewEncoder(stdout)
 		_ = enc.Encode(payload)
 	} else {
+		style := newTextStyler(stdout)
 		if yes {
-			fmt.Fprintln(stdout, "yes")
+			fmt.Fprintln(stdout, style.decision("yes"))
 		} else {
 			v := report.Violations[0]
-			fmt.Fprintf(stdout, "no: %s %s\n", v.RuleID, v.RecommendedAction)
+			fmt.Fprintf(stdout, "%s: %s %s\n", style.decision("no"), style.ruleID(v.RuleID), v.RecommendedAction)
 			if showWhy {
 				fmt.Fprintf(stdout, "why: %s\n", v.Explanation)
 			}
@@ -553,19 +699,20 @@ func nextRemediation(plan *runtime.FixPlan) *runtime.Remediation {
 	return &plan.Remediations[0]
 }
 
-func renderNextRemediationText(remediation *runtime.Remediation) string {
+func writeNextRemediationText(writer io.Writer, remediation *runtime.Remediation) {
 	if remediation == nil {
-		return "No remediation needed.\n"
+		fmt.Fprintln(writer, "No remediation needed.")
+		return
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "next: [%s|%s] %s\n", remediation.Priority, remediation.Kind, remediation.RuleID)
-	fmt.Fprintf(&b, "why: %s\n", remediation.Why)
-	fmt.Fprintf(&b, "do: %s\n", remediation.RecommendedAction)
-	return b.String()
+	style := newTextStyler(writer)
+	fmt.Fprintf(writer, "next: [%s|%s] %s\n", remediation.Priority, remediation.Kind, style.ruleID(remediation.RuleID))
+	fmt.Fprintf(writer, "why: %s\n", remediation.Why)
+	fmt.Fprintf(writer, "do: %s\n", remediation.RecommendedAction)
 }
 
 func renderCheckText(r *runtime.CheckReport, w io.Writer) {
-	fmt.Fprintf(w, "Decision:  %s\n", r.Decision)
+	style := newTextStyler(w)
+	fmt.Fprintf(w, "Decision:  %s\n", style.decision(string(r.Decision)))
 	fmt.Fprintf(w, "Repo:      %s\n", r.RepoRoot)
 	fmt.Fprintf(w, "Lockfile:  %s\n", r.LockfilePath)
 	fmt.Fprintf(w, "Default:   %s\n", r.DefaultMode)
@@ -578,7 +725,7 @@ func renderCheckText(r *runtime.CheckReport, w io.Writer) {
 	}
 	fmt.Fprintf(w, "\nViolations (%d total, %d blocking):\n", r.ViolationCount, r.BlockingViolationCount)
 	for i, v := range r.Violations {
-		fmt.Fprintf(w, "  %d. [%s | %s] %s\n", i+1, v.Mode, v.Kind, v.RuleID)
+		fmt.Fprintf(w, "  %d. [%s | %s] %s\n", i+1, v.Mode, v.Kind, style.ruleID(v.RuleID))
 		fmt.Fprintf(w, "     %s\n", v.Explanation)
 		fmt.Fprintf(w, "     -> %s\n", v.RecommendedAction)
 	}

@@ -1,11 +1,25 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"strings"
 	"testing"
 )
+
+func TestWriteErrorSuppressesEmptyControlFlowErrors(t *testing.T) {
+	var stderr bytes.Buffer
+	writeError(&stderr, errors.New(""))
+	if stderr.Len() != 0 {
+		t.Fatalf("empty control-flow error wrote stderr: %q", stderr.String())
+	}
+	writeError(&stderr, errors.New("real failure"))
+	if stderr.String() != "real failure\n" {
+		t.Fatalf("real error output = %q", stderr.String())
+	}
+}
 
 func TestMainVersionSuccess(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestMainHelperProcess", "--", "--version")

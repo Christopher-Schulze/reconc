@@ -9,6 +9,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"reconc.dev/reconc/internal/cli"
@@ -20,7 +21,13 @@ var Version = "0.8.5"
 
 func main() {
 	if err := cli.Run(os.Args[1:], Version, os.Stdout, os.Stderr); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		writeError(os.Stderr, err)
 		os.Exit(cli.ExitCode(err))
+	}
+}
+
+func writeError(stderr io.Writer, err error) {
+	if err != nil && err.Error() != "" {
+		fmt.Fprintln(stderr, err)
 	}
 }

@@ -35,6 +35,7 @@ var HookSubcommands = []hookSubcommand{
 	{Name: "generate", Help: "print one hook artifact"},
 	{Name: "install", Help: "install generated hooks into a repo"},
 	{Name: "sync-scaffold", Help: "sync repo-root scaffold hooks from generator"},
+	{Name: "uninstall", Help: "remove one Reconc-managed hook safely"},
 }
 
 var BootstrapSubcommands = []hookSubcommand{
@@ -42,6 +43,7 @@ var BootstrapSubcommands = []hookSubcommand{
 	{Name: "inspect", Help: "inspect repository bootstrap inputs without mutation"},
 	{Name: "plan", Help: "build a deterministic bootstrap manifest"},
 	{Name: "profiles", Help: "list explicit bootstrap profiles"},
+	{Name: "remove", Help: "reverse one receipt-owned bootstrap transaction"},
 	{Name: "verify", Help: "verify an applied bootstrap manifest read-only"},
 }
 
@@ -73,7 +75,7 @@ var RunSubcommands = []hookSubcommand{
 var Subcommands = []Subcommand{
 	// bootstrap & inspection
 	{Name: "adopt", Help: "detect tooling and suggest rules", Flags: []string{"--yaml", "--json", "--apply"}},
-	{Name: "bootstrap", Help: "inspect / plan / apply / verify repository bootstrap", Flags: []string{"--profile", "--pack", "--hook", "--install-binary", "--binary", "--checksum", "--platform", "--output", "--json"}},
+	{Name: "bootstrap", Help: "inspect / plan / apply / verify / remove repository bootstrap", Flags: []string{"--profile", "--pack", "--hook", "--install-binary", "--binary", "--checksum", "--platform", "--output", "--replace-output", "--accept-managed-blocks", "--json"}},
 	{Name: "doctor", Help: "inspect discovery + validation", Flags: []string{"--deep", "--json", "--output"}},
 	{Name: "extract", Help: "prose-to-rule heuristic scan", Flags: []string{"--from", "--yaml", "--json"}},
 	{Name: "init", Help: "scaffold .reconc.yml and AGENTS.md", Flags: []string{"--preset", "--force", "--json", "--output"}},
@@ -96,7 +98,7 @@ var Subcommands = []Subcommand{
 	{Name: "next", Help: "friendly alias for fix --next", Flags: []string{"--read", "--write", "--command", "--command-success", "--command-failure", "--claim", "--json"}},
 	{Name: "why", Help: "print full details of one rule", Flags: []string{"--json", "--terse"}},
 	// packs & wiring
-	{Name: "hook", Help: "generate / install / sync-scaffold / claim hooks", Flags: []string{"--force", "--json", "--output"}},
+	{Name: "hook", Help: "generate / install / uninstall / sync-scaffold / claim hooks", Flags: []string{"--force", "--json", "--output"}},
 	{Name: "grok", Help: "strict Grok ACP runner", Flags: []string{"--prompt", "--model", "--grok-binary", "--max-continuations"}},
 	{Name: "preset", Help: "list / show bundled presets", Flags: []string{"--json", "--output"}},
 	{Name: "template", Help: "list / show rule templates", Flags: []string{"--json"}},

@@ -36,6 +36,9 @@ func TestRenderUsesCanonicalSchemaBase(t *testing.T) {
 	if !strings.Contains(buf.String(), "RECONC_GROK_STEER") {
 		t.Fatal("man page omitted Grok steering control")
 	}
+	if !strings.Contains(buf.String(), "NO_COLOR") {
+		t.Fatal("man page omitted ANSI opt-out")
+	}
 }
 
 func TestRenderIncludesStandardSections(t *testing.T) {

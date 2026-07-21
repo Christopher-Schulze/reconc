@@ -130,6 +130,9 @@ func TestInspectGrokRequiresWrapper(t *testing.T) {
 	if _, err := Install(KindGrok, repo, false); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Remove(filepath.Join(repo, filepath.FromSlash(WrapperPath))); err != nil {
+		t.Fatal(err)
+	}
 	reports, err := InspectPlatforms(repo)
 	if err != nil {
 		t.Fatal(err)

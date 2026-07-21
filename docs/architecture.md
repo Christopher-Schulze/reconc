@@ -49,7 +49,7 @@ internal/
   assurance/      bounded native layout/source/manifest/proof gates
   atomicfile/     write-on-change and atomic publication primitives
   audit/          append-only JSONL decision log + rotation + stats
-  bootstrap/      deterministic new/mature-repo transactions + binary resolution
+  bootstrap/      deterministic install/remove transactions + receipts + binary resolution
   changelog/      docs/changelog.md rotation into quarterly archives
   cli/            command dispatch plus responsibility-owned command modules
   compiler/       lockfile builder: digest, writer, conflicts, migrations, lock
@@ -60,7 +60,7 @@ internal/
   execfile/       cross-platform regular-file and executable validation
   extractor/      prose-to-rule heuristic scanner (regex-only, no LLM)
   grokacp/        strict Grok ACP stdio client + cross-platform leader IPC stop steering/probing
-  hooks/          typed platform registry + generators + installers + activation probes + scaffold sync
+  hooks/          typed registry + generators + install/uninstall + activation + scaffold sync
   ingest/         discovery + source loading (AGENTS.md, .reconc.yml, presets, globals)
   lockdiff/       structural lockfile comparison (ignore-provenance semantics)
   filelock/       cross-platform process locks
@@ -113,9 +113,11 @@ handling.
 
 3. **Owned publication.** Write paths publish atomically or through an explicit
    transaction. Canonical lockfile bytes are compared before publication, so an
-   unchanged compile performs no filesystem write. Bootstrap is create-only,
-   emits candidate files for drift, and rolls back only transaction-owned
-   unchanged files. Hook merges preserve
+   unchanged compile performs no filesystem write. Bootstrap install is
+   create-only, emits candidate files for drift, and rolls back only
+   transaction-owned unchanged files. Bootstrap removal is receipt-bound,
+   SHA-verifies owned files, strips only managed blocks, and preserves drift.
+   Hook merges and uninstalls preserve
    unrelated host configuration. Bounded JSONL writers rotate under a process
    lock before append. Write, sync, close, unlock, and CLI output failures are
    propagated instead of being reported as successful publication.
@@ -156,7 +158,7 @@ handling.
   consumption. 0 = pass or warn, 1 = runtime/input error, 2 = at
   least one blocking violation.
 
-- **Public runtime env vars** (`RECONC_HOME`, `RECONC_AUDIT`,
+- **Public runtime env vars** (`NO_COLOR`, `RECONC_HOME`, `RECONC_AUDIT`,
   `RECONC_AUDIT_VERBOSE`, `RECONC_CLAUDE_STATE_DIR`,
   `RECONC_SCHEMA_BASE_URL`, `RECONC_STOP_FINGERPRINT_UNTRACKED`, and
   `RECONC_GROK_STEER`): stable names. Adding a new one is additive; renaming or
