@@ -82,6 +82,34 @@ human review after the fact is often too late.
 
 ## Quick Start
 
+With an installed binary, or after the source build directly below, experience
+the complete control loop in under a minute:
+
+```bash
+reconc demo
+```
+
+The command runs the real compiler, policy evaluator, remediation path, test
+command, TASK lifecycle, and final completion gate inside a disposable local
+Git repository. It does not call a model or a network service, and it cleans
+the workspace automatically.
+
+```text
+Reconc demo: isolated real-policy journey
+[BLOCK] Attempt an out-of-scope write
+[BLOCK] Evaluate a source change without successful test proof
+[REMEDIATE] Ask Reconc for the exact next action
+[PASS] Execute the real repository test command
+[PASS] Evaluate the corrected current state with successful proof
+[DONE] Run the evidence-complete final gate
+Result: evidence-complete proof verified
+Workspace: cleaned
+```
+
+Use `reconc demo --keep` to inspect the generated repository and proof files,
+or `reconc demo --json` for the versioned step, decision, duration, artifact,
+and digest contract.
+
 Build from source:
 
 ```bash

@@ -1,6 +1,6 @@
 # reconc -- Command Reference
 
-Full reference for all 41 subcommands. See `reconc <subcommand> --help` for
+Full reference for all 43 subcommands. See `reconc <subcommand> --help` for
 the exact flag details emitted by the installed binary.
 
 ## Daily path
@@ -22,6 +22,22 @@ Everything below is the full automation and diagnostic surface.
 - `0` pass / warn / informational success
 - `1` runtime or input error
 - `2` at least one blocking policy violation
+
+## Product demo
+
+### `reconc demo [--keep] [--json]`
+Run the complete product journey against a newly created, isolated local Git
+repository. The current Reconc binary compiles a real policy, blocks an
+out-of-scope write, blocks missing test proof, emits the persisted `next`
+remediation, executes `git diff --check`, records the corrected decision, and
+verifies the evidence-complete `done` report. The command performs no network
+calls and uses no LLM or private repository data.
+
+The temporary workspace is removed by default. `--keep` preserves it and
+prints its exact path. `--json` emits the versioned result including every
+step command, exit code, decision, duration, proof artifact path and SHA-256,
+completion digest, cleanup state, and final self-digest. Exit 0 means the real
+journey passed; exit 1 includes a failed, still self-digested result.
 
 ## Environment
 

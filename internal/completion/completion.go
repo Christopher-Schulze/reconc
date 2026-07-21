@@ -78,6 +78,7 @@ var Subcommands = []Subcommand{
 	// bootstrap & inspection
 	{Name: "adopt", Help: "detect tooling and suggest rules", Flags: []string{"--yaml", "--json", "--apply"}},
 	{Name: "bootstrap", Help: "inspect / plan / apply / verify / remove repository bootstrap", Flags: []string{"--profile", "--pack", "--hook", "--install-binary", "--binary", "--checksum", "--platform", "--output", "--replace-output", "--accept-managed-blocks", "--json"}},
+	{Name: "demo", Help: "run the isolated real-policy product journey", Flags: []string{"--keep", "--json"}},
 	{Name: "doctor", Help: "inspect discovery + validation", Flags: []string{"--deep", "--json", "--output"}},
 	{Name: "extract", Help: "prose-to-rule heuristic scan", Flags: []string{"--from", "--yaml", "--json"}},
 	{Name: "init", Help: "scaffold .reconc.yml and AGENTS.md", Flags: []string{"--preset", "--force", "--json", "--output"}},

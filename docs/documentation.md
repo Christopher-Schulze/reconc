@@ -204,6 +204,21 @@ path remain in `harness/template/BOOTSTRAP.md`.
 
 ## Daily Workflow
 
+Before onboarding a repository, `reconc demo` provides a complete local product
+proof in under a minute. It creates a disposable isolated Git repository and
+runs the current Reconc binary through real compile, block, persisted
+remediation, command-success, corrected evaluation, typed TASK, and
+evidence-complete `done` paths. It makes no network call, bundles or simulates
+no LLM, and cleans the workspace by default. `--keep` preserves inspectable
+policy, TASK, and completion artifacts; `--json` exposes the versioned steps,
+decisions, durations, artifact hashes, completion digest, and result digest.
+
+```bash
+reconc demo
+reconc demo --keep
+reconc demo --json
+```
+
 Most users should use this path:
 
 ```bash
@@ -358,6 +373,7 @@ Explicit `--command-success` evidence applies to the complete evaluation snapsho
 
 Daily:
 
+- `demo` - run the isolated real-policy product journey
 - `bootstrap` - inspect, profile, plan, apply, verify, and safely remove onboarding
 - `status` - one-line policy health summary
 - `check` - evaluate runtime evidence against compiled policy
@@ -719,6 +735,7 @@ Package responsibilities:
 - `cmd/reconc`: CLI entry point only
 - `buildprovenance`: deterministic target/source build identity and byte-only binary inspection
 - `internal/cli`: argument parsing and command dispatch
+- `internal/demo`: isolated real-command product journey and self-digested proof result
 - `internal/ingest`: repository discovery and source loading
 - `internal/parser`: YAML-to-policy validation and normalization
 - `internal/compiler`: canonical JSON lockfile generation, digesting, conflicts, migrations, compile lock

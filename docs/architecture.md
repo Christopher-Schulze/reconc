@@ -56,6 +56,7 @@ internal/
   completion/     bash / zsh / fish completion generators
   completiongate/ exact final-completion report over policy, candidate, evidence, and TASK state
   contextsize/    token-budget guard for canonical entrypoints + active TASK
+  demo/           isolated real-command product journey + self-digested proof result
   errors/         typed exception hierarchy (PolicySourceError, LockfileError, ...)
   execfile/       cross-platform regular-file and executable validation
   extractor/      prose-to-rule heuristic scanner (regex-only, no LLM)
@@ -158,6 +159,11 @@ handling.
   consumption. 0 = pass or warn, 1 = runtime/input error, 2 = at
   least one blocking violation.
 
+- **Demo result format 1**: `reconc demo --json` records real child-command
+  arguments, exit codes, decisions, durations, proof artifact hashes, cleanup
+  state, the verified completion digest, and a self-digest. It never treats
+  rendered text as proof.
+
 - **Public runtime env vars** (`NO_COLOR`, `RECONC_HOME`, `RECONC_AUDIT`,
   `RECONC_AUDIT_VERBOSE`, `RECONC_CLAUDE_STATE_DIR`,
   `RECONC_SCHEMA_BASE_URL`, `RECONC_STOP_FINGERPRINT_UNTRACKED`, and
@@ -245,6 +251,7 @@ responsibility-owned command file, completion metadata, focused tests, and
         ├──► audit
         ├──► changelog
         ├──► contextsize
+        ├──► demo ──► runtime, completiongate
         ├──► agentguide (embed)
         ├──► templates  (embed)
         ├──► presets    (embed)

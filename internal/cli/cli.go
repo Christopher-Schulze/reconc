@@ -66,6 +66,8 @@ func Run(argv []string, version string, stdout, stderr io.Writer) (runErr error)
 		return nil
 	case "doctor":
 		return runDoctor(argv[1:], stdout, stderr)
+	case "demo":
+		return runDemo(argv[1:], version, stdout)
 	case "compile":
 		return runCompile(argv[1:], version, stdout, stderr)
 	case "refresh":
@@ -201,6 +203,7 @@ Daily:
   check            evaluate runtime evidence against compiled policy
   next             show the next remediation
   done             evidence-complete task-finish gate: prints done or blocked
+  demo             run the isolated real-policy product journey
 
 Bootstrap & inspection:
   bootstrap        inspect / profiles / plan / apply / verify / remove onboarding
