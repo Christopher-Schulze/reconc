@@ -10,6 +10,10 @@ usage, architecture, release, and security facts should be kept here first.
 - [Install And Build](#install-and-build)
 - [Transactional Bootstrap](#transactional-bootstrap)
 - [Daily Workflow](#daily-workflow)
+- [FAQ](#faq)
+- [Troubleshooting](#troubleshooting)
+- [Upgrading](#upgrading)
+- [Uninstall And Remove](#uninstall-and-remove)
 - [Development Control Plane](#development-control-plane)
 - [Minimal Example Policy](#minimal-example-policy)
 - [Command Surface](#command-surface)
@@ -221,10 +225,15 @@ reconc demo --keep
 reconc demo --json
 ```
 
-Most users should use this path:
+Onboard a target repository once:
 
 ```bash
 reconc bootstrap .
+```
+
+Then use the canonical daily loop:
+
+```bash
 reconc session-briefing . --json
 reconc check . --write path/to/file
 reconc next .
@@ -257,6 +266,155 @@ Exit codes:
 - `0`: pass, warn, or informational success
 - `1`: runtime or input error
 - `2`: blocking policy violation
+
+## FAQ
+
+### What is Reconc?
+
+Reconc is an offline repository control and evidence layer for AI coding
+agents. It compiles repo-local rules into a deterministic lockfile, evaluates
+real read/write/command/claim evidence, and exposes the same decision contract
+to its CLI, Git hooks, native agent hooks, CI, TASK workflow, run control, and
+final `done` gate. It is not a coding agent, chatbot, model router, hosted
+service, or operating-system sandbox.
+
+### What is the threat model?
+
+Reconc protects honest and fallible agent workflows against missed reads,
+out-of-scope writes, stale tests, unsupported claims, skipped TASK work, and
+incorrect completion. It treats hook payloads as untrusted and fails closed on
+malformed policy, lockfile drift, unsafe paths, and ambiguous managed files. A
+hostile same-user process can still replace local policy, hooks, state, or the
+binary; use an external sandbox plus protected remote CI when that actor is in
+scope.
+
+### Does the product require a model, daemon, Docker, or network?
+
+No. The shipped Go binary runs without a model, daemon, Docker, Node, Python,
+or runtime network access. Codex and GPT-5.6 contributed to development during
+OpenAI Build Week but are not runtime dependencies. Installation, Git
+operations, and remote CI naturally use the network when invoked.
+
+### Which agent runtimes are supported?
+
+The registry owns integrations for Claude Code, Codex, Cursor, OpenCode, Devin
+CLI, Antigravity CLI, Kilo Code, and Grok Build, plus git pre-commit as the
+repository backstop. Host capabilities differ: some expose synchronous Stop,
+OpenCode and Kilo expose inferred `session.idle`, and Grok has a strict ACP
+driver for continuation. Run `reconc hook status . --json` before claiming
+that a particular installation is live.
+
+### How do I install and test it?
+
+Use the versioned release installer once a GitHub Release exists. Before the
+first public release, build the current source with `go build -o reconc
+./cmd/reconc`. Put the resulting binary on `PATH`, then run `reconc demo` for a
+network-free, disposable proof of the real block-to-remediation-to-completion
+journey. Judges and ordinary users should use release binaries rather than
+rebuilding after `v0.8.6` is published.
+
+### How does repository bootstrap work?
+
+`reconc bootstrap .` is the compatibility minimal path. The explicit workflow
+is `bootstrap inspect`, `profiles`, `plan`, `apply`, `verify`, and `remove`.
+Planning is deterministic; apply is transactional and create-only; drift gets a
+hash-addressed review candidate; removal touches only receipt-owned bytes. Use
+the `existing` profile for mature repositories that already own their policy,
+instructions, docs, and TASK state.
+
+### What exactly does `reconc done` prove?
+
+It binds the current policy lock, Git HEAD, index, worktree, active-session
+evidence, saved policy report, unresolved blocks, staged command proofs, and
+typed TASK completion into one versioned, self-digested report. It does not
+accept elapsed time as evidence. `--require-clean-git` optionally adds a clean
+worktree requirement.
+
+### Does Reconc invent or manage my project backlog?
+
+No. Reconc validates and atomically mutates a configured typed TASK control
+plane, but humans or project agents still decide priorities, scope, acceptance,
+and evidence. `task new|claim|block|resume|split|promote|archive|recover` preserve
+the configured grammar and fail closed on ambiguous state.
+
+### What does the run loop do?
+
+`reconc run on .` enables a durable repository-scoped continuation switch for
+supported agents when the TASK plane has executable work. Stop hooks continue,
+claim, block, or terminate from typed state; bounded no-progress guards prevent
+endless repetition. The agent owns `run on|status|off`; `run reset` is the
+explicit recovery path for corrupt or foreign state.
+
+### What are the Windows limitations?
+
+The Go binary and `.exe` or `.com` policy scripts run natively. Shell hook
+wrappers plus `.sh` and extensionless policy scripts require `sh` on `PATH`;
+Git for Windows supplies it. CI runs the native Windows unit suite, while the
+clean-repository self-host golden path currently runs on Ubuntu and macOS.
+
+### Is the private production repository public?
+
+No. Reconc is dogfooded in a large private codebase for an agentic enterprise
+platform being built for the author's startup. Public claims use only generic
+behaviour and sanitized aggregate evidence. This standalone repository does not
+claim byte-identical parity or disclose private source, architecture, prompts,
+or task details.
+
+## Troubleshooting
+
+Start with read-only diagnostics:
+
+```bash
+reconc status .
+reconc doctor . --deep
+reconc verify .
+reconc hook status . --json
+reconc task validate . --json
+reconc run status . --verbose
+```
+
+If policy sources changed, run the exact remediation `reconc refresh .`; read
+commands never refresh implicitly. If a block is valid but unclear, run
+`reconc next .`. For a saved transactional bootstrap, use `reconc bootstrap
+verify --plan PATH --json`. Use `reconc task recover .` only for an interrupted
+TASK transaction and `reconc run reset .` only for corrupt or foreign run
+state. Do not delete lockfiles, receipts, managed blocks, or runtime state as a
+generic repair strategy.
+
+## Upgrading
+
+Upgrade the binary from one trusted release source, verify the release checksum
+and optional GitHub attestation, then run:
+
+```bash
+reconc version --json
+reconc status .
+reconc doctor . --deep
+reconc refresh .
+reconc hook status . --json
+```
+
+`refresh` performs registered lockfile migrations and recompiles current policy;
+it never silently rewrites source rules. Re-run an explicit bootstrap plan when
+generated hook artifacts need an update, review every drift candidate, and
+commit the refreshed portable lockfile in governed target repositories.
+
+## Uninstall And Remove
+
+Prefer receipt- and registry-owned removal:
+
+```bash
+reconc bootstrap remove --plan .reconc/bootstrap-plan.json --json
+reconc hook uninstall codex . --json
+```
+
+Bootstrap removal verifies the saved receipt and current hashes, strips only
+marker-owned blocks, preserves shared wrappers, and refuses drift. Repeat
+`hook uninstall` only for separately installed runtime kinds. Remove the Reconc
+binary from the exact install directory you selected. Reconc intentionally does
+not delete user-owned `.reconc.yml`, `AGENTS.md`, TASK files, or policy source;
+review those manually. `reconc prune .` bounds owned runtime residue but is not
+a substitute for uninstalling policy or user data.
 
 ## Development Control Plane
 
@@ -1128,7 +1286,8 @@ CI checks:
   adapter regression or bypass the repository's action policy
 - every CI job that executes Go provisions the SHA-pinned `actions/setup-go`
   action from `go.mod`, including the isolated release-trust job
-- clean-repository self-hosting golden path on Ubuntu and macOS across all three bootstrap profiles and nine hook platforms
+- clean-repository self-hosting golden path on Ubuntu and macOS across all three
+  bootstrap profiles, git pre-commit, and all eight agent runtimes
 - current-tree and post-boundary-history publication audit on Ubuntu, macOS,
   native Windows, release-trust, and tagged release paths
 - immutable action commit pins plus an explicit GitHub-owned action allowlist;
@@ -1189,9 +1348,14 @@ root does not activate them.
 
 Commit:
 
+- `.gitattributes`
+- `.github/releases/**`
 - `.github/workflows/**`
 - `.gitignore`
 - `AGENTS.md`
+- `assets/**`
+- `bin/hook`
+- `buildprovenance/**`
 - `LICENSE`
 - `Makefile`
 - `README.md`
@@ -1203,13 +1367,14 @@ Commit:
 - `docs/rfcs/**`
 - `go.mod`
 - `go.sum`
+- `harness/**`
 - `install.sh`
 - `internal/**`
 - `schemas/**`
+- `scripts/audits/**`
 - `scripts/release/**`
 - `scripts/tests/**`
 - `skills/**`
-- `bin/hook`
 
 Ignore:
 
@@ -1317,6 +1482,8 @@ Copyright (c) 2026 Christopher Schulze.
 
 Allowed supporting docs:
 
+- `docs/architecture.md` for contributor architecture and threat-model detail
+- `docs/commands.md` for the complete command reference
 - `docs/rfcs/**` for frozen contracts
 - `README.md` as the GitHub landing page
 - `SECURITY.md` as security policy

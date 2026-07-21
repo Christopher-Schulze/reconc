@@ -1,5 +1,8 @@
 # reconc v0.8.0
 
+> Source-milestone notes only. No `reconc-v0.8.0` tag or GitHub Release was
+> published.
+
 `v0.8.0` tightens evidence freshness, rejects misspelled policy fields, proves
 hook execution per runtime route, and narrows the supported agent surface to
 the integrations maintained by the project.

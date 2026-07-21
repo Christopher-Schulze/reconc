@@ -24,9 +24,9 @@ platforms, release trust verification, and universal repository run control.
   The mature-repository profile wires hooks, wrapper, and optional binary only,
   while preserving the existing policy, agent contract, docs, TASK state, and
   ignore policy.
-- Adds a clean-repository self-hosting proof across all profiles, all nine hook
-  platforms, policy health, TASK transitions, retention, and stable binary
-  resolution.
+- Adds a clean-repository self-hosting proof across all profiles, git
+  pre-commit plus all eight registered agent runtimes, policy health, TASK
+  transitions, retention, and stable binary resolution.
 - Expires abandoned proof worktrees and Go caches after two inactive hours,
   eliminating hard-kill residue while preserving recent work.
 - Refreshes README positioning with a visual RECONC hero, badges, clearer

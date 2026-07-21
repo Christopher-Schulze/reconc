@@ -7,9 +7,9 @@
 #   sh install.sh 0.8.5                # pin version
 #   RECONC_INSTALL_DIR=/tmp sh install.sh
 #
-# Pre-install-bootstrap exception: this is the one shell script in
-# reconc/ (everything else is Go). Kept minimal, POSIX-sh, and
-# dependency-free so it works on macOS / Linux without bash-isms.
+# Pre-install-bootstrap exception: the installer must run before the Go binary
+# exists. It stays minimal, POSIX-sh, and dependency-free so it works on macOS
+# and Linux without bash-isms.
 
 set -eu
 

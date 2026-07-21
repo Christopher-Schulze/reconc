@@ -1,23 +1,63 @@
 <p align="center">
-  <img src="assets/reconc-hero.png" alt="RECONC Repository Control Compiler" width="100%">
+  <img src="assets/reconc-proof-hero.png" alt="Reconc proof gate: an unsupported claim is blocked, evidence passes, and completion is proven" width="100%">
 </p>
 
-# Repository Control Compiler
+# Reconc
 
-Deterministic policy gates for AI-assisted software engineering.
+**AI agents say they're done. Reconc proves it.**
+
+Repository Control Compiler: an offline, deterministic control and evidence
+layer for AI coding agents.
 
 [![CI](https://github.com/Christopher-Schulze/reconc/actions/workflows/reconc-ci.yml/badge.svg)](https://github.com/Christopher-Schulze/reconc/actions/workflows/reconc-ci.yml)
-[![Release](https://github.com/Christopher-Schulze/reconc/actions/workflows/reconc-release.yml/badge.svg)](https://github.com/Christopher-Schulze/reconc/actions/workflows/reconc-release.yml)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Offline](https://img.shields.io/badge/runtime-offline_by_default-111827)](#what-it-does)
 
-`reconc` is a small offline Go CLI that turns repository policy into a compiled
-control plane. It lets a repo decide what an AI coding agent may read, write,
-claim, continue, or finish based on real evidence instead of prompt trust.
+`reconc` compiles the rules already living in your repository into a portable
+lockfile, then checks what an agent actually read, changed, ran, claimed, and
+finished. A missing test, protected write, stale proof, or incomplete TASK gets
+an exact block and one next action instead of a hopeful "done".
 
-One binary. Repo-local policy. Deterministic lockfile. Native hooks for modern
-agent runtimes. No daemon, no Docker requirement, no runtime network dependency.
+- **One binary:** no daemon, Docker, model, or runtime network dependency.
+- **Repo-local truth:** policy compiles from `AGENTS.md`, `.reconc.yml`, presets,
+  templates, and project files.
+- **Native enforcement:** eight agent runtimes plus git pre-commit as the hard
+  repository backstop.
+- **One remediation at a time:** `reconc next .` turns a block into an exact
+  recovery step; `reconc done .` proves completion.
+
+## See the real loop in under a minute
+
+With Reconc on `PATH`:
+
+```bash
+reconc demo
+```
+
+The demo creates an isolated Git repository, compiles real policy, blocks an
+out-of-scope write and a source change without test proof, executes the real
+test command, and verifies an evidence-complete `done` report. It uses no model
+or network, cleans up by default, and emits inspectable proof with `--keep` or
+`--json`.
+
+```text
+[BLOCK] out-of-scope write
+[BLOCK] source change without current test proof
+[REMEDIATE] one exact next action
+[PASS] real test evidence bound to the changed state
+[DONE] evidence-complete proof verified
+```
+
+Until the first public release is published, contributors can run the same
+binary from source:
+
+```bash
+go build -o reconc ./cmd/reconc
+./reconc demo
+```
+
+## How it works
 
 ```text
 AGENTS.md + .reconc.yml + presets + templates
@@ -51,7 +91,8 @@ why a task is allowed to be called done.
 - installs explicitly selected git, Claude Code, Codex, Cursor, OpenCode,
   Devin CLI, Antigravity CLI, Kilo Code, and Grok Build integrations
 - controls autonomous agent continuation with repo-scoped
-  `reconc run on|off|reset|status|log`, per-session no-progress guards, and bounded logs
+  `reconc run on|off|reset|status|log`, per-session no-progress guards, and
+  bounded logs
 - adopts typed repository TASK state and performs recoverable claim, block,
   resume, split, promotion, and archive transitions
 - bounds session/report state, unresolved policy-decision receipts, audit and
@@ -80,41 +121,13 @@ human review after the fact is often too late.
 - leave audit-friendly decisions that can be reviewed by humans, CI, or another
   agent
 
-## Quick Start
+## Install and bootstrap
 
-With an installed binary, or after the source build directly below, experience
-the complete control loop in under a minute:
-
-```bash
-reconc demo
-```
-
-The command runs the real compiler, policy evaluator, remediation path, test
-command, TASK lifecycle, and final completion gate inside a disposable local
-Git repository. It does not call a model or a network service, and it cleans
-the workspace automatically.
-
-```text
-Reconc demo: isolated real-policy journey
-[BLOCK] Attempt an out-of-scope write
-[BLOCK] Evaluate a source change without successful test proof
-[REMEDIATE] Ask Reconc for the exact next action
-[PASS] Execute the real repository test command
-[PASS] Evaluate the corrected current state with successful proof
-[DONE] Run the evidence-complete final gate
-Result: evidence-complete proof verified
-Workspace: cleaned
-```
-
-Use `reconc demo --keep` to inspect the generated repository and proof files,
-or `reconc demo --json` for the versioned step, decision, duration, artifact,
-and digest contract.
-
-Build from source:
+Build the current source candidate:
 
 ```bash
 go build -o reconc ./cmd/reconc
-./reconc --help
+./reconc demo
 ```
 
 The shipped CLI has no Bun dependency. Contributors need Bun `1.3.14` only for
@@ -158,7 +171,6 @@ reconc session-briefing . --json
 reconc check . --write path/to/file
 reconc next .
 reconc done .
-reconc prune . --dry-run
 ```
 
 The first command is the bounded machine handshake for session entry and
@@ -186,11 +198,11 @@ queued executable work is claimed. Complete or absent TASK state disables the
 switch after terminal gates, blocked state reaches terminal Stop without
 silently disabling it, and invalid state fails closed. An interrupt or the
 per-session six-event no-progress guard releases only the current invocation;
-strict Grok continuation instead uses its 32-delivered-interjection bound. Ordinary
-messages, session boundaries, application restarts, and runtime changes never
-mutate the durable switch. `reconc run off .` is the only normal manual disable
-action; `reconc run reset .` is the fail-closed recovery for corrupt or foreign
-state and preserves the decision log.
+strict Grok continuation instead uses its 32-delivered-interjection bound.
+Ordinary messages, session boundaries, application restarts, and runtime
+changes never mutate the durable switch. `reconc run off .` is the only normal
+manual disable action; `reconc run reset .` is the fail-closed recovery for
+corrupt or foreign state and preserves the decision log.
 
 Inspection and enforcement commands never mutate policy or refresh the
 lockfile implicitly. If policy sources change, they fail closed with one
@@ -291,11 +303,40 @@ a transaction reports drift or a mature repository needs surgical adaptation.
 | Kilo Code | thin project plugin with tool, permission, compaction, and `session.idle` continuation handling |
 | Grok Build | native lifecycle and hard PreToolUse hooks, strict ACP continuation, and leader-mode TUI steering |
 
-Claude Code, Codex, Cursor, Devin CLI, and Antigravity CLI expose
-a synchronous Stop event. OpenCode and Kilo Code expose `session.idle`; Reconc can
-request continuation there, but that inferred adapter is not an equivalent
-host-level Stop gate. All platforms still use git pre-commit as the hard
-repository backstop.
+Claude Code, Codex, Cursor, Devin CLI, and Antigravity CLI expose a synchronous
+Stop event. OpenCode and Kilo Code expose `session.idle`; Reconc can request
+continuation there, but that inferred adapter is not an equivalent host-level
+Stop gate. All platforms still use git pre-commit as the hard repository
+backstop.
+
+## OpenAI Build Week
+
+Reconc is an existing project that was meaningfully extended during OpenAI
+Build Week. The pre-event boundary is commit
+[`2daa537`](https://github.com/Christopher-Schulze/reconc/commit/2daa5372b08d7f479d895b2b5419a39026eb6719),
+committed on June 8, 2026. Only work after the official July 13 start is part
+of the Build Week submission.
+
+During that window, Codex with GPT-5.6 was used substantively to design,
+implement, test, and harden the portable compiler, evidence-complete `done`
+gate, typed TASK lifecycle, repository run control, transactional bootstrap,
+runtime hooks, cross-platform behavior, deterministic demo, and release trust.
+Christopher Schulze set the product direction and made the final decisions.
+Claude also assisted with portions of implementation and review; public commit
+trailers preserve that attribution instead of presenting every change as Codex
+work.
+
+The exact baseline-to-release comparison and judge-ready binaries will be
+pinned to the `v0.8.6` release. Reconc itself remains fully offline at runtime:
+Codex and GPT-5.6 helped build the tool but are not dependencies of the tool.
+
+## Production dogfooding
+
+Reconc is dogfooded in a large private codebase for an agentic enterprise
+platform being built for the author's startup. Real agent failures there drive
+generic controls in this standalone open-source product. The private repository
+is not published, and this repository does not claim byte-identical parity or
+expose private architecture, source, prompts, or task details.
 
 ## Minimal Example Policy
 
@@ -381,7 +422,39 @@ Do not commit mutable runtime state:
 - `dist/`
 - `tools/reconc/dist/`
 
-## Documentation
+## FAQ
+
+### Is Reconc another coding agent?
+
+No. Reconc does not generate code or call a model. It is the deterministic
+control and evidence layer around whichever coding agent you already use.
+
+### Is it a security sandbox?
+
+No. Reconc fails closed at repository, hook, Git, CI, and completion boundaries,
+but a hostile same-user process can still replace local files or bypass local
+hooks. Use an external sandbox and protected remote CI for adversarial code.
+
+### Does it work offline?
+
+Yes. The shipped Go binary has no runtime network dependency. Installation and
+GitHub publication naturally require network access.
+
+### Which agents are supported?
+
+Claude Code, Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code,
+and Grok Build have registry-backed integrations. Their host capabilities are
+not identical; `reconc hook status . --json` reports installed, configured,
+live, degraded, or unsupported state without inflating the claim.
+
+### How do I upgrade, troubleshoot, or remove it?
+
+See the canonical [FAQ](docs/documentation.md#faq),
+[Troubleshooting](docs/documentation.md#troubleshooting),
+[Upgrading](docs/documentation.md#upgrading), and
+[Uninstall/Remove](docs/documentation.md#uninstall-and-remove) guides.
+
+## Deeper documentation
 
 Current product documentation lives in `docs/documentation.md`. That file is
 the source of truth for installation, workflow, architecture, release, security,
@@ -403,6 +476,8 @@ plane, while Reconc's own implementation queue remains local.
 
 Security policy lives in `SECURITY.md`.
 
+## Security boundary
+
 Reconc is a deterministic repository control plane, not an operating-system
 sandbox. A deliberately hostile same-user process can replace local policy,
 hooks, state, or binaries, fabricate self-reported evidence, or bypass a Git
@@ -415,6 +490,13 @@ For command details:
 reconc <command> --help
 ```
 
+## Contributing
+
+Run `make test`, `make vet`, `make lint`, `make self-host`, and
+`make publication-audit` before proposing a change. The public architecture,
+command contract, security policy, and frozen RFCs are linked above; source
+TASK planning remains intentionally local and ignored.
+
 ## Status
 
 The source line is `v0.8.x`, and the current source version is `v0.8.5`. No
@@ -424,8 +506,9 @@ pushes never publish a release. Every published release SBOM is regenerated and
 byte-verified before its checksum and build provenance are published.
 
 `make self-host` builds the local binary and runs the clean-repository golden
-path across all three bootstrap profiles, all nine hook platforms, TASK
-lifecycle, retention, and stable release-layout binary resolution.
+path across all three bootstrap profiles, git pre-commit plus all eight agent
+runtimes, TASK lifecycle, retention, and stable release-layout binary
+resolution.
 
 `make publication-audit` scans every tracked file plus every commit after the
 documented legacy-history boundary for private project vocabulary, personal

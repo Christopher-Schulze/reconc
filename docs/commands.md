@@ -5,11 +5,11 @@ for the exact flag details emitted by the installed binary.
 
 ## Daily path
 
-Use this first:
+Onboard once with `reconc bootstrap .`. Then use the same four-command daily
+loop taught by the README and agent skill:
 
 ```bash
-reconc bootstrap .
-reconc status .
+reconc session-briefing . --json
 reconc check . --write path/to/file
 reconc next .
 reconc done .
