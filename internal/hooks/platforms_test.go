@@ -12,6 +12,7 @@ func TestPlatformRegistryOwnsEveryHookKind(t *testing.T) {
 		KindGitPreCommit,
 		KindClaudeCode,
 		KindCodex,
+		KindGitHubCopilot,
 		KindCursor,
 		KindOpenCode,
 		KindDevinCLI,

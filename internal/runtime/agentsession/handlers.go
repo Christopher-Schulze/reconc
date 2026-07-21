@@ -92,6 +92,9 @@ func runtimeFromPayload(payload *HookPayload) string {
 
 func normalizeRuntimeName(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "copilot" || value == "github-copilot" || strings.HasPrefix(value, "copilot-") || strings.HasPrefix(value, "github-copilot-") {
+		return "github-copilot"
+	}
 	for _, prefix := range []string{"cursor-", "codex-", "claude-", "opencode-", "devin-", "antigravity-", "kilo-", "grok-"} {
 		if strings.HasPrefix(value, prefix) {
 			return strings.TrimSuffix(prefix, "-")

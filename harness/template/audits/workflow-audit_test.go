@@ -893,6 +893,7 @@ architecture_boundaries:
 agent_hooks:
   require_codex_config: true
   require_codex_hook_file: true
+  require_github_copilot_hooks: false
   require_claude_settings: true
   require_opencode_plugin: true
   require_devin_hooks: false
@@ -943,6 +944,7 @@ architecture_boundaries:
 agent_hooks:
   require_codex_config: true
   require_codex_hook_file: true
+  require_github_copilot_hooks: false
   require_claude_settings: true
   require_opencode_plugin: true
   require_devin_hooks: false

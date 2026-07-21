@@ -1,7 +1,7 @@
 # RECONC-0006: Hooks And Agent Sessions
 
 - Status: Frozen
-- Contract: git, Claude Code, Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Grok Build, and generic-agent integration
+- Contract: git, Claude Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Grok Build, and generic-agent integration
 
 ## Hook Kinds
 
@@ -12,6 +12,7 @@
 | `git-pre-commit` | active Git hooks path (`.git/hooks/pre-commit` by default) | Runs `reconc ci --staged` before commit. |
 | `claude-code` | `.claude/settings.json` | Prompt, permission, tool, failure, compaction, subagent, session, and stop hooks. |
 | `codex` | `.codex/hooks.json` | Released prompt, permission, tool, compaction, subagent, session-start, and stop hooks. |
+| `github-copilot` | `.github/hooks/reconc.json` | Version-1 repository hooks for Copilot CLI and coding agent, with contract-tested tool, lifecycle, compaction, subagent, and Stop translation. |
 | `cursor` | `.cursor/hooks.json` | Session, native `beforeSubmitPrompt`, write/shell policy, post-tool evidence, and stop gate. |
 | `opencode` | `.opencode/plugins/reconc.js` | Project plugin for prompt, permission, complete tool outcomes, terminal errors, compaction, session lifecycle, and idle stop gate. |
 | `devin-cli` | `.devin/hooks.v1.json` | Session, tool, permission, stop, cleanup, and post-compaction hooks. |
@@ -24,8 +25,10 @@ identified by `reconc hook runtime` command tokens and replaced on
 reinstall; unrelated user config is preserved. The OpenCode installer
 updates only the reconc-managed project plugin and refuses to overwrite
 non-reconc plugin content without `--force`. Kilo Code and Grok managed files
-use the same refusal rule; Grok owns only `reconc.json` and preserves every
-other file under `.grok/hooks/`.
+use the same refusal rule. GitHub Copilot owns only
+`.github/hooks/reconc.json` and never overwrites foreign content at that path,
+even with `--force`; sibling repository hook files are preserved. Grok owns
+only `reconc.json` and preserves every other file under `.grok/hooks/`.
 The Git installer resolves the same active `core.hooksPath` used by status,
 updates managed content idempotently, supports linked-worktree common Git
 storage, and refuses to write into a shared external hooks directory.
@@ -44,7 +47,7 @@ claiming that a live agent process already loaded the artifact.
 
 `reconc hook sync-scaffold <repo-root-scaffold>` writes the
 source-controlled scaffold twins from the same generator:
-`.githooks/pre-commit`, `.codex/hooks.json`, `.cursor/hooks.json`,
+`.githooks/pre-commit`, `.codex/hooks.json`, `.github/hooks/reconc.json`, `.cursor/hooks.json`,
 `.agents/hooks.json`, `.claude/settings.json`, and
 `.opencode/plugins/reconc.js`, `.devin/hooks.v1.json`,
 `.kilo/plugin/reconc.js`, and `.grok/hooks/reconc.json`. Template scaffolds are never synced from
@@ -73,6 +76,26 @@ Bash outcomes from the single `PostToolUse` contract, and blocks Stop on unmet
 invariants. Codex has no `SessionEnd` or separate failed-tool route. Bootstrap writes
 `hooks = true` under `[features]`; a root-level lookalike does not activate the
 host. Git pre-commit remains the hard repository backstop.
+
+## GitHub Copilot Guarantee
+
+GitHub Copilot CLI and coding agent discover version-1 repository hooks under
+`.github/hooks/*.json`. Reconc generates one managed `reconc.json` with
+documented PascalCase compatibility events and native `subagentStart`. The
+coding agent uses the `bash` command in its Linux `/workspace` checkout;
+Copilot CLI can also use the generated PowerShell route. Reconc validates the
+payload `cwd` against the selected repository, normalizes documented
+snake_case payloads and `tool_result`, and translates control results into the
+exact Copilot schemas for PreToolUse, PermissionRequest, PostToolUseFailure,
+Stop, and SubagentStop.
+
+`PermissionRequest` and `Notification` are CLI-only. Cloud permission control
+therefore uses `PreToolUse`. Command failures are converted into explicit
+denial or Stop blocking while Reconc can still respond, but GitHub documents
+all hook timeouts as fail-open. The host also bounds repeated Stop blocks. The
+adapter exposes no `PostCompact` route because the host contract has none.
+Generated and configured status proves static contract integrity only;
+per-route status liveness is required before claiming actual host execution.
 
 ## OpenCode And Kilo Code Guarantee
 

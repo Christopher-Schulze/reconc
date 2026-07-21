@@ -90,7 +90,7 @@ func TestCanonicalDailyLoopMatchesEveryTeachingSurface(t *testing.T) {
 func TestKnownPublicSurfaceDriftStaysClosed(t *testing.T) {
 	root := publicSurfaceRoot(t)
 	files := []string{"README.md", "AGENTS.md", "install.sh", "docs/documentation.md", "docs/commands.md", ".github/releases/reconc-v0.6.0.md"}
-	stale := []string{"this is the one shell script", "all nine hook platforms", "41 subcommands", "42 subcommands", "43 subcommands"}
+	stale := []string{"this is the one shell script", "all eight agent runtimes", "all nine hook platforms", "41 subcommands", "42 subcommands", "43 subcommands"}
 	for _, path := range files {
 		body := readPublicSurfaceFile(t, root, path)
 		for _, phrase := range stale {

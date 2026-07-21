@@ -149,6 +149,7 @@ rules:
       - "**/pnpm-lock.yaml"
       - "**/yarn.lock"
       - ".codex/**"
+      - ".github/hooks/**"
       - ".cursor/**"
       - ".claude/**"
       - ".opencode/**"
@@ -171,6 +172,7 @@ rules:
       - "*"
       - ".*"
       - ".codex/**"
+      - ".github/hooks/**"
       - ".cursor/**"
       - ".claude/**"
       - ".opencode/**"
@@ -191,6 +193,7 @@ rules:
       - "AGENTS.md"
       - ".reconc.yml"
       - ".codex/**"
+      - ".github/hooks/**"
       - ".cursor/**"
       - ".claude/**"
       - ".opencode/**"
@@ -212,6 +215,7 @@ rules:
     mode: block
     when_paths:
       - ".codex/**"
+      - ".github/hooks/**"
       - ".cursor/**"
       - ".claude/**"
       - ".opencode/**"
@@ -221,7 +225,7 @@ rules:
     args:
       - "agent-hooks"
     timeout_sec: 30
-    message: Repo-local Codex/Cursor/Claude/OpenCode hooks must resolve the repo-local Reconc binary first, keep PATH only as fallback, and avoid global agent config drift.
+    message: Repo-local Codex/GitHub-Copilot/Cursor/Claude/OpenCode hooks must resolve the repo-local Reconc binary first, keep PATH only as fallback, and avoid global agent config drift.
 
   - id: project-start-entrypoint-audit
     kind: require_script
@@ -337,6 +341,7 @@ rules:
       - ".reconc.yml"
       - "tools/reconc/harness/project/audits/**"
       - ".codex/**"
+      - ".github/hooks/**"
       - ".cursor/**"
       - ".claude/**"
       - ".opencode/**"
@@ -400,6 +405,7 @@ rules:
       - "tools/reconc/harness/project/utils/**"
       - "tools/reconc/harness/project/config/**"
       - ".codex/**"
+      - ".github/hooks/**"
       - ".cursor/**"
       - ".claude/**"
       - ".opencode/**"

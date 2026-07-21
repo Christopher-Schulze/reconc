@@ -39,6 +39,51 @@ func generateOpenCodeThin() *Artifact {
 	return generateBunAgentPlugin(KindOpenCode, OpenCodePluginPath, "opencode", false)
 }
 
+func generateGitHubCopilot() *Artifact {
+	command := func(event string, lifecycle Event, matcher string) map[string]interface{} {
+		bashCommand := fmt.Sprintf("tools/reconc/bin/hook %s .", event)
+		powershellCommand := fmt.Sprintf(`& sh "tools/reconc/bin/hook" "%s" "."; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`, event)
+		if lifecycle == EventStop || lifecycle == EventSubagentStop {
+			reason := "Reconc could not evaluate this GitHub Copilot stop. Reinstall the GitHub Copilot hook and tools/reconc/bin/hook."
+			fallback := fmt.Sprintf(`{"decision":"block","reason":%q}`, reason)
+			bashCommand += fmt.Sprintf(` || printf '%%s\n' '%s'`, fallback)
+			powershellCommand = fmt.Sprintf(`if (Get-Command sh -ErrorAction SilentlyContinue) { & sh "tools/reconc/bin/hook" "%s" "."; if ($LASTEXITCODE -ne 0) { Write-Output '%s'; exit 0 } } else { Write-Output '%s'; exit 0 }`, event, fallback, fallback)
+		}
+		entry := map[string]interface{}{
+			"type":       "command",
+			"bash":       bashCommand,
+			"powershell": powershellCommand,
+			"cwd":        ".",
+			"timeoutSec": mustTimeoutSeconds(KindGitHubCopilot, lifecycle),
+		}
+		if matcher != "" {
+			entry["matcher"] = matcher
+		}
+		return entry
+	}
+	const evidenceTools = "Read|Bash|Edit|Write"
+	const guardedTools = "Bash|Edit|Write"
+	template := map[string]interface{}{
+		"version": 1,
+		"hooks": map[string]interface{}{
+			"SessionStart":       []interface{}{command("copilot-session-start", EventSessionStart, "")},
+			"UserPromptSubmit":   []interface{}{command("copilot-user-prompt-submit", EventUserPromptSubmit, "")},
+			"PreToolUse":         []interface{}{command("copilot-pre-tool-use", EventPreToolUse, guardedTools)},
+			"PermissionRequest":  []interface{}{command("copilot-permission-request", EventPermissionRequest, guardedTools)},
+			"PostToolUse":        []interface{}{command("copilot-post-tool-use", EventPostToolUse, evidenceTools)},
+			"PostToolUseFailure": []interface{}{command("copilot-post-tool-use-failure", EventPostToolUseFailure, evidenceTools)},
+			"Stop":               []interface{}{command("copilot-stop", EventStop, "")},
+			"SessionEnd":         []interface{}{command("copilot-session-end", EventSessionEnd, "")},
+			"Notification":       []interface{}{command("copilot-notification", EventNotification, "")},
+			"subagentStart":      []interface{}{command("copilot-subagent-start", EventSubagentStart, "")},
+			"SubagentStop":       []interface{}{command("copilot-subagent-stop", EventSubagentStop, "")},
+			"PreCompact":         []interface{}{command("copilot-pre-compaction", EventPreCompaction, "")},
+		},
+	}
+	data, _ := json.MarshalIndent(template, "", "  ")
+	return &Artifact{Kind: KindGitHubCopilot, TargetPath: GitHubCopilotHooksPath, Content: string(data) + "\n"}
+}
+
 func generateKilo() *Artifact {
 	return generateBunAgentPlugin(KindKilo, KiloPluginPath, "kilo", true)
 }

@@ -1038,6 +1038,25 @@ func auditAgentHooks(root string) []string {
 			"codex-stop",
 		}
 	}
+	if cfg.AgentHooks.RequireGitHubCopilot {
+		hooks[filepath.Join(root, ".github/hooks/reconc.json")] = []string{
+			`"version": 1`,
+			"tools/reconc/bin/hook",
+			"copilot-session-start",
+			"copilot-user-prompt-submit",
+			"copilot-pre-tool-use",
+			"copilot-permission-request",
+			"copilot-post-tool-use",
+			"copilot-post-tool-use-failure",
+			"copilot-stop",
+			"copilot-session-end",
+			"copilot-notification",
+			"copilot-subagent-start",
+			"copilot-subagent-stop",
+			"copilot-pre-compaction",
+			`"timeoutSec"`,
+		}
+	}
 	if cfg.AgentHooks.RequireCursorHooks {
 		hooks[filepath.Join(root, ".cursor/hooks.json")] = []string{
 			"sh -lc",
@@ -1180,6 +1199,7 @@ func auditAgentHooks(root string) []string {
 	}
 	forbidden := map[string][]string{
 		".codex/hooks.json":           {`"SessionEnd"`, "codex-session-end"},
+		".github/hooks/reconc.json":   {`"PostCompact"`, "claude-", "cursor-", "opencode-", "kilo-", "grok-"},
 		".opencode/plugins/reconc.js": {".reconc/runloop", "runloop autocontinue", "opencode_continuation_driver", "STFU", "tools/reconc/dist", "reconc-0.6.0-"},
 		".kilo/plugin/reconc.js":      {".reconc/runloop", "runloop autocontinue", "opencode_continuation_driver", "STFU", "tools/reconc/dist", "reconc-0.6.0-"},
 		".agents/hooks.json":          {`"timeout": 120`},
@@ -1210,7 +1230,25 @@ func auditAgentHooks(root string) []string {
 		if relative == ".grok/hooks/reconc.json" {
 			failures = append(failures, auditGrokRouteCoverage(relative, content)...)
 		}
+		if relative == ".github/hooks/reconc.json" {
+			failures = append(failures, auditGitHubCopilotContract(relative, content)...)
+		}
 		switch relative {
+		case ".github/hooks/reconc.json":
+			failures = append(failures, auditHookTimeoutBudgetsField(relative, content, "bash", "timeoutSec", []hookTimeoutExpectation{
+				{event: "copilot-session-start", seconds: 5},
+				{event: "copilot-user-prompt-submit", seconds: 5},
+				{event: "copilot-pre-tool-use", seconds: 10},
+				{event: "copilot-permission-request", seconds: 10},
+				{event: "copilot-post-tool-use", seconds: 5},
+				{event: "copilot-post-tool-use-failure", seconds: 5},
+				{event: "copilot-stop", seconds: 30},
+				{event: "copilot-session-end", seconds: 5},
+				{event: "copilot-notification", seconds: 5},
+				{event: "copilot-subagent-start", seconds: 5},
+				{event: "copilot-subagent-stop", seconds: 30},
+				{event: "copilot-pre-compaction", seconds: 5},
+			})...)
 		case ".devin/hooks.v1.json":
 			failures = append(failures, auditHookTimeoutBudgets(relative, content, []hookTimeoutExpectation{
 				{event: "devin-session-start", seconds: 5},
@@ -1310,6 +1348,81 @@ func auditGrokRouteCoverage(relative string, content string) []string {
 	return failures
 }
 
+func auditGitHubCopilotContract(relative string, content string) []string {
+	type commandHook struct {
+		Type       string `json:"type"`
+		Matcher    string `json:"matcher"`
+		Bash       string `json:"bash"`
+		PowerShell string `json:"powershell"`
+		CWD        string `json:"cwd"`
+	}
+	var document struct {
+		Version int                      `json:"version"`
+		Hooks   map[string][]commandHook `json:"hooks"`
+	}
+	if err := json.Unmarshal([]byte(content), &document); err != nil {
+		return nil
+	}
+	expected := []struct {
+		event   string
+		route   string
+		matcher string
+	}{
+		{event: "SessionStart", route: "copilot-session-start"},
+		{event: "UserPromptSubmit", route: "copilot-user-prompt-submit"},
+		{event: "PreToolUse", route: "copilot-pre-tool-use", matcher: "Bash|Edit|Write"},
+		{event: "PermissionRequest", route: "copilot-permission-request", matcher: "Bash|Edit|Write"},
+		{event: "PostToolUse", route: "copilot-post-tool-use", matcher: "Read|Bash|Edit|Write"},
+		{event: "PostToolUseFailure", route: "copilot-post-tool-use-failure", matcher: "Read|Bash|Edit|Write"},
+		{event: "Stop", route: "copilot-stop"},
+		{event: "SessionEnd", route: "copilot-session-end"},
+		{event: "Notification", route: "copilot-notification"},
+		{event: "subagentStart", route: "copilot-subagent-start"},
+		{event: "SubagentStop", route: "copilot-subagent-stop"},
+		{event: "PreCompact", route: "copilot-pre-compaction"},
+	}
+	allowedEvents := make(map[string]bool, len(expected))
+	for _, item := range expected {
+		allowedEvents[item.event] = true
+	}
+	var failures []string
+	if document.Version != 1 {
+		failures = append(failures, fmt.Sprintf("%s version = %d; want 1", relative, document.Version))
+	}
+	unknownEvents := make([]string, 0)
+	for event := range document.Hooks {
+		if !allowedEvents[event] {
+			unknownEvents = append(unknownEvents, event)
+		}
+	}
+	sort.Strings(unknownEvents)
+	for _, event := range unknownEvents {
+		failures = append(failures, fmt.Sprintf("%s contains unsupported GitHub Copilot event %q", relative, event))
+	}
+	for _, want := range expected {
+		entries := document.Hooks[want.event]
+		if len(entries) != 1 {
+			failures = append(failures, fmt.Sprintf("%s event %q has %d command hooks; want exactly one", relative, want.event, len(entries)))
+			continue
+		}
+		entry := entries[0]
+		if entry.Type != "command" || entry.CWD != "." || entry.Matcher != want.matcher ||
+			!commandHasExactToken(entry.Bash, want.route) || !commandHasExactToken(entry.PowerShell, want.route) {
+			failures = append(failures, fmt.Sprintf("%s event %q has drifted command, cwd, matcher, or cross-platform route", relative, want.event))
+		}
+	}
+	return failures
+}
+
+func commandHasExactToken(command, token string) bool {
+	for _, field := range strings.Fields(command) {
+		if strings.Trim(field, `"';`) == token {
+			return true
+		}
+	}
+	return false
+}
+
 func auditHookLauncherShape(relative string, content string) []string {
 	// Keep timeout verification separate from launcher-shape verification so
 	// stale budgets cannot hide behind otherwise valid generated commands.
@@ -1360,6 +1473,10 @@ type hookTimeoutExpectation struct {
 }
 
 func auditHookTimeoutBudgets(relative, content string, expectations []hookTimeoutExpectation) []string {
+	return auditHookTimeoutBudgetsField(relative, content, "command", "timeout", expectations)
+}
+
+func auditHookTimeoutBudgetsField(relative, content, commandField, timeoutField string, expectations []hookTimeoutExpectation) []string {
 	var decoded interface{}
 	if err := json.Unmarshal([]byte(content), &decoded); err != nil {
 		return nil
@@ -1374,7 +1491,7 @@ func auditHookTimeoutBudgets(relative, content string, expectations []hookTimeou
 	visit = func(value interface{}) {
 		switch current := value.(type) {
 		case map[string]interface{}:
-			if command, ok := current["command"].(string); ok {
+			if command, ok := current[commandField].(string); ok {
 				matched := make(map[string]bool)
 				for _, field := range strings.Fields(command) {
 					event := strings.Trim(field, `"'\`)
@@ -1384,9 +1501,9 @@ func auditHookTimeoutBudgets(relative, content string, expectations []hookTimeou
 					}
 					matched[event] = true
 					seen[event]++
-					timeout, numeric := current["timeout"].(float64)
+					timeout, numeric := current[timeoutField].(float64)
 					if !numeric || timeout != float64(want) {
-						wrong[event] = append(wrong[event], fmt.Sprintf("%v", current["timeout"]))
+						wrong[event] = append(wrong[event], fmt.Sprintf("%v", current[timeoutField]))
 					}
 				}
 			}

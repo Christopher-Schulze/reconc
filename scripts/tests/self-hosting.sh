@@ -70,12 +70,13 @@ cmp -s "$tmp/source-version.txt" "$tmp/stable-version.txt" \
   || fail "stable release-layout binary version differs from the source binary"
 
 run_json "$tmp/hook-status.json" "$stable_binary" hook status "$governed"
-[ "$(grep -c '"state": "configured"' "$tmp/hook-status.json")" -eq 9 ] || fail "not all nine hook platforms are configured"
+[ "$(grep -c '"state": "configured"' "$tmp/hook-status.json")" -eq 10 ] || fail "not all ten hook platforms are configured"
 
 wrapper="$governed/tools/reconc/bin/hook"
 for event in \
   claude-session-start \
   codex-session-start \
+  copilot-session-start \
   cursor-session-start \
   opencode-session-start \
   devin-session-start \
@@ -84,7 +85,10 @@ for event in \
   grok-session-start
 do
   session=${event%%-*}
-  if [ "$event" = "grok-session-start" ]; then
+  if [ "$event" = "copilot-session-start" ]; then
+    printf '{"hook_event_name":"SessionStart","session_id":"golden-copilot","cwd":"%s"}\n' "$governed" \
+      | "$wrapper" "$event" "$governed" >"$tmp/hook-$session.json"
+  elif [ "$event" = "grok-session-start" ]; then
     printf '{"hookEventName":"session_start","sessionId":"golden-grok","workspaceRoot":"%s"}\n' "$governed" \
       | "$wrapper" "$event" "$governed" >"$tmp/hook-$session.json"
   else

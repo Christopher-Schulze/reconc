@@ -28,6 +28,7 @@ const (
 	GitPreCommitScaffoldPath = ".githooks/pre-commit"
 	ClaudeCodeSettingsPath   = ".claude/settings.json"
 	CodexHooksPath           = ".codex/hooks.json"
+	GitHubCopilotHooksPath   = ".github/hooks/reconc.json"
 	CursorHooksPath          = ".cursor/hooks.json"
 	OpenCodePluginPath       = ".opencode/plugins/reconc.js"
 	DevinHooksPath           = ".devin/hooks.v1.json"
@@ -38,15 +39,16 @@ const (
 
 // Supported hook kinds.
 const (
-	KindGitPreCommit = "git-pre-commit"
-	KindClaudeCode   = "claude-code"
-	KindCodex        = "codex"
-	KindCursor       = "cursor"
-	KindOpenCode     = "opencode"
-	KindDevinCLI     = "devin-cli"
-	KindAntigravity  = "antigravity"
-	KindKilo         = "kilo"
-	KindGrok         = "grok"
+	KindGitPreCommit  = "git-pre-commit"
+	KindClaudeCode    = "claude-code"
+	KindCodex         = "codex"
+	KindGitHubCopilot = "github-copilot"
+	KindCursor        = "cursor"
+	KindOpenCode      = "opencode"
+	KindDevinCLI      = "devin-cli"
+	KindAntigravity   = "antigravity"
+	KindKilo          = "kilo"
+	KindGrok          = "grok"
 )
 
 // SupportedKinds returns every kind reconc hook generate can produce.
@@ -141,6 +143,8 @@ func Generate(kind string) (*Artifact, error) {
 		return generateClaudeCode(), nil
 	case generatorCodex:
 		return generateCodex(), nil
+	case generatorGitHubCopilot:
+		return generateGitHubCopilot(), nil
 	case generatorCursor:
 		return generateCursor(), nil
 	case generatorOpenCode:
@@ -242,7 +246,12 @@ func installPlatform(definition platformDefinition, repoRoot string, force bool)
 		}
 		return installKilo(repoRoot, force)
 	case InstallManagedJSON:
-		return installGrok(repoRoot, force)
+		switch definition.Kind {
+		case KindGitHubCopilot:
+			return installGitHubCopilot(repoRoot, force)
+		case KindGrok:
+			return installGrok(repoRoot, force)
+		}
 	}
 	return nil, &rerrors.PolicySourceError{Message: fmt.Sprintf("hook kind %q has no installer", definition.Kind)}
 }

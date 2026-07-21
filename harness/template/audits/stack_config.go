@@ -58,6 +58,7 @@ type architectureBoundaryConfig struct {
 type agentHooksConfig struct {
 	RequireCodexConfig      bool `yaml:"require_codex_config"`
 	RequireCodexHookFile    bool `yaml:"require_codex_hook_file"`
+	RequireGitHubCopilot    bool `yaml:"require_github_copilot_hooks"`
 	RequireCursorHooks      bool `yaml:"require_cursor_hooks"`
 	RequireClaudeSettings   bool `yaml:"require_claude_settings"`
 	RequireOpenCodePlugin   bool `yaml:"require_opencode_plugin"`
@@ -112,6 +113,7 @@ func defaultStackConfig() stackConfig {
 		AgentHooks: agentHooksConfig{
 			RequireCodexConfig:      true,
 			RequireCodexHookFile:    true,
+			RequireGitHubCopilot:    true,
 			RequireCursorHooks:      true,
 			RequireClaudeSettings:   true,
 			RequireOpenCodePlugin:   true,

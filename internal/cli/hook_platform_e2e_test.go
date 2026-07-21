@@ -54,6 +54,46 @@ func TestHookRuntimeKiloAdapterShapeBlocksDeniedWrite(t *testing.T) {
 	}
 }
 
+func TestHookRuntimeGitHubCopilotCompatibilityShapeBlocksDeniedWrite(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	payload := fmt.Sprintf(`{
+		"hook_event_name":"PreToolUse",
+		"session_id":"copilot-1",
+		"cwd":%q,
+		"tool_name":"Edit",
+		"tool_input":{"file_path":"generated/blocked.go"}
+	}`, repo)
+	stdout, stderr, code := runWithStdin(t, payload,
+		"hook", "runtime", "copilot-pre-tool-use", repo)
+	if code != 0 || stderr != "" {
+		t.Fatalf("Copilot explicit deny transport failed, code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	var decision map[string]string
+	if err := json.Unmarshal([]byte(stdout), &decision); err != nil {
+		t.Fatalf("decode Copilot decision: %v\n%s", err, stdout)
+	}
+	if decision["permissionDecision"] != "deny" || !strings.Contains(decision["permissionDecisionReason"], "deny-gen") {
+		t.Fatalf("Copilot denied write payload = %#v", decision)
+	}
+}
+
+func TestHookRuntimeGitHubCopilotMalformedStopBlocksExplicitly(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	stdout, stderr, code := runWithStdin(t,
+		fmt.Sprintf(`{"hook_event_name":"Stop","session_id":"copilot-stop","cwd":%q}`, t.TempDir()),
+		"hook", "runtime", "copilot-stop", repo)
+	if code != 0 || stderr != "" {
+		t.Fatalf("Copilot malformed Stop transport failed, code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	var decision map[string]string
+	if err := json.Unmarshal([]byte(stdout), &decision); err != nil {
+		t.Fatalf("decode Copilot Stop decision: %v\n%s", err, stdout)
+	}
+	if decision["decision"] != "block" || !strings.Contains(decision["reason"], "does not match repository root") {
+		t.Fatalf("Copilot malformed Stop did not fail closed: %#v", decision)
+	}
+}
+
 func TestHookRuntimeGrokNativeShapeBlocksDeniedWrite(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
 	payload := fmt.Sprintf(`{
@@ -144,6 +184,8 @@ func TestRepositoryRunControlReturnsContinuationForEveryAgentAdapter(t *testing.
 	}{
 		{name: "Claude Code", event: "claude-stop", payload: `{"session_id":"claude-run"}`, want: `"decision":"block"`},
 		{name: "Codex", event: "codex-stop", payload: `{"session_id":"codex-run"}`, want: `"decision":"block"`},
+		{name: "GitHub Copilot", event: "copilot-stop", payload: fmt.Sprintf(`{"hook_event_name":"Stop","session_id":"copilot-run","cwd":%q,"stop_hook_active":false}`, repo), want: `"decision":"block"`},
+		{name: "GitHub Copilot subagent", event: "copilot-subagent-stop", payload: fmt.Sprintf(`{"hook_event_name":"SubagentStop","session_id":"copilot-subagent-run","cwd":%q,"agent_name":"research","stop_reason":"end_turn"}`, repo), want: `"decision":"block"`},
 		{name: "Cursor", event: "cursor-stop", payload: fmt.Sprintf(`{"sessionId":"cursor-run","cursor_version":"3.5.17","hook_event_name":"stop","workspace_roots":[%q]}`, repo), want: `"followup_message"`},
 		{name: "OpenCode", event: "opencode-stop", payload: `{"session_id":"opencode-run","reconc_runtime":"opencode"}`, want: `"decision":"block"`},
 		{name: "Devin CLI", event: "devin-stop", payload: `{"session_id":"devin-run"}`, want: `"decision":"block"`},
@@ -434,6 +476,38 @@ func TestRunHookStatusJSONReportsActivePlugin(t *testing.T) {
 		}
 	}
 	t.Fatal("Kilo status missing")
+}
+
+func TestRunHookStatusJSONSeparatesGitHubCopilotConfigurationAndLiveness(t *testing.T) {
+	t.Setenv(agentsession.StateRootEnv, t.TempDir())
+	repo := t.TempDir()
+	if _, err := hooks.Install(hooks.KindGitHubCopilot, repo, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := agentsession.RecordHookLiveness(repo, "copilot-session-start", "copilot-session-start"); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"hook", "status", repo, "--json"}, "test", &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	var reports []hooks.PlatformStatus
+	if err := json.Unmarshal(stdout.Bytes(), &reports); err != nil {
+		t.Fatalf("decode hook status: %v\n%s", err, stdout.String())
+	}
+	for _, report := range reports {
+		if report.Kind != hooks.KindGitHubCopilot {
+			continue
+		}
+		if report.State != hooks.StateConfigured || !report.Generated || !report.Installed || !report.Executable || !report.Configured || !report.Live {
+			t.Fatalf("GitHub Copilot status facts = %+v", report)
+		}
+		if len(report.LiveEvents) != 1 || report.LiveEvents[0] != "copilot-session-start" || len(report.UnseenEvents) == 0 {
+			t.Fatalf("GitHub Copilot route liveness = %+v", report)
+		}
+		return
+	}
+	t.Fatal("GitHub Copilot status missing")
 }
 
 func TestHookStatusTextHidesUnseenEnumerationButJSONKeepsIt(t *testing.T) {

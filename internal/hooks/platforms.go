@@ -125,6 +125,7 @@ const (
 	generatorGitPreCommit generatorID = iota + 1
 	generatorClaudeCode
 	generatorCodex
+	generatorGitHubCopilot
 	generatorCursor
 	generatorOpenCode
 	generatorDevinCLI
@@ -177,6 +178,24 @@ var platformRegistry = []platformDefinition{
 			capability(EventPostCompaction, "PostCompact", SupportNative, FailureAllow, FailureAllow, 5, "codex-post-compaction"),
 		}},
 		generator: generatorCodex,
+	},
+	{
+		Platform: Platform{Kind: KindGitHubCopilot, DisplayName: "GitHub Copilot", TargetPath: GitHubCopilotHooksPath, ScaffoldPath: GitHubCopilotHooksPath, InstallMode: InstallManagedJSON, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".github/hooks"}, RequiresWrapper: true}, Capabilities: []Capability{
+			capability(EventSessionStart, "SessionStart", SupportNative, FailureAllow, FailureAllow, 5, "copilot-session-start"),
+			capability(EventUserPromptSubmit, "UserPromptSubmit", SupportNative, FailureAllow, FailureAllow, 5, "copilot-user-prompt-submit"),
+			capability(EventPreToolUse, "PreToolUse", SupportNative, FailureBlock, FailureAllow, 10, "copilot-pre-tool-use"),
+			capability(EventPermissionRequest, "PermissionRequest", SupportNative, FailureBlock, FailureAllow, 10, "copilot-permission-request"),
+			capability(EventPostToolUse, "PostToolUse", SupportNative, FailureAllow, FailureAllow, 5, "copilot-post-tool-use"),
+			capability(EventPostToolUseFailure, "PostToolUseFailure", SupportNative, FailureAllow, FailureAllow, 5, "copilot-post-tool-use-failure"),
+			capability(EventStop, "Stop", SupportNative, FailureBlock, FailureAllow, 30, "copilot-stop"),
+			capability(EventSessionEnd, "SessionEnd", SupportNative, FailureAllow, FailureAllow, 5, "copilot-session-end"),
+			capability(EventNotification, "Notification", SupportNative, FailureAllow, FailureAllow, 5, "copilot-notification"),
+			capability(EventSubagentStart, "subagentStart", SupportNative, FailureAllow, FailureAllow, 5, "copilot-subagent-start"),
+			capability(EventSubagentStop, "SubagentStop", SupportNative, FailureBlock, FailureAllow, 30, "copilot-subagent-stop"),
+			capability(EventPreCompaction, "PreCompact", SupportNative, FailureAllow, FailureAllow, 5, "copilot-pre-compaction"),
+			unsupportedNative(EventPostCompaction, "PostCompact"),
+		}},
+		generator: generatorGitHubCopilot,
 	},
 	{
 		Platform: Platform{Kind: KindCursor, DisplayName: "Cursor", TargetPath: CursorHooksPath, ScaffoldPath: CursorHooksPath, InstallMode: InstallNestedJSON, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".cursor"}, RequiresWrapper: true}, Capabilities: []Capability{

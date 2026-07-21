@@ -156,8 +156,9 @@ Claims can also be supplied via an events file, stdin JSON, or by a registered h
 
 ## Platform Integration
 
-The typed registry supports Claude Code, Codex, Cursor, OpenCode, Devin CLI,
-Antigravity CLI, Kilo Code, and Grok Build. Run `reconc hook status . --json`
+The typed registry supports Claude Code, Codex, GitHub Copilot, Cursor,
+OpenCode, Devin CLI, Antigravity CLI, Kilo Code, and Grok Build. Run
+`reconc hook status . --json`
 instead of guessing whether an artifact is installed, configured, degraded,
 shadowed, or unsupported. `configured` is static discovery truth, not live
 execution proof. Static activation and rate-limited per-route
@@ -171,6 +172,11 @@ execution proof. Static activation and rate-limited per-route
   hooks. Bootstrap writes `hooks = true` under `[features]`; Codex has no
   `SessionEnd` event. Code-hosted command tools that omit PostToolUse results
   use `reconc exec --staged` for commit-bound success evidence.
+- **GitHub Copilot**: `.github/hooks/reconc.json` uses the documented
+  version-1 repository contract for Copilot CLI and coding agent. PreToolUse
+  and Stop translate to Copilot's exact decision schemas. PermissionRequest
+  and Notification are CLI-only, host timeouts remain fail-open, and static
+  configuration is not live proof.
 - **Cursor**: `.cursor/hooks.json` covers file, shell, evidence,
   and Stop events exposed by Cursor.
 - **OpenCode**: use `reconc hook install opencode .` for the
@@ -216,10 +222,10 @@ reconc run status .
 reconc run off .
 ```
 
-Repository mode applies to Claude Code, Codex, Cursor, OpenCode, Devin CLI,
-Antigravity CLI, Kilo Code, and Grok Build, scoped to this repository rather
-than the whole machine. Claude Code, Codex, Cursor, Devin CLI, and Antigravity
-CLI expose synchronous Stop gates. OpenCode and Kilo Code use
+Repository mode applies to Claude Code, Codex, GitHub Copilot, Cursor,
+OpenCode, Devin CLI, Antigravity CLI, Kilo Code, and Grok Build, scoped to this
+repository rather than the whole machine. Claude Code, Codex, GitHub Copilot,
+Cursor, Devin CLI, and Antigravity CLI expose synchronous Stop gates. OpenCode and Kilo Code use
 inferred `session.idle`, so their host continuation is best-effort and fail-open.
 Grok has a native synchronous Stop gate without a leader only when its installed
 hook guide advertises blocking Stop decision control. `reconc grok` remains the

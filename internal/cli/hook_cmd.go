@@ -447,6 +447,10 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 
 	payload, err := agentsession.ReadPayload(os.Stdin)
 	if err != nil {
+		if route.PlatformKind == hooks.KindGitHubCopilot && (route.Event == hooks.EventStop || route.Event == hooks.EventSubagentStop) {
+			writeGitHubCopilotRuntimeBlock(stdout, "Reconc could not read the GitHub Copilot hook payload: "+err.Error())
+			return nil
+		}
 		if route.PlatformKind == hooks.KindGrok && route.Event == hooks.EventPreToolUse {
 			writeGrokRuntimeDeny(stdout, "Reconc could not read the Grok hook payload: "+err.Error())
 			return nil
@@ -483,11 +487,18 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 	case hooks.KindDevinCLI:
 		payload, err = agentsession.NormalizeDevinPayload(event, payload, repo)
 		timing.mark("devin_normalize")
+	case hooks.KindGitHubCopilot:
+		payload, err = agentsession.NormalizeGitHubCopilotPayload(event, payload, repo)
+		timing.mark("copilot_normalize")
 	case hooks.KindGrok:
 		payload, err = agentsession.NormalizeGrokPayload(event, payload, repo)
 		timing.mark("grok_normalize")
 	}
 	if err != nil {
+		if route.PlatformKind == hooks.KindGitHubCopilot && (route.Event == hooks.EventStop || route.Event == hooks.EventSubagentStop) {
+			writeGitHubCopilotRuntimeBlock(stdout, "Reconc rejected the GitHub Copilot hook payload: "+err.Error())
+			return nil
+		}
 		if route.PlatformKind == hooks.KindGrok && route.Event == hooks.EventPreToolUse {
 			writeGrokRuntimeDeny(stdout, "Reconc rejected the Grok hook payload: "+err.Error())
 			return nil
@@ -531,9 +542,14 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 			hooks.EventPermissionDenied,
 			hooks.EventStopFailure,
 			hooks.EventNotification,
-			hooks.EventSubagentStart,
-			hooks.EventSubagentStop:
+			hooks.EventSubagentStart:
 			result = agentsession.RunPassiveEvent(repo, payload)
+		case hooks.EventSubagentStop:
+			if route.PlatformKind == hooks.KindGitHubCopilot {
+				result = agentsession.RunStop(repo, payload)
+			} else {
+				result = agentsession.RunPassiveEvent(repo, payload)
+			}
 		case hooks.EventPreCompaction:
 			if route.PlatformKind == hooks.KindOpenCode || route.PlatformKind == hooks.KindKilo {
 				result = agentsession.RunPostCompaction(repo, payload)
@@ -601,6 +617,9 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 	case hooks.KindCursor:
 		result = agentsession.AdaptCursorResult(event, result)
 		timing.mark("cursor_adapt")
+	case hooks.KindGitHubCopilot:
+		result = agentsession.AdaptGitHubCopilotResult(event, result)
+		timing.mark("copilot_adapt")
 	case hooks.KindGrok:
 		if event == "grok-stop" {
 			if note := grokacp.SteerTUIStop(repo, payload, result); note != "" {
@@ -627,6 +646,14 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 		return &CLIError{ExitCode: result.ExitCode, Message: ""}
 	}
 	return nil
+}
+
+func writeGitHubCopilotRuntimeBlock(stdout io.Writer, reason string) {
+	body, _ := json.Marshal(map[string]string{
+		"decision": "block",
+		"reason":   strings.TrimSpace(reason),
+	})
+	fmt.Fprintln(stdout, string(body))
 }
 
 func writeGrokRuntimeDeny(stdout io.Writer, reason string) {

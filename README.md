@@ -22,7 +22,7 @@ an exact block and one next action instead of a hopeful "done".
 - **One binary:** no daemon, Docker, model, or runtime network dependency.
 - **Repo-local truth:** policy compiles from `AGENTS.md`, `.reconc.yml`, presets,
   templates, and project files.
-- **Native enforcement:** eight agent runtimes plus git pre-commit as the hard
+- **Native enforcement:** nine agent runtimes plus git pre-commit as the hard
   repository backstop.
 - **One remediation at a time:** `reconc next .` turns a block into an exact
   recovery step; `reconc done .` proves completion.
@@ -88,8 +88,9 @@ why a task is allowed to be called done.
   without extra subprocesses
 - fails closed on stale lockfiles, schema drift, invalid globs, unsupported rule
   kinds, and non-portable current lockfile root markers
-- installs explicitly selected git, Claude Code, Codex, Cursor, OpenCode,
-  Devin CLI, Antigravity CLI, Kilo Code, and Grok Build integrations
+- installs explicitly selected git, Claude Code, Codex, GitHub Copilot,
+  Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, and Grok Build
+  integrations
 - controls autonomous agent continuation with repo-scoped
   `reconc run on|off|reset|status|log`, per-session no-progress guards, and
   bounded logs
@@ -189,8 +190,8 @@ reconc run off .
 
 `run on` first verifies fresh compiled policy and executable typed TASK state;
 `--force` is the explicit exceptional override. The switch is durable for this
-repository, not machine-global. Claude Code,
-Codex, Cursor, Devin CLI, and Antigravity CLI expose synchronous
+repository, not machine-global. Claude Code, Codex, GitHub Copilot, Cursor,
+Devin CLI, and Antigravity CLI expose synchronous
 Stop continuation. OpenCode and Kilo Code use inferred `session.idle` adapters,
 so Reconc requests continuation there but the host boundary remains best-effort
 and fail-open. Executable active work continues; an empty active slot with
@@ -296,6 +297,7 @@ a transaction reports drift or a mature repository needs surgical adaptation.
 | --- | --- |
 | Claude Code | repo-local hook wiring |
 | Codex | session, tool, permission, evidence, and Stop hooks with `apply_patch` path extraction |
+| GitHub Copilot | contract-tested repository hooks for Copilot CLI and coding agent; hard PreToolUse and Stop decisions where the host fires them; host timeouts remain fail-open |
 | Cursor | pre-write, post-write, shell, evidence, and Stop hook coverage |
 | OpenCode | thin tool, permission, compaction, and `session.idle` continuation adapter |
 | Devin CLI | native session, prompt, tool, permission, stop, and post-compaction hooks |
@@ -303,11 +305,13 @@ a transaction reports drift or a mature repository needs surgical adaptation.
 | Kilo Code | thin project plugin with tool, permission, compaction, and `session.idle` continuation handling |
 | Grok Build | native lifecycle and hard PreToolUse hooks, strict ACP continuation, and leader-mode TUI steering |
 
-Claude Code, Codex, Cursor, Devin CLI, and Antigravity CLI expose a synchronous
-Stop event. OpenCode and Kilo Code expose `session.idle`; Reconc can request
-continuation there, but that inferred adapter is not an equivalent host-level
-Stop gate. All platforms still use git pre-commit as the hard repository
-backstop.
+Claude Code, Codex, GitHub Copilot, Cursor, Devin CLI, and Antigravity CLI
+expose a synchronous Stop event. GitHub Copilot host timeouts remain fail-open,
+and this adapter is contract-tested rather than claimed live until
+`reconc hook status . --json` records real events. OpenCode and Kilo Code
+expose `session.idle`; Reconc can request continuation there, but that inferred
+adapter is not an equivalent host-level Stop gate. All platforms still use git
+pre-commit as the hard repository backstop.
 
 ## OpenAI Build Week
 
@@ -442,10 +446,11 @@ GitHub publication naturally require network access.
 
 ### Which agents are supported?
 
-Claude Code, Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code,
-and Grok Build have registry-backed integrations. Their host capabilities are
-not identical; `reconc hook status . --json` reports installed, configured,
-live, degraded, or unsupported state without inflating the claim.
+Claude Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity
+CLI, Kilo Code, and Grok Build have registry-backed integrations. Their host
+capabilities are not identical; `reconc hook status . --json` reports
+installed, configured, live, degraded, or unsupported state without inflating
+the claim.
 
 ### How do I upgrade, troubleshoot, or remove it?
 
@@ -506,7 +511,7 @@ pushes never publish a release. Every published release SBOM is regenerated and
 byte-verified before its checksum and build provenance are published.
 
 `make self-host` builds the local binary and runs the clean-repository golden
-path across all three bootstrap profiles, git pre-commit plus all eight agent
+path across all three bootstrap profiles, git pre-commit plus all nine agent
 runtimes, TASK lifecycle, retention, and stable release-layout binary
 resolution.
 

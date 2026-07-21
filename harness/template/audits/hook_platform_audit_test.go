@@ -10,6 +10,7 @@ import (
 var generatedHookScaffoldFiles = []string{
 	".codex/config.toml",
 	".codex/hooks.json",
+	".github/hooks/reconc.json",
 	".cursor/hooks.json",
 	".claude/settings.json",
 	".devin/hooks.v1.json",
@@ -24,6 +25,7 @@ func installGeneratedHookScaffold(t *testing.T, root string) {
 	writeFile(t, root, stackConfigRel, `agent_hooks:
   require_codex_config: true
   require_codex_hook_file: true
+  require_github_copilot_hooks: true
   require_cursor_hooks: true
   require_claude_settings: true
   require_opencode_plugin: true
@@ -58,6 +60,7 @@ func TestAuditAgentHooksRejectsMissingGeneratedPlatformContracts(t *testing.T) {
 	}{
 		{name: "codex config", relative: ".codex/config.toml", token: "hooks = true"},
 		{name: "codex hooks", relative: ".codex/hooks.json", token: "codex-subagent-stop"},
+		{name: "GitHub Copilot hooks", relative: ".github/hooks/reconc.json", token: "copilot-subagent-stop"},
 		{name: "cursor hooks", relative: ".cursor/hooks.json", token: "cursor-session-end"},
 		{name: "claude hooks", relative: ".claude/settings.json", token: "claude-compaction-recovery"},
 		{name: "devin hooks", relative: ".devin/hooks.v1.json", token: "devin-user-prompt-submit"},
@@ -137,11 +140,50 @@ func TestAuditAgentHooksRejectsStaleGrokObservationTimeout(t *testing.T) {
 	}
 }
 
+func TestAuditAgentHooksRejectsStaleGitHubCopilotTimeout(t *testing.T) {
+	root := t.TempDir()
+	installGeneratedHookScaffold(t, root)
+	relative := ".github/hooks/reconc.json"
+	path := filepath.Join(root, filepath.FromSlash(relative))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if !strings.Contains(content, `"timeoutSec": 10`) {
+		t.Fatal("generated GitHub Copilot artifact has no guard timeout")
+	}
+	writeFile(t, root, relative, strings.Replace(content, `"timeoutSec": 10`, `"timeoutSec": 120`, 1))
+	if failures := auditAgentHooks(root); !containsFailure(failures, "timeout for") {
+		t.Fatalf("stale GitHub Copilot timeout must fail the audit:\n%s", strings.Join(failures, "\n"))
+	}
+}
+
+func TestAuditAgentHooksRejectsGitHubCopilotContractDrift(t *testing.T) {
+	root := t.TempDir()
+	installGeneratedHookScaffold(t, root)
+	relative := ".github/hooks/reconc.json"
+	path := filepath.Join(root, filepath.FromSlash(relative))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if !strings.Contains(content, `"cwd": "."`) {
+		t.Fatal("generated GitHub Copilot artifact has no repository cwd")
+	}
+	writeFile(t, root, relative, strings.Replace(content, `"cwd": "."`, `"cwd": ".."`, 1))
+	if failures := auditAgentHooks(root); !containsFailure(failures, "drifted command, cwd, matcher, or cross-platform route") {
+		t.Fatalf("GitHub Copilot contract drift must fail the audit:\n%s", strings.Join(failures, "\n"))
+	}
+}
+
 func TestAuditAgentHooksRejectsProjectSpecificPluginState(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, stackConfigRel, `agent_hooks:
   require_codex_config: false
   require_codex_hook_file: false
+  require_github_copilot_hooks: false
   require_cursor_hooks: false
   require_claude_settings: false
   require_antigravity_hooks: false
@@ -167,6 +209,7 @@ func TestAuditAgentHooksRejectsVersionPinnedPluginBinary(t *testing.T) {
 	writeFile(t, root, stackConfigRel, `agent_hooks:
   require_codex_config: false
   require_codex_hook_file: false
+  require_github_copilot_hooks: false
   require_cursor_hooks: false
   require_claude_settings: false
   require_opencode_plugin: false

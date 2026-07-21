@@ -18,6 +18,7 @@ func TestInstallRejectsSymlinkedManagedTargets(t *testing.T) {
 	}{
 		{kind: KindClaudeCode, target: ClaudeCodeSettingsPath},
 		{kind: KindCodex, target: CodexHooksPath},
+		{kind: KindGitHubCopilot, target: GitHubCopilotHooksPath},
 		{kind: KindCursor, target: CursorHooksPath},
 		{kind: KindOpenCode, target: OpenCodePluginPath},
 		{kind: KindDevinCLI, target: DevinHooksPath},

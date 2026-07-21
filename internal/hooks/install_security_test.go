@@ -15,6 +15,7 @@ func TestInstallRejectsSymlinkedManagedParentDirectories(t *testing.T) {
 	}{
 		{kind: KindClaudeCode, target: ClaudeCodeSettingsPath},
 		{kind: KindCodex, target: CodexHooksPath},
+		{kind: KindGitHubCopilot, target: GitHubCopilotHooksPath},
 		{kind: KindCursor, target: CursorHooksPath},
 		{kind: KindOpenCode, target: OpenCodePluginPath},
 		{kind: KindDevinCLI, target: DevinHooksPath},
@@ -64,6 +65,7 @@ func TestInstallRejectsOversizedManagedTargets(t *testing.T) {
 		target string
 	}{
 		{kind: KindClaudeCode, target: ClaudeCodeSettingsPath},
+		{kind: KindGitHubCopilot, target: GitHubCopilotHooksPath},
 		{kind: KindOpenCode, target: OpenCodePluginPath},
 		{kind: KindGrok, target: GrokHooksPath},
 	} {

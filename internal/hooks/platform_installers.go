@@ -88,7 +88,19 @@ func installKilo(repoRoot string, force bool) (*InstallReport, error) {
 			text := string(data)
 			return strings.Contains(text, "Managed by reconc") && strings.Contains(text, "kilo-pre-tool-use")
 		},
+		true,
 		"Restart Kilo Code in this repository so it reloads .kilo/plugin/reconc.js; KILO_PURE must be unset.",
+	)
+}
+
+func installGitHubCopilot(repoRoot string, force bool) (*InstallReport, error) {
+	return installManagedPlatformFile(
+		KindGitHubCopilot,
+		repoRoot,
+		force,
+		isManagedGitHubCopilotConfig,
+		false,
+		"Restart Copilot CLI in this repository or start a new Copilot cloud agent job so .github/hooks/reconc.json is loaded.",
 	)
 }
 
@@ -102,11 +114,12 @@ func installGrok(repoRoot string, force bool) (*InstallReport, error) {
 			return strings.Contains(text, `"reconcManaged": true`) &&
 				strings.Contains(text, "grok-pre-tool-use")
 		},
+		true,
 		"Restart Grok Build or reload /hooks, then run /hooks-trust once for this project so .grok/hooks/reconc.json can execute.",
 	)
 }
 
-func installManagedPlatformFile(kind, repoRoot string, force bool, managed func([]byte) bool, nextAction string) (*InstallReport, error) {
+func installManagedPlatformFile(kind, repoRoot string, force bool, managed func([]byte) bool, allowForceForeign bool, nextAction string) (*InstallReport, error) {
 	root, err := existingRepoRoot(repoRoot)
 	if err != nil {
 		return nil, err
@@ -125,8 +138,16 @@ func installManagedPlatformFile(kind, repoRoot string, force bool, managed func(
 	action := "created"
 	if existing, err := readManagedArtifact(target); err == nil {
 		action = "updated"
-		if !force && !managed(existing) {
-			return nil, &rerrors.PolicySourceError{Message: artifact.TargetPath + " exists and is not reconc-managed; pass --force to overwrite"}
+		if !managed(existing) {
+			if !force || !allowForceForeign {
+				message := artifact.TargetPath + " exists and is not reconc-managed"
+				if allowForceForeign {
+					message += "; pass --force to overwrite"
+				} else {
+					message += "; refusing to overwrite this user-owned hook file"
+				}
+				return nil, &rerrors.PolicySourceError{Message: message}
+			}
 		}
 	} else if !os.IsNotExist(err) {
 		return nil, &rerrors.PolicySourceError{Message: "read " + target, Cause: err}
@@ -137,6 +158,69 @@ func installManagedPlatformFile(kind, repoRoot string, force bool, managed func(
 		action = writeAction
 	}
 	return &InstallReport{Kind: kind, RepoRoot: root, TargetPath: artifact.TargetPath, Action: action, Executable: artifact.Executable, NextAction: nextAction}, nil
+}
+
+func isManagedGitHubCopilotConfig(data []byte) bool {
+	var topLevel map[string]json.RawMessage
+	if json.Unmarshal(data, &topLevel) != nil || len(topLevel) != 2 {
+		return false
+	}
+	if _, ok := topLevel["version"]; !ok {
+		return false
+	}
+	if _, ok := topLevel["hooks"]; !ok {
+		return false
+	}
+	var document struct {
+		Version int                                 `json:"version"`
+		Hooks   map[string][]map[string]interface{} `json:"hooks"`
+	}
+	if json.Unmarshal(data, &document) != nil || document.Version != 1 || len(document.Hooks) == 0 {
+		return false
+	}
+	expectedRoutes := map[string]string{
+		"SessionStart":       "copilot-session-start",
+		"UserPromptSubmit":   "copilot-user-prompt-submit",
+		"PreToolUse":         "copilot-pre-tool-use",
+		"PermissionRequest":  "copilot-permission-request",
+		"PostToolUse":        "copilot-post-tool-use",
+		"PostToolUseFailure": "copilot-post-tool-use-failure",
+		"Stop":               "copilot-stop",
+		"SessionEnd":         "copilot-session-end",
+		"Notification":       "copilot-notification",
+		"subagentStart":      "copilot-subagent-start",
+		"SubagentStop":       "copilot-subagent-stop",
+		"PreCompact":         "copilot-pre-compaction",
+	}
+	if len(document.Hooks) != len(expectedRoutes) {
+		return false
+	}
+	for event, route := range expectedRoutes {
+		entries := document.Hooks[event]
+		if len(entries) != 1 {
+			return false
+		}
+		entry := entries[0]
+		bashCommand, _ := entry["bash"].(string)
+		powershellCommand, _ := entry["powershell"].(string)
+		entryType, _ := entry["type"].(string)
+		cwd, _ := entry["cwd"].(string)
+		if entryType != "command" || cwd != "." ||
+			!githubCopilotCommandHasRoute(bashCommand, route) ||
+			!githubCopilotCommandHasRoute(powershellCommand, route) {
+			return false
+		}
+	}
+	return true
+}
+
+func githubCopilotCommandHasRoute(command, route string) bool {
+	for _, field := range strings.Fields(command) {
+		if strings.Trim(field, `"';`) == route {
+			return true
+		}
+	}
+	return false
 }
 
 func existingRepoRoot(repoRoot string) (string, error) {

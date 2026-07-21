@@ -297,12 +297,13 @@ operations, and remote CI naturally use the network when invoked.
 
 ### Which agent runtimes are supported?
 
-The registry owns integrations for Claude Code, Codex, Cursor, OpenCode, Devin
-CLI, Antigravity CLI, Kilo Code, and Grok Build, plus git pre-commit as the
-repository backstop. Host capabilities differ: some expose synchronous Stop,
-OpenCode and Kilo expose inferred `session.idle`, and Grok has a strict ACP
-driver for continuation. Run `reconc hook status . --json` before claiming
-that a particular installation is live.
+The registry owns integrations for Claude Code, Codex, GitHub Copilot, Cursor,
+OpenCode, Devin CLI, Antigravity CLI, Kilo Code, and Grok Build, plus git
+pre-commit as the repository backstop. Host capabilities differ: some expose
+synchronous Stop, GitHub Copilot timeouts are host-fail-open, OpenCode and Kilo
+expose inferred `session.idle`, and Grok has a strict ACP driver for
+continuation. Run `reconc hook status . --json` before claiming that a
+particular installation is live.
 
 ### How do I install and test it?
 
@@ -944,8 +945,8 @@ skill documents the same reconc workflow for every agent runtime:
 - distinguish native hook enforcement from CLI self-checks
 
 The typed platform registry is the source of truth for Git pre-commit, Claude
-Code, Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, and
-Grok Build. It owns native event names, normalized lifecycle coverage, compatibility
+Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI,
+Kilo Code, and Grok Build. It owns native event names, normalized lifecycle coverage, compatibility
 routes, config and scaffold paths, failure behavior, timeout budgets, output
 budgets, installation strategy, and activation probes. `reconc hook status
 [repo] [--json]` validates every registered artifact and reports `absent`,
@@ -970,13 +971,13 @@ the managed artifact is published.
 
 The registry assigns 5-second observation/session budgets, 10-second pre-tool
 and permission budgets, and 30-second Stop budgets instead of one blanket
-timeout. Claude, Codex, Devin, Antigravity, and Grok generators emit those
-host timeouts; OpenCode and Kilo Code enforce them inside their adapters. Each runtime
+timeout. Claude, Codex, GitHub Copilot, Devin, Antigravity, and Grok generators
+emit those host timeouts; OpenCode and Kilo Code enforce them inside their adapters. Each runtime
 route caps combined process output at 8 KiB.
 Post-compaction recovery context is deduplicated and capped at 4 KiB.
 
-Claude Code, Codex, Cursor, Devin, Antigravity, and Grok generated configs
-use `tools/reconc/bin/hook` on POSIX; the wrapper owns repo-local binary
+Claude Code, Codex, GitHub Copilot, Cursor, Devin, Antigravity, and Grok
+generated configs use `tools/reconc/bin/hook` on POSIX; the wrapper owns repo-local binary
 selection and PATH `reconc` as last fallback.
 For development and self-hosting, the wrapper checks `.build/bin/reconc` and
 root `reconc` before invoking any platform probe. Otherwise, each
@@ -1004,7 +1005,20 @@ User prompts, pre/post compaction, subagent start/stop, permission, tool, and
 Stop lifecycles are all routed. `apply_patch` is routed through Reconc by
 parsing patch headers from `tool_input.command`; a non-empty patch with zero
 parseable file operations fails closed instead of silently bypassing the write
-gate. Cursor Desktop uses `.cursor/hooks.json` with native
+gate. GitHub Copilot uses the version-1 repository hook contract at
+`.github/hooks/reconc.json`. Copilot CLI and coding agent load the same
+repository file, while the coding agent honors only its Linux `bash` command
+in `/workspace`. Reconc generates documented PascalCase compatibility events
+plus native `subagentStart`, validates `cwd` against the selected repository,
+normalizes `tool_result` into evidence, and translates PreToolUse,
+PermissionRequest, PostToolUseFailure, Stop, and SubagentStop output into
+Copilot's exact schemas. `PermissionRequest` and `Notification` are CLI-only; cloud permission
+enforcement therefore uses `PreToolUse`. Missing or failed Stop wrappers emit
+an explicit block while Copilot's own timeout behavior remains fail-open. The
+managed filename is never overwritten when it contains foreign content, even
+with `--force`. Static configuration and contract tests are not live proof;
+only per-route liveness in `reconc hook status . --json` can establish that a
+host actually executed the adapter. Cursor Desktop uses `.cursor/hooks.json` with native
 `beforeSubmitPrompt`,
 `preToolUse` as the pre-write gate, `afterFileEdit`/`afterTabFileEdit` plus
 `postToolUse` as evidence backstops for Cursor write aliases including
@@ -1041,7 +1055,7 @@ they invoke that extensionless POSIX wrapper through `sh` instead of asking Bun
 to execute an unsupported script shape directly. Their Stop
 capability is inferred from `session.idle`: the adapter asks the host client to
 continue, but the host boundary remains fail-open and is not equivalent to the
-synchronous native Stop gates exposed by the other five agent runtimes.
+synchronous native Stop gates exposed by the other six agent runtimes.
 Grok Build uses the dedicated `.grok/hooks/reconc.json` native artifact.
 Its camelCase envelopes and native tools (`run_terminal_command`,
 `run_terminal_cmd`,
@@ -1091,8 +1105,9 @@ capability and separately probes optional leader protocol plus
 `_x.ai/interject` with a random nonexistent session.
 `reconc run on|off|reset|status|log` is the canonical AI-operated repository switch.
 Its durable state applies only to the selected repository, not the whole machine.
-Repository mode persists across sessions for Claude Code, Codex, Cursor,
-OpenCode, Devin CLI, Antigravity CLI, Kilo Code, and Grok Build. The agent
+Repository mode persists across sessions for Claude Code, Codex, GitHub
+Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, and Grok
+Build. The agent
 runs these commands itself; users do not need to operate Reconc. Prompt text,
 runtime interrupts, compaction, session boundaries, runtime changes, and
 application restarts never mutate the switch. An interrupt releases only the
@@ -1143,7 +1158,7 @@ never prompt text. The live log and two archives are each bounded at
 Repeated identical policy feedback shrinks to stable `RB-*` feedback IDs,
 rule IDs, and the saved report path. PreToolUse evaluates only pre-execution
 write/shell rules,
-generated Claude/Codex/Cursor/Devin/Antigravity/Grok configs do not spawn PreToolUse for
+generated Claude, Codex, GitHub Copilot, Cursor, Devin, Antigravity, and Grok configs do not spawn PreToolUse for
 read-only matchers, all PostToolUse / after-shell events record evidence only,
 and repo-wide policy audits run at terminal Stop, explicit Reconc checks, or a
 bounded repository-run checkpoint. Checkpoints occur after 64 material events,
@@ -1287,7 +1302,7 @@ CI checks:
 - every CI job that executes Go provisions the SHA-pinned `actions/setup-go`
   action from `go.mod`, including the isolated release-trust job
 - clean-repository self-hosting golden path on Ubuntu and macOS across all three
-  bootstrap profiles, git pre-commit, and all eight agent runtimes
+  bootstrap profiles, git pre-commit, and all nine agent runtimes
 - current-tree and post-boundary-history publication audit on Ubuntu, macOS,
   native Windows, release-trust, and tagged release paths
 - immutable action commit pins plus an explicit GitHub-owned action allowlist;

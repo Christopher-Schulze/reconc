@@ -306,16 +306,17 @@ Rule shape templates (`tests-follow-source`, `docs-follow-code`,
 `custom-gate-on-change`, `local-secret-state-read-only`, `verified-change`).
 User overrides in `$RECONC_HOME/templates/*.yml`.
 
-### `reconc hook generate <git-pre-commit|claude-code|codex|cursor|opencode|devin-cli|antigravity|kilo|grok> [--json] [--output PATH]`
+### `reconc hook generate <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok> [--json] [--output PATH]`
 Emit the hook artefact content without writing to disk.
 
-### `reconc hook install <git-pre-commit|claude-code|codex|cursor|opencode|devin-cli|antigravity|kilo|grok> [repo] [--force] [--json] [--output PATH]`
+### `reconc hook install <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok> [repo] [--force] [--json] [--output PATH]`
 Write the hook into the repo. Git pre-commit uses Git's active hooks path
 (`core.hooksPath`, otherwise `.git/hooks`), updates a Reconc-owned hook
 idempotently, preserves inactive legacy hooks, requires `--force` for a foreign
-active hook, and always refuses shared external targets. Claude Code and
-Codex JSON configs are merged non-destructively;
-Cursor writes `.cursor/hooks.json`; OpenCode writes
+active hook, and always refuses shared external targets. Claude Code and Codex
+JSON configs are merged non-destructively. GitHub Copilot owns only
+`.github/hooks/reconc.json`; a foreign file at that path is never overwritten,
+including with `--force`. Cursor writes `.cursor/hooks.json`; OpenCode writes
 `.opencode/plugins/reconc.js`; Devin merges `.devin/hooks.v1.json`;
 Antigravity merges the top-level
 `reconc` hook definition into `.agents/hooks.json`, preserving
@@ -335,7 +336,7 @@ points and 8.3 aliases are handled before containment. Forced malformed-config
 backups are private, content-addressed, create-only, and durably synced before
 publication.
 
-### `reconc hook uninstall <git-pre-commit|claude-code|codex|cursor|opencode|devin-cli|antigravity|kilo|grok> [repo] [--json] [--output PATH]`
+### `reconc hook uninstall <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok> [repo] [--json] [--output PATH]`
 Remove only generator-exact dedicated artifacts or canonical Reconc-owned JSON
 entries while preserving unrelated hooks and configuration. Modified or
 ambiguous Reconc-looking entries fail closed. Codex removes only its managed
@@ -349,7 +350,9 @@ Validate registered artifacts and activation requirements. States are
 The command checks malformed, incomplete, non-executable, or drifted managed
 artifacts, the repo-local wrapper, Codex's enable flag, Git `core.hooksPath`,
 Kilo Code pure mode, legacy Kilo Code plugin placement, and Grok's native
-project-hook artifact. Static Grok status cannot prove folder trust; `doctor
+project-hook artifact. GitHub Copilot status verifies its generator-exact
+repository hook and wrapper but reports live execution separately. Static Grok
+status cannot prove folder trust; `doctor
 --deep` additionally runs `grok inspect --json` when the artifact exists.
 Each platform reports separate `generated`, `installed`, `executable`,
 `configured`, and `live` booleans plus one exact remediation whenever static
@@ -378,8 +381,8 @@ every unseen route; the full unseen-event enumeration remains in `--json`.
 ### `reconc hook sync-scaffold <repo-root-scaffold> [--json]`
 Regenerate source-controlled hook artifacts inside a template
 `repo-root-scaffold`: `.githooks/pre-commit`, `.codex/hooks.json`,
-`.cursor/hooks.json`, `.agents/hooks.json`, `.claude/settings.json`,
-`.opencode/plugins/reconc.js`, `.devin/hooks.v1.json`,
+`.github/hooks/reconc.json`, `.cursor/hooks.json`, `.agents/hooks.json`,
+`.claude/settings.json`, `.opencode/plugins/reconc.js`, `.devin/hooks.v1.json`,
 `.kilo/plugin/reconc.js`, and `.grok/hooks/reconc.json`. This keeps scaffolded repos on the
 same generator truth as `reconc hook install`; do not copy these files
 from a source-specific harness. Reconc preflights containment for every target
@@ -398,8 +401,8 @@ entry point.
 
 ### `reconc hook runtime <event> <repo>`
 Registry-owned agent-platform event dispatcher. Called from Claude Code,
-Codex, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, and Grok Build
-hook configs, not by users directly. Codex uses only released routes and
+Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code,
+and Grok Build hook configs, not by users directly. Codex uses only released routes and
 infers failed Bash outcomes from `PostToolUse`; OpenCode and Kilo preserve
 complete post-tool output, deduplicate terminal tool errors, and route prompt,
 compaction, and session lifecycle.
@@ -445,8 +448,8 @@ read the two bounded archives plus the live file in chronological order.
 
 ### `reconc run on [repo] [--force] [--json]` / `reconc run off [repo] [--json]`
 AI-operated switch scoped to one repository, not the whole machine. It routes
-continuation through all eight registered agent runtimes. Claude Code, Codex,
-Cursor, Devin CLI, and Antigravity CLI expose synchronous Stop
+continuation through all nine registered agent runtimes. Claude Code, Codex,
+GitHub Copilot, Cursor, Devin CLI, and Antigravity CLI expose synchronous Stop
 gates; OpenCode and Kilo Code use inferred `session.idle` adapters whose host
 boundary is best-effort and fail-open. Reconc emits exact Grok Stop block JSON
 without a leader; synchronous stock-TUI enforcement and its continuation bound
