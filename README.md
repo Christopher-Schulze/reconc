@@ -49,12 +49,12 @@ or network, cleans up by default, and emits inspectable proof with `--keep` or
 [DONE] evidence-complete proof verified
 ```
 
-Until the first public release is published, contributors can run the same
-binary from source:
+Install the signed, checksummed macOS or Linux release without building:
 
 ```bash
-go build -o reconc ./cmd/reconc
-./reconc demo
+curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.6/install.sh \
+  | RECONC_INSTALL_DIR="$HOME/.local/bin" sh -s -- 0.8.6
+"$HOME/.local/bin/reconc" demo
 ```
 
 ## How it works
@@ -124,12 +124,17 @@ human review after the fact is often too late.
 
 ## Install and bootstrap
 
-Build the current source candidate:
+Install the signed, checksummed macOS or Linux release:
 
 ```bash
-go build -o reconc ./cmd/reconc
-./reconc demo
+curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.6/install.sh \
+  | RECONC_INSTALL_DIR="$HOME/.local/bin" sh -s -- 0.8.6
+"$HOME/.local/bin/reconc" demo
 ```
+
+The installer verifies `SHA256SUMS` and uses GitHub build-provenance
+attestations when `gh` is available. Set `RECONC_REQUIRE_ATTESTATION=1` to make
+attestation verification mandatory.
 
 The shipped CLI has no Bun dependency. Contributors need Bun `1.3.14` only for
 the executable OpenCode and Kilo Code adapter contract tests included in the
@@ -337,9 +342,13 @@ Claude also assisted with portions of implementation and review; public commit
 trailers preserve that attribution instead of presenting every change as Codex
 work.
 
-The exact baseline-to-release comparison and judge-ready binaries will be
-pinned to the `v0.8.6` release. Reconc itself remains fully offline at runtime:
-Codex and GPT-5.6 helped build the tool but are not dependencies of the tool.
+The immutable [`v0.8.6` release](https://github.com/Christopher-Schulze/reconc/releases/tag/reconc-v0.8.6)
+contains the judge-ready binaries. The Build Week implementation extends the
+June 8 baseline with the evidence-complete `done` gate, deterministic demo,
+transactional bootstrap UX, repository run-loop controls, truthful runtime
+adapters, generic npm/pnpm/Yarn/TypeScript assurance, and the rebuilt public
+product surface. Reconc itself remains fully offline at runtime: Codex and
+GPT-5.6 helped build the tool but are not dependencies of the tool.
 
 ## Production dogfooding
 
@@ -511,8 +520,8 @@ TASK planning remains intentionally local and ignored.
 
 ## Status
 
-The source line is `v0.8.x`, and the current source version is `v0.8.5`. No
-GitHub Release is currently published. Release artifacts are produced only by
+The source line is `v0.8.x`, and the current source version is `v0.8.6`.
+Release artifacts are produced only by
 an explicit manual workflow dispatch for an existing `reconc-vX.Y.Z` tag; tag
 pushes never publish a release. Every published release SBOM is regenerated and
 byte-verified before its checksum and build provenance are published.

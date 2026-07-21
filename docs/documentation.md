@@ -87,8 +87,8 @@ make cover
 make bench
 make self-host
 make publication-audit
-make sbom VERSION=0.8.5
-make release VERSION=0.8.5
+make sbom VERSION=0.8.6
+make release VERSION=0.8.6
 ```
 
 `make release` cross-compiles five binaries into `dist/`, generates three flat
@@ -1530,8 +1530,7 @@ current-state documentation.
 
 ## Release State
 
-The current source line is `v0.8.x`; the source version is `v0.8.5`. No GitHub
-Release is currently published. Publication is blocked until the release,
-install, self-hosting, and final verification contracts pass. Release artifacts
-are produced only through an explicit manual Release workflow dispatch for an
-existing `reconc-vX.Y.Z` tag; tag pushes never publish a release.
+The current source line is `v0.8.x`; the source version is `v0.8.6`. Release
+artifacts are produced only through an explicit manual Release workflow
+dispatch for an existing `reconc-vX.Y.Z` tag; tag pushes never publish a
+release.
