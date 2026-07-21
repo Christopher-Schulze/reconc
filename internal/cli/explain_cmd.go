@@ -59,7 +59,8 @@ func runExplain(args []string, stdout, stderr io.Writer) (resultErr error) {
 			}
 			format = val
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "Usage: reconc explain [repo] [evidence flags...] [--format text|markdown] [--json] [--output PATH]")
+			fmt.Fprintln(stdout, "Usage: reconc explain [repo] [--read PATH] [--write PATH] [--command CMD]")
+			fmt.Fprintln(stdout, "                         [--claim NAME] [--format text|markdown] [--json] [--output PATH]")
 			fmt.Fprintln(stdout, "       reconc explain --report-file PATH [--format text|markdown] [--json] [--output PATH]")
 			fmt.Fprintln(stdout, "")
 			fmt.Fprintln(stdout, "Render a policy check report in human-readable form. Source can be fresh")

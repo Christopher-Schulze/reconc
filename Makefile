@@ -130,7 +130,7 @@ completion:
 
 manpage:
 	@mkdir -p $(DISTDIR)
-	@$(GO) run ./cmd/reconc manpage > $(DISTDIR)/reconc.1
+	@SOURCE_DATE_EPOCH="$(SOURCE_DATE_EPOCH)" $(GO) run -ldflags "-X main.Version=$(VERSION)" ./cmd/reconc manpage > $(DISTDIR)/reconc.1
 	@echo "man page -> $(DISTDIR)/reconc.1"
 
 sbom:

@@ -94,8 +94,10 @@ schemas plus the current v2 policy-lock schema, generates deterministic SPDX
 the first build, SBOM, or checksum
 failure. The release verifier requires exactly those seventeen
 checksummed artifacts, rejects missing, extra, duplicate, unsafe, or corrupted
-entries, and never accepts an empty manifest. `dist/` is ignored and should not
-be committed.
+entries, and never accepts an empty manifest. It regenerates Bash, Zsh, Fish,
+and the versioned man page from the current canonical command metadata and
+rejects even freshly checksummed artifacts whose bytes are stale or
+noncanonical. `dist/` is ignored and should not be committed.
 
 Every host and release build embeds a deterministic version, target, and
 production-source digest. The build verifies that marker directly from the
@@ -1172,7 +1174,7 @@ Release:
 Reproducibility basis: release binaries are cross-compiled with a pinned Go
 toolchain, `-trimpath`, and `CGO_ENABLED=0`, so identical toolchain and
 source produce identical binaries. `SOURCE_DATE_EPOCH` feeds the SBOM
-generator only; the Go compiler embeds no timestamps. There is no
+generator and release man page; the Go compiler embeds no timestamps. There is no
 independent rebuild attestation; the GitHub provenance attestation over
 `SHA256SUMS` is the cryptographic binding between artifacts and the tagged
 workflow run.

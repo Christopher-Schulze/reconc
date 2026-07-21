@@ -4,17 +4,17 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"sort"
 	"strings"
 	"testing"
 
-	"reconc.dev/reconc/internal/completion"
+	"reconc.dev/reconc/internal/commandmeta"
 )
 
-// TestCompletionCoversEveryDispatcherCase parses cli.go's dispatch
-// switch and asserts every subcommand case has a completion entry, so
-// a new `case "foo":` cannot ship without shell-completion coverage.
-// (`help` is a usage alias, not a subcommand, and stays exempt.)
-func TestCompletionCoversEveryDispatcherCase(t *testing.T) {
+// TestMetadataMatchesEveryDispatcherCase proves exact bidirectional parity
+// between executable top-level commands and the canonical public contract.
+// `help` is a usage alias, not a command, and stays exempt.
+func TestMetadataMatchesEveryDispatcherCase(t *testing.T) {
 	fset := token.NewFileSet()
 	tree, err := parser.ParseFile(fset, "cli.go", nil, parser.SkipObjectResolution)
 	if err != nil {
@@ -43,17 +43,31 @@ func TestCompletionCoversEveryDispatcherCase(t *testing.T) {
 		t.Fatalf("dispatcher scan looks broken: only %d cases found", len(dispatcherCases))
 	}
 
-	covered := map[string]bool{"help": true}
-	for _, sub := range completion.Subcommands {
-		covered[sub.Name] = true
+	metadata := map[string]bool{}
+	for _, command := range commandmeta.All() {
+		if metadata[command.Name] {
+			t.Fatalf("duplicate metadata command %q", command.Name)
+		}
+		metadata[command.Name] = true
 	}
 	missing := []string{}
 	for name := range dispatcherCases {
-		if !covered[name] {
+		if name != "help" && !metadata[name] {
 			missing = append(missing, name)
 		}
 	}
 	if len(missing) > 0 {
-		t.Fatalf("dispatcher cases missing from completion.Subcommands: %v", missing)
+		sort.Strings(missing)
+		t.Fatalf("dispatcher cases missing from command metadata: %v", missing)
+	}
+	unreachable := []string{}
+	for name := range metadata {
+		if !dispatcherCases[name] {
+			unreachable = append(unreachable, name)
+		}
+	}
+	if len(unreachable) > 0 {
+		sort.Strings(unreachable)
+		t.Fatalf("metadata commands missing from dispatcher: %v", unreachable)
 	}
 }

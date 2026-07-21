@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"reconc.dev/reconc/internal/commandmeta"
 	"reconc.dev/reconc/internal/schema"
 )
 
@@ -65,6 +66,49 @@ func TestRenderIncludesEverySubcommand(t *testing.T) {
 		if !strings.Contains(out, ".B "+sub) {
 			t.Errorf("subcommand %q missing from man page", sub)
 		}
+	}
+}
+
+func TestRenderIncludesCanonicalCommandAndNestedInventory(t *testing.T) {
+	t.Setenv("SOURCE_DATE_EPOCH", "0")
+	var buf bytes.Buffer
+	if err := Render(&buf, "0.2.0"); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, command := range commandmeta.All() {
+		if !strings.Contains(out, ".B "+command.Name+"\n") || !strings.Contains(out, command.Summary) {
+			t.Errorf("man page omitted canonical command %s", command.Name)
+		}
+		for _, nested := range command.Subcommands {
+			if !strings.Contains(out, ".B "+command.Name+" "+nested.Name+"\n") || !strings.Contains(out, nested.Summary) {
+				t.Errorf("man page omitted canonical nested command %s %s", command.Name, nested.Name)
+			}
+		}
+	}
+}
+
+func TestRenderUsesSourceDateEpochDeterministically(t *testing.T) {
+	t.Setenv("SOURCE_DATE_EPOCH", "946684800")
+	var first, second bytes.Buffer
+	if err := Render(&first, "0.2.0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Render(&second, "0.2.0"); err != nil {
+		t.Fatal(err)
+	}
+	if first.String() != second.String() {
+		t.Fatal("man page output changed with a fixed SOURCE_DATE_EPOCH")
+	}
+	if !strings.Contains(first.String(), `.TH RECONC 1 "2000-01-01"`) {
+		t.Fatalf("man page did not use SOURCE_DATE_EPOCH: %s", first.String()[:80])
+	}
+}
+
+func TestRenderRejectsInvalidSourceDateEpoch(t *testing.T) {
+	t.Setenv("SOURCE_DATE_EPOCH", "not-an-epoch")
+	if err := Render(&bytes.Buffer{}, "0.2.0"); err == nil || !strings.Contains(err.Error(), "SOURCE_DATE_EPOCH") {
+		t.Fatalf("expected invalid SOURCE_DATE_EPOCH error, got %v", err)
 	}
 }
 

@@ -145,6 +145,10 @@ func runHookGenerate(args []string, stdout, stderr io.Writer) (resultErr error) 
 	if len(args) == 0 {
 		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook generate: missing kind (one of: %v)", hooks.SupportedKinds())}
 	}
+	if args[0] == "-h" || args[0] == "--help" {
+		fmt.Fprintf(stdout, "Usage: reconc hook generate <kind> [--json] [--output PATH]\nKinds: %v\n", hooks.SupportedKinds())
+		return nil
+	}
 	kind := args[0]
 	jsonOut := false
 	outputPath := ""
@@ -193,6 +197,10 @@ func runHookGenerate(args []string, stdout, stderr io.Writer) (resultErr error) 
 func runHookInstall(args []string, stdout, stderr io.Writer) (resultErr error) {
 	if len(args) == 0 {
 		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook install: missing kind (one of: %v)", hooks.InstallableKinds())}
+	}
+	if args[0] == "-h" || args[0] == "--help" {
+		fmt.Fprintf(stdout, "Usage: reconc hook install <kind> [repo] [--force] [--json] [--output PATH]\nInstallable: %v\n", hooks.InstallableKinds())
+		return nil
 	}
 	kind := args[0]
 	repo := "."
@@ -269,6 +277,10 @@ func runHookInstall(args []string, stdout, stderr io.Writer) (resultErr error) {
 func runHookUninstall(args []string, stdout io.Writer) (resultErr error) {
 	if len(args) == 0 {
 		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook uninstall: missing kind (one of: %v)", hooks.InstallableKinds())}
+	}
+	if args[0] == "-h" || args[0] == "--help" {
+		fmt.Fprintf(stdout, "Usage: reconc hook uninstall <kind> [repo] [--json] [--output PATH]\nUninstallable: %v\n", hooks.InstallableKinds())
+		return nil
 	}
 	kind := args[0]
 	repo := "."

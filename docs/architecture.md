@@ -52,6 +52,7 @@ internal/
   bootstrap/      deterministic install/remove transactions + receipts + binary resolution
   changelog/      docs/changelog.md rotation into quarterly archives
   cli/            command dispatch plus responsibility-owned command modules
+  commandmeta/    canonical dependency-neutral command, flag, help, and output contract
   compiler/       lockfile builder: digest, writer, conflicts, migrations, lock
   completion/     bash / zsh / fish completion generators
   completiongate/ exact final-completion report over policy, candidate, evidence, and TASK state
@@ -85,9 +86,9 @@ internal/
   tui/            dependency-free terminal dashboard
 ```
 
-`cmd/reconc/main.go` is ~20 lines: parse argv, delegate to
+`cmd/reconc/main.go` parses argv, delegates to
 `cli.Run`, translate the returned error into an exit code.
-Within `internal/cli`, the 212-line `cli.go` owns only public errors, top-level
+Within `internal/cli`, `cli.go` owns only public errors, top-level
 dispatch, and canonical usage. Compile, evaluate, inspect, explain, CI,
 bootstrap, scaffold, source analysis, quality, maintenance, catalog, metadata,
 hook, workflow/session, TASK lifecycle, repository-run, and deep-doctor logic
@@ -201,16 +202,14 @@ handling.
    Message}` for typed failures.
 2. Add a `case "foo": return runFoo(argv[1:], ...)` to the dispatcher
    switch.
-3. Add an entry to the `printUsage` help text in the correct category.
-4. Add the subcommand to `completion.Subcommands` in
-   `internal/completion/completion.go` so shell completion stays in
-   sync.
-5. Write tests in `internal/cli/cli_test.go`: happy path + at least
+3. Add one complete entry to `internal/commandmeta/catalog.go`; root help,
+   shell completion, and the man page consume that canonical contract.
+4. Write tests in `internal/cli/cli_test.go`: happy path + at least
    one error path + `--help`.
-6. Document in `docs/commands.md` under the right category.
+5. Document in `docs/commands.md` under the right category.
 
 The typical commit diff for a new subcommand touches the dispatcher, one
-responsibility-owned command file, completion metadata, focused tests, and
+responsibility-owned command file, canonical command metadata, focused tests, and
 `commands.md`.
 
 ## Adding a new rule kind
@@ -235,6 +234,10 @@ responsibility-owned command file, completion metadata, focused tests, and
 ## Dependency graph
 
 ```
+  commandmeta ──┬──► cli
+                ├──► completion
+                └──► manpage
+
   cli ──┬──► compiler ──► parser ──► ingest
         │       ▲
         │       └── migrations, conflicts, lock
@@ -259,7 +262,8 @@ responsibility-owned command file, completion metadata, focused tests, and
         └──► completion
 ```
 
-Nothing below `cli` imports `cli`. The compiler does not know about the runtime;
+`commandmeta` imports no product package, so CLI, completion, and manpage share
+the public surface without a cycle. Nothing below `cli` imports `cli`. The compiler does not know about the runtime;
 the serialized lockfile is the boundary. `schema` is the single owner of public
 contract URLs. Runtime lockfile loading imports compiler only for registered
 migrations, current-envelope validation, and source-digest freshness

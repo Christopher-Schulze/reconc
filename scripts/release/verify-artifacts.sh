@@ -133,3 +133,17 @@ go_bin=${GO:-go}
   --version "$version" \
   --commit "$commit" \
   --source-date-epoch "$epoch"
+
+surface_tmp=$(mktemp -d "${TMPDIR:-/tmp}/reconc-release-surface.XXXXXX")
+trap 'rm -rf "$surface_tmp"' EXIT INT HUP TERM
+"$go_bin" -C "$root" run ./cmd/reconc completion bash > "$surface_tmp/reconc.bash"
+"$go_bin" -C "$root" run ./cmd/reconc completion zsh > "$surface_tmp/_reconc"
+"$go_bin" -C "$root" run ./cmd/reconc completion fish > "$surface_tmp/reconc.fish"
+SOURCE_DATE_EPOCH="$epoch" "$go_bin" -C "$root" run \
+  -ldflags "-X main.Version=$version" ./cmd/reconc manpage > "$surface_tmp/reconc.1"
+for name in reconc.bash _reconc reconc.fish reconc.1; do
+  cmp -s "$surface_tmp/$name" "$dist/$name" || {
+    printf 'error: release surface is stale or noncanonical: %s\n' "$name" >&2
+    exit 1
+  }
+done

@@ -185,6 +185,10 @@ func runPresetShow(args []string, stdout, stderr io.Writer) (resultErr error) {
 	if len(args) == 0 {
 		return &CLIError{ExitCode: 1, Message: "reconc preset show: missing preset name"}
 	}
+	if args[0] == "-h" || args[0] == "--help" {
+		fmt.Fprintln(stdout, "Usage: reconc preset show <name> [--json] [--output PATH]")
+		return nil
+	}
 	name := args[0]
 	jsonOut := false
 	outputPath := ""

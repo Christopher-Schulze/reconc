@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"reconc.dev/reconc/internal/commandmeta"
 	"reconc.dev/reconc/internal/compiler"
-	"reconc.dev/reconc/internal/completion"
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
@@ -70,8 +70,16 @@ func TestRunUnknownSubcommandReturnsCLIError(t *testing.T) {
 	if code := ExitCode(err); code != 1 {
 		t.Errorf("expected exit code 1, got %d", code)
 	}
-	if !strings.Contains(err.Error(), "not yet implemented") {
-		t.Errorf("error message should mention not-yet-implemented; got: %s", err.Error())
+	if !strings.Contains(err.Error(), "unknown subcommand") || !strings.Contains(err.Error(), "--help") {
+		t.Errorf("error message should identify the unknown command and recovery; got: %s", err.Error())
+	}
+}
+
+func TestRunUnknownSubcommandSuggestsNearestCommand(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run([]string{"chekc"}, "0.1.0-test", &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), `did you mean "check"?`) {
+		t.Fatalf("expected typo suggestion for check, got %v", err)
 	}
 }
 
@@ -2871,11 +2879,11 @@ func TestRunCompileStrictConflictsPassesWhenClean(t *testing.T) {
 // --- help-text coverage sweep ---------------------------------------
 
 func TestEverySubcommandHasHelpOutput(t *testing.T) {
-	// For every entry in the canonical Subcommands table, invoking
+	// For every entry in canonical command metadata, invoking
 	// `<cmd> --help` must succeed (exit 0) and produce some non-empty
 	// output. Catches help-text drift (commands that gain a dispatch
 	// case but forget the -h branch).
-	for _, s := range completion.Subcommands {
+	for _, s := range commandmeta.All() {
 		t.Run(s.Name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			// Some subcommands require a second arg before --help

@@ -11,9 +11,8 @@ import (
 )
 
 // runManpage emits a groff man(1) page for reconc to stdout.
-// Content is generated from the same Subcommands table the shell
-// completion uses; the page's date + version header reflect the
-// current build.
+// Content is generated from the same canonical command metadata as root help
+// and shell completion; SOURCE_DATE_EPOCH makes release output reproducible.
 //
 // Install on a typical system:
 //
@@ -48,6 +47,8 @@ func runVersion(args []string, version string, stdout io.Writer) error {
 		case "-h", "--help":
 			fmt.Fprintln(stdout, "Usage: reconc version [--json]")
 			return nil
+		default:
+			return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc version: unknown argument %q", a)}
 		}
 	}
 	if jsonOut {
@@ -83,8 +84,7 @@ var runtimeVersion = defaultRuntimeVersion
 //
 // Emits a ready-to-source shell completion script on stdout for
 // bash / zsh / fish. Script content is generated from the canonical
-// Subcommands table so adding a subcommand requires only one table
-// update to keep completion in sync.
+// command metadata so adding a command requires only one public-surface update.
 func runCompletion(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
 		return &CLIError{ExitCode: 1, Message: "reconc completion: missing shell (bash | zsh | fish)"}
@@ -100,6 +100,9 @@ func runCompletion(args []string, stdout, stderr io.Writer) error {
 			fmt.Fprintln(stdout, "  fish:  reconc completion fish > ~/.config/fish/completions/reconc.fish")
 			return nil
 		}
+	}
+	if len(args) != 1 {
+		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc completion: unexpected argument %q", args[1])}
 	}
 	shell := args[0]
 	switch shell {

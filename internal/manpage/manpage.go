@@ -1,17 +1,17 @@
 // Package manpage renders a roff-formatted man(1) page for reconc.
-// Invoked via `reconc manpage`. Uses the same Subcommands table as
-// the shell-completion generator so adding a new subcommand in cli
-// automatically flows into both the completion scripts AND the man
-// page with no extra work.
+// Invoked via `reconc manpage`. It consumes the same dependency-neutral command
+// metadata as root help and shell completion.
 package manpage
 
 import (
 	"fmt"
 	"io"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
-	"reconc.dev/reconc/internal/completion"
+	"reconc.dev/reconc/internal/commandmeta"
 	"reconc.dev/reconc/internal/schema"
 )
 
@@ -19,7 +19,10 @@ import (
 // stamped into the header so `man reconc` on an installed system
 // shows which build the docs belong to.
 func Render(w io.Writer, version string) error {
-	date := time.Now().UTC().Format("2006-01-02")
+	date, err := sourceDate()
+	if err != nil {
+		return err
+	}
 	fmt.Fprintf(w, ".TH RECONC 1 %q %q %q\n", date, "reconc "+version, "User Commands")
 
 	fmt.Fprintln(w, ".SH NAME")
@@ -49,10 +52,19 @@ coding agents' behaviour auditable and gate-able rather than hopeful.`)
 	fmt.Fprintln(w, "At least one blocking policy violation. The action is forbidden.")
 
 	fmt.Fprintln(w, ".SH SUBCOMMANDS")
-	for _, s := range completion.Subcommands {
+	for _, command := range commandmeta.All() {
 		fmt.Fprintln(w, ".TP")
-		fmt.Fprintf(w, ".B %s\n", escapeRoff(s.Name))
-		fmt.Fprintf(w, "%s\n", escapeRoff(s.Help))
+		fmt.Fprintf(w, ".B %s\n", escapeRoff(command.Name))
+		fmt.Fprintf(w, "%s\n", escapeRoff(command.Summary))
+		fmt.Fprintf(w, "Synopsis: \\fB%s\\fR\n", escapeRoff(command.Synopsis))
+		for _, nested := range command.Subcommands {
+			fmt.Fprintln(w, ".RS")
+			fmt.Fprintln(w, ".TP")
+			fmt.Fprintf(w, ".B %s %s\n", escapeRoff(command.Name), escapeRoff(nested.Name))
+			fmt.Fprintf(w, "%s\n", escapeRoff(nested.Summary))
+			fmt.Fprintf(w, "Synopsis: \\fB%s\\fR\n", escapeRoff(nested.Synopsis))
+			fmt.Fprintln(w, ".RE")
+		}
 	}
 
 	fmt.Fprintln(w, ".SH ENVIRONMENT")
@@ -106,9 +118,21 @@ coding agents' behaviour auditable and gate-able rather than hopeful.`)
 	return nil
 }
 
+func sourceDate() (string, error) {
+	raw := strings.TrimSpace(os.Getenv("SOURCE_DATE_EPOCH"))
+	if raw == "" {
+		return time.Now().UTC().Format("2006-01-02"), nil
+	}
+	epoch, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || epoch < 0 {
+		return "", fmt.Errorf("invalid SOURCE_DATE_EPOCH %q", raw)
+	}
+	return time.Unix(epoch, 0).UTC().Format("2006-01-02"), nil
+}
+
 // escapeRoff escapes the groff metacharacters. Limited to backslash
 // and hyphens at word-start since we control the input strings
-// tightly (from the Subcommands table).
+// tightly (from the canonical command metadata).
 func escapeRoff(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	// Leading hyphens are treated specially by some man viewers.

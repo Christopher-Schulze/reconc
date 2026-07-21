@@ -1,148 +1,34 @@
 // Package completion generates shell completion scripts for reconc.
 // `reconc completion bash|zsh|fish` prints a ready-to-source script
-// that provides tab-completion for subcommands, nested bootstrap/hook/TASK commands and
-// the most-used flags.
+// that provides tab-completion for every public command, nested command, flag,
+// and enumerated value in the canonical command metadata.
 //
-// Scripts are generated deterministically from the Subcommands table
-// so adding a new subcommand in cli requires only a single table
-// update to keep completion in sync.
+// Scripts are generated deterministically from commandmeta so completion cannot
+// drift into an independent command contract.
 package completion
 
 import (
 	"fmt"
 	"io"
-	"sort"
 	"strings"
+
+	"reconc.dev/reconc/internal/commandmeta"
 )
-
-// Subcommand is one entry in the top-level reconc command table.
-// Flags lists the short-form flags (including leading --) that are
-// worth completing; keep it trimmed to the most common ones rather
-// than every possible switch.
-type Subcommand struct {
-	Name  string
-	Help  string
-	Flags []string
-}
-
-type hookSubcommand struct {
-	Name string
-	Help string
-}
-
-var HookSubcommands = []hookSubcommand{
-	{Name: "claim", Help: "emit hook claim/evidence payloads"},
-	{Name: "generate", Help: "print one hook artifact"},
-	{Name: "install", Help: "install generated hooks into a repo"},
-	{Name: "sync-scaffold", Help: "sync repo-root scaffold hooks from generator"},
-	{Name: "uninstall", Help: "remove one Reconc-managed hook safely"},
-}
-
-var BootstrapSubcommands = []hookSubcommand{
-	{Name: "apply", Help: "apply an exact plan or explicit selection transaction"},
-	{Name: "inspect", Help: "inspect repository bootstrap inputs without mutation"},
-	{Name: "plan", Help: "build a deterministic bootstrap manifest"},
-	{Name: "profiles", Help: "list explicit bootstrap profiles"},
-	{Name: "remove", Help: "reverse one receipt-owned bootstrap transaction"},
-	{Name: "verify", Help: "verify an applied bootstrap manifest read-only"},
-}
-
-var BootstrapProfiles = []string{"existing", "governed", "minimal"}
-
-var TaskSubcommands = []hookSubcommand{
-	{Name: "archive", Help: "archive a terminal completed TASK"},
-	{Name: "block", Help: "block current TASK and optionally activate the next"},
-	{Name: "check-done", Help: "validate completion evidence"},
-	{Name: "claim", Help: "activate one queued TASK"},
-	{Name: "new", Help: "create one grammar-correct queued TASK"},
-	{Name: "promote", Help: "archive current TASK and activate the next"},
-	{Name: "recover", Help: "roll back an interrupted TASK transaction"},
-	{Name: "resume", Help: "reactivate one blocked TASK"},
-	{Name: "split", Help: "block parent and activate a pre-created child"},
-	{Name: "status", Help: "print compact current TASK context"},
-	{Name: "validate", Help: "validate the typed TASK control plane"},
-}
-
-var RunSubcommands = []hookSubcommand{
-	{Name: "log", Help: "inspect bounded run decisions"},
-	{Name: "off", Help: "disable repository run control"},
-	{Name: "on", Help: "enable repository run control"},
-	{Name: "reset", Help: "recover a clean disabled run state"},
-	{Name: "status", Help: "inspect run and TASK state"},
-}
-
-// Subcommands is the canonical table of all top-level reconc
-// subcommands in a stable order. Keep alphabetical within categories
-// so the generated completion reads naturally.
-var Subcommands = []Subcommand{
-	// bootstrap & inspection
-	{Name: "adopt", Help: "detect tooling and suggest rules", Flags: []string{"--yaml", "--json", "--apply"}},
-	{Name: "bootstrap", Help: "inspect / plan / apply / verify / remove repository bootstrap", Flags: []string{"--profile", "--pack", "--hook", "--install-binary", "--binary", "--checksum", "--platform", "--output", "--replace-output", "--accept-managed-blocks", "--json"}},
-	{Name: "demo", Help: "run the isolated real-policy product journey", Flags: []string{"--keep", "--json"}},
-	{Name: "doctor", Help: "inspect discovery + validation", Flags: []string{"--deep", "--json", "--output"}},
-	{Name: "extract", Help: "prose-to-rule heuristic scan", Flags: []string{"--from", "--yaml", "--json"}},
-	{Name: "init", Help: "scaffold .reconc.yml and AGENTS.md", Flags: []string{"--preset", "--force", "--json", "--output"}},
-	{Name: "status", Help: "one-line policy health summary", Flags: []string{"--json", "--output"}},
-	{Name: "verify", Help: "end-to-end installation health check", Flags: []string{"--json"}},
-	// compile & evaluate
-	{Name: "assert", Help: "evaluate one rule by id", Flags: []string{"--var", "--read", "--write", "--command", "--claim", "--json"}},
-	{Name: "can", Help: "ultra-terse yes/no decision", Flags: []string{"--why", "--json"}},
-	{Name: "check", Help: "evaluate runtime evidence", Flags: []string{"--read", "--write", "--command", "--command-success", "--command-failure", "--claim", "--auto-claim", "--json", "--terse", "--output"}},
-	{Name: "ci", Help: "check git diff under a CI gate", Flags: []string{"--staged", "--base", "--head", "--read", "--command", "--claim", "--auto-claim", "--json", "--output"}},
-	{Name: "compile", Help: "build the policy lockfile", Flags: []string{"--json", "--strict-conflicts", "--output"}},
-	{Name: "diff", Help: "compare two compiled lockfiles", Flags: []string{"--json"}},
-	{Name: "done", Help: "evidence-complete task-finish gate", Flags: []string{"--window", "--require-clean-git", "--json"}},
-	{Name: "exec", Help: "execute and record command evidence", Flags: []string{"--staged", "--shell"}},
-	{Name: "refresh", Help: "explicitly refresh the policy lockfile", Flags: []string{"--json", "--strict-conflicts", "--output"}},
-	{Name: "watch", Help: "poll sources and recompile", Flags: []string{"--interval-ms"}},
-	// explain & remediate
-	{Name: "explain", Help: "render a check report as text / md", Flags: []string{"--read", "--write", "--command", "--claim", "--format", "--json", "--output"}},
-	{Name: "fix", Help: "structured remediation plan", Flags: []string{"--read", "--write", "--command", "--claim", "--json", "--next", "--output"}},
-	{Name: "next", Help: "friendly alias for fix --next", Flags: []string{"--read", "--write", "--command", "--command-success", "--command-failure", "--claim", "--json"}},
-	{Name: "why", Help: "print full details of one rule", Flags: []string{"--json", "--terse"}},
-	// packs & wiring
-	{Name: "hook", Help: "generate / install / uninstall / sync-scaffold / claim hooks", Flags: []string{"--force", "--json", "--output"}},
-	{Name: "grok", Help: "strict Grok ACP runner", Flags: []string{"--prompt", "--model", "--grok-binary", "--max-continuations"}},
-	{Name: "preset", Help: "list / show bundled presets", Flags: []string{"--json", "--output"}},
-	{Name: "template", Help: "list / show rule templates", Flags: []string{"--json"}},
-	// workflow maintenance
-	{Name: "agent-intro", Help: "print embedded agent guide", Flags: []string{"--section", "--list-sections", "--json"}},
-	{Name: "audit", Help: "tail / stats / export audit log", Flags: []string{"-n", "--rule", "--since", "--decision", "--json", "--compact"}},
-	{Name: "changelog", Help: "rotate / list-archives", Flags: []string{"--force", "--lines", "--json"}},
-	{Name: "context", Help: "token-budget size check", Flags: []string{"--limit", "--files", "--json"}},
-	{Name: "coverage", Help: "minimum-percentage gate", Flags: []string{"--file", "--min-pct", "--json"}},
-	{Name: "delta", Help: "audit activity since a point in time", Flags: []string{"--since", "--json"}},
-	{Name: "post-task-check", Help: "evidence-complete pre-done gate", Flags: []string{"--window", "--require-clean-git", "--json"}},
-	{Name: "prune", Help: "bound runtime state and owned temp residue", Flags: []string{"--dry-run", "--json", "--force"}},
-	{Name: "run", Help: "AI-operated repository run control", Flags: []string{"-n", "--branch", "--session", "--follow", "--force", "--verbose", "--json"}},
-	{Name: "session-briefing", Help: "token-efficient session start dump", Flags: []string{"--json"}},
-	{Name: "spec", Help: "docs/spec.md freshness check", Flags: []string{"--file", "--max-age-days", "--json"}},
-	{Name: "start", Help: "render canonical start.md", Flags: []string{"--write", "--force", "--json", "--minimal"}},
-	{Name: "task", Help: "typed TASK lifecycle", Flags: []string{"--json", "--reason", "--next", "--no-next", "--children", "--task", "--title", "--id"}},
-	{Name: "tui", Help: "terminal dashboard for policy and completion state", Flags: []string{"--json", "--output"}},
-	// top-level meta
-	{Name: "completion", Help: "print shell completion script", Flags: []string{}},
-	{Name: "manpage", Help: "emit groff man(1) page for reconc(1)", Flags: []string{}},
-	{Name: "version", Help: "print the build version", Flags: []string{"--json"}},
-}
 
 // GenerateBash writes a bash completion script for reconc to w.
 func GenerateBash(w io.Writer) error {
-	names := subcommandNames()
+	commands := commandmeta.All()
 	fmt.Fprintln(w, `# reconc bash completion. Source this script (or drop it into a
 # directory scanned by bash-completion, e.g. /etc/bash_completion.d/ or
 # /usr/local/etc/bash_completion.d/, then restart your shell).
 _reconc() {
-    local cur prev
+    local cur prev sub nested flags values
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
-    prev="${COMP_WORDS[COMP_CWORD-1]}"`)
-	fmt.Fprintf(w, "    local subcmds=%q\n", strings.Join(names, " "))
-	fmt.Fprintf(w, "    local bootstrap_subcmds=%q\n", strings.Join(bootstrapSubcommandNames(), " "))
-	fmt.Fprintf(w, "    local bootstrap_profiles=%q\n", strings.Join(BootstrapProfiles, " "))
-	fmt.Fprintf(w, "    local hook_subcmds=%q\n", strings.Join(hookSubcommandNames(), " "))
-	fmt.Fprintf(w, "    local task_subcmds=%q\n", strings.Join(taskSubcommandNames(), " "))
-	fmt.Fprintf(w, "    local run_subcmds=%q\n", strings.Join(runSubcommandNames(), " "))
+	prev="${COMP_WORDS[COMP_CWORD-1]}"
+    sub="${COMP_WORDS[1]}"
+    nested="${COMP_WORDS[2]}"`)
+	fmt.Fprintf(w, "    local subcmds=%q\n", strings.Join(commandmeta.SortedNames(), " "))
 	fmt.Fprintln(w, `
     # First word after 'reconc' -> subcommand completion.
     if [[ ${COMP_CWORD} -eq 1 ]]; then
@@ -150,42 +36,65 @@ _reconc() {
         return 0
     fi
 
-    if [[ "${COMP_WORDS[1]}" == "hook" && ${COMP_CWORD} -eq 2 ]]; then
-        COMPREPLY=($(compgen -W "${hook_subcmds}" -- "${cur}"))
-        return 0
-    fi
-
-    if [[ "${COMP_WORDS[1]}" == "bootstrap" && ${COMP_CWORD} -eq 2 ]]; then
-        COMPREPLY=($(compgen -W "${bootstrap_subcmds}" -- "${cur}"))
-        return 0
-    fi
-
-    if [[ "${COMP_WORDS[1]}" == "bootstrap" && "${prev}" == "--profile" ]]; then
-        COMPREPLY=($(compgen -W "${bootstrap_profiles}" -- "${cur}"))
-        return 0
-    fi
-
-    if [[ "${COMP_WORDS[1]}" == "task" && ${COMP_CWORD} -eq 2 ]]; then
-        COMPREPLY=($(compgen -W "${task_subcmds}" -- "${cur}"))
-        return 0
-    fi
-
-    if [[ "${COMP_WORDS[1]}" == "run" && ${COMP_CWORD} -eq 2 ]]; then
-        COMPREPLY=($(compgen -W "${run_subcmds}" -- "${cur}"))
-        return 0
-    fi
-
-    # Subcommand-specific flag completion.
-    local sub="${COMP_WORDS[1]}"
-    local flags=""
-    case "${sub}" in`)
-	for _, s := range Subcommands {
-		if len(s.Flags) == 0 {
+	# Complete a nested subcommand or a direct-mode flag.
+    if [[ ${COMP_CWORD} -eq 2 ]]; then
+        case "${sub}" in`)
+	for _, command := range commands {
+		if len(command.Subcommands) == 0 {
 			continue
 		}
-		fmt.Fprintf(w, "        %s) flags=%q ;;\n", s.Name, strings.Join(s.Flags, " "))
+		candidates := append(subcommandNames(command), flagNames(command.Flags)...)
+		fmt.Fprintf(w, "            %s) values=%q ;;\n", command.Name, strings.Join(candidates, " "))
+	}
+	fmt.Fprintln(w, `        esac
+        if [[ -n "${values}" ]]; then
+            COMPREPLY=($(compgen -W "${values}" -- "${cur}"))
+            return 0
+        fi
+    fi
+
+    # Exact direct or nested flag surface.
+    case "${sub}:${nested}" in`)
+	for _, command := range commands {
+		for _, nested := range command.Subcommands {
+			if len(nested.Flags) != 0 {
+				fmt.Fprintf(w, "        %s:%s) flags=%q ;;\n", command.Name, nested.Name, strings.Join(flagNames(nested.Flags), " "))
+			}
+		}
 	}
 	fmt.Fprintln(w, `    esac
+    if [[ -z "${flags}" ]]; then
+        case "${sub}" in`)
+	for _, command := range commands {
+		if len(command.Flags) != 0 {
+			fmt.Fprintf(w, "            %s) flags=%q ;;\n", command.Name, strings.Join(flagNames(command.Flags), " "))
+		}
+	}
+	fmt.Fprintln(w, `        esac
+    fi
+
+    # Enumerated flag values.
+    case "${sub}:${nested}:${prev}" in`)
+	writeBashFlagValueCases(w, commands, true)
+	fmt.Fprintln(w, `    esac
+    if [[ -z "${values}" ]]; then
+        case "${sub}::${prev}" in`)
+	writeBashFlagValueCases(w, commands, false)
+	fmt.Fprintln(w, `        esac
+    fi
+    if [[ -n "${values}" ]]; then
+        COMPREPLY=($(compgen -W "${values}" -- "${cur}"))
+        return 0
+    fi
+
+    # Enumerated positional values.
+    case "${sub}:${nested}:${COMP_CWORD}" in`)
+	writeBashArgumentValueCases(w, commands)
+	fmt.Fprintln(w, `    esac
+    if [[ -n "${values}" ]]; then
+        COMPREPLY=($(compgen -W "${values}" -- "${cur}"))
+        return 0
+    fi
 
     if [[ "${cur}" == -* && -n "${flags}" ]]; then
         COMPREPLY=($(compgen -W "${flags}" -- "${cur}"))
@@ -201,15 +110,16 @@ complete -F _reconc reconc`)
 
 // GenerateZsh writes a zsh completion script to w.
 func GenerateZsh(w io.Writer) error {
+	commands := commandmeta.All()
 	fmt.Fprintln(w, `#compdef reconc
 # reconc zsh completion. Drop this into a directory on $fpath (e.g.
 # /usr/local/share/zsh/site-functions/_reconc) or source it directly.
 
 _reconc() {
-    local -a subcmds
+    local -a subcmds flags values
     subcmds=(`)
-	for _, s := range Subcommands {
-		fmt.Fprintf(w, "        %q\n", s.Name+":"+s.Help)
+	for _, command := range commands {
+		fmt.Fprintf(w, "        %q\n", command.Name+":"+command.Summary)
 	}
 	fmt.Fprintln(w, `    )
 
@@ -219,68 +129,62 @@ _reconc() {
     fi
 
     local sub="${words[2]}"
-    if [[ "${sub}" == "bootstrap" && ${CURRENT} == 3 ]]; then
-        local -a bootstrap_subcmds
-        bootstrap_subcmds=(`)
-	for _, s := range BootstrapSubcommands {
-		fmt.Fprintf(w, "            %q\n", s.Name+":"+s.Help)
-	}
-	fmt.Fprint(w, `        )
-        _describe 'reconc bootstrap subcommand' bootstrap_subcmds
-        return
-    fi
+	local nested="${words[3]}"
 
-    if [[ "${sub}" == "bootstrap" && "${words[CURRENT-1]}" == "--profile" ]]; then
-        local -a bootstrap_profiles
-        bootstrap_profiles=(existing governed minimal)
-        _describe 'reconc bootstrap profile' bootstrap_profiles
-        return
-    fi
-
-`)
-	fmt.Fprintln(w, `    if [[ "${sub}" == "hook" && ${CURRENT} == 3 ]]; then
-        local -a hook_subcmds
-        hook_subcmds=(`)
-	for _, s := range HookSubcommands {
-		fmt.Fprintf(w, "            %q\n", s.Name+":"+s.Help)
-	}
-	fmt.Fprint(w, `        )
-        _describe 'reconc hook subcommand' hook_subcmds
-        return
-    fi
-
-    if [[ "${sub}" == "task" && ${CURRENT} == 3 ]]; then
-        local -a task_subcmds
-        task_subcmds=(`)
-	for _, s := range TaskSubcommands {
-		fmt.Fprintf(w, "            %q\n", s.Name+":"+s.Help)
-	}
-	fmt.Fprint(w, `        )
-        _describe 'reconc task subcommand' task_subcmds
-        return
-    fi
-
-    if [[ "${sub}" == "run" && ${CURRENT} == 3 ]]; then
-        local -a run_subcmds
-        run_subcmds=(`)
-	for _, s := range RunSubcommands {
-		fmt.Fprintf(w, "            %q\n", s.Name+":"+s.Help)
-	}
-	fmt.Fprint(w, `        )
-        _describe 'reconc run subcommand' run_subcmds
-        return
-    fi
-
-`)
-	fmt.Fprintln(w, `    local -a flags
-    case "${sub}" in`)
-	for _, s := range Subcommands {
-		if len(s.Flags) == 0 {
+    if (( CURRENT == 3 )); then
+        case "${sub}" in`)
+	for _, command := range commands {
+		if len(command.Subcommands) == 0 {
 			continue
 		}
-		fmt.Fprintf(w, "        %s) flags=(%s) ;;\n", s.Name, zshFlagArray(s.Flags))
+		fmt.Fprintf(w, "            %s) values=(%s) ;;\n", command.Name, zshCandidates(command))
+	}
+	fmt.Fprintln(w, `        esac
+        if (( ${#values[@]} > 0 )); then
+            _describe 'reconc nested command or flag' values
+            return
+        fi
+    fi
+
+    case "${sub}:${nested}" in`)
+	for _, command := range commands {
+		for _, nested := range command.Subcommands {
+			if len(nested.Flags) != 0 {
+				fmt.Fprintf(w, "        %s:%s) flags=(%s) ;;\n", command.Name, nested.Name, zshFlagArray(nested.Flags))
+			}
+		}
 	}
 	fmt.Fprintln(w, `    esac
+    if (( ${#flags[@]} == 0 )); then
+        case "${sub}" in`)
+	for _, command := range commands {
+		if len(command.Flags) != 0 {
+			fmt.Fprintf(w, "            %s) flags=(%s) ;;\n", command.Name, zshFlagArray(command.Flags))
+		}
+	}
+	fmt.Fprintln(w, `        esac
+    fi
+
+    case "${sub}:${nested}:${words[CURRENT-1]}" in`)
+	writeZshFlagValueCases(w, commands, true)
+	fmt.Fprintln(w, `    esac
+    if (( ${#values[@]} == 0 )); then
+        case "${sub}::${words[CURRENT-1]}" in`)
+	writeZshFlagValueCases(w, commands, false)
+	fmt.Fprintln(w, `        esac
+    fi
+    if (( ${#values[@]} > 0 )); then
+        _values 'value' "${values[@]}"
+        return
+    fi
+
+    case "${sub}:${nested}:${CURRENT}" in`)
+	writeZshArgumentValueCases(w, commands)
+	fmt.Fprintln(w, `    esac
+    if (( ${#values[@]} > 0 )); then
+        _values 'value' "${values[@]}"
+        return
+    fi
 
     if [[ ${words[CURRENT]} == -* && ${#flags[@]} -gt 0 ]]; then
         _values 'flag' "${flags[@]}"
@@ -292,90 +196,186 @@ _reconc "$@"`)
 	return nil
 }
 
-func zshFlagArray(flags []string) string {
-	quoted := make([]string, 0, len(flags))
-	for _, f := range flags {
-		quoted = append(quoted, fmt.Sprintf("%q", f))
-	}
-	return strings.Join(quoted, " ")
-}
-
 // GenerateFish writes a fish completion script to w.
 func GenerateFish(w io.Writer) error {
+	commands := commandmeta.All()
 	fmt.Fprintln(w, "# reconc fish completion. Drop into ~/.config/fish/completions/reconc.fish")
 	fmt.Fprintln(w, "# or source directly.")
-	for _, s := range Subcommands {
-		fmt.Fprintf(w, "complete -c reconc -n '__fish_use_subcommand' -a %q -d %q\n", s.Name, s.Help)
-	}
-	for _, s := range HookSubcommands {
-		fmt.Fprintf(w, "complete -c reconc -n '__fish_seen_subcommand_from hook' -a %q -d %q\n", s.Name, s.Help)
-	}
-	for _, s := range BootstrapSubcommands {
-		fmt.Fprintf(w, "complete -c reconc -n '__fish_seen_subcommand_from bootstrap' -a %q -d %q\n", s.Name, s.Help)
-	}
-	fmt.Fprintf(w, "complete -c reconc -n '__fish_seen_subcommand_from bootstrap; and __fish_prev_arg_in --profile' -a %q\n", strings.Join(BootstrapProfiles, " "))
-	for _, s := range TaskSubcommands {
-		fmt.Fprintf(w, "complete -c reconc -n '__fish_seen_subcommand_from task' -a %q -d %q\n", s.Name, s.Help)
-	}
-	for _, s := range RunSubcommands {
-		fmt.Fprintf(w, "complete -c reconc -n '__fish_seen_subcommand_from run' -a %q -d %q\n", s.Name, s.Help)
-	}
-	for _, s := range Subcommands {
-		for _, f := range s.Flags {
-			long := strings.TrimPrefix(f, "--")
-			short := ""
-			if !strings.HasPrefix(f, "--") && strings.HasPrefix(f, "-") {
-				short = strings.TrimPrefix(f, "-")
-				fmt.Fprintf(w, "complete -c reconc -n '__fish_seen_subcommand_from %s' -s %s\n", s.Name, short)
-			} else {
-				fmt.Fprintf(w, "complete -c reconc -n '__fish_seen_subcommand_from %s' -l %s\n", s.Name, long)
+	for _, command := range commands {
+		fmt.Fprintf(w, "complete -c reconc -f -n '__fish_use_subcommand' -a %q -d %q\n", command.Name, command.Summary)
+		if len(command.Subcommands) != 0 {
+			condition := fishParentCondition(command)
+			for _, nested := range command.Subcommands {
+				fmt.Fprintf(w, "complete -c reconc -f -n %q -a %q -d %q\n", condition, nested.Name, nested.Summary)
 			}
+		}
+		writeFishFlags(w, fishDirectCondition(command), command.Flags)
+		writeFishArguments(w, fishDirectCondition(command), 2, command.Arguments)
+		for _, nested := range command.Subcommands {
+			condition := fishNestedCondition(command.Name, nested.Name)
+			writeFishFlags(w, condition, nested.Flags)
+			writeFishArguments(w, condition, 3, nested.Arguments)
 		}
 	}
 	return nil
 }
 
-func subcommandNames() []string {
-	out := make([]string, 0, len(Subcommands))
-	for _, s := range Subcommands {
-		out = append(out, s.Name)
+func subcommandNames(command commandmeta.Command) []string {
+	out := make([]string, 0, len(command.Subcommands))
+	for _, nested := range command.Subcommands {
+		out = append(out, nested.Name)
 	}
-	sort.Strings(out)
 	return out
 }
 
-func hookSubcommandNames() []string {
-	out := make([]string, 0, len(HookSubcommands))
-	for _, s := range HookSubcommands {
-		out = append(out, s.Name)
+func flagNames(flags []commandmeta.Flag) []string {
+	out := make([]string, 0, len(flags))
+	for _, flag := range flags {
+		out = append(out, flag.Name)
 	}
-	sort.Strings(out)
 	return out
 }
 
-func bootstrapSubcommandNames() []string {
-	out := make([]string, 0, len(BootstrapSubcommands))
-	for _, s := range BootstrapSubcommands {
-		out = append(out, s.Name)
+func writeBashFlagValueCases(w io.Writer, commands []commandmeta.Command, nestedMode bool) {
+	for _, command := range commands {
+		if nestedMode {
+			for _, nested := range command.Subcommands {
+				for _, flag := range nested.Flags {
+					if len(flag.Values) != 0 {
+						fmt.Fprintf(w, "        %s:%s:%s) values=%q ;;\n", command.Name, nested.Name, flag.Name, strings.Join(flag.Values, " "))
+					}
+				}
+			}
+			continue
+		}
+		for _, flag := range command.Flags {
+			if len(flag.Values) != 0 {
+				fmt.Fprintf(w, "            %s::%s) values=%q ;;\n", command.Name, flag.Name, strings.Join(flag.Values, " "))
+			}
+		}
 	}
-	sort.Strings(out)
-	return out
 }
 
-func taskSubcommandNames() []string {
-	out := make([]string, 0, len(TaskSubcommands))
-	for _, s := range TaskSubcommands {
-		out = append(out, s.Name)
+func writeBashArgumentValueCases(w io.Writer, commands []commandmeta.Command) {
+	for _, command := range commands {
+		for index, argument := range command.Arguments {
+			if len(argument.Values) != 0 {
+				fmt.Fprintf(w, "        %s::%d) values=%q ;;\n", command.Name, index+2, strings.Join(argument.Values, " "))
+			}
+		}
+		for _, nested := range command.Subcommands {
+			for index, argument := range nested.Arguments {
+				if len(argument.Values) != 0 {
+					fmt.Fprintf(w, "        %s:%s:%d) values=%q ;;\n", command.Name, nested.Name, index+3, strings.Join(argument.Values, " "))
+				}
+			}
+		}
 	}
-	sort.Strings(out)
-	return out
 }
 
-func runSubcommandNames() []string {
-	out := make([]string, 0, len(RunSubcommands))
-	for _, subcommand := range RunSubcommands {
-		out = append(out, subcommand.Name)
+func zshCandidates(command commandmeta.Command) string {
+	values := make([]string, 0, len(command.Subcommands)+len(command.Flags))
+	for _, nested := range command.Subcommands {
+		values = append(values, fmt.Sprintf("%q", nested.Name+":"+nested.Summary))
 	}
-	sort.Strings(out)
-	return out
+	for _, flag := range command.Flags {
+		values = append(values, fmt.Sprintf("%q", flag.Name))
+	}
+	return strings.Join(values, " ")
+}
+
+func zshFlagArray(flags []commandmeta.Flag) string {
+	quoted := make([]string, 0, len(flags))
+	for _, flag := range flags {
+		quoted = append(quoted, fmt.Sprintf("%q", flag.Name))
+	}
+	return strings.Join(quoted, " ")
+}
+
+func writeZshFlagValueCases(w io.Writer, commands []commandmeta.Command, nestedMode bool) {
+	for _, command := range commands {
+		if nestedMode {
+			for _, nested := range command.Subcommands {
+				for _, flag := range nested.Flags {
+					if len(flag.Values) != 0 {
+						fmt.Fprintf(w, "        %s:%s:%s) values=(%s) ;;\n", command.Name, nested.Name, flag.Name, zshValues(flag.Values))
+					}
+				}
+			}
+			continue
+		}
+		for _, flag := range command.Flags {
+			if len(flag.Values) != 0 {
+				fmt.Fprintf(w, "            %s::%s) values=(%s) ;;\n", command.Name, flag.Name, zshValues(flag.Values))
+			}
+		}
+	}
+}
+
+func writeZshArgumentValueCases(w io.Writer, commands []commandmeta.Command) {
+	for _, command := range commands {
+		for index, argument := range command.Arguments {
+			if len(argument.Values) != 0 {
+				fmt.Fprintf(w, "        %s::%d) values=(%s) ;;\n", command.Name, index+3, zshValues(argument.Values))
+			}
+		}
+		for _, nested := range command.Subcommands {
+			for index, argument := range nested.Arguments {
+				if len(argument.Values) != 0 {
+					fmt.Fprintf(w, "        %s:%s:%d) values=(%s) ;;\n", command.Name, nested.Name, index+4, zshValues(argument.Values))
+				}
+			}
+		}
+	}
+}
+
+func zshValues(values []string) string {
+	quoted := make([]string, 0, len(values))
+	for _, value := range values {
+		quoted = append(quoted, fmt.Sprintf("%q", value))
+	}
+	return strings.Join(quoted, " ")
+}
+
+func fishParentCondition(command commandmeta.Command) string {
+	names := strings.Join(subcommandNames(command), " ")
+	return fmt.Sprintf("__fish_seen_subcommand_from %s; and not __fish_seen_subcommand_from %s", command.Name, names)
+}
+
+func fishDirectCondition(command commandmeta.Command) string {
+	if len(command.Subcommands) == 0 {
+		return "__fish_seen_subcommand_from " + command.Name
+	}
+	return fishParentCondition(command)
+}
+
+func fishNestedCondition(command, nested string) string {
+	return fmt.Sprintf("__fish_seen_subcommand_from %s; and __fish_seen_subcommand_from %s", command, nested)
+}
+
+func writeFishFlags(w io.Writer, condition string, flags []commandmeta.Flag) {
+	for _, flag := range flags {
+		option := "-l " + strings.TrimPrefix(flag.Name, "--")
+		if strings.HasPrefix(flag.Name, "-") && !strings.HasPrefix(flag.Name, "--") {
+			option = "-s " + strings.TrimPrefix(flag.Name, "-")
+		}
+		if flag.Value != "" {
+			option += " -r"
+		}
+		if len(flag.Values) != 0 {
+			option += " -a " + fmt.Sprintf("%q", strings.Join(flag.Values, " "))
+		}
+		fmt.Fprintf(w, "complete -c reconc -f -n %q %s\n", condition, option)
+	}
+}
+
+func writeFishArguments(w io.Writer, condition string, precedingWords int, arguments []commandmeta.Argument) {
+	for index, argument := range arguments {
+		if len(argument.Values) == 0 {
+			continue
+		}
+		position := precedingWords + index
+		positionalCondition := fmt.Sprintf("%s; and test (count (commandline -opc)) -eq %d", condition, position)
+		fmt.Fprintf(w, "complete -c reconc -f -n %q -a %q\n", positionalCondition, strings.Join(argument.Values, " "))
+	}
 }

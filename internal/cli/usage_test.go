@@ -3,6 +3,8 @@ package cli
 import (
 	"strings"
 	"testing"
+
+	"reconc.dev/reconc/internal/commandmeta"
 )
 
 func TestTopLevelHelpReflectsCurrentSurface(t *testing.T) {
@@ -22,5 +24,25 @@ func TestTopLevelHelpReflectsCurrentSurface(t *testing.T) {
 	}
 	if !strings.Contains(out, "reconc is the standalone Go implementation in this repository") {
 		t.Fatalf("expected current implementation note, got:\n%s", out)
+	}
+}
+
+func TestTopLevelHelpContainsCanonicalInventoryExactlyOnce(t *testing.T) {
+	var stdout strings.Builder
+	var stderr strings.Builder
+	if err := Run([]string{"--help"}, "test-version", &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	out := stdout.String()
+	for _, category := range commandmeta.Categories() {
+		if count := strings.Count(out, "\n"+category.Title+":\n"); count != 1 {
+			t.Errorf("category %q occurs %d times", category.Title, count)
+		}
+	}
+	for _, command := range commandmeta.All() {
+		line := "  " + command.Name + strings.Repeat(" ", 16-len(command.Name)) + " " + command.Summary + "\n"
+		if count := strings.Count(out, line); count != 1 {
+			t.Errorf("canonical help line for %q occurs %d times", command.Name, count)
+		}
 	}
 }

@@ -1,7 +1,7 @@
 # reconc -- Command Reference
 
-Full reference for all 43 subcommands. See `reconc <subcommand> --help` for
-the exact flag details emitted by the installed binary.
+Reference for the complete command surface. See `reconc <subcommand> --help`
+for the exact flag details emitted by the installed binary.
 
 ## Daily path
 
@@ -83,7 +83,7 @@ plumbing, not user configuration.
 
 ## Bootstrap & inspection
 
-### `reconc init [repo] [--preset NAME] [--force] [--output PATH]`
+### `reconc init [repo] [--preset NAME] [--force] [--json] [--output PATH]`
 Scaffolds `.reconc.yml`, a stub `AGENTS.md`, and the same marker-owned Reconc
 runtime-ignore block used by bootstrap profiles. The compiled lockfile remains
 committable. Multiple
@@ -242,7 +242,7 @@ SHA-256 receipt outside the repository. `--shell` accepts one literal command
 for platform-shell syntax; direct argv execution is the default. Failed
 commands propagate their child exit code and never publish a proof.
 
-### `reconc assert <rule-id> [repo] [--var K=V] [--read PATH] [--write PATH] [--command CMD] [--claim NAME] [--json]`
+### `reconc assert <rule-id> [repo] [--var K=V] [--read PATH] [--write PATH] [--command CMD] [--command-success CMD] [--command-failure CMD] [--claim NAME] [--json]`
 Evaluate exactly one rule, ignoring the rest of the lockfile. Useful
 for single-rule workflows and template-variable rule tests.
 
@@ -264,16 +264,16 @@ change. Runs until Ctrl-C.
 
 ## Explain & remediate
 
-### `reconc explain [repo] [--read PATH] [--write PATH] [--command CMD] [--claim NAME] [--format text|markdown] [--json] [--output PATH]`
+### `reconc explain [repo] [--read PATH] [--write PATH] [--command CMD] [--claim NAME] [--format text|markdown] [--json] [--output PATH]` / `reconc explain --report-file PATH [output flags]`
 Render the check report in human-readable form. Source can be fresh
 inputs or a saved `CheckReport` JSON.
 
-### `reconc fix [repo] [--read PATH] [--write PATH] [--command CMD] [--claim NAME] [--json] [--next] [--output PATH]`
+### `reconc fix [repo] [--read PATH] [--write PATH] [--command CMD] [--command-success CMD] [--command-failure CMD] [--claim NAME] [--json] [--next] [--output PATH]`
 Structured remediation plan per violation, with per-kind steps,
 suggested commands / claims, and files-to-inspect. `--next` emits only
 the top-priority remediation.
 
-### `reconc next [repo] [--read PATH] [--write PATH] [--command CMD] [--claim NAME] [--json]`
+### `reconc next [repo] [--read PATH] [--write PATH] [--command CMD] [--command-success CMD] [--command-failure CMD] [--claim NAME] [--json] [--output PATH]`
 With explicit evidence flags, runs the same focused evaluation as `fix --next`.
 With only a repository path, loads the latest persisted blocking decision and
 replays its top remediation when the repository/policy/session candidate is
@@ -386,9 +386,15 @@ from a source-specific harness. Reconc preflights containment for every target
 before the first write, preventing both parent-symlink escapes and partial
 scaffold updates.
 
-### `reconc hook claim <repo> <claim-name> [--json] [--output PATH]`
+### `reconc hook claim <repo> <claim-name> [--session ID] [--json] [--output PATH]`
 Assert a workflow claim (e.g. `ci-green`). Written to the session
-state consulted by later hook-runtime checks and `ci` calls.
+state consulted by later hook-runtime checks and `ci` calls. `--session`
+selects an exact existing session instead of resolving the active pointer.
+
+### `reconc hook grok-pre-tool-guard <repo>`
+Internal fail-closed guard invoked by the generated Grok hook wrapper before
+tool execution. It is documented for auditability but is not a normal operator
+entry point.
 
 ### `reconc hook runtime <event> <repo>`
 Registry-owned agent-platform event dispatcher. Called from Claude Code,
@@ -482,7 +488,7 @@ state, blocker, and reason. Invalid TASK state is reported as disposition
 and JSON schema remain stable. `--verbose` adds complete TASK, blocker, and
 latest bounded-decision context.
 
-### `reconc run log [repo] [-n N] [--branch B] [--session S] [--follow] [--json]`
+### `reconc run log [repo] [-n N] [--branch B] [--session S] [--follow | -f] [--json]`
 Render the bounded run decision ring: every continuation, material state
 transition, policy block, no-progress release, explicit switch, and stop
 reason. Continuation records contain bounded identifiers, branch, and counter
@@ -519,7 +525,7 @@ renames, and `.reconc/task-transaction.json`. Normal reads never open unlinked
 archive history. Briefings cap blockers/evidence and free text; transactions
 reject symlinked paths, preserve file modes, and cap journals at 4 MiB.
 
-### `reconc prune [repo] [--dry-run] [--json]`
+### `reconc prune [repo] [--dry-run] [--json] [--force]`
 Run the product retention core immediately. It bounds external session,
 report, lock, staged command-proof, and product-wide project-root state; audit
 and run-decision JSONL rings; generated workflow-audit binaries; abandoned
@@ -593,7 +599,7 @@ reconc completion fish > ~/.config/fish/completions/reconc.fish
 
 ### `reconc manpage`
 Emit the roff man page (section 1) on stdout, generated from the same
-subcommand table as shell completion. Install example:
+canonical command metadata as root help and shell completion. Install example:
 
 ```bash
 reconc manpage > /usr/local/share/man/man1/reconc.1

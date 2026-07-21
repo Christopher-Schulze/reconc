@@ -254,8 +254,9 @@ func runPrune(args []string, stdout io.Writer) error {
 			// Compatibility with the old harness utility. Explicit prune is
 			// already immediate, so --force has no additional effect.
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "Usage: reconc prune [repo] [--dry-run] [--json]")
+			fmt.Fprintln(stdout, "Usage: reconc prune [repo] [--dry-run] [--json] [--force]")
 			fmt.Fprintln(stdout, "Bound project state, sessions, reports, locks, audit/run JSONL, generated audit binaries, and owned temp residue.")
+			fmt.Fprintln(stdout, "--force is accepted only as a compatibility no-op; explicit prune already runs immediately.")
 			return nil
 		default:
 			if strings.HasPrefix(arg, "-") {

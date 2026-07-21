@@ -75,7 +75,9 @@ func printBootstrapHelp(stdout io.Writer) {
 	fmt.Fprintln(stdout, "  --replace-output        Replace only a valid stale Reconc plan for the same repository")
 	fmt.Fprintln(stdout, "  --json                  Emit deterministic machine-readable output")
 	fmt.Fprintln(stdout, "")
-	fmt.Fprintln(stdout, "Compatibility: `reconc bootstrap [repo]` runs a create-only minimal transaction with detected hooks.")
+	fmt.Fprintln(stdout, "Compatibility: `reconc bootstrap [repo] [--preset NAME] [--skip-git-hook]")
+	fmt.Fprintln(stdout, "[--skip-agent-hooks] [--accept-managed-blocks] [--json]` runs a create-only")
+	fmt.Fprintln(stdout, "minimal transaction with detected hooks.")
 }
 
 func runBootstrapProfiles(args []string, stdout io.Writer) error {

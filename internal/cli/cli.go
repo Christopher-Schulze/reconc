@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"io"
 	"sync"
+
+	"reconc.dev/reconc/internal/commandmeta"
 )
 
 // CLIError carries an exit code alongside an error message so the CLI
@@ -149,9 +151,13 @@ func Run(argv []string, version string, stdout, stderr io.Writer) (runErr error)
 	case "manpage":
 		return runManpage(argv[1:], version, stdout)
 	default:
+		message := fmt.Sprintf("reconc: unknown subcommand %q; run `reconc --help` for the current surface", argv[0])
+		if suggestion := commandmeta.Suggest(argv[0]); suggestion != "" {
+			message = fmt.Sprintf("reconc: unknown subcommand %q; did you mean %q?", argv[0], suggestion)
+		}
 		return &CLIError{
 			ExitCode: 1,
-			Message:  fmt.Sprintf("reconc: subcommand %q is not yet implemented in this build; run `reconc --help` for the current surface", argv[0]),
+			Message:  message,
 		}
 	}
 }
@@ -197,63 +203,15 @@ Usage:
 Flags:
   --version, -V    Print version and exit
   --help, -h       Print this help and exit
-
-Daily:
-  status           one-line policy health summary
-  check            evaluate runtime evidence against compiled policy
-  next             show the next remediation
-  done             evidence-complete task-finish gate: prints done or blocked
-  demo             run the isolated real-policy product journey
-
-Bootstrap & inspection:
-  bootstrap        inspect / profiles / plan / apply / verify / remove onboarding
-  init             Scaffold .reconc.yml (and stub AGENTS.md) for a fresh repo
-  adopt            Scan repo for tooling and suggest matching rules
-  extract          Heuristic scan of AGENTS.md/CLAUDE.md prose for rule hints
-  doctor           Inspect discovery and validation state
-  verify           End-to-end installation health check ($RECONC_HOME, repo, lockfile, hook)
-
-Compile & evaluate:
-  compile          Compile policy sources into .reconc/policy.lock.json
-  refresh          Explicitly refresh .reconc/policy.lock.json
-  ci               Derive write_paths from git diff and run check
-  exec             Execute a command and bind success to the staged Git state
-  assert           Evaluate one rule by id with --var key=value substitution
-  can              Ultra-terse yes/no for an action (e.g. 'reconc can write src/app.go')
-  diff             Compare two compiled lockfiles (added / removed / changed rules)
-  watch            Recompile on source-file changes (exits on Ctrl-C)
-
-Explain & remediate:
-  explain          Render a check report in text or markdown
-  why              Print the full details of one compiled rule
-
-Packs & wiring:
-  preset           list / show bundled and user presets
-  template         list / show bundled and user rule templates (W18)
-  hook             generate / install / uninstall / status / sync-scaffold / claim hooks
-  grok             strict Grok ACP runner with Reconc continuation enforcement
-
-Workflow maintenance:
-  changelog        rotate docs/changelog.md / list-archives
-  agent-intro      print the embedded reconc agent integration guide
-  audit            tail / stats / export the enforcement decision log
-  run              AI-operated on / off / reset / status / log repository run control
-  task             typed TASK status / validation / atomic lifecycle mutations
-  prune            bound runtime state, logs, generated binaries, and owned temp residue
-  session-briefing versioned session/reentry delta (TASK + policy + run)
-  context          canonical entrypoint + active TASK token budget
-  start            render / write a canonical start.md onboarding doc
-  post-task-check  evidence-complete pre-done gate
-  delta            show audit + policy changes since a point in time
-  spec             check docs/spec.md presence + freshness
-  coverage         check a coverage percentage against a minimum
-  tui              terminal dashboard for policy / rules / audit / session
-
-Meta:
-  version          print the build version
-  completion       emit shell completion script (bash / zsh / fish)
-  manpage          emit a groff man(1) page for reconc(1)
-
-reconc is the standalone Go implementation in this repository.
 `, version)
+	commands := commandmeta.All()
+	for _, category := range commandmeta.Categories() {
+		fmt.Fprintf(w, "\n%s:\n", category.Title)
+		for _, command := range commands {
+			if command.Category == category.ID {
+				fmt.Fprintf(w, "  %-16s %s\n", command.Name, command.Summary)
+			}
+		}
+	}
+	fmt.Fprintln(w, "\nreconc is the standalone Go implementation in this repository.")
 }

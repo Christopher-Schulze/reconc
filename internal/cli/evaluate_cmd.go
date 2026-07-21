@@ -41,12 +41,13 @@ func runCheck(args []string, stdout, stderr io.Writer) (resultErr error) {
 		case "-h", "--help":
 			fmt.Fprintln(stdout, "Usage: reconc check [repo] [--read PATH] [--write PATH]")
 			fmt.Fprintln(stdout, "                    [--command CMD] [--command-success CMD]")
-			fmt.Fprintln(stdout, "                    [--command-failure CMD] [--claim NAME]")
+			fmt.Fprintln(stdout, "                    [--command-failure CMD] [--claim NAME] [--auto-claim]")
 			fmt.Fprintln(stdout, "                    [--json | --terse] [--output PATH]")
 			fmt.Fprintln(stdout, "")
 			fmt.Fprintln(stdout, "Evaluate runtime evidence against the compiled policy lockfile.")
 			fmt.Fprintln(stdout, "  --json   full structured report")
 			fmt.Fprintln(stdout, "  --terse  minimal {decision, ok, rule_ids, actions} (~50 tokens)")
+			fmt.Fprintln(stdout, "  --auto-claim  assert ci-green when a known CI environment is present")
 			fmt.Fprintln(stdout, "  --output PATH  write the primary output to stdout and PATH")
 			fmt.Fprintln(stdout, "Exit codes: 0 = pass/warn, 1 = error, 2 = blocking violation.")
 			return nil
@@ -437,7 +438,7 @@ func runNext(args []string, stdout, stderr io.Writer) error {
 		if a == "-h" || a == "--help" {
 			fmt.Fprintln(stdout, "Usage: reconc next [repo] [--read PATH] [--write PATH]")
 			fmt.Fprintln(stdout, "                   [--command CMD] [--command-success CMD]")
-			fmt.Fprintln(stdout, "                   [--command-failure CMD] [--claim NAME] [--json]")
+			fmt.Fprintln(stdout, "                   [--command-failure CMD] [--claim NAME] [--json] [--output PATH]")
 			fmt.Fprintln(stdout, "")
 			fmt.Fprintln(stdout, "Replay the latest current blocking decision, or evaluate explicit evidence and print one remediation.")
 			return nil

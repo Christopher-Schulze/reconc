@@ -215,6 +215,16 @@ publish_line=$(grep -n 'gh release edit.*--draft=false' "$release_workflow" | he
 release_dir="$tmp/release"
 mkdir -p "$release_dir"
 expect_failure "$root/scripts/release/write-checksums.sh" "$release_dir"
+release_commit=$(git -C "$root" rev-parse HEAD)
+release_epoch=$(git -C "$root" show -s --format=%ct "$release_commit")
+(
+  cd "$root"
+  go run ./cmd/reconc completion bash > "$release_dir/reconc.bash"
+  go run ./cmd/reconc completion zsh > "$release_dir/_reconc"
+  go run ./cmd/reconc completion fish > "$release_dir/reconc.fish"
+  SOURCE_DATE_EPOCH="$release_epoch" go run \
+    -ldflags "-X main.Version=$project_version" ./cmd/reconc manpage > "$release_dir/reconc.1"
+)
 release_assets=(
   _reconc
   reconc.1
@@ -233,10 +243,11 @@ release_assets=(
   "reconc-$project_version-windows-amd64.exe"
 )
 for name in "${release_assets[@]}"; do
-  printf '%s\n' "$name" > "$release_dir/$name"
+  case "$name" in
+    _reconc|reconc.1|reconc.bash|reconc.fish) ;;
+    *) printf '%s\n' "$name" > "$release_dir/$name" ;;
+  esac
 done
-release_commit=$(git -C "$root" rev-parse HEAD)
-release_epoch=$(git -C "$root" show -s --format=%ct "$release_commit")
 generate_sbom() {
   (
     cd "$root"
@@ -251,6 +262,12 @@ generate_sbom() {
 generate_sbom "$release_dir" "$project_version"
 "$root/scripts/release/write-checksums.sh" "$release_dir"
 verify_release=("$root/scripts/release/verify-artifacts.sh" "$release_dir" reconc "$project_version" darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64)
+"${verify_release[@]}"
+printf '\n# stale despite a valid checksum\n' >> "$release_dir/reconc.bash"
+"$root/scripts/release/write-checksums.sh" "$release_dir"
+expect_failure "${verify_release[@]}"
+(cd "$root" && go run ./cmd/reconc completion bash > "$release_dir/reconc.bash")
+"$root/scripts/release/write-checksums.sh" "$release_dir"
 "${verify_release[@]}"
 printf 'corrupt\n' >> "$release_dir/reconc-$project_version-linux-amd64"
 expect_failure "${verify_release[@]}"
