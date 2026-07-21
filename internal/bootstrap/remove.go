@@ -78,7 +78,7 @@ func Remove(plan *Plan) (*RemovalReport, error) {
 			report.Candidates = append(report.Candidates, candidate.relative)
 		}
 		report.Status = RemovalDrift
-		report.NextAction = "Review each removal candidate and preserved drift item; reconcile user-owned changes, then rerun bootstrap remove with the same plan."
+		report.NextAction = "Review each removal candidate and preserved drift item. Remove or restore each drifted receipt-owned file; for a managed file, remove only the Reconc-marked block or apply the candidate. Then rerun bootstrap remove with the same plan."
 		sort.Strings(report.Candidates)
 		sort.Strings(report.Preserved)
 		return report, nil
@@ -120,7 +120,7 @@ func planReceiptEntryRemoval(root string, entry InstallReceiptEntry) (*removalMu
 	}
 	body, mode, err := readRemovalFile(target, maxBinaryBytes)
 	if os.IsNotExist(err) {
-		return nil, nil, "already absent", nil
+		return nil, nil, "", nil
 	}
 	if err != nil {
 		return nil, nil, "", err
@@ -150,7 +150,7 @@ func planReceiptEntryRemoval(root string, entry InstallReceiptEntry) (*removalMu
 		return nil, nil, "", stripErr
 	}
 	if !found {
-		return nil, nil, "managed block drifted or is missing; current file preserved", nil
+		return nil, nil, "", nil
 	}
 	candidateBody := []byte(stripped)
 	candidatePath := entry.Path + ".reconc-remove-candidate-" + bytesSHA256(candidateBody)[:12]

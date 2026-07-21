@@ -89,6 +89,9 @@ func RenderCodexActivation(existing string, force bool) (string, error) {
 
 	block := codexActivationBlock("hooks = true")
 	if sectionStart != -1 {
+		if !strings.HasSuffix(lines[sectionStart], "\n") {
+			lines[sectionStart] += "\n"
+		}
 		lines = append(lines, "")
 		copy(lines[sectionStart+2:], lines[sectionStart+1:])
 		lines[sectionStart+1] = block
