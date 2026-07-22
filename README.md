@@ -6,29 +6,32 @@
 
 **AI agents say they're done. Reconc proves it.**
 
-Repository Control Compiler: an offline, deterministic control and evidence
-layer for AI coding agents.
+Reconc is a Repository Control Compiler for AI coding agents: an offline,
+deterministic control and evidence layer that turns project instructions into
+executable gates and refuses completion until the repository, current
+evidence, and TASK state agree.
 
 [![CI](https://github.com/Christopher-Schulze/reconc/actions/workflows/reconc-ci.yml/badge.svg)](https://github.com/Christopher-Schulze/reconc/actions/workflows/reconc-ci.yml)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Offline](https://img.shields.io/badge/runtime-offline_by_default-111827)](#what-it-does)
 
-`reconc` compiles the rules already living in your repository into a portable
-lockfile, then checks what an agent actually read, changed, ran, claimed, and
-finished. A missing test, protected write, stale proof, or incomplete TASK gets
-an exact block and one next action instead of a hopeful "done".
+An agent saying "done" is a claim. Reconc checks the work behind it: what the
+agent read, changed, ran, proved, and completed. Missing tests, stale evidence,
+protected edits, shipped-code stubs, documentation drift, incomplete TASKs,
+and stuck loops become explicit repository decisions with one exact next
+action.
 
-- **One binary:** no daemon, Docker, model, or runtime network dependency.
-- **Repo-local truth:** policy compiles from `AGENTS.md`, `.reconc.yml`, presets,
-  templates, and project files.
-- **Native enforcement:** nine agent runtimes plus git pre-commit as the hard
-  repository backstop.
-- **Failure-mode coverage:** premature `done`, scope drift, protected writes or
-  deletions, stale test proof, shipped-code stubs, documentation drift, TASK
-  bypass, and no-progress loops become explicit policy decisions.
-- **One remediation at a time:** `reconc next .` turns a block into an exact
-  recovery step; `reconc done .` proves completion.
+- **Proof, not another opinion:** deterministic checks replace a second model
+  judging the first model.
+- **Repository-owned control:** policy compiles from `AGENTS.md`,
+  `.reconc.yml`, presets, templates, and project files.
+- **Agent-independent operation:** one contract spans nine registry-backed
+  coding-agent integrations plus git pre-commit.
+- **Bounded autonomy:** typed TASK state, durable run control, completion gates,
+  and no-progress guards keep long agent runs on the rails.
+- **Local by default:** one Go binary, with no daemon, Docker, model, or runtime
+  network dependency.
 
 ## See the real loop in under a minute
 
@@ -52,7 +55,8 @@ or network, cleans up by default, and emits inspectable proof with `--keep` or
 [DONE] evidence-complete proof verified
 ```
 
-Install the signed, checksummed macOS or Linux release without building:
+Install the checksummed, provenance-attested macOS or Linux release without
+building:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.6/install.sh \
@@ -60,7 +64,7 @@ curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v
 "$HOME/.local/bin/reconc" demo
 ```
 
-## How it works
+## How Reconc Works
 
 ```text
 AGENTS.md + .reconc.yml + presets + templates
@@ -82,34 +86,19 @@ why a task is allowed to be called done.
 
 ## What It Does
 
-- compiles policy from `AGENTS.md`, `.reconc.yml`, presets, templates, and
-  policy files into `.reconc/policy.lock.json`
-- blocks or warns on protected writes, missing reads, missing test commands,
-  missing claims, stale evidence, and unsafe hook activity
-- evaluates bounded native layout, language, dependency, declared package
-  scripts, source-hygiene, Go-format, network/process, substantive-proof, and
-  live-verification gates without extra subprocesses
-- detects leading implementation-debt markers and language-specific
-  unimplemented sentinels in changed shipped source, including ignored Go
-  errors, Rust `todo!()`/`unimplemented!()`, and common unimplemented throws
-- fails closed on stale lockfiles, schema drift, invalid globs, unsupported rule
-  kinds, and non-portable current lockfile root markers
-- installs explicitly selected git, Claude Code, Codex, GitHub Copilot,
-  Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, and Grok Build
-  integrations
-- controls autonomous agent continuation with repo-scoped
-  `reconc run on|off|reset|status|log`, per-session no-progress guards, and
-  bounded logs
-- adopts typed repository TASK state and performs recoverable claim, block,
-  resume, split, promotion, and archive transitions
-- bounds session/report state, unresolved policy-decision receipts, audit and
-  run-decision logs, generated audit binaries, and owned temp residue outside
-  the Stop path
-- publishes deterministic SPDX 2.3 and CycloneDX 1.6 release SBOMs covering
-  both Go modules, selected dependencies, toolchain, version, and an explicit
-  full release commit
-- gives agents one short remediation path with `reconc next .` and one final
-  task gate with `reconc done .`
+| Control surface | What Reconc provides |
+| --- | --- |
+| Policy compiler | Compiles repository instructions, YAML policy, presets, templates, and provenance into a portable `.reconc/policy.lock.json`; stale locks, schema drift, invalid globs, unsupported rule kinds, and non-portable root markers fail closed. |
+| Scope and change control | Records reads, writes, commands, claims, HEAD, index, and worktree state; policy can protect paths, require reads, forbid commands, couple related changes, and stop out-of-scope edits or deletions at supported boundaries. |
+| Verification and completion | Binds successful command evidence to the repository state it verified; `reconc done .` checks current policy, Git state, reports, unresolved blocks, staged proofs, and typed TASK completion before accepting "done". |
+| Source and repository assurance | Runs bounded native gates for layout, language boundaries, dependency pins, declared package scripts, formatting, source hygiene, network/process boundaries, substantive proof, and live verification. |
+| Stub and drift detection | Detects leading `TODO`, `FIXME`, `STUB`, and `PLACEHOLDER` debt plus ignored Go errors, Rust `todo!()`/`unimplemented!()`, and common unimplemented throws in changed shipped source; `docs-sync` can require matching documentation updates. |
+| TASK and context continuity | Validates and mutates a typed TASK lifecycle with recoverable claim, block, resume, split, promotion, and archive transitions; `session-briefing` supplies bounded machine-readable reentry context. |
+| Autonomous run control | `reconc run on|off|reset|status|log` provides one durable repository switch, bounded decision logs, terminal completion checks, and per-session no-progress guards. |
+| Bootstrap and adoption | Inspects an existing repository, proposes only evidence-backed packs and commands, then plans, applies, verifies, or removes a transactional rollout without overwriting drift. |
+| Runtime enforcement | Generates, installs, inspects, and safely removes registry-backed hooks for nine coding-agent runtimes, with capability-specific failure semantics and git pre-commit as the repository backstop. |
+| Operator and CI tooling | Includes exact remediation, policy explanation, staged evidence execution, CI proofs, audit tail/stats/export, deep doctor checks, a terminal dashboard, pruning, shell completions, and a generated manpage. |
+| Release trust | Publishes checksums, build-provenance attestations, and deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs tied to the full release commit. |
 
 ## Stack-aware assurance packs
 
@@ -151,12 +140,12 @@ another model whether the first model behaved correctly:
   durable repository switch with per-session no-progress release guards.
 
 Reconc does not make a model truthful and is not an operating-system sandbox.
-It blocks repository-bounded failure modes at the policy, hook, Git, CI, and
-completion boundaries it controls.
+It can block repository-bounded failure modes only at the policy, hook, Git,
+CI, and completion boundaries it controls.
 
-## Install and bootstrap
+## Install and Bootstrap
 
-Install the signed, checksummed macOS or Linux release:
+Install the checksummed, provenance-attested macOS or Linux release:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.6/install.sh \
@@ -172,7 +161,8 @@ The shipped CLI has no Bun dependency. Contributors need Bun `1.3.14` only for
 the executable OpenCode and Kilo Code adapter contract tests included in the
 canonical `make test` target.
 
-Windows binaries run natively. Shell-based hook wrappers plus `.sh` and
+The release also includes native Windows binaries, but a native Windows
+installer is not yet shipped. Shell-based hook wrappers plus `.sh` and
 extensionless policy scripts require `sh` on `PATH`; Git for Windows supplies
 it. Native `.exe` and `.com` policy scripts execute directly.
 
@@ -507,7 +497,7 @@ See the canonical [FAQ](docs/documentation.md#faq),
 [Upgrading](docs/documentation.md#upgrading), and
 [Uninstall/Remove](docs/documentation.md#uninstall-and-remove) guides.
 
-## Deeper documentation
+## Deeper Documentation
 
 Current product documentation lives in `docs/documentation.md`. That file is
 the source of truth for installation, workflow, architecture, release, security,
