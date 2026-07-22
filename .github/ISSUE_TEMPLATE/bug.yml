@@ -1,0 +1,92 @@
+name: Bug report
+description: Report a reproducible defect in Reconc
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Reconc. Report security vulnerabilities through [private vulnerability reporting](https://github.com/Christopher-Schulze/reconc/security/advisories/new), not this public form.
+  - type: input
+    id: version
+    attributes:
+      label: Reconc version or commit
+      description: Output from `reconc version` or the exact source commit.
+      placeholder: reconc 0.8.6 or commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: operating-system
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Windows
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: shell
+    attributes:
+      label: Shell
+      placeholder: bash, zsh, fish, PowerShell, cmd.exe
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      options:
+        - Policy compile or refresh
+        - Check, CI, or completion gate
+        - Proof bundle or command evidence
+        - Bootstrap or adoption
+        - Agent or Git hook
+        - TASK lifecycle or run control
+        - Installer, upgrade, or release artifact
+        - TUI, output, completion, or manpage
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide the smallest repository state and exact commands that reproduce the defect.
+      placeholder: |
+        1. Create or use ...
+        2. Run ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: policy
+    attributes:
+      label: Relevant policy or hook input
+      description: Include the smallest redacted `.reconc.yml`, instruction, TASK, or hook payload required to reproduce the issue.
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add bounded logs or screenshots. Remove secrets, private paths, repository names, prompts, and proprietary content.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Public-report checks
+      options:
+        - label: I confirmed that this is not a vulnerability report.
+          required: true
+        - label: I removed secrets and private repository or session material.
+          required: true

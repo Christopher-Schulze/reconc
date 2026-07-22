@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/reconc.png" alt="Reconc: AI agents say they're done. Reconc proves it." width="100%">
+</p>
+
 # Reconc
 
 **Evidence-bound completion control for AI coding agents.**
@@ -11,6 +15,8 @@ agree.
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Offline](https://img.shields.io/badge/runtime-offline_by_default-111827)](#what-it-does)
+
+[Demo](#see-the-real-loop-in-under-a-minute) · [Install](#install-and-bootstrap) · [Documentation](docs/documentation.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [Issues](https://github.com/Christopher-Schulze/reconc/issues/new/choose) · [Releases](https://github.com/Christopher-Schulze/reconc/releases)
 
 An agent saying "done" is a claim. Reconc checks the work behind it: what the
 agent read, changed, ran, proved, and completed. Missing tests, stale evidence,
@@ -566,10 +572,11 @@ reconc <command> --help
 
 ## Contributing
 
-Run `make test`, `make vet`, `make lint`, `make self-host`, and
-`make publication-audit` before proposing a change. The public architecture,
-command contract, security policy, and frozen RFCs are linked above; source
-TASK planning remains intentionally local and ignored.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, change scope,
+verification requirements, and the pull-request checklist. Run `make test`,
+`make vet`, `make lint`, `make self-host`, and `make publication-audit` before
+proposing a change. Report vulnerabilities through the private route in
+[SECURITY.md](SECURITY.md), not a public issue.
 
 ## Status
 

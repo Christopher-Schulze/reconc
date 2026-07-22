@@ -9,7 +9,7 @@ Release is not a published binary support line.
 ## Reporting A Vulnerability
 
 Please report security issues privately before opening a public issue. Use
-GitHub private vulnerability reporting from the repository Security tab.
+[GitHub private vulnerability reporting](https://github.com/Christopher-Schulze/reconc/security/advisories/new).
 
 Include:
 

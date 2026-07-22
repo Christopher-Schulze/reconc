@@ -1,0 +1,68 @@
+name: Feature request
+description: Propose a bounded improvement to Reconc
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Reconc favors small, deterministic controls with explicit evidence and failure boundaries. Describe the problem before prescribing architecture.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What repository or agent workflow cannot be governed clearly today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest user-visible contract that would solve the problem.
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Primary surface
+      options:
+        - Policy and rule model
+        - Evidence and completion
+        - Proof and provenance
+        - Bootstrap and adoption
+        - Runtime hooks
+        - TASK lifecycle and run control
+        - Assurance pack
+        - CLI or operator experience
+        - Release and installation
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and acceptance
+      description: What observable repository state, command, or proof would demonstrate that the feature works?
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Boundaries and failure behavior
+      description: What must remain out of scope, fail closed, or require explicit operator approval?
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Include existing commands, policies, or external controls that almost solve the problem.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Proposal checks
+      options:
+        - label: I checked the documentation and existing issues for the same capability.
+          required: true
+        - label: I identified any model, daemon, network call, or hosted-service dependency required by this proposal.
+          required: true

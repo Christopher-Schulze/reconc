@@ -1,0 +1,51 @@
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:10"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 0
+    labels:
+      - dependencies
+      - github_actions
+    groups:
+      actions-security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: tuesday
+      time: "05:10"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 0
+    labels:
+      - dependencies
+    groups:
+      root-go-security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  - package-ecosystem: gomod
+    directory: /harness/template
+    schedule:
+      interval: weekly
+      day: wednesday
+      time: "05:10"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 0
+    labels:
+      - dependencies
+    groups:
+      template-go-security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"

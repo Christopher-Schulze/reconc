@@ -52,7 +52,7 @@ verify_action_pins() {
       return 1
     fi
     case "$action" in
-      actions/checkout|actions/setup-go|actions/setup-node|actions/attest-build-provenance) ;;
+      actions/checkout|actions/setup-go|actions/setup-node|actions/attest-build-provenance|github/codeql-action/init|github/codeql-action/analyze) ;;
       *)
         printf '%s\n' "$workflow uses an action outside the allowlist: $action" >&2
         return 1
@@ -92,6 +92,9 @@ verify_manual_dispatch_only() {
 
 (cd "$root" && go run ./scripts/audits/publication --root "$root") \
   || fail "publication audit failed"
+(cd "$root" && go test ./scripts/audits/publication \
+  -run 'TestGitHubCommunitySurfaceIsSubstantive|TestCodeQLWorkflowHasBoundedAdvancedSetup|TestDependabotCoversBoundedDependencySurfaces') \
+  || fail "GitHub trust-surface contract failed"
 
 version_source="$root/cmd/reconc/main.go"
 project_version=$(sed -n 's/^var Version = "\([^"]*\)"/\1/p' "$version_source")
@@ -110,6 +113,8 @@ require_text "$root/Makefile" "publication-audit:"
 
 ci_workflow="$root/.github/workflows/reconc-ci.yml"
 release_workflow="$root/.github/workflows/reconc-release.yml"
+codeql_workflow="$root/.github/workflows/codeql.yml"
+dependabot_config="$root/.github/dependabot.yml"
 
 action_fixture="$tmp/action-pins.yml"
 printf '%s\n' 'steps:' '  - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd' > "$action_fixture"
@@ -127,12 +132,15 @@ verify_manual_dispatch_only "$trigger_fixture" || fail "valid manual release tri
 printf '%s\n' 'on:' '  workflow_dispatch:' '  push:' 'jobs:' > "$trigger_fixture"
 expect_failure verify_manual_dispatch_only "$trigger_fixture"
 
-for workflow in "$ci_workflow" "$release_workflow"; do
+for workflow in "$ci_workflow" "$release_workflow" "$codeql_workflow"; do
   verify_action_pins "$workflow" || fail "$workflow action trust validation failed"
   require_action "$workflow" "actions/checkout"
 done
 require_action "$ci_workflow" "actions/setup-go"
 require_action "$release_workflow" "actions/setup-go"
+require_action "$codeql_workflow" "actions/setup-go"
+require_action "$codeql_workflow" "github/codeql-action/init"
+require_action "$codeql_workflow" "github/codeql-action/analyze"
 require_action "$ci_workflow" "actions/setup-node"
 require_action "$release_workflow" "actions/setup-node"
 require_action "$release_workflow" "actions/attest-build-provenance"
@@ -200,9 +208,7 @@ require_text "$ci_workflow" "  workflow_dispatch:"
 if grep -Eq 'pull-requests:[[:space:]]*write|issues:[[:space:]]*write' "$ci_workflow"; then
   fail "$ci_workflow must not create or mutate pull requests or issues"
 fi
-if [ -e "$root/.github/dependabot.yml" ] || [ -e "$root/.github/dependabot.yaml" ]; then
-  fail "automated dependency pull requests are not part of the repository contract"
-fi
+[ -f "$dependabot_config" ] || fail "bounded Dependabot configuration is missing"
 for workflow in "$ci_workflow" "$release_workflow"; do
   require_text "$workflow" "go test ./..."
   require_text "$workflow" "(cd harness/template && go test ./...)"
