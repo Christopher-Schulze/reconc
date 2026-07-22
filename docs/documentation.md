@@ -40,6 +40,13 @@ git-derived diffs against that deterministic contract.
 surface around agent work deterministic: write boundaries, required evidence,
 runtime continuation decisions, audit trails, and fail-closed policy gates.
 
+The controlled failure modes include premature completion, out-of-scope or
+protected writes and deletions, missing reads, missing or stale verification,
+unsupported claims, shipped-code implementation-debt markers and unimplemented
+sentinels, documentation drift, invalid TASK transitions, and repeated
+no-progress continuation. These controls remain repository-bounded and do not
+replace an operating-system sandbox.
+
 The product is a standalone Go CLI. It does not require Docker, Node, Python,
 or a local service. Runtime behavior should stay offline by default.
 
@@ -287,6 +294,16 @@ malformed policy, lockfile drift, unsafe paths, and ambiguous managed files. A
 hostile same-user process can still replace local policy, hooks, state, or the
 binary; use an external sandbox plus protected remote CI when that actor is in
 scope.
+
+### Which stack-aware assurance packs ship with Reconc?
+
+Reconc ships 18 opt-in assurance packs for Go, Rust, Python, Java, C#, C/C++,
+PHP, Elixir, Zig, Shell, PowerShell, TypeScript, Next.js, Svelte, npm, pnpm,
+Yarn, and Bun. Stack detection may recommend a compatible pack, but never
+selects one automatically. Packs reuse commands and toolchains declared by the
+repository; they do not install dependencies or invent missing test, lint,
+build, or typecheck commands. The exact gate contracts and pack-specific
+evidence rules are documented in [Policy Packs And Native Assurance](#policy-packs-and-native-assurance).
 
 ### Does the product require a model, daemon, Docker, or network?
 

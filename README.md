@@ -24,6 +24,9 @@ an exact block and one next action instead of a hopeful "done".
   templates, and project files.
 - **Native enforcement:** nine agent runtimes plus git pre-commit as the hard
   repository backstop.
+- **Failure-mode coverage:** premature `done`, scope drift, protected writes or
+  deletions, stale test proof, shipped-code stubs, documentation drift, TASK
+  bypass, and no-progress loops become explicit policy decisions.
 - **One remediation at a time:** `reconc next .` turns a block into an exact
   recovery step; `reconc done .` proves completion.
 
@@ -86,6 +89,9 @@ why a task is allowed to be called done.
 - evaluates bounded native layout, language, dependency, declared package
   scripts, source-hygiene, Go-format, network/process, substantive-proof, and
   live-verification gates without extra subprocesses
+- detects leading implementation-debt markers and language-specific
+  unimplemented sentinels in changed shipped source, including ignored Go
+  errors, Rust `todo!()`/`unimplemented!()`, and common unimplemented throws
 - fails closed on stale lockfiles, schema drift, invalid globs, unsupported rule
   kinds, and non-portable current lockfile root markers
 - installs explicitly selected git, Claude Code, Codex, GitHub Copilot,
@@ -105,22 +111,48 @@ why a task is allowed to be called done.
 - gives agents one short remediation path with `reconc next .` and one final
   task gate with `reconc done .`
 
-## Why Teams Use It
+## Stack-aware assurance packs
 
-AI agents are useful because they can edit fast, run commands, and keep moving.
-That is also the risk. Prompt instructions alone are not a control layer, and a
-human review after the fact is often too late.
+Reconc ships 18 opt-in assurance packs. Detection can recommend a pack, but
+Reconc never enables one silently, installs a toolchain, or invents a test,
+lint, build, or typecheck command that the repository does not declare.
 
-`reconc` gives teams policy-as-code for agentic development:
+| Surface | Shipped packs |
+| --- | --- |
+| Languages | `go-assurance` · `rust-assurance` · `python-assurance` · `java-assurance` · `csharp-assurance` · `cpp-assurance` · `php-assurance` · `elixir-assurance` · `zig-assurance` · `shell-assurance` · `powershell-assurance` |
+| Web and TypeScript | `typescript-assurance` · `nextjs-assurance` · `svelte-assurance` |
+| Package managers | `npm-assurance` · `pnpm-assurance` · `yarn-assurance` · `bun-assurance` |
 
-- enforce test-before-done and read-before-write contracts
-- protect generated files, secrets, docs, specs, architecture boundaries, and
-  release assets
-- make autonomous continuation explicit with one durable repository switch
-  across all supported agents, plus no-progress guards
-- give every agent the same remediation command instead of ad-hoc recovery
-- leave audit-friendly decisions that can be reviewed by humans, CI, or another
-  agent
+The built-in `docs-sync` policy couples public behavior to repository-owned
+documentation, while the stack-neutral `agent` pack keeps context reads and
+documentation evidence explicit without assuming a language.
+
+## What Reconc Prevents
+
+Long autonomous coding runs fail in predictable, repository-visible ways.
+Reconc turns those failure modes into executable boundaries instead of asking
+another model whether the first model behaved correctly:
+
+- **Premature completion:** `reconc done .` blocks until policy, repository
+  state, current evidence, and typed TASK completion agree.
+- **Scope drift and destructive edits:** configurable path rules stop writes or
+  deletions outside the approved surface and protect generated files, secrets,
+  docs, specs, architecture boundaries, and release assets.
+- **Skipped or stale verification:** source changes can require fresh successful
+  test evidence bound to the changed state, not an earlier green command.
+- **Stubs presented as implementation:** source-hygiene gates catch leading
+  `TODO`, `FIXME`, `STUB`, `PLACEHOLDER`, and language-specific unimplemented
+  sentinels in changed shipped source.
+- **Documentation drift:** `docs-sync` and repository-owned coupling rules can
+  require public behavior changes to update the corresponding documentation.
+- **Workflow and TASK bypass:** typed lifecycle gates preserve the active task,
+  evidence, transition, and archive contract instead of accepting prose alone.
+- **Stuck autonomous loops:** `reconc run on|off|reset|status|log` provides one
+  durable repository switch with per-session no-progress release guards.
+
+Reconc does not make a model truthful and is not an operating-system sandbox.
+It blocks repository-bounded failure modes at the policy, hook, Git, CI, and
+completion boundaries it controls.
 
 ## Install and bootstrap
 

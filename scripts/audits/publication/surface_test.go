@@ -21,6 +21,10 @@ func TestPublicREADMEContract(t *testing.T) {
 		"**AI agents say they're done. Reconc proves it.**",
 		"assets/reconc.png",
 		"## See the real loop in under a minute",
+		"## Stack-aware assurance packs",
+		"## What Reconc Prevents",
+		"shipped-code stubs",
+		"`docs-sync`",
 		"## OpenAI Build Week",
 		"2daa5372b08d7f479d895b2b5419a39026eb6719",
 		"Claude also assisted",
@@ -37,6 +41,30 @@ func TestPublicREADMEContract(t *testing.T) {
 	}
 	if strings.Index(readme, "reconc demo") > strings.Index(readme, "## What It Does") {
 		t.Error("README does not expose the real demo before deep product detail")
+	}
+}
+
+func TestPublicREADMEListsEveryShippedAssurancePack(t *testing.T) {
+	root := publicSurfaceRoot(t)
+	readme := readPublicSurfaceFile(t, root, "README.md")
+	entries, err := os.ReadDir(filepath.Join(root, "internal", "presets", "packs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, "-assurance.yml") {
+			continue
+		}
+		count++
+		pack := strings.TrimSuffix(name, ".yml")
+		if !strings.Contains(readme, "`"+pack+"`") {
+			t.Errorf("README.md omits shipped assurance pack %q", pack)
+		}
+	}
+	if count != 18 {
+		t.Fatalf("shipped assurance pack count = %d, want 18", count)
 	}
 }
 
