@@ -99,11 +99,11 @@ make release VERSION=0.8.6
 ```
 
 `make release` cross-compiles five binaries into `dist/`, generates three flat
-shell-completion artifacts, generates a man page, copies the five immutable v1
+shell-completion artifacts, generates a man page, copies the six immutable v1
 schemas plus the current v2 policy-lock schema, generates deterministic SPDX
 2.3 and CycloneDX 1.6 SBOMs, and writes `dist/SHA256SUMS`. The target stops on
 the first build, SBOM, or checksum
-failure. The release verifier requires exactly those seventeen
+failure. The release verifier requires exactly those eighteen
 checksummed artifacts, rejects missing, extra, duplicate, unsafe, or corrupted
 entries, and never accepts an empty manifest. It regenerates Bash, Zsh, Fish,
 and the versioned man page from the current canonical command metadata and
@@ -221,10 +221,12 @@ Before onboarding a repository, `reconc demo` provides a complete local product
 proof in under a minute. It creates a disposable isolated Git repository and
 runs the current Reconc binary through real compile, block, persisted
 remediation, command-success, corrected evaluation, typed TASK, and
-evidence-complete `done` paths. It makes no network call, bundles or simulates
+evidence-complete `done` paths, then exports and verifies the same candidate as
+a portable proof bundle. It makes no network call, bundles or simulates
 no LLM, and cleans the workspace by default. `--keep` preserves inspectable
-policy, TASK, and completion artifacts; `--json` exposes the versioned steps,
-decisions, durations, artifact hashes, completion digest, and result digest.
+policy, TASK, completion, and proof-bundle artifacts; `--json` exposes the
+versioned steps, decisions, durations, artifact hashes, completion and portable
+proof digests, and result digest.
 
 ```bash
 reconc demo
@@ -259,7 +261,7 @@ fails with an exact replay remediation instead of claiming there is no work.
 
 `status`, `doctor`, `verify`, `check`, `ci`, `assert`, `can`, `why`,
 `task status`, `task validate`, `task check-done`, `run status`, `run log`,
-`session-briefing`, `post-task-check`, `done`, and `tui` never compile or write
+`session-briefing`, `post-task-check`, `done`, `proof`, and `tui` never compile or write
 the lockfile. Missing, stale, malformed, schema-drifted, or non-portable current
 lockfiles fail closed with one explicit remediation: `reconc refresh .`.
 When `RECONC_AUDIT=1`, enforcement commands may still append decision records;
@@ -267,6 +269,32 @@ that opt-in audit write is independent of policy refresh. Explicit `check`,
 `ci`, `post-task-check`, and `done` decisions may also write or clear one
 private unresolved-block receipt below `RECONC_HOME`; governed worktree content
 remains untouched.
+
+Current source builds after the immutable v0.8.6 release can export the same
+completion candidate for external review:
+
+```bash
+reconc proof . --output proof.json
+reconc proof . --format markdown --output proof.md
+```
+
+`proof` runs the non-persisting completion evaluation and emits a deterministic
+format-1 bundle. It binds build provenance, policy digest, candidate
+fingerprint, Git HEAD/index/worktree identity, typed TASK state, stable checks,
+current untampered command receipts, required evidence, policy violations,
+remediation, and an older unresolved block only when the current candidate
+supersedes it. JSON is canonical; Markdown is rendered from the same verified
+typed data. A blocked candidate still emits a valid bundle and exits 2.
+
+The exporter never refreshes policy, runs a missing command, writes repository
+state, persists a policy decision, or treats absent evidence as success. It
+emits `repo_root: "."`, repository-relative slash paths, normalized timestamps
+by omission, bounded arrays/text, and no prompts, transcripts, session IDs,
+environment values, usernames, home paths, or raw command arguments. Command
+receipts expose a redacted executable summary plus a SHA-256 identity of the
+normalized full command. `--output` atomically writes the exact stdout bytes.
+The public schema is `schemas/v1/proof-bundle.schema.json`; the command is
+implemented in current source and must not be described as shipped in v0.8.6.
 
 Exit codes:
 
@@ -347,6 +375,14 @@ evidence, saved policy report, unresolved blocks, staged command proofs, and
 typed TASK completion into one versioned, self-digested report. It does not
 accept elapsed time as evidence. `--require-clean-git` optionally adds a clean
 worktree requirement.
+
+### What can I share with a reviewer?
+
+Use `reconc proof . --format markdown` for a human review or the default JSON
+for automation. Both outputs represent the same current completion evidence,
+remain verifiable through their digest, and deliberately exclude private agent
+session material and raw command arguments. A BLOCK bundle is evidence of an
+unresolved gate, not a failed exporter.
 
 ### Does Reconc invent or manage my project backlog?
 
@@ -557,6 +593,7 @@ Daily:
 - `check` - evaluate runtime evidence against compiled policy
 - `next` - show the next remediation
 - `done` - task-finish gate
+- `proof` - deterministic portable completion proof
 
 Bootstrap and inspection:
 
@@ -632,7 +669,7 @@ evidence, composite-check, and TASK-lifecycle levels fail compilation instead
 of being ignored. This validation applies only to structured YAML fields;
 free-form rule messages and agent prompts remain unrestricted text. Editors and
 automation can use `schemas/v1/policy-config.schema.json`; emitted lock, policy
-report, completion report, and fix-plan artifacts keep their separate public
+report, completion report, fix-plan, and proof-bundle artifacts keep their separate public
 schemas.
 
 The managed target-repository block uses these exact rules. It ignores mutable
@@ -920,7 +957,7 @@ and repository checks.
 Pipeline:
 
 ```text
-repo root -> ingest -> parser -> compiler -> .reconc/policy.lock.json -> runtime -> CheckReport/FixPlan
+repo root -> ingest -> parser -> compiler -> .reconc/policy.lock.json -> runtime -> CheckReport/FixPlan/CompletionReport -> ProofBundle
 ```
 
 Package responsibilities:
@@ -947,6 +984,7 @@ Package responsibilities:
 - `internal/pathidentity`: Unix symlink and Windows reparse-point/8.3 filesystem identity
 - `internal/commandproof`: commit-candidate-bound staged command-success receipts
 - `internal/completiongate`: final policy, candidate, command-proof, and TASK completion contract
+- `internal/proofbundle`: deterministic portable JSON and Markdown completion evidence
 - `internal/policyproof`: tamper-evident unresolved policy-decision receipts
 - `internal/retention`: runtime storage classes, lifecycle due checks, and cleanup
 - `internal/presets`: bundled and user policy packs
@@ -958,7 +996,7 @@ Package responsibilities:
 Key invariants:
 
 - Deterministic JSON artifacts
-- Stable schema and `format_version` fields; immutable v1 contracts live under `schemas/v1/`, while current portable policy locks use `schemas/v2/`; all five v1 schemas and the current v2 lock schema ship in every release
+- Stable schema and `format_version` fields; immutable v1 contracts live under `schemas/v1/`, while current portable policy locks use `schemas/v2/`; all six v1 schemas and the current v2 lock schema ship in every future release containing the proof exporter
 - Fail closed on malformed policy, stale lockfiles, schema drift, invalid globs, unsupported rule kinds, and non-portable current lock envelopes
 - No runtime network calls
 - Behavior in internal packages, thin `cmd/reconc/main.go`

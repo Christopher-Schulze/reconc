@@ -22,6 +22,7 @@ const (
 	PolicyReport     Artifact = "policy-report"
 	PolicyFixPlan    Artifact = "policy-fix-plan"
 	CompletionReport Artifact = "completion-report"
+	ProofBundle      Artifact = "proof-bundle"
 
 	LegacyPolicyLockURL = DefaultBaseURL + "/policy-lock.schema.json"
 	PolicyLockURL       = PolicyLockBaseURL + "/policy-lock.schema.json"
@@ -29,6 +30,7 @@ const (
 	PolicyReportURL     = DefaultBaseURL + "/policy-report.schema.json"
 	PolicyFixPlanURL    = DefaultBaseURL + "/policy-fix-plan.schema.json"
 	CompletionReportURL = DefaultBaseURL + "/completion-report.schema.json"
+	ProofBundleURL      = DefaultBaseURL + "/proof-bundle.schema.json"
 )
 
 // DefaultURL returns the repository-hosted, format-versioned schema URL.
@@ -44,6 +46,8 @@ func DefaultURL(artifact Artifact) string {
 		return PolicyFixPlanURL
 	case CompletionReport:
 		return CompletionReportURL
+	case ProofBundle:
+		return ProofBundleURL
 	default:
 		return ""
 	}

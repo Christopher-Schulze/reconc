@@ -43,7 +43,8 @@ reconc demo
 
 The demo creates an isolated Git repository, compiles real policy, blocks an
 out-of-scope write and a source change without test proof, executes the real
-test command, and verifies an evidence-complete `done` report. It uses no model
+test command, verifies an evidence-complete `done` report, and exports the same
+candidate as a portable proof bundle. It uses no model
 or network, cleans up by default, and emits inspectable proof with `--keep` or
 `--json`.
 
@@ -53,6 +54,7 @@ or network, cleans up by default, and emits inspectable proof with `--keep` or
 [REMEDIATE] one exact next action
 [PASS] real test evidence bound to the changed state
 [DONE] evidence-complete proof verified
+[PROOF] portable JSON bundle verified
 ```
 
 Install the checksummed, provenance-attested macOS or Linux release without
@@ -90,7 +92,7 @@ why a task is allowed to be called done.
 | --- | --- |
 | Policy compiler | Compiles repository instructions, YAML policy, presets, templates, and provenance into a portable `.reconc/policy.lock.json`; stale locks, schema drift, invalid globs, unsupported rule kinds, and non-portable root markers fail closed. |
 | Scope and change control | Records reads, writes, commands, claims, HEAD, index, and worktree state; policy can protect paths, require reads, forbid commands, couple related changes, and stop out-of-scope edits or deletions at supported boundaries. |
-| Verification and completion | Binds successful command evidence to the repository state it verified; `reconc done .` checks current policy, Git state, reports, unresolved blocks, staged proofs, and typed TASK completion before accepting "done". |
+| Verification and completion | Binds successful command evidence to the repository state it verified; `reconc done .` checks current policy, Git state, reports, unresolved blocks, staged proofs, and typed TASK completion before accepting "done"; `reconc proof .` exports that candidate as shareable JSON or Markdown without private session data. |
 | Source and repository assurance | Runs bounded native gates for layout, language boundaries, dependency pins, declared package scripts, formatting, source hygiene, network/process boundaries, substantive proof, and live verification. |
 | Stub and drift detection | Detects leading `TODO`, `FIXME`, `STUB`, and `PLACEHOLDER` debt plus ignored Go errors, Rust `todo!()`/`unimplemented!()`, and common unimplemented throws in changed shipped source; `docs-sync` can require matching documentation updates. |
 | TASK and context continuity | Validates and mutates a typed TASK lifecycle with recoverable claim, block, resume, split, promotion, and archive transitions; `session-briefing` supplies bounded machine-readable reentry context. |
@@ -266,6 +268,22 @@ into a versioned, digested report. An unresolved explicit policy block remains
 blocking until a later explicit non-blocking check clears it; waiting never
 does. `--require-clean-git` adds a clean-tree requirement. `--window` remains
 accepted only for compatibility and has no time-based pass semantics.
+
+The current source tree also provides the post-v0.8.6 proof exporter:
+
+```bash
+reconc proof . --output proof.json
+reconc proof . --format markdown --output proof.md
+```
+
+It emits a deterministic, versioned bundle binding build provenance, policy,
+HEAD/index/worktree identity, typed TASK state, checks, current command
+receipts, violations, and remediation. A blocked candidate still produces a
+valid bundle and exits 2. Absolute paths, user/home identity, session IDs,
+prompts, transcripts, environment data, and raw command arguments are excluded
+or redacted. The command is read-only and never runs missing tests or refreshes
+policy. This command is implemented on the current source line and is not part
+of the immutable v0.8.6 release artifacts.
 
 ## Rollout Modes
 

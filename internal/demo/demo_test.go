@@ -83,6 +83,7 @@ func TestRunCompletesRealJourneyAndKeepsInspectableProof(t *testing.T) {
 		"real-test":            "pass",
 		"corrected-evaluation": "pass",
 		"done":                 "done",
+		"portable-proof":       "proof",
 	}
 	for _, step := range result.Steps {
 		if want, ok := wantDecisions[step.ID]; ok {
@@ -95,7 +96,7 @@ func TestRunCompletesRealJourneyAndKeepsInspectableProof(t *testing.T) {
 	if len(wantDecisions) != 0 {
 		t.Fatalf("missing required steps: %v", wantDecisions)
 	}
-	if len(result.Artifacts) != 3 || result.CompletionDigest == "" {
+	if len(result.Artifacts) != 4 || result.CompletionDigest == "" || result.ProofDigest == "" {
 		t.Fatalf("incomplete proof contract: %+v", result)
 	}
 	for _, artifact := range result.Artifacts {
@@ -116,6 +117,17 @@ func TestRunCompletesRealJourneyAndKeepsInspectableProof(t *testing.T) {
 	}
 	if completion["decision"] != "pass" || completion["digest"] != result.CompletionDigest {
 		t.Fatalf("completion proof does not match result: %v", completion)
+	}
+	var portable map[string]any
+	bundle, err := os.ReadFile(filepath.Join(result.WorkspacePath, "proof", "bundle.json"))
+	if err != nil {
+		t.Fatalf("read portable proof: %v", err)
+	}
+	if err := json.Unmarshal(bundle, &portable); err != nil {
+		t.Fatalf("decode portable proof: %v", err)
+	}
+	if portable["decision"] != "pass" || portable["digest"] != result.ProofDigest {
+		t.Fatalf("portable proof does not match result: %v", portable)
 	}
 }
 
@@ -257,7 +269,7 @@ func TestVerifyResultRejectsSemanticallyIncompletePass(t *testing.T) {
 	}
 	result.Steps = result.Steps[:len(result.Steps)-1]
 	result.Digest = resultDigest(result)
-	if err := VerifyResult(result); err == nil || !strings.Contains(err.Error(), "missing required steps: done") {
+	if err := VerifyResult(result); err == nil || !strings.Contains(err.Error(), "missing required steps: portable-proof") {
 		t.Fatalf("verify incomplete result = %v", err)
 	}
 }
@@ -269,6 +281,7 @@ func TestRenderTextUsesRecordedDecisions(t *testing.T) {
 		Status:           "passed",
 		Cleaned:          true,
 		CompletionDigest: "completion-digest",
+		ProofDigest:      "proof-digest",
 		Steps: []Step{
 			{ID: "protected-action", Label: "Attempt an out-of-scope write", Decision: "block"},
 			{ID: "missing-proof", Decision: "block"},
@@ -276,11 +289,13 @@ func TestRenderTextUsesRecordedDecisions(t *testing.T) {
 			{ID: "real-test", Decision: "pass"},
 			{ID: "corrected-evaluation", Decision: "pass"},
 			{ID: "done", Label: "Run the evidence-complete final gate", Decision: "done"},
+			{ID: "portable-proof", Label: "Export the portable completion proof bundle", Decision: "proof"},
 		},
 		Artifacts: []Artifact{
 			{Kind: "policy-lock", Path: "policy", SHA256: "policy-digest"},
 			{Kind: "task-detail", Path: "task", SHA256: "task-digest"},
 			{Kind: "completion-report", Path: "completion", SHA256: "report-digest"},
+			{Kind: "proof-bundle", Path: "proof", SHA256: "proof-digest"},
 		},
 	}
 	result.Digest = resultDigest(result)

@@ -55,6 +55,28 @@ type Proof struct {
 	Digest        string    `json:"digest"`
 }
 
+// CaptureCurrent captures a stable HEAD and index-tree identity without
+// imposing working-tree cleanliness. It is used by read-only proof exporters
+// that must bind loaded receipts to the exact candidate they publish.
+func CaptureCurrent(repoRoot string) (Snapshot, error) {
+	root, err := canonicalRepoRoot(repoRoot)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	first, err := capture(root)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	second, err := capture(root)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	if first != second {
+		return Snapshot{}, errors.New("git HEAD or staged index changed while capturing command proof candidate")
+	}
+	return first, nil
+}
+
 type proofPayload struct {
 	Schema        string    `json:"schema"`
 	Scope         string    `json:"scope"`

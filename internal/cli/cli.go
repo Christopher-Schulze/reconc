@@ -134,6 +134,8 @@ func Run(argv []string, version string, stdout, stderr io.Writer) (runErr error)
 		return runDelta(argv[1:], stdout, stderr)
 	case "done":
 		return runDone(argv[1:], stdout, stderr)
+	case "proof":
+		return runProof(argv[1:], version, stdout)
 	case "spec":
 		return runSpec(argv[1:], stdout, stderr)
 	case "coverage":

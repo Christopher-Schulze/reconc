@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/proof-bundle.schema.json",
+  "title": "Reconc portable proof bundle v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "format_version", "ok", "decision", "repo_root", "build", "task", "candidate", "checks", "evidence", "violations", "superseded_blocks", "completion_digest", "digest"],
+  "properties": {
+    "$schema": { "type": "string", "format": "uri" },
+    "format_version": { "const": "1" },
+    "ok": { "type": "boolean" },
+    "decision": { "enum": ["pass", "block"] },
+    "repo_root": { "const": "." },
+    "build": { "$ref": "#/$defs/build" },
+    "task": { "$ref": "#/$defs/task" },
+    "candidate": { "$ref": "#/$defs/candidate" },
+    "checks": { "type": "array", "items": { "$ref": "#/$defs/check" }, "maxItems": 256 },
+    "evidence": { "$ref": "#/$defs/evidence" },
+    "violations": { "type": "array", "items": { "$ref": "#/$defs/violation" }, "maxItems": 256 },
+    "superseded_blocks": { "type": "array", "items": { "$ref": "#/$defs/supersededBlock" }, "maxItems": 256 },
+    "next_action": { "type": "string", "maxLength": 4112 },
+    "completion_digest": { "$ref": "#/$defs/digest" },
+    "digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "strings": { "type": "array", "items": { "type": "string", "maxLength": 4112 }, "maxItems": 256, "uniqueItems": true },
+    "build": {
+      "type": "object", "additionalProperties": false,
+      "required": ["version", "provenance_format", "source_digest", "goos", "goarch"],
+      "properties": { "version": {"type":"string"}, "provenance_format": {"type":"string"}, "source_digest": {"type":"string"}, "goos": {"type":"string"}, "goarch": {"type":"string"} }
+    },
+    "task": {
+      "type": "object", "additionalProperties": false, "required": ["configured", "state"],
+      "properties": { "configured": {"type":"boolean"}, "id": {"type":"string"}, "state": {"enum":["absent","active","terminal","invalid"]} }
+    },
+    "candidate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["fingerprint", "policy_lock_hash", "git_available", "worktree_trusted", "dirty_paths"],
+      "properties": { "fingerprint":{"type":"string"}, "policy_lock_hash":{"type":"string"}, "git_available":{"type":"boolean"}, "git_head":{"type":"string"}, "git_index_hash":{"type":"string"}, "worktree_hash":{"type":"string"}, "worktree_trusted":{"type":"boolean"}, "dirty_paths":{"$ref":"#/$defs/strings"}, "policy_report_hash":{"type":"string"} }
+    },
+    "check": {
+      "type": "object", "additionalProperties": false, "required": ["id", "status", "detail"],
+      "properties": { "id":{"type":"string"}, "status":{"enum":["pass","warn","fail"]}, "detail":{"type":"string"} }
+    },
+    "commandProof": {
+      "type": "object", "additionalProperties": false,
+      "required": ["command", "command_hash", "execution_mode", "outcome", "exit_code", "head", "index_tree", "receipt_digest", "candidate_bound", "fresh"],
+      "properties": { "command":{"type":"string"}, "command_hash":{"$ref":"#/$defs/digest"}, "execution_mode":{"type":"string"}, "outcome":{"type":"string"}, "exit_code":{"type":"integer"}, "head":{"type":"string"}, "index_tree":{"type":"string"}, "receipt_digest":{"$ref":"#/$defs/digest"}, "candidate_bound":{"type":"boolean"}, "fresh":{"type":"boolean"} }
+    },
+    "evidence": {
+      "type": "object", "additionalProperties": false, "required": ["required_commands", "required_paths", "required_claims", "satisfied_checks", "command_proofs"],
+      "properties": { "required_commands":{"$ref":"#/$defs/strings"}, "required_paths":{"$ref":"#/$defs/strings"}, "required_claims":{"$ref":"#/$defs/strings"}, "satisfied_checks":{"$ref":"#/$defs/strings"}, "command_proofs":{"type":"array","items":{"$ref":"#/$defs/commandProof"},"maxItems":256} }
+    },
+    "violation": {
+      "type": "object", "additionalProperties": false, "required": ["rule_id", "kind", "mode", "message", "matched_paths", "required_paths", "required_commands", "required_claims"],
+      "properties": { "rule_id":{"type":"string"}, "kind":{"type":"string"}, "mode":{"type":"string"}, "message":{"type":"string"}, "recommended_action":{"type":"string"}, "matched_paths":{"$ref":"#/$defs/strings"}, "required_paths":{"$ref":"#/$defs/strings"}, "required_commands":{"$ref":"#/$defs/strings"}, "required_claims":{"$ref":"#/$defs/strings"} }
+    },
+    "supersededBlock": {
+      "type": "object", "additionalProperties": false, "required": ["candidate_fingerprint", "policy_report_hash", "violations"],
+      "properties": { "candidate_fingerprint":{"type":"string"}, "policy_report_hash":{"type":"string"}, "violations":{"type":"array","items":{"$ref":"#/$defs/violation"},"maxItems":256} }
+    }
+  }
+}

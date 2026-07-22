@@ -97,6 +97,7 @@ var commandCatalog = []Command{
 	command("check", CategoryDaily, "reconc check [repo] [evidence flags]", "evaluate runtime evidence against compiled policy", evidenceFlags(true, true), nil, modes(OutputText, OutputJSON, OutputFile)),
 	command("next", CategoryDaily, "reconc next [repo] [evidence flags]", "show the next remediation", flags(f("--read", "PATH"), f("--write", "PATH"), f("--command", "CMD"), f("--command-success", "CMD"), f("--command-failure", "CMD"), f("--claim", "NAME"), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
 	command("done", CategoryDaily, "reconc done [repo] [--require-clean-git] [--json]", "evidence-complete task-finish gate", flags(compat("--window", "N"), f("--require-clean-git", ""), f("--json", "")), nil, modes(OutputText, OutputJSON)),
+	command("proof", CategoryDaily, "reconc proof [repo] [--format json|markdown] [--output PATH]", "export a portable completion proof bundle", flags(f("--format", "FORMAT", "json", "markdown"), f("--output", "PATH")), nil, modes(OutputJSON, OutputMarkdown, OutputFile)),
 
 	command("bootstrap", CategoryBootstrap, "reconc bootstrap [repo] | <subcommand>", "inspect, plan, apply, verify, or remove repository onboarding", flags(repeat("--preset", "NAME"), f("--skip-git-hook", ""), f("--skip-agent-hooks", ""), f("--accept-managed-blocks", ""), f("--json", "")), []Subcommand{
 		sub("profiles", "reconc bootstrap profiles [--json]", "list explicit bootstrap profiles", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),

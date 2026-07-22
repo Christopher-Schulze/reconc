@@ -236,6 +236,7 @@ release_assets=(
   policy-lock-v1.schema.json
   policy-lock.schema.json
   policy-report.schema.json
+  proof-bundle.schema.json
   "reconc-$project_version-darwin-amd64"
   "reconc-$project_version-darwin-arm64"
   "reconc-$project_version-linux-amd64"

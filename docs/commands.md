@@ -30,13 +30,14 @@ Run the complete product journey against a newly created, isolated local Git
 repository. The current Reconc binary compiles a real policy, blocks an
 out-of-scope write, blocks missing test proof, emits the persisted `next`
 remediation, executes `git diff --check`, records the corrected decision, and
-verifies the evidence-complete `done` report. The command performs no network
+verifies the evidence-complete `done` report, and exports the same candidate as
+a portable proof bundle. The command performs no network
 calls and uses no LLM or private repository data.
 
 The temporary workspace is removed by default. `--keep` preserves it and
 prints its exact path. `--json` emits the versioned result including every
 step command, exit code, decision, duration, proof artifact path and SHA-256,
-completion digest, cleanup state, and final self-digest. Exit 0 means the real
+completion and proof-bundle digests, cleanup state, and final self-digest. Exit 0 means the real
 journey passed; exit 1 includes a failed, still self-digested result.
 
 ## Environment
@@ -51,7 +52,7 @@ Runtime:
   instead of the redacted first token (may capture secrets in arguments)
 - `RECONC_CLAUDE_STATE_DIR` -- override the global session-state root
 - `RECONC_SCHEMA_BASE_URL` -- enterprise override for schema URLs; without an
-  override, config/report/fix-plan contracts use `schemas/v1/` and current
+  override, config/report/fix-plan/proof-bundle contracts use `schemas/v1/` and current
   policy lockfiles use `schemas/v2/`
 - `RECONC_STOP_FINGERPRINT_UNTRACKED` (`normal` default, `all`, `no`) --
   untracked-file mode for the Stop fingerprint's git status snapshot
@@ -202,6 +203,20 @@ action; JSON emits the full completion report. Exit 0 = done, 2 = blocked,
 1 = runtime/input error. `--require-clean-git` adds a clean-tree check.
 `--window` is accepted for compatibility but elapsed time never proves
 completion.
+
+### `reconc proof [repo] [--format json|markdown] [--output PATH]`
+Exports the current completion state as a deterministic, portable proof bundle.
+The versioned contract binds build provenance, policy digest, candidate
+fingerprint, HEAD/index/worktree identity, typed TASK state, completion checks,
+current successful command receipts, required evidence, violations, exact
+remediation, and any older unresolved block superseded by the current candidate.
+JSON is the default; Markdown is rendered from the same verified typed data.
+`--output` atomically mirrors the exact stdout bytes to a file. Absolute paths,
+home/user identity, session IDs, prompts, transcripts, environment data, and raw
+command arguments are excluded or redacted. The command is read-only: it never
+refreshes policy, runs missing tests, persists a decision, or converts missing
+evidence into a pass. Exit 0 = pass bundle, 2 = blocked bundle emitted, 1 =
+runtime/input/output error.
 
 ---
 

@@ -13,6 +13,7 @@ import (
 	"reconc.dev/reconc/internal/completiongate"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/policy"
+	"reconc.dev/reconc/internal/proofbundle"
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/schema"
 )
@@ -46,6 +47,7 @@ func TestPublishedSchemasAreVersionedJSONContracts(t *testing.T) {
 		"policy-lock.schema.json":       schema.LegacyPolicyLockURL,
 		"policy-report.schema.json":     schema.PolicyReportURL,
 		"policy-fix-plan.schema.json":   schema.PolicyFixPlanURL,
+		"proof-bundle.schema.json":      schema.ProofBundleURL,
 	}
 	root := filepath.Join("..", "..", "schemas", "v1")
 	paths, err := filepath.Glob(filepath.Join(root, "*.schema.json"))
@@ -103,6 +105,7 @@ func TestPublishedSchemaPropertiesMatchEmittedGoTypes(t *testing.T) {
 	report := readSchemaDocument(t, "policy-report.schema.json")
 	fixPlan := readSchemaDocument(t, "policy-fix-plan.schema.json")
 	completion := readSchemaDocument(t, "completion-report.schema.json")
+	proof := readSchemaDocument(t, "proof-bundle.schema.json")
 
 	assertPropertiesMatch(t, schemaDefinition(t, lock, "discovery"), ingest.DiscoveryResult{})
 	assertPropertiesMatch(t, schemaDefinition(t, lock, "source"), policy.PolicySource{})
@@ -124,6 +127,16 @@ func TestPublishedSchemaPropertiesMatchEmittedGoTypes(t *testing.T) {
 	assertPropertiesMatch(t, schemaRootProperties(t, completion), completiongate.Report{})
 	assertPropertiesMatch(t, schemaDefinition(t, completion, "check"), completiongate.Check{})
 	assertPropertiesMatch(t, schemaDefinition(t, completion, "candidate"), completiongate.CandidateBinding{})
+
+	assertPropertiesMatch(t, schemaRootProperties(t, proof), proofbundle.Bundle{})
+	assertPropertiesMatch(t, schemaDefinition(t, proof, "build"), proofbundle.Build{})
+	assertPropertiesMatch(t, schemaDefinition(t, proof, "task"), proofbundle.Task{})
+	assertPropertiesMatch(t, schemaDefinition(t, proof, "candidate"), proofbundle.Candidate{})
+	assertPropertiesMatch(t, schemaDefinition(t, proof, "check"), proofbundle.Check{})
+	assertPropertiesMatch(t, schemaDefinition(t, proof, "commandProof"), proofbundle.CommandProof{})
+	assertPropertiesMatch(t, schemaDefinition(t, proof, "evidence"), proofbundle.Evidence{})
+	assertPropertiesMatch(t, schemaDefinition(t, proof, "violation"), proofbundle.Violation{})
+	assertPropertiesMatch(t, schemaDefinition(t, proof, "supersededBlock"), proofbundle.SupersededBlock{})
 }
 
 func TestPublishedAssuranceEnumMatchesPolicyKinds(t *testing.T) {

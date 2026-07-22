@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/completiongate"
+	"reconc.dev/reconc/internal/proofbundle"
 	policyruntime "reconc.dev/reconc/internal/runtime"
 )
 
@@ -72,6 +73,7 @@ type Result struct {
 	Steps            []Step     `json:"steps"`
 	Artifacts        []Artifact `json:"artifacts"`
 	CompletionDigest string     `json:"completion_digest,omitempty"`
+	ProofDigest      string     `json:"proof_digest,omitempty"`
 	Error            string     `json:"error,omitempty"`
 	Digest           string     `json:"digest"`
 }
@@ -319,7 +321,27 @@ func (runner *journey) run() error {
 	if err := os.WriteFile(proofPath, []byte(done.Stdout), 0o600); err != nil {
 		return fmt.Errorf("write completion proof: %w", err)
 	}
-	return runner.collectArtifacts(proofPath)
+	portablePath := filepath.Join(runner.result.WorkspacePath, "proof", "bundle.json")
+	portable, err := runner.reconcCommand(
+		"portable-proof", "Export the portable completion proof bundle",
+		[]string{"proof", runner.repo, "--output", portablePath}, "", exitCodes(0),
+	)
+	if err != nil {
+		return err
+	}
+	var bundle proofbundle.Bundle
+	if err := json.Unmarshal([]byte(portable.Stdout), &bundle); err != nil {
+		return fmt.Errorf("decode portable proof bundle: %w", err)
+	}
+	if err := proofbundle.Verify(&bundle); err != nil {
+		return fmt.Errorf("verify portable proof bundle: %w", err)
+	}
+	if !bundle.OK || bundle.Decision != "pass" || bundle.Candidate.Fingerprint != completion.Candidate.Fingerprint {
+		return errors.New("portable proof bundle does not match the passing completion candidate")
+	}
+	portable.Decision = "proof"
+	runner.result.ProofDigest = bundle.Digest
+	return runner.collectArtifacts(proofPath, portablePath)
 }
 
 func (runner *journey) createFixture() error {
@@ -443,7 +465,7 @@ func (runner *journey) action(id, label string, command []string, action func() 
 	return stored, nil
 }
 
-func (runner *journey) collectArtifacts(completionPath string) error {
+func (runner *journey) collectArtifacts(completionPath, portablePath string) error {
 	items := []struct {
 		kind string
 		path string
@@ -451,6 +473,7 @@ func (runner *journey) collectArtifacts(completionPath string) error {
 		{kind: "policy-lock", path: filepath.Join(runner.repo, ".reconc", "policy.lock.json")},
 		{kind: "task-detail", path: filepath.Join(runner.repo, "docs", "tasks", "001-demo-journey.md")},
 		{kind: "completion-report", path: completionPath},
+		{kind: "proof-bundle", path: portablePath},
 	}
 	for _, item := range items {
 		digest, err := fileDigest(item.path)
@@ -486,6 +509,7 @@ func RenderText(writer io.Writer, result *Result) error {
 	visible := map[string]bool{
 		"protected-action": true, "missing-proof": true, "remediation": true,
 		"real-test": true, "corrected-evaluation": true, "done": true,
+		"portable-proof": true,
 	}
 	for _, step := range result.Steps {
 		if visible[step.ID] {
@@ -590,6 +614,9 @@ func validateResultContract(result *Result) error {
 	if result.CompletionDigest == "" {
 		return errors.New("passed demo result has no completion digest")
 	}
+	if result.ProofDigest == "" {
+		return errors.New("passed demo result has no portable proof digest")
+	}
 	if result.Kept == result.Cleaned {
 		return fmt.Errorf("passed demo result has inconsistent keep/cleanup state: kept=%t cleaned=%t", result.Kept, result.Cleaned)
 	}
@@ -600,6 +627,7 @@ func validateResultContract(result *Result) error {
 		"real-test":            "pass",
 		"corrected-evaluation": "pass",
 		"done":                 "done",
+		"portable-proof":       "proof",
 	}
 	seenSteps := make(map[string]bool, len(result.Steps))
 	for _, step := range result.Steps {
@@ -626,6 +654,7 @@ func validateResultContract(result *Result) error {
 		"policy-lock":       true,
 		"task-detail":       true,
 		"completion-report": true,
+		"proof-bundle":      true,
 	}
 	for _, artifact := range result.Artifacts {
 		if !requiredArtifacts[artifact.Kind] {
