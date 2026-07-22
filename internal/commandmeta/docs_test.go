@@ -19,6 +19,26 @@ func TestCommandDocumentationCoversCanonicalInventory(t *testing.T) {
 	}
 }
 
+func TestDocumentsSurfaceRequiresCommandBoundary(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{name: "exact code span", body: "Use `reconc version`.", want: true},
+		{name: "arguments in code span", body: "Use `reconc version --json`.", want: true},
+		{name: "hyphenated prefix collision", body: "Use `reconc version-broken`.", want: false},
+		{name: "word prefix collision", body: "Use `reconc versioned`.", want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := documentsSurface(test.body, "reconc version"); got != test.want {
+				t.Errorf("documentsSurface() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
 func readRepositoryDoc(t *testing.T, name string) string {
 	t.Helper()
 	body, err := os.ReadFile("../../docs/" + name)
@@ -36,5 +56,17 @@ func assertDocumentedCommand(t *testing.T, body, surface string) {
 }
 
 func documentsSurface(body, surface string) bool {
-	return strings.Contains(body, "`"+surface)
+	needle := "`" + surface
+	for offset := 0; offset < len(body); {
+		index := strings.Index(body[offset:], needle)
+		if index < 0 {
+			return false
+		}
+		end := offset + index + len(needle)
+		if end < len(body) && (body[end] == '`' || body[end] == ' ' || body[end] == '\t' || body[end] == '\r' || body[end] == '\n') {
+			return true
+		}
+		offset = end
+	}
+	return false
 }
