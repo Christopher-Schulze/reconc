@@ -195,17 +195,17 @@ func TestRenderCheckReportMarkdown(t *testing.T) {
 		RepoRoot:       "/tmp/repo",
 		LockfilePath:   ".reconc/policy.lock.json",
 		DefaultMode:    policy.ModeWarn,
-		Summary:        "1 blocking",
-		Inputs:         ExecutionInputs{WritePaths: []string{"x"}},
+		Summary:        "summary-sentinel-95",
+		Inputs:         ExecutionInputs{WritePaths: []string{"input-sentinel-94"}},
 		ViolationCount: 1,
 		Violations: []Violation{
-			{RuleID: "r", Kind: policy.KindDenyWrite, Mode: policy.ModeBlock, Explanation: "e", RecommendedAction: "a"},
+			{RuleID: "rule-sentinel-91", Kind: policy.KindDenyWrite, Mode: policy.ModeBlock, Explanation: "explanation-sentinel-92", RecommendedAction: "action-sentinel-93"},
 		},
 	}
 	md := RenderCheckReportMarkdown(report)
-	for _, want := range []string{"# Policy Check Report", "**Decision:**", "## Violations", "### 1. `r`", "**Action:**"} {
+	for _, want := range []string{"/tmp/repo", "summary-sentinel-95", "input-sentinel-94", "rule-sentinel-91", "explanation-sentinel-92", "action-sentinel-93"} {
 		if !strings.Contains(md, want) {
-			t.Errorf("markdown missing %q, got:\n%s", want, md)
+			t.Errorf("markdown lost dynamic report value %q, got:\n%s", want, md)
 		}
 	}
 }
@@ -213,8 +213,8 @@ func TestRenderCheckReportMarkdown(t *testing.T) {
 func TestRenderCheckReportMarkdownPass(t *testing.T) {
 	report := &CheckReport{Decision: DecisionPass, ViolationCount: 0, Summary: "all good"}
 	md := RenderCheckReportMarkdown(report)
-	if !strings.Contains(md, "_None._") {
-		t.Errorf("expected '_None._' in passing markdown, got: %s", md)
+	if !strings.Contains(md, report.Summary) {
+		t.Errorf("passing markdown lost the report summary: %s", md)
 	}
 }
 

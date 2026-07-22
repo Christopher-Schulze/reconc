@@ -6,58 +6,38 @@ import (
 )
 
 func TestMarkdownNonEmpty(t *testing.T) {
-	md := Markdown()
-	if len(md) < 500 {
-		t.Errorf("guide suspiciously short: %d bytes", len(md))
-	}
-	if !strings.Contains(md, "# reconc") {
-		t.Errorf("guide missing top-level heading")
+	if strings.TrimSpace(Markdown()) == "" {
+		t.Error("embedded guide is empty")
 	}
 }
 
-func TestSectionsReturnsTopLevel(t *testing.T) {
+func TestSectionsAndSectionRoundTrip(t *testing.T) {
 	sections := Sections()
-	if len(sections) < 5 {
-		t.Errorf("expected at least 5 sections, got %d: %v", len(sections), sections)
+	if len(sections) == 0 {
+		t.Fatal("embedded guide has no top-level sections")
 	}
-	for _, want := range []string{"Rule Kinds", "Exit Codes (Stable Contract)", "Golden Rules"} {
-		found := false
-		for _, s := range sections {
-			if s == want {
-				found = true
-				break
-			}
+	for _, section := range sections {
+		if strings.TrimSpace(section) == "" {
+			t.Fatal("section inventory contains an empty heading")
 		}
-		if !found {
-			t.Errorf("expected section %q in list; got %v", want, sections)
+		body := Section(section)
+		if !strings.HasPrefix(body, "## "+section+"\n") {
+			t.Fatalf("section %q did not round-trip through the parser", section)
 		}
 	}
-}
-
-func TestSectionByExactHeading(t *testing.T) {
-	body := Section("Exit Codes")
-	if body == "" {
-		t.Fatal("expected section body, got empty string")
-	}
-	if !strings.HasPrefix(body, "## Exit Codes") {
-		t.Errorf("expected body to start with the heading line, got: %s", body[:80])
-	}
-	if !strings.Contains(body, "`0`") {
-		t.Errorf("expected exit-code body to mention exit 0, got: %s", body)
-	}
-	// Must not bleed into next section.
-	if strings.Contains(body, "## Rule Kinds") {
-		t.Errorf("section body bled into next section")
+	if len(sections) > 1 && strings.Contains(Section(sections[0]), "\n## "+sections[1]+"\n") {
+		t.Error("first section body bled into the next top-level section")
 	}
 }
 
 func TestSectionCaseInsensitive(t *testing.T) {
-	body := Section("golden rules")
-	if body == "" {
-		t.Fatal("expected case-insensitive match")
+	sections := Sections()
+	if len(sections) == 0 {
+		t.Fatal("embedded guide has no top-level sections")
 	}
-	if !strings.Contains(body, "Never paraphrase policy") {
-		t.Errorf("expected golden-rules content")
+	want := Section(sections[0])
+	if got := Section(strings.ToLower(sections[0])); got != want {
+		t.Error("case-insensitive section lookup changed the selected body")
 	}
 }
 

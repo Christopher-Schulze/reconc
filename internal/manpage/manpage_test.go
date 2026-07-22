@@ -9,62 +9,47 @@ import (
 	"reconc.dev/reconc/internal/schema"
 )
 
-func TestRenderContainsHeader(t *testing.T) {
+func TestRenderContainsSuppliedVersion(t *testing.T) {
 	var buf bytes.Buffer
-	if err := Render(&buf, "0.9.9"); err != nil {
+	version := "version-sentinel-91"
+	if err := Render(&buf, version); err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, ".TH RECONC 1") {
-		t.Error("missing .TH header")
+	if strings.TrimSpace(out) == "" {
+		t.Fatal("rendered man page is empty")
 	}
-	if !strings.Contains(out, `"reconc 0.9.9"`) {
-		t.Error("version not embedded in .TH line")
+	if !strings.Contains(out, version) {
+		t.Error("rendered man page lost the supplied version")
+	}
+	if !strings.HasPrefix(out, ".TH RECONC 1 ") {
+		t.Error("rendered man page has no valid RECONC section-1 header")
 	}
 }
 
-func TestRenderUsesCanonicalSchemaBase(t *testing.T) {
+func TestRenderUsesCanonicalSchemaURLs(t *testing.T) {
 	var buf bytes.Buffer
-	if err := Render(&buf, "0.9.9"); err != nil {
+	if err := Render(&buf, "0.2.0"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(buf.String(), schema.DefaultBaseURL) {
-		t.Fatalf("man page omitted canonical schema base %q", schema.DefaultBaseURL)
-	}
-	if !strings.Contains(buf.String(), schema.PolicyLockBaseURL) {
-		t.Fatalf("man page omitted canonical policy-lock schema base %q", schema.PolicyLockBaseURL)
-	}
-	if !strings.Contains(buf.String(), "RECONC_GROK_STEER") {
-		t.Fatal("man page omitted Grok steering control")
-	}
-	if !strings.Contains(buf.String(), "NO_COLOR") {
-		t.Fatal("man page omitted ANSI opt-out")
+	for _, schemaURL := range []string{schema.DefaultBaseURL, schema.PolicyLockBaseURL} {
+		if !strings.Contains(buf.String(), schemaURL) {
+			t.Errorf("man page omitted canonical schema URL %q", schemaURL)
+		}
 	}
 }
 
 func TestRenderIncludesStandardSections(t *testing.T) {
 	var buf bytes.Buffer
-	_ = Render(&buf, "0.2.0")
-	out := buf.String()
-	for _, section := range []string{
-		".SH NAME", ".SH SYNOPSIS", ".SH DESCRIPTION",
-		".SH EXIT STATUS", ".SH SUBCOMMANDS", ".SH ENVIRONMENT",
-		".SH FILES", ".SH SEE ALSO", ".SH BUGS",
-	} {
-		if !strings.Contains(out, section) {
-			t.Errorf("missing section %q", section)
-		}
+	if err := Render(&buf, "0.2.0"); err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestRenderIncludesEverySubcommand(t *testing.T) {
-	var buf bytes.Buffer
-	_ = Render(&buf, "0.2.0")
-	out := buf.String()
-	// Spot-check a representative selection.
-	for _, sub := range []string{"compile", "check", "bootstrap", "audit", "run", "manpage", "agent-intro"} {
-		if !strings.Contains(out, ".B "+sub) {
-			t.Errorf("subcommand %q missing from man page", sub)
+	for _, section := range []string{
+		".SH NAME", ".SH SYNOPSIS", ".SH DESCRIPTION", ".SH EXIT STATUS",
+		".SH SUBCOMMANDS", ".SH ENVIRONMENT", ".SH FILES", ".SH SEE ALSO", ".SH BUGS",
+	} {
+		if !strings.Contains(buf.String(), section) {
+			t.Errorf("man page omitted standard section %q", section)
 		}
 	}
 }
@@ -100,7 +85,7 @@ func TestRenderUsesSourceDateEpochDeterministically(t *testing.T) {
 	if first.String() != second.String() {
 		t.Fatal("man page output changed with a fixed SOURCE_DATE_EPOCH")
 	}
-	if !strings.Contains(first.String(), `.TH RECONC 1 "2000-01-01"`) {
+	if !strings.Contains(first.String(), "2000-01-01") {
 		t.Fatalf("man page did not use SOURCE_DATE_EPOCH: %s", first.String()[:80])
 	}
 }

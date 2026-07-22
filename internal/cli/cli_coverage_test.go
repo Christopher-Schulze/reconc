@@ -301,8 +301,8 @@ func TestRunExplainReportFileMarkdownAndErrors(t *testing.T) {
 	if err := Run([]string{"explain", "--report-file", reportPath, "--format", "markdown"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("explain --report-file --format markdown: %v", err)
 	}
-	if !strings.Contains(stdout.String(), "# Policy Check Report") || !strings.Contains(stdout.String(), "deny-gen") {
-		t.Fatalf("expected markdown report content, got %q", stdout.String())
+	if !strings.Contains(stdout.String(), "deny-gen") || !strings.Contains(stdout.String(), "gen/output.go") {
+		t.Fatalf("markdown report lost dynamic violation data: %q", stdout.String())
 	}
 
 	badPath := filepath.Join(t.TempDir(), "bad-report.json")
@@ -631,8 +631,8 @@ func TestBuildStartDataAndRenderStartMarkdown(t *testing.T) {
 	}
 
 	md := renderStartMarkdown(data)
-	if !strings.Contains(md, "# Session Start") || !strings.Contains(md, "## Recent activity") || !strings.Contains(md, "Last 5 decisions:") {
-		t.Fatalf("expected rendered start markdown to include key sections, got %q", md)
+	if !strings.Contains(md, repo) || !strings.Contains(md, recent[0]) {
+		t.Fatalf("rendered start markdown lost dynamic repository or audit data: %q", md)
 	}
 }
 

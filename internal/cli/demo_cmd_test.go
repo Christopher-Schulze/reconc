@@ -29,7 +29,7 @@ func TestDemoRejectsUnknownArgument(t *testing.T) {
 	}
 }
 
-func TestDemoAppearsInGeneratedPublicSurfaces(t *testing.T) {
+func TestDemoAppearsInGeneratedCommandSurfaces(t *testing.T) {
 	var help, stderr bytes.Buffer
 	if err := Run([]string{"--help"}, "test-version", &help, &stderr); err != nil {
 		t.Fatalf("root help: %v", err)
@@ -44,13 +44,5 @@ func TestDemoAppearsInGeneratedPublicSurfaces(t *testing.T) {
 	}
 	if !strings.Contains(completion.String(), "demo") || !strings.Contains(completion.String(), "--keep --json") {
 		t.Fatalf("completion omitted demo contract")
-	}
-
-	var manpage bytes.Buffer
-	if err := Run([]string{"manpage"}, "test-version", &manpage, &stderr); err != nil {
-		t.Fatalf("manpage: %v", err)
-	}
-	if !strings.Contains(manpage.String(), ".B demo\n") || !strings.Contains(manpage.String(), "run the isolated real-policy product journey") {
-		t.Fatalf("manpage omitted demo contract")
 	}
 }

@@ -5,19 +5,19 @@ import (
 	"testing"
 )
 
-func TestBootstrapAgentOrientationUsesCompactMachineContract(t *testing.T) {
+func TestBootstrapAgentOrientationIncludesMachineEntryPoints(t *testing.T) {
 	for name, body := range map[string]string{
 		"agent block": renderAgentBlock(),
 		"start":       renderStart(),
 	} {
 		if !strings.Contains(body, "reconc session-briefing . --json") {
-			t.Errorf("%s does not route agents through the compact JSON briefing:\n%s", name, body)
+			t.Errorf("%s omits the machine-readable session entry point", name)
 		}
 	}
-	if strings.Contains(renderStart(), "reconc status .") {
-		t.Fatalf("start retained redundant policy status call:\n%s", renderStart())
-	}
 	if !strings.Contains(renderAgentBlock(), "reconc agent-intro --section NAME") {
-		t.Fatalf("agent block does not expose on-demand guide sections:\n%s", renderAgentBlock())
+		t.Error("agent block omits on-demand guide access")
+	}
+	if strings.Contains(renderStart(), "reconc status .") {
+		t.Error("start duplicates session state through the legacy status command")
 	}
 }

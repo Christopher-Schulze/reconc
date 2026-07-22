@@ -592,7 +592,7 @@ func TestDriftCreatesCandidateWithoutInstallingOtherTargets(t *testing.T) {
 	}
 }
 
-func TestManagedDocumentCandidatesKeepOneValidTitleAndRejectDuplicateMarkers(t *testing.T) {
+func TestManagedDocumentCandidatesKeepOneManagedBlockAndRejectDuplicateMarkers(t *testing.T) {
 	bootstrapTestHome(t)
 	emptyRepo := t.TempDir()
 	writeBootstrapTestFile(t, emptyRepo, "AGENTS.md", "", 0o644)
@@ -608,8 +608,8 @@ func TestManagedDocumentCandidatesKeepOneValidTitleAndRejectDuplicateMarkers(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(string(candidate), "# Repository instructions\n\n") || strings.Count(string(candidate), "# Repository instructions") != 1 {
-		t.Fatalf("managed document candidate has invalid title structure:\n%s", candidate)
+	if strings.Count(string(candidate), agentBlockStart) != 1 || strings.Count(string(candidate), agentBlockEnd) != 1 {
+		t.Fatalf("managed document candidate does not contain exactly one managed block:\n%s", candidate)
 	}
 
 	duplicateRepo := t.TempDir()

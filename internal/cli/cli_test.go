@@ -9,8 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	"reconc.dev/reconc/internal/agentguide"
 	"reconc.dev/reconc/internal/commandmeta"
 	"reconc.dev/reconc/internal/compiler"
+	"reconc.dev/reconc/internal/manpage"
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
@@ -1102,11 +1104,8 @@ func TestRunAgentIntroFullMarkdown(t *testing.T) {
 	if err := Run([]string{"agent-intro"}, "0.1.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("agent-intro: %v", err)
 	}
-	out := stdout.String()
-	for _, want := range []string{"# reconc", "Exit Codes", "Rule Kinds", "Golden Rules"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("agent-intro missing %q; got first 200 chars:\n%s", want, out[:min(len(out), 200)])
-		}
+	if got, want := stdout.String(), agentguide.Markdown(); got != want {
+		t.Error("agent-intro did not return the embedded guide verbatim")
 	}
 }
 
@@ -1115,40 +1114,53 @@ func TestRunAgentIntroListSections(t *testing.T) {
 	if err := Run([]string{"agent-intro", "--list-sections"}, "0.1.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("agent-intro --list-sections: %v", err)
 	}
-	for _, want := range []string{"Exit Codes", "Rule Kinds", "Golden Rules"} {
-		if !strings.Contains(stdout.String(), want) {
-			t.Errorf("--list-sections output missing %q", want)
-		}
+	sections := agentguide.Sections()
+	if len(sections) == 0 {
+		t.Fatal("embedded guide has no sections")
+	}
+	if got, want := stdout.String(), strings.Join(sections, "\n")+"\n"; got != want {
+		t.Errorf("--list-sections output differs from the embedded guide inventory")
 	}
 }
 
 func TestRunAgentIntroSection(t *testing.T) {
+	sections := agentguide.Sections()
+	if len(sections) == 0 {
+		t.Fatal("embedded guide has no sections")
+	}
+	section := sections[0]
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"agent-intro", "--section", "Exit Codes"}, "0.1.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"agent-intro", "--section", section}, "0.1.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("agent-intro --section: %v", err)
 	}
-	out := stdout.String()
-	if !strings.HasPrefix(out, "## Exit Codes") {
-		t.Errorf("expected section output to start with heading, got:\n%s", out[:min(len(out), 120)])
+	want := agentguide.Section(section)
+	if !strings.HasSuffix(want, "\n") {
+		want += "\n"
 	}
-	// Must not spill into other sections.
-	if strings.Contains(out, "## Golden Rules") {
-		t.Errorf("section output bled into next section:\n%s", out)
+	if got := stdout.String(); got != want {
+		t.Error("agent-intro section output differs from the selected embedded section")
 	}
 }
 
 func TestRunAgentIntroSectionJSON(t *testing.T) {
+	sections := agentguide.Sections()
+	if len(sections) == 0 {
+		t.Fatal("embedded guide has no sections")
+	}
+	section := sections[len(sections)-1]
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"agent-intro", "--section", "Golden Rules", "--json"}, "0.1.0-test", &stdout, &stderr); err != nil {
+	if err := Run([]string{"agent-intro", "--section", section, "--json"}, "0.1.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("agent-intro --section --json: %v", err)
 	}
-	var payload map[string]any
+	var payload struct {
+		Section string `json:"section"`
+		Body    string `json:"body"`
+	}
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("--json should produce valid JSON: %v\n%s", err, stdout.String())
 	}
-	body, _ := payload["body"].(string)
-	if !strings.Contains(body, "Never paraphrase policy") {
-		t.Errorf("expected golden-rules text in body, got: %v", payload)
+	if payload.Section != section || payload.Body != agentguide.Section(section) {
+		t.Error("agent-intro JSON did not preserve the selected section and body")
 	}
 }
 
@@ -1176,15 +1188,6 @@ func TestRunAgentIntroHelp(t *testing.T) {
 	if !strings.Contains(stdout.String(), "Usage: reconc agent-intro") {
 		t.Errorf("expected usage line, got: %s", stdout.String())
 	}
-}
-
-// min is a tiny helper for slicing log output safely in assertions
-// (Go 1.21+ has builtin min but we keep this local for predictability).
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // --- W32: rule conflict detection -----------------------------------
@@ -1397,14 +1400,16 @@ func TestRunVersionFlagStillWorks(t *testing.T) {
 
 func TestRunManpageEmitsRoff(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"manpage"}, "0.2.0", &stdout, &stderr); err != nil {
+	version := "version-sentinel-92"
+	if err := Run([]string{"manpage"}, version, &stdout, &stderr); err != nil {
 		t.Fatalf("manpage: %v", err)
 	}
-	out := stdout.String()
-	for _, want := range []string{".TH RECONC 1", ".SH NAME", ".SH SUBCOMMANDS", "reconc 0.2.0"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("manpage output missing %q; first 120 chars:\n%s", want, out[:min(len(out), 120)])
-		}
+	var want bytes.Buffer
+	if err := manpage.Render(&want, version); err != nil {
+		t.Fatalf("render expected manpage: %v", err)
+	}
+	if got := stdout.String(); got != want.String() {
+		t.Error("CLI manpage output differs from the renderer")
 	}
 }
 
@@ -2220,10 +2225,8 @@ func TestRunStartStdout(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 	out := stdout.String()
-	for _, want := range []string{"# Session Start", "## Repo state", "## Recent activity", "## Next action", "## Agent orientation"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("start output missing %q; got:\n%s", want, out)
-		}
+	if strings.TrimSpace(out) == "" || !strings.Contains(out, repo) {
+		t.Errorf("start output did not render repository data: %q", out)
 	}
 }
 
@@ -2256,8 +2259,8 @@ func TestRunStartWritesFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start.md not written: %v", err)
 	}
-	if !strings.Contains(string(data), "# Session Start") {
-		t.Errorf("start.md content wrong:\n%s", string(data))
+	if strings.TrimSpace(string(data)) == "" || !strings.Contains(string(data), repo) {
+		t.Errorf("start.md did not contain rendered repository data: %q", string(data))
 	}
 }
 

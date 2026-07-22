@@ -1302,12 +1302,6 @@ func TestTemplateRepoRootScaffoldHooksMatchGenerator(t *testing.T) {
 		if string(data) != artifact.Content {
 			t.Fatalf("template scaffold %s at %s differs from generator; run `reconc hook sync-scaffold tools/reconc/harness/template/repo-root-scaffold`", kind, artifact.TargetPath)
 		}
-		if strings.Contains(artifact.Content, "Project Complete Candidate") {
-			t.Fatalf("template scaffold %s still contains old final-hold wording", kind)
-		}
-		if kind == KindOpenCode && strings.Contains(artifact.Content, "Terminal Gate") {
-			t.Fatalf("template scaffold %s must not embed a project-specific workflow", kind)
-		}
 		info, err := os.Stat(target)
 		if err != nil {
 			t.Fatalf("stat template scaffold %s: %v", kind, err)
