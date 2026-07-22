@@ -1,15 +1,11 @@
-<p align="center">
-  <img src="assets/reconc.png" alt="Reconc: AI agents say they're done. Reconc proves it." width="100%">
-</p>
-
 # Reconc
 
-**AI agents say they're done. Reconc proves it.**
+**Evidence-bound completion control for AI coding agents.**
 
-Reconc is a Repository Control Compiler for AI coding agents: an offline,
-deterministic control and evidence layer that turns project instructions into
-executable gates and refuses completion until the repository, current
-evidence, and TASK state agree.
+Reconc is a Repository Control Compiler: an offline, deterministic control and
+evidence layer that turns project instructions into executable gates and
+refuses completion until the repository, current evidence, and TASK state
+agree.
 
 [![CI](https://github.com/Christopher-Schulze/reconc/actions/workflows/reconc-ci.yml/badge.svg)](https://github.com/Christopher-Schulze/reconc/actions/workflows/reconc-ci.yml)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](https://go.dev/)
@@ -21,6 +17,14 @@ agent read, changed, ran, proved, and completed. Missing tests, stale evidence,
 protected edits, shipped-code stubs, documentation drift, incomplete TASKs,
 and stuck loops become explicit repository decisions with one exact next
 action.
+
+AI-safety research calls the broader pattern reward hacking or specification
+gaming when an agent satisfies a proxy or literal objective without achieving
+the intended outcome. Reconc does not solve that general problem. It constrains
+one concrete software-engineering slice: repository-local completion claims
+that contradict current, configured evidence. The
+[terminology, control map, and limits](docs/documentation.md#evidence-bound-completion-control)
+are explicit.
 
 - **Proof, not another opinion:** deterministic checks replace a second model
   judging the first model.
@@ -118,7 +122,7 @@ The built-in `docs-sync` policy couples public behavior to repository-owned
 documentation, while the stack-neutral `agent` pack keeps context reads and
 documentation evidence explicit without assuming a language.
 
-## What Reconc Prevents
+## Failure Modes Reconc Constrains
 
 Long autonomous coding runs fail in predictable, repository-visible ways.
 Reconc turns those failure modes into executable boundaries instead of asking
@@ -488,6 +492,15 @@ Do not commit mutable runtime state:
 
 No. Reconc does not generate code or call a model. It is the deterministic
 control and evidence layer around whichever coding agent you already use.
+
+### Does Reconc solve reward hacking?
+
+No. Reconc does not infer intent or make an arbitrary model honest. It blocks
+or detects configured, repository-visible failure modes such as unsupported
+completion claims, stale test evidence, protected writes, unfinished TASKs,
+and no-progress loops. Uninstrumented hosts, external systems, semantic defects
+outside configured checks, and hostile same-user processes remain outside its
+guarantee.
 
 ### Is it a security sandbox?
 

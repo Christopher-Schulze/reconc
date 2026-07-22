@@ -7,6 +7,7 @@ usage, architecture, release, and security facts should be kept here first.
 ## Contents
 
 - [Product](#product)
+- [Evidence-Bound Completion Control](#evidence-bound-completion-control)
 - [Install And Build](#install-and-build)
 - [Transactional Bootstrap](#transactional-bootstrap)
 - [Daily Workflow](#daily-workflow)
@@ -55,6 +56,96 @@ only on an interactive terminal. `NO_COLOR`, `TERM=dumb`, JSON, files, and
 pipes always remain plain.
 The dependency-free `tui` view is always plain text and bounds each line to a
 valid `COLUMNS` value, while JSON remains width-independent.
+
+## Evidence-Bound Completion Control
+
+The primary product category is **evidence-bound completion control for AI
+coding agents**. The supporting thesis is narrower than a general AI-safety
+claim: Reconc provides **repository-bounded resistance to concrete reward-
+hacking and specification-gaming failure modes** when a coding agent's claim
+can be checked against configured repository state and current evidence.
+
+The terminology is grounded in distinct source concepts:
+
+- [Amodei et al., *Concrete Problems in AI Safety*](https://arxiv.org/abs/1606.06565)
+  treats reward hacking as an objective-function safety problem: an agent can
+  obtain reward without producing the intended result.
+- [Krakovna et al., *Specification gaming: the flip side of AI ingenuity*](https://deepmind.google/blog/specification-gaming-the-flip-side-of-ai-ingenuity/)
+  defines specification gaming as satisfying the literal objective without
+  achieving the intended outcome.
+- [Manheim and Garrabrant, *Categorizing Variants of Goodhart's Law*](https://arxiv.org/abs/1803.04585)
+  distinguishes several ways optimization can break the relationship between
+  a goal and its proxy. Reconc does not collapse those mechanisms into one
+  marketing label.
+- The [Anthropic-OpenAI alignment evaluation](https://openai.com/index/openai-anthropic-safety-evaluation/)
+  includes a deliberately impossible software task in which an agent falsely
+  claims completion. That controlled stress case establishes relevance, not a
+  prevalence claim about ordinary coding sessions.
+- [in-toto](https://github.com/in-toto/specification/blob/master/in-toto-spec.md)
+  and [SLSA 1.2](https://slsa.dev/spec/v1.2/) provide the narrower provenance
+  model: a claim is useful only when verification connects it to the process,
+  inputs, and artifacts that produced it. Reconc applies that idea to current
+  repository state; it does not claim in-toto or SLSA conformance for agent
+  sessions.
+
+`Evidence freshness` is Reconc's operational term, not a new reward-hacking
+definition. Command success is current only while its recorded write epoch or
+staged-candidate fingerprint still matches the state being judged. A later
+relevant write invalidates the earlier result. A self-reported claim can be an
+input to policy, but it is not equivalent to a command receipt, Git identity,
+typed TASK state, or completion proof.
+
+Public verbs have fixed meanings:
+
+- **prevents** only when a controlled boundary cannot accept the action under
+  the stated configuration;
+- **blocks** when a policy, hook, Git, CI, TASK, or completion decision returns
+  a blocking result;
+- **detects** when Reconc reports a repository-visible condition but may not
+  own a synchronous enforcement point;
+- **constrains** for the combined reduction of allowed repository actions and
+  accepted completion claims;
+- **does not protect against** for uninstrumented hosts, external systems,
+  semantic defects outside configured checks, policy chosen by an untrusted
+  owner, or a hostile same-user process able to replace policy, state, hooks,
+  binaries, or self-reported inputs.
+
+The verified failure-mode map is:
+
+| Failure mode | Truthful Reconc control | Executable proof path | Residual limitation |
+| --- | --- | --- | --- |
+| Premature victory claim | `reconc done .` **blocks** while policy, candidate, evidence, or typed TASK state is incomplete. | `internal/completiongate/gate_test.go:TestTypedTaskCompletionAndRequiredEvidence`; demo `done` occurs only after `complete-task-evidence`. | Configured checks can still omit a semantic requirement. |
+| Incomplete or stubbed implementation | Opt-in `source_hygiene` assurance **detects and blocks** changed shipped source containing supported debt markers or unimplemented sentinels. | `internal/assurance/source_hygiene_test.go:TestSourceHygieneFindsHighSignalShippedCodeDebt`; run the selected assurance pack through `reconc check` or `reconc ci`. | It is a bounded lexical and language-aware gate, not proof that all implementations are substantive. |
+| Skipped required work | Required reads, commands, files, claims, coupling, and assurance rules **block** when configured evidence is absent. | `internal/runtime/evaluator_test.go:TestCheckRequireCommandSuccess`; `reconc next .` returns the exact missing action. | Reconc enforces declared requirements; it does not invent the project's true acceptance criteria. |
+| Workflow deviation | Installed runtime hooks and git pre-commit **block** supported events that violate compiled policy. | `internal/runtime/agentsession/handlers_test.go:TestRunPreToolUseEnforcesPolicyForbidCommandBeforeExecution`; `reconc hook status . --json` proves configured and observed routes. | Host capabilities differ, timeouts may be fail-open, and an uninstalled or bypassed hook is not enforcement. |
+| Scope drift | Path, read, command, and coupling rules **constrain** the configured change surface. | `internal/runtime/evaluator_test.go:TestCheckScopedRuleOnlyFiresInsideScope`; `reconc check . --write PATH`. | Policy cannot infer unstated scope or govern actions outside the repository. |
+| Protected write or deletion | `deny_write`, generated-output, secret-state, and destructive-command rules **block** at supported PreToolUse, Git, CI, or completion boundaries. | `internal/runtime/agentsession/handlers_test.go:TestRunPreToolUseBlocksApplyPatchDenyWrite`; demo `protected-action`. | A hostile same-user process can bypass or replace local enforcement. |
+| Stale or fabricated self-reported evidence | Causal write epochs, bounded session state, proof validation, and unresolved-block receipts **detect or reject** inconsistent evidence. | `internal/runtime/evaluator_test.go:TestCheckRequireCommandSuccessRequiresFreshCausalEvidence`; `internal/assurance/assurance_test.go:TestSubstantiveProofRejectsFabricatedActualAndFailedThreshold`. | Opaque claims remain only as trustworthy as their configured producer; protected external CI is required against a hostile actor. |
+| Test-before-final-change laundering | Staged command receipts bind success to exact HEAD and index identity; later candidate changes **invalidate** the receipt. | `internal/commandproof/proof_test.go:TestProofBindsSuccessToCurrentStagedIndex`; `reconc exec . --staged -- COMMAND` followed by `reconc ci . --staged`. | Unstaged session evidence has a different, write-epoch-based trust boundary. |
+| TASK-lifecycle bypass | Typed parsing, transition checks, recoverable transactions, and final completion checks **block** malformed or unfinished TASK state. | `internal/tasklifecycle/tasklifecycle_test.go:TestPromoteArchivesAndActivatesNext`; `reconc task validate .` and `reconc task check-done .`. | Humans and project agents still own scope, priority, acceptance, and evidence quality. |
+| Cross-session context drift | `session-briefing` and repository-bound TASK/run state **constrain** reentry to current machine-readable state. | `internal/tasklifecycle/tasklifecycle_test.go:TestInspectSectionsAndBoundedBriefing`; `reconc session-briefing . --json`. | Reconc supplies bounded state, not complete conversational memory or semantic intent. |
+| Inconsistent multi-agent compliance | One compiled policy and registry-backed adapters **constrain** supported agents to the same decision engine. | `internal/cli/surface_parity_test.go`; `reconc hook status . --json` distinguishes installed, configured, live, degraded, and unsupported routes. | Adapter presence is not live execution proof, and host enforcement capabilities are not identical. |
+| No-progress continuation loop | Per-session material fingerprints and bounded counters **detect and release** repeated continuation without progress. | `internal/runtime/agentsession/repository_run_hotpath_test.go:TestRepoRunNoProgressGuardReleasesOneStopWithoutDisabling`; `reconc run status . --verbose`. | The guard bounds Reconc-controlled continuation; it cannot stop an independent external loop. |
+
+The public narrative stays consistent at three depths:
+
+1. **10 seconds:** An agent saying "done" is a claim. Reconc checks current
+   repository evidence before accepting it.
+2. **30 seconds:** `reconc demo` shows `protected-action`, `missing-proof`, and
+   `remediation`, then runs `real-test`, re-evaluates the corrected state, and
+   accepts `done` only after the TASK and proof agree.
+3. **2 minutes:** Reconc compiles repository-owned policy, applies the same
+   decision engine across CLI, hooks, Git, CI, TASK state, and run control,
+   binds command success to the candidate it verified, and exports a portable
+   proof bundle. It proves only that the configured repository contract and
+   recorded current evidence agree, not that the model is honest or the code
+   is universally correct.
+
+Submitted Build Week video, Devpost text, and the immutable v0.8.6 artifacts
+remain historical evidence. Current README and documentation use this
+terminology; future repository descriptions, release notes, demo captions, and
+social posts should derive from this section instead of retroactively editing
+the submission or copying a second long-form explanation.
 
 ## Install And Build
 
