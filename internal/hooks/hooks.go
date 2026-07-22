@@ -71,7 +71,8 @@ func HasManagedGrokHook(repoRoot string) bool {
 	if err != nil {
 		return false
 	}
-	return string(data) == generateGrok().Content
+	artifact, err := generateGrok()
+	return err == nil && string(data) == artifact.Content
 }
 
 // Artifact is one generated hook script + enough context to render it.
@@ -140,23 +141,23 @@ func Generate(kind string) (*Artifact, error) {
 	case generatorGitPreCommit:
 		return generateGitPreCommit(), nil
 	case generatorClaudeCode:
-		return generateClaudeCode(), nil
+		return generateClaudeCode()
 	case generatorCodex:
-		return generateCodex(), nil
+		return generateCodex()
 	case generatorGitHubCopilot:
-		return generateGitHubCopilot(), nil
+		return generateGitHubCopilot()
 	case generatorCursor:
 		return generateCursor(), nil
 	case generatorOpenCode:
-		return generateOpenCodeThin(), nil
+		return generateOpenCodeThin()
 	case generatorDevinCLI:
-		return generateDevinCLI(), nil
+		return generateDevinCLI()
 	case generatorAntigravity:
-		return generateAntigravity(), nil
+		return generateAntigravity()
 	case generatorKilo:
-		return generateKilo(), nil
+		return generateKilo()
 	case generatorGrok:
-		return generateGrok(), nil
+		return generateGrok()
 	}
 	return nil, &rerrors.PolicySourceError{Message: fmt.Sprintf("hook kind %q has no generator", kind)}
 }
@@ -672,7 +673,10 @@ func installAntigravity(repoRoot string, force bool) (*InstallReport, error) {
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "create parent dir of " + target, Cause: err}
 	}
-	artifact := generateAntigravity()
+	artifact, err := generateAntigravity()
+	if err != nil {
+		return nil, err
+	}
 	var reconcPart map[string]interface{}
 	if err := json.Unmarshal([]byte(artifact.Content), &reconcPart); err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "internal: generated Antigravity artifact is not valid JSON", Cause: err}

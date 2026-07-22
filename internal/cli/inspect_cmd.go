@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/ingest"
@@ -381,7 +382,11 @@ func runTUI(args []string, stdout, stderr io.Writer) (resultErr error) {
 		}
 		return nil
 	}
-	fmt.Fprint(out, tui.RenderText(view))
+	width := 0
+	if columns, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && columns >= 20 && columns <= 1000 {
+		width = columns
+	}
+	fmt.Fprint(out, tui.RenderTextWidth(view, width))
 	return nil
 }
 

@@ -13,6 +13,7 @@
     "rule_count",
     "source_count",
     "source_digest",
+    "lock_digest",
     "source_precedence",
     "discovery",
     "sources",
@@ -27,6 +28,7 @@
     "rule_count": { "type": "integer", "minimum": 0 },
     "source_count": { "type": "integer", "minimum": 0 },
     "source_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "lock_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "source_precedence": {
       "type": "array",
       "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/policy-lock.schema.json#/$defs/sourceKind" },

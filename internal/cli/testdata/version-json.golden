@@ -1,0 +1,9 @@
+{
+  "binary": "reconc",
+  "build_goarch": "testarch",
+  "build_goos": "testos",
+  "go_runtime": "go-test",
+  "provenance_format": "reconc-build-provenance-v1",
+  "source_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "version": "0.2.0"
+}

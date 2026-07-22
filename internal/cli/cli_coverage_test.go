@@ -900,7 +900,35 @@ func TestRunWhyComplexLockfileAndValidation(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(repo, "policies"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	policy := "rules:\n  - id: complex\n    kind: deny_write\n    paths: ['generated/**']\n    message: test\n"
+	policy := `rules:
+  - id: fresh
+    kind: require_fresh_file
+    when_paths: ['src/**']
+    required_files:
+      - path: docs/report.md
+        max_age_hours: 24
+    message: fresh
+  - id: evidence
+    kind: require_evidence
+    when_paths: ['src/**']
+    evidence:
+      - file: docs/evidence.md
+        must_exist: true
+    message: evidence
+  - id: composite
+    kind: all_of
+    when_paths: ['src/**']
+    checks:
+      - kind: require_evidence
+        file: docs/evidence.md
+        must_exist: true
+    message: composite
+  - id: script
+    kind: require_script
+    when_paths: ['src/**']
+    script: scripts/check.sh
+    message: script
+`
 	if err := os.WriteFile(filepath.Join(repo, "policies", "rules.yml"), []byte(policy), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -909,45 +937,26 @@ func TestRunWhyComplexLockfileAndValidation(t *testing.T) {
 	if err := Run([]string{"refresh", repo}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
-	lockPath := filepath.Join(repo, ".reconc", "policy.lock.json")
-	data, err := os.ReadFile(lockPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var payload map[string]interface{}
-	if err := json.Unmarshal(data, &payload); err != nil {
-		t.Fatal(err)
-	}
-	payload["rules"] = []interface{}{map[string]interface{}{
-		"id":              "complex",
-		"kind":            "all_of",
-		"message":         "line one\nline two",
-		"source_path":     "policies/rules.yml",
-		"source_block_id": "AGENTS.md:12",
-		"required_files":  []interface{}{map[string]interface{}{"path": "docs/report.md", "max_age_hours": 24}},
-		"evidence":        []interface{}{map[string]interface{}{"file": "docs/evidence.md"}},
-		"checks":          []interface{}{map[string]interface{}{"kind": "require_evidence"}},
-		"script":          "scripts/check.sh",
-	}}
-	data, err = json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(lockPath, append(data, '\n'), 0o644); err != nil {
-		t.Fatal(err)
+	for _, tc := range []struct {
+		ruleID string
+		want   string
+	}{
+		{ruleID: "fresh", want: "required_files:"},
+		{ruleID: "evidence", want: "evidence:"},
+		{ruleID: "composite", want: "checks (1 sub-checks):"},
+		{ruleID: "script", want: "Script:  scripts/check.sh"},
+	} {
+		stdout.Reset()
+		if err := Run([]string{"why", tc.ruleID, repo}, "0.5.0-test", &stdout, &stderr); err != nil {
+			t.Fatalf("why %s: %v", tc.ruleID, err)
+		}
+		if out := stdout.String(); !strings.Contains(out, "Mode:    (default)") || !strings.Contains(out, tc.want) {
+			t.Fatalf("expected %s output, got %q", tc.ruleID, out)
+		}
 	}
 
 	stdout.Reset()
-	if err := Run([]string{"why", "complex", repo}, "0.5.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("why complex: %v", err)
-	}
-	out := stdout.String()
-	if !strings.Contains(out, "Mode:    (default)") || !strings.Contains(out, "required_files:") || !strings.Contains(out, "evidence:") || !strings.Contains(out, "checks (1 sub-checks):") || !strings.Contains(out, "Script:  scripts/check.sh") {
-		t.Fatalf("expected rich why output, got %q", out)
-	}
-
-	stdout.Reset()
-	err = Run([]string{"why", "complex", repo, "--json", "--terse"}, "0.5.0-test", &stdout, &stderr)
+	err := Run([]string{"why", "composite", repo, "--json", "--terse"}, "0.5.0-test", &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
 		t.Fatalf("expected why mutually-exclusive error, got %v", err)
 	}

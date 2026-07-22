@@ -53,6 +53,8 @@ or a local service. Runtime behavior should stay offline by default.
 Human-readable output colors decisions, rule IDs, and `OK`/`WARN`/`FAIL` tags
 only on an interactive terminal. `NO_COLOR`, `TERM=dumb`, JSON, files, and
 pipes always remain plain.
+The dependency-free `tui` view is always plain text and bounds each line to a
+valid `COLUMNS` value, while JSON remains width-independent.
 
 ## Install And Build
 
@@ -655,7 +657,9 @@ In governed target repositories, repo-local policy lives in `.reconc.yml` and
 should be committed. The generated `.reconc/policy.lock.json` is a portable,
 committable policy contract and should be reviewed with policy-source changes.
 Format 2 is checkout-independent and byte-identical across equivalent clones
-and worktrees. Format-1 lockfiles are
+and worktrees. Its `lock_digest` binds the complete canonical payload except
+for the digest field itself, and runtime also verifies that embedded rules
+equal the rules parsed from the current policy sources. Format-1 lockfiles are
 migrated in memory after their legacy schema identity is validated. Publication
 uses atomic replacement and skips the write entirely when the canonical bytes
 are unchanged, so readers never see partial JSON and repeated compiles do not
@@ -1054,6 +1058,12 @@ root `reconc` before invoking any platform probe. Otherwise, each
 `tools/reconc/dist` and root `dist` directory prefers the stable platform name
 and accepts exactly one compatible versioned artifact as a migration fallback.
 Multiple compatible versions fail closed before PATH fallback.
+The development binaries and all repository-local release binaries remain
+writable by the repository owner and are not re-attested on every hook event.
+This resolution order is a convenience and availability contract inside the
+documented non-hostile same-user model, not a security boundary against a
+process that can replace repository files. Use a sandbox and protected remote
+CI outside that write authority when hostile same-user replacement is in scope.
 Claude Code uses its exec-form
 `command`+`args` shape so it does not spawn a hook shell or run a hook-launcher
 Git lookup. Codex uses the host shell command string without a nested `sh -lc`;
@@ -1365,10 +1375,10 @@ CI checks:
   binary version/help smoke;
   shell hook wrappers and shell policy scripts use the documented `sh` runtime
 - SHA-pinned GitHub-owned `actions/setup-node` provisions Node.js 24.18.0 with
-  implicit package-manager caching disabled, then the exact official npm
-  package installs and verifies Bun 1.3.14 in every job that executes
-  OpenCode/Kilo adapter contracts; missing Bun can never be mistaken for an
-  adapter regression or bypass the repository's action policy
+  implicit package-manager caching disabled. Each executable-test job packs
+  exact `bun@1.3.14`, compares the tarball's npm SRI against the committed
+  SHA-512 value, installs only that verified tarball, and checks the runtime
+  version before executing OpenCode/Kilo adapter contracts
 - every CI job that executes Go provisions the SHA-pinned `actions/setup-go`
   action from `go.mod`, including the isolated release-trust job
 - clean-repository self-hosting golden path on Ubuntu and macOS across all three
@@ -1545,12 +1555,17 @@ Security posture:
 - Audit log is opt-in via `RECONC_AUDIT=1`.
 - Non-portable current lockfile root markers are a hard stale/fail condition;
   equivalent clones and worktrees share the portable `.` identity.
+- Current lockfiles carry a self-digest over the canonical payload, and their
+  embedded rules must equal the policy parsed from current sources.
 
 Reconc is a deterministic repository control plane, not an operating-system
 sandbox. A deliberately hostile same-user process can replace local policy,
 hooks, state, or binaries, fabricate self-reported evidence, or bypass a Git
 hook. Strong adversarial enforcement requires an external sandbox and
 protected remote CI or branch rules outside the agent's write authority.
+Repository-local hook wrappers deliberately prefer development binaries during
+self-hosting and otherwise select stable or unambiguous versioned local
+artifacts before PATH. Those files are not a hostile same-user trust boundary.
 
 Security reports should be private first and include the command, policy,
 lockfile shape, payload if relevant, and reproduction steps.

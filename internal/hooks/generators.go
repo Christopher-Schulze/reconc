@@ -57,7 +57,17 @@ exit 2
 	}
 }
 
-func generateClaudeCode() *Artifact {
+func generateClaudeCode() (*Artifact, error) {
+	timeouts, err := requiredTimeouts(KindClaudeCode,
+		EventSessionStart, EventPostCompaction, EventUserPromptSubmit,
+		EventPreToolUse, EventPermissionRequest, EventPermissionDenied,
+		EventPostToolUse, EventPostToolUseFailure, EventSubagentStart,
+		EventSubagentStop, EventPreCompaction, EventStop, EventStopFailure,
+		EventSessionEnd,
+	)
+	if err != nil {
+		return nil, err
+	}
 	// Route Claude Code events to reconc-specific runtime sub-actions.
 	command := func(event string, lifecycle Event) map[string]interface{} {
 		return map[string]interface{}{
@@ -67,7 +77,7 @@ func generateClaudeCode() *Artifact {
 				event,
 				"${CLAUDE_PROJECT_DIR}",
 			},
-			"timeout": mustTimeoutSeconds(KindClaudeCode, lifecycle),
+			"timeout": timeouts[lifecycle],
 		}
 	}
 	const guardedTools = "Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash"
@@ -158,15 +168,23 @@ func generateClaudeCode() *Artifact {
 		TargetPath: ClaudeCodeSettingsPath,
 		Executable: false,
 		Content:    string(data) + "\n",
-	}
+	}, nil
 }
 
-func generateCodex() *Artifact {
+func generateCodex() (*Artifact, error) {
+	timeouts, err := requiredTimeouts(KindCodex,
+		EventSessionStart, EventUserPromptSubmit, EventPreToolUse,
+		EventPermissionRequest, EventPostToolUse, EventPreCompaction,
+		EventPostCompaction, EventSubagentStart, EventSubagentStop, EventStop,
+	)
+	if err != nil {
+		return nil, err
+	}
 	command := func(event string, lifecycle Event, statusMessage string) map[string]interface{} {
 		entry := map[string]interface{}{
 			"type":    "command",
 			"command": shellRuntimeCommand(".", event),
-			"timeout": mustTimeoutSeconds(KindCodex, lifecycle),
+			"timeout": timeouts[lifecycle],
 		}
 		if statusMessage != "" {
 			entry["statusMessage"] = statusMessage
@@ -231,7 +249,7 @@ func generateCodex() *Artifact {
 		TargetPath: CodexHooksPath,
 		Executable: false,
 		Content:    string(data) + "\n",
-	}
+	}, nil
 }
 
 func generateCursor() *Artifact {
@@ -292,13 +310,19 @@ func generateCursor() *Artifact {
 	}
 }
 
-func generateAntigravity() *Artifact {
+func generateAntigravity() (*Artifact, error) {
+	timeouts, err := requiredTimeouts(KindAntigravity,
+		EventSessionStart, EventPreToolUse, EventPostToolUse, EventSessionEnd, EventStop,
+	)
+	if err != nil {
+		return nil, err
+	}
 	repoExpr := "."
 	command := func(event string, lifecycle Event) map[string]interface{} {
 		return map[string]interface{}{
 			"type":    "command",
 			"command": runtimeCommand(repoExpr, event),
-			"timeout": mustTimeoutSeconds(KindAntigravity, lifecycle),
+			"timeout": timeouts[lifecycle],
 		}
 	}
 	preToolMatcher := strings.Join([]string{
@@ -350,7 +374,7 @@ func generateAntigravity() *Artifact {
 		TargetPath: AntigravityHooksPath,
 		Executable: false,
 		Content:    string(data) + "\n",
-	}
+	}, nil
 }
 
 func runtimeCommand(repoExpr, event string) string {

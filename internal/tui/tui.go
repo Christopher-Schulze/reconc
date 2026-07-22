@@ -161,8 +161,42 @@ func effectiveMode(mode, defaultMode policy.Mode) policy.Mode {
 	return defaultMode
 }
 
-// RenderText renders View as a compact terminal dashboard.
+// RenderText renders View without a caller-imposed width limit.
 func RenderText(view *View) string {
+	return RenderTextWidth(view, 0)
+}
+
+// RenderTextWidth renders View as a compact terminal dashboard and bounds
+// every line to width terminal cells. Reconc emits plain text only, and its
+// user-facing fields are overwhelmingly single-width runes, so rune-safe
+// truncation is deterministic without a terminal framework dependency.
+func RenderTextWidth(view *View, width int) string {
+	rendered := renderText(view)
+	if width <= 0 {
+		return rendered
+	}
+	lines := strings.SplitAfter(rendered, "\n")
+	var bounded strings.Builder
+	for _, line := range lines {
+		newline := strings.HasSuffix(line, "\n")
+		line = strings.TrimSuffix(line, "\n")
+		runes := []rune(line)
+		if len(runes) > width {
+			if width <= 3 {
+				runes = runes[:width]
+			} else {
+				runes = append(runes[:width-3], '.', '.', '.')
+			}
+		}
+		bounded.WriteString(string(runes))
+		if newline {
+			bounded.WriteByte('\n')
+		}
+	}
+	return bounded.String()
+}
+
+func renderText(view *View) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "reconc tui: %s\n", view.RepoRoot)
 	fmt.Fprintf(&b, "  discovered: %t\n", view.Discovered)

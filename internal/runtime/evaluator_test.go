@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"encoding/json"
 	stderrors "errors"
 	"os"
 	"path/filepath"
@@ -676,7 +677,7 @@ func TestCheckAcceptsDefaultSchemaWhenEnvOverrideSet(t *testing.T) {
 
 // --- scope-filter fail-closed ---------------------------------------
 
-func TestScopeFilterPatternErrorFailsClosed(t *testing.T) {
+func TestScopeFilterPatternTamperingFailsClosedBeforeEvaluation(t *testing.T) {
 	// Craft a lockfile rule with a malformed scope_paths pattern.
 	// doublestar rejects certain malformed glob character classes.
 	withRECONCHome(t)
@@ -701,31 +702,38 @@ scopes:
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Replace apps/web/** with a syntactically-invalid glob.
-	corrupted := strings.ReplaceAll(string(data), `"apps/web/**"`, `"[malformed"`)
-	if err := os.WriteFile(lockfilePath, []byte(corrupted), 0o644); err != nil {
+	var payload map[string]interface{}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	rules, ok := payload["rules"].([]interface{})
+	if !ok || len(rules) != 1 {
+		t.Fatalf("unexpected compiled rules: %#v", payload["rules"])
+	}
+	rule, ok := rules[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("unexpected compiled rule: %#v", rules[0])
+	}
+	rule["scope_paths"] = []interface{}{"[malformed"}
+	digest, err := compiler.ComputeLockDigest(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload["lock_digest"] = digest
+	corrupted, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lockfilePath, append(corrupted, '\n'), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Any write triggers the scope evaluation.
-	report, err := CheckRepoPolicy(repo, ExecutionInputs{
+	_, err = CheckRepoPolicy(repo, ExecutionInputs{
 		WritePaths: []string{filepath.Join(repo, "apps/web/src/x.go")},
 	})
-	if err != nil {
-		t.Fatalf("check: %v", err)
-	}
-	// Expect a synthetic scope-pattern-error violation in block mode.
-	var found *Violation
-	for i := range report.Violations {
-		if strings.Contains(report.Violations[i].Message, "scope pattern") {
-			found = &report.Violations[i]
-		}
-	}
-	if found == nil {
-		t.Fatalf("expected synthetic scope-pattern-error violation, got: %+v", report.Violations)
-	}
-	if found.Mode != policy.ModeBlock {
-		t.Errorf("scope-pattern-error must be block mode, got %s", found.Mode)
+	var target *rerrors.LockfileError
+	if !stderrors.As(err, &target) {
+		t.Fatalf("expected semantic lockfile tamper rejection, got %T: %v", err, err)
 	}
 }
 

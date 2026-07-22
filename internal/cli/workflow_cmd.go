@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,10 +11,12 @@ import (
 	"strings"
 	"time"
 
+	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/audit"
 	"reconc.dev/reconc/internal/completiongate"
 	"reconc.dev/reconc/internal/contextsize"
 	"reconc.dev/reconc/internal/ingest"
+	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 	"reconc.dev/reconc/internal/tasklifecycle"
@@ -515,11 +518,14 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 		md = renderStartMinimal(data)
 	}
 	if writePath != "" {
-		target := filepath.Join(abs, writePath)
+		target, err := resolveStartWriteTarget(abs, writePath)
+		if err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc start: " + err.Error()}
+		}
 		if _, err := os.Stat(target); err == nil && !force {
 			return &CLIError{ExitCode: 1, Message: target + " already exists; pass --force to overwrite"}
 		}
-		if err := os.WriteFile(target, []byte(md), 0o644); err != nil {
+		if _, err := atomicfile.WriteIfChanged(target, []byte(md), 0o644); err != nil {
 			return &CLIError{ExitCode: 1, Message: "reconc start: write " + target + ": " + err.Error()}
 		}
 		fmt.Fprintf(stdout, "Wrote %s (%d bytes)\n", target, len(md))
@@ -527,6 +533,26 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 	}
 	_, _ = stdout.Write([]byte(md))
 	return nil
+}
+
+func resolveStartWriteTarget(repoRoot, writePath string) (string, error) {
+	if filepath.IsAbs(writePath) {
+		return "", errors.New("--write path must be repository-relative")
+	}
+	target := filepath.Join(repoRoot, writePath)
+	rootIdentity, err := pathidentity.ResolveExisting(repoRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolve repository identity: %w", err)
+	}
+	targetIdentity, err := pathidentity.ResolveProspective(target)
+	if err != nil {
+		return "", fmt.Errorf("resolve --write path: %w", err)
+	}
+	relative, err := filepath.Rel(rootIdentity, targetIdentity)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", errors.New("--write path must stay inside the repository")
+	}
+	return target, nil
 }
 
 // buildStartData gathers the facts start.md needs. Returns a map so

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +13,41 @@ import (
 
 	"reconc.dev/reconc/buildprovenance"
 )
+
+type taskIndexFixture struct {
+	File    string `json:"file"`
+	Valid   bool   `json:"valid"`
+	Current string `json:"current"`
+	Entries int    `json:"entries"`
+}
+
+func TestTaskIndexParserMatchesRuntimeFixtures(t *testing.T) {
+	fixtureRoot := filepath.Join("testdata", "task-index")
+	casesData, err := os.ReadFile(filepath.Join(fixtureRoot, "cases.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixtures []taskIndexFixture
+	if err := json.Unmarshal(casesData, &fixtures); err != nil {
+		t.Fatal(err)
+	}
+	for _, fixture := range fixtures {
+		t.Run(fixture.File, func(t *testing.T) {
+			content, err := os.ReadFile(filepath.Join(fixtureRoot, fixture.File))
+			if err != nil {
+				t.Fatal(err)
+			}
+			index, failures := parseTaskIndex(string(content))
+			valid := len(failures) == 0
+			if valid != fixture.Valid {
+				t.Fatalf("valid=%t, want %t; failures=%#v", valid, fixture.Valid, failures)
+			}
+			if fixture.Valid && (index.currentName != fixture.Current || len(index.entries) != fixture.Entries) {
+				t.Fatalf("parsed current=%q entries=%d, want %q/%d", index.currentName, len(index.entries), fixture.Current, fixture.Entries)
+			}
+		})
+	}
+}
 
 func TestBatchAuditResultsReportsModesIndependently(t *testing.T) {
 	output, hasFailures := batchAuditResults(t.TempDir(), []string{"unknown-audit-a", "unknown-audit-b"})

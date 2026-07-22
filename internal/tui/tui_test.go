@@ -1,12 +1,15 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"reconc.dev/reconc/internal/compiler"
+	"reconc.dev/reconc/internal/completiongate"
+	"reconc.dev/reconc/internal/policy"
 )
 
 func TestBuildAndRender(t *testing.T) {
@@ -43,6 +46,64 @@ func TestBuildAndRender(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("rendered TUI missing %q:\n%s", want, text)
 		}
+	}
+}
+
+func TestRenderTextWidthCoversTerminalStates(t *testing.T) {
+	largeSources := make([]SourceSummary, 35)
+	largeRules := make([]RuleSummary, 35)
+	for index := range largeSources {
+		largeSources[index] = SourceSummary{Kind: "policy_file", Path: fmt.Sprintf("policies/very-long-source-name-%02d.yml", index)}
+		largeRules[index] = RuleSummary{ID: fmt.Sprintf("very-long-rule-identifier-%02d", index), Kind: policy.KindDenyWrite, Mode: policy.ModeBlock}
+	}
+	tests := []struct {
+		name  string
+		view  *View
+		width int
+		want  []string
+	}{
+		{
+			name:  "narrow empty error",
+			view:  &View{RepoRoot: "/tmp/not-discovered", LockfileStatus: "not discovered", Sources: []SourceSummary{}, Rules: []RuleSummary{}, Errors: []string{"no policy markers discovered"}, NextAction: "run bootstrap"},
+			width: 40,
+			want:  []string{"Errors:", "Sources:", "Rules:", "none"},
+		},
+		{
+			name:  "wide pass",
+			view:  &View{RepoRoot: "/tmp/repo", Discovered: true, LockfileStatus: "fresh", Completion: &completiongate.Report{OK: true, Decision: "pass", Checks: []completiongate.Check{{ID: "policy", Status: completiongate.StatusPass, Detail: "fresh"}}}, Sources: []SourceSummary{}, Rules: []RuleSummary{}},
+			width: 120,
+			want:  []string{"completion: pass", "Sources:", "Rules:"},
+		},
+		{
+			name:  "narrow block",
+			view:  &View{RepoRoot: "/tmp/repo", Discovered: true, LockfileStatus: "refresh required", Completion: &completiongate.Report{Decision: "block", Checks: []completiongate.Check{{ID: "policy/lockfile", Status: completiongate.StatusFail, Detail: "compiled policy lockfile requires a refresh before completion"}}}, Sources: []SourceSummary{}, Rules: []RuleSummary{}},
+			width: 48,
+			want:  []string{"completion: block (1 failed)", "Completion blockers:"},
+		},
+		{
+			name:  "large bounded lists",
+			view:  &View{RepoRoot: "/tmp/repo", Discovered: true, LockfileStatus: "fresh", Sources: largeSources, SourceCount: len(largeSources), Rules: largeRules, RuleCount: len(largeRules)},
+			width: 72,
+			want:  []string{"... 5 more source(s)", "... 5 more rule(s)"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			text := RenderTextWidth(test.view, test.width)
+			if strings.Contains(text, "\x1b[") {
+				t.Fatal("TUI output contains ANSI control sequences")
+			}
+			for _, line := range strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
+				if len([]rune(line)) > test.width {
+					t.Fatalf("line exceeds width %d: %q", test.width, line)
+				}
+			}
+			for _, want := range test.want {
+				if !strings.Contains(text, want) {
+					t.Fatalf("render missing %q:\n%s", want, text)
+				}
+			}
+		})
 	}
 }
 

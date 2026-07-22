@@ -56,6 +56,31 @@ func TestCreateLogbookTaskUsesExactGrammar(t *testing.T) {
 	}
 }
 
+func TestCreateLogbookTaskAppendsAfterHistoricalRows(t *testing.T) {
+	repo := t.TempDir()
+	writeFile(t, repo, ".reconc.yml", []byte("task_lifecycle:\n  profile: logbook-v1\n"))
+	writeFile(t, repo, "docs/tasks.md", []byte("# Tasks\n\nCurrent: none\n\n- [ ] TASK-0002-existing - Existing -> tasks/TASK-0002-existing.md\n- [x] TASK-0003-done - Done -> tasks/done/TASK-0003-done.md\n"))
+	writeFile(t, repo, "docs/tasks/TASK-0002-existing.md", logbookDetail("TASK-0002-existing", "Queued", "- [ ] Start"))
+	writeFile(t, repo, "docs/tasks/done/TASK-0003-done.md", logbookDetail("TASK-0003-done", "Done", "- [x] Finished"))
+
+	created, err := Create(repo, "Append-only successor", "")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.TaskID != "0004" {
+		t.Fatalf("unexpected TASK ID: %#v", created)
+	}
+	overview, err := os.ReadFile(filepath.Join(repo, "docs/tasks.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doneAt := strings.Index(string(overview), "- [x] TASK-0003-done")
+	createdAt := strings.Index(string(overview), "- [ ] TASK-0004-append-only-successor")
+	if doneAt < 0 || createdAt < doneAt {
+		t.Fatalf("new logbook row was not appended after history:\n%s", overview)
+	}
+}
+
 func TestCreateRejectsCollisionAndAmbiguousProfileWithoutMutation(t *testing.T) {
 	repo := sectionedRepo(t, "", []testTask{{id: "001", title: "Existing", state: StateQueued, subTasks: "- [ ] Work"}})
 	before, _ := os.ReadFile(filepath.Join(repo, "docs/tasks.md"))

@@ -62,6 +62,40 @@ func TestInvocationsFailClosedOnDynamicExecutable(t *testing.T) {
 	}
 }
 
+func TestAdversarialCommandDiscovery(t *testing.T) {
+	tests := []struct {
+		name         string
+		command      string
+		wantMatch    bool
+		wantComplete bool
+	}{
+		{name: "single-quoted inert text", command: `printf '%s' 'git clean -fd'`, wantComplete: true},
+		{name: "double-quoted inert text", command: `printf '%s' "git clean -fd"`, wantComplete: true},
+		{name: "nested static eval", command: `eval "eval 'git clean -fd'"`, wantMatch: true, wantComplete: true},
+		{name: "wrapper chain", command: `env -i sudo -n command -- exec git clean -fd`, wantMatch: true, wantComplete: true},
+		{name: "command substitution", command: `printf '%s' "$(sh -c 'git clean -fd')"`, wantMatch: true, wantComplete: true},
+		{name: "process substitution", command: `cat <(env -- git clean -fd)`, wantMatch: true, wantComplete: true},
+		{name: "dynamic eval", command: `eval "$DANGEROUS_COMMAND"`, wantComplete: false},
+		{name: "dynamic nested shell", command: `sh -c "$(printf '%s' "$DANGEROUS_COMMAND")"`, wantComplete: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			invocations, complete := Invocations(test.command, 16)
+			if complete != test.wantComplete {
+				t.Fatalf("complete=%t, want %t; invocations=%#v", complete, test.wantComplete, invocations)
+			}
+			matched := false
+			for _, invocation := range invocations {
+				invocationMatched, _ := Match(invocation, "git clean -fd", false)
+				matched = matched || invocationMatched
+			}
+			if matched != test.wantMatch {
+				t.Fatalf("matched=%t, want %t; invocations=%#v", matched, test.wantMatch, invocations)
+			}
+		})
+	}
+}
+
 func TestMatchScopesDynamicUncertaintyToRelevantCommands(t *testing.T) {
 	tests := []struct {
 		name      string

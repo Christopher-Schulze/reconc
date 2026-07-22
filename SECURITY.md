@@ -52,7 +52,8 @@ network calls while compiling or checking repository policy.
 
 Security-relevant defaults:
 
-- generated policy lockfiles are validated before use
+- generated policy lockfiles are validated before use, including a canonical
+  self-digest and embedded-rule parity with current policy sources
 - stale lockfiles and non-portable current lockfile root markers fail closed
 - hook payloads are treated as untrusted input
 - hook payload size, read time, and JSON nesting depth are bounded
@@ -60,6 +61,10 @@ Security-relevant defaults:
 - payload command strings are matched as data and are not executed
 - subprocess execution is limited to policy-authored `require_script` checks
 - audit logging is opt-in via `RECONC_AUDIT=1`
+- repository-local hook wrappers may prefer development binaries for
+  self-hosting and otherwise select stable or unambiguous versioned local
+  binaries before `PATH`; those same-user-writable files are not an
+  adversarial trust boundary
 - `make publication-audit` rejects tracked secret-shaped values, personal
   paths, session material, sensitive filenames, and post-boundary commit leaks
   before release; legacy history remains an explicit documented exception

@@ -43,6 +43,7 @@ The compiled `source_precedence` field is:
 | `rule_count` | integer | Must equal `len(rules)`. |
 | `source_count` | integer | Must equal `len(sources)`. |
 | `source_digest` | string | Lowercase SHA-256 hex of canonical source bundle. |
+| `lock_digest` | string | Lowercase SHA-256 hex of the complete canonical lockfile payload with this field omitted. |
 | `source_precedence` | string array | Ordered source-kind list. |
 | `discovery` | object | Snapshot of discovery state and warnings. |
 | `sources` | object array | Every input source in precedence order. |
@@ -58,6 +59,13 @@ The compiled `source_precedence` field is:
 The canonical JSON uses sorted object keys and no semantic dependence on
 map iteration order. Recompiling identical sources must produce the same
 digest and lockfile bytes.
+
+## Lock Digest
+
+`lock_digest` is SHA-256 over canonical JSON for every top-level field except
+`lock_digest` itself. Runtime verifies it before using embedded rules. Runtime
+also re-parses current policy sources and requires byte-equivalent canonical
+rule payloads, so an in-memory legacy migration cannot legitimize rule drift.
 
 ## Rule Entries
 
@@ -87,5 +95,6 @@ Runtime loaders must:
    absolute-root lockfiles in memory to the format-2 `.` envelope without
    mutating the input.
 3. Validate rule count and source count consistency.
-4. Treat generated lockfiles as generated output; users must re-run
+4. Validate `lock_digest` and exact embedded-rule parity with current sources.
+5. Treat generated lockfiles as generated output; users must re-run
    `reconc compile` instead of editing them by hand.

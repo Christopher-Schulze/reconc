@@ -279,8 +279,11 @@ func loadSessionStateResolved(root, sessionID string) (SessionState, error) {
 	}
 	state.SessionID = sessionID
 	state.Runtime = normalizeRuntimeName(state.Runtime)
-	if state.RepoRoot != "" && filepath.Clean(state.RepoRoot) != filepath.Clean(root) {
-		return SessionState{}, fmt.Errorf("%s: repo_root %q does not match resolved repository %q", path, state.RepoRoot, root)
+	if state.RepoRoot != "" {
+		storedRoot, resolveErr := ResolveRepoRoot(state.RepoRoot)
+		if resolveErr != nil || filepath.Clean(storedRoot) != filepath.Clean(root) {
+			return SessionState{}, fmt.Errorf("%s: repo_root %q does not match resolved repository %q", path, state.RepoRoot, root)
+		}
 	}
 	state.RepoRoot = root
 	if len(state.WritePaths) > 0 && state.EvidenceEpoch == 0 && len(state.WriteEpochs) == 0 {

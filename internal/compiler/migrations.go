@@ -145,5 +145,10 @@ func MigrateLockfile(payload map[string]interface{}) (map[string]interface{}, []
 			}
 		}
 	}
+	digest, err := ComputeLockDigest(current)
+	if err != nil {
+		return nil, applied, &rerrors.LockfileError{Message: "compute migrated lockfile digest", Cause: err}
+	}
+	current["lock_digest"] = digest
 	return current, applied, nil
 }

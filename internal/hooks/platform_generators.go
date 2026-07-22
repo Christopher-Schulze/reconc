@@ -4,14 +4,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	rerrors "reconc.dev/reconc/internal/errors"
 )
 
-func generateDevinCLI() *Artifact {
+func generateDevinCLI() (*Artifact, error) {
+	timeouts, err := requiredTimeouts(KindDevinCLI,
+		EventSessionStart, EventUserPromptSubmit, EventPreToolUse,
+		EventPermissionRequest, EventPostToolUse, EventStop,
+		EventSessionEnd, EventPostCompaction,
+	)
+	if err != nil {
+		return nil, err
+	}
 	command := func(event string, lifecycle Event) map[string]interface{} {
 		return map[string]interface{}{
 			"type":    "command",
 			"command": fmt.Sprintf(`"$DEVIN_PROJECT_DIR/tools/reconc/bin/hook" %s "$DEVIN_PROJECT_DIR"`, event),
-			"timeout": mustTimeoutSeconds(KindDevinCLI, lifecycle),
+			"timeout": timeouts[lifecycle],
 		}
 	}
 	entry := func(event string, lifecycle Event, matcher string) map[string]interface{} {
@@ -32,14 +42,23 @@ func generateDevinCLI() *Artifact {
 		"PostCompaction":    []interface{}{entry("devin-post-compaction", EventPostCompaction, "")},
 	}
 	data, _ := json.MarshalIndent(template, "", "  ")
-	return &Artifact{Kind: KindDevinCLI, TargetPath: DevinHooksPath, Content: string(data) + "\n"}
+	return &Artifact{Kind: KindDevinCLI, TargetPath: DevinHooksPath, Content: string(data) + "\n"}, nil
 }
 
-func generateOpenCodeThin() *Artifact {
+func generateOpenCodeThin() (*Artifact, error) {
 	return generateBunAgentPlugin(KindOpenCode, OpenCodePluginPath, "opencode", false)
 }
 
-func generateGitHubCopilot() *Artifact {
+func generateGitHubCopilot() (*Artifact, error) {
+	timeouts, err := requiredTimeouts(KindGitHubCopilot,
+		EventSessionStart, EventUserPromptSubmit, EventPreToolUse,
+		EventPermissionRequest, EventPostToolUse, EventPostToolUseFailure,
+		EventStop, EventSessionEnd, EventNotification, EventSubagentStart,
+		EventSubagentStop, EventPreCompaction,
+	)
+	if err != nil {
+		return nil, err
+	}
 	command := func(event string, lifecycle Event, matcher string) map[string]interface{} {
 		bashCommand := fmt.Sprintf("tools/reconc/bin/hook %s .", event)
 		powershellCommand := fmt.Sprintf(`& sh "tools/reconc/bin/hook" "%s" "."; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`, event)
@@ -54,7 +73,7 @@ func generateGitHubCopilot() *Artifact {
 			"bash":       bashCommand,
 			"powershell": powershellCommand,
 			"cwd":        ".",
-			"timeoutSec": mustTimeoutSeconds(KindGitHubCopilot, lifecycle),
+			"timeoutSec": timeouts[lifecycle],
 		}
 		if matcher != "" {
 			entry["matcher"] = matcher
@@ -81,14 +100,23 @@ func generateGitHubCopilot() *Artifact {
 		},
 	}
 	data, _ := json.MarshalIndent(template, "", "  ")
-	return &Artifact{Kind: KindGitHubCopilot, TargetPath: GitHubCopilotHooksPath, Content: string(data) + "\n"}
+	return &Artifact{Kind: KindGitHubCopilot, TargetPath: GitHubCopilotHooksPath, Content: string(data) + "\n"}, nil
 }
 
-func generateKilo() *Artifact {
+func generateKilo() (*Artifact, error) {
 	return generateBunAgentPlugin(KindKilo, KiloPluginPath, "kilo", true)
 }
 
-func generateGrok() *Artifact {
+func generateGrok() (*Artifact, error) {
+	timeouts, err := requiredTimeouts(KindGrok,
+		EventSessionStart, EventUserPromptSubmit, EventPreToolUse,
+		EventPostToolUse, EventPostToolUseFailure, EventPermissionDenied,
+		EventStop, EventStopFailure, EventNotification, EventSubagentStart,
+		EventSubagentStop, EventPreCompaction, EventPostCompaction, EventSessionEnd,
+	)
+	if err != nil {
+		return nil, err
+	}
 	command := func(event string, lifecycle Event) map[string]interface{} {
 		commandText := fmt.Sprintf("tools/reconc/bin/hook %s .", event)
 		if lifecycle == EventPreToolUse {
@@ -99,7 +127,7 @@ func generateGrok() *Artifact {
 		return map[string]interface{}{
 			"type":    "command",
 			"command": commandText,
-			"timeout": mustTimeoutSeconds(KindGrok, lifecycle),
+			"timeout": timeouts[lifecycle],
 		}
 	}
 	entry := func(event string, lifecycle Event, matcher string) map[string]interface{} {
@@ -161,10 +189,14 @@ func generateGrok() *Artifact {
 		},
 	}
 	data, _ := json.MarshalIndent(template, "", "  ")
-	return &Artifact{Kind: KindGrok, TargetPath: GrokHooksPath, Content: string(data) + "\n"}
+	return &Artifact{Kind: KindGrok, TargetPath: GrokHooksPath, Content: string(data) + "\n"}, nil
 }
 
-func generateBunAgentPlugin(kind, targetPath, prefix string, descriptorExport bool) *Artifact {
+func generateBunAgentPlugin(kind, targetPath, prefix string, descriptorExport bool) (*Artifact, error) {
+	routeBudgets, err := bunRouteBudgets(kind)
+	if err != nil {
+		return nil, err
+	}
 	exportHead := "export const ReconcOpenCodePlugin ="
 	exportTail := ""
 	if descriptorExport {
@@ -177,9 +209,9 @@ export default { id: "reconc", server: ReconcKiloServer }`
 		"__EXPORT_HEAD__", exportHead,
 		"__EXPORT_TAIL__", exportTail,
 		"__PREFIX__", prefix,
-		"__ROUTE_BUDGETS__", bunRouteBudgets(kind),
+		"__ROUTE_BUDGETS__", routeBudgets,
 	).Replace(bunAgentPluginTemplate)
-	return &Artifact{Kind: kind, TargetPath: targetPath, Content: content}
+	return &Artifact{Kind: kind, TargetPath: targetPath, Content: content}, nil
 }
 
 type bunRouteBudget struct {
@@ -189,10 +221,10 @@ type bunRouteBudget struct {
 	TimeoutPolicy       FailurePolicy `json:"timeoutPolicy"`
 }
 
-func bunRouteBudgets(kind string) string {
+func bunRouteBudgets(kind string) (string, error) {
 	platform, ok := PlatformForKind(kind)
 	if !ok {
-		panic("missing hook platform: " + kind)
+		return "", hookGeneratorError("missing hook platform: %s", kind)
 	}
 	budgets := map[string]bunRouteBudget{}
 	for _, capability := range platform.Capabilities {
@@ -207,22 +239,33 @@ func bunRouteBudgets(kind string) string {
 	}
 	data, err := json.Marshal(budgets)
 	if err != nil {
-		panic("marshal hook route budgets: " + err.Error())
+		return "", hookGeneratorError("marshal hook route budgets: %v", err)
 	}
-	return string(data)
+	return string(data), nil
 }
 
-func mustTimeoutSeconds(kind string, event Event) int {
+func requiredTimeouts(kind string, events ...Event) (map[Event]int, error) {
 	platform, ok := PlatformForKind(kind)
 	if !ok {
-		panic("missing hook platform: " + kind)
+		return nil, hookGeneratorError("missing hook platform: %s", kind)
 	}
-	for _, capability := range platform.Capabilities {
-		if capability.Event == event && capability.TimeoutSeconds > 0 {
-			return capability.TimeoutSeconds
+	timeouts := make(map[Event]int, len(events))
+	for _, event := range events {
+		for _, capability := range platform.Capabilities {
+			if capability.Event == event && capability.TimeoutSeconds > 0 {
+				timeouts[event] = capability.TimeoutSeconds
+				break
+			}
+		}
+		if timeouts[event] == 0 {
+			return nil, hookGeneratorError("missing timeout for %s %s", kind, event)
 		}
 	}
-	panic(fmt.Sprintf("missing timeout for %s %s", kind, event))
+	return timeouts, nil
+}
+
+func hookGeneratorError(format string, args ...interface{}) error {
+	return &rerrors.PolicySourceError{Message: fmt.Sprintf(format, args...)}
 }
 
 const bunAgentPluginTemplate = `// Managed by reconc. Project-local __PREFIX__ policy adapter.

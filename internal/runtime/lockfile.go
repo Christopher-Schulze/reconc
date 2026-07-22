@@ -125,6 +125,9 @@ func validateLockfileFreshness(root string, payload map[string]interface{}) erro
 	if err != nil {
 		return err
 	}
+	if err := compiler.ValidateEmbeddedRules(payload, parsed); err != nil {
+		return err
+	}
 
 	lockedMode, _ := payload["default_mode"].(string)
 	if string(parsed.DefaultMode) != lockedMode {

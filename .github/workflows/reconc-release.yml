@@ -17,6 +17,10 @@ permissions:
   contents: write
   id-token: write
 
+env:
+  BUN_VERSION: 1.3.14
+  BUN_INTEGRITY: sha512-aB6GVd42x1Y5ie1K16SF+oLGtgSkwX9hgoDdIW88pjvfTccU8F1vfpoOt34QLv0dZ1v3XimtaxPlZUG81Gx9Zg==
+
 jobs:
   release:
     name: Build release artifacts
@@ -50,8 +54,13 @@ jobs:
 
       - name: Set up Bun
         run: |
-          npm install --global bun@1.3.14
-          test "$(bun --version)" = "1.3.14"
+          bun_package_dir="$(mktemp -d)"
+          trap 'rm -rf "$bun_package_dir"' EXIT
+          npm pack "bun@$BUN_VERSION" --pack-destination "$bun_package_dir" --json > "$bun_package_dir/pack.json"
+          actual_bun_integrity="$(node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(data[0].integrity)' "$bun_package_dir/pack.json")"
+          test "$actual_bun_integrity" = "$BUN_INTEGRITY"
+          npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"
+          test "$(bun --version)" = "$BUN_VERSION"
 
       - name: Verify tag and source version
         env:

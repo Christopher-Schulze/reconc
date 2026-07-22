@@ -2,9 +2,12 @@ package hooks
 
 import (
 	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
+
+	rerrors "reconc.dev/reconc/internal/errors"
 )
 
 func TestPlatformRegistryOwnsEveryHookKind(t *testing.T) {
@@ -108,6 +111,43 @@ func TestGenerateEveryRegisteredArtifact(t *testing.T) {
 			}
 			for _, missing := range missingRuntimeEvents(platform, artifact.Content) {
 				t.Errorf("generated artifact misses registry route %s", missing)
+			}
+		})
+	}
+}
+
+func TestGeneratorRegistryDriftReturnsTypedErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func() error
+	}{
+		{
+			name: "missing platform timeout",
+			run: func() error {
+				_, err := requiredTimeouts("missing-platform", EventStop)
+				return err
+			},
+		},
+		{
+			name: "missing event timeout",
+			run: func() error {
+				_, err := requiredTimeouts(KindCodex, Event("missing-event"))
+				return err
+			},
+		},
+		{
+			name: "missing plugin platform",
+			run: func() error {
+				_, err := bunRouteBudgets("missing-platform")
+				return err
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var target *rerrors.PolicySourceError
+			if err := test.run(); !errors.As(err, &target) {
+				t.Fatalf("expected PolicySourceError, got %T", err)
 			}
 		})
 	}

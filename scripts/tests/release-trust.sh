@@ -155,14 +155,27 @@ done
   || fail "$ci_workflow must disable implicit package-manager caching in both executable-test jobs"
 [ "$(grep -Fc 'package-manager-cache: false' "$release_workflow")" -eq 1 ] \
   || fail "$release_workflow must disable implicit package-manager caching exactly once"
-[ "$(grep -Fc 'npm install --global bun@1.3.14' "$ci_workflow")" -eq 2 ] \
-  || fail "$ci_workflow must install Bun 1.3.14 in both executable-test jobs"
-[ "$(grep -Fc 'npm install --global bun@1.3.14' "$release_workflow")" -eq 1 ] \
-  || fail "$release_workflow must install Bun 1.3.14 exactly once"
-[ "$(grep -Fc 'test "$(bun --version)" = "1.3.14"' "$ci_workflow")" -eq 2 ] \
-  || fail "$ci_workflow must verify Bun 1.3.14 in both executable-test jobs"
-[ "$(grep -Fc 'test "$(bun --version)" = "1.3.14"' "$release_workflow")" -eq 1 ] \
-  || fail "$release_workflow must verify Bun 1.3.14 exactly once"
+bun_integrity='sha512-aB6GVd42x1Y5ie1K16SF+oLGtgSkwX9hgoDdIW88pjvfTccU8F1vfpoOt34QLv0dZ1v3XimtaxPlZUG81Gx9Zg=='
+for workflow in "$ci_workflow" "$release_workflow"; do
+  require_text "$workflow" "BUN_VERSION: 1.3.14"
+  require_text "$workflow" "BUN_INTEGRITY: $bun_integrity"
+  require_text "$workflow" 'test "$actual_bun_integrity" = "$BUN_INTEGRITY"'
+  if grep -Fq 'npm install --global bun@' "$workflow"; then
+    fail "$workflow installs Bun directly without verifying the packed artifact"
+  fi
+done
+[ "$(grep -Fc 'npm pack "bun@$BUN_VERSION"' "$ci_workflow")" -eq 2 ] \
+  || fail "$ci_workflow must fetch the exact Bun package in both executable-test jobs"
+[ "$(grep -Fc 'npm pack "bun@$BUN_VERSION"' "$release_workflow")" -eq 1 ] \
+  || fail "$release_workflow must fetch the exact Bun package exactly once"
+[ "$(grep -Fc 'npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"' "$ci_workflow")" -eq 2 ] \
+  || fail "$ci_workflow must install only the verified Bun tarball in both executable-test jobs"
+[ "$(grep -Fc 'npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"' "$release_workflow")" -eq 1 ] \
+  || fail "$release_workflow must install only the verified Bun tarball exactly once"
+[ "$(grep -Fc 'test "$(bun --version)" = "$BUN_VERSION"' "$ci_workflow")" -eq 2 ] \
+  || fail "$ci_workflow must verify the exact Bun version in both executable-test jobs"
+[ "$(grep -Fc 'test "$(bun --version)" = "$BUN_VERSION"' "$release_workflow")" -eq 1 ] \
+  || fail "$release_workflow must verify the exact Bun version exactly once"
 require_text "$release_workflow" "subject-checksums: dist/SHA256SUMS"
 require_text "$release_workflow" "make publication-audit"
 [ "$(grep -Fc 'make publication-audit' "$ci_workflow")" -eq 2 ] \

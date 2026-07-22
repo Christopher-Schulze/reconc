@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/completiongate"
 	"reconc.dev/reconc/internal/proofbundle"
 	policyruntime "reconc.dev/reconc/internal/runtime"
@@ -318,7 +319,7 @@ func (runner *journey) run() error {
 	if err := os.MkdirAll(filepath.Dir(proofPath), 0o755); err != nil {
 		return fmt.Errorf("create demo proof directory: %w", err)
 	}
-	if err := os.WriteFile(proofPath, []byte(done.Stdout), 0o600); err != nil {
+	if _, err := atomicfile.WriteIfChanged(proofPath, []byte(done.Stdout), 0o600); err != nil {
 		return fmt.Errorf("write completion proof: %w", err)
 	}
 	portablePath := filepath.Join(runner.result.WorkspacePath, "proof", "bundle.json")
@@ -762,7 +763,7 @@ func writeFixtureFile(root, relative, body string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create fixture parent: %w", err)
 	}
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+	if _, err := atomicfile.WriteIfChanged(path, []byte(body), 0o644); err != nil {
 		return fmt.Errorf("write fixture %s: %w", relative, err)
 	}
 	return nil

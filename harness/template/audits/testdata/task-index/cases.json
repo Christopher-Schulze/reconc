@@ -1,0 +1,6 @@
+[
+  {"file":"valid-active.md","valid":true,"current":"TASK-0001-Active","entries":2},
+  {"file":"valid-with-archive.md","valid":true,"current":"TASK-0002-Next","entries":2},
+  {"file":"invalid-row.md","valid":false,"current":"TASK-0001-Active","entries":0},
+  {"file":"duplicate-current.md","valid":false,"current":"TASK-0001-Active","entries":1}
+]

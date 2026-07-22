@@ -11,6 +11,7 @@
 package compiler
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -161,6 +162,11 @@ func CompileRepoPolicy(repoStartPath, compilerVersion string) (compiled *Compile
 	compiledDiscovery.Warnings = append(compiledDiscovery.Warnings, braceVariableWarnings(parsed.Rules)...)
 
 	payload := buildLockPayload(bundle, parsed, digest, compilerVersion, compiledDiscovery)
+	lockDigest, err := ComputeLockDigest(payload)
+	if err != nil {
+		return nil, &rerrors.LockfileError{Message: "compute lockfile digest", Cause: err}
+	}
+	payload["lock_digest"] = lockDigest
 
 	if err := writeLockfile(root, payload); err != nil {
 		return nil, err
@@ -229,6 +235,47 @@ func marshalCanonical(v interface{}) ([]byte, error) {
 		return nil, err
 	}
 	return data, nil
+}
+
+// ComputeLockDigest returns the canonical SHA-256 digest of the complete
+// lockfile payload except for the lock_digest field itself. It binds embedded
+// rules and discovery metadata in addition to the independently verified
+// policy-source digest.
+func ComputeLockDigest(payload map[string]interface{}) (string, error) {
+	canonical := make(map[string]interface{}, len(payload))
+	for key, value := range payload {
+		if key != "lock_digest" {
+			canonical[key] = value
+		}
+	}
+	data, err := marshalCanonical(canonical)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+// ValidateEmbeddedRules binds the compiled rule payload back to the parsed
+// policy sources. This preserves fail-closed behavior for legacy lockfiles
+// that acquire a self-digest during an in-memory format migration.
+func ValidateEmbeddedRules(payload map[string]interface{}, parsed *parser.ParsedPolicy) error {
+	expected := make([]interface{}, 0, len(parsed.Rules))
+	for _, rule := range parsed.Rules {
+		expected = append(expected, ruleToMap(rule))
+	}
+	expectedData, err := marshalCanonical(expected)
+	if err != nil {
+		return &rerrors.LockfileError{Message: "encode rules parsed from current policy sources", Cause: err}
+	}
+	actualData, err := marshalCanonical(payload["rules"])
+	if err != nil {
+		return &rerrors.LockfileError{Message: "encode embedded lockfile rules", Cause: err}
+	}
+	if !bytes.Equal(actualData, expectedData) {
+		return &rerrors.LockfileError{Message: "compiled lockfile rules do not match the current policy sources"}
+	}
+	return nil
 }
 
 // buildLockPayload assembles the full lockfile object that gets
@@ -580,6 +627,18 @@ func ValidateLockfileEnvelope(payload map[string]interface{}) error {
 		if value, _ := discovery[field].(string); value != PortableRepoRoot {
 			return &rerrors.LockfileError{Message: "compiled lockfile discovery." + field + " must use the portable '.' marker; re-run `reconc compile`"}
 		}
+	}
+	storedDigest, _ := payload["lock_digest"].(string)
+	decodedDigest, err := hex.DecodeString(storedDigest)
+	if err != nil || len(decodedDigest) != sha256.Size {
+		return &rerrors.LockfileError{Message: "compiled lockfile lock_digest is missing or invalid; re-run `reconc compile`"}
+	}
+	computedDigest, err := ComputeLockDigest(payload)
+	if err != nil {
+		return &rerrors.LockfileError{Message: "compute compiled lockfile digest", Cause: err}
+	}
+	if storedDigest != computedDigest {
+		return &rerrors.LockfileError{Message: "compiled lockfile payload digest does not match its contents; re-run `reconc compile`"}
 	}
 	return nil
 }

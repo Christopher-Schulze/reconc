@@ -76,6 +76,17 @@ func TestCompileSimpleRepo(t *testing.T) {
 	if !ok || len(digest) != 64 {
 		t.Errorf("expected 64-char SHA-256 source_digest, got %v", payload["source_digest"])
 	}
+	lockDigest, ok := payload["lock_digest"].(string)
+	if !ok || len(lockDigest) != 64 {
+		t.Errorf("expected 64-char SHA-256 lock_digest, got %v", payload["lock_digest"])
+	}
+	computedLockDigest, err := ComputeLockDigest(payload)
+	if err != nil {
+		t.Fatalf("compute lock digest: %v", err)
+	}
+	if lockDigest != computedLockDigest {
+		t.Fatal("stored lock digest does not bind the emitted payload")
+	}
 }
 
 func TestCompileLockfileIsByteStable(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"reconc.dev/reconc/buildprovenance"
 	"reconc.dev/reconc/internal/agentguide"
 	"reconc.dev/reconc/internal/commandmeta"
 	"reconc.dev/reconc/internal/compiler"
@@ -1361,9 +1362,31 @@ func TestRunVersionSubcommand(t *testing.T) {
 }
 
 func TestRunVersionJSON(t *testing.T) {
+	originalRuntimeVersion := runtimeVersion
+	originalBuildMarker := buildprovenance.BuildMarker
+	t.Cleanup(func() {
+		runtimeVersion = originalRuntimeVersion
+		buildprovenance.BuildMarker = originalBuildMarker
+	})
+	runtimeVersion = func() string { return "go-test" }
+	marker, err := buildprovenance.FormatMarker(buildprovenance.Provenance{
+		Version: "0.2.0", GOOS: "testos", GOARCH: "testarch",
+		SourceDigest: strings.Repeat("a", 64),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	buildprovenance.BuildMarker = marker
 	var stdout, stderr bytes.Buffer
 	if err := Run([]string{"version", "--json"}, "0.2.0", &stdout, &stderr); err != nil {
 		t.Fatalf("version --json: %v", err)
+	}
+	want, err := os.ReadFile(filepath.Join("testdata", "version-json.golden"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(stdout.Bytes(), want) {
+		t.Fatalf("version JSON contract drifted:\ngot:\n%s\nwant:\n%s", stdout.Bytes(), want)
 	}
 	var payload map[string]string
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
@@ -2280,6 +2303,44 @@ func TestRunStartRefusesOverwriteWithoutForce(t *testing.T) {
 	stdout.Reset()
 	if err := Run([]string{"start", repo, "--write", "start.md", "--force"}, "0.1.0-test", &stdout, &stderr); err != nil {
 		t.Errorf("--force should overwrite: %v", err)
+	}
+}
+
+func TestRunStartRejectsWriteOutsideRepository(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repo := makeAssertRepo(t,
+		"rules:\n  - id: r1\n    kind: deny_write\n    paths: ['x']\n    mode: warn\n    message: m\n")
+	outside := filepath.Join(filepath.Dir(repo), "outside.md")
+	var stdout, stderr bytes.Buffer
+	err := Run([]string{"start", repo, "--write", filepath.Join("..", filepath.Base(outside)), "--force"}, "0.1.0-test", &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "stay inside the repository") {
+		t.Fatalf("outside --write was not rejected: %v", err)
+	}
+	if _, statErr := os.Stat(outside); !os.IsNotExist(statErr) {
+		t.Fatalf("outside target was created: %v", statErr)
+	}
+}
+
+func TestRunStartRejectsSymlinkWriteTarget(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repo := makeAssertRepo(t,
+		"rules:\n  - id: r1\n    kind: deny_write\n    paths: ['x']\n    mode: warn\n    message: m\n")
+	target := filepath.Join(repo, "owned.md")
+	if err := os.WriteFile(target, []byte("owned\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(repo, "start.md")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	var stdout, stderr bytes.Buffer
+	err := Run([]string{"start", repo, "--write", "start.md", "--force"}, "0.1.0-test", &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("symlink --write was not rejected: %v", err)
+	}
+	body, readErr := os.ReadFile(target)
+	if readErr != nil || string(body) != "owned\n" {
+		t.Fatalf("symlink target changed: %q err=%v", body, readErr)
 	}
 }
 

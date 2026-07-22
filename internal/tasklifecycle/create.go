@@ -245,24 +245,19 @@ func insertQueuedTaskRow(board *Board, row string) ([]byte, error) {
 			}
 		}
 	} else {
-		firstArchived := -1
-		lastLive := -1
+		lastTask := -1
 		currentLine := -1
 		for index, line := range lines {
 			switch {
 			case strings.HasPrefix(line, "Current:"):
 				currentLine = index
-			case strings.HasPrefix(line, "- [x] TASK-") && firstArchived < 0:
-				firstArchived = index
-			case strings.HasPrefix(line, "- [ ] TASK-"):
-				lastLive = index
+			case strings.HasPrefix(line, "- [ ] TASK-"), strings.HasPrefix(line, "- [x] TASK-"):
+				lastTask = index
 			}
 		}
 		switch {
-		case lastLive >= 0:
-			insertAt = lastLive + 1
-		case firstArchived >= 0:
-			insertAt = firstArchived
+		case lastTask >= 0:
+			insertAt = lastTask + 1
 		case currentLine >= 0:
 			insertAt = currentLine + 1
 			for insertAt < len(lines) && strings.TrimSpace(lines[insertAt]) == "" {
