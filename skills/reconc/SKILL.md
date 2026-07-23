@@ -150,9 +150,8 @@ Before claiming completion:
 reconc done .
 ```
 
-Current source builds after the immutable v0.8.6 release can export that same
-candidate as portable reviewer evidence without running missing commands or
-persisting a new policy decision:
+The v0.8.7 release can export that same candidate as portable reviewer evidence
+without running missing commands or persisting a new policy decision:
 
 ```bash
 reconc proof . --format markdown --output proof.md

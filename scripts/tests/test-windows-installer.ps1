@@ -5,7 +5,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$BinaryPath,
     [Parameter(Mandatory = $true)]
-    [string]$ExpectedVersion
+    [string]$ExpectedVersion,
+    [bool]$LiveRelease = $false
 )
 
 Set-StrictMode -Version Latest
@@ -175,29 +176,31 @@ try {
             -Required $true
     } "required attestation failure"
 
-    $savedInstallDirectory = [Environment]::GetEnvironmentVariable("RECONC_INSTALL_DIR")
-    $savedReleaseBase = [Environment]::GetEnvironmentVariable("RECONC_RELEASE_BASE")
-    $savedAttestationTool = [Environment]::GetEnvironmentVariable("RECONC_ATTESTATION_TOOL")
-    $savedRequireAttestation = [Environment]::GetEnvironmentVariable("RECONC_REQUIRE_ATTESTATION")
-    $liveInstallDirectory = Join-Path $temporaryDirectory "live"
-    try {
-        [Environment]::SetEnvironmentVariable("RECONC_INSTALL_DIR", $liveInstallDirectory)
-        [Environment]::SetEnvironmentVariable("RECONC_RELEASE_BASE", $null)
-        [Environment]::SetEnvironmentVariable("RECONC_ATTESTATION_TOOL", $missingTool)
-        [Environment]::SetEnvironmentVariable("RECONC_REQUIRE_ATTESTATION", "0")
-        & $resolvedInstaller $ExpectedVersion
-    }
-    finally {
-        [Environment]::SetEnvironmentVariable("RECONC_INSTALL_DIR", $savedInstallDirectory)
-        [Environment]::SetEnvironmentVariable("RECONC_RELEASE_BASE", $savedReleaseBase)
-        [Environment]::SetEnvironmentVariable("RECONC_ATTESTATION_TOOL", $savedAttestationTool)
-        [Environment]::SetEnvironmentVariable("RECONC_REQUIRE_ATTESTATION", $savedRequireAttestation)
-    }
+    if ($LiveRelease) {
+        $savedInstallDirectory = [Environment]::GetEnvironmentVariable("RECONC_INSTALL_DIR")
+        $savedReleaseBase = [Environment]::GetEnvironmentVariable("RECONC_RELEASE_BASE")
+        $savedAttestationTool = [Environment]::GetEnvironmentVariable("RECONC_ATTESTATION_TOOL")
+        $savedRequireAttestation = [Environment]::GetEnvironmentVariable("RECONC_REQUIRE_ATTESTATION")
+        $liveInstallDirectory = Join-Path $temporaryDirectory "live"
+        try {
+            [Environment]::SetEnvironmentVariable("RECONC_INSTALL_DIR", $liveInstallDirectory)
+            [Environment]::SetEnvironmentVariable("RECONC_RELEASE_BASE", $null)
+            [Environment]::SetEnvironmentVariable("RECONC_ATTESTATION_TOOL", $missingTool)
+            [Environment]::SetEnvironmentVariable("RECONC_REQUIRE_ATTESTATION", "0")
+            & $resolvedInstaller $ExpectedVersion
+        }
+        finally {
+            [Environment]::SetEnvironmentVariable("RECONC_INSTALL_DIR", $savedInstallDirectory)
+            [Environment]::SetEnvironmentVariable("RECONC_RELEASE_BASE", $savedReleaseBase)
+            [Environment]::SetEnvironmentVariable("RECONC_ATTESTATION_TOOL", $savedAttestationTool)
+            [Environment]::SetEnvironmentVariable("RECONC_REQUIRE_ATTESTATION", $savedRequireAttestation)
+        }
 
-    $liveBinary = Join-Path $liveInstallDirectory "reconc.exe"
-    Assert-ReconcTest (Test-Path -LiteralPath $liveBinary -PathType Leaf) "live HTTPS install did not publish reconc.exe"
-    $liveVersion = & $liveBinary --version
-    Assert-ReconcTest (($liveVersion | Out-String) -match [Regex]::Escape($ExpectedVersion)) "live HTTPS install returned the wrong version"
+        $liveBinary = Join-Path $liveInstallDirectory "reconc.exe"
+        Assert-ReconcTest (Test-Path -LiteralPath $liveBinary -PathType Leaf) "live HTTPS install did not publish reconc.exe"
+        $liveVersion = & $liveBinary --version
+        Assert-ReconcTest (($liveVersion | Out-String) -match [Regex]::Escape($ExpectedVersion)) "live HTTPS install returned the wrong version"
+    }
 }
 finally {
     if (Test-Path -LiteralPath $temporaryDirectory -PathType Container) {
@@ -206,3 +209,4 @@ finally {
 }
 
 Write-Host "windows-installer: ok"
+exit 0

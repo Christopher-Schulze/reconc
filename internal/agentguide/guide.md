@@ -120,9 +120,9 @@ Waiting never clears a block. Text mode prints all failed checks and one exact
 next action; exit 0 means done, exit 2 means blocked, and exit 1 means the gate
 itself failed.
 
-Current source builds after the immutable v0.8.6 release can export the same
-candidate as portable JSON or Markdown reviewer evidence without executing
-missing commands or persisting a new policy decision:
+The v0.8.7 release can export the same candidate as portable JSON or Markdown
+reviewer evidence without executing missing commands or persisting a new
+policy decision:
 ```bash
 reconc proof . --format markdown --output proof.md
 ```

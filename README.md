@@ -71,8 +71,8 @@ Install the checksummed, provenance-attested macOS or Linux release without
 building:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.6/install.sh \
-  | RECONC_INSTALL_DIR="$HOME/.local/bin" sh -s -- 0.8.6
+curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.7/install.sh \
+  | RECONC_INSTALL_DIR="$HOME/.local/bin" sh -s -- 0.8.7
 "$HOME/.local/bin/reconc" demo
 ```
 
@@ -80,8 +80,8 @@ On Windows x64, run the native PowerShell installer:
 
 ```powershell
 $installer = Join-Path $env:TEMP "reconc-install.ps1"
-Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/8cade400975cd377c10f627ab6c88f9028d4ec15/install.ps1 -OutFile $installer
-& $installer 0.8.6
+Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.7/install.ps1 -OutFile $installer
+& $installer 0.8.7
 Remove-Item $installer
 & "$env:LOCALAPPDATA\Programs\Reconc\bin\reconc.exe" demo
 ```
@@ -171,8 +171,8 @@ CI, and completion boundaries it controls.
 Install the checksummed, provenance-attested macOS or Linux release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.6/install.sh \
-  | RECONC_INSTALL_DIR="$HOME/.local/bin" sh -s -- 0.8.6
+curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.7/install.sh \
+  | RECONC_INSTALL_DIR="$HOME/.local/bin" sh -s -- 0.8.7
 "$HOME/.local/bin/reconc" demo
 ```
 
@@ -180,21 +180,20 @@ On Windows x64:
 
 ```powershell
 $installer = Join-Path $env:TEMP "reconc-install.ps1"
-Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/8cade400975cd377c10f627ab6c88f9028d4ec15/install.ps1 -OutFile $installer
-& $installer 0.8.6
+Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.7/install.ps1 -OutFile $installer
+& $installer 0.8.7
 Remove-Item $installer
 & "$env:LOCALAPPDATA\Programs\Reconc\bin\reconc.exe" demo
 ```
 
-The immutable v0.8.6 tag predates `install.ps1`, so the Windows bootstrap URL
-pins the exact source commit whose installer passed native Windows CI. The
-script still downloads the published v0.8.6 binary and `SHA256SUMS`; it is
-never fetched from mutable `main`.
+The immutable v0.8.7 tag contains both installer scripts, so neither bootstrap
+path fetches executable installation logic from mutable `main`.
 
-Both native installers verify the exact release asset against `SHA256SUMS`,
+Both native installers verify the exact v0.8.7 release asset against
+`SHA256SUMS`,
 smoke-test the candidate before replacing an existing installation, and use
-GitHub build-provenance attestations when `gh` is available. Future releases
-also exercise both installer scripts before publication. Set
+GitHub build-provenance attestations when `gh` is available. Release CI
+exercises both installer scripts before publication. Set
 `RECONC_REQUIRE_ATTESTATION=1` to make attestation verification mandatory.
 `RECONC_INSTALL_DIR` selects the destination; Windows defaults to the user-writable
 `%LOCALAPPDATA%\Programs\Reconc\bin` and prints an exact user-PATH command when
@@ -309,7 +308,7 @@ blocking until a later explicit non-blocking check clears it; waiting never
 does. `--require-clean-git` adds a clean-tree requirement. `--window` remains
 accepted only for compatibility and has no time-based pass semantics.
 
-The current source tree also provides the post-v0.8.6 proof exporter:
+The v0.8.7 release provides the portable proof exporter:
 
 ```bash
 reconc proof . --output proof.json
@@ -322,8 +321,7 @@ receipts, violations, and remediation. A blocked candidate still produces a
 valid bundle and exits 2. Absolute paths, user/home identity, session IDs,
 prompts, transcripts, environment data, and raw command arguments are excluded
 or redacted. The command is read-only and never runs missing tests or refreshes
-policy. This command is implemented on the current source line and is not part
-of the immutable v0.8.6 release artifacts.
+policy.
 
 ## Rollout Modes
 
@@ -621,7 +619,7 @@ proposing a change. Report vulnerabilities through the private route in
 
 ## Status
 
-The source line is `v0.8.x`, and the current source version is `v0.8.6`.
+The source line is `v0.8.x`, and the current source version is `v0.8.7`.
 Release artifacts are produced only by
 an explicit manual workflow dispatch for an existing `reconc-vX.Y.Z` tag; tag
 pushes never publish a release. Every published release SBOM is regenerated and

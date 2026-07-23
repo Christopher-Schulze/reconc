@@ -240,18 +240,27 @@ func TestHostIntegrationDocumentationCoversStructuredContract(t *testing.T) {
 	}
 }
 
-func TestWindowsBootstrapUsesImmutableInstallerSource(t *testing.T) {
+func TestBootstrapUsesCurrentReleaseTag(t *testing.T) {
 	root := publicSurfaceRoot(t)
 	readme := readPublicSurfaceFile(t, root, "README.md")
-	pattern := regexp.MustCompile(`https://raw\.githubusercontent\.com/Christopher-Schulze/reconc/([^/]+)/install\.ps1`)
-	matches := pattern.FindAllStringSubmatch(readme, -1)
-	if len(matches) == 0 {
-		t.Fatal("README.md omits the native Windows installer URL")
+	versionSource := readPublicSurfaceFile(t, root, "cmd/reconc/main.go")
+	versionPattern := regexp.MustCompile(`(?m)^var Version = "([0-9]+\.[0-9]+\.[0-9]+)"$`)
+	versionMatch := versionPattern.FindStringSubmatch(versionSource)
+	if len(versionMatch) != 2 {
+		t.Fatal("cmd/reconc/main.go does not expose one stable source version")
 	}
-	commit := regexp.MustCompile(`^[0-9a-f]{40}$`)
-	for _, match := range matches {
-		if !commit.MatchString(match[1]) {
-			t.Errorf("README.md Windows installer source %q is not an immutable full commit", match[1])
+	expectedRef := "reconc-v" + versionMatch[1]
+	for _, installer := range []string{"install.sh", "install.ps1"} {
+		pattern := regexp.MustCompile(`https://raw\.githubusercontent\.com/Christopher-Schulze/reconc/([^/]+)/` + regexp.QuoteMeta(installer))
+		matches := pattern.FindAllStringSubmatch(readme, -1)
+		if len(matches) == 0 {
+			t.Errorf("README.md omits the %s installer URL", installer)
+			continue
+		}
+		for _, match := range matches {
+			if match[1] != expectedRef {
+				t.Errorf("README.md %s source = %q, want current release tag %q", installer, match[1], expectedRef)
+			}
 		}
 	}
 }
@@ -497,6 +506,9 @@ func TestNativeWindowsInstallerIsWiredIntoCIAndRelease(t *testing.T) {
 		"./scripts/tests/test-windows-installer.ps1",
 		"-InstallerPath ./install.ps1",
 		"-BinaryPath ./reconc.exe",
+		"live_release:",
+		"RECONC_LIVE_RELEASE",
+		"-LiveRelease",
 	} {
 		if !strings.Contains(ci, token) {
 			t.Errorf("native Windows CI omits installer contract %q", token)

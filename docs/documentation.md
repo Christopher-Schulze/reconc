@@ -187,8 +187,8 @@ make cover
 make bench
 make self-host
 make publication-audit
-make sbom VERSION=0.8.6
-make release VERSION=0.8.6
+make sbom VERSION=0.8.7
+make release VERSION=0.8.7
 ```
 
 `make release` cross-compiles five binaries into `dist/`, copies the native
@@ -230,12 +230,9 @@ download, manifest, checksum, execution, staging, or publication failure leaves
 an existing installation untouched. Windows arm64 remains unsupported until
 the release matrix ships a matching native asset.
 
-The immutable v0.8.6 tag contains `install.sh` but predates `install.ps1`.
-Until a later release includes the PowerShell installer, the public Windows
-bootstrap command pins source commit
-`8cade400975cd377c10f627ab6c88f9028d4ec15`, whose installer passed native
-Windows CI, and installs the checksummed v0.8.6 binary. Documentation must never
-fetch an installer script from mutable `main`.
+The immutable v0.8.7 tag contains both `install.sh` and `install.ps1`. Public
+bootstrap commands fetch the appropriate script from that tag, never from
+mutable `main`, and install the matching checksummed v0.8.7 binary.
 
 When the GitHub CLI (`gh`) is available, the installer additionally verifies
 the downloaded binary against its GitHub build-provenance attestation before
@@ -376,8 +373,8 @@ that opt-in audit write is independent of policy refresh. Explicit `check`,
 private unresolved-block receipt below `RECONC_HOME`; governed worktree content
 remains untouched.
 
-Current source builds after the immutable v0.8.6 release can export the same
-completion candidate for external review:
+The v0.8.7 release can export the same completion candidate for external
+review:
 
 ```bash
 reconc proof . --output proof.json
@@ -399,8 +396,7 @@ by omission, bounded arrays/text, and no prompts, transcripts, session IDs,
 environment values, usernames, home paths, or raw command arguments. Command
 receipts expose a redacted executable summary plus a SHA-256 identity of the
 normalized full command. `--output` atomically writes the exact stdout bytes.
-The public schema is `schemas/v1/proof-bundle.schema.json`; the command is
-implemented in current source and must not be described as shipped in v0.8.6.
+The public schema is `schemas/v1/proof-bundle.schema.json`.
 
 Exit codes:
 
@@ -462,9 +458,9 @@ particular installation is live.
 
 ### How do I install and test it?
 
-Use the immutable v0.8.6 POSIX installer for macOS or Linux. On Windows x64,
-use the commit-pinned PowerShell installer documented in the README because
-the v0.8.6 tag predates that script. Put the installed binary on `PATH`, then
+Use the immutable v0.8.7 POSIX installer for macOS or Linux and the immutable
+v0.8.7 PowerShell installer for Windows x64. Put the installed binary on
+`PATH`, then
 run `reconc demo` for a network-free, disposable proof of the real
 block-to-remediation-to-completion journey. Contributors building current
 source can use `go build -o reconc ./cmd/reconc`.
@@ -1604,6 +1600,11 @@ CI checks:
   manifest, missing asset, checksum, execution, locked/unwritable target,
   attestation, cleanup, and existing-install preservation paths;
   shell hook wrappers and shell policy scripts use the documented `sh` runtime
+- push and pull-request checks exercise the Windows installer entirely against
+  the candidate binary and local fixtures, so an unpublished release candidate
+  never depends on a nonexistent remote asset. After publication, a manual CI
+  dispatch with `live_release: true` additionally verifies the tagged Windows
+  binary and checksum manifest over HTTPS;
 - SHA-pinned GitHub-owned `actions/setup-node` provisions Node.js 24.18.0 with
   implicit package-manager caching disabled. Each executable-test job packs
   exact `bun@1.3.14`, compares the tarball's npm SRI against the committed
@@ -1843,7 +1844,7 @@ current-state documentation.
 
 ## Release State
 
-The current source line is `v0.8.x`; the source version is `v0.8.6`. Release
+The current source line is `v0.8.x`; the source version is `v0.8.7`. Release
 artifacts are produced only through an explicit manual Release workflow
 dispatch for an existing `reconc-vX.Y.Z` tag; tag pushes never publish a
 release.
