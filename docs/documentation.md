@@ -230,6 +230,13 @@ download, manifest, checksum, execution, staging, or publication failure leaves
 an existing installation untouched. Windows arm64 remains unsupported until
 the release matrix ships a matching native asset.
 
+The immutable v0.8.6 tag contains `install.sh` but predates `install.ps1`.
+Until a later release includes the PowerShell installer, the public Windows
+bootstrap command pins source commit
+`8cade400975cd377c10f627ab6c88f9028d4ec15`, whose installer passed native
+Windows CI, and installs the checksummed v0.8.6 binary. Documentation must never
+fetch an installer script from mutable `main`.
+
 When the GitHub CLI (`gh`) is available, the installer additionally verifies
 the downloaded binary against its GitHub build-provenance attestation before
 installing, which breaks the binary-and-manifest-share-one-origin loop (the
@@ -451,12 +458,12 @@ particular installation is live.
 
 ### How do I install and test it?
 
-Use the versioned release installer once a GitHub Release exists. Before the
-first public release, build the current source with `go build -o reconc
-./cmd/reconc`. Put the resulting binary on `PATH`, then run `reconc demo` for a
-network-free, disposable proof of the real block-to-remediation-to-completion
-journey. Judges and ordinary users should use release binaries rather than
-rebuilding after `v0.8.6` is published.
+Use the immutable v0.8.6 POSIX installer for macOS or Linux. On Windows x64,
+use the commit-pinned PowerShell installer documented in the README because
+the v0.8.6 tag predates that script. Put the installed binary on `PATH`, then
+run `reconc demo` for a network-free, disposable proof of the real
+block-to-remediation-to-completion journey. Contributors building current
+source can use `go build -o reconc ./cmd/reconc`.
 
 ### How does repository bootstrap work?
 
@@ -708,6 +715,7 @@ Compile and evaluate:
 - `compile`
 - `refresh`
 - `ci`
+- `exec`
 - `assert`
 - `can`
 - `diff`
@@ -1490,17 +1498,19 @@ CI checks:
 - least-privilege permissions, disabled checkout credential persistence, bounded job timeouts, and stale-run cancellation per branch or pull request
 - release and installer negative-path trust tests
 
-CI runs after direct pushes to `main`, on contributor pull requests, and through
-explicit manual dispatch. These runs are diagnostic and do not block branch
-advancement. The pull-request trigger only tests a pull request that somebody
-already opened; it never creates one. Dependency and action updates are
-deliberate maintainer work; the repository does not generate automated
-version-update pull requests or enable auto-merge.
+CI runs on candidate branches, on contributor pull requests, after accepted
+updates to `main`, and through explicit manual dispatch. The pull-request
+trigger only tests a pull request that somebody already opened; it never
+creates one. Dependency and action updates are deliberate maintainer work; the
+repository does not generate automated version-update pull requests or enable
+auto-merge.
 
 The public source repository protects its default branch with the active
 `Protect main` ruleset. It blocks branch deletion and non-fast-forward updates,
-but does not require a pull request or status checks. Ordinary fast-forward
-pushes therefore land immediately and start informational CI afterward.
+and requires successful Ubuntu, macOS, native Windows, release-trust, and Go
+CodeQL checks for the exact candidate commit before `main` can advance. A pull
+request is not mandatory, but an unchecked direct push is rejected; maintainer
+fast-forwards must first obtain the same checks on a candidate branch.
 Effective rules are read back with
 `gh api repos/Christopher-Schulze/reconc/rulesets/18998289`.
 Repository Actions settings allow only GitHub-owned actions and require full
@@ -1688,6 +1698,9 @@ Allowed supporting docs:
 - `docs/architecture.md` for contributor architecture and threat-model detail
 - `docs/commands.md` for the complete command reference
 - `docs/rfcs/**` for frozen contracts
+- `.github/releases/**` for historical release notes
+- `assets/reconc-visual-philosophy.md` for the visual identity contract
+- `CONTRIBUTING.md` for the contributor workflow
 - `README.md` as the GitHub landing page
 - `SECURITY.md` as security policy
 

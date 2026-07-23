@@ -50,12 +50,15 @@ executed as scripts.
 
 `require_assurance` performs no network calls and spawns no subprocesses. Its
 typed gates are `repository_layout`, `generated_reference`,
-`language_boundary`, `dependency_pins`, `network_boundary`,
+`language_boundary`, `dependency_pins`, `package_scripts`, `network_boundary`,
 `process_boundary`, `substantive_proof`, `live_verification`,
 `go_concurrency_boundary`, `go_format`, and `source_hygiene`. Fields irrelevant
 to a selected gate type are invalid. Source gates are changed-file scoped;
 repository-layout and substantive-proof gates inspect their full configured
-authority surface. Operational read and scan limits fail closed.
+authority surface. `package_scripts` checks only non-empty scripts declared in
+the selected package manifests and accepts matching recorded package-manager
+evidence; it never executes a package manager. Operational read and scan limits
+fail closed.
 
 ## Composite Rule Kinds
 

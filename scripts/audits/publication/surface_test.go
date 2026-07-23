@@ -3,11 +3,16 @@ package main
 import (
 	"image/png"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 	"unicode"
+
+	"reconc.dev/reconc/internal/commandmeta"
+	"reconc.dev/reconc/internal/hooks"
+	"reconc.dev/reconc/internal/policy"
 
 	"gopkg.in/yaml.v3"
 )
@@ -41,7 +46,7 @@ func TestPublicREADMEListsEveryShippedAssurancePack(t *testing.T) {
 
 func TestPublicMarkdownLocalLinksAndAnchorsResolve(t *testing.T) {
 	root := publicSurfaceRoot(t)
-	for _, source := range []string{"README.md", "CONTRIBUTING.md", "SECURITY.md"} {
+	for _, source := range trackedMarkdownFiles(t, root) {
 		body := readPublicSurfaceFile(t, root, source)
 		links := markdownLinkPattern.FindAllStringSubmatch(body, -1)
 		links = append(links, htmlImagePattern.FindAllStringSubmatch(body, -1)...)
@@ -54,11 +59,99 @@ func TestPublicMarkdownLocalLinksAndAnchorsResolve(t *testing.T) {
 	}
 }
 
+func trackedMarkdownFiles(t *testing.T, root string) []string {
+	t.Helper()
+	command := exec.Command("git", "ls-files", "-z", "--", "*.md")
+	command.Dir = root
+	output, err := command.Output()
+	if err != nil {
+		t.Fatalf("list tracked Markdown files: %v", err)
+	}
+	trimmed := strings.TrimSuffix(string(output), "\x00")
+	if trimmed == "" {
+		t.Fatal("repository has no tracked Markdown files")
+	}
+	return strings.Split(trimmed, "\x00")
+}
+
 func TestCanonicalDailyLoopMatchesEveryTeachingSurface(t *testing.T) {
 	root := publicSurfaceRoot(t)
 	tokens := []string{"reconc session-briefing . --json", "reconc check .", "reconc next .", "reconc done ."}
-	for _, path := range []string{"README.md", "docs/documentation.md", "docs/commands.md", "skills/reconc/SKILL.md"} {
+	for _, path := range []string{"README.md", "docs/documentation.md", "docs/commands.md", "skills/reconc/SKILL.md", "internal/agentguide/guide.md"} {
 		assertOrderedTokens(t, path, readPublicSurfaceFile(t, root, path), tokens)
+	}
+}
+
+func TestCurrentDocumentationListsCanonicalCommandSurface(t *testing.T) {
+	root := publicSurfaceRoot(t)
+	documentation := readPublicSurfaceFile(t, root, "docs/documentation.md")
+	commandSurface := markdownSection(t, "docs/documentation.md", documentation, "Command Surface")
+	commandReference := readPublicSurfaceFile(t, root, "docs/commands.md")
+	for _, command := range commandmeta.All() {
+		if !strings.Contains(commandSurface, "`"+command.Name+"`") {
+			t.Errorf("docs/documentation.md command surface omits canonical command %q", command.Name)
+		}
+		if !strings.Contains(commandReference, "reconc "+command.Name) {
+			t.Errorf("docs/commands.md omits canonical command %q", command.Name)
+		}
+	}
+}
+
+func TestArchitectureListsEveryTopLevelInternalPackage(t *testing.T) {
+	root := publicSurfaceRoot(t)
+	architecture := readPublicSurfaceFile(t, root, "docs/architecture.md")
+	entries, err := os.ReadDir(filepath.Join(root, "internal"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if !regexp.MustCompile(`(?m)^  ` + regexp.QuoteMeta(entry.Name()) + `/`).MatchString(architecture) {
+			t.Errorf("docs/architecture.md package map omits internal/%s", entry.Name())
+		}
+	}
+}
+
+func TestFrozenRuleKindRFCListsEveryAssuranceGate(t *testing.T) {
+	root := publicSurfaceRoot(t)
+	rfc := readPublicSurfaceFile(t, root, "docs/rfcs/RECONC-0004-rule-kinds.md")
+	for _, kind := range policy.AllAssuranceKinds() {
+		if !strings.Contains(rfc, "`"+string(kind)+"`") {
+			t.Errorf("RFC 0004 omits implemented assurance gate %q", kind)
+		}
+	}
+}
+
+func TestAgentGuidanceCoversRegisteredPlatformsAndPortableProof(t *testing.T) {
+	root := publicSurfaceRoot(t)
+	for _, path := range []string{"skills/reconc/SKILL.md", "internal/agentguide/guide.md"} {
+		guidance := readPublicSurfaceFile(t, root, path)
+		for _, platform := range hooks.AgentPlatforms() {
+			if !strings.Contains(guidance, platform.DisplayName) {
+				t.Errorf("%s omits registered platform %s", path, platform.DisplayName)
+			}
+		}
+		if !strings.Contains(guidance, "reconc proof .") {
+			t.Errorf("%s omits the portable proof command", path)
+		}
+	}
+}
+
+func TestWindowsBootstrapUsesImmutableInstallerSource(t *testing.T) {
+	root := publicSurfaceRoot(t)
+	readme := readPublicSurfaceFile(t, root, "README.md")
+	pattern := regexp.MustCompile(`https://raw\.githubusercontent\.com/Christopher-Schulze/reconc/([^/]+)/install\.ps1`)
+	matches := pattern.FindAllStringSubmatch(readme, -1)
+	if len(matches) == 0 {
+		t.Fatal("README.md omits the native Windows installer URL")
+	}
+	commit := regexp.MustCompile(`^[0-9a-f]{40}$`)
+	for _, match := range matches {
+		if !commit.MatchString(match[1]) {
+			t.Errorf("README.md Windows installer source %q is not an immutable full commit", match[1])
+		}
 	}
 }
 
@@ -156,8 +249,8 @@ func TestCodeQLWorkflowHasBoundedAdvancedSetup(t *testing.T) {
 	if len(triggerMap) != 4 {
 		t.Errorf("%s contains unexpected triggers: %v", path, triggerMap)
 	}
-	if !equalStrings(workflow.On.Push.Branches, []string{"main"}) || !equalStrings(workflow.On.PullRequest.Branches, []string{"main"}) {
-		t.Errorf("%s must scan only pushes and pull requests against main", path)
+	if len(workflow.On.Push.Branches) != 0 || !equalStrings(workflow.On.PullRequest.Branches, []string{"main"}) {
+		t.Errorf("%s must scan every pushed candidate and pull requests against main", path)
 	}
 	if len(workflow.On.Schedule) != 1 || len(strings.Fields(workflow.On.Schedule[0].Cron)) != 5 {
 		t.Errorf("%s must contain one bounded cron schedule", path)
@@ -205,6 +298,30 @@ func TestCodeQLWorkflowHasBoundedAdvancedSetup(t *testing.T) {
 		if !strings.Contains(build, command) {
 			t.Errorf("%s manual build omits %q", path, command)
 		}
+	}
+}
+
+func TestCIWorkflowRunsOnCandidateRefs(t *testing.T) {
+	root := publicSurfaceRoot(t)
+	path := ".github/workflows/reconc-ci.yml"
+	body := readPublicSurfaceFile(t, root, path)
+	var workflow githubWorkflow
+	if err := yaml.Unmarshal([]byte(body), &workflow); err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	var raw map[string]any
+	if err := yaml.Unmarshal([]byte(body), &raw); err != nil {
+		t.Fatalf("parse raw %s: %v", path, err)
+	}
+	triggerMap, ok := raw["on"].(map[string]any)
+	if !ok {
+		t.Fatalf("%s has no structured trigger map", path)
+	}
+	if _, ok := triggerMap["push"]; !ok {
+		t.Fatalf("%s omits push trigger", path)
+	}
+	if len(workflow.On.Push.Branches) != 0 {
+		t.Errorf("%s must run for pushed candidate refs before protected main advances", path)
 	}
 }
 
@@ -466,4 +583,18 @@ func assertOrderedTokens(t *testing.T, path, body string, tokens []string) {
 		}
 		position += next + len(token)
 	}
+}
+
+func markdownSection(t *testing.T, path, body, heading string) string {
+	t.Helper()
+	startToken := "## " + heading
+	start := strings.Index(body, startToken)
+	if start < 0 {
+		t.Fatalf("%s omits section %q", path, heading)
+	}
+	section := body[start+len(startToken):]
+	if end := strings.Index(section, "\n## "); end >= 0 {
+		section = section[:end]
+	}
+	return section
 }

@@ -150,6 +150,14 @@ Before claiming completion:
 reconc done .
 ```
 
+Current source builds after the immutable v0.8.6 release can export that same
+candidate as portable reviewer evidence without running missing commands or
+persisting a new policy decision:
+
+```bash
+reconc proof . --format markdown --output proof.md
+```
+
 For autonomous repository execution:
 
 ```bash
@@ -159,7 +167,7 @@ reconc run off .
 ```
 
 Repository mode is durable for this repository, not machine-global. Claude
-Code, Codex, Cursor, Devin CLI, and Antigravity CLI expose
+Code, Codex, GitHub Copilot, Cursor, Devin CLI, and Antigravity CLI expose
 synchronous Stop continuation. OpenCode and Kilo Code use inferred
 `session.idle`, so their host continuation remains best-effort and fail-open.
 Grok Build has hard native PreToolUse. Reconc also emits exact native Stop
@@ -233,6 +241,7 @@ reconc task validate .       # typed control-plane validation
 reconc check . ...           # evaluate current evidence
 reconc next .                # next remediation
 reconc done .                # final task gate
+reconc proof . --format markdown # portable reviewer evidence
 reconc verify .              # installation health, read-only
 reconc doctor . --deep       # deeper diagnostics
 reconc hook status . --json  # exact platform activation truth
@@ -245,7 +254,7 @@ reconc agent-intro           # built-in guide for humans and agents
 
 `status`, `verify`, `doctor`, `check`, `ci`, `assert`, `can`, `why`,
 `task status`, `task validate`, `task check-done`,
-`run status`, `run log`, `session-briefing`, `start` without `--write`, `post-task-check`, `done`, and
+`run status`, `run log`, `session-briefing`, `start` without `--write`, `post-task-check`, `done`, `proof`, and
 `tui` never mutate policy or refresh the lockfile. With `RECONC_AUDIT=1`,
 enforcement commands may append decision records. `refresh`, `compile`,
 `watch`, `bootstrap`, `init`, hook installation, `hook sync-scaffold`,
@@ -260,6 +269,7 @@ timeout policy, output budgets, artifact paths, and activation probes:
 |---|---|---|
 | Claude Code | `.claude/settings.json` | Native session, tool, permission, Stop, cleanup, and compact-session recovery hooks |
 | Codex | `.codex/hooks.json` | Native session, tool, permission, evidence, and Stop hooks; no `SessionEnd` |
+| GitHub Copilot | `.github/hooks/reconc.json` | Repository hooks for Copilot CLI and coding agent; host timeouts remain fail-open |
 | Cursor | `.cursor/hooks.json` | Native session, file, shell, evidence, and Stop adapters |
 | OpenCode | `.opencode/plugins/reconc.js` | Thin project plugin; decisions and state stay in Go |
 | Devin CLI | `.devin/hooks.v1.json` | Native lifecycle plus post-compaction recovery |
@@ -320,7 +330,7 @@ When reporting to the user, keep it concrete:
 
 `reconc` should stay low-friction:
 
-- prefer five daily commands over many knobs
+- prefer the canonical daily loop over option sprawl
 - prefer warning presets for agent guidance until a team proves it wants blocks
 - keep policy repo-local and explicit
 - compile deterministic lockfiles

@@ -80,7 +80,7 @@ On Windows x64, run the native PowerShell installer:
 
 ```powershell
 $installer = Join-Path $env:TEMP "reconc-install.ps1"
-Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/install.ps1 -OutFile $installer
+Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/8cade400975cd377c10f627ab6c88f9028d4ec15/install.ps1 -OutFile $installer
 & $installer 0.8.6
 Remove-Item $installer
 & "$env:LOCALAPPDATA\Programs\Reconc\bin\reconc.exe" demo
@@ -179,17 +179,23 @@ On Windows x64:
 
 ```powershell
 $installer = Join-Path $env:TEMP "reconc-install.ps1"
-Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/install.ps1 -OutFile $installer
+Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/8cade400975cd377c10f627ab6c88f9028d4ec15/install.ps1 -OutFile $installer
 & $installer 0.8.6
 Remove-Item $installer
 & "$env:LOCALAPPDATA\Programs\Reconc\bin\reconc.exe" demo
 ```
 
+The immutable v0.8.6 tag predates `install.ps1`, so the Windows bootstrap URL
+pins the exact source commit whose installer passed native Windows CI. The
+script still downloads the published v0.8.6 binary and `SHA256SUMS`; it is
+never fetched from mutable `main`.
+
 Both native installers verify the exact release asset against `SHA256SUMS`,
-smoke-test it before publication, and use GitHub build-provenance attestations
-when `gh` is available. Set `RECONC_REQUIRE_ATTESTATION=1` to make attestation
-verification mandatory. `RECONC_INSTALL_DIR` selects the destination; Windows
-defaults to the user-writable
+smoke-test the candidate before replacing an existing installation, and use
+GitHub build-provenance attestations when `gh` is available. Future releases
+also exercise both installer scripts before publication. Set
+`RECONC_REQUIRE_ATTESTATION=1` to make attestation verification mandatory.
+`RECONC_INSTALL_DIR` selects the destination; Windows defaults to the user-writable
 `%LOCALAPPDATA%\Programs\Reconc\bin` and prints an exact user-PATH command when
 that directory is not already available.
 

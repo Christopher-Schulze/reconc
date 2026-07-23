@@ -32,12 +32,26 @@ Every `reconc` invocation moves data through some subset of this pipe:
       └────┬────┘
            ▼
        CheckReport + FixPlan
+           │
+           ▼
+     completiongate
+           │
+           ▼
+     CompletionReport
+           │
+           ▼
+       proofbundle
+           │
+           ▼
+       ProofBundle
 ```
 
 `compile` stops at the lockfile. `check` / `ci` / `assert` / `can`
 load the lockfile and run the runtime evaluator. `fix` / `explain`
-also use the runtime then render the result. `why` / `diff` /
-`watch` act purely on the lockfile.
+also use the runtime then render the result. `done` binds the evaluated
+candidate through `completiongate`; `proof` renders that same candidate through
+`proofbundle`. `why` and `diff` inspect compiled lockfiles, while `watch`
+observes policy sources and recompiles explicitly when they change.
 
 ## Package map
 
@@ -53,6 +67,7 @@ internal/
   changelog/      docs/changelog.md rotation into quarterly archives
   cli/            command dispatch plus responsibility-owned command modules
   commandmeta/    canonical dependency-neutral command, flag, help, and output contract
+  commandproof/   staged candidate-bound command-success receipts
   compiler/       lockfile builder: digest, writer, conflicts, migrations, lock
   completion/     bash / zsh / fish completion generators
   completiongate/ exact final-completion report over policy, candidate, evidence, and TASK state
@@ -73,6 +88,8 @@ internal/
   policy/         Rule / Scope / Source / Kind / Mode types
   policyproof/    tamper-evident unresolved policy-decision receipts
   presets/        bundled policy packs (embed.FS) + user overlays
+  proofbundle/    deterministic portable JSON and Markdown completion evidence
+  repositoryignore/ canonical target-repository runtime-ignore contract
   runtime/        evaluator + remediation + git integration + subprocess runner
   retention/      bounded runtime storage lifecycle + owned temp cleanup
   runtime/agentsession/  hook payload handlers, session evidence state,
@@ -80,6 +97,7 @@ internal/
                   hook-runtime threat model below describes)
   scaffold/       reconc init implementation
   schema/         canonical public JSON contract URLs + enterprise override
+  shellcommand/   bounded shell parsing and executable-command discovery
   stackdetect/    shared bounded manifest/source stack discovery
   tasklifecycle/  typed TASK profiles + recoverable state transactions
   templates/      bundled rule-shape templates (embed.FS) + user overlays
@@ -87,7 +105,7 @@ internal/
 ```
 
 `cmd/reconc/main.go` parses argv, delegates to
-`cli.Run`, translate the returned error into an exit code.
+`cli.Run`, and translates the returned error into an exit code.
 Within `internal/cli`, `cli.go` owns only public errors, top-level
 dispatch, and canonical usage. Compile, evaluate, inspect, explain, CI,
 bootstrap, scaffold, source analysis, quality, maintenance, catalog, metadata,
@@ -148,7 +166,7 @@ handling.
 - **CheckReport / CompletionReport / FixPlan schemas**: same policy. Additive changes
   (new optional fields) don't bump the version; breaking changes do.
 
-- **Published schema documents**: the five immutable
+- **Published schema documents**: the six immutable
   `schemas/v1/*.schema.json` contracts and the current
   `schemas/v2/policy-lock.schema.json` are canonical Draft 2020-12 documents,
   use format-versioned repository URLs as `$id`, and ship in the checksummed
@@ -254,11 +272,16 @@ responsibility-owned command file, canonical command metadata, focused tests, an
         ├──► audit
         ├──► changelog
         ├──► contextsize
-        ├──► demo ──► runtime, completiongate
+        ├──► commandproof
+        ├──► completiongate ──► commandproof, policyproof, runtime, tasklifecycle
+        ├──► demo ──► runtime, completiongate, proofbundle
+        ├──► proofbundle ──► completiongate, commandproof, policyproof, schema
+        ├──► retention
+        ├──► tasklifecycle
         ├──► agentguide (embed)
         ├──► templates  (embed)
         ├──► presets    (embed)
-        ├──► scaffold
+        ├──► scaffold ──► repositoryignore
         └──► completion
 ```
 

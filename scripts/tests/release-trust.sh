@@ -93,7 +93,7 @@ verify_manual_dispatch_only() {
 (cd "$root" && go run ./scripts/audits/publication --root "$root") \
   || fail "publication audit failed"
 (cd "$root" && go test ./scripts/audits/publication \
-  -run 'TestGitHubCommunitySurfaceIsSubstantive|TestCodeQLWorkflowHasBoundedAdvancedSetup|TestDependabotCoversBoundedDependencySurfaces') \
+  -run 'TestGitHubCommunitySurfaceIsSubstantive|TestCodeQLWorkflowHasBoundedAdvancedSetup|TestCIWorkflowRunsOnCandidateRefs|TestDependabotCoversBoundedDependencySurfaces') \
   || fail "GitHub trust-surface contract failed"
 
 version_source="$root/cmd/reconc/main.go"
@@ -203,7 +203,6 @@ for runner in ubuntu-24.04 macos-15 windows-2025; do
   require_text "$ci_workflow" "$runner"
 done
 require_text "$ci_workflow" "  push:"
-require_text "$ci_workflow" "      - main"
 require_text "$ci_workflow" "  pull_request:"
 require_text "$ci_workflow" "  workflow_dispatch:"
 if grep -Eq 'pull-requests:[[:space:]]*write|issues:[[:space:]]*write' "$ci_workflow"; then

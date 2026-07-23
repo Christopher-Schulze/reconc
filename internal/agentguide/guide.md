@@ -73,6 +73,14 @@ Inspection and enforcement commands never compile or write the lockfile.
 
 ## The Core Decision Loop
 
+Use this canonical repository loop:
+```bash
+reconc session-briefing . --json
+reconc check .
+reconc next .
+reconc done .
+```
+
 ### Before Writing
 Ultra-terse yes/no (exit 0 = yes, 2 = no):
 ```bash
@@ -111,6 +119,13 @@ candidate remains blocking until a later explicit non-blocking check clears it.
 Waiting never clears a block. Text mode prints all failed checks and one exact
 next action; exit 0 means done, exit 2 means blocked, and exit 1 means the gate
 itself failed.
+
+Current source builds after the immutable v0.8.6 release can export the same
+candidate as portable JSON or Markdown reviewer evidence without executing
+missing commands or persisting a new policy decision:
+```bash
+reconc proof . --format markdown --output proof.md
+```
 
 Or explicit multi-path check:
 ```bash
