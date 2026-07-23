@@ -178,6 +178,15 @@ jobs:
           ./reconc.exe --version
           ./reconc.exe --help >/dev/null
 
+      - name: Test native Windows installer
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path cmd/reconc/main.go -Pattern '^var Version = "([^"]+)"$').Matches.Groups[1].Value
+          ./scripts/tests/test-windows-installer.ps1 `
+            -InstallerPath ./install.ps1 `
+            -BinaryPath ./reconc.exe `
+            -ExpectedVersion $version
+
   release-trust:
     name: Release trust
     runs-on: ubuntu-24.04

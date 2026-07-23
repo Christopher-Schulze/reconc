@@ -104,6 +104,7 @@ release_line="v${project_version%.*}.x"
 require_text "$root/Makefile" "VERSION   ?= $project_version"
 require_text "$root/install.sh" "VERSION=\"\${1:-$project_version}\""
 require_text "$root/install.sh" "sh install.sh $project_version"
+require_text "$root/install.ps1" "[string]\$Version = \"$project_version\""
 require_text "$root/README.md" "The source line is \`$release_line\`, and the current source version is \`v$project_version\`."
 require_text "$root/SECURITY.md" "only to the latest GitHub Release when one exists"
 require_text "$root/AGENTS.md" "The current source line is \`$release_line\`; the source version is \`v$project_version\`."
@@ -218,6 +219,8 @@ require_text "$ci_workflow" "govulncheck@v1.6.0"
 require_text "$ci_workflow" "staticcheck@v0.7.0"
 require_text "$release_workflow" "govulncheck@v1.6.0"
 require_text "$ci_workflow" "make self-host"
+require_text "$ci_workflow" "shell: pwsh"
+require_text "$ci_workflow" "./scripts/tests/test-windows-installer.ps1"
 require_text "$release_workflow" "make self-host"
 require_text "$root/scripts/tests/self-hosting.sh" "--profile governed"
 require_text "$root/scripts/tests/self-hosting.sh" "--profile existing"
@@ -246,6 +249,8 @@ release_epoch=$(git -C "$root" show -s --format=%ct "$release_commit")
 )
 release_assets=(
   _reconc
+  install.ps1
+  install.sh
   reconc.1
   reconc.bash
   reconc.fish
@@ -265,6 +270,7 @@ release_assets=(
 for name in "${release_assets[@]}"; do
   case "$name" in
     _reconc|reconc.1|reconc.bash|reconc.fish) ;;
+    install.ps1|install.sh) cp "$root/$name" "$release_dir/$name" ;;
     *) printf '%s\n' "$name" > "$release_dir/$name" ;;
   esac
 done
@@ -282,6 +288,12 @@ generate_sbom() {
 generate_sbom "$release_dir" "$project_version"
 "$root/scripts/release/write-checksums.sh" "$release_dir"
 verify_release=("$root/scripts/release/verify-artifacts.sh" "$release_dir" reconc "$project_version" darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64)
+"${verify_release[@]}"
+printf '\n# stale despite a valid checksum\n' >> "$release_dir/install.ps1"
+"$root/scripts/release/write-checksums.sh" "$release_dir"
+expect_failure "${verify_release[@]}"
+cp "$root/install.ps1" "$release_dir/install.ps1"
+"$root/scripts/release/write-checksums.sh" "$release_dir"
 "${verify_release[@]}"
 printf '\n# stale despite a valid checksum\n' >> "$release_dir/reconc.bash"
 "$root/scripts/release/write-checksums.sh" "$release_dir"

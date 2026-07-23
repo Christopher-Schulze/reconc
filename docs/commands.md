@@ -67,9 +67,10 @@ Debugging:
 - `RECONC_HOOK_TIMING_THRESHOLD_MS` -- only print timings above this bound
 - `RECONC_AUDIT_NO_CACHE=1` -- bypass the audit stats cache
 
-Installer (`install.sh` only):
+Installers (`install.sh` and `install.ps1`):
 
-- `RECONC_INSTALL_DIR` (default `/usr/local/bin`) -- install target
+- `RECONC_INSTALL_DIR` (default `/usr/local/bin` for `install.sh` and
+  `%LOCALAPPDATA%\Programs\Reconc\bin` for `install.ps1`) -- install target
 - `RECONC_RELEASE_BASE` -- release download mirror
 - `RECONC_REQUIRE_ATTESTATION=1` -- make GitHub provenance verification
   of `SHA256SUMS` mandatory

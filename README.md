@@ -76,6 +76,16 @@ curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v
 "$HOME/.local/bin/reconc" demo
 ```
 
+On Windows x64, run the native PowerShell installer:
+
+```powershell
+$installer = Join-Path $env:TEMP "reconc-install.ps1"
+Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/install.ps1 -OutFile $installer
+& $installer 0.8.6
+Remove-Item $installer
+& "$env:LOCALAPPDATA\Programs\Reconc\bin\reconc.exe" demo
+```
+
 ## How Reconc Works
 
 ```text
@@ -165,18 +175,31 @@ curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v
 "$HOME/.local/bin/reconc" demo
 ```
 
-The installer verifies `SHA256SUMS` and uses GitHub build-provenance
-attestations when `gh` is available. Set `RECONC_REQUIRE_ATTESTATION=1` to make
-attestation verification mandatory.
+On Windows x64:
+
+```powershell
+$installer = Join-Path $env:TEMP "reconc-install.ps1"
+Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/install.ps1 -OutFile $installer
+& $installer 0.8.6
+Remove-Item $installer
+& "$env:LOCALAPPDATA\Programs\Reconc\bin\reconc.exe" demo
+```
+
+Both native installers verify the exact release asset against `SHA256SUMS`,
+smoke-test it before publication, and use GitHub build-provenance attestations
+when `gh` is available. Set `RECONC_REQUIRE_ATTESTATION=1` to make attestation
+verification mandatory. `RECONC_INSTALL_DIR` selects the destination; Windows
+defaults to the user-writable
+`%LOCALAPPDATA%\Programs\Reconc\bin` and prints an exact user-PATH command when
+that directory is not already available.
 
 The shipped CLI has no Bun dependency. Contributors need Bun `1.3.14` only for
 the executable OpenCode and Kilo Code adapter contract tests included in the
 canonical `make test` target.
 
-The release also includes native Windows binaries, but a native Windows
-installer is not yet shipped. Shell-based hook wrappers plus `.sh` and
-extensionless policy scripts require `sh` on `PATH`; Git for Windows supplies
-it. Native `.exe` and `.com` policy scripts execute directly.
+Windows releases currently support x64. Shell-based hook wrappers plus `.sh`
+and extensionless policy scripts require `sh` on `PATH`; Git for Windows
+supplies it. Native `.exe` and `.com` policy scripts execute directly.
 
 After installing or placing the binary on `PATH`, use `reconc` directly.
 

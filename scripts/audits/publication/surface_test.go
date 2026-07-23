@@ -252,6 +252,39 @@ func TestDependabotCoversBoundedDependencySurfaces(t *testing.T) {
 	}
 }
 
+func TestNativeWindowsInstallerIsWiredIntoCIAndRelease(t *testing.T) {
+	root := publicSurfaceRoot(t)
+	for _, path := range []string{
+		"install.ps1",
+		"scripts/tests/test-windows-installer.ps1",
+	} {
+		assertBoundedFile(t, filepath.Join(root, filepath.FromSlash(path)), 64*1024)
+	}
+
+	ci := readPublicSurfaceFile(t, root, ".github/workflows/reconc-ci.yml")
+	for _, token := range []string{
+		"shell: pwsh",
+		"./scripts/tests/test-windows-installer.ps1",
+		"-InstallerPath ./install.ps1",
+		"-BinaryPath ./reconc.exe",
+	} {
+		if !strings.Contains(ci, token) {
+			t.Errorf("native Windows CI omits installer contract %q", token)
+		}
+	}
+
+	makefile := readPublicSurfaceFile(t, root, "Makefile")
+	if !strings.Contains(makefile, "cp install.sh install.ps1 $(DISTDIR)/") {
+		t.Error("release build does not publish both native installers")
+	}
+	verifier := readPublicSurfaceFile(t, root, "scripts/release/verify-artifacts.sh")
+	for _, installer := range []string{"install.sh", "install.ps1"} {
+		if !strings.Contains(verifier, installer) {
+			t.Errorf("release verifier omits %s", installer)
+		}
+	}
+}
+
 type issueForm struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`

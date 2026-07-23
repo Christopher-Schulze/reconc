@@ -191,12 +191,12 @@ make sbom VERSION=0.8.6
 make release VERSION=0.8.6
 ```
 
-`make release` cross-compiles five binaries into `dist/`, generates three flat
-shell-completion artifacts, generates a man page, copies the six immutable v1
-schemas plus the current v2 policy-lock schema, generates deterministic SPDX
-2.3 and CycloneDX 1.6 SBOMs, and writes `dist/SHA256SUMS`. The target stops on
-the first build, SBOM, or checksum
-failure. The release verifier requires exactly those eighteen
+`make release` cross-compiles five binaries into `dist/`, copies the native
+POSIX and Windows installers, generates three flat shell-completion artifacts,
+generates a man page, copies the six immutable v1 schemas plus the current v2
+policy-lock schema, generates deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs,
+and writes `dist/SHA256SUMS`. The target stops on the first build, SBOM, or
+checksum failure. The release verifier requires exactly those twenty
 checksummed artifacts, rejects missing, extra, duplicate, unsafe, or corrupted
 entries, and never accepts an empty manifest. It regenerates Bash, Zsh, Fish,
 and the versioned man page from the current canonical command metadata and
@@ -218,11 +218,17 @@ documents. Verification regenerates both files from the tagged source and
 rejects missing, malformed, stale-version, or otherwise non-identical output
 before checksums and provenance are accepted.
 
-`install.sh [VERSION]` downloads both the platform binary and the published
-`SHA256SUMS`, requires exactly one matching SHA-256 entry, verifies the payload
-before executing it, stages and re-verifies it inside the install directory,
-then atomically replaces the target. A download, manifest, checksum, execution,
-staging, or publication failure leaves an existing installation untouched.
+`install.sh [VERSION]` supports macOS and Linux. `install.ps1 [VERSION]`
+supports Windows x64 and defaults to the user-writable
+`%LOCALAPPDATA%\Programs\Reconc\bin`; it reports the exact user-PATH command
+instead of elevating or weakening PowerShell execution policy. Both installers
+download the exact platform binary and published `SHA256SUMS` over HTTPS,
+require exactly one matching hexadecimal SHA-256 entry, verify the payload
+before executing it, stage and re-verify it inside the install directory, then
+atomically replace the target where the platform supports replacement. A
+download, manifest, checksum, execution, staging, or publication failure leaves
+an existing installation untouched. Windows arm64 remains unsupported until
+the release matrix ships a matching native asset.
 
 When the GitHub CLI (`gh`) is available, the installer additionally verifies
 the downloaded binary against its GitHub build-provenance attestation before
@@ -1463,7 +1469,9 @@ CI checks:
   formatting, tidy, vet, pinned Govulncheck v1.6.0, pinned Staticcheck v0.7.0,
   and race checks run once on Linux
 - native Windows 2025 root-module and `harness/template` tests plus native
-  binary version/help smoke;
+  binary version/help smoke and native PowerShell installer success, malformed
+  manifest, missing asset, checksum, execution, locked/unwritable target,
+  attestation, cleanup, and existing-install preservation paths;
   shell hook wrappers and shell policy scripts use the documented `sh` runtime
 - SHA-pinned GitHub-owned `actions/setup-node` provisions Node.js 24.18.0 with
   implicit package-manager caching disabled. Each executable-test job packs
@@ -1509,6 +1517,9 @@ Release:
   Govulncheck, pinned Staticcheck, race, publication, trust, and clean-repository
   self-hosting gates before building.
 - `make release VERSION=<tag-version>` builds the exact flat release inventory.
+- The flat inventory includes `install.sh` and `install.ps1`; both are
+  checksummed, byte-compared with tagged source, and covered by the same
+  provenance manifest as the binaries.
 - Release output includes deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs for
   both Go modules, selected dependencies, the Go toolchain, version, and commit.
 - Every artifact is verified against `SHA256SUMS` before upload.
@@ -1555,6 +1566,7 @@ Commit:
 - `go.sum`
 - `harness/**`
 - `install.sh`
+- `install.ps1`
 - `internal/**`
 - `schemas/**`
 - `scripts/audits/**`

@@ -36,7 +36,7 @@ sha256_file() {
   printf '%s\n' "$hash"
 }
 
-expected_assets="_reconc reconc.1 reconc.bash reconc.fish completion-report.schema.json policy-config.schema.json policy-fix-plan.schema.json policy-lock-v1.schema.json policy-lock.schema.json policy-report.schema.json proof-bundle.schema.json reconc-$version.spdx.json reconc-$version.cdx.json"
+expected_assets="_reconc install.ps1 install.sh reconc.1 reconc.bash reconc.fish completion-report.schema.json policy-config.schema.json policy-fix-plan.schema.json policy-lock-v1.schema.json policy-lock.schema.json policy-report.schema.json proof-bundle.schema.json reconc-$version.spdx.json reconc-$version.cdx.json"
 for target in "$@"; do
   os=${target%/*}
   arch=${target##*/}
@@ -144,6 +144,12 @@ SOURCE_DATE_EPOCH="$epoch" "$go_bin" -C "$root" run \
 for name in reconc.bash _reconc reconc.fish reconc.1; do
   cmp -s "$surface_tmp/$name" "$dist/$name" || {
     printf 'error: release surface is stale or noncanonical: %s\n' "$name" >&2
+    exit 1
+  }
+done
+for name in install.sh install.ps1; do
+  cmp -s "$root/$name" "$dist/$name" || {
+    printf 'error: release installer is stale or noncanonical: %s\n' "$name" >&2
     exit 1
   }
 done
