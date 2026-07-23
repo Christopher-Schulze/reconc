@@ -1138,6 +1138,128 @@ outside the repository and each route writes at most once every six hours.
 Human output keeps only the seen/expected count and last event so large route
 registries do not dominate the terminal.
 
+### Host Integration Truth
+
+Static configuration, documented discoverability, and live behavior are
+different facts. Reconc uses these terms consistently:
+
+| State | Meaning |
+| --- | --- |
+| `configured` | The managed project artifact is present, semantically current, executable where required, and has all local activation prerequisites. |
+| `discoverable` | The host contract scans that artifact path on the named surface. This does not imply a process loaded it. |
+| `loaded` | A current host process emitted an initialization or session route attributable to the managed artifact. |
+| `observed` | The exact named route emitted current bounded liveness evidence. |
+| `enforced` | A disposable negative probe proved the named pre-action route blocked before the requested side effect occurred. Static inspection never produces this state. |
+| `inferred` | Reconc maps a weaker lifecycle to a capability, such as OpenCode/Kilo `session.idle` to continuation. It is not native parity. |
+| `degraded` | A required artifact, activation, route, identity, API, or live proof is missing or unproven. |
+| `unsupported` | The host does not expose the required lifecycle on that surface, or Reconc intentionally has no sound behavior for it. |
+
+`hook status` preserves the public activation enum `absent`, `installed`,
+`configured`, `degraded`, `shadowed`, and `unsupported`. Its
+`expected_events`, `live_events`, `unseen_events`, `last_seen`, and
+`last_event` fields keep static and live truth separate. The repeatable
+disposable probe in `scripts/tests/host-integration-probe.sh` adds the
+surface-specific `discoverable`, `loaded`, `observed`, `enforced`, `inferred`,
+and `unproven_events` facts. It refuses model- or account-using execution
+without `--allow-authenticated`, records only route names, timestamps,
+structural field names, and outcomes, and never targets this product
+repository.
+
+| Surface | Project artifact and eligible contract | Strongest truthful guarantee before a live probe |
+| --- | --- | --- |
+| Cursor desktop Agent | `.cursor/hooks.json`; installed Agent lifecycle, tool, shell, MCP, subagent, compaction, and Stop routes | `configured` and `discoverable`; each route becomes `observed` or `enforced` independently |
+| Cursor desktop Cmd+K | The same Agent-hook entries when Cursor emits the corresponding Cmd+K lifecycle | Shared Reconc route semantics, not blanket Agent parity |
+| Cursor inline Tab | `afterTabFileEdit` only; read-prevention and Agent lifecycle are intentionally absent | Successful Tab-write evidence only after that exact route is observed |
+| Cursor CLI interactive | The same project file; actual emitted event set is host-version dependent | No IDE/CLI parity claim without event-by-event live evidence |
+| Cursor CLI print mode | The same project file under the headless Agent CLI | No interactive/print parity claim; structured CLI output is not substituted for missing pre-action hooks |
+| Cursor cloud agents | Repository hooks after a writable environment exists; session start/end, dedicated MCP, and Tab routes are unavailable | Only documented eligible routes; no live claim without approved cloud execution |
+| OpenCode CLI | `.opencode/plugins/reconc.js`; prompt, permission, tool, session, compaction, terminal failure, and inferred idle continuation | Static plugin contract plus per-route liveness; continuation remains inferred |
+| Kilo Code CLI | `.kilo/plugin/reconc.js` with `KILO_PURE` unset; same lifecycle classes as OpenCode | Static plugin contract plus per-route liveness; continuation remains inferred |
+| Kilo Code VS Code host | The same canonical project plugin when that host loads external project plugins | CLI observations are never reused as VS Code proof |
+
+Cursor's registry classifies all 21 current host events exactly once. Reconc
+installs 16: `sessionStart`, `sessionEnd`, `preToolUse`, `postToolUse`,
+`postToolUseFailure`, `subagentStart`, `subagentStop`,
+`beforeShellExecution`, passive `afterShellExecution`,
+`beforeMCPExecution`, `afterMCPExecution`, `afterFileEdit`,
+`beforeSubmitPrompt`, `preCompact`, `stop`, and `afterTabFileEdit`.
+`beforeReadFile` and `beforeTabFileRead` cannot prove successful reads;
+`afterAgentResponse` and `afterAgentThought` expand a privacy-sensitive,
+non-evidentiary surface; `workspaceOpen` is configuration lifecycle rather
+than repository policy. Those five events remain explicit unsupported
+dispositions and are not installed as no-ops.
+
+Cursor records positive generic tool evidence only from `postToolUse`.
+`postToolUseFailure` records failure without positive read, write, or command
+evidence. `afterShellExecution` contains output and duration but no
+authoritative exit status, so it records liveness only. `afterFileEdit` and
+`afterTabFileEdit` are successful write fallbacks deduplicated against generic
+tool delivery. Decision routes return `{"permission":"allow"}` or an exact
+deny object; observation routes return `{}`. Stop and subagent Stop use
+Cursor's bounded `followup_message` response. A malformed or outcome-unknown
+post event cannot satisfy command freshness, completion, or proof.
+
+OpenCode and Kilo shell success is accepted only from an integer
+`output.metadata.exit`. Exit zero succeeds. Non-zero, timeout, abort, explicit
+error, missing exit, fractional/non-finite/overflowing value, numeric string,
+or conflicting result is failure. Stdout and stderr text never decide the
+outcome. The adapters copy the validated value into the host-neutral
+`tool_response.exit_code` before the Go runtime sees it.
+
+Their `session.idle` continuation is a bounded asynchronous state machine, not
+a synchronous Stop hook. It stores at most 1,024 session-safe entries, permits
+at most ten accepted continuations per session, suppresses duplicate idle
+events until real user/tool activity advances the generation, and never stores
+prompts or model output. It calls only
+`client.session.promptAsync({sessionID, messageID, parts})`, waits for request
+acceptance, and never falls back to synchronous `prompt`. The generated
+`msg_reconc_...` identifier correlates only the injected `chat.message`; an
+unrelated user message still advances the activity generation even if the
+host never reports the injected callback. Missing APIs, rejected requests,
+runtime timeout/error, malformed or truncated Stop JSON, and the continuation
+cap are fail-open host outcomes with bounded redacted diagnostics. The shared
+Bun runner drains stdout and stderr concurrently, enforces one combined 8 KiB
+budget, rejects invalid UTF-8, kills and awaits the timed-out subprocess, and
+never publishes truncated JSON as a decision.
+
+MCP effects are opt-in compiler configuration:
+
+```yaml
+mcp:
+  unclassified: deny
+  tools:
+    - platform: cursor
+      tool: repository_write
+      effect: repository_write
+      path_fields: [/path]
+    - platform: opencode
+      tool: run_check
+      effect: command
+      command_field: /command
+    - platform: kilo
+      tool: external_service
+      effect: external
+```
+
+Each mapping is an exact `(platform, server_fingerprint, tool)` selector.
+Fingerprint presence is part of identity: a fingerprinted call never falls
+back to an unqualified mapping, and an unqualified call never matches a
+fingerprinted mapping. `path_fields` and `command_field` are exact RFC 6901
+JSON Pointers. Repository paths must resolve inside the target repository;
+missing, malformed, escaping, or wrong-typed values become unclassified and
+produce no positive evidence. `external` calls never become repository
+evidence.
+
+Cursor's dedicated MCP pre-hook can enforce `unclassified: deny`. OpenCode and
+Kilo expose exact generic tool identities but no reliable discriminator
+between an unconfigured MCP tool and a built-in/custom tool, so strict
+unclassified deny is unavailable on those generic surfaces. Configured exact
+identities remain enforceable. Server locators, credentials, arguments,
+results, prompts, and command bodies are not persisted in MCP status/audit.
+Use `reconc why mcp .`, `reconc hook status . --json`, and
+`reconc doctor . --deep` to inspect the compiled mappings, redacted
+observations, and host limitation.
+
 Before any non-Git installer write, Reconc resolves the prospective target
 through the operating system's filesystem identity and rejects paths outside
 the selected repository. This follows Unix symlinks and Windows reparse points,
@@ -1203,15 +1325,9 @@ an explicit block while Copilot's own timeout behavior remains fail-open. The
 managed filename is never overwritten when it contains foreign content, even
 with `--force`. Static configuration and contract tests are not live proof;
 only per-route liveness in `reconc hook status . --json` can establish that a
-host actually executed the adapter. Cursor Desktop uses `.cursor/hooks.json` with native
-`beforeSubmitPrompt`,
-`preToolUse` as the pre-write gate, `afterFileEdit`/`afterTabFileEdit` plus
-`postToolUse` as evidence backstops for Cursor write aliases including
-`StrReplace`, `Delete`, and `FileEdit`, and `stop` via Cursor-native
-`followup_message`. Prompt blocks use only Cursor's supported
-`{"continue":false,"user_message":"..."}` response fields. Clean Cursor hook
-paths emit explicit `{"continue":true,"permission":"allow"}` JSON because
-Cursor fail-closed hooks treat empty stdout as hook failure. If Cursor also
+host actually executed the adapter. Cursor uses `.cursor/hooks.json` with the
+registry-driven, surface-specific outcome contract defined in
+[Host Integration Truth](#host-integration-truth). If Cursor also
 executes compatible `.claude/settings.json` hooks, Reconc detects Cursor-native
 payload markers and no-ops those non-native Claude hook invocations before they
 can duplicate Cursor session evidence. Claude routes its native prompt,
@@ -1231,16 +1347,10 @@ route `chat.message`, hard pre-tool and permission hooks, complete
 `message.part.updated`, pre/post-compaction, and session lifecycle. Repeated
 terminal error notifications are bounded and deduplicated by tool call. They
 translate host events only; policy, session state, compaction context, and
-continuation decisions stay in the Go runtime, so the plugins do not maintain
-parallel run-state files or inject project-specific prompts. Their subprocess
-budgets are generated from the same registry, cap output at 8 KiB, terminate
-slow routes after 5, 10, or 30 seconds, and delegate versioned binary discovery
-to `tools/reconc/bin/hook` instead of embedding a release number. On Windows,
-they invoke that extensionless POSIX wrapper through `sh` instead of asking Bun
-to execute an unsupported script shape directly. Their Stop
-capability is inferred from `session.idle`: the adapter asks the host client to
-continue, but the host boundary remains fail-open and is not equivalent to the
-synchronous native Stop gates exposed by the other six agent runtimes.
+continuation decisions stay in the Go runtime. Exact shell outcomes,
+subprocess bounds, and idle-continuation behavior are defined in
+[Host Integration Truth](#host-integration-truth). On Windows, the adapters
+invoke the extensionless POSIX wrapper through `sh`.
 Grok Build uses the dedicated `.grok/hooks/reconc.json` native artifact.
 Its camelCase envelopes and native tools (`run_terminal_command`,
 `run_terminal_cmd`,
@@ -1344,7 +1454,8 @@ Repeated identical policy feedback shrinks to stable `RB-*` feedback IDs,
 rule IDs, and the saved report path. PreToolUse evaluates only pre-execution
 write/shell rules,
 generated Claude, Codex, GitHub Copilot, Cursor, Devin, Antigravity, and Grok configs do not spawn PreToolUse for
-read-only matchers, all PostToolUse / after-shell events record evidence only,
+read-only matchers, authoritative PostToolUse events record evidence while
+Cursor `afterShellExecution` records only passive liveness,
 and repo-wide policy audits run at terminal Stop, explicit Reconc checks, or a
 bounded repository-run checkpoint. Checkpoints occur after 64 material events,
 after 30 minutes with new material progress, or after a failed command; a clean

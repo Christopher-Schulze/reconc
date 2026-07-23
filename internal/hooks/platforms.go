@@ -14,6 +14,9 @@ const (
 	EventPermissionDenied   Event = "permission-denied"
 	EventPostToolUse        Event = "post-tool-use"
 	EventPostToolUseFailure Event = "post-tool-use-failure"
+	EventToolObservation    Event = "tool-observation"
+	EventMCPBefore          Event = "mcp-before"
+	EventMCPAfter           Event = "mcp-after"
 	EventStop               Event = "stop"
 	EventStopFailure        Event = "stop-failure"
 	EventSessionEnd         Event = "session-end"
@@ -22,6 +25,7 @@ const (
 	EventSubagentStop       Event = "subagent-stop"
 	EventPreCompaction      Event = "pre-compaction"
 	EventPostCompaction     Event = "post-compaction"
+	EventContinuation       Event = "continuation-observation"
 )
 
 // SupportMode describes how a platform exposes a neutral lifecycle event.
@@ -75,16 +79,49 @@ const (
 
 // Capability is one platform mapping onto Reconc's neutral lifecycle.
 type Capability struct {
-	Event               Event         `json:"event"`
-	NativeEvent         string        `json:"native_event,omitempty"`
-	RuntimeEvents       []string      `json:"runtime_events,omitempty"`
-	CompatibilityEvents []string      `json:"compatibility_events,omitempty"`
-	Support             SupportMode   `json:"support"`
-	Fallback            Event         `json:"fallback,omitempty"`
-	ErrorPolicy         FailurePolicy `json:"error_policy"`
-	TimeoutPolicy       FailurePolicy `json:"timeout_policy"`
-	TimeoutSeconds      int           `json:"timeout_seconds"`
-	MaxOutputBytes      int           `json:"max_output_bytes"`
+	Event            Event           `json:"event"`
+	Bindings         []NativeBinding `json:"bindings,omitempty"`
+	Support          SupportMode     `json:"support"`
+	Fallback         Event           `json:"fallback,omitempty"`
+	ErrorPolicy      FailurePolicy   `json:"error_policy"`
+	TimeoutPolicy    FailurePolicy   `json:"timeout_policy"`
+	TimeoutSeconds   int             `json:"timeout_seconds"`
+	MaxOutputBytes   int             `json:"max_output_bytes"`
+	MaxContinuations int             `json:"max_continuations,omitempty"`
+}
+
+// CursorResponseMode is the host response contract for one Cursor binding.
+type CursorResponseMode string
+
+const (
+	CursorResponseDecision      CursorResponseMode = "decision"
+	CursorResponseObservation   CursorResponseMode = "observation"
+	CursorResponseStopFollowup  CursorResponseMode = "stop-followup"
+	CursorResponseFireAndForget CursorResponseMode = "fire-and-forget"
+)
+
+// HostSurface is one declared host execution surface. Configuration and live
+// observation remain separate status facts.
+type HostSurface string
+
+const (
+	HostSurfaceCursorDesktopAgent   HostSurface = "cursor-desktop-agent"
+	HostSurfaceCursorDesktopCmdK    HostSurface = "cursor-desktop-cmd-k"
+	HostSurfaceCursorTab            HostSurface = "cursor-tab"
+	HostSurfaceCursorCLIInteractive HostSurface = "cursor-cli-interactive"
+	HostSurfaceCursorCLIPrint       HostSurface = "cursor-cli-print"
+	HostSurfaceCursorCloud          HostSurface = "cursor-cloud"
+)
+
+// NativeBinding owns one host event to runtime-route mapping.
+type NativeBinding struct {
+	NativeEvent   string             `json:"native_event"`
+	RuntimeEvent  string             `json:"runtime_event,omitempty"`
+	Compatibility bool               `json:"compatibility"`
+	Matcher       string             `json:"matcher,omitempty"`
+	ResponseMode  CursorResponseMode `json:"response_mode,omitempty"`
+	LoopLimit     int                `json:"loop_limit,omitempty"`
+	Surfaces      []HostSurface      `json:"surfaces,omitempty"`
 }
 
 // ActivationProbe is the declarative input used by status inspection and
@@ -169,7 +206,7 @@ var platformRegistry = []platformDefinition{
 			capability(EventPreToolUse, "PreToolUse", SupportNative, FailureBlock, FailureBlock, 10, "codex-pre-tool-use"),
 			capability(EventPermissionRequest, "PermissionRequest", SupportNative, FailureBlock, FailureBlock, 10, "codex-permission-request"),
 			capability(EventPostToolUse, "PostToolUse", SupportNative, FailureAllow, FailureAllow, 5, "codex-post-tool-use"),
-			capability(EventPostToolUseFailure, "PostToolUse", SupportAdapted, FailureAllow, FailureAllow, 5),
+			adaptedFallback(EventPostToolUseFailure, EventPostToolUse, FailureAllow, FailureAllow, 5),
 			capability(EventStop, "Stop", SupportNative, FailureBlock, FailureBlock, 30, "codex-stop"),
 			unsupportedNative(EventSessionEnd, "SessionEnd"),
 			capability(EventSubagentStart, "SubagentStart", SupportNative, FailureAllow, FailureAllow, 5, "codex-subagent-start"),
@@ -199,14 +236,20 @@ var platformRegistry = []platformDefinition{
 	},
 	{
 		Platform: Platform{Kind: KindCursor, DisplayName: "Cursor", TargetPath: CursorHooksPath, ScaffoldPath: CursorHooksPath, InstallMode: InstallNestedJSON, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".cursor"}, RequiresWrapper: true}, Capabilities: []Capability{
-			capability(EventSessionStart, "sessionStart", SupportNative, FailureAllow, FailureAllow, 5, "cursor-session-start"),
-			capability(EventUserPromptSubmit, "beforeSubmitPrompt", SupportNative, FailureBlock, FailureBlock, 5, "cursor-user-prompt-submit"),
+			cursorCapability(EventSessionStart, "sessionStart", "cursor-session-start", SupportNative, FailureAllow, FailureAllow, 5, CursorResponseFireAndForget, 0),
+			cursorCapability(EventUserPromptSubmit, "beforeSubmitPrompt", "cursor-user-prompt-submit", SupportNative, FailureAllow, FailureAllow, 5, CursorResponseFireAndForget, 0),
 			cursorPreToolCapability(),
 			fallback(EventPermissionRequest, EventPreToolUse),
-			capabilityMany(EventPostToolUse, "postToolUse", SupportNative, FailureAllow, FailureAllow, 5, "cursor-post-tool-use", "cursor-after-shell-execution", "cursor-after-file-edit", "cursor-after-tab-file-edit"),
-			capability(EventPostToolUseFailure, "afterShellExecution", SupportAdapted, FailureAllow, FailureAllow, 5),
-			capability(EventStop, "stop", SupportNative, FailureBlock, FailureBlock, 30, "cursor-stop"),
-			capability(EventSessionEnd, "sessionEnd", SupportNative, FailureAllow, FailureAllow, 5, "cursor-session-end"),
+			cursorPostToolCapability(),
+			cursorCapability(EventPostToolUseFailure, "postToolUseFailure", "cursor-post-tool-use-failure", SupportNative, FailureAllow, FailureAllow, 5, CursorResponseObservation, 0),
+			cursorCapability(EventToolObservation, "afterShellExecution", "cursor-after-shell-execution", SupportNative, FailureAllow, FailureAllow, 5, CursorResponseObservation, 0),
+			cursorCapability(EventMCPBefore, "beforeMCPExecution", "cursor-before-mcp-execution", SupportNative, FailureBlock, FailureBlock, 10, CursorResponseDecision, 0),
+			cursorCapability(EventMCPAfter, "afterMCPExecution", "cursor-after-mcp-execution", SupportNative, FailureAllow, FailureAllow, 5, CursorResponseObservation, 0),
+			cursorCapability(EventSubagentStart, "subagentStart", "cursor-subagent-start", SupportNative, FailureAllow, FailureAllow, 5, CursorResponseFireAndForget, 0),
+			cursorCapability(EventSubagentStop, "subagentStop", "cursor-subagent-stop", SupportNative, FailureAllow, FailureAllow, 30, CursorResponseStopFollowup, 10),
+			cursorCapability(EventPreCompaction, "preCompact", "cursor-pre-compaction", SupportNative, FailureAllow, FailureAllow, 5, CursorResponseFireAndForget, 0),
+			cursorCapability(EventStop, "stop", "cursor-stop", SupportNative, FailureBlock, FailureBlock, 30, CursorResponseStopFollowup, 10),
+			cursorCapability(EventSessionEnd, "sessionEnd", "cursor-session-end", SupportNative, FailureAllow, FailureAllow, 5, CursorResponseFireAndForget, 0),
 			unsupported(EventPostCompaction),
 		}},
 		generator: generatorCursor,
@@ -219,7 +262,10 @@ var platformRegistry = []platformDefinition{
 			capability(EventPermissionRequest, "permission.ask", SupportNative, FailureBlock, FailureBlock, 10, "opencode-permission-request"),
 			capability(EventPostToolUse, "tool.execute.after", SupportNative, FailureAllow, FailureAllow, 5, "opencode-post-tool-use"),
 			capability(EventPostToolUseFailure, "message.part.updated(error)", SupportAdapted, FailureAllow, FailureAllow, 5, "opencode-post-tool-use-failure"),
-			capability(EventStop, "session.idle", SupportInferred, FailureBlock, FailureAllow, 30, "opencode-stop"),
+			adaptedFallback(EventMCPBefore, EventPreToolUse, FailureBlock, FailureBlock, 10),
+			adaptedFallback(EventMCPAfter, EventPostToolUse, FailureAllow, FailureAllow, 5),
+			bunStopCapability("opencode"),
+			continuationCapability("opencode"),
 			capability(EventSessionEnd, "session.deleted", SupportNative, FailureAllow, FailureAllow, 5, "opencode-session-end"),
 			capability(EventPreCompaction, "experimental.session.compacting", SupportExperimental, FailureAllow, FailureAllow, 5, "opencode-pre-compaction"),
 			capability(EventPostCompaction, "session.compacted", SupportNative, FailureAllow, FailureAllow, 5, "opencode-post-compaction"),
@@ -233,7 +279,7 @@ var platformRegistry = []platformDefinition{
 			capability(EventPreToolUse, "PreToolUse", SupportNative, FailureBlock, FailureAllow, 10, "devin-pre-tool-use"),
 			capability(EventPermissionRequest, "PermissionRequest", SupportNative, FailureBlock, FailureAllow, 10, "devin-permission-request"),
 			capability(EventPostToolUse, "PostToolUse", SupportNative, FailureAllow, FailureAllow, 5, "devin-post-tool-use"),
-			capability(EventPostToolUseFailure, "PostToolUse", SupportAdapted, FailureAllow, FailureAllow, 5),
+			adaptedFallback(EventPostToolUseFailure, EventPostToolUse, FailureAllow, FailureAllow, 5),
 			capability(EventStop, "Stop", SupportNative, FailureBlock, FailureAllow, 30, "devin-stop"),
 			capability(EventSessionEnd, "SessionEnd", SupportNative, FailureAllow, FailureAllow, 5, "devin-session-end"),
 			capability(EventPostCompaction, "PostCompaction", SupportNative, FailureAllow, FailureAllow, 5, "devin-post-compaction"),
@@ -246,7 +292,7 @@ var platformRegistry = []platformDefinition{
 			capability(EventPreToolUse, "PreToolUse", SupportNative, FailureBlock, FailureAllow, 10, "antigravity-pre-tool-use"),
 			fallback(EventPermissionRequest, EventPreToolUse),
 			capability(EventPostToolUse, "PostToolUse", SupportNative, FailureAllow, FailureAllow, 5, "antigravity-post-tool-use"),
-			capability(EventPostToolUseFailure, "PostToolUse", SupportAdapted, FailureAllow, FailureAllow, 5),
+			adaptedFallback(EventPostToolUseFailure, EventPostToolUse, FailureAllow, FailureAllow, 5),
 			capability(EventStop, "Stop", SupportNative, FailureBlock, FailureAllow, 30, "antigravity-stop"),
 			capability(EventSessionEnd, "PostInvocation", SupportAdapted, FailureAllow, FailureAllow, 5, "antigravity-post-invocation"),
 			unsupported(EventPostCompaction),
@@ -261,7 +307,10 @@ var platformRegistry = []platformDefinition{
 			capability(EventPermissionRequest, "permission.ask", SupportNative, FailureBlock, FailureBlock, 10, "kilo-permission-request"),
 			capability(EventPostToolUse, "tool.execute.after", SupportNative, FailureAllow, FailureAllow, 5, "kilo-post-tool-use"),
 			capability(EventPostToolUseFailure, "message.part.updated(error)", SupportAdapted, FailureAllow, FailureAllow, 5, "kilo-post-tool-use-failure"),
-			capability(EventStop, "session.idle", SupportInferred, FailureBlock, FailureAllow, 30, "kilo-stop"),
+			adaptedFallback(EventMCPBefore, EventPreToolUse, FailureBlock, FailureBlock, 10),
+			adaptedFallback(EventMCPAfter, EventPostToolUse, FailureAllow, FailureAllow, 5),
+			bunStopCapability("kilo"),
+			continuationCapability("kilo"),
 			capability(EventSessionEnd, "session.deleted", SupportNative, FailureAllow, FailureAllow, 5, "kilo-session-end"),
 			capability(EventPreCompaction, "experimental.session.compacting", SupportExperimental, FailureAllow, FailureAllow, 5, "kilo-pre-compaction"),
 			capability(EventPostCompaction, "session.compacted", SupportNative, FailureAllow, FailureAllow, 5, "kilo-post-compaction"),
@@ -293,27 +342,99 @@ var platformRegistry = []platformDefinition{
 var runtimeRouteIndex = buildRuntimeRouteIndex()
 
 func capability(event Event, native string, support SupportMode, errors, timeouts FailurePolicy, timeoutSeconds int, runtimeEvents ...string) Capability {
-	return Capability{Event: event, NativeEvent: native, RuntimeEvents: runtimeEvents, Support: support, ErrorPolicy: errors, TimeoutPolicy: timeouts, TimeoutSeconds: timeoutSeconds, MaxOutputBytes: defaultHookOutputBytes}
-}
-
-func capabilityMany(event Event, native string, support SupportMode, errors, timeouts FailurePolicy, timeoutSeconds int, runtimeEvents ...string) Capability {
-	return capability(event, native, support, errors, timeouts, timeoutSeconds, runtimeEvents...)
+	bindings := make([]NativeBinding, 0, len(runtimeEvents))
+	if len(runtimeEvents) == 0 && native != "" {
+		bindings = append(bindings, NativeBinding{NativeEvent: native})
+	}
+	for _, runtimeEvent := range runtimeEvents {
+		bindings = append(bindings, NativeBinding{NativeEvent: native, RuntimeEvent: runtimeEvent})
+	}
+	return Capability{Event: event, Bindings: bindings, Support: support, ErrorPolicy: errors, TimeoutPolicy: timeouts, TimeoutSeconds: timeoutSeconds, MaxOutputBytes: defaultHookOutputBytes}
 }
 
 func cursorPreToolCapability() Capability {
-	capability := capabilityMany(EventPreToolUse, "preToolUse", SupportNative, FailureBlock, FailureBlock, 10, "cursor-pre-tool-use", "cursor-before-shell-execution")
-	capability.CompatibilityEvents = []string{"cursor-before-read-file", "cursor-before-tab-file-read"}
+	return Capability{
+		Event: EventPreToolUse,
+		Bindings: []NativeBinding{
+			cursorBinding("preToolUse", "cursor-pre-tool-use", "Write|Edit|MultiEdit|StrReplace|Delete|FileEdit|TabWrite", CursorResponseDecision, 0),
+			cursorBinding("beforeShellExecution", "cursor-before-shell-execution", "", CursorResponseDecision, 0),
+		},
+		Support: SupportNative, ErrorPolicy: FailureBlock, TimeoutPolicy: FailureBlock,
+		TimeoutSeconds: 10, MaxOutputBytes: defaultHookOutputBytes,
+	}
+}
+
+func cursorPostToolCapability() Capability {
+	return Capability{
+		Event: EventPostToolUse,
+		Bindings: []NativeBinding{
+			cursorBinding("postToolUse", "cursor-post-tool-use", "Read|Write|Edit|MultiEdit|StrReplace|Delete|FileEdit|TabRead|TabWrite|Shell", CursorResponseObservation, 0),
+			cursorBinding("afterFileEdit", "cursor-after-file-edit", "", CursorResponseObservation, 0),
+			cursorBinding("afterTabFileEdit", "cursor-after-tab-file-edit", "", CursorResponseObservation, 0),
+		},
+		Support: SupportNative, ErrorPolicy: FailureAllow, TimeoutPolicy: FailureAllow,
+		TimeoutSeconds: 5, MaxOutputBytes: defaultHookOutputBytes,
+	}
+}
+
+func cursorBinding(nativeEvent, runtimeEvent, matcher string, responseMode CursorResponseMode, loopLimit int) NativeBinding {
+	return NativeBinding{
+		NativeEvent: nativeEvent, RuntimeEvent: runtimeEvent, Matcher: matcher,
+		ResponseMode: responseMode, LoopLimit: loopLimit,
+		Surfaces: cursorDocumentedSurfaces(nativeEvent),
+	}
+}
+
+func cursorCapability(event Event, nativeEvent, runtimeEvent string, support SupportMode, errors, timeouts FailurePolicy, timeoutSeconds int, responseMode CursorResponseMode, loopLimit int) Capability {
+	return Capability{
+		Event: event, Bindings: []NativeBinding{cursorBinding(nativeEvent, runtimeEvent, "", responseMode, loopLimit)},
+		Support: support, ErrorPolicy: errors, TimeoutPolicy: timeouts,
+		TimeoutSeconds: timeoutSeconds, MaxOutputBytes: defaultHookOutputBytes,
+	}
+}
+
+func continuationCapability(prefix string) Capability {
+	return Capability{
+		Event: EventContinuation,
+		Bindings: []NativeBinding{
+			{NativeEvent: "session.idle", RuntimeEvent: prefix + "-continuation-accepted", Compatibility: true},
+			{NativeEvent: "session.idle", RuntimeEvent: prefix + "-continuation-failed", Compatibility: true},
+			{NativeEvent: "session.idle", RuntimeEvent: prefix + "-continuation-unavailable", Compatibility: true},
+			{NativeEvent: "session.idle", RuntimeEvent: prefix + "-continuation-suppressed", Compatibility: true},
+		},
+		Support: SupportInferred, ErrorPolicy: FailureAllow, TimeoutPolicy: FailureAllow,
+		TimeoutSeconds: 5, MaxOutputBytes: defaultHookOutputBytes, MaxContinuations: 10,
+	}
+}
+
+func bunStopCapability(prefix string) Capability {
+	capability := capability(EventStop, "session.idle", SupportInferred, FailureBlock, FailureAllow, 30, prefix+"-stop")
+	capability.MaxContinuations = 10
 	return capability
 }
 
 func claudePostCompactionCapability() Capability {
-	capability := capability(EventPostCompaction, "PostCompact", SupportNative, FailureAllow, FailureAllow, 5, "claude-post-compaction")
-	capability.CompatibilityEvents = []string{"claude-compaction-recovery"}
-	return capability
+	return Capability{
+		Event: EventPostCompaction,
+		Bindings: []NativeBinding{
+			{NativeEvent: "PostCompact", RuntimeEvent: "claude-post-compaction"},
+			{NativeEvent: "SessionStart", RuntimeEvent: "claude-compaction-recovery", Compatibility: true},
+		},
+		Support: SupportNative, ErrorPolicy: FailureAllow, TimeoutPolicy: FailureAllow,
+		TimeoutSeconds: 5, MaxOutputBytes: defaultHookOutputBytes,
+	}
 }
 
 func fallback(event, fallbackEvent Event) Capability {
 	return Capability{Event: event, Support: SupportUnsupported, Fallback: fallbackEvent, ErrorPolicy: FailureHost, TimeoutPolicy: FailureHost, MaxOutputBytes: defaultHookOutputBytes}
+}
+
+func adaptedFallback(event, fallbackEvent Event, errors, timeouts FailurePolicy, timeoutSeconds int) Capability {
+	return Capability{
+		Event: event, Support: SupportAdapted, Fallback: fallbackEvent,
+		ErrorPolicy: errors, TimeoutPolicy: timeouts, TimeoutSeconds: timeoutSeconds,
+		MaxOutputBytes: defaultHookOutputBytes,
+	}
 }
 
 func unsupported(event Event) Capability {
@@ -322,7 +443,7 @@ func unsupported(event Event) Capability {
 
 func unsupportedNative(event Event, native string) Capability {
 	capability := unsupported(event)
-	capability.NativeEvent = native
+	capability.Bindings = []NativeBinding{{NativeEvent: native}}
 	return capability
 }
 
@@ -379,10 +500,86 @@ func clonePlatform(platform Platform) Platform {
 	platform.Activation.ConfigDirs = append([]string(nil), platform.Activation.ConfigDirs...)
 	platform.Capabilities = append([]Capability(nil), platform.Capabilities...)
 	for i := range platform.Capabilities {
-		platform.Capabilities[i].RuntimeEvents = append([]string(nil), platform.Capabilities[i].RuntimeEvents...)
-		platform.Capabilities[i].CompatibilityEvents = append([]string(nil), platform.Capabilities[i].CompatibilityEvents...)
+		platform.Capabilities[i].Bindings = append([]NativeBinding(nil), platform.Capabilities[i].Bindings...)
+		for bindingIndex := range platform.Capabilities[i].Bindings {
+			platform.Capabilities[i].Bindings[bindingIndex].Surfaces = append([]HostSurface(nil), platform.Capabilities[i].Bindings[bindingIndex].Surfaces...)
+		}
 	}
 	return platform
+}
+
+// PrimaryNativeEvent derives the advertised host event from the first
+// non-compatibility binding.
+func (capability Capability) PrimaryNativeEvent() string {
+	for _, binding := range capability.Bindings {
+		if !binding.Compatibility {
+			return binding.NativeEvent
+		}
+	}
+	return ""
+}
+
+func validatePlatform(platform Platform) error {
+	nativeEvents := map[string]struct{}{}
+	runtimeEvents := map[string]struct{}{}
+	for _, capability := range platform.Capabilities {
+		if capability.MaxOutputBytes <= 0 {
+			return hookGeneratorError("%s %s has no output budget", platform.Kind, capability.Event)
+		}
+		if capability.Support != SupportUnsupported && capability.TimeoutSeconds <= 0 {
+			return hookGeneratorError("%s %s has no timeout budget", platform.Kind, capability.Event)
+		}
+		if capability.MaxContinuations < 0 || capability.MaxContinuations > 100 {
+			return hookGeneratorError("%s %s has invalid continuation limit %d", platform.Kind, capability.Event, capability.MaxContinuations)
+		}
+		if platform.Kind != KindGitPreCommit && capability.Support != SupportUnsupported &&
+			len(capability.Bindings) == 0 && capability.Fallback == "" {
+			return hookGeneratorError("%s %s has no native binding or fallback", platform.Kind, capability.Event)
+		}
+		for _, binding := range capability.Bindings {
+			if binding.NativeEvent == "" {
+				return hookGeneratorError("%s %s has an empty native event binding", platform.Kind, capability.Event)
+			}
+			if capability.Support == SupportUnsupported && binding.RuntimeEvent != "" {
+				return hookGeneratorError("%s unsupported %s binding exposes runtime route %s", platform.Kind, capability.Event, binding.RuntimeEvent)
+			}
+			if platform.Kind != KindGitPreCommit && capability.Support != SupportUnsupported && binding.RuntimeEvent == "" {
+				return hookGeneratorError("%s %s binding %s has no runtime route", platform.Kind, capability.Event, binding.NativeEvent)
+			}
+			if binding.RuntimeEvent != "" {
+				if _, duplicate := runtimeEvents[binding.RuntimeEvent]; duplicate {
+					return hookGeneratorError("%s duplicates runtime route %s", platform.Kind, binding.RuntimeEvent)
+				}
+				runtimeEvents[binding.RuntimeEvent] = struct{}{}
+			}
+			if platform.Kind != KindCursor {
+				if binding.Matcher != "" || binding.ResponseMode != "" || binding.LoopLimit != 0 || len(binding.Surfaces) != 0 {
+					return hookGeneratorError("%s binding %s uses Cursor-only fields", platform.Kind, binding.NativeEvent)
+				}
+				continue
+			}
+			if !binding.Compatibility {
+				if _, duplicate := nativeEvents[binding.NativeEvent]; duplicate {
+					return hookGeneratorError("%s duplicates native event %s", platform.Kind, binding.NativeEvent)
+				}
+				nativeEvents[binding.NativeEvent] = struct{}{}
+			}
+			if binding.ResponseMode == "" {
+				return hookGeneratorError("Cursor binding %s has no response mode", binding.NativeEvent)
+			}
+			if binding.LoopLimit < 0 || binding.LoopLimit > 100 {
+				return hookGeneratorError("Cursor binding %s has invalid loop limit %d", binding.NativeEvent, binding.LoopLimit)
+			}
+			if binding.LoopLimit > 0 && binding.ResponseMode != CursorResponseStopFollowup {
+				return hookGeneratorError("Cursor binding %s has loop limit outside stop-followup mode", binding.NativeEvent)
+			}
+		}
+		if platform.Kind == KindCursor && capability.Support != SupportUnsupported &&
+			capability.ErrorPolicy != capability.TimeoutPolicy {
+			return hookGeneratorError("Cursor %s cannot represent different error and timeout policies", capability.Event)
+		}
+	}
+	return nil
 }
 
 // RuntimeRoute is the allocation-free dispatch view used on every hook event.
@@ -406,17 +603,20 @@ func buildRuntimeRouteIndex() map[string]RuntimeRoute {
 	count := 0
 	for _, definition := range platformRegistry {
 		for _, capability := range definition.Capabilities {
-			count += len(capability.RuntimeEvents) + len(capability.CompatibilityEvents)
+			for _, binding := range capability.Bindings {
+				if binding.RuntimeEvent != "" {
+					count++
+				}
+			}
 		}
 	}
 	index := make(map[string]RuntimeRoute, count)
 	for _, definition := range platformRegistry {
 		for _, capability := range definition.Capabilities {
-			for _, runtimeEvent := range capability.RuntimeEvents {
-				index[runtimeEvent] = runtimeRoute(definition.Kind, capability)
-			}
-			for _, runtimeEvent := range capability.CompatibilityEvents {
-				index[runtimeEvent] = runtimeRoute(definition.Kind, capability)
+			for _, binding := range capability.Bindings {
+				if binding.RuntimeEvent != "" {
+					index[binding.RuntimeEvent] = runtimeRoute(definition.Kind, capability)
+				}
 			}
 		}
 	}
@@ -441,8 +641,11 @@ func RuntimeEvents() []string {
 	events := []string{}
 	for _, definition := range platformRegistry {
 		for _, capability := range definition.Capabilities {
-			events = append(events, capability.RuntimeEvents...)
-			events = append(events, capability.CompatibilityEvents...)
+			for _, binding := range capability.Bindings {
+				if binding.RuntimeEvent != "" {
+					events = append(events, binding.RuntimeEvent)
+				}
+			}
 		}
 	}
 	return events
@@ -457,7 +660,11 @@ func GrokRuntimeEvents() []string {
 	}
 	events := make([]string, 0, len(platform.Capabilities))
 	for _, capability := range platform.Capabilities {
-		events = append(events, capability.RuntimeEvents...)
+		for _, binding := range capability.Bindings {
+			if binding.RuntimeEvent != "" && !binding.Compatibility {
+				events = append(events, binding.RuntimeEvent)
+			}
+		}
 	}
 	return events
 }

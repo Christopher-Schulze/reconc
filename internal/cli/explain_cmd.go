@@ -141,7 +141,7 @@ func runExplain(args []string, stdout, stderr io.Writer) (resultErr error) {
 	return nil
 }
 
-// runWhy implements `reconc why <rule-id> [repo] [--json]` (W13).
+// runWhy implements `reconc why <rule-id|mcp> [repo] [--json]` (W13).
 //
 // Prints everything known about a rule: kind, mode, message, all
 // targeting fields, source provenance. Useful when a violation
@@ -150,8 +150,8 @@ func runWhy(args []string, stdout, stderr io.Writer) error {
 	// Handle --help before requiring a rule-id so `reconc why --help` works.
 	for _, a := range args {
 		if a == "-h" || a == "--help" {
-			fmt.Fprintln(stdout, "Usage: reconc why <rule-id> [repo] [--json|--terse]")
-			fmt.Fprintln(stdout, "Show full details of one rule from the compiled lockfile.")
+			fmt.Fprintln(stdout, "Usage: reconc why <rule-id|mcp> [repo] [--json|--terse]")
+			fmt.Fprintln(stdout, "Show one rule or the MCP side-effect contract from the compiled lockfile.")
 			return nil
 		}
 	}
@@ -170,8 +170,8 @@ func runWhy(args []string, stdout, stderr io.Writer) error {
 		case "--terse":
 			terse = true
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "Usage: reconc why <rule-id> [repo] [--json|--terse]")
-			fmt.Fprintln(stdout, "Show full details of one rule from the compiled lockfile.")
+			fmt.Fprintln(stdout, "Usage: reconc why <rule-id|mcp> [repo] [--json|--terse]")
+			fmt.Fprintln(stdout, "Show one rule or the MCP side-effect contract from the compiled lockfile.")
 			return nil
 		default:
 			if len(a) > 0 && a[0] == '-' {
@@ -200,6 +200,9 @@ func runWhy(args []string, stdout, stderr io.Writer) error {
 	var payload map[string]interface{}
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc why: lockfile is not valid JSON: " + err.Error()}
+	}
+	if ruleID == "mcp" {
+		return renderWhyMCP(payload["mcp"], jsonOut, terse, stdout)
 	}
 	rules, _ := payload["rules"].([]interface{})
 	var target map[string]interface{}
@@ -307,6 +310,49 @@ func runWhy(args []string, stdout, stderr io.Writer) error {
 	}
 	if script, ok := target["script"].(string); ok && script != "" {
 		fmt.Fprintf(stdout, "Script:  %s\n", script)
+	}
+	return nil
+}
+
+func renderWhyMCP(raw interface{}, jsonOut, terse bool, stdout io.Writer) error {
+	if jsonOut && terse {
+		return &CLIError{ExitCode: 1, Message: "reconc why: --json and --terse are mutually exclusive"}
+	}
+	if raw == nil {
+		if jsonOut {
+			_, _ = fmt.Fprintln(stdout, "null")
+		} else {
+			_, _ = fmt.Fprintln(stdout, "MCP policy: not configured; host behavior remains in control and no MCP call is classified as repository evidence.")
+		}
+		return nil
+	}
+	contract, ok := raw.(map[string]interface{})
+	if !ok {
+		return &CLIError{ExitCode: 1, Message: "reconc why: compiled MCP contract is invalid"}
+	}
+	if jsonOut {
+		encoder := json.NewEncoder(stdout)
+		encoder.SetIndent("", "  ")
+		_ = encoder.Encode(contract)
+		return nil
+	}
+	tools, _ := contract["tools"].([]interface{})
+	if terse {
+		fmt.Fprintf(stdout, "unclassified=%s mappings=%d\n", strOrEmpty(contract["unclassified"]), len(tools))
+		return nil
+	}
+	fmt.Fprintf(stdout, "MCP unclassified: %s\n", strOrEmpty(contract["unclassified"]))
+	fmt.Fprintf(stdout, "Mappings: %d\n", len(tools))
+	for _, rawTool := range tools {
+		tool, ok := rawTool.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		identity := strOrEmpty(tool["platform"]) + ":" + strOrEmpty(tool["tool"])
+		if fingerprint := strOrEmpty(tool["server_fingerprint"]); fingerprint != "" {
+			identity += "@" + fingerprint
+		}
+		fmt.Fprintf(stdout, "  - %s -> %s (%s)\n", identity, strOrEmpty(tool["effect"]), strOrEmpty(tool["source_path"]))
 	}
 	return nil
 }

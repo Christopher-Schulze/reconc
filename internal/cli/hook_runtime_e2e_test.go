@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -393,7 +394,7 @@ func TestHookRuntimeCursorStopUsesFollowupMessage(t *testing.T) {
 	}
 }
 
-func TestHookRuntimeCursorBeforeReadDoesNotSatisfyReadEvidence(t *testing.T) {
+func TestHookRuntimeCursorUnsupportedBeforeReadDoesNotSatisfyReadEvidence(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
 	_, _, _ = runWithStdin(t, `{"conversation_id":"cur-read"}`,
 		"hook", "runtime", "cursor-session-start", repo)
@@ -401,8 +402,8 @@ func TestHookRuntimeCursorBeforeReadDoesNotSatisfyReadEvidence(t *testing.T) {
 	_, _, code := runWithStdin(t,
 		`{"conversation_id":"cur-read","filePath":"docs/tasks.md"}`,
 		"hook", "runtime", "cursor-before-read-file", repo)
-	if code != 0 {
-		t.Fatalf("Cursor before-read hook should pass, got %d", code)
+	if code != 1 {
+		t.Fatalf("unsupported Cursor before-read route should be rejected, got %d", code)
 	}
 	state, err := agentsession.LoadSessionState(repo, "cur-read")
 	if err != nil {
@@ -427,24 +428,196 @@ func TestHookRuntimeCursorBeforeReadDoesNotSatisfyReadEvidence(t *testing.T) {
 	}
 }
 
-func TestHookRuntimeCursorAfterShellRecordsFailure(t *testing.T) {
+func TestHookRuntimeCursorSuccessFailureAndPassiveShellAreSeparated(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
 	_, _, _ = runWithStdin(t, `{"conversation_id":"cur3"}`,
 		"hook", "runtime", "cursor-session-start", repo)
 
 	_, _, code := runWithStdin(t,
-		`{"conversation_id":"cur3","command":"go test ./...","exitCode":1,"stderr":"failed"}`,
-		"hook", "runtime", "cursor-after-shell-execution", repo)
+		`{"conversation_id":"cur3","tool_name":"Shell","tool_input":{"command":"go test ./..."}}`,
+		"hook", "runtime", "cursor-post-tool-use", repo)
 	if code != 0 {
-		t.Fatalf("Cursor after-shell hook should fail-open after recording failure, got %d", code)
+		t.Fatalf("Cursor post-tool success should pass, got %d", code)
+	}
+
+	stdout, _, code := runWithStdin(t,
+		`{"conversation_id":"cur3","tool_name":"Shell","tool_input":{"command":"go test ./..."},"tool_use_id":"tool-3","error_message":"failed","failure_type":"error","is_interrupt":false}`,
+		"hook", "runtime", "cursor-post-tool-use-failure", repo)
+	if code != 0 || strings.TrimSpace(stdout) != "{}" {
+		t.Fatalf("Cursor native failure should be outputless and fail-open, code=%d stdout=%q", code, stdout)
+	}
+
+	stdout, _, code = runWithStdin(t,
+		`{"conversation_id":"cur3","command":"go test ./...","output":"failed","duration":1200,"sandbox":{"enabled":true}}`,
+		"hook", "runtime", "cursor-after-shell-execution", repo)
+	if code != 0 || strings.TrimSpace(stdout) != "{}" {
+		t.Fatalf("Cursor after-shell observation should be outputless and fail-open, code=%d stdout=%q", code, stdout)
 	}
 
 	state, err := agentsession.LoadSessionState(repo, "cur3")
 	if err != nil {
 		t.Fatalf("LoadSessionState: %v", err)
 	}
-	if len(state.CommandResults) != 1 || state.CommandResults[0].Outcome != "failure" {
-		t.Fatalf("expected one failed command result, got %#v", state.CommandResults)
+	if len(state.CommandResults) != 2 ||
+		state.CommandResults[0].Outcome != "success" ||
+		state.CommandResults[1].Outcome != "failure" ||
+		state.CommandResults[1].ToolUseID != "tool-3" {
+		t.Fatalf("expected one native success and one native failure, got %#v", state.CommandResults)
+	}
+}
+
+func TestHookRuntimeCursorGenericAndSpecializedWritesDeduplicate(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	_, _, _ = runWithStdin(t, `{"conversation_id":"cur-dedup"}`,
+		"hook", "runtime", "cursor-session-start", repo)
+
+	_, _, code := runWithStdin(t,
+		`{"conversation_id":"cur-dedup","tool_name":"Write","tool_input":{"filePath":"src/app.go"}}`,
+		"hook", "runtime", "cursor-post-tool-use", repo)
+	if code != 0 {
+		t.Fatalf("Cursor generic post-tool write should pass, got %d", code)
+	}
+	_, _, code = runWithStdin(t,
+		`{"conversation_id":"cur-dedup","file_path":"src/app.go"}`,
+		"hook", "runtime", "cursor-after-file-edit", repo)
+	if code != 0 {
+		t.Fatalf("Cursor specialized file-edit write should pass, got %d", code)
+	}
+
+	state, err := agentsession.LoadSessionState(repo, "cur-dedup")
+	if err != nil {
+		t.Fatalf("LoadSessionState: %v", err)
+	}
+	if len(state.WritePaths) != 1 || state.EvidenceEpoch != 1 || state.WriteEpochs["src/app.go"] != 1 {
+		t.Fatalf("duplicate write changed evidence more than once: %#v", state)
+	}
+}
+
+func TestHookRuntimeCursorSubagentCompactionAndMCPRoutes(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	mcpConfig := `mcp:
+  unclassified: deny
+  tools:
+    - platform: cursor
+      server_fingerprint: sha256:03b6bdb2ea9df5d8c3323186b7057404da8faff057c885f12a56271255d5448f
+      tool: write_repo
+      effect: repository_write
+      path_fields: [/path]
+`
+	if err := os.WriteFile(filepath.Join(repo, ".reconc.yml"), []byte(mcpConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compiler.CompileRepoPolicy(repo, "e2e"); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, _, code := runWithStdin(t,
+		`{"conversation_id":"cur-parent","subagent_id":"cur-child","hook_event_name":"subagentStart"}`,
+		"hook", "runtime", "cursor-subagent-start", repo)
+	if code != 0 || strings.TrimSpace(stdout) != "{}" {
+		t.Fatalf("Cursor subagent start code=%d stdout=%q", code, stdout)
+	}
+	if _, err := agentsession.MutateSessionState(repo, "cur-child", func(state agentsession.SessionState) agentsession.SessionState {
+		return agentsession.AppendWritePath(state, "src/subagent.go")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stdout, _, code = runWithStdin(t,
+		`{"conversation_id":"cur-parent","subagent_id":"cur-child","hook_event_name":"subagentStop","loop_count":0}`,
+		"hook", "runtime", "cursor-subagent-stop", repo)
+	if code != 0 || !strings.Contains(stdout, "followup_message") {
+		t.Fatalf("Cursor subagent stop code=%d stdout=%q", code, stdout)
+	}
+	stdout, _, code = runWithStdin(t,
+		`{"conversation_id":"cur-parent","hook_event_name":"preCompact"}`,
+		"hook", "runtime", "cursor-pre-compaction", repo)
+	if code != 0 || strings.TrimSpace(stdout) != "{}" {
+		t.Fatalf("Cursor pre-compaction code=%d stdout=%q", code, stdout)
+	}
+
+	stdout, _, code = runWithStdin(t,
+		`{"conversation_id":"cur-parent","tool_name":"write_repo","tool_input":"{\"path\":\"generated/out.go\"}","url":"https://example.invalid/mcp"}`,
+		"hook", "runtime", "cursor-before-mcp-execution", repo)
+	if code != 0 || !strings.Contains(stdout, `"permission":"deny"`) {
+		t.Fatalf("Cursor MCP protected write code=%d stdout=%q", code, stdout)
+	}
+	stdout, _, code = runWithStdin(t,
+		`{"conversation_id":"cur-parent","tool_name":"write_repo","tool_input":"{\"path\":\"src/mcp.go\"}","url":"https://example.invalid/mcp"}`,
+		"hook", "runtime", "cursor-before-mcp-execution", repo)
+	if code != 0 || !strings.Contains(stdout, `"permission":"allow"`) {
+		t.Fatalf("Cursor MCP safe write pre code=%d stdout=%q", code, stdout)
+	}
+	stdout, _, code = runWithStdin(t,
+		`{"conversation_id":"cur-parent","tool_name":"write_repo","tool_input":"{\"path\":\"src/mcp.go\"}","tool_response":"{\"isError\":false}","url":"https://example.invalid/mcp"}`,
+		"hook", "runtime", "cursor-after-mcp-execution", repo)
+	if code != 0 || strings.TrimSpace(stdout) != "{}" {
+		t.Fatalf("Cursor MCP safe write post code=%d stdout=%q", code, stdout)
+	}
+	state, err := agentsession.LoadSessionState(repo, "cur-parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(state.WritePaths, "src/mcp.go") {
+		t.Fatalf("Cursor MCP write evidence = %#v", state.WritePaths)
+	}
+}
+
+func TestHookRuntimeCursorMalformedObservationAddsNoEvidence(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	_, stderr, code := runWithStdin(t,
+		`{"tool_name":"Write","tool_input":{"filePath":"src/app.go"}}`,
+		"hook", "runtime", "cursor-post-tool-use", repo)
+	if code != 0 || !strings.Contains(stderr, "session identity") {
+		t.Fatalf("malformed Cursor observation must warn and fail open, code=%d stderr=%q", code, stderr)
+	}
+	state, err := agentsession.LoadSessionState(repo, "cursor-workspace")
+	if err != nil {
+		t.Fatalf("LoadSessionState: %v", err)
+	}
+	if len(state.WritePaths) != 0 || len(state.CommandResults) != 0 || state.EvidenceEpoch != 0 {
+		t.Fatalf("malformed Cursor observation created fallback session evidence: %#v", state)
+	}
+}
+
+func TestHookRuntimeOpenCodeAndKiloRequireAuthoritativeShellOutcome(t *testing.T) {
+	for _, prefix := range []string{"opencode", "kilo"} {
+		t.Run(prefix, func(t *testing.T) {
+			repo := bootstrapE2ERepo(t)
+			sessionID := prefix + "-shell"
+			_, _, code := runWithStdin(t, `{"session_id":"`+sessionID+`"}`,
+				"hook", "runtime", prefix+"-session-start", repo)
+			if code != 0 {
+				t.Fatalf("%s session start = %d", prefix, code)
+			}
+
+			payload := `{"session_id":"` + sessionID + `","tool_name":"Bash","tool_input":{"command":"go test ./..."},"tool_response":{"exit_code":2,"success":false}}`
+			_, _, code = runWithStdin(t, payload,
+				"hook", "runtime", prefix+"-post-tool-use", repo)
+			if code != 0 {
+				t.Fatalf("%s failed command observation = %d", prefix, code)
+			}
+
+			unknown := `{"session_id":"` + sessionID + `","tool_name":"Bash","tool_input":{"command":"make lint"},"tool_response":{"success":true}}`
+			_, _, code = runWithStdin(t, unknown,
+				"hook", "runtime", prefix+"-post-tool-use", repo)
+			if code != 0 {
+				t.Fatalf("%s unknown command observation = %d", prefix, code)
+			}
+
+			state, err := agentsession.LoadSessionState(repo, sessionID)
+			if err != nil {
+				t.Fatalf("LoadSessionState: %v", err)
+			}
+			if len(state.Commands) != 0 {
+				t.Fatalf("%s unsuccessful commands became positive evidence: %#v", prefix, state.Commands)
+			}
+			if len(state.CommandResults) != 2 ||
+				state.CommandResults[0].Outcome != "failure" ||
+				state.CommandResults[1].Outcome != "failure" ||
+				!strings.Contains(state.CommandResults[1].Error, "missing authoritative") {
+				t.Fatalf("%s command outcomes = %#v", prefix, state.CommandResults)
+			}
+		})
 	}
 }
 

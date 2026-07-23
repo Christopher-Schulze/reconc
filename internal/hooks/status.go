@@ -49,6 +49,29 @@ type PlatformStatus struct {
 	Configured     bool            `json:"configured"`
 	Live           bool            `json:"live"`
 	Remediation    string          `json:"remediation,omitempty"`
+	MCP            *MCPStatus      `json:"mcp,omitempty"`
+}
+
+// MCPMappingStatus is the public, redacted view of one configured selector.
+type MCPMappingStatus struct {
+	Tool              string `json:"tool"`
+	ServerFingerprint string `json:"server_fingerprint,omitempty"`
+	Effect            string `json:"effect"`
+	SourcePath        string `json:"source_path"`
+}
+
+// MCPStatus keeps configured policy and observed runtime facts separate.
+type MCPStatus struct {
+	UnclassifiedMode       string             `json:"unclassified_mode"`
+	Mappings               []MCPMappingStatus `json:"mappings"`
+	ClassifiedObserved     uint64             `json:"classified_observed"`
+	UnclassifiedObserved   uint64             `json:"unclassified_observed"`
+	Denied                 uint64             `json:"denied"`
+	Failures               uint64             `json:"failures"`
+	StrictUnavailable      uint64             `json:"strict_unavailable"`
+	StrictUnclassifiedDeny bool               `json:"strict_unclassified_deny_available"`
+	Limitation             string             `json:"limitation,omitempty"`
+	ObservationError       string             `json:"observation_error,omitempty"`
 }
 
 // InspectPlatforms validates every registered artifact and activation probe.
@@ -140,6 +163,14 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 		}
 	}
 	data, err := readManagedArtifact(target)
+	if platform.Kind == KindKilo && err == nil && platform.Activation.LegacyArtifactPath != "" {
+		legacyTarget := filepath.Join(root, filepath.FromSlash(platform.Activation.LegacyArtifactPath))
+		if _, legacyErr := readManagedArtifact(legacyTarget); legacyErr == nil {
+			report.State = StateDegraded
+			report.Detail = "canonical and legacy Kilo plugins both exist; remove the legacy copy after confirming it is not user-owned"
+			return report
+		}
+	}
 	if os.IsNotExist(err) && platform.Activation.LegacyArtifactPath != "" {
 		legacyTarget := filepath.Join(root, filepath.FromSlash(platform.Activation.LegacyArtifactPath))
 		if legacyData, legacyErr := readManagedArtifact(legacyTarget); legacyErr == nil {
@@ -322,7 +353,11 @@ func platformRuntimeEvents(platform Platform) []string {
 		if capability.Support == SupportUnsupported {
 			continue
 		}
-		events = append(events, capability.RuntimeEvents...)
+		for _, binding := range capability.Bindings {
+			if binding.RuntimeEvent != "" {
+				events = append(events, binding.RuntimeEvent)
+			}
+		}
 	}
 	return events
 }
@@ -330,8 +365,13 @@ func platformRuntimeEvents(platform Platform) []string {
 func unsupportedNativeEvents(platform Platform, content string) []string {
 	var unexpected []string
 	for _, capability := range platform.Capabilities {
-		if capability.Support == SupportUnsupported && capability.NativeEvent != "" && strings.Contains(content, `"`+capability.NativeEvent+`"`) {
-			unexpected = append(unexpected, "unsupported "+capability.NativeEvent)
+		if capability.Support != SupportUnsupported {
+			continue
+		}
+		for _, binding := range capability.Bindings {
+			if binding.NativeEvent != "" && strings.Contains(content, `"`+binding.NativeEvent+`"`) {
+				unexpected = append(unexpected, "unsupported "+binding.NativeEvent)
+			}
 		}
 	}
 	return unexpected
@@ -351,24 +391,27 @@ func codexRouteBudgetIssues(data []byte, platform Platform) []string {
 	}
 	var issues []string
 	for _, capability := range platform.Capabilities {
-		if capability.Support == SupportUnsupported || len(capability.RuntimeEvents) == 0 {
+		if capability.Support == SupportUnsupported || len(capability.Bindings) == 0 {
 			continue
 		}
-		for _, runtimeEvent := range capability.RuntimeEvents {
+		for _, binding := range capability.Bindings {
+			if binding.RuntimeEvent == "" || binding.Compatibility {
+				continue
+			}
 			matches := 0
-			for _, group := range document.Hooks[capability.NativeEvent] {
+			for _, group := range document.Hooks[binding.NativeEvent] {
 				for _, handler := range group.Hooks {
-					if !strings.Contains(handler.Command, runtimeEvent) {
+					if !strings.Contains(handler.Command, binding.RuntimeEvent) {
 						continue
 					}
 					matches++
 					if handler.Timeout == nil || *handler.Timeout != capability.TimeoutSeconds {
-						issues = append(issues, fmt.Sprintf("%s timeout must be %ds", runtimeEvent, capability.TimeoutSeconds))
+						issues = append(issues, fmt.Sprintf("%s timeout must be %ds", binding.RuntimeEvent, capability.TimeoutSeconds))
 					}
 				}
 			}
 			if matches != 1 {
-				issues = append(issues, fmt.Sprintf("%s route count is %d", runtimeEvent, matches))
+				issues = append(issues, fmt.Sprintf("%s route count is %d", binding.RuntimeEvent, matches))
 			}
 		}
 	}
@@ -396,9 +439,9 @@ func requiresJSON(mode InstallMode) bool {
 func missingRuntimeEvents(platform Platform, content string) []string {
 	missing := []string{}
 	for _, capability := range platform.Capabilities {
-		for _, event := range capability.RuntimeEvents {
-			if !strings.Contains(content, event) {
-				missing = append(missing, event)
+		for _, binding := range capability.Bindings {
+			if binding.RuntimeEvent != "" && !binding.Compatibility && !strings.Contains(content, binding.RuntimeEvent) {
+				missing = append(missing, binding.RuntimeEvent)
 			}
 		}
 	}

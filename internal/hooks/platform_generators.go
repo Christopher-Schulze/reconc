@@ -219,6 +219,7 @@ type bunRouteBudget struct {
 	MaxOutputBytes      int           `json:"maxOutputBytes"`
 	ErrorPolicy         FailurePolicy `json:"errorPolicy"`
 	TimeoutPolicy       FailurePolicy `json:"timeoutPolicy"`
+	MaxContinuations    int           `json:"maxContinuations,omitempty"`
 }
 
 func bunRouteBudgets(kind string) (string, error) {
@@ -228,12 +229,16 @@ func bunRouteBudgets(kind string) (string, error) {
 	}
 	budgets := map[string]bunRouteBudget{}
 	for _, capability := range platform.Capabilities {
-		for _, event := range capability.RuntimeEvents {
-			budgets[event] = bunRouteBudget{
+		for _, binding := range capability.Bindings {
+			if binding.RuntimeEvent == "" {
+				continue
+			}
+			budgets[binding.RuntimeEvent] = bunRouteBudget{
 				TimeoutMilliseconds: capability.TimeoutSeconds * 1000,
 				MaxOutputBytes:      capability.MaxOutputBytes,
 				ErrorPolicy:         capability.ErrorPolicy,
 				TimeoutPolicy:       capability.TimeoutPolicy,
+				MaxContinuations:    capability.MaxContinuations,
 			}
 		}
 	}
@@ -276,6 +281,10 @@ const startedSessions = new Set()
 const terminalToolFailures = new Set()
 const maxRememberedToolFailures = 1024
 const routeBudgets = __ROUTE_BUDGETS__
+const continuationStates = new Map()
+const maxContinuationSessions = 1024
+let continuationTouch = 0
+let capacityDiagnosticActive = false
 
 const sessionIDFrom = (value, depth = 0) => {
   if (!value || depth > 6) return ""
@@ -307,7 +316,8 @@ const normalizeTool = (tool) => {
     case "write": return "Write"
     case "edit": return "Edit"
     case "multiedit": return "MultiEdit"
-    case "bash": return "Bash"
+    case "bash":
+    case "shell": return "Bash"
     default: return tool || ""
   }
 }
@@ -328,14 +338,93 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
     return ["reconc", "hook", "runtime", event, repo]
   }
 
+  const boundedText = (value, limit) => {
+    const bytes = new TextEncoder().encode(String(value))
+    let end = Math.min(bytes.length, Math.max(0, limit))
+    while (end > 0) {
+      try {
+        return new TextDecoder("utf-8", { fatal: true }).decode(bytes.slice(0, end))
+      } catch {
+        end -= 1
+      }
+    }
+    return ""
+  }
+
+  const readCombined = async (stdout, stderr, limit, signal) => {
+    const marker = new TextEncoder().encode("\n[reconc output truncated]")
+    let remaining = Math.max(0, limit)
+    let truncated = false
+    const drain = async (stream) => {
+      const chunks = []
+      const reader = stream.getReader()
+      while (true) {
+        const { done, value } = await new Promise((resolve, reject) => {
+          const stop = () => {
+            reader.cancel().catch(() => {})
+            resolve({ done: true })
+          }
+          signal.addEventListener("abort", stop, { once: true })
+          reader.read().then(
+            (result) => {
+              signal.removeEventListener("abort", stop)
+              resolve(result)
+            },
+            (error) => {
+              signal.removeEventListener("abort", stop)
+              reject(error)
+            },
+          )
+        })
+        if (done) break
+        const bytes = value instanceof Uint8Array ? value : new Uint8Array(value)
+        const keep = Math.min(remaining, bytes.length)
+        if (keep > 0) {
+          chunks.push(bytes.slice(0, keep))
+          remaining -= keep
+        }
+        if (keep < bytes.length) truncated = true
+      }
+      const size = chunks.reduce((total, chunk) => total + chunk.length, 0)
+      const joined = new Uint8Array(size)
+      let offset = 0
+      for (const chunk of chunks) {
+        joined.set(chunk, offset)
+        offset += chunk.length
+      }
+      return joined
+    }
+    const [stdoutBytes, stderrBytes] = await Promise.all([drain(stdout), drain(stderr)])
+    let stdoutKeep = stdoutBytes.length
+    let stderrKeep = stderrBytes.length
+    if (truncated && limit >= marker.length) {
+      const removeFromStderr = Math.min(stderrKeep, marker.length)
+      stderrKeep -= removeFromStderr
+      stdoutKeep -= Math.min(stdoutKeep, marker.length - removeFromStderr)
+    }
+    let stdoutText
+    let stderrText
+    try {
+      stdoutText = new TextDecoder("utf-8", { fatal: true }).decode(stdoutBytes.slice(0, stdoutKeep))
+      stderrText = new TextDecoder("utf-8", { fatal: true }).decode(stderrBytes.slice(0, stderrKeep))
+    } catch {
+      return {
+        stdout: "",
+        stderr: boundedText("[reconc invalid UTF-8 output]", limit).trim(),
+        truncated,
+        invalidUTF8: true,
+      }
+    }
+    const suffix = truncated && limit >= marker.length ? new TextDecoder().decode(marker) : ""
+    return { stdout: stdoutText.trim(), stderr: (stderrText + suffix).trim(), truncated, invalidUTF8: false }
+  }
+
   const run = async (event, payload) => {
     const budget = routeBudgets[event] || { timeoutMilliseconds: 5000, maxOutputBytes: 8192, errorPolicy: "block", timeoutPolicy: "block" }
-    // Bun.spawn has no output-size option; cap after reading. The Go
-    // runtime already bounds its own hook output per route.
-    const cap = (text) => budget.maxOutputBytes > 0 && text.length > budget.maxOutputBytes ? text.slice(0, budget.maxOutputBytes) : text
     let proc
     let timeoutID
     let timedOut = false
+    const outputAbort = new AbortController()
     try {
       proc = Bun.spawn(await commandFor(event), {
         stdin: "pipe",
@@ -347,15 +436,17 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
       proc.stdin.end()
       timeoutID = setTimeout(() => {
         timedOut = true
+        outputAbort.abort()
         proc.kill("SIGKILL")
       }, budget.timeoutMilliseconds)
-      const [code, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()])
-      return { code, stdout: cap(stdout.trim()), stderr: cap(stderr.trim()), timedOut }
+      const [code, output] = await Promise.all([proc.exited, readCombined(proc.stdout, proc.stderr, budget.maxOutputBytes, outputAbort.signal)])
+      return { code, stdout: output.stdout, stderr: output.stderr, timedOut, truncated: output.truncated, invalidUTF8: output.invalidUTF8 }
     } catch (error) {
       if (proc) {
+        outputAbort.abort()
         try { proc.kill("SIGKILL") } catch {}
       }
-      return { code: 1, stdout: "", stderr: String(error), timedOut }
+      return { code: 1, stdout: "", stderr: boundedText(error, budget.maxOutputBytes), timedOut, truncated: false, invalidUTF8: false }
     } finally {
       if (timeoutID) clearTimeout(timeoutID)
     }
@@ -364,6 +455,7 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
   const shouldBlockFailure = (event, result) => {
     const budget = routeBudgets[event] || { errorPolicy: "block", timeoutPolicy: "block" }
     if (result.timedOut) return budget.timeoutPolicy === "block"
+    if (result.invalidUTF8) return budget.errorPolicy === "block"
     return result.code !== 0 && budget.errorPolicy === "block"
   }
 
@@ -377,16 +469,48 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
     return id
   }
 
-  const toolPayload = (input, output) => {
+  const toolPayload = (input, output, phase) => {
+    const toolName = normalizeTool(input?.tool || output?.tool)
+    const hostTool = typeof input?.tool === "string" ? input.tool : typeof output?.tool === "string" ? output.tool : ""
+    const toolInput = output?.args || input?.args || {}
+    const metadata = output?.metadata && typeof output.metadata === "object" && !Array.isArray(output.metadata) ? output.metadata : {}
+    const response = {
+      title: output?.title || "",
+      output: output?.output ?? output?.result ?? output?.response ?? "",
+      metadata,
+    }
+    if (toolName === "Bash") {
+      const hasExit = Object.hasOwn(metadata, "exit")
+      const exit = metadata.exit
+      const directExit = output?.exit_code ?? output?.exitCode
+      if (hasExit && Number.isSafeInteger(exit) && (directExit === undefined || directExit === exit)) {
+        response.exit_code = exit
+        response.success = exit === 0
+      } else {
+        response.success = false
+        response.error = hasExit && exit !== null ? "invalid authoritative shell exit status" : "missing authoritative shell exit status"
+      }
+      if (output?.error) {
+        response.success = false
+        response.error = String(output.error)
+      }
+    }
+    const completedOutcome = output?.isError === true || output?.error || response.success === false
+      ? "failure"
+      : "success"
     const payload = {
       session_id: sessionIDFrom(input) || fallbackSessionID,
       reconc_runtime: "__PREFIX__",
-      tool_name: normalizeTool(input?.tool || output?.tool),
-      tool_input: output?.args || input?.args || {},
-      tool_response: {
-        title: output?.title || "",
-        output: output?.output ?? output?.result ?? output?.response ?? "",
-        metadata: output?.metadata || {},
+      tool_name: toolName,
+      tool_input: toolInput,
+      tool_response: response,
+      reconc_mcp: {
+        platform: "__PREFIX__",
+        tool: hostTool,
+        observed: false,
+        blocking_pre_hook: true,
+        input_valid: !!toolInput && typeof toolInput === "object" && !Array.isArray(toolInput),
+        ...(phase === "after" ? { outcome: completedOutcome } : {}),
       },
     }
     return payload
@@ -399,6 +523,14 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
     tool_input: part?.state?.input || {},
     tool_response: { error: part?.state?.error || "tool execution failed", metadata: part?.state?.metadata || {} },
     error: String(part?.state?.error || "tool execution failed"),
+    reconc_mcp: {
+      platform: "__PREFIX__",
+      tool: typeof part?.tool === "string" ? part.tool : "",
+      observed: false,
+      blocking_pre_hook: true,
+      input_valid: !!part?.state?.input && typeof part.state.input === "object" && !Array.isArray(part.state.input),
+      outcome: "failure",
+    },
   })
 
   const denied = (event, result) => {
@@ -420,6 +552,21 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
       return body?.additionalContext || body?.hookSpecificOutput?.additionalContext || body?.reason || ""
     } catch {
       return ""
+    }
+  }
+
+  const continuationFrom = (result, limit) => {
+    if (!result || result.code !== 0 || result.timedOut || result.truncated || result.invalidUTF8) {
+      return { valid: false, reason: "" }
+    }
+    if (!result.stdout) return { valid: true, reason: "" }
+    try {
+      const body = JSON.parse(result.stdout)
+      const candidate = body?.additionalContext || body?.hookSpecificOutput?.additionalContext || body?.reason || ""
+      if (typeof candidate !== "string") return { valid: false, reason: "" }
+      return { valid: true, reason: boundedText(candidate.trim(), limit) }
+    } catch {
+      return { valid: false, reason: "" }
     }
   }
 
@@ -449,28 +596,143 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
     return true
   }
 
+  const continuationState = (sessionID) => {
+    const current = continuationStates.get(sessionID)
+    if (current) {
+      current.lastTouched = ++continuationTouch
+      return current
+    }
+    if (continuationStates.size >= maxContinuationSessions) {
+      let evictID = ""
+      let evictTouch = Number.POSITIVE_INFINITY
+      for (const [candidateID, candidate] of continuationStates) {
+        if (!candidate.inFlight && candidate.lastTouched < evictTouch) {
+          evictID = candidateID
+          evictTouch = candidate.lastTouched
+        }
+      }
+      if (!evictID) {
+        if (!capacityDiagnosticActive) {
+          capacityDiagnosticActive = true
+          console.error("reconc continuation: state capacity unavailable")
+        }
+        return undefined
+      }
+      continuationStates.delete(evictID)
+    }
+    capacityDiagnosticActive = false
+    const state = {
+      inFlight: false,
+      activityGeneration: 0,
+      handledGeneration: -1,
+      continuationCount: 0,
+      lastDelivery: "none",
+      lastTouched: ++continuationTouch,
+      injectedMessageIDs: new Set(),
+    }
+    continuationStates.set(sessionID, state)
+    return state
+  }
+
+  const sessionHash = (sessionID) => {
+    let hash = 2166136261
+    for (const byte of new TextEncoder().encode(sessionID)) {
+      hash ^= byte
+      hash = Math.imul(hash, 16777619)
+    }
+    return (hash >>> 0).toString(16).padStart(8, "0")
+  }
+
+  const reportContinuation = async (sessionID, state, delivery) => {
+    state.lastDelivery = delivery
+    const event = "__PREFIX__-continuation-" + delivery
+    await run(event, {
+      session_id: sessionID,
+      reconc_runtime: "__PREFIX__",
+      continuation_delivery: delivery,
+    })
+    if (delivery !== "accepted") {
+      console.error("reconc continuation: host=__PREFIX__ session=" + sessionHash(sessionID) + " route=__PREFIX__-stop delivery=" + delivery)
+    }
+  }
+
+  const markActivity = (sessionID) => {
+    const state = continuationState(sessionID)
+    if (!state) return
+    state.activityGeneration += 1
+  }
+
   const handleStop = async (event) => {
     const sessionID = await ensureSession(sessionIDFrom(event))
+    const state = continuationState(sessionID)
+    if (!state) return
+    if (state.inFlight) return
+    if (state.handledGeneration === state.activityGeneration) {
+      if (state.lastDelivery !== "suppressed") await reportContinuation(sessionID, state, "suppressed")
+      return
+    }
+    state.handledGeneration = state.activityGeneration
+    state.inFlight = true
+    state.lastTouched = ++continuationTouch
     const stopEvent = "__PREFIX__-stop"
-    const result = await run(stopEvent, { session_id: sessionID, reconc_runtime: "__PREFIX__" })
-    if (result.code !== 0) {
-      if (shouldBlockFailure(stopEvent, result)) throw new Error(result.stderr || result.stdout || "reconc blocked session stop")
-      return
+    try {
+      const result = await run(stopEvent, { session_id: sessionID, reconc_runtime: "__PREFIX__" })
+      const budget = routeBudgets[stopEvent] || { maxOutputBytes: 8192, maxContinuations: 0 }
+      if (result.code !== 0 || result.timedOut) {
+        await reportContinuation(sessionID, state, "failed")
+        return
+      }
+      const continuation = continuationFrom(result, budget.maxOutputBytes)
+      if (!continuation.valid) {
+        await reportContinuation(sessionID, state, "failed")
+        return
+      }
+      if (!continuation.reason) {
+        state.lastDelivery = "none"
+        return
+      }
+      if (!Number.isSafeInteger(budget.maxContinuations) || budget.maxContinuations <= 0 ||
+          state.continuationCount >= budget.maxContinuations) {
+        await reportContinuation(sessionID, state, "suppressed")
+        return
+      }
+      if (typeof client?.session?.promptAsync !== "function") {
+        await reportContinuation(sessionID, state, "unavailable")
+        return
+      }
+      const messageID = "msg_reconc_" + crypto.randomUUID().replaceAll("-", "")
+      state.injectedMessageIDs.add(messageID)
+      let acceptance
+      try {
+        acceptance = await client.session.promptAsync({
+          sessionID,
+          messageID,
+          parts: [{ type: "text", text: continuation.reason }],
+        })
+      } catch {
+        state.injectedMessageIDs.delete(messageID)
+        await reportContinuation(sessionID, state, "failed")
+        return
+      }
+      if (!acceptance || acceptance.error || acceptance.response?.ok !== true || acceptance.response?.status !== 204) {
+        state.injectedMessageIDs.delete(messageID)
+        await reportContinuation(sessionID, state, "failed")
+        return
+      }
+      state.continuationCount += 1
+      await reportContinuation(sessionID, state, "accepted")
+    } finally {
+      state.inFlight = false
+      state.lastTouched = ++continuationTouch
     }
-    const reason = contextFrom(result)
-    if (!reason) return
-    if (client?.session?.prompt) {
-      await client.session.prompt({ path: { id: sessionID }, body: { parts: [{ type: "text", text: reason }] } })
-      return
-    }
-    // No prompt API on this host: session.idle is a best-effort
-    // continuation surface, so log the nudge instead of throwing.
-    console.error("reconc continuation (host has no session.prompt API): " + reason)
   }
 
   return {
     "chat.message": async (input, output) => {
       const sessionID = await ensureSession(input?.sessionID)
+      const state = continuationState(sessionID)
+      const injected = state?.injectedMessageIDs?.delete(input?.messageID) === true
+      if (!injected) markActivity(sessionID)
       await run("__PREFIX__-user-prompt-submit", {
         session_id: sessionID,
         reconc_runtime: "__PREFIX__",
@@ -478,14 +740,15 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
       })
     },
     "tool.execute.before": async (input, output) => {
-      await ensureSession(sessionIDFrom(input))
+      const sessionID = await ensureSession(sessionIDFrom(input))
+      markActivity(sessionID)
       const event = "__PREFIX__-pre-tool-use"
-      const result = await run(event, toolPayload(input, output))
+      const result = await run(event, toolPayload(input, output, "before"))
       if (shouldBlockFailure(event, result)) throw new Error(result.stderr || result.stdout || "reconc blocked tool execution")
     },
     "tool.execute.after": async (input, output) => {
       await ensureSession(sessionIDFrom(input))
-      await run("__PREFIX__-post-tool-use", toolPayload(input, output))
+      await run("__PREFIX__-post-tool-use", toolPayload(input, output, "after"))
     },
     "permission.ask": async (input, output) => {
       const sessionID = await ensureSession(sessionIDFrom(input))
@@ -520,6 +783,7 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
       } else if (event?.type === "session.deleted") {
         await run("__PREFIX__-session-end", { session_id: sessionID, reconc_runtime: "__PREFIX__" })
         startedSessions.delete(sessionID)
+        continuationStates.delete(sessionID)
       } else if (event?.type === "session.idle") {
         await handleStop(event)
       }

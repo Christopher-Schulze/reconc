@@ -302,15 +302,17 @@ func TestGenerateCursorIsValidJSON(t *testing.T) {
 		`"preToolUse"`,
 		`"beforeShellExecution"`,
 		`"afterShellExecution"`,
+		`"postToolUseFailure"`,
 		`"afterFileEdit"`,
 		`"afterTabFileEdit"`,
 		`"stop"`,
 		`"failClosed": true`,
 		`"loop_limit": 10`,
-		`"matcher": "Read|Write|Edit|MultiEdit|StrReplace|Delete|FileEdit|TabRead|TabWrite"`,
+		`"matcher": "Read|Write|Edit|MultiEdit|StrReplace|Delete|FileEdit|TabRead|TabWrite|Shell"`,
 		`"matcher": "Write|Edit|MultiEdit|StrReplace|Delete|FileEdit|TabWrite"`,
 		"cursor-pre-tool-use",
 		"cursor-user-prompt-submit",
+		"cursor-post-tool-use-failure",
 		"cursor-after-file-edit",
 		"cursor-stop",
 		"tools/reconc/bin/hook",
@@ -327,7 +329,7 @@ func TestGenerateCursorIsValidJSON(t *testing.T) {
 	if got := matchersForEvent(t, a.Content, "hooks", "preToolUse"); strings.Join(got, "|") != "Write|Edit|MultiEdit|StrReplace|Delete|FileEdit|TabWrite" {
 		t.Errorf("Cursor preToolUse matcher = %v", got)
 	}
-	if got := matchersForEvent(t, a.Content, "hooks", "postToolUse"); strings.Join(got, "|") != "Read|Write|Edit|MultiEdit|StrReplace|Delete|FileEdit|TabRead|TabWrite" {
+	if got := matchersForEvent(t, a.Content, "hooks", "postToolUse"); strings.Join(got, "|") != "Read|Write|Edit|MultiEdit|StrReplace|Delete|FileEdit|TabRead|TabWrite|Shell" {
 		t.Errorf("Cursor postToolUse matcher = %v", got)
 	}
 }
@@ -1133,8 +1135,10 @@ func TestGenerateOpenCodePluginLeanContinuationPrompt(t *testing.T) {
 	// The plugin forwards the bounded Go response. It must not embed a second
 	// project workflow, task parser, or prompt policy.
 	for _, want := range []string{
-		`const reason = contextFrom(result)`,
-		`parts: [{ type: "text", text: reason }]`,
+		`const continuation = continuationFrom(result, budget.maxOutputBytes)`,
+		`client.session.promptAsync({`,
+		`messageID,`,
+		`parts: [{ type: "text", text: continuation.reason }]`,
 		`const stopEvent = "opencode-stop"`,
 		`const result = await run(stopEvent`,
 	} {
@@ -1149,6 +1153,7 @@ func TestGenerateOpenCodePluginLeanContinuationPrompt(t *testing.T) {
 		"no_progress_guard",
 		"Bun.write",
 		`Bun.spawn(["git"`,
+		`client.session.prompt({`,
 		`reconc-0.6.0-`,
 		`tools/reconc/dist`,
 	} {
@@ -1170,8 +1175,45 @@ func TestGenerateOpenCodePluginDelegatesStateToGoRuntime(t *testing.T) {
 			t.Fatalf("OpenCode adapter must not own %q; the Go runtime owns policy and state", forbidden)
 		}
 	}
-	if len(content) > 12*1024 {
+	if len(content) > 28*1024 {
 		t.Fatalf("OpenCode adapter is not thin: %d bytes", len(content))
+	}
+	for _, forbidden := range []string{"new Response(proc.stdout).text()", "new Response(proc.stderr).text()"} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("OpenCode adapter retained unbounded subprocess read %q", forbidden)
+		}
+	}
+}
+
+func TestGeneratedBunPluginsExposeOnlyClassifiedDirectHooks(t *testing.T) {
+	disposition := map[string]bool{
+		"chat.message":                         true,
+		"permission.ask":                       true,
+		"tool.execute.before":                  true,
+		"tool.execute.after":                   true,
+		"experimental.session.compacting":      true,
+		"command.execute.before":               false,
+		"shell.env":                            false,
+		"experimental.compaction.autocontinue": false,
+		"experimental.text.complete":           false,
+		"tool.definition":                      false,
+	}
+	for _, kind := range []string{KindOpenCode, KindKilo} {
+		artifact, err := Generate(kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for hook, used := range disposition {
+			present := strings.Contains(artifact.Content, `"`+hook+`": async`)
+			if present != used {
+				t.Fatalf("%s direct hook %s present=%v, want %v", kind, hook, present, used)
+			}
+		}
+		for _, event := range []string{"session.created", "session.compacted", "session.deleted", "session.idle", "message.part.updated"} {
+			if !strings.Contains(artifact.Content, `event?.type === "`+event+`"`) {
+				t.Fatalf("%s event subscriber misses %s", kind, event)
+			}
+		}
 	}
 }
 

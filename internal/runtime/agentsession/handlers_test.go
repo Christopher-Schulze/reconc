@@ -763,7 +763,7 @@ func TestCursorStopReleasesStopLoopOnRepeatedBlockEndToEnd(t *testing.T) {
 	// through the real cursor-stop path (NormalizeCursorPayload -> RunStop ->
 	// AdaptCursorResult). Cursor never sets stop_hook_active, so an unresolved
 	// blocking violation must NOT trap the session forever: the first stop
-	// blocks (followup), the identical repeat releases (continue + allow).
+	// blocks (followup), the identical repeat releases with an empty response.
 	counterPath := filepath.Join(t.TempDir(), "counter")
 	repo := setupStopScriptPolicyRepo(t, counterPath, 2, "unresolved blocker")
 	if _, err := InitializeSessionState(repo, "cur-1"); err != nil {
@@ -793,8 +793,8 @@ func TestCursorStopReleasesStopLoopOnRepeatedBlockEndToEnd(t *testing.T) {
 	}
 
 	second := runCursorStop()
-	if !strings.Contains(second.Stdout, `"continue":true`) || !strings.Contains(second.Stdout, `"permission":"allow"`) {
-		t.Fatalf("repeated identical cursor stop must release the session (continue+allow), got: %s", second.Stdout)
+	if second.Stdout != "{}" {
+		t.Fatalf("repeated identical cursor stop must release the session with an empty response, got: %s", second.Stdout)
 	}
 	if strings.Contains(second.Stdout, "followup_message") {
 		t.Fatalf("released stop must not carry a followup, got: %s", second.Stdout)

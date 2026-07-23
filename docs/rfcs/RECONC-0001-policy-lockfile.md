@@ -49,6 +49,12 @@ The compiled `source_precedence` field is:
 | `sources` | object array | Every input source in precedence order. |
 | `rules` | object array | Parsed, normalized, validated rules. |
 
+## Optional Top-Level Fields
+
+| Field | Type | Rule |
+|---|---|---|
+| `mcp` | object | Present only when compiler configuration contains `mcp`. Requires `unclassified` (`host` or `deny`) and a canonical `tools` array of exact platform, optional server fingerprint, tool, effect, effect-specific RFC 6901 selectors, and source provenance. Unknown fields and invalid cross-field combinations fail schema and runtime validation. |
+
 ## Source Digest
 
 `source_digest` is SHA-256 over canonical JSON containing:
@@ -65,7 +71,8 @@ digest and lockfile bytes.
 `lock_digest` is SHA-256 over canonical JSON for every top-level field except
 `lock_digest` itself. Runtime verifies it before using embedded rules. Runtime
 also re-parses current policy sources and requires byte-equivalent canonical
-rule payloads, so an in-memory legacy migration cannot legitimize rule drift.
+rule and optional MCP payloads, so an in-memory legacy migration cannot
+legitimize policy drift.
 
 ## Rule Entries
 
@@ -95,6 +102,7 @@ Runtime loaders must:
    absolute-root lockfiles in memory to the format-2 `.` envelope without
    mutating the input.
 3. Validate rule count and source count consistency.
-4. Validate `lock_digest` and exact embedded-rule parity with current sources.
+4. Validate `lock_digest` and exact embedded-rule plus optional MCP parity with
+   current sources.
 5. Treat generated lockfiles as generated output; users must re-run
    `reconc compile` instead of editing them by hand.

@@ -29,6 +29,7 @@
     "source_count": { "type": "integer", "minimum": 0 },
     "source_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "lock_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "mcp": { "$ref": "#/$defs/mcp" },
     "source_precedence": {
       "type": "array",
       "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/policy-lock.schema.json#/$defs/sourceKind" },
@@ -53,6 +54,89 @@
     "rules": {
       "type": "array",
       "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/policy-lock.schema.json#/$defs/rule" }
+    }
+  },
+  "$defs": {
+    "jsonPointer": {
+      "type": "string",
+      "pattern": "^(?:/(?:[^~/]|~[01])*)+$"
+    },
+    "mcp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unclassified", "tools"],
+      "properties": {
+        "unclassified": { "enum": ["host", "deny"] },
+        "tools": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/mcpTool" }
+        }
+      }
+    },
+    "mcpTool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "tool", "effect", "source_path"],
+      "properties": {
+        "platform": { "enum": ["cursor", "opencode", "kilo"] },
+        "server_fingerprint": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "tool": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(?:.*\\S)?$"
+        },
+        "effect": {
+          "enum": ["repository_read", "repository_write", "command", "external"]
+        },
+        "path_fields": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/jsonPointer" }
+        },
+        "command_field": { "$ref": "#/$defs/jsonPointer" },
+        "source_path": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "effect": { "enum": ["repository_read", "repository_write"] }
+            },
+            "required": ["effect"]
+          },
+          "then": {
+            "required": ["path_fields"],
+            "not": { "required": ["command_field"] }
+          }
+        },
+        {
+          "if": {
+            "properties": { "effect": { "const": "command" } },
+            "required": ["effect"]
+          },
+          "then": {
+            "required": ["command_field"],
+            "not": { "required": ["path_fields"] }
+          }
+        },
+        {
+          "if": {
+            "properties": { "effect": { "const": "external" } },
+            "required": ["effect"]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                { "required": ["path_fields"] },
+                { "required": ["command_field"] }
+              ]
+            }
+          }
+        }
+      ]
     }
   }
 }

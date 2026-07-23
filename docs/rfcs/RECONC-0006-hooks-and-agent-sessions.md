@@ -40,10 +40,11 @@ before its first write. Forced malformed-config backups are
 content-addressed, create-only, `0600`, file-synced, and parent-directory-synced
 before the managed artifact is published.
 
-The typed registry owns event coverage, native names, fallbacks, failure and
-timeout policy, timeout/output budgets, paths, install strategies, and
-activation probes. `reconc hook status` reports configuration truth without
-claiming that a live agent process already loaded the artifact.
+The typed registry owns event coverage, native bindings, fallbacks, response
+modes, failure and timeout policy, timeout/output budgets, paths, install
+strategies, documented surfaces, and activation probes. `reconc hook status`
+reports static configuration separately from per-route liveness and never
+turns a configured artifact into a live or enforced claim.
 
 `reconc hook sync-scaffold <repo-root-scaffold>` writes the
 source-controlled scaffold twins from the same generator:
@@ -97,16 +98,80 @@ adapter exposes no `PostCompact` route because the host contract has none.
 Generated and configured status proves static contract integrity only;
 per-route status liveness is required before claiming actual host execution.
 
+## Cursor Guarantee
+
+Cursor uses one registry-generated `.cursor/hooks.json`. The registry
+classifies all 21 current events exactly once and installs only the 16 events
+with repository-policy semantics: session start/end, prompt, pre/post/failure
+tool use, shell pre/passive-post, dedicated MCP pre/post, file-edit and Tab
+write evidence, subagent start/stop, pre-compaction, and Stop. Reconc
+intentionally excludes read-prevention, assistant response/thought capture,
+Tab pre-read, and workspace-open mutation.
+
+`postToolUse` is the sole authoritative generic success signal.
+`postToolUseFailure` records failure and no positive evidence.
+`afterShellExecution` records passive liveness because its current host payload
+contains output and duration but no authoritative exit status.
+`afterFileEdit` and `afterTabFileEdit` are successful write fallbacks
+deduplicated against generic delivery. Cursor pre-action decisions return exact
+allow/deny objects; observation routes return `{}`; Stop and subagent Stop use
+bounded `followup_message`.
+
+The same project file can be discovered by desktop Agent, Cmd+K, Tab, Cursor
+CLI, and eligible cloud-agent execution, but shared configuration is not
+event-delivery parity. Tab owns only its write route. Cloud agents do not
+provide session start/end, dedicated MCP, or Tab routes. CLI interactive and
+print mode remain event-by-event claims: Reconc uses identical normalization
+and enforcement whenever the host emits the same event, but never simulates a
+missing pre-action boundary from output streams.
+
 ## OpenCode And Kilo Code Guarantee
 
 Both thin Bun adapters preserve complete `tool.execute.after`
 title/output/metadata, block pre-tool and permission runtime failures, route
 user prompts plus pre/post-compaction and session lifecycle, and convert
 terminal `message.part.updated` tool errors into deduplicated failure evidence.
-Policy, session state, and recovery context remain in the Go runtime. Their
-`session.idle` continuation boundary is best-effort and fail-open rather than a
-synchronous native Stop gate; git pre-commit remains the hard repository
-backstop.
+Shell success requires the exact integer `output.metadata.exit`; non-zero,
+missing, malformed, conflicting, timed-out, aborted, or explicit-error
+outcomes record failure and never positive command evidence. Output text is
+never interpreted as process status.
+
+The generated runner drains stdout and stderr concurrently, enforces one
+combined 8 KiB budget, rejects invalid UTF-8 and truncated decision JSON, and
+kills and awaits timed-out subprocesses. Policy, session state, and recovery context
+remain in the Go runtime.
+
+Their `session.idle` continuation boundary is a bounded best-effort,
+fail-open state machine rather than a synchronous native Stop gate. Per-session
+activity generations, one in-flight request, 1,024-session capacity, and a
+ten-accepted-continuation cap prevent duplicate or unbounded submission. The
+adapter calls only the current flat SDK request
+`client.session.promptAsync({sessionID, messageID, parts})`, correlates the
+injected `chat.message` by that exact caller-owned identifier, waits for request
+acceptance, and never falls back to synchronous `prompt`. Git pre-commit
+remains the hard repository backstop.
+
+## MCP Side-Effect Guarantee
+
+The compiler accepts an optional typed `mcp` contract in `.reconc.yml`.
+Mappings classify one exact `(platform, server_fingerprint, tool)` identity as
+`repository_read`, `repository_write`, `command`, or `external`. Repository
+and command effects select values only through configured RFC 6901 JSON
+Pointers. Fingerprint presence is identity: no qualified/unqualified fallback
+exists. Wrong identity, malformed selected value, repository escape, or
+outcome uncertainty produces no positive evidence.
+
+Cursor's dedicated `beforeMCPExecution` can enforce exact mappings and
+`unclassified: deny`; `afterMCPExecution` accepts repository evidence only
+from an explicit successful host result. OpenCode and Kilo generic hooks
+enforce exact configured tool identities, but cannot distinguish an
+unconfigured MCP tool from a built-in or custom tool. Strict unclassified deny
+is therefore unavailable on those two surfaces and is reported as a
+limitation, not an enforcement success.
+
+MCP audit and status retain only redacted platform/tool/fingerprint/effect
+identity and bounded counters. Server locators, credentials, arguments,
+results, prompts, and command bodies are not persisted.
 
 ## Grok Build Guarantee
 

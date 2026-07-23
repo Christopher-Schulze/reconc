@@ -8,6 +8,7 @@
 package parser
 
 import (
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -42,8 +43,9 @@ const DefaultMode = policy.ModeWarn
 // SourceBundle. Order of rules matches their order in the source
 // precedence chain so the compiler digest is stable.
 type ParsedPolicy struct {
-	DefaultMode policy.Mode   `json:"default_mode"`
-	Rules       []policy.Rule `json:"rules"`
+	DefaultMode policy.Mode       `json:"default_mode"`
+	Rules       []policy.Rule     `json:"rules"`
+	MCP         *policy.MCPPolicy `json:"mcp,omitempty"`
 }
 
 // ParseRuleDocuments walks the source bundle, validates every rule
@@ -65,6 +67,7 @@ func ParseRuleDocuments(bundle *ingest.SourceBundle) (*ParsedPolicy, error) {
 	defaultMode := DefaultMode
 	rules := []policy.Rule{}
 	seen := map[string]string{} // rule id -> source path of first sighting
+	var mcpPolicy *policy.MCPPolicy
 
 	for _, src := range bundle.Sources {
 		// Skip context-only sources; their fenced blocks land as
@@ -98,6 +101,13 @@ func ParseRuleDocuments(bundle *ingest.SourceBundle) (*ParsedPolicy, error) {
 					}
 				}
 				defaultMode = dm
+			}
+			parsedMCP, present, err := parseMCPPolicy(src, doc)
+			if err != nil {
+				return nil, err
+			}
+			if present {
+				mcpPolicy = parsedMCP
 			}
 		}
 
@@ -137,7 +147,127 @@ func ParseRuleDocuments(bundle *ingest.SourceBundle) (*ParsedPolicy, error) {
 	return &ParsedPolicy{
 		DefaultMode: defaultMode,
 		Rules:       rules,
+		MCP:         mcpPolicy,
 	}, nil
+}
+
+func parseMCPPolicy(src policy.PolicySource, doc map[string]interface{}) (*policy.MCPPolicy, bool, error) {
+	raw, present := doc["mcp"]
+	if !present {
+		return nil, false, nil
+	}
+	mapping, ok := raw.(map[string]interface{})
+	if !ok {
+		return nil, true, &rerrors.RuleValidationError{Message: "mcp must be a mapping in " + src.Path}
+	}
+	unclassified := policy.MCPUnclassifiedHost
+	if value, exists := mapping["unclassified"]; exists {
+		text, ok := value.(string)
+		if !ok {
+			return nil, true, &rerrors.RuleValidationError{Message: "mcp.unclassified must be a string in " + src.Path}
+		}
+		unclassified = policy.MCPUnclassifiedMode(text)
+	}
+	tools := []policy.MCPToolPolicy{}
+	if rawTools, exists := mapping["tools"]; exists {
+		list, ok := rawTools.([]interface{})
+		if !ok {
+			return nil, true, &rerrors.RuleValidationError{Message: "mcp.tools must be a list in " + src.Path}
+		}
+		tools = make([]policy.MCPToolPolicy, 0, len(list))
+		for index, rawTool := range list {
+			toolMapping, ok := rawTool.(map[string]interface{})
+			if !ok {
+				return nil, true, &rerrors.RuleValidationError{Message: "mcp.tools[" + itoa(index) + "] must be a mapping in " + src.Path}
+			}
+			tool, err := parseMCPToolPolicy(src, toolMapping, index)
+			if err != nil {
+				return nil, true, err
+			}
+			tools = append(tools, tool)
+		}
+	}
+	contract := &policy.MCPPolicy{Unclassified: unclassified, Tools: tools}
+	if err := contract.Validate(); err != nil {
+		return nil, true, &rerrors.RuleValidationError{Message: src.Path + ": " + err.Error()}
+	}
+	sort.Slice(contract.Tools, func(i, j int) bool {
+		return contract.Tools[i].StableKey() < contract.Tools[j].StableKey()
+	})
+	return contract, true, nil
+}
+
+func parseMCPToolPolicy(src policy.PolicySource, mapping map[string]interface{}, index int) (policy.MCPToolPolicy, error) {
+	context := "mcp.tools[" + itoa(index) + "]"
+	required := func(field string) (string, error) {
+		raw, present := mapping[field]
+		value, ok := raw.(string)
+		if !present || !ok || value == "" {
+			return "", &rerrors.RuleValidationError{Message: context + "." + field + " must be a non-empty string in " + src.Path}
+		}
+		return value, nil
+	}
+	platform, err := required("platform")
+	if err != nil {
+		return policy.MCPToolPolicy{}, err
+	}
+	tool, err := required("tool")
+	if err != nil {
+		return policy.MCPToolPolicy{}, err
+	}
+	effect, err := required("effect")
+	if err != nil {
+		return policy.MCPToolPolicy{}, err
+	}
+	serverFingerprint := ""
+	if raw, present := mapping["server_fingerprint"]; present {
+		value, ok := raw.(string)
+		if !ok || value == "" {
+			return policy.MCPToolPolicy{}, &rerrors.RuleValidationError{Message: context + ".server_fingerprint must be a non-empty string in " + src.Path}
+		}
+		serverFingerprint = value
+	}
+	pathFields, err := mcpStringList(mapping, "path_fields", context, src.Path)
+	if err != nil {
+		return policy.MCPToolPolicy{}, err
+	}
+	commandField := ""
+	if raw, present := mapping["command_field"]; present {
+		value, ok := raw.(string)
+		if !ok || value == "" {
+			return policy.MCPToolPolicy{}, &rerrors.RuleValidationError{Message: context + ".command_field must be a non-empty RFC 6901 JSON Pointer in " + src.Path}
+		}
+		commandField = value
+	}
+	return policy.MCPToolPolicy{
+		Platform:          policy.MCPPlatform(platform),
+		ServerFingerprint: serverFingerprint,
+		Tool:              tool,
+		Effect:            policy.MCPEffect(effect),
+		PathFields:        pathFields,
+		CommandField:      commandField,
+		SourcePath:        src.Path,
+	}, nil
+}
+
+func mcpStringList(mapping map[string]interface{}, field, context, sourcePath string) ([]string, error) {
+	raw, present := mapping[field]
+	if !present {
+		return nil, nil
+	}
+	list, ok := raw.([]interface{})
+	if !ok {
+		return nil, &rerrors.RuleValidationError{Message: context + "." + field + " must be a list of non-empty strings in " + sourcePath}
+	}
+	out := make([]string, 0, len(list))
+	for _, rawValue := range list {
+		value, ok := rawValue.(string)
+		if !ok || value == "" {
+			return nil, &rerrors.RuleValidationError{Message: context + "." + field + " must be a list of non-empty strings in " + sourcePath}
+		}
+		out = append(out, value)
+	}
+	return out, nil
 }
 
 // coerceScopes pulls the optional `scopes:` slice out of a parsed YAML

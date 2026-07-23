@@ -9,6 +9,7 @@
     "extends": { "$ref": "#/$defs/nonEmptyStrings" },
     "include": { "$ref": "#/$defs/nonEmptyStrings" },
     "task_lifecycle": { "$ref": "#/$defs/taskLifecycle" },
+    "mcp": { "$ref": "#/$defs/mcp" },
     "rules": {
       "type": "array",
       "items": { "$ref": "#/$defs/rule" }
@@ -32,6 +33,85 @@
     "nonEmptyStrings": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 }
+    },
+    "jsonPointer": {
+      "type": "string",
+      "pattern": "^(?:/(?:[^~/]|~[01])*)+$"
+    },
+    "mcp": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "unclassified": { "enum": ["host", "deny"] },
+        "tools": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/mcpTool" }
+        }
+      }
+    },
+    "mcpTool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "tool", "effect"],
+      "properties": {
+        "platform": { "enum": ["cursor", "opencode", "kilo"] },
+        "server_fingerprint": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "tool": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(?:.*\\S)?$"
+        },
+        "effect": {
+          "enum": ["repository_read", "repository_write", "command", "external"]
+        },
+        "path_fields": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/jsonPointer" }
+        },
+        "command_field": { "$ref": "#/$defs/jsonPointer" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "effect": { "enum": ["repository_read", "repository_write"] }
+            },
+            "required": ["effect"]
+          },
+          "then": {
+            "required": ["path_fields"],
+            "not": { "required": ["command_field"] }
+          }
+        },
+        {
+          "if": {
+            "properties": { "effect": { "const": "command" } },
+            "required": ["effect"]
+          },
+          "then": {
+            "required": ["command_field"],
+            "not": { "required": ["path_fields"] }
+          }
+        },
+        {
+          "if": {
+            "properties": { "effect": { "const": "external" } },
+            "required": ["effect"]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                { "required": ["path_fields"] },
+                { "required": ["command_field"] }
+              ]
+            }
+          }
+        }
+      ]
     },
     "taskLifecycle": {
       "type": "object",

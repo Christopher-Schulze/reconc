@@ -175,12 +175,13 @@ hints (don't-edit / generated / run-before-commit / secrets / ci-green
 patterns). Emits suggestions in the same format as `adopt`.
 
 ### `reconc doctor [repo] [--deep] [--json] [--output PATH]`
-Default mode inspects discovery state only. `--deep` adds eight
+Default mode inspects discovery state only. `--deep` adds nine
 diagnostic checks: hook-runtime compatibility, native Grok hook trust/loading,
-Grok leader steering protocol/extension compatibility, lockfile freshness, audit-log size,
-preset/template reference resolution, session-claim age, and static rule
-conflicts. Deep mode exits 1 when any check is `FAIL`, 0 when all rows are
-`OK` or `WARN`.
+Grok leader steering protocol/extension compatibility, lockfile freshness,
+the compiled MCP side-effect contract and redacted observation state,
+audit-log size, preset/template reference resolution, session-claim age, and
+static rule conflicts. Deep mode exits 1 when any check is `FAIL`, 0 when all
+rows are `OK` or `WARN`.
 
 ### `reconc verify [repo] [--json]`
 End-to-end installation health check: PATH, `$RECONC_HOME`, presets, repo
@@ -301,10 +302,15 @@ still current. If it is stale, Reconc reconstructs the exact original
 `reconc check` command including success/failure evidence flags instead of
 claiming that no remediation is needed.
 
-### `reconc why <rule-id> [repo] [--json] [--terse]`
-Prints the full rule from the lockfile (kind, mode, message, paths,
-provenance, DEPRECATED label if set). `--terse` emits only kind, mode,
-first path, and a shortened message.
+### `reconc why <rule-id|mcp> [repo] [--json] [--terse]`
+Prints one full rule from the lockfile (kind, mode, message, paths,
+provenance, DEPRECATED label if set). The reserved selector `mcp` prints the
+compiled MCP unclassified mode and exact redacted tool mappings. `--terse`
+emits only the compact rule or MCP summary. `--json` and `--terse` are
+mutually exclusive.
+
+Use `reconc why mcp .` to inspect that compiled MCP contract without exposing
+server locators, arguments, prompts, results, or command bodies.
 
 ---
 
@@ -396,6 +402,15 @@ loading; its optional leader probe requires protocol
 version 1 and a recognized `_x.ai/interject` response, not just a successful
 register handshake. It also requires project-owned inspect metadata and exact
 route command tokens; prefix collisions do not satisfy route coverage.
+Cursor, OpenCode, and Kilo rows additionally expose a redacted `mcp` object:
+the configured unclassified mode, exact tool/fingerprint/effect mappings,
+classified and unclassified observation counts, denials, failures,
+strict-unavailable observations, and whether strict unclassified deny exists
+on that surface. Locator strings, arguments, prompts, results, and command
+bodies are never reported. Cursor can enforce strict unclassified deny through
+its dedicated native MCP pre-hook. OpenCode and Kilo generic tool hooks cannot
+distinguish an unconfigured MCP call from a built-in/custom tool, so status
+reports that limitation without claiming enforcement.
 Default text reports seen/expected counts and the last event without listing
 every unseen route; the full unseen-event enumeration remains in `--json`.
 
@@ -425,8 +440,13 @@ Registry-owned agent-platform event dispatcher. Called from Claude Code,
 Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code,
 and Grok Build hook configs, not by users directly. Codex uses only released routes and
 infers failed Bash outcomes from `PostToolUse`; OpenCode and Kilo preserve
-complete post-tool output, deduplicate terminal tool errors, and route prompt,
-compaction, and session lifecycle.
+complete post-tool output, require an exact integer `output.metadata.exit` for
+shell success, deduplicate terminal tool errors, and route prompt, compaction,
+session, exact configured MCP identities, and bounded asynchronous idle
+continuation. Cursor routes dedicated MCP pre/post events, accepts generic
+success only from `postToolUse`, records `postToolUseFailure` as failure, and
+treats `afterShellExecution` as passive liveness because that payload has no
+authoritative exit status.
 
 ### `reconc grok [repo] [--model ID] [--grok-binary PATH] [--max-continuations N] --prompt TEXT`
 Starts the unmodified official `grok agent stdio` ACP runtime in the target

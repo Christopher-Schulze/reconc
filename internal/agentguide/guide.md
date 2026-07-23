@@ -149,6 +149,7 @@ See the full details of one rule:
 ```bash
 reconc why <rule-id> .
 reconc why <rule-id> . --json
+reconc why mcp .
 ```
 
 Inspect the compiled state (rule count, sources, digest, warnings):
@@ -181,6 +182,9 @@ instead of guessing whether an artifact is installed, configured, degraded,
 shadowed, or unsupported. `configured` is static discovery truth, not live
 execution proof. Static activation and rate-limited per-route
 `expected_events`/`live_events`/`unseen_events` evidence are separate facts.
+Treat `loaded`, `observed`, `enforced`, and `inferred` as distinct states:
+session/init liveness, exact-route liveness, a negative pre-action proof, and a
+weaker host lifecycle respectively.
 
 - **Claude Code**: strongest integration. `PreToolUse` blocks
   protected file edits before execution, `PostToolUse` records reads /
@@ -195,18 +199,22 @@ execution proof. Static activation and rate-limited per-route
   and Stop translate to Copilot's exact decision schemas. PermissionRequest
   and Notification are CLI-only, host timeouts remain fail-open, and static
   configuration is not live proof.
-- **Cursor**: `.cursor/hooks.json` covers file, shell, evidence,
-  and Stop events exposed by Cursor.
+- **Cursor**: `.cursor/hooks.json` is shared configuration for Agent/Cmd+K,
+  Tab, CLI, and eligible cloud routes, but event delivery is surface-specific.
+  `postToolUse` is successful evidence, `postToolUseFailure` is failure only,
+  and `afterShellExecution` is passive because it has no exit status.
 - **OpenCode**: use `reconc hook install opencode .` for the
-  thin project-local `.opencode/plugins/reconc.js` adapter. Continuation is
-  inferred from `session.idle`, not a synchronous native Stop gate.
+  thin project-local `.opencode/plugins/reconc.js` adapter. Shell success
+  requires integer `output.metadata.exit == 0`. Bounded asynchronous
+  continuation is inferred from `session.idle`, not a synchronous native Stop
+  gate.
 - **Devin CLI**: `.devin/hooks.v1.json` covers session, user-prompt, tool,
   permission, Stop, cleanup, and post-compaction recovery.
 - **Antigravity CLI**: `.agents/hooks.json` covers invocation, tool,
   observation, and Stop events.
-- **Kilo Code**: `.kilo/plugin/reconc.js` is a thin adapter; `KILO_PURE` must
-  be unset for project plugins to load. Like OpenCode, continuation is inferred
-  from `session.idle`.
+- **Kilo Code**: `.kilo/plugin/reconc.js` is the thin CLI/VS Code project
+  adapter; `KILO_PURE` must be unset for project plugins to load. It shares
+  OpenCode's strict shell-outcome and bounded inferred continuation contract.
 - **Grok Build**: `reconc hook install grok .` owns
   `.grok/hooks/reconc.json`. Run `/hooks-trust` once. Native PreToolUse is hard.
   Reconc emits exact Stop block JSON without a leader and probes the installed
@@ -228,6 +236,14 @@ execution proof. Static activation and rate-limited per-route
 Do not claim stronger enforcement than `reconc hook status`, the platform
 capability contract, and native-shape tests prove. Explicit CLI checks and the
 git hook remain the deterministic backstop for unsupported host events.
+
+Configured MCP tools are exact opt-in mappings in `.reconc.yml`. Unknown
+identity, wrong fingerprint presence, malformed selected values, unknown
+outcome, and `external` effects produce no repository evidence. Cursor's
+dedicated pre-hook can deny unclassified MCP calls. OpenCode/Kilo generic hooks
+cannot soundly identify unconfigured MCP calls, so strict unclassified deny is
+unavailable there. Inspect the compiled redacted contract with
+`reconc why mcp .`.
 
 ## Autonomous Run Control
 

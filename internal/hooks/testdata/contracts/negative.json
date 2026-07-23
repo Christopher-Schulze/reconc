@@ -1,0 +1,13 @@
+{
+  "capture_date": "2026-07-23",
+  "cases": [
+    {"id": "missing-session-identity", "payload": {"tool_name": "Write"}, "expected": "reject"},
+    {"id": "malformed-field-type", "payload": {"session_id": 7}, "expected": "reject"},
+    {"id": "unknown-field", "payload": {"session_id": "fixture", "future_field": true}, "expected": "tolerate"},
+    {"id": "oversized-payload", "payload_bytes": 67108865, "expected": "reject"},
+    {"id": "invalid-utf8", "payload_hex": "fffe", "expected": "reject"},
+    {"id": "runtime-timeout", "expected": "bounded-failure"},
+    {"id": "duplicate-call-identity", "expected": "exactly-once"},
+    {"id": "truncated-adapter-output", "expected": "reject-as-continuation"}
+  ]
+}

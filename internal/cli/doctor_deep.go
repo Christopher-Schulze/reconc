@@ -20,6 +20,7 @@ import (
 	"reconc.dev/reconc/internal/hooks"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/parser"
+	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/presets"
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
@@ -75,6 +76,7 @@ func buildDoctorDeepReport(repo string) (*doctorDeepReport, error) {
 			doctorCheckGrokRuntime(discovery),
 			doctorCheckGrokLeaderSteering(discovery),
 			doctorCheckLockfileFreshness(discovery),
+			doctorCheckMCPPolicy(discovery),
 			doctorCheckAuditSize(discovery),
 			doctorCheckUnknownRefs(discovery),
 			doctorCheckSessionClaims(discovery),
@@ -82,6 +84,59 @@ func buildDoctorDeepReport(repo string) (*doctorDeepReport, error) {
 		},
 	}
 	return report, nil
+}
+
+func doctorCheckMCPPolicy(discovery ingest.DiscoveryResult) doctorCheck {
+	check := doctorCheck{
+		Name:   "MCP side-effect policy",
+		Status: doctorStatusOK,
+		Detail: "MCP policy not configured; host behavior is preserved and MCP calls produce no classified repository evidence",
+	}
+	if !discovery.Discovered {
+		check.Status = doctorStatusWarn
+		check.Detail = "cannot inspect MCP policy without a discovered reconc repo"
+		return check
+	}
+	contract, err := runtime.LoadMCPPolicy(discovery.RepoRoot)
+	if err != nil {
+		check.Status = doctorStatusFail
+		check.Detail = err.Error()
+		return check
+	}
+	if contract == nil {
+		return check
+	}
+	counts := map[policy.MCPPlatform]int{}
+	for _, mapping := range contract.Tools {
+		counts[mapping.Platform]++
+	}
+	audit, auditErr := agentsession.ReadMCPAudit(discovery.RepoRoot)
+	observed := uint64(0)
+	if auditErr == nil {
+		for _, count := range audit.Classified {
+			observed += count
+		}
+		for _, count := range audit.Unclassified {
+			observed += count
+		}
+	}
+	check.Detail = fmt.Sprintf(
+		"mode=%s; mappings cursor=%d opencode=%d kilo=%d; observed=%d; server locators and payloads are redacted",
+		contract.Unclassified,
+		counts[policy.MCPPlatformCursor],
+		counts[policy.MCPPlatformOpenCode],
+		counts[policy.MCPPlatformKilo],
+		observed,
+	)
+	if auditErr != nil {
+		check.Status = doctorStatusWarn
+		check.Detail += "; observation audit unavailable: " + auditErr.Error()
+	}
+	if contract.Unclassified == policy.MCPUnclassifiedDeny {
+		check.Status = doctorStatusWarn
+		check.Detail += "; Cursor can block native unclassified MCP calls, but OpenCode/Kilo generic hooks expose no discriminator for unconfigured MCP identities, so strict unclassified deny is unavailable on those surfaces"
+	}
+	return check
 }
 
 var doctorGrokInspect = func(ctx context.Context, repoRoot string) ([]byte, error) {

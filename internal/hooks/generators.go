@@ -252,54 +252,45 @@ func generateCodex() (*Artifact, error) {
 	}, nil
 }
 
-func generateCursor() *Artifact {
-	repoExpr := "."
-	entry := func(event string, failClosed bool) map[string]interface{} {
-		return map[string]interface{}{
-			"command":    runtimeCommand(repoExpr, event),
-			"failClosed": failClosed,
+func generateCursor() (*Artifact, error) {
+	platform, ok := PlatformForKind(KindCursor)
+	if !ok {
+		return nil, hookGeneratorError("missing hook platform: %s", KindCursor)
+	}
+	if err := validatePlatform(platform); err != nil {
+		return nil, err
+	}
+	hookEntries := map[string]interface{}{}
+	for _, capability := range platform.Capabilities {
+		if capability.Support == SupportUnsupported {
+			continue
+		}
+		for _, binding := range capability.Bindings {
+			if binding.Compatibility || binding.RuntimeEvent == "" {
+				continue
+			}
+			entry := map[string]interface{}{
+				"command": runtimeCommand(".", binding.RuntimeEvent),
+				"timeout": capability.TimeoutSeconds,
+			}
+			if binding.ResponseMode == CursorResponseDecision || binding.ResponseMode == CursorResponseStopFollowup {
+				entry["failClosed"] = capability.ErrorPolicy == FailureBlock && capability.TimeoutPolicy == FailureBlock
+			} else {
+				entry["failClosed"] = false
+			}
+			if binding.Matcher != "" {
+				entry["matcher"] = binding.Matcher
+			}
+			if binding.LoopLimit > 0 {
+				entry["loop_limit"] = binding.LoopLimit
+			}
+			entries, _ := hookEntries[binding.NativeEvent].([]interface{})
+			hookEntries[binding.NativeEvent] = append(entries, entry)
 		}
 	}
-	postToolEntry := entry("cursor-post-tool-use", true)
-	postToolEntry["matcher"] = "Read|Write|Edit|MultiEdit|StrReplace|Delete|FileEdit|TabRead|TabWrite"
-	preToolEntry := entry("cursor-pre-tool-use", true)
-	preToolEntry["matcher"] = "Write|Edit|MultiEdit|StrReplace|Delete|FileEdit|TabWrite"
-	stopEntry := entry("cursor-stop", true)
-	stopEntry["loop_limit"] = 10
 	template := map[string]interface{}{
 		"version": 1,
-		"hooks": map[string]interface{}{
-			"sessionStart": []interface{}{
-				entry("cursor-session-start", true),
-			},
-			"beforeSubmitPrompt": []interface{}{
-				entry("cursor-user-prompt-submit", true),
-			},
-			"preToolUse": []interface{}{
-				preToolEntry,
-			},
-			"postToolUse": []interface{}{
-				postToolEntry,
-			},
-			"beforeShellExecution": []interface{}{
-				entry("cursor-before-shell-execution", true),
-			},
-			"afterShellExecution": []interface{}{
-				entry("cursor-after-shell-execution", true),
-			},
-			"afterFileEdit": []interface{}{
-				entry("cursor-after-file-edit", true),
-			},
-			"afterTabFileEdit": []interface{}{
-				entry("cursor-after-tab-file-edit", true),
-			},
-			"stop": []interface{}{
-				stopEntry,
-			},
-			"sessionEnd": []interface{}{
-				entry("cursor-session-end", false),
-			},
-		},
+		"hooks":   hookEntries,
 	}
 	data, _ := json.MarshalIndent(template, "", "  ")
 	return &Artifact{
@@ -307,7 +298,7 @@ func generateCursor() *Artifact {
 		TargetPath: CursorHooksPath,
 		Executable: false,
 		Content:    string(data) + "\n",
-	}
+	}, nil
 }
 
 func generateAntigravity() (*Artifact, error) {

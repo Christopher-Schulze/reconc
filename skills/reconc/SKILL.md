@@ -245,6 +245,7 @@ reconc proof . --format markdown # portable reviewer evidence
 reconc verify .              # installation health, read-only
 reconc doctor . --deep       # deeper diagnostics
 reconc hook status . --json  # exact platform activation truth
+reconc why mcp .             # compiled MCP mappings and unclassified mode
 reconc run status .          # run mode and typed TASK disposition
 reconc ci . --base HEAD~1 --head HEAD
 reconc preset list
@@ -270,19 +271,45 @@ timeout policy, output budgets, artifact paths, and activation probes:
 | Claude Code | `.claude/settings.json` | Native session, tool, permission, Stop, cleanup, and compact-session recovery hooks |
 | Codex | `.codex/hooks.json` | Native session, tool, permission, evidence, and Stop hooks; no `SessionEnd` |
 | GitHub Copilot | `.github/hooks/reconc.json` | Repository hooks for Copilot CLI and coding agent; host timeouts remain fail-open |
-| Cursor | `.cursor/hooks.json` | Native session, file, shell, evidence, and Stop adapters |
-| OpenCode | `.opencode/plugins/reconc.js` | Thin project plugin; decisions and state stay in Go |
+| Cursor | `.cursor/hooks.json` | Registry-driven Agent/Cmd+K, Tab, CLI, and eligible cloud routes; outcome and surface guarantees are event-specific |
+| OpenCode | `.opencode/plugins/reconc.js` | Thin project plugin with strict shell exits and inferred bounded async idle continuation; decisions and state stay in Go |
 | Devin CLI | `.devin/hooks.v1.json` | Native lifecycle plus post-compaction recovery |
 | Antigravity CLI | `.agents/hooks.json` | Invocation, tool, evidence, and Stop adapters |
-| Kilo Code | `.kilo/plugin/reconc.js` | Thin project plugin; disabled when `KILO_PURE` is set |
+| Kilo Code | `.kilo/plugin/reconc.js` | Thin CLI/VS Code project plugin with strict shell exits and inferred bounded async idle continuation; disabled when `KILO_PURE` is set |
 | Grok Build | `.grok/hooks/reconc.json` | Native lifecycle and hard PreToolUse; project trust required; `reconc grok` supplies strict ACP continuation |
 
-Run `reconc hook status . --json` before making enforcement claims. `configured`
-means configuration is complete and discoverable, not that a live process has
-proven it loaded the file. `installed`, `degraded`, `shadowed`, and
-`unsupported` require the detail field to be handled or reported. Generic
-agents use explicit CLI checks. Every platform keeps Git pre-commit as the hard
-repository backstop.
+Run `reconc hook status . --json` before making enforcement claims.
+`configured` proves a complete static artifact; `discoverable` means the named
+host surface scans its path; `loaded` requires a current session/init route;
+`observed` requires that exact route; `enforced` requires a disposable negative
+probe that stopped the side effect; `inferred` is weaker host lifecycle;
+`degraded` is missing or unproven required behavior; `unsupported` means no
+sound host boundary. Never promote one state into another.
+
+Cursor uses one project file, but desktop Agent, Cmd+K, Tab, interactive CLI,
+print CLI, and cloud agents do not promise identical event delivery. Use the
+same Reconc semantics when the same event fires and keep every unseen route
+unproven. `postToolUse` is success, `postToolUseFailure` is failure, and
+`afterShellExecution` is liveness only because it has no authoritative exit
+status.
+
+OpenCode and Kilo accept shell success only from integer
+`output.metadata.exit == 0`. Their `session.idle` continuation calls only
+asynchronous `promptAsync`, is generation-deduplicated and capped, and remains
+fail-open/inferred. A missing API, rejected request, or invalid response is not
+delivered continuation.
+
+MCP repository effects are opt-in exact mappings in `.reconc.yml`. Use
+`reconc why mcp .` to inspect the compiled contract. Never treat an unknown
+identity, malformed selector value, unknown outcome, or `external` effect as
+repository evidence. Cursor can strictly deny unclassified calls through its
+dedicated MCP pre-hook. OpenCode/Kilo generic hooks cannot identify
+unconfigured MCP calls soundly, so report strict unclassified deny as
+unavailable there.
+
+`installed`, `degraded`, `shadowed`, and `unsupported` require the status
+detail to be handled or reported. Generic agents use explicit CLI checks.
+Every platform keeps Git pre-commit as the hard repository backstop.
 
 ## When Policy Is Stale
 

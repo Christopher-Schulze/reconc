@@ -216,6 +216,10 @@ func TestRepositoryRunControlReturnsContinuationForEveryAgentAdapter(t *testing.
 // channel delivering the interjected JSON-RPC payload.
 func e2eFakeGrokLeader(t *testing.T) (string, <-chan string) {
 	t.Helper()
+	// The fake leader exercises Reconc's compatibility interjection path.
+	// Isolate the native-capability probe from any real Grok installation on
+	// the test host so this E2E contract stays deterministic.
+	t.Setenv("GROK_HOME", t.TempDir())
 	// Deliberately rooted at /tmp: bootstrapE2ERepo points TMPDIR at a deep
 	// per-test dir, and Unix socket paths are capped at ~104 bytes.
 	dir, err := os.MkdirTemp("/tmp", "grke2e")

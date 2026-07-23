@@ -139,6 +139,69 @@ func TestAgentGuidanceCoversRegisteredPlatformsAndPortableProof(t *testing.T) {
 	}
 }
 
+func TestHostIntegrationDocumentationCoversStructuredContract(t *testing.T) {
+	root := publicSurfaceRoot(t)
+	readme := readPublicSurfaceFile(t, root, "README.md")
+	documentation := readPublicSurfaceFile(t, root, "docs/documentation.md")
+	commands := readPublicSurfaceFile(t, root, "docs/commands.md")
+	rfc := readPublicSurfaceFile(t, root, "docs/rfcs/RECONC-0006-hooks-and-agent-sessions.md")
+	skill := readPublicSurfaceFile(t, root, "skills/reconc/SKILL.md")
+
+	if !strings.Contains(readme, "docs/documentation.md#host-integration-truth") {
+		t.Error("README.md does not link to the authoritative host-integration contract")
+	}
+	for _, state := range []string{
+		"`configured`",
+		"`discoverable`",
+		"`loaded`",
+		"`observed`",
+		"`enforced`",
+		"`inferred`",
+		"`degraded`",
+		"`unsupported`",
+	} {
+		if !strings.Contains(documentation, state) {
+			t.Errorf("host-integration documentation omits support state %s", state)
+		}
+	}
+	for _, surface := range []string{
+		"Cursor desktop Agent",
+		"Cursor desktop Cmd+K",
+		"Cursor inline Tab",
+		"Cursor CLI interactive",
+		"Cursor CLI print mode",
+		"Cursor cloud agents",
+		"OpenCode CLI",
+		"Kilo Code CLI",
+		"Kilo Code VS Code host",
+	} {
+		if !strings.Contains(documentation, surface) {
+			t.Errorf("host-integration documentation omits surface %q", surface)
+		}
+	}
+	for _, disposition := range hooks.CursorEventDispositions() {
+		if !strings.Contains(documentation, "`"+disposition.NativeEvent+"`") {
+			t.Errorf("host-integration documentation omits Cursor event %q", disposition.NativeEvent)
+		}
+	}
+	for token, surfaces := range map[string][]string{
+		"output.metadata.exit":                    {documentation, rfc, skill},
+		"client.session.promptAsync":              {documentation, rfc},
+		"messageID":                               {documentation, rfc},
+		"server_fingerprint":                      {documentation, rfc},
+		"reconc why mcp":                          {documentation, commands, skill},
+		"afterShellExecution":                     {documentation, rfc, skill},
+		"postToolUseFailure":                      {documentation, rfc, skill},
+		"scripts/tests/host-integration-probe.sh": {documentation},
+	} {
+		for index, body := range surfaces {
+			if !strings.Contains(body, token) {
+				t.Errorf("host contract surface %d omits semantic token %q", index, token)
+			}
+		}
+	}
+}
+
 func TestWindowsBootstrapUsesImmutableInstallerSource(t *testing.T) {
 	root := publicSurfaceRoot(t)
 	readme := readPublicSurfaceFile(t, root, "README.md")

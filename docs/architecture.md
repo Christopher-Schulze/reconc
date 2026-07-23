@@ -10,6 +10,7 @@ Every `reconc` invocation moves data through some subset of this pipe:
 
 ```
        repo root
+  (rules + MCP mappings)
            │
            ▼
       ┌────────┐
@@ -52,6 +53,10 @@ also use the runtime then render the result. `done` binds the evaluated
 candidate through `completiongate`; `proof` renders that same candidate through
 `proofbundle`. `why` and `diff` inspect compiled lockfiles, while `watch`
 observes policy sources and recompiles explicitly when they change.
+Host-native MCP events and configured generic MCP identities enter through the
+same compiled lockfile. Exact selectors classify a call as repository read,
+repository write, command, or external before session evidence is considered;
+unclassified or malformed calls never become positive repository evidence.
 
 ## Package map
 
@@ -157,6 +162,13 @@ handling.
    the rule. A forbid/require pair is reported only when their exact trigger
    scopes overlap and one forbid rule blocks every required alternative.
 
+7. **Exact MCP identity and effect.** MCP classification uses the complete
+   `(platform, server_fingerprint, tool)` key. Fingerprint presence never
+   falls back to a weaker selector. Effect-specific RFC 6901 fields must resolve
+   to typed repository-contained paths or exact commands before policy or
+   evidence handling. Unknown identity, malformed input, and unknown outcome
+   are non-evidentiary.
+
 ## Key external contracts
 
 - **Lockfile schema** (`$schema` in policy.lock.json): bumped only on
@@ -173,6 +185,11 @@ handling.
   release inventory. `policy-config.schema.json` is the strict authoring
   contract; the v2 lock schema describes current portable lockfiles, while the
   v1 lock schema remains the validated migration input.
+
+- **MCP authoring and lock contract**: `mcp.unclassified` is `host` or `deny`;
+  tool mappings use the typed platform, optional SHA-256 server fingerprint,
+  exact tool, effect, and effect-specific JSON Pointers. The authoring and v2
+  lock schemas reject unknown fields and invalid cross-field combinations.
 
 - **Exit codes 0/1/2**: stable across all subcommands for agent
   consumption. 0 = pass or warn, 1 = runtime/input error, 2 = at
@@ -315,6 +332,8 @@ class of hostile input.
 | Audit record | **32 KiB** | Bounds one locked JSONL append. |
 | Audit/run storage | **2 MiB live + 2 archives each** | Fixed rings and transition-only run records prevent repository-local log growth. |
 | Hook output | **8 KiB per route** | Prevents verbose host output from consuming agent context. |
+| OpenCode/Kilo plugin process output | **8 KiB combined stdout + stderr** | Concurrent drains prevent pipe deadlock; overflow, invalid UTF-8, timeout, and truncated decision JSON fail according to the registry route policy. |
+| OpenCode/Kilo continuation state | **1,024 sessions / 10 accepted continuations each** | Bounded generation and in-flight state suppress duplicate idle delivery without storing prompts, tool payloads, or model output. |
 | Compaction context | **4 KiB** | Restores control-plane orientation without replaying logs or task files. |
 | Native assurance file | **4 MiB** | Rejects oversized source, manifest, or proof inputs before allocation. |
 | Native assurance run | **4,096 files / 32 MiB reads** | Bounds aggregate source and evidence inspection across all gates. |
@@ -336,6 +355,8 @@ Decision is per-event based on the security role of the event:
 | `PostToolUseFailure` | **fail-open** (exit 0, stderr warn) | Same as PostToolUse. |
 | `Stop` | **fail-closed** (exit 2) | GATES session completion; uncertain input must block. |
 | `SessionEnd` | **fail-open** (exit 0, stderr warn) | Cleanup-only; forced close shouldn't propagate errors. |
+| MCP pre-action | **host capability** | Cursor's native pre-hook can deny an exact or strict-unclassified call. OpenCode/Kilo generic hooks enforce configured identities but cannot soundly identify unconfigured MCP calls. |
+| MCP post-action | **fail-open, non-evidentiary on uncertainty** | Post-action blocking cannot undo a side effect. Positive evidence requires exact identity, valid selected values, and explicit success. |
 
 The CLI applies the registry failure policy after handler execution as well as
 during input decoding, so a handler cannot accidentally make an allow-route
@@ -343,6 +364,22 @@ blocking. Successful dispatch records per-route liveness outside the repository.
 Each runtime route has a small six-hour marker: the common path is one `stat`,
 zero locks, zero JSON reads, and zero writes; a due route refresh updates the
 bounded aggregate status used by `reconc hook status`.
+
+Cursor generation is registry-driven down to native event, matcher, runtime
+route, response mode, failure policy, timeout, loop limit, and documented
+surface. `postToolUse` is the authoritative successful generic signal;
+`postToolUseFailure` is authoritative failure; `afterShellExecution` is
+passive because Cursor provides no exit status there. Material signatures
+deduplicate specialized write events against generic post-tool delivery.
+
+OpenCode and Kilo plugins are generated transport adapters. Shell outcomes are
+normalized from the exact integer `output.metadata.exit` into the neutral Go
+payload. Their subprocess runner concurrently drains both pipes, applies one
+combined output budget, validates UTF-8, and terminates the subprocess on
+timeout. Idle continuation uses bounded per-session generations and only the
+asynchronous SDK request `promptAsync({sessionID, messageID, parts})`. The
+caller-owned message identifier distinguishes the injected callback from
+external user activity; no synchronous prompt fallback exists.
 
 ### Path-traversal
 

@@ -1,0 +1,19 @@
+{
+  "host": "kilo",
+  "host_version": "7.4.15",
+  "source_url": "https://github.com/Kilo-Org/kilocode/tree/d0e8a86bfce001821441e8ac8d7398bfba6c93f6/packages/plugin",
+  "source_revision": "d0e8a86bfce001821441e8ac8d7398bfba6c93f6",
+  "capture_date": "2026-07-23",
+  "events": {
+    "session.created": {"payload": {"type": "session.created", "properties": {"sessionID": "ses_fixture"}}, "result": null},
+    "chat.message": {"payload": {"sessionID": "ses_fixture"}, "result": {"parts": [{"type": "text", "text": "synthetic prompt"}]}},
+    "tool.execute.before": {"payload": {"sessionID": "ses_fixture", "tool": "bash", "callID": "fixture-call"}, "result": {"args": {"command": "go test ./..."}}},
+    "tool.execute.after": {"payload": {"sessionID": "ses_fixture", "tool": "bash", "callID": "fixture-call"}, "result": {"output": "synthetic output", "metadata": {"exit": 0}}},
+    "permission.ask": {"payload": {"sessionID": "ses_fixture", "type": "bash", "pattern": ["go test ./..."]}, "result": {"status": "ask"}},
+    "message.part.updated(error)": {"payload": {"type": "message.part.updated", "properties": {"part": {"type": "tool", "sessionID": "ses_fixture", "callID": "fixture-call", "state": {"status": "error", "error": "synthetic failure"}}}}, "result": null},
+    "session.idle": {"payload": {"type": "session.idle", "properties": {"sessionID": "ses_fixture"}}, "result": {"request": {"sessionID": "ses_fixture", "messageID": "msg_reconc_00000000000000000000000000000000", "parts": [{"type": "text", "text": "synthetic continuation"}]}, "response": {"ok": true, "status": 204}}},
+    "session.deleted": {"payload": {"type": "session.deleted", "properties": {"sessionID": "ses_fixture"}}, "result": null},
+    "experimental.session.compacting": {"payload": {"sessionID": "ses_fixture"}, "result": {"context": []}},
+    "session.compacted": {"payload": {"type": "session.compacted", "properties": {"sessionID": "ses_fixture"}}, "result": null}
+  }
+}

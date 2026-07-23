@@ -137,6 +137,9 @@ func Generate(kind string) (*Artifact, error) {
 			Message: fmt.Sprintf("unknown hook kind: %q (supported: %v)", kind, SupportedKinds()),
 		}
 	}
+	if err := validatePlatform(definition.Platform); err != nil {
+		return nil, err
+	}
 	switch definition.generator {
 	case generatorGitPreCommit:
 		return generateGitPreCommit(), nil
@@ -147,7 +150,7 @@ func Generate(kind string) (*Artifact, error) {
 	case generatorGitHubCopilot:
 		return generateGitHubCopilot()
 	case generatorCursor:
-		return generateCursor(), nil
+		return generateCursor()
 	case generatorOpenCode:
 		return generateOpenCodeThin()
 	case generatorDevinCLI:

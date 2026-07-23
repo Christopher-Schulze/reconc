@@ -140,6 +140,36 @@ func TestInspectPlatformsActivationStates(t *testing.T) {
 		}
 	})
 
+	t.Run("legacy Kilo plugin is visible but canonical plus legacy is degraded", func(t *testing.T) {
+		repo := t.TempDir()
+		artifact, err := Generate(KindKilo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		legacy := filepath.Join(repo, ".kilocode", "plugin", "reconc.js")
+		if err := os.MkdirAll(filepath.Dir(legacy), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(legacy, []byte(artifact.Content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		legacyStatus := statusForKind(t, repo, KindKilo)
+		if legacyStatus.State != StateConfigured || legacyStatus.TargetPath != ".kilocode/plugin/reconc.js" {
+			t.Fatalf("legacy-only Kilo status = %+v", legacyStatus)
+		}
+		canonical := filepath.Join(repo, filepath.FromSlash(KiloPluginPath))
+		if err := os.MkdirAll(filepath.Dir(canonical), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(canonical, []byte(artifact.Content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		duplicateStatus := statusForKind(t, repo, KindKilo)
+		if duplicateStatus.State != StateDegraded || !strings.Contains(duplicateStatus.Detail, "both exist") {
+			t.Fatalf("duplicate Kilo status = %+v", duplicateStatus)
+		}
+	})
+
 }
 
 func TestInspectGitHookShadowedByCoreHooksPath(t *testing.T) {

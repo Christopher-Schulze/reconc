@@ -112,6 +112,9 @@ func loadLockfile(root string) (map[string]interface{}, error) {
 	if int(expectedSourceCount) != len(sources) {
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile source_count does not match the embedded sources"}
 	}
+	if _, err := decodeMCPPolicy(payload); err != nil {
+		return nil, err
+	}
 
 	return payload, nil
 }
@@ -171,6 +174,45 @@ func ValidatePolicyLockfile(startPath string) error {
 	}
 	_, err = loadFreshLockfile(discovery.RepoRoot)
 	return err
+}
+
+// LoadMCPPolicy returns the fresh, validated MCP contract. A nil contract
+// means the optional compiler-config section is absent.
+func LoadMCPPolicy(startPath string) (*policy.MCPPolicy, error) {
+	discovery, err := ingest.DiscoverPolicyRepo(startPath)
+	if err != nil {
+		return nil, err
+	}
+	if !discovery.Discovered {
+		return nil, fmt.Errorf("no policy markers discovered")
+	}
+	payload, err := loadFreshLockfile(discovery.RepoRoot)
+	if err != nil {
+		return nil, err
+	}
+	return decodeMCPPolicy(payload)
+}
+
+func decodeMCPPolicy(payload map[string]interface{}) (*policy.MCPPolicy, error) {
+	raw, present := payload["mcp"]
+	if !present {
+		return nil, nil
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil, &rerrors.LockfileError{Message: "encode compiled lockfile MCP contract", Cause: err}
+	}
+	var contract policy.MCPPolicy
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&contract); err != nil {
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile MCP contract is invalid", Cause: err}
+	}
+	if err := contract.Validate(); err != nil {
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile MCP contract is invalid: " + err.Error()}
+	}
+	contract.Tools = policy.SortedMCPTools(contract.Tools)
+	return &contract, nil
 }
 
 func numAsInt(v interface{}) int64 {

@@ -69,6 +69,7 @@ type CompiledPolicy struct {
 	SourceDigest    string      `json:"source_digest"`
 	DefaultMode     policy.Mode `json:"default_mode"`
 	RuleCount       int         `json:"rule_count"`
+	MCPToolCount    int         `json:"mcp_tool_count"`
 	SourceCount     int         `json:"source_count"`
 	SourcePaths     []string    `json:"source_paths"`
 	Warnings        []string    `json:"warnings"`
@@ -180,6 +181,7 @@ func CompileRepoPolicy(repoStartPath, compilerVersion string) (compiled *Compile
 		SourceDigest:    digest,
 		DefaultMode:     parsed.DefaultMode,
 		RuleCount:       len(parsed.Rules),
+		MCPToolCount:    mcpToolCount(parsed.MCP),
 		SourceCount:     len(bundle.Sources),
 		SourcePaths:     sourcePathsOf(bundle.Sources),
 		Warnings:        compiledDiscovery.Warnings,
@@ -275,6 +277,28 @@ func ValidateEmbeddedRules(payload map[string]interface{}, parsed *parser.Parsed
 	if !bytes.Equal(actualData, expectedData) {
 		return &rerrors.LockfileError{Message: "compiled lockfile rules do not match the current policy sources"}
 	}
+	expectedMCP := interface{}(nil)
+	if parsed.MCP != nil {
+		expectedMCP = mcpToMap(*parsed.MCP)
+	}
+	actualMCP, present := payload["mcp"]
+	if parsed.MCP == nil && present {
+		return &rerrors.LockfileError{Message: "compiled lockfile MCP contract does not match the current policy sources"}
+	}
+	if parsed.MCP != nil && !present {
+		return &rerrors.LockfileError{Message: "compiled lockfile MCP contract does not match the current policy sources"}
+	}
+	expectedMCPData, err := marshalCanonical(expectedMCP)
+	if err != nil {
+		return &rerrors.LockfileError{Message: "encode MCP contract parsed from current policy sources", Cause: err}
+	}
+	actualMCPData, err := marshalCanonical(actualMCP)
+	if err != nil {
+		return &rerrors.LockfileError{Message: "encode embedded lockfile MCP contract", Cause: err}
+	}
+	if !bytes.Equal(actualMCPData, expectedMCPData) {
+		return &rerrors.LockfileError{Message: "compiled lockfile MCP contract does not match the current policy sources"}
+	}
 	return nil
 }
 
@@ -302,7 +326,7 @@ func buildLockPayload(
 		sourcesOut = append(sourcesOut, sourceToMap(s))
 	}
 
-	return map[string]interface{}{
+	payload := map[string]interface{}{
 		"$schema":           LockfileSchema(),
 		"compiler_version":  compilerVersion,
 		"format_version":    LockfileFormatVersion,
@@ -315,6 +339,46 @@ func buildLockPayload(
 		"discovery":         discoveryToMap(discovery),
 		"sources":           sourcesOut,
 		"rules":             rulesOut,
+	}
+	if parsed.MCP != nil {
+		payload["mcp"] = mcpToMap(*parsed.MCP)
+	}
+	return payload
+}
+
+func mcpToolCount(contract *policy.MCPPolicy) int {
+	if contract == nil {
+		return 0
+	}
+	return len(contract.Tools)
+}
+
+func mcpToMap(contract policy.MCPPolicy) map[string]interface{} {
+	tools := policy.SortedMCPTools(contract.Tools)
+	toolsOut := make([]interface{}, 0, len(tools))
+	for _, tool := range tools {
+		entry := map[string]interface{}{
+			"platform": string(tool.Platform),
+			"tool":     tool.Tool,
+			"effect":   string(tool.Effect),
+		}
+		if tool.ServerFingerprint != "" {
+			entry["server_fingerprint"] = tool.ServerFingerprint
+		}
+		if len(tool.PathFields) > 0 {
+			entry["path_fields"] = append([]string(nil), tool.PathFields...)
+		}
+		if tool.CommandField != "" {
+			entry["command_field"] = tool.CommandField
+		}
+		if tool.SourcePath != "" {
+			entry["source_path"] = tool.SourcePath
+		}
+		toolsOut = append(toolsOut, entry)
+	}
+	return map[string]interface{}{
+		"unclassified": string(contract.Unclassified),
+		"tools":        toolsOut,
 	}
 }
 

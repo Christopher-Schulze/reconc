@@ -12,6 +12,8 @@ import (
 
 	"reconc.dev/reconc/internal/grokacp"
 	"reconc.dev/reconc/internal/hooks"
+	"reconc.dev/reconc/internal/policy"
+	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
 
@@ -104,6 +106,7 @@ func runHookStatus(args []string, stdout io.Writer) error {
 			reports[i].Live = reports[i].LastSeen != ""
 		}
 	}
+	enrichMCPPlatformStatus(repo, reports)
 	if jsonOut {
 		encoder := json.NewEncoder(stdout)
 		encoder.SetIndent("", "  ")
@@ -126,8 +129,73 @@ func runHookStatus(args []string, stdout io.Writer) error {
 		if report.Remediation != "" {
 			fmt.Fprintf(stdout, "  remediation: %s\n", report.Remediation)
 		}
+		if report.MCP != nil {
+			fmt.Fprintf(stdout, "  mcp: mode=%s mappings=%d classified=%d unclassified=%d denied=%d failures=%d strict-deny=%t\n",
+				report.MCP.UnclassifiedMode, len(report.MCP.Mappings), report.MCP.ClassifiedObserved,
+				report.MCP.UnclassifiedObserved, report.MCP.Denied, report.MCP.Failures,
+				report.MCP.StrictUnclassifiedDeny)
+			if report.MCP.Limitation != "" {
+				fmt.Fprintf(stdout, "  mcp limitation: %s\n", report.MCP.Limitation)
+			}
+			if report.MCP.ObservationError != "" {
+				fmt.Fprintf(stdout, "  mcp observations unavailable: %s\n", report.MCP.ObservationError)
+			}
+		}
 	}
 	return nil
+}
+
+func enrichMCPPlatformStatus(repo string, reports []hooks.PlatformStatus) {
+	contract, contractErr := runtime.LoadMCPPolicy(repo)
+	audit, auditErr := agentsession.ReadMCPAudit(repo)
+	for index := range reports {
+		platform := policy.MCPPlatform(reports[index].Kind)
+		if !platform.Valid() {
+			continue
+		}
+		status := &hooks.MCPStatus{
+			UnclassifiedMode:       string(policy.MCPUnclassifiedHost),
+			Mappings:               []hooks.MCPMappingStatus{},
+			StrictUnclassifiedDeny: platform == policy.MCPPlatformCursor,
+		}
+		if platform != policy.MCPPlatformCursor {
+			status.Limitation = "generic tool hooks expose an exact host tool identity but no MCP discriminator; configured identities are enforceable, unconfigured MCP calls cannot be distinguished from built-in or custom tools"
+		}
+		if contractErr != nil {
+			status.ObservationError = "policy: " + contractErr.Error()
+		} else if contract != nil {
+			status.UnclassifiedMode = string(contract.Unclassified)
+			for _, mapping := range contract.Tools {
+				if mapping.Platform != platform {
+					continue
+				}
+				status.Mappings = append(status.Mappings, hooks.MCPMappingStatus{
+					Tool:              mapping.Tool,
+					ServerFingerprint: mapping.ServerFingerprint,
+					Effect:            string(mapping.Effect),
+					SourcePath:        mapping.SourcePath,
+				})
+			}
+		}
+		if auditErr != nil {
+			if status.ObservationError != "" {
+				status.ObservationError += "; "
+			}
+			status.ObservationError += "audit: " + auditErr.Error()
+		} else {
+			prefix := string(platform) + "/"
+			for key, count := range audit.Classified {
+				if strings.HasPrefix(key, prefix) {
+					status.ClassifiedObserved += count
+				}
+			}
+			status.UnclassifiedObserved = audit.Unclassified[string(platform)]
+			status.Denied = audit.Denied[string(platform)]
+			status.Failures = audit.Failures[string(platform)]
+			status.StrictUnavailable = audit.StrictUnavailable[string(platform)]
+		}
+		reports[index].MCP = status
+	}
 }
 
 func hookRuntimeName(kind string) string {
@@ -541,11 +609,17 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 		case hooks.EventUserPromptSubmit,
 			hooks.EventPermissionDenied,
 			hooks.EventStopFailure,
+			hooks.EventToolObservation,
 			hooks.EventNotification,
+			hooks.EventContinuation,
 			hooks.EventSubagentStart:
-			result = agentsession.RunPassiveEvent(repo, payload)
+			if route.PlatformKind == hooks.KindCursor && route.Event == hooks.EventSubagentStart {
+				result = agentsession.RunSessionStart(repo, payload)
+			} else {
+				result = agentsession.RunPassiveEvent(repo, payload)
+			}
 		case hooks.EventSubagentStop:
-			if route.PlatformKind == hooks.KindGitHubCopilot {
+			if route.PlatformKind == hooks.KindGitHubCopilot || route.PlatformKind == hooks.KindCursor {
 				result = agentsession.RunStop(repo, payload)
 			} else {
 				result = agentsession.RunPassiveEvent(repo, payload)
@@ -557,17 +631,31 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 				result = agentsession.RunPassiveEvent(repo, payload)
 			}
 		case hooks.EventPreToolUse:
-			result = agentsession.RunPreToolUse(repo, payload)
+			if route.PlatformKind == hooks.KindOpenCode || route.PlatformKind == hooks.KindKilo {
+				result = agentsession.RunPreToolUseMCPAware(repo, payload)
+			} else {
+				result = agentsession.RunPreToolUse(repo, payload)
+			}
 		case hooks.EventPermissionRequest:
 			result = agentsession.RunPermissionRequest(repo, payload)
 		case hooks.EventPostToolUse:
-			if event == "codex-post-tool-use" || event == "cursor-after-shell-execution" || event == "devin-post-tool-use" {
+			if event == "opencode-post-tool-use" || event == "kilo-post-tool-use" {
+				result = agentsession.RunPostToolUseMCPAware(repo, payload)
+			} else if event == "codex-post-tool-use" || event == "devin-post-tool-use" {
 				result = agentsession.RunPostToolUseComplete(repo, payload)
 			} else {
 				result = agentsession.RunPostToolUse(repo, payload)
 			}
 		case hooks.EventPostToolUseFailure:
-			result = agentsession.RunPostToolUseFailure(repo, payload)
+			if route.PlatformKind == hooks.KindOpenCode || route.PlatformKind == hooks.KindKilo {
+				result = agentsession.RunPostToolUseMCPAware(repo, payload)
+			} else {
+				result = agentsession.RunPostToolUseFailure(repo, payload)
+			}
+		case hooks.EventMCPBefore:
+			result = agentsession.RunMCPBefore(repo, payload)
+		case hooks.EventMCPAfter:
+			result = agentsession.RunMCPAfter(repo, payload)
 		case hooks.EventStop:
 			result = agentsession.RunStop(repo, payload)
 		case hooks.EventSessionEnd:
@@ -798,6 +886,8 @@ func isObservationOnlyHookEvent(event string) bool {
 		hooks.EventPermissionDenied,
 		hooks.EventPostToolUse,
 		hooks.EventPostToolUseFailure,
+		hooks.EventToolObservation,
+		hooks.EventContinuation,
 		hooks.EventStopFailure,
 		hooks.EventSessionEnd,
 		hooks.EventNotification,

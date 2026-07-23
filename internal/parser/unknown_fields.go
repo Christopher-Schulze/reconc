@@ -19,7 +19,7 @@ var ruleFields = fieldSet(
 func validateDocumentFields(src policy.PolicySource, doc map[string]interface{}) error {
 	rootFields := fieldSet("default_mode", "rules", "scopes")
 	if src.Kind == policy.SourceCompilerConfig {
-		addFields(rootFields, "extends", "include", "task_lifecycle")
+		addFields(rootFields, "extends", "include", "task_lifecycle", "mcp")
 	}
 	if src.Kind == policy.SourcePreset {
 		addFields(rootFields, "pack")
@@ -64,6 +64,20 @@ func validateDocumentFields(src policy.PolicySource, doc map[string]interface{})
 		if completion, ok := task["completion"].(map[string]interface{}); ok {
 			if err := rejectUnknownFields(completion, fieldSet("required_sections", "required_evidence_fields", "require_committed"), src.Path+" task_lifecycle.completion"); err != nil {
 				return err
+			}
+		}
+	}
+	if mcp, ok := doc["mcp"].(map[string]interface{}); ok {
+		if err := rejectUnknownFields(mcp, fieldSet("unclassified", "tools"), src.Path+" mcp"); err != nil {
+			return err
+		}
+		if tools, ok := mcp["tools"].([]interface{}); ok {
+			for index, rawTool := range tools {
+				if tool, ok := rawTool.(map[string]interface{}); ok {
+					if err := rejectUnknownFields(tool, fieldSet("platform", "server_fingerprint", "tool", "effect", "path_fields", "command_field"), fmt.Sprintf("%s mcp.tools[%d]", src.Path, index)); err != nil {
+						return err
+					}
+				}
 			}
 		}
 	}

@@ -119,6 +119,7 @@ why a task is allowed to be called done.
 | Autonomous run control | `reconc run on|off|reset|status|log` provides one durable repository switch, bounded decision logs, terminal completion checks, and per-session no-progress guards. |
 | Bootstrap and adoption | Inspects an existing repository, proposes only evidence-backed packs and commands, then plans, applies, verifies, or removes a transactional rollout without overwriting drift. |
 | Runtime enforcement | Generates, installs, inspects, and safely removes registry-backed hooks for nine coding-agent runtimes, with capability-specific failure semantics and git pre-commit as the repository backstop. |
+| MCP side-effect control | Classifies explicitly configured Cursor, OpenCode, and Kilo MCP tools as repository reads, repository writes, commands, or external effects. Exact selectors, fail-closed path/command extraction, redacted observations, and host-specific limitations prevent unknown or malformed calls from becoming positive repository evidence. |
 | Operator and CI tooling | Includes exact remediation, policy explanation, staged evidence execution, CI proofs, audit tail/stats/export, deep doctor checks, a terminal dashboard, pruning, shell completions, and a generated manpage. |
 | Release trust | Publishes checksums, build-provenance attestations, and deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs tied to the full release commit. |
 
@@ -389,20 +390,25 @@ a transaction reports drift or a mature repository needs surgical adaptation.
 | Claude Code | repo-local hook wiring |
 | Codex | session, tool, permission, evidence, and Stop hooks with `apply_patch` path extraction |
 | GitHub Copilot | contract-tested repository hooks for Copilot CLI and coding agent; hard PreToolUse and Stop decisions where the host fires them; host timeouts remain fail-open |
-| Cursor | pre-write, post-write, shell, evidence, and Stop hook coverage |
-| OpenCode | thin tool, permission, compaction, and `session.idle` continuation adapter |
+| Cursor | one registry-generated `.cursor/hooks.json` for Agent/Cmd+K, Tab, CLI, and supported cloud routes; successful and failed tool outcomes, shell policy, exact MCP boundaries, subagents, compaction, and Stop remain event- and surface-specific |
+| OpenCode | thin project plugin with strict `metadata.exit` shell outcomes, permission/tool/session/compaction routes, and bounded asynchronous `session.idle` continuation |
 | Devin CLI | native session, prompt, tool, permission, stop, and post-compaction hooks |
 | Antigravity CLI | invocation, tool, post-tool, and stop hook coverage |
-| Kilo Code | thin project plugin with tool, permission, compaction, and `session.idle` continuation handling |
+| Kilo Code | thin CLI/VS Code project plugin with strict `metadata.exit` shell outcomes and the same bounded asynchronous continuation contract as OpenCode |
 | Grok Build | native lifecycle and hard PreToolUse hooks, strict ACP continuation, and leader-mode TUI steering |
 
 Claude Code, Codex, GitHub Copilot, Cursor, Devin CLI, and Antigravity CLI
 expose a synchronous Stop event. GitHub Copilot host timeouts remain fail-open,
 and this adapter is contract-tested rather than claimed live until
 `reconc hook status . --json` records real events. OpenCode and Kilo Code
-expose `session.idle`; Reconc can request continuation there, but that inferred
-adapter is not an equivalent host-level Stop gate. All platforms still use git
-pre-commit as the hard repository backstop.
+expose `session.idle`; Reconc submits at most one bounded asynchronous
+continuation per new activity generation, but that inferred fail-open adapter
+is not an equivalent host-level Stop gate. Cursor's shared project file does
+not imply event parity between Agent, Cmd+K, Tab, interactive CLI, print CLI,
+and cloud agents. Static `configured` state and per-route `observed` liveness
+remain separate. The exact support-state and event matrix is in
+[the platform contract](docs/documentation.md#host-integration-truth). All
+platforms still use git pre-commit as the hard repository backstop.
 
 ## OpenAI Build Week
 

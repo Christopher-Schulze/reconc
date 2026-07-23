@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"reconc.dev/reconc/internal/atomicfile"
@@ -309,6 +310,107 @@ func RunPostToolUseComplete(repoRoot string, payloadBytes []byte) Result {
 	return RunPostToolUse(repoRoot, payloadBytes)
 }
 
+// RunPostToolUseCompleteStrict requires an explicit, internally consistent
+// shell outcome. OpenCode and Kilo emit tool.execute.after even when a child
+// process exits unsuccessfully, so completion of the host callback alone is
+// not evidence that the command succeeded.
+func RunPostToolUseCompleteStrict(repoRoot string, payloadBytes []byte) Result {
+	payload, err := ParsePayload(payloadBytes)
+	if err != nil {
+		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post-complete, warn): %s", err)}
+	}
+	if !payload.IsCommandTool() {
+		return RunPostToolUseComplete(repoRoot, payloadBytes)
+	}
+	success, diagnostic := strictCommandOutcome(payload)
+	if success {
+		return RunPostToolUse(repoRoot, payloadBytes)
+	}
+	if strings.TrimSpace(payload.Error) == "" && diagnostic != "" {
+		payload.Raw["error"] = diagnostic
+		toolResponse := payload.ToolResponse
+		if toolResponse == nil {
+			toolResponse = map[string]interface{}{}
+		}
+		toolResponse["success"] = false
+		payload.Raw["tool_response"] = toolResponse
+		if normalized, marshalErr := json.Marshal(payload.Raw); marshalErr == nil {
+			payloadBytes = normalized
+		}
+	}
+	return RunPostToolUseFailure(repoRoot, payloadBytes)
+}
+
+func strictCommandOutcome(payload *HookPayload) (bool, string) {
+	if payload == nil {
+		return false, "missing authoritative shell outcome"
+	}
+	if strings.TrimSpace(payload.Error) != "" {
+		return false, payload.Error
+	}
+	if errorValue, present := payload.ToolResponse["error"]; present && errorValue != nil {
+		if errorText, ok := errorValue.(string); !ok || strings.TrimSpace(errorText) != "" {
+			return false, "host reported shell execution failure"
+		}
+	}
+	success, hasSuccess := payload.ToolResponse["success"].(bool)
+	exitCode, hasExit, validExit := strictExitCode(payload.ToolResponse)
+	if hasExit && !validExit {
+		return false, "invalid authoritative shell exit status"
+	}
+	if !hasExit {
+		return false, "missing authoritative shell exit status"
+	}
+	exitSuccess := exitCode == 0
+	if hasSuccess && success != exitSuccess {
+		return false, "conflicting authoritative shell outcome"
+	}
+	if !exitSuccess {
+		return false, fmt.Sprintf("shell command exited with status %d", exitCode)
+	}
+	return true, ""
+}
+
+func strictExitCode(response map[string]interface{}) (int, bool, bool) {
+	var value int
+	found := false
+	for _, key := range []string{"exit_code", "exitCode", "status_code", "statusCode"} {
+		raw, present := response[key]
+		if !present {
+			continue
+		}
+		current, valid := strictInteger(raw)
+		if !valid {
+			return 0, true, false
+		}
+		if found && current != value {
+			return 0, true, false
+		}
+		value = current
+		found = true
+	}
+	return value, found, true
+}
+
+func strictInteger(value interface{}) (int, bool) {
+	switch number := value.(type) {
+	case json.Number:
+		integer, err := number.Int64()
+		if err != nil || int64(int(integer)) != integer {
+			return 0, false
+		}
+		return int(integer), true
+	case float64:
+		integer := int(number)
+		if float64(integer) != number {
+			return 0, false
+		}
+		return integer, true
+	default:
+		return 0, false
+	}
+}
+
 func toolResponseFailed(payload *HookPayload) bool {
 	if payload.Error != "" {
 		return true
@@ -371,8 +473,12 @@ func recordToolUse(state SessionState, payload *HookPayload) SessionState {
 		// Agent memory writes are runtime state, never repo write evidence.
 		paths := withoutAgentMemoryPaths(state.RepoRoot, payload.FilePaths())
 		if len(paths) > 0 {
+			signature := materialEventSignature(payload, "success")
+			if signature != "" && signature == state.LastMaterialSignature {
+				return state
+			}
 			state = RecordWriteEvent(state, paths)
-			state = RecordMaterialEvent(state, materialEventSignature(payload, "success"))
+			state = RecordMaterialEvent(state, signature)
 		}
 		return state
 	case payload.IsCommandTool():
@@ -380,9 +486,13 @@ func recordToolUse(state SessionState, payload *HookPayload) SessionState {
 		if cmd == "" {
 			return state
 		}
+		signature := materialEventSignature(payload, "success")
+		if signature != "" && signature == state.LastMaterialSignature {
+			return state
+		}
 		state = AppendCommand(state, cmd)
 		state = AppendCommandResult(state, commandResultFromPayload(state, payload, "success"))
-		return RecordMaterialEvent(state, materialEventSignature(payload, "success"))
+		return RecordMaterialEvent(state, signature)
 	}
 	return state
 }
@@ -398,19 +508,34 @@ func recordToolFailure(state SessionState, payload *HookPayload) SessionState {
 	if cmd == "" {
 		return state
 	}
+	signature := materialEventSignature(payload, "failure")
+	if signature != "" && signature == state.LastMaterialSignature {
+		return state
+	}
 	state = AppendCommandResult(state, commandResultFromPayload(state, payload, "failure"))
-	return RecordMaterialEvent(state, materialEventSignature(payload, "failure"))
+	return RecordMaterialEvent(state, signature)
 }
 
 func materialEventSignature(payload *HookPayload, outcome string) string {
 	if payload == nil {
 		return ""
 	}
+	toolName := strings.ToLower(strings.TrimSpace(payload.ToolName))
+	input := payload.ToolInput
+	if payload.IsWriteTool() {
+		toolName = "write"
+		paths := append([]string(nil), payload.FilePaths()...)
+		sort.Strings(paths)
+		input = map[string]interface{}{"paths": paths}
+	} else if payload.IsCommandTool() {
+		toolName = "command"
+		input = map[string]interface{}{"command": payload.Command()}
+	}
 	body, err := json.Marshal(struct {
 		ToolName  string                 `json:"tool_name"`
 		ToolInput map[string]interface{} `json:"tool_input"`
 		Outcome   string                 `json:"outcome"`
-	}{ToolName: payload.ToolName, ToolInput: payload.ToolInput, Outcome: outcome})
+	}{ToolName: toolName, ToolInput: input, Outcome: outcome})
 	if err != nil {
 		return ""
 	}

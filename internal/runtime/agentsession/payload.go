@@ -8,6 +8,8 @@ import (
 	"io"
 	"strings"
 	"time"
+
+	"reconc.dev/reconc/internal/policy"
 )
 
 // Hard limits per the threat model in docs/architecture.md.
@@ -142,7 +144,19 @@ type HookPayload struct {
 	IsInterrupt        *bool
 	StopHookActive     bool
 	StrictContinuation bool
+	MCP                *MCPPayload
 	Raw                map[string]interface{}
+}
+
+// MCPPayload is the redacted platform-neutral MCP lifecycle envelope.
+type MCPPayload struct {
+	Platform          policy.MCPPlatform
+	Tool              string
+	ServerFingerprint string
+	Observed          bool
+	BlockingPreHook   bool
+	InputValid        bool
+	Outcome           string
 }
 
 // FilePath returns the first known file path field of tool_input,
@@ -313,6 +327,10 @@ func payloadFromMap(raw map[string]interface{}) (*HookPayload, error) {
 
 	stopHookActive, _ := raw["stop_hook_active"].(bool)
 	strictContinuation, _ := raw["strict_continuation"].(bool)
+	mcp, err := parseMCPPayload(raw["reconc_mcp"])
+	if err != nil {
+		return nil, err
+	}
 
 	return &HookPayload{
 		SessionID:          sessionID,
@@ -325,7 +343,55 @@ func payloadFromMap(raw map[string]interface{}) (*HookPayload, error) {
 		IsInterrupt:        isInterrupt,
 		StopHookActive:     stopHookActive,
 		StrictContinuation: strictContinuation,
+		MCP:                mcp,
 		Raw:                raw,
+	}, nil
+}
+
+func parseMCPPayload(raw interface{}) (*MCPPayload, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	mapping, ok := raw.(map[string]interface{})
+	if !ok {
+		return nil, errors.New("hook payload reconc_mcp must be an object")
+	}
+	platformText, _ := mapping["platform"].(string)
+	platform := policy.MCPPlatform(platformText)
+	if !platform.Valid() {
+		return nil, errors.New("hook payload reconc_mcp.platform is invalid")
+	}
+	tool, _ := mapping["tool"].(string)
+	if tool == "" || strings.TrimSpace(tool) != tool {
+		return nil, errors.New("hook payload reconc_mcp.tool must be an exact non-empty identity")
+	}
+	fingerprint, _ := mapping["server_fingerprint"].(string)
+	if fingerprint != "" {
+		probe := policy.MCPToolPolicy{
+			Platform:          platform,
+			ServerFingerprint: fingerprint,
+			Tool:              tool,
+			Effect:            policy.MCPEffectExternal,
+		}
+		if err := probe.Validate(); err != nil {
+			return nil, fmt.Errorf("hook payload reconc_mcp.server_fingerprint is invalid: %w", err)
+		}
+	}
+	observed, _ := mapping["observed"].(bool)
+	blocking, _ := mapping["blocking_pre_hook"].(bool)
+	inputValid, _ := mapping["input_valid"].(bool)
+	outcome, _ := mapping["outcome"].(string)
+	if outcome != "" && outcome != "success" && outcome != "failure" {
+		return nil, errors.New("hook payload reconc_mcp.outcome must be success or failure")
+	}
+	return &MCPPayload{
+		Platform:          platform,
+		Tool:              tool,
+		ServerFingerprint: fingerprint,
+		Observed:          observed,
+		BlockingPreHook:   blocking,
+		InputValid:        inputValid,
+		Outcome:           outcome,
 	}, nil
 }
 

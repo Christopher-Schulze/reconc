@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// NormalizeCursorPayload converts Cursor Desktop hook payloads into the
+// NormalizeCursorPayload converts Cursor hook payloads into the
 // internal Claude/Codex-shaped payload contract used by the runtime handlers.
 // Unknown fields stay in Raw so future Cursor fields remain diagnosable.
 func NormalizeCursorPayload(event string, payloadBytes []byte) ([]byte, error) {
@@ -26,7 +26,14 @@ func NormalizeCursorPayload(event string, payloadBytes []byte) ([]byte, error) {
 	}
 
 	out := cloneCursorObject(raw)
-	out["session_id"] = cursorSessionID(raw)
+	sessionID := cursorSessionID(raw)
+	if event == "cursor-subagent-start" || event == "cursor-subagent-stop" {
+		sessionID = cursorFirstString(raw, "subagent_id", "subagentId", "agent_id", "agentId")
+	}
+	if sessionID == "" {
+		return nil, fmt.Errorf("cursor payload has no session identity")
+	}
+	out["session_id"] = sessionID
 	out["cursor_event"] = event
 	if prompt := cursorFirstString(raw, "prompt", "user_prompt", "userPrompt", "message", "text", "input"); prompt != "" {
 		out["prompt"] = prompt
@@ -39,21 +46,46 @@ func NormalizeCursorPayload(event string, payloadBytes []byte) ([]byte, error) {
 	}
 
 	switch event {
-	case "cursor-pre-tool-use", "cursor-post-tool-use":
+	case "cursor-before-mcp-execution", "cursor-after-mcp-execution":
+		// MCP payloads may contain server credentials and complete external
+		// results. Replace the cloned host envelope with the minimal redacted
+		// contract before it reaches shared parsing, diagnostics, or state.
+		out = map[string]interface{}{
+			"session_id":   sessionID,
+			"cursor_event": event,
+		}
+		mcp, input := cursorMCPObject(raw, event == "cursor-before-mcp-execution")
+		out["reconc_mcp"] = mcp
+		out["tool_input"] = input
+	case "cursor-pre-tool-use", "cursor-post-tool-use", "cursor-post-tool-use-failure":
 		toolName := normalizeCursorToolName(cursorToolName(raw))
 		if toolName != "" {
 			out["tool_name"] = toolName
 		}
 		out["tool_input"] = cursorToolInput(raw)
-		if response := cursorToolResponse(raw); len(response) > 0 {
-			out["tool_response"] = response
+		if event != "cursor-post-tool-use-failure" {
+			if response := cursorToolResponse(raw); len(response) > 0 {
+				out["tool_response"] = response
+			}
 		}
-	case "cursor-before-shell-execution", "cursor-after-shell-execution":
+		if event == "cursor-post-tool-use-failure" {
+			if toolUseID := cursorFirstString(raw, "tool_use_id", "toolUseId"); toolUseID != "" {
+				out["tool_use_id"] = toolUseID
+			}
+			if errorMessage := cursorFirstString(raw, "error_message", "errorMessage"); errorMessage != "" {
+				out["error"] = errorMessage
+			}
+		}
+	case "cursor-before-shell-execution":
 		out["tool_name"] = "Bash"
 		out["tool_input"] = cursorShellInput(raw)
-		if event == "cursor-after-shell-execution" {
-			out["tool_response"] = cursorShellResponse(raw)
-		}
+	case "cursor-after-shell-execution":
+		// Cursor documents this event as a passive transcript observation.
+		// Its payload has command output and duration but no exit status, so it
+		// must never become command-success or command-failure evidence.
+		delete(out, "tool_name")
+		delete(out, "tool_input")
+		delete(out, "tool_response")
 	case "cursor-before-read-file", "cursor-before-tab-file-read":
 		out["tool_name"] = "Read"
 		out["tool_input"] = cursorPathInput(raw)
@@ -128,7 +160,13 @@ func cursorObjectLooksLikeCursor(raw map[string]interface{}) bool {
 // Cursor uses permission/user_message for pre hooks and followup_message for
 // stop continuations, while Reconc's internal stop result uses decision/reason.
 func AdaptCursorResult(event string, result Result) Result {
-	if event == "cursor-stop" {
+	if isCursorFireAndForgetEvent(event) {
+		return Result{ExitCode: 0, Stdout: "{}", Stderr: result.Stderr}
+	}
+	if event == "cursor-post-tool-use-failure" || event == "cursor-after-shell-execution" {
+		return Result{ExitCode: 0, Stdout: "{}", Stderr: result.Stderr}
+	}
+	if event == "cursor-stop" || event == "cursor-subagent-stop" {
 		if result.ExitCode != 0 {
 			reason := cursorResultReason(result)
 			return Result{
@@ -141,28 +179,15 @@ func AdaptCursorResult(event string, result Result) Result {
 			}
 		}
 		if strings.TrimSpace(result.Stdout) == "" {
-			return cursorAllowResult(result)
+			return Result{ExitCode: 0, Stdout: "{}", Stderr: result.Stderr}
 		}
 		reason := cursorStopReason(result.Stdout)
 		if reason == "" {
-			return cursorAllowResult(result)
+			return Result{ExitCode: 0, Stdout: "{}", Stderr: result.Stderr}
 		}
 		return Result{
 			ExitCode: 0,
 			Stdout:   cursorJSON(map[string]interface{}{"followup_message": reason}),
-		}
-	}
-	if event == "cursor-user-prompt-submit" {
-		if result.ExitCode == 0 {
-			if strings.TrimSpace(result.Stdout) == "" {
-				return Result{ExitCode: 0, Stdout: cursorJSON(map[string]interface{}{"continue": true})}
-			}
-			return result
-		}
-		reason := cursorResultReason(result)
-		return Result{
-			ExitCode: 0,
-			Stdout:   cursorJSON(map[string]interface{}{"continue": false, "user_message": reason}),
 		}
 	}
 	if isCursorPreDecisionEvent(event) && result.ExitCode != 0 {
@@ -177,15 +202,28 @@ func AdaptCursorResult(event string, result Result) Result {
 		}
 	}
 	if isCursorPreDecisionEvent(event) && result.ExitCode == 0 && strings.TrimSpace(result.Stdout) == "" {
-		return cursorAllowResult(result)
+		return Result{ExitCode: 0, Stdout: cursorJSON(map[string]interface{}{"permission": "allow"}), Stderr: result.Stderr}
 	}
 	if isCursorObservationEvent(event) && result.ExitCode == 0 {
-		return cursorAllowResult(result)
+		return Result{ExitCode: 0, Stdout: "{}", Stderr: result.Stderr}
 	}
 	if strings.HasPrefix(event, "cursor-") && result.ExitCode == 0 && strings.TrimSpace(result.Stdout) == "" {
-		return cursorAllowResult(result)
+		return Result{ExitCode: 0, Stdout: "{}", Stderr: result.Stderr}
 	}
 	return result
+}
+
+func isCursorFireAndForgetEvent(event string) bool {
+	switch event {
+	case "cursor-session-start",
+		"cursor-session-end",
+		"cursor-user-prompt-submit",
+		"cursor-subagent-start",
+		"cursor-pre-compaction":
+		return true
+	default:
+		return false
+	}
 }
 
 func isCursorPreDecisionEvent(event string) bool {
@@ -204,6 +242,7 @@ func isCursorPreDecisionEvent(event string) bool {
 func isCursorObservationEvent(event string) bool {
 	switch event {
 	case "cursor-post-tool-use",
+		"cursor-post-tool-use-failure",
 		"cursor-after-shell-execution",
 		"cursor-after-mcp-execution",
 		"cursor-after-file-edit",
@@ -241,17 +280,6 @@ func cursorJSON(payload map[string]interface{}) string {
 	return string(body)
 }
 
-func cursorAllowResult(result Result) Result {
-	return Result{
-		ExitCode: 0,
-		Stdout: cursorJSON(map[string]interface{}{
-			"continue":   true,
-			"permission": "allow",
-		}),
-		Stderr: result.Stderr,
-	}
-}
-
 func cursorSessionID(raw map[string]interface{}) string {
 	if sessionID := cursorFirstString(raw,
 		"session_id", "sessionId", "conversation_id", "conversationId",
@@ -260,7 +288,7 @@ func cursorSessionID(raw map[string]interface{}) string {
 	); sessionID != "" {
 		return sessionID
 	}
-	return "cursor-workspace"
+	return ""
 }
 
 func cursorToolName(raw map[string]interface{}) string {
@@ -315,19 +343,6 @@ func cursorShellInput(raw map[string]interface{}) map[string]interface{} {
 		}
 	}
 	return input
-}
-
-func cursorShellResponse(raw map[string]interface{}) map[string]interface{} {
-	response := cursorToolResponse(raw)
-	for _, key := range []string{"exit_code", "exitCode", "status_code", "statusCode"} {
-		if _, ok := response[key]; ok {
-			return response
-		}
-	}
-	if code, ok := raw["code"]; ok {
-		response["exit_code"] = code
-	}
-	return response
 }
 
 func cursorPathInput(raw map[string]interface{}) map[string]interface{} {

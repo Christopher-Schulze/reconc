@@ -89,12 +89,12 @@ func TestPayloadLooksLikeCursor(t *testing.T) {
 	}
 }
 
-func TestNormalizeCursorPayloadAfterShellExecutionFailure(t *testing.T) {
+func TestNormalizeCursorPayloadAfterShellExecutionIsPassive(t *testing.T) {
 	body, err := NormalizeCursorPayload("cursor-after-shell-execution", []byte(`{
 		"conversationId":"cursor-3",
 		"command":"go test ./...",
-		"exitCode":1,
-		"stderr":"failed"
+		"output":"failed",
+		"duration":1200
 	}`))
 	if err != nil {
 		t.Fatalf("NormalizeCursorPayload: %v", err)
@@ -103,12 +103,63 @@ func TestNormalizeCursorPayloadAfterShellExecutionFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParsePayload: %v", err)
 	}
-	exitCode := payload.ExitCode()
-	if exitCode == nil || *exitCode != 1 {
-		t.Fatalf("exit code = %#v", exitCode)
+	if payload.ToolName != "" || payload.Command() != "" || payload.ExitCode() != nil {
+		t.Fatalf("afterShellExecution must not normalize into tool evidence: %#v", payload)
 	}
-	if payload.Error != "" {
-		t.Fatalf("top-level error should remain empty unless Cursor sends it, got %q", payload.Error)
+}
+
+func TestNormalizeCursorPayloadPostToolUseFailure(t *testing.T) {
+	body, err := NormalizeCursorPayload("cursor-post-tool-use-failure", []byte(`{
+		"conversation_id":"cursor-failure",
+		"tool_name":"Shell",
+		"tool_input":{"command":"go test ./..."},
+		"tool_use_id":"tool-17",
+		"error_message":"process exited unsuccessfully",
+		"failure_type":"error",
+		"is_interrupt":false
+	}`))
+	if err != nil {
+		t.Fatalf("NormalizeCursorPayload: %v", err)
+	}
+	payload, err := ParsePayload(body)
+	if err != nil {
+		t.Fatalf("ParsePayload: %v", err)
+	}
+	if !payload.IsCommandTool() || payload.Command() != "go test ./..." {
+		t.Fatalf("failure command normalization = %#v", payload)
+	}
+	if payload.ToolUseID != "tool-17" || payload.Error != "process exited unsuccessfully" {
+		t.Fatalf("failure metadata normalization = %#v", payload)
+	}
+	if len(payload.ToolResponse) != 0 {
+		t.Fatalf("failure route must not fabricate a tool response: %#v", payload.ToolResponse)
+	}
+}
+
+func TestNormalizeCursorPayloadRequiresSessionIdentity(t *testing.T) {
+	if _, err := NormalizeCursorPayload("cursor-post-tool-use", []byte(`{
+		"tool_name":"Write",
+		"tool_input":{"file_path":"src/app.go"}
+	}`)); err == nil || !strings.Contains(err.Error(), "session identity") {
+		t.Fatalf("missing identity error = %v", err)
+	}
+}
+
+func TestNormalizeCursorSubagentUsesChildIdentity(t *testing.T) {
+	normalized, err := NormalizeCursorPayload("cursor-subagent-stop", []byte(`{
+		"conversation_id":"parent-session",
+		"subagent_id":"child-session",
+		"hook_event_name":"subagentStop"
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := ParsePayload(normalized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.SessionID != "child-session" {
+		t.Fatalf("subagent session identity = %q", payload.SessionID)
 	}
 }
 
@@ -126,26 +177,22 @@ func TestAdaptCursorPreDecisionDeny(t *testing.T) {
 	}
 }
 
-func TestAdaptCursorBeforeSubmitPromptUsesDocumentedResponse(t *testing.T) {
+func TestAdaptCursorBeforeSubmitPromptIsPassiveLiveness(t *testing.T) {
 	blocked := AdaptCursorResult("cursor-user-prompt-submit", Result{ExitCode: 2, Stderr: "blocked"})
-	if blocked.ExitCode != 0 || blocked.Stdout != `{"continue":false,"user_message":"blocked"}` {
+	if blocked.ExitCode != 0 || blocked.Stdout != `{}` || blocked.Stderr != "blocked" {
 		t.Fatalf("blocked prompt result = %#v", blocked)
 	}
 	allowed := AdaptCursorResult("cursor-user-prompt-submit", Result{ExitCode: 0})
-	if allowed.ExitCode != 0 || allowed.Stdout != `{"continue":true}` {
+	if allowed.ExitCode != 0 || allowed.Stdout != `{}` {
 		t.Fatalf("allowed prompt result = %#v", allowed)
 	}
 }
 
-func TestAdaptCursorSuccessOutputsAllowJSON(t *testing.T) {
+func TestAdaptCursorPreDecisionSuccessOutputsAllowJSON(t *testing.T) {
 	for _, event := range []string{
-		"cursor-session-start",
 		"cursor-pre-tool-use",
 		"cursor-before-shell-execution",
 		"cursor-before-read-file",
-		"cursor-post-tool-use",
-		"cursor-after-file-edit",
-		"cursor-stop",
 	} {
 		t.Run(event, func(t *testing.T) {
 			result := AdaptCursorResult(event, Result{ExitCode: 0})
@@ -156,10 +203,35 @@ func TestAdaptCursorSuccessOutputsAllowJSON(t *testing.T) {
 			if err := json.Unmarshal([]byte(result.Stdout), &payload); err != nil {
 				t.Fatalf("stdout is not JSON: %v\n%s", err, result.Stdout)
 			}
-			if payload["continue"] != true || payload["permission"] != "allow" {
+			if payload["permission"] != "allow" {
 				t.Fatalf("expected explicit Cursor allow JSON, got %#v", payload)
 			}
 		})
+	}
+}
+
+func TestAdaptCursorOutputlessObservationsUseEmptyObject(t *testing.T) {
+	for _, event := range []string{
+		"cursor-session-start",
+		"cursor-post-tool-use",
+		"cursor-post-tool-use-failure",
+		"cursor-after-shell-execution",
+		"cursor-after-file-edit",
+		"cursor-subagent-start",
+		"cursor-pre-compaction",
+	} {
+		t.Run(event, func(t *testing.T) {
+			result := AdaptCursorResult(event, Result{ExitCode: 0, Stdout: `{"ignored":true}`, Stderr: "warning"})
+			if result.ExitCode != 0 || result.Stdout != "{}" || result.Stderr != "warning" {
+				t.Fatalf("outputless result = %#v", result)
+			}
+		})
+	}
+	for _, event := range []string{"cursor-stop", "cursor-subagent-stop"} {
+		result := AdaptCursorResult(event, Result{ExitCode: 0})
+		if result.ExitCode != 0 || result.Stdout != "{}" {
+			t.Fatalf("%s empty stop result = %#v", event, result)
+		}
 	}
 }
 
