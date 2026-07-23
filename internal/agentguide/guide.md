@@ -2,7 +2,7 @@
 
 ## What reconc Does
 
-`reconc` (Repository Control Compiler) compiles repo policy from YAML / Markdown into a lockfile, then evaluates your proposed actions (writes, reads, commands, claims) against that lockfile. It runs offline, uses no LLM inference, and returns deterministic JSON with a `decision` of `pass`, `warn`, or `block`.
+`reconc` (Repository Control Compiler) compiles repo policy from YAML / Markdown into a lockfile, then evaluates your proposed actions (writes, reads, commands, claims) against that lockfile. Its core policy and evidence runtime runs offline, uses no LLM inference, and returns deterministic JSON with a `decision` of `pass`, `warn`, or `block`. The explicit `reconc grok` command delegates authenticated inference to an external Grok ACP process.
 
 **You do not interpret policy. reconc tells you what is allowed and what is not.**
 

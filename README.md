@@ -40,8 +40,8 @@ are explicit.
   coding-agent integrations plus git pre-commit.
 - **Bounded autonomy:** typed TASK state, durable run control, completion gates,
   and no-progress guards keep long agent runs on the rails.
-- **Local by default:** one Go binary, with no daemon, Docker, model, or runtime
-  network dependency.
+- **Local by default:** core policy and evidence control is one Go binary, with
+  no daemon, Docker, model, or runtime network dependency.
 
 ## See the real loop in under a minute
 
@@ -432,8 +432,11 @@ contains the judge-ready binaries. The Build Week implementation extends the
 June 8 baseline with the evidence-complete `done` gate, deterministic demo,
 transactional bootstrap UX, repository run-loop controls, truthful runtime
 adapters, generic npm/pnpm/Yarn/TypeScript assurance, and the rebuilt public
-product surface. Reconc itself remains fully offline at runtime: Codex and
-GPT-5.6 helped build the tool but are not dependencies of the tool.
+product surface. Core policy compilation, evaluation, hook processing, run
+control, and proof generation remain offline at runtime. The explicit
+`reconc grok` command launches the operator-installed Grok ACP process, whose
+authentication and model traffic are owned by Grok. Codex and GPT-5.6 helped
+build Reconc but are not dependencies of it.
 
 ## Production dogfooding
 
@@ -551,7 +554,10 @@ hooks. Use an external sandbox and protected remote CI for adversarial code.
 
 ### Does it work offline?
 
-Yes. The shipped Go binary has no runtime network dependency. Installation and
+Yes for core repository control. The shipped Go binary makes no network calls
+for policy compilation, evaluation, hooks, run control, or proof generation.
+The explicit `reconc grok` command launches the external Grok ACP process and
+therefore depends on Grok's authentication and model service. Installation and
 GitHub publication naturally require network access.
 
 ### Which agents are supported?

@@ -47,10 +47,19 @@ Runtime:
 - `RECONC_HOME` (default `~/.reconc`) -- user config, presets, templates
 - `NO_COLOR` -- disable ANSI styling even when stdout is a terminal; redirected
   and `TERM=dumb` output is always plain
+- `COLUMNS` -- terminal width for `reconc tui` when it is an integer from 20
+  through 1000
+- `CI` (`1`, `true`, `on`, or `yes`) and provider markers
+  `GITHUB_ACTIONS`, `GITLAB_CI`, `CIRCLECI`, `TRAVIS`, `JENKINS_URL`,
+  `BUILDKITE`, `DRONE`, `APPVEYOR`, `TEAMCITY_VERSION`, and
+  `BITBUCKET_BUILD_NUMBER` -- allow explicit `--auto-claim` to assert
+  `ci-green`
 - `RECONC_AUDIT=1` -- enable the opt-in append-only audit log
 - `RECONC_AUDIT_VERBOSE=1` -- store full command strings in audit records
   instead of the redacted first token (may capture secrets in arguments)
 - `RECONC_CLAUDE_STATE_DIR` -- override the global session-state root
+- `CLAUDE_CONFIG_DIR` (default `~/.claude`) -- absolute Claude configuration
+  root used to recognize the current project's persistent-memory state
 - `RECONC_SCHEMA_BASE_URL` -- enterprise override for schema URLs; without an
   override, config/report/fix-plan/proof-bundle contracts use `schemas/v1/` and current
   policy lockfiles use `schemas/v2/`
@@ -60,6 +69,15 @@ Runtime:
   Unix socket or Windows named pipe; PreToolUse remains enforced and native
   Stop remains available only when the installed Grok guide advertises it
   (steering also honours `GROK_LEADER_SOCKET`)
+- `GROK_HOME` (default `~/.grok`) -- Grok installation/state root used for the
+  installed hook guide and leader-socket discovery
+- `GROK_LEADER_SOCKET` -- authoritative Grok leader socket or named-pipe
+  endpoint for optional TUI steering
+- `XAI_API_KEY` -- for explicit `reconc grok` sessions, select Grok's
+  `xai.api_key` ACP authentication method when offered; otherwise Reconc uses
+  Grok's offered cached-token method
+- `SOURCE_DATE_EPOCH` -- reproducible timestamp source for generated manpages
+  and release artifacts; invalid values fail instead of falling back
 
 Debugging:
 
@@ -267,9 +285,9 @@ commands propagate their child exit code and never publish a proof.
 Evaluate exactly one rule, ignoring the rest of the lockfile. Useful
 for single-rule workflows and template-variable rule tests.
 
-### `reconc can <action> <path> [repo] [--why] [--json]`
-Ultra-terse yes/no. Prints `yes` or `no: <rule> <action>`. Exit 0 =
-yes, 2 = no, 1 = error. Action is currently always `write`.
+### `reconc can write <path> [repo] [--why] [--json]`
+Ultra-terse yes/no for one proposed repository write. Prints `yes` or
+`no: <rule> <action>`. Exit 0 = yes, 2 = no, 1 = error.
 
 ### `reconc diff <lockfile-a> <lockfile-b> [--json]`
 Structural comparison of two compiled lockfiles. Reports added /
@@ -458,6 +476,10 @@ driver streams Grok's answer and re-prompts the same ACP session while Reconc's 
 continuation reason. Ctrl-C terminates immediately. The default continuation
 limit is 32. ACP uses Grok's `--always-approve` transport because it has no TUI
 permission modal; Reconc PreToolUse and Grok's explicit deny rules still run.
+When Grok offers it, `XAI_API_KEY` selects `xai.api_key`; otherwise the driver
+uses Grok's offered cached-token method. Reconc's policy engine and local ACP
+transport make no network calls, while the external Grok process owns model
+authentication and inference traffic.
 
 ---
 

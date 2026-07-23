@@ -441,10 +441,14 @@ evidence rules are documented in [Policy Packs And Native Assurance](#policy-pac
 
 ### Does the product require a model, daemon, Docker, or network?
 
-No. The shipped Go binary runs without a model, daemon, Docker, Node, Python,
-or runtime network access. Codex and GPT-5.6 contributed to development during
-OpenAI Build Week but are not runtime dependencies. Installation, Git
-operations, and remote CI naturally use the network when invoked.
+Not for core repository control. The shipped Go binary runs policy
+compilation, evaluation, hooks, run control, and proof generation without a
+model, daemon, Docker, Node, Python, or network access. The explicit
+`reconc grok` command launches the external Grok ACP process, which owns model
+authentication and inference traffic. Codex and GPT-5.6 contributed to
+development during OpenAI Build Week but are not runtime dependencies.
+Installation, Git operations, and remote CI naturally use the network when
+invoked.
 
 ### Which agent runtimes are supported?
 
@@ -1069,7 +1073,9 @@ Pipeline:
 repo root -> ingest -> parser -> compiler -> .reconc/policy.lock.json -> runtime -> CheckReport/FixPlan/CompletionReport -> ProofBundle
 ```
 
-Package responsibilities:
+The exhaustive contributor package map is maintained in
+[the architecture reference](architecture.md#package-map). The following list
+summarizes the core runtime responsibilities:
 
 - `cmd/reconc`: CLI entry point only
 - `buildprovenance`: deterministic target/source build identity and byte-only binary inspection
@@ -1107,7 +1113,8 @@ Key invariants:
 - Deterministic JSON artifacts
 - Stable schema and `format_version` fields; immutable v1 contracts live under `schemas/v1/`, while current portable policy locks use `schemas/v2/`; all six v1 schemas and the current v2 lock schema ship in every future release containing the proof exporter
 - Fail closed on malformed policy, stale lockfiles, schema drift, invalid globs, unsupported rule kinds, and non-portable current lock envelopes
-- No runtime network calls
+- No core policy-runtime network calls; explicit `reconc grok` delegates
+  authenticated inference to an external Grok ACP process
 - Behavior in internal packages, thin `cmd/reconc/main.go`
 
 ## Agent Skill
@@ -1384,20 +1391,24 @@ max-turn termination, and session-end reasons `channel_closed`/`shutdown` are
 never continued. Subagent lifecycle remains evidence-only in Reconc because
 repository TASK completion belongs to the parent session.
 
-`reconc grok` remains the explicit strict ACP driver. When the installed Grok
-guide documents passive Stop, optional leader mode (`grok --leader`, config
+`reconc grok` remains the explicit strict ACP driver. It selects Grok's
+`xai.api_key` authentication method when `XAI_API_KEY` is set and that method
+is offered; otherwise it uses Grok's offered cached-token method. Reconc owns
+the local ACP transport and policy gates, while the external Grok process owns
+model authentication and inference traffic. When the installed Grok guide
+documents passive Stop, optional leader mode (`grok --leader`, config
 `use_leader`, or `GROK_LEADER_SOCKET`) supplies backward-compatible TUI
 continuation through protocol 1 `_x.ai/interject` over Unix sockets or Windows
-named pipes. Reconc suppresses the interjection only when native Stop capability
-is explicitly advertised, preventing duplicate prompts without creating a
-version-based enforcement gap. The 32-attempt leader cap counts only delivered
-interjections in one no-progress series; material progress, a new block, or a
-clean Stop resets it. Multiple endpoints divide the three-second budget fairly
-and framed messages complete short writes. `RECONC_GROK_STEER=0` disables only
-leader steering; PreToolUse remains hard while native Stop remains dependent on
-the installed host capability. Deep doctor reports installed native Stop
-capability and separately probes optional leader protocol plus
-`_x.ai/interject` with a random nonexistent session.
+named pipes. Reconc suppresses the interjection only when native Stop
+capability is explicitly advertised, preventing duplicate prompts without
+creating a version-based enforcement gap. The 32-attempt leader cap counts
+only delivered interjections in one no-progress series; material progress, a
+new block, or a clean Stop resets it. Multiple endpoints divide the
+three-second budget fairly and framed messages complete short writes.
+`RECONC_GROK_STEER=0` disables only leader steering; PreToolUse remains hard
+while native Stop remains dependent on the installed host capability. Deep
+doctor reports installed native Stop capability and separately probes optional
+leader protocol plus `_x.ai/interject` with a random nonexistent session.
 `reconc run on|off|reset|status|log` is the canonical AI-operated repository switch.
 Its durable state applies only to the selected repository, not the whole machine.
 Repository mode persists across sessions for Claude Code, Codex, GitHub
@@ -1580,6 +1591,7 @@ public history was erased.
 GitHub workflows:
 
 - `.github/workflows/reconc-ci.yml`
+- `.github/workflows/codeql.yml`
 - `.github/workflows/reconc-release.yml`
 
 CI checks:
@@ -1608,13 +1620,17 @@ CI checks:
   updates to historical commit values
 - least-privilege permissions, disabled checkout credential persistence, bounded job timeouts, and stale-run cancellation per branch or pull request
 - release and installer negative-path trust tests
+- manual-build Go CodeQL analysis for the root and `harness/template` modules
+  on every pushed candidate, pull request against `main`, weekly schedule, and
+  manual dispatch, with only `contents: read` and `security-events: write`
 
 CI runs on candidate branches, on contributor pull requests, after accepted
 updates to `main`, and through explicit manual dispatch. The pull-request
 trigger only tests a pull request that somebody already opened; it never
-creates one. Dependency and action updates are deliberate maintainer work; the
-repository does not generate automated version-update pull requests or enable
-auto-merge.
+creates one. `.github/dependabot.yml` groups security-update pull requests
+separately for GitHub Actions, the root Go module, and `harness/template`.
+Routine version-update pull requests remain disabled on all three surfaces,
+and the repository does not enable auto-merge.
 
 The public source repository protects its default branch with the active
 `Protect main` ruleset. It blocks branch deletion and non-fast-forward updates,

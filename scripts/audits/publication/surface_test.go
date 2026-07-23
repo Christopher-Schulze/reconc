@@ -97,6 +97,21 @@ func TestCurrentDocumentationListsCanonicalCommandSurface(t *testing.T) {
 	}
 }
 
+func TestCommandReferenceUsesCanonicalCanGrammar(t *testing.T) {
+	root := publicSurfaceRoot(t)
+	commandReference := readPublicSurfaceFile(t, root, "docs/commands.md")
+	for _, command := range commandmeta.All() {
+		if command.Name != "can" {
+			continue
+		}
+		if !strings.Contains(commandReference, "### `"+command.Synopsis+"`") {
+			t.Errorf("docs/commands.md does not use canonical can synopsis %q", command.Synopsis)
+		}
+		return
+	}
+	t.Fatal("canonical command metadata omits can")
+}
+
 func TestArchitectureListsEveryTopLevelInternalPackage(t *testing.T) {
 	root := publicSurfaceRoot(t)
 	architecture := readPublicSurfaceFile(t, root, "docs/architecture.md")
@@ -114,9 +129,14 @@ func TestArchitectureListsEveryTopLevelInternalPackage(t *testing.T) {
 	}
 }
 
-func TestFrozenRuleKindRFCListsEveryAssuranceGate(t *testing.T) {
+func TestFrozenRuleKindRFCCoversImplementedKinds(t *testing.T) {
 	root := publicSurfaceRoot(t)
 	rfc := readPublicSurfaceFile(t, root, "docs/rfcs/RECONC-0004-rule-kinds.md")
+	for _, kind := range policy.AllKinds() {
+		if !strings.Contains(rfc, "`"+string(kind)+"`") {
+			t.Errorf("RFC 0004 omits implemented rule kind %q", kind)
+		}
+	}
 	for _, kind := range policy.AllAssuranceKinds() {
 		if !strings.Contains(rfc, "`"+string(kind)+"`") {
 			t.Errorf("RFC 0004 omits implemented assurance gate %q", kind)
@@ -135,6 +155,24 @@ func TestAgentGuidanceCoversRegisteredPlatformsAndPortableProof(t *testing.T) {
 		}
 		if !strings.Contains(guidance, "reconc proof .") {
 			t.Errorf("%s omits the portable proof command", path)
+		}
+	}
+}
+
+func TestCommandReferenceCoversPublicHostEnvironment(t *testing.T) {
+	root := publicSurfaceRoot(t)
+	commandReference := readPublicSurfaceFile(t, root, "docs/commands.md")
+	for _, variable := range []string{
+		"CLAUDE_CONFIG_DIR",
+		"COLUMNS",
+		"GITHUB_ACTIONS",
+		"GROK_HOME",
+		"GROK_LEADER_SOCKET",
+		"SOURCE_DATE_EPOCH",
+		"XAI_API_KEY",
+	} {
+		if !strings.Contains(commandReference, "`"+variable+"`") {
+			t.Errorf("docs/commands.md omits public host environment variable %s", variable)
 		}
 	}
 }
@@ -362,6 +400,12 @@ func TestCodeQLWorkflowHasBoundedAdvancedSetup(t *testing.T) {
 			t.Errorf("%s manual build omits %q", path, command)
 		}
 	}
+	documentation := readPublicSurfaceFile(t, root, "docs/documentation.md")
+	for _, token := range []string{path, "CodeQL", "harness/template", "security-events: write"} {
+		if !strings.Contains(documentation, token) {
+			t.Errorf("docs/documentation.md omits CodeQL contract %q", token)
+		}
+	}
 }
 
 func TestCIWorkflowRunsOnCandidateRefs(t *testing.T) {
@@ -429,6 +473,12 @@ func TestDependabotCoversBoundedDependencySurfaces(t *testing.T) {
 	}
 	if len(seen) != len(want) {
 		t.Errorf("%s does not cover every required dependency surface", path)
+	}
+	documentation := readPublicSurfaceFile(t, root, "docs/documentation.md")
+	for _, token := range []string{path, "security-update", "version-update", "auto-merge"} {
+		if !strings.Contains(documentation, token) {
+			t.Errorf("docs/documentation.md omits Dependabot contract %q", token)
+		}
 	}
 }
 

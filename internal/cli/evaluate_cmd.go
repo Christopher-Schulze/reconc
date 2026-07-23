@@ -586,13 +586,10 @@ func renderPolicyReplayCommand(report *runtime.CheckReport) string {
 	return renderDirectCommand(args)
 }
 
-// runCan implements `reconc can <action> <path> [repo] [--terse|--json|--why]` (W41).
+// runCan implements `reconc can write <path> [repo] [--json|--why]` (W41).
 //
 // Ultra-terse binary yes/no. Designed for fast-path agent decisions
 // before writing a file.
-//
-// Currently supported actions: write
-// (read/command/claim could be added later if needed)
 //
 // Default text output:
 //
@@ -604,15 +601,14 @@ func runCan(args []string, stdout, stderr io.Writer) error {
 	// Handle --help before arg-count check so `reconc can --help` works.
 	for _, a := range args {
 		if a == "-h" || a == "--help" {
-			fmt.Fprintln(stdout, "Usage: reconc can <action> <path> [repo] [--why] [--json]")
-			fmt.Fprintln(stdout, "Binary yes/no for a single proposed action.")
-			fmt.Fprintln(stdout, "Actions: write")
+			fmt.Fprintln(stdout, "Usage: reconc can write <path> [repo] [--why] [--json]")
+			fmt.Fprintln(stdout, "Binary yes/no for a single proposed write.")
 			fmt.Fprintln(stdout, "Exit codes: 0 = yes, 2 = no, 1 = error.")
 			return nil
 		}
 	}
 	if len(args) < 2 {
-		return &CLIError{ExitCode: 1, Message: "reconc can: usage: reconc can <action> <path> [repo] [--why|--json]"}
+		return &CLIError{ExitCode: 1, Message: "reconc can: usage: reconc can write <path> [repo] [--why|--json]"}
 	}
 	action := args[0]
 	path := args[1]
@@ -627,9 +623,8 @@ func runCan(args []string, stdout, stderr io.Writer) error {
 		case "--json":
 			jsonOut = true
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "Usage: reconc can <action> <path> [repo] [--why] [--json]")
-			fmt.Fprintln(stdout, "Binary yes/no for a single proposed action.")
-			fmt.Fprintln(stdout, "Actions: write")
+			fmt.Fprintln(stdout, "Usage: reconc can write <path> [repo] [--why] [--json]")
+			fmt.Fprintln(stdout, "Binary yes/no for a single proposed write.")
 			fmt.Fprintln(stdout, "Exit codes: 0 = yes, 2 = no, 1 = error.")
 			return nil
 		default:
