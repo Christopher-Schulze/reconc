@@ -164,6 +164,86 @@ func TestAuditRepositoryDoesNotTreatDeletionAsNewPathLeak(t *testing.T) {
 	}
 }
 
+// TestCanonicalAuditRootAcceptsCaseVariantSpelling is the regression for a
+// release-facing audit that refused a healthy repository. The pre-change
+// implementation compared filepath.EvalSymlinks output as a string, and
+// EvalSymlinks does not normalise case, so a working directory that differed
+// from the checkout only in letter case aborted the audit.
+func TestCanonicalAuditRootAcceptsCaseVariantSpelling(t *testing.T) {
+	parent := t.TempDir()
+	repo := filepath.Join(parent, "worktree")
+	if err := os.Mkdir(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	variant := filepath.Join(parent, "WORKTREE")
+	// Probe the filesystem instead of assuming from runtime.GOOS: a
+	// case-sensitive volume cannot express this input at all.
+	if _, err := os.Stat(variant); err != nil {
+		t.Skipf("filesystem is case-sensitive, the case-variant input cannot exist: %v", err)
+	}
+	gitAudit(t, repo, "init", "--quiet")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	canonical, err := canonicalAuditRoot(ctx, repo)
+	if err != nil {
+		t.Fatalf("canonical spelling was rejected: %v", err)
+	}
+	resolved, err := canonicalAuditRoot(ctx, variant)
+	if err != nil {
+		t.Fatalf("case-variant spelling of the worktree root was rejected: %v", err)
+	}
+	if resolved != canonical {
+		t.Fatalf("case-variant root resolved to %q, want the on-disk identity %q", resolved, canonical)
+	}
+}
+
+// TestCanonicalAuditRootAcceptsSymlinkedWorktreeRoot preserves the behavior
+// EvalSymlinks provided: a symlink to the worktree root is the worktree root.
+func TestCanonicalAuditRootAcceptsSymlinkedWorktreeRoot(t *testing.T) {
+	repo := newAuditRepo(t)
+	link := filepath.Join(t.TempDir(), "worktree-link")
+	if err := os.Symlink(repo, link); err != nil {
+		t.Skipf("filesystem does not support symlinks: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	canonical, err := canonicalAuditRoot(ctx, repo)
+	if err != nil {
+		t.Fatalf("worktree root was rejected: %v", err)
+	}
+	resolved, err := canonicalAuditRoot(ctx, link)
+	if err != nil {
+		t.Fatalf("symlinked worktree root was rejected: %v", err)
+	}
+	if resolved != canonical {
+		t.Fatalf("symlinked root resolved to %q, want %q", resolved, canonical)
+	}
+}
+
+// TestCanonicalAuditRootRejectsNonWorktreeRoots keeps the guard the identity
+// check exists for: only the worktree root may be audited, so a subdirectory
+// and a directory that is no worktree at all must still fail.
+func TestCanonicalAuditRootRejectsNonWorktreeRoots(t *testing.T) {
+	repo := newAuditRepo(t)
+	writeAuditFixture(t, repo, "docs/notes.md", "public fixture\n")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := canonicalAuditRoot(ctx, filepath.Join(repo, "docs")); err == nil {
+		t.Fatal("a subdirectory was accepted as the audit root")
+	} else if !strings.Contains(err.Error(), "is not the Git worktree root") {
+		t.Fatalf("subdirectory rejection lost its message: %v", err)
+	}
+	if _, err := canonicalAuditRoot(ctx, t.TempDir()); err == nil {
+		t.Fatal("a directory outside any worktree was accepted as the audit root")
+	}
+	if _, err := canonicalAuditRoot(ctx, filepath.Join(repo, "missing")); err == nil {
+		t.Fatal("a non-existent audit root was accepted")
+	}
+}
+
 func newAuditRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()

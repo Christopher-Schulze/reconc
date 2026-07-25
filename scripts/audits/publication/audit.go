@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"reconc.dev/reconc/internal/pathidentity"
 )
 
 const (
@@ -123,12 +125,18 @@ func auditRepository(ctx context.Context, options auditOptions) (auditReport, er
 	return report, nil
 }
 
+// canonicalAuditRoot resolves the audit root to its filesystem identity and
+// proves it is the Git worktree root itself, not a subdirectory or a different
+// checkout.
+//
+// Both sides go through pathidentity, the same resolver the enforcement layers
+// use, because string comparison decides spelling rather than identity. On a
+// case-insensitive filesystem filepath.EvalSymlinks leaves the caller's casing
+// intact, so a working directory whose parent segments differ from the checkout
+// only in letter case compared unequal to the Git-reported root and failed this
+// audit on a healthy repository.
 func canonicalAuditRoot(ctx context.Context, root string) (string, error) {
-	abs, err := filepath.Abs(root)
-	if err != nil {
-		return "", fmt.Errorf("resolve audit root: %w", err)
-	}
-	abs, err = filepath.EvalSymlinks(abs)
+	abs, err := pathidentity.ResolveExisting(root)
 	if err != nil {
 		return "", fmt.Errorf("resolve audit root identity: %w", err)
 	}
@@ -136,11 +144,11 @@ func canonicalAuditRoot(ctx context.Context, root string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	resolvedGitRoot, err := filepath.EvalSymlinks(strings.TrimSpace(string(gitRoot)))
+	resolvedGitRoot, err := pathidentity.ResolveExisting(strings.TrimSpace(string(gitRoot)))
 	if err != nil {
 		return "", fmt.Errorf("resolve Git root identity: %w", err)
 	}
-	if filepath.Clean(abs) != filepath.Clean(resolvedGitRoot) {
+	if abs != resolvedGitRoot {
 		return "", fmt.Errorf("audit root %q is not the Git worktree root %q", abs, resolvedGitRoot)
 	}
 	return abs, nil
