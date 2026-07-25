@@ -96,6 +96,28 @@ func TestInvocationsWithReasonAttributesEachIncompletenessCause(t *testing.T) {
 	}
 }
 
+// TestNegativeDepthBudgetIsAnAnalysisFault pins the documented split between
+// IncompleteTooLarge and IncompleteAnalysisState. A negative budget is a caller
+// programming error, not a property of the command, so reporting it as
+// "too large" would send the caller the wrong remediation ("split the command")
+// for a defect that lives in the call site.
+func TestNegativeDepthBudgetIsAnAnalysisFault(t *testing.T) {
+	for _, command := range []string{"git status", "", `$COMMAND clean -fd`, strings.Repeat("x", maxCommandBytes+1)} {
+		invocations, reason := InvocationsWithReason(command, -1)
+		if reason != IncompleteAnalysisState {
+			t.Fatalf("negative depth budget for %q gave reason %q, want %q", command, reason, IncompleteAnalysisState)
+		}
+		if invocations != nil {
+			t.Fatalf("negative depth budget must return no invocations, got %#v", invocations)
+		}
+	}
+	// The oversized case above also proves precedence: an invalid budget is
+	// reported as the analysis fault it is, never masked by the size ceiling.
+	if _, reason := InvocationsWithReason(strings.Repeat("x", maxCommandBytes+1), 16); reason != IncompleteTooLarge {
+		t.Fatalf("oversized command with a valid budget must report %q, got %q", IncompleteTooLarge, reason)
+	}
+}
+
 // TestInvocationsWrapperAgreesWithReason pins the compatibility contract: the
 // boolean wrapper must permit exactly the inputs whose reason is
 // IncompleteNone, so adding cause attribution cannot silently change which

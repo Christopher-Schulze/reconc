@@ -177,6 +177,15 @@ func RunPreToolUse(repoRoot string, payloadBytes []byte) Result {
 		}
 		report, err := runPreCommandPolicyCheck(root, state, payload.Command())
 		if err != nil {
+			if isLockfileError(err) {
+				// A stale lockfile blocks every gated command, including the
+				// refresh that repairs it. Admitting the repair is what keeps
+				// this fail-closed instead of sealed shut.
+				if isLockfileRepairCommand(payload.Command()) {
+					return Result{ExitCode: 0}
+				}
+				return Result{ExitCode: 2, Stderr: lockfileBlockMessage("pre", err)}
+			}
 			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): command check failed: %s", err)}
 		}
 		violations := blockingViolationsForKinds(report, preCommandBlockKinds)
@@ -221,6 +230,12 @@ func RunPreToolUse(repoRoot string, payloadBytes []byte) Result {
 	report, err := runPreWritePolicyCheck(root, state.ReadPaths, trialWrites,
 		state.WriteEpochs, state.Commands, state.CommandResults, state.Claims)
 	if err != nil {
+		if isLockfileError(err) {
+			// Writes stay blocked: a write authorized by an unreadable policy
+			// is exactly what this gate exists to prevent. The message now
+			// names a reachable repair instead of one the gate refuses.
+			return Result{ExitCode: 2, Stderr: lockfileBlockMessage("pre", err)}
+		}
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): check failed: %s", err)}
 	}
 	violations := preWriteBlockingViolations(report)

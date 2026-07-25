@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1561,10 +1562,11 @@ func auditRepoCleanliness(root string) []string {
 	if strings.TrimSpace(string(inside)) != "true" {
 		return nil
 	}
-	cleanCommand, cancel := commandWithTimeout(shortAuditCommandTimeout, "git", "-C", root, "clean", "-nd")
-	out, err := cleanCommand.CombinedOutput()
-	cancel()
+	out, err := runAuditCommand(repoScanCommandTimeout, "git", "-C", root, "clean", "-nd")
 	if err != nil {
+		if errors.Is(err, errAuditCommandTimeout) {
+			return []string{repoScanTimeoutFailure("git clean -nd", err)}
+		}
 		return []string{fmt.Sprintf("git clean dry-run failed: %v: %s", err, strings.TrimSpace(string(out)))}
 	}
 	lines := repoCleanDryRunLines(string(out))

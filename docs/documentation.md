@@ -911,6 +911,20 @@ unresolved dynamic executable names and exhausted nesting fail closed. The built
 destructive Git guard uses the same model for `git clean` and `git reset
 --hard`.
 
+A stale compiled lockfile blocks gated work, because policy cannot be enforced
+from a lockfile that no longer describes its sources. The block does not seal
+the session: the PreToolUse route admits a lockfile-repair invocation
+(`reconc refresh` or `reconc compile`) even while the lockfile is stale, and the
+block message names that escape plus the alternative of reverting the policy
+source. The exemption is bounded. It applies only when the failure is the
+lockfile contract itself rather than a policy violation, every executable
+position in the command must be a repair invocation so a compound command
+cannot smuggle work through, analysis must be complete, and the executable must
+be `reconc` or a versioned release artifact such as `reconc-0.8.7-darwin-arm64`.
+Writes stay blocked while the lockfile is stale, and the hooks never
+auto-compile, so an edited policy source can never govern the session that
+edited it.
+
 A fail-closed block names the structural cause and the concrete fix instead of
 refusing generically. Analysis reports one of `dynamic_command`,
 `nesting_depth`, `too_large`, `unparsable`, or `analysis_state`, and the guard
@@ -1567,6 +1581,16 @@ Line counting in the workflow-audit harness (`lineCount`) follows `wc -l`/editor
 semantics: a trailing newline terminates the final line and does not add a
 phantom extra line, so spec-line-count and spec-line-range gates (for example
 the spec-code-parity audit `Spec Line Count` check) match the real file length.
+Worktree-walking Git calls in the workflow-audit harness run under their own
+25-second `repoScanCommandTimeout` instead of the 15-second short command
+budget. `git clean -nd` scales with worktree size rather than index size, so the
+short budget killed it at random on a large repository and reported only the
+kernel's `signal: killed`. The scan budget stays below the `timeout_sec` the
+invoking `require_script` rule grants, so the inner deadline fires first and an
+expiry is reported as a classified scan timeout that states nothing was
+verified rather than as an untracked-content violation. The message never
+suggests rerunning the gate, because a gate that passes on a retry verifies
+nothing.
 
 ## Publication Boundary
 

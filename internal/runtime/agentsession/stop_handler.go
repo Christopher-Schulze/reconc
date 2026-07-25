@@ -120,6 +120,12 @@ func RunStop(repoRoot string, payloadBytes []byte) (result Result) {
 
 	policyResult, err := runStopPolicyCheckWithSnapshot(root, state)
 	if err != nil {
+		if isLockfileError(err) {
+			// A stale lockfile must still hold the session open, but it must
+			// not repeat an unreachable remediation forever. The pre-tool
+			// route admits the repair, so this block is now actionable.
+			return Result{ExitCode: 2, Stderr: lockfileBlockMessage("stop", err)}
+		}
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): check failed: %s", err)}
 	}
 	report := policyResult.Report
