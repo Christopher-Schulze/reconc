@@ -12,6 +12,32 @@ import (
 
 const maxCommandBytes = 256 << 10
 
+// IncompleteReason names why bounded analysis could not enumerate every
+// command a shell string may execute. Enforcement callers fail closed on any
+// reason other than IncompleteNone; the specific value lets them emit
+// actionable remediation instead of a generic refusal.
+type IncompleteReason string
+
+const (
+	// IncompleteNone means every executable position was resolved.
+	IncompleteNone IncompleteReason = ""
+	// IncompleteTooLarge means the command exceeded the analysis byte ceiling.
+	IncompleteTooLarge IncompleteReason = "too_large"
+	// IncompleteUnparsable means the string is not valid Bash syntax.
+	IncompleteUnparsable IncompleteReason = "unparsable"
+	// IncompleteDynamicCommand means an executable position is produced by
+	// expansion or substitution, so the binary that would run is unknown
+	// without executing untrusted input.
+	IncompleteDynamicCommand IncompleteReason = "dynamic_command"
+	// IncompleteNestingDepth means nested shell bodies or substitutions
+	// exceeded the caller's depth budget.
+	IncompleteNestingDepth IncompleteReason = "nesting_depth"
+	// IncompleteAnalysisState means analysis was called with a negative depth
+	// budget or the AST walk reached an inconsistent internal state, so its
+	// result cannot be trusted.
+	IncompleteAnalysisState IncompleteReason = "analysis_state"
+)
+
 // Invocation is one executable command position. Source retains the command
 // text used for policy matching; Words starts with the effective executable
 // after supported wrappers such as env, sudo, command, and exec.
@@ -75,31 +101,55 @@ func anyDynamic(dynamic []bool) bool {
 }
 
 // Invocations returns direct and nested executable command positions. Complete
-// is false only when nested analysis exceeds maxDepth, allowing callers to fail
-// closed instead of silently accepting an adversarially deep command.
+// is false only when analysis could not enumerate every executable position,
+// allowing callers to fail closed instead of silently accepting an
+// adversarially deep or dynamically dispatched command. Use
+// InvocationsWithReason when the caller needs to explain the failure.
 func Invocations(command string, maxDepth int) ([]Invocation, bool) {
-	if len(command) > maxCommandBytes || maxDepth < 0 {
-		return nil, false
+	invocations, reason := InvocationsWithReason(command, maxDepth)
+	return invocations, reason == IncompleteNone
+}
+
+// InvocationsWithReason returns the same positions as Invocations plus the
+// structural reason analysis stopped short. The reason is IncompleteNone
+// exactly when Invocations reports complete. When several causes occur, the
+// first one reached in the fixed AST walk order wins, so the result is
+// deterministic for a given input.
+func InvocationsWithReason(command string, maxDepth int) ([]Invocation, IncompleteReason) {
+	if maxDepth < 0 {
+		// A negative budget is a caller programming error, not a property of
+		// the command; report it as an analysis fault rather than blaming size.
+		return nil, IncompleteAnalysisState
+	}
+	if len(command) > maxCommandBytes {
+		return nil, IncompleteTooLarge
 	}
 	return invocationsAt(command, maxDepth, 0)
 }
 
-func invocationsAt(command string, maxDepth, depth int) ([]Invocation, bool) {
+func invocationsAt(command string, maxDepth, depth int) ([]Invocation, IncompleteReason) {
 	if depth > maxDepth {
-		return nil, false
+		return nil, IncompleteNestingDepth
 	}
 	file, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(command), "hook-command")
 	if err != nil {
-		return nil, false
+		return nil, IncompleteUnparsable
 	}
 	result := make([]Invocation, 0, 4)
-	complete := true
+	incomplete := IncompleteNone
+	// note records the first cause reached; later causes never overwrite it so
+	// the reported reason stays stable across runs.
+	note := func(reason IncompleteReason) {
+		if incomplete == IncompleteNone {
+			incomplete = reason
+		}
+	}
 	nestingDepth := depth
 	stack := make([]bool, 0, 32)
 	syntax.Walk(file, func(node syntax.Node) bool {
 		if node == nil {
 			if len(stack) == 0 {
-				complete = false
+				note(IncompleteAnalysisState)
 				return true
 			}
 			last := len(stack) - 1
@@ -114,7 +164,7 @@ func invocationsAt(command string, maxDepth, depth int) ([]Invocation, bool) {
 		if nested {
 			nestingDepth++
 			if nestingDepth > maxDepth {
-				complete = false
+				note(IncompleteNestingDepth)
 				nestingDepth--
 				stack = stack[:len(stack)-1]
 				return false
@@ -127,7 +177,7 @@ func invocationsAt(command string, maxDepth, depth int) ([]Invocation, bool) {
 		words := commandWords(call.Args)
 		effective, wrapped, resolved := effectiveWords(words)
 		if !resolved || len(effective) == 0 || effective[0].dynamic {
-			complete = false
+			note(IncompleteDynamicCommand)
 			return true
 		}
 		invocation := invocationFromWords(effective)
@@ -138,20 +188,20 @@ func invocationsAt(command string, maxDepth, depth int) ([]Invocation, bool) {
 
 		nestedCommand, nestedResolved := nestedCommandString(effective)
 		if !nestedResolved {
-			complete = false
+			note(IncompleteDynamicCommand)
 		} else if nestedCommand != "" {
-			nestedInvocations, nestedComplete := invocationsAt(nestedCommand, maxDepth, nestingDepth+1)
+			nestedInvocations, nestedReason := invocationsAt(nestedCommand, maxDepth, nestingDepth+1)
 			result = append(result, nestedInvocations...)
-			complete = complete && nestedComplete
+			note(nestedReason)
 		}
 		launchedCommands, launchersResolved := launcherCommands(effective)
 		if !launchersResolved {
-			complete = false
+			note(IncompleteDynamicCommand)
 		}
 		for _, launchedWords := range launchedCommands {
 			launched, launchedWrapped, launchedResolved := effectiveWords(launchedWords)
 			if !launchedResolved || len(launched) == 0 || launched[0].dynamic {
-				complete = false
+				note(IncompleteDynamicCommand)
 				continue
 			}
 			launchedInvocation := invocationFromWords(launched)
@@ -161,19 +211,19 @@ func invocationsAt(command string, maxDepth, depth int) ([]Invocation, bool) {
 			result = append(result, launchedInvocation)
 			launchedNested, launchedNestedResolved := nestedCommandString(launched)
 			if !launchedNestedResolved {
-				complete = false
+				note(IncompleteDynamicCommand)
 				continue
 			}
 			if launchedNested == "" {
 				continue
 			}
-			nestedInvocations, nestedComplete := invocationsAt(launchedNested, maxDepth, nestingDepth+1)
+			nestedInvocations, nestedReason := invocationsAt(launchedNested, maxDepth, nestingDepth+1)
 			result = append(result, nestedInvocations...)
-			complete = complete && nestedComplete
+			note(nestedReason)
 		}
 		return true
 	})
-	return dedupe(result), complete
+	return dedupe(result), incomplete
 }
 
 type commandWord struct {

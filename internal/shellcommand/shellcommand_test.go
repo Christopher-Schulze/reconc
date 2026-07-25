@@ -62,6 +62,75 @@ func TestInvocationsFailClosedOnDynamicExecutable(t *testing.T) {
 	}
 }
 
+func TestInvocationsWithReasonAttributesEachIncompletenessCause(t *testing.T) {
+	deep := "git clean -fd"
+	for range 18 {
+		deep = "echo $(" + deep + ")"
+	}
+	tests := []struct {
+		name     string
+		command  string
+		maxDepth int
+		want     IncompleteReason
+	}{
+		{name: "literal command resolves", command: "git status", maxDepth: 16, want: IncompleteNone},
+		{name: "literal chain resolves", command: "git status && echo done", maxDepth: 16, want: IncompleteNone},
+		{name: "dynamic argument still resolves", command: `git commit -m "$MESSAGE"`, maxDepth: 16, want: IncompleteNone},
+		{name: "variable command word", command: `$COMMAND clean -fd`, maxDepth: 16, want: IncompleteDynamicCommand},
+		{name: "assignment then variable command word", command: `B=echo; $B hello`, maxDepth: 16, want: IncompleteDynamicCommand},
+		{name: "substituted command word", command: `$(printf git) clean -fd`, maxDepth: 16, want: IncompleteDynamicCommand},
+		{name: "dynamic eval body", command: `eval "$COMMAND"`, maxDepth: 16, want: IncompleteDynamicCommand},
+		{name: "dynamic launcher target", command: `xargs "$COMMAND"`, maxDepth: 16, want: IncompleteDynamicCommand},
+		{name: "nesting past budget", command: deep, maxDepth: 16, want: IncompleteNestingDepth},
+		{name: "oversized command", command: strings.Repeat("x", maxCommandBytes+1), maxDepth: 16, want: IncompleteTooLarge},
+		{name: "unbalanced quote", command: `git "clean -fd`, maxDepth: 16, want: IncompleteUnparsable},
+		{name: "unbalanced parenthesis", command: `echo $(git status`, maxDepth: 16, want: IncompleteUnparsable},
+		{name: "negative depth budget", command: "git status", maxDepth: -1, want: IncompleteAnalysisState},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, got := InvocationsWithReason(test.command, test.maxDepth); got != test.want {
+				t.Fatalf("reason = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+// TestInvocationsWrapperAgreesWithReason pins the compatibility contract: the
+// boolean wrapper must permit exactly the inputs whose reason is
+// IncompleteNone, so adding cause attribution cannot silently change which
+// commands the enforcement callers accept.
+func TestInvocationsWrapperAgreesWithReason(t *testing.T) {
+	deep := "git clean -fd"
+	for range 18 {
+		deep = "echo $(" + deep + ")"
+	}
+	for _, command := range []string{
+		"git status",
+		"git status && echo done",
+		`git commit -m "$MESSAGE"`,
+		"git \\\nclean -fd",
+		`$COMMAND clean -fd`,
+		`B=echo; $B hello`,
+		`eval "$COMMAND"`,
+		`sh -c "$COMMAND"`,
+		`env -S "git clean -fd"`,
+		`xargs "$COMMAND"`,
+		deep,
+		`git "clean -fd`,
+		strings.Repeat("x", maxCommandBytes+1),
+	} {
+		invocations, complete := Invocations(command, 16)
+		reasonInvocations, reason := InvocationsWithReason(command, 16)
+		if complete != (reason == IncompleteNone) {
+			t.Fatalf("complete=%t but reason=%q for %q", complete, reason, command)
+		}
+		if !reflect.DeepEqual(invocations, reasonInvocations) {
+			t.Fatalf("wrapper returned different invocations for %q", command)
+		}
+	}
+}
+
 func TestAdversarialCommandDiscovery(t *testing.T) {
 	tests := []struct {
 		name         string

@@ -911,6 +911,16 @@ unresolved dynamic executable names and exhausted nesting fail closed. The built
 destructive Git guard uses the same model for `git clean` and `git reset
 --hard`.
 
+A fail-closed block names the structural cause and the concrete fix instead of
+refusing generically. Analysis reports one of `dynamic_command`,
+`nesting_depth`, `too_large`, `unparsable`, or `analysis_state`, and the guard
+maps each to its own single-line remediation: write the executable as a literal
+word, flatten the nesting, split the command, or fix the Bash syntax. When
+several causes apply, the first one reached in the fixed AST walk order is
+reported, so the message is deterministic for a given command. Only a fully
+resolved analysis permits a command; adding cause attribution changed no allow
+or block decision.
+
 `reconc adopt .` and `reconc bootstrap inspect .` share deterministic stack
 detection for Go, JavaScript, TypeScript, npm, pnpm, Yarn, Bun, Python, Rust,
 Shell, C/C++, Java, PHP, C#, Next.js, Svelte/SvelteKit, Zig, Elixir, and
