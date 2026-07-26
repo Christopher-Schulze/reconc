@@ -502,7 +502,7 @@ func auditTaskState(root string) []string {
 		if seenNames[entry.name] > 1 {
 			failures = append(failures, fmt.Sprintf("docs/tasks.md line %d: duplicate task name %s", entry.line, entry.name))
 		}
-		cleanTarget := filepath.Clean(entry.target)
+		cleanTarget := canonicalRepoPath(entry.target)
 		seenTargets[cleanTarget]++
 		if seenTargets[cleanTarget] > 1 {
 			failures = append(failures, fmt.Sprintf("docs/tasks.md line %d: duplicate task target %s", entry.line, entry.target))
@@ -531,7 +531,7 @@ func auditTaskState(root string) []string {
 				failures = append(failures, fmt.Sprintf("docs/tasks.md line %d: open task must point to tasks/", entry.line))
 			}
 		}
-		referenced[filepath.Clean(entry.target)] = true
+		referenced[cleanTarget] = true
 		detailPath := filepath.Join(root, "docs", filepath.FromSlash(entry.target))
 		if !exists(detailPath) {
 			failures = append(failures, fmt.Sprintf("docs/tasks.md line %d: missing detail file docs/%s", entry.line, entry.target))
@@ -1622,7 +1622,7 @@ func auditUnreferencedTaskFiles(root string, referenced map[string]bool) []strin
 				continue
 			}
 			target := filepath.ToSlash(rel(filepath.Join(root, "docs"), match))
-			if referenced[filepath.Clean(target)] {
+			if referenced[canonicalRepoPath(target)] {
 				continue
 			}
 			if !taskDetailFileRE.MatchString(base) {
@@ -2114,6 +2114,10 @@ func rel(root string, path string) string {
 		return path
 	}
 	return relative
+}
+
+func canonicalRepoPath(value string) string {
+	return filepath.ToSlash(filepath.Clean(value))
 }
 
 func lineCount(content string) int {
