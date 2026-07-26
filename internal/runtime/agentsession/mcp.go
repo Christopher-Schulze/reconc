@@ -279,6 +279,10 @@ func runMCPWritePre(repoRoot string, payload *HookPayload, paths []string) Resul
 	if state.EvidenceOverflow {
 		return Result{ExitCode: 2, Stderr: evidenceOverflowMessage(state)}
 	}
+	state, err = loadCompleteSessionEvidence(root, state)
+	if err != nil {
+		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): load evidence chain: " + err.Error()}
+	}
 	trialWrites := append(append([]string(nil), state.WritePaths...), paths...)
 	report, err := runPreWritePolicyCheck(root, state.ReadPaths, trialWrites, state.WriteEpochs, state.Commands, state.CommandResults, state.Claims)
 	if err != nil {
@@ -303,6 +307,13 @@ func runMCPCommandPre(repoRoot string, payload *HookPayload, command string) Res
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): " + err.Error()}
 	}
+	if state.EvidenceOverflow {
+		return Result{ExitCode: 2, Stderr: evidenceOverflowMessage(state)}
+	}
+	state, err = loadCompleteSessionEvidence(root, state)
+	if err != nil {
+		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): load evidence chain: " + err.Error()}
+	}
 	report, err := runPreCommandPolicyCheck(root, state, command)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): command check failed: " + err.Error()}
@@ -323,6 +334,9 @@ func recordClassifiedMCPAfter(repoRoot string, payload *HookPayload, classificat
 		return Result{ExitCode: 0, Stderr: "reconc hook (mcp post, warn): " + err.Error()}
 	}
 	updated, err := MutateSessionState(root, payload.SessionID, func(state SessionState) SessionState {
+		if state.EvidenceOverflow {
+			return state
+		}
 		signature := mcpMaterialSignature(payload.MCP, classification.Effect, values, outcome)
 		if signature != "" && signature == state.LastMaterialSignature {
 			return state

@@ -52,21 +52,69 @@ func setupPolicyRepo(t *testing.T) string {
 	return repo
 }
 
-func TestRunStopFailsClosedOnEvidenceOverflow(t *testing.T) {
-	_, repo := withStateRoot(t)
-	if _, err := InitializeSessionState(repo, "overflow"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := MutateSessionState(repo, "overflow", func(state SessionState) SessionState {
-		markEvidenceOverflow(&state, "write_paths")
-		return state
-	}); err != nil {
-		t.Fatal(err)
-	}
-	result := RunStop(repo, []byte(`{"session_id":"overflow"}`))
-	if result.ExitCode != 0 || !strings.Contains(result.Stdout, `"decision":"block"`) || !strings.Contains(result.Stdout, "write_paths") {
-		t.Fatalf("overflow stop did not fail closed: %+v", result)
-	}
+func TestRunStopUsesThreeStateEvidenceOverflowContract(t *testing.T) {
+	t.Run("run enabled blocks", func(t *testing.T) {
+		_, repo := withStateRoot(t)
+		if _, err := InitializeSessionState(repo, "overflow-on"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := MutateSessionState(repo, "overflow-on", func(state SessionState) SessionState {
+			markEvidenceOverflowWithLimit(&state, "write_paths", "byte_budget")
+			return state
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := SetRepositoryRun(repo, true); err != nil {
+			t.Fatal(err)
+		}
+		result := RunStop(repo, []byte(`{"session_id":"overflow-on"}`))
+		if result.ExitCode != 0 || !strings.Contains(result.Stdout, `"decision":"block"`) ||
+			!strings.Contains(result.Stdout, "write_paths exceeded byte_budget") {
+			t.Fatalf("run-on overflow stop did not fail closed: %+v", result)
+		}
+	})
+
+	t.Run("run disabled terminates uncertified", func(t *testing.T) {
+		_, repo := withStateRoot(t)
+		if _, err := InitializeSessionState(repo, "overflow-off"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := MutateSessionState(repo, "overflow-off", func(state SessionState) SessionState {
+			markEvidenceOverflowWithLimit(&state, "commands", "item_bytes")
+			return state
+		}); err != nil {
+			t.Fatal(err)
+		}
+		result := RunStop(repo, []byte(`{"session_id":"overflow-off"}`))
+		if result.ExitCode != 0 || result.Stdout != "" ||
+			!strings.Contains(result.Stderr, "Stop released as uncertified") {
+			t.Fatalf("run-off overflow stop was not released uncertified: %+v", result)
+		}
+		state, err := LoadSessionState(repo, "overflow-off")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !state.EvidenceOverflow || !state.UncertifiedTermination {
+			t.Fatalf("uncertified termination was not persisted: %+v", state)
+		}
+	})
+
+	t.Run("user interrupt always releases", func(t *testing.T) {
+		_, repo := withStateRoot(t)
+		if _, err := InitializeSessionState(repo, "overflow-interrupt"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := MutateSessionState(repo, "overflow-interrupt", func(state SessionState) SessionState {
+			markEvidenceOverflowWithLimit(&state, "commands", "byte_budget")
+			return state
+		}); err != nil {
+			t.Fatal(err)
+		}
+		result := RunStop(repo, []byte(`{"session_id":"overflow-interrupt","is_interrupt":true}`))
+		if result.ExitCode != 0 || result.Stdout != "" {
+			t.Fatalf("explicit interrupt was blocked: %+v", result)
+		}
+	})
 }
 
 func TestRunSessionStartInitialises(t *testing.T) {

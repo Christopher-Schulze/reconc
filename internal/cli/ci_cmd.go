@@ -149,21 +149,29 @@ func runCI(args []string, stdout, stderr io.Writer) (resultErr error) {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc ci: capture candidate: " + err.Error()}
 	}
-	activeEvidence, activeEvidenceErr := agentsession.ActiveEvidence(discovery.RepoRoot)
-	if activeEvidenceErr == nil {
-		inputs.ReadPaths = append(inputs.ReadPaths, activeEvidence.ReadPaths...)
-		inputs.Commands = append(inputs.Commands, activeEvidence.Commands...)
-		if !staged {
-			for _, result := range activeEvidence.CommandResults {
-				inputs.CommandResults = append(inputs.CommandResults, runtime.CommandResult{
-					Command:       result.Command,
-					Outcome:       result.Outcome,
-					EvidenceEpoch: result.EvidenceEpoch,
-				})
-			}
+	if candidate.EvidenceOverflow {
+		detail := candidate.EvidenceOverflowReason
+		if candidate.EvidenceOverflowLimit != "" {
+			detail += "/" + candidate.EvidenceOverflowLimit
 		}
-		inputs.Claims = append(inputs.Claims, activeEvidence.Claims...)
+		return &CLIError{ExitCode: 2, Message: "reconc ci: persisted evidence is uncertified at " + detail}
 	}
+	activeEvidence, activeEvidenceErr := agentsession.ActiveEvidence(discovery.RepoRoot)
+	if activeEvidenceErr != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc ci: active evidence: " + activeEvidenceErr.Error()}
+	}
+	inputs.ReadPaths = append(inputs.ReadPaths, activeEvidence.ReadPaths...)
+	inputs.Commands = append(inputs.Commands, activeEvidence.Commands...)
+	if !staged {
+		for _, result := range activeEvidence.CommandResults {
+			inputs.CommandResults = append(inputs.CommandResults, runtime.CommandResult{
+				Command:       result.Command,
+				Outcome:       result.Outcome,
+				EvidenceEpoch: result.EvidenceEpoch,
+			})
+		}
+	}
+	inputs.Claims = append(inputs.Claims, activeEvidence.Claims...)
 
 	gitPaths, gitMeta, err := runtime.CollectGitWritePaths(discovery.RepoRoot, staged, base, head)
 	if err != nil {

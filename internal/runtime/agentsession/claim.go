@@ -47,8 +47,18 @@ func RecordClaim(repoRoot, claim, sessionID string) (*ClaimReport, error) {
 		}
 		sessionID = active
 	}
+	current, err := LoadSessionState(root, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if current.EvidenceOverflow {
+		return nil, errors.New(evidenceOverflowMessage(current))
+	}
 
 	updated, err := MutateSessionState(root, sessionID, func(state SessionState) SessionState {
+		if state.EvidenceOverflow {
+			return state
+		}
 		return AppendClaim(state, claim)
 	})
 	if err != nil {
@@ -56,6 +66,10 @@ func RecordClaim(repoRoot, claim, sessionID string) (*ClaimReport, error) {
 	}
 	if updated.EvidenceOverflow {
 		return nil, errors.New(evidenceOverflowMessage(updated))
+	}
+	updated, err = loadCompleteSessionEvidence(root, updated)
+	if err != nil {
+		return nil, fmt.Errorf("load complete evidence after recording claim: %w", err)
 	}
 	// Re-run the check so the saved report reflects the new claim set when the
 	// target is policy-enabled. Bare repositories can still store claims for a
@@ -87,13 +101,16 @@ func RecordClaim(repoRoot, claim, sessionID string) (*ClaimReport, error) {
 // callers use this to let non-interactive gates such as git pre-commit inherit
 // in-session context, authorizations, and successful checks.
 type ActiveEvidenceSnapshot struct {
-	ReadPaths      []string
-	WritePaths     []string
-	WriteEpochs    map[string]uint64
-	EvidenceEpoch  uint64
-	Commands       []string
-	CommandResults []CommandResult
-	Claims         []string
+	ReadPaths              []string
+	WritePaths             []string
+	WriteEpochs            map[string]uint64
+	EvidenceEpoch          uint64
+	Commands               []string
+	CommandResults         []CommandResult
+	Claims                 []string
+	EvidenceOverflow       bool
+	EvidenceOverflowReason string
+	EvidenceOverflowLimit  string
 }
 
 func ActiveEvidence(repoRoot string) (ActiveEvidenceSnapshot, error) {
@@ -106,20 +123,39 @@ func ActiveEvidence(repoRoot string) (ActiveEvidenceSnapshot, error) {
 		return ActiveEvidenceSnapshot{}, err
 	}
 	if sessionID == "" {
-		return ActiveEvidenceSnapshot{}, nil
+		taint, taintErr := loadEvidenceTaint(root)
+		if taintErr != nil {
+			return ActiveEvidenceSnapshot{}, taintErr
+		}
+		if taint == nil {
+			return ActiveEvidenceSnapshot{}, nil
+		}
+		state := emptyState(root, taint.SessionID)
+		applyEvidenceTaint(&state, *taint)
+		return ActiveEvidenceSnapshot{}, errors.New(evidenceOverflowMessage(state))
 	}
 	state, err := LoadSessionState(root, sessionID)
 	if err != nil {
 		return ActiveEvidenceSnapshot{}, fmt.Errorf("load active session %q: %w", sessionID, err)
 	}
+	if state.EvidenceOverflow {
+		return ActiveEvidenceSnapshot{}, errors.New(evidenceOverflowMessage(state))
+	}
+	state, err = loadCompleteSessionEvidence(root, state)
+	if err != nil {
+		return ActiveEvidenceSnapshot{}, fmt.Errorf("load active session %q evidence chain: %w", sessionID, err)
+	}
 	return ActiveEvidenceSnapshot{
-		ReadPaths:      append([]string{}, state.ReadPaths...),
-		WritePaths:     append([]string{}, state.WritePaths...),
-		WriteEpochs:    cloneWriteEpochs(state.WriteEpochs),
-		EvidenceEpoch:  state.EvidenceEpoch,
-		Commands:       append([]string{}, state.Commands...),
-		CommandResults: append([]CommandResult{}, state.CommandResults...),
-		Claims:         append([]string{}, state.Claims...),
+		ReadPaths:              append([]string{}, state.ReadPaths...),
+		WritePaths:             append([]string{}, state.WritePaths...),
+		WriteEpochs:            cloneWriteEpochs(state.WriteEpochs),
+		EvidenceEpoch:          state.EvidenceEpoch,
+		Commands:               append([]string{}, state.Commands...),
+		CommandResults:         append([]CommandResult{}, state.CommandResults...),
+		Claims:                 append([]string{}, state.Claims...),
+		EvidenceOverflow:       state.EvidenceOverflow,
+		EvidenceOverflowReason: state.EvidenceOverflowReason,
+		EvidenceOverflowLimit:  state.EvidenceOverflowLimit,
 	}, nil
 }
 

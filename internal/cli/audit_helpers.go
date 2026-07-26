@@ -20,7 +20,18 @@ func capturePolicyDecisionCandidate(repo string) (agentsession.CompletionStateSn
 	if !discovery.Discovered {
 		return agentsession.CompletionStateSnapshot{}, fmt.Errorf("no policy markers discovered")
 	}
-	return agentsession.CaptureCompletionState(discovery.RepoRoot)
+	candidate, err := agentsession.CaptureCompletionState(discovery.RepoRoot)
+	if err != nil {
+		return agentsession.CompletionStateSnapshot{}, err
+	}
+	if candidate.EvidenceOverflow {
+		detail := candidate.EvidenceOverflowReason
+		if candidate.EvidenceOverflowLimit != "" {
+			detail += "/" + candidate.EvidenceOverflowLimit
+		}
+		return agentsession.CompletionStateSnapshot{}, fmt.Errorf("persisted evidence is uncertified at %s", detail)
+	}
+	return candidate, nil
 }
 
 func persistPolicyDecision(event string, before agentsession.CompletionStateSnapshot, report *runtime.CheckReport) error {

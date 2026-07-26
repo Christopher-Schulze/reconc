@@ -95,8 +95,12 @@ type SessionState struct {
 	RepositoryRunProgressHash  string                     `json:"repository_run_progress_hash,omitempty"`
 	RepositoryRunNudges        int                        `json:"repository_run_nudges,omitempty"`
 	RepositoryRunAwaiting      bool                       `json:"repository_run_awaiting,omitempty"`
+	EvidenceSegmentCount       uint64                     `json:"evidence_segment_count,omitempty"`
+	EvidenceSegmentDigest      string                     `json:"evidence_segment_digest,omitempty"`
 	EvidenceOverflow           bool                       `json:"evidence_overflow,omitempty"`
 	EvidenceOverflowReason     string                     `json:"evidence_overflow_reason,omitempty"`
+	EvidenceOverflowLimit      string                     `json:"evidence_overflow_limit,omitempty"`
+	UncertifiedTermination     bool                       `json:"uncertified_termination,omitempty"`
 }
 
 // emptyState builds a fresh, unpopulated state for a (repo, session).
@@ -312,7 +316,17 @@ func loadSessionStateResolved(root, sessionID string) (SessionState, error) {
 		}
 	}
 	state.ReportPath = expectedReportPath
-	return normalizeSessionState(state), nil
+	state = normalizeSessionState(state)
+	if taint, err := loadEvidenceTaint(root); err != nil {
+		return SessionState{}, err
+	} else if taint != nil {
+		applyEvidenceTaint(&state, *taint)
+	} else if state.EvidenceOverflow {
+		if err := persistEvidenceTaint(root, state); err != nil {
+			return SessionState{}, err
+		}
+	}
+	return state, nil
 }
 
 // saveSessionState writes the state file atomically. Tmp-file-then-
@@ -406,6 +420,18 @@ func MutateSessionState(repoRoot, sessionID string, mutate func(SessionState) Se
 			return err
 		}
 		updated = mutate(state)
+		if updated.EvidenceOverflow && !state.EvidenceOverflow && evidenceFieldRotatable(updated.EvidenceOverflowReason) && sessionHasEvidence(state) {
+			rotated, rotateErr := rotateSessionEvidenceLocked(root, state)
+			if rotateErr == nil {
+				updated = mutate(rotated)
+			} else {
+				if state.EvidenceSegmentCount >= maxEvidenceSegments {
+					updated.EvidenceOverflowLimit = "segment_count"
+				} else {
+					updated.EvidenceOverflowLimit = "segment_storage"
+				}
+			}
+		}
 		updated.RepoRoot = root
 		updated.SessionID = sessionID
 		if updated.ReportPath == "" {
@@ -413,6 +439,11 @@ func MutateSessionState(repoRoot, sessionID string, mutate func(SessionState) Se
 		}
 		if err := saveSessionStateLocked(updated); err != nil {
 			return err
+		}
+		if updated.EvidenceOverflow {
+			if err := persistEvidenceTaint(root, updated); err != nil {
+				return err
+			}
 		}
 		return writeActiveSession(root, sessionID)
 	})
@@ -479,6 +510,11 @@ func initializeSessionState(repoRoot, sessionID, runtime string) (SessionState, 
 	}
 	state := emptyState(root, sessionID)
 	state.Runtime = normalizeRuntimeName(runtime)
+	if taint, err := loadEvidenceTaint(root); err != nil {
+		return SessionState{}, err
+	} else if taint != nil {
+		applyEvidenceTaint(&state, *taint)
+	}
 	if err := withSessionLock(root, sessionID, func() error {
 		if err := saveSessionStateLocked(state); err != nil {
 			return err
@@ -530,6 +566,17 @@ func CleanupSessionState(repoRoot, sessionID string) error {
 		return err
 	}
 	return withSessionLock(root, sessionID, func() error {
+		state, err := loadSessionStateResolved(root, sessionID)
+		if err != nil {
+			return err
+		}
+		if _, err := loadCompleteSessionEvidence(root, state); err != nil {
+			return fmt.Errorf("verify evidence chain before cleanup: %w", err)
+		}
+		taint, err := loadEvidenceTaint(root)
+		if err != nil {
+			return err
+		}
 		activePath := activeSessionPath(root)
 		activeID, err := readActiveSessionID(activePath)
 		if err != nil && !os.IsNotExist(err) {
@@ -538,6 +585,11 @@ func CleanupSessionState(repoRoot, sessionID string) error {
 		for _, statePath := range []string{sessionStatePath(root, sessionID), legacySessionStatePath(root, sessionID)} {
 			if err := os.Remove(statePath); err != nil && !os.IsNotExist(err) {
 				return fmt.Errorf("remove session state: %w", err)
+			}
+		}
+		if taint == nil && !state.EvidenceOverflow {
+			if err := os.RemoveAll(evidenceSegmentsDir(root, sessionID)); err != nil {
+				return fmt.Errorf("remove completed evidence segments: %w", err)
 			}
 		}
 		if activeID == sessionID {

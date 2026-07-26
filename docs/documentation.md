@@ -809,10 +809,27 @@ core explicitly. Unchanged session files, active-session pointers, reports,
 command proofs, and run state are byte-compared and never republished. Disabled
 and unchanged hook events do not create run state. Run decisions record every
 bounded repository continuation plus material transitions without prompt
-payloads. Session state is
-hard-capped at 1 MiB; every evidence collection has both item and byte limits,
-repeated command results are deduplicated, and any omitted security-relevant
-evidence sets a persisted overflow marker that blocks PreToolUse and Stop.
+payloads. Live session state is hard-capped at 1 MiB; every evidence
+collection has both item and byte limits, and repeated command results are
+deduplicated. Reaching a collection limit seals the complete raw evidence into
+an immutable bounded segment before accepting the triggering event. Segments
+bind the canonical repository and session identities, policy-lock hash, index,
+and previous segment digest; every policy, claim, CI, Stop, and completion
+consumer verifies and replays the full chain plus the live segment. A session
+may seal at most 64 segments. Clean SessionEnd removes its raw segments after
+verifying the chain.
+
+An event that cannot fit an empty segment, a 64-segment exhaustion, or a
+missing/corrupt segment creates a project-scoped evidence taint. The taint
+records the exact field and limit cause (`item_bytes`, `item_count`,
+`byte_budget`, `serialization`, `segment_count`, `segment_storage`, or
+`chain_integrity`), survives process reload and SessionEnd, and is inherited by
+successor sessions. Taint blocks repository writes, commands, MCP material
+actions, claims, CI, policy passes, and completion; read-only diagnosis remains
+available. With repository run enabled, Stop remains blocked. With repository
+run disabled, Stop records `uncertified_termination` and releases the host
+without representing the session as certified. An explicit user interrupt
+continues to release the host invocation, while the durable taint remains.
 The latest unresolved policy block is retained without an age limit and also
 protects its project-state root from global cleanup. A validated non-blocking
 decision removes that receipt durably; retention never converts block to pass.

@@ -175,6 +175,13 @@ func RunPreToolUse(repoRoot string, payloadBytes []byte) Result {
 		if err != nil {
 			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}
 		}
+		if state.EvidenceOverflow {
+			return Result{ExitCode: 2, Stderr: evidenceOverflowMessage(state)}
+		}
+		state, err = loadCompleteSessionEvidence(root, state)
+		if err != nil {
+			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): load evidence chain: %s", err)}
+		}
 		report, err := runPreCommandPolicyCheck(root, state, payload.Command())
 		if err != nil {
 			if isLockfileError(err) {
@@ -224,6 +231,10 @@ func RunPreToolUse(repoRoot string, payloadBytes []byte) Result {
 	}
 	if state.EvidenceOverflow {
 		return Result{ExitCode: 2, Stderr: evidenceOverflowMessage(state)}
+	}
+	state, err = loadCompleteSessionEvidence(root, state)
+	if err != nil {
+		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): load evidence chain: %s", err)}
 	}
 	trialWrites := append([]string{}, state.WritePaths...)
 	trialWrites = append(trialWrites, pendingWrites...)
@@ -477,6 +488,9 @@ func retentionWarning(report retention.Report) string {
 // matching evidence (read path, write path, command) to the state.
 // Returns a new SessionState; caller must save.
 func recordToolUse(state SessionState, payload *HookPayload) SessionState {
+	if state.EvidenceOverflow {
+		return state
+	}
 	switch {
 	case payload.IsReadTool():
 		path := payload.FilePath()
@@ -516,6 +530,9 @@ func recordToolUse(state SessionState, payload *HookPayload) SessionState {
 // if the payload describes a Bash tool failure. Non-Bash failures are
 // ignored (reads / writes don't have a success/failure binary).
 func recordToolFailure(state SessionState, payload *HookPayload) SessionState {
+	if state.EvidenceOverflow {
+		return state
+	}
 	if !payload.IsCommandTool() {
 		return state
 	}
@@ -675,7 +692,11 @@ func evidenceOverflowMessage(state SessionState) string {
 	if field == "" {
 		field = "unknown"
 	}
-	return fmt.Sprintf("reconc blocked because bounded session evidence overflowed at %s. Start a fresh session or reduce the tool-event scope; omitted evidence cannot be evaluated safely.", field)
+	limit := strings.TrimSpace(state.EvidenceOverflowLimit)
+	if limit == "" {
+		limit = "unknown_limit"
+	}
+	return fmt.Sprintf("reconc evidence is uncertified because %s exceeded %s. Material tools, claims, policy passes, and completion remain blocked across sessions; explicit user interrupt can still terminate the host session.", field, limit)
 }
 
 // writeLatestReport persists the CheckReport JSON to the session's

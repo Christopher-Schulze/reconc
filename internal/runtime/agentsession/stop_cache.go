@@ -92,6 +92,7 @@ type CompletionStateSnapshot struct {
 	EvidenceEpoch          uint64                  `json:"evidence_epoch,omitempty"`
 	EvidenceOverflow       bool                    `json:"evidence_overflow"`
 	EvidenceOverflowReason string                  `json:"evidence_overflow_reason,omitempty"`
+	EvidenceOverflowLimit  string                  `json:"evidence_overflow_limit,omitempty"`
 	GitAvailable           bool                    `json:"git_available"`
 	GitHead                string                  `json:"git_head,omitempty"`
 	GitIndexHash           string                  `json:"git_index_hash,omitempty"`
@@ -122,6 +123,10 @@ func runStopPolicyCheckWithSnapshot(repoRoot string, state SessionState) (stopPo
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
 		return stopPolicyCheckResult{}, err
+	}
+	state, err = loadCompleteSessionEvidence(root, state)
+	if err != nil {
+		return stopPolicyCheckResult{}, fmt.Errorf("load evidence chain: %w", err)
 	}
 	return withStopPolicyReportLock(root, state.SessionID, func() (stopPolicyCheckResult, error) {
 		return runStopPolicyCheckLocked(root, state)
@@ -421,6 +426,14 @@ func CaptureCompletionState(repoRoot string) (CompletionStateSnapshot, error) {
 		if err != nil {
 			return CompletionStateSnapshot{}, fmt.Errorf("load active session %q: %w", sessionID, err)
 		}
+		state, err = loadCompleteSessionEvidence(root, state)
+		if err != nil {
+			return CompletionStateSnapshot{}, fmt.Errorf("load active session %q evidence chain: %w", sessionID, err)
+		}
+	} else if taint, taintErr := loadEvidenceTaint(root); taintErr != nil {
+		return CompletionStateSnapshot{}, taintErr
+	} else if taint != nil {
+		applyEvidenceTaint(&state, *taint)
 	}
 
 	gitSnapshot := completionPolicyGitSnapshotFor(root)
@@ -487,8 +500,9 @@ func CaptureCompletionState(repoRoot string) (CompletionStateSnapshot, error) {
 		SessionReportHash: reportHash, SessionReportTrusted: reportTrusted,
 		EvidenceEpoch:    state.EvidenceEpoch,
 		EvidenceOverflow: state.EvidenceOverflow, EvidenceOverflowReason: state.EvidenceOverflowReason,
-		GitAvailable: gitAvailable,
-		GitHead:      gitSnapshot.Head, GitIndexHash: gitIndexHash, GitStatusMode: gitSnapshot.StatusMode,
+		EvidenceOverflowLimit: state.EvidenceOverflowLimit,
+		GitAvailable:          gitAvailable,
+		GitHead:               gitSnapshot.Head, GitIndexHash: gitIndexHash, GitStatusMode: gitSnapshot.StatusMode,
 		GitStatusOK: gitSnapshot.StatusOK, GitStatus: gitSnapshot.Status,
 		WorktreeHash: hashBytes(worktreeBody), WorktreeTrusted: completionDirtyFilesTrusted(dirtyFiles),
 		WorktreeMatchesIndex: worktreeMatchesIndex,

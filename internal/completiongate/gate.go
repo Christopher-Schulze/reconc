@@ -118,7 +118,10 @@ func Evaluate(repo string, options Options) (*Report, error) {
 		if stateBefore.EvidenceOverflowReason != "" {
 			detail += " at " + stateBefore.EvidenceOverflowReason
 		}
-		add("session/evidence-complete", StatusFail, detail, "Start a fresh agent session, reproduce the required evidence, then rerun `reconc done .`.")
+		if stateBefore.EvidenceOverflowLimit != "" {
+			detail += " due to " + stateBefore.EvidenceOverflowLimit
+		}
+		add("session/evidence-complete", StatusFail, detail, "Resolve the persisted evidence taint and reproduce the required evidence before rerunning `reconc done .`.")
 	} else {
 		add("session/evidence-complete", StatusPass, "active-session evidence is bounded", "")
 	}

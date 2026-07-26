@@ -440,7 +440,13 @@ func doctorCheckSessionClaims(discovery ingest.DiscoveryResult) doctorCheck {
 		check.Detail = "cannot load active session state: " + err.Error()
 		return check
 	}
-	if len(state.Claims) == 0 {
+	evidence, err := agentsession.ActiveEvidence(discovery.RepoRoot)
+	if err != nil {
+		check.Status = doctorStatusWarn
+		check.Detail = "cannot load complete active-session evidence: " + err.Error()
+		return check
+	}
+	if len(evidence.Claims) == 0 {
 		check.Detail = "active session has no recorded claims"
 		return check
 	}

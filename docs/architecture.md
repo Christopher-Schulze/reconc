@@ -327,8 +327,8 @@ class of hostile input.
 | Max payload bytes | **64 MiB** (67 108 864) | Large file-edit and generated-document bodies remain usable while the bounded reader still rejects unbounded JSON input. |
 | stdin read timeout | **5 seconds** | Prevents agent hangs from wedging the hook call. Typical payloads arrive < 50 ms. |
 | Max JSON nesting depth | **32 levels** | Prevents stack-busting via deeply nested payloads. |
-| Max persisted session state | **1 MiB** | Bounds full-file state publication and recovery cost. |
-| Evidence collections | **item + byte caps per field** | Overflow is persisted and fails closed; relevant evidence is never silently omitted. |
+| Max persisted live session state | **1 MiB** | Bounds full-file state publication and recovery cost. |
+| Evidence collections | **item + byte caps per field; 64 chained segments** | A full live collection rotates losslessly; non-segmentable evidence or chain failure creates durable project taint. |
 | Audit record | **32 KiB** | Bounds one locked JSONL append. |
 | Audit/run storage | **2 MiB live + 2 archives each** | Fixed rings and transition-only run records prevent repository-local log growth. |
 | Hook output | **8 KiB per route** | Prevents verbose host output from consuming agent context. |
@@ -342,6 +342,23 @@ class of hostile input.
 Breaches use the registry's platform-specific blocking response or exit code for
 PreToolUse, permission, and Stop. Observation and cleanup routes fail open with
 bounded warnings.
+
+Bounded evidence uses raw, immutable segments instead of truncation. Each
+segment carries the repository identity, session identity, policy-lock hash,
+monotonic index, previous digest, and every evidence collection from the sealed
+live epoch. Consumers replay the verified digest chain before evaluation, so
+rotation changes storage shape rather than policy meaning. A triggering event
+is retried only after the previous live epoch is durably sealed. Segment-chain
+tampering, an oversized individual item, storage failure, or exhaustion of the
+64-segment session budget creates a project-scoped taint that survives session
+cleanup and is inherited on the next SessionStart.
+
+Taint is a third terminal state, not a policy pass. PreToolUse blocks every
+repository write and command while preserving read-only diagnosis; claims, CI,
+saved policy passes, and completion remain unavailable. Repository run enabled
+keeps Stop blocked. Repository run disabled records an uncertified termination
+and releases Stop without clearing taint. Explicit user interrupt remains the
+host escape and also does not clear taint.
 
 ### Fail-closed vs fail-open
 

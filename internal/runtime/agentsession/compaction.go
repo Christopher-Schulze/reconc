@@ -37,6 +37,10 @@ func RunPostCompaction(repoRoot string, payloadBytes []byte) Result {
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (compaction, warn): %s", err)}
 	}
+	state, err = loadCompleteSessionEvidence(root, state)
+	if err != nil {
+		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (compaction, warn): load evidence chain: %s", err)}
+	}
 	repositoryRun, err := ReadRepositoryRunStatus(root)
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (compaction, warn): %s", err)}

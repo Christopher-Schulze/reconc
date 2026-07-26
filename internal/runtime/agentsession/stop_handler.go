@@ -89,6 +89,10 @@ func RunStop(repoRoot string, payloadBytes []byte) (result Result) {
 		if state.EvidenceOverflow {
 			return Result{ExitCode: 0, Stdout: repositoryRunBlockJSON(evidenceOverflowMessage(state))}
 		}
+		state, loadErr = loadCompleteSessionEvidence(root, state)
+		if loadErr != nil {
+			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): load evidence chain: %s", loadErr)}
+		}
 		checkpointDue = repoRunPolicyCheckpointDue(runState, state, time.Now())
 		if !checkpointDue {
 			if contResult, contHandled, err := runRepositoryContinuation(root, runFile, payload, runtimeName, taskState.RunState); err != nil {
@@ -104,7 +108,20 @@ func RunStop(repoRoot string, payloadBytes []byte) (result Result) {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): %s", err)}
 	}
 	if state.EvidenceOverflow {
-		return Result{ExitCode: 0, Stdout: repositoryRunBlockJSON(evidenceOverflowMessage(state))}
+		if runApplies {
+			return Result{ExitCode: 0, Stdout: repositoryRunBlockJSON(evidenceOverflowMessage(state))}
+		}
+		if _, markErr := MutateSessionState(root, payload.SessionID, func(current SessionState) SessionState {
+			current.UncertifiedTermination = true
+			return current
+		}); markErr != nil {
+			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): persist uncertified termination: %s", markErr)}
+		}
+		return Result{ExitCode: 0, Stderr: evidenceOverflowMessage(state) + " Stop released as uncertified because repository run is disabled."}
+	}
+	state, err = loadCompleteSessionEvidence(root, state)
+	if err != nil {
+		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): load evidence chain: %s", err)}
 	}
 
 	if payload.StopHookActive && !payload.StrictContinuation && !checkpointDue {

@@ -36,8 +36,10 @@ const (
 func normalizeSessionState(state SessionState) SessionState {
 	overflow := state.EvidenceOverflow
 	reason := state.EvidenceOverflowReason
+	limit := state.EvidenceOverflowLimit
 	state.EvidenceOverflow = false
 	state.EvidenceOverflowReason = ""
+	state.EvidenceOverflowLimit = ""
 
 	reads := sortedUnique(state.ReadPaths)
 	writes := sortedUnique(state.WritePaths)
@@ -85,6 +87,9 @@ func normalizeSessionState(state SessionState) SessionState {
 		if state.EvidenceOverflowReason == "" {
 			state.EvidenceOverflowReason = reason
 		}
+		if state.EvidenceOverflowLimit == "" {
+			state.EvidenceOverflowLimit = limit
+		}
 	}
 	return state
 }
@@ -99,8 +104,16 @@ func appendBoundedString(state *SessionState, values *[]string, item string, max
 			return
 		}
 	}
-	if len(item) > maxItemBytes || len(*values) >= maxItems || stringBytes(*values)+len(item) > maxBytes {
-		markEvidenceOverflow(state, field)
+	if len(item) > maxItemBytes {
+		markEvidenceOverflowWithLimit(state, field, "item_bytes")
+		return
+	}
+	if len(*values) >= maxItems {
+		markEvidenceOverflowWithLimit(state, field, "item_count")
+		return
+	}
+	if stringBytes(*values)+len(item) > maxBytes {
+		markEvidenceOverflowWithLimit(state, field, "byte_budget")
 		return
 	}
 	*values = append(*values, item)
@@ -108,8 +121,11 @@ func appendBoundedString(state *SessionState, values *[]string, item string, max
 
 func appendBoundedCommandResult(state *SessionState, result CommandResult) {
 	result.Command = strings.TrimSpace(result.Command)
-	if result.Command == "" || len(result.Command) > maxCommandBytes {
-		markEvidenceOverflow(state, "command_results")
+	if result.Command == "" {
+		return
+	}
+	if len(result.Command) > maxCommandBytes {
+		markEvidenceOverflowWithLimit(state, "command_results", "item_bytes")
 		return
 	}
 	result.Error = truncateBytes(result.Error, maxResultErrorBytes)
@@ -120,8 +136,16 @@ func appendBoundedCommandResult(state *SessionState, result CommandResult) {
 		}
 	}
 	encoded, err := json.Marshal(result)
-	if err != nil || len(state.CommandResults) >= maxCommandResultItems || commandResultBytes(state.CommandResults)+len(encoded) > maxCommandResultBytes {
-		markEvidenceOverflow(state, "command_results")
+	if err != nil {
+		markEvidenceOverflowWithLimit(state, "command_results", "serialization")
+		return
+	}
+	if len(state.CommandResults) >= maxCommandResultItems {
+		markEvidenceOverflowWithLimit(state, "command_results", "item_count")
+		return
+	}
+	if commandResultBytes(state.CommandResults)+len(encoded) > maxCommandResultBytes {
+		markEvidenceOverflowWithLimit(state, "command_results", "byte_budget")
 		return
 	}
 	state.CommandResults = append(state.CommandResults, result)
@@ -131,32 +155,42 @@ func appendBoundedCommandResult(state *SessionState, result CommandResult) {
 // deterministic bounds as the rest of session state.
 func PutPendingToolCall(state SessionState, key string, call PendingToolCall) SessionState {
 	key = strings.TrimSpace(key)
-	if key == "" || len(key) > maxToolUseIDBytes {
-		markEvidenceOverflow(&state, "pending_tool_calls")
+	if key == "" {
+		return state
+	}
+	if len(key) > maxToolUseIDBytes {
+		markEvidenceOverflowWithLimit(&state, "pending_tool_calls", "item_bytes")
 		return state
 	}
 	call.ToolName = truncateBytes(strings.TrimSpace(call.ToolName), 1024)
 	call.ToolUseID = truncateBytes(strings.TrimSpace(call.ToolUseID), maxToolUseIDBytes)
 	encoded, err := json.Marshal(call)
-	if err != nil || len(encoded) > maxPendingToolCallBytes {
-		markEvidenceOverflow(&state, "pending_tool_calls")
+	if err != nil {
+		markEvidenceOverflowWithLimit(&state, "pending_tool_calls", "serialization")
+		return state
+	}
+	if len(encoded) > maxPendingToolCallBytes {
+		markEvidenceOverflowWithLimit(&state, "pending_tool_calls", "item_bytes")
 		return state
 	}
 	if state.PendingToolCalls == nil {
 		state.PendingToolCalls = map[string]PendingToolCall{}
 	}
 	if _, exists := state.PendingToolCalls[key]; !exists && len(state.PendingToolCalls) >= maxPendingToolCalls {
-		markEvidenceOverflow(&state, "pending_tool_calls")
+		markEvidenceOverflowWithLimit(&state, "pending_tool_calls", "item_count")
 		return state
 	}
 	state.PendingToolCalls[key] = call
 	return state
 }
 
-func markEvidenceOverflow(state *SessionState, field string) {
+func markEvidenceOverflowWithLimit(state *SessionState, field, limit string) {
 	state.EvidenceOverflow = true
 	if state.EvidenceOverflowReason == "" {
 		state.EvidenceOverflowReason = field
+	}
+	if state.EvidenceOverflowLimit == "" {
+		state.EvidenceOverflowLimit = limit
 	}
 }
 

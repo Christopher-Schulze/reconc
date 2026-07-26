@@ -44,6 +44,28 @@ func TestEvaluateMinimalReportAndDigest(t *testing.T) {
 	}
 }
 
+func TestEvaluateRefusesPersistedEvidenceTaint(t *testing.T) {
+	repo := completionRepo(t, "rules: []\n", nil)
+	if result := agentsession.RunSessionStart(repo, []byte(`{"session_id":"tainted"}`)); result.ExitCode != 0 {
+		t.Fatalf("session start: %+v", result)
+	}
+	command := strings.Repeat("x", 33*1024)
+	payload, err := json.Marshal(map[string]interface{}{
+		"session_id": "tainted",
+		"tool_name":  "Bash",
+		"tool_input": map[string]interface{}{"command": command},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := agentsession.RunPostToolUse(repo, payload); result.ExitCode != 0 ||
+		!strings.Contains(result.Stderr, "item_bytes") {
+		t.Fatalf("overflow fixture was not tainted: %+v", result)
+	}
+	report := evaluateCompletion(t, repo, completiongate.Options{})
+	assertFailedCheck(t, report, "session/evidence-complete")
+}
+
 func TestEvaluateBlocksStaleLockfile(t *testing.T) {
 	repo := completionRepo(t, "rules: []\n", nil)
 	writeCompletionFile(t, repo, "policies/rules.yml", "rules:\n  - id: changed\n    kind: deny_write\n    paths: ['x']\n    mode: block\n    message: changed\n")

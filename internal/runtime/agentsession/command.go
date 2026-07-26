@@ -31,6 +31,9 @@ func RecordCommandOutcome(repoRoot, command, outcome string, exitCode int) error
 	signatureInput := command + "\x00" + outcome + "\x00" + strconv.Itoa(exitCode)
 	signatureHash := sha256.Sum256([]byte(signatureInput))
 	_, err = MutateSessionState(root, sessionID, func(state SessionState) SessionState {
+		if state.EvidenceOverflow {
+			return state
+		}
 		state = AppendCommand(state, command)
 		state = AppendCommandResult(state, CommandResult{
 			Command: command, Outcome: outcome, EvidenceEpoch: state.EvidenceEpoch, ToolUseID: "reconc-exec",
@@ -38,5 +41,15 @@ func RecordCommandOutcome(repoRoot, command, outcome string, exitCode int) error
 		})
 		return RecordMaterialEvent(state, "reconc-exec:"+hex.EncodeToString(signatureHash[:]))
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	state, err := LoadSessionState(root, sessionID)
+	if err != nil {
+		return err
+	}
+	if state.EvidenceOverflow {
+		return errors.New(evidenceOverflowMessage(state))
+	}
+	return nil
 }
