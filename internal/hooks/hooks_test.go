@@ -32,6 +32,7 @@ func TestGenerateGitPreCommitContainsReconcCI(t *testing.T) {
 		`"$reconc_dir"/reconc-*-"${reconc_os}-${reconc_arch}${reconc_ext}"`,
 		`for reconc_dir in "$repo_root/tools/reconc/dist" "$repo_root/dist"`,
 		`reconc binary resolution is ambiguous`,
+		`"$repo_root/tools/reconc/.build/bin/reconc"`,
 		`"$repo_root/.build/bin/reconc"`,
 		`"$repo_root/reconc"`,
 	} {

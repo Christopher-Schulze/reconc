@@ -14,7 +14,7 @@ export RECONC_AUDIT=1
 
 repo_root=$(git rev-parse --show-toplevel)
 
-for dev_reconc in "$repo_root/.build/bin/reconc" "$repo_root/reconc"; do
+for dev_reconc in "$repo_root/tools/reconc/.build/bin/reconc" "$repo_root/.build/bin/reconc" "$repo_root/reconc"; do
     if [ -x "$dev_reconc" ]; then
         exec "$dev_reconc" ci "$repo_root" --staged
     fi

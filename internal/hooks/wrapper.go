@@ -97,7 +97,7 @@ run_reconc_hook() {
   exec "$reconc_binary" hook runtime "$event" "$repo"
 }
 
-for dev_reconc in "$repo/.build/bin/reconc" "$repo/reconc"; do
+for dev_reconc in "$repo/tools/reconc/.build/bin/reconc" "$repo/.build/bin/reconc" "$repo/reconc"; do
   if [ -x "$dev_reconc" ]; then
     run_reconc_hook "$dev_reconc"
   fi
