@@ -639,8 +639,12 @@ reconc <command> --help
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, change scope,
 verification requirements, and the pull-request checklist. Run `make test`,
-`make vet`, `make lint`, `make self-host`, and `make publication-audit` before
-proposing a change. Report vulnerabilities through the private route in
+`make coverage`, `make vet`, `make lint`, `make self-host`, and
+`make publication-audit` before proposing a change. `make coverage` measures
+the complete root and portable-template modules with cross-package
+instrumentation and rejects regressions below their explicit floors;
+`make cover` additionally writes separate HTML reports. Report vulnerabilities
+through the private route in
 [SECURITY.md](SECURITY.md), not a public issue.
 
 ## Status

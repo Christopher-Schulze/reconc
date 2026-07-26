@@ -116,16 +116,20 @@ func TestRealRepoSchemaLoads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
 	}
-	repoRoot := wd
+	moduleRoot := wd
 	for i := 0; i < 6; i++ {
-		if _, err := os.Stat(filepath.Join(repoRoot, "go.mod")); err == nil {
+		if _, err := os.Stat(filepath.Join(moduleRoot, "go.mod")); err == nil {
 			break
 		}
-		repoRoot = filepath.Dir(repoRoot)
+		parent := filepath.Dir(moduleRoot)
+		if parent == moduleRoot {
+			t.Fatal("template module root not found")
+		}
+		moduleRoot = parent
 	}
-	path := filepath.Join(repoRoot, "codebase", "config", "workflow", "task-schema.yaml")
+	path := filepath.Join(moduleRoot, "config", "workflow", "task-schema.yaml")
 	if _, err := os.Stat(path); err != nil {
-		t.Skipf("schema not yet present: %v", err)
+		t.Fatalf("canonical template schema missing: %v", err)
 	}
 	schema, err := LoadSchema(path)
 	if err != nil {

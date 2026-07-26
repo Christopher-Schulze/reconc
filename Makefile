@@ -6,7 +6,8 @@
 #   make fmt                -- format all Go sources
 #   make vet                -- run go vet
 #   make lint               -- run pinned staticcheck
-#   make cover              -- tests with coverage -> coverage.html
+#   make coverage           -- enforce root and template coverage floors
+#   make cover              -- coverage gate plus root and template HTML reports
 #   make clean              -- remove build artifacts + dist/
 #   make run ARGS="--help"  -- build and run with args
 #   make tidy               -- go mod tidy
@@ -37,7 +38,7 @@ RELEASE_TARGETS := \
 	linux/arm64 \
 	windows/amd64
 
-.PHONY: build test test-release-trust self-host publication-audit fmt vet lint cover clean run tidy release completion manpage sbom checksums release-all bench
+.PHONY: build test test-release-trust self-host publication-audit fmt vet lint coverage cover clean run tidy release completion manpage sbom checksums release-all bench
 
 build:
 	@mkdir -p $(BINDIR)
@@ -76,15 +77,17 @@ lint:
 	$(GO) run honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION) $(PKG)
 	(cd harness/template && $(GO) run honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION) ./...)
 
+coverage:
+	GO="$(GO)" ./scripts/tests/coverage.sh
+
 cover:
-	$(GO) test -cover -coverprofile=coverage.out $(PKG)
-	$(GO) tool cover -html=coverage.out -o coverage.html
+	GO="$(GO)" ./scripts/tests/coverage.sh --html
 
 bench:
 	$(GO) test -run '^$$' -bench . -benchmem -benchtime=1000x $(PKG)
 
 clean:
-	rm -rf .build $(DISTDIR) coverage.out coverage.html
+	rm -rf .build $(DISTDIR) coverage.out coverage.html harness/template/coverage.out harness/template/coverage.html
 
 run: build
 	$(BINDIR)/$(BIN) $(ARGS)

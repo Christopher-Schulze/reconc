@@ -18,6 +18,7 @@ this root, and docs/comments should not depend on any external source tree.
   `github.com/bmatcuk/doublestar/v4`, `golang.org/x/sys`, `gopkg.in/yaml.v3`,
   and `mvdan.cc/sh/v3`
 - Test runner: `make test` (publication audit, root module, portable template module, and release trust)
+- Coverage gate: `make coverage` (whole-module root and portable-template profiles with explicit floors)
 - Entry point: `cmd/reconc/main.go`
 
 ## Build, Test, And Run
@@ -26,6 +27,7 @@ this root, and docs/comments should not depend on any external source tree.
 make test
 make vet
 make lint
+make coverage
 make build
 go run ./cmd/reconc --help
 make self-host
@@ -55,4 +57,5 @@ Bun.
 
 The current source line is `v0.8.x`; the source version is `v0.8.7`. Core
 tests, race tests, vet, static analysis, and release artifact generation must
-pass before publication.
+pass before publication. Coverage is measured across each complete Go module,
+not inferred from package-local percentages.

@@ -3,6 +3,7 @@ package runtime
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -161,6 +162,13 @@ func LoadExecutionInputsText(text, source string) (ExecutionInputs, error) {
 	if err := dec.Decode(&payload); err != nil {
 		return Empty(), &rerrors.EvidenceError{
 			Message: fmt.Sprintf("execution input payload from %s is not valid JSON", source),
+			Cause:   err,
+		}
+	}
+	var trailing interface{}
+	if err := dec.Decode(&trailing); err != io.EOF {
+		return Empty(), &rerrors.EvidenceError{
+			Message: fmt.Sprintf("execution input payload from %s must contain exactly one JSON value", source),
 			Cause:   err,
 		}
 	}

@@ -51,6 +51,7 @@ Run the complete contributor gate before opening a pull request:
 
 ```bash
 make test
+make coverage
 make vet
 make lint
 make self-host
@@ -58,9 +59,14 @@ make publication-audit
 ```
 
 `make test` covers the publication audit, root and portable-template race
-suites, and release-trust contract. Changes to release generation, schemas,
-completion, manpages, installers, or provenance should also run the relevant
-release command documented in the [Makefile](Makefile).
+suites, and release-trust contract. `make coverage` instruments every package
+in each module, writes separate root and template profiles, and rejects results
+below the committed 80% root and 72% template floors. `make cover` runs the
+same gate and also writes separate HTML reports. These are regression floors,
+not a claim that unexecuted platform-specific paths are covered. Changes to
+release generation, schemas, completion, manpages, installers, or provenance
+should also run the relevant release command documented in the
+[Makefile](Makefile).
 
 ## Pull Requests
 

@@ -40,6 +40,32 @@ func TestResolveEnterpriseSchemaBase(t *testing.T) {
 	}
 }
 
+func TestDefaultURLAndResolveCoverEveryArtifact(t *testing.T) {
+	artifacts := []struct {
+		artifact schema.Artifact
+		want     string
+	}{
+		{schema.PolicyLock, schema.PolicyLockURL},
+		{schema.PolicyConfig, schema.PolicyConfigURL},
+		{schema.PolicyReport, schema.PolicyReportURL},
+		{schema.PolicyFixPlan, schema.PolicyFixPlanURL},
+		{schema.CompletionReport, schema.CompletionReportURL},
+		{schema.ProofBundle, schema.ProofBundleURL},
+	}
+	t.Setenv("RECONC_SCHEMA_BASE_URL", "")
+	for _, artifact := range artifacts {
+		if got := schema.DefaultURL(artifact.artifact); got != artifact.want {
+			t.Errorf("DefaultURL(%q) = %q, want %q", artifact.artifact, got, artifact.want)
+		}
+		if got := schema.Resolve(artifact.artifact); got != artifact.want {
+			t.Errorf("Resolve(%q) without override = %q, want %q", artifact.artifact, got, artifact.want)
+		}
+	}
+	if got := schema.DefaultURL(schema.Artifact("unknown")); got != "" {
+		t.Fatalf("DefaultURL(unknown) = %q, want empty", got)
+	}
+}
+
 func TestPublishedSchemasAreVersionedJSONContracts(t *testing.T) {
 	contracts := map[string]string{
 		"policy-config.schema.json":     schema.PolicyConfigURL,

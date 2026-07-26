@@ -96,6 +96,10 @@ jobs:
           go test ./...
           (cd harness/template && go test ./...)
 
+      - name: Enforce coverage floors
+        if: runner.os == 'Linux'
+        run: make coverage
+
       - name: Self-hosting golden path
         if: runner.os != 'Windows'
         run: make self-host

@@ -16,6 +16,15 @@ func compileTestHelper(repo string) (interface{}, error) {
 	return compiler.CompileRepoPolicy(repo, "0.1.0-test")
 }
 
+func checkRepoPolicyForTest(t *testing.T, repo string, inputs ExecutionInputs) *CheckReport {
+	t.Helper()
+	report, err := CheckRepoPolicy(repo, inputs)
+	if err != nil {
+		t.Fatalf("check repo policy: %v", err)
+	}
+	return report
+}
+
 // makeRepoWithFiles compiles a repo with extra fixture files alongside.
 func makeRepoWithFiles(t *testing.T, rulesYAML string, fixtures map[string]string) string {
 	t.Helper()
@@ -79,7 +88,7 @@ func TestRequireFreshFileBlocksWhenFileMissing(t *testing.T) {
 	inputs := Empty()
 	inputs.WritePaths = []string{"docs/todo/TODO-001.md"}
 
-	report, _ := CheckRepoPolicy(repo, inputs)
+	report := checkRepoPolicyForTest(t, repo, inputs)
 	if report.Decision != DecisionBlock {
 		t.Errorf("expected block when required file missing, got %s", report.Decision)
 	}
@@ -99,7 +108,7 @@ func TestRequireFreshFilePassesWhenFileExistsAndFresh(t *testing.T) {
 	inputs := Empty()
 	inputs.WritePaths = []string{"docs/todo/TODO-001.md"}
 
-	report, _ := CheckRepoPolicy(repo, inputs)
+	report := checkRepoPolicyForTest(t, repo, inputs)
 	if report.Decision != DecisionPass {
 		t.Errorf("expected pass when fresh, got %s; violation: %+v", report.Decision, report.Violations)
 	}
@@ -116,7 +125,7 @@ func TestRequireFreshFileBlocksWhenFileStale(t *testing.T) {
 	inputs := Empty()
 	inputs.WritePaths = []string{"docs/todo/TODO-001.md"}
 
-	report, _ := CheckRepoPolicy(repo, inputs)
+	report := checkRepoPolicyForTest(t, repo, inputs)
 	if report.Decision != DecisionBlock {
 		t.Errorf("expected block when stale, got %s", report.Decision)
 	}
@@ -133,7 +142,7 @@ func TestRequireFreshFileOptionalSkipsMissing(t *testing.T) {
 	inputs := Empty()
 	inputs.WritePaths = []string{"docs/todo/TODO-001.md"}
 
-	report, _ := CheckRepoPolicy(repo, inputs)
+	report := checkRepoPolicyForTest(t, repo, inputs)
 	if report.Decision != DecisionPass {
 		t.Errorf("expected pass when optional file missing, got %s", report.Decision)
 	}
@@ -150,7 +159,7 @@ func TestRequireFreshFileNoMaxAgeJustChecksExistence(t *testing.T) {
 	inputs := Empty()
 	inputs.WritePaths = []string{"docs/todo/TODO-001.md"}
 
-	report, _ := CheckRepoPolicy(repo, inputs)
+	report := checkRepoPolicyForTest(t, repo, inputs)
 	if report.Decision != DecisionPass {
 		t.Errorf("expected pass with no max_age set, got %s", report.Decision)
 	}
@@ -166,7 +175,7 @@ func TestRequireEvidenceMustExistFails(t *testing.T) {
 	inputs := Empty()
 	inputs.WritePaths = []string{"src/main.go"}
 
-	report, _ := CheckRepoPolicy(repo, inputs)
+	report := checkRepoPolicyForTest(t, repo, inputs)
 	if report.Decision != DecisionBlock {
 		t.Errorf("expected block when must_exist file missing, got %s", report.Decision)
 	}
@@ -180,7 +189,7 @@ func TestRequireEvidenceMustExistPasses(t *testing.T) {
 	inputs := Empty()
 	inputs.WritePaths = []string{"src/main.go"}
 
-	report, _ := CheckRepoPolicy(repo, inputs)
+	report := checkRepoPolicyForTest(t, repo, inputs)
 	if report.Decision != DecisionPass {
 		t.Errorf("expected pass when file exists, got %s", report.Decision)
 	}
@@ -194,7 +203,7 @@ func TestRequireEvidenceMustNotContainFails(t *testing.T) {
 	inputs := Empty()
 	inputs.WritePaths = []string{"src/main.go"}
 
-	report, _ := CheckRepoPolicy(repo, inputs)
+	report := checkRepoPolicyForTest(t, repo, inputs)
 	if report.Decision != DecisionBlock {
 		t.Errorf("expected block when must_not_contain matched, got %s", report.Decision)
 	}
@@ -211,7 +220,7 @@ func TestRequireEvidenceMustNotContainPasses(t *testing.T) {
 	inputs := Empty()
 	inputs.WritePaths = []string{"src/main.go"}
 
-	report, _ := CheckRepoPolicy(repo, inputs)
+	report := checkRepoPolicyForTest(t, repo, inputs)
 	if report.Decision != DecisionPass {
 		t.Errorf("expected pass when forbidden substring absent, got %s", report.Decision)
 	}
@@ -225,7 +234,7 @@ func TestRequireEvidenceMustContainAllSubstrings(t *testing.T) {
 	inputs := Empty()
 	inputs.WritePaths = []string{"src/main.go"}
 
-	report, _ := CheckRepoPolicy(repo, inputs)
+	report := checkRepoPolicyForTest(t, repo, inputs)
 	if report.Decision != DecisionPass {
 		t.Errorf("expected pass when all substrings present, got %s", report.Decision)
 	}
@@ -239,7 +248,7 @@ func TestRequireEvidenceMustContainBlocksOnMissing(t *testing.T) {
 	inputs := Empty()
 	inputs.WritePaths = []string{"src/main.go"}
 
-	report, _ := CheckRepoPolicy(repo, inputs)
+	report := checkRepoPolicyForTest(t, repo, inputs)
 	if report.Decision != DecisionBlock {
 		t.Errorf("expected block when substring missing, got %s", report.Decision)
 	}
@@ -250,23 +259,24 @@ func TestRequireEvidenceMustContainBlocksOnMissing(t *testing.T) {
 
 func TestRequireEvidenceMaxLineCountFails(t *testing.T) {
 	repo := makeRepoWithFiles(t,
-		"rules:\n  - id: r\n    kind: require_evidence\n    when_paths: ['AGENTS.md']\n    evidence:\n      - file: 'AGENTS.md'\n        max_line_count: 3\n    mode: warn\n    message: keep small\n",
-		nil)
-
-	// AGENTS.md is "# project\n" which is 1 line. Now overwrite with 5 lines.
-	writeFile(t, repo, "AGENTS.md", "1\n2\n3\n4\n5\n")
-	// Need to recompile because we changed AGENTS.md; but that would
-	// invalidate this test. Use a different file path instead.
+		"rules:\n  - id: r\n    kind: require_evidence\n    when_paths: ['src/**']\n    evidence:\n      - file: 'docs/report.md'\n        max_line_count: 3\n    mode: warn\n    message: keep small\n",
+		map[string]string{"docs/report.md": "1\n2\n3\n4\n5\n"})
 
 	inputs := Empty()
-	inputs.WritePaths = []string{"AGENTS.md"}
+	inputs.WritePaths = []string{"src/main.go"}
 
-	// We expect this to fail freshness check because we modified AGENTS.md
-	// after compile. That's fine for this test - we're testing the parser
-	// accepted max_line_count, not the actual evaluation.
-	_, err := CheckRepoPolicy(repo, inputs)
-	if err == nil {
-		t.Skip("freshness check did not fire; cannot verify max_line_count without re-compile")
+	report, err := CheckRepoPolicy(repo, inputs)
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if report.Decision != DecisionWarn {
+		t.Fatalf("expected warn when evidence exceeds max_line_count, got %s", report.Decision)
+	}
+	if len(report.Violations) != 1 {
+		t.Fatalf("expected one max-line-count violation, got %d", len(report.Violations))
+	}
+	if explanation := report.Violations[0].Explanation; !strings.Contains(explanation, "5 lines > max 3") {
+		t.Fatalf("max-line-count explanation = %q", explanation)
 	}
 }
 
@@ -278,7 +288,7 @@ func TestRequireEvidenceOptionalSkipsMissing(t *testing.T) {
 	inputs := Empty()
 	inputs.WritePaths = []string{"src/main.go"}
 
-	report, _ := CheckRepoPolicy(repo, inputs)
+	report := checkRepoPolicyForTest(t, repo, inputs)
 	if report.Decision != DecisionPass {
 		t.Errorf("expected pass when optional file missing, got %s", report.Decision)
 	}
@@ -307,7 +317,7 @@ func TestRequireFreshFileWithTemplateVarMatchesPerWritePath(t *testing.T) {
 
 	// Write to TODO-002.md - fidelity missing -> block
 	inputs.WritePaths = []string{"docs/todo/TODO-002.md"}
-	report, _ = CheckRepoPolicy(repo, inputs)
+	report = checkRepoPolicyForTest(t, repo, inputs)
 	if report.Decision != DecisionBlock {
 		t.Errorf("expected block for TODO-002 (missing fidelity), got %s", report.Decision)
 	}
@@ -324,14 +334,14 @@ func TestRequireEvidenceWithTemplateVarSubstitutesFile(t *testing.T) {
 	// TODO-001 - clean coverage -> pass
 	inputs := Empty()
 	inputs.WritePaths = []string{"docs/todo/TODO-001.md"}
-	report, _ := CheckRepoPolicy(repo, inputs)
+	report := checkRepoPolicyForTest(t, repo, inputs)
 	if report.Decision != DecisionPass {
 		t.Errorf("expected pass for TODO-001, got %s", report.Decision)
 	}
 
 	// TODO-002 - failing coverage -> block
 	inputs.WritePaths = []string{"docs/todo/TODO-002.md"}
-	report, _ = CheckRepoPolicy(repo, inputs)
+	report = checkRepoPolicyForTest(t, repo, inputs)
 	if report.Decision != DecisionBlock {
 		t.Errorf("expected block for TODO-002, got %s", report.Decision)
 	}
@@ -351,7 +361,7 @@ func TestRequireFreshFileTemplateAcrossMultipleWrites(t *testing.T) {
 
 	inputs := Empty()
 	inputs.WritePaths = []string{"docs/todo/TODO-001.md", "docs/todo/TODO-002.md"}
-	report, _ := CheckRepoPolicy(repo, inputs)
+	report := checkRepoPolicyForTest(t, repo, inputs)
 	if report.Decision != DecisionBlock {
 		t.Errorf("expected block when one of two missing, got %s", report.Decision)
 	}
@@ -375,7 +385,7 @@ func TestRequireEvidenceMultipleChecks(t *testing.T) {
 	inputs := Empty()
 	inputs.WritePaths = []string{"src/main.go"}
 
-	report, _ := CheckRepoPolicy(repo, inputs)
+	report := checkRepoPolicyForTest(t, repo, inputs)
 	if report.Decision != DecisionPass {
 		t.Errorf("expected pass when all checks satisfied, got %s; violations: %+v", report.Decision, report.Violations)
 	}

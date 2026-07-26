@@ -2,6 +2,7 @@ package runtime
 
 import (
 	stderrors "errors"
+	"strings"
 	"testing"
 
 	rerrors "reconc.dev/reconc/internal/errors"
@@ -224,6 +225,25 @@ func TestRejectsInvalidJSON(t *testing.T) {
 	_, err := LoadExecutionInputsText("not json", "test")
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+func TestRejectsTrailingJSONOrGarbage(t *testing.T) {
+	for _, payload := range []string{
+		`{} {}`,
+		`{} trailing`,
+		"{}\n[]",
+	} {
+		_, err := LoadExecutionInputsText(payload, "test")
+		if err == nil {
+			t.Fatalf("accepted trailing input in %q", payload)
+		}
+		if !strings.Contains(err.Error(), "exactly one JSON value") {
+			t.Fatalf("trailing-input error = %v", err)
+		}
+	}
+	if _, err := LoadExecutionInputsText("{} \n\t", "test"); err != nil {
+		t.Fatalf("trailing whitespace must remain valid: %v", err)
 	}
 }
 

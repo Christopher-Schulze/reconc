@@ -68,6 +68,8 @@ func FuzzLoadExecutionInputsTextNoPanic(f *testing.F) {
 		`{"events":[{"kind":"claim","claim":"ci-green"}]}`,
 		`{"events":[{"kind":"command","command":"go test ./...","outcome":"success"}]}`,
 		`{"events":"bad"}`,
+		`{} {}`,
+		`{} trailing`,
 		`not-json`,
 	} {
 		f.Add(seed)

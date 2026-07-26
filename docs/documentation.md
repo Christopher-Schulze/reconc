@@ -165,6 +165,7 @@ Common commands:
 make test
 make vet
 make lint
+make coverage
 make build
 go run ./cmd/reconc --help
 make self-host
@@ -183,6 +184,7 @@ make build
 make test
 make vet
 make lint
+make coverage
 make cover
 make bench
 make self-host
@@ -190,6 +192,17 @@ make publication-audit
 make sbom VERSION=0.8.7
 make release VERSION=0.8.7
 ```
+
+`make coverage` runs both Go modules with atomic whole-module instrumentation
+(`-coverpkg=./...`) and rejects root coverage below 80% or portable-template
+coverage below 72%. The profiles are written to `coverage.out` and
+`harness/template/coverage.out`. `make cover` enforces the same floors and also
+writes separate HTML reports beside those profiles. The floors are explicit
+non-regression gates, not a false claim of 100% host-independent coverage:
+OS-specific files and process entry points still require their matching
+platform jobs or integration boundaries. Raising either floor requires
+corresponding executable tests; lowering one requires an explicit reviewed
+change to the gate.
 
 `make release` cross-compiles five binaries into `dist/`, copies the native
 POSIX and Windows installers, generates three flat shell-completion artifacts,
@@ -1697,8 +1710,9 @@ GitHub workflows:
 CI checks:
 
 - full root-module and `harness/template` tests on Ubuntu 24.04 and macOS 15;
-  formatting, tidy, vet, pinned Govulncheck v1.6.0, pinned Staticcheck v0.7.0,
-  and race checks run once on Linux
+  whole-module root/template coverage floors, formatting, tidy, vet, pinned
+  Govulncheck v1.6.0, pinned Staticcheck v0.7.0, and race checks run once on
+  Linux
 - native Windows 2025 root-module and `harness/template` tests plus native
   binary version/help smoke and native PowerShell installer success, malformed
   manifest, missing asset, checksum, execution, locked/unwritable target,

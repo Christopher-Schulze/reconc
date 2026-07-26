@@ -34,6 +34,17 @@ func TestModeValid(t *testing.T) {
 	}
 }
 
+func TestCommandMatchValid(t *testing.T) {
+	for _, match := range []CommandMatch{"", CommandMatchExact, CommandMatchPrefix} {
+		if !match.Valid() {
+			t.Errorf("canonical command match %q must be valid", match)
+		}
+	}
+	if CommandMatch("substring").Valid() {
+		t.Error("unknown command match must be invalid")
+	}
+}
+
 func TestAllModesLen(t *testing.T) {
 	if got := len(AllModes()); got != 4 {
 		t.Errorf("expected 4 modes, got %d", got)

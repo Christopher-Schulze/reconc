@@ -57,6 +57,7 @@ func schemasEqual(a donecheck.Schema, b donecheck.Schema) bool {
 	if !stringSlicesEqual(a.RequiredSections, b.RequiredSections) ||
 		!stringSlicesEqual(a.StatusStates, b.StatusStates) ||
 		!stringSlicesEqual(a.Priorities, b.Priorities) ||
+		!stringSlicesEqual(a.ScopeTypes, b.ScopeTypes) ||
 		!stringSlicesEqual(a.SubTaskIcons, b.SubTaskIcons) ||
 		!stringSlicesEqual(a.PlaceholderValues, b.PlaceholderValues) ||
 		!stringSlicesEqual(a.TestIntentKeywords, b.TestIntentKeywords) {
