@@ -817,7 +817,9 @@ bind the canonical repository and session identities, policy-lock hash, index,
 and previous segment digest; every policy, claim, CI, Stop, and completion
 consumer verifies and replays the full chain plus the live segment. A session
 may seal at most 64 segments. Clean SessionEnd removes its raw segments after
-verifying the chain.
+verifying the chain. Each full replay builds its string and command-result
+identity indexes once, so deduplication remains linear in total evidence across
+all sealed and live segments.
 
 An event that cannot fit an empty segment, a 64-segment exhaustion, or a
 missing/corrupt segment creates a project-scoped evidence taint. The taint
@@ -943,6 +945,9 @@ lockfile contract itself rather than a policy violation, every executable
 position in the command must be a repair invocation so a compound command
 cannot smuggle work through, analysis must be complete, and the executable must
 be `reconc` or a versioned release artifact such as `reconc-0.8.7-darwin-arm64`.
+The emitted remediation therefore tells the operator to run the repair as the
+only executable command. Piping it to another command or chaining unrelated
+work is deliberately refused.
 Writes stay blocked while the lockfile is stale, and the hooks never
 auto-compile, so an edited policy source can never govern the session that
 edited it.

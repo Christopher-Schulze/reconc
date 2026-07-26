@@ -347,8 +347,10 @@ Bounded evidence uses raw, immutable segments instead of truncation. Each
 segment carries the repository identity, session identity, policy-lock hash,
 monotonic index, previous digest, and every evidence collection from the sealed
 live epoch. Consumers replay the verified digest chain before evaluation, so
-rotation changes storage shape rather than policy meaning. A triggering event
-is retried only after the previous live epoch is durably sealed. Segment-chain
+rotation changes storage shape rather than policy meaning. One identity-index
+set per full replay keeps string and command-result deduplication linear across
+the complete sealed and live chain. A triggering event is retried only after
+the previous live epoch is durably sealed. Segment-chain
 tampering, an oversized individual item, storage failure, or exhaustion of the
 64-segment session budget creates a project-scoped taint that survives session
 cleanup and is inherited on the next SessionStart.

@@ -18,7 +18,7 @@ var lockfileRepairSubcommands = map[string]bool{
 
 // The remediation the gate prints must be a command the gate admits. This is
 // the exact invocation form named in that message.
-const lockfileRepairHint = "run `reconc refresh .` (or `reconc compile .`), which this gate admits even while the lockfile is stale, or revert the policy source to its committed state"
+const lockfileRepairHint = "run `reconc refresh .` (or `reconc compile .`) as the only executable command, without piping it to another command or chaining unrelated work; this gate admits that repair even while the lockfile is stale, or revert the policy source to its committed state"
 
 // isLockfileError reports whether the failure is the lockfile contract itself
 // rather than a policy violation, so callers can distinguish "policy says no"

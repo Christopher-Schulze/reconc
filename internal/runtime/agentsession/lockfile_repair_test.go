@@ -75,6 +75,11 @@ func TestPreToolUseAdmitsLockfileRepairWhileStale(t *testing.T) {
 			t.Fatalf("stale-lockfile block %q is missing %q", blocked.Stderr, phrase)
 		}
 	}
+	for _, phrase := range []string{"only executable command", "without piping"} {
+		if !strings.Contains(blocked.Stderr, phrase) {
+			t.Fatalf("stale-lockfile block %q is missing repair-only guidance %q", blocked.Stderr, phrase)
+		}
+	}
 
 	write := RunPreToolUse(repo, preToolUsePayload(t, "Write", map[string]interface{}{"file_path": filepath.Join(repo, "notes.md"), "content": "x"}))
 	if write.ExitCode == 0 {
@@ -129,6 +134,7 @@ func TestIsLockfileRepairCommandRejectsEverythingElse(t *testing.T) {
 		"reconc status .",
 		"reconc run on .",
 		"git status",
+		"reconc refresh . 2>&1 | tail -4",
 		"reconc refresh . && rm -rf build",
 		"rm -rf build && reconc refresh .",
 		"reconc-evil refresh .",
@@ -197,6 +203,8 @@ func TestLockfileBlockMessageNamesAReachableEscape(t *testing.T) {
 		}
 		for _, phrase := range []string{
 			"reconc refresh .",
+			"only executable command",
+			"without piping",
 			"this gate admits",
 			"revert the policy source",
 		} {
