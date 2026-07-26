@@ -23,7 +23,7 @@ func buildRepositoryRunPrompt(state tasklifecycle.RunState) string {
 		if state.SubTask != "" {
 			prompt += " Current Sub-Task: " + state.SubTask + "."
 		}
-		prompt += " Execute Reconc commands yourself. Run `reconc task check-done .` before `reconc task promote .`. Use `reconc run off .` only for an explicit user stop or a real blocker."
+		prompt += " Execute Reconc commands yourself. Run `reconc task check-done .` before `reconc task promote .`. Use `reconc run off` only for an explicit user stop or a real blocker."
 	case tasklifecycle.RunClaim:
 		prompt = fmt.Sprintf("Reconc run is ON and no TASK is active. Execute `reconc task claim %s .`, then continue %s. Do not ask the user to operate Reconc.", state.TaskID, state.TaskTitle)
 	default:

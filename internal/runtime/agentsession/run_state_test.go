@@ -1,6 +1,11 @@
 package agentsession
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"reconc.dev/reconc/internal/tasklifecycle"
+)
 
 func TestRepositoryRunStateRoundTrip(t *testing.T) {
 	repo := t.TempDir()
@@ -52,5 +57,16 @@ func TestUserInterruptRequiresExplicitBooleanFlag(t *testing.T) {
 		if isUserStopInterrupt(payload) {
 			t.Fatalf("non-explicit interrupt was misclassified: %#v", payload)
 		}
+	}
+}
+
+func TestRepositoryRunPromptUsesCanonicalRepositoryRootRunCommand(t *testing.T) {
+	prompt := buildRepositoryRunPrompt(tasklifecycle.RunState{
+		Disposition: tasklifecycle.RunContinue,
+		TaskID:      "085",
+		TaskTitle:   "Stable user CLI",
+	})
+	if !strings.Contains(prompt, "`reconc run off`") || strings.Contains(prompt, "`reconc run off .`") {
+		t.Fatalf("prompt does not use the canonical repository-root run command: %q", prompt)
 	}
 }
