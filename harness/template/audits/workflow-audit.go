@@ -1603,6 +1603,12 @@ func auditFinalRealityCheck(relative string, content string) []string {
 	return failures
 }
 
+// taskDetailFileRE matches the canonical TASK detail filename form
+// (AGENTS.md TASK Lifecycle: TASK-NNNN-Name.md). A file under docs/tasks/ that
+// does not match is not a TASK detail, so the promote-task-done remediation
+// cannot apply to it and must not be prescribed.
+var taskDetailFileRE = regexp.MustCompile(`^TASK-[0-9]{4}-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*\.md$`)
+
 func auditUnreferencedTaskFiles(root string, referenced map[string]bool) []string {
 	var failures []string
 	for _, pattern := range []string{"docs/tasks/*.md", "docs/tasks/done/*.md"} {
@@ -1611,13 +1617,19 @@ func auditUnreferencedTaskFiles(root string, referenced map[string]bool) []strin
 			return []string{fmt.Sprintf("glob %s: %v", pattern, err)}
 		}
 		for _, match := range matches {
-			if filepath.Base(match) == ".gitkeep" {
+			base := filepath.Base(match)
+			if base == ".gitkeep" {
 				continue
 			}
 			target := filepath.ToSlash(rel(filepath.Join(root, "docs"), match))
-			if !referenced[filepath.Clean(target)] {
-				failures = append(failures, fmt.Sprintf("docs/%s exists but is not referenced from docs/tasks.md; if you are completing a TASK, run `tools/reconc/harness/template/utils/promote-task-done/run-promote-task-done` (or with --dry-run) to atomically move the detail file and update tasks.md instead of editing them separately", target))
+			if referenced[filepath.Clean(target)] {
+				continue
 			}
+			if !taskDetailFileRE.MatchString(base) {
+				failures = append(failures, fmt.Sprintf("docs/%s is not a TASK detail file: docs/tasks/ and docs/tasks/done/ hold only TASK-NNNN-Name.md files listed in docs/tasks.md. Move the file outside docs/tasks/ (this check scans the filesystem, so adding it to .gitignore does not clear it); promote-task-done cannot archive a non-TASK file", target))
+				continue
+			}
+			failures = append(failures, fmt.Sprintf("docs/%s exists but is not referenced from docs/tasks.md; if you are completing a TASK, run `tools/reconc/harness/template/utils/promote-task-done/run-promote-task-done` (or with --dry-run) to atomically move the detail file and update tasks.md instead of editing them separately", target))
 		}
 	}
 	return failures

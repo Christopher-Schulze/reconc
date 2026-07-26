@@ -621,6 +621,11 @@ degrading to `absent`. `completion.require_committed: true` additionally blocks
 terminal TASK completion while the configured overview or detail tree is dirty.
 The terminal gate reuses the single Git status snapshot already built for Stop;
 it adds no Git process to routine executable continuations.
+Portable workflow audits reserve `docs/tasks/` and `docs/tasks/done/` for
+referenced `TASK-NNNN-Name.md` details. An unreferenced conforming detail keeps
+the atomic `promote-task-done` remediation; any other Markdown file is reported
+as a non-TASK file and must be moved outside the reserved tree. `.gitignore`
+cannot clear this filesystem audit.
 
 `reconc done` and `reconc post-task-check` share one evidence-complete final
 gate. A versioned, self-digested completion report binds the policy lock, Git
