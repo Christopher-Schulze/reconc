@@ -14,7 +14,6 @@ func TestMain(testingMain *testing.M) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	defer os.RemoveAll(directory)
 	source, err := os.Executable()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -42,5 +41,12 @@ func TestMain(testingMain *testing.M) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	os.Exit(testingMain.Run())
+	exitCode := testingMain.Run()
+	if err := os.RemoveAll(directory); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		if exitCode == 0 {
+			exitCode = 1
+		}
+	}
+	os.Exit(exitCode)
 }
