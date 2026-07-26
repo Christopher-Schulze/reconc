@@ -21,7 +21,7 @@ import (
 // agent-session packages.
 func runHook(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return &CLIError{ExitCode: 1, Message: "reconc hook: missing subcommand (generate | install | uninstall | status | sync-scaffold | runtime | grok-pre-tool-guard | claim)"}
+		return &CLIError{ExitCode: 1, Message: "reconc hook: missing subcommand (generate | install | uninstall | status | sync-scaffold | runtime | grok-pre-tool-guard | claim | evidence-status | evidence-resolve)"}
 	}
 	switch args[0] {
 	case "-h", "--help":
@@ -33,6 +33,8 @@ func runHook(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintln(stdout, "       reconc hook runtime  <event> <repo>            (reads stdin JSON)")
 		fmt.Fprintln(stdout, "       reconc hook grok-pre-tool-guard <repo>         (internal fail-closed guard)")
 		fmt.Fprintln(stdout, "       reconc hook claim    <repo> <claim-name> [--session ID] [--json] [--output PATH]")
+		fmt.Fprintln(stdout, "       reconc hook evidence-status [repo] [--json]")
+		fmt.Fprintln(stdout, "       reconc hook evidence-resolve <repo> --token TOKEN --reason TEXT [--json]")
 		fmt.Fprintln(stdout, "")
 		fmt.Fprintf(stdout, "Kinds: %s (all installable)\n", strings.Join(hooks.SupportedKinds(), ", "))
 		fmt.Fprintf(stdout, "Runtime events: %d registry-owned routes; run `reconc hook runtime --help` for the exact list.\n", len(hooks.RuntimeEvents()))
@@ -53,8 +55,101 @@ func runHook(args []string, stdout, stderr io.Writer) error {
 		return runGrokPreToolGuard(args[1:], stdout, stderr)
 	case "claim":
 		return runHookClaim(args[1:], stdout, stderr)
+	case "evidence-status":
+		return runHookEvidenceStatus(args[1:], stdout)
+	case "evidence-resolve":
+		return runHookEvidenceResolve(args[1:], stdout)
 	}
-	return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook: unknown subcommand %q (expected generate | install | uninstall | status | sync-scaffold | runtime | grok-pre-tool-guard | claim)", args[0])}
+	return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook: unknown subcommand %q (expected generate | install | uninstall | status | sync-scaffold | runtime | grok-pre-tool-guard | claim | evidence-status | evidence-resolve)", args[0])}
+}
+
+func runHookEvidenceStatus(args []string, stdout io.Writer) error {
+	repo := "."
+	jsonOut := false
+	repoSet := false
+	for _, arg := range args {
+		switch arg {
+		case "--json":
+			jsonOut = true
+		case "-h", "--help":
+			fmt.Fprintln(stdout, "Usage: reconc hook evidence-status [repo] [--json]")
+			return nil
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook evidence-status: unknown flag %q", arg)}
+			}
+			if repoSet {
+				return &CLIError{ExitCode: 1, Message: "reconc hook evidence-status: accepts at most one repo path"}
+			}
+			repo = arg
+			repoSet = true
+		}
+	}
+	status, err := agentsession.ReadEvidenceTaintStatus(repo)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc hook evidence-status: " + err.Error()}
+	}
+	if jsonOut {
+		encoder := json.NewEncoder(stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(status)
+	}
+	if !status.Present {
+		fmt.Fprintln(stdout, "evidence taint: none")
+		return nil
+	}
+	fmt.Fprintf(stdout, "evidence taint: %s/%s session=%s token=%s\n", status.Field, status.Limit, status.SessionID, status.Token)
+	return nil
+}
+
+func runHookEvidenceResolve(args []string, stdout io.Writer) error {
+	repo := ""
+	token := ""
+	reason := ""
+	jsonOut := false
+	for index := 0; index < len(args); index++ {
+		switch args[index] {
+		case "--json":
+			jsonOut = true
+		case "-h", "--help":
+			fmt.Fprintln(stdout, "Usage: reconc hook evidence-resolve <repo> --token TOKEN --reason TEXT [--json]")
+			return nil
+		case "--token":
+			if index+1 >= len(args) {
+				return &CLIError{ExitCode: 1, Message: "reconc hook evidence-resolve: --token requires a value"}
+			}
+			index++
+			token = args[index]
+		case "--reason":
+			if index+1 >= len(args) {
+				return &CLIError{ExitCode: 1, Message: "reconc hook evidence-resolve: --reason requires a value"}
+			}
+			index++
+			reason = args[index]
+		default:
+			if strings.HasPrefix(args[index], "-") {
+				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook evidence-resolve: unknown flag %q", args[index])}
+			}
+			if repo != "" {
+				return &CLIError{ExitCode: 1, Message: "reconc hook evidence-resolve: accepts exactly one repo path"}
+			}
+			repo = args[index]
+		}
+	}
+	if repo == "" || token == "" || reason == "" {
+		return &CLIError{ExitCode: 1, Message: "reconc hook evidence-resolve: usage: reconc hook evidence-resolve <repo> --token TOKEN --reason TEXT [--json]"}
+	}
+	status, err := agentsession.ResolveEvidenceTaint(repo, token, reason)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc hook evidence-resolve: " + err.Error()}
+	}
+	if jsonOut {
+		encoder := json.NewEncoder(stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(status)
+	}
+	fmt.Fprintf(stdout, "resolved evidence taint %s (%s/%s); start a fresh session and reproduce required evidence\n", status.Token, status.Field, status.Limit)
+	return nil
 }
 
 func runHookStatus(args []string, stdout io.Writer) error {

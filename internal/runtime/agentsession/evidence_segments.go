@@ -51,6 +51,23 @@ type evidenceTaint struct {
 	SegmentDigest string `json:"segment_digest,omitempty"`
 }
 
+type EvidenceTaintStatus struct {
+	Present       bool   `json:"present"`
+	Token         string `json:"token,omitempty"`
+	SessionID     string `json:"session_id,omitempty"`
+	Field         string `json:"field,omitempty"`
+	Limit         string `json:"limit,omitempty"`
+	SegmentCount  uint64 `json:"segment_count,omitempty"`
+	SegmentDigest string `json:"segment_digest,omitempty"`
+}
+
+type evidenceTaintResolution struct {
+	FormatVersion string        `json:"format_version"`
+	Token         string        `json:"token"`
+	Reason        string        `json:"reason"`
+	Taint         evidenceTaint `json:"taint"`
+}
+
 func evidenceSegmentsDir(repoRoot, sessionID string) string {
 	return filepath.Join(projectDir(repoRoot), "evidence", sessionFileKey(sessionID))
 }
@@ -61,6 +78,10 @@ func evidenceSegmentPath(repoRoot, sessionID string, index uint64) string {
 
 func evidenceTaintPath(repoRoot string) string {
 	return filepath.Join(projectDir(repoRoot), "evidence-taint.json")
+}
+
+func evidenceTaintResolutionPath(repoRoot, token string) string {
+	return filepath.Join(projectDir(repoRoot), "evidence-taint-resolutions", token+".json")
 }
 
 func evidenceFieldRotatable(field string) bool {
@@ -329,6 +350,115 @@ func loadEvidenceTaint(repoRoot string) (*evidenceTaint, error) {
 		return nil, fmt.Errorf("evidence taint segment count %s exceeds %d", strconv.FormatUint(taint.SegmentCount, 10), maxEvidenceSegments)
 	}
 	return &taint, nil
+}
+
+func ReadEvidenceTaintStatus(repoRoot string) (EvidenceTaintStatus, error) {
+	root, err := ResolveRepoRoot(repoRoot)
+	if err != nil {
+		return EvidenceTaintStatus{}, err
+	}
+	taint, err := loadEvidenceTaint(root)
+	if err != nil {
+		return EvidenceTaintStatus{}, err
+	}
+	if taint == nil {
+		active, activeErr := ResolveActiveSessionID(root)
+		if activeErr != nil {
+			return EvidenceTaintStatus{}, activeErr
+		}
+		if active != "" {
+			if _, loadErr := LoadSessionState(root, active); loadErr != nil {
+				return EvidenceTaintStatus{}, loadErr
+			}
+			taint, err = loadEvidenceTaint(root)
+			if err != nil {
+				return EvidenceTaintStatus{}, err
+			}
+		}
+	}
+	if taint == nil {
+		return EvidenceTaintStatus{}, nil
+	}
+	token, err := evidenceTaintToken(*taint)
+	if err != nil {
+		return EvidenceTaintStatus{}, err
+	}
+	return EvidenceTaintStatus{
+		Present: true, Token: token, SessionID: taint.SessionID,
+		Field: taint.Field, Limit: taint.Limit,
+		SegmentCount: taint.SegmentCount, SegmentDigest: taint.SegmentDigest,
+	}, nil
+}
+
+func ResolveEvidenceTaint(repoRoot, expectedToken, reason string) (EvidenceTaintStatus, error) {
+	root, err := ResolveRepoRoot(repoRoot)
+	if err != nil {
+		return EvidenceTaintStatus{}, err
+	}
+	expectedToken = strings.TrimSpace(expectedToken)
+	reason = strings.TrimSpace(reason)
+	if expectedToken == "" {
+		return EvidenceTaintStatus{}, errors.New("expected taint token must be non-empty")
+	}
+	if reason == "" || len(reason) > 512 {
+		return EvidenceTaintStatus{}, errors.New("resolution reason must contain 1..512 bytes")
+	}
+	active, err := ResolveActiveSessionID(root)
+	if err != nil {
+		return EvidenceTaintStatus{}, err
+	}
+	if active != "" {
+		return EvidenceTaintStatus{}, fmt.Errorf("active session %q must end before evidence taint can be resolved", active)
+	}
+	taint, err := loadEvidenceTaint(root)
+	if err != nil {
+		return EvidenceTaintStatus{}, err
+	}
+	if taint == nil {
+		return EvidenceTaintStatus{}, errors.New("no persisted evidence taint exists")
+	}
+	token, err := evidenceTaintToken(*taint)
+	if err != nil {
+		return EvidenceTaintStatus{}, err
+	}
+	if token != expectedToken {
+		return EvidenceTaintStatus{}, errors.New("evidence taint token changed; inspect status and retry with the exact current token")
+	}
+	resolution := evidenceTaintResolution{
+		FormatVersion: "evidence-taint-resolution-v1",
+		Token:         token,
+		Reason:        reason,
+		Taint:         *taint,
+	}
+	body, err := json.MarshalIndent(resolution, "", "  ")
+	if err != nil {
+		return EvidenceTaintStatus{}, fmt.Errorf("marshal evidence taint resolution: %w", err)
+	}
+	body = append(body, '\n')
+	path := evidenceTaintResolutionPath(root, token)
+	if err := ensurePrivateStateDir(filepath.Dir(path)); err != nil {
+		return EvidenceTaintStatus{}, fmt.Errorf("mkdir evidence taint resolution dir: %w", err)
+	}
+	if _, err := atomicfile.WriteIfChanged(path, body, 0o600); err != nil {
+		return EvidenceTaintStatus{}, fmt.Errorf("write evidence taint resolution: %w", err)
+	}
+	if err := os.Remove(evidenceTaintPath(root)); err != nil {
+		return EvidenceTaintStatus{}, fmt.Errorf("remove resolved evidence taint: %w", err)
+	}
+	return EvidenceTaintStatus{
+		Present: true, Token: token, SessionID: taint.SessionID,
+		Field: taint.Field, Limit: taint.Limit,
+		SegmentCount: taint.SegmentCount, SegmentDigest: taint.SegmentDigest,
+	}, nil
+}
+
+func evidenceTaintToken(taint evidenceTaint) (string, error) {
+	body, err := json.Marshal(taint)
+	if err != nil {
+		return "", fmt.Errorf("marshal evidence taint token: %w", err)
+	}
+	sum := sha256.Sum256(body)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func applyEvidenceTaint(state *SessionState, taint evidenceTaint) {

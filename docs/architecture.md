@@ -359,6 +359,11 @@ saved policy passes, and completion remain unavailable. Repository run enabled
 keeps Stop blocked. Repository run disabled records an uncertified termination
 and releases Stop without clearing taint. Explicit user interrupt remains the
 host escape and also does not clear taint.
+Resolution requires no active session, the exact SHA-256 token of the current
+taint, and a bounded operator reason. The resolver writes a durable receipt
+containing the abandoned taint before removing the live marker. A successor
+session therefore starts a new evidence window without converting the abandoned
+epoch into certified evidence.
 
 ### Fail-closed vs fail-open
 

@@ -830,6 +830,11 @@ available. With repository run enabled, Stop remains blocked. With repository
 run disabled, Stop records `uncertified_termination` and releases the host
 without representing the session as certified. An explicit user interrupt
 continues to release the host invocation, while the durable taint remains.
+Recovery is explicit: end the active session, inspect
+`reconc hook evidence-status .`, then pass its exact token and an operator
+reason to `reconc hook evidence-resolve . --token TOKEN --reason TEXT`. Reconc
+writes an immutable resolution receipt before removing the live taint; the next
+session starts a new evidence window and must reproduce every required proof.
 The latest unresolved policy block is retained without an age limit and also
 protects its project-state root from global cleanup. A validated non-blocking
 decision removes that receipt durably; retention never converts block to pass.

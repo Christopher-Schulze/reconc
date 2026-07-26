@@ -199,3 +199,46 @@ func TestTrueOverflowBlocksMaterialToolsButAllowsReads(t *testing.T) {
 		t.Fatalf("read was blocked under overflow: %+v", read)
 	}
 }
+
+func TestEvidenceTaintResolutionRequiresEndedSessionAndExactToken(t *testing.T) {
+	_, repo := withStateRoot(t)
+	if _, err := InitializeSessionState(repo, "resolve-origin"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MutateSessionState(repo, "resolve-origin", func(state SessionState) SessionState {
+		markEvidenceOverflowWithLimit(&state, "commands", "byte_budget")
+		return state
+	}); err != nil {
+		t.Fatal(err)
+	}
+	status, err := ReadEvidenceTaintStatus(repo)
+	if err != nil || !status.Present || status.Token == "" {
+		t.Fatalf("taint status: %+v err=%v", status, err)
+	}
+	if _, err := ResolveEvidenceTaint(repo, status.Token, "recover"); err == nil ||
+		!strings.Contains(err.Error(), "must end") {
+		t.Fatalf("active session resolution was accepted: %v", err)
+	}
+	if result := RunSessionEnd(repo, []byte(`{"session_id":"resolve-origin"}`)); result.ExitCode != 0 {
+		t.Fatalf("session end: %+v", result)
+	}
+	if _, err := ResolveEvidenceTaint(repo, strings.Repeat("0", 64), "recover"); err == nil ||
+		!strings.Contains(err.Error(), "token changed") {
+		t.Fatalf("wrong-token resolution was accepted: %v", err)
+	}
+	resolved, err := ResolveEvidenceTaint(repo, status.Token, "abandon incomplete epoch and reproduce evidence")
+	if err != nil || resolved.Token != status.Token {
+		t.Fatalf("resolve taint: %+v err=%v", resolved, err)
+	}
+	if current, err := ReadEvidenceTaintStatus(repo); err != nil || current.Present {
+		t.Fatalf("resolved taint remained active: %+v err=%v", current, err)
+	}
+	root, _ := ResolveRepoRoot(repo)
+	if _, err := os.Stat(evidenceTaintResolutionPath(root, status.Token)); err != nil {
+		t.Fatalf("resolution receipt missing: %v", err)
+	}
+	successor, err := InitializeSessionState(repo, "resolve-successor")
+	if err != nil || successor.EvidenceOverflow {
+		t.Fatalf("fresh evidence window remained tainted: %+v err=%v", successor, err)
+	}
+}
