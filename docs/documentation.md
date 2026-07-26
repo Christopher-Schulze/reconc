@@ -909,6 +909,10 @@ Host session IDs are validated exactly and mapped to collision-resistant file
 keys. State, reports, active pointers, and locks use bounded reads, private
 permissions, atomic publication, and cross-process locking; legacy sanitized
 paths migrate only after their stored identity and repository binding pass.
+Session-file reads and writes serialize on the same per-session lock. The
+repository-wide active-session pointer serializes reads, writes, and cleanup on
+its own lock, acquired only after any session lock, so native Windows sharing
+rules cannot turn concurrent hooks into lost evidence or failed publication.
 
 Default persistent budgets are 32 session files / 8 MiB / 14 days, 32 reports
 / 8 MiB / 14 days, 128 locks / 1 MiB / 24 hours, 64 staged command proofs /

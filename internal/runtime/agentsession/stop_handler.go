@@ -82,7 +82,7 @@ func RunStop(repoRoot string, payloadBytes []byte) (result Result) {
 	// before the terminal Stop policy and never shells out to Git. Task mutation,
 	// pre-commit, and the eventual terminal Stop still retain their hard gates.
 	if runApplies && taskState.executable() {
-		state, loadErr := loadSessionStateResolved(root, payload.SessionID)
+		state, loadErr := loadSessionStateWithLockResolved(root, payload.SessionID)
 		if loadErr != nil {
 			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): %s", loadErr)}
 		}

@@ -485,8 +485,11 @@ being silently disabled:
   decision publication.
 - **Session-isolated guard.** Each continuation updates its external session
   state before the durable run-state mutation. No run-state lock is held while
-  taking a session lock, and each session owns its progress digest and six-stop
-  counter, preventing deadlocks and cross-session budget interference.
+  taking a session lock. State reads and writes serialize on that session lock,
+  while the repository-wide active-session pointer has its own lock acquired
+  only after a session lock. Each session owns its progress digest and six-stop
+  counter, preventing deadlocks, Windows sharing violations, and cross-session
+  budget interference.
 
 Repository mode is controlled normally by `reconc run on|off`; `run reset` is
 the recovery-only path for corrupt, unsupported, or foreign-root state and

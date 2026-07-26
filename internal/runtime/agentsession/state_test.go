@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 )
 
 func withStateRoot(t *testing.T) (string, string) {
@@ -164,6 +165,75 @@ func TestMutateSessionStateMergesConcurrentUpdates(t *testing.T) {
 	}
 	if len(state.ReadPaths) != workers {
 		t.Fatalf("expected %d merged read paths, got %d: %v", workers, len(state.ReadPaths), state.ReadPaths)
+	}
+}
+
+func TestLoadSessionStateWaitsForSessionLock(t *testing.T) {
+	_, repo := withStateRoot(t)
+	state, err := InitializeSessionState(repo, "locked-read")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	returned := make(chan error, 1)
+	err = withSessionLock(state.RepoRoot, state.SessionID, func() error {
+		go func() {
+			close(started)
+			_, loadErr := LoadSessionState(repo, state.SessionID)
+			returned <- loadErr
+		}()
+		<-started
+		select {
+		case loadErr := <-returned:
+			return fmt.Errorf("load returned while session lock was held: %w", loadErr)
+		case <-time.After(100 * time.Millisecond):
+			return nil
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case loadErr := <-returned:
+		if loadErr != nil {
+			t.Fatal(loadErr)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("load did not resume after session lock release")
+	}
+}
+
+func TestActiveSessionWriteWaitsForPointerLock(t *testing.T) {
+	_, repo := withStateRoot(t)
+	state, err := InitializeSessionState(repo, "active-lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	returned := make(chan error, 1)
+	err = withActiveSessionLock(state.RepoRoot, func() error {
+		go func() {
+			close(started)
+			returned <- writeActiveSession(state.RepoRoot, "next-session")
+		}()
+		<-started
+		select {
+		case writeErr := <-returned:
+			return fmt.Errorf("write returned while active-session lock was held: %w", writeErr)
+		case <-time.After(100 * time.Millisecond):
+			return nil
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case writeErr := <-returned:
+		if writeErr != nil {
+			t.Fatal(writeErr)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("write did not resume after active-session lock release")
 	}
 }
 

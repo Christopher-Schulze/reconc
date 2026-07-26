@@ -154,6 +154,10 @@ func activeSessionPath(repoRoot string) string {
 	return filepath.Join(projectDir(repoRoot), "active-session.txt")
 }
 
+func activeSessionLockPath(repoRoot string) string {
+	return filepath.Join(projectDir(repoRoot), "locks", "active-session.lock")
+}
+
 func sessionLockPath(repoRoot, sessionID string) string {
 	return filepath.Join(projectDir(repoRoot), "locks", sessionFileKey(sessionID)+".lock")
 }
@@ -239,7 +243,17 @@ func LoadSessionState(repoRoot, sessionID string) (SessionState, error) {
 	if err != nil {
 		return SessionState{}, err
 	}
-	return loadSessionStateResolved(root, sessionID)
+	return loadSessionStateWithLockResolved(root, sessionID)
+}
+
+func loadSessionStateWithLockResolved(root, sessionID string) (SessionState, error) {
+	var state SessionState
+	err := withSessionLock(root, sessionID, func() error {
+		loaded, err := loadSessionStateResolved(root, sessionID)
+		state = loaded
+		return err
+	})
+	return state, err
 }
 
 func loadSessionStateResolved(root, sessionID string) (SessionState, error) {
@@ -379,23 +393,30 @@ func withSessionLock(repoRoot, sessionID string, fn func() error) error {
 	if err := validateSessionID(sessionID); err != nil {
 		return err
 	}
-	lockPath := sessionLockPath(repoRoot, sessionID)
+	return withStateLock(sessionLockPath(repoRoot, sessionID), "session", fn)
+}
+
+func withActiveSessionLock(repoRoot string, fn func() error) error {
+	return withStateLock(activeSessionLockPath(repoRoot), "active session", fn)
+}
+
+func withStateLock(lockPath, subject string, fn func() error) error {
 	if err := ensurePrivateStateDir(filepath.Dir(lockPath)); err != nil {
-		return fmt.Errorf("mkdir session lock dir: %w", err)
+		return fmt.Errorf("mkdir %s lock dir: %w", subject, err)
 	}
 	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
-		return fmt.Errorf("open session lock: %w", err)
+		return fmt.Errorf("open %s lock: %w", subject, err)
 	}
 	unlock, err := filelock.Lock(file)
 	if err != nil {
 		closeErr := file.Close()
-		return errors.Join(fmt.Errorf("lock session state: %w", err), wrapOperationError("close session lock", closeErr))
+		return errors.Join(fmt.Errorf("lock %s state: %w", subject, err), wrapOperationError("close "+subject+" lock", closeErr))
 	}
 	fnErr := fn()
 	unlockErr := unlock()
 	closeErr := file.Close()
-	return errors.Join(fnErr, wrapOperationError("unlock session state", unlockErr), wrapOperationError("close session lock", closeErr))
+	return errors.Join(fnErr, wrapOperationError("unlock "+subject+" state", unlockErr), wrapOperationError("close "+subject+" lock", closeErr))
 }
 
 func wrapOperationError(operation string, err error) error {
@@ -577,27 +598,30 @@ func CleanupSessionState(repoRoot, sessionID string) error {
 		if err != nil {
 			return err
 		}
-		activePath := activeSessionPath(root)
-		activeID, err := readActiveSessionID(activePath)
-		if err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		for _, statePath := range []string{sessionStatePath(root, sessionID), legacySessionStatePath(root, sessionID)} {
-			if err := os.Remove(statePath); err != nil && !os.IsNotExist(err) {
-				return fmt.Errorf("remove session state: %w", err)
+		return withActiveSessionLock(root, func() error {
+			activePath := activeSessionPath(root)
+			activeID, err := readActiveSessionID(activePath)
+			if err != nil && !os.IsNotExist(err) {
+				return err
 			}
-		}
-		if taint == nil && !state.EvidenceOverflow {
-			if err := os.RemoveAll(evidenceSegmentsDir(root, sessionID)); err != nil {
-				return fmt.Errorf("remove completed evidence segments: %w", err)
+			for _, statePath := range []string{sessionStatePath(root, sessionID), legacySessionStatePath(root, sessionID)} {
+				if err := os.Remove(statePath); err != nil && !os.IsNotExist(err) {
+					return fmt.Errorf("remove session state: %w", err)
+				}
 			}
-		}
-		if activeID == sessionID {
+			if taint == nil && !state.EvidenceOverflow {
+				if err := os.RemoveAll(evidenceSegmentsDir(root, sessionID)); err != nil {
+					return fmt.Errorf("remove completed evidence segments: %w", err)
+				}
+			}
+			if activeID != sessionID {
+				return nil
+			}
 			if err := os.Remove(activePath); err != nil && !os.IsNotExist(err) {
 				return fmt.Errorf("remove active session file: %w", err)
 			}
-		}
-		return nil
+			return nil
+		})
 	})
 }
 
@@ -609,7 +633,13 @@ func ResolveActiveSessionID(repoRoot string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return readActiveSessionID(activeSessionPath(root))
+	var sessionID string
+	err = withActiveSessionLock(root, func() error {
+		active, readErr := readActiveSessionID(activeSessionPath(root))
+		sessionID = active
+		return readErr
+	})
+	return sessionID, err
 }
 
 func readActiveSessionID(path string) (string, error) {
@@ -641,6 +671,16 @@ func writeActiveSession(repoRoot, sessionID string) error {
 }
 
 func writeActiveSessionIfChanged(repoRoot, sessionID string) (bool, error) {
+	var written bool
+	err := withActiveSessionLock(repoRoot, func() error {
+		changed, writeErr := writeActiveSessionLockedIfChanged(repoRoot, sessionID)
+		written = changed
+		return writeErr
+	})
+	return written, err
+}
+
+func writeActiveSessionLockedIfChanged(repoRoot, sessionID string) (bool, error) {
 	if err := validateSessionID(sessionID); err != nil {
 		return false, err
 	}
