@@ -94,6 +94,8 @@ func Run(argv []string, version string, stdout, stderr io.Writer) (runErr error)
 		return runPreset(argv[1:], stdout, stderr)
 	case "bootstrap":
 		return runBootstrap(argv[1:], version, stdout, stderr)
+	case "install-cli":
+		return runInstallCLI(argv[1:], stdout)
 	case "fix":
 		return runFix(argv[1:], stdout, stderr)
 	case "next":

@@ -86,6 +86,20 @@ try {
     Assert-ReconcTest (Test-Path -LiteralPath $installedPath -PathType Leaf) "verified artifact was not installed"
     Assert-ReconcTest ((Get-ReconcFileSha256 -Path $installedPath) -eq $fixtureChecksum) "installed artifact checksum changed"
 
+    $savedProcessPath = [Environment]::GetEnvironmentVariable("Path", "Process")
+    $shadowDirectory = Join-Path $temporaryDirectory "shadow"
+    [void](New-Item -ItemType Directory -Path $shadowDirectory)
+    Set-Content -LiteralPath (Join-Path $shadowDirectory "reconc.exe") -Encoding ASCII -Value "shadow"
+    try {
+        [Environment]::SetEnvironmentVariable("Path", "$installDirectory;$savedProcessPath", "Process")
+        Assert-ReconcTest (Test-ReconcCommandMatches -ExpectedChecksum $fixtureChecksum) "current installed command was not recognized on PATH"
+        [Environment]::SetEnvironmentVariable("Path", "$shadowDirectory;$installDirectory;$savedProcessPath", "Process")
+        Assert-ReconcTest (-not (Test-ReconcCommandMatches -ExpectedChecksum $fixtureChecksum)) "shadowed PATH command was incorrectly accepted"
+    }
+    finally {
+        [Environment]::SetEnvironmentVariable("Path", $savedProcessPath, "Process")
+    }
+
     $installedChecksum = Get-ReconcFileSha256 -Path $installedPath
     Assert-ReconcFailure {
         Install-ReconcVerifiedArtifact `

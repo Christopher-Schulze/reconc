@@ -72,8 +72,9 @@ building:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.7/install.sh \
-  | RECONC_INSTALL_DIR="$HOME/.local/bin" sh -s -- 0.8.7
-"$HOME/.local/bin/reconc" demo
+  | sh -s -- 0.8.7
+export PATH="$HOME/.local/bin:$PATH"
+reconc demo
 ```
 
 On Windows x64, run the native PowerShell installer:
@@ -83,7 +84,8 @@ $installer = Join-Path $env:TEMP "reconc-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.7/install.ps1 -OutFile $installer
 & $installer 0.8.7
 Remove-Item $installer
-& "$env:LOCALAPPDATA\Programs\Reconc\bin\reconc.exe" demo
+$env:Path = "$env:LOCALAPPDATA\Programs\Reconc\bin;$env:Path"
+reconc demo
 ```
 
 ## How Reconc Works
@@ -172,8 +174,9 @@ Install the checksummed, provenance-attested macOS or Linux release:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.7/install.sh \
-  | RECONC_INSTALL_DIR="$HOME/.local/bin" sh -s -- 0.8.7
-"$HOME/.local/bin/reconc" demo
+  | sh -s -- 0.8.7
+export PATH="$HOME/.local/bin:$PATH"
+reconc demo
 ```
 
 On Windows x64:
@@ -183,7 +186,8 @@ $installer = Join-Path $env:TEMP "reconc-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.7/install.ps1 -OutFile $installer
 & $installer 0.8.7
 Remove-Item $installer
-& "$env:LOCALAPPDATA\Programs\Reconc\bin\reconc.exe" demo
+$env:Path = "$env:LOCALAPPDATA\Programs\Reconc\bin;$env:Path"
+reconc demo
 ```
 
 The immutable v0.8.7 tag contains both installer scripts, so neither bootstrap
@@ -195,9 +199,11 @@ smoke-test the candidate before replacing an existing installation, and use
 GitHub build-provenance attestations when `gh` is available. Release CI
 exercises both installer scripts before publication. Set
 `RECONC_REQUIRE_ATTESTATION=1` to make attestation verification mandatory.
-`RECONC_INSTALL_DIR` selects the destination; Windows defaults to the user-writable
-`%LOCALAPPDATA%\Programs\Reconc\bin` and prints an exact user-PATH command when
-that directory is not already available.
+`RECONC_INSTALL_DIR` selects the destination. POSIX defaults to
+`~/.local/bin`; Windows defaults to the user-writable
+`%LOCALAPPDATA%\Programs\Reconc\bin`. Both installers print an exact PATH
+remediation when bare `reconc` does not resolve to the installed binary. Apply
+that line and open a new terminal before continuing.
 
 The shipped CLI has no Bun dependency. Contributors need Bun `1.3.14` only for
 the executable OpenCode and Kilo Code adapter contract tests included in the
@@ -207,7 +213,20 @@ Windows releases currently support x64. Shell-based hook wrappers plus `.sh`
 and extensionless policy scripts require `sh` on `PATH`; Git for Windows
 supplies it. Native `.exe` and `.com` policy scripts execute directly.
 
-After installing or placing the binary on `PATH`, use `reconc` directly.
+For a portable source build or a copied repo-local binary, perform the same
+one-time user-CLI installation without a download:
+
+```bash
+go build -o .build/bin/reconc ./cmd/reconc
+.build/bin/reconc install-cli
+reconc --version
+```
+
+`reconc install-cli` atomically installs the exact running executable, rejects
+a symlink target, verifies its checksum and executable mode, and fails with an
+exact remediation if bare `reconc` is missing or shadowed. A successful
+repository bootstrap therefore never leaves operators navigating versioned
+artifact paths.
 
 Add Reconc to a target repo:
 
@@ -258,9 +277,9 @@ only when needed with `reconc agent-intro --section NAME`.
 An AI agent, not the user, operates autonomous run control:
 
 ```bash
-reconc run on .
-reconc run status .
-reconc run off .
+reconc run on
+reconc run status
+reconc run off
 ```
 
 `run on` first verifies fresh compiled policy and executable typed TASK state;
@@ -328,6 +347,7 @@ policy.
 Minimal policy and hook bootstrap:
 
 ```bash
+reconc --version
 reconc bootstrap .
 ```
 
@@ -344,7 +364,11 @@ reconc bootstrap apply --plan .reconc/bootstrap-plan.json --json
 reconc bootstrap verify --plan .reconc/bootstrap-plan.json --json
 ```
 
-`inspect` and `verify` are read-only. `plan` writes only with explicit
+Bootstrap apply atomically installs the exact running build as the stable user
+CLI, then refuses before any repository write unless it is directly callable
+as bare `reconc`. The path-qualified binary's explicit `install-cli` command is
+the equivalent pre-bootstrap option for a portable toolkit. `verify` repeats
+the user-CLI check. `inspect` and `verify` are otherwise read-only. `plan` writes only with explicit
 `--output`. Packs and hooks are explicit; stack and platform detection only
 suggest. Apply publishes absent targets, leaves exact files unchanged, creates
 hash-addressed candidates for drift, and rolls back transaction-owned files on
@@ -374,8 +398,10 @@ leaves every existing control-plane file untouched.
 Advanced project-harness rollout:
 
 1. Copy the Reconc toolkit into the target repository.
-2. Have an agent read and follow `harness/template/BOOTSTRAP.md`.
-3. Use its manual path only for project harness, stack, architecture, merge,
+2. Run the copied platform binary's `install-cli` command once and verify bare
+   `reconc`.
+3. Have an agent read and follow `harness/template/BOOTSTRAP.md`.
+4. Use its manual path only for project harness, stack, architecture, merge,
    and verification surfaces beyond the universal governed profile.
 
 The versioned guide remains the AI recovery tutorial and parity checklist when

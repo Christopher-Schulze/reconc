@@ -305,31 +305,23 @@ function Install-ReconcVerifiedArtifact {
     return $targetPath
 }
 
-function Test-ReconcDirectoryOnPath {
+function Test-ReconcCommandMatches {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$Directory
+        [string]$ExpectedChecksum
     )
 
-    $expected = [IO.Path]::GetFullPath($Directory).TrimEnd('\')
-    $pathValue = [Environment]::GetEnvironmentVariable("Path", "Process")
-    if ([string]::IsNullOrWhiteSpace($pathValue)) {
+    $command = Get-Command -Name "reconc" -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($null -eq $command) {
         return $false
     }
-    foreach ($entry in $pathValue.Split(';')) {
-        if ([string]::IsNullOrWhiteSpace($entry)) {
-            continue
-        }
-        try {
-            if ([IO.Path]::GetFullPath($entry).TrimEnd('\') -ieq $expected) {
-                return $true
-            }
-        }
-        catch {
-            continue
-        }
+    try {
+        return (Get-ReconcFileSha256 -Path $command.Source) -eq $ExpectedChecksum
     }
-    return $false
+    catch {
+        return $false
+    }
 }
 
 function Invoke-ReconcInstall {
@@ -377,10 +369,10 @@ function Invoke-ReconcInstall {
             -InstallDirectory $installDirectory
         Write-Host "installed reconc $ReleaseVersion at $targetPath"
 
-        if (-not (Test-ReconcDirectoryOnPath -Directory $installDirectory)) {
+        if (-not (Test-ReconcCommandMatches -ExpectedChecksum $expectedChecksum)) {
             $escapedDirectory = $installDirectory.Replace("'", "''")
-            Write-Host "Add the install directory to your user PATH, then open a new terminal:"
-            Write-Host "`$userPath = [Environment]::GetEnvironmentVariable('Path', 'User'); [Environment]::SetEnvironmentVariable('Path', ((`$userPath.TrimEnd(';') + ';$escapedDirectory').TrimStart(';')), 'User')"
+            Write-Host "Put the install directory first on your user PATH, then open a new terminal:"
+            Write-Host "`$userPath = [Environment]::GetEnvironmentVariable('Path', 'User'); [Environment]::SetEnvironmentVariable('Path', (('$escapedDirectory;' + `$userPath).TrimEnd(';')), 'User')"
         }
     }
     finally {

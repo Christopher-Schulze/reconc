@@ -266,6 +266,9 @@ func runBootstrapApply(args []string, version string, stdout io.Writer) error {
 	if err != nil {
 		return bootstrapCLIError("apply", err.Error())
 	}
+	if err := ensureCurrentUserCLI("apply"); err != nil {
+		return err
+	}
 	report, applyErr := reconbootstrap.Apply(plan, version)
 	if applyErr != nil {
 		if report != nil {
@@ -328,6 +331,9 @@ func runBootstrapVerify(args []string, stdout io.Writer) error {
 	verification, err := reconbootstrap.Verify(plan)
 	if err != nil {
 		return bootstrapCLIError("verify", err.Error())
+	}
+	if err := appendUserCLIVerification(verification); err != nil {
+		return bootstrapCLIError("verify", "inspect user CLI: "+err.Error())
 	}
 	if jsonOut {
 		if err := writeBootstrapJSON("verify", stdout, verification); err != nil {

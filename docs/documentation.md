@@ -219,9 +219,10 @@ rejects missing, malformed, stale-version, or otherwise non-identical output
 before checksums and provenance are accepted.
 
 `install.sh [VERSION]` supports macOS and Linux. `install.ps1 [VERSION]`
-supports Windows x64 and defaults to the user-writable
-`%LOCALAPPDATA%\Programs\Reconc\bin`; it reports the exact user-PATH command
-instead of elevating or weakening PowerShell execution policy. Both installers
+supports Windows x64. POSIX defaults to `~/.local/bin`; Windows defaults to the
+user-writable `%LOCALAPPDATA%\Programs\Reconc\bin`. Both report the exact PATH
+remediation when bare `reconc` does not resolve to the installed binary instead
+of elevating or silently editing shell configuration. Both installers
 download the exact platform binary and published `SHA256SUMS` over HTTPS,
 require exactly one matching hexadecimal SHA-256 entry, verify the payload
 before executing it, stage and re-verify it inside the install directory, then
@@ -268,6 +269,23 @@ documentation, `start.md`, and the stable repo-local hook wrapper. Both use
 `default` and `agent` as profile defaults. Stack and platform detection produce
 suggestions only; packs and hooks remain explicit.
 
+A release installer establishes the stable user CLI. A portable source build
+or copied toolkit establishes the same contract without a download:
+
+```bash
+go build -o .build/bin/reconc ./cmd/reconc
+.build/bin/reconc install-cli
+reconc --version
+```
+
+`install-cli` defaults to `$RECONC_INSTALL_DIR`, then `~/.local/bin` on POSIX
+or `%LOCALAPPDATA%\Programs\Reconc\bin` on Windows. It atomically installs the
+exact running executable, rejects a symlink target, verifies its checksum and
+executable mode, and verifies the executable resolved by bare `reconc`. It
+never edits a shell profile or the parent process environment; when activation
+or ordering is incomplete, it exits non-zero with the exact durable PATH
+remediation.
+
 The `existing` profile is the mature-repository wiring path. It requires an
 already fresh compiled policy lockfile, rejects pack selection, and owns only
 explicitly selected hooks, the repo-local wrapper, and an optional stable
@@ -285,12 +303,16 @@ canonical repository and refuses arbitrary or cross-repository files.
 Apply publishes only absent targets. Exact artifacts remain unchanged. A
 different file, directory, symlink, or special target produces a
 hash-addressed `.reconc-candidate-*` artifact and no normal target is installed.
-A stale plan fails before publication. New files are staged beside the target,
+A mutating compatibility or transactional bootstrap first atomically installs
+the exact running build as the stable user CLI, proves that bare `reconc`
+resolves to it, and otherwise fails before any repository write. A stale plan
+fails before publication. New files are staged beside the target,
 synced, checksum-verified, and published without replacement. On failure,
 rollback removes only transaction-owned files whose file identity and checksum
 still match, plus transaction-created directories that are still empty.
 Verification is read-only and checks artifacts, lockfile freshness, selected
-hooks, governed TASK state, and selected binary resolution.
+hooks, governed TASK state, selected binary resolution, and the exact running
+user CLI on PATH.
 
 Successful apply writes a tamper-evident install receipt, reports
 created/preserved/drifted/skipped and installed/configured/live counts, and
@@ -340,6 +362,7 @@ reconc demo --json
 Onboard a target repository once:
 
 ```bash
+reconc --version
 reconc bootstrap .
 ```
 
@@ -463,7 +486,9 @@ v0.8.7 PowerShell installer for Windows x64. Put the installed binary on
 `PATH`, then
 run `reconc demo` for a network-free, disposable proof of the real
 block-to-remediation-to-completion journey. Contributors building current
-source can use `go build -o reconc ./cmd/reconc`.
+source can use `go build -o .build/bin/reconc ./cmd/reconc` followed by
+`.build/bin/reconc install-cli`; copied repo-local binaries use the same
+one-time `install-cli` call.
 
 ### How does repository bootstrap work?
 
@@ -472,7 +497,10 @@ is `bootstrap inspect`, `profiles`, `plan`, `apply`, `verify`, and `remove`.
 Planning is deterministic; apply is transactional and create-only; drift gets a
 hash-addressed review candidate; removal touches only receipt-owned bytes. Use
 the `existing` profile for mature repositories that already own their policy,
-instructions, docs, and TASK state.
+instructions, docs, and TASK state. Mutating bootstrap automatically installs
+the exact running build as the stable user CLI; successful bootstrap guarantees
+that it is directly callable as bare `reconc`, and verification checks that
+contract again.
 
 ### What exactly does `reconc done` prove?
 
@@ -525,6 +553,7 @@ or task details.
 Start with read-only diagnostics:
 
 ```bash
+reconc --version
 reconc status .
 reconc doctor . --deep
 reconc verify .
@@ -540,6 +569,10 @@ verify --plan PATH --json`. Use `reconc task recover .` only for an interrupted
 TASK transaction and `reconc run reset .` only for corrupt or foreign run
 state. Do not delete lockfiles, receipts, managed blocks, or runtime state as a
 generic repair strategy.
+If bootstrap reports that the running build is not directly callable, run the
+exact path-qualified `install-cli` remediation it prints, apply any emitted PATH
+line, open a new terminal, and retry. Do not work around the check with
+versioned paths.
 
 ## Upgrading
 
@@ -558,6 +591,9 @@ reconc hook status . --json
 it never silently rewrites source rules. Re-run an explicit bootstrap plan when
 generated hook artifacts need an update, review every drift candidate, and
 commit the refreshed portable lockfile in governed target repositories.
+For a locally built or copied upgrade, run the upgraded binary's
+`install-cli` command first so bare `reconc` cannot continue resolving an older
+build.
 
 ## Uninstall And Remove
 
@@ -700,6 +736,7 @@ Daily:
 
 - `demo` - run the isolated real-policy product journey
 - `bootstrap` - inspect, profile, plan, apply, verify, and safely remove onboarding
+- `install-cli` - atomically install and verify the exact running user CLI
 - `status` - one-line policy health summary
 - `check` - evaluate runtime evidence against compiled policy
 - `next` - show the next remediation
@@ -1137,6 +1174,7 @@ summarizes the core runtime responsibilities:
 - `internal/parser`: YAML-to-policy validation and normalization
 - `internal/compiler`: canonical JSON lockfile generation, digesting, conflicts, migrations, compile lock
 - `internal/bootstrap`: deterministic inspect/plan/apply/verify/remove transactions, receipts, managed-block acceptance, and binary resolution
+- `internal/usercli`: atomic running-build installation and exact bare-command PATH verification
 - `internal/stackdetect`: shared bounded manifest/source stack discovery
 - `internal/runtime`: policy evaluation, remediation, git integration, scripts, templates
 - `internal/schema`: canonical format-versioned public JSON schema locations and enterprise URL resolution

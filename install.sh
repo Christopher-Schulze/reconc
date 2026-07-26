@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 # reconc installer -- downloads the right binary for the current host
-# and drops it in an install directory on PATH.
+# and drops it in a stable user CLI directory.
 #
 # Usage:
 #   sh install.sh                      # install the current default version
@@ -15,11 +15,22 @@ set -eu
 
 VERSION="${1:-0.8.7}"
 RELEASE_BASE="${RECONC_RELEASE_BASE:-https://github.com/Christopher-Schulze/reconc/releases/download}"
-INSTALL_DIR="${RECONC_INSTALL_DIR:-/usr/local/bin}"
 BIN_NAME="reconc"
 
 log() { printf '>> %s\n' "$1" >&2; }
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
+shell_quote() {
+  escaped="$(printf '%s' "$1" | sed "s/'/'\\\\''/g")" \
+    || die "cannot quote the install directory for PATH remediation"
+  printf "'%s'" "$escaped"
+}
+
+if [ -n "${RECONC_INSTALL_DIR:-}" ]; then
+  INSTALL_DIR="$RECONC_INSTALL_DIR"
+else
+  [ -n "${HOME:-}" ] || die "HOME is unavailable; set RECONC_INSTALL_DIR explicitly"
+  INSTALL_DIR="$HOME/.local/bin"
+fi
 
 # Detect OS.
 case "$(uname -s)" in
@@ -151,4 +162,15 @@ staged=""
 
 log "installed ${target}"
 log "version: $("$target" --version)"
-log "next: reconc --help  or  reconc bootstrap ."
+resolved="$(command -v reconc 2>/dev/null || true)"
+resolved_hash=""
+if [ -n "$resolved" ] && [ -f "$resolved" ]; then
+  resolved_hash="$(sha256_file "$resolved" 2>/dev/null || true)"
+fi
+if [ "$resolved_hash" = "$expected" ]; then
+  log "next: reconc --help  or  reconc bootstrap ."
+else
+  log "PATH: add this line to your shell profile, then open a new terminal:"
+  log "export PATH=$(shell_quote "$INSTALL_DIR"):\$PATH"
+  log "until then: ${target} --help"
+fi

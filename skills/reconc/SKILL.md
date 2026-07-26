@@ -75,11 +75,16 @@ tree, build an owned, pruneable session binary:
 ```bash
 mkdir -p .reconc/cache
 go build -o .reconc/cache/reconc-session ./cmd/reconc
+.reconc/cache/reconc-session install-cli
+reconc --version
 ```
 
-Then use `.reconc/cache/reconc-session` in commands for this session. In any
-other repo, do not invent an install path; tell the user `reconc` is missing
-and ask whether to install or build it.
+The path-qualified binary is needed only for that one installation call.
+`install-cli` atomically publishes the exact running build and proves bare
+`reconc` resolves to it. If PATH activation needs a new terminal, apply the
+exact emitted remediation before bootstrap. In any other repo, use the
+portable binary shipped with its Reconc toolkit for the same one-time command;
+never keep navigating versioned artifact paths.
 
 ## Bootstrap A Repo
 
@@ -95,6 +100,9 @@ reconc session-briefing . --json
 native agent hooks when supported directories such as `.claude/`, `.codex/`,
 `.cursor/`, `.opencode/`, `.devin/`, `.agents/`, `.kilo/`, or `.grok/`
 already exist.
+Bootstrap mutation performs the same exact running-build installation, fails
+before repository writes when bare `reconc` still does not resolve to it, and
+transactional verification repeats that check.
 
 For the full repo-local governance rollout with copied Reconc toolkit, harness,
 root scaffold, `start.md`, TASK files, and repo-local release binaries, have an
@@ -160,9 +168,9 @@ reconc proof . --format markdown --output proof.md
 For autonomous repository execution:
 
 ```bash
-reconc run on .
-reconc run status .
-reconc run off .
+reconc run on
+reconc run status
+reconc run off
 ```
 
 Repository mode is durable for this repository, not machine-global. Claude

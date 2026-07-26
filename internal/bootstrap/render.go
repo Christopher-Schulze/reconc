@@ -253,7 +253,7 @@ func renderBootstrapTask() string {
 		"The repository needs a verified, project-specific Reconc rollout before normal",
 		"implementation begins.", "", "## Acceptance", "",
 		"- Selected policy packs and hook platforms match real repository intent.",
-		"- `reconc bootstrap verify` passes against the reviewed bootstrap plan.",
+		"- Bare `reconc` resolves to the exact bootstrap build and `reconc bootstrap verify` passes against the reviewed plan.",
 		"- Repository build and test commands pass with truthful evidence.",
 		"- Bootstrap candidates are integrated or explicitly rejected without overwriting user files.",
 		"", "## Sub-Tasks", "",
@@ -272,7 +272,8 @@ func renderDocumentationBlock() string {
 		"in `.reconc/policy.lock.json`. `reconc bootstrap inspect` and `plan` are",
 		"read-only unless an explicit plan output path is requested. `apply` is",
 		"transactional and create-only for repository targets. Existing drift produces",
-		"hash-addressed candidate files for review. `verify` is read-only.", "",
+		"hash-addressed candidate files for review. Mutating bootstrap installs the exact",
+		"running build as bare `reconc`; `verify` checks it again read-only.", "",
 		"The detailed AI-operated rollout and manual recovery checklist remains in the",
 		"Reconc distribution at `harness/template/BOOTSTRAP.md`.",
 	}, "\n")

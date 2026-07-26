@@ -74,6 +74,9 @@ func runBootstrapLegacy(args []string, version string, stdout, stderr io.Writer)
 	if opts.Force {
 		return &CLIError{ExitCode: 1, Message: "reconc bootstrap: --force is unsupported; inspect drift and integrate candidate files surgically"}
 	}
+	if err := ensureCurrentUserCLI("compatibility"); err != nil {
+		return err
+	}
 
 	inspection, err := reconbootstrap.Inspect(repo)
 	if err != nil {

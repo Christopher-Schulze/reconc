@@ -421,9 +421,11 @@ run_installer() {
 
 printf '#!/usr/bin/env sh\nprintf "old\\n"\n' > "$install_dir/reconc"
 chmod +x "$install_dir/reconc"
-run_installer >/dev/null 2>&1
+installer_output=$(run_installer 2>&1)
 [ "$("$install_dir/reconc" --version)" = "reconc ${project_version}-test" ] \
   || fail "verified installer did not publish the downloaded binary"
+printf '%s\n' "$installer_output" | grep -Fq 'PATH: add this line to your shell profile' \
+  || fail "POSIX installer did not report the missing PATH activation"
 
 printf '#!/usr/bin/env sh\nprintf "sentinel\\n"\n' > "$install_dir/reconc"
 chmod +x "$install_dir/reconc"

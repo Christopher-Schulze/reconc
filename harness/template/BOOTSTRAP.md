@@ -22,6 +22,7 @@ Read this file completely before touching files. The goal is not to invent a new
 - Source-specific harness folders are not part of a target rollout. A standalone toolkit copy should carry the template harness and the target repo's renamed harness only.
 - Hook artifacts are generated artifacts, not hand-maintained source. The canonical source is `reconc hook generate`; before copying hook files from `repo-root-scaffold/`, sync that scaffold with `reconc hook sync-scaffold tools/reconc/harness/<project-name>/repo-root-scaffold`.
 - Prefer the transactional `reconc bootstrap inspect|plan|apply|verify|remove` flow for every universal surface it owns. Use the manual sections in this runbook for project-specific harness, stack, architecture, and merge decisions that the universal CLI intentionally cannot infer.
+- A completed rollout must leave the exact bootstrap build directly callable as bare `reconc`. Repo-local hook resolution remains independent and continues to prefer the repository wrapper and binary.
 
 ## Source Package
 
@@ -61,7 +62,37 @@ From the target repo root:
    - Mixed: more than one of the above.
 6. If language/stack is unclear, ask the user one concise question before writing stack-specific files.
 
-## Step 0a: Build The Transactional Bootstrap Plan
+## Step 0a: Establish The Stable User CLI
+
+Use the portable binary path exactly once. For a copied toolkit:
+
+```sh
+tools/reconc/dist/<local-reconc-binary> install-cli
+reconc --version
+```
+
+For a standalone source checkout without a platform artifact:
+
+```sh
+go build -o .build/bin/reconc ./cmd/reconc
+.build/bin/reconc install-cli
+reconc --version
+```
+
+`install-cli` performs no download. It atomically installs the exact running
+build to `$RECONC_INSTALL_DIR`, `~/.local/bin` on POSIX, or
+`%LOCALAPPDATA%\Programs\Reconc\bin` on Windows; rejects a symlink target; and
+verifies the executable resolved by bare `reconc`. It never edits shell
+profiles or the parent process environment. If the directory is missing from
+PATH or another binary shadows it, apply the exact emitted remediation, open a
+new terminal, and repeat `reconc --version`.
+
+Do not continue with path-qualified daily commands. Compatibility and
+transactional bootstrap apply perform the same stable user-CLI installation
+and verify the exact-build PATH contract before any repository write;
+transactional verify checks it again.
+
+## Step 0b: Build The Transactional Bootstrap Plan
 
 Use one local Reconc binary for the complete transaction. Inspection and plan
 generation are read-only unless `--output` is explicitly supplied:
@@ -498,7 +529,13 @@ ambiguity error. Install the stable name or retain exactly one versioned
 fallback; never select a release by directory order. The first two candidates
 avoid OS/architecture subprocess probes on development and self-hosting paths.
 
-Do not require a global `reconc` install. PATH fallback is only a last fallback. POSIX routes in generated JSON hook configs must not inline binary fallback loops; they call `tools/reconc/bin/hook` and let the wrapper own binary selection. PreToolUse, permission and Stop hooks remain hard/interactive priority; only observation hooks are lowered.
+Hooks do not depend on the user CLI: their PATH fallback remains last after
+development and repo-local binaries. The separate user CLI established in
+Step 0a is the stable interactive/operator command. POSIX routes in generated
+JSON hook configs must not inline binary fallback loops; they call
+`tools/reconc/bin/hook` and let the wrapper own binary selection. PreToolUse,
+permission and Stop hooks remain hard/interactive priority; only observation
+hooks are lowered.
 
 On native Windows, generated shell hook routes, the OpenCode/Kilo transport to
 the extensionless Reconc wrapper, and `.sh` or extensionless policy scripts
@@ -557,16 +594,18 @@ After copying or merging:
 
 ## Step 9: Verify
 
-Use the repo-local Reconc binary candidate that exists on the host.
+Use bare `reconc` for interactive verification. The repo-local wrapper still
+proves hook-runtime resolution independently.
 
 Required checks:
 
-1. `reconc bootstrap verify --plan .reconc/bootstrap-plan.json --json` when the transactional profile was used.
-2. `tools/reconc/dist/<local-reconc-binary> hook status . --json`
-3. `tools/reconc/dist/<local-reconc-binary> session-briefing . --json`
-4. `cd tools/reconc/harness/<project-name> && go test ./...`
-5. `tools/reconc/harness/<project-name>/audits/run-workflow-audit all`
-6. Selected stack build/test commands:
+1. `reconc --version` and `reconc run status` from the target repository root.
+2. `reconc bootstrap verify --plan .reconc/bootstrap-plan.json --json` when the transactional profile was used.
+3. `reconc hook status . --json`
+4. `reconc session-briefing . --json`
+5. `cd tools/reconc/harness/<project-name> && go test ./...`
+6. `tools/reconc/harness/<project-name>/audits/run-workflow-audit all`
+7. Selected stack build/test commands:
    - Go default: `go test ./...` and `go run ./scripts/build validate` if the build runner was installed.
    - Rust: `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test` when Rust is selected.
    - Frontend: selected package manager checks only when a frontend stack is selected.
@@ -609,6 +648,7 @@ If the target repo is mature:
 The rollout is not done until all of this is true:
 
 - No stale placeholder names remain.
+- Bare `reconc` resolves to the exact build used for bootstrap; `reconc run status` works from the repository root without a path or explicit `.` argument.
 - The reviewed bootstrap plan matches the applied profile, packs, hooks, binary checksum, and target platform.
 - `reconc bootstrap verify --plan ... --json` passes and no unresolved candidate file remains.
 - No source-specific product, internal-binary, UI, or local-machine text remains in generic runtime or workflow files.

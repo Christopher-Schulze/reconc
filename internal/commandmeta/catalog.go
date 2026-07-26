@@ -107,6 +107,7 @@ var commandCatalog = []Command{
 		sub("remove", "reconc bootstrap remove --plan PATH [--json]", "reverse one receipt-owned bootstrap transaction", flags(f("--plan", "PATH"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 		sub("verify", "reconc bootstrap verify --plan PATH [--json]", "verify an applied bootstrap manifest read-only", flags(f("--plan", "PATH"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	}, modes(OutputText, OutputJSON, OutputFile)),
+	command("install-cli", CategoryBootstrap, "reconc install-cli [--install-dir PATH] [--json]", "install the running build as the stable user CLI", flags(f("--install-dir", "PATH"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	command("init", CategoryBootstrap, "reconc init [repo] [--preset NAME] [--force] [--json] [--output PATH]", "scaffold policy and agent instructions", flags(repeat("--preset", "NAME"), f("--force", ""), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
 	command("adopt", CategoryBootstrap, "reconc adopt [repo] [--yaml | --json | --apply]", "detect tooling and suggest rules", flags(f("--yaml", ""), f("--json", ""), f("--apply", "")), nil, modes(OutputText, OutputYAML, OutputJSON)),
 	command("extract", CategoryBootstrap, "reconc extract [repo] [--from PATH] [--yaml | --json]", "scan instruction prose for rule hints", flags(f("--from", "PATH"), f("--yaml", ""), f("--json", "")), nil, modes(OutputText, OutputYAML, OutputJSON)),

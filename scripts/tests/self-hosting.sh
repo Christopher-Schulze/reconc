@@ -25,6 +25,8 @@ run_json() {
 }
 
 [ -x "$binary" ] || fail "Reconc binary is missing or not executable: $binary"
+binary_dir=$(cd "$(dirname "$binary")" && pwd)
+export PATH="$binary_dir:$PATH"
 git -C "$root" check-ignore --no-index --quiet .reconc/run/decisions.jsonl.lock \
   || fail "self-hosted repository does not ignore Reconc run runtime"
 

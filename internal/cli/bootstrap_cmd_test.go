@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	reconbootstrap "reconc.dev/reconc/internal/bootstrap"
+	"reconc.dev/reconc/internal/usercli"
 )
 
 func TestBootstrapPhasesGovernedRoundTrip(t *testing.T) {
@@ -206,5 +207,48 @@ func TestBootstrapSelectionRejectsAmbiguousSingletonFlags(t *testing.T) {
 	}, "test", &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "only once") {
 		t.Fatalf("duplicate singleton flag error = %v", err)
+	}
+}
+
+func TestBootstrapApplyInstallsTheRunningBuildAndRequiresItOnPATHBeforeWriting(t *testing.T) {
+	repo := t.TempDir()
+	planPath := filepath.Join(t.TempDir(), "bootstrap-plan.json")
+	installDirectory := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{
+		"bootstrap", "plan", repo, "--profile", "minimal", "--output", planPath, "--json",
+	}, "test", &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RECONC_INSTALL_DIR", installDirectory)
+	t.Setenv("PATH", t.TempDir())
+	stdout.Reset()
+	err := Run([]string{"bootstrap", "apply", "--plan", planPath, "--json"}, "test", &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "was installed but is not directly callable from PATH") || !strings.Contains(err.Error(), "export PATH") {
+		t.Fatalf("missing user CLI preflight error = %v", err)
+	}
+	status, inspectErr := usercli.InspectCurrent(installDirectory)
+	if inspectErr != nil || !status.Installed || !status.Current {
+		t.Fatalf("bootstrap did not install the running build: status=%+v err=%v", status, inspectErr)
+	}
+	if entries, readErr := os.ReadDir(repo); readErr != nil || len(entries) != 0 {
+		t.Fatalf("failed user CLI preflight mutated repo: entries=%v err=%v", entries, readErr)
+	}
+}
+
+func TestInstallCLICommandPublishesAReadyBareCommand(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("RECONC_INSTALL_DIR", directory)
+	t.Setenv("PATH", directory)
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"install-cli", "--json"}, "test", &stdout, &stderr); err != nil {
+		t.Fatalf("install-cli: %v stderr=%s", err, stderr.String())
+	}
+	var report usercli.InstallReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("decode install-cli report: %v\n%s", err, stdout.String())
+	}
+	if report.Status == nil || !report.Status.Ready || report.Status.ResolvedPath == "" {
+		t.Fatalf("install-cli did not publish a bare command: %+v", report)
 	}
 }

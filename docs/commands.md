@@ -5,8 +5,11 @@ for the exact flag details emitted by the installed binary.
 
 ## Daily path
 
-Onboard once with `reconc bootstrap .`. Then use the same four-command daily
-loop taught by the README and agent skill:
+Install a portable build explicitly with `PATH/TO/reconc install-cli`, or invoke
+its mutating bootstrap directly and let bootstrap perform the same installation.
+Bootstrap fails before repository writes unless the exact running build is
+directly callable as bare `reconc`. Then use the same four-command daily loop
+taught by the README and agent skill:
 
 ```bash
 reconc session-briefing . --json
@@ -85,9 +88,9 @@ Debugging:
 - `RECONC_HOOK_TIMING_THRESHOLD_MS` -- only print timings above this bound
 - `RECONC_AUDIT_NO_CACHE=1` -- bypass the audit stats cache
 
-Installers (`install.sh` and `install.ps1`):
+Installers and `reconc install-cli`:
 
-- `RECONC_INSTALL_DIR` (default `/usr/local/bin` for `install.sh` and
+- `RECONC_INSTALL_DIR` (default `~/.local/bin` on POSIX and
   `%LOCALAPPDATA%\Programs\Reconc\bin` for `install.ps1`) -- install target
 - `RECONC_RELEASE_BASE` -- release download mirror
 - `RECONC_REQUIRE_ATTESTATION=1` -- make GitHub provenance verification
@@ -102,6 +105,14 @@ plumbing, not user configuration.
 ---
 
 ## Bootstrap & inspection
+
+### `reconc install-cli [--install-dir PATH] [--json]`
+Atomically installs the exact running executable as the stable `reconc` user
+CLI. The default is `$RECONC_INSTALL_DIR`, then `~/.local/bin` on POSIX or
+`%LOCALAPPDATA%\Programs\Reconc\bin` on Windows. The command verifies checksum,
+executable mode, and the binary actually resolved by bare `reconc`; it exits
+non-zero with an exact PATH remediation when another binary shadows the
+install or the directory is not visible to the current shell.
 
 ### `reconc init [repo] [--preset NAME] [--force] [--json] [--output PATH]`
 Scaffolds `.reconc.yml`, a stub `AGENTS.md`, and the same marker-owned Reconc
@@ -141,6 +152,10 @@ arbitrary or cross-repository file.
 
 ### `reconc bootstrap apply --plan PATH [--json]` / `reconc bootstrap apply [repo] --profile existing|minimal|governed [selection flags] [--json]`
 Apply an exact reviewed plan or build the same plan from explicit selections.
+Before publishing the plan, apply atomically installs the exact running build
+as the stable user CLI and verifies that bare `reconc` resolves to it. A
+missing or shadowed PATH entry fails before any repository write and prints the
+exact activation remediation.
 Repository targets are create-only. Exact files remain unchanged; any drift
 creates hash-addressed candidate files and prevents all normal target installs.
 Stale plans fail before publication and print the full copy-paste
@@ -163,7 +178,8 @@ still use it.
 ### `reconc bootstrap verify --plan PATH [--json]`
 Read-only verification of every selected artifact hash and mode, candidate
 drift, policy-lock freshness, governed TASK structure, selected hook activation,
-and selected binary checksum/resolution. Any failed check exits 1.
+selected binary checksum/resolution, and the exact running user CLI resolved by
+bare `reconc`. Any failed check exits 1.
 
 ### `reconc bootstrap [repo] [--preset NAME] [--skip-git-hook] [--skip-agent-hooks] [--accept-managed-blocks] [--json]`
 Compatibility shorthand for a create-only `minimal` transaction. It explicitly
@@ -175,6 +191,8 @@ marker-owned Reconc block, the first run emits the exact
 target and plan-exact candidate, promotes the block transactionally, removes
 the candidate, replans, and continues. It never accepts a whole-file or
 non-marker conflict.
+The same exact-build user-CLI install and preflight runs before inspection or
+repository mutation.
 
 ### `reconc adopt [repo] [--yaml | --json | --apply]`
 Detects common tooling (JavaScript, TypeScript, npm, pnpm, Yarn, Bun, Python,

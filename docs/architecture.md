@@ -107,6 +107,7 @@ internal/
   tasklifecycle/  typed TASK profiles + recoverable state transactions
   templates/      bundled rule-shape templates (embed.FS) + user overlays
   tui/            dependency-free terminal dashboard
+  usercli/        atomic running-build install + exact bare-command PATH verification
 ```
 
 `cmd/reconc/main.go` parses argv, delegates to
@@ -152,17 +153,23 @@ handling.
    Read-only commands never refresh policy. `RECONC_AUDIT=1` is still required
    for the optional decision audit log.
 
-5. **Advisory compile lock.** `.reconc/.compile.lock` is a reusable OS-backed
+5. **One stable interactive command.** `install-cli` atomically publishes the
+   exact running executable to the user install directory and verifies the
+   binary resolved by bare `reconc`. Mutating bootstrap performs that install
+   and identity check before repository writes; transactional verification
+   checks it again.
+
+6. **Advisory compile lock.** `.reconc/.compile.lock` is a reusable OS-backed
    exclusive file lock. A second compiler fails immediately, process exit
    releases ownership automatically, and no timestamp-based stale reaping can
    steal a live lock.
 
-6. **Satisfiable conflict analysis.** Static command contradictions follow
+7. **Satisfiable conflict analysis.** Static command contradictions follow
    runtime `require_command` semantics: any configured alternative can satisfy
    the rule. A forbid/require pair is reported only when their exact trigger
    scopes overlap and one forbid rule blocks every required alternative.
 
-7. **Exact MCP identity and effect.** MCP classification uses the complete
+8. **Exact MCP identity and effect.** MCP classification uses the complete
    `(platform, server_fingerprint, tool)` key. Fingerprint presence never
    falls back to a weaker selector. Effect-specific RFC 6901 fields must resolve
    to typed repository-contained paths or exact commands before policy or
@@ -295,6 +302,7 @@ responsibility-owned command file, canonical command metadata, focused tests, an
         ├──► proofbundle ──► completiongate, commandproof, policyproof, schema
         ├──► retention
         ├──► tasklifecycle
+        ├──► usercli ──► atomicfile, pathidentity
         ├──► agentguide (embed)
         ├──► templates  (embed)
         ├──► presets    (embed)
