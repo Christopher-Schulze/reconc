@@ -224,12 +224,15 @@ func TestBootstrapApplyInstallsTheRunningBuildAndRequiresItOnPATHBeforeWriting(t
 	t.Setenv("PATH", t.TempDir())
 	stdout.Reset()
 	err := Run([]string{"bootstrap", "apply", "--plan", planPath, "--json"}, "test", &stdout, &stderr)
-	if err == nil || !strings.Contains(err.Error(), "was installed but is not directly callable from PATH") || !strings.Contains(err.Error(), "export PATH") {
-		t.Fatalf("missing user CLI preflight error = %v", err)
-	}
 	status, inspectErr := usercli.InspectCurrent(installDirectory)
 	if inspectErr != nil || !status.Installed || !status.Current {
 		t.Fatalf("bootstrap did not install the running build: status=%+v err=%v", status, inspectErr)
+	}
+	if err == nil ||
+		!strings.Contains(err.Error(), "was installed but is not directly callable from PATH") ||
+		status.NextAction == "" ||
+		!strings.Contains(err.Error(), status.NextAction) {
+		t.Fatalf("user CLI preflight error = %v, want native remediation %q", err, status.NextAction)
 	}
 	if entries, readErr := os.ReadDir(repo); readErr != nil || len(entries) != 0 {
 		t.Fatalf("failed user CLI preflight mutated repo: entries=%v err=%v", entries, readErr)
