@@ -1,6 +1,7 @@
 package agentsession
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -59,6 +60,152 @@ func TestEvidenceRotationPreservesItemBoundedCommands(t *testing.T) {
 	}
 	if state.EvidenceOverflow || state.EvidenceSegmentCount == 0 || len(complete.Commands) != maxCommandEvidenceItems+8 {
 		t.Fatalf("item rotation lost evidence: live=%+v complete=%d", state, len(complete.Commands))
+	}
+}
+
+func TestEvidenceSegmentChainLinksMultipleSegments(t *testing.T) {
+	_, repo := withStateRoot(t)
+	const sessionID = "multi-segment"
+	if _, err := InitializeSessionState(repo, sessionID); err != nil {
+		t.Fatal(err)
+	}
+	commandCount := 2*maxCommandEvidenceItems + 17
+	appendCommandRange(t, repo, sessionID, 0, maxCommandEvidenceItems)
+	appendCommandRange(t, repo, sessionID, maxCommandEvidenceItems, maxCommandEvidenceItems)
+	appendCommandRange(t, repo, sessionID, 2*maxCommandEvidenceItems, 17)
+	state, err := LoadSessionState(repo, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.EvidenceSegmentCount != 2 {
+		t.Fatalf("segment count = %d, want 2", state.EvidenceSegmentCount)
+	}
+	first, err := readEvidenceSegment(state.RepoRoot, sessionID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := readEvidenceSegment(state.RepoRoot, sessionID, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.PreviousDigest != first.Digest || state.EvidenceSegmentDigest != second.Digest {
+		t.Fatalf("segment chain is not linked: first=%s second.previous=%s head=%s second=%s",
+			first.Digest, second.PreviousDigest, state.EvidenceSegmentDigest, second.Digest)
+	}
+	complete, err := loadCompleteSessionEvidence(state.RepoRoot, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(complete.Commands) != commandCount {
+		t.Fatalf("complete command count = %d, want %d", len(complete.Commands), commandCount)
+	}
+}
+
+func TestEvidenceSegmentChainRejectsRedigestedBrokenLink(t *testing.T) {
+	_, repo := withStateRoot(t)
+	const sessionID = "broken-link"
+	if _, err := InitializeSessionState(repo, sessionID); err != nil {
+		t.Fatal(err)
+	}
+	appendCommandRange(t, repo, sessionID, 0, maxCommandEvidenceItems)
+	appendCommandRange(t, repo, sessionID, maxCommandEvidenceItems, maxCommandEvidenceItems)
+	appendCommandRange(t, repo, sessionID, 2*maxCommandEvidenceItems, 1)
+	state, err := LoadSessionState(repo, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := readEvidenceSegment(state.RepoRoot, sessionID, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second.PreviousDigest = strings.Repeat("0", 64)
+	second.Digest, err = evidenceSegmentDigest(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.MarshalIndent(second, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = append(body, '\n')
+	if err := os.WriteFile(evidenceSegmentPath(state.RepoRoot, sessionID, 2), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadCompleteSessionEvidence(state.RepoRoot, state); err == nil ||
+		!strings.Contains(err.Error(), "previous digest mismatch") {
+		t.Fatalf("re-digested broken link was accepted: %v", err)
+	}
+	taint, err := loadEvidenceTaint(state.RepoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if taint == nil || taint.Field != "evidence_segments" || taint.Limit != "chain_integrity" {
+		t.Fatalf("broken link did not persist chain-integrity taint: %+v", taint)
+	}
+}
+
+func TestStopPolicyConsumesWriteEvidenceFromSealedSegment(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	const sessionID = "sealed-policy-evidence"
+	if _, err := InitializeSessionState(repo, sessionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MutateSessionState(repo, sessionID, func(state SessionState) SessionState {
+		return AppendWritePath(state, "src/a.go")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	appendCommandRange(t, repo, sessionID, 0, maxCommandEvidenceItems)
+	appendCommandRange(t, repo, sessionID, maxCommandEvidenceItems, 1)
+	live, err := LoadSessionState(repo, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if live.EvidenceSegmentCount != 1 || len(live.WritePaths) != 0 {
+		t.Fatalf("write evidence was not isolated in the sealed segment: %+v", live)
+	}
+	result := RunStop(repo, []byte(`{"session_id":"sealed-policy-evidence"}`))
+	if result.ExitCode != 0 || !strings.Contains(result.Stdout, `"decision":"block"`) ||
+		!strings.Contains(result.Stdout, "require-ci-green") {
+		t.Fatalf("Stop policy ignored sealed write evidence: %+v", result)
+	}
+}
+
+func TestCommandResultIdentityPreservesNullableValues(t *testing.T) {
+	zero := 0
+	zeroAgain := 0
+	falseValue := false
+	falseAgain := false
+	base := CommandResult{Command: "go test ./...", Outcome: "success"}
+	if commandResultsEqual(base, CommandResult{Command: base.Command, Outcome: base.Outcome, ExitCode: &zero}) {
+		t.Fatal("nil exit code compared equal to zero")
+	}
+	if !commandResultsEqual(
+		CommandResult{Command: base.Command, Outcome: base.Outcome, ExitCode: &zero},
+		CommandResult{Command: base.Command, Outcome: base.Outcome, ExitCode: &zeroAgain},
+	) {
+		t.Fatal("equal exit-code values at different addresses compared unequal")
+	}
+	if commandResultsEqual(base, CommandResult{Command: base.Command, Outcome: base.Outcome, IsInterrupt: &falseValue}) {
+		t.Fatal("nil interrupt marker compared equal to false")
+	}
+	if !commandResultsEqual(
+		CommandResult{Command: base.Command, Outcome: base.Outcome, IsInterrupt: &falseValue},
+		CommandResult{Command: base.Command, Outcome: base.Outcome, IsInterrupt: &falseAgain},
+	) {
+		t.Fatal("equal interrupt values at different addresses compared unequal")
+	}
+}
+
+func appendCommandRange(t *testing.T, repo, sessionID string, start, count int) {
+	t.Helper()
+	if _, err := MutateSessionState(repo, sessionID, func(state SessionState) SessionState {
+		for index := start; index < start+count; index++ {
+			state = AppendCommand(state, fmt.Sprintf("command-%04d", index))
+		}
+		return state
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 

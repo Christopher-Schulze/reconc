@@ -170,6 +170,7 @@ func loadCompleteSessionEvidence(repoRoot string, state SessionState) (SessionSt
 	complete.Commands = []string{}
 	complete.Claims = []string{}
 	complete.CommandResults = []CommandResult{}
+	merger := newEvidenceMerger(&complete)
 	previousDigest := ""
 	for index := uint64(1); index <= state.EvidenceSegmentCount; index++ {
 		segment, err := readEvidenceSegment(repoRoot, state.SessionID, index)
@@ -180,14 +181,16 @@ func loadCompleteSessionEvidence(repoRoot string, state SessionState) (SessionSt
 			return SessionState{}, persistEvidenceChainFailure(repoRoot, state,
 				fmt.Errorf("evidence segment %d previous digest mismatch", index))
 		}
-		mergeEvidenceSegment(&complete, segment)
+		merger.merge(segment.ReadPaths, segment.WritePaths, segment.WriteEpochs,
+			segment.Commands, segment.Claims, segment.CommandResults)
 		previousDigest = segment.Digest
 	}
 	if previousDigest != state.EvidenceSegmentDigest {
 		return SessionState{}, persistEvidenceChainFailure(repoRoot, state,
 			errors.New("evidence segment chain head does not match session state"))
 	}
-	mergeLiveEvidence(&complete, state)
+	merger.merge(state.ReadPaths, state.WritePaths, state.WriteEpochs,
+		state.Commands, state.Claims, state.CommandResults)
 	return complete, nil
 }
 
@@ -243,54 +246,71 @@ func evidenceSegmentDigest(segment evidenceSegment) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-func mergeEvidenceSegment(state *SessionState, segment evidenceSegment) {
-	mergeEvidenceCollections(state, segment.ReadPaths, segment.WritePaths, segment.WriteEpochs,
-		segment.Commands, segment.Claims, segment.CommandResults)
+type evidenceMerger struct {
+	state    *SessionState
+	reads    map[string]struct{}
+	writes   map[string]struct{}
+	commands map[string]struct{}
+	claims   map[string]struct{}
+	results  map[commandResultKey]struct{}
 }
 
-func mergeLiveEvidence(target *SessionState, live SessionState) {
-	mergeEvidenceCollections(target, live.ReadPaths, live.WritePaths, live.WriteEpochs,
-		live.Commands, live.Claims, live.CommandResults)
+func newEvidenceMerger(state *SessionState) *evidenceMerger {
+	merger := &evidenceMerger{
+		state:    state,
+		reads:    makeStringSet(state.ReadPaths),
+		writes:   makeStringSet(state.WritePaths),
+		commands: makeStringSet(state.Commands),
+		claims:   makeStringSet(state.Claims),
+		results:  make(map[commandResultKey]struct{}, len(state.CommandResults)),
+	}
+	for _, result := range state.CommandResults {
+		merger.results[commandResultIdentity(result)] = struct{}{}
+	}
+	return merger
 }
 
-func mergeEvidenceCollections(
-	state *SessionState,
+func (m *evidenceMerger) merge(
 	reads, writes []string,
 	writeEpochs map[string]uint64,
 	commands, claims []string,
 	results []CommandResult,
 ) {
-	state.ReadPaths = mergeUniqueStrings(state.ReadPaths, reads)
-	state.WritePaths = mergeUniqueStrings(state.WritePaths, writes)
+	appendUniqueStrings(&m.state.ReadPaths, reads, m.reads)
+	appendUniqueStrings(&m.state.WritePaths, writes, m.writes)
 	for path, epoch := range writeEpochs {
-		if epoch > state.WriteEpochs[path] {
-			state.WriteEpochs[path] = epoch
+		if epoch > m.state.WriteEpochs[path] {
+			m.state.WriteEpochs[path] = epoch
 		}
 	}
-	state.Commands = mergeUniqueStrings(state.Commands, commands)
-	state.Claims = mergeUniqueStrings(state.Claims, claims)
+	appendUniqueStrings(&m.state.Commands, commands, m.commands)
+	appendUniqueStrings(&m.state.Claims, claims, m.claims)
 	for _, result := range results {
-		found := false
-		for _, current := range state.CommandResults {
-			if commandResultsEqual(current, result) {
-				found = true
-				break
-			}
+		key := commandResultIdentity(result)
+		if _, found := m.results[key]; found {
+			continue
 		}
-		if !found {
-			state.CommandResults = append(state.CommandResults, result)
-		}
+		m.results[key] = struct{}{}
+		m.state.CommandResults = append(m.state.CommandResults, result)
 	}
 }
 
-func mergeUniqueStrings(existing, added []string) []string {
-	out := append([]string{}, existing...)
-	for _, value := range added {
-		if !containsString(out, value) {
-			out = append(out, value)
-		}
+func makeStringSet(values []string) map[string]struct{} {
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		seen[value] = struct{}{}
 	}
-	return out
+	return seen
+}
+
+func appendUniqueStrings(target *[]string, added []string, seen map[string]struct{}) {
+	for _, value := range added {
+		if _, found := seen[value]; found {
+			continue
+		}
+		seen[value] = struct{}{}
+		*target = append(*target, value)
+	}
 }
 
 func persistEvidenceTaint(repoRoot string, state SessionState) error {

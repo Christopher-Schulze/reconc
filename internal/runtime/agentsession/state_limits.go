@@ -213,10 +213,39 @@ func commandResultBytes(results []CommandResult) int {
 	return total
 }
 
+type commandResultKey struct {
+	Command       string
+	Outcome       string
+	EvidenceEpoch uint64
+	ToolUseID     string
+	HasExitCode   bool
+	ExitCode      int
+	Error         string
+	HasInterrupt  bool
+	IsInterrupt   bool
+}
+
+func commandResultIdentity(result CommandResult) commandResultKey {
+	key := commandResultKey{
+		Command:       result.Command,
+		Outcome:       result.Outcome,
+		EvidenceEpoch: result.EvidenceEpoch,
+		ToolUseID:     result.ToolUseID,
+		Error:         result.Error,
+	}
+	if result.ExitCode != nil {
+		key.HasExitCode = true
+		key.ExitCode = *result.ExitCode
+	}
+	if result.IsInterrupt != nil {
+		key.HasInterrupt = true
+		key.IsInterrupt = *result.IsInterrupt
+	}
+	return key
+}
+
 func commandResultsEqual(a, b CommandResult) bool {
-	aBytes, aErr := json.Marshal(a)
-	bBytes, bErr := json.Marshal(b)
-	return aErr == nil && bErr == nil && string(aBytes) == string(bBytes)
+	return commandResultIdentity(a) == commandResultIdentity(b)
 }
 
 func truncateBytes(value string, limit int) string {
