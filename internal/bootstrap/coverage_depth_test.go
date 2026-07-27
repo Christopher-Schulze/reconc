@@ -29,7 +29,7 @@ func TestValidatePlanRejectsEveryStructuralContradiction(t *testing.T) {
 		want   string
 	}{
 		{name: "format", mutate: func(plan *Plan) { plan.FormatVersion = "future" }, want: "format_version"},
-		{name: "repository", mutate: func(plan *Plan) { plan.RepoRoot = filepath.Join(repo, "..", filepath.Base(repo)) }, want: "not canonical"},
+		{name: "repository", mutate: func(plan *Plan) { plan.RepoRoot += string(os.PathSeparator) }, want: "not canonical"},
 		{name: "product version", mutate: func(plan *Plan) { plan.ProductVersion = " " }, want: "product_version"},
 		{name: "profile", mutate: func(plan *Plan) { plan.Selection.Profile = "unknown" }, want: "unknown bootstrap profile"},
 		{name: "missing default packs", mutate: func(plan *Plan) { plan.Selection.Packs = nil }, want: "default packs"},
