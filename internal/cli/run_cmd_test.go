@@ -60,11 +60,10 @@ func TestFollowRunLogTailsNewRecords(t *testing.T) {
 		done <- followRunLog(ctx, repo, "", "", false, 5*time.Millisecond, sw)
 	}()
 
-	// Append a NEW record after the follow loop is running.
-	time.Sleep(20 * time.Millisecond)
-	appendRunDecisionRaw(t, repo, agentsession.RunDecision{Event: "stop", Branch: "live_tail_branch", Runtime: "cursor"})
-
-	deadline := time.After(3 * time.Second)
+	appendTicker := time.NewTicker(20 * time.Millisecond)
+	defer appendTicker.Stop()
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
 	for {
 		mu.Lock()
 		got := buf.String()
@@ -73,11 +72,15 @@ func TestFollowRunLogTailsNewRecords(t *testing.T) {
 			break
 		}
 		select {
-		case <-deadline:
+		case <-appendTicker.C:
+			// Repeat the live append until the follower observes one record.
+			// This avoids assuming the goroutine was scheduled before a fixed
+			// sleep elapsed on a loaded CI runner.
+			appendRunDecisionRaw(t, repo, agentsession.RunDecision{Event: "stop", Branch: "live_tail_branch", Runtime: "cursor"})
+		case <-deadline.C:
 			cancel()
 			<-done
 			t.Fatalf("follow did not tail the live record in time, got: %q", got)
-		case <-time.After(10 * time.Millisecond):
 		}
 	}
 	cancel()

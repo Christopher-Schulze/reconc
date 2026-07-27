@@ -135,8 +135,13 @@ func TestPlanPersistenceRejectsAmbiguousOrForeignState(t *testing.T) {
 	if err := os.WriteFile(blockedParent, []byte("block"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := WritePlan(filepath.Join(blockedParent, "plan.json"), plan); err == nil || !strings.Contains(err.Error(), "read bootstrap plan output") {
+	if _, err := WritePlan(filepath.Join(blockedParent, "plan.json"), plan); err == nil ||
+		(!strings.Contains(err.Error(), "read bootstrap plan output") &&
+			!strings.Contains(err.Error(), "create bootstrap plan parent")) {
 		t.Fatalf("blocked parent error = %v", err)
+	}
+	if body, err := os.ReadFile(blockedParent); err != nil || string(body) != "block" {
+		t.Fatalf("blocked parent was mutated: body=%q err=%v", body, err)
 	}
 
 	foreignRepo := t.TempDir()

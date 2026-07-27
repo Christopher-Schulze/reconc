@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -63,7 +64,10 @@ func TestMCPAuditRoundTripIsRedactedBoundedAndDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if mode := info.Mode().Perm(); mode != 0o600 {
+	if !info.Mode().IsRegular() {
+		t.Fatalf("audit is not a regular file: %v", info.Mode())
+	}
+	if mode := info.Mode().Perm(); runtime.GOOS != "windows" && mode != 0o600 {
 		t.Fatalf("audit mode = %04o, want 0600", mode)
 	}
 }

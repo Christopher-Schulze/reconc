@@ -120,6 +120,10 @@ func TestTailDataKeepsOnlyCompleteRecords(t *testing.T) {
 	if err := os.WriteFile(path, []byte("first\nsecond\npartial"), 0o640); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat fixture: %v", err)
+	}
 	original, kept, body, mode, err := tailData(path, 15)
 	if err != nil {
 		t.Fatalf("tailData: %v", err)
@@ -127,7 +131,7 @@ func TestTailDataKeepsOnlyCompleteRecords(t *testing.T) {
 	if original != 20 || kept != 7 || string(body) != "second\n" {
 		t.Fatalf("tailData = original %d, kept %d, body %q", original, kept, body)
 	}
-	if mode != 0o640 {
-		t.Fatalf("mode = %o, want 640", mode)
+	if mode != info.Mode().Perm() {
+		t.Fatalf("mode = %o, want source mode %o", mode, info.Mode().Perm())
 	}
 }

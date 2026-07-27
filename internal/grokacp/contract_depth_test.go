@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -52,9 +53,9 @@ func TestACPClientServerMethodErrorAndTerminalState(t *testing.T) {
 
 func TestInspectJSONRunsBoundedRealProcess(t *testing.T) {
 	root := t.TempDir()
-	body, err := InspectJSON(context.Background(), root, "/bin/echo")
+	body, err := inspectJSONWithCommand(context.Background(), root, "grok", grokInspectHelperCommand("success"))
 	if err != nil {
-		t.Fatalf("InspectJSON(echo): %v", err)
+		t.Fatalf("inspectJSONWithCommand(helper): %v", err)
 	}
 	for _, expected := range []string{"--cwd", root, "inspect", "--json"} {
 		if !strings.Contains(string(body), expected) {
@@ -69,17 +70,40 @@ func TestInspectJSONRunsBoundedRealProcess(t *testing.T) {
 
 func TestInspectJSONPreservesStdoutAndStderrFailure(t *testing.T) {
 	root := t.TempDir()
-	script := filepath.Join(root, "grok-fixture")
-	body := []byte("#!/bin/sh\nprintf 'partial-output'\nprintf 'diagnostic' >&2\nexit 7\n")
-	if err := os.WriteFile(script, body, 0o700); err != nil {
-		t.Fatalf("write process fixture: %v", err)
-	}
-	stdout, err := InspectJSON(context.Background(), root, script)
+	stdout, err := inspectJSONWithCommand(context.Background(), root, "grok", grokInspectHelperCommand("failure"))
 	if err == nil || !strings.Contains(err.Error(), "diagnostic") {
 		t.Fatalf("expected stderr-enriched process failure, got %v", err)
 	}
 	if string(stdout) != "partial-output" {
 		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestGrokInspectHelperProcess(t *testing.T) {
+	mode := os.Getenv("RECONC_GROK_INSPECT_HELPER")
+	if mode == "" {
+		return
+	}
+	switch mode {
+	case "success":
+		_, _ = io.WriteString(os.Stdout, strings.Join(os.Args, " "))
+		os.Exit(0)
+	case "failure":
+		_, _ = io.WriteString(os.Stdout, "partial-output")
+		_, _ = io.WriteString(os.Stderr, "diagnostic")
+		os.Exit(7)
+	default:
+		os.Exit(64)
+	}
+}
+
+func grokInspectHelperCommand(mode string) commandRunner {
+	return func(ctx context.Context, _ string, args ...string) *exec.Cmd {
+		helperArgs := []string{"-test.run=^TestGrokInspectHelperProcess$", "--"}
+		helperArgs = append(helperArgs, args...)
+		cmd := exec.CommandContext(ctx, os.Args[0], helperArgs...)
+		cmd.Env = append(os.Environ(), "RECONC_GROK_INSPECT_HELPER="+mode)
+		return cmd
 	}
 }
 
