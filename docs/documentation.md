@@ -189,8 +189,8 @@ make cover
 make bench
 make self-host
 make publication-audit
-make sbom VERSION=0.8.7
-make release VERSION=0.8.7
+make sbom VERSION=0.8.8
+make release VERSION=0.8.8
 ```
 
 `make coverage` runs both Go modules with atomic whole-module instrumentation
@@ -244,9 +244,9 @@ download, manifest, checksum, execution, staging, or publication failure leaves
 an existing installation untouched. Windows arm64 remains unsupported until
 the release matrix ships a matching native asset.
 
-The immutable v0.8.7 tag contains both `install.sh` and `install.ps1`. Public
+The immutable v0.8.8 tag contains both `install.sh` and `install.ps1`. Public
 bootstrap commands fetch the appropriate script from that tag, never from
-mutable `main`, and install the matching checksummed v0.8.7 binary.
+mutable `main`, and install the matching checksummed v0.8.8 binary.
 
 When the GitHub CLI (`gh`) is available, the installer additionally verifies
 the downloaded binary against its GitHub build-provenance attestation before
@@ -409,7 +409,7 @@ that opt-in audit write is independent of policy refresh. Explicit `check`,
 private unresolved-block receipt below `RECONC_HOME`; governed worktree content
 remains untouched.
 
-The v0.8.7 release can export the same completion candidate for external
+The current v0.8.8 release can export the same completion candidate for external
 review:
 
 ```bash
@@ -494,8 +494,8 @@ particular installation is live.
 
 ### How do I install and test it?
 
-Use the immutable v0.8.7 POSIX installer for macOS or Linux and the immutable
-v0.8.7 PowerShell installer for Windows x64. Put the installed binary on
+Use the immutable v0.8.8 POSIX installer for macOS or Linux and the immutable
+v0.8.8 PowerShell installer for Windows x64. Put the installed binary on
 `PATH`, then
 run `reconc demo` for a network-free, disposable proof of the real
 block-to-remediation-to-completion journey. Contributors building current
@@ -1003,7 +1003,7 @@ source. The exemption is bounded. It applies only when the failure is the
 lockfile contract itself rather than a policy violation, every executable
 position in the command must be a repair invocation so a compound command
 cannot smuggle work through, analysis must be complete, and the executable must
-be `reconc` or a versioned release artifact such as `reconc-0.8.7-darwin-arm64`.
+be `reconc` or a versioned release artifact such as `reconc-0.8.8-darwin-arm64`.
 The emitted remediation therefore tells the operator to run the repair as the
 only executable command. Piping it to another command or chaining unrelated
 work is deliberately refused.
@@ -1966,7 +1966,7 @@ current-state documentation.
 
 ## Release State
 
-The current source line is `v0.8.x`; the source version is `v0.8.7`. Release
+The current source line is `v0.8.x`; the source version is `v0.8.8`. Release
 artifacts are produced only through an explicit manual Release workflow
 dispatch for an existing `reconc-vX.Y.Z` tag; tag pushes never publish a
 release.

@@ -112,10 +112,10 @@ func TestIsLockfileRepairCommandAdmitsEveryDocumentedInvocationForm(t *testing.T
 	for _, command := range []string{
 		"reconc refresh .",
 		"reconc compile .",
-		"dist/reconc-0.8.7-darwin-arm64 refresh .",
-		"/usr/local/lib/reconc/reconc-0.8.7-darwin-arm64 refresh /srv/repository",
+		"dist/reconc-0.8.8-darwin-arm64 refresh .",
+		"/usr/local/lib/reconc/reconc-0.8.8-darwin-arm64 refresh /srv/repository",
 		"dist/reconc-1.0.0-linux-amd64 compile .",
-		"reconc-0.8.7-windows-amd64.exe refresh .",
+		"reconc-0.8.8-windows-amd64.exe refresh .",
 		"reconc --json refresh .",
 	} {
 		if !isLockfileRepairCommand(command) {
@@ -157,7 +157,7 @@ func TestIsReconcExecutableRequiresANumericVersionSegment(t *testing.T) {
 	}{
 		{token: "reconc", want: true},
 		{token: "/usr/local/bin/reconc", want: true},
-		{token: "reconc-0.8.7-darwin-arm64", want: true},
+		{token: "reconc-0.8.8-darwin-arm64", want: true},
 		{token: "reconc-1-linux-amd64", want: true},
 		{token: "reconc-evil", want: false},
 		{token: "reconc-", want: false},

@@ -13,7 +13,7 @@ body:
     attributes:
       label: Reconc version or commit
       description: Output from `reconc version` or the exact source commit.
-      placeholder: reconc 0.8.7 or commit SHA
+      placeholder: reconc 0.8.8 or commit SHA
     validations:
       required: true
   - type: dropdown

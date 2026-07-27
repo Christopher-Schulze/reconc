@@ -55,7 +55,7 @@ Bun.
 
 ## Current Release State
 
-The current source line is `v0.8.x`; the source version is `v0.8.7`. Core
+The current source line is `v0.8.x`; the source version is `v0.8.8`. Core
 tests, race tests, vet, static analysis, and release artifact generation must
 pass before publication. Coverage is measured across each complete Go module,
 not inferred from package-local percentages.

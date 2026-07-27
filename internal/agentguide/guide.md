@@ -120,7 +120,7 @@ Waiting never clears a block. Text mode prints all failed checks and one exact
 next action; exit 0 means done, exit 2 means blocked, and exit 1 means the gate
 itself failed.
 
-The v0.8.7 release can export the same candidate as portable JSON or Markdown
+The current v0.8.8 release can export the same candidate as portable JSON or Markdown
 reviewer evidence without executing missing commands or persisting a new
 policy decision:
 ```bash

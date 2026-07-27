@@ -71,8 +71,8 @@ Install the checksummed, provenance-attested macOS or Linux release without
 building:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.7/install.sh \
-  | sh -s -- 0.8.7
+curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.8/install.sh \
+  | sh -s -- 0.8.8
 export PATH="$HOME/.local/bin:$PATH"
 reconc demo
 ```
@@ -81,8 +81,8 @@ On Windows x64, run the native PowerShell installer:
 
 ```powershell
 $installer = Join-Path $env:TEMP "reconc-install.ps1"
-Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.7/install.ps1 -OutFile $installer
-& $installer 0.8.7
+Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.8/install.ps1 -OutFile $installer
+& $installer 0.8.8
 Remove-Item $installer
 $env:Path = "$env:LOCALAPPDATA\Programs\Reconc\bin;$env:Path"
 reconc demo
@@ -173,8 +173,8 @@ CI, and completion boundaries it controls.
 Install the checksummed, provenance-attested macOS or Linux release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.7/install.sh \
-  | sh -s -- 0.8.7
+curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.8/install.sh \
+  | sh -s -- 0.8.8
 export PATH="$HOME/.local/bin:$PATH"
 reconc demo
 ```
@@ -183,17 +183,17 @@ On Windows x64:
 
 ```powershell
 $installer = Join-Path $env:TEMP "reconc-install.ps1"
-Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.7/install.ps1 -OutFile $installer
-& $installer 0.8.7
+Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.8/install.ps1 -OutFile $installer
+& $installer 0.8.8
 Remove-Item $installer
 $env:Path = "$env:LOCALAPPDATA\Programs\Reconc\bin;$env:Path"
 reconc demo
 ```
 
-The immutable v0.8.7 tag contains both installer scripts, so neither bootstrap
+The immutable v0.8.8 tag contains both installer scripts, so neither bootstrap
 path fetches executable installation logic from mutable `main`.
 
-Both native installers verify the exact v0.8.7 release asset against
+Both native installers verify the exact v0.8.8 release asset against
 `SHA256SUMS`,
 smoke-test the candidate before replacing an existing installation, and use
 GitHub build-provenance attestations when `gh` is available. Release CI
@@ -327,7 +327,7 @@ blocking until a later explicit non-blocking check clears it; waiting never
 does. `--require-clean-git` adds a clean-tree requirement. `--window` remains
 accepted only for compatibility and has no time-based pass semantics.
 
-The v0.8.7 release provides the portable proof exporter:
+The current v0.8.8 release provides the portable proof exporter:
 
 ```bash
 reconc proof . --output proof.json
@@ -649,7 +649,7 @@ through the private route in
 
 ## Status
 
-The source line is `v0.8.x`, and the current source version is `v0.8.7`.
+The source line is `v0.8.x`, and the current source version is `v0.8.8`.
 Release artifacts are produced only by
 an explicit manual workflow dispatch for an existing `reconc-vX.Y.Z` tag; tag
 pushes never publish a release. Every published release SBOM is regenerated and

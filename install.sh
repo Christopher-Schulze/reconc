@@ -4,7 +4,7 @@
 #
 # Usage:
 #   sh install.sh                      # install the current default version
-#   sh install.sh 0.8.7                # pin version
+#   sh install.sh 0.8.8                # pin version
 #   RECONC_INSTALL_DIR=/tmp sh install.sh
 #
 # Pre-install-bootstrap exception: the installer must run before the Go binary
@@ -13,7 +13,7 @@
 
 set -eu
 
-VERSION="${1:-0.8.7}"
+VERSION="${1:-0.8.8}"
 RELEASE_BASE="${RECONC_RELEASE_BASE:-https://github.com/Christopher-Schulze/reconc/releases/download}"
 BIN_NAME="reconc"
 

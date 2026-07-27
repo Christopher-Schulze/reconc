@@ -2,7 +2,7 @@
 param(
     [Parameter(Position = 0)]
     [ValidateNotNullOrEmpty()]
-    [string]$Version = "0.8.7"
+    [string]$Version = "0.8.8"
 )
 
 Set-StrictMode -Version Latest
