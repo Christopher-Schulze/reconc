@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -739,10 +740,13 @@ func TestSchedulingHelpersRejectEveryAmbiguousControlValue(t *testing.T) {
 		t.Fatal("unknown priority/status must be rejected")
 	}
 
-	for _, surface := range []string{"", "/absolute", "../escape", `docs\bad`, ".", "*", "**", "codebase", "docs", "research"} {
+	for _, surface := range []string{"", "/absolute", "../escape", "docs\tbad", ".", "*", "**", "codebase", "docs", "research"} {
 		if !invalidTouchSurface(surface) {
 			t.Fatalf("invalidTouchSurface(%q) = false", surface)
 		}
+	}
+	if surface := filepath.Join("backend", "project", "**"); invalidTouchSurface(surface) {
+		t.Fatalf("invalidTouchSurface(%q) = true for a platform-native bounded path", surface)
 	}
 	if invalidTouchSurface("backend/project/**") {
 		t.Fatal("bounded owner glob must be valid")

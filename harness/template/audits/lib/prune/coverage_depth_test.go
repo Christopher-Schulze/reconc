@@ -30,6 +30,38 @@ func TestResolveStateRootHonorsExplicitAndEnvironmentPrecedence(t *testing.T) {
 	}
 }
 
+func TestLoadPolicyAppliesEveryPositiveOverride(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "policy.yaml")
+	content := strings.Join([]string{
+		"sessions_retention: 11",
+		"reports_retention: 12",
+		"command_proofs_retention: 13",
+		"audit_jsonl_max_bytes: 14000",
+		"audit_jsonl_max_lines: 15",
+		"prune_interval_seconds: 16",
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write policy fixture: %v", err)
+	}
+
+	got, err := LoadPolicy(path)
+	if err != nil {
+		t.Fatalf("LoadPolicy: %v", err)
+	}
+	want := Policy{
+		SessionsRetention:      11,
+		ReportsRetention:       12,
+		CommandProofsRetention: 13,
+		AuditJsonlMaxBytes:     14000,
+		AuditJsonlMaxLines:     15,
+		PruneIntervalSeconds:   16,
+	}
+	if got != want {
+		t.Fatalf("LoadPolicy() = %+v, want %+v", got, want)
+	}
+}
+
 func TestPruneDirNegativeRetentionDeletesEveryRegularFileAndIgnoresDirs(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"a.json", "b.json"} {

@@ -166,6 +166,19 @@ func projectKey(repoRoot string) string {
 // pruneDir keeps the newest `keep` regular files in dir (by mtime), removes
 // the rest. Returns (kept, deleted) counts. Missing dir → (0, 0), no error.
 func pruneDir(dir string, keep int, dryRun bool, report *Report) (int, int) {
+	info, err := os.Stat(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return 0, 0
+		}
+		report.Errors = append(report.Errors, fmt.Sprintf("read %s: %v", dir, err))
+		return 0, 0
+	}
+	if !info.IsDir() {
+		report.Errors = append(report.Errors, fmt.Sprintf("read %s: not a directory", dir))
+		return 0, 0
+	}
+
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

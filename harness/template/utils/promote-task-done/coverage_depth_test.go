@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -35,8 +36,11 @@ func TestWriteAtomicCreatesNewFileWithPrivateStableMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat result: %v", err)
 	}
-	if info.Mode().Perm() != 0o644 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o644 {
 		t.Fatalf("new-file mode = %o, want 644", info.Mode().Perm())
+	}
+	if !info.Mode().IsRegular() {
+		t.Fatalf("new-file mode = %s, want regular file", info.Mode())
 	}
 	matches, err := filepath.Glob(filepath.Join(filepath.Dir(path), ".promote-task-done-*"))
 	if err != nil {
