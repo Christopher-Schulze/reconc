@@ -214,6 +214,61 @@ func TestTypedTaskCompletionAndRequiredEvidence(t *testing.T) {
 	}
 }
 
+func TestTypedTaskTerminalAndCommittedStateContracts(t *testing.T) {
+	t.Run("queued work remains", func(t *testing.T) {
+		files := map[string]string{
+			".reconc.yml":              "task_lifecycle:\n  profile: sections-v1\n",
+			"docs/tasks.md":            "# TASK Control Plane\n\n## Active\n\n## Queue\n\n- [ ] 001 Queued -> tasks/001-queued.md\n\n## Blocked\n\n## Done\n",
+			"docs/tasks/001-queued.md": "# TASK 001: Queued\n\n## Why\n\nWait.\n\n## Acceptance\n\n- Done.\n\n## Sub-Tasks\n\n- [ ] Work\n\n## Notes\n\nNone.\n\n## Deviations\n\nNone.\n",
+		}
+		report := evaluateCompletion(t, completionRepo(t, "rules: []\n", files), completiongate.Options{})
+		assertFailedCheck(t, report, "task/terminal")
+	})
+
+	t.Run("blocked work remains", func(t *testing.T) {
+		files := map[string]string{
+			".reconc.yml":               "task_lifecycle:\n  profile: sections-v1\n",
+			"docs/tasks.md":             "# TASK Control Plane\n\n## Active\n\n## Queue\n\n## Blocked\n\n- [!] 001 Blocked -> tasks/001-blocked.md\n\n## Done\n",
+			"docs/tasks/001-blocked.md": "# TASK 001: Blocked\n\n## Why\n\nWait.\n\n## Acceptance\n\n- Done.\n\n## Sub-Tasks\n\n- [ ] Work\n\n## Blocker\n\nExternal dependency.\n\n## Notes\n\nNone.\n\n## Deviations\n\nNone.\n",
+		}
+		report := evaluateCompletion(t, completionRepo(t, "rules: []\n", files), completiongate.Options{})
+		assertFailedCheck(t, report, "task/terminal")
+	})
+
+	t.Run("terminal board passes", func(t *testing.T) {
+		files := map[string]string{
+			".reconc.yml":                 "task_lifecycle:\n  profile: sections-v1\n",
+			"docs/tasks.md":               "# TASK Control Plane\n\n## Active\n\n## Queue\n\n## Blocked\n\n## Done\n\n- [x] 001 Done -> tasks/done/001-done.md\n",
+			"docs/tasks/done/001-done.md": "# TASK 001: Done\n\n## Why\n\nComplete.\n\n## Acceptance\n\n- Done.\n\n## Sub-Tasks\n\n- [x] Work\n\n## Notes\n\nNone.\n\n## Deviations\n\nNone.\n",
+		}
+		report := evaluateCompletion(t, completionRepo(t, "rules: []\n", files), completiongate.Options{})
+		if !report.OK {
+			t.Fatalf("terminal TASK board was rejected: %+v", report.Checks)
+		}
+	})
+
+	t.Run("committed task plane is mandatory", func(t *testing.T) {
+		config := "task_lifecycle:\n  profile: sections-v1\n  completion:\n    require_committed: true\n"
+		files := map[string]string{
+			".reconc.yml":                  config,
+			"docs/tasks.md":                "# TASK Control Plane\n\n## Active\n\n- [~] 001 Ship proof -> tasks/001-ship-proof.md\n\n## Queue\n\n## Blocked\n\n## Done\n",
+			"docs/tasks/001-ship-proof.md": taskDetail("- [x] Prove it", ""),
+		}
+		repo := completionRepo(t, "rules: []\n", files)
+		report := evaluateCompletion(t, repo, completiongate.Options{})
+		assertFailedCheck(t, report, "task/committed")
+
+		initCompletionGit(t, repo)
+		report = evaluateCompletion(t, repo, completiongate.Options{})
+		if !report.OK {
+			t.Fatalf("committed TASK plane was rejected: %+v", report.Checks)
+		}
+		writeCompletionFile(t, repo, "docs/tasks/001-ship-proof.md", taskDetail("- [x] Prove it", "")+"\n")
+		report = evaluateCompletion(t, repo, completiongate.Options{})
+		assertFailedCheck(t, report, "task/committed")
+	})
+}
+
 func TestCleanGitIsExplicitOptIn(t *testing.T) {
 	repo := completionRepo(t, "rules: []\n", nil)
 	initCompletionGit(t, repo)

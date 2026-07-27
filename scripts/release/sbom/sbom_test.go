@@ -76,6 +76,54 @@ func TestResolveModuleKeyUsesSelectedVersion(t *testing.T) {
 	}
 }
 
+func TestSBOMCLIParsesStrictIdentityAndRunsGenerateVerify(t *testing.T) {
+	root, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := t.TempDir()
+	args := []string{
+		"--root", root,
+		"--output-dir", output,
+		"--version", "9.8.7",
+		"--commit", testCommit,
+		"--source-date-epoch", "1700000000",
+	}
+	if err := run(append([]string{"generate"}, args...)); err != nil {
+		t.Fatalf("generate CLI: %v", err)
+	}
+	if err := run(append([]string{"verify"}, args...)); err != nil {
+		t.Fatalf("verify CLI: %v", err)
+	}
+	for _, name := range []string{"reconc-9.8.7.spdx.json", "reconc-9.8.7.cdx.json"} {
+		if _, err := os.Stat(filepath.Join(output, name)); err != nil {
+			t.Fatalf("generated document %s: %v", name, err)
+		}
+	}
+}
+
+func TestSBOMCLIRejectsIncompleteAndAmbiguousArguments(t *testing.T) {
+	if err := run(nil); err == nil || !strings.Contains(err.Error(), "usage") {
+		t.Fatalf("empty CLI error = %v", err)
+	}
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "missing identity", args: nil, want: "required"},
+		{name: "unknown flag", args: []string{"--unknown"}, want: "flag"},
+		{name: "positional", args: []string{"--version", "1", "--commit", testCommit, "--source-date-epoch", "1", "extra"}, want: "required"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := parseOptions("generate", test.args); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("parseOptions() error = %v, want substring %q", err, test.want)
+			}
+		})
+	}
+}
+
 func assertSPDX(t *testing.T, body []byte) {
 	t.Helper()
 	var document spdxDocument

@@ -194,8 +194,8 @@ make release VERSION=0.8.7
 ```
 
 `make coverage` runs both Go modules with atomic whole-module instrumentation
-(`-coverpkg=./...`) and rejects root coverage below 80% or portable-template
-coverage below 72%. The profiles are written to `coverage.out` and
+(`-coverpkg=./...`) and rejects root coverage below 84% or portable-template
+coverage below 85%. The profiles are written to `coverage.out` and
 `harness/template/coverage.out`. `make cover` enforces the same floors and also
 writes separate HTML reports beside those profiles. The floors are explicit
 non-regression gates, not a false claim of 100% host-independent coverage:

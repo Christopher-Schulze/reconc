@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
@@ -241,6 +242,31 @@ func TestCanonicalAuditRootRejectsNonWorktreeRoots(t *testing.T) {
 	}
 	if _, err := canonicalAuditRoot(ctx, filepath.Join(repo, "missing")); err == nil {
 		t.Fatal("a non-existent audit root was accepted")
+	}
+}
+
+func TestPublicationAuditCLIUsesStrictArgumentsAndRealRepository(t *testing.T) {
+	root, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := runCLI([]string{"--root", root}, &stdout, &stderr); err != nil {
+		t.Fatalf("runCLI: %v\nstderr: %s", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "publication-audit: ok") || stderr.Len() != 0 {
+		t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+	if err := runCLI([]string{"--unknown"}, &stdout, &stderr); err == nil {
+		t.Fatal("unknown publication-audit flag was accepted")
+	}
+	if err := runCLI([]string{"extra"}, &stdout, &stderr); err == nil || !strings.Contains(err.Error(), "usage") {
+		t.Fatalf("positional argument error = %v", err)
+	}
+	options := defaultAuditOptions()
+	if options.Root != "." || options.HistoryBoundary == "" || options.MaxFileBytes <= 0 {
+		t.Fatalf("default audit options = %+v", options)
 	}
 }
 

@@ -121,3 +121,127 @@ func TestAntigravityStopAdaptsBlockToContinue(t *testing.T) {
 		t.Fatalf("unexpected stop adaptation: %#v", out)
 	}
 }
+
+func TestNormalizeAntigravityPayloadRejectsUnsafeShapes(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "empty", body: "", want: "empty"},
+		{name: "malformed", body: "{", want: "unbalanced JSON"},
+		{name: "null", body: "null", want: "JSON object"},
+		{name: "too deep", body: strings.Repeat("[", MaxJSONDepth+1) + strings.Repeat("]", MaxJSONDepth+1), want: "nesting"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := NormalizeAntigravityPayload("antigravity-pre-tool-use", []byte(test.body)); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want substring %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeAntigravityPayloadCoversEveryToolMapping(t *testing.T) {
+	tests := []struct {
+		name     string
+		tool     string
+		args     string
+		wantTool string
+		wantPath string
+	}{
+		{name: "view", tool: "view_file", args: `"AbsolutePath":"a.go"`, wantTool: "Read", wantPath: "a.go"},
+		{name: "write", tool: "write_to_file", args: `"TargetFile":"b.go"`, wantTool: "Write", wantPath: "b.go"},
+		{name: "multi replace", tool: "multi_replace_file_content", args: `"file_path":"c.go"`, wantTool: "Write", wantPath: "c.go"},
+		{name: "list", tool: "list_dir", args: `"DirectoryPath":"docs"`, wantTool: "Read", wantPath: "docs"},
+		{name: "find", tool: "find_by_name", args: `"SearchDirectory":"internal"`, wantTool: "Read", wantPath: "internal"},
+		{name: "grep", tool: "grep_search", args: `"SearchPath":"scripts"`, wantTool: "Read", wantPath: "scripts"},
+		{name: "unknown", tool: "custom_tool", args: `"path":"custom"`, wantTool: "custom_tool"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			raw := `{"session_id":"ag","step_idx":2,"termination_reason":"user abort","tool_call":{"name":"` + test.tool + `","arguments":{` + test.args + `}}}`
+			body, err := NormalizeAntigravityPayload("antigravity-pre-tool-use", []byte(raw))
+			if err != nil {
+				t.Fatal(err)
+			}
+			payload, err := ParsePayload(body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if payload.SessionID != "ag" || payload.ToolUseID != "step:2" || payload.IsInterrupt == nil || !*payload.IsInterrupt {
+				t.Fatalf("identity normalization = %+v", payload)
+			}
+			if payload.ToolName != test.wantTool {
+				t.Fatalf("tool = %q, want %q", payload.ToolName, test.wantTool)
+			}
+			if test.wantPath != "" && payload.FilePath() != test.wantPath {
+				t.Fatalf("path = %q, want %q", payload.FilePath(), test.wantPath)
+			}
+		})
+	}
+	body, err := NormalizeAntigravityPayload("antigravity-post-tool-use", []byte(`{"error":" failed "}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := ParsePayload(body)
+	if err != nil || payload.SessionID != "antigravity-workspace" || payload.Error != "failed" {
+		t.Fatalf("fallback normalization = %+v, %v", payload, err)
+	}
+}
+
+func TestAdaptAntigravityResultCoversHostProtocolBranches(t *testing.T) {
+	tests := []struct {
+		name       string
+		event      string
+		input      Result
+		wantOutput string
+		wantStderr string
+	}{
+		{name: "pre deny stderr", event: "antigravity-pre-tool-use", input: Result{ExitCode: 2, Stderr: "denied"}, wantOutput: `"decision":"deny"`, wantStderr: ""},
+		{name: "pre deny stdout", event: "antigravity-pre-tool-use", input: Result{ExitCode: 2, Stdout: "reason"}, wantOutput: `"reason":"reason"`},
+		{name: "pre deny fallback", event: "antigravity-pre-tool-use", input: Result{ExitCode: 2}, wantOutput: `"reason":"reconc denied`},
+		{name: "pre allow", event: "antigravity-pre-tool-use", input: Result{Stderr: "warning"}, wantOutput: `"decision":"allow"`, wantStderr: "warning"},
+		{name: "post", event: "antigravity-post-tool-use", input: Result{ExitCode: 2, Stderr: "warning"}, wantOutput: `{}`, wantStderr: "warning"},
+		{name: "stop denied", event: "antigravity-stop", input: Result{ExitCode: 2, Stderr: "continue"}, wantOutput: `"decision":"continue"`},
+		{name: "stop plain", event: "antigravity-stop", input: Result{Stdout: "unfinished"}, wantOutput: `"reason":"unfinished"`},
+		{name: "stop", event: "antigravity-stop", input: Result{}, wantOutput: `"decision":"stop"`},
+		{name: "unknown empty", event: "unknown", input: Result{}, wantOutput: `{}`},
+		{name: "unknown passthrough", event: "unknown", input: Result{ExitCode: 3, Stdout: "raw"}, wantOutput: "raw"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := AdaptAntigravityResult(test.event, test.input)
+			if !strings.Contains(got.Stdout, test.wantOutput) || got.Stderr != test.wantStderr {
+				t.Fatalf("result = %+v, want output %q and stderr %q", got, test.wantOutput, test.wantStderr)
+			}
+		})
+	}
+}
+
+func TestAntigravityInvocationLifecycleIsFailOpenAndBounded(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	for _, test := range []struct {
+		name string
+		run  func(string, []byte) Result
+		body string
+		want string
+	}{
+		{name: "pre invalid", run: RunAntigravityPreInvocation, body: "{", want: "injectSteps"},
+		{name: "pre valid", run: RunAntigravityPreInvocation, body: `{"conversationId":"ag-lifecycle"}`, want: "injectSteps"},
+		{name: "post invalid", run: RunAntigravityPostInvocation, body: "{", want: "terminationBehavior"},
+		{name: "post valid", run: RunAntigravityPostInvocation, body: `{"conversationId":"ag-lifecycle"}`, want: "terminationBehavior"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := test.run(repo, []byte(test.body))
+			if got.ExitCode != 0 || !strings.Contains(got.Stdout, test.want) {
+				t.Fatalf("result = %+v", got)
+			}
+		})
+	}
+	if got := RunAntigravityStop(repo, []byte("{")); got.ExitCode != 0 || !strings.Contains(got.Stdout, `"decision":"continue"`) {
+		t.Fatalf("invalid stop result = %+v", got)
+	}
+	if got := RunAntigravityPostToolUse(repo, []byte(`{"conversationId":"missing","stepIdx":99}`)); got.ExitCode != 0 || strings.TrimSpace(got.Stdout) != "{}" {
+		t.Fatalf("post without pending call = %+v", got)
+	}
+}

@@ -310,6 +310,179 @@ func TestRenderTextUsesRecordedDecisions(t *testing.T) {
 	}
 }
 
+func TestVerifyResultRejectsEveryInvalidTerminalContract(t *testing.T) {
+	valid := validDemoResultFixture()
+	tests := []struct {
+		name   string
+		mutate func(*Result)
+		want   string
+	}{
+		{name: "format", mutate: func(result *Result) { result.FormatVersion = "future" }, want: "format_version"},
+		{name: "version", mutate: func(result *Result) { result.ReconcVersion = " " }, want: "version is empty"},
+		{name: "unknown status", mutate: func(result *Result) { result.Status = "running" }, want: "unsupported demo status"},
+		{name: "failed without error", mutate: func(result *Result) {
+			result.Status = "failed"
+			result.Error = ""
+		}, want: "has no error"},
+		{name: "completion digest", mutate: func(result *Result) { result.CompletionDigest = "" }, want: "completion digest"},
+		{name: "proof digest", mutate: func(result *Result) { result.ProofDigest = "" }, want: "portable proof digest"},
+		{name: "cleanup state", mutate: func(result *Result) { result.Kept = result.Cleaned }, want: "keep/cleanup"},
+		{name: "duplicate step", mutate: func(result *Result) { result.Steps = append(result.Steps, result.Steps[0]) }, want: "repeats step"},
+		{name: "wrong decision", mutate: func(result *Result) { result.Steps[0].Decision = "pass" }, want: "decision"},
+		{name: "unexpected artifact", mutate: func(result *Result) { result.Artifacts[0].Kind = "unknown" }, want: "unexpected or repeated"},
+		{name: "repeated artifact", mutate: func(result *Result) { result.Artifacts[1].Kind = result.Artifacts[0].Kind }, want: "unexpected or repeated"},
+		{name: "incomplete artifact", mutate: func(result *Result) { result.Artifacts[0].SHA256 = "" }, want: "incomplete"},
+		{name: "missing artifact", mutate: func(result *Result) { result.Artifacts = result.Artifacts[:3] }, want: "missing required proof artifacts"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := cloneDemoResult(t, valid)
+			test.mutate(result)
+			result.Digest = resultDigest(result)
+			if err := VerifyResult(result); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("VerifyResult() error = %v, want substring %q", err, test.want)
+			}
+		})
+	}
+	if err := VerifyResult(nil); err == nil || !strings.Contains(err.Error(), "nil") {
+		t.Fatalf("nil result error = %v", err)
+	}
+	failed := &Result{FormatVersion: FormatVersion, ReconcVersion: "test", Status: "failed", Error: "expected", Steps: []Step{}, Artifacts: []Artifact{}}
+	failed.Digest = resultDigest(failed)
+	if err := VerifyResult(failed); err != nil {
+		t.Fatalf("well-formed failed result: %v", err)
+	}
+}
+
+func TestDemoValidationHelpersCoverMalformedAndValidEvidence(t *testing.T) {
+	if _, err := validateExecutable(""); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("empty executable error = %v", err)
+	}
+	if _, err := validateExecutable(filepath.Join(t.TempDir(), "missing")); err == nil || !strings.Contains(err.Error(), "inspect") {
+		t.Fatalf("missing executable error = %v", err)
+	}
+	if _, err := validateExecutable(t.TempDir()); err == nil || !strings.Contains(err.Error(), "regular file") {
+		t.Fatalf("directory executable error = %v", err)
+	}
+	executable := filepath.Join(t.TempDir(), "tool")
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\nexit 0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" {
+		if _, err := validateExecutable(executable); err == nil || !strings.Contains(err.Error(), "not executable") {
+			t.Fatalf("non-executable error = %v", err)
+		}
+	}
+	if err := os.Chmod(executable, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if resolved, err := validateExecutable(executable); err != nil || !filepath.IsAbs(resolved) {
+		t.Fatalf("valid executable = %q, %v", resolved, err)
+	}
+
+	if err := validateBlockingReport("{", "rule"); err == nil {
+		t.Fatal("malformed blocking report was accepted")
+	}
+	if err := validateBlockingReport(`{"decision":"pass"}`, "rule"); err == nil || !strings.Contains(err.Error(), "want block") {
+		t.Fatalf("passing blocking report error = %v", err)
+	}
+	if err := validateBlockingReport(`{"decision":"block","violations":[]}`, "rule"); err == nil || !strings.Contains(err.Error(), "absent") {
+		t.Fatalf("missing blocking rule error = %v", err)
+	}
+	if err := validatePassingReport("{"); err == nil {
+		t.Fatal("malformed passing report was accepted")
+	}
+	if err := validatePassingReport(`{"ok":false,"decision":"block","blocking_violation_count":1}`); err == nil || !strings.Contains(err.Error(), "corrected decision") {
+		t.Fatalf("blocking corrected report error = %v", err)
+	}
+	if err := validateRemediation("{"); err == nil {
+		t.Fatal("malformed remediation was accepted")
+	}
+	if err := validateRemediation(`{"rule_id":"other"}`); err == nil || !strings.Contains(err.Error(), "rule") {
+		t.Fatalf("wrong remediation rule error = %v", err)
+	}
+	if err := validateRemediation(`{"rule_id":"demo-test-proof","priority":"advisory","mode":"warn"}`); err == nil || !strings.Contains(err.Error(), "not blocking") {
+		t.Fatalf("non-blocking remediation error = %v", err)
+	}
+	if err := validateRemediation(`{"rule_id":"demo-test-proof","priority":"blocking","mode":"block","suggested_commands":[]}`); err == nil || !strings.Contains(err.Error(), "omitted") {
+		t.Fatalf("missing remediation command error = %v", err)
+	}
+}
+
+func TestDemoFilesystemAndProcessHelpersFailClosed(t *testing.T) {
+	root := t.TempDir()
+	for _, path := range []string{"", ".", "..", "../outside"} {
+		if err := writeFixtureFile(root, path, "data"); err == nil || !strings.Contains(err.Error(), "unsafe") {
+			t.Fatalf("writeFixtureFile(%q) error = %v", path, err)
+		}
+	}
+	if err := writeFixtureFile(root, "nested/file.txt", "data"); err != nil {
+		t.Fatal(err)
+	}
+	if digest, err := fileDigest(filepath.Join(root, "nested", "file.txt")); err != nil || len(digest) != 64 {
+		t.Fatalf("file digest = %q, %v", digest, err)
+	}
+	if _, err := fileDigest(filepath.Join(root, "missing")); err == nil || !strings.Contains(err.Error(), "hash demo artifact") {
+		t.Fatalf("missing digest error = %v", err)
+	}
+	if resultDigest(nil) != "" {
+		t.Fatal("nil result has a digest")
+	}
+	if got := exitCodes(0, 2); !got[0] || !got[2] || got[1] {
+		t.Fatalf("exit code set = %+v", got)
+	}
+	if commandExitCode(nil) != 0 || commandExitCode(fmt.Errorf("spawn")) != -1 {
+		t.Fatal("command exit fallback changed")
+	}
+	if elapsedMilliseconds(time.Now()) < 1 {
+		t.Fatal("elapsed duration must be positive")
+	}
+
+	result := &Result{Steps: []Step{}}
+	runner := &journey{result: result}
+	step, err := runner.action("fail", "failing action", []string{"write"}, func() error { return fmt.Errorf("boom") })
+	if err == nil || step.ExitCode != 1 || step.Decision != "error" || !strings.Contains(step.Stderr, "boom") {
+		t.Fatalf("failed action = %+v, %v", step, err)
+	}
+}
+
+func validDemoResultFixture() *Result {
+	result := &Result{
+		FormatVersion: FormatVersion, ReconcVersion: "test-version", Status: "passed", Cleaned: true,
+		CompletionDigest: "completion", ProofDigest: "proof",
+		Steps: []Step{
+			{ID: "protected-action", Decision: "block"},
+			{ID: "missing-proof", Decision: "block"},
+			{ID: "remediation", Decision: "remediate"},
+			{ID: "real-test", Decision: "pass"},
+			{ID: "corrected-evaluation", Decision: "pass"},
+			{ID: "done", Decision: "done"},
+			{ID: "portable-proof", Decision: "proof"},
+		},
+		Artifacts: []Artifact{
+			{Kind: "policy-lock", Path: "policy", SHA256: "digest"},
+			{Kind: "task-detail", Path: "task", SHA256: "digest"},
+			{Kind: "completion-report", Path: "completion", SHA256: "digest"},
+			{Kind: "proof-bundle", Path: "proof", SHA256: "digest"},
+		},
+	}
+	result.Digest = resultDigest(result)
+	return result
+}
+
+func cloneDemoResult(t *testing.T, source *Result) *Result {
+	t.Helper()
+	body, err := json.Marshal(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var clone Result
+	if err := json.Unmarshal(body, &clone); err != nil {
+		t.Fatal(err)
+	}
+	return &clone
+}
+
 func assertFailedRunCleaned(t *testing.T, result *Result) {
 	t.Helper()
 	if result == nil || result.Status != "failed" || !result.Cleaned {

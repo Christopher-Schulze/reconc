@@ -3,8 +3,8 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 go_cmd="${GO:-go}"
-root_min="${RECONC_ROOT_COVERAGE_MIN:-80.0}"
-template_min="${RECONC_TEMPLATE_COVERAGE_MIN:-72.0}"
+root_min="${RECONC_ROOT_COVERAGE_MIN:-84.0}"
+template_min="${RECONC_TEMPLATE_COVERAGE_MIN:-85.0}"
 root_profile="$root/coverage.out"
 template_root="$root/harness/template"
 template_profile="$template_root/coverage.out"
