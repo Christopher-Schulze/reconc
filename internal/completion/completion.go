@@ -22,12 +22,13 @@ func GenerateBash(w io.Writer) error {
 # directory scanned by bash-completion, e.g. /etc/bash_completion.d/ or
 # /usr/local/etc/bash_completion.d/, then restart your shell).
 _reconc() {
-    local cur prev sub nested flags values
+    local cur prev sub nested leaf flags values
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
 	prev="${COMP_WORDS[COMP_CWORD-1]}"
     sub="${COMP_WORDS[1]}"
-    nested="${COMP_WORDS[2]}"`)
+    nested="${COMP_WORDS[2]}"
+    leaf="${COMP_WORDS[3]}"`)
 	fmt.Fprintf(w, "    local subcmds=%q\n", strings.Join(commandmeta.SortedNames(), " "))
 	fmt.Fprintln(w, `
     # First word after 'reconc' -> subcommand completion.
@@ -53,8 +54,38 @@ _reconc() {
         fi
     fi
 
+    # Complete a third-level command such as repo sync plan.
+    if [[ ${COMP_CWORD} -eq 3 ]]; then
+        case "${sub}:${nested}" in`)
+	for _, command := range commands {
+		for _, nested := range command.Subcommands {
+			if len(nested.Subcommands) == 0 {
+				continue
+			}
+			fmt.Fprintf(w, "            %s:%s) values=%q ;;\n", command.Name, nested.Name, strings.Join(nestedSubcommandNames(nested), " "))
+		}
+	}
+	fmt.Fprintln(w, `        esac
+        if [[ -n "${values}" ]]; then
+            COMPREPLY=($(compgen -W "${values}" -- "${cur}"))
+            return 0
+        fi
+    fi
+
     # Exact direct or nested flag surface.
-    case "${sub}:${nested}" in`)
+    case "${sub}:${nested}:${leaf}" in`)
+	for _, command := range commands {
+		for _, nested := range command.Subcommands {
+			for _, leaf := range nested.Subcommands {
+				if len(leaf.Flags) != 0 {
+					fmt.Fprintf(w, "        %s:%s:%s) flags=%q ;;\n", command.Name, nested.Name, leaf.Name, strings.Join(flagNames(leaf.Flags), " "))
+				}
+			}
+		}
+	}
+	fmt.Fprintln(w, `    esac
+    if [[ -z "${flags}" ]]; then
+        case "${sub}:${nested}" in`)
 	for _, command := range commands {
 		for _, nested := range command.Subcommands {
 			if len(nested.Flags) != 0 {
@@ -62,7 +93,8 @@ _reconc() {
 			}
 		}
 	}
-	fmt.Fprintln(w, `    esac
+	fmt.Fprintln(w, `        esac
+    fi
     if [[ -z "${flags}" ]]; then
         case "${sub}" in`)
 	for _, command := range commands {
@@ -74,9 +106,14 @@ _reconc() {
     fi
 
     # Enumerated flag values.
-    case "${sub}:${nested}:${prev}" in`)
-	writeBashFlagValueCases(w, commands, true)
+    case "${sub}:${nested}:${leaf}:${prev}" in`)
+	writeBashLeafFlagValueCases(w, commands)
 	fmt.Fprintln(w, `    esac
+    if [[ -z "${values}" ]]; then
+        case "${sub}:${nested}:${prev}" in`)
+	writeBashFlagValueCases(w, commands, true)
+	fmt.Fprintln(w, `        esac
+    fi
     if [[ -z "${values}" ]]; then
         case "${sub}::${prev}" in`)
 	writeBashFlagValueCases(w, commands, false)
@@ -88,9 +125,14 @@ _reconc() {
     fi
 
     # Enumerated positional values.
-    case "${sub}:${nested}:${COMP_CWORD}" in`)
-	writeBashArgumentValueCases(w, commands)
+    case "${sub}:${nested}:${leaf}:${COMP_CWORD}" in`)
+	writeBashLeafArgumentValueCases(w, commands)
 	fmt.Fprintln(w, `    esac
+    if [[ -z "${values}" ]]; then
+        case "${sub}:${nested}:${COMP_CWORD}" in`)
+	writeBashArgumentValueCases(w, commands)
+	fmt.Fprintln(w, `        esac
+    fi
     if [[ -n "${values}" ]]; then
         COMPREPLY=($(compgen -W "${values}" -- "${cur}"))
         return 0
@@ -130,6 +172,7 @@ _reconc() {
 
     local sub="${words[2]}"
 	local nested="${words[3]}"
+	local leaf="${words[4]}"
 
     if (( CURRENT == 3 )); then
         case "${sub}" in`)
@@ -146,7 +189,36 @@ _reconc() {
         fi
     fi
 
-    case "${sub}:${nested}" in`)
+    if (( CURRENT == 4 )); then
+        case "${sub}:${nested}" in`)
+	for _, command := range commands {
+		for _, nested := range command.Subcommands {
+			if len(nested.Subcommands) == 0 {
+				continue
+			}
+			fmt.Fprintf(w, "            %s:%s) values=(%s) ;;\n", command.Name, nested.Name, zshNestedCandidates(nested))
+		}
+	}
+	fmt.Fprintln(w, `        esac
+        if (( ${#values[@]} > 0 )); then
+            _describe 'reconc third-level command' values
+            return
+        fi
+    fi
+
+    case "${sub}:${nested}:${leaf}" in`)
+	for _, command := range commands {
+		for _, nested := range command.Subcommands {
+			for _, leaf := range nested.Subcommands {
+				if len(leaf.Flags) != 0 {
+					fmt.Fprintf(w, "        %s:%s:%s) flags=(%s) ;;\n", command.Name, nested.Name, leaf.Name, zshFlagArray(leaf.Flags))
+				}
+			}
+		}
+	}
+	fmt.Fprintln(w, `    esac
+    if (( ${#flags[@]} == 0 )); then
+        case "${sub}:${nested}" in`)
 	for _, command := range commands {
 		for _, nested := range command.Subcommands {
 			if len(nested.Flags) != 0 {
@@ -154,7 +226,8 @@ _reconc() {
 			}
 		}
 	}
-	fmt.Fprintln(w, `    esac
+	fmt.Fprintln(w, `        esac
+    fi
     if (( ${#flags[@]} == 0 )); then
         case "${sub}" in`)
 	for _, command := range commands {
@@ -165,9 +238,14 @@ _reconc() {
 	fmt.Fprintln(w, `        esac
     fi
 
-    case "${sub}:${nested}:${words[CURRENT-1]}" in`)
-	writeZshFlagValueCases(w, commands, true)
+    case "${sub}:${nested}:${leaf}:${words[CURRENT-1]}" in`)
+	writeZshLeafFlagValueCases(w, commands)
 	fmt.Fprintln(w, `    esac
+    if (( ${#values[@]} == 0 )); then
+        case "${sub}:${nested}:${words[CURRENT-1]}" in`)
+	writeZshFlagValueCases(w, commands, true)
+	fmt.Fprintln(w, `        esac
+    fi
     if (( ${#values[@]} == 0 )); then
         case "${sub}::${words[CURRENT-1]}" in`)
 	writeZshFlagValueCases(w, commands, false)
@@ -178,9 +256,14 @@ _reconc() {
         return
     fi
 
-    case "${sub}:${nested}:${CURRENT}" in`)
-	writeZshArgumentValueCases(w, commands)
+    case "${sub}:${nested}:${leaf}:${CURRENT}" in`)
+	writeZshLeafArgumentValueCases(w, commands)
 	fmt.Fprintln(w, `    esac
+    if (( ${#values[@]} == 0 )); then
+        case "${sub}:${nested}:${CURRENT}" in`)
+	writeZshArgumentValueCases(w, commands)
+	fmt.Fprintln(w, `        esac
+    fi
     if (( ${#values[@]} > 0 )); then
         _values 'value' "${values[@]}"
         return
@@ -215,12 +298,29 @@ func GenerateFish(w io.Writer) error {
 			condition := fishNestedCondition(command.Name, nested.Name)
 			writeFishFlags(w, condition, nested.Flags)
 			writeFishArguments(w, condition, 3, nested.Arguments)
+			if len(nested.Subcommands) != 0 {
+				leafCondition := fishNestedParentCondition(command.Name, nested)
+				for _, leaf := range nested.Subcommands {
+					fmt.Fprintf(w, "complete -c reconc -f -n %q -a %q -d %q\n", leafCondition, leaf.Name, leaf.Summary)
+					condition := fishLeafCondition(command.Name, nested.Name, leaf.Name)
+					writeFishFlags(w, condition, leaf.Flags)
+					writeFishArguments(w, condition, 4, leaf.Arguments)
+				}
+			}
 		}
 	}
 	return nil
 }
 
 func subcommandNames(command commandmeta.Command) []string {
+	out := make([]string, 0, len(command.Subcommands))
+	for _, nested := range command.Subcommands {
+		out = append(out, nested.Name)
+	}
+	return out
+}
+
+func nestedSubcommandNames(command commandmeta.Subcommand) []string {
 	out := make([]string, 0, len(command.Subcommands))
 	for _, nested := range command.Subcommands {
 		out = append(out, nested.Name)
@@ -273,7 +373,46 @@ func writeBashArgumentValueCases(w io.Writer, commands []commandmeta.Command) {
 	}
 }
 
+func writeBashLeafFlagValueCases(w io.Writer, commands []commandmeta.Command) {
+	for _, command := range commands {
+		for _, nested := range command.Subcommands {
+			for _, leaf := range nested.Subcommands {
+				for _, flag := range leaf.Flags {
+					if len(flag.Values) != 0 {
+						fmt.Fprintf(w, "        %s:%s:%s:%s) values=%q ;;\n", command.Name, nested.Name, leaf.Name, flag.Name, strings.Join(flag.Values, " "))
+					}
+				}
+			}
+		}
+	}
+}
+
+func writeBashLeafArgumentValueCases(w io.Writer, commands []commandmeta.Command) {
+	for _, command := range commands {
+		for _, nested := range command.Subcommands {
+			for _, leaf := range nested.Subcommands {
+				for index, argument := range leaf.Arguments {
+					if len(argument.Values) != 0 {
+						fmt.Fprintf(w, "        %s:%s:%s:%d) values=%q ;;\n", command.Name, nested.Name, leaf.Name, index+4, strings.Join(argument.Values, " "))
+					}
+				}
+			}
+		}
+	}
+}
+
 func zshCandidates(command commandmeta.Command) string {
+	values := make([]string, 0, len(command.Subcommands)+len(command.Flags))
+	for _, nested := range command.Subcommands {
+		values = append(values, fmt.Sprintf("%q", nested.Name+":"+nested.Summary))
+	}
+	for _, flag := range command.Flags {
+		values = append(values, fmt.Sprintf("%q", flag.Name))
+	}
+	return strings.Join(values, " ")
+}
+
+func zshNestedCandidates(command commandmeta.Subcommand) string {
 	values := make([]string, 0, len(command.Subcommands)+len(command.Flags))
 	for _, nested := range command.Subcommands {
 		values = append(values, fmt.Sprintf("%q", nested.Name+":"+nested.Summary))
@@ -329,6 +468,34 @@ func writeZshArgumentValueCases(w io.Writer, commands []commandmeta.Command) {
 	}
 }
 
+func writeZshLeafFlagValueCases(w io.Writer, commands []commandmeta.Command) {
+	for _, command := range commands {
+		for _, nested := range command.Subcommands {
+			for _, leaf := range nested.Subcommands {
+				for _, flag := range leaf.Flags {
+					if len(flag.Values) != 0 {
+						fmt.Fprintf(w, "        %s:%s:%s:%s) values=(%s) ;;\n", command.Name, nested.Name, leaf.Name, flag.Name, zshValues(flag.Values))
+					}
+				}
+			}
+		}
+	}
+}
+
+func writeZshLeafArgumentValueCases(w io.Writer, commands []commandmeta.Command) {
+	for _, command := range commands {
+		for _, nested := range command.Subcommands {
+			for _, leaf := range nested.Subcommands {
+				for index, argument := range leaf.Arguments {
+					if len(argument.Values) != 0 {
+						fmt.Fprintf(w, "        %s:%s:%s:%d) values=(%s) ;;\n", command.Name, nested.Name, leaf.Name, index+5, zshValues(argument.Values))
+					}
+				}
+			}
+		}
+	}
+}
+
 func zshValues(values []string) string {
 	quoted := make([]string, 0, len(values))
 	for _, value := range values {
@@ -351,6 +518,24 @@ func fishDirectCondition(command commandmeta.Command) string {
 
 func fishNestedCondition(command, nested string) string {
 	return fmt.Sprintf("__fish_seen_subcommand_from %s; and __fish_seen_subcommand_from %s", command, nested)
+}
+
+func fishNestedParentCondition(command string, nested commandmeta.Subcommand) string {
+	return fmt.Sprintf(
+		"__fish_seen_subcommand_from %s; and __fish_seen_subcommand_from %s; and not __fish_seen_subcommand_from %s",
+		command,
+		nested.Name,
+		strings.Join(nestedSubcommandNames(nested), " "),
+	)
+}
+
+func fishLeafCondition(command, nested, leaf string) string {
+	return fmt.Sprintf(
+		"__fish_seen_subcommand_from %s; and __fish_seen_subcommand_from %s; and __fish_seen_subcommand_from %s",
+		command,
+		nested,
+		leaf,
+	)
 }
 
 func writeFishFlags(w io.Writer, condition string, flags []commandmeta.Flag) {

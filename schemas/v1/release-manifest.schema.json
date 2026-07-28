@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/release-manifest.schema.json",
+  "title": "Reconc immutable release manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format_version",
+    "repository",
+    "tag",
+    "version",
+    "prerelease",
+    "assets"
+  ],
+  "properties": {
+    "format_version": { "const": "reconc.release/v1" },
+    "repository": { "const": "Christopher-Schulze/reconc" },
+    "tag": {
+      "type": "string",
+      "pattern": "^reconc-v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+      "maxLength": 140
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$",
+      "maxLength": 128
+    },
+    "prerelease": { "type": "boolean" },
+    "assets": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": { "$ref": "#/$defs/asset" }
+    }
+  },
+  "$defs": {
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "sha256", "size"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[0-9A-Za-z][0-9A-Za-z._+-]*$",
+          "maxLength": 255
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 268435456
+        }
+      }
+    }
+  }
+}

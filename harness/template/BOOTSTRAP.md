@@ -11,7 +11,7 @@ Read this file completely before touching files. The goal is not to invent a new
 - Do not overwrite existing target-repo files. Merge excerpts surgically.
 - Default for new/empty repositories is flat-root: no `codebase/`.
 - Existing repositories win. If the repo is mature, analyze it and adapt Reconc to the repo instead of reshaping the repo.
-- `tools/reconc/harness/template/` remains the source template folder in the toolkit.
+- `tools/reconc/harness/template/` is the immutable source template installed by the advanced CLI profile.
 - In the target repo, rename `tools/reconc/harness/template/` to `tools/reconc/harness/<project-name>/`, where `<project-name>` is the target repo directory name normalized to lowercase/kebab-case unless the user explicitly chooses another project name.
 - Placeholder is exactly `project` / `Project` / `PROJECT`. No other project placeholder is valid.
 - `AGENTS.md` is an excerpt merge: insert the workflow excerpt into an existing `AGENTS.md`; create a new one only when none exists.
@@ -19,16 +19,16 @@ Read this file completely before touching files. The goal is not to invent a new
 - Do not scaffold source-project-specific surfaces into generic repos: no secondary/internal-only binary, no Bun frontend package unless the stack requires frontend, no SQLite initial migration unless durable store is selected, no generated_reference artifacts unless generated references are selected, no `go.mod` unless the target stack/repo is Go.
 - Never treat ignored `docs/todo*` or changelog scratch as TASK truth or rollout input. Current TASK truth comes from the target repository's adopted `docs/tasks.md` control plane.
 - Template audits are dual-path compatible: they understand both flat-root (`backend/`, `scripts/`, `config/`) and `codebase/` layout.
-- Source-specific harness folders are not part of a target rollout. A standalone toolkit copy should carry the template harness and the target repo's renamed harness only.
+- Source-specific harness folders are not part of a target rollout. The installed public pack carries only the template harness; the target repo may additionally carry its renamed project harness.
 - Hook artifacts are generated artifacts, not hand-maintained source. The canonical source is `reconc hook generate`; before copying hook files from `repo-root-scaffold/`, sync that scaffold with `reconc hook sync-scaffold tools/reconc/harness/<project-name>/repo-root-scaffold`.
-- Prefer the transactional `reconc bootstrap inspect|plan|apply|verify|remove` flow for every universal surface it owns. Use the manual sections in this runbook for project-specific harness, stack, architecture, and merge decisions that the universal CLI intentionally cannot infer.
+- Prefer canonical `reconc init` for every universal surface it owns. Use `reconc bootstrap inspect|plan|apply|verify|remove` only when a separately reviewed lower-level plan is required. Use the manual sections in this runbook for project-specific harness, stack, architecture, and merge decisions that the universal CLI intentionally cannot infer.
+- Treat global CLI update and repository sync as separate transactions. After updating the user CLI, use `reconc repo sync plan|apply|verify`; never copy new harness or hook bytes over receipt-owned targets manually.
 - A completed rollout must leave the exact bootstrap build directly callable as bare `reconc`. Repo-local hook resolution remains independent and continues to prefer the repository wrapper and binary.
 
 ## Source Package
 
-The template package is expected to contain:
+After `reconc init --profile advanced`, the target repository contains:
 
-- `tools/reconc/` - Reconc engine, dist binaries, skills, and harnesses.
 - `tools/reconc/harness/template/` - generalized harness logic.
 - `tools/reconc/harness/template/config/workflow/stack-config.yaml` - stack/layout contract used by template audits.
 - `tools/reconc/harness/template/repo-root-scaffold/` - files that are copied or merged into the target repo root.
@@ -64,14 +64,9 @@ From the target repo root:
 
 ## Step 0a: Establish The Stable User CLI
 
-Use the portable binary path exactly once. For a copied toolkit:
-
-```sh
-tools/reconc/dist/<local-reconc-binary> install-cli
-reconc --version
-```
-
-For a standalone source checkout without a platform artifact:
+Install Reconc through the supported package manager or native installer and
+verify `reconc doctor --global`. A standalone source contributor may instead
+publish the current build once:
 
 ```sh
 go build -o .build/bin/reconc ./cmd/reconc
@@ -82,29 +77,27 @@ reconc --version
 `install-cli` performs no download. It atomically installs the exact running
 build to `$RECONC_INSTALL_DIR`, `~/.local/bin` on POSIX, or
 `%LOCALAPPDATA%\Programs\Reconc\bin` on Windows; rejects a symlink target; and
-verifies the executable resolved by bare `reconc`. It never edits shell
-profiles or the parent process environment. If the directory is missing from
-PATH or another binary shadows it, apply the exact emitted remediation, open a
-new terminal, and repeat `reconc --version`.
+verifies the executable resolved by bare `reconc`. Once PATH identity passes,
+it publishes a private source-ownership receipt below
+`$RECONC_HOME/install/` under the same lock. It never edits shell profiles or
+the parent process environment. If the directory is missing from PATH or
+another binary shadows it, apply the exact emitted remediation, open a new
+terminal, repeat `reconc install-cli`, and require
+`reconc doctor --global` to report `healthy` before repository mutation.
 
 Do not continue with path-qualified daily commands. Compatibility and
 transactional bootstrap apply perform the same stable user-CLI installation
 and verify the exact-build PATH contract before any repository write;
 transactional verify checks it again.
 
-## Step 0b: Build The Transactional Bootstrap Plan
+## Step 0b: Run Canonical Transactional Init
 
-Use one local Reconc binary for the complete transaction. Inspection and plan
-generation are read-only unless `--output` is explicitly supplied:
+Use one local Reconc binary for the complete non-interactive transaction:
 
 ```sh
-reconc bootstrap inspect <target-repo> --json
-reconc bootstrap profiles --json
-reconc bootstrap plan <target-repo> --profile governed \
+reconc init <target-repo> --profile advanced \
   --pack <reviewed-pack> \
   --hook <selected-hook-kind> \
-  --install-binary \
-  --output <target-repo>/.reconc/bootstrap-plan.json \
   --json
 ```
 
@@ -112,7 +105,10 @@ The `minimal` profile selects `.reconc.yml`, a compact managed Reconc block in
 `AGENTS.md`, and the managed runtime-ignore block. The `governed` profile
 additionally selects the TASK control plane, `docs/documentation.md`,
 `start.md`, and the stable repo-local hook wrapper. Profile default packs are
-`default` and `agent`.
+`default` and `agent`. The `advanced` profile adds this complete immutable
+public harness under `tools/reconc/harness/template/`; its exact pack version
+and digest are recorded in the durable plan, private rollback receipt, and
+portable `.reconc/install.lock.json` ownership receipt.
 Detected stacks, pack suggestions, and agent-platform directories are evidence
 only. Packs and hooks are installed only when they are named explicitly.
 
@@ -122,20 +118,13 @@ TASK state, and ignore policy, first run `reconc refresh .`, then use
 hooks, `tools/reconc/bin/hook`, and an optional stable binary. It rejects
 `--pack` and leaves the existing control plane untouched.
 
-Review every manifest action, checksum, mode, conflict, and blocking issue.
-For an explicit external binary use `--binary PATH --checksum SHA256` and add
-`--platform OS/ARCH` only for a cross-platform artifact. The transaction never
-downloads at runtime. `--install-binary` copies the already-running executable
-to the stable `tools/reconc/dist/reconc-<os>-<arch>[.exe]` path.
+Review every reported action, checksum, mode, conflict, and blocking issue.
+Init records its exact durable plan path and tamper-evident receipt in the
+result. Operators who require a separately reviewed plan may use the lower-level
+`bootstrap inspect`, `profiles`, `plan`, `apply`, and `verify` commands against
+the same engine.
 
-Apply only the exact reviewed plan, then verify it read-only:
-
-```sh
-reconc bootstrap apply --plan <target-repo>/.reconc/bootstrap-plan.json --json
-reconc bootstrap verify --plan <target-repo>/.reconc/bootstrap-plan.json --json
-```
-
-Apply is create-only. Exact existing artifacts remain unchanged. If any target
+Init apply is create-only. Exact existing artifacts remain unchanged. If any target
 differs, no normal target is installed; hash-addressed
 `*.reconc-candidate-<sha>` files are created for surgical review and apply exits
 with status `drift`. Rebuild the plan after integrating or rejecting every
@@ -149,12 +138,32 @@ only transaction-owned files whose identity and checksum still match, and
 removes only empty directories created by that transaction. It never removes
 or overwrites an external edit.
 
-Successful apply writes a tamper-evident install receipt, prints one compact
-artifact and hook-state summary, and emits exactly one next command. Reverse a
-reviewed transaction with `reconc bootstrap remove --plan <plan> --json` or one
-platform with `reconc hook uninstall <kind> <target-repo> --json`. Removal
-verifies receipt ownership and current hashes, strips only managed blocks,
-preserves ambiguous content, and emits review candidates on drift.
+Successful apply writes private rollback state plus the portable ownership
+receipt, prints one compact artifact and hook-state summary, and emits exactly
+one next command. Reverse a reviewed transaction with `reconc bootstrap remove
+--plan <plan> --json` or one platform with `reconc hook uninstall <kind>
+<target-repo> --json`. Removal uses portable ownership as its maximum
+authority, removes only exact owned files and generated artifacts, strips only
+exact managed blocks while preserving outside bytes, and emits review
+candidates on drift. It never deletes user-owned policy, docs, TASKs, or
+unrelated content merely because an older private receipt once created them.
+
+After the global CLI changes, synchronize the immutable installed surfaces as
+a separately reviewed transaction:
+
+```sh
+reconc repo sync plan <target-repo> --output /tmp/reconc-sync.json
+reconc repo sync apply --plan /tmp/reconc-sync.json --digest <plan-digest>
+reconc repo sync verify <target-repo>
+```
+
+Planning is read-only unless `--output` is supplied. Review all actions,
+migrations, candidates, and blocking issues. Never invent or recompute the
+digest. Apply re-plans under the repository lock and mutates only exact
+`replace-owned`, `update-managed-block`, or `create-owned` actions. User drift,
+orphaned legacy paths, incompatibility, or manual review block the transaction.
+Registered policy migrations never rewrite `.reconc.yml`, and rollback never
+overwrites a concurrent external change.
 
 After verification, the agent itself inspects the target once with
 `reconc session-briefing <target-repo> --json`. That versioned response carries
@@ -189,27 +198,21 @@ Decision behavior:
 - If no relevant language section exists, continue with only the Reconc workflow excerpt and ask the user whether they want stack-specific local rules added.
 - Do not put Go rules into a Rust repo or Rust rules into a Go repo.
 
-## Step 2: Copy Reconc Into Target Repo
+## Step 2: Derive The Project Harness From The Installed Pack
 
-If the target repo does not already have `tools/reconc/`:
+The advanced init transaction must already have installed
+`tools/reconc/harness/template/`. Never replace it with a source checkout or a
+mutable download.
 
-1. Copy the entire `tools/reconc/` directory into target `tools/reconc/`.
-2. If the copied toolkit includes any source-specific harness folder besides `template/`, remove that copied source-specific harness from the target repo unless the target repo explicitly owns it.
-3. Derive `<project-name>` from the target repo directory name normalized to lowercase/kebab-case. If the directory name is generic (`repo`, `project`, `new`) or conflicts with an existing package/module name, ask the user for the canonical project name before renaming.
-4. Rename `tools/reconc/harness/template/` to `tools/reconc/harness/<project-name>/`.
-5. Rebrand inside `tools/reconc/harness/<project-name>/`:
+1. Derive `<project-name>` from the target repo directory name normalized to lowercase/kebab-case. If the directory name is generic (`repo`, `project`, `new`) or conflicts with an existing package/module name, ask the user for the canonical project name before renaming.
+2. Copy the installed template to `tools/reconc/harness/<project-name>/`; keep the immutable template intact for receipt verification and future sync.
+3. Rebrand only inside `tools/reconc/harness/<project-name>/`:
    - `project` -> `<project-name>` lowercase.
    - `Project` -> `<ProjectName>` title/camel display form.
    - `PROJECT` -> `<PROJECT_NAME>` uppercase env/policy form.
    - `reconc-harness/template` -> `reconc-harness/<project-name>`.
    - `tools/reconc/harness/template` -> `tools/reconc/harness/<project-name>`.
-6. Do not rebrand source-specific harness folders in the source repo. They are not part of generic rollout.
-
-If the target repo already has `tools/reconc/`:
-
-1. Inspect it first.
-2. Compare existing Reconc version and harness paths.
-3. Do not overwrite. Merge or replace only after you can explain exactly what changes and why.
+4. If a project harness already exists, inspect and merge it surgically. Never overwrite it with the template.
 
 ## Step 3: Configure Stack
 
@@ -421,6 +424,7 @@ Required Reconc runtime ignores:
 - `/tools/reconc/dist/`
 - `.reconc/*`
 - `!.reconc/`
+- `!.reconc/install.lock.json`
 - `!.reconc/policy.lock.json`
 - `.reconc/audit.jsonl*`
 - `.reconc/cache/`
@@ -600,12 +604,13 @@ proves hook-runtime resolution independently.
 Required checks:
 
 1. `reconc --version` and `reconc run status` from the target repository root.
-2. `reconc bootstrap verify --plan .reconc/bootstrap-plan.json --json` when the transactional profile was used.
-3. `reconc hook status . --json`
-4. `reconc session-briefing . --json`
-5. `cd tools/reconc/harness/<project-name> && go test ./...`
-6. `tools/reconc/harness/<project-name>/audits/run-workflow-audit all`
-7. Selected stack build/test commands:
+2. `reconc bootstrap verify --plan <plan-path-from-init> --json` when the transactional profile was used.
+3. `reconc repo sync verify . --json`
+4. `reconc hook status . --json`
+5. `reconc session-briefing . --json`
+6. `cd tools/reconc/harness/<project-name> && go test ./...`
+7. `tools/reconc/harness/<project-name>/audits/run-workflow-audit all`
+8. Selected stack build/test commands:
    - Go default: `go test ./...` and `go run ./scripts/build validate` if the build runner was installed.
    - Rust: `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test` when Rust is selected.
    - Frontend: selected package manager checks only when a frontend stack is selected.
@@ -651,6 +656,7 @@ The rollout is not done until all of this is true:
 - Bare `reconc` resolves to the exact build used for bootstrap; `reconc run status` works from the repository root without a path or explicit `.` argument.
 - The reviewed bootstrap plan matches the applied profile, packs, hooks, binary checksum, and target platform.
 - `reconc bootstrap verify --plan ... --json` passes and no unresolved candidate file remains.
+- `.reconc/install.lock.json` is committed, self-digested, and `reconc repo sync verify . --json` passes.
 - No source-specific product, internal-binary, UI, or local-machine text remains in generic runtime or workflow files.
 - `.reconc.yml` points to `tools/reconc/harness/<project-name>/...`.
 - `stack-config.yaml` matches the selected stack.

@@ -32,6 +32,44 @@ type removalCandidate struct {
 // Remove reverses one applied bootstrap plan using its tamper-evident install
 // receipt. It never infers ownership from a filename alone.
 func Remove(plan *Plan) (*RemovalReport, error) {
+	if err := ValidatePlan(plan); err != nil {
+		return newRemovalReport(), err
+	}
+	var report *RemovalReport
+	err := withRepositoryTransactionLock(plan.RepoRoot, func() error {
+		portable, portableErr := LoadRepositoryReceipt(plan.RepoRoot)
+		switch {
+		case portableErr == nil:
+			report, portableErr = removePortableReceipt(plan, portable)
+			return portableErr
+		case !errors.Is(portableErr, os.ErrNotExist):
+			report = newRemovalReport()
+			report.RepoRoot = plan.RepoRoot
+			report.PlanDigest = plan.PlanDigest
+			report.ReceiptPath = RepositoryReceiptRelativePath
+			return portableErr
+		default:
+			report, portableErr = removeLegacyReceipt(plan)
+			return portableErr
+		}
+	})
+	if report == nil {
+		report = newRemovalReport()
+		report.RepoRoot = plan.RepoRoot
+		report.PlanDigest = plan.PlanDigest
+	}
+	return report, err
+}
+
+func newRemovalReport() *RemovalReport {
+	return &RemovalReport{
+		FormatVersion: RemovalFormatVersion, Status: RemovalRolledBack,
+		Removed: []string{}, Updated: []string{}, Preserved: []string{},
+		Candidates: []string{}, RolledBack: []string{},
+	}
+}
+
+func removeLegacyReceipt(plan *Plan) (*RemovalReport, error) {
 	report := &RemovalReport{
 		FormatVersion: RemovalFormatVersion, Status: RemovalRolledBack,
 		Removed: []string{}, Updated: []string{}, Preserved: []string{},
@@ -111,6 +149,195 @@ func Remove(plan *Plan) (*RemovalReport, error) {
 	sort.Strings(report.Removed)
 	sort.Strings(report.Updated)
 	return report, nil
+}
+
+func removePortableReceipt(plan *Plan, receipt *RepositoryReceipt) (*RemovalReport, error) {
+	report := newRemovalReport()
+	report.RepoRoot = plan.RepoRoot
+	report.PlanDigest = plan.PlanDigest
+	report.ReceiptPath = RepositoryReceiptRelativePath
+	mutations := []removalMutation{}
+	candidates := []removalCandidate{}
+
+	for _, file := range receipt.ManagedFiles {
+		mutation, preserved, err := planPortableFileRemoval(
+			plan.RepoRoot, file.Path, file.SHA256, file.Mode,
+		)
+		appendPortableRemovalResult(report, &mutations, file.Path, mutation, preserved, err)
+	}
+	for _, artifact := range receipt.GeneratedArtifacts {
+		mutation, preserved, err := planPortableFileRemoval(
+			plan.RepoRoot, artifact.Path, artifact.SHA256, 0,
+		)
+		appendPortableRemovalResult(report, &mutations, artifact.Path, mutation, preserved, err)
+	}
+	for _, block := range receipt.ManagedBlocks {
+		mutation, candidate, preserved, err := planPortableBlockRemoval(plan.RepoRoot, block)
+		appendPortableRemovalResult(report, &mutations, block.Path, mutation, preserved, err)
+		if candidate != nil {
+			candidates = append(candidates, *candidate)
+		}
+	}
+	appendPrivateLifecycleRemoval(plan, report, &mutations)
+
+	receiptPath, err := safeBootstrapTarget(plan.RepoRoot, RepositoryReceiptRelativePath)
+	if err != nil {
+		return report, err
+	}
+	receiptBody, receiptMode, err := readRemovalFile(receiptPath, maxRepositoryReceiptBytes)
+	if err != nil {
+		return report, fmt.Errorf("read portable repository receipt before removal: %w", err)
+	}
+	mutations = append(mutations, removalMutation{
+		relative: RepositoryReceiptRelativePath, path: receiptPath,
+		before: receiptBody, mode: receiptMode, remove: true,
+	})
+
+	if len(report.Preserved) > 0 || len(candidates) > 0 {
+		created, dirs, candidateErr := materializeRemovalCandidates(plan, candidates)
+		defer closeCreatedDirectoryIdentities(dirs)
+		if candidateErr != nil {
+			rolledBack, rollbackErr := rollbackCreated(plan.RepoRoot, created, dirs)
+			report.RolledBack = rolledBack
+			return report, joinApplyRollbackError(candidateErr, rollbackErr)
+		}
+		for _, candidate := range candidates {
+			report.Candidates = append(report.Candidates, candidate.relative)
+		}
+		report.Status = RemovalDrift
+		report.NextAction = "Review each preserved drift item and removal candidate. Restore receipt-owned bytes or apply the candidate, then rerun bootstrap remove with the same plan."
+		sort.Strings(report.Candidates)
+		sort.Strings(report.Preserved)
+		return report, nil
+	}
+
+	removed, updated, rolledBack, err := applyRemovalTransaction(mutations)
+	report.Removed = removed
+	report.Updated = updated
+	report.RolledBack = rolledBack
+	if err != nil {
+		return report, err
+	}
+	report.Removed = removeString(report.Removed, installReceiptPath(plan.PlanDigest))
+	report.Removed = removeString(report.Removed, recordedPlanPath(plan))
+	report.Status = RemovalComplete
+	report.NextAction = "Portable receipt-owned files and managed blocks were removed. User-owned policy, documentation, TASK, and unrelated repository bytes were preserved."
+	sort.Strings(report.Removed)
+	sort.Strings(report.Updated)
+	return report, nil
+}
+
+func planPortableFileRemoval(root, relative, expectedSHA string, expectedMode uint32) (*removalMutation, string, error) {
+	target, err := safeBootstrapTarget(root, relative)
+	if err != nil {
+		return nil, "", err
+	}
+	body, mode, err := readRemovalFile(target, maxBinaryBytes)
+	if os.IsNotExist(err) {
+		return nil, "", nil
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	if bytesSHA256(body) != expectedSHA {
+		return nil, "content drifted; portable ownership is no longer exact", nil
+	}
+	if expectedMode != 0 && !modeSatisfies(mode, expectedMode) {
+		return nil, "mode drifted; portable ownership is no longer exact", nil
+	}
+	return &removalMutation{
+		relative: relative, path: target, before: body, mode: mode, remove: true,
+	}, "", nil
+}
+
+func planPortableBlockRemoval(root string, block ManagedBlock) (*removalMutation, *removalCandidate, string, error) {
+	target, err := safeBootstrapTarget(root, block.Path)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	body, mode, err := readRemovalFile(target, maxBinaryBytes)
+	if os.IsNotExist(err) {
+		return nil, nil, "", nil
+	}
+	if err != nil {
+		return nil, nil, "", err
+	}
+	managed, managedErr := extractManagedBlock(body, block.BlockStart, block.BlockEnd)
+	if managedErr != nil {
+		if !bytes.Contains(body, []byte(block.BlockStart)) && !bytes.Contains(body, []byte(block.BlockEnd)) {
+			return nil, nil, "", nil
+		}
+		return nil, nil, "", managedErr
+	}
+	stripped, found, err := stripReceiptManagedBlock(string(body), block.BlockStart, block.BlockEnd)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	if !found {
+		return nil, nil, "", nil
+	}
+	if bytesSHA256(managed) == block.ManagedSHA256 {
+		return &removalMutation{
+			relative: block.Path, path: target, before: body,
+			after: []byte(stripped), mode: mode,
+		}, nil, "", nil
+	}
+	candidateBody := []byte(stripped)
+	candidatePath := block.Path + ".reconc-remove-candidate-" + bytesSHA256(candidateBody)[:12]
+	return nil, &removalCandidate{
+		relative: candidatePath, content: candidateBody, mode: uint32(mode.Perm()),
+	}, "managed bytes drifted; file was preserved", nil
+}
+
+func appendPortableRemovalResult(
+	report *RemovalReport,
+	mutations *[]removalMutation,
+	relative string,
+	mutation *removalMutation,
+	preserved string,
+	err error,
+) {
+	if err != nil {
+		report.Preserved = append(report.Preserved, relative+": "+err.Error())
+		return
+	}
+	if preserved != "" {
+		report.Preserved = append(report.Preserved, relative+": "+preserved)
+	}
+	if mutation != nil {
+		*mutations = append(*mutations, *mutation)
+	}
+}
+
+func appendPrivateLifecycleRemoval(plan *Plan, report *RemovalReport, mutations *[]removalMutation) {
+	privateReceipt, receiptRelative, err := loadInstallReceipt(plan)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		report.Preserved = append(report.Preserved, receiptRelative+": "+err.Error())
+		return
+	}
+	for _, entry := range privateReceipt.Entries {
+		if entry.Path != recordedPlanPath(plan) {
+			continue
+		}
+		mutation, _, preserved, inspectErr := planReceiptEntryRemoval(plan.RepoRoot, entry)
+		appendPortableRemovalResult(report, mutations, entry.Path, mutation, preserved, inspectErr)
+	}
+	receiptPath, err := safeBootstrapTarget(plan.RepoRoot, receiptRelative)
+	if err != nil {
+		report.Preserved = append(report.Preserved, receiptRelative+": "+err.Error())
+		return
+	}
+	body, mode, err := readRemovalFile(receiptPath, maxInstallReceiptBytes)
+	if err != nil {
+		report.Preserved = append(report.Preserved, receiptRelative+": "+err.Error())
+		return
+	}
+	*mutations = append(*mutations, removalMutation{
+		relative: receiptRelative, path: receiptPath, before: body, mode: mode, remove: true,
+	})
 }
 
 func planReceiptEntryRemoval(root string, entry InstallReceiptEntry) (*removalMutation, *removalCandidate, string, error) {

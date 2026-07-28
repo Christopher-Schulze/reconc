@@ -10,10 +10,12 @@ usage, architecture, release, and security facts should be kept here first.
 - [Evidence-Bound Completion Control](#evidence-bound-completion-control)
 - [Install And Build](#install-and-build)
 - [Transactional Bootstrap](#transactional-bootstrap)
+- [v0.9 CLI Product Contract](#v09-cli-product-contract)
 - [Daily Workflow](#daily-workflow)
 - [FAQ](#faq)
 - [Troubleshooting](#troubleshooting)
 - [Upgrading](#upgrading)
+- [v0.8.8 To v0.9.0 Migration](#v088-to-v090-migration)
 - [Uninstall And Remove](#uninstall-and-remove)
 - [Development Control Plane](#development-control-plane)
 - [Minimal Example Policy](#minimal-example-policy)
@@ -189,12 +191,12 @@ make cover
 make bench
 make self-host
 make publication-audit
-make sbom VERSION=0.8.8
-make release VERSION=0.8.8
+make sbom VERSION=0.9.0
+make release VERSION=0.9.0
 ```
 
 `make coverage` runs both Go modules with atomic whole-module instrumentation
-(`-coverpkg=./...`) and rejects root coverage below 84% or portable-template
+(`-coverpkg=./...`) and rejects root coverage below 83.9% or portable-template
 coverage below 85%. The profiles are written to `coverage.out` and
 `harness/template/coverage.out`. `make cover` enforces the same floors and also
 writes separate HTML reports beside those profiles. The floors are explicit
@@ -206,15 +208,17 @@ change to the gate.
 
 `make release` cross-compiles five binaries into `dist/`, copies the native
 POSIX and Windows installers, generates three flat shell-completion artifacts,
-generates a man page, copies the six immutable v1 schemas plus the current v2
+generates a man page, copies the fourteen immutable v1 schemas plus the current v2
 policy-lock schema, generates deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs,
-and writes `dist/SHA256SUMS`. The target stops on the first build, SBOM, or
-checksum failure. The release verifier requires exactly those twenty
-checksummed artifacts, rejects missing, extra, duplicate, unsafe, or corrupted
-entries, and never accepts an empty manifest. It regenerates Bash, Zsh, Fish,
-and the versioned man page from the current canonical command metadata and
-rejects even freshly checksummed artifacts whose bytes are stale or
-noncanonical. `dist/` is ignored and should not be committed.
+generates a strict `release-manifest.json`, and writes `dist/SHA256SUMS`. The
+target stops on the first build, SBOM, manifest, or checksum failure. The
+release verifier requires exactly those thirty checksummed artifacts,
+rejects missing, extra, duplicate, unsafe, mutable, or corrupted entries, and
+never accepts an empty manifest. It independently verifies every manifest
+asset and digest, then regenerates Bash, Zsh, Fish, and the versioned man page
+from the current canonical command metadata. Even freshly checksummed
+artifacts whose bytes are stale or noncanonical fail. `dist/` is ignored and
+should not be committed.
 
 Every host and release build embeds a deterministic version, target, and
 production-source digest. The build verifies that marker directly from the
@@ -231,22 +235,43 @@ documents. Verification regenerates both files from the tagged source and
 rejects missing, malformed, stale-version, or otherwise non-identical output
 before checksums and provenance are accepted.
 
-`install.sh [VERSION]` supports macOS and Linux. `install.ps1 [VERSION]`
-supports Windows x64. POSIX defaults to `~/.local/bin`; Windows defaults to the
+`install.sh [--channel stable|preview | --version VERSION]
+[--allow-downgrade]` supports macOS and Linux. `install.ps1 [-Channel
+Stable|Preview | -Version VERSION] [-AllowDowngrade]` supports Windows x64.
+Omitting a selector resolves the latest stable GitHub release; an exact version
+uses only its immutable tag. Preview selection never accepts a draft or stable
+release. Exact downgrades fail unless the caller explicitly opts in. A custom
+release base requires an exact version and cannot be mixed with channel
+discovery. POSIX defaults to `~/.local/bin`; Windows defaults to the
 user-writable `%LOCALAPPDATA%\Programs\Reconc\bin`. Both report the exact PATH
 remediation when bare `reconc` does not resolve to the installed binary instead
 of elevating or silently editing shell configuration. Both installers
 download the exact platform binary and published `SHA256SUMS` over HTTPS,
-require exactly one matching hexadecimal SHA-256 entry, verify the payload
-before executing it, stage and re-verify it inside the install directory, then
-atomically replace the target where the platform supports replacement. A
-download, manifest, checksum, execution, staging, or publication failure leaves
-an existing installation untouched. Windows arm64 remains unsupported until
-the release matrix ships a matching native asset.
+bound metadata to 2 MiB and binaries to 256 MiB, require exactly one matching
+hexadecimal SHA-256 entry, verify the payload
+before executing it, and delegate binary publication to the candidate's
+`install-cli` transaction. When the installed binary is current on PATH, that
+same locked transaction writes a private, checksum-bound ownership receipt at
+`$RECONC_HOME/install/receipt.json`. An off-PATH install succeeds only for the
+binary and prints exact PATH remediation; it does not claim ownership. A
+download, manifest, checksum, execution, receipt, or publication failure leaves
+the previous valid binary and receipt untouched. Windows arm64 remains
+unsupported until the release matrix ships a matching native asset.
 
-The immutable v0.8.8 tag contains both `install.sh` and `install.ps1`. Public
+The v0.9 platform contract is one matrix:
+
+| Platform | Direct installer | Architectures | Ownership |
+| --- | --- | --- | --- |
+| macOS | `install.sh` | amd64, arm64 | `direct` |
+| Linux | `install.sh` | amd64, arm64 | `direct` |
+| Windows | `install.ps1` | amd64 only | `direct` |
+
+Direct installers own only the verified binary and receipt. No path silently
+edits a shell profile or global environment.
+
+The immutable v0.9.0 tag contains both `install.sh` and `install.ps1`. Public
 bootstrap commands fetch the appropriate script from that tag, never from
-mutable `main`, and install the matching checksummed v0.8.8 binary.
+mutable `main`, and install the matching checksummed v0.9.0 binary.
 
 When the GitHub CLI (`gh`) is available, the installer additionally verifies
 the downloaded binary against its GitHub build-provenance attestation before
@@ -259,21 +284,25 @@ repository for mirrors.
 
 ## Transactional Bootstrap
 
-New repositories use an explicit inspect, plan, apply, and verify contract:
+New repositories use canonical non-interactive init:
 
 ```bash
-reconc bootstrap inspect . --json
-reconc bootstrap profiles --json
-reconc bootstrap plan . --profile governed \
-  --hook codex \
-  --install-binary \
-  --output .reconc/bootstrap-plan.json \
-  --json
-reconc bootstrap apply --plan .reconc/bootstrap-plan.json --json
-reconc bootstrap verify --plan .reconc/bootstrap-plan.json --json
+reconc init . --profile governed --hook codex --json
 ```
 
-Inspection is read-only and reports stack evidence, package managers,
+Init installs and verifies the exact running user CLI, inspects, selects,
+plans, applies, records, and verifies through `internal/bootstrap`. A fresh
+repository defaults to `minimal`; one valid recorded transaction reuses its
+selection. Partial, mature, ambiguous, or already governed repositories
+without a receipt require an explicit profile and receive no repository write.
+Existing content is never overwritten. Drift produces hash-addressed
+candidates; only explicit `--accept-managed-blocks` may promote a
+checksum-verified marker-only candidate. Human and stable JSON output derive
+from one typed result and end in one next action.
+
+The transparent lower-level interface remains
+`bootstrap inspect|profiles|plan|apply|verify|remove`. Inspection is read-only
+and reports stack evidence, package managers,
 repository markers, same-directory package-manager ambiguity, and detected or
 installed platform truth. Planning is read-only unless an explicit output path
 is supplied. The `minimal` profile owns policy, a managed AI-orientation block,
@@ -281,6 +310,19 @@ and runtime ignores. The `governed` profile adds the TASK control plane,
 documentation, `start.md`, and the stable repo-local hook wrapper. Both use
 `default` and `agent` as profile defaults. Stack and platform detection produce
 suggestions only; packs and hooks remain explicit.
+
+The `advanced` profile adds the complete embedded public harness pack under
+`tools/reconc/harness/template/`. Its strict
+`reconc.harness-pack/v1` manifest records product compatibility, capabilities,
+canonical paths, modes, sizes, SHA-256 identities, ownership, total bytes, and
+one pack digest. The same deterministic
+`reconc-harness-pack-advanced-1.0.0.zip` is embedded in every platform binary
+and shipped in the checksummed, provenance-attested release inventory.
+Bootstrap plans and private install receipts bind `advanced@1.0.0` plus its
+digest. Loading rejects unknown fields, incompatible versions, traversal,
+absolute or duplicate paths, links, unsupported modes, oversized input,
+unmanifested files, and checksum or digest drift. Daily init performs no
+network request and requires no standalone source checkout.
 
 A release installer establishes the stable user CLI. A portable source build
 or copied toolkit establishes the same contract without a download:
@@ -298,6 +340,29 @@ executable mode, and verifies the executable resolved by bare `reconc`. It
 never edits a shell profile or the parent process environment; when activation
 or ordering is incomplete, it exits non-zero with the exact durable PATH
 remediation.
+
+Global installation state is separate from repository bootstrap state.
+`$RECONC_HOME/install/receipt.json` is strict-decoding, bounded to 64 KiB,
+self-digested, written with private permissions, and serialized by
+`$RECONC_HOME/install/receipt.lock`. It records `direct` or `source`
+ownership, channel, exact version, artifact checksum, canonical
+binary identity, build target, source digest, provenance state, and canonical
+UTC installation time. Native installers and explicit source `install-cli`
+calls publish it only after checksum, executable, version, and PATH identity
+pass. `install-cli` cannot claim an unsupported ownership type.
+
+`reconc doctor --global [--json] [--output PATH]` is the read-only authority
+for that state. It independently inspects the running executable, bare PATH
+resolution, canonical target, additional PATH candidates, receipt checksum,
+and embedded build provenance. It reports `healthy`,
+`unowned`, `stale`, `shadowed`, `ambiguous`, or `invalid` plus exactly one
+ownership-aware remediation. Malformed receipts, checksum drift, conflicting
+owners, and ambiguous legacy installations fail closed. The JSON contracts are
+`schemas/v1/installation-receipt.schema.json` and
+`schemas/v1/global-diagnostic.schema.json`. Mutating update and uninstall
+results use `schemas/v1/global-lifecycle.schema.json`; release discovery is
+bound by `schemas/v1/release-manifest.schema.json`. All four ship in the
+checksummed release inventory.
 
 The `existing` profile is the mature-repository wiring path. It requires an
 already fresh compiled policy lockfile, rejects pack selection, and owns only
@@ -327,7 +392,13 @@ Verification is read-only and checks artifacts, lockfile freshness, selected
 hooks, governed TASK state, selected binary resolution, and the exact running
 user CLI on PATH.
 
-Successful apply writes a tamper-evident install receipt, reports
+Successful apply records the exact durable plan, writes a private rollback
+receipt, and publishes the deterministic, committable
+`.reconc/install.lock.json` portable ownership receipt. The portable receipt
+binds the product, policy and harness packs, hooks, policy sources, exact
+managed files and blocks, generated artifacts, explicit user-owned paths,
+applied plan, generation, and its own digest without a physical checkout path.
+Apply reports
 created/preserved/drifted/skipped and installed/configured/live counts, and
 prints exactly one next command. A stale saved plan prints the exact
 selection-preserving replan command with `--replace-output`.
@@ -339,19 +410,64 @@ and optional `--platform OS/ARCH`. Installed artifacts use the stable
 exactly one compatible versioned fallback per searched directory, and fails on
 ambiguity before trying development binaries or PATH.
 
-`reconc bootstrap remove --plan PATH` reverses only receipt-owned artifacts.
-It removes exact owned files, strips marker-owned blocks, preserves ambiguous
-content, emits review candidates for drift, and retains a shared hook wrapper
-while another installed platform may need it. `reconc hook uninstall KIND .`
-removes one selected platform with the same ownership discipline.
+`reconc bootstrap remove --plan PATH` treats the portable receipt as the
+maximum ownership authority. It removes exact owned files and generated
+artifacts, strips exact marker-owned blocks while preserving every outside
+byte, and never deletes user-owned policy, docs, TASKs, or unrelated files
+merely because an older private receipt once created them. Drift blocks the
+normal mutation set and emits hash-addressed review candidates. The private
+receipt may remove only its own exact lifecycle records.
+`reconc hook uninstall KIND .` removes one separately selected platform with
+the same ownership discipline.
 
-`reconc bootstrap .` remains a compatibility shorthand for a create-only
-minimal plan with detected hook directories. It rejects `--force`; drift must
-be reviewed through candidates. When all changed bytes are one recognized
-managed block, the command offers an exact `--accept-managed-blocks` rerun.
-That explicit rerun revalidates target and candidate bytes before accepting
-only the managed section. The detailed AI tutorial and manual advanced harness
-path remain in `harness/template/BOOTSTRAP.md`.
+Repository upgrade is a separate explicit transaction:
+
+```bash
+reconc repo sync plan . --output /tmp/reconc-sync.json
+reconc repo sync apply --plan /tmp/reconc-sync.json --digest <plan-digest>
+reconc repo sync verify .
+```
+
+Planning reads the portable receipt, current owned bytes, managed blocks,
+generated policy lock, optional Git snapshot, and immutable packs embedded in
+the running binary. It classifies every path as `unchanged`,
+`replace-owned`, `update-managed-block`, `create-owned`, `user-drift`,
+`orphaned-legacy`, `incompatible`, or `manual-review`, and performs no
+repository write unless `--output` is supplied. Apply requires the exact saved
+digest, re-plans under the repository transaction lock, refuses any stale or
+review state, mutates only the three safe owned states, runs only registered
+policy-lock migrations, advances the receipt once, verifies the complete
+result, and rolls back already changed owned bytes on failure. It performs no
+network request. A valid single v0.8.x private plan and receipt can be imported
+as bounded migration evidence but cannot grant ownership beyond the portable
+receipt.
+
+`reconc bootstrap .` remains a v0.9 compatibility alias into the same init
+engine. Legacy `--preset` maps to `--pack` with a warning and `--force` is
+rejected. It has no parallel mutation or output logic. The detailed AI tutorial
+and project-specific advanced harness path remain in
+`tools/reconc/harness/template/BOOTSTRAP.md` after advanced init.
+
+## v0.9 CLI Product Contract
+
+The implementation contract for the next minor release is
+[RECONC-0007](rfcs/RECONC-0007-cli-product-lifecycle.md). It defines one
+ownership-aware global CLI, `init` as the canonical transactional onboarding
+entrypoint, durable installation and repository ownership, stable/preview/exact
+release selection, an embedded advanced public harness pack, explicit binary
+update and uninstall, and digest-bound repository synchronization.
+
+RECONC-0007 is frozen with v0.9.0. Ownership-aware installation, global
+diagnostics, update, uninstall,
+strict release manifests, canonical init, embedded harness packs,
+digest-bound repository synchronization, portable ownership receipts,
+cross-platform hardening, and release gates implement one published contract.
+
+The locked target keeps two boundaries explicit:
+
+- direct binary update and repository sync are separate transactions;
+- repository mutation is plan-, receipt-, precondition-, and digest-bound, and
+  never silently rewrites user-owned policy or documentation.
 
 ## Daily Workflow
 
@@ -376,7 +492,7 @@ Onboard a target repository once:
 
 ```bash
 reconc --version
-reconc bootstrap .
+reconc init .
 ```
 
 Then use the canonical daily loop:
@@ -398,7 +514,8 @@ state without Git or writes. Static reference material stays on demand through
 explicit or normally discovered repository. Stale or missing decision state
 fails with an exact replay remediation instead of claiming there is no work.
 
-`status`, `doctor`, `verify`, `check`, `ci`, `assert`, `can`, `why`,
+`status`, `doctor`, `verify`, `repo sync plan`, `repo sync verify`, `check`,
+`ci`, `assert`, `can`, `why`,
 `task status`, `task validate`, `task check-done`, `run status`, `run log`,
 `session-briefing`, `post-task-check`, `done`, `proof`, and `tui` never compile or write
 the lockfile. Missing, stale, malformed, schema-drifted, or non-portable current
@@ -409,7 +526,7 @@ that opt-in audit write is independent of policy refresh. Explicit `check`,
 private unresolved-block receipt below `RECONC_HOME`; governed worktree content
 remains untouched.
 
-The current v0.8.8 release can export the same completion candidate for external
+The current v0.9.0 release can export the same completion candidate for external
 review:
 
 ```bash
@@ -494,8 +611,8 @@ particular installation is live.
 
 ### How do I install and test it?
 
-Use the immutable v0.8.8 POSIX installer for macOS or Linux and the immutable
-v0.8.8 PowerShell installer for Windows x64. Put the installed binary on
+Use the immutable v0.9.0 POSIX installer for macOS or Linux and the immutable
+v0.9.0 PowerShell installer for Windows x64. Put the installed binary on
 `PATH`, then
 run `reconc demo` for a network-free, disposable proof of the real
 block-to-remediation-to-completion journey. Contributors building current
@@ -505,15 +622,17 @@ one-time `install-cli` call.
 
 ### How does repository bootstrap work?
 
-`reconc bootstrap .` is the compatibility minimal path. The explicit workflow
-is `bootstrap inspect`, `profiles`, `plan`, `apply`, `verify`, and `remove`.
-Planning is deterministic; apply is transactional and create-only; drift gets a
-hash-addressed review candidate; removal touches only receipt-owned bytes. Use
-the `existing` profile for mature repositories that already own their policy,
-instructions, docs, and TASK state. Mutating bootstrap automatically installs
-the exact running build as the stable user CLI; successful bootstrap guarantees
-that it is directly callable as bare `reconc`, and verification checks that
-contract again.
+`reconc init .` is the canonical path. It composes deterministic bootstrap
+inspection, selection, planning, create-only apply, durable plan and receipt
+publication, and verification. Drift gets a hash-addressed review candidate;
+the portable receipt makes later sync and ownership-bounded removal explicit.
+Use an explicit `existing` profile
+for mature repositories that already own policy, instructions, docs, and TASK
+state. `reconc bootstrap .` is only a compatibility alias; advanced
+`bootstrap inspect|profiles|plan|apply|verify|remove` commands expose the same
+engine without duplicating business logic. `--profile advanced` additionally
+materializes the immutable public harness pack from the installed binary, binds
+its version and digest into the plan and receipt, and requires no toolkit copy.
 
 ### What exactly does `reconc done` prove?
 
@@ -567,6 +686,8 @@ Start with read-only diagnostics:
 
 ```bash
 reconc --version
+reconc doctor --global
+reconc update check
 reconc status .
 reconc doctor . --deep
 reconc verify .
@@ -578,7 +699,10 @@ reconc run status . --verbose
 If policy sources changed, run the exact remediation `reconc refresh .`; read
 commands never refresh implicitly. If a block is valid but unclear, run
 `reconc next .`. For a saved transactional bootstrap, use `reconc bootstrap
-verify --plan PATH --json`. Use `reconc task recover .` only for an interrupted
+verify --plan PATH --json`. For the current portable ownership state, use
+`reconc repo sync verify . --json`; plan a repository upgrade with
+`reconc repo sync plan .` before writing a plan file. Use
+`reconc task recover .` only for an interrupted
 TASK transaction and `reconc run reset .` only for corrupt or foreign run
 state. Do not delete lockfiles, receipts, managed blocks, or runtime state as a
 generic repair strategy.
@@ -586,11 +710,29 @@ If bootstrap reports that the running build is not directly callable, run the
 exact path-qualified `install-cli` remediation it prints, apply any emitted PATH
 line, open a new terminal, and retry. Do not work around the check with
 versioned paths.
-
 ## Upgrading
 
-Upgrade the binary from one trusted release source, verify the release checksum
-and optional GitHub attestation, then run:
+Discover the supported update without mutating the installation:
+
+```bash
+reconc update check
+```
+
+Use `--channel stable|preview` or `--version VERSION` only when that selection
+is intentional. Exact-version downgrades and channel changes require explicit
+flags. Apply the selected update only with:
+
+```bash
+reconc update apply
+```
+
+Direct installations download only the immutable manifest-selected asset,
+verify version, checksum, and required provenance, smoke-test a sibling
+candidate, and atomically replace only the receipt-owned binary. Source,
+unowned, ambiguous, shadowed, read-only, and unsupported installations return
+a non-mutating remediation.
+
+After an update, run:
 
 ```bash
 reconc version --json
@@ -598,32 +740,76 @@ reconc status .
 reconc doctor . --deep
 reconc refresh .
 reconc hook status . --json
+reconc repo sync verify .
 ```
 
 `refresh` performs registered lockfile migrations and recompiles current policy;
-it never silently rewrites source rules. Re-run an explicit bootstrap plan when
-generated hook artifacts need an update, review every drift candidate, and
-commit the refreshed portable lockfile in governed target repositories.
-For a locally built or copied upgrade, run the upgraded binary's
-`install-cli` command first so bare `reconc` cannot continue resolving an older
-build.
+it never silently rewrites source rules. A global binary update does not update
+repository-owned hooks or harness artifacts. Run `reconc repo sync plan .
+--output PATH`, review every action and exact digest, then run `reconc repo
+sync apply --plan PATH --digest SHA256`. Resolve drift and orphaned legacy
+items manually; never bypass them by deleting the receipt. Commit the refreshed
+portable policy lock and `.reconc/install.lock.json` in governed target
+repositories.
+For a locally built or copied upgrade, run the upgraded binary's `install-cli`
+command first so bare `reconc` cannot continue resolving an older build.
+
+## v0.8.8 To v0.9.0 Migration
+
+Preserve the installation owner and update the global binary before any
+repository-owned files:
+
+| Existing v0.8.8 state | Migration |
+| --- | --- |
+| Direct POSIX install | Run the immutable v0.9.0 `install.sh --version 0.9.0`, apply its exact PATH remediation if needed, then run `reconc doctor --global`. |
+| Direct Windows x64 install | Run the immutable v0.9.0 `install.ps1 -Version 0.9.0`, apply its exact PATH remediation if needed, then run `reconc doctor --global`. |
+| Source build or copied binary | Build or select the v0.9.0 binary and run its path-qualified `install-cli`; never copy it over the current global target manually. |
+| Copied standalone toolkit or private bootstrap receipt | Keep every user-owned file. Run `reconc init .` for an explicit profile or build `reconc repo sync plan .`; legacy receipts are bounded migration evidence, not permission to overwrite drift. |
+
+Then verify the two independent layers:
+
+```bash
+reconc --version
+reconc doctor --global
+reconc repo sync plan . --output /tmp/reconc-v0.9-sync.json
+reconc repo sync apply --plan /tmp/reconc-v0.9-sync.json --digest <plan-digest>
+reconc repo sync verify .
+reconc status .
+reconc hook status . --json
+```
+
+Review the saved sync plan before apply. `user-drift`, `orphaned-legacy`,
+`incompatible`, and `manual-review` perform no repository mutation. The v0.9
+transaction changes only receipt-owned files and exact managed blocks, rolls
+back its own already-published bytes on failure, and preserves policy sources,
+agent instructions, docs, TASKs, and unrelated repository content.
 
 ## Uninstall And Remove
 
 Prefer receipt- and registry-owned removal:
 
 ```bash
-reconc bootstrap remove --plan .reconc/bootstrap-plan.json --json
+reconc uninstall
+reconc bootstrap remove --plan <plan-path-from-init> --json
 reconc hook uninstall codex . --json
 ```
 
-Bootstrap removal verifies the saved receipt and current hashes, strips only
-marker-owned blocks, preserves shared wrappers, and refuses drift. Repeat
-`hook uninstall` only for separately installed runtime kinds. Remove the Reconc
-binary from the exact install directory you selected. Reconc intentionally does
-not delete user-owned `.reconc.yml`, `AGENTS.md`, TASK files, or policy source;
-review those manually. `reconc prune .` bounds owned runtime residue but is not
-a substitute for uninstalling policy or user data.
+Global uninstall verifies ownership and checksum identity before mutation.
+Direct and source installations remove only their receipt-owned binary and
+receipt.
+`--purge-state` additionally removes only the known global state inventory and
+fails before mutation if an unknown entry exists. Repository state is always
+retained.
+
+Bootstrap removal verifies the portable receipt and current hashes, removes
+only exact owned files and generated artifacts, strips only exact marker-owned
+blocks, preserves every user-owned path and outside byte, and refuses drift.
+Private receipts cannot expand that authority. Repeat
+`hook uninstall` only for separately installed runtime kinds. Reconc
+intentionally does not delete user-owned
+`.reconc.yml`, `AGENTS.md`, TASK files, or policy source; review those
+manually. `reconc prune .` bounds owned runtime residue but is not a substitute
+for uninstalling policy or user data.
 
 ## Development Control Plane
 
@@ -749,7 +935,10 @@ Daily:
 
 - `demo` - run the isolated real-policy product journey
 - `bootstrap` - inspect, profile, plan, apply, verify, and safely remove onboarding
+- `repo` - plan, apply, and verify digest-bound repository synchronization
 - `install-cli` - atomically install and verify the exact running user CLI
+- `update` - check or explicitly apply an ownership-safe binary update
+- `uninstall` - remove only verified global installation-owned state
 - `status` - one-line policy health summary
 - `check` - evaluate runtime evidence against compiled policy
 - `next` - show the next remediation
@@ -759,6 +948,7 @@ Daily:
 Bootstrap and inspection:
 
 - `bootstrap inspect|profiles|plan|apply|verify|remove`
+- `repo sync plan|apply|verify`
 - `init`
 - `adopt`
 - `extract`
@@ -837,11 +1027,13 @@ report, completion report, fix-plan, and proof-bundle artifacts keep their separ
 schemas.
 
 The managed target-repository block uses these exact rules. It ignores mutable
-runtime state while explicitly re-including `.reconc/policy.lock.json`:
+runtime state while explicitly re-including `.reconc/install.lock.json` and
+`.reconc/policy.lock.json`:
 
 - `/tools/reconc/dist/`
 - `.reconc/*`
 - `!.reconc/`
+- `!.reconc/install.lock.json`
 - `!.reconc/policy.lock.json`
 - `.reconc/audit.jsonl*`
 - `.reconc/cache/`
@@ -1003,7 +1195,7 @@ source. The exemption is bounded. It applies only when the failure is the
 lockfile contract itself rather than a policy violation, every executable
 position in the command must be a repair invocation so a compound command
 cannot smuggle work through, analysis must be complete, and the executable must
-be `reconc` or a versioned release artifact such as `reconc-0.8.8-darwin-arm64`.
+be `reconc` or a versioned release artifact such as `reconc-0.9.0-darwin-arm64`.
 The emitted remediation therefore tells the operator to run the repair as the
 only executable command. Piping it to another command or chaining unrelated
 work is deliberately refused.
@@ -1190,8 +1382,9 @@ summarizes the core runtime responsibilities:
 - `internal/ingest`: repository discovery and source loading
 - `internal/parser`: YAML-to-policy validation and normalization
 - `internal/compiler`: canonical JSON lockfile generation, digesting, conflicts, migrations, compile lock
-- `internal/bootstrap`: deterministic inspect/plan/apply/verify/remove transactions, receipts, managed-block acceptance, and binary resolution
-- `internal/usercli`: atomic running-build installation and exact bare-command PATH verification
+- `internal/bootstrap`: deterministic canonical init plus inspect/plan/apply/verify/remove and digest-bound repository-sync transactions, portable/private receipts, repository locking, managed-block ownership, rollback, policy migration, and binary resolution
+- `harness` and `internal/harnesspack`: embedded advanced pack ownership, strict manifest/archive validation, compatibility, and byte parity
+- `internal/usercli`: locked binary-plus-receipt installation, manager classification, exact PATH identity, global diagnostics, bounded release selection, atomic direct updates, package-manager delegation, and ownership-safe uninstall
 - `internal/stackdetect`: shared bounded manifest/source stack discovery
 - `internal/runtime`: policy evaluation, remediation, git integration, scripts, templates
 - `internal/schema`: canonical format-versioned public JSON schema locations and enterprise URL resolution
@@ -1218,7 +1411,7 @@ summarizes the core runtime responsibilities:
 Key invariants:
 
 - Deterministic JSON artifacts
-- Stable schema and `format_version` fields; immutable v1 contracts live under `schemas/v1/`, while current portable policy locks use `schemas/v2/`; all six v1 schemas and the current v2 lock schema ship in every future release containing the proof exporter
+- Stable schema and `format_version` fields; immutable v1 contracts live under `schemas/v1/`, while current portable policy locks use `schemas/v2/`; all fourteen v1 schemas and the current v2 lock schema ship in every future release containing repository sync
 - Fail closed on malformed policy, stale lockfiles, schema drift, invalid globs, unsupported rule kinds, and non-portable current lock envelopes
 - No core policy-runtime network calls; explicit `reconc grok` delegates
   authenticated inference to an external Grok ACP process
@@ -1777,6 +1970,9 @@ Release:
   Govulncheck, pinned Staticcheck, race, publication, trust, and clean-repository
   self-hosting gates before building.
 - `make release VERSION=<tag-version>` builds the exact flat release inventory.
+- `release-manifest.json` binds the exact repository, tag, version, prerelease
+  class, asset names, sizes, SHA-256 digests, and format version consumed by
+  offline update discovery.
 - The flat inventory includes `install.sh` and `install.ps1`; both are
   checksummed, byte-compared with tagged source, and covered by the same
   provenance manifest as the binaries.
@@ -1966,7 +2162,7 @@ current-state documentation.
 
 ## Release State
 
-The current source line is `v0.8.x`; the source version is `v0.8.8`. Release
+The current source line is `v0.9.x`; the source version is `v0.9.0`. Release
 artifacts are produced only through an explicit manual Release workflow
 dispatch for an existing `reconc-vX.Y.Z` tag; tag pushes never publish a
 release.

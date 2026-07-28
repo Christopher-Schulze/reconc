@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/global-lifecycle.schema.json",
+  "title": "Reconc global lifecycle report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "format_version",
+    "operation",
+    "status",
+    "changed",
+    "owner",
+    "current_version",
+    "target_version",
+    "channel",
+    "binary_path",
+    "receipt_path",
+    "plan_digest",
+    "checks",
+    "actions",
+    "next_action"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/global-lifecycle.schema.json"
+    },
+    "format_version": { "const": "reconc.global-lifecycle/v1" },
+    "operation": { "enum": ["update.check", "update.apply", "uninstall"] },
+    "status": {
+      "enum": [
+        "current",
+        "update-available",
+        "updated",
+        "uninstalled",
+        "refused",
+        "failed"
+      ]
+    },
+    "changed": { "type": "boolean" },
+    "owner": {
+      "type": ["string", "null"],
+      "enum": ["direct", "source", null]
+    },
+    "current_version": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "target_version": {
+      "type": ["string", "null"],
+      "maxLength": 128
+    },
+    "channel": {
+      "type": ["string", "null"],
+      "enum": ["stable", "preview", "exact", "source", null]
+    },
+    "binary_path": { "$ref": "#/$defs/nullablePath" },
+    "receipt_path": { "$ref": "#/$defs/nullablePath" },
+    "plan_digest": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "checks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/check" },
+      "maxItems": 96
+    },
+    "actions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/action" },
+      "maxItems": 16
+    },
+    "next_action": { "type": "string", "minLength": 1, "maxLength": 4112 }
+  },
+  "$defs": {
+    "nullablePath": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 32768
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "status", "detail"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "status": { "enum": ["pass", "warn", "fail"] },
+        "detail": { "type": "string", "maxLength": 4112 }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "command", "detail"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "command": { "type": "string", "maxLength": 4112 },
+        "detail": { "type": "string", "maxLength": 4112 }
+      }
+    }
+  }
+}

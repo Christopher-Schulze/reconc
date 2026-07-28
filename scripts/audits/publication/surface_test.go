@@ -503,9 +503,11 @@ func TestNativeWindowsInstallerIsWiredIntoCIAndRelease(t *testing.T) {
 	ci := readPublicSurfaceFile(t, root, ".github/workflows/reconc-ci.yml")
 	for _, token := range []string{
 		"shell: pwsh",
+		"make release-one TARGET=windows/amd64",
+		`artifact="dist/reconc-$version-windows-amd64.exe"`,
 		"./scripts/tests/test-windows-installer.ps1",
 		"-InstallerPath ./install.ps1",
-		"-BinaryPath ./reconc.exe",
+		`-BinaryPath "./dist/reconc-$version-windows-amd64.exe"`,
 		"live_release:",
 		"RECONC_LIVE_RELEASE",
 		"-LiveRelease",

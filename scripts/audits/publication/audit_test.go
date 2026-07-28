@@ -165,6 +165,21 @@ func TestAuditRepositoryDoesNotTreatDeletionAsNewPathLeak(t *testing.T) {
 	}
 }
 
+func TestAuditGitBlobBatchRejectsMetadataMismatch(t *testing.T) {
+	repo := newAuditRepo(t)
+	writeAuditFixture(t, repo, "README.md", "public fixture\n")
+	gitAudit(t, repo, "add", "README.md")
+	gitAudit(t, repo, "commit", "-m", "fixture", "--quiet")
+	objectID := strings.TrimSpace(gitAudit(t, repo, "rev-parse", "HEAD:README.md"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := auditGitBlobBatch(ctx, repo, []gitObjectMetadata{{ID: objectID, Type: "blob", Size: 1}})
+	if err == nil || !strings.Contains(err.Error(), "size changed") {
+		t.Fatalf("mismatched blob metadata was accepted: %v", err)
+	}
+}
+
 // TestCanonicalAuditRootAcceptsCaseVariantSpelling is the regression for a
 // release-facing audit that refused a healthy repository. The pre-change
 // implementation compared filepath.EvalSymlinks output as a string, and

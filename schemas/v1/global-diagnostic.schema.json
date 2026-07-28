@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/global-diagnostic.schema.json",
+  "title": "Reconc global installation diagnostic v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "format_version",
+    "operation",
+    "status",
+    "changed",
+    "owner",
+    "current_version",
+    "target_version",
+    "channel",
+    "binary_path",
+    "receipt_path",
+    "plan_digest",
+    "running_path",
+    "resolved_path",
+    "install_target_path",
+    "receipt_valid",
+    "checksum_identity",
+    "path_shadows",
+    "provenance_state",
+    "ownership_evidence",
+    "checks",
+    "actions",
+    "next_action"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/global-diagnostic.schema.json"
+    },
+    "format_version": { "const": "reconc.global-diagnostic/v1" },
+    "operation": { "const": "doctor.global" },
+    "status": {
+      "enum": ["healthy", "unowned", "stale", "shadowed", "ambiguous", "invalid"]
+    },
+    "changed": { "const": false },
+    "owner": {
+      "type": ["string", "null"],
+      "enum": ["direct", "source", null]
+    },
+    "current_version": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z][0-9A-Za-z.+-]*$",
+      "maxLength": 128
+    },
+    "target_version": {
+      "type": ["string", "null"],
+      "maxLength": 128
+    },
+    "channel": {
+      "type": ["string", "null"],
+      "enum": ["stable", "preview", "exact", "source", null]
+    },
+    "binary_path": { "$ref": "#/$defs/nullablePath" },
+    "receipt_path": { "$ref": "#/$defs/nullablePath" },
+    "plan_digest": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "running_path": { "$ref": "#/$defs/path" },
+    "resolved_path": { "$ref": "#/$defs/nullablePath" },
+    "install_target_path": { "$ref": "#/$defs/path" },
+    "receipt_valid": { "type": "boolean" },
+    "checksum_identity": { "type": "boolean" },
+    "path_shadows": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/path" },
+      "maxItems": 256,
+      "uniqueItems": true
+    },
+    "provenance_state": {
+      "type": ["string", "null"],
+      "enum": ["github-verified", "embedded-verified", "source-local", null]
+    },
+    "ownership_evidence": { "type": "string", "maxLength": 4112 },
+    "checks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/check" },
+      "maxItems": 64
+    },
+    "actions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/action" },
+      "maxItems": 16
+    },
+    "next_action": { "type": "string", "minLength": 1, "maxLength": 4112 }
+  },
+  "$defs": {
+    "path": { "type": "string", "minLength": 1, "maxLength": 32768 },
+    "nullablePath": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 32768
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "status", "detail"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "status": { "enum": ["pass", "warn", "fail"] },
+        "detail": { "type": "string", "maxLength": 4112 }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "command", "detail"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "command": { "type": "string", "maxLength": 4112 },
+        "detail": { "type": "string", "maxLength": 4112 }
+      }
+    }
+  }
+}

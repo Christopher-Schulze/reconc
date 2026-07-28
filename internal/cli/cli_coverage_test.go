@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	reconbootstrap "reconc.dev/reconc/internal/bootstrap"
 )
 
 func TestCLIFormattingHelpers(t *testing.T) {
@@ -675,7 +677,7 @@ func TestRunBootstrapHintsAndAgentInstall(t *testing.T) {
 			t.Fatalf("bootstrap missing-tooling repo: %v", err)
 		}
 		out := stdout.String()
-		for _, expected := range []string{"no .git/ found", "Next: git init && reconc hook install git-pre-commit"} {
+		for _, expected := range []string{"Reconc init: complete", "Hooks: none", "Next: reconc check"} {
 			if !strings.Contains(out, expected) {
 				t.Fatalf("expected focused bootstrap output %q, got %q", expected, out)
 			}
@@ -709,29 +711,19 @@ func TestRunBootstrapHintsAndAgentInstall(t *testing.T) {
 		if err := Run([]string{"bootstrap", repo, "--json"}, "0.5.0-test", &stdout, &stderr); err != nil {
 			t.Fatalf("bootstrap json with agent dirs: %v", err)
 		}
-		var payload map[string]interface{}
+		var payload reconbootstrap.InitReport
 		if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 			t.Fatalf("expected bootstrap JSON, got %v\n%s", err, stdout.String())
 		}
-		steps, ok := payload["steps"].([]interface{})
-		if !ok {
-			t.Fatalf("expected bootstrap steps in payload: %#v", payload)
+		joined := strings.Join(payload.Hooks, "\n")
+		if !strings.Contains(joined, "claude-code") || !strings.Contains(joined, "codex") || !strings.Contains(joined, "cursor") || !strings.Contains(joined, "opencode") || !strings.Contains(joined, "antigravity") {
+			t.Fatalf("expected detected agent hooks, got %q", joined)
 		}
-		stepText := make([]string, 0, len(steps))
-		for _, step := range steps {
-			if s, ok := step.(string); ok {
-				stepText = append(stepText, s)
-			}
+		if payload.Operation != "init" || payload.Status != reconbootstrap.InitComplete {
+			t.Fatalf("compatibility alias did not use canonical init result: %+v", payload)
 		}
-		joined := strings.Join(stepText, "\n")
-		if !strings.Contains(joined, "hook install claude-code") || !strings.Contains(joined, "hook install codex") || !strings.Contains(joined, "hook install cursor") || !strings.Contains(joined, "hook install opencode") || !strings.Contains(joined, "hook install antigravity") {
-			t.Fatalf("expected agent hook install steps, got %q", joined)
-		}
-		if _, exists := payload["next_hints"]; exists {
-			t.Fatalf("unexpected legacy next_hints field: %#v", payload)
-		}
-		if nextAction, ok := payload["next_action"].(string); !ok || strings.TrimSpace(nextAction) == "" {
-			t.Fatalf("expected one primary next_action, got %#v", payload)
+		if strings.TrimSpace(payload.NextAction) == "" {
+			t.Fatalf("expected one primary next_action, got %+v", payload)
 		}
 	})
 }
@@ -745,13 +737,20 @@ func TestLegacyBootstrapOffersAndExecutesManagedBlockOptIn(t *testing.T) {
 	}
 	var stdout, stderr bytes.Buffer
 	err := Run([]string{"bootstrap", repo}, "0.5.0-test", &stdout, &stderr)
-	if err == nil || ExitCode(err) != 1 || !strings.Contains(stdout.String(), "--accept-managed-blocks") {
-		t.Fatalf("legacy bootstrap did not offer bounded opt-in: err=%v stdout=%q stderr=%q", err, stdout.String(), stderr.String())
+	if err == nil || ExitCode(err) != 1 || !strings.Contains(stdout.String(), "--profile minimal") {
+		t.Fatalf("legacy bootstrap did not require explicit mature-repo selection: err=%v stdout=%q stderr=%q", err, stdout.String(), stderr.String())
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	if err := Run([]string{"bootstrap", repo, "--accept-managed-blocks"}, "0.5.0-test", &stdout, &stderr); err != nil {
+	err = Run([]string{"init", repo, "--profile", "minimal"}, "0.5.0-test", &stdout, &stderr)
+	if err == nil || !strings.Contains(stdout.String(), "--accept-managed-blocks") {
+		t.Fatalf("canonical init did not offer bounded opt-in: err=%v stdout=%q", err, stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{"init", repo, "--profile", "minimal", "--accept-managed-blocks"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("managed-block opt-in failed: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
 	}
 	body, err := os.ReadFile(filepath.Join(repo, "AGENTS.md"))

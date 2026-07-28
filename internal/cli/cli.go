@@ -67,7 +67,7 @@ func Run(argv []string, version string, stdout, stderr io.Writer) (runErr error)
 		printUsage(stdout, version)
 		return nil
 	case "doctor":
-		return runDoctor(argv[1:], stdout, stderr)
+		return runDoctor(argv[1:], version, stdout, stderr)
 	case "demo":
 		return runDemo(argv[1:], version, stdout)
 	case "compile":
@@ -79,7 +79,7 @@ func Run(argv []string, version string, stdout, stderr io.Writer) (runErr error)
 	case "assert":
 		return runAssert(argv[1:], stdout, stderr)
 	case "init":
-		return runInit(argv[1:], stdout, stderr)
+		return runInit(argv[1:], version, stdout, stderr)
 	case "status":
 		return runStatus(argv[1:], stdout, stderr)
 	case "ci":
@@ -94,8 +94,14 @@ func Run(argv []string, version string, stdout, stderr io.Writer) (runErr error)
 		return runPreset(argv[1:], stdout, stderr)
 	case "bootstrap":
 		return runBootstrap(argv[1:], version, stdout, stderr)
+	case "repo":
+		return runRepo(argv[1:], version, stdout)
 	case "install-cli":
-		return runInstallCLI(argv[1:], stdout)
+		return runInstallCLI(argv[1:], version, stdout)
+	case "update":
+		return runUpdate(argv[1:], version, stdout)
+	case "uninstall":
+		return runUninstall(argv[1:], version, stdout)
 	case "fix":
 		return runFix(argv[1:], stdout, stderr)
 	case "next":

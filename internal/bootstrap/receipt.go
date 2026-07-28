@@ -18,12 +18,13 @@ const (
 )
 
 type InstallReceipt struct {
-	FormatVersion  string                `json:"format_version"`
-	ProductVersion string                `json:"product_version"`
-	RepoRoot       string                `json:"repo_root"`
-	PlanDigest     string                `json:"plan_digest"`
-	Entries        []InstallReceiptEntry `json:"entries"`
-	Digest         string                `json:"digest"`
+	FormatVersion  string                 `json:"format_version"`
+	ProductVersion string                 `json:"product_version"`
+	RepoRoot       string                 `json:"repo_root"`
+	PlanDigest     string                 `json:"plan_digest"`
+	HarnessPacks   []HarnessPackSelection `json:"harness_packs,omitempty"`
+	Entries        []InstallReceiptEntry  `json:"entries"`
+	Digest         string                 `json:"digest"`
 }
 
 type InstallReceiptEntry struct {
@@ -39,7 +40,7 @@ func installReceiptPath(planDigest string) string {
 	return filepath.ToSlash(filepath.Join(".reconc", "bootstrap-install-"+planDigest[:12]+".json"))
 }
 
-func buildInstallReceipt(plan *Plan, productVersion, lockSHA string) (*InstallReceipt, error) {
+func buildInstallReceipt(plan *Plan, productVersion, lockSHA, planRecordPath, recordedPlanSHA string) (*InstallReceipt, error) {
 	entries := []InstallReceiptEntry{}
 	hasCreatedArtifact := false
 	for _, action := range plan.Actions {
@@ -73,10 +74,18 @@ func buildInstallReceipt(plan *Plan, productVersion, lockSHA string) (*InstallRe
 	if !hasCreatedArtifact {
 		return nil, nil
 	}
+	if planRecordPath == "" || !validSHA256(recordedPlanSHA) {
+		return nil, fmt.Errorf("recorded bootstrap plan identity is invalid")
+	}
+	entries = append(entries, InstallReceiptEntry{
+		Path: planRecordPath, SHA256: recordedPlanSHA, Mode: 0o600, Ownership: "file",
+	})
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
 	receipt := &InstallReceipt{
 		FormatVersion: InstallReceiptFormatVersion, ProductVersion: productVersion,
-		RepoRoot: plan.RepoRoot, PlanDigest: plan.PlanDigest, Entries: entries,
+		RepoRoot: plan.RepoRoot, PlanDigest: plan.PlanDigest,
+		HarnessPacks: append([]HarnessPackSelection{}, plan.Selection.HarnessPacks...),
+		Entries:      entries,
 	}
 	digest, err := computeInstallReceiptDigest(receipt)
 	if err != nil {
@@ -165,6 +174,14 @@ func validateInstallReceipt(plan *Plan, receipt *InstallReceipt) error {
 	if receipt.RepoRoot != plan.RepoRoot || receipt.PlanDigest != plan.PlanDigest || receipt.ProductVersion != plan.ProductVersion {
 		return fmt.Errorf("bootstrap install receipt does not belong to the supplied plan")
 	}
+	if len(receipt.HarnessPacks) != len(plan.Selection.HarnessPacks) {
+		return fmt.Errorf("bootstrap install receipt harness pack selection drifted")
+	}
+	for index := range receipt.HarnessPacks {
+		if receipt.HarnessPacks[index] != plan.Selection.HarnessPacks[index] {
+			return fmt.Errorf("bootstrap install receipt harness pack selection drifted")
+		}
+	}
 	digest, err := computeInstallReceiptDigest(receipt)
 	if err != nil {
 		return err
@@ -189,6 +206,12 @@ func validateInstallReceipt(plan *Plan, receipt *InstallReceipt) error {
 		if entry.Path == ".reconc/policy.lock.json" {
 			if !plan.CompileRequired || entry.Ownership != "file" {
 				return fmt.Errorf("bootstrap install receipt claims an unowned policy lock")
+			}
+			continue
+		}
+		if entry.Path == recordedPlanPath(plan) {
+			if entry.Ownership != "file" || entry.Mode != 0o600 {
+				return fmt.Errorf("bootstrap install receipt has invalid recorded plan ownership")
 			}
 			continue
 		}

@@ -60,6 +60,14 @@ Security-relevant defaults:
 - paths are normalized and constrained to the discovered repository root
 - payload command strings are matched as data and are not executed
 - subprocess execution is limited to policy-authored `require_script` checks
+- native installers accept only supported, overflow-safe semantic versions,
+  immutable release tags, HTTPS downloads, metadata bounded to 2 MiB, binaries
+  bounded to 256 MiB, one exact checksum entry, and explicit downgrades
+- installer provenance verification is bound to the release tag, repository,
+  release workflow, and GitHub-hosted runner identity when `gh` is available;
+  operators can make that verification mandatory
+- release metadata is generated only from verified checksums and immutable
+  tagged source
 - audit logging is opt-in via `RECONC_AUDIT=1`
 - repository-local hook wrappers may prefer development binaries for
   self-hosting and otherwise select stable or unambiguous versioned local

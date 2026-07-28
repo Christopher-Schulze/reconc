@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 
@@ -11,7 +12,7 @@ import (
 	"reconc.dev/reconc/internal/usercli"
 )
 
-func runInstallCLI(args []string, stdout io.Writer) error {
+func runInstallCLI(args []string, version string, stdout io.Writer) error {
 	installDir := ""
 	jsonOut := false
 	for index := 0; index < len(args); index++ {
@@ -36,7 +37,11 @@ func runInstallCLI(args []string, stdout io.Writer) error {
 			return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc install-cli: unknown argument %q", args[index])}
 		}
 	}
-	report, err := usercli.InstallCurrent(installDir)
+	options, err := installCLIOptions(version)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc install-cli: " + err.Error()}
+	}
+	report, err := usercli.InstallCurrentWithReceipt(installDir, options)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc install-cli: " + err.Error()}
 	}
@@ -61,15 +66,63 @@ func runInstallCLI(args []string, stdout io.Writer) error {
 	return nil
 }
 
-func ensureCurrentUserCLI(command string) error {
-	report, err := usercli.InstallCurrent("")
+func ensureCurrentUserCLI(command string, version string) error {
+	diagnostic, err := usercli.DiagnoseGlobal(version)
 	if err != nil {
-		return bootstrapCLIError(command, "install user CLI: "+err.Error())
+		return userCLICommandError(command, "diagnose user CLI: "+err.Error())
+	}
+	if diagnostic.Status == usercli.DiagnosticHealthy {
+		return nil
+	}
+	report, err := usercli.InstallCurrentWithReceipt("", usercli.InstallOptions{Version: version})
+	if err != nil {
+		return userCLICommandError(command, "install user CLI: "+err.Error())
 	}
 	if report.Status.Ready {
 		return nil
 	}
-	return bootstrapCLIError(command, "the running Reconc build was installed but is not directly callable from PATH; "+report.Status.NextAction)
+	return userCLICommandError(command, "the running Reconc build was installed but is not directly callable from PATH; "+report.Status.NextAction)
+}
+
+func userCLICommandError(command, message string) error {
+	if command == "init" {
+		return initCLIError(message)
+	}
+	return bootstrapCLIError(command, message)
+}
+
+func installCLIOptions(version string) (usercli.InstallOptions, error) {
+	options := usercli.InstallOptions{Version: strings.TrimSpace(version)}
+	manager := usercli.Manager(strings.TrimSpace(os.Getenv("RECONC_INSTALL_MANAGER")))
+	if manager == "" || manager == usercli.ManagerSource {
+		options.Manager = usercli.ManagerSource
+		return options, nil
+	}
+	if manager != usercli.ManagerDirect {
+		return usercli.InstallOptions{}, fmt.Errorf("RECONC_INSTALL_MANAGER may be only direct or source")
+	}
+	options.Manager = manager
+	options.Channel = usercli.Channel(strings.TrimSpace(os.Getenv("RECONC_INSTALL_CHANNEL")))
+	if options.Channel == "" {
+		options.Channel = usercli.ChannelExact
+	}
+	switch options.Channel {
+	case usercli.ChannelStable, usercli.ChannelPreview, usercli.ChannelExact:
+	default:
+		return usercli.InstallOptions{}, fmt.Errorf("invalid direct installation channel %q", options.Channel)
+	}
+	options.ArtifactName = strings.TrimSpace(os.Getenv("RECONC_INSTALL_ARTIFACT"))
+	options.ReleaseTag = strings.TrimSpace(os.Getenv("RECONC_INSTALL_RELEASE_TAG"))
+	options.ProvenanceState = usercli.ProvenanceState(strings.TrimSpace(os.Getenv("RECONC_INSTALL_PROVENANCE")))
+	if options.ProvenanceState == "" {
+		options.ProvenanceState = usercli.ProvenanceEmbeddedVerified
+	}
+	switch options.ProvenanceState {
+	case usercli.ProvenanceGitHubVerified, usercli.ProvenanceEmbeddedVerified:
+	default:
+		return usercli.InstallOptions{}, fmt.Errorf("invalid direct installation provenance %q", options.ProvenanceState)
+	}
+	return options, nil
 }
 
 func appendUserCLIVerification(verification *reconbootstrap.Verification) error {

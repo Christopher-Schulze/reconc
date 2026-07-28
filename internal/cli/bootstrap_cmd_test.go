@@ -81,8 +81,11 @@ func TestBootstrapPhasesGovernedRoundTrip(t *testing.T) {
 	if removal.Status != reconbootstrap.RemovalComplete || len(removal.Removed) == 0 {
 		t.Fatalf("removal did not reverse owned files: %+v", removal)
 	}
-	if _, err := os.Stat(filepath.Join(repo, ".reconc.yml")); !os.IsNotExist(err) {
-		t.Fatalf("bootstrap-owned policy remains after removal: %v", err)
+	if _, err := os.Stat(filepath.Join(repo, ".reconc.yml")); err != nil {
+		t.Fatalf("portable user-owned policy was removed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, reconbootstrap.RepositoryReceiptRelativePath)); !os.IsNotExist(err) {
+		t.Fatalf("portable repository receipt remains after removal: %v", err)
 	}
 }
 
@@ -253,5 +256,33 @@ func TestInstallCLICommandPublishesAReadyBareCommand(t *testing.T) {
 	}
 	if report.Status == nil || !report.Status.Ready || report.Status.ResolvedPath == "" {
 		t.Fatalf("install-cli did not publish a bare command: %+v", report)
+	}
+}
+
+func TestCanonicalInitReportsGlobalCLIFailureWithoutRepositoryWrite(t *testing.T) {
+	invalidInstallDirectory := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(invalidInstallDirectory, []byte("occupied"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RECONC_HOME", t.TempDir())
+	t.Setenv("RECONC_INSTALL_DIR", invalidInstallDirectory)
+	repo := t.TempDir()
+
+	var stdout, stderr bytes.Buffer
+	err := Run([]string{"init", repo, "--json"}, "test", &stdout, &stderr)
+	if err == nil || ExitCode(err) != 1 {
+		t.Fatalf("invalid global CLI preflight error = %v", err)
+	}
+	var report reconbootstrap.InitReport
+	if decodeErr := json.Unmarshal(stdout.Bytes(), &report); decodeErr != nil {
+		t.Fatalf("decode failed init result: %v\n%s", decodeErr, stdout.String())
+	}
+	if report.Status != reconbootstrap.InitRefused ||
+		!strings.HasPrefix(report.NextAction, "reconc init:") ||
+		!strings.Contains(report.NextAction, "user CLI") {
+		t.Fatalf("failed init result = %+v", report)
+	}
+	if entries, readErr := os.ReadDir(repo); readErr != nil || len(entries) != 0 {
+		t.Fatalf("failed global CLI preflight mutated repository: entries=%v err=%v", entries, readErr)
 	}
 }

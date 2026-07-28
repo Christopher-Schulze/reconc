@@ -8,6 +8,7 @@ const (
 	ReportFormatVersion  = "reconc.bootstrap.report/v1"
 	RemovalFormatVersion = "reconc.bootstrap.remove/v1"
 	VerifyFormatVersion  = "reconc.bootstrap.verify/v1"
+	InitFormatVersion    = "reconc.init/v1"
 )
 
 type ProfileName string
@@ -16,6 +17,7 @@ const (
 	ProfileMinimal  ProfileName = "minimal"
 	ProfileGoverned ProfileName = "governed"
 	ProfileExisting ProfileName = "existing"
+	ProfileAdvanced ProfileName = "advanced"
 )
 
 type Profile struct {
@@ -45,6 +47,11 @@ func Profiles() []Profile {
 			Name: ProfileExisting, Summary: "Hooks, repo-local wrapper, and optional binary for a repository with existing fresh policy.",
 			Wrapper: true, DefaultPacks: []string{},
 		},
+		{
+			Name: ProfileAdvanced, Summary: "Complete governed control plane plus the embedded public advanced harness.",
+			Policy: true, AgentDoc: true, Tasks: true, Docs: true, Ignores: true, Wrapper: true,
+			DefaultPacks: []string{"default", "agent"},
+		},
 	}
 }
 
@@ -58,11 +65,18 @@ type Request struct {
 }
 
 type Selection struct {
-	Profile              ProfileName      `json:"profile"`
-	Packs                []string         `json:"packs"`
-	Hooks                []string         `json:"hooks"`
-	Binary               *BinarySelection `json:"binary,omitempty"`
-	TrustExistingWrapper bool             `json:"trust_existing_wrapper,omitempty"`
+	Profile              ProfileName            `json:"profile"`
+	Packs                []string               `json:"packs"`
+	HarnessPacks         []HarnessPackSelection `json:"harness_packs,omitempty"`
+	Hooks                []string               `json:"hooks"`
+	Binary               *BinarySelection       `json:"binary,omitempty"`
+	TrustExistingWrapper bool                   `json:"trust_existing_wrapper,omitempty"`
+}
+
+type HarnessPackSelection struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	Digest  string `json:"digest"`
 }
 
 type BinarySelection struct {
@@ -216,6 +230,57 @@ type Check struct {
 	Name   string `json:"name"`
 	Status string `json:"status"`
 	Detail string `json:"detail"`
+}
+
+type InitStatus string
+
+const (
+	InitComplete   InitStatus = "complete"
+	InitDrift      InitStatus = "drift"
+	InitRefused    InitStatus = "refused"
+	InitRolledBack InitStatus = "rolled_back"
+)
+
+// InitRequest is the complete non-interactive authorization for canonical
+// repository onboarding. Empty profile and hook selection are resolved only
+// through deterministic inspection or an existing transaction receipt.
+type InitRequest struct {
+	RepoRoot             string
+	Profile              ProfileName
+	Packs                []string
+	Hooks                []string
+	HooksExplicit        bool
+	NoHooks              bool
+	AcceptManagedBlocks  bool
+	SkipGitHook          bool
+	SkipAgentHooks       bool
+	CompatibilityWarning []string
+}
+
+// InitReport is the stable result shared by text and JSON rendering.
+type InitReport struct {
+	FormatVersion  string                 `json:"format_version"`
+	Operation      string                 `json:"operation"`
+	Status         InitStatus             `json:"status"`
+	Changed        bool                   `json:"changed"`
+	Owner          *string                `json:"owner"`
+	CurrentVersion string                 `json:"current_version"`
+	TargetVersion  *string                `json:"target_version"`
+	Channel        *string                `json:"channel"`
+	BinaryPath     *string                `json:"binary_path"`
+	ReceiptPath    *string                `json:"receipt_path"`
+	PlanDigest     *string                `json:"plan_digest"`
+	PlanPath       *string                `json:"plan_path"`
+	RepoRoot       string                 `json:"repo_root"`
+	Profile        ProfileName            `json:"profile"`
+	PolicyPacks    []string               `json:"policy_packs"`
+	HarnessPacks   []HarnessPackSelection `json:"harness_packs"`
+	Hooks          []string               `json:"hooks"`
+	Checks         []Check                `json:"checks"`
+	Actions        []Action               `json:"actions"`
+	Candidates     []string               `json:"candidates"`
+	Warnings       []string               `json:"warnings"`
+	NextAction     string                 `json:"next_action"`
 }
 
 type desiredArtifact struct {

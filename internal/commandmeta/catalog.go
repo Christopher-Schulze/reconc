@@ -57,6 +57,7 @@ type Subcommand struct {
 	Summary     string
 	Flags       []Flag
 	Arguments   []Argument
+	Subcommands []Subcommand
 	Stability   Stability
 	OutputModes []OutputMode
 }
@@ -89,7 +90,7 @@ var categoryCatalog = []CategoryInfo{
 }
 
 var hookKinds = []string{"antigravity", "claude-code", "codex", "cursor", "devin-cli", "git-pre-commit", "github-copilot", "grok", "kilo", "opencode"}
-var bootstrapProfiles = []string{"existing", "governed", "minimal"}
+var bootstrapProfiles = []string{"advanced", "existing", "governed", "minimal"}
 
 var commandCatalog = []Command{
 	command("demo", CategoryDaily, "reconc demo [--keep] [--json]", "run the isolated real-policy product journey", flags(f("--keep", ""), f("--json", "")), nil, modes(OutputText, OutputJSON)),
@@ -107,11 +108,23 @@ var commandCatalog = []Command{
 		sub("remove", "reconc bootstrap remove --plan PATH [--json]", "reverse one receipt-owned bootstrap transaction", flags(f("--plan", "PATH"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 		sub("verify", "reconc bootstrap verify --plan PATH [--json]", "verify an applied bootstrap manifest read-only", flags(f("--plan", "PATH"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	}, modes(OutputText, OutputJSON, OutputFile)),
+	command("repo", CategoryBootstrap, "reconc repo sync <plan|apply|verify>", "plan, apply, or verify receipt-owned repository upgrades", nil, []Subcommand{
+		subgroup("sync", "reconc repo sync <plan|apply|verify>", "operate the receipt-owned repository upgrade transaction", []Subcommand{
+			sub("plan", "reconc repo sync plan [repo] [--output PATH [--replace-output]] [--json]", "build a deterministic read-only repository sync plan", flags(f("--output", "PATH"), f("--replace-output", ""), f("--json", "")), nil, modes(OutputText, OutputJSON, OutputFile)),
+			sub("apply", "reconc repo sync apply --plan PATH --digest SHA256 [--json]", "apply one exact receipt-owned repository transaction", flags(f("--plan", "PATH"), f("--digest", "SHA256"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
+			sub("verify", "reconc repo sync verify [repo] [--json]", "verify the portable repository receipt and owned artifacts", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
+		}),
+	}, modes(OutputText, OutputJSON, OutputFile)),
 	command("install-cli", CategoryBootstrap, "reconc install-cli [--install-dir PATH] [--json]", "install the running build as the stable user CLI", flags(f("--install-dir", "PATH"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
-	command("init", CategoryBootstrap, "reconc init [repo] [--preset NAME] [--force] [--json] [--output PATH]", "scaffold policy and agent instructions", flags(repeat("--preset", "NAME"), f("--force", ""), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
+	command("update", CategoryBootstrap, "reconc update <check|apply>", "check or apply an ownership-safe global CLI update", nil, []Subcommand{
+		sub("check", "reconc update check [--channel stable|preview | --version VERSION] [--from-dir PATH] [--json]", "check for a verified global CLI update", flags(f("--channel", "CHANNEL", "stable", "preview"), f("--version", "VERSION"), f("--from-dir", "PATH"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
+		sub("apply", "reconc update apply [--channel stable|preview | --version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]", "apply a verified owner-authorized global CLI update", flags(f("--channel", "CHANNEL", "stable", "preview"), f("--version", "VERSION"), f("--allow-downgrade", ""), f("--from-dir", "PATH"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
+	}, modes(OutputText, OutputJSON)),
+	command("uninstall", CategoryBootstrap, "reconc uninstall [--purge-state] [--json]", "remove only the globally owned CLI installation", flags(f("--purge-state", ""), f("--json", "")), nil, modes(OutputText, OutputJSON)),
+	command("init", CategoryBootstrap, "reconc init [repo] [--profile PROFILE] [selection flags]", "transactionally onboard a repository", flags(f("--profile", "PROFILE", bootstrapProfiles...), repeat("--pack", "NAME"), repeatValues("--hook", "KIND", hookKinds...), f("--no-hooks", ""), f("--accept-managed-blocks", ""), compatRepeat("--preset", "NAME"), compat("--force", ""), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
 	command("adopt", CategoryBootstrap, "reconc adopt [repo] [--yaml | --json | --apply]", "detect tooling and suggest rules", flags(f("--yaml", ""), f("--json", ""), f("--apply", "")), nil, modes(OutputText, OutputYAML, OutputJSON)),
 	command("extract", CategoryBootstrap, "reconc extract [repo] [--from PATH] [--yaml | --json]", "scan instruction prose for rule hints", flags(f("--from", "PATH"), f("--yaml", ""), f("--json", "")), nil, modes(OutputText, OutputYAML, OutputJSON)),
-	command("doctor", CategoryBootstrap, "reconc doctor [repo] [--deep] [--json] [--output PATH]", "inspect discovery and validation state", flags(f("--deep", ""), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
+	command("doctor", CategoryBootstrap, "reconc doctor [repo] [--deep] [--json] [--output PATH] | reconc doctor --global [--json] [--output PATH]", "inspect repository or global installation state", flags(f("--deep", ""), f("--global", ""), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
 	command("verify", CategoryBootstrap, "reconc verify [repo] [--json]", "run the end-to-end installation health check", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 
 	command("compile", CategoryCompile, "reconc compile [repo] [--strict-conflicts] [--json] [--output PATH]", "compile the policy lockfile", flags(f("--json", ""), f("--strict-conflicts", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
@@ -255,6 +268,14 @@ func subArgs(name, synopsis, summary string, subcommandFlags []Flag, arguments [
 	return sub(name, synopsis, summary, subcommandFlags, arguments, outputModes)
 }
 
+func subgroup(name, synopsis, summary string, subcommands []Subcommand) Subcommand {
+	return Subcommand{
+		Name: name, Synopsis: synopsis, Summary: summary,
+		Subcommands: subcommands, Stability: StabilityStable,
+		OutputModes: modes(OutputText, OutputJSON, OutputFile),
+	}
+}
+
 func internalSub(name, synopsis, summary string) Subcommand {
 	return Subcommand{Name: name, Synopsis: synopsis, Summary: summary, Stability: StabilityInternal, OutputModes: modes(OutputText)}
 }
@@ -278,6 +299,12 @@ func repeatValues(name, value string, values ...string) Flag {
 func compat(name, value string) Flag {
 	flag := f(name, value)
 	flag.Compatibility = true
+	return flag
+}
+
+func compatRepeat(name, value string) Flag {
+	flag := compat(name, value)
+	flag.Repeatable = true
 	return flag
 }
 
@@ -315,9 +342,18 @@ func cloneCommand(command Command) Command {
 	command.OutputModes = append([]OutputMode(nil), command.OutputModes...)
 	command.Subcommands = append([]Subcommand(nil), command.Subcommands...)
 	for index := range command.Subcommands {
-		command.Subcommands[index].Flags = cloneFlags(command.Subcommands[index].Flags)
-		command.Subcommands[index].Arguments = cloneArguments(command.Subcommands[index].Arguments)
-		command.Subcommands[index].OutputModes = append([]OutputMode(nil), command.Subcommands[index].OutputModes...)
+		command.Subcommands[index] = cloneSubcommand(command.Subcommands[index])
+	}
+	return command
+}
+
+func cloneSubcommand(command Subcommand) Subcommand {
+	command.Flags = cloneFlags(command.Flags)
+	command.Arguments = cloneArguments(command.Arguments)
+	command.OutputModes = append([]OutputMode(nil), command.OutputModes...)
+	command.Subcommands = append([]Subcommand(nil), command.Subcommands...)
+	for index := range command.Subcommands {
+		command.Subcommands[index] = cloneSubcommand(command.Subcommands[index])
 	}
 	return command
 }

@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/installation-receipt.schema.json",
+  "title": "Reconc global installation receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "format_version",
+    "manager",
+    "channel",
+    "version",
+    "source_repository",
+    "release_tag",
+    "artifact_name",
+    "artifact_sha256",
+    "binary_path",
+    "goos",
+    "goarch",
+    "source_digest",
+    "provenance_state",
+    "installed_at",
+    "receipt_digest"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/installation-receipt.schema.json"
+    },
+    "format_version": { "const": "1" },
+    "manager": { "enum": ["direct", "source"] },
+    "channel": { "enum": ["stable", "preview", "exact", "source"] },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z][0-9A-Za-z.+-]*$",
+      "maxLength": 128
+    },
+    "source_repository": {
+      "enum": ["Christopher-Schulze/reconc", "local-source"]
+    },
+    "release_tag": {
+      "type": ["string", "null"],
+      "pattern": "^reconc-v[0-9A-Za-z][0-9A-Za-z.+-]*$",
+      "maxLength": 140
+    },
+    "artifact_name": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z][0-9A-Za-z._+-]*$",
+      "maxLength": 255
+    },
+    "artifact_sha256": { "$ref": "#/$defs/sha256" },
+    "binary_path": { "type": "string", "minLength": 1, "maxLength": 32768 },
+    "goos": { "type": "string", "pattern": "^[a-z0-9]+$", "maxLength": 32 },
+    "goarch": { "type": "string", "pattern": "^[a-z0-9]+$", "maxLength": 32 },
+    "source_digest": {
+      "oneOf": [
+        { "$ref": "#/$defs/sha256" },
+        { "const": "unavailable" }
+      ]
+    },
+    "provenance_state": {
+      "enum": ["github-verified", "embedded-verified", "source-local"]
+    },
+    "installed_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "receipt_digest": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

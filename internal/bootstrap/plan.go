@@ -38,7 +38,11 @@ func BuildPlan(request Request, productVersion string) (*Plan, error) {
 	if strings.TrimSpace(productVersion) == "" {
 		return nil, fmt.Errorf("bootstrap product version must be non-empty")
 	}
-	artifacts, err := buildDesiredArtifacts(root, selection)
+	selection, err = attachHarnessPacks(selection, productVersion)
+	if err != nil {
+		return nil, err
+	}
+	artifacts, err := buildDesiredArtifacts(root, selection, productVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -243,6 +247,9 @@ func ValidatePlan(plan *Plan) error {
 	if err := presets.ValidateSelection(plan.Selection.Packs); err != nil {
 		return fmt.Errorf("validate bootstrap plan packs: %w", err)
 	}
+	if err := validateHarnessPackSelections(plan.Selection); err != nil {
+		return err
+	}
 	for index, kind := range plan.Selection.Hooks {
 		if _, ok := hooks.PlatformForKind(kind); !ok {
 			return fmt.Errorf("bootstrap plan contains unsupported hook kind %q", kind)
@@ -370,7 +377,8 @@ func normalizeSelection(request Request, inspection *Inspection) (Selection, err
 		request.Binary = validated
 	}
 	return Selection{
-		Profile: profile.Name, Packs: packs, Hooks: hookKinds, Binary: request.Binary,
+		Profile: profile.Name, Packs: packs, HarnessPacks: []HarnessPackSelection{},
+		Hooks: hookKinds, Binary: request.Binary,
 		TrustExistingWrapper: request.TrustExistingWrapper,
 	}, nil
 }
@@ -405,7 +413,7 @@ func profileByName(name ProfileName) (Profile, error) {
 			return profile, nil
 		}
 	}
-	return Profile{}, fmt.Errorf("unknown bootstrap profile %q; supported: existing, governed, minimal", name)
+	return Profile{}, fmt.Errorf("unknown bootstrap profile %q; supported: advanced, existing, governed, minimal", name)
 }
 
 func planAction(root string, artifact desiredArtifact) (Action, error) {

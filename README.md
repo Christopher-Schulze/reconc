@@ -67,12 +67,12 @@ or network, cleans up by default, and emits inspectable proof with `--keep` or
 [PROOF] portable JSON bundle verified
 ```
 
-Install the checksummed, provenance-attested macOS or Linux release without
-building:
+Install the checksummed, provenance-attested macOS or Linux release with the
+immutable native installer:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.8/install.sh \
-  | sh -s -- 0.8.8
+curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.0/install.sh \
+  | sh -s -- --version 0.9.0
 export PATH="$HOME/.local/bin:$PATH"
 reconc demo
 ```
@@ -81,8 +81,8 @@ On Windows x64, run the native PowerShell installer:
 
 ```powershell
 $installer = Join-Path $env:TEMP "reconc-install.ps1"
-Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.8/install.ps1 -OutFile $installer
-& $installer 0.8.8
+Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.0/install.ps1 -OutFile $installer
+& $installer -Version 0.9.0
 Remove-Item $installer
 $env:Path = "$env:LOCALAPPDATA\Programs\Reconc\bin;$env:Path"
 reconc demo
@@ -119,11 +119,11 @@ why a task is allowed to be called done.
 | Stub and drift detection | Detects leading `TODO`, `FIXME`, `STUB`, and `PLACEHOLDER` debt plus ignored Go errors, Rust `todo!()`/`unimplemented!()`, and common unimplemented throws in changed shipped source; `docs-sync` can require matching documentation updates. |
 | TASK and context continuity | Validates and mutates a typed TASK lifecycle with recoverable claim, block, resume, split, promotion, and archive transitions; `session-briefing` supplies bounded machine-readable reentry context. |
 | Autonomous run control | `reconc run on|off|reset|status|log` provides one durable repository switch, bounded decision logs, terminal completion checks, and per-session no-progress guards. |
-| Bootstrap and adoption | Inspects an existing repository, proposes only evidence-backed packs and commands, then plans, applies, verifies, or removes a transactional rollout without overwriting drift. |
+| Bootstrap and adoption | Inspects an existing repository, proposes only evidence-backed packs and commands, then plans, applies, verifies, synchronizes, or removes a receipt-owned rollout without overwriting drift or user-owned bytes. |
 | Runtime enforcement | Generates, installs, inspects, and safely removes registry-backed hooks for nine coding-agent runtimes, with capability-specific failure semantics and git pre-commit as the repository backstop. |
 | MCP side-effect control | Classifies explicitly configured Cursor, OpenCode, and Kilo MCP tools as repository reads, repository writes, commands, or external effects. Exact selectors, fail-closed path/command extraction, redacted observations, and host-specific limitations prevent unknown or malformed calls from becoming positive repository evidence. |
-| Operator and CI tooling | Includes exact remediation, policy explanation, staged evidence execution, CI proofs, audit tail/stats/export, deep doctor checks, a terminal dashboard, pruning, shell completions, and a generated manpage. |
-| Release trust | Publishes checksums, build-provenance attestations, and deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs tied to the full release commit. |
+| Operator and CI tooling | Includes exact remediation, policy explanation, staged evidence execution, CI proofs, audit tail/stats/export, global installation diagnostics, ownership-safe update and uninstall, a terminal dashboard, pruning, shell completions, and a generated manpage. |
+| Release trust | Publishes a strict checksummed release manifest, build-provenance attestations, and deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs tied to the full release commit. |
 
 ## Stack-aware assurance packs
 
@@ -170,11 +170,12 @@ CI, and completion boundaries it controls.
 
 ## Install and Bootstrap
 
-Install the checksummed, provenance-attested macOS or Linux release:
+Install the checksummed, provenance-attested macOS or Linux release with the
+immutable native installer:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.8/install.sh \
-  | sh -s -- 0.8.8
+curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.0/install.sh \
+  | sh -s -- --version 0.9.0
 export PATH="$HOME/.local/bin:$PATH"
 reconc demo
 ```
@@ -183,27 +184,38 @@ On Windows x64:
 
 ```powershell
 $installer = Join-Path $env:TEMP "reconc-install.ps1"
-Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.8/install.ps1 -OutFile $installer
-& $installer 0.8.8
+Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.0/install.ps1 -OutFile $installer
+& $installer -Version 0.9.0
 Remove-Item $installer
 $env:Path = "$env:LOCALAPPDATA\Programs\Reconc\bin;$env:Path"
 reconc demo
 ```
 
-The immutable v0.8.8 tag contains both installer scripts, so neither bootstrap
+The immutable v0.9.0 tag contains both installer scripts, so neither bootstrap
 path fetches executable installation logic from mutable `main`.
 
-Both native installers verify the exact v0.8.8 release asset against
+Both native installers verify the exact v0.9.0 release asset against
 `SHA256SUMS`,
 smoke-test the candidate before replacing an existing installation, and use
 GitHub build-provenance attestations when `gh` is available. Release CI
 exercises both installer scripts before publication. Set
 `RECONC_REQUIRE_ATTESTATION=1` to make attestation verification mandatory.
+Omitting a selector installs the latest stable release; use
+`--channel preview` or `-Channel Preview` for an explicit preview and
+`--version VERSION` or `-Version VERSION` for an immutable exact release.
+Downgrades require `--allow-downgrade` or `-AllowDowngrade`.
 `RECONC_INSTALL_DIR` selects the destination. POSIX defaults to
 `~/.local/bin`; Windows defaults to the user-writable
 `%LOCALAPPDATA%\Programs\Reconc\bin`. Both installers print an exact PATH
 remediation when bare `reconc` does not resolve to the installed binary. Apply
 that line and open a new terminal before continuing.
+
+Reconc v0.9 makes the binary and ownership publication one
+locked transaction. Once bare `reconc` resolves to the installed binary, the
+installer records a private, checksum-bound receipt below
+`$RECONC_HOME/install/` and `reconc doctor --global` reports the owner,
+channel, running and resolved binaries, PATH shadows, checksum identity, and
+provenance. A missing PATH entry never produces a false ownership receipt.
 
 The shipped CLI has no Bun dependency. Contributors need Bun `1.3.14` only for
 the executable OpenCode and Kilo Code adapter contract tests included in the
@@ -225,24 +237,54 @@ reconc --version
 `reconc install-cli` atomically installs the exact running executable, rejects
 a symlink target, verifies its checksum and executable mode, and fails with an
 exact remediation if bare `reconc` is missing or shadowed. A successful
+PATH verification also publishes a private source-ownership receipt. Run
+`reconc doctor --global` for read-only installation truth. A successful
 repository bootstrap therefore never leaves operators navigating versioned
 artifact paths.
+
+Use `reconc update check [--channel stable|preview] [--version VERSION]` for
+bounded release discovery. `reconc update apply` performs an explicit,
+checksum-bound, provenance-aware atomic update only for receipt-owned direct
+installations. Source-owned installations retain their explicit rebuild path.
+`reconc uninstall [--purge-state]` removes only verified installation-owned
+global state and never repository policy, hooks, TASKs, docs, or runtime
+evidence.
 
 Add Reconc to a target repo:
 
 ```bash
-reconc bootstrap .
+reconc init .
 ```
 
-This compatibility shorthand builds and applies a create-only minimal plan. It
-scaffolds missing policy and runtime ignores, compiles the committable lockfile,
-selects git when `.git/` exists, and selects registered agent platforms whose
-repo-local config directory already exists. It never overwrites drift;
+This is the canonical non-interactive onboarding command. A fresh repository
+gets a create-only minimal transaction, a compiled committable lockfile,
+detected local hooks, a durable plan, a private rollback receipt, and the
+committable `.reconc/install.lock.json` portable ownership receipt. A
+previously initialized repository reuses its recorded selection. Partial or
+mature control state without a valid receipt performs no repository write and
+prints the exact explicit-profile command. Init never overwrites drift;
 conflicts produce review candidates.
 When an existing `AGENTS.md` or `.gitignore` needs only Reconc's marker-owned
-block, the command prints one exact opt-in rerun with
+block, explicit `--profile minimal` prints one exact opt-in rerun with
 `--accept-managed-blocks`. That rerun promotes only a byte-verified marker-only
 candidate and preserves every user-owned byte.
+
+Updating the global binary and updating one repository are separate
+transactions. After a binary update, plan and review repository-owned hook,
+harness, and generated-lock changes before applying the exact digest:
+
+```bash
+reconc repo sync plan . --output /tmp/reconc-sync.json
+reconc repo sync apply --plan /tmp/reconc-sync.json --digest <plan-digest>
+reconc repo sync verify .
+```
+
+Planning is read-only unless `--output` is supplied. Apply revalidates the
+repository, Git snapshot, receipt, exact owned bytes, managed blocks, policy
+migrations, and immutable embedded pack under one lock. User drift, orphaned
+legacy files, incompatibility, and manual-review paths block mutation. Failure
+rolls back the owned transaction; policy sources, docs, TASKs, and unrelated
+bytes are never silently rewritten.
 
 For an existing repo, inspect evidence-backed rule and policy-pack proposals:
 
@@ -327,7 +369,7 @@ blocking until a later explicit non-blocking check clears it; waiting never
 does. `--require-clean-git` adds a clean-tree requirement. `--window` remains
 accepted only for compatibility and has no time-based pass semantics.
 
-The current v0.8.8 release provides the portable proof exporter:
+The current v0.9.0 release provides the portable proof exporter:
 
 ```bash
 reconc proof . --output proof.json
@@ -348,46 +390,44 @@ Minimal policy and hook bootstrap:
 
 ```bash
 reconc --version
-reconc bootstrap .
+reconc init .
 ```
 
 Explicit full repo-local governance rollout:
 
 ```bash
-reconc bootstrap inspect . --json
-reconc bootstrap plan . --profile governed \
-  --hook codex \
-  --install-binary \
-  --output .reconc/bootstrap-plan.json \
-  --json
-reconc bootstrap apply --plan .reconc/bootstrap-plan.json --json
-reconc bootstrap verify --plan .reconc/bootstrap-plan.json --json
+reconc init . --profile governed --hook codex --json
 ```
 
-Bootstrap apply atomically installs the exact running build as the stable user
-CLI, then refuses before any repository write unless it is directly callable
-as bare `reconc`. The path-qualified binary's explicit `install-cli` command is
-the equivalent pre-bootstrap option for a portable toolkit. `verify` repeats
-the user-CLI check. `inspect` and `verify` are otherwise read-only. `plan` writes only with explicit
-`--output`. Packs and hooks are explicit; stack and platform detection only
-suggest. Apply publishes absent targets, leaves exact files unchanged, creates
-hash-addressed candidates for drift, and rolls back transaction-owned files on
-failure. A stale saved plan prints one exact `--replace-output` replan command;
-replacement is allowed only when the existing output is a valid Reconc plan
-for the same repository. Successful apply records a tamper-evident install
-receipt, reports created/preserved/drifted/skipped and installed/configured/live
-counts, and emits exactly one next command.
-
-Remove only receipt-owned bootstrap artifacts or one selected platform hook:
+Complete embedded public harness rollout:
 
 ```bash
-reconc bootstrap remove --plan .reconc/bootstrap-plan.json
+reconc init . --profile advanced --no-hooks --json
+```
+
+Init atomically installs the exact running build as the stable user CLI, then
+refuses before repository writes unless bare `reconc` resolves to it. It
+performs inspect, selection, plan, apply, receipt publication, and verification
+through the same bootstrap engine. `bootstrap inspect|profiles|plan|apply|
+verify|remove` remains the transparent lower-level interface for operators who
+need a separately reviewed plan. Packs and hooks are explicit when supplied;
+safe fresh-repository hook detection is deterministic. Apply publishes absent
+targets, leaves exact files unchanged, creates hash-addressed candidates for
+drift, and rolls back transaction-owned files on failure.
+
+Remove only portable-receipt-owned bootstrap artifacts or one selected
+platform hook:
+
+```bash
+reconc bootstrap remove --plan <plan-path-from-init>
 reconc hook uninstall codex .
 ```
 
-Removal verifies hashes, strips only marker-owned blocks, preserves shared
-wrappers, refuses drift, and emits review candidates instead of deleting
-ambiguous user content.
+Removal verifies hashes, removes exact owned files and generated artifacts,
+strips only exact marker-owned blocks, refuses drift, and emits review
+candidates instead of deleting ambiguous user content. An older private
+receipt cannot expand ownership beyond `.reconc/install.lock.json`; user-owned
+policy, docs, TASKs, and bytes outside managed markers remain.
 
 Mature repositories that already own policy, agent instructions, docs, and
 TASK state use `--profile existing` after `reconc refresh .`. That profile
@@ -397,15 +437,19 @@ leaves every existing control-plane file untouched.
 
 Advanced project-harness rollout:
 
-1. Copy the Reconc toolkit into the target repository.
-2. Run the copied platform binary's `install-cli` command once and verify bare
-   `reconc`.
-3. Have an agent read and follow `harness/template/BOOTSTRAP.md`.
-4. Use its manual path only for project harness, stack, architecture, merge,
+1. Install Reconc once and verify bare `reconc`.
+2. Run `reconc init . --profile advanced --no-hooks --json`.
+3. Verify the receipt reports `advanced@1.0.0` and its pack digest.
+4. Have an agent read
+   `tools/reconc/harness/template/BOOTSTRAP.md` in the target repository.
+5. Use its manual path only for project naming, stack, architecture, merge,
    and verification surfaces beyond the universal governed profile.
 
-The versioned guide remains the AI recovery tutorial and parity checklist when
-a transaction reports drift or a mature repository needs surgical adaptation.
+The binary embeds the exact checksummed pack also published as
+`reconc-harness-pack-advanced-1.0.0.zip`; no source checkout, mutable download,
+or arbitrary directory copy participates in init. The versioned guide remains
+the AI recovery tutorial and parity checklist when a transaction reports drift
+or a mature repository needs surgical adaptation.
 
 ## Supported Agent Runtimes
 
@@ -535,6 +579,7 @@ Detailed runtime behavior lives in `docs/documentation.md` and
 Commit:
 
 - `.reconc.yml` for repo policy configuration
+- `.reconc/install.lock.json` for portable repository ownership and sync identity
 - `.reconc/policy.lock.json` for the portable compiled policy contract
 - `AGENTS.md` for agent-facing project instructions
 - `skills/reconc/SKILL.md` for portable agent usage
@@ -579,10 +624,12 @@ hooks. Use an external sandbox and protected remote CI for adversarial code.
 ### Does it work offline?
 
 Yes for core repository control. The shipped Go binary makes no network calls
-for policy compilation, evaluation, hooks, run control, or proof generation.
+for policy compilation, evaluation, hooks, run control, repository sync, or
+proof generation.
 The explicit `reconc grok` command launches the external Grok ACP process and
-therefore depends on Grok's authentication and model service. Installation and
-GitHub publication naturally require network access.
+therefore depends on Grok's authentication and model service. Installation,
+explicit update discovery or application, and GitHub publication naturally
+require network access. Uninstall and core repository control remain offline.
 
 ### Which agents are supported?
 
@@ -649,12 +696,11 @@ through the private route in
 
 ## Status
 
-The source line is `v0.8.x`, and the current source version is `v0.8.8`.
+The source line is `v0.9.x`, and the current source version is `v0.9.0`.
 Release artifacts are produced only by
 an explicit manual workflow dispatch for an existing `reconc-vX.Y.Z` tag; tag
 pushes never publish a release. Every published release SBOM is regenerated and
 byte-verified before its checksum and build provenance are published.
-
 `make self-host` builds the local binary and runs the clean-repository golden
 path across all three bootstrap profiles, git pre-commit plus all nine agent
 runtimes, TASK lifecycle, retention, and stable release-layout binary

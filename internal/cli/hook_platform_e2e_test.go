@@ -14,6 +14,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	reconbootstrap "reconc.dev/reconc/internal/bootstrap"
 	"reconc.dev/reconc/internal/hooks"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
@@ -534,6 +535,7 @@ func TestHookStatusTextHidesUnseenEnumerationButJSONKeepsIt(t *testing.T) {
 }
 
 func TestRunBootstrapJSONIncludesActivationTruth(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, ".devin"), 0o755); err != nil {
 		t.Fatal(err)
@@ -547,23 +549,20 @@ func TestRunBootstrapJSONIncludesActivationTruth(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"bootstrap", repo, "--skip-git-hook", "--json"}, "test", &stdout, &stderr); err != nil {
-		t.Fatalf("bootstrap: %v stderr=%s", err, stderr.String())
+	if err := Run([]string{"init", repo, "--profile", "minimal", "--hook", hooks.KindDevinCLI, "--json"}, "test", &stdout, &stderr); err != nil {
+		t.Fatalf("init: %v stderr=%s", err, stderr.String())
 	}
-	var payload struct {
-		Healthy      bool                   `json:"healthy"`
-		HookStatuses []hooks.PlatformStatus `json:"hook_statuses"`
-	}
+	var payload reconbootstrap.InitReport
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
-		t.Fatalf("decode bootstrap JSON: %v\n%s", err, stdout.String())
+		t.Fatalf("decode init JSON: %v\n%s", err, stdout.String())
 	}
-	if !payload.Healthy {
-		t.Fatalf("bootstrap should be healthy: %s", stdout.String())
+	if payload.Status != reconbootstrap.InitComplete {
+		t.Fatalf("init should be complete: %s", stdout.String())
 	}
-	for _, report := range payload.HookStatuses {
-		if report.Kind == hooks.KindDevinCLI && report.State == hooks.StateConfigured {
+	for _, check := range payload.Checks {
+		if check.Name == "hook:"+hooks.KindDevinCLI && check.Status == "PASS" {
 			return
 		}
 	}
-	t.Fatalf("bootstrap did not report Devin configured: %s", stdout.String())
+	t.Fatalf("init did not report Devin configured: %s", stdout.String())
 }

@@ -33,13 +33,15 @@ Treat exit 2 as "stop writing and remediate first".
 
 ## Bootstrap (New Repo)
 
-Zero-config path:
+Canonical path:
 ```bash
-reconc bootstrap .
+reconc init .
 ```
-One command: scaffolds `.reconc.yml`, compiles, installs git
-pre-commit, and installs every registered agent hook whose dedicated
-repo-local config directory already exists.
+One command: verifies the running user CLI, plans and applies a create-only
+profile, compiles policy, installs detected eligible hooks, writes the private
+rollback records plus `.reconc/install.lock.json`, and verifies the result.
+Use `--profile existing|minimal|governed|advanced` when the repository is not a
+fresh unambiguous target. `reconc bootstrap .` is a compatibility alias.
 
 Detect existing conventions and propose matching rules:
 ```bash
@@ -70,6 +72,24 @@ After changing policy sources, refresh the generated contract explicitly:
 reconc refresh .
 ```
 Inspection and enforcement commands never compile or write the lockfile.
+
+## Repository Upgrade
+
+A global CLI update never implies that repository-owned hooks, harness files,
+or generated artifacts were updated. Plan first:
+
+```bash
+reconc repo sync plan . --output /tmp/reconc-sync.json
+reconc repo sync apply --plan /tmp/reconc-sync.json --digest <plan-digest>
+reconc repo sync verify .
+```
+
+Read and review every action and blocking issue before apply. Never guess or
+recompute the digest. `user-drift`, `orphaned-legacy`, `incompatible`, and
+`manual-review` require explicit human or repository-owner resolution; do not
+delete the portable receipt or replace user-owned files to force a pass. Apply
+revalidates the complete plan under the repository lock, mutates only exact
+receipt-owned bytes, and rolls back on failure.
 
 ## The Core Decision Loop
 
@@ -120,7 +140,7 @@ Waiting never clears a block. Text mode prints all failed checks and one exact
 next action; exit 0 means done, exit 2 means blocked, and exit 1 means the gate
 itself failed.
 
-The current v0.8.8 release can export the same candidate as portable JSON or Markdown
+The current v0.9.0 release can export the same candidate as portable JSON or Markdown
 reviewer evidence without executing missing commands or persisting a new
 policy decision:
 ```bash
@@ -305,6 +325,7 @@ For session entry and reentry, prefer the compact versioned
 
 ## Where to Look
 
+- `.reconc/install.lock.json` - portable repository ownership and sync identity
 - `.reconc/policy.lock.json` - the compiled lockfile (source of truth at evaluation time)
 - `.reconc.yml` - authored config (preset extends, rule overrides)
 - `AGENTS.md` - in-prose rules (ingested during compile if `cldc`/`reconc` fenced blocks are present)

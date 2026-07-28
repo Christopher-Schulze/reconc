@@ -26,6 +26,7 @@ bug in whichever side is stale and fix them together.
 | RECONC-0004 | Rule kinds |
 | RECONC-0005 | Presets and templates |
 | RECONC-0006 | Hooks and agent sessions |
+| RECONC-0007 | v0.9 CLI product, ownership, update, and repository synchronization |
 
 ## Versioning
 

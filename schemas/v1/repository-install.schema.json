@@ -1,0 +1,259 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/repository-install.schema.json",
+  "title": "Reconc portable repository installation receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "format_version",
+    "product_version",
+    "profile",
+    "policy_packs",
+    "harness_packs",
+    "hooks",
+    "policy_sources",
+    "managed_files",
+    "managed_blocks",
+    "generated_artifacts",
+    "user_owned_paths",
+    "plan_digest",
+    "generation",
+    "receipt_digest"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/repository-install.schema.json"
+    },
+    "format_version": {
+      "const": "1"
+    },
+    "product_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "profile": {
+      "enum": [
+        "advanced",
+        "existing",
+        "governed",
+        "minimal"
+      ]
+    },
+    "policy_packs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/policyPack"
+      }
+    },
+    "harness_packs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/harnessPack"
+      }
+    },
+    "hooks": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "policy_sources": {
+      "$ref": "#/$defs/paths"
+    },
+    "managed_files": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/managedFile"
+      }
+    },
+    "managed_blocks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/managedBlock"
+      }
+    },
+    "generated_artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/generatedArtifact"
+      }
+    },
+    "user_owned_paths": {
+      "$ref": "#/$defs/paths"
+    },
+    "plan_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "receipt_digest": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!/)(?!.*\\\\)(?!\\.\\.?$)(?!\\.\\./).+$"
+    },
+    "paths": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/path"
+      }
+    },
+    "policyPack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "digest"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "digest": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "harnessPack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "minimum_product_version",
+        "maximum_exclusive_version",
+        "digest"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "minimum_product_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "maximum_exclusive_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "digest": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "managedFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "mode",
+        "sha256",
+        "component",
+        "ownership"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "mode": {
+          "enum": [
+            420,
+            493
+          ]
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "component": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ownership": {
+          "const": "file"
+        }
+      }
+    },
+    "managedBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "block_start",
+        "block_end",
+        "managed_sha256",
+        "whole_file_sha256",
+        "component"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "block_start": {
+          "type": "string",
+          "minLength": 1
+        },
+        "block_end": {
+          "type": "string",
+          "minLength": 1
+        },
+        "managed_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "whole_file_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "component": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "generatedArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "generator",
+        "version",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "generator": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    }
+  }
+}

@@ -50,6 +50,33 @@ $temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) "reconc-windows-insta
 [void](New-Item -ItemType Directory -Path $temporaryDirectory)
 
 try {
+    foreach ($version in @("0.9.0", "0.9.0-preview.1", "10.20.30-rc.7")) {
+        Assert-ReconcSemanticVersion -Value $version
+    }
+    foreach ($version in @("01.9.0", "0.9", "0.9.0-preview.01", "0.9.0+build", "18446744073709551616.0.0")) {
+        Assert-ReconcFailure {
+            Assert-ReconcSemanticVersion -Value $version
+        } "invalid semantic version $version"
+    }
+    Assert-ReconcTest ((Compare-ReconcSemanticVersion -Left "0.9.0" -Right "0.9.0-preview.1") -gt 0) "stable precedence is incorrect"
+    Assert-ReconcTest ((Compare-ReconcSemanticVersion -Left "0.9.0-preview.2" -Right "0.9.0-preview.10") -lt 0) "numeric prerelease precedence is incorrect"
+    Assert-ReconcTest ((Compare-ReconcSemanticVersion -Left "0.9.0-preview.18446744073709551616" -Right "0.9.0-preview.9999999999999999999") -gt 0) "large numeric prerelease precedence is incorrect"
+    Assert-ReconcTest ((Compare-ReconcSemanticVersion -Left "1.0.0" -Right "0.9.99") -gt 0) "core version precedence is incorrect"
+
+    $savedArchitecture = $env:PROCESSOR_ARCHITECTURE
+    $savedWowArchitecture = $env:PROCESSOR_ARCHITEW6432
+    try {
+        $env:PROCESSOR_ARCHITECTURE = "ARM64"
+        $env:PROCESSOR_ARCHITEW6432 = ""
+        Assert-ReconcFailure {
+            Get-ReconcWindowsAssetName -ReleaseVersion $ExpectedVersion
+        } "Windows arm64 must be rejected explicitly"
+    }
+    finally {
+        $env:PROCESSOR_ARCHITECTURE = $savedArchitecture
+        $env:PROCESSOR_ARCHITEW6432 = $savedWowArchitecture
+    }
+
     $assetName = "reconc-$ExpectedVersion-windows-amd64.exe"
     $fixtureArtifact = Join-Path $temporaryDirectory $assetName
     Copy-Item -LiteralPath $resolvedBinary -Destination $fixtureArtifact
@@ -86,18 +113,36 @@ try {
     Assert-ReconcTest (Test-Path -LiteralPath $installedPath -PathType Leaf) "verified artifact was not installed"
     Assert-ReconcTest ((Get-ReconcFileSha256 -Path $installedPath) -eq $fixtureChecksum) "installed artifact checksum changed"
 
-    $savedProcessPath = [Environment]::GetEnvironmentVariable("Path", "Process")
+    $savedProcessPath = $env:Path
+    $savedReconcHome = $env:RECONC_HOME
     $shadowDirectory = Join-Path $temporaryDirectory "shadow"
+    $receiptHome = Join-Path $temporaryDirectory "reconc-home"
     [void](New-Item -ItemType Directory -Path $shadowDirectory)
-    Set-Content -LiteralPath (Join-Path $shadowDirectory "reconc.exe") -Encoding ASCII -Value "shadow"
+    Copy-Item -LiteralPath $fixtureArtifact -Destination (Join-Path $shadowDirectory "reconc.exe")
     try {
-        [Environment]::SetEnvironmentVariable("Path", "$installDirectory;$savedProcessPath", "Process")
-        Assert-ReconcTest (Test-ReconcCommandMatches -ExpectedChecksum $fixtureChecksum) "current installed command was not recognized on PATH"
-        [Environment]::SetEnvironmentVariable("Path", "$shadowDirectory;$installDirectory;$savedProcessPath", "Process")
-        Assert-ReconcTest (-not (Test-ReconcCommandMatches -ExpectedChecksum $fixtureChecksum)) "shadowed PATH command was incorrectly accepted"
+        $env:Path = "$installDirectory;$savedProcessPath"
+        $env:RECONC_HOME = $receiptHome
+        Assert-ReconcTest (Test-ReconcCommandMatches -ExpectedChecksum $fixtureChecksum -ExpectedPath $installedPath) "current installed command was not recognized on PATH"
+        $receiptedPath = Install-ReconcVerifiedArtifact `
+            -ArtifactPath $fixtureArtifact `
+            -ExpectedChecksum $fixtureChecksum `
+            -InstallDirectory $installDirectory `
+            -ReleaseVersion $ExpectedVersion `
+            -AssetName $assetName `
+            -ProvenanceState "embedded-verified"
+        Assert-ReconcTest ($receiptedPath -eq $installedPath) "receipted install changed the canonical target"
+        $receiptPath = Join-Path $receiptHome "install\receipt.json"
+        Assert-ReconcTest (Test-Path -LiteralPath $receiptPath -PathType Leaf) "PATH-ready install did not publish an ownership receipt"
+        $globalDiagnostic = (& $installedPath doctor --global --json | Out-String) | ConvertFrom-Json
+        Assert-ReconcTest ($globalDiagnostic.status -eq "healthy") "PATH-ready install is not globally healthy"
+        Assert-ReconcTest ($globalDiagnostic.owner -eq "direct") "Windows installer did not retain direct ownership"
+        Assert-ReconcTest ($globalDiagnostic.channel -eq "exact") "Windows installer did not retain the exact channel"
+        $env:Path = "$shadowDirectory;$installDirectory;$savedProcessPath"
+        Assert-ReconcTest (-not (Test-ReconcCommandMatches -ExpectedChecksum $fixtureChecksum -ExpectedPath $installedPath)) "shadowed PATH command was incorrectly accepted"
     }
     finally {
-        [Environment]::SetEnvironmentVariable("Path", $savedProcessPath, "Process")
+        $env:Path = $savedProcessPath
+        $env:RECONC_HOME = $savedReconcHome
     }
 
     $installedChecksum = Get-ReconcFileSha256 -Path $installedPath

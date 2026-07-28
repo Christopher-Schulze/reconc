@@ -19,7 +19,7 @@ const (
 	docsBlockEnd    = "<!-- reconc-bootstrap:docs:end -->"
 )
 
-func buildDesiredArtifacts(root string, selection Selection) ([]desiredArtifact, error) {
+func buildDesiredArtifacts(root string, selection Selection, productVersion string) ([]desiredArtifact, error) {
 	profile, err := profileByName(selection.Profile)
 	if err != nil {
 		return nil, err
@@ -94,6 +94,11 @@ func buildDesiredArtifacts(root string, selection Selection) ([]desiredArtifact,
 			mode: 0o755, sourcePath: selection.Binary.SourcePath,
 		})
 	}
+	packArtifacts, err := harnessArtifacts(selection, productVersion)
+	if err != nil {
+		return nil, err
+	}
+	artifacts = append(artifacts, packArtifacts...)
 	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].path < artifacts[j].path })
 	for index := 1; index < len(artifacts); index++ {
 		if artifacts[index-1].path == artifacts[index].path {
@@ -269,13 +274,13 @@ func renderDocumentationBlock() string {
 	return strings.Join([]string{
 		"## Reconc workflow", "",
 		"Reconc policy lives in `.reconc.yml`; the deterministic compiled contract lives",
-		"in `.reconc/policy.lock.json`. `reconc bootstrap inspect` and `plan` are",
-		"read-only unless an explicit plan output path is requested. `apply` is",
-		"transactional and create-only for repository targets. Existing drift produces",
-		"hash-addressed candidate files for review. Mutating bootstrap installs the exact",
-		"running build as bare `reconc`; `verify` checks it again read-only.", "",
-		"The detailed AI-operated rollout and manual recovery checklist remains in the",
-		"Reconc distribution at `harness/template/BOOTSTRAP.md`.",
+		"in `.reconc/policy.lock.json`. `reconc init` is the canonical non-interactive",
+		"onboarding command. It uses the transactional create-only bootstrap engine,",
+		"records its exact plan and receipt, and verifies the result. Existing drift",
+		"produces hash-addressed candidates for review. Lower-level `reconc bootstrap`",
+		"inspect, plan, apply, verify, and remove commands expose the same engine.", "",
+		"The advanced profile installs the detailed AI-operated rollout and recovery",
+		"checklist at `tools/reconc/harness/template/BOOTSTRAP.md`.",
 	}, "\n")
 }
 

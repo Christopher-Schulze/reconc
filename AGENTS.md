@@ -43,6 +43,9 @@ Bun.
 - Keep the product as one small Go CLI binary with minimal dependencies.
 - Keep JSON artifacts deterministic: sorted keys, stable ordering, explicit
   schema and `format_version` fields.
+- Keep global CLI ownership truthful: publish the binary and installation
+  receipt under one lock, never claim package-manager ownership, and verify
+  changes with `reconc doctor --global`.
 - Fail closed on malformed policy, stale lockfiles, schema drift, invalid
   globs, and unsupported rule kinds.
 - Do not add runtime network calls.
@@ -55,7 +58,7 @@ Bun.
 
 ## Current Release State
 
-The current source line is `v0.8.x`; the source version is `v0.8.8`. Core
+The current source line is `v0.9.x`; the source version is `v0.9.0`. Core
 tests, race tests, vet, static analysis, and release artifact generation must
 pass before publication. Coverage is measured across each complete Go module,
 not inferred from package-local percentages.

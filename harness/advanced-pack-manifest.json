@@ -1,0 +1,728 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/harness-pack-manifest.schema.json",
+  "format_version": "reconc.harness-pack/v1",
+  "kind": "harness-pack",
+  "name": "advanced",
+  "version": "1.0.0",
+  "product_compatibility": {
+    "minimum": "0.9.0",
+    "maximum_exclusive": "1.0.0"
+  },
+  "capabilities": [
+    "advanced-audits",
+    "architecture-scaffolds",
+    "hook-scaffolds",
+    "task-utilities"
+  ],
+  "files": [
+    {
+      "path": "tools/reconc/harness/template/BOOTSTRAP.md",
+      "mode": 420,
+      "size": 42942,
+      "sha256": "d6957614800eea6c3e06b263115cdbbe3f72f2fbefcc9975f0f4494ff701fea1",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/README.md",
+      "mode": 420,
+      "size": 1823,
+      "sha256": "83e620d48111a47fd3ffc307c5890669dc2876f6be15b43f8bb168e42a770802",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/agent_quality.go",
+      "mode": 420,
+      "size": 8779,
+      "sha256": "2c2e5fe0931984a70b175f5ceeff4c56271ecc5b80f44689ced9d31fd0259c67",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/agents_md_mirror.go",
+      "mode": 420,
+      "size": 3148,
+      "sha256": "72c8f2e1c465a0de8056b0459839d051673732a346ddf0baafe7e96d6f46819f",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/agents_md_mirror_test.go",
+      "mode": 420,
+      "size": 5278,
+      "sha256": "6e3951f3860005824c114032fd1cef05d8f1cfd4337683d7b7dfd65c47930da2",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/arch_lint.go",
+      "mode": 420,
+      "size": 7769,
+      "sha256": "18937683c128fd90053374add85c07ed35dd1effd4b00585cd4fe1292166bea2",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/arch_lint_test.go",
+      "mode": 420,
+      "size": 2133,
+      "sha256": "b6dc3c6a2731c03b99b863aa3f1528df4044b0fd075af92d2977a9accf307849",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/audit_cache.go",
+      "mode": 420,
+      "size": 11156,
+      "sha256": "14120f65b77cf4855353393740043b24a42d942f7395f4ca0d9cdfe2897dc51b",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/audit_cache_lock_unix.go",
+      "mode": 420,
+      "size": 309,
+      "sha256": "4637c79fbc8a87c07bd722e89ce0f332c775d9b144f3bf774aab0048957f97f6",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/audit_cache_lock_windows.go",
+      "mode": 420,
+      "size": 1303,
+      "sha256": "ef6a0b061e1b20e79574ac753b9967b38e1ce62ffa361ee3b97681f531fe02d6",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/audit_cache_test.go",
+      "mode": 420,
+      "size": 20061,
+      "sha256": "1e1b65164f44f1464be19edbb443ccc717d61aecae278cabdabbe3edd2a27ad8",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/audit_cache_wrappers.go",
+      "mode": 420,
+      "size": 5692,
+      "sha256": "c63965006318ccad9385a7c18466e8e94d65c897e9a4a0793c88543b3dbdd462",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/command.go",
+      "mode": 420,
+      "size": 2941,
+      "sha256": "b0fe99de2bc1708b8508bda9a5623e1a3ae59aad273a604785b950e8c4f11b46",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/command_test.go",
+      "mode": 420,
+      "size": 5018,
+      "sha256": "84d049f85ece13c43f2866e7009448ab86691bdb322389215d2dc8d74e7e3dc2",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/coverage_depth_test.go",
+      "mode": 420,
+      "size": 35033,
+      "sha256": "7c0de2beec06825512770b1d11dede13dec9f42a6bddd217cddf3736c65b7d85",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/exit_contract_test.go",
+      "mode": 420,
+      "size": 660,
+      "sha256": "67ecb2b1f17093f6f58a968011418838977f1fec25007bfd2656472078bde21b",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/generated_reference/generated_reference_audit.go",
+      "mode": 420,
+      "size": 1132,
+      "sha256": "b8a8fa724d0d6dff745f8ecb860dbf51e021de81651d1bc8583b387b2d458c9b",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/generated_reference/generated_reference_audit_test.go",
+      "mode": 420,
+      "size": 2129,
+      "sha256": "6f628d76c9d26be64a0c19be53ba94462bd8bf3273c98a079e19f4a67b26596e",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/generated_reference/generated_reference_audit_unix_test.go",
+      "mode": 420,
+      "size": 624,
+      "sha256": "5c3bf3f5a0bd4e57e1c88b613a9aaf6799fbb546540615f93d45b7ee376d67d7",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/hook_platform_audit_test.go",
+      "mode": 420,
+      "size": 8144,
+      "sha256": "b831f239c2d4fdd12fc4be6260af4040676c7dc0451a4a570e0f3192716b0397",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/lib/donecheck/donecheck.go",
+      "mode": 420,
+      "size": 9518,
+      "sha256": "30e83f6589c5d3a3434445e892f8782886da92702a503a5dc0cc4c4b382b1389",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/lib/donecheck/donecheck_test.go",
+      "mode": 420,
+      "size": 9685,
+      "sha256": "65ee8deb54c6251e57f5feb23e9b3cc84f1ba6030670ef62cd48d11e4d8005dc",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/lib/donecheck/schema.go",
+      "mode": 420,
+      "size": 6390,
+      "sha256": "94f8f3924797a0672236de16ce86de561647772b433db116aa3699507d4fb870",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/lib/donecheck/schema_test.go",
+      "mode": 420,
+      "size": 4334,
+      "sha256": "132cbd17905e1eb74cc304cf38e758cbddd1fdd21970c1edbfd690a469d6c039",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/lib/prune/coverage_depth_test.go",
+      "mode": 420,
+      "size": 3684,
+      "sha256": "b8e94a62c1cb2912eb5170fc785820a51eb1038c9af93fe33e6aa5497c294c9e",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/lib/prune/prune.go",
+      "mode": 420,
+      "size": 12158,
+      "sha256": "0d6a1ce05200c9ae3c8a68b166efc0131173f6da60eae0619da2574f667e3141",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/lib/prune/prune_test.go",
+      "mode": 420,
+      "size": 12045,
+      "sha256": "d10e722e36b850b4505fc01474ebd98c6e9102d58f4d6d49b32b26f5576a7b87",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/line_count_test.go",
+      "mode": 420,
+      "size": 1015,
+      "sha256": "8da9712628776bd8db8ab745ab04a4eb759f2d09e658c19cb51e5520ba4b639d",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/module_lint.go",
+      "mode": 420,
+      "size": 7268,
+      "sha256": "6318ca0e214ce6d3293be1f1b6811d93c9070d7ddf34d2051934bb3648ebe45d",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/module_lint_test.go",
+      "mode": 420,
+      "size": 2146,
+      "sha256": "1ac9a847c4f53ff141a00e170ce7fc3fc5953b372b38ef7d56c60f0d8a291983",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/run-workflow-audit",
+      "mode": 493,
+      "size": 2770,
+      "sha256": "b4e863e67e8c5ebca0e7b7ec35ff12888d3f02eee1991f70a600ff87af07cc1f",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/runner_cache_test.go",
+      "mode": 420,
+      "size": 3275,
+      "sha256": "6872b934afb4060f267afc0b261b9e04a5d59f49e09c633570d32388478aee6f",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/spec_audit_artifacts.go",
+      "mode": 420,
+      "size": 31662,
+      "sha256": "05b515f1d91b7027f9e2e169f09728e8517596d113a3b85ca9138f788364c2c8",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/stack_config.go",
+      "mode": 420,
+      "size": 7106,
+      "sha256": "b29e05d1dba7f41c8c9f0cbd627b889e5bd1e23ffd6f62edc7d3845dbccb87c2",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/task_spec_bindings.go",
+      "mode": 420,
+      "size": 8164,
+      "sha256": "608783f433028a4073069a1932506fd4b99e044876175c55135a786aa293077a",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/task_spec_bindings_test.go",
+      "mode": 420,
+      "size": 8246,
+      "sha256": "f4d95b38fd8415a92caec1ca309b9a527d062993bfd0fef28c378e2bf859c133",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/testdata/task-index/cases.json",
+      "mode": 420,
+      "size": 349,
+      "sha256": "8fdb762dffc8fc0558d5775422dd72ceec1026feecb73528e9777a623e23f463",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/testdata/task-index/duplicate-current.md",
+      "mode": 420,
+      "size": 186,
+      "sha256": "c16a3881497879aa6a9ea0d7c3da0b3b1a1003446471a7e40d086a0f03aafde5",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/testdata/task-index/invalid-row.md",
+      "mode": 420,
+      "size": 136,
+      "sha256": "3a701268961ac92ac27646d794462e537f588dc5dbd8f7855adff4cc8fa05411",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/testdata/task-index/valid-active.md",
+      "mode": 420,
+      "size": 197,
+      "sha256": "ad0db6f9ea2f9165d676b2c42c6d7342b1d960abd233271805fcfbe473be54c4",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/testdata/task-index/valid-with-archive.md",
+      "mode": 420,
+      "size": 191,
+      "sha256": "97d75ff6424643b767bae76ae748f0bcc4e5503d64549428c7d0b1d132a2eda8",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/workflow-audit.go",
+      "mode": 420,
+      "size": 77884,
+      "sha256": "e196229db7aae89d3b7fe1c44fcb9b4967ca7c9fa3e9878d376c91b2e10d32ac",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/workflow-audit_test.go",
+      "mode": 420,
+      "size": 54332,
+      "sha256": "8e0fbda3c687700b64155836679a899801ef9fb733dd5463c5a949363ab30244",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/workflow_audit_remediation_test.go",
+      "mode": 420,
+      "size": 3106,
+      "sha256": "2ddb3b6abd1113a9b8b3df4df4d207bbad1f68287a15c34eb6545aede5a4fdca",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/workflow_fail_closed_test.go",
+      "mode": 420,
+      "size": 759,
+      "sha256": "1cdc4dda262d3ad31fcaf162b5dfc43a784d3f0e09631e4d334ab1fbc3b18e76",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/config/workflow/prune-policy.yaml",
+      "mode": 420,
+      "size": 984,
+      "sha256": "ccebbec9060b887aa36e70faecec4e58f202d1d30ed069360611a076972d1366",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/config/workflow/stack-config.yaml",
+      "mode": 420,
+      "size": 1894,
+      "sha256": "a264cbae176e3363cf75691e903e69f8a79d1333a5e17dbd9c963331bc285521",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/config/workflow/task-claim-bindings.yaml",
+      "mode": 420,
+      "size": 1405,
+      "sha256": "c0e70b6125630bd495b3d6595483d80b69e421e50ecde2a24504471adab67e87",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/config/workflow/task-schema.yaml",
+      "mode": 420,
+      "size": 1724,
+      "sha256": "ded9a510409d5937dd5058ce152a7616d1708235b13f5541426870e69358acf0",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/go.mod",
+      "mode": 420,
+      "size": 140,
+      "sha256": "2a9d05272f119f54f080a98509f2fb2da73c1fa9ec1c74651022293171f84c11",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/go.sum",
+      "mode": 420,
+      "size": 360,
+      "sha256": "e42794fa9b56301ad073de55cac1dea683b320ed951454d8709ffc7156088dd2",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/layout-scaffold/codebase/config/arch/arch-rules-whitelist.yaml",
+      "mode": 420,
+      "size": 36,
+      "sha256": "48c0bbb9890de2db73e878f5a5655994eeca7e0f5a8ac6ada9fe391e95b56507",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/layout-scaffold/codebase/config/arch/arch-rules.yaml",
+      "mode": 420,
+      "size": 440,
+      "sha256": "8b324aaefb4fbfda91a1d6608d3e7619108ad9564f6b8ce8b322bf3c4c80c967",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/layout-scaffold/flat/config/arch/arch-rules-whitelist.yaml",
+      "mode": 420,
+      "size": 36,
+      "sha256": "48c0bbb9890de2db73e878f5a5655994eeca7e0f5a8ac6ada9fe391e95b56507",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/layout-scaffold/flat/config/arch/arch-rules.yaml",
+      "mode": 420,
+      "size": 386,
+      "sha256": "23861fbecf3167454860d3d42b89169b9bf11e8245f045fbe4fbbd5ee186a68a",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/.agents/hooks.json",
+      "mode": 420,
+      "size": 2652,
+      "sha256": "6f2bd32c6adce2924e6d12ac3535c71c63622dafea921505217b0b47a9feef3d",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/.claude/settings.json",
+      "mode": 420,
+      "size": 5595,
+      "sha256": "bff064e1cc45270d4bca7553a8013fa8f937e77a407befd98332e5aff49a36ae",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/.codeiumignore",
+      "mode": 420,
+      "size": 511,
+      "sha256": "e2726dc68f4bbc879f0746f60eb239de345582acbd2e7369036ec9be73e6254f",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/.codex/config.toml",
+      "mode": 420,
+      "size": 24,
+      "sha256": "d37497c3278121598a663564ab38b53f658969717f78decb661ddd11c66551ea",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/.codex/hooks.json",
+      "mode": 420,
+      "size": 5341,
+      "sha256": "646d5e1aacfeaf8dafad619f284f3bda45f9f81cb36e1187d2f318f882463cd2",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/.cursor/hooks.json",
+      "mode": 420,
+      "size": 7561,
+      "sha256": "ee635662b64d0142847dfe0e879ce853a93020aa25d72263a457f0a3f9272dca",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/.cursorignore",
+      "mode": 420,
+      "size": 135,
+      "sha256": "fe0e57487edd4c4a9e910896d707895b9aae2015fcb2c031a503167f1d1954bf",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/.cursorindexingignore",
+      "mode": 420,
+      "size": 495,
+      "sha256": "2476dafba8f9d73b40b64a220f2447f30cdbf7c74463e9bfac8cfb4567702e3a",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/.devin/hooks.v1.json",
+      "mode": 420,
+      "size": 2097,
+      "sha256": "52a188ecd1cd84b6ee0f67910171d7a339c788dd4638f1738fee612871a36565",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/.githooks/pre-commit",
+      "mode": 493,
+      "size": 2613,
+      "sha256": "36afe19bc62c3cf6f8af3393c77bfa41f195a7592a54e6944451b21bc0a92f1d",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/.github/hooks/reconc.json",
+      "mode": 420,
+      "size": 5231,
+      "sha256": "554519bea24ff1dff08508590d066a08eb8cf0f9958a69312aebbb8813d903ee",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/.gitignore.excerpt",
+      "mode": 420,
+      "size": 747,
+      "sha256": "c99805d9f4286814a7cbb5abec474aaaf72d88f2360226165eb65b7b858a689a",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/.grok/hooks/reconc.json",
+      "mode": 420,
+      "size": 3985,
+      "sha256": "7a6fd9871cb43571f2c61b1e727a572a239cc6d8b7ee6dbe204f66d948316832",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/.ignore",
+      "mode": 420,
+      "size": 570,
+      "sha256": "6869a79e744f62e3a8ae7e1cb79ddd0c4f9bf48c9bbef34115120e28d51f2057",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/.kilo/plugin/reconc.js",
+      "mode": 420,
+      "size": 21582,
+      "sha256": "f67a54c09ac034ee6fe8e1e07eb22f6680eb7991918ef745210d3890ec1f8cd4",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/.opencode/plugins/reconc.js",
+      "mode": 420,
+      "size": 21698,
+      "sha256": "6286e512ef62a141d3c51b6ee0371a811fa291e41b47d45263e4c4cde8da75db",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/.reconc.yml",
+      "mode": 420,
+      "size": 15139,
+      "sha256": "83b5b9c3ff7d77d49bdfb733d87084c6577e6eab66f36acab9a3e02a81838902",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/.windsurfignore",
+      "mode": 420,
+      "size": 650,
+      "sha256": "1b53a83edb560d3c78487f7588f715f9379b8de6a686734a469352a3a695c965",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/AGENTS.md",
+      "mode": 420,
+      "size": 43527,
+      "sha256": "b09bce7299667a91d59e79733778dc9bf4bda17d98be2dc75d122a6718ea513d",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/backend/project/main.go",
+      "mode": 420,
+      "size": 121,
+      "sha256": "c953b5a47967f7b23955cb04b7a066597620ff79a892a849ec021c1f8f6176ac",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/backend/project/main_test.go",
+      "mode": 420,
+      "size": 171,
+      "sha256": "d6fa3a74fc45b13a0b7d9ffa279fe882d6082d2c0303a15b2aa151511d99ef1c",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/docs/documentation.md",
+      "mode": 420,
+      "size": 1689,
+      "sha256": "0c07b36540697804fb809283621ef76d4a6af46fda5e9e31965072344eba47b7",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/docs/spec.md",
+      "mode": 420,
+      "size": 369,
+      "sha256": "ac771bdba7be638fdc864aa9d9accb77998152323de5aaaf608546cdb059730d",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/docs/task-loop-workflow.md",
+      "mode": 420,
+      "size": 1893,
+      "sha256": "5709970195dd99e4bc7ad423b6c19ac246d1f253363e54100378fec0251f9afc",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/docs/tasks.md",
+      "mode": 420,
+      "size": 750,
+      "sha256": "2134916fd9156e16526a311ceb012c68482f5fb7c34ff77367b8986392adb827",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/docs/tasks/TASK-0001-Bootstrap-Reconc.md",
+      "mode": 420,
+      "size": 3004,
+      "sha256": "7e120a788b1ca64680e2c18dd237fbd173b99efea13242342e1f4ff1816a9510",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/scripts/build/build.go",
+      "mode": 420,
+      "size": 916,
+      "sha256": "a0cd6916c20c0dc934d9e6b87a267f1adf481a5473bbeb1089233a0b350a692e",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/scripts/build/build_test.go",
+      "mode": 420,
+      "size": 168,
+      "sha256": "a21221de382add09f4895be445aa684585ea90219df4ce225ced5b4df4901e53",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/scripts/build/coverage_depth_test.go",
+      "mode": 420,
+      "size": 420,
+      "sha256": "2402b1929c44e752b84f69e9d2a50049014c3ba8d9fbfb7daa36fddad0afc3b4",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/start.md",
+      "mode": 420,
+      "size": 5069,
+      "sha256": "7e96289c67ef54d6f52e7df83bf0128503aba0dc923298c02886d693986dadb7",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/utils/promote-task-done/audit_command_unix.go",
+      "mode": 420,
+      "size": 197,
+      "sha256": "37b16f792db272851e72e589019dab35d02fc055c0e8aefa695621f12519f4f7",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/utils/promote-task-done/audit_command_windows.go",
+      "mode": 420,
+      "size": 237,
+      "sha256": "71519fd026e14471a300805fe7eae5443f44d0a33fdf87220d31b568e6e45dff",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/utils/promote-task-done/coverage_depth_test.go",
+      "mode": 420,
+      "size": 1381,
+      "sha256": "ce18cb969a2a1aff297879c6f61394a573e8dc1d64f2710b591bfbf3e58ab7a0",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/utils/promote-task-done/lock_unix.go",
+      "mode": 420,
+      "size": 321,
+      "sha256": "43c851573c4f65620d8159b6eeee6dde4d92d6c2d0d275947fb0ba932ad54371",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/utils/promote-task-done/lock_windows.go",
+      "mode": 420,
+      "size": 975,
+      "sha256": "f49fa63da5d2672277d65c82fda3d9f9b8a39ea082cfa2f4ce1ac40c5cab3101",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/utils/promote-task-done/main.go",
+      "mode": 420,
+      "size": 17803,
+      "sha256": "bfec61620c60dc9390fed79e6de1cb1c23c08d091cf671bd0edc5909e6419847",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/utils/promote-task-done/main_test.go",
+      "mode": 420,
+      "size": 25894,
+      "sha256": "c387a82f30d4bbeb54f248101c8a49c7a21260d1ad38cea0cbb09b937f6e6147",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/utils/promote-task-done/run-promote-task-done",
+      "mode": 493,
+      "size": 367,
+      "sha256": "97526a03890199b6caa6443b0151b64b9e644a012a9c6337e0754fb9231387ac",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/utils/reconc-prune/main.go",
+      "mode": 420,
+      "size": 2672,
+      "sha256": "4d7b7907ff8d82854bc98af72c12c14d9ccdcc4511d64a13a7fe8e9b1978f244",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/utils/reconc-prune/main_test.go",
+      "mode": 420,
+      "size": 3050,
+      "sha256": "3b817a0603c13ec2c08ae5ffdd53791af50d8541bc5fc856fafce5b0dfee9cc2",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/utils/reconc-prune/run-reconc-prune",
+      "mode": 493,
+      "size": 357,
+      "sha256": "48f91d5ee6e69c5c911cadf516d8314e8157e668868789d1b9ffcd872ae9e08b",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/utils/task-claim/coverage_depth_test.go",
+      "mode": 420,
+      "size": 1264,
+      "sha256": "897b862b77ef9b7e47fb2f983d7dd58fe9f9f8b1a45f1ba6a45366a62eafa838",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/utils/task-claim/main.go",
+      "mode": 420,
+      "size": 7621,
+      "sha256": "e0c9358f6776ea184edeeeb70ff68c185dee985bb56c0a09a1bd4e1752c907fc",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/utils/task-claim/main_test.go",
+      "mode": 420,
+      "size": 11947,
+      "sha256": "459b5defa9073642d1f3a05319c73e81ceb7f54b98fd334fdfe021d2987a5638",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/utils/task-claim/run-task-claim",
+      "mode": 493,
+      "size": 265,
+      "sha256": "746c34f085f2a5f04a905a75793eb2f3c4c9e0023c363d4fb1ed6df461f386b0",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/utils/task-claim/timeout_unix_test.go",
+      "mode": 420,
+      "size": 676,
+      "sha256": "f2f956372f140c77577a31bacb6c188e61c25fdf5cd89aee35d651446b818c5c",
+      "ownership": "pack-file"
+    }
+  ],
+  "total_bytes": 669835,
+  "digest": "029e5fa136c376b834f10f195594ec5dcfdeacbde0d1d97f6984baec7501237c"
+}

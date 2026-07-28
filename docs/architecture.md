@@ -62,13 +62,14 @@ unclassified or malformed calls never become positive repository evidence.
 
 ```
 buildprovenance/ deterministic target/source identity + byte-only binary inspection
+harness/         embedded immutable advanced harness pack
 internal/
   adopt/          convention detector, rule suggestions, and stack-pack recommendations
   agentguide/     embedded agent-integration guide + section lookup
   assurance/      bounded native layout/source/manifest/proof gates
   atomicfile/     write-on-change and atomic publication primitives
   audit/          append-only JSONL decision log + rotation + stats
-  bootstrap/      deterministic install/remove transactions + receipts + binary resolution
+  bootstrap/      init, repository sync/remove, portable receipts, rollback, and binary resolution
   changelog/      docs/changelog.md rotation into quarterly archives
   cli/            command dispatch plus responsibility-owned command modules
   commandmeta/    canonical dependency-neutral command, flag, help, and output contract
@@ -82,6 +83,7 @@ internal/
   execfile/       cross-platform regular-file and executable validation
   extractor/      prose-to-rule heuristic scanner (regex-only, no LLM)
   grokacp/        strict Grok ACP stdio client + cross-platform leader IPC stop steering/probing
+  harnesspack/    strict versioned harness-pack manifest, archive, digest, and compatibility contract
   hooks/          typed registry + generators + install/uninstall + activation + scaffold sync
   ingest/         discovery + source loading (AGENTS.md, .reconc.yml, presets, globals)
   lockdiff/       structural lockfile comparison (ignore-provenance semantics)
@@ -100,7 +102,6 @@ internal/
   runtime/agentsession/  hook payload handlers, session evidence state,
                   stop policy cache, run-state store (the package the
                   hook-runtime threat model below describes)
-  scaffold/       reconc init implementation
   schema/         canonical public JSON contract URLs + enterprise override
   shellcommand/   bounded shell parsing and executable-command discovery
   stackdetect/    shared bounded manifest/source stack discovery
@@ -114,7 +115,7 @@ internal/
 `cli.Run`, and translates the returned error into an exit code.
 Within `internal/cli`, `cli.go` owns only public errors, top-level
 dispatch, and canonical usage. Compile, evaluate, inspect, explain, CI,
-bootstrap, scaffold, source analysis, quality, maintenance, catalog, metadata,
+bootstrap, canonical init, source analysis, quality, maintenance, catalog, metadata,
 hook, workflow/session, TASK lifecycle, repository-run, and deep-doctor logic
 live in responsibility-owned files without a second router or compatibility
 wrapper.
@@ -141,8 +142,12 @@ handling.
    transaction. Canonical lockfile bytes are compared before publication, so an
    unchanged compile performs no filesystem write. Bootstrap install is
    create-only, emits candidate files for drift, and rolls back only
-   transaction-owned unchanged files. Bootstrap removal is receipt-bound,
-   SHA-verifies owned files, strips only managed blocks, and preserves drift.
+   transaction-owned unchanged files. Repository sync requires an exact saved
+   plan digest, re-plans under one transaction lock, mutates only exact
+   portable-receipt-owned bytes, verifies the advanced receipt, and rolls back
+   changed bytes on failure. Bootstrap removal treats portable ownership as its
+   maximum authority, SHA-verifies owned files, strips only managed blocks, and
+   preserves drift and user-owned paths.
    Hook merges and uninstalls preserve
    unrelated host configuration. Bounded JSONL writers rotate under a process
    lock before append. Write, sync, close, unlock, and CLI output failures are
@@ -155,9 +160,10 @@ handling.
 
 5. **One stable interactive command.** `install-cli` atomically publishes the
    exact running executable to the user install directory and verifies the
-   binary resolved by bare `reconc`. Mutating bootstrap performs that install
-   and identity check before repository writes; transactional verification
-   checks it again.
+   binary resolved by bare `reconc`. Under the same global lock it publishes a
+   strict, private, checksum-bound ownership receipt only after PATH identity
+   passes. Mutating bootstrap performs that install and identity check before
+   repository writes; transactional verification checks it again.
 
 6. **Advisory compile lock.** `.reconc/.compile.lock` is a reusable OS-backed
    exclusive file lock. A second compiler fails immediately, process exit
@@ -185,7 +191,7 @@ handling.
 - **CheckReport / CompletionReport / FixPlan schemas**: same policy. Additive changes
   (new optional fields) don't bump the version; breaking changes do.
 
-- **Published schema documents**: the six immutable
+- **Published schema documents**: the fourteen immutable
   `schemas/v1/*.schema.json` contracts and the current
   `schemas/v2/policy-lock.schema.json` are canonical Draft 2020-12 documents,
   use format-versioned repository URLs as `$id`, and ship in the checksummed
@@ -213,6 +219,50 @@ handling.
   `RECONC_GROK_STEER`): stable names. Adding a new one is additive; renaming or
   removing needs a major version bump. Debug and installer variables are
   catalogued separately in `docs/commands.md`.
+
+## v0.9 Product Lifecycle
+
+[RECONC-0007](rfcs/RECONC-0007-cli-product-lifecycle.md) is the frozen
+implementation contract for the v0.9 CLI product layer. The global installation
+receipt, `doctor --global`, update, uninstall, canonical init, versioned harness
+packs, portable repository ownership, digest-bound sync
+planning/apply/verification, registered policy migration, and ownership-safe
+removal are implemented through the same product and bootstrap boundaries.
+
+The target adds four ownership layers without creating a second bootstrap
+engine:
+
+```
+global manager -> installation receipt -> installed CLI
+                                         |
+                                         v
+                                  bootstrap engine
+                                         |
+                    embedded pack -> repository receipt
+                                         |
+                                         v
+                             digest-bound repo sync
+```
+
+- `internal/usercli` remains the global binary identity owner. It owns the
+  locked receipt, manager classification, global diagnostic, update, and
+  uninstall boundaries.
+- `internal/bootstrap` remains the only repository transaction owner.
+  Canonical `init` and repository sync compose its plan, candidate, receipt,
+  verification, rollback, and path-identity primitives.
+- Versioned public harness packs are immutable embedded inputs to bootstrap,
+  never mutable Git checkouts or arbitrary copied directories.
+- Global update and repository sync have separate locks, plans, reports, and
+  verification. Package managers retain update and removal authority over
+  their files.
+- The portable `.reconc/install.lock.json` records repository ownership without
+  physical checkout paths. Private transaction receipts may bind a checkout
+  for rollback but cannot expand portable ownership.
+
+The target trust chain is release identity -> checksum -> embedded build
+provenance -> optional or required GitHub attestation -> global receipt ->
+embedded pack digest -> repository receipt -> exact sync plan. Any broken link
+is an actionable refusal, never an inferred owner or partial success.
 
 ## Request flow example: `reconc check --write src/x.go`
 
@@ -289,7 +339,7 @@ responsibility-owned command file, canonical command metadata, focused tests, an
         │              └── template substitution, script runner, git
         │
         ├──► hooks
-        ├──► bootstrap ──► stackdetect
+        ├──► bootstrap ──► harnesspack, stackdetect, presets, hooks, repositoryignore
         ├──► adopt ──► stackdetect, presets
         ├──► extractor
         ├──► lockdiff
@@ -306,8 +356,9 @@ responsibility-owned command file, canonical command metadata, focused tests, an
         ├──► agentguide (embed)
         ├──► templates  (embed)
         ├──► presets    (embed)
-        ├──► scaffold ──► repositoryignore
         └──► completion
+
+  harness (embed) ──► harnesspack
 ```
 
 `commandmeta` imports no product package, so CLI, completion, and manpage share

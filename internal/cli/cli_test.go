@@ -3131,15 +3131,21 @@ func TestRunInitRefuseExistingWithoutForce(t *testing.T) {
 	}
 }
 
-func TestRunInitForceOverwritesExisting(t *testing.T) {
+func TestRunInitRejectsForceWithoutOverwritingExisting(t *testing.T) {
 	repo := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repo, ".reconc.yml"), []byte("existing"), 0o644); err != nil {
+	original := []byte("existing")
+	if err := os.WriteFile(filepath.Join(repo, ".reconc.yml"), original, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("RECONC_HOME", t.TempDir())
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"init", repo, "--force"}, "0.5.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("init --force: %v", err)
+	err := Run([]string{"init", repo, "--force"}, "0.5.0-test", &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "--force is unsupported") {
+		t.Fatalf("init --force error = %v", err)
+	}
+	body, readErr := os.ReadFile(filepath.Join(repo, ".reconc.yml"))
+	if readErr != nil || !bytes.Equal(body, original) {
+		t.Fatalf("rejected init changed policy: body=%q err=%v", body, readErr)
 	}
 }
 

@@ -13,6 +13,26 @@ dist="$1"
   exit 1
 }
 
+root=$(cd "$(dirname "$0")/../.." && pwd)
+release_version=""
+release_version_count=0
+for spdx in "$dist"/reconc-*.spdx.json; do
+  [ -f "$spdx" ] || continue
+  name=${spdx##*/}
+  version=${name#reconc-}
+  version=${version%.spdx.json}
+  release_version="$version"
+  release_version_count=$((release_version_count + 1))
+done
+[ "$release_version_count" -eq 1 ] || {
+  printf 'error: release directory must contain exactly one versioned SPDX document\n' >&2
+  exit 1
+}
+go_bin=${GO:-go}
+"$go_bin" -C "$root" run ./scripts/release/manifest \
+  --output-dir "$dist" \
+  --version "$release_version"
+
 manifest="$dist/SHA256SUMS"
 tmp="$dist/.SHA256SUMS.tmp.$$"
 paths="$dist/.SHA256SUMS.paths.$$"

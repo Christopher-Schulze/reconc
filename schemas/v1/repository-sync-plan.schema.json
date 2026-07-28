@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/repository-sync-plan.schema.json",
+  "title": "Reconc repository synchronization plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "format_version",
+    "repo_root",
+    "current_product_version",
+    "target_product_version",
+    "current_receipt_digest",
+    "legacy_receipt_import",
+    "git_snapshot",
+    "target_policy_packs",
+    "target_harness_packs",
+    "actions",
+    "migrations",
+    "candidates",
+    "blocking_issues",
+    "plan_digest"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/repository-sync-plan.schema.json"
+    },
+    "format_version": {
+      "const": "reconc.repository-sync-plan/v1"
+    },
+    "repo_root": {
+      "type": "string",
+      "minLength": 1
+    },
+    "current_product_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target_product_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "current_receipt_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "legacy_receipt_import": {
+      "type": "boolean"
+    },
+    "git_snapshot": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/gitSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "target_policy_packs": {
+      "type": "array",
+      "items": {
+        "$ref": "repository-install.schema.json#/$defs/policyPack"
+      }
+    },
+    "target_harness_packs": {
+      "type": "array",
+      "items": {
+        "$ref": "repository-install.schema.json#/$defs/harnessPack"
+      }
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/action"
+      }
+    },
+    "migrations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/migration"
+      }
+    },
+    "candidates": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "blocking_issues": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "plan_digest": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "gitSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repo_root",
+        "head",
+        "index_tree"
+      ],
+      "properties": {
+        "repo_root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "head": {
+          "type": "string"
+        },
+        "index_tree": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "component",
+        "path",
+        "mode",
+        "state",
+        "reason"
+      ],
+      "properties": {
+        "component": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mode": {
+          "enum": [
+            420,
+            493
+          ]
+        },
+        "state": {
+          "enum": [
+            "unchanged",
+            "replace-owned",
+            "update-managed-block",
+            "create-owned",
+            "user-drift",
+            "orphaned-legacy",
+            "incompatible",
+            "manual-review"
+          ]
+        },
+        "current_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "receipt_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "desired_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "current_mode": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "candidate_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "from",
+        "to",
+        "path"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "from": {
+          "type": "string",
+          "minLength": 1
+        },
+        "to": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

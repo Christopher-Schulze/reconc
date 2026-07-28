@@ -36,7 +36,7 @@ sha256_file() {
   printf '%s\n' "$hash"
 }
 
-expected_assets="_reconc install.ps1 install.sh reconc.1 reconc.bash reconc.fish completion-report.schema.json policy-config.schema.json policy-fix-plan.schema.json policy-lock-v1.schema.json policy-lock.schema.json policy-report.schema.json proof-bundle.schema.json reconc-$version.spdx.json reconc-$version.cdx.json"
+expected_assets="_reconc install.ps1 install.sh reconc.1 reconc.bash reconc.fish completion-report.schema.json global-diagnostic.schema.json global-lifecycle.schema.json harness-pack-manifest.schema.json installation-receipt.schema.json policy-config.schema.json policy-fix-plan.schema.json policy-lock-v1.schema.json policy-lock.schema.json policy-report.schema.json proof-bundle.schema.json reconc-harness-pack-advanced-1.0.0.zip release-manifest.schema.json release-manifest.json repository-install.schema.json repository-sync-plan.schema.json repository-sync-report.schema.json reconc-$version.spdx.json reconc-$version.cdx.json"
 for target in "$@"; do
   os=${target%/*}
   arch=${target##*/}
@@ -124,9 +124,14 @@ for artifact in "$dist"/*; do
   esac
 done
 
+go_bin=${GO:-go}
+"$go_bin" -C "$root" run ./scripts/release/manifest \
+  --output-dir "$dist" \
+  --version "$version" \
+  --verify
+
 commit=$(git -C "$root" rev-parse HEAD)
 epoch=$(git -C "$root" show -s --format=%ct "$commit")
-go_bin=${GO:-go}
 "$go_bin" -C "$root" run ./scripts/release/sbom verify \
   --root "$root" \
   --output-dir "$dist" \
@@ -153,3 +158,11 @@ for name in install.sh install.ps1; do
     exit 1
   }
 done
+cmp -s "$root/harness/advanced-pack.zip" "$dist/reconc-harness-pack-advanced-1.0.0.zip" || {
+  printf 'error: release harness pack is stale or noncanonical\n' >&2
+  exit 1
+}
+cmp -s "$root/schemas/v1/harness-pack-manifest.schema.json" "$dist/harness-pack-manifest.schema.json" || {
+  printf 'error: release harness pack schema is stale or noncanonical\n' >&2
+  exit 1
+}

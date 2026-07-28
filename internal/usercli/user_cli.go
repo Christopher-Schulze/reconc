@@ -4,13 +4,14 @@ package usercli
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/pathidentity"
@@ -36,8 +37,20 @@ type Status struct {
 }
 
 type InstallReport struct {
-	Status  *Status `json:"status"`
-	Changed bool    `json:"changed"`
+	Status      *Status  `json:"status"`
+	Receipt     *Receipt `json:"receipt,omitempty"`
+	ReceiptPath string   `json:"receipt_path,omitempty"`
+	Changed     bool     `json:"changed"`
+}
+
+type InstallOptions struct {
+	Version         string
+	Manager         Manager
+	Channel         Channel
+	ArtifactName    string
+	ReleaseTag      string
+	ProvenanceState ProvenanceState
+	InstalledAt     time.Time
 }
 
 func InspectCurrent(installDir string) (*Status, error) {
@@ -69,11 +82,17 @@ func InspectCurrent(installDir string) (*Status, error) {
 	} else if !os.IsNotExist(statErr) {
 		return nil, fmt.Errorf("inspect user CLI target: %w", statErr)
 	}
-	if resolved, lookErr := exec.LookPath("reconc"); lookErr == nil {
+	candidates, err := pathCandidates()
+	if err != nil {
+		return nil, fmt.Errorf("inspect user CLI PATH: %w", err)
+	}
+	if len(candidates) > 0 {
+		resolved := candidates[0]
 		status.PathVisible = true
-		if canonical, resolveErr := pathidentity.ResolveExisting(resolved); resolveErr == nil {
-			status.ResolvedPath = canonical
-			if digest, hashErr := fileSHA256(canonical); hashErr == nil {
+		status.ResolvedPath = resolved
+		if targetIdentity, targetErr := pathidentity.ResolveExisting(target); targetErr == nil &&
+			samePath(resolved, targetIdentity) {
+			if digest, hashErr := fileSHA256(resolved); hashErr == nil {
 				status.Ready = digest == expected
 			}
 		}
@@ -83,29 +102,150 @@ func InspectCurrent(installDir string) (*Status, error) {
 }
 
 func InstallCurrent(installDir string) (*InstallReport, error) {
-	status, err := InspectCurrent(installDir)
+	return installCurrent(installDir, InstallOptions{}, false)
+}
+
+func InstallCurrentWithReceipt(installDir string, options InstallOptions) (*InstallReport, error) {
+	return installCurrent(installDir, options, true)
+}
+
+func installCurrent(installDir string, options InstallOptions, publishReceipt bool) (*InstallReport, error) {
+	paths, err := resolveReceiptPaths()
 	if err != nil {
 		return nil, err
 	}
-	if err := ensureRealDirectory(filepath.Dir(status.TargetPath)); err != nil {
-		return nil, err
-	}
-	body, err := readBoundedBinary(status.SourcePath)
+	var report *InstallReport
+	err = withReceiptLock(paths, func() error {
+		status, inspectErr := InspectCurrent(installDir)
+		if inspectErr != nil {
+			return inspectErr
+		}
+		if err := ensureRealDirectory(filepath.Dir(status.TargetPath)); err != nil {
+			return err
+		}
+		backup, err := captureBinaryBackup(status.TargetPath)
+		if err != nil {
+			return err
+		}
+		body, err := readBoundedBinary(status.SourcePath)
+		if err != nil {
+			return err
+		}
+		changed, err := atomicfile.WriteIfChanged(status.TargetPath, body, 0o755)
+		if err != nil {
+			return fmt.Errorf("install user CLI: %w", err)
+		}
+		verified, err := InspectCurrent(installDir)
+		if err != nil {
+			return rollbackInstall(status.TargetPath, backup, changed, err)
+		}
+		if !verified.Installed || !verified.Executable || !verified.Current {
+			verificationErr := fmt.Errorf("installed user CLI failed checksum or executable verification: %s", verified.TargetPath)
+			return rollbackInstall(status.TargetPath, backup, changed, verificationErr)
+		}
+		report = &InstallReport{Status: verified, Changed: changed}
+		if !publishReceipt || !verified.Ready {
+			return nil
+		}
+		input, err := installReceiptInput(verified, options)
+		if err != nil {
+			return rollbackInstall(status.TargetPath, backup, changed, err)
+		}
+		receipt, err := NewReceipt(input)
+		if err != nil {
+			return rollbackInstall(status.TargetPath, backup, changed, err)
+		}
+		receiptChanged, err := writeReceiptUnlocked(paths.receipt, receipt)
+		if err != nil {
+			return rollbackInstall(status.TargetPath, backup, changed, err)
+		}
+		report.Receipt = receipt
+		report.ReceiptPath = paths.receipt
+		report.Changed = report.Changed || receiptChanged
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	changed, err := atomicfile.WriteIfChanged(status.TargetPath, body, 0o755)
+	return report, nil
+}
+
+type binaryBackup struct {
+	exists bool
+	body   []byte
+	mode   os.FileMode
+}
+
+func captureBinaryBackup(path string) (binaryBackup, error) {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return binaryBackup{}, nil
+	}
 	if err != nil {
-		return nil, fmt.Errorf("install user CLI: %w", err)
+		return binaryBackup{}, fmt.Errorf("inspect previous user CLI: %w", err)
 	}
-	verified, err := InspectCurrent(installDir)
+	if !info.Mode().IsRegular() {
+		return binaryBackup{}, fmt.Errorf("previous user CLI is not a regular file: %s", path)
+	}
+	body, err := readBoundedBinary(path)
 	if err != nil {
-		return nil, err
+		return binaryBackup{}, fmt.Errorf("capture previous user CLI: %w", err)
 	}
-	if !verified.Installed || !verified.Executable || !verified.Current {
-		return nil, fmt.Errorf("installed user CLI failed checksum or executable verification: %s", verified.TargetPath)
+	return binaryBackup{exists: true, body: body, mode: info.Mode().Perm()}, nil
+}
+
+func rollbackInstall(path string, backup binaryBackup, changed bool, cause error) error {
+	if !changed {
+		return cause
 	}
-	return &InstallReport{Status: verified, Changed: changed}, nil
+	if backup.exists {
+		if _, err := atomicfile.WriteIfChanged(path, backup.body, backup.mode); err != nil {
+			return errors.Join(cause, fmt.Errorf("restore previous user CLI: %w", err))
+		}
+		return cause
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return errors.Join(cause, fmt.Errorf("remove failed user CLI publication: %w", err))
+	}
+	return cause
+}
+
+func installReceiptInput(status *Status, options InstallOptions) (ReceiptInput, error) {
+	version := strings.TrimSpace(options.Version)
+	if version == "" {
+		return ReceiptInput{}, fmt.Errorf("installation version is required for receipt publication")
+	}
+	manager := options.Manager
+	if manager == "" {
+		manager = ManagerSource
+	}
+	switch manager {
+	case ManagerSource:
+		return sourceReceiptInput(status, version, options.InstalledAt)
+	case ManagerDirect:
+		channel := options.Channel
+		if channel == "" {
+			channel = ChannelExact
+		}
+		artifactName := strings.TrimSpace(options.ArtifactName)
+		if artifactName == "" {
+			artifactName = fmt.Sprintf("reconc-%s-%s-%s", version, runtime.GOOS, runtime.GOARCH)
+			if runtime.GOOS == "windows" {
+				artifactName += ".exe"
+			}
+		}
+		releaseTag := strings.TrimSpace(options.ReleaseTag)
+		if releaseTag == "" {
+			releaseTag = "reconc-v" + version
+		}
+		provenanceState := options.ProvenanceState
+		if provenanceState == "" {
+			provenanceState = ProvenanceEmbeddedVerified
+		}
+		return directReceiptInput(status, version, channel, artifactName, releaseTag, provenanceState, options.InstalledAt)
+	default:
+		return ReceiptInput{}, fmt.Errorf("unsupported installation owner %q", manager)
+	}
 }
 
 func currentExecutable() (string, error) {

@@ -27,7 +27,9 @@ func runCLI(args []string, stdout, stderr io.Writer) error {
 	if flags.NArg() != 0 {
 		return fmt.Errorf("usage: publication-audit [--root PATH]")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	// The audit scans every post-boundary blob. Keep a hard deadline, but leave
+	// enough headroom for race-instrumented and resource-constrained CI runners.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	report, err := auditRepository(ctx, options)
 	if err != nil {

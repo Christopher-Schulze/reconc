@@ -69,6 +69,12 @@ func TestRenderIncludesCanonicalCommandAndNestedInventory(t *testing.T) {
 			if !strings.Contains(out, ".B "+command.Name+" "+nested.Name+"\n") || !strings.Contains(out, nested.Summary) {
 				t.Errorf("man page omitted canonical nested command %s %s", command.Name, nested.Name)
 			}
+			for _, leaf := range nested.Subcommands {
+				if !strings.Contains(out, ".B "+command.Name+" "+nested.Name+" "+leaf.Name+"\n") ||
+					!strings.Contains(out, leaf.Summary) {
+					t.Errorf("man page omitted canonical leaf command %s %s %s", command.Name, nested.Name, leaf.Name)
+				}
+			}
 		}
 	}
 }

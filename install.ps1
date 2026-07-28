@@ -1,8 +1,12 @@
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Channel")]
 param(
-    [Parameter(Position = 0)]
+    [Parameter(ParameterSetName = "Version", Position = 0, Mandatory = $true)]
     [ValidateNotNullOrEmpty()]
-    [string]$Version = "0.8.8"
+    [string]$Version,
+    [Parameter(ParameterSetName = "Channel")]
+    [ValidateSet("Stable", "Preview")]
+    [string]$Channel = "Stable",
+    [switch]$AllowDowngrade
 )
 
 Set-StrictMode -Version Latest
@@ -23,15 +27,91 @@ function Get-ReconcEnvironmentValue {
     return $value
 }
 
-function Assert-ReconcStableVersion {
+function Assert-ReconcSemanticVersion {
     param(
         [Parameter(Mandatory = $true)]
         [string]$Value
     )
 
-    if ($Value -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
-        throw "Version must be a stable semantic version: $Value"
+    if ($Value -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$') {
+        throw "Version must be supported semantic versioning: $Value"
     }
+    $coreVersion = ($Value -split "-", 2)[0]
+    foreach ($component in ($coreVersion -split "\.")) {
+        [UInt64]$parsedComponent = 0
+        if (-not [UInt64]::TryParse($component, [ref]$parsedComponent)) {
+            throw "Version component exceeds the supported unsigned 64-bit range: $Value"
+        }
+    }
+    $separator = $Value.IndexOf("-", [StringComparison]::Ordinal)
+    if ($separator -ge 0) {
+        foreach ($identifier in $Value.Substring($separator + 1).Split(".")) {
+            if ($identifier -match '^0[0-9]+$') {
+                throw "Numeric prerelease identifiers must not contain leading zeroes: $Value"
+            }
+        }
+    }
+}
+
+function Compare-ReconcSemanticVersion {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Left,
+        [Parameter(Mandatory = $true)]
+        [string]$Right
+    )
+
+    Assert-ReconcSemanticVersion -Value $Left
+    Assert-ReconcSemanticVersion -Value $Right
+    $pattern = '^(?<major>[0-9]+)\.(?<minor>[0-9]+)\.(?<patch>[0-9]+)(-(?<pre>.+))?$'
+    $leftMatch = [Regex]::Match($Left, $pattern)
+    $rightMatch = [Regex]::Match($Right, $pattern)
+    foreach ($part in @("major", "minor", "patch")) {
+        $leftValue = [UInt64]::Parse($leftMatch.Groups[$part].Value)
+        $rightValue = [UInt64]::Parse($rightMatch.Groups[$part].Value)
+        if ($leftValue -lt $rightValue) {
+            return -1
+        }
+        if ($leftValue -gt $rightValue) {
+            return 1
+        }
+    }
+
+    $leftPre = $leftMatch.Groups["pre"].Value
+    $rightPre = $rightMatch.Groups["pre"].Value
+    if ($leftPre -eq $rightPre) {
+        return 0
+    }
+    if ([string]::IsNullOrEmpty($leftPre)) {
+        return 1
+    }
+    if ([string]::IsNullOrEmpty($rightPre)) {
+        return -1
+    }
+    $leftIdentifiers = @($leftPre.Split("."))
+    $rightIdentifiers = @($rightPre.Split("."))
+    $count = [Math]::Min($leftIdentifiers.Count, $rightIdentifiers.Count)
+    for ($index = 0; $index -lt $count; $index++) {
+        if ($leftIdentifiers[$index] -ceq $rightIdentifiers[$index]) {
+            continue
+        }
+        $leftNumeric = $leftIdentifiers[$index] -match '^[0-9]+$'
+        $rightNumeric = $rightIdentifiers[$index] -match '^[0-9]+$'
+        if ($leftNumeric -and $rightNumeric) {
+            if ($leftIdentifiers[$index].Length -ne $rightIdentifiers[$index].Length) {
+                return $(if ($leftIdentifiers[$index].Length -lt $rightIdentifiers[$index].Length) { -1 } else { 1 })
+            }
+            return [Math]::Sign([string]::CompareOrdinal($leftIdentifiers[$index], $rightIdentifiers[$index]))
+        }
+        if ($leftNumeric) {
+            return -1
+        }
+        if ($rightNumeric) {
+            return 1
+        }
+        return [Math]::Sign([string]::CompareOrdinal($leftIdentifiers[$index], $rightIdentifiers[$index]))
+    }
+    return $(if ($leftIdentifiers.Count -lt $rightIdentifiers.Count) { -1 } else { 1 })
 }
 
 function Get-ReconcWindowsAssetName {
@@ -95,7 +175,9 @@ function Invoke-ReconcHttpsDownload {
         [Parameter(Mandatory = $true)]
         [Uri]$Uri,
         [Parameter(Mandatory = $true)]
-        [string]$Destination
+        [string]$Destination,
+        [ValidateRange(1, 268435456)]
+        [long]$MaximumBytes = 268435456
     )
 
     if ($Uri.Scheme -ne [Uri]::UriSchemeHttps) {
@@ -135,6 +217,10 @@ function Invoke-ReconcHttpsDownload {
                 }
 
                 [void]$response.EnsureSuccessStatusCode()
+                if ($response.Content.Headers.ContentLength.HasValue -and
+                    $response.Content.Headers.ContentLength.Value -gt $MaximumBytes) {
+                    throw "Release download exceeds $MaximumBytes bytes: $current"
+                }
                 $inputStream = $null
                 $outputStream = $null
                 try {
@@ -145,7 +231,15 @@ function Invoke-ReconcHttpsDownload {
                         [IO.FileAccess]::Write,
                         [IO.FileShare]::None
                     )
-                    $inputStream.CopyTo($outputStream)
+                    $buffer = New-Object byte[] 81920
+                    $total = 0L
+                    while (($read = $inputStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                        $total += $read
+                        if ($total -gt $MaximumBytes) {
+                            throw "Release download exceeds $MaximumBytes bytes: $current"
+                        }
+                        $outputStream.Write($buffer, 0, $read)
+                    }
                     $outputStream.Flush()
                 }
                 finally {
@@ -177,6 +271,69 @@ function Invoke-ReconcHttpsDownload {
     }
 }
 
+function Resolve-ReconcReleaseSelection {
+    param(
+        [string]$RequestedVersion = "",
+        [ValidateSet("Stable", "Preview")]
+        [string]$RequestedChannel = "Stable",
+        [Parameter(Mandatory = $true)]
+        [string]$TemporaryDirectory
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($RequestedVersion)) {
+        Assert-ReconcSemanticVersion -Value $RequestedVersion
+        return [PSCustomObject]@{
+            Version = $RequestedVersion
+            Channel = "exact"
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable("RECONC_RELEASE_BASE"))) {
+        throw "Channel discovery is unavailable with RECONC_RELEASE_BASE; use -Version."
+    }
+    $apiBase = Get-ReconcEnvironmentValue `
+        -Name "RECONC_RELEASE_API_BASE" `
+        -Default "https://api.github.com/repos/Christopher-Schulze/reconc"
+    $metadataPath = Join-Path $TemporaryDirectory "release-selection.json"
+    if ($RequestedChannel -eq "Stable") {
+        $endpoint = "$($apiBase.TrimEnd('/'))/releases/latest"
+    }
+    else {
+        $endpoint = "$($apiBase.TrimEnd('/'))/releases?per_page=32"
+    }
+    Invoke-ReconcHttpsDownload `
+        -Uri ([Uri]$endpoint) `
+        -Destination $metadataPath `
+        -MaximumBytes 2097152
+    $metadata = Get-Content -LiteralPath $metadataPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($RequestedChannel -eq "Stable") {
+        $release = $metadata
+        if ($release.draft -or $release.prerelease) {
+            throw "Stable channel selected a draft or prerelease."
+        }
+    }
+    else {
+        $release = @($metadata | Where-Object { -not $_.draft -and $_.prerelease }) |
+            Select-Object -First 1
+        if ($null -eq $release) {
+            throw "No non-draft preview release is available."
+        }
+    }
+    $tag = [string]$release.tag_name
+    if (-not $tag.StartsWith("reconc-v", [StringComparison]::Ordinal)) {
+        throw "Release metadata returned a noncanonical tag: $tag"
+    }
+    $resolvedVersion = $tag.Substring("reconc-v".Length)
+    Assert-ReconcSemanticVersion -Value $resolvedVersion
+    $isPreview = $resolvedVersion.Contains("-")
+    if (($RequestedChannel -eq "Preview") -ne $isPreview) {
+        throw "Release metadata channel and semantic version disagree: $resolvedVersion"
+    }
+    return [PSCustomObject]@{
+        Version = $resolvedVersion
+        Channel = $RequestedChannel.ToLowerInvariant()
+    }
+}
+
 function Confirm-ReconcAttestation {
     param(
         [Parameter(Mandatory = $true)]
@@ -196,27 +353,39 @@ function Confirm-ReconcAttestation {
             throw "Attestation verification is required, but '$Tool' is unavailable."
         }
         Write-Host "note: '$Tool' is unavailable; checksum verification remains enforced."
-        return
+        return "embedded-verified"
     }
 
     try {
-        $attestationOutput = & $command.Source attestation verify $ArtifactPath --repo $Repository 2>&1
+        $releaseVersion = [Regex]::Match(
+            [IO.Path]::GetFileName($ArtifactPath),
+            '^reconc-(?<version>[0-9A-Za-z][0-9A-Za-z.+-]*)-windows-amd64\.exe$'
+        ).Groups["version"].Value
+        if ([string]::IsNullOrWhiteSpace($releaseVersion)) {
+            throw "Cannot derive the immutable release tag from $ArtifactPath."
+        }
+        $attestationOutput = & $command.Source attestation verify $ArtifactPath `
+            --repo $Repository `
+            --signer-workflow "$Repository/.github/workflows/reconc-release.yml" `
+            --source-ref "refs/tags/reconc-v$releaseVersion" `
+            --deny-self-hosted-runners 2>&1
     }
     catch {
         if ($Required) {
             throw "Attestation verification could not run for $ArtifactPath. $($_.Exception.Message)"
         }
         Write-Warning "Attestation verification could not run; checksum verification remains enforced. $($_.Exception.Message)"
-        return
+        return "embedded-verified"
     }
     if ($LASTEXITCODE -eq 0) {
-        return
+        return "github-verified"
     }
     $detail = ($attestationOutput | Out-String).Trim()
     if ($Required) {
         throw "Attestation verification failed for $ArtifactPath. $detail"
     }
     Write-Warning "Attestation verification failed; checksum verification remains enforced. $detail"
+    return "embedded-verified"
 }
 
 function Install-ReconcVerifiedArtifact {
@@ -226,7 +395,13 @@ function Install-ReconcVerifiedArtifact {
         [Parameter(Mandatory = $true)]
         [string]$ExpectedChecksum,
         [Parameter(Mandatory = $true)]
-        [string]$InstallDirectory
+        [string]$InstallDirectory,
+        [string]$ReleaseVersion = "",
+        [string]$AssetName = "",
+        [ValidateSet("stable", "preview", "exact")]
+        [string]$InstallChannel = "exact",
+        [ValidateSet("github-verified", "embedded-verified")]
+        [string]$ProvenanceState = "embedded-verified"
     )
 
     if ($ExpectedChecksum -notmatch '^[0-9a-f]{64}$') {
@@ -240,66 +415,55 @@ function Install-ReconcVerifiedArtifact {
     [void](New-Item -ItemType Directory -Path $InstallDirectory -Force)
     $resolvedInstallDirectory = [IO.Path]::GetFullPath($InstallDirectory)
     $targetPath = Join-Path $resolvedInstallDirectory "reconc.exe"
-    $stagePath = Join-Path $resolvedInstallDirectory ".reconc-stage-$([Guid]::NewGuid().ToString('N')).exe"
-    $backupPath = Join-Path $resolvedInstallDirectory ".reconc-backup-$([Guid]::NewGuid().ToString('N')).exe"
-    $hadExistingTarget = Test-Path -LiteralPath $targetPath -PathType Leaf
-    $published = $false
-    $preserveBackup = $false
-
-    try {
-        Copy-Item -LiteralPath $ArtifactPath -Destination $stagePath
-        $stagedChecksum = Get-ReconcFileSha256 -Path $stagePath
-        if ($stagedChecksum -ne $ExpectedChecksum) {
-            throw "Checksum mismatch after staging the Windows binary."
-        }
-
-        $smokeOutput = & $stagePath --version 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            $detail = ($smokeOutput | Out-String).Trim()
-            throw "Staged Windows binary failed its version smoke test. $detail"
-        }
-
-        if ($hadExistingTarget) {
-            [IO.File]::Replace($stagePath, $targetPath, $backupPath)
-        }
-        else {
-            [IO.File]::Move($stagePath, $targetPath)
-        }
-        $published = $true
-
-        if ((Get-ReconcFileSha256 -Path $targetPath) -ne $ExpectedChecksum) {
-            throw "Checksum mismatch after publishing the Windows binary."
-        }
+    if (Test-Path -LiteralPath $targetPath -PathType Leaf) {
+        $exclusiveTarget = [IO.File]::Open(
+            $targetPath,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::ReadWrite,
+            [IO.FileShare]::None
+        )
+        $exclusiveTarget.Dispose()
     }
-    catch {
-        if ($published) {
-            if ($hadExistingTarget -and (Test-Path -LiteralPath $backupPath -PathType Leaf)) {
-                try {
-                    [IO.File]::Replace($backupPath, $targetPath, $null)
-                }
-                catch {
-                    $preserveBackup = $true
-                    throw "Publication verification failed and automatic rollback failed. The previous binary remains at $backupPath. $($_.Exception.Message)"
-                }
-            }
-            elseif (-not $hadExistingTarget -and (Test-Path -LiteralPath $targetPath -PathType Leaf)) {
-                Remove-Item -LiteralPath $targetPath -Force
-            }
+    if ([string]::IsNullOrWhiteSpace($AssetName)) {
+        $AssetName = [IO.Path]::GetFileName($ArtifactPath)
+    }
+    if ([string]::IsNullOrWhiteSpace($ReleaseVersion)) {
+        $match = [Regex]::Match($AssetName, '^reconc-(?<version>[0-9A-Za-z][0-9A-Za-z.+-]*)-windows-amd64\.exe$')
+        if (-not $match.Success) {
+            throw "Cannot derive the Reconc release version from artifact '$AssetName'."
         }
-        throw
+        $ReleaseVersion = $match.Groups["version"].Value
+    }
+
+    $savedManager = [Environment]::GetEnvironmentVariable("RECONC_INSTALL_MANAGER", "Process")
+    $savedChannel = [Environment]::GetEnvironmentVariable("RECONC_INSTALL_CHANNEL", "Process")
+    $savedArtifact = [Environment]::GetEnvironmentVariable("RECONC_INSTALL_ARTIFACT", "Process")
+    $savedTag = [Environment]::GetEnvironmentVariable("RECONC_INSTALL_RELEASE_TAG", "Process")
+    $savedProvenance = [Environment]::GetEnvironmentVariable("RECONC_INSTALL_PROVENANCE", "Process")
+    try {
+        $env:RECONC_INSTALL_MANAGER = "direct"
+        $env:RECONC_INSTALL_CHANNEL = $InstallChannel
+        $env:RECONC_INSTALL_ARTIFACT = $AssetName
+        $env:RECONC_INSTALL_RELEASE_TAG = "reconc-v$ReleaseVersion"
+        $env:RECONC_INSTALL_PROVENANCE = $ProvenanceState
+        $installOutput = & $ArtifactPath install-cli --install-dir $resolvedInstallDirectory --json 2>&1
+        $installExitCode = $LASTEXITCODE
     }
     finally {
-        if (Test-Path -LiteralPath $stagePath -PathType Leaf) {
-            Remove-Item -LiteralPath $stagePath -Force
-        }
-        if (-not $preserveBackup -and (Test-Path -LiteralPath $backupPath -PathType Leaf)) {
-            try {
-                Remove-Item -LiteralPath $backupPath -Force
-            }
-            catch {
-                Write-Warning "Installed successfully, but could not remove backup file: $backupPath"
-            }
-        }
+        $env:RECONC_INSTALL_MANAGER = $savedManager
+        $env:RECONC_INSTALL_CHANNEL = $savedChannel
+        $env:RECONC_INSTALL_ARTIFACT = $savedArtifact
+        $env:RECONC_INSTALL_RELEASE_TAG = $savedTag
+        $env:RECONC_INSTALL_PROVENANCE = $savedProvenance
+    }
+    if (-not (Test-Path -LiteralPath $targetPath -PathType Leaf) -or
+        (Get-ReconcFileSha256 -Path $targetPath) -ne $ExpectedChecksum) {
+        $detail = ($installOutput | Out-String).Trim()
+        throw "Verified Reconc transaction did not publish the expected binary. $detail"
+    }
+    if ((Test-ReconcCommandMatches -ExpectedChecksum $ExpectedChecksum -ExpectedPath $targetPath) -and $installExitCode -ne 0) {
+        $detail = ($installOutput | Out-String).Trim()
+        throw "Binary is current on PATH but ownership receipt publication failed. $detail"
     }
 
     return $targetPath
@@ -308,7 +472,8 @@ function Install-ReconcVerifiedArtifact {
 function Test-ReconcCommandMatches {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$ExpectedChecksum
+        [string]$ExpectedChecksum,
+        [string]$ExpectedPath = ""
     )
 
     $command = Get-Command -Name "reconc" -CommandType Application -ErrorAction SilentlyContinue |
@@ -317,6 +482,10 @@ function Test-ReconcCommandMatches {
         return $false
     }
     try {
+        if (-not [string]::IsNullOrWhiteSpace($ExpectedPath) -and
+            [IO.Path]::GetFullPath($command.Source) -ine [IO.Path]::GetFullPath($ExpectedPath)) {
+            return $false
+        }
         return (Get-ReconcFileSha256 -Path $command.Source) -eq $ExpectedChecksum
     }
     catch {
@@ -326,11 +495,12 @@ function Test-ReconcCommandMatches {
 
 function Invoke-ReconcInstall {
     param(
-        [Parameter(Mandatory = $true)]
-        [string]$ReleaseVersion
+        [string]$RequestedVersion = "",
+        [ValidateSet("Stable", "Preview")]
+        [string]$RequestedChannel = "Stable",
+        [bool]$DowngradeAllowed = $false
     )
 
-    Assert-ReconcStableVersion -Value $ReleaseVersion
     if ($env:OS -ne "Windows_NT") {
         throw "install.ps1 supports Windows only."
     }
@@ -338,11 +508,8 @@ function Invoke-ReconcInstall {
         throw "LOCALAPPDATA is unavailable; set RECONC_INSTALL_DIR explicitly."
     }
 
-    $assetName = Get-ReconcWindowsAssetName -ReleaseVersion $ReleaseVersion
     $defaultInstallDirectory = Join-Path $env:LOCALAPPDATA "Programs\Reconc\bin"
     $installDirectory = Get-ReconcEnvironmentValue -Name "RECONC_INSTALL_DIR" -Default $defaultInstallDirectory
-    $defaultReleaseBase = "https://github.com/Christopher-Schulze/reconc/releases/download/reconc-v$ReleaseVersion"
-    $releaseBase = (Get-ReconcEnvironmentValue -Name "RECONC_RELEASE_BASE" -Default $defaultReleaseBase).TrimEnd('/')
     $attestationTool = Get-ReconcEnvironmentValue -Name "RECONC_ATTESTATION_TOOL" -Default "gh"
     $attestationRepository = Get-ReconcEnvironmentValue -Name "RECONC_ATTESTATION_REPO" -Default "Christopher-Schulze/reconc"
     $requireAttestation = (Get-ReconcEnvironmentValue -Name "RECONC_REQUIRE_ATTESTATION" -Default "0") -eq "1"
@@ -350,15 +517,43 @@ function Invoke-ReconcInstall {
     $temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) "reconc-install-$([Guid]::NewGuid().ToString('N'))"
     [void](New-Item -ItemType Directory -Path $temporaryDirectory)
     try {
+        $selection = Resolve-ReconcReleaseSelection `
+            -RequestedVersion $RequestedVersion `
+            -RequestedChannel $RequestedChannel `
+            -TemporaryDirectory $temporaryDirectory
+        $releaseVersion = $selection.Version
+        $installChannel = $selection.Channel
+        $assetName = Get-ReconcWindowsAssetName -ReleaseVersion $releaseVersion
+        $defaultReleaseBase = "https://github.com/Christopher-Schulze/reconc/releases/download/reconc-v$releaseVersion"
+        $releaseBase = (Get-ReconcEnvironmentValue -Name "RECONC_RELEASE_BASE" -Default $defaultReleaseBase).TrimEnd('/')
         $artifactPath = Join-Path $temporaryDirectory $assetName
         $manifestPath = Join-Path $temporaryDirectory "SHA256SUMS"
-        Invoke-ReconcHttpsDownload -Uri ([Uri]"$releaseBase/$assetName") -Destination $artifactPath
-        Invoke-ReconcHttpsDownload -Uri ([Uri]"$releaseBase/SHA256SUMS") -Destination $manifestPath
+        Invoke-ReconcHttpsDownload `
+            -Uri ([Uri]"$releaseBase/$assetName") `
+            -Destination $artifactPath `
+            -MaximumBytes 268435456
+        Invoke-ReconcHttpsDownload `
+            -Uri ([Uri]"$releaseBase/SHA256SUMS") `
+            -Destination $manifestPath `
+            -MaximumBytes 2097152
         $expectedChecksum = Get-ReconcExpectedChecksum -ManifestPath $manifestPath -AssetName $assetName
         if ((Get-ReconcFileSha256 -Path $artifactPath) -ne $expectedChecksum) {
             throw "Checksum mismatch for downloaded Windows binary."
         }
-        Confirm-ReconcAttestation `
+        $targetPath = Join-Path ([IO.Path]::GetFullPath($installDirectory)) "reconc.exe"
+        if (Test-Path -LiteralPath $targetPath -PathType Leaf) {
+            $installedOutput = (& $targetPath --version 2>$null | Out-String).Trim()
+            $installedMatch = [Regex]::Match($installedOutput, '^reconc (?<version>.+)$')
+            if ($installedMatch.Success) {
+                $installedVersion = $installedMatch.Groups["version"].Value
+                Assert-ReconcSemanticVersion -Value $installedVersion
+                if ((Compare-ReconcSemanticVersion -Left $installedVersion -Right $releaseVersion) -gt 0 -and
+                    -not $DowngradeAllowed) {
+                    throw "Refusing downgrade from $installedVersion to $releaseVersion; rerun with -AllowDowngrade."
+                }
+            }
+        }
+        $provenanceState = Confirm-ReconcAttestation `
             -ArtifactPath $artifactPath `
             -Tool $attestationTool `
             -Repository $attestationRepository `
@@ -366,10 +561,14 @@ function Invoke-ReconcInstall {
         $targetPath = Install-ReconcVerifiedArtifact `
             -ArtifactPath $artifactPath `
             -ExpectedChecksum $expectedChecksum `
-            -InstallDirectory $installDirectory
-        Write-Host "installed reconc $ReleaseVersion at $targetPath"
+            -InstallDirectory $installDirectory `
+            -ReleaseVersion $releaseVersion `
+            -AssetName $assetName `
+            -InstallChannel $installChannel `
+            -ProvenanceState $provenanceState
+        Write-Host "installed reconc $releaseVersion ($installChannel) at $targetPath"
 
-        if (-not (Test-ReconcCommandMatches -ExpectedChecksum $expectedChecksum)) {
+        if (-not (Test-ReconcCommandMatches -ExpectedChecksum $expectedChecksum -ExpectedPath $targetPath)) {
             $escapedDirectory = $installDirectory.Replace("'", "''")
             Write-Host "Put the install directory first on your user PATH, then open a new terminal:"
             Write-Host "`$userPath = [Environment]::GetEnvironmentVariable('Path', 'User'); [Environment]::SetEnvironmentVariable('Path', (('$escapedDirectory;' + `$userPath).TrimEnd(';')), 'User')"
@@ -383,5 +582,14 @@ function Invoke-ReconcInstall {
 }
 
 if ($MyInvocation.InvocationName -ne ".") {
-    Invoke-ReconcInstall -ReleaseVersion $Version
+    if ($PSCmdlet.ParameterSetName -eq "Version") {
+        Invoke-ReconcInstall `
+            -RequestedVersion $Version `
+            -DowngradeAllowed $AllowDowngrade.IsPresent
+    }
+    else {
+        Invoke-ReconcInstall `
+            -RequestedChannel $Channel `
+            -DowngradeAllowed $AllowDowngrade.IsPresent
+    }
 }

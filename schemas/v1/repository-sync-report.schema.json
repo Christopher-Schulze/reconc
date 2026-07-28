@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/repository-sync-report.schema.json",
+  "title": "Reconc repository synchronization result",
+  "type": "object",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/report"
+    },
+    {
+      "$ref": "#/$defs/verification"
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "status",
+        "detail"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "PASS",
+            "FAIL"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        }
+      }
+    },
+    "migration": {
+      "$ref": "repository-sync-plan.schema.json#/$defs/migration"
+    },
+    "report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "$schema",
+        "format_version",
+        "repo_root",
+        "status",
+        "plan_digest",
+        "product_from",
+        "product_to",
+        "receipt_from",
+        "changed",
+        "unchanged",
+        "candidates",
+        "migrations",
+        "rolled_back",
+        "verification",
+        "next_action"
+      ],
+      "properties": {
+        "$schema": {
+          "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/repository-sync-report.schema.json"
+        },
+        "format_version": {
+          "const": "reconc.repository-sync-report/v1"
+        },
+        "repo_root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "complete",
+            "refused",
+            "rolled-back"
+          ]
+        },
+        "plan_digest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "product_from": {
+          "type": "string",
+          "minLength": 1
+        },
+        "product_to": {
+          "type": "string",
+          "minLength": 1
+        },
+        "receipt_from": {
+          "$ref": "#/$defs/sha256"
+        },
+        "receipt_to": {
+          "$ref": "#/$defs/sha256"
+        },
+        "changed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unchanged": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "migrations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/migration"
+          }
+        },
+        "rolled_back": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "verification": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/check"
+          }
+        },
+        "next_action": {
+          "type": "string"
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "$schema",
+        "format_version",
+        "repo_root",
+        "valid",
+        "checks",
+        "next_action"
+      ],
+      "properties": {
+        "$schema": {
+          "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/repository-sync-report.schema.json"
+        },
+        "format_version": {
+          "const": "reconc.repository-sync-verify/v1"
+        },
+        "repo_root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "valid": {
+          "type": "boolean"
+        },
+        "receipt_digest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/check"
+          }
+        },
+        "next_action": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

@@ -52,7 +52,7 @@ verify_action_pins() {
       return 1
     fi
     case "$action" in
-      actions/checkout|actions/setup-go|actions/setup-node|actions/attest-build-provenance|github/codeql-action/init|github/codeql-action/analyze) ;;
+      actions/checkout|actions/setup-go|actions/setup-node|actions/upload-artifact|actions/attest-build-provenance|github/codeql-action/init|github/codeql-action/analyze) ;;
       *)
         printf '%s\n' "$workflow uses an action outside the allowlist: $action" >&2
         return 1
@@ -102,9 +102,10 @@ project_version=$(sed -n 's/^var Version = "\([^"]*\)"/\1/p' "$version_source")
   || fail "$version_source does not define exactly one stable semantic version"
 release_line="v${project_version%.*}.x"
 require_text "$root/Makefile" "VERSION   ?= $project_version"
-require_text "$root/install.sh" "VERSION=\"\${1:-$project_version}\""
-require_text "$root/install.sh" "sh install.sh $project_version"
-require_text "$root/install.ps1" "[string]\$Version = \"$project_version\""
+require_text "$root/install.sh" "sh install.sh --channel preview"
+require_text "$root/install.sh" "sh install.sh --version 0.9.0"
+require_text "$root/install.ps1" '[ValidateSet("Stable", "Preview")]'
+require_text "$root/install.ps1" '[switch]$AllowDowngrade'
 require_text "$root/README.md" "The source line is \`$release_line\`, and the current source version is \`v$project_version\`."
 require_text "$root/SECURITY.md" "only to the latest GitHub Release when one exists"
 require_text "$root/AGENTS.md" "The current source line is \`$release_line\`; the source version is \`v$project_version\`."
@@ -254,12 +255,21 @@ release_assets=(
   reconc.bash
   reconc.fish
   completion-report.schema.json
+  global-diagnostic.schema.json
+  global-lifecycle.schema.json
+  harness-pack-manifest.schema.json
+  installation-receipt.schema.json
   policy-fix-plan.schema.json
   policy-config.schema.json
   policy-lock-v1.schema.json
   policy-lock.schema.json
   policy-report.schema.json
   proof-bundle.schema.json
+  reconc-harness-pack-advanced-1.0.0.zip
+  release-manifest.schema.json
+  repository-install.schema.json
+  repository-sync-plan.schema.json
+  repository-sync-report.schema.json
   "reconc-$project_version-darwin-amd64"
   "reconc-$project_version-darwin-arm64"
   "reconc-$project_version-linux-amd64"
@@ -270,6 +280,8 @@ for name in "${release_assets[@]}"; do
   case "$name" in
     _reconc|reconc.1|reconc.bash|reconc.fish) ;;
     install.ps1|install.sh) cp "$root/$name" "$release_dir/$name" ;;
+    harness-pack-manifest.schema.json) cp "$root/schemas/v1/$name" "$release_dir/$name" ;;
+    reconc-harness-pack-advanced-1.0.0.zip) cp "$root/harness/advanced-pack.zip" "$release_dir/$name" ;;
     *) printf '%s\n' "$name" > "$release_dir/$name" ;;
   esac
 done
@@ -379,12 +391,8 @@ case "$(uname -m)" in
 esac
 asset="reconc-${project_version}-${os}-${arch}"
 
-cat > "$fixture/$asset" <<SCRIPT
-#!/usr/bin/env sh
-[ "\${1:-}" = "--version" ] || exit 2
-printf 'reconc ${project_version}-test\n'
-SCRIPT
-chmod +x "$fixture/$asset"
+(cd "$root" && make --no-print-directory build)
+cp "$root/.build/bin/reconc" "$fixture/$asset"
 printf '%s  %s\n' "$(sha256_file "$fixture/$asset")" "$asset" > "$fixture/SHA256SUMS"
 
 cat > "$fake_bin/curl" <<'SCRIPT'
@@ -419,13 +427,50 @@ run_installer() {
     sh "$root/install.sh" "$project_version"
 }
 
+expect_failure sh "$root/install.sh" --channel stable --version "$project_version"
+expect_failure sh "$root/install.sh" --version "$project_version-preview.01"
+sh "$root/install.sh" --help >/dev/null
+
 printf '#!/usr/bin/env sh\nprintf "old\\n"\n' > "$install_dir/reconc"
 chmod +x "$install_dir/reconc"
 installer_output=$(run_installer 2>&1)
-[ "$("$install_dir/reconc" --version)" = "reconc ${project_version}-test" ] \
+[ "$("$install_dir/reconc" --version)" = "reconc ${project_version}" ] \
   || fail "verified installer did not publish the downloaded binary"
 printf '%s\n' "$installer_output" | grep -Fq 'PATH: add this line to your shell profile' \
   || fail "POSIX installer did not report the missing PATH activation"
+
+receipt_home="$tmp/reconc-home"
+if ! receipt_install_output=$(
+  PATH="$fake_bin:$install_dir:$PATH" \
+    RECONC_HOME="$receipt_home" \
+    RECONC_TEST_FIXTURE="$fixture" \
+    RECONC_RELEASE_BASE="https://release.invalid" \
+    RECONC_INSTALL_DIR="$install_dir" \
+    RECONC_ATTESTATION_TOOL="reconc-attestation-absent" \
+    RECONC_REQUIRE_ATTESTATION=0 \
+    sh "$root/install.sh" "$project_version" 2>&1
+); then
+  fail "PATH-ready POSIX installer failed: $receipt_install_output"
+fi
+[ -f "$receipt_home/install/receipt.json" ] \
+  || fail "PATH-ready POSIX installer did not publish an ownership receipt"
+global_report=$(
+  PATH="$install_dir:$PATH" RECONC_HOME="$receipt_home" \
+    "$install_dir/reconc" doctor --global --json
+)
+printf '%s\n' "$global_report" | grep -Fq '"status": "healthy"' \
+  || fail "PATH-ready POSIX install is not globally healthy"
+printf '%s\n' "$global_report" | grep -Fq '"owner": "direct"' \
+  || fail "POSIX installer did not retain direct ownership"
+printf '%s\n' "$global_report" | grep -Fq '"channel": "exact"' \
+  || fail "POSIX installer did not retain the exact channel"
+
+installed_digest=$(sha256_file "$install_dir/reconc")
+dd if=/dev/zero of="$fixture/SHA256SUMS" bs=1048576 count=3 2>/dev/null
+expect_failure run_installer
+[ "$(sha256_file "$install_dir/reconc")" = "$installed_digest" ] \
+  || fail "oversized checksum download replaced the installed binary"
+printf '%s  %s\n' "$(sha256_file "$fixture/$asset")" "$asset" > "$fixture/SHA256SUMS"
 
 printf '#!/usr/bin/env sh\nprintf "sentinel\\n"\n' > "$install_dir/reconc"
 chmod +x "$install_dir/reconc"
@@ -455,12 +500,7 @@ expect_failure run_installer
 # --- Attestation verification paths -----------------------------------
 
 # Restore a healthy fixture for the attestation cases.
-cat > "$fixture/$asset" <<SCRIPT
-#!/usr/bin/env sh
-[ "\${1:-}" = "--version" ] || exit 2
-printf 'reconc ${project_version}-test\n'
-SCRIPT
-chmod +x "$fixture/$asset"
+cp "$root/.build/bin/reconc" "$fixture/$asset"
 printf '%s  %s\n' "$(sha256_file "$fixture/$asset")" "$asset" > "$fixture/SHA256SUMS"
 
 # Required attestation with the tool absent must fail before install.
@@ -479,7 +519,7 @@ SCRIPT
 chmod +x "$fake_bin/reconc-attestation-pass"
 RECONC_TEST_ATTESTATION_TOOL=reconc-attestation-pass \
   RECONC_TEST_REQUIRE_ATTESTATION=1 run_installer >/dev/null 2>&1
-[ "$("$install_dir/reconc" --version)" = "reconc ${project_version}-test" ] \
+[ "$("$install_dir/reconc" --version)" = "reconc ${project_version}" ] \
   || fail "verified attestation did not publish the downloaded binary"
 
 # A failing attestation tool blocks the install when required...
@@ -497,7 +537,7 @@ RECONC_TEST_ATTESTATION_TOOL=reconc-attestation-fail \
 
 # ...and only warns when not required.
 RECONC_TEST_ATTESTATION_TOOL=reconc-attestation-fail run_installer >/dev/null 2>&1
-[ "$("$install_dir/reconc" --version)" = "reconc ${project_version}-test" ] \
+[ "$("$install_dir/reconc" --version)" = "reconc ${project_version}" ] \
   || fail "optional failed attestation must not block the install"
 
 printf 'release-trust: ok\n'

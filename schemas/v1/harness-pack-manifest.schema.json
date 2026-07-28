@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/harness-pack-manifest.schema.json",
+  "title": "Reconc harness pack manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "format_version",
+    "kind",
+    "name",
+    "version",
+    "product_compatibility",
+    "capabilities",
+    "files",
+    "total_bytes",
+    "digest"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/harness-pack-manifest.schema.json"
+    },
+    "format_version": { "const": "reconc.harness-pack/v1" },
+    "kind": { "const": "harness-pack" },
+    "name": { "$ref": "#/$defs/identifier" },
+    "version": { "$ref": "#/$defs/version" },
+    "product_compatibility": { "$ref": "#/$defs/compatibility" },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/identifier" }
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1024,
+      "items": { "$ref": "#/$defs/file" }
+    },
+    "total_bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 16777216
+    },
+    "digest": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum", "maximum_exclusive"],
+      "properties": {
+        "minimum": { "$ref": "#/$defs/version" },
+        "maximum_exclusive": { "$ref": "#/$defs/version" }
+      }
+    },
+    "file": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "mode", "size", "sha256", "ownership"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"
+          },
+          "mode": { "enum": [420, 493] },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4194304
+          },
+          "sha256": { "$ref": "#/$defs/sha256" },
+          "ownership": { "const": "pack-file" }
+        }
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$",
+      "maxLength": 128
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

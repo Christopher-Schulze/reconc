@@ -36,9 +36,14 @@ func TestBootstrapRemoveReversesOnlyReceiptOwnedArtifacts(t *testing.T) {
 	if removal.Status != RemovalComplete {
 		t.Fatalf("removal = %+v", removal)
 	}
-	for _, relative := range []string{".gitignore", ".reconc.yml", ".reconc/policy.lock.json", "AGENTS.md", report.ReceiptPath} {
+	for _, relative := range []string{".reconc/policy.lock.json", RepositoryReceiptRelativePath, report.ReceiptPath} {
 		if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(relative))); !os.IsNotExist(err) {
 			t.Fatalf("receipt-owned path still exists: %s (%v)", relative, err)
+		}
+	}
+	for _, relative := range []string{".gitignore", ".reconc.yml", "AGENTS.md"} {
+		if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(relative))); err != nil {
+			t.Fatalf("portable user-owned or managed-block path was removed: %s (%v)", relative, err)
 		}
 	}
 	if body, err := os.ReadFile(userPath); err != nil || string(body) != "keep\n" {
@@ -109,7 +114,7 @@ func TestBootstrapRemoveConvergesWhenManagedBlockIsAlreadyAbsent(t *testing.T) {
 	}
 }
 
-func TestBootstrapRemovePreservesAllPrimaryArtifactsWhenManagedFileDrifts(t *testing.T) {
+func TestBootstrapRemovePreservesOutsideManagedBlockBytes(t *testing.T) {
 	bootstrapTestHome(t)
 	repo := t.TempDir()
 	plan, err := BuildPlan(Request{RepoRoot: repo, Profile: ProfileMinimal}, "test-version")
@@ -137,23 +142,25 @@ func TestBootstrapRemovePreservesAllPrimaryArtifactsWhenManagedFileDrifts(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if removal.Status != RemovalDrift || len(removal.Candidates) != 1 {
-		t.Fatalf("drift removal = %+v", removal)
+	if removal.Status != RemovalComplete || len(removal.Candidates) != 0 {
+		t.Fatalf("managed-block removal = %+v", removal)
 	}
-	if !strings.Contains(removal.NextAction, "remove only the Reconc-marked block or apply the candidate") {
-		t.Fatalf("drift remediation is not actionable: %q", removal.NextAction)
-	}
-	for _, relative := range []string{".reconc.yml", ".reconc/policy.lock.json", report.ReceiptPath} {
-		if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(relative))); err != nil {
-			t.Fatalf("primary removal occurred before drift resolution: %s: %v", relative, err)
+	for _, relative := range []string{".reconc/policy.lock.json", RepositoryReceiptRelativePath, report.ReceiptPath} {
+		if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(relative))); !os.IsNotExist(err) {
+			t.Fatalf("portable receipt-owned path still exists: %s: %v", relative, err)
 		}
 	}
-	candidate, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(removal.Candidates[0])))
+	for _, relative := range []string{".reconc.yml", "AGENTS.md"} {
+		if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(relative))); err != nil {
+			t.Fatalf("user-owned path was removed: %s: %v", relative, err)
+		}
+	}
+	remaining, err := os.ReadFile(agentsPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(candidate), "User-owned addition.") || strings.Contains(string(candidate), agentBlockStart) {
-		t.Fatalf("removal candidate is not marker-only: %s", candidate)
+	if !strings.Contains(string(remaining), "User-owned addition.") || strings.Contains(string(remaining), agentBlockStart) {
+		t.Fatalf("managed removal changed outside bytes or retained its block: %s", remaining)
 	}
 }
 
@@ -197,11 +204,11 @@ func TestBootstrapRemoveRejectsTamperedReceiptBeforeMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	report, err := Apply(plan, "test-version")
+	_, err = Apply(plan, "test-version")
 	if err != nil {
 		t.Fatal(err)
 	}
-	receiptPath := filepath.Join(repo, filepath.FromSlash(report.ReceiptPath))
+	receiptPath := filepath.Join(repo, filepath.FromSlash(RepositoryReceiptRelativePath))
 	body, err := os.ReadFile(receiptPath)
 	if err != nil {
 		t.Fatal(err)
@@ -210,7 +217,7 @@ func TestBootstrapRemoveRejectsTamperedReceiptBeforeMutation(t *testing.T) {
 	if err := json.Unmarshal(body, &receipt); err != nil {
 		t.Fatal(err)
 	}
-	receipt["digest"] = strings.Repeat("0", 64)
+	receipt["receipt_digest"] = strings.Repeat("0", 64)
 	tampered, err := json.MarshalIndent(receipt, "", "  ")
 	if err != nil {
 		t.Fatal(err)
@@ -223,6 +230,150 @@ func TestBootstrapRemoveRejectsTamperedReceiptBeforeMutation(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(repo, ".reconc.yml")); err != nil {
 		t.Fatalf("tampered receipt caused product mutation: %v", err)
+	}
+}
+
+func TestBootstrapRemoveSupportsLegacyPrivateReceipt(t *testing.T) {
+	bootstrapTestHome(t)
+	repo := t.TempDir()
+	plan, err := BuildPlan(Request{RepoRoot: repo, Profile: ProfileMinimal}, "0.8.8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := Apply(plan, "0.8.8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(repo, filepath.FromSlash(RepositoryReceiptRelativePath))); err != nil {
+		t.Fatal(err)
+	}
+	removal, err := Remove(plan)
+	if err != nil || removal.Status != RemovalComplete {
+		t.Fatalf("legacy removal = %+v err=%v", removal, err)
+	}
+	for _, relative := range []string{".reconc.yml", report.ReceiptPath, recordedPlanPath(plan)} {
+		if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(relative))); !os.IsNotExist(err) {
+			t.Fatalf("legacy receipt-owned path still exists: %s (%v)", relative, err)
+		}
+	}
+}
+
+func TestBootstrapLegacyRemoveStripsExactManagedBlock(t *testing.T) {
+	bootstrapTestHome(t)
+	repo := t.TempDir()
+	agents, err := renderManagedDocument(
+		repo,
+		"AGENTS.md",
+		"Repository instructions",
+		agentBlockStart,
+		agentBlockEnd,
+		renderAgentBlock(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte(agents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := BuildPlan(Request{RepoRoot: repo, Profile: ProfileMinimal}, "0.8.8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(plan, "0.8.8"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(repo, filepath.FromSlash(RepositoryReceiptRelativePath))); err != nil {
+		t.Fatal(err)
+	}
+	removal, err := Remove(plan)
+	if err != nil || removal.Status != RemovalComplete {
+		t.Fatalf("legacy managed-block removal = %+v err=%v", removal, err)
+	}
+	body, err := os.ReadFile(filepath.Join(repo, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), agentBlockStart) || string(body) != "# Repository instructions\n\n" {
+		t.Fatalf("legacy managed block was not stripped exactly: %q", body)
+	}
+}
+
+func TestBootstrapLegacyRemoveMaterializesManagedBlockCandidate(t *testing.T) {
+	bootstrapTestHome(t)
+	repo := t.TempDir()
+	agents, err := renderManagedDocument(
+		repo,
+		"AGENTS.md",
+		"Repository instructions",
+		agentBlockStart,
+		agentBlockEnd,
+		renderAgentBlock(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte(agents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := BuildPlan(Request{RepoRoot: repo, Profile: ProfileMinimal}, "0.8.8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(plan, "0.8.8"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(repo, filepath.FromSlash(RepositoryReceiptRelativePath))); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(repo, "AGENTS.md")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	drifted := strings.Replace(string(body), "reconc refresh .", "reconc compile .", 1)
+	if err := os.WriteFile(path, []byte(drifted), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	removal, err := Remove(plan)
+	if err != nil || removal.Status != RemovalDrift || len(removal.Candidates) != 1 {
+		t.Fatalf("legacy drift removal = %+v err=%v", removal, err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(removal.Candidates[0]))); err != nil {
+		t.Fatalf("legacy removal candidate missing: %v", err)
+	}
+}
+
+func TestBootstrapRemoveMaterializesManagedBlockCandidateOnDrift(t *testing.T) {
+	bootstrapTestHome(t)
+	repo := t.TempDir()
+	plan, err := BuildPlan(Request{RepoRoot: repo, Profile: ProfileMinimal}, "test-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(plan, "test-version"); err != nil {
+		t.Fatal(err)
+	}
+	agentsPath := filepath.Join(repo, "AGENTS.md")
+	body, err := os.ReadFile(agentsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	drifted := strings.Replace(string(body), "run `reconc refresh .`", "run `reconc compile .`", 1)
+	if drifted == string(body) {
+		t.Fatal("managed block fixture did not contain the expected command")
+	}
+	if err := os.WriteFile(agentsPath, []byte(drifted), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	removal, err := Remove(plan)
+	if err != nil || removal.Status != RemovalDrift || len(removal.Candidates) != 1 {
+		t.Fatalf("drift removal = %+v err=%v", removal, err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(removal.Candidates[0]))); err != nil {
+		t.Fatalf("removal candidate missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(RepositoryReceiptRelativePath))); err != nil {
+		t.Fatalf("drift removal consumed portable receipt: %v", err)
 	}
 }
 

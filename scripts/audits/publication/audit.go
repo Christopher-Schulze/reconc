@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -337,6 +338,7 @@ func auditPostBoundaryBlobs(ctx context.Context, root, boundary string, maxBytes
 	}
 	findings := []auditFinding{}
 	blobCount := 0
+	auditable := make([]gitObjectMetadata, 0, len(metadata))
 	for _, object := range metadata {
 		if object.Type != "blob" {
 			continue
@@ -347,16 +349,78 @@ func auditPostBoundaryBlobs(ctx context.Context, root, boundary string, maxBytes
 			findings = append(findings, auditFinding{Rule: "history/oversized-blob", Path: path, Detail: fmt.Sprintf("blob exceeds %d-byte publication-audit bound", maxBytes)})
 			continue
 		}
-		blob, readErr := gitOutput(ctx, root, "cat-file", "blob", object.ID)
-		if readErr != nil {
-			return nil, 0, readErr
-		}
-		if int64(len(blob)) != object.Size {
-			return nil, 0, fmt.Errorf("git blob %s size changed during publication audit", object.ID)
-		}
-		findings = append(findings, auditText(path, string(blob))...)
+		auditable = append(auditable, object)
 	}
+	blobFindings, err := auditGitBlobBatch(ctx, root, auditable)
+	if err != nil {
+		return nil, 0, err
+	}
+	findings = append(findings, blobFindings...)
 	return findings, blobCount, nil
+}
+
+func auditGitBlobBatch(ctx context.Context, root string, objects []gitObjectMetadata) ([]auditFinding, error) {
+	if len(objects) == 0 {
+		return nil, nil
+	}
+	objectIDs := make([]string, len(objects))
+	for index, object := range objects {
+		objectIDs[index] = object.ID
+	}
+	command := exec.CommandContext(ctx, "git", "-C", root, "cat-file", "--batch")
+	command.Stdin = strings.NewReader(strings.Join(objectIDs, "\n") + "\n")
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	stdout, err := command.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("open git cat-file --batch output: %w", err)
+	}
+	if err := command.Start(); err != nil {
+		return nil, fmt.Errorf("start git cat-file --batch: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	reader := bufio.NewReader(stdout)
+	findings := []auditFinding{}
+	for _, object := range objects {
+		header, readErr := reader.ReadString('\n')
+		if readErr != nil {
+			return nil, abortGitBlobBatch(command, &stderr, fmt.Errorf("read header for %s: %w", object.ID, readErr))
+		}
+		fields := strings.Fields(header)
+		if len(fields) != 3 || fields[0] != object.ID || fields[1] != "blob" {
+			return nil, abortGitBlobBatch(command, &stderr, fmt.Errorf("unexpected Git blob header %q", strings.TrimSpace(header)))
+		}
+		size, parseErr := strconv.ParseInt(fields[2], 10, 64)
+		if parseErr != nil || size < 0 || size != object.Size {
+			return nil, abortGitBlobBatch(command, &stderr, fmt.Errorf("git blob %s size changed during publication audit", object.ID))
+		}
+		blob := make([]byte, int(size))
+		if _, readErr := io.ReadFull(reader, blob); readErr != nil {
+			return nil, abortGitBlobBatch(command, &stderr, fmt.Errorf("read Git blob %s: %w", object.ID, readErr))
+		}
+		delimiter, readErr := reader.ReadByte()
+		if readErr != nil {
+			return nil, abortGitBlobBatch(command, &stderr, fmt.Errorf("read delimiter for Git blob %s: %w", object.ID, readErr))
+		}
+		if delimiter != '\n' {
+			return nil, abortGitBlobBatch(command, &stderr, fmt.Errorf("invalid delimiter after Git blob %s", object.ID))
+		}
+		findings = append(findings, auditText("history/blob/"+object.ID, string(blob))...)
+	}
+	if err := command.Wait(); err != nil {
+		return nil, fmt.Errorf("git cat-file --batch: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return findings, nil
+}
+
+func abortGitBlobBatch(command *exec.Cmd, stderr *bytes.Buffer, cause error) error {
+	if command.Process != nil {
+		_ = command.Process.Kill()
+	}
+	_ = command.Wait()
+	if detail := strings.TrimSpace(stderr.String()); detail != "" {
+		return fmt.Errorf("git cat-file --batch: %w: %s", cause, detail)
+	}
+	return fmt.Errorf("git cat-file --batch: %w", cause)
 }
 
 func gitObjectMetadataBatch(ctx context.Context, root string, objectIDs []string) ([]gitObjectMetadata, error) {

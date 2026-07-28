@@ -182,9 +182,12 @@ jobs:
 
       - name: Build and smoke CLI
         run: |
-          go build -trimpath -o reconc.exe ./cmd/reconc
-          ./reconc.exe --version
-          ./reconc.exe --help >/dev/null
+          version="$(sed -n 's/^var Version = "\([^"]*\)"$/\1/p' cmd/reconc/main.go)"
+          test -n "$version"
+          make release-one TARGET=windows/amd64 VERSION="$version"
+          artifact="dist/reconc-$version-windows-amd64.exe"
+          "$artifact" --version
+          "$artifact" --help >/dev/null
 
       - name: Test native Windows installer
         shell: pwsh
@@ -195,7 +198,7 @@ jobs:
           $liveRelease = [Convert]::ToBoolean($env:RECONC_LIVE_RELEASE)
           ./scripts/tests/test-windows-installer.ps1 `
             -InstallerPath ./install.ps1 `
-            -BinaryPath ./reconc.exe `
+            -BinaryPath "./dist/reconc-$version-windows-amd64.exe" `
             -ExpectedVersion $version `
             -LiveRelease $liveRelease
 

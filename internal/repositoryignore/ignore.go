@@ -22,6 +22,7 @@ func Body() string {
 .reconc/*
 !.reconc/
 !.reconc/policy.lock.json
+!.reconc/install.lock.json
 .reconc/audit.jsonl*
 .reconc/cache/
 .reconc/locks/

@@ -58,9 +58,9 @@ func runBootstrap(args []string, version string, stdout, stderr io.Writer) error
 func printBootstrapHelp(stdout io.Writer) {
 	fmt.Fprintln(stdout, "Usage: reconc bootstrap inspect [repo] [--json]")
 	fmt.Fprintln(stdout, "       reconc bootstrap profiles [--json]")
-	fmt.Fprintln(stdout, "       reconc bootstrap plan [repo] --profile existing|minimal|governed [selection flags]")
+	fmt.Fprintln(stdout, "       reconc bootstrap plan [repo] --profile existing|minimal|governed|advanced [selection flags]")
 	fmt.Fprintln(stdout, "       reconc bootstrap apply --plan PATH [--json]")
-	fmt.Fprintln(stdout, "       reconc bootstrap apply [repo] --profile existing|minimal|governed [selection flags]")
+	fmt.Fprintln(stdout, "       reconc bootstrap apply [repo] --profile existing|minimal|governed|advanced [selection flags]")
 	fmt.Fprintln(stdout, "       reconc bootstrap remove --plan PATH [--json]")
 	fmt.Fprintln(stdout, "       reconc bootstrap verify --plan PATH [--json]")
 	fmt.Fprintln(stdout, "")
@@ -266,7 +266,7 @@ func runBootstrapApply(args []string, version string, stdout io.Writer) error {
 	if err != nil {
 		return bootstrapCLIError("apply", err.Error())
 	}
-	if err := ensureCurrentUserCLI("apply"); err != nil {
+	if err := ensureCurrentUserCLI("apply", version); err != nil {
 		return err
 	}
 	report, applyErr := reconbootstrap.Apply(plan, version)
@@ -568,6 +568,7 @@ func renderBootstrapPlan(stdout io.Writer, plan *reconbootstrap.Plan, output, wr
 	fmt.Fprintf(stdout, "Repository: %s\n", plan.RepoRoot)
 	fmt.Fprintf(stdout, "Profile: %s\n", plan.Selection.Profile)
 	fmt.Fprintf(stdout, "Packs: %s\n", displayBootstrapList(plan.Selection.Packs))
+	fmt.Fprintf(stdout, "Harness packs: %s\n", displayHarnessPacks(plan.Selection.HarnessPacks))
 	fmt.Fprintf(stdout, "Hooks: %s\n", displayBootstrapList(plan.Selection.Hooks))
 	for _, action := range plan.Actions {
 		fmt.Fprintf(stdout, "  %s  %s  (%s)\n", style.decision(string(action.State)), action.Path, action.Component)

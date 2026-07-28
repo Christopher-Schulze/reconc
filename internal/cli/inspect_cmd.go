@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/ingest"
@@ -15,15 +16,18 @@ import (
 	"reconc.dev/reconc/internal/presets"
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/tui"
+	"reconc.dev/reconc/internal/usercli"
 )
 
 // runDoctor implements `reconc doctor [repo] [--json]`.
 //
 // The default doctor path runs discovery checks. Deep mode adds source parsing,
 // lockfile validation, hook checks, and release-readiness diagnostics.
-func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
+func runDoctor(args []string, version string, stdout, stderr io.Writer) (resultErr error) {
 	repo := "."
+	repoSet := false
 	deep := false
+	global := false
 	jsonOut := false
 	outputPath := ""
 	i := 0
@@ -32,6 +36,8 @@ func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 		switch a {
 		case "--deep":
 			deep = true
+		case "--global":
+			global = true
 		case "--json":
 			jsonOut = true
 		case "--output":
@@ -42,16 +48,50 @@ func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 			outputPath = val
 		case "-h", "--help":
 			fmt.Fprintln(stdout, "Usage: reconc doctor [repo] [--deep] [--json] [--output PATH]")
+			fmt.Fprintln(stdout, "       reconc doctor --global [--json] [--output PATH]")
 			fmt.Fprintln(stdout, "Inspect policy discovery state. `--deep` adds lockfile, hook, audit, ref, claim, and conflict diagnostics.")
+			fmt.Fprintln(stdout, "`--global` inspects CLI ownership, PATH identity, receipt, checksum, and provenance without repository discovery.")
 			fmt.Fprintln(stdout, "--output PATH: write the primary output to stdout and PATH.")
 			return nil
 		default:
 			if len(a) > 0 && a[0] == '-' {
 				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc doctor: unknown flag %q", a)}
 			}
+			if repoSet {
+				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc doctor: unexpected argument %q", a)}
+			}
 			repo = a
+			repoSet = true
 		}
 		i++
+	}
+
+	if global {
+		if deep || repoSet {
+			return &CLIError{ExitCode: 1, Message: "reconc doctor: --global cannot be combined with --deep or a repository operand"}
+		}
+		report, err := usercli.DiagnoseGlobal(version)
+		if err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc doctor: " + err.Error()}
+		}
+		out, closeOutput, err := teeToFile(stdout, outputPath)
+		if err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc doctor: open output file: " + err.Error()}
+		}
+		defer joinOutputCloseError(&resultErr, closeOutput)
+		if jsonOut {
+			encoder := json.NewEncoder(out)
+			encoder.SetIndent("", "  ")
+			if err := encoder.Encode(report); err != nil {
+				return &CLIError{ExitCode: 1, Message: "reconc doctor: json encode: " + err.Error()}
+			}
+		} else {
+			renderGlobalDoctorText(out, report)
+		}
+		if report.Blocking() {
+			return &CLIError{ExitCode: 1, Message: ""}
+		}
+		return nil
 	}
 
 	if deep {
@@ -100,6 +140,26 @@ func runDoctor(args []string, stdout, stderr io.Writer) (resultErr error) {
 	}
 
 	return renderDoctorText(result, out)
+}
+
+func renderGlobalDoctorText(stdout io.Writer, report *usercli.GlobalDiagnostic) {
+	fmt.Fprintln(stdout, "reconc doctor --global")
+	fmt.Fprintf(stdout, "Status: %s\n", report.Status)
+	if report.Owner == nil {
+		fmt.Fprintln(stdout, "Owner: unowned")
+	} else {
+		fmt.Fprintf(stdout, "Owner: %s\n", *report.Owner)
+	}
+	fmt.Fprintf(stdout, "Running: %s\n", report.RunningPath)
+	if report.ResolvedPath == nil {
+		fmt.Fprintln(stdout, "PATH: unresolved")
+	} else {
+		fmt.Fprintf(stdout, "PATH: %s\n", *report.ResolvedPath)
+	}
+	for _, check := range report.Checks {
+		fmt.Fprintf(stdout, "[%s] %s: %s\n", strings.ToUpper(check.Status), check.Name, check.Detail)
+	}
+	fmt.Fprintf(stdout, "Next: %s\n", report.NextAction)
 }
 
 // runVerify implements `reconc verify [repo] [--json]` (W12).

@@ -26,11 +26,13 @@ run_json() {
 
 [ -x "$binary" ] || fail "Reconc binary is missing or not executable: $binary"
 binary_dir=$(cd "$(dirname "$binary")" && pwd)
-export PATH="$binary_dir:$PATH"
 git -C "$root" check-ignore --no-index --quiet .reconc/run/decisions.jsonl.lock \
   || fail "self-hosted repository does not ignore Reconc run runtime"
 
-mkdir -p "$tmp/runtime-tmp" "$tmp/state"
+mkdir -p "$tmp/bin" "$tmp/reconc-home" "$tmp/runtime-tmp" "$tmp/state"
+export RECONC_HOME="$tmp/reconc-home"
+export RECONC_INSTALL_DIR="$tmp/bin"
+export PATH="$RECONC_INSTALL_DIR:$binary_dir:$PATH"
 export TMPDIR="$tmp/runtime-tmp"
 export RECONC_CLAUDE_STATE_DIR="$tmp/state"
 export RECONC_AUDIT=1
@@ -42,6 +44,9 @@ run_json "$tmp/minimal-apply.json" "$binary" bootstrap apply --plan "$tmp/minima
 run_json "$tmp/minimal-verify.json" "$binary" bootstrap verify --plan "$tmp/minimal-plan.json"
 require_text "$tmp/minimal-apply.json" '"status": "complete"'
 require_text "$tmp/minimal-verify.json" '"valid": true'
+run_json "$tmp/global-doctor.json" "$RECONC_INSTALL_DIR/reconc" doctor --global
+require_text "$tmp/global-doctor.json" '"status": "healthy"'
+require_text "$tmp/global-doctor.json" '"owner": "source"'
 run_json "$tmp/minimal-second-plan.json" "$binary" bootstrap plan "$minimal" --profile minimal
 if grep -Fq '"state": "create"' "$tmp/minimal-second-plan.json" || grep -Fq '"state": "conflict"' "$tmp/minimal-second-plan.json"; then
   fail "minimal profile is not idempotent"

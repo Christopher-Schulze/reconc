@@ -263,8 +263,44 @@ func TestGeneratedCompletionsAreDeterministicAndCoverExactMetadataSurfaces(t *te
 			assertBashFlags(t, outputs["bash"], command.Name, nested.Name, nested.Flags)
 			assertZshFlags(t, outputs["zsh"], command.Name, nested.Name, nested.Flags)
 			assertFishFlags(t, outputs["fish"], fishCondition, nested.Flags)
+			for _, leaf := range nested.Subcommands {
+				assertLeafCompletion(t, outputs, command, nested, leaf)
+			}
 		}
 	}
+}
+
+func assertLeafCompletion(
+	t *testing.T,
+	outputs map[string]string,
+	command commandmeta.Command,
+	nested commandmeta.Subcommand,
+	leaf commandmeta.Subcommand,
+) {
+	t.Helper()
+	parentKey := command.Name + ":" + nested.Name + ") values="
+	for _, shell := range []string{"bash", "zsh"} {
+		line := findGeneratedLine(outputs[shell], parentKey)
+		if !strings.Contains(line, leaf.Name) {
+			t.Errorf("%s completion omits %s %s %s", shell, command.Name, nested.Name, leaf.Name)
+		}
+	}
+	surface := command.Name + ":" + nested.Name + ":" + leaf.Name + ") flags="
+	for _, shell := range []string{"bash", "zsh"} {
+		line := findGeneratedLine(outputs[shell], surface)
+		for _, flag := range leaf.Flags {
+			if !strings.Contains(line, flag.Name) {
+				t.Errorf("%s completion omits %s for %s %s %s", shell, flag.Name, command.Name, nested.Name, leaf.Name)
+			}
+		}
+	}
+	fishCondition := fmt.Sprintf(
+		"__fish_seen_subcommand_from %s; and __fish_seen_subcommand_from %s; and __fish_seen_subcommand_from %s",
+		command.Name,
+		nested.Name,
+		leaf.Name,
+	)
+	assertFishFlags(t, outputs["fish"], fishCondition, leaf.Flags)
 }
 
 func assertNestedCandidate(t *testing.T, outputs map[string]string, command commandmeta.Command, nested commandmeta.Subcommand) {

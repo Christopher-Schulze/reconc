@@ -51,7 +51,7 @@ func apply(plan *Plan, productVersion string, options applyOptions) (*Report, er
 	if err := preflightPlanState(plan); err != nil {
 		return report, err
 	}
-	artifacts, err := buildDesiredArtifacts(plan.RepoRoot, plan.Selection)
+	artifacts, err := buildDesiredArtifacts(plan.RepoRoot, plan.Selection, productVersion)
 	if err != nil {
 		return report, err
 	}
@@ -160,7 +160,31 @@ func apply(plan *Plan, productVersion string, options applyOptions) (*Report, er
 		report.RolledBack = rolledBack
 		return report, joinApplyRollbackError(err, rollbackErr)
 	}
-	receipt, err := buildInstallReceipt(plan, productVersion, compiledLockSHA)
+	recordedPath := ""
+	recordedSHA := ""
+	if len(created) > 0 {
+		recordedPath = recordedPlanPath(plan)
+		planBody, encodeErr := encodePlan(plan)
+		if encodeErr != nil {
+			rolledBack, rollbackErr := rollbackCreated(plan.RepoRoot, created, createdDirs)
+			report.RolledBack = rolledBack
+			return report, joinApplyRollbackError(encodeErr, rollbackErr)
+		}
+		recordedSHA = bytesSHA256(planBody)
+		artifact := desiredArtifact{component: "bootstrap-plan", path: recordedPath, mode: 0o600, content: planBody}
+		record, dirs, publishErr := publishArtifact(plan.RepoRoot, artifact, recordedPath, recordedSHA, plan.PlanDigest)
+		createdDirs = appendUniqueDirectories(createdDirs, dirs...)
+		if record.path != "" {
+			created = append(created, record)
+		}
+		if publishErr != nil {
+			rolledBack, rollbackErr := rollbackCreated(plan.RepoRoot, created, createdDirs)
+			report.RolledBack = rolledBack
+			return report, joinApplyRollbackError(publishErr, rollbackErr)
+		}
+		report.Created = append(report.Created, recordedPath)
+	}
+	receipt, err := buildInstallReceipt(plan, productVersion, compiledLockSHA, recordedPath, recordedSHA)
 	if err != nil {
 		rolledBack, rollbackErr := rollbackCreated(plan.RepoRoot, created, createdDirs)
 		report.RolledBack = rolledBack
@@ -176,6 +200,25 @@ func apply(plan *Plan, productVersion string, options applyOptions) (*Report, er
 		report.RolledBack = rolledBack
 		return report, joinApplyRollbackError(err, rollbackErr)
 	}
+	if receipt != nil {
+		repositoryReceipt, receiptErr := BuildRepositoryReceipt(plan, receipt, 1, plan.PlanDigest)
+		if receiptErr != nil {
+			rolledBack, rollbackErr := rollbackCreated(plan.RepoRoot, created, createdDirs)
+			report.RolledBack = rolledBack
+			return report, joinApplyRollbackError(receiptErr, rollbackErr)
+		}
+		repositoryRecord, repositoryDirs, publishErr := writeRepositoryReceiptCreate(plan, repositoryReceipt)
+		createdDirs = appendUniqueDirectories(createdDirs, repositoryDirs...)
+		if repositoryRecord.path != "" {
+			created = append(created, repositoryRecord)
+		}
+		if publishErr != nil {
+			rolledBack, rollbackErr := rollbackCreated(plan.RepoRoot, created, createdDirs)
+			report.RolledBack = rolledBack
+			return report, joinApplyRollbackError(publishErr, rollbackErr)
+		}
+		report.Created = append(report.Created, RepositoryReceiptRelativePath)
+	}
 	report.ReceiptPath = receiptPath
 	report.Status = ApplyComplete
 	sort.Strings(report.Created)
@@ -183,6 +226,10 @@ func apply(plan *Plan, productVersion string, options applyOptions) (*Report, er
 	report.Summary = summarizeApply(plan, report)
 	report.NextAction = "reconc check " + quoteBootstrapArgument(plan.RepoRoot)
 	return report, nil
+}
+
+func recordedPlanPath(plan *Plan) string {
+	return filepath.ToSlash(filepath.Join(".reconc", "bootstrap-plan-"+plan.PlanDigest+".json"))
 }
 
 func summarizeApply(plan *Plan, report *Report) ApplySummary {

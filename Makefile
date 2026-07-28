@@ -23,7 +23,7 @@ BIN       := reconc
 PKG       := ./...
 BINDIR    := .build/bin
 DISTDIR   := dist
-VERSION   ?= 0.8.8
+VERSION   ?= 0.9.0
 PROVENANCE_PKG := reconc.dev/reconc/buildprovenance
 STATICCHECK_VERSION := v0.7.0
 RELEASE_COMMIT ?= $(shell git rev-parse HEAD)
@@ -38,7 +38,7 @@ RELEASE_TARGETS := \
 	linux/arm64 \
 	windows/amd64
 
-.PHONY: build test test-release-trust self-host publication-audit fmt vet lint coverage cover clean run tidy release completion manpage sbom checksums release-all bench
+.PHONY: build test test-release-trust self-host publication-audit harness-pack-check fmt vet lint coverage cover clean run tidy release completion manpage sbom checksums release-all bench
 
 build:
 	@mkdir -p $(BINDIR)
@@ -64,6 +64,10 @@ self-host: build
 
 publication-audit:
 	$(GO) run ./scripts/audits/publication --root .
+	$(MAKE) --no-print-directory harness-pack-check
+
+harness-pack-check:
+	$(GO) run ./scripts/build/harness-pack --check
 
 fmt:
 	$(GO) fmt $(PKG)
@@ -143,7 +147,8 @@ sbom:
 checksums: sbom
 	@mkdir -p $(DISTDIR)
 	@cp install.sh install.ps1 $(DISTDIR)/
-	@cp schemas/v1/completion-report.schema.json schemas/v1/policy-config.schema.json schemas/v1/policy-fix-plan.schema.json schemas/v1/policy-report.schema.json schemas/v1/proof-bundle.schema.json $(DISTDIR)/
+	@cp harness/advanced-pack.zip $(DISTDIR)/reconc-harness-pack-advanced-1.0.0.zip
+	@cp schemas/v1/completion-report.schema.json schemas/v1/global-diagnostic.schema.json schemas/v1/global-lifecycle.schema.json schemas/v1/harness-pack-manifest.schema.json schemas/v1/installation-receipt.schema.json schemas/v1/policy-config.schema.json schemas/v1/policy-fix-plan.schema.json schemas/v1/policy-report.schema.json schemas/v1/proof-bundle.schema.json schemas/v1/release-manifest.schema.json schemas/v1/repository-install.schema.json schemas/v1/repository-sync-plan.schema.json schemas/v1/repository-sync-report.schema.json $(DISTDIR)/
 	@cp schemas/v1/policy-lock.schema.json $(DISTDIR)/policy-lock-v1.schema.json
 	@cp schemas/v2/policy-lock.schema.json $(DISTDIR)/policy-lock.schema.json
 	@./scripts/release/write-checksums.sh $(DISTDIR)

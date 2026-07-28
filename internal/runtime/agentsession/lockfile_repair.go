@@ -68,7 +68,7 @@ func isLockfileRepairInvocation(words []string) bool {
 
 // isReconcExecutable matches the Reconc CLI under every invocation form the
 // project documents: a bare `reconc` from PATH, a path-qualified wrapper, and
-// the versioned release artifact such as `reconc-0.8.8-darwin-arm64`. Matching
+// the versioned release artifact such as `reconc-0.9.0-darwin-arm64`. Matching
 // the command word alone is not enough, which the reproduction proved when a
 // bare `reconc refresh` was refused identically to a path-qualified binary.
 func isReconcExecutable(token string) bool {

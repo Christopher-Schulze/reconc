@@ -29,13 +29,19 @@ func TestMetadataFlagsMatchParserSurfaces(t *testing.T) {
 	}
 	for _, command := range commandmeta.All() {
 		t.Run(command.Name, func(t *testing.T) {
-			assertParserFlagSet(t, command.Name, "", command.Flags, candidates, valueFlags, unsupported)
+			assertParserFlagSet(t, []string{command.Name}, command.Flags, candidates, valueFlags, unsupported)
 			for _, nested := range command.Subcommands {
 				if nested.Stability == commandmeta.StabilityInternal {
 					continue
 				}
 				t.Run(nested.Name, func(t *testing.T) {
-					assertParserFlagSet(t, command.Name, nested.Name, nested.Flags, candidates, valueFlags, unsupported)
+					path := []string{command.Name, nested.Name}
+					assertParserFlagSet(t, path, nested.Flags, candidates, valueFlags, unsupported)
+					for _, leaf := range nested.Subcommands {
+						t.Run(leaf.Name, func(t *testing.T) {
+							assertParserFlagSet(t, append(path, leaf.Name), leaf.Flags, candidates, valueFlags, unsupported)
+						})
+					}
 				})
 			}
 		})
@@ -52,21 +58,30 @@ func TestMetadataFlagsAppearInHelp(t *testing.T) {
 				}
 				t.Run(nested.Name, func(t *testing.T) {
 					assertHelpContainsFlags(t, []string{command.Name, nested.Name, "--help"}, command.Name+" "+nested.Name, nested.Flags)
+					for _, leaf := range nested.Subcommands {
+						t.Run(leaf.Name, func(t *testing.T) {
+							args := []string{command.Name, nested.Name, leaf.Name, "--help"}
+							assertHelpContainsFlags(t, args, strings.Join(args[:3], " "), leaf.Flags)
+						})
+					}
 				})
 			}
 		})
 	}
 }
 
-func assertParserFlagSet(t *testing.T, command, nested string, expected []commandmeta.Flag, candidates []string, valueFlags map[string]bool, unsupported map[string]bool) {
+func assertParserFlagSet(t *testing.T, path []string, expected []commandmeta.Flag, candidates []string, valueFlags map[string]bool, unsupported map[string]bool) {
 	t.Helper()
 	want := map[string]bool{}
 	for _, flag := range expected {
 		want[flag.Name] = true
 	}
 	for _, candidate := range candidates {
-		recognized := parserRecognizesFlag(t, command, nested, candidate, valueFlags[candidate])
-		key := command + ":" + nested + ":" + candidate
+		recognized := parserRecognizesFlag(t, path, candidate, valueFlags[candidate])
+		key := strings.Join(path, ":") + ":" + candidate
+		if len(path) == 1 {
+			key = path[0] + "::" + candidate
+		}
 		if unsupported[key] {
 			if !recognized {
 				t.Fatalf("documented unsupported parser flag %s is no longer recognized", candidate)
@@ -74,14 +89,14 @@ func assertParserFlagSet(t *testing.T, command, nested string, expected []comman
 			continue
 		}
 		if recognized != want[candidate] {
-			t.Fatalf("parser/metadata drift for %s %s flag %s: parser=%t metadata=%t", command, nested, candidate, recognized, want[candidate])
+			t.Fatalf("parser/metadata drift for %s flag %s: parser=%t metadata=%t", strings.Join(path, " "), candidate, recognized, want[candidate])
 		}
 	}
 }
 
-func parserRecognizesFlag(t *testing.T, command, nested, candidate string, takesValue bool) bool {
+func parserRecognizesFlag(t *testing.T, path []string, candidate string, takesValue bool) bool {
 	t.Helper()
-	args := parserProbeBase(command, nested)
+	args := parserProbeBase(path)
 	args = append(args, candidate)
 	if takesValue {
 		args = append(args, "surface-probe-value")
@@ -99,6 +114,7 @@ func parserRecognizesFlag(t *testing.T, command, nested, candidate string, takes
 		"unknown flag " + quoted,
 		"unknown argument " + quoted,
 		"unknown subcommand " + quoted,
+		"unknown sync subcommand " + quoted,
 		"unknown shell " + quoted,
 		"unexpected argument " + quoted,
 		"unsupported argument " + quoted,
@@ -110,12 +126,12 @@ func parserRecognizesFlag(t *testing.T, command, nested, candidate string, takes
 	return true
 }
 
-func parserProbeBase(command, nested string) []string {
-	args := []string{command}
-	if nested != "" {
-		args = append(args, nested)
+func parserProbeBase(path []string) []string {
+	args := append([]string{}, path...)
+	key := strings.Join(path, ":")
+	if len(path) == 1 {
+		key += ":"
 	}
-	key := command + ":" + nested
 	switch key {
 	case "assert:", "why:":
 		args = append(args, "surface-probe-rule")
@@ -169,7 +185,7 @@ func parserFlagCandidates(t *testing.T) []string {
 			return true
 		})
 	}
-	for _, excluded := range []string{"-h", "--help", "-V", "--version"} {
+	for _, excluded := range []string{"-h", "--help", "-V"} {
 		delete(candidates, excluded)
 	}
 	out := make([]string, 0, len(candidates))
@@ -207,6 +223,11 @@ func metadataValueFlags() map[string]bool {
 			for _, flag := range nested.Flags {
 				values[flag.Name] = values[flag.Name] || flag.Value != ""
 			}
+			for _, leaf := range nested.Subcommands {
+				for _, flag := range leaf.Flags {
+					values[flag.Name] = values[flag.Name] || flag.Value != ""
+				}
+			}
 		}
 	}
 	return values
@@ -242,6 +263,13 @@ func TestParserProbeCoversEveryMetadataFlag(t *testing.T) {
 					t.Fatalf("metadata flag %s for %s %s was not found in parser source", flag.Name, command.Name, nested.Name)
 				}
 			}
+			for _, leaf := range nested.Subcommands {
+				for _, flag := range leaf.Flags {
+					if !strings.Contains(joined, " "+flag.Name+" ") {
+						t.Fatalf("metadata flag %s for %s %s %s was not found in parser source", flag.Name, command.Name, nested.Name, leaf.Name)
+					}
+				}
+			}
 		}
 	}
 }
@@ -255,6 +283,13 @@ func TestSurfaceProbeBaseKeysStayUnique(t *testing.T) {
 				t.Fatalf("duplicate surface key %s", key)
 			}
 			seen[key] = true
+			for _, leaf := range nested.Subcommands {
+				leafKey := key + ":" + leaf.Name
+				if seen[leafKey] {
+					t.Fatalf("duplicate surface key %s", leafKey)
+				}
+				seen[leafKey] = true
+			}
 		}
 	}
 }
