@@ -81,10 +81,10 @@ func update(ctx context.Context, currentVersion string, request UpdateRequest, a
 	}
 	report.Status = LifecycleUpdateAvailable
 	report.Actions = []DiagnosticAction{{
-		Kind: "direct-update", Command: updateApplyCommand(request),
+		Kind: "direct-update", Command: updateCommand(request),
 		Detail: fmt.Sprintf("replace the receipt-owned direct binary with %s", target),
 	}}
-	report.NextAction = "Run `" + updateApplyCommand(request) + "` to apply the verified update."
+	report.NextAction = "Run `" + updateCommand(request) + "` to apply the verified update."
 	if !apply {
 		return report, nil
 	}
@@ -247,8 +247,8 @@ func verifyAttestation(ctx context.Context, candidate string, release selectedRe
 	return ProvenanceGitHubVerified, nil
 }
 
-func updateApplyCommand(request UpdateRequest) string {
-	command := "reconc update apply"
+func updateCommand(request UpdateRequest) string {
+	command := "reconc update"
 	if strings.TrimSpace(request.Version) != "" {
 		command += " --version " + request.Version
 	} else if request.Channel == ChannelPreview {

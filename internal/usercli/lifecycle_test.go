@@ -546,7 +546,7 @@ func TestLifecyclePureHelpersCoverOrderingAndCommands(t *testing.T) {
 	if sorted[0].Name != "a" || assets[0].Name != "z" {
 		t.Fatalf("sorted assets mutated input: sorted=%+v input=%+v", sorted, assets)
 	}
-	command := updateApplyCommand(UpdateRequest{
+	command := updateCommand(UpdateRequest{
 		Version: "1.0.0", FromDir: "release dir", AllowDowngrade: true,
 	})
 	if !strings.Contains(command, "--version 1.0.0") ||
@@ -554,7 +554,7 @@ func TestLifecyclePureHelpersCoverOrderingAndCommands(t *testing.T) {
 		!strings.Contains(command, "--allow-downgrade") {
 		t.Fatalf("update command = %q", command)
 	}
-	if got := updateApplyCommand(UpdateRequest{Channel: ChannelPreview}); got != "reconc update apply --channel preview" {
+	if got := updateCommand(UpdateRequest{Channel: ChannelPreview}); got != "reconc update --channel preview" {
 		t.Fatalf("preview update command = %q", got)
 	}
 	if got := channelForRelease(selectedRelease{channel: ChannelExact}); got != ChannelExact {

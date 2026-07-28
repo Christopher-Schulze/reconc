@@ -123,23 +123,19 @@ identity passes, it atomically publishes
 installers record verified release ownership; an explicit source build records
 source ownership. No receipt is published for an off-PATH binary.
 
-### `reconc update check [--channel stable|preview | --version VERSION] [--from-dir PATH] [--json]`
-Read-only ownership-aware update decision. Direct installations resolve only the
-fixed public `Christopher-Schulze/reconc` release source, validate the selected
-tag and platform asset against `SHA256SUMS`, and report whether an update or
-downgrade exists. Stable is the default; preview and exact version selection
-are explicit and mutually exclusive. `--from-dir` disables network access and
-requires a strict `release-manifest.json`, `SHA256SUMS`, and complete regular
-file inventory. Source builds return the exact path-qualified rebuild and
-`install-cli` guidance.
-
-### `reconc update apply [--channel stable|preview | --version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]`
-Explicitly applies the update decision under the global installation lock.
-Direct updates verify release identity, bounded bytes, checksum, embedded
-version, target, source provenance, optional GitHub attestation, and an actual
-candidate `--version` smoke test before atomic replacement and receipt
-publication. Any publication failure retains or restores the previous binary.
-A downgrade requires `--allow-downgrade`.
+### `reconc update [--channel stable|preview | --version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]`
+Runs the complete ownership-aware update transaction under the global
+installation lock. Stable is the default; preview and exact version selection
+are explicit and mutually exclusive. Direct updates verify release identity,
+bounded bytes, `SHA256SUMS`, embedded version, target, source provenance,
+optional GitHub attestation, and an actual candidate `--version` smoke test
+before atomic replacement and receipt publication. An already current
+installation succeeds without mutation. Any publication failure retains or
+restores the previous binary. A downgrade requires `--allow-downgrade`.
+`--from-dir` disables network access and requires a strict
+`release-manifest.json`, `SHA256SUMS`, and complete regular-file inventory.
+Source builds return the exact path-qualified rebuild and `install-cli`
+guidance.
 
 ### `reconc uninstall [--purge-state] [--json]`
 Removes only a globally owned installation. Direct and source removals require

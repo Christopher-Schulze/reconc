@@ -13,20 +13,17 @@ import (
 )
 
 func runUpdate(args []string, version string, stdout io.Writer) error {
-	if len(args) == 0 {
-		return &CLIError{ExitCode: 1, Message: "reconc update: missing subcommand (check | apply)"}
+	subcommand := "apply"
+	command := "reconc update"
+	requestArgs := args
+	if len(args) > 0 && (args[0] == "check" || args[0] == "apply") {
+		subcommand = args[0]
+		command += " " + subcommand
+		requestArgs = args[1:]
 	}
-	subcommand := args[0]
-	if subcommand != "check" && subcommand != "apply" {
-		if subcommand == "-h" || subcommand == "--help" {
-			printUpdateHelp(stdout)
-			return nil
-		}
-		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc update: unknown subcommand %q", subcommand)}
-	}
-	request, jsonOut, help, err := parseUpdateRequest(subcommand, args[1:])
+	request, jsonOut, help, err := parseUpdateRequest(subcommand, command, requestArgs)
 	if err != nil {
-		if hasExactArgument(args[1:], "--json") {
+		if hasExactArgument(requestArgs, "--json") {
 			return writeLifecycleFailure(stdout, "update."+subcommand, version, err.Error())
 		}
 		return err
@@ -58,7 +55,7 @@ func runUpdate(args []string, version string, stdout io.Writer) error {
 	return nil
 }
 
-func parseUpdateRequest(subcommand string, args []string) (usercli.UpdateRequest, bool, bool, error) {
+func parseUpdateRequest(subcommand string, command string, args []string) (usercli.UpdateRequest, bool, bool, error) {
 	request := usercli.UpdateRequest{}
 	jsonOut := false
 	help := false
@@ -93,7 +90,7 @@ func parseUpdateRequest(subcommand string, args []string) (usercli.UpdateRequest
 			request.FromDir = value
 		case "--allow-downgrade":
 			if subcommand != "apply" {
-				return request, jsonOut, false, &CLIError{ExitCode: 1, Message: `reconc update check: unknown argument "--allow-downgrade"`}
+				return request, jsonOut, false, &CLIError{ExitCode: 1, Message: command + `: unknown argument "--allow-downgrade"`}
 			}
 			request.AllowDowngrade = true
 		case "--json":
@@ -102,7 +99,7 @@ func parseUpdateRequest(subcommand string, args []string) (usercli.UpdateRequest
 			help = true
 		default:
 			return request, jsonOut, false, &CLIError{
-				ExitCode: 1, Message: fmt.Sprintf("reconc update %s: unknown argument %q", subcommand, args[index]),
+				ExitCode: 1, Message: fmt.Sprintf("%s: unknown argument %q", command, args[index]),
 			}
 		}
 	}
@@ -207,7 +204,6 @@ func hasExactArgument(args []string, value string) bool {
 }
 
 func printUpdateHelp(stdout io.Writer) {
-	fmt.Fprintln(stdout, "Usage: reconc update check [--channel stable|preview | --version VERSION] [--from-dir PATH] [--json]")
-	fmt.Fprintln(stdout, "       reconc update apply [--channel stable|preview | --version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]")
-	fmt.Fprintln(stdout, "Check or explicitly apply an ownership-safe global CLI update.")
+	fmt.Fprintln(stdout, "Usage: reconc update [--channel stable|preview | --version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]")
+	fmt.Fprintln(stdout, "Apply an ownership-safe global CLI update, or succeed without mutation when already current.")
 }

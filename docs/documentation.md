@@ -688,7 +688,6 @@ Start with read-only diagnostics:
 ```bash
 reconc --version
 reconc doctor --global
-reconc update check
 reconc status .
 reconc doctor . --deep
 reconc verify .
@@ -714,20 +713,17 @@ versioned paths.
 
 ## Upgrading
 
-Discover the supported update without mutating the installation:
+Run the complete ownership-aware update:
 
 ```bash
-reconc update check
+reconc update
 ```
 
-Use `--channel stable|preview` or `--version VERSION` only when that selection
-is intentional. Exact-version downgrades and channel changes require explicit
-flags. Apply the selected update only with:
-
-```bash
-reconc update apply
-```
-
+The command selects stable by default, verifies the release and current
+installation, applies an available update atomically, and succeeds without
+mutation when already current. Use `--channel stable|preview` or
+`--version VERSION` only when that selection is intentional. Exact-version
+downgrades and channel changes require explicit flags.
 Direct installations download only the immutable manifest-selected asset,
 verify version, checksum, and required provenance, smoke-test a sibling
 candidate, and atomically replace only the receipt-owned binary. Source,
@@ -957,7 +953,7 @@ Daily:
 - `bootstrap` - inspect, profile, plan, apply, verify, and safely remove onboarding
 - `repo` - plan, apply, and verify digest-bound repository synchronization
 - `install-cli` - atomically install and verify the exact running user CLI
-- `update` - check or explicitly apply an ownership-safe binary update
+- `update` - safely update the global CLI or confirm it is already current
 - `uninstall` - remove only verified global installation-owned state
 - `status` - one-line policy health summary
 - `check` - evaluate runtime evidence against compiled policy

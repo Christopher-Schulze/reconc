@@ -242,10 +242,12 @@ PATH verification also publishes a private source-ownership receipt. Run
 repository bootstrap therefore never leaves operators navigating versioned
 artifact paths.
 
-Use `reconc update check [--channel stable|preview] [--version VERSION]` for
-bounded release discovery. `reconc update apply` performs an explicit,
-checksum-bound, provenance-aware atomic update only for receipt-owned direct
-installations. Source-owned installations retain their explicit rebuild path.
+Use `reconc update` for the complete ownership-aware update transaction. It
+selects stable by default, verifies release identity, checksums and provenance,
+atomically updates only receipt-owned direct installations, and succeeds
+without mutation when already current. `--channel stable|preview` and
+`--version VERSION` make non-default selection explicit. Source-owned
+installations retain their explicit rebuild path.
 `reconc uninstall [--purge-state]` removes only verified installation-owned
 global state and never repository policy, hooks, TASKs, docs, or runtime
 evidence.

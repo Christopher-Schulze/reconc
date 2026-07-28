@@ -12,7 +12,7 @@ import (
 	"reconc.dev/reconc/internal/usercli"
 )
 
-func TestUpdateCheckSourceInstallEmitsOneRefusalDocument(t *testing.T) {
+func TestCanonicalUpdateSourceInstallEmitsOneApplyRefusalDocument(t *testing.T) {
 	installDirectory := t.TempDir()
 	t.Setenv("RECONC_HOME", t.TempDir())
 	t.Setenv("RECONC_INSTALL_DIR", installDirectory)
@@ -22,7 +22,7 @@ func TestUpdateCheckSourceInstallEmitsOneRefusalDocument(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	err := Run([]string{"update", "check", "--json"}, "1.0.0", &stdout, &stderr)
+	err := Run([]string{"update", "--json"}, "1.0.0", &stdout, &stderr)
 	if err == nil || ExitCode(err) != 1 || stderr.Len() != 0 {
 		t.Fatalf("source update refusal: err=%v stdout=%s stderr=%s", err, stdout.String(), stderr.String())
 	}
@@ -35,7 +35,8 @@ func TestUpdateCheckSourceInstallEmitsOneRefusalDocument(t *testing.T) {
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		t.Fatalf("update emitted trailing JSON: %v", err)
 	}
-	if report.Status != usercli.LifecycleRefused ||
+	if report.Operation != "update.apply" ||
+		report.Status != usercli.LifecycleRefused ||
 		!strings.Contains(report.NextAction, "install-cli") {
 		t.Fatalf("source update report = %+v", report)
 	}
@@ -43,9 +44,9 @@ func TestUpdateCheckSourceInstallEmitsOneRefusalDocument(t *testing.T) {
 
 func TestLifecycleCLIRejectsInvalidSelectionWithoutMutation(t *testing.T) {
 	tests := [][]string{
-		{"update", "check", "--channel", "stable", "--version", "1.0.0"},
+		{"update", "--channel", "stable", "--version", "1.0.0"},
 		{"update", "check", "--allow-downgrade"},
-		{"update", "apply", "--channel"},
+		{"update", "--channel"},
 		{"uninstall", "--unknown"},
 	}
 	for _, args := range tests {
@@ -63,7 +64,7 @@ func TestLifecycleCLIRejectsInvalidSelectionWithoutMutation(t *testing.T) {
 
 func TestLifecycleCLIInvalidJSONRequestEmitsOneFailureDocument(t *testing.T) {
 	for _, args := range [][]string{
-		{"update", "check", "--json", "--unknown"},
+		{"update", "--json", "--unknown"},
 		{"uninstall", "--json", "--unknown"},
 	} {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
@@ -97,13 +98,58 @@ func TestLifecycleTextEndsWithExactlyOneNextLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	err := Run([]string{"update", "check"}, "1.0.0", &stdout, &stderr)
+	err := Run([]string{"update"}, "1.0.0", &stdout, &stderr)
 	if err == nil {
-		t.Fatal("source update check unexpectedly passed")
+		t.Fatal("source update unexpectedly passed")
 	}
 	text := stdout.String()
 	if strings.Count(text, "Next:") != 1 || !strings.HasSuffix(text, "\n") {
 		t.Fatalf("lifecycle text = %q", text)
+	}
+}
+
+func TestUpdateCompatibilityAliasesRetainOperations(t *testing.T) {
+	installDirectory := t.TempDir()
+	t.Setenv("RECONC_HOME", t.TempDir())
+	t.Setenv("RECONC_INSTALL_DIR", installDirectory)
+	t.Setenv("PATH", installDirectory)
+	if _, err := usercli.InstallCurrentWithReceipt("", usercli.InstallOptions{Version: "1.0.0"}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		args      []string
+		operation string
+	}{
+		{args: []string{"update", "check", "--json"}, operation: "update.check"},
+		{args: []string{"update", "apply", "--json"}, operation: "update.apply"},
+	} {
+		t.Run(test.operation, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			err := Run(test.args, "1.0.0", &stdout, &stderr)
+			if err == nil || ExitCode(err) != 1 || stderr.Len() != 0 {
+				t.Fatalf("%v: err=%v stdout=%s stderr=%s", test.args, err, stdout.String(), stderr.String())
+			}
+			var report usercli.LifecycleReport
+			if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+				t.Fatal(err)
+			}
+			if report.Operation != test.operation {
+				t.Fatalf("%v operation = %q", test.args, report.Operation)
+			}
+		})
+	}
+}
+
+func TestUpdateHelpTeachesCanonicalCommand(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"update", "--help"}, "1.0.0", &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(stdout.String(), "Usage: reconc update [") ||
+		!strings.Contains(stdout.String(), "already current") ||
+		stderr.Len() != 0 {
+		t.Fatalf("update help: stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 }
 
