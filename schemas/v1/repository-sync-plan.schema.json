@@ -13,6 +13,8 @@
     "current_receipt_digest",
     "legacy_receipt_import",
     "git_snapshot",
+    "current_policy_packs",
+    "current_harness_packs",
     "target_policy_packs",
     "target_harness_packs",
     "actions",
@@ -56,26 +58,44 @@
         }
       ]
     },
+    "current_policy_packs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "repository-install.schema.json#/$defs/policyPack"
+      }
+    },
+    "current_harness_packs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "repository-install.schema.json#/$defs/harnessPack"
+      }
+    },
     "target_policy_packs": {
       "type": "array",
+      "uniqueItems": true,
       "items": {
         "$ref": "repository-install.schema.json#/$defs/policyPack"
       }
     },
     "target_harness_packs": {
       "type": "array",
+      "uniqueItems": true,
       "items": {
         "$ref": "repository-install.schema.json#/$defs/harnessPack"
       }
     },
     "actions": {
       "type": "array",
+      "uniqueItems": true,
       "items": {
         "$ref": "#/$defs/action"
       }
     },
     "migrations": {
       "type": "array",
+      "uniqueItems": true,
       "items": {
         "$ref": "#/$defs/migration"
       }
@@ -119,11 +139,19 @@
           "minLength": 1
         },
         "head": {
-          "type": "string"
+          "oneOf": [
+            {
+              "const": "UNBORN"
+            },
+            {
+              "type": "string",
+              "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+            }
+          ]
         },
         "index_tree": {
           "type": "string",
-          "minLength": 1
+          "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
         }
       }
     },
@@ -143,8 +171,7 @@
           "minLength": 1
         },
         "path": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "repository-install.schema.json#/$defs/path"
         },
         "mode": {
           "enum": [
@@ -175,17 +202,151 @@
         },
         "current_mode": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 511
         },
         "candidate_path": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "repository-install.schema.json#/$defs/path"
         },
         "reason": {
           "type": "string",
           "minLength": 1
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "unchanged"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "desired_sha256"
+            ],
+            "not": {
+              "required": [
+                "candidate_path"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "replace-owned",
+                  "update-managed-block"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "current_sha256",
+              "receipt_sha256",
+              "desired_sha256"
+            ],
+            "not": {
+              "required": [
+                "candidate_path"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "create-owned"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "desired_sha256"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "current_sha256"
+                  ]
+                },
+                {
+                  "required": [
+                    "candidate_path"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "user-drift",
+                  "manual-review"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "candidate_path"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "orphaned-legacy"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "receipt_sha256"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "desired_sha256"
+                  ]
+                },
+                {
+                  "required": [
+                    "candidate_path"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "incompatible"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "candidate_path"
+              ]
+            }
+          }
+        }
+      ]
     },
     "migration": {
       "type": "object",
@@ -210,8 +371,7 @@
           "minLength": 1
         },
         "path": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "repository-install.schema.json#/$defs/path"
         }
       }
     }

@@ -212,6 +212,8 @@ func TestPublishedSchemaPropertiesMatchEmittedGoTypes(t *testing.T) {
 	assertPropertiesMatch(t, schemaDefinition(t, repositorySyncPlan, "migration"), bootstrap.SyncMigration{})
 	assertPropertiesMatch(t, schemaDefinition(t, repositorySyncReport, "report"), bootstrap.SyncReport{})
 	assertPropertiesMatch(t, schemaDefinition(t, repositorySyncReport, "verification"), bootstrap.SyncVerification{})
+	assertPropertiesMatch(t, schemaDefinition(t, repositorySyncReport, "recovery"), bootstrap.SyncRecovery{})
+	assertPropertiesMatch(t, schemaDefinition(t, repositorySyncReport, "resolution"), bootstrap.SyncResolutionReport{})
 	assertPropertiesMatch(t, schemaRootProperties(t, releaseManifest), usercli.ReleaseManifest{})
 	assertPropertiesMatch(t, schemaDefinition(t, releaseManifest, "asset"), usercli.ReleaseAsset{})
 }

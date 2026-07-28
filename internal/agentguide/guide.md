@@ -76,7 +76,9 @@ Inspection and enforcement commands never compile or write the lockfile.
 ## Repository Upgrade
 
 A global CLI update never implies that repository-owned hooks, harness files,
-or generated artifacts were updated. Plan first:
+or generated artifacts were updated. Planning is hermetic and read-only: it
+does not run repository hooks, mutate Git state, compile policy to disk, or
+touch Reconc runtime state. Plan first:
 
 ```bash
 reconc repo sync plan . --output /tmp/reconc-sync.json
@@ -86,10 +88,32 @@ reconc repo sync verify .
 
 Read and review every action and blocking issue before apply. Never guess or
 recompute the digest. `user-drift`, `orphaned-legacy`, `incompatible`, and
-`manual-review` require explicit human or repository-owner resolution; do not
-delete the portable receipt or replace user-owned files to force a pass. Apply
-revalidates the complete plan under the repository lock, mutates only exact
-receipt-owned bytes, and rolls back on failure.
+`manual-review` require one explicit human or repository-owner resolution:
+
+```bash
+reconc repo sync resolve --plan /tmp/reconc-sync.json --digest <plan-digest> \
+  --path <relative-path> --strategy keep-current
+reconc repo sync resolve --plan /tmp/reconc-sync.json --digest <plan-digest> \
+  --path <relative-path> --strategy use-target
+```
+
+Use `use-binary` only with the exact `--binary`, `--checksum`, and `--platform`
+inputs required for a cross-platform binary action. Every resolution publishes
+an ownership receipt and requires a fresh plan. Do not delete the portable
+receipt, transaction journal, or user-owned file to force a pass.
+
+Apply revalidates the complete plan under the repository lock, writes a durable
+before/after journal before the first mutation, mutates only exact
+receipt-owned bytes, and verifies the complete result. If apply or resolution
+is interrupted, all other repository transactions fail closed until:
+
+```bash
+reconc repo sync recover .
+```
+
+Recovery finalizes a fully published verified state, rolls back only exact
+journaled identities, and reports `refused` without overwriting an external
+edit. Preserve the journal and inspect the named path when recovery refuses.
 
 ## The Core Decision Loop
 

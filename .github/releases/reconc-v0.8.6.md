@@ -10,9 +10,6 @@ deterministic repository decision backed by current evidence.
   merely clean policy check: TASK state, required claims, current command
   evidence, lock identity, Git state, and unresolved decisions are bound into
   one deterministic report.
-- `reconc demo` runs a real isolated block-to-pass journey in under a minute:
-  an out-of-scope write and missing test evidence block, one exact remediation
-  is executed, and the evidence-complete result passes.
 - `reconc next`, bootstrap diagnostics, hook diagnostics, and run-loop status
   expose one concrete recovery action without hiding ambiguity or drift.
 
@@ -55,7 +52,7 @@ deterministic repository decision backed by current evidence.
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.6/install.sh \
   | RECONC_INSTALL_DIR="$HOME/.local/bin" sh -s -- 0.8.6
-"$HOME/.local/bin/reconc" demo
+"$HOME/.local/bin/reconc" --version
 ```
 
 Set `RECONC_REQUIRE_ATTESTATION=1` to require `gh attestation verify`. Reconc's

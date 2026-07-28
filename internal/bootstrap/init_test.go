@@ -152,6 +152,38 @@ func TestInitializeRejectsConcurrentRepositoryTransaction(t *testing.T) {
 	}
 }
 
+func TestDirectBootstrapApplyRejectsConcurrentRepositoryTransaction(t *testing.T) {
+	bootstrapTestHome(t)
+	repo := t.TempDir()
+	plan, err := BuildPlan(Request{
+		RepoRoot: repo, Profile: ProfileMinimal,
+	}, "test-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	locked := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- withRepositoryTransactionLock(plan.RepoRoot, func() error {
+			close(locked)
+			<-release
+			return nil
+		})
+	}()
+	<-locked
+
+	report, err := Apply(plan, "test-version")
+	if err == nil || !strings.Contains(err.Error(), "already active") ||
+		report.Status != ApplyRolledBack || len(report.Created) != 0 {
+		t.Fatalf("concurrent direct apply = %+v err=%v", report, err)
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("lock holder failed: %v", err)
+	}
+}
+
 func TestInitializeWholeFileDriftNamesTheCandidateReviewAction(t *testing.T) {
 	bootstrapTestHome(t)
 	repo := t.TempDir()

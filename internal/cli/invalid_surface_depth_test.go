@@ -8,7 +8,7 @@ import (
 
 func TestEveryLeafCommandRejectsUnknownFlagsWithoutSideEffects(t *testing.T) {
 	commands := [][]string{
-		{"doctor"}, {"demo"}, {"compile"}, {"refresh"}, {"check"}, {"assert"}, {"init"},
+		{"doctor"}, {"compile"}, {"refresh"}, {"check"}, {"assert"}, {"init"},
 		{"status"}, {"ci"}, {"exec"},
 		{"hook", "status"}, {"hook", "generate"}, {"hook", "install"}, {"hook", "uninstall"},
 		{"hook", "sync-scaffold"}, {"hook", "evidence-status"}, {"hook", "evidence-resolve"}, {"hook", "claim"},
@@ -44,7 +44,7 @@ func TestEveryLeafCommandRejectsUnknownFlagsWithoutSideEffects(t *testing.T) {
 }
 
 func TestEveryCommandGroupRejectsUnknownSubcommands(t *testing.T) {
-	for _, group := range []string{"hook", "grok", "preset", "bootstrap", "changelog", "audit", "run", "task", "template", "context", "completion"} {
+	for _, group := range []string{"hook", "grok", "preset", "bootstrap", "repo", "changelog", "audit", "run", "task", "template", "context", "completion"} {
 		t.Run(group, func(t *testing.T) {
 			var stdout bytes.Buffer
 			var stderr bytes.Buffer
@@ -53,5 +53,15 @@ func TestEveryCommandGroupRejectsUnknownSubcommands(t *testing.T) {
 				t.Fatalf("%s accepted unknown subcommand: %v", group, err)
 			}
 		})
+	}
+}
+
+func TestRemovedDemoCommandIsNotCallable(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err := Run([]string{"demo"}, "test-version", &stdout, &stderr)
+	if err == nil || ExitCode(err) == 0 || !strings.Contains(err.Error(), `"demo"`) ||
+		!strings.Contains(err.Error(), "unknown") {
+		t.Fatalf("removed demo command remained callable: %v", err)
 	}
 }

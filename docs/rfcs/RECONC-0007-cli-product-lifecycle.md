@@ -47,10 +47,11 @@ the migration baseline and does not implement this lifecycle.
 | Diagnose the global CLI | `reconc doctor --global` | Read-only global truth |
 | Onboard a repository | `reconc init .` | Transactional repository receipt |
 | Daily use | `session-briefing`, `check`, `next`, `done` | Existing repository contract |
-| Check for a binary update | `reconc update check` | Read-only decision |
-| Apply a binary update | `reconc update apply` | Owner-authorized transaction or exact manager delegation |
+| Update the global CLI | `reconc update` | Verified no-op or owner-authorized transaction |
 | Plan repository changes | `reconc repo sync plan .` | Read-only deterministic plan |
+| Resolve one reviewed blocker | `reconc repo sync resolve --plan PATH --digest SHA256 --path RELATIVE --strategy STRATEGY` | Exact ownership decision or checksum-pinned binary |
 | Apply repository changes | `reconc repo sync apply --plan PATH --digest SHA256` | Exact owned transaction |
+| Recover an interrupted sync | `reconc repo sync recover .` | Verified finalize, exact rollback, or refusal |
 | Verify repository state | `reconc repo sync verify .` | Read-only verification |
 | Uninstall the global CLI | `reconc uninstall` | Owner-authorized removal only |
 | Remove repository wiring | `reconc bootstrap remove --plan PATH` and selected `hook uninstall` commands | Existing receipt-owned removal |
@@ -62,12 +63,13 @@ The v0.9 additions and changed canonical entrypoints are:
 | Command | Effect |
 |---|---|
 | `reconc doctor --global [--json] [--output PATH]` | Read-only installation, ownership, receipt, binary identity, PATH, platform, and provenance diagnosis. `--global` cannot be combined with a repository operand or `--deep`. |
-| `reconc update check [--channel stable|preview \| --version VERSION] [--from-dir PATH] [--json]` | Read-only update decision. The default channel is `stable`. `--channel` and `--version` are mutually exclusive. `--from-dir` disables network access and accepts one complete local release directory. |
-| `reconc update apply [--channel stable|preview \| --version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]` | Explicit binary update. A downgrade requires `--allow-downgrade`. Manager-owned installs execute only the fixed manager action allowed below. |
+| `reconc update [--channel stable\|preview \| --version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]` | Selects and verifies an update, applies it for a direct installation, and returns a verified no-op when already current. The default channel is `stable`; a downgrade requires `--allow-downgrade`; `--from-dir` disables network access. |
 | `reconc uninstall [--purge-state] [--json]` | Removes only the globally owned installation. Repository state is never removed. `--purge-state` additionally removes recognized global Reconc state after a complete ownership inventory; unknown files fail closed and remain. |
 | `reconc init [repo] [--profile existing|minimal|governed|advanced] [--pack NAME ...] [--hook KIND ...] [--no-hooks] [--accept-managed-blocks] [--json] [--output PATH]` | Inspects, selects, plans, applies, and verifies through `internal/bootstrap`. It writes the durable plan and repository receipt only as part of the transaction. |
-| `reconc repo sync plan [repo] [--output PATH [--replace-output]] [--json]` | Computes the exact change from the repository receipt to the packs embedded in the running binary. It is read-only unless `--output` is present. |
+| `reconc repo sync plan [repo] [--output PATH [--replace-output]] [--json]` | Computes the exact change from the repository receipt to the packs embedded in the running binary. Repository inspection is hermetic and read-only; only explicit `--output` may publish the plan outside the repository transaction. |
 | `reconc repo sync apply --plan PATH --digest SHA256 [--json]` | Applies only a saved plan whose canonical digest equals `--digest` and whose preconditions still match. |
+| `reconc repo sync resolve --plan PATH --digest SHA256 --path RELATIVE --strategy keep-current\|use-target\|use-binary [--binary PATH --checksum SHA256 --platform OS/ARCH] [--json]` | Resolves one exact non-mutable action. `keep-current` releases Reconc ownership, `use-target` publishes the planned target, and cross-platform `use-binary` requires an exact checksum and platform. |
+| `reconc repo sync recover [repo] [--json]` | Recovers the durable sync journal. A complete verified after-image is finalized; exact before/after images are rolled back; an external edit returns `refused` without overwrite. |
 | `reconc repo sync verify [repo] [--json]` | Verifies the portable repository receipt, managed artifacts, blocks, hooks, policy lock, and installed pack identities without mutation. |
 
 `init` selection is deterministic:
@@ -265,10 +267,18 @@ conventions, workflows, or product-specific behavior.
 
 ## Repository Synchronization
 
-Sync always begins with a plan. The plan binds canonical repository identity,
-current product and receipt digests, target product and pack digests, Git
-snapshot, every file or managed-block precondition, actions, migrations,
-candidate paths, and a plan digest.
+Sync always begins with a plan. Planning removes ambient `GIT_*` routing,
+disables system and global config, overrides repository hooks and filesystem
+monitors, forbids prompts and optional locks, computes `write-tree` in a
+temporary object database with the real object database as a read-only
+alternate, and rejects a snapshot that changes during inspection.
+Repository-local identity config remains available. Planning renders the
+target policy lock in memory, so repository bytes, index, refs, object
+database, hooks, and Reconc state remain unchanged. The plan binds canonical
+repository identity, current and target product, policy-pack and harness-pack
+identities, receipt digest, Git HEAD/index/worktree identities, every file or
+managed-block precondition, sorted migrations, candidate paths, blockers, and
+the canonical plan digest.
 
 Action states are:
 
@@ -282,17 +292,33 @@ Action states are:
 - `manual-review`
 
 Only `replace-owned`, `update-managed-block`, and `create-owned` are mutable,
-and only when every saved precondition still matches. Apply takes both the plan
-path and its digest, acquires the repository transaction lock, revalidates
-repository identity, Git state, receipt, files, blocks, and pack bytes, then
-publishes the complete owned transaction atomically. A failure rolls back all
-already applied owned mutations whose identities still match. Rollback failure
-is explicit and preserves recovery artifacts.
+and only when every saved precondition still matches. Each other action
+requires one digest-bound `resolve` decision. `keep-current` preserves the
+current bytes and releases Reconc ownership, `use-target` publishes only the
+planned bytes, and `use-binary` accepts only the platform path implied by an
+exact checksum-pinned binary. An invalid generated policy lock cannot be kept.
+Every resolution updates the receipt transactionally and requires a fresh plan.
+
+Apply takes both the plan path and its digest, acquires the repository
+transaction lock, revalidates repository identity, Git state, receipt, files,
+blocks, and pack bytes, then fsyncs a self-digested before/after journal before
+the first owned mutation. A successful transaction verifies the complete
+repository before removing the journal. If interrupted, every other repository
+transaction refuses to run until `recover` classifies the complete state.
+Recovery finalizes an all-after state only after verification, restores mixed
+or before states only from exact journaled identities, and reports `refused`
+without overwriting an external edit. Empty directories whose post-crash
+identity cannot be proven are preserved. Journal size, before-image bytes,
+paths, file types, modes, JSON structure, and digests are bounded and strict.
 
 Policy migration runs only when the registered compiler says the current
 portable lock requires it. User-authored policy sources are never rewritten.
-Apply verifies artifacts, hooks, policy freshness, repository receipt, and pack
-identity before incrementing the receipt generation.
+Same-platform binary ownership advances only to the exact running executable.
+A cross-platform receipt remains blocked until `use-binary` supplies the
+platform's stable artifact with an exact checksum. Apply and verify check
+artifacts, hooks, in-memory policy freshness, repository receipt, policy and
+harness pack identities, and binary identity before incrementing the receipt
+generation.
 
 ## Migration From v0.8.x
 
@@ -318,6 +344,9 @@ conventional.
   lock. Repository init, sync, and removal serialize on the repository
   transaction lock. Lock order is global before repository when both are
   required.
+- Repository sync apply and resolution fsync a bounded before/after journal
+  before mutation. Init, plan, apply, resolve, verify, and removal fail closed
+  while that journal is pending; only `repo sync recover` may classify it.
 - Network data, manifests, receipts, plans, pack files, and subprocess output
   have explicit byte and item limits. JSON and YAML readers reject unknown
   fields and trailing documents.

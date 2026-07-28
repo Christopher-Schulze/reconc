@@ -37,6 +37,9 @@ func Remove(plan *Plan) (*RemovalReport, error) {
 	}
 	var report *RemovalReport
 	err := withRepositoryTransactionLock(plan.RepoRoot, func() error {
+		if pendingErr := ensureNoPendingRepositorySync(plan.RepoRoot); pendingErr != nil {
+			return pendingErr
+		}
 		portable, portableErr := LoadRepositoryReceipt(plan.RepoRoot)
 		switch {
 		case portableErr == nil:

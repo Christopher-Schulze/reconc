@@ -17,8 +17,6 @@ reconciled public documentation and release surface.
   verification, atomic file output, and privacy tests exclude absolute paths,
   user identity, sessions, prompts, transcripts, environment data, and raw
   command arguments.
-- `reconc demo` now completes its real isolated block-to-remediation journey by
-  exporting and verifying the accepted candidate as a portable proof bundle.
 
 ## Agent and MCP integration truth
 
@@ -76,7 +74,7 @@ macOS or Linux:
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.7/install.sh \
   | RECONC_INSTALL_DIR="$HOME/.local/bin" sh -s -- 0.8.7
-"$HOME/.local/bin/reconc" demo
+"$HOME/.local/bin/reconc" --version
 ```
 
 Windows x64:
@@ -86,7 +84,7 @@ $installer = Join-Path $env:TEMP "reconc-install.ps1"
 Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.7/install.ps1 -OutFile $installer
 & $installer 0.8.7
 Remove-Item $installer
-& "$env:LOCALAPPDATA\Programs\Reconc\bin\reconc.exe" demo
+& "$env:LOCALAPPDATA\Programs\Reconc\bin\reconc.exe" --version
 ```
 
 Set `RECONC_REQUIRE_ATTESTATION=1` to require `gh attestation verify`. The

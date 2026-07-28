@@ -29,7 +29,23 @@ type createdDirectory struct {
 }
 
 func Apply(plan *Plan, productVersion string) (*Report, error) {
-	return apply(plan, productVersion, applyOptions{})
+	if err := ValidatePlan(plan); err != nil {
+		return apply(plan, productVersion, applyOptions{})
+	}
+	var report *Report
+	err := withRepositoryTransactionLock(plan.RepoRoot, func() error {
+		var applyErr error
+		report, applyErr = apply(plan, productVersion, applyOptions{})
+		return applyErr
+	})
+	if report == nil {
+		report = &Report{
+			FormatVersion: ReportFormatVersion, Status: ApplyRolledBack,
+			Created: []string{}, Unchanged: []string{}, Candidates: []string{}, RolledBack: []string{},
+			RepoRoot: plan.RepoRoot, PlanDigest: plan.PlanDigest,
+		}
+	}
+	return report, err
 }
 
 func apply(plan *Plan, productVersion string, options applyOptions) (*Report, error) {
@@ -38,6 +54,9 @@ func apply(plan *Plan, productVersion string, options applyOptions) (*Report, er
 		Created: []string{}, Unchanged: []string{}, Candidates: []string{}, RolledBack: []string{},
 	}
 	if err := ValidatePlan(plan); err != nil {
+		return report, err
+	}
+	if err := ensureNoPendingRepositorySync(plan.RepoRoot); err != nil {
 		return report, err
 	}
 	report.RepoRoot = plan.RepoRoot

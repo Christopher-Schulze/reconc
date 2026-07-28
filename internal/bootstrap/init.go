@@ -38,6 +38,11 @@ func Initialize(request InitRequest, productVersion string) (*InitReport, error)
 }
 
 func initializeLocked(request InitRequest, result *InitReport, productVersion string) error {
+	if err := ensureNoPendingRepositorySync(result.RepoRoot); err != nil {
+		result.Status = InitRefused
+		result.NextAction = err.Error()
+		return err
+	}
 	inspection, err := Inspect(result.RepoRoot)
 	if err != nil {
 		return fmt.Errorf("inspect repository: %w", err)
@@ -103,7 +108,7 @@ func initializeLocked(request InitRequest, result *InitReport, productVersion st
 		return fmt.Errorf("init plan has blocking issue: %s", plan.BlockingIssues[0])
 	}
 
-	applyReport, err := Apply(plan, productVersion)
+	applyReport, err := apply(plan, productVersion, applyOptions{})
 	if err != nil {
 		result.Status = InitRolledBack
 		result.Changed = len(applyReport.Created) > 0
@@ -132,7 +137,7 @@ func initializeLocked(request InitRequest, result *InitReport, productVersion st
 		if err != nil {
 			return fmt.Errorf("rebuild accepted init plan: %w", err)
 		}
-		applyReport, err = Apply(plan, productVersion)
+		applyReport, err = apply(plan, productVersion, applyOptions{})
 		if err != nil {
 			return fmt.Errorf("apply accepted init plan: %w", err)
 		}

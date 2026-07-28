@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -52,6 +53,22 @@ func TestRepoSyncPlanAndVerifyCLI(t *testing.T) {
 	if !verification.Valid || verification.ReceiptDigest == "" {
 		t.Fatalf("sync verification JSON = %+v", verification)
 	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := Run([]string{
+		"repo", "sync", "recover", repo, "--json",
+	}, "0.9.0", &stdout, &stderr); err != nil {
+		t.Fatalf("repo sync recover: %v stderr=%s", err, stderr.String())
+	}
+	var recovery reconbootstrap.SyncRecovery
+	if err := json.Unmarshal(stdout.Bytes(), &recovery); err != nil {
+		t.Fatal(err)
+	}
+	if recovery.Status != reconbootstrap.SyncRecoveryClean ||
+		recovery.NextAction != "No repository sync recovery is required." {
+		t.Fatalf("sync recovery JSON = %+v", recovery)
+	}
 }
 
 func TestRepoSyncCLIRequiresExactApplyInputs(t *testing.T) {
@@ -63,6 +80,11 @@ func TestRepoSyncCLIRequiresExactApplyInputs(t *testing.T) {
 		{"repo", "sync", "apply", "--plan", "one", "--plan", "two"},
 		{"repo", "sync", "apply", "--digest", strings.Repeat("a", 64), "--digest", strings.Repeat("b", 64)},
 		{"repo", "sync", "apply", "--unknown"},
+		{"repo", "sync", "resolve"},
+		{"repo", "sync", "resolve", "--plan", "one", "--plan", "two"},
+		{"repo", "sync", "resolve", "--plan", "one", "--digest", strings.Repeat("a", 64), "--path", "x", "--strategy", "use-binary", "--binary", "x"},
+		{"repo", "sync", "resolve", "--plan", "one", "--digest", strings.Repeat("a", 64), "--path", "x", "--strategy", "unknown"},
+		{"repo", "sync", "resolve", "--unknown"},
 		{"repo", "sync", "plan", "--replace-output"},
 		{"repo", "sync", "plan", "--output"},
 		{"repo", "sync", "plan", "--output", "one", "--output", "two"},
@@ -70,6 +92,8 @@ func TestRepoSyncCLIRequiresExactApplyInputs(t *testing.T) {
 		{"repo", "sync", "plan", "one", "two"},
 		{"repo", "sync", "verify", "--unknown"},
 		{"repo", "sync", "verify", "one", "two"},
+		{"repo", "sync", "recover", "--unknown"},
+		{"repo", "sync", "recover", "one", "two"},
 		{"repo", "unknown"},
 	} {
 		var stdout, stderr bytes.Buffer
@@ -86,7 +110,9 @@ func TestRepoSyncHelpAndReadOnlyPlan(t *testing.T) {
 		{"repo", "sync", "--help"},
 		{"repo", "sync", "plan", "--help"},
 		{"repo", "sync", "apply", "--help"},
+		{"repo", "sync", "resolve", "--help"},
 		{"repo", "sync", "verify", "--help"},
+		{"repo", "sync", "recover", "--help"},
 	} {
 		var stdout, stderr bytes.Buffer
 		if err := Run(args, "0.9.0", &stdout, &stderr); err != nil {
@@ -109,7 +135,8 @@ func TestRepoSyncHelpAndReadOnlyPlan(t *testing.T) {
 	if err := Run([]string{"repo", "sync", "plan", repo}, "0.9.0", &stdout, &stderr); err != nil {
 		t.Fatalf("read-only plan: %v stderr=%s", err, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "rerun with --output PATH") {
+	if !strings.Contains(stdout.String(), "repo sync plan") ||
+		!strings.Contains(stdout.String(), "--output") {
 		t.Fatalf("read-only plan output = %s", stdout.String())
 	}
 }
@@ -162,8 +189,70 @@ func TestRepoSyncTextLifecycle(t *testing.T) {
 	}, "0.9.0", &stdout, &stderr); err != nil {
 		t.Fatalf("text verify: %v stderr=%s", err, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "PASS repository-receipt") ||
+	if !strings.Contains(stdout.String(), "Checks:") ||
+		!strings.Contains(stdout.String(), "0 FAIL") ||
 		!strings.Contains(stdout.String(), "Repository-owned Reconc artifacts are verified") {
 		t.Fatalf("text verify output = %s", stdout.String())
+	}
+}
+
+func TestRepoSyncResolveCLI(t *testing.T) {
+	repo := t.TempDir()
+	installDirectory := t.TempDir()
+	t.Setenv("RECONC_HOME", t.TempDir())
+	t.Setenv("RECONC_INSTALL_DIR", installDirectory)
+	t.Setenv("PATH", installDirectory)
+	report, err := reconbootstrap.Initialize(reconbootstrap.InitRequest{
+		RepoRoot: repo, Profile: reconbootstrap.ProfileAdvanced, NoHooks: true,
+	}, "0.9.0")
+	if err != nil || report.Status != reconbootstrap.InitComplete {
+		t.Fatalf("initialize: %+v err=%v", report, err)
+	}
+	receipt, err := reconbootstrap.LoadRepositoryReceipt(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetPath := ""
+	targetMode := uint32(0)
+	for _, file := range receipt.ManagedFiles {
+		if strings.HasPrefix(file.Component, "harness-pack:") {
+			targetPath = file.Path
+			targetMode = file.Mode
+			break
+		}
+	}
+	if targetPath == "" {
+		t.Fatal("advanced fixture has no harness-owned file")
+	}
+	if err := os.WriteFile(
+		filepath.Join(repo, filepath.FromSlash(targetPath)),
+		[]byte("CLI drift\n"), os.FileMode(targetMode),
+	); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := reconbootstrap.BuildSyncPlan(repo, "0.9.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	planPath := filepath.Join(t.TempDir(), "blocked-plan.json")
+	if _, err := reconbootstrap.WriteSyncPlan(planPath, plan); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	err = Run([]string{
+		"repo", "sync", "resolve", "--plan", planPath,
+		"--digest", plan.PlanDigest, "--path", targetPath,
+		"--strategy", "use-target", "--json",
+	}, "0.9.0", &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("resolve CLI: %v stderr=%s", err, stderr.String())
+	}
+	var resolution reconbootstrap.SyncResolutionReport
+	if err := json.Unmarshal(stdout.Bytes(), &resolution); err != nil {
+		t.Fatal(err)
+	}
+	if resolution.Status != reconbootstrap.SyncComplete ||
+		resolution.Strategy != reconbootstrap.SyncUseTarget {
+		t.Fatalf("resolve CLI JSON = %+v", resolution)
 	}
 }

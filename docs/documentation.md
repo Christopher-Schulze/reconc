@@ -117,12 +117,12 @@ The verified failure-mode map is:
 
 | Failure mode | Truthful Reconc control | Executable proof path | Residual limitation |
 | --- | --- | --- | --- |
-| Premature victory claim | `reconc done .` **blocks** while policy, candidate, evidence, or typed TASK state is incomplete. | `internal/completiongate/gate_test.go:TestTypedTaskCompletionAndRequiredEvidence`; demo `done` occurs only after `complete-task-evidence`. | Configured checks can still omit a semantic requirement. |
+| Premature victory claim | `reconc done .` **blocks** while policy, candidate, evidence, or typed TASK state is incomplete. | `internal/completiongate/gate_test.go:TestTypedTaskCompletionAndRequiredEvidence`; run `reconc done .` against the current candidate. | Configured checks can still omit a semantic requirement. |
 | Incomplete or stubbed implementation | Opt-in `source_hygiene` assurance **detects and blocks** changed shipped source containing supported debt markers or unimplemented sentinels. | `internal/assurance/source_hygiene_test.go:TestSourceHygieneFindsHighSignalShippedCodeDebt`; run the selected assurance pack through `reconc check` or `reconc ci`. | It is a bounded lexical and language-aware gate, not proof that all implementations are substantive. |
 | Skipped required work | Required reads, commands, files, claims, coupling, and assurance rules **block** when configured evidence is absent. | `internal/runtime/evaluator_test.go:TestCheckRequireCommandSuccess`; `reconc next .` returns the exact missing action. | Reconc enforces declared requirements; it does not invent the project's true acceptance criteria. |
 | Workflow deviation | Installed runtime hooks and git pre-commit **block** supported events that violate compiled policy. | `internal/runtime/agentsession/handlers_test.go:TestRunPreToolUseEnforcesPolicyForbidCommandBeforeExecution`; `reconc hook status . --json` proves configured and observed routes. | Host capabilities differ, timeouts may be fail-open, and an uninstalled or bypassed hook is not enforcement. |
 | Scope drift | Path, read, command, and coupling rules **constrain** the configured change surface. | `internal/runtime/evaluator_test.go:TestCheckScopedRuleOnlyFiresInsideScope`; `reconc check . --write PATH`. | Policy cannot infer unstated scope or govern actions outside the repository. |
-| Protected write or deletion | `deny_write`, generated-output, secret-state, and destructive-command rules **block** at supported PreToolUse, Git, CI, or completion boundaries. | `internal/runtime/agentsession/handlers_test.go:TestRunPreToolUseBlocksApplyPatchDenyWrite`; demo `protected-action`. | A hostile same-user process can bypass or replace local enforcement. |
+| Protected write or deletion | `deny_write`, generated-output, secret-state, and destructive-command rules **block** at supported PreToolUse, Git, CI, or completion boundaries. | `internal/runtime/agentsession/handlers_test.go:TestRunPreToolUseBlocksApplyPatchDenyWrite`; run `reconc check . --write PATH`. | A hostile same-user process can bypass or replace local enforcement. |
 | Stale or fabricated self-reported evidence | Causal write epochs, bounded session state, proof validation, and unresolved-block receipts **detect or reject** inconsistent evidence. | `internal/runtime/evaluator_test.go:TestCheckRequireCommandSuccessRequiresFreshCausalEvidence`; `internal/assurance/assurance_test.go:TestSubstantiveProofRejectsFabricatedActualAndFailedThreshold`. | Opaque claims remain only as trustworthy as their configured producer; protected external CI is required against a hostile actor. |
 | Test-before-final-change laundering | Staged command receipts bind success to exact HEAD and index identity; later candidate changes **invalidate** the receipt. | `internal/commandproof/proof_test.go:TestProofBindsSuccessToCurrentStagedIndex`; `reconc exec . --staged -- COMMAND` followed by `reconc ci . --staged`. | Unstaged session evidence has a different, write-epoch-based trust boundary. |
 | TASK-lifecycle bypass | Typed parsing, transition checks, recoverable transactions, and final completion checks **block** malformed or unfinished TASK state. | `internal/tasklifecycle/tasklifecycle_test.go:TestPromoteArchivesAndActivatesNext`; `reconc task validate .` and `reconc task check-done .`. | Humans and project agents still own scope, priority, acceptance, and evidence quality. |
@@ -134,8 +134,8 @@ The public narrative stays consistent at three depths:
 
 1. **10 seconds:** An agent saying "done" is a claim. Reconc checks current
    repository evidence before accepting it.
-2. **30 seconds:** `reconc demo` shows `protected-action`, `missing-proof`, and
-   `remediation`, then runs `real-test`, re-evaluates the corrected state, and
+2. **30 seconds:** The submitted product video shows a protected action and
+   missing proof block, applies the exact remediation, runs the real test, and
    accepts `done` only after the TASK and proof agree.
 3. **2 minutes:** Reconc compiles repository-owned policy, applies the same
    decision engine across CLI, hooks, Git, CI, TASK state, and run control,
@@ -146,7 +146,7 @@ The public narrative stays consistent at three depths:
 
 Submitted Build Week video, Devpost text, and the immutable v0.8.6 artifacts
 remain historical evidence. Current README and documentation use this
-terminology; future repository descriptions, release notes, demo captions, and
+terminology; future repository descriptions, release notes, video captions, and
 social posts should derive from this section instead of retroactively editing
 the submission or copying a second long-form explanation.
 
@@ -431,17 +431,65 @@ reconc repo sync verify .
 
 Planning reads the portable receipt, current owned bytes, managed blocks,
 generated policy lock, optional Git snapshot, and immutable packs embedded in
-the running binary. It classifies every path as `unchanged`,
+the running binary. It publishes no repository, Git object-database, or
+persistent Reconc state unless `--output` is supplied. Ambient `GIT_*`
+variables are removed, system and global Git config are disabled, repository
+hooks and filesystem monitors are overridden, optional locks are forbidden,
+and `git write-tree` uses a private temporary object database with the
+repository object database as a read-only alternate. Repository-local identity
+config remains available. Two matching snapshots are required. The plan
+reports current and target policy/harness pack identities and classifies every path as `unchanged`,
 `replace-owned`, `update-managed-block`, `create-owned`, `user-drift`,
 `orphaned-legacy`, `incompatible`, or `manual-review`, and performs no
-repository write unless `--output` is supplied. Apply requires the exact saved
-digest, re-plans under the repository transaction lock, refuses any stale or
-review state, mutates only the three safe owned states, runs only registered
-policy-lock migrations, advances the receipt once, verifies the complete
-result, and rolls back already changed owned bytes on failure. It performs no
-network request. A valid single v0.8.x private plan and receipt can be imported
-as bounded migration evidence but cannot grant ownership beyond the portable
-receipt.
+repository write unless `--output` is supplied.
+
+Apply requires the exact saved digest, re-plans under the shared repository
+transaction lock, refuses any stale or review state, mutates only the three
+safe owned states, and advances the receipt once. Receipt-owned generated
+policy is compiled from current registered sources in memory, so a missing or
+historical lock can be rebuilt without a circular dependency on the old file.
+Registered migrations remain explanatory evidence only when their exact output
+equals the newly compiled target.
+
+Before the first target write, apply publishes the bounded strict
+`.reconc/repository-sync-transaction.json` journal with plan/product identity,
+before-image bytes and modes, after hashes and modes, created-path state,
+created parent paths, and a self-digest. All files and the receipt must pass
+complete pack, binary, policy, hook, and ownership verification before the
+journal is removed. Normal failures restore only exact transaction
+after-images. An interrupted process leaves the journal and blocks init,
+direct bootstrap apply, sync plan/apply/resolve/verify, and removal until:
+
+```bash
+reconc repo sync recover .
+```
+
+Recovery returns `clean`, `finalized`, `rolled-back`, or `refused`. A complete
+after-image is verified and finalized; an exact before-image or before/after
+mixture is rolled back. A path with an external edit, unexpected type, digest,
+or mode is never overwritten and leaves the journal intact. Empty
+transaction-created parent directories are preserved because their identity
+cannot be proven after a crash.
+
+Every non-mutable action has a digest-bound resolution:
+
+```bash
+reconc repo sync resolve --plan PATH --digest SHA256 --path RELATIVE --strategy keep-current
+reconc repo sync resolve --plan PATH --digest SHA256 --path RELATIVE --strategy use-target
+reconc repo sync resolve --plan PATH --digest SHA256 --path RELATIVE \
+  --strategy use-binary --binary FILE --checksum SHA256 --platform OS/ARCH
+```
+
+`keep-current` preserves the bytes and releases the matching file, hook, or
+harness component to user ownership. It cannot retain an invalid generated
+policy lock. `use-target` adopts the exact in-memory target already bound by the
+plan. `use-binary` is restricted to a receipt-owned cross-platform binary and
+requires one bounded regular local artifact whose checksum and stable platform
+name match. Same-platform binaries advance from the exact running executable.
+A successful resolution does not pretend the full upgrade finished; it returns
+one fresh-plan command. A valid single v0.8.x private plan and receipt can be
+imported as bounded migration evidence but cannot grant ownership beyond the
+portable receipt. Core synchronization performs no network request.
 
 `reconc bootstrap .` remains a v0.9 compatibility alias into the same init
 engine. Legacy `--preset` maps to `--pack` with a warning and `--force` is
@@ -471,23 +519,6 @@ The locked target keeps two boundaries explicit:
   never silently rewrites user-owned policy or documentation.
 
 ## Daily Workflow
-
-Before onboarding a repository, `reconc demo` provides a complete local product
-proof in under a minute. It creates a disposable isolated Git repository and
-runs the current Reconc binary through real compile, block, persisted
-remediation, command-success, corrected evaluation, typed TASK, and
-evidence-complete `done` paths, then exports and verifies the same candidate as
-a portable proof bundle. It makes no network call, bundles or simulates
-no LLM, and cleans the workspace by default. `--keep` preserves inspectable
-policy, TASK, completion, and proof-bundle artifacts; `--json` exposes the
-versioned steps, decisions, durations, artifact hashes, completion and portable
-proof digests, and result digest.
-
-```bash
-reconc demo
-reconc demo --keep
-reconc demo --json
-```
 
 Onboard a target repository once:
 
@@ -614,10 +645,9 @@ particular installation is live.
 
 Use the immutable v0.9.1 POSIX installer for macOS or Linux and the immutable
 v0.9.1 PowerShell installer for Windows x64. Put the installed binary on
-`PATH`, then
-run `reconc demo` for a network-free, disposable proof of the real
-block-to-remediation-to-completion journey. Contributors building current
-source can use `go build -o .build/bin/reconc ./cmd/reconc` followed by
+`PATH`, verify it with `reconc doctor --global`, and initialize the target
+repository with `reconc init .`. Contributors building current source can use
+`go build -o .build/bin/reconc ./cmd/reconc` followed by
 `.build/bin/reconc install-cli`; copied repo-local binaries use the same
 one-time `install-cli` call.
 
@@ -711,8 +741,13 @@ commands never refresh implicitly. If a block is valid but unclear, run
 `reconc next .`. For a saved transactional bootstrap, use `reconc bootstrap
 verify --plan PATH --json`. For the current portable ownership state, use
 `reconc repo sync verify . --json`; plan a repository upgrade with
-`reconc repo sync plan .` before writing a plan file. Use
-`reconc task recover .` only for an interrupted
+`reconc repo sync plan .` before writing a plan file. If a previous sync was
+interrupted, run `reconc repo sync recover .` before any other repository
+transaction. Recovery finalizes a fully published verified after-image, rolls
+back only exact journaled before/after images, and refuses to overwrite an
+external edit. Resolve a reviewed blocking action with the exact emitted
+`reconc repo sync resolve` command; never delete the receipt or transaction
+journal to bypass ownership. Use `reconc task recover .` only for an interrupted
 TASK transaction and `reconc run reset .` only for corrupt or foreign run
 state. Do not delete lockfiles, receipts, managed blocks, or runtime state as a
 generic repair strategy.
@@ -757,10 +792,14 @@ reconc repo sync verify .
 it never silently rewrites source rules. A global binary update does not update
 repository-owned hooks or harness artifacts. Run `reconc repo sync plan .
 --output PATH`, review every action and exact digest, then run `reconc repo
-sync apply --plan PATH --digest SHA256`. Resolve drift and orphaned legacy
-items manually; never bypass them by deleting the receipt. Commit the refreshed
-portable policy lock and `.reconc/install.lock.json` in governed target
-repositories.
+sync apply --plan PATH --digest SHA256`. Resolve each reviewed blocking action
+with `reconc repo sync resolve --plan PATH --digest SHA256 --path RELATIVE
+--strategy keep-current|use-target|use-binary`, then rebuild and review a fresh
+plan. If an interrupted transaction journal exists, run `reconc repo sync
+recover .`; a `refused` result means a journaled path has an external edit and
+requires operator review. Never bypass drift or recovery by deleting the
+receipt or journal. Commit the refreshed portable policy lock and
+`.reconc/install.lock.json` in governed target repositories.
 For a locally built or copied upgrade, run the upgraded binary's `install-cli`
 command first so bare `reconc` cannot continue resolving an older build.
 
@@ -961,9 +1000,8 @@ Explicit `--command-success` evidence applies to the complete evaluation snapsho
 
 Daily:
 
-- `demo` - run the isolated real-policy product journey
 - `bootstrap` - inspect, profile, plan, apply, verify, and safely remove onboarding
-- `repo` - plan, apply, and verify digest-bound repository synchronization
+- `repo` - plan, resolve, apply, recover, and verify digest-bound repository synchronization
 - `install-cli` - atomically install and verify the exact running user CLI
 - `update` - safely update the global CLI or confirm it is already current
 - `uninstall` - remove only verified global installation-owned state
@@ -976,7 +1014,7 @@ Daily:
 Bootstrap and inspection:
 
 - `bootstrap inspect|profiles|plan|apply|verify|remove`
-- `repo sync plan|apply|verify`
+- `repo sync plan|resolve|apply|recover|verify`
 - `init`
 - `adopt`
 - `extract`
@@ -1070,6 +1108,7 @@ runtime state while explicitly re-including `.reconc/install.lock.json` and
 - `.reconc/run/`
 - `.reconc/sessions/`
 - `.reconc/task-transaction.json`
+- `.reconc/repository-sync-transaction.json`
 - `.reconc/bootstrap-*.json`
 - `*.reconc-candidate-*`
 - `*.reconc-remove-candidate-*`
@@ -1406,11 +1445,10 @@ summarizes the core runtime responsibilities:
 - `cmd/reconc`: CLI entry point only
 - `buildprovenance`: deterministic target/source build identity and byte-only binary inspection
 - `internal/cli`: argument parsing and command dispatch
-- `internal/demo`: isolated real-command product journey and self-digested proof result
 - `internal/ingest`: repository discovery and source loading
 - `internal/parser`: YAML-to-policy validation and normalization
 - `internal/compiler`: canonical JSON lockfile generation, digesting, conflicts, migrations, compile lock
-- `internal/bootstrap`: deterministic canonical init plus inspect/plan/apply/verify/remove and digest-bound repository-sync transactions, portable/private receipts, repository locking, managed-block ownership, rollback, policy migration, and binary resolution
+- `internal/bootstrap`: deterministic canonical init plus inspect/plan/apply/verify/remove; hermetic read-only repository planning; digest-bound resolution, apply, durable recovery, and verification; portable/private receipts; repository locking; managed-block ownership; policy migration; and platform-bound binary resolution
 - `harness` and `internal/harnesspack`: embedded advanced pack ownership, strict manifest/archive validation, compatibility, and byte parity
 - `internal/usercli`: locked binary-plus-receipt installation, manager classification, exact PATH identity, global diagnostics, bounded release selection, atomic direct updates, package-manager delegation, and ownership-safe uninstall
 - `internal/stackdetect`: shared bounded manifest/source stack discovery
@@ -2134,6 +2172,7 @@ Ignore:
 - `.reconc/reports/`
 - `.reconc/run/`
 - `.reconc/task-transaction.json`
+- `.reconc/repository-sync-transaction.json`
 - `.reconc/bootstrap-*.json`
 - `*.reconc-candidate-*`
 - `*.reconc-remove-candidate-*`
@@ -2147,6 +2186,7 @@ Ignore:
 - `**/.reconc/reports/`
 - `**/.reconc/run/`
 - `**/.reconc/task-transaction.json`
+- `**/.reconc/repository-sync-transaction.json`
 - `**/.reconc/bootstrap-*.json`
 - `**/*.reconc-candidate-*`
 - `**/*.reconc-remove-candidate-*`

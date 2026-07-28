@@ -68,8 +68,6 @@ func Run(argv []string, version string, stdout, stderr io.Writer) (runErr error)
 		return nil
 	case "doctor":
 		return runDoctor(argv[1:], version, stdout, stderr)
-	case "demo":
-		return runDemo(argv[1:], version, stdout)
 	case "compile":
 		return runCompile(argv[1:], version, stdout, stderr)
 	case "refresh":

@@ -115,15 +115,38 @@ func CompileRepoPolicy(repoStartPath, compilerVersion string) (compiled *Compile
 			}
 		}()
 	}
-	parsed, err := parser.ParseRuleDocuments(bundle)
+	compiled, body, err := renderPolicyBundle(bundle, compilerVersion)
 	if err != nil {
 		return nil, err
+	}
+	if err := writeLockfile(compiled.RepoRoot, body); err != nil {
+		return nil, err
+	}
+	return compiled, nil
+}
+
+// RenderRepoPolicy runs the complete policy compiler without taking the
+// publication lock or writing the generated lockfile. Callers use the exact
+// returned bytes when they need to include policy compilation in a larger
+// transaction whose journal and publication boundary they own.
+func RenderRepoPolicy(repoStartPath, compilerVersion string) (*CompiledPolicy, []byte, error) {
+	bundle, err := ingest.LoadPolicySources(repoStartPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	return renderPolicyBundle(bundle, compilerVersion)
+}
+
+func renderPolicyBundle(bundle *ingest.SourceBundle, compilerVersion string) (*CompiledPolicy, []byte, error) {
+	parsed, err := parser.ParseRuleDocuments(bundle)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	root := bundle.RepoRoot
 	digest, err := computeSourceDigest(bundle)
 	if err != nil {
-		return nil, &rerrors.LockfileError{Message: "compute source digest", Cause: err}
+		return nil, nil, &rerrors.LockfileError{Message: "compute source digest", Cause: err}
 	}
 
 	// Normalize discovery for the post-compile world: the lockfile
@@ -165,12 +188,13 @@ func CompileRepoPolicy(repoStartPath, compilerVersion string) (compiled *Compile
 	payload := buildLockPayload(bundle, parsed, digest, compilerVersion, compiledDiscovery)
 	lockDigest, err := ComputeLockDigest(payload)
 	if err != nil {
-		return nil, &rerrors.LockfileError{Message: "compute lockfile digest", Cause: err}
+		return nil, nil, &rerrors.LockfileError{Message: "compute lockfile digest", Cause: err}
 	}
 	payload["lock_digest"] = lockDigest
 
-	if err := writeLockfile(root, payload); err != nil {
-		return nil, err
+	body, err := encodeLockfile(payload)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	return &CompiledPolicy{
@@ -187,7 +211,7 @@ func CompileRepoPolicy(repoStartPath, compilerVersion string) (compiled *Compile
 		Warnings:        compiledDiscovery.Warnings,
 		Conflicts:       conflicts,
 		Discovery:       compiledDiscovery,
-	}, nil
+	}, body, nil
 }
 
 // ComputeSourceDigest hashes a canonicalized JSON view of the source
@@ -713,17 +737,21 @@ func ValidateLockfileEnvelope(payload map[string]interface{}) error {
 //
 // MkdirAll handles a missing .reconc/ directory; existing files are replaced
 // with temp-file-then-rename so readers never observe a truncated lockfile.
-func writeLockfile(repoRoot string, payload map[string]interface{}) error {
+func encodeLockfile(payload map[string]interface{}) ([]byte, error) {
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return nil, &rerrors.LockfileError{Message: "marshal lockfile", Cause: err}
+	}
+	return append(data, '\n'), nil
+}
+
+func writeLockfile(repoRoot string, body []byte) error {
 	lockDir := filepath.Join(repoRoot, ".reconc")
 	if err := os.MkdirAll(lockDir, 0o755); err != nil {
 		return &rerrors.LockfileError{Message: "create .reconc/", Cause: err}
 	}
-	data, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return &rerrors.LockfileError{Message: "marshal lockfile", Cause: err}
-	}
 	full := filepath.Join(lockDir, "policy.lock.json")
-	if _, err := atomicfile.WriteIfChanged(full, append(data, '\n'), 0o644); err != nil {
+	if _, err := atomicfile.WriteIfChanged(full, body, 0o644); err != nil {
 		return &rerrors.LockfileError{Message: "write lockfile", Cause: err}
 	}
 	return nil

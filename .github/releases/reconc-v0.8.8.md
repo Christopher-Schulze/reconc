@@ -76,7 +76,7 @@ macOS or Linux:
 curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.8.8/install.sh \
   | sh -s -- 0.8.8
 export PATH="$HOME/.local/bin:$PATH"
-reconc demo
+reconc --version
 ```
 
 Windows x64:
@@ -87,7 +87,7 @@ Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/r
 & $installer 0.8.8
 Remove-Item $installer
 $env:Path = "$env:LOCALAPPDATA\Programs\Reconc\bin;$env:Path"
-reconc demo
+reconc --version
 ```
 
 Set `RECONC_REQUIRE_ATTESTATION=1` to require `gh attestation verify`. Core

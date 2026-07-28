@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strings"
 
-	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/hooks"
 	reconruntime "reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/schema"
@@ -15,16 +17,9 @@ import (
 
 const maxSyncRollbackBytes = 64 << 20
 
-type syncBackup struct {
-	path          string
-	body          []byte
-	mode          os.FileMode
-	expectedAfter string
-	created       bool
-}
-
 type syncApplyOptions struct {
-	failAfter int
+	failAfter      int
+	interruptAfter int
 }
 
 func ApplySyncPlan(plan *SyncPlan, exactDigest, productVersion string) (*SyncReport, error) {
@@ -76,6 +71,10 @@ func applySyncPlan(plan *SyncPlan, exactDigest, productVersion string, options s
 }
 
 func applySyncPlanLocked(plan *SyncPlan, report *SyncReport, productVersion string, options syncApplyOptions) error {
+	if err := ensureNoPendingRepositorySync(plan.RepoRoot); err != nil {
+		report.Status = SyncRefused
+		return err
+	}
 	currentPlan, err := BuildSyncPlan(plan.RepoRoot, productVersion)
 	if err != nil {
 		report.Status = SyncRefused
@@ -102,114 +101,129 @@ func applySyncPlanLocked(plan *SyncPlan, report *SyncReport, productVersion stri
 	for _, artifact := range artifacts {
 		artifactByPath[artifact.path] = artifact
 	}
-	backups := []syncBackup{}
-	created := []createdRecord{}
-	createdDirs := []createdDirectory{}
-	defer closeCreatedDirectoryIdentities(createdDirs)
-	rollback := func(primary error) error {
-		rolledBack, rollbackErr := rollbackSyncChanges(plan.RepoRoot, backups, created, createdDirs)
-		report.RolledBack = append(report.RolledBack, rolledBack...)
-		report.Status = SyncRolledBack
-		return errors.Join(primary, rollbackErr)
-	}
+	desiredByPath := map[string][]byte{}
+	mutations := []syncMutation{}
 	for _, action := range plan.Actions {
 		if action.State == SyncUnchanged {
 			report.Unchanged = append(report.Unchanged, action.Path)
 			continue
 		}
 		if !mutableSyncState(action.State) {
-			return rollback(fmt.Errorf("repository sync action became non-mutable: %s", action.Path))
+			report.Status = SyncRefused
+			return fmt.Errorf("repository sync action became non-mutable: %s", action.Path)
 		}
 		artifact, artifactOK := artifactByPath[action.Path]
-		desired, desiredErr := desiredSyncBytes(plan.RepoRoot, action, artifact, artifactOK)
+		desired, desiredErr := desiredSyncBytes(plan.RepoRoot, action, artifact, artifactOK, productVersion)
 		if desiredErr != nil {
-			return rollback(desiredErr)
+			report.Status = SyncRefused
+			return desiredErr
 		}
 		if bytesSHA256(desired) != action.DesiredSHA256 {
-			return rollback(fmt.Errorf("repository sync desired bytes drifted for %s", action.Path))
+			report.Status = SyncRefused
+			return fmt.Errorf("repository sync desired bytes drifted for %s", action.Path)
 		}
-		target, targetErr := safeBootstrapTarget(plan.RepoRoot, action.Path)
-		if targetErr != nil {
-			return rollback(targetErr)
-		}
-		if action.State == SyncCreateOwned {
-			createArtifact := desiredArtifact{
-				component: action.Component, path: action.Path,
-				mode: action.Mode, content: desired,
-			}
-			record, dirs, publishErr := publishArtifact(
-				plan.RepoRoot, createArtifact, action.Path, action.DesiredSHA256, plan.PlanDigest,
-			)
-			createdDirs = appendUniqueDirectories(createdDirs, dirs...)
-			if record.path != "" {
-				created = append(created, record)
-			}
-			if publishErr != nil {
-				return rollback(publishErr)
-			}
-		} else {
-			backup, backupErr := captureSyncBackup(target, action.DesiredSHA256)
-			if backupErr != nil {
-				return rollback(backupErr)
-			}
-			if totalSyncBackupBytes(backups)+len(backup.body) > maxSyncRollbackBytes {
-				return rollback(fmt.Errorf("repository sync rollback set exceeds %d bytes", maxSyncRollbackBytes))
-			}
-			backups = append(backups, backup)
-			if _, writeErr := atomicfile.WriteIfChanged(target, desired, os.FileMode(action.Mode)); writeErr != nil {
-				return rollback(fmt.Errorf("publish repository sync artifact %s: %w", action.Path, writeErr))
-			}
-		}
-		report.Changed = append(report.Changed, action.Path)
-		if options.failAfter > 0 && len(report.Changed) >= options.failAfter {
-			return rollback(fmt.Errorf("injected repository sync failure after %d artifacts", len(report.Changed)))
-		}
+		desiredByPath[action.Path] = desired
+		mutations = append(mutations, syncMutation{
+			Path: action.Path, Mode: action.Mode, After: desired,
+			Created: action.State == SyncCreateOwned,
+		})
 	}
-	if !repositoryReceiptNeedsAdvance(currentReceipt, plan, len(report.Changed) > 0) {
+	receiptNeedsAdvance := repositoryReceiptNeedsAdvance(currentReceipt, plan, len(mutations) > 0)
+	var targetReceipt *RepositoryReceipt
+	if receiptNeedsAdvance {
+		targetReceipt, err = advanceRepositoryReceipt(
+			plan.RepoRoot, currentReceipt, plan, artifacts, desiredByPath,
+		)
+		if err != nil {
+			report.Status = SyncRefused
+			return err
+		}
+		receiptBody, encodeErr := encodeRepositoryReceipt(targetReceipt)
+		if encodeErr != nil {
+			report.Status = SyncRefused
+			return encodeErr
+		}
+		receiptPath, pathErr := safeRepositorySyncPath(plan.RepoRoot, RepositoryReceiptRelativePath)
+		if pathErr != nil {
+			report.Status = SyncRefused
+			return pathErr
+		}
+		_, lstatErr := os.Lstat(receiptPath)
+		receiptCreated := os.IsNotExist(lstatErr)
+		if lstatErr != nil && !receiptCreated {
+			report.Status = SyncRefused
+			return fmt.Errorf("inspect repository receipt before sync: %w", lstatErr)
+		}
+		mutations = append(mutations, syncMutation{
+			Path: RepositoryReceiptRelativePath, Mode: 0o644,
+			After: receiptBody, Created: receiptCreated,
+		})
+	}
+	if len(mutations) == 0 {
 		report.ReceiptTo = currentReceipt.ReceiptDigest
 		verification, err := VerifyRepository(plan.RepoRoot, productVersion)
 		if err != nil {
-			return rollback(err)
+			report.Status = SyncRefused
+			return err
 		}
 		report.Verification = append(report.Verification, verification.Checks...)
 		if !verification.Valid {
-			return rollback(fmt.Errorf("repository sync verification failed: %s", verification.NextAction))
+			report.Status = SyncRefused
+			return fmt.Errorf("repository sync verification failed: %s", verification.NextAction)
 		}
 		report.Status = SyncComplete
 		report.NextAction = "Repository-owned Reconc artifacts already match the running product."
 		sort.Strings(report.Unchanged)
 		return nil
 	}
-	targetReceipt, err := advanceRepositoryReceipt(plan.RepoRoot, currentReceipt, plan, artifacts)
+	transaction, err := buildRepositorySyncTransaction(
+		plan.RepoRoot, productVersion, plan.PlanDigest, mutations, true,
+	)
 	if err != nil {
-		return rollback(err)
+		report.Status = SyncRefused
+		return err
 	}
-	receiptPath := filepath.Join(plan.RepoRoot, filepath.FromSlash(RepositoryReceiptRelativePath))
-	receiptBackup, err := captureOptionalSyncBackup(receiptPath)
+	publishErr := publishRepositorySyncTransaction(
+		plan.RepoRoot, transaction, mutations, options.failAfter, options.interruptAfter,
+	)
+	if publishErr != nil {
+		if errors.Is(publishErr, errRepositorySyncInterrupted) {
+			report.Status = SyncRefused
+			report.NextAction = "reconc repo sync recover " + quoteBootstrapArgument(plan.RepoRoot)
+			return publishErr
+		}
+		rolledBack, rollbackErr := rollbackRepositorySyncTransaction(plan.RepoRoot, transaction)
+		report.RolledBack = append(report.RolledBack, rolledBack...)
+		report.Status = SyncRolledBack
+		return errors.Join(publishErr, rollbackErr)
+	}
+	for _, mutation := range mutations {
+		report.Changed = append(report.Changed, mutation.Path)
+	}
+	if targetReceipt == nil {
+		report.ReceiptTo = currentReceipt.ReceiptDigest
+	} else {
+		report.ReceiptTo = targetReceipt.ReceiptDigest
+	}
+	verification, err := verifyRepository(plan.RepoRoot, productVersion, true)
 	if err != nil {
-		return rollback(err)
-	}
-	receiptBody, err := encodeRepositoryReceipt(targetReceipt)
-	if err != nil {
-		return rollback(err)
-	}
-	receiptBackup.expectedAfter = bytesSHA256(receiptBody)
-	if totalSyncBackupBytes(backups)+len(receiptBackup.body) > maxSyncRollbackBytes {
-		return rollback(fmt.Errorf("repository sync rollback set exceeds %d bytes", maxSyncRollbackBytes))
-	}
-	backups = append(backups, receiptBackup)
-	if _, err := writeRepositoryReceiptAtomic(plan.RepoRoot, targetReceipt); err != nil {
-		return rollback(err)
-	}
-	report.Changed = append(report.Changed, RepositoryReceiptRelativePath)
-	report.ReceiptTo = targetReceipt.ReceiptDigest
-	verification, err := VerifyRepository(plan.RepoRoot, productVersion)
-	if err != nil {
-		return rollback(err)
+		rolledBack, rollbackErr := rollbackRepositorySyncTransaction(plan.RepoRoot, transaction)
+		report.RolledBack = append(report.RolledBack, rolledBack...)
+		report.Status = SyncRolledBack
+		return errors.Join(err, rollbackErr)
 	}
 	report.Verification = append(report.Verification, verification.Checks...)
 	if !verification.Valid {
-		return rollback(fmt.Errorf("repository sync verification failed: %s", verification.NextAction))
+		primary := fmt.Errorf("repository sync verification failed: %s", verification.NextAction)
+		rolledBack, rollbackErr := rollbackRepositorySyncTransaction(plan.RepoRoot, transaction)
+		report.RolledBack = append(report.RolledBack, rolledBack...)
+		report.Status = SyncRolledBack
+		return errors.Join(primary, rollbackErr)
+	}
+	if err := removeRepositorySyncTransaction(plan.RepoRoot); err != nil {
+		report.Status = SyncRefused
+		report.NextAction = "reconc repo sync recover " + quoteBootstrapArgument(plan.RepoRoot)
+		return err
 	}
 	report.Status = SyncComplete
 	report.NextAction = "reconc check " + quoteBootstrapArgument(plan.RepoRoot)
@@ -239,6 +253,10 @@ func repositoryReceiptNeedsAdvance(receipt *RepositoryReceipt, plan *SyncPlan, c
 }
 
 func VerifyRepository(repoRoot, expectedProductVersion string) (*SyncVerification, error) {
+	return verifyRepository(repoRoot, expectedProductVersion, false)
+}
+
+func verifyRepository(repoRoot, expectedProductVersion string, allowPendingTransaction bool) (*SyncVerification, error) {
 	root, err := canonicalRepoRoot(repoRoot)
 	if err != nil {
 		return nil, err
@@ -246,6 +264,13 @@ func VerifyRepository(repoRoot, expectedProductVersion string) (*SyncVerificatio
 	verification := &SyncVerification{
 		Schema: schema.Resolve(schema.RepositorySyncReport), FormatVersion: SyncVerifyFormatVersion,
 		RepoRoot: root, Valid: true, Checks: []Check{},
+	}
+	if !allowPendingTransaction {
+		if pendingErr := ensureNoPendingRepositorySync(root); pendingErr != nil {
+			verification.add("repository-sync-transaction", false, pendingErr.Error())
+			verification.NextAction = pendingErr.Error()
+			return verification, nil
+		}
 	}
 	receipt, err := LoadRepositoryReceipt(root)
 	if err != nil {
@@ -259,6 +284,28 @@ func VerifyRepository(repoRoot, expectedProductVersion string) (*SyncVerificatio
 		verification.add("product-version", false, "receipt records "+receipt.ProductVersion+", running product is "+expectedProductVersion)
 	} else {
 		verification.add("product-version", true, receipt.ProductVersion)
+	}
+	if expectedProductVersion == "" {
+		verification.add("policy-packs", true, fmt.Sprintf("%d receipt pack identities structurally verified", len(receipt.PolicyPacks)))
+		verification.add("harness-packs", true, fmt.Sprintf("%d receipt pack identities structurally verified", len(receipt.HarnessPacks)))
+	} else {
+		expectedPolicyPacks, packErr := policyPackIdentities(packNames(receipt.PolicyPacks))
+		if packErr != nil {
+			verification.add("policy-packs", false, packErr.Error())
+		} else if !equalPolicyPackIdentities(receipt.PolicyPacks, expectedPolicyPacks) {
+			verification.add("policy-packs", false, "receipt policy-pack identities differ from the packs embedded in the running product")
+		} else {
+			verification.add("policy-packs", true, fmt.Sprintf("%d embedded pack identities verified", len(expectedPolicyPacks)))
+		}
+		harnessSelection := Selection{HarnessPacks: make([]HarnessPackSelection, len(receipt.HarnessPacks))}
+		expectedHarnessPacks, harnessErr := harnessPackIdentities(harnessSelection, expectedProductVersion)
+		if harnessErr != nil {
+			verification.add("harness-packs", false, harnessErr.Error())
+		} else if !equalHarnessPackIdentities(receipt.HarnessPacks, expectedHarnessPacks) {
+			verification.add("harness-packs", false, "receipt harness-pack identities differ from the packs embedded in the running product")
+		} else {
+			verification.add("harness-packs", true, fmt.Sprintf("%d embedded pack identities verified", len(expectedHarnessPacks)))
+		}
 	}
 	for _, file := range receipt.ManagedFiles {
 		body, readErr := readRepositoryRegularFile(root, file.Path)
@@ -276,6 +323,27 @@ func VerifyRepository(repoRoot, expectedProductVersion string) (*SyncVerificatio
 			continue
 		}
 		verification.add("managed-file:"+file.Path, true, "checksum and mode verified")
+	}
+	binary, binaryOS, binaryArch, binaryErr := repositoryBinaryOwnership(receipt)
+	switch {
+	case binaryErr != nil:
+		verification.add("repository-binary", false, binaryErr.Error())
+	case binary == nil:
+		verification.add("repository-binary", true, "repository receipt owns no binary")
+	case expectedProductVersion != "" && binaryOS == runtime.GOOS && binaryArch == runtime.GOARCH:
+		running, selectionErr := CurrentBinarySelection()
+		if selectionErr != nil {
+			verification.add("repository-binary", false, selectionErr.Error())
+		} else if running.SHA256 != binary.SHA256 {
+			verification.add("repository-binary", false, "receipt-owned binary differs from the exact running product binary")
+		} else {
+			verification.add("repository-binary", true, "receipt-owned binary matches the exact running product binary")
+		}
+	default:
+		verification.add(
+			"repository-binary", true,
+			fmt.Sprintf("receipt-owned %s/%s binary identity verified; running platform is %s/%s", binaryOS, binaryArch, runtime.GOOS, runtime.GOARCH),
+		)
 	}
 	for _, block := range receipt.ManagedBlocks {
 		body, readErr := readRepositoryRegularFile(root, block.Path)
@@ -302,14 +370,18 @@ func VerifyRepository(repoRoot, expectedProductVersion string) (*SyncVerificatio
 		}
 		verification.add("generated:"+generated.Path, true, "generated checksum verified")
 	}
-	if len(receipt.PolicySources) > 0 {
+	if expectedProductVersion == "" {
+		verification.add("policy-lock", true, "runtime freshness check not requested for receipt-only verification")
+	} else if len(receipt.PolicySources) > 0 {
 		if err := reconruntime.ValidatePolicyLockfile(root); err != nil {
 			verification.add("policy-lock", false, err.Error())
 		} else {
 			verification.add("policy-lock", true, "compiled policy is fresh")
 		}
 	}
-	if len(receipt.Hooks) > 0 {
+	if expectedProductVersion == "" {
+		verification.add("hooks", true, "runtime hook check not requested for receipt-only verification")
+	} else if len(receipt.Hooks) > 0 {
 		statuses, inspectErr := hooks.InspectPlatforms(root)
 		if inspectErr != nil {
 			verification.add("hooks", false, inspectErr.Error())
@@ -338,6 +410,30 @@ func VerifyRepository(repoRoot, expectedProductVersion string) (*SyncVerificatio
 	return verification, nil
 }
 
+func equalPolicyPackIdentities(left, right []PolicyPackIdentity) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func equalHarnessPackIdentities(left, right []HarnessPackIdentity) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
 func (verification *SyncVerification) add(name string, pass bool, detail string) {
 	status := "PASS"
 	if !pass {
@@ -347,14 +443,13 @@ func (verification *SyncVerification) add(name string, pass bool, detail string)
 	verification.Checks = append(verification.Checks, Check{Name: name, Status: status, Detail: detail})
 }
 
-func desiredSyncBytes(root string, action SyncAction, artifact desiredArtifact, artifactOK bool) ([]byte, error) {
+func desiredSyncBytes(root string, action SyncAction, artifact desiredArtifact, artifactOK bool, productVersion string) ([]byte, error) {
 	if action.Component == "policy-lock" {
-		current, err := readRepositoryRegularFile(root, action.Path)
+		_, body, err := compiler.RenderRepoPolicy(root, productVersion)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("compile repository sync policy lock in memory: %w", err)
 		}
-		migrated, _, err := migratePolicyLockBytes(current)
-		return migrated, err
+		return body, nil
 	}
 	if !artifactOK {
 		return nil, fmt.Errorf("repository sync target artifact no longer resolves: %s", action.Path)
@@ -377,85 +472,12 @@ func desiredSyncBytes(root string, action SyncAction, artifact desiredArtifact, 
 	return body, nil
 }
 
-func captureSyncBackup(target, expectedAfter string) (syncBackup, error) {
-	info, err := os.Lstat(target)
-	if err != nil {
-		return syncBackup{}, fmt.Errorf("capture repository sync rollback state: %w", err)
-	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return syncBackup{}, fmt.Errorf("repository sync rollback target is not a real regular file: %s", target)
-	}
-	body, err := os.ReadFile(target)
-	if err != nil {
-		return syncBackup{}, fmt.Errorf("read repository sync rollback state: %w", err)
-	}
-	return syncBackup{
-		path: target, body: body, mode: info.Mode().Perm(), expectedAfter: expectedAfter,
-	}, nil
-}
-
-func captureOptionalSyncBackup(target string) (syncBackup, error) {
-	if _, err := os.Lstat(target); os.IsNotExist(err) {
-		return syncBackup{path: target, mode: 0o644, created: true}, nil
-	} else if err != nil {
-		return syncBackup{}, fmt.Errorf("inspect repository receipt rollback state: %w", err)
-	}
-	return captureSyncBackup(target, "")
-}
-
-func totalSyncBackupBytes(backups []syncBackup) int {
-	total := 0
-	for _, backup := range backups {
-		total += len(backup.body)
-	}
-	return total
-}
-
-func rollbackSyncChanges(root string, backups []syncBackup, created []createdRecord, dirs []createdDirectory) ([]string, error) {
-	rolledBack := []string{}
-	var rollbackErr error
-	for index := len(backups) - 1; index >= 0; index-- {
-		backup := backups[index]
-		relative, _ := filepath.Rel(root, backup.path)
-		relative = filepath.ToSlash(relative)
-		if backup.created {
-			current, err := os.ReadFile(backup.path)
-			if err == nil {
-				if backup.expectedAfter == "" || bytesSHA256(current) != backup.expectedAfter {
-					err = fmt.Errorf("refuse rollback after concurrent change: %s", relative)
-				} else {
-					err = os.Remove(backup.path)
-				}
-			}
-			if err != nil && !os.IsNotExist(err) {
-				rollbackErr = errors.Join(rollbackErr, fmt.Errorf("remove created sync artifact %s: %w", relative, err))
-				continue
-			}
-			rolledBack = append(rolledBack, relative)
-			continue
-		}
-		current, err := os.ReadFile(backup.path)
-		if err != nil || (backup.expectedAfter != "" && bytesSHA256(current) != backup.expectedAfter) {
-			rollbackErr = errors.Join(rollbackErr, fmt.Errorf("refuse rollback after concurrent change: %s", relative))
-			continue
-		}
-		if _, err := atomicfile.WriteIfChanged(backup.path, backup.body, backup.mode); err != nil {
-			rollbackErr = errors.Join(rollbackErr, fmt.Errorf("restore repository sync artifact %s: %w", relative, err))
-			continue
-		}
-		rolledBack = append(rolledBack, relative)
-	}
-	removed, removeErr := rollbackCreated(root, created, dirs)
-	rolledBack = append(rolledBack, removed...)
-	sort.Strings(rolledBack)
-	return rolledBack, errors.Join(rollbackErr, removeErr)
-}
-
 func advanceRepositoryReceipt(
 	root string,
 	current *RepositoryReceipt,
 	plan *SyncPlan,
 	artifacts []desiredArtifact,
+	desiredByPath map[string][]byte,
 ) (*RepositoryReceipt, error) {
 	next := &RepositoryReceipt{
 		Schema: schema.Resolve(schema.RepositoryInstall), FormatVersion: RepositoryReceiptFormatVersion,
@@ -473,12 +495,18 @@ func advanceRepositoryReceipt(
 	for _, block := range current.ManagedBlocks {
 		currentBlocks[block.Path] = block
 	}
+	artifactPaths := make(map[string]bool, len(artifacts))
 	for _, artifact := range artifacts {
-		if block := currentBlocks[artifact.path]; block.Path != "" {
-			body, err := readRepositoryRegularFile(root, artifact.path)
+		artifactPaths[artifact.path] = true
+		body := append([]byte(nil), desiredByPath[artifact.path]...)
+		if len(body) == 0 {
+			var err error
+			body, err = readRepositoryRegularFile(root, artifact.path)
 			if err != nil {
 				return nil, err
 			}
+		}
+		if block := currentBlocks[artifact.path]; block.Path != "" {
 			managed, err := extractManagedBlock(body, block.BlockStart, block.BlockEnd)
 			if err != nil {
 				return nil, err
@@ -493,19 +521,37 @@ func advanceRepositoryReceipt(
 		if !syncOwnsComponent(artifact.component) {
 			continue
 		}
-		body, err := readRepositoryRegularFile(root, artifact.path)
-		if err != nil {
-			return nil, err
-		}
 		next.ManagedFiles = append(next.ManagedFiles, ManagedFile{
 			Path: artifact.path, Mode: artifact.mode, SHA256: bytesSHA256(body),
 			Component: artifact.component, Ownership: "file",
 		})
 	}
-	for _, generated := range current.GeneratedArtifacts {
-		body, err := readRepositoryRegularFile(root, generated.Path)
+	for _, file := range current.ManagedFiles {
+		if artifactPaths[file.Path] || !strings.HasPrefix(file.Component, "binary@") {
+			continue
+		}
+		action, ok := syncActionByPath(plan.Actions, file.Path)
+		if !ok || action.State != SyncUnchanged ||
+			!binaryApprovedForProduct(file, plan.TargetProductVersion) {
+			continue
+		}
+		body, err := readRepositoryRegularFile(root, file.Path)
 		if err != nil {
 			return nil, err
+		}
+		next.ManagedFiles = append(next.ManagedFiles, ManagedFile{
+			Path: file.Path, Mode: file.Mode, SHA256: bytesSHA256(body),
+			Component: "binary", Ownership: "file",
+		})
+	}
+	for _, generated := range current.GeneratedArtifacts {
+		body := append([]byte(nil), desiredByPath[generated.Path]...)
+		if len(body) == 0 {
+			var err error
+			body, err = readRepositoryRegularFile(root, generated.Path)
+			if err != nil {
+				return nil, err
+			}
 		}
 		next.GeneratedArtifacts = append(next.GeneratedArtifacts, GeneratedArtifact{
 			Path: generated.Path, Generator: generated.Generator,

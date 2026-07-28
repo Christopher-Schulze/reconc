@@ -2,17 +2,18 @@ package bootstrap
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
 	"reconc.dev/reconc/internal/atomicfile"
-	"reconc.dev/reconc/internal/commandproof"
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/schema"
 )
@@ -22,6 +23,9 @@ const maxSyncPlanBytes = 8 << 20
 func BuildSyncPlan(repoRoot, productVersion string) (*SyncPlan, error) {
 	root, err := canonicalRepoRoot(repoRoot)
 	if err != nil {
+		return nil, err
+	}
+	if err := ensureNoPendingRepositorySync(root); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(productVersion) == "" {
@@ -43,8 +47,11 @@ func BuildSyncPlan(repoRoot, productVersion string) (*SyncPlan, error) {
 		Schema: schema.Resolve(schema.RepositorySyncPlan), FormatVersion: SyncPlanFormatVersion,
 		RepoRoot: root, CurrentProductVersion: receipt.ProductVersion,
 		TargetProductVersion: productVersion, CurrentReceiptDigest: receipt.ReceiptDigest,
-		LegacyReceiptImport: legacy, TargetPolicyPacks: []PolicyPackIdentity{},
-		TargetHarnessPacks: []HarnessPackIdentity{}, Actions: []SyncAction{},
+		LegacyReceiptImport: legacy,
+		CurrentPolicyPacks:  append([]PolicyPackIdentity{}, receipt.PolicyPacks...),
+		CurrentHarnessPacks: append([]HarnessPackIdentity{}, receipt.HarnessPacks...),
+		TargetPolicyPacks:   []PolicyPackIdentity{},
+		TargetHarnessPacks:  []HarnessPackIdentity{}, Actions: []SyncAction{},
 		Migrations: []SyncMigration{}, Candidates: []string{}, BlockingIssues: []string{},
 	}
 	plan.TargetPolicyPacks, err = policyPackIdentities(packNames(receipt.PolicyPacks))
@@ -55,7 +62,7 @@ func BuildSyncPlan(repoRoot, productVersion string) (*SyncPlan, error) {
 	if err != nil {
 		return nil, err
 	}
-	plan.GitSnapshot, err = captureOptionalGitSnapshot(root)
+	plan.GitSnapshot, err = captureReadOnlyGitSnapshot(root)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +76,33 @@ func BuildSyncPlan(repoRoot, productVersion string) (*SyncPlan, error) {
 		managedBlocks[block.Path] = block
 	}
 	targetPaths := make(map[string]bool, len(artifacts))
+	userOwnedPaths := make(map[string]bool, len(receipt.UserOwnedPaths))
+	for _, path := range receipt.UserOwnedPaths {
+		userOwnedPaths[path] = true
+	}
+	binary, binaryOS, binaryArch, err := repositoryBinaryOwnership(receipt)
+	if err != nil {
+		return nil, err
+	}
+	if binary != nil && (binaryOS != runtime.GOOS || binaryArch != runtime.GOARCH) {
+		targetPaths[binary.Path] = true
+		var action SyncAction
+		var actionErr error
+		if binaryApprovedForProduct(*binary, productVersion) {
+			action, actionErr = planApprovedCrossPlatformBinary(root, *binary, productVersion)
+		} else {
+			action, actionErr = planCrossPlatformBinary(root, *binary, binaryOS, binaryArch)
+		}
+		if actionErr != nil {
+			return nil, actionErr
+		}
+		plan.Actions = append(plan.Actions, action)
+	}
 	for _, artifact := range artifacts {
+		if userOwnedPaths[artifact.path] {
+			targetPaths[artifact.path] = true
+			continue
+		}
 		if !syncOwnsComponent(artifact.component) && managedBlocks[artifact.path].Path == "" {
 			continue
 		}
@@ -100,7 +133,7 @@ func BuildSyncPlan(repoRoot, productVersion string) (*SyncPlan, error) {
 			Reason: "receipt-owned managed block is not part of the target product; preserve it for explicit review",
 		})
 	}
-	policyAction, migrations, err := planPolicyLockMigration(root, receipt)
+	policyAction, migrations, err := planPolicyLockMigration(root, receipt, productVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -109,6 +142,20 @@ func BuildSyncPlan(repoRoot, productVersion string) (*SyncPlan, error) {
 	}
 	plan.Migrations = append(plan.Migrations, migrations...)
 	sort.Slice(plan.Actions, func(i, j int) bool { return plan.Actions[i].Path < plan.Actions[j].Path })
+	sort.Slice(plan.Migrations, func(i, j int) bool {
+		left := plan.Migrations[i]
+		right := plan.Migrations[j]
+		if left.Path != right.Path {
+			return left.Path < right.Path
+		}
+		if left.Kind != right.Kind {
+			return left.Kind < right.Kind
+		}
+		if left.From != right.From {
+			return left.From < right.From
+		}
+		return left.To < right.To
+	})
 	for _, action := range plan.Actions {
 		if !mutableSyncState(action.State) && action.State != SyncUnchanged {
 			plan.BlockingIssues = append(plan.BlockingIssues, action.Path+": "+action.Reason)
@@ -273,8 +320,20 @@ func ValidateSyncPlan(plan *SyncPlan) error {
 		!validSHA256(plan.CurrentReceiptDigest) || !validSHA256(plan.PlanDigest) {
 		return fmt.Errorf("repository sync plan identity is invalid")
 	}
-	if plan.GitSnapshot != nil && plan.GitSnapshot.RepoRoot != plan.RepoRoot {
-		return fmt.Errorf("repository sync plan Git snapshot belongs to a different repository")
+	if plan.CurrentPolicyPacks == nil || plan.CurrentHarnessPacks == nil ||
+		plan.TargetPolicyPacks == nil || plan.TargetHarnessPacks == nil ||
+		plan.Actions == nil || plan.Migrations == nil || plan.Candidates == nil ||
+		plan.BlockingIssues == nil {
+		return fmt.Errorf("repository sync plan collections must be arrays")
+	}
+	if plan.GitSnapshot != nil {
+		if plan.GitSnapshot.RepoRoot != plan.RepoRoot {
+			return fmt.Errorf("repository sync plan Git snapshot belongs to a different repository")
+		}
+		if (plan.GitSnapshot.Head != "UNBORN" && !validGitObjectID(plan.GitSnapshot.Head)) ||
+			!validGitObjectID(plan.GitSnapshot.IndexTree) {
+			return fmt.Errorf("repository sync plan Git snapshot identity is invalid")
+		}
 	}
 	if err := validatePolicyPackIdentities(plan.TargetPolicyPacks); err != nil {
 		return err
@@ -282,10 +341,17 @@ func ValidateSyncPlan(plan *SyncPlan) error {
 	if err := validateHarnessPackIdentities(plan.TargetHarnessPacks); err != nil {
 		return err
 	}
+	if err := validatePolicyPackIdentities(plan.CurrentPolicyPacks); err != nil {
+		return err
+	}
+	if err := validateHarnessPackIdentities(plan.CurrentHarnessPacks); err != nil {
+		return err
+	}
 	for index, action := range plan.Actions {
 		if !validRepositoryRelativePath(action.Path) || action.Component == "" ||
 			(action.Mode != 0o644 && action.Mode != 0o755) || !validSyncState(action.State) ||
-			strings.TrimSpace(action.Reason) == "" {
+			strings.TrimSpace(action.Reason) == "" || strings.TrimSpace(action.Reason) != action.Reason ||
+			action.CurrentMode > 0o777 {
 			return fmt.Errorf("repository sync action %d is invalid", index)
 		}
 		if index > 0 && plan.Actions[index-1].Path >= action.Path {
@@ -299,12 +365,45 @@ func ValidateSyncPlan(plan *SyncPlan) error {
 		if action.CandidatePath != "" && !validRepositoryRelativePath(action.CandidatePath) {
 			return fmt.Errorf("repository sync action %s has an invalid candidate path", action.Path)
 		}
+		if err := validateSyncActionContract(action); err != nil {
+			return err
+		}
+	}
+	for index, migration := range plan.Migrations {
+		if strings.TrimSpace(migration.Kind) == "" || strings.TrimSpace(migration.From) == "" ||
+			strings.TrimSpace(migration.To) == "" || !validRepositoryRelativePath(migration.Path) {
+			return fmt.Errorf("repository sync migration %d is invalid", index)
+		}
+		if index > 0 && !syncMigrationLess(plan.Migrations[index-1], migration) {
+			return fmt.Errorf("repository sync migrations must be uniquely sorted")
+		}
+		if !syncActionPathExists(plan.Actions, migration.Path) {
+			return fmt.Errorf("repository sync migration references unknown action %s", migration.Path)
+		}
 	}
 	if err := validateSortedStrings(plan.Candidates, "sync candidate"); err != nil {
 		return err
 	}
-	if !sort.StringsAreSorted(plan.BlockingIssues) {
-		return fmt.Errorf("repository sync blocking issues must be sorted")
+	if err := validateSortedStrings(plan.BlockingIssues, "sync blocking issue"); err != nil {
+		return err
+	}
+	expectedCandidates := []string{}
+	expectedIssues := []string{}
+	for _, action := range plan.Actions {
+		if action.CandidatePath != "" {
+			expectedCandidates = append(expectedCandidates, action.CandidatePath)
+		}
+		if !mutableSyncState(action.State) && action.State != SyncUnchanged {
+			expectedIssues = append(expectedIssues, action.Path+": "+action.Reason)
+		}
+	}
+	sort.Strings(expectedCandidates)
+	sort.Strings(expectedIssues)
+	if !equalStrings(plan.Candidates, expectedCandidates) {
+		return fmt.Errorf("repository sync candidates do not match action candidates")
+	}
+	if !equalStrings(plan.BlockingIssues, expectedIssues) {
+		return fmt.Errorf("repository sync blocking issues do not match non-mutable actions")
 	}
 	digest, err := computeSyncPlanDigest(plan)
 	if err != nil {
@@ -314,6 +413,109 @@ func ValidateSyncPlan(plan *SyncPlan) error {
 		return fmt.Errorf("repository sync plan digest mismatch")
 	}
 	return nil
+}
+
+func validateSyncActionContract(action SyncAction) error {
+	require := func(value, field string) error {
+		if value == "" {
+			return fmt.Errorf("repository sync action %s requires %s", action.Path, field)
+		}
+		return nil
+	}
+	forbidCandidate := func() error {
+		if action.CandidatePath != "" {
+			return fmt.Errorf("repository sync action %s must not contain a candidate", action.Path)
+		}
+		return nil
+	}
+	switch action.State {
+	case SyncUnchanged:
+		if err := require(action.DesiredSHA256, "desired_sha256"); err != nil {
+			return err
+		}
+		return forbidCandidate()
+	case SyncReplaceOwned, SyncUpdateManagedBlock:
+		for _, field := range []struct {
+			name  string
+			value string
+		}{
+			{name: "current_sha256", value: action.CurrentSHA256},
+			{name: "receipt_sha256", value: action.ReceiptSHA256},
+			{name: "desired_sha256", value: action.DesiredSHA256},
+		} {
+			if err := require(field.value, field.name); err != nil {
+				return err
+			}
+		}
+		return forbidCandidate()
+	case SyncCreateOwned:
+		if action.CurrentSHA256 != "" {
+			return fmt.Errorf("repository sync create action %s must not contain current_sha256", action.Path)
+		}
+		if err := require(action.DesiredSHA256, "desired_sha256"); err != nil {
+			return err
+		}
+		return forbidCandidate()
+	case SyncUserDrift, SyncManualReview:
+		if err := require(action.CandidatePath, "candidate_path"); err != nil {
+			return err
+		}
+		if action.CandidatePath != syncCandidatePath(action) {
+			return fmt.Errorf("repository sync action %s candidate identity is invalid", action.Path)
+		}
+	case SyncOrphanedLegacy:
+		if err := require(action.ReceiptSHA256, "receipt_sha256"); err != nil {
+			return err
+		}
+		if action.DesiredSHA256 != "" {
+			return fmt.Errorf("repository sync orphan action %s must not contain desired_sha256", action.Path)
+		}
+		return forbidCandidate()
+	case SyncIncompatible:
+		return forbidCandidate()
+	}
+	return nil
+}
+
+func validGitObjectID(value string) bool {
+	if len(value) != 40 && len(value) != 64 {
+		return false
+	}
+	if value != strings.ToLower(value) {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
+
+func syncMigrationLess(left, right SyncMigration) bool {
+	if left.Path != right.Path {
+		return left.Path < right.Path
+	}
+	if left.Kind != right.Kind {
+		return left.Kind < right.Kind
+	}
+	if left.From != right.From {
+		return left.From < right.From
+	}
+	return left.To < right.To
+}
+
+func syncActionPathExists(actions []SyncAction, path string) bool {
+	index := sort.Search(len(actions), func(index int) bool { return actions[index].Path >= path })
+	return index < len(actions) && actions[index].Path == path
+}
+
+func equalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func encodeSyncPlan(plan *SyncPlan) ([]byte, error) {
@@ -375,6 +577,19 @@ func selectionFromRepositoryReceipt(receipt *RepositoryReceipt, productVersion s
 		Profile: receipt.Profile, Packs: packNames(receipt.PolicyPacks),
 		Hooks: append([]string{}, receipt.Hooks...),
 	}
+	binary, targetOS, targetArch, err := repositoryBinaryOwnership(receipt)
+	if err != nil {
+		return Selection{}, err
+	}
+	if binary != nil && targetOS == runtime.GOOS && targetArch == runtime.GOARCH {
+		selection.Binary, err = CurrentBinarySelection()
+		if err != nil {
+			return Selection{}, fmt.Errorf("select running binary for repository sync: %w", err)
+		}
+	}
+	if len(receipt.HarnessPacks) == 0 {
+		return selection, nil
+	}
 	return attachHarnessPacks(selection, productVersion)
 }
 
@@ -384,19 +599,6 @@ func packNames(identities []PolicyPackIdentity) []string {
 		names[index] = identity.Name
 	}
 	return names
-}
-
-func captureOptionalGitSnapshot(root string) (*commandproof.Snapshot, error) {
-	if _, err := os.Lstat(filepath.Join(root, ".git")); os.IsNotExist(err) {
-		return nil, nil
-	} else if err != nil {
-		return nil, fmt.Errorf("inspect Git metadata for repository sync: %w", err)
-	}
-	snapshot, err := commandproof.CaptureCurrent(root)
-	if err != nil {
-		return nil, fmt.Errorf("capture repository sync Git snapshot: %w", err)
-	}
-	return &snapshot, nil
 }
 
 func planSyncArtifact(root string, artifact desiredArtifact, owned ManagedFile, block ManagedBlock) (SyncAction, error) {
@@ -482,7 +684,127 @@ func planSyncArtifact(root string, artifact desiredArtifact, owned ManagedFile, 
 	return action, nil
 }
 
-func planPolicyLockMigration(root string, receipt *RepositoryReceipt) (*SyncAction, []SyncMigration, error) {
+func repositoryBinaryOwnership(receipt *RepositoryReceipt) (*ManagedFile, string, string, error) {
+	var owned *ManagedFile
+	for index := range receipt.ManagedFiles {
+		file := &receipt.ManagedFiles[index]
+		if file.Component != "binary" && !strings.HasPrefix(file.Component, "binary@") {
+			continue
+		}
+		if owned != nil {
+			return nil, "", "", fmt.Errorf("repository receipt owns more than one Reconc binary")
+		}
+		copy := *file
+		owned = &copy
+	}
+	if owned == nil {
+		return nil, "", "", nil
+	}
+	for _, platform := range []struct {
+		os   string
+		arch string
+	}{
+		{os: "darwin", arch: "amd64"},
+		{os: "darwin", arch: "arm64"},
+		{os: "linux", arch: "amd64"},
+		{os: "linux", arch: "arm64"},
+		{os: "windows", arch: "amd64"},
+	} {
+		name, err := StableBinaryName(platform.os, platform.arch)
+		if err != nil {
+			return nil, "", "", err
+		}
+		if owned.Path == filepath.ToSlash(filepath.Join("tools", "reconc", "dist", name)) {
+			return owned, platform.os, platform.arch, nil
+		}
+	}
+	return nil, "", "", fmt.Errorf("repository receipt binary path is not a supported stable artifact: %s", owned.Path)
+}
+
+func binaryApprovedForProduct(file ManagedFile, productVersion string) bool {
+	return file.Component == "binary@"+productVersion
+}
+
+func planApprovedCrossPlatformBinary(root string, owned ManagedFile, productVersion string) (SyncAction, error) {
+	action := SyncAction{
+		Component: "binary", Path: owned.Path, Mode: owned.Mode,
+		ReceiptSHA256: owned.SHA256, DesiredSHA256: owned.SHA256,
+		Reason: "checksum-pinned cross-platform binary was explicitly approved for reconc " + productVersion,
+	}
+	target, err := safeBootstrapTarget(root, owned.Path)
+	if err != nil {
+		return SyncAction{}, err
+	}
+	info, err := os.Lstat(target)
+	if os.IsNotExist(err) {
+		action.State = SyncIncompatible
+		action.DesiredSHA256 = ""
+		action.Reason = "approved cross-platform binary is missing; repeat the checksum-pinned use-binary resolution"
+		return action, nil
+	}
+	if err != nil {
+		return SyncAction{}, fmt.Errorf("inspect approved cross-platform binary: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		action.State = SyncIncompatible
+		action.DesiredSHA256 = ""
+		action.Reason = "approved cross-platform binary is not a real regular file; repeat the checksum-pinned use-binary resolution"
+		return action, nil
+	}
+	body, err := readRepositoryRegularFile(root, owned.Path)
+	if err != nil {
+		return SyncAction{}, err
+	}
+	action.CurrentSHA256 = bytesSHA256(body)
+	action.CurrentMode = uint32(info.Mode().Perm())
+	if action.CurrentSHA256 != owned.SHA256 || !modeSatisfies(info.Mode(), owned.Mode) {
+		action.State = SyncIncompatible
+		action.DesiredSHA256 = ""
+		action.Reason = "approved cross-platform binary has drifted; repeat the checksum-pinned use-binary resolution"
+		return action, nil
+	}
+	action.State = SyncUnchanged
+	return action, nil
+}
+
+func planCrossPlatformBinary(root string, owned ManagedFile, targetOS, targetArch string) (SyncAction, error) {
+	action := SyncAction{
+		Component: "binary", Path: owned.Path, Mode: owned.Mode,
+		State: SyncIncompatible, ReceiptSHA256: owned.SHA256,
+		Reason: fmt.Sprintf(
+			"running on %s/%s cannot supply the receipt-owned %s/%s binary; use a checksum-pinned artifact with `reconc repo sync resolve --plan PLAN --digest DIGEST --path %s --strategy use-binary --binary PATH --checksum SHA256 --platform %s/%s`",
+			runtime.GOOS, runtime.GOARCH, targetOS, targetArch, quoteBootstrapArgument(owned.Path), targetOS, targetArch,
+		),
+	}
+	target, err := safeBootstrapTarget(root, owned.Path)
+	if err != nil {
+		return SyncAction{}, err
+	}
+	info, err := os.Lstat(target)
+	if os.IsNotExist(err) {
+		action.Reason = "receipt-owned cross-platform binary is missing; " + action.Reason
+		return action, nil
+	}
+	if err != nil {
+		return SyncAction{}, fmt.Errorf("inspect receipt-owned cross-platform binary: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		action.Reason = "receipt-owned cross-platform binary is not a real regular file; " + action.Reason
+		return action, nil
+	}
+	body, err := readRepositoryRegularFile(root, owned.Path)
+	if err != nil {
+		return SyncAction{}, err
+	}
+	action.CurrentSHA256 = bytesSHA256(body)
+	action.CurrentMode = uint32(info.Mode().Perm())
+	if action.CurrentSHA256 != owned.SHA256 || !modeSatisfies(info.Mode(), owned.Mode) {
+		action.Reason = "receipt-owned cross-platform binary has drifted; " + action.Reason
+	}
+	return action, nil
+}
+
+func planPolicyLockMigration(root string, receipt *RepositoryReceipt, productVersion string) (*SyncAction, []SyncMigration, error) {
 	var generated GeneratedArtifact
 	for _, artifact := range receipt.GeneratedArtifacts {
 		if artifact.Path == ".reconc/policy.lock.json" {
@@ -497,14 +819,19 @@ func planPolicyLockMigration(root string, receipt *RepositoryReceipt) (*SyncActi
 		Component: "policy-lock", Path: generated.Path, Mode: 0o644,
 		ReceiptSHA256: generated.SHA256,
 	}
+	_, desired, err := compiler.RenderRepoPolicy(root, productVersion)
+	if err != nil {
+		return nil, nil, fmt.Errorf("compile receipt-owned generated policy lock in memory: %w", err)
+	}
+	action.DesiredSHA256 = bytesSHA256(desired)
 	target, err := safeBootstrapTarget(root, generated.Path)
 	if err != nil {
 		return nil, nil, err
 	}
 	info, err := os.Lstat(target)
 	if os.IsNotExist(err) {
-		action.State = SyncManualReview
-		action.Reason = "receipt-owned generated policy lock is missing; run reconc compile in the repository, verify it, then rebuild the sync plan"
+		action.State = SyncCreateOwned
+		action.Reason = "receipt-owned generated policy lock is missing and can be rebuilt from the current registered policy sources"
 		return action, []SyncMigration{}, nil
 	}
 	if err != nil {
@@ -527,27 +854,24 @@ func planPolicyLockMigration(root string, receipt *RepositoryReceipt) (*SyncActi
 		action.CandidatePath = syncCandidatePath(*action)
 		return action, []SyncMigration{}, nil
 	}
-	migratedBody, migrations, err := migratePolicyLockBytes(body)
-	if err != nil {
-		action.State = SyncIncompatible
-		action.Reason = err.Error()
+	if action.CurrentSHA256 == action.DesiredSHA256 && modeSatisfies(info.Mode(), 0o644) {
+		action.State = SyncUnchanged
+		action.Reason = "generated policy lock matches the current registered policy sources and compiler"
 		return action, []SyncMigration{}, nil
 	}
-	action.DesiredSHA256 = bytesSHA256(migratedBody)
-	planned := make([]SyncMigration, len(migrations))
-	for index, migration := range migrations {
-		planned[index] = SyncMigration{
-			Kind: "policy-lock", From: migration.FromVersion,
-			To: migration.ToVersion, Path: generated.Path,
+	planned := []SyncMigration{}
+	if migratedBody, migrations, migrationErr := migratePolicyLockBytes(body); migrationErr == nil &&
+		bytes.Equal(migratedBody, desired) {
+		planned = make([]SyncMigration, len(migrations))
+		for index, migration := range migrations {
+			planned[index] = SyncMigration{
+				Kind: "policy-lock", From: migration.FromVersion,
+				To: migration.ToVersion, Path: generated.Path,
+			}
 		}
 	}
-	if len(planned) == 0 {
-		action.State = SyncUnchanged
-		action.Reason = "generated policy lock uses the current registered format"
-		return action, planned, nil
-	}
 	action.State = SyncReplaceOwned
-	action.Reason = "registered policy-lock migrations can replace the exact generated artifact"
+	action.Reason = "receipt-owned generated policy can be deterministically rebuilt from the current registered sources"
 	return action, planned, nil
 }
 

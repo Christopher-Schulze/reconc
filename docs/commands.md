@@ -32,23 +32,6 @@ Everything below is the full automation and diagnostic surface.
 - `1` runtime or input error
 - `2` at least one blocking policy violation
 
-## Product demo
-
-### `reconc demo [--keep] [--json]`
-Run the complete product journey against a newly created, isolated local Git
-repository. The current Reconc binary compiles a real policy, blocks an
-out-of-scope write, blocks missing test proof, emits the persisted `next`
-remediation, executes `git diff --check`, records the corrected decision, and
-verifies the evidence-complete `done` report, and exports the same candidate as
-a portable proof bundle. The command performs no network
-calls and uses no LLM or private repository data.
-
-The temporary workspace is removed by default. `--keep` preserves it and
-prints its exact path. `--json` emits the versioned result including every
-step command, exit code, decision, duration, proof artifact path and SHA-256,
-completion and proof-bundle digests, cleanup state, and final self-digest. Exit 0 means the real
-journey passed; exit 1 includes a failed, still self-digested result.
-
 ## Environment
 
 Runtime:
@@ -235,26 +218,89 @@ the immutable policy and harness packs embedded in the running binary. The plan
 binds the canonical repository, current and target product identities, receipt
 digest, optional Git snapshot, exact current/receipt/desired hashes, pack
 digests, migrations, action states, candidates, blocking issues, and its own
-SHA-256 digest. It is read-only unless `--output` is supplied. Output is
-create-only; `--replace-output` replaces only a valid sync plan for the same
-repository.
+SHA-256 digest. Current and target policy and harness pack identities are
+separate fields, so a reviewer sees the real pack delta rather than only a
+target.
+
+Planning is repository-read-only unless `--output` is supplied. It takes no
+compile lock, writes no policy lock, audit record, command proof, Git lock, or
+Git object, and sanitizes ambient `GIT_*` variables. The staged-index tree is
+computed through an ephemeral object database that can read the repository
+object database only as an alternate. A second snapshot must match the first
+or planning fails as raced. `--output` is create-only;
+`--replace-output` replaces only a strict sync plan for the same canonical
+repository. Text output omits unchanged action rows, reports their count, and
+ends in exactly one command that saves, applies, or resolves the plan. JSON
+contains every action and identity.
 
 ### `reconc repo sync apply --plan PATH --digest SHA256 [--json]`
 Apply one reviewed sync plan only when `--digest` exactly matches the plan and
 the running product, repository, Git state, receipt, files, managed blocks, and
 embedded pack bytes still match every saved precondition. Apply serializes
-with init and removal, mutates only `replace-owned`,
-`update-managed-block`, and `create-owned` actions, runs only registered policy
-lock migrations, atomically advances the portable receipt, and verifies the
-complete result. Any failure rolls back already changed owned bytes whose
-post-write identity still matches. `user-drift`, `orphaned-legacy`,
-`incompatible`, and `manual-review` are explicit non-mutating blockers.
+with init, direct bootstrap apply, resolution, recovery, and removal; mutates
+only `replace-owned`, `update-managed-block`, and `create-owned` actions; and
+atomically advances the portable receipt. Receipt-owned generated policy is
+compiled into exact bytes in memory, including when the old lock is missing or
+not a registered migration input. Source and receipt preconditions still
+decide whether publication is allowed.
+
+Before the first target mutation, apply writes the bounded strict
+`.reconc/repository-sync-transaction.json` journal with exact before-image
+bytes, before and after hashes and modes, created-path state, plan/product
+identity, and a self-digest. The complete result must pass receipt, pack,
+binary, artifact, generated policy, and hook verification before the journal
+is removed. A normal failure rolls back exact after-images immediately.
+Process interruption leaves the journal for explicit recovery.
+`user-drift`, `orphaned-legacy`, `incompatible`, and `manual-review` are
+non-mutating blockers.
+
+### `reconc repo sync resolve --plan PATH --digest SHA256 --path RELATIVE --strategy keep-current|use-target|use-binary [--binary PATH --checksum SHA256 --platform OS/ARCH] [--json]`
+Resolve exactly one non-mutable action from the reviewed plan. Resolution
+requires the exact saved digest, re-plans under the repository lock, and writes
+the portable receipt plus any selected bytes through the same durable sync
+journal.
+
+- `keep-current` preserves the current bytes, records the path as user-owned,
+  and releases the matching Reconc component. A hook resolution releases its
+  hook and activation ownership; a harness resolution removes the matching
+  harness-pack identity. An invalid generated policy lock cannot be retained.
+- `use-target` publishes the exact in-memory target bytes already bound by the
+  plan and adopts them into the receipt.
+- `use-binary` is only for a receipt-owned binary that the current platform
+  cannot produce. `--binary`, lowercase exact `--checksum`, and
+  `--platform OS/ARCH` are mandatory together. Reconc verifies the bounded
+  regular file and stable target name before publication.
+
+The resolution advances ownership evidence, not the product version. Its next
+action is always a fresh sync plan; the final full apply normalizes an approved
+cross-platform binary back to normal binary ownership.
+
+### `reconc repo sync recover [repo] [--json]`
+Recover one interrupted sync or blocker-resolution journal under the shared
+repository lock. No journal returns `clean`. An exact complete after-image is
+verified and returns `finalized`; a complete before-image or an exact mixture
+of before and after images is restored and returns `rolled-back`. Any malformed
+journal, changed path, unexpected type, checksum, mode, repository identity, or
+self-digest returns `refused`, leaves the journal and external bytes intact,
+and exits 1.
+
+Recovery is idempotent. It removes only exact transaction-created files and
+restores only exact transaction after-images. Empty parent directories are
+preserved because their identity cannot be proven across a process crash.
+While a journal exists, init, bootstrap apply, sync plan/apply/resolve/verify,
+and removal fail closed with this exact recovery command.
 
 ### `reconc repo sync verify [repo] [--json]`
 Read-only verification of the strict portable receipt, product version,
 receipt-owned file hashes and modes, marker-delimited managed bytes, generated
-artifacts, policy-lock freshness, and selected hook configuration. It never
-repairs drift. A failed check exits 1 and reports one exact next action.
+artifacts, policy-lock freshness, selected hook configuration, embedded policy
+and harness pack identities, and receipt-owned binary identity. A same-platform
+owned binary must match the exact running executable. A cross-platform owned
+binary is checksum-verified against the receipt and reported with both target
+and running platforms. It never repairs drift. A pending sync journal returns
+one failed recovery check. Any failed check exits 1 and reports one exact next
+action; text prints failures plus aggregate pass/fail counts, while JSON
+retains every check.
 
 ### `reconc bootstrap verify --plan PATH [--json]`
 Read-only verification of every selected artifact hash and mode, candidate

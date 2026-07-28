@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -182,6 +183,306 @@ func TestRepositorySyncCapturesGitAndVerifiesConfiguredHook(t *testing.T) {
 	if err != nil || verification.Valid {
 		t.Fatalf("missing hook verification = %+v err=%v", verification, err)
 	}
+}
+
+func TestRepositorySyncGitPlanIsHermeticAndReadOnly(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo"+string(os.PathListSeparator)+"with space")
+	stateHome := t.TempDir()
+	t.Setenv("RECONC_HOME", stateHome)
+	command := exec.Command("git", "init", repo)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, output)
+	}
+	report, err := Initialize(InitRequest{
+		RepoRoot: repo, Profile: ProfileGoverned, NoHooks: true,
+	}, syncTestVersion)
+	if err != nil || report.Status != InitComplete {
+		t.Fatalf("initialize Git repository: %+v err=%v", report, err)
+	}
+	gitObjectsBefore := snapshotRegularFiles(t, filepath.Join(repo, ".git", "objects"))
+	stateBefore := snapshotRegularFiles(t, stateHome)
+
+	decoy := t.TempDir()
+	t.Setenv("GIT_DIR", filepath.Join(decoy, ".git"))
+	t.Setenv("GIT_WORK_TREE", decoy)
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(decoy, "index"))
+	plan, err := BuildSyncPlan(repo, syncTestVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.GitSnapshot == nil || plan.GitSnapshot.RepoRoot != report.RepoRoot ||
+		strings.TrimSpace(plan.GitSnapshot.IndexTree) == "" {
+		t.Fatalf("hermetic Git snapshot = %+v", plan.GitSnapshot)
+	}
+	if got := snapshotRegularFiles(t, filepath.Join(repo, ".git", "objects")); !equalStringMaps(gitObjectsBefore, got) {
+		t.Fatalf("sync planning changed the repository object database\nbefore=%v\nafter=%v", gitObjectsBefore, got)
+	}
+	if got := snapshotRegularFiles(t, stateHome); !equalStringMaps(stateBefore, got) {
+		t.Fatalf("sync planning changed persistent Reconc state\nbefore=%v\nafter=%v", stateBefore, got)
+	}
+	if got := snapshotRegularFiles(t, decoy); len(got) != 0 {
+		t.Fatalf("ambient Git environment redirected planning into decoy state: %v", got)
+	}
+}
+
+func TestRepositorySyncPreservesAndAdvancesOwnedBinary(t *testing.T) {
+	repo := t.TempDir()
+	t.Setenv("RECONC_HOME", t.TempDir())
+	running, err := CurrentBinarySelection()
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := BuildPlan(Request{
+		RepoRoot: repo, Profile: ProfileMinimal, Binary: running,
+	}, syncTestVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report, err := Apply(plan, syncTestVersion); err != nil || report.Status != ApplyComplete {
+		t.Fatalf("initialize binary fixture = %+v err=%v", report, err)
+	}
+	receipt, err := LoadRepositoryReceipt(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary, _, _, err := repositoryBinaryOwnership(receipt)
+	if err != nil || binary == nil {
+		t.Fatalf("binary ownership = %+v err=%v", binary, err)
+	}
+	target := filepath.Join(repo, filepath.FromSlash(binary.Path))
+	old := []byte("old receipt-owned binary\n")
+	if err := os.WriteFile(target, old, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for index := range receipt.ManagedFiles {
+		if receipt.ManagedFiles[index].Path == binary.Path {
+			receipt.ManagedFiles[index].SHA256 = bytesSHA256(old)
+		}
+	}
+	rewriteTestReceipt(t, repo, receipt, "0.8.8")
+
+	syncPlan, err := BuildSyncPlan(repo, syncTestVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	action := syncActionForPath(t, syncPlan, binary.Path)
+	if action.State != SyncReplaceOwned || action.DesiredSHA256 != running.SHA256 {
+		t.Fatalf("owned binary sync action = %+v", action)
+	}
+	report, err := ApplySyncPlan(syncPlan, syncPlan.PlanDigest, syncTestVersion)
+	if err != nil || report.Status != SyncComplete {
+		t.Fatalf("apply owned binary sync = %+v err=%v", report, err)
+	}
+	verification, err := VerifyRepository(repo, syncTestVersion)
+	if err != nil || !verification.Valid {
+		t.Fatalf("verify owned binary = %+v err=%v", verification, err)
+	}
+	body, err := os.ReadFile(target)
+	if err != nil || bytesSHA256(body) != running.SHA256 {
+		t.Fatalf("owned binary was not advanced: digest=%s err=%v", bytesSHA256(body), err)
+	}
+}
+
+func TestRepositorySyncRequiresPinnedCrossPlatformBinary(t *testing.T) {
+	repo := t.TempDir()
+	t.Setenv("RECONC_HOME", t.TempDir())
+	running, err := CurrentBinarySelection()
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := BuildPlan(Request{
+		RepoRoot: repo, Profile: ProfileMinimal, Binary: running,
+	}, syncTestVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report, err := Apply(plan, syncTestVersion); err != nil || report.Status != ApplyComplete {
+		t.Fatalf("initialize binary fixture = %+v err=%v", report, err)
+	}
+	receipt, err := LoadRepositoryReceipt(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary, _, _, err := repositoryBinaryOwnership(receipt)
+	if err != nil || binary == nil {
+		t.Fatalf("binary ownership = %+v err=%v", binary, err)
+	}
+	targetOS := "linux"
+	if runtime.GOOS == "linux" {
+		targetOS = "darwin"
+	}
+	targetArch := "amd64"
+	name, err := StableBinaryName(targetOS, targetArch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	crossPath := filepath.ToSlash(filepath.Join("tools", "reconc", "dist", name))
+	if err := os.Rename(
+		filepath.Join(repo, filepath.FromSlash(binary.Path)),
+		filepath.Join(repo, filepath.FromSlash(crossPath)),
+	); err != nil {
+		t.Fatal(err)
+	}
+	for index := range receipt.ManagedFiles {
+		if receipt.ManagedFiles[index].Path == binary.Path {
+			receipt.ManagedFiles[index].Path = crossPath
+		}
+	}
+	normalizeRepositoryReceipt(receipt)
+	rewriteTestReceipt(t, repo, receipt, "0.8.8")
+
+	syncPlan, err := BuildSyncPlan(repo, syncTestVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	action := syncActionForPath(t, syncPlan, crossPath)
+	if action.State != SyncIncompatible ||
+		!strings.Contains(action.Reason, "--strategy use-binary") ||
+		!strings.Contains(action.Reason, "--checksum SHA256") ||
+		len(syncPlan.BlockingIssues) == 0 {
+		t.Fatalf("cross-platform binary action = %+v issues=%v", action, syncPlan.BlockingIssues)
+	}
+	unvalidated := &BinarySelection{
+		SourcePath: t.TempDir(), SHA256: strings.Repeat("a", 64),
+		OS: targetOS, Arch: targetArch,
+	}
+	refused, err := ResolveRepositorySync(SyncResolutionRequest{
+		Plan: syncPlan, ExactDigest: syncPlan.PlanDigest, Path: crossPath,
+		Strategy: SyncUseBinary, Binary: unvalidated,
+	}, syncTestVersion)
+	if err == nil || refused.Status != SyncRefused ||
+		!strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("unvalidated binary resolution = %+v err=%v", refused, err)
+	}
+	source := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(source, []byte("checksum-pinned cross-platform target\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pinned, err := BinarySelectionFor(source, "", targetOS, targetArch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolution, err := ResolveRepositorySync(SyncResolutionRequest{
+		Plan: syncPlan, ExactDigest: syncPlan.PlanDigest, Path: crossPath,
+		Strategy: SyncUseBinary, Binary: pinned,
+	}, syncTestVersion)
+	if err != nil || resolution.Status != SyncComplete {
+		t.Fatalf("resolve cross-platform binary = %+v err=%v", resolution, err)
+	}
+	approved, err := BuildSyncPlan(repo, syncTestVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if action := syncActionForPath(t, approved, crossPath); action.State != SyncUnchanged ||
+		len(approved.BlockingIssues) != 0 {
+		t.Fatalf("approved cross-platform binary = %+v issues=%v", action, approved.BlockingIssues)
+	}
+	report, err := ApplySyncPlan(approved, approved.PlanDigest, syncTestVersion)
+	if err != nil || report.Status != SyncComplete {
+		t.Fatalf("complete cross-platform sync = %+v err=%v", report, err)
+	}
+	finalReceipt, err := LoadRepositoryReceipt(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalBinary, _, _, err := repositoryBinaryOwnership(finalReceipt)
+	if err != nil || finalBinary == nil || finalBinary.Component != "binary" ||
+		finalBinary.SHA256 != pinned.SHA256 {
+		t.Fatalf("final cross-platform binary ownership = %+v err=%v", finalBinary, err)
+	}
+}
+
+func TestRepositoryVerificationBindsEmbeddedPackIdentities(t *testing.T) {
+	t.Run("policy pack", func(t *testing.T) {
+		repo, receipt := initializeSyncFixture(t, ProfileGoverned)
+		receipt.PolicyPacks[0].Digest = strings.Repeat("a", 64)
+		rewriteTestReceipt(t, repo, receipt, syncTestVersion)
+		verification, err := VerifyRepository(repo, syncTestVersion)
+		if err != nil || verification.Valid || !hasFailedCheck(verification.Checks, "policy-packs") {
+			t.Fatalf("policy pack identity verification = %+v err=%v", verification, err)
+		}
+	})
+	t.Run("harness pack", func(t *testing.T) {
+		repo, receipt := initializeSyncFixture(t, ProfileAdvanced)
+		receipt.HarnessPacks[0].Digest = strings.Repeat("b", 64)
+		rewriteTestReceipt(t, repo, receipt, syncTestVersion)
+		verification, err := VerifyRepository(repo, syncTestVersion)
+		if err != nil || verification.Valid || !hasFailedCheck(verification.Checks, "harness-packs") {
+			t.Fatalf("harness pack identity verification = %+v err=%v", verification, err)
+		}
+	})
+}
+
+func TestRepositorySyncResolvesDriftWithExplicitStrategies(t *testing.T) {
+	t.Run("use target", func(t *testing.T) {
+		repo, receipt := initializeSyncFixture(t, ProfileAdvanced)
+		managed := receipt.ManagedFiles[firstHarnessManagedFile(t, receipt)]
+		target := filepath.Join(repo, filepath.FromSlash(managed.Path))
+		if err := os.WriteFile(target, []byte("user drift\n"), os.FileMode(managed.Mode)); err != nil {
+			t.Fatal(err)
+		}
+		plan, err := BuildSyncPlan(repo, syncTestVersion)
+		if err != nil {
+			t.Fatal(err)
+		}
+		action := syncActionForPath(t, plan, managed.Path)
+		if action.State != SyncUserDrift {
+			t.Fatalf("drift action = %+v", action)
+		}
+		report, err := ResolveRepositorySync(SyncResolutionRequest{
+			Plan: plan, ExactDigest: plan.PlanDigest, Path: managed.Path,
+			Strategy: SyncUseTarget,
+		}, syncTestVersion)
+		if err != nil || report.Status != SyncComplete {
+			t.Fatalf("use-target resolution = %+v err=%v", report, err)
+		}
+		updated, err := BuildSyncPlan(repo, syncTestVersion)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolved := syncActionForPath(t, updated, managed.Path); resolved.State != SyncUnchanged {
+			t.Fatalf("resolved target action = %+v", resolved)
+		}
+	})
+	t.Run("keep current component", func(t *testing.T) {
+		repo, receipt := initializeSyncFixture(t, ProfileAdvanced)
+		managed := receipt.ManagedFiles[firstHarnessManagedFile(t, receipt)]
+		target := filepath.Join(repo, filepath.FromSlash(managed.Path))
+		drift := []byte("preserved user-owned drift\n")
+		if err := os.WriteFile(target, drift, os.FileMode(managed.Mode)); err != nil {
+			t.Fatal(err)
+		}
+		plan, err := BuildSyncPlan(repo, syncTestVersion)
+		if err != nil {
+			t.Fatal(err)
+		}
+		report, err := ResolveRepositorySync(SyncResolutionRequest{
+			Plan: plan, ExactDigest: plan.PlanDigest, Path: managed.Path,
+			Strategy: SyncKeepCurrent,
+		}, syncTestVersion)
+		if err != nil || report.Status != SyncComplete {
+			t.Fatalf("keep-current resolution = %+v err=%v", report, err)
+		}
+		updatedReceipt, err := LoadRepositoryReceipt(repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(updatedReceipt.HarnessPacks) != 0 ||
+			!containsString(updatedReceipt.UserOwnedPaths, managed.Path) {
+			t.Fatalf("released harness ownership = %+v", updatedReceipt)
+		}
+		updatedPlan, err := BuildSyncPlan(repo, syncTestVersion)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, exists := syncActionByPath(updatedPlan.Actions, managed.Path); exists {
+			t.Fatalf("user-owned path remained in sync plan: %+v", updatedPlan.Actions)
+		}
+		after, err := os.ReadFile(target)
+		if err != nil || !bytes.Equal(after, drift) {
+			t.Fatalf("keep-current changed user bytes: %q err=%v", after, err)
+		}
+	})
 }
 
 func TestRepositorySyncReplacesOnlyExactOwnedBytes(t *testing.T) {
@@ -370,6 +671,349 @@ func TestRepositorySyncRollsBackCreatedOwnedArtifact(t *testing.T) {
 	if _, err := os.Stat(target); !os.IsNotExist(err) {
 		t.Fatalf("created artifact survived rollback: %v", err)
 	}
+}
+
+func TestRepositorySyncRecoversInterruptedTransaction(t *testing.T) {
+	repo, receipt := initializeSyncFixture(t, ProfileAdvanced)
+	index := firstHarnessManagedFile(t, receipt)
+	managed := receipt.ManagedFiles[index]
+	target := filepath.Join(repo, filepath.FromSlash(managed.Path))
+	before := []byte("interrupted-before\n")
+	if err := os.WriteFile(target, before, os.FileMode(managed.Mode)); err != nil {
+		t.Fatal(err)
+	}
+	receipt.ManagedFiles[index].SHA256 = bytesSHA256(before)
+	rewriteTestReceipt(t, repo, receipt, "0.8.8")
+	plan, err := BuildSyncPlan(repo, syncTestVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := applySyncPlan(
+		plan, plan.PlanDigest, syncTestVersion,
+		syncApplyOptions{interruptAfter: 1},
+	)
+	if err == nil || !errors.Is(err, errRepositorySyncInterrupted) ||
+		report.NextAction != "reconc repo sync recover "+quoteBootstrapArgument(report.RepoRoot) {
+		t.Fatalf("interrupted sync = %+v err=%v", report, err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(repositorySyncTransactionRelativePath))); err != nil {
+		t.Fatalf("interrupted sync journal: %v", err)
+	}
+	if _, err := BuildSyncPlan(repo, syncTestVersion); err == nil || !strings.Contains(err.Error(), "sync recover") {
+		t.Fatalf("pending journal did not block planning: %v", err)
+	}
+	verification, err := VerifyRepository(repo, syncTestVersion)
+	if err != nil || verification.Valid || !strings.Contains(verification.NextAction, "sync recover") {
+		t.Fatalf("pending journal verification = %+v err=%v", verification, err)
+	}
+
+	recovery, err := RecoverRepositorySync(repo)
+	if err != nil || recovery.Status != SyncRecoveryRolledBack {
+		t.Fatalf("recover interrupted sync = %+v err=%v", recovery, err)
+	}
+	after, err := os.ReadFile(target)
+	if err != nil || !bytes.Equal(after, before) {
+		t.Fatalf("recovered target = %q err=%v", after, err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(repositorySyncTransactionRelativePath))); !os.IsNotExist(err) {
+		t.Fatalf("recovery journal survived rollback: %v", err)
+	}
+	clean, err := RecoverRepositorySync(repo)
+	if err != nil || clean.Status != SyncRecoveryClean {
+		t.Fatalf("idempotent recovery = %+v err=%v", clean, err)
+	}
+}
+
+func TestRepositorySyncRecoveryFinalizesCompleteAfterImage(t *testing.T) {
+	repo, receipt := initializeSyncFixture(t, ProfileAdvanced)
+	index := firstHarnessManagedFile(t, receipt)
+	managed := receipt.ManagedFiles[index]
+	target := filepath.Join(repo, filepath.FromSlash(managed.Path))
+	before := []byte("finalize-before\n")
+	if err := os.WriteFile(target, before, os.FileMode(managed.Mode)); err != nil {
+		t.Fatal(err)
+	}
+	receipt.ManagedFiles[index].SHA256 = bytesSHA256(before)
+	rewriteTestReceipt(t, repo, receipt, "0.8.8")
+	plan, err := BuildSyncPlan(repo, syncTestVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutationCount := 1
+	for _, action := range plan.Actions {
+		if mutableSyncState(action.State) {
+			mutationCount++
+		}
+	}
+	_, err = applySyncPlan(
+		plan, plan.PlanDigest, syncTestVersion,
+		syncApplyOptions{interruptAfter: mutationCount},
+	)
+	if err == nil || !errors.Is(err, errRepositorySyncInterrupted) {
+		t.Fatalf("complete-after interruption error = %v", err)
+	}
+	recovery, err := RecoverRepositorySync(repo)
+	if err != nil || recovery.Status != SyncRecoveryFinalized ||
+		len(recovery.Verification) == 0 {
+		t.Fatalf("finalize complete after-image = %+v err=%v", recovery, err)
+	}
+	updatedReceipt, err := LoadRepositoryReceipt(repo)
+	if err != nil || updatedReceipt.ProductVersion != syncTestVersion {
+		t.Fatalf("finalized receipt = %+v err=%v", updatedReceipt, err)
+	}
+	after, err := os.ReadFile(target)
+	if err != nil || bytes.Equal(after, before) {
+		t.Fatalf("finalized target was not advanced: %q err=%v", after, err)
+	}
+}
+
+func TestRepositorySyncRecoveryFinalizesInterruptedResolution(t *testing.T) {
+	repo, receipt := initializeSyncFixture(t, ProfileAdvanced)
+	managed := receipt.ManagedFiles[firstHarnessManagedFile(t, receipt)]
+	target := filepath.Join(repo, filepath.FromSlash(managed.Path))
+	if err := os.WriteFile(target, []byte("resolution drift\n"), os.FileMode(managed.Mode)); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := BuildSyncPlan(repo, syncTestVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := resolveRepositorySync(SyncResolutionRequest{
+		Plan: plan, ExactDigest: plan.PlanDigest, Path: managed.Path,
+		Strategy: SyncUseTarget,
+	}, syncTestVersion, syncResolutionOptions{interruptAfter: 2})
+	if err == nil || !errors.Is(err, errRepositorySyncInterrupted) ||
+		report.Status != SyncRefused ||
+		report.NextAction != "reconc repo sync recover "+quoteBootstrapArgument(plan.RepoRoot) {
+		t.Fatalf("interrupted resolution = %+v err=%v", report, err)
+	}
+	if _, err := BuildSyncPlan(repo, syncTestVersion); err == nil ||
+		!strings.Contains(err.Error(), "sync recover") {
+		t.Fatalf("interrupted resolution did not block planning: %v", err)
+	}
+
+	recovery, err := RecoverRepositorySync(repo)
+	if err != nil || recovery.Status != SyncRecoveryFinalized ||
+		recovery.NextAction != "reconc repo sync plan "+quoteBootstrapArgument(plan.RepoRoot) {
+		t.Fatalf("finalize interrupted resolution = %+v err=%v", recovery, err)
+	}
+	fresh, err := BuildSyncPlan(repo, syncTestVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if action := syncActionForPath(t, fresh, managed.Path); action.State != SyncUnchanged {
+		t.Fatalf("finalized resolution action = %+v", action)
+	}
+}
+
+func TestRepositorySyncRecoveryRefusesExternalEdit(t *testing.T) {
+	repo, receipt := initializeSyncFixture(t, ProfileAdvanced)
+	index := firstHarnessManagedFile(t, receipt)
+	managed := receipt.ManagedFiles[index]
+	target := filepath.Join(repo, filepath.FromSlash(managed.Path))
+	before := []byte("external-edit-before\n")
+	if err := os.WriteFile(target, before, os.FileMode(managed.Mode)); err != nil {
+		t.Fatal(err)
+	}
+	receipt.ManagedFiles[index].SHA256 = bytesSHA256(before)
+	rewriteTestReceipt(t, repo, receipt, "0.8.8")
+	plan, err := BuildSyncPlan(repo, syncTestVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := applySyncPlan(
+		plan, plan.PlanDigest, syncTestVersion,
+		syncApplyOptions{interruptAfter: 1},
+	); err == nil {
+		t.Fatal("expected injected interruption")
+	}
+	external := []byte("external concurrent edit\n")
+	if err := os.WriteFile(target, external, os.FileMode(managed.Mode)); err != nil {
+		t.Fatal(err)
+	}
+	recovery, err := RecoverRepositorySync(repo)
+	if err == nil || recovery.Status != SyncRecoveryRefused ||
+		!strings.Contains(err.Error(), "refusing to overwrite") {
+		t.Fatalf("external-edit recovery = %+v err=%v", recovery, err)
+	}
+	after, readErr := os.ReadFile(target)
+	if readErr != nil || !bytes.Equal(after, external) {
+		t.Fatalf("recovery overwrote external edit: %q err=%v", after, readErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(repo, filepath.FromSlash(repositorySyncTransactionRelativePath))); statErr != nil {
+		t.Fatalf("conflicted journal was removed: %v", statErr)
+	}
+}
+
+func TestRepositorySyncRecoveryPreservesEmptyDirectoryIdentity(t *testing.T) {
+	repo, err := canonicalRepoRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RECONC_HOME", t.TempDir())
+	relative := "external/empty/target.txt"
+	mutations := []syncMutation{{
+		Path: relative, Mode: 0o644, After: []byte("published\n"), Created: true,
+	}}
+	transaction, err := buildRepositorySyncTransaction(
+		repo, syncTestVersion, strings.Repeat("a", 64), mutations, false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = publishRepositorySyncTransaction(repo, transaction, mutations, 0, 1)
+	if !errors.Is(err, errRepositorySyncInterrupted) {
+		t.Fatalf("interrupted transaction error = %v", err)
+	}
+	target := filepath.Join(repo, filepath.FromSlash(relative))
+	if err := os.Remove(target); err != nil {
+		t.Fatal(err)
+	}
+	replacedDirectory := filepath.Dir(target)
+	if err := os.Remove(replacedDirectory); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(replacedDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	recovery, err := RecoverRepositorySync(repo)
+	if err != nil || recovery.Status != SyncRecoveryRolledBack {
+		t.Fatalf("recover before-image transaction = %+v err=%v", recovery, err)
+	}
+	info, err := os.Stat(replacedDirectory)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("recovery removed an unprovable directory identity: info=%v err=%v", info, err)
+	}
+}
+
+func TestRepositorySyncRecoveryRejectsMalformedAndForeignJournals(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*testing.T, string, string, *repositorySyncTransaction, []byte) []byte
+		want   string
+	}{
+		{
+			name: "unknown field",
+			mutate: func(t *testing.T, _, _ string, _ *repositorySyncTransaction, body []byte) []byte {
+				t.Helper()
+				var document map[string]interface{}
+				if err := json.Unmarshal(body, &document); err != nil {
+					t.Fatal(err)
+				}
+				document["unknown"] = true
+				changed, err := json.Marshal(document)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return changed
+			},
+			want: "unknown field",
+		},
+		{
+			name: "trailing document",
+			mutate: func(_ *testing.T, _, _ string, _ *repositorySyncTransaction, body []byte) []byte {
+				return append(body, []byte("{}\n")...)
+			},
+			want: "exactly one JSON document",
+		},
+		{
+			name: "digest mismatch",
+			mutate: func(t *testing.T, _, _ string, transaction *repositorySyncTransaction, _ []byte) []byte {
+				t.Helper()
+				transaction.JournalDigest = strings.Repeat("b", 64)
+				body, err := json.Marshal(transaction)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return body
+			},
+			want: "digest mismatch",
+		},
+		{
+			name: "foreign repository",
+			mutate: func(t *testing.T, _, otherRoot string, transaction *repositorySyncTransaction, _ []byte) []byte {
+				t.Helper()
+				transaction.RepoRoot = otherRoot
+				transaction.JournalDigest = ""
+				digest, err := computeRepositorySyncTransactionDigest(transaction)
+				if err != nil {
+					t.Fatal(err)
+				}
+				transaction.JournalDigest = digest
+				body, err := json.Marshal(transaction)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return body
+			},
+			want: "different repository",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo, err := canonicalRepoRoot(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			otherRoot, err := canonicalRepoRoot(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			mutations := []syncMutation{{
+				Path: "owned.txt", Mode: 0o644, After: []byte("after\n"), Created: true,
+			}}
+			transaction, err := buildRepositorySyncTransaction(
+				repo, syncTestVersion, strings.Repeat("a", 64), mutations, false,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, err := encodeRepositorySyncTransaction(transaction)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body = test.mutate(t, repo, otherRoot, transaction, body)
+			journal := filepath.Join(repo, filepath.FromSlash(repositorySyncTransactionRelativePath))
+			if err := os.MkdirAll(filepath.Dir(journal), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(journal, body, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			recovery, err := RecoverRepositorySync(repo)
+			if err == nil || recovery.Status != SyncRecoveryRefused ||
+				!strings.Contains(err.Error(), test.want) {
+				t.Fatalf("malformed recovery = %+v err=%v", recovery, err)
+			}
+			if _, err := os.Lstat(journal); err != nil {
+				t.Fatalf("refused recovery removed journal: %v", err)
+			}
+		})
+	}
+
+	t.Run("symlink", func(t *testing.T) {
+		repo, err := canonicalRepoRoot(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		journal := filepath.Join(repo, filepath.FromSlash(repositorySyncTransactionRelativePath))
+		if err := os.MkdirAll(filepath.Dir(journal), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(t.TempDir(), "journal.json")
+		if err := os.WriteFile(target, []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, journal); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+		recovery, err := RecoverRepositorySync(repo)
+		if err == nil || recovery.Status != SyncRecoveryRefused ||
+			!strings.Contains(err.Error(), "real regular file") {
+			t.Fatalf("symlink recovery = %+v err=%v", recovery, err)
+		}
+	})
 }
 
 func TestRepositorySyncImportsOneLegacyReceipt(t *testing.T) {
@@ -585,10 +1229,16 @@ func TestRepositorySyncClassifiesMissingGeneratedPolicyLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	action := syncActionForPath(t, plan, ".reconc/policy.lock.json")
-	if action.State != SyncManualReview ||
-		!strings.Contains(action.Reason, "reconc compile") ||
-		len(plan.BlockingIssues) == 0 {
+	if action.State != SyncCreateOwned || action.DesiredSHA256 == "" ||
+		len(plan.BlockingIssues) != 0 {
 		t.Fatalf("missing generated policy lock action = %+v issues=%v", action, plan.BlockingIssues)
+	}
+	report, err := ApplySyncPlan(plan, plan.PlanDigest, syncTestVersion)
+	if err != nil || report.Status != SyncComplete {
+		t.Fatalf("rebuild missing generated lock = %+v err=%v", report, err)
+	}
+	if err := reconruntimeValidatePolicy(t, repo); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -637,7 +1287,7 @@ func TestRepositorySyncClassifiesIncompleteAndLegacyStates(t *testing.T) {
 			t.Fatalf("orphaned legacy action = %+v issues=%v", action, plan.BlockingIssues)
 		}
 	})
-	t.Run("incompatible policy lock", func(t *testing.T) {
+	t.Run("unregistered policy lock is rebuilt from sources", func(t *testing.T) {
 		repo, receipt := initializeSyncFixture(t, ProfileGoverned)
 		lockPath := filepath.Join(repo, ".reconc", "policy.lock.json")
 		body := []byte("{\"format_version\":\"unsupported\"}\n")
@@ -651,9 +1301,16 @@ func TestRepositorySyncClassifiesIncompleteAndLegacyStates(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if action := syncActionForPath(t, plan, ".reconc/policy.lock.json"); action.State != SyncIncompatible ||
-			len(plan.BlockingIssues) == 0 {
-			t.Fatalf("incompatible policy action = %+v issues=%v", action, plan.BlockingIssues)
+		if action := syncActionForPath(t, plan, ".reconc/policy.lock.json"); action.State != SyncReplaceOwned ||
+			len(plan.BlockingIssues) != 0 {
+			t.Fatalf("policy rebuild action = %+v issues=%v", action, plan.BlockingIssues)
+		}
+		report, err := ApplySyncPlan(plan, plan.PlanDigest, syncTestVersion)
+		if err != nil || report.Status != SyncComplete {
+			t.Fatalf("apply policy rebuild = %+v err=%v", report, err)
+		}
+		if err := reconruntimeValidatePolicy(t, repo); err != nil {
+			t.Fatal(err)
 		}
 	})
 }
@@ -727,6 +1384,9 @@ func TestRepositorySyncClassifiesTamperedTargets(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(root, ".reconc"), 0o755); err != nil {
 			t.Fatal(err)
 		}
+		if err := os.WriteFile(filepath.Join(root, ".reconc.yml"), []byte("rules: []\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 		target := filepath.Join(root, "target")
 		if err := os.WriteFile(target, []byte("{}\n"), 0o644); err != nil {
 			t.Fatal(err)
@@ -739,7 +1399,7 @@ func TestRepositorySyncClassifiesTamperedTargets(t *testing.T) {
 			GeneratedArtifacts: []GeneratedArtifact{{
 				Path: ".reconc/policy.lock.json", SHA256: strings.Repeat("a", 64),
 			}},
-		})
+		}, syncTestVersion)
 		if err != nil || action.State != SyncUserDrift {
 			t.Fatalf("non-regular lock action = %+v err=%v", action, err)
 		}
@@ -749,6 +1409,9 @@ func TestRepositorySyncClassifiesTamperedTargets(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(root, ".reconc"), 0o755); err != nil {
 			t.Fatal(err)
 		}
+		if err := os.WriteFile(filepath.Join(root, ".reconc.yml"), []byte("rules: []\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(filepath.Join(root, ".reconc", "policy.lock.json"), []byte("{}\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -756,47 +1419,33 @@ func TestRepositorySyncClassifiesTamperedTargets(t *testing.T) {
 			GeneratedArtifacts: []GeneratedArtifact{{
 				Path: ".reconc/policy.lock.json", SHA256: strings.Repeat("a", 64),
 			}},
-		})
+		}, syncTestVersion)
 		if err != nil || action.State != SyncUserDrift {
 			t.Fatalf("drifted lock action = %+v err=%v", action, err)
 		}
 	})
 }
 
-func TestRepositorySyncByteSourcesAndConcurrentRollback(t *testing.T) {
+func TestRepositorySyncByteSources(t *testing.T) {
 	root := t.TempDir()
-	if _, err := desiredSyncBytes(root, SyncAction{Path: "missing"}, desiredArtifact{}, false); err == nil {
+	if _, err := desiredSyncBytes(root, SyncAction{Path: "missing"}, desiredArtifact{}, false, syncTestVersion); err == nil {
 		t.Fatal("missing desired artifact was accepted")
 	}
-	if _, err := desiredSyncBytes(root, SyncAction{}, desiredArtifact{sourcePath: filepath.Join(root, "missing")}, true); err == nil {
+	if _, err := desiredSyncBytes(root, SyncAction{}, desiredArtifact{sourcePath: filepath.Join(root, "missing")}, true, syncTestVersion); err == nil {
 		t.Fatal("missing binary source was accepted")
 	}
-	if _, err := desiredSyncBytes(root, SyncAction{}, desiredArtifact{sourcePath: root}, true); err == nil {
+	if _, err := desiredSyncBytes(root, SyncAction{}, desiredArtifact{sourcePath: root}, true, syncTestVersion); err == nil {
 		t.Fatal("directory binary source was accepted")
 	}
 	source := filepath.Join(root, "binary")
 	if err := os.WriteFile(source, []byte("binary\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	body, err := desiredSyncBytes(root, SyncAction{}, desiredArtifact{sourcePath: source}, true)
+	body, err := desiredSyncBytes(root, SyncAction{}, desiredArtifact{sourcePath: source}, true, syncTestVersion)
 	if err != nil || string(body) != "binary\n" {
 		t.Fatalf("binary bytes = %q err=%v", body, err)
 	}
 
-	created := filepath.Join(root, "created")
-	if err := os.WriteFile(created, []byte("external\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	rolledBack, err := rollbackSyncChanges(root, []syncBackup{{
-		path: created, created: true, expectedAfter: bytesSHA256([]byte("expected\n")),
-	}}, nil, nil)
-	if err == nil || len(rolledBack) != 0 || !strings.Contains(err.Error(), "concurrent change") {
-		t.Fatalf("concurrent rollback = %v err=%v", rolledBack, err)
-	}
-	current, err := os.ReadFile(created)
-	if err != nil || string(current) != "external\n" {
-		t.Fatalf("concurrent rollback changed external bytes: %q err=%v", current, err)
-	}
 }
 
 func TestRepositoryReceiptRejectsInvalidOwnershipContracts(t *testing.T) {
@@ -1090,8 +1739,22 @@ func TestSyncPlanRejectsInvalidContracts(t *testing.T) {
 		{name: "identity", want: "identity", mutate: func(plan *SyncPlan) {
 			plan.CurrentReceiptDigest = "bad"
 		}},
+		{name: "nil collection", want: "collections must be arrays", mutate: func(plan *SyncPlan) {
+			plan.Migrations = nil
+		}},
 		{name: "Git snapshot", want: "different repository", mutate: func(plan *SyncPlan) {
 			plan.GitSnapshot = &commandproof.Snapshot{RepoRoot: filepath.Dir(plan.RepoRoot)}
+		}},
+		{name: "Git identity", want: "snapshot identity", mutate: func(plan *SyncPlan) {
+			plan.GitSnapshot = &commandproof.Snapshot{
+				RepoRoot: plan.RepoRoot, Head: "bad", IndexTree: "bad",
+			}
+		}},
+		{name: "Git canonical identity", want: "snapshot identity", mutate: func(plan *SyncPlan) {
+			plan.GitSnapshot = &commandproof.Snapshot{
+				RepoRoot: plan.RepoRoot,
+				Head:     strings.Repeat("A", 40), IndexTree: strings.Repeat("b", 40),
+			}
 		}},
 		{name: "policy pack", want: "policy pack", mutate: func(plan *SyncPlan) {
 			plan.TargetPolicyPacks = append(plan.TargetPolicyPacks, plan.TargetPolicyPacks[0])
@@ -1111,11 +1774,31 @@ func TestSyncPlanRejectsInvalidContracts(t *testing.T) {
 		{name: "candidate", want: "invalid candidate", mutate: func(plan *SyncPlan) {
 			plan.Actions[0].CandidatePath = "../escape"
 		}},
+		{name: "action state contract", want: "requires desired_sha256", mutate: func(plan *SyncPlan) {
+			plan.Actions[0].DesiredSHA256 = ""
+		}},
 		{name: "candidate order", want: "uniquely sorted", mutate: func(plan *SyncPlan) {
 			plan.Candidates = []string{"z", "a"}
 		}},
-		{name: "blocking order", want: "must be sorted", mutate: func(plan *SyncPlan) {
+		{name: "candidate correspondence", want: "do not match action candidates", mutate: func(plan *SyncPlan) {
+			plan.Candidates = []string{"candidate"}
+		}},
+		{name: "blocking order", want: "uniquely sorted", mutate: func(plan *SyncPlan) {
 			plan.BlockingIssues = []string{"z", "a"}
+		}},
+		{name: "blocking duplicate", want: "uniquely sorted", mutate: func(plan *SyncPlan) {
+			plan.BlockingIssues = []string{"same", "same"}
+		}},
+		{name: "blocking correspondence", want: "do not match non-mutable", mutate: func(plan *SyncPlan) {
+			plan.BlockingIssues = []string{"extra"}
+		}},
+		{name: "migration shape", want: "migration 0 is invalid", mutate: func(plan *SyncPlan) {
+			plan.Migrations = []SyncMigration{{Path: plan.Actions[0].Path}}
+		}},
+		{name: "migration action", want: "unknown action", mutate: func(plan *SyncPlan) {
+			plan.Migrations = []SyncMigration{{
+				Kind: "policy-lock", From: "1", To: "2", Path: "missing",
+			}}
 		}},
 		{name: "digest", want: "digest mismatch", mutate: func(plan *SyncPlan) {
 			plan.TargetProductVersion = "9.9.9"
@@ -1190,6 +1873,61 @@ func cloneRepositoryReceipt(t *testing.T, receipt *RepositoryReceipt) *Repositor
 		t.Fatal(err)
 	}
 	return &clone
+}
+
+func snapshotRegularFiles(t *testing.T, root string) map[string]string {
+	t.Helper()
+	snapshot := map[string]string{}
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		snapshot[filepath.ToSlash(relative)] = bytesSHA256(body)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("snapshot regular files under %s: %v", root, err)
+	}
+	return snapshot
+}
+
+func equalStringMaps(left, right map[string]string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for key, value := range left {
+		if right[key] != value {
+			return false
+		}
+	}
+	return true
+}
+
+func hasFailedCheck(checks []Check, name string) bool {
+	for _, check := range checks {
+		if check.Name == name && check.Status == "FAIL" {
+			return true
+		}
+	}
+	return false
 }
 
 func cloneSyncPlan(t *testing.T, plan *SyncPlan) *SyncPlan {

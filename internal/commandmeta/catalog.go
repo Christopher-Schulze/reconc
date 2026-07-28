@@ -93,7 +93,6 @@ var hookKinds = []string{"antigravity", "claude-code", "codex", "cursor", "devin
 var bootstrapProfiles = []string{"advanced", "existing", "governed", "minimal"}
 
 var commandCatalog = []Command{
-	command("demo", CategoryDaily, "reconc demo [--keep] [--json]", "run the isolated real-policy product journey", flags(f("--keep", ""), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	command("status", CategoryDaily, "reconc status [repo] [--json] [--output PATH]", "one-line policy health summary", flags(f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
 	command("check", CategoryDaily, "reconc check [repo] [evidence flags]", "evaluate runtime evidence against compiled policy", evidenceFlags(true, true), nil, modes(OutputText, OutputJSON, OutputFile)),
 	command("next", CategoryDaily, "reconc next [repo] [evidence flags]", "show the next remediation", flags(f("--read", "PATH"), f("--write", "PATH"), f("--command", "CMD"), f("--command-success", "CMD"), f("--command-failure", "CMD"), f("--claim", "NAME"), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
@@ -108,11 +107,13 @@ var commandCatalog = []Command{
 		sub("remove", "reconc bootstrap remove --plan PATH [--json]", "reverse one receipt-owned bootstrap transaction", flags(f("--plan", "PATH"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 		sub("verify", "reconc bootstrap verify --plan PATH [--json]", "verify an applied bootstrap manifest read-only", flags(f("--plan", "PATH"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	}, modes(OutputText, OutputJSON, OutputFile)),
-	command("repo", CategoryBootstrap, "reconc repo sync <plan|apply|verify>", "plan, apply, or verify receipt-owned repository upgrades", nil, []Subcommand{
-		subgroup("sync", "reconc repo sync <plan|apply|verify>", "operate the receipt-owned repository upgrade transaction", []Subcommand{
+	command("repo", CategoryBootstrap, "reconc repo sync <plan|apply|resolve|verify|recover>", "plan, apply, resolve, verify, or recover receipt-owned repository upgrades", nil, []Subcommand{
+		subgroup("sync", "reconc repo sync <plan|apply|resolve|verify|recover>", "operate the receipt-owned repository upgrade transaction", []Subcommand{
 			sub("plan", "reconc repo sync plan [repo] [--output PATH [--replace-output]] [--json]", "build a deterministic read-only repository sync plan", flags(f("--output", "PATH"), f("--replace-output", ""), f("--json", "")), nil, modes(OutputText, OutputJSON, OutputFile)),
 			sub("apply", "reconc repo sync apply --plan PATH --digest SHA256 [--json]", "apply one exact receipt-owned repository transaction", flags(f("--plan", "PATH"), f("--digest", "SHA256"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
+			sub("resolve", "reconc repo sync resolve --plan PATH --digest SHA256 --path RELATIVE --strategy STRATEGY [binary flags] [--json]", "resolve one exact non-mutable sync action", flags(f("--plan", "PATH"), f("--digest", "SHA256"), f("--path", "RELATIVE"), f("--strategy", "STRATEGY", "keep-current", "use-target", "use-binary"), f("--binary", "PATH"), f("--checksum", "SHA256"), f("--platform", "OS/ARCH"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 			sub("verify", "reconc repo sync verify [repo] [--json]", "verify the portable repository receipt and owned artifacts", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
+			sub("recover", "reconc repo sync recover [repo] [--json]", "finalize or roll back an interrupted repository sync", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 		}),
 	}, modes(OutputText, OutputJSON, OutputFile)),
 	command("install-cli", CategoryBootstrap, "reconc install-cli [--install-dir PATH] [--json]", "install the running build as the stable user CLI", flags(f("--install-dir", "PATH"), f("--json", "")), nil, modes(OutputText, OutputJSON)),

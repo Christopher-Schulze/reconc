@@ -16,7 +16,7 @@ agree.
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Offline](https://img.shields.io/badge/runtime-offline_by_default-111827)](#what-reconc-controls)
 
-[Demo](#see-the-real-loop-in-under-a-minute) · [Why Reconc](#why-reconc-exists) · [Install](#install-and-bootstrap) · [Architecture](#architecture-and-operational-boundaries) · [Integrations](#supported-agent-runtimes) · [Documentation](docs/documentation.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [Issues](https://github.com/Christopher-Schulze/reconc/issues/new/choose) · [Releases](https://github.com/Christopher-Schulze/reconc/releases)
+[Why Reconc](#why-reconc-exists) · [Install](#install-and-bootstrap) · [Architecture](#architecture-and-operational-boundaries) · [Integrations](#supported-agent-runtimes) · [Documentation](docs/documentation.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [Issues](https://github.com/Christopher-Schulze/reconc/issues/new/choose) · [Releases](https://github.com/Christopher-Schulze/reconc/releases)
 
 An agent saying "done" is a claim. Reconc verifies that claim against the
 current repository, policy, evidence, and TASK state. Missing tests, stale
@@ -66,32 +66,6 @@ Reconc is useful when repositories need stronger control over autonomous or
 semi-autonomous coding work without replacing their existing tests, linters,
 build systems, CI, or human review. It composes those systems into a stricter
 completion boundary.
-
-## See the real loop in under a minute
-
-With Reconc on `PATH`:
-
-```bash
-reconc demo
-```
-
-The demo creates an isolated Git repository and runs the real product path:
-policy compilation, a blocked write, missing-proof remediation, a real test,
-evidence-complete completion, and portable proof export. It uses no model or
-network and cleans up by default.
-
-```text
-[BLOCK] out-of-scope write
-[BLOCK] source change without current test proof
-[REMEDIATE] one exact next action
-[PASS] real test evidence bound to the changed state
-[DONE] evidence-complete proof verified
-[PROOF] portable proof bundle verified
-```
-
-Use `reconc demo --keep` to retain every artifact or `reconc demo --json` for
-the machine-readable result. Installation takes one verified native script
-and is documented below.
 
 ## How Reconc Works
 
@@ -337,10 +311,9 @@ Kilo adapter contract tests.
 
 ### Initialize a repository
 
-Test the real loop, then initialize a repository:
+Initialize the target repository:
 
 ```bash
-reconc demo
 cd /path/to/repository
 reconc init .
 ```
@@ -412,11 +385,45 @@ unsupported installations receive non-mutating remediation instead of an
 unsafe replacement.
 
 Repository sync is separately plan-, receipt-, precondition-, and digest-bound.
-Planning is read-only unless `--output` is supplied. Apply revalidates the Git
-snapshot, current owned bytes, managed blocks, embedded packs, migrations, and
-plan digest under one lock. `user-drift`, `orphaned-legacy`, `incompatible`,
-and `manual-review` states block mutation. Failure rolls back only bytes owned
-by that transaction.
+Planning is repository-read-only unless `--output` is supplied: its Git
+snapshot uses an ephemeral object database, ignores ambient `GIT_*` routing,
+and does not create Git objects or persistent Reconc state. Text output shows
+current-to-target policy and harness pack identities, actionable changes,
+blockers, an unchanged count, and exactly one next command; JSON retains the
+complete deterministic plan.
+
+Apply revalidates the Git snapshot, current owned bytes, managed blocks,
+embedded packs, generated policy, binary identity, and plan digest under the
+shared repository lock. The generated policy lock is compiled in memory and is
+published only inside the transaction. Every mutation, including the portable
+receipt, is recorded in a strict fsynced journal before the first target write.
+
+Resolve a blocking action explicitly against the same saved plan and digest:
+
+```bash
+reconc repo sync resolve --plan /tmp/reconc-sync.json --digest <plan-digest> \
+  --path path/to/artifact --strategy keep-current
+reconc repo sync resolve --plan /tmp/reconc-sync.json --digest <plan-digest> \
+  --path path/to/artifact --strategy use-target
+```
+
+`keep-current` preserves the current bytes and releases Reconc ownership;
+`use-target` adopts the exact embedded target bytes. A cross-platform
+receipt-owned binary requires `use-binary` plus an explicit local artifact,
+SHA-256 checksum, and `OS/ARCH`. Invalid generated policy cannot be retained
+with `keep-current`.
+
+If apply or resolution is interrupted, every normal sync command fails closed
+until recovery completes:
+
+```bash
+reconc repo sync recover .
+```
+
+Recovery finalizes an exact, fully verified after-image or restores recorded
+before-images. A path that is neither image is reported as `refused` and is
+never overwritten. Recovery conservatively leaves newly created empty parent
+directories because their identity cannot be proven after a process crash.
 
 ### Autonomous TASK execution and final proof
 
@@ -690,7 +697,7 @@ of the Build Week submission.
 During that window, Codex with GPT-5.6 was used substantively to design,
 implement, test, and harden the portable compiler, evidence-complete `done`
 gate, typed TASK lifecycle, repository run control, transactional bootstrap,
-runtime hooks, cross-platform behavior, deterministic demo, and release trust.
+runtime hooks, cross-platform behavior, portable proof flow, and release trust.
 Christopher Schulze set the product direction and made the final decisions.
 Claude also assisted with portions of implementation and review; public commit
 trailers preserve that attribution instead of presenting every change as Codex
@@ -698,7 +705,7 @@ work.
 
 The immutable [`v0.8.6` release](https://github.com/Christopher-Schulze/reconc/releases/tag/reconc-v0.8.6)
 contains the judge-ready binaries. The Build Week implementation extends the
-June 8 baseline with the evidence-complete `done` gate, deterministic demo,
+June 8 baseline with the evidence-complete `done` gate, portable proof export,
 transactional bootstrap UX, repository run-loop controls, truthful runtime
 adapters, generic npm/pnpm/Yarn/TypeScript assurance, and the rebuilt public
 product surface. Core policy compilation, evaluation, hook processing, run
@@ -794,6 +801,7 @@ Do not commit mutable runtime state:
 - `.reconc/reports/`
 - `.reconc/run/`
 - `.reconc/task-transaction.json`
+- `.reconc/repository-sync-transaction.json`
 - `.reconc/bootstrap-*.json`
 - `*.reconc-candidate-*`
 - `*.reconc-remove-candidate-*`

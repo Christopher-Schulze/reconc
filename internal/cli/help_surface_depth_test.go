@@ -8,7 +8,7 @@ import (
 
 func TestEveryLeafCommandRendersHelpWithoutRepositorySideEffects(t *testing.T) {
 	commands := [][]string{
-		{"doctor"}, {"demo"}, {"compile"}, {"refresh"}, {"check"}, {"assert"}, {"init"},
+		{"doctor"}, {"compile"}, {"refresh"}, {"check"}, {"assert"}, {"init"},
 		{"status"}, {"ci"}, {"exec"},
 		{"hook", "status"}, {"hook", "generate"}, {"hook", "install"}, {"hook", "uninstall"},
 		{"hook", "sync-scaffold"}, {"hook", "evidence-status"}, {"hook", "evidence-resolve"}, {"hook", "claim"},

@@ -69,7 +69,7 @@ internal/
   assurance/      bounded native layout/source/manifest/proof gates
   atomicfile/     write-on-change and atomic publication primitives
   audit/          append-only JSONL decision log + rotation + stats
-  bootstrap/      init, repository sync/remove, portable receipts, rollback, and binary resolution
+  bootstrap/      init, repository sync/remove/recovery, portable receipts, journals, and binary resolution
   changelog/      docs/changelog.md rotation into quarterly archives
   cli/            command dispatch plus responsibility-owned command modules
   commandmeta/    canonical dependency-neutral command, flag, help, and output contract
@@ -78,7 +78,6 @@ internal/
   completion/     bash / zsh / fish completion generators
   completiongate/ exact final-completion report over policy, candidate, evidence, and TASK state
   contextsize/    token-budget guard for canonical entrypoints + active TASK
-  demo/           isolated real-command product journey + self-digested proof result
   errors/         typed exception hierarchy (PolicySourceError, LockfileError, ...)
   execfile/       cross-platform regular-file and executable validation
   extractor/      prose-to-rule heuristic scanner (regex-only, no LLM)
@@ -143,11 +142,17 @@ handling.
    unchanged compile performs no filesystem write. Bootstrap install is
    create-only, emits candidate files for drift, and rolls back only
    transaction-owned unchanged files. Repository sync requires an exact saved
-   plan digest, re-plans under one transaction lock, mutates only exact
-   portable-receipt-owned bytes, verifies the advanced receipt, and rolls back
-   changed bytes on failure. Bootstrap removal treats portable ownership as its
-   maximum authority, SHA-verifies owned files, strips only managed blocks, and
-   preserves drift and user-owned paths.
+   plan digest, takes a hermetic read-only Git snapshot, re-plans under one
+   transaction lock, mutates only exact portable-receipt-owned bytes, and
+   verifies receipt, embedded pack, binary, generated-policy, and hook
+   identities. Before target mutation it publishes a bounded, strict,
+   self-digested journal with exact before and after identities. Explicit
+   recovery finalizes a verified complete after-image or rolls back exact
+   transaction images; any external edit is preserved and refused. Directory
+   identity is not guessed after a crash, so empty created parents may remain.
+   Bootstrap removal treats portable ownership as its maximum authority,
+   SHA-verifies owned files, strips only managed blocks, and preserves drift
+   and user-owned paths.
    Hook merges and uninstalls preserve
    unrelated host configuration. Bounded JSONL writers rotate under a process
    lock before append. Write, sync, close, unlock, and CLI output failures are
@@ -208,11 +213,6 @@ handling.
   consumption. 0 = pass or warn, 1 = runtime/input error, 2 = at
   least one blocking violation.
 
-- **Demo result format 1**: `reconc demo --json` records real child-command
-  arguments, exit codes, decisions, durations, proof artifact hashes, cleanup
-  state, the verified completion digest, and a self-digest. It never treats
-  rendered text as proof.
-
 - **Public runtime env vars** (`NO_COLOR`, `RECONC_HOME`, `RECONC_AUDIT`,
   `RECONC_AUDIT_VERBOSE`, `RECONC_CLAUDE_STATE_DIR`,
   `RECONC_SCHEMA_BASE_URL`, `RECONC_STOP_FINGERPRINT_UNTRACKED`, and
@@ -226,8 +226,9 @@ handling.
 implementation contract for the v0.9 CLI product layer. The global installation
 receipt, `doctor --global`, update, uninstall, canonical init, versioned harness
 packs, portable repository ownership, digest-bound sync
-planning/apply/verification, registered policy migration, and ownership-safe
-removal are implemented through the same product and bootstrap boundaries.
+planning/resolution/apply/recovery/verification, in-memory generated-policy
+rebuild, registered policy migration, and ownership-safe removal are
+implemented through the same product and bootstrap boundaries.
 
 The target adds four ownership layers without creating a second bootstrap
 engine:
@@ -249,7 +250,14 @@ global manager -> installation receipt -> installed CLI
   uninstall boundaries.
 - `internal/bootstrap` remains the only repository transaction owner.
   Canonical `init` and repository sync compose its plan, candidate, receipt,
-  verification, rollback, and path-identity primitives.
+  verification, journal, recovery, rollback, and path-identity primitives.
+- Sync planning sanitizes ambient Git routing and gives `git write-tree` an
+  ephemeral object database with the real object database as read-only
+  alternate. It therefore binds HEAD and index without writing repository Git
+  objects, command-proof state, or any other persistent Reconc state.
+- Same-platform receipt-owned binaries advance from the exact running
+  executable. Cross-platform binaries require an explicitly checksum-pinned
+  `use-binary` resolution; blockers never inherit implied overwrite authority.
 - Versioned public harness packs are immutable embedded inputs to bootstrap,
   never mutable Git checkouts or arbitrary copied directories.
 - Global update and repository sync have separate locks, plans, reports, and
@@ -348,7 +356,6 @@ responsibility-owned command file, canonical command metadata, focused tests, an
         ├──► contextsize
         ├──► commandproof
         ├──► completiongate ──► commandproof, policyproof, runtime, tasklifecycle
-        ├──► demo ──► runtime, completiongate, proofbundle
         ├──► proofbundle ──► completiongate, commandproof, policyproof, schema
         ├──► retention
         ├──► tasklifecycle

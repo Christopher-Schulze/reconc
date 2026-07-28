@@ -8,6 +8,8 @@ const (
 	SyncPlanFormatVersion          = "reconc.repository-sync-plan/v1"
 	SyncReportFormatVersion        = "reconc.repository-sync-report/v1"
 	SyncVerifyFormatVersion        = "reconc.repository-sync-verify/v1"
+	SyncRecoveryFormatVersion      = "reconc.repository-sync-recovery/v1"
+	SyncResolutionFormatVersion    = "reconc.repository-sync-resolution/v1"
 )
 
 type PolicyPackIdentity struct {
@@ -107,6 +109,8 @@ type SyncPlan struct {
 	CurrentReceiptDigest  string                 `json:"current_receipt_digest"`
 	LegacyReceiptImport   bool                   `json:"legacy_receipt_import"`
 	GitSnapshot           *commandproof.Snapshot `json:"git_snapshot"`
+	CurrentPolicyPacks    []PolicyPackIdentity   `json:"current_policy_packs"`
+	CurrentHarnessPacks   []HarnessPackIdentity  `json:"current_harness_packs"`
 	TargetPolicyPacks     []PolicyPackIdentity   `json:"target_policy_packs"`
 	TargetHarnessPacks    []HarnessPackIdentity  `json:"target_harness_packs"`
 	Actions               []SyncAction           `json:"actions"`
@@ -151,4 +155,54 @@ type SyncVerification struct {
 	ReceiptDigest string  `json:"receipt_digest,omitempty"`
 	Checks        []Check `json:"checks"`
 	NextAction    string  `json:"next_action"`
+}
+
+type SyncRecoveryStatus string
+
+const (
+	SyncRecoveryClean      SyncRecoveryStatus = "clean"
+	SyncRecoveryFinalized  SyncRecoveryStatus = "finalized"
+	SyncRecoveryRefused    SyncRecoveryStatus = "refused"
+	SyncRecoveryRolledBack SyncRecoveryStatus = "rolled-back"
+)
+
+type SyncRecovery struct {
+	Schema        string             `json:"$schema"`
+	FormatVersion string             `json:"format_version"`
+	RepoRoot      string             `json:"repo_root"`
+	Status        SyncRecoveryStatus `json:"status"`
+	PlanDigest    string             `json:"plan_digest,omitempty"`
+	Restored      []string           `json:"restored"`
+	Verification  []Check            `json:"verification"`
+	NextAction    string             `json:"next_action"`
+}
+
+type SyncResolutionStrategy string
+
+const (
+	SyncKeepCurrent SyncResolutionStrategy = "keep-current"
+	SyncUseTarget   SyncResolutionStrategy = "use-target"
+	SyncUseBinary   SyncResolutionStrategy = "use-binary"
+)
+
+type SyncResolutionRequest struct {
+	Plan        *SyncPlan
+	ExactDigest string
+	Path        string
+	Strategy    SyncResolutionStrategy
+	Binary      *BinarySelection
+}
+
+type SyncResolutionReport struct {
+	Schema        string                 `json:"$schema"`
+	FormatVersion string                 `json:"format_version"`
+	RepoRoot      string                 `json:"repo_root"`
+	Status        SyncStatus             `json:"status"`
+	PlanDigest    string                 `json:"plan_digest"`
+	Path          string                 `json:"path"`
+	Strategy      SyncResolutionStrategy `json:"strategy"`
+	Changed       []string               `json:"changed"`
+	RolledBack    []string               `json:"rolled_back"`
+	Verification  []Check                `json:"verification"`
+	NextAction    string                 `json:"next_action"`
 }

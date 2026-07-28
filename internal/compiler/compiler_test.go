@@ -89,6 +89,37 @@ func TestCompileSimpleRepo(t *testing.T) {
 	}
 }
 
+func TestRenderRepoPolicyReturnsExactBytesWithoutWriting(t *testing.T) {
+	withRECONCHome(t)
+	repo := t.TempDir()
+	writeFile(t, repo, "AGENTS.md", "# project\n")
+	writeFile(t, repo, "policies/rules.yml",
+		"rules:\n  - id: r1\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: m1\n")
+
+	rendered, body, err := RenderRepoPolicy(repo, "0.1.0-test")
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if rendered.RepoRoot != repo || rendered.RuleCount != 1 || len(body) == 0 {
+		t.Fatalf("rendered policy = %+v bytes=%d", rendered, len(body))
+	}
+	lockPath := filepath.Join(repo, ".reconc", "policy.lock.json")
+	if _, err := os.Lstat(lockPath); !os.IsNotExist(err) {
+		t.Fatalf("in-memory render wrote %s: %v", lockPath, err)
+	}
+
+	if _, err := CompileRepoPolicy(repo, "0.1.0-test"); err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	published, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatalf("read published lockfile: %v", err)
+	}
+	if !bytes.Equal(body, published) {
+		t.Fatal("in-memory render bytes differ from published compiler bytes")
+	}
+}
+
 func TestCompileLockfileIsByteStable(t *testing.T) {
 	withRECONCHome(t)
 	repo := t.TempDir()
