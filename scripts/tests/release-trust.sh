@@ -103,7 +103,7 @@ project_version=$(sed -n 's/^var Version = "\([^"]*\)"/\1/p' "$version_source")
 release_line="v${project_version%.*}.x"
 require_text "$root/Makefile" "VERSION   ?= $project_version"
 require_text "$root/install.sh" "sh install.sh --channel preview"
-require_text "$root/install.sh" "sh install.sh --version 0.9.0"
+require_text "$root/install.sh" "sh install.sh --version $project_version"
 require_text "$root/install.ps1" '[ValidateSet("Stable", "Preview")]'
 require_text "$root/install.ps1" '[switch]$AllowDowngrade'
 require_text "$root/README.md" "The source line is \`$release_line\`, and the current source version is \`v$project_version\`."
@@ -198,6 +198,8 @@ verify_manual_dispatch_only "$release_workflow" \
   || fail "$release_workflow must be manual-dispatch only"
 # shellcheck disable=SC2016 # Match workflow shell expressions literally.
 require_text "$release_workflow" 'test "$tag_version" = "$source_version"'
+# shellcheck disable=SC2016 # Match workflow shell expressions literally.
+require_text "$release_workflow" 'test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"'
 # shellcheck disable=SC2016 # Match workflow shell expressions literally.
 require_text "$release_workflow" 'gh release upload "$RELEASE_TAG" dist/* --clobber'
 for runner in ubuntu-24.04 macos-15 windows-2025; do

@@ -71,8 +71,8 @@ Install the checksummed, provenance-attested macOS or Linux release with the
 immutable native installer:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.0/install.sh \
-  | sh -s -- --version 0.9.0
+curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/install.sh \
+  | sh -s -- --version 0.9.1
 export PATH="$HOME/.local/bin:$PATH"
 reconc demo
 ```
@@ -81,8 +81,8 @@ On Windows x64, run the native PowerShell installer:
 
 ```powershell
 $installer = Join-Path $env:TEMP "reconc-install.ps1"
-Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.0/install.ps1 -OutFile $installer
-& $installer -Version 0.9.0
+Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/install.ps1 -OutFile $installer
+& $installer -Version 0.9.1
 Remove-Item $installer
 $env:Path = "$env:LOCALAPPDATA\Programs\Reconc\bin;$env:Path"
 reconc demo
@@ -174,8 +174,8 @@ Install the checksummed, provenance-attested macOS or Linux release with the
 immutable native installer:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.0/install.sh \
-  | sh -s -- --version 0.9.0
+curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/install.sh \
+  | sh -s -- --version 0.9.1
 export PATH="$HOME/.local/bin:$PATH"
 reconc demo
 ```
@@ -184,17 +184,17 @@ On Windows x64:
 
 ```powershell
 $installer = Join-Path $env:TEMP "reconc-install.ps1"
-Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.0/install.ps1 -OutFile $installer
-& $installer -Version 0.9.0
+Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/install.ps1 -OutFile $installer
+& $installer -Version 0.9.1
 Remove-Item $installer
 $env:Path = "$env:LOCALAPPDATA\Programs\Reconc\bin;$env:Path"
 reconc demo
 ```
 
-The immutable v0.9.0 tag contains both installer scripts, so neither bootstrap
+The immutable v0.9.1 tag contains both installer scripts, so neither bootstrap
 path fetches executable installation logic from mutable `main`.
 
-Both native installers verify the exact v0.9.0 release asset against
+Both native installers verify the exact v0.9.1 release asset against
 `SHA256SUMS`,
 smoke-test the candidate before replacing an existing installation, and use
 GitHub build-provenance attestations when `gh` is available. Release CI
@@ -369,7 +369,7 @@ blocking until a later explicit non-blocking check clears it; waiting never
 does. `--require-clean-git` adds a clean-tree requirement. `--window` remains
 accepted only for compatibility and has no time-based pass semantics.
 
-The current v0.9.0 release provides the portable proof exporter:
+The current v0.9.1 release provides the portable proof exporter:
 
 ```bash
 reconc proof . --output proof.json
@@ -696,11 +696,14 @@ through the private route in
 
 ## Status
 
-The source line is `v0.9.x`, and the current source version is `v0.9.0`.
+The source line is `v0.9.x`, and the current source version is `v0.9.1`.
 Release artifacts are produced only by
-an explicit manual workflow dispatch for an existing `reconc-vX.Y.Z` tag; tag
-pushes never publish a release. Every published release SBOM is regenerated and
-byte-verified before its checksum and build provenance are published.
+an explicit manual workflow dispatch that uses an existing
+`reconc-vX.Y.Z` tag as both workflow ref and input; branch-ref dispatches are
+rejected and tag pushes never publish a release. Every published release SBOM
+is regenerated and byte-verified before its checksum and build provenance are
+published.
+
 `make self-host` builds the local binary and runs the clean-repository golden
 path across all three bootstrap profiles, git pre-commit plus all nine agent
 runtimes, TASK lifecycle, retention, and stable release-layout binary

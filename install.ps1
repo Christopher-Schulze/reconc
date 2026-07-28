@@ -170,6 +170,29 @@ function Get-ReconcExpectedChecksum {
     return $match.Groups["hash"].Value.ToLowerInvariant()
 }
 
+function Assert-ReconcDownloadLength {
+    param(
+        [AllowNull()]
+        [object]$ContentLength,
+        [Parameter(Mandatory = $true)]
+        [ValidateRange(1, 268435456)]
+        [long]$MaximumBytes,
+        [Parameter(Mandatory = $true)]
+        [Uri]$Uri
+    )
+
+    if ($null -eq $ContentLength) {
+        return
+    }
+    $reportedBytes = [long]$ContentLength
+    if ($reportedBytes -lt 0) {
+        throw "Release download returned an invalid negative Content-Length: $Uri"
+    }
+    if ($reportedBytes -gt $MaximumBytes) {
+        throw "Release download exceeds $MaximumBytes bytes: $Uri"
+    }
+}
+
 function Invoke-ReconcHttpsDownload {
     param(
         [Parameter(Mandatory = $true)]
@@ -217,10 +240,10 @@ function Invoke-ReconcHttpsDownload {
                 }
 
                 [void]$response.EnsureSuccessStatusCode()
-                if ($response.Content.Headers.ContentLength.HasValue -and
-                    $response.Content.Headers.ContentLength.Value -gt $MaximumBytes) {
-                    throw "Release download exceeds $MaximumBytes bytes: $current"
-                }
+                Assert-ReconcDownloadLength `
+                    -ContentLength $response.Content.Headers.ContentLength `
+                    -MaximumBytes $MaximumBytes `
+                    -Uri $current
                 $inputStream = $null
                 $outputStream = $null
                 try {

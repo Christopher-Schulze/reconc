@@ -52,13 +52,16 @@ Bun.
 - Put behavior in internal packages; keep `cmd/reconc/main.go` thin.
 - Update tests and user-facing docs with behavior changes.
 - Keep the repository self-contained; do not depend on files outside this root.
+- Change the product version only when Christopher explicitly requests that
+  exact version bump. Never infer, select, or perform a version bump
+  autonomously.
 - Never bootstrap Reconc, compile policy, install generated hooks, or run
   repository-targeted Reconc commands against this product repository. Use the
   isolated temporary repositories created by `make self-host`.
 
 ## Current Release State
 
-The current source line is `v0.9.x`; the source version is `v0.9.0`. Core
+The current source line is `v0.9.x`; the source version is `v0.9.1`. Core
 tests, race tests, vet, static analysis, and release artifact generation must
 pass before publication. Coverage is measured across each complete Go module,
 not inferred from package-local percentages.

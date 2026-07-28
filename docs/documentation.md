@@ -16,6 +16,7 @@ usage, architecture, release, and security facts should be kept here first.
 - [Troubleshooting](#troubleshooting)
 - [Upgrading](#upgrading)
 - [v0.8.8 To v0.9.0 Migration](#v088-to-v090-migration)
+- [v0.9.0 To v0.9.1 Migration](#v090-to-v091-migration)
 - [Uninstall And Remove](#uninstall-and-remove)
 - [Development Control Plane](#development-control-plane)
 - [Minimal Example Policy](#minimal-example-policy)
@@ -191,8 +192,8 @@ make cover
 make bench
 make self-host
 make publication-audit
-make sbom VERSION=0.9.0
-make release VERSION=0.9.0
+make sbom VERSION=0.9.1
+make release VERSION=0.9.1
 ```
 
 `make coverage` runs both Go modules with atomic whole-module instrumentation
@@ -269,9 +270,9 @@ The v0.9 platform contract is one matrix:
 Direct installers own only the verified binary and receipt. No path silently
 edits a shell profile or global environment.
 
-The immutable v0.9.0 tag contains both `install.sh` and `install.ps1`. Public
+The immutable v0.9.1 tag contains both `install.sh` and `install.ps1`. Public
 bootstrap commands fetch the appropriate script from that tag, never from
-mutable `main`, and install the matching checksummed v0.9.0 binary.
+mutable `main`, and install the matching checksummed v0.9.1 binary.
 
 When the GitHub CLI (`gh`) is available, the installer additionally verifies
 the downloaded binary against its GitHub build-provenance attestation before
@@ -526,7 +527,7 @@ that opt-in audit write is independent of policy refresh. Explicit `check`,
 private unresolved-block receipt below `RECONC_HOME`; governed worktree content
 remains untouched.
 
-The current v0.9.0 release can export the same completion candidate for external
+The current v0.9.1 release can export the same completion candidate for external
 review:
 
 ```bash
@@ -611,8 +612,8 @@ particular installation is live.
 
 ### How do I install and test it?
 
-Use the immutable v0.9.0 POSIX installer for macOS or Linux and the immutable
-v0.9.0 PowerShell installer for Windows x64. Put the installed binary on
+Use the immutable v0.9.1 POSIX installer for macOS or Linux and the immutable
+v0.9.1 PowerShell installer for Windows x64. Put the installed binary on
 `PATH`, then
 run `reconc demo` for a network-free, disposable proof of the real
 block-to-remediation-to-completion journey. Contributors building current
@@ -710,6 +711,7 @@ If bootstrap reports that the running build is not directly callable, run the
 exact path-qualified `install-cli` remediation it prints, apply any emitted PATH
 line, open a new terminal, and retry. Do not work around the check with
 versioned paths.
+
 ## Upgrading
 
 Discover the supported update without mutating the installation:
@@ -783,6 +785,24 @@ Review the saved sync plan before apply. `user-drift`, `orphaned-legacy`,
 transaction changes only receipt-owned files and exact managed blocks, rolls
 back its own already-published bytes on failure, and preserves policy sources,
 agent instructions, docs, TASKs, and unrelated repository content.
+
+## v0.9.0 To v0.9.1 Migration
+
+v0.9.1 supersedes v0.9.0 for direct Windows installations. The v0.9.0
+PowerShell installer can fail before publication when a real HTTPS response
+exposes `Content-Length` as a numeric value. v0.9.1 accepts both a missing and
+a numeric header while retaining the 2 MiB metadata limit, 256 MiB binary
+limit, streamed byte cap, checksum, provenance, and atomic publication gates.
+The failure does not replace an existing binary.
+
+Preserve the current installation owner:
+
+- Direct Windows installs rerun the immutable v0.9.1 `install.ps1 -Version
+  0.9.1`, then run `reconc doctor --global`.
+- Direct POSIX and source installs update through their existing exact-version
+  path when desired.
+- Repository receipts, policy locks, hooks, schemas, and the embedded
+  `advanced@1.0.0` harness pack require no patch-specific migration.
 
 ## Uninstall And Remove
 
@@ -1963,7 +1983,10 @@ tag ruleset protects `reconc-v*` tags from update and deletion.
 Release:
 
 - Create the protected `reconc-vX.Y.Z` tag, then explicitly start the Release
-  workflow and supply that existing tag. Tag pushes never trigger a release.
+  workflow with that tag as both workflow ref and `tag` input:
+  `gh workflow run reconc-release.yml --ref reconc-vX.Y.Z -f tag=reconc-vX.Y.Z`.
+  The workflow rejects branch refs so provenance binds the release tag; tag
+  pushes never trigger a release.
 - The tag version must be stable semantic versioning, match the source version, and have committed release notes.
 - Release workflow provisions the same pinned GitHub-owned Node.js runtime and
   exact verified Bun runtime, then repeats formatting, tidy, test, vet, pinned
@@ -2162,7 +2185,7 @@ current-state documentation.
 
 ## Release State
 
-The current source line is `v0.9.x`; the source version is `v0.9.0`. Release
+The current source line is `v0.9.x`; the source version is `v0.9.1`. Release
 artifacts are produced only through an explicit manual Release workflow
 dispatch for an existing `reconc-vX.Y.Z` tag; tag pushes never publish a
 release.

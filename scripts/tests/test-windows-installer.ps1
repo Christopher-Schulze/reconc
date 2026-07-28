@@ -63,6 +63,16 @@ try {
     Assert-ReconcTest ((Compare-ReconcSemanticVersion -Left "0.9.0-preview.18446744073709551616" -Right "0.9.0-preview.9999999999999999999") -gt 0) "large numeric prerelease precedence is incorrect"
     Assert-ReconcTest ((Compare-ReconcSemanticVersion -Left "1.0.0" -Right "0.9.99") -gt 0) "core version precedence is incorrect"
 
+    $downloadUri = [Uri]"https://example.com/reconc.exe"
+    Assert-ReconcDownloadLength -ContentLength $null -MaximumBytes 1024 -Uri $downloadUri
+    Assert-ReconcDownloadLength -ContentLength ([long]1024) -MaximumBytes 1024 -Uri $downloadUri
+    Assert-ReconcFailure {
+        Assert-ReconcDownloadLength -ContentLength ([long]1025) -MaximumBytes 1024 -Uri $downloadUri
+    } "numeric Content-Length over the download limit"
+    Assert-ReconcFailure {
+        Assert-ReconcDownloadLength -ContentLength ([long]-1) -MaximumBytes 1024 -Uri $downloadUri
+    } "negative Content-Length"
+
     $savedArchitecture = $env:PROCESSOR_ARCHITECTURE
     $savedWowArchitecture = $env:PROCESSOR_ARCHITEW6432
     try {
