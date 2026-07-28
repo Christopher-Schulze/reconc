@@ -504,10 +504,12 @@ status cannot prove folder trust; `doctor
 --deep` additionally runs `grok inspect --json` when the artifact exists.
 Each platform reports separate `generated`, `installed`, `executable`,
 `configured`, and `live` booleans plus one exact remediation whenever static
-configuration is incomplete. It also reports registry-derived `expected_events`, rate-limited
-`live_events`, `unseen_events`, `last_seen`, and `last_event` runtime evidence
-separately from static activation state. `configured` proves only that the host
-can discover a complete static artifact. Codex accepts
+configuration is incomplete. It also reports registry-derived
+`surface_events` for documented per-surface route sets, complete-artifact
+`expected_events`, and rate-limited `live_events`, `unseen_events`,
+`last_seen`, and `last_event` runtime evidence separately from static
+activation state. `configured` proves only that the host can discover a
+complete static artifact. Codex accepts
 `hooks = true` under `[features]`, rejects root-level `hooks=true`, and has no
 `SessionEnd` or separate failed-tool route; failed Bash outcomes are inferred
 from `PostToolUse`. OpenCode and Kilo Code preserve complete post-tool output,

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -513,6 +514,41 @@ func TestRunHookStatusJSONSeparatesGitHubCopilotConfigurationAndLiveness(t *test
 		return
 	}
 	t.Fatal("GitHub Copilot status missing")
+}
+
+func TestRunHookStatusJSONReportsCursorSurfaceEvents(t *testing.T) {
+	t.Setenv(agentsession.StateRootEnv, t.TempDir())
+	repo := t.TempDir()
+	if _, err := hooks.Install(hooks.KindCursor, repo, false); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"hook", "status", repo, "--json"}, "test", &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	var reports []hooks.PlatformStatus
+	if err := json.Unmarshal(stdout.Bytes(), &reports); err != nil {
+		t.Fatalf("decode hook status: %v\n%s", err, stdout.String())
+	}
+	for _, report := range reports {
+		if report.Kind != hooks.KindCursor {
+			continue
+		}
+		want := []string{
+			"cursor-session-start",
+			"cursor-user-prompt-submit",
+			"cursor-pre-tool-use",
+			"cursor-post-tool-use",
+			"cursor-stop",
+			"cursor-session-end",
+			"cursor-workspace-open",
+		}
+		if !slices.Equal(report.SurfaceEvents[hooks.HostSurfaceCursorCLIInteractive], want) {
+			t.Fatalf("Cursor CLI surface events = %v, want %v", report.SurfaceEvents[hooks.HostSurfaceCursorCLIInteractive], want)
+		}
+		return
+	}
+	t.Fatal("Cursor status missing")
 }
 
 func TestHookStatusTextHidesUnseenEnumerationButJSONKeepsIt(t *testing.T) {

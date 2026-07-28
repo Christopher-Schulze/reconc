@@ -230,6 +230,9 @@ func TestHostIntegrationDocumentationCoversStructuredContract(t *testing.T) {
 		"reconc why mcp":                          {documentation, commands, skill},
 		"afterShellExecution":                     {documentation, rfc, skill},
 		"postToolUseFailure":                      {documentation, rfc, skill},
+		"surface_events":                          {readme, documentation, commands, skill},
+		"workspaceOpen":                           {readme, documentation, rfc, skill},
+		"AskQuestion":                             {readme, documentation, rfc, skill},
 		"scripts/tests/host-integration-probe.sh": {documentation},
 	} {
 		for index, body := range surfaces {

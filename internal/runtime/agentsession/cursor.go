@@ -24,6 +24,9 @@ func NormalizeCursorPayload(event string, payloadBytes []byte) ([]byte, error) {
 	if raw == nil {
 		return nil, fmt.Errorf("cursor payload must be a JSON object")
 	}
+	if event == "cursor-workspace-open" {
+		return normalizeCursorWorkspaceOpen(raw)
+	}
 
 	out := cloneCursorObject(raw)
 	sessionID := cursorSessionID(raw)
@@ -160,6 +163,19 @@ func cursorObjectLooksLikeCursor(raw map[string]interface{}) bool {
 // Cursor uses permission/user_message for pre hooks and followup_message for
 // stop continuations, while Reconc's internal stop result uses decision/reason.
 func AdaptCursorResult(event string, result Result) Result {
+	if event == "cursor-user-prompt-submit" {
+		if result.ExitCode != 0 {
+			reason := cursorResultReason(result)
+			return Result{
+				ExitCode: 0,
+				Stdout: cursorJSON(map[string]interface{}{
+					"continue":     false,
+					"user_message": reason,
+				}),
+			}
+		}
+		return Result{ExitCode: 0, Stdout: cursorJSON(map[string]interface{}{"continue": true}), Stderr: result.Stderr}
+	}
 	if isCursorFireAndForgetEvent(event) {
 		return Result{ExitCode: 0, Stdout: "{}", Stderr: result.Stderr}
 	}
@@ -201,7 +217,7 @@ func AdaptCursorResult(event string, result Result) Result {
 			}),
 		}
 	}
-	if isCursorPreDecisionEvent(event) && result.ExitCode == 0 && strings.TrimSpace(result.Stdout) == "" {
+	if isCursorPreDecisionEvent(event) && result.ExitCode == 0 {
 		return Result{ExitCode: 0, Stdout: cursorJSON(map[string]interface{}{"permission": "allow"}), Stderr: result.Stderr}
 	}
 	if isCursorObservationEvent(event) && result.ExitCode == 0 {
@@ -217,9 +233,8 @@ func isCursorFireAndForgetEvent(event string) bool {
 	switch event {
 	case "cursor-session-start",
 		"cursor-session-end",
-		"cursor-user-prompt-submit",
-		"cursor-subagent-start",
-		"cursor-pre-compaction":
+		"cursor-pre-compaction",
+		"cursor-workspace-open":
 		return true
 	default:
 		return false
@@ -232,7 +247,8 @@ func isCursorPreDecisionEvent(event string) bool {
 		"cursor-before-shell-execution",
 		"cursor-before-mcp-execution",
 		"cursor-before-read-file",
-		"cursor-before-tab-file-read":
+		"cursor-before-tab-file-read",
+		"cursor-subagent-start":
 		return true
 	default:
 		return false
@@ -261,6 +277,35 @@ func cursorResultReason(result Result) string {
 		}
 	}
 	return "reconc denied this Cursor action."
+}
+
+func normalizeCursorWorkspaceOpen(raw map[string]interface{}) ([]byte, error) {
+	if cursorFirstString(raw, "hook_event_name", "hookEventName") != "workspaceOpen" {
+		return nil, fmt.Errorf("cursor workspaceOpen payload has an invalid hook event name")
+	}
+	version := cursorFirstString(raw, "cursor_version", "cursorVersion")
+	if version == "" {
+		return nil, fmt.Errorf("cursor workspaceOpen payload has no cursor version")
+	}
+	rawRoots, ok := raw["workspace_roots"].([]interface{})
+	if !ok || len(rawRoots) == 0 {
+		return nil, fmt.Errorf("cursor workspaceOpen payload has no workspace roots")
+	}
+	roots := make([]string, 0, len(rawRoots))
+	for _, rawRoot := range rawRoots {
+		root, ok := rawRoot.(string)
+		root = strings.TrimSpace(root)
+		if !ok || root == "" {
+			return nil, fmt.Errorf("cursor workspaceOpen payload has an invalid workspace root")
+		}
+		roots = append(roots, root)
+	}
+	return json.Marshal(map[string]interface{}{
+		"cursor_event":    "cursor-workspace-open",
+		"cursor_version":  version,
+		"hook_event_name": "workspaceOpen",
+		"workspace_roots": roots,
+	})
 }
 
 func cursorStopReason(stdout string) string {

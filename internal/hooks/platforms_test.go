@@ -202,11 +202,6 @@ func TestCursorDocumentedSurfacesStayEventSpecific(t *testing.T) {
 	byEvent := map[string]CursorEventDisposition{}
 	for _, disposition := range CursorEventDispositions() {
 		byEvent[disposition.NativeEvent] = disposition
-		for _, surface := range disposition.Surfaces {
-			if surface == HostSurfaceCursorCLIInteractive || surface == HostSurfaceCursorCLIPrint {
-				t.Fatalf("%s claims unproved Cursor CLI delivery on %s", disposition.NativeEvent, surface)
-			}
-		}
 	}
 	tests := []struct {
 		event    string
@@ -221,6 +216,8 @@ func TestCursorDocumentedSurfacesStayEventSpecific(t *testing.T) {
 			surfaces: []HostSurface{
 				HostSurfaceCursorDesktopAgent,
 				HostSurfaceCursorDesktopCmdK,
+				HostSurfaceCursorCLIInteractive,
+				HostSurfaceCursorCLIPrint,
 			},
 		},
 		{
@@ -235,7 +232,18 @@ func TestCursorDocumentedSurfacesStayEventSpecific(t *testing.T) {
 			surfaces: []HostSurface{
 				HostSurfaceCursorDesktopAgent,
 				HostSurfaceCursorDesktopCmdK,
+				HostSurfaceCursorCLIInteractive,
+				HostSurfaceCursorCLIPrint,
 				HostSurfaceCursorCloud,
+			},
+		},
+		{
+			event: "workspaceOpen",
+			surfaces: []HostSurface{
+				HostSurfaceCursorDesktopAgent,
+				HostSurfaceCursorDesktopCmdK,
+				HostSurfaceCursorCLIInteractive,
+				HostSurfaceCursorCLIPrint,
 			},
 		},
 	}
@@ -247,6 +255,41 @@ func TestCursorDocumentedSurfacesStayEventSpecific(t *testing.T) {
 		if !reflect.DeepEqual(disposition.Surfaces, test.surfaces) {
 			t.Fatalf("%s surfaces = %v, want %v", test.event, disposition.Surfaces, test.surfaces)
 		}
+	}
+}
+
+func TestCursorSurfaceEventsAreDerivedFromBindings(t *testing.T) {
+	platform, ok := PlatformForKind(KindCursor)
+	if !ok {
+		t.Fatal("Cursor platform missing")
+	}
+	surfaces := platformSurfaceEvents(platform)
+	for _, surface := range []HostSurface{
+		HostSurfaceCursorDesktopAgent,
+		HostSurfaceCursorDesktopCmdK,
+		HostSurfaceCursorTab,
+		HostSurfaceCursorCLIInteractive,
+		HostSurfaceCursorCLIPrint,
+		HostSurfaceCursorCloud,
+	} {
+		if len(surfaces[surface]) == 0 {
+			t.Fatalf("Cursor surface %s has no registry-derived routes", surface)
+		}
+	}
+	cliWant := []string{
+		"cursor-session-start",
+		"cursor-user-prompt-submit",
+		"cursor-pre-tool-use",
+		"cursor-post-tool-use",
+		"cursor-stop",
+		"cursor-session-end",
+		"cursor-workspace-open",
+	}
+	if !reflect.DeepEqual(surfaces[HostSurfaceCursorCLIInteractive], cliWant) {
+		t.Fatalf("Cursor interactive CLI routes = %v, want %v", surfaces[HostSurfaceCursorCLIInteractive], cliWant)
+	}
+	if !reflect.DeepEqual(surfaces[HostSurfaceCursorCLIPrint], cliWant) {
+		t.Fatalf("Cursor print CLI routes = %v, want %v", surfaces[HostSurfaceCursorCLIPrint], cliWant)
 	}
 }
 

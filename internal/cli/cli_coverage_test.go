@@ -1135,6 +1135,8 @@ func TestObservationOnlyHookEventClassification(t *testing.T) {
 		"claude-pre-tool-use",
 		"codex-permission-request",
 		"cursor-before-shell-execution",
+		"cursor-user-prompt-submit",
+		"cursor-subagent-start",
 		"cursor-stop",
 		"antigravity-stop",
 	} {

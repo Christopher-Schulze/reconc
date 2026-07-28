@@ -1466,10 +1466,12 @@ budgets, installation strategy, and activation probes. `reconc hook status
 [repo] [--json]` validates every registered artifact and reports `absent`,
 `installed`, `configured`, `degraded`, `shadowed`, or `unsupported`.
 `configured` means the static configuration is complete and host-discoverable;
-it is not proof that a host process executed it. Separate JSON `expected_events`,
+it is not proof that a host process executed it. JSON `surface_events` reports
+the registry's per-surface documented route sets. Separate `expected_events`,
 `live_events`, `unseen_events`, `last_seen`, and `last_event` fields report
-which registry routes a live runtime actually executed. Liveness is stored
-outside the repository and each route writes at most once every six hours.
+the complete artifact routes and which ones a live runtime actually executed.
+Liveness is stored outside the repository and each route writes at most once
+every six hours.
 Human output keeps only the seen/expected count and last event so large route
 registries do not dominate the terminal.
 
@@ -1491,8 +1493,9 @@ different facts. Reconc uses these terms consistently:
 
 `hook status` preserves the public activation enum `absent`, `installed`,
 `configured`, `degraded`, `shadowed`, and `unsupported`. Its
-`expected_events`, `live_events`, `unseen_events`, `last_seen`, and
-`last_event` fields keep static and live truth separate. The repeatable
+`surface_events`, `expected_events`, `live_events`, `unseen_events`,
+`last_seen`, and `last_event` fields keep documented surface eligibility,
+complete artifact coverage, and live truth separate. The repeatable
 disposable probe in `scripts/tests/host-integration-probe.sh` adds the
 surface-specific `discoverable`, `loaded`, `observed`, `enforced`, `inferred`,
 and `unproven_events` facts. It refuses model- or account-using execution
@@ -1502,37 +1505,53 @@ repository.
 
 | Surface | Project artifact and eligible contract | Strongest truthful guarantee before a live probe |
 | --- | --- | --- |
-| Cursor desktop Agent | `.cursor/hooks.json`; installed Agent lifecycle, tool, shell, MCP, subagent, compaction, and Stop routes | `configured` and `discoverable`; each route becomes `observed` or `enforced` independently |
-| Cursor desktop Cmd+K | The same Agent-hook entries when Cursor emits the corresponding Cmd+K lifecycle | Shared Reconc route semantics, not blanket Agent parity |
+| Cursor desktop Agent | `.cursor/hooks.json`; installed Agent lifecycle, tool, shell, MCP, subagent, compaction, Stop, and sessionless workspace routes | `configured` and `discoverable`; each route becomes `observed` or `enforced` independently |
+| Cursor desktop Cmd+K | The same Agent-hook entries plus sessionless `workspaceOpen` when Cursor emits the corresponding lifecycle | Shared Reconc route semantics, not blanket Agent parity |
 | Cursor inline Tab | `afterTabFileEdit` only; read-prevention and Agent lifecycle are intentionally absent | Successful Tab-write evidence only after that exact route is observed |
-| Cursor CLI interactive | The same project file; actual emitted event set is host-version dependent | No IDE/CLI parity claim without event-by-event live evidence |
-| Cursor CLI print mode | The same project file under the headless Agent CLI | No interactive/print parity claim; structured CLI output is not substituted for missing pre-action hooks |
+| Cursor CLI interactive | The same project file under `agent`; documented routes are session start/end, prompt decision, generic pre/post tool, Stop, and sessionless workspace liveness | Registry-derived eligibility only; no IDE/CLI parity claim without event-by-event live evidence |
+| Cursor CLI print mode | The same project file under `agent --print`; documented route set matches interactive CLI | No interactive/print delivery claim; structured CLI output is not substituted for missing pre-action hooks |
 | Cursor cloud agents | Repository hooks after a writable environment exists; session start/end, dedicated MCP, and Tab routes are unavailable | Only documented eligible routes; no live claim without approved cloud execution |
 | OpenCode CLI | `.opencode/plugins/reconc.js`; prompt, permission, tool, session, compaction, terminal failure, and inferred idle continuation | Static plugin contract plus per-route liveness; continuation remains inferred |
 | Kilo Code CLI | `.kilo/plugin/reconc.js` with `KILO_PURE` unset; same lifecycle classes as OpenCode | Static plugin contract plus per-route liveness; continuation remains inferred |
 | Kilo Code VS Code host | The same canonical project plugin when that host loads external project plugins | CLI observations are never reused as VS Code proof |
 
 Cursor's registry classifies all 21 current host events exactly once. Reconc
-installs 16: `sessionStart`, `sessionEnd`, `preToolUse`, `postToolUse`,
+installs 17: `sessionStart`, `sessionEnd`, `preToolUse`, `postToolUse`,
 `postToolUseFailure`, `subagentStart`, `subagentStop`,
 `beforeShellExecution`, passive `afterShellExecution`,
 `beforeMCPExecution`, `afterMCPExecution`, `afterFileEdit`,
-`beforeSubmitPrompt`, `preCompact`, `stop`, and `afterTabFileEdit`.
+`beforeSubmitPrompt`, `preCompact`, `stop`, `afterTabFileEdit`, and
+`workspaceOpen`.
 `beforeReadFile` and `beforeTabFileRead` cannot prove successful reads;
 `afterAgentResponse` and `afterAgentThought` expand a privacy-sensitive,
-non-evidentiary surface; `workspaceOpen` is configuration lifecycle rather
-than repository policy. Those five events remain explicit unsupported
-dispositions and are not installed as no-ops.
+non-evidentiary surface. Those four events remain explicit unsupported
+dispositions and are not installed as no-ops. `workspaceOpen` is a
+sessionless app-lifecycle route: Reconc validates and redacts its documented
+payload, records only route liveness, creates no session or repository
+evidence, and returns `{}` without plugin paths.
 
 Cursor records positive generic tool evidence only from `postToolUse`.
 `postToolUseFailure` records failure without positive read, write, or command
 evidence. `afterShellExecution` contains output and duration but no
 authoritative exit status, so it records liveness only. `afterFileEdit` and
 `afterTabFileEdit` are successful write fallbacks deduplicated against generic
-tool delivery. Decision routes return `{"permission":"allow"}` or an exact
-deny object; observation routes return `{}`. Stop and subagent Stop use
-Cursor's bounded `followup_message` response. A malformed or outcome-unknown
-post event cannot satisfy command freshness, completion, or proof.
+tool delivery. Tool and subagent decisions return `permission`; prompt
+submission returns `continue`; observation and workspace routes return `{}`.
+Stop and subagent Stop use Cursor's bounded `followup_message` response. A
+malformed or outcome-unknown post event cannot satisfy command freshness,
+completion, or proof.
+
+The CLI probe prefers the official `agent` command and accepts
+`cursor-agent` only as a backward-compatible alias. It verifies the help
+contract before treating either executable as Cursor, so an unrelated `agent`
+binary cannot create a false host claim. Cursor's confirmed `AskQuestion`
+host bug currently emits none of the generic pre/post tool hooks in IDE or
+CLI; Reconc cannot reconstruct that missing pre-action boundary. Cursor has
+also reported host-side `subagentStart` deny enforcement gaps. These are host
+limitations, not adapter parity, and remain outside strict Reconc guarantees:
+`https://forum.cursor.com/t/cursor-cli-askquestion-tool-skips-pretooluse-and-posttooluse-hooks/161836/6`
+and
+`https://forum.cursor.com/t/subagentstart-hook-deny-is-not-enforced/166143/4`.
 
 OpenCode and Kilo shell success is accepted only from an integer
 `output.metadata.exit`. Exit zero succeeds. Non-zero, timeout, abort, explicit

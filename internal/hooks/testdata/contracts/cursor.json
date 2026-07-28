@@ -1,25 +1,26 @@
 {
   "host": "cursor",
-  "host_version": "3.12.30",
+  "host_version": "desktop 3.13.21; CLI 2026.07.23-e383d2b",
   "source_url": "https://cursor.com/docs/hooks",
-  "source_revision": "63a2996a10d9e476b6c28e951dd7691d9c0cf480",
-  "capture_date": "2026-07-23",
+  "source_revision": "sha256:98f3589803ddb52e588cb730c6671558f70ebe0386ecaf991cb6bcc008757a5f",
+  "capture_date": "2026-07-28",
   "events": {
     "sessionStart": {"payload": {"conversation_id": "fixture-session"}, "result": {}},
     "sessionEnd": {"payload": {"conversation_id": "fixture-session"}, "result": {}},
     "preToolUse": {"payload": {"conversation_id": "fixture-session", "tool_name": "Write", "tool_input": {"file_path": "src/app.go"}}, "result": {"permission": "allow"}},
     "postToolUse": {"payload": {"conversation_id": "fixture-session", "tool_name": "Write", "tool_input": {"file_path": "src/app.go"}, "tool_response": {"success": true}}, "result": {}},
     "postToolUseFailure": {"payload": {"conversation_id": "fixture-session", "tool_name": "Shell", "tool_use_id": "fixture-call", "error_message": "synthetic failure"}, "result": {}},
-    "subagentStart": {"payload": {"conversation_id": "fixture-parent", "subagent_id": "fixture-child"}, "result": {}},
+    "subagentStart": {"payload": {"conversation_id": "fixture-parent", "subagent_id": "fixture-child"}, "result": {"permission": "allow"}},
     "subagentStop": {"payload": {"conversation_id": "fixture-parent", "subagent_id": "fixture-child", "loop_count": 0}, "result": {"followup_message": "synthetic continuation"}},
     "beforeShellExecution": {"payload": {"conversation_id": "fixture-session", "command": "go test ./..."}, "result": {"permission": "allow"}},
     "afterShellExecution": {"payload": {"conversation_id": "fixture-session", "command": "go test ./...", "output": "synthetic output"}, "result": {}},
     "beforeMCPExecution": {"payload": {"conversation_id": "fixture-session", "tool_name": "repo_read", "tool_input": "{\"path\":\"docs/readme.md\"}", "url": "https://example.invalid/mcp"}, "result": {"permission": "allow"}},
-    "afterMCPExecution": {"payload": {"conversation_id": "fixture-session", "tool_name": "repo_read", "tool_input": "{\"path\":\"docs/readme.md\"}", "tool_response": "{\"isError\":false}", "url": "https://example.invalid/mcp"}, "result": {}},
+    "afterMCPExecution": {"payload": {"conversation_id": "fixture-session", "tool_name": "repo_read", "tool_input": "{\"path\":\"docs/readme.md\"}", "result_json": "{\"isError\":false}", "url": "https://example.invalid/mcp"}, "result": {}},
     "afterFileEdit": {"payload": {"conversation_id": "fixture-session", "file_path": "src/app.go"}, "result": {}},
-    "beforeSubmitPrompt": {"payload": {"conversation_id": "fixture-session", "prompt": "synthetic prompt"}, "result": {}},
+    "beforeSubmitPrompt": {"payload": {"conversation_id": "fixture-session", "prompt": "synthetic prompt"}, "result": {"continue": true}},
     "preCompact": {"payload": {"conversation_id": "fixture-session"}, "result": {}},
     "stop": {"payload": {"conversation_id": "fixture-session", "loop_count": 0}, "result": {"followup_message": "synthetic continuation"}},
-    "afterTabFileEdit": {"payload": {"conversation_id": "fixture-session", "file_path": "src/app.go"}, "result": {}}
+    "afterTabFileEdit": {"payload": {"conversation_id": "fixture-session", "file_path": "src/app.go"}, "result": {}},
+    "workspaceOpen": {"payload": {"hook_event_name": "workspaceOpen", "cursor_version": "3.13.21", "workspace_roots": ["/fixture/repo"], "user_email": null}, "result": {}}
   }
 }

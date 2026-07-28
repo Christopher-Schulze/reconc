@@ -32,6 +32,8 @@ archive must change together; generated coverage reports never enter the pack.
 
 After rollout, run `reconc hook status . --json`. A `configured` artifact is
 statically complete and discoverable, not automatically loaded, observed, or
-enforced. Verify each required host surface and route independently; do not
+enforced. Use Cursor's `surface_events` for its documented desktop/CLI route
+sets, and treat sessionless `workspaceOpen` as loading evidence only. Verify
+each required host surface and route independently; do not
 reuse Cursor IDE evidence for CLI/cloud or Kilo CLI evidence for its VS Code
 host.

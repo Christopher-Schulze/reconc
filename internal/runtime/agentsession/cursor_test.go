@@ -145,6 +145,45 @@ func TestNormalizeCursorPayloadRequiresSessionIdentity(t *testing.T) {
 	}
 }
 
+func TestNormalizeCursorWorkspaceOpenIsSessionlessAndPrivate(t *testing.T) {
+	body, err := NormalizeCursorPayload("cursor-workspace-open", []byte(`{
+		"hook_event_name":"workspaceOpen",
+		"cursor_version":"3.13.21",
+		"workspace_roots":["/repo"],
+		"user_email":"user@example.invalid"
+	}`))
+	if err != nil {
+		t.Fatalf("NormalizeCursorPayload: %v", err)
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("decode normalized payload: %v", err)
+	}
+	if payload["cursor_event"] != "cursor-workspace-open" || payload["cursor_version"] != "3.13.21" {
+		t.Fatalf("normalized workspace payload = %#v", payload)
+	}
+	if _, present := payload["session_id"]; present {
+		t.Fatalf("workspace lifecycle fabricated a session identity: %#v", payload)
+	}
+	if _, present := payload["user_email"]; present {
+		t.Fatalf("workspace lifecycle retained user identity: %#v", payload)
+	}
+}
+
+func TestNormalizeCursorWorkspaceOpenRejectsMalformedContract(t *testing.T) {
+	tests := []string{
+		`{"hook_event_name":"stop","cursor_version":"3.13.21","workspace_roots":["/repo"]}`,
+		`{"hook_event_name":"workspaceOpen","workspace_roots":["/repo"]}`,
+		`{"hook_event_name":"workspaceOpen","cursor_version":"3.13.21","workspace_roots":[]}`,
+		`{"hook_event_name":"workspaceOpen","cursor_version":"3.13.21","workspace_roots":[1]}`,
+	}
+	for _, payload := range tests {
+		if _, err := NormalizeCursorPayload("cursor-workspace-open", []byte(payload)); err == nil {
+			t.Fatalf("malformed workspace payload passed: %s", payload)
+		}
+	}
+}
+
 func TestNormalizeCursorSubagentUsesChildIdentity(t *testing.T) {
 	normalized, err := NormalizeCursorPayload("cursor-subagent-stop", []byte(`{
 		"conversation_id":"parent-session",
@@ -177,13 +216,13 @@ func TestAdaptCursorPreDecisionDeny(t *testing.T) {
 	}
 }
 
-func TestAdaptCursorBeforeSubmitPromptIsPassiveLiveness(t *testing.T) {
+func TestAdaptCursorBeforeSubmitPromptUsesNativeDecision(t *testing.T) {
 	blocked := AdaptCursorResult("cursor-user-prompt-submit", Result{ExitCode: 2, Stderr: "blocked"})
-	if blocked.ExitCode != 0 || blocked.Stdout != `{}` || blocked.Stderr != "blocked" {
+	if blocked.ExitCode != 0 || !strings.Contains(blocked.Stdout, `"continue":false`) || !strings.Contains(blocked.Stdout, `"user_message":"blocked"`) {
 		t.Fatalf("blocked prompt result = %#v", blocked)
 	}
 	allowed := AdaptCursorResult("cursor-user-prompt-submit", Result{ExitCode: 0})
-	if allowed.ExitCode != 0 || allowed.Stdout != `{}` {
+	if allowed.ExitCode != 0 || allowed.Stdout != `{"continue":true}` {
 		t.Fatalf("allowed prompt result = %#v", allowed)
 	}
 }
@@ -193,9 +232,10 @@ func TestAdaptCursorPreDecisionSuccessOutputsAllowJSON(t *testing.T) {
 		"cursor-pre-tool-use",
 		"cursor-before-shell-execution",
 		"cursor-before-read-file",
+		"cursor-subagent-start",
 	} {
 		t.Run(event, func(t *testing.T) {
-			result := AdaptCursorResult(event, Result{ExitCode: 0})
+			result := AdaptCursorResult(event, Result{ExitCode: 0, Stdout: `{"internal":"ignored"}`})
 			if result.ExitCode != 0 {
 				t.Fatalf("exit = %d", result.ExitCode)
 			}
@@ -217,8 +257,8 @@ func TestAdaptCursorOutputlessObservationsUseEmptyObject(t *testing.T) {
 		"cursor-post-tool-use-failure",
 		"cursor-after-shell-execution",
 		"cursor-after-file-edit",
-		"cursor-subagent-start",
 		"cursor-pre-compaction",
+		"cursor-workspace-open",
 	} {
 		t.Run(event, func(t *testing.T) {
 			result := AdaptCursorResult(event, Result{ExitCode: 0, Stdout: `{"ignored":true}`, Stderr: "warning"})

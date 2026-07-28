@@ -222,7 +222,10 @@ weaker host lifecycle respectively.
 - **Cursor**: `.cursor/hooks.json` is shared configuration for Agent/Cmd+K,
   Tab, CLI, and eligible cloud routes, but event delivery is surface-specific.
   `postToolUse` is successful evidence, `postToolUseFailure` is failure only,
-  and `afterShellExecution` is passive because it has no exit status.
+  and `afterShellExecution` is passive because it has no exit status. Cursor
+  CLI uses `agent` (`cursor-agent` is an alias); inspect registry-derived
+  `surface_events` and exact live routes. Sessionless `workspaceOpen` proves
+  artifact loading only and never creates task evidence.
 - **OpenCode**: use `reconc hook install opencode .` for the
   thin project-local `.opencode/plugins/reconc.js` adapter. Shell success
   requires integer `output.metadata.exit == 0`. Bounded asynchronous

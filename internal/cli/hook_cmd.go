@@ -713,6 +713,8 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 			} else {
 				result = agentsession.RunPassiveEvent(repo, payload)
 			}
+		case hooks.EventWorkspaceOpen:
+			result = agentsession.Result{}
 		case hooks.EventSubagentStop:
 			if route.PlatformKind == hooks.KindGitHubCopilot || route.PlatformKind == hooks.KindCursor {
 				result = agentsession.RunStop(repo, payload)
@@ -976,6 +978,10 @@ func isObservationOnlyHookEvent(event string) bool {
 	if !ok {
 		return false
 	}
+	if route.PlatformKind == hooks.KindCursor &&
+		(route.Event == hooks.EventUserPromptSubmit || route.Event == hooks.EventSubagentStart) {
+		return false
+	}
 	switch route.Event {
 	case hooks.EventUserPromptSubmit,
 		hooks.EventPermissionDenied,
@@ -989,7 +995,8 @@ func isObservationOnlyHookEvent(event string) bool {
 		hooks.EventSubagentStart,
 		hooks.EventSubagentStop,
 		hooks.EventPreCompaction,
-		hooks.EventPostCompaction:
+		hooks.EventPostCompaction,
+		hooks.EventWorkspaceOpen:
 		return true
 	default:
 		return false

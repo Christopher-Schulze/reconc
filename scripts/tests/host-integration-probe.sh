@@ -59,11 +59,25 @@ for command_name in git go jq; do
   }
 done
 
+cursor_cli_command() {
+  local candidate path help_output
+  for candidate in agent cursor-agent; do
+    path="$(command -v "$candidate" || true)"
+    [[ -n "$path" ]] || continue
+    help_output="$("$path" --help 2>&1 || true)"
+    if [[ "$help_output" == *'Start the Cursor Agent'* ]]; then
+      printf '%s\n' "$path"
+      return 0
+    fi
+  done
+  return 1
+}
+
 case "$host" in
   cursor)
     case "$surface" in
       cli-interactive|cli-print)
-        host_command="$(command -v cursor-agent || true)"
+        host_command="$(cursor_cli_command || true)"
         ;;
       desktop-agent|desktop-cmd-k|tab)
         if [[ -x /Applications/Cursor.app/Contents/Resources/app/bin/cursor ]]; then
@@ -128,20 +142,23 @@ configured="$(jq -r '.configured' <<<"$host_status")"
 expected_events="$(jq -c '.expected_events // []' <<<"$host_status")"
 surface_expected_events="$expected_events"
 case "$host:$surface" in
-  cursor:desktop-agent|cursor:desktop-cmd-k|cursor:cli-interactive|cursor:cli-print)
-    surface_expected_events="$(jq -c '[.[] | select(. != "cursor-after-tab-file-edit")]' <<<"$expected_events")"
+  cursor:desktop-agent)
+    surface_expected_events="$(jq -c '.surface_events["cursor-desktop-agent"] // []' <<<"$host_status")"
+    ;;
+  cursor:desktop-cmd-k)
+    surface_expected_events="$(jq -c '.surface_events["cursor-desktop-cmd-k"] // []' <<<"$host_status")"
     ;;
   cursor:tab)
-    surface_expected_events="$(jq -c '[.[] | select(. == "cursor-after-tab-file-edit")]' <<<"$expected_events")"
+    surface_expected_events="$(jq -c '.surface_events["cursor-tab"] // []' <<<"$host_status")"
+    ;;
+  cursor:cli-interactive)
+    surface_expected_events="$(jq -c '.surface_events["cursor-cli-interactive"] // []' <<<"$host_status")"
+    ;;
+  cursor:cli-print)
+    surface_expected_events="$(jq -c '.surface_events["cursor-cli-print"] // []' <<<"$host_status")"
     ;;
   cursor:cloud)
-    surface_expected_events="$(jq -c '[.[] | select(
-      . != "cursor-session-start" and
-      . != "cursor-session-end" and
-      . != "cursor-before-mcp-execution" and
-      . != "cursor-after-mcp-execution" and
-      . != "cursor-after-tab-file-edit"
-    )]' <<<"$expected_events")"
+    surface_expected_events="$(jq -c '.surface_events["cursor-cloud"] // []' <<<"$host_status")"
     ;;
 esac
 
@@ -223,10 +240,10 @@ if [[ "$allow_authenticated" == true ]]; then
       action_required="Open $probe_repo in Cursor, accept one Tab edit, then return here and press Enter."
       ;;
     cursor:cli-interactive)
-      action_required="Run cursor-agent in $probe_repo and exercise the approved positive/negative matrix, then return here and press Enter."
+      action_required="Run agent in $probe_repo and exercise the approved positive/negative matrix, then return here and press Enter."
       ;;
     cursor:cli-print)
-      action_required="Run cursor-agent --print --output-format stream-json in $probe_repo with the approved positive/negative matrix, then return here and press Enter."
+      action_required="Run agent --print --output-format stream-json in $probe_repo with the approved positive/negative matrix, then return here and press Enter."
       ;;
     cursor:cloud)
       action_required="Start the approved cloud-agent probe from $probe_repo, exercise the documented cloud event set, then return here and press Enter."
@@ -259,7 +276,7 @@ loaded=false
 blocked_routes='[]'
 if [[ -s "$event_log" ]]; then
   observed_events="$(jq -sc 'map(.route) | unique | sort' "$event_log")"
-  loaded="$(jq -s 'any(.[]; .route | test("session-start$"))' "$event_log")"
+  loaded="$(jq -s 'any(.[]; .route | test("(session-start|workspace-open)$"))' "$event_log")"
   blocked_routes="$(jq -sc 'map(select(.exit_code == 2) | .route) | unique | sort' "$event_log")"
   detail='approved live probe completed; matrix contains only sanitized route identities and structural field names'
 fi

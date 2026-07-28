@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -514,7 +515,7 @@ func TestHookRuntimeCursorSubagentCompactionAndMCPRoutes(t *testing.T) {
 	stdout, _, code := runWithStdin(t,
 		`{"conversation_id":"cur-parent","subagent_id":"cur-child","hook_event_name":"subagentStart"}`,
 		"hook", "runtime", "cursor-subagent-start", repo)
-	if code != 0 || strings.TrimSpace(stdout) != "{}" {
+	if code != 0 || !strings.Contains(stdout, `"permission":"allow"`) {
 		t.Fatalf("Cursor subagent start code=%d stdout=%q", code, stdout)
 	}
 	if _, err := agentsession.MutateSessionState(repo, "cur-child", func(state agentsession.SessionState) agentsession.SessionState {
@@ -559,6 +560,37 @@ func TestHookRuntimeCursorSubagentCompactionAndMCPRoutes(t *testing.T) {
 	}
 	if !slices.Contains(state.WritePaths, "src/mcp.go") {
 		t.Fatalf("Cursor MCP write evidence = %#v", state.WritePaths)
+	}
+}
+
+func TestHookRuntimeCursorPromptAndWorkspaceUseNativeContracts(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	stdout, stderr, code := runWithStdin(t,
+		`{"conversation_id":"cur-prompt","hook_event_name":"beforeSubmitPrompt","prompt":"continue"}`,
+		"hook", "runtime", "cursor-user-prompt-submit", repo)
+	if code != 0 || stderr != "" || strings.TrimSpace(stdout) != `{"continue":true}` {
+		t.Fatalf("Cursor prompt contract code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+
+	stdout, stderr, code = runWithStdin(t,
+		fmt.Sprintf(`{"hook_event_name":"workspaceOpen","cursor_version":"3.13.21","workspace_roots":[%q],"user_email":"user@example.invalid"}`, repo),
+		"hook", "runtime", "cursor-workspace-open", repo)
+	if code != 0 || stderr != "" || strings.TrimSpace(stdout) != `{}` {
+		t.Fatalf("Cursor workspace contract code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	liveness, err := agentsession.ReadHookLiveness(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, observed := liveness["cursor"].Routes["cursor-workspace-open"]; !observed {
+		t.Fatalf("Cursor workspace liveness = %#v", liveness["cursor"])
+	}
+	state, err := agentsession.LoadSessionState(repo, "cursor-workspace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.EvidenceEpoch != 0 || len(state.ReadPaths) != 0 || len(state.WritePaths) != 0 {
+		t.Fatalf("Cursor workspace liveness mutated repository evidence: %#v", state)
 	}
 }
 

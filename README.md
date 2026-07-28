@@ -587,7 +587,7 @@ being reported as successful partial publication.
 | Claude Code | repo-local hook wiring |
 | Codex | session, tool, permission, evidence, and Stop hooks with `apply_patch` path extraction |
 | GitHub Copilot | contract-tested repository hooks for Copilot CLI and coding agent; hard PreToolUse and Stop decisions where the host fires them; host timeouts remain fail-open |
-| Cursor | one registry-generated `.cursor/hooks.json` for Agent/Cmd+K, Tab, CLI, and supported cloud routes; successful and failed tool outcomes, shell policy, exact MCP boundaries, subagents, compaction, and Stop remain event- and surface-specific |
+| Cursor | one registry-generated `.cursor/hooks.json` for Agent/Cmd+K, Tab, CLI, and supported cloud routes; registry-derived `surface_events`, native prompt/subagent decisions, sessionless workspace liveness, and tool/Stop behavior remain event-specific |
 | OpenCode | thin project plugin with strict `metadata.exit` shell outcomes, permission/tool/session/compaction routes, and bounded asynchronous `session.idle` continuation |
 | Devin CLI | native session, prompt, tool, permission, stop, and post-compaction hooks |
 | Antigravity CLI | invocation, tool, post-tool, and stop hook coverage |
@@ -620,6 +620,15 @@ remain separate. The exact support-state and event matrix is in
 [the platform contract](docs/documentation.md#host-integration-truth). All
 platforms still use git pre-commit as the hard repository backstop.
 
+Cursor CLI's primary executable is `agent`; `cursor-agent` is its
+backward-compatible alias. Reconc validates the executable identity instead of
+trusting either command name. Current official CLI documentation establishes
+`sessionStart`, `sessionEnd`, `beforeSubmitPrompt`, `preToolUse`,
+`postToolUse`, `stop`, and sessionless `workspaceOpen`; the same installed
+artifact can receive additional routes, but Reconc leaves them surface-
+unproven until exact liveness exists. Cursor currently omits generic tool hooks
+for `AskQuestion`, so that host action has no Reconc pre-action boundary.
+
 Use the following commands before claiming a runtime is active:
 
 ```bash
@@ -627,7 +636,8 @@ reconc hook status . --json
 reconc doctor . --deep
 ```
 
-`hook status` keeps static `configured` truth separate from
+`hook status` keeps static `configured` truth and registry-derived
+`surface_events` separate from
 `expected_events`, `live_events`, `unseen_events`, `last_seen`, and
 `last_event`. A generated file or passing adapter contract test is not
 represented as live execution proof.

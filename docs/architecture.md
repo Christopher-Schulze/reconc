@@ -452,8 +452,12 @@ Cursor generation is registry-driven down to native event, matcher, runtime
 route, response mode, failure policy, timeout, loop limit, and documented
 surface. `postToolUse` is the authoritative successful generic signal;
 `postToolUseFailure` is authoritative failure; `afterShellExecution` is
-passive because Cursor provides no exit status there. Material signatures
-deduplicate specialized write events against generic post-tool delivery.
+passive because Cursor provides no exit status there. Sessionless
+`workspaceOpen` takes a dedicated liveness-only path, redacts user identity,
+and never enters session evidence. Registry-derived `surface_events` prevents
+the probe and public status contract from maintaining a second Cursor matrix.
+Material signatures deduplicate specialized write events against generic
+post-tool delivery.
 
 OpenCode and Kilo plugins are generated transport adapters. Shell outcomes are
 normalized from the exact integer `output.metadata.exit` into the neutral Go

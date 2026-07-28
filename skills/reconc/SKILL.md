@@ -278,7 +278,7 @@ timeout policy, output budgets, artifact paths, and activation probes:
 | Claude Code | `.claude/settings.json` | Native session, tool, permission, Stop, cleanup, and compact-session recovery hooks |
 | Codex | `.codex/hooks.json` | Native session, tool, permission, evidence, and Stop hooks; no `SessionEnd` |
 | GitHub Copilot | `.github/hooks/reconc.json` | Repository hooks for Copilot CLI and coding agent; host timeouts remain fail-open |
-| Cursor | `.cursor/hooks.json` | Registry-driven Agent/Cmd+K, Tab, CLI, and eligible cloud routes; outcome and surface guarantees are event-specific |
+| Cursor | `.cursor/hooks.json` | Registry-driven Agent/Cmd+K, Tab, CLI, and eligible cloud routes; `surface_events`, workspace liveness, decisions, outcomes, and guarantees are event-specific |
 | OpenCode | `.opencode/plugins/reconc.js` | Thin project plugin with strict shell exits and inferred bounded async idle continuation; decisions and state stay in Go |
 | Devin CLI | `.devin/hooks.v1.json` | Native lifecycle plus post-compaction recovery |
 | Antigravity CLI | `.agents/hooks.json` | Invocation, tool, evidence, and Stop adapters |
@@ -298,7 +298,11 @@ print CLI, and cloud agents do not promise identical event delivery. Use the
 same Reconc semantics when the same event fires and keep every unseen route
 unproven. `postToolUse` is success, `postToolUseFailure` is failure, and
 `afterShellExecution` is liveness only because it has no authoritative exit
-status.
+status. Cursor CLI uses `agent`; `cursor-agent` is its compatibility alias.
+`surface_events` lists the documented routes for each CLI mode.
+`workspaceOpen` is sessionless loading evidence only. Cursor currently emits
+no generic tool hooks for `AskQuestion`, so never claim Reconc gated that host
+action.
 
 OpenCode and Kilo accept shell success only from integer
 `output.metadata.exit == 0`. Their `session.idle` continuation calls only

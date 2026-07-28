@@ -31,25 +31,26 @@ const (
 
 // PlatformStatus is one deterministic activation report.
 type PlatformStatus struct {
-	Kind           string          `json:"kind"`
-	DisplayName    string          `json:"display_name"`
-	TargetPath     string          `json:"target_path"`
-	State          ActivationState `json:"state"`
-	Detail         string          `json:"detail"`
-	MissingEvents  []string        `json:"missing_events,omitempty"`
-	ExpectedEvents []string        `json:"expected_events,omitempty"`
-	LiveEvents     []string        `json:"live_events,omitempty"`
-	UnseenEvents   []string        `json:"unseen_events,omitempty"`
-	LastSeen       string          `json:"last_seen,omitempty"`
-	LastEvent      string          `json:"last_event,omitempty"`
-	LivenessError  string          `json:"liveness_error,omitempty"`
-	Generated      bool            `json:"generated"`
-	Installed      bool            `json:"installed"`
-	Executable     bool            `json:"executable"`
-	Configured     bool            `json:"configured"`
-	Live           bool            `json:"live"`
-	Remediation    string          `json:"remediation,omitempty"`
-	MCP            *MCPStatus      `json:"mcp,omitempty"`
+	Kind           string                   `json:"kind"`
+	DisplayName    string                   `json:"display_name"`
+	TargetPath     string                   `json:"target_path"`
+	State          ActivationState          `json:"state"`
+	Detail         string                   `json:"detail"`
+	MissingEvents  []string                 `json:"missing_events,omitempty"`
+	ExpectedEvents []string                 `json:"expected_events,omitempty"`
+	SurfaceEvents  map[HostSurface][]string `json:"surface_events,omitempty"`
+	LiveEvents     []string                 `json:"live_events,omitempty"`
+	UnseenEvents   []string                 `json:"unseen_events,omitempty"`
+	LastSeen       string                   `json:"last_seen,omitempty"`
+	LastEvent      string                   `json:"last_event,omitempty"`
+	LivenessError  string                   `json:"liveness_error,omitempty"`
+	Generated      bool                     `json:"generated"`
+	Installed      bool                     `json:"installed"`
+	Executable     bool                     `json:"executable"`
+	Configured     bool                     `json:"configured"`
+	Live           bool                     `json:"live"`
+	Remediation    string                   `json:"remediation,omitempty"`
+	MCP            *MCPStatus               `json:"mcp,omitempty"`
 }
 
 // MCPMappingStatus is the public, redacted view of one configured selector.
@@ -144,7 +145,15 @@ func quoteStatusArgument(value string) string {
 }
 
 func inspectPlatform(root string, platform Platform) PlatformStatus {
-	report := PlatformStatus{Kind: platform.Kind, DisplayName: platform.DisplayName, TargetPath: platform.TargetPath, State: StateAbsent, Detail: "artifact not installed", ExpectedEvents: platformRuntimeEvents(platform)}
+	report := PlatformStatus{
+		Kind:           platform.Kind,
+		DisplayName:    platform.DisplayName,
+		TargetPath:     platform.TargetPath,
+		State:          StateAbsent,
+		Detail:         "artifact not installed",
+		ExpectedEvents: platformRuntimeEvents(platform),
+		SurfaceEvents:  platformSurfaceEvents(platform),
+	}
 	target := filepath.Join(root, filepath.FromSlash(platform.TargetPath))
 	defaultTarget := target
 	if platform.Activation.Mode == ActivationGitPath {
@@ -360,6 +369,27 @@ func platformRuntimeEvents(platform Platform) []string {
 		}
 	}
 	return events
+}
+
+func platformSurfaceEvents(platform Platform) map[HostSurface][]string {
+	surfaces := map[HostSurface][]string{}
+	for _, capability := range platform.Capabilities {
+		if capability.Support == SupportUnsupported {
+			continue
+		}
+		for _, binding := range capability.Bindings {
+			if binding.RuntimeEvent == "" {
+				continue
+			}
+			for _, surface := range binding.Surfaces {
+				surfaces[surface] = append(surfaces[surface], binding.RuntimeEvent)
+			}
+		}
+	}
+	if len(surfaces) == 0 {
+		return nil
+	}
+	return surfaces
 }
 
 func unsupportedNativeEvents(platform Platform, content string) []string {

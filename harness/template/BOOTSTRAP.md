@@ -508,11 +508,19 @@ and host-discoverable, not loaded or enforced. `expected_events`,
 `live_events`, `unseen_events`, `last_seen`, and `last_event` are separate
 live-process proof; each route is rate-limited to one external-state write
 every six hours. Treat one route as `observed` only when it appears in
-`live_events`; treat a pre-action route as `enforced` only after a disposable
-negative probe proves the side effect did not occur. Inferred lifecycle, such
-as OpenCode/Kilo `session.idle`, never becomes a native Stop claim.
+`live_events`; registry-derived `surface_events` lists documented per-surface
+routes without claiming execution. Treat a pre-action route as `enforced` only
+after a disposable negative probe proves the side effect did not occur.
+Inferred lifecycle, such as OpenCode/Kilo `session.idle`, never becomes a
+native Stop claim.
 
 Claude Code generated hooks use exec-form `command` plus `args`, pass `${CLAUDE_PROJECT_DIR}` directly to the wrapper, and use the context-capable `SessionStart` `compact` matcher for recovery instead of spawning the notification-only `PostCompact` event. Codex bootstrap and direct install manage `hooks = true` under `[features]`; root-level `hooks=true` is invalid. Direct install rejects an explicit user `hooks = false` before any hook write unless `--force` is supplied. Transactional bootstrap exposes the same change as managed drift and requires explicit marker-only acceptance. Uninstall restores the exact original line. Codex has no `SessionEnd` event. GitHub Copilot uses `.github/hooks/reconc.json`; Copilot CLI and coding agent share the version-1 repository contract, but `PermissionRequest` and `Notification` are CLI-only and every host timeout remains fail-open. A foreign file at the managed path is never overwritten, including with `--force`. Cursor's one `.cursor/hooks.json` is shared configuration, not proof of identical Agent, Cmd+K, Tab, CLI, print, or cloud event delivery. Its `postToolUse` route is successful generic evidence, `postToolUseFailure` is failure only, and `afterShellExecution` is passive because that payload has no exit status. Devin uses `.devin/hooks.v1.json`, passes `DEVIN_PROJECT_DIR`, and includes `PostCompaction`. OpenCode and Kilo Code plugins are transport adapters only: policy, session state, continuation, and context recovery remain in the Go runtime. Shell success requires integer `output.metadata.exit == 0`. Their bounded asynchronous continuation trigger is inferred from `session.idle`, not a synchronous native Stop gate, and never falls back to synchronous prompt submission. Kilo Code requires `KILO_PURE` to be unset so project plugins load.
+
+Cursor CLI uses the primary `agent` command; `cursor-agent` is its compatibility
+alias. The documented CLI surface is registry-owned instead of inferred from
+the desktop artifact. `workspaceOpen` is sessionless liveness only and returns
+no plugin paths. Cursor's missing generic hooks for `AskQuestion` cannot be
+reconstructed by Reconc.
 
 Grok Build loads `.grok/hooks/reconc.json` only after project trust is granted with `/hooks-trust` or `--trust`. Native PreToolUse is a hard explicit allow/deny boundary. Reconc also emits exact native Stop block JSON without a leader, marks eligible live Stops strict, uses a 600-second Stop budget, and leaves user interrupts plus `channel_closed`/`shutdown` untouched. It accepts synchronous native enforcement only when the hook guide shipped with the installed Grok distribution explicitly advertises blocking Stop decision control, never from the version string. The generated wrapper converts missing/broken/ambiguous binaries, malformed payloads, runtime failures, and invalid output into deny/block JSON while it can still respond; a host timeout or OS kill before output remains fail-open. `reconc grok . --prompt "..."` remains the explicit strict ACP path. Passive Stop distributions can use optional leader fallback over the Unix socket or Windows named pipe. Protocol-1 `_x.ai/interject` attempts are bounded to 32 delivered no-progress continuations and reset on material progress, a new block, or a clean Stop; capability-proven native hosts suppress duplicate interjection. `RECONC_GROK_STEER=0` disables only leader steering. Deep doctor reports native Stop capability separately and probes optional leader protocol plus `_x.ai/interject`.
 

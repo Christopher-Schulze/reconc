@@ -13,7 +13,7 @@
 | `claude-code` | `.claude/settings.json` | Prompt, permission, tool, failure, compaction, subagent, session, and stop hooks. |
 | `codex` | `.codex/hooks.json` | Released prompt, permission, tool, compaction, subagent, session-start, and stop hooks. |
 | `github-copilot` | `.github/hooks/reconc.json` | Version-1 repository hooks for Copilot CLI and coding agent, with contract-tested tool, lifecycle, compaction, subagent, and Stop translation. |
-| `cursor` | `.cursor/hooks.json` | Session, native `beforeSubmitPrompt`, write/shell policy, post-tool evidence, and stop gate. |
+| `cursor` | `.cursor/hooks.json` | Desktop/CLI session and workspace liveness, native prompt/subagent decisions, write/shell policy, post-tool evidence, and Stop gate. |
 | `opencode` | `.opencode/plugins/reconc.js` | Project plugin for prompt, permission, complete tool outcomes, terminal errors, compaction, session lifecycle, and idle stop gate. |
 | `devin-cli` | `.devin/hooks.v1.json` | Session, tool, permission, stop, cleanup, and post-compaction hooks. |
 | `antigravity` | `.agents/hooks.json` | Invocation, tool, and stop hook group under the top-level `reconc` key. |
@@ -101,29 +101,37 @@ per-route status liveness is required before claiming actual host execution.
 ## Cursor Guarantee
 
 Cursor uses one registry-generated `.cursor/hooks.json`. The registry
-classifies all 21 current events exactly once and installs only the 16 events
+classifies all 21 current events exactly once and installs only the 17 events
 with repository-policy semantics: session start/end, prompt, pre/post/failure
 tool use, shell pre/passive-post, dedicated MCP pre/post, file-edit and Tab
-write evidence, subagent start/stop, pre-compaction, and Stop. Reconc
+write evidence, subagent start/stop, pre-compaction, Stop, and sessionless
+workspace liveness. Reconc
 intentionally excludes read-prevention, assistant response/thought capture,
-Tab pre-read, and workspace-open mutation.
+and Tab pre-read. `workspaceOpen` is validated and privacy-redacted, records
+only route liveness, never creates session/repository evidence, and returns no
+plugin paths.
 
 `postToolUse` is the sole authoritative generic success signal.
 `postToolUseFailure` records failure and no positive evidence.
 `afterShellExecution` records passive liveness because its current host payload
 contains output and duration but no authoritative exit status.
 `afterFileEdit` and `afterTabFileEdit` are successful write fallbacks
-deduplicated against generic delivery. Cursor pre-action decisions return exact
-allow/deny objects; observation routes return `{}`; Stop and subagent Stop use
-bounded `followup_message`.
+deduplicated against generic delivery. Cursor tool and subagent decisions
+return exact permission objects, prompt submission returns the native
+`continue` object, observation/workspace routes return `{}`, and Stop plus
+subagent Stop use bounded `followup_message`.
 
 The same project file can be discovered by desktop Agent, Cmd+K, Tab, Cursor
 CLI, and eligible cloud-agent execution, but shared configuration is not
 event-delivery parity. Tab owns only its write route. Cloud agents do not
 provide session start/end, dedicated MCP, or Tab routes. CLI interactive and
-print mode remain event-by-event claims: Reconc uses identical normalization
-and enforcement whenever the host emits the same event, but never simulates a
-missing pre-action boundary from output streams.
+print mode use `agent` (`cursor-agent` remains an alias). Their documented
+registry set is session start/end, prompt, generic pre/post tool, Stop, and
+workspace liveness. Reconc uses identical normalization and enforcement
+whenever the host emits the same event, but never simulates a missing
+pre-action boundary from output streams. Cursor's current `AskQuestion` host
+bug emits no generic tool hooks in IDE or CLI, so that action is outside
+strict Reconc enforcement.
 
 ## OpenCode And Kilo Code Guarantee
 

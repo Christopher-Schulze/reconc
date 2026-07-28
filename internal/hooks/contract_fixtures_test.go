@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -26,8 +27,10 @@ type hostContractEvent struct {
 func TestOfficialHostContractFixturesCoverEveryInstalledBinding(t *testing.T) {
 	for _, kind := range []string{KindCursor, KindOpenCode, KindKilo} {
 		fixture := readHostContractFixture(t, kind)
+		revisionValid := len(fixture.SourceRevision) == 40 ||
+			(strings.HasPrefix(fixture.SourceRevision, "sha256:") && len(fixture.SourceRevision) == len("sha256:")+64)
 		if fixture.Host != kind || fixture.HostVersion == "" || fixture.SourceURL == "" ||
-			len(fixture.SourceRevision) != 40 || fixture.CaptureDate == "" {
+			!revisionValid || fixture.CaptureDate == "" {
 			t.Fatalf("%s fixture metadata is incomplete: %#v", kind, fixture)
 		}
 		want := installedNativeEvents(t, kind)
@@ -51,9 +54,21 @@ func TestOfficialHostContractFixturesPreserveSecurityRelevantStates(t *testing.T
 	if _, fabricated := cursor.Events["afterShellExecution"].Payload["exit_code"]; fabricated {
 		t.Fatal("Cursor passive afterShellExecution fixture fabricates an exit status")
 	}
-	mcpResult := cursor.Events["afterMCPExecution"].Payload["tool_response"]
+	mcpResult := cursor.Events["afterMCPExecution"].Payload["result_json"]
 	if mcpResult == nil {
 		t.Fatal("Cursor MCP fixture has no result contract")
+	}
+	promptResult := cursor.Events["beforeSubmitPrompt"].Result.(map[string]interface{})
+	if promptResult["continue"] != true {
+		t.Fatalf("Cursor prompt fixture lacks native continue response: %#v", promptResult)
+	}
+	subagentResult := cursor.Events["subagentStart"].Result.(map[string]interface{})
+	if subagentResult["permission"] != "allow" {
+		t.Fatalf("Cursor subagent fixture lacks native permission response: %#v", subagentResult)
+	}
+	workspace := cursor.Events["workspaceOpen"].Payload
+	if workspace["conversation_id"] != nil || workspace["workspace_roots"] == nil {
+		t.Fatalf("Cursor workspace fixture violates sessionless contract: %#v", workspace)
 	}
 
 	for _, kind := range []string{KindOpenCode, KindKilo} {

@@ -26,6 +26,7 @@ const (
 	EventPreCompaction      Event = "pre-compaction"
 	EventPostCompaction     Event = "post-compaction"
 	EventContinuation       Event = "continuation-observation"
+	EventWorkspaceOpen      Event = "workspace-open"
 )
 
 // SupportMode describes how a platform exposes a neutral lifecycle event.
@@ -237,7 +238,7 @@ var platformRegistry = []platformDefinition{
 	{
 		Platform: Platform{Kind: KindCursor, DisplayName: "Cursor", TargetPath: CursorHooksPath, ScaffoldPath: CursorHooksPath, InstallMode: InstallNestedJSON, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".cursor"}, RequiresWrapper: true}, Capabilities: []Capability{
 			cursorCapability(EventSessionStart, "sessionStart", "cursor-session-start", SupportNative, FailureAllow, FailureAllow, 5, CursorResponseFireAndForget, 0),
-			cursorCapability(EventUserPromptSubmit, "beforeSubmitPrompt", "cursor-user-prompt-submit", SupportNative, FailureAllow, FailureAllow, 5, CursorResponseFireAndForget, 0),
+			cursorCapability(EventUserPromptSubmit, "beforeSubmitPrompt", "cursor-user-prompt-submit", SupportNative, FailureAllow, FailureAllow, 5, CursorResponseDecision, 0),
 			cursorPreToolCapability(),
 			fallback(EventPermissionRequest, EventPreToolUse),
 			cursorPostToolCapability(),
@@ -245,11 +246,12 @@ var platformRegistry = []platformDefinition{
 			cursorCapability(EventToolObservation, "afterShellExecution", "cursor-after-shell-execution", SupportNative, FailureAllow, FailureAllow, 5, CursorResponseObservation, 0),
 			cursorCapability(EventMCPBefore, "beforeMCPExecution", "cursor-before-mcp-execution", SupportNative, FailureBlock, FailureBlock, 10, CursorResponseDecision, 0),
 			cursorCapability(EventMCPAfter, "afterMCPExecution", "cursor-after-mcp-execution", SupportNative, FailureAllow, FailureAllow, 5, CursorResponseObservation, 0),
-			cursorCapability(EventSubagentStart, "subagentStart", "cursor-subagent-start", SupportNative, FailureAllow, FailureAllow, 5, CursorResponseFireAndForget, 0),
+			cursorCapability(EventSubagentStart, "subagentStart", "cursor-subagent-start", SupportNative, FailureAllow, FailureAllow, 5, CursorResponseDecision, 0),
 			cursorCapability(EventSubagentStop, "subagentStop", "cursor-subagent-stop", SupportNative, FailureAllow, FailureAllow, 30, CursorResponseStopFollowup, 10),
 			cursorCapability(EventPreCompaction, "preCompact", "cursor-pre-compaction", SupportNative, FailureAllow, FailureAllow, 5, CursorResponseFireAndForget, 0),
 			cursorCapability(EventStop, "stop", "cursor-stop", SupportNative, FailureBlock, FailureBlock, 30, CursorResponseStopFollowup, 10),
 			cursorCapability(EventSessionEnd, "sessionEnd", "cursor-session-end", SupportNative, FailureAllow, FailureAllow, 5, CursorResponseFireAndForget, 0),
+			cursorCapability(EventWorkspaceOpen, "workspaceOpen", "cursor-workspace-open", SupportNative, FailureAllow, FailureAllow, 5, CursorResponseFireAndForget, 0),
 			unsupported(EventPostCompaction),
 		}},
 		generator: generatorCursor,

@@ -47,17 +47,18 @@ var cursorEvidenceSemantics = map[string]string{
 	"preToolUse":           "blocking repository-write policy",
 	"postToolUse":          "authoritative successful read, write, or shell evidence",
 	"postToolUseFailure":   "authoritative failure; never positive evidence",
-	"subagentStart":        "bounded child-session lifecycle only",
+	"subagentStart":        "native child-session decision and bounded lifecycle",
 	"subagentStop":         "child-session completion decision and bounded follow-up",
 	"beforeShellExecution": "blocking command policy only",
 	"afterShellExecution":  "passive diagnostics and liveness; no command outcome evidence",
 	"beforeMCPExecution":   "classified MCP pre-action enforcement",
 	"afterMCPExecution":    "classified successful MCP evidence or redacted observation",
 	"afterFileEdit":        "authoritative successful write evidence",
-	"beforeSubmitPrompt":   "session and route liveness only",
+	"beforeSubmitPrompt":   "native prompt-submission decision and session liveness",
 	"preCompact":           "bounded passive compaction lifecycle only",
 	"stop":                 "hard completion decision and bounded follow-up",
 	"afterTabFileEdit":     "authoritative successful Tab write evidence",
+	"workspaceOpen":        "sessionless desktop and CLI artifact liveness only",
 }
 
 var cursorExcludedEvents = map[string]CursorEventDisposition{
@@ -76,10 +77,6 @@ var cursorExcludedEvents = map[string]CursorEventDisposition{
 	"beforeTabFileRead": {
 		NativeEvent: "beforeTabFileRead", Support: SupportUnsupported, ErrorPolicy: FailureHost, TimeoutPolicy: FailureHost,
 		Evidence: "none", Limitation: "Reconc has no deny-read policy and a pre-read event cannot prove a successful read",
-	},
-	"workspaceOpen": {
-		NativeEvent: "workspaceOpen", Support: SupportUnsupported, ErrorPolicy: FailureHost, TimeoutPolicy: FailureHost,
-		Evidence: "none", Limitation: "configuration discovery belongs to hook status; Reconc does not mutate workspaces on open",
 	},
 }
 
@@ -130,7 +127,19 @@ func cursorDocumentedSurfaces(nativeEvent string) []HostSurface {
 		HostSurfaceCursorDesktopCmdK,
 	}
 	switch nativeEvent {
-	case "sessionStart", "sessionEnd", "beforeMCPExecution", "afterMCPExecution":
+	case "sessionStart", "sessionEnd", "preToolUse", "postToolUse", "beforeSubmitPrompt", "stop":
+		surfaces = append(surfaces,
+			HostSurfaceCursorCLIInteractive,
+			HostSurfaceCursorCLIPrint,
+		)
+	case "workspaceOpen":
+		return append(surfaces,
+			HostSurfaceCursorCLIInteractive,
+			HostSurfaceCursorCLIPrint,
+		)
+	}
+	switch nativeEvent {
+	case "sessionStart", "sessionEnd", "beforeMCPExecution", "afterMCPExecution", "workspaceOpen":
 		return surfaces
 	default:
 		return append(surfaces, HostSurfaceCursorCloud)
