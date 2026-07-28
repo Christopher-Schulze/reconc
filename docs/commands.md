@@ -18,6 +18,12 @@ reconc next .
 reconc done .
 ```
 
+Keep the installed CLI current with the single global lifecycle command:
+
+```bash
+reconc update
+```
+
 Everything below is the full automation and diagnostic surface.
 
 ## Exit codes
@@ -135,7 +141,10 @@ restores the previous binary. A downgrade requires `--allow-downgrade`.
 `--from-dir` disables network access and requires a strict
 `release-manifest.json`, `SHA256SUMS`, and complete regular-file inventory.
 Source builds return the exact path-qualified rebuild and `install-cli`
-guidance.
+guidance. The current user flow has no separate check/apply step:
+`reconc update` performs the verified check and either applies the selected
+update or succeeds without mutation when already current. Hidden `check` and
+`apply` forms exist only as compatibility aliases for older automation.
 
 ### `reconc uninstall [--purge-state] [--json]`
 Removes only a globally owned installation. Direct and source removals require

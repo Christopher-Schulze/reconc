@@ -635,6 +635,16 @@ engine without duplicating business logic. `--profile advanced` additionally
 materializes the immutable public harness pack from the installed binary, binds
 its version and digest into the plan and receipt, and requires no toolkit copy.
 
+### How do I update Reconc?
+
+Run `reconc update`. That single command verifies installation ownership,
+selects stable by default, verifies release trust, applies an available update
+atomically, and succeeds without mutation when already current. There is no
+separate check/apply step in the current user flow. Use `--channel preview` or
+`--version VERSION` only for an intentional non-default selection. A
+source-owned installation receives the exact rebuild and path-qualified
+`install-cli` remediation instead of being overwritten.
+
 ### What exactly does `reconc done` prove?
 
 It binds the current policy lock, Git HEAD, index, worktree, active-session
@@ -724,6 +734,8 @@ installation, applies an available update atomically, and succeeds without
 mutation when already current. Use `--channel stable|preview` or
 `--version VERSION` only when that selection is intentional. Exact-version
 downgrades and channel changes require explicit flags.
+The current user journey has no separate check/apply step: this one command
+performs the verified decision and the safe update transaction.
 Direct installations download only the immutable manifest-selected asset,
 verify version, checksum, and required provenance, smoke-test a sibling
 candidate, and atomically replace only the receipt-owned binary. Source,
