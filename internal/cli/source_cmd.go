@@ -6,13 +6,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"reconc.dev/reconc/internal/adopt"
-	"reconc.dev/reconc/internal/compiler"
-	"reconc.dev/reconc/internal/extractor"
-	"reconc.dev/reconc/internal/ingest"
-	"reconc.dev/reconc/internal/lockdiff"
 	"strings"
-	"time"
+
+	"reconc.dev/reconc/internal/adopt"
+	"reconc.dev/reconc/internal/extractor"
+	"reconc.dev/reconc/internal/lockdiff"
 )
 
 // runExtract implements `reconc extract [repo] [--from PATH] [--yaml|--json]` (W20).
@@ -27,6 +25,7 @@ import (
 // when in doubt, skip.
 func runExtract(args []string, stdout, stderr io.Writer) error {
 	repo := "."
+	repoSet := false
 	from := ""
 	yamlOut := false
 	jsonOut := false
@@ -54,7 +53,11 @@ func runExtract(args []string, stdout, stderr io.Writer) error {
 			if len(a) > 0 && a[0] == '-' {
 				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc extract: unknown flag %q", a)}
 			}
+			if repoSet {
+				return &CLIError{ExitCode: 1, Message: "reconc extract: expected at most one repo path"}
+			}
 			repo = a
+			repoSet = true
 		}
 		i++
 	}
@@ -219,117 +222,4 @@ func short12(s string) string {
 		return s
 	}
 	return s[:12] + "..."
-}
-
-// runWatch implements `reconc watch [repo] [--interval-ms N]` (W6).
-//
-// Poll-based source watcher: every --interval-ms (default 800) the
-// watcher re-scans the policy sources and recompiles if any mtime
-// shifted. Purposely poll-based rather than fsnotify-based so we
-// don't add a new dep for a dev-convenience command.
-//
-// Runs forever; exit on Ctrl-C. First recompile happens on startup
-// so the first output confirms the watcher is live.
-func runWatch(args []string, stdout, stderr io.Writer) error {
-	repo := "."
-	intervalMS := 800
-	i := 0
-	for i < len(args) {
-		a := args[i]
-		switch a {
-		case "--interval-ms":
-			if i+1 >= len(args) {
-				return &CLIError{ExitCode: 1, Message: "reconc watch: --interval-ms requires an integer"}
-			}
-			n, err := atoi(args[i+1])
-			if err != nil || n < 100 {
-				return &CLIError{ExitCode: 1, Message: "reconc watch: --interval-ms must be >= 100"}
-			}
-			intervalMS = n
-			i++
-		case "-h", "--help":
-			fmt.Fprintln(stdout, "Usage: reconc watch [repo] [--interval-ms N]")
-			fmt.Fprintln(stdout, "")
-			fmt.Fprintln(stdout, "Poll policy sources every N ms and recompile when any mtime changes.")
-			fmt.Fprintln(stdout, "Exit with Ctrl-C. Default interval: 800 ms.")
-			return nil
-		default:
-			if len(a) > 0 && a[0] == '-' {
-				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc watch: unknown flag %q", a)}
-			}
-			repo = a
-		}
-		i++
-	}
-
-	abs, err := filepath.Abs(repo)
-	if err != nil {
-		return &CLIError{ExitCode: 1, Message: "reconc watch: " + err.Error()}
-	}
-	discovery, derr := ingest.DiscoverPolicyRepo(abs)
-	if derr != nil || !discovery.Discovered {
-		return &CLIError{ExitCode: 1, Message: "reconc watch: no reconc config found under " + abs}
-	}
-
-	fmt.Fprintf(stdout, "reconc watch: watching %s (poll every %dms, Ctrl-C to exit)\n",
-		discovery.RepoRoot, intervalMS)
-
-	// Initial compile so the user gets immediate feedback.
-	compileOnce(stdout, stderr, discovery.RepoRoot, "0.1.0-watch")
-
-	lastSig := sourceMTimeSignature(discovery.RepoRoot)
-	for {
-		time.Sleep(time.Duration(intervalMS) * time.Millisecond)
-		sig := sourceMTimeSignature(discovery.RepoRoot)
-		if sig == lastSig {
-			continue
-		}
-		lastSig = sig
-		compileOnce(stdout, stderr, discovery.RepoRoot, "0.1.0-watch")
-	}
-}
-
-// compileOnce runs the compiler and prints a tight 1-line status.
-// Never returns an error upstream; watch is a best-effort loop.
-func compileOnce(stdout, stderr io.Writer, repoRoot, version string) {
-	start := time.Now()
-	compiled, err := compiler.CompileRepoPolicy(repoRoot, version)
-	dur := time.Since(start)
-	ts := time.Now().UTC().Format("15:04:05")
-	if err != nil {
-		fmt.Fprintf(stdout, "[%s] compile failed (%s): %s\n", ts, dur.Round(time.Millisecond), err.Error())
-		return
-	}
-	fmt.Fprintf(stdout, "[%s] compiled %d rules from %d sources in %s\n",
-		ts, compiled.RuleCount, compiled.SourceCount, dur.Round(time.Millisecond))
-	if len(compiled.Conflicts) > 0 {
-		fmt.Fprintf(stdout, "          %d conflict(s): run `reconc refresh` for details\n", len(compiled.Conflicts))
-	}
-}
-
-// sourceMTimeSignature builds a compact deterministic signature of
-// every policy-source mtime under repoRoot. When this changes the
-// watcher knows to recompile. Cheap: just stat calls on known paths.
-func sourceMTimeSignature(repoRoot string) string {
-	var b strings.Builder
-	candidates := []string{
-		"AGENTS.md", "CLAUDE.md", ".reconc.yml",
-	}
-	policyDir := filepath.Join(repoRoot, "policies")
-	entries, _ := os.ReadDir(policyDir)
-	for _, e := range entries {
-		if !e.IsDir() {
-			n := e.Name()
-			if strings.HasSuffix(n, ".yml") || strings.HasSuffix(n, ".yaml") {
-				candidates = append(candidates, filepath.ToSlash(filepath.Join("policies", n)))
-			}
-		}
-	}
-	for _, rel := range candidates {
-		full := filepath.Join(repoRoot, rel)
-		if info, err := os.Stat(full); err == nil {
-			fmt.Fprintf(&b, "%s=%d;", rel, info.ModTime().UnixNano())
-		}
-	}
-	return b.String()
 }

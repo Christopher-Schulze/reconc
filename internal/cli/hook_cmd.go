@@ -21,7 +21,7 @@ import (
 // agent-session packages.
 func runHook(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return &CLIError{ExitCode: 1, Message: "reconc hook: missing subcommand (generate | install | uninstall | status | sync-scaffold | runtime | grok-pre-tool-guard | claim | evidence-status | evidence-resolve)"}
+		return &CLIError{ExitCode: 1, Message: "reconc hook: missing subcommand (generate | install | uninstall | status | sync-scaffold | claim | evidence-status | evidence-resolve)"}
 	}
 	switch args[0] {
 	case "-h", "--help":
@@ -30,14 +30,11 @@ func runHook(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintln(stdout, "       reconc hook uninstall <kind> [repo] [--json] [--output PATH]")
 		fmt.Fprintln(stdout, "       reconc hook status   [repo] [--json]")
 		fmt.Fprintln(stdout, "       reconc hook sync-scaffold <repo-root-scaffold> [--json]")
-		fmt.Fprintln(stdout, "       reconc hook runtime  <event> <repo>            (reads stdin JSON)")
-		fmt.Fprintln(stdout, "       reconc hook grok-pre-tool-guard <repo>         (internal fail-closed guard)")
 		fmt.Fprintln(stdout, "       reconc hook claim    <repo> <claim-name> [--session ID] [--json] [--output PATH]")
 		fmt.Fprintln(stdout, "       reconc hook evidence-status [repo] [--json]")
 		fmt.Fprintln(stdout, "       reconc hook evidence-resolve <repo> --token TOKEN --reason TEXT [--json]")
 		fmt.Fprintln(stdout, "")
 		fmt.Fprintf(stdout, "Kinds: %s (all installable)\n", strings.Join(hooks.SupportedKinds(), ", "))
-		fmt.Fprintf(stdout, "Runtime events: %d registry-owned routes; run `reconc hook runtime --help` for the exact list.\n", len(hooks.RuntimeEvents()))
 		return nil
 	case "generate":
 		return runHookGenerate(args[1:], stdout, stderr)
@@ -60,7 +57,7 @@ func runHook(args []string, stdout, stderr io.Writer) error {
 	case "evidence-resolve":
 		return runHookEvidenceResolve(args[1:], stdout)
 	}
-	return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook: unknown subcommand %q (expected generate | install | uninstall | status | sync-scaffold | runtime | grok-pre-tool-guard | claim | evidence-status | evidence-resolve)", args[0])}
+	return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook: unknown subcommand %q (expected generate | install | uninstall | status | sync-scaffold | claim | evidence-status | evidence-resolve)", args[0])}
 }
 
 func runHookEvidenceStatus(args []string, stdout io.Writer) error {
@@ -367,6 +364,7 @@ func runHookInstall(args []string, stdout, stderr io.Writer) (resultErr error) {
 	}
 	kind := args[0]
 	repo := "."
+	repoSet := false
 	force := false
 	jsonOut := false
 	outputPath := ""
@@ -390,7 +388,11 @@ func runHookInstall(args []string, stdout, stderr io.Writer) (resultErr error) {
 			if len(a) > 0 && a[0] == '-' {
 				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook install: unknown flag %q", a)}
 			}
+			if repoSet {
+				return &CLIError{ExitCode: 1, Message: "reconc hook install: expected at most one repo path"}
+			}
 			repo = a
+			repoSet = true
 		}
 	}
 	report, installErr := hooks.Install(kind, repo, force)

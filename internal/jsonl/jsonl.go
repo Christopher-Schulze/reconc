@@ -71,32 +71,66 @@ func Append(path string, record []byte, policy Policy) error {
 	if err := validatePolicy(policy); err != nil {
 		return err
 	}
+	normalized := append(bytes.TrimRight(record, "\r\n"), '\n')
+	if int64(len(normalized)) > policy.MaxBytes {
+		return fmt.Errorf("jsonl record is %d bytes; maximum is %d", len(normalized), policy.MaxBytes)
+	}
+	return withLock(path, func() error {
+		return appendLocked(path, normalized, policy)
+	})
+}
+
+// AppendTransaction derives and appends one record while holding the same
+// cross-process lock used by Append, then runs commit before releasing it.
+// It is intended for chained logs whose next record depends on the current
+// tail and whose detached head must advance with the append.
+func AppendTransaction(path string, policy Policy, prepare func() ([]byte, error), commit func() error) error {
+	if err := validatePolicy(policy); err != nil {
+		return err
+	}
+	if prepare == nil {
+		return errors.New("jsonl prepare callback is required")
+	}
+	return withLock(path, func() error {
+		record, err := prepare()
+		if err != nil {
+			return err
+		}
+		if err := appendLocked(path, record, policy); err != nil {
+			return err
+		}
+		if commit != nil {
+			return commit()
+		}
+		return nil
+	})
+}
+
+func appendLocked(path string, record []byte, policy Policy) error {
 	record = bytes.TrimRight(record, "\r\n")
 	record = append(record, '\n')
 	if int64(len(record)) > policy.MaxBytes {
 		return fmt.Errorf("jsonl record is %d bytes; maximum is %d", len(record), policy.MaxBytes)
 	}
-	return withLock(path, func() error {
-		info, err := os.Stat(path)
-		switch {
-		case err == nil && info.Size()+int64(len(record)) > policy.MaxBytes:
-			if err := rotate(path, policy.MaxArchives, policy.MaxBytes); err != nil {
-				return err
-			}
-		case err != nil && !errors.Is(err, os.ErrNotExist):
+	info, err := os.Stat(path)
+	switch {
+	case err == nil && info.Size()+int64(len(record)) > policy.MaxBytes:
+		if err := rotate(path, policy.MaxArchives, policy.MaxBytes); err != nil {
 			return err
 		}
-		file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-		if err != nil {
-			return err
-		}
-		writeErr := writeFull(file, record)
-		closeErr := file.Close()
-		if writeErr != nil {
-			return writeErr
-		}
-		return closeErr
-	})
+	case err != nil && !errors.Is(err, os.ErrNotExist):
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	writeErr := writeFull(file, record)
+	closeErr := file.Close()
+	if writeErr != nil {
+		return writeErr
+	}
+	return closeErr
 }
 
 // Enforce compacts oversized historical files and removes archives outside

@@ -16,7 +16,8 @@
 package audit
 
 import (
-	"bufio"
+	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,13 +28,18 @@ import (
 	"strings"
 	"time"
 
+	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/jsonl"
 )
 
 // Relative path under the repo root where the log lives.
 const AuditFileRelative = ".reconc/audit.jsonl"
+const AuditHeadRelative = ".reconc/audit.head.json"
 
 const (
+	auditChainVersion = "audit-chain-v1"
+	auditHeadMaxBytes = 16 * 1024
 	// DefaultMaxSizeBytes bounds each live/archive file. Together with the
 	// two-file ring, audit storage is capped at 6 MiB per repository.
 	DefaultMaxSizeBytes = 2 * 1024 * 1024
@@ -46,6 +52,10 @@ const (
 // Entry is one audit record. Zero-value fields serialise to omitempty so
 // small checks stay small on disk.
 type Entry struct {
+	ChainVersion   string   `json:"chain_version"`
+	Sequence       uint64   `json:"sequence"`
+	PreviousDigest string   `json:"previous_digest,omitempty"`
+	Digest         string   `json:"digest"`
 	Timestamp      string   `json:"ts"`
 	Event          string   `json:"event"` // check | ci | assert | can | hook
 	Decision       string   `json:"decision"`
@@ -62,6 +72,25 @@ type Entry struct {
 	ReconcVersion  string   `json:"reconc_version,omitempty"`
 	DurationMs     int64    `json:"duration_ms,omitempty"`
 	Agent          string   `json:"agent,omitempty"`
+}
+
+type chainHead struct {
+	ChainVersion  string `json:"chain_version"`
+	FirstSequence uint64 `json:"first_sequence"`
+	FirstDigest   string `json:"first_digest"`
+	LastSequence  uint64 `json:"last_sequence"`
+	LastDigest    string `json:"last_digest"`
+	EntryCount    int    `json:"entry_count"`
+}
+
+// VerificationReport is the detached-head and hash-chain proof returned by
+// Verify. FirstSequence may be greater than one after bounded retention.
+type VerificationReport struct {
+	Valid         bool   `json:"valid"`
+	Entries       int    `json:"entries"`
+	FirstSequence uint64 `json:"first_sequence,omitempty"`
+	LastSequence  uint64 `json:"last_sequence,omitempty"`
+	LastDigest    string `json:"last_digest,omitempty"`
 }
 
 // Enabled reports whether audit logging is active for the given repo.
@@ -96,28 +125,68 @@ func Append(repoRoot string, entry Entry, maxSizeBytes int64) error {
 		entry.Timestamp = time.Now().UTC().Format(time.RFC3339Nano)
 	}
 	entry = normalizeEntry(entry)
-	line, err := json.Marshal(entry)
-	if err != nil {
-		return fmt.Errorf("audit: marshal: %w", err)
-	}
-	if len(line)+1 > maxRecordBytes {
-		return fmt.Errorf("audit: bounded record is %d bytes; maximum is %d", len(line)+1, maxRecordBytes)
-	}
 	if maxSizeBytes <= 0 {
 		maxSizeBytes = DefaultMaxSizeBytes
 	}
 	path := filepath.Join(repoRoot, AuditFileRelative)
-	if err := jsonl.Append(path, line, jsonl.Policy{MaxBytes: maxSizeBytes, MaxArchives: MaxArchiveFiles}); err != nil {
+	policy := jsonl.Policy{MaxBytes: maxSizeBytes, MaxArchives: MaxArchiveFiles}
+	var line []byte
+	prepare := func() ([]byte, error) {
+		entries, head, err := loadVerifiedSnapshot(repoRoot)
+		if err != nil {
+			return nil, err
+		}
+		if len(entries) == 0 {
+			if head != nil {
+				return nil, errors.New("audit head exists without retained records")
+			}
+			entry.Sequence = 1
+			entry.PreviousDigest = ""
+		} else {
+			last := entries[len(entries)-1]
+			entry.Sequence = last.Sequence + 1
+			entry.PreviousDigest = last.Digest
+		}
+		entry.ChainVersion = auditChainVersion
+		entry.Digest = ""
+		digest, err := entryDigest(entry)
+		if err != nil {
+			return nil, err
+		}
+		entry.Digest = digest
+		line, err = json.Marshal(entry)
+		if err != nil {
+			return nil, fmt.Errorf("marshal chained audit entry: %w", err)
+		}
+		if len(line)+1 > maxRecordBytes {
+			return nil, fmt.Errorf("bounded record is %d bytes; maximum is %d", len(line)+1, maxRecordBytes)
+		}
+		return line, nil
+	}
+	commit := func() error {
+		entries, err := readAuditEntries(path)
+		if err != nil {
+			return err
+		}
+		if err := verifyEntryChain(entries); err != nil {
+			return err
+		}
+		return writeChainHead(repoRoot, entries)
+	}
+	if err := jsonl.AppendTransaction(path, policy, prepare, commit); err != nil {
 		return fmt.Errorf("audit: append: %w", err)
 	}
 	return nil
 }
 
-// EnforceRetention compacts legacy oversized audit files and removes
-// archives outside the fixed ring.
+// EnforceRetention verifies the writer-owned bounded ring without rewriting
+// evidence. Append owns rotation and detached-head publication; a generic
+// JSONL compactor cannot safely rewrite this chained format.
 func EnforceRetention(repoRoot string) (jsonl.EnforceResult, error) {
-	path := filepath.Join(repoRoot, AuditFileRelative)
-	return jsonl.Enforce(path, jsonl.Policy{MaxBytes: DefaultMaxSizeBytes, MaxArchives: MaxArchiveFiles})
+	if _, err := Verify(repoRoot); err != nil {
+		return jsonl.EnforceResult{}, err
+	}
+	return jsonl.EnforceResult{}, nil
 }
 
 // TailOptions controls what Tail reads.
@@ -142,53 +211,32 @@ func Tail(repoRoot string, opts TailOptions) ([]Entry, error) {
 	if repoRoot == "" {
 		return nil, nil
 	}
-	var all []Entry
-	path := filepath.Join(repoRoot, AuditFileRelative)
-	sources, err := jsonl.PathsOldestFirst(path, MaxArchiveFiles)
-	if err != nil {
-		return nil, fmt.Errorf("audit: enumerate archive ring: %w", err)
+	var since *time.Time
+	if strings.TrimSpace(opts.Since) != "" {
+		parsed, err := time.Parse(time.RFC3339Nano, opts.Since)
+		if err != nil {
+			return nil, fmt.Errorf("audit: since must be RFC3339: %w", err)
+		}
+		since = &parsed
 	}
-	for _, source := range sources {
-		if err := scanEntries(source, opts, &all); err != nil {
-			return nil, err
+	all, _, err := readVerifiedSnapshot(repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]Entry, 0, len(all))
+	for _, entry := range all {
+		if matchesFilters(entry, opts, since) {
+			filtered = append(filtered, entry)
 		}
 	}
 
-	if opts.N > 0 && len(all) > opts.N {
-		all = all[len(all)-opts.N:]
+	if opts.N > 0 && len(filtered) > opts.N {
+		filtered = filtered[len(filtered)-opts.N:]
 	}
-	return all, nil
+	return filtered, nil
 }
 
-func scanEntries(path string, opts TailOptions, all *[]Entry) error {
-	file, err := os.Open(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return fmt.Errorf("audit: open: %w", err)
-	}
-	defer file.Close()
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 32*1024), maxRecordBytes)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
-		}
-		var entry Entry
-		if err := json.Unmarshal(line, &entry); err != nil || !matchesFilters(entry, opts) {
-			continue
-		}
-		*all = append(*all, entry)
-	}
-	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
-		return fmt.Errorf("audit: scan: %w", err)
-	}
-	return nil
-}
-
-func matchesFilters(e Entry, opts TailOptions) bool {
+func matchesFilters(e Entry, opts TailOptions, since *time.Time) bool {
 	if opts.RuleID != "" {
 		hit := false
 		for _, rid := range e.RuleIDs {
@@ -204,10 +252,9 @@ func matchesFilters(e Entry, opts TailOptions) bool {
 	if opts.Decision != "" && e.Decision != opts.Decision {
 		return false
 	}
-	if opts.Since != "" {
-		// RFC3339 lexical ordering == chronological for same-offset
-		// timestamps. Our Append() always uses UTC so this is safe.
-		if e.Timestamp < opts.Since {
+	if since != nil {
+		timestamp, err := time.Parse(time.RFC3339Nano, e.Timestamp)
+		if err != nil || timestamp.Before(*since) {
 			return false
 		}
 	}
@@ -294,27 +341,266 @@ func Stats(repoRoot string) (*StatsReport, error) {
 // ExportJSONL writes the full log to w as-is. Useful for CSV export
 // tooling or cross-repo aggregation.
 func ExportJSONL(repoRoot string, w io.Writer) error {
-	path := filepath.Join(repoRoot, AuditFileRelative)
-	sources, err := jsonl.PathsOldestFirst(path, MaxArchiveFiles)
-	if err != nil {
-		return fmt.Errorf("audit: enumerate archive ring: %w", err)
-	}
-	for _, source := range sources {
-		file, err := os.Open(source)
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				continue
-			}
+	return withAuditLock(repoRoot, func() error {
+		if _, _, err := loadVerifiedSnapshot(repoRoot); err != nil {
 			return err
 		}
-		_, copyErr := io.Copy(w, file)
-		closeErr := file.Close()
-		if copyErr != nil {
-			return copyErr
+		path := filepath.Join(repoRoot, AuditFileRelative)
+		sources, err := jsonl.PathsOldestFirst(path, MaxArchiveFiles)
+		if err != nil {
+			return fmt.Errorf("audit: enumerate archive ring: %w", err)
 		}
-		if closeErr != nil {
-			return closeErr
+		for _, source := range sources {
+			file, err := os.Open(source)
+			if err != nil {
+				if errors.Is(err, os.ErrNotExist) {
+					continue
+				}
+				return err
+			}
+			_, copyErr := io.Copy(w, file)
+			closeErr := file.Close()
+			if copyErr != nil {
+				return copyErr
+			}
+			if closeErr != nil {
+				return closeErr
+			}
 		}
+		return nil
+	})
+}
+
+// Verify validates every retained record, the linear sequence and digest
+// links, and the detached first/last head anchors.
+func Verify(repoRoot string) (VerificationReport, error) {
+	if repoRoot == "" {
+		return VerificationReport{Valid: true}, nil
+	}
+	var report VerificationReport
+	err := withAuditLock(repoRoot, func() error {
+		entries, _, err := loadVerifiedSnapshot(repoRoot)
+		if err != nil {
+			return err
+		}
+		report.Valid = true
+		report.Entries = len(entries)
+		if len(entries) > 0 {
+			report.FirstSequence = entries[0].Sequence
+			report.LastSequence = entries[len(entries)-1].Sequence
+			report.LastDigest = entries[len(entries)-1].Digest
+		}
+		return nil
+	})
+	return report, err
+}
+
+func readVerifiedSnapshot(repoRoot string) ([]Entry, *chainHead, error) {
+	var entries []Entry
+	var head *chainHead
+	err := withAuditLock(repoRoot, func() error {
+		var err error
+		entries, head, err = loadVerifiedSnapshot(repoRoot)
+		return err
+	})
+	return entries, head, err
+}
+
+func loadVerifiedSnapshot(repoRoot string) ([]Entry, *chainHead, error) {
+	path := filepath.Join(repoRoot, AuditFileRelative)
+	entries, err := readAuditEntries(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	head, err := readChainHead(repoRoot)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := verifyEntryChain(entries); err != nil {
+		return nil, nil, err
+	}
+	if err := verifyChainHead(entries, head); err != nil {
+		return nil, nil, err
+	}
+	return entries, head, nil
+}
+
+func readAuditEntries(path string) ([]Entry, error) {
+	sources, err := jsonl.PathsOldestFirst(path, MaxArchiveFiles)
+	if err != nil {
+		return nil, fmt.Errorf("audit: enumerate archive ring: %w", err)
+	}
+	entries := []Entry{}
+	for _, source := range sources {
+		data, err := os.ReadFile(source)
+		if err != nil {
+			return nil, fmt.Errorf("audit: read %s: %w", source, err)
+		}
+		if len(data) > 0 && data[len(data)-1] != '\n' {
+			return nil, fmt.Errorf("audit: %s contains a truncated record without a final newline", source)
+		}
+		for index, line := range bytes.Split(data, []byte{'\n'}) {
+			if len(line) == 0 {
+				continue
+			}
+			var entry Entry
+			if err := decodeStrictJSON(line, &entry); err != nil {
+				return nil, fmt.Errorf("audit: %s:%d contains malformed JSON: %w", source, index+1, err)
+			}
+			entries = append(entries, entry)
+		}
+	}
+	return entries, nil
+}
+
+func verifyEntryChain(entries []Entry) error {
+	for index, entry := range entries {
+		if entry.ChainVersion != auditChainVersion {
+			return fmt.Errorf("audit: entry %d has unsupported or missing chain_version", index+1)
+		}
+		if entry.Sequence == 0 {
+			return fmt.Errorf("audit: entry %d has invalid sequence", index+1)
+		}
+		if _, err := time.Parse(time.RFC3339Nano, entry.Timestamp); err != nil {
+			return fmt.Errorf("audit: entry %d has invalid timestamp: %w", index+1, err)
+		}
+		expected, err := entryDigest(entry)
+		if err != nil {
+			return fmt.Errorf("audit: entry %d digest: %w", index+1, err)
+		}
+		if entry.Digest != expected {
+			return fmt.Errorf("audit: entry %d digest does not match its contents", index+1)
+		}
+		if index == 0 {
+			continue
+		}
+		previous := entries[index-1]
+		if entry.Sequence != previous.Sequence+1 {
+			return fmt.Errorf("audit: entry %d sequence is not contiguous", index+1)
+		}
+		if entry.PreviousDigest != previous.Digest {
+			return fmt.Errorf("audit: entry %d previous_digest does not match entry %d", index+1, index)
+		}
+	}
+	return nil
+}
+
+func entryDigest(entry Entry) (string, error) {
+	entry.Digest = ""
+	body, err := json.Marshal(entry)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(body)
+	return fmt.Sprintf("%x", digest[:]), nil
+}
+
+func verifyChainHead(entries []Entry, head *chainHead) error {
+	if len(entries) == 0 {
+		if head != nil {
+			return errors.New("audit: detached head exists without retained records")
+		}
+		return nil
+	}
+	if head == nil {
+		return errors.New("audit: retained records have no detached head")
+	}
+	first := entries[0]
+	last := entries[len(entries)-1]
+	if head.ChainVersion != auditChainVersion ||
+		head.EntryCount != len(entries) ||
+		head.FirstSequence != first.Sequence ||
+		head.FirstDigest != first.Digest ||
+		head.LastSequence != last.Sequence ||
+		head.LastDigest != last.Digest {
+		return errors.New("audit: detached head does not match the retained chain")
+	}
+	return nil
+}
+
+func readChainHead(repoRoot string) (*chainHead, error) {
+	path := filepath.Join(repoRoot, AuditHeadRelative)
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("audit: read detached head: %w", err)
+	}
+	if len(data) > auditHeadMaxBytes {
+		return nil, fmt.Errorf("audit: detached head exceeds %d bytes", auditHeadMaxBytes)
+	}
+	var head chainHead
+	if err := decodeStrictJSON(data, &head); err != nil {
+		return nil, fmt.Errorf("audit: detached head is malformed: %w", err)
+	}
+	return &head, nil
+}
+
+func decodeStrictJSON(data []byte, target interface{}) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var trailing interface{}
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return errors.New("multiple JSON values are not allowed")
+		}
+		return err
+	}
+	return nil
+}
+
+func writeChainHead(repoRoot string, entries []Entry) error {
+	if len(entries) == 0 {
+		return errors.New("audit: cannot write a detached head for an empty chain")
+	}
+	first := entries[0]
+	last := entries[len(entries)-1]
+	head := chainHead{
+		ChainVersion:  auditChainVersion,
+		FirstSequence: first.Sequence,
+		FirstDigest:   first.Digest,
+		LastSequence:  last.Sequence,
+		LastDigest:    last.Digest,
+		EntryCount:    len(entries),
+	}
+	body, err := json.MarshalIndent(head, "", "  ")
+	if err != nil {
+		return fmt.Errorf("audit: marshal detached head: %w", err)
+	}
+	body = append(body, '\n')
+	if _, err := atomicfile.WriteIfChanged(filepath.Join(repoRoot, AuditHeadRelative), body, 0o600); err != nil {
+		return fmt.Errorf("audit: write detached head: %w", err)
+	}
+	return nil
+}
+
+func withAuditLock(repoRoot string, fn func() error) error {
+	directory := filepath.Join(repoRoot, ".reconc")
+	if _, err := os.Stat(directory); errors.Is(err, os.ErrNotExist) {
+		return fn()
+	} else if err != nil {
+		return err
+	}
+	lock, err := os.OpenFile(filepath.Join(repoRoot, AuditFileRelative)+".lock", os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	unlock, err := filelock.Lock(lock)
+	if err != nil {
+		return err
+	}
+	fnErr := fn()
+	unlockErr := unlock()
+	if fnErr != nil {
+		return fnErr
+	}
+	if unlockErr != nil {
+		return fmt.Errorf("audit: unlock: %w", unlockErr)
 	}
 	return nil
 }

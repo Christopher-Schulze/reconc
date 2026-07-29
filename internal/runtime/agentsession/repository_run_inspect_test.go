@@ -2,6 +2,7 @@ package agentsession
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -16,14 +17,38 @@ func TestReadRunDecisionsMissingIsEmpty(t *testing.T) {
 	}
 }
 
-func TestReadRunDecisionsOrderLimitAndMalformed(t *testing.T) {
+func TestReadRunDecisionsOrderAndLimit(t *testing.T) {
 	repo := t.TempDir()
 	for _, b := range []string{"a", "b", "c"} {
 		if err := appendRunDecision(repo, RunDecision{Event: "stop", Branch: b}); err != nil {
 			t.Fatalf("append %s: %v", b, err)
 		}
 	}
-	// A malformed line must be skipped, not fail the whole read.
+
+	all, err := ReadRunDecisions(repo, 0)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("got %d records", len(all))
+	}
+	if all[0].Branch != "a" || all[2].Branch != "c" {
+		t.Fatalf("append order not preserved: %+v", all)
+	}
+	last2, err := ReadRunDecisions(repo, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(last2) != 2 || last2[0].Branch != "b" || last2[1].Branch != "c" {
+		t.Fatalf("limit must return the last N in order, got %+v", last2)
+	}
+}
+
+func TestReadRunDecisionsRejectsMalformedRecord(t *testing.T) {
+	repo := t.TempDir()
+	if err := appendRunDecision(repo, RunDecision{Event: "stop", Branch: "valid"}); err != nil {
+		t.Fatal(err)
+	}
 	path, err := runDecisionLogPath(repo)
 	if err != nil {
 		t.Fatal(err)
@@ -37,22 +62,42 @@ func TestReadRunDecisionsOrderLimitAndMalformed(t *testing.T) {
 	}
 	f.Close()
 
-	all, err := ReadRunDecisions(repo, 0)
-	if err != nil {
-		t.Fatalf("read: %v", err)
+	if _, err := ReadRunDecisions(repo, 0); err == nil {
+		t.Fatal("malformed record must fail closed")
 	}
-	if len(all) != 3 {
-		t.Fatalf("malformed line must be skipped, got %d records", len(all))
-	}
-	if all[0].Branch != "a" || all[2].Branch != "c" {
-		t.Fatalf("append order not preserved: %+v", all)
-	}
-	last2, err := ReadRunDecisions(repo, 2)
+}
+
+func TestReadRunDecisionsRejectsUnknownField(t *testing.T) {
+	repo := t.TempDir()
+	path, err := runDecisionLogPath(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(last2) != 2 || last2[0].Branch != "b" || last2[1].Branch != "c" {
-		t.Fatalf("limit must return the last N in order, got %+v", last2)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{\"event\":\"stop\",\"unexpected\":true}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadRunDecisions(repo, 0); err == nil {
+		t.Fatal("unknown run-decision field must fail closed")
+	}
+}
+
+func TestReadRunDecisionsRejectsTruncatedRecord(t *testing.T) {
+	repo := t.TempDir()
+	path, err := runDecisionLogPath(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"event":"stop"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadRunDecisions(repo, 0); err == nil {
+		t.Fatal("record without terminating newline must fail closed")
 	}
 }
 

@@ -24,8 +24,9 @@ import (
 //   - reconc ci --staged                  (used by git pre-commit hook)
 //   - reconc ci --base main               (used by PR / CI pipelines)
 //   - reconc ci --base main --head HEAD   (explicit range)
-func runCI(args []string, stdout, stderr io.Writer) (resultErr error) {
+func runCI(args []string, reconcVersion string, stdout, stderr io.Writer) (resultErr error) {
 	repo := "."
+	repoSet := false
 	jsonOut := false
 	staged := false
 	outputPath := ""
@@ -117,7 +118,11 @@ func runCI(args []string, stdout, stderr io.Writer) (resultErr error) {
 			if len(a) > 0 && a[0] == '-' {
 				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc ci: unknown flag %q", a)}
 			}
+			if repoSet {
+				return &CLIError{ExitCode: 1, Message: "reconc ci: expected at most one repo path"}
+			}
 			repo = a
+			repoSet = true
 		}
 		i++
 	}
@@ -210,7 +215,9 @@ func runCI(args []string, stdout, stderr io.Writer) (resultErr error) {
 	if err := persistPolicyDecision("ci", candidate, report); err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc ci: persist decision proof: " + err.Error()}
 	}
-	maybeAudit("ci", report, startCI)
+	if err := maybeAudit("ci", report, reconcVersion, startCI); err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc ci: append audit evidence: " + err.Error()}
+	}
 	out, closeOutput, err := teeToFile(stdout, outputPath)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc ci: open output file: " + err.Error()}

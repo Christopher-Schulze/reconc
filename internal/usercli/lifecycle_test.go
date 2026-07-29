@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/buildprovenance"
+	"reconc.dev/reconc/internal/schema"
 )
 
 func TestSemanticVersionOrderingAndValidation(t *testing.T) {
@@ -69,17 +70,35 @@ func TestOnlineReleaseSelectionUsesFixedImmutableIdentity(t *testing.T) {
 	t.Cleanup(func() { lifecycleHTTPClient = previousClient })
 	asset := targetArtifact("1.2.3")
 	digest := strings.Repeat("a", 64)
+	manifest := ReleaseManifest{
+		FormatVersion: releaseManifestFormat,
+		Repository:    releaseRepository,
+		Tag:           "reconc-v1.2.3",
+		Version:       "1.2.3",
+		Assets:        []ReleaseAsset{{Name: asset, SHA256: digest, Size: 123}},
+	}
+	manifestBody, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestSum := sha256.Sum256(manifestBody)
+	checksumsBody := digest + "  " + asset + "\n" +
+		hex.EncodeToString(manifestSum[:]) + "  " + releaseManifestName + "\n"
 	releaseBody := fmt.Sprintf(`{
 		"tag_name":"reconc-v1.2.3",
 		"draft":false,
 		"prerelease":false,
 		"assets":[
 			{"name":%q,"size":123,"browser_download_url":%q},
-			{"name":"SHA256SUMS","size":90,"browser_download_url":%q}
+			{"name":"release-manifest.json","size":%d,"browser_download_url":%q},
+			{"name":"SHA256SUMS","size":%d,"browser_download_url":%q}
 		]
 	}`,
 		asset,
 		releaseDownloadBase+"/reconc-v1.2.3/"+asset,
+		len(manifestBody),
+		releaseDownloadBase+"/reconc-v1.2.3/"+releaseManifestName,
+		len(checksumsBody),
 		releaseDownloadBase+"/reconc-v1.2.3/SHA256SUMS",
 	)
 	lifecycleHTTPClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
@@ -87,8 +106,10 @@ func TestOnlineReleaseSelectionUsesFixedImmutableIdentity(t *testing.T) {
 		switch request.URL.String() {
 		case releaseAPIBase + "/releases/latest":
 			body = releaseBody
+		case releaseDownloadBase + "/reconc-v1.2.3/" + releaseManifestName:
+			body = string(manifestBody)
 		case releaseDownloadBase + "/reconc-v1.2.3/SHA256SUMS":
-			body = digest + "  " + asset + "\n"
+			body = checksumsBody
 		default:
 			return nil, fmt.Errorf("unexpected request %s", request.URL)
 		}
@@ -224,6 +245,7 @@ func TestDirectOfflineUpdateAndUninstallLifecycle(t *testing.T) {
 
 	releaseDirectory := t.TempDir()
 	manifest := writeLocalRelease(t, releaseDirectory, updateBinary, "1.1.0")
+	enableSuccessfulOfflineAttestation(t, releaseDirectory, manifest.Assets[0].Name)
 	check, err := CheckUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: releaseDirectory})
 	if err != nil {
 		t.Fatal(err)
@@ -571,13 +593,12 @@ func TestLifecyclePureHelpersCoverOrderingAndCommands(t *testing.T) {
 	}
 }
 
-func TestAttestationVerificationRequiredAndOptionalContracts(t *testing.T) {
+func TestAttestationVerificationFailsClosed(t *testing.T) {
 	previousCommand := lifecycleCommand
 	t.Cleanup(func() { lifecycleCommand = previousCommand })
 	t.Setenv("RECONC_ATTESTATION_TOOL", os.Args[0])
 	release := selectedRelease{manifest: ReleaseManifest{Tag: "reconc-v1.0.0"}}
 
-	t.Setenv("RECONC_REQUIRE_ATTESTATION", "1")
 	lifecycleCommand = lifecycleHelperCommandWithOutput("0", "verified")
 	state, err := verifyAttestation(context.Background(), "candidate", release)
 	if err != nil || state != ProvenanceGitHubVerified {
@@ -590,13 +611,6 @@ func TestAttestationVerificationRequiredAndOptionalContracts(t *testing.T) {
 		t.Fatalf("required failed attestation error = %v", err)
 	}
 
-	t.Setenv("RECONC_REQUIRE_ATTESTATION", "0")
-	state, err = verifyAttestation(context.Background(), "candidate", release)
-	if err != nil || state != ProvenanceEmbeddedVerified {
-		t.Fatalf("optional failed attestation = %q, %v", state, err)
-	}
-
-	t.Setenv("RECONC_REQUIRE_ATTESTATION", "1")
 	release.localDir = t.TempDir()
 	if _, err := verifyAttestation(context.Background(), "candidate", release); err == nil ||
 		!strings.Contains(err.Error(), "bundle is required") {
@@ -724,13 +738,37 @@ func writeLocalRelease(t *testing.T, directory string, binary string, version st
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(directory, releaseManifestName), append(manifestBody, '\n'), 0o600); err != nil {
+	manifestBody = append(manifestBody, '\n')
+	if err := os.WriteFile(filepath.Join(directory, releaseManifestName), manifestBody, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(directory, releaseChecksumsName), []byte(digest+"  "+assetName+"\n"), 0o600); err != nil {
+	manifestSum := sha256.Sum256(manifestBody)
+	checksums := digest + "  " + assetName + "\n" +
+		hex.EncodeToString(manifestSum[:]) + "  " + releaseManifestName + "\n"
+	if err := os.WriteFile(filepath.Join(directory, releaseChecksumsName), []byte(checksums), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return manifest
+}
+
+func enableSuccessfulOfflineAttestation(t *testing.T, directory, assetName string) {
+	t.Helper()
+	previousCommand := lifecycleCommand
+	t.Cleanup(func() { lifecycleCommand = previousCommand })
+	t.Setenv("RECONC_ATTESTATION_TOOL", os.Args[0])
+	attestationCommand := lifecycleHelperCommandWithOutput("0", "verified")
+	lifecycleCommand = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		if name == os.Args[0] && len(args) >= 2 && args[0] == "attestation" && args[1] == "verify" {
+			return attestationCommand(ctx, name, args...)
+		}
+		return exec.CommandContext(ctx, name, args...)
+	}
+	if err := os.WriteFile(filepath.Join(directory, assetName+".sigstore.jsonl"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "trusted_root.jsonl"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func copyFileForTest(t *testing.T, source string, destination string, mode os.FileMode) {
@@ -745,5 +783,5 @@ func copyFileForTest(t *testing.T, source string, destination string, mode os.Fi
 }
 
 func schemaURLForTest() string {
-	return "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/global-lifecycle.schema.json"
+	return schema.GlobalLifecycleURL
 }

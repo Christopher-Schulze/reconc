@@ -124,6 +124,61 @@ func TestCatalogReturnsDefensiveCopies(t *testing.T) {
 	}
 }
 
+func TestPublicCatalogFiltersInternalSurfacesRecursively(t *testing.T) {
+	commands := Public()
+	for _, command := range commands {
+		if command.Stability != StabilityStable {
+			t.Fatalf("public catalog exposed internal command %q", command.Name)
+		}
+		for _, nested := range command.Subcommands {
+			if nested.Stability != StabilityStable {
+				t.Fatalf("public catalog exposed internal command %q", command.Name+" "+nested.Name)
+			}
+			for _, leaf := range nested.Subcommands {
+				if leaf.Stability != StabilityStable {
+					t.Fatalf("public catalog exposed internal command %q", command.Name+" "+nested.Name+" "+leaf.Name)
+				}
+			}
+		}
+	}
+	hook, ok := publicCommand(commands, "hook")
+	if !ok {
+		t.Fatal("public catalog omitted hook")
+	}
+	for _, nested := range hook.Subcommands {
+		if nested.Name == "runtime" || nested.Name == "grok-pre-tool-guard" {
+			t.Fatalf("public catalog exposed internal hook route %q", nested.Name)
+		}
+	}
+	hook.Subcommands[0].Name = "mutated"
+	again, _ := publicCommand(Public(), "hook")
+	if again.Subcommands[0].Name == "mutated" {
+		t.Fatal("Public returned mutable catalog storage")
+	}
+}
+
+func TestSortedNamesExposeDeterministicCatalogViews(t *testing.T) {
+	all := SortedNames()
+	public := PublicSortedNames()
+	if len(all) == 0 || len(public) == 0 || !reflect.DeepEqual(all, public) {
+		t.Fatalf("top-level catalog views drifted: all=%v public=%v", all, public)
+	}
+	for index := 1; index < len(all); index++ {
+		if all[index-1] >= all[index] {
+			t.Fatalf("catalog names are not strictly sorted: %v", all)
+		}
+	}
+}
+
+func publicCommand(commands []Command, name string) (Command, bool) {
+	for _, command := range commands {
+		if command.Name == name {
+			return command, true
+		}
+	}
+	return Command{}, false
+}
+
 func TestSuggestUsesBoundedDeterministicDistance(t *testing.T) {
 	for input, want := range map[string]string{
 		"chekc":          "check",

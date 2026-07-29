@@ -33,7 +33,7 @@ bug in whichever side is stale and fix them together.
 Every JSON contract has:
 
 - `$schema`: hard compatibility boundary, for example
-  `https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v2/policy-lock.schema.json`.
+  `https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v3/policy-lock.schema.json`.
 - `format_version`: minor format marker inside the same schema URL.
 
 Additive fields with clear defaults may keep the schema URL and bump

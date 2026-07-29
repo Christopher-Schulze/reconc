@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"strings"
@@ -16,7 +17,7 @@ func TestGrokPreToolGuardPassesExactRuntimeDecision(t *testing.T) {
 		grokPreToolGuardRuntime = originalRuntime
 		grokPreToolGuardTimeout = originalTimeout
 	}()
-	grokPreToolGuardRuntime = func(args []string, stdout, stderr io.Writer) error {
+	grokPreToolGuardRuntime = func(_ context.Context, args []string, stdout, stderr io.Writer) error {
 		if len(args) != 2 || args[0] != "grok-pre-tool-use" || args[1] != "." {
 			t.Fatalf("guarded runtime args = %v", args)
 		}
@@ -40,17 +41,22 @@ func TestGrokPreToolGuardTimesOutWithExplicitDeny(t *testing.T) {
 		grokPreToolGuardRuntime = originalRuntime
 		grokPreToolGuardTimeout = originalTimeout
 	}()
-	release := make(chan struct{})
-	grokPreToolGuardRuntime = func([]string, io.Writer, io.Writer) error {
-		<-release
-		return nil
+	cancelled := make(chan struct{})
+	grokPreToolGuardRuntime = func(ctx context.Context, _ []string, _, _ io.Writer) error {
+		<-ctx.Done()
+		close(cancelled)
+		return ctx.Err()
 	}
 	grokPreToolGuardTimeout = 10 * time.Millisecond
 	var stdout, stderr bytes.Buffer
 	err := Run([]string{"hook", "grok-pre-tool-guard", "."}, "test", &stdout, &stderr)
-	close(release)
 	if err != nil {
 		t.Fatal(err)
+	}
+	select {
+	case <-cancelled:
+	default:
+		t.Fatal("timed-out runtime did not observe cancellation")
 	}
 	var decision map[string]string
 	if decodeErr := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &decision); decodeErr != nil {

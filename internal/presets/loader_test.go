@@ -115,6 +115,20 @@ func TestLoadUnknownReturnsPresetNotFoundError(t *testing.T) {
 	}
 }
 
+func TestPresetNamesRejectTraversalAndNonCanonicalSpelling(t *testing.T) {
+	withRECONCHome(t)
+	for _, name := range []string{"../secret", "nested/name", "name.yml", "Uppercase", "-leading"} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Load(name); err == nil {
+				t.Fatalf("unsafe preset name %q was accepted", name)
+			}
+			if _, _, err := Path(name); err == nil {
+				t.Fatalf("unsafe preset path %q was accepted", name)
+			}
+		})
+	}
+}
+
 func TestUserPresetOverridesBundled(t *testing.T) {
 	home := withRECONCHome(t)
 	presetsDir := filepath.Join(home, "presets")
@@ -158,6 +172,20 @@ func TestListIncludesUserPresets(t *testing.T) {
 		}
 	}
 	t.Error("user preset my-custom missing from List()")
+}
+
+func TestListFailsClosedOnInvalidUserPresetFilename(t *testing.T) {
+	home := withRECONCHome(t)
+	presetsDir := filepath.Join(home, "presets")
+	if err := os.MkdirAll(presetsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(presetsDir, "Invalid.yml"), []byte("rules: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := List(); err == nil {
+		t.Fatal("invalid user preset filename was silently accepted")
+	}
 }
 
 func TestPathBundled(t *testing.T) {

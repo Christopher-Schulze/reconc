@@ -52,7 +52,8 @@ func TestMetadataMatchesEveryDispatcherCase(t *testing.T) {
 	}
 	missing := []string{}
 	for name := range dispatcherCases {
-		if name != "help" && !metadata[name] {
+		_, hidden := hiddenCompatibilityCommands[name]
+		if name != "help" && !hidden && !metadata[name] {
 			missing = append(missing, name)
 		}
 	}

@@ -4,29 +4,12 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"reconc.dev/reconc/internal/commandmeta"
 )
 
 func TestEveryLeafCommandRendersHelpWithoutRepositorySideEffects(t *testing.T) {
-	commands := [][]string{
-		{"doctor"}, {"compile"}, {"refresh"}, {"check"}, {"assert"}, {"init"},
-		{"status"}, {"ci"}, {"exec"},
-		{"hook", "status"}, {"hook", "generate"}, {"hook", "install"}, {"hook", "uninstall"},
-		{"hook", "sync-scaffold"}, {"hook", "evidence-status"}, {"hook", "evidence-resolve"}, {"hook", "claim"},
-		{"grok", "pre-tool-guard"},
-		{"preset", "list"}, {"preset", "show"},
-		{"bootstrap", "profiles"}, {"bootstrap", "inspect"}, {"bootstrap", "plan"}, {"bootstrap", "apply"},
-		{"bootstrap", "verify"}, {"bootstrap", "remove"},
-		{"install-cli"}, {"fix"}, {"next"}, {"explain"}, {"verify"}, {"why"}, {"can"}, {"adopt"},
-		{"changelog", "rotate"}, {"changelog", "list-archives"}, {"agent-intro"},
-		{"audit", "tail"}, {"audit", "stats"}, {"audit", "export"},
-		{"run", "status"}, {"run", "log"}, {"run", "reset"}, {"run", "on"}, {"run", "off"},
-		{"task", "status"}, {"task", "new"}, {"task", "claim"}, {"task", "block"}, {"task", "split"},
-		{"task", "promote"}, {"task", "archive"}, {"task", "recover"}, {"task", "check-done"},
-		{"prune"}, {"template", "list"}, {"template", "show"}, {"session-briefing"}, {"context", "size"},
-		{"start"}, {"post-task-check"}, {"delta"}, {"done"}, {"proof"}, {"spec"}, {"coverage"},
-		{"extract"}, {"diff"}, {"watch"}, {"tui"}, {"completion"}, {"manpage"},
-	}
-	for _, command := range commands {
+	for _, command := range publicLeafCommandPaths() {
 		name := strings.Join(command, " ")
 		t.Run(name, func(t *testing.T) {
 			argv := append(append([]string{}, command...), "--help")
@@ -41,4 +24,69 @@ func TestEveryLeafCommandRendersHelpWithoutRepositorySideEffects(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPublicHookHelpDoesNotAdvertiseInternalRoutes(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := Run([]string{"hook", "--help"}, "test-version", &stdout, &stderr); err != nil {
+		t.Fatalf("hook --help failed: %v", err)
+	}
+	output := stdout.String() + stderr.String()
+	for _, internalRoute := range []string{"hook runtime", "grok-pre-tool-guard"} {
+		if strings.Contains(output, internalRoute) {
+			t.Fatalf("public hook help exposed internal route %q: %s", internalRoute, output)
+		}
+	}
+}
+
+func publicLeafCommandPaths() [][]string {
+	paths := [][]string{}
+	var walk func([]string, []commandmeta.Subcommand)
+	walk = func(prefix []string, commands []commandmeta.Subcommand) {
+		for _, command := range commands {
+			if command.Stability == commandmeta.StabilityInternal {
+				continue
+			}
+			path := append(append([]string{}, prefix...), command.Name)
+			if len(command.Subcommands) == 0 {
+				paths = append(paths, path)
+				continue
+			}
+			walk(path, command.Subcommands)
+		}
+	}
+	for _, command := range commandmeta.All() {
+		path := []string{command.Name}
+		if len(command.Subcommands) == 0 {
+			paths = append(paths, path)
+			continue
+		}
+		walk(path, command.Subcommands)
+	}
+	return paths
+}
+
+func publicCommandGroupPaths() [][]string {
+	paths := [][]string{}
+	var walk func([]string, []commandmeta.Subcommand)
+	walk = func(prefix []string, commands []commandmeta.Subcommand) {
+		for _, command := range commands {
+			if command.Stability == commandmeta.StabilityInternal || len(command.Subcommands) == 0 {
+				continue
+			}
+			path := append(append([]string{}, prefix...), command.Name)
+			paths = append(paths, path)
+			walk(path, command.Subcommands)
+		}
+	}
+	for _, command := range commandmeta.All() {
+		if len(command.Subcommands) == 0 {
+			continue
+		}
+		path := []string{command.Name}
+		paths = append(paths, path)
+		walk(path, command.Subcommands)
+	}
+	return paths
 }

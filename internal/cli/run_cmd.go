@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -270,6 +271,7 @@ func runRunLog(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc run log: " + err.Error()}
 	}
+	cursor := lastRunDecisionCursor(decisions)
 	filtered := filterRunDecisions(decisions, branch, session)
 	if n > 0 && len(filtered) > n {
 		filtered = filtered[len(filtered)-n:]
@@ -282,21 +284,24 @@ func runRunLog(args []string, stdout, stderr io.Writer) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return followRunLog(ctx, abs, branch, session, jsonOut, 500*time.Millisecond, stdout)
+	return followRunLogAfter(ctx, abs, branch, session, jsonOut, cursor, 500*time.Millisecond, stdout)
 }
 
-// followRunLog tails decisions.jsonl by byte offset and renders new
-// records as they are appended, until ctx is cancelled (Ctrl-C / SIGTERM).
-// pollInterval is injectable so tests can drive the live tail deterministically.
+// followRunLog baselines the complete bounded ring and renders only later
+// records. It is kept separate from the CLI snapshot path for deterministic
+// tests and other internal callers.
 func followRunLog(ctx context.Context, repoRoot, branch, session string, jsonOut bool, pollInterval time.Duration, stdout io.Writer) error {
-	path, err := agentsession.RunDecisionLogPath(repoRoot)
+	decisions, err := agentsession.ReadRunDecisions(repoRoot, 0)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc run log: " + err.Error()}
 	}
-	var offset int64
-	if fi, statErr := os.Stat(path); statErr == nil {
-		offset = fi.Size()
-	}
+	return followRunLogAfter(ctx, repoRoot, branch, session, jsonOut, lastRunDecisionCursor(decisions), pollInterval, stdout)
+}
+
+// followRunLogAfter polls complete lock-consistent ring snapshots and advances
+// by record identity. This survives append races and rotation without dropping
+// partial records or printing an already-rendered record twice.
+func followRunLogAfter(ctx context.Context, repoRoot, branch, session string, jsonOut bool, cursor string, pollInterval time.Duration, stdout io.Writer) error {
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 	for {
@@ -305,46 +310,52 @@ func followRunLog(ctx context.Context, repoRoot, branch, session string, jsonOut
 			return nil
 		case <-ticker.C:
 		}
-		fi, statErr := os.Stat(path)
-		if statErr != nil {
-			continue
+		decisions, err := agentsession.ReadRunDecisions(repoRoot, 0)
+		if err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc run log: " + err.Error()}
 		}
-		size := fi.Size()
-		if size < offset {
-			offset = 0 // file rotated/truncated; re-read from start
+		next, err := runDecisionsAfter(decisions, cursor)
+		if err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc run log: " + err.Error()}
 		}
-		if size == offset {
-			continue
-		}
-		file, openErr := os.Open(path)
-		if openErr != nil {
-			continue
-		}
-		if _, seekErr := file.Seek(offset, io.SeekStart); seekErr != nil {
-			file.Close()
-			continue
-		}
-		data, readErr := io.ReadAll(file)
-		file.Close()
-		if readErr != nil {
-			continue
-		}
-		offset = size
-		for _, line := range strings.Split(string(data), "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				continue
-			}
-			var d agentsession.RunDecision
-			if json.Unmarshal([]byte(line), &d) != nil {
-				continue
-			}
+		for _, d := range next {
 			if !decisionMatches(d, branch, session) {
 				continue
 			}
 			writeRunDecision(stdout, d, jsonOut)
 		}
+		if len(decisions) > 0 {
+			cursor = runDecisionCursor(decisions[len(decisions)-1])
+		}
 	}
+}
+
+func runDecisionsAfter(decisions []agentsession.RunDecision, cursor string) ([]agentsession.RunDecision, error) {
+	if cursor == "" {
+		return decisions, nil
+	}
+	for index := len(decisions) - 1; index >= 0; index-- {
+		if runDecisionCursor(decisions[index]) == cursor {
+			return decisions[index+1:], nil
+		}
+	}
+	return nil, fmt.Errorf("follow cursor left the bounded decision-log window; restart `reconc run log --follow`")
+}
+
+func lastRunDecisionCursor(decisions []agentsession.RunDecision) string {
+	if len(decisions) == 0 {
+		return ""
+	}
+	return runDecisionCursor(decisions[len(decisions)-1])
+}
+
+func runDecisionCursor(decision agentsession.RunDecision) string {
+	body, err := json.Marshal(decision)
+	if err != nil {
+		return ""
+	}
+	digest := sha256.Sum256(body)
+	return fmt.Sprintf("%x", digest[:])
 }
 
 func writeRunDecision(stdout io.Writer, d agentsession.RunDecision, jsonOut bool) {
@@ -371,10 +382,10 @@ func filterRunDecisions(in []agentsession.RunDecision, branch, session string) [
 }
 
 func decisionMatches(d agentsession.RunDecision, branch, session string) bool {
-	if branch != "" && !strings.Contains(d.Branch, branch) {
+	if branch != "" && d.Branch != branch {
 		return false
 	}
-	if session != "" && !strings.Contains(d.SessionID, session) {
+	if session != "" && d.SessionID != session {
 		return false
 	}
 	return true

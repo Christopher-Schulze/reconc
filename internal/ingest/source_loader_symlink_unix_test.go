@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestFragmentOutsideRootProducesFilesystemIdentityWarning(t *testing.T) {
+func TestFragmentOutsideRootFailsFilesystemIdentityCheck(t *testing.T) {
 	outside := t.TempDir()
 	repo := t.TempDir()
 	writeFile(t, outside, "extra.yml", "rules: []\n")
@@ -20,15 +20,33 @@ func TestFragmentOutsideRootProducesFilesystemIdentityWarning(t *testing.T) {
 	if err := os.Symlink(filepath.Join(outside, "extra.yml"), filepath.Join(repo, "policies", "extra.yml")); err != nil {
 		t.Fatal(err)
 	}
-	bundle, err := LoadPolicySources(repo)
-	if err != nil {
-		t.Fatal(err)
+	_, err := LoadPolicySources(repo)
+	if err == nil || !strings.Contains(err.Error(), "resolves outside the repository root") {
+		t.Fatalf("expected filesystem-identity rejection, got %v", err)
 	}
-	for _, warning := range bundle.Discovery.Warnings {
-		if strings.Contains(warning, "policies/extra.yml") &&
-			strings.Contains(warning, "outside the repository root via filesystem indirection") {
-			return
-		}
+}
+
+func TestConfigAndInstructionSymlinksOutsideRootFailClosed(t *testing.T) {
+	for _, relative := range []string{".reconc.yml", "AGENTS.md"} {
+		t.Run(relative, func(t *testing.T) {
+			outside := t.TempDir()
+			repo := t.TempDir()
+			target := filepath.Join(outside, filepath.Base(relative))
+			content := "# project\n"
+			if relative == ".reconc.yml" {
+				content = "rules: []\n"
+				writeFile(t, repo, "AGENTS.md", "# project\n")
+			}
+			if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, filepath.Join(repo, relative)); err != nil {
+				t.Fatal(err)
+			}
+			_, err := LoadPolicySources(repo)
+			if err == nil || !strings.Contains(err.Error(), "resolves outside the repository root") {
+				t.Fatalf("expected %s symlink rejection, got %v", relative, err)
+			}
+		})
 	}
-	t.Fatalf("missing filesystem-identity warning: %v", bundle.Discovery.Warnings)
 }

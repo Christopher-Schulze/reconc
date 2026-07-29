@@ -52,7 +52,7 @@ coding agents' behaviour auditable and gate-able rather than hopeful.`)
 	fmt.Fprintln(w, "At least one blocking policy violation. The action is forbidden.")
 
 	fmt.Fprintln(w, ".SH SUBCOMMANDS")
-	for _, command := range commandmeta.All() {
+	for _, command := range commandmeta.Public() {
 		fmt.Fprintln(w, ".TP")
 		fmt.Fprintf(w, ".B %s\n", escapeRoff(command.Name))
 		fmt.Fprintf(w, "%s\n", escapeRoff(command.Summary))

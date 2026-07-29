@@ -234,7 +234,7 @@ func doctorCheckGrokRuntime(discovery ingest.DiscoveryResult) doctorCheck {
 	capability := doctorProbeGrokNativeStop()
 	if !capability.Supported {
 		check.Status = doctorStatusWarn
-		check.Detail = fmt.Sprintf("Grok %s loaded all %d native Reconc routes, but %s; guarded PreToolUse gates remain hard and optional leader steering or `reconc grok` supplies strict Stop fallback", displayVersion, len(expected), capability.Detail)
+		check.Detail = fmt.Sprintf("Grok %s loaded all %d native Reconc routes, but %s; guarded PreToolUse gates remain hard and optional leader steering supplies the strict Stop fallback", displayVersion, len(expected), capability.Detail)
 		return check
 	}
 	check.Detail = fmt.Sprintf("Grok %s loaded all %d native Reconc routes from .grok/hooks/reconc.json; native no-leader Stop enforcement is active and capability-probed from %s", displayVersion, len(expected), capability.DocumentationPath)

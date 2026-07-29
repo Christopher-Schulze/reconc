@@ -2,7 +2,11 @@
 // class. It never scans or deletes files outside explicitly owned paths.
 package retention
 
-import "time"
+import (
+	"time"
+
+	"reconc.dev/reconc/internal/audit"
+)
 
 const (
 	StateRootEnv  = "RECONC_CLAUDE_STATE_DIR"
@@ -49,8 +53,8 @@ func DefaultPolicy() Policy {
 		GeneratedBinaries:    ClassPolicy{MaxFiles: 8, MaxBytes: 32 * 1024 * 1024, MaxAge: 14 * 24 * time.Hour},
 		StateTotalBytes:      16 * 1024 * 1024,
 		RepoRuntimeBytes:     48 * 1024 * 1024,
-		AuditFileBytes:       2 * 1024 * 1024,
-		AuditArchives:        2,
+		AuditFileBytes:       audit.DefaultMaxSizeBytes,
+		AuditArchives:        audit.MaxArchiveFiles,
 		RunDecisionFileBytes: 2 * 1024 * 1024,
 		RunDecisionArchives:  2,
 		AbandonedTempAge:     2 * time.Hour,

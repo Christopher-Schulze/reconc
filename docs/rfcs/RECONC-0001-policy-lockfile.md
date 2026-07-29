@@ -2,12 +2,12 @@
 
 - Status: Frozen
 - Contract: `.reconc/policy.lock.json`
-- Schema: `https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v2/policy-lock.schema.json`
-- Format version: `2`
+- Schema: `https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v3/policy-lock.schema.json`
+- Format version: `3`
 
 ## Purpose
 
-`reconc compile` writes a deterministic lockfile that is the only
+`reconc refresh` writes a deterministic lockfile that is the only
 policy artifact trusted by runtime commands. `check`, `ci`, `explain`,
 `fix`, `assert`, `can`, hooks, and agent-session gates must load this
 file and reject it when schema, format, repo root, or source digest do
@@ -36,7 +36,7 @@ The compiled `source_precedence` field is:
 | Field | Type | Rule |
 |---|---|---|
 | `$schema` | string | Must equal the schema URL above unless `RECONC_SCHEMA_BASE_URL` deliberately rewrites the base. |
-| `format_version` | string | Must equal `2`. |
+| `format_version` | string | Must equal `3`. |
 | `compiler_version` | string | Build version that wrote the lockfile. |
 | `repo_root` | string | Portable marker `.`. Physical checkout roots never enter current lockfiles. |
 | `default_mode` | string | One of `observe`, `warn`, `block`, `fix`. |
@@ -46,7 +46,7 @@ The compiled `source_precedence` field is:
 | `lock_digest` | string | Lowercase SHA-256 hex of the complete canonical lockfile payload with this field omitted. |
 | `source_precedence` | string array | Ordered source-kind list. |
 | `discovery` | object | Snapshot of discovery state and warnings. |
-| `sources` | object array | Every input source in precedence order. |
+| `sources` | object array | Body-free provenance for every input source in precedence order. |
 | `rules` | object array | Parsed, normalized, validated rules. |
 
 ## Optional Top-Level Fields
@@ -65,6 +65,11 @@ The compiled `source_precedence` field is:
 The canonical JSON uses sorted object keys and no semantic dependence on
 map iteration order. Recompiling identical sources must produce the same
 digest and lockfile bytes.
+
+Each current source record contains `kind`, a logical portable `path`, and
+`content_sha256`. Optional `block_id` and positive `line_start` preserve
+bounded provenance. Raw source content, physical checkout paths, and physical
+global-policy paths are forbidden in the current lockfile.
 
 ## Lock Digest
 
@@ -98,11 +103,11 @@ Runtime loaders must:
 
 1. Refuse missing, malformed, stale, schema-drifted, or non-portable current
    lockfiles.
-2. Validate the immutable v1 schema identity and migrate known format-1
-   absolute-root lockfiles in memory to the format-2 `.` envelope without
-   mutating the input.
+2. Validate registered legacy schema identities and migrate known format-1
+   absolute-root and format-2 content-bearing lockfiles in memory to the
+   body-free format-3 `.` envelope without mutating the input.
 3. Validate rule count and source count consistency.
 4. Validate `lock_digest` and exact embedded-rule plus optional MCP parity with
    current sources.
 5. Treat generated lockfiles as generated output; users must re-run
-   `reconc compile` instead of editing them by hand.
+   `reconc refresh` instead of editing them by hand.

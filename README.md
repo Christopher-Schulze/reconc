@@ -126,7 +126,7 @@ Core invariants are deliberately strict:
 | Transactional adoption | Inspects existing repositories, proposes evidence-backed packs and commands, and plans, applies, verifies, synchronizes, or removes only receipt-owned rollout state. |
 | Runtime enforcement | Generates, installs, verifies, and safely removes registry-backed hooks for nine coding-agent runtimes, with capability-specific failure semantics and git pre-commit as the repository backstop. |
 | MCP side-effect control | Classifies explicitly configured Cursor, OpenCode, and Kilo MCP tools as repository reads, writes, commands, or external effects using exact selectors and fail-closed extraction. |
-| Operator and CI tooling | Provides exact remediation, policy explanation, staged command execution, CI proofs, global diagnostics, update and uninstall, audit inspection, retention, TUI, shell completions, and a generated manpage. |
+| Operator and CI tooling | Provides exact remediation, body-free source-provenance inspection, staged command execution, CI proofs, global diagnostics, update and uninstall, cryptographically verified audit inspection, retention, TUI, shell completions, and a generated manpage. |
 | Release trust | Publishes strict release manifests, SHA-256 checksums, build-provenance attestations, and deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs tied to the release commit. |
 
 ## Evidence Model
@@ -229,7 +229,7 @@ Reconc turns repository-visible agent failures into executable boundaries:
 - **Evidence overflow or corruption:** segmented evidence and durable taint
   prevent incomplete history from being presented as a certified pass.
 - **Stale policy repair deadlock:** the fail-closed hook path admits only a
-  standalone `reconc refresh` or `reconc compile` repair invocation, never a
+  standalone `reconc refresh` repair invocation, never a
   compound command that smuggles unrelated work through the exemption.
 
 Reconc does not make a model truthful and is not an operating-system sandbox.
@@ -368,7 +368,10 @@ reconc update
 release atomically, and succeeds without changing anything when already
 current. Use `--channel preview` or `--version VERSION` only for an intentional
 selection. Source-owned installations receive the exact rebuild guidance.
-There is no separate check/apply step in the current user flow.
+There is no separate check/apply step in the current user flow. Direct updates
+require GitHub build-provenance verification before publication. Offline
+`--from-dir` updates additionally require the asset's Sigstore bundle and the
+trusted-root file alongside the strict release inventory.
 
 Global binary updates and repository-owned updates are separate. After a binary
 update, review and apply repository changes explicitly:
@@ -561,7 +564,7 @@ and routes behavior into internal packages with explicit boundaries:
 | Bootstrap and harness packs | Inspect repositories, build deterministic plans, publish create-only artifacts and ownership receipts, embed the advanced pack, synchronize owned state, and roll back failed transactions. |
 | Global CLI lifecycle | Install, diagnose, update, and uninstall one bare `reconc` command using checksum-bound ownership and cross-process locks. |
 | TASK and completion | Parse typed TASK profiles, publish recoverable transitions, build final completion reports, retain unresolved decisions, and export portable proof bundles. |
-| Audit and retention | Maintain bounded locked JSONL decision rings, evidence segments, liveness records, command proofs, reports, and owned temporary-state cleanup. |
+| Audit and retention | Maintain a SHA-256-linked, sequence-checked decision ring with a detached chain head, plus evidence segments, liveness records, command proofs, reports, and owned temporary-state cleanup. |
 | Release trust | Build deterministic multi-platform binaries, strict manifests, checksums, manpages, completions, SBOMs, and provenance-bound artifacts. |
 
 The state model keeps global installation, repository ownership, compiled
@@ -669,7 +672,8 @@ The release inventory includes:
 - immutable POSIX and PowerShell installers;
 - Bash, Zsh, and Fish completion artifacts plus a generated manpage;
 - the embedded advanced harness pack as a standalone checksummed archive;
-- public v1 schemas and the current v2 policy-lock schema;
+- public v1 schemas, the legacy v2 policy-lock schema, and the current v3
+  policy-lock schema;
 - deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs;
 - strict `release-manifest.json` and `SHA256SUMS`.
 
@@ -709,9 +713,8 @@ June 8 baseline with the evidence-complete `done` gate, portable proof export,
 transactional bootstrap UX, repository run-loop controls, truthful runtime
 adapters, generic npm/pnpm/Yarn/TypeScript assurance, and the rebuilt public
 product surface. Core policy compilation, evaluation, hook processing, run
-control, and proof generation remain offline at runtime. The explicit
-`reconc grok` command launches the operator-installed Grok ACP process, whose
-authentication and model traffic are owned by Grok. Codex and GPT-5.6 helped
+control, and proof generation remain offline at runtime. Supported hosts own
+their model authentication and inference traffic. Codex and GPT-5.6 helped
 build Reconc but are not dependencies of it.
 
 ## Production dogfooding
@@ -835,10 +838,8 @@ hooks. Use an external sandbox and protected remote CI for adversarial code.
 Yes for core repository control. The shipped Go binary makes no network calls
 for policy compilation, evaluation, hooks, run control, repository sync, or
 proof generation.
-The explicit `reconc grok` command launches the external Grok ACP process and
-therefore depends on Grok's authentication and model service. Installation,
-direct updates, and GitHub publication naturally require network access.
-Uninstall and core repository control remain offline.
+Installation, direct updates, and GitHub publication naturally require network
+access. Uninstall and core repository control remain offline.
 
 ### Which agents are supported?
 
@@ -1000,11 +1001,12 @@ path across all three bootstrap profiles, git pre-commit plus all nine agent
 runtimes, TASK lifecycle, retention, and stable release-layout binary
 resolution.
 
-`make publication-audit` scans every tracked file plus every commit after the
-documented legacy-history boundary for private project vocabulary, personal
-absolute paths, session/share material, secret-shaped values, sensitive
-filenames, and placeholder residue. CI and release gates run it with full Git
-history; it does not rewrite or claim to erase older public history.
+`make publication-audit` scans every tracked file present in the working tree
+plus every commit after the documented legacy-history boundary for private
+project vocabulary, personal absolute paths, session/share material,
+secret-shaped values, sensitive filenames, and placeholder residue. CI and
+release gates run it with full Git history; it does not rewrite or claim to
+erase older public history.
 
 The protected `main` ruleset rejects deletion, non-fast-forward updates, and
 unchecked candidates. A pull request is not mandatory, but the same required

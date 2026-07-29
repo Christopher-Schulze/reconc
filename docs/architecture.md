@@ -47,12 +47,11 @@ Every `reconc` invocation moves data through some subset of this pipe:
        ProofBundle
 ```
 
-`compile` stops at the lockfile. `check` / `ci` / `assert` / `can`
+`refresh` stops at the lockfile. `check` / `ci` / `assert` / `can`
 load the lockfile and run the runtime evaluator. `fix` / `explain`
 also use the runtime then render the result. `done` binds the evaluated
 candidate through `completiongate`; `proof` renders that same candidate through
-`proofbundle`. `why` and `diff` inspect compiled lockfiles, while `watch`
-observes policy sources and recompiles explicitly when they change.
+`proofbundle`. `why`, `diff`, and `sources` inspect compiled policy state.
 Host-native MCP events and configured generic MCP identities enter through the
 same compiled lockfile. Exact selectors classify a call as repository read,
 repository write, command, or external before session evidence is considered;
@@ -68,9 +67,8 @@ internal/
   agentguide/     embedded agent-integration guide + section lookup
   assurance/      bounded native layout/source/manifest/proof gates
   atomicfile/     write-on-change and atomic publication primitives
-  audit/          append-only JSONL decision log + rotation + stats
+  audit/          SHA-256-linked JSONL decision evidence + detached head + bounded rotation
   bootstrap/      init, repository sync/remove/recovery, portable receipts, journals, and binary resolution
-  changelog/      docs/changelog.md rotation into quarterly archives
   cli/            command dispatch plus responsibility-owned command modules
   commandmeta/    canonical dependency-neutral command, flag, help, and output contract
   commandproof/   staged candidate-bound command-success receipts
@@ -101,6 +99,7 @@ internal/
   runtime/agentsession/  hook payload handlers, session evidence state,
                   stop policy cache, run-state store (the package the
                   hook-runtime threat model below describes)
+  safename/       strict lower-kebab identifiers for user-selected assets
   schema/         canonical public JSON contract URLs + enterprise override
   shellcommand/   bounded shell parsing and executable-command discovery
   stackdetect/    shared bounded manifest/source stack discovery
@@ -125,12 +124,14 @@ handling.
 
 ## Key invariants
 
-1. **Byte-stable portable lockfile.** Two compiles of identical sources in
-   different clones or worktrees produce identical bytes. Format 2 uses `.` as
-   its repository/discovery root marker. Compiler emits canonical JSON (sorted keys,
-   indent-2, trailing newline). Source digest is SHA-256 over the
-   same canonical form. Enables rsync-style drift detection and
-   git-friendly diffs.
+1. **Byte-stable private portable lockfile.** Two compiles of identical sources
+   in different clones or worktrees produce identical bytes. Format 3 uses `.`
+   as its repository/discovery root marker and stores only logical source
+   paths plus SHA-256 content digests, never raw source bodies or physical
+   global-policy paths. Compiler emits canonical JSON (sorted keys, indent-2,
+   trailing newline). Source digest is SHA-256 over the same canonical form.
+   This enables rsync-style drift detection and git-friendly diffs without
+   publishing instruction or global-policy content.
 
 2. **Fail-closed on tampering.** Unknown document or rule field, unknown rule kind, malformed YAML,
    stale lockfile, non-portable current root marker, unsupported schema URL --
@@ -158,7 +159,7 @@ handling.
    lock before append. Write, sync, close, unlock, and CLI output failures are
    propagated instead of being reported as successful publication.
 
-4. **Explicit side effects.** Compile, bootstrap, hook installation, TASK
+4. **Explicit side effects.** Policy refresh, bootstrap, hook installation, TASK
    mutation, retention, and hook event handling own their documented files.
    Read-only commands never refresh policy. `RECONC_AUDIT=1` is still required
    for the optional decision audit log.
@@ -197,17 +198,21 @@ handling.
   (new optional fields) don't bump the version; breaking changes do.
 
 - **Published schema documents**: the fourteen immutable
-  `schemas/v1/*.schema.json` contracts and the current
-  `schemas/v2/policy-lock.schema.json` are canonical Draft 2020-12 documents,
-  use format-versioned repository URLs as `$id`, and ship in the checksummed
-  release inventory. `policy-config.schema.json` is the strict authoring
-  contract; the v2 lock schema describes current portable lockfiles, while the
-  v1 lock schema remains the validated migration input.
+  `schemas/v1/*.schema.json` contracts, legacy
+  `schemas/v2/policy-lock.schema.json`, and current
+  `schemas/v3/policy-lock.schema.json` are canonical Draft 2020-12 documents,
+  use release-tagged format-versioned repository URLs as `$id`, are
+  byte-compared against the canonical source during release verification, and
+  ship in the checksummed release inventory. `policy-config.schema.json` is
+  the strict authoring contract; the v3 lock schema describes current
+  body-free portable lockfiles, while v1 and v2 remain validated migration
+  inputs.
 
 - **MCP authoring and lock contract**: `mcp.unclassified` is `host` or `deny`;
   tool mappings use the typed platform, optional SHA-256 server fingerprint,
   exact tool, effect, and effect-specific JSON Pointers. The authoring and v2
-  lock schemas reject unknown fields and invalid cross-field combinations.
+  and v3 lock schemas reject unknown fields and invalid cross-field
+  combinations.
 
 - **Exit codes 0/1/2**: stable across all subcommands for agent
   consumption. 0 = pass or warn, 1 = runtime/input error, 2 = at
@@ -267,10 +272,13 @@ global manager -> installation receipt -> installed CLI
   physical checkout paths. Private transaction receipts may bind a checkout
   for rollback but cannot expand portable ownership.
 
-The target trust chain is release identity -> checksum -> embedded build
-provenance -> optional or required GitHub attestation -> global receipt ->
-embedded pack digest -> repository receipt -> exact sync plan. Any broken link
-is an actionable refusal, never an inferred owner or partial success.
+The update trust chain is release identity -> checksum -> embedded build
+provenance -> mandatory GitHub build-provenance attestation -> global receipt
+-> embedded pack digest -> repository receipt -> exact sync plan. Offline
+updates require both the selected asset's Sigstore bundle and the trusted root.
+Native installer policy is a separate boundary and may make attestation
+optional or required explicitly. Any broken required link is an actionable
+refusal, never an inferred owner or partial success.
 
 ## Request flow example: `reconc check --write src/x.go`
 
@@ -288,7 +296,8 @@ is an actionable refusal, never an inferred owner or partial success.
      evaluator (`evalDenyWrite`, `evalRequireRead`, ...).
    - Collects violations, calls `report.Finalize()` which derives
      decision / counts / actions / rule_ids.
-4. `maybeAudit("check", report, start)` appends one JSONL entry iff
+4. `maybeAudit("check", report, version, start)` appends one chained JSONL
+   entry iff
    `RECONC_AUDIT=1`.
 5. Output is rendered: terse / json / text depending on flags.
 6. Returns `&CLIError{ExitCode: 2}` if the decision is block;
@@ -352,7 +361,6 @@ responsibility-owned command file, canonical command metadata, focused tests, an
         ├──► extractor
         ├──► lockdiff
         ├──► audit
-        ├──► changelog
         ├──► contextsize
         ├──► commandproof
         ├──► completiongate ──► commandproof, policyproof, runtime, tasklifecycle
@@ -373,8 +381,9 @@ the public surface without a cycle. Nothing below `cli` imports `cli`. The compi
 the serialized lockfile is the boundary. `schema` is the single owner of public
 contract URLs. Runtime lockfile loading imports compiler only for registered
 migrations, current-envelope validation, and source-digest freshness
-validation. Format-1 absolute-root lockfiles migrate in memory to the portable
-format-2 envelope; freshly compiled lockfiles never persist a checkout root.
+validation. Format-1 absolute-root and format-2 content-bearing lockfiles
+migrate in memory to the body-free portable format-3 envelope; freshly
+compiled lockfiles never persist a checkout root or source body.
 
 ## Threat model: hook runtime
 
@@ -578,8 +587,8 @@ path only after 64 new material events, 30 minutes with new progress, or a
 failed command, then reuse the normal full Stop report as a policy checkpoint.
 Explicitly configured TASK state fails closed if its overview disappears, and
 optional committed completion reuses that terminal report's Git snapshot.
-The shared `completiongate` used by Stop-facing views, `done`,
-`post-task-check`, and TUI binds that snapshot to current policy, session
+The shared `completiongate` used by Stop-facing views, `done`, and TUI binds
+that snapshot to current policy, session
 evidence, staged command proofs, and typed TASK completion. It captures state
 again after evaluation and rejects races. A same-candidate explicit block is
 stored outside the repository until a later validated explicit pass clears it;
@@ -703,7 +712,7 @@ our own depth-limited decoder is the only entry point.
 - Kernel-level attacks (e.g. PID reuse allowing session-state
   tampering between runs). Out of scope; we assume the OS is sound.
 - Network-borne attacks against Reconc's policy compiler/runtime (the core is
-  offline and has no network surface). The explicit `reconc grok` command
-  starts the external Grok ACP process; Grok owns its inference network,
-  authentication, sandbox, and provider security boundaries. Leader steering
-  uses only same-machine Unix sockets or Windows named pipes.
+  offline and has no network surface). Optional Grok ACP execution belongs to
+  the external Grok process, which owns its inference network, authentication,
+  sandbox, and provider security boundaries. Leader steering uses only
+  same-machine Unix sockets or Windows named pipes.

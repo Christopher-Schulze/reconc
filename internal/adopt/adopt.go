@@ -20,6 +20,9 @@ import (
 	"strings"
 
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/ingest"
+	"reconc.dev/reconc/internal/parser"
+	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/presets"
 	"reconc.dev/reconc/internal/stackdetect"
 )
@@ -439,10 +442,14 @@ func Apply(repoRoot string, r Report) (added []string, err error) {
 	if readErr != nil && !os.IsNotExist(readErr) {
 		return nil, readErr
 	}
+	existingIDs, err := validateAdoptConfig(string(existing))
+	if err != nil {
+		return nil, fmt.Errorf("validate existing .reconc.yml: %w", err)
+	}
 
 	var items strings.Builder
 	for _, s := range r.Suggestions {
-		if hasRuleID(string(existing), s.ID) {
+		if _, exists := existingIDs[s.ID]; exists {
 			continue
 		}
 		items.WriteString("  - id: ")
@@ -484,6 +491,9 @@ func Apply(repoRoot string, r Report) (added []string, err error) {
 	content, err := renderConfigWithRules(string(existing), items.String())
 	if err != nil {
 		return nil, err
+	}
+	if _, err := validateAdoptConfig(content); err != nil {
+		return nil, fmt.Errorf("validate candidate .reconc.yml: %w", err)
 	}
 	if _, err := atomicfile.WriteIfChanged(configPath, []byte(content), 0o644); err != nil {
 		return nil, err
@@ -541,16 +551,24 @@ func renderConfigWithRules(existing, items string) (string, error) {
 	return strings.Join(out, "\n") + "\n", nil
 }
 
-// hasRuleID reports whether the config already declares a rule with
-// exactly this id (line-anchored, so ids in comments or messages and
-// ids sharing a prefix never count).
-func hasRuleID(haystack, id string) bool {
-	for _, line := range strings.Split(haystack, "\n") {
-		if strings.TrimSpace(line) == "- id: "+id {
-			return true
-		}
+func validateAdoptConfig(content string) (map[string]struct{}, error) {
+	if strings.TrimSpace(content) == "" {
+		content = "rules: []\n"
 	}
-	return false
+	bundle := &ingest.SourceBundle{Sources: []policy.PolicySource{{
+		Kind:    policy.SourceCompilerConfig,
+		Path:    ".reconc.yml",
+		Content: content,
+	}}}
+	parsed, err := parser.ParseRuleDocuments(bundle)
+	if err != nil {
+		return nil, err
+	}
+	ids := make(map[string]struct{}, len(parsed.Rules))
+	for _, rule := range parsed.Rules {
+		ids[rule.ID] = struct{}{}
+	}
+	return ids, nil
 }
 
 // ToJSON serialises a Report for machine consumption.

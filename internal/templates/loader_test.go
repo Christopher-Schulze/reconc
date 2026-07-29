@@ -39,6 +39,17 @@ func TestResolveEmptyName(t *testing.T) {
 	}
 }
 
+func TestTemplateNamesRejectTraversalAndNonCanonicalSpelling(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	for _, name := range []string{"../secret", "nested/name", "name.yml", "Uppercase", "-leading"} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Resolve(name); err == nil {
+				t.Fatalf("unsafe template name %q was accepted", name)
+			}
+		})
+	}
+}
+
 func TestResolveUserOverride(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("RECONC_HOME", home)
@@ -58,6 +69,26 @@ func TestResolveUserOverride(t *testing.T) {
 	}
 	if tmpl.Body["kind"] != "deny_write" {
 		t.Errorf("user override should win; got kind=%v", tmpl.Body["kind"])
+	}
+}
+
+func TestResolveUsesDefaultReconcHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("RECONC_HOME", "")
+	templateDir := filepath.Join(home, ".reconc", "templates")
+	if err := os.MkdirAll(templateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(templateDir, "default-home.yml"), []byte("description: custom\nkind: deny_write\nmode: block\nmessage: x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tmpl, err := Resolve("default-home")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if tmpl.Source != SourceUser {
+		t.Fatalf("default-home source = %s, want user", tmpl.Source)
 	}
 }
 
@@ -116,6 +147,21 @@ func TestListMergesUserAndBuiltin(t *testing.T) {
 	}
 	if !found {
 		t.Error("user template my-custom not in List() output")
+	}
+}
+
+func TestListFailsClosedOnMalformedUserTemplate(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RECONC_HOME", home)
+	templateDir := filepath.Join(home, "templates")
+	if err := os.MkdirAll(templateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(templateDir, "broken.yml"), []byte("kind: ["), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := List(); err == nil {
+		t.Fatal("malformed user template was silently omitted")
 	}
 }
 

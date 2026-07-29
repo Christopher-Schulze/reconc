@@ -2,7 +2,7 @@
 
 ## What reconc Does
 
-`reconc` (Repository Control Compiler) compiles repo policy from YAML / Markdown into a lockfile, then evaluates your proposed actions (writes, reads, commands, claims) against that lockfile. Its core policy and evidence runtime runs offline, uses no LLM inference, and returns deterministic JSON with a `decision` of `pass`, `warn`, or `block`. The explicit `reconc grok` command delegates authenticated inference to an external Grok ACP process.
+`reconc` (Repository Control Compiler) compiles repo policy from YAML / Markdown into a lockfile, then evaluates your proposed actions (writes, reads, commands, claims) against that lockfile. Its core policy and evidence runtime runs offline, uses no LLM inference, and returns deterministic JSON with a `decision` of `pass`, `warn`, or `block`. Optional agent-provider inference remains outside the policy runtime and its trust boundary.
 
 **You do not interpret policy. reconc tells you what is allowed and what is not.**
 
@@ -41,7 +41,9 @@ One command: verifies the running user CLI, plans and applies a create-only
 profile, compiles policy, installs detected eligible hooks, writes the private
 rollback records plus `.reconc/install.lock.json`, and verifies the result.
 Use `--profile existing|minimal|governed|advanced` when the repository is not a
-fresh unambiguous target. `reconc bootstrap .` is a compatibility alias.
+fresh unambiguous target. Use `reconc bootstrap
+inspect|profiles|plan|apply|verify|remove` only when the transparent lower-level
+transaction interface is required.
 
 Detect existing conventions and propose matching rules:
 ```bash
@@ -62,7 +64,9 @@ checks and successful command evidence supplied by the target repository.
 
 Verify installation health end-to-end:
 ```bash
-reconc verify .
+reconc doctor --global
+reconc doctor . --deep
+reconc sources . --json
 reconc hook status . --json
 reconc session-briefing . --json
 ```
@@ -200,6 +204,8 @@ Inspect the compiled state (rule count, sources, digest, warnings):
 ```bash
 reconc doctor .
 reconc doctor . --json
+reconc sources . --json
+reconc audit verify . --json
 ```
 
 Versioned session/reentry state:
@@ -216,6 +222,18 @@ reconc check . --write <path> --claim ci-green --json
 ```
 
 Claims can also be supplied via an events file, stdin JSON, or by a registered hook integration.
+
+If bounded session evidence becomes persistently tainted, inspect it without
+mutation:
+```bash
+reconc hook evidence-status . --json
+```
+Do not claim completion or discard the marker. After an operator reviews the
+abandoned evidence epoch and no session is active, resolve only the exact
+reported token with a bounded reason:
+```bash
+reconc hook evidence-resolve . --token <sha256> --reason "<reviewed reason>"
+```
 
 ## Platform Integration
 
@@ -266,9 +284,8 @@ weaker host lifecycle respectively.
   `.grok/hooks/reconc.json`. Run `/hooks-trust` once. Native PreToolUse is hard.
   Reconc emits exact Stop block JSON without a leader and probes the installed
   Grok hook guide before assuming synchronous enforcement. User interrupts and
-  session-end reasons release. `reconc grok . --prompt "..."` remains the
-  explicit ACP path. Passive Stop distributions can use optional leader
-  steering over Unix sockets or Windows named pipes. Only delivered
+  session-end reasons release. Passive Stop distributions can use optional
+  leader steering over Unix sockets or Windows named pipes. Only delivered
   interjections consume its 32-attempt cap, and capability-proven native hosts
   suppress duplicate prompts. Generator-exact hook/wrapper
   checks and exact route tokens prevent drift. Deep doctor reports native Stop
@@ -309,8 +326,8 @@ repository rather than the whole machine. Claude Code, Codex, GitHub Copilot,
 Cursor, Devin CLI, and Antigravity CLI expose synchronous Stop gates. OpenCode and Kilo Code use
 inferred `session.idle`, so their host continuation is best-effort and fail-open.
 Grok has a native synchronous Stop gate without a leader only when its installed
-hook guide advertises blocking Stop decision control. `reconc grok` remains the
-explicit ACP path, and passive Stop TUI sessions can be steered via
+hook guide advertises blocking Stop decision control. Passive Stop TUI sessions
+can be steered via
 `_x.ai/interject` over Unix sockets or Windows named pipes.
 While typed TASK state is `continue` or `claim`, Reconc returns the host-specific
 continuation response without a full terminal policy or Git scan. An empty
@@ -356,7 +373,6 @@ For session entry and reentry, prefer the compact versioned
 - `.reconc/policy.lock.json` - the compiled lockfile (source of truth at evaluation time)
 - `.reconc.yml` - authored config (preset extends, rule overrides)
 - `AGENTS.md` - in-prose rules (ingested during compile if `cldc`/`reconc` fenced blocks are present)
-- `docs/changelog.md` - rotated automatically if you run `reconc changelog rotate`
 
 ## Golden Rules
 

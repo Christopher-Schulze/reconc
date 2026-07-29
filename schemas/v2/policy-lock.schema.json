@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v2/policy-lock.schema.json",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v2/policy-lock.schema.json",
   "title": "Reconc compiled policy lock v2",
   "type": "object",
   "additionalProperties": false,
@@ -24,7 +24,7 @@
     "compiler_version": { "type": "string", "minLength": 1 },
     "format_version": { "const": "2" },
     "repo_root": { "const": "." },
-    "default_mode": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/policy-lock.schema.json#/$defs/mode" },
+    "default_mode": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/policy-lock.schema.json#/$defs/mode" },
     "rule_count": { "type": "integer", "minimum": 0 },
     "source_count": { "type": "integer", "minimum": 0 },
     "source_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
@@ -32,12 +32,12 @@
     "mcp": { "$ref": "#/$defs/mcp" },
     "source_precedence": {
       "type": "array",
-      "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/policy-lock.schema.json#/$defs/sourceKind" },
+      "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/policy-lock.schema.json#/$defs/sourceKind" },
       "uniqueItems": true
     },
     "discovery": {
       "allOf": [
-        { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/policy-lock.schema.json#/$defs/discovery" },
+        { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/policy-lock.schema.json#/$defs/discovery" },
         {
           "type": "object",
           "properties": {
@@ -49,11 +49,11 @@
     },
     "sources": {
       "type": "array",
-      "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/policy-lock.schema.json#/$defs/source" }
+      "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/policy-lock.schema.json#/$defs/source" }
     },
     "rules": {
       "type": "array",
-      "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/policy-lock.schema.json#/$defs/rule" }
+      "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/policy-lock.schema.json#/$defs/rule" }
     }
   },
   "$defs": {

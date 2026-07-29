@@ -65,9 +65,8 @@ state.
 Grok Build has a native hard PreToolUse boundary. Reconc also emits exact Stop
 block JSON in the normal TUI without a leader, but only an installed Grok guide
 that advertises blocking Stop decision control proves synchronous enforcement.
-User interrupts and session-end reasons release. `reconc grok . --prompt "..."`
-remains the explicit strict ACP path. Passive Stop distributions can use
-optional leader fallback over the Unix socket or Windows named pipe; only
+User interrupts and session-end reasons release. Passive Stop distributions
+can use optional leader fallback over the Unix socket or Windows named pipe; only
 delivered interjections count toward the 32-attempt no-progress series, and
 capability-proven native hosts suppress duplicate prompts. Managed activation
 requires exact

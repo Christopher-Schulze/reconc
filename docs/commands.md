@@ -53,8 +53,9 @@ Runtime:
 - `CLAUDE_CONFIG_DIR` (default `~/.claude`) -- absolute Claude configuration
   root used to recognize the current project's persistent-memory state
 - `RECONC_SCHEMA_BASE_URL` -- enterprise override for schema URLs; without an
-  override, config/report/fix-plan/proof-bundle contracts use `schemas/v1/` and current
-  policy lockfiles use `schemas/v2/`
+  override, config/report/fix-plan/proof-bundle contracts use release-pinned
+  `schemas/v1/`, legacy policy locks use `schemas/v1/` or `schemas/v2/`, and
+  current policy lockfiles use `schemas/v3/`
 - `RECONC_STOP_FINGERPRINT_UNTRACKED` (`normal` default, `all`, `no`) --
   untracked-file mode for the Stop fingerprint's git status snapshot
 - `RECONC_GROK_STEER=0` -- disable optional Grok TUI leader steering over the
@@ -65,9 +66,9 @@ Runtime:
   installed hook guide and leader-socket discovery
 - `GROK_LEADER_SOCKET` -- authoritative Grok leader socket or named-pipe
   endpoint for optional TUI steering
-- `XAI_API_KEY` -- for explicit `reconc grok` sessions, select Grok's
-  `xai.api_key` ACP authentication method when offered; otherwise Reconc uses
-  Grok's offered cached-token method
+- `XAI_API_KEY` -- optional credential used only by the hidden Grok ACP
+  compatibility driver when the installed server offers `xai.api_key`;
+  prefer `grok login`; Reconc does not persist or print the value
 - `SOURCE_DATE_EPOCH` -- reproducible timestamp source for generated manpages
   and release artifacts; invalid values fail instead of falling back
 
@@ -117,12 +118,14 @@ Runs the complete ownership-aware update transaction under the global
 installation lock. Stable is the default; preview and exact version selection
 are explicit and mutually exclusive. Direct updates verify release identity,
 bounded bytes, `SHA256SUMS`, embedded version, target, source provenance,
-optional GitHub attestation, and an actual candidate `--version` smoke test
+mandatory GitHub build-provenance attestation, and an actual candidate
+`--version` smoke test
 before atomic replacement and receipt publication. An already current
 installation succeeds without mutation. Any publication failure retains or
 restores the previous binary. A downgrade requires `--allow-downgrade`.
 `--from-dir` disables network access and requires a strict
-`release-manifest.json`, `SHA256SUMS`, and complete regular-file inventory.
+`release-manifest.json`, `SHA256SUMS`, complete regular-file inventory, the
+selected asset's `.sigstore.jsonl` bundle, and `trusted_root.jsonl`.
 Source builds return the exact path-qualified rebuild and `install-cli`
 guidance. The current user flow has no separate check/apply step:
 `reconc update` performs the verified check and either applies the selected
@@ -308,13 +311,6 @@ drift, policy-lock freshness, governed TASK structure, selected hook activation,
 selected binary checksum/resolution, and the exact running user CLI resolved by
 bare `reconc`. Any failed check exits 1.
 
-### `reconc bootstrap [repo] [--preset NAME] [--skip-git-hook] [--skip-agent-hooks] [--accept-managed-blocks] [--json]`
-Compatibility alias for the canonical `init` transaction engine. Legacy
-`--preset` maps to `--pack` with a warning; skip flags only narrow init's
-detected default hooks. All profile selection, no-write ambiguity, candidate,
-receipt, rollback, verification, output, and exact-build user-CLI guarantees
-are identical to `reconc init`. New automation should use `init`.
-
 ### `reconc adopt [repo] [--yaml | --json | --apply]`
 Detects common tooling (JavaScript, TypeScript, npm, pnpm, Yarn, Bun, Python,
 Rust, Go, Shell, C/C++, Java, PHP, C#, Next.js, Svelte/SvelteKit, Zig, Elixir,
@@ -349,12 +345,6 @@ next action. The stable JSON contract is
 `stale`, `shadowed`, `ambiguous`, or `invalid`; all except `healthy` and a
 single deterministic legacy `unowned` installation exit 1. `--global` cannot
 be combined with `--deep` or a repository operand.
-
-### `reconc verify [repo] [--json]`
-End-to-end installation health check: PATH, `$RECONC_HOME`, presets, repo
-discovery, read-only policy parsing, lockfile freshness, git
-pre-commit hook, and agent-hook runtime compatibility. Always exits 0;
-WARN rows flag optional misses.
 
 ### `reconc status [repo] [--json] [--output PATH]`
 One-line, read-only policy health summary. Missing, stale, malformed,
@@ -391,16 +381,21 @@ runtime/input/output error.
 
 ## Compile & evaluate
 
-### `reconc compile [repo] [--json] [--strict-conflicts] [--output PATH]`
-Produces `.reconc/policy.lock.json` from sources. With
-`--strict-conflicts`, exits 1 when any rule conflict is detected. A
-`forbid_command` conflicts with `require_command` only when their exact trigger
-scopes overlap and the forbid rule blocks every acceptable required command;
-one blocked option among several valid alternatives remains satisfiable.
-
 ### `reconc refresh [repo] [--json] [--strict-conflicts] [--output PATH]`
-Explicit policy refresh. Uses the same deterministic compiler pipeline as
-`compile` and is the canonical remediation emitted by read-only commands.
+Explicit policy refresh. Produces `.reconc/policy.lock.json` through the
+deterministic compiler pipeline and is the only public remediation emitted by
+read-only commands. With `--strict-conflicts`, exits 1 when any rule conflict
+is detected. A `forbid_command` conflicts with `require_command` only when
+their exact trigger scopes overlap and the forbid rule blocks every acceptable
+required command; one blocked option among several valid alternatives remains
+satisfiable.
+
+### `reconc sources [repo] [--json]`
+Read-only inspection of the effective policy source order. Reports each
+source's kind, portable logical path, SHA-256 content digest, and inline block
+location where present. It never emits source bodies, physical global-policy
+paths, prompts, or other private source content. Invalid, escaping, symlinked,
+or unreadable sources fail closed.
 
 ### `reconc check [repo] [--read PATH] [--write PATH] [--command CMD] [--command-success CMD] [--command-failure CMD] [--claim NAME] [--auto-claim] [--json] [--terse] [--output PATH]`
 The core policy evaluator. Exit 0 = pass/warn, 2 = block, 1 = error.
@@ -439,14 +434,12 @@ Ultra-terse yes/no for one proposed repository write. Prints `yes` or
 `no: <rule> <action>`. Exit 0 = yes, 2 = no, 1 = error.
 
 ### `reconc diff <lockfile-a> <lockfile-b> [--json]`
-Structural comparison of two compiled lockfiles. Reports added /
-removed / changed rules and default-mode / source-digest drift.
-Ignore-provenance semantics: relocating a rule between source files
-doesn't register as a change.
-
-### `reconc watch [repo] [--interval-ms N]`
-Poll sources every N ms (default 800) and recompile on any mtime
-change. Runs until Ctrl-C.
+Strict structural comparison of two validated compiled lockfiles. Duplicate
+rule identities, malformed envelopes, and invalid digests fail before diffing.
+Reports added, removed, and changed rules plus default-mode and source-digest
+drift. Provenance-only rule relocation is ignored, order-sensitive fields
+retain their order, and only explicitly order-insensitive fields are
+canonicalized as sets.
 
 ---
 
@@ -456,13 +449,13 @@ change. Runs until Ctrl-C.
 Render the check report in human-readable form. Source can be fresh
 inputs or a saved `CheckReport` JSON.
 
-### `reconc fix [repo] [--read PATH] [--write PATH] [--command CMD] [--command-success CMD] [--command-failure CMD] [--claim NAME] [--json] [--next] [--output PATH]`
+### `reconc fix [repo] [--read PATH] [--write PATH] [--command CMD] [--command-success CMD] [--command-failure CMD] [--claim NAME] [--json] [--output PATH]`
 Structured remediation plan per violation, with per-kind steps,
-suggested commands / claims, and files-to-inspect. `--next` emits only
-the top-priority remediation.
+suggested commands / claims, and files-to-inspect.
 
 ### `reconc next [repo] [--read PATH] [--write PATH] [--command CMD] [--command-success CMD] [--command-failure CMD] [--claim NAME] [--json] [--output PATH]`
-With explicit evidence flags, runs the same focused evaluation as `fix --next`.
+With explicit evidence flags, runs a focused evaluation and emits only its
+highest-priority remediation.
 With only a repository path, loads the latest persisted blocking decision and
 replays its top remediation when the repository/policy/session candidate is
 still current. If it is stale, Reconc reconstructs the exact original
@@ -564,9 +557,9 @@ prompts plus pre/post-compaction lifecycle. Their continuation is inferred from
 `session.idle`, not a synchronous native Stop gate. Reconc emits native Grok
 `Stop` block JSON directly in the normal TUI without a leader, but treats it as
 synchronously enforced only when the installed Grok hook guide advertises
-blocking Stop decision control. Otherwise `reconc grok` or optional leader
-steering over the Unix socket or Windows named pipe provides strict
-continuation. Deep doctor reports native Stop capability separately from route
+blocking Stop decision control. Otherwise optional leader steering over the
+Unix socket or Windows named pipe provides bounded same-session continuation.
+Deep doctor reports native Stop capability separately from route
 loading; its optional leader probe requires protocol
 version 1 and a recognized `_x.ai/interject` response, not just a successful
 register handshake. It also requires project-owned inspect metadata and exact
@@ -599,66 +592,48 @@ Assert a workflow claim (e.g. `ci-green`). Written to the session
 state consulted by later hook-runtime checks and `ci` calls. `--session`
 selects an exact existing session instead of resolving the active pointer.
 
-### `reconc hook grok-pre-tool-guard <repo>`
-Internal fail-closed guard invoked by the generated Grok hook wrapper before
-tool execution. It is documented for auditability but is not a normal operator
-entry point.
+### `reconc hook evidence-status [repo] [--json]`
+Read-only inspection of persistent project evidence taint. Reports the exact
+overflow or chain-integrity cause, affected limit, active-session state, and
+operator resolution token without clearing or certifying the abandoned
+evidence window.
 
-### `reconc hook runtime <event> <repo>`
-Registry-owned agent-platform event dispatcher. Called from Claude Code,
-Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code,
-and Grok Build hook configs, not by users directly. Codex uses only released routes and
-infers failed Bash outcomes from `PostToolUse`; OpenCode and Kilo preserve
-complete post-tool output, require an exact integer `output.metadata.exit` for
-shell success, deduplicate terminal tool errors, and route prompt, compaction,
-session, exact configured MCP identities, and bounded asynchronous idle
-continuation. Cursor routes dedicated MCP pre/post events, accepts generic
-success only from `postToolUse`, records `postToolUseFailure` as failure, and
-treats `afterShellExecution` as passive liveness because that payload has no
-authoritative exit status.
-
-### `reconc grok [repo] [--model ID] [--grok-binary PATH] [--max-continuations N] --prompt TEXT`
-Starts the unmodified official `grok agent stdio` ACP runtime in the target
-repository. Preflight requires the generated `.grok/hooks/reconc.json`, the
-repo-local wrapper, project trust, and a live `grok inspect --json` report that
-contains the generator-exact managed artifact, generator-exact executable
-wrapper, project-owned source metadata, and every exact native route. The
-driver streams Grok's answer and re-prompts the same ACP session while Reconc's strict Stop evaluation returns a
-continuation reason. Ctrl-C terminates immediately. The default continuation
-limit is 32. ACP uses Grok's `--always-approve` transport because it has no TUI
-permission modal; Reconc PreToolUse and Grok's explicit deny rules still run.
-When Grok offers it, `XAI_API_KEY` selects `xai.api_key`; otherwise the driver
-uses Grok's offered cached-token method. Reconc's policy engine and local ACP
-transport make no network calls, while the external Grok process owns model
-authentication and inference traffic.
+### `reconc hook evidence-resolve <repo> --token TOKEN --reason TEXT [--json]`
+Explicitly abandon one reviewed tainted evidence window. The command requires
+no active session, an exact current token, and a bounded operator reason. It
+writes an immutable resolution receipt before clearing the live taint; a later
+session must reproduce every required proof.
 
 ---
 
 ## Workflow maintenance
-
-### `reconc changelog rotate [repo] [--force] [--lines N] [--json]` / `reconc changelog list-archives [repo] [--json]`
-Rotate `docs/changelog.md` when it exceeds the line threshold (default
-200). Moves older `##`-sections into
-`docs/changelog/archive/YYYY-QN.md`. Rotation is cross-process locked,
-crash-idempotent, duplicate-safe, and preserves unrelated archive content when
-multiple writers race.
 
 ### `reconc agent-intro [--section NAME] [--list-sections] [--json]`
 Prints the embedded reconc integration guide. Section lookup is
 case-insensitive substring match.
 
 ### `reconc audit tail [repo] [-n N] [--rule ID] [--since RFC3339] [--decision pass|warn|block] [--json] [--compact]`
-Tail the decision log. Filters combine. `--compact` emits
-`<ts> <event> <decision> <rule_id>`.
+Tail the decision log only after verifying its complete retained SHA-256 chain,
+contiguous sequence, archive order, and detached head. Filters combine.
+`--compact` emits `<ts> <event> <decision> <rule_id>`.
 
 ### `reconc audit stats [repo] [--json]`
 Aggregate summary: totals, latest decision and blocking count, last-hour
 activity, blocking events in the last 24 hours, by-decision, by-event, and top
-rules.
+rules. Malformed, missing, reordered, truncated, or modified retained evidence
+fails instead of producing partial statistics.
 
 ### `reconc audit export [repo]`
 Raw JSONL dump on stdout for external tooling. Audit tail, stats, and export
-read the two bounded archives plus the live file in chronological order.
+verify and read the two bounded archives plus the live file in chronological
+order.
+
+### `reconc audit verify [repo] [--json]`
+Verify every retained decision record and `.reconc/audit.head.json` without
+mutation. The report includes retained record count, first and last sequence,
+and final digest. The audit writer alone owns its 2 MiB live file plus two
+archives; generic retention verifies this ring and never compacts or rewrites
+chained evidence.
 
 ### `reconc run on [repo] [--force] [--json]` / `reconc run off [repo] [--json]`
 AI-operated switch scoped to one repository, not the whole machine. It routes
@@ -668,10 +643,9 @@ gates; OpenCode and Kilo Code use inferred `session.idle` adapters whose host
 boundary is best-effort and fail-open. Reconc emits exact Grok Stop block JSON
 without a leader; synchronous stock-TUI enforcement and its continuation bound
 are accepted only when the installed Grok guide explicitly advertises the
-contract. `reconc grok` remains the explicit ACP path, while passive Stop
-sessions can be steered through `_x.ai/interject` over the Unix socket or
-Windows named pipe. Eligible leader Stops use strict continuation before policy
-evaluation.
+contract. Passive Stop sessions can be steered through `_x.ai/interject` over
+the Unix socket or Windows named pipe. Eligible leader Stops use strict
+continuation before policy evaluation.
 Only successfully delivered interjections consume the 32-attempt cap;
 transport or protocol failures do not. The cap resets on material progress, a
 changed block, or a clean Stop. Before enabling, `run on` validates live policy
@@ -773,30 +747,11 @@ escapes outside the repository fail closed. Non-empty files round up to at
 least one approximate token. JSON includes `format_version`; exit 1 over limit
 so CI gates can block budget-growing PRs.
 
-### `reconc start [repo] [--write PATH] [--force] [--json] [--minimal]`
-Renders a canonical `start.md` onboarding / reentry doc from the
-current state. Reuses session-briefing + audit-tail data. `--minimal`
-emits a compact 3-line summary.
-
-### `reconc post-task-check [repo] [--window N] [--require-clean-git] [--json]`
-Runs the same evidence-complete contract as `reconc done`. It retains exit 1
-for a failed gate so existing hook loops keep their error contract. Governed
-worktree content remains untouched; the command may update or clear the private
-unresolved policy-block receipt under `RECONC_HOME`. `--window` is
-compatibility-only and never clears a block.
-
-### `reconc delta [repo] [--since RFC3339] [--json]`
-Audit activity since a reference point (default 1h ago), with
-decision / event breakdowns.
-
-### `reconc spec check [repo] [--file PATH] [--max-age-days N] [--json]`
-Verifies `docs/spec.md` (or `--file`) exists and is fresh. Exit 1 on
-missing file or exceeded age.
-
-### `reconc coverage check [repo] [--file PATH] [--min-pct N] [--json]`
-Reads the first percentage from a coverage artefact, compares to
-`--min-pct` (default 80). Supports XX.X% text, bare numbers, and
-`go test -cover` output.
+### `reconc start [repo] [--json | --minimal]`
+Renders canonical onboarding and reentry context to stdout without mutating
+the repository. It combines session briefing and verified audit summary data.
+`--minimal` emits a compact three-line summary; `--json` and `--minimal` are
+mutually exclusive.
 
 ### `reconc tui [repo] [--json] [--output PATH]`
 Dependency-free terminal dashboard for policy state. Shows discovery,

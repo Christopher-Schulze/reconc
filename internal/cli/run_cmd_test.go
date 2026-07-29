@@ -184,6 +184,62 @@ func TestRunLogRenderFilterLimit(t *testing.T) {
 	if !strings.Contains(out.String(), "run_command_off") {
 		t.Fatalf("-n 1 must render the last record: %s", out.String())
 	}
+
+	out.Reset()
+	if err := runRunLog([]string{repo, "--branch", "policy"}, &out, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("branch filtering must use exact identity, got: %s", out.String())
+	}
+}
+
+func TestFollowRunLogAfterDoesNotLoseRecordAppendedAfterSnapshot(t *testing.T) {
+	repo := t.TempDir()
+	seed := agentsession.RunDecision{Event: "stop", Branch: "seed"}
+	writeRunDecisions(t, repo, []agentsession.RunDecision{seed})
+	cursor := runDecisionCursor(seed)
+	appendRunDecisionRaw(t, repo, agentsession.RunDecision{Event: "stop", Branch: "between_snapshot_and_follow"})
+
+	var mu sync.Mutex
+	var buf bytes.Buffer
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- followRunLogAfter(ctx, repo, "", "", false, cursor, 5*time.Millisecond, &syncWriter{mu: &mu, w: &buf})
+	}()
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	for {
+		mu.Lock()
+		got := buf.String()
+		mu.Unlock()
+		if strings.Contains(got, "between_snapshot_and_follow") {
+			break
+		}
+		select {
+		case <-deadline.C:
+			cancel()
+			<-done
+			t.Fatalf("record appended after snapshot was lost: %q", got)
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunDecisionsAfterRejectsLostCursor(t *testing.T) {
+	_, err := runDecisionsAfter(
+		[]agentsession.RunDecision{{Event: "stop", Branch: "retained"}},
+		runDecisionCursor(agentsession.RunDecision{Event: "stop", Branch: "rotated-away"}),
+	)
+	if err == nil || !strings.Contains(err.Error(), "left the bounded decision-log window") {
+		t.Fatalf("lost cursor must fail closed, got %v", err)
+	}
 }
 
 func TestRunRejectsUnknownSubcommand(t *testing.T) {

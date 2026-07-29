@@ -165,6 +165,24 @@ func TestAuditRepositoryDoesNotTreatDeletionAsNewPathLeak(t *testing.T) {
 	}
 }
 
+func TestAuditRepositoryAcceptsUnstagedTrackedDeletion(t *testing.T) {
+	repo := newAuditRepo(t)
+	writeAuditFixture(t, repo, "scripts/.gitkeep", "")
+	gitAudit(t, repo, "add", "scripts/.gitkeep")
+	gitAudit(t, repo, "commit", "-m", "legacy placeholder", "--quiet")
+	boundary := strings.TrimSpace(gitAudit(t, repo, "rev-parse", "HEAD"))
+	if err := os.Remove(filepath.Join(repo, "scripts", ".gitkeep")); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	report, err := auditRepository(ctx, auditOptions{Root: repo, HistoryBoundary: boundary, MaxFileBytes: 1 << 20})
+	if err != nil || len(report.Findings) != 0 || report.TrackedFiles != 0 {
+		t.Fatalf("unstaged deletion was reported as a publication leak: report=%#v err=%v", report, err)
+	}
+}
+
 func TestAuditGitBlobBatchRejectsMetadataMismatch(t *testing.T) {
 	repo := newAuditRepo(t)
 	writeAuditFixture(t, repo, "README.md", "public fixture\n")

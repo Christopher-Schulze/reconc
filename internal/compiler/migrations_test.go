@@ -3,6 +3,10 @@ package compiler
 import (
 	"strings"
 	"testing"
+
+	"reconc.dev/reconc/internal/ingest"
+	"reconc.dev/reconc/internal/policy"
+	"reconc.dev/reconc/internal/schema"
 )
 
 func TestMigrateLockfileCurrentVersionIsNoOp(t *testing.T) {
@@ -31,13 +35,20 @@ func TestMigrateLockfileV1ToPortableV2(t *testing.T) {
 			"discovered": true,
 		},
 		"source_digest": strings.Repeat("a", 64),
+		"sources": []interface{}{
+			map[string]interface{}{
+				"kind":    string(policy.SourceAgentsMD),
+				"path":    "AGENTS.md",
+				"content": "# project\n",
+			},
+		},
 	}
 
 	out, applied, err := MigrateLockfile(payload)
 	if err != nil {
 		t.Fatalf("MigrateLockfile: %v", err)
 	}
-	if len(applied) != 1 || applied[0].FromVersion != "1" || applied[0].ToVersion != LockfileFormatVersion {
+	if len(applied) != 2 || applied[0].FromVersion != "1" || applied[1].ToVersion != LockfileFormatVersion {
 		t.Fatalf("unexpected migration chain: %+v", applied)
 	}
 	if out["$schema"] != DefaultLockfileSchema {
@@ -55,6 +66,61 @@ func TestMigrateLockfileV1ToPortableV2(t *testing.T) {
 	}
 	if payload["repo_root"] != "/tmp/original-checkout" {
 		t.Fatal("migration must not mutate the caller payload")
+	}
+}
+
+func TestMigrateLockfileV2RemovesSourceBodiesAndPreservesFreshnessDigest(t *testing.T) {
+	t.Setenv("RECONC_SCHEMA_BASE_URL", "")
+	content := "rules: []\n"
+	legacyPath := strings.Join([]string{"", "Users", "example", ".reconc", "global-policy.yml"}, "/")
+	payload := map[string]interface{}{
+		"$schema":        schema.LegacyPolicyLockV2URLUnpinned,
+		"format_version": "2",
+		"repo_root":      PortableRepoRoot,
+		"discovery": map[string]interface{}{
+			"repo_root":  PortableRepoRoot,
+			"start_path": PortableRepoRoot,
+			"discovered": true,
+		},
+		"sources": []interface{}{
+			map[string]interface{}{
+				"kind":    string(policy.SourceGlobal),
+				"path":    legacyPath,
+				"content": content,
+			},
+		},
+	}
+	legacyDigest, err := ComputeLockDigest(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload["lock_digest"] = legacyDigest
+
+	out, applied, err := MigrateLockfile(payload)
+	if err != nil {
+		t.Fatalf("MigrateLockfile: %v", err)
+	}
+	if len(applied) != 1 || applied[0].FromVersion != "2" || applied[0].ToVersion != "3" {
+		t.Fatalf("unexpected migration chain: %+v", applied)
+	}
+	source := out["sources"].([]interface{})[0].(map[string]interface{})
+	if _, leaked := source["content"]; leaked {
+		t.Fatalf("migrated source leaked content: %#v", source)
+	}
+	if source["path"] != ingest.GlobalPolicySourcePath || len(source["content_sha256"].(string)) != 64 {
+		t.Fatalf("migrated source provenance = %#v", source)
+	}
+}
+
+func TestMigrateLockfileV2RejectsTamperingBeforeMigration(t *testing.T) {
+	payload := map[string]interface{}{
+		"$schema":        schema.LegacyPolicyLockV2URLUnpinned,
+		"format_version": "2",
+		"lock_digest":    strings.Repeat("a", 64),
+		"sources":        []interface{}{},
+	}
+	if _, _, err := MigrateLockfile(payload); err == nil || !strings.Contains(err.Error(), "digest") {
+		t.Fatalf("expected tampered v2 rejection, got %v", err)
 	}
 }
 

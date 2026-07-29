@@ -2,7 +2,6 @@ package cli
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,12 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/audit"
 	"reconc.dev/reconc/internal/completiongate"
 	"reconc.dev/reconc/internal/contextsize"
 	"reconc.dev/reconc/internal/ingest"
-	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 	"reconc.dev/reconc/internal/tasklifecycle"
@@ -30,6 +27,7 @@ const agentBriefingFormatVersion = "1"
 // state. Project-specific reference material remains explicitly on demand.
 func runSessionBriefing(args []string, stdout, stderr io.Writer) error {
 	repo := "."
+	repoSet := false
 	jsonOut := false
 	for _, a := range args {
 		switch a {
@@ -43,7 +41,11 @@ func runSessionBriefing(args []string, stdout, stderr io.Writer) error {
 			if len(a) > 0 && a[0] == '-' {
 				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc session-briefing: unknown flag %q", a)}
 			}
+			if repoSet {
+				return &CLIError{ExitCode: 1, Message: "reconc session-briefing: expected at most one repo path"}
+			}
 			repo = a
+			repoSet = true
 		}
 	}
 	abs, err := filepath.Abs(repo)
@@ -340,6 +342,7 @@ func runContext(args []string, stdout, stderr io.Writer) error {
 
 func runContextSize(args []string, stdout, stderr io.Writer) error {
 	repo := "."
+	repoSet := false
 	jsonOut := false
 	limit := contextsize.DefaultTokenBudget
 	var files []string
@@ -369,7 +372,11 @@ func runContextSize(args []string, stdout, stderr io.Writer) error {
 			if len(a) > 0 && a[0] == '-' {
 				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc context size: unknown flag %q", a)}
 			}
+			if repoSet {
+				return &CLIError{ExitCode: 1, Message: "reconc context size: expected at most one repo path"}
+			}
 			repo = a
+			repoSet = true
 		}
 		i++
 	}
@@ -445,7 +452,7 @@ func defaultContextFiles(repoRoot string) []string {
 	return append(files, activePath)
 }
 
-// runStart implements `reconc start [repo] [--write PATH] [--json]` (W51).
+// runStart implements the read-only `reconc start [repo] [--json]` surface.
 //
 // Renders a canonical, self-contained onboarding / reentry markdown
 // document an agent (or a human) can read at session start to know
@@ -453,60 +460,44 @@ func defaultContextFiles(repoRoot string) []string {
 // activity, and where to look for more context. Essentially a
 // "welcome + status" page that composes session-briefing + audit
 // tail + links to agent-intro.
-//
-// Two modes:
-//
-//	reconc start [repo]                   -> stdout
-//	reconc start [repo] --write start.md  -> writes to <repo>/start.md
-//
-// Never overwrites an existing start.md without --force (same safety
-// contract as init / hook install).
 func runStart(args []string, stdout, stderr io.Writer) error {
 	repo := "."
-	writePath := ""
-	force := false
+	repoSeen := false
 	jsonOut := false
 	minimal := false
-	i := 0
-	for i < len(args) {
-		a := args[i]
+	for _, a := range args {
 		switch a {
 		case "--json":
 			jsonOut = true
 		case "--minimal":
 			minimal = true
-		case "--force":
-			force = true
-		case "--write":
-			if i+1 >= len(args) {
-				return &CLIError{ExitCode: 1, Message: "reconc start: --write requires a path"}
-			}
-			writePath = args[i+1]
-			i++
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "Usage: reconc start [repo] [--write PATH] [--force] [--json] [--minimal]")
+			fmt.Fprintln(stdout, "Usage: reconc start [repo] [--json | --minimal]")
 			fmt.Fprintln(stdout, "")
-			fmt.Fprintln(stdout, "Render a canonical start.md with the current repo state.")
-			fmt.Fprintln(stdout, "--write PATH    write the rendered doc to PATH under the repo")
-			fmt.Fprintln(stdout, "--force         overwrite an existing file at --write")
-			fmt.Fprintln(stdout, "--json          emit the structured data behind the doc")
+			fmt.Fprintln(stdout, "Render canonical onboarding context to stdout without mutating the repository.")
 			return nil
 		default:
 			if len(a) > 0 && a[0] == '-' {
 				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc start: unknown flag %q", a)}
 			}
+			if repoSeen {
+				return &CLIError{ExitCode: 1, Message: "reconc start: expected at most one repo path"}
+			}
 			repo = a
+			repoSeen = true
 		}
-		i++
 	}
 
+	if jsonOut && minimal {
+		return &CLIError{ExitCode: 1, Message: "reconc start: --json and --minimal are mutually exclusive"}
+	}
 	abs, err := filepath.Abs(repo)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc start: " + err.Error()}
 	}
-	data := buildStartData(abs)
-	if jsonOut && minimal {
-		return &CLIError{ExitCode: 1, Message: "reconc start: --json and --minimal are mutually exclusive"}
+	data, err := buildStartData(abs)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc start: " + err.Error()}
 	}
 	if jsonOut {
 		enc := json.NewEncoder(stdout)
@@ -517,50 +508,20 @@ func runStart(args []string, stdout, stderr io.Writer) error {
 	if minimal {
 		md = renderStartMinimal(data)
 	}
-	if writePath != "" {
-		target, err := resolveStartWriteTarget(abs, writePath)
-		if err != nil {
-			return &CLIError{ExitCode: 1, Message: "reconc start: " + err.Error()}
-		}
-		if _, err := os.Stat(target); err == nil && !force {
-			return &CLIError{ExitCode: 1, Message: target + " already exists; pass --force to overwrite"}
-		}
-		if _, err := atomicfile.WriteIfChanged(target, []byte(md), 0o644); err != nil {
-			return &CLIError{ExitCode: 1, Message: "reconc start: write " + target + ": " + err.Error()}
-		}
-		fmt.Fprintf(stdout, "Wrote %s (%d bytes)\n", target, len(md))
-		return nil
-	}
 	_, _ = stdout.Write([]byte(md))
 	return nil
 }
 
-func resolveStartWriteTarget(repoRoot, writePath string) (string, error) {
-	if filepath.IsAbs(writePath) {
-		return "", errors.New("--write path must be repository-relative")
-	}
-	target := filepath.Join(repoRoot, writePath)
-	rootIdentity, err := pathidentity.ResolveExisting(repoRoot)
-	if err != nil {
-		return "", fmt.Errorf("resolve repository identity: %w", err)
-	}
-	targetIdentity, err := pathidentity.ResolveProspective(target)
-	if err != nil {
-		return "", fmt.Errorf("resolve --write path: %w", err)
-	}
-	relative, err := filepath.Rel(rootIdentity, targetIdentity)
-	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return "", errors.New("--write path must stay inside the repository")
-	}
-	return target, nil
-}
-
 // buildStartData gathers the facts start.md needs. Returns a map so
 // text + JSON render from the same source of truth.
-func buildStartData(repoRoot string) map[string]interface{} {
+func buildStartData(repoRoot string) (map[string]interface{}, error) {
 	briefing := buildSessionBriefing(repoRoot)
 	briefing["generated_at"] = time.Now().UTC().Format(time.RFC3339)
-	if stats, err := audit.Stats(repoRoot); err == nil && stats.TotalEntries > 0 {
+	stats, err := audit.Stats(repoRoot)
+	if err != nil {
+		return nil, fmt.Errorf("verify audit evidence: %w", err)
+	}
+	if stats.TotalEntries > 0 {
 		briefing["audit_enabled"] = true
 		briefing["audit_total"] = stats.TotalEntries
 		briefing["audit_last_hour"] = stats.EntriesLastHour
@@ -574,7 +535,11 @@ func buildStartData(repoRoot string) map[string]interface{} {
 	}
 
 	// Recent audit entries: last 5 decisions if the log is enabled.
-	if recent, err := audit.Tail(repoRoot, audit.TailOptions{N: 5}); err == nil && len(recent) > 0 {
+	recent, err := audit.Tail(repoRoot, audit.TailOptions{N: 5})
+	if err != nil {
+		return nil, fmt.Errorf("verify recent audit evidence: %w", err)
+	}
+	if len(recent) > 0 {
 		briefing["audit_enabled"] = true
 		lines := make([]string, 0, len(recent))
 		for _, e := range recent {
@@ -583,7 +548,7 @@ func buildStartData(repoRoot string) map[string]interface{} {
 		}
 		briefing["recent_decisions"] = lines
 	}
-	return briefing
+	return briefing, nil
 }
 
 // renderStartMarkdown formats the start-data map as a human / agent
@@ -752,6 +717,7 @@ func runPostTaskCheck(args []string, stdout, stderr io.Writer) error {
 
 func runDone(args []string, stdout, stderr io.Writer) error {
 	repo := "."
+	repoSet := false
 	jsonOut := false
 	requireCleanGit := false
 	windowMinutes := 0
@@ -783,7 +749,11 @@ func runDone(args []string, stdout, stderr io.Writer) error {
 			if len(a) > 0 && a[0] == '-' {
 				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc done: unknown flag %q", a)}
 			}
+			if repoSet {
+				return &CLIError{ExitCode: 1, Message: "reconc done: expected at most one repo path"}
+			}
 			repo = a
+			repoSet = true
 		}
 		i++
 	}
@@ -859,9 +829,3 @@ func runGitPorcelain(repoRoot string) (string, error) {
 // can stub git calls without actually invoking git binaries in CI.
 // Defaults to exec.Command.
 var osExecCommand = exec.Command
-
-// runDelta implements `reconc delta [repo] [--since RFC3339] [--json]` (W47).
-//
-// Shows audit activity since a reference point (default: 1 hour ago).
-// Useful at session start to understand "what happened since I
-// logged off" without reading the full audit log.

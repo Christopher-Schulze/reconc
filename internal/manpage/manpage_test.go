@@ -61,7 +61,7 @@ func TestRenderIncludesCanonicalCommandAndNestedInventory(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	for _, command := range commandmeta.All() {
+	for _, command := range commandmeta.Public() {
 		if !strings.Contains(out, ".B "+command.Name+"\n") || !strings.Contains(out, command.Summary) {
 			t.Errorf("man page omitted canonical command %s", command.Name)
 		}
@@ -75,6 +75,18 @@ func TestRenderIncludesCanonicalCommandAndNestedInventory(t *testing.T) {
 					t.Errorf("man page omitted canonical leaf command %s %s %s", command.Name, nested.Name, leaf.Name)
 				}
 			}
+		}
+	}
+}
+
+func TestRenderOmitsInternalCommandSurfaces(t *testing.T) {
+	var buf bytes.Buffer
+	if err := Render(&buf, "0.2.0"); err != nil {
+		t.Fatal(err)
+	}
+	for _, surface := range []string{".B hook runtime\n", ".B hook grok-pre-tool-guard\n"} {
+		if strings.Contains(buf.String(), surface) {
+			t.Errorf("man page exposed internal surface %q", surface)
 		}
 	}
 }

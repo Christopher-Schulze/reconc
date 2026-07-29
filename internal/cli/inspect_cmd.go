@@ -13,7 +13,6 @@ import (
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/parser"
-	"reconc.dev/reconc/internal/presets"
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/tui"
 	"reconc.dev/reconc/internal/usercli"
@@ -162,131 +161,13 @@ func renderGlobalDoctorText(stdout io.Writer, report *usercli.GlobalDiagnostic) 
 	fmt.Fprintf(stdout, "Next: %s\n", report.NextAction)
 }
 
-// runVerify implements `reconc verify [repo] [--json]` (W12).
-//
-// Checks the full reconc installation health end-to-end:
-//   - reconc binary on PATH (we're running, so trivially yes)
-//   - $RECONC_HOME directory exists / is writable
-//   - global policy (if set) is parseable
-//   - bundled presets all resolve
-//   - repo discovery, source loading, and parsing succeed
-//   - lockfile present + fresh (digest matches sources)
-//   - git pre-commit hook installed (when .git/ present)
-//
-// Always exits 0. Output lists each check with [OK] / [WARN] / [FAIL]
-// and a one-line reason. JSON mode emits a structured payload.
-func runVerify(args []string, stdout, stderr io.Writer) error {
-	repo := "."
-	jsonOut := false
-	for _, a := range args {
-		switch a {
-		case "--json":
-			jsonOut = true
-		case "-h", "--help":
-			fmt.Fprintln(stdout, "Usage: reconc verify [repo] [--json]")
-			fmt.Fprintln(stdout, "End-to-end installation health check. Always exits 0.")
-			return nil
-		default:
-			if len(a) > 0 && a[0] == '-' {
-				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc verify: unknown flag %q", a)}
-			}
-			repo = a
-		}
-	}
-
-	type check struct {
-		Name   string `json:"name"`
-		Status string `json:"status"` // OK | WARN | FAIL
-		Detail string `json:"detail"`
-	}
-	checks := []check{}
-	add := func(name, status, detail string) {
-		checks = append(checks, check{Name: name, Status: status, Detail: detail})
-	}
-
-	// 1. reconc binary
-	add("reconc binary on PATH", "OK", "running this check confirms it")
-
-	// 2. $RECONC_HOME
-	home := presets.Home()
-	if info, err := os.Stat(home); err != nil {
-		add("RECONC_HOME directory", "WARN", "not present at "+home+" (will be created on first use)")
-	} else if !info.IsDir() {
-		add("RECONC_HOME directory", "FAIL", home+" exists but is not a directory")
-	} else {
-		add("RECONC_HOME directory", "OK", home)
-	}
-
-	// 3. Global policy (optional)
-	globalPath := filepath.Join(home, "global-policy.yml")
-	if info, err := os.Stat(globalPath); err == nil && info.Mode().IsRegular() {
-		add("global policy", "OK", globalPath)
-	} else {
-		add("global policy", "OK", "absent (optional)")
-	}
-
-	// 4. Bundled presets
-	list, err := presets.List()
-	if err != nil {
-		add("bundled presets", "FAIL", err.Error())
-	} else {
-		add("bundled presets", "OK", fmt.Sprintf("%d available", len(list)))
-	}
-
-	// 5+6+7. Repo discovery + source validation + lockfile freshness
-	discovery, derr := ingest.DiscoverPolicyRepo(repo)
-	if derr != nil || !discovery.Discovered {
-		msg := "no policy markers in " + repo
-		if derr != nil {
-			msg = derr.Error()
-		}
-		add("repo discovery", "WARN", msg)
-	} else {
-		add("repo discovery", "OK", discovery.RepoRoot)
-
-		validation, verr := validatePolicyReadOnly(discovery.RepoRoot)
-		if verr != nil {
-			add("policy parse", "FAIL", verr.Error())
-		} else {
-			add("policy parse", "OK", fmt.Sprintf("%d rules from %d sources", validation.ruleCount, validation.sourceCount))
-			if err := runtime.ValidatePolicyLockfile(discovery.RepoRoot); err == nil {
-				add("lockfile fresh", "OK", filepath.Join(discovery.RepoRoot, ingest.LockfilePath))
-			} else {
-				add("lockfile fresh", "FAIL", err.Error())
-			}
-		}
-		// Git pre-commit hook
-		gitHookPath := filepath.Join(discovery.RepoRoot, ".git", "hooks", "pre-commit")
-		if !dirExists(filepath.Join(discovery.RepoRoot, ".git")) {
-			add("git pre-commit hook", "WARN", "no .git/ in repo (run `git init` then `reconc hook install git-pre-commit`)")
-		} else if _, err := os.Stat(gitHookPath); err != nil {
-			add("git pre-commit hook", "WARN", "not installed (run `reconc hook install git-pre-commit`)")
-		} else {
-			add("git pre-commit hook", "OK", ".git/hooks/pre-commit")
-		}
-		runtimeCompat := inspectHookRuntimeCompatibility(discovery)
-		add("agent hooks runtime compatibility", runtimeCompat.Status, runtimeCompat.Detail)
-	}
-
-	if jsonOut {
-		enc := json.NewEncoder(stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(map[string]interface{}{"checks": checks})
-		return nil
-	}
-	style := newTextStyler(stdout)
-	for _, c := range checks {
-		fmt.Fprintf(stdout, "[%s] %-30s  %s\n", style.statusTag(c.Status, 4), c.Name, c.Detail)
-	}
-	return nil
-}
-
 // runStatus implements `reconc status [repo] [--json]`.
 //
 // One-line policy health summary. Returns exit 0 always (it's a
 // diagnostic, not an enforcement command).
 func runStatus(args []string, stdout, stderr io.Writer) (resultErr error) {
 	repo := "."
+	repoSet := false
 	jsonOut := false
 	outputPath := ""
 	i := 0
@@ -309,7 +190,11 @@ func runStatus(args []string, stdout, stderr io.Writer) (resultErr error) {
 			if len(a) > 0 && a[0] == '-' {
 				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc status: unknown flag %q", a)}
 			}
+			if repoSet {
+				return &CLIError{ExitCode: 1, Message: "reconc status: expected at most one repo path"}
+			}
 			repo = a
+			repoSet = true
 		}
 		i++
 	}
@@ -397,6 +282,7 @@ func runStatus(args []string, stdout, stderr io.Writer) (resultErr error) {
 // view without pulling in a framework or making daily usage heavier.
 func runTUI(args []string, stdout, stderr io.Writer) (resultErr error) {
 	repo := "."
+	repoSet := false
 	jsonOut := false
 	outputPath := ""
 	i := 0
@@ -419,7 +305,11 @@ func runTUI(args []string, stdout, stderr io.Writer) (resultErr error) {
 			if len(a) > 0 && a[0] == '-' {
 				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc tui: unknown flag %q", a)}
 			}
+			if repoSet {
+				return &CLIError{ExitCode: 1, Message: "reconc tui: expected at most one repo path"}
+			}
 			repo = a
+			repoSet = true
 		}
 		i++
 	}

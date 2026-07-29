@@ -35,7 +35,7 @@ func TestPublicSchemaAliasesHaveOneOwner(t *testing.T) {
 
 func TestResolveEnterpriseSchemaBase(t *testing.T) {
 	t.Setenv("RECONC_SCHEMA_BASE_URL", "https://schemas.example.test/")
-	if got, want := schema.Resolve(schema.PolicyLock), "https://schemas.example.test/schemas/policy-lock/v2"; got != want {
+	if got, want := schema.Resolve(schema.PolicyLock), "https://schemas.example.test/schemas/policy-lock/v3"; got != want {
 		t.Fatalf("Resolve() = %q, want %q", got, want)
 	}
 	if got, want := schema.Resolve(schema.PolicyReport), "https://schemas.example.test/schemas/policy-report/v1"; got != want {
@@ -121,7 +121,8 @@ func TestPublishedSchemasAreVersionedJSONContracts(t *testing.T) {
 			t.Fatalf("%s root type = %v", name, got)
 		}
 	}
-	assertPublishedSchema(t, filepath.Join("..", "..", "schemas", "v2", "policy-lock.schema.json"), schema.PolicyLockURL)
+	assertPublishedSchema(t, filepath.Join("..", "..", "schemas", "v2", "policy-lock.schema.json"), schema.LegacyPolicyLockV2URL)
+	assertPublishedSchema(t, filepath.Join("..", "..", "schemas", "v3", "policy-lock.schema.json"), schema.PolicyLockURL)
 }
 
 func assertPublishedSchema(t *testing.T, path, wantID string) {
@@ -161,7 +162,9 @@ func TestPublishedSchemaPropertiesMatchEmittedGoTypes(t *testing.T) {
 	releaseManifest := readSchemaDocument(t, "release-manifest.schema.json")
 
 	assertPropertiesMatch(t, schemaDefinition(t, lock, "discovery"), ingest.DiscoveryResult{})
-	assertPropertiesMatch(t, schemaDefinition(t, lock, "source"), policy.PolicySource{})
+	assertPropertiesMatch(t, schemaDefinition(t, lock, "source"), legacyPolicySource{})
+	currentLock := readCurrentLockSchemaDocument(t)
+	assertPropertiesMatch(t, schemaDefinition(t, currentLock, "source"), compiler.CompiledSource{})
 	assertPropertiesMatch(t, schemaDefinition(t, lock, "requiredFile"), policy.RequiredFile{})
 	assertPropertiesMatch(t, schemaDefinition(t, lock, "evidence"), policy.EvidenceCheck{})
 	assertPropertiesMatch(t, schemaDefinition(t, lock, "check"), policy.Check{})
@@ -242,8 +245,8 @@ func TestPublishedAssuranceEnumMatchesPolicyKinds(t *testing.T) {
 func TestCurrentLockSchemaRequiresPortableIdentity(t *testing.T) {
 	lock := readSchemaDocument(t, "policy-lock.schema.json")
 	properties := schemaRootProperties(t, lock)
-	if got := properties["format_version"].(map[string]interface{})["const"]; got != "2" {
-		t.Fatalf("format_version const = %v, want 2", got)
+	if got := properties["format_version"].(map[string]interface{})["const"]; got != "3" {
+		t.Fatalf("format_version const = %v, want 3", got)
 	}
 	if got := properties["repo_root"].(map[string]interface{})["const"]; got != "." {
 		t.Fatalf("repo_root const = %v, want .", got)
@@ -271,11 +274,24 @@ func readLegacyLockSchemaDocument(t *testing.T) map[string]interface{} {
 	return document
 }
 
+func readCurrentLockSchemaDocument(t *testing.T) map[string]interface{} {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", "schemas", "v3", "policy-lock.schema.json"))
+	if err != nil {
+		t.Fatalf("read current lock schema: %v", err)
+	}
+	var document map[string]interface{}
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatalf("parse current lock schema: %v", err)
+	}
+	return document
+}
+
 func readSchemaDocument(t *testing.T, name string) map[string]interface{} {
 	t.Helper()
 	version := "v1"
 	if name == "policy-lock.schema.json" {
-		version = "v2"
+		version = "v3"
 	}
 	data, err := os.ReadFile(filepath.Join("..", "..", "schemas", version, name))
 	if err != nil {
@@ -286,6 +302,14 @@ func readSchemaDocument(t *testing.T, name string) map[string]interface{} {
 		t.Fatalf("parse %s: %v", name, err)
 	}
 	return document
+}
+
+type legacyPolicySource struct {
+	Kind      policy.SourceKind `json:"kind"`
+	Path      string            `json:"path"`
+	Content   string            `json:"content"`
+	BlockID   string            `json:"block_id,omitempty"`
+	LineStart int               `json:"line_start,omitempty"`
 }
 
 func schemaRootProperties(t *testing.T, document map[string]interface{}) map[string]interface{} {

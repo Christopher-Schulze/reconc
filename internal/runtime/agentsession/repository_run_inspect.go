@@ -1,11 +1,15 @@
 package agentsession
 
 import (
-	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 
+	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/jsonl"
 	"reconc.dev/reconc/internal/tasklifecycle"
 )
@@ -67,22 +71,42 @@ func readRepositoryRunStatusResolved(root string) (RepositoryRunStatus, error) {
 // ReadRunDecisions returns repository run decision records from
 // .reconc/run/decisions.jsonl in chronological (append) order. When
 // limit > 0 only the last limit records are returned. A missing log is not an
-// error (returns nil). Malformed lines are skipped rather than failing the
-// whole read, so a single bad append never blinds the observability surface.
+// error (returns nil). The JSONL writer lock is held while taking the snapshot,
+// and malformed or truncated records fail closed rather than disappearing.
 func ReadRunDecisions(repoRoot string, limit int) ([]RunDecision, error) {
 	path, err := runDecisionLogPath(repoRoot)
 	if err != nil {
 		return nil, err
 	}
-	var out []RunDecision
-	sources, err := jsonl.PathsOldestFirst(path, runDecisionMaxArchives)
+	if _, err := os.Stat(filepath.Dir(path)); errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return nil, err
 	}
-	for _, source := range sources {
-		if err := readRunDecisionFile(source, &out); err != nil {
-			return out, err
+	defer lock.Close()
+	unlock, err := filelock.Lock(lock)
+	if err != nil {
+		return nil, err
+	}
+	var out []RunDecision
+	sources, err := jsonl.PathsOldestFirst(path, runDecisionMaxArchives)
+	if err == nil {
+		for _, source := range sources {
+			if err = readRunDecisionFile(source, &out); err != nil {
+				break
+			}
 		}
+	}
+	unlockErr := unlock()
+	if err != nil {
+		return out, err
+	}
+	if unlockErr != nil {
+		return out, fmt.Errorf("unlock run decision log: %w", unlockErr)
 	}
 	if limit > 0 && len(out) > limit {
 		out = out[len(out)-limit:]
@@ -91,29 +115,34 @@ func ReadRunDecisions(repoRoot string, limit int) ([]RunDecision, error) {
 }
 
 func readRunDecisionFile(path string, out *[]RunDecision) error {
-	file, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
 		return err
 	}
-	defer file.Close()
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 32*1024), 32*1024)
-	for scanner.Scan() {
-		line := scanner.Bytes()
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		return fmt.Errorf("%s: truncated JSONL record: missing final newline", path)
+	}
+	for index, line := range bytes.Split(data, []byte{'\n'}) {
 		if len(line) == 0 {
 			continue
 		}
 		var d RunDecision
-		if err := json.Unmarshal(line, &d); err != nil {
-			continue
+		decoder := json.NewDecoder(bytes.NewReader(line))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&d); err != nil {
+			return fmt.Errorf("%s:%d: malformed run decision: %w", path, index+1, err)
+		}
+		var trailing interface{}
+		if err := decoder.Decode(&trailing); err != io.EOF {
+			if err == nil {
+				err = errors.New("multiple JSON values are not allowed")
+			}
+			return fmt.Errorf("%s:%d: malformed run decision: %w", path, index+1, err)
 		}
 		*out = append(*out, d)
-	}
-	if err := scanner.Err(); err != nil {
-		return err
 	}
 	return nil
 }

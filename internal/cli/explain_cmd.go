@@ -25,6 +25,7 @@ import (
 // Always exits 0 (it's a renderer, not an enforcement command).
 func runExplain(args []string, stdout, stderr io.Writer) (resultErr error) {
 	repo := "."
+	repoSet := false
 	jsonOut := false
 	outputPath := ""
 	reportFile := ""
@@ -95,7 +96,11 @@ func runExplain(args []string, stdout, stderr io.Writer) (resultErr error) {
 			if len(a) > 0 && a[0] == '-' {
 				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc explain: unknown flag %q", a)}
 			}
+			if repoSet {
+				return &CLIError{ExitCode: 1, Message: "reconc explain: expected at most one repo path"}
+			}
 			repo = a
+			repoSet = true
 		}
 		i++
 	}
@@ -160,6 +165,7 @@ func runWhy(args []string, stdout, stderr io.Writer) error {
 	}
 	ruleID := args[0]
 	repo := "."
+	repoSet := false
 	jsonOut := false
 	terse := false
 	for i := 1; i < len(args); i++ {
@@ -177,7 +183,11 @@ func runWhy(args []string, stdout, stderr io.Writer) error {
 			if len(a) > 0 && a[0] == '-' {
 				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc why: unknown flag %q", a)}
 			}
+			if repoSet {
+				return &CLIError{ExitCode: 1, Message: "reconc why: expected at most one repo path"}
+			}
 			repo = a
+			repoSet = true
 		}
 	}
 

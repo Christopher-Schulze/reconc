@@ -44,7 +44,7 @@ func TestCheckRejectsOldLockfileWithoutRegisteredMigration(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for old lockfile without migration")
 	}
-	if !strings.Contains(err.Error(), "no migration registered from format_version 0 to 2") {
+	if !strings.Contains(err.Error(), "no migration registered from format_version 0 to 3") {
 		t.Fatalf("expected missing-migration error, got: %v", err)
 	}
 }
@@ -67,6 +67,18 @@ func TestCheckAcceptsMigratedV1LockfileFromEquivalentCheckout(t *testing.T) {
 	payload["$schema"] = compiler.LegacyLockfileSchemaV1
 	payload["format_version"] = "1"
 	payload["repo_root"] = repoA
+	payload["sources"] = []interface{}{
+		map[string]interface{}{
+			"kind":    "agents_md",
+			"path":    "AGENTS.md",
+			"content": "# project\n",
+		},
+		map[string]interface{}{
+			"kind":    "policy_file",
+			"path":    "policies/rules.yml",
+			"content": policyText,
+		},
+	}
 	discovery, ok := payload["discovery"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("discovery has type %T", payload["discovery"])

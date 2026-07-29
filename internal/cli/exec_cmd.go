@@ -95,7 +95,11 @@ func runExec(args []string, stdout, stderr io.Writer) error {
 		outcome = "failure"
 	}
 	if recordErr := agentsession.RecordCommandOutcome(discovery.RepoRoot, commandText, outcome, exitCode); recordErr != nil {
-		fmt.Fprintf(stderr, "reconc exec: warning: record active-session evidence: %v\n", recordErr)
+		message := fmt.Sprintf("reconc exec: record active-session evidence: %v", recordErr)
+		if runErr != nil {
+			message += fmt.Sprintf("; command also failed with exit code %d", exitCode)
+		}
+		return &CLIError{ExitCode: 1, Message: message}
 	}
 	if runErr != nil {
 		return &CLIError{ExitCode: exitCode, Message: fmt.Sprintf("reconc exec: command failed with exit code %d", exitCode)}

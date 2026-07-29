@@ -63,12 +63,6 @@ func firstStringOrDash(values []string) string {
 	return values[0]
 }
 
-// dirExists reports whether path exists and is a directory.
-func dirExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
-}
-
 // detectCIEnvironment reports whether this process is running inside a
 // known CI environment. Used by --auto-claim (W7) to silently assert
 // ci-green so hosted pipelines don't need a separate `reconc hook

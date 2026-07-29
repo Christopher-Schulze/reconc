@@ -17,7 +17,7 @@ import (
 
 // GenerateBash writes a bash completion script for reconc to w.
 func GenerateBash(w io.Writer) error {
-	commands := commandmeta.All()
+	commands := commandmeta.Public()
 	fmt.Fprintln(w, `# reconc bash completion. Source this script (or drop it into a
 # directory scanned by bash-completion, e.g. /etc/bash_completion.d/ or
 # /usr/local/etc/bash_completion.d/, then restart your shell).
@@ -29,7 +29,7 @@ _reconc() {
     sub="${COMP_WORDS[1]}"
     nested="${COMP_WORDS[2]}"
     leaf="${COMP_WORDS[3]}"`)
-	fmt.Fprintf(w, "    local subcmds=%q\n", strings.Join(commandmeta.SortedNames(), " "))
+	fmt.Fprintf(w, "    local subcmds=%q\n", strings.Join(commandmeta.PublicSortedNames(), " "))
 	fmt.Fprintln(w, `
     # First word after 'reconc' -> subcommand completion.
     if [[ ${COMP_CWORD} -eq 1 ]]; then
@@ -152,7 +152,7 @@ complete -F _reconc reconc`)
 
 // GenerateZsh writes a zsh completion script to w.
 func GenerateZsh(w io.Writer) error {
-	commands := commandmeta.All()
+	commands := commandmeta.Public()
 	fmt.Fprintln(w, `#compdef reconc
 # reconc zsh completion. Drop this into a directory on $fpath (e.g.
 # /usr/local/share/zsh/site-functions/_reconc) or source it directly.
@@ -281,7 +281,7 @@ _reconc "$@"`)
 
 // GenerateFish writes a fish completion script to w.
 func GenerateFish(w io.Writer) error {
-	commands := commandmeta.All()
+	commands := commandmeta.Public()
 	fmt.Fprintln(w, "# reconc fish completion. Drop into ~/.config/fish/completions/reconc.fish")
 	fmt.Fprintln(w, "# or source directly.")
 	for _, command := range commands {

@@ -9,11 +9,16 @@
 package lockdiff
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
 	"sort"
+	"strings"
+
+	"reconc.dev/reconc/internal/compiler"
 )
 
 // Report is the structured result of comparing two lockfiles.
@@ -58,7 +63,7 @@ func Diff(pathA, pathB string) (*Report, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load %s: %w", pathB, err)
 	}
-	return diffMaps(pathA, pathB, a, b), nil
+	return diffMaps(pathA, pathB, a, b)
 }
 
 func loadLockfile(path string) (map[string]interface{}, error) {
@@ -67,13 +72,35 @@ func loadLockfile(path string) (map[string]interface{}, error) {
 		return nil, err
 	}
 	var out map[string]interface{}
-	if err := json.Unmarshal(data, &out); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&out); err != nil {
 		return nil, fmt.Errorf("not valid JSON: %w", err)
 	}
-	return out, nil
+	if out == nil {
+		return nil, fmt.Errorf("lockfile must contain a JSON object")
+	}
+	var extra interface{}
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("lockfile contains more than one JSON value")
+		}
+		return nil, fmt.Errorf("read trailing JSON: %w", err)
+	}
+	migrated, _, err := compiler.MigrateLockfile(out)
+	if err != nil {
+		return nil, err
+	}
+	if err := compiler.ValidateLockfileEnvelope(migrated); err != nil {
+		return nil, err
+	}
+	if _, err := indexRules(migrated); err != nil {
+		return nil, err
+	}
+	return migrated, nil
 }
 
-func diffMaps(pathA, pathB string, a, b map[string]interface{}) *Report {
+func diffMaps(pathA, pathB string, a, b map[string]interface{}) (*Report, error) {
 	r := &Report{
 		PathA:   pathA,
 		PathB:   pathB,
@@ -83,8 +110,14 @@ func diffMaps(pathA, pathB string, a, b map[string]interface{}) *Report {
 	}
 
 	// Index both sides' rules by id for match + compare.
-	rulesA := indexRules(a)
-	rulesB := indexRules(b)
+	rulesA, err := indexRules(a)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", pathA, err)
+	}
+	rulesB, err := indexRules(b)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", pathB, err)
+	}
 
 	for id, ra := range rulesA {
 		rb, ok := rulesB[id]
@@ -121,23 +154,61 @@ func diffMaps(pathA, pathB string, a, b map[string]interface{}) *Report {
 	r.DigestA = stringField(a, "source_digest")
 	r.DigestB = stringField(b, "source_digest")
 
-	return r
+	return r, nil
 }
 
-func indexRules(payload map[string]interface{}) map[string]map[string]interface{} {
+func indexRules(payload map[string]interface{}) (map[string]map[string]interface{}, error) {
 	out := map[string]map[string]interface{}{}
-	rules, _ := payload["rules"].([]interface{})
-	for _, r := range rules {
+	rules, ok := payload["rules"].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("rules must contain a list")
+	}
+	for index, r := range rules {
 		m, ok := r.(map[string]interface{})
 		if !ok {
-			continue
+			return nil, fmt.Errorf("rules[%d] must contain an object", index)
 		}
 		id, _ := m["id"].(string)
-		if id != "" {
-			out[id] = m
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return nil, fmt.Errorf("rules[%d].id must contain a non-empty string", index)
 		}
+		kind, _ := m["kind"].(string)
+		if strings.TrimSpace(kind) == "" {
+			return nil, fmt.Errorf("rules[%d].kind must contain a non-empty string", index)
+		}
+		if _, exists := out[id]; exists {
+			return nil, fmt.Errorf("duplicate rule id %q", id)
+		}
+		out[id] = m
 	}
-	return out
+	if count, ok := integerField(payload["rule_count"]); !ok || count != len(rules) {
+		return nil, fmt.Errorf("rule_count must equal rules length")
+	}
+	sources, ok := payload["sources"].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("sources must contain a list")
+	}
+	if count, ok := integerField(payload["source_count"]); !ok || count != len(sources) {
+		return nil, fmt.Errorf("source_count must equal sources length")
+	}
+	if mode, _ := payload["default_mode"].(string); mode != "warn" && mode != "block" {
+		return nil, fmt.Errorf("default_mode must be warn or block")
+	}
+	return out, nil
+}
+
+func integerField(value interface{}) (int, bool) {
+	switch number := value.(type) {
+	case json.Number:
+		n, err := number.Int64()
+		return int(n), err == nil && n >= 0 && int64(int(n)) == n
+	case float64:
+		n := int(number)
+		return n, number >= 0 && float64(n) == number
+	default:
+		return 0, false
+	}
 }
 
 // ruleFieldsChanged returns the sorted list of keys whose values
@@ -163,7 +234,7 @@ func ruleFieldsChanged(a, b map[string]interface{}) []string {
 	}
 	var changed []string
 	for k := range keys {
-		if !reflect.DeepEqual(canonicalValue(a[k]), canonicalValue(b[k])) {
+		if !reflect.DeepEqual(canonicalValue(k, a[k]), canonicalValue(k, b[k])) {
 			changed = append(changed, k)
 		}
 	}
@@ -171,11 +242,22 @@ func ruleFieldsChanged(a, b map[string]interface{}) []string {
 	return changed
 }
 
-// canonicalValue sorts pure string lists before comparison. Rule-level
-// string lists (paths, commands, claims) are semantic sets for the
-// evaluator, so reordering them is not a change. Mixed or nested lists
-// are returned unchanged and compare order-sensitively.
-func canonicalValue(v interface{}) interface{} {
+var orderInsensitiveRuleFields = map[string]struct{}{
+	"before_paths": {},
+	"claims":       {},
+	"commands":     {},
+	"must_contain": {},
+	"paths":        {},
+	"scope_paths":  {},
+	"when_paths":   {},
+}
+
+// canonicalValue sorts pure string lists only for fields whose evaluator
+// semantics are explicitly set-like. Argument and nested lists retain order.
+func canonicalValue(field string, v interface{}) interface{} {
+	if _, ok := orderInsensitiveRuleFields[field]; !ok {
+		return v
+	}
 	list, ok := v.([]interface{})
 	if !ok {
 		return v

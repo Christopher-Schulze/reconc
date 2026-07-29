@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 	"time"
 
 	"reconc.dev/reconc/internal/audit"
@@ -71,22 +70,17 @@ func auditEntryFromReport(event string, report *runtime.CheckReport, reconcVersi
 	}
 }
 
-// maybeAudit appends one entry to the audit log when logging is
-// enabled for the given repo. Non-fatal on error: audit is best-effort
-// and must never break the check's exit path.
-func maybeAudit(event string, report *runtime.CheckReport, start time.Time) {
+// maybeAudit appends one entry when audit logging is enabled. An enabled audit
+// is an integrity contract, so publication failures fail the invoking command.
+func maybeAudit(event string, report *runtime.CheckReport, reconcVersion string, start time.Time) error {
 	if report == nil {
-		return
+		return nil
 	}
 	// configEnabled=false: only RECONC_AUDIT env can enable today.
 	// Once .reconc.yml grows an `audit.enabled` key, thread it through.
 	if !audit.Enabled(report.RepoRoot, false) {
-		return
+		return nil
 	}
-	entry := auditEntryFromReport(event, report, "0.1.0-dev", start)
-	// Log rotation / append failures to stderr so operators notice, but
-	// never fail the user's command -- audit is advisory, not blocking.
-	if err := audit.Append(report.RepoRoot, entry, 0); err != nil {
-		fmt.Fprintf(os.Stderr, "reconc: audit: %s\n", err)
-	}
+	entry := auditEntryFromReport(event, report, reconcVersion, start)
+	return audit.Append(report.RepoRoot, entry, 0)
 }

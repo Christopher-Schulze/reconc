@@ -92,8 +92,9 @@ The v0.9 additions and changed canonical entrypoints are:
 
 Compatibility behavior:
 
-- `reconc bootstrap [repo]` remains through v0.9 as a thin compatibility call
-  into the same `init` transaction engine.
+- Bare `reconc bootstrap [repo]` is rejected. Canonical onboarding is
+  `reconc init [repo]`; `bootstrap` accepts only its explicit transactional
+  subcommands.
 - Legacy `--preset` maps to `--pack` and emits a compatibility warning.
 - Legacy `init --force` is rejected because the transactional engine never
   overwrites user-owned content.
@@ -204,13 +205,12 @@ repository. Stable uses the latest-release endpoint, preview uses the bounded
 release list, and exact uses the tag endpoint. Drafts are always rejected.
 After discovery, every download uses the immutable tag URL and verifies exact
 repository, tag, asset name, size, SHA256SUMS entry, embedded build version,
-target, and source digest. GitHub attestation verification upgrades the
-provenance state when available and is mandatory when the installed policy or
-environment requires it.
+target, and source digest. Every CLI update then requires successful GitHub
+build-provenance attestation verification before publication.
 
 `--from-dir PATH` disables all network access. The directory must contain one
-strict release manifest, `SHA256SUMS`, the exact platform artifact, and any
-attestation bundle and trusted root required by the selected provenance policy.
+strict release manifest, `SHA256SUMS`, the exact platform artifact, the
+selected asset's Sigstore bundle, and `trusted_root.jsonl`.
 Traversal, symlinks, extra identity aliases, duplicate entries, or an
 incomplete local set fail before staging.
 

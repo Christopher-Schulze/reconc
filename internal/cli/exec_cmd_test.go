@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/commandproof"
+	"reconc.dev/reconc/internal/runtime/agentsession"
 )
 
 func TestExecStagedProofSatisfiesCIWithoutToolHook(t *testing.T) {
@@ -148,6 +149,27 @@ func TestExecPropagatesRealShellExitCode(t *testing.T) {
 	err := Run([]string{"exec", repo, "--shell", "--", "exit 7"}, "0.8.5-test", &stdout, &stderr)
 	if ExitCode(err) != 7 {
 		t.Fatalf("exit code = %d, want 7; err=%v", ExitCode(err), err)
+	}
+}
+
+func TestExecFailsClosedWhenActiveSessionEvidenceCannotBeRecorded(t *testing.T) {
+	t.Setenv(agentsession.StateRootEnv, filepath.Join(t.TempDir(), "state"))
+	repo := makeCheckRepo(t, "rules: []\n")
+	state, err := agentsession.InitializeSessionState(repo, "exec-overflow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.EvidenceOverflow = true
+	state.EvidenceOverflowReason = "commands"
+	state.EvidenceOverflowLimit = "byte_budget"
+	if err := agentsession.SaveSessionState(state); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	err = Run([]string{"exec", repo, "--", "go", "version"}, "0.9.1-test", &stdout, &stderr)
+	if ExitCode(err) != 1 || !strings.Contains(err.Error(), "record active-session evidence") {
+		t.Fatalf("unrecorded successful command must fail closed: %v", err)
 	}
 }
 

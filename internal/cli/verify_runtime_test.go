@@ -11,7 +11,7 @@ import (
 	"reconc.dev/reconc/internal/hooks"
 )
 
-func TestRunVerifyWarnsWhenBinaryLacksHookRuntime(t *testing.T) {
+func TestRunDoctorDeepWarnsWhenBinaryLacksHookRuntime(t *testing.T) {
 	repo := makeCheckRepo(t,
 		"rules:\n  - id: deny-generated\n    kind: deny_write\n    paths: ['generated/**']\n    mode: warn\n    message: generated files are read-only\n")
 	if err := os.MkdirAll(filepath.Join(repo, ".claude"), 0o755); err != nil {
@@ -27,8 +27,8 @@ func TestRunVerifyWarnsWhenBinaryLacksHookRuntime(t *testing.T) {
 	defer func() { hookRuntimeSupportProbe = oldProbe }()
 
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"verify", repo, "--json"}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("verify --json: %v", err)
+	if err := Run([]string{"doctor", repo, "--deep", "--json"}, "0.1.0-test", &stdout, &stderr); err != nil {
+		t.Fatalf("doctor --deep --json: %v", err)
 	}
 
 	var payload struct {
@@ -39,12 +39,12 @@ func TestRunVerifyWarnsWhenBinaryLacksHookRuntime(t *testing.T) {
 		} `json:"checks"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
-		t.Fatalf("verify output should be valid JSON: %v\n%s", err, stdout.String())
+		t.Fatalf("doctor output should be valid JSON: %v\n%s", err, stdout.String())
 	}
 
 	found := false
 	for _, check := range payload.Checks {
-		if check.Name != "agent hooks runtime compatibility" {
+		if check.Name != "hook runtime compatibility" {
 			continue
 		}
 		found = true
@@ -52,15 +52,15 @@ func TestRunVerifyWarnsWhenBinaryLacksHookRuntime(t *testing.T) {
 			t.Fatalf("expected WARN, got %s", check.Status)
 		}
 		if check.Detail == "" {
-			t.Fatal("expected non-empty detail for agent hooks runtime compatibility")
+			t.Fatal("expected non-empty detail for hook runtime compatibility")
 		}
 	}
 	if !found {
-		t.Fatal("missing agent hooks runtime compatibility verify row")
+		t.Fatal("missing hook runtime compatibility doctor row")
 	}
 }
 
-func TestRunVerifyDoesNotRequireAgentRuntimeForGitHook(t *testing.T) {
+func TestRunDoctorDeepDoesNotRequireAgentRuntimeForGitHook(t *testing.T) {
 	repo := makeCheckRepo(t,
 		"rules:\n  - id: deny-generated\n    kind: deny_write\n    paths: ['generated/**']\n    mode: warn\n    message: generated files are read-only\n")
 	initGitRepo(t, repo)
@@ -73,8 +73,8 @@ func TestRunVerifyDoesNotRequireAgentRuntimeForGitHook(t *testing.T) {
 	defer func() { hookRuntimeSupportProbe = oldProbe }()
 
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"verify", repo, "--json"}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("verify --json: %v", err)
+	if err := Run([]string{"doctor", repo, "--deep", "--json"}, "0.1.0-test", &stdout, &stderr); err != nil {
+		t.Fatalf("doctor --deep --json: %v", err)
 	}
 	var payload struct {
 		Checks []struct {
@@ -87,12 +87,12 @@ func TestRunVerifyDoesNotRequireAgentRuntimeForGitHook(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, check := range payload.Checks {
-		if check.Name == "agent hooks runtime compatibility" {
+		if check.Name == "hook runtime compatibility" {
 			if check.Status != doctorStatusOK || strings.Contains(check.Detail, "older than") {
 				t.Fatalf("git-only hook must not require agent runtime support: %+v", check)
 			}
 			return
 		}
 	}
-	t.Fatal("missing agent hooks runtime compatibility verify row")
+	t.Fatal("missing hook runtime compatibility doctor row")
 }

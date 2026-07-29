@@ -1,11 +1,16 @@
 package compiler
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strings"
 
 	rerrors "reconc.dev/reconc/internal/errors"
+	"reconc.dev/reconc/internal/ingest"
+	"reconc.dev/reconc/internal/policy"
+	"reconc.dev/reconc/internal/schema"
 )
 
 // Migration is one step in the lockfile format evolution. Each entry
@@ -36,11 +41,18 @@ var Migrations = []Migration{
 		ToVersion:   "2",
 		Apply:       migrateLockfileV1ToV2,
 	},
+	{
+		FromVersion: "2",
+		ToVersion:   "3",
+		Apply:       migrateLockfileV2ToV3,
+	},
 }
 
 func migrateLockfileV1ToV2(payload map[string]interface{}) (map[string]interface{}, error) {
 	schemaURL, _ := payload["$schema"].(string)
-	if schemaURL != LegacyLockfileSchemaV1 && schemaURL != legacyLockfileSchemaForEnterprise() {
+	if schemaURL != LegacyLockfileSchemaV1 &&
+		schemaURL != schema.LegacyPolicyLockURLUnpinned &&
+		schemaURL != legacyLockfileSchemaForEnterprise("v1") {
 		return nil, fmt.Errorf("legacy lockfile schema %q is not recognized", schemaURL)
 	}
 	if root, ok := payload["repo_root"].(string); !ok || strings.TrimSpace(root) == "" {
@@ -58,20 +70,90 @@ func migrateLockfileV1ToV2(payload map[string]interface{}) (map[string]interface
 
 	out := cloneLockfileMap(payload)
 	portableDiscovery := cloneLockfileMap(discovery)
-	out["$schema"] = LockfileSchema()
+	out["$schema"] = legacyLockfileSchemaForEnterprise("v2")
+	out["format_version"] = "2"
 	out["repo_root"] = PortableRepoRoot
 	portableDiscovery["repo_root"] = PortableRepoRoot
 	portableDiscovery["start_path"] = PortableRepoRoot
 	out["discovery"] = portableDiscovery
+	digest, err := ComputeLockDigest(out)
+	if err != nil {
+		return nil, fmt.Errorf("compute portable v2 lockfile digest: %w", err)
+	}
+	out["lock_digest"] = digest
 	return out, nil
 }
 
-func legacyLockfileSchemaForEnterprise() string {
+func migrateLockfileV2ToV3(payload map[string]interface{}) (map[string]interface{}, error) {
+	schemaURL, _ := payload["$schema"].(string)
+	if schemaURL != schema.LegacyPolicyLockV2URL &&
+		schemaURL != schema.LegacyPolicyLockV2URLUnpinned &&
+		schemaURL != legacyLockfileSchemaForEnterprise("v2") {
+		return nil, fmt.Errorf("legacy lockfile schema %q is not recognized", schemaURL)
+	}
+	storedDigest, _ := payload["lock_digest"].(string)
+	computedDigest, err := ComputeLockDigest(payload)
+	if err != nil {
+		return nil, fmt.Errorf("compute legacy lockfile digest: %w", err)
+	}
+	if storedDigest == "" || storedDigest != computedDigest {
+		return nil, fmt.Errorf("legacy lockfile payload digest does not match its contents")
+	}
+	rawSources, ok := payload["sources"].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("legacy lockfile sources must contain a list")
+	}
+	sources := make([]interface{}, 0, len(rawSources))
+	for index, item := range rawSources {
+		source, ok := item.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("legacy lockfile sources[%d] must contain an object", index)
+		}
+		content, ok := source["content"].(string)
+		if !ok {
+			return nil, fmt.Errorf("legacy lockfile sources[%d].content must contain a string", index)
+		}
+		kind, _ := source["kind"].(string)
+		sourcePath, _ := source["path"].(string)
+		if kind == string(policy.SourceGlobal) {
+			sourcePath = ingest.GlobalPolicySourcePath
+		}
+		if !portableSourcePath(sourcePath) {
+			return nil, fmt.Errorf("legacy lockfile sources[%d].path is not portable", index)
+		}
+		digest := sha256.Sum256([]byte(content))
+		next := map[string]interface{}{
+			"kind":           kind,
+			"path":           sourcePath,
+			"content_sha256": hex.EncodeToString(digest[:]),
+		}
+		for _, field := range []string{"block_id", "line_start"} {
+			if value, present := source[field]; present {
+				next[field] = value
+			}
+		}
+		sources = append(sources, next)
+	}
+	sourceDigest, err := computeSerializedSourceDigest(sources)
+	if err != nil {
+		return nil, fmt.Errorf("compute migrated source digest: %w", err)
+	}
+	out := cloneLockfileMap(payload)
+	out["$schema"] = LockfileSchema()
+	out["sources"] = sources
+	out["source_digest"] = sourceDigest
+	return out, nil
+}
+
+func legacyLockfileSchemaForEnterprise(version string) string {
 	base := strings.TrimRight(os.Getenv("RECONC_SCHEMA_BASE_URL"), "/")
 	if base == "" {
-		return LegacyLockfileSchemaV1
+		if version == "v1" {
+			return LegacyLockfileSchemaV1
+		}
+		return schema.LegacyPolicyLockV2URL
 	}
-	return base + "/schemas/policy-lock/v1"
+	return base + "/schemas/policy-lock/" + version
 }
 
 func cloneLockfileMap(input map[string]interface{}) map[string]interface{} {

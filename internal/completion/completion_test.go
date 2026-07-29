@@ -18,7 +18,7 @@ func TestGenerateBashContainsSubcommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	for _, want := range []string{"_reconc()", "complete -F _reconc reconc", "compile", "exec", "bootstrap", "audit", "hook"} {
+	for _, want := range []string{"_reconc()", "complete -F _reconc reconc", "refresh", "exec", "bootstrap", "audit", "hook"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("bash completion missing %q", want)
 		}
@@ -162,9 +162,9 @@ func TestGenerateBashFlagsPerSubcommand(t *testing.T) {
 	var buf bytes.Buffer
 	_ = GenerateBash(&buf)
 	out := buf.String()
-	// compile has --strict-conflicts; make sure it shows up.
+	// refresh has --strict-conflicts; make sure it shows up.
 	if !strings.Contains(out, "--strict-conflicts") {
-		t.Errorf("bash completion missing compile flag --strict-conflicts")
+		t.Errorf("bash completion missing refresh flag --strict-conflicts")
 	}
 	// check has --auto-claim.
 	if !strings.Contains(out, "--auto-claim") {
@@ -202,7 +202,7 @@ func TestGenerateFishContainsCompletions(t *testing.T) {
 		t.Error("fish completion missing core directive")
 	}
 	// Should include every subcommand.
-	for _, command := range commandmeta.All() {
+	for _, command := range commandmeta.Public() {
 		if !strings.Contains(out, `-a "`+command.Name+`"`) {
 			t.Errorf("fish completion missing subcommand %q", command.Name)
 		}
@@ -210,7 +210,7 @@ func TestGenerateFishContainsCompletions(t *testing.T) {
 }
 
 func TestAllSubcommandsHaveHelp(t *testing.T) {
-	for _, command := range commandmeta.All() {
+	for _, command := range commandmeta.Public() {
 		if command.Summary == "" {
 			t.Errorf("subcommand %q has empty summary", command.Name)
 		}
@@ -218,7 +218,7 @@ func TestAllSubcommandsHaveHelp(t *testing.T) {
 }
 
 func TestSubcommandNamesSortedForBash(t *testing.T) {
-	names := commandmeta.SortedNames()
+	names := commandmeta.PublicSortedNames()
 	for i := 1; i < len(names); i++ {
 		if names[i-1] > names[i] {
 			t.Errorf("subcommand names must be sorted for bash completion; got %v", names)
@@ -250,7 +250,7 @@ func TestGeneratedCompletionsAreDeterministicAndCoverExactMetadataSurfaces(t *te
 		outputs[generator.name] = first.String()
 	}
 
-	for _, command := range commandmeta.All() {
+	for _, command := range commandmeta.Public() {
 		assertBashFlags(t, outputs["bash"], command.Name, "", command.Flags)
 		assertZshFlags(t, outputs["zsh"], command.Name, "", command.Flags)
 		assertFishFlags(t, outputs["fish"], fishTestDirectCondition(command), command.Flags)
@@ -267,6 +267,41 @@ func TestGeneratedCompletionsAreDeterministicAndCoverExactMetadataSurfaces(t *te
 				assertLeafCompletion(t, outputs, command, nested, leaf)
 			}
 		}
+	}
+}
+
+func TestGeneratedCompletionsOmitInternalSurfaces(t *testing.T) {
+	generators := []struct {
+		name     string
+		generate func(io.Writer) error
+	}{
+		{name: "bash", generate: GenerateBash},
+		{name: "zsh", generate: GenerateZsh},
+		{name: "fish", generate: GenerateFish},
+	}
+	for _, generator := range generators {
+		t.Run(generator.name, func(t *testing.T) {
+			var output bytes.Buffer
+			if err := generator.generate(&output); err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range []string{"runtime", "grok-pre-tool-guard"} {
+				switch generator.name {
+				case "bash":
+					if containsString(bashCandidateValues(findGeneratedLine(output.String(), "hook) values=")), name) {
+						t.Errorf("bash completion exposed internal hook route %q", name)
+					}
+				case "zsh":
+					if strings.Contains(findGeneratedLine(output.String(), "hook) values=("), `"`+name+`:`) {
+						t.Errorf("zsh completion exposed internal hook route %q", name)
+					}
+				case "fish":
+					if strings.Contains(output.String(), "-a "+strconv.Quote(name)+" ") {
+						t.Errorf("fish completion exposed internal hook route %q", name)
+					}
+				}
+			}
+		})
 	}
 }
 
@@ -306,14 +341,7 @@ func assertLeafCompletion(
 func assertNestedCandidate(t *testing.T, outputs map[string]string, command commandmeta.Command, nested commandmeta.Subcommand) {
 	t.Helper()
 	bashLine := findGeneratedLine(outputs["bash"], command.Name+") values=")
-	bashValues := ""
-	if start := strings.Index(bashLine, `values="`); start >= 0 {
-		remaining := bashLine[start+len(`values="`):]
-		if end := strings.Index(remaining, `"`); end >= 0 {
-			bashValues = remaining[:end]
-		}
-	}
-	if !containsString(strings.Fields(bashValues), nested.Name) {
+	if !containsString(bashCandidateValues(bashLine), nested.Name) {
 		t.Errorf("bash completion omits %s %s", command.Name, nested.Name)
 	}
 	zshLine := findGeneratedLine(outputs["zsh"], command.Name+") values=(")
@@ -325,6 +353,19 @@ func assertNestedCandidate(t *testing.T, outputs map[string]string, command comm
 	if !strings.Contains(outputs["fish"], wantFish) {
 		t.Errorf("fish completion omits %s %s", command.Name, nested.Name)
 	}
+}
+
+func bashCandidateValues(line string) []string {
+	start := strings.Index(line, `values="`)
+	if start < 0 {
+		return nil
+	}
+	remaining := line[start+len(`values="`):]
+	end := strings.Index(remaining, `"`)
+	if end < 0 {
+		return nil
+	}
+	return strings.Fields(remaining[:end])
 }
 
 func containsString(values []string, want string) bool {

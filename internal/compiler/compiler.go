@@ -31,9 +31,9 @@ import (
 )
 
 // LockfileFormatVersion is bumped whenever the lockfile contract changes in a
-// non-additive way. Version 2 replaces physical checkout identity with a
-// portable repository-root marker.
-const LockfileFormatVersion = "2"
+// non-additive way. Version 3 replaces embedded raw source bodies with
+// portable SHA-256 provenance.
+const LockfileFormatVersion = "3"
 
 // PortableRepoRoot is the only repository identity serialized into current
 // lockfiles. Runtime binds it to the discovered checkout and verifies semantic
@@ -78,6 +78,16 @@ type CompiledPolicy struct {
 	// Empty slice when the ruleset is clean. Never nil.
 	Conflicts []Conflict             `json:"conflicts"`
 	Discovery ingest.DiscoveryResult `json:"discovery"`
+}
+
+// CompiledSource is the privacy-preserving source provenance serialized into
+// a policy lock. Raw policy and instruction bodies never cross this boundary.
+type CompiledSource struct {
+	Kind          policy.SourceKind `json:"kind"`
+	Path          string            `json:"path"`
+	ContentSHA256 string            `json:"content_sha256"`
+	BlockID       string            `json:"block_id,omitempty"`
+	LineStart     int               `json:"line_start,omitempty"`
 }
 
 // CompileRepoPolicy is the public entrypoint. It runs the full
@@ -229,9 +239,17 @@ func ComputeSourceDigest(bundle *ingest.SourceBundle) (string, error) {
 // computeSourceDigest is the internal implementation; ComputeSourceDigest
 // is the exported wrapper.
 func computeSourceDigest(bundle *ingest.SourceBundle) (string, error) {
+	sources := make([]interface{}, 0, len(bundle.Sources))
+	for _, source := range bundle.Sources {
+		sources = append(sources, sourceToMap(source))
+	}
+	return computeSerializedSourceDigest(sources)
+}
+
+func computeSerializedSourceDigest(sources []interface{}) (string, error) {
 	canonical := map[string]interface{}{
 		"source_precedence": stringifyKinds(policy.SourcePrecedence()),
-		"sources":           bundle.Sources,
+		"sources":           sources,
 	}
 	data, err := marshalCanonical(canonical)
 	if err != nil {
@@ -647,13 +665,13 @@ func checkToMap(c policy.Check) map[string]interface{} {
 	return m
 }
 
-// sourceToMap mirrors ruleToMap for PolicySource: include only fields
-// that are populated to keep the lockfile compact.
+// sourceToMap converts private source input into public provenance.
 func sourceToMap(s policy.PolicySource) map[string]interface{} {
+	contentDigest := sha256.Sum256([]byte(s.Content))
 	m := map[string]interface{}{
-		"kind":    string(s.Kind),
-		"path":    s.Path,
-		"content": s.Content,
+		"kind":           string(s.Kind),
+		"path":           s.Path,
+		"content_sha256": hex.EncodeToString(contentDigest[:]),
 	}
 	if s.BlockID != "" {
 		m["block_id"] = s.BlockID
@@ -698,37 +716,94 @@ func discoveryToMap(d ingest.DiscoveryResult) map[string]interface{} {
 func ValidateLockfileEnvelope(payload map[string]interface{}) error {
 	formatVersion, _ := payload["format_version"].(string)
 	if formatVersion != LockfileFormatVersion {
-		return &rerrors.LockfileError{Message: "compiled lockfile format_version does not match this checker; re-run `reconc compile`"}
+		return &rerrors.LockfileError{Message: "compiled lockfile format_version does not match this checker; re-run `reconc refresh`"}
 	}
 	schemaURL, _ := payload["$schema"].(string)
 	if schemaURL != DefaultLockfileSchema && schemaURL != LockfileSchema() {
-		return &rerrors.LockfileError{Message: "compiled lockfile schema does not match this checker; re-run `reconc compile`"}
+		return &rerrors.LockfileError{Message: "compiled lockfile schema does not match this checker; re-run `reconc refresh`"}
 	}
 	if root, _ := payload["repo_root"].(string); root != PortableRepoRoot {
-		return &rerrors.LockfileError{Message: "compiled lockfile repo_root must use the portable '.' marker; re-run `reconc compile`"}
+		return &rerrors.LockfileError{Message: "compiled lockfile repo_root must use the portable '.' marker; re-run `reconc refresh`"}
 	}
 	discovery, ok := payload["discovery"].(map[string]interface{})
 	if !ok {
-		return &rerrors.LockfileError{Message: "compiled lockfile discovery must contain an object; re-run `reconc compile`"}
+		return &rerrors.LockfileError{Message: "compiled lockfile discovery must contain an object; re-run `reconc refresh`"}
 	}
 	for _, field := range []string{"repo_root", "start_path"} {
 		if value, _ := discovery[field].(string); value != PortableRepoRoot {
-			return &rerrors.LockfileError{Message: "compiled lockfile discovery." + field + " must use the portable '.' marker; re-run `reconc compile`"}
+			return &rerrors.LockfileError{Message: "compiled lockfile discovery." + field + " must use the portable '.' marker; re-run `reconc refresh`"}
 		}
+	}
+	if err := validateCompiledSources(payload); err != nil {
+		return err
 	}
 	storedDigest, _ := payload["lock_digest"].(string)
 	decodedDigest, err := hex.DecodeString(storedDigest)
 	if err != nil || len(decodedDigest) != sha256.Size {
-		return &rerrors.LockfileError{Message: "compiled lockfile lock_digest is missing or invalid; re-run `reconc compile`"}
+		return &rerrors.LockfileError{Message: "compiled lockfile lock_digest is missing or invalid; re-run `reconc refresh`"}
 	}
 	computedDigest, err := ComputeLockDigest(payload)
 	if err != nil {
 		return &rerrors.LockfileError{Message: "compute compiled lockfile digest", Cause: err}
 	}
 	if storedDigest != computedDigest {
-		return &rerrors.LockfileError{Message: "compiled lockfile payload digest does not match its contents; re-run `reconc compile`"}
+		return &rerrors.LockfileError{Message: "compiled lockfile payload digest does not match its contents; re-run `reconc refresh`"}
 	}
 	return nil
+}
+
+func validateCompiledSources(payload map[string]interface{}) error {
+	raw, ok := payload["sources"].([]interface{})
+	if !ok {
+		return &rerrors.LockfileError{Message: "compiled lockfile sources must contain a list; re-run `reconc refresh`"}
+	}
+	for index, item := range raw {
+		source, ok := item.(map[string]interface{})
+		if !ok {
+			return &rerrors.LockfileError{Message: fmt.Sprintf("compiled lockfile sources[%d] must contain an object; re-run `reconc refresh`", index)}
+		}
+		kind, _ := source["kind"].(string)
+		if !sourceKindValid(policy.SourceKind(kind)) {
+			return &rerrors.LockfileError{Message: fmt.Sprintf("compiled lockfile sources[%d].kind is invalid; re-run `reconc refresh`", index)}
+		}
+		sourcePath, _ := source["path"].(string)
+		if !portableSourcePath(sourcePath) {
+			return &rerrors.LockfileError{Message: fmt.Sprintf("compiled lockfile sources[%d].path must be portable; re-run `reconc refresh`", index)}
+		}
+		digest, _ := source["content_sha256"].(string)
+		decoded, err := hex.DecodeString(digest)
+		if err != nil || len(decoded) != sha256.Size {
+			return &rerrors.LockfileError{Message: fmt.Sprintf("compiled lockfile sources[%d].content_sha256 is invalid; re-run `reconc refresh`", index)}
+		}
+		if _, leaked := source["content"]; leaked {
+			return &rerrors.LockfileError{Message: fmt.Sprintf("compiled lockfile sources[%d] contains a raw source body; re-run `reconc refresh`", index)}
+		}
+	}
+	return nil
+}
+
+var windowsAbsolutePathPattern = regexp.MustCompile(`^[A-Za-z]:[\\/]`)
+
+func portableSourcePath(value string) bool {
+	cleaned := strings.TrimSpace(value)
+	if cleaned == "" || filepath.IsAbs(cleaned) || strings.HasPrefix(cleaned, `\`) || windowsAbsolutePathPattern.MatchString(cleaned) {
+		return false
+	}
+	for _, component := range strings.FieldsFunc(cleaned, func(r rune) bool { return r == '/' || r == '\\' }) {
+		if component == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+func sourceKindValid(kind policy.SourceKind) bool {
+	for _, candidate := range policy.SourcePrecedence() {
+		if kind == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 // writeLockfile materializes payload at $repoRoot/.reconc/policy.lock.json

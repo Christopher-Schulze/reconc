@@ -36,6 +36,7 @@ func runAdopt(args []string, stdout, stderr io.Writer) error {
 	}
 
 	repo := "."
+	repoSet := false
 	yamlOut := false
 	jsonOut := false
 	applyOut := false
@@ -51,7 +52,11 @@ func runAdopt(args []string, stdout, stderr io.Writer) error {
 			if len(a) > 0 && a[0] == '-' {
 				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc adopt: unknown flag %q", a)}
 			}
+			if repoSet {
+				return &CLIError{ExitCode: 1, Message: "reconc adopt: expected at most one repo path"}
+			}
 			repo = a
+			repoSet = true
 		}
 	}
 	// Mutually exclusive output modes except that --apply can combine

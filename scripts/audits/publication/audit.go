@@ -167,6 +167,33 @@ func trackedPaths(ctx context.Context, root string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	indexedPaths, err := decodeTrackedPaths(body)
+	if err != nil {
+		return nil, err
+	}
+	deletedBody, err := gitOutput(ctx, root, "ls-files", "-z", "--deleted")
+	if err != nil {
+		return nil, err
+	}
+	deletedPaths, err := decodeTrackedPaths(deletedBody)
+	if err != nil {
+		return nil, err
+	}
+	deleted := make(map[string]struct{}, len(deletedPaths))
+	for _, path := range deletedPaths {
+		deleted[path] = struct{}{}
+	}
+	paths := make([]string, 0, len(indexedPaths))
+	for _, path := range indexedPaths {
+		if _, missing := deleted[path]; !missing {
+			paths = append(paths, path)
+		}
+	}
+	sort.Strings(paths)
+	return paths, nil
+}
+
+func decodeTrackedPaths(body []byte) ([]string, error) {
 	paths := make([]string, 0)
 	for _, raw := range bytes.Split(body, []byte{0}) {
 		if len(raw) == 0 {
@@ -177,7 +204,6 @@ func trackedPaths(ctx context.Context, root string) ([]string, error) {
 		}
 		paths = append(paths, string(raw))
 	}
-	sort.Strings(paths)
 	return paths, nil
 }
 

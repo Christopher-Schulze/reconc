@@ -8,7 +8,7 @@ import (
 
 func TestCommandDocumentationCoversCanonicalInventory(t *testing.T) {
 	commandsDoc := readRepositoryDoc(t, "commands.md")
-	for _, command := range All() {
+	for _, command := range Public() {
 		assertDocumentedCommand(t, commandsDoc, "reconc "+command.Name)
 		for _, nested := range command.Subcommands {
 			if !documentsSurface(commandsDoc, "reconc "+command.Name+" "+nested.Name) &&

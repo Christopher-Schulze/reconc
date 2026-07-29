@@ -9,8 +9,8 @@ import (
 	"reconc.dev/reconc/internal/shellcommand"
 )
 
-// lockfileRepairSubcommands are the subcommands whose whole purpose is to
-// rebuild the compiled lockfile from the current policy sources.
+// lockfileRepairSubcommands admit the canonical refresh command and the hidden
+// compile compatibility command. User-facing remediation names only refresh.
 var lockfileRepairSubcommands = map[string]bool{
 	"refresh": true,
 	"compile": true,
@@ -18,7 +18,7 @@ var lockfileRepairSubcommands = map[string]bool{
 
 // The remediation the gate prints must be a command the gate admits. This is
 // the exact invocation form named in that message.
-const lockfileRepairHint = "run `reconc refresh .` (or `reconc compile .`) as the only executable command, without piping it to another command or chaining unrelated work; this gate admits that repair even while the lockfile is stale, or revert the policy source to its committed state"
+const lockfileRepairHint = "run `reconc refresh .` as the only executable command, without piping it to another command or chaining unrelated work; this gate admits that repair even while the lockfile is stale, or revert the policy source to its committed state"
 
 // isLockfileError reports whether the failure is the lockfile contract itself
 // rather than a policy violation, so callers can distinguish "policy says no"

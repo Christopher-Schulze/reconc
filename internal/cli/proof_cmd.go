@@ -11,6 +11,7 @@ import (
 
 func runProof(args []string, version string, stdout io.Writer) error {
 	repo := "."
+	repoSet := false
 	format := "json"
 	outputPath := ""
 	for index := 0; index < len(args); index++ {
@@ -40,7 +41,11 @@ func runProof(args []string, version string, stdout io.Writer) error {
 			if len(argument) > 0 && argument[0] == '-' {
 				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc proof: unknown flag %q", argument)}
 			}
+			if repoSet {
+				return &CLIError{ExitCode: 1, Message: "reconc proof: expected at most one repo path"}
+			}
 			repo = argument
+			repoSet = true
 		}
 	}
 

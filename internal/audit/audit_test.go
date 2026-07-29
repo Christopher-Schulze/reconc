@@ -152,7 +152,7 @@ func TestTailFiltersBySince(t *testing.T) {
 	}
 }
 
-func TestTailSkipsMalformedLines(t *testing.T) {
+func TestTailRejectsMalformedLines(t *testing.T) {
 	repo := t.TempDir()
 	path := filepath.Join(repo, AuditFileRelative)
 	_ = os.MkdirAll(filepath.Dir(path), 0o755)
@@ -164,11 +164,8 @@ func TestTailSkipsMalformedLines(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries, err := Tail(repo, TailOptions{})
-	if err != nil {
-		t.Fatalf("Tail: %v", err)
-	}
-	if len(entries) != 2 {
-		t.Errorf("expected malformed line skipped; got %d entries: %v", len(entries), entries)
+	if err == nil {
+		t.Fatalf("malformed audit line must fail closed, got %d entries: %v", len(entries), entries)
 	}
 }
 
@@ -205,8 +202,8 @@ func TestStatsAggregates(t *testing.T) {
 func TestRotationCreatesArchive(t *testing.T) {
 	repo := t.TempDir()
 	// One record fits, two do not, so the second append rotates first.
-	_ = Append(repo, Entry{Event: "check"}, 160)
-	_ = Append(repo, Entry{Event: "check"}, 160)
+	_ = Append(repo, Entry{Event: "check"}, 400)
+	_ = Append(repo, Entry{Event: "check"}, 400)
 
 	// Rotation moves the live file to .jsonl.N; the live file may or
 	// may not exist at this instant (only re-created by the NEXT
@@ -246,7 +243,7 @@ func TestRotationKeepsFixedArchiveRing(t *testing.T) {
 	repo := t.TempDir()
 	basePath := filepath.Join(repo, AuditFileRelative)
 	for i := 0; i < 8; i++ {
-		if err := Append(repo, Entry{Event: fmt.Sprintf("check-%d", i)}, 160); err != nil {
+		if err := Append(repo, Entry{Event: fmt.Sprintf("check-%d", i)}, 400); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -258,9 +255,163 @@ func TestRotationKeepsFixedArchiveRing(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected ring member %s: %v", path, err)
 		}
-		if info.Size() > 160 {
+		if info.Size() > 400 {
 			t.Fatalf("ring member %s exceeds cap: %d", path, info.Size())
 		}
+	}
+	if report, err := Verify(repo); err != nil || !report.Valid {
+		t.Fatalf("rotated chain must verify: %+v err=%v", report, err)
+	}
+}
+
+func TestEnforceRetentionVerifiesWithoutRewritingChainedEvidence(t *testing.T) {
+	repo := t.TempDir()
+	for index := 0; index < 3; index++ {
+		if err := Append(repo, Entry{Event: fmt.Sprintf("event-%d", index), Decision: "pass"}, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(repo, AuditFileRelative)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := EnforceRetention(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.BytesFreed != 0 || result.FilesRemoved != 0 {
+		t.Fatalf("writer-owned audit retention unexpectedly rewrote evidence: %+v", result)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("retention changed chained audit evidence: err=%v", err)
+	}
+}
+
+func TestVerifyRejectsModifiedReorderedMissingAndTruncatedRecords(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func([]string) []string
+	}{
+		{
+			name: "modified",
+			mutate: func(lines []string) []string {
+				lines[0] = strings.Replace(lines[0], `"event":"event-0"`, `"event":"changed"`, 1)
+				return lines
+			},
+		},
+		{
+			name: "reordered",
+			mutate: func(lines []string) []string {
+				lines[0], lines[1] = lines[1], lines[0]
+				return lines
+			},
+		},
+		{
+			name: "missing",
+			mutate: func(lines []string) []string {
+				return append(lines[:1], lines[2:]...)
+			},
+		},
+		{
+			name: "unknown field",
+			mutate: func(lines []string) []string {
+				lines[0] = strings.TrimSuffix(lines[0], "}") + `,"unexpected":true}`
+				return lines
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repo := t.TempDir()
+			for index := 0; index < 3; index++ {
+				if err := Append(repo, Entry{Event: fmt.Sprintf("event-%d", index), Decision: "pass"}, 0); err != nil {
+					t.Fatal(err)
+				}
+			}
+			path := filepath.Join(repo, AuditFileRelative)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+			lines = test.mutate(lines)
+			if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Verify(repo); err == nil {
+				t.Fatal("tampered audit chain must fail verification")
+			}
+		})
+	}
+
+	t.Run("truncated", func(t *testing.T) {
+		repo := t.TempDir()
+		if err := Append(repo, Entry{Event: "event", Decision: "pass"}, 0); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(repo, AuditFileRelative)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, bytes.TrimSuffix(data, []byte{'\n'}), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Verify(repo); err == nil || !strings.Contains(err.Error(), "truncated") {
+			t.Fatalf("truncated audit record must fail verification, got %v", err)
+		}
+	})
+}
+
+func TestVerifyRejectsMissingDetachedHead(t *testing.T) {
+	repo := t.TempDir()
+	if err := Append(repo, Entry{Event: "check", Decision: "pass"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(repo, AuditHeadRelative)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Verify(repo); err == nil || !strings.Contains(err.Error(), "no detached head") {
+		t.Fatalf("missing detached head must fail verification, got %v", err)
+	}
+}
+
+func TestVerifyRejectsUnknownDetachedHeadField(t *testing.T) {
+	repo := t.TempDir()
+	if err := Append(repo, Entry{Event: "check", Decision: "pass"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(repo, AuditHeadRelative)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := strings.TrimSpace(string(data))
+	body = strings.TrimSuffix(body, "}") + `,"unexpected":true}` + "\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Verify(repo); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("unknown detached-head field must fail verification, got %v", err)
+	}
+}
+
+func TestTailSinceUsesParsedChronologyAcrossOffsets(t *testing.T) {
+	repo := t.TempDir()
+	if err := Append(repo, Entry{Timestamp: "2026-04-14T01:30:00+02:00", Event: "older"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := Append(repo, Entry{Timestamp: "2026-04-14T00:00:00Z", Event: "newer"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := Tail(repo, TailOptions{Since: "2026-04-13T23:45:00Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Event != "newer" {
+		t.Fatalf("timezone-aware since filter mismatch: %+v", entries)
 	}
 }
 

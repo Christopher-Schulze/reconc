@@ -429,11 +429,12 @@ func SourcePrecedence() []SourceKind {
 }
 
 // PolicySource is one canonical policy input with preserved provenance.
-// Content is the raw YAML or markdown text; the parser layer decodes it.
+// Content is private in-memory YAML or markdown text consumed by the parser.
+// It must never be serialized into a committable artifact.
 type PolicySource struct {
 	Kind      SourceKind `json:"kind"`
 	Path      string     `json:"path"`
-	Content   string     `json:"content"`
+	Content   string     `json:"-"`
 	BlockID   string     `json:"block_id,omitempty"`
 	LineStart int        `json:"line_start,omitempty"`
 }

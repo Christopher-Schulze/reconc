@@ -25,6 +25,7 @@ func runRefresh(args []string, version string, stdout, stderr io.Writer) error {
 
 func runCompileCommand(command string, args []string, version string, stdout, stderr io.Writer) (resultErr error) {
 	repo := "."
+	repoSet := false
 	jsonOut := false
 	strictConflicts := false
 	outputPath := ""
@@ -52,7 +53,11 @@ func runCompileCommand(command string, args []string, version string, stdout, st
 			if len(a) > 0 && a[0] == '-' {
 				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc %s: unknown flag %q", command, a)}
 			}
+			if repoSet {
+				return &CLIError{ExitCode: 1, Message: "reconc " + command + ": expected at most one repo path"}
+			}
 			repo = a
+			repoSet = true
 		}
 		i++
 	}

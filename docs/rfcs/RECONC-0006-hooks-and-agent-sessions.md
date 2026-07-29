@@ -203,8 +203,9 @@ marks eligible live Stops strict across `stopHookActive` re-entry. It treats
 that output as synchronously enforced only when the hook guide shipped with the
 installed Grok distribution explicitly advertises blocking Stop decision
 control; version strings are not accepted as capability proof. Interrupts and
-session-end reasons release. The generated Stop budget is 600 seconds. `reconc
-grok` remains the explicit strict ACP path.
+session-end reasons release. The generated Stop budget is 600 seconds.
+Distributions without that native contract may use the optional local leader
+fallback.
 
 For Grok distributions with a passive Stop contract, optional leader mode
 additionally steers the TUI over the Unix socket or Windows named pipe.

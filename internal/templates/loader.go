@@ -28,6 +28,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+	"reconc.dev/reconc/internal/presets"
+	"reconc.dev/reconc/internal/safename"
 )
 
 //go:embed builtin/*.yml
@@ -65,36 +67,39 @@ type Template struct {
 // Returns ErrNotFound when neither location has the template. Errors
 // are descriptive enough to surface directly to the user.
 func Resolve(name string) (*Template, error) {
-	if name == "" {
-		return nil, fmt.Errorf("template name is empty")
+	cleaned, err := safename.Normalize("template", name)
+	if err != nil {
+		return nil, err
 	}
 	// User override wins.
 	if home := userTemplatesDir(); home != "" {
-		path := filepath.Join(home, name+".yml")
-		if data, err := os.ReadFile(path); err == nil {
+		path := filepath.Join(home, cleaned+".yml")
+		if data, err := readRegularFile(path); err == nil {
 			body, description, perr := parseTemplateBytes(data, path)
 			if perr != nil {
 				return nil, perr
 			}
 			return &Template{
-				Name: name, Description: description, Source: SourceUser,
+				Name: cleaned, Description: description, Source: SourceUser,
 				Path: path, Body: body,
 			}, nil
+		} else if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("read user template %s: %w", cleaned, err)
 		}
 	}
 
 	// Built-in fallback.
-	path := "builtin/" + name + ".yml"
+	path := "builtin/" + cleaned + ".yml"
 	data, err := builtinFS.ReadFile(path)
 	if err != nil {
-		return nil, &ErrNotFound{Name: name}
+		return nil, &ErrNotFound{Name: cleaned}
 	}
 	body, description, perr := parseTemplateBytes(data, path)
 	if perr != nil {
 		return nil, perr
 	}
 	return &Template{
-		Name: name, Description: description, Source: SourceBuiltin,
+		Name: cleaned, Description: description, Source: SourceBuiltin,
 		Path: path, Body: body,
 	}, nil
 }
@@ -114,9 +119,18 @@ func List() ([]Template, error) {
 			continue
 		}
 		name := strings.TrimSuffix(e.Name(), ".yml")
+		if _, err := safename.Normalize("template", name); err != nil {
+			return nil, fmt.Errorf("invalid builtin template filename %q: %w", e.Name(), err)
+		}
 		path := "builtin/" + e.Name()
-		data, _ := builtinFS.ReadFile(path)
-		body, description, _ := parseTemplateBytes(data, path)
+		data, err := builtinFS.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read builtin template %s: %w", name, err)
+		}
+		body, description, err := parseTemplateBytes(data, path)
+		if err != nil {
+			return nil, err
+		}
 		out[name] = Template{
 			Name: name, Description: description, Source: SourceBuiltin,
 			Path: path, Body: body,
@@ -125,22 +139,30 @@ func List() ([]Template, error) {
 
 	// User overrides.
 	if home := userTemplatesDir(); home != "" {
-		if entries, err := os.ReadDir(home); err == nil {
-			for _, e := range entries {
-				if e.IsDir() || !strings.HasSuffix(e.Name(), ".yml") {
-					continue
-				}
-				name := strings.TrimSuffix(e.Name(), ".yml")
-				path := filepath.Join(home, e.Name())
-				data, err := os.ReadFile(path)
-				if err != nil {
-					continue
-				}
-				body, description, _ := parseTemplateBytes(data, path)
-				out[name] = Template{
-					Name: name, Description: description, Source: SourceUser,
-					Path: path, Body: body,
-				}
+		entries, err := os.ReadDir(home)
+		if err != nil && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("list user templates: %w", err)
+		}
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".yml") {
+				continue
+			}
+			name := strings.TrimSuffix(e.Name(), ".yml")
+			if _, err := safename.Normalize("template", name); err != nil {
+				return nil, err
+			}
+			path := filepath.Join(home, e.Name())
+			data, err := readRegularFile(path)
+			if err != nil {
+				return nil, fmt.Errorf("read user template %s: %w", name, err)
+			}
+			body, description, err := parseTemplateBytes(data, path)
+			if err != nil {
+				return nil, err
+			}
+			out[name] = Template{
+				Name: name, Description: description, Source: SourceUser,
+				Path: path, Body: body,
 			}
 		}
 	}
@@ -192,11 +214,18 @@ func (e *ErrNotFound) Error() string {
 // -------- helpers ----------------------------------------------------
 
 func userTemplatesDir() string {
-	home := os.Getenv("RECONC_HOME")
-	if home == "" {
-		return ""
+	return filepath.Join(presets.Home(), "templates")
+}
+
+func readRegularFile(path string) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
 	}
-	return filepath.Join(home, "templates")
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s must be a regular file and not a symlink", path)
+	}
+	return os.ReadFile(path)
 }
 
 func parseTemplateBytes(data []byte, contextPath string) (map[string]interface{}, string, error) {

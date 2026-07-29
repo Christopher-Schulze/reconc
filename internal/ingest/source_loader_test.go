@@ -338,7 +338,7 @@ func TestInlineBlockClosingFenceMustBeAloneOnItsLine(t *testing.T) {
 	}
 }
 
-func TestFragmentOutsideRootProducesWarning(t *testing.T) {
+func TestFragmentOutsideRootFailsClosed(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink test not applicable on windows CI runners")
 	}
@@ -356,27 +356,8 @@ func TestFragmentOutsideRootProducesWarning(t *testing.T) {
 	if err := os.Symlink(filepath.Join(outside, "extra.yml"), filepath.Join(repo, "policies", "extra.yml")); err != nil {
 		t.Fatal(err)
 	}
-	bundle, err := LoadPolicySources(repo)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	found := false
-	for _, w := range bundle.Discovery.Warnings {
-		if strings.Contains(w, "policies/extra.yml") && strings.Contains(w, "outside the repository root") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("expected out-of-root fragment warning, got %v", bundle.Discovery.Warnings)
-	}
-	// The fragment itself is still loaded and digest-tracked.
-	loaded := false
-	for _, s := range bundle.Sources {
-		if s.Path == "policies/extra.yml" {
-			loaded = true
-		}
-	}
-	if !loaded {
-		t.Fatal("out-of-root fragment should still load")
+	_, err := LoadPolicySources(repo)
+	if err == nil || !strings.Contains(err.Error(), "resolves outside the repository root") {
+		t.Fatalf("expected out-of-root fragment to fail closed, got %v", err)
 	}
 }

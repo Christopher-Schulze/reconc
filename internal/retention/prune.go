@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/audit"
 	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/jsonl"
 )
@@ -112,10 +113,9 @@ func runLocked(options Options, forceOwnedTemp bool) Report {
 	report.Classes = append(report.Classes, stateTotal)
 	report.StateBytesAfter = stateTotal.BytesAfter
 
-	auditPath := filepath.Join(options.RepoRoot, ".reconc", "audit.jsonl")
 	runDecisionPath := filepath.Join(options.RepoRoot, ".reconc", "run", "decisions.jsonl")
 	report.Classes = append(report.Classes,
-		enforceJSONL("audit", auditPath, policy.AuditFileBytes, policy.AuditArchives, options.DryRun, &report),
+		inspectChainedAudit("audit", options.RepoRoot, policy.AuditFileBytes, policy.AuditArchives, &report),
 		enforceJSONL("run-decisions", runDecisionPath, policy.RunDecisionFileBytes, policy.RunDecisionArchives, options.DryRun, &report),
 	)
 	cacheDir := filepath.Join(options.RepoRoot, ".reconc", "cache")
@@ -549,6 +549,44 @@ func enforceJSONL(name, path string, maxBytes int64, archives int, dryRun bool, 
 	class.BytesAfter, class.FilesKept, err = jsonlRingSize(path, archives)
 	if err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("inspect enforced %s ring: %v", name, err))
+	}
+	return class
+}
+
+func inspectChainedAudit(name, repoRoot string, maxBytes int64, archives int, report *Report) ClassReport {
+	path := filepath.Join(repoRoot, audit.AuditFileRelative)
+	class := ClassReport{Name: name}
+	var err error
+	class.BytesBefore, class.FilesKept, err = jsonlRingSize(path, audit.MaxArchiveFiles+32)
+	class.BytesAfter = class.BytesBefore
+	if err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("inspect %s ring: %v", name, err))
+		return class
+	}
+	if maxBytes != audit.DefaultMaxSizeBytes || archives != audit.MaxArchiveFiles {
+		report.Errors = append(report.Errors, fmt.Sprintf(
+			"%s retention is writer-owned and requires %d bytes with %d archives; configured %d bytes with %d archives",
+			name, audit.DefaultMaxSizeBytes, audit.MaxArchiveFiles, maxBytes, archives,
+		))
+		return class
+	}
+	pendingCleanup, err := jsonl.Inspect(path, jsonl.Policy{
+		MaxBytes:    audit.DefaultMaxSizeBytes,
+		MaxArchives: audit.MaxArchiveFiles,
+	})
+	if err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("inspect %s bounds: %v", name, err))
+		return class
+	}
+	if pendingCleanup.BytesFreed != 0 || pendingCleanup.FilesRemoved != 0 {
+		report.Errors = append(report.Errors, fmt.Sprintf(
+			"%s ring violates its writer-owned bound; refusing generic compaction of chained evidence",
+			name,
+		))
+		return class
+	}
+	if _, err := audit.EnforceRetention(repoRoot); err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("verify %s chain: %v", name, err))
 	}
 	return class
 }

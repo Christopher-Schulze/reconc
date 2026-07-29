@@ -28,6 +28,12 @@ type CLIError struct {
 	Message  string
 }
 
+var hiddenCompatibilityCommands = map[string]struct{}{
+	"compile":         {},
+	"grok":            {},
+	"post-task-check": {},
+}
+
 func (e *CLIError) Error() string {
 	return e.Message
 }
@@ -72,16 +78,18 @@ func Run(argv []string, version string, stdout, stderr io.Writer) (runErr error)
 		return runCompile(argv[1:], version, stdout, stderr)
 	case "refresh":
 		return runRefresh(argv[1:], version, stdout, stderr)
+	case "sources":
+		return runSources(argv[1:], stdout)
 	case "check":
-		return runCheck(argv[1:], stdout, stderr)
+		return runCheck(argv[1:], version, stdout, stderr)
 	case "assert":
-		return runAssert(argv[1:], stdout, stderr)
+		return runAssert(argv[1:], version, stdout, stderr)
 	case "init":
 		return runInit(argv[1:], version, stdout, stderr)
 	case "status":
 		return runStatus(argv[1:], stdout, stderr)
 	case "ci":
-		return runCI(argv[1:], stdout, stderr)
+		return runCI(argv[1:], version, stdout, stderr)
 	case "exec":
 		return runExec(argv[1:], stdout, stderr)
 	case "hook":
@@ -101,21 +109,17 @@ func Run(argv []string, version string, stdout, stderr io.Writer) (runErr error)
 	case "uninstall":
 		return runUninstall(argv[1:], version, stdout)
 	case "fix":
-		return runFix(argv[1:], stdout, stderr)
+		return runFix(argv[1:], version, stdout, stderr)
 	case "next":
-		return runNext(argv[1:], stdout, stderr)
+		return runNext(argv[1:], version, stdout, stderr)
 	case "explain":
 		return runExplain(argv[1:], stdout, stderr)
-	case "verify":
-		return runVerify(argv[1:], stdout, stderr)
 	case "why":
 		return runWhy(argv[1:], stdout, stderr)
 	case "can":
-		return runCan(argv[1:], stdout, stderr)
+		return runCan(argv[1:], version, stdout, stderr)
 	case "adopt":
 		return runAdopt(argv[1:], stdout, stderr)
-	case "changelog":
-		return runChangelog(argv[1:], stdout, stderr)
 	case "agent-intro":
 		return runAgentIntro(argv[1:], stdout, stderr)
 	case "audit":
@@ -136,22 +140,14 @@ func Run(argv []string, version string, stdout, stderr io.Writer) (runErr error)
 		return runStart(argv[1:], stdout, stderr)
 	case "post-task-check":
 		return runPostTaskCheck(argv[1:], stdout, stderr)
-	case "delta":
-		return runDelta(argv[1:], stdout, stderr)
 	case "done":
 		return runDone(argv[1:], stdout, stderr)
 	case "proof":
 		return runProof(argv[1:], version, stdout)
-	case "spec":
-		return runSpec(argv[1:], stdout, stderr)
-	case "coverage":
-		return runCoverage(argv[1:], stdout, stderr)
 	case "extract":
 		return runExtract(argv[1:], stdout, stderr)
 	case "diff":
 		return runDiff(argv[1:], stdout, stderr)
-	case "watch":
-		return runWatch(argv[1:], stdout, stderr)
 	case "tui":
 		return runTUI(argv[1:], stdout, stderr)
 	case "completion":
@@ -212,7 +208,7 @@ Flags:
   --version, -V    Print version and exit
   --help, -h       Print this help and exit
 `, version)
-	commands := commandmeta.All()
+	commands := commandmeta.Public()
 	for _, category := range commandmeta.Categories() {
 		fmt.Fprintf(w, "\n%s:\n", category.Title)
 		for _, command := range commands {

@@ -168,11 +168,11 @@ func TestBootstrapProfilesExposeExistingRepositoryWiring(t *testing.T) {
 	t.Fatal("existing bootstrap profile missing")
 }
 
-func TestBootstrapLegacyRejectsForce(t *testing.T) {
+func TestBootstrapRequiresAnExplicitSubcommand(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := Run([]string{"bootstrap", t.TempDir(), "--force"}, "test", &stdout, &stderr)
-	if err == nil || !strings.Contains(err.Error(), "--force is unsupported") {
-		t.Fatalf("force error = %v", err)
+	if err == nil || !strings.Contains(err.Error(), "unknown subcommand") {
+		t.Fatalf("bootstrap accepted a legacy repository invocation: %v", err)
 	}
 }
 

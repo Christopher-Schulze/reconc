@@ -86,8 +86,8 @@ inferred `session.idle`, so their host continuation remains best-effort and
 fail-open. Grok's native PreToolUse gate is hard. Reconc emits Stop blocks
 without a leader, but only an installed Grok guide that advertises blocking
 Stop decision control proves synchronous enforcement. Passive distributions
-use `reconc grok . --prompt "..."` or optional leader fallback for strict
-same-session continuation. It survives internal continuation prompts, compaction, session
+use optional leader fallback for strict same-session continuation. It survives
+internal continuation prompts, compaction, session
 boundaries, and model restarts. A runtime interrupt releases only the current
 invocation. Prompt text, interrupts, session lifecycle events, runtime changes,
 and application restarts never mutate durable run state. `run off` is the only

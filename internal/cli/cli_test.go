@@ -55,7 +55,7 @@ func TestRunHelpFlag(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			out := stdout.String()
-			for _, want := range []string{"init", "compile", "check", "verify", "why", "can"} {
+			for _, want := range []string{"init", "refresh", "sources", "check", "doctor", "why", "can"} {
 				if !strings.Contains(out, want) {
 					t.Errorf("help output missing %q; got:\n%s", want, out)
 				}
@@ -651,33 +651,33 @@ func TestRunAssertOnlyEvaluatesRequestedRule(t *testing.T) {
 	}
 }
 
-// --- Phase 5C: verify ------------------------------------------------
+// --- Phase 5C: deep doctor -------------------------------------------
 
-func TestRunVerifyOnCompiledRepo(t *testing.T) {
+func TestRunDoctorDeepOnCompiledRepo(t *testing.T) {
 	repo := makeAssertRepo(t,
 		"rules:\n  - id: r1\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: m\n")
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"verify", repo}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("verify should never return CLIError, got: %v", err)
+	if err := Run([]string{"doctor", repo, "--deep"}, "0.1.0-test", &stdout, &stderr); err != nil {
+		t.Fatalf("doctor --deep: %v", err)
 	}
 	out := stdout.String()
-	for _, want := range []string{"reconc binary on PATH", "bundled presets", "repo discovery", "policy parse", "lockfile fresh"} {
+	for _, want := range []string{"hook runtime compatibility", "lockfile freshness", "audit log size", "rule conflicts"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("verify output missing %q; got:\n%s", want, out)
+			t.Errorf("doctor --deep output missing %q; got:\n%s", want, out)
 		}
 	}
 }
 
-func TestRunVerifyJSON(t *testing.T) {
+func TestRunDoctorDeepJSON(t *testing.T) {
 	repo := makeAssertRepo(t,
 		"rules:\n  - id: r1\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: m\n")
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"verify", repo, "--json"}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("verify --json: %v", err)
+	if err := Run([]string{"doctor", repo, "--deep", "--json"}, "0.1.0-test", &stdout, &stderr); err != nil {
+		t.Fatalf("doctor --deep --json: %v", err)
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
-		t.Fatalf("verify --json should produce valid JSON: %v\n%s", err, stdout.String())
+		t.Fatalf("doctor --deep --json should produce valid JSON: %v\n%s", err, stdout.String())
 	}
 	if _, ok := payload["checks"]; !ok {
 		t.Errorf("expected 'checks' field in JSON payload, got: %v", payload)
@@ -940,161 +940,6 @@ func TestRunAdoptHelp(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Usage: reconc adopt") {
 		t.Errorf("expected usage line, got: %s", stdout.String())
-	}
-}
-
-// --- W45: changelog rotation ----------------------------------------
-
-func writeChangelog(t *testing.T, repo, body string) {
-	t.Helper()
-	docsDir := filepath.Join(repo, "docs")
-	if err := os.MkdirAll(docsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(docsDir, "changelog.md"), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-const cliChangelogSample = `# Changelog
-
-Intro.
-
-## 2026-04-12 Newest
-- a
-- b
-
-## 2026-04-11 Older1
-- c
-
-## 2026-04-10 Older2
-- d
-
-## 2026-04-09 Oldest
-- e
-`
-
-func TestRunChangelogMissingSubcommand(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	err := Run([]string{"changelog"}, "0.1.0-test", &stdout, &stderr)
-	if err == nil {
-		t.Fatal("expected error for missing subcommand")
-	}
-}
-
-func TestRunChangelogRotateUnderThreshold(t *testing.T) {
-	repo := t.TempDir()
-	writeChangelog(t, repo, cliChangelogSample)
-	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"changelog", "rotate", repo}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("rotate: %v", err)
-	}
-	if !strings.Contains(stdout.String(), "No rotation needed") {
-		t.Errorf("expected 'No rotation needed', got: %s", stdout.String())
-	}
-}
-
-func TestRunChangelogRotateForce(t *testing.T) {
-	repo := t.TempDir()
-	writeChangelog(t, repo, cliChangelogSample)
-	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"changelog", "rotate", repo, "--force"}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("rotate --force: %v", err)
-	}
-	if !strings.Contains(stdout.String(), "Rotated") {
-		t.Errorf("expected 'Rotated' in output, got: %s", stdout.String())
-	}
-	// Archive file must exist.
-	matches, _ := filepath.Glob(filepath.Join(repo, "docs", "changelog", "archive", "*.md"))
-	if len(matches) == 0 {
-		t.Errorf("expected at least one archive file under docs/changelog/archive/")
-	}
-}
-
-func TestRunChangelogRotateJSONOutput(t *testing.T) {
-	repo := t.TempDir()
-	writeChangelog(t, repo, cliChangelogSample)
-	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"changelog", "rotate", repo, "--force", "--json"}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("rotate --json: %v", err)
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
-		t.Fatalf("rotate --json should produce valid JSON: %v\n%s", err, stdout.String())
-	}
-	if payload["rotated"] != true {
-		t.Errorf("expected rotated=true, got: %v", payload)
-	}
-}
-
-func TestRunChangelogRotateLinesFlag(t *testing.T) {
-	repo := t.TempDir()
-	writeChangelog(t, repo, cliChangelogSample)
-	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"changelog", "rotate", repo, "--lines", "5"}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("rotate --lines 5: %v", err)
-	}
-	if !strings.Contains(stdout.String(), "Rotated") {
-		t.Errorf("expected rotation at threshold 5, got: %s", stdout.String())
-	}
-}
-
-func TestRunChangelogRotateLinesFlagInvalid(t *testing.T) {
-	repo := t.TempDir()
-	writeChangelog(t, repo, cliChangelogSample)
-	var stdout, stderr bytes.Buffer
-	err := Run([]string{"changelog", "rotate", repo, "--lines", "notanumber"}, "0.1.0-test", &stdout, &stderr)
-	if err == nil {
-		t.Fatal("expected error for non-integer --lines")
-	}
-}
-
-func TestRunChangelogListArchivesEmpty(t *testing.T) {
-	repo := t.TempDir()
-	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"changelog", "list-archives", repo}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("list-archives: %v", err)
-	}
-	if !strings.Contains(stdout.String(), "No archive files") {
-		t.Errorf("expected empty-state, got: %s", stdout.String())
-	}
-}
-
-func TestRunChangelogListArchivesJSON(t *testing.T) {
-	repo := t.TempDir()
-	writeChangelog(t, repo, cliChangelogSample)
-	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"changelog", "rotate", repo, "--force"}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("rotate --force setup: %v", err)
-	}
-	stdout.Reset()
-	if err := Run([]string{"changelog", "list-archives", repo, "--json"}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("list-archives --json: %v", err)
-	}
-	var list []map[string]any
-	if err := json.Unmarshal(stdout.Bytes(), &list); err != nil {
-		t.Fatalf("list-archives --json should produce valid JSON: %v\n%s", err, stdout.String())
-	}
-	if len(list) == 0 {
-		t.Errorf("expected at least one archive entry, got: %s", stdout.String())
-	}
-}
-
-func TestRunChangelogHelp(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"changelog", "--help"}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(stdout.String(), "reconc changelog") {
-		t.Errorf("expected usage info, got: %s", stdout.String())
-	}
-}
-
-func TestRunChangelogUnknownSubcommand(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	err := Run([]string{"changelog", "noop"}, "0.1.0-test", &stdout, &stderr)
-	if err == nil {
-		t.Fatal("expected error for unknown subcommand")
 	}
 }
 
@@ -1574,12 +1419,8 @@ func TestRunDiffTwoLocks(t *testing.T) {
 	dir := t.TempDir()
 	a := `{"rules":[{"id":"r1","kind":"deny_write","mode":"warn"}]}`
 	b := `{"rules":[{"id":"r1","kind":"deny_write","mode":"block"},{"id":"r2","kind":"deny_write","mode":"warn"}]}`
-	if err := os.WriteFile(filepath.Join(dir, "a.json"), []byte(a), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "b.json"), []byte(b), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeCLITestLock(t, filepath.Join(dir, "a.json"), a)
+	writeCLITestLock(t, filepath.Join(dir, "b.json"), b)
 	var stdout, stderr bytes.Buffer
 	if err := Run([]string{"diff", filepath.Join(dir, "a.json"), filepath.Join(dir, "b.json")}, "0.1.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("diff: %v", err)
@@ -1595,12 +1436,8 @@ func TestRunDiffJSON(t *testing.T) {
 	dir := t.TempDir()
 	a := `{"rules":[]}`
 	b := `{"rules":[{"id":"r1","kind":"deny_write","mode":"warn"}]}`
-	if err := os.WriteFile(filepath.Join(dir, "a.json"), []byte(a), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "b.json"), []byte(b), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeCLITestLock(t, filepath.Join(dir, "a.json"), a)
+	writeCLITestLock(t, filepath.Join(dir, "b.json"), b)
 	var stdout, stderr bytes.Buffer
 	if err := Run([]string{"diff", filepath.Join(dir, "a.json"), filepath.Join(dir, "b.json"), "--json"}, "0.1.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("diff --json: %v", err)
@@ -1618,9 +1455,7 @@ func TestRunDiffIdenticalLocks(t *testing.T) {
 	dir := t.TempDir()
 	body := `{"rules":[{"id":"r1","kind":"deny_write","mode":"warn"}]}`
 	for _, f := range []string{"a.json", "b.json"} {
-		if err := os.WriteFile(filepath.Join(dir, f), []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
+		writeCLITestLock(t, filepath.Join(dir, f), body)
 	}
 	var stdout, stderr bytes.Buffer
 	if err := Run([]string{"diff", filepath.Join(dir, "a.json"), filepath.Join(dir, "b.json")}, "0.1.0-test", &stdout, &stderr); err != nil {
@@ -1641,29 +1476,27 @@ func TestRunDiffHelp(t *testing.T) {
 	}
 }
 
-func TestRunWatchHelp(t *testing.T) {
+func TestRunWatchHelpIsRejectedAfterRemoval(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"watch", "--help"}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(stdout.String(), "Usage: reconc watch") {
-		t.Errorf("expected usage, got: %s", stdout.String())
+	err := Run([]string{"watch", "--help"}, "0.1.0-test", &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), `unknown subcommand "watch"`) {
+		t.Fatalf("removed watch command remained callable: %v", err)
 	}
 }
 
-func TestRunWatchBadInterval(t *testing.T) {
+func TestRunWatchFlagsAreRejectedAfterRemoval(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := Run([]string{"watch", ".", "--interval-ms", "5"}, "0.1.0-test", &stdout, &stderr)
-	if err == nil {
-		t.Fatal("expected error for interval < 100")
+	if err == nil || !strings.Contains(err.Error(), `unknown subcommand "watch"`) {
+		t.Fatalf("removed watch command accepted flags: %v", err)
 	}
 }
 
-func TestRunWatchRepoNotDiscovered(t *testing.T) {
+func TestRunWatchRepositoryOperandIsRejectedAfterRemoval(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := Run([]string{"watch", t.TempDir()}, "0.1.0-test", &stdout, &stderr)
-	if err == nil {
-		t.Fatal("expected error for undiscovered repo")
+	if err == nil || !strings.Contains(err.Error(), `unknown subcommand "watch"`) {
+		t.Fatalf("removed watch command accepted a repository operand: %v", err)
 	}
 }
 
@@ -1746,158 +1579,6 @@ func TestRunExtractHelp(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Usage: reconc extract") {
 		t.Errorf("expected usage, got: %s", stdout.String())
-	}
-}
-
-// --- W49 / W50: spec + coverage helpers -----------------------------
-
-func TestRunSpecMissing(t *testing.T) {
-	repo := t.TempDir()
-	var stdout, stderr bytes.Buffer
-	err := Run([]string{"spec", "check", repo}, "0.1.0-test", &stdout, &stderr)
-	if err == nil {
-		t.Fatal("expected error for missing spec.md")
-	}
-}
-
-func TestRunSpecPresent(t *testing.T) {
-	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, "docs"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(repo, "docs", "spec.md"), []byte("# spec"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"spec", "check", repo}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("spec check: %v", err)
-	}
-	if !strings.Contains(stdout.String(), "[OK  ]") {
-		t.Errorf("expected OK output, got: %s", stdout.String())
-	}
-}
-
-func TestRunSpecCustomFileAndJSON(t *testing.T) {
-	repo := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repo, "custom.md"), []byte("hi"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"spec", "check", repo, "--file", "custom.md", "--json"}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("spec check: %v", err)
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
-		t.Fatalf("expected JSON, got: %v\n%s", err, stdout.String())
-	}
-	if payload["ok"] != true || payload["exists"] != true {
-		t.Errorf("expected ok+exists=true, got %v", payload)
-	}
-}
-
-func TestRunSpecHelp(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"spec", "--help"}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(stdout.String(), "reconc spec check") {
-		t.Errorf("expected usage banner, got: %s", stdout.String())
-	}
-}
-
-func TestRunCoverageMissing(t *testing.T) {
-	repo := t.TempDir()
-	var stdout, stderr bytes.Buffer
-	err := Run([]string{"coverage", "check", repo}, "0.1.0-test", &stdout, &stderr)
-	if err == nil {
-		t.Fatal("expected error for missing coverage file")
-	}
-}
-
-func TestRunCoveragePasses(t *testing.T) {
-	repo := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repo, "coverage.txt"), []byte("coverage: 92.3% of statements\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"coverage", "check", repo}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("coverage check: %v", err)
-	}
-	if !strings.Contains(stdout.String(), "[OK  ]") {
-		t.Errorf("expected OK, got: %s", stdout.String())
-	}
-}
-
-func TestRunCoverageRealGoTestOutput(t *testing.T) {
-	repo := t.TempDir()
-	// Real `go test -cover` lines carry the duration before the
-	// percentage; the duration must never be read as the coverage.
-	content := "ok  \treconc.dev/reconc/internal/cli\t0.012s\tcoverage: 87.5% of statements\n"
-	if err := os.WriteFile(filepath.Join(repo, "coverage.txt"), []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"coverage", "check", repo, "--min-pct", "80"}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("coverage check should pass on 87.5%%: %v (out: %s)", err, stdout.String())
-	}
-	if !strings.Contains(stdout.String(), "coverage 87.5%") {
-		t.Errorf("expected parsed coverage 87.5%%, got: %s", stdout.String())
-	}
-}
-
-func TestRunCoverageBareNumberFallback(t *testing.T) {
-	repo := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repo, "coverage.txt"), []byte("87.5\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"coverage", "check", repo, "--min-pct", "80"}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("coverage check should pass on bare 87.5: %v", err)
-	}
-}
-
-func TestRunCoverageBelowMin(t *testing.T) {
-	repo := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repo, "coverage.txt"), []byte("75%"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var stdout, stderr bytes.Buffer
-	err := Run([]string{"coverage", "check", repo, "--min-pct", "80"}, "0.1.0-test", &stdout, &stderr)
-	if err == nil {
-		t.Fatal("expected error for below-min coverage")
-	}
-	if code := ExitCode(err); code != 1 {
-		t.Errorf("expected exit 1, got %d", code)
-	}
-}
-
-func TestRunCoverageJSON(t *testing.T) {
-	repo := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repo, "coverage.txt"), []byte("87.5%"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"coverage", "check", repo, "--json"}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("coverage --json: %v", err)
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
-		t.Fatalf("expected JSON, got: %v\n%s", err, stdout.String())
-	}
-	if payload["found_pct"].(float64) != 87.5 {
-		t.Errorf("expected 87.5 pct, got %v", payload["found_pct"])
-	}
-}
-
-func TestRunCoverageNoPercentInFile(t *testing.T) {
-	repo := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repo, "coverage.txt"), []byte("no numbers here"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var stdout, stderr bytes.Buffer
-	err := Run([]string{"coverage", "check", repo}, "0.1.0-test", &stdout, &stderr)
-	if err == nil {
-		t.Fatal("expected error for file without percentage")
 	}
 }
 
@@ -2183,60 +1864,6 @@ func TestRunDoneHelpAndValueValidation(t *testing.T) {
 	}
 }
 
-// --- W47: delta ------------------------------------------------------
-
-func TestRunDeltaEmpty(t *testing.T) {
-	repo := t.TempDir()
-	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"delta", repo}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("delta: %v", err)
-	}
-	if !strings.Contains(stdout.String(), "0 audit entries") {
-		t.Errorf("expected empty delta, got: %s", stdout.String())
-	}
-}
-
-func TestRunDeltaJSON(t *testing.T) {
-	repo := t.TempDir()
-	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"delta", repo, "--json"}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("delta --json: %v", err)
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
-		t.Fatalf("expected JSON, got: %v\n%s", err, stdout.String())
-	}
-	if _, ok := payload["total"]; !ok {
-		t.Error("expected 'total' field in JSON")
-	}
-}
-
-func TestRunDeltaSinceFilter(t *testing.T) {
-	t.Setenv("RECONC_AUDIT", "1")
-	t.Setenv("RECONC_HOME", t.TempDir())
-	repo := makeAssertRepo(t,
-		"rules:\n  - id: r1\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: m\n")
-	var stdout, stderr bytes.Buffer
-	_ = Run([]string{"check", repo, "--write", "gen/x.go"}, "0.1.0-test", &stdout, &stderr)
-	stdout.Reset()
-	if err := Run([]string{"delta", repo, "--since", "1970-01-01T00:00:00Z"}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("delta --since: %v", err)
-	}
-	if !strings.Contains(stdout.String(), "1 audit entries") {
-		t.Errorf("expected 1 audit entry, got: %s", stdout.String())
-	}
-}
-
-func TestRunDeltaHelp(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"delta", "--help"}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("unexpected: %v", err)
-	}
-	if !strings.Contains(stdout.String(), "Usage: reconc delta") {
-		t.Errorf("expected usage, got: %s", stdout.String())
-	}
-}
-
 // --- W51: `reconc start` canonical onboarding doc -------------------
 
 func TestRunStartStdout(t *testing.T) {
@@ -2270,24 +1897,21 @@ func TestRunStartJSON(t *testing.T) {
 	}
 }
 
-func TestRunStartWritesFile(t *testing.T) {
+func TestRunStartRejectsRemovedWriteModeWithoutMutation(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := makeAssertRepo(t,
 		"rules:\n  - id: r1\n    kind: deny_write\n    paths: ['x']\n    mode: warn\n    message: m\n")
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"start", repo, "--write", "start.md"}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("start --write: %v", err)
+	err := Run([]string{"start", repo, "--write", "start.md"}, "0.1.0-test", &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("removed write mode must be rejected, got %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(repo, "start.md"))
-	if err != nil {
-		t.Fatalf("start.md not written: %v", err)
-	}
-	if strings.TrimSpace(string(data)) == "" || !strings.Contains(string(data), repo) {
-		t.Errorf("start.md did not contain rendered repository data: %q", string(data))
+	if _, statErr := os.Stat(filepath.Join(repo, "start.md")); !os.IsNotExist(statErr) {
+		t.Fatalf("read-only start created a file: %v", statErr)
 	}
 }
 
-func TestRunStartRefusesOverwriteWithoutForce(t *testing.T) {
+func TestRunStartRejectsRemovedForceAndPreservesExistingFile(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := makeAssertRepo(t,
 		"rules:\n  - id: r1\n    kind: deny_write\n    paths: ['x']\n    mode: warn\n    message: m\n")
@@ -2295,52 +1919,35 @@ func TestRunStartRefusesOverwriteWithoutForce(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	err := Run([]string{"start", repo, "--write", "start.md"}, "0.1.0-test", &stdout, &stderr)
-	if err == nil {
-		t.Fatal("expected error when overwriting without --force")
+	err := Run([]string{"start", repo, "--force"}, "0.1.0-test", &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("removed --force must be rejected, got %v", err)
 	}
-	// With --force it should succeed.
-	stdout.Reset()
-	if err := Run([]string{"start", repo, "--write", "start.md", "--force"}, "0.1.0-test", &stdout, &stderr); err != nil {
-		t.Errorf("--force should overwrite: %v", err)
-	}
-}
-
-func TestRunStartRejectsWriteOutsideRepository(t *testing.T) {
-	t.Setenv("RECONC_HOME", t.TempDir())
-	repo := makeAssertRepo(t,
-		"rules:\n  - id: r1\n    kind: deny_write\n    paths: ['x']\n    mode: warn\n    message: m\n")
-	outside := filepath.Join(filepath.Dir(repo), "outside.md")
-	var stdout, stderr bytes.Buffer
-	err := Run([]string{"start", repo, "--write", filepath.Join("..", filepath.Base(outside)), "--force"}, "0.1.0-test", &stdout, &stderr)
-	if err == nil || !strings.Contains(err.Error(), "stay inside the repository") {
-		t.Fatalf("outside --write was not rejected: %v", err)
-	}
-	if _, statErr := os.Stat(outside); !os.IsNotExist(statErr) {
-		t.Fatalf("outside target was created: %v", statErr)
+	body, readErr := os.ReadFile(filepath.Join(repo, "start.md"))
+	if readErr != nil || string(body) != "existing" {
+		t.Fatalf("existing file changed: %q err=%v", body, readErr)
 	}
 }
 
-func TestRunStartRejectsSymlinkWriteTarget(t *testing.T) {
+func TestRunStartRejectsExtraRepositoryOperand(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := makeAssertRepo(t,
 		"rules:\n  - id: r1\n    kind: deny_write\n    paths: ['x']\n    mode: warn\n    message: m\n")
-	target := filepath.Join(repo, "owned.md")
-	if err := os.WriteFile(target, []byte("owned\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	link := filepath.Join(repo, "start.md")
-	if err := os.Symlink(target, link); err != nil {
-		t.Skipf("symlink unavailable: %v", err)
-	}
 	var stdout, stderr bytes.Buffer
-	err := Run([]string{"start", repo, "--write", "start.md", "--force"}, "0.1.0-test", &stdout, &stderr)
-	if err == nil || !strings.Contains(err.Error(), "not a regular file") {
-		t.Fatalf("symlink --write was not rejected: %v", err)
+	err := Run([]string{"start", repo, repo}, "0.1.0-test", &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "at most one repo") {
+		t.Fatalf("extra repository operand must be rejected: %v", err)
 	}
-	body, readErr := os.ReadFile(target)
-	if readErr != nil || string(body) != "owned\n" {
-		t.Fatalf("symlink target changed: %q err=%v", body, readErr)
+}
+
+func TestRunStartRejectsConflictingOutputModes(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repo := makeAssertRepo(t,
+		"rules:\n  - id: r1\n    kind: deny_write\n    paths: ['x']\n    mode: warn\n    message: m\n")
+	var stdout, stderr bytes.Buffer
+	err := Run([]string{"start", repo, "--json", "--minimal"}, "0.1.0-test", &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("conflicting output modes must be rejected: %v", err)
 	}
 }
 
@@ -2760,14 +2367,9 @@ func TestRunAuditTailEmpty(t *testing.T) {
 
 func TestRunAuditTailReadsLog(t *testing.T) {
 	repo := t.TempDir()
-	// Seed the log with a direct Append.
-	if err := os.MkdirAll(filepath.Join(repo, ".reconc"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	payload := `{"ts":"2026-04-14T00:00:00Z","event":"check","decision":"pass","ok":true,"violation_count":0,"blocking_count":0}` + "\n"
-	if err := os.WriteFile(filepath.Join(repo, ".reconc", "audit.jsonl"), []byte(payload), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	appendCLIAuditRecords(t, repo, cliAuditRecord{
+		timestamp: "2026-04-14T00:00:00Z", event: "check", decision: "pass", ok: true,
+	})
 	var stdout, stderr bytes.Buffer
 	if err := Run([]string{"audit", "tail", repo}, "0.1.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("audit tail: %v", err)
@@ -2779,13 +2381,10 @@ func TestRunAuditTailReadsLog(t *testing.T) {
 
 func TestRunAuditTailJSON(t *testing.T) {
 	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".reconc"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	payload := `{"ts":"2026-04-14T00:00:00Z","event":"check","decision":"block","ok":false,"violation_count":1,"blocking_count":1,"rule_ids":["r1"]}` + "\n"
-	if err := os.WriteFile(filepath.Join(repo, ".reconc", "audit.jsonl"), []byte(payload), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	appendCLIAuditRecords(t, repo, cliAuditRecord{
+		timestamp: "2026-04-14T00:00:00Z", event: "check", decision: "block",
+		violationCount: 1, blockingCount: 1, ruleIDs: []string{"r1"},
+	})
 	var stdout, stderr bytes.Buffer
 	if err := Run([]string{"audit", "tail", repo, "--json"}, "0.1.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("audit tail --json: %v", err)
@@ -2812,13 +2411,10 @@ func TestRunAuditStatsEmpty(t *testing.T) {
 
 func TestRunAuditStatsJSON(t *testing.T) {
 	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".reconc"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	payload := `{"ts":"2026-04-14T00:00:00Z","event":"check","decision":"block","blocking_count":1,"rule_ids":["r1"]}` + "\n"
-	if err := os.WriteFile(filepath.Join(repo, ".reconc", "audit.jsonl"), []byte(payload), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	appendCLIAuditRecords(t, repo, cliAuditRecord{
+		timestamp: "2026-04-14T00:00:00Z", event: "check", decision: "block",
+		blockingCount: 1, ruleIDs: []string{"r1"},
+	})
 	var stdout, stderr bytes.Buffer
 	if err := Run([]string{"audit", "stats", repo, "--json"}, "0.1.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("audit stats --json: %v", err)
@@ -2834,19 +2430,20 @@ func TestRunAuditStatsJSON(t *testing.T) {
 
 func TestRunAuditExport(t *testing.T) {
 	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".reconc"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	payload := `{"ts":"2026-04-14T00:00:00Z","event":"check","decision":"pass"}` + "\n"
-	if err := os.WriteFile(filepath.Join(repo, ".reconc", "audit.jsonl"), []byte(payload), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	appendCLIAuditRecords(t, repo, cliAuditRecord{
+		timestamp: "2026-04-14T00:00:00Z", event: "check", decision: "pass", ok: true,
+	})
 	var stdout, stderr bytes.Buffer
 	if err := Run([]string{"audit", "export", repo}, "0.1.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("audit export: %v", err)
 	}
-	if stdout.String() != payload {
-		t.Errorf("export output mismatch:\nwant: %q\ngot:  %q", payload, stdout.String())
+	var exported map[string]interface{}
+	if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &exported); err != nil {
+		t.Fatalf("audit export is not JSONL: %v\n%s", err, stdout.String())
+	}
+	if exported["event"] != "check" || exported["decision"] != "pass" ||
+		exported["chain_version"] == "" || exported["digest"] == "" {
+		t.Errorf("export omitted chained audit evidence: %#v", exported)
 	}
 }
 
@@ -2950,14 +2547,11 @@ func TestEverySubcommandHasHelpOutput(t *testing.T) {
 	for _, s := range commandmeta.All() {
 		t.Run(s.Name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			// Some subcommands require a second arg before --help
-			// (e.g. hook needs "generate|install|runtime|claim").
-			// Run top-level --help for those so the test stays
-			// Kind-agnostic.
+			// Command groups render their own top-level help, so this remains
+			// independent of each group's leaf names.
 			argv := []string{s.Name, "--help"}
 			switch s.Name {
-			case "hook", "preset", "template", "audit", "changelog",
-				"context", "spec", "coverage", "completion":
+			case "hook", "preset", "template", "audit", "context", "completion":
 				// Multi-subcommand; top-level --help suffices.
 			}
 			if err := Run(argv, "0.5.0-test", &stdout, &stderr); err != nil {
@@ -3080,13 +2674,13 @@ func TestGitIsCleanOnNonGitRepo(t *testing.T) {
 	}
 }
 
-func TestRunBootstrapFull(t *testing.T) {
+func TestRunInitFull(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
 	initGitRepo(t, repo)
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"bootstrap", repo}, "0.5.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("bootstrap: %v", err)
+	if err := Run([]string{"init", repo}, "0.5.0-test", &stdout, &stderr); err != nil {
+		t.Fatalf("init: %v", err)
 	}
 	// Check .reconc.yml + lockfile + pre-commit hook all created.
 	for _, path := range []string{
@@ -3096,24 +2690,24 @@ func TestRunBootstrapFull(t *testing.T) {
 		".git/hooks/pre-commit",
 	} {
 		if _, err := os.Stat(filepath.Join(repo, path)); err != nil {
-			t.Errorf("bootstrap: %s not created: %v", path, err)
+			t.Errorf("init: %s not created: %v", path, err)
 		}
 	}
 }
 
-func TestRunBootstrapJSON(t *testing.T) {
+func TestRunInitJSON(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"bootstrap", repo, "--json"}, "0.5.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("bootstrap --json: %v", err)
+	if err := Run([]string{"init", repo, "--json"}, "0.5.0-test", &stdout, &stderr); err != nil {
+		t.Fatalf("init --json: %v", err)
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("expected JSON, got: %v\n%s", err, stdout.String())
 	}
 	if payload["repo_root"] == "" {
-		t.Errorf("bootstrap JSON missing repo_root")
+		t.Errorf("init JSON missing repo_root")
 	}
 }
 
@@ -3248,21 +2842,22 @@ func TestRunStatusRejectsSchemaDriftWithoutWriting(t *testing.T) {
 	}
 }
 
-func TestRunVerifyIsReadOnlyWhenLockfileMissing(t *testing.T) {
+func TestRunDoctorDeepIsReadOnlyWhenLockfileMissing(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("# test\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"verify", repo}, "0.5.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("verify: %v", err)
+	err := Run([]string{"doctor", repo, "--deep"}, "0.5.0-test", &stdout, &stderr)
+	if err == nil || ExitCode(err) != 1 {
+		t.Fatalf("doctor --deep should report a missing lockfile as failure: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(repo, ".reconc", "policy.lock.json")); !os.IsNotExist(err) {
-		t.Fatalf("verify must not create lockfile; stat err=%v", err)
+		t.Fatalf("doctor --deep must not create lockfile; stat err=%v", err)
 	}
 	if !strings.Contains(stdout.String(), "reconc refresh .") {
-		t.Fatalf("expected explicit refresh guidance in verify output, got %q", stdout.String())
+		t.Fatalf("expected explicit refresh guidance in doctor output, got %q", stdout.String())
 	}
 }
 
@@ -3504,20 +3099,20 @@ func TestRunWhyTerseFitsBudget(t *testing.T) {
 	}
 }
 
-func TestRunFixNextFitsBudget(t *testing.T) {
+func TestRunNextFitsBudget(t *testing.T) {
 	repo := makeCheckRepo(t,
 		"rules:\n  - id: ci-green\n    kind: require_claim\n    when_paths: ['src/**']\n    claims: ['ci-green']\n    mode: block\n    message: m\n")
 	var stdout, stderr bytes.Buffer
-	err := Run([]string{"fix", repo, "--write", "src/main.go", "--next"}, "0.5.0-test", &stdout, &stderr)
+	err := Run([]string{"next", repo, "--write", "src/main.go"}, "0.5.0-test", &stdout, &stderr)
 	if ExitCode(err) != 2 {
-		t.Fatalf("fix --next should return exit 2 on blocking remediation, got %v", err)
+		t.Fatalf("next should return exit 2 on blocking remediation, got %v", err)
 	}
 	out := stdout.String()
 	if !strings.Contains(out, "next: [blocking|require_claim] ci-green") {
-		t.Errorf("unexpected fix --next output: %s", out)
+		t.Errorf("unexpected next output: %s", out)
 	}
 	if approxTokens(out) >= 80 {
-		t.Errorf("fix --next exceeded token budget: %d tokens\n%s", approxTokens(out), out)
+		t.Errorf("next exceeded token budget: %d tokens\n%s", approxTokens(out), out)
 	}
 }
 
@@ -3540,13 +3135,10 @@ func TestRunStartMinimalFitsBudget(t *testing.T) {
 
 func TestRunAuditTailCompactFitsBudget(t *testing.T) {
 	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".reconc"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	payload := `{"ts":"2026-04-14T00:00:00Z","event":"check","decision":"block","ok":false,"violation_count":1,"blocking_count":1,"rule_ids":["r1"]}` + "\n"
-	if err := os.WriteFile(filepath.Join(repo, ".reconc", "audit.jsonl"), []byte(payload), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	appendCLIAuditRecords(t, repo, cliAuditRecord{
+		timestamp: "2026-04-14T00:00:00Z", event: "check", decision: "block",
+		violationCount: 1, blockingCount: 1, ruleIDs: []string{"r1"},
+	})
 	var stdout, stderr bytes.Buffer
 	if err := Run([]string{"audit", "tail", repo, "--compact"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("audit tail --compact: %v", err)

@@ -91,23 +91,23 @@ never keep navigating versioned artifact paths.
 For a new target repo:
 
 ```bash
-reconc bootstrap .
+reconc init .
 reconc session-briefing . --json
 ```
 
-`bootstrap` is the minimal CLI onboarding path. It scaffolds `.reconc.yml` and
+`init` is the canonical CLI onboarding path. It scaffolds `.reconc.yml` and
 `AGENTS.md` when missing, compiles the lockfile, installs git hooks, and wires
 native agent hooks when supported directories such as `.claude/`, `.codex/`,
 `.cursor/`, `.opencode/`, `.devin/`, `.agents/`, `.kilo/`, or `.grok/`
 already exist.
-Bootstrap mutation performs the same exact running-build installation, fails
+Init mutation performs the same exact running-build installation, fails
 before repository writes when bare `reconc` still does not resolve to it, and
 transactional verification repeats that check.
 
 For the full repo-local governance rollout with copied Reconc toolkit, harness,
 root scaffold, `start.md`, TASK files, and repo-local release binaries, have an
 agent follow `harness/template/BOOTSTRAP.md` from the copied toolkit instead of
-trying to automate it with the minimal CLI bootstrap.
+assuming canonical init copies a complete toolkit.
 
 For a lighter/manual start:
 
@@ -180,8 +180,8 @@ synchronous Stop continuation. OpenCode and Kilo Code use inferred
 Grok Build has hard native PreToolUse. Reconc also emits exact native Stop
 blocks without a leader, but accepts synchronous enforcement only when the
 installed Grok hook guide advertises blocking Stop decision control. Passive
-Stop distributions use `reconc grok . --prompt "..."` or optional leader
-steering over the Unix socket or Windows named pipe. Only delivered
+Stop distributions may use optional leader steering over the Unix socket or
+Windows named pipe. Only delivered
 interjections consume the 32-attempt no-progress series; capability-proven
 native hosts suppress duplicate interjection.
 `RECONC_GROK_STEER=0` disables only leader steering. Managed activation
@@ -249,9 +249,12 @@ reconc check . ...           # evaluate current evidence
 reconc next .                # next remediation
 reconc done .                # final task gate
 reconc proof . --format markdown # portable reviewer evidence
-reconc verify .              # installation health, read-only
+reconc doctor --global       # global installation and ownership truth
 reconc doctor . --deep       # deeper diagnostics
+reconc sources . --json      # body-free effective source provenance
+reconc audit verify . --json # retained audit chain integrity
 reconc hook status . --json  # exact platform activation truth
+reconc hook evidence-status . --json # persistent evidence-taint truth
 reconc why mcp .             # compiled MCP mappings and unclassified mode
 reconc run status .          # run mode and typed TASK disposition
 reconc ci . --base HEAD~1 --head HEAD
@@ -260,13 +263,14 @@ reconc preset show agent
 reconc agent-intro           # built-in guide for humans and agents
 ```
 
-`status`, `verify`, `doctor`, `check`, `ci`, `assert`, `can`, `why`,
-`task status`, `task validate`, `task check-done`,
-`run status`, `run log`, `session-briefing`, `start` without `--write`, `post-task-check`, `done`, `proof`, and
-`tui` never mutate policy or refresh the lockfile. With `RECONC_AUDIT=1`,
-enforcement commands may append decision records. `refresh`, `compile`,
-`watch`, `bootstrap`, `init`, hook installation, `hook sync-scaffold`,
-`adopt --apply`, `run on`, `run off`, and audit logging can write.
+Inspection, evaluation, planning, and rendering commands never refresh policy
+implicitly. Explicit `--output` flags may publish the requested report or
+plan, and `RECONC_AUDIT=1` lets enforcement commands append chained decision
+evidence. Policy or control-state mutation is explicit through `refresh`,
+`init`, `bootstrap apply|remove`, `repo sync apply|resolve|recover`,
+`install-cli`, `update`, `uninstall`, `adopt --apply`, hook installation,
+uninstallation, scaffold sync, claim/evidence resolution/runtime routes,
+`exec`, TASK mutators, `run on|off|reset`, and `prune`.
 
 ## Platform Model
 
@@ -283,7 +287,7 @@ timeout policy, output budgets, artifact paths, and activation probes:
 | Devin CLI | `.devin/hooks.v1.json` | Native lifecycle plus post-compaction recovery |
 | Antigravity CLI | `.agents/hooks.json` | Invocation, tool, evidence, and Stop adapters |
 | Kilo Code | `.kilo/plugin/reconc.js` | Thin CLI/VS Code project plugin with strict shell exits and inferred bounded async idle continuation; disabled when `KILO_PURE` is set |
-| Grok Build | `.grok/hooks/reconc.json` | Native lifecycle and hard PreToolUse; project trust required; `reconc grok` supplies strict ACP continuation |
+| Grok Build | `.grok/hooks/reconc.json` | Native lifecycle and hard PreToolUse; project trust required; capability-probed native Stop or optional local leader fallback |
 
 Run `reconc hook status . --json` before making enforcement claims.
 `configured` proves a complete static artifact; `discoverable` means the named
@@ -324,7 +328,7 @@ Every platform keeps Git pre-commit as the hard repository backstop.
 
 ## When Policy Is Stale
 
-If `status`, `verify`, or `check` reports a stale or missing lockfile:
+If `status`, `doctor`, or `check` reports a stale or missing lockfile:
 
 ```bash
 reconc refresh .

@@ -99,7 +99,7 @@ var commandCatalog = []Command{
 	command("done", CategoryDaily, "reconc done [repo] [--require-clean-git] [--json]", "evidence-complete task-finish gate", flags(compat("--window", "N"), f("--require-clean-git", ""), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	command("proof", CategoryDaily, "reconc proof [repo] [--format json|markdown] [--output PATH]", "export a portable completion proof bundle", flags(f("--format", "FORMAT", "json", "markdown"), f("--output", "PATH")), nil, modes(OutputJSON, OutputMarkdown, OutputFile)),
 
-	command("bootstrap", CategoryBootstrap, "reconc bootstrap [repo] | <subcommand>", "inspect, plan, apply, verify, or remove repository onboarding", flags(repeat("--preset", "NAME"), f("--skip-git-hook", ""), f("--skip-agent-hooks", ""), f("--accept-managed-blocks", ""), f("--json", "")), []Subcommand{
+	command("bootstrap", CategoryBootstrap, "reconc bootstrap <subcommand>", "inspect, plan, apply, verify, or remove repository onboarding", nil, []Subcommand{
 		sub("profiles", "reconc bootstrap profiles [--json]", "list explicit bootstrap profiles", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 		sub("inspect", "reconc bootstrap inspect [repo] [--json]", "inspect repository bootstrap inputs without mutation", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 		sub("plan", "reconc bootstrap plan [repo] --profile PROFILE [selection flags]", "build a deterministic bootstrap manifest", bootstrapSelectionFlags(true), nil, modes(OutputText, OutputJSON, OutputFile)),
@@ -123,19 +123,16 @@ var commandCatalog = []Command{
 	command("adopt", CategoryBootstrap, "reconc adopt [repo] [--yaml | --json | --apply]", "detect tooling and suggest rules", flags(f("--yaml", ""), f("--json", ""), f("--apply", "")), nil, modes(OutputText, OutputYAML, OutputJSON)),
 	command("extract", CategoryBootstrap, "reconc extract [repo] [--from PATH] [--yaml | --json]", "scan instruction prose for rule hints", flags(f("--from", "PATH"), f("--yaml", ""), f("--json", "")), nil, modes(OutputText, OutputYAML, OutputJSON)),
 	command("doctor", CategoryBootstrap, "reconc doctor [repo] [--deep] [--json] [--output PATH] | reconc doctor --global [--json] [--output PATH]", "inspect repository or global installation state", flags(f("--deep", ""), f("--global", ""), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
-	command("verify", CategoryBootstrap, "reconc verify [repo] [--json]", "run the end-to-end installation health check", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
-
-	command("compile", CategoryCompile, "reconc compile [repo] [--strict-conflicts] [--json] [--output PATH]", "compile the policy lockfile", flags(f("--json", ""), f("--strict-conflicts", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
 	command("refresh", CategoryCompile, "reconc refresh [repo] [--strict-conflicts] [--json] [--output PATH]", "explicitly refresh the policy lockfile", flags(f("--json", ""), f("--strict-conflicts", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
+	command("sources", CategoryCompile, "reconc sources [repo] [--json]", "inspect effective policy-source provenance without source bodies", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	command("ci", CategoryCompile, "reconc ci [repo] (--staged | --base REF [--head REF]) [evidence flags]", "evaluate Git-derived changes under policy", flags(f("--staged", ""), f("--base", "REF"), f("--head", "REF"), f("--read", "PATH"), f("--command", "CMD"), f("--command-success", "CMD"), f("--command-failure", "CMD"), f("--claim", "NAME"), f("--auto-claim", ""), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
 	command("exec", CategoryCompile, "reconc exec [repo] [--staged] [--shell] -- COMMAND [ARG ...]", "execute and record real command evidence", flags(f("--staged", ""), f("--shell", "")), nil, modes(OutputText)),
 	command("assert", CategoryCompile, "reconc assert <rule-id> [repo] [evidence flags]", "evaluate one rule by id", flags(f("--var", "KEY=VALUE"), f("--read", "PATH"), f("--write", "PATH"), f("--command", "CMD"), f("--command-success", "CMD"), f("--command-failure", "CMD"), f("--claim", "NAME"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	command("can", CategoryCompile, "reconc can write <path> [repo] [--why] [--json]", "return an ultra-terse yes/no policy decision", flags(f("--why", ""), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	command("diff", CategoryCompile, "reconc diff <lockfile-a> <lockfile-b> [--json]", "compare two compiled lockfiles", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
-	command("watch", CategoryCompile, "reconc watch [repo] [--interval-ms N]", "watch policy sources and recompile", flags(f("--interval-ms", "N")), nil, modes(OutputText)),
 
 	command("explain", CategoryExplain, "reconc explain [repo] [evidence flags] | --report-file PATH", "render a check report as text or Markdown", flags(f("--read", "PATH"), f("--write", "PATH"), f("--command", "CMD"), f("--claim", "NAME"), f("--format", "FORMAT", "text", "markdown"), f("--report-file", "PATH"), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputMarkdown, OutputJSON, OutputFile)),
-	command("fix", CategoryExplain, "reconc fix [repo] [evidence flags] [--next]", "build a structured remediation plan", flags(f("--read", "PATH"), f("--write", "PATH"), f("--command", "CMD"), f("--command-success", "CMD"), f("--command-failure", "CMD"), f("--claim", "NAME"), f("--json", ""), f("--next", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
+	command("fix", CategoryExplain, "reconc fix [repo] [evidence flags]", "build a structured remediation plan", flags(f("--read", "PATH"), f("--write", "PATH"), f("--command", "CMD"), f("--command-success", "CMD"), f("--command-failure", "CMD"), f("--claim", "NAME"), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
 	command("why", CategoryExplain, "reconc why <rule-id|mcp> [repo] [--terse] [--json]", "print one compiled rule or the MCP side-effect contract", flags(f("--json", ""), f("--terse", "")), nil, modes(OutputText, OutputJSON)),
 
 	command("preset", CategoryWiring, "reconc preset <list|show>", "list or show bundled and user presets", nil, []Subcommand{
@@ -155,18 +152,16 @@ var commandCatalog = []Command{
 		internalSub("runtime", "reconc hook runtime <event> <repo>", "dispatch one registry-owned runtime event"),
 		internalSub("grok-pre-tool-guard", "reconc hook grok-pre-tool-guard <repo>", "run the internal fail-closed Grok pre-tool guard"),
 		sub("claim", "reconc hook claim <repo> <claim-name> [--session ID] [--json] [--output PATH]", "record one explicit session claim", flags(f("--session", "ID"), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
+		sub("evidence-status", "reconc hook evidence-status [repo] [--json]", "inspect persistent evidence taint without mutation", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
+		sub("evidence-resolve", "reconc hook evidence-resolve <repo> --token TOKEN --reason TEXT [--json]", "resolve reviewed persistent evidence taint explicitly", flags(f("--token", "TOKEN"), f("--reason", "TEXT"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	}, modes(OutputText, OutputJSON, OutputFile)),
-	command("grok", CategoryWiring, "reconc grok [repo] [flags] --prompt TEXT", "run the strict Grok ACP continuation driver", flags(f("--prompt", "TEXT"), f("--model", "ID"), f("--grok-binary", "PATH"), f("--max-continuations", "N")), nil, modes(OutputText)),
 
-	command("changelog", CategoryMaintenance, "reconc changelog <rotate|list-archives>", "rotate or inspect changelog archives", nil, []Subcommand{
-		sub("rotate", "reconc changelog rotate [repo] [--force] [--lines N] [--json]", "rotate older changelog sections", flags(f("--force", ""), f("--lines", "N"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
-		sub("list-archives", "reconc changelog list-archives [repo] [--json]", "list changelog archives", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
-	}, modes(OutputText, OutputJSON)),
 	command("agent-intro", CategoryMaintenance, "reconc agent-intro [--section NAME | --list-sections] [--json]", "print the embedded agent integration guide", flags(f("--section", "NAME"), f("--list-sections", ""), f("--json", "")), nil, modes(OutputText, OutputJSON)),
-	command("audit", CategoryMaintenance, "reconc audit <tail|stats|export>", "inspect or export the enforcement decision log", nil, []Subcommand{
+	command("audit", CategoryMaintenance, "reconc audit <tail|stats|export|verify>", "inspect, export, or cryptographically verify decision evidence", nil, []Subcommand{
 		sub("tail", "reconc audit tail [repo] [filters]", "tail filtered audit decisions", flags(f("-n", "N"), f("--rule", "ID"), f("--since", "RFC3339"), f("--decision", "DECISION", "pass", "warn", "block"), f("--json", ""), f("--compact", "")), nil, modes(OutputText, OutputJSON)),
 		sub("stats", "reconc audit stats [repo] [--json]", "aggregate audit decision statistics", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 		sub("export", "reconc audit export [repo]", "export raw audit JSONL", nil, nil, modes(OutputJSONL)),
+		sub("verify", "reconc audit verify [repo] [--json]", "verify every retained record and detached chain head", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	}, modes(OutputText, OutputJSON, OutputJSONL)),
 	command("run", CategoryMaintenance, "reconc run <on|off|reset|status|log>", "operate durable repository run control", nil, []Subcommand{
 		sub("on", "reconc run on [repo] [--force] [--json]", "enable repository run control", flags(f("--force", ""), f("--json", "")), nil, modes(OutputText, OutputJSON)),
@@ -193,15 +188,7 @@ var commandCatalog = []Command{
 	command("context", CategoryMaintenance, "reconc context size [repo] [flags]", "check canonical session files against a token budget", nil, []Subcommand{
 		sub("size", "reconc context size [repo] [--limit N] [--files PATH,...] [--json]", "measure canonical session context", flags(f("--limit", "N"), f("--files", "PATH,..."), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	}, modes(OutputText, OutputJSON)),
-	command("start", CategoryMaintenance, "reconc start [repo] [--write PATH] [--force] [--minimal] [--json]", "render or write canonical onboarding context", flags(f("--write", "PATH"), f("--force", ""), f("--minimal", ""), f("--json", "")), nil, modes(OutputText, OutputJSON, OutputFile)),
-	command("post-task-check", CategoryMaintenance, "reconc post-task-check [repo] [--require-clean-git] [--json]", "run the evidence-complete pre-done gate", flags(compat("--window", "N"), f("--require-clean-git", ""), f("--json", "")), nil, modes(OutputText, OutputJSON)),
-	command("delta", CategoryMaintenance, "reconc delta [repo] [--since RFC3339] [--json]", "show audit and policy activity since a point in time", flags(f("--since", "RFC3339"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
-	command("spec", CategoryMaintenance, "reconc spec check [repo] [flags]", "check docs/spec.md presence and freshness", nil, []Subcommand{
-		sub("check", "reconc spec check [repo] [--file PATH] [--max-age-days N] [--json]", "check specification freshness", flags(f("--file", "PATH"), f("--max-age-days", "N"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
-	}, modes(OutputText, OutputJSON)),
-	command("coverage", CategoryMaintenance, "reconc coverage check [repo] [flags]", "check a coverage percentage against a minimum", nil, []Subcommand{
-		sub("check", "reconc coverage check [repo] [--file PATH] [--min-pct N] [--json]", "check measured coverage", flags(f("--file", "PATH"), f("--min-pct", "N"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
-	}, modes(OutputText, OutputJSON)),
+	command("start", CategoryMaintenance, "reconc start [repo] [--minimal | --json]", "render canonical onboarding context without mutation", flags(f("--minimal", ""), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	command("tui", CategoryMaintenance, "reconc tui [repo] [--json] [--output PATH]", "render the terminal policy and completion dashboard", flags(f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
 
 	commandArgs("completion", CategoryMeta, "reconc completion <bash|zsh|fish>", "emit a shell completion script", nil, []Argument{{Name: "shell", Values: []string{"bash", "fish", "zsh"}}}, nil, modes(OutputScript)),
@@ -217,6 +204,22 @@ func All() []Command {
 	out := make([]Command, 0, len(commandCatalog))
 	for _, item := range commandCatalog {
 		out = append(out, cloneCommand(item))
+	}
+	return out
+}
+
+// Public returns the user-facing command catalog. Internal routes remain in
+// All so dispatch and compatibility tests can validate them without leaking
+// those implementation surfaces into help, completions, manpages, or docs.
+func Public() []Command {
+	out := make([]Command, 0, len(commandCatalog))
+	for _, item := range commandCatalog {
+		if item.Stability != StabilityStable {
+			continue
+		}
+		command := cloneCommand(item)
+		command.Subcommands = publicSubcommands(command.Subcommands)
+		out = append(out, command)
 	}
 	return out
 }
@@ -356,6 +359,18 @@ func cloneSubcommand(command Subcommand) Subcommand {
 	return command
 }
 
+func publicSubcommands(values []Subcommand) []Subcommand {
+	out := make([]Subcommand, 0, len(values))
+	for _, value := range values {
+		if value.Stability != StabilityStable {
+			continue
+		}
+		value.Subcommands = publicSubcommands(value.Subcommands)
+		out = append(out, value)
+	}
+	return out
+}
+
 func cloneFlags(values []Flag) []Flag {
 	out := append([]Flag(nil), values...)
 	for index := range out {
@@ -397,6 +412,16 @@ func editDistance(left, right string) int {
 func SortedNames() []string {
 	values := make([]string, 0, len(commandCatalog))
 	for _, command := range commandCatalog {
+		values = append(values, command.Name)
+	}
+	sort.Strings(values)
+	return values
+}
+
+func PublicSortedNames() []string {
+	commands := Public()
+	values := make([]string, 0, len(commands))
+	for _, command := range commands {
 		values = append(values, command.Name)
 	}
 	sort.Strings(values)

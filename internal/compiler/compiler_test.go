@@ -72,6 +72,23 @@ func TestCompileSimpleRepo(t *testing.T) {
 	if payload["rule_count"].(float64) != 1 {
 		t.Errorf("expected rule_count 1, got %v", payload["rule_count"])
 	}
+	encoded := string(data)
+	if strings.Contains(encoded, "# project") || strings.Contains(encoded, "kind: deny_write") || strings.Contains(encoded, `"content"`) {
+		t.Fatalf("lockfile exposed raw source content:\n%s", encoded)
+	}
+	sources, ok := payload["sources"].([]interface{})
+	if !ok || len(sources) == 0 {
+		t.Fatalf("lockfile sources have unexpected shape: %#v", payload["sources"])
+	}
+	for index, item := range sources {
+		source, ok := item.(map[string]interface{})
+		if !ok {
+			t.Fatalf("sources[%d] has type %T", index, item)
+		}
+		if digest, _ := source["content_sha256"].(string); len(digest) != 64 {
+			t.Fatalf("sources[%d].content_sha256 = %v", index, source["content_sha256"])
+		}
+	}
 	digest, ok := payload["source_digest"].(string)
 	if !ok || len(digest) != 64 {
 		t.Errorf("expected 64-char SHA-256 source_digest, got %v", payload["source_digest"])
@@ -371,6 +388,84 @@ func TestCompileSourcePathsCapturesAllSources(t *testing.T) {
 	}
 }
 
+func TestCompileGlobalPolicyProvenanceIsPortableAndPrivate(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RECONC_HOME", home)
+	secretMarker := "private-global-source-comment"
+	writeFile(t, home, "global-policy.yml", "# "+secretMarker+"\nrules:\n  - id: global\n    kind: deny_write\n    paths: ['private/**']\n    mode: warn\n    message: global rule\n")
+	repo := t.TempDir()
+	writeFile(t, repo, "AGENTS.md", "# project\n")
+
+	if _, err := CompileRepoPolicy(repo, "0.1.0-test"); err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(repo, LockfileRelativePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(data, []byte(home)) || bytes.Contains(data, []byte(secretMarker)) || bytes.Contains(data, []byte(`"content"`)) {
+		t.Fatalf("lockfile exposed global policy path or body:\n%s", data)
+	}
+	if !bytes.Contains(data, []byte(ingest.GlobalPolicySourcePath)) {
+		t.Fatalf("lockfile missing logical global provenance:\n%s", data)
+	}
+}
+
+func TestValidateLockfileEnvelopeRejectsRawOrUnsafeSourceProvenance(t *testing.T) {
+	base := map[string]interface{}{
+		"$schema":        LockfileSchema(),
+		"format_version": LockfileFormatVersion,
+		"repo_root":      PortableRepoRoot,
+		"discovery": map[string]interface{}{
+			"repo_root":  PortableRepoRoot,
+			"start_path": PortableRepoRoot,
+		},
+		"sources": []interface{}{
+			map[string]interface{}{
+				"kind":           string(policy.SourcePolicyFile),
+				"path":           "policies/rules.yml",
+				"content_sha256": strings.Repeat("a", 64),
+			},
+		},
+	}
+	withDigest := func(payload map[string]interface{}) map[string]interface{} {
+		digest, err := ComputeLockDigest(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		payload["lock_digest"] = digest
+		return payload
+	}
+	if err := ValidateLockfileEnvelope(withDigest(base)); err != nil {
+		t.Fatalf("valid provenance rejected: %v", err)
+	}
+	for _, mutate := range []func(map[string]interface{}){
+		func(payload map[string]interface{}) {
+			payload["sources"].([]interface{})[0].(map[string]interface{})["content"] = "secret"
+		},
+		func(payload map[string]interface{}) {
+			payload["sources"].([]interface{})[0].(map[string]interface{})["path"] = "../secret.yml"
+		},
+		func(payload map[string]interface{}) {
+			payload["sources"].([]interface{})[0].(map[string]interface{})["content_sha256"] = "short"
+		},
+	} {
+		body, err := json.Marshal(base)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var candidate map[string]interface{}
+		if err := json.Unmarshal(body, &candidate); err != nil {
+			t.Fatal(err)
+		}
+		delete(candidate, "lock_digest")
+		mutate(candidate)
+		if err := ValidateLockfileEnvelope(withDigest(candidate)); err == nil {
+			t.Fatalf("unsafe source provenance accepted: %#v", candidate["sources"])
+		}
+	}
+}
+
 // --- W24: custom schema URL -----------------------------------------
 
 func TestLockfileSchemaDefault(t *testing.T) {
@@ -384,7 +479,7 @@ func TestLockfileSchemaDefault(t *testing.T) {
 func TestLockfileSchemaHonorsEnvOverride(t *testing.T) {
 	t.Setenv("RECONC_SCHEMA_BASE_URL", "https://reconc.acme.com")
 	got := LockfileSchema()
-	want := "https://reconc.acme.com/schemas/policy-lock/v2"
+	want := "https://reconc.acme.com/schemas/policy-lock/v3"
 	if got != want {
 		t.Errorf("expected %q, got %q", want, got)
 	}
@@ -393,7 +488,7 @@ func TestLockfileSchemaHonorsEnvOverride(t *testing.T) {
 func TestLockfileSchemaStripsTrailingSlash(t *testing.T) {
 	t.Setenv("RECONC_SCHEMA_BASE_URL", "https://acme.com/")
 	got := LockfileSchema()
-	want := "https://acme.com/schemas/policy-lock/v2"
+	want := "https://acme.com/schemas/policy-lock/v3"
 	if got != want {
 		t.Errorf("trailing slash should be stripped; got %q", got)
 	}
@@ -416,7 +511,7 @@ func TestCompileWritesCustomSchemaURL(t *testing.T) {
 	if err := json.Unmarshal(data, &payload); err != nil {
 		t.Fatal(err)
 	}
-	want := "https://internal.corp/schemas/policy-lock/v2"
+	want := "https://internal.corp/schemas/policy-lock/v3"
 	if payload["$schema"] != want {
 		t.Errorf("expected $schema %q, got %v", want, payload["$schema"])
 	}

@@ -362,7 +362,7 @@ fi
 if [ "$resolved_hash" = "$expected" ]; then
   [ "$install_status" -eq 0 ] \
     || die "binary is current on PATH but ownership receipt publication failed: ${install_output}"
-  log "next: reconc --help  or  reconc bootstrap ."
+  log "next: reconc --help  or  reconc init ."
 else
   log "PATH: add this line to your shell profile, then open a new terminal:"
   log "export PATH=$(shell_quote "$INSTALL_DIR"):\$PATH"

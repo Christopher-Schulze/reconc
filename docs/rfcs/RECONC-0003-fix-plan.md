@@ -2,7 +2,7 @@
 
 - Status: Frozen
 - Producer: `reconc fix`
-- Schema: `https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/policy-fix-plan.schema.json`
+- Schema: `https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/policy-fix-plan.schema.json`
 - Format version: `1`
 
 ## Purpose
@@ -51,7 +51,6 @@ available. Agents use it to identify the shortest valid next action.
 
 ## Next-Action Semantics
 
-`reconc fix --next` and `reconc next` select the highest-priority
-remediation and print only the next action. Blocking remediations
-outrank non-blocking ones. This is the preferred agent path when a full
-plan would waste context.
+`reconc next` selects the highest-priority remediation and prints only the
+next action. Blocking remediations outrank non-blocking ones. This is the
+preferred agent path when a full plan would waste context.

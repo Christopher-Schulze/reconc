@@ -68,9 +68,10 @@ retains one owner.
 
 ## Default Bootstrap
 
-`reconc init` and `reconc bootstrap` default to `default` + `agent` unless
-the caller provides explicit `--preset` values. This keeps the initial
-experience useful without immediately blocking normal development.
+The canonical `reconc init` path includes `default` + `agent` in the profiles
+that own policy unless the selected profile defines no policy packs. Explicit
+`--pack` values extend that deterministic profile selection; legacy
+`--preset` remains only a flag-level compatibility spelling.
 
 ## Templates
 

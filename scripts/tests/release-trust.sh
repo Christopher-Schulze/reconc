@@ -264,6 +264,7 @@ release_assets=(
   policy-fix-plan.schema.json
   policy-config.schema.json
   policy-lock-v1.schema.json
+  policy-lock-v2.schema.json
   policy-lock.schema.json
   policy-report.schema.json
   proof-bundle.schema.json
@@ -282,7 +283,10 @@ for name in "${release_assets[@]}"; do
   case "$name" in
     _reconc|reconc.1|reconc.bash|reconc.fish) ;;
     install.ps1|install.sh) cp "$root/$name" "$release_dir/$name" ;;
-    harness-pack-manifest.schema.json) cp "$root/schemas/v1/$name" "$release_dir/$name" ;;
+    policy-lock-v1.schema.json) cp "$root/schemas/v1/policy-lock.schema.json" "$release_dir/$name" ;;
+    policy-lock-v2.schema.json) cp "$root/schemas/v2/policy-lock.schema.json" "$release_dir/$name" ;;
+    policy-lock.schema.json) cp "$root/schemas/v3/policy-lock.schema.json" "$release_dir/$name" ;;
+    *.schema.json) cp "$root/schemas/v1/$name" "$release_dir/$name" ;;
     reconc-harness-pack-advanced-1.0.0.zip) cp "$root/harness/advanced-pack.zip" "$release_dir/$name" ;;
     *) printf '%s\n' "$name" > "$release_dir/$name" ;;
   esac
@@ -306,6 +310,12 @@ printf '\n# stale despite a valid checksum\n' >> "$release_dir/install.ps1"
 "$root/scripts/release/write-checksums.sh" "$release_dir"
 expect_failure "${verify_release[@]}"
 cp "$root/install.ps1" "$release_dir/install.ps1"
+"$root/scripts/release/write-checksums.sh" "$release_dir"
+"${verify_release[@]}"
+printf '\n' >> "$release_dir/completion-report.schema.json"
+"$root/scripts/release/write-checksums.sh" "$release_dir"
+expect_failure "${verify_release[@]}"
+cp "$root/schemas/v1/completion-report.schema.json" "$release_dir/completion-report.schema.json"
 "$root/scripts/release/write-checksums.sh" "$release_dir"
 "${verify_release[@]}"
 printf '\n# stale despite a valid checksum\n' >> "$release_dir/reconc.bash"

@@ -209,17 +209,19 @@ change to the gate.
 
 `make release` cross-compiles five binaries into `dist/`, copies the native
 POSIX and Windows installers, generates three flat shell-completion artifacts,
-generates a man page, copies the fourteen immutable v1 schemas plus the current v2
-policy-lock schema, generates deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs,
+generates a man page, copies the fourteen v1 schemas plus the legacy v2 and
+current v3 policy-lock schemas, generates deterministic SPDX 2.3 and CycloneDX
+1.6 SBOMs,
 generates a strict `release-manifest.json`, and writes `dist/SHA256SUMS`. The
 target stops on the first build, SBOM, manifest, or checksum failure. The
-release verifier requires exactly those thirty checksummed artifacts,
+release verifier requires exactly those thirty-one checksummed artifacts,
 rejects missing, extra, duplicate, unsafe, mutable, or corrupted entries, and
 never accepts an empty manifest. It independently verifies every manifest
 asset and digest, then regenerates Bash, Zsh, Fish, and the versioned man page
-from the current canonical command metadata. Even freshly checksummed
-artifacts whose bytes are stale or noncanonical fail. `dist/` is ignored and
-should not be committed.
+from the current canonical command metadata and byte-compares every released
+schema, installer, and harness pack with its canonical source. Even freshly
+checksummed artifacts whose bytes are stale or noncanonical fail. `dist/` is
+ignored and should not be committed.
 
 Every host and release build embeds a deterministic version, target, and
 production-source digest. The build verifies that marker directly from the
@@ -491,10 +493,7 @@ one fresh-plan command. A valid single v0.8.x private plan and receipt can be
 imported as bounded migration evidence but cannot grant ownership beyond the
 portable receipt. Core synchronization performs no network request.
 
-`reconc bootstrap .` remains a v0.9 compatibility alias into the same init
-engine. Legacy `--preset` maps to `--pack` with a warning and `--force` is
-rejected. It has no parallel mutation or output logic. The detailed AI tutorial
-and project-specific advanced harness path remain in
+The detailed AI tutorial and project-specific advanced harness path remain in
 `tools/reconc/harness/template/BOOTSTRAP.md` after advanced init.
 
 ## v0.9 CLI Product Contract
@@ -546,15 +545,15 @@ state without Git or writes. Static reference material stays on demand through
 explicit or normally discovered repository. Stale or missing decision state
 fails with an exact replay remediation instead of claiming there is no work.
 
-`status`, `doctor`, `verify`, `repo sync plan`, `repo sync verify`, `check`,
-`ci`, `assert`, `can`, `why`,
+`status`, `doctor`, `sources`, `repo sync plan`, `repo sync verify`, `check`,
+`ci`, `assert`, `can`, `why`, `audit tail|stats|export|verify`,
 `task status`, `task validate`, `task check-done`, `run status`, `run log`,
-`session-briefing`, `post-task-check`, `done`, `proof`, and `tui` never compile or write
+`session-briefing`, `done`, `proof`, `start`, and `tui` never compile or write
 the lockfile. Missing, stale, malformed, schema-drifted, or non-portable current
 lockfiles fail closed with one explicit remediation: `reconc refresh .`.
 When `RECONC_AUDIT=1`, enforcement commands may still append decision records;
 that opt-in audit write is independent of policy refresh. Explicit `check`,
-`ci`, `post-task-check`, and `done` decisions may also write or clear one
+`ci`, and `done` decisions may also write or clear one
 private unresolved-block receipt below `RECONC_HOME`; governed worktree content
 remains untouched.
 
@@ -624,12 +623,11 @@ evidence rules are documented in [Policy Packs And Native Assurance](#policy-pac
 
 Not for core repository control. The shipped Go binary runs policy
 compilation, evaluation, hooks, run control, and proof generation without a
-model, daemon, Docker, Node, Python, or network access. The explicit
-`reconc grok` command launches the external Grok ACP process, which owns model
-authentication and inference traffic. Codex and GPT-5.6 contributed to
-development during OpenAI Build Week but are not runtime dependencies.
-Installation, Git operations, and remote CI naturally use the network when
-invoked.
+model, daemon, Docker, Node, Python, or network access. Supported hosts own
+their model authentication and inference traffic. Codex and GPT-5.6
+contributed to development during OpenAI Build Week but are not runtime
+dependencies. Installation, Git operations, and remote CI naturally use the
+network when invoked.
 
 ### Which agent runtimes are supported?
 
@@ -659,17 +657,18 @@ publication, and verification. Drift gets a hash-addressed review candidate;
 the portable receipt makes later sync and ownership-bounded removal explicit.
 Use an explicit `existing` profile
 for mature repositories that already own policy, instructions, docs, and TASK
-state. `reconc bootstrap .` is only a compatibility alias; advanced
-`bootstrap inspect|profiles|plan|apply|verify|remove` commands expose the same
-engine without duplicating business logic. `--profile advanced` additionally
+state. Advanced `bootstrap inspect|profiles|plan|apply|verify|remove` commands
+expose the same engine without duplicating business logic. `--profile advanced` additionally
 materializes the immutable public harness pack from the installed binary, binds
 its version and digest into the plan and receipt, and requires no toolkit copy.
 
 ### How do I update Reconc?
 
 Run `reconc update`. That single command verifies installation ownership,
-selects stable by default, verifies release trust, applies an available update
-atomically, and succeeds without mutation when already current. There is no
+selects stable by default, requires GitHub build-provenance verification,
+applies an available update atomically, and succeeds without mutation when
+already current. Offline `--from-dir` updates require the asset's Sigstore
+bundle and trusted root in addition to the strict release inventory. There is no
 separate check/apply step in the current user flow. Use `--channel preview` or
 `--version VERSION` only for an intentional non-default selection. A
 source-owned installation receives the exact rebuild and path-qualified
@@ -730,8 +729,10 @@ reconc --version
 reconc doctor --global
 reconc status .
 reconc doctor . --deep
-reconc verify .
+reconc sources . --json
+reconc audit verify . --json
 reconc hook status . --json
+reconc hook evidence-status . --json
 reconc task validate . --json
 reconc run status . --verbose
 ```
@@ -929,8 +930,8 @@ the atomic `promote-task-done` remediation; any other Markdown file is reported
 as a non-TASK file and must be moved outside the reserved tree. `.gitignore`
 cannot clear this filesystem audit.
 
-`reconc done` and `reconc post-task-check` share one evidence-complete final
-gate. A versioned, self-digested completion report binds the policy lock, Git
+`reconc done` is the public evidence-complete final gate. A versioned,
+self-digested completion report binds the policy lock, Git
 HEAD and logical index, worktree contents, dirty paths, active-session evidence,
 saved session report, current policy result, current staged command proofs, and
 typed TASK completion. Candidate state is captured before and after evaluation;
@@ -1000,11 +1001,6 @@ Explicit `--command-success` evidence applies to the complete evaluation snapsho
 
 Daily:
 
-- `bootstrap` - inspect, profile, plan, apply, verify, and safely remove onboarding
-- `repo` - plan, resolve, apply, recover, and verify digest-bound repository synchronization
-- `install-cli` - atomically install and verify the exact running user CLI
-- `update` - safely update the global CLI or confirm it is already current
-- `uninstall` - remove only verified global installation-owned state
 - `status` - one-line policy health summary
 - `check` - evaluate runtime evidence against compiled policy
 - `next` - show the next remediation
@@ -1013,24 +1009,25 @@ Daily:
 
 Bootstrap and inspection:
 
-- `bootstrap inspect|profiles|plan|apply|verify|remove`
-- `repo sync plan|resolve|apply|recover|verify`
+- `bootstrap` - inspect, profile, plan, apply, verify, or remove onboarding
+- `repo` - plan, resolve, apply, recover, or verify receipt-owned sync
 - `init`
 - `adopt`
 - `extract`
 - `doctor`
-- `verify`
+- `install-cli`
+- `update`
+- `uninstall`
 
 Compile and evaluate:
 
-- `compile`
 - `refresh`
+- `sources`
 - `ci`
 - `exec`
 - `assert`
 - `can`
 - `diff`
-- `watch`
 
 Explain and remediate:
 
@@ -1043,11 +1040,9 @@ Packs and wiring:
 - `preset`
 - `template`
 - `hook`
-- `grok`
 
 Workflow maintenance:
 
-- `changelog`
 - `agent-intro`
 - `audit`
 - `run`
@@ -1056,11 +1051,10 @@ Workflow maintenance:
 - `session-briefing`
 - `context`
 - `start`
-- `post-task-check`
-- `delta`
-- `spec`
-- `coverage`
 - `tui`
+
+Meta:
+
 - `completion`
 - `manpage`
 - `version`
@@ -1072,11 +1066,14 @@ For exact flags, run `reconc <command> --help`.
 In governed target repositories, repo-local policy lives in `.reconc.yml` and
 should be committed. The generated `.reconc/policy.lock.json` is a portable,
 committable policy contract and should be reviewed with policy-source changes.
-Format 2 is checkout-independent and byte-identical across equivalent clones
-and worktrees. Its `lock_digest` binds the complete canonical payload except
-for the digest field itself, and runtime also verifies that embedded rules
-equal the rules parsed from the current policy sources. Format-1 lockfiles are
-migrated in memory after their legacy schema identity is validated. Publication
+Format 3 is checkout-independent and byte-identical across equivalent clones
+and worktrees. Source records contain only portable logical paths, SHA-256
+content identities, kinds, and bounded inline locations; raw source bodies and
+physical global-policy paths never enter the committable lock. Its
+`lock_digest` binds the complete canonical payload except for the digest field
+itself, and runtime also verifies that embedded rules equal the rules parsed
+from the current policy sources. Format-1 and format-2 lockfiles are migrated
+in memory only after their legacy schema identity and digest pass. Publication
 uses atomic replacement and skips the write entirely when the canonical bytes
 are unchanged, so readers never see partial JSON and repeated compiles do not
 create needless filesystem churn. This standalone product repository does not
@@ -1182,8 +1179,13 @@ and 30 days. Explicit prune enforces that global bound immediately; lifecycle
 passes protect the current project, live sessions, and roots touched within the
 24-hour concurrency grace. Unknown directories are never treated as
 product-owned. Audit and run-decision JSONL each use a 2 MiB live file plus two
-archives, with file-locked append and
-pre-append rotation. Repo runtime is capped at 48 MiB. Known
+archives, with file-locked append and pre-append rotation. Audit entries
+additionally carry one contiguous sequence and SHA-256 previous/current digest
+chain, with the latest identity stored in `.reconc/audit.head.json`. Every
+audit reader verifies all retained archives, the live file, and the detached
+head before returning data. Generic retention never rewrites chained audit
+evidence and fails on an invalid chain or mismatched ring policy. Repo runtime
+is capped at 48 MiB. Known
 `reconc-proof-neg-*`, `reconc-proof-neg-copy-*`, and
 `reconc-proof-gocache-*` temp trees are removed after a two-hour inactive
 grace, retaining recent work while removing hard-kill residue before a full
@@ -1256,7 +1258,7 @@ destructive Git guard uses the same model for `git clean` and `git reset
 A stale compiled lockfile blocks gated work, because policy cannot be enforced
 from a lockfile that no longer describes its sources. The block does not seal
 the session: the PreToolUse route admits a lockfile-repair invocation
-(`reconc refresh` or `reconc compile`) even while the lockfile is stale, and the
+(`reconc refresh`) even while the lockfile is stale, and the
 block message names that escape plus the alternative of reverting the policy
 source. The exemption is bounded. It applies only when the failure is the
 lockfile contract itself rather than a policy violation, every executable
@@ -1457,7 +1459,7 @@ summarizes the core runtime responsibilities:
 - `internal/assurance`: bounded native repository assurance evaluators
 - `internal/hooks`: typed hook platform registry, artifact generation, non-destructive install/uninstall, scaffold sync, managed activation, and diagnostics
 - `internal/runtime/agentsession`: hook-runtime session state and event handling
-- `internal/audit`: opt-in JSONL decision log and rotation
+- `internal/audit`: opt-in SHA-256-linked decision log, detached head, verification, and rotation
 - `internal/atomicfile`: atomic write-on-change publication
 - `internal/filelock`: Unix/Windows cross-process file locking
 - `internal/grokacp`: strict Grok ACP client plus Unix-socket and Windows named-pipe leader steering/probing
@@ -1468,6 +1470,7 @@ summarizes the core runtime responsibilities:
 - `internal/proofbundle`: deterministic portable JSON and Markdown completion evidence
 - `internal/policyproof`: tamper-evident unresolved policy-decision receipts
 - `internal/retention`: runtime storage classes, lifecycle due checks, and cleanup
+- `internal/safename`: strict lower-kebab identifiers for user-controlled asset names
 - `internal/presets`: bundled and user policy packs
 - `internal/templates`: bundled and user rule templates
 - `internal/tasklifecycle`: typed TASK profiles, validation, bounded briefing,
@@ -1477,10 +1480,10 @@ summarizes the core runtime responsibilities:
 Key invariants:
 
 - Deterministic JSON artifacts
-- Stable schema and `format_version` fields; immutable v1 contracts live under `schemas/v1/`, while current portable policy locks use `schemas/v2/`; all fourteen v1 schemas and the current v2 lock schema ship in every future release containing repository sync
+- Stable schema and `format_version` fields; release-pinned v1 contracts live under `schemas/v1/`, legacy portable policy locks use `schemas/v2/`, and current portable policy locks use `schemas/v3/`; all fourteen v1 schemas plus the v2 and v3 lock schemas ship in every future release containing repository sync
 - Fail closed on malformed policy, stale lockfiles, schema drift, invalid globs, unsupported rule kinds, and non-portable current lock envelopes
-- No core policy-runtime network calls; explicit `reconc grok` delegates
-  authenticated inference to an external Grok ACP process
+- No core policy-runtime network calls; supported agent hosts own their
+  authenticated inference traffic
 - Behavior in internal packages, thin `cmd/reconc/main.go`
 
 ## Agent Skill
@@ -1776,12 +1779,8 @@ max-turn termination, and session-end reasons `channel_closed`/`shutdown` are
 never continued. Subagent lifecycle remains evidence-only in Reconc because
 repository TASK completion belongs to the parent session.
 
-`reconc grok` remains the explicit strict ACP driver. It selects Grok's
-`xai.api_key` authentication method when `XAI_API_KEY` is set and that method
-is offered; otherwise it uses Grok's offered cached-token method. Reconc owns
-the local ACP transport and policy gates, while the external Grok process owns
-model authentication and inference traffic. When the installed Grok guide
-documents passive Stop, optional leader mode (`grok --leader`, config
+When the installed Grok guide documents passive Stop, optional leader mode
+(`grok --leader`, config
 `use_leader`, or `GROK_LEADER_SOCKET`) supplies backward-compatible TUI
 continuation through protocol 1 `_x.ai/interject` over Unix sockets or Windows
 named pipes. Reconc suppresses the interjection only when native Stop
@@ -1959,15 +1958,17 @@ nothing.
 
 ## Publication Boundary
 
-`make publication-audit` deterministically scans every Git-tracked working-tree
-file, including release notes, tests, assets, and the complete
+`make publication-audit` deterministically scans every Git-tracked file present
+in the working tree, including release notes, tests, assets, and the complete
 `harness/template/repo-root-scaffold` output. It rejects private project-name
 digests, personal absolute paths, agent session/share URLs and trailers,
 token/key-shaped credentials, embedded URL credentials, sensitive tracked
 filenames, transcript exports, placeholder `.gitkeep` residue, unreadable or
 oversized files, and non-canonical tracked paths. Forbidden private names are
 stored only as one-way digests, so the scanner does not reintroduce them into
-the public tree. Tests construct every negative fixture from split strings and
+the public tree. An intended worktree deletion is excluded from the current-tree
+scan, while the post-boundary history scan still examines every previously
+published blob. Tests construct every negative fixture from split strings and
 prove that each rule can fail.
 
 The sole allowlist exception is history-scoped, owner-labelled, and bounded at

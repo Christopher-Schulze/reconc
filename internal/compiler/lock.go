@@ -22,11 +22,11 @@ const CompileLockRelativePath = ".reconc/.compile.lock"
 // error immediately. The OS releases the lock after a process crash;
 // the durable lock file itself is harmless and can be reused.
 //
-// The lock is purely advisory: reconc compile honours it, but nothing
+// The lock is purely advisory: Reconc policy refresh honours it, but nothing
 // prevents an external process from writing to the lockfile directly.
-// The goal is to prevent two `reconc compile` invocations from racing
-// on the same repo (e.g. CI running simultaneously with a dev's
-// local compile) and producing a torn lockfile.
+// The goal is to prevent two refresh invocations from racing on the same repo
+// (e.g. CI running simultaneously with a developer's local refresh) and
+// producing a torn lockfile.
 func AcquireCompileLock(repoRoot string) (release func() error, err error) {
 	lockDir := filepath.Join(repoRoot, ".reconc")
 	if err := os.MkdirAll(lockDir, 0o755); err != nil {
@@ -40,7 +40,7 @@ func AcquireCompileLock(repoRoot string) (release func() error, err error) {
 	unlock, err := filelock.TryLock(file)
 	if err != nil {
 		closeErr := file.Close()
-		return nil, errors.Join(fmt.Errorf("another reconc compile is in progress (lock: %s): %w", lockPath, err), closeErr)
+		return nil, errors.Join(fmt.Errorf("another reconc refresh is in progress (lock: %s): %w", lockPath, err), closeErr)
 	}
 	return func() error {
 		return errors.Join(unlock(), file.Close())

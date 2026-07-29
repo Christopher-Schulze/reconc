@@ -32,7 +32,8 @@ type bootstrapRequestFlags struct {
 
 func runBootstrap(args []string, version string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return runBootstrapLegacy(args, version, stdout, stderr)
+		printBootstrapHelp(stdout)
+		return nil
 	}
 	switch args[0] {
 	case "-h", "--help":
@@ -51,7 +52,7 @@ func runBootstrap(args []string, version string, stdout, stderr io.Writer) error
 	case "verify":
 		return runBootstrapVerify(args[1:], stdout)
 	default:
-		return runBootstrapLegacy(args, version, stdout, stderr)
+		return bootstrapCLIError("bootstrap", fmt.Sprintf("unknown subcommand %q", args[0]))
 	}
 }
 
@@ -74,10 +75,6 @@ func printBootstrapHelp(stdout io.Writer) {
 	fmt.Fprintln(stdout, "  --output PATH           Create the deterministic plan file; plan only")
 	fmt.Fprintln(stdout, "  --replace-output        Replace only a valid stale Reconc plan for the same repository")
 	fmt.Fprintln(stdout, "  --json                  Emit deterministic machine-readable output")
-	fmt.Fprintln(stdout, "")
-	fmt.Fprintln(stdout, "Compatibility: `reconc bootstrap [repo] [--preset NAME] [--skip-git-hook]")
-	fmt.Fprintln(stdout, "[--skip-agent-hooks] [--accept-managed-blocks] [--json]` runs a create-only")
-	fmt.Fprintln(stdout, "minimal transaction with detected hooks.")
 }
 
 func runBootstrapProfiles(args []string, stdout io.Writer) error {

@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/harness-pack-manifest.schema.json",
+  "$schema": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/harness-pack-manifest.schema.json",
   "format_version": "reconc.harness-pack/v1",
   "kind": "harness-pack",
   "name": "advanced",
@@ -18,8 +18,8 @@
     {
       "path": "tools/reconc/harness/template/BOOTSTRAP.md",
       "mode": 420,
-      "size": 43379,
-      "sha256": "59ea98538e4c5d20772f4ec480750f2bf8e76be0953ec8d13e7272bba7de2939",
+      "size": 43293,
+      "sha256": "e0933fa8b48f2dfc65e8c6b955d2ee6707db15c2153c1fa5a64b48374e20e1b1",
       "ownership": "pack-file"
     },
     {
@@ -529,8 +529,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/AGENTS.md",
       "mode": 420,
-      "size": 43527,
-      "sha256": "b09bce7299667a91d59e79733778dc9bf4bda17d98be2dc75d122a6718ea513d",
+      "size": 43493,
+      "sha256": "2b6ea2185ab863a02eda630ce51d1bfbcbb4a28377ecb39d88ac802dbe2a4801",
       "ownership": "pack-file"
     },
     {
@@ -606,8 +606,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/start.md",
       "mode": 420,
-      "size": 5069,
-      "sha256": "7e96289c67ef54d6f52e7df83bf0128503aba0dc923298c02886d693986dadb7",
+      "size": 5000,
+      "sha256": "68926a2710592a024f0916ceb6bb916f9fae66c296a51412b63004db4befe0b1",
       "ownership": "pack-file"
     },
     {
@@ -723,6 +723,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 670861,
-  "digest": "29eb31d49b39a7343267143809de3c4ac37cc935c50d1e7fe45900c79acc751e"
+  "total_bytes": 670672,
+  "digest": "d3a094d6a26508bc0aabfe5e7880ee05c3a01cbb6781bc7f11cea81951a94ae2"
 }

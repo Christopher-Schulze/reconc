@@ -14,6 +14,7 @@ import (
 
 	"reconc.dev/reconc/internal/commandproof"
 	"reconc.dev/reconc/internal/compiler"
+	"reconc.dev/reconc/internal/ingest"
 )
 
 const syncTestVersion = "0.9.0"
@@ -1187,11 +1188,27 @@ func TestRepositorySyncMigratesOnlyReceiptOwnedPolicyLock(t *testing.T) {
 	discovery := payload["discovery"].(map[string]interface{})
 	discovery["repo_root"] = repo
 	discovery["start_path"] = repo
-	digest, err := compiler.ComputeLockDigest(payload)
+	bundle, err := ingest.LoadPolicySources(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload["lock_digest"] = digest
+	legacySources := make([]interface{}, 0, len(bundle.Sources))
+	for _, source := range bundle.Sources {
+		legacySource := map[string]interface{}{
+			"kind":    string(source.Kind),
+			"path":    source.Path,
+			"content": source.Content,
+		}
+		if source.BlockID != "" {
+			legacySource["block_id"] = source.BlockID
+		}
+		if source.LineStart != 0 {
+			legacySource["line_start"] = source.LineStart
+		}
+		legacySources = append(legacySources, legacySource)
+	}
+	payload["sources"] = legacySources
+	delete(payload, "lock_digest")
 	legacy, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		t.Fatal(err)
@@ -1208,7 +1225,9 @@ func TestRepositorySyncMigratesOnlyReceiptOwnedPolicyLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	action := syncActionForPath(t, plan, ".reconc/policy.lock.json")
-	if action.State != SyncReplaceOwned || len(plan.Migrations) != 1 {
+	if action.State != SyncReplaceOwned || len(plan.Migrations) != 2 ||
+		plan.Migrations[0].From != "1" || plan.Migrations[0].To != "2" ||
+		plan.Migrations[1].From != "2" || plan.Migrations[1].To != compiler.LockfileFormatVersion {
 		t.Fatalf("policy migration action = %+v migrations=%v", action, plan.Migrations)
 	}
 	if _, err := ApplySyncPlan(plan, plan.PlanDigest, syncTestVersion); err != nil {

@@ -25,6 +25,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 	rerrors "reconc.dev/reconc/internal/errors"
+	"reconc.dev/reconc/internal/safename"
 )
 
 // HomeEnvVar overrides the location of the reconc home directory.
@@ -141,19 +142,23 @@ func List() ([]Metadata, error) {
 
 // Inspect returns one preset's metadata plus validated manifest when present.
 func Inspect(name string) (Metadata, error) {
-	content, err := Load(name)
+	cleaned, err := safename.Normalize("preset", name)
+	if err != nil {
+		return Metadata{}, &rerrors.PresetError{Message: err.Error()}
+	}
+	content, err := Load(cleaned)
 	if err != nil {
 		return Metadata{}, err
 	}
-	path, source, err := Path(name)
+	path, source, err := Path(cleaned)
 	if err != nil {
 		return Metadata{}, err
 	}
-	manifest, err := parseManifest(strings.TrimSpace(name), content)
+	manifest, err := parseManifest(cleaned, content)
 	if err != nil {
 		return Metadata{}, err
 	}
-	return Metadata{Name: strings.TrimSpace(name), Path: path, Source: source, Manifest: manifest}, nil
+	return Metadata{Name: cleaned, Path: path, Source: source, Manifest: manifest}, nil
 }
 
 // ValidateSelection rejects explicitly conflicting selected packs. Conflict
@@ -336,14 +341,14 @@ func normalizeManifestList(name string, values *[]string) error {
 //
 // Returns *PresetNotFoundError when the name does not resolve.
 func Load(name string) (string, error) {
-	cleaned := strings.TrimSpace(name)
-	if cleaned == "" {
-		return "", &rerrors.PresetError{Message: "preset name must be a non-empty string"}
+	cleaned, err := safename.Normalize("preset", name)
+	if err != nil {
+		return "", &rerrors.PresetError{Message: err.Error()}
 	}
 
 	// User wins over bundled.
 	userPath := filepath.Join(userPresetsDir(), cleaned+PresetSuffix)
-	if data, err := os.ReadFile(userPath); err == nil {
+	if data, err := readRegularFile(userPath); err == nil {
 		return string(data), nil
 	} else if !os.IsNotExist(err) {
 		return "", &rerrors.PresetError{Message: "read user preset " + cleaned, Cause: err}
@@ -361,14 +366,19 @@ func Load(name string) (string, error) {
 // absolute on-disk path for user presets, or the virtual embedded path
 // for bundled). Useful for diagnostics and provenance reporting.
 func Path(name string) (string, Source, error) {
-	cleaned := strings.TrimSpace(name)
-	if cleaned == "" {
-		return "", "", &rerrors.PresetError{Message: "preset name must be a non-empty string"}
+	cleaned, err := safename.Normalize("preset", name)
+	if err != nil {
+		return "", "", &rerrors.PresetError{Message: err.Error()}
 	}
 
 	userPath := filepath.Join(userPresetsDir(), cleaned+PresetSuffix)
-	if info, err := os.Stat(userPath); err == nil && info.Mode().IsRegular() {
+	if info, statErr := os.Lstat(userPath); statErr == nil {
+		if !info.Mode().IsRegular() {
+			return "", "", &rerrors.PresetError{Message: "user preset " + cleaned + " must be a regular file and not a symlink"}
+		}
 		return userPath, SourceUser, nil
+	} else if !os.IsNotExist(statErr) {
+		return "", "", &rerrors.PresetError{Message: "inspect user preset " + cleaned, Cause: statErr}
 	}
 
 	bundledPath := "packs/" + cleaned + PresetSuffix
@@ -431,7 +441,24 @@ func scanUser() ([]Metadata, error) {
 		}
 		full := filepath.Join(dir, e.Name())
 		name := strings.TrimSuffix(e.Name(), PresetSuffix)
+		if _, err := safename.Normalize("preset", name); err != nil {
+			return nil, err
+		}
+		if e.Type()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("user preset %s must be a regular file and not a symlink", name)
+		}
 		out = append(out, Metadata{Name: name, Path: full, Source: SourceUser})
 	}
 	return out, nil
+}
+
+func readRegularFile(path string) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s must be a regular file and not a symlink", path)
+	}
+	return os.ReadFile(path)
 }

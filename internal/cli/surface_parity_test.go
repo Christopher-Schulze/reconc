@@ -22,7 +22,6 @@ func TestMetadataFlagsMatchParserSurfaces(t *testing.T) {
 	t.Chdir(probeRoot)
 	valueFlags := metadataValueFlags()
 	unsupported := map[string]bool{
-		"bootstrap::--force":               true,
 		"bootstrap:apply:--output":         true,
 		"bootstrap:apply:--replace-output": true,
 		"run:off:--force":                  true,
@@ -145,6 +144,8 @@ func parserProbeBase(path []string) []string {
 		args = append(args, "surface-probe-scaffold")
 	case "hook:claim":
 		args = append(args, ".", "surface-probe-claim")
+	case "hook:evidence-resolve":
+		args = append(args, ".")
 	case "preset:show", "template:show":
 		args = append(args, "default")
 	case "task:claim", "task:resume":

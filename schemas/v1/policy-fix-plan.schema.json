@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/policy-fix-plan.schema.json",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/policy-fix-plan.schema.json",
   "title": "Reconc policy fix plan v1",
   "type": "object",
   "additionalProperties": false,

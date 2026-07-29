@@ -16,11 +16,13 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"reconc.dev/reconc/internal/schema"
 )
 
 const (
 	FormatVersion    = "reconc.harness-pack/v1"
-	ManifestSchema   = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/harness-pack-manifest.schema.json"
+	ManifestSchema   = schema.HarnessPackManifestURL
 	MaxManifestBytes = 1 << 20
 	MaxFileBytes     = 4 << 20
 	MaxTotalBytes    = 16 << 20

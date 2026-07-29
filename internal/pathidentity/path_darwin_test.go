@@ -3,6 +3,7 @@
 package pathidentity
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,6 +34,37 @@ func TestResolveExistingCanonicalizesDarwinCase(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, string(filepath.Separator)+"MiXeD") {
 		t.Fatalf("resolved path did not preserve filesystem case: %q", got)
+	}
+}
+
+func TestSelectDarwinIdentityFallsBackWhenDescriptorLookupIsUnavailable(t *testing.T) {
+	evaluated := filepath.Join(string(filepath.Separator), "tmp", "MiXeD")
+	for _, test := range []struct {
+		name    string
+		buffer  []byte
+		callErr error
+	}{
+		{name: "syscall error", buffer: []byte("ignored\x00"), callErr: errors.New("not supported")},
+		{name: "empty response", buffer: make([]byte, 32)},
+		{name: "unterminated response", buffer: []byte("unterminated")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := selectDarwinIdentity(evaluated, test.buffer, test.callErr); got != evaluated {
+				t.Fatalf("fallback identity = %q, want %q", got, evaluated)
+			}
+		})
+	}
+}
+
+func TestSelectDarwinIdentityUsesOnlyCaseEquivalentDescriptorPath(t *testing.T) {
+	evaluated := filepath.Join(string(filepath.Separator), "tmp", "mixed")
+	canonical := filepath.Join(string(filepath.Separator), "tmp", "MiXeD")
+	if got := selectDarwinIdentity(evaluated, append([]byte(canonical), 0), nil); got != canonical {
+		t.Fatalf("case-canonical identity = %q, want %q", got, canonical)
+	}
+	unrelated := filepath.Join(string(filepath.Separator), "tmp", "other")
+	if got := selectDarwinIdentity(evaluated, append([]byte(unrelated), 0), nil); got != evaluated {
+		t.Fatalf("unrelated descriptor path replaced entry identity: %q", got)
 	}
 }
 

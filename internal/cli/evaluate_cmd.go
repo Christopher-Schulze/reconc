@@ -17,8 +17,9 @@ import (
 //
 // Returns *CLIError exit 2 on a blocking decision, exit 1 on runtime
 // errors, exit 0 on pass/warn.
-func runCheck(args []string, stdout, stderr io.Writer) (resultErr error) {
+func runCheck(args []string, reconcVersion string, stdout, stderr io.Writer) (resultErr error) {
 	repo := "."
+	repoSet := false
 	jsonOut := false
 	terse := false
 	outputPath := ""
@@ -105,7 +106,11 @@ func runCheck(args []string, stdout, stderr io.Writer) (resultErr error) {
 			if len(a) > 0 && a[0] == '-' {
 				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc check: unknown flag %q", a)}
 			}
+			if repoSet {
+				return &CLIError{ExitCode: 1, Message: "reconc check: expected at most one repo path"}
+			}
 			repo = a
+			repoSet = true
 		}
 		i++
 	}
@@ -122,7 +127,9 @@ func runCheck(args []string, stdout, stderr io.Writer) (resultErr error) {
 	if err := persistPolicyDecision("check", candidate, report); err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc check: persist decision proof: " + err.Error()}
 	}
-	maybeAudit("check", report, start)
+	if err := maybeAudit("check", report, reconcVersion, start); err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc check: append audit evidence: " + err.Error()}
+	}
 	out, closeOutput, err := teeToFile(stdout, outputPath)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc check: open output file: " + err.Error()}
@@ -162,12 +169,13 @@ func runCheck(args []string, stdout, stderr io.Writer) (resultErr error) {
 //
 // Exit codes: 0 = pass/warn (no blocking violation), 1 = error,
 // 2 = blocking violation.
-func runAssert(args []string, stdout, stderr io.Writer) error {
+func runAssert(args []string, reconcVersion string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
 		return &CLIError{ExitCode: 1, Message: "reconc assert: missing required <rule-id> argument"}
 	}
 	ruleID := ""
 	repo := "."
+	repoSet := false
 	jsonOut := false
 	vars := map[string]string{}
 	inputs := runtime.Empty()
@@ -248,7 +256,11 @@ func runAssert(args []string, stdout, stderr io.Writer) error {
 			if len(a) > 0 && a[0] == '-' {
 				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc assert: unknown flag %q", a)}
 			}
+			if repoSet {
+				return &CLIError{ExitCode: 1, Message: "reconc assert: expected at most one repo path"}
+			}
 			repo = a
+			repoSet = true
 		}
 		i++
 	}
@@ -258,7 +270,9 @@ func runAssert(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc assert: " + err.Error()}
 	}
-	maybeAudit("assert", report, startAssert)
+	if err := maybeAudit("assert", report, reconcVersion, startAssert); err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc assert: append audit evidence: " + err.Error()}
+	}
 
 	if jsonOut {
 		enc := json.NewEncoder(stdout)
@@ -288,14 +302,14 @@ func runAssert(args []string, stdout, stderr io.Writer) error {
 //
 // Wraps check + BuildFixPlan to produce action-focused remediation
 // output. Same exit codes as check (0 = pass/warn, 2 = block).
-func runFix(args []string, stdout, stderr io.Writer) (resultErr error) {
-	return runFixCommand("fix", args, stdout, stderr)
+func runFix(args []string, reconcVersion string, stdout, stderr io.Writer) (resultErr error) {
+	return runFixCommand("fix", args, false, reconcVersion, stdout, stderr)
 }
 
-func runFixCommand(command string, args []string, stdout, stderr io.Writer) (resultErr error) {
+func runFixCommand(command string, args []string, nextOnly bool, reconcVersion string, stdout, stderr io.Writer) (resultErr error) {
 	repo := "."
+	repoSet := false
 	jsonOut := false
-	nextOnly := false
 	outputPath := ""
 	inputs := runtime.Empty()
 	prefix := "reconc " + command + ": "
@@ -306,8 +320,6 @@ func runFixCommand(command string, args []string, stdout, stderr io.Writer) (res
 		switch a {
 		case "--json":
 			jsonOut = true
-		case "--next":
-			nextOnly = true
 		case "--output":
 			val, ok := nextArgValue(args, &i, a)
 			if !ok {
@@ -317,7 +329,7 @@ func runFixCommand(command string, args []string, stdout, stderr io.Writer) (res
 		case "-h", "--help":
 			fmt.Fprintln(stdout, "Usage: reconc fix [repo] [--read PATH] [--write PATH]")
 			fmt.Fprintln(stdout, "                  [--command CMD] [--command-success CMD]")
-			fmt.Fprintln(stdout, "                  [--command-failure CMD] [--claim NAME] [--json] [--next] [--output PATH]")
+			fmt.Fprintln(stdout, "                  [--command-failure CMD] [--claim NAME] [--json] [--output PATH]")
 			fmt.Fprintln(stdout, "")
 			fmt.Fprintln(stdout, "Same evidence as `reconc check` but emits a structured remediation plan")
 			fmt.Fprintln(stdout, "with per-violation steps + suggested commands/claims/files. Exit codes")
@@ -369,7 +381,11 @@ func runFixCommand(command string, args []string, stdout, stderr io.Writer) (res
 			if len(a) > 0 && a[0] == '-' {
 				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("%sunknown flag %q", prefix, a)}
 			}
+			if repoSet {
+				return &CLIError{ExitCode: 1, Message: prefix + "expected at most one repo path"}
+			}
 			repo = a
+			repoSet = true
 		}
 		i++
 	}
@@ -379,7 +395,9 @@ func runFixCommand(command string, args []string, stdout, stderr io.Writer) (res
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: prefix + err.Error()}
 	}
-	maybeAudit(command, report, startFix)
+	if err := maybeAudit(command, report, reconcVersion, startFix); err != nil {
+		return &CLIError{ExitCode: 1, Message: prefix + "append audit evidence: " + err.Error()}
+	}
 	plan := runtime.BuildFixPlan(report)
 	out, closeOutput, err := teeToFile(stdout, outputPath)
 	if err != nil {
@@ -433,7 +451,7 @@ func runFixCommand(command string, args []string, stdout, stderr io.Writer) (res
 	return nil
 }
 
-func runNext(args []string, stdout, stderr io.Writer) error {
+func runNext(args []string, reconcVersion string, stdout, stderr io.Writer) error {
 	for _, a := range args {
 		if a == "-h" || a == "--help" {
 			fmt.Fprintln(stdout, "Usage: reconc next [repo] [--read PATH] [--write PATH]")
@@ -445,7 +463,7 @@ func runNext(args []string, stdout, stderr io.Writer) error {
 		}
 	}
 	if hasExplicitNextEvidence(args) {
-		return runFixCommand("next", append(append([]string{}, args...), "--next"), stdout, stderr)
+		return runFixCommand("next", args, true, reconcVersion, stdout, stderr)
 	}
 	return runPersistedNext(args, stdout)
 }
@@ -597,7 +615,7 @@ func renderPolicyReplayCommand(report *runtime.CheckReport) string {
 //	no: <rule-id> <recommended_action>
 //
 // Exit codes: 0 = yes, 2 = no, 1 = error.
-func runCan(args []string, stdout, stderr io.Writer) error {
+func runCan(args []string, reconcVersion string, stdout, stderr io.Writer) error {
 	// Handle --help before arg-count check so `reconc can --help` works.
 	for _, a := range args {
 		if a == "-h" || a == "--help" {
@@ -613,6 +631,7 @@ func runCan(args []string, stdout, stderr io.Writer) error {
 	action := args[0]
 	path := args[1]
 	repo := "."
+	repoSet := false
 	showWhy := false
 	jsonOut := false
 	for i := 2; i < len(args); i++ {
@@ -631,7 +650,11 @@ func runCan(args []string, stdout, stderr io.Writer) error {
 			if len(a) > 0 && a[0] == '-' {
 				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc can: unknown flag %q", a)}
 			}
+			if repoSet {
+				return &CLIError{ExitCode: 1, Message: "reconc can: expected at most one repo path"}
+			}
 			repo = a
+			repoSet = true
 		}
 	}
 
@@ -646,7 +669,9 @@ func runCan(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc can: " + err.Error()}
 	}
-	maybeAudit("can", report, startCan)
+	if err := maybeAudit("can", report, reconcVersion, startCan); err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc can: append audit evidence: " + err.Error()}
+	}
 
 	yes := report.Decision != runtime.DecisionBlock
 	if jsonOut {

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/repository-sync-report.schema.json",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/repository-sync-report.schema.json",
   "title": "Reconc repository synchronization result",
   "type": "object",
   "oneOf": [
@@ -71,7 +71,7 @@
       ],
       "properties": {
         "$schema": {
-          "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/repository-sync-report.schema.json"
+          "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/repository-sync-report.schema.json"
         },
         "format_version": {
           "const": "reconc.repository-sync-report/v1"
@@ -163,7 +163,7 @@
       ],
       "properties": {
         "$schema": {
-          "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/repository-sync-report.schema.json"
+          "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/repository-sync-report.schema.json"
         },
         "format_version": {
           "const": "reconc.repository-sync-verify/v1"
@@ -203,7 +203,7 @@
       ],
       "properties": {
         "$schema": {
-          "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/repository-sync-report.schema.json"
+          "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/repository-sync-report.schema.json"
         },
         "format_version": {
           "const": "reconc.repository-sync-recovery/v1"
@@ -259,7 +259,7 @@
       ],
       "properties": {
         "$schema": {
-          "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/repository-sync-report.schema.json"
+          "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/repository-sync-report.schema.json"
         },
         "format_version": {
           "const": "reconc.repository-sync-resolution/v1"

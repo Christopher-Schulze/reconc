@@ -75,15 +75,17 @@ type selectedRelease struct {
 	channel  Channel
 }
 
+type githubAsset struct {
+	Name               string `json:"name"`
+	Size               int64  `json:"size"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+}
+
 type githubRelease struct {
-	TagName    string `json:"tag_name"`
-	Draft      bool   `json:"draft"`
-	Prerelease bool   `json:"prerelease"`
-	Assets     []struct {
-		Name               string `json:"name"`
-		Size               int64  `json:"size"`
-		BrowserDownloadURL string `json:"browser_download_url"`
-	} `json:"assets"`
+	TagName    string        `json:"tag_name"`
+	Draft      bool          `json:"draft"`
+	Prerelease bool          `json:"prerelease"`
+	Assets     []githubAsset `json:"assets"`
 }
 
 type semanticVersion struct {
@@ -142,26 +144,43 @@ func selectOnlineRelease(ctx context.Context, exact string, channel Channel) (se
 		return selectedRelease{}, err
 	}
 	assetName := targetArtifact(version)
-	asset, checksumAsset, err := githubAssets(release, assetName)
+	asset, manifestAsset, checksumAsset, err := githubAssets(release, assetName)
 	if err != nil {
+		return selectedRelease{}, err
+	}
+	manifestBody, err := downloadBounded(ctx, manifestAsset.BrowserDownloadURL, maxReleaseMetadataBytes)
+	if err != nil {
+		return selectedRelease{}, fmt.Errorf("download release manifest: %w", err)
+	}
+	if int64(len(manifestBody)) != manifestAsset.Size {
+		return selectedRelease{}, errors.New("release manifest size does not match GitHub metadata")
+	}
+	manifest, err := decodeReleaseManifest(manifestBody)
+	if err != nil {
+		return selectedRelease{}, err
+	}
+	if manifest.Tag != release.TagName || manifest.Version != version || manifest.Prerelease != release.Prerelease {
+		return selectedRelease{}, errors.New("release manifest disagrees with GitHub release identity")
+	}
+	if err := validateOnlineInventory(release, manifest); err != nil {
 		return selectedRelease{}, err
 	}
 	checksums, err := downloadBounded(ctx, checksumAsset.BrowserDownloadURL, maxReleaseMetadataBytes)
 	if err != nil {
 		return selectedRelease{}, fmt.Errorf("download SHA256SUMS: %w", err)
 	}
-	digest, err := checksumForAsset(checksums, assetName)
-	if err != nil {
+	if int64(len(checksums)) != checksumAsset.Size {
+		return selectedRelease{}, errors.New("SHA256SUMS size does not match GitHub metadata")
+	}
+	if err := validateChecksumInventory(manifest, manifestBody, checksums); err != nil {
 		return selectedRelease{}, err
 	}
-	manifest := ReleaseManifest{
-		FormatVersion: releaseManifestFormat, Repository: releaseRepository,
-		Tag: release.TagName, Version: version, Prerelease: release.Prerelease,
-		Assets: []ReleaseAsset{{
-			Name: assetName, SHA256: digest, Size: asset.Size, URL: asset.BrowserDownloadURL,
-		}},
+	selected, ok := releaseAssetByName(manifest, assetName)
+	if !ok || selected.Size != asset.Size {
+		return selectedRelease{}, errors.New("target asset disagrees with the strict release manifest")
 	}
-	return selectedRelease{manifest: manifest, asset: manifest.Assets[0], channel: channel}, nil
+	selected.URL = asset.BrowserDownloadURL
+	return selectedRelease{manifest: manifest, asset: selected, channel: channel}, nil
 }
 
 func discoverOnlineRelease(ctx context.Context, exact string, channel Channel) (githubRelease, error) {
@@ -242,43 +261,42 @@ func downloadBounded(ctx context.Context, endpoint string, limit int64) ([]byte,
 	return body, nil
 }
 
-func githubAssets(release githubRelease, target string) (struct {
-	Name               string `json:"name"`
-	Size               int64  `json:"size"`
-	BrowserDownloadURL string `json:"browser_download_url"`
-}, struct {
-	Name               string `json:"name"`
-	Size               int64  `json:"size"`
-	BrowserDownloadURL string `json:"browser_download_url"`
-}, error) {
-	var targetAsset, checksumsAsset struct {
-		Name               string `json:"name"`
-		Size               int64  `json:"size"`
-		BrowserDownloadURL string `json:"browser_download_url"`
-	}
+func githubAssets(release githubRelease, target string) (githubAsset, githubAsset, githubAsset, error) {
+	var targetAsset, manifestAsset, checksumsAsset githubAsset
 	if len(release.Assets) > maxReleaseAssets {
-		return targetAsset, checksumsAsset, fmt.Errorf("release has more than %d assets", maxReleaseAssets)
+		return targetAsset, manifestAsset, checksumsAsset, fmt.Errorf("release has more than %d assets", maxReleaseAssets)
 	}
 	targetCount := 0
+	manifestCount := 0
 	checksumCount := 0
+	seen := map[string]struct{}{}
 	for _, asset := range release.Assets {
+		if _, exists := seen[asset.Name]; exists {
+			return targetAsset, manifestAsset, checksumsAsset, fmt.Errorf("release contains duplicate asset %q", asset.Name)
+		}
+		seen[asset.Name] = struct{}{}
 		expectedURL := releaseDownloadBase + "/" + release.TagName + "/" + asset.Name
 		if asset.BrowserDownloadURL != expectedURL {
-			return targetAsset, checksumsAsset, fmt.Errorf("release asset %q has noncanonical immutable URL", asset.Name)
+			return targetAsset, manifestAsset, checksumsAsset, fmt.Errorf("release asset %q has noncanonical immutable URL", asset.Name)
 		}
 		switch asset.Name {
 		case target:
 			targetAsset = asset
 			targetCount++
+		case releaseManifestName:
+			manifestAsset = asset
+			manifestCount++
 		case releaseChecksumsName:
 			checksumsAsset = asset
 			checksumCount++
 		}
 	}
-	if targetCount != 1 || checksumCount != 1 || targetAsset.Size <= 0 {
-		return targetAsset, checksumsAsset, fmt.Errorf("release must contain exactly one %s and one %s", target, releaseChecksumsName)
+	if targetCount != 1 || manifestCount != 1 || checksumCount != 1 ||
+		targetAsset.Size <= 0 || manifestAsset.Size <= 0 || checksumsAsset.Size <= 0 {
+		return targetAsset, manifestAsset, checksumsAsset,
+			fmt.Errorf("release must contain exactly one %s, %s, and %s", target, releaseManifestName, releaseChecksumsName)
 	}
-	return targetAsset, checksumsAsset, nil
+	return targetAsset, manifestAsset, checksumsAsset, nil
 }
 
 func selectLocalRelease(directory string, exact string, channel Channel) (selectedRelease, error) {
@@ -296,6 +314,10 @@ func selectLocalRelease(directory string, exact string, channel Channel) (select
 	manifest, err := loadReleaseManifest(filepath.Join(absolute, releaseManifestName))
 	if err != nil {
 		return selectedRelease{}, err
+	}
+	manifestBody, err := os.ReadFile(filepath.Join(absolute, releaseManifestName))
+	if err != nil {
+		return selectedRelease{}, fmt.Errorf("read local release manifest: %w", err)
 	}
 	expectedChannel := channel
 	if exact != "" {
@@ -334,6 +356,9 @@ func selectLocalRelease(directory string, exact string, channel Channel) (select
 	if digest != selected.SHA256 {
 		return selectedRelease{}, errors.New("release manifest and SHA256SUMS disagree")
 	}
+	if err := validateChecksumInventory(manifest, manifestBody, checksums); err != nil {
+		return selectedRelease{}, err
+	}
 	if err := validateLocalInventory(absolute, manifest, checksums); err != nil {
 		return selectedRelease{}, err
 	}
@@ -352,8 +377,19 @@ func loadReleaseManifest(path string) (ReleaseManifest, error) {
 	if err != nil {
 		return ReleaseManifest{}, err
 	}
-	defer file.Close()
-	decoder := json.NewDecoder(io.LimitReader(file, maxReleaseMetadataBytes+1))
+	body, readErr := io.ReadAll(io.LimitReader(file, maxReleaseMetadataBytes+1))
+	closeErr := file.Close()
+	if readErr != nil || closeErr != nil {
+		return ReleaseManifest{}, errors.Join(readErr, closeErr)
+	}
+	if len(body) > maxReleaseMetadataBytes {
+		return ReleaseManifest{}, fmt.Errorf("release manifest exceeds %d bytes", maxReleaseMetadataBytes)
+	}
+	return decodeReleaseManifest(body)
+}
+
+func decodeReleaseManifest(body []byte) (ReleaseManifest, error) {
+	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	var manifest ReleaseManifest
 	if err := decoder.Decode(&manifest); err != nil {
@@ -366,6 +402,38 @@ func loadReleaseManifest(path string) (ReleaseManifest, error) {
 		return ReleaseManifest{}, err
 	}
 	return manifest, nil
+}
+
+func validateOnlineInventory(release githubRelease, manifest ReleaseManifest) error {
+	expected := map[string]int64{
+		releaseManifestName:  -1,
+		releaseChecksumsName: -1,
+	}
+	for _, asset := range manifest.Assets {
+		expected[asset.Name] = asset.Size
+	}
+	if len(release.Assets) != len(expected) {
+		return errors.New("GitHub release inventory does not match the strict release manifest")
+	}
+	for _, asset := range release.Assets {
+		expectedSize, ok := expected[asset.Name]
+		if !ok {
+			return fmt.Errorf("GitHub release contains unmanifested asset %q", asset.Name)
+		}
+		if expectedSize >= 0 && asset.Size != expectedSize {
+			return fmt.Errorf("GitHub release asset size disagrees with manifest: %s", asset.Name)
+		}
+	}
+	return nil
+}
+
+func releaseAssetByName(manifest ReleaseManifest, name string) (ReleaseAsset, bool) {
+	for _, asset := range manifest.Assets {
+		if asset.Name == name {
+			return asset, true
+		}
+	}
+	return ReleaseAsset{}, false
 }
 
 func validateReleaseManifest(manifest ReleaseManifest) error {
@@ -433,6 +501,54 @@ func validateLocalInventory(directory string, manifest ReleaseManifest, checksum
 		}
 	}
 	return nil
+}
+
+func validateChecksumInventory(manifest ReleaseManifest, manifestBody, checksums []byte) error {
+	expected := make(map[string]string, len(manifest.Assets)+1)
+	for _, asset := range manifest.Assets {
+		expected[asset.Name] = asset.SHA256
+	}
+	manifestDigest := sha256.Sum256(manifestBody)
+	expected[releaseManifestName] = hex.EncodeToString(manifestDigest[:])
+	actual, err := parseChecksumManifest(checksums)
+	if err != nil {
+		return err
+	}
+	if len(actual) != len(expected) {
+		return errors.New("SHA256SUMS inventory does not match the strict release manifest")
+	}
+	for name, digest := range expected {
+		if actual[name] != digest {
+			return fmt.Errorf("SHA256SUMS disagrees with release manifest for %s", name)
+		}
+	}
+	return nil
+}
+
+func parseChecksumManifest(body []byte) (map[string]string, error) {
+	scanner := bufio.NewScanner(bytes.NewReader(body))
+	scanner.Buffer(make([]byte, 64<<10), maxReleaseMetadataBytes)
+	out := map[string]string{}
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) != 2 {
+			return nil, errors.New("malformed SHA256SUMS entry")
+		}
+		digest := strings.ToLower(fields[0])
+		name := strings.TrimPrefix(fields[1], "*")
+		if filepath.Base(name) != name || !artifactNamePattern.MatchString(name) ||
+			!sha256Pattern.MatchString(digest) {
+			return nil, fmt.Errorf("invalid SHA256SUMS entry for %q", name)
+		}
+		if _, exists := out[name]; exists {
+			return nil, fmt.Errorf("duplicate SHA256SUMS entry for %s", name)
+		}
+		out[name] = digest
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func materializeCandidate(ctx context.Context, release selectedRelease, destination string) error {

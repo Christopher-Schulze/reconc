@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/global-diagnostic.schema.json",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/global-diagnostic.schema.json",
   "title": "Reconc global installation diagnostic v1",
   "type": "object",
   "additionalProperties": false,
@@ -31,7 +31,7 @@
   ],
   "properties": {
     "$schema": {
-      "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/global-diagnostic.schema.json"
+      "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/global-diagnostic.schema.json"
     },
     "format_version": { "const": "reconc.global-diagnostic/v1" },
     "operation": { "const": "doctor.global" },

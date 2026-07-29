@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	reconbootstrap "reconc.dev/reconc/internal/bootstrap"
 )
@@ -94,46 +93,14 @@ func TestGitHelpersOnCleanAndDirtyRepo(t *testing.T) {
 	}
 }
 
-func TestWatchHelpersCompileOnceAndMTime(t *testing.T) {
-	repo := makeCheckRepo(t,
-		"rules:\n  - id: r1\n    kind: deny_write\n    paths: ['gen/**']\n    mode: warn\n    message: m\n")
-
-	sig1 := sourceMTimeSignature(repo)
-	if !strings.Contains(sig1, "AGENTS.md=") || !strings.Contains(sig1, "policies/rules.yml=") {
-		t.Fatalf("expected source signature to include known policy files, got %q", sig1)
-	}
-
-	rulesPath := filepath.Join(repo, "policies", "rules.yml")
-	now := time.Now().Add(2 * time.Second)
-	if err := os.Chtimes(rulesPath, now, now); err != nil {
-		t.Fatalf("chtimes rules.yml: %v", err)
-	}
-	sig2 := sourceMTimeSignature(repo)
-	if sig1 == sig2 {
-		t.Fatal("expected source signature to change after mtime update")
-	}
-
-	var stdout, stderr bytes.Buffer
-	compileOnce(&stdout, &stderr, repo, "0.5.0-test")
-	if !strings.Contains(stdout.String(), "compiled 1 rules from") {
-		t.Fatalf("expected compileOnce success output, got %q", stdout.String())
-	}
-
-	stdout.Reset()
-	compileOnce(&stdout, &stderr, t.TempDir(), "0.5.0-test")
-	if !strings.Contains(stdout.String(), "compile failed") {
-		t.Fatalf("expected compileOnce failure output, got %q", stdout.String())
-	}
-}
-
-func TestRunFixNextBranches(t *testing.T) {
+func TestRunNextBranches(t *testing.T) {
 	blockRepo := makeCheckRepo(t,
 		"rules:\n  - id: deny-gen\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: generated output is locked\n")
 
 	var stdout, stderr bytes.Buffer
-	err := Run([]string{"fix", blockRepo, "--write", "gen/output.go", "--next"}, "0.5.0-test", &stdout, &stderr)
+	err := Run([]string{"next", blockRepo, "--write", "gen/output.go"}, "0.5.0-test", &stdout, &stderr)
 	if err == nil || ExitCode(err) != 2 {
-		t.Fatalf("expected blocking fix --next exit 2, got err=%v code=%d", err, ExitCode(err))
+		t.Fatalf("expected blocking next exit 2, got err=%v code=%d", err, ExitCode(err))
 	}
 	if !strings.Contains(stdout.String(), "next: [blocking|") {
 		t.Fatalf("expected compact next remediation output, got %q", stdout.String())
@@ -143,15 +110,9 @@ func TestRunFixNextBranches(t *testing.T) {
 		"rules:\n  - id: deny-gen\n    kind: deny_write\n    paths: ['gen/**']\n    mode: warn\n    message: generated output is locked\n")
 	stdout.Reset()
 	stderr.Reset()
-	if err := Run([]string{"fix", passRepo, "--next", "--json"}, "0.5.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("fix --next --json pass repo: %v", err)
-	}
-	var payload map[string]interface{}
-	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
-		t.Fatalf("expected JSON payload, got %v\n%s", err, stdout.String())
-	}
-	if payload["remediation_count"] != float64(0) {
-		t.Fatalf("expected remediation_count 0, got %v", payload["remediation_count"])
+	err = Run([]string{"next", passRepo, "--json"}, "0.5.0-test", &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "no unresolved blocking decision") {
+		t.Fatalf("next without a blocking decision must fail closed: %v", err)
 	}
 }
 
@@ -343,34 +304,11 @@ func TestRunExplainFreshTextAndFormatValidation(t *testing.T) {
 	}
 }
 
-func TestRunWatchHelpAndValidation(t *testing.T) {
+func TestRunWatchIsRemoved(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"watch", "--help"}, "0.5.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("watch --help: %v", err)
-	}
-	if !strings.Contains(stdout.String(), "Usage: reconc watch") {
-		t.Fatalf("expected watch help output, got %q", stdout.String())
-	}
-
-	cases := []struct {
-		argv    []string
-		wantSub string
-	}{
-		{argv: []string{"watch", "--interval-ms"}, wantSub: "--interval-ms requires an integer"},
-		{argv: []string{"watch", "--interval-ms", "50"}, wantSub: "--interval-ms must be >= 100"},
-		{argv: []string{"watch", "--bogus"}, wantSub: "unknown flag"},
-		{argv: []string{"watch", t.TempDir()}, wantSub: "no reconc config found"},
-	}
-	for _, tc := range cases {
-		stdout.Reset()
-		stderr.Reset()
-		err := Run(tc.argv, "0.5.0-test", &stdout, &stderr)
-		if err == nil {
-			t.Fatalf("expected watch error for %v", tc.argv)
-		}
-		if !strings.Contains(err.Error(), tc.wantSub) {
-			t.Fatalf("watch error %q does not contain %q", err.Error(), tc.wantSub)
-		}
+	err := Run([]string{"watch", "--help"}, "0.5.0-test", &stdout, &stderr)
+	if err == nil || ExitCode(err) != 1 || !strings.Contains(err.Error(), `unknown subcommand "watch"`) {
+		t.Fatalf("removed watch command remained callable: %v", err)
 	}
 }
 
@@ -548,17 +486,10 @@ func TestRunAuditCommandsOnRecordedEntries(t *testing.T) {
 
 func TestRunAuditStatsTextAndFlagValidation(t *testing.T) {
 	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".reconc"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	payload := strings.Join([]string{
-		`{"ts":"2026-04-14T00:00:00Z","event":"check","decision":"block","blocking_count":1,"rule_ids":["r1"]}`,
-		`{"ts":"2026-04-14T01:00:00Z","event":"ci","decision":"pass","blocking_count":0,"rule_ids":["r1"]}`,
-		"",
-	}, "\n")
-	if err := os.WriteFile(filepath.Join(repo, ".reconc", "audit.jsonl"), []byte(payload), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	appendCLIAuditRecords(t, repo,
+		cliAuditRecord{timestamp: "2026-04-14T00:00:00Z", event: "check", decision: "block", blockingCount: 1, ruleIDs: []string{"r1"}},
+		cliAuditRecord{timestamp: "2026-04-14T01:00:00Z", event: "ci", decision: "pass", ok: true, ruleIDs: []string{"r1"}},
+	)
 
 	var stdout, stderr bytes.Buffer
 	if err := Run([]string{"audit", "stats", repo}, "0.5.0-test", &stdout, &stderr); err != nil {
@@ -581,17 +512,10 @@ func TestRunAuditStatsTextAndFlagValidation(t *testing.T) {
 
 func TestRunAuditTailFiltersAndMutualExclusion(t *testing.T) {
 	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".reconc"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	payload := strings.Join([]string{
-		`{"ts":"2026-04-14T00:00:00Z","event":"check","decision":"block","ok":false,"blocking_count":1,"rule_ids":["r1"],"write_paths":["src/a.go"]}`,
-		`{"ts":"2026-04-14T01:00:00Z","event":"ci","decision":"pass","ok":true,"blocking_count":0,"rule_ids":["r2"],"write_paths":["src/b.go"]}`,
-		"",
-	}, "\n")
-	if err := os.WriteFile(filepath.Join(repo, ".reconc", "audit.jsonl"), []byte(payload), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	appendCLIAuditRecords(t, repo,
+		cliAuditRecord{timestamp: "2026-04-14T00:00:00Z", event: "check", decision: "block", blockingCount: 1, ruleIDs: []string{"r1"}, writePaths: []string{"src/a.go"}},
+		cliAuditRecord{timestamp: "2026-04-14T01:00:00Z", event: "ci", decision: "pass", ok: true, ruleIDs: []string{"r2"}, writePaths: []string{"src/b.go"}},
+	)
 
 	var stdout, stderr bytes.Buffer
 	if err := Run([]string{"audit", "tail", repo, "--rule", "r1", "--decision", "block", "--since", "2026-04-13T00:00:00Z"}, "0.5.0-test", &stdout, &stderr); err != nil {
@@ -623,7 +547,10 @@ func TestBuildStartDataAndRenderStartMarkdown(t *testing.T) {
 		t.Fatalf("expected blocking check before start-data build, got err=%v code=%d", err, ExitCode(err))
 	}
 
-	data := buildStartData(repo)
+	data, err := buildStartData(repo)
+	if err != nil {
+		t.Fatalf("build start data: %v", err)
+	}
 	if data["generated_at"] == "" {
 		t.Fatalf("expected generated_at in start data: %#v", data)
 	}
@@ -638,32 +565,11 @@ func TestBuildStartDataAndRenderStartMarkdown(t *testing.T) {
 	}
 }
 
-func TestRunVerifyTextWithWarningsAndGlobalPolicy(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("RECONC_HOME", home)
-	if err := os.WriteFile(filepath.Join(home, "global-policy.yml"), []byte("rules: []\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	repo := makeCheckRepo(t, "rules: []\n")
-	initGitRepo(t, repo)
-
+func TestRunVerifyIsRemoved(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	if err := Run([]string{"verify", repo}, "0.5.0-test", &stdout, &stderr); err != nil {
-		t.Fatalf("verify text: %v", err)
-	}
-	out := stdout.String()
-	if !strings.Contains(out, "global policy") || !strings.Contains(out, "git pre-commit hook") || !strings.Contains(out, "not installed") {
-		t.Fatalf("expected verify warning-rich text output, got %q", out)
-	}
-
-	stdout.Reset()
-	err := Run([]string{"verify", repo, "--bogus"}, "0.5.0-test", &stdout, &stderr)
-	if err == nil {
-		t.Fatal("expected verify unknown flag to fail")
-	}
-	if !strings.Contains(err.Error(), "unknown flag") {
-		t.Fatalf("unexpected verify error: %v", err)
+	err := Run([]string{"verify"}, "0.5.0-test", &stdout, &stderr)
+	if err == nil || ExitCode(err) != 1 || !strings.Contains(err.Error(), `unknown subcommand "verify"`) {
+		t.Fatalf("removed verify command remained callable: %v", err)
 	}
 }
 
@@ -673,8 +579,8 @@ func TestRunBootstrapHintsAndAgentInstall(t *testing.T) {
 	t.Run("focused-next-action-when-tooling-missing", func(t *testing.T) {
 		repo := t.TempDir()
 		var stdout, stderr bytes.Buffer
-		if err := Run([]string{"bootstrap", repo}, "0.5.0-test", &stdout, &stderr); err != nil {
-			t.Fatalf("bootstrap missing-tooling repo: %v", err)
+		if err := Run([]string{"init", repo}, "0.5.0-test", &stdout, &stderr); err != nil {
+			t.Fatalf("init missing-tooling repo: %v", err)
 		}
 		out := stdout.String()
 		for _, expected := range []string{"Reconc init: complete", "Hooks: none", "Next: reconc check"} {
@@ -708,8 +614,8 @@ func TestRunBootstrapHintsAndAgentInstall(t *testing.T) {
 			t.Fatal(err)
 		}
 		var stdout, stderr bytes.Buffer
-		if err := Run([]string{"bootstrap", repo, "--json"}, "0.5.0-test", &stdout, &stderr); err != nil {
-			t.Fatalf("bootstrap json with agent dirs: %v", err)
+		if err := Run([]string{"init", repo, "--json"}, "0.5.0-test", &stdout, &stderr); err != nil {
+			t.Fatalf("init json with agent dirs: %v", err)
 		}
 		var payload reconbootstrap.InitReport
 		if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
@@ -720,7 +626,7 @@ func TestRunBootstrapHintsAndAgentInstall(t *testing.T) {
 			t.Fatalf("expected detected agent hooks, got %q", joined)
 		}
 		if payload.Operation != "init" || payload.Status != reconbootstrap.InitComplete {
-			t.Fatalf("compatibility alias did not use canonical init result: %+v", payload)
+			t.Fatalf("canonical init returned the wrong result: %+v", payload)
 		}
 		if strings.TrimSpace(payload.NextAction) == "" {
 			t.Fatalf("expected one primary next_action, got %+v", payload)
@@ -728,7 +634,7 @@ func TestRunBootstrapHintsAndAgentInstall(t *testing.T) {
 	})
 }
 
-func TestLegacyBootstrapOffersAndExecutesManagedBlockOptIn(t *testing.T) {
+func TestBootstrapRequiresSubcommandAndInitOffersManagedBlockOptIn(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
 	original := "# Existing agent guide\n\nNever replace this.\n"
@@ -737,8 +643,12 @@ func TestLegacyBootstrapOffersAndExecutesManagedBlockOptIn(t *testing.T) {
 	}
 	var stdout, stderr bytes.Buffer
 	err := Run([]string{"bootstrap", repo}, "0.5.0-test", &stdout, &stderr)
-	if err == nil || ExitCode(err) != 1 || !strings.Contains(stdout.String(), "--profile minimal") {
-		t.Fatalf("legacy bootstrap did not require explicit mature-repo selection: err=%v stdout=%q stderr=%q", err, stdout.String(), stderr.String())
+	if err == nil || ExitCode(err) != 1 || !strings.Contains(err.Error(), "unknown subcommand") {
+		t.Fatalf("bootstrap accepted a repository operand instead of requiring a subcommand: err=%v stdout=%q stderr=%q", err, stdout.String(), stderr.String())
+	}
+	body, readErr := os.ReadFile(filepath.Join(repo, "AGENTS.md"))
+	if readErr != nil || string(body) != original {
+		t.Fatalf("rejected bootstrap invocation changed user content: %q err=%v", body, readErr)
 	}
 
 	stdout.Reset()
@@ -753,7 +663,7 @@ func TestLegacyBootstrapOffersAndExecutesManagedBlockOptIn(t *testing.T) {
 	if err := Run([]string{"init", repo, "--profile", "minimal", "--accept-managed-blocks"}, "0.5.0-test", &stdout, &stderr); err != nil {
 		t.Fatalf("managed-block opt-in failed: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
 	}
-	body, err := os.ReadFile(filepath.Join(repo, "AGENTS.md"))
+	body, err = os.ReadFile(filepath.Join(repo, "AGENTS.md"))
 	if err != nil {
 		t.Fatal(err)
 	}

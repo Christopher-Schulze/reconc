@@ -1,6 +1,7 @@
 package retention
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"reconc.dev/reconc/internal/audit"
 )
 
 func TestRunEnforcesClassesAndPreservesLiveSession(t *testing.T) {
@@ -113,24 +116,27 @@ func TestRunCoversLogsBinariesAndOwnedTemp(t *testing.T) {
 	tempRoot := t.TempDir()
 	now := time.Now().UTC()
 	policy := DefaultPolicy()
-	policy.AuditFileBytes = 256
-	policy.AuditArchives = 1
 	policy.RunDecisionFileBytes = 256
 	policy.RunDecisionArchives = 1
 	policy.GeneratedBinaries = ClassPolicy{MaxFiles: 1, MaxBytes: 64, MaxAge: 24 * time.Hour}
 	policy.AbandonedTempAge = time.Hour
-	policy.RepoRuntimeBytes = 1024
-	for _, base := range []string{
-		filepath.Join(repo, ".reconc", "audit.jsonl"),
-		filepath.Join(repo, ".reconc", "run", "decisions.jsonl"),
-	} {
-		for index := 0; index <= 3; index++ {
-			path := base
-			if index > 0 {
-				path = fmt.Sprintf("%s.%d", base, index)
-			}
-			writeTimed(t, path, repeatedJSONL(80), now.Add(-2*time.Hour))
+	policy.RepoRuntimeBytes = 10 * 1024 * 1024
+	for index := 0; index < 3; index++ {
+		if err := audit.Append(repo, audit.Entry{
+			Timestamp: now.Add(time.Duration(index) * time.Second).Format(time.RFC3339Nano),
+			Event:     fmt.Sprintf("check-%d", index),
+			Decision:  "pass",
+		}, 0); err != nil {
+			t.Fatal(err)
 		}
+	}
+	runDecisions := filepath.Join(repo, ".reconc", "run", "decisions.jsonl")
+	for index := 0; index <= 3; index++ {
+		path := runDecisions
+		if index > 0 {
+			path = fmt.Sprintf("%s.%d", runDecisions, index)
+		}
+		writeTimed(t, path, repeatedJSONL(80), now.Add(-2*time.Hour))
 	}
 	cache := filepath.Join(repo, ".reconc", "cache")
 	for index := 0; index < 3; index++ {
@@ -153,19 +159,42 @@ func TestRunCoversLogsBinariesAndOwnedTemp(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(cache, "workflow-audit-template.tmp.123")); !os.IsNotExist(err) {
 		t.Fatalf("repo temp survived: %v", err)
 	}
-	for _, base := range []string{
-		filepath.Join(repo, ".reconc", "audit.jsonl"),
-		filepath.Join(repo, ".reconc", "run", "decisions.jsonl"),
-	} {
-		for _, path := range []string{base, base + ".1"} {
-			info, err := os.Stat(path)
-			if err != nil || info.Size() > 256 {
-				t.Fatalf("JSONL bound failed for %s: info=%v err=%v", path, info, err)
-			}
+	if verification, err := audit.Verify(repo); err != nil || !verification.Valid || verification.Entries != 3 {
+		t.Fatalf("retention damaged chained audit evidence: report=%+v err=%v", verification, err)
+	}
+	for _, path := range []string{runDecisions, runDecisions + ".1"} {
+		info, err := os.Stat(path)
+		if err != nil || info.Size() > 256 {
+			t.Fatalf("run-decision JSONL bound failed for %s: info=%v err=%v", path, info, err)
 		}
-		if _, err := os.Stat(base + ".2"); !os.IsNotExist(err) {
-			t.Fatalf("extra archive survived: %s", base+".2")
-		}
+	}
+	if _, err := os.Stat(runDecisions + ".2"); !os.IsNotExist(err) {
+		t.Fatalf("extra run-decision archive survived: %s", runDecisions+".2")
+	}
+}
+
+func TestRunRefusesToCompactMalformedChainedAuditEvidence(t *testing.T) {
+	repo := t.TempDir()
+	stateRoot := t.TempDir()
+	path := filepath.Join(repo, audit.AuditFileRelative)
+	writeTimed(t, path, []byte("{malformed}\n"), time.Now().Add(-time.Hour))
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := Run(Options{
+		RepoRoot:  repo,
+		StateRoot: stateRoot,
+		Policy:    DefaultPolicy(),
+		Now:       time.Now(),
+		TempRoot:  t.TempDir(),
+	})
+	if !strings.Contains(strings.Join(report.Errors, "\n"), "verify audit chain") {
+		t.Fatalf("malformed audit evidence was not reported: %+v", report)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("retention rewrote malformed audit evidence: err=%v", err)
 	}
 }
 

@@ -206,13 +206,9 @@ func verifyAttestation(ctx context.Context, candidate string, release selectedRe
 	if tool == "" {
 		tool = "gh"
 	}
-	required := strings.TrimSpace(os.Getenv("RECONC_REQUIRE_ATTESTATION")) == "1"
 	path, err := exec.LookPath(tool)
 	if err != nil {
-		if required {
-			return "", fmt.Errorf("attestation verification requires %q on PATH", tool)
-		}
-		return ProvenanceEmbeddedVerified, nil
+		return "", fmt.Errorf("attestation verification requires %q on PATH", tool)
 	}
 	args := []string{
 		"attestation", "verify", candidate, "--repo", releaseRepository,
@@ -224,25 +220,16 @@ func verifyAttestation(ctx context.Context, candidate string, release selectedRe
 		bundle := filepath.Join(release.localDir, release.asset.Name+".sigstore.jsonl")
 		root := filepath.Join(release.localDir, "trusted_root.jsonl")
 		if _, bundleErr := os.Stat(bundle); bundleErr != nil {
-			if required {
-				return "", errors.New("offline attestation bundle is required but missing")
-			}
-			return ProvenanceEmbeddedVerified, nil
+			return "", errors.New("offline attestation bundle is required but missing")
 		}
 		if _, rootErr := os.Stat(root); rootErr != nil {
-			if required {
-				return "", errors.New("offline trusted root is required but missing")
-			}
-			return ProvenanceEmbeddedVerified, nil
+			return "", errors.New("offline trusted root is required but missing")
 		}
 		args = append(args, "--bundle", bundle, "--custom-trusted-root", root)
 	}
 	output, err := lifecycleCommand(ctx, path, args...).CombinedOutput()
 	if err != nil {
-		if required {
-			return "", fmt.Errorf("attestation verification failed: %w: %s", err, strings.TrimSpace(string(output)))
-		}
-		return ProvenanceEmbeddedVerified, nil
+		return "", fmt.Errorf("attestation verification failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	return ProvenanceGitHubVerified, nil
 }

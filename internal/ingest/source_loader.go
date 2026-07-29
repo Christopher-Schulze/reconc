@@ -20,6 +20,10 @@ import (
 // loaded into every repo's compile.
 const GlobalPolicyFilename = "global-policy.yml"
 
+// GlobalPolicySourcePath is the portable provenance identifier written into
+// compiled policy metadata. The physical RECONC_HOME path is private state.
+const GlobalPolicySourcePath = "global:" + GlobalPolicyFilename
+
 // inlineBlockRegex matches fenced ```reconc ... ``` blocks inside
 // markdown context files. Block content is captured group 1.
 //
@@ -112,8 +116,7 @@ func LoadPolicySources(repoStartPath string) (*SourceBundle, error) {
 	presetNames := []string{}
 
 	if discovery.ConfigPath != nil {
-		configPath := filepath.Join(root, *discovery.ConfigPath)
-		configText, err := os.ReadFile(configPath)
+		configText, err := readRepositorySource(root, *discovery.ConfigPath)
 		if err != nil {
 			return nil, &rerrors.PolicySourceError{
 				Message: "read compiler config " + *discovery.ConfigPath,
@@ -187,7 +190,7 @@ func loadGlobalPolicySource() (*policy.PolicySource, error) {
 	}
 	return &policy.PolicySource{
 		Kind:    policy.SourceGlobal,
-		Path:    path,
+		Path:    GlobalPolicySourcePath,
 		Content: string(data),
 	}, nil
 }
@@ -196,8 +199,7 @@ func loadGlobalPolicySource() (*policy.PolicySource, error) {
 // root) and returns the file-as-source plus every inline ```reconc
 // fenced block found inside.
 func loadEntryFileWithBlocks(root, relPath string, kind policy.SourceKind) ([]policy.PolicySource, error) {
-	full := filepath.Join(root, relPath)
-	data, err := os.ReadFile(full)
+	data, err := readRepositorySource(root, relPath)
 	if err != nil {
 		return nil, &rerrors.PolicySourceError{
 			Message: "read context file " + relPath,
@@ -332,10 +334,8 @@ func loadPresetSources(names []string) ([]policy.PolicySource, error) {
 
 // loadPolicyFragmentSources walks the merged include patterns and
 // loads each unique repo-relative file as a policy_file source.
-// Fragments are returned in sorted order for determinism. A fragment
-// whose filesystem identity lies outside the repository root is
-// still loaded (its content is digest-tracked like any other source),
-// but a warning names it so the indirection is visible in the lockfile.
+// Fragments are returned in sorted order for determinism. Every fragment's
+// resolved filesystem identity must stay inside the repository root.
 func loadPolicyFragmentSources(root string, patterns []string) ([]policy.PolicySource, []string, error) {
 	// Dedupe + sort patterns first so glob expansion is deterministic.
 	patternSet := map[string]struct{}{}
@@ -348,11 +348,8 @@ func loadPolicyFragmentSources(root string, patterns []string) ([]policy.PolicyS
 	}
 	sort.Strings(uniquePatterns)
 
-	resolvedRoot, rootResolveErr := pathidentity.ResolveExisting(root)
-
 	seen := map[string]struct{}{}
 	out := []policy.PolicySource{}
-	warnings := []string{}
 	for _, pattern := range uniquePatterns {
 		matches, err := filepath.Glob(filepath.Join(root, pattern))
 		if err != nil {
@@ -376,14 +373,7 @@ func loadPolicyFragmentSources(root string, patterns []string) ([]policy.PolicyS
 				continue
 			}
 			seen[rel] = struct{}{}
-			if rootResolveErr == nil {
-				if resolved, resolveErr := pathidentity.ResolveExisting(match); resolveErr == nil {
-					if outside, relErr := pathOutsideRoot(resolvedRoot, resolved); relErr == nil && outside {
-						warnings = append(warnings, "policy fragment "+rel+" resolves outside the repository root via filesystem indirection")
-					}
-				}
-			}
-			data, err := os.ReadFile(match)
+			data, err := readRepositorySource(root, rel)
 			if err != nil {
 				return nil, nil, &rerrors.PolicySourceError{
 					Message: "read policy fragment " + rel,
@@ -397,7 +387,7 @@ func loadPolicyFragmentSources(root string, patterns []string) ([]policy.PolicyS
 			})
 		}
 	}
-	return out, warnings, nil
+	return out, []string{}, nil
 }
 
 // pathOutsideRoot reports whether resolved lies outside resolvedRoot.
@@ -407,6 +397,51 @@ func pathOutsideRoot(resolvedRoot, resolved string) (bool, error) {
 		return false, err
 	}
 	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)), nil
+}
+
+// readRepositorySource reads one regular policy source only when both its
+// lexical path and resolved filesystem identity remain inside root. Resolving
+// before and after the read detects path swaps instead of digesting bytes from
+// a different target than the validated source.
+func readRepositorySource(root, rel string) ([]byte, error) {
+	if filepath.IsAbs(rel) {
+		return nil, fmt.Errorf("%s must be repository-relative", rel)
+	}
+	rootIdentity, err := pathidentity.ResolveExisting(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve repository root: %w", err)
+	}
+	full := filepath.Join(root, filepath.FromSlash(rel))
+	before, err := pathidentity.ResolveExisting(full)
+	if err != nil {
+		return nil, fmt.Errorf("resolve source %s: %w", rel, err)
+	}
+	outside, err := pathOutsideRoot(rootIdentity, before)
+	if err != nil {
+		return nil, fmt.Errorf("validate source %s containment: %w", rel, err)
+	}
+	if outside {
+		return nil, fmt.Errorf("source %s resolves outside the repository root", rel)
+	}
+	info, err := os.Stat(full)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("source %s must resolve to a regular file", rel)
+	}
+	data, err := os.ReadFile(full)
+	if err != nil {
+		return nil, err
+	}
+	after, err := pathidentity.ResolveExisting(full)
+	if err != nil {
+		return nil, fmt.Errorf("revalidate source %s: %w", rel, err)
+	}
+	if before != after {
+		return nil, fmt.Errorf("source %s changed filesystem identity while being read", rel)
+	}
+	return data, nil
 }
 
 // decodeYAMLMapping parses raw YAML into a map[string]interface{}.

@@ -5,7 +5,6 @@ package pathidentity
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -35,18 +34,23 @@ func resolveExistingOS(path string) (resolved string, err error) {
 		int(uintptr(unsafe.Pointer(&buffer[0]))),
 	)
 	runtime.KeepAlive(buffer)
+	return selectDarwinIdentity(evaluated, buffer, callErr), nil
+}
+
+func selectDarwinIdentity(evaluated string, buffer []byte, callErr error) string {
+	evaluated = filepath.Clean(evaluated)
 	if callErr != nil {
-		return "", fmt.Errorf("resolve Darwin file-descriptor path: %w", callErr)
+		return evaluated
 	}
 	length := bytes.IndexByte(buffer, 0)
 	if length <= 0 {
-		return "", errors.New("resolve Darwin file-descriptor path: empty or unterminated response")
+		return evaluated
 	}
 	descriptorPath := filepath.Clean(string(buffer[:length]))
 	if strings.EqualFold(evaluated, descriptorPath) {
-		return descriptorPath, nil
+		return descriptorPath
 	}
-	return filepath.Clean(evaluated), nil
+	return evaluated
 }
 
 func existingAliasesOS(string) []string {

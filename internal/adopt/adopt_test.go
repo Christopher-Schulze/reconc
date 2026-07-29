@@ -500,3 +500,65 @@ func TestApplyLineAnchoredIDDedup(t *testing.T) {
 		t.Fatalf("prefix-sharing id and message mention must not block adoption; added=%v", added)
 	}
 }
+
+func TestApplyRecognizesQuotedRuleID(t *testing.T) {
+	repo := t.TempDir()
+	config := "default_mode: warn\nrules:\n  - id: \"adopt-go-test\"\n    kind: require_command\n    when_paths: ['**/*.go']\n    commands: ['go test ./...']\n    mode: warn\n    message: tests\n"
+	mustWrite(t, filepath.Join(repo, ".reconc.yml"), config)
+	mustWrite(t, filepath.Join(repo, "go.mod"), "module x\n\ngo 1.26\n")
+	report := mustScan(t, repo)
+	added, err := Apply(repo, report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsString(added, "adopt-go-test") {
+		t.Fatalf("quoted existing ID was duplicated: %v", added)
+	}
+	body, err := os.ReadFile(filepath.Join(repo, ".reconc.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(body), "adopt-go-test") != 1 {
+		t.Fatalf("quoted existing ID must remain unique:\n%s", body)
+	}
+}
+
+func TestApplyRejectsInvalidExistingConfigWithoutMutation(t *testing.T) {
+	repo := t.TempDir()
+	configPath := filepath.Join(repo, ".reconc.yml")
+	original := "default_mode: warn\nrules: []\nunknown_root_field: true\n"
+	mustWrite(t, configPath, original)
+	mustWrite(t, filepath.Join(repo, "go.mod"), "module x\n\ngo 1.26\n")
+	_, err := Apply(repo, mustScan(t, repo))
+	if err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("invalid existing config must fail closed, got %v", err)
+	}
+	body, readErr := os.ReadFile(configPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(body) != original {
+		t.Fatalf("failed adoption mutated config:\n%s", body)
+	}
+}
+
+func TestApplyRejectsDuplicateCandidateIDsWithoutMutation(t *testing.T) {
+	repo := t.TempDir()
+	configPath := filepath.Join(repo, ".reconc.yml")
+	original := "default_mode: warn\nrules: []\n"
+	mustWrite(t, configPath, original)
+	report := Report{Suggestions: []Suggestion{
+		{ID: "duplicate", Kind: "deny_write", Mode: "warn", Message: "one", Paths: []string{"one/**"}},
+		{ID: "duplicate", Kind: "deny_write", Mode: "warn", Message: "two", Paths: []string{"two/**"}},
+	}}
+	if _, err := Apply(repo, report); err == nil || !strings.Contains(err.Error(), "duplicate rule id") {
+		t.Fatalf("duplicate candidate IDs must fail closed, got %v", err)
+	}
+	body, readErr := os.ReadFile(configPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(body) != original {
+		t.Fatalf("failed adoption mutated config:\n%s", body)
+	}
+}
