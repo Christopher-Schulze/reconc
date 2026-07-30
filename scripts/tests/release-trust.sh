@@ -104,6 +104,7 @@ release_line="v${project_version%.*}.x"
 require_text "$root/Makefile" "VERSION   ?= $project_version"
 require_text "$root/install.sh" "sh install.sh --channel preview"
 require_text "$root/install.sh" "sh install.sh --version $project_version"
+require_text "$root/install.sh" 'LC_ALL=C awk -v left="$1" -v right="$2"'
 require_text "$root/install.ps1" '[ValidateSet("Stable", "Preview")]'
 require_text "$root/install.ps1" '[switch]$AllowDowngrade'
 require_text "$root/README.md" "The source line is \`$release_line\`, and the current source version is \`v$project_version\`."

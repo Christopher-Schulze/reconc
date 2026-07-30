@@ -738,10 +738,15 @@ work to executable TASK continuations.
 - `task archive [repo] [--json]`: terminal archive for either profile with no queued successor
 - `task recover [repo] [--json]`: integrity-check and roll back an interrupted transaction without overwriting external edits; no journal is a successful idempotent no-op reported as `recovered: false`
 
-Mutations use `.reconc/locks/task-lifecycle.lock`, atomic publication, verified
-renames, and `.reconc/task-transaction.json`. Normal reads never open unlinked
-archive history. Briefings cap blockers/evidence and free text; transactions
-reject symlinked paths, preserve file modes, and cap journals at 4 MiB.
+Mutations use `.reconc/locks/task-lifecycle.lock`, atomic publication,
+no-clobber file moves, and `.reconc/task-transaction.json`. Every touched file
+and move source has a byte-and-mode before-image. Publication revalidates all
+sources and destinations before mutation and again at each operation; recovery
+accepts only exact regular-file before, after, or linked-move states. Unknown
+journal fields, trailing JSON values, symlinked or non-canonical paths, type
+drift, content drift, and mode drift fail closed. Normal reads never open
+unlinked archive history. Briefings cap blockers/evidence and free text;
+transactions cap journals at 4 MiB.
 
 ### `reconc prune [repo] [--dry-run] [--json]`
 Run the product retention core immediately. It bounds external session,

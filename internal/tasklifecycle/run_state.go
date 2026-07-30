@@ -140,7 +140,11 @@ func inspectActiveSectionsRunState(root string) (RunState, bool, error) {
 	if !ok || snapshot.Active.Path == "" {
 		return RunState{}, false, nil
 	}
-	if transactionExists(root) {
+	pendingTransaction, err := transactionExists(root)
+	if err != nil {
+		return RunState{}, true, err
+	}
+	if pendingTransaction {
 		return RunState{}, false, nil
 	}
 	subTask, activeSubs, ok, err := inspectRunSectionsDetail(root, cfg, snapshot.Active, &pathGuard)
@@ -169,7 +173,11 @@ func inspectActiveSectionsRunState(root string) (RunState, bool, error) {
 		}
 	}
 	latest, err := os.ReadFile(overviewPath)
-	if err != nil || !bytes.Equal(body, latest) || transactionExists(root) {
+	pendingTransaction, transactionErr := transactionExists(root)
+	if transactionErr != nil {
+		return RunState{}, true, transactionErr
+	}
+	if err != nil || !bytes.Equal(body, latest) || pendingTransaction {
 		return RunState{}, true, &ValidationError{Issues: []Issue{
 			issue("task/read/concurrent-mutation", cfg.OverviewPath, 0, "TASK state changed while it was being read", "retry the read; if a transaction remains, run `reconc task recover`"),
 		}}

@@ -151,6 +151,10 @@ handling.
    recovery finalizes a verified complete after-image or rolls back exact
    transaction images; any external edit is preserved and refused. Directory
    identity is not guessed after a crash, so empty created parents may remain.
+   TASK lifecycle transactions independently bind every touched regular file
+   and moved source to exact bytes and mode, revalidate the full precondition
+   set and each operation, and publish moves through an atomic no-clobber
+   hard-link transition whose intermediate state is recoverable.
    Bootstrap removal treats portable ownership as its maximum authority,
    SHA-verifies owned files, strips only managed blocks, and preserves drift
    and user-owned paths.

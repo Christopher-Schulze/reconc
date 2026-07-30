@@ -1,6 +1,7 @@
 package tasklifecycle
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"reconc.dev/reconc/internal/atomicfile"
@@ -56,9 +58,15 @@ type transactionMove struct {
 	AfterHash   string `json:"after_hash"`
 }
 
-func transactionExists(repoRoot string) bool {
-	_, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(transactionRel)))
-	return err == nil
+func transactionExists(repoRoot string) (bool, error) {
+	_, err := os.Lstat(filepath.Join(repoRoot, filepath.FromSlash(transactionRel)))
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return false, fmt.Errorf("inspect %s: %w", transactionRel, err)
 }
 
 func withMutationLock(repoRoot string, fn func() error) error {
@@ -131,10 +139,22 @@ func buildTransaction(repoRoot, action string, files []fileMutation, moves []mov
 		return transaction{}, err
 	}
 	journal.Files = transactionFiles
+	filesByPath := make(map[string]transactionFile, len(transactionFiles))
+	for _, file := range transactionFiles {
+		filesByPath[file.Path] = file
+	}
 	for _, move := range moves {
-		transactionMove, err := buildTransactionMove(repoRoot, move, afterByPath)
+		transactionMove, sourceFile, err := buildTransactionMove(repoRoot, move, afterByPath)
 		if err != nil {
 			return transaction{}, err
+		}
+		if recorded, ok := filesByPath[sourceFile.Path]; ok {
+			if recorded.BeforeHash != sourceFile.BeforeHash || recorded.BeforeMode != sourceFile.BeforeMode {
+				return transaction{}, fmt.Errorf("transaction source %s changed while preparing the journal", sourceFile.Path)
+			}
+		} else {
+			journal.Files = append(journal.Files, sourceFile)
+			filesByPath[sourceFile.Path] = sourceFile
 		}
 		journal.Moves = append(journal.Moves, transactionMove)
 	}
@@ -157,13 +177,9 @@ func buildTransactionFiles(repoRoot string, files []fileMutation) ([]transaction
 			}
 			out = append(out, transactionFile{Path: rel, BeforeMode: 0o644, BeforeHash: hashContent(nil), AfterHash: hashContent(change.After), Created: true})
 		} else {
-			before, err := os.ReadFile(abs)
+			before, info, err := readRegularTransactionFile(abs)
 			if err != nil {
 				return nil, nil, fmt.Errorf("read transaction source %s: %w", rel, err)
-			}
-			info, err := os.Stat(abs)
-			if err != nil {
-				return nil, nil, fmt.Errorf("stat transaction source %s: %w", rel, err)
 			}
 			out = append(out, transactionFile{Path: rel, Before: before, BeforeMode: uint32(info.Mode().Perm()), BeforeHash: hashContent(before), AfterHash: hashContent(change.After)})
 		}
@@ -172,47 +188,64 @@ func buildTransactionFiles(repoRoot string, files []fileMutation) ([]transaction
 	return out, afterByPath, nil
 }
 
-func buildTransactionMove(repoRoot string, move moveMutation, afterByPath map[string]string) (transactionMove, error) {
+func buildTransactionMove(repoRoot string, move moveMutation, afterByPath map[string]string) (transactionMove, transactionFile, error) {
 	sourceRel, sourceAbs, err := safeTransactionPath(repoRoot, move.Source)
 	if err != nil {
-		return transactionMove{}, err
+		return transactionMove{}, transactionFile{}, err
 	}
 	destinationRel, destinationAbs, err := safeTransactionPath(repoRoot, move.Destination)
 	if err != nil {
-		return transactionMove{}, err
+		return transactionMove{}, transactionFile{}, err
 	}
-	body, err := os.ReadFile(sourceAbs)
+	body, info, err := readRegularTransactionFile(sourceAbs)
 	if err != nil {
-		return transactionMove{}, fmt.Errorf("read move source %s: %w", sourceRel, err)
+		return transactionMove{}, transactionFile{}, fmt.Errorf("read move source %s: %w", sourceRel, err)
 	}
-	if _, err := os.Stat(destinationAbs); err == nil {
-		return transactionMove{}, fmt.Errorf("move destination already exists: %s", destinationRel)
+	if _, err := os.Lstat(destinationAbs); err == nil {
+		return transactionMove{}, transactionFile{}, fmt.Errorf("move destination already exists: %s", destinationRel)
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return transactionMove{}, fmt.Errorf("inspect move destination %s: %w", destinationRel, err)
+		return transactionMove{}, transactionFile{}, fmt.Errorf("inspect move destination %s: %w", destinationRel, err)
 	}
 	beforeHash := hashContent(body)
 	afterHash := beforeHash
 	if mutatedHash, ok := afterByPath[sourceRel]; ok {
 		afterHash = mutatedHash
 	}
-	return transactionMove{Source: sourceRel, Destination: destinationRel, BeforeHash: beforeHash, AfterHash: afterHash}, nil
+	sourceFile := transactionFile{
+		Path:       sourceRel,
+		Before:     body,
+		BeforeMode: uint32(info.Mode().Perm()),
+		BeforeHash: beforeHash,
+		AfterHash:  afterHash,
+	}
+	return transactionMove{
+		Source: sourceRel, Destination: destinationRel,
+		BeforeHash: beforeHash, AfterHash: afterHash,
+	}, sourceFile, nil
 }
 
 func publishTransaction(repoRoot string, journal transaction, files []fileMutation, moves []moveMutation) error {
-	modes := make(map[string]os.FileMode, len(journal.Files))
-	for _, file := range journal.Files {
-		modes[file.Path] = os.FileMode(file.BeforeMode)
+	if err := validateTransactionShape(journal); err != nil {
+		return err
 	}
+	if err := validatePublishInputs(repoRoot, journal, files, moves); err != nil {
+		return err
+	}
+	if err := validatePublishState(repoRoot, journal); err != nil {
+		return err
+	}
+	filesByPath := transactionFilesByPath(journal.Files)
 	for _, change := range files {
 		rel, abs, err := safeTransactionPath(repoRoot, change.Path)
 		if err != nil {
 			return err
 		}
-		mode, ok := modes[rel]
-		if !ok || mode == 0 {
-			return fmt.Errorf("transaction has no valid before mode for %s", rel)
+		recorded := filesByPath[rel]
+		if err := validateFilePublishPrecondition(repoRoot, recorded); err != nil {
+			return err
 		}
-		if journalFileCreated(journal.Files, rel) {
+		mode := os.FileMode(recorded.BeforeMode)
+		if recorded.Created {
 			if err := writeNewTransactionFile(abs, change.After, mode); err != nil {
 				return err
 			}
@@ -220,32 +253,237 @@ func publishTransaction(repoRoot string, journal transaction, files []fileMutati
 			return err
 		}
 	}
-	for _, move := range moves {
-		_, source, err := safeTransactionPath(repoRoot, move.Source)
-		if err != nil {
-			return err
-		}
-		_, destination, err := safeTransactionPath(repoRoot, move.Destination)
-		if err != nil {
-			return err
-		}
-		if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
-			return err
-		}
-		if err := os.Rename(source, destination); err != nil {
+	for index, move := range moves {
+		if err := publishTransactionMove(repoRoot, journal.Moves[index], filesByPath, move); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func journalFileCreated(files []transactionFile, path string) bool {
-	for _, file := range files {
-		if file.Path == path {
-			return file.Created
+func validatePublishInputs(repoRoot string, journal transaction, files []fileMutation, moves []moveMutation) error {
+	if len(moves) != len(journal.Moves) {
+		return fmt.Errorf("transaction input has %d moves; journal records %d", len(moves), len(journal.Moves))
+	}
+	recordedFiles := transactionFilesByPath(journal.Files)
+	changedPaths, err := validatePublishFileInputs(repoRoot, recordedFiles, files)
+	if err != nil {
+		return err
+	}
+	moveSources, err := validatePublishMoveInputs(repoRoot, journal.Moves, moves)
+	if err != nil {
+		return err
+	}
+	for _, recorded := range journal.Files {
+		if !changedPaths[recorded.Path] && !moveSources[recorded.Path] {
+			return fmt.Errorf("transaction journal records unrequested file %s", recorded.Path)
 		}
 	}
-	return false
+	return nil
+}
+
+func validatePublishFileInputs(
+	repoRoot string,
+	recordedFiles map[string]transactionFile,
+	files []fileMutation,
+) (map[string]bool, error) {
+	changedPaths := make(map[string]bool, len(files))
+	for _, change := range files {
+		rel, _, err := safeTransactionPath(repoRoot, change.Path)
+		if err != nil {
+			return nil, err
+		}
+		recorded, ok := recordedFiles[rel]
+		if !ok || recorded.Created != change.Create || recorded.AfterHash != hashContent(change.After) {
+			return nil, fmt.Errorf("transaction input does not match journaled file %s", rel)
+		}
+		if changedPaths[rel] {
+			return nil, fmt.Errorf("transaction input repeats file %s", rel)
+		}
+		changedPaths[rel] = true
+	}
+	return changedPaths, nil
+}
+
+func validatePublishMoveInputs(
+	repoRoot string,
+	recordedMoves []transactionMove,
+	moves []moveMutation,
+) (map[string]bool, error) {
+	moveSources := make(map[string]bool, len(moves))
+	for index, move := range moves {
+		source, _, err := safeTransactionPath(repoRoot, move.Source)
+		if err != nil {
+			return nil, err
+		}
+		destination, _, err := safeTransactionPath(repoRoot, move.Destination)
+		if err != nil {
+			return nil, err
+		}
+		recorded := recordedMoves[index]
+		if recorded.Source != source || recorded.Destination != destination {
+			return nil, fmt.Errorf("transaction input does not match journaled move %s -> %s", source, destination)
+		}
+		moveSources[source] = true
+	}
+	return moveSources, nil
+}
+
+func validatePublishState(repoRoot string, journal transaction) error {
+	for _, file := range journal.Files {
+		if err := validateFilePublishPrecondition(repoRoot, file); err != nil {
+			return err
+		}
+	}
+	for _, move := range journal.Moves {
+		if err := validateMoveDestinationAbsent(repoRoot, move); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateFilePublishPrecondition(repoRoot string, file transactionFile) error {
+	_, abs, err := safeTransactionPath(repoRoot, file.Path)
+	if err != nil {
+		return err
+	}
+	body, info, err := readRegularTransactionFile(abs)
+	if file.Created {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("transaction create precondition for %s: %w", file.Path, err)
+		}
+		return fmt.Errorf("transaction create precondition failed: %s already exists", file.Path)
+	}
+	if err != nil {
+		return fmt.Errorf("transaction file precondition for %s: %w", file.Path, err)
+	}
+	if hashContent(body) != file.BeforeHash {
+		return fmt.Errorf("transaction file precondition failed: %s content changed", file.Path)
+	}
+	if !sameTransactionMode(info.Mode().Perm(), file.BeforeMode) {
+		return fmt.Errorf(
+			"transaction file mode precondition failed: %s is %04o, expected %04o",
+			file.Path, info.Mode().Perm(), file.BeforeMode,
+		)
+	}
+	return nil
+}
+
+func validateMoveDestinationAbsent(repoRoot string, move transactionMove) error {
+	_, destination, err := safeTransactionPath(repoRoot, move.Destination)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Lstat(destination); err == nil {
+		return fmt.Errorf("transaction move destination precondition failed: %s already exists", move.Destination)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("transaction move destination precondition for %s: %w", move.Destination, err)
+	}
+	return nil
+}
+
+func validateMovePublishPrecondition(repoRoot string, move transactionMove, sourceFile transactionFile) error {
+	_, source, err := safeTransactionPath(repoRoot, move.Source)
+	if err != nil {
+		return err
+	}
+	body, info, err := readRegularTransactionFile(source)
+	if err != nil {
+		return fmt.Errorf("transaction move source precondition for %s: %w", move.Source, err)
+	}
+	if hashContent(body) != move.AfterHash {
+		return fmt.Errorf("transaction move source precondition failed: %s content changed", move.Source)
+	}
+	if !sameTransactionMode(info.Mode().Perm(), sourceFile.BeforeMode) {
+		return fmt.Errorf(
+			"transaction move source mode precondition failed: %s is %04o, expected %04o",
+			move.Source, info.Mode().Perm(), sourceFile.BeforeMode,
+		)
+	}
+	return validateMoveDestinationAbsent(repoRoot, move)
+}
+
+func publishTransactionMove(
+	repoRoot string,
+	recorded transactionMove,
+	filesByPath map[string]transactionFile,
+	requested moveMutation,
+) error {
+	sourceFile, ok := filesByPath[recorded.Source]
+	if !ok {
+		return fmt.Errorf("transaction move source %s has no before-image", recorded.Source)
+	}
+	if err := validateMovePublishPrecondition(repoRoot, recorded, sourceFile); err != nil {
+		return err
+	}
+	_, destination, err := safeTransactionPath(repoRoot, requested.Destination)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		return fmt.Errorf("create transaction move parent: %w", err)
+	}
+	if err := validateMovePublishPrecondition(repoRoot, recorded, sourceFile); err != nil {
+		return err
+	}
+	_, source, err := safeTransactionPath(repoRoot, requested.Source)
+	if err != nil {
+		return err
+	}
+	if err := os.Link(source, destination); err != nil {
+		return fmt.Errorf("transaction move destination precondition failed for %s: %w", recorded.Destination, err)
+	}
+	if err := validateLinkedMove(source, destination, recorded, sourceFile); err != nil {
+		removeErr := os.Remove(destination)
+		return errors.Join(err, removeErr)
+	}
+	if err := os.Remove(source); err != nil {
+		return fmt.Errorf("remove transaction move source %s: %w", recorded.Source, err)
+	}
+	return nil
+}
+
+func validateLinkedMove(source, destination string, move transactionMove, sourceFile transactionFile) error {
+	sourceBody, sourceInfo, sourceErr := readRegularTransactionFile(source)
+	destinationBody, destinationInfo, destinationErr := readRegularTransactionFile(destination)
+	if sourceErr != nil || destinationErr != nil {
+		return fmt.Errorf(
+			"verify linked transaction move %s -> %s: source=%v destination=%v",
+			move.Source, move.Destination, sourceErr, destinationErr,
+		)
+	}
+	if !os.SameFile(sourceInfo, destinationInfo) {
+		return fmt.Errorf("verify linked transaction move %s -> %s: paths do not identify the same file", move.Source, move.Destination)
+	}
+	if hashContent(sourceBody) != move.AfterHash || hashContent(destinationBody) != move.AfterHash {
+		return fmt.Errorf("verify linked transaction move %s -> %s: content changed", move.Source, move.Destination)
+	}
+	if !sameTransactionMode(sourceInfo.Mode().Perm(), sourceFile.BeforeMode) ||
+		!sameTransactionMode(destinationInfo.Mode().Perm(), sourceFile.BeforeMode) {
+		return fmt.Errorf("verify linked transaction move %s -> %s: mode changed", move.Source, move.Destination)
+	}
+	return nil
+}
+
+func transactionFilesByPath(files []transactionFile) map[string]transactionFile {
+	out := make(map[string]transactionFile, len(files))
+	for _, file := range files {
+		out[file.Path] = file
+	}
+	return out
+}
+
+func transactionFileByPath(files []transactionFile, path string) (transactionFile, bool) {
+	for _, file := range files {
+		if file.Path == path {
+			return file, true
+		}
+	}
+	return transactionFile{}, false
 }
 
 func writeNewTransactionFile(path string, body []byte, mode os.FileMode) error {
@@ -267,6 +505,59 @@ func writeNewTransactionFile(path string, body []byte, mode os.FileMode) error {
 		return errors.Join(fmt.Errorf("publish transaction file %s: %w", path, err), removeErr)
 	}
 	return nil
+}
+
+func readRegularTransactionFile(path string) ([]byte, os.FileInfo, error) {
+	initial, err := lstatRegularTransactionFile(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, initial, err
+	}
+	opened, statErr := file.Stat()
+	if statErr != nil {
+		return nil, initial, errors.Join(statErr, file.Close())
+	}
+	if !opened.Mode().IsRegular() || !os.SameFile(initial, opened) {
+		return nil, opened, errors.Join(fmt.Errorf("%s changed identity before it was opened", path), file.Close())
+	}
+	body, readErr := io.ReadAll(file)
+	after, statErr := file.Stat()
+	closeErr := file.Close()
+	if err := errors.Join(readErr, statErr, closeErr); err != nil {
+		return nil, opened, err
+	}
+	pathAfter, err := lstatRegularTransactionFile(path)
+	if err != nil {
+		return nil, after, err
+	}
+	if !os.SameFile(after, pathAfter) ||
+		opened.Size() != after.Size() ||
+		!opened.ModTime().Equal(after.ModTime()) ||
+		opened.Mode() != after.Mode() {
+		return nil, after, fmt.Errorf("%s changed while it was read", path)
+	}
+	return body, after, nil
+}
+
+func lstatRegularTransactionFile(path string) (os.FileInfo, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return info, fmt.Errorf("%s is not a regular file", path)
+	}
+	return info, nil
+}
+
+func sameTransactionMode(current os.FileMode, expected uint32) bool {
+	if runtime.GOOS == "windows" {
+		return current&0o222 == os.FileMode(expected)&0o222
+	}
+	return uint32(current.Perm()) == expected
 }
 
 // Recover rolls an interrupted transaction back only when every touched file
@@ -322,11 +613,23 @@ func readTransaction(repoRoot string) (transaction, error) {
 		return transaction{}, fmt.Errorf("%s exceeds %d bytes", transactionRel, maxTransactionBytes)
 	}
 	var journal transaction
-	if err := json.Unmarshal(body, &journal); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&journal); err != nil {
 		return transaction{}, fmt.Errorf("parse %s: %w", transactionRel, err)
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return transaction{}, fmt.Errorf("parse %s: unexpected trailing JSON value", transactionRel)
+		}
+		return transaction{}, fmt.Errorf("parse %s: unexpected trailing data: %w", transactionRel, err)
 	}
 	if journal.FormatVersion != transactionVersion {
 		return transaction{}, fmt.Errorf("unsupported TASK transaction format_version %d", journal.FormatVersion)
+	}
+	if err := validateTransactionShape(journal); err != nil {
+		return transaction{}, err
 	}
 	return journal, nil
 }
@@ -335,14 +638,11 @@ func rollbackTransaction(repoRoot string, journal transaction) error {
 	if err := validateRollbackState(repoRoot, journal); err != nil {
 		return err
 	}
+	filesByPath := transactionFilesByPath(journal.Files)
 	for index := len(journal.Moves) - 1; index >= 0; index-- {
 		move := journal.Moves[index]
-		_, source, _ := safeTransactionPath(repoRoot, move.Source)
-		_, destination, _ := safeTransactionPath(repoRoot, move.Destination)
-		if _, err := os.Stat(destination); err == nil {
-			if err := os.Rename(destination, source); err != nil {
-				return fmt.Errorf("rollback move %s: %w", move.Source, err)
-			}
+		if err := rollbackTransactionMove(repoRoot, move, filesByPath[move.Source]); err != nil {
+			return err
 		}
 	}
 	for _, file := range journal.Files {
@@ -364,6 +664,38 @@ func rollbackTransaction(repoRoot string, journal transaction) error {
 	return nil
 }
 
+func rollbackTransactionMove(repoRoot string, move transactionMove, sourceFile transactionFile) error {
+	_, source, _ := safeTransactionPath(repoRoot, move.Source)
+	_, destination, _ := safeTransactionPath(repoRoot, move.Destination)
+	sourceInfo, sourceErr := os.Lstat(source)
+	destinationInfo, destinationErr := os.Lstat(destination)
+	switch {
+	case errors.Is(destinationErr, os.ErrNotExist):
+		return nil
+	case destinationErr != nil:
+		return fmt.Errorf("rollback move destination %s: %w", move.Destination, destinationErr)
+	case sourceErr == nil && os.SameFile(sourceInfo, destinationInfo):
+		if err := os.Remove(destination); err != nil {
+			return fmt.Errorf("rollback linked move %s: %w", move.Destination, err)
+		}
+		return nil
+	case errors.Is(sourceErr, os.ErrNotExist):
+		if err := os.Link(destination, source); err != nil {
+			return fmt.Errorf("rollback move source precondition failed for %s: %w", move.Source, err)
+		}
+		if err := validateLinkedMove(source, destination, move, sourceFile); err != nil {
+			removeErr := os.Remove(source)
+			return errors.Join(err, removeErr)
+		}
+		if err := os.Remove(destination); err != nil {
+			return fmt.Errorf("remove rollback move destination %s: %w", move.Destination, err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("rollback move %s: source state changed after validation", move.Source)
+	}
+}
+
 func validateRollbackState(repoRoot string, journal transaction) error {
 	if err := validateTransactionShape(journal); err != nil {
 		return err
@@ -380,42 +712,61 @@ func validateRollbackState(repoRoot string, journal transaction) error {
 
 func validateRollbackFiles(repoRoot string, files []transactionFile, movesBySource map[string]transactionMove) error {
 	for _, file := range files {
-		_, abs, err := safeTransactionPath(repoRoot, file.Path)
+		if err := validateRollbackFile(repoRoot, file, movesBySource); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateRollbackFile(repoRoot string, file transactionFile, movesBySource map[string]transactionMove) error {
+	_, abs, err := safeTransactionPath(repoRoot, file.Path)
+	if err != nil {
+		return err
+	}
+	body, info, err := readRegularTransactionFile(abs)
+	if file.Created {
+		return validateCreatedRollbackFile(file, body, info, err)
+	}
+	observedPath := file.Path
+	if move, moved := movesBySource[file.Path]; moved && errors.Is(err, os.ErrNotExist) {
+		observedPath = move.Destination
+		_, abs, err = safeTransactionPath(repoRoot, move.Destination)
 		if err != nil {
 			return err
 		}
-		body, err := os.ReadFile(abs)
-		if file.Created {
-			validCreatedState := errors.Is(err, os.ErrNotExist) || (err == nil && hashContent(body) == file.AfterHash)
-			if !validCreatedState {
-				if err != nil {
-					return fmt.Errorf("recovery conflict: read %s: %w", file.Path, err)
-				}
-				return fmt.Errorf("recovery conflict: created %s changed outside the recorded transaction; refusing to remove it", file.Path)
-			}
-			if len(file.Before) != 0 || file.BeforeHash != hashContent(nil) {
-				return fmt.Errorf("recovery journal corruption: created file %s has a before image", file.Path)
-			}
-			continue
-		}
-		validFileState := err == nil && (hashContent(body) == file.BeforeHash || hashContent(body) == file.AfterHash)
-		if move, moved := movesBySource[file.Path]; moved && errors.Is(err, os.ErrNotExist) {
-			_, destination, pathErr := safeTransactionPath(repoRoot, move.Destination)
-			if pathErr != nil {
-				return pathErr
-			}
-			destinationBody, destinationErr := os.ReadFile(destination)
-			validFileState = destinationErr == nil && hashContent(destinationBody) == file.AfterHash
-		}
-		if !validFileState {
-			if err != nil && !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("recovery conflict: read %s: %w", file.Path, err)
-			}
-			return fmt.Errorf("recovery conflict: %s changed outside the recorded transaction; refusing to overwrite it", file.Path)
-		}
-		if hashContent(file.Before) != file.BeforeHash {
-			return fmt.Errorf("recovery journal corruption: before image for %s has the wrong hash", file.Path)
-		}
+		body, info, err = readRegularTransactionFile(abs)
+	}
+	if err != nil {
+		return fmt.Errorf("recovery conflict: read %s: %w", observedPath, err)
+	}
+	if !sameTransactionMode(info.Mode().Perm(), file.BeforeMode) {
+		return fmt.Errorf(
+			"recovery conflict: %s mode is %04o, expected %04o; refusing to overwrite it",
+			observedPath, info.Mode().Perm(), file.BeforeMode,
+		)
+	}
+	if digest := hashContent(body); digest != file.BeforeHash && digest != file.AfterHash {
+		return fmt.Errorf("recovery conflict: %s changed outside the recorded transaction; refusing to overwrite it", observedPath)
+	}
+	return nil
+}
+
+func validateCreatedRollbackFile(file transactionFile, body []byte, info os.FileInfo, err error) error {
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("recovery conflict: read %s: %w", file.Path, err)
+	}
+	if hashContent(body) != file.AfterHash {
+		return fmt.Errorf("recovery conflict: created %s changed outside the recorded transaction; refusing to remove it", file.Path)
+	}
+	if !sameTransactionMode(info.Mode().Perm(), file.BeforeMode) {
+		return fmt.Errorf(
+			"recovery conflict: created %s mode is %04o, expected %04o; refusing to remove it",
+			file.Path, info.Mode().Perm(), file.BeforeMode,
+		)
 	}
 	return nil
 }
@@ -430,12 +781,15 @@ func validateRollbackMoves(repoRoot string, moves []transactionMove) error {
 		if err != nil {
 			return err
 		}
-		sourceBody, sourceErr := os.ReadFile(source)
-		destinationBody, destinationErr := os.ReadFile(destination)
+		sourceBody, sourceInfo, sourceErr := readRegularTransactionFile(source)
+		destinationBody, destinationInfo, destinationErr := readRegularTransactionFile(destination)
 		sourceHash := hashContent(sourceBody)
 		before := sourceErr == nil && errors.Is(destinationErr, os.ErrNotExist) && (sourceHash == move.BeforeHash || sourceHash == move.AfterHash)
 		after := errors.Is(sourceErr, os.ErrNotExist) && destinationErr == nil && hashContent(destinationBody) == move.AfterHash
-		if !before && !after {
+		linked := sourceErr == nil && destinationErr == nil &&
+			sourceHash == move.AfterHash && hashContent(destinationBody) == move.AfterHash &&
+			os.SameFile(sourceInfo, destinationInfo)
+		if !before && !after && !linked {
 			return fmt.Errorf("recovery conflict: move %s -> %s is neither in its recorded before nor after state", move.Source, move.Destination)
 		}
 	}
@@ -443,34 +797,84 @@ func validateRollbackMoves(repoRoot string, moves []transactionMove) error {
 }
 
 func validateTransactionShape(journal transaction) error {
+	if journal.FormatVersion != transactionVersion {
+		return fmt.Errorf("unsupported TASK transaction format_version %d", journal.FormatVersion)
+	}
 	if strings.TrimSpace(journal.Action) == "" {
 		return fmt.Errorf("recovery journal has no action")
 	}
 	paths := make(map[string]bool, len(journal.Files)+len(journal.Moves)*2)
 	for _, file := range journal.Files {
-		if paths[file.Path] {
-			return fmt.Errorf("recovery journal repeats path %s", file.Path)
-		}
-		paths[file.Path] = true
-		if file.BeforeMode == 0 || file.BeforeMode&^uint32(0o777) != 0 {
-			return fmt.Errorf("recovery journal has invalid before mode for %s", file.Path)
-		}
-		if !validContentHash(file.BeforeHash) || !validContentHash(file.AfterHash) {
-			return fmt.Errorf("recovery journal has invalid content hash for %s", file.Path)
+		if err := validateTransactionFileShape(file, paths); err != nil {
+			return err
 		}
 	}
 	movePaths := map[string]bool{}
 	for _, move := range journal.Moves {
-		if move.Source == move.Destination || movePaths[move.Source] || movePaths[move.Destination] || paths[move.Destination] {
-			return fmt.Errorf("recovery journal has conflicting move %s -> %s", move.Source, move.Destination)
-		}
-		movePaths[move.Source] = true
-		movePaths[move.Destination] = true
-		if !validContentHash(move.BeforeHash) || !validContentHash(move.AfterHash) {
-			return fmt.Errorf("recovery journal has invalid move hash for %s", move.Source)
+		if err := validateTransactionMoveShape(move, journal.Files, paths, movePaths); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func validateTransactionFileShape(file transactionFile, paths map[string]bool) error {
+	if !canonicalTransactionPath(file.Path) {
+		return fmt.Errorf("recovery journal has invalid path %q", file.Path)
+	}
+	if paths[file.Path] {
+		return fmt.Errorf("recovery journal repeats path %s", file.Path)
+	}
+	paths[file.Path] = true
+	if file.BeforeMode == 0 || file.BeforeMode&^uint32(0o777) != 0 {
+		return fmt.Errorf("recovery journal has invalid before mode for %s", file.Path)
+	}
+	if !validContentHash(file.BeforeHash) || !validContentHash(file.AfterHash) {
+		return fmt.Errorf("recovery journal has invalid content hash for %s", file.Path)
+	}
+	if file.Created {
+		if len(file.Before) != 0 || file.BeforeHash != hashContent(nil) {
+			return fmt.Errorf("recovery journal corruption: created file %s has a before image", file.Path)
+		}
+	} else if hashContent(file.Before) != file.BeforeHash {
+		return fmt.Errorf("recovery journal corruption: before image for %s has the wrong hash", file.Path)
+	}
+	return nil
+}
+
+func validateTransactionMoveShape(
+	move transactionMove,
+	files []transactionFile,
+	paths map[string]bool,
+	movePaths map[string]bool,
+) error {
+	if !canonicalTransactionPath(move.Source) || !canonicalTransactionPath(move.Destination) {
+		return fmt.Errorf("recovery journal has invalid move path %q -> %q", move.Source, move.Destination)
+	}
+	if move.Source == move.Destination || movePaths[move.Source] || movePaths[move.Destination] || paths[move.Destination] {
+		return fmt.Errorf("recovery journal has conflicting move %s -> %s", move.Source, move.Destination)
+	}
+	movePaths[move.Source] = true
+	movePaths[move.Destination] = true
+	if !validContentHash(move.BeforeHash) || !validContentHash(move.AfterHash) {
+		return fmt.Errorf("recovery journal has invalid move hash for %s", move.Source)
+	}
+	sourceFile, ok := transactionFileByPath(files, move.Source)
+	if !ok || sourceFile.Created {
+		return fmt.Errorf("recovery journal move source %s has no before-image", move.Source)
+	}
+	if sourceFile.BeforeHash != move.BeforeHash || sourceFile.AfterHash != move.AfterHash {
+		return fmt.Errorf("recovery journal move source %s disagrees with its file image", move.Source)
+	}
+	return nil
+}
+
+func canonicalTransactionPath(path string) bool {
+	if validateRepoRelativePath(path) != nil {
+		return false
+	}
+	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(path)))
+	return clean == path
 }
 
 func validContentHash(value string) bool {

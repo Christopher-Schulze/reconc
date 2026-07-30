@@ -67,7 +67,11 @@ func inspectResolved(root string) (*Board, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", cfg.OverviewPath, err)
 	}
-	if transactionExists(root) {
+	pendingTransaction, err := transactionExists(root)
+	if err != nil {
+		return nil, err
+	}
+	if pendingTransaction {
 		return nil, &ValidationError{Issues: []Issue{{
 			ID: "task/transaction/pending", Path: transactionRel,
 			Message:     "an interrupted TASK mutation is pending",
@@ -133,7 +137,11 @@ func parseOverviewSnapshot(root string, cfg Config, overviewPath string, body []
 
 func concurrentReadIssues(root string, cfg Config, overviewPath string, body []byte) []Issue {
 	latestOverview, rereadErr := os.ReadFile(overviewPath)
-	if transactionExists(root) || rereadErr != nil || !bytes.Equal(body, latestOverview) {
+	pendingTransaction, transactionErr := transactionExists(root)
+	if transactionErr != nil {
+		return []Issue{issue("task/transaction/unreadable", transactionRel, 0, transactionErr.Error(), "restore readable TASK runtime state before retrying")}
+	}
+	if pendingTransaction || rereadErr != nil || !bytes.Equal(body, latestOverview) {
 		return []Issue{issue("task/read/concurrent-mutation", cfg.OverviewPath, 0, "TASK state changed while it was being read", "retry the read; if a transaction remains, run `reconc task recover`")}
 	}
 	return nil

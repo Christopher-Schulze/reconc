@@ -36,6 +36,8 @@ func TestSemanticVersionOrderingAndValidation(t *testing.T) {
 		{left: "1.0.0-alpha", right: "1.0.0-beta", want: -1},
 		{left: "1.0.0-1", right: "1.0.0-alpha", want: -1},
 		{left: "1.0.0-alpha", right: "1.0.0-1", want: 1},
+		{left: "1.0.0-preview.18446744073709551617", right: "1.0.0-preview.18446744073709551616", want: 1},
+		{left: "1.0.0-preview.18446744073709551616", right: "1.0.0-preview.18446744073709551617", want: -1},
 		{left: "1.1.0", right: "1.0.9", want: 1},
 		{left: "1.0.1", right: "1.0.0", want: 1},
 		{left: "2.0.0", right: "1.99.99", want: 1},

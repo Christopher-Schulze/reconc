@@ -150,7 +150,9 @@ func TestClaimIsRaceSafe(t *testing.T) {
 	if board.Active == nil || len(board.Queue) != 1 {
 		t.Fatalf("race left invalid board: %#v", board)
 	}
-	if transactionExists(repo) {
+	if exists, err := transactionExists(repo); err != nil {
+		t.Fatal(err)
+	} else if exists {
 		t.Fatal("successful mutation left a transaction journal")
 	}
 }

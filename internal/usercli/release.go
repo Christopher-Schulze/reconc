@@ -717,15 +717,13 @@ func comparePrereleaseIdentifier(left string, right string) int {
 	leftNumeric := allDigits(left)
 	rightNumeric := allDigits(right)
 	if leftNumeric && rightNumeric {
-		leftValue, _ := strconv.ParseUint(left, 10, 64)
-		rightValue, _ := strconv.ParseUint(right, 10, 64)
-		if leftValue < rightValue {
+		if len(left) < len(right) {
 			return -1
 		}
-		if leftValue > rightValue {
+		if len(left) > len(right) {
 			return 1
 		}
-		return 0
+		return strings.Compare(left, right)
 	}
 	if leftNumeric {
 		return -1

@@ -105,7 +105,8 @@ Core invariants are deliberately strict:
   index they verified.
 - Bootstrap, repository sync, update, uninstall, TASK mutation, and generated
   output use ownership records and transactional publication instead of
-  overwriting ambiguous bytes.
+  overwriting ambiguous bytes. TASK publication revalidates exact bytes, file
+  modes, and move destinations and never clobbers an existing archive path.
 - Static configuration is not live proof. Hook status reports configuration
   and per-route observations separately.
 - Core policy compilation, evaluation, hooks, run control, repository sync,

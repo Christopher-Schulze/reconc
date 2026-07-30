@@ -189,7 +189,9 @@ Manager authority:
 - `preview` selects the newest non-draft prerelease.
 - `--version VERSION` selects exactly `reconc-vVERSION` and records channel
   `exact`. Stable and prerelease semantic versions are accepted; build metadata
-  is rejected in release tags.
+  is rejected in release tags. Numeric prerelease identifiers use unbounded
+  digit-length and ordinal comparison across the Go, POSIX, and Windows
+  lifecycle implementations.
 - A target lower than the running version is a downgrade and requires
   `--allow-downgrade`.
 - Channel changes require the new channel flag. Receipt channel is never

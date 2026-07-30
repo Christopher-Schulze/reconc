@@ -680,6 +680,10 @@ applies an available update atomically, and succeeds without mutation when
 already current. Equal semantic versions count as current only when the
 installed receipt SHA-256 matches the selected release artifact, so corrected
 same-version bytes still follow the full verified replacement transaction.
+Semantic-version precedence compares numeric prerelease identifiers by digit
+length and ordinal text, so valid identifiers are not bounded by machine
+integer size; the POSIX installer fixes collation to the C locale and the
+Windows installer uses ordinal comparison.
 Offline `--from-dir` updates require the asset's Sigstore
 bundle and trusted root in addition to the strict release inventory. There is no
 separate check/apply step in the current user flow. Use `--channel preview` or
@@ -969,8 +973,14 @@ checks every Sub-Task and configured evidence field before moving the detail;
 it never fabricates evidence. A crash leaves `.reconc/task-transaction.json`.
 All readers fail closed while that journal exists; `reconc task recover` rolls
 back only if every touched path still equals its recorded before or after
-image, so an external edit is never overwritten. Archived detail bodies are
-not reopened by normal status or briefing reads. Runtime paths reject symlink
+image with its recorded regular-file type and permission mode, so an external
+edit is never overwritten. Before publication, the transaction revalidates
+every source, destination, content hash, and mode both as a complete set and
+immediately before its operation. Moves retain the source before-image and use
+a no-clobber hard-link transition; recovery safely recognizes the linked
+intermediate state. Journals reject unknown fields, trailing JSON values,
+non-canonical paths, and inconsistent images. Archived detail bodies are not
+reopened by normal status or briefing reads. Runtime paths reject symlink
 components, journals are capped at 4 MiB, and rollback restores the original
 file bytes and permission mode. Running `task recover` with no journal is a
 successful idempotent no-op and reports `recovered: false`.

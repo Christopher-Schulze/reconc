@@ -54,7 +54,7 @@ is_semantic_version() {
   esac
 }
 compare_versions() {
-  awk -v left="$1" -v right="$2" '
+  LC_ALL=C awk -v left="$1" -v right="$2" '
     function numeric(value) { return value ~ /^[0-9]+$/ }
     function numericCompare(leftValue, rightValue) {
       sub(/^0+/, "", leftValue)
