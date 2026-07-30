@@ -83,6 +83,10 @@ func InspectPlatforms(repoRoot string) ([]PlatformStatus, error) {
 	}
 	reports := make([]PlatformStatus, 0, len(platformRegistry))
 	for _, platform := range Platforms() {
+		if platform.Kind == KindKimiCode {
+			reports = append(reports, inspectKimiCodePlatform(platform))
+			continue
+		}
 		report := inspectPlatform(root, platform)
 		finalizePlatformStatus(root, platform, &report)
 		reports = append(reports, report)

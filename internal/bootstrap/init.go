@@ -233,7 +233,7 @@ func detectedInitHooks(inspection *Inspection, skipGit, skipAgents bool) []strin
 	}
 	if !skipAgents {
 		agents := map[string]bool{}
-		for _, platform := range hooks.AgentPlatforms() {
+		for _, platform := range hooks.RepositoryAgentPlatforms() {
 			agents[platform.Kind] = true
 		}
 		for _, kind := range inspection.DetectedPlatforms {

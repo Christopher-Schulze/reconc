@@ -110,12 +110,10 @@ func runPrune(args []string, stdout io.Writer) error {
 		case "--json":
 			jsonOut = true
 		case "--force":
-			// Compatibility with the old harness utility. Explicit prune is
-			// already immediate, so --force has no additional effect.
+			// Hidden parser compatibility with the old harness utility.
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "Usage: reconc prune [repo] [--dry-run] [--json] [--force]")
+			fmt.Fprintln(stdout, "Usage: reconc prune [repo] [--dry-run] [--json]")
 			fmt.Fprintln(stdout, "Bound project state, sessions, reports, locks, audit/run JSONL, generated audit binaries, and owned temp residue.")
-			fmt.Fprintln(stdout, "--force is accepted only as a compatibility no-op; explicit prune already runs immediately.")
 			return nil
 		default:
 			if strings.HasPrefix(arg, "-") {

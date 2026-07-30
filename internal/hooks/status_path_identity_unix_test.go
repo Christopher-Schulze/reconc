@@ -10,6 +10,7 @@ import (
 
 func TestInspectPlatformsResolvesRepositorySymlink(t *testing.T) {
 	repo := t.TempDir()
+	t.Setenv("KIMI_CODE_HOME", filepath.Join(t.TempDir(), "missing"))
 	alias := filepath.Join(t.TempDir(), "repo-alias")
 	if err := os.Symlink(repo, alias); err != nil {
 		t.Fatal(err)

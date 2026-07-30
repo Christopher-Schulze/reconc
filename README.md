@@ -24,7 +24,7 @@ proof, protected edits, documentation drift, unfinished work, and stuck loops
 become deterministic decisions with one exact next action.
 
 No second model judges the first. One local Go binary compiles repository-owned
-rules and enforces them across the CLI, Git, CI, and nine coding-agent
+rules and enforces them across the CLI, Git, CI, and ten coding-agent
 integrations. The exact
 [guarantees and limits](docs/documentation.md#evidence-bound-completion-control)
 stay explicit.
@@ -124,7 +124,7 @@ Core invariants are deliberately strict:
 | TASK continuity | Validates and mutates typed TASK state with recoverable claim, block, resume, split, promote, archive, and transaction recovery operations. |
 | Autonomous run control | `reconc run on|off|reset|status|log` provides one durable repository switch, bounded decision logs, terminal gates, and per-session no-progress guards. |
 | Transactional adoption | Inspects existing repositories, proposes evidence-backed packs and commands, and plans, applies, verifies, synchronizes, or removes only receipt-owned rollout state. |
-| Runtime enforcement | Generates, installs, verifies, and safely removes registry-backed hooks for nine coding-agent runtimes, with capability-specific failure semantics and git pre-commit as the repository backstop. |
+| Runtime enforcement | Generates, installs, verifies, and safely removes registry-backed hooks for ten coding-agent runtimes, with capability-specific failure semantics and git pre-commit as the repository backstop. |
 | MCP side-effect control | Classifies explicitly configured Cursor, OpenCode, and Kilo MCP tools as repository reads, writes, commands, or external effects using exact selectors and fail-closed extraction. |
 | Operator and CI tooling | Provides exact remediation, body-free source-provenance inspection, staged command execution, CI proofs, global diagnostics, update and uninstall, cryptographically verified audit inspection, retention, TUI, shell completions, and a generated manpage. |
 | Release trust | Publishes strict release manifests, SHA-256 checksums, build-provenance attestations, and deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs tied to the release commit. |
@@ -350,7 +350,8 @@ reconc done .
 reentry. `check` evaluates current evidence. `next` returns the highest-priority
 remediation from the latest still-current block. `done` is the final
 evidence-complete gate. Detailed static help stays on demand through
-`reconc agent-intro --section NAME` and `reconc <command> --help`.
+`reconc agent-intro --section NAME`, `reconc help <command>`, and
+`reconc <command> --help`.
 
 Inspection and enforcement commands never compile policy implicitly. If a
 policy source changes, run `reconc refresh .` as its own explicit command,
@@ -366,7 +367,9 @@ reconc update
 
 `reconc update` checks ownership and release trust, installs an available stable
 release atomically, and succeeds without changing anything when already
-current. Use `--channel preview` or `--version VERSION` only for an intentional
+current. Equal version text is current only when the installed receipt's
+artifact SHA-256 matches the selected release asset. Use `--channel preview`
+or `--version VERSION` only for an intentional
 selection. Source-owned installations receive the exact rebuild guidance.
 There is no separate check/apply step in the current user flow. Direct updates
 require GitHub build-provenance verification before publication. Offline
@@ -603,6 +606,7 @@ being reported as successful partial publication.
 | Antigravity CLI | invocation, tool, post-tool, and stop hook coverage |
 | Kilo Code | thin CLI/VS Code project plugin with strict `metadata.exit` shell outcomes and the same bounded asynchronous continuation contract as OpenCode |
 | Grok Build | native lifecycle and hard PreToolUse hooks, strict ACP continuation, and leader-mode TUI steering |
+| Kimi Code CLI | explicit user-global `$KIMI_CODE_HOME/config.toml` integration for all 16 native hook events; repository discovery prevents global hooks from acting outside initialized Reconc repositories |
 
 Integration claims use precise states:
 
@@ -617,8 +621,9 @@ Integration claims use precise states:
 | `degraded` | A required artifact, activation, identity, route, API, or proof is missing. |
 | `unsupported` | The host does not expose the required lifecycle on that surface, or Reconc has no sound implementation for it. |
 
-Claude Code, Codex, GitHub Copilot, Cursor, Devin CLI, and Antigravity CLI
-expose a synchronous Stop event. GitHub Copilot host timeouts remain fail-open,
+Claude Code, Codex, GitHub Copilot, Cursor, Devin CLI, Antigravity CLI, and
+Kimi Code CLI expose a synchronous Stop event. GitHub Copilot host timeouts
+remain fail-open,
 and this adapter is contract-tested rather than claimed live until
 `reconc hook status . --json` records real events. OpenCode and Kilo Code
 expose `session.idle`; Reconc submits at most one bounded asynchronous
@@ -638,6 +643,17 @@ trusting either command name. Current official CLI documentation establishes
 artifact can receive additional routes, but Reconc leaves them surface-
 unproven until exact liveness exists. Cursor currently omits generic tool hooks
 for `AskQuestion`, so that host action has no Reconc pre-action boundary.
+
+Kimi Code hooks are user-global rather than repository-local. Reconc never
+selects them during `init` or bootstrap. An operator explicitly runs
+`reconc hook install kimi-code`; Reconc merges one marker-owned block into
+`$KIMI_CODE_HOME/config.toml` (default `~/.kimi-code/config.toml`) while
+preserving unrelated TOML, and `reconc hook uninstall kimi-code` removes only
+that exact block. Each global invocation silently no-ops unless its working
+directory discovers an explicit Reconc repository. Kimi treats exit code 2 as
+the blocking contract for `PreToolUse`, `UserPromptSubmit`, and `Stop`, while
+hook crashes, other non-zero exits, and host timeouts remain fail-open. Static
+configuration and isolated contract tests do not claim a live Kimi execution.
 
 Use the following commands before claiming a runtime is active:
 
@@ -844,8 +860,9 @@ access. Uninstall and core repository control remain offline.
 ### Which agents are supported?
 
 Claude Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity
-CLI, Kilo Code, and Grok Build have registry-backed integrations. Their host
-capabilities are not identical; `reconc hook status . --json` reports
+CLI, Kilo Code, Grok Build, and Kimi Code CLI have registry-backed
+integrations. Their host capabilities are not identical; `reconc hook status
+. --json` reports
 the static activation state separately from per-route live evidence without
 inflating the claim.
 
@@ -997,7 +1014,7 @@ credentials are not persisted, and release/publication jobs use full history
 where the post-boundary audit requires it.
 
 `make self-host` builds the local binary and runs the clean-repository golden
-path across all three bootstrap profiles, git pre-commit plus all nine agent
+path across all three bootstrap profiles, git pre-commit plus all ten agent
 runtimes, TASK lifecycle, retention, and stable release-layout binary
 resolution.
 

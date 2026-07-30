@@ -22,6 +22,7 @@ func TestPlatformRegistryOwnsEveryHookKind(t *testing.T) {
 		KindAntigravity,
 		KindKilo,
 		KindGrok,
+		KindKimiCode,
 	}
 	if got := SupportedKinds(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("SupportedKinds() = %v, want %v", got, want)
@@ -29,8 +30,12 @@ func TestPlatformRegistryOwnsEveryHookKind(t *testing.T) {
 	if got := InstallableKinds(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("InstallableKinds() = %v, want %v", got, want)
 	}
-	if got := ScaffoldKinds(); !reflect.DeepEqual(got, want) {
-		t.Fatalf("ScaffoldKinds() = %v, want %v", got, want)
+	wantRepository := want[:len(want)-1]
+	if got := ScaffoldKinds(); !reflect.DeepEqual(got, wantRepository) {
+		t.Fatalf("ScaffoldKinds() = %v, want %v", got, wantRepository)
+	}
+	if got := BootstrapKinds(); !reflect.DeepEqual(got, wantRepository) {
+		t.Fatalf("BootstrapKinds() = %v, want %v", got, wantRepository)
 	}
 	if _, ok := RuntimeEvent("git-pre-commit"); ok {
 		t.Fatal("git pre-commit must not expose a non-executable hook-runtime route")
@@ -451,6 +456,27 @@ func TestNewPlatformArtifactsUseCurrentContracts(t *testing.T) {
 	}
 	if strings.Contains(grok.Content, "claude-") || strings.Contains(grok.Content, "cursor-") {
 		t.Fatalf("Grok artifact is not first-class:\n%s", grok.Content)
+	}
+
+	kimi, err := Generate(KindKimiCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{
+		KimiCodeManagedBlockStart,
+		`event = "PreToolUse"`,
+		`command = "reconc hook kimi-runtime kimi-pre-tool-use"`,
+		`event = "PermissionResult"`,
+		`event = "Interrupt"`,
+		`timeout = 30`,
+		KimiCodeManagedBlockEnd,
+	} {
+		if !strings.Contains(kimi.Content, token) {
+			t.Fatalf("Kimi Code artifact missing %q:\n%s", token, kimi.Content)
+		}
+	}
+	if strings.Count(kimi.Content, "[[hooks]]") != 16 {
+		t.Fatalf("Kimi Code artifact hook count = %d, want 16", strings.Count(kimi.Content, "[[hooks]]"))
 	}
 }
 

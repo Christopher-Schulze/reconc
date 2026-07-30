@@ -510,19 +510,25 @@ func runPersistedNext(args []string, stdout io.Writer) (resultErr error) {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc next: capture candidate: " + err.Error()}
 	}
-	record, found, err := policyproof.LoadLatest(candidate.RepoRoot)
-	if err != nil {
-		return &CLIError{ExitCode: 1, Message: "reconc next: load latest blocking decision: " + err.Error()}
-	}
-	if !found {
-		return &CLIError{ExitCode: 1, Message: "reconc next: no unresolved blocking decision; run `reconc check " + quoteCommandArgument(candidate.RepoRoot) + "` with the action's --read, --write, --command-success/--command-failure, and --claim evidence first"}
-	}
-
 	out, closeOutput, err := teeToFile(stdout, outputPath)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc next: open output file: " + err.Error()}
 	}
 	defer joinOutputCloseError(&resultErr, closeOutput)
+
+	record, found, err := policyproof.LoadLatest(candidate.RepoRoot)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc next: load latest blocking decision: " + err.Error()}
+	}
+	if !found {
+		if jsonOut {
+			encoder := json.NewEncoder(out)
+			encoder.SetIndent("", "  ")
+			return encoder.Encode(map[string]interface{}{"state": "clear", "remediation": nil})
+		}
+		fmt.Fprintln(out, "No remediation needed.")
+		return nil
+	}
 
 	if candidate.Fingerprint != record.CandidateFingerprint {
 		replayCommand := renderPolicyReplayCommand(record.Report)

@@ -155,7 +155,10 @@ handling.
    SHA-verifies owned files, strips only managed blocks, and preserves drift
    and user-owned paths.
    Hook merges and uninstalls preserve
-   unrelated host configuration. Bounded JSONL writers rotate under a process
+   unrelated host configuration. Kimi Code's user-global TOML is a separate
+   explicit lifecycle: one process-locked marker block is merged, replaced, or
+   removed atomically, while bootstrap and scaffold transactions remain
+   repository-only. Bounded JSONL writers rotate under a process
    lock before append. Write, sync, close, unlock, and CLI output failures are
    propagated instead of being reported as successful publication.
 
@@ -221,9 +224,10 @@ handling.
 - **Public runtime env vars** (`NO_COLOR`, `RECONC_HOME`, `RECONC_AUDIT`,
   `RECONC_AUDIT_VERBOSE`, `RECONC_CLAUDE_STATE_DIR`,
   `RECONC_SCHEMA_BASE_URL`, `RECONC_STOP_FINGERPRINT_UNTRACKED`, and
-  `RECONC_GROK_STEER`): stable names. Adding a new one is additive; renaming or
-  removing needs a major version bump. Debug and installer variables are
-  catalogued separately in `docs/commands.md`.
+  `RECONC_GROK_STEER`, plus the host-owned `KIMI_CODE_HOME`): stable names.
+  Adding a new one is additive; renaming or removing needs a major version
+  bump. Debug and installer variables are catalogued separately in
+  `docs/commands.md`.
 
 ## v0.9 Product Lifecycle
 
@@ -475,6 +479,18 @@ the probe and public status contract from maintaining a second Cursor matrix.
 Material signatures deduplicate specialized write events against generic
 post-tool delivery.
 
+Kimi Code generation is registry-driven into a user-global TOML marker block
+rather than a repository artifact. Its internal entrypoint first discovers an
+explicit Reconc repository from the current working directory and otherwise
+no-ops, so global host configuration cannot turn arbitrary directories into
+Reconc targets. The adapter validates the native route name, snake_case
+envelope, repository-contained `cwd`, session identity, tool input, and error
+shape. Kimi's control contract is exit code 2 on `PreToolUse`,
+`UserPromptSubmit`, and `Stop`; host crashes, all other non-zero exits, and
+timeouts remain fail-open and cannot be upgraded into an enforcement claim.
+Kimi post-tool output has no authoritative exit status, so it is
+non-evidentiary for command success.
+
 OpenCode and Kilo plugins are generated transport adapters. Shell outcomes are
 normalized from the exact integer `output.metadata.exit` into the neutral Go
 payload. Their subprocess runner concurrently drains both pipes, applies one
@@ -690,6 +706,8 @@ the command (e.g. `"go"` not `"go test -api-key=sk-..."`).
 reconc's non-stdlib dependencies processing the payload:
 - `gopkg.in/yaml.v3` (YAML source parsing, not payload — irrelevant
   to this threat model).
+- `github.com/pelletier/go-toml/v2` (strict syntax validation for the explicit
+  Kimi Code global hook lifecycle; it does not decode runtime hook payloads).
 - `github.com/bmatcuk/doublestar/v4` (glob matching — string-only
   surface, no eval).
 - `mvdan.cc/sh/v3/syntax` (bounded AST parsing of untrusted shell text for

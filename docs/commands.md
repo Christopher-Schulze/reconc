@@ -1,7 +1,9 @@
 # reconc -- Command Reference
 
-Reference for the complete command surface. See `reconc <subcommand> --help`
-for the exact flag details emitted by the installed binary.
+Reference for the complete command surface. See `reconc help <subcommand>` or
+`reconc <subcommand> --help` for the exact flag details emitted by the
+installed binary. Nested help works the same way, for example
+`reconc help task recover`.
 
 ## Daily path
 
@@ -64,6 +66,9 @@ Runtime:
   (steering also honours `GROK_LEADER_SOCKET`)
 - `GROK_HOME` (default `~/.grok`) -- Grok installation/state root used for the
   installed hook guide and leader-socket discovery
+- `KIMI_CODE_HOME` (default `~/.kimi-code`) -- Kimi Code's user-global
+  configuration root. Reconc reads or changes it only for explicit Kimi hook
+  lifecycle and status operations; tests must always override it
 - `GROK_LEADER_SOCKET` -- authoritative Grok leader socket or named-pipe
   endpoint for optional TUI steering
 - `XAI_API_KEY` -- optional credential used only by the hidden Grok ACP
@@ -119,10 +124,12 @@ installation lock. Stable is the default; preview and exact version selection
 are explicit and mutually exclusive. Direct updates verify release identity,
 bounded bytes, `SHA256SUMS`, embedded version, target, source provenance,
 mandatory GitHub build-provenance attestation, and an actual candidate
-`--version` smoke test
-before atomic replacement and receipt publication. An already current
-installation succeeds without mutation. Any publication failure retains or
-restores the previous binary. A downgrade requires `--allow-downgrade`.
+`--version` smoke test before atomic replacement and receipt publication. A
+release with the same semantic version is current only when the installed
+receipt's artifact SHA-256 matches the selected release asset; different bytes
+at the same version still take the verified replacement path. Any publication
+failure retains or restores the previous binary. A downgrade requires
+`--allow-downgrade`.
 `--from-dir` disables network access and requires a strict
 `release-manifest.json`, `SHA256SUMS`, complete regular-file inventory, the
 selected asset's `.sigstore.jsonl` bundle, and `trusted_root.jsonl`.
@@ -154,9 +161,9 @@ without a receipt performs no repository write until `--profile` is explicit.
 `--hook` replaces detected hooks, while `--no-hooks` selects none. Existing
 content is never overwritten. Drift creates hash-addressed candidates and
 marker-only changes require explicit checksum-bound
-`--accept-managed-blocks`. `--preset` remains a warning-emitting compatibility
-alias for `--pack`; `--force` is always rejected. `--output` mirrors the exact
-text or JSON result to a file.
+`--accept-managed-blocks`. Pre-1.0 parser compatibility may accept historical
+aliases, but they are intentionally absent from help, completion, and this
+primary contract. `--output` mirrors the exact text or JSON result to a file.
 
 ### `reconc bootstrap inspect [repo] [--json]`
 Read-only discovery of canonical repository root; detected Go, JavaScript,
@@ -351,7 +358,7 @@ One-line, read-only policy health summary. Missing, stale, malformed,
 schema-drifted, migration-drifted, and non-portable current lockfiles surface as issues
 with explicit `reconc refresh .` remediation. Useful as a session-start ping.
 
-### `reconc done [repo] [--window N] [--require-clean-git] [--json]`
+### `reconc done [repo] [--require-clean-git] [--json]`
 Evidence-complete task-finish gate. It binds current policy, the exact
 HEAD/index/worktree candidate when Git is available, active-session evidence,
 saved report integrity, current staged command proofs, and typed TASK completion
@@ -360,8 +367,7 @@ candidate remains blocking until a later explicit non-blocking `check` or `ci`
 decision clears it. Text mode prints every failed check and exactly one next
 action; JSON emits the full completion report. Exit 0 = done, 2 = blocked,
 1 = runtime/input error. `--require-clean-git` adds a clean-tree check.
-`--window` is accepted for compatibility but elapsed time never proves
-completion.
+Elapsed time never proves completion.
 
 ### `reconc proof [repo] [--format json|markdown] [--output PATH]`
 Exports the current completion state as a deterministic, portable proof bundle.
@@ -460,7 +466,9 @@ With only a repository path, loads the latest persisted blocking decision and
 replays its top remediation when the repository/policy/session candidate is
 still current. If it is stale, Reconc reconstructs the exact original
 `reconc check` command including success/failure evidence flags instead of
-claiming that no remediation is needed.
+claiming that no remediation is needed. When no persisted block exists, the
+command succeeds with `No remediation needed.` or JSON
+`{"state":"clear","remediation":null}`.
 
 ### `reconc why <rule-id|mcp> [repo] [--json] [--terse]`
 Prints one full rule from the lockfile (kind, mode, message, paths,
@@ -493,10 +501,10 @@ Rule shape templates (`tests-follow-source`, `docs-follow-code`,
 `custom-gate-on-change`, `local-secret-state-read-only`, `verified-change`).
 User overrides in `$RECONC_HOME/templates/*.yml`.
 
-### `reconc hook generate <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok> [--json] [--output PATH]`
+### `reconc hook generate <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok|kimi-code> [--json] [--output PATH]`
 Emit the hook artefact content without writing to disk.
 
-### `reconc hook install <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok> [repo] [--force] [--json] [--output PATH]`
+### `reconc hook install <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok|kimi-code> [repo] [--force] [--json] [--output PATH]`
 Write the hook into the repo. Git pre-commit uses Git's active hooks path
 (`core.hooksPath`, otherwise `.git/hooks`), updates a Reconc-owned hook
 idempotently, preserves inactive legacy hooks, requires `--force` for a foreign
@@ -523,13 +531,26 @@ points and 8.3 aliases are handled before containment. Forced malformed-config
 backups are private, content-addressed, create-only, and durably synced before
 publication.
 
-### `reconc hook uninstall <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok> [repo] [--json] [--output PATH]`
+`kimi-code` is the deliberate exception to the repository target model:
+install it without a repo argument. Reconc merges one exact managed block with
+all 16 documented Kimi Code events into
+`$KIMI_CODE_HOME/config.toml` (default `~/.kimi-code/config.toml`) under a
+cross-process lock, preserves unrelated TOML and file mode, refuses invalid or
+drifted configuration, and backs up the exact prior file before a forced
+managed-block replacement. Kimi is excluded from `init`, bootstrap hook
+selection, and scaffold sync because its configuration is user-global. The
+generated global commands discover the current repository and silently no-op
+outside an explicit Reconc repository.
+
+### `reconc hook uninstall <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok|kimi-code> [repo] [--json] [--output PATH]`
 Remove only generator-exact dedicated artifacts or canonical Reconc-owned JSON
 entries while preserving unrelated hooks and configuration. Modified or
 ambiguous Reconc-looking entries fail closed. Codex removes only its managed
 activation block and restores a force-replaced explicit `hooks = false` line
 byte-for-byte. The shared repo-local wrapper is deliberately preserved because
-another platform may still depend on it.
+another platform may still depend on it. `kimi-code` accepts no repo argument
+and removes only the exact current Reconc marker block from the global TOML;
+modified managed content is never deleted.
 
 ### `reconc hook status [repo] [--json]`
 Validate registered artifacts and activation requirements. States are
@@ -575,6 +596,11 @@ distinguish an unconfigured MCP call from a built-in/custom tool, so status
 reports that limitation without claiming enforcement.
 Default text reports seen/expected counts and the last event without listing
 every unseen route; the full unseen-event enumeration remains in `--json`.
+Kimi Code status validates its global TOML block and bare `reconc` PATH
+identity but keeps configuration separate from route liveness. Kimi blocks
+only through host exit code 2 on `PreToolUse`, `UserPromptSubmit`, and `Stop`;
+other non-zero exits, crashes, and host timeouts are Kimi-owned fail-open
+boundaries.
 
 ### `reconc hook sync-scaffold <repo-root-scaffold> [--json]`
 Regenerate source-controlled hook artifacts inside a template
@@ -637,10 +663,11 @@ chained evidence.
 
 ### `reconc run on [repo] [--force] [--json]` / `reconc run off [repo] [--json]`
 AI-operated switch scoped to one repository, not the whole machine. It routes
-continuation through all nine registered agent runtimes. Claude Code, Codex,
-GitHub Copilot, Cursor, Devin CLI, and Antigravity CLI expose synchronous Stop
-gates; OpenCode and Kilo Code use inferred `session.idle` adapters whose host
-boundary is best-effort and fail-open. Reconc emits exact Grok Stop block JSON
+continuation through all ten registered agent runtimes. Claude Code, Codex,
+GitHub Copilot, Cursor, Devin CLI, Antigravity CLI, and Kimi Code CLI expose
+synchronous Stop gates; OpenCode and Kilo Code use inferred `session.idle`
+adapters whose host boundary is best-effort and fail-open. Reconc emits exact
+Grok Stop block JSON
 without a leader; synchronous stock-TUI enforcement and its continuation bound
 are accepted only when the installed Grok guide explicitly advertises the
 contract. Passive Stop sessions can be steered through `_x.ai/interject` over
@@ -709,14 +736,14 @@ work to executable TASK continuations.
 - `task split [repo] --children ID,ID [--json]`: block the parent and activate the first pre-created, parent-linked child
 - `task promote [repo] [--next ID] [--json]`: completion-check, archive, and activate the next executable TASK
 - `task archive [repo] [--json]`: terminal archive for either profile with no queued successor
-- `task recover [repo] [--json]`: integrity-check and roll back an interrupted transaction without overwriting external edits
+- `task recover [repo] [--json]`: integrity-check and roll back an interrupted transaction without overwriting external edits; no journal is a successful idempotent no-op reported as `recovered: false`
 
 Mutations use `.reconc/locks/task-lifecycle.lock`, atomic publication, verified
 renames, and `.reconc/task-transaction.json`. Normal reads never open unlinked
 archive history. Briefings cap blockers/evidence and free text; transactions
 reject symlinked paths, preserve file modes, and cap journals at 4 MiB.
 
-### `reconc prune [repo] [--dry-run] [--json] [--force]`
+### `reconc prune [repo] [--dry-run] [--json]`
 Run the product retention core immediately. It bounds external session,
 report, lock, staged command-proof, and product-wide project-root state; audit
 and run-decision JSONL rings; generated workflow-audit binaries; abandoned
@@ -727,8 +754,8 @@ global project-state contract keeps at most 256 recognized roots / 128 MiB /
 30 days while preserving the current project, live sessions, unknown
 directories, and recently active lifecycle roots.
 SessionStart and SessionEnd invoke the same core through a
-six-hour due check; Stop never prunes. `--force` remains accepted as a no-op
-compatibility flag for the former harness utility.
+six-hour due check; Stop never prunes. Historical parser compatibility is not
+part of the public command surface.
 
 ### `reconc session-briefing [repo] [--json]`
 Compact delta-oriented session state: current TASK/Sub-Task, bounded blockers,
@@ -759,6 +786,12 @@ lockfile freshness, source list, rule list, audit summary, active
 session id, the exact completion decision and blockers, conflicts, and the next
 action. `--json` emits the same
 snapshot as structured data. It never refreshes policy implicitly.
+
+### `reconc help [command [subcommand...]]`
+Print root help or the exact canonical synopsis and summary for one command
+path, including nested paths such as `reconc help task recover`. The equivalent
+suffix form is `reconc task recover --help`. Unknown command paths fail instead
+of silently falling back to broader help.
 
 ### `reconc completion <bash|zsh|fish>`
 Emit a shell completion script. Install one-liners:

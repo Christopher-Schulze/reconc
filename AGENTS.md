@@ -15,8 +15,8 @@ this root, and docs/comments should not depend on any external source tree.
 - Language: Go
 - Module: `reconc.dev/reconc`
 - Runtime dependencies: `github.com/Microsoft/go-winio`,
-  `github.com/bmatcuk/doublestar/v4`, `golang.org/x/sys`, `gopkg.in/yaml.v3`,
-  and `mvdan.cc/sh/v3`
+  `github.com/bmatcuk/doublestar/v4`, `github.com/pelletier/go-toml/v2`,
+  `golang.org/x/sys`, `gopkg.in/yaml.v3`, and `mvdan.cc/sh/v3`
 - Test runner: `make test` (publication audit, root module, portable template module, and release trust)
 - Coverage gate: `make coverage` (whole-module root and portable-template profiles with explicit floors)
 - Entry point: `cmd/reconc/main.go`

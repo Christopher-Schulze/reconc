@@ -36,6 +36,19 @@ type Status struct {
 	NextAction     string `json:"next_action"`
 }
 
+// BareStatus reports whether the command resolved by bare `reconc` has the
+// exact bytes of the currently running executable. Global host integrations
+// need this narrower invariant because they cannot use a repository-local
+// wrapper path.
+type BareStatus struct {
+	RunningPath     string `json:"running_path"`
+	ResolvedPath    string `json:"resolved_path,omitempty"`
+	ExpectedSHA256  string `json:"expected_sha256"`
+	ResolvedSHA256  string `json:"resolved_sha256,omitempty"`
+	PathVisible     bool   `json:"path_visible"`
+	ChecksumCurrent bool   `json:"checksum_current"`
+}
+
 type InstallReport struct {
 	Status      *Status  `json:"status"`
 	Receipt     *Receipt `json:"receipt,omitempty"`
@@ -51,6 +64,33 @@ type InstallOptions struct {
 	ReleaseTag      string
 	ProvenanceState ProvenanceState
 	InstalledAt     time.Time
+}
+
+func InspectRunningOnPATH() (*BareStatus, error) {
+	source, err := currentExecutable()
+	if err != nil {
+		return nil, err
+	}
+	expected, err := fileSHA256(source)
+	if err != nil {
+		return nil, err
+	}
+	status := &BareStatus{RunningPath: source, ExpectedSHA256: expected}
+	candidates, err := pathCandidates()
+	if err != nil {
+		return nil, fmt.Errorf("inspect bare Reconc PATH identity: %w", err)
+	}
+	if len(candidates) == 0 {
+		return status, nil
+	}
+	status.PathVisible = true
+	status.ResolvedPath = candidates[0]
+	status.ResolvedSHA256, err = fileSHA256(status.ResolvedPath)
+	if err != nil {
+		return nil, fmt.Errorf("inspect bare Reconc checksum identity: %w", err)
+	}
+	status.ChecksumCurrent = status.ResolvedSHA256 == status.ExpectedSHA256
+	return status, nil
 }
 
 func InspectCurrent(installDir string) (*Status, error) {

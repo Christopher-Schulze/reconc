@@ -25,6 +25,10 @@ func TestMetadataFlagsMatchParserSurfaces(t *testing.T) {
 		"bootstrap:apply:--output":         true,
 		"bootstrap:apply:--replace-output": true,
 		"run:off:--force":                  true,
+		"done::--window":                   true,
+		"init::--force":                    true,
+		"init::--preset":                   true,
+		"prune::--force":                   true,
 	}
 	for _, command := range commandmeta.All() {
 		t.Run(command.Name, func(t *testing.T) {

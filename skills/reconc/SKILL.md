@@ -26,7 +26,7 @@ evidence, or human approval.
 
 ## Trigger
 
-Use this skill in Codex, OpenCode, Claude Code, or any other agent runtime
+Use this skill in Codex, OpenCode, Claude Code, Kimi Code CLI, or any other agent runtime
 when:
 
 - the repo has `.reconc.yml`, `.reconc/policy.lock.json`, or `AGENTS.md`
@@ -100,6 +100,15 @@ reconc session-briefing . --json
 native agent hooks when supported directories such as `.claude/`, `.codex/`,
 `.cursor/`, `.opencode/`, `.devin/`, `.agents/`, `.kilo/`, or `.grok/`
 already exist.
+Kimi Code is intentionally excluded because its hooks are user-global. Only an
+explicit operator action installs them:
+
+```bash
+reconc hook install kimi-code
+```
+
+Never add a repository argument, install Kimi itself, or write the real Kimi
+configuration during tests. Use an isolated temporary `KIMI_CODE_HOME`.
 Init mutation performs the same exact running-build installation, fails
 before repository writes when bare `reconc` still does not resolve to it, and
 transactional verification repeats that check.
@@ -174,8 +183,8 @@ reconc run off
 ```
 
 Repository mode is durable for this repository, not machine-global. Claude
-Code, Codex, GitHub Copilot, Cursor, Devin CLI, and Antigravity CLI expose
-synchronous Stop continuation. OpenCode and Kilo Code use inferred
+Code, Codex, GitHub Copilot, Cursor, Devin CLI, Antigravity CLI, and Kimi Code
+CLI expose synchronous Stop continuation. OpenCode and Kilo Code use inferred
 `session.idle`, so their host continuation remains best-effort and fail-open.
 Grok Build has hard native PreToolUse. Reconc also emits exact native Stop
 blocks without a leader, but accepts synchronous enforcement only when the
@@ -288,6 +297,7 @@ timeout policy, output budgets, artifact paths, and activation probes:
 | Antigravity CLI | `.agents/hooks.json` | Invocation, tool, evidence, and Stop adapters |
 | Kilo Code | `.kilo/plugin/reconc.js` | Thin CLI/VS Code project plugin with strict shell exits and inferred bounded async idle continuation; disabled when `KILO_PURE` is set |
 | Grok Build | `.grok/hooks/reconc.json` | Native lifecycle and hard PreToolUse; project trust required; capability-probed native Stop or optional local leader fallback |
+| Kimi Code CLI | `$KIMI_CODE_HOME/config.toml` | Explicit user-global 16-event hook block; repository discovery before action; exit-code-2 PreToolUse, prompt, and Stop control |
 
 Run `reconc hook status . --json` before making enforcement claims.
 `configured` proves a complete static artifact; `discoverable` means the named
@@ -307,6 +317,15 @@ status. Cursor CLI uses `agent`; `cursor-agent` is its compatibility alias.
 `workspaceOpen` is sessionless loading evidence only. Cursor currently emits
 no generic tool hooks for `AskQuestion`, so never claim Reconc gated that host
 action.
+
+Kimi Code hook installation is always explicit and global:
+`reconc hook install kimi-code`, without a repository path. It atomically
+merges only Reconc's marker block and preserves unrelated TOML. Global
+invocations silently no-op outside repositories with explicit Reconc
+configuration. Kimi fails open on hook crashes, timeouts, and non-zero exits
+other than 2, and its post-tool payload has no authoritative exit status.
+Never claim live enforcement from static configuration or contract tests;
+require exact `hook status` liveness.
 
 OpenCode and Kilo accept shell success only from integer
 `output.metadata.exit == 0`. Their `session.idle` continuation calls only

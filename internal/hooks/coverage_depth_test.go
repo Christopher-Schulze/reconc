@@ -14,6 +14,10 @@ func TestEveryInstallablePlatformHasAnExactRoundTrip(t *testing.T) {
 	for _, kind := range InstallableKinds() {
 		t.Run(kind, func(t *testing.T) {
 			repo := t.TempDir()
+			if kind == KindKimiCode {
+				enableKimiCodeCLIForTest(t)
+				t.Setenv("KIMI_CODE_HOME", t.TempDir())
+			}
 			command := exec.Command("git", "-C", repo, "init", "--quiet")
 			if body, err := command.CombinedOutput(); err != nil {
 				t.Fatalf("git init: %v\n%s", err, body)

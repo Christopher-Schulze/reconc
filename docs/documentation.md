@@ -314,6 +314,13 @@ documentation, `start.md`, and the stable repo-local hook wrapper. Both use
 `default` and `agent` as profile defaults. Stack and platform detection produce
 suggestions only; packs and hooks remain explicit.
 
+Repository bootstrap intentionally excludes user-global integrations. Kimi
+Code owns hooks only in `$KIMI_CODE_HOME/config.toml` (default
+`~/.kimi-code/config.toml`), so it is never auto-detected, selected by
+`--hook all`, written by `init`, or included in repository scaffold sync. Its
+separate opt-in lifecycle is `reconc hook install kimi-code` and
+`reconc hook uninstall kimi-code`, both without a repository argument.
+
 The `advanced` profile adds the complete embedded public harness pack under
 `tools/reconc/harness/template/`. Its strict
 `reconc.harness-pack/v1` manifest records product compatibility, capabilities,
@@ -542,8 +549,10 @@ state without Git or writes. Static reference material stays on demand through
 `reconc agent-intro --section NAME` instead of inflating every agent prompt.
 
 `reconc next [PATH]` loads the latest persisted blocking decision for the
-explicit or normally discovered repository. Stale or missing decision state
-fails with an exact replay remediation instead of claiming there is no work.
+explicit or normally discovered repository. Stale decision state fails with
+an exact replay remediation. When no blocking decision exists, it succeeds
+with the explicit clear state `No remediation needed.` or
+`{"state":"clear","remediation":null}`.
 
 `status`, `doctor`, `sources`, `repo sync plan`, `repo sync verify`, `check`,
 `ci`, `assert`, `can`, `why`, `audit tail|stats|export|verify`,
@@ -632,12 +641,13 @@ network when invoked.
 ### Which agent runtimes are supported?
 
 The registry owns integrations for Claude Code, Codex, GitHub Copilot, Cursor,
-OpenCode, Devin CLI, Antigravity CLI, Kilo Code, and Grok Build, plus git
-pre-commit as the repository backstop. Host capabilities differ: some expose
-synchronous Stop, GitHub Copilot timeouts are host-fail-open, OpenCode and Kilo
-expose inferred `session.idle`, and Grok has a strict ACP driver for
-continuation. Run `reconc hook status . --json` before claiming that a
-particular installation is live.
+OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Grok Build, and Kimi Code
+CLI, plus git pre-commit as the repository backstop. Host capabilities differ:
+some expose synchronous Stop, GitHub Copilot and Kimi Code retain documented
+host-fail-open timeout behavior, OpenCode and Kilo expose inferred
+`session.idle`, and Grok has a strict ACP driver for continuation. Run
+`reconc hook status . --json` before claiming that a particular installation
+is live.
 
 ### How do I install and test it?
 
@@ -667,7 +677,10 @@ its version and digest into the plan and receipt, and requires no toolkit copy.
 Run `reconc update`. That single command verifies installation ownership,
 selects stable by default, requires GitHub build-provenance verification,
 applies an available update atomically, and succeeds without mutation when
-already current. Offline `--from-dir` updates require the asset's Sigstore
+already current. Equal semantic versions count as current only when the
+installed receipt SHA-256 matches the selected release artifact, so corrected
+same-version bytes still follow the full verified replacement transaction.
+Offline `--from-dir` updates require the asset's Sigstore
 bundle and trusted root in addition to the strict release inventory. There is no
 separate check/apply step in the current user flow. Use `--channel preview` or
 `--version VERSION` only for an intentional non-default selection. A
@@ -767,7 +780,9 @@ reconc update
 
 The command selects stable by default, verifies the release and current
 installation, applies an available update atomically, and succeeds without
-mutation when already current. Use `--channel stable|preview` or
+mutation when already current. Equal version text alone is insufficient: the
+receipt artifact SHA-256 must match the selected release asset. Use
+`--channel stable|preview` or
 `--version VERSION` only when that selection is intentional. Exact-version
 downgrades and channel changes require explicit flags.
 The current user journey has no separate check/apply step: this one command
@@ -941,7 +956,7 @@ clears its tamper-evident receipt. Time and retention never clear it. With no
 typed TASK lifecycle, the TASK check is a minimal pass; configured lifecycle
 state must be terminal and satisfy every required section, evidence field, and
 optional committed-control-plane rule. `--require-clean-git` adds a clean-tree
-check. `--window` is compatibility-only and never changes the decision.
+check. Elapsed time is never completion evidence.
 
 `reconc task status|validate|check-done` are read-only. `new`, `claim`, `block`,
 `resume`, `split`, `promote`, and `archive` serialize through a cross-platform
@@ -957,7 +972,8 @@ back only if every touched path still equals its recorded before or after
 image, so an external edit is never overwritten. Archived detail bodies are
 not reopened by normal status or briefing reads. Runtime paths reject symlink
 components, journals are capped at 4 MiB, and rollback restores the original
-file bytes and permission mode.
+file bytes and permission mode. Running `task recover` with no journal is a
+successful idempotent no-op and reports `recovered: false`.
 
 ## Minimal Example Policy
 
@@ -1059,7 +1075,9 @@ Meta:
 - `manpage`
 - `version`
 
-For exact flags, run `reconc <command> --help`.
+For exact flags, run `reconc help <command>` or
+`reconc <command> --help`; nested targets such as
+`reconc help task recover` are supported.
 
 ## Repository Policy
 
@@ -1501,7 +1519,7 @@ skill documents the same reconc workflow for every agent runtime:
 
 The typed platform registry is the source of truth for Git pre-commit, Claude
 Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI,
-Kilo Code, and Grok Build. It owns native event names, normalized lifecycle coverage, compatibility
+Kilo Code, Grok Build, and Kimi Code CLI. It owns native event names, normalized lifecycle coverage, compatibility
 routes, config and scaffold paths, failure behavior, timeout budgets, output
 budgets, installation strategy, and activation probes. `reconc hook status
 [repo] [--json]` validates every registered artifact and reports `absent`,
@@ -1555,6 +1573,7 @@ repository.
 | OpenCode CLI | `.opencode/plugins/reconc.js`; prompt, permission, tool, session, compaction, terminal failure, and inferred idle continuation | Static plugin contract plus per-route liveness; continuation remains inferred |
 | Kilo Code CLI | `.kilo/plugin/reconc.js` with `KILO_PURE` unset; same lifecycle classes as OpenCode | Static plugin contract plus per-route liveness; continuation remains inferred |
 | Kilo Code VS Code host | The same canonical project plugin when that host loads external project plugins | CLI observations are never reused as VS Code proof |
+| Kimi Code CLI | User-global `$KIMI_CODE_HOME/config.toml`; all 16 native hooks dispatch through bare `reconc` and discover the current repository | Generator-exact global configuration only; no live claim without a real Kimi route observation |
 
 Cursor's registry classifies all 21 current host events exactly once. Reconc
 installs 17: `sessionStart`, `sessionEnd`, `preToolUse`, `postToolUse`,
@@ -1593,6 +1612,30 @@ limitations, not adapter parity, and remain outside strict Reconc guarantees:
 `https://forum.cursor.com/t/cursor-cli-askquestion-tool-skips-pretooluse-and-posttooluse-hooks/161836/6`
 and
 `https://forum.cursor.com/t/subagentstart-hook-deny-is-not-enforced/166143/4`.
+
+Kimi Code CLI reads hooks from the user-global
+`$KIMI_CODE_HOME/config.toml`, not repository-local `.kimi-code/local.toml`.
+`reconc hook install kimi-code` uses a cross-process lock and atomically
+merges one marker-owned TOML block containing all 16 documented events:
+`SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`,
+`PostToolUse`, `PostToolUseFailure`, `PermissionRequest`,
+`PermissionResult`, `Stop`, `StopFailure`, `Interrupt`, `SubagentStart`,
+`SubagentStop`, `PreCompact`, `PostCompact`, and `Notification`. It preserves
+all unrelated bytes and the existing file mode, refuses invalid TOML or
+managed-block drift, and creates an exact private backup before a forced block
+replacement. Uninstall removes only a generator-exact managed block.
+
+Each global Kimi command uses bare `reconc`, starts in the host-supplied
+project working directory, discovers an explicit Reconc configuration, and
+silently returns outside initialized Reconc repositories. The adapter strictly
+validates snake_case payload identity, session, current working directory,
+tool input, and error shape before entering the shared runtime. Kimi accepts
+exit code 2 as the blocking result for `PreToolUse`, `UserPromptSubmit`, and
+`Stop`; exit zero allows, while every other non-zero exit, crash, and timeout
+is host-fail-open. Post-tool text has no authoritative exit status and never
+becomes positive command-success evidence by inference. Kimi is not installed
+or launched by Reconc tests; isolated temporary `KIMI_CODE_HOME` fixtures prove
+generation, merge, drift refusal, dispatch, and removal.
 
 OpenCode and Kilo shell success is accepted only from an integer
 `output.metadata.exit`. Exit zero succeeds. Non-zero, timeout, abort, explicit
@@ -1673,8 +1716,10 @@ route caps combined process output at 8 KiB.
 Post-compaction recovery context is deduplicated and capped at 4 KiB.
 
 Claude Code, Codex, GitHub Copilot, Cursor, Devin, Antigravity, and Grok
-generated configs use `tools/reconc/bin/hook` on POSIX; the wrapper owns repo-local binary
-selection and PATH `reconc` as last fallback.
+generated repository configs use `tools/reconc/bin/hook` on POSIX; the wrapper
+owns repo-local binary selection and PATH `reconc` as last fallback. Kimi Code
+is global and therefore invokes bare `reconc` directly after explicit install
+verifies that PATH identity.
 For development and self-hosting, the wrapper checks `.build/bin/reconc` and
 root `reconc` before invoking any platform probe. Otherwise, each
 `tools/reconc/dist` and root `dist` directory prefers the stable platform name
@@ -1797,7 +1842,7 @@ leader protocol plus `_x.ai/interject` with a random nonexistent session.
 Its durable state applies only to the selected repository, not the whole machine.
 Repository mode persists across sessions for Claude Code, Codex, GitHub
 Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, and Grok
-Build. The agent
+Build, and Kimi Code CLI. The agent
 runs these commands itself; users do not need to operate Reconc. Prompt text,
 runtime interrupts, compaction, session boundaries, runtime changes, and
 application restarts never mutate the switch. An interrupt releases only the
@@ -2014,7 +2059,7 @@ CI checks:
 - every CI job that executes Go provisions the SHA-pinned `actions/setup-go`
   action from `go.mod`, including the isolated release-trust job
 - clean-repository self-hosting golden path on Ubuntu and macOS across all three
-  bootstrap profiles, git pre-commit, and all nine agent runtimes
+  bootstrap profiles, git pre-commit, and all ten agent runtimes
 - current-tree and post-boundary-history publication audit on Ubuntu, macOS,
   native Windows, release-trust, and tagged release paths
 - immutable action commit pins plus an explicit GitHub-owned action allowlist;

@@ -42,6 +42,9 @@ func TestDiscoverReturnsUndiscoveredWhenNoMarkers(t *testing.T) {
 	if r.Discovered {
 		t.Errorf("expected Discovered=false in empty repo, got true")
 	}
+	if r.RepoRoot != repo {
+		t.Errorf("expected undiscovered RepoRoot to remain %q, got %q", repo, r.RepoRoot)
+	}
 	if len(r.Warnings) == 0 {
 		t.Errorf("expected a warning when nothing found")
 	}
@@ -200,6 +203,23 @@ func TestDiscoverAcceptsFileAsStartPath(t *testing.T) {
 	}
 	if !r.Discovered {
 		t.Fatal("expected Discovered=true when starting from a file")
+	}
+}
+
+func TestDiscoverUndiscoveredFileFallsBackToContainingDirectory(t *testing.T) {
+	repo := newRepo(t)
+	writeFile(t, repo, "plain.txt", "no markers\n")
+	start := filepath.Join(repo, "plain.txt")
+
+	result, err := DiscoverPolicyRepo(start)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Discovered {
+		t.Fatal("expected file without ancestor markers to remain undiscovered")
+	}
+	if result.StartPath != start || result.RepoRoot != repo {
+		t.Fatalf("undiscovered file result = start %q root %q", result.StartPath, result.RepoRoot)
 	}
 }
 

@@ -113,8 +113,6 @@ func printInitHelp(stdout io.Writer) {
 	fmt.Fprintln(stdout, "transaction. Existing user content is never overwritten.")
 	fmt.Fprintln(stdout, "Fresh repositories default to minimal. Existing unreceipted control state")
 	fmt.Fprintln(stdout, "requires an explicit profile and performs no repository write.")
-	fmt.Fprintln(stdout, "")
-	fmt.Fprintln(stdout, "Compatibility: repeatable --preset maps to --pack with a warning. --force is rejected.")
 }
 
 func runInitOperation(options initCLIOptions, version string, stdout, stderr io.Writer) (resultErr error) {

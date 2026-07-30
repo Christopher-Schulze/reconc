@@ -1,7 +1,7 @@
 # RECONC-0006: Hooks And Agent Sessions
 
 - Status: Frozen
-- Contract: git, Claude Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Grok Build, and generic-agent integration
+- Contract: git, Claude Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Grok Build, Kimi Code CLI, and generic-agent integration
 
 ## Hook Kinds
 
@@ -19,6 +19,7 @@
 | `antigravity` | `.agents/hooks.json` | Invocation, tool, and stop hook group under the top-level `reconc` key. |
 | `kilo` | `.kilo/plugin/reconc.js` | Thin project plugin for prompt, permission, complete tool outcomes, terminal errors, compaction, session lifecycle, and idle handling. |
 | `grok` | `.grok/hooks/reconc.json` | Native lifecycle, strict PreToolUse, capability-probed no-leader Stop, compaction, permission-denial, and subagent events. |
+| `kimi-code` | `$KIMI_CODE_HOME/config.toml` | Explicit user-global integration for all 16 native events; commands discover an initialized Reconc repository before acting. |
 
 Installers are idempotent. Reconc-owned JSON hook entries are
 identified by `reconc hook runtime` command tokens and replaced on
@@ -40,6 +41,14 @@ before its first write. Forced malformed-config backups are
 content-addressed, create-only, `0600`, file-synced, and parent-directory-synced
 before the managed artifact is published.
 
+Kimi Code is the only user-global hook target and is never selected by
+repository init, bootstrap, `--hook all`, or scaffold sync. Its explicit
+install takes no repository argument, validates existing TOML, merges one
+marker-owned block under a cross-process lock, preserves unrelated bytes and
+mode, and refuses drift without `--force`. Forced replacement first preserves
+the exact prior config in a private content-addressed backup. Uninstall removes
+only a generator-exact managed block.
+
 The typed registry owns event coverage, native bindings, fallbacks, response
 modes, failure and timeout policy, timeout/output budgets, paths, install
 strategies, documented surfaces, and activation probes. `reconc hook status`
@@ -53,6 +62,24 @@ source-controlled scaffold twins from the same generator:
 `.opencode/plugins/reconc.js`, `.devin/hooks.v1.json`,
 `.kilo/plugin/reconc.js`, and `.grok/hooks/reconc.json`. Template scaffolds are never synced from
 a source-specific harness.
+
+## Kimi Code CLI Guarantee
+
+Kimi Code hooks are global, so each generated command invokes bare `reconc`
+and relies on the host working directory. The internal entrypoint silently
+no-ops unless normal discovery finds an explicit Reconc configuration, then
+binds the native payload `cwd` to that repository before shared policy or
+session handling. Reconc installs all 16 documented native events and strictly
+normalizes `hook_event_name`, `session_id`, `cwd`, tool name/input/call ID,
+tool output, error, reason, and Stop state.
+
+Kimi blocks only when `PreToolUse`, `UserPromptSubmit`, or `Stop` exits 2.
+Exit zero allows; every other non-zero exit, crash, and timeout is host
+fail-open. Reconc therefore converts an intentional shared-runtime denial or
+Stop block into exact exit code 2 with a bounded stderr reason. Post-tool output
+contains no authoritative exit status, so it never becomes positive command
+success by inference. Static TOML identity and isolated adapter tests are not
+live host proof; exact route liveness remains separate in `hook status`.
 
 ## Claude Code Guarantee
 

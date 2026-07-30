@@ -29,12 +29,13 @@ binary_dir=$(cd "$(dirname "$binary")" && pwd)
 git -C "$root" check-ignore --no-index --quiet .reconc/run/decisions.jsonl.lock \
   || fail "self-hosted repository does not ignore Reconc run runtime"
 
-mkdir -p "$tmp/bin" "$tmp/reconc-home" "$tmp/runtime-tmp" "$tmp/state"
+mkdir -p "$tmp/bin" "$tmp/kimi-code-home" "$tmp/reconc-home" "$tmp/runtime-tmp" "$tmp/state"
 export RECONC_HOME="$tmp/reconc-home"
 export RECONC_INSTALL_DIR="$tmp/bin"
 export PATH="$RECONC_INSTALL_DIR:$binary_dir:$PATH"
 export TMPDIR="$tmp/runtime-tmp"
 export RECONC_CLAUDE_STATE_DIR="$tmp/state"
+export KIMI_CODE_HOME="$tmp/kimi-code-home"
 export RECONC_AUDIT=1
 
 minimal="$tmp/minimal"
@@ -76,8 +77,10 @@ stable_binary=$(find "$governed/tools/reconc/dist" -maxdepth 1 -type f -name 're
 cmp -s "$tmp/source-version.txt" "$tmp/stable-version.txt" \
   || fail "stable release-layout binary version differs from the source binary"
 
+"$stable_binary" hook install kimi-code --json >"$tmp/kimi-install.json"
+require_text "$tmp/kimi-install.json" '"repo_root": "global"'
 run_json "$tmp/hook-status.json" "$stable_binary" hook status "$governed"
-[ "$(grep -c '"state": "configured"' "$tmp/hook-status.json")" -eq 10 ] || fail "not all ten hook platforms are configured"
+[ "$(grep -c '"state": "configured"' "$tmp/hook-status.json")" -eq 11 ] || fail "not all eleven hook platforms are configured"
 
 wrapper="$governed/tools/reconc/bin/hook"
 for event in \
@@ -103,6 +106,8 @@ do
       | "$wrapper" "$event" "$governed" >"$tmp/hook-$session.json"
   fi
 done
+(cd "$governed" && printf '{"hook_event_name":"SessionStart","session_id":"golden-kimi","cwd":"%s"}\n' "$governed" \
+  | "$stable_binary" hook kimi-runtime kimi-session-start >"$tmp/hook-kimi.json")
 git -C "$governed" add -A
 (cd "$governed" && .git/hooks/pre-commit) >"$tmp/git-pre-commit.txt"
 governed_root=$(git -C "$governed" rev-parse --show-toplevel)
@@ -139,6 +144,8 @@ run_json "$tmp/existing-verify.json" "$binary" bootstrap verify --plan "$tmp/exi
 require_text "$tmp/existing-apply.json" '"created": []'
 require_text "$tmp/existing-verify.json" '"valid": true'
 
+"$stable_binary" hook uninstall kimi-code --json >"$tmp/kimi-uninstall.json"
+require_text "$tmp/kimi-uninstall.json" '"removed_entries": 16'
 if find "$tmp/runtime-tmp" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
   fail "owned temporary residue escaped cleanup"
 fi

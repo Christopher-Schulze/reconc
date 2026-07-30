@@ -24,17 +24,18 @@ import (
 
 // Hook artifact paths.
 const (
-	GitPreCommitPath         = ".git/hooks/pre-commit"
-	GitPreCommitScaffoldPath = ".githooks/pre-commit"
-	ClaudeCodeSettingsPath   = ".claude/settings.json"
-	CodexHooksPath           = ".codex/hooks.json"
-	GitHubCopilotHooksPath   = ".github/hooks/reconc.json"
-	CursorHooksPath          = ".cursor/hooks.json"
-	OpenCodePluginPath       = ".opencode/plugins/reconc.js"
-	DevinHooksPath           = ".devin/hooks.v1.json"
-	AntigravityHooksPath     = ".agents/hooks.json"
-	KiloPluginPath           = ".kilo/plugin/reconc.js"
-	GrokHooksPath            = ".grok/hooks/reconc.json"
+	GitPreCommitPath          = ".git/hooks/pre-commit"
+	GitPreCommitScaffoldPath  = ".githooks/pre-commit"
+	ClaudeCodeSettingsPath    = ".claude/settings.json"
+	CodexHooksPath            = ".codex/hooks.json"
+	GitHubCopilotHooksPath    = ".github/hooks/reconc.json"
+	CursorHooksPath           = ".cursor/hooks.json"
+	OpenCodePluginPath        = ".opencode/plugins/reconc.js"
+	DevinHooksPath            = ".devin/hooks.v1.json"
+	AntigravityHooksPath      = ".agents/hooks.json"
+	KiloPluginPath            = ".kilo/plugin/reconc.js"
+	GrokHooksPath             = ".grok/hooks/reconc.json"
+	KimiCodeConfigDisplayPath = "~/.kimi-code/config.toml"
 )
 
 // Supported hook kinds.
@@ -49,6 +50,7 @@ const (
 	KindAntigravity   = "antigravity"
 	KindKilo          = "kilo"
 	KindGrok          = "grok"
+	KindKimiCode      = "kimi-code"
 )
 
 // SupportedKinds returns every kind reconc hook generate can produce.
@@ -161,6 +163,8 @@ func Generate(kind string) (*Artifact, error) {
 		return generateKilo()
 	case generatorGrok:
 		return generateGrok()
+	case generatorKimiCode:
+		return generateKimiCode()
 	}
 	return nil, &rerrors.PolicySourceError{Message: fmt.Sprintf("hook kind %q has no generator", kind)}
 }
@@ -188,6 +192,9 @@ func Install(kind, repoRoot string, force bool) (*InstallReport, error) {
 		return nil, &rerrors.PolicySourceError{
 			Message: fmt.Sprintf("unknown installable hook kind: %q (installable: %v)", kind, InstallableKinds()),
 		}
+	}
+	if definition.Kind == KindKimiCode {
+		return installKimiCode(force)
 	}
 	root, err := existingRepoRoot(repoRoot)
 	if err != nil {
@@ -284,7 +291,7 @@ func ensureWrapper(root string, force bool) (string, error) {
 // repo-root-scaffold. Git pre-commit is mapped to .githooks/pre-commit
 // because .git/hooks is clone-local and cannot be source-controlled.
 func ScaffoldKinds() []string {
-	return platformKinds(false)
+	return BootstrapKinds()
 }
 
 // GenerateScaffoldArtifact returns the generated artifact at its

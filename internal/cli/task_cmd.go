@@ -305,14 +305,19 @@ func runTaskRecover(args []string, stdout io.Writer) error {
 		return taskCLIError("recover", err)
 	}
 	abs, err := filepath.Abs(repo)
+	recovered := false
 	if err == nil {
-		err = tasklifecycle.Recover(abs)
+		recovered, err = tasklifecycle.RecoverIfNeeded(abs)
 	}
 	if err != nil {
 		return writeTaskFailure("recover", err, jsonOut, stdout)
 	}
 	if jsonOut {
-		return writeTaskJSON(stdout, map[string]any{"action": "recover", "recovered": true})
+		return writeTaskJSON(stdout, map[string]any{"action": "recover", "recovered": recovered})
+	}
+	if !recovered {
+		fmt.Fprintln(stdout, "No interrupted TASK transaction found")
+		return nil
 	}
 	fmt.Fprintln(stdout, "TASK transaction recovered to its pre-mutation state")
 	return nil

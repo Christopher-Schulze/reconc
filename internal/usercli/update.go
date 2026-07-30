@@ -70,9 +70,23 @@ func update(ctx context.Context, currentVersion string, request UpdateRequest, a
 		return report, nil
 	}
 	if comparison == 0 {
-		report.Status = LifecycleCurrent
-		report.NextAction = "Global Reconc is already at the selected version."
-		return report, nil
+		paths, receiptErr := resolveReceiptPaths()
+		if receiptErr != nil {
+			report.Status = LifecycleFailed
+			report.NextAction = receiptErr.Error()
+			return report, nil
+		}
+		receipt, receiptErr := loadReceiptFile(paths.receipt)
+		if receiptErr != nil {
+			report.Status = LifecycleFailed
+			report.NextAction = "Read the direct-install receipt before comparing artifact identity: " + receiptErr.Error()
+			return report, nil
+		}
+		if receipt.ArtifactSHA256 == release.asset.SHA256 {
+			report.Status = LifecycleCurrent
+			report.NextAction = "Global Reconc already matches the selected release artifact."
+			return report, nil
+		}
 	}
 	if comparison > 0 && !request.AllowDowngrade {
 		report.Status = LifecycleRefused

@@ -85,6 +85,7 @@ func DiscoverPolicyRepo(startPath string) (DiscoveryResult, error) {
 	if !info.IsDir() {
 		cursor = filepath.Dir(abs)
 	}
+	fallbackRoot := cursor
 
 	for {
 		result, found := inspectDirectory(cursor, abs)
@@ -96,7 +97,7 @@ func DiscoverPolicyRepo(startPath string) (DiscoveryResult, error) {
 			// reached filesystem root; no marker found
 			return DiscoveryResult{
 				StartPath:        abs,
-				RepoRoot:         cursor,
+				RepoRoot:         fallbackRoot,
 				Discovered:       false,
 				ConfigCandidates: []string{},
 				PolicyPaths:      []string{},

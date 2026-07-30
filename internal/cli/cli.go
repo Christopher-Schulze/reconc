@@ -16,6 +16,7 @@ import (
 	stderrors "errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 
 	"reconc.dev/reconc/internal/commandmeta"
@@ -66,12 +67,30 @@ func Run(argv []string, version string, stdout, stderr io.Writer) (runErr error)
 		printUsage(stdout, version)
 		return nil
 	}
+	strictHelpTarget := false
+	if argv[0] == "help" {
+		if len(argv) == 1 || len(argv) == 2 && isHelpFlag(argv[1]) {
+			printUsage(stdout, version)
+			return nil
+		}
+		strictHelpTarget = true
+		target := append([]string(nil), argv[1:]...)
+		argv = append(target, "--help")
+	} else if isHelpFlag(argv[0]) {
+		if len(argv) == 1 {
+			printUsage(stdout, version)
+			return nil
+		}
+		strictHelpTarget = true
+		target := append([]string(nil), argv[1:]...)
+		argv = append(target, "--help")
+	}
+	if handled, err := printTargetHelp(argv, stdout, strictHelpTarget); handled {
+		return err
+	}
 	switch argv[0] {
 	case "--version", "-V", "version":
 		return runVersion(argv[1:], version, stdout)
-	case "--help", "-h", "help":
-		printUsage(stdout, version)
-		return nil
 	case "doctor":
 		return runDoctor(argv[1:], version, stdout, stderr)
 	case "compile":
@@ -166,6 +185,98 @@ func Run(argv []string, version string, stdout, stderr io.Writer) (runErr error)
 	}
 }
 
+func isHelpFlag(value string) bool {
+	return value == "-h" || value == "--help"
+}
+
+func printTargetHelp(argv []string, stdout io.Writer, strictTarget bool) (bool, error) {
+	helpIndex := -1
+	for index, arg := range argv {
+		if isHelpFlag(arg) {
+			helpIndex = index
+			break
+		}
+	}
+	if helpIndex < 0 || len(argv) == 0 {
+		return false, nil
+	}
+	command, ok := commandmeta.Lookup(argv[0])
+	if !ok {
+		return false, nil
+	}
+	synopsis := command.Synopsis
+	summary := command.Summary
+	commandFlags := command.Flags
+	children := command.Subcommands
+	path := []string{command.Name}
+	matchedDepth := 0
+	for _, token := range argv[1:helpIndex] {
+		if strings.HasPrefix(token, "-") {
+			continue
+		}
+		if len(children) == 0 {
+			if strictTarget {
+				return true, unknownHelpTarget(append(path, token))
+			}
+			continue
+		}
+		found := false
+		for _, child := range children {
+			if child.Name != token {
+				continue
+			}
+			synopsis = child.Synopsis
+			summary = child.Summary
+			commandFlags = child.Flags
+			children = child.Subcommands
+			path = append(path, child.Name)
+			matchedDepth++
+			found = true
+			break
+		}
+		if !found {
+			return true, unknownHelpTarget(append(path, token))
+		}
+	}
+	if matchedDepth == 0 {
+		return false, nil
+	}
+	fmt.Fprintln(stdout, "Usage: "+synopsis)
+	fmt.Fprintln(stdout, summary)
+	if len(commandFlags) > 0 {
+		fmt.Fprintln(stdout, "")
+		fmt.Fprintln(stdout, "Options:")
+		for _, flag := range commandFlags {
+			option := flag.Name
+			if flag.Value != "" {
+				option += " " + flag.Value
+			}
+			fmt.Fprintln(stdout, "  "+option)
+		}
+	}
+	publicChildren := make([]commandmeta.Subcommand, 0, len(children))
+	for _, child := range children {
+		if child.Stability == commandmeta.StabilityStable {
+			publicChildren = append(publicChildren, child)
+		}
+	}
+	if len(publicChildren) > 0 {
+		fmt.Fprintln(stdout, "")
+		fmt.Fprintln(stdout, "Subcommands:")
+		for _, child := range publicChildren {
+			fmt.Fprintf(stdout, "  %-16s %s\n", child.Name, child.Summary)
+		}
+	}
+	return true, nil
+}
+
+func unknownHelpTarget(path []string) error {
+	return &CLIError{
+		ExitCode: 1,
+		Message:  fmt.Sprintf("reconc help: unknown target %q", strings.Join(path, " ")),
+	}
+}
+
 type trackedOutputWriter struct {
 	mu     sync.Mutex
 	writer io.Writer
@@ -207,6 +318,9 @@ Usage:
 Flags:
   --version, -V    Print version and exit
   --help, -h       Print this help and exit
+
+Help:
+  reconc help [command [subcommand...]]
 `, version)
 	commands := commandmeta.Public()
 	for _, category := range commandmeta.Categories() {

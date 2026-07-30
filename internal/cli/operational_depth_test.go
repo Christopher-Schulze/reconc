@@ -235,7 +235,7 @@ func TestTaskRecoverAndArchiveCLIContracts(t *testing.T) {
 	t.Run("recover without interrupted transaction", func(t *testing.T) {
 		var output bytes.Buffer
 		err := runTaskRecover([]string{t.TempDir(), "--json"}, &output)
-		if err == nil || !strings.Contains(err.Error(), "task-transaction.json") {
+		if err != nil || !strings.Contains(output.String(), `"recovered": false`) {
 			t.Fatalf("missing-transaction recovery = output %q, error %v", output.String(), err)
 		}
 	})

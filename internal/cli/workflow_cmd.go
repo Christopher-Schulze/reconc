@@ -740,10 +740,9 @@ func runDone(args []string, stdout, stderr io.Writer) error {
 			}
 			windowMinutes = n
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "Usage: reconc done [repo] [--window N] [--require-clean-git] [--json]")
+			fmt.Fprintln(stdout, "Usage: reconc done [repo] [--require-clean-git] [--json]")
 			fmt.Fprintln(stdout, "")
-			fmt.Fprintln(stdout, "Evidence-complete task-finish gate. --window is compatibility-only;")
-			fmt.Fprintln(stdout, "elapsed time never clears a block. Exit 0 = done, 2 = blocked, 1 = error.")
+			fmt.Fprintln(stdout, "Evidence-complete task-finish gate. Exit 0 = done, 2 = blocked, 1 = error.")
 			return nil
 		default:
 			if len(a) > 0 && a[0] == '-' {

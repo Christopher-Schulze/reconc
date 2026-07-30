@@ -291,6 +291,39 @@ func TestDirectOfflineUpdateAndUninstallLifecycle(t *testing.T) {
 	}
 }
 
+func TestSameVersionDifferentArtifactIsUpdateAvailable(t *testing.T) {
+	if !supportedDirectTarget() {
+		t.Skip("unsupported direct release target")
+	}
+	root := repositoryRoot(t)
+	currentBinary := buildReleaseBinaryWithSourceDigest(t, root, "1.0.0", strings.Repeat("b", 64))
+	replacementBinary := buildReleaseBinaryWithSourceDigest(t, root, "1.0.0", strings.Repeat("c", 64))
+	installDirectory := t.TempDir()
+	target := filepath.Join(installDirectory, executableName())
+	copyFileForTest(t, currentBinary, target, 0o755)
+	t.Setenv("RECONC_HOME", t.TempDir())
+	t.Setenv("RECONC_INSTALL_DIR", installDirectory)
+	t.Setenv("PATH", installDirectory)
+	writeDirectTestReceipt(t, target, "1.0.0")
+
+	releaseDirectory := t.TempDir()
+	manifest := writeLocalRelease(t, releaseDirectory, replacementBinary, "1.0.0")
+	report, err := CheckUpdate(context.Background(), "1.0.0", UpdateRequest{FromDir: releaseDirectory})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Status != LifecycleUpdateAvailable || report.Changed {
+		t.Fatalf("same-version replacement check = %+v", report)
+	}
+	receipt, _, err := LoadReceipt()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.ArtifactSHA256 == manifest.Assets[0].SHA256 {
+		t.Fatal("test fixture did not produce distinct artifact identities")
+	}
+}
+
 func TestDirectDowngradeRequiresExplicitIntent(t *testing.T) {
 	if !supportedDirectTarget() {
 		t.Skip("unsupported direct release target")
@@ -669,10 +702,14 @@ func repositoryRoot(t *testing.T) string {
 }
 
 func buildReleaseBinary(t *testing.T, root string, version string) string {
+	return buildReleaseBinaryWithSourceDigest(t, root, version, strings.Repeat("b", 64))
+}
+
+func buildReleaseBinaryWithSourceDigest(t *testing.T, root string, version string, sourceDigest string) string {
 	t.Helper()
 	marker, err := buildprovenance.FormatMarker(buildprovenance.Provenance{
 		Version: version, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH,
-		SourceDigest: strings.Repeat("b", 64),
+		SourceDigest: sourceDigest,
 	})
 	if err != nil {
 		t.Fatal(err)

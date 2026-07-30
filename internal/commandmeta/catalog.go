@@ -39,11 +39,10 @@ const (
 )
 
 type Flag struct {
-	Name          string
-	Value         string
-	Values        []string
-	Repeatable    bool
-	Compatibility bool
+	Name       string
+	Value      string
+	Values     []string
+	Repeatable bool
 }
 
 type Argument struct {
@@ -89,14 +88,15 @@ var categoryCatalog = []CategoryInfo{
 	{ID: CategoryMeta, Title: "Meta"},
 }
 
-var hookKinds = []string{"antigravity", "claude-code", "codex", "cursor", "devin-cli", "git-pre-commit", "github-copilot", "grok", "kilo", "opencode"}
+var hookKinds = []string{"antigravity", "claude-code", "codex", "cursor", "devin-cli", "git-pre-commit", "github-copilot", "grok", "kilo", "kimi-code", "opencode"}
+var bootstrapHookKinds = []string{"antigravity", "claude-code", "codex", "cursor", "devin-cli", "git-pre-commit", "github-copilot", "grok", "kilo", "opencode"}
 var bootstrapProfiles = []string{"advanced", "existing", "governed", "minimal"}
 
 var commandCatalog = []Command{
 	command("status", CategoryDaily, "reconc status [repo] [--json] [--output PATH]", "one-line policy health summary", flags(f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
 	command("check", CategoryDaily, "reconc check [repo] [evidence flags]", "evaluate runtime evidence against compiled policy", evidenceFlags(true, true), nil, modes(OutputText, OutputJSON, OutputFile)),
 	command("next", CategoryDaily, "reconc next [repo] [evidence flags]", "show the next remediation", flags(f("--read", "PATH"), f("--write", "PATH"), f("--command", "CMD"), f("--command-success", "CMD"), f("--command-failure", "CMD"), f("--claim", "NAME"), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
-	command("done", CategoryDaily, "reconc done [repo] [--require-clean-git] [--json]", "evidence-complete task-finish gate", flags(compat("--window", "N"), f("--require-clean-git", ""), f("--json", "")), nil, modes(OutputText, OutputJSON)),
+	command("done", CategoryDaily, "reconc done [repo] [--require-clean-git] [--json]", "evidence-complete task-finish gate", flags(f("--require-clean-git", ""), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	command("proof", CategoryDaily, "reconc proof [repo] [--format json|markdown] [--output PATH]", "export a portable completion proof bundle", flags(f("--format", "FORMAT", "json", "markdown"), f("--output", "PATH")), nil, modes(OutputJSON, OutputMarkdown, OutputFile)),
 
 	command("bootstrap", CategoryBootstrap, "reconc bootstrap <subcommand>", "inspect, plan, apply, verify, or remove repository onboarding", nil, []Subcommand{
@@ -119,7 +119,7 @@ var commandCatalog = []Command{
 	command("install-cli", CategoryBootstrap, "reconc install-cli [--install-dir PATH] [--json]", "install the running build as the stable user CLI", flags(f("--install-dir", "PATH"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	command("update", CategoryBootstrap, "reconc update [--channel stable|preview | --version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]", "apply an ownership-safe global CLI update", flags(f("--channel", "CHANNEL", "stable", "preview"), f("--version", "VERSION"), f("--allow-downgrade", ""), f("--from-dir", "PATH"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	command("uninstall", CategoryBootstrap, "reconc uninstall [--purge-state] [--json]", "remove only the globally owned CLI installation", flags(f("--purge-state", ""), f("--json", "")), nil, modes(OutputText, OutputJSON)),
-	command("init", CategoryBootstrap, "reconc init [repo] [--profile PROFILE] [selection flags]", "transactionally onboard a repository", flags(f("--profile", "PROFILE", bootstrapProfiles...), repeat("--pack", "NAME"), repeatValues("--hook", "KIND", hookKinds...), f("--no-hooks", ""), f("--accept-managed-blocks", ""), compatRepeat("--preset", "NAME"), compat("--force", ""), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
+	command("init", CategoryBootstrap, "reconc init [repo] [--profile PROFILE] [selection flags]", "transactionally onboard a repository", flags(f("--profile", "PROFILE", bootstrapProfiles...), repeat("--pack", "NAME"), repeatValues("--hook", "KIND", bootstrapHookKinds...), f("--no-hooks", ""), f("--accept-managed-blocks", ""), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
 	command("adopt", CategoryBootstrap, "reconc adopt [repo] [--yaml | --json | --apply]", "detect tooling and suggest rules", flags(f("--yaml", ""), f("--json", ""), f("--apply", "")), nil, modes(OutputText, OutputYAML, OutputJSON)),
 	command("extract", CategoryBootstrap, "reconc extract [repo] [--from PATH] [--yaml | --json]", "scan instruction prose for rule hints", flags(f("--from", "PATH"), f("--yaml", ""), f("--json", "")), nil, modes(OutputText, OutputYAML, OutputJSON)),
 	command("doctor", CategoryBootstrap, "reconc doctor [repo] [--deep] [--json] [--output PATH] | reconc doctor --global [--json] [--output PATH]", "inspect repository or global installation state", flags(f("--deep", ""), f("--global", ""), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
@@ -150,6 +150,7 @@ var commandCatalog = []Command{
 		sub("status", "reconc hook status [repo] [--json]", "inspect registered hook installation and liveness", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 		sub("sync-scaffold", "reconc hook sync-scaffold <repo-root-scaffold> [--json]", "synchronize generated scaffold hook artifacts", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 		internalSub("runtime", "reconc hook runtime <event> <repo>", "dispatch one registry-owned runtime event"),
+		internalSub("kimi-runtime", "reconc hook kimi-runtime <event>", "dispatch one global Kimi Code runtime event"),
 		internalSub("grok-pre-tool-guard", "reconc hook grok-pre-tool-guard <repo>", "run the internal fail-closed Grok pre-tool guard"),
 		sub("claim", "reconc hook claim <repo> <claim-name> [--session ID] [--json] [--output PATH]", "record one explicit session claim", flags(f("--session", "ID"), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
 		sub("evidence-status", "reconc hook evidence-status [repo] [--json]", "inspect persistent evidence taint without mutation", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
@@ -183,7 +184,7 @@ var commandCatalog = []Command{
 		sub("archive", "reconc task archive [repo] [--json]", "archive the terminal current TASK", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 		sub("recover", "reconc task recover [repo] [--json]", "recover an interrupted TASK transaction", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	}, modes(OutputText, OutputJSON)),
-	command("prune", CategoryMaintenance, "reconc prune [repo] [--dry-run] [--json]", "bound runtime state and owned temporary residue", flags(f("--dry-run", ""), f("--json", ""), compat("--force", "")), nil, modes(OutputText, OutputJSON)),
+	command("prune", CategoryMaintenance, "reconc prune [repo] [--dry-run] [--json]", "bound runtime state and owned temporary residue", flags(f("--dry-run", ""), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	command("session-briefing", CategoryMaintenance, "reconc session-briefing [repo] [--json]", "print the versioned session and reentry delta", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	command("context", CategoryMaintenance, "reconc context size [repo] [flags]", "check canonical session files against a token budget", nil, []Subcommand{
 		sub("size", "reconc context size [repo] [--limit N] [--files PATH,...] [--json]", "measure canonical session context", flags(f("--limit", "N"), f("--files", "PATH,..."), f("--json", "")), nil, modes(OutputText, OutputJSON)),
@@ -297,18 +298,6 @@ func repeatValues(name, value string, values ...string) Flag {
 	return flag
 }
 
-func compat(name, value string) Flag {
-	flag := f(name, value)
-	flag.Compatibility = true
-	return flag
-}
-
-func compatRepeat(name, value string) Flag {
-	flag := compat(name, value)
-	flag.Repeatable = true
-	return flag
-}
-
 func flags(values ...Flag) []Flag {
 	return values
 }
@@ -330,7 +319,7 @@ func evidenceFlags(autoClaim, output bool) []Flag {
 }
 
 func bootstrapSelectionFlags(allowOutput bool) []Flag {
-	values := flags(f("--profile", "PROFILE", bootstrapProfiles...), repeat("--pack", "NAME"), repeatValues("--hook", "KIND", hookKinds...), f("--install-binary", ""), f("--binary", "PATH"), f("--checksum", "SHA256"), f("--platform", "OS/ARCH"))
+	values := flags(f("--profile", "PROFILE", bootstrapProfiles...), repeat("--pack", "NAME"), repeatValues("--hook", "KIND", bootstrapHookKinds...), f("--install-binary", ""), f("--binary", "PATH"), f("--checksum", "SHA256"), f("--platform", "OS/ARCH"))
 	if allowOutput {
 		values = append(values, f("--output", "PATH"), f("--replace-output", ""))
 	}

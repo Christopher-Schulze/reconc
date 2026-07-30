@@ -368,6 +368,44 @@ func generateAntigravity() (*Artifact, error) {
 	}, nil
 }
 
+func generateKimiCode() (*Artifact, error) {
+	platform, ok := PlatformForKind(KindKimiCode)
+	if !ok {
+		return nil, hookGeneratorError("missing hook platform: %s", KindKimiCode)
+	}
+	if err := validatePlatform(platform); err != nil {
+		return nil, err
+	}
+	var body strings.Builder
+	// The leading newline belongs to the managed block. Appending and later
+	// removing the block therefore preserves the user's original EOF newline
+	// byte-for-byte, whether it was present or absent.
+	body.WriteByte('\n')
+	body.WriteString(KimiCodeManagedBlockStart)
+	body.WriteByte('\n')
+	for _, capability := range platform.Capabilities {
+		if capability.Support == SupportUnsupported {
+			continue
+		}
+		for _, binding := range capability.Bindings {
+			if binding.Compatibility || binding.RuntimeEvent == "" {
+				continue
+			}
+			body.WriteString("[[hooks]]\n")
+			fmt.Fprintf(&body, "event = %q\n", binding.NativeEvent)
+			fmt.Fprintf(&body, "command = %q\n", "reconc hook kimi-runtime "+binding.RuntimeEvent)
+			fmt.Fprintf(&body, "timeout = %d\n\n", capability.TimeoutSeconds)
+		}
+	}
+	body.WriteString(KimiCodeManagedBlockEnd)
+	body.WriteByte('\n')
+	return &Artifact{
+		Kind:       KindKimiCode,
+		TargetPath: KimiCodeConfigDisplayPath,
+		Content:    body.String(),
+	}, nil
+}
+
 func runtimeCommand(repoExpr, event string) string {
 	return fmt.Sprintf(`sh -lc '%s'`, shellRuntimeCommand(repoExpr, event))
 }

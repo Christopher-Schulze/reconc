@@ -105,21 +105,24 @@ func TestRepoSyncCLIRequiresExactApplyInputs(t *testing.T) {
 }
 
 func TestRepoSyncHelpAndReadOnlyPlan(t *testing.T) {
-	for _, args := range [][]string{
-		{"repo", "--help"},
-		{"repo", "sync", "--help"},
-		{"repo", "sync", "plan", "--help"},
-		{"repo", "sync", "apply", "--help"},
-		{"repo", "sync", "resolve", "--help"},
-		{"repo", "sync", "verify", "--help"},
-		{"repo", "sync", "recover", "--help"},
+	for _, test := range []struct {
+		args []string
+		want string
+	}{
+		{args: []string{"repo", "--help"}, want: "Usage: reconc repo sync"},
+		{args: []string{"repo", "sync", "--help"}, want: "Usage: reconc repo sync <plan|apply|resolve|verify|recover>"},
+		{args: []string{"repo", "sync", "plan", "--help"}, want: "Usage: reconc repo sync plan"},
+		{args: []string{"repo", "sync", "apply", "--help"}, want: "Usage: reconc repo sync apply"},
+		{args: []string{"repo", "sync", "resolve", "--help"}, want: "Usage: reconc repo sync resolve"},
+		{args: []string{"repo", "sync", "verify", "--help"}, want: "Usage: reconc repo sync verify"},
+		{args: []string{"repo", "sync", "recover", "--help"}, want: "Usage: reconc repo sync recover"},
 	} {
 		var stdout, stderr bytes.Buffer
-		if err := Run(args, "0.9.0", &stdout, &stderr); err != nil {
-			t.Fatalf("%v: %v stderr=%s", args, err, stderr.String())
+		if err := Run(test.args, "0.9.0", &stdout, &stderr); err != nil {
+			t.Fatalf("%v: %v stderr=%s", test.args, err, stderr.String())
 		}
-		if !strings.Contains(stdout.String(), "Usage: reconc repo sync plan") {
-			t.Fatalf("%v help = %s", args, stdout.String())
+		if !strings.Contains(stdout.String(), test.want) {
+			t.Fatalf("%v help = %s, want %q", test.args, stdout.String(), test.want)
 		}
 	}
 

@@ -111,8 +111,12 @@ func TestRunNextBranches(t *testing.T) {
 	stdout.Reset()
 	stderr.Reset()
 	err = Run([]string{"next", passRepo, "--json"}, "0.5.0-test", &stdout, &stderr)
-	if err == nil || !strings.Contains(err.Error(), "no unresolved blocking decision") {
-		t.Fatalf("next without a blocking decision must fail closed: %v", err)
+	if err != nil {
+		t.Fatalf("next without a blocking decision must be a clean no-op: %v", err)
+	}
+	if !strings.Contains(stdout.String(), `"state": "clear"`) ||
+		!strings.Contains(stdout.String(), `"remediation": null`) {
+		t.Fatalf("clean next JSON = %q", stdout.String())
 	}
 }
 

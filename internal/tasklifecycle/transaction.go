@@ -273,12 +273,23 @@ func writeNewTransactionFile(path string, body []byte, mode os.FileMode) error {
 // still equals the recorded before or after image. Any external edit causes a
 // fail-closed conflict instead of being overwritten.
 func Recover(repoRoot string) error {
+	_, err := RecoverIfNeeded(repoRoot)
+	return err
+}
+
+// RecoverIfNeeded is the idempotent recovery contract used by the CLI. It
+// reports false when no journal exists and performs no mutation in that case.
+func RecoverIfNeeded(repoRoot string) (bool, error) {
 	root, err := canonicalRepoRoot(repoRoot)
 	if err != nil {
-		return err
+		return false, err
 	}
-	return withMutationLock(root, func() error {
+	recovered := false
+	err = withMutationLock(root, func() error {
 		journal, err := readTransaction(root)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
@@ -292,8 +303,10 @@ func Recover(repoRoot string) error {
 		if err := os.Remove(journalPath); err != nil {
 			return fmt.Errorf("remove recovered TASK journal: %w", err)
 		}
+		recovered = true
 		return nil
 	})
+	return recovered, err
 }
 
 func readTransaction(repoRoot string) (transaction, error) {

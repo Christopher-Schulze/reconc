@@ -40,6 +40,62 @@ func TestPublicHookHelpDoesNotAdvertiseInternalRoutes(t *testing.T) {
 	}
 }
 
+func TestHelpRoutesToExactCommandPath(t *testing.T) {
+	tests := []struct {
+		name string
+		argv []string
+		want string
+	}{
+		{name: "command", argv: []string{"help", "update"}, want: "Usage: reconc update"},
+		{name: "nested", argv: []string{"help", "hook", "install"}, want: "Usage: reconc hook install"},
+		{name: "flag before command", argv: []string{"--help", "task", "recover"}, want: "reconc task recover"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			if err := Run(test.argv, "test-version", &stdout, &stderr); err != nil {
+				t.Fatalf("%v failed: %v", test.argv, err)
+			}
+			if !strings.Contains(stdout.String(), test.want) {
+				t.Fatalf("%v rendered wrong help: %q", test.argv, stdout.String())
+			}
+			if strings.Contains(stdout.String(), "Repository Control Compiler") {
+				t.Fatalf("%v fell back to root help: %q", test.argv, stdout.String())
+			}
+			if test.name == "flag before command" && strings.Contains(stdout.String(), "reconc task status") {
+				t.Fatalf("%v leaked sibling command help: %q", test.argv, stdout.String())
+			}
+		})
+	}
+}
+
+func TestHelpRejectsUnknownTarget(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err := Run([]string{"help", "nonsense"}, "test-version", &stdout, &stderr)
+	if err == nil || ExitCode(err) != 1 || !strings.Contains(err.Error(), `unknown subcommand "nonsense"`) {
+		t.Fatalf("unknown help target = output %q, error %v", stdout.String(), err)
+	}
+}
+
+func TestHelpRejectsUnknownNestedTarget(t *testing.T) {
+	for _, test := range []struct {
+		argv []string
+		want string
+	}{
+		{argv: []string{"help", "task", "nonsense"}, want: `unknown target "task nonsense"`},
+		{argv: []string{"help", "task", "recover", "nonsense"}, want: `unknown target "task recover nonsense"`},
+	} {
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+		err := Run(test.argv, "test-version", &stdout, &stderr)
+		if err == nil || ExitCode(err) != 1 || !strings.Contains(err.Error(), test.want) {
+			t.Fatalf("unknown nested help target %v = output %q, error %v", test.argv, stdout.String(), err)
+		}
+	}
+}
+
 func publicLeafCommandPaths() [][]string {
 	paths := [][]string{}
 	var walk func([]string, []commandmeta.Subcommand)

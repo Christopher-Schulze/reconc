@@ -47,6 +47,9 @@ func Uninstall(kind, repoRoot string) (*UninstallReport, error) {
 			Message: fmt.Sprintf("unknown uninstallable hook kind: %q (supported: %v)", kind, InstallableKinds()),
 		}
 	}
+	if definition.Kind == KindKimiCode {
+		return uninstallKimiCode()
+	}
 	root, err := existingRepoRoot(repoRoot)
 	if err != nil {
 		return nil, err

@@ -12,6 +12,7 @@ import (
 
 	"reconc.dev/reconc/internal/grokacp"
 	"reconc.dev/reconc/internal/hooks"
+	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
@@ -35,6 +36,7 @@ func runHook(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintln(stdout, "       reconc hook evidence-resolve <repo> --token TOKEN --reason TEXT [--json]")
 		fmt.Fprintln(stdout, "")
 		fmt.Fprintf(stdout, "Kinds: %s (all installable)\n", strings.Join(hooks.SupportedKinds(), ", "))
+		fmt.Fprintln(stdout, "Kimi Code hooks are user-global; install or uninstall kimi-code without a repo argument.")
 		return nil
 	case "generate":
 		return runHookGenerate(args[1:], stdout, stderr)
@@ -48,6 +50,8 @@ func runHook(args []string, stdout, stderr io.Writer) error {
 		return runHookSyncScaffold(args[1:], stdout, stderr)
 	case "runtime":
 		return runHookRuntime(args[1:], stdout, stderr)
+	case "kimi-runtime":
+		return runKimiCodeRuntime(args[1:], stdout, stderr)
 	case "grok-pre-tool-guard":
 		return runGrokPreToolGuard(args[1:], stdout, stderr)
 	case "claim":
@@ -395,6 +399,9 @@ func runHookInstall(args []string, stdout, stderr io.Writer) (resultErr error) {
 			repoSet = true
 		}
 	}
+	if kind == hooks.KindKimiCode && repoSet {
+		return &CLIError{ExitCode: 1, Message: "reconc hook install: kimi-code is user-global and does not accept a repo path"}
+	}
 	report, installErr := hooks.Install(kind, repo, force)
 	out, closeOutput, err := teeToFile(stdout, outputPath)
 	if err != nil {
@@ -409,7 +416,11 @@ func runHookInstall(args []string, stdout, stderr io.Writer) (resultErr error) {
 		}
 	} else if report != nil {
 		fmt.Fprintf(out, "Installed %s hook (%s)\n", report.Kind, report.Action)
-		fmt.Fprintf(out, "Repo:    %s\n", report.RepoRoot)
+		scopeLabel := "Repo"
+		if report.RepoRoot == "global" {
+			scopeLabel = "Scope"
+		}
+		fmt.Fprintf(out, "%-8s %s\n", scopeLabel+":", report.RepoRoot)
 		fmt.Fprintf(out, "Target:  %s\n", report.TargetPath)
 		if report.WrapperPath != "" {
 			fmt.Fprintf(out, "Wrapper: %s (%s)\n", report.WrapperPath, report.WrapperAction)
@@ -433,7 +444,7 @@ func runHookInstall(args []string, stdout, stderr io.Writer) (resultErr error) {
 		fmt.Fprintln(stderr, "  (If this was intentional, redo the edit via a wrapper command)")
 	}
 	if report.BackupPath != "" {
-		fmt.Fprintf(stderr, "reconc hook install: replaced malformed config; original preserved at %s\n",
+		fmt.Fprintf(stderr, "reconc hook install: replaced managed configuration; original preserved at %s\n",
 			report.BackupPath)
 	}
 	return nil
@@ -477,6 +488,9 @@ func runHookUninstall(args []string, stdout io.Writer) (resultErr error) {
 			repoSet = true
 		}
 	}
+	if kind == hooks.KindKimiCode && repoSet {
+		return &CLIError{ExitCode: 1, Message: "reconc hook uninstall: kimi-code is user-global and does not accept a repo path"}
+	}
 	report, err := hooks.Uninstall(kind, repo)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc hook uninstall: " + err.Error()}
@@ -495,7 +509,11 @@ func runHookUninstall(args []string, stdout io.Writer) (resultErr error) {
 		return nil
 	}
 	fmt.Fprintf(out, "Uninstalled %s hook (%s)\n", report.Kind, report.Action)
-	fmt.Fprintf(out, "Repo:       %s\n", report.RepoRoot)
+	scopeLabel := "Repo"
+	if report.RepoRoot == "global" {
+		scopeLabel = "Scope"
+	}
+	fmt.Fprintf(out, "%-11s %s\n", scopeLabel+":", report.RepoRoot)
 	fmt.Fprintf(out, "Target:     %s\n", report.TargetPath)
 	fmt.Fprintf(out, "Entries:    %d removed\n", report.RemovedEntries)
 	if report.ActivationAction != "" {
@@ -571,6 +589,38 @@ func dedupToFirstClassRoute(repo, configRelPath, event string, stderr io.Writer)
 	fmt.Fprintf(stderr, "reconc hook runtime: %s deduplicated; first-class %s owns this event\n", event, configRelPath)
 	_ = agentsession.RecordHookLiveness(repo, event, event)
 	return true
+}
+
+// runKimiCodeRuntime is the global Kimi Code hook entry point. It no-ops
+// outside repositories with an explicit Reconc config, then delegates the
+// discovered root to the ordinary registry runtime.
+func runKimiCodeRuntime(args []string, stdout, stderr io.Writer) error {
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+		fmt.Fprintln(stdout, "Usage: reconc hook kimi-runtime <event>   (internal; reads JSON from stdin)")
+		return nil
+	}
+	if len(args) != 1 {
+		return &CLIError{ExitCode: 1, Message: "reconc hook kimi-runtime: expected exactly one <event>"}
+	}
+	event := args[0]
+	route, ok := hooks.RuntimeEvent(event)
+	if !ok || route.PlatformKind != hooks.KindKimiCode {
+		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook kimi-runtime: unknown Kimi Code event %q", event)}
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintln(stderr, "reconc hook kimi-runtime warning: resolve working directory: "+err.Error())
+		return nil
+	}
+	discovery, err := ingest.DiscoverPolicyRepo(cwd)
+	if err != nil {
+		fmt.Fprintln(stderr, "reconc hook kimi-runtime warning: discover repository: "+err.Error())
+		return nil
+	}
+	if !discovery.Discovered || discovery.ConfigPath == nil {
+		return nil
+	}
+	return runHookRuntime([]string{event, discovery.RepoRoot}, stdout, stderr)
 }
 
 // Design anchor: the threat model in docs/architecture.md#threat-model-hook-runtime
@@ -658,6 +708,9 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 	case hooks.KindGrok:
 		payload, err = agentsession.NormalizeGrokPayload(event, payload, repo)
 		timing.mark("grok_normalize")
+	case hooks.KindKimiCode:
+		payload, err = agentsession.NormalizeKimiCodePayload(event, payload, repo)
+		timing.mark("kimi_code_normalize")
 	}
 	if err != nil {
 		if route.PlatformKind == hooks.KindGitHubCopilot && (route.Event == hooks.EventStop || route.Event == hooks.EventSubagentStop) {
@@ -705,7 +758,9 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 			result = agentsession.RunSessionStart(repo, payload)
 		case hooks.EventUserPromptSubmit,
 			hooks.EventPermissionDenied,
+			hooks.EventPermissionResult,
 			hooks.EventStopFailure,
+			hooks.EventInterrupt,
 			hooks.EventToolObservation,
 			hooks.EventNotification,
 			hooks.EventContinuation,
@@ -780,7 +835,7 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 		}
 		result.Stderr += grokPrepareWarning
 	}
-	if err := agentsession.RecordHookLiveness(repo, event, event); err != nil {
+	if err := agentsession.RecordHookLiveness(repo, route.PlatformKind, event); err != nil {
 		if result.Stderr != "" {
 			result.Stderr += "; "
 		}
@@ -819,6 +874,9 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 		}
 		result = agentsession.AdaptGrokResult(event, result)
 		timing.mark("grok_adapt")
+	case hooks.KindKimiCode:
+		result = agentsession.AdaptKimiCodeResult(event, result)
+		timing.mark("kimi_code_adapt")
 	}
 	result = boundHookResult(result, route)
 
@@ -987,11 +1045,13 @@ func isObservationOnlyHookEvent(event string) bool {
 	switch route.Event {
 	case hooks.EventUserPromptSubmit,
 		hooks.EventPermissionDenied,
+		hooks.EventPermissionResult,
 		hooks.EventPostToolUse,
 		hooks.EventPostToolUseFailure,
 		hooks.EventToolObservation,
 		hooks.EventContinuation,
 		hooks.EventStopFailure,
+		hooks.EventInterrupt,
 		hooks.EventSessionEnd,
 		hooks.EventNotification,
 		hooks.EventSubagentStart,

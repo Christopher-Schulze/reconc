@@ -11,6 +11,7 @@ const (
 	EventUserPromptSubmit   Event = "user-prompt-submit"
 	EventPreToolUse         Event = "pre-tool-use"
 	EventPermissionRequest  Event = "permission-request"
+	EventPermissionResult   Event = "permission-result"
 	EventPermissionDenied   Event = "permission-denied"
 	EventPostToolUse        Event = "post-tool-use"
 	EventPostToolUseFailure Event = "post-tool-use-failure"
@@ -19,6 +20,7 @@ const (
 	EventMCPAfter           Event = "mcp-after"
 	EventStop               Event = "stop"
 	EventStopFailure        Event = "stop-failure"
+	EventInterrupt          Event = "interrupt"
 	EventSessionEnd         Event = "session-end"
 	EventNotification       Event = "notification"
 	EventSubagentStart      Event = "subagent-start"
@@ -60,6 +62,7 @@ const (
 	InstallOwnedJSON   InstallMode = "owned-json-key"
 	InstallPlugin      InstallMode = "managed-plugin"
 	InstallManagedJSON InstallMode = "managed-json-file"
+	InstallGlobalTOML  InstallMode = "global-toml-block"
 )
 
 // ActivationMode defines how a correct artifact becomes discoverable.
@@ -69,6 +72,7 @@ const (
 	ActivationAutomatic ActivationMode = "automatic"
 	ActivationFlag      ActivationMode = "explicit-flag"
 	ActivationGitPath   ActivationMode = "git-hooks-path"
+	ActivationGlobal    ActivationMode = "global-config"
 )
 
 const (
@@ -170,6 +174,7 @@ const (
 	generatorAntigravity
 	generatorKilo
 	generatorGrok
+	generatorKimiCode
 )
 
 const defaultHookOutputBytes = 8 * 1024
@@ -339,6 +344,27 @@ var platformRegistry = []platformDefinition{
 		}},
 		generator: generatorGrok,
 	},
+	{
+		Platform: Platform{Kind: KindKimiCode, DisplayName: "Kimi Code CLI", TargetPath: KimiCodeConfigDisplayPath, InstallMode: InstallGlobalTOML, Activation: ActivationProbe{Mode: ActivationGlobal, ConfigDirs: []string{"~/.kimi-code"}}, Capabilities: []Capability{
+			capability(EventSessionStart, "SessionStart", SupportNative, FailureAllow, FailureAllow, 5, "kimi-session-start"),
+			capability(EventUserPromptSubmit, "UserPromptSubmit", SupportNative, FailureAllow, FailureAllow, 5, "kimi-user-prompt-submit"),
+			capability(EventPreToolUse, "PreToolUse", SupportNative, FailureBlock, FailureAllow, 10, "kimi-pre-tool-use"),
+			capability(EventPermissionRequest, "PermissionRequest", SupportNative, FailureAllow, FailureAllow, 5, "kimi-permission-request"),
+			capability(EventPermissionResult, "PermissionResult", SupportNative, FailureAllow, FailureAllow, 5, "kimi-permission-result"),
+			capability(EventPostToolUse, "PostToolUse", SupportNative, FailureAllow, FailureAllow, 5, "kimi-post-tool-use"),
+			capability(EventPostToolUseFailure, "PostToolUseFailure", SupportNative, FailureAllow, FailureAllow, 5, "kimi-post-tool-use-failure"),
+			capability(EventStop, "Stop", SupportNative, FailureBlock, FailureAllow, 30, "kimi-stop"),
+			capability(EventStopFailure, "StopFailure", SupportNative, FailureAllow, FailureAllow, 5, "kimi-stop-failure"),
+			capability(EventInterrupt, "Interrupt", SupportNative, FailureAllow, FailureAllow, 5, "kimi-interrupt"),
+			capability(EventSessionEnd, "SessionEnd", SupportNative, FailureAllow, FailureAllow, 5, "kimi-session-end"),
+			capability(EventSubagentStart, "SubagentStart", SupportNative, FailureAllow, FailureAllow, 5, "kimi-subagent-start"),
+			capability(EventSubagentStop, "SubagentStop", SupportNative, FailureAllow, FailureAllow, 5, "kimi-subagent-stop"),
+			capability(EventPreCompaction, "PreCompact", SupportNative, FailureAllow, FailureAllow, 5, "kimi-pre-compaction"),
+			capability(EventPostCompaction, "PostCompact", SupportNative, FailureAllow, FailureAllow, 5, "kimi-post-compaction"),
+			capability(EventNotification, "Notification", SupportNative, FailureAllow, FailureAllow, 5, "kimi-notification"),
+		}},
+		generator: generatorKimiCode,
+	},
 }
 
 var runtimeRouteIndex = buildRuntimeRouteIndex()
@@ -468,6 +494,33 @@ func AgentPlatforms() []Platform {
 		}
 	}
 	return out
+}
+
+// RepositoryAgentPlatforms returns agent integrations whose artifacts belong
+// to one repository. Global host integrations such as Kimi Code are excluded
+// from bootstrap auto-detection and repository transaction plans.
+func RepositoryAgentPlatforms() []Platform {
+	platforms := AgentPlatforms()
+	out := make([]Platform, 0, len(platforms))
+	for _, platform := range platforms {
+		if platform.Activation.Mode != ActivationGlobal {
+			out = append(out, platform)
+		}
+	}
+	return out
+}
+
+// BootstrapKinds returns every repository-owned hook kind accepted by
+// bootstrap and init. Global host configuration is always an explicit,
+// separate hook install.
+func BootstrapKinds() []string {
+	kinds := make([]string, 0, len(platformRegistry))
+	for _, definition := range platformRegistry {
+		if definition.Activation.Mode != ActivationGlobal {
+			kinds = append(kinds, definition.Kind)
+		}
+	}
+	return kinds
 }
 
 func PlatformForKind(kind string) (Platform, bool) {

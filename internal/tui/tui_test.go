@@ -144,3 +144,19 @@ func TestBuildRejectsSchemaDriftWithoutWriting(t *testing.T) {
 		t.Fatal("TUI modified the schema-drifted lockfile")
 	}
 }
+
+func TestBuildUndiscoveredUsesCanonicalInitRemediation(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repo := t.TempDir()
+
+	view, err := Build(repo)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if view.Discovered || view.RepoRoot != repo {
+		t.Fatalf("undiscovered view = %+v", view)
+	}
+	if view.NextAction != "run `reconc init "+repo+"`" {
+		t.Fatalf("next action = %q", view.NextAction)
+	}
+}

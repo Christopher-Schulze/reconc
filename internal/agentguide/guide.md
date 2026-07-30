@@ -238,7 +238,8 @@ reconc hook evidence-resolve . --token <sha256> --reason "<reviewed reason>"
 ## Platform Integration
 
 The typed registry supports Claude Code, Codex, GitHub Copilot, Cursor,
-OpenCode, Devin CLI, Antigravity CLI, Kilo Code, and Grok Build. Run
+OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Grok Build, and Kimi Code
+CLI. Run
 `reconc hook status . --json`
 instead of guessing whether an artifact is installed, configured, degraded,
 shadowed, or unsupported. `configured` is static discovery truth, not live
@@ -291,6 +292,14 @@ weaker host lifecycle respectively.
   checks and exact route tokens prevent drift. Deep doctor reports native Stop
   support separately and probes protocol 1 plus `_x.ai/interject` for leaders;
   `RECONC_GROK_STEER=0` disables only leader steering.
+- **Kimi Code CLI**: hooks are user-global. Only an explicit
+  `reconc hook install kimi-code` without a repository path merges Reconc's
+  marker block into `$KIMI_CODE_HOME/config.toml`; `init`, bootstrap, and
+  scaffold sync never select it. The 16 native routes discover an explicit
+  Reconc repository from their working directory and otherwise no-op. Kimi
+  blocks PreToolUse, prompt submission, and Stop only on exit code 2; crashes,
+  timeouts, and every other non-zero exit are host-fail-open. Post-tool output
+  has no authoritative exit status. Static configuration is not live proof.
 - **Generic / other agents (Aider, ...)**: invoke the CLI
   directly. `reconc can`, `reconc check --terse`, `reconc next`, and
   `reconc done` are token-optimised for this path.
@@ -321,9 +330,10 @@ reconc run off .
 ```
 
 Repository mode applies to Claude Code, Codex, GitHub Copilot, Cursor,
-OpenCode, Devin CLI, Antigravity CLI, Kilo Code, and Grok Build, scoped to this
-repository rather than the whole machine. Claude Code, Codex, GitHub Copilot,
-Cursor, Devin CLI, and Antigravity CLI expose synchronous Stop gates. OpenCode and Kilo Code use
+OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Grok Build, and Kimi Code CLI,
+scoped to this repository rather than the whole machine. Claude Code, Codex,
+GitHub Copilot, Cursor, Devin CLI, Antigravity CLI, and Kimi Code CLI expose
+synchronous Stop gates. OpenCode and Kilo Code use
 inferred `session.idle`, so their host continuation is best-effort and fail-open.
 Grok has a native synchronous Stop gate without a leader only when its installed
 hook guide advertises blocking Stop decision control. Passive Stop TUI sessions

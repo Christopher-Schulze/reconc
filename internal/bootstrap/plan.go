@@ -251,7 +251,7 @@ func ValidatePlan(plan *Plan) error {
 		return err
 	}
 	for index, kind := range plan.Selection.Hooks {
-		if _, ok := hooks.PlatformForKind(kind); !ok {
+		if !containsString(hooks.BootstrapKinds(), kind) {
 			return fmt.Errorf("bootstrap plan contains unsupported hook kind %q", kind)
 		}
 		if index > 0 && plan.Selection.Hooks[index-1] >= kind {
@@ -388,11 +388,11 @@ func normalizeHooks(requested []string, root string) ([]string, error) {
 	for _, raw := range requested {
 		kind := strings.TrimSpace(raw)
 		if kind == "all" {
-			kinds = append(kinds, hooks.InstallableKinds()...)
+			kinds = append(kinds, hooks.BootstrapKinds()...)
 			continue
 		}
-		if _, ok := hooks.PlatformForKind(kind); !ok {
-			return nil, fmt.Errorf("unknown bootstrap hook kind %q; supported: %s", kind, strings.Join(hooks.InstallableKinds(), ", "))
+		if !containsString(hooks.BootstrapKinds(), kind) {
+			return nil, fmt.Errorf("unknown bootstrap hook kind %q; supported: %s", kind, strings.Join(hooks.BootstrapKinds(), ", "))
 		}
 		kinds = append(kinds, kind)
 	}
