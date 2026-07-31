@@ -59,7 +59,11 @@ type transactionMove struct {
 }
 
 func transactionExists(repoRoot string) (bool, error) {
-	_, err := os.Lstat(filepath.Join(repoRoot, filepath.FromSlash(transactionRel)))
+	_, path, err := safeTransactionPath(repoRoot, transactionRel)
+	if err != nil {
+		return false, fmt.Errorf("inspect %s: %w", transactionRel, err)
+	}
+	_, err = os.Lstat(path)
 	if err == nil {
 		return true, nil
 	}
