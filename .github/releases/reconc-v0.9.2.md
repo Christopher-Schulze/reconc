@@ -65,6 +65,9 @@ truth built on v0.9.1. It does not introduce a policy or schema migration.
 - The exhaustive publication audit retains a hard deadline but now has enough
   headroom for race-instrumented and resource-constrained CI while scanning
   every tracked file and post-boundary history blob.
+- Windows tests and transactions now model native file-mode, home-directory,
+  executable-lock, and non-directory path semantics without weakening the
+  corresponding POSIX ownership and permission checks.
 
 ## Upgrade
 

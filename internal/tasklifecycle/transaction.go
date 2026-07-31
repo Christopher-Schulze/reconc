@@ -555,7 +555,7 @@ func lstatRegularTransactionFile(path string) (os.FileInfo, error) {
 
 func sameTransactionMode(current os.FileMode, expected uint32) bool {
 	if runtime.GOOS == "windows" {
-		return current&0o222 == os.FileMode(expected)&0o222
+		return current&0o200 == os.FileMode(expected)&0o200
 	}
 	return uint32(current.Perm()) == expected
 }

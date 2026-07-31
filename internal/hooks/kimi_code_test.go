@@ -38,7 +38,7 @@ func TestKimiCodeInstallIsIsolatedIdempotentAndReversible(t *testing.T) {
 	if err := validateKimiCodeTOML(installed); err != nil {
 		t.Fatalf("installed TOML: %v", err)
 	}
-	if mode := kimiCodeTestFileMode(t, configPath); mode != 0o640 {
+	if mode := kimiCodeTestFileMode(t, configPath); runtime.GOOS != "windows" && mode != 0o640 {
 		t.Fatalf("config mode = %o, want 640", mode)
 	}
 
@@ -103,7 +103,7 @@ func TestKimiCodeInstallCreatesOnlyTheIsolatedPrivateHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !info.IsDir() || info.Mode().Perm() != 0o700 {
+	if !info.IsDir() || runtime.GOOS != "windows" && info.Mode().Perm() != 0o700 {
 		t.Fatalf("created Kimi home mode = %s", info.Mode())
 	}
 	if hooks := strings.Count(string(readKimiCodeTestFile(t, report.TargetPath)), "[[hooks]]"); hooks != 16 {
@@ -545,7 +545,16 @@ func enableKimiCodeCLIForTest(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}
-	if err := os.Link(running, filepath.Join(binDir, name)); err != nil {
+	target := filepath.Join(binDir, name)
+	if runtime.GOOS == "windows" {
+		body, err := os.ReadFile(running)
+		if err != nil {
+			t.Fatalf("read running test executable: %v", err)
+		}
+		if err := os.WriteFile(target, body, 0o700); err != nil {
+			t.Fatalf("copy running test executable as bare reconc: %v", err)
+		}
+	} else if err := os.Link(running, target); err != nil {
 		t.Fatalf("link running test executable as bare reconc: %v", err)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))

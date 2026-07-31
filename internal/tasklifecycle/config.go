@@ -249,7 +249,8 @@ func rejectSymlinkComponents(repoRoot, abs string) error {
 		return fmt.Errorf("path escapes the repository")
 	}
 	current := repoRoot
-	for _, component := range strings.Split(rel, string(filepath.Separator)) {
+	components := strings.Split(rel, string(filepath.Separator))
+	for index, component := range components {
 		if component == "." || component == "" {
 			continue
 		}
@@ -263,6 +264,9 @@ func rejectSymlinkComponents(repoRoot, abs string) error {
 		}
 		if info.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
 			return fmt.Errorf("path uses symlink component %s", current)
+		}
+		if index < len(components)-1 && !info.IsDir() {
+			return fmt.Errorf("path component %s is not a directory", current)
 		}
 	}
 	return nil

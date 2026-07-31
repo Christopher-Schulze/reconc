@@ -119,7 +119,16 @@ func enableKimiCodeCLIForCLITest(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}
-	if err := os.Link(running, filepath.Join(binDir, name)); err != nil {
+	target := filepath.Join(binDir, name)
+	if runtime.GOOS == "windows" {
+		body, err := os.ReadFile(running)
+		if err != nil {
+			t.Fatalf("read running test executable: %v", err)
+		}
+		if err := os.WriteFile(target, body, 0o700); err != nil {
+			t.Fatalf("copy running test executable as bare reconc: %v", err)
+		}
+	} else if err := os.Link(running, target); err != nil {
 		t.Fatalf("link running test executable as bare reconc: %v", err)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))

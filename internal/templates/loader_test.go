@@ -75,6 +75,7 @@ func TestResolveUserOverride(t *testing.T) {
 func TestResolveUsesDefaultReconcHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("RECONC_HOME", "")
 	templateDir := filepath.Join(home, ".reconc", "templates")
 	if err := os.MkdirAll(templateDir, 0o755); err != nil {
