@@ -17,6 +17,7 @@ usage, architecture, release, and security facts should be kept here first.
 - [Upgrading](#upgrading)
 - [v0.8.8 To v0.9.0 Migration](#v088-to-v090-migration)
 - [v0.9.0 To v0.9.1 Migration](#v090-to-v091-migration)
+- [v0.9.1 To v0.9.2 Migration](#v091-to-v092-migration)
 - [Uninstall And Remove](#uninstall-and-remove)
 - [Development Control Plane](#development-control-plane)
 - [Minimal Example Policy](#minimal-example-policy)
@@ -192,8 +193,8 @@ make cover
 make bench
 make self-host
 make publication-audit
-make sbom VERSION=0.9.1
-make release VERSION=0.9.1
+make sbom VERSION=0.9.2
+make release VERSION=0.9.2
 ```
 
 `make coverage` runs both Go modules with atomic whole-module instrumentation
@@ -272,9 +273,9 @@ The v0.9 platform contract is one matrix:
 Direct installers own only the verified binary and receipt. No path silently
 edits a shell profile or global environment.
 
-The immutable v0.9.1 tag contains both `install.sh` and `install.ps1`. Public
+The immutable v0.9.2 tag contains both `install.sh` and `install.ps1`. Public
 bootstrap commands fetch the appropriate script from that tag, never from
-mutable `main`, and install the matching checksummed v0.9.1 binary.
+mutable `main`, and install the matching checksummed v0.9.2 binary.
 
 When the GitHub CLI (`gh`) is available, the installer additionally verifies
 the downloaded binary against its GitHub build-provenance attestation before
@@ -566,7 +567,7 @@ that opt-in audit write is independent of policy refresh. Explicit `check`,
 private unresolved-block receipt below `RECONC_HOME`; governed worktree content
 remains untouched.
 
-The current v0.9.1 release can export the same completion candidate for external
+The current v0.9.2 release can export the same completion candidate for external
 review:
 
 ```bash
@@ -651,8 +652,8 @@ is live.
 
 ### How do I install and test it?
 
-Use the immutable v0.9.1 POSIX installer for macOS or Linux and the immutable
-v0.9.1 PowerShell installer for Windows x64. Put the installed binary on
+Use the immutable v0.9.2 POSIX installer for macOS or Linux and the immutable
+v0.9.2 PowerShell installer for Windows x64. Put the installed binary on
 `PATH`, verify it with `reconc doctor --global`, and initialize the target
 repository with `reconc init .`. Contributors building current source can use
 `go build -o .build/bin/reconc ./cmd/reconc` followed by
@@ -870,6 +871,40 @@ Preserve the current installation owner:
   path when desired.
 - Repository receipts, policy locks, hooks, schemas, and the embedded
   `advanced@1.0.0` harness pack require no patch-specific migration.
+
+## v0.9.1 To v0.9.2 Migration
+
+Update the global CLI through the existing installation owner:
+
+```bash
+reconc update
+reconc doctor --global
+```
+
+Exact native installs may instead rerun the immutable v0.9.2 installer.
+Source-owned installs build the v0.9.2 source and run that binary's
+`install-cli` transaction. The update changes only the globally owned CLI and
+receipt. It never mutates a repository.
+
+Repository-owned hooks, harness files, and generated artifacts remain an
+explicit, reviewable transaction:
+
+```bash
+reconc repo sync plan . --output /tmp/reconc-sync.json
+reconc repo sync apply --plan /tmp/reconc-sync.json --digest <plan-digest>
+reconc repo sync verify .
+```
+
+Review every action and resolve any drift before apply. Reinstall a specific
+agent hook only when that repository should receive its updated generated
+adapter. Kimi Code remains an explicit user-global opt-in through
+`reconc hook install kimi-code`; `init` and repository sync never select it.
+
+No policy or schema migration is required. The v0.9.1 schema URLs remain the
+immutable canonical identities for the compatible v1 artifact schemas and v3
+policy-lock schema. TASK transaction journals, repository-sync journals, and
+ownership receipts remain format-compatible. The removed `demo` command and
+retired legacy command aliases do not return in v0.9.2.
 
 ## Uninstall And Remove
 
@@ -2308,7 +2343,7 @@ current-state documentation.
 
 ## Release State
 
-The current source line is `v0.9.x`; the source version is `v0.9.1`. Release
+The current source line is `v0.9.x`; the source version is `v0.9.2`. Release
 artifacts are produced only through an explicit manual Release workflow
 dispatch for an existing `reconc-vX.Y.Z` tag; tag pushes never publish a
 release.

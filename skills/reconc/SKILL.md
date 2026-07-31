@@ -167,7 +167,7 @@ Before claiming completion:
 reconc done .
 ```
 
-The current v0.9.1 release can export that same candidate as portable reviewer evidence
+The current v0.9.2 release can export that same candidate as portable reviewer evidence
 without running missing commands or persisting a new policy decision:
 
 ```bash

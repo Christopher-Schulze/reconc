@@ -62,6 +62,26 @@ func TestInvocationsFailClosedOnDynamicExecutable(t *testing.T) {
 	}
 }
 
+func TestExactRedirectionDistinguishesOperatorsFromAttachedTargets(t *testing.T) {
+	tests := []struct {
+		word string
+		want bool
+	}{
+		{word: ">", want: true},
+		{word: "2>>", want: true},
+		{word: "<<-", want: true},
+		{word: "3<&", want: true},
+		{word: ">output.log", want: false},
+		{word: "2>>errors.log", want: false},
+		{word: "command", want: false},
+	}
+	for _, test := range tests {
+		if got := isExactRedirection(test.word); got != test.want {
+			t.Errorf("isExactRedirection(%q) = %t, want %t", test.word, got, test.want)
+		}
+	}
+}
+
 func TestInvocationsWithReasonAttributesEachIncompletenessCause(t *testing.T) {
 	deep := "git clean -fd"
 	for range 18 {

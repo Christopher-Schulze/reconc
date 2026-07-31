@@ -29,7 +29,7 @@ func runCLI(args []string, stdout, stderr io.Writer) error {
 	}
 	// The audit scans every post-boundary blob. Keep a hard deadline, but leave
 	// enough headroom for race-instrumented and resource-constrained CI runners.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	report, err := auditRepository(ctx, options)
 	if err != nil {
