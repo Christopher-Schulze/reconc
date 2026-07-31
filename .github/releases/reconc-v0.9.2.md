@@ -68,6 +68,9 @@ truth built on v0.9.1. It does not introduce a policy or schema migration.
 - Windows tests and transactions now model native file-mode, home-directory,
   executable-lock, and non-directory path semantics without weakening the
   corresponding POSIX ownership and permission checks.
+- Async continuation tests preserve their accelerated timeout contract while
+  allowing realistic Windows process-start latency and identify every expected
+  failure route instead of accepting an aggregate diagnostic count.
 
 ## Upgrade
 

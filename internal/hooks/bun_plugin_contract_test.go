@@ -338,7 +338,7 @@ func TestGeneratedBunPluginsUseBoundedAsyncIdleContinuation(t *testing.T) {
 			if !strings.Contains(content, "const maxContinuationSessions = 1024") {
 				t.Fatalf("%s continuation capacity contract missing", kind)
 			}
-			content = strings.Replace(content, stopBudget, kind+`-stop":{"timeoutMilliseconds":1000`, 1)
+			content = strings.Replace(content, stopBudget, kind+`-stop":{"timeoutMilliseconds":5000`, 1)
 			content = strings.Replace(content, "const maxContinuationSessions = 1024", "const maxContinuationSessions = 4", 1)
 			pluginPath := filepath.Join(repo, filepath.FromSlash(artifact.TargetPath))
 			if err := os.MkdirAll(filepath.Dir(pluginPath), 0o755); err != nil {
@@ -364,7 +364,7 @@ case "$event:$mode" in
   *-stop:invalid) printf '%s\n' 'not-json' ;;
   *-stop:nonzero) exit 1 ;;
   *-stop:truncated) perl -e 'print "{\"reason\":\"", "x" x 20000, "\"}\n"' ;;
-  *-stop:timeout) sleep 3 ;;
+  *-stop:timeout) sleep 30 ;;
   *-stop:*) printf '%s\n' '{}' ;;
 esac
 `
@@ -523,8 +523,29 @@ if (syncCalls !== 0) throw new Error("synchronous prompt fallback was called")
 			}
 			records := readBunHookRecords(t, logPath)
 			assertBunHookCount(t, records, kind+"-continuation-accepted", 16)
-			if got := len(bunHookPayloads(records, kind+"-continuation-failed")); got != 7 {
+			failedPayloads := bunHookPayloads(records, kind+"-continuation-failed")
+			if got := len(failedPayloads); got != 7 {
 				t.Fatalf("%s failed continuation diagnostics = %d, want 7", kind, got)
+			}
+			expectedFailedSessions := map[string]bool{
+				"ses_rejected":  false,
+				"ses_malformed": false,
+				"ses_closed":    false,
+				"ses_invalid":   false,
+				"ses_nonzero":   false,
+				"ses_truncated": false,
+				"ses_timeout":   false,
+			}
+			for _, payload := range failedPayloads {
+				sessionID, ok := payload["session_id"].(string)
+				if !ok {
+					t.Fatalf("%s failed continuation payload has no session_id: %#v", kind, payload)
+				}
+				seen, expected := expectedFailedSessions[sessionID]
+				if !expected || seen {
+					t.Fatalf("%s unexpected or duplicate failed continuation session %q", kind, sessionID)
+				}
+				expectedFailedSessions[sessionID] = true
 			}
 			assertBunHookCount(t, records, kind+"-continuation-unavailable", 1)
 			if got := len(bunHookPayloads(records, kind+"-continuation-suppressed")); got < 2 {
