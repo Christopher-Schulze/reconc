@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -627,6 +628,26 @@ func TestTaskArchiveRevisionBypassesDirtyArchiveAndTracksCommit(t *testing.T) {
 	secondRevision, cacheable := taskArchiveRevision(root)
 	if !cacheable || secondRevision == firstRevision {
 		t.Fatalf("archive tree revision must change after commit: first=%q second=%q cacheable=%t", firstRevision, secondRevision, cacheable)
+	}
+}
+
+func TestTaskArchiveRevisionBoundsGitSubprocesses(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix executable fixture")
+	}
+	binDirectory := t.TempDir()
+	gitPath := filepath.Join(binDirectory, "git")
+	if err := os.WriteFile(gitPath, []byte("#!/bin/sh\n/bin/sleep 5\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDirectory)
+
+	started := time.Now()
+	if revision, cacheable := taskArchiveRevisionWithTimeout(t.TempDir(), 50*time.Millisecond); cacheable || revision != "" {
+		t.Fatalf("timed-out archive inspection must bypass cache, got revision=%q cacheable=%t", revision, cacheable)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("timed-out archive inspection took %s, want at most 2s", elapsed)
 	}
 }
 

@@ -230,15 +230,22 @@ func TestReleaseTransportAndMetadataEdgesFailClosed(t *testing.T) {
 		t.Fatalf("non-HTTPS redirect error = %v", err)
 	}
 
-	if _, err := loadReleaseManifest(t.TempDir()); err == nil || !strings.Contains(err.Error(), "regular file") {
+	if _, _, err := loadReleaseManifest(t.TempDir()); err == nil || !strings.Contains(err.Error(), "regular file") {
 		t.Fatalf("directory manifest error = %v", err)
 	}
 	oversized := filepath.Join(t.TempDir(), releaseManifestName)
 	if err := os.WriteFile(oversized, make([]byte, maxReleaseMetadataBytes+1), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadReleaseManifest(oversized); err == nil || !strings.Contains(err.Error(), "exceeds") {
+	if _, _, err := loadReleaseManifest(oversized); err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("oversized manifest error = %v", err)
+	}
+	oversizedChecksums := filepath.Join(t.TempDir(), releaseChecksumsName)
+	if err := os.WriteFile(oversizedChecksums, make([]byte, maxReleaseMetadataBytes+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readReleaseMetadata(oversizedChecksums, "local SHA256SUMS"); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized checksum metadata error = %v", err)
 	}
 	if allDigits("") {
 		t.Fatal("empty semantic-version identifier reported numeric")

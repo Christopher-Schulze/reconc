@@ -311,13 +311,9 @@ func selectLocalRelease(directory string, exact string, channel Channel) (select
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return selectedRelease{}, errors.New("local release path must be a real directory")
 	}
-	manifest, err := loadReleaseManifest(filepath.Join(absolute, releaseManifestName))
+	manifest, manifestBody, err := loadReleaseManifest(filepath.Join(absolute, releaseManifestName))
 	if err != nil {
 		return selectedRelease{}, err
-	}
-	manifestBody, err := os.ReadFile(filepath.Join(absolute, releaseManifestName))
-	if err != nil {
-		return selectedRelease{}, fmt.Errorf("read local release manifest: %w", err)
 	}
 	expectedChannel := channel
 	if exact != "" {
@@ -329,13 +325,9 @@ func selectLocalRelease(directory string, exact string, channel Channel) (select
 	if err := validateReleaseClass(manifest.Version, false, manifest.Prerelease, expectedChannel); err != nil {
 		return selectedRelease{}, err
 	}
-	checksums, err := os.ReadFile(filepath.Join(absolute, releaseChecksumsName))
+	checksums, err := readReleaseMetadata(filepath.Join(absolute, releaseChecksumsName), "local SHA256SUMS")
 	if err != nil {
-		return selectedRelease{}, fmt.Errorf("read local SHA256SUMS: %w", err)
-	}
-	checksumInfo, err := os.Lstat(filepath.Join(absolute, releaseChecksumsName))
-	if err != nil || !checksumInfo.Mode().IsRegular() {
-		return selectedRelease{}, errors.New("local SHA256SUMS must be a real regular file")
+		return selectedRelease{}, err
 	}
 	assetName := targetArtifact(manifest.Version)
 	var selected ReleaseAsset
@@ -365,27 +357,39 @@ func selectLocalRelease(directory string, exact string, channel Channel) (select
 	return selectedRelease{manifest: manifest, asset: selected, localDir: absolute, channel: expectedChannel}, nil
 }
 
-func loadReleaseManifest(path string) (ReleaseManifest, error) {
+func loadReleaseManifest(path string) (ReleaseManifest, []byte, error) {
+	body, err := readReleaseMetadata(path, "release manifest")
+	if err != nil {
+		return ReleaseManifest{}, nil, err
+	}
+	manifest, err := decodeReleaseManifest(body)
+	if err != nil {
+		return ReleaseManifest{}, nil, err
+	}
+	return manifest, body, nil
+}
+
+func readReleaseMetadata(path, label string) ([]byte, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
-		return ReleaseManifest{}, fmt.Errorf("inspect release manifest: %w", err)
+		return nil, fmt.Errorf("inspect %s: %w", label, err)
 	}
 	if !info.Mode().IsRegular() {
-		return ReleaseManifest{}, errors.New("release manifest must be a real regular file")
+		return nil, fmt.Errorf("%s must be a real regular file", label)
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return ReleaseManifest{}, err
+		return nil, fmt.Errorf("open %s: %w", label, err)
 	}
 	body, readErr := io.ReadAll(io.LimitReader(file, maxReleaseMetadataBytes+1))
 	closeErr := file.Close()
 	if readErr != nil || closeErr != nil {
-		return ReleaseManifest{}, errors.Join(readErr, closeErr)
+		return nil, fmt.Errorf("read %s: %w", label, errors.Join(readErr, closeErr))
 	}
 	if len(body) > maxReleaseMetadataBytes {
-		return ReleaseManifest{}, fmt.Errorf("release manifest exceeds %d bytes", maxReleaseMetadataBytes)
+		return nil, fmt.Errorf("%s exceeds %d bytes", label, maxReleaseMetadataBytes)
 	}
-	return decodeReleaseManifest(body)
+	return body, nil
 }
 
 func decodeReleaseManifest(body []byte) (ReleaseManifest, error) {

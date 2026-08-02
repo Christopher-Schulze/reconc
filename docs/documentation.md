@@ -1822,10 +1822,11 @@ the managed artifact is published.
 
 The registry assigns 5-second observation/session budgets, 10-second pre-tool
 and permission budgets, and platform-specific Stop budgets instead of one
-blanket timeout. Claude, Codex, GitHub Copilot, Devin, Antigravity, and Grok
-generators emit those host timeouts; OpenCode, Kilo Code, and Pi enforce them inside
-their adapters. OMP uses a 29-second internal Stop budget so its fail-closed
-response is returned before the host's 30-second extension-handler deadline.
+blanket timeout. Claude, Codex, GitHub Copilot, Cursor, Devin, Antigravity, and
+Grok generators emit those host timeouts; OpenCode, Kilo Code, OMP, and Pi
+enforce them inside their adapters. OMP uses a 29-second internal Stop budget
+so its fail-closed response is returned before the host's 30-second
+extension-handler deadline.
 Each runtime route caps combined process output at 8 KiB.
 Post-compaction recovery context is deduplicated and capped at 4 KiB.
 

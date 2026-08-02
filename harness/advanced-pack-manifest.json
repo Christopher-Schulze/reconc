@@ -88,15 +88,15 @@
     {
       "path": "tools/reconc/harness/template/audits/audit_cache_test.go",
       "mode": 420,
-      "size": 20061,
-      "sha256": "1e1b65164f44f1464be19edbb443ccc717d61aecae278cabdabbe3edd2a27ad8",
+      "size": 20833,
+      "sha256": "82444b214f336f3ee478f0f9b56045adaea657fe40e97e2bad16ec6872b1c584",
       "ownership": "pack-file"
     },
     {
       "path": "tools/reconc/harness/template/audits/audit_cache_wrappers.go",
       "mode": 420,
-      "size": 5692,
-      "sha256": "c63965006318ccad9385a7c18466e8e94d65c897e9a4a0793c88543b3dbdd462",
+      "size": 5842,
+      "sha256": "09fb6e6c45dcc242a81596b58f6136bf6a58b08cb7de328675ae424db073c1d8",
       "ownership": "pack-file"
     },
     {
@@ -737,6 +737,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 709517,
-  "digest": "121e22e9df4228798914786b09188ecfd396f84dedb7e0d2deb6171c1d2b8c78"
+  "total_bytes": 710439,
+  "digest": "ff768870263aff67b3760727b44d570b7bad0e964893088003474d271939c496"
 }

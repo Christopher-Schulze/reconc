@@ -3,9 +3,9 @@ package main
 import (
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // The cached* wrappers below define the canonical input fingerprint for each
@@ -52,11 +52,15 @@ func taskStateCacheInputs(root string) *cacheInputs {
 // bypasses the cache entirely, so archived TASK edits can never reuse a
 // stale pass while clean hot-path checks avoid reading every archive file.
 func taskArchiveRevision(root string) (string, bool) {
-	status, err := exec.Command("git", "-C", root, "status", "--porcelain=v1", "-z", "--untracked-files=normal", "--", "docs/tasks/done").CombinedOutput()
+	return taskArchiveRevisionWithTimeout(root, shortAuditCommandTimeout)
+}
+
+func taskArchiveRevisionWithTimeout(root string, timeout time.Duration) (string, bool) {
+	status, err := runAuditCommand(timeout, "git", "-C", root, "status", "--porcelain=v1", "-z", "--untracked-files=normal", "--", "docs/tasks/done")
 	if err != nil || len(status) != 0 {
 		return "", false
 	}
-	revision, err := exec.Command("git", "-C", root, "rev-parse", "--verify", "HEAD:docs/tasks/done").CombinedOutput()
+	revision, err := runAuditCommand(timeout, "git", "-C", root, "rev-parse", "--verify", "HEAD:docs/tasks/done")
 	if err != nil {
 		entries, readErr := os.ReadDir(filepath.Join(root, "docs/tasks/done"))
 		if errors.Is(readErr, os.ErrNotExist) || (readErr == nil && len(entries) == 0) {
