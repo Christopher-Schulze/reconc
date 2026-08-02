@@ -73,3 +73,4 @@ agent_hooks:
   require_antigravity_hooks: true
   require_kilo_plugin: true
   require_grok_hooks: true
+  require_omp_extension: true

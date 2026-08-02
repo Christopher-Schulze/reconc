@@ -214,6 +214,7 @@ func TestHostIntegrationDocumentationCoversStructuredContract(t *testing.T) {
 		"Kilo Code CLI",
 		"Kilo Code VS Code host",
 		"Kimi Code CLI",
+		"Oh My Pi CLI",
 	} {
 		if !strings.Contains(documentation, surface) {
 			t.Errorf("host-integration documentation omits surface %q", surface)

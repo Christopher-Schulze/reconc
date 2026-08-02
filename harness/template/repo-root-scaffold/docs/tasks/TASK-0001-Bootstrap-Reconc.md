@@ -13,7 +13,7 @@ State: Active
 - Priority: P0
 - Depends On: none
 - Parallel Group: none
-- Expected Touch Surfaces: AGENTS.md, start.md, docs/**, tools/reconc/**, .reconc.yml, .codex/**, .github/hooks/**, .cursor/**, .agents/**, .claude/**, .opencode/**
+- Expected Touch Surfaces: AGENTS.md, start.md, docs/**, tools/reconc/**, .reconc.yml, .codex/**, .github/hooks/**, .cursor/**, .agents/**, .claude/**, .opencode/**, .devin/**, .kilo/**, .omp/**, .grok/**
 - Order Rationale: Bootstrap must run before any product TASK so every later edit is governed by the same task, hook, audit, and documentation rules.
 - Scope Type: Audit Repair
 - Spec Lines: docs/spec.md:L1-L3

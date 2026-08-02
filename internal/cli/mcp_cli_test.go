@@ -58,7 +58,7 @@ func TestMCPContractIsVisibleInWhyDoctorAndHookStatus(t *testing.T) {
 		t.Fatalf("MCP doctor status = %s", status)
 	}
 	detail := doctorCheckDetail(t, report, "MCP side-effect policy")
-	for _, want := range []string{"cursor=1", "opencode=1", "strict unclassified deny is unavailable", "redacted"} {
+	for _, want := range []string{"cursor=1", "opencode=1", "omp=0", "strict unclassified deny is unavailable", "redacted"} {
 		if !strings.Contains(detail, want) {
 			t.Fatalf("MCP doctor detail misses %q: %s", want, detail)
 		}
@@ -84,7 +84,7 @@ func TestMCPContractIsVisibleInWhyDoctorAndHookStatus(t *testing.T) {
 	}
 	found := map[string]bool{}
 	for _, status := range statuses {
-		if status.Kind != "cursor" && status.Kind != "opencode" && status.Kind != "kilo" {
+		if status.Kind != "cursor" && status.Kind != "opencode" && status.Kind != "kilo" && status.Kind != "omp" {
 			continue
 		}
 		found[status.Kind] = true
@@ -98,7 +98,7 @@ func TestMCPContractIsVisibleInWhyDoctorAndHookStatus(t *testing.T) {
 			t.Fatalf("OpenCode MCP status = %#v", status.MCP)
 		}
 	}
-	for _, kind := range []string{"cursor", "opencode", "kilo"} {
+	for _, kind := range []string{"cursor", "opencode", "kilo", "omp"} {
 		if !found[kind] {
 			t.Fatalf("%s MCP status missing", kind)
 		}

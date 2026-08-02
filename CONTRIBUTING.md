@@ -19,7 +19,7 @@ Requirements:
 
 - Go 1.26
 - Git and a POSIX shell
-- Bun 1.3.14 only for the executable OpenCode and Kilo Code adapter tests
+- Bun 1.3.14 only for the executable OpenCode, Kilo Code, and Oh My Pi adapter tests
 
 Build and inspect the CLI:
 

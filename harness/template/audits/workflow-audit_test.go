@@ -705,7 +705,7 @@ Current: TASK-0001-Cover-Spec -> tasks/TASK-0001-Cover-Spec.md
 
 func TestAuditDependencyLocalitySkipsLocalAgentStateDirs(t *testing.T) {
 	root := newWorkflowAuditRepo(t)
-	for _, dir := range []string{".agents", ".claude", ".codex", ".cursor", ".devin", ".grok", ".kilo", ".kilocode", ".opencode", ".vscode"} {
+	for _, dir := range []string{".agents", ".claude", ".codex", ".cursor", ".devin", ".grok", ".kilo", ".kilocode", ".omp", ".opencode", ".vscode"} {
 		writeFile(t, root, filepath.Join(dir, "package.json"), `{"private": true}`)
 		writeFile(t, root, filepath.Join(dir, "package-lock.json"), `{"lockfileVersion": 3}`)
 		writeFile(t, root, filepath.Join(dir, "node_modules", "agent-package", "package.json"), `{"name": "agent-package"}`)
@@ -935,6 +935,7 @@ agent_hooks:
   require_devin_hooks: false
   require_kilo_plugin: false
   require_grok_hooks: false
+  require_omp_extension: false
 `)
 }
 
@@ -986,6 +987,7 @@ agent_hooks:
   require_devin_hooks: false
   require_kilo_plugin: false
   require_grok_hooks: false
+  require_omp_extension: false
 `)
 }
 

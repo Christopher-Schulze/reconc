@@ -157,8 +157,8 @@ Requirements:
 
 - Go `1.26`
 - Git for `reconc ci` and hook installation
-- Bun `1.3.14` for executable OpenCode and Kilo Code adapter tests only; the
-  shipped Reconc binary has no Bun runtime dependency
+- Bun `1.3.14` for executable OpenCode, Kilo Code, and Oh My Pi adapter tests
+  only; the shipped Reconc binary has no Bun runtime dependency
 - On Windows, `sh` on `PATH` for generated shell hook wrappers plus `.sh` and
   extensionless policy scripts; Git for Windows supplies it. Native `.exe` and
   `.com` policy scripts execute directly.
@@ -642,11 +642,12 @@ network when invoked.
 ### Which agent runtimes are supported?
 
 The registry owns integrations for Claude Code, Codex, GitHub Copilot, Cursor,
-OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Grok Build, and Kimi Code
-CLI, plus git pre-commit as the repository backstop. Host capabilities differ:
-some expose synchronous Stop, GitHub Copilot and Kimi Code retain documented
-host-fail-open timeout behavior, OpenCode and Kilo expose inferred
-`session.idle`, and Grok has a strict ACP driver for continuation. Run
+OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, Grok Build, and Kimi
+Code CLI, plus git pre-commit as the repository backstop. Host capabilities
+differ: some expose synchronous Stop, GitHub Copilot and Kimi Code retain
+documented host-fail-open timeout behavior, OpenCode and Kilo expose inferred
+`session.idle`, OMP exposes awaited main-session `session_stop`, and Grok has a
+strict ACP driver for continuation. Run
 `reconc hook status . --json` before claiming that a particular installation
 is live.
 
@@ -1405,9 +1406,9 @@ them and supplies the repository-owned paths, commands, or script where the
 shape requires those inputs.
 
 Generic dependency-locality audits exclude supported agent-runtime state trees,
-including `.devin/`, `.grok/`, `.kilo/`, legacy `.kilocode/`, and the other
-registered platform directories, so plugin dependencies are not mistaken for
-product dependency leakage.
+including `.devin/`, `.grok/`, `.kilo/`, legacy `.kilocode/`, `.omp/`, and the
+other registered platform directories, so plugin dependencies are not mistaken
+for product dependency leakage.
 
 `require_assurance` is the native, no-subprocess rule kind used by assurance
 packs. The parent `when_paths` controls when the gate set runs. Every gate has
@@ -1553,7 +1554,7 @@ Key invariants:
 
 The repo ships one agent-facing skill at `skills/reconc/SKILL.md`.
 
-It is written for Codex, OpenCode, Claude Code, and other coding agents. The
+It is written for Codex, OpenCode, Claude Code, Oh My Pi, and other coding agents. The
 skill documents the same reconc workflow for every agent runtime:
 
 - begin and reenter with the versioned `session-briefing --json` contract
@@ -1564,9 +1565,10 @@ skill documents the same reconc workflow for every agent runtime:
 
 The typed platform registry is the source of truth for Git pre-commit, Claude
 Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI,
-Kilo Code, Grok Build, and Kimi Code CLI. It owns native event names, normalized lifecycle coverage, compatibility
-routes, config and scaffold paths, failure behavior, timeout budgets, output
-budgets, installation strategy, and activation probes. `reconc hook status
+Kilo Code, Oh My Pi, Grok Build, and Kimi Code CLI. It owns native event names,
+normalized lifecycle coverage, compatibility routes, config and scaffold paths,
+failure behavior, timeout budgets, output budgets, installation strategy, and
+activation probes. `reconc hook status
 [repo] [--json]` validates every registered artifact and reports `absent`,
 `installed`, `configured`, `degraded`, `shadowed`, or `unsupported`.
 `configured` means the static configuration is complete and host-discoverable;
@@ -1618,6 +1620,7 @@ repository.
 | OpenCode CLI | `.opencode/plugins/reconc.js`; prompt, permission, tool, session, compaction, terminal failure, and inferred idle continuation | Static plugin contract plus per-route liveness; continuation remains inferred |
 | Kilo Code CLI | `.kilo/plugin/reconc.js` with `KILO_PURE` unset; same lifecycle classes as OpenCode | Static plugin contract plus per-route liveness; continuation remains inferred |
 | Kilo Code VS Code host | The same canonical project plugin when that host loads external project plugins | CLI observations are never reused as VS Code proof |
+| Oh My Pi CLI | `.omp/extensions/reconc.ts`; native session, input, tool, approval, compaction, shutdown, and awaited main-session Stop routes | Static extension contract plus per-route liveness; `tool_call` and `session_stop` can enforce before host action |
 | Kimi Code CLI | User-global `$KIMI_CODE_HOME/config.toml`; all 16 native hooks dispatch through bare `reconc` and discover the current repository | Generator-exact global configuration only; no live claim without a real Kimi route observation |
 
 Cursor's registry classifies all 21 current host events exactly once. Reconc
@@ -1682,6 +1685,30 @@ becomes positive command-success evidence by inference. Kimi is not installed
 or launched by Reconc tests; isolated temporary `KIMI_CODE_HOME` fixtures prove
 generation, merge, drift refusal, dispatch, and removal.
 
+Oh My Pi loads the generated project extension from
+`.omp/extensions/reconc.ts`. `reconc hook install omp` creates that exact
+marker-owned file and refuses to replace foreign content, including with
+`--force`; uninstall removes only the generator-exact managed extension. The
+extension registers the current typed `ExtensionAPI` routes for session start,
+user input, pre-tool, post-tool, tool failure, approval requested/resolved,
+pre/post-compaction, awaited main-session Stop, and session shutdown. OMP task
+sessions do not emit `session_stop`, so continuation is deliberately scoped to
+the main session and capped at eight accepted continuations per session.
+
+OMP `tool_call` and `session_stop` are blocking boundaries. A deny decision,
+malformed decision, Reconc failure, or timeout fails closed in the host-native
+response contract. A host-aborted Stop yields immediately without starting a
+continuation. Approval, post-tool, compaction, and shutdown routes are
+observational and fail open after bounded diagnostics. `tool_result`
+uses the host's exact `isError` outcome; only a successful built-in `Bash` call
+without an explicit exit status receives synthetic exit code zero. Tool output
+never decides success. The adapter drains stdout and stderr concurrently under
+one 8 KiB budget, rejects invalid UTF-8, kills and awaits timed-out subprocesses,
+and gives shutdown observation one second inside OMP's two-second handler
+budget. OMP's installed runtime and source declarations are not live hook proof;
+only exact per-route liveness or an isolated negative probe can establish
+observation or enforcement.
+
 OpenCode and Kilo shell success is accepted only from an integer
 `output.metadata.exit`. Exit zero succeeds. Non-zero, timeout, abort, explicit
 error, missing exit, fractional/non-finite/overflowing value, numeric string,
@@ -1722,6 +1749,10 @@ mcp:
     - platform: kilo
       tool: external_service
       effect: external
+    - platform: omp
+      tool: mcp_repository_read
+      effect: repository_read
+      path_fields: [/path]
 ```
 
 Each mapping is an exact `(platform, server_fingerprint, tool)` selector.
@@ -1733,8 +1764,8 @@ missing, malformed, escaping, or wrong-typed values become unclassified and
 produce no positive evidence. `external` calls never become repository
 evidence.
 
-Cursor's dedicated MCP pre-hook can enforce `unclassified: deny`. OpenCode and
-Kilo expose exact generic tool identities but no reliable discriminator
+Cursor's dedicated MCP pre-hook can enforce `unclassified: deny`. OpenCode,
+Kilo, and OMP expose exact generic tool identities but no reliable discriminator
 between an unconfigured MCP tool and a built-in/custom tool, so strict
 unclassified deny is unavailable on those generic surfaces. Configured exact
 identities remain enforceable. Server locators, credentials, arguments,
@@ -1754,10 +1785,12 @@ create-only, private (`0600`), file-synced, and parent-directory-synced before
 the managed artifact is published.
 
 The registry assigns 5-second observation/session budgets, 10-second pre-tool
-and permission budgets, and 30-second Stop budgets instead of one blanket
-timeout. Claude, Codex, GitHub Copilot, Devin, Antigravity, and Grok generators
-emit those host timeouts; OpenCode and Kilo Code enforce them inside their adapters. Each runtime
-route caps combined process output at 8 KiB.
+and permission budgets, and platform-specific Stop budgets instead of one
+blanket timeout. Claude, Codex, GitHub Copilot, Devin, Antigravity, and Grok
+generators emit those host timeouts; OpenCode and Kilo Code enforce them inside
+their adapters. OMP uses a 29-second internal Stop budget so its fail-closed
+response is returned before the host's 30-second extension-handler deadline.
+Each runtime route caps combined process output at 8 KiB.
 Post-compaction recovery context is deduplicated and capped at 4 KiB.
 
 Claude Code, Codex, GitHub Copilot, Cursor, Devin, Antigravity, and Grok
@@ -1836,6 +1869,12 @@ continuation decisions stay in the Go runtime. Exact shell outcomes,
 subprocess bounds, and idle-continuation behavior are defined in
 [Host Integration Truth](#host-integration-truth). On Windows, the adapters
 invoke the extensionless POSIX wrapper through `sh`.
+Oh My Pi uses the typed Bun extension at `.omp/extensions/reconc.ts`. It
+registers native `session_start`, `input`, `tool_call`, `tool_result`,
+`approval_requested`, `approval_resolved`, `auto_compaction_start`,
+`auto_compaction_end`, `session_stop`, and `session_shutdown` handlers. The
+extension translates only host envelopes and decisions; policy and durable
+session state stay in Go. On Windows it uses the same `sh` wrapper boundary.
 Grok Build uses the dedicated `.grok/hooks/reconc.json` native artifact.
 Its camelCase envelopes and native tools (`run_terminal_command`,
 `run_terminal_cmd`,
@@ -1886,8 +1925,8 @@ leader protocol plus `_x.ai/interject` with a random nonexistent session.
 `reconc run on|off|reset|status|log` is the canonical AI-operated repository switch.
 Its durable state applies only to the selected repository, not the whole machine.
 Repository mode persists across sessions for Claude Code, Codex, GitHub
-Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, and Grok
-Build, and Kimi Code CLI. The agent
+Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi,
+Grok Build, and Kimi Code CLI. The agent
 runs these commands itself; users do not need to operate Reconc. Prompt text,
 runtime interrupts, compaction, session boundaries, runtime changes, and
 application restarts never mutate the switch. An interrupt releases only the
@@ -2100,11 +2139,11 @@ CI checks:
   implicit package-manager caching disabled. Each executable-test job packs
   exact `bun@1.3.14`, compares the tarball's npm SRI against the committed
   SHA-512 value, installs only that verified tarball, and checks the runtime
-  version before executing OpenCode/Kilo adapter contracts
+  version before executing OpenCode, Kilo Code, and OMP adapter contracts
 - every CI job that executes Go provisions the SHA-pinned `actions/setup-go`
   action from `go.mod`, including the isolated release-trust job
 - clean-repository self-hosting golden path on Ubuntu and macOS across all three
-  bootstrap profiles, git pre-commit, and all ten agent runtimes
+  bootstrap profiles, git pre-commit, and all eleven agent runtimes
 - current-tree and post-boundary-history publication audit on Ubuntu, macOS,
   native Windows, release-trust, and tagged release paths
 - immutable action commit pins plus an explicit GitHub-owned action allowlist;

@@ -34,9 +34,9 @@ make self-host
 make publication-audit
 ```
 
-Bun `1.3.14` is a test-only dependency for executing the generated OpenCode
-and Kilo Code adapter contracts; the shipped Reconc binary does not require
-Bun.
+Bun `1.3.14` is a test-only dependency for executing the generated OpenCode,
+Kilo Code, and Oh My Pi adapter contracts; the shipped Reconc binary does not
+require Bun.
 
 ## Conventions
 

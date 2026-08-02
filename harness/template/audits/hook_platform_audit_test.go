@@ -18,6 +18,7 @@ var generatedHookScaffoldFiles = []string{
 	".agents/hooks.json",
 	".kilo/plugin/reconc.js",
 	".grok/hooks/reconc.json",
+	".omp/extensions/reconc.ts",
 }
 
 func installGeneratedHookScaffold(t *testing.T, root string) {
@@ -33,6 +34,7 @@ func installGeneratedHookScaffold(t *testing.T, root string) {
   require_devin_hooks: true
   require_kilo_plugin: true
   require_grok_hooks: true
+  require_omp_extension: true
 `)
 	for _, relative := range generatedHookScaffoldFiles {
 		data, err := os.ReadFile(filepath.Join("..", "repo-root-scaffold", filepath.FromSlash(relative)))
@@ -68,6 +70,7 @@ func TestAuditAgentHooksRejectsMissingGeneratedPlatformContracts(t *testing.T) {
 		{name: "antigravity hooks", relative: ".agents/hooks.json", token: "antigravity-post-invocation"},
 		{name: "kilo plugin", relative: ".kilo/plugin/reconc.js", token: "kilo-user-prompt-submit"},
 		{name: "grok hooks", relative: ".grok/hooks/reconc.json", token: "grok-notification"},
+		{name: "OMP extension", relative: ".omp/extensions/reconc.ts", token: "omp-post-compaction"},
 	}
 
 	for _, test := range tests {
@@ -159,6 +162,26 @@ func TestAuditAgentHooksRejectsStaleGitHubCopilotTimeout(t *testing.T) {
 	}
 }
 
+func TestAuditAgentHooksRejectsStaleOMPStopBudget(t *testing.T) {
+	root := t.TempDir()
+	installGeneratedHookScaffold(t, root)
+	relative := ".omp/extensions/reconc.ts"
+	path := filepath.Join(root, filepath.FromSlash(relative))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	const current = `"omp-stop":{"timeoutMilliseconds":29000`
+	if !strings.Contains(content, current) {
+		t.Fatal("generated OMP extension has no 29-second Stop budget")
+	}
+	writeFile(t, root, relative, strings.Replace(content, current, `"omp-stop":{"timeoutMilliseconds":120000`, 1))
+	if failures := auditAgentHooks(root); !containsFailure(failures, "missing required Reconc hook token") {
+		t.Fatalf("stale OMP Stop budget must fail the audit:\n%s", strings.Join(failures, "\n"))
+	}
+}
+
 func TestAuditAgentHooksRejectsGitHubCopilotContractDrift(t *testing.T) {
 	root := t.TempDir()
 	installGeneratedHookScaffold(t, root)
@@ -190,6 +213,7 @@ func TestAuditAgentHooksRejectsProjectSpecificPluginState(t *testing.T) {
   require_devin_hooks: false
   require_kilo_plugin: false
   require_grok_hooks: false
+  require_omp_extension: false
   require_opencode_plugin: true
 `)
 	data, err := os.ReadFile(filepath.Join("..", "repo-root-scaffold", ".opencode", "plugins", "reconc.js"))
@@ -217,6 +241,7 @@ func TestAuditAgentHooksRejectsVersionPinnedPluginBinary(t *testing.T) {
   require_devin_hooks: false
   require_kilo_plugin: true
   require_grok_hooks: false
+  require_omp_extension: false
 `)
 	data, err := os.ReadFile(filepath.Join("..", "repo-root-scaffold", ".kilo", "plugin", "reconc.js"))
 	if err != nil {

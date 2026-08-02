@@ -25,6 +25,7 @@ func TestInstallRejectsSymlinkedManagedTargets(t *testing.T) {
 		{kind: KindGrok, target: GrokHooksPath},
 		{kind: KindAntigravity, target: AntigravityHooksPath},
 		{kind: KindKilo, target: KiloPluginPath},
+		{kind: KindOMP, target: OMPExtensionPath},
 	}
 	for _, test := range tests {
 		t.Run(test.kind, func(t *testing.T) {

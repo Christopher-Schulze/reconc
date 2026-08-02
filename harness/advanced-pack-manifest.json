@@ -18,8 +18,8 @@
     {
       "path": "tools/reconc/harness/template/BOOTSTRAP.md",
       "mode": 420,
-      "size": 43293,
-      "sha256": "e0933fa8b48f2dfc65e8c6b955d2ee6707db15c2153c1fa5a64b48374e20e1b1",
+      "size": 44173,
+      "sha256": "06f8c56fb47da6b5a045a883dc9f6a749800475ac0f44e50a48f13c5b91ca069",
       "ownership": "pack-file"
     },
     {
@@ -151,8 +151,8 @@
     {
       "path": "tools/reconc/harness/template/audits/hook_platform_audit_test.go",
       "mode": 420,
-      "size": 8144,
-      "sha256": "b831f239c2d4fdd12fc4be6260af4040676c7dc0451a4a570e0f3192716b0397",
+      "size": 9165,
+      "sha256": "c1c418cd4c05ce2d0def24c44095750a24173b5b19e798e119bf3aa167d126ff",
       "ownership": "pack-file"
     },
     {
@@ -249,8 +249,8 @@
     {
       "path": "tools/reconc/harness/template/audits/stack_config.go",
       "mode": 420,
-      "size": 7106,
-      "sha256": "b29e05d1dba7f41c8c9f0cbd627b889e5bd1e23ffd6f62edc7d3845dbccb87c2",
+      "size": 7201,
+      "sha256": "260201a4869451cccedd654c0d6ab8144f95b58a8b963056b7bc4441559a571d",
       "ownership": "pack-file"
     },
     {
@@ -305,15 +305,15 @@
     {
       "path": "tools/reconc/harness/template/audits/workflow-audit.go",
       "mode": 420,
-      "size": 77884,
-      "sha256": "e196229db7aae89d3b7fe1c44fcb9b4967ca7c9fa3e9878d376c91b2e10d32ac",
+      "size": 78844,
+      "sha256": "afdc83794a3ce681c6ac12a1ca55d3b3e2731c764d3d6c743fab62b64799db94",
       "ownership": "pack-file"
     },
     {
       "path": "tools/reconc/harness/template/audits/workflow-audit_test.go",
       "mode": 420,
-      "size": 54332,
-      "sha256": "8e0fbda3c687700b64155836679a899801ef9fb733dd5463c5a949363ab30244",
+      "size": 54402,
+      "sha256": "0c9b03743146cc000834fced0318e0d1e45270a036416757a669ab7bbe2e97c4",
       "ownership": "pack-file"
     },
     {
@@ -340,8 +340,8 @@
     {
       "path": "tools/reconc/harness/template/config/workflow/stack-config.yaml",
       "mode": 420,
-      "size": 1894,
-      "sha256": "a264cbae176e3363cf75691e903e69f8a79d1333a5e17dbd9c963331bc285521",
+      "size": 1924,
+      "sha256": "acd4722a0069607db79e13dbe1a9d899b0161532358b6ae82da7d3dab1d3e6b0",
       "ownership": "pack-file"
     },
     {
@@ -506,6 +506,13 @@
       "ownership": "pack-file"
     },
     {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/.omp/extensions/reconc.ts",
+      "mode": 420,
+      "size": 14040,
+      "sha256": "479a2923e808da119f1018fccea24d567f382eaa5eefe931f2dafa32579ed010",
+      "ownership": "pack-file"
+    },
+    {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.opencode/plugins/reconc.js",
       "mode": 420,
       "size": 21698,
@@ -529,8 +536,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/AGENTS.md",
       "mode": 420,
-      "size": 43493,
-      "sha256": "2b6ea2185ab863a02eda630ce51d1bfbcbb4a28377ecb39d88ac802dbe2a4801",
+      "size": 43605,
+      "sha256": "1cc562fd5055143a84fcd0e311269473e1232377b4cd96b7822d4a65f8a736b3",
       "ownership": "pack-file"
     },
     {
@@ -550,8 +557,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/docs/documentation.md",
       "mode": 420,
-      "size": 1689,
-      "sha256": "0c07b36540697804fb809283621ef76d4a6af46fda5e9e31965072344eba47b7",
+      "size": 1698,
+      "sha256": "b4f1f120226e7917fab0350eed82fbde5f6e70edc5c0cb75c684609073dea0d5",
       "ownership": "pack-file"
     },
     {
@@ -578,8 +585,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/docs/tasks/TASK-0001-Bootstrap-Reconc.md",
       "mode": 420,
-      "size": 3004,
-      "sha256": "7e120a788b1ca64680e2c18dd237fbd173b99efea13242342e1f4ff1816a9510",
+      "size": 3044,
+      "sha256": "e9ef1739da77dedc44f0b23550798cdfb8371bd22cc11cf34d8716969efe9f24",
       "ownership": "pack-file"
     },
     {
@@ -606,8 +613,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/start.md",
       "mode": 420,
-      "size": 5000,
-      "sha256": "68926a2710592a024f0916ceb6bb916f9fae66c296a51412b63004db4befe0b1",
+      "size": 5085,
+      "sha256": "80329e00b8e3617c7579e3c992530be5a081beb8530013d7ad79684266178c74",
       "ownership": "pack-file"
     },
     {
@@ -723,6 +730,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 670672,
-  "digest": "d3a094d6a26508bc0aabfe5e7880ee05c3a01cbb6781bc7f11cea81951a94ae2"
+  "total_bytes": 688014,
+  "digest": "585fb969e674312397a4ccf5804ba09362628f57d23b489e9735150c3c131a9a"
 }

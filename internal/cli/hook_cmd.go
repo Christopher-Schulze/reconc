@@ -711,6 +711,9 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 	case hooks.KindKimiCode:
 		payload, err = agentsession.NormalizeKimiCodePayload(event, payload, repo)
 		timing.mark("kimi_code_normalize")
+	case hooks.KindOMP:
+		payload, err = agentsession.NormalizeOMPPayload(event, payload, repo)
+		timing.mark("omp_normalize")
 	}
 	if err != nil {
 		if route.PlatformKind == hooks.KindGitHubCopilot && (route.Event == hooks.EventStop || route.Event == hooks.EventSubagentStop) {
@@ -785,15 +788,19 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 				result = agentsession.RunPassiveEvent(repo, payload)
 			}
 		case hooks.EventPreToolUse:
-			if route.PlatformKind == hooks.KindOpenCode || route.PlatformKind == hooks.KindKilo {
+			if route.PlatformKind == hooks.KindOpenCode || route.PlatformKind == hooks.KindKilo || route.PlatformKind == hooks.KindOMP {
 				result = agentsession.RunPreToolUseMCPAware(repo, payload)
 			} else {
 				result = agentsession.RunPreToolUse(repo, payload)
 			}
 		case hooks.EventPermissionRequest:
-			result = agentsession.RunPermissionRequest(repo, payload)
+			if route.PlatformKind == hooks.KindOMP {
+				result = agentsession.RunPassiveEvent(repo, payload)
+			} else {
+				result = agentsession.RunPermissionRequest(repo, payload)
+			}
 		case hooks.EventPostToolUse:
-			if event == "opencode-post-tool-use" || event == "kilo-post-tool-use" {
+			if event == "opencode-post-tool-use" || event == "kilo-post-tool-use" || event == "omp-post-tool-use" {
 				result = agentsession.RunPostToolUseMCPAware(repo, payload)
 			} else if event == "codex-post-tool-use" || event == "devin-post-tool-use" {
 				result = agentsession.RunPostToolUseComplete(repo, payload)
@@ -801,7 +808,7 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 				result = agentsession.RunPostToolUse(repo, payload)
 			}
 		case hooks.EventPostToolUseFailure:
-			if route.PlatformKind == hooks.KindOpenCode || route.PlatformKind == hooks.KindKilo {
+			if route.PlatformKind == hooks.KindOpenCode || route.PlatformKind == hooks.KindKilo || route.PlatformKind == hooks.KindOMP {
 				result = agentsession.RunPostToolUseMCPAware(repo, payload)
 			} else {
 				result = agentsession.RunPostToolUseFailure(repo, payload)

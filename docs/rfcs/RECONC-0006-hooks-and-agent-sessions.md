@@ -1,7 +1,7 @@
 # RECONC-0006: Hooks And Agent Sessions
 
 - Status: Frozen
-- Contract: git, Claude Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Grok Build, Kimi Code CLI, and generic-agent integration
+- Contract: git, Claude Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Grok Build, Kimi Code CLI, Oh My Pi CLI, and generic-agent integration
 
 ## Hook Kinds
 
@@ -20,6 +20,7 @@
 | `kilo` | `.kilo/plugin/reconc.js` | Thin project plugin for prompt, permission, complete tool outcomes, terminal errors, compaction, session lifecycle, and idle handling. |
 | `grok` | `.grok/hooks/reconc.json` | Native lifecycle, strict PreToolUse, capability-probed no-leader Stop, compaction, permission-denial, and subagent events. |
 | `kimi-code` | `$KIMI_CODE_HOME/config.toml` | Explicit user-global integration for all 16 native events; commands discover an initialized Reconc repository before acting. |
+| `omp` | `.omp/extensions/reconc.ts` | Project ExtensionAPI adapter for native session, input, approval, tool, compaction, shutdown, and awaited `session_stop` events. |
 
 Installers are idempotent. Reconc-owned JSON hook entries are
 identified by `reconc hook runtime` command tokens and replaced on
@@ -30,6 +31,9 @@ use the same refusal rule. GitHub Copilot owns only
 `.github/hooks/reconc.json` and never overwrites foreign content at that path,
 even with `--force`; sibling repository hook files are preserved. Grok owns
 only `reconc.json` and preserves every other file under `.grok/hooks/`.
+OMP owns only `.omp/extensions/reconc.ts`, preserves every sibling extension,
+and never overwrites foreign content at its dedicated path, including with
+`--force`.
 The Git installer resolves the same active `core.hooksPath` used by status,
 updates managed content idempotently, supports linked-worktree common Git
 storage, and refuses to write into a shared external hooks directory.
@@ -60,7 +64,8 @@ source-controlled scaffold twins from the same generator:
 `.githooks/pre-commit`, `.codex/hooks.json`, `.github/hooks/reconc.json`, `.cursor/hooks.json`,
 `.agents/hooks.json`, `.claude/settings.json`, and
 `.opencode/plugins/reconc.js`, `.devin/hooks.v1.json`,
-`.kilo/plugin/reconc.js`, and `.grok/hooks/reconc.json`. Template scaffolds are never synced from
+`.kilo/plugin/reconc.js`, `.grok/hooks/reconc.json`, and
+`.omp/extensions/reconc.ts`. Template scaffolds are never synced from
 a source-specific harness.
 
 ## Kimi Code CLI Guarantee
@@ -80,6 +85,32 @@ Stop block into exact exit code 2 with a bounded stderr reason. Post-tool output
 contains no authoritative exit status, so it never becomes positive command
 success by inference. Static TOML identity and isolated adapter tests are not
 live host proof; exact route liveness remains separate in `hook status`.
+
+## Oh My Pi CLI Guarantee
+
+OMP discovers project extensions under `.omp/extensions/` from its working
+directory. The generated TypeScript module registers only documented
+`ExtensionAPI` handlers and delegates policy, evidence, session state, and
+continuation decisions to Reconc's Go runtime through the shared repo-local
+wrapper.
+
+`tool_call` is the blocking pre-action boundary. OMP's
+`tool_approval_requested` and `tool_approval_resolved` events are observation
+events and are never misrepresented as a permission-decision surface.
+`tool_result` always routes success or failure from the authoritative
+`isError` field. Successful built-in Bash results synthesize exit code zero;
+failed Bash results preserve `details.exitCode` when present. Output text is
+never interpreted as process status.
+
+Native awaited `session_stop` maps Reconc block or continuation output to
+OMP's `decision`/`reason` or `continue`/`additionalContext` result. OMP invokes
+this event for the main agent only and caps continuation at eight turns. An
+aborted host signal wins immediately. Session start, input, approval, result,
+automatic compaction, and shutdown are fail-open observations; pre-tool and
+Stop runtime, timeout, malformed, invalid UTF-8, or oversized-output failures
+fail closed. The Stop route uses a 29-second internal budget inside OMP's
+30-second extension-handler deadline; the generated shutdown route uses a
+one-second Reconc budget inside OMP's two-second handler budget.
 
 ## Claude Code Guarantee
 
@@ -198,10 +229,10 @@ outcome uncertainty produces no positive evidence.
 
 Cursor's dedicated `beforeMCPExecution` can enforce exact mappings and
 `unclassified: deny`; `afterMCPExecution` accepts repository evidence only
-from an explicit successful host result. OpenCode and Kilo generic hooks
+from an explicit successful host result. OpenCode, Kilo, and OMP generic hooks
 enforce exact configured tool identities, but cannot distinguish an
 unconfigured MCP tool from a built-in or custom tool. Strict unclassified deny
-is therefore unavailable on those two surfaces and is reported as a
+is therefore unavailable on those three surfaces and is reported as a
 limitation, not an enforcement success.
 
 MCP audit and status retain only redacted platform/tool/fingerprint/effect

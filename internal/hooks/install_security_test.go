@@ -22,6 +22,7 @@ func TestInstallRejectsSymlinkedManagedParentDirectories(t *testing.T) {
 		{kind: KindGrok, target: GrokHooksPath},
 		{kind: KindAntigravity, target: AntigravityHooksPath},
 		{kind: KindKilo, target: KiloPluginPath},
+		{kind: KindOMP, target: OMPExtensionPath},
 	}
 	for _, test := range tests {
 		t.Run(test.kind, func(t *testing.T) {
@@ -68,6 +69,7 @@ func TestInstallRejectsOversizedManagedTargets(t *testing.T) {
 		{kind: KindGitHubCopilot, target: GitHubCopilotHooksPath},
 		{kind: KindOpenCode, target: OpenCodePluginPath},
 		{kind: KindGrok, target: GrokHooksPath},
+		{kind: KindOMP, target: OMPExtensionPath},
 	} {
 		t.Run(test.kind, func(t *testing.T) {
 			repo := t.TempDir()

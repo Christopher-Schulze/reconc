@@ -107,6 +107,7 @@ func TestManagedPlatformFilesRefuseForeignOwnership(t *testing.T) {
 	}{
 		{kind: KindKilo, path: KiloPluginPath, forceWorks: true, wantManaged: "kilo-pre-tool-use"},
 		{kind: KindGrok, path: GrokHooksPath, forceWorks: true, wantManaged: "grok-pre-tool-use"},
+		{kind: KindOMP, path: OMPExtensionPath, forceWorks: false, wantManaged: "omp-pre-tool-use"},
 		{kind: KindGitHubCopilot, path: GitHubCopilotHooksPath, forceWorks: false, wantManaged: "copilot-pre-tool-use"},
 	}
 	for _, test := range tests {

@@ -35,6 +35,7 @@ const (
 	AntigravityHooksPath      = ".agents/hooks.json"
 	KiloPluginPath            = ".kilo/plugin/reconc.js"
 	GrokHooksPath             = ".grok/hooks/reconc.json"
+	OMPExtensionPath          = ".omp/extensions/reconc.ts"
 	KimiCodeConfigDisplayPath = "~/.kimi-code/config.toml"
 )
 
@@ -50,6 +51,7 @@ const (
 	KindAntigravity   = "antigravity"
 	KindKilo          = "kilo"
 	KindGrok          = "grok"
+	KindOMP           = "omp"
 	KindKimiCode      = "kimi-code"
 )
 
@@ -163,6 +165,8 @@ func Generate(kind string) (*Artifact, error) {
 		return generateKilo()
 	case generatorGrok:
 		return generateGrok()
+	case generatorOMP:
+		return generateOMP()
 	case generatorKimiCode:
 		return generateKimiCode()
 	}
@@ -252,8 +256,11 @@ func installPlatform(definition platformDefinition, repoRoot string, force bool)
 	case InstallOwnedJSON:
 		return installAntigravity(repoRoot, force)
 	case InstallPlugin:
-		if definition.Kind == KindOpenCode {
+		switch definition.Kind {
+		case KindOpenCode:
 			return installOpenCode(repoRoot, force)
+		case KindOMP:
+			return installOMP(repoRoot, force)
 		}
 		return installKilo(repoRoot, force)
 	case InstallManagedJSON:

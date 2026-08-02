@@ -174,6 +174,7 @@ const (
 	generatorAntigravity
 	generatorKilo
 	generatorGrok
+	generatorOMP
 	generatorKimiCode
 )
 
@@ -345,6 +346,24 @@ var platformRegistry = []platformDefinition{
 		generator: generatorGrok,
 	},
 	{
+		Platform: Platform{Kind: KindOMP, DisplayName: "Oh My Pi", TargetPath: OMPExtensionPath, ScaffoldPath: OMPExtensionPath, InstallMode: InstallPlugin, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".omp"}, RequiresWrapper: true}, Capabilities: []Capability{
+			capability(EventSessionStart, "session_start", SupportNative, FailureAllow, FailureAllow, 5, "omp-session-start"),
+			capability(EventUserPromptSubmit, "input", SupportNative, FailureAllow, FailureAllow, 5, "omp-user-prompt-submit"),
+			capability(EventPreToolUse, "tool_call", SupportNative, FailureBlock, FailureBlock, 10, "omp-pre-tool-use"),
+			capability(EventPermissionRequest, "tool_approval_requested", SupportNative, FailureAllow, FailureAllow, 5, "omp-permission-request"),
+			capability(EventPermissionResult, "tool_approval_resolved", SupportNative, FailureAllow, FailureAllow, 5, "omp-permission-result"),
+			capability(EventPostToolUse, "tool_result", SupportNative, FailureAllow, FailureAllow, 5, "omp-post-tool-use"),
+			capability(EventPostToolUseFailure, "tool_result", SupportNative, FailureAllow, FailureAllow, 5, "omp-post-tool-use-failure"),
+			adaptedFallback(EventMCPBefore, EventPreToolUse, FailureBlock, FailureBlock, 10),
+			adaptedFallback(EventMCPAfter, EventPostToolUse, FailureAllow, FailureAllow, 5),
+			ompStopCapability(),
+			capability(EventSessionEnd, "session_shutdown", SupportNative, FailureAllow, FailureAllow, 1, "omp-session-end"),
+			capability(EventPreCompaction, "auto_compaction_start", SupportNative, FailureAllow, FailureAllow, 5, "omp-pre-compaction"),
+			capability(EventPostCompaction, "auto_compaction_end", SupportNative, FailureAllow, FailureAllow, 5, "omp-post-compaction"),
+		}},
+		generator: generatorOMP,
+	},
+	{
 		Platform: Platform{Kind: KindKimiCode, DisplayName: "Kimi Code CLI", TargetPath: KimiCodeConfigDisplayPath, InstallMode: InstallGlobalTOML, Activation: ActivationProbe{Mode: ActivationGlobal, ConfigDirs: []string{"~/.kimi-code"}}, Capabilities: []Capability{
 			capability(EventSessionStart, "SessionStart", SupportNative, FailureAllow, FailureAllow, 5, "kimi-session-start"),
 			capability(EventUserPromptSubmit, "UserPromptSubmit", SupportNative, FailureAllow, FailureAllow, 5, "kimi-user-prompt-submit"),
@@ -438,6 +457,12 @@ func continuationCapability(prefix string) Capability {
 func bunStopCapability(prefix string) Capability {
 	capability := capability(EventStop, "session.idle", SupportInferred, FailureBlock, FailureAllow, 30, prefix+"-stop")
 	capability.MaxContinuations = 10
+	return capability
+}
+
+func ompStopCapability() Capability {
+	capability := capability(EventStop, "session_stop", SupportNative, FailureBlock, FailureBlock, 29, "omp-stop")
+	capability.MaxContinuations = 8
 	return capability
 }
 

@@ -119,6 +119,22 @@ func installGrok(repoRoot string, force bool) (*InstallReport, error) {
 	)
 }
 
+func installOMP(repoRoot string, force bool) (*InstallReport, error) {
+	return installManagedPlatformFile(
+		KindOMP,
+		repoRoot,
+		force,
+		func(data []byte) bool {
+			text := string(data)
+			return strings.Contains(text, "Managed by reconc. Project-local Oh My Pi policy extension.") &&
+				strings.Contains(text, "omp-pre-tool-use") &&
+				strings.Contains(text, "omp-stop")
+		},
+		false,
+		"Restart OMP from this repository root so it loads .omp/extensions/reconc.ts.",
+	)
+}
+
 func installManagedPlatformFile(kind, repoRoot string, force bool, managed func([]byte) bool, allowForceForeign bool, nextAction string) (*InstallReport, error) {
 	root, err := existingRepoRoot(repoRoot)
 	if err != nil {

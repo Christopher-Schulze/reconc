@@ -102,7 +102,7 @@ func NormalizeKimiCodePayload(event string, payloadBytes []byte, repoRoot string
 	if strings.TrimSpace(raw.SessionID) == "" {
 		return nil, errors.New("missing non-empty session_id in Kimi Code payload")
 	}
-	if err := validateKimiCodeCWD(raw.CWD, repoRoot); err != nil {
+	if err := validateHookPayloadCWD(raw.CWD, repoRoot, "Kimi Code"); err != nil {
 		return nil, err
 	}
 	if kimiCodeToolEvent(expectedEvent) && strings.TrimSpace(raw.ToolName) == "" {
@@ -177,24 +177,24 @@ func AdaptKimiCodeResult(event string, result Result) Result {
 	return Result{ExitCode: 2, Stderr: strings.TrimSpace(decision.Reason)}
 }
 
-func validateKimiCodeCWD(cwd, repoRoot string) error {
+func validateHookPayloadCWD(cwd, repoRoot, platform string) error {
 	if strings.TrimSpace(cwd) == "" {
-		return errors.New("missing non-empty cwd in Kimi Code payload")
+		return fmt.Errorf("missing non-empty cwd in %s payload", platform)
 	}
 	root, err := pathidentity.ResolveExisting(repoRoot)
 	if err != nil {
-		return fmt.Errorf("resolve Kimi Code repository root: %w", err)
+		return fmt.Errorf("resolve %s repository root: %w", platform, err)
 	}
 	current, err := pathidentity.ResolveExisting(cwd)
 	if err != nil {
-		return fmt.Errorf("resolve Kimi Code cwd: %w", err)
+		return fmt.Errorf("resolve %s cwd: %w", platform, err)
 	}
 	relative, err := filepath.Rel(root, current)
 	if err != nil {
-		return fmt.Errorf("compare Kimi Code cwd with repository root: %w", err)
+		return fmt.Errorf("compare %s cwd with repository root: %w", platform, err)
 	}
 	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("cwd %q in Kimi Code payload is outside repository root %q", current, root)
+		return fmt.Errorf("cwd %q in %s payload is outside repository root %q", current, platform, root)
 	}
 	return nil
 }

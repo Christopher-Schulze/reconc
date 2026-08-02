@@ -121,11 +121,12 @@ func doctorCheckMCPPolicy(discovery ingest.DiscoveryResult) doctorCheck {
 		}
 	}
 	check.Detail = fmt.Sprintf(
-		"mode=%s; mappings cursor=%d opencode=%d kilo=%d; observed=%d; server locators and payloads are redacted",
+		"mode=%s; mappings cursor=%d opencode=%d kilo=%d omp=%d; observed=%d; server locators and payloads are redacted",
 		contract.Unclassified,
 		counts[policy.MCPPlatformCursor],
 		counts[policy.MCPPlatformOpenCode],
 		counts[policy.MCPPlatformKilo],
+		counts[policy.MCPPlatformOMP],
 		observed,
 	)
 	if auditErr != nil {
@@ -134,7 +135,7 @@ func doctorCheckMCPPolicy(discovery ingest.DiscoveryResult) doctorCheck {
 	}
 	if contract.Unclassified == policy.MCPUnclassifiedDeny {
 		check.Status = doctorStatusWarn
-		check.Detail += "; Cursor can block native unclassified MCP calls, but OpenCode/Kilo generic hooks expose no discriminator for unconfigured MCP identities, so strict unclassified deny is unavailable on those surfaces"
+		check.Detail += "; Cursor can block native unclassified MCP calls, but OpenCode/Kilo/OMP generic hooks expose no discriminator for unconfigured MCP identities, so strict unclassified deny is unavailable on those surfaces"
 	}
 	return check
 }

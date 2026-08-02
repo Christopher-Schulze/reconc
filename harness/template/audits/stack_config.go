@@ -66,6 +66,7 @@ type agentHooksConfig struct {
 	RequireAntigravityHooks bool `yaml:"require_antigravity_hooks"`
 	RequireKiloPlugin       bool `yaml:"require_kilo_plugin"`
 	RequireGrokHooks        bool `yaml:"require_grok_hooks"`
+	RequireOMPExtension     bool `yaml:"require_omp_extension"`
 }
 
 func stackConfigPath(root string) string {
@@ -121,6 +122,7 @@ func defaultStackConfig() stackConfig {
 			RequireAntigravityHooks: true,
 			RequireKiloPlugin:       true,
 			RequireGrokHooks:        true,
+			RequireOMPExtension:     true,
 		},
 	}
 	return cfg

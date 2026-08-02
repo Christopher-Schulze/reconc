@@ -22,6 +22,7 @@ func TestPlatformRegistryOwnsEveryHookKind(t *testing.T) {
 		KindAntigravity,
 		KindKilo,
 		KindGrok,
+		KindOMP,
 		KindKimiCode,
 	}
 	if got := SupportedKinds(); !reflect.DeepEqual(got, want) {
@@ -458,6 +459,31 @@ func TestNewPlatformArtifactsUseCurrentContracts(t *testing.T) {
 		t.Fatalf("Grok artifact is not first-class:\n%s", grok.Content)
 	}
 
+	omp, err := Generate(KindOMP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{
+		`import type {`,
+		`from "@oh-my-pi/pi-coding-agent"`,
+		`pi.on("tool_call"`,
+		`pi.on("tool_result"`,
+		`pi.on("session_stop"`,
+		`pi.on("auto_compaction_end"`,
+		`"omp-pre-tool-use":{"timeoutMilliseconds":10000`,
+		`"omp-stop":{"timeoutMilliseconds":29000`,
+		`"maxContinuations":8`,
+		`process.platform === "win32"`,
+		`["sh", wrapper, event, repo]`,
+	} {
+		if !strings.Contains(omp.Content, token) {
+			t.Fatalf("OMP artifact missing %q:\n%s", token, omp.Content)
+		}
+	}
+	if len(omp.Content) > 24*1024 {
+		t.Fatalf("OMP extension is not thin: %d bytes", len(omp.Content))
+	}
+
 	kimi, err := Generate(KindKimiCode)
 	if err != nil {
 		t.Fatal(err)
@@ -496,6 +522,12 @@ func TestBunAdapterRoutesAreRegistered(t *testing.T) {
 			"kilo-continuation-accepted", "kilo-continuation-failed",
 			"kilo-continuation-unavailable", "kilo-continuation-suppressed",
 		},
+		KindOMP: {
+			"omp-session-start", "omp-user-prompt-submit", "omp-pre-tool-use",
+			"omp-permission-request", "omp-permission-result", "omp-post-tool-use",
+			"omp-post-tool-use-failure", "omp-stop", "omp-session-end",
+			"omp-pre-compaction", "omp-post-compaction",
+		},
 	} {
 		for _, event := range events {
 			route, ok := RuntimeEvent(event)
@@ -510,6 +542,7 @@ func TestBunAdapterRoutesAreRegistered(t *testing.T) {
 		"opencode-user-prompt-submit",
 		"devin-user-prompt-submit",
 		"kilo-user-prompt-submit",
+		"omp-user-prompt-submit",
 	} {
 		if _, ok := RuntimeEvent(event); !ok {
 			t.Fatalf("native user-prompt route %s is not registered", event)

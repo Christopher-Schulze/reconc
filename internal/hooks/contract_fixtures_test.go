@@ -25,7 +25,7 @@ type hostContractEvent struct {
 }
 
 func TestOfficialHostContractFixturesCoverEveryInstalledBinding(t *testing.T) {
-	for _, kind := range []string{KindCursor, KindOpenCode, KindKilo} {
+	for _, kind := range []string{KindCursor, KindOpenCode, KindKilo, KindOMP} {
 		fixture := readHostContractFixture(t, kind)
 		revisionValid := len(fixture.SourceRevision) == 40 ||
 			(strings.HasPrefix(fixture.SourceRevision, "sha256:") && len(fixture.SourceRevision) == len("sha256:")+64)
@@ -97,6 +97,26 @@ func TestOfficialHostContractFixturesPreserveSecurityRelevantStates(t *testing.T
 		if response["status"] != float64(204) || response["ok"] != true {
 			t.Fatalf("%s promptAsync acceptance fixture = %#v", kind, idle)
 		}
+	}
+
+	omp := readHostContractFixture(t, KindOMP)
+	toolResult := omp.Events["tool_result"].Payload
+	if toolResult["isError"] != false {
+		t.Fatalf("OMP tool-result fixture lacks authoritative isError=false: %#v", toolResult)
+	}
+	details := toolResult["details"].(map[string]interface{})
+	if _, fabricated := details["exitCode"]; fabricated {
+		t.Fatalf("OMP successful Bash fixture fabricates a host exit code: %#v", toolResult)
+	}
+	stop := omp.Events["session_stop"]
+	stopPayload := stop.Payload
+	stopSignal := stopPayload["signal"].(map[string]interface{})
+	if stopPayload["stop_hook_active"] != false || stopPayload["turn_id"] != float64(7) || stopSignal["aborted"] != false {
+		t.Fatalf("OMP Stop fixture lacks native loop identity: %#v", stopPayload)
+	}
+	stopResult := stop.Result.(map[string]interface{})
+	if stopResult["continue"] != true || stopResult["additionalContext"] == "" {
+		t.Fatalf("OMP Stop fixture lacks native continuation result: %#v", stopResult)
 	}
 }
 

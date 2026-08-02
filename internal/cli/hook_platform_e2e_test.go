@@ -33,6 +33,23 @@ func TestHookRuntimeDevinNativeShapeBlocksDeniedWrite(t *testing.T) {
 	}
 }
 
+func TestHookRuntimeOMPNativeShapeBlocksDeniedWrite(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	payload := fmt.Sprintf(`{
+		"hook_event_name":"tool_call",
+		"session_id":"omp-1",
+		"cwd":%q,
+		"tool_name":"write",
+		"tool_input":{"path":"generated/blocked.go"},
+		"tool_call_id":"call-1"
+	}`, repo)
+	_, stderr, code := runWithStdin(t, payload,
+		"hook", "runtime", "omp-pre-tool-use", repo)
+	if code != 2 || !strings.Contains(stderr, "deny-gen") {
+		t.Fatalf("OMP native payload must block denied write, code=%d stderr=%q", code, stderr)
+	}
+}
+
 func TestHookRuntimeDevinUserPromptSubmitCreatesSession(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
 	stdout, stderr, code := runWithStdin(t,
@@ -193,6 +210,7 @@ func TestRepositoryRunControlReturnsContinuationForEveryAgentAdapter(t *testing.
 		{name: "Devin CLI", event: "devin-stop", payload: `{"session_id":"devin-run"}`, want: `"decision":"block"`},
 		{name: "Antigravity CLI", event: "antigravity-stop", payload: `{"session_id":"antigravity-run"}`, want: `"decision":"continue"`},
 		{name: "Kilo", event: "kilo-stop", payload: `{"session_id":"kilo-run","reconc_runtime":"kilo"}`, want: `"decision":"block"`},
+		{name: "Oh My Pi", event: "omp-stop", payload: fmt.Sprintf(`{"hook_event_name":"session_stop","session_id":"omp-run","cwd":%q,"stop_hook_active":false}`, repo), want: `"decision":"block"`},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

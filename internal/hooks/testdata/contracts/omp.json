@@ -1,0 +1,19 @@
+{
+  "host": "omp",
+  "host_version": "17.2.4",
+  "source_url": "https://github.com/can1357/oh-my-pi/tree/06343fef4200c4e32d18f08df5a6a8bd84dcc710/packages/coding-agent/src/extensibility",
+  "source_revision": "06343fef4200c4e32d18f08df5a6a8bd84dcc710",
+  "capture_date": "2026-08-02",
+  "events": {
+    "session_start": {"payload": {"type": "session_start"}, "result": null},
+    "input": {"payload": {"type": "input", "text": "synthetic prompt", "source": "interactive"}, "result": null},
+    "tool_call": {"payload": {"type": "tool_call", "toolCallId": "fixture-call", "toolName": "write", "input": {"path": "src/app.go", "content": "synthetic content"}}, "result": {"block": true, "reason": "synthetic denial"}},
+    "tool_approval_requested": {"payload": {"type": "tool_approval_requested", "sessionId": "fixture-session", "toolCallId": "fixture-call", "toolName": "bash", "reason": "synthetic approval", "approvalMode": "always-ask"}, "result": null},
+    "tool_approval_resolved": {"payload": {"type": "tool_approval_resolved", "sessionId": "fixture-session", "toolCallId": "fixture-call", "toolName": "bash", "approved": true, "reason": "synthetic approval"}, "result": null},
+    "tool_result": {"payload": {"type": "tool_result", "toolCallId": "fixture-call", "toolName": "bash", "input": {"command": "go test ./..."}, "content": [{"type": "text", "text": "synthetic output"}], "details": {}, "isError": false}, "result": null},
+    "session_stop": {"payload": {"type": "session_stop", "turn_id": 7, "session_id": "fixture-session", "session_file": "/fixture/session.jsonl", "stop_hook_active": false, "signal": {"aborted": false}}, "result": {"continue": true, "additionalContext": "synthetic continuation"}},
+    "auto_compaction_start": {"payload": {"type": "auto_compaction_start", "reason": "threshold", "action": "context-full"}, "result": null},
+    "auto_compaction_end": {"payload": {"type": "auto_compaction_end", "action": "context-full", "result": null, "aborted": false, "willRetry": false, "skipped": false}, "result": null},
+    "session_shutdown": {"payload": {"type": "session_shutdown"}, "result": null}
+  }
+}

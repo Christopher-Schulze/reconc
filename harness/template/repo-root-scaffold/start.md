@@ -48,8 +48,9 @@ itself with `reconc run on .`, verifies it with `reconc run status .`, and
 disables it with `reconc run off .` on explicit user stop or a real blocker.
 Never ask the user to operate these commands. The switch is scoped to this
 repository. Claude Code, Codex, GitHub Copilot, Cursor, Devin CLI, and
-Antigravity CLI expose synchronous Stop continuation; OpenCode and Kilo Code use
-best-effort, fail-open `session.idle` adapters. It claims queued work when
+Antigravity CLI expose synchronous Stop continuation. Oh My Pi exposes awaited
+main-session `session_stop` with an eight-continuation cap; OpenCode and Kilo
+Code use best-effort, fail-open `session.idle` adapters. It claims queued work when
 `Current: none`, disables on complete or absent state after terminal gates,
 releases blocked state to the hard Stop gate, and fails closed on invalid TASK
 state. An interrupt or six repeated no-progress continuations releases only

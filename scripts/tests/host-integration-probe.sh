@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   printf '%s\n' \
     'Usage: scripts/tests/host-integration-probe.sh --host HOST --surface SURFACE [--allow-authenticated] [--json]' \
-    'Hosts/surfaces: cursor desktop-agent|desktop-cmd-k|tab|cli-interactive|cli-print|cloud; opencode cli; kilo cli|vscode'
+    'Hosts/surfaces: cursor desktop-agent|desktop-cmd-k|tab|cli-interactive|cli-print|cloud; opencode cli; kilo cli|vscode; omp cli'
 }
 
 host=''
@@ -44,7 +44,7 @@ while (($# > 0)); do
 done
 
 case "$host:$surface" in
-  cursor:desktop-agent|cursor:desktop-cmd-k|cursor:tab|cursor:cli-interactive|cursor:cli-print|cursor:cloud|opencode:cli|kilo:cli|kilo:vscode) ;;
+  cursor:desktop-agent|cursor:desktop-cmd-k|cursor:tab|cursor:cli-interactive|cursor:cli-print|cursor:cloud|opencode:cli|kilo:cli|kilo:vscode|omp:cli) ;;
   *)
     printf 'Unsupported host/surface: %s/%s\n' "$host" "$surface" >&2
     usage >&2
@@ -96,6 +96,9 @@ case "$host" in
     ;;
   kilo)
     host_command="$(command -v kilo || command -v kilocode || true)"
+    ;;
+  omp)
+    host_command="$(command -v omp || true)"
     ;;
 esac
 
@@ -163,34 +166,34 @@ case "$host:$surface" in
 esac
 
 managed_wrapper="$probe_repo/tools/reconc/bin/hook"
-probe_binary="$probe_repo/tools/reconc/bin/reconc-host-probe"
+real_wrapper="$probe_repo/tools/reconc/bin/hook-real"
 event_log="$probe_repo/.reconc/host-probe-events.jsonl"
 raw_dir="$probe_repo/.reconc/host-probe-raw"
 mkdir -p "$raw_dir" "$(dirname "$managed_wrapper")"
-cp "$probe_root/reconc" "$probe_binary"
-chmod 0755 "$probe_binary"
+cp "$managed_wrapper" "$real_wrapper"
+cp "$probe_root/reconc" "$probe_repo/reconc"
+chmod 0755 "$real_wrapper" "$probe_repo/reconc"
 printf '%s\n' \
   '#!/bin/sh' \
   'set -u' \
   'script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)' \
-  'probe_binary="$script_dir/reconc-host-probe"' \
+  'real_wrapper="$script_dir/hook-real"' \
   'repo_root=$(CDPATH= cd -- "$script_dir/../../.." && pwd)' \
   'event_log="$repo_root/.reconc/host-probe-events.jsonl"' \
   'raw_dir="$repo_root/.reconc/host-probe-raw"' \
   'mkdir -p "$raw_dir"' \
   'payload_file=$(mktemp "$raw_dir/payload.XXXXXX") || exit 1' \
-  'trap '"'"'rm -f -- "$payload_file"'"'"' EXIT INT TERM' \
+  'stdout_file=$(mktemp "$raw_dir/stdout.XXXXXX") || exit 1' \
+  'stderr_file=$(mktemp "$raw_dir/stderr.XXXXXX") || exit 1' \
+  'trap '"'"'rm -f -- "$payload_file" "$stdout_file" "$stderr_file"'"'"' EXIT INT TERM' \
   'cat >"$payload_file"' \
   'fields=[]' \
   'if jq -e '"'"'type == "object"'"'"' "$payload_file" >/dev/null 2>&1; then' \
   '  fields=$(jq -c '"'"'keys | sort'"'"' "$payload_file")' \
   'fi' \
-  'route=unknown' \
-  'if [ "${1:-}" = hook ] && [ "${2:-}" = runtime ] && [ -n "${3:-}" ]; then' \
-  '  route=$3' \
-  'fi' \
+  'route=${1:-unknown}' \
   'set +e' \
-  '"$probe_binary" "$@" <"$payload_file"' \
+  '"$real_wrapper" "$@" <"$payload_file" >"$stdout_file" 2>"$stderr_file"' \
   'exit_code=$?' \
   'set -e' \
   'case "$exit_code" in' \
@@ -200,6 +203,8 @@ printf '%s\n' \
   'esac' \
   'timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)' \
   'jq -cn --arg route "$route" --arg timestamp "$timestamp" --arg outcome "$outcome" --argjson fields "$fields" --argjson exit_code "$exit_code" '"'"'{route:$route,timestamp:$timestamp,fields:$fields,outcome:$outcome,exit_code:$exit_code}'"'"' >>"$event_log"' \
+  'cat "$stdout_file"' \
+  'cat "$stderr_file" >&2' \
   'exit "$exit_code"' \
   >"$managed_wrapper"
 chmod 0755 "$managed_wrapper"
@@ -256,6 +261,9 @@ if [[ "$allow_authenticated" == true ]]; then
       ;;
     kilo:vscode)
       action_required="Open $probe_repo in Kilo Code's VS Code host and exercise every documented project-plugin trigger, then return here and press Enter."
+      ;;
+    omp:cli)
+      action_required="Run omp from $probe_repo and exercise session, prompt, permitted and denied tool, approval, successful and failed shell, compaction, synchronous Stop continuation, and MCP cases, then return here and press Enter."
       ;;
   esac
 else

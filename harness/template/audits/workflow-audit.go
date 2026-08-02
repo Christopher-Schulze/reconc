@@ -280,7 +280,7 @@ func auditRepoLayout(root string) []string {
 	var failures []string
 	allowedRoot := map[string]bool{
 		".DS_Store": true, ".agents": true, ".claude": true, ".codex": true, ".git": true, ".github": true, ".gitignore": true,
-		".cursor": true, ".opencode": true, ".reconc": true, ".reconc.yml": true, "AGENTS.md": true, "README.md": true, "_drop": true,
+		".cursor": true, ".omp": true, ".opencode": true, ".reconc": true, ".reconc.yml": true, "AGENTS.md": true, "README.md": true, "_drop": true,
 		"codebase": true, "docs": true, "go.mod": true, "go.sum": true, "research": true, "start.md": true, "tools": true, "workflow-complete-loop.md": true,
 	}
 	// Repo with codebase/ enforces a thin root: product subtrees live under
@@ -345,7 +345,7 @@ func auditDependencyLocality(root string) []string {
 	}
 	skipDirs := map[string]bool{
 		".git": true, ".reconc": true, "_drop": true, "research": true,
-		".agents": true, ".claude": true, ".codex": true, ".cursor": true, ".devin": true, ".grok": true, ".kilo": true, ".kilocode": true, ".opencode": true, ".vscode": true,
+		".agents": true, ".claude": true, ".codex": true, ".cursor": true, ".devin": true, ".grok": true, ".kilo": true, ".kilocode": true, ".omp": true, ".opencode": true, ".vscode": true,
 	}
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
@@ -1198,11 +1198,36 @@ func auditAgentHooks(root string) []string {
 			"hashline_edit",
 		}
 	}
+	if cfg.AgentHooks.RequireOMPExtension {
+		hooks[filepath.Join(root, ".omp/extensions/reconc.ts")] = []string{
+			"Managed by reconc. Project-local Oh My Pi policy extension.",
+			`from "@oh-my-pi/pi-coding-agent"`,
+			`const wrapper = repo + "/tools/reconc/bin/hook"`,
+			`return [wrapper, event, repo]`,
+			`killSignal: "SIGKILL"`,
+			`"omp-pre-tool-use":{"timeoutMilliseconds":10000`,
+			`"omp-stop":{"timeoutMilliseconds":29000`,
+			`"maxContinuations":8`,
+			"omp-session-start",
+			"omp-user-prompt-submit",
+			"omp-pre-tool-use",
+			"omp-permission-request",
+			"omp-permission-result",
+			"omp-post-tool-use",
+			"omp-post-tool-use-failure",
+			"omp-stop",
+			"omp-session-end",
+			"omp-pre-compaction",
+			"omp-post-compaction",
+			`pi.on("session_stop"`,
+		}
+	}
 	forbidden := map[string][]string{
 		".codex/hooks.json":           {`"SessionEnd"`, "codex-session-end"},
 		".github/hooks/reconc.json":   {`"PostCompact"`, "claude-", "cursor-", "opencode-", "kilo-", "grok-"},
 		".opencode/plugins/reconc.js": {".reconc/runloop", "runloop autocontinue", "opencode_continuation_driver", "STFU", "tools/reconc/dist", "reconc-0.6.0-"},
 		".kilo/plugin/reconc.js":      {".reconc/runloop", "runloop autocontinue", "opencode_continuation_driver", "STFU", "tools/reconc/dist", "reconc-0.6.0-"},
+		".omp/extensions/reconc.ts":   {".reconc/runloop", "runloop autocontinue", "tools/reconc/dist", "reconc-0.6.0-", "claude-", "cursor-", "opencode-", "kilo-"},
 		".agents/hooks.json":          {`"timeout": 120`},
 		".grok/hooks/reconc.json":     {"claude-", "cursor-", "opencode-", "kilo-"},
 	}
