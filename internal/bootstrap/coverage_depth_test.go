@@ -172,6 +172,46 @@ func TestPlanPersistenceRejectsAmbiguousOrForeignState(t *testing.T) {
 	}
 }
 
+func TestLoadPlanRejectsSymlinkedPlan(t *testing.T) {
+	bootstrapTestHome(t)
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.json")
+	if err := os.WriteFile(target, []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link.json")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := LoadPlan(link); err == nil || !strings.Contains(err.Error(), "real regular file") {
+		t.Fatalf("symlinked plan error = %v", err)
+	}
+}
+
+func TestAcceptManagedCandidatesRefusesConcurrentTransaction(t *testing.T) {
+	bootstrapTestHome(t)
+	repo := t.TempDir()
+	plan, err := BuildPlan(Request{RepoRoot: repo, Profile: ProfileMinimal}, "test-version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := &Report{PlanDigest: plan.PlanDigest, RepoRoot: plan.RepoRoot, Status: ApplyDrift}
+	// Hold the repository transaction lock; the exported wrapper must fail
+	// closed instead of mutating without serialization. TryLock is
+	// non-blocking, so the nested acquisition fails fast rather than
+	// deadlocking.
+	err = withRepositoryTransactionLock(plan.RepoRoot, func() error {
+		if _, acceptErr := AcceptManagedCandidates(plan, report); acceptErr == nil ||
+			!strings.Contains(acceptErr.Error(), "already active") {
+			t.Fatalf("concurrent acceptance error = %v", acceptErr)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("outer lock: %v", err)
+	}
+}
+
 func TestBinarySelectionAndWriteFailureDiagnostics(t *testing.T) {
 	if selection, err := CurrentBinarySelection(); err != nil || selection.SourcePath == "" || !validSHA256(selection.SHA256) {
 		t.Fatalf("CurrentBinarySelection() = %+v, %v", selection, err)

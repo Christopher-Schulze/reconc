@@ -1,6 +1,7 @@
 package agentsession
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -48,6 +49,31 @@ func TestHookLivenessIsRateLimitedPerRoute(t *testing.T) {
 	}
 	if len(records["codex"].Routes) != 2 {
 		t.Fatalf("per-route liveness missing: %+v", records["codex"])
+	}
+}
+
+func TestHookLivenessCapsRoutesAtReadLimit(t *testing.T) {
+	t.Setenv(StateRootEnv, t.TempDir())
+	repo := t.TempDir()
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+	// Record more distinct events than the read-side cap so the writer must
+	// evict the oldest route; the persisted record must stay readable.
+	for i := 0; i <= maxHookLivenessRoutes; i++ {
+		event := fmt.Sprintf("event-%02d", i)
+		if err := recordHookLivenessAt(root, "codex", event, base.Add(time.Duration(i)*7*time.Hour)); err != nil {
+			t.Fatalf("record event %d: %v", i, err)
+		}
+	}
+	records, err := ReadHookLiveness(repo)
+	if err != nil {
+		t.Fatalf("liveness record exceeded the read cap: %v", err)
+	}
+	if got := len(records["codex"].Routes); got != maxHookLivenessRoutes {
+		t.Fatalf("routes = %d, want capped at %d", got, maxHookLivenessRoutes)
 	}
 }
 
