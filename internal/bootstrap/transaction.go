@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -761,5 +762,7 @@ func joinApplyRollbackError(applyErr, rollbackErr error) error {
 	if rollbackErr == nil {
 		return applyErr
 	}
-	return fmt.Errorf("%v; %w", applyErr, rollbackErr)
+	// errors.Join preserves both error chains so errors.Is/As reach the
+	// primary apply failure as well as the rollback failure.
+	return errors.Join(applyErr, fmt.Errorf("automatic rollback failed: %w", rollbackErr))
 }

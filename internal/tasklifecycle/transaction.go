@@ -127,7 +127,9 @@ func applyTransaction(repoRoot, action string, files []fileMutation, moves []mov
 		if rollbackErr != nil {
 			return fmt.Errorf("publish TASK transaction: %w; automatic rollback failed: %v; run `reconc task recover %s`", err, rollbackErr, repoRoot)
 		}
-		_ = os.Remove(journalPath)
+		if removeErr := os.Remove(journalPath); removeErr != nil {
+			return fmt.Errorf("publish TASK transaction: %w (rolled back); journal cleanup failed: %v; run `reconc task recover %s`", err, removeErr, repoRoot)
+		}
 		return fmt.Errorf("publish TASK transaction: %w (rolled back)", err)
 	}
 	if err := os.Remove(journalPath); err != nil {

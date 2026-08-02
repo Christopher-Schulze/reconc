@@ -177,6 +177,13 @@ func encodePlan(plan *Plan) ([]byte, error) {
 }
 
 func LoadPlan(path string) (*Plan, error) {
+	linkInfo, err := os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("inspect bootstrap plan: %w", err)
+	}
+	if !linkInfo.Mode().IsRegular() || linkInfo.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("bootstrap plan must be a real regular file")
+	}
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open bootstrap plan: %w", err)
@@ -185,6 +192,10 @@ func LoadPlan(path string) (*Plan, error) {
 	if err != nil {
 		closeErr := file.Close()
 		return nil, combineWriteFailure("stat bootstrap plan", err, closeErr, nil)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		_ = file.Close()
+		return nil, fmt.Errorf("bootstrap plan is not a regular file")
 	}
 	if info.Size() > maxPlanBytes {
 		closeErr := file.Close()

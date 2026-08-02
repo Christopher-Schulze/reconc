@@ -123,7 +123,7 @@ func initializeLocked(request InitRequest, result *InitReport, productVersion st
 		result.PlanPath = stringPointer(recordedPlanPath(plan))
 	}
 	if request.AcceptManagedBlocks && applyReport.Status == ApplyDrift {
-		accepted, acceptErr := AcceptManagedCandidates(plan, applyReport)
+		accepted, acceptErr := acceptManagedCandidatesLocked(plan, applyReport)
 		if acceptErr != nil {
 			result.Status = InitDrift
 			result.NextAction = initDriftNext(plan, applyReport)

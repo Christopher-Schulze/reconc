@@ -132,6 +132,13 @@ func writeInstallReceipt(plan *Plan, receipt *InstallReceipt) (createdRecord, []
 func loadInstallReceipt(plan *Plan) (*InstallReceipt, string, error) {
 	relative := installReceiptPath(plan.PlanDigest)
 	path := filepath.Join(plan.RepoRoot, filepath.FromSlash(relative))
+	linkInfo, err := os.Lstat(path)
+	if err != nil {
+		return nil, relative, fmt.Errorf("inspect bootstrap install receipt %s: %w", relative, err)
+	}
+	if !linkInfo.Mode().IsRegular() || linkInfo.Mode()&os.ModeSymlink != 0 {
+		return nil, relative, fmt.Errorf("bootstrap install receipt must be a real regular file: %s", relative)
+	}
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, relative, fmt.Errorf("open bootstrap install receipt %s: %w", relative, err)
@@ -141,7 +148,7 @@ func loadInstallReceipt(plan *Plan) (*InstallReceipt, string, error) {
 		closeErr := file.Close()
 		return nil, relative, combineWriteFailure("stat bootstrap install receipt", err, closeErr, nil)
 	}
-	if !info.Mode().IsRegular() || info.Size() > maxInstallReceiptBytes {
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > maxInstallReceiptBytes {
 		_ = file.Close()
 		return nil, relative, fmt.Errorf("bootstrap install receipt is not a bounded regular file: %s", relative)
 	}

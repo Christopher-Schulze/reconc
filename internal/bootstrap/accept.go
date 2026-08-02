@@ -32,7 +32,30 @@ func HasManagedCandidates(plan *Plan) bool {
 // AcceptManagedCandidates promotes only candidates that are byte-for-byte the
 // current user file plus one recognized Reconc managed block. It revalidates
 // target and candidate identity before an atomic, rollback-capable update.
+//
+// The mutation runs under the repository transaction lock so concurrent
+// bootstrap operations serialize. Callers that already hold the lock (such as
+// initializeLocked) must call acceptManagedCandidatesLocked instead, because
+// the lock is not reentrant.
 func AcceptManagedCandidates(plan *Plan, report *Report) (*ManagedAcceptanceReport, error) {
+	result := &ManagedAcceptanceReport{Updated: []string{}, RemovedCandidates: []string{}, Remaining: []string{}}
+	if err := ValidatePlan(plan); err != nil {
+		return result, err
+	}
+	var acceptErr error
+	err := withRepositoryTransactionLock(plan.RepoRoot, func() error {
+		result, acceptErr = acceptManagedCandidatesLocked(plan, report)
+		return acceptErr
+	})
+	if err != nil {
+		return result, err
+	}
+	return result, acceptErr
+}
+
+// acceptManagedCandidatesLocked is the lock-free core; the caller must hold
+// the repository transaction lock.
+func acceptManagedCandidatesLocked(plan *Plan, report *Report) (*ManagedAcceptanceReport, error) {
 	result := &ManagedAcceptanceReport{Updated: []string{}, RemovedCandidates: []string{}, Remaining: []string{}}
 	if err := ValidatePlan(plan); err != nil {
 		return result, err
