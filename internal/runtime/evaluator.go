@@ -109,15 +109,19 @@ func AssertRuleByID(startPath, ruleID string, vars map[string]string, inputs Exe
 	merged := inputs
 	merged.WritePaths = mergedWrites
 
-	normalizedReads, err := normalizePaths(merged.ReadPaths, root)
+	resolvedRoot, err := pathidentity.ResolveExisting(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve repo filesystem identity: %w", err)
+	}
+	normalizedReads, err := normalizePathsWithResolvedRoot(merged.ReadPaths, resolvedRoot)
 	if err != nil {
 		return nil, err
 	}
-	normalizedWrites, err := normalizePaths(merged.WritePaths, root)
+	normalizedWrites, err := normalizePathsWithResolvedRoot(merged.WritePaths, resolvedRoot)
 	if err != nil {
 		return nil, err
 	}
-	normalizedWriteEpochs, err := normalizeWriteEpochs(merged.WritePaths, merged.WriteEpochs, root)
+	normalizedWriteEpochs, err := normalizeWriteEpochsWithResolvedRoot(merged.WritePaths, merged.WriteEpochs, resolvedRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -232,15 +236,19 @@ func checkRepoPolicy(startPath string, inputs ExecutionInputs, includeRule func(
 		return nil, err
 	}
 
-	normalizedReads, err := normalizePaths(inputs.ReadPaths, root)
+	resolvedRoot, err := pathidentity.ResolveExisting(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve repo filesystem identity: %w", err)
+	}
+	normalizedReads, err := normalizePathsWithResolvedRoot(inputs.ReadPaths, resolvedRoot)
 	if err != nil {
 		return nil, err
 	}
-	normalizedWrites, err := normalizePaths(inputs.WritePaths, root)
+	normalizedWrites, err := normalizePathsWithResolvedRoot(inputs.WritePaths, resolvedRoot)
 	if err != nil {
 		return nil, err
 	}
-	normalizedWriteEpochs, err := normalizeWriteEpochs(inputs.WritePaths, inputs.WriteEpochs, root)
+	normalizedWriteEpochs, err := normalizeWriteEpochsWithResolvedRoot(inputs.WritePaths, inputs.WriteEpochs, resolvedRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -536,6 +544,14 @@ func normalizePaths(paths []string, root string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve repo filesystem identity: %w", err)
 	}
+	return normalizePathsWithResolvedRoot(paths, resolvedRoot)
+}
+
+// normalizePathsWithResolvedRoot is the per-path normalization core. Callers
+// on the check hot path resolve the repo root identity once via
+// pathidentity.ResolveExisting and reuse it for every path, instead of paying
+// the symlink/reparse resolution cost once per evidence path.
+func normalizePathsWithResolvedRoot(paths []string, resolvedRoot string) ([]string, error) {
 	out := []string{}
 	for _, raw := range paths {
 		candidate := strings.TrimSpace(raw)
@@ -553,7 +569,7 @@ func normalizePaths(paths []string, root string) ([]string, error) {
 			absPath = filepath.Join(resolvedRoot, candidate)
 		}
 		cleaned := filepath.Clean(absPath)
-		cleaned, err = pathidentity.ResolveProspective(cleaned)
+		cleaned, err := pathidentity.ResolveProspective(cleaned)
 		if err != nil {
 			return nil, fmt.Errorf("resolve evidence path %q: %w", raw, err)
 		}
@@ -573,9 +589,21 @@ func normalizePaths(paths []string, root string) ([]string, error) {
 }
 
 func normalizeWriteEpochs(paths []string, epochs map[string]uint64, root string) (map[string]uint64, error) {
+	resolvedRoot, err := pathidentity.ResolveExisting(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve repo filesystem identity: %w", err)
+	}
+	return normalizeWriteEpochsWithResolvedRoot(paths, epochs, resolvedRoot)
+}
+
+// normalizeWriteEpochsWithResolvedRoot maps raw write-path epoch keys onto
+// their normalized repo-relative form. It reuses the caller-resolved repo
+// root so the check hot path resolves the root identity once instead of once
+// per write path.
+func normalizeWriteEpochsWithResolvedRoot(paths []string, epochs map[string]uint64, resolvedRoot string) (map[string]uint64, error) {
 	out := make(map[string]uint64, len(epochs))
 	for _, raw := range paths {
-		normalized, err := normalizePaths([]string{raw}, root)
+		normalized, err := normalizePathsWithResolvedRoot([]string{raw}, resolvedRoot)
 		if err != nil {
 			return nil, err
 		}
@@ -1181,7 +1209,6 @@ func evalRequireFreshFile(ctx *evalContext, rule map[string]interface{}, default
 					Message: "rule '" + ruleIDOf(rule) + "' required_files path: " + err.Error(),
 				}
 			}
-			allRequired[path] = struct{}{}
 			fullPath := filepath.Join(ctx.repoRoot, path)
 			info, err := os.Stat(fullPath)
 			if err != nil {
@@ -1190,10 +1217,12 @@ func evalRequireFreshFile(ctx *evalContext, rule map[string]interface{}, default
 						continue
 					}
 					missing = appendUnique(missing, path)
+					allRequired[path] = struct{}{}
 					continue
 				}
 				return nil, &rerrors.LockfileError{Message: "stat required file " + path, Cause: err}
 			}
+			allRequired[path] = struct{}{}
 			if !info.Mode().IsRegular() {
 				missing = appendUnique(missing, path)
 				continue
@@ -1555,22 +1584,6 @@ func evalCoupleChange(rule map[string]interface{}, defaultMode policy.Mode, inpu
 	coupled, err := matchingPaths(inputs.WritePaths, required)
 	if err != nil {
 		return nil, err
-	}
-	if len(coupled) > 0 {
-		coupledSet := make(map[string]struct{}, len(coupled))
-		for _, path := range coupled {
-			coupledSet[path] = struct{}{}
-		}
-		primary := triggered[:0]
-		for _, path := range triggered {
-			if _, isCompanion := coupledSet[path]; !isCompanion {
-				primary = append(primary, path)
-			}
-		}
-		triggered = primary
-	}
-	if len(triggered) == 0 {
-		return nil, nil
 	}
 	if len(coupled) > 0 {
 		return nil, nil
@@ -1959,7 +1972,14 @@ func buildViolation(
 
 	mode := defaultMode
 	if mStr, ok := rule["mode"].(string); ok && mStr != "" {
-		mode = policy.Mode(mStr)
+		candidate := policy.Mode(mStr)
+		if candidate.Valid() {
+			mode = candidate
+		} else {
+			// A rule mode that slipped past parser validation must never
+			// silently downgrade a violation to a pass. Fail closed.
+			mode = policy.ModeBlock
+		}
 	}
 
 	explanation, recommended := explainViolation(
