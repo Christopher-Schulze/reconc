@@ -139,10 +139,14 @@ func validateAssuranceGate(gate *policy.AssuranceGate) error {
 			return err
 		}
 	}
-	for _, value := range append(append(append(append([]string{}, gate.ApplicableIf...), gate.ScanPaths...), append(gate.ExcludePaths, gate.ManifestPaths...)...), gate.ManifestMarkers...) {
+	pathPatterns := append(append(append(append([]string{}, gate.ApplicableIf...), gate.ScanPaths...), append(gate.ExcludePaths, gate.ManifestPaths...)...), gate.ManifestMarkers...)
+	for _, value := range pathPatterns {
 		if !isRepoRelativePath(value) {
 			return fmt.Errorf("path pattern must stay repo-relative: %q", value)
 		}
+	}
+	if err := validateGlobPatterns(pathPatterns, "assurance gate '"+gate.ID+"'"); err != nil {
+		return err
 	}
 	for index := range gate.Exemptions {
 		exemption := &gate.Exemptions[index]
@@ -150,6 +154,9 @@ func validateAssuranceGate(gate *policy.AssuranceGate) error {
 		exemption.Reason = strings.TrimSpace(exemption.Reason)
 		if !isRepoRelativePath(exemption.Path) || exemption.Reason == "" {
 			return fmt.Errorf("every exemption requires a repo-relative path and non-empty reason")
+		}
+		if err := validateGlobPatterns([]string{exemption.Path}, "assurance gate '"+gate.ID+"' exemption"); err != nil {
+			return err
 		}
 	}
 	switch gate.Type {

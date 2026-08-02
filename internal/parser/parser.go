@@ -9,8 +9,10 @@ package parser
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"gopkg.in/yaml.v3"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/ingest"
@@ -305,6 +307,9 @@ func coerceScopes(src policy.PolicySource, doc map[string]interface{}) ([]policy
 				Message: "scope #" + itoa(i) + " in " + src.Path + " requires non-empty 'paths'",
 			}
 		}
+		if err := validateGlobPatterns(paths, "scope #"+itoa(i)+" in "+src.Path+" field 'paths'"); err != nil {
+			return nil, err
+		}
 		scopeID, err := optionalString(mapping, "id", "scope#"+itoa(i), "", 0)
 		if err != nil {
 			return nil, err
@@ -450,6 +455,18 @@ func validateRuleItem(item map[string]interface{}, src policy.PolicySource, inde
 	whenPaths, err := optionalStringList(item, "when_paths", id)
 	if err != nil {
 		return policy.Rule{}, err
+	}
+	for _, globField := range []struct {
+		name     string
+		patterns []string
+	}{
+		{"paths", paths},
+		{"before_paths", beforePaths},
+		{"when_paths", whenPaths},
+	} {
+		if err := validateGlobPatterns(globField.patterns, "rule '"+id+"' field '"+globField.name+"'"); err != nil {
+			return policy.Rule{}, err
+		}
 	}
 	commands, err := optionalStringList(item, "commands", id)
 	if err != nil {
@@ -1168,6 +1185,23 @@ func optionalStringList(item map[string]interface{}, key, ruleID string) ([]stri
 		out = append(out, str)
 	}
 	return out, nil
+}
+
+// validateGlobPatterns rejects syntactically invalid glob patterns at compile
+// time so a malformed pattern (for example an unterminated character class)
+// fails the compile instead of producing a lockfile that only the runtime
+// evaluator can reject. The probe path never matches; only a pattern syntax
+// error is surfaced. Template placeholders such as {task_id} are legal brace
+// groups to doublestar and pass validation.
+func validateGlobPatterns(patterns []string, context string) error {
+	for _, pattern := range patterns {
+		if _, err := doublestar.Match(pattern, "reconc-glob-syntax-probe"); err != nil {
+			return &rerrors.RuleValidationError{
+				Message: context + " has an invalid glob pattern " + strconv.Quote(pattern) + ": " + err.Error(),
+			}
+		}
+	}
+	return nil
 }
 
 // decodeYAMLMapping is a parser-local copy that returns the right

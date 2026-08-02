@@ -147,6 +147,33 @@ func TestParseRejectsInvalidMode(t *testing.T) {
 	}
 }
 
+func TestParseRejectsMalformedGlobAtCompileTime(t *testing.T) {
+	_, err := ParseRuleDocuments(makeBundle(policy.PolicySource{
+		Kind:    policy.SourcePolicyFile,
+		Path:    "policies/x.yml",
+		Content: "rules:\n  - id: x\n    kind: deny_write\n    paths: ['src/[.go']\n    mode: warn\n    message: x\n",
+	}))
+	if err == nil {
+		t.Fatal("expected error for malformed glob pattern")
+	}
+	if !contains(err.Error(), "invalid glob pattern") {
+		t.Errorf("expected 'invalid glob pattern' in error, got: %v", err)
+	}
+}
+
+func TestParseAcceptsTemplatePlaceholderGlob(t *testing.T) {
+	// {task_id} is a legal brace group to doublestar and must survive
+	// compile-time glob validation for template-capturing kinds.
+	_, err := ParseRuleDocuments(makeBundle(policy.PolicySource{
+		Kind:    policy.SourcePolicyFile,
+		Path:    "policies/x.yml",
+		Content: "rules:\n  - id: x\n    kind: require_evidence\n    when_paths: ['docs/todo/{task_id}.md']\n    evidence:\n      - file: 'docs/coverage/{task_id}.md'\n        must_exist: true\n    mode: block\n    message: x\n",
+	}))
+	if err != nil {
+		t.Fatalf("template placeholder glob must parse, got: %v", err)
+	}
+}
+
 func TestParseRequiresMessage(t *testing.T) {
 	_, err := ParseRuleDocuments(makeBundle(policy.PolicySource{
 		Kind:    policy.SourcePolicyFile,
