@@ -102,7 +102,7 @@ func TestPlanPersistenceRejectsAmbiguousOrForeignState(t *testing.T) {
 	root := t.TempDir()
 
 	missing := filepath.Join(root, "missing.json")
-	if _, err := LoadPlan(missing); err == nil || !strings.Contains(err.Error(), "open bootstrap plan") {
+	if _, err := LoadPlan(missing); err == nil || !strings.Contains(err.Error(), "inspect bootstrap plan") {
 		t.Fatalf("missing plan error = %v", err)
 	}
 	unknown := filepath.Join(root, "unknown.json")
