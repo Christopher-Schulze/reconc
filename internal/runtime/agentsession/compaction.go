@@ -81,9 +81,17 @@ func activeTaskLine(repoRoot string) string {
 		return ""
 	}
 	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, maxTaskOverviewBytes))
+	data, err := io.ReadAll(io.LimitReader(file, maxTaskOverviewBytes+1))
 	if err != nil {
 		return ""
+	}
+	if len(data) > maxTaskOverviewBytes {
+		// The overview exceeded the bound, so the final line may be cut in
+		// half. Drop it instead of matching on a partial prefix.
+		data = data[:maxTaskOverviewBytes]
+		if idx := strings.LastIndexByte(string(data), '\n'); idx >= 0 {
+			data = data[:idx]
+		}
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		trimmed := strings.TrimSpace(line)

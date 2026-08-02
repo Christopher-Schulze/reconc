@@ -373,6 +373,10 @@ func pruneOwnedTempRootsInterval(options Options, force bool, report *Report) (C
 func normalizeOptions(options Options) Options {
 	defaults := DefaultPolicy()
 	if options.Policy.Interval <= 0 {
+		// Callers that leave the policy unconfigured (Interval zero) get the
+		// full default policy. Several production entry points rely on this:
+		// they pass Options without a Policy and expect sane class limits,
+		// not the zero ClassPolicy that would prune everything.
 		options.Policy = defaults
 	}
 	if options.StateRoot == "" {

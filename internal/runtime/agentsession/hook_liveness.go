@@ -18,6 +18,9 @@ const (
 	hookLivenessWriteInterval = 6 * time.Hour
 	maxHookLivenessBytes      = 64 * 1024
 	maxHookLivenessRuntimes   = 16
+	// maxHookLivenessRoutes mirrors the read-side validation cap so the
+	// writer never persists a record the next read would reject.
+	maxHookLivenessRoutes = 32
 )
 
 // HookLiveness is rate-limited proof that a runtime executed registry routes.
@@ -101,6 +104,15 @@ func recordHookLivenessAt(root, runtime, event string, now time.Time) error {
 	current.LastSeen = now.Format(time.RFC3339Nano)
 	current.Event = event
 	current.Routes[event] = current.LastSeen
+	if len(current.Routes) > maxHookLivenessRoutes {
+		oldestEvent, oldestSeen := "", ""
+		for routeEvent, seen := range current.Routes {
+			if oldestEvent == "" || seen < oldestSeen {
+				oldestEvent, oldestSeen = routeEvent, seen
+			}
+		}
+		delete(current.Routes, oldestEvent)
+	}
 	records[runtime] = HookLiveness{
 		Runtime: current.Runtime, LastSeen: current.LastSeen, Event: current.Event,
 		Routes: current.Routes,
