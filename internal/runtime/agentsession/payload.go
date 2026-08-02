@@ -242,6 +242,10 @@ func (p *HookPayload) IsWriteTool() bool {
 }
 
 func parseApplyPatchPaths(patch string) []string {
+	// Collect every referenced path without deduping here; the caller runs
+	// one linear dedupePaths pass over the combined result, so this stays
+	// O(n) instead of the O(n^2) a per-line appendUniquePath would cost on
+	// large patches.
 	var paths []string
 	for _, line := range strings.Split(patch, "\n") {
 		line = strings.TrimSpace(line)
@@ -252,7 +256,9 @@ func parseApplyPatchPaths(patch string) []string {
 			"*** Move to: ",
 		} {
 			if strings.HasPrefix(line, prefix) {
-				paths = appendUniquePath(paths, strings.TrimSpace(strings.TrimPrefix(line, prefix)))
+				if path := strings.TrimSpace(strings.TrimPrefix(line, prefix)); path != "" {
+					paths = append(paths, path)
+				}
 				break
 			}
 		}
@@ -274,9 +280,18 @@ func appendUniquePath(paths []string, path string) []string {
 }
 
 func dedupePaths(paths []string) []string {
-	var out []string
+	seen := make(map[string]struct{}, len(paths))
+	out := make([]string, 0, len(paths))
 	for _, path := range paths {
-		out = appendUniquePath(out, path)
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		out = append(out, path)
 	}
 	return out
 }
