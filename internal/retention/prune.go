@@ -616,6 +616,9 @@ func jsonlRingSize(path string, maxArchives int) (int64, int, error) {
 
 func isGeneratedBinary(entry os.DirEntry) bool {
 	name := entry.Name()
+	if strings.HasSuffix(name, ".build.lock") {
+		return false
+	}
 	return strings.HasPrefix(name, "workflow-audit-") || name == "generated-reference-audit" || name == "promote-task-done"
 }
 

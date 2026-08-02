@@ -14,11 +14,13 @@ func TestRepositoryRuntimeBudgetRemovesOldestInactiveOwnedArtifacts(t *testing.T
 	cache := filepath.Join(repo, ".reconc", "cache")
 	oldBinary := filepath.Join(cache, "workflow-audit-old")
 	activeBinary := filepath.Join(cache, "workflow-audit-active")
-	archive := filepath.Join(repo, ".reconc", "audit.jsonl.1")
+	auditArchive := filepath.Join(repo, ".reconc", "audit.jsonl.1")
 	current := filepath.Join(repo, ".reconc", "audit.jsonl")
+	decisionArchive := filepath.Join(repo, ".reconc", "run", "decisions.jsonl.1")
 	for path, body := range map[string]string{
 		oldBinary: "old-binary", activeBinary: "active-binary",
-		archive: "old-archive", current: "current",
+		auditArchive: "audit-archive", current: "current",
+		decisionArchive: "decision-archive",
 	} {
 		writeTimed(t, path, []byte(body), now.Add(-4*time.Hour))
 	}
@@ -32,15 +34,20 @@ func TestRepositoryRuntimeBudgetRemovesOldestInactiveOwnedArtifacts(t *testing.T
 	if len(report.Errors) != 0 {
 		t.Fatalf("runtime budget errors = %v", report.Errors)
 	}
-	if class.FilesDeleted < 2 || class.BytesAfter > policy.RepoRuntimeBytes {
-		t.Fatalf("runtime budget result = %+v", class)
+	// The inactive generated binary and the plain run-decision archive are
+	// removable. The chained audit archive is protected even though it is
+	// old and would free space: deleting it would break the audit hash
+	// chain and permanently fail every audit operation.
+	wantFreed := int64(len("old-binary") + len("decision-archive"))
+	if class.BytesFreed != wantFreed {
+		t.Fatalf("expected %d bytes freed from the binary and decision archive, got %+v", wantFreed, class)
 	}
-	for _, path := range []string{oldBinary, archive} {
+	for _, path := range []string{oldBinary, decisionArchive} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("old removable artifact survived: %s: %v", path, err)
 		}
 	}
-	for _, path := range []string{activeBinary, current} {
+	for _, path := range []string{activeBinary, current, auditArchive} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("protected runtime artifact was removed: %s: %v", path, err)
 		}

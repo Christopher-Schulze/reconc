@@ -604,6 +604,22 @@ func TestRunAssertWithVarSubstitutesTemplate(t *testing.T) {
 	}
 }
 
+func TestRunAssertVarsOutputIsDeterministic(t *testing.T) {
+	repo := makeAssertRepo(t,
+		"rules:\n  - id: r\n    kind: deny_write\n    paths: ['x']\n    mode: warn\n    message: m\n")
+	// Pass vars in non-alphabetical order; the rendered Vars line must
+	// still be sorted so repeated runs produce identical output.
+	var stdout, stderr bytes.Buffer
+	err := Run([]string{"assert", "r", repo, "--var", "zeta=1", "--var", "alpha=2", "--var", "mid=3"}, "0.1.0-test", &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("expected pass, got error: %v\nstdout: %s", err, stdout.String())
+	}
+	want := "Vars:      alpha=2, mid=3, zeta=1\n"
+	if !strings.Contains(stdout.String(), want) {
+		t.Fatalf("expected sorted Vars line %q in output:\n%s", want, stdout.String())
+	}
+}
+
 func TestRunAssertJSONOutput(t *testing.T) {
 	repo := makeAssertRepo(t,
 		"rules:\n  - id: r\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: m\n")

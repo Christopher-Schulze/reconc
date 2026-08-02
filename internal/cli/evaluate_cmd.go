@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -283,10 +284,11 @@ func runAssert(args []string, reconcVersion string, stdout, stderr io.Writer) er
 	} else {
 		fmt.Fprintf(stdout, "Rule:      %s\n", ruleID)
 		if len(vars) > 0 {
-			vbuf := []string{}
+			vbuf := make([]string, 0, len(vars))
 			for k, v := range vars {
 				vbuf = append(vbuf, k+"="+v)
 			}
+			sort.Strings(vbuf)
 			fmt.Fprintf(stdout, "Vars:      %s\n", joinList(vbuf))
 		}
 		renderCheckText(report, stdout)

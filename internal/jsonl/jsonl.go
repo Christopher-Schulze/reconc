@@ -126,9 +126,13 @@ func appendLocked(path string, record []byte, policy Policy) error {
 		return err
 	}
 	writeErr := writeFull(file, record)
+	syncErr := file.Sync()
 	closeErr := file.Close()
 	if writeErr != nil {
 		return writeErr
+	}
+	if syncErr != nil {
+		return syncErr
 	}
 	return closeErr
 }
