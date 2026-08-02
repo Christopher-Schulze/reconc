@@ -181,7 +181,7 @@ func runDiff(args []string, stdout, stderr io.Writer) error {
 	}
 
 	fmt.Fprintf(stdout, "Diff %s -> %s\n", report.PathA, report.PathB)
-	if report.IsEmpty() && !report.DefaultModeDiff && report.DigestA == report.DigestB {
+	if report.IsEmpty() {
 		fmt.Fprintln(stdout, "No changes.")
 		return nil
 	}

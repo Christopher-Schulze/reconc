@@ -242,3 +242,19 @@ func TestDiffIgnoresStringListReordering(t *testing.T) {
 		t.Fatalf("reordered string lists must not report a change: %+v", report.Changed)
 	}
 }
+
+func TestDiffReportsDigestOnlyChangeAsNonEmpty(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.json")
+	b := filepath.Join(dir, "b.json")
+	rules := `{"rules":[{"id":"r1","kind":"deny_write","mode":"warn","paths":["x"]}]}`
+	writeLock(t, a, `{"source_digest":"`+strings.Repeat("a", 64)+`",`+rules[1:])
+	writeLock(t, b, `{"source_digest":"`+strings.Repeat("b", 64)+`",`+rules[1:])
+	report, err := Diff(a, b)
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	if report.IsEmpty() {
+		t.Fatalf("a source digest change must not read as an empty diff: %+v", report)
+	}
+}

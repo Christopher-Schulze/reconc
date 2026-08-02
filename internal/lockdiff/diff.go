@@ -298,7 +298,10 @@ func sortRuleInfos(xs []RuleInfo) {
 	sort.Slice(xs, func(i, j int) bool { return xs[i].ID < xs[j].ID })
 }
 
-// IsEmpty reports whether the diff found no changes at all.
+// IsEmpty reports whether the diff found no changes at all. A differing
+// source digest counts as a change even when no rule moved, because the
+// underlying policy sources are not identical.
 func (r *Report) IsEmpty() bool {
-	return len(r.Added) == 0 && len(r.Removed) == 0 && len(r.Changed) == 0 && !r.DefaultModeDiff
+	return len(r.Added) == 0 && len(r.Removed) == 0 && len(r.Changed) == 0 &&
+		!r.DefaultModeDiff && r.DigestA == r.DigestB
 }
