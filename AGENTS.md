@@ -35,7 +35,7 @@ make publication-audit
 ```
 
 Bun `1.3.14` is a test-only dependency for executing the generated OpenCode,
-Kilo Code, and Oh My Pi adapter contracts; the shipped Reconc binary does not
+Kilo Code, Oh My Pi, and Pi adapter contracts; the shipped Reconc binary does not
 require Bun.
 
 ## Conventions

@@ -15,7 +15,7 @@ func TestMCPEnumValidationIsClosed(t *testing.T) {
 		t.Error("unknown unclassified mode must be invalid")
 	}
 
-	for _, platform := range []MCPPlatform{MCPPlatformCursor, MCPPlatformOpenCode, MCPPlatformKilo, MCPPlatformOMP} {
+	for _, platform := range []MCPPlatform{MCPPlatformCursor, MCPPlatformOpenCode, MCPPlatformKilo, MCPPlatformOMP, MCPPlatformPi} {
 		if !platform.Valid() {
 			t.Errorf("canonical platform %q is invalid", platform)
 		}
@@ -54,7 +54,7 @@ func TestMCPToolPolicyValidateAcceptsEveryEffectContract(t *testing.T) {
 		},
 		{
 			name: "external",
-			tool: MCPToolPolicy{Platform: MCPPlatformOMP, Tool: "search", Effect: MCPEffectExternal},
+			tool: MCPToolPolicy{Platform: MCPPlatformPi, Tool: "search", Effect: MCPEffectExternal},
 		},
 	}
 	for _, test := range tests {

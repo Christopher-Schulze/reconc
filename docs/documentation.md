@@ -157,7 +157,7 @@ Requirements:
 
 - Go `1.26`
 - Git for `reconc ci` and hook installation
-- Bun `1.3.14` for executable OpenCode, Kilo Code, and Oh My Pi adapter tests
+- Bun `1.3.14` for executable OpenCode, Kilo Code, Oh My Pi, and Pi adapter tests
   only; the shipped Reconc binary has no Bun runtime dependency
 - On Windows, `sh` on `PATH` for generated shell hook wrappers plus `.sh` and
   extensionless policy scripts; Git for Windows supplies it. Native `.exe` and
@@ -642,11 +642,12 @@ network when invoked.
 ### Which agent runtimes are supported?
 
 The registry owns integrations for Claude Code, Codex, GitHub Copilot, Cursor,
-OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, Grok Build, and Kimi
+OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, Pi, Grok Build, and Kimi
 Code CLI, plus git pre-commit as the repository backstop. Host capabilities
 differ: some expose synchronous Stop, GitHub Copilot and Kimi Code retain
 documented host-fail-open timeout behavior, OpenCode and Kilo expose inferred
-`session.idle`, OMP exposes awaited main-session `session_stop`, and Grok has a
+`session.idle`, OMP exposes awaited main-session `session_stop`, Pi exposes
+inferred asynchronous `agent_settled` continuation, and Grok has a
 strict ACP driver for continuation. Run
 `reconc hook status . --json` before claiming that a particular installation
 is live.
@@ -1406,7 +1407,7 @@ them and supplies the repository-owned paths, commands, or script where the
 shape requires those inputs.
 
 Generic dependency-locality audits exclude supported agent-runtime state trees,
-including `.devin/`, `.grok/`, `.kilo/`, legacy `.kilocode/`, `.omp/`, and the
+including `.devin/`, `.grok/`, `.kilo/`, legacy `.kilocode/`, `.omp/`, `.pi/`, and the
 other registered platform directories, so plugin dependencies are not mistaken
 for product dependency leakage.
 
@@ -1554,7 +1555,7 @@ Key invariants:
 
 The repo ships one agent-facing skill at `skills/reconc/SKILL.md`.
 
-It is written for Codex, OpenCode, Claude Code, Oh My Pi, and other coding agents. The
+It is written for Codex, OpenCode, Claude Code, Oh My Pi, Pi, and other coding agents. The
 skill documents the same reconc workflow for every agent runtime:
 
 - begin and reenter with the versioned `session-briefing --json` contract
@@ -1565,7 +1566,7 @@ skill documents the same reconc workflow for every agent runtime:
 
 The typed platform registry is the source of truth for Git pre-commit, Claude
 Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI,
-Kilo Code, Oh My Pi, Grok Build, and Kimi Code CLI. It owns native event names,
+Kilo Code, Oh My Pi, Pi, Grok Build, and Kimi Code CLI. It owns native event names,
 normalized lifecycle coverage, compatibility routes, config and scaffold paths,
 failure behavior, timeout budgets, output budgets, installation strategy, and
 activation probes. `reconc hook status
@@ -1621,6 +1622,7 @@ repository.
 | Kilo Code CLI | `.kilo/plugin/reconc.js` with `KILO_PURE` unset; same lifecycle classes as OpenCode | Static plugin contract plus per-route liveness; continuation remains inferred |
 | Kilo Code VS Code host | The same canonical project plugin when that host loads external project plugins | CLI observations are never reused as VS Code proof |
 | Oh My Pi CLI | `.omp/extensions/reconc.ts`; native session, input, tool, approval, compaction, shutdown, and awaited main-session Stop routes | Static extension contract plus per-route liveness; `tool_call` and `session_stop` can enforce before host action |
+| Pi Coding Agent | `.pi/extensions/reconc.ts`; trusted-project session, input, tool, user-shell, result, compaction, settled, and shutdown routes | Static extension and saved-trust contract plus per-route liveness; `tool_call` and `user_bash` can enforce before host action, while settled continuation remains inferred |
 | Kimi Code CLI | User-global `$KIMI_CODE_HOME/config.toml`; all 16 native hooks dispatch through bare `reconc` and discover the current repository | Generator-exact global configuration only; no live claim without a real Kimi route observation |
 
 Cursor's registry classifies all 21 current host events exactly once. Reconc
@@ -1709,6 +1711,37 @@ budget. OMP's installed runtime and source declarations are not live hook proof;
 only exact per-route liveness or an isolated negative probe can establish
 observation or enforcement.
 
+Pi discovers project extensions under `.pi/extensions/` only after project
+trust. `reconc hook install pi` owns exactly `.pi/extensions/reconc.ts`, never
+replaces foreign content, and never mutates `~/.pi/agent/trust.json` or the Pi
+settings file. Status resolves `PI_CODING_AGENT_DIR`, canonicalizes the
+repository root, applies nearest-parent saved trust, and accepts
+`defaultProjectTrust: "always"` as the other persistent configured state.
+Interactive trust or `pi --approve` can activate one run but does not become a
+static saved-trust claim.
+
+The Pi adapter registers `session_start`, `input`, `tool_call`, `tool_result`,
+`user_bash`, `session_before_compact`, `session_compact`, `agent_settled`, and
+`session_shutdown`. Awaited `tool_call` and `user_bash` are fail-closed before
+host execution. An allowed `user_bash` returns no replacement result and lets
+Pi execute its own command; a denial returns a complete synthetic shell result
+with exit code 2. Pi exposes no post-user-shell event. `tool_result.isError` is
+authoritative, and only a successful built-in `Bash` result receives synthetic
+exit code zero. Failed output never becomes an inferred exit status.
+
+Pi has no native permission event, MCP discriminator, synchronous Stop event,
+or continuation delivery acknowledgement. Reconc therefore maps permission
+and MCP policy only through the generic pre-tool identity, and maps
+`agent_settled` to a fail-open bounded continuation request. State is capped at
+1,024 sessions and ten requested continuations per session; duplicate settled
+events and injected Reconc input are suppressed by generation and in-flight
+state. `sendUserMessage` returning only `void` means the adapter reports
+requested, failed-before-call, or suppressed delivery without claiming host
+acceptance. Host cancellation releases immediately. Contract fixtures pin Pi
+source revision `4279da1b7f27926216836393dc1a50bd6a2487b3` at
+`@earendil-works/pi-coding-agent` v0.83.0 and OMP revision
+`06343fef4200c4e32d18f08df5a6a8bd84dcc710` at v17.2.4.
+
 OpenCode and Kilo shell success is accepted only from an integer
 `output.metadata.exit`. Exit zero succeeds. Non-zero, timeout, abort, explicit
 error, missing exit, fractional/non-finite/overflowing value, numeric string,
@@ -1753,6 +1786,9 @@ mcp:
       tool: mcp_repository_read
       effect: repository_read
       path_fields: [/path]
+    - platform: pi
+      tool: deploy_preview
+      effect: external
 ```
 
 Each mapping is an exact `(platform, server_fingerprint, tool)` selector.
@@ -1765,7 +1801,7 @@ produce no positive evidence. `external` calls never become repository
 evidence.
 
 Cursor's dedicated MCP pre-hook can enforce `unclassified: deny`. OpenCode,
-Kilo, and OMP expose exact generic tool identities but no reliable discriminator
+Kilo, OMP, and Pi expose exact generic tool identities but no reliable discriminator
 between an unconfigured MCP tool and a built-in/custom tool, so strict
 unclassified deny is unavailable on those generic surfaces. Configured exact
 identities remain enforceable. Server locators, credentials, arguments,
@@ -1787,7 +1823,7 @@ the managed artifact is published.
 The registry assigns 5-second observation/session budgets, 10-second pre-tool
 and permission budgets, and platform-specific Stop budgets instead of one
 blanket timeout. Claude, Codex, GitHub Copilot, Devin, Antigravity, and Grok
-generators emit those host timeouts; OpenCode and Kilo Code enforce them inside
+generators emit those host timeouts; OpenCode, Kilo Code, and Pi enforce them inside
 their adapters. OMP uses a 29-second internal Stop budget so its fail-closed
 response is returned before the host's 30-second extension-handler deadline.
 Each runtime route caps combined process output at 8 KiB.
@@ -1875,6 +1911,11 @@ registers native `session_start`, `input`, `tool_call`, `tool_result`,
 `auto_compaction_end`, `session_stop`, and `session_shutdown` handlers. The
 extension translates only host envelopes and decisions; policy and durable
 session state stay in Go. On Windows it uses the same `sh` wrapper boundary.
+Pi uses the typed Bun extension at `.pi/extensions/reconc.ts`. It translates
+the nine native events and host decisions only; policy and durable session
+state stay in Go. Its adapter shares the bounded output, UTF-8, timeout, kill,
+await, wrapper-resolution, and Windows `sh` transport contract, while preserving
+the host abort signal as authoritative cancellation.
 Grok Build uses the dedicated `.grok/hooks/reconc.json` native artifact.
 Its camelCase envelopes and native tools (`run_terminal_command`,
 `run_terminal_cmd`,
@@ -1925,7 +1966,7 @@ leader protocol plus `_x.ai/interject` with a random nonexistent session.
 `reconc run on|off|reset|status|log` is the canonical AI-operated repository switch.
 Its durable state applies only to the selected repository, not the whole machine.
 Repository mode persists across sessions for Claude Code, Codex, GitHub
-Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi,
+Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, Pi,
 Grok Build, and Kimi Code CLI. The agent
 runs these commands itself; users do not need to operate Reconc. Prompt text,
 runtime interrupts, compaction, session boundaries, runtime changes, and
@@ -2139,11 +2180,11 @@ CI checks:
   implicit package-manager caching disabled. Each executable-test job packs
   exact `bun@1.3.14`, compares the tarball's npm SRI against the committed
   SHA-512 value, installs only that verified tarball, and checks the runtime
-  version before executing OpenCode, Kilo Code, and OMP adapter contracts
+  version before executing OpenCode, Kilo Code, OMP, and Pi adapter contracts
 - every CI job that executes Go provisions the SHA-pinned `actions/setup-go`
   action from `go.mod`, including the isolated release-trust job
 - clean-repository self-hosting golden path on Ubuntu and macOS across all three
-  bootstrap profiles, git pre-commit, and all eleven agent runtimes
+  bootstrap profiles, git pre-commit, and all twelve agent runtimes
 - current-tree and post-boundary-history publication audit on Ubuntu, macOS,
   native Windows, release-trust, and tagged release paths
 - immutable action commit pins plus an explicit GitHub-owned action allowlist;

@@ -29,14 +29,16 @@ binary_dir=$(cd "$(dirname "$binary")" && pwd)
 git -C "$root" check-ignore --no-index --quiet .reconc/run/decisions.jsonl.lock \
   || fail "self-hosted repository does not ignore Reconc run runtime"
 
-mkdir -p "$tmp/bin" "$tmp/kimi-code-home" "$tmp/reconc-home" "$tmp/runtime-tmp" "$tmp/state"
+mkdir -p "$tmp/bin" "$tmp/kimi-code-home" "$tmp/pi-agent" "$tmp/reconc-home" "$tmp/runtime-tmp" "$tmp/state"
 export RECONC_HOME="$tmp/reconc-home"
 export RECONC_INSTALL_DIR="$tmp/bin"
 export PATH="$RECONC_INSTALL_DIR:$binary_dir:$PATH"
 export TMPDIR="$tmp/runtime-tmp"
 export RECONC_CLAUDE_STATE_DIR="$tmp/state"
 export KIMI_CODE_HOME="$tmp/kimi-code-home"
+export PI_CODING_AGENT_DIR="$tmp/pi-agent"
 export RECONC_AUDIT=1
+printf '%s\n' '{"defaultProjectTrust":"always"}' >"$PI_CODING_AGENT_DIR/settings.json"
 
 minimal="$tmp/minimal"
 mkdir -p "$minimal"
@@ -80,7 +82,7 @@ cmp -s "$tmp/source-version.txt" "$tmp/stable-version.txt" \
 "$stable_binary" hook install kimi-code --json >"$tmp/kimi-install.json"
 require_text "$tmp/kimi-install.json" '"repo_root": "global"'
 run_json "$tmp/hook-status.json" "$stable_binary" hook status "$governed"
-[ "$(grep -c '"state": "configured"' "$tmp/hook-status.json")" -eq 12 ] || fail "not all twelve hook platforms are configured"
+[ "$(grep -c '"state": "configured"' "$tmp/hook-status.json")" -eq 13 ] || fail "not all thirteen hook platforms are configured"
 
 wrapper="$governed/tools/reconc/bin/hook"
 for event in \
@@ -93,7 +95,8 @@ for event in \
   antigravity-pre-invocation \
   kilo-session-start \
   grok-session-start \
-  omp-session-start
+  omp-session-start \
+  pi-session-start
 do
   session=${event%%-*}
   if [ "$event" = "copilot-session-start" ]; then
@@ -104,6 +107,9 @@ do
       | "$wrapper" "$event" "$governed" >"$tmp/hook-$session.json"
   elif [ "$event" = "omp-session-start" ]; then
     printf '{"hook_event_name":"session_start","session_id":"golden-omp","cwd":"%s"}\n' "$governed" \
+      | "$wrapper" "$event" "$governed" >"$tmp/hook-$session.json"
+  elif [ "$event" = "pi-session-start" ]; then
+    printf '{"hook_event_name":"session_start","session_id":"golden-pi","cwd":"%s","reason":"startup"}\n' "$governed" \
       | "$wrapper" "$event" "$governed" >"$tmp/hook-$session.json"
   else
     printf '{"session_id":"golden-%s","reconc_runtime":"%s"}\n' "$session" "$session" \

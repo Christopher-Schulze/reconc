@@ -238,7 +238,8 @@ reconc hook evidence-resolve . --token <sha256> --reason "<reviewed reason>"
 ## Platform Integration
 
 The typed registry supports Claude Code, Codex, GitHub Copilot, Cursor,
-OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, Grok Build, and Kimi
+OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, Pi Coding Agent,
+Grok Build, and Kimi
 Code CLI. Run
 `reconc hook status . --json`
 instead of guessing whether an artifact is installed, configured, degraded,
@@ -287,6 +288,14 @@ weaker host lifecycle respectively.
   accepted requests per session. Approval, outcome, compaction, and shutdown
   routes are observational. Tool success follows exact `isError`; only a
   successful built-in `Bash` result receives synthetic exit code zero.
+- **Pi Coding Agent**: `reconc hook install pi .` owns `.pi/extensions/reconc.ts` and
+  never edits project trust. Status requires saved canonical-path trust or
+  `defaultProjectTrust: "always"` before reporting `configured`. Native
+  `tool_call` and `user_bash` fail closed; result, lifecycle, compaction, and
+  shutdown observations fail open. Inferred `agent_settled` continuation is
+  capped at ten requests per session and reports no delivery acknowledgement.
+  Pi exposes no native permission event, MCP discriminator, post-user-shell
+  result, or synchronous Stop gate.
 - **Grok Build**: `reconc hook install grok .` owns
   `.grok/hooks/reconc.json`. Run `/hooks-trust` once. Native PreToolUse is hard.
   Reconc emits exact Stop block JSON without a leader and probes the installed
@@ -320,7 +329,7 @@ Configured MCP tools are exact opt-in mappings in `.reconc.yml`. Unknown
 identity, wrong fingerprint presence, malformed selected values, unknown
 outcome, and `external` effects produce no repository evidence. Cursor's
 dedicated pre-hook can deny unclassified MCP calls. OpenCode/Kilo generic hooks
-and OMP tool hooks cannot soundly identify unconfigured MCP calls, so strict
+and OMP/Pi tool hooks cannot soundly identify unconfigured MCP calls, so strict
 unclassified deny is unavailable there. Exact configured tool identities remain
 enforceable. Inspect the compiled redacted contract with
 `reconc why mcp .`.
@@ -337,11 +346,14 @@ reconc run off .
 ```
 
 Repository mode applies to Claude Code, Codex, GitHub Copilot, Cursor,
-OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, Grok Build, and Kimi
+OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, Pi Coding Agent,
+Grok Build, and Kimi
 Code CLI, scoped to this repository rather than the whole machine. Claude Code,
 Codex, GitHub Copilot, Cursor, Devin CLI, Antigravity CLI, Oh My Pi, and Kimi
 Code CLI expose synchronous Stop gates. OpenCode and Kilo Code use
 inferred `session.idle`, so their host continuation is best-effort and fail-open.
+Pi uses inferred fail-open `agent_settled` continuation; a requested
+`sendUserMessage` call is not a delivery acknowledgement.
 Grok has a native synchronous Stop gate without a leader only when its installed
 hook guide advertises blocking Stop decision control. Passive Stop TUI sessions
 can be steered via

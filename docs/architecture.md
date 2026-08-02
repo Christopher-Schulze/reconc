@@ -415,9 +415,10 @@ class of hostile input.
 | Audit record | **32 KiB** | Bounds one locked JSONL append. |
 | Audit/run storage | **2 MiB live + 2 archives each** | Fixed rings and transition-only run records prevent repository-local log growth. |
 | Hook output | **8 KiB per route** | Prevents verbose host output from consuming agent context. |
-| Bun adapter process output | **8 KiB combined stdout + stderr** | OpenCode, Kilo, and OMP concurrently drain both pipes; overflow, invalid UTF-8, timeout, and truncated decision JSON fail according to the registry route policy. |
+| Bun adapter process output | **8 KiB combined stdout + stderr** | OpenCode, Kilo, OMP, and Pi concurrently drain both pipes; overflow, invalid UTF-8, timeout, and truncated decision JSON fail according to the registry route policy. |
 | OpenCode/Kilo continuation state | **1,024 sessions / 10 accepted continuations each** | Bounded generation and in-flight state suppress duplicate idle delivery without storing prompts, tool payloads, or model output. |
 | OMP native Stop continuation | **8 turns / 29 s internal timeout** | The OMP host caps awaited main-agent `session_stop` continuation and its 30-second handler deadline stays outside Reconc's fail-closed timeout; an aborted host signal releases immediately. |
+| Pi settled continuation | **1,024 sessions / 10 requested continuations each** | Bounded generation and in-flight state suppress duplicate `agent_settled` requests. Pi returns no delivery acknowledgement, so requested delivery is never recorded as acceptance. |
 | Compaction context | **4 KiB** | Restores control-plane orientation without replaying logs or task files. |
 | Native assurance file | **4 MiB** | Rejects oversized source, manifest, or proof inputs before allocation. |
 | Native assurance run | **4,096 files / 32 MiB reads** | Bounds aggregate source and evidence inspection across all gates. |
@@ -463,7 +464,7 @@ Decision is per-event based on the security role of the event:
 | `PostToolUseFailure` | **fail-open** (exit 0, stderr warn) | Same as PostToolUse. |
 | `Stop` | **fail-closed** (exit 2) | GATES session completion; uncertain input must block. |
 | `SessionEnd` | **fail-open** (exit 0, stderr warn) | Cleanup-only; forced close shouldn't propagate errors. |
-| MCP pre-action | **host capability** | Cursor's native pre-hook can deny an exact or strict-unclassified call. OpenCode/Kilo/OMP generic hooks enforce configured identities but cannot soundly identify unconfigured MCP calls. |
+| MCP pre-action | **host capability** | Cursor's native pre-hook can deny an exact or strict-unclassified call. OpenCode/Kilo/OMP/Pi generic hooks enforce configured identities but cannot soundly identify unconfigured MCP calls. |
 | MCP post-action | **fail-open, non-evidentiary on uncertainty** | Post-action blocking cannot undo a side effect. Positive evidence requires exact identity, valid selected values, and explicit success. |
 
 The CLI applies the registry failure policy after handler execution as well as
@@ -514,6 +515,16 @@ Bash results alone synthesize exit code zero. The adapter uses the same
 combined output, UTF-8, timeout, kill, and wrapper-resolution contract as the
 other Bun adapters. Session shutdown has a one-second Reconc route budget
 inside OMP's two-second extension-handler budget.
+
+Pi's generated `.pi/extensions/reconc.ts` is a trust-gated transport adapter.
+It uses awaited `tool_call` and `user_bash` as fail-closed boundaries while
+tool results, lifecycle, compaction, and shutdown remain observational.
+`tool_result.isError` is authoritative; successful built-in Bash results alone
+synthesize exit code zero, while failed Bash output never becomes a fabricated
+exit status. `agent_settled` can request a bounded continuation through
+`sendUserMessage`, but the host API returns no delivery acknowledgement. Pi
+has no native permission event, MCP discriminator, post-`user_bash` result, or
+synchronous Stop gate. Host cancellation wins over Reconc subprocess output.
 
 ### Path-traversal
 

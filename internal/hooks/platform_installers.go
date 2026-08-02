@@ -135,6 +135,22 @@ func installOMP(repoRoot string, force bool) (*InstallReport, error) {
 	)
 }
 
+func installPi(repoRoot string, force bool) (*InstallReport, error) {
+	return installManagedPlatformFile(
+		KindPi,
+		repoRoot,
+		force,
+		func(data []byte) bool {
+			text := string(data)
+			return strings.Contains(text, "Managed by reconc. Project-local Pi policy extension.") &&
+				strings.Contains(text, "pi-pre-tool-use") &&
+				strings.Contains(text, "pi-stop")
+		},
+		false,
+		"Restart Pi from this repository root and trust the project when prompted so it loads .pi/extensions/reconc.ts; non-interactive runs may use --approve for that run.",
+	)
+}
+
 func installManagedPlatformFile(kind, repoRoot string, force bool, managed func([]byte) bool, allowForceForeign bool, nextAction string) (*InstallReport, error) {
 	root, err := existingRepoRoot(repoRoot)
 	if err != nil {

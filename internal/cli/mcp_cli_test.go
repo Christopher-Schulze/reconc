@@ -84,7 +84,7 @@ func TestMCPContractIsVisibleInWhyDoctorAndHookStatus(t *testing.T) {
 	}
 	found := map[string]bool{}
 	for _, status := range statuses {
-		if status.Kind != "cursor" && status.Kind != "opencode" && status.Kind != "kilo" && status.Kind != "omp" {
+		if status.Kind != "cursor" && status.Kind != "opencode" && status.Kind != "kilo" && status.Kind != "omp" && status.Kind != "pi" {
 			continue
 		}
 		found[status.Kind] = true
@@ -98,7 +98,7 @@ func TestMCPContractIsVisibleInWhyDoctorAndHookStatus(t *testing.T) {
 			t.Fatalf("OpenCode MCP status = %#v", status.MCP)
 		}
 	}
-	for _, kind := range []string{"cursor", "opencode", "kilo", "omp"} {
+	for _, kind := range []string{"cursor", "opencode", "kilo", "omp", "pi"} {
 		if !found[kind] {
 			t.Fatalf("%s MCP status missing", kind)
 		}

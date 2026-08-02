@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   printf '%s\n' \
     'Usage: scripts/tests/host-integration-probe.sh --host HOST --surface SURFACE [--allow-authenticated] [--json]' \
-    'Hosts/surfaces: cursor desktop-agent|desktop-cmd-k|tab|cli-interactive|cli-print|cloud; opencode cli; kilo cli|vscode; omp cli'
+    'Hosts/surfaces: cursor desktop-agent|desktop-cmd-k|tab|cli-interactive|cli-print|cloud; opencode cli; kilo cli|vscode; omp cli; pi cli'
 }
 
 host=''
@@ -44,7 +44,7 @@ while (($# > 0)); do
 done
 
 case "$host:$surface" in
-  cursor:desktop-agent|cursor:desktop-cmd-k|cursor:tab|cursor:cli-interactive|cursor:cli-print|cursor:cloud|opencode:cli|kilo:cli|kilo:vscode|omp:cli) ;;
+  cursor:desktop-agent|cursor:desktop-cmd-k|cursor:tab|cursor:cli-interactive|cursor:cli-print|cursor:cloud|opencode:cli|kilo:cli|kilo:vscode|omp:cli|pi:cli) ;;
   *)
     printf 'Unsupported host/surface: %s/%s\n' "$host" "$surface" >&2
     usage >&2
@@ -100,6 +100,9 @@ case "$host" in
   omp)
     host_command="$(command -v omp || true)"
     ;;
+  pi)
+    host_command="$(command -v pi || true)"
+    ;;
 esac
 
 probe_root="$(mktemp -d "${TMPDIR:-/tmp}/reconc-host-probe.XXXXXX")"
@@ -133,6 +136,11 @@ printf '%s\n' \
   >"$probe_repo/.reconc.yml"
 go build -o "$probe_root/reconc" ./cmd/reconc
 "$probe_root/reconc" compile "$probe_repo" >/dev/null
+if [[ "$host" == pi ]]; then
+  export PI_CODING_AGENT_DIR="$probe_root/pi-agent"
+  mkdir -p "$PI_CODING_AGENT_DIR"
+  printf '%s\n' '{"defaultProjectTrust":"always"}' >"$PI_CODING_AGENT_DIR/settings.json"
+fi
 "$probe_root/reconc" hook install "$host" "$probe_repo" --force >/dev/null
 status_json="$("$probe_root/reconc" hook status "$probe_repo" --json)"
 host_status="$(jq -c --arg host "$host" '.[] | select(.kind == $host)' <<<"$status_json")"
@@ -265,6 +273,9 @@ if [[ "$allow_authenticated" == true ]]; then
     omp:cli)
       action_required="Run omp from $probe_repo and exercise session, prompt, permitted and denied tool, approval, successful and failed shell, compaction, synchronous Stop continuation, and MCP cases, then return here and press Enter."
       ;;
+    pi:cli)
+      action_required="Run pi --approve from $probe_repo and exercise session, prompt, permitted and denied tool, allowed and denied ! shell, successful and failed Bash, compaction, settled continuation request, shutdown, and configured custom-tool MCP cases, then return here and press Enter."
+      ;;
   esac
 else
   action_required='Re-run with --allow-authenticated only after explicit operator approval for model/account use.'
@@ -323,7 +334,7 @@ matrix="$(jq -n \
     loaded: $loaded,
     observed: $observed,
     enforced: $enforced,
-    inferred: ($host == "opencode" or $host == "kilo"),
+    inferred: ($host == "opencode" or $host == "kilo" or $host == "pi"),
     degraded: $degraded,
     unsupported: $unsupported,
     artifact_events: $expected_events,

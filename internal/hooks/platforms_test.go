@@ -23,6 +23,7 @@ func TestPlatformRegistryOwnsEveryHookKind(t *testing.T) {
 		KindKilo,
 		KindGrok,
 		KindOMP,
+		KindPi,
 		KindKimiCode,
 	}
 	if got := SupportedKinds(); !reflect.DeepEqual(got, want) {
@@ -484,6 +485,29 @@ func TestNewPlatformArtifactsUseCurrentContracts(t *testing.T) {
 		t.Fatalf("OMP extension is not thin: %d bytes", len(omp.Content))
 	}
 
+	pi, err := Generate(KindPi)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{
+		`from "@earendil-works/pi-coding-agent"`,
+		`pi.on("tool_call"`,
+		`pi.on("user_bash"`,
+		`pi.on("agent_settled"`,
+		`"pi-pre-tool-use":{"timeoutMilliseconds":10000`,
+		`"pi-stop":{"timeoutMilliseconds":30000`,
+		`"maxContinuations":10`,
+		`process.platform === "win32"`,
+		`["sh", wrapper, event, repo]`,
+	} {
+		if !strings.Contains(pi.Content, token) {
+			t.Fatalf("Pi artifact missing %q:\n%s", token, pi.Content)
+		}
+	}
+	if len(pi.Content) > 32*1024 {
+		t.Fatalf("Pi extension is not thin: %d bytes", len(pi.Content))
+	}
+
 	kimi, err := Generate(KindKimiCode)
 	if err != nil {
 		t.Fatal(err)
@@ -528,6 +552,12 @@ func TestBunAdapterRoutesAreRegistered(t *testing.T) {
 			"omp-post-tool-use-failure", "omp-stop", "omp-session-end",
 			"omp-pre-compaction", "omp-post-compaction",
 		},
+		KindPi: {
+			"pi-session-start", "pi-user-prompt-submit", "pi-pre-tool-use", "pi-user-bash",
+			"pi-post-tool-use", "pi-post-tool-use-failure", "pi-stop",
+			"pi-continuation-requested", "pi-continuation-failed", "pi-continuation-suppressed",
+			"pi-session-end", "pi-pre-compaction", "pi-post-compaction",
+		},
 	} {
 		for _, event := range events {
 			route, ok := RuntimeEvent(event)
@@ -543,6 +573,7 @@ func TestBunAdapterRoutesAreRegistered(t *testing.T) {
 		"devin-user-prompt-submit",
 		"kilo-user-prompt-submit",
 		"omp-user-prompt-submit",
+		"pi-user-prompt-submit",
 	} {
 		if _, ok := RuntimeEvent(event); !ok {
 			t.Fatalf("native user-prompt route %s is not registered", event)

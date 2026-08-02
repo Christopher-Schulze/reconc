@@ -169,6 +169,7 @@ func TestCommandReferenceCoversPublicHostEnvironment(t *testing.T) {
 		"GROK_HOME",
 		"GROK_LEADER_SOCKET",
 		"KIMI_CODE_HOME",
+		"PI_CODING_AGENT_DIR",
 		"SOURCE_DATE_EPOCH",
 		"XAI_API_KEY",
 	} {
@@ -215,6 +216,7 @@ func TestHostIntegrationDocumentationCoversStructuredContract(t *testing.T) {
 		"Kilo Code VS Code host",
 		"Kimi Code CLI",
 		"Oh My Pi CLI",
+		"Pi Coding Agent",
 	} {
 		if !strings.Contains(documentation, surface) {
 			t.Errorf("host-integration documentation omits surface %q", surface)

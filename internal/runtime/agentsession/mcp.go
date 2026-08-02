@@ -23,14 +23,14 @@ func RunMCPAfter(repoRoot string, payloadBytes []byte) Result {
 	return runMCPAfter(repoRoot, payloadBytes, true)
 }
 
-// RunPreToolUseMCPAware classifies configured generic OpenCode/Kilo/OMP tool
+// RunPreToolUseMCPAware classifies configured generic OpenCode/Kilo/OMP/Pi tool
 // identities as MCP and leaves every other generic tool on the normal path.
 func RunPreToolUseMCPAware(repoRoot string, payloadBytes []byte) Result {
 	return runMCPBefore(repoRoot, payloadBytes, false)
 }
 
 // RunPostToolUseMCPAware applies the same exact identity decision after a
-// generic OpenCode/Kilo/OMP tool call.
+// generic OpenCode/Kilo/OMP/Pi tool call.
 func RunPostToolUseMCPAware(repoRoot string, payloadBytes []byte) Result {
 	return runMCPAfter(repoRoot, payloadBytes, false)
 }

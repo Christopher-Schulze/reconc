@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -113,6 +114,9 @@ func finalizePlatformStatus(root string, platform Platform, report *PlatformStat
 	report.Executable = report.Installed && targetExecutable && wrapperExecutable
 	report.Configured = report.State == StateConfigured
 	if report.Configured {
+		return
+	}
+	if report.Remediation != "" {
 		return
 	}
 	force := ""
@@ -292,12 +296,128 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 			return report
 		}
 	}
+	if platform.Kind == KindPi {
+		trusted, detail, remediation, probeErr := inspectPiProjectTrust(root)
+		if probeErr != nil {
+			report.State = StateDegraded
+			report.Detail = detail + ": " + probeErr.Error()
+			report.Remediation = remediation
+			return report
+		}
+		if !trusted {
+			report.State = StateInstalled
+			report.Detail = detail
+			report.Remediation = remediation
+			return report
+		}
+	}
 
 	report.State = StateConfigured
 	if report.TargetPath == platform.TargetPath {
 		report.Detail = "configuration is complete and host-discoverable; live execution is reported separately"
 	}
 	return report
+}
+
+const maxPiTrustConfigBytes = 1 << 20
+
+func inspectPiProjectTrust(root string) (bool, string, string, error) {
+	agentDir, err := piAgentDir(root)
+	if err != nil {
+		return false, "Pi project trust cannot be inspected", "Set PI_CODING_AGENT_DIR to a valid Pi agent directory, then rerun `reconc hook status`.", err
+	}
+	trustPath := filepath.Join(agentDir, "trust.json")
+	trust := map[string]*bool{}
+	trustData, err := readBoundedPiJSON(trustPath)
+	if err == nil {
+		err = json.Unmarshal(trustData, &trust)
+	}
+	if err != nil && !os.IsNotExist(err) {
+		return false, "Pi trust store is invalid or unreadable", "Repair " + trustPath + " with Pi, then rerun `reconc hook status`.", err
+	}
+	canonicalRoot := root
+	if resolved, resolveErr := filepath.EvalSymlinks(root); resolveErr == nil {
+		canonicalRoot = resolved
+	}
+	for current := filepath.Clean(canonicalRoot); ; current = filepath.Dir(current) {
+		if decision, present := trust[current]; present && decision != nil {
+			if *decision {
+				return true, "configuration is complete, project trust is saved, and Pi can discover the extension; live execution is reported separately", "", nil
+			}
+			return false,
+				"artifact is installed but Pi has an explicit untrusted decision for " + current,
+				"Use Pi's interactive project-trust flow to trust this repository, restart Pi, or pass `pi --approve` for one non-interactive run; Reconc never changes user trust.", nil
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			break
+		}
+	}
+
+	settingsPath := filepath.Join(agentDir, "settings.json")
+	settings := struct {
+		DefaultProjectTrust string `json:"defaultProjectTrust"`
+	}{}
+	settingsData, err := readBoundedPiJSON(settingsPath)
+	if err == nil {
+		err = json.Unmarshal(settingsData, &settings)
+	}
+	if err != nil && !os.IsNotExist(err) {
+		return false, "Pi global settings are invalid or unreadable", "Repair " + settingsPath + " with Pi, then rerun `reconc hook status`.", err
+	}
+	switch settings.DefaultProjectTrust {
+	case "always":
+		return true, "configuration is complete and Pi's global defaultProjectTrust=always makes the extension host-discoverable; live execution is reported separately", "", nil
+	case "never":
+		return false,
+			"artifact is installed but Pi's global defaultProjectTrust=never skips unapproved project extensions",
+			"Use Pi's interactive project-trust flow to save trust for this repository or pass `pi --approve` for one non-interactive run; Reconc never changes user trust.", nil
+	default:
+		return false,
+			"artifact is installed; Pi will ask for project trust interactively and skips it in non-interactive modes until trust is saved or --approve is used",
+			"Start `pi` in this repository, approve the project-trust prompt, and restart Pi; non-interactive runs may pass `pi --approve` for that run.", nil
+	}
+}
+
+func piAgentDir(root string) (string, error) {
+	if configured := os.Getenv("PI_CODING_AGENT_DIR"); configured != "" {
+		if configured == "~" || strings.HasPrefix(configured, "~/") {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", err
+			}
+			if configured == "~" {
+				configured = home
+			} else {
+				configured = filepath.Join(home, configured[2:])
+			}
+		}
+		if !filepath.IsAbs(configured) {
+			configured = filepath.Join(root, configured)
+		}
+		return filepath.Clean(configured), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".pi", "agent"), nil
+}
+
+func readBoundedPiJSON(path string) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxPiTrustConfigBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxPiTrustConfigBytes {
+		return nil, fmt.Errorf("file exceeds %d-byte inspection limit", maxPiTrustConfigBytes)
+	}
+	return data, nil
 }
 
 func missingGeneratedJSONEntries(mode InstallMode, generated, installed []byte) ([]string, error) {

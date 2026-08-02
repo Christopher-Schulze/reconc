@@ -1,7 +1,7 @@
 # RECONC-0006: Hooks And Agent Sessions
 
 - Status: Frozen
-- Contract: git, Claude Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Grok Build, Kimi Code CLI, Oh My Pi CLI, and generic-agent integration
+- Contract: git, Claude Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Grok Build, Kimi Code CLI, Oh My Pi CLI, Pi Coding Agent, and generic-agent integration
 
 ## Hook Kinds
 
@@ -21,6 +21,7 @@
 | `grok` | `.grok/hooks/reconc.json` | Native lifecycle, strict PreToolUse, capability-probed no-leader Stop, compaction, permission-denial, and subagent events. |
 | `kimi-code` | `$KIMI_CODE_HOME/config.toml` | Explicit user-global integration for all 16 native events; commands discover an initialized Reconc repository before acting. |
 | `omp` | `.omp/extensions/reconc.ts` | Project ExtensionAPI adapter for native session, input, approval, tool, compaction, shutdown, and awaited `session_stop` events. |
+| `pi` | `.pi/extensions/reconc.ts` | Trust-aware project extension for native session, input, blocking tool and user-shell calls, outcomes, compaction, shutdown, and inferred settled continuation. |
 
 Installers are idempotent. Reconc-owned JSON hook entries are
 identified by `reconc hook runtime` command tokens and replaced on
@@ -34,6 +35,8 @@ only `reconc.json` and preserves every other file under `.grok/hooks/`.
 OMP owns only `.omp/extensions/reconc.ts`, preserves every sibling extension,
 and never overwrites foreign content at its dedicated path, including with
 `--force`.
+Pi owns only `.pi/extensions/reconc.ts`, applies the same foreign-content
+refusal, and never edits Pi's project trust or settings files.
 The Git installer resolves the same active `core.hooksPath` used by status,
 updates managed content idempotently, supports linked-worktree common Git
 storage, and refuses to write into a shared external hooks directory.
@@ -65,7 +68,7 @@ source-controlled scaffold twins from the same generator:
 `.agents/hooks.json`, `.claude/settings.json`, and
 `.opencode/plugins/reconc.js`, `.devin/hooks.v1.json`,
 `.kilo/plugin/reconc.js`, `.grok/hooks/reconc.json`, and
-`.omp/extensions/reconc.ts`. Template scaffolds are never synced from
+`.omp/extensions/reconc.ts`, and `.pi/extensions/reconc.ts`. Template scaffolds are never synced from
 a source-specific harness.
 
 ## Kimi Code CLI Guarantee
@@ -99,7 +102,7 @@ wrapper.
 events and are never misrepresented as a permission-decision surface.
 `tool_result` always routes success or failure from the authoritative
 `isError` field. Successful built-in Bash results synthesize exit code zero;
-failed Bash results preserve `details.exitCode` when present. Output text is
+failed Bash results never receive a fabricated exit status. Output text is
 never interpreted as process status.
 
 Native awaited `session_stop` maps Reconc block or continuation output to
@@ -111,6 +114,38 @@ Stop runtime, timeout, malformed, invalid UTF-8, or oversized-output failures
 fail closed. The Stop route uses a 29-second internal budget inside OMP's
 30-second extension-handler deadline; the generated shutdown route uses a
 one-second Reconc budget inside OMP's two-second handler budget.
+
+## Pi Coding Agent Guarantee
+
+Pi discovers `.pi/extensions/*.ts` and nested `index.ts` extensions only after
+project trust. Reconc owns the exact `.pi/extensions/reconc.ts` file and
+evaluates saved canonical-path trust using Pi's nearest-parent rule plus
+`defaultProjectTrust`. Status does not treat interactive approval or one-run
+`pi --approve` as persisted configuration, and Reconc never mutates the trust
+store. The contract fixture pins official source revision
+`4279da1b7f27926216836393dc1a50bd6a2487b3`, package
+`@earendil-works/pi-coding-agent` v0.83.0. The companion OMP fixture remains at
+revision `06343fef4200c4e32d18f08df5a6a8bd84dcc710`, v17.2.4.
+
+The generated typed extension registers `session_start`, `input`, `tool_call`,
+`tool_result`, `user_bash`, `session_before_compact`, `session_compact`,
+`agent_settled`, and `session_shutdown`. Awaited `tool_call` blocks through the
+native `{block, reason}` result. `user_bash` denial returns a complete synthetic
+shell result with exit code 2, while allow returns no replacement result and
+preserves host execution. Both fail closed on malformed or failed Reconc
+decisions. Tool results are observational and route exact `isError`; only a
+successful built-in `Bash` result synthesizes exit code zero. Failed output is
+never parsed as process status, and Pi exposes no post-`user_bash` result.
+
+Pi has no native permission event, MCP discriminator, synchronous Stop event,
+or delivery acknowledgement from `sendUserMessage`. Permission and exact MCP
+identity therefore use only the generic pre-tool boundary; strict unclassified
+MCP denial is unavailable. `agent_settled` provides bounded fail-open inferred
+continuation with 1,024 session entries, one in-flight request per generation,
+and ten requested continuations per session. Reconc-generated input is
+consumed without advancing activity. Requested delivery is not acceptance.
+Session, input, result, compaction, settled continuation, and shutdown failures
+remain observational, while the host abort signal releases immediately.
 
 ## Claude Code Guarantee
 
@@ -229,10 +264,10 @@ outcome uncertainty produces no positive evidence.
 
 Cursor's dedicated `beforeMCPExecution` can enforce exact mappings and
 `unclassified: deny`; `afterMCPExecution` accepts repository evidence only
-from an explicit successful host result. OpenCode, Kilo, and OMP generic hooks
+from an explicit successful host result. OpenCode, Kilo, OMP, and Pi generic hooks
 enforce exact configured tool identities, but cannot distinguish an
 unconfigured MCP tool from a built-in or custom tool. Strict unclassified deny
-is therefore unavailable on those three surfaces and is reported as a
+is therefore unavailable on those four surfaces and is reported as a
 limitation, not an enforcement success.
 
 MCP audit and status retain only redacted platform/tool/fingerprint/effect

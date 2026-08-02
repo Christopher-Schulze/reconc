@@ -96,7 +96,7 @@ func normalizeRuntimeName(value string) string {
 	if value == "copilot" || value == "github-copilot" || strings.HasPrefix(value, "copilot-") || strings.HasPrefix(value, "github-copilot-") {
 		return "github-copilot"
 	}
-	for _, prefix := range []string{"cursor-", "codex-", "claude-", "opencode-", "devin-", "antigravity-", "kilo-", "grok-", "omp-"} {
+	for _, prefix := range []string{"cursor-", "codex-", "claude-", "opencode-", "devin-", "antigravity-", "kilo-", "grok-", "omp-", "pi-"} {
 		if strings.HasPrefix(value, prefix) {
 			return strings.TrimSuffix(prefix, "-")
 		}
@@ -337,7 +337,7 @@ func RunPostToolUseComplete(repoRoot string, payloadBytes []byte) Result {
 }
 
 // RunPostToolUseCompleteStrict requires an explicit, internally consistent
-// shell outcome. OpenCode, Kilo, and OMP emit post-tool events even when a child
+// shell outcome. OpenCode, Kilo, OMP, and Pi emit post-tool events even when a child
 // process exits unsuccessfully, so completion of the host callback alone is
 // not evidence that the command succeeded.
 func RunPostToolUseCompleteStrict(repoRoot string, payloadBytes []byte) Result {

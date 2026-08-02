@@ -25,7 +25,7 @@ type hostContractEvent struct {
 }
 
 func TestOfficialHostContractFixturesCoverEveryInstalledBinding(t *testing.T) {
-	for _, kind := range []string{KindCursor, KindOpenCode, KindKilo, KindOMP} {
+	for _, kind := range []string{KindCursor, KindOpenCode, KindKilo, KindOMP, KindPi} {
 		fixture := readHostContractFixture(t, kind)
 		revisionValid := len(fixture.SourceRevision) == 40 ||
 			(strings.HasPrefix(fixture.SourceRevision, "sha256:") && len(fixture.SourceRevision) == len("sha256:")+64)
@@ -117,6 +117,20 @@ func TestOfficialHostContractFixturesPreserveSecurityRelevantStates(t *testing.T
 	stopResult := stop.Result.(map[string]interface{})
 	if stopResult["continue"] != true || stopResult["additionalContext"] == "" {
 		t.Fatalf("OMP Stop fixture lacks native continuation result: %#v", stopResult)
+	}
+
+	pi := readHostContractFixture(t, KindPi)
+	piResult := pi.Events["tool_result"].Payload
+	if piResult["isError"] != false {
+		t.Fatalf("Pi tool-result fixture lacks authoritative isError=false: %#v", piResult)
+	}
+	piDetails := piResult["details"].(map[string]interface{})
+	if _, fabricated := piDetails["exitCode"]; fabricated {
+		t.Fatalf("Pi successful Bash fixture fabricates a host exit code: %#v", piResult)
+	}
+	settled := pi.Events["agent_settled"].Result.(map[string]interface{})
+	if settled["deliveryAcknowledged"] != false || settled["sendUserMessageReturn"] != nil {
+		t.Fatalf("Pi settled fixture invents a continuation acknowledgement: %#v", settled)
 	}
 }
 

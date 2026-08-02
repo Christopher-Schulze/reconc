@@ -78,7 +78,7 @@
       "additionalProperties": false,
       "required": ["platform", "tool", "effect", "source_path"],
       "properties": {
-        "platform": { "enum": ["cursor", "opencode", "kilo", "omp"] },
+        "platform": { "enum": ["cursor", "opencode", "kilo", "omp", "pi"] },
         "server_fingerprint": {
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$"

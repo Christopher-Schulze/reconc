@@ -175,6 +175,7 @@ const (
 	generatorKilo
 	generatorGrok
 	generatorOMP
+	generatorPi
 	generatorKimiCode
 )
 
@@ -364,6 +365,24 @@ var platformRegistry = []platformDefinition{
 		generator: generatorOMP,
 	},
 	{
+		Platform: Platform{Kind: KindPi, DisplayName: "Pi Coding Agent", TargetPath: PiExtensionPath, ScaffoldPath: PiExtensionPath, InstallMode: InstallPlugin, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".pi"}, RequiresWrapper: true}, Capabilities: []Capability{
+			capability(EventSessionStart, "session_start", SupportNative, FailureAllow, FailureAllow, 5, "pi-session-start"),
+			capability(EventUserPromptSubmit, "input", SupportNative, FailureAllow, FailureAllow, 5, "pi-user-prompt-submit"),
+			piPreToolCapability(),
+			fallback(EventPermissionRequest, EventPreToolUse),
+			capability(EventPostToolUse, "tool_result", SupportNative, FailureAllow, FailureAllow, 5, "pi-post-tool-use"),
+			capability(EventPostToolUseFailure, "tool_result", SupportNative, FailureAllow, FailureAllow, 5, "pi-post-tool-use-failure"),
+			adaptedFallback(EventMCPBefore, EventPreToolUse, FailureBlock, FailureBlock, 10),
+			adaptedFallback(EventMCPAfter, EventPostToolUse, FailureAllow, FailureAllow, 5),
+			piStopCapability(),
+			piContinuationCapability(),
+			capability(EventSessionEnd, "session_shutdown", SupportNative, FailureAllow, FailureAllow, 5, "pi-session-end"),
+			capability(EventPreCompaction, "session_before_compact", SupportNative, FailureAllow, FailureAllow, 5, "pi-pre-compaction"),
+			capability(EventPostCompaction, "session_compact", SupportNative, FailureAllow, FailureAllow, 5, "pi-post-compaction"),
+		}},
+		generator: generatorPi,
+	},
+	{
 		Platform: Platform{Kind: KindKimiCode, DisplayName: "Kimi Code CLI", TargetPath: KimiCodeConfigDisplayPath, InstallMode: InstallGlobalTOML, Activation: ActivationProbe{Mode: ActivationGlobal, ConfigDirs: []string{"~/.kimi-code"}}, Capabilities: []Capability{
 			capability(EventSessionStart, "SessionStart", SupportNative, FailureAllow, FailureAllow, 5, "kimi-session-start"),
 			capability(EventUserPromptSubmit, "UserPromptSubmit", SupportNative, FailureAllow, FailureAllow, 5, "kimi-user-prompt-submit"),
@@ -464,6 +483,37 @@ func ompStopCapability() Capability {
 	capability := capability(EventStop, "session_stop", SupportNative, FailureBlock, FailureBlock, 29, "omp-stop")
 	capability.MaxContinuations = 8
 	return capability
+}
+
+func piPreToolCapability() Capability {
+	return Capability{
+		Event: EventPreToolUse,
+		Bindings: []NativeBinding{
+			{NativeEvent: "tool_call", RuntimeEvent: "pi-pre-tool-use"},
+			{NativeEvent: "user_bash", RuntimeEvent: "pi-user-bash"},
+		},
+		Support: SupportNative, ErrorPolicy: FailureBlock, TimeoutPolicy: FailureBlock,
+		TimeoutSeconds: 10, MaxOutputBytes: defaultHookOutputBytes,
+	}
+}
+
+func piStopCapability() Capability {
+	capability := capability(EventStop, "agent_settled", SupportInferred, FailureAllow, FailureAllow, 30, "pi-stop")
+	capability.MaxContinuations = 10
+	return capability
+}
+
+func piContinuationCapability() Capability {
+	return Capability{
+		Event: EventContinuation,
+		Bindings: []NativeBinding{
+			{NativeEvent: "agent_settled", RuntimeEvent: "pi-continuation-requested", Compatibility: true},
+			{NativeEvent: "agent_settled", RuntimeEvent: "pi-continuation-failed", Compatibility: true},
+			{NativeEvent: "agent_settled", RuntimeEvent: "pi-continuation-suppressed", Compatibility: true},
+		},
+		Support: SupportInferred, ErrorPolicy: FailureAllow, TimeoutPolicy: FailureAllow,
+		TimeoutSeconds: 5, MaxOutputBytes: defaultHookOutputBytes, MaxContinuations: 10,
+	}
 }
 
 func claudePostCompactionCapability() Capability {

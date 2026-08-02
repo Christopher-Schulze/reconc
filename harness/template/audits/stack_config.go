@@ -67,6 +67,7 @@ type agentHooksConfig struct {
 	RequireKiloPlugin       bool `yaml:"require_kilo_plugin"`
 	RequireGrokHooks        bool `yaml:"require_grok_hooks"`
 	RequireOMPExtension     bool `yaml:"require_omp_extension"`
+	RequirePiExtension      bool `yaml:"require_pi_extension"`
 }
 
 func stackConfigPath(root string) string {
@@ -123,6 +124,7 @@ func defaultStackConfig() stackConfig {
 			RequireKiloPlugin:       true,
 			RequireGrokHooks:        true,
 			RequireOMPExtension:     true,
+			RequirePiExtension:      true,
 		},
 	}
 	return cfg

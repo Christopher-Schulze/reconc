@@ -88,8 +88,8 @@ var categoryCatalog = []CategoryInfo{
 	{ID: CategoryMeta, Title: "Meta"},
 }
 
-var hookKinds = []string{"antigravity", "claude-code", "codex", "cursor", "devin-cli", "git-pre-commit", "github-copilot", "grok", "kilo", "kimi-code", "omp", "opencode"}
-var bootstrapHookKinds = []string{"antigravity", "claude-code", "codex", "cursor", "devin-cli", "git-pre-commit", "github-copilot", "grok", "kilo", "omp", "opencode"}
+var hookKinds = []string{"antigravity", "claude-code", "codex", "cursor", "devin-cli", "git-pre-commit", "github-copilot", "grok", "kilo", "kimi-code", "omp", "opencode", "pi"}
+var bootstrapHookKinds = []string{"antigravity", "claude-code", "codex", "cursor", "devin-cli", "git-pre-commit", "github-copilot", "grok", "kilo", "omp", "opencode", "pi"}
 var bootstrapProfiles = []string{"advanced", "existing", "governed", "minimal"}
 
 var commandCatalog = []Command{

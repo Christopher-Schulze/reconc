@@ -69,6 +69,9 @@ Runtime:
 - `KIMI_CODE_HOME` (default `~/.kimi-code`) -- Kimi Code's user-global
   configuration root. Reconc reads or changes it only for explicit Kimi hook
   lifecycle and status operations; tests must always override it
+- `PI_CODING_AGENT_DIR` (default `~/.pi/agent`) -- Pi's agent state root used
+  read-only by hook status to evaluate `trust.json` and
+  `defaultProjectTrust`; Reconc never changes those files
 - `GROK_LEADER_SOCKET` -- authoritative Grok leader socket or named-pipe
   endpoint for optional TUI steering
 - `XAI_API_KEY` -- optional credential used only by the hidden Grok ACP
@@ -501,10 +504,10 @@ Rule shape templates (`tests-follow-source`, `docs-follow-code`,
 `custom-gate-on-change`, `local-secret-state-read-only`, `verified-change`).
 User overrides in `$RECONC_HOME/templates/*.yml`.
 
-### `reconc hook generate <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok|omp|kimi-code> [--json] [--output PATH]`
+### `reconc hook generate <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok|omp|pi|kimi-code> [--json] [--output PATH]`
 Emit the hook artefact content without writing to disk.
 
-### `reconc hook install <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok|omp|kimi-code> [repo] [--force] [--json] [--output PATH]`
+### `reconc hook install <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok|omp|pi|kimi-code> [repo] [--force] [--json] [--output PATH]`
 Write the hook into the repo. Git pre-commit uses Git's active hooks path
 (`core.hooksPath`, otherwise `.git/hooks`), updates a Reconc-owned hook
 idempotently, preserves inactive legacy hooks, requires `--force` for a foreign
@@ -518,15 +521,16 @@ Antigravity merges the top-level
 non-reconc hook groups; and Kilo Code owns
 `.kilo/plugin/reconc.js`. Grok Build owns the dedicated
 `.grok/hooks/reconc.json` file. Oh My Pi owns only the dedicated
-`.omp/extensions/reconc.ts` file. Both preserve every sibling project hook or
-extension file.
+`.omp/extensions/reconc.ts` file. Pi owns only
+`.pi/extensions/reconc.ts`. All three preserve every sibling project hook or
+extension file, and Pi installation never changes the host trust store.
 Every wrapper-dependent platform installs or verifies the exact executable
 repo-local wrapper in the same operation. Codex installation also manages its
 `[features].hooks` activation: an explicit user-owned `false` requires
 `--force`, and forced activation records the exact original line so uninstall
 can restore it. Partial wrapper/target/activation outcomes are reported
 explicitly with one recovery command. Managed plugin/files refuse unrelated existing
-content unless `--force` is passed. The dedicated GitHub Copilot and OMP paths
+content unless `--force` is passed. The dedicated GitHub Copilot, OMP, and Pi paths
 never overwrite a foreign file, including with `--force`.
 All non-Git targets are resolved through operating-system filesystem identity
 and must stay inside the selected repository. Unix symlinks, Windows reparse
@@ -545,7 +549,7 @@ selection, and scaffold sync because its configuration is user-global. The
 generated global commands discover the current repository and silently no-op
 outside an explicit Reconc repository.
 
-### `reconc hook uninstall <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok|omp|kimi-code> [repo] [--json] [--output PATH]`
+### `reconc hook uninstall <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok|omp|pi|kimi-code> [repo] [--json] [--output PATH]`
 Remove only generator-exact dedicated artifacts or canonical Reconc-owned JSON
 entries while preserving unrelated hooks and configuration. Modified or
 ambiguous Reconc-looking entries fail closed. Codex removes only its managed
@@ -561,7 +565,11 @@ Validate registered artifacts and activation requirements. States are
 The command checks malformed, incomplete, non-executable, or drifted managed
 artifacts, the repo-local wrapper, Codex's enable flag, Git `core.hooksPath`,
 Kilo Code pure mode, legacy Kilo Code plugin placement, Grok's native
-project-hook artifact, and OMP's generator-exact ExtensionAPI module. GitHub Copilot status verifies its generator-exact
+project-hook artifact, OMP's generator-exact ExtensionAPI module, and Pi's
+generator-exact extension plus project trust. Pi is `configured` only when the
+canonical root has a saved `true` trust entry or `defaultProjectTrust` is
+`always`; Reconc never mutates either setting and reports `pi --approve` as the
+one-run alternative. GitHub Copilot status verifies its generator-exact
 repository hook and wrapper but reports live execution separately. Static Grok
 status cannot prove folder trust; `doctor
 --deep` additionally runs `grok inspect --json` when the artifact exists.
@@ -590,13 +598,19 @@ loading; its optional leader probe requires protocol
 version 1 and a recognized `_x.ai/interject` response, not just a successful
 register handshake. It also requires project-owned inspect metadata and exact
 route command tokens; prefix collisions do not satisfy route coverage.
-Cursor, OpenCode, Kilo, and OMP rows additionally expose a redacted `mcp` object:
+Pi maps `agent_settled` to fail-open asynchronous continuation, caps requests at
+ten per session, and reports requested delivery without inventing an API
+acknowledgement. Native `tool_call` and `user_bash` are blocking; result,
+lifecycle, compaction, and shutdown routes are observational. Pi exposes no
+native permission, MCP discriminator, post-user-shell result, or synchronous
+Stop decision event.
+Cursor, OpenCode, Kilo, OMP, and Pi rows additionally expose a redacted `mcp` object:
 the configured unclassified mode, exact tool/fingerprint/effect mappings,
 classified and unclassified observation counts, denials, failures,
 strict-unavailable observations, and whether strict unclassified deny exists
 on that surface. Locator strings, arguments, prompts, results, and command
 bodies are never reported. Cursor can enforce strict unclassified deny through
-its dedicated native MCP pre-hook. OpenCode, Kilo, and OMP generic tool hooks cannot
+its dedicated native MCP pre-hook. OpenCode, Kilo, OMP, and Pi generic tool hooks cannot
 distinguish an unconfigured MCP call from a built-in/custom tool, so status
 reports that limitation without claiming enforcement.
 Default text reports seen/expected counts and the last event without listing
@@ -612,8 +626,8 @@ Regenerate source-controlled hook artifacts inside a template
 `repo-root-scaffold`: `.githooks/pre-commit`, `.codex/hooks.json`,
 `.github/hooks/reconc.json`, `.cursor/hooks.json`, `.agents/hooks.json`,
 `.claude/settings.json`, `.opencode/plugins/reconc.js`, `.devin/hooks.v1.json`,
-`.kilo/plugin/reconc.js`, `.grok/hooks/reconc.json`, and
-`.omp/extensions/reconc.ts`. This keeps scaffolded repos on the
+`.kilo/plugin/reconc.js`, `.grok/hooks/reconc.json`,
+`.omp/extensions/reconc.ts`, and `.pi/extensions/reconc.ts`. This keeps scaffolded repos on the
 same generator truth as `reconc hook install`; do not copy these files
 from a source-specific harness. Reconc preflights containment for every target
 before the first write, preventing both parent-symlink escapes and partial
@@ -669,7 +683,7 @@ chained evidence.
 
 ### `reconc run on [repo] [--force] [--json]` / `reconc run off [repo] [--json]`
 AI-operated switch scoped to one repository, not the whole machine. It routes
-continuation through all eleven registered agent runtimes. Claude Code, Codex,
+continuation through all twelve registered agent runtimes. Claude Code, Codex,
 GitHub Copilot, Cursor, Devin CLI, Antigravity CLI, Kimi Code CLI, and OMP expose
 synchronous Stop gates; OpenCode and Kilo Code use inferred `session.idle`
 adapters whose host boundary is best-effort and fail-open. Reconc emits exact
@@ -679,6 +693,9 @@ are accepted only when the installed Grok guide explicitly advertises the
 contract. Passive Stop sessions can be steered through `_x.ai/interject` over
 the Unix socket or Windows named pipe. Eligible leader Stops use strict
 continuation before policy evaluation.
+Pi uses a separate inferred `agent_settled` adapter whose asynchronous
+`sendUserMessage` request is fail-open and has no host delivery
+acknowledgement.
 Only successfully delivered interjections consume the 32-attempt cap;
 transport or protocol failures do not. The cap resets on material progress, a
 changed block, or a clean Stop. Before enabling, `run on` validates live policy

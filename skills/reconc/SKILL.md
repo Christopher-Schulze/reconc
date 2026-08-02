@@ -26,7 +26,8 @@ evidence, or human approval.
 
 ## Trigger
 
-Use this skill in Codex, OpenCode, Claude Code, Oh My Pi, Kimi Code CLI, or any other agent runtime
+Use this skill in Codex, OpenCode, Claude Code, Oh My Pi, Pi Coding Agent,
+Kimi Code CLI, or any other agent runtime
 when:
 
 - the repo has `.reconc.yml`, `.reconc/policy.lock.json`, or `AGENTS.md`
@@ -98,7 +99,7 @@ reconc session-briefing . --json
 `init` is the canonical CLI onboarding path. It scaffolds `.reconc.yml` and
 `AGENTS.md` when missing, compiles the lockfile, installs git hooks, and wires
 native agent hooks when supported directories such as `.claude/`, `.codex/`,
-`.cursor/`, `.opencode/`, `.devin/`, `.agents/`, `.kilo/`, `.omp/`, or `.grok/`
+`.cursor/`, `.opencode/`, `.devin/`, `.agents/`, `.kilo/`, `.omp/`, `.pi/`, or `.grok/`
 already exist.
 Kimi Code is intentionally excluded because its hooks are user-global. Only an
 explicit operator action installs them:
@@ -188,6 +189,8 @@ CLI expose synchronous Stop continuation. Oh My Pi exposes awaited native
 main-session Stop continuation capped at eight accepted requests. OpenCode and
 Kilo Code use inferred
 `session.idle`, so their host continuation remains best-effort and fail-open.
+Pi uses inferred fail-open `agent_settled` continuation with at most ten
+requests per session; `sendUserMessage` provides no delivery acknowledgement.
 Grok Build has hard native PreToolUse. Reconc also emits exact native Stop
 blocks without a leader, but accepts synchronous enforcement only when the
 installed Grok hook guide advertises blocking Stop decision control. Passive
@@ -299,6 +302,7 @@ timeout policy, output budgets, artifact paths, and activation probes:
 | Antigravity CLI | `.agents/hooks.json` | Invocation, tool, evidence, and Stop adapters |
 | Kilo Code | `.kilo/plugin/reconc.js` | Thin CLI/VS Code project plugin with strict shell exits and inferred bounded async idle continuation; disabled when `KILO_PURE` is set |
 | Oh My Pi | `.omp/extensions/reconc.ts` | Typed project extension with blocking pre-tool and awaited main-session Stop; observational approval, outcome, compaction, and shutdown routes |
+| Pi Coding Agent | `.pi/extensions/reconc.ts` | Trust-aware typed project extension with blocking tool/user-shell boundaries, observational results/lifecycle/compaction, and inferred bounded settled continuation |
 | Grok Build | `.grok/hooks/reconc.json` | Native lifecycle and hard PreToolUse; project trust required; capability-probed native Stop or optional local leader fallback |
 | Kimi Code CLI | `$KIMI_CODE_HOME/config.toml` | Explicit user-global 16-event hook block; repository discovery before action; exit-code-2 PreToolUse, prompt, and Stop control |
 
@@ -342,12 +346,21 @@ deny, malformed decision, Reconc failure, or timeout. A host-aborted Stop yields
 immediately without continuation. Observational routes fail open after bounded
 diagnostics. Never infer live enforcement from the generated extension alone.
 
+Pi loads project extensions only after trust. Reconc owns only
+`.pi/extensions/reconc.ts` and never changes Pi trust. Require saved
+canonical-path trust or `defaultProjectTrust: "always"` for static
+`configured` status; `pi --approve` is one-run activation only. `tool_call` and
+`user_bash` fail closed. `tool_result.isError` is authoritative, and only a
+successful built-in `Bash` result receives synthetic exit code zero. Pi has no
+native permission event, MCP discriminator, post-user-shell result,
+synchronous Stop gate, or continuation acknowledgement.
+
 MCP repository effects are opt-in exact mappings in `.reconc.yml`. Use
 `reconc why mcp .` to inspect the compiled contract. Never treat an unknown
 identity, malformed selector value, unknown outcome, or `external` effect as
 repository evidence. Cursor can strictly deny unclassified calls through its
 dedicated MCP pre-hook. OpenCode/Kilo generic hooks cannot identify
-unconfigured MCP calls soundly; OMP has the same generic-tool identity limit.
+unconfigured MCP calls soundly; OMP and Pi have the same generic-tool identity limit.
 Report strict unclassified deny as unavailable on those surfaces while exact
 configured tool identities remain enforceable.
 

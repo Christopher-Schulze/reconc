@@ -24,7 +24,7 @@ proof, protected edits, documentation drift, unfinished work, and stuck loops
 become deterministic decisions with one exact next action.
 
 No second model judges the first. One local Go binary compiles repository-owned
-rules and enforces them across the CLI, Git, CI, and eleven coding-agent
+rules and enforces them across the CLI, Git, CI, and twelve coding-agent
 integrations. The exact
 [guarantees and limits](docs/documentation.md#evidence-bound-completion-control)
 stay explicit.
@@ -125,8 +125,8 @@ Core invariants are deliberately strict:
 | TASK continuity | Validates and mutates typed TASK state with recoverable claim, block, resume, split, promote, archive, and transaction recovery operations. |
 | Autonomous run control | `reconc run on|off|reset|status|log` provides one durable repository switch, bounded decision logs, terminal gates, and per-session no-progress guards. |
 | Transactional adoption | Inspects existing repositories, proposes evidence-backed packs and commands, and plans, applies, verifies, synchronizes, or removes only receipt-owned rollout state. |
-| Runtime enforcement | Generates, installs, verifies, and safely removes registry-backed hooks for eleven coding-agent runtimes, with capability-specific failure semantics and git pre-commit as the repository backstop. |
-| MCP side-effect control | Classifies explicitly configured Cursor, OpenCode, Kilo, and Oh My Pi MCP tools as repository reads, writes, commands, or external effects using exact selectors and fail-closed extraction. |
+| Runtime enforcement | Generates, installs, verifies, and safely removes registry-backed hooks for twelve coding-agent runtimes, with capability-specific failure semantics and git pre-commit as the repository backstop. |
+| MCP side-effect control | Classifies explicitly configured Cursor, OpenCode, Kilo, Oh My Pi, and Pi MCP tools as repository reads, writes, commands, or external effects using exact selectors and fail-closed extraction. |
 | Operator and CI tooling | Provides exact remediation, body-free source-provenance inspection, staged command execution, CI proofs, global diagnostics, update and uninstall, cryptographically verified audit inspection, retention, TUI, shell completions, and a generated manpage. |
 | Release trust | Publishes strict release manifests, SHA-256 checksums, build-provenance attestations, and deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs tied to the release commit. |
 
@@ -308,7 +308,7 @@ and provenance.
 
 The shipped CLI has no Bun, Node, Python, Docker, or service dependency. Bun
 `1.3.14` is required only by contributors running the executable OpenCode,
-Kilo Code, and Oh My Pi adapter contract tests.
+Kilo Code, Oh My Pi, and Pi adapter contract tests.
 
 ### Initialize a repository
 
@@ -609,6 +609,7 @@ being reported as successful partial publication.
 | Grok Build | native lifecycle and hard PreToolUse hooks, strict ACP continuation, and leader-mode TUI steering |
 | Kimi Code CLI | explicit user-global `$KIMI_CODE_HOME/config.toml` integration for all 16 native hook events; repository discovery prevents global hooks from acting outside initialized Reconc repositories |
 | Oh My Pi CLI | project-local `.omp/extensions/reconc.ts` ExtensionAPI adapter with native session, prompt, approval, tool-result, compaction, shutdown, and synchronous `session_stop` handling |
+| Pi Coding Agent | trust-aware project-local `.pi/extensions/reconc.ts` extension with blocking tool and user-shell interception, exact tool outcomes, lifecycle and compaction observations, and bounded asynchronous `agent_settled` continuation |
 
 Integration claims use precise states:
 
@@ -637,6 +638,12 @@ and cloud agents. Static `configured` state and per-route `observed` liveness
 remain separate. The exact support-state and event matrix is in
 [the platform contract](docs/documentation.md#host-integration-truth). All
 platforms still use git pre-commit as the hard repository backstop.
+
+Pi exposes no synchronous Stop decision event. Reconc maps `agent_settled` to
+bounded asynchronous continuation with at most ten requests per session. The
+extension reports requested, locally failed, or suppressed delivery; Pi's
+`sendUserMessage` API returns no acknowledgement, so Reconc never claims that
+a requested continuation was accepted or completed.
 
 Cursor CLI's primary executable is `agent`; `cursor-agent` is its
 backward-compatible alias. Reconc validates the executable identity instead of
@@ -667,6 +674,16 @@ shutdown observations fail open. OMP supplies exact host tool names but no
 authoritative MCP server discriminator, so only explicitly configured tool
 identities are classifiable.
 
+Pi loads `.pi/extensions/reconc.ts` only for a trusted project.
+`reconc hook install pi .` owns only that file and never edits Pi's trust
+store. `reconc hook status .` reports `configured` only when the canonical
+repository root is saved as trusted or `defaultProjectTrust` is `always`;
+otherwise it reports `installed` with an exact trust or `pi --approve`
+remediation. Native `tool_call` and `user_bash` interception fail closed.
+Tool-result, lifecycle, compaction, and shutdown observations fail open. Pi has
+no native permission event, MCP discriminator, post-`user_bash` result, or
+synchronous Stop gate, so Reconc does not invent those capabilities.
+
 Use the following commands before claiming a runtime is active:
 
 ```bash
@@ -683,9 +700,9 @@ represented as live execution proof.
 Host payloads are untrusted and capability-specific. Reconc caps input,
 process output, timeouts, evidence collections, and stored diagnostics. It
 accepts positive command evidence only from authoritative host outcome fields,
-never from stdout text. OMP Bash success is accepted only when `isError` is
-false, with exit code zero synthesized solely for that successful built-in
-result. Cursor, OpenCode, Kilo, and OMP MCP mappings use exact
+never from stdout text. OMP and Pi Bash success is accepted only when `isError`
+is false, with exit code zero synthesized solely for that successful built-in
+result. Cursor, OpenCode, Kilo, OMP, and Pi MCP mappings use exact
 platform, server fingerprint, tool, and JSON Pointer selectors; malformed or
 unclassified calls produce no positive repository evidence.
 
@@ -874,7 +891,7 @@ access. Uninstall and core repository control remain offline.
 ### Which agents are supported?
 
 Claude Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity
-CLI, Kilo Code, Grok Build, Kimi Code CLI, and Oh My Pi CLI have registry-backed
+CLI, Kilo Code, Grok Build, Kimi Code CLI, Oh My Pi CLI, and Pi have registry-backed
 integrations. Their host capabilities are not identical; `reconc hook status
 . --json` reports
 the static activation state separately from per-route live evidence without
@@ -1028,7 +1045,7 @@ credentials are not persisted, and release/publication jobs use full history
 where the post-boundary audit requires it.
 
 `make self-host` builds the local binary and runs the clean-repository golden
-path across all three bootstrap profiles, git pre-commit plus all eleven agent
+path across all three bootstrap profiles, git pre-commit plus all twelve agent
 runtimes, TASK lifecycle, retention, and stable release-layout binary
 resolution.
 

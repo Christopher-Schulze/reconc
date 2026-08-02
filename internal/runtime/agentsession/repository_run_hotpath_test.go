@@ -82,7 +82,7 @@ func TestRunControlFailsClosedWithoutReplacingCorruptState(t *testing.T) {
 
 func TestRepoRunModePersistsAcrossSessionsRuntimesAndInterrupts(t *testing.T) {
 	repo := t.TempDir()
-	for _, runtimeName := range []string{"claude", "codex", "github-copilot", "cursor", "opencode", "devin", "antigravity", "kilo", "omp"} {
+	for _, runtimeName := range []string{"claude", "codex", "github-copilot", "cursor", "opencode", "devin", "antigravity", "kilo", "omp", "pi"} {
 		if _, err := SetRepositoryRun(repo, true); err != nil {
 			t.Fatal(err)
 		}

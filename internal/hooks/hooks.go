@@ -36,6 +36,7 @@ const (
 	KiloPluginPath            = ".kilo/plugin/reconc.js"
 	GrokHooksPath             = ".grok/hooks/reconc.json"
 	OMPExtensionPath          = ".omp/extensions/reconc.ts"
+	PiExtensionPath           = ".pi/extensions/reconc.ts"
 	KimiCodeConfigDisplayPath = "~/.kimi-code/config.toml"
 )
 
@@ -52,6 +53,7 @@ const (
 	KindKilo          = "kilo"
 	KindGrok          = "grok"
 	KindOMP           = "omp"
+	KindPi            = "pi"
 	KindKimiCode      = "kimi-code"
 )
 
@@ -167,6 +169,8 @@ func Generate(kind string) (*Artifact, error) {
 		return generateGrok()
 	case generatorOMP:
 		return generateOMP()
+	case generatorPi:
+		return generatePi()
 	case generatorKimiCode:
 		return generateKimiCode()
 	}
@@ -261,6 +265,8 @@ func installPlatform(definition platformDefinition, repoRoot string, force bool)
 			return installOpenCode(repoRoot, force)
 		case KindOMP:
 			return installOMP(repoRoot, force)
+		case KindPi:
+			return installPi(repoRoot, force)
 		}
 		return installKilo(repoRoot, force)
 	case InstallManagedJSON:
