@@ -256,9 +256,8 @@ case "$event" in
   *-pre-tool-use)
     case "$RECONC_TRANSPORT_MODE" in
       large)
-        perl -e 'print "o" x 1048576' &
-        perl -e 'print STDERR "e" x 1048576' &
-        wait
+        # One writer exercises both pipes without racing two process creations on Windows.
+        perl -e 'print "o" x 1048576; print STDERR "e" x 1048576'
         exit 1
         ;;
       invalid-utf8)
