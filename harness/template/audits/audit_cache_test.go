@@ -637,7 +637,7 @@ func TestTaskArchiveRevisionBoundsGitSubprocesses(t *testing.T) {
 	}
 	binDirectory := t.TempDir()
 	gitPath := filepath.Join(binDirectory, "git")
-	if err := os.WriteFile(gitPath, []byte("#!/bin/sh\n/bin/sleep 5\n"), 0o755); err != nil {
+	if err := os.WriteFile(gitPath, []byte("#!/bin/sh\nexec /bin/sleep 5\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", binDirectory)

@@ -88,8 +88,8 @@
     {
       "path": "tools/reconc/harness/template/audits/audit_cache_test.go",
       "mode": 420,
-      "size": 20833,
-      "sha256": "82444b214f336f3ee478f0f9b56045adaea657fe40e97e2bad16ec6872b1c584",
+      "size": 20838,
+      "sha256": "ba432d2ffa7205458b785de89520f97e87c203aa37e11774f499d2f362949b3c",
       "ownership": "pack-file"
     },
     {
@@ -737,6 +737,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 710439,
-  "digest": "ff768870263aff67b3760727b44d570b7bad0e964893088003474d271939c496"
+  "total_bytes": 710444,
+  "digest": "4128f7a93162747183710b8c51a70a525e27f169b586481ee258bed56d02c521"
 }
