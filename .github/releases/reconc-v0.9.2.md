@@ -6,6 +6,14 @@ truth built on v0.9.1. It does not introduce a policy or schema migration.
 
 ## Added
 
+- Native Oh My Pi support through a project-owned `.omp/extensions/reconc.ts`
+  extension with awaited pre-tool and main-session Stop enforcement, complete
+  tool outcomes, lifecycle events, compaction, shutdown, and bounded
+  continuation handling.
+- Native Pi Coding Agent support through a trust-aware project-owned
+  `.pi/extensions/reconc.ts` extension with blocking tool and user-shell
+  boundaries, lifecycle and result observation, compaction, shutdown, and
+  bounded settled-state continuation requests.
 - Kimi Code CLI support through an explicit user-global 16-event TOML hook
   integration. The managed block preserves unrelated configuration, discovers
   an explicitly configured Reconc repository from the invocation directory,
@@ -23,6 +31,17 @@ truth built on v0.9.1. It does not introduce a policy or schema migration.
 
 ## Improved
 
+- OMP and Pi now participate in hook generation, installation, removal, status,
+  doctor, bootstrap, scaffold sync, host probes, portable harnesses, MCP policy,
+  release inventory, and the canonical CLI and documentation surfaces.
+- Generated adapter transports enforce bounded combined output and timeout
+  contracts across OpenCode, Kilo Code, OMP, and Pi without sequential-drain
+  deadlocks or platform-dependent process races.
+- Offline update selection reads regular release metadata through one bounded
+  path, verifies the exact manifest bytes it decoded, and rejects oversized
+  checksum metadata.
+- TASK archive cache Git commands now use the classified 15-second audit runner
+  instead of unbounded subprocesses.
 - Repository sync now plans from one hermetic Git snapshot, binds the complete
   plan to its digest and preconditions, writes a durable before/after journal
   before mutation, and verifies the full result under the repository lock.
@@ -44,6 +63,11 @@ truth built on v0.9.1. It does not introduce a policy or schema migration.
 
 ## Fixed
 
+- Stabilized the Windows Bun transport contract while preserving simultaneous
+  stdout and stderr backpressure coverage, and made the hanging-process timeout
+  regression deterministic without orphaning a child process.
+- Completed the documented host and adapter timeout inventory for Cursor and
+  OMP so the public runtime contract matches the registry and generated assets.
 - Removed the non-production `reconc demo` surface and its private fixture
   engine. The project video remains the demonstration path.
 - Removed misleading legacy and quality command surfaces that duplicated
@@ -115,6 +139,13 @@ when that repository should receive its updated generated adapter.
 - Kimi Code hooks are user-global and opt-in. Static configuration is not live
   enforcement proof, host timeouts fail open, and post-tool output has no
   authoritative exit status.
+- OMP project extensions are discovered from `.omp/extensions`; its awaited
+  pre-tool and main-session Stop boundaries fail closed, while shutdown is
+  observational. OMP tool events expose no authoritative MCP server identity.
+- Pi project extensions load from `.pi/extensions` only after the project is
+  trusted. Pi has no permission event, MCP discriminator, synchronous Stop
+  event, post-user-shell event, or continuation delivery acknowledgement;
+  settled continuation is therefore reported as inferred rather than enforced.
 - Cursor surfaces do not promise identical hook delivery. `workspaceOpen`
   proves artifact loading only, and Cursor exposes no generic tool hook for
   `AskQuestion`.
