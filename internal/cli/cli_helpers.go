@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -165,30 +166,13 @@ func sortedKeys(m map[string]int) []string {
 	return keys
 }
 
-// atoi is a tiny stdlib-free integer parser used by flag handling. No
-// strconv pull-in for a one-call site.
+// atoi parses a base-10 integer for flag handling. It delegates to
+// strconv.Atoi so oversized inputs fail cleanly instead of silently
+// wrapping modulo 2^64 and slipping past the callers' range guards.
 func atoi(s string) (int, error) {
-	if s == "" {
-		return 0, fmt.Errorf("empty")
-	}
-	n := 0
-	neg := false
-	start := 0
-	if s[0] == '-' {
-		neg = true
-		start = 1
-	} else if s[0] == '+' {
-		start = 1
-	}
-	for i := start; i < len(s); i++ {
-		c := s[i]
-		if c < '0' || c > '9' {
-			return 0, fmt.Errorf("invalid integer %q", s)
-		}
-		n = n*10 + int(c-'0')
-	}
-	if neg {
-		n = -n
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid integer %q", s)
 	}
 	return n, nil
 }

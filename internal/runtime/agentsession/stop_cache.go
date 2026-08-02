@@ -946,7 +946,7 @@ func filterStopPolicyGitStatus(raw string) string {
 	parts := strings.Split(raw, "\x00")
 	out := make([]string, 0, len(parts))
 	for _, part := range parts {
-		if part == "" || stopPolicyRuntimeStateRecord(part) {
+		if part == "" || stopPolicyRuntimeStateRecord(statusRecordPath(part)) {
 			continue
 		}
 		out = append(out, part)
@@ -957,19 +957,24 @@ func filterStopPolicyGitStatus(raw string) string {
 	return strings.Join(out, "\x00") + "\x00"
 }
 
-func stopPolicyRuntimeStateRecord(record string) bool {
-	for _, marker := range []string{
-		".reconc/run/",
-		".reconc/cache/",
-		".reconc/locks/",
-		".reconc/reports/",
-		".reconc/audit.jsonl",
-	} {
-		if strings.Contains(record, marker) {
-			return true
-		}
+// statusRecordPath strips the two-character "XY " status prefix from a
+// porcelain -z record so the path can be matched by prefix. Records without
+// the prefix (rename origins) are returned verbatim.
+func statusRecordPath(record string) string {
+	if len(record) >= 3 && record[2] == ' ' {
+		return record[3:]
 	}
-	return false
+	return record
+}
+
+// stopPolicyRuntimeStateRecord reports whether a repo-relative path is
+// Reconc-owned runtime state that must not influence the stop-policy
+// fingerprint. Matching is prefix-based on the path: a substring match would
+// wrongly drop user files such as "src/x.reconc/run/data.txt" whose name
+// merely contains a runtime marker, leaving the stop cache stale when they
+// change.
+func stopPolicyRuntimeStateRecord(path string) bool {
+	return strings.HasPrefix(filepath.ToSlash(path), ".reconc/")
 }
 
 func recordStopBlockAndRepeated(repoRoot, sessionID string, violations []runtime.Violation) (bool, string) {

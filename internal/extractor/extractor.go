@@ -24,6 +24,7 @@ package extractor
 import (
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"reconc.dev/reconc/internal/adopt"
 )
@@ -241,10 +242,12 @@ func slugify(s string) string {
 }
 
 // quoteLine formats a cited line for the suggestion's Evidence field.
-// 1-indexed line number, truncated content.
+// 1-indexed line number, truncated content. Truncation happens on rune
+// boundaries so multi-byte characters are never split into invalid UTF-8.
 func quoteLine(idx int, s string) string {
-	if len(s) > 120 {
-		s = s[:117] + "..."
+	if utf8.RuneCountInString(s) > 120 {
+		runes := []rune(s)
+		s = string(runes[:117]) + "..."
 	}
 	return "line " + itoaSmall(idx+1) + ": " + s
 }

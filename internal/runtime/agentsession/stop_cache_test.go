@@ -21,6 +21,19 @@ func TestDirtyPathsFromStatusIncludesRenamePairAndSkipsRuntimeState(t *testing.T
 	}
 }
 
+func TestDirtyPathsFromStatusKeepsUserPathsContainingRuntimeMarker(t *testing.T) {
+	// A user file whose name merely contains a runtime marker substring
+	// (for example "x.reconc/run/") is not Reconc-owned state and must
+	// stay in the fingerprint; only paths rooted at ".reconc/" are
+	// filtered.
+	status := " M src/x.reconc/run/data.txt\x00 M .reconc/run/decisions.jsonl\x00"
+	got := dirtyPathsFromStatus(status)
+	want := []string{"src/x.reconc/run/data.txt"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("dirty paths mismatch\ngot:  %#v\nwant: %#v", got, want)
+	}
+}
+
 func TestDirtyPathsFromStatusKeepsVerbatimPathBytes(t *testing.T) {
 	// A rename origin whose third byte is a space must not lose its
 	// first three characters, and leading/trailing spaces are part of
