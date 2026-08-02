@@ -146,5 +146,9 @@ jobs:
             printf 'Release %s is already published; nothing to replace.\n' "$RELEASE_TAG"
             exit 0
           fi
+          gh release edit "$RELEASE_TAG" \
+            --title "reconc ${RELEASE_TAG#reconc-v}" \
+            --notes-file "$notes_file" \
+            --draft
           gh release upload "$RELEASE_TAG" dist/* --clobber
           gh release edit "$RELEASE_TAG" --draft=false

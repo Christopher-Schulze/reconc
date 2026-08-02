@@ -203,6 +203,8 @@ require_text "$release_workflow" 'test "$tag_version" = "$source_version"'
 require_text "$release_workflow" 'test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"'
 # shellcheck disable=SC2016 # Match workflow shell expressions literally.
 require_text "$release_workflow" 'gh release upload "$RELEASE_TAG" dist/* --clobber'
+[ "$(grep -Fc -- '--notes-file "$notes_file"' "$release_workflow")" -eq 2 ] \
+  || fail "$release_workflow must refresh notes for both new and replacement releases"
 for runner in ubuntu-24.04 macos-15 windows-2025; do
   require_text "$ci_workflow" "$runner"
 done
