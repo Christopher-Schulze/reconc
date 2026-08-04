@@ -25,8 +25,11 @@ type createdRecord struct {
 }
 
 type createdDirectory struct {
-	path     string
-	identity directoryIdentity
+	path string
+	// identity is a pointer so closeDirectoryIdentity can nil the handle
+	// after the first close, making repeated closes (the rollback path and
+	// the caller defers share the same slice backing array) a safe no-op.
+	identity *directoryIdentity
 }
 
 func Apply(plan *Plan, productVersion string) (*Report, error) {
@@ -259,7 +262,9 @@ func summarizeApply(plan *Plan, report *Report) ApplySummary {
 	}
 	statuses, statusErr := hooks.InspectPlatforms(plan.RepoRoot)
 	byKind := map[string]hooks.PlatformStatus{}
-	if statusErr == nil {
+	if statusErr != nil {
+		summary.InspectionErrors = append(summary.InspectionErrors, "inspect hook platforms: "+statusErr.Error())
+	} else {
 		for _, status := range statuses {
 			byKind[status.Kind] = status
 		}
@@ -274,7 +279,9 @@ func summarizeApply(plan *Plan, report *Report) ApplySummary {
 		}
 	}
 	liveness, livenessErr := agentsession.ReadHookLiveness(plan.RepoRoot)
-	if livenessErr == nil {
+	if livenessErr != nil {
+		summary.InspectionErrors = append(summary.InspectionErrors, "read hook liveness: "+livenessErr.Error())
+	} else {
 		summary.LivenessKnown = true
 		for _, kind := range plan.Selection.Hooks {
 			if record, ok := liveness[bootstrapHookRuntimeName(kind)]; ok && record.LastSeen != "" {

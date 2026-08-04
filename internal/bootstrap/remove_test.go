@@ -386,12 +386,13 @@ func TestRemovalRollbackRefusesToOverwriteConcurrentChanges(t *testing.T) {
 		{name: "updated-path-changed", mutation: removalMutation{relative: "managed.txt", before: []byte("before\n"), after: []byte("after\n"), mode: 0o644}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), test.mutation.relative)
+			repo := t.TempDir()
+			path := filepath.Join(repo, test.mutation.relative)
 			test.mutation.path = path
 			if err := os.WriteFile(path, []byte("external\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := rollbackRemovalMutations([]removalMutation{test.mutation}); err == nil || !strings.Contains(err.Error(), "refuse to overwrite") {
+			if _, err := rollbackRemovalMutations(repo, []removalMutation{test.mutation}); err == nil || !strings.Contains(err.Error(), "refuse to overwrite") {
 				t.Fatalf("rollback error = %v", err)
 			}
 			body, err := os.ReadFile(path)
@@ -399,5 +400,47 @@ func TestRemovalRollbackRefusesToOverwriteConcurrentChanges(t *testing.T) {
 				t.Fatalf("concurrent content changed: body=%q err=%v", body, err)
 			}
 		})
+	}
+}
+
+func TestRemovalRollbackRestoresRemovedAndUpdatedFiles(t *testing.T) {
+	repo := t.TempDir()
+	removedPath := filepath.Join(repo, "nested", "removed.txt")
+	if err := os.MkdirAll(filepath.Dir(removedPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(removedPath, []byte("before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	updatedPath := filepath.Join(repo, "updated.txt")
+	if err := os.WriteFile(updatedPath, []byte("original\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	applied := []removalMutation{
+		{relative: "nested/removed.txt", path: removedPath, before: []byte("before\n"), mode: 0o644, remove: true},
+		{relative: "updated.txt", path: updatedPath, before: []byte("original\n"), after: []byte("changed\n"), mode: 0o644},
+	}
+	// Simulate the forward removal: delete one file, rewrite the other.
+	if err := os.Remove(removedPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Dir(removedPath)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(updatedPath, []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rolledBack, err := rollbackRemovalMutations(repo, applied)
+	if err != nil {
+		t.Fatalf("rollback error = %v", err)
+	}
+	if strings.Join(rolledBack, ",") != "nested/removed.txt,updated.txt" {
+		t.Fatalf("rolled back = %v", rolledBack)
+	}
+	if body, err := os.ReadFile(removedPath); err != nil || string(body) != "before\n" {
+		t.Fatalf("removed file not restored: body=%q err=%v", body, err)
+	}
+	if body, err := os.ReadFile(updatedPath); err != nil || string(body) != "original\n" {
+		t.Fatalf("updated file not restored: body=%q err=%v", body, err)
 	}
 }

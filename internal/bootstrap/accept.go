@@ -118,7 +118,7 @@ func acceptManagedCandidatesLocked(plan *Plan, report *Report) (*ManagedAcceptan
 	if accepted == 0 {
 		return result, fmt.Errorf("drift report has no pure marker-only managed candidate")
 	}
-	removed, updated, rolledBack, err := applyRemovalTransaction(mutations)
+	removed, updated, rolledBack, err := applyRemovalTransaction(plan.RepoRoot, mutations)
 	if err != nil {
 		return result, fmt.Errorf("accept managed bootstrap candidates (rolled back %v): %w", rolledBack, err)
 	}

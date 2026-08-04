@@ -137,7 +137,7 @@ func removeLegacyReceipt(plan *Plan) (*RemovalReport, error) {
 		relative: receiptRelative, path: receiptPath, before: receiptBody,
 		mode: receiptMode, remove: true,
 	})
-	removed, updated, rolledBack, err := applyRemovalTransaction(mutations)
+	removed, updated, rolledBack, err := applyRemovalTransaction(plan.RepoRoot, mutations)
 	report.Removed = removed
 	report.Updated = updated
 	report.RolledBack = rolledBack
@@ -214,7 +214,7 @@ func removePortableReceipt(plan *Plan, receipt *RepositoryReceipt) (*RemovalRepo
 		return report, nil
 	}
 
-	removed, updated, rolledBack, err := applyRemovalTransaction(mutations)
+	removed, updated, rolledBack, err := applyRemovalTransaction(plan.RepoRoot, mutations)
 	report.Removed = removed
 	report.Updated = updated
 	report.RolledBack = rolledBack
@@ -478,7 +478,7 @@ func readRemovalFile(path string, limit int64) ([]byte, os.FileMode, error) {
 	return body, pathInfo.Mode().Perm(), nil
 }
 
-func applyRemovalTransaction(mutations []removalMutation) ([]string, []string, []string, error) {
+func applyRemovalTransaction(repoRoot string, mutations []removalMutation) ([]string, []string, []string, error) {
 	for _, mutation := range mutations {
 		current, _, err := readRemovalFile(mutation.path, maxBinaryBytes)
 		if err != nil {
@@ -510,13 +510,13 @@ func applyRemovalTransaction(mutations []removalMutation) ([]string, []string, [
 			}
 			continue
 		}
-		rolledBack, rollbackErr := rollbackRemovalMutations(applied)
+		rolledBack, rollbackErr := rollbackRemovalMutations(repoRoot, applied)
 		return removed, updated, rolledBack, fmt.Errorf("apply removal mutation %s: %w", mutation.relative, errors.Join(err, rollbackErr))
 	}
 	return removed, updated, nil, nil
 }
 
-func rollbackRemovalMutations(applied []removalMutation) ([]string, error) {
+func rollbackRemovalMutations(repoRoot string, applied []removalMutation) ([]string, error) {
 	rolledBack := []string{}
 	var rollbackErr error
 	for index := len(applied) - 1; index >= 0; index-- {
@@ -539,8 +539,10 @@ func rollbackRemovalMutations(applied []removalMutation) ([]string, error) {
 				continue
 			}
 		}
-		if err := os.MkdirAll(filepath.Dir(mutation.path), 0o755); err != nil {
-			rollbackErr = errors.Join(rollbackErr, err)
+		parentDirs, mkdirErr := createSafeParents(repoRoot, filepath.Dir(mutation.path))
+		closeCreatedDirectoryIdentities(parentDirs)
+		if mkdirErr != nil {
+			rollbackErr = errors.Join(rollbackErr, mkdirErr)
 			continue
 		}
 		if _, err := atomicfile.WriteIfChanged(mutation.path, mutation.before, mutation.mode); err != nil {

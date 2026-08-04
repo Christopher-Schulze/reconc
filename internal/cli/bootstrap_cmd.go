@@ -592,6 +592,9 @@ func renderBootstrapReport(stdout io.Writer, report *reconbootstrap.Report) {
 	fmt.Fprintf(stdout, "Summary: created=%d preserved=%d drifted=%d skipped=%d installed=%d configured=%d live=%s\n",
 		report.Summary.Created, report.Summary.Preserved, report.Summary.Drifted, report.Summary.Skipped,
 		report.Summary.Installed, report.Summary.Configured, live)
+	for _, inspectionErr := range report.Summary.InspectionErrors {
+		fmt.Fprintf(stdout, "  inspection warning: %s\n", inspectionErr)
+	}
 	fmt.Fprintf(stdout, "Created: %s\n", displayBootstrapList(report.Created))
 	fmt.Fprintf(stdout, "Unchanged: %s\n", displayBootstrapList(report.Unchanged))
 	fmt.Fprintf(stdout, "Candidates: %s\n", displayBootstrapList(report.Candidates))

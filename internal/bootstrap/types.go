@@ -193,6 +193,10 @@ type ApplySummary struct {
 	Configured    int  `json:"configured"`
 	Live          int  `json:"live"`
 	LivenessKnown bool `json:"liveness_known"`
+	// InspectionErrors carries non-fatal hook-status or liveness inspection
+	// failures. When present, the zeroed counters above mean "unknown", not
+	// "none", and the failures are surfaced instead of silently swallowed.
+	InspectionErrors []string `json:"inspection_errors,omitempty"`
 }
 
 type RemovalStatus string

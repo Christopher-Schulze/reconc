@@ -548,13 +548,16 @@ func rollbackRepositorySyncTransaction(
 			restored = append(restored, file.Path)
 			continue
 		}
+		info, lstatErr := os.Lstat(target)
+		if lstatErr != nil {
+			return restored, fmt.Errorf("inspect interrupted repository sync artifact %s: %w", file.Path, lstatErr)
+		}
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			return restored, fmt.Errorf("refuse rollback after concurrent change: %s is not a real regular file", file.Path)
+		}
 		body, err := os.ReadFile(target)
 		if err != nil {
 			return restored, fmt.Errorf("read interrupted repository sync artifact %s: %w", file.Path, err)
-		}
-		info, err := os.Stat(target)
-		if err != nil {
-			return restored, fmt.Errorf("stat interrupted repository sync artifact %s: %w", file.Path, err)
 		}
 		if bytesSHA256(body) == file.BeforeSHA256 && uint32(info.Mode().Perm()) == file.BeforeMode {
 			continue

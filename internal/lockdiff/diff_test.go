@@ -243,6 +243,26 @@ func TestDiffIgnoresStringListReordering(t *testing.T) {
 	}
 }
 
+func TestDiffIgnoresNestedSetListReordering(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.json")
+	b := filepath.Join(dir, "b.json")
+	writeJSON := func(path, mustContain string) {
+		t.Helper()
+		body := `{"default_mode":"warn","rules":[{"id":"r1","kind":"require_evidence","when_paths":["src/**"],"evidence":[{"file":"proof.md","must_contain":` + mustContain + `}]}]}`
+		writeLock(t, path, body)
+	}
+	writeJSON(a, `["alpha","beta"]`)
+	writeJSON(b, `["beta","alpha"]`)
+	report, err := Diff(a, b)
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	if !report.IsEmpty() {
+		t.Fatalf("reordered nested must_contain must not report a change: %+v", report.Changed)
+	}
+}
+
 func TestDiffReportsDigestOnlyChangeAsNonEmpty(t *testing.T) {
 	dir := t.TempDir()
 	a := filepath.Join(dir, "a.json")

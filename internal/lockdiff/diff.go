@@ -252,30 +252,43 @@ var orderInsensitiveRuleFields = map[string]struct{}{
 	"when_paths":   {},
 }
 
-// canonicalValue sorts pure string lists only for fields whose evaluator
-// semantics are explicitly set-like. Argument and nested lists retain order.
+// canonicalValue recursively normalizes a value for comparison. String lists
+// whose field name is in orderInsensitiveRuleFields are sorted so reordering
+// is not reported as a change. Nested maps and lists are canonicalized
+// recursively so set-like fields inside checks, evidence, and assurance
+// entries (for example must_contain) are also compared order-insensitively.
 func canonicalValue(field string, v interface{}) interface{} {
-	if _, ok := orderInsensitiveRuleFields[field]; !ok {
-		return v
-	}
-	list, ok := v.([]interface{})
-	if !ok {
-		return v
-	}
-	sorted := make([]string, 0, len(list))
-	for _, item := range list {
-		s, ok := item.(string)
-		if !ok {
-			return v
+	switch val := v.(type) {
+	case []interface{}:
+		out := make([]interface{}, len(val))
+		allStrings := true
+		for i, elem := range val {
+			canonical := canonicalValue(field, elem)
+			out[i] = canonical
+			if _, isStr := canonical.(string); !isStr {
+				allStrings = false
+			}
 		}
-		sorted = append(sorted, s)
+		if _, orderInsensitive := orderInsensitiveRuleFields[field]; orderInsensitive && allStrings {
+			sorted := make([]string, len(out))
+			for i, elem := range out {
+				sorted[i] = elem.(string)
+			}
+			sort.Strings(sorted)
+			for i, s := range sorted {
+				out[i] = s
+			}
+		}
+		return out
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(val))
+		for key, elem := range val {
+			out[key] = canonicalValue(key, elem)
+		}
+		return out
+	default:
+		return v
 	}
-	sort.Strings(sorted)
-	out := make([]interface{}, len(sorted))
-	for i, s := range sorted {
-		out[i] = s
-	}
-	return out
 }
 
 func ruleInfo(id string, m map[string]interface{}) RuleInfo {

@@ -820,18 +820,50 @@ func isRenameOrCopyStatus(x, y byte) bool {
 	return x == 'R' || x == 'C' || y == 'R' || y == 'C'
 }
 
+// gitIndexBatchBytes bounds the path arguments passed to a single
+// `git ls-files` invocation. Path arguments are appended to argv, and a
+// large session can accumulate thousands of multi-kilobyte paths whose
+// combined size exceeds the platform ARG_MAX (about 2 MiB on Linux), which
+// would fail the spawn with E2BIG. Batching by total argument bytes keeps
+// every invocation well under that limit while merging all index entries.
+const gitIndexBatchBytes = 128 * 1024
+
 func gitIndexEntries(repoRoot string, paths []string) map[string]string {
 	entries := map[string]string{}
 	if len(paths) == 0 {
 		return entries
 	}
+	batch := []string{}
+	batchBytes := 0
+	flush := func() {
+		if len(batch) == 0 {
+			return
+		}
+		mergeGitIndexEntries(entries, repoRoot, batch)
+		batch = nil
+		batchBytes = 0
+	}
+	for _, path := range paths {
+		if len(batch) > 0 && batchBytes+len(path) > gitIndexBatchBytes {
+			flush()
+		}
+		batch = append(batch, path)
+		batchBytes += len(path)
+	}
+	flush()
+	return entries
+}
+
+func mergeGitIndexEntries(entries map[string]string, repoRoot string, paths []string) {
 	args := append([]string{"ls-files", "-s", "-z", "--"}, paths...)
 	out, err := gitCommandOutput(repoRoot, args...)
 	if err != nil {
 		for _, path := range paths {
-			entries[path] = "error:" + err.Error()
+			if _, seen := entries[path]; !seen {
+				entries[path] = "error:" + err.Error()
+			}
 		}
-		return entries
+		return
 	}
 	for _, record := range strings.Split(out, "\x00") {
 		if record == "" {
@@ -844,7 +876,6 @@ func gitIndexEntries(repoRoot string, paths []string) map[string]string {
 		path := filepath.ToSlash(record[tab+1:])
 		entries[path] = record[:tab]
 	}
-	return entries
 }
 
 func worktreePathHash(repoRoot string, path, indexEntry string) string {
