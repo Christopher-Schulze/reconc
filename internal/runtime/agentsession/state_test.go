@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -393,6 +394,80 @@ func TestEvidenceCollectionsAreDeduplicatedAndBounded(t *testing.T) {
 	}
 	if len(body) > MaxSessionStateBytes {
 		t.Fatalf("session byte cap escaped: %d", len(body))
+	}
+}
+
+func TestCommandResultByteBudgetFailsClosedWithIncrementalAccounting(t *testing.T) {
+	state := emptyState("/repo", "byte-budget")
+	// Each result encodes to roughly 2 KiB, so the 256 KiB budget is hit
+	// long before the 512-item cap.
+	command := strings.Repeat("go test -run ", 160)
+	appended := 0
+	for index := range maxCommandResultItems {
+		before := state.CommandResultBytes
+		state = AppendCommandResult(state, CommandResult{
+			Command:   fmt.Sprintf("%s-%04d", command, index),
+			Outcome:   "success",
+			ToolUseID: fmt.Sprintf("tool-%04d", index),
+		})
+		if state.EvidenceOverflow {
+			if state.EvidenceOverflowReason != "command_results" || state.EvidenceOverflowLimit != "byte_budget" {
+				t.Fatalf("overflow marker = %s/%s, want command_results/byte_budget", state.EvidenceOverflowReason, state.EvidenceOverflowLimit)
+			}
+			break
+		}
+		appended++
+		if state.CommandResultBytes <= before {
+			t.Fatalf("byte counter did not advance on append %d: %d -> %d", index, before, state.CommandResultBytes)
+		}
+	}
+	if appended == 0 || appended >= maxCommandResultItems {
+		t.Fatalf("appended %d results, want a budget-driven stop well below the item cap", appended)
+	}
+	if !state.EvidenceOverflow {
+		t.Fatal("byte budget never tripped the fail-closed overflow marker")
+	}
+	want := int64(0)
+	for _, result := range state.CommandResults {
+		want += int64(commandResultEncodedBytes(result))
+	}
+	if state.CommandResultBytes != want {
+		t.Fatalf("persisted byte counter %d drifted from encoded total %d", state.CommandResultBytes, want)
+	}
+}
+
+func TestLegacyStateBackfillsCommandResultByteCounter(t *testing.T) {
+	_, repo := withStateRoot(t)
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := emptyState(root, "backfill")
+	legacy.CommandResults = []CommandResult{
+		{Command: "go test ./...", Outcome: "success"},
+		{Command: "make lint", Outcome: "failure"},
+	}
+	body, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := sessionStatePath(root, legacy.SessionID)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadSessionState(root, legacy.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := int64(0)
+	for _, result := range loaded.CommandResults {
+		want += int64(commandResultEncodedBytes(result))
+	}
+	if loaded.CommandResultBytes != want {
+		t.Fatalf("backfilled byte counter = %d, want %d", loaded.CommandResultBytes, want)
 	}
 }
 

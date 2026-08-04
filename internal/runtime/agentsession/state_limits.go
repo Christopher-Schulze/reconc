@@ -55,6 +55,7 @@ func normalizeSessionState(state SessionState) SessionState {
 	state.Commands = []string{}
 	state.Claims = []string{}
 	state.CommandResults = []CommandResult{}
+	state.CommandResultBytes = 0
 	state.PendingToolCalls = nil
 	for _, value := range reads {
 		state = AppendReadPath(state, value)
@@ -144,10 +145,11 @@ func appendBoundedCommandResult(state *SessionState, result CommandResult) {
 		markEvidenceOverflowWithLimit(state, "command_results", "item_count")
 		return
 	}
-	if commandResultBytes(state.CommandResults)+len(encoded) > maxCommandResultBytes {
+	if state.CommandResultBytes+int64(len(encoded)) > maxCommandResultBytes {
 		markEvidenceOverflowWithLimit(state, "command_results", "byte_budget")
 		return
 	}
+	state.CommandResultBytes += int64(len(encoded))
 	state.CommandResults = append(state.CommandResults, result)
 }
 
@@ -202,15 +204,16 @@ func stringBytes(values []string) int {
 	return total
 }
 
-func commandResultBytes(results []CommandResult) int {
-	total := 0
-	for _, result := range results {
-		encoded, err := json.Marshal(result)
-		if err == nil {
-			total += len(encoded)
-		}
+// commandResultEncodedBytes returns the JSON-encoded size of one command
+// result, the unit the persisted SessionState.CommandResultBytes counter
+// accumulates. Marshal errors contribute zero, matching the previous
+// aggregate accounting.
+func commandResultEncodedBytes(result CommandResult) int {
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return 0
 	}
-	return total
+	return len(encoded)
 }
 
 type commandResultKey struct {

@@ -151,6 +151,7 @@ func rotateSessionEvidenceLocked(repoRoot string, state SessionState) (SessionSt
 	state.Commands = []string{}
 	state.Claims = []string{}
 	state.CommandResults = []CommandResult{}
+	state.CommandResultBytes = 0
 	state.EvidenceSegmentCount = index
 	state.EvidenceSegmentDigest = digest
 	state.EvidenceOverflow = false
@@ -170,6 +171,7 @@ func loadCompleteSessionEvidence(repoRoot string, state SessionState) (SessionSt
 	complete.Commands = []string{}
 	complete.Claims = []string{}
 	complete.CommandResults = []CommandResult{}
+	complete.CommandResultBytes = 0
 	merger := newEvidenceMerger(&complete)
 	previousDigest := ""
 	for index := uint64(1); index <= state.EvidenceSegmentCount; index++ {
@@ -292,6 +294,7 @@ func (m *evidenceMerger) merge(
 		}
 		m.results[key] = struct{}{}
 		m.state.CommandResults = append(m.state.CommandResults, result)
+		m.state.CommandResultBytes += int64(commandResultEncodedBytes(result))
 	}
 }
 

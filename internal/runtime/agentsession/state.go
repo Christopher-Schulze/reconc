@@ -80,6 +80,11 @@ type SessionState struct {
 	Commands                   []string                   `json:"commands"`
 	Claims                     []string                   `json:"claims"`
 	CommandResults             []CommandResult            `json:"command_results"`
+	// CommandResultBytes caches the JSON-encoded byte total of
+	// CommandResults so the append budget check is O(1) instead of
+	// re-marshaling every stored result. Legacy states load with it zero
+	// and backfill through the normalize rebuild.
+	CommandResultBytes         int64                      `json:"command_result_bytes,omitempty"`
 	ReportPath                 string                     `json:"report_path"`
 	StopPolicyFingerprint      string                     `json:"stop_policy_fingerprint,omitempty"`
 	StopPolicyEvidenceHash     string                     `json:"stop_policy_evidence_hash,omitempty"`

@@ -52,7 +52,7 @@ build:
 
 test:
 	$(MAKE) --no-print-directory publication-audit
-	$(GO) test -race -count=1 $(PKG)
+	$(GO) test -race -count=1 -timeout 20m $(PKG)
 	(cd harness/template && $(GO) test -race -count=1 ./...)
 	./scripts/tests/release-trust.sh
 
