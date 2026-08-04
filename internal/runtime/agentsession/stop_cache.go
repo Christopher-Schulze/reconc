@@ -959,18 +959,45 @@ func readBoundedFile(path string, maxBytes int64) ([]byte, error) {
 	return body, nil
 }
 
+// stopPolicyContentHashBound caps the bytes a single file contributes to the
+// stop-policy fingerprint. Hashing multi-gigabyte dirty files fully would
+// stall the stop hook until the platform timeout, degrading toward fail-open
+// wherever failure-allow applies. Files above the bound are bound by size
+// and modification time instead: any growth, truncation, or rewrite moves
+// the fingerprint and invalidates the cache. A rewrite that preserves both
+// size and mtime exactly is the documented trade-off for files above the
+// bound. The policy lockfile stays far below the bound, so its hash is
+// always content-exact.
+const stopPolicyContentHashBound = 64 * 1024 * 1024
+
 func hashFileContent(path string) (string, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
+	info, statErr := file.Stat()
+	if statErr != nil {
+		closeErr := file.Close()
+		return "", errors.Join(statErr, closeErr)
+	}
+	if info.Size() > stopPolicyContentHashBound {
+		closeErr := file.Close()
+		if closeErr != nil {
+			return "", closeErr
+		}
+		return oversizedFileFingerprint(info), nil
+	}
 	hash := sha256.New()
-	_, readErr := io.CopyBuffer(hash, file, make([]byte, 64*1024))
+	_, readErr := io.Copy(hash, io.LimitReader(file, stopPolicyContentHashBound))
 	closeErr := file.Close()
 	if err := errors.Join(readErr, closeErr); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func oversizedFileFingerprint(info os.FileInfo) string {
+	return fmt.Sprintf("oversized:%d:%s", info.Size(), info.ModTime().UTC().Format(time.RFC3339Nano))
 }
 
 func filterStopPolicyGitStatus(raw string) string {

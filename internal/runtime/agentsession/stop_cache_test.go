@@ -1,6 +1,8 @@
 package agentsession
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"reconc.dev/reconc/internal/compiler"
 )
@@ -43,6 +46,74 @@ func TestDirtyPathsFromStatusKeepsVerbatimPathBytes(t *testing.T) {
 	want := []string{" spaced name .go", "ab cd.go", "dst.go", "für/é.go"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("dirty paths mismatch\ngot:  %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestHashFileContentBoundsOversizedFiles(t *testing.T) {
+	dir := t.TempDir()
+
+	// Bounded files keep the exact content hash.
+	bounded := filepath.Join(dir, "bounded.txt")
+	if err := os.WriteFile(bounded, []byte("fingerprint me\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := hashFileContent(bounded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte("fingerprint me\n"))
+	if want := hex.EncodeToString(sum[:]); got != want {
+		t.Fatalf("bounded file hash = %s, want content hash %s", got, want)
+	}
+
+	// Oversized files are bound by size and mtime instead of a full read.
+	oversized := filepath.Join(dir, "oversized.bin")
+	file, err := os.Create(oversized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(stopPolicyContentHashBound + 1); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	fixed := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(oversized, fixed, fixed); err != nil {
+		t.Fatal(err)
+	}
+	first, err := hashFileContent(oversized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(first, "oversized:") {
+		t.Fatalf("oversized fingerprint = %q, want oversized: prefix", first)
+	}
+	if repeated, err := hashFileContent(oversized); err != nil || repeated != first {
+		t.Fatalf("oversized fingerprint not stable: %q vs %q (%v)", first, repeated, err)
+	}
+	// Growth changes the fingerprint so the stop cache invalidates.
+	if err := os.Truncate(oversized, stopPolicyContentHashBound+2); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(oversized, fixed, fixed); err != nil {
+		t.Fatal(err)
+	}
+	afterGrowth, err := hashFileContent(oversized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterGrowth == first {
+		t.Fatalf("growth did not change the oversized fingerprint: %s", afterGrowth)
+	}
+	// An mtime-only change must invalidate as well.
+	if err := os.Chtimes(oversized, fixed.Add(time.Hour), fixed.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	afterMtime, err := hashFileContent(oversized)
+	if err != nil || afterMtime == afterGrowth {
+		t.Fatalf("mtime change did not invalidate the oversized fingerprint: %q vs %q (%v)", afterGrowth, afterMtime, err)
 	}
 }
 
