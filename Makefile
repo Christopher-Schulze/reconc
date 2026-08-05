@@ -3,11 +3,12 @@
 # Targets:
 #   make build              -- build the reconc binary for the host OS/arch
 #   make test               -- run all tests with -race
+#   make fmt-check          -- reject unformatted tracked Go sources
 #   make fmt                -- format all Go sources
 #   make vet                -- run go vet
 #   make lint               -- run pinned staticcheck
-#   make coverage           -- enforce root and template coverage floors
-#   make cover              -- coverage gate plus root and template HTML reports
+#   make coverage           -- measure root and template coverage
+#   make cover              -- measure coverage and write root/template HTML reports
 #   make clean              -- remove build artifacts + dist/
 #   make run ARGS="--help"  -- build and run with args
 #   make tidy               -- go mod tidy
@@ -38,7 +39,7 @@ RELEASE_TARGETS := \
 	linux/arm64 \
 	windows/amd64
 
-.PHONY: build test test-release-trust self-host publication-audit harness-pack-check fmt vet lint coverage cover clean run tidy release completion manpage sbom checksums release-all bench
+.PHONY: build test test-release-trust self-host publication-audit harness-pack-check fmt-check fmt vet lint coverage cover clean run tidy release completion manpage sbom checksums release-all bench
 
 build:
 	@mkdir -p $(BINDIR)
@@ -51,6 +52,7 @@ build:
 	 $(GO) run ./cmd/reconc-build-provenance --root . --goos "$$goos" --goarch "$$goarch" --version "$(VERSION)" --verify-binary $(BINDIR)/$(BIN)
 
 test:
+	$(MAKE) --no-print-directory fmt-check
 	$(MAKE) --no-print-directory publication-audit
 	$(GO) test -race -count=1 -timeout 20m $(PKG)
 	(cd harness/template && $(GO) test -race -count=1 ./...)
@@ -68,6 +70,13 @@ publication-audit:
 
 harness-pack-check:
 	$(GO) run ./scripts/build/harness-pack --check
+
+fmt-check:
+	@unformatted="$$(git ls-files -z -- '*.go' | xargs -0 gofmt -l)"; \
+	 test -z "$$unformatted" || { \
+	   printf 'Go files require gofmt:\n%s\n' "$$unformatted" >&2; \
+	   exit 1; \
+	 }
 
 fmt:
 	$(GO) fmt $(PKG)

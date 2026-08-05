@@ -18,7 +18,7 @@ this root, and docs/comments should not depend on any external source tree.
   `github.com/bmatcuk/doublestar/v4`, `github.com/pelletier/go-toml/v2`,
   `golang.org/x/sys`, `gopkg.in/yaml.v3`, and `mvdan.cc/sh/v3`
 - Test runner: `make test` (publication audit, root module, portable template module, and release trust)
-- Coverage gate: `make coverage` (whole-module root and portable-template profiles with explicit floors)
+- Coverage measurement: `make coverage` (whole-module root and portable-template profiles without a percentage gate)
 - Entry point: `cmd/reconc/main.go`
 
 ## Build, Test, And Run

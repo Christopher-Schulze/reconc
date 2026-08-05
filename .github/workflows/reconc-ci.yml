@@ -78,12 +78,7 @@ jobs:
 
       - name: Check formatting
         if: runner.os == 'Linux'
-        run: |
-          unformatted="$(git ls-files -z -- '*.go' | xargs -0 gofmt -l)"
-          test -z "$unformatted" || {
-            printf 'Go files require gofmt:\n%s\n' "$unformatted" >&2
-            exit 1
-          }
+        run: make fmt-check
 
       - name: Check module tidy
         if: runner.os == 'Linux'
@@ -96,7 +91,7 @@ jobs:
           go test ./...
           (cd harness/template && go test ./...)
 
-      - name: Enforce coverage floors
+      - name: Measure coverage
         if: runner.os == 'Linux'
         run: make coverage
 

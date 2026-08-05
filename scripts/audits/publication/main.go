@@ -17,10 +17,13 @@ func main() {
 }
 
 func runCLI(args []string, stdout, stderr io.Writer) error {
+	return runCLIWithOptions(args, stdout, stderr, defaultAuditOptions())
+}
+
+func runCLIWithOptions(args []string, stdout, stderr io.Writer, options auditOptions) error {
 	flags := flag.NewFlagSet("publication-audit", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	options := defaultAuditOptions()
-	flags.StringVar(&options.Root, "root", ".", "repository root")
+	flags.StringVar(&options.Root, "root", options.Root, "repository root")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}

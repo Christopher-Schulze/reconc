@@ -135,12 +135,13 @@ func runStopPolicyCheckWithSnapshot(repoRoot string, state SessionState) (stopPo
 
 func runStopPolicyCheckLocked(repoRoot string, state SessionState) (stopPolicyCheckResult, error) {
 	fingerprintInput := stopPolicyFingerprintInputFor(repoRoot, state)
+	cacheable := stopPolicyFingerprintCacheable(fingerprintInput)
 	snapshot := stopPolicyGitSnapshot{
 		Head: fingerprintInput.GitHead, Status: fingerprintInput.GitStatus,
 		StatusMode: fingerprintInput.GitStatusMode, StatusOK: fingerprintInput.GitStatusOK,
 	}
 	fingerprint := hashStopPolicyFingerprintInput(fingerprintInput)
-	if fingerprint != "" && state.StopPolicyFingerprint == fingerprint && state.StopPolicyReportHash != "" {
+	if cacheable && fingerprint != "" && state.StopPolicyFingerprint == fingerprint && state.StopPolicyReportHash != "" {
 		report, reportHash, err := readLatestReport(repoRoot, state.SessionID)
 		if err == nil && reportHash == state.StopPolicyReportHash {
 			return stopPolicyCheckResult{Report: report, GitSnapshot: snapshot}, nil
@@ -159,7 +160,7 @@ func runStopPolicyCheckLocked(repoRoot string, state SessionState) (stopPolicyCh
 		return stopPolicyCheckResult{}, err
 	}
 	reportHash := hashCheckReport(report)
-	if fingerprint != "" && reportHash != "" {
+	if cacheable && fingerprint != "" && reportHash != "" {
 		initialEvidenceHash := stopPolicyEvidenceHash(state)
 		fingerprintInput.PolicyLockHash = fileContentHash(filepath.Join(repoRoot, ".reconc", "policy.lock.json"))
 		reportFingerprint := hashStopPolicyFingerprintInput(fingerprintInput)
@@ -262,7 +263,11 @@ func cachedCleanStopPolicyReportForEvidence(repoRoot string, state SessionState,
 	if evidenceHash == "" || state.StopPolicyEvidenceHash != evidenceHash || state.StopPolicyReportHash == "" {
 		return nil, false
 	}
-	currentFingerprint := stopPolicyFingerprint(repoRoot, state)
+	fingerprintInput := stopPolicyFingerprintInputFor(repoRoot, state)
+	if !stopPolicyFingerprintCacheable(fingerprintInput) {
+		return nil, false
+	}
+	currentFingerprint := hashStopPolicyFingerprintInput(fingerprintInput)
 	if currentFingerprint == "" || currentFingerprint != state.StopPolicyFingerprint {
 		return nil, false
 	}
@@ -348,6 +353,15 @@ func hashStopPolicyFingerprintInput(input stopPolicyFingerprintInput) string {
 	}
 	sum := sha256.Sum256(body)
 	return hex.EncodeToString(sum[:])
+}
+
+func stopPolicyFingerprintCacheable(input stopPolicyFingerprintInput) bool {
+	for _, file := range input.GitDirtyFiles {
+		if strings.HasPrefix(file.WorktreeHash, "oversized:") {
+			return false
+		}
+	}
+	return true
 }
 
 func stopPolicyGitStatus(repoRoot string) (status string, mode string) {
@@ -963,11 +977,12 @@ func readBoundedFile(path string, maxBytes int64) ([]byte, error) {
 // stop-policy fingerprint. Hashing multi-gigabyte dirty files fully would
 // stall the stop hook until the platform timeout, degrading toward fail-open
 // wherever failure-allow applies. Files above the bound are bound by size
-// and modification time instead: any growth, truncation, or rewrite moves
-// the fingerprint and invalidates the cache. A rewrite that preserves both
-// size and mtime exactly is the documented trade-off for files above the
-// bound. The policy lockfile stays far below the bound, so its hash is
-// always content-exact.
+// and modification time instead. That metadata identifies the input for
+// diagnostics, but any oversized dirty file makes the stop-policy report
+// cache ineligible and the completion candidate untrusted. This preserves
+// bounded hook latency without ever reusing a report for content that was not
+// hashed exactly. The policy lockfile stays far below the bound, so its hash
+// is always content-exact.
 const stopPolicyContentHashBound = 64 * 1024 * 1024
 
 func hashFileContent(path string) (string, error) {

@@ -278,28 +278,30 @@ func TestCanonicalAuditRootRejectsNonWorktreeRoots(t *testing.T) {
 	}
 }
 
-func TestPublicationAuditCLIUsesStrictArgumentsAndRealRepository(t *testing.T) {
-	root, err := filepath.Abs("../../..")
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestPublicationAuditCLIUsesStrictArgumentsAndBoundedFixture(t *testing.T) {
+	root := newAuditRepo(t)
+	writeAuditFixture(t, root, "README.md", "public fixture\n")
+	gitAudit(t, root, "add", "README.md")
+	gitAudit(t, root, "commit", "-m", "fixture", "--quiet")
+	boundary := strings.TrimSpace(gitAudit(t, root, "rev-parse", "HEAD"))
+	options := auditOptions{Root: ".", HistoryBoundary: boundary, MaxFileBytes: 1 << 20}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	if err := runCLI([]string{"--root", root}, &stdout, &stderr); err != nil {
+	if err := runCLIWithOptions([]string{"--root", root}, &stdout, &stderr, options); err != nil {
 		t.Fatalf("runCLI: %v\nstderr: %s", err, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "publication-audit: ok") || stderr.Len() != 0 {
 		t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
-	if err := runCLI([]string{"--unknown"}, &stdout, &stderr); err == nil {
+	if err := runCLIWithOptions([]string{"--unknown"}, &stdout, &stderr, options); err == nil {
 		t.Fatal("unknown publication-audit flag was accepted")
 	}
-	if err := runCLI([]string{"extra"}, &stdout, &stderr); err == nil || !strings.Contains(err.Error(), "usage") {
+	if err := runCLIWithOptions([]string{"extra"}, &stdout, &stderr, options); err == nil || !strings.Contains(err.Error(), "usage") {
 		t.Fatalf("positional argument error = %v", err)
 	}
-	options := defaultAuditOptions()
-	if options.Root != "." || options.HistoryBoundary == "" || options.MaxFileBytes <= 0 {
-		t.Fatalf("default audit options = %+v", options)
+	defaults := defaultAuditOptions()
+	if defaults.Root != "." || defaults.HistoryBoundary == "" || defaults.MaxFileBytes <= 0 {
+		t.Fatalf("default audit options = %+v", defaults)
 	}
 }
 

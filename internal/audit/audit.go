@@ -211,6 +211,9 @@ func Tail(repoRoot string, opts TailOptions) ([]Entry, error) {
 	if repoRoot == "" {
 		return nil, nil
 	}
+	if err := recoverPendingAppend(repoRoot); err != nil {
+		return nil, err
+	}
 	var since *time.Time
 	if strings.TrimSpace(opts.Since) != "" {
 		parsed, err := time.Parse(time.RFC3339Nano, opts.Since)
@@ -341,6 +344,9 @@ func Stats(repoRoot string) (*StatsReport, error) {
 // ExportJSONL writes the full log to w as-is. Useful for CSV export
 // tooling or cross-repo aggregation.
 func ExportJSONL(repoRoot string, w io.Writer) error {
+	if err := recoverPendingAppend(repoRoot); err != nil {
+		return err
+	}
 	return withAuditLock(repoRoot, func() error {
 		if _, _, err := loadVerifiedSnapshot(repoRoot); err != nil {
 			return err
@@ -377,6 +383,9 @@ func Verify(repoRoot string) (VerificationReport, error) {
 	if repoRoot == "" {
 		return VerificationReport{Valid: true}, nil
 	}
+	if err := recoverPendingAppend(repoRoot); err != nil {
+		return VerificationReport{}, err
+	}
 	var report VerificationReport
 	err := withAuditLock(repoRoot, func() error {
 		entries, _, err := loadVerifiedSnapshot(repoRoot)
@@ -393,6 +402,20 @@ func Verify(repoRoot string) (VerificationReport, error) {
 		return nil
 	})
 	return report, err
+}
+
+func recoverPendingAppend(repoRoot string) error {
+	path := filepath.Join(repoRoot, AuditFileRelative)
+	return jsonl.Recover(path, func() error {
+		entries, err := readAuditEntries(path)
+		if err != nil {
+			return err
+		}
+		if err := verifyEntryChain(entries); err != nil {
+			return err
+		}
+		return writeChainHead(repoRoot, entries)
+	})
 }
 
 func readVerifiedSnapshot(repoRoot string) ([]Entry, *chainHead, error) {

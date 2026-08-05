@@ -70,16 +70,16 @@ type PendingToolCall struct {
 // evidence. Every field is JSON-tagged so adding a new one is strictly
 // additive for back-compat.
 type SessionState struct {
-	RepoRoot                   string                     `json:"repo_root"`
-	SessionID                  string                     `json:"session_id"`
-	Runtime                    string                     `json:"runtime,omitempty"`
-	ReadPaths                  []string                   `json:"read_paths"`
-	WritePaths                 []string                   `json:"write_paths"`
-	WriteEpochs                map[string]uint64          `json:"write_epochs,omitempty"`
-	EvidenceEpoch              uint64                     `json:"evidence_epoch,omitempty"`
-	Commands                   []string                   `json:"commands"`
-	Claims                     []string                   `json:"claims"`
-	CommandResults             []CommandResult            `json:"command_results"`
+	RepoRoot       string            `json:"repo_root"`
+	SessionID      string            `json:"session_id"`
+	Runtime        string            `json:"runtime,omitempty"`
+	ReadPaths      []string          `json:"read_paths"`
+	WritePaths     []string          `json:"write_paths"`
+	WriteEpochs    map[string]uint64 `json:"write_epochs,omitempty"`
+	EvidenceEpoch  uint64            `json:"evidence_epoch,omitempty"`
+	Commands       []string          `json:"commands"`
+	Claims         []string          `json:"claims"`
+	CommandResults []CommandResult   `json:"command_results"`
 	// CommandResultBytes caches the JSON-encoded byte total of
 	// CommandResults so the append budget check is O(1) instead of
 	// re-marshaling every stored result. Legacy states load with it zero

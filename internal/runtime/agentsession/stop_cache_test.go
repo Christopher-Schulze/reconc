@@ -66,7 +66,7 @@ func TestHashFileContentBoundsOversizedFiles(t *testing.T) {
 		t.Fatalf("bounded file hash = %s, want content hash %s", got, want)
 	}
 
-	// Oversized files are bound by size and mtime instead of a full read.
+	// Oversized files receive a bounded diagnostic identity instead of a full read.
 	oversized := filepath.Join(dir, "oversized.bin")
 	file, err := os.Create(oversized)
 	if err != nil {
@@ -114,6 +114,60 @@ func TestHashFileContentBoundsOversizedFiles(t *testing.T) {
 	afterMtime, err := hashFileContent(oversized)
 	if err != nil || afterMtime == afterGrowth {
 		t.Fatalf("mtime change did not invalidate the oversized fingerprint: %q vs %q (%v)", afterGrowth, afterMtime, err)
+	}
+}
+
+func TestOversizedDirtyFileDisablesStopPolicyCache(t *testing.T) {
+	input := stopPolicyFingerprintInput{
+		GitDirtyFiles: []gitDirtyFile{{Path: "large.bin", WorktreeHash: "oversized:67108865:2026-07-14T12:00:00Z"}},
+	}
+	if stopPolicyFingerprintCacheable(input) {
+		t.Fatal("oversized dirty content must make the stop-policy cache ineligible")
+	}
+	input.GitDirtyFiles[0].WorktreeHash = strings.Repeat("a", 64)
+	if !stopPolicyFingerprintCacheable(input) {
+		t.Fatal("exact dirty content hash should remain cacheable")
+	}
+}
+
+func TestOversizedDirtyFileForcesStopPolicyReevaluation(t *testing.T) {
+	counterPath := filepath.Join(t.TempDir(), "counter")
+	repo := setupStopScriptPolicyRepo(t, counterPath, 0, "")
+	git := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("add", "-A")
+	git("commit", "-m", "fixture", "--quiet")
+	target := filepath.Join(repo, "src", "a.go")
+	if err := os.Truncate(target, stopPolicyContentHashBound+1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InitializeSessionState(repo, "s-oversized-cache"); err != nil {
+		t.Fatal(err)
+	}
+	state, err := MutateSessionState(repo, "s-oversized-cache", func(state SessionState) SessionState {
+		return AppendWritePath(state, "src/a.go")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 1; attempt <= 2; attempt++ {
+		if _, err := runStopPolicyCheck(repo, state); err != nil {
+			t.Fatalf("stop policy attempt %d: %v", attempt, err)
+		}
+		state, err = LoadSessionState(repo, "s-oversized-cache")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := readCounter(t, counterPath); got != 2 {
+		t.Fatalf("oversized dirty input reused a cached report: script runs=%d, want 2", got)
+	}
+	if state.StopPolicyFingerprint != "" || state.StopPolicyReportHash != "" {
+		t.Fatalf("uncacheable stop state retained cache identity: %#v", state)
 	}
 }
 
@@ -425,6 +479,7 @@ func TestCompletionDirtyFilesTrustFailsClosed(t *testing.T) {
 		{Path: "fifo", WorktreeHash: "mode:prw-------"},
 		{Path: "dir", WorktreeHash: "dir"},
 		{Path: "unreadable", WorktreeHash: "error:permission denied"},
+		{Path: "oversized", WorktreeHash: "oversized:67108865:2026-07-14T12:00:00Z"},
 		{Path: "index", WorktreeHash: strings.Repeat("a", 64), IndexEntry: "error:index locked"},
 		{Path: "submodule", WorktreeHash: "submodule-error:not a repository", IndexEntry: "160000 abc 0"},
 		{Path: "link", WorktreeHash: "symlink:not-a-digest"},

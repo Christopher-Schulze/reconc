@@ -113,6 +113,14 @@ require_text "$root/AGENTS.md" "The current source line is \`$release_line\`; th
 require_text "$root/docs/documentation.md" "The current source line is \`$release_line\`; the source version is \`v$project_version\`."
 require_text "$root/.github/releases/reconc-v$project_version.md" "# reconc v$project_version"
 require_text "$root/Makefile" "publication-audit:"
+require_text "$root/Makefile" "make coverage           -- measure root and template coverage"
+require_text "$root/scripts/tests/coverage.sh" "root module coverage: %s%%"
+if grep -Eq 'COVERAGE_MIN|enforce_floor|required .*floor|coverage floors|coverage gate' \
+  "$root/scripts/tests/coverage.sh" "$root/Makefile" "$root/AGENTS.md" \
+  "$root/CONTRIBUTING.md" "$root/README.md" "$root/docs/documentation.md" \
+  "$root/.github/workflows/reconc-ci.yml" "$root/.github/workflows/reconc-release.yml"; then
+  fail "coverage measurement must not enforce a fixed percentage floor"
+fi
 
 ci_workflow="$root/.github/workflows/reconc-ci.yml"
 release_workflow="$root/.github/workflows/reconc-release.yml"

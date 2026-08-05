@@ -36,10 +36,11 @@ import (
 // a match error as a violation of the rule itself rather than silently
 // passing.
 func MatchPath(pattern, path string) (bool, error) {
-	// Normalize both inputs to POSIX form so OS-native backslashes
-	// don't trip up the matcher on Windows.
+	// Patterns are configuration text, so surrounding whitespace is
+	// normalized. Path bytes are evidence and must remain verbatim: leading
+	// and trailing spaces are legal POSIX filename characters.
 	p := filepath.ToSlash(strings.TrimSpace(pattern))
-	q := filepath.ToSlash(strings.TrimSpace(path))
+	q := filepath.ToSlash(path)
 	return doublestar.Match(p, q)
 }
 

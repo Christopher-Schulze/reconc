@@ -166,10 +166,22 @@ func TestMatchAnyPathNoHit(t *testing.T) {
 	}
 }
 
-func TestMatchPathTrimsWhitespace(t *testing.T) {
+func TestMatchPathTrimsPatternWhitespace(t *testing.T) {
 	got, err := MatchPath("  src/main.go  ", "src/main.go")
 	if err != nil || !got {
 		t.Errorf("expected whitespace-trimmed match, got %v, err: %v", got, err)
+	}
+}
+
+func TestMatchPathPreservesPathWhitespace(t *testing.T) {
+	for _, path := range []string{" src/main.go", "src/main.go "} {
+		got, err := MatchPath("src/main.go", path)
+		if err != nil {
+			t.Fatalf("MatchPath(%q): %v", path, err)
+		}
+		if got {
+			t.Fatalf("path whitespace was discarded for %q", path)
+		}
 	}
 }
 

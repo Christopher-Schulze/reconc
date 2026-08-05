@@ -3,6 +3,7 @@ package audit
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"reconc.dev/reconc/internal/jsonl"
 )
 
 func TestEnabledEnvOverridesConfig(t *testing.T) {
@@ -76,6 +79,55 @@ func TestAppendMultipleProducesJSONL(t *testing.T) {
 	data, _ := os.ReadFile(filepath.Join(repo, AuditFileRelative))
 	if lines := strings.Count(string(data), "\n"); lines != 3 {
 		t.Errorf("expected 3 lines, got %d", lines)
+	}
+}
+
+func TestTailRecoversPublishedAuditTransaction(t *testing.T) {
+	repo := t.TempDir()
+	if err := Append(repo, Entry{Event: "before-crash", Decision: "pass"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(repo, AuditFileRelative)
+	entry := normalizeEntry(Entry{
+		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+		Event:     "published-before-crash",
+		Decision:  "pass",
+	})
+	prepare := func() ([]byte, error) {
+		entries, _, err := loadVerifiedSnapshot(repo)
+		if err != nil {
+			return nil, err
+		}
+		last := entries[len(entries)-1]
+		entry.Sequence = last.Sequence + 1
+		entry.PreviousDigest = last.Digest
+		entry.ChainVersion = auditChainVersion
+		digest, err := entryDigest(entry)
+		if err != nil {
+			return nil, err
+		}
+		entry.Digest = digest
+		return json.Marshal(entry)
+	}
+	injected := errors.New("injected detached-head crash")
+	err := jsonl.AppendTransaction(path, jsonl.Policy{MaxBytes: DefaultMaxSizeBytes, MaxArchives: MaxArchiveFiles}, prepare, func() error {
+		return injected
+	})
+	if !errors.Is(err, injected) {
+		t.Fatalf("injected publication failure = %v", err)
+	}
+	entries, err := Tail(repo, TailOptions{})
+	if err != nil {
+		t.Fatalf("recover published audit transaction: %v", err)
+	}
+	if len(entries) != 2 || entries[1].Event != "published-before-crash" {
+		t.Fatalf("recovered entries = %+v", entries)
+	}
+	if report, err := Verify(repo); err != nil || !report.Valid || report.Entries != 2 {
+		t.Fatalf("recovered chain = %+v err=%v", report, err)
+	}
+	if _, err := os.Stat(path + ".append-transaction.json"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("recovery journal remains: %v", err)
 	}
 }
 

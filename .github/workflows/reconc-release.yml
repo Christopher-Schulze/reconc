@@ -88,11 +88,7 @@ jobs:
       - name: Verify source and release gates
         run: |
           make publication-audit
-          unformatted="$(git ls-files -z -- '*.go' | xargs -0 gofmt -l)"
-          test -z "$unformatted" || {
-            printf 'Go files require gofmt:\n%s\n' "$unformatted" >&2
-            exit 1
-          }
+          make fmt-check
           go mod tidy -diff
           (cd harness/template && go mod tidy -diff)
           go test ./...

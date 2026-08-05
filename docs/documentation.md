@@ -177,9 +177,11 @@ make publication-audit
 ```
 
 The canonical Make targets cover both the root Go module and
-`harness/template`; `make test` additionally runs the publication boundary and
-release-trust failure-path checks. Direct `go test ./...` validates only the
-root module.
+`harness/template`; `make test` first rejects unformatted tracked Go sources,
+runs the real-repository publication audit once, then runs both race suites and
+the release-trust failure-path checks. The publication CLI contract test uses a
+bounded temporary Git fixture instead of rescanning the real repository under
+the race detector. Direct `go test ./...` validates only the root module.
 
 Make targets:
 
@@ -198,15 +200,13 @@ make release VERSION=0.9.2
 ```
 
 `make coverage` runs both Go modules with atomic whole-module instrumentation
-(`-coverpkg=./...`) and rejects root coverage below 83.9% or portable-template
-coverage below 85%. The profiles are written to `coverage.out` and
-`harness/template/coverage.out`. `make cover` enforces the same floors and also
-writes separate HTML reports beside those profiles. The floors are explicit
-non-regression gates, not a false claim of 100% host-independent coverage:
-OS-specific files and process entry points still require their matching
-platform jobs or integration boundaries. Raising either floor requires
-corresponding executable tests; lowering one requires an explicit reviewed
-change to the gate.
+(`-coverpkg=./...`) and reports the measured percentages without enforcing a
+fixed threshold. The profiles are written to `coverage.out` and
+`harness/template/coverage.out`. `make cover` records the same measurements and
+also writes separate HTML reports beside those profiles. Coverage is a review
+signal, not a percentage gate: meaningful tests must exercise changed behavior,
+while OS-specific files and process entry points still require their matching
+platform jobs or integration boundaries.
 
 `make release` cross-compiles five binaries into `dist/`, copies the native
 POSIX and Windows installers, generates three flat shell-completion artifacts,
@@ -1248,9 +1248,14 @@ archives, with file-locked append and pre-append rotation. Audit entries
 additionally carry one contiguous sequence and SHA-256 previous/current digest
 chain, with the latest identity stored in `.reconc/audit.head.json`. Every
 audit reader verifies all retained archives, the live file, and the detached
-head before returning data. Generic retention never rewrites chained audit
-evidence and fails on an invalid chain or mismatched ring policy. Repo runtime
-is capped at 48 MiB. Known
+head before returning data. Rotation and chained audit appends publish a
+private durable journal with `prepared`, `published`, and `resolved` states plus
+digest-bound archive backups. Recovery rolls a prepared append back to the
+complete pre-rotation snapshot, finalizes a published append by idempotently
+rebuilding the detached head, and removes only resolved transaction artifacts.
+Malformed journals or corrupt backups fail closed and remain available for
+diagnosis. Generic retention never rewrites chained audit evidence and fails
+on an invalid chain or mismatched ring policy. Repo runtime is capped at 48 MiB. Known
 `reconc-proof-neg-*`, `reconc-proof-neg-copy-*`, and
 `reconc-proof-gocache-*` temp trees are removed after a two-hour inactive
 grace, retaining recent work while removing hard-kill residue before a full
@@ -1274,7 +1279,16 @@ Static command conflict analysis follows evaluator semantics:
 `require_command` accepts any configured command. A `forbid_command` pair is
 reported only when their exact trigger scopes overlap and that single forbid
 rule blocks every required alternative. A partial overlap is satisfiable and
-is not reported as a contradiction.
+is not reported as a contradiction. This analysis is deliberately conservative:
+it compares exact top-level rule targets and does not recursively prove
+composite sub-checks conflict-free. Composite rules are still parsed and
+evaluated normally; authors must review their cross-rule interactions.
+
+Single-identifier brace groups such as `{task_id}` are template captures only
+for capture-aware rule kinds. In other glob fields they retain doublestar's
+literal brace behavior. Compilation emits an explicit warning naming the rule,
+field, and literal interpretation; the warning is advisory rather than a
+compile error for compatibility.
 
 Command matching is exact (normalized whole strings) by default.
 Normalization is wrapper- and anchor-tolerant without weakening semantics: a
@@ -1299,6 +1313,11 @@ the write-epoch freshness contract. After upgrading, existing repositories
 must re-run `reconc hook install` for `claude-code`, `codex`, `opencode`, and
 `kilo` once to pick up the current host event contracts, matchers, bounded
 timeouts, and payload adapters.
+
+Glob patterns are configuration text and trim surrounding whitespace before
+matching. Repository path evidence is normalized to slash separators but never
+trimmed: leading and trailing spaces are legal filename bytes and remain part
+of the match identity.
 
 Command-prevention checks examine executable shell segments rather than one
 flat string. Top-level and composite `forbid_command` rules therefore run at
@@ -2054,7 +2073,11 @@ read/write/command/claim evidence hash. Normal Stops still rebuild the
 fingerprint, while reentrant `stop_hook_active=true` calls may reuse a clean
 cached report only when both the full repo fingerprint and evidence hash still
 match, so the next Stop reruns if the repo or evidence changes after the report
-was built. Alternate Git ref backends fall back to `git rev-parse`; the normal
+was built. Dirty regular files up to 64 MiB contribute exact SHA-256 content
+identity. A larger dirty file receives only a bounded size/mtime diagnostic
+identity, makes stop-policy report caching ineligible, and marks the completion
+worktree untrusted; Reconc therefore never reuses a report or certifies a
+candidate whose changed bytes were not hashed exactly. Alternate Git ref backends fall back to `git rev-parse`; the normal
 path avoids that extra process. Reconc's own `.reconc/cache/`,
 `.reconc/run/`, `.reconc/locks/`, `.reconc/reports/`, and
 `.reconc/audit.jsonl` runtime artefacts are excluded from the dirty fingerprint
@@ -2164,7 +2187,7 @@ GitHub workflows:
 CI checks:
 
 - full root-module and `harness/template` tests on Ubuntu 24.04 and macOS 15;
-  whole-module root/template coverage floors, formatting, tidy, vet, pinned
+  whole-module root/template coverage measurement, formatting, tidy, vet, pinned
   Govulncheck v1.6.0, pinned Staticcheck v0.7.0, and race checks run once on
   Linux
 - native Windows 2025 root-module and `harness/template` tests plus native

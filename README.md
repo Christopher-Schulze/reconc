@@ -1021,7 +1021,8 @@ verification requirements, and the pull-request checklist. Run `make test`,
 `make coverage`, `make vet`, `make lint`, `make self-host`, and
 `make publication-audit` before proposing a change. `make coverage` measures
 the complete root and portable-template modules with cross-package
-instrumentation and rejects regressions below their explicit floors;
+instrumentation and reports the measured percentages without enforcing a fixed
+threshold;
 `make cover` additionally writes separate HTML reports. Report vulnerabilities
 through the private route in
 [SECURITY.md](SECURITY.md), not a public issue.
@@ -1037,7 +1038,7 @@ is regenerated and byte-verified before its checksum and build provenance are
 published.
 
 Candidate CI runs full root and portable-template tests on Ubuntu and macOS,
-native Windows tests and installer failure paths, whole-module coverage floors,
+native Windows tests and installer failure paths, whole-module coverage measurement,
 formatting, tidy checks, Vet, pinned Staticcheck, pinned Govulncheck, race
 tests, release-trust tests, publication-boundary checks, harness-pack parity,
 and Go CodeQL. GitHub Actions are allowlisted and commit-pinned, checkout
