@@ -100,8 +100,8 @@ func evaluateCommands(gate policy.AssuranceGate, successful []string) []Finding 
 	}}
 }
 
-func evaluateLanguageBoundary(root string, gate policy.AssuranceGate, changed []string, state *evaluationState) ([]Finding, error) {
-	files, err := changedFiles(root, changed, gate.ScanPaths, gate.ExcludePaths, gate.Exemptions, state)
+func evaluateLanguageBoundary(root string, gate policy.AssuranceGate, state *evaluationState) ([]Finding, error) {
+	files, err := changedFiles(root, gate.ScanPaths, gate.ExcludePaths, gate.Exemptions, state)
 	if err != nil {
 		return nil, err
 	}
@@ -121,19 +121,15 @@ func evaluateLanguageBoundary(root string, gate policy.AssuranceGate, changed []
 	return findings, nil
 }
 
-func evaluateDependencyPins(root string, gate policy.AssuranceGate, changed []string, state *evaluationState) ([]Finding, error) {
-	files, err := changedFiles(root, changed, gate.ManifestPaths, nil, nil, state)
+func evaluateDependencyPins(root string, gate policy.AssuranceGate, state *evaluationState) ([]Finding, error) {
+	files, err := changedFiles(root, gate.ManifestPaths, nil, nil, state)
 	if err != nil {
 		return nil, err
 	}
 	findings := []Finding{}
 	for _, file := range files {
-		body, err := state.read(file.full)
+		document, err := state.jsonObject(file.full, false)
 		if err != nil {
-			return nil, err
-		}
-		var document map[string]json.RawMessage
-		if err := json.Unmarshal(body, &document); err != nil {
 			return nil, fmt.Errorf("parse dependency manifest %s: %w", file.relative, err)
 		}
 		for _, section := range gate.DependencySections {
@@ -162,18 +158,17 @@ func evaluateDependencyPins(root string, gate policy.AssuranceGate, changed []st
 	return findings, nil
 }
 
-func evaluateGuardBoundary(root string, gate policy.AssuranceGate, changed []string, state *evaluationState) ([]Finding, error) {
-	files, err := changedFiles(root, changed, gate.ScanPaths, gate.ExcludePaths, gate.Exemptions, state)
+func evaluateGuardBoundary(root string, gate policy.AssuranceGate, state *evaluationState) ([]Finding, error) {
+	files, err := changedFiles(root, gate.ScanPaths, gate.ExcludePaths, gate.Exemptions, state)
 	if err != nil {
 		return nil, err
 	}
 	findings := []Finding{}
 	for _, file := range files {
-		body, err := state.read(file.full)
+		lines, err := state.lines(file.full)
 		if err != nil {
 			return nil, err
 		}
-		lines := strings.Split(string(body), "\n")
 		for index, line := range lines {
 			if isCommentOnly(strings.TrimSpace(line)) {
 				continue

@@ -65,7 +65,7 @@ harness/         embedded immutable advanced harness pack
 internal/
   adopt/          convention detector, rule suggestions, and stack-pack recommendations
   agentguide/     embedded agent-integration guide + section lookup
-  assurance/      bounded native layout/source/manifest/proof gates
+  assurance/      bounded native layout/source/manifest/proof gates + per-run fact graph
   atomicfile/     write-on-change and atomic publication primitives
   audit/          SHA-256-linked JSONL decision evidence + detached head + bounded rotation
   boundedio/      exact-size reads for untrusted and repository-controlled files
@@ -781,6 +781,12 @@ coupling to any specific tool beyond recognizing that prefix.
 - Native assurance source gates scan matching changed files only. Layout and
   substantive-proof authority gates inspect their complete configured surface;
   unreadable or over-budget authority fails closed.
+- One native-assurance evaluation owns normalized changed paths, validated glob
+  decisions, canonical filesystem identities, bounded body snapshots, line
+  indexes, BOM-aware JSON manifest objects, and shared Go syntax/format facts.
+  Large Go file sets may schedule CPU-only facts through at most four workers
+  after deterministic body reads and budget claims; gates still consume files,
+  findings, and operational errors in stable sorted and declaration order.
 
 ### Secrets in audit
 

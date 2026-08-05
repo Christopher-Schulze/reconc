@@ -30,34 +30,25 @@ var goUnimplementedPanicSentinels = [][]byte{
 	[]byte("panic(" + "`not implemented`)"),
 }
 
-func evaluateSourceHygiene(root string, gate policy.AssuranceGate, changed []string, state *evaluationState) ([]Finding, error) {
-	files, err := changedFiles(root, changed, gate.ScanPaths, gate.ExcludePaths, gate.Exemptions, state)
+func evaluateSourceHygiene(root string, gate policy.AssuranceGate, state *evaluationState) ([]Finding, error) {
+	files, err := changedFiles(root, gate.ScanPaths, gate.ExcludePaths, gate.Exemptions, state)
 	if err != nil {
 		return nil, err
 	}
 	findings := []Finding{}
 	for _, file := range files {
-		body, err := state.read(file.full)
+		lines, err := state.lines(file.full)
 		if err != nil {
 			return nil, err
 		}
-		lineNumber := 1
-		for len(body) > 0 {
-			line := body
-			if newline := bytes.IndexByte(body, '\n'); newline >= 0 {
-				line = body[:newline]
-				body = body[newline+1:]
-			} else {
-				body = nil
-			}
-			if problem := sourceHygieneProblem(filepath.Ext(file.relative), line); problem != "" {
+		for index, line := range lines {
+			if problem := sourceHygieneProblem(filepath.Ext(file.relative), []byte(line)); problem != "" {
 				findings = append(findings, Finding{
 					GateID: gate.ID, Paths: []string{file.relative},
-					Message:     fmt.Sprintf("%s at %s:%d", problem, file.relative, lineNumber),
+					Message:     fmt.Sprintf("%s at %s:%d", problem, file.relative, index+1),
 					Remediation: "Implement or remove the shipped-code marker, handle the ignored error, or add a narrowly reasoned path exemption.",
 				})
 			}
-			lineNumber++
 		}
 	}
 	return findings, nil

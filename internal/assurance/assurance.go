@@ -39,22 +39,31 @@ type Finding struct {
 // errors for unreadable or over-budget authority surfaces so callers fail
 // closed instead of silently accepting incomplete evidence.
 func Evaluate(repoRoot string, gates []policy.AssuranceGate, inputs Inputs) ([]Finding, error) {
+	findings, _, err := evaluateWithStats(repoRoot, gates, inputs)
+	return findings, err
+}
+
+func evaluateWithStats(repoRoot string, gates []policy.AssuranceGate, inputs Inputs) ([]Finding, analysisStats, error) {
+	return evaluateWithWorkerLimit(repoRoot, gates, inputs, maxAnalysisWorkers)
+}
+
+func evaluateWithWorkerLimit(repoRoot string, gates []policy.AssuranceGate, inputs Inputs, workerLimit int) ([]Finding, analysisStats, error) {
 	root, err := canonicalRoot(repoRoot)
 	if err != nil {
-		return nil, err
+		return nil, analysisStats{}, err
 	}
 	if len(inputs.ChangedPaths) > maxChangedPaths {
-		return nil, fmt.Errorf("assurance changed-path budget exceeded: %d > %d", len(inputs.ChangedPaths), maxChangedPaths)
+		return nil, analysisStats{}, fmt.Errorf("assurance changed-path budget exceeded: %d > %d", len(inputs.ChangedPaths), maxChangedPaths)
 	}
 	if inputs.Now.IsZero() {
 		inputs.Now = time.Now().UTC()
 	}
-	state := newEvaluationState()
+	state := newEvaluationState(inputs.ChangedPaths, workerLimit)
 	findings := []Finding{}
 	for _, gate := range gates {
 		applies, err := state.applies(root, gate.ApplicableIf)
 		if err != nil {
-			return nil, fmt.Errorf("assurance gate %s applicability: %w", gate.ID, err)
+			return nil, state.analysisStats(), fmt.Errorf("assurance gate %s applicability: %w", gate.ID, err)
 		}
 		if !applies {
 			continue
@@ -66,30 +75,30 @@ func Evaluate(repoRoot string, gates []policy.AssuranceGate, inputs Inputs) ([]F
 		case policy.AssuranceGeneratedReference, policy.AssuranceLiveVerification:
 			gateFindings = evaluateCommands(gate, inputs.SuccessfulCommands)
 		case policy.AssuranceLanguageBoundary:
-			gateFindings, err = evaluateLanguageBoundary(root, gate, inputs.ChangedPaths, state)
+			gateFindings, err = evaluateLanguageBoundary(root, gate, state)
 		case policy.AssuranceDependencyPins:
-			gateFindings, err = evaluateDependencyPins(root, gate, inputs.ChangedPaths, state)
+			gateFindings, err = evaluateDependencyPins(root, gate, state)
 		case policy.AssurancePackageScripts:
 			gateFindings, err = evaluatePackageScripts(root, gate, inputs.SuccessfulCommands, state)
 		case policy.AssuranceNetworkBoundary, policy.AssuranceProcessBoundary:
-			gateFindings, err = evaluateGuardBoundary(root, gate, inputs.ChangedPaths, state)
+			gateFindings, err = evaluateGuardBoundary(root, gate, state)
 		case policy.AssuranceSubstantiveProof:
 			gateFindings, err = evaluateSubstantiveProof(root, gate, inputs, state)
 		case policy.AssuranceGoConcurrency:
-			gateFindings, err = evaluateGoConcurrencyBoundary(root, gate, inputs.ChangedPaths, state)
+			gateFindings, err = evaluateGoConcurrencyBoundary(root, gate, state)
 		case policy.AssuranceGoFormat:
-			gateFindings, err = evaluateGoFormat(root, gate, inputs.ChangedPaths, state)
+			gateFindings, err = evaluateGoFormat(root, gate, state)
 		case policy.AssuranceSourceHygiene:
-			gateFindings, err = evaluateSourceHygiene(root, gate, inputs.ChangedPaths, state)
+			gateFindings, err = evaluateSourceHygiene(root, gate, state)
 		default:
 			err = fmt.Errorf("unsupported assurance kind %q", gate.Type)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("assurance gate %s: %w", gate.ID, err)
+			return nil, state.analysisStats(), fmt.Errorf("assurance gate %s: %w", gate.ID, err)
 		}
 		findings = append(findings, gateFindings...)
 	}
-	return limitFindings(findings), nil
+	return limitFindings(findings), state.analysisStats(), nil
 }
 
 func normalizeCommand(command string) string {

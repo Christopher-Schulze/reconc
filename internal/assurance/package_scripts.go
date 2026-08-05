@@ -1,8 +1,6 @@
 package assurance
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -43,19 +41,15 @@ func evaluatePackageScripts(root string, gate policy.AssuranceGate, successful [
 		entry := packageScriptCommand{runner: parsed.Runner, script: parsed.Script, base: strings.Join(strings.Fields(command), " ")}
 		commandsByScript[entry.script] = append(commandsByScript[entry.script], entry)
 	}
-	manifests, err := matchingPackageManifests(root, gate.ManifestPaths, gate.ExcludePaths)
+	manifests, err := state.matchingPackageManifests(root, gate.ManifestPaths, gate.ExcludePaths)
 	if err != nil {
 		return nil, err
 	}
 	successSet := stringSetNormalized(successful)
 	findings := []Finding{}
 	for _, manifest := range manifests {
-		body, err := state.read(manifest.full)
+		document, err := state.packageDocument(manifest.full)
 		if err != nil {
-			return nil, err
-		}
-		var document packageScriptDocument
-		if err := json.Unmarshal(trimUTF8BOM(body), &document); err != nil {
 			findings = append(findings, Finding{
 				GateID: gate.ID, Paths: []string{manifest.relative},
 				Message:     fmt.Sprintf("package manifest %s is not valid JSON: %v", manifest.relative, err),
@@ -64,7 +58,7 @@ func evaluatePackageScripts(root string, gate policy.AssuranceGate, successful [
 			continue
 		}
 		if len(gate.ManifestMarkers) > 0 {
-			matches, err := manifestDirectoryHasMarker(filepath.Dir(manifest.full), gate.ManifestMarkers)
+			matches, err := state.manifestDirectoryHasMarker(filepath.Dir(manifest.full), gate.ManifestMarkers)
 			if err != nil {
 				return nil, fmt.Errorf("inspect package markers for %s: %w", manifest.relative, err)
 			}
@@ -122,7 +116,14 @@ func evaluatePackageScripts(root string, gate policy.AssuranceGate, successful [
 	return findings, nil
 }
 
-func matchingPackageManifests(root string, patterns, excludePatterns []string) ([]changedFile, error) {
+func (state *evaluationState) matchingPackageManifests(root string, patterns, excludePatterns []string) ([]changedFile, error) {
+	if err := state.validateGatePatterns(patterns, excludePatterns, nil); err != nil {
+		return nil, err
+	}
+	cacheKey := stringSlicesKey(patterns, excludePatterns)
+	if cached, ok := state.packageManifests[cacheKey]; ok {
+		return cached, nil
+	}
 	manifests := []changedFile{}
 	visited := 0
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
@@ -153,20 +154,10 @@ func matchingPackageManifests(root string, patterns, excludePatterns []string) (
 			return err
 		}
 		relative = filepath.ToSlash(relative)
-		if len(excludePatterns) > 0 {
-			excluded, err := matchAny(excludePatterns, relative)
-			if err != nil {
-				return err
-			}
-			if excluded {
-				return nil
-			}
+		if matchAnyUnvalidated(excludePatterns, relative) {
+			return nil
 		}
-		matched, err := matchAny(patterns, relative)
-		if err != nil {
-			return err
-		}
-		if !matched {
+		if !matchAnyUnvalidated(patterns, relative) {
 			return nil
 		}
 		if len(manifests) >= maxScannedFiles {
@@ -179,10 +170,28 @@ func matchingPackageManifests(root string, patterns, excludePatterns []string) (
 		return nil, err
 	}
 	sort.Slice(manifests, func(i, j int) bool { return manifests[i].relative < manifests[j].relative })
+	state.packageManifests[cacheKey] = manifests
 	return manifests, nil
 }
 
+func (state *evaluationState) manifestDirectoryHasMarker(directory string, patterns []string) (bool, error) {
+	key := directory + "\x00" + stringSlicesKey(patterns)
+	if cached, ok := state.manifestMarkers[key]; ok {
+		return cached, nil
+	}
+	matched, err := manifestDirectoryHasMarker(directory, patterns)
+	if err == nil {
+		state.manifestMarkers[key] = matched
+	}
+	return matched, err
+}
+
 func manifestDirectoryHasMarker(directory string, patterns []string) (bool, error) {
+	for _, pattern := range patterns {
+		if !doublestar.ValidatePattern(filepath.ToSlash(pattern)) {
+			return false, doublestar.ErrBadPattern
+		}
+	}
 	entries, err := os.ReadDir(directory)
 	if err != nil {
 		return false, err
@@ -191,14 +200,8 @@ func manifestDirectoryHasMarker(directory string, patterns []string) (bool, erro
 		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
 			continue
 		}
-		for _, pattern := range patterns {
-			matched, err := doublestar.Match(pattern, entry.Name())
-			if err != nil {
-				return false, err
-			}
-			if matched {
-				return true, nil
-			}
+		if matchAnyUnvalidated(patterns, entry.Name()) {
+			return true, nil
 		}
 	}
 	return false, nil
@@ -240,19 +243,11 @@ func inheritedPackageManagerMetadata(path string, state *evaluationState) (strin
 	if err != nil {
 		return "", err
 	}
-	body, err := state.read(path)
+	document, err := state.packageDocument(path)
 	if err != nil {
-		return "", err
-	}
-	var document packageScriptDocument
-	if err := json.Unmarshal(trimUTF8BOM(body), &document); err != nil {
 		return "", nil
 	}
 	return document.PackageManager, nil
-}
-
-func trimUTF8BOM(body []byte) []byte {
-	return bytes.TrimPrefix(body, []byte{0xef, 0xbb, 0xbf})
 }
 
 func packageManagerSignals(directory, metadata string) ([]string, error) {

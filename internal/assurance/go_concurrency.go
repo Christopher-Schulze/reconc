@@ -3,30 +3,21 @@ package assurance
 import (
 	"fmt"
 	"go/ast"
-	"go/parser"
 	"go/token"
-	"path/filepath"
 	"strings"
 
 	"reconc.dev/reconc/internal/policy"
 )
 
-func evaluateGoConcurrencyBoundary(root string, gate policy.AssuranceGate, changed []string, state *evaluationState) ([]Finding, error) {
-	files, err := changedFiles(root, changed, gate.ScanPaths, gate.ExcludePaths, gate.Exemptions, state)
+func evaluateGoConcurrencyBoundary(root string, gate policy.AssuranceGate, state *evaluationState) ([]Finding, error) {
+	files, err := changedGoFiles(root, gate.ScanPaths, gate.ExcludePaths, gate.Exemptions, state)
 	if err != nil {
 		return nil, err
 	}
+	state.prepareGoFacts(files, true, false)
 	findings := []Finding{}
 	for _, file := range files {
-		if filepath.Ext(file.relative) != ".go" {
-			continue
-		}
-		body, err := state.read(file.full)
-		if err != nil {
-			return nil, err
-		}
-		set := token.NewFileSet()
-		tree, err := parser.ParseFile(set, file.relative, body, parser.SkipObjectResolution)
+		set, tree, err := state.goSyntax(file)
 		if err != nil {
 			return nil, fmt.Errorf("parse Go source %s: %w", file.relative, err)
 		}

@@ -16,11 +16,18 @@ import (
 )
 
 type evaluationState struct {
-	budget        *scanBudget
-	paths         map[string]resolvedPath
-	bodies        map[string][]byte
-	changedFiles  map[string][]changedFile
-	applicability map[string]bool
+	budget           *scanBudget
+	paths            map[string]resolvedPath
+	facts            map[string]*fileFacts
+	changedPaths     []normalizedChangedPath
+	changedFiles     map[string][]changedFile
+	applicability    map[string]bool
+	validatedGlobs   map[string]bool
+	patternMatches   map[string]*patternMatchBits
+	packageManifests map[string][]changedFile
+	manifestMarkers  map[string]bool
+	analysisWorkers  int
+	stats            analysisCounters
 }
 
 type resolvedPath struct {
@@ -34,19 +41,56 @@ type changedFile struct {
 	full     string
 }
 
+type normalizedChangedPath struct {
+	relative  string
+	extension string
+}
+
+type patternMatchBits struct {
+	known   []uint64
+	matched []uint64
+}
+
 type scanBudget struct {
 	files map[string]bool
 	bytes int64
 }
 
-func newEvaluationState() *evaluationState {
-	return &evaluationState{
-		budget:        newScanBudget(),
-		paths:         map[string]resolvedPath{},
-		bodies:        map[string][]byte{},
-		changedFiles:  map[string][]changedFile{},
-		applicability: map[string]bool{},
+func newEvaluationState(changed []string, workerLimit int) *evaluationState {
+	if workerLimit < 1 {
+		workerLimit = 1
 	}
+	if workerLimit > maxAnalysisWorkers {
+		workerLimit = maxAnalysisWorkers
+	}
+	state := &evaluationState{
+		budget:           newScanBudget(),
+		paths:            map[string]resolvedPath{},
+		facts:            map[string]*fileFacts{},
+		changedFiles:     map[string][]changedFile{},
+		applicability:    map[string]bool{},
+		validatedGlobs:   map[string]bool{},
+		patternMatches:   map[string]*patternMatchBits{},
+		packageManifests: map[string][]changedFile{},
+		manifestMarkers:  map[string]bool{},
+		analysisWorkers:  workerLimit,
+	}
+	seen := make(map[string]bool, len(changed))
+	for _, raw := range changed {
+		relative := filepath.ToSlash(filepath.Clean(raw))
+		if seen[relative] {
+			continue
+		}
+		seen[relative] = true
+		state.changedPaths = append(state.changedPaths, normalizedChangedPath{
+			relative:  relative,
+			extension: strings.ToLower(filepath.Ext(relative)),
+		})
+	}
+	sort.Slice(state.changedPaths, func(i, j int) bool {
+		return state.changedPaths[i].relative < state.changedPaths[j].relative
+	})
+	return state
 }
 
 func (state *evaluationState) applies(root string, patterns []string) (bool, error) {
@@ -83,31 +127,50 @@ func (state *evaluationState) applies(root string, patterns []string) (bool, err
 	return found, err
 }
 
-func changedFiles(root string, changed, includes, excludes []string, exemptions []policy.AssuranceExemption, state *evaluationState) ([]changedFile, error) {
-	cacheKey := changedFilesKey(includes, excludes, exemptions)
+func changedFiles(root string, includes, excludes []string, exemptions []policy.AssuranceExemption, state *evaluationState) ([]changedFile, error) {
+	return changedFilesByExtension(root, includes, excludes, exemptions, "", state)
+}
+
+func changedGoFiles(root string, includes, excludes []string, exemptions []policy.AssuranceExemption, state *evaluationState) ([]changedFile, error) {
+	baseKey := changedFilesKey(includes, excludes, exemptions, "")
+	cacheKey := changedFilesKey(includes, excludes, exemptions, ".go")
+	if cached, ok := state.changedFiles[cacheKey]; ok {
+		return cached, nil
+	}
+	if base, ok := state.changedFiles[baseKey]; ok {
+		files := make([]changedFile, 0, len(base))
+		for _, file := range base {
+			if strings.EqualFold(filepath.Ext(file.relative), ".go") {
+				files = append(files, file)
+			}
+		}
+		state.changedFiles[cacheKey] = files
+		return files, nil
+	}
+	return changedFilesByExtension(root, includes, excludes, exemptions, ".go", state)
+}
+
+func changedFilesByExtension(root string, includes, excludes []string, exemptions []policy.AssuranceExemption, requiredExtension string, state *evaluationState) ([]changedFile, error) {
+	if err := state.validateGatePatterns(includes, excludes, exemptions); err != nil {
+		return nil, err
+	}
+	cacheKey := changedFilesKey(includes, excludes, exemptions, requiredExtension)
 	if cached, ok := state.changedFiles[cacheKey]; ok {
 		return cached, nil
 	}
 	files := []changedFile{}
-	seen := map[string]bool{}
-	for _, raw := range changed {
-		relative := filepath.ToSlash(filepath.Clean(raw))
-		included, err := matchAny(includes, relative)
-		if err != nil {
-			return nil, err
+	for changedIndex, changed := range state.changedPaths {
+		if requiredExtension != "" && changed.extension != requiredExtension {
+			continue
 		}
+		relative := changed.relative
+		included := state.matchChanged(includes, changedIndex)
 		if !included {
 			continue
 		}
-		excluded, err := matchAny(excludes, relative)
-		if err != nil {
-			return nil, err
-		}
-		exempt, err := pathExempt(relative, exemptions)
-		if err != nil {
-			return nil, err
-		}
-		if excluded || exempt || seen[relative] {
+		excluded := state.matchChanged(excludes, changedIndex)
+		exempt := state.changedPathExempt(changedIndex, exemptions)
+		if excluded || exempt {
 			continue
 		}
 		resolved, err := state.resolve(root, relative)
@@ -120,20 +183,18 @@ func changedFiles(root string, changed, includes, excludes []string, exemptions 
 		if err := state.budget.observeFile(resolved.full); err != nil {
 			return nil, err
 		}
-		seen[relative] = true
 		files = append(files, changedFile{relative: relative, full: resolved.full})
 	}
-	sort.Slice(files, func(i, j int) bool { return files[i].relative < files[j].relative })
 	state.changedFiles[cacheKey] = files
 	return files, nil
 }
 
-func changedFilesKey(includes, excludes []string, exemptions []policy.AssuranceExemption) string {
+func changedFilesKey(includes, excludes []string, exemptions []policy.AssuranceExemption, requiredExtension string) string {
 	paths := make([]string, len(exemptions))
 	for index, exemption := range exemptions {
 		paths[index] = exemption.Path
 	}
-	return stringSlicesKey(includes, excludes, paths)
+	return stringSlicesKey(includes, excludes, paths, []string{requiredExtension})
 }
 
 func stringSlicesKey(groups ...[]string) string {
@@ -155,6 +216,11 @@ func gateApplies(root string, patterns []string) (bool, error) {
 	if len(patterns) == 0 {
 		return true, nil
 	}
+	for _, pattern := range patterns {
+		if !doublestar.ValidatePattern(filepath.ToSlash(pattern)) {
+			return false, doublestar.ErrBadPattern
+		}
+	}
 	visited := 0
 	found := false
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
@@ -172,11 +238,7 @@ func gateApplies(root string, patterns []string) (bool, error) {
 		if err != nil {
 			return err
 		}
-		matched, err := matchAny(patterns, filepath.ToSlash(relative))
-		if err != nil {
-			return err
-		}
-		if matched {
+		if matchAnyUnvalidated(patterns, filepath.ToSlash(relative)) {
 			found = true
 			return fs.SkipAll
 		}
@@ -221,6 +283,7 @@ func (state *evaluationState) resolve(root, relative string) (resolvedPath, erro
 	if cached, ok := state.paths[relative]; ok {
 		return cached, nil
 	}
+	state.stats.pathResolutions.Add(1)
 	full, exists, err := safeExistingPath(root, relative)
 	if err != nil {
 		return resolvedPath{}, err
@@ -238,15 +301,7 @@ func (state *evaluationState) resolve(root, relative string) (resolvedPath, erro
 }
 
 func (state *evaluationState) read(path string) ([]byte, error) {
-	if cached, ok := state.bodies[path]; ok {
-		return cached, nil
-	}
-	body, err := readBounded(path, state.budget)
-	if err != nil {
-		return nil, err
-	}
-	state.bodies[path] = body
-	return body, nil
+	return state.fact(path).body(state)
 }
 
 func readBounded(path string, budget *scanBudget) ([]byte, error) {
@@ -343,33 +398,73 @@ func directoryHasContent(root string, budget *scanBudget) (bool, error) {
 	return false, nil
 }
 
-func matchAny(patterns []string, relative string) (bool, error) {
-	if len(patterns) == 0 {
-		return false, nil
-	}
+func matchAnyUnvalidated(patterns []string, relative string) bool {
+	relative = filepath.ToSlash(relative)
 	for _, pattern := range patterns {
-		matched, err := doublestar.Match(filepath.ToSlash(pattern), filepath.ToSlash(relative))
-		if err != nil {
-			return false, err
-		}
-		if matched {
-			return true, nil
+		if doublestar.MatchUnvalidated(filepath.ToSlash(pattern), relative) {
+			return true
 		}
 	}
-	return false, nil
+	return false
 }
 
-func pathExempt(relative string, exemptions []policy.AssuranceExemption) (bool, error) {
+func (state *evaluationState) validateGatePatterns(includes, excludes []string, exemptions []policy.AssuranceExemption) error {
+	patterns := make([]string, 0, len(includes)+len(excludes)+len(exemptions))
+	patterns = append(patterns, includes...)
+	patterns = append(patterns, excludes...)
 	for _, exemption := range exemptions {
-		matched, err := doublestar.Match(filepath.ToSlash(exemption.Path), filepath.ToSlash(relative))
-		if err != nil {
-			return false, err
+		patterns = append(patterns, exemption.Path)
+	}
+	for _, pattern := range patterns {
+		pattern = filepath.ToSlash(pattern)
+		if valid, known := state.validatedGlobs[pattern]; known {
+			if !valid {
+				return doublestar.ErrBadPattern
+			}
+			continue
 		}
-		if matched {
-			return true, nil
+		valid := doublestar.ValidatePattern(pattern)
+		state.validatedGlobs[pattern] = valid
+		if !valid {
+			return doublestar.ErrBadPattern
 		}
 	}
-	return false, nil
+	return nil
+}
+
+func (state *evaluationState) matchChanged(patterns []string, changedIndex int) bool {
+	relative := state.changedPaths[changedIndex].relative
+	for _, pattern := range patterns {
+		pattern = filepath.ToSlash(pattern)
+		bits := state.patternMatches[pattern]
+		if bits == nil {
+			wordCount := (len(state.changedPaths) + 63) / 64
+			bits = &patternMatchBits{known: make([]uint64, wordCount), matched: make([]uint64, wordCount)}
+			state.patternMatches[pattern] = bits
+		}
+		word := changedIndex / 64
+		mask := uint64(1) << uint(changedIndex%64)
+		if bits.known[word]&mask == 0 {
+			state.stats.pathMatches.Add(1)
+			bits.known[word] |= mask
+			if doublestar.MatchUnvalidated(pattern, relative) {
+				bits.matched[word] |= mask
+			}
+		}
+		if bits.matched[word]&mask != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (state *evaluationState) changedPathExempt(changedIndex int, exemptions []policy.AssuranceExemption) bool {
+	for _, exemption := range exemptions {
+		if state.matchChanged([]string{exemption.Path}, changedIndex) {
+			return true
+		}
+	}
+	return false
 }
 
 func newScanBudget() *scanBudget {

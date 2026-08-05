@@ -1,33 +1,24 @@
 package assurance
 
 import (
-	"bytes"
 	"fmt"
-	"go/format"
-	"path/filepath"
 
 	"reconc.dev/reconc/internal/policy"
 )
 
-func evaluateGoFormat(root string, gate policy.AssuranceGate, changed []string, state *evaluationState) ([]Finding, error) {
-	files, err := changedFiles(root, changed, gate.ScanPaths, gate.ExcludePaths, gate.Exemptions, state)
+func evaluateGoFormat(root string, gate policy.AssuranceGate, state *evaluationState) ([]Finding, error) {
+	files, err := changedGoFiles(root, gate.ScanPaths, gate.ExcludePaths, gate.Exemptions, state)
 	if err != nil {
 		return nil, err
 	}
+	state.prepareGoFacts(files, false, true)
 	findings := []Finding{}
 	for _, file := range files {
-		if filepath.Ext(file.relative) != ".go" {
-			continue
-		}
-		body, err := state.read(file.full)
-		if err != nil {
-			return nil, err
-		}
-		formatted, err := format.Source(body)
+		formatted, err := state.goFormatMatches(file)
 		if err != nil {
 			return nil, fmt.Errorf("format Go source %s: %w", file.relative, err)
 		}
-		if bytes.Equal(body, formatted) {
+		if formatted {
 			continue
 		}
 		findings = append(findings, Finding{

@@ -1537,7 +1537,13 @@ walk entries, and 50 returned findings plus one explicit omitted-count marker.
 An unreadable or over-budget authority surface is an error and fails closed.
 Matching gates reuse one canonical path resolution and one bounded in-memory
 file snapshot per evaluation, so overlapping source gates do not reread the
-same bytes from the SSD.
+same bytes from the SSD. The per-evaluation fact graph also reuses normalized
+path classes, validated glob decisions, line indexes, BOM-aware JSON manifest
+objects, and compatible Go syntax and canonical-format facts. For at least 32
+matching Go files, CPU-only parsing and formatting may use at most four workers
+after bodies and byte budgets are claimed deterministically. Findings and
+operational errors remain ordered by gate declaration and sorted path, and no
+assurance worker starts a process or network request.
 Network and process gates are deterministic source heuristics, not semantic AST
 proofs; select narrow site patterns and guard markers, and use explicit
 reasoned exemptions where language-specific control flow cannot be expressed.

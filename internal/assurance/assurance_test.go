@@ -349,14 +349,7 @@ func BenchmarkEvaluateChangedSourceGates(b *testing.B) {
 		}
 		changed = append(changed, relative)
 	}
-	gates := []policy.AssuranceGate{
-		{ID: "language", Type: policy.AssuranceLanguageBoundary, ScanPaths: []string{"src/**"}, AllowedExtensions: []string{".go"}},
-		{ID: "network", Type: policy.AssuranceNetworkBoundary, ScanPaths: []string{"src/**"}, SitePatterns: []string{"http.Get("}, GuardMarkers: []string{"GuardedClient"}, MarkerWindowLines: 2},
-		{ID: "process", Type: policy.AssuranceProcessBoundary, ScanPaths: []string{"src/**"}, SitePatterns: []string{"exec.Command("}, GuardMarkers: []string{"ApplyHardening"}, MarkerWindowLines: 2},
-		{ID: "concurrency", Type: policy.AssuranceGoConcurrency, ScanPaths: []string{"src/**"}},
-		{ID: "format", Type: policy.AssuranceGoFormat, ScanPaths: []string{"src/**"}},
-		{ID: "hygiene", Type: policy.AssuranceSourceHygiene, ScanPaths: []string{"src/**"}},
-	}
+	gates := mixedSourceBenchmarkGates()
 	b.ReportAllocs()
 	b.ResetTimer()
 	for index := 0; index < b.N; index++ {
