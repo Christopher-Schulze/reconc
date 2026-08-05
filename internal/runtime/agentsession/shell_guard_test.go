@@ -1,6 +1,7 @@
 package agentsession
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -54,6 +55,78 @@ func TestForbiddenShellCommandReasonKeepsDestructiveBlocks(t *testing.T) {
 			}
 			assertPhrases(t, reason, test.wantPhrases)
 		})
+	}
+}
+
+func TestForbiddenShellCommandReasonExpandsInlineGitAliases(t *testing.T) {
+	blocked := []string{
+		`git -c alias.wipe='!git clean -fd' wipe`,
+		`git -c alias.rewind='reset --hard' rewind`,
+		`git -c alias.rewind=reset rewind --hard`,
+		`git -c alias.rewind='!git reset' rewind --hard`,
+		`git -c alias.rewind=reset rewind "$MODE"`,
+		`git -c alias.one=two -c 'alias.two=reset --hard' one`,
+		`git config alias.blast '!git clean -fd' && git blast`,
+	}
+	for _, command := range blocked {
+		if reason := forbiddenShellCommandReason(command); reason == "" {
+			t.Fatalf("destructive alias command %q must be blocked", command)
+		}
+	}
+
+	allowed := []string{
+		`git -c alias.st=status st --short`,
+		`git -c alias.foo="$VALUE" status --short`,
+		`git config --get alias.st`,
+	}
+	for _, command := range allowed {
+		if reason := forbiddenShellCommandReason(command); reason != "" {
+			t.Fatalf("safe alias command %q must be permitted, got: %s", command, reason)
+		}
+	}
+
+	reason := forbiddenShellCommandReason(`git -c alias.once=status once && git once`)
+	if !strings.Contains(reason, "unknown git subcommand") {
+		t.Fatalf("inline alias must not leak into a later invocation, got: %s", reason)
+	}
+}
+
+func TestForbiddenShellCommandReasonExpandsConfiguredGitAliases(t *testing.T) {
+	repo := t.TempDir()
+	runGitGuardTestCommand(t, "-C", repo, "init", "--quiet")
+	runGitGuardTestCommand(t, "-C", repo, "config", "alias.wipe", "!git clean -fd")
+	runGitGuardTestCommand(t, "-C", repo, "config", "alias.rewind", "reset")
+	runGitGuardTestCommand(t, "-C", repo, "config", "alias.st", "status")
+
+	for _, command := range []string{"git wipe", "git rewind --hard"} {
+		if reason := forbiddenShellCommandReasonInRepo(repo, command); reason == "" {
+			t.Fatalf("configured destructive alias %q must be blocked", command)
+		}
+	}
+	if reason := forbiddenShellCommandReasonInRepo(repo, "git st --short"); reason != "" {
+		t.Fatalf("configured safe alias must be permitted, got: %s", reason)
+	}
+	if reason := forbiddenShellCommandReasonInRepo(repo, "git reconc-command-that-does-not-exist"); !strings.Contains(reason, "unknown git subcommand") {
+		t.Fatalf("unknown git subcommand must fail closed, got: %s", reason)
+	}
+}
+
+func TestForbiddenShellCommandReasonReadsGlobalGitAlias(t *testing.T) {
+	globalConfig := t.TempDir() + "/gitconfig"
+	t.Setenv("GIT_CONFIG_GLOBAL", globalConfig)
+	runGitGuardTestCommand(t, "config", "--global", "alias.global-wipe", "!git reset --hard")
+
+	reason := forbiddenShellCommandReasonInRepo(t.TempDir(), "git global-wipe")
+	if reason == "" {
+		t.Fatal("configured global destructive alias must be blocked")
+	}
+}
+
+func runGitGuardTestCommand(t *testing.T, args ...string) {
+	t.Helper()
+	command := exec.Command("git", args...)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, output)
 	}
 }
 

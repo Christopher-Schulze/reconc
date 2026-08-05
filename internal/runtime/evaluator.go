@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/assurance"
+	"reconc.dev/reconc/internal/boundedio"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/pathidentity"
@@ -554,14 +555,13 @@ func normalizePaths(paths []string, root string) ([]string, error) {
 func normalizePathsWithResolvedRoot(paths []string, resolvedRoot string) ([]string, error) {
 	out := []string{}
 	for _, raw := range paths {
-		candidate := strings.TrimSpace(raw)
+		candidate := raw
 		if candidate == "" {
 			continue
 		}
-		// Runtime evidence may come from Windows shells or cross-platform
-		// agents. Policy paths are always repo-relative POSIX, so treat
-		// backslashes as separators before boundary checks and matching.
-		candidate = strings.ReplaceAll(candidate, "\\", "/")
+		// Convert only separators native to the current platform. On POSIX a
+		// backslash is a legal filename byte and must not be conflated with '/'.
+		candidate = filepath.ToSlash(candidate)
 		var absPath string
 		if path.IsAbs(candidate) || filepath.IsAbs(candidate) {
 			absPath = candidate
@@ -612,7 +612,7 @@ func normalizeWriteEpochsWithResolvedRoot(paths []string, epochs map[string]uint
 		}
 		epoch := epochs[raw]
 		if epoch == 0 {
-			epoch = epochs[strings.ReplaceAll(strings.TrimSpace(raw), "\\", "/")]
+			epoch = epochs[filepath.ToSlash(raw)]
 		}
 		if epoch > out[normalized[0]] {
 			out[normalized[0]] = epoch
@@ -641,7 +641,7 @@ func RelativizeEpochKeys(root string, epochs map[string]uint64) map[string]uint6
 		if epoch > out[key] {
 			out[key] = epoch
 		}
-		candidate := strings.ReplaceAll(strings.TrimSpace(key), "\\", "/")
+		candidate := filepath.FromSlash(key)
 		if !filepath.IsAbs(candidate) {
 			continue
 		}
@@ -1209,7 +1209,10 @@ func evalRequireFreshFile(ctx *evalContext, rule map[string]interface{}, default
 					Message: "rule '" + ruleIDOf(rule) + "' required_files path: " + err.Error(),
 				}
 			}
-			fullPath := filepath.Join(ctx.repoRoot, path)
+			fullPath, err := resolvePolicyFile(ctx.repoRoot, path)
+			if err != nil {
+				return nil, err
+			}
 			info, err := os.Stat(fullPath)
 			if err != nil {
 				if os.IsNotExist(err) {
@@ -1289,7 +1292,10 @@ func evalRequireEvidence(ctx *evalContext, rule map[string]interface{}, defaultM
 				}
 			}
 			requiredFiles[file] = struct{}{}
-			fullPath := filepath.Join(ctx.repoRoot, file)
+			fullPath, err := resolvePolicyFile(ctx.repoRoot, file)
+			if err != nil {
+				return nil, err
+			}
 			info, err := os.Stat(fullPath)
 			if err != nil {
 				if os.IsNotExist(err) {
@@ -1313,7 +1319,7 @@ func evalRequireEvidence(ctx *evalContext, rule map[string]interface{}, defaultM
 			needContent := len(c.MustContain) > 0 || c.MustNotContain != "" || c.MaxLineCount > 0
 			var content string
 			if needContent {
-				data, err := os.ReadFile(fullPath)
+				data, err := boundedio.ReadFile(fullPath, maxEvidenceFileBytes)
 				if err != nil {
 					return nil, &rerrors.LockfileError{Message: "read evidence file " + file, Cause: err}
 				}

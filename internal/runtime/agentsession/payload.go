@@ -159,8 +159,8 @@ type MCPPayload struct {
 	Outcome           string
 }
 
-// FilePath returns the first known file path field of tool_input,
-// trimmed, or "" if absent.
+// FilePath returns the first known file path field of tool_input without
+// changing filename bytes, or "" if absent.
 func (p *HookPayload) FilePath() string {
 	paths := p.FilePaths()
 	if len(paths) > 0 {
@@ -178,8 +178,8 @@ func (p *HookPayload) FilePaths() []string {
 	}
 	var paths []string
 	for _, key := range []string{"file_path", "filePath", "path", "file", "target", "absolute_path", "absolutePath", "relative_path", "relativePath", "target_file", "targetFile", "notebook_path", "notebookPath"} {
-		if v, _ := p.ToolInput[key].(string); strings.TrimSpace(v) != "" {
-			paths = appendUniquePath(paths, strings.TrimSpace(v))
+		if value, _ := p.ToolInput[key].(string); value != "" {
+			paths = appendUniquePath(paths, value)
 		}
 	}
 	if p.ToolName == "apply_patch" {
@@ -248,7 +248,7 @@ func parseApplyPatchPaths(patch string) []string {
 	// large patches.
 	var paths []string
 	for _, line := range strings.Split(patch, "\n") {
-		line = strings.TrimSpace(line)
+		line = strings.TrimSuffix(line, "\r")
 		for _, prefix := range []string{
 			"*** Add File: ",
 			"*** Update File: ",
@@ -256,7 +256,7 @@ func parseApplyPatchPaths(patch string) []string {
 			"*** Move to: ",
 		} {
 			if strings.HasPrefix(line, prefix) {
-				if path := strings.TrimSpace(strings.TrimPrefix(line, prefix)); path != "" {
+				if path := strings.TrimPrefix(line, prefix); path != "" {
 					paths = append(paths, path)
 				}
 				break
@@ -267,7 +267,6 @@ func parseApplyPatchPaths(patch string) []string {
 }
 
 func appendUniquePath(paths []string, path string) []string {
-	path = strings.TrimSpace(path)
 	if path == "" {
 		return paths
 	}
@@ -283,7 +282,6 @@ func dedupePaths(paths []string) []string {
 	seen := make(map[string]struct{}, len(paths))
 	out := make([]string, 0, len(paths))
 	for _, path := range paths {
-		path = strings.TrimSpace(path)
 		if path == "" {
 			continue
 		}

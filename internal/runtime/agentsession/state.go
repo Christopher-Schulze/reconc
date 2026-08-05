@@ -517,6 +517,26 @@ func sortedUnique(xs []string) []string {
 	return out
 }
 
+func sortedUniqueExact(values []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, duplicate := seen[value]; duplicate {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result
+}
+
 // --- active session tracking ---------------------------------------
 
 // InitializeSessionState resets the session state (used at SessionStart).
@@ -705,13 +725,13 @@ func writeActiveSessionLockedIfChanged(repoRoot, sessionID string) (bool, error)
 // AppendReadPath adds one read path to the state (dedup, non-empty).
 // Returns a NEW state; callers should save it explicitly.
 func AppendReadPath(state SessionState, p string) SessionState {
-	appendBoundedString(&state, &state.ReadPaths, p, maxPathEvidenceItems, maxPathEvidenceBytes, maxPathBytes, "read_paths")
+	appendBoundedExactString(&state, &state.ReadPaths, p, maxPathEvidenceItems, maxPathEvidenceBytes, maxPathBytes, "read_paths")
 	return state
 }
 
 // AppendWritePath adds one write path.
 func AppendWritePath(state SessionState, p string) SessionState {
-	appendBoundedString(&state, &state.WritePaths, p, maxPathEvidenceItems, maxPathEvidenceBytes, maxPathBytes, "write_paths")
+	appendBoundedExactString(&state, &state.WritePaths, p, maxPathEvidenceItems, maxPathEvidenceBytes, maxPathBytes, "write_paths")
 	return state
 }
 
@@ -730,7 +750,6 @@ func RecordWriteEvent(state SessionState, paths []string) SessionState {
 	for _, path := range paths {
 		before := len(state.WritePaths)
 		state = AppendWritePath(state, path)
-		path = strings.TrimSpace(path)
 		if path == "" {
 			continue
 		}

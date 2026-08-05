@@ -41,8 +41,8 @@ func normalizeSessionState(state SessionState) SessionState {
 	state.EvidenceOverflowReason = ""
 	state.EvidenceOverflowLimit = ""
 
-	reads := sortedUnique(state.ReadPaths)
-	writes := sortedUnique(state.WritePaths)
+	reads := sortedUniqueExact(state.ReadPaths)
+	writes := sortedUniqueExact(state.WritePaths)
 	writeEpochs := state.WriteEpochs
 	commands := sortedUnique(state.Commands)
 	claims := sortedUnique(state.Claims)
@@ -97,6 +97,10 @@ func normalizeSessionState(state SessionState) SessionState {
 
 func appendBoundedString(state *SessionState, values *[]string, item string, maxItems, maxBytes, maxItemBytes int, field string) {
 	item = strings.TrimSpace(item)
+	appendBoundedExactString(state, values, item, maxItems, maxBytes, maxItemBytes, field)
+}
+
+func appendBoundedExactString(state *SessionState, values *[]string, item string, maxItems, maxBytes, maxItemBytes int, field string) {
 	if item == "" {
 		return
 	}

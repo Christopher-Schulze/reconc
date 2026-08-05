@@ -258,6 +258,16 @@ func TestCachedCleanStopReportRequiresCurrentFingerprint(t *testing.T) {
 	}
 }
 
+func TestStopPolicyEvidenceHashPreservesPathIdentity(t *testing.T) {
+	plain := emptyState("/repo", "plain")
+	plain.ReadPaths = []string{"file.go"}
+	spaced := plain
+	spaced.ReadPaths = []string{" file.go "}
+	if stopPolicyEvidenceHash(plain) == stopPolicyEvidenceHash(spaced) {
+		t.Fatal("space-distinct paths must not share a stop-policy evidence hash")
+	}
+}
+
 func TestStopPolicyFingerprintTracksDirtyContentWithoutFullDiff(t *testing.T) {
 	counterPath := filepath.Join(t.TempDir(), "counter")
 	repo := setupStopScriptPolicyRepo(t, counterPath, 0, "")

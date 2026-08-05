@@ -88,14 +88,14 @@ func TestParsePayloadHappyPath(t *testing.T) {
 	}
 }
 
-func TestParsePayloadTrimsNonIdentityFields(t *testing.T) {
+func TestParsePayloadPreservesPathIdentityBytes(t *testing.T) {
 	raw := `{"session_id":"s1","tool_input":{"file_path":"  docs/x.md  "}}`
 	p, err := ParsePayload([]byte(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.FilePath() != "docs/x.md" {
-		t.Errorf("file_path not trimmed: %q", p.FilePath())
+	if p.FilePath() != "  docs/x.md  " {
+		t.Errorf("file_path identity changed: %q", p.FilePath())
 	}
 }
 

@@ -6,14 +6,16 @@ import (
 	stderrors "errors"
 	"fmt"
 	"os"
-	"path/filepath"
 
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/compiler"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/parser"
 	"reconc.dev/reconc/internal/policy"
 )
+
+const maxLockfileBytes int64 = 16 << 20
 
 // --- Lockfile loading + freshness ---
 
@@ -51,8 +53,11 @@ func lockfileRefreshRequired(err error) error {
 }
 
 func loadLockfile(root string) (map[string]interface{}, error) {
-	lf := filepath.Join(root, ingest.LockfilePath)
-	data, err := os.ReadFile(lf)
+	lf, err := resolvePolicyFile(root, ingest.LockfilePath)
+	if err != nil {
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile escapes the repository", Cause: err}
+	}
+	data, err := boundedio.ReadFile(lf, maxLockfileBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, &rerrors.LockfileError{Message: "compiled lockfile not found at " + ingest.LockfilePath}

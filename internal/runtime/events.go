@@ -8,8 +8,11 @@ import (
 	"strconv"
 	"strings"
 
+	"reconc.dev/reconc/internal/boundedio"
 	rerrors "reconc.dev/reconc/internal/errors"
 )
+
+const maxExecutionInputFileBytes int64 = 16 << 20
 
 // Event-payload constants.
 const (
@@ -96,11 +99,11 @@ func LoadExecutionInputs(payload map[string]interface{}) (ExecutionInputs, error
 		return Empty(), nil
 	}
 
-	reads, err := coerceStringList(payload["read_paths"], "read_paths")
+	reads, err := coercePathList(payload["read_paths"], "read_paths")
 	if err != nil {
 		return Empty(), err
 	}
-	writes, err := coerceStringList(payload["write_paths"], "write_paths")
+	writes, err := coercePathList(payload["write_paths"], "write_paths")
 	if err != nil {
 		return Empty(), err
 	}
@@ -177,7 +180,7 @@ func LoadExecutionInputsText(text, source string) (ExecutionInputs, error) {
 
 // LoadExecutionInputsFile reads JSON from disk and validates it.
 func LoadExecutionInputsFile(path string) (ExecutionInputs, error) {
-	data, err := os.ReadFile(path)
+	data, err := boundedio.ReadFile(path, maxExecutionInputFileBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return Empty(), fmt.Errorf("execution input payload file not found: %s", path)
@@ -244,7 +247,6 @@ func coerceWriteEpochs(value interface{}, field string) (map[string]uint64, erro
 		return nil, &rerrors.EvidenceError{Message: fmt.Sprintf("'%s' must be a JSON object", field)}
 	}
 	for path, raw := range mapping {
-		path = strings.TrimSpace(path)
 		if path == "" {
 			return nil, &rerrors.EvidenceError{Message: fmt.Sprintf("'%s' contains an empty path", field)}
 		}
@@ -253,6 +255,25 @@ func coerceWriteEpochs(value interface{}, field string) (map[string]uint64, erro
 			return nil, err
 		}
 		out[path] = epoch
+	}
+	return out, nil
+}
+
+func coercePathList(value interface{}, field string) ([]string, error) {
+	if value == nil {
+		return []string{}, nil
+	}
+	list, ok := value.([]interface{})
+	if !ok {
+		return nil, &rerrors.EvidenceError{Message: fmt.Sprintf("'%s' must be a JSON array of strings", field)}
+	}
+	out := make([]string, 0, len(list))
+	for index, item := range list {
+		path, isString := item.(string)
+		if !isString || path == "" {
+			return nil, &rerrors.EvidenceError{Message: fmt.Sprintf("'%s[%d]' must be a non-empty string", field, index)}
+		}
+		out = append(out, path)
 	}
 	return out, nil
 }
@@ -355,7 +376,7 @@ func parseEvent(ev interface{}, index int, epoch uint64) (ExecutionInputs, uint6
 	ctx := fmt.Sprintf("events[%d] kind '%s'", index, kind)
 	switch kind {
 	case EventKindRead:
-		path, err := requireString(mapping["path"], "path", ctx)
+		path, err := requirePathString(mapping["path"], "path", ctx)
 		if err != nil {
 			return Empty(), epoch, err
 		}
@@ -363,7 +384,7 @@ func parseEvent(ev interface{}, index int, epoch uint64) (ExecutionInputs, uint6
 		out.ReadPaths = []string{path}
 		return out, epoch, nil
 	case EventKindWrite:
-		path, err := requireString(mapping["path"], "path", ctx)
+		path, err := requirePathString(mapping["path"], "path", ctx)
 		if err != nil {
 			return Empty(), epoch, err
 		}
@@ -402,6 +423,14 @@ func parseEvent(ev interface{}, index int, epoch uint64) (ExecutionInputs, uint6
 			Message: fmt.Sprintf("events[%d] kind '%s' is unsupported; expected one of: claim, command, read, write", index, kind),
 		}
 	}
+}
+
+func requirePathString(value interface{}, field, context string) (string, error) {
+	path, ok := value.(string)
+	if !ok || path == "" {
+		return "", &rerrors.EvidenceError{Message: fmt.Sprintf("%s requires a string '%s'", context, field)}
+	}
+	return path, nil
 }
 
 func requireString(value interface{}, field, context string) (string, error) {

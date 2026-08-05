@@ -53,7 +53,7 @@ func inspectResolved(root string) (*Board, error) {
 	if err := rejectSymlinkComponents(root, overviewPath); err != nil {
 		return nil, fmt.Errorf("unsafe %s: %w", cfg.OverviewPath, err)
 	}
-	body, err := os.ReadFile(overviewPath)
+	body, err := readTaskControlFile(overviewPath)
 	if errors.Is(err, os.ErrNotExist) {
 		if cfg.Configured {
 			return nil, &ValidationError{Issues: []Issue{{
@@ -136,7 +136,7 @@ func parseOverviewSnapshot(root string, cfg Config, overviewPath string, body []
 }
 
 func concurrentReadIssues(root string, cfg Config, overviewPath string, body []byte) []Issue {
-	latestOverview, rereadErr := os.ReadFile(overviewPath)
+	latestOverview, rereadErr := readTaskControlFile(overviewPath)
 	pendingTransaction, transactionErr := transactionExists(root)
 	if transactionErr != nil {
 		return []Issue{issue("task/transaction/unreadable", transactionRel, 0, transactionErr.Error(), "restore readable TASK runtime state before retrying")}
@@ -417,7 +417,7 @@ func (board *Board) loadAndValidateDetails() []Issue {
 			}
 			continue
 		}
-		body, err := os.ReadFile(path)
+		body, err := readTaskControlFile(path)
 		if err != nil {
 			issues = append(issues, issue("task/detail/unreadable", task.Path, 0, err.Error(), "restore the linked TASK detail file"))
 			continue

@@ -32,7 +32,7 @@ func FuzzNormalizePathsStaysRepoRelative(f *testing.F) {
 			if filepath.IsAbs(path) {
 				t.Fatalf("normalized path must be repo-relative, got %q", path)
 			}
-			if strings.Contains(path, "\\") {
+			if filepath.Separator == '\\' && strings.Contains(path, "\\") {
 				t.Fatalf("normalized path must be POSIX, got %q", path)
 			}
 			for _, part := range strings.Split(path, "/") {
@@ -58,6 +58,24 @@ func FuzzMatchPathNoPanic(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, pattern, path string) {
 		_, _ = MatchPath(pattern, path)
+	})
+}
+
+func FuzzMatchTemplateNoPanic(f *testing.F) {
+	seeds := [][2]string{
+		{"src/{module}/**/file.go", "src/auth/file.go"},
+		{"**/{leaf}.go", "internal/runtime/file.go"},
+		{"{src,pkg}/{module}/file[0-9].go", "pkg/auth/file7.go"},
+		{"tmp/{name}.txt", "tmp/*.txt"},
+		{"{duplicate}/{duplicate}", "a/b"},
+		{"src/{module}/file[.go", "src/auth/filex.go"},
+	}
+	for _, seed := range seeds {
+		f.Add(seed[0], seed[1])
+	}
+
+	f.Fuzz(func(t *testing.T, pattern, path string) {
+		_, _, _ = MatchTemplate(pattern, path)
 	})
 }
 

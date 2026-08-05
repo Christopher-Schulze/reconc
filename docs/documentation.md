@@ -1154,6 +1154,17 @@ automation can use `schemas/v1/policy-config.schema.json`; emitted lock, policy
 report, completion report, fix-plan, and proof-bundle artifacts keep their separate public
 schemas.
 
+Policy-controlled file paths are repository-relative contracts. Compilation
+rejects absolute, volume-qualified, empty, and parent-traversing paths in
+`required_files[].path`, `evidence[].file`, and composite `path`/`file`
+checks, including paths after template placeholders are masked for validation.
+Runtime resolves every such path against the filesystem identity of the
+repository root and rejects symlink, reparse-point, or missing-tail resolution
+that escapes it. Policy sources are limited to 8 MiB each, 4,096 sources, and
+64 MiB in aggregate; compiled lockfiles and execution-input JSON files are
+limited to 16 MiB; evidence and TASK control files are limited to 4 MiB. An
+oversized or boundary-escaping input fails closed before evaluation.
+
 The managed target-repository block uses these exact rules. It ignores mutable
 runtime state while explicitly re-including `.reconc/install.lock.json` and
 `.reconc/policy.lock.json`:
@@ -1288,7 +1299,12 @@ Single-identifier brace groups such as `{task_id}` are template captures only
 for capture-aware rule kinds. In other glob fields they retain doublestar's
 literal brace behavior. Compilation emits an explicit warning naming the rule,
 field, and literal interpretation; the warning is advisory rather than a
-compile error for compatibility.
+compile error for compatibility. Capture-aware matching preserves the same
+validated doublestar language before and after substitution: `/**/` matches
+zero or more directories, leading and terminal globstars retain their segment
+semantics, and character classes, alternatives, and escapes remain exact.
+Captured values are reinserted as escaped literals and the bound pattern is
+validated by the canonical matcher before acceptance.
 
 Command matching is exact (normalized whole strings) by default.
 Normalization is wrapper- and anchor-tolerant without weakening semantics: a
@@ -1335,9 +1351,13 @@ of an absolute executable path; explicitly path-qualified rules remain exact.
 During PreToolUse, a composite violation blocks only when the current command
 itself hits a direct `forbid_command`, so historical results and unrelated
 failing subchecks cannot poison later safe commands. Recursion is bounded;
-unresolved dynamic executable names and exhausted nesting fail closed. The built-in
-destructive Git guard uses the same model for `git clean` and `git reset
---hard`.
+unresolved dynamic executable names and exhausted nesting fail closed. The
+built-in destructive Git guard uses the same model for `git clean` and `git
+reset --hard`. It resolves literal inline, local, global, recursive, and
+same-command `git config alias.*` definitions before admission. Alias values
+and invocation arguments are re-analyzed as executable shell input; dynamic
+alias definitions, excessive alias recursion, inspection failures, and unknown
+Git subcommands fail closed instead of bypassing the destructive-command guard.
 
 A stale compiled lockfile blocks gated work, because policy cannot be enforced
 from a lockfile that no longer describes its sources. The block does not seal
@@ -2394,6 +2414,8 @@ Security posture:
 - Hook runtime payloads are size and depth bounded.
 - Paths use operating-system filesystem identity and are constrained to the
   discovered repository root, including Windows junction and 8.3 aliases.
+- Repository path evidence preserves legal leading and trailing spaces from
+  host payload through persisted session state and evaluator matching.
 - Payload command strings are matched as data and are not executed.
 - Only policy-authored `require_script` entries execute subprocesses.
 - Audit log is opt-in via `RECONC_AUDIT=1`.

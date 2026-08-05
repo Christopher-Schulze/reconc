@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/pathidentity"
 )
 
@@ -30,6 +31,7 @@ const (
 	defaultDoneVisible  = 10
 	maxConfiguredFields = 32
 	maxConfiguredName   = 120
+	maxTaskControlBytes = 4 << 20
 )
 
 // CompletionConfig adds repository-specific evidence fields without changing
@@ -88,7 +90,7 @@ func LoadConfig(repoRoot string) (Config, error) {
 	if err := rejectSymlinkComponents(repoRoot, configPath); err != nil {
 		return Config{}, fmt.Errorf("unsafe .reconc.yml: %w", err)
 	}
-	body, err := os.ReadFile(configPath)
+	body, err := readTaskControlFile(configPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return cfg, nil
 	}
@@ -108,6 +110,10 @@ func LoadConfig(repoRoot string) (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+func readTaskControlFile(path string) ([]byte, error) {
+	return boundedio.ReadFile(path, maxTaskControlBytes)
 }
 
 func validateTaskLifecycleNode(node *yaml.Node) error {

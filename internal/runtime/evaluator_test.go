@@ -498,7 +498,7 @@ func TestCheckPathsNormalizedToRepoRelative(t *testing.T) {
 	}
 }
 
-func TestCheckBackslashPathsNormalizedToPOSIX(t *testing.T) {
+func TestCheckNormalizesOnlyNativePathSeparators(t *testing.T) {
 	withRECONCHome(t)
 	repo := makeRepo(t, "# project\n", "", "rules:\n  - id: deny-gen\n    kind: deny_write\n    paths: ['gen/**']\n    mode: block\n    message: x\n")
 
@@ -509,11 +509,24 @@ func TestCheckBackslashPathsNormalizedToPOSIX(t *testing.T) {
 	if err != nil {
 		t.Fatalf("check: %v", err)
 	}
-	if report.Decision != DecisionBlock {
-		t.Errorf("expected block on backslash path, got %s", report.Decision)
+	if filepath.Separator == '\\' {
+		if report.Decision != DecisionBlock || report.Inputs.WritePaths[0] != "gen/output.go" {
+			t.Fatalf("Windows separator was not normalized: decision=%s paths=%v", report.Decision, report.Inputs.WritePaths)
+		}
+	} else if report.Decision != DecisionPass || report.Inputs.WritePaths[0] != `gen\output.go` {
+		t.Fatalf("POSIX backslash identity changed: decision=%s paths=%v", report.Decision, report.Inputs.WritePaths)
 	}
-	if report.Inputs.WritePaths[0] != "gen/output.go" {
-		t.Errorf("expected normalized path 'gen/output.go', got %q", report.Inputs.WritePaths[0])
+}
+
+func TestCheckPreservesLeadingAndTrailingPathBytes(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "", "rules:\n  - id: exact\n    kind: deny_write\n    paths: ['?spaced.go?']\n    mode: block\n    message: exact\n")
+	report, err := CheckRepoPolicy(repo, ExecutionInputs{WritePaths: []string{" spaced.go "}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Decision != DecisionBlock || len(report.Inputs.WritePaths) != 1 || report.Inputs.WritePaths[0] != " spaced.go " {
+		t.Fatalf("path identity changed: decision=%s paths=%v", report.Decision, report.Inputs.WritePaths)
 	}
 }
 

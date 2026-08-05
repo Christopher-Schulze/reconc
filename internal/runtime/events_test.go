@@ -2,6 +2,7 @@ package runtime
 
 import (
 	stderrors "errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -48,6 +49,24 @@ func TestLoadBulkLists(t *testing.T) {
 	}
 	if got.Claims[0] != "ci-green" {
 		t.Errorf("claims wrong: %v", got.Claims)
+	}
+}
+
+func TestLoadPathEvidencePreservesIdentityBytes(t *testing.T) {
+	got := parseJSON(t, `{
+		"read_paths": [" leading.md", "trailing.md ", "   "],
+		"write_paths": [" literal\\\\backslash.go "],
+		"write_epochs": {" literal\\\\backslash.go ": 7},
+		"events": [{"kind":"write", "path":" event.go "}]
+	}`)
+	if want := []string{" leading.md", "trailing.md ", "   "}; !reflect.DeepEqual(got.ReadPaths, want) {
+		t.Fatalf("read path identity changed: got %q want %q", got.ReadPaths, want)
+	}
+	if got.WritePaths[0] != ` literal\\backslash.go ` || got.WriteEpochs[` literal\\backslash.go `] != 7 {
+		t.Fatalf("bulk write identity changed: paths=%q epochs=%v", got.WritePaths, got.WriteEpochs)
+	}
+	if got.WritePaths[1] != " event.go " || got.WriteEpochs[" event.go "] == 0 {
+		t.Fatalf("event write identity changed: paths=%q epochs=%v", got.WritePaths, got.WriteEpochs)
 	}
 }
 
@@ -172,7 +191,7 @@ func TestRejectsNonStringPath(t *testing.T) {
 }
 
 func TestRejectsEmptyPath(t *testing.T) {
-	_, err := LoadExecutionInputsText(`{"read_paths": ["  "]}`, "test")
+	_, err := LoadExecutionInputsText(`{"read_paths": [""]}`, "test")
 	if err == nil {
 		t.Fatal("expected error for empty path")
 	}

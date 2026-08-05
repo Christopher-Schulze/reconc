@@ -335,9 +335,9 @@ func TestAppendUniqueDeduplicates(t *testing.T) {
 	state = AppendReadPath(state, "a.go")
 	state = AppendReadPath(state, "a.go")
 	state = AppendReadPath(state, "b.go")
-	state = AppendReadPath(state, "  a.go  ") // whitespace trim
-	if len(state.ReadPaths) != 2 {
-		t.Errorf("expected 2 unique paths, got %v", state.ReadPaths)
+	state = AppendReadPath(state, "  a.go  ")
+	if len(state.ReadPaths) != 3 {
+		t.Errorf("expected 3 byte-distinct paths, got %v", state.ReadPaths)
 	}
 }
 
@@ -345,8 +345,24 @@ func TestAppendEmptyStringIgnored(t *testing.T) {
 	state := emptyState("/x", "s1")
 	state = AppendReadPath(state, "")
 	state = AppendReadPath(state, "   ")
-	if len(state.ReadPaths) != 0 {
-		t.Errorf("empty/whitespace appends should be ignored, got %v", state.ReadPaths)
+	if len(state.ReadPaths) != 1 || state.ReadPaths[0] != "   " {
+		t.Errorf("only the empty path should be ignored, got %v", state.ReadPaths)
+	}
+}
+
+func TestPathIdentitySurvivesStateNormalization(t *testing.T) {
+	state := emptyState("/x", "identity")
+	for _, path := range []string{" leading.go", "trailing.go ", `literal\\backslash.go`, "   "} {
+		state = RecordWriteEvent(state, []string{path})
+	}
+	normalized := normalizeSessionState(state)
+	for _, path := range []string{" leading.go", "trailing.go ", `literal\\backslash.go`, "   "} {
+		if !containsString(normalized.WritePaths, path) {
+			t.Fatalf("normalized paths lost %q: %v", path, normalized.WritePaths)
+		}
+		if normalized.WriteEpochs[path] == 0 {
+			t.Fatalf("normalized write epoch lost %q: %v", path, normalized.WriteEpochs)
+		}
 	}
 }
 

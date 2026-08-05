@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+	"reconc.dev/reconc/internal/boundedio"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/policy"
@@ -23,6 +24,12 @@ const GlobalPolicyFilename = "global-policy.yml"
 // GlobalPolicySourcePath is the portable provenance identifier written into
 // compiled policy metadata. The physical RECONC_HOME path is private state.
 const GlobalPolicySourcePath = "global:" + GlobalPolicyFilename
+
+const (
+	maxPolicySourceBytes = 8 << 20
+	maxPolicyBundleBytes = 64 << 20
+	maxPolicySources     = 4096
+)
 
 // inlineBlockRegex matches fenced ```reconc ... ``` blocks inside
 // markdown context files. Block content is captured group 1.
@@ -159,6 +166,9 @@ func LoadPolicySources(repoStartPath string) (*SourceBundle, error) {
 	sources = append(sources, fragmentSources...)
 	discovery.Warnings = append(discovery.Warnings, fragmentWarnings...)
 
+	if err := validatePolicySourceBounds(sources); err != nil {
+		return nil, err
+	}
 	return &SourceBundle{
 		RepoRoot:  root,
 		Discovery: discovery,
@@ -181,7 +191,7 @@ func loadGlobalPolicySource() (*policy.PolicySource, error) {
 	if !info.Mode().IsRegular() {
 		return nil, nil
 	}
-	data, err := os.ReadFile(path)
+	data, err := boundedio.ReadFile(path, maxPolicySourceBytes)
 	if err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "read global policy", Cause: err}
 	}
@@ -350,6 +360,7 @@ func loadPolicyFragmentSources(root string, patterns []string) ([]policy.PolicyS
 
 	seen := map[string]struct{}{}
 	out := []policy.PolicySource{}
+	var totalBytes int64
 	for _, pattern := range uniquePatterns {
 		matches, err := filepath.Glob(filepath.Join(root, pattern))
 		if err != nil {
@@ -379,6 +390,10 @@ func loadPolicyFragmentSources(root string, patterns []string) ([]policy.PolicyS
 					Message: "read policy fragment " + rel,
 					Cause:   err,
 				}
+			}
+			totalBytes += int64(len(data))
+			if len(out) >= maxPolicySources || totalBytes > maxPolicyBundleBytes {
+				return nil, nil, &rerrors.PolicySourceError{Message: fmt.Sprintf("policy fragments exceed %d sources or %d total bytes", maxPolicySources, maxPolicyBundleBytes)}
 			}
 			out = append(out, policy.PolicySource{
 				Kind:    policy.SourcePolicyFile,
@@ -423,14 +438,14 @@ func readRepositorySource(root, rel string) ([]byte, error) {
 	if outside {
 		return nil, fmt.Errorf("source %s resolves outside the repository root", rel)
 	}
-	info, err := os.Stat(full)
+	info, err := os.Stat(before)
 	if err != nil {
 		return nil, err
 	}
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("source %s must resolve to a regular file", rel)
 	}
-	data, err := os.ReadFile(full)
+	data, err := boundedio.ReadFile(before, maxPolicySourceBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -442,6 +457,20 @@ func readRepositorySource(root, rel string) ([]byte, error) {
 		return nil, fmt.Errorf("source %s changed filesystem identity while being read", rel)
 	}
 	return data, nil
+}
+
+func validatePolicySourceBounds(sources []policy.PolicySource) error {
+	if len(sources) > maxPolicySources {
+		return &rerrors.PolicySourceError{Message: fmt.Sprintf("policy bundle contains %d sources; maximum is %d", len(sources), maxPolicySources)}
+	}
+	var total int64
+	for _, source := range sources {
+		total += int64(len(source.Content))
+		if len(source.Content) > maxPolicySourceBytes || total > maxPolicyBundleBytes {
+			return &rerrors.PolicySourceError{Message: fmt.Sprintf("policy bundle exceeds %d bytes per source or %d total bytes", maxPolicySourceBytes, maxPolicyBundleBytes)}
+		}
+	}
+	return nil
 }
 
 // decodeYAMLMapping parses raw YAML into a map[string]interface{}.

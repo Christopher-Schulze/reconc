@@ -164,7 +164,7 @@ func RunPreToolUse(repoRoot string, payloadBytes []byte) Result {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}
 	}
 	if payload.IsCommandTool() {
-		if reason := forbiddenShellCommandReason(payload.Command()); reason != "" {
+		if reason := forbiddenShellCommandReasonInRepo(repoRoot, payload.Command()); reason != "" {
 			return Result{ExitCode: 2, Stderr: reason}
 		}
 		root, err := ResolveRepoRoot(repoRoot)
@@ -639,11 +639,11 @@ func filterRepoScopedReadPaths(repoRoot string, paths []string) []string {
 }
 
 func isRepoScopedReadEvidence(repoRoot, raw string) bool {
-	path := strings.TrimSpace(raw)
+	path := raw
 	if path == "" {
 		return false
 	}
-	path = strings.ReplaceAll(path, "\\", "/")
+	path = filepath.FromSlash(path)
 	if !filepath.IsAbs(path) {
 		return true
 	}

@@ -2,8 +2,10 @@ package runtime
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 // Template variables let when_paths patterns CAPTURE path segments
@@ -68,6 +70,12 @@ func MatchTemplate(pattern, path string) (map[string]string, bool, error) {
 		}
 		return map[string]string{}, ok, nil
 	}
+	path = filepath.ToSlash(path)
+	masked := templateVarRegex.ReplaceAllString(strings.TrimSpace(pattern), "*")
+	ok, err := MatchPath(masked, path)
+	if err != nil || !ok {
+		return nil, ok, err
+	}
 
 	regex, names, err := compileTemplatePattern(pattern)
 	if err != nil {
@@ -75,12 +83,22 @@ func MatchTemplate(pattern, path string) (map[string]string, bool, error) {
 	}
 	match := regex.FindStringSubmatch(path)
 	if match == nil {
-		return nil, false, nil
+		return nil, false, fmt.Errorf("template matcher diverged from validated glob semantics for pattern %q", pattern)
 	}
 	captures := make(map[string]string, len(names))
 	for i, name := range names {
 		// match[0] is the full match; match[i+1] is group i (1-indexed).
 		captures[name] = match[i+1]
+	}
+	bound := templateVarRegex.ReplaceAllStringFunc(strings.TrimSpace(pattern), func(placeholder string) string {
+		return escapeGlobLiteral(captures[placeholder[1:len(placeholder)-1]])
+	})
+	boundOK, err := MatchPath(bound, path)
+	if err != nil {
+		return nil, false, err
+	}
+	if !boundOK {
+		return nil, false, fmt.Errorf("template captures diverged from validated glob semantics for pattern %q", pattern)
 	}
 	return captures, true, nil
 }
@@ -135,76 +153,193 @@ func SubstituteTemplateInList(items []string, captures map[string]string) ([]str
 	return out, nil
 }
 
-// compileTemplatePattern converts a template pattern (with {var}
-// placeholders + globstar wildcards) into a regex with named groups
-// and the list of group names in declaration order.
-//
-// Conversion rules (applied in order):
-//
-//	{name} -> ([^/]+)                          (capture, single segment)
-//	**     -> .*                               (multi-segment glob)
-//	*      -> [^/]*                            (single-segment glob)
-//	?      -> [^/]                             (single non-slash char)
-//	.      -> \.                               (escaped dot)
-//	other  -> regex-escaped literal
-//
-// Return: compiled regex (anchored ^...$), ordered slice of capture
-// names, possibly an error if a name appears twice.
+// compileTemplatePattern translates the same glob grammar validated by
+// doublestar into a capture regex. MatchTemplate also checks the masked and
+// capture-bound forms with MatchPath, so this translator can never silently
+// broaden a security-relevant match.
 func compileTemplatePattern(pattern string) (*regexp.Regexp, []string, error) {
-	var (
-		names []string
-		seen  = map[string]struct{}{}
-		buf   strings.Builder
-	)
+	pattern = filepath.ToSlash(strings.TrimSpace(pattern))
+	names := []string{}
+	seen := map[string]struct{}{}
+	var buf strings.Builder
 	buf.WriteString("^")
-
-	i := 0
-	for i < len(pattern) {
-		ch := pattern[i]
-		// Try to match a {name} placeholder at position i.
-		if ch == '{' {
-			if loc := templateVarRegex.FindStringSubmatchIndex(pattern[i:]); loc != nil && loc[0] == 0 {
-				name := pattern[i+loc[2] : i+loc[3]]
-				if _, dup := seen[name]; dup {
-					return nil, nil, fmt.Errorf("template variable %q appears twice in pattern %q", name, pattern)
-				}
-				seen[name] = struct{}{}
-				names = append(names, name)
-				buf.WriteString("([^/]+)")
-				i += loc[1]
-				continue
-			}
-		}
-		// Glob wildcards.
-		switch ch {
-		case '*':
-			if i+1 < len(pattern) && pattern[i+1] == '*' {
-				buf.WriteString(".*")
-				i += 2
-				continue
-			}
-			buf.WriteString("[^/]*")
-			i++
-			continue
-		case '?':
-			buf.WriteString("[^/]")
-			i++
-			continue
-		case '.', '+', '(', ')', '^', '$', '|', '\\', '[', ']':
-			buf.WriteByte('\\')
-			buf.WriteByte(ch)
-			i++
-			continue
-		default:
-			buf.WriteByte(ch)
-			i++
-		}
+	if err := appendTemplateGlobRegex(&buf, pattern, &names, seen); err != nil {
+		return nil, nil, fmt.Errorf("compile template pattern %q: %w", pattern, err)
 	}
 	buf.WriteString("$")
-
 	re, err := regexp.Compile(buf.String())
 	if err != nil {
 		return nil, nil, fmt.Errorf("compile template pattern %q: %w", pattern, err)
 	}
 	return re, names, nil
+}
+
+func appendTemplateGlobRegex(buf *strings.Builder, pattern string, names *[]string, seen map[string]struct{}) error {
+	for i := 0; i < len(pattern); {
+		if loc := templateVarRegex.FindStringSubmatchIndex(pattern[i:]); loc != nil && loc[0] == 0 {
+			name := pattern[i+loc[2] : i+loc[3]]
+			if _, duplicate := seen[name]; duplicate {
+				return fmt.Errorf("template variable %q appears twice", name)
+			}
+			seen[name] = struct{}{}
+			*names = append(*names, name)
+			buf.WriteString("([^/]+)")
+			i += loc[1]
+			continue
+		}
+
+		switch pattern[i] {
+		case '/':
+			switch {
+			case strings.HasPrefix(pattern[i:], "/**/") && i+4 == len(pattern):
+				buf.WriteString("(?:/(?:[^/]+/)*)?")
+				i += 4
+			case strings.HasPrefix(pattern[i:], "/**/"):
+				buf.WriteString("/(?:[^/]+/)*")
+				i += 4
+			case strings.HasPrefix(pattern[i:], "/**") && i+3 == len(pattern):
+				buf.WriteString("(?:/.*)?")
+				i += 3
+			default:
+				buf.WriteByte('/')
+				i++
+			}
+		case '*':
+			switch {
+			case strings.HasPrefix(pattern[i:], "**/") && i == 0:
+				buf.WriteString("(?:[^/]+/)*")
+				i += 3
+			case strings.HasPrefix(pattern[i:], "**") && i+2 == len(pattern) && i == 0:
+				buf.WriteString(".*")
+				i += 2
+			case strings.HasPrefix(pattern[i:], "**"):
+				buf.WriteString("[^/]*")
+				i += 2
+			default:
+				buf.WriteString("[^/]*")
+				i++
+			}
+		case '?':
+			buf.WriteString("[^/]")
+			i++
+		case '[':
+			class, next, err := templateCharacterClass(pattern, i)
+			if err != nil {
+				return err
+			}
+			buf.WriteString(class)
+			i = next
+		case '{':
+			alternatives, next, err := templateAlternatives(pattern, i)
+			if err != nil {
+				return err
+			}
+			buf.WriteString("(?:")
+			for index, alternative := range alternatives {
+				if index > 0 {
+					buf.WriteByte('|')
+				}
+				if err := appendTemplateGlobRegex(buf, alternative, names, seen); err != nil {
+					return err
+				}
+			}
+			buf.WriteByte(')')
+			i = next
+		case '\\':
+			if i+1 >= len(pattern) {
+				return fmt.Errorf("dangling escape")
+			}
+			_, size := utf8.DecodeRuneInString(pattern[i+1:])
+			buf.WriteString(regexp.QuoteMeta(pattern[i+1 : i+1+size]))
+			i += 1 + size
+		default:
+			_, size := utf8.DecodeRuneInString(pattern[i:])
+			buf.WriteString(regexp.QuoteMeta(pattern[i : i+size]))
+			i += size
+		}
+	}
+	return nil
+}
+
+func templateCharacterClass(pattern string, start int) (string, int, error) {
+	end := start + 1
+	escaped := false
+	for ; end < len(pattern); end++ {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if pattern[end] == '\\' {
+			escaped = true
+			continue
+		}
+		if pattern[end] == ']' {
+			break
+		}
+	}
+	if end >= len(pattern) || end == start+1 {
+		return "", 0, fmt.Errorf("invalid character class")
+	}
+	content := pattern[start+1 : end]
+	if content[0] == '!' {
+		content = "^" + content[1:]
+	}
+	return "[" + content + "]", end + 1, nil
+}
+
+func templateAlternatives(pattern string, start int) ([]string, int, error) {
+	depth := 0
+	classDepth := 0
+	escaped := false
+	partStart := start + 1
+	parts := []string{}
+	for i := start + 1; i < len(pattern); i++ {
+		ch := pattern[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if ch == '\\' {
+			escaped = true
+			continue
+		}
+		if ch == '[' {
+			classDepth++
+			continue
+		}
+		if ch == ']' && classDepth > 0 {
+			classDepth--
+			continue
+		}
+		if classDepth > 0 {
+			continue
+		}
+		switch ch {
+		case '{':
+			depth++
+		case '}':
+			if depth == 0 {
+				parts = append(parts, pattern[partStart:i])
+				return parts, i + 1, nil
+			}
+			depth--
+		case ',':
+			if depth == 0 {
+				parts = append(parts, pattern[partStart:i])
+				partStart = i + 1
+			}
+		}
+	}
+	return nil, 0, fmt.Errorf("unterminated alternative")
+}
+
+func escapeGlobLiteral(value string) string {
+	var escaped strings.Builder
+	for _, r := range value {
+		if strings.ContainsRune(`*?[]{}\\`, r) {
+			escaped.WriteByte('\\')
+		}
+		escaped.WriteRune(r)
+	}
+	return escaped.String()
 }

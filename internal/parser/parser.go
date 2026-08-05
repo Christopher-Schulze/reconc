@@ -8,6 +8,7 @@
 package parser
 
 import (
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,6 +20,8 @@ import (
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/templates"
 )
+
+var repoPathTemplateVarRE = regexp.MustCompile(`\{[A-Za-z_][A-Za-z0-9_]*\}`)
 
 // requiredFieldsByKind specifies which slice fields must be populated per rule
 // kind.
@@ -724,6 +727,16 @@ func isRepoRelativePath(p string) bool {
 	return true
 }
 
+func validateRepoRelativeTemplatePath(value, context string) error {
+	probe := repoPathTemplateVarRE.ReplaceAllString(value, "reconc-template-value")
+	if isRepoRelativePath(probe) {
+		return nil
+	}
+	return &rerrors.RuleValidationError{
+		Message: context + " must be a repo-relative path (no absolute path or '..' escape): " + value,
+	}
+}
+
 // optionalCheckList parses an optional `checks:` list of sub-check
 // objects used by composite rule kinds (all_of / any_of / not).
 //
@@ -793,6 +806,9 @@ func parseCheck(item map[string]interface{}, ruleID, listKey string, index int) 
 		if err != nil {
 			return policy.Check{}, err
 		}
+		if err := validateRepoRelativeTemplatePath(path, "rule '"+ruleID+"' field '"+listKey+"["+itoa(index)+"].path'"); err != nil {
+			return policy.Check{}, err
+		}
 		check.Path = path
 		hours, err := optionalInt(item, "max_age_hours", ruleID, listKey, index)
 		if err != nil {
@@ -808,6 +824,9 @@ func parseCheck(item map[string]interface{}, ruleID, listKey string, index int) 
 	case policy.KindRequireEvidence:
 		file, err := requiredStringField(item, "file", ruleID, listKey, index)
 		if err != nil {
+			return policy.Check{}, err
+		}
+		if err := validateRepoRelativeTemplatePath(file, "rule '"+ruleID+"' field '"+listKey+"["+itoa(index)+"].file'"); err != nil {
 			return policy.Check{}, err
 		}
 		check.File = file
@@ -946,6 +965,9 @@ func optionalRequiredFileList(item map[string]interface{}, key, ruleID string) (
 		if err != nil {
 			return nil, err
 		}
+		if err := validateRepoRelativeTemplatePath(path, "rule '"+ruleID+"' field '"+key+"["+itoa(i)+"].path'"); err != nil {
+			return nil, err
+		}
 		ageHours, err := optionalInt(mapping, "max_age_hours", ruleID, key, i)
 		if err != nil {
 			return nil, err
@@ -991,6 +1013,9 @@ func optionalEvidenceCheckList(item map[string]interface{}, key, ruleID string) 
 		}
 		file, err := requiredStringField(mapping, "file", ruleID, key, i)
 		if err != nil {
+			return nil, err
+		}
+		if err := validateRepoRelativeTemplatePath(file, "rule '"+ruleID+"' field '"+key+"["+itoa(i)+"].file'"); err != nil {
 			return nil, err
 		}
 		mustExist, err := optionalBool(mapping, "must_exist", ruleID, key, i)

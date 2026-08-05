@@ -33,7 +33,7 @@ func agentMemoryWritePath(repoRoot, raw string) bool {
 }
 
 func agentMemoryWritePathInProjects(projectsRoot string, allowedProjectKeys claudeProjectKeyMatcher, raw string) bool {
-	path := strings.TrimSpace(raw)
+	path := raw
 	if path == "" || !filepath.IsAbs(path) {
 		return false
 	}

@@ -173,7 +173,7 @@ func extractMCPValues(repoRoot string, classification policy.MCPToolPolicy, inpu
 	}
 	switch classification.Effect {
 	case policy.MCPEffectRepositoryRead, policy.MCPEffectRepositoryWrite:
-		rawPaths, valid := selectMCPStrings(input, classification.PathFields)
+		rawPaths, valid := selectMCPPathStrings(input, classification.PathFields)
 		if !valid {
 			return mcpExtractedValues{}, false
 		}
@@ -190,6 +190,14 @@ func extractMCPValues(repoRoot string, classification policy.MCPToolPolicy, inpu
 }
 
 func selectMCPStrings(input map[string]interface{}, pointers []string) ([]string, bool) {
+	return selectMCPStringsWithIdentity(input, pointers, false)
+}
+
+func selectMCPPathStrings(input map[string]interface{}, pointers []string) ([]string, bool) {
+	return selectMCPStringsWithIdentity(input, pointers, true)
+}
+
+func selectMCPStringsWithIdentity(input map[string]interface{}, pointers []string, exact bool) ([]string, bool) {
 	values := []string{}
 	for _, pointer := range pointers {
 		selected, ok := policy.ResolveJSONPointer(input, pointer)
@@ -198,7 +206,7 @@ func selectMCPStrings(input map[string]interface{}, pointers []string) ([]string
 		}
 		switch value := selected.(type) {
 		case string:
-			if strings.TrimSpace(value) == "" {
+			if value == "" || !exact && strings.TrimSpace(value) == "" {
 				return nil, false
 			}
 			values = append(values, value)
@@ -208,7 +216,7 @@ func selectMCPStrings(input map[string]interface{}, pointers []string) ([]string
 			}
 			for _, rawItem := range value {
 				item, ok := rawItem.(string)
-				if !ok || strings.TrimSpace(item) == "" {
+				if !ok || item == "" || !exact && strings.TrimSpace(item) == "" {
 					return nil, false
 				}
 				values = append(values, item)
@@ -216,6 +224,9 @@ func selectMCPStrings(input map[string]interface{}, pointers []string) ([]string
 		default:
 			return nil, false
 		}
+	}
+	if exact {
+		return sortedUniqueExact(values), len(values) > 0
 	}
 	return sortedUnique(values), len(values) > 0
 }
@@ -227,7 +238,7 @@ func normalizeMCPRepoPaths(repoRoot string, rawPaths []string) ([]string, bool) 
 	}
 	out := make([]string, 0, len(rawPaths))
 	for _, rawPath := range rawPaths {
-		candidate := filepath.FromSlash(strings.TrimSpace(rawPath))
+		candidate := filepath.FromSlash(rawPath)
 		if candidate == "" {
 			return nil, false
 		}
@@ -244,7 +255,7 @@ func normalizeMCPRepoPaths(repoRoot string, rawPaths []string) ([]string, bool) 
 		}
 		out = append(out, filepath.ToSlash(relative))
 	}
-	out = sortedUnique(out)
+	out = sortedUniqueExact(out)
 	return out, len(out) > 0
 }
 
@@ -296,7 +307,7 @@ func runMCPWritePre(repoRoot string, payload *HookPayload, paths []string) Resul
 }
 
 func runMCPCommandPre(repoRoot string, payload *HookPayload, command string) Result {
-	if reason := forbiddenShellCommandReason(command); reason != "" {
+	if reason := forbiddenShellCommandReasonInRepo(repoRoot, command); reason != "" {
 		return Result{ExitCode: 2, Stderr: reason}
 	}
 	root, err := ResolveRepoRoot(repoRoot)

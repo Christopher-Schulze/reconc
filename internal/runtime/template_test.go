@@ -100,6 +100,44 @@ func TestMatchTemplateMixedWithGlobstar(t *testing.T) {
 	}
 }
 
+func TestMatchTemplatePreservesDoublestarSemantics(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		path    string
+		capture string
+	}{
+		{name: "zero directories", pattern: "src/{module}/**/file.go", path: "src/auth/file.go", capture: "auth"},
+		{name: "nested directories", pattern: "src/{module}/**/file.go", path: "src/auth/http/api/file.go", capture: "auth"},
+		{name: "leading globstar consumes zero", pattern: "**/{module}.go", path: "auth.go", capture: "auth"},
+		{name: "leading globstar consumes directories", pattern: "**/{module}.go", path: "src/internal/auth.go", capture: "auth"},
+		{name: "terminal globstar consumes zero", pattern: "src/{module}/**", path: "src/auth", capture: "auth"},
+		{name: "character class", pattern: "src/{module}/file[0-9].go", path: "src/auth/file7.go", capture: "auth"},
+		{name: "alternative", pattern: "{src,pkg}/{module}/main.go", path: "pkg/auth/main.go", capture: "auth"},
+		{name: "captured glob character stays literal", pattern: "tmp/{module}.txt", path: "tmp/*.txt", capture: "*"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			captures, ok, err := MatchTemplate(test.pattern, test.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !ok {
+				t.Fatal("expected match")
+			}
+			if captures["module"] != test.capture {
+				t.Fatalf("module capture = %q, want %q", captures["module"], test.capture)
+			}
+		})
+	}
+}
+
+func TestMatchTemplateRejectsMalformedGlob(t *testing.T) {
+	if _, _, err := MatchTemplate("src/{module}/file[.go", "src/auth/filex.go"); err == nil {
+		t.Fatal("malformed glob must fail closed")
+	}
+}
+
 func TestMatchTemplateNoMatch(t *testing.T) {
 	caps, ok, err := MatchTemplate("docs/todo/{task_id}.md", "src/main.go")
 	if err != nil {

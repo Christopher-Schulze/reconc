@@ -4,10 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
+	"reconc.dev/reconc/internal/boundedio"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/policy"
 )
@@ -315,7 +315,10 @@ func evalCheckRequireFreshFile(ctx *evalContext, c policy.Check, captures map[st
 	if err != nil {
 		return false, "", &rerrors.RuleValidationError{Message: "check path: " + err.Error()}
 	}
-	full := filepath.Join(ctx.repoRoot, pathSubst)
+	full, err := resolvePolicyFile(ctx.repoRoot, pathSubst)
+	if err != nil {
+		return false, "", err
+	}
 	info, err := os.Stat(full)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -343,7 +346,10 @@ func evalCheckRequireEvidence(ctx *evalContext, c policy.Check, captures map[str
 	if err != nil {
 		return false, "", &rerrors.RuleValidationError{Message: "check file: " + err.Error()}
 	}
-	full := filepath.Join(ctx.repoRoot, fileSubst)
+	full, err := resolvePolicyFile(ctx.repoRoot, fileSubst)
+	if err != nil {
+		return false, "", err
+	}
 	info, err := os.Stat(full)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -367,7 +373,7 @@ func evalCheckRequireEvidence(ctx *evalContext, c policy.Check, captures map[str
 	if !needContent {
 		return true, "", nil
 	}
-	data, err := os.ReadFile(full)
+	data, err := boundedio.ReadFile(full, maxEvidenceFileBytes)
 	if err != nil {
 		return false, "", &rerrors.LockfileError{Message: "read " + fileSubst, Cause: err}
 	}

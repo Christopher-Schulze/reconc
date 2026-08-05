@@ -126,7 +126,7 @@ func inspectActiveSectionsRunState(root string) (RunState, bool, error) {
 			return RunState{}, false, fmt.Errorf("unsafe %s: %w", item.label, err)
 		}
 	}
-	body, err := os.ReadFile(overviewPath)
+	body, err := readTaskControlFile(overviewPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return RunState{}, false, nil
 	}
@@ -172,7 +172,7 @@ func inspectActiveSectionsRunState(root string) (RunState, bool, error) {
 			return RunState{}, false, nil
 		}
 	}
-	latest, err := os.ReadFile(overviewPath)
+	latest, err := readTaskControlFile(overviewPath)
 	pendingTransaction, transactionErr := transactionExists(root)
 	if transactionErr != nil {
 		return RunState{}, true, transactionErr
@@ -383,7 +383,7 @@ func inspectRunSectionsDetail(root string, cfg Config, task Task, pathGuard *run
 	if err := pathGuard.reject(abs); err != nil {
 		return "", 0, true, fmt.Errorf("unsafe %s: %w", task.Path, err)
 	}
-	body, err := os.ReadFile(abs)
+	body, err := readTaskControlFile(abs)
 	if err != nil {
 		return "", 0, true, fmt.Errorf("read %s: %w", task.Path, err)
 	}

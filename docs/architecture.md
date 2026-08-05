@@ -68,6 +68,7 @@ internal/
   assurance/      bounded native layout/source/manifest/proof gates
   atomicfile/     write-on-change and atomic publication primitives
   audit/          SHA-256-linked JSONL decision evidence + detached head + bounded rotation
+  boundedio/      exact-size reads for untrusted and repository-controlled files
   bootstrap/      init, repository sync/remove/recovery, portable receipts, journals, and binary resolution
   cli/            command dispatch plus responsibility-owned command modules
   commandmeta/    canonical dependency-neutral command, flag, help, and output contract
@@ -296,8 +297,8 @@ refusal, never an inferred owner or partial success.
 3. `runtime.CheckRepoPolicy(repo, inputs)`:
    - `ingest.DiscoverPolicyRepo(repo)` walks up for `.reconc/`,
      `.reconc.yml`, `AGENTS.md`, etc.
-   - `internal/runtime/lockfile.go` reads and validates schema, version,
-     repository root, migration state, and source freshness.
+   - `internal/runtime/lockfile.go` performs a 16 MiB bounded read and validates
+     schema, version, repository root, migration state, and source freshness.
    - Normalises the input paths against the repo root.
    - For each rule in the lockfile: applies the scope filter
      (`ruleScopeMatches`), then dispatches to the per-kind
@@ -423,6 +424,9 @@ class of hostile input.
 | Native assurance file | **4 MiB** | Rejects oversized source, manifest, or proof inputs before allocation. |
 | Native assurance run | **4,096 files / 32 MiB reads** | Bounds aggregate source and evidence inspection across all gates. |
 | Assurance findings | **50 + omitted-count marker** | Keeps policy output useful without consuming agent context. |
+| Policy source | **8 MiB each / 4,096 files / 64 MiB aggregate** | Bounds repository and fragment ingestion before compilation. |
+| Policy lock / execution input | **16 MiB each** | Bounds evaluator control input before JSON decoding. |
+| Policy evidence / TASK control file | **4 MiB each** | Bounds file-backed checks and executable TASK state before parsing. |
 
 Breaches use the registry's platform-specific blocking response or exit code for
 PreToolUse, permission, and Stop. Observation and cleanup routes fail open with
@@ -698,6 +702,10 @@ executable names or exhausted bounded nested-shell analysis. During
 PreToolUse, a composite violation is blocking only when the current command
 itself hits a direct `forbid_command`; historical command evidence and other
 failing composite subchecks cannot poison a later safe command.
+The default destructive-command guard additionally resolves inline and
+configured Git aliases with bounded process output, timeout, and recursion.
+Unknown subcommands or aliases whose executable shape cannot be proven fail
+closed before Git executes them.
 
 The RTK-prefix strip in `normalizeCommandSemantics` is a compatibility
 shim for transparent CLI proxies: a command recorded as `rtk go test

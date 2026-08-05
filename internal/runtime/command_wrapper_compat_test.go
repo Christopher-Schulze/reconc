@@ -72,6 +72,7 @@ func TestRelativizeEpochKeysBridgesAbsoluteAndRelativeSpellings(t *testing.T) {
 		root = resolved
 	}
 	inside := filepath.Join(root, "pkg", "a.go")
+	spaced := filepath.Join(root, " spaced.go ")
 	if err := os.MkdirAll(filepath.Dir(inside), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -80,6 +81,7 @@ func TestRelativizeEpochKeysBridgesAbsoluteAndRelativeSpellings(t *testing.T) {
 	}
 	epochs := map[string]uint64{
 		inside:       7,
+		spaced:       5,
 		"docs/d.md":  3,
 		"/elsewhere": 9,
 	}
@@ -89,6 +91,9 @@ func TestRelativizeEpochKeysBridgesAbsoluteAndRelativeSpellings(t *testing.T) {
 	}
 	if out[inside] != 7 {
 		t.Fatalf("original absolute key must be kept: %v", out)
+	}
+	if out[" spaced.go "] != 5 || out[spaced] != 5 {
+		t.Fatalf("space-bearing epoch key identity changed: %v", out)
 	}
 	if out["docs/d.md"] != 3 {
 		t.Fatalf("already-relative keys must survive: %v", out)

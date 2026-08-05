@@ -529,11 +529,14 @@ func readRegularTransactionFile(path string) ([]byte, os.FileInfo, error) {
 	if !opened.Mode().IsRegular() || !os.SameFile(initial, opened) {
 		return nil, opened, errors.Join(fmt.Errorf("%s changed identity before it was opened", path), file.Close())
 	}
-	body, readErr := io.ReadAll(file)
+	body, readErr := io.ReadAll(io.LimitReader(file, maxTaskControlBytes+1))
 	after, statErr := file.Stat()
 	closeErr := file.Close()
 	if err := errors.Join(readErr, statErr, closeErr); err != nil {
 		return nil, opened, err
+	}
+	if len(body) > maxTaskControlBytes {
+		return nil, after, fmt.Errorf("%s exceeds %d bytes", path, maxTaskControlBytes)
 	}
 	pathAfter, err := lstatRegularTransactionFile(path)
 	if err != nil {
@@ -611,7 +614,7 @@ func readTransaction(repoRoot string) (transaction, error) {
 	if err != nil {
 		return transaction{}, err
 	}
-	body, err := os.ReadFile(path)
+	body, err := readTaskControlFile(path)
 	if err != nil {
 		return transaction{}, fmt.Errorf("read %s: %w", transactionRel, err)
 	}

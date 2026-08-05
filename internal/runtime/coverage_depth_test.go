@@ -97,7 +97,11 @@ func TestPathAndEpochNormalizationRejectsEscapesAndKeepsStrongestEpoch(t *testin
 	if err != nil {
 		t.Fatalf("normalizePaths: %v", err)
 	}
-	if want := []string{"nested/file.go", "nested/file.go"}; !reflect.DeepEqual(got, want) {
+	want := []string{"nested\\file.go", "nested/file.go"}
+	if filepath.Separator == '\\' {
+		want = []string{"nested/file.go", "nested/file.go"}
+	}
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("normalizePaths() = %#v, want %#v", got, want)
 	}
 	if _, err := normalizePaths([]string{"../outside"}, root); err == nil {
@@ -117,7 +121,11 @@ func TestPathAndEpochNormalizationRejectsEscapesAndKeepsStrongestEpoch(t *testin
 	if err != nil {
 		t.Fatalf("normalizeWriteEpochs: %v", err)
 	}
-	if !reflect.DeepEqual(epochs, map[string]uint64{"nested/file.go": 7}) {
+	wantEpochs := map[string]uint64{"nested\\file.go": 3, "nested/file.go": 7}
+	if filepath.Separator == '\\' {
+		wantEpochs = map[string]uint64{"nested/file.go": 7}
+	}
+	if !reflect.DeepEqual(epochs, wantEpochs) {
 		t.Fatalf("normalizeWriteEpochs() = %#v", epochs)
 	}
 

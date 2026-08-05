@@ -112,6 +112,20 @@ func TestMCPRuntimeEnforcesTypedEffectsAndEvidence(t *testing.T) {
 	}
 }
 
+func TestMCPPathExtractionPreservesFilenameSpaces(t *testing.T) {
+	repo := t.TempDir()
+	paths, valid := selectMCPPathStrings(map[string]interface{}{
+		"path": " spaced.go ",
+	}, []string{"/path"})
+	if !valid {
+		t.Fatal("space-bearing path must remain valid")
+	}
+	normalized, valid := normalizeMCPRepoPaths(repo, paths)
+	if !valid || len(normalized) != 1 || normalized[0] != " spaced.go " {
+		t.Fatalf("MCP path identity changed: %q valid=%t", normalized, valid)
+	}
+}
+
 func TestMCPRuntimeUnclassifiedStrictAndGenericLimitations(t *testing.T) {
 	repo := setupMCPPolicyRepo(t)
 	mismatchedPresence := mcpTestPayloadWithFingerprint(t, "strict-session", "cursor", "read_repo", map[string]interface{}{

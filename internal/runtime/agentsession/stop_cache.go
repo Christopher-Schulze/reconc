@@ -232,7 +232,7 @@ func stopPathDirtyOrUnderDirtyDir(rel string, dirty map[string]struct{}) bool {
 }
 
 func stopRepoRelPosix(repoRoot, raw string) string {
-	path := strings.TrimSpace(raw)
+	path := raw
 	if path == "" {
 		return ""
 	}
@@ -331,8 +331,8 @@ func stopPolicyFingerprintInputForSnapshot(root string, state SessionState, gitS
 		PolicyLockHash:     fileContentHash(filepath.Join(root, ".reconc", "policy.lock.json")),
 		ReportFormat:       runtime.CheckReportFormatVersion,
 		SchemaBase:         os.Getenv("RECONC_SCHEMA_BASE_URL"),
-		ReadPaths:          sortedUnique(state.ReadPaths),
-		WritePaths:         sortedUnique(state.WritePaths),
+		ReadPaths:          sortedUniqueExact(state.ReadPaths),
+		WritePaths:         sortedUniqueExact(state.WritePaths),
 		WriteEpochs:        cloneWriteEpochs(state.WriteEpochs),
 		Commands:           sortedUnique(state.Commands),
 		Claims:             sortedUnique(state.Claims),
@@ -402,8 +402,8 @@ func completionPolicyGitSnapshotFor(repoRoot string) stopPolicyGitSnapshot {
 
 func stopPolicyEvidenceHash(state SessionState) string {
 	input := stopPolicyEvidenceInput{
-		ReadPaths:      sortedUnique(state.ReadPaths),
-		WritePaths:     sortedUnique(state.WritePaths),
+		ReadPaths:      sortedUniqueExact(state.ReadPaths),
+		WritePaths:     sortedUniqueExact(state.WritePaths),
 		WriteEpochs:    cloneWriteEpochs(state.WriteEpochs),
 		Commands:       sortedUnique(state.Commands),
 		Claims:         sortedUnique(state.Claims),
