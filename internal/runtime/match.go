@@ -12,7 +12,6 @@
 package runtime
 
 import (
-	"path/filepath"
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -39,8 +38,8 @@ func MatchPath(pattern, path string) (bool, error) {
 	// Patterns are configuration text, so surrounding whitespace is
 	// normalized. Path bytes are evidence and must remain verbatim: leading
 	// and trailing spaces are legal POSIX filename characters.
-	p := filepath.ToSlash(strings.TrimSpace(pattern))
-	q := filepath.ToSlash(path)
+	p := strings.TrimSpace(pattern)
+	q := path
 	return doublestar.Match(p, q)
 }
 

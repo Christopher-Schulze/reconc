@@ -28,9 +28,15 @@ func ResolveExisting(path string) (string, error) {
 // operating-system identity, then appends the missing suffix. This makes
 // containment checks safe before a target is created.
 func ResolveProspective(path string) (string, error) {
-	absolute, err := filepath.Abs(path)
-	if err != nil {
-		return "", fmt.Errorf("resolve absolute path %q: %w", path, err)
+	// Windows filepath.Abs delegates to GetFullPathName, which can normalize
+	// bytes in a missing suffix. Keep an already-absolute spelling intact.
+	absolute := filepath.Clean(path)
+	if !filepath.IsAbs(absolute) {
+		var err error
+		absolute, err = filepath.Abs(absolute)
+		if err != nil {
+			return "", fmt.Errorf("resolve absolute path %q: %w", path, err)
+		}
 	}
 	cursor := filepath.Clean(absolute)
 	missing := []string{}

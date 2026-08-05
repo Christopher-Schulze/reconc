@@ -158,7 +158,7 @@ func SubstituteTemplateInList(items []string, captures map[string]string) ([]str
 // capture-bound forms with MatchPath, so this translator can never silently
 // broaden a security-relevant match.
 func compileTemplatePattern(pattern string) (*regexp.Regexp, []string, error) {
-	pattern = filepath.ToSlash(strings.TrimSpace(pattern))
+	pattern = strings.TrimSpace(pattern)
 	names := []string{}
 	seen := map[string]struct{}{}
 	var buf strings.Builder

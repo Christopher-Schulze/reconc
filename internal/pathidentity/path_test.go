@@ -8,7 +8,7 @@ import (
 
 func TestResolveProspectivePreservesMissingSuffix(t *testing.T) {
 	root := t.TempDir()
-	want := filepath.Join(root, "not-created", "nested", "file.txt")
+	want := filepath.Join(root, "not-created", "nested", " file.txt ")
 	got, err := ResolveProspective(want)
 	if err != nil {
 		t.Fatal(err)
@@ -17,7 +17,7 @@ func TestResolveProspectivePreservesMissingSuffix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if expected := filepath.Join(resolvedRoot, "not-created", "nested", "file.txt"); got != expected {
+	if expected := filepath.Join(resolvedRoot, "not-created", "nested", " file.txt "); got != expected {
 		t.Fatalf("resolved prospective path = %q, want %q", got, expected)
 	}
 }
