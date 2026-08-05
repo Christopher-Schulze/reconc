@@ -67,6 +67,25 @@ func TestHookWrapperDirectTargetSkipsPlatformDiscovery(t *testing.T) {
 	}
 }
 
+func TestHookWrapperRoutesWorkerSentinelWithoutRuntimeEvent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX wrapper execution is covered on POSIX hosts")
+	}
+	repo, wrapper, marker := setupDirectTargetWrapper(t)
+	command := exec.Command("sh", wrapper, "__worker_v1__", repo)
+	command.Env = append(os.Environ(), "PATH="+fakeUnamePath(t, marker), "UNAME_MARKER="+marker)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("worker wrapper: %v: %s", err, output)
+	}
+	if !strings.Contains(string(output), "direct|hook worker") {
+		t.Fatalf("worker sentinel entered ordinary runtime dispatch: %s", output)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("worker direct target must not invoke uname: %v", err)
+	}
+}
+
 func TestHookWrapperTamperedTargetFallsBackToPlatformResolver(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX wrapper execution is covered on POSIX hosts")

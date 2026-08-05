@@ -265,8 +265,7 @@ case "$event" in
         exit 0
         ;;
       timeout)
-        sleep 2
-        exit 1
+        exec sleep 2
         ;;
     esac
     ;;

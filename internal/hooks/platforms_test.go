@@ -423,7 +423,7 @@ func TestNewPlatformArtifactsUseCurrentContracts(t *testing.T) {
 			t.Fatalf("Kilo artifact missing %q:\n%s", token, kilo.Content)
 		}
 	}
-	if len(kilo.Content) > 28*1024 {
+	if len(kilo.Content) > 36*1024 {
 		t.Fatalf("Kilo adapter is not thin: %d bytes", len(kilo.Content))
 	}
 
@@ -481,7 +481,7 @@ func TestNewPlatformArtifactsUseCurrentContracts(t *testing.T) {
 			t.Fatalf("OMP artifact missing %q:\n%s", token, omp.Content)
 		}
 	}
-	if len(omp.Content) > 24*1024 {
+	if len(omp.Content) > 32*1024 {
 		t.Fatalf("OMP extension is not thin: %d bytes", len(omp.Content))
 	}
 
@@ -504,7 +504,7 @@ func TestNewPlatformArtifactsUseCurrentContracts(t *testing.T) {
 			t.Fatalf("Pi artifact missing %q:\n%s", token, pi.Content)
 		}
 	}
-	if len(pi.Content) > 32*1024 {
+	if len(pi.Content) > 40*1024 {
 		t.Fatalf("Pi extension is not thin: %d bytes", len(pi.Content))
 	}
 

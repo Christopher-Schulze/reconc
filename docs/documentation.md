@@ -1888,6 +1888,17 @@ so its fail-closed response is returned before the host's 30-second
 extension-handler deadline.
 Each runtime route caps combined process output at 8 KiB.
 Post-compaction recovery context is deduplicated and capped at 4 KiB.
+OpenCode, Kilo Code, OMP, and Pi keep one repository-owned `reconc hook worker`
+child for the lifetime of their plugin instance. Format-1 newline-framed JSON
+requests carry bounded IDs, event, repository, and payload fields and are
+processed in deterministic order. Cancellation or route timeout kills the
+child; startup, crash, or protocol failure uses the remaining route budget for
+the existing one-shot path. Protocol drift disables reuse for that plugin
+instance, while a later plugin instance picks up an installed binary upgrade.
+Shutdown closes the worker, and stdin EOF prevents orphans if the host exits.
+The worker reuses only a revalidated operating-system repository identity;
+policy, lockfile, session, and taint inputs remain freshly loaded. No daemon,
+socket, listener, or runtime network call is added.
 
 Claude Code, Codex, GitHub Copilot, Cursor, Devin, Antigravity, and Grok
 generated repository configs use `tools/reconc/bin/hook` on POSIX; the wrapper

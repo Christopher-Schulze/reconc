@@ -611,6 +611,13 @@ acknowledgement. Native `tool_call` and `user_bash` are blocking; result,
 lifecycle, compaction, and shutdown routes are observational. Pi exposes no
 native permission, MCP discriminator, post-user-shell result, or synchronous
 Stop decision event.
+OpenCode, Kilo Code, OMP, and Pi keep one session-owned Reconc stdio worker per
+plugin repository. Requests are bounded format-1 JSON frames and retain the
+registry route timeout and error policy. Startup, crash, or protocol failure
+falls back to one-shot execution within the remaining route budget; cancellation
+and timeout kill the child. Session shutdown or parent stdin closure prevents an
+orphan. This is an internal transport optimization, not a daemon or public
+network API.
 Cursor, OpenCode, Kilo, OMP, and Pi rows additionally expose a redacted `mcp` object:
 the configured unclassified mode, exact tool/fingerprint/effect mappings,
 classified and unclassified observation counts, denials, failures,

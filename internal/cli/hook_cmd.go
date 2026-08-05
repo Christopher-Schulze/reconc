@@ -50,6 +50,8 @@ func runHook(args []string, stdout, stderr io.Writer) error {
 		return runHookSyncScaffold(args[1:], stdout, stderr)
 	case "runtime":
 		return runHookRuntime(args[1:], stdout, stderr)
+	case "worker":
+		return runHookWorker(args[1:], os.Stdin, stdout)
 	case "kimi-runtime":
 		return runKimiCodeRuntime(args[1:], stdout, stderr)
 	case "grok-pre-tool-guard":
@@ -628,6 +630,19 @@ func runKimiCodeRuntime(args []string, stdout, stderr io.Writer) error {
 // fail-open per event, max payload size, depth limits, timeout).
 // runHookRuntime is the single enforcement point for those contracts.
 func runHookRuntime(args []string, stdout, stderr io.Writer) error {
+	return runHookRuntimeWithInput(args, os.Stdin, stdout, stderr)
+}
+
+func runHookRuntimeWithInput(args []string, input io.Reader, stdout, stderr io.Writer) error {
+	return runHookRuntimeWithResolver(args, input, stdout, stderr, agentsession.ResolveRepoRootRef)
+}
+
+func runHookRuntimeWithResolver(
+	args []string,
+	input io.Reader,
+	stdout, stderr io.Writer,
+	resolveRoot func(string) (agentsession.ResolvedRepoRoot, error),
+) error {
 	if len(args) == 0 {
 		return &CLIError{ExitCode: 1, Message: "reconc hook runtime: missing <event> <repo>"}
 	}
@@ -660,7 +675,7 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 		lowerObservationHookPriorityBestEffort()
 	}
 
-	payload, err := agentsession.ReadPayload(os.Stdin)
+	payload, err := agentsession.ReadPayload(input)
 	if err != nil {
 		if route.PlatformKind == hooks.KindGitHubCopilot && (route.Event == hooks.EventStop || route.Event == hooks.EventSubagentStop) {
 			writeGitHubCopilotRuntimeBlock(stdout, "Reconc could not read the GitHub Copilot hook payload: "+err.Error())
@@ -678,7 +693,7 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 		return nil
 	}
 	timing.mark("payload_read")
-	root, err := agentsession.ResolveRepoRootRef(repo)
+	root, err := resolveRoot(repo)
 	if err != nil {
 		if route.PlatformKind == hooks.KindGitHubCopilot && (route.Event == hooks.EventStop || route.Event == hooks.EventSubagentStop) {
 			writeGitHubCopilotRuntimeBlock(stdout, "Reconc rejected the GitHub Copilot repository root: "+err.Error())

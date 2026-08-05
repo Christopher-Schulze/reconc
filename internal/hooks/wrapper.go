@@ -72,6 +72,9 @@ grok_stop_decision_valid() {
 
 run_reconc_hook() {
   reconc_binary="$1"
+  if [ "$event" = "__worker_v1__" ]; then
+    exec "$reconc_binary" hook worker
+  fi
   if [ "$event" = "grok-pre-tool-use" ] || [ "$event" = "grok-stop" ]; then
     set +e
     if [ "$event" = "grok-pre-tool-use" ]; then

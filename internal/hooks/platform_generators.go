@@ -210,6 +210,7 @@ export default { id: "reconc", server: ReconcKiloServer }`
 		"__EXPORT_TAIL__", exportTail,
 		"__PREFIX__", prefix,
 		"__ROUTE_BUDGETS__", routeBudgets,
+		"__WORKER_CLIENT__", hookWorkerClientSource,
 	).Replace(bunAgentPluginTemplate)
 	return &Artifact{Kind: kind, TargetPath: targetPath, Content: content}, nil
 }
@@ -333,8 +334,12 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
       return [wrapper, event, repo]
     }
     for (const binary of binaries) {
-      if (await Bun.file(binary).exists()) return [binary, "hook", "runtime", event, repo]
+      if (await Bun.file(binary).exists()) {
+        if (event === "__worker_v1__") return [binary, "hook", "worker"]
+        return [binary, "hook", "runtime", event, repo]
+      }
     }
+    if (event === "__worker_v1__") return ["reconc", "hook", "worker"]
     return ["reconc", "hook", "runtime", event, repo]
   }
 
@@ -419,7 +424,7 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
     return { stdout: stdoutText.trim(), stderr: (stderrText + suffix).trim(), truncated, invalidUTF8: false }
   }
 
-  const run = async (event, payload) => {
+  const runOneShot = async (event, payload, _signal, timeoutOverride) => {
     const budget = routeBudgets[event] || { timeoutMilliseconds: 5000, maxOutputBytes: 8192, errorPolicy: "block", timeoutPolicy: "block" }
     let proc
     let timeoutID
@@ -438,7 +443,7 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
         timedOut = true
         outputAbort.abort()
         proc.kill("SIGKILL")
-      }, budget.timeoutMilliseconds)
+      }, timeoutOverride || budget.timeoutMilliseconds)
       const [code, output] = await Promise.all([proc.exited, readCombined(proc.stdout, proc.stderr, budget.maxOutputBytes, outputAbort.signal)])
       return { code, stdout: output.stdout, stderr: output.stderr, timedOut, truncated: output.truncated, invalidUTF8: output.invalidUTF8 }
     } catch (error) {
@@ -451,6 +456,10 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
       if (timeoutID) clearTimeout(timeoutID)
     }
   }
+
+  __WORKER_CLIENT__
+  const workerTransport = createReconcWorkerTransport(repo, commandFor, runOneShot, "Host canceled the Reconc hook")
+  const run = (event, payload) => workerTransport.run(event, payload)
 
   const shouldBlockFailure = (event, result) => {
     const budget = routeBudgets[event] || { errorPolicy: "block", timeoutPolicy: "block" }
@@ -784,6 +793,7 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
         await run("__PREFIX__-session-end", { session_id: sessionID, reconc_runtime: "__PREFIX__" })
         startedSessions.delete(sessionID)
         continuationStates.delete(sessionID)
+        if (startedSessions.size === 0) await workerTransport.close()
       } else if (event?.type === "session.idle") {
         await handleStop(event)
       }

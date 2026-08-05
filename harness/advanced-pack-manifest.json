@@ -18,8 +18,8 @@
     {
       "path": "tools/reconc/harness/template/BOOTSTRAP.md",
       "mode": 420,
-      "size": 45351,
-      "sha256": "5f8ed951a872470e93fedfb32c630e6a590b979a42fc9ef6f8f04cb3ea8826d9",
+      "size": 45793,
+      "sha256": "ac129d42271912ed5cce467c4747de57f6c8852a30d10b54842c9e9a49641ca7",
       "ownership": "pack-file"
     },
     {
@@ -501,29 +501,29 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.kilo/plugin/reconc.js",
       "mode": 420,
-      "size": 21582,
-      "sha256": "f67a54c09ac034ee6fe8e1e07eb22f6680eb7991918ef745210d3890ec1f8cd4",
+      "size": 31717,
+      "sha256": "7594eacddc46e29e446e591f4292af1bf3518abc6b3c07813ebf91ed0280eaae",
       "ownership": "pack-file"
     },
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.omp/extensions/reconc.ts",
       "mode": 420,
-      "size": 14040,
-      "sha256": "479a2923e808da119f1018fccea24d567f382eaa5eefe931f2dafa32579ed010",
+      "size": 24754,
+      "sha256": "4072c92c4c362210407827a6d782d731043cdcba4c21c4948556ff870cfac28e",
       "ownership": "pack-file"
     },
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.opencode/plugins/reconc.js",
       "mode": 420,
-      "size": 21698,
-      "sha256": "6286e512ef62a141d3c51b6ee0371a811fa291e41b47d45263e4c4cde8da75db",
+      "size": 31833,
+      "sha256": "1371951db2b11bbbf865eacad1a3056cf04870fcd1b58e7995bd6611fcd02b87",
       "ownership": "pack-file"
     },
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.pi/extensions/reconc.ts",
       "mode": 420,
-      "size": 18374,
-      "sha256": "5c8eec4b83b42e3c524b56c194eb1ed8234bf2d76f2e1d59e43a482183a5ff0c",
+      "size": 29087,
+      "sha256": "11f3b8e711cd64de6617dd4fd00247b58e443028bd6f8c7f91afcf8ded5ed094",
       "ownership": "pack-file"
     },
     {
@@ -737,6 +737,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 711019,
-  "digest": "017e4e52328f019ffbd64333d47ffa5091abace7fcaac73bce10ac6f38bcc165"
+  "total_bytes": 753158,
+  "digest": "0429375dbfba44f4234f09b0484d12cf56e3f4059ef42881d346d5fbcadd6af4"
 }

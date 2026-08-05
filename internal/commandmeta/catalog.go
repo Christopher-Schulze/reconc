@@ -150,6 +150,7 @@ var commandCatalog = []Command{
 		sub("status", "reconc hook status [repo] [--json]", "inspect registered hook installation and liveness", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 		sub("sync-scaffold", "reconc hook sync-scaffold <repo-root-scaffold> [--json]", "synchronize generated scaffold hook artifacts", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 		internalSub("runtime", "reconc hook runtime <event> <repo>", "dispatch one registry-owned runtime event"),
+		internalSub("worker", "reconc hook worker", "serve versioned session-owned hook requests over stdio"),
 		internalSub("kimi-runtime", "reconc hook kimi-runtime <event>", "dispatch one global Kimi Code runtime event"),
 		internalSub("grok-pre-tool-guard", "reconc hook grok-pre-tool-guard <repo>", "run the internal fail-closed Grok pre-tool guard"),
 		sub("claim", "reconc hook claim <repo> <claim-name> [--session ID] [--json] [--output PATH]", "record one explicit session claim", flags(f("--session", "ID"), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),

@@ -417,6 +417,8 @@ class of hostile input.
 | Audit/run storage | **2 MiB live + 2 archives each** | Fixed rings and transition-only run records prevent repository-local log growth. |
 | Hook output | **8 KiB per route** | Prevents verbose host output from consuming agent context. |
 | Bun adapter process output | **8 KiB combined stdout + stderr** | OpenCode, Kilo, OMP, and Pi concurrently drain both pipes; overflow, invalid UTF-8, timeout, and truncated decision JSON fail according to the registry route policy. |
+| Hook worker request frame | **64 MiB payload + 64 KiB envelope** | Keeps complete supported hook payloads while bounding protocol metadata and buffering. |
+| Hook worker response frame | **128 KiB at the adapter** | Bounds framed JSON and escaped 8 KiB route output before parsing. |
 | OpenCode/Kilo continuation state | **1,024 sessions / 10 accepted continuations each** | Bounded generation and in-flight state suppress duplicate idle delivery without storing prompts, tool payloads, or model output. |
 | OMP native Stop continuation | **8 turns / 29 s internal timeout** | The OMP host caps awaited main-agent `session_stop` continuation and its 30-second handler deadline stays outside Reconc's fail-closed timeout; an aborted host signal releases immediately. |
 | Pi settled continuation | **1,024 sessions / 10 requested continuations each** | Bounded generation and in-flight state suppress duplicate `agent_settled` requests. Pi returns no delivery acknowledgement, so requested delivery is never recorded as acceptance. |
@@ -484,6 +486,26 @@ Each runtime route has a small six-hour marker: the common path is one `stat`,
 zero locks, zero JSON reads, and zero writes; a due route refresh updates the
 bounded aggregate status used by `reconc hook status`.
 
+OpenCode, Kilo Code, OMP, and Pi own one `reconc hook worker` child per live
+plugin repository. The internal protocol is newline-framed JSON format 1 with
+printable request IDs, explicit event and repository fields, one object payload,
+strict UTF-8/JSON decoding, and sequential response order. The adapter serializes
+concurrent host callbacks. Cancellation kills the worker and yields to the host;
+a route timeout kills it and applies that route's timeout policy without a second
+evaluation. Startup failure, protocol mismatch, or a crash before a response
+uses the remaining route budget for the existing one-shot path. Protocol drift
+disables reuse for that plugin instance; a post-handshake crash can restart on
+the next event. Shutdown sends a bounded acknowledgement and kills any child
+that does not exit; parent stdin closure also terminates the worker. A running
+worker keeps its current binary until plugin shutdown, so an installed upgrade
+is picked up by the next plugin instance without mutating an in-flight request.
+The worker caches only `ResolvedRepoRoot`. It proves the same filesystem object
+with `os.SameFile` before reuse and resolves again after repository replacement
+or alias drift. Policy sources, lockfiles, session state, taint, and binary
+selection are not cached by this layer and therefore retain their existing exact
+per-request invalidation behavior. Shell-only hosts continue using one-shot
+execution and no daemon, listener, socket, or network surface is introduced.
+
 Passive lifecycle events are observation-only. They validate an existing
 session under its cross-process lock but do not create missing state, rewrite
 an active-session pointer, normalize/publish unchanged JSON, or manufacture
@@ -522,9 +544,9 @@ non-evidentiary for command success.
 
 OpenCode and Kilo plugins are generated transport adapters. Shell outcomes are
 normalized from the exact integer `output.metadata.exit` into the neutral Go
-payload. Their subprocess runner concurrently drains both pipes, applies one
-combined output budget, validates UTF-8, and terminates the subprocess on
-timeout. Idle continuation uses bounded per-session generations and only the
+payload. Their session-owned worker uses the common framed protocol above; the
+one-shot recovery runner concurrently drains both pipes, applies one combined
+output budget, validates UTF-8, and terminates the subprocess on timeout. Idle continuation uses bounded per-session generations and only the
 asynchronous SDK request `promptAsync({sessionID, messageID, parts})`. The
 caller-owned message identifier distinguishes the injected callback from
 external user activity; no synchronous prompt fallback exists.
@@ -535,8 +557,8 @@ awaited main-agent `session_stop` as its fail-closed boundaries, and keeps
 approval events observational because OMP does not accept decisions from
 them. `tool_result.isError` is the authoritative outcome; successful built-in
 Bash results alone synthesize exit code zero. The adapter uses the same
-combined output, UTF-8, timeout, kill, and wrapper-resolution contract as the
-other Bun adapters. Session shutdown has a one-second Reconc route budget
+session-owned worker, one-shot recovery, combined output, UTF-8, timeout, kill,
+and wrapper-resolution contract as the other Bun adapters. Session shutdown has a one-second Reconc route budget
 inside OMP's two-second extension-handler budget.
 
 Pi's generated `.pi/extensions/reconc.ts` is a trust-gated transport adapter.
@@ -548,6 +570,7 @@ exit status. `agent_settled` can request a bounded continuation through
 `sendUserMessage`, but the host API returns no delivery acknowledgement. Pi
 has no native permission event, MCP discriminator, post-`user_bash` result, or
 synchronous Stop gate. Host cancellation wins over Reconc subprocess output.
+The Pi shutdown route closes its repository worker after recording SessionEnd.
 
 ### Path-traversal
 

@@ -7,7 +7,10 @@ func generateOMP() (*Artifact, error) {
 	if err != nil {
 		return nil, err
 	}
-	content := strings.Replace(ompExtensionTemplate, "__ROUTE_BUDGETS__", routeBudgets, 1)
+	content := strings.NewReplacer(
+		"__ROUTE_BUDGETS__", routeBudgets,
+		"__WORKER_CLIENT__", hookWorkerClientSource,
+	).Replace(ompExtensionTemplate)
 	return &Artifact{Kind: KindOMP, TargetPath: OMPExtensionPath, Content: content}, nil
 }
 
@@ -147,16 +150,21 @@ const commandFor = async (repo: string, event: string): Promise<string[]> => {
     return [wrapper, event, repo]
   }
   for (const binary of [repo + "/.build/bin/reconc", repo + "/reconc"]) {
-    if (await Bun.file(binary).exists()) return [binary, "hook", "runtime", event, repo]
+    if (await Bun.file(binary).exists()) {
+      if (event === "__worker_v1__") return [binary, "hook", "worker"]
+      return [binary, "hook", "runtime", event, repo]
+    }
   }
+  if (event === "__worker_v1__") return ["reconc", "hook", "worker"]
   return ["reconc", "hook", "runtime", event, repo]
 }
 
-const run = async (
+const runOneShot = async (
   event: string,
   payload: JsonObject,
   repo: string,
   signal?: AbortSignal,
+  timeoutOverride?: number,
 ): Promise<RunResult> => {
   const budget = routeBudgets[event] ?? defaultBudget
   const outputAbort = new AbortController()
@@ -201,7 +209,7 @@ const run = async (
       timedOut = true
       outputAbort.abort()
       kill?.()
-    }, budget.timeoutMilliseconds)
+    }, timeoutOverride ?? budget.timeoutMilliseconds)
     const [code, output] = await Promise.all([
       proc.exited,
       readCombined(proc.stdout, proc.stderr, budget.maxOutputBytes, outputAbort.signal),
@@ -224,6 +232,23 @@ const run = async (
     signal?.removeEventListener("abort", abort)
   }
 }
+
+__WORKER_CLIENT__
+const workerTransports = new Map<string, ReturnType<typeof createReconcWorkerTransport>>()
+const workerTransport = (repo: string): ReturnType<typeof createReconcWorkerTransport> => {
+  const existing = workerTransports.get(repo)
+  if (existing) return existing
+  const created = createReconcWorkerTransport(
+    repo,
+    (event: string) => commandFor(repo, event),
+    (event: string, payload: JsonObject, signal?: AbortSignal, timeout?: number) => runOneShot(event, payload, repo, signal, timeout),
+    "OMP canceled the Reconc hook",
+  )
+  workerTransports.set(repo, created)
+  return created
+}
+const run = (event: string, payload: JsonObject, repo: string, signal?: AbortSignal): Promise<RunResult> =>
+  workerTransport(repo).run(event, payload, signal)
 
 const failureReason = (event: string, result: RunResult): string => {
   const budget = routeBudgets[event] ?? defaultBudget
@@ -394,6 +419,8 @@ export default function ReconcOMPExtension(pi: ExtensionAPI): void {
 
   pi.on("session_shutdown", async (_event, ctx) => {
     await observe("omp-session-end", sessionPayload(ctx, "session_shutdown"), ctx)
+    await workerTransports.get(ctx.cwd)?.close()
+    workerTransports.delete(ctx.cwd)
   })
 }
 `

@@ -1176,7 +1176,7 @@ func TestGenerateOpenCodePluginDelegatesStateToGoRuntime(t *testing.T) {
 			t.Fatalf("OpenCode adapter must not own %q; the Go runtime owns policy and state", forbidden)
 		}
 	}
-	if len(content) > 28*1024 {
+	if len(content) > 36*1024 {
 		t.Fatalf("OpenCode adapter is not thin: %d bytes", len(content))
 	}
 	for _, forbidden := range []string{"new Response(proc.stdout).text()", "new Response(proc.stderr).text()"} {

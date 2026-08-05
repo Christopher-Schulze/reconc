@@ -212,12 +212,37 @@ func validateSessionID(sessionID string) error {
 // path is intentionally private so callers outside this package cannot forge a
 // resolved root and bypass the existence, directory, or identity checks.
 type ResolvedRepoRoot struct {
-	path string
+	path     string
+	identity os.FileInfo
 }
 
 // Path returns the canonical filesystem path carried by this root handle.
 func (root ResolvedRepoRoot) Path() string {
 	return root.path
+}
+
+// Revalidate proves that the directory entry still names the exact filesystem
+// object resolved for this handle. Persistent hook workers call this before
+// reuse so repository replacement or alias drift forces a fresh resolution.
+func (root ResolvedRepoRoot) Revalidate() error {
+	if root.path == "" || root.identity == nil {
+		return errors.New("resolved repository root is empty")
+	}
+	info, err := os.Stat(root.path)
+	if err != nil {
+		return fmt.Errorf("revalidate repository root: %w", err)
+	}
+	if !info.IsDir() || !os.SameFile(root.identity, info) {
+		return errors.New("repository root filesystem identity changed")
+	}
+	resolved, err := pathidentity.ResolveExisting(root.path)
+	if err != nil {
+		return fmt.Errorf("revalidate repository path identity: %w", err)
+	}
+	if resolved != root.path {
+		return errors.New("repository root canonical path changed")
+	}
+	return nil
 }
 
 // ResolveRepoRoot resolves the repo root to its operating-system filesystem
@@ -255,7 +280,11 @@ func ResolveRepoRootRef(repoRoot string) (ResolvedRepoRoot, error) {
 	if err != nil {
 		return ResolvedRepoRoot{}, fmt.Errorf("resolve repo filesystem identity: %w", err)
 	}
-	return ResolvedRepoRoot{path: resolved}, nil
+	identity, err := os.Stat(resolved)
+	if err != nil {
+		return ResolvedRepoRoot{}, fmt.Errorf("inspect resolved repo filesystem identity: %w", err)
+	}
+	return ResolvedRepoRoot{path: resolved, identity: identity}, nil
 }
 
 // --- load / save -----------------------------------------------------
