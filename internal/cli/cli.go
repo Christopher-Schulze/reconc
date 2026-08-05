@@ -109,6 +109,8 @@ func Run(argv []string, version string, stdout, stderr io.Writer) (runErr error)
 		return runStatus(argv[1:], stdout, stderr)
 	case "ci":
 		return runCI(argv[1:], version, stdout, stderr)
+	case "impact":
+		return runImpact(argv[1:], version, stdout)
 	case "exec":
 		return runExec(argv[1:], stdout, stderr)
 	case "hook":

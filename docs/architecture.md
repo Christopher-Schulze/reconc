@@ -56,6 +56,12 @@ Host-native MCP events and configured generic MCP identities enter through the
 same compiled lockfile. Exact selectors classify a call as repository read,
 repository write, command, or external before session evidence is considered;
 unclassified or malformed calls never become positive repository evidence.
+`impact` takes a separate non-publishing compiler branch: it adds one candidate
+source in memory, builds the same typed runtime plan, and compares it with the
+fresh current plan over a strict privacy-bounded corpus. The branch never
+writes the policy lock or runtime state and refuses any `require_script` rule
+before evaluation so arbitrary repository code cannot violate the
+side-effect-free replay contract.
 
 ## Package map
 
@@ -85,6 +91,7 @@ internal/
   harnesspack/    strict versioned harness-pack manifest, archive, digest, and compatibility contract
   hooks/          typed registry + generators + install/uninstall + activation + scaffold sync
   ingest/         discovery + source loading (AGENTS.md, .reconc.yml, presets, globals)
+  impactlab/      private replay-corpus contract + deterministic policy comparison
   lockdiff/       structural lockfile comparison (ignore-provenance semantics)
   filelock/       cross-platform process locks
   jsonl/          bounded locked JSONL append + archive rings
@@ -171,7 +178,9 @@ handling.
 4. **Explicit side effects.** Policy refresh, bootstrap, hook installation, TASK
    mutation, retention, and hook event handling own their documented files.
    Read-only commands never refresh policy. `RECONC_AUDIT=1` is still required
-   for the optional decision audit log.
+   for the optional decision audit log. Policy impact analysis compiles only in
+   memory, publishes only an explicitly requested report or corpus output, and
+   refuses external script rules before they can execute.
 
 5. **One stable interactive command.** `install-cli` atomically publishes the
    exact running executable to the user install directory and verifies the

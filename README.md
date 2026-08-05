@@ -128,7 +128,7 @@ Core invariants are deliberately strict:
 | Transactional adoption | Inspects existing repositories, proposes evidence-backed packs and commands, and plans, applies, verifies, synchronizes, or removes only receipt-owned rollout state. |
 | Runtime enforcement | Generates, installs, verifies, and safely removes registry-backed hooks for twelve coding-agent runtimes, with capability-specific failure semantics and git pre-commit as the repository backstop. |
 | MCP side-effect control | Classifies explicitly configured Cursor, OpenCode, Kilo, Oh My Pi, and Pi MCP tools as repository reads, writes, commands, or external effects using exact selectors and fail-closed extraction. |
-| Operator and CI tooling | Provides exact remediation, body-free source-provenance inspection, staged command execution, deterministic SARIF 2.1.0 and JUnit XML reports, CI proofs, global diagnostics, update and uninstall, cryptographically verified audit inspection, retention, TUI, shell completions, and a generated manpage. |
+| Operator and CI tooling | Provides exact remediation, body-free source-provenance inspection, an offline policy impact lab, staged command execution, deterministic SARIF 2.1.0 and JUnit XML reports, CI proofs, global diagnostics, update and uninstall, cryptographically verified audit inspection, retention, TUI, shell completions, and a generated manpage. |
 | Release trust | Publishes strict release manifests, SHA-256 checksums, build-provenance attestations, and deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs tied to the release commit. |
 
 ## Evidence Model
@@ -358,6 +358,24 @@ evidence-complete gate. Detailed static help stays on demand through
 Inspection and enforcement commands never compile policy implicitly. If a
 policy source changes, run `reconc refresh .` as its own explicit command,
 review the lockfile diff, and commit source and lock together.
+
+Review a candidate rule file or pack before enabling it:
+
+```bash
+reconc impact . --candidate candidate.yml --write src/main.go
+reconc impact export . --session --output impact-corpus.json
+reconc impact . --pack go-assurance --corpus impact-corpus.json --json
+```
+
+`impact` compiles the additive candidate in memory and replays the fresh
+current and candidate policies over explicit bounded evidence. It does not
+change policy, `extends`, the lockfile, hooks, sessions, audit state, or TASKs,
+and it never calls a model or network service. Corpora exclude prompts, file
+bodies, command output, raw session identifiers, and secret-shaped values.
+Missing or redacted event classes stay explicit, and an unmatched rule means
+only unmatched in that corpus. Because arbitrary policy scripts cannot be
+proven side-effect-free, impact analysis refuses `require_script` policies
+before executing any script.
 
 ### Update the CLI and repository separately
 

@@ -477,6 +477,39 @@ reconc ci . --base "$CI_MERGE_REQUEST_DIFF_BASE_SHA" --head "$CI_COMMIT_SHA" --f
 reconc ci . --base origin/main --head HEAD --format junit --output reconc-junit.xml
 ```
 
+### `reconc impact [repo] (--candidate FILE | --pack NAME) [--corpus FILE | --fixture FILE] [evidence flags] [--json] [--output PATH]`
+
+Compile one additive candidate policy file or resolved preset in memory, then
+compare the fresh current policy and candidate over explicit evidence fixtures
+or imported replay corpora. The command writes no policy source, lockfile,
+hook, session state, audit record, or TASK file, applies no suggestion, invokes
+no model, and makes no network call. Candidate files are bounded regular UTF-8
+files; their physical path is excluded from compiled provenance.
+
+The deterministic report lists per-case decision and action changes, newly
+blocking and warning rules, resolved violations, per-rule current/candidate
+violation-match counts, rules unmatched in this corpus, and structural
+evaluation-unit deltas. These units count rules, normalized evidence,
+pattern-comparison opportunities, and external-rule boundaries; they are
+stable comparison evidence, not wall-clock timing. An unmatched rule is never
+reported as dead or safe.
+
+Policies containing `require_script` are refused before replay because an
+arbitrary repository script cannot be proven side-effect-free.
+
+### `reconc impact export [repo] (--session | evidence flags) [--complete CLASS] [--case-id ID] [--output PATH]`
+
+Export one strict replay corpus from explicit evidence and optionally the
+active session's normalized read, write, command, outcome, and claim evidence.
+The format stores no prompt, file body, command output, or raw session
+identifier. Secret-like command arguments and claims are replaced with
+`<redacted>`; affected event classes become incomplete. `--complete`
+accepts `read`, `write`, `command`, `command_outcome`, `claim`, or
+`all` and is a declaration about capture coverage, not an inferred claim.
+Every corpus is bounded, deterministically ordered, self-identified, strict
+about unknown/duplicate fields, and refused after mutation. `--output`
+publishes the exact stdout JSON atomically.
+
 ### `reconc exec [repo] [--staged] [--shell] -- COMMAND [ARG ...]`
 Execute a command from the repository root and record its real exit status in
 the active Reconc session when one exists. `--staged` additionally requires no

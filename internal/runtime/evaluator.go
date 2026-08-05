@@ -218,46 +218,19 @@ func (e *Evaluator) checkRepoPolicy(startPath string, inputs ExecutionInputs, al
 	if err != nil {
 		return nil, err
 	}
+	return evaluateRuntimePlan(root, plan, inputs, allowedKinds, preCommand)
+}
 
-	resolvedRoot, err := pathidentity.ResolveExisting(root)
-	if err != nil {
-		return nil, fmt.Errorf("resolve repo filesystem identity: %w", err)
-	}
-	normalizedReads, err := normalizePathsWithResolvedRoot(inputs.ReadPaths, resolvedRoot)
+func evaluateRuntimePlan(root string, plan *runtimePlan, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}, preCommand bool) (*CheckReport, error) {
+	normalized, err := normalizeEvaluationInput(root, inputs)
 	if err != nil {
 		return nil, err
 	}
-	normalizedWrites, err := normalizePathsWithResolvedRoot(inputs.WritePaths, resolvedRoot)
-	if err != nil {
-		return nil, err
-	}
-	normalizedWriteEpochs, err := normalizeWriteEpochsWithResolvedRoot(inputs.WritePaths, inputs.WriteEpochs, resolvedRoot)
-	if err != nil {
-		return nil, err
-	}
-	normalizedResults := normalizeCommandResults(inputs.CommandResults)
-	rawCommands := rawCommandsPreservingSyntax(inputs.Commands, inputs.CommandResults)
-	commandsForDedupe := append([]string{}, inputs.Commands...)
-	for _, r := range normalizedResults {
-		commandsForDedupe = append(commandsForDedupe, r.Command)
-	}
-	normalizedCommands := dedupePreservingOrder(normalizeCommands(commandsForDedupe))
-	normalizedClaims := normalizeCommands(inputs.Claims)
-
-	normalizedInputs := ExecutionInputs{
-		ReadPaths:      normalizedReads,
-		WritePaths:     normalizedWrites,
-		WriteEpochs:    normalizedWriteEpochs,
-		Commands:       normalizedCommands,
-		Claims:         normalizedClaims,
-		CommandResults: normalizedResults,
-	}
-
-	report := NewEmptyReport(root, ingest.LockfilePath, plan.defaultMode, normalizedInputs)
+	report := NewEmptyReport(root, ingest.LockfilePath, plan.defaultMode, normalized.inputs)
 	ctx := &evalContext{
 		repoRoot:        root,
-		rawCommands:     rawCommands,
-		currentCommands: rawCommandsPreservingSyntax(inputs.Commands, nil),
+		rawCommands:     normalized.rawCommands,
+		currentCommands: normalized.currentCommands,
 		preCommand:      preCommand,
 	}
 	ruleIndexes := plan.indexesFor(allowedKinds, preCommand)
@@ -266,7 +239,7 @@ func (e *Evaluator) checkRepoPolicy(startPath string, inputs ExecutionInputs, al
 		rules = append(rules, &plan.rules[ruleIndex])
 	}
 
-	batchedScripts, err := evaluateBatchedRequireScripts(ctx, rules, plan.defaultMode, normalizedInputs)
+	batchedScripts, err := evaluateBatchedRequireScripts(ctx, rules, plan.defaultMode, normalized.inputs)
 	if err != nil {
 		return nil, err
 	}
@@ -277,7 +250,7 @@ func (e *Evaluator) checkRepoPolicy(startPath string, inputs ExecutionInputs, al
 			}
 			continue
 		}
-		v, err := evaluateRule(ctx, rule, plan.defaultMode, normalizedInputs)
+		v, err := evaluateRule(ctx, rule, plan.defaultMode, normalized.inputs)
 		if err != nil {
 			return nil, err
 		}

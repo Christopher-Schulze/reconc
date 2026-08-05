@@ -558,6 +558,43 @@ policy delta, required evidence, exact remediation, and durable repository-run
 state without Git or writes. Static reference material stays on demand through
 `reconc agent-intro --section NAME` instead of inflating every agent prompt.
 
+Review candidate policy before changing the live contract:
+
+```bash
+reconc impact . --candidate candidate.yml --write src/main.go
+reconc impact export . --session --complete write,command,command_outcome --output impact-corpus.json
+reconc impact . --pack go-assurance --corpus impact-corpus.json --json --output impact-report.json
+```
+
+`impact` adds one candidate policy file or resolved pack to the current source
+bundle in memory, compiles it through the production parser and compiler, and
+evaluates current and candidate typed plans through the production matcher.
+It never publishes a lockfile, applies suggestions, edits `extends`, changes
+hooks, sessions, audit state, or TASKs, calls a model, or opens a network
+connection. Policies containing `require_script` are refused before any case
+is evaluated because executing an arbitrary repository script cannot satisfy
+the command's side-effect-free contract.
+
+Inputs can be explicit fixtures or strict imported corpora. Export retains
+only normalized read/write paths, commands, authoritative command outcomes,
+causal epochs, and claims. It stores no prompts, file bodies, command output,
+raw session identifier, environment snapshot, or physical candidate path.
+Secret-shaped assignments, flags, Bearer values, common provider tokens,
+credentialed URLs, and secret query parameters are replaced with
+`<redacted>`; every affected event class becomes incomplete. Imported files
+are bounded regular non-symlinks with duplicate-key, unknown-field,
+null-collection, ordering, canonical-path, self-identity, and trailing-value
+checks.
+
+The deterministic result reports per-case decision and remediation changes,
+newly blocking and warning rules, resolved violations, per-rule match counts,
+rules unmatched in the corpus, and a structural evaluation-cost delta. Cost
+units count rules, evidence items, matcher opportunities, and external-rule
+boundaries, not wall-clock time. Completeness declares which event classes the
+capture covered and which were missing or redacted. Even a complete declared
+replay describes only its bounded corpus; an unmatched rule is never called
+dead or safe.
+
 `reconc next [PATH]` loads the latest persisted blocking decision for the
 explicit or normally discovered repository. Stale decision state fails with
 an exact replay remediation. When no blocking decision exists, it succeeds
@@ -1106,6 +1143,7 @@ Daily:
 - `next` - show the next remediation
 - `done` - task-finish gate
 - `proof` - deterministic portable completion proof
+- `impact` - offline current-versus-candidate policy replay
 
 Bootstrap and inspection:
 
@@ -1609,6 +1647,7 @@ Pipeline:
 
 ```text
 repo root -> ingest -> parser -> compiler -> .reconc/policy.lock.json -> runtime -> CheckReport/FixPlan/CompletionReport -> ProofBundle
+                                  \-> in-memory candidate -> impactlab -> ImpactReport
 ```
 
 The exhaustive contributor package map is maintained in
@@ -1621,6 +1660,7 @@ summarizes the core runtime responsibilities:
 - `internal/ingest`: repository discovery and source loading
 - `internal/parser`: YAML-to-policy validation and normalization
 - `internal/compiler`: canonical JSON lockfile generation, digesting, conflicts, migrations, compile lock
+- `internal/impactlab`: strict private replay corpora and deterministic current-versus-candidate comparison
 - `internal/bootstrap`: deterministic canonical init plus inspect/plan/apply/verify/remove; hermetic read-only repository planning; digest-bound resolution, apply, durable recovery, and verification; portable/private receipts; repository locking; managed-block ownership; policy migration; and platform-bound binary resolution
 - `harness` and `internal/harnesspack`: embedded advanced pack ownership, strict manifest/archive validation, compatibility, and byte parity
 - `internal/usercli`: locked binary-plus-receipt installation, manager classification, exact PATH identity, global diagnostics, bounded release selection, atomic direct updates, package-manager delegation, and ownership-safe uninstall
