@@ -1590,7 +1590,7 @@ summarizes the core runtime responsibilities:
 - `internal/runtime`: strict lock trust, immutable typed and indexed policy plans, policy evaluation, remediation, git integration, scripts, templates
 - `internal/schema`: canonical format-versioned public JSON schema locations and enterprise URL resolution
 - `internal/assurance`: bounded native repository assurance evaluators
-- `internal/hooks`: typed hook platform registry, artifact generation, non-destructive install/uninstall, scaffold sync, managed activation, and diagnostics
+- `internal/hooks`: typed hook platform and verification-surface registry, artifact generation, non-destructive install/uninstall, scaffold sync, managed activation, and diagnostics
 - `internal/runtime/agentsession`: hook-runtime session state and event handling
 - `internal/audit`: opt-in SHA-256-linked decision log, detached head, verification, and rotation
 - `internal/atomicfile`: atomic write-on-change publication
@@ -1670,13 +1670,27 @@ different facts. Reconc uses these terms consistently:
 `configured`, `degraded`, `shadowed`, and `unsupported`. Its
 `surface_events`, `expected_events`, `live_events`, `unseen_events`,
 `last_seen`, and `last_event` fields keep documented surface eligibility,
-complete artifact coverage, and live truth separate. The repeatable
-disposable probe in `scripts/tests/host-integration-probe.sh` adds the
-surface-specific `discoverable`, `loaded`, `observed`, `enforced`, `inferred`,
-and `unproven_events` facts. It refuses model- or account-using execution
-without `--allow-authenticated`, records only route names, timestamps,
-structural field names, and outcomes, and never targets this product
-repository.
+complete artifact coverage, and live truth separate. `reconc hook verify`
+owns the same registry-derived matrix. Its default offline mode creates a
+disposable repository and separately verifies artifact generation,
+configuration, generated wrapper or Bun-adapter transport, a real synthetic
+policy decision, native response adaptation, and duration. It never invokes a
+host, model, account, cloud service, or the caller's repository. Offline
+`synthetic_enforced` is not promoted to `loaded`, `observed`, or live
+`enforced`; all expected host routes remain explicitly unproven.
+
+The explicit `--live --host KIND --surface SURFACE --allow-authenticated` mode
+prepares one disposable host exercise and waits for the operator without
+launching or authenticating the host. Its temporary shim records only route
+identity, sorted top-level field names, result class, exit code, and duration;
+it never writes raw payloads, prompts, tool arguments, output, secrets, or
+repository content. Missing delivery, partial matrices, operator EOF, absent
+negative enforcement, unsupported direct transports, unavailable tools, and
+missing executables for known local host surfaces stay degraded or unproven.
+Executable availability is reported only for surfaces with an exact local
+discovery contract; UI- and cloud-only surfaces are not guessed.
+`scripts/tests/host-integration-probe.sh` delegates to that product command and
+contains no second matrix.
 
 | Surface | Project artifact and eligible contract | Strongest truthful guarantee before a live probe |
 | --- | --- | --- |

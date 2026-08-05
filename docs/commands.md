@@ -638,6 +638,42 @@ only through host exit code 2 on `PreToolUse`, `UserPromptSubmit`, and `Stop`;
 other non-zero exits, crashes, and host timeouts are Kimi-owned fail-open
 boundaries.
 
+### `reconc hook verify [--host KIND [--surface SURFACE]] [--json]`
+Run the registry-owned offline hook verifier. The default covers every exact
+host surface; `--host` limits it to one platform and optional `--surface`
+limits that platform further. Reconc creates and removes an isolated temporary
+Git repository, an isolated Reconc state root, isolated Kimi and Pi homes, and
+a blocking synthetic policy. It then verifies artifact generation,
+installation/configuration, the generated shell or Bun transport, a real
+policy denial, the platform-native response adaptation, and route duration.
+It invokes no host, model, account, cloud service, or caller repository.
+
+Offline `configured`, `discoverable`, and `synthetic_enforced` facts refer only
+to that disposable repository. `loaded`, `observed`, and `enforced` remain
+false, and every expected live route remains in `unproven_events`. Bun is used
+only when present to execute generated OpenCode, Kilo, OMP, and Pi adapters; a
+missing Bun produces an explicit incomplete result rather than a pass. Text and
+JSON are ordered by the registry matrix and never include the temporary path,
+payload, tool arguments, prompt, output, or session identity.
+
+### `reconc hook verify --live --host KIND --surface SURFACE --allow-authenticated [--json]`
+Prepare one disposable operator-driven live probe. Both the exact surface and
+`--allow-authenticated` approval are mandatory. Reconc installs the selected
+artifact and a temporary capture shim, prints the disposable path and exact
+exercise, and waits; it never launches or authenticates the host. The shim
+preserves host stdout, stderr, and exit behavior while retaining only route
+identity, sorted top-level field names, result class, exit code, and duration.
+Raw payloads and outputs are never written. Missing host delivery, operator
+EOF, partial route coverage, absent negative enforcement, unsupported direct
+transports, unavailable tooling, and a missing executable for a locally
+discoverable host surface remain incomplete or degraded. `host_available` is
+emitted only where Reconc has an exact local executable-discovery contract;
+UI- and cloud-only surfaces remain unclaimed instead of guessed.
+
+`scripts/tests/host-integration-probe.sh` is a compatibility entrypoint that
+normalizes historical Cursor surface names and delegates to this command. It
+has no independent matrix or evidence logic.
+
 ### `reconc hook sync-scaffold <repo-root-scaffold> [--json]`
 Regenerate source-controlled hook artifacts inside a template
 `repo-root-scaffold`: `.githooks/pre-commit`, `.codex/hooks.json`,

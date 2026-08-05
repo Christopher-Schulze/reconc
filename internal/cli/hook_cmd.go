@@ -22,7 +22,7 @@ import (
 // agent-session packages.
 func runHook(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return &CLIError{ExitCode: 1, Message: "reconc hook: missing subcommand (generate | install | uninstall | status | sync-scaffold | claim | evidence-status | evidence-resolve)"}
+		return &CLIError{ExitCode: 1, Message: "reconc hook: missing subcommand (generate | install | uninstall | status | verify | sync-scaffold | claim | evidence-status | evidence-resolve)"}
 	}
 	switch args[0] {
 	case "-h", "--help":
@@ -30,6 +30,8 @@ func runHook(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintln(stdout, "       reconc hook install  <kind> [repo] [--force] [--json] [--output PATH]")
 		fmt.Fprintln(stdout, "       reconc hook uninstall <kind> [repo] [--json] [--output PATH]")
 		fmt.Fprintln(stdout, "       reconc hook status   [repo] [--json]")
+		fmt.Fprintln(stdout, "       reconc hook verify   [--host KIND [--surface SURFACE]] [--json]")
+		fmt.Fprintln(stdout, "       reconc hook verify   --live --host KIND --surface SURFACE --allow-authenticated [--json]")
 		fmt.Fprintln(stdout, "       reconc hook sync-scaffold <repo-root-scaffold> [--json]")
 		fmt.Fprintln(stdout, "       reconc hook claim    <repo> <claim-name> [--session ID] [--json] [--output PATH]")
 		fmt.Fprintln(stdout, "       reconc hook evidence-status [repo] [--json]")
@@ -46,6 +48,8 @@ func runHook(args []string, stdout, stderr io.Writer) error {
 		return runHookUninstall(args[1:], stdout)
 	case "status":
 		return runHookStatus(args[1:], stdout)
+	case "verify":
+		return runHookVerify(args[1:], stdout, stderr)
 	case "sync-scaffold":
 		return runHookSyncScaffold(args[1:], stdout, stderr)
 	case "runtime":
@@ -63,7 +67,7 @@ func runHook(args []string, stdout, stderr io.Writer) error {
 	case "evidence-resolve":
 		return runHookEvidenceResolve(args[1:], stdout)
 	}
-	return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook: unknown subcommand %q (expected generate | install | uninstall | status | sync-scaffold | claim | evidence-status | evidence-resolve)", args[0])}
+	return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook: unknown subcommand %q (expected generate | install | uninstall | status | verify | sync-scaffold | claim | evidence-status | evidence-resolve)", args[0])}
 }
 
 func runHookEvidenceStatus(args []string, stdout io.Writer) error {
@@ -1004,26 +1008,44 @@ func truncateUTF8(value string, limit int) string {
 }
 
 type hookRuntimeTiming struct {
-	enabled   bool
-	event     string
-	stderr    io.Writer
-	startedAt time.Time
-	lastMark  time.Time
-	stages    []string
+	enabled    bool
+	event      string
+	diagnostic io.Writer
+	probe      *os.File
+	startedAt  time.Time
+	lastMark   time.Time
+	stages     []string
+}
+
+var hookTimingProbeFile = func(fd int) *os.File {
+	return os.NewFile(uintptr(fd), "reconc-hook-timing")
 }
 
 func newHookRuntimeTiming(event string, stderr io.Writer) hookRuntimeTiming {
-	if strings.TrimSpace(os.Getenv("RECONC_HOOK_TIMING")) == "" &&
-		strings.TrimSpace(os.Getenv("RECONC_HOOK_TIMING_THRESHOLD_MS")) == "" {
+	diagnosticEnabled := strings.TrimSpace(os.Getenv("RECONC_HOOK_TIMING")) != "" ||
+		strings.TrimSpace(os.Getenv("RECONC_HOOK_TIMING_THRESHOLD_MS")) != ""
+	var probe *os.File
+	if rawFD := strings.TrimSpace(os.Getenv("RECONC_HOOK_TIMING_FD")); rawFD != "" {
+		fd, err := atoi(rawFD)
+		if err == nil && fd >= 3 && fd <= 4096 {
+			probe = hookTimingProbeFile(fd)
+		}
+	}
+	if !diagnosticEnabled && probe == nil {
 		return hookRuntimeTiming{}
 	}
 	now := time.Now()
+	var diagnostic io.Writer
+	if diagnosticEnabled {
+		diagnostic = stderr
+	}
 	return hookRuntimeTiming{
-		enabled:   true,
-		event:     event,
-		stderr:    stderr,
-		startedAt: now,
-		lastMark:  now,
+		enabled:    true,
+		event:      event,
+		diagnostic: diagnostic,
+		probe:      probe,
+		startedAt:  now,
+		lastMark:   now,
 	}
 }
 
@@ -1041,6 +1063,14 @@ func (t *hookRuntimeTiming) finish(exitCode int) {
 		return
 	}
 	total := time.Since(t.startedAt).Round(time.Microsecond)
+	if t.probe != nil {
+		fmt.Fprintf(t.probe, "duration_ns=%d\n", total.Nanoseconds())
+		_ = t.probe.Close()
+		t.probe = nil
+	}
+	if t.diagnostic == nil {
+		return
+	}
 	if threshold := hookRuntimeTimingThreshold(); threshold > 0 && total < threshold {
 		return
 	}
@@ -1051,7 +1081,7 @@ func (t *hookRuntimeTiming) finish(exitCode int) {
 		"total=" + total.String(),
 	}
 	parts = append(parts, t.stages...)
-	fmt.Fprintln(t.stderr, strings.Join(parts, " "))
+	fmt.Fprintln(t.diagnostic, strings.Join(parts, " "))
 }
 
 func hookRuntimeTimingThreshold() time.Duration {

@@ -264,7 +264,7 @@ var platformRegistry = []platformDefinition{
 		generator: generatorCursor,
 	},
 	{
-		Platform: Platform{Kind: KindOpenCode, DisplayName: "OpenCode", TargetPath: OpenCodePluginPath, ScaffoldPath: OpenCodePluginPath, InstallMode: InstallPlugin, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".opencode"}}, Capabilities: []Capability{
+		Platform: Platform{Kind: KindOpenCode, DisplayName: "OpenCode", TargetPath: OpenCodePluginPath, ScaffoldPath: OpenCodePluginPath, InstallMode: InstallPlugin, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".opencode"}, RequiresWrapper: true}, Capabilities: []Capability{
 			capability(EventSessionStart, "session.created", SupportNative, FailureAllow, FailureAllow, 5, "opencode-session-start"),
 			capability(EventUserPromptSubmit, "chat.message", SupportNative, FailureAllow, FailureAllow, 5, "opencode-user-prompt-submit"),
 			capability(EventPreToolUse, "tool.execute.before", SupportNative, FailureBlock, FailureBlock, 10, "opencode-pre-tool-use"),
@@ -309,7 +309,7 @@ var platformRegistry = []platformDefinition{
 		generator: generatorAntigravity,
 	},
 	{
-		Platform: Platform{Kind: KindKilo, DisplayName: "Kilo Code", TargetPath: KiloPluginPath, ScaffoldPath: KiloPluginPath, InstallMode: InstallPlugin, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".kilo", ".kilocode"}, DisabledByEnv: "KILO_PURE", LegacyArtifactPath: ".kilocode/plugin/reconc.js"}, Capabilities: []Capability{
+		Platform: Platform{Kind: KindKilo, DisplayName: "Kilo Code", TargetPath: KiloPluginPath, ScaffoldPath: KiloPluginPath, InstallMode: InstallPlugin, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".kilo", ".kilocode"}, DisabledByEnv: "KILO_PURE", LegacyArtifactPath: ".kilocode/plugin/reconc.js", RequiresWrapper: true}, Capabilities: []Capability{
 			capability(EventSessionStart, "session.created", SupportNative, FailureAllow, FailureAllow, 5, "kilo-session-start"),
 			capability(EventUserPromptSubmit, "chat.message", SupportNative, FailureAllow, FailureAllow, 5, "kilo-user-prompt-submit"),
 			capability(EventPreToolUse, "tool.execute.before", SupportNative, FailureBlock, FailureBlock, 10, "kilo-pre-tool-use"),

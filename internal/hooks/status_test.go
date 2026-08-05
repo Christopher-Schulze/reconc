@@ -153,6 +153,7 @@ func TestInspectPlatformsActivationStates(t *testing.T) {
 		if err := os.WriteFile(legacy, []byte(artifact.Content), 0o644); err != nil {
 			t.Fatal(err)
 		}
+		writeExecutableWrapper(t, repo)
 		legacyStatus := statusForKind(t, repo, KindKilo)
 		if legacyStatus.State != StateConfigured || legacyStatus.TargetPath != ".kilocode/plugin/reconc.js" {
 			t.Fatalf("legacy-only Kilo status = %+v", legacyStatus)
