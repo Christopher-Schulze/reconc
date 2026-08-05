@@ -290,10 +290,13 @@ func runRunLog(args []string, stdout, stderr io.Writer) error {
 // followRunLog baselines the complete bounded ring and renders only later
 // records. It is kept separate from the CLI snapshot path for deterministic
 // tests and other internal callers.
-func followRunLog(ctx context.Context, repoRoot, branch, session string, jsonOut bool, pollInterval time.Duration, stdout io.Writer) error {
+func followRunLog(ctx context.Context, repoRoot, branch, session string, jsonOut bool, pollInterval time.Duration, ready chan<- struct{}, stdout io.Writer) error {
 	decisions, err := agentsession.ReadRunDecisions(repoRoot, 0)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc run log: " + err.Error()}
+	}
+	if ready != nil {
+		close(ready)
 	}
 	return followRunLogAfter(ctx, repoRoot, branch, session, jsonOut, lastRunDecisionCursor(decisions), pollInterval, stdout)
 }
