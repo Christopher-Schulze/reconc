@@ -25,15 +25,21 @@ const (
 // prompt as the reason. This lets Codex and Claude auto-continue
 // without a JS plugin.
 func RunStop(repoRoot string, payloadBytes []byte) (result Result) {
+	root, err := ResolveRepoRootRef(repoRoot)
+	if err != nil {
+		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): %s", err)}
+	}
+	return runStopResolved(root.path, payloadBytes, "")
+}
+
+func runStopResolved(root string, payloadBytes []byte, runtimeName string) (result Result) {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): %s", err)}
 	}
-	root, err := ResolveRepoRoot(repoRoot)
-	if err != nil {
-		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): %s", err)}
+	if runtimeName == "" {
+		runtimeName = runtimeFromPayload(payload)
 	}
-	runtimeName := runtimeFromPayload(payload)
 	runFile, runSnapshot, err := openRepositoryRunStateResolved(root)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc run: %s", err)}

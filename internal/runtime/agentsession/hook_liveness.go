@@ -47,10 +47,16 @@ func hookLivenessMarkerPath(repoRoot, runtime, event string) string {
 // RecordHookLiveness records at most one timestamp per runtime route every six
 // hours. A tiny route marker makes the common path one stat and zero writes.
 func RecordHookLiveness(repoRoot, runtime, event string) error {
-	root, err := ResolveRepoRoot(repoRoot)
+	root, err := ResolveRepoRootRef(repoRoot)
 	if err != nil {
 		return err
 	}
+	return RecordHookLivenessResolved(root, runtime, event)
+}
+
+// RecordHookLivenessResolved records liveness without rediscovering a root
+// already validated by the hook request boundary.
+func RecordHookLivenessResolved(root ResolvedRepoRoot, runtime, event string) error {
 	runtime = normalizeRuntimeName(runtime)
 	if runtime == "" {
 		return nil
@@ -59,7 +65,7 @@ func RecordHookLiveness(repoRoot, runtime, event string) error {
 	if !validLivenessComponent(runtime) || !validLivenessComponent(event) {
 		return fmt.Errorf("hook-liveness runtime and event must be lowercase ASCII identifiers of at most 64 bytes")
 	}
-	return recordHookLivenessAt(root, runtime, event, time.Now().UTC())
+	return recordHookLivenessAt(root.path, runtime, event, time.Now().UTC())
 }
 
 func recordHookLivenessAt(root, runtime, event string, now time.Time) error {

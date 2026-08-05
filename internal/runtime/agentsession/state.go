@@ -208,6 +208,18 @@ func validateSessionID(sessionID string) error {
 
 // --- resolve repo root ----------------------------------------------
 
+// ResolvedRepoRoot is a validated operating-system filesystem identity. The
+// path is intentionally private so callers outside this package cannot forge a
+// resolved root and bypass the existence, directory, or identity checks.
+type ResolvedRepoRoot struct {
+	path string
+}
+
+// Path returns the canonical filesystem path carried by this root handle.
+func (root ResolvedRepoRoot) Path() string {
+	return root.path
+}
+
 // ResolveRepoRoot resolves the repo root to its operating-system filesystem
 // identity. This follows Unix symlinks and Windows reparse points and expands
 // Windows 8.3 aliases. The returned path is stamped into every state file so
@@ -217,22 +229,33 @@ func validateSessionID(sessionID string) error {
 // the hook adapter to fail fast on bogus paths rather than silently
 // create state for a nonexistent repo.
 func ResolveRepoRoot(repoRoot string) (string, error) {
+	root, err := ResolveRepoRootRef(repoRoot)
+	if err != nil {
+		return "", err
+	}
+	return root.path, nil
+}
+
+// ResolveRepoRootRef validates and canonicalizes a repository root once for a
+// complete hook request. Downstream resolved APIs accept this opaque value and
+// therefore do not rediscover the same filesystem identity.
+func ResolveRepoRootRef(repoRoot string) (ResolvedRepoRoot, error) {
 	abs, err := filepath.Abs(repoRoot)
 	if err != nil {
-		return "", fmt.Errorf("resolve repo path: %w", err)
+		return ResolvedRepoRoot{}, fmt.Errorf("resolve repo path: %w", err)
 	}
 	info, err := os.Stat(abs)
 	if err != nil {
-		return "", fmt.Errorf("repo path does not exist: %s: %w", abs, err)
+		return ResolvedRepoRoot{}, fmt.Errorf("repo path does not exist: %s: %w", abs, err)
 	}
 	if !info.IsDir() {
-		return "", fmt.Errorf("repo path is not a directory: %s", abs)
+		return ResolvedRepoRoot{}, fmt.Errorf("repo path is not a directory: %s", abs)
 	}
 	resolved, err := pathidentity.ResolveExisting(abs)
 	if err != nil {
-		return "", fmt.Errorf("resolve repo filesystem identity: %w", err)
+		return ResolvedRepoRoot{}, fmt.Errorf("resolve repo filesystem identity: %w", err)
 	}
-	return resolved, nil
+	return ResolvedRepoRoot{path: resolved}, nil
 }
 
 // --- load / save -----------------------------------------------------
@@ -304,8 +327,13 @@ func loadSessionStateResolved(root, sessionID string) (SessionState, error) {
 	state.SessionID = sessionID
 	state.Runtime = normalizeRuntimeName(state.Runtime)
 	if state.RepoRoot != "" {
-		storedRoot, resolveErr := ResolveRepoRoot(state.RepoRoot)
-		if resolveErr != nil || filepath.Clean(storedRoot) != filepath.Clean(root) {
+		storedRoot := filepath.Clean(state.RepoRoot)
+		if storedRoot != filepath.Clean(root) {
+			resolvedStoredRoot, resolveErr := pathidentity.ResolveExisting(state.RepoRoot)
+			if resolveErr != nil || filepath.Clean(resolvedStoredRoot) != filepath.Clean(root) {
+				return SessionState{}, fmt.Errorf("%s: repo_root %q does not match resolved repository %q", path, state.RepoRoot, root)
+			}
+		} else if _, resolveErr := os.Stat(state.RepoRoot); resolveErr != nil {
 			return SessionState{}, fmt.Errorf("%s: repo_root %q does not match resolved repository %q", path, state.RepoRoot, root)
 		}
 	}
@@ -587,6 +615,13 @@ func initializeSessionState(repoRoot, sessionID, runtime string) (SessionState, 
 	if err != nil {
 		return SessionState{}, err
 	}
+	return initializeSessionStateResolved(root, sessionID, runtime)
+}
+
+func initializeSessionStateResolved(root, sessionID, runtime string) (SessionState, error) {
+	if err := validateSessionID(sessionID); err != nil {
+		return SessionState{}, err
+	}
 	state := emptyState(root, sessionID)
 	state.Runtime = normalizeRuntimeName(runtime)
 	if taint, err := loadEvidenceTaint(root); err != nil {
@@ -637,6 +672,37 @@ func ensureSessionStateResolved(root, sessionID string) (SessionState, error) {
 	return state, nil
 }
 
+// observeSessionStateResolved validates an existing state without creating a
+// session, refreshing the active-session pointer, or serializing unchanged
+// state. A passive event arriving before SessionStart is liveness only.
+func observeSessionStateResolved(root, sessionID string) error {
+	if err := validateSessionID(sessionID); err != nil {
+		return err
+	}
+	canonicalPath := sessionStatePath(root, sessionID)
+	legacyPath := legacySessionStatePath(root, sessionID)
+	present := false
+	for _, path := range []string{canonicalPath, legacyPath} {
+		if path == legacyPath && legacyPath == canonicalPath {
+			continue
+		}
+		_, err := os.Stat(path)
+		switch {
+		case err == nil:
+			present = true
+		case errors.Is(err, os.ErrNotExist):
+			continue
+		default:
+			return fmt.Errorf("inspect passive session state: %w", err)
+		}
+	}
+	if !present {
+		return nil
+	}
+	_, err := loadSessionStateWithLockResolved(root, sessionID)
+	return err
+}
+
 // CleanupSessionState removes the mutable state file for one session
 // (called at SessionEnd). The corresponding report file is preserved
 // so post-session diagnostics remain available.
@@ -646,6 +712,13 @@ func CleanupSessionState(repoRoot, sessionID string) error {
 	}
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
+		return err
+	}
+	return cleanupSessionStateResolved(root, sessionID)
+}
+
+func cleanupSessionStateResolved(root, sessionID string) error {
+	if err := validateSessionID(sessionID); err != nil {
 		return err
 	}
 	return withSessionLock(root, sessionID, func() error {
@@ -670,6 +743,10 @@ func CleanupSessionState(repoRoot, sessionID string) error {
 				if err := os.Remove(statePath); err != nil && !os.IsNotExist(err) {
 					return fmt.Errorf("remove session state: %w", err)
 				}
+			}
+			preDecisionPath := filepath.Join(projectDir(root), "pre-decisions", sessionFileKey(sessionID)+".json")
+			if err := os.Remove(preDecisionPath); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("remove pre-decision cache: %w", err)
 			}
 			if taint == nil && !state.EvidenceOverflow {
 				if err := os.RemoveAll(evidenceSegmentsDir(root, sessionID)); err != nil {

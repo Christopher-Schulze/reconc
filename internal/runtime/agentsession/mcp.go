@@ -15,27 +15,43 @@ import (
 
 // RunMCPBefore handles a host-native MCP pre-execution event.
 func RunMCPBefore(repoRoot string, payloadBytes []byte) Result {
-	return runMCPBefore(repoRoot, payloadBytes, true)
+	root, err := ResolveRepoRootRef(repoRoot)
+	if err != nil {
+		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): " + err.Error()}
+	}
+	return runMCPBeforeResolved(root.path, payloadBytes, true)
 }
 
 // RunMCPAfter handles a host-native MCP post-execution event.
 func RunMCPAfter(repoRoot string, payloadBytes []byte) Result {
-	return runMCPAfter(repoRoot, payloadBytes, true)
+	root, err := ResolveRepoRootRef(repoRoot)
+	if err != nil {
+		return Result{ExitCode: 0, Stderr: "reconc hook (mcp post, warn): " + err.Error()}
+	}
+	return runMCPAfterResolved(root.path, payloadBytes, true)
 }
 
 // RunPreToolUseMCPAware classifies configured generic OpenCode/Kilo/OMP/Pi tool
 // identities as MCP and leaves every other generic tool on the normal path.
 func RunPreToolUseMCPAware(repoRoot string, payloadBytes []byte) Result {
-	return runMCPBefore(repoRoot, payloadBytes, false)
+	root, err := ResolveRepoRootRef(repoRoot)
+	if err != nil {
+		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): " + err.Error()}
+	}
+	return runMCPBeforeResolved(root.path, payloadBytes, false)
 }
 
 // RunPostToolUseMCPAware applies the same exact identity decision after a
 // generic OpenCode/Kilo/OMP/Pi tool call.
 func RunPostToolUseMCPAware(repoRoot string, payloadBytes []byte) Result {
-	return runMCPAfter(repoRoot, payloadBytes, false)
+	root, err := ResolveRepoRootRef(repoRoot)
+	if err != nil {
+		return Result{ExitCode: 0, Stderr: "reconc hook (mcp post, warn): " + err.Error()}
+	}
+	return runMCPAfterResolved(root.path, payloadBytes, false)
 }
 
-func runMCPBefore(repoRoot string, payloadBytes []byte, hostIdentified bool) Result {
+func runMCPBeforeResolved(root string, payloadBytes []byte, hostIdentified bool) Result {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): " + err.Error()}
@@ -44,11 +60,7 @@ func runMCPBefore(repoRoot string, payloadBytes []byte, hostIdentified bool) Res
 		if hostIdentified {
 			return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): host event has no MCP identity"}
 		}
-		return RunPreToolUse(repoRoot, payloadBytes)
-	}
-	root, err := ResolveRepoRoot(repoRoot)
-	if err != nil {
-		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): " + err.Error()}
+		return runPreDecisionResolved(root, payloadBytes, false)
 	}
 	contract, err := runtime.LoadMCPPolicy(root)
 	if err != nil {
@@ -56,7 +68,7 @@ func runMCPBefore(repoRoot string, payloadBytes []byte, hostIdentified bool) Res
 	}
 	classification, classified := classifyMCP(contract, payload)
 	if !classified && !hostIdentified {
-		return RunPreToolUse(repoRoot, payloadBytes)
+		return runPreDecisionResolved(root, payloadBytes, false)
 	}
 	if !classified {
 		return handleUnclassifiedMCPBefore(root, contract, payload)
@@ -76,7 +88,7 @@ func runMCPBefore(repoRoot string, payloadBytes []byte, hostIdentified bool) Res
 	return result
 }
 
-func runMCPAfter(repoRoot string, payloadBytes []byte, hostIdentified bool) Result {
+func runMCPAfterResolved(root string, payloadBytes []byte, hostIdentified bool) Result {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: "reconc hook (mcp post, warn): " + err.Error()}
@@ -85,11 +97,7 @@ func runMCPAfter(repoRoot string, payloadBytes []byte, hostIdentified bool) Resu
 		if hostIdentified {
 			return Result{ExitCode: 0, Stderr: "reconc hook (mcp post, warn): host event has no MCP identity"}
 		}
-		return RunPostToolUseCompleteStrict(repoRoot, payloadBytes)
-	}
-	root, err := ResolveRepoRoot(repoRoot)
-	if err != nil {
-		return Result{ExitCode: 0, Stderr: "reconc hook (mcp post, warn): " + err.Error()}
+		return runPostToolUseCompleteStrictResolved(root, payloadBytes)
 	}
 	contract, err := runtime.LoadMCPPolicy(root)
 	if err != nil {
@@ -97,7 +105,7 @@ func runMCPAfter(repoRoot string, payloadBytes []byte, hostIdentified bool) Resu
 	}
 	classification, classified := classifyMCP(contract, payload)
 	if !classified && !hostIdentified {
-		return RunPostToolUseCompleteStrict(repoRoot, payloadBytes)
+		return runPostToolUseCompleteStrictResolved(root, payloadBytes)
 	}
 	if !classified {
 		return observeUnclassifiedMCP(root, contract, payload, "unclassified")

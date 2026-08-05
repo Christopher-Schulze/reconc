@@ -21,6 +21,14 @@ const (
 // RunPostCompaction returns a small, project-neutral recovery packet instead
 // of replaying logs or large task files into the model context.
 func RunPostCompaction(repoRoot string, payloadBytes []byte) Result {
+	root, err := ResolveRepoRootRef(repoRoot)
+	if err != nil {
+		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (compaction, warn): %s", err)}
+	}
+	return runPostCompactionResolved(root.path, payloadBytes)
+}
+
+func runPostCompactionResolved(root string, payloadBytes []byte) Result {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (compaction, warn): %s", err)}
@@ -28,10 +36,6 @@ func RunPostCompaction(repoRoot string, payloadBytes []byte) Result {
 	summary := cursorFirstString(payload.Raw, "summary", "compact_summary", "compactSummary")
 	if strings.Contains(summary, compactionContextMarker) {
 		return Result{ExitCode: 0, Stdout: postCompactionJSONOutput("")}
-	}
-	root, err := ResolveRepoRoot(repoRoot)
-	if err != nil {
-		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (compaction, warn): %s", err)}
 	}
 	state, err := loadSessionStateWithLockResolved(root, payload.SessionID)
 	if err != nil {
@@ -41,7 +45,7 @@ func RunPostCompaction(repoRoot string, payloadBytes []byte) Result {
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (compaction, warn): load evidence chain: %s", err)}
 	}
-	repositoryRun, err := ReadRepositoryRunStatus(root)
+	repositoryRun, err := readRepositoryRunStatusResolved(root)
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (compaction, warn): %s", err)}
 	}

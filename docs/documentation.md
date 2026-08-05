@@ -1195,8 +1195,22 @@ core explicitly. Unchanged session files, active-session pointers, reports,
 command proofs, and run state are byte-compared and never republished. No-op
 session mutations also skip normalization and atomic publication after identity
 validation; missing or non-private state and pointer modes are still repaired.
-Classified MCP hook paths resolve repository filesystem identity once and pass
-that verified root through extraction, enforcement, evidence, and audit work.
+Each registry-dispatched hook request resolves the repository filesystem
+identity once into an opaque validated root handle. Payload normalization,
+session handling, MCP extraction and enforcement, Stop, compaction, result
+adaptation, and liveness reuse that handle; runtime attribution is explicit
+request data rather than process-global environment mutation. Existing session
+files still validate their stored canonical root, while passive and
+workspace-only routes validate any existing state without creating a session,
+refreshing the active pointer, or serializing an unchanged state.
+Pre-tool and permission routes reuse a bounded external decision only when the
+stable tool-call ID, canonical normalized tool input, complete policy-lock
+bytes, current policy-source digest, session-state bytes, and project
+evidence-taint bytes match exactly.
+The identity is sampled again after reading the cache; missing IDs, unreadable
+identity inputs, policy or evidence mutation, oversized diagnostics, and
+malformed cache entries force a fresh fail-closed evaluation. Session cleanup
+removes its decision cache.
 Disabled and unchanged hook events do not create run state. Run decisions record every
 bounded repository continuation plus material transitions without prompt
 payloads. Live session state is hard-capped at 1 MiB; every evidence

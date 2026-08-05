@@ -582,12 +582,12 @@ func runHookSyncScaffold(args []string, stdout, stderr io.Writer) error {
 // no-op the ONLY enforcement route in arbitrary repos. The dedup is
 // recorded (stderr note + liveness) so `reconc hook status` reflects
 // activity instead of showing dead routes.
-func dedupToFirstClassRoute(repo, configRelPath, event string, stderr io.Writer) bool {
-	if _, err := os.Stat(filepath.Join(repo, filepath.FromSlash(configRelPath))); err != nil {
+func dedupToFirstClassRoute(root agentsession.ResolvedRepoRoot, configRelPath, event string, stderr io.Writer) bool {
+	if _, err := os.Stat(filepath.Join(root.Path(), filepath.FromSlash(configRelPath))); err != nil {
 		return false
 	}
 	fmt.Fprintf(stderr, "reconc hook runtime: %s deduplicated; first-class %s owns this event\n", event, configRelPath)
-	_ = agentsession.RecordHookLiveness(repo, event, event)
+	_ = agentsession.RecordHookLivenessResolved(root, event, event)
 	return true
 }
 
@@ -678,20 +678,39 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 		return nil
 	}
 	timing.mark("payload_read")
+	root, err := agentsession.ResolveRepoRootRef(repo)
+	if err != nil {
+		if route.PlatformKind == hooks.KindGitHubCopilot && (route.Event == hooks.EventStop || route.Event == hooks.EventSubagentStop) {
+			writeGitHubCopilotRuntimeBlock(stdout, "Reconc rejected the GitHub Copilot repository root: "+err.Error())
+			return nil
+		}
+		if route.PlatformKind == hooks.KindGrok && route.Event == hooks.EventPreToolUse {
+			writeGrokRuntimeDeny(stdout, "Reconc rejected the Grok repository root: "+err.Error())
+			return nil
+		}
+		if route.ErrorPolicy == hooks.FailureBlock {
+			exitCode = 2
+			return &CLIError{ExitCode: 2, Message: "reconc hook runtime: " + err.Error()}
+		}
+		fmt.Fprintln(stderr, "reconc hook runtime warning: "+err.Error())
+		return nil
+	}
+	repo = root.Path()
+	timing.mark("root_resolve")
 	if route.PlatformKind != hooks.KindCursor && agentsession.PayloadLooksLikeCursor(payload) {
-		if dedupToFirstClassRoute(repo, hooks.CursorHooksPath, event, stderr) {
+		if dedupToFirstClassRoute(root, hooks.CursorHooksPath, event, stderr) {
 			return nil
 		}
 	}
 	if route.PlatformKind != hooks.KindDevinCLI && agentsession.PayloadLooksLikeDevin(payload) {
-		if dedupToFirstClassRoute(repo, hooks.DevinHooksPath, event, stderr) {
+		if dedupToFirstClassRoute(root, hooks.DevinHooksPath, event, stderr) {
 			return nil
 		}
 	}
 	if route.PlatformKind != hooks.KindGrok && agentsession.PayloadLooksLikeGrok(payload) {
 		if hooks.HasManagedGrokHook(repo) {
 			fmt.Fprintf(stderr, "reconc hook runtime: %s deduplicated; first-class %s owns this event\n", event, hooks.GrokHooksPath)
-			_ = agentsession.RecordHookLiveness(repo, event, event)
+			_ = agentsession.RecordHookLivenessResolved(root, event, event)
 			return nil
 		}
 	}
@@ -745,96 +764,12 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 		timing.mark("grok_strict_prepare")
 	}
 
-	previousRuntime, hadRuntime := os.LookupEnv("RECONC_HOOK_RUNTIME")
-	_ = os.Setenv("RECONC_HOOK_RUNTIME", event)
-	defer func() {
-		if hadRuntime {
-			_ = os.Setenv("RECONC_HOOK_RUNTIME", previousRuntime)
-		} else {
-			_ = os.Unsetenv("RECONC_HOOK_RUNTIME")
-		}
-	}()
-
-	var result agentsession.Result
-	if route.PlatformKind == hooks.KindAntigravity {
-		result = runAntigravityHookRuntime(event, repo, payload)
-	} else {
-		switch route.Event {
-		case hooks.EventSessionStart:
-			result = agentsession.RunSessionStart(repo, payload)
-		case hooks.EventUserPromptSubmit,
-			hooks.EventPermissionDenied,
-			hooks.EventPermissionResult,
-			hooks.EventStopFailure,
-			hooks.EventInterrupt,
-			hooks.EventToolObservation,
-			hooks.EventNotification,
-			hooks.EventContinuation,
-			hooks.EventSubagentStart:
-			if route.PlatformKind == hooks.KindCursor && route.Event == hooks.EventSubagentStart {
-				result = agentsession.RunSessionStart(repo, payload)
-			} else {
-				result = agentsession.RunPassiveEvent(repo, payload)
-			}
-		case hooks.EventWorkspaceOpen:
-			result = agentsession.Result{}
-		case hooks.EventSubagentStop:
-			if route.PlatformKind == hooks.KindGitHubCopilot || route.PlatformKind == hooks.KindCursor {
-				result = agentsession.RunStop(repo, payload)
-			} else {
-				result = agentsession.RunPassiveEvent(repo, payload)
-			}
-		case hooks.EventPreCompaction:
-			if route.PlatformKind == hooks.KindOpenCode || route.PlatformKind == hooks.KindKilo {
-				result = agentsession.RunPostCompaction(repo, payload)
-			} else {
-				result = agentsession.RunPassiveEvent(repo, payload)
-			}
-		case hooks.EventPreToolUse:
-			if route.PlatformKind == hooks.KindOpenCode || route.PlatformKind == hooks.KindKilo || route.PlatformKind == hooks.KindOMP || route.PlatformKind == hooks.KindPi {
-				result = agentsession.RunPreToolUseMCPAware(repo, payload)
-			} else {
-				result = agentsession.RunPreToolUse(repo, payload)
-			}
-		case hooks.EventPermissionRequest:
-			if route.PlatformKind == hooks.KindOMP {
-				result = agentsession.RunPassiveEvent(repo, payload)
-			} else {
-				result = agentsession.RunPermissionRequest(repo, payload)
-			}
-		case hooks.EventPostToolUse:
-			if event == "opencode-post-tool-use" || event == "kilo-post-tool-use" || event == "omp-post-tool-use" || event == "pi-post-tool-use" {
-				result = agentsession.RunPostToolUseMCPAware(repo, payload)
-			} else if event == "codex-post-tool-use" || event == "devin-post-tool-use" {
-				result = agentsession.RunPostToolUseComplete(repo, payload)
-			} else {
-				result = agentsession.RunPostToolUse(repo, payload)
-			}
-		case hooks.EventPostToolUseFailure:
-			if route.PlatformKind == hooks.KindOpenCode || route.PlatformKind == hooks.KindKilo || route.PlatformKind == hooks.KindOMP || route.PlatformKind == hooks.KindPi {
-				result = agentsession.RunPostToolUseMCPAware(repo, payload)
-			} else {
-				result = agentsession.RunPostToolUseFailure(repo, payload)
-			}
-		case hooks.EventMCPBefore:
-			result = agentsession.RunMCPBefore(repo, payload)
-		case hooks.EventMCPAfter:
-			result = agentsession.RunMCPAfter(repo, payload)
-		case hooks.EventStop:
-			result = agentsession.RunStop(repo, payload)
-		case hooks.EventSessionEnd:
-			result = agentsession.RunSessionEnd(repo, payload)
-		case hooks.EventPostCompaction:
-			if route.PlatformKind == hooks.KindOpenCode || route.PlatformKind == hooks.KindKilo {
-				result = agentsession.RunPassiveEvent(repo, payload)
-			} else {
-				result = agentsession.RunPostCompaction(repo, payload)
-			}
-		default:
-			exitCode = 1
-			return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook runtime: event %q is not executable", event)}
-		}
+	handler, executable := hookHandlerForRoute(event, route)
+	if !executable {
+		exitCode = 1
+		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook runtime: event %q is not executable", event)}
 	}
+	result := agentsession.RunHookRequest(root, handler, event, payload)
 	timing.mark("handler")
 	if result.ExitCode != 0 && route.ErrorPolicy == hooks.FailureAllow {
 		result.ExitCode = 0
@@ -845,7 +780,7 @@ func runHookRuntime(args []string, stdout, stderr io.Writer) error {
 		}
 		result.Stderr += grokPrepareWarning
 	}
-	if err := agentsession.RecordHookLiveness(repo, route.PlatformKind, event); err != nil {
+	if err := agentsession.RecordHookLivenessResolved(root, route.PlatformKind, event); err != nil {
 		if result.Stderr != "" {
 			result.Stderr += "; "
 		}
@@ -919,20 +854,83 @@ func writeGrokRuntimeDeny(stdout io.Writer, reason string) {
 	fmt.Fprintln(stdout, string(body))
 }
 
-func runAntigravityHookRuntime(event, repo string, payload []byte) agentsession.Result {
-	switch event {
-	case "antigravity-pre-invocation":
-		return agentsession.RunAntigravityPreInvocation(repo, payload)
-	case "antigravity-pre-tool-use":
-		return agentsession.RunAntigravityPreToolUse(repo, payload)
-	case "antigravity-post-tool-use":
-		return agentsession.RunAntigravityPostToolUse(repo, payload)
-	case "antigravity-post-invocation":
-		return agentsession.RunAntigravityPostInvocation(repo, payload)
-	case "antigravity-stop":
-		return agentsession.RunAntigravityStop(repo, payload)
+func hookHandlerForRoute(event string, route hooks.RuntimeRoute) (agentsession.HookHandler, bool) {
+	if route.PlatformKind == hooks.KindAntigravity {
+		switch event {
+		case "antigravity-pre-invocation":
+			return agentsession.HookHandlerAntigravityPreInvoke, true
+		case "antigravity-pre-tool-use":
+			return agentsession.HookHandlerAntigravityPreTool, true
+		case "antigravity-post-tool-use":
+			return agentsession.HookHandlerAntigravityPostTool, true
+		case "antigravity-post-invocation":
+			return agentsession.HookHandlerAntigravityPostInvoke, true
+		case "antigravity-stop":
+			return agentsession.HookHandlerAntigravityStop, true
+		default:
+			return "", false
+		}
+	}
+	switch route.Event {
+	case hooks.EventSessionStart:
+		return agentsession.HookHandlerSessionStart, true
+	case hooks.EventUserPromptSubmit, hooks.EventPermissionDenied, hooks.EventPermissionResult,
+		hooks.EventStopFailure, hooks.EventInterrupt, hooks.EventToolObservation,
+		hooks.EventNotification, hooks.EventContinuation, hooks.EventSubagentStart:
+		if route.PlatformKind == hooks.KindCursor && route.Event == hooks.EventSubagentStart {
+			return agentsession.HookHandlerSessionStart, true
+		}
+		return agentsession.HookHandlerPassive, true
+	case hooks.EventWorkspaceOpen:
+		return agentsession.HookHandlerWorkspaceOpen, true
+	case hooks.EventSubagentStop:
+		if route.PlatformKind == hooks.KindGitHubCopilot || route.PlatformKind == hooks.KindCursor {
+			return agentsession.HookHandlerStop, true
+		}
+		return agentsession.HookHandlerPassive, true
+	case hooks.EventPreCompaction:
+		if route.PlatformKind == hooks.KindOpenCode || route.PlatformKind == hooks.KindKilo {
+			return agentsession.HookHandlerPostCompaction, true
+		}
+		return agentsession.HookHandlerPassive, true
+	case hooks.EventPreToolUse:
+		if route.PlatformKind == hooks.KindOpenCode || route.PlatformKind == hooks.KindKilo || route.PlatformKind == hooks.KindOMP || route.PlatformKind == hooks.KindPi {
+			return agentsession.HookHandlerMCPAwarePreToolUse, true
+		}
+		return agentsession.HookHandlerPreToolUse, true
+	case hooks.EventPermissionRequest:
+		if route.PlatformKind == hooks.KindOMP {
+			return agentsession.HookHandlerPassive, true
+		}
+		return agentsession.HookHandlerPermissionRequest, true
+	case hooks.EventPostToolUse:
+		if event == "opencode-post-tool-use" || event == "kilo-post-tool-use" || event == "omp-post-tool-use" || event == "pi-post-tool-use" {
+			return agentsession.HookHandlerMCPAwarePostToolUse, true
+		}
+		if event == "codex-post-tool-use" || event == "devin-post-tool-use" {
+			return agentsession.HookHandlerPostToolUseComplete, true
+		}
+		return agentsession.HookHandlerPostToolUse, true
+	case hooks.EventPostToolUseFailure:
+		if route.PlatformKind == hooks.KindOpenCode || route.PlatformKind == hooks.KindKilo || route.PlatformKind == hooks.KindOMP || route.PlatformKind == hooks.KindPi {
+			return agentsession.HookHandlerMCPAwarePostToolUse, true
+		}
+		return agentsession.HookHandlerPostToolUseFailure, true
+	case hooks.EventMCPBefore:
+		return agentsession.HookHandlerMCPBefore, true
+	case hooks.EventMCPAfter:
+		return agentsession.HookHandlerMCPAfter, true
+	case hooks.EventStop:
+		return agentsession.HookHandlerStop, true
+	case hooks.EventSessionEnd:
+		return agentsession.HookHandlerSessionEnd, true
+	case hooks.EventPostCompaction:
+		if route.PlatformKind == hooks.KindOpenCode || route.PlatformKind == hooks.KindKilo {
+			return agentsession.HookHandlerPassive, true
+		}
+		return agentsession.HookHandlerPostCompaction, true
 	default:
-		return agentsession.Result{ExitCode: 1, Stderr: "unsupported Antigravity event"}
+		return "", false
 	}
 }
 

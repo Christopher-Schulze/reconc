@@ -62,15 +62,22 @@ var preCommandBlockKinds = map[policy.Kind]struct{}{
 // the central route registry converts them to success for fail-open
 // SessionStart integrations so a state failure cannot wedge the host session.
 func RunSessionStart(repoRoot string, payloadBytes []byte) Result {
+	root, err := ResolveRepoRootRef(repoRoot)
+	if err != nil {
+		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook: session root: %s", err)}
+	}
+	return runSessionStartResolved(root.path, payloadBytes, "")
+}
+
+func runSessionStartResolved(root string, payloadBytes []byte, runtimeName string) Result {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook: %s", err)}
 	}
-	root, err := ResolveRepoRoot(repoRoot)
-	if err != nil {
-		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook: session root: %s", err)}
+	if runtimeName == "" {
+		runtimeName = runtimeFromPayload(payload)
 	}
-	if _, err := initializeSessionState(root, payload.SessionID, runtimeFromPayload(payload)); err != nil {
+	if _, err := initializeSessionStateResolved(root, payload.SessionID, runtimeName); err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook: session init: %s", err)}
 	}
 	warnings := []string{}
@@ -109,15 +116,19 @@ func normalizeRuntimeName(value string) string {
 // richer lifecycle than Reconc needs for policy evaluation; liveness is
 // recorded by the central dispatcher after this handler succeeds.
 func RunPassiveEvent(repoRoot string, payloadBytes []byte) Result {
+	root, err := ResolveRepoRootRef(repoRoot)
+	if err != nil {
+		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (passive, warn): %s", err)}
+	}
+	return runPassiveEventResolved(root.path, payloadBytes)
+}
+
+func runPassiveEventResolved(root string, payloadBytes []byte) Result {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (passive, warn): %s", err)}
 	}
-	root, err := ResolveRepoRoot(repoRoot)
-	if err != nil {
-		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (passive, warn): %s", err)}
-	}
-	if _, err := ensureSessionStateResolved(root, payload.SessionID); err != nil {
+	if err := observeSessionStateResolved(root, payload.SessionID); err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (passive, warn): %s", err)}
 	}
 	return Result{ExitCode: 0}
@@ -160,16 +171,27 @@ func logRunContinuationDecision(repoRoot, branch string, payload *HookPayload, r
 func RunPreToolUse(repoRoot string, payloadBytes []byte) Result {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
+		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}
+	}
+	if !payload.IsCommandTool() && !payload.IsWriteTool() {
+		return Result{ExitCode: 0}
+	}
+	root, err := ResolveRepoRootRef(repoRoot)
+	if err != nil {
+		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}
+	}
+	return runPreToolUseResolved(root.path, payloadBytes)
+}
+
+func runPreToolUseResolved(root string, payloadBytes []byte) Result {
+	payload, err := ParsePayload(payloadBytes)
+	if err != nil {
 		// Fail-closed per threat model.
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}
 	}
 	if payload.IsCommandTool() {
-		if reason := forbiddenShellCommandReasonInRepo(repoRoot, payload.Command()); reason != "" {
+		if reason := forbiddenShellCommandReasonInRepo(root, payload.Command()); reason != "" {
 			return Result{ExitCode: 2, Stderr: reason}
-		}
-		root, err := ResolveRepoRoot(repoRoot)
-		if err != nil {
-			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}
 		}
 		state, err := ensureSessionStateResolved(root, payload.SessionID)
 		if err != nil {
@@ -213,10 +235,6 @@ func RunPreToolUse(repoRoot string, payloadBytes []byte) Result {
 			return Result{ExitCode: 2, Stderr: "reconc hook (pre): apply_patch payload contains no parseable file operations; refusing to pass an unparseable write through the gate"}
 		}
 		return Result{ExitCode: 0}
-	}
-	root, err := ResolveRepoRoot(repoRoot)
-	if err != nil {
-		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}
 	}
 	// Agent persistent-memory writes (~/.claude/projects/<p>/memory/**) are
 	// harness runtime state, not repository writes: they are excluded from the
@@ -265,7 +283,15 @@ func RunPreToolUse(repoRoot string, payloadBytes []byte) Result {
 // auto-allows requests; no decision leaves the platform's normal prompt
 // flow intact.
 func RunPermissionRequest(repoRoot string, payloadBytes []byte) Result {
-	pre := RunPreToolUse(repoRoot, payloadBytes)
+	root, err := ResolveRepoRootRef(repoRoot)
+	if err != nil {
+		return Result{ExitCode: 0, Stdout: permissionRequestDenyJSONOutput(fmt.Sprintf("reconc hook (pre): %s", err))}
+	}
+	return runPermissionRequestResolved(root.path, payloadBytes)
+}
+
+func runPermissionRequestResolved(root string, payloadBytes []byte) Result {
+	pre := runPreToolUseResolved(root, payloadBytes)
 	if pre.ExitCode == 0 {
 		return Result{ExitCode: 0}
 	}
@@ -282,13 +308,17 @@ func RunPermissionRequest(repoRoot string, payloadBytes []byte) Result {
 // full Stop policy after every write/shell event turns multi-edit agent runs
 // into repeated repo-wide audits.
 func RunPostToolUse(repoRoot string, payloadBytes []byte) Result {
+	root, err := ResolveRepoRootRef(repoRoot)
+	if err != nil {
+		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post, warn): %s", err)}
+	}
+	return runPostToolUseResolved(root.path, payloadBytes)
+}
+
+func runPostToolUseResolved(root string, payloadBytes []byte) Result {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		// Fail-open on parse errors for observation-only events.
-		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post, warn): %s", err)}
-	}
-	root, err := ResolveRepoRoot(repoRoot)
-	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post, warn): %s", err)}
 	}
 	updated, err := mutateSessionStateResolved(root, payload.SessionID, func(state SessionState) SessionState {
@@ -305,11 +335,15 @@ func RunPostToolUse(repoRoot string, payloadBytes []byte) Result {
 
 // RunPostToolUseFailure records a failed command outcome. Always exit 0.
 func RunPostToolUseFailure(repoRoot string, payloadBytes []byte) Result {
-	payload, err := ParsePayload(payloadBytes)
+	root, err := ResolveRepoRootRef(repoRoot)
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post-fail, warn): %s", err)}
 	}
-	root, err := ResolveRepoRoot(repoRoot)
+	return runPostToolUseFailureResolved(root.path, payloadBytes)
+}
+
+func runPostToolUseFailureResolved(root string, payloadBytes []byte) Result {
+	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post-fail, warn): %s", err)}
 	}
@@ -326,14 +360,22 @@ func RunPostToolUseFailure(repoRoot string, payloadBytes []byte) Result {
 // explicit failure through the failure observer. Runtimes like Devin provide
 // one post-tool event instead of separate success and failure events.
 func RunPostToolUseComplete(repoRoot string, payloadBytes []byte) Result {
+	root, err := ResolveRepoRootRef(repoRoot)
+	if err != nil {
+		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post-complete, warn): %s", err)}
+	}
+	return runPostToolUseCompleteResolved(root.path, payloadBytes)
+}
+
+func runPostToolUseCompleteResolved(root string, payloadBytes []byte) Result {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post-complete, warn): %s", err)}
 	}
 	if toolResponseFailed(payload) {
-		return RunPostToolUseFailure(repoRoot, payloadBytes)
+		return runPostToolUseFailureResolved(root, payloadBytes)
 	}
-	return RunPostToolUse(repoRoot, payloadBytes)
+	return runPostToolUseResolved(root, payloadBytes)
 }
 
 // RunPostToolUseCompleteStrict requires an explicit, internally consistent
@@ -341,16 +383,24 @@ func RunPostToolUseComplete(repoRoot string, payloadBytes []byte) Result {
 // process exits unsuccessfully, so completion of the host callback alone is
 // not evidence that the command succeeded.
 func RunPostToolUseCompleteStrict(repoRoot string, payloadBytes []byte) Result {
+	root, err := ResolveRepoRootRef(repoRoot)
+	if err != nil {
+		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post-complete, warn): %s", err)}
+	}
+	return runPostToolUseCompleteStrictResolved(root.path, payloadBytes)
+}
+
+func runPostToolUseCompleteStrictResolved(root string, payloadBytes []byte) Result {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post-complete, warn): %s", err)}
 	}
 	if !payload.IsCommandTool() {
-		return RunPostToolUseComplete(repoRoot, payloadBytes)
+		return runPostToolUseCompleteResolved(root, payloadBytes)
 	}
 	success, diagnostic := strictCommandOutcome(payload)
 	if success {
-		return RunPostToolUse(repoRoot, payloadBytes)
+		return runPostToolUseResolved(root, payloadBytes)
 	}
 	if strings.TrimSpace(payload.Error) == "" && diagnostic != "" {
 		payload.Raw["error"] = diagnostic
@@ -364,7 +414,7 @@ func RunPostToolUseCompleteStrict(repoRoot string, payloadBytes []byte) Result {
 			payloadBytes = normalized
 		}
 	}
-	return RunPostToolUseFailure(repoRoot, payloadBytes)
+	return runPostToolUseFailureResolved(root, payloadBytes)
 }
 
 func strictCommandOutcome(payload *HookPayload) (bool, string) {
@@ -460,17 +510,23 @@ func toolResponseFailed(payload *HookPayload) bool {
 // RunSessionEnd cleans up the mutable session state; saved reports
 // survive so post-session diagnostics remain available.
 func RunSessionEnd(repoRoot string, payloadBytes []byte) Result {
+	root, err := ResolveRepoRootRef(repoRoot)
+	if err != nil {
+		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (end, warn): %s", err)}
+	}
+	return runSessionEndResolved(root.path, payloadBytes)
+}
+
+func runSessionEndResolved(root string, payloadBytes []byte) Result {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (end, warn): %s", err)}
 	}
-	if err := CleanupSessionState(repoRoot, payload.SessionID); err != nil {
+	if err := cleanupSessionStateResolved(root, payload.SessionID); err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (end, warn): %s", err)}
 	}
-	if root, err := ResolveRepoRoot(repoRoot); err == nil {
-		if warning := retentionWarning(retention.RunIfDue(retention.Options{RepoRoot: root, StateRoot: stateRoot()})); warning != "" {
-			return Result{ExitCode: 0, Stderr: warning}
-		}
+	if warning := retentionWarning(retention.RunIfDue(retention.Options{RepoRoot: root, StateRoot: stateRoot()})); warning != "" {
+		return Result{ExitCode: 0, Stderr: warning}
 	}
 	return Result{ExitCode: 0}
 }

@@ -473,10 +473,29 @@ Decision is per-event based on the security role of the event:
 
 The CLI applies the registry failure policy after handler execution as well as
 during input decoding, so a handler cannot accidentally make an allow-route
-blocking. Successful dispatch records per-route liveness outside the repository.
+blocking. The CLI resolves the repository once per request into an opaque
+`ResolvedRepoRoot`; only the agent-session package can construct that handle.
+Normalization, the selected normalized handler, Stop/compaction/MCP internals,
+and liveness receive the same handle, eliminating repeated filesystem-identity
+discovery without weakening stored-state root checks. Runtime identity is an
+explicit request argument and is never communicated through mutable process
+environment state. Successful dispatch records per-route liveness outside the repository.
 Each runtime route has a small six-hour marker: the common path is one `stat`,
 zero locks, zero JSON reads, and zero writes; a due route refresh updates the
 bounded aggregate status used by `reconc hook status`.
+
+Passive lifecycle events are observation-only. They validate an existing
+session under its cross-process lock but do not create missing state, rewrite
+an active-session pointer, normalize/publish unchanged JSON, or manufacture
+policy evidence. Duplicate pre-tool and permission delivery can reuse one
+bounded external decision only with a stable tool-call ID and an exact SHA-256
+identity over canonical tool input, policy-lock bytes, session-state bytes,
+the current compiled policy-source digest, and project evidence-taint bytes.
+The identity is re-sampled after cache read;
+any concurrent mutation, missing identity, malformed entry, unsupported result,
+or size-bound failure falls back to a fresh evaluation. Atomic publication
+keeps concurrent writers safe, one record per session bounds storage, and
+SessionEnd removes the record.
 
 Cursor generation is registry-driven down to native event, matcher, runtime
 route, response mode, failure policy, timeout, loop limit, and documented

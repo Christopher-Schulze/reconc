@@ -11,15 +11,19 @@ import (
 )
 
 func RunAntigravityPreInvocation(repoRoot string, payloadBytes []byte) Result {
+	root, err := ResolveRepoRootRef(repoRoot)
+	if err != nil {
+		return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}}), Stderr: err.Error()}
+	}
+	return runAntigravityPreInvocationResolved(root.path, payloadBytes)
+}
+
+func runAntigravityPreInvocationResolved(root string, payloadBytes []byte) Result {
 	payload, err := NormalizeAntigravityPayload("antigravity-pre-invocation", payloadBytes)
 	if err != nil {
 		return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}}), Stderr: err.Error()}
 	}
 	parsed, err := ParsePayload(payload)
-	if err != nil {
-		return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}}), Stderr: err.Error()}
-	}
-	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
 		return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}}), Stderr: err.Error()}
 	}
@@ -31,11 +35,19 @@ func RunAntigravityPreInvocation(repoRoot string, payloadBytes []byte) Result {
 }
 
 func RunAntigravityPreToolUse(repoRoot string, payloadBytes []byte) Result {
+	root, err := ResolveRepoRootRef(repoRoot)
+	if err != nil {
+		return AdaptAntigravityResult("antigravity-pre-tool-use", Result{ExitCode: 2, Stderr: err.Error()})
+	}
+	return runAntigravityPreToolUseResolved(root.path, payloadBytes)
+}
+
+func runAntigravityPreToolUseResolved(root string, payloadBytes []byte) Result {
 	payload, err := NormalizeAntigravityPayload("antigravity-pre-tool-use", payloadBytes)
 	if err != nil {
 		return AdaptAntigravityResult("antigravity-pre-tool-use", Result{ExitCode: 2, Stderr: err.Error()})
 	}
-	result := RunPreToolUse(repoRoot, payload)
+	result := runPreToolUseResolved(root, payload)
 	if result.ExitCode != 0 {
 		return AdaptAntigravityResult("antigravity-pre-tool-use", result)
 	}
@@ -45,7 +57,7 @@ func RunAntigravityPreToolUse(repoRoot string, payloadBytes []byte) Result {
 	}
 	if parsed.IsReadTool() || parsed.IsWriteTool() || parsed.IsCommandTool() {
 		var updated SessionState
-		updated, err = MutateSessionState(repoRoot, parsed.SessionID, func(state SessionState) SessionState {
+		updated, err = mutateSessionStateResolved(root, parsed.SessionID, func(state SessionState) SessionState {
 			return PutPendingToolCall(state, antigravityPendingKey(parsed), PendingToolCall{
 				ToolName:  parsed.ToolName,
 				ToolInput: cloneAntigravityObject(parsed.ToolInput),
@@ -63,6 +75,14 @@ func RunAntigravityPreToolUse(repoRoot string, payloadBytes []byte) Result {
 }
 
 func RunAntigravityPostToolUse(repoRoot string, payloadBytes []byte) Result {
+	root, err := ResolveRepoRootRef(repoRoot)
+	if err != nil {
+		return AdaptAntigravityResult("antigravity-post-tool-use", Result{ExitCode: 0, Stderr: err.Error()})
+	}
+	return runAntigravityPostToolUseResolved(root.path, payloadBytes)
+}
+
+func runAntigravityPostToolUseResolved(root string, payloadBytes []byte) Result {
 	payload, err := NormalizeAntigravityPayload("antigravity-post-tool-use", payloadBytes)
 	if err != nil {
 		return AdaptAntigravityResult("antigravity-post-tool-use", Result{ExitCode: 0, Stderr: err.Error()})
@@ -74,7 +94,7 @@ func RunAntigravityPostToolUse(repoRoot string, payloadBytes []byte) Result {
 
 	var pending PendingToolCall
 	var found bool
-	_, err = MutateSessionState(repoRoot, parsed.SessionID, func(state SessionState) SessionState {
+	_, err = mutateSessionStateResolved(root, parsed.SessionID, func(state SessionState) SessionState {
 		key := antigravityPendingKey(parsed)
 		if state.PendingToolCalls != nil {
 			pending, found = state.PendingToolCalls[key]
@@ -104,15 +124,22 @@ func RunAntigravityPostToolUse(repoRoot string, payloadBytes []byte) Result {
 		return AdaptAntigravityResult("antigravity-post-tool-use", Result{ExitCode: 0, Stderr: err.Error()})
 	}
 	if parsed.Error != "" && pending.ToolName == "Bash" {
-		return AdaptAntigravityResult("antigravity-post-tool-use", RunPostToolUseFailure(repoRoot, body))
+		return AdaptAntigravityResult("antigravity-post-tool-use", runPostToolUseFailureResolved(root, body))
 	}
 	if parsed.Error != "" {
 		return AdaptAntigravityResult("antigravity-post-tool-use", Result{ExitCode: 0})
 	}
-	return AdaptAntigravityResult("antigravity-post-tool-use", RunPostToolUse(repoRoot, body))
+	return AdaptAntigravityResult("antigravity-post-tool-use", runPostToolUseResolved(root, body))
 }
 
 func RunAntigravityPostInvocation(repoRoot string, payloadBytes []byte) Result {
+	if _, err := ResolveRepoRootRef(repoRoot); err != nil {
+		return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}, "terminationBehavior": ""}), Stderr: err.Error()}
+	}
+	return runAntigravityPostInvocationResolved(payloadBytes)
+}
+
+func runAntigravityPostInvocationResolved(payloadBytes []byte) Result {
 	payload, err := NormalizeAntigravityPayload("antigravity-post-invocation", payloadBytes)
 	if err != nil {
 		return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}, "terminationBehavior": ""}), Stderr: err.Error()}
@@ -124,11 +151,19 @@ func RunAntigravityPostInvocation(repoRoot string, payloadBytes []byte) Result {
 }
 
 func RunAntigravityStop(repoRoot string, payloadBytes []byte) Result {
+	root, err := ResolveRepoRootRef(repoRoot)
+	if err != nil {
+		return AdaptAntigravityResult("antigravity-stop", Result{ExitCode: 2, Stderr: err.Error()})
+	}
+	return runAntigravityStopResolved(root.path, payloadBytes, "")
+}
+
+func runAntigravityStopResolved(root string, payloadBytes []byte, runtimeName string) Result {
 	payload, err := NormalizeAntigravityPayload("antigravity-stop", payloadBytes)
 	if err != nil {
 		return AdaptAntigravityResult("antigravity-stop", Result{ExitCode: 2, Stderr: err.Error()})
 	}
-	return AdaptAntigravityResult("antigravity-stop", RunStop(repoRoot, payload))
+	return AdaptAntigravityResult("antigravity-stop", runStopResolved(root, payload, runtimeName))
 }
 
 func NormalizeAntigravityPayload(event string, payloadBytes []byte) ([]byte, error) {
