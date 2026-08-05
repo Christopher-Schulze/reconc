@@ -23,7 +23,7 @@ func RunAntigravityPreInvocation(repoRoot string, payloadBytes []byte) Result {
 	if err != nil {
 		return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}}), Stderr: err.Error()}
 	}
-	if _, err := EnsureSessionState(root, parsed.SessionID); err != nil {
+	if _, err := ensureSessionStateResolved(root, parsed.SessionID); err != nil {
 		return Result{ExitCode: 0, Stdout: antigravityJSON(map[string]interface{}{"injectSteps": []interface{}{}}), Stderr: err.Error()}
 	}
 	retentionStderr := retentionWarning(retention.RunIfDue(retention.Options{RepoRoot: root, StateRoot: stateRoot(), ActiveSession: parsed.SessionID}))

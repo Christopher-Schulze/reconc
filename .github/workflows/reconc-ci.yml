@@ -74,6 +74,7 @@ jobs:
           (cd harness/template && go mod download)
 
       - name: Audit public/private boundary
+        if: runner.os == 'Linux'
         run: make publication-audit
 
       - name: Check formatting
@@ -87,6 +88,7 @@ jobs:
           (cd harness/template && go mod tidy -diff)
 
       - name: Test
+        if: runner.os != 'Linux'
         run: |
           go test ./...
           (cd harness/template && go test ./...)
@@ -166,9 +168,6 @@ jobs:
         run: |
           go mod download
           (cd harness/template && go mod download)
-
-      - name: Audit public/private boundary
-        run: make publication-audit
 
       - name: Test
         run: |

@@ -87,12 +87,9 @@ jobs:
 
       - name: Verify source and release gates
         run: |
-          make publication-audit
           make fmt-check
           go mod tidy -diff
           (cd harness/template && go mod tidy -diff)
-          go test ./...
-          (cd harness/template && go test ./...)
           go vet ./...
           (cd harness/template && go vet ./...)
           go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...

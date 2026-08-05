@@ -38,7 +38,7 @@ func RecordClaim(repoRoot, claim, sessionID string) (*ClaimReport, error) {
 	}
 
 	if sessionID == "" {
-		active, err := ResolveActiveSessionID(root)
+		active, err := resolveActiveSessionIDResolved(root)
 		if err != nil {
 			return nil, err
 		}
@@ -47,7 +47,7 @@ func RecordClaim(repoRoot, claim, sessionID string) (*ClaimReport, error) {
 		}
 		sessionID = active
 	}
-	current, err := LoadSessionState(root, sessionID)
+	current, err := loadSessionStateWithLockResolved(root, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +55,7 @@ func RecordClaim(repoRoot, claim, sessionID string) (*ClaimReport, error) {
 		return nil, errors.New(evidenceOverflowMessage(current))
 	}
 
-	updated, err := MutateSessionState(root, sessionID, func(state SessionState) SessionState {
+	updated, err := mutateSessionStateResolved(root, sessionID, func(state SessionState) SessionState {
 		if state.EvidenceOverflow {
 			return state
 		}
@@ -118,7 +118,7 @@ func ActiveEvidence(repoRoot string) (ActiveEvidenceSnapshot, error) {
 	if err != nil {
 		return ActiveEvidenceSnapshot{}, err
 	}
-	sessionID, err := ResolveActiveSessionID(root)
+	sessionID, err := resolveActiveSessionIDResolved(root)
 	if err != nil {
 		return ActiveEvidenceSnapshot{}, err
 	}
@@ -134,7 +134,7 @@ func ActiveEvidence(repoRoot string) (ActiveEvidenceSnapshot, error) {
 		applyEvidenceTaint(&state, *taint)
 		return ActiveEvidenceSnapshot{}, errors.New(evidenceOverflowMessage(state))
 	}
-	state, err := LoadSessionState(root, sessionID)
+	state, err := loadSessionStateWithLockResolved(root, sessionID)
 	if err != nil {
 		return ActiveEvidenceSnapshot{}, fmt.Errorf("load active session %q: %w", sessionID, err)
 	}

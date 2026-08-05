@@ -641,15 +641,17 @@ stored outside the repository until a later validated explicit pass clears it;
 retention cannot manufacture a pass.
 
 `BenchmarkRepositoryRunStopHotpath` measures the in-process executable-TASK
-continuation path without process startup. On Apple M1 its baseline was
-1,504,653 ns/op, 61,612 B/op, and 553 allocs/op. Before durable continuation
-records, the optimized median was 131,483 ns/op, 29,225-29,276 B/op, and 245
-allocs/op. With one bounded decision-log record per continuation, the current
-seven-run sample is 10,355,060-14,049,392 ns/op with a 10,986,170 ns/op median,
-55,561-55,707 B/op, and 457 allocs/op. The routine path starts no Git process;
-the current cost is the state and decision-log durability boundary. C/cgo would
-not reduce those filesystem syscalls and would add a toolchain and portability
-boundary, so the implementation remains pure Go.
+continuation path without process startup. A five-iteration Apple M1 sample on
+2026-08-05 measured 14,264,267 ns/op, 67,268 B/op, and 571 allocs/op. The
+process-independent no-op persistence benchmark
+`BenchmarkDuplicateSessionMutation` measured 256,433 ns/op, 16,496 B/op, and
+176 allocs/op in the same run. Normal audit append uses a bounded tail record
+plus the detached chain head instead of replaying every retained entry;
+`BenchmarkAuditAppendRetainedChain` measured 34,346,403 ns/op with no retained
+entries and 33,281,819 ns/op with 200 retained entries over three iterations.
+These are reproducible observations, not latency contracts. The routine paths
+start no Git process; fsync-backed state, pointer, decision-log, and audit
+durability dominate the remaining cost.
 
 ### Causal command-success evidence
 

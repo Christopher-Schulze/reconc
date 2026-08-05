@@ -570,6 +570,68 @@ func TestSanitiseIDScrubsUnsafeChars(t *testing.T) {
 	}
 }
 
+func TestNoopSessionMutationPreservesStateAndActivePointerBytes(t *testing.T) {
+	_, repo := withStateRoot(t)
+	if _, err := InitializeSessionState(repo, "noop"); err != nil {
+		t.Fatal(err)
+	}
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixed := time.Unix(1_700_000_000, 0)
+	paths := []string{sessionStatePath(root, "noop"), activeSessionPath(root)}
+	for _, path := range paths {
+		if err := os.Chtimes(path, fixed, fixed); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := MutateSessionState(repo, "noop", func(state SessionState) SessionState { return state }); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !info.ModTime().Equal(fixed) {
+			t.Fatalf("no-op mutation rewrote %s: modtime=%s", path, info.ModTime())
+		}
+	}
+}
+
+func TestNoopSessionMutationRepairsPrivateModes(t *testing.T) {
+	if filepath.Separator == '\\' {
+		t.Skip("Windows does not represent POSIX permission bits")
+	}
+	_, repo := withStateRoot(t)
+	if _, err := InitializeSessionState(repo, "mode"); err != nil {
+		t.Fatal(err)
+	}
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{sessionStatePath(root, "mode"), activeSessionPath(root)}
+	for _, path := range paths {
+		if err := os.Chmod(path, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := MutateSessionState(repo, "mode", func(state SessionState) SessionState { return state }); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("private mode was not repaired for %s: %o", path, info.Mode().Perm())
+		}
+	}
+}
+
 func BenchmarkDuplicateSessionMutation(b *testing.B) {
 	stateRoot := b.TempDir()
 	b.Setenv(StateRootEnv, stateRoot)

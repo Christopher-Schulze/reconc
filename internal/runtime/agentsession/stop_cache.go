@@ -164,7 +164,7 @@ func runStopPolicyCheckLocked(repoRoot string, state SessionState) (stopPolicyCh
 		initialEvidenceHash := stopPolicyEvidenceHash(state)
 		fingerprintInput.PolicyLockHash = fileContentHash(filepath.Join(repoRoot, ".reconc", "policy.lock.json"))
 		reportFingerprint := hashStopPolicyFingerprintInput(fingerprintInput)
-		if _, err := MutateSessionState(repoRoot, state.SessionID, func(current SessionState) SessionState {
+		if _, err := mutateSessionStateResolved(repoRoot, state.SessionID, func(current SessionState) SessionState {
 			if stopPolicyEvidenceHash(current) == initialEvidenceHash {
 				current.StopPolicyFingerprint = reportFingerprint
 				current.StopPolicyEvidenceHash = initialEvidenceHash
@@ -431,12 +431,12 @@ func CaptureCompletionState(repoRoot string) (CompletionStateSnapshot, error) {
 		WriteEpochs: map[string]uint64{}, Commands: []string{}, Claims: []string{},
 		CommandResults: []CommandResult{},
 	}
-	sessionID, err := ResolveActiveSessionID(root)
+	sessionID, err := resolveActiveSessionIDResolved(root)
 	if err != nil {
 		return CompletionStateSnapshot{}, err
 	}
 	if sessionID != "" {
-		state, err = LoadSessionState(root, sessionID)
+		state, err = loadSessionStateWithLockResolved(root, sessionID)
 		if err != nil {
 			return CompletionStateSnapshot{}, fmt.Errorf("load active session %q: %w", sessionID, err)
 		}
@@ -1056,7 +1056,7 @@ func recordStopBlockAndRepeated(repoRoot, sessionID string, violations []runtime
 		return false, ""
 	}
 	repeated := false
-	_, err := MutateSessionState(repoRoot, sessionID, func(state SessionState) SessionState {
+	_, err := mutateSessionStateResolved(repoRoot, sessionID, func(state SessionState) SessionState {
 		repeated = state.LastStopBlockViolationHash == violationHash
 		state.LastStopBlockViolationHash = violationHash
 		return state

@@ -1037,11 +1037,11 @@ rejected and tag pushes never publish a release. Every published release SBOM
 is regenerated and byte-verified before its checksum and build provenance are
 published.
 
-Candidate CI runs full root and portable-template tests on Ubuntu and macOS,
-native Windows tests and installer failure paths, whole-module coverage measurement,
-formatting, tidy checks, Vet, pinned Staticcheck, pinned Govulncheck, race
-tests, release-trust tests, publication-boundary checks, harness-pack parity,
-and Go CodeQL. GitHub Actions are allowlisted and commit-pinned, checkout
+Candidate CI runs root and portable-template race tests on Ubuntu, normal tests
+on macOS and native Windows, Windows installer failure paths, whole-module
+coverage measurement, formatting, tidy checks, Vet, pinned Staticcheck, pinned
+Govulncheck, release-trust tests, one publication-boundary check, harness-pack
+parity, and Go CodeQL. GitHub Actions are allowlisted and commit-pinned, checkout
 credentials are not persisted, and release/publication jobs use full history
 where the post-boundary audit requires it.
 

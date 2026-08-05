@@ -33,6 +33,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -377,6 +378,17 @@ func saveSessionStateLockedIfChanged(state SessionState) (bool, error) {
 }
 
 func ensurePrivateStateDir(path string) error {
+	info, err := os.Stat(path)
+	if err == nil {
+		if !info.IsDir() {
+			return fmt.Errorf("private state path is not a directory: %s", path)
+		}
+		if filepath.Separator == '\\' || info.Mode().Perm() == 0o700 {
+			return nil
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	if err := os.MkdirAll(path, 0o700); err != nil {
 		return err
 	}
@@ -439,8 +451,12 @@ func MutateSessionState(repoRoot, sessionID string, mutate func(SessionState) Se
 	if err != nil {
 		return SessionState{}, err
 	}
+	return mutateSessionStateResolved(root, sessionID, mutate)
+}
+
+func mutateSessionStateResolved(root, sessionID string, mutate func(SessionState) SessionState) (SessionState, error) {
 	var updated SessionState
-	err = withSessionLock(root, sessionID, func() error {
+	err := withSessionLock(root, sessionID, func() error {
 		state, err := loadSessionStateResolved(root, sessionID)
 		if err != nil {
 			return err
@@ -463,8 +479,25 @@ func MutateSessionState(repoRoot, sessionID string, mutate func(SessionState) Se
 		if updated.ReportPath == "" {
 			updated.ReportPath = sessionReportPath(root, sessionID)
 		}
-		if err := saveSessionStateLocked(updated); err != nil {
-			return err
+		stateChanged := !reflect.DeepEqual(state, updated)
+		if stateChanged {
+			updated = normalizeSessionState(updated)
+			stateChanged = !reflect.DeepEqual(state, updated)
+		}
+		if !stateChanged {
+			info, err := os.Stat(sessionStatePath(root, sessionID))
+			if errors.Is(err, os.ErrNotExist) {
+				stateChanged = true
+			} else if err != nil {
+				return fmt.Errorf("inspect session state before no-op mutation: %w", err)
+			} else if filepath.Separator != '\\' && info.Mode().Perm() != 0o600 {
+				stateChanged = true
+			}
+		}
+		if stateChanged {
+			if err := saveSessionStateLocked(updated); err != nil {
+				return err
+			}
 		}
 		if updated.EvidenceOverflow {
 			if err := persistEvidenceTaint(root, updated); err != nil {
@@ -580,8 +613,12 @@ func EnsureSessionState(repoRoot, sessionID string) (SessionState, error) {
 	if err != nil {
 		return SessionState{}, err
 	}
+	return ensureSessionStateResolved(root, sessionID)
+}
+
+func ensureSessionStateResolved(root, sessionID string) (SessionState, error) {
 	var state SessionState
-	err = withSessionLock(root, sessionID, func() error {
+	err := withSessionLock(root, sessionID, func() error {
 		loaded, err := loadSessionStateResolved(root, sessionID)
 		if err != nil {
 			return err
@@ -658,8 +695,12 @@ func ResolveActiveSessionID(repoRoot string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return resolveActiveSessionIDResolved(root)
+}
+
+func resolveActiveSessionIDResolved(root string) (string, error) {
 	var sessionID string
-	err = withActiveSessionLock(root, func() error {
+	err := withActiveSessionLock(root, func() error {
 		active, readErr := readActiveSessionID(activeSessionPath(root))
 		sessionID = active
 		return readErr
@@ -696,8 +737,18 @@ func writeActiveSession(repoRoot, sessionID string) error {
 }
 
 func writeActiveSessionIfChanged(repoRoot, sessionID string) (bool, error) {
+	if err := validateSessionID(sessionID); err != nil {
+		return false, err
+	}
+	current, err := activeSessionMatches(repoRoot, sessionID)
+	if err != nil {
+		return false, err
+	}
+	if current {
+		return false, nil
+	}
 	var written bool
-	err := withActiveSessionLock(repoRoot, func() error {
+	err = withActiveSessionLock(repoRoot, func() error {
 		changed, writeErr := writeActiveSessionLockedIfChanged(repoRoot, sessionID)
 		written = changed
 		return writeErr
@@ -713,11 +764,31 @@ func writeActiveSessionLockedIfChanged(repoRoot, sessionID string) (bool, error)
 	if err := ensurePrivateStateDir(filepath.Dir(path)); err != nil {
 		return false, fmt.Errorf("mkdir active-session dir: %w", err)
 	}
+	current, err := activeSessionMatches(repoRoot, sessionID)
+	if err != nil {
+		return false, err
+	}
+	if current {
+		return false, nil
+	}
 	written, err := atomicfile.WriteIfChanged(path, []byte(sessionID+"\n"), 0o600)
 	if err != nil {
 		return false, fmt.Errorf("write active session: %w", err)
 	}
 	return written, nil
+}
+
+func activeSessionMatches(repoRoot, sessionID string) (bool, error) {
+	path := activeSessionPath(repoRoot)
+	current, err := readActiveSessionID(path)
+	if err != nil || current != sessionID {
+		return false, err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return false, fmt.Errorf("stat active session: %w", err)
+	}
+	return filepath.Separator == '\\' || info.Mode().Perm() == 0o600, nil
 }
 
 // --- state mutators -------------------------------------------------

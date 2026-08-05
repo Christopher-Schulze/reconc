@@ -1193,8 +1193,12 @@ Runtime retention is product-owned rather than harness-owned. `SessionStart`
 and `SessionEnd` run a cross-process-safe due check with a six-hour interval;
 Stop never prunes. `reconc prune [repo] [--dry-run] [--json]` runs the same
 core explicitly. Unchanged session files, active-session pointers, reports,
-command proofs, and run state are byte-compared and never republished. Disabled
-and unchanged hook events do not create run state. Run decisions record every
+command proofs, and run state are byte-compared and never republished. No-op
+session mutations also skip normalization and atomic publication after identity
+validation; missing or non-private state and pointer modes are still repaired.
+Classified MCP hook paths resolve repository filesystem identity once and pass
+that verified root through extraction, enforcement, evidence, and audit work.
+Disabled and unchanged hook events do not create run state. Run decisions record every
 bounded repository continuation plus material transitions without prompt
 payloads. Live session state is hard-capped at 1 MiB; every evidence
 collection has both item and byte limits, and repeated command results are
@@ -1259,7 +1263,10 @@ archives, with file-locked append and pre-append rotation. Audit entries
 additionally carry one contiguous sequence and SHA-256 previous/current digest
 chain, with the latest identity stored in `.reconc/audit.head.json`. Every
 audit reader verifies all retained archives, the live file, and the detached
-head before returning data. Rotation and chained audit appends publish a
+head before returning data. A normal append validates the detached head and a
+bounded final live record, then advances the chain head incrementally. Rotation,
+recovery, and explicit verification replay the complete retained chain before
+accepting or returning evidence. Rotation and chained audit appends publish a
 private durable journal with `prepared`, `published`, and `resolved` states plus
 digest-bound archive backups. Recovery rolls a prepared append back to the
 complete pre-rotation snapshot, finalizes a published append by idempotently
@@ -2139,15 +2146,17 @@ a pass from an incomplete tree. TASK diff-aware gates likewise report staged or
 working-tree Git diff failures instead of silently exempting changed completed
 TASKs. Lockfile JSON readers decode directly from the existing byte slice,
 avoiding one full lockfile copy per policy check and TUI summary. The in-process normal
-executable-TASK benchmark on Apple M1 originally improved from 1,504,653 ns/op,
-61,612 B/op, and 553 allocs/op to 131,483 ns/op, 29,225-29,276 B/op, and 245
-allocs/op before continuation records became durable. With one bounded
-decision-log record per continuation, the current seven-run range is
-10,355,060-14,049,392 ns/op with a 10,986,170 ns/op median, 55,561-55,707 B/op,
-and 457 allocs/op. The benchmark excludes process startup and Git, but includes
-the state and decision-log durability writes. Reproducible Stop and concurrent-cache
+executable-TASK benchmark on Apple M1 measured 14,264,267 ns/op, 67,268 B/op,
+and 571 allocs/op over five iterations on 2026-08-05. In the same run, duplicate
+session mutation measured 256,433 ns/op, 16,496 B/op, and 176 allocs/op.
+Incremental audit append measured 34,346,403 ns/op with no retained entries and
+33,281,819 ns/op with 200 retained entries over three iterations, so normal
+append allocation count no longer scales with retained-chain length. These
+samples exclude process startup and Git and are observations rather than
+performance promises. Reproducible Stop, audit, and concurrent-cache
 benchmarks live beside their regression tests and run with
 `go test ./internal/runtime/agentsession -run '^$' -bench 'RepositoryRunStopHotpath|StopPolicy' -benchmem`
+and `go test ./internal/audit -run '^$' -bench AuditAppendRetainedChain -benchmem`
 and `go test ./harness/template/audits -run '^$' -bench RunWithCache -benchmem`.
 Storage hot paths run with
 `go test ./internal/runtime/agentsession ./internal/retention -run '^$' -bench 'DuplicateSessionMutation|LifecycleRetentionNotDue' -benchmem`.
@@ -2206,10 +2215,10 @@ GitHub workflows:
 
 CI checks:
 
-- full root-module and `harness/template` tests on Ubuntu 24.04 and macOS 15;
-  whole-module root/template coverage measurement, formatting, tidy, vet, pinned
-  Govulncheck v1.6.0, pinned Staticcheck v0.7.0, and race checks run once on
-  Linux
+- root-module and `harness/template` race tests on Ubuntu 24.04 and normal tests
+  on macOS 15; whole-module root/template coverage measurement, publication
+  audit, formatting, tidy, vet, pinned Govulncheck v1.6.0, and pinned
+  Staticcheck v0.7.0 run once on Linux
 - native Windows 2025 root-module and `harness/template` tests plus native
   binary version/help smoke and native PowerShell installer success, malformed
   manifest, missing asset, checksum, execution, locked/unwritable target,
@@ -2229,8 +2238,8 @@ CI checks:
   action from `go.mod`, including the isolated release-trust job
 - clean-repository self-hosting golden path on Ubuntu and macOS across all three
   bootstrap profiles, git pre-commit, and all twelve agent runtimes
-- current-tree and post-boundary-history publication audit on Ubuntu, macOS,
-  native Windows, release-trust, and tagged release paths
+- current-tree and post-boundary-history publication audit once in candidate CI
+  and once in the tagged artifact-build path
 - immutable action commit pins plus an explicit GitHub-owned action allowlist;
   the trust gate validates pin shape and action identity without coupling
   updates to historical commit values

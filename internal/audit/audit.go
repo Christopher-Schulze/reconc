@@ -18,6 +18,7 @@ package audit
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -131,19 +132,24 @@ func Append(repoRoot string, entry Entry, maxSizeBytes int64) error {
 	path := filepath.Join(repoRoot, AuditFileRelative)
 	policy := jsonl.Policy{MaxBytes: maxSizeBytes, MaxArchives: MaxArchiveFiles}
 	var line []byte
+	var prepared bool
+	var rebuildHead bool
+	var previousHead *chainHead
 	prepare := func() ([]byte, error) {
-		entries, head, err := loadVerifiedSnapshot(repoRoot)
+		head, last, err := loadAppendCheckpoint(repoRoot)
 		if err != nil {
 			return nil, err
 		}
-		if len(entries) == 0 {
+		if last == nil {
 			if head != nil {
 				return nil, errors.New("audit head exists without retained records")
 			}
 			entry.Sequence = 1
 			entry.PreviousDigest = ""
 		} else {
-			last := entries[len(entries)-1]
+			if last.Sequence == ^uint64(0) {
+				return nil, errors.New("audit sequence is exhausted")
+			}
 			entry.Sequence = last.Sequence + 1
 			entry.PreviousDigest = last.Digest
 		}
@@ -161,17 +167,25 @@ func Append(repoRoot string, entry Entry, maxSizeBytes int64) error {
 		if len(line)+1 > maxRecordBytes {
 			return nil, fmt.Errorf("bounded record is %d bytes; maximum is %d", len(line)+1, maxRecordBytes)
 		}
+		rotation, err := appendRequiresRotation(path, len(line)+1, maxSizeBytes)
+		if err != nil {
+			return nil, err
+		}
+		if rotation {
+			if _, _, err := loadVerifiedSnapshot(repoRoot); err != nil {
+				return nil, err
+			}
+		}
+		previousHead = head
+		rebuildHead = rotation
+		prepared = true
 		return line, nil
 	}
 	commit := func() error {
-		entries, err := readAuditEntries(path)
-		if err != nil {
-			return err
+		if !prepared || rebuildHead {
+			return rebuildChainHead(repoRoot)
 		}
-		if err := verifyEntryChain(entries); err != nil {
-			return err
-		}
-		return writeChainHead(repoRoot, entries)
+		return advanceChainHead(repoRoot, previousHead, entry)
 	}
 	if err := jsonl.AppendTransaction(path, policy, prepare, commit); err != nil {
 		return fmt.Errorf("audit: append: %w", err)
@@ -404,6 +418,155 @@ func Verify(repoRoot string) (VerificationReport, error) {
 	return report, err
 }
 
+func loadAppendCheckpoint(repoRoot string) (*chainHead, *Entry, error) {
+	head, err := readChainHead(repoRoot)
+	if err != nil {
+		return nil, nil, err
+	}
+	path := filepath.Join(repoRoot, AuditFileRelative)
+	last, exists, err := readLastAuditEntry(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !exists {
+		sources, err := jsonl.PathsOldestFirst(path, MaxArchiveFiles)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(sources) == 0 {
+			if head != nil {
+				return nil, nil, errors.New("audit: detached head exists without retained records")
+			}
+			return nil, nil, nil
+		}
+		entries, verifiedHead, err := loadVerifiedSnapshot(repoRoot)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(entries) == 0 {
+			return nil, nil, errors.New("audit: retained files contain no records")
+		}
+		lastEntry := entries[len(entries)-1]
+		return verifiedHead, &lastEntry, nil
+	}
+	if err := verifyAppendCheckpoint(*last, head); err != nil {
+		return nil, nil, err
+	}
+	return head, last, nil
+}
+
+func readLastAuditEntry(path string) (*Entry, bool, error) {
+	file, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("audit: open live tail: %w", err)
+	}
+	info, statErr := file.Stat()
+	if statErr != nil {
+		return nil, false, errors.Join(statErr, file.Close())
+	}
+	if !info.Mode().IsRegular() {
+		return nil, false, errors.Join(errors.New("audit: live log is not a regular file"), file.Close())
+	}
+	if info.Size() == 0 {
+		return nil, false, file.Close()
+	}
+	readBytes := int64(maxRecordBytes)
+	if info.Size() < readBytes {
+		readBytes = info.Size()
+	}
+	if _, err := file.Seek(-readBytes, io.SeekEnd); err != nil {
+		return nil, false, errors.Join(err, file.Close())
+	}
+	data, readErr := io.ReadAll(io.LimitReader(file, readBytes))
+	closeErr := file.Close()
+	if err := errors.Join(readErr, closeErr); err != nil {
+		return nil, false, fmt.Errorf("audit: read live tail: %w", err)
+	}
+	if len(data) == 0 || data[len(data)-1] != '\n' {
+		return nil, false, errors.New("audit: live log contains a truncated tail record")
+	}
+	lineStart := bytes.LastIndexByte(data[:len(data)-1], '\n') + 1
+	line := data[lineStart : len(data)-1]
+	if len(line) == 0 {
+		return nil, false, errors.New("audit: live log ends with an empty record")
+	}
+	var entry Entry
+	if err := decodeStrictJSON(line, &entry); err != nil {
+		return nil, false, fmt.Errorf("audit: live tail contains malformed JSON: %w", err)
+	}
+	return &entry, true, nil
+}
+
+func verifyAppendCheckpoint(last Entry, head *chainHead) error {
+	if head == nil {
+		return errors.New("audit: retained records have no detached head")
+	}
+	if err := verifyEntryChain([]Entry{last}); err != nil {
+		return err
+	}
+	if head.ChainVersion != auditChainVersion || head.EntryCount <= 0 || head.FirstSequence == 0 || head.LastSequence < head.FirstSequence {
+		return errors.New("audit: detached head has invalid chain metadata")
+	}
+	if head.LastSequence-head.FirstSequence+1 != uint64(head.EntryCount) {
+		return errors.New("audit: detached head entry count is not contiguous")
+	}
+	for _, digest := range []string{head.FirstDigest, head.LastDigest} {
+		decoded, err := hex.DecodeString(digest)
+		if err != nil || len(decoded) != sha256.Size {
+			return errors.New("audit: detached head contains an invalid digest")
+		}
+	}
+	if head.LastSequence != last.Sequence || head.LastDigest != last.Digest {
+		return errors.New("audit: detached head does not match the live tail")
+	}
+	if head.EntryCount == 1 && (head.FirstSequence != last.Sequence || head.FirstDigest != last.Digest) {
+		return errors.New("audit: single-entry detached head does not match the live tail")
+	}
+	return nil
+}
+
+func appendRequiresRotation(path string, recordBytes int, maxSizeBytes int64) (bool, error) {
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return info.Size()+int64(recordBytes) > maxSizeBytes, nil
+}
+
+func rebuildChainHead(repoRoot string) error {
+	entries, err := readAuditEntries(filepath.Join(repoRoot, AuditFileRelative))
+	if err != nil {
+		return err
+	}
+	if err := verifyEntryChain(entries); err != nil {
+		return err
+	}
+	return writeChainHead(repoRoot, entries)
+}
+
+func advanceChainHead(repoRoot string, previous *chainHead, entry Entry) error {
+	head := chainHead{
+		ChainVersion:  auditChainVersion,
+		FirstSequence: entry.Sequence,
+		FirstDigest:   entry.Digest,
+		LastSequence:  entry.Sequence,
+		LastDigest:    entry.Digest,
+		EntryCount:    1,
+	}
+	if previous != nil {
+		head.FirstSequence = previous.FirstSequence
+		head.FirstDigest = previous.FirstDigest
+		head.EntryCount = previous.EntryCount + 1
+	}
+	return writeChainHeadValue(repoRoot, head)
+}
+
 func recoverPendingAppend(repoRoot string) error {
 	path := filepath.Join(repoRoot, AuditFileRelative)
 	return jsonl.Recover(path, func() error {
@@ -590,6 +753,10 @@ func writeChainHead(repoRoot string, entries []Entry) error {
 		LastDigest:    last.Digest,
 		EntryCount:    len(entries),
 	}
+	return writeChainHeadValue(repoRoot, head)
+}
+
+func writeChainHeadValue(repoRoot string, head chainHead) error {
 	body, err := json.MarshalIndent(head, "", "  ")
 	if err != nil {
 		return fmt.Errorf("audit: marshal detached head: %w", err)

@@ -117,7 +117,7 @@ func RunPassiveEvent(repoRoot string, payloadBytes []byte) Result {
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (passive, warn): %s", err)}
 	}
-	if _, err := EnsureSessionState(root, payload.SessionID); err != nil {
+	if _, err := ensureSessionStateResolved(root, payload.SessionID); err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (passive, warn): %s", err)}
 	}
 	return Result{ExitCode: 0}
@@ -171,7 +171,7 @@ func RunPreToolUse(repoRoot string, payloadBytes []byte) Result {
 		if err != nil {
 			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}
 		}
-		state, err := EnsureSessionState(root, payload.SessionID)
+		state, err := ensureSessionStateResolved(root, payload.SessionID)
 		if err != nil {
 			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}
 		}
@@ -225,7 +225,7 @@ func RunPreToolUse(repoRoot string, payloadBytes []byte) Result {
 	if len(pendingWrites) == 0 {
 		return Result{ExitCode: 0}
 	}
-	state, err := EnsureSessionState(root, payload.SessionID)
+	state, err := ensureSessionStateResolved(root, payload.SessionID)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}
 	}
@@ -291,7 +291,7 @@ func RunPostToolUse(repoRoot string, payloadBytes []byte) Result {
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post, warn): %s", err)}
 	}
-	updated, err := MutateSessionState(root, payload.SessionID, func(state SessionState) SessionState {
+	updated, err := mutateSessionStateResolved(root, payload.SessionID, func(state SessionState) SessionState {
 		return recordToolUse(state, payload)
 	})
 	if err != nil {
@@ -313,7 +313,7 @@ func RunPostToolUseFailure(repoRoot string, payloadBytes []byte) Result {
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (post-fail, warn): %s", err)}
 	}
-	updated, err := MutateSessionState(root, payload.SessionID, func(state SessionState) SessionState {
+	updated, err := mutateSessionStateResolved(root, payload.SessionID, func(state SessionState) SessionState {
 		return recordToolFailure(state, payload)
 	})
 	if err != nil {

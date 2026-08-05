@@ -103,7 +103,7 @@ func RunStop(repoRoot string, payloadBytes []byte) (result Result) {
 		}
 	}
 
-	state, err := EnsureSessionState(root, payload.SessionID)
+	state, err := ensureSessionStateResolved(root, payload.SessionID)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): %s", err)}
 	}
@@ -111,7 +111,7 @@ func RunStop(repoRoot string, payloadBytes []byte) (result Result) {
 		if runApplies {
 			return Result{ExitCode: 0, Stdout: repositoryRunBlockJSON(evidenceOverflowMessage(state))}
 		}
-		if _, markErr := MutateSessionState(root, payload.SessionID, func(current SessionState) SessionState {
+		if _, markErr := mutateSessionStateResolved(root, payload.SessionID, func(current SessionState) SessionState {
 			current.UncertifiedTermination = true
 			return current
 		}); markErr != nil {
@@ -274,7 +274,7 @@ func runRepositoryContinuation(root string, runFile *os.File, payload *HookPaylo
 			return Result{}, false, nil
 		}
 		runEpoch = current.EnabledAt
-		_, err = MutateSessionState(root, sessionIDFromPayload(payload), func(state SessionState) SessionState {
+		_, err = mutateSessionStateResolved(root, sessionIDFromPayload(payload), func(state SessionState) SessionState {
 			progressHash = repositoryRunProgressHash(taskState, state.MaterialEvents)
 			encodedHash := hex.EncodeToString(progressHash[:])
 			if state.RepositoryRunEnabledAt != runEpoch {

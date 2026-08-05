@@ -90,8 +90,6 @@ verify_manual_dispatch_only() {
   fi
 }
 
-(cd "$root" && go run ./scripts/audits/publication --root "$root") \
-  || fail "publication audit failed"
 (cd "$root" && go test ./scripts/audits/publication \
   -run 'TestGitHubCommunitySurfaceIsSubstantive|TestCodeQLWorkflowHasBoundedAdvancedSetup|TestCIWorkflowRunsOnCandidateRefs|TestDependabotCoversBoundedDependencySurfaces') \
   || fail "GitHub trust-surface contract failed"
@@ -196,9 +194,8 @@ done
 [ "$(grep -Fc 'test "$(bun --version)" = "$BUN_VERSION"' "$release_workflow")" -eq 1 ] \
   || fail "$release_workflow must verify the exact Bun version exactly once"
 require_text "$release_workflow" "subject-checksums: dist/SHA256SUMS"
-require_text "$release_workflow" "make publication-audit"
-[ "$(grep -Fc 'make publication-audit' "$ci_workflow")" -eq 2 ] \
-  || fail "$ci_workflow must run the publication audit in both executable-test jobs"
+[ "$(grep -Fc 'make publication-audit' "$ci_workflow")" -eq 1 ] \
+  || fail "$ci_workflow must run the publication audit exactly once"
 require_text "$release_workflow" "  workflow_dispatch:"
 require_text "$release_workflow" "      tag:"
 # shellcheck disable=SC2016 # Match workflow expressions literally.
@@ -223,10 +220,10 @@ if grep -Eq 'pull-requests:[[:space:]]*write|issues:[[:space:]]*write' "$ci_work
   fail "$ci_workflow must not create or mutate pull requests or issues"
 fi
 [ -f "$dependabot_config" ] || fail "bounded Dependabot configuration is missing"
-for workflow in "$ci_workflow" "$release_workflow"; do
-  require_text "$workflow" "go test ./..."
-  require_text "$workflow" "(cd harness/template && go test ./...)"
-done
+require_text "$ci_workflow" "go test ./..."
+require_text "$ci_workflow" "(cd harness/template && go test ./...)"
+require_text "$release_workflow" "go test -race -count=1 ./..."
+require_text "$release_workflow" "(cd harness/template && go test -race -count=1 ./...)"
 require_text "$ci_workflow" "go mod tidy -diff"
 require_text "$ci_workflow" "govulncheck@v1.6.0"
 require_text "$ci_workflow" "staticcheck@v0.7.0"

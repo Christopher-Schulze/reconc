@@ -417,6 +417,70 @@ func TestVerifyRejectsModifiedReorderedMissingAndTruncatedRecords(t *testing.T) 
 	})
 }
 
+func TestAppendHotPathDefersInteriorVerificationUntilExplicitGate(t *testing.T) {
+	repo := t.TempDir()
+	for index := 0; index < 3; index++ {
+		if err := Append(repo, Entry{Event: fmt.Sprintf("event-%d", index), Decision: "pass"}, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(repo, AuditFileRelative)
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = bytes.Replace(body, []byte(`"event":"event-0"`), []byte(`"event":"changed"`), 1)
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Append(repo, Entry{Event: "incremental", Decision: "pass"}, 0); err != nil {
+		t.Fatalf("normal append should use the verified tail checkpoint: %v", err)
+	}
+	if _, err := Verify(repo); err == nil {
+		t.Fatal("explicit verification must still detect interior tampering")
+	}
+}
+
+func TestAppendRotationPerformsFullVerification(t *testing.T) {
+	repo := t.TempDir()
+	for index := 0; index < 3; index++ {
+		if err := Append(repo, Entry{Event: fmt.Sprintf("event-%d", index), Decision: "pass"}, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(repo, AuditFileRelative)
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = bytes.Replace(body, []byte(`"event":"event-0"`), []byte(`"event":"changed"`), 1)
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Append(repo, Entry{Event: "rotation", Decision: "pass"}, int64(len(body)+1)); err == nil {
+		t.Fatal("rotation must fully verify retained records before mutation")
+	}
+}
+
+func TestAppendRejectsTailCheckpointDrift(t *testing.T) {
+	repo := t.TempDir()
+	if err := Append(repo, Entry{Event: "original", Decision: "pass"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(repo, AuditFileRelative)
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = bytes.Replace(body, []byte(`"event":"original"`), []byte(`"event":"modified"`), 1)
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Append(repo, Entry{Event: "next", Decision: "pass"}, 0); err == nil {
+		t.Fatal("tampered live tail must block incremental append")
+	}
+}
+
 func TestVerifyRejectsMissingDetachedHead(t *testing.T) {
 	repo := t.TempDir()
 	if err := Append(repo, Entry{Event: "check", Decision: "pass"}, 0); err != nil {
@@ -559,5 +623,26 @@ func BenchmarkAuditRecordSize(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _ = json.Marshal(entry)
+	}
+}
+
+func BenchmarkAuditAppendRetainedChain(b *testing.B) {
+	for _, retained := range []int{0, 200} {
+		b.Run(fmt.Sprintf("retained-%d", retained), func(b *testing.B) {
+			repo := b.TempDir()
+			for index := 0; index < retained; index++ {
+				if err := Append(repo, Entry{Event: "prefill", Decision: "pass"}, 0); err != nil {
+					b.Fatal(err)
+				}
+			}
+			entry := Entry{Event: "benchmark", Decision: "pass", OK: true}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for index := 0; index < b.N; index++ {
+				if err := Append(repo, entry, 0); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }

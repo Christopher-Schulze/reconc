@@ -46,7 +46,11 @@ func runMCPBefore(repoRoot string, payloadBytes []byte, hostIdentified bool) Res
 		}
 		return RunPreToolUse(repoRoot, payloadBytes)
 	}
-	contract, err := runtime.LoadMCPPolicy(repoRoot)
+	root, err := ResolveRepoRoot(repoRoot)
+	if err != nil {
+		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): " + err.Error()}
+	}
+	contract, err := runtime.LoadMCPPolicy(root)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): " + err.Error()}
 	}
@@ -55,18 +59,18 @@ func runMCPBefore(repoRoot string, payloadBytes []byte, hostIdentified bool) Res
 		return RunPreToolUse(repoRoot, payloadBytes)
 	}
 	if !classified {
-		return handleUnclassifiedMCPBefore(repoRoot, contract, payload)
+		return handleUnclassifiedMCPBefore(root, contract, payload)
 	}
-	values, valid := extractMCPValues(repoRoot, classification, payload.ToolInput, payload.MCP.InputValid)
+	values, valid := extractMCPValuesResolved(root, classification, payload.ToolInput, payload.MCP.InputValid)
 	if !valid {
-		return handleUnclassifiedMCPBefore(repoRoot, contract, payload)
+		return handleUnclassifiedMCPBefore(root, contract, payload)
 	}
-	result := enforceMCPBefore(repoRoot, payload, classification, values)
+	result := enforceMCPBefore(root, payload, classification, values)
 	outcome := "allowed"
 	if result.ExitCode != 0 {
 		outcome = "denied"
 	}
-	if err := recordMCPAudit(repoRoot, payload.MCP, classification.Effect, outcome, true, payload.MCP.BlockingPreHook); err != nil {
+	if err := recordMCPAuditResolved(root, payload.MCP, classification.Effect, outcome, true, payload.MCP.BlockingPreHook); err != nil {
 		result.Stderr = appendMCPWarning(result.Stderr, err)
 	}
 	return result
@@ -83,7 +87,11 @@ func runMCPAfter(repoRoot string, payloadBytes []byte, hostIdentified bool) Resu
 		}
 		return RunPostToolUseCompleteStrict(repoRoot, payloadBytes)
 	}
-	contract, err := runtime.LoadMCPPolicy(repoRoot)
+	root, err := ResolveRepoRoot(repoRoot)
+	if err != nil {
+		return Result{ExitCode: 0, Stderr: "reconc hook (mcp post, warn): " + err.Error()}
+	}
+	contract, err := runtime.LoadMCPPolicy(root)
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: "reconc hook (mcp post, warn): " + err.Error()}
 	}
@@ -92,18 +100,18 @@ func runMCPAfter(repoRoot string, payloadBytes []byte, hostIdentified bool) Resu
 		return RunPostToolUseCompleteStrict(repoRoot, payloadBytes)
 	}
 	if !classified {
-		return observeUnclassifiedMCP(repoRoot, contract, payload, "unclassified")
+		return observeUnclassifiedMCP(root, contract, payload, "unclassified")
 	}
-	values, valid := extractMCPValues(repoRoot, classification, payload.ToolInput, payload.MCP.InputValid)
+	values, valid := extractMCPValuesResolved(root, classification, payload.ToolInput, payload.MCP.InputValid)
 	if !valid {
-		return observeUnclassifiedMCP(repoRoot, contract, payload, "unclassified")
+		return observeUnclassifiedMCP(root, contract, payload, "unclassified")
 	}
 	outcome := payload.MCP.Outcome
 	if outcome != "success" && outcome != "failure" {
 		outcome = "failure"
 	}
-	result := recordClassifiedMCPAfter(repoRoot, payload, classification, values, outcome)
-	if err := recordMCPAudit(repoRoot, payload.MCP, classification.Effect, outcome, true, payload.MCP.BlockingPreHook); err != nil {
+	result := recordClassifiedMCPAfterResolved(root, payload, classification, values, outcome)
+	if err := recordMCPAuditResolved(root, payload.MCP, classification.Effect, outcome, true, payload.MCP.BlockingPreHook); err != nil {
 		result.Stderr = appendMCPWarning(result.Stderr, err)
 	}
 	return result
@@ -144,7 +152,7 @@ func handleUnclassifiedMCPBefore(repoRoot string, contract *policy.MCPPolicy, pa
 			result.Stderr = "reconc MCP: strict unclassified deny is unavailable on this host surface; no enforcement claim or repository evidence was recorded"
 		}
 	}
-	if err := recordMCPAudit(repoRoot, payload.MCP, "", outcome, false, strictAvailable); err != nil {
+	if err := recordMCPAuditResolved(repoRoot, payload.MCP, "", outcome, false, strictAvailable); err != nil {
 		result.Stderr = appendMCPWarning(result.Stderr, err)
 	}
 	return result
@@ -156,7 +164,7 @@ func observeUnclassifiedMCP(repoRoot string, contract *policy.MCPPolicy, payload
 		outcome = "strict-unavailable"
 	}
 	result := Result{ExitCode: 0, Stderr: "reconc MCP: unclassified result was not accepted as repository evidence"}
-	if err := recordMCPAudit(repoRoot, payload.MCP, "", outcome, false, strictAvailable); err != nil {
+	if err := recordMCPAuditResolved(repoRoot, payload.MCP, "", outcome, false, strictAvailable); err != nil {
 		result.Stderr = appendMCPWarning(result.Stderr, err)
 	}
 	return result
@@ -167,7 +175,7 @@ type mcpExtractedValues struct {
 	Commands []string
 }
 
-func extractMCPValues(repoRoot string, classification policy.MCPToolPolicy, input map[string]interface{}, inputValid bool) (mcpExtractedValues, bool) {
+func extractMCPValuesResolved(root string, classification policy.MCPToolPolicy, input map[string]interface{}, inputValid bool) (mcpExtractedValues, bool) {
 	if !inputValid || input == nil {
 		return mcpExtractedValues{}, false
 	}
@@ -177,7 +185,7 @@ func extractMCPValues(repoRoot string, classification policy.MCPToolPolicy, inpu
 		if !valid {
 			return mcpExtractedValues{}, false
 		}
-		paths, valid := normalizeMCPRepoPaths(repoRoot, rawPaths)
+		paths, valid := normalizeMCPRepoPathsResolved(root, rawPaths)
 		return mcpExtractedValues{Paths: paths}, valid
 	case policy.MCPEffectCommand:
 		commands, valid := selectMCPStrings(input, []string{classification.CommandField})
@@ -236,6 +244,10 @@ func normalizeMCPRepoPaths(repoRoot string, rawPaths []string) ([]string, bool) 
 	if err != nil {
 		return nil, false
 	}
+	return normalizeMCPRepoPathsResolved(root, rawPaths)
+}
+
+func normalizeMCPRepoPathsResolved(root string, rawPaths []string) ([]string, bool) {
 	out := make([]string, 0, len(rawPaths))
 	for _, rawPath := range rawPaths {
 		candidate := filepath.FromSlash(rawPath)
@@ -264,10 +276,10 @@ func enforceMCPBefore(repoRoot string, payload *HookPayload, classification poli
 	case policy.MCPEffectRepositoryRead, policy.MCPEffectExternal:
 		return Result{ExitCode: 0}
 	case policy.MCPEffectRepositoryWrite:
-		return runMCPWritePre(repoRoot, payload, values.Paths)
+		return runMCPWritePreResolved(repoRoot, payload, values.Paths)
 	case policy.MCPEffectCommand:
 		for _, command := range values.Commands {
-			result := runMCPCommandPre(repoRoot, payload, command)
+			result := runMCPCommandPreResolved(repoRoot, payload, command)
 			if result.ExitCode != 0 {
 				return result
 			}
@@ -278,12 +290,8 @@ func enforceMCPBefore(repoRoot string, payload *HookPayload, classification poli
 	}
 }
 
-func runMCPWritePre(repoRoot string, payload *HookPayload, paths []string) Result {
-	root, err := ResolveRepoRoot(repoRoot)
-	if err != nil {
-		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): " + err.Error()}
-	}
-	state, err := EnsureSessionState(root, payload.SessionID)
+func runMCPWritePreResolved(root string, payload *HookPayload, paths []string) Result {
+	state, err := ensureSessionStateResolved(root, payload.SessionID)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): " + err.Error()}
 	}
@@ -306,15 +314,11 @@ func runMCPWritePre(repoRoot string, payload *HookPayload, paths []string) Resul
 	return Result{ExitCode: 2, Stderr: firstLinesForViolations(violations, "reconc blocked this MCP repository write before execution.")}
 }
 
-func runMCPCommandPre(repoRoot string, payload *HookPayload, command string) Result {
-	if reason := forbiddenShellCommandReasonInRepo(repoRoot, command); reason != "" {
+func runMCPCommandPreResolved(root string, payload *HookPayload, command string) Result {
+	if reason := forbiddenShellCommandReasonInRepo(root, command); reason != "" {
 		return Result{ExitCode: 2, Stderr: reason}
 	}
-	root, err := ResolveRepoRoot(repoRoot)
-	if err != nil {
-		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): " + err.Error()}
-	}
-	state, err := EnsureSessionState(root, payload.SessionID)
+	state, err := ensureSessionStateResolved(root, payload.SessionID)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): " + err.Error()}
 	}
@@ -336,15 +340,11 @@ func runMCPCommandPre(repoRoot string, payload *HookPayload, command string) Res
 	return Result{ExitCode: 2, Stderr: firstLinesForViolations(violations, "reconc blocked this MCP command before execution.")}
 }
 
-func recordClassifiedMCPAfter(repoRoot string, payload *HookPayload, classification policy.MCPToolPolicy, values mcpExtractedValues, outcome string) Result {
+func recordClassifiedMCPAfterResolved(root string, payload *HookPayload, classification policy.MCPToolPolicy, values mcpExtractedValues, outcome string) Result {
 	if classification.Effect == policy.MCPEffectExternal || outcome != "success" && classification.Effect != policy.MCPEffectCommand {
 		return Result{ExitCode: 0}
 	}
-	root, err := ResolveRepoRoot(repoRoot)
-	if err != nil {
-		return Result{ExitCode: 0, Stderr: "reconc hook (mcp post, warn): " + err.Error()}
-	}
-	updated, err := MutateSessionState(root, payload.SessionID, func(state SessionState) SessionState {
+	updated, err := mutateSessionStateResolved(root, payload.SessionID, func(state SessionState) SessionState {
 		if state.EvidenceOverflow {
 			return state
 		}

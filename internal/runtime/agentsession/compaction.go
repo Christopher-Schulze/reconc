@@ -33,7 +33,7 @@ func RunPostCompaction(repoRoot string, payloadBytes []byte) Result {
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (compaction, warn): %s", err)}
 	}
-	state, err := LoadSessionState(root, payload.SessionID)
+	state, err := loadSessionStateWithLockResolved(root, payload.SessionID)
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (compaction, warn): %s", err)}
 	}

@@ -385,12 +385,12 @@ func ReadEvidenceTaintStatus(repoRoot string) (EvidenceTaintStatus, error) {
 		return EvidenceTaintStatus{}, err
 	}
 	if taint == nil {
-		active, activeErr := ResolveActiveSessionID(root)
+		active, activeErr := resolveActiveSessionIDResolved(root)
 		if activeErr != nil {
 			return EvidenceTaintStatus{}, activeErr
 		}
 		if active != "" {
-			if _, loadErr := LoadSessionState(root, active); loadErr != nil {
+			if _, loadErr := loadSessionStateWithLockResolved(root, active); loadErr != nil {
 				return EvidenceTaintStatus{}, loadErr
 			}
 			taint, err = loadEvidenceTaint(root)
@@ -426,7 +426,7 @@ func ResolveEvidenceTaint(repoRoot, expectedToken, reason string) (EvidenceTaint
 	if reason == "" || len(reason) > 512 {
 		return EvidenceTaintStatus{}, errors.New("resolution reason must contain 1..512 bytes")
 	}
-	active, err := ResolveActiveSessionID(root)
+	active, err := resolveActiveSessionIDResolved(root)
 	if err != nil {
 		return EvidenceTaintStatus{}, err
 	}

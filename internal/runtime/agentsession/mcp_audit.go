@@ -71,6 +71,10 @@ func recordMCPAudit(repoRoot string, envelope *MCPPayload, effect policy.MCPEffe
 	if err != nil {
 		return err
 	}
+	return recordMCPAuditResolved(root, envelope, effect, outcome, classified, strictAvailable)
+}
+
+func recordMCPAuditResolved(root string, envelope *MCPPayload, effect policy.MCPEffect, outcome string, classified, strictAvailable bool) error {
 	if envelope == nil {
 		return errors.New("MCP audit envelope is nil")
 	}

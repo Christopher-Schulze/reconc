@@ -23,14 +23,14 @@ func RecordCommandOutcome(repoRoot, command, outcome string, exitCode int) error
 	if outcome != "success" && outcome != "failure" {
 		return errors.New("command outcome must be success or failure")
 	}
-	sessionID, err := ResolveActiveSessionID(root)
+	sessionID, err := resolveActiveSessionIDResolved(root)
 	if err != nil || sessionID == "" {
 		return err
 	}
 	interrupted := false
 	signatureInput := command + "\x00" + outcome + "\x00" + strconv.Itoa(exitCode)
 	signatureHash := sha256.Sum256([]byte(signatureInput))
-	_, err = MutateSessionState(root, sessionID, func(state SessionState) SessionState {
+	_, err = mutateSessionStateResolved(root, sessionID, func(state SessionState) SessionState {
 		if state.EvidenceOverflow {
 			return state
 		}
@@ -44,7 +44,7 @@ func RecordCommandOutcome(repoRoot, command, outcome string, exitCode int) error
 	if err != nil {
 		return err
 	}
-	state, err := LoadSessionState(root, sessionID)
+	state, err := loadSessionStateWithLockResolved(root, sessionID)
 	if err != nil {
 		return err
 	}
