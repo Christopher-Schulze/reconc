@@ -70,6 +70,7 @@ internal/
   audit/          SHA-256-linked JSONL decision evidence + detached head + bounded rotation
   boundedio/      exact-size reads for untrusted and repository-controlled files
   bootstrap/      init, repository sync/remove/recovery, portable receipts, journals, and binary resolution
+  cireport/       bounded provider-neutral SARIF 2.1.0 and JUnit XML report rendering
   cli/            command dispatch plus responsibility-owned command modules
   commandmeta/    canonical dependency-neutral command, flag, help, and output contract
   commandproof/   staged candidate-bound command-success receipts
@@ -314,7 +315,10 @@ refusal, never an inferred owner or partial success.
 4. `maybeAudit("check", report, version, start)` appends one chained JSONL
    entry iff
    `RECONC_AUDIT=1`.
-5. Output is rendered: terse / json / text depending on flags.
+5. Output is rendered as terse, JSON, text, SARIF 2.1.0, or JUnit XML depending
+   on flags. CI-native formats are built from one provider-neutral finding
+   model, bounded before serialization, and atomically published when
+   `--output` is set.
 6. Returns `&CLIError{ExitCode: 2}` if the decision is block;
    otherwise nil.
 
@@ -369,6 +373,7 @@ responsibility-owned command file, canonical command metadata, focused tests, an
         ├──► runtime ──┬──► policy
         │              ├──► assurance ──► policy
         │              └── template substitution, script runner, git
+        ├──► cireport
         │
         ├──► hooks
         ├──► bootstrap ──► harnesspack, stackdetect, presets, hooks, repositoryignore

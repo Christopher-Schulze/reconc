@@ -10,6 +10,7 @@ import (
 
 	"reconc.dev/reconc/internal/policyproof"
 	"reconc.dev/reconc/internal/runtime"
+	"reconc.dev/reconc/internal/runtime/agentsession"
 )
 
 // runCheck implements `reconc check [repo] [--read PATH...] [--write PATH...]
@@ -19,143 +20,42 @@ import (
 // Returns *CLIError exit 2 on a blocking decision, exit 1 on runtime
 // errors, exit 0 on pass/warn.
 func runCheck(args []string, reconcVersion string, stdout, stderr io.Writer) (resultErr error) {
-	repo := "."
-	repoSet := false
-	jsonOut := false
-	terse := false
-	outputPath := ""
-	inputs := runtime.Empty()
-
-	i := 0
-	for i < len(args) {
-		a := args[i]
-		switch a {
-		case "--json":
-			jsonOut = true
-		case "--terse":
-			terse = true
-		case "--output":
-			val, ok := nextArgValue(args, &i, a)
-			if !ok {
-				return &CLIError{ExitCode: 1, Message: "reconc check: --output requires a path"}
-			}
-			outputPath = val
-		case "-h", "--help":
-			fmt.Fprintln(stdout, "Usage: reconc check [repo] [--read PATH] [--write PATH]")
-			fmt.Fprintln(stdout, "                    [--command CMD] [--command-success CMD]")
-			fmt.Fprintln(stdout, "                    [--command-failure CMD] [--claim NAME] [--auto-claim]")
-			fmt.Fprintln(stdout, "                    [--json | --terse] [--output PATH]")
-			fmt.Fprintln(stdout, "")
-			fmt.Fprintln(stdout, "Evaluate runtime evidence against the compiled policy lockfile.")
-			fmt.Fprintln(stdout, "  --json   full structured report")
-			fmt.Fprintln(stdout, "  --terse  minimal {decision, ok, rule_ids, actions} (~50 tokens)")
-			fmt.Fprintln(stdout, "  --auto-claim  assert ci-green when a known CI environment is present")
-			fmt.Fprintln(stdout, "  --output PATH  write the primary output to stdout and PATH")
-			fmt.Fprintln(stdout, "Exit codes: 0 = pass/warn, 1 = error, 2 = blocking violation.")
-			return nil
-		case "--read":
-			val, ok := nextArgValue(args, &i, a)
-			if !ok {
-				return &CLIError{ExitCode: 1, Message: "reconc check: --read requires a value"}
-			}
-			inputs.ReadPaths = append(inputs.ReadPaths, val)
-		case "--write":
-			val, ok := nextArgValue(args, &i, a)
-			if !ok {
-				return &CLIError{ExitCode: 1, Message: "reconc check: --write requires a value"}
-			}
-			inputs.WritePaths = append(inputs.WritePaths, val)
-		case "--command":
-			val, ok := nextArgValue(args, &i, a)
-			if !ok {
-				return &CLIError{ExitCode: 1, Message: "reconc check: --command requires a value"}
-			}
-			inputs.Commands = append(inputs.Commands, val)
-		case "--command-success":
-			val, ok := nextArgValue(args, &i, a)
-			if !ok {
-				return &CLIError{ExitCode: 1, Message: "reconc check: --command-success requires a value"}
-			}
-			inputs.Commands = append(inputs.Commands, val)
-			inputs.CommandResults = append(inputs.CommandResults, runtime.CommandResult{
-				Command: val,
-				Outcome: runtime.CommandOutcomeSuccess,
-			})
-		case "--command-failure":
-			val, ok := nextArgValue(args, &i, a)
-			if !ok {
-				return &CLIError{ExitCode: 1, Message: "reconc check: --command-failure requires a value"}
-			}
-			inputs.Commands = append(inputs.Commands, val)
-			inputs.CommandResults = append(inputs.CommandResults, runtime.CommandResult{
-				Command: val,
-				Outcome: runtime.CommandOutcomeFailure,
-			})
-		case "--claim":
-			val, ok := nextArgValue(args, &i, a)
-			if !ok {
-				return &CLIError{ExitCode: 1, Message: "reconc check: --claim requires a value"}
-			}
-			inputs.Claims = append(inputs.Claims, val)
-		case "--auto-claim":
-			// W7: detect CI environment and auto-assert `ci-green`.
-			// Lets hosted CI pipelines skip the manual hook claim step.
-			if detectCIEnvironment() {
-				inputs.Claims = append(inputs.Claims, "ci-green")
-			}
-		default:
-			if len(a) > 0 && a[0] == '-' {
-				return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc check: unknown flag %q", a)}
-			}
-			if repoSet {
-				return &CLIError{ExitCode: 1, Message: "reconc check: expected at most one repo path"}
-			}
-			repo = a
-			repoSet = true
-		}
-		i++
+	options, help, err := parseCheckOptions(args, stdout)
+	if err != nil || help {
+		return err
 	}
-
-	candidate, err := capturePolicyDecisionCandidate(repo)
-	if err != nil {
-		return &CLIError{ExitCode: 1, Message: "reconc check: capture candidate: " + err.Error()}
-	}
-	start := time.Now()
-	report, err := runtime.CheckRepoPolicy(candidate.RepoRoot, inputs)
+	format, err := resolvePolicyReportFormat(options.format, options.jsonOutput, options.terse, true)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc check: " + err.Error()}
 	}
+	candidate, err := capturePolicyDecisionCandidate(options.repo)
+	if err != nil {
+		return writeCINativeFailure("check", reconcVersion, options.repo, format, options.outputPath, stdout, candidate, fmt.Errorf("capture candidate: %w", err))
+	}
+	start := time.Now()
+	report, err := runtime.CheckRepoPolicy(candidate.RepoRoot, options.inputs)
+	if err != nil {
+		return writeCINativeFailure("check", reconcVersion, options.repo, format, options.outputPath, stdout, candidate, err)
+	}
+	return finishCheckDecision(reconcVersion, options, format, stdout, candidate, report, start)
+}
+
+func finishCheckDecision(reconcVersion string, options checkOptions, format policyReportFormat, stdout io.Writer, candidate agentsession.CompletionStateSnapshot, report *runtime.CheckReport, start time.Time) error {
 	if err := persistPolicyDecision("check", candidate, report); err != nil {
-		return &CLIError{ExitCode: 1, Message: "reconc check: persist decision proof: " + err.Error()}
+		return writeCINativeFailure("check", reconcVersion, options.repo, format, options.outputPath, stdout, candidate, fmt.Errorf("persist decision proof: %w", err))
 	}
 	if err := maybeAudit("check", report, reconcVersion, start); err != nil {
-		return &CLIError{ExitCode: 1, Message: "reconc check: append audit evidence: " + err.Error()}
+		return writeCINativeFailure("check", reconcVersion, options.repo, format, options.outputPath, stdout, candidate, fmt.Errorf("append audit evidence: %w", err))
 	}
-	out, closeOutput, err := teeToFile(stdout, outputPath)
+	var err error
+	if format.ciNative() {
+		err = writeCINativeDecision("check", reconcVersion, format, options.outputPath, stdout, candidate, nil, report)
+	} else {
+		err = writeLegacyCheckReport(format, options.outputPath, stdout, report)
+	}
 	if err != nil {
-		return &CLIError{ExitCode: 1, Message: "reconc check: open output file: " + err.Error()}
+		return err
 	}
-	defer joinOutputCloseError(&resultErr, closeOutput)
-
-	switch {
-	case terse:
-		// Compact JSON: ~50 tokens for the most common case.
-		// Designed for hook-loop calls where every token counts.
-		enc := json.NewEncoder(out)
-		// No indent = compact form; agents parse it just fine.
-		if err := enc.Encode(report.Terse()); err != nil {
-			return &CLIError{ExitCode: 1, Message: "reconc check: terse encode: " + err.Error()}
-		}
-	case jsonOut:
-		enc := json.NewEncoder(out)
-		enc.SetIndent("", "  ")
-		if err := enc.Encode(report); err != nil {
-			return &CLIError{ExitCode: 1, Message: "reconc check: json encode: " + err.Error()}
-		}
-	default:
-		renderCheckText(report, out)
-	}
-
 	if report.Decision == runtime.DecisionBlock {
 		return &CLIError{ExitCode: 2, Message: ""}
 	}

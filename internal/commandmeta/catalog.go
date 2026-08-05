@@ -35,6 +35,8 @@ const (
 	OutputJSONL    OutputMode = "jsonl"
 	OutputScript   OutputMode = "script"
 	OutputRoff     OutputMode = "roff"
+	OutputSARIF    OutputMode = "sarif"
+	OutputJUnit    OutputMode = "junit"
 	OutputFile     OutputMode = "file"
 )
 
@@ -94,7 +96,7 @@ var bootstrapProfiles = []string{"advanced", "existing", "governed", "minimal"}
 
 var commandCatalog = []Command{
 	command("status", CategoryDaily, "reconc status [repo] [--json] [--output PATH]", "one-line policy health summary", flags(f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
-	command("check", CategoryDaily, "reconc check [repo] [evidence flags]", "evaluate runtime evidence against compiled policy", evidenceFlags(true, true), nil, modes(OutputText, OutputJSON, OutputFile)),
+	command("check", CategoryDaily, "reconc check [repo] [evidence flags] [--format text|json|terse|sarif|junit]", "evaluate runtime evidence against compiled policy", append(evidenceFlags(true, true), f("--format", "FORMAT", "text", "json", "terse", "sarif", "junit")), nil, modes(OutputText, OutputJSON, OutputSARIF, OutputJUnit, OutputFile)),
 	command("next", CategoryDaily, "reconc next [repo] [evidence flags]", "show the next remediation", flags(f("--read", "PATH"), f("--write", "PATH"), f("--command", "CMD"), f("--command-success", "CMD"), f("--command-failure", "CMD"), f("--claim", "NAME"), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
 	command("done", CategoryDaily, "reconc done [repo] [--require-clean-git] [--json]", "evidence-complete task-finish gate", flags(f("--require-clean-git", ""), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	command("proof", CategoryDaily, "reconc proof [repo] [--format json|markdown] [--output PATH] | reconc proof verify FILE [--repo REPO] [--json]", "export or strictly verify a portable completion proof bundle", flags(f("--format", "FORMAT", "json", "markdown"), f("--output", "PATH")), []Subcommand{
@@ -127,7 +129,7 @@ var commandCatalog = []Command{
 	command("doctor", CategoryBootstrap, "reconc doctor [repo] [--deep] [--json] [--output PATH] | reconc doctor --global [--json] [--output PATH]", "inspect repository or global installation state", flags(f("--deep", ""), f("--global", ""), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
 	command("refresh", CategoryCompile, "reconc refresh [repo] [--strict-conflicts] [--json] [--output PATH]", "explicitly refresh the policy lockfile", flags(f("--json", ""), f("--strict-conflicts", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
 	command("sources", CategoryCompile, "reconc sources [repo] [--json]", "inspect effective policy-source provenance without source bodies", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
-	command("ci", CategoryCompile, "reconc ci [repo] (--staged | --base REF [--head REF]) [evidence flags]", "evaluate Git-derived changes under policy", flags(f("--staged", ""), f("--base", "REF"), f("--head", "REF"), f("--read", "PATH"), f("--command", "CMD"), f("--command-success", "CMD"), f("--command-failure", "CMD"), f("--claim", "NAME"), f("--auto-claim", ""), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
+	command("ci", CategoryCompile, "reconc ci [repo] (--staged | --base REF [--head REF]) [evidence flags] [--format text|json|sarif|junit]", "evaluate Git-derived changes under policy", flags(f("--staged", ""), f("--base", "REF"), f("--head", "REF"), f("--read", "PATH"), f("--command", "CMD"), f("--command-success", "CMD"), f("--command-failure", "CMD"), f("--claim", "NAME"), f("--auto-claim", ""), f("--json", ""), f("--format", "FORMAT", "text", "json", "sarif", "junit"), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputSARIF, OutputJUnit, OutputFile)),
 	command("exec", CategoryCompile, "reconc exec [repo] [--staged] [--shell] -- COMMAND [ARG ...]", "execute and record real command evidence", flags(f("--staged", ""), f("--shell", "")), nil, modes(OutputText)),
 	command("assert", CategoryCompile, "reconc assert <rule-id> [repo] [evidence flags]", "evaluate one rule by id", flags(f("--var", "KEY=VALUE"), f("--read", "PATH"), f("--write", "PATH"), f("--command", "CMD"), f("--command-success", "CMD"), f("--command-failure", "CMD"), f("--claim", "NAME"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	command("can", CategoryCompile, "reconc can write <path> [repo] [--why] [--json]", "return an ultra-terse yes/no policy decision", flags(f("--why", ""), f("--json", "")), nil, modes(OutputText, OutputJSON)),

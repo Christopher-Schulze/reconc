@@ -547,6 +547,7 @@ Then use the canonical daily loop:
 ```bash
 reconc session-briefing . --json
 reconc check . --write path/to/file
+reconc check . --write path/to/file --format sarif --output reconc.sarif
 reconc next .
 reconc done .
 ```
@@ -574,6 +575,34 @@ that opt-in audit write is independent of policy refresh. Explicit `check`,
 `ci`, and `done` decisions may also write or clear one
 private unresolved-block receipt below `RECONC_HOME`; governed worktree content
 remains untouched.
+
+CI-native output is a presentation of the same policy decision, not a second
+engine. `reconc check` and `reconc ci` accept `--format sarif` for SARIF 2.1.0
+code-scanning consumers and `--format junit` for JUnit report consumers. SARIF
+maps observe/warn/block-or-fix to note/warning/error. JUnit maps observe/warn
+to successful diagnostic cases, block/fix to failures, and operational
+evaluation failures to errors. Findings without an exact source location stay
+rule-level; matched paths receive repository-relative URI-safe artifact
+locations without invented line numbers.
+
+The shared neutral report model includes bounded rule, mode, message,
+remediation, matched-path, candidate-fingerprint, policy-lock, worktree, and
+optional Git-range metadata. It excludes absolute host identity and escapes
+JSON, XML, URI, terminal-control, and workflow-command content. Outputs are
+deterministic, capped at 1,024 findings and 8 MiB, make no network call, and
+are atomically published by `--output` before the exact same bytes reach
+stdout. Existing text/JSON/terse defaults and exit codes do not change.
+
+```bash
+# GitHub Code Scanning; map RECONC_BASE_SHA to github.event.pull_request.base.sha
+reconc ci . --base "$RECONC_BASE_SHA" --head "$GITHUB_SHA" --format sarif --output reconc.sarif
+
+# GitLab artifacts:reports:junit input
+reconc ci . --base "$CI_MERGE_REQUEST_DIFF_BASE_SHA" --head "$CI_COMMIT_SHA" --format junit --output reconc-junit.xml
+
+# Generic JUnit consumer, including Jenkins or Azure Pipelines
+reconc ci . --base origin/main --head HEAD --format junit --output reconc-junit.xml
+```
 
 The current v0.9.2 release can export the same completion candidate for external
 review:

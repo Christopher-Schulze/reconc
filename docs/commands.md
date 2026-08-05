@@ -426,14 +426,14 @@ location where present. It never emits source bodies, physical global-policy
 paths, prompts, or other private source content. Invalid, escaping, symlinked,
 or unreadable sources fail closed.
 
-### `reconc check [repo] [--read PATH] [--write PATH] [--command CMD] [--command-success CMD] [--command-failure CMD] [--claim NAME] [--auto-claim] [--json] [--terse] [--output PATH]`
+### `reconc check [repo] [--read PATH] [--write PATH] [--command CMD] [--command-success CMD] [--command-failure CMD] [--claim NAME] [--auto-claim] [--json] [--terse] [--format text|json|terse|sarif|junit] [--output PATH]`
 The core policy evaluator. Exit 0 = pass/warn, 2 = block, 1 = error.
 `--terse` emits ~50-token JSON optimised for hook-loop calls.
 `--auto-claim` detects CI environment and auto-asserts `ci-green`.
 Missing or stale lockfiles fail closed without writing and require
 `reconc refresh .`.
 
-### `reconc ci [repo] (--staged | --base REF [--head REF]) [--read PATH] [--command CMD] [--command-success CMD] [--command-failure CMD] [--claim NAME] [--auto-claim] [--json] [--output PATH]`
+### `reconc ci [repo] (--staged | --base REF [--head REF]) [--read PATH] [--command CMD] [--command-success CMD] [--command-failure CMD] [--claim NAME] [--auto-claim] [--json] [--format text|json|sarif|junit] [--output PATH]`
 Git-aware check. Derives write paths from the working-tree index or a
 `base..head` range instead of explicit `--write` flags. It inherits recorded
 read paths, commands, and claims from the active agent session. In `--staged`
@@ -444,6 +444,38 @@ outcomes are not commit evidence. The CLI and its help reject explicit
 available for `--base`/`--head` CI ranges.
 Missing or stale lockfiles fail closed without writing and require
 `reconc refresh .`.
+
+`check` and `ci` keep text as the default and retain `--json` and, for
+`check`, `--terse` as compatibility aliases. `--format sarif` emits SARIF
+2.1.0: observe findings are `note`, warn findings are `warning`, and block/fix
+findings are `error`. Matched files use URI-escaped repository-relative
+artifact locations with no fabricated line or column. `--format junit` emits
+JUnit XML: observe/warn findings are successful cases with `system-out`,
+block/fix findings are failures, and malformed policy, stale lock, Git, or
+other operational evaluation failures are errors. A clean run emits one
+successful policy-decision case.
+
+Both machine reports include the decision, bounded remediation and matched
+paths, candidate fingerprint/policy/worktree identity, dirty-path count, and
+Git range metadata where applicable. They exclude absolute repository and home
+paths, escape JSON/XML, URI, terminal-control, and workflow-command content,
+cap text, paths, findings, and total output, and never invent source
+coordinates. `--output` atomically writes the exact stdout bytes without human
+prefixes. Defaults and exit codes remain unchanged; report generation performs
+no network call.
+
+Native consumer examples:
+
+```bash
+# GitHub Code Scanning: map RECONC_BASE_SHA to github.event.pull_request.base.sha.
+reconc ci . --base "$RECONC_BASE_SHA" --head "$GITHUB_SHA" --format sarif --output reconc.sarif
+
+# GitLab: declare reconc-junit.xml as artifacts:reports:junit.
+reconc ci . --base "$CI_MERGE_REQUEST_DIFF_BASE_SHA" --head "$CI_COMMIT_SHA" --format junit --output reconc-junit.xml
+
+# Jenkins, Azure Pipelines, or another JUnit consumer.
+reconc ci . --base origin/main --head HEAD --format junit --output reconc-junit.xml
+```
 
 ### `reconc exec [repo] [--staged] [--shell] -- COMMAND [ARG ...]`
 Execute a command from the repository root and record its real exit status in

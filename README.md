@@ -128,7 +128,7 @@ Core invariants are deliberately strict:
 | Transactional adoption | Inspects existing repositories, proposes evidence-backed packs and commands, and plans, applies, verifies, synchronizes, or removes only receipt-owned rollout state. |
 | Runtime enforcement | Generates, installs, verifies, and safely removes registry-backed hooks for twelve coding-agent runtimes, with capability-specific failure semantics and git pre-commit as the repository backstop. |
 | MCP side-effect control | Classifies explicitly configured Cursor, OpenCode, Kilo, Oh My Pi, and Pi MCP tools as repository reads, writes, commands, or external effects using exact selectors and fail-closed extraction. |
-| Operator and CI tooling | Provides exact remediation, body-free source-provenance inspection, staged command execution, CI proofs, global diagnostics, update and uninstall, cryptographically verified audit inspection, retention, TUI, shell completions, and a generated manpage. |
+| Operator and CI tooling | Provides exact remediation, body-free source-provenance inspection, staged command execution, deterministic SARIF 2.1.0 and JUnit XML reports, CI proofs, global diagnostics, update and uninstall, cryptographically verified audit inspection, retention, TUI, shell completions, and a generated manpage. |
 | Release trust | Publishes strict release manifests, SHA-256 checksums, build-provenance attestations, and deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs tied to the release commit. |
 
 ## Evidence Model
@@ -451,6 +451,8 @@ review remain explicit:
 ```bash
 reconc exec . --staged -- go test ./...
 reconc ci . --staged
+reconc ci . --base origin/main --head HEAD --format sarif --output reconc.sarif
+reconc ci . --base origin/main --head HEAD --format junit --output reconc-junit.xml
 reconc done .
 reconc proof . --output proof.json
 ```
@@ -458,7 +460,11 @@ reconc proof . --output proof.json
 `reconc exec . --staged -- COMMAND` records the real exit status and publishes
 a bounded proof only when the exact HEAD, index, and worktree candidate remains
 unchanged. `reconc ci . --staged` accepts that candidate-bound evidence instead
-of mutable session history.
+of mutable session history. SARIF maps observe, warn, and block/fix findings to
+note, warning, and error without inventing line numbers. JUnit preserves
+observe/warn as successful diagnostic cases, block/fix as failures, and
+operational evaluation failures as errors. Both formats are offline,
+deterministic, host-path-free, bounded, and atomically published by `--output`.
 
 `reconc done .` binds policy, Git state, active-session evidence, saved report
 integrity, unresolved blocks, current staged proofs, and typed TASK completion
