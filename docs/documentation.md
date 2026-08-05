@@ -1895,10 +1895,20 @@ owns repo-local binary selection and PATH `reconc` as last fallback. Kimi Code
 is global and therefore invokes bare `reconc` directly after explicit install
 verifies that PATH identity.
 For development and self-hosting, the wrapper checks `.build/bin/reconc` and
-root `reconc` before invoking any platform probe. Otherwise, each
-`tools/reconc/dist` and root `dist` directory prefers the stable platform name
-and accepts exactly one compatible versioned artifact as a migration fallback.
-Multiple compatible versions fail closed before PATH fallback.
+root `reconc` before invoking any platform probe. A repository installation
+that owns both the wrapper and an exact current-host stable binary also owns
+`tools/reconc/bin/hook-target`. The wrapper reads that one-line receipt with a
+shell builtin, accepts only the five supported stable repository paths, and
+executes the regular, non-symlink, executable target without running `uname`,
+scanning a directory, expanding a version glob, or searching `PATH`. A missing,
+invalid, symlinked, or non-executable direct target enters the portable recovery
+resolver. That resolver probes the host, prefers the stable platform name in
+`tools/reconc/dist` and root `dist`, and accepts exactly one compatible
+versioned artifact as a migration fallback. Multiple compatible versions fail
+closed before PATH fallback. Transactional bootstrap, repository sync,
+rollback, and removal own the receipt as `hook-wrapper-target` together with
+the wrapper and binary. Cross-platform plans omit it instead of publishing a
+target that cannot execute on the current host.
 The development binaries and all repository-local release binaries remain
 writable by the repository owner and are not re-attested on every hook event.
 This resolution order is a convenience and availability contract inside the

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -80,7 +81,8 @@ func buildDesiredArtifacts(root string, selection Selection, productVersion stri
 			artifacts = append(artifacts, textArtifact("hook-activation:codex", ".codex/config.toml", 0o644, content))
 		}
 	}
-	if requiresWrapper && !trustedExistingWrapper(root, selection.TrustExistingWrapper) {
+	ownsWrapper := requiresWrapper && !trustedExistingWrapper(root, selection.TrustExistingWrapper)
+	if ownsWrapper {
 		wrapper := hooks.GenerateWrapper()
 		artifacts = append(artifacts, textArtifact("hook-wrapper", wrapper.TargetPath, 0o755, wrapper.Content))
 	}
@@ -93,6 +95,13 @@ func buildDesiredArtifacts(root string, selection Selection, productVersion stri
 			component: "binary", path: filepath.ToSlash(filepath.Join("tools", "reconc", "dist", name)),
 			mode: 0o755, sourcePath: selection.Binary.SourcePath,
 		})
+		if ownsWrapper && selection.Binary.OS == runtime.GOOS && selection.Binary.Arch == runtime.GOARCH {
+			target, err := hooks.GenerateWrapperTarget(selection.Binary.OS, selection.Binary.Arch)
+			if err != nil {
+				return nil, err
+			}
+			artifacts = append(artifacts, textArtifact("hook-wrapper-target", target.TargetPath, 0o644, target.Content))
+		}
 	}
 	packArtifacts, err := harnessArtifacts(selection, productVersion)
 	if err != nil {

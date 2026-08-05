@@ -297,7 +297,14 @@ func ensureWrapper(root string, force bool) (string, error) {
 	} else if !os.IsNotExist(err) {
 		return "", &rerrors.PolicySourceError{Message: "read " + WrapperPath, Cause: err}
 	}
-	return writeGeneratedArtifact(target, artifact.Content, true)
+	action, err := writeGeneratedArtifact(target, artifact.Content, true)
+	if err != nil {
+		return "", err
+	}
+	if err := ensureWrapperTarget(root, force); err != nil {
+		return "", err
+	}
+	return action, nil
 }
 
 // ScaffoldKinds returns every generated hook artifact that belongs in

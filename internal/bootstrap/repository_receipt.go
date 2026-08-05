@@ -457,7 +457,7 @@ func managedMarkersForComponent(component, relative string) (string, string) {
 }
 
 func syncOwnsComponent(component string) bool {
-	return component == "hook-wrapper" || component == "binary" ||
+	return component == "hook-wrapper" || component == "hook-wrapper-target" || component == "binary" ||
 		strings.HasPrefix(component, "binary@") ||
 		strings.HasPrefix(component, "hook:") ||
 		strings.HasPrefix(component, "harness-pack:")

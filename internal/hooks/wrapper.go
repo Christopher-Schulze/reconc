@@ -5,6 +5,10 @@ package hooks
 // resolver.
 const WrapperPath = "tools/reconc/bin/hook"
 
+// WrapperTargetPath is the optional install-time direct target used by the
+// wrapper before invoking its portable recovery resolver.
+const WrapperTargetPath = "tools/reconc/bin/hook-target"
+
 // GenerateWrapper returns the version-independent repository-local hook
 // launcher. A development binary wins without OS/architecture subprocesses;
 // otherwise a stable platform artifact wins. Exactly one compatible versioned
@@ -102,6 +106,28 @@ for dev_reconc in "$repo/tools/reconc/.build/bin/reconc" "$repo/.build/bin/recon
     run_reconc_hook "$dev_reconc"
   fi
 done
+
+reconc_target=""
+target_receipt="$repo/tools/reconc/bin/hook-target"
+if [ -f "$target_receipt" ] && [ ! -L "$target_receipt" ]; then
+  if exec 3< "$target_receipt"; then
+    if IFS= read -r reconc_target <&3 && ! IFS= read -r reconc_target_extra <&3; then
+      case "$reconc_target" in
+        tools/reconc/dist/reconc-darwin-amd64|tools/reconc/dist/reconc-darwin-arm64|tools/reconc/dist/reconc-linux-amd64|tools/reconc/dist/reconc-linux-arm64|tools/reconc/dist/reconc-windows-amd64.exe) ;;
+        *) reconc_target="" ;;
+      esac
+    else
+      reconc_target=""
+    fi
+    exec 3<&-
+  fi
+fi
+if [ -n "$reconc_target" ]; then
+  direct_reconc="$repo/$reconc_target"
+  if [ -f "$direct_reconc" ] && [ ! -L "$direct_reconc" ] && [ -x "$direct_reconc" ]; then
+    run_reconc_hook "$direct_reconc"
+  fi
+fi
 
 ` + shellBinaryResolver() + `
 for reconc_dir in "$repo/tools/reconc/dist" "$repo/dist"; do

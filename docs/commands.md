@@ -525,7 +525,14 @@ non-reconc hook groups; and Kilo Code owns
 `.pi/extensions/reconc.ts`. All three preserve every sibling project hook or
 extension file, and Pi installation never changes the host trust store.
 Every wrapper-dependent platform installs or verifies the exact executable
-repo-local wrapper in the same operation. Codex installation also manages its
+repo-local wrapper in the same operation. If the exact stable current-host
+binary exists, installation also publishes the validated one-line
+`tools/reconc/bin/hook-target` receipt. The wrapper executes that target on its
+normal path without platform discovery, directory scans, version-glob
+expansion, or `PATH` search. Missing, invalid, symlinked, and non-executable
+targets enter the existing unambiguous recovery resolver. Transactional
+bootstrap and repository sync own the receipt together with the wrapper and
+binary; cross-platform plans omit it. Codex installation also manages its
 `[features].hooks` activation: an explicit user-owned `false` requires
 `--force`, and forced activation records the exact original line so uninstall
 can restore it. Partial wrapper/target/activation outcomes are reported

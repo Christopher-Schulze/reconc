@@ -18,8 +18,8 @@
     {
       "path": "tools/reconc/harness/template/BOOTSTRAP.md",
       "mode": 420,
-      "size": 44757,
-      "sha256": "91e18ebc920105cb1acf5def0174836732c5868fd82f0e6d92d0df68a445ef81",
+      "size": 45351,
+      "sha256": "5f8ed951a872470e93fedfb32c630e6a590b979a42fc9ef6f8f04cb3ea8826d9",
       "ownership": "pack-file"
     },
     {
@@ -737,6 +737,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 710425,
-  "digest": "ce3fdd166f86dc92069a729875703b80c51c95cc97f800d1b90b8f395f00d7b4"
+  "total_bytes": 711019,
+  "digest": "017e4e52328f019ffbd64333d47ffa5091abace7fcaac73bce10ac6f38bcc165"
 }
