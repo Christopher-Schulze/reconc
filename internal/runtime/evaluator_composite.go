@@ -32,7 +32,7 @@ import (
 // They share a common "evaluate every check in every context" workhorse
 // and differ only in the fold over results.
 
-func evalAllOf(ctx *evalContext, rule map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
+func evalAllOf(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
 	contexts, checks, err := compositeSetup(rule, inputs)
 	if err != nil || len(contexts) == 0 || len(checks) == 0 {
 		return nil, err
@@ -59,7 +59,7 @@ func evalAllOf(ctx *evalContext, rule map[string]interface{}, defaultMode policy
 	return buildCompositeViolation(rule, defaultMode, contexts, "all_of", failures), nil
 }
 
-func evalAnyOf(ctx *evalContext, rule map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
+func evalAnyOf(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
 	contexts, checks, err := compositeSetup(rule, inputs)
 	if err != nil || len(contexts) == 0 || len(checks) == 0 {
 		return nil, err
@@ -93,7 +93,7 @@ func evalAnyOf(ctx *evalContext, rule map[string]interface{}, defaultMode policy
 	return buildCompositeViolation(rule, defaultMode, contexts, "any_of", contextFailures), nil
 }
 
-func evalNot(ctx *evalContext, rule map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
+func evalNot(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
 	contexts, checks, err := compositeSetup(rule, inputs)
 	if err != nil || len(contexts) == 0 {
 		return nil, err
@@ -129,9 +129,9 @@ func evalNot(ctx *evalContext, rule map[string]interface{}, defaultMode policy.M
 }
 
 // compositeSetup gathers the match contexts and the checks list from
-// the rule map. Returns empty slices when when_paths doesn't match,
+// the typed rule. Returns empty slices when when_paths doesn't match,
 // signalling "rule does not fire".
-func compositeSetup(rule map[string]interface{}, inputs ExecutionInputs) ([]matchContext, []policy.Check, error) {
+func compositeSetup(rule *policy.Rule, inputs ExecutionInputs) ([]matchContext, []policy.Check, error) {
 	patterns := stringListField(rule, "when_paths")
 	contexts, err := collectMatchContexts(inputs.WritePaths, patterns)
 	if err != nil {
@@ -141,90 +141,12 @@ func compositeSetup(rule map[string]interface{}, inputs ExecutionInputs) ([]matc
 	return contexts, checks, nil
 }
 
-// checksFromRule extracts the typed Check list from a rule map.
-func checksFromRule(rule map[string]interface{}) []policy.Check {
-	raw, ok := rule["checks"]
-	if !ok || raw == nil {
+// checksFromRule returns the typed Check list.
+func checksFromRule(rule *policy.Rule) []policy.Check {
+	if rule == nil || len(rule.Checks) == 0 {
 		return nil
 	}
-	list, ok := raw.([]interface{})
-	if !ok {
-		return nil
-	}
-	out := make([]policy.Check, 0, len(list))
-	for _, entry := range list {
-		mapping, ok := entry.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		c, ok := checkFromMap(mapping)
-		if ok {
-			out = append(out, c)
-		}
-	}
-	return out
-}
-
-// checkFromMap converts one lockfile-encoded check map to a typed Check.
-func checkFromMap(m map[string]interface{}) (policy.Check, bool) {
-	kindStr, _ := m["kind"].(string)
-	if kindStr == "" {
-		return policy.Check{}, false
-	}
-	c := policy.Check{Kind: policy.Kind(kindStr)}
-	if v, ok := m["path"].(string); ok {
-		c.Path = v
-	}
-	c.MaxAgeHours = int(numAsIntDefault(m["max_age_hours"], 0))
-	if v, ok := m["file"].(string); ok {
-		c.File = v
-	}
-	c.MustExist, _ = m["must_exist"].(bool)
-	if list, ok := m["must_contain"].([]interface{}); ok {
-		for _, x := range list {
-			if s, ok := x.(string); ok {
-				c.MustContain = append(c.MustContain, s)
-			}
-		}
-	}
-	if v, ok := m["must_not_contain"].(string); ok {
-		c.MustNotContain = v
-	}
-	c.MaxLineCount = int(numAsIntDefault(m["max_line_count"], 0))
-	if v, ok := m["script"].(string); ok {
-		c.Script = v
-	}
-	if list, ok := m["args"].([]interface{}); ok {
-		for _, x := range list {
-			if s, ok := x.(string); ok {
-				c.Args = append(c.Args, s)
-			}
-		}
-	}
-	c.TimeoutSec = int(numAsIntDefault(m["timeout_sec"], 0))
-	for _, key := range []struct {
-		field string
-		dst   *[]string
-	}{
-		{"paths", &c.Paths},
-		{"before_paths", &c.BeforePaths},
-		{"when_paths", &c.WhenPaths},
-		{"commands", &c.Commands},
-		{"claims", &c.Claims},
-	} {
-		if list, ok := m[key.field].([]interface{}); ok {
-			for _, x := range list {
-				if s, ok := x.(string); ok {
-					*key.dst = append(*key.dst, s)
-				}
-			}
-		}
-	}
-	if matchMode, ok := m["command_match"].(string); ok {
-		c.CommandMatch = policy.CommandMatch(matchMode)
-	}
-	c.Optional, _ = m["optional"].(bool)
-	return c, true
+	return rule.Checks
 }
 
 // checkEvalError marks a sub-check that could not be evaluated at all
@@ -445,7 +367,7 @@ func evalCheckDenyWrite(c policy.Check, inputs ExecutionInputs) (bool, string, e
 
 // buildCompositeViolation is the violation builder for composite rules.
 // Aggregates triggered paths and failure reasons across all contexts.
-func buildCompositeViolation(rule map[string]interface{}, defaultMode policy.Mode, contexts []matchContext, op string, failures []string) *Violation {
+func buildCompositeViolation(rule *policy.Rule, defaultMode policy.Mode, contexts []matchContext, op string, failures []string) *Violation {
 	triggered := []string{}
 	for _, mc := range contexts {
 		triggered = appendUnique(triggered, mc.path)

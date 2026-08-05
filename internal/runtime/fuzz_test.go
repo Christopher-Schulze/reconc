@@ -1,10 +1,30 @@
 package runtime
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func FuzzDecodeRuntimeRulesNoPanic(f *testing.F) {
+	for _, seed := range []string{
+		`[]`,
+		`[{"id":"r","kind":"deny_write","message":"m","paths":["x"]}]`,
+		`[{"id":"r","kind":"future","message":"m"}]`,
+		`[{"id":"r","kind":"deny_write","message":"m","extra":true}]`,
+		`{"not":"a list"}`,
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, encoded string) {
+		var raw interface{}
+		if json.Unmarshal([]byte(encoded), &raw) != nil {
+			return
+		}
+		_, _ = decodeRuntimeRules(raw)
+	})
+}
 
 func FuzzNormalizePathsStaysRepoRelative(f *testing.F) {
 	for _, seed := range []string{

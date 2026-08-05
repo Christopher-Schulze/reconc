@@ -14,6 +14,7 @@ import (
 	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/ingest"
+	"reconc.dev/reconc/internal/runtime"
 )
 
 const (
@@ -30,11 +31,11 @@ type preDecisionCache struct {
 	Stderr        string `json:"stderr,omitempty"`
 }
 
-// runPreDecisionResolved reuses a decision only across identical normalized
+// runPreDecisionResolvedWithEvaluator reuses a decision only across identical normalized
 // tool-call identity, policy bytes, session-state bytes, and repository taint
 // bytes. The key is sampled again after reading the cache, so a concurrent
 // evidence or policy mutation cannot validate a stale record.
-func runPreDecisionResolved(root string, payloadBytes []byte, permission bool) Result {
+func runPreDecisionResolvedWithEvaluator(root string, payloadBytes []byte, permission bool, evaluator *runtime.Evaluator) Result {
 	key, cacheable := preDecisionKey(root, payloadBytes)
 	if cacheable {
 		if cached, ok := readPreDecisionCache(root, payloadBytes, key); ok {
@@ -42,7 +43,7 @@ func runPreDecisionResolved(root string, payloadBytes []byte, permission bool) R
 		}
 	}
 
-	decision := runPreToolUseResolved(root, payloadBytes)
+	decision := runPreToolUseResolvedWithEvaluator(root, payloadBytes, evaluator)
 	if postKey, ok := preDecisionKey(root, payloadBytes); cacheable && ok && postKey == key {
 		_ = writePreDecisionCache(root, payloadBytes, postKey, decision)
 	}

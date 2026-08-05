@@ -264,6 +264,12 @@ func validateAssuranceGate(gate *policy.AssuranceGate) error {
 	return nil
 }
 
+// ValidateCompiledAssuranceGate validates one already typed lockfile gate
+// without mutating the caller's immutable runtime plan.
+func ValidateCompiledAssuranceGate(gate policy.AssuranceGate) error {
+	return validateAssuranceGate(&gate)
+}
+
 func normalizeAssuranceStrings(name string, values *[]string) error {
 	seen := map[string]bool{}
 	for index := range *values {

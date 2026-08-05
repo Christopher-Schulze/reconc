@@ -13,40 +13,37 @@ import (
 )
 
 func TestWorkflowAuditBatchCandidateRejectsEveryProtocolMismatch(t *testing.T) {
-	base := map[string]interface{}{
-		"kind":             string(policy.KindRequireScript),
-		"script":           "tools/reconc/audits/run-workflow-audit",
-		"args":             []interface{}{"task-state"},
-		"timeout_sec":      json.Number("12"),
-		"kill_timeout_sec": float64(3),
+	base := policy.Rule{
+		Kind:           policy.KindRequireScript,
+		Script:         "tools/reconc/audits/run-workflow-audit",
+		Args:           []string{"task-state"},
+		TimeoutSec:     12,
+		KillTimeoutSec: 3,
 	}
-	script, mode, timeout, killTimeout, ok := workflowAuditBatchCandidate(base)
+	script, mode, timeout, killTimeout, ok := workflowAuditBatchCandidate(&base)
 	if !ok || script != "tools/reconc/audits/run-workflow-audit" || mode != "task-state" || timeout != 12 || killTimeout != 3 {
 		t.Fatalf("valid candidate = (%q, %q, %d, %d, %t)", script, mode, timeout, killTimeout, ok)
 	}
 
 	tests := []struct {
 		name   string
-		change func(map[string]interface{})
+		change func(*policy.Rule)
 	}{
-		{name: "wrong kind", change: func(rule map[string]interface{}) { rule["kind"] = "deny_write" }},
-		{name: "missing script", change: func(rule map[string]interface{}) { delete(rule, "script") }},
-		{name: "template script", change: func(rule map[string]interface{}) { rule["script"] = "{root}/audits/run-workflow-audit" }},
-		{name: "wrong basename", change: func(rule map[string]interface{}) { rule["script"] = "audits/run-other" }},
-		{name: "no args", change: func(rule map[string]interface{}) { rule["args"] = []interface{}{} }},
-		{name: "multiple args", change: func(rule map[string]interface{}) { rule["args"] = []interface{}{"a", "b"} }},
-		{name: "non string mode", change: func(rule map[string]interface{}) { rule["args"] = []interface{}{1} }},
-		{name: "empty mode", change: func(rule map[string]interface{}) { rule["args"] = []interface{}{""} }},
-		{name: "template mode", change: func(rule map[string]interface{}) { rule["args"] = []interface{}{"{mode}"} }},
+		{name: "wrong kind", change: func(rule *policy.Rule) { rule.Kind = policy.KindDenyWrite }},
+		{name: "missing script", change: func(rule *policy.Rule) { rule.Script = "" }},
+		{name: "template script", change: func(rule *policy.Rule) { rule.Script = "{root}/audits/run-workflow-audit" }},
+		{name: "wrong basename", change: func(rule *policy.Rule) { rule.Script = "audits/run-other" }},
+		{name: "no args", change: func(rule *policy.Rule) { rule.Args = nil }},
+		{name: "multiple args", change: func(rule *policy.Rule) { rule.Args = []string{"a", "b"} }},
+		{name: "empty mode", change: func(rule *policy.Rule) { rule.Args = []string{""} }},
+		{name: "template mode", change: func(rule *policy.Rule) { rule.Args = []string{"{mode}"} }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			rule := make(map[string]interface{}, len(base))
-			for key, value := range base {
-				rule[key] = value
-			}
-			test.change(rule)
-			if _, _, _, _, ok := workflowAuditBatchCandidate(rule); ok {
+			rule := base
+			rule.Args = append([]string(nil), base.Args...)
+			test.change(&rule)
+			if _, _, _, _, ok := workflowAuditBatchCandidate(&rule); ok {
 				t.Fatalf("workflowAuditBatchCandidate(%#v) accepted protocol mismatch", rule)
 			}
 		})

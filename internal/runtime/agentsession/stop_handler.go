@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/tasklifecycle"
 )
 
@@ -33,6 +34,10 @@ func RunStop(repoRoot string, payloadBytes []byte) (result Result) {
 }
 
 func runStopResolved(root string, payloadBytes []byte, runtimeName string) (result Result) {
+	return runStopResolvedWithEvaluator(root, payloadBytes, runtimeName, runtime.NewEvaluator())
+}
+
+func runStopResolvedWithEvaluator(root string, payloadBytes []byte, runtimeName string, evaluator *runtime.Evaluator) (result Result) {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): %s", err)}
@@ -141,7 +146,7 @@ func runStopResolved(root string, payloadBytes []byte, runtimeName string) (resu
 		}
 	}
 
-	policyResult, err := runStopPolicyCheckWithSnapshot(root, state)
+	policyResult, err := runStopPolicyCheckWithSnapshotWithEvaluator(root, state, evaluator)
 	if err != nil {
 		if isLockfileError(err) {
 			// A stale lockfile must still hold the session open, but it must

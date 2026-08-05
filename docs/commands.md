@@ -617,7 +617,10 @@ registry route timeout and error policy. Startup, crash, or protocol failure
 falls back to one-shot execution within the remaining route budget; cancellation
 and timeout kill the child. Session shutdown or parent stdin closure prevents an
 orphan. This is an internal transport optimization, not a daemon or public
-network API.
+network API. The worker owns an immutable typed policy-plan cache: unchanged
+lock bytes reuse the decoded and indexed plan, while every request still
+recomputes the bounded source-bundle identity. Lock drift rebuilds; source drift
+fails closed until explicit refresh.
 Cursor, OpenCode, Kilo, OMP, and Pi rows additionally expose a redacted `mcp` object:
 the configured unclassified mode, exact tool/fingerprint/effect mappings,
 classified and unclassified observation counts, denials, failures,

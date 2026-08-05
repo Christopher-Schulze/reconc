@@ -1135,9 +1135,12 @@ and worktrees. Source records contain only portable logical paths, SHA-256
 content identities, kinds, and bounded inline locations; raw source bodies and
 physical global-policy paths never enter the committable lock. Its
 `lock_digest` binds the complete canonical payload except for the digest field
-itself, and runtime also verifies that embedded rules equal the rules parsed
-from the current policy sources. Format-1 and format-2 lockfiles are migrated
-in memory only after their legacy schema identity and digest pass. Publication
+itself. For current format-3 locks, runtime verifies that envelope and reads the
+bounded source bundle once to compare its complete identity digest, then
+strictly decodes one typed immutable rule plan. Format-1 and format-2 lockfiles
+are migrated in memory only after their legacy schema identity and digest pass;
+their sources are reparsed and must retain exact embedded rule and MCP parity.
+Publication
 uses atomic replacement and skips the write entirely when the canonical bytes
 are unchanged, so readers never see partial JSON and repeated compiles do not
 create needless filesystem churn. This standalone product repository does not
@@ -1578,7 +1581,7 @@ summarizes the core runtime responsibilities:
 - `harness` and `internal/harnesspack`: embedded advanced pack ownership, strict manifest/archive validation, compatibility, and byte parity
 - `internal/usercli`: locked binary-plus-receipt installation, manager classification, exact PATH identity, global diagnostics, bounded release selection, atomic direct updates, package-manager delegation, and ownership-safe uninstall
 - `internal/stackdetect`: shared bounded manifest/source stack discovery
-- `internal/runtime`: policy evaluation, remediation, git integration, scripts, templates
+- `internal/runtime`: strict lock trust, immutable typed and indexed policy plans, policy evaluation, remediation, git integration, scripts, templates
 - `internal/schema`: canonical format-versioned public JSON schema locations and enterprise URL resolution
 - `internal/assurance`: bounded native repository assurance evaluators
 - `internal/hooks`: typed hook platform registry, artifact generation, non-destructive install/uninstall, scaffold sync, managed activation, and diagnostics
@@ -1896,9 +1899,11 @@ child; startup, crash, or protocol failure uses the remaining route budget for
 the existing one-shot path. Protocol drift disables reuse for that plugin
 instance, while a later plugin instance picks up an installed binary upgrade.
 Shutdown closes the worker, and stdin EOF prevents orphans if the host exits.
-The worker reuses only a revalidated operating-system repository identity;
-policy, lockfile, session, and taint inputs remain freshly loaded. No daemon,
-socket, listener, or runtime network call is added.
+The worker reuses a revalidated operating-system repository identity and an
+immutable typed policy plan. Each request still reads bounded lock bytes and
+the complete source bundle identity: lock-byte drift rebuilds the plan, while
+source drift invalidates it and fails closed. Session and taint inputs remain
+freshly loaded. No daemon, socket, listener, or runtime network call is added.
 
 Claude Code, Codex, GitHub Copilot, Cursor, Devin, Antigravity, and Grok
 generated repository configs use `tools/reconc/bin/hook` on POSIX; the wrapper
@@ -2472,8 +2477,10 @@ Security posture:
 - Audit log is opt-in via `RECONC_AUDIT=1`.
 - Non-portable current lockfile root markers are a hard stale/fail condition;
   equivalent clones and worktrees share the portable `.` identity.
-- Current lockfiles carry a self-digest over the canonical payload, and their
-  embedded rules must equal the policy parsed from current sources.
+- Current lockfiles carry a self-digest over the canonical payload, bind the
+  complete source identities with `source_digest`, and decode into a strict
+  typed runtime plan. Migrated legacy locks additionally prove embedded-rule
+  and MCP parity against reparsed current sources.
 
 Reconc is a deterministic repository control plane, not an operating-system
 sandbox. A deliberately hostile same-user process can replace local policy,

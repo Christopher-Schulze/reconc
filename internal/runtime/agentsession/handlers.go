@@ -184,6 +184,10 @@ func RunPreToolUse(repoRoot string, payloadBytes []byte) Result {
 }
 
 func runPreToolUseResolved(root string, payloadBytes []byte) Result {
+	return runPreToolUseResolvedWithEvaluator(root, payloadBytes, runtime.NewEvaluator())
+}
+
+func runPreToolUseResolvedWithEvaluator(root string, payloadBytes []byte, evaluator *runtime.Evaluator) Result {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		// Fail-closed per threat model.
@@ -204,7 +208,7 @@ func runPreToolUseResolved(root string, payloadBytes []byte) Result {
 		if err != nil {
 			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): load evidence chain: %s", err)}
 		}
-		report, err := runPreCommandPolicyCheck(root, state, payload.Command())
+		report, err := runPreCommandPolicyCheckWithEvaluator(evaluator, root, state, payload.Command())
 		if err != nil {
 			if isLockfileError(err) {
 				// A stale lockfile blocks every gated command, including the
@@ -256,7 +260,7 @@ func runPreToolUseResolved(root string, payloadBytes []byte) Result {
 	}
 	trialWrites := append([]string{}, state.WritePaths...)
 	trialWrites = append(trialWrites, pendingWrites...)
-	report, err := runPreWritePolicyCheck(root, state.ReadPaths, trialWrites,
+	report, err := runPreWritePolicyCheckWithEvaluator(evaluator, root, state.ReadPaths, trialWrites,
 		state.WriteEpochs, state.Commands, state.CommandResults, state.Claims)
 	if err != nil {
 		if isLockfileError(err) {
@@ -656,8 +660,20 @@ func runCheckAndSave(
 	cmdResults []CommandResult,
 	claims []string,
 ) (*runtime.CheckReport, error) {
+	return runCheckAndSaveWithEvaluator(runtime.NewEvaluator(), repoRoot, sessionID, readPaths, writePaths, writeEpochs, commands, cmdResults, claims)
+}
+
+func runCheckAndSaveWithEvaluator(
+	evaluator *runtime.Evaluator,
+	repoRoot, sessionID string,
+	readPaths, writePaths []string,
+	writeEpochs map[string]uint64,
+	commands []string,
+	cmdResults []CommandResult,
+	claims []string,
+) (*runtime.CheckReport, error) {
 	inputs := executionInputs(filterRepoScopedReadPaths(repoRoot, readPaths), writePaths, writeEpochs, commands, cmdResults, claims)
-	report, err := runtime.CheckRepoPolicy(repoRoot, inputs)
+	report, err := evaluator.CheckRepoPolicy(repoRoot, inputs)
 	if err != nil {
 		return nil, err
 	}
@@ -667,7 +683,8 @@ func runCheckAndSave(
 	return report, nil
 }
 
-func runPreWritePolicyCheck(
+func runPreWritePolicyCheckWithEvaluator(
+	evaluator *runtime.Evaluator,
 	repoRoot string,
 	readPaths, writePaths []string,
 	writeEpochs map[string]uint64,
@@ -676,12 +693,12 @@ func runPreWritePolicyCheck(
 	claims []string,
 ) (*runtime.CheckReport, error) {
 	inputs := executionInputs(filterRepoScopedReadPaths(repoRoot, readPaths), writePaths, writeEpochs, commands, cmdResults, claims)
-	return runtime.CheckRepoPolicyForKinds(repoRoot, inputs, preWriteBlockKinds)
+	return evaluator.CheckRepoPolicyForKinds(repoRoot, inputs, preWriteBlockKinds)
 }
 
-func runPreCommandPolicyCheck(repoRoot string, state SessionState, command string) (*runtime.CheckReport, error) {
+func runPreCommandPolicyCheckWithEvaluator(evaluator *runtime.Evaluator, repoRoot string, state SessionState, command string) (*runtime.CheckReport, error) {
 	inputs := executionInputs(filterRepoScopedReadPaths(repoRoot, state.ReadPaths), state.WritePaths, state.WriteEpochs, []string{command}, state.CommandResults, state.Claims)
-	return runtime.CheckRepoPolicyForPreCommand(repoRoot, inputs)
+	return evaluator.CheckRepoPolicyForPreCommand(repoRoot, inputs)
 }
 
 func filterRepoScopedReadPaths(repoRoot string, paths []string) []string {

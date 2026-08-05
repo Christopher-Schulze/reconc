@@ -1,5 +1,7 @@
 package agentsession
 
+import "reconc.dev/reconc/internal/runtime"
+
 // HookHandler identifies one normalized agent-session operation. Platform
 // adapters select the handler after normalizing their payload; this package
 // owns the resolved-root dispatch so a request never falls back to string-based
@@ -35,6 +37,15 @@ const (
 // environment state, so concurrent in-process requests cannot cross-contaminate
 // runtime attribution.
 func RunHookRequest(root ResolvedRepoRoot, handler HookHandler, runtimeEvent string, payload []byte) Result {
+	return RunHookRequestWithEvaluator(root, handler, runtimeEvent, payload, runtime.NewEvaluator())
+}
+
+// RunHookRequestWithEvaluator lets a session-owned hook worker reuse one
+// immutable policy-plan owner while preserving the same normalized dispatch.
+func RunHookRequestWithEvaluator(root ResolvedRepoRoot, handler HookHandler, runtimeEvent string, payload []byte, evaluator *runtime.Evaluator) Result {
+	if evaluator == nil {
+		evaluator = runtime.NewEvaluator()
+	}
 	if root.path == "" {
 		return Result{ExitCode: 2, Stderr: "reconc hook: resolved repository root is empty"}
 	}
@@ -46,9 +57,9 @@ func RunHookRequest(root ResolvedRepoRoot, handler HookHandler, runtimeEvent str
 	case HookHandlerWorkspaceOpen:
 		return Result{}
 	case HookHandlerPreToolUse:
-		return runPreDecisionResolved(root.path, payload, false)
+		return runPreDecisionResolvedWithEvaluator(root.path, payload, false, evaluator)
 	case HookHandlerPermissionRequest:
-		return runPreDecisionResolved(root.path, payload, true)
+		return runPreDecisionResolvedWithEvaluator(root.path, payload, true, evaluator)
 	case HookHandlerPostToolUse:
 		return runPostToolUseResolved(root.path, payload)
 	case HookHandlerPostToolUseFailure:
@@ -58,15 +69,15 @@ func RunHookRequest(root ResolvedRepoRoot, handler HookHandler, runtimeEvent str
 	case HookHandlerPostToolUseStrict:
 		return runPostToolUseCompleteStrictResolved(root.path, payload)
 	case HookHandlerMCPBefore:
-		return runMCPBeforeResolved(root.path, payload, true)
+		return runMCPBeforeResolvedWithEvaluator(root.path, payload, true, evaluator)
 	case HookHandlerMCPAfter:
-		return runMCPAfterResolved(root.path, payload, true)
+		return runMCPAfterResolvedWithEvaluator(root.path, payload, true, evaluator)
 	case HookHandlerMCPAwarePreToolUse:
-		return runMCPBeforeResolved(root.path, payload, false)
+		return runMCPBeforeResolvedWithEvaluator(root.path, payload, false, evaluator)
 	case HookHandlerMCPAwarePostToolUse:
-		return runMCPAfterResolved(root.path, payload, false)
+		return runMCPAfterResolvedWithEvaluator(root.path, payload, false, evaluator)
 	case HookHandlerStop:
-		return runStopResolved(root.path, payload, normalizeRuntimeName(runtimeEvent))
+		return runStopResolvedWithEvaluator(root.path, payload, normalizeRuntimeName(runtimeEvent), evaluator)
 	case HookHandlerSessionEnd:
 		return runSessionEndResolved(root.path, payload)
 	case HookHandlerPostCompaction:
@@ -74,13 +85,13 @@ func RunHookRequest(root ResolvedRepoRoot, handler HookHandler, runtimeEvent str
 	case HookHandlerAntigravityPreInvoke:
 		return runAntigravityPreInvocationResolved(root.path, payload)
 	case HookHandlerAntigravityPreTool:
-		return runAntigravityPreToolUseResolved(root.path, payload)
+		return runAntigravityPreToolUseResolvedWithEvaluator(root.path, payload, evaluator)
 	case HookHandlerAntigravityPostTool:
 		return runAntigravityPostToolUseResolved(root.path, payload)
 	case HookHandlerAntigravityPostInvoke:
 		return runAntigravityPostInvocationResolved(payload)
 	case HookHandlerAntigravityStop:
-		return runAntigravityStopResolved(root.path, payload, normalizeRuntimeName(runtimeEvent))
+		return runAntigravityStopResolvedWithEvaluator(root.path, payload, normalizeRuntimeName(runtimeEvent), evaluator)
 	default:
 		return Result{ExitCode: 1, Stderr: "reconc hook: unsupported normalized handler"}
 	}

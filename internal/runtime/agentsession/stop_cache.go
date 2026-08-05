@@ -120,6 +120,10 @@ func runStopPolicyCheck(repoRoot string, state SessionState) (*runtime.CheckRepo
 }
 
 func runStopPolicyCheckWithSnapshot(repoRoot string, state SessionState) (stopPolicyCheckResult, error) {
+	return runStopPolicyCheckWithSnapshotWithEvaluator(repoRoot, state, runtime.NewEvaluator())
+}
+
+func runStopPolicyCheckWithSnapshotWithEvaluator(repoRoot string, state SessionState, evaluator *runtime.Evaluator) (stopPolicyCheckResult, error) {
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
 		return stopPolicyCheckResult{}, err
@@ -129,11 +133,11 @@ func runStopPolicyCheckWithSnapshot(repoRoot string, state SessionState) (stopPo
 		return stopPolicyCheckResult{}, fmt.Errorf("load evidence chain: %w", err)
 	}
 	return withStopPolicyReportLock(root, state.SessionID, func() (stopPolicyCheckResult, error) {
-		return runStopPolicyCheckLocked(root, state)
+		return runStopPolicyCheckLocked(root, state, evaluator)
 	})
 }
 
-func runStopPolicyCheckLocked(repoRoot string, state SessionState) (stopPolicyCheckResult, error) {
+func runStopPolicyCheckLocked(repoRoot string, state SessionState, evaluator *runtime.Evaluator) (stopPolicyCheckResult, error) {
 	fingerprintInput := stopPolicyFingerprintInputFor(repoRoot, state)
 	cacheable := stopPolicyFingerprintCacheable(fingerprintInput)
 	snapshot := stopPolicyGitSnapshot{
@@ -154,7 +158,7 @@ func runStopPolicyCheckLocked(repoRoot string, state SessionState) (stopPolicyCh
 		StatusMode: fingerprintInput.GitStatusMode,
 		StatusOK:   fingerprintInput.GitStatusOK,
 	})
-	report, err := runCheckAndSave(repoRoot, state.SessionID, state.ReadPaths,
+	report, err := runCheckAndSaveWithEvaluator(evaluator, repoRoot, state.SessionID, state.ReadPaths,
 		scopedWritePaths, filterWriteEpochs(state.WriteEpochs, scopedWritePaths), state.Commands, state.CommandResults, state.Claims)
 	if err != nil {
 		return stopPolicyCheckResult{}, err

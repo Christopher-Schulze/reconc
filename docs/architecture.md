@@ -299,6 +299,12 @@ refusal, never an inferred owner or partial success.
      `.reconc.yml`, `AGENTS.md`, etc.
    - `internal/runtime/lockfile.go` performs a 16 MiB bounded read and validates
      schema, version, repository root, migration state, and source freshness.
+     Current format-3 locks prove freshness from the complete lock digest plus
+     one bounded source-bundle digest pass. Migrated legacy locks additionally
+     reparse sources and prove exact embedded rule and MCP parity.
+   - The validated payload is decoded once into an immutable typed runtime plan.
+     ID, kind, pre-command composite, and scope metadata are indexed before any
+     evidence is evaluated; malformed or unknown typed fields fail closed.
    - Normalises the input paths against the repo root.
    - For each rule in the lockfile: applies the scope filter
      (`ruleScopeMatches`), then dispatches to the per-kind
@@ -390,9 +396,11 @@ the public surface without a cycle. Nothing below `cli` imports `cli`. The compi
 the serialized lockfile is the boundary. `schema` is the single owner of public
 contract URLs. Runtime lockfile loading imports compiler only for registered
 migrations, current-envelope validation, and source-digest freshness
-validation. Format-1 absolute-root and format-2 content-bearing lockfiles
-migrate in memory to the body-free portable format-3 envelope; freshly
-compiled lockfiles never persist a checkout root or source body.
+validation. The runtime then owns the strict typed plan and its deterministic
+indexes; evaluators no longer extract fields from generic rule maps. Format-1
+absolute-root and format-2 content-bearing lockfiles migrate in memory to the
+body-free portable format-3 envelope; freshly compiled lockfiles never persist
+a checkout root or source body.
 
 ## Threat model: hook runtime
 
@@ -499,11 +507,13 @@ the next event. Shutdown sends a bounded acknowledgement and kills any child
 that does not exit; parent stdin closure also terminates the worker. A running
 worker keeps its current binary until plugin shutdown, so an installed upgrade
 is picked up by the next plugin instance without mutating an in-flight request.
-The worker caches only `ResolvedRepoRoot`. It proves the same filesystem object
-with `os.SameFile` before reuse and resolves again after repository replacement
-or alias drift. Policy sources, lockfiles, session state, taint, and binary
-selection are not cached by this layer and therefore retain their existing exact
-per-request invalidation behavior. Shell-only hosts continue using one-shot
+The worker caches `ResolvedRepoRoot` plus an immutable typed policy plan. It
+proves the same filesystem object with `os.SameFile` before root reuse and
+resolves again after repository replacement or alias drift. Every policy check
+still performs bounded lock-byte and source-bundle identity reads. Changed lock
+bytes rebuild the plan; changed source identity invalidates it and fails closed
+until `reconc refresh`. Session state, taint, and binary selection remain fresh
+per request. Shell-only hosts continue using one-shot
 execution and no daemon, listener, socket, or network surface is introduced.
 
 Passive lifecycle events are observation-only. They validate an existing

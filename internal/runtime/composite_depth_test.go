@@ -89,113 +89,94 @@ func TestCompositeCheckEvaluatorCoversEverySupportedBehavior(t *testing.T) {
 
 func TestCompositeRuleFoldsRemainFailClosed(t *testing.T) {
 	ctx := &evalContext{repoRoot: t.TempDir()}
-	base := map[string]interface{}{
-		"id":         "composite",
-		"kind":       "all_of",
-		"mode":       "block",
-		"message":    "requirements",
-		"when_paths": []interface{}{"src/**"},
+	base := policy.Rule{
+		ID:        "composite",
+		Kind:      policy.KindAllOf,
+		Mode:      policy.ModeBlock,
+		Message:   "requirements",
+		WhenPaths: []string{"src/**"},
 	}
-	claim := map[string]interface{}{"kind": "require_claim", "claims": []interface{}{"approved"}}
-	command := map[string]interface{}{"kind": "require_command", "commands": []interface{}{"go test ./..."}}
+	claim := policy.Check{Kind: policy.KindRequireClaim, Claims: []string{"approved"}}
+	command := policy.Check{Kind: policy.KindRequireCommand, Commands: []string{"go test ./..."}}
 	inputs := ExecutionInputs{WritePaths: []string{"src/app.go"}, WriteEpochs: map[string]uint64{"src/app.go": 1}}
 
 	all := cloneCompositeRule(base)
-	all["checks"] = []interface{}{claim, command}
-	if violation, err := evalAllOf(ctx, all, policy.ModeBlock, inputs); err != nil || violation == nil ||
+	all.Checks = []policy.Check{claim, command}
+	if violation, err := evalAllOf(ctx, &all, policy.ModeBlock, inputs); err != nil || violation == nil ||
 		!strings.Contains(violation.Explanation, "check #1 require_claim") ||
 		!strings.Contains(violation.Explanation, "check #2 require_command") {
 		t.Fatalf("all_of result = %+v, %v", violation, err)
 	}
 	inputs.Claims = []string{"approved"}
 	inputs.Commands = []string{"go test ./..."}
-	if violation, err := evalAllOf(ctx, all, policy.ModeBlock, inputs); err != nil || violation != nil {
+	if violation, err := evalAllOf(ctx, &all, policy.ModeBlock, inputs); err != nil || violation != nil {
 		t.Fatalf("passing all_of = %+v, %v", violation, err)
 	}
 
 	any := cloneCompositeRule(base)
-	any["kind"] = "any_of"
-	any["checks"] = []interface{}{claim, command}
+	any.Kind = policy.KindAnyOf
+	any.Checks = []policy.Check{claim, command}
 	inputs.Claims = nil
 	inputs.Commands = nil
-	if violation, err := evalAnyOf(ctx, any, policy.ModeBlock, inputs); err != nil || violation == nil {
+	if violation, err := evalAnyOf(ctx, &any, policy.ModeBlock, inputs); err != nil || violation == nil {
 		t.Fatalf("failing any_of = %+v, %v", violation, err)
 	}
 	inputs.Claims = []string{"approved"}
-	if violation, err := evalAnyOf(ctx, any, policy.ModeBlock, inputs); err != nil || violation != nil {
+	if violation, err := evalAnyOf(ctx, &any, policy.ModeBlock, inputs); err != nil || violation != nil {
 		t.Fatalf("passing any_of = %+v, %v", violation, err)
 	}
 
 	not := cloneCompositeRule(base)
-	not["kind"] = "not"
-	not["checks"] = []interface{}{claim}
-	if violation, err := evalNot(ctx, not, policy.ModeBlock, inputs); err != nil || violation == nil {
+	not.Kind = policy.KindNot
+	not.Checks = []policy.Check{claim}
+	if violation, err := evalNot(ctx, &not, policy.ModeBlock, inputs); err != nil || violation == nil {
 		t.Fatalf("failing not = %+v, %v", violation, err)
 	}
 	inputs.Claims = nil
-	if violation, err := evalNot(ctx, not, policy.ModeBlock, inputs); err != nil || violation != nil {
+	if violation, err := evalNot(ctx, &not, policy.ModeBlock, inputs); err != nil || violation != nil {
 		t.Fatalf("passing not = %+v, %v", violation, err)
 	}
-	not["checks"] = []interface{}{claim, command}
-	if _, err := evalNot(ctx, not, policy.ModeBlock, inputs); err == nil || !strings.Contains(err.Error(), "exactly one check") {
+	not.Checks = []policy.Check{claim, command}
+	if _, err := evalNot(ctx, &not, policy.ModeBlock, inputs); err == nil || !strings.Contains(err.Error(), "exactly one check") {
 		t.Fatalf("invalid not error = %v", err)
 	}
 	noMatch := cloneCompositeRule(base)
-	noMatch["checks"] = []interface{}{claim}
-	if violation, err := evalAllOf(ctx, noMatch, policy.ModeBlock, ExecutionInputs{WritePaths: []string{"docs/readme.md"}}); err != nil || violation != nil {
+	noMatch.Checks = []policy.Check{claim}
+	if violation, err := evalAllOf(ctx, &noMatch, policy.ModeBlock, ExecutionInputs{WritePaths: []string{"docs/readme.md"}}); err != nil || violation != nil {
 		t.Fatalf("non-matching composite = %+v, %v", violation, err)
 	}
 }
 
-func TestCompositeCheckDecodingPreservesEveryTypedField(t *testing.T) {
-	raw := map[string]interface{}{
-		"kind":             "require_evidence",
-		"path":             "fresh.txt",
-		"max_age_hours":    float64(2),
-		"file":             "evidence.txt",
-		"must_exist":       true,
-		"must_contain":     []interface{}{"one", 2, "two"},
-		"must_not_contain": "secret",
-		"max_line_count":   float64(3),
-		"script":           "check.sh",
-		"args":             []interface{}{"--strict", 2},
-		"timeout_sec":      float64(4),
-		"paths":            []interface{}{"a/**"},
-		"before_paths":     []interface{}{"b/**"},
-		"when_paths":       []interface{}{"c/**"},
-		"commands":         []interface{}{"go test"},
-		"claims":           []interface{}{"approved"},
-		"command_match":    "prefix",
-		"optional":         true,
+func TestCompositeCheckDecodingPreservesTypedFieldsAndRejectsMalformedData(t *testing.T) {
+	raw := []interface{}{map[string]interface{}{
+		"id": "composite", "kind": "all_of", "mode": "block", "message": "requirements", "when_paths": []interface{}{"src/**"},
+		"checks": []interface{}{map[string]interface{}{
+			"kind": "require_evidence", "file": "evidence.txt", "must_exist": true,
+			"must_contain": []interface{}{"one", "two"}, "must_not_contain": "secret", "max_line_count": 3, "optional": true,
+		}},
+	}}
+	rules, err := decodeRuntimeRules(raw)
+	if err != nil || len(rules) != 1 || len(rules[0].Checks) != 1 {
+		t.Fatalf("decodeRuntimeRules() = %+v, %v", rules, err)
 	}
-	check, ok := checkFromMap(raw)
-	if !ok || check.Kind != policy.KindRequireEvidence || check.MaxAgeHours != 2 || check.MaxLineCount != 3 ||
-		check.TimeoutSec != 4 || strings.Join(check.MustContain, ",") != "one,two" ||
-		strings.Join(check.Args, ",") != "--strict" || !check.MustExist || !check.Optional ||
-		check.CommandMatch != policy.CommandMatchPrefix {
-		t.Fatalf("decoded check = %+v, %t", check, ok)
+	check := rules[0].Checks[0]
+	if check.Kind != policy.KindRequireEvidence || check.File != "evidence.txt" || !check.MustExist || !check.Optional ||
+		check.MaxLineCount != 3 || strings.Join(check.MustContain, ",") != "one,two" {
+		t.Fatalf("decoded check = %+v", check)
 	}
-	for _, field := range [][]string{check.Paths, check.BeforePaths, check.WhenPaths, check.Commands, check.Claims} {
-		if len(field) != 1 {
-			t.Fatalf("decoded list field = %v", field)
+	for _, malformed := range []interface{}{
+		[]interface{}{map[string]interface{}{"id": "x", "kind": "all_of", "message": "x", "unknown": true}},
+		[]interface{}{map[string]interface{}{"id": "x", "kind": "all_of", "message": "x", "checks": "invalid"}},
+	} {
+		if _, err := decodeRuntimeRules(malformed); err == nil {
+			t.Fatalf("malformed rule was accepted: %#v", malformed)
 		}
-	}
-	if _, ok := checkFromMap(map[string]interface{}{}); ok {
-		t.Fatal("check without kind was accepted")
-	}
-	checks := checksFromRule(map[string]interface{}{"checks": []interface{}{raw, "invalid", map[string]interface{}{}}})
-	if len(checks) != 1 {
-		t.Fatalf("decoded checks = %+v", checks)
-	}
-	if checks := checksFromRule(map[string]interface{}{"checks": "invalid"}); checks != nil {
-		t.Fatalf("non-list checks = %+v", checks)
 	}
 }
 
-func cloneCompositeRule(source map[string]interface{}) map[string]interface{} {
-	out := make(map[string]interface{}, len(source))
-	for key, value := range source {
-		out[key] = value
-	}
+func cloneCompositeRule(source policy.Rule) policy.Rule {
+	out := source
+	out.WhenPaths = append([]string(nil), source.WhenPaths...)
+	out.Checks = append([]policy.Check(nil), source.Checks...)
 	return out
 }

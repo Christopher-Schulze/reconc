@@ -74,10 +74,13 @@ global-policy paths are forbidden in the current lockfile.
 ## Lock Digest
 
 `lock_digest` is SHA-256 over canonical JSON for every top-level field except
-`lock_digest` itself. Runtime verifies it before using embedded rules. Runtime
-also re-parses current policy sources and requires byte-equivalent canonical
-rule and optional MCP payloads, so an in-memory legacy migration cannot
-legitimize policy drift.
+`lock_digest` itself. Runtime verifies it before using embedded rules. A current
+format-3 lock then proves freshness by comparing its source count and
+`source_digest` with one bounded load of the current source bundle. Runtime
+strictly decodes the rules and optional MCP contract into one typed immutable
+plan. A migrated format-1 or format-2 lock additionally re-parses current
+sources and requires byte-equivalent canonical rule and optional MCP payloads,
+so an in-memory legacy migration cannot legitimize policy drift.
 
 ## Rule Entries
 
@@ -107,7 +110,11 @@ Runtime loaders must:
    absolute-root and format-2 content-bearing lockfiles in memory to the
    body-free format-3 `.` envelope without mutating the input.
 3. Validate rule count and source count consistency.
-4. Validate `lock_digest` and exact embedded-rule plus optional MCP parity with
-   current sources.
-5. Treat generated lockfiles as generated output; users must re-run
+4. Validate the complete `lock_digest`, then compare the current source-bundle
+   identity with `source_digest` without reparsing a current format-3 lock.
+5. For every migrated legacy lock, additionally validate exact embedded-rule
+   plus optional MCP parity with reparsed current sources.
+6. Strictly decode one typed immutable runtime plan, reject unknown fields and
+   unsupported shapes, and preserve declaration order through indexed subsets.
+7. Treat generated lockfiles as generated output; users must re-run
    `reconc refresh` instead of editing them by hand.

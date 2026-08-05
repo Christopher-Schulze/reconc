@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"reconc.dev/reconc/internal/retention"
+	"reconc.dev/reconc/internal/runtime"
 )
 
 func RunAntigravityPreInvocation(repoRoot string, payloadBytes []byte) Result {
@@ -43,11 +44,15 @@ func RunAntigravityPreToolUse(repoRoot string, payloadBytes []byte) Result {
 }
 
 func runAntigravityPreToolUseResolved(root string, payloadBytes []byte) Result {
+	return runAntigravityPreToolUseResolvedWithEvaluator(root, payloadBytes, runtime.NewEvaluator())
+}
+
+func runAntigravityPreToolUseResolvedWithEvaluator(root string, payloadBytes []byte, evaluator *runtime.Evaluator) Result {
 	payload, err := NormalizeAntigravityPayload("antigravity-pre-tool-use", payloadBytes)
 	if err != nil {
 		return AdaptAntigravityResult("antigravity-pre-tool-use", Result{ExitCode: 2, Stderr: err.Error()})
 	}
-	result := runPreToolUseResolved(root, payload)
+	result := runPreToolUseResolvedWithEvaluator(root, payload, evaluator)
 	if result.ExitCode != 0 {
 		return AdaptAntigravityResult("antigravity-pre-tool-use", result)
 	}
@@ -159,11 +164,15 @@ func RunAntigravityStop(repoRoot string, payloadBytes []byte) Result {
 }
 
 func runAntigravityStopResolved(root string, payloadBytes []byte, runtimeName string) Result {
+	return runAntigravityStopResolvedWithEvaluator(root, payloadBytes, runtimeName, runtime.NewEvaluator())
+}
+
+func runAntigravityStopResolvedWithEvaluator(root string, payloadBytes []byte, runtimeName string, evaluator *runtime.Evaluator) Result {
 	payload, err := NormalizeAntigravityPayload("antigravity-stop", payloadBytes)
 	if err != nil {
 		return AdaptAntigravityResult("antigravity-stop", Result{ExitCode: 2, Stderr: err.Error()})
 	}
-	return AdaptAntigravityResult("antigravity-stop", runStopResolved(root, payload, runtimeName))
+	return AdaptAntigravityResult("antigravity-stop", runStopResolvedWithEvaluator(root, payload, runtimeName, evaluator))
 }
 
 func NormalizeAntigravityPayload(event string, payloadBytes []byte) ([]byte, error) {

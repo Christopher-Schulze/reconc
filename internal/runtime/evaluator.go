@@ -45,6 +45,11 @@ type evalContext struct {
 // This is the primitive behind `reconc assert` (W27), replacing
 // repo-specific assertion subcommands with one generic path.
 func AssertRuleByID(startPath, ruleID string, vars map[string]string, inputs ExecutionInputs) (*CheckReport, error) {
+	return NewEvaluator().AssertRuleByID(startPath, ruleID, vars, inputs)
+}
+
+// AssertRuleByID evaluates one indexed rule through this evaluator's plan.
+func (e *Evaluator) AssertRuleByID(startPath, ruleID string, vars map[string]string, inputs ExecutionInputs) (*CheckReport, error) {
 	discovery, err := ingest.DiscoverPolicyRepo(startPath)
 	if err != nil {
 		return nil, err
@@ -58,31 +63,15 @@ func AssertRuleByID(startPath, ruleID string, vars map[string]string, inputs Exe
 	}
 	root := discovery.RepoRoot
 
-	payload, err := loadFreshLockfile(root)
+	plan, err := e.loadFreshRuntimePlan(root)
 	if err != nil {
 		return nil, err
 	}
-
-	defaultMode, err := lockfileDefaultMode(payload)
-	if err != nil {
-		return nil, err
-	}
-
-	rulesRaw, _ := payload["rules"].([]interface{})
-	var target map[string]interface{}
-	for _, r := range rulesRaw {
-		m, ok := r.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if id, _ := m["id"].(string); id == ruleID {
-			target = m
-			break
-		}
-	}
-	if target == nil {
+	targetIndex, ok := plan.ruleByID[ruleID]
+	if !ok {
 		return nil, &rerrors.LockfileError{Message: "rule '" + ruleID + "' not found in compiled lockfile"}
 	}
+	target := &plan.rules[targetIndex]
 
 	// Synthesize write_paths from when_paths with vars substituted.
 	whenPatterns := stringListField(target, "when_paths")
@@ -144,10 +133,10 @@ func AssertRuleByID(startPath, ruleID string, vars map[string]string, inputs Exe
 		CommandResults: normalizedResults,
 	}
 
-	report := NewEmptyReport(root, ingest.LockfilePath, defaultMode, normalizedInputs)
+	report := NewEmptyReport(root, ingest.LockfilePath, plan.defaultMode, normalizedInputs)
 	ctx := &evalContext{repoRoot: root, rawCommands: rawCommands}
 
-	v, err := evaluateRule(ctx, target, defaultMode, normalizedInputs)
+	v, err := evaluateRule(ctx, target, plan.defaultMode, normalizedInputs)
 	if err != nil {
 		return nil, err
 	}
@@ -178,17 +167,24 @@ func AssertRuleByID(startPath, ruleID string, vars map[string]string, inputs Exe
 // inputs carry the runtime evidence (typically merged from CLI flags
 // + events file + stdin payload before this call).
 func CheckRepoPolicy(startPath string, inputs ExecutionInputs) (*CheckReport, error) {
-	return checkRepoPolicy(startPath, inputs, nil, false)
+	return NewEvaluator().CheckRepoPolicy(startPath, inputs)
+}
+
+// CheckRepoPolicy evaluates every rule through this evaluator's plan.
+func (e *Evaluator) CheckRepoPolicy(startPath string, inputs ExecutionInputs) (*CheckReport, error) {
+	return e.checkRepoPolicy(startPath, inputs, nil, false)
 }
 
 // CheckRepoPolicyForKinds evaluates only the requested top-level rule kinds
 // while keeping lockfile loading, freshness checks, path normalization and
 // unsupported-kind validation identical to CheckRepoPolicy.
 func CheckRepoPolicyForKinds(startPath string, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}) (*CheckReport, error) {
-	return checkRepoPolicy(startPath, inputs, func(_ map[string]interface{}, kind policy.Kind) bool {
-		_, ok := allowedKinds[kind]
-		return ok
-	}, false)
+	return NewEvaluator().CheckRepoPolicyForKinds(startPath, inputs, allowedKinds)
+}
+
+// CheckRepoPolicyForKinds evaluates an indexed subset of top-level kinds.
+func (e *Evaluator) CheckRepoPolicyForKinds(startPath string, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}) (*CheckReport, error) {
+	return e.checkRepoPolicy(startPath, inputs, allowedKinds, false)
 }
 
 // CheckRepoPolicyForPreCommand evaluates prevention rules before a shell
@@ -196,24 +192,15 @@ func CheckRepoPolicyForKinds(startPath string, inputs ExecutionInputs, allowedKi
 // forbid_command sub-check are included so composing a prevention rule never
 // silently demotes it to Stop-time detection.
 func CheckRepoPolicyForPreCommand(startPath string, inputs ExecutionInputs) (*CheckReport, error) {
-	return checkRepoPolicy(startPath, inputs, func(rule map[string]interface{}, kind policy.Kind) bool {
-		return kind == policy.KindForbidCommand || compositeContainsForbidCommand(rule, kind)
-	}, true)
+	return NewEvaluator().CheckRepoPolicyForPreCommand(startPath, inputs)
 }
 
-func compositeContainsForbidCommand(rule map[string]interface{}, kind policy.Kind) bool {
-	if kind != policy.KindAllOf && kind != policy.KindAnyOf && kind != policy.KindNot {
-		return false
-	}
-	for _, check := range checksFromRule(rule) {
-		if check.Kind == policy.KindForbidCommand {
-			return true
-		}
-	}
-	return false
+// CheckRepoPolicyForPreCommand evaluates the precomputed prevention subset.
+func (e *Evaluator) CheckRepoPolicyForPreCommand(startPath string, inputs ExecutionInputs) (*CheckReport, error) {
+	return e.checkRepoPolicy(startPath, inputs, nil, true)
 }
 
-func checkRepoPolicy(startPath string, inputs ExecutionInputs, includeRule func(map[string]interface{}, policy.Kind) bool, preCommand bool) (*CheckReport, error) {
+func (e *Evaluator) checkRepoPolicy(startPath string, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}, preCommand bool) (*CheckReport, error) {
 	discovery, err := ingest.DiscoverPolicyRepo(startPath)
 	if err != nil {
 		return nil, err
@@ -227,12 +214,7 @@ func checkRepoPolicy(startPath string, inputs ExecutionInputs, includeRule func(
 	}
 	root := discovery.RepoRoot
 
-	payload, err := loadFreshLockfile(root)
-	if err != nil {
-		return nil, err
-	}
-
-	defaultMode, err := lockfileDefaultMode(payload)
+	plan, err := e.loadFreshRuntimePlan(root)
 	if err != nil {
 		return nil, err
 	}
@@ -271,51 +253,35 @@ func checkRepoPolicy(startPath string, inputs ExecutionInputs, includeRule func(
 		CommandResults: normalizedResults,
 	}
 
-	report := NewEmptyReport(root, ingest.LockfilePath, defaultMode, normalizedInputs)
-
-	rulesRaw, ok := payload["rules"].([]interface{})
-	if !ok {
-		return nil, &rerrors.LockfileError{Message: "compiled lockfile must contain a 'rules' list"}
-	}
+	report := NewEmptyReport(root, ingest.LockfilePath, plan.defaultMode, normalizedInputs)
 	ctx := &evalContext{
 		repoRoot:        root,
 		rawCommands:     rawCommands,
 		currentCommands: rawCommandsPreservingSyntax(inputs.Commands, nil),
 		preCommand:      preCommand,
 	}
-	rules := make([]map[string]interface{}, 0, len(rulesRaw))
-	for _, ruleRaw := range rulesRaw {
-		ruleMap, ok := ruleRaw.(map[string]interface{})
-		if !ok {
-			return nil, &rerrors.LockfileError{Message: "compiled lockfile contains a non-object rule entry"}
-		}
-		kindStr, _ := ruleMap["kind"].(string)
-		kind := policy.Kind(kindStr)
-		if !kind.Valid() {
-			return nil, &rerrors.LockfileError{Message: "compiled lockfile contains unsupported rule kind: " + kindStr}
-		}
-		if includeRule != nil && !includeRule(ruleMap, kind) {
-			continue
-		}
-		rules = append(rules, ruleMap)
+	ruleIndexes := plan.indexesFor(allowedKinds, preCommand)
+	rules := make([]*policy.Rule, 0, len(ruleIndexes))
+	for _, ruleIndex := range ruleIndexes {
+		rules = append(rules, &plan.rules[ruleIndex])
 	}
 
-	batchedScripts, err := evaluateBatchedRequireScripts(ctx, rules, defaultMode, normalizedInputs)
+	batchedScripts, err := evaluateBatchedRequireScripts(ctx, rules, plan.defaultMode, normalizedInputs)
 	if err != nil {
 		return nil, err
 	}
-	for i, ruleMap := range rules {
+	for i, rule := range rules {
 		if batchedScripts.handled[i] {
 			if v := batchedScripts.violations[i]; v != nil {
 				report.Violations = append(report.Violations, *v)
 			}
 			continue
 		}
-		v, err := evaluateRule(ctx, ruleMap, defaultMode, normalizedInputs)
+		v, err := evaluateRule(ctx, rule, plan.defaultMode, normalizedInputs)
 		if err != nil {
 			return nil, err
 		}
-		if v != nil && (!preCommand || !compositeContainsForbidCommand(ruleMap, v.Kind) || compositeForbiddenCommandMatches(ctx, ruleMap)) {
+		if v != nil && (!preCommand || !rule.Kind.IsComposite() || compositeForbiddenCommandMatches(ctx, rule)) {
 			report.Violations = append(report.Violations, *v)
 		}
 	}
@@ -324,6 +290,32 @@ func checkRepoPolicy(startPath string, inputs ExecutionInputs, includeRule func(
 	report.NextAction = nextActionForViolations(report.Violations)
 	report.Summary = summarizeReport(report.Decision, report.ViolationCount, report.BlockingViolationCount)
 	return &report, nil
+}
+
+func (plan *runtimePlan) indexesFor(allowedKinds map[policy.Kind]struct{}, preCommand bool) []int {
+	if preCommand {
+		return plan.preCommandRules
+	}
+	if allowedKinds == nil {
+		indexes := make([]int, len(plan.rules))
+		for index := range indexes {
+			indexes[index] = index
+		}
+		return indexes
+	}
+	selected := make([]bool, len(plan.rules))
+	for kind := range allowedKinds {
+		for _, index := range plan.rulesByKind[kind] {
+			selected[index] = true
+		}
+	}
+	indexes := make([]int, 0)
+	for index, include := range selected {
+		if include {
+			indexes = append(indexes, index)
+		}
+	}
+	return indexes
 }
 
 type batchedScriptEvaluations struct {
@@ -339,7 +331,7 @@ type workflowAuditBatchKey struct {
 
 type workflowAuditBatchItem struct {
 	index    int
-	rule     map[string]interface{}
+	rule     *policy.Rule
 	mode     string
 	contexts []matchContext
 }
@@ -353,7 +345,7 @@ type workflowAuditBatchResult struct {
 	Failures []string `json:"failures"`
 }
 
-func evaluateBatchedRequireScripts(ctx *evalContext, rules []map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs) (batchedScriptEvaluations, error) {
+func evaluateBatchedRequireScripts(ctx *evalContext, rules []*policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (batchedScriptEvaluations, error) {
 	results := batchedScriptEvaluations{
 		handled:    map[int]bool{},
 		violations: map[int]*Violation{},
@@ -363,6 +355,13 @@ func evaluateBatchedRequireScripts(ctx *evalContext, rules []map[string]interfac
 	for i, rule := range rules {
 		scriptPath, mode, timeoutSec, killTimeoutSec, ok := workflowAuditBatchCandidate(rule)
 		if !ok {
+			continue
+		}
+		scopeMatches, scopeErr := ruleScopeMatches(rule, inputs)
+		if scopeErr != nil || !scopeMatches {
+			// Scope errors remain owned by evaluateRule so they produce the
+			// established fail-closed synthetic violation. A definite scope
+			// miss is rejected before match-context collection or subprocess IO.
 			continue
 		}
 		contexts, err := collectMatchContexts(inputs.WritePaths, stringListField(rule, "when_paths"))
@@ -443,27 +442,25 @@ func evaluateBatchedRequireScripts(ctx *evalContext, rules []map[string]interfac
 // match the shape but do not speak the `--batch-json` protocol fall
 // back to normal per-rule execution because unparseable batch output
 // is never treated as handled.
-func workflowAuditBatchCandidate(rule map[string]interface{}) (scriptPath, mode string, timeoutSec, killTimeoutSec int, ok bool) {
-	kindStr, _ := rule["kind"].(string)
-	if policy.Kind(kindStr) != policy.KindRequireScript {
+func workflowAuditBatchCandidate(rule *policy.Rule) (scriptPath, mode string, timeoutSec, killTimeoutSec int, ok bool) {
+	if rule.Kind != policy.KindRequireScript {
 		return "", "", 0, 0, false
 	}
-	scriptPath, _ = rule["script"].(string)
+	scriptPath = rule.Script
 	slashScriptPath := filepath.ToSlash(scriptPath)
 	batchConvention := strings.HasSuffix(slashScriptPath, "/audits/run-workflow-audit") || slashScriptPath == "audits/run-workflow-audit"
 	if scriptPath == "" || HasTemplateVars(scriptPath) || !batchConvention {
 		return "", "", 0, 0, false
 	}
-	rawArgs, _ := rule["args"].([]interface{})
-	if len(rawArgs) != 1 {
+	if len(rule.Args) != 1 {
 		return "", "", 0, 0, false
 	}
-	mode, ok = rawArgs[0].(string)
-	if !ok || mode == "" || HasTemplateVars(mode) {
+	mode = rule.Args[0]
+	if mode == "" || HasTemplateVars(mode) {
 		return "", "", 0, 0, false
 	}
-	timeoutSec = int(numAsIntDefault(rule["timeout_sec"], 0))
-	killTimeoutSec = int(numAsIntDefault(rule["kill_timeout_sec"], 0))
+	timeoutSec = rule.TimeoutSec
+	killTimeoutSec = rule.KillTimeoutSec
 	return scriptPath, mode, timeoutSec, killTimeoutSec, true
 }
 
@@ -935,23 +932,16 @@ func dedupePreservingOrder(values []string) []string {
 // as "no match". A malformed scope_paths value surfaces as a synthetic
 // blocking violation so policy authors can't accidentally or
 // maliciously neutralise a rule by corrupting its scope.
-func ruleScopeMatches(rule map[string]interface{}, inputs ExecutionInputs) (bool, error) {
-	scopeRaw, ok := rule["scope_paths"].([]interface{})
-	if !ok || len(scopeRaw) == 0 {
+func ruleScopeMatches(rule *policy.Rule, inputs ExecutionInputs) (bool, error) {
+	if len(rule.ScopePaths) == 0 {
 		return true, nil // global rule
-	}
-	patterns := make([]string, 0, len(scopeRaw))
-	for _, p := range scopeRaw {
-		if s, ok := p.(string); ok {
-			patterns = append(patterns, s)
-		}
 	}
 	// Check writes + reads; any single match is enough to put the
 	// evaluation "inside" the scope.  Pattern errors abort the scope
 	// match and propagate up so the rule evaluator can convert them
 	// into a block-severity synthetic violation.
 	for _, p := range inputs.WritePaths {
-		_, matched, err := MatchAny(patterns, p)
+		_, matched, err := MatchAny(rule.ScopePaths, p)
 		if err != nil {
 			return false, fmt.Errorf("scope_paths pattern error on input %q: %w", p, err)
 		}
@@ -960,7 +950,7 @@ func ruleScopeMatches(rule map[string]interface{}, inputs ExecutionInputs) (bool
 		}
 	}
 	for _, p := range inputs.ReadPaths {
-		_, matched, err := MatchAny(patterns, p)
+		_, matched, err := MatchAny(rule.ScopePaths, p)
 		if err != nil {
 			return false, fmt.Errorf("scope_paths pattern error on input %q: %w", p, err)
 		}
@@ -971,11 +961,9 @@ func ruleScopeMatches(rule map[string]interface{}, inputs ExecutionInputs) (bool
 	return false, nil
 }
 
-func evaluateRule(ctx *evalContext, rule map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
-	kindStr, _ := rule["kind"].(string)
-	kind := policy.Kind(kindStr)
-	if !kind.Valid() {
-		return nil, &rerrors.LockfileError{Message: "compiled lockfile contains unsupported rule kind: " + kindStr}
+func evaluateRule(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
+	if !rule.Kind.Valid() {
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile contains unsupported rule kind: " + string(rule.Kind)}
 	}
 
 	// W17 monorepo scope filter. If the rule was declared inside a
@@ -989,11 +977,9 @@ func evaluateRule(ctx *evalContext, rule map[string]interface{}, defaultMode pol
 	// A malformed scope_paths in the lockfile must NOT neutralise a rule.
 	matched, err := ruleScopeMatches(rule, inputs)
 	if err != nil {
-		ruleID, _ := rule["id"].(string)
-		kindStr, _ := rule["kind"].(string)
 		return &Violation{
-			RuleID:            ruleID,
-			Kind:              policy.Kind(kindStr),
+			RuleID:            rule.ID,
+			Kind:              rule.Kind,
 			Mode:              policy.ModeBlock,
 			Message:           "scope pattern failed to compile: " + err.Error(),
 			Explanation:       "The rule's scope_paths contains a glob pattern that the matcher could not compile. reconc fails closed here to prevent a malformed scope from silently disabling a rule.",
@@ -1004,7 +990,7 @@ func evaluateRule(ctx *evalContext, rule map[string]interface{}, defaultMode pol
 		return nil, nil
 	}
 
-	switch kind {
+	switch rule.Kind {
 	case policy.KindDenyWrite:
 		return evalDenyWrite(rule, defaultMode, inputs)
 	case policy.KindRequireRead:
@@ -1037,7 +1023,7 @@ func evaluateRule(ctx *evalContext, rule map[string]interface{}, defaultMode pol
 	return nil, nil
 }
 
-func evalRequireAssurance(ctx *evalContext, rule map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
+func evalRequireAssurance(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
 	triggered, err := matchingPaths(inputs.WritePaths, stringListField(rule, "when_paths"))
 	if err != nil {
 		return nil, err
@@ -1094,7 +1080,7 @@ func evalRequireAssurance(ctx *evalContext, rule map[string]interface{}, default
 // evalRequireScript runs an external script for each match context.
 // Each context that produces a "block" or "error" outcome contributes
 // to the violation. A "pass" exit (0) clears that context.
-func evalRequireScript(ctx *evalContext, rule map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
+func evalRequireScript(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
 	whenPatterns := stringListField(rule, "when_paths")
 	contexts, err := collectMatchContexts(inputs.WritePaths, whenPatterns)
 	if err != nil {
@@ -1104,19 +1090,13 @@ func evalRequireScript(ctx *evalContext, rule map[string]interface{}, defaultMod
 		return nil, nil
 	}
 
-	scriptPath, _ := rule["script"].(string)
+	scriptPath := rule.Script
 	if scriptPath == "" {
 		return nil, &rerrors.LockfileError{Message: "rule '" + ruleIDOf(rule) + "' missing script field in lockfile"}
 	}
-	rawArgs, _ := rule["args"].([]interface{})
-	args := make([]string, 0, len(rawArgs))
-	for _, a := range rawArgs {
-		if s, ok := a.(string); ok {
-			args = append(args, s)
-		}
-	}
-	timeoutSec := int(numAsIntDefault(rule["timeout_sec"], 0))
-	killTimeoutSec := int(numAsIntDefault(rule["kill_timeout_sec"], 0))
+	args := rule.Args
+	timeoutSec := rule.TimeoutSec
+	killTimeoutSec := rule.KillTimeoutSec
 
 	failures := []string{}
 	triggeredPaths := []string{}
@@ -1177,7 +1157,7 @@ func evalRequireScript(ctx *evalContext, rule map[string]interface{}, defaultMod
 // matched write path produces its own substitution context so a
 // single rule can scale across many tasks/modules without enumerating
 // every value.
-func evalRequireFreshFile(ctx *evalContext, rule map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
+func evalRequireFreshFile(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
 	whenPatterns := stringListField(rule, "when_paths")
 	files := requiredFilesFromRule(rule)
 	if len(files) == 0 {
@@ -1263,7 +1243,7 @@ func evalRequireFreshFile(ctx *evalContext, rule map[string]interface{}, default
 // evalRequireEvidence fires when when_paths matches AND any evidence
 // check fails. Template-aware: each matched write path supplies its
 // own captures for substitution into evidence file paths.
-func evalRequireEvidence(ctx *evalContext, rule map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
+func evalRequireEvidence(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
 	whenPatterns := stringListField(rule, "when_paths")
 	checks := evidenceChecksFromRule(rule)
 	if len(checks) == 0 {
@@ -1418,104 +1398,36 @@ func mapKeysSorted(m map[string]struct{}) []string {
 }
 
 // ruleIDOf is a typed accessor for rule["id"] used in error messages.
-func ruleIDOf(rule map[string]interface{}) string {
-	if id, ok := rule["id"].(string); ok {
-		return id
+func ruleIDOf(rule *policy.Rule) string {
+	if rule == nil || rule.ID == "" {
+		return "<unknown>"
 	}
-	return "<unknown>"
+	return rule.ID
 }
 
-// requiredFilesFromRule extracts the required_files list from a rule
-// map (lockfile or YAML payload).
-func requiredFilesFromRule(rule map[string]interface{}) []policy.RequiredFile {
-	raw, ok := rule["required_files"]
-	if !ok || raw == nil {
+// requiredFilesFromRule returns the typed required_files list.
+func requiredFilesFromRule(rule *policy.Rule) []policy.RequiredFile {
+	if rule == nil || len(rule.RequiredFiles) == 0 {
 		return nil
 	}
-	list, ok := raw.([]interface{})
-	if !ok {
-		return nil
-	}
-	out := make([]policy.RequiredFile, 0, len(list))
-	for _, entry := range list {
-		mapping, ok := entry.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		path, _ := mapping["path"].(string)
-		if path == "" {
-			continue
-		}
-		ageHours := numAsIntDefault(mapping["max_age_hours"], 0)
-		optional, _ := mapping["optional"].(bool)
-		out = append(out, policy.RequiredFile{
-			Path:        path,
-			MaxAgeHours: int(ageHours),
-			Optional:    optional,
-		})
-	}
-	return out
+	return rule.RequiredFiles
 }
 
-// evidenceChecksFromRule extracts the evidence list from a rule map.
-func evidenceChecksFromRule(rule map[string]interface{}) []policy.EvidenceCheck {
-	raw, ok := rule["evidence"]
-	if !ok || raw == nil {
+// evidenceChecksFromRule returns the typed evidence list.
+func evidenceChecksFromRule(rule *policy.Rule) []policy.EvidenceCheck {
+	if rule == nil || len(rule.Evidence) == 0 {
 		return nil
 	}
-	list, ok := raw.([]interface{})
-	if !ok {
-		return nil
-	}
-	out := make([]policy.EvidenceCheck, 0, len(list))
-	for _, entry := range list {
-		mapping, ok := entry.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		file, _ := mapping["file"].(string)
-		if file == "" {
-			continue
-		}
-		mustExist, _ := mapping["must_exist"].(bool)
-		var mustContain []string
-		if rawList, ok := mapping["must_contain"].([]interface{}); ok {
-			for _, v := range rawList {
-				if s, ok := v.(string); ok {
-					mustContain = append(mustContain, s)
-				}
-			}
-		}
-		mustNotContain, _ := mapping["must_not_contain"].(string)
-		maxLines := numAsIntDefault(mapping["max_line_count"], 0)
-		optional, _ := mapping["optional"].(bool)
-		out = append(out, policy.EvidenceCheck{
-			File:           file,
-			MustExist:      mustExist,
-			MustContain:    mustContain,
-			MustNotContain: mustNotContain,
-			MaxLineCount:   int(maxLines),
-			Optional:       optional,
-		})
-	}
-	return out
+	return rule.Evidence
 }
 
-func assuranceGatesFromRule(rule map[string]interface{}) ([]policy.AssuranceGate, error) {
-	raw, ok := rule["assurance"]
-	if !ok || raw == nil {
+func assuranceGatesFromRule(rule *policy.Rule) ([]policy.AssuranceGate, error) {
+	if rule == nil || len(rule.Assurance) == 0 {
 		return nil, &rerrors.LockfileError{Message: "rule '" + ruleIDOf(rule) + "' missing assurance field in lockfile"}
 	}
-	data, err := json.Marshal(raw)
-	if err != nil {
-		return nil, &rerrors.LockfileError{Message: "marshal assurance gates for rule '" + ruleIDOf(rule) + "'", Cause: err}
-	}
-	var gates []policy.AssuranceGate
-	if err := json.Unmarshal(data, &gates); err != nil {
-		return nil, &rerrors.LockfileError{Message: "decode assurance gates for rule '" + ruleIDOf(rule) + "'", Cause: err}
-	}
-	if len(gates) == 0 {
-		return nil, &rerrors.LockfileError{Message: "rule '" + ruleIDOf(rule) + "' has empty assurance field in lockfile"}
+	gates := append([]policy.AssuranceGate(nil), rule.Assurance...)
+	for index := range gates {
+		gates[index].Commands = append([]string(nil), gates[index].Commands...)
 	}
 	return gates, nil
 }
@@ -1547,7 +1459,7 @@ func quote(s string) string {
 	return `"` + s + `"`
 }
 
-func evalDenyWrite(rule map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
+func evalDenyWrite(rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
 	patterns := stringListField(rule, "paths")
 	matched, err := matchingPaths(inputs.WritePaths, patterns)
 	if err != nil {
@@ -1559,7 +1471,7 @@ func evalDenyWrite(rule map[string]interface{}, defaultMode policy.Mode, inputs 
 	return buildViolation(rule, defaultMode, matched, nil, nil, nil, nil, nil), nil
 }
 
-func evalRequireRead(rule map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
+func evalRequireRead(rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
 	triggered, err := matchingPaths(inputs.WritePaths, stringListField(rule, "paths"))
 	if err != nil {
 		return nil, err
@@ -1578,7 +1490,7 @@ func evalRequireRead(rule map[string]interface{}, defaultMode policy.Mode, input
 	return buildViolation(rule, defaultMode, triggered, nil, nil, required, nil, nil), nil
 }
 
-func evalCoupleChange(rule map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
+func evalCoupleChange(rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
 	triggered, err := matchingPaths(inputs.WritePaths, stringListField(rule, "paths"))
 	if err != nil {
 		return nil, err
@@ -1597,7 +1509,7 @@ func evalCoupleChange(rule map[string]interface{}, defaultMode policy.Mode, inpu
 	return buildViolation(rule, defaultMode, triggered, nil, nil, required, nil, nil), nil
 }
 
-func evalRequireClaim(rule map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
+func evalRequireClaim(rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
 	triggered, err := matchingPaths(inputs.WritePaths, stringListField(rule, "when_paths"))
 	if err != nil {
 		return nil, err
@@ -1613,7 +1525,7 @@ func evalRequireClaim(rule map[string]interface{}, defaultMode policy.Mode, inpu
 	return buildViolation(rule, defaultMode, triggered, nil, nil, nil, nil, required), nil
 }
 
-func evalForbidCommand(ctx *evalContext, rule map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
+func evalForbidCommand(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
 	required := stringListField(rule, "commands")
 	forbidden := matchingForbiddenCommands(commandsForShellAnalysis(ctx, inputs.Commands), required, ctxRepoRoot(ctx), ruleCommandMatchMode(rule))
 	if len(forbidden) == 0 {
@@ -1644,7 +1556,7 @@ func commandsForShellAnalysis(ctx *evalContext, fallback []string) []string {
 	return fallback
 }
 
-func compositeForbiddenCommandMatches(ctx *evalContext, rule map[string]interface{}) bool {
+func compositeForbiddenCommandMatches(ctx *evalContext, rule *policy.Rule) bool {
 	for _, check := range checksFromRule(rule) {
 		if check.Kind != policy.KindForbidCommand {
 			continue
@@ -1677,7 +1589,7 @@ func rawCommandsPreservingSyntax(commands []string, results []CommandResult) []s
 	return kept
 }
 
-func evalRequireCommand(ctx *evalContext, rule map[string]interface{}, defaultMode policy.Mode, inputs ExecutionInputs, requireSuccess bool) (*Violation, error) {
+func evalRequireCommand(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs, requireSuccess bool) (*Violation, error) {
 	triggered, err := matchingPaths(inputs.WritePaths, stringListField(rule, "when_paths"))
 	if err != nil {
 		return nil, err
@@ -1861,11 +1773,13 @@ func commandMatchesExpected(normalized string, normalizedExpected []string, matc
 	return false
 }
 
-// ruleCommandMatchMode extracts the compiled command_match mode from a
-// lockfile rule map; absent means exact.
-func ruleCommandMatchMode(rule map[string]interface{}) policy.CommandMatch {
-	value, _ := rule["command_match"].(string)
-	return policy.CommandMatch(value)
+// ruleCommandMatchMode returns the compiled command_match mode; absent means
+// exact.
+func ruleCommandMatchMode(rule *policy.Rule) policy.CommandMatch {
+	if rule == nil {
+		return policy.CommandMatchExact
+	}
+	return rule.CommandMatch
 }
 
 func latestWriteEpoch(paths []string, epochs map[string]uint64) uint64 {
@@ -1966,39 +1880,26 @@ func matchingClaims(claims, expected []string) []string {
 // --- Violation building + explanations ---
 
 func buildViolation(
-	rule map[string]interface{},
+	rule *policy.Rule,
 	defaultMode policy.Mode,
 	matchedPaths, matchedCommands, matchedClaims, requiredPaths, requiredCommands, requiredClaims []string,
 ) *Violation {
-	id, _ := rule["id"].(string)
-	kindStr, _ := rule["kind"].(string)
-	message, _ := rule["message"].(string)
-	srcPath, _ := rule["source_path"].(string)
-	srcBlock, _ := rule["source_block_id"].(string)
-
 	mode := defaultMode
-	if mStr, ok := rule["mode"].(string); ok && mStr != "" {
-		candidate := policy.Mode(mStr)
-		if candidate.Valid() {
-			mode = candidate
-		} else {
-			// A rule mode that slipped past parser validation must never
-			// silently downgrade a violation to a pass. Fail closed.
-			mode = policy.ModeBlock
-		}
+	if rule.Mode != "" {
+		mode = rule.Mode
 	}
 
 	explanation, recommended := explainViolation(
-		id, policy.Kind(kindStr), rule,
+		rule.ID, rule.Kind, rule,
 		matchedPaths, matchedCommands,
 		requiredPaths, requiredCommands, requiredClaims,
 	)
 
 	return &Violation{
-		RuleID:            id,
-		Kind:              policy.Kind(kindStr),
+		RuleID:            rule.ID,
+		Kind:              rule.Kind,
 		Mode:              mode,
-		Message:           message,
+		Message:           rule.Message,
 		Explanation:       explanation,
 		RecommendedAction: recommended,
 		MatchedPaths:      coalesce(matchedPaths),
@@ -2007,8 +1908,8 @@ func buildViolation(
 		RequiredPaths:     coalesce(requiredPaths),
 		RequiredCommands:  coalesce(requiredCommands),
 		RequiredClaims:    coalesce(requiredClaims),
-		SourcePath:        srcPath,
-		SourceBlockID:     srcBlock,
+		SourcePath:        rule.SourcePath,
+		SourceBlockID:     rule.SourceBlockID,
 	}
 }
 
@@ -2020,7 +1921,7 @@ func coalesce(s []string) []string {
 }
 
 func explainViolation(
-	id string, kind policy.Kind, rule map[string]interface{},
+	id string, kind policy.Kind, rule *policy.Rule,
 	matchedPaths, matchedCommands, requiredPaths, requiredCommands, requiredClaims []string,
 ) (string, string) {
 	pathList := joinForHumans(matchedPaths)
@@ -2067,22 +1968,26 @@ func explainViolation(
 		"Inspect the matched rule and input evidence, then rerun the policy check."
 }
 
-func stringListField(rule map[string]interface{}, key string) []string {
-	raw, ok := rule[key]
-	if !ok || raw == nil {
+func stringListField(rule *policy.Rule, key string) []string {
+	if rule == nil {
 		return nil
 	}
-	list, ok := raw.([]interface{})
-	if !ok {
+	switch key {
+	case "paths":
+		return rule.Paths
+	case "before_paths":
+		return rule.BeforePaths
+	case "when_paths":
+		return rule.WhenPaths
+	case "commands":
+		return rule.Commands
+	case "claims":
+		return rule.Claims
+	case "scope_paths":
+		return rule.ScopePaths
+	default:
 		return nil
 	}
-	out := make([]string, 0, len(list))
-	for _, item := range list {
-		if s, ok := item.(string); ok {
-			out = append(out, s)
-		}
-	}
-	return out
 }
 
 func joinForHumans(values []string) string {

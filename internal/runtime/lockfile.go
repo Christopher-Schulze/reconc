@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	stderrors "errors"
 	"fmt"
@@ -19,15 +20,10 @@ const maxLockfileBytes int64 = 16 << 20
 
 // --- Lockfile loading + freshness ---
 
-func loadFreshLockfile(root string) (map[string]interface{}, error) {
-	payload, err := loadLockfile(root)
-	if err != nil {
-		return nil, lockfileRefreshRequired(err)
-	}
-	if err := validateLockfileFreshness(root, payload); err != nil {
-		return nil, lockfileRefreshRequired(err)
-	}
-	return payload, nil
+type decodedLockfile struct {
+	payload  map[string]interface{}
+	migrated bool
+	byteHash [sha256.Size]byte
 }
 
 // lockfileDefaultMode extracts the validated default_mode from a loaded
@@ -53,6 +49,27 @@ func lockfileRefreshRequired(err error) error {
 }
 
 func loadLockfile(root string) (map[string]interface{}, error) {
+	lock, err := readLockfile(root)
+	if err != nil {
+		return nil, err
+	}
+	return lock.payload, nil
+}
+
+func readLockfile(root string) (*decodedLockfile, error) {
+	data, err := readLockfileBytes(root)
+	if err != nil {
+		return nil, err
+	}
+	lock, err := decodeLockfile(data)
+	if err != nil {
+		return nil, err
+	}
+	lock.byteHash = sha256.Sum256(data)
+	return lock, nil
+}
+
+func readLockfileBytes(root string) ([]byte, error) {
 	lf, err := resolvePolicyFile(root, ingest.LockfilePath)
 	if err != nil {
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile escapes the repository", Cause: err}
@@ -64,6 +81,10 @@ func loadLockfile(root string) (map[string]interface{}, error) {
 		}
 		return nil, &rerrors.LockfileError{Message: "read lockfile", Cause: err}
 	}
+	return data, nil
+}
+
+func decodeLockfile(data []byte) (*decodedLockfile, error) {
 	var payload map[string]interface{}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
@@ -75,7 +96,7 @@ func loadLockfile(root string) (map[string]interface{}, error) {
 	}
 	// Route every non-current payload through the migration table before
 	// validating the rest of the contract.
-	migrated, _, err := compiler.MigrateLockfile(payload)
+	migrated, applied, err := compiler.MigrateLockfile(payload)
 	if err != nil {
 		return nil, err
 	}
@@ -121,36 +142,24 @@ func loadLockfile(root string) (map[string]interface{}, error) {
 		return nil, err
 	}
 
-	return payload, nil
+	return &decodedLockfile{payload: payload, migrated: len(applied) > 0}, nil
 }
 
-func validateLockfileFreshness(root string, payload map[string]interface{}) error {
+func validateLockfileFreshness(root string, payload map[string]interface{}, migrated bool) error {
 	bundle, err := ingest.LoadPolicySources(root)
 	if err != nil {
 		return err
 	}
-	parsed, err := parser.ParseRuleDocuments(bundle)
-	if err != nil {
-		return err
-	}
-	if err := compiler.ValidateEmbeddedRules(payload, parsed); err != nil {
-		return err
-	}
-
-	lockedMode, _ := payload["default_mode"].(string)
-	if string(parsed.DefaultMode) != lockedMode {
-		return &rerrors.LockfileError{Message: "compiled lockfile default_mode does not match the current policy sources"}
-	}
-	if int(numAsInt(payload["rule_count"])) != len(parsed.Rules) {
-		return &rerrors.LockfileError{Message: "compiled lockfile rule_count does not match the current policy sources"}
-	}
-	if int(numAsInt(payload["source_count"])) != len(bundle.Sources) {
-		return &rerrors.LockfileError{Message: "compiled lockfile source_count does not match the current policy sources"}
-	}
-
 	currentDigest, err := compiler.ComputeSourceDigest(bundle)
 	if err != nil {
 		return &rerrors.LockfileError{Message: "compute current source digest", Cause: err}
+	}
+	return validateLockfileFreshnessBundle(payload, migrated, bundle, currentDigest)
+}
+
+func validateLockfileFreshnessBundle(payload map[string]interface{}, migrated bool, bundle *ingest.SourceBundle, currentDigest string) error {
+	if int(numAsInt(payload["source_count"])) != len(bundle.Sources) {
+		return &rerrors.LockfileError{Message: "compiled lockfile source_count does not match the current policy sources"}
 	}
 	stored, _ := payload["source_digest"].(string)
 	if len(stored) != 64 {
@@ -159,6 +168,24 @@ func validateLockfileFreshness(root string, payload map[string]interface{}) erro
 	if stored != currentDigest {
 		return &rerrors.LockfileError{Message: "compiled lockfile source_digest does not match the current policy sources"}
 	}
+	if !migrated {
+		return nil
+	}
+
+	parsed, err := parser.ParseRuleDocuments(bundle)
+	if err != nil {
+		return err
+	}
+	if err := compiler.ValidateEmbeddedRules(payload, parsed); err != nil {
+		return err
+	}
+	lockedMode, _ := payload["default_mode"].(string)
+	if string(parsed.DefaultMode) != lockedMode {
+		return &rerrors.LockfileError{Message: "compiled lockfile default_mode does not match the current policy sources"}
+	}
+	if int(numAsInt(payload["rule_count"])) != len(parsed.Rules) {
+		return &rerrors.LockfileError{Message: "compiled lockfile rule_count does not match the current policy sources"}
+	}
 	return nil
 }
 
@@ -166,6 +193,11 @@ func validateLockfileFreshness(root string, payload map[string]interface{}) erro
 // structurally valid, and fresh without compiling or writing any repository
 // state. Callers use it for read-only status and gate surfaces.
 func ValidatePolicyLockfile(startPath string) error {
+	return NewEvaluator().ValidatePolicyLockfile(startPath)
+}
+
+// ValidatePolicyLockfile validates through this evaluator's immutable plan.
+func (e *Evaluator) ValidatePolicyLockfile(startPath string) error {
 	discovery, err := ingest.DiscoverPolicyRepo(startPath)
 	if err != nil {
 		return err
@@ -177,13 +209,18 @@ func ValidatePolicyLockfile(startPath string) error {
 		}
 		return fmt.Errorf("%s", warning)
 	}
-	_, err = loadFreshLockfile(discovery.RepoRoot)
+	_, err = e.loadFreshRuntimePlan(discovery.RepoRoot)
 	return err
 }
 
 // LoadMCPPolicy returns the fresh, validated MCP contract. A nil contract
 // means the optional compiler-config section is absent.
 func LoadMCPPolicy(startPath string) (*policy.MCPPolicy, error) {
+	return NewEvaluator().LoadMCPPolicy(startPath)
+}
+
+// LoadMCPPolicy returns the typed MCP contract from this evaluator's plan.
+func (e *Evaluator) LoadMCPPolicy(startPath string) (*policy.MCPPolicy, error) {
 	discovery, err := ingest.DiscoverPolicyRepo(startPath)
 	if err != nil {
 		return nil, err
@@ -191,11 +228,16 @@ func LoadMCPPolicy(startPath string) (*policy.MCPPolicy, error) {
 	if !discovery.Discovered {
 		return nil, fmt.Errorf("no policy markers discovered")
 	}
-	payload, err := loadFreshLockfile(discovery.RepoRoot)
+	plan, err := e.loadFreshRuntimePlan(discovery.RepoRoot)
 	if err != nil {
 		return nil, err
 	}
-	return decodeMCPPolicy(payload)
+	if plan.mcp == nil {
+		return nil, nil
+	}
+	contract := *plan.mcp
+	contract.Tools = policy.SortedMCPTools(contract.Tools)
+	return &contract, nil
 }
 
 func decodeMCPPolicy(payload map[string]interface{}) (*policy.MCPPolicy, error) {

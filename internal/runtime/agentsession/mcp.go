@@ -52,6 +52,10 @@ func RunPostToolUseMCPAware(repoRoot string, payloadBytes []byte) Result {
 }
 
 func runMCPBeforeResolved(root string, payloadBytes []byte, hostIdentified bool) Result {
+	return runMCPBeforeResolvedWithEvaluator(root, payloadBytes, hostIdentified, runtime.NewEvaluator())
+}
+
+func runMCPBeforeResolvedWithEvaluator(root string, payloadBytes []byte, hostIdentified bool, evaluator *runtime.Evaluator) Result {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): " + err.Error()}
@@ -60,15 +64,15 @@ func runMCPBeforeResolved(root string, payloadBytes []byte, hostIdentified bool)
 		if hostIdentified {
 			return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): host event has no MCP identity"}
 		}
-		return runPreDecisionResolved(root, payloadBytes, false)
+		return runPreDecisionResolvedWithEvaluator(root, payloadBytes, false, evaluator)
 	}
-	contract, err := runtime.LoadMCPPolicy(root)
+	contract, err := evaluator.LoadMCPPolicy(root)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): " + err.Error()}
 	}
 	classification, classified := classifyMCP(contract, payload)
 	if !classified && !hostIdentified {
-		return runPreDecisionResolved(root, payloadBytes, false)
+		return runPreDecisionResolvedWithEvaluator(root, payloadBytes, false, evaluator)
 	}
 	if !classified {
 		return handleUnclassifiedMCPBefore(root, contract, payload)
@@ -77,7 +81,7 @@ func runMCPBeforeResolved(root string, payloadBytes []byte, hostIdentified bool)
 	if !valid {
 		return handleUnclassifiedMCPBefore(root, contract, payload)
 	}
-	result := enforceMCPBefore(root, payload, classification, values)
+	result := enforceMCPBefore(root, payload, classification, values, evaluator)
 	outcome := "allowed"
 	if result.ExitCode != 0 {
 		outcome = "denied"
@@ -89,6 +93,10 @@ func runMCPBeforeResolved(root string, payloadBytes []byte, hostIdentified bool)
 }
 
 func runMCPAfterResolved(root string, payloadBytes []byte, hostIdentified bool) Result {
+	return runMCPAfterResolvedWithEvaluator(root, payloadBytes, hostIdentified, runtime.NewEvaluator())
+}
+
+func runMCPAfterResolvedWithEvaluator(root string, payloadBytes []byte, hostIdentified bool, evaluator *runtime.Evaluator) Result {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: "reconc hook (mcp post, warn): " + err.Error()}
@@ -99,7 +107,7 @@ func runMCPAfterResolved(root string, payloadBytes []byte, hostIdentified bool) 
 		}
 		return runPostToolUseCompleteStrictResolved(root, payloadBytes)
 	}
-	contract, err := runtime.LoadMCPPolicy(root)
+	contract, err := evaluator.LoadMCPPolicy(root)
 	if err != nil {
 		return Result{ExitCode: 0, Stderr: "reconc hook (mcp post, warn): " + err.Error()}
 	}
@@ -279,15 +287,15 @@ func normalizeMCPRepoPathsResolved(root string, rawPaths []string) ([]string, bo
 	return out, len(out) > 0
 }
 
-func enforceMCPBefore(repoRoot string, payload *HookPayload, classification policy.MCPToolPolicy, values mcpExtractedValues) Result {
+func enforceMCPBefore(repoRoot string, payload *HookPayload, classification policy.MCPToolPolicy, values mcpExtractedValues, evaluator *runtime.Evaluator) Result {
 	switch classification.Effect {
 	case policy.MCPEffectRepositoryRead, policy.MCPEffectExternal:
 		return Result{ExitCode: 0}
 	case policy.MCPEffectRepositoryWrite:
-		return runMCPWritePreResolved(repoRoot, payload, values.Paths)
+		return runMCPWritePreResolved(repoRoot, payload, values.Paths, evaluator)
 	case policy.MCPEffectCommand:
 		for _, command := range values.Commands {
-			result := runMCPCommandPreResolved(repoRoot, payload, command)
+			result := runMCPCommandPreResolved(repoRoot, payload, command, evaluator)
 			if result.ExitCode != 0 {
 				return result
 			}
@@ -298,7 +306,7 @@ func enforceMCPBefore(repoRoot string, payload *HookPayload, classification poli
 	}
 }
 
-func runMCPWritePreResolved(root string, payload *HookPayload, paths []string) Result {
+func runMCPWritePreResolved(root string, payload *HookPayload, paths []string, evaluator *runtime.Evaluator) Result {
 	state, err := ensureSessionStateResolved(root, payload.SessionID)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): " + err.Error()}
@@ -311,7 +319,7 @@ func runMCPWritePreResolved(root string, payload *HookPayload, paths []string) R
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): load evidence chain: " + err.Error()}
 	}
 	trialWrites := append(append([]string(nil), state.WritePaths...), paths...)
-	report, err := runPreWritePolicyCheck(root, state.ReadPaths, trialWrites, state.WriteEpochs, state.Commands, state.CommandResults, state.Claims)
+	report, err := runPreWritePolicyCheckWithEvaluator(evaluator, root, state.ReadPaths, trialWrites, state.WriteEpochs, state.Commands, state.CommandResults, state.Claims)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): write check failed: " + err.Error()}
 	}
@@ -322,7 +330,7 @@ func runMCPWritePreResolved(root string, payload *HookPayload, paths []string) R
 	return Result{ExitCode: 2, Stderr: firstLinesForViolations(violations, "reconc blocked this MCP repository write before execution.")}
 }
 
-func runMCPCommandPreResolved(root string, payload *HookPayload, command string) Result {
+func runMCPCommandPreResolved(root string, payload *HookPayload, command string, evaluator *runtime.Evaluator) Result {
 	if reason := forbiddenShellCommandReasonInRepo(root, command); reason != "" {
 		return Result{ExitCode: 2, Stderr: reason}
 	}
@@ -337,7 +345,7 @@ func runMCPCommandPreResolved(root string, payload *HookPayload, command string)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): load evidence chain: " + err.Error()}
 	}
-	report, err := runPreCommandPolicyCheck(root, state, command)
+	report, err := runPreCommandPolicyCheckWithEvaluator(evaluator, root, state, command)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: "reconc hook (mcp pre): command check failed: " + err.Error()}
 	}

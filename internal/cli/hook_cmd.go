@@ -643,6 +643,16 @@ func runHookRuntimeWithResolver(
 	stdout, stderr io.Writer,
 	resolveRoot func(string) (agentsession.ResolvedRepoRoot, error),
 ) error {
+	return runHookRuntimeWithResolverAndEvaluator(args, input, stdout, stderr, resolveRoot, runtime.NewEvaluator())
+}
+
+func runHookRuntimeWithResolverAndEvaluator(
+	args []string,
+	input io.Reader,
+	stdout, stderr io.Writer,
+	resolveRoot func(string) (agentsession.ResolvedRepoRoot, error),
+	evaluator *runtime.Evaluator,
+) error {
 	if len(args) == 0 {
 		return &CLIError{ExitCode: 1, Message: "reconc hook runtime: missing <event> <repo>"}
 	}
@@ -784,7 +794,7 @@ func runHookRuntimeWithResolver(
 		exitCode = 1
 		return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook runtime: event %q is not executable", event)}
 	}
-	result := agentsession.RunHookRequest(root, handler, event, payload)
+	result := agentsession.RunHookRequestWithEvaluator(root, handler, event, payload, evaluator)
 	timing.mark("handler")
 	if result.ExitCode != 0 && route.ErrorPolicy == hooks.FailureAllow {
 		result.ExitCode = 0

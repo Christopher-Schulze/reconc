@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	policyruntime "reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
 
@@ -166,5 +167,39 @@ func TestHookWorkerRootCacheRefreshesReplacedRepositoryIdentity(t *testing.T) {
 	}
 	if err := second.Revalidate(); err != nil {
 		t.Fatalf("refreshed identity did not revalidate: %v", err)
+	}
+}
+
+func TestHookWorkerEvaluatorReusesAndInvalidatesRepositoryPlan(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	cache := hookWorkerRootCache{
+		roots:     make(map[string]agentsession.ResolvedRepoRoot),
+		evaluator: policyruntime.NewEvaluator(),
+	}
+	request := hookWorkerRequest{
+		FormatVersion: hookWorkerFormatVersion,
+		Type:          "request",
+		ID:            "first",
+		Event:         "claude-pre-tool-use",
+		Repo:          repo,
+		Payload:       json.RawMessage(`{"session_id":"worker-plan","tool_name":"Bash","tool_use_id":"one","tool_input":{"command":"go test ./..."}}`),
+	}
+	first, stop := executeHookWorkerRequest(request, cache.resolve, cache.evaluator)
+	if stop || first.Code != 0 {
+		t.Fatalf("first worker policy request = %+v stop=%t", first, stop)
+	}
+	policyPath := filepath.Join(repo, "policies", "rules.yml")
+	policyBytes, err := os.ReadFile(policyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(policyPath, append(policyBytes, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	request.ID = "drifted"
+	request.Payload = json.RawMessage(`{"session_id":"worker-plan","tool_name":"Bash","tool_use_id":"two","tool_input":{"command":"go test ./..."}}`)
+	drifted, stop := executeHookWorkerRequest(request, cache.resolve, cache.evaluator)
+	if stop || drifted.Code != 2 || !strings.Contains(drifted.Stderr, "source_digest") {
+		t.Fatalf("drifted worker policy request = %+v stop=%t", drifted, stop)
 	}
 }

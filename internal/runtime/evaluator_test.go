@@ -184,6 +184,46 @@ esac
 	}
 }
 
+func TestWorkflowAuditBatchRejectsScopeMissBeforeSubprocess(t *testing.T) {
+	withRECONCHome(t)
+	repo := t.TempDir()
+	counterPath := filepath.Join(repo, "audits", "counter")
+	writeFile(t, repo, "AGENTS.md", "# project\n")
+	writeFile(t, repo, "audits/run-workflow-audit", "#!/bin/sh\nprintf x >> \""+counterPath+"\"\nexit 0\n")
+	if err := os.Chmod(filepath.Join(repo, "audits", "run-workflow-audit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, repo, "policies/rules.yml", `scopes:
+  - id: web
+    paths: ['apps/web/**']
+    rules:
+      - id: script-a
+        kind: require_script
+        when_paths: ['src/**']
+        script: audits/run-workflow-audit
+        args: ['mode-a']
+        mode: block
+        message: mode a
+      - id: script-b
+        kind: require_script
+        when_paths: ['src/**']
+        script: audits/run-workflow-audit
+        args: ['mode-b']
+        mode: block
+        message: mode b
+`)
+	if _, err := compiler.CompileRepoPolicy(repo, "0.1.0-test"); err != nil {
+		t.Fatal(err)
+	}
+	report, err := CheckRepoPolicy(repo, ExecutionInputs{WritePaths: []string{"src/main.go"}})
+	if err != nil || report.Decision != DecisionPass {
+		t.Fatalf("scope miss result = %+v, %v", report, err)
+	}
+	if _, err := os.Stat(counterPath); !os.IsNotExist(err) {
+		t.Fatalf("scope-missed batch script executed: %v", err)
+	}
+}
+
 func TestWorkflowAuditBatchCandidateAcceptsPortableAuditPath(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -196,12 +236,8 @@ func TestWorkflowAuditBatchCandidateAcceptsPortableAuditPath(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			rule := map[string]interface{}{
-				"kind":   string(policy.KindRequireScript),
-				"script": test.script,
-				"args":   []interface{}{"full"},
-			}
-			_, _, _, _, got := workflowAuditBatchCandidate(rule)
+			rule := policy.Rule{Kind: policy.KindRequireScript, Script: test.script, Args: []string{"full"}}
+			_, _, _, _, got := workflowAuditBatchCandidate(&rule)
 			if got != test.want {
 				t.Fatalf("candidate=%v, want %v", got, test.want)
 			}
