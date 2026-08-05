@@ -145,6 +145,15 @@ The public narrative stays consistent at three depths:
    recorded current evidence agree, not that the model is honest or the code
    is universally correct.
 
+Received portable proof bundles can be checked without trusting repository
+scripts by running `reconc proof verify FILE`. Strict decoding rejects
+oversize, non-regular, symlinked, malformed, duplicate-key, unknown-field,
+missing-field, null-collection, and trailing-value inputs before semantic
+verification. Optional `--repo REPO` binding compares the proof with a fresh
+read-only local completion snapshot. A valid unsigned self-digest proves
+integrity only; it does not identify the author or establish trusted release
+provenance.
+
 Submitted Build Week video, Devpost text, and the immutable v0.8.6 artifacts
 remain historical evidence. Current README and documentation use this
 terminology; future repository descriptions, release notes, video captions, and

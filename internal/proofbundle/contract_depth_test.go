@@ -3,6 +3,7 @@ package proofbundle
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -18,7 +19,7 @@ func validProofBundle() *Bundle {
 		Task:  Task{Configured: false, State: "absent"},
 		Candidate: Candidate{
 			Fingerprint: strings.Repeat("a", 64), PolicyLockHash: strings.Repeat("b", 64),
-			DirtyPaths: []string{},
+			WorktreeHash: strings.Repeat("d", 64), WorktreeTrusted: true, DirtyPaths: []string{},
 		},
 		Checks: []Check{},
 		Evidence: Evidence{
@@ -51,6 +52,11 @@ func TestVerifyRejectsInvalidPublicContractFields(t *testing.T) {
 		{name: "build version", mutate: func(b *Bundle) { b.Build.Version = " " }, err: "identity"},
 		{name: "candidate fingerprint", mutate: func(b *Bundle) { b.Candidate.Fingerprint = "bad" }, err: "identity"},
 		{name: "policy hash", mutate: func(b *Bundle) { b.Candidate.PolicyLockHash = "bad" }, err: "identity"},
+		{name: "Git HEAD", mutate: func(b *Bundle) {
+			b.Candidate.GitAvailable = true
+			b.Candidate.GitHead = "bad"
+			b.Candidate.GitIndexHash = strings.Repeat("b", 64)
+		}, err: "Git candidate identity"},
 		{name: "completion digest", mutate: func(b *Bundle) { b.CompletionDigest = "bad" }, err: "identity"},
 		{name: "task state", mutate: func(b *Bundle) { b.Task.State = "queued" }, err: "TASK identity"},
 		{name: "task configuration", mutate: func(b *Bundle) { b.Task.Configured = true }, err: "TASK identity"},
@@ -81,20 +87,23 @@ func TestVerifyRejectsInvalidPublicContractFields(t *testing.T) {
 
 func TestRenderMarkdownIncludesRichEvidenceContract(t *testing.T) {
 	bundle := validProofBundle()
+	bundle.OK = false
+	bundle.Decision = "block"
 	bundle.Task = Task{Configured: true, ID: "092", State: "active"}
-	bundle.Candidate.GitHead = "head"
-	bundle.Candidate.GitIndexHash = "index"
-	bundle.Candidate.WorktreeHash = "worktree"
-	bundle.Candidate.PolicyReportHash = "report"
+	bundle.Candidate.GitAvailable = true
+	bundle.Candidate.GitHead = strings.Repeat("a", 40)
+	bundle.Candidate.GitIndexHash = strings.Repeat("b", 64)
+	bundle.Candidate.WorktreeHash = strings.Repeat("c", 64)
+	bundle.Candidate.PolicyReportHash = strings.Repeat("f", 64)
 	bundle.Candidate.DirtyPaths = []string{"internal/runtime/events.go"}
-	bundle.Checks = []Check{{ID: "policy", Status: completiongate.StatusWarn, Detail: "review | warning"}}
+	bundle.Checks = []Check{{ID: "policy", Status: completiongate.StatusFail, Detail: "review | warning"}}
 	bundle.Evidence.RequiredCommands = []string{"go test ./..."}
 	bundle.Evidence.RequiredPaths = []string{"README.md"}
 	bundle.Evidence.RequiredClaims = []string{"tests-green"}
-	bundle.Evidence.SatisfiedChecks = []string{"policy"}
+	bundle.Evidence.SatisfiedChecks = []string{}
 	bundle.Evidence.CommandProofs = []CommandProof{{
 		Command: "go [arguments redacted]", CommandHash: strings.Repeat("d", 64),
-		ExecutionMode: "direct", Outcome: "success", Head: "head", IndexTree: "index",
+		ExecutionMode: "direct", Outcome: "success", Head: strings.Repeat("a", 40), IndexTree: strings.Repeat("b", 40),
 		ReceiptDigest: strings.Repeat("e", 64), CandidateBound: true, Fresh: true,
 	}}
 	bundle.Violations = []Violation{{
@@ -118,7 +127,7 @@ func TestRenderMarkdownIncludesRichEvidenceContract(t *testing.T) {
 		t.Fatalf("RenderMarkdown: %v", err)
 	}
 	for _, expected := range []string{
-		"ID: `092`", "HEAD: `head`", "Command | Outcome", "Remediation: add docs",
+		"ID: `092`", "HEAD: `" + strings.Repeat("a", 40) + "`", "Command | Outcome", "Remediation: add docs",
 		"Matched paths:", "Superseded Blocks", "Resolve the warning.",
 	} {
 		if !strings.Contains(output.String(), expected) {
@@ -141,9 +150,13 @@ func TestRenderMarkdownPropagatesWriterFailure(t *testing.T) {
 
 func TestProofBundleRenderersEnforceByteBudget(t *testing.T) {
 	bundle := validProofBundle()
-	bundle.Checks = []Check{{
-		ID: "oversized", Status: completiongate.StatusPass, Detail: strings.Repeat("x", MaxBytes),
-	}}
+	bundle.Checks = make([]Check, maxItems)
+	bundle.Evidence.SatisfiedChecks = make([]string, maxItems)
+	for index := range bundle.Checks {
+		id := fmt.Sprintf("check-%03d", index)
+		bundle.Checks[index] = Check{ID: id, Status: completiongate.StatusPass, Detail: strings.Repeat("x", maxTextBytes)}
+		bundle.Evidence.SatisfiedChecks[index] = id
+	}
 	bundle.Digest = digest(bundle)
 	if _, err := MarshalJSON(bundle); err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("oversized JSON bundle was accepted: %v", err)

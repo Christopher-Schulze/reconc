@@ -94,7 +94,8 @@ The control flow has four stages:
 4. **Bind completion to the candidate.** `reconc done .` verifies the current
    policy, Git candidate, evidence, unresolved decisions, command proofs, and
    typed TASK state. `reconc proof .` exports that result as portable JSON or
-   Markdown for review.
+   Markdown for review; `reconc proof verify FILE` strictly validates a
+   received bundle offline and can bind it to a fresh local candidate.
 
 Core invariants are deliberately strict:
 
@@ -120,7 +121,7 @@ Core invariants are deliberately strict:
 | Scope and change control | Records and evaluates reads, writes, commands, claims, protected paths, coupled changes, generated files, secret state, destructive commands, and out-of-scope edits or deletions. |
 | Evidence freshness | Binds command success to the write epoch or staged Git candidate it verified. A later relevant write invalidates earlier success instead of laundering stale proof. |
 | Completion | `reconc done .` accepts completion only when policy, HEAD, index, worktree, evidence, reports, unresolved blocks, staged proofs, and typed TASK state agree. |
-| Portable proof | `reconc proof .` exports the current completion candidate as deterministic JSON or Markdown while excluding private session material and raw command arguments. |
+| Portable proof | `reconc proof .` exports the current completion candidate as deterministic JSON or Markdown; `reconc proof verify FILE [--repo REPO]` strictly checks a received bundle and optional local binding offline. |
 | Native assurance | Runs bounded gates for repository layout, language boundaries, dependency pins, package scripts, source hygiene, formatting, concurrency, process and network boundaries, substantive proof, and live verification. |
 | TASK continuity | Validates and mutates typed TASK state with recoverable claim, block, resume, split, promote, archive, and transaction recovery operations. |
 | Autonomous run control | `reconc run on|off|reset|status|log` provides one durable repository switch, bounded decision logs, terminal gates, and per-session no-progress guards. |
@@ -926,7 +927,10 @@ Yes. `reconc proof . --format markdown` produces a human-readable bundle, and
 the default JSON form is suitable for automation. Both derive from the same
 typed completion state, include a self-digest, and exclude private prompts,
 transcripts, session IDs, environment values, absolute home paths, and raw
-command arguments.
+command arguments. A reviewer can run `reconc proof verify FILE` without
+trusting repository scripts, or add `--repo REPO` to compare it with one fresh
+local completion snapshot. The unsigned self-digest proves integrity, not
+author identity or trusted publication provenance.
 
 ### Does Reconc manage project scope or priorities?
 
@@ -995,7 +999,7 @@ The trust model is explicit:
 | Hook payloads | Bounded parsing, filesystem identity checks, exact outcome handling, and fail-closed decisions where the host supports them. | Host timeouts, unsupported events, and host-owned fail-open behavior remain outside Reconc. |
 | Repository files | Scope rules, candidate identity, receipt-bounded mutation, atomic writes, and drift refusal. | A hostile same-user process can bypass hooks or replace local bytes. |
 | Command evidence | Causal epochs, exact staged candidate binding, bounded receipts, and exit-status validation. | A malicious trusted command or compromised toolchain can still produce deceptive output. |
-| Portable proof | Deterministic typed output, current candidate identity, redaction, and self-digest. | A bundle proves the configured contract, not universal correctness or independent remote execution. |
+| Portable proof | Deterministic typed output, current candidate identity, redaction, strict offline verification, optional fresh local binding, and self-digest. | An unsigned bundle proves integrity and the configured contract, not author identity, universal correctness, or independent remote execution. |
 | Release artifacts | Checksums, strict manifest, embedded provenance, SBOMs, tagged workflow attestation, and installer verification. | No independent third-party reproducible-build attestation is claimed. |
 
 Repository-local development binaries and hook wrappers are writable by the

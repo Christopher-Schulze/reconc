@@ -386,6 +386,26 @@ refreshes policy, runs missing tests, persists a decision, or converts missing
 evidence into a pass. Exit 0 = pass bundle, 2 = blocked bundle emitted, 1 =
 runtime/input/output error.
 
+### `reconc proof verify FILE [--repo REPO] [--json]`
+Strictly verify a received proof bundle offline. Reconc reads only a real
+regular file up to the published 1 MiB limit and requires one valid UTF-8 JSON
+object with no duplicate keys, unknown fields, missing required fields, null
+required collections, or trailing values. It verifies the v1 schema and
+format identity, bounded and canonical collections, decision/check
+consistency, command-proof invariants, candidate and completion identities,
+and the bundle self-digest. Object-key order and platform-independent JSON
+whitespace do not affect validity.
+
+`--repo REPO` additionally runs one fresh read-only completion evaluation and
+compares the bundle's candidate fingerprint, policy lock, Git HEAD/index,
+worktree trust and dirty paths, policy result, decision, and completion digest.
+The report exposes only mismatch field names, not local values. Text is the
+default; `--json` emits `reconc-proof-verification/v1`. Exit 0 = valid passing
+bundle (and local match when requested), 2 = valid blocking bundle or local
+candidate mismatch, 1 = malformed, unsupported, unsafe, or operational error.
+The self-digest is unsigned: it proves bundle integrity, not author identity or
+trusted publication provenance. Verification never uses a network service.
+
 ---
 
 ## Compile & evaluate

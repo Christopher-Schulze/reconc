@@ -293,7 +293,7 @@ func candidateCommit(value string) string {
 	parts := strings.Split(value, "\n")
 	last := strings.TrimSpace(parts[len(parts)-1])
 	if last == "missing" {
-		return "unborn"
+		return "UNBORN"
 	}
 	if strings.HasPrefix(value, "error:") {
 		return sanitizeText("", value)
@@ -441,36 +441,37 @@ func digest(bundle *Bundle) string {
 // Verify checks the public contract and its self-digest.
 func Verify(bundle *Bundle) error {
 	if bundle == nil {
-		return errors.New("proof bundle is nil")
+		return invalidProof("is nil")
 	}
 	if bundle.Schema != schema.ProofBundleURL || bundle.FormatVersion != FormatVersion || bundle.RepoRoot != "." {
-		return errors.New("unsupported proof bundle contract")
+		return ErrUnsupportedContract
 	}
-	if (bundle.Decision != "pass" && bundle.Decision != "block") || bundle.OK != (bundle.Decision == "pass") {
-		return errors.New("proof bundle decision is inconsistent")
+	if err := verifyBundleCollections(bundle); err != nil {
+		return err
 	}
-	if strings.TrimSpace(bundle.Build.Version) == "" || !validDigest(bundle.Candidate.Fingerprint) || !validDigest(bundle.Candidate.PolicyLockHash) || !validDigest(bundle.CompletionDigest) {
-		return errors.New("proof bundle identity is incomplete")
+	if err := verifyBundleIdentity(bundle); err != nil {
+		return err
 	}
-	validTaskState := bundle.Task.State == "absent" || bundle.Task.State == "active" || bundle.Task.State == "terminal" || bundle.Task.State == "invalid"
-	if !validTaskState || bundle.Task.Configured == (bundle.Task.State == "absent") {
-		return errors.New("proof bundle TASK identity is inconsistent")
+	if err := verifyTaskIdentity(bundle.Task); err != nil {
+		return err
 	}
-	if bundle.Checks == nil || bundle.Violations == nil || bundle.SupersededBlocks == nil || bundle.Candidate.DirtyPaths == nil || bundle.Evidence.RequiredCommands == nil || bundle.Evidence.RequiredPaths == nil || bundle.Evidence.RequiredClaims == nil || bundle.Evidence.SatisfiedChecks == nil || bundle.Evidence.CommandProofs == nil {
-		return errors.New("proof bundle contains a null collection")
+	if err := verifyChecks(bundle.Checks); err != nil {
+		return err
 	}
-	for _, check := range bundle.Checks {
-		if check.ID == "" || (check.Status != completiongate.StatusPass && check.Status != completiongate.StatusWarn && check.Status != completiongate.StatusFail) {
-			return errors.New("proof bundle contains an invalid check")
-		}
+	if err := verifyCommandProofs(bundle.Evidence.CommandProofs); err != nil {
+		return err
 	}
-	for _, proof := range bundle.Evidence.CommandProofs {
-		if !proof.CandidateBound || !proof.Fresh || proof.Outcome != "success" || proof.ExitCode != 0 || !validDigest(proof.CommandHash) || !validDigest(proof.ReceiptDigest) {
-			return errors.New("proof bundle contains an invalid command proof")
-		}
+	if err := verifyViolations("violations", bundle.Violations); err != nil {
+		return err
+	}
+	if err := verifySupersededBlocks(bundle.SupersededBlocks); err != nil {
+		return err
+	}
+	if err := verifyDecision(bundle); err != nil {
+		return err
 	}
 	if expected := digest(bundle); expected == "" || !equalDigest(expected, bundle.Digest) {
-		return errors.New("proof bundle digest mismatch")
+		return invalidProof("digest mismatch")
 	}
 	return nil
 }
@@ -599,6 +600,10 @@ func equalDigest(left, right string) bool {
 }
 
 func validDigest(value string) bool {
+	return validHexBytes(value, sha256.Size)
+}
+
+func validHexBytes(value string, size int) bool {
 	decoded, err := hex.DecodeString(value)
-	return err == nil && len(decoded) == sha256.Size
+	return err == nil && len(decoded) == size && value == strings.ToLower(value)
 }

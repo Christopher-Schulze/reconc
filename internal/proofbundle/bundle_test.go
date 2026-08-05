@@ -65,6 +65,23 @@ func TestPassBundleIsDeterministicPortableAndVerifiable(t *testing.T) {
 	}
 }
 
+func TestUnbornGitCandidateIsPortableAndVerifiable(t *testing.T) {
+	repo := proofRepo(t, "rules: []\n", nil)
+	git(t, repo, "init", "-q")
+	git(t, repo, "config", "user.name", "reconc-test")
+	git(t, repo, "config", "user.email", "reconc-test@example.com")
+	bundle, err := proofbundle.Generate(repo, "0.8.6-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bundle.Candidate.GitAvailable || bundle.Candidate.GitHead != "UNBORN" {
+		t.Fatalf("unexpected unborn candidate: %#v", bundle.Candidate)
+	}
+	if err := proofbundle.Verify(bundle); err != nil {
+		t.Fatalf("Verify() = %v", err)
+	}
+}
+
 func TestBlockedTypedTaskAndSecretsAreSafeToShare(t *testing.T) {
 	repo := proofRepo(t, "rules: []\n", map[string]string{
 		".reconc.yml":             "task_lifecycle:\n  profile: sections-v1\n  completion:\n    required_evidence_fields: [Tests]\n",
