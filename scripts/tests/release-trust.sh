@@ -113,12 +113,44 @@ require_text "$root/.github/releases/reconc-v$project_version.md" "# reconc v$pr
 require_text "$root/Makefile" "publication-audit:"
 require_text "$root/Makefile" "make coverage           -- measure root and template coverage"
 require_text "$root/scripts/tests/coverage.sh" "root module coverage: %s%%"
-if grep -Eq 'COVERAGE_MIN|enforce_floor|required .*floor|coverage floors|coverage gate' \
-  "$root/scripts/tests/coverage.sh" "$root/Makefile" "$root/AGENTS.md" \
-  "$root/CONTRIBUTING.md" "$root/README.md" "$root/docs/documentation.md" \
-  "$root/.github/workflows/reconc-ci.yml" "$root/.github/workflows/reconc-release.yml"; then
-  fail "coverage measurement must not enforce a fixed percentage floor"
-fi
+
+verify_coverage_review_only() {
+  local target="$1"
+  local coverage_word='cover''age'
+  local floor_word='flo''or'
+  local threshold_word='thresh''old'
+  local gate_word='ga''te'
+  local percent_pattern="${coverage_word}.{0,80}[0-9]+([.][0-9]+)?[[:space:]]*(%|percent)|[0-9]+([.][0-9]+)?[[:space:]]*(%|percent).{0,80}${coverage_word}"
+  local policy_pattern="${coverage_word}[- _-]*(${floor_word}|${threshold_word}|${gate_word})|(${floor_word}|${threshold_word}|${gate_word})[- _-]*${coverage_word}|COVERAGE[_-]MIN"
+  if grep -Eiq "$percent_pattern|$policy_pattern" "$target"; then
+    printf '%s\n' "$target contains a numeric coverage pass/fail contract" >&2
+    return 1
+  fi
+}
+
+coverage_fixture="$tmp/coverage-policy.md"
+printf '%s\n' 'Coverage is measured as review evidence.' > "$coverage_fixture"
+verify_coverage_review_only "$coverage_fixture" || fail "review-only coverage fixture failed"
+coverage_label='Cover''age'
+coverage_value=$((4 + 5))
+printf '%s must stay above %s%%.\n' "$coverage_label" "$coverage_value" > "$coverage_fixture"
+expect_failure verify_coverage_review_only "$coverage_fixture"
+
+while IFS= read -r -d '' policy_file; do
+  verify_coverage_review_only "$policy_file" \
+    || fail "numeric coverage policy must remain absent from project text"
+done < <(
+  find "$root" \
+    -path "$root/.git" -prune -o \
+    -path "$root/.build" -prune -o \
+    -path "$root/.reconc" -prune -o \
+    -path "$root/dist" -prune -o \
+    -path "$root/scripts/tests/release-trust.sh" -prune -o \
+    -type f \( \
+      -name '*.go' -o -name '*.md' -o -name '*.sh' -o -name '*.yml' -o \
+      -name '*.yaml' -o -name '*.toml' -o -name '*.json' -o -name 'Makefile' \
+    \) -print0
+)
 
 ci_workflow="$root/.github/workflows/reconc-ci.yml"
 release_workflow="$root/.github/workflows/reconc-release.yml"
@@ -198,6 +230,8 @@ require_text "$release_workflow" "subject-checksums: dist/SHA256SUMS"
   || fail "$ci_workflow must run the publication audit exactly once"
 require_text "$release_workflow" "  workflow_dispatch:"
 require_text "$release_workflow" "      tag:"
+require_text "$release_workflow" "      replace_published:"
+require_text "$release_workflow" "        type: boolean"
 # shellcheck disable=SC2016 # Match workflow expressions literally.
 require_text "$release_workflow" 'ref: ${{ inputs.tag }}'
 verify_manual_dispatch_only "$release_workflow" \
@@ -207,9 +241,8 @@ require_text "$release_workflow" 'test "$tag_version" = "$source_version"'
 # shellcheck disable=SC2016 # Match workflow shell expressions literally.
 require_text "$release_workflow" 'test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"'
 # shellcheck disable=SC2016 # Match workflow shell expressions literally.
-require_text "$release_workflow" 'gh release upload "$RELEASE_TAG" dist/* --clobber'
-[ "$(grep -Fc -- '--notes-file "$notes_file"' "$release_workflow")" -eq 2 ] \
-  || fail "$release_workflow must refresh notes for both new and replacement releases"
+require_text "$release_workflow" 'REPLACE_PUBLISHED: ${{ inputs.replace_published }}'
+require_text "$release_workflow" './scripts/release/publish-github-release.sh'
 for runner in ubuntu-24.04 macos-15 windows-2025; do
   require_text "$ci_workflow" "$runner"
 done
@@ -238,11 +271,10 @@ require_text "$root/scripts/tests/self-hosting.sh" "--hook all"
 if grep -Fq 'staticcheck@latest' "$ci_workflow"; then
   fail "$ci_workflow uses an unpinned staticcheck version"
 fi
-draft_line=$(grep -n -- '--draft' "$release_workflow" | head -n 1 | cut -d: -f1)
-upload_line=$(grep -n 'gh release upload' "$release_workflow" | head -n 1 | cut -d: -f1)
-publish_line=$(grep -n 'gh release edit.*--draft=false' "$release_workflow" | head -n 1 | cut -d: -f1)
-[ "$draft_line" -lt "$upload_line" ] && [ "$upload_line" -lt "$publish_line" ] \
-  || fail "release workflow must remain draft until every verified artifact is uploaded"
+bash -n "$root/scripts/release/publish-github-release.sh" \
+  || fail "release publication helper has invalid Bash syntax"
+"$root/scripts/tests/release-publication.sh" \
+  || fail "release publication transition tests failed"
 
 release_dir="$tmp/release"
 mkdir -p "$release_dir"

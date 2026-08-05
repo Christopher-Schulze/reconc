@@ -200,13 +200,12 @@ make release VERSION=0.9.2
 ```
 
 `make coverage` runs both Go modules with atomic whole-module instrumentation
-(`-coverpkg=./...`) and reports the measured percentages without enforcing a
-fixed threshold. The profiles are written to `coverage.out` and
+(`-coverpkg=./...`) and reports the measurements for review only. The profiles
+are written to `coverage.out` and
 `harness/template/coverage.out`. `make cover` records the same measurements and
-also writes separate HTML reports beside those profiles. Coverage is a review
-signal, not a percentage gate: meaningful tests must exercise changed behavior,
-while OS-specific files and process entry points still require their matching
-platform jobs or integration boundaries.
+also writes separate HTML reports beside those profiles. Meaningful tests must
+exercise changed behavior, while OS-specific files and process entry points
+still require their matching platform jobs or integration boundaries.
 
 `make release` cross-compiles five binaries into `dist/`, copies the native
 POSIX and Windows installers, generates three flat shell-completion artifacts,
@@ -2276,11 +2275,15 @@ Release:
   `gh workflow run reconc-release.yml --ref reconc-vX.Y.Z -f tag=reconc-vX.Y.Z`.
   The workflow rejects branch refs so provenance binds the release tag; tag
   pushes never trigger a release.
+- A published tag is never treated as a successful no-op. Replacing one
+  requires the same tag-bound dispatch plus
+  `-f replace_published=true`; requesting replacement when no release exists
+  also fails. Existing drafts remain resumable without expanding authority.
 - The tag version must be stable semantic versioning, match the source version, and have committed release notes.
 - Release workflow provisions the same pinned GitHub-owned Node.js runtime and
-  exact verified Bun runtime, then repeats formatting, tidy, test, vet, pinned
+  exact verified Bun runtime, then runs formatting, tidy, vet, pinned
   Govulncheck, pinned Staticcheck, race, publication, trust, and clean-repository
-  self-hosting gates before building.
+  self-hosting checks before building.
 - `make release VERSION=<tag-version>` builds the exact flat release inventory.
 - `release-manifest.json` binds the exact repository, tag, version, prerelease
   class, asset names, sizes, SHA-256 digests, and format version consumed by
@@ -2292,7 +2295,11 @@ Release:
   both Go modules, selected dependencies, the Go toolchain, version, and commit.
 - Every artifact is verified against `SHA256SUMS` before upload.
 - Embedded deterministic build provenance binds every binary to its target and production-source digest; GitHub build-provenance attestations bind every manifest-listed artifact to the tagged workflow run.
-- GitHub publication is rerun-safe and stays draft until every verified artifact and the manifest upload successfully.
+- GitHub publication is rerun-safe and stays draft while it removes the prior
+  remote asset inventory, uploads every flat local `dist/` artifact, and
+  compares each remote name, byte size, and SHA-256 digest with the local
+  inventory. Missing, extra, stale, or mismatched assets fail before publish;
+  the final published state and inventory are read back once more.
 - No Docker image is built or published.
 
 Reproducibility basis: release binaries are cross-compiled with a pinned Go

@@ -7,6 +7,11 @@ on:
         description: Existing release tag (reconc-vX.Y.Z)
         required: true
         type: string
+      replace_published:
+        description: Explicitly replace an already-published release for this tag
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: release-${{ inputs.tag }}
@@ -125,23 +130,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
+          REPLACE_PUBLISHED: ${{ inputs.replace_published }}
         run: |
-          set -eu
+          case "$REPLACE_PUBLISHED" in
+            true) publication_mode=replace ;;
+            false) publication_mode=new ;;
+            *) printf 'Invalid replacement input: %s\n' "$REPLACE_PUBLISHED" >&2; exit 1 ;;
+          esac
           notes_file=".github/releases/${RELEASE_TAG}.md"
-          release_state="$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null || true)"
-          if [ -z "$release_state" ]; then
-            gh release create "$RELEASE_TAG" \
-              --title "reconc ${RELEASE_TAG#reconc-v}" \
-              --notes-file "$notes_file" \
-              --verify-tag \
-              --draft
-          elif [ "$release_state" != "true" ]; then
-            printf 'Release %s is already published; nothing to replace.\n' "$RELEASE_TAG"
-            exit 0
-          fi
-          gh release edit "$RELEASE_TAG" \
-            --title "reconc ${RELEASE_TAG#reconc-v}" \
-            --notes-file "$notes_file" \
-            --draft
-          gh release upload "$RELEASE_TAG" dist/* --clobber
-          gh release edit "$RELEASE_TAG" --draft=false
+          ./scripts/release/publish-github-release.sh \
+            "$RELEASE_TAG" dist "$notes_file" "$publication_mode"

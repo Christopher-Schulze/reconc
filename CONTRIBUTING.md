@@ -61,7 +61,7 @@ make publication-audit
 `make test` covers the publication audit, root and portable-template race
 suites, and release-trust contract. `make coverage` instruments every package
 in each module, writes separate root and template profiles, and reports the
-measured percentages without enforcing a fixed threshold. `make cover` records
+measurements for review only. `make cover` records
 the same measurements and also writes separate HTML reports. Coverage review
 does not replace platform-specific tests. Changes to
 release generation, schemas, completion, manpages, installers, or provenance

@@ -55,11 +55,10 @@ cross-platform behavior, and materially higher test coverage.
   `reconc run on|status|off`, so users and agents no longer need versioned or
   repository-local binary paths for routine operation.
 
-## Coverage and portability
+## Test breadth and portability
 
-- Whole-module coverage is now enforced for both Go modules. The release
-  baseline measures 84.4824% for the standalone module and 85.0377% for the
-  portable template, with permanent non-regression floors of 84% and 85%.
+- Whole-module coverage is measured for both Go modules as review evidence;
+  pass or fail is determined by substantive tests, not a numeric target.
 - Strict behavioral tests add positive, negative, malformed, boundary,
   concurrency, rollback, parser, CLI, bootstrap, runtime, audit, and
   publication coverage without exclusions or denominator tricks.

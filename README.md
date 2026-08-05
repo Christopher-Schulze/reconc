@@ -1033,9 +1033,11 @@ The source line is `v0.9.x`, and the current source version is `v0.9.2`.
 Release artifacts are produced only by
 an explicit manual workflow dispatch that uses an existing
 `reconc-vX.Y.Z` tag as both workflow ref and input; branch-ref dispatches are
-rejected and tag pushes never publish a release. Every published release SBOM
-is regenerated and byte-verified before its checksum and build provenance are
-published.
+rejected and tag pushes never publish a release. An existing published release
+fails closed unless the dispatch explicitly authorizes replacement. Every
+remote asset name, size, and SHA-256 digest must match the local release
+inventory before publication; every published release SBOM is regenerated and
+byte-verified before its checksum and build provenance are published.
 
 Candidate CI runs root and portable-template race tests on Ubuntu, normal tests
 on macOS and native Windows, Windows installer failure paths, whole-module

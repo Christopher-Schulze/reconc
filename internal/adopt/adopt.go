@@ -7,7 +7,7 @@
 // (package.json, pyproject.toml, Cargo.toml, go.mod, .github/workflows/)
 // and emit a small set of high-confidence rule suggestions. We never
 // emit destructive-looking rules (e.g. forbid_command); the goal is to
-// get a new repo to 80% coverage without the user writing YAML.
+// get a new repo to useful behavioral coverage without the user writing YAML.
 package adopt
 
 import (
