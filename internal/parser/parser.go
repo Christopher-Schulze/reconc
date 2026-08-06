@@ -78,7 +78,7 @@ func ParseRuleDocuments(bundle *ingest.SourceBundle) (*ParsedPolicy, error) {
 		// Skip context-only sources; their fenced blocks land as
 		// separate inline_block sources we DO process.
 		switch src.Kind {
-		case policy.SourceClaudeMD, policy.SourceAgentsMD, policy.SourceStartMD:
+		case policy.SourceClaudeMD, policy.SourceAgentsMD, policy.SourceStartMD, policy.SourceCustomRuntime:
 			continue
 		}
 

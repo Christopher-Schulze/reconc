@@ -1,0 +1,35 @@
+{
+  "$schema": "https://reconc.dev/schemas/custom-runtime-conformance/v1",
+  "format_version": "reconc-custom-runtime-conformance/v1",
+  "runtime": "custom:local-agent",
+  "cases": [
+    {
+      "name": "request-response-liveness-privacy",
+      "host_event": "before-tool",
+      "host_payload": {"context":{"session":"s-1"},"tool":{"name":"Read","input":{"path":"README.md"}},"secret":"PRIVATE-MARKER"},
+      "expected_payload": {"session_id":"s-1","reconc_runtime":"custom:local-agent","tool_name":"Read","tool_input":{"path":"README.md"}},
+      "result": {"exit_code":0},
+      "expected_decision": "allow",
+      "private_markers": ["PRIVATE-MARKER"],
+      "proves": ["request", "response", "liveness", "privacy"]
+    },
+    {
+      "name": "timeout-fails-closed",
+      "host_event": "before-tool",
+      "host_payload": {"context":{"session":"s-2"},"tool":{"name":"Write","input":{"path":"release.bin"}}},
+      "expected_payload": {"session_id":"s-2","reconc_runtime":"custom:local-agent","tool_name":"Write","tool_input":{"path":"release.bin"}},
+      "result": {"exit_code":0,"timed_out":true},
+      "expected_decision": "block",
+      "proves": ["timeout"]
+    },
+    {
+      "name": "operational-failure-fails-closed",
+      "host_event": "before-tool",
+      "host_payload": {"context":{"session":"s-3"},"tool":{"name":"Bash","input":{"command":"make test"}}},
+      "expected_payload": {"session_id":"s-3","reconc_runtime":"custom:local-agent","tool_name":"Bash","tool_input":{"command":"make test"}},
+      "result": {"exit_code":0,"operational_error":"fixture failure"},
+      "expected_decision": "block",
+      "proves": ["failure"]
+    }
+  ]
+}

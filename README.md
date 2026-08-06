@@ -635,6 +635,7 @@ being reported as successful partial publication.
 | Kimi Code CLI | explicit user-global `$KIMI_CODE_HOME/config.toml` integration for all 16 native hook events; repository discovery prevents global hooks from acting outside initialized Reconc repositories |
 | Oh My Pi CLI | project-local `.omp/extensions/reconc.ts` ExtensionAPI adapter with native session, prompt, approval, tool-result, compaction, shutdown, and synchronous `session_stop` handling |
 | Pi Coding Agent | trust-aware project-local `.pi/extensions/reconc.ts` extension with blocking tool and user-shell interception, exact tool outcomes, lifecycle and compaction observations, and bounded asynchronous `agent_settled` continuation |
+| Declarative custom runtimes | repository-owned `.reconc/runtimes/*.json` manifests map exact host events and JSON Pointers into the neutral lifecycle; `hook bridge` reuses the same policy/session engine and `hook conform` proves the public adapter contract offline |
 
 Integration claims use precise states:
 
@@ -663,6 +664,15 @@ and cloud agents. Static `configured` state and per-route `observed` liveness
 remain separate. The exact support-state and event matrix is in
 [the platform contract](docs/documentation.md#host-integration-truth). All
 platforms still use git pre-commit as the hard repository backstop.
+
+Third-party local agents and CI bots can integrate without a Reconc source
+patch. A manifest is strictly bounded, non-executable, repository-confined,
+content-digested into the compiled policy identity, and named `custom:<name>`;
+built-in names are reserved. Missing pre-execution, synchronous-response,
+authoritative-outcome, Stop-continuation, acknowledgement, or MCP-identity
+guarantees are reported as degraded or unsupported and never promoted to a
+stronger enforcement claim. Adapter authors validate request, response,
+timeout, failure, liveness, and privacy behavior with `reconc hook conform`.
 
 Pi exposes no synchronous Stop decision event. Reconc maps `agent_settled` to
 bounded asynchronous continuation with at most ten requests per session. The

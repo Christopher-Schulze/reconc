@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reconc.dev/schemas/neutral-hook-request/v1",
+  "title": "Reconc neutral hook request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "format_version", "runtime", "host_event", "event", "payload"],
+  "properties": {
+    "$schema": { "const": "https://reconc.dev/schemas/neutral-hook-request/v1" },
+    "format_version": { "const": "reconc-neutral-hook-request/v1" },
+    "runtime": { "type": "string", "pattern": "^custom:[a-z0-9][a-z0-9_-]{0,47}$" },
+    "host_event": { "type": "string", "minLength": 1, "maxLength": 96 },
+    "event": { "type": "string", "minLength": 1 },
+    "payload": { "type": "object" }
+  }
+}

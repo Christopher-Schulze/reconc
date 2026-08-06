@@ -759,6 +759,23 @@ UI- and cloud-only surfaces remain unclaimed instead of guessed.
 normalizes historical Cursor surface names and delegates to this command. It
 has no independent matrix or evidence logic.
 
+### `reconc hook bridge <runtime> <host-event> [repo]`
+
+Read one bounded host JSON object from stdin, select the exact declarative
+manifest in `.reconc/runtimes/<runtime>.json`, normalize only its declared JSON
+Pointers, and dispatch the neutral event through the existing session and
+policy engine. The command emits one bounded, versioned neutral response.
+Stale locks, unknown routes, malformed mappings, and fail-closed route errors
+block; missing host guarantees return `unsupported` without claiming stronger
+enforcement than the host provides.
+
+### `reconc hook conform <manifest.json> <fixtures.json> [--json]`
+
+Validate a custom-runtime manifest and its offline fixture suite without
+executing adapter code or using the network. A passing suite must exercise
+request normalization, response decisions, timeout and operational-failure
+policies, liveness identity, and privacy-marker exclusion.
+
 ### `reconc hook sync-scaffold <repo-root-scaffold> [--json]`
 Regenerate source-controlled hook artifacts inside a template
 `repo-root-scaffold`: `.githooks/pre-commit`, `.codex/hooks.json`,

@@ -218,12 +218,12 @@ still require their matching platform jobs or integration boundaries.
 
 `make release` cross-compiles five binaries into `dist/`, copies the native
 POSIX and Windows installers, generates three flat shell-completion artifacts,
-generates a man page, copies the fourteen v1 schemas plus the legacy v2 and
+generates a man page, copies the nineteen v1 schemas plus the legacy v2 and
 current v3 policy-lock schemas, generates deterministic SPDX 2.3 and CycloneDX
 1.6 SBOMs,
 generates a strict `release-manifest.json`, and writes `dist/SHA256SUMS`. The
 target stops on the first build, SBOM, manifest, or checksum failure. The
-release verifier requires exactly those thirty-one checksummed artifacts,
+release verifier requires exactly those thirty-six checksummed artifacts,
 rejects missing, extra, duplicate, unsafe, mutable, or corrupted entries, and
 never accepts an empty manifest. It independently verifies every manifest
 asset and digest, then regenerates Bash, Zsh, Fish, and the versioned man page
@@ -1691,7 +1691,7 @@ summarizes the core runtime responsibilities:
 Key invariants:
 
 - Deterministic JSON artifacts
-- Stable schema and `format_version` fields; release-pinned v1 contracts live under `schemas/v1/`, legacy portable policy locks use `schemas/v2/`, and current portable policy locks use `schemas/v3/`; all fourteen v1 schemas plus the v2 and v3 lock schemas ship in every future release containing repository sync
+- Stable schema and `format_version` fields; versioned v1 contracts live under `schemas/v1/`, legacy portable policy locks use `schemas/v2/`, and current portable policy locks use `schemas/v3/`; all nineteen v1 schemas plus the v2 and v3 lock schemas ship in every future release containing repository sync
 - Fail closed on malformed policy, stale lockfiles, schema drift, invalid globs, unsupported rule kinds, and non-portable current lock envelopes
 - No core policy-runtime network calls; supported agent hosts own their
   authenticated inference traffic
@@ -1727,6 +1727,26 @@ Liveness is stored outside the repository and each route writes at most once
 every six hours.
 Human output keeps only the seen/expected count and last event so large route
 registries do not dominate the terminal.
+
+Repository-owned third-party adapters live only in
+`.reconc/runtimes/<name>.json`. Each manifest is a bounded non-symlink regular
+JSON file with a reserved-safe `custom:<name>` identity, sorted exact host
+routes, explicit timeout/output/failure budgets, host guarantees, and RFC 6901
+field mappings. Reconc executes no manifest-supplied code, expression, shell,
+template, or network action. The compiler validates the filename and manifest,
+adds its digest and redacted capability summary to the lock contract, and
+therefore makes any manifest edit stale until explicit refresh.
+
+`reconc hook bridge <name> <host-event> [repo]` reads one bounded host payload,
+copies only selected neutral fields, checks the fresh compiled identity, reuses
+the existing session/policy/MCP/Stop engine, emits one bounded versioned JSON
+response, and records route liveness. Routes lacking pre-execution,
+synchronous-response, authoritative-outcome, continuation, continuation
+acknowledgement, or exact MCP identity guarantees return `unsupported` and do
+not execute an enforcing handler. `reconc hook conform <manifest> <fixtures>`
+validates request, response, timeout, failure, liveness, and privacy fixtures
+offline. Generic local-agent and CI-bot fixtures ship as executable contract
+tests; built-in adapters remain registry-owned.
 
 ### Host Integration Truth
 

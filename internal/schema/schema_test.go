@@ -12,6 +12,7 @@ import (
 	"reconc.dev/reconc/internal/bootstrap"
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/completiongate"
+	"reconc.dev/reconc/internal/customruntime"
 	"reconc.dev/reconc/internal/harnesspack"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/policy"
@@ -79,20 +80,25 @@ func TestDefaultURLAndResolveCoverEveryArtifact(t *testing.T) {
 
 func TestPublishedSchemasAreVersionedJSONContracts(t *testing.T) {
 	contracts := map[string]string{
-		"policy-config.schema.json":          schema.PolicyConfigURL,
-		"completion-report.schema.json":      schema.CompletionReportURL,
-		"policy-lock.schema.json":            schema.LegacyPolicyLockURL,
-		"policy-report.schema.json":          schema.PolicyReportURL,
-		"policy-fix-plan.schema.json":        schema.PolicyFixPlanURL,
-		"proof-bundle.schema.json":           schema.ProofBundleURL,
-		"installation-receipt.schema.json":   schema.InstallationReceiptURL,
-		"global-diagnostic.schema.json":      schema.GlobalDiagnosticURL,
-		"global-lifecycle.schema.json":       schema.GlobalLifecycleURL,
-		"harness-pack-manifest.schema.json":  schema.HarnessPackManifestURL,
-		"repository-install.schema.json":     schema.RepositoryInstallURL,
-		"repository-sync-plan.schema.json":   schema.RepositorySyncPlanURL,
-		"repository-sync-report.schema.json": schema.RepositorySyncReportURL,
-		"release-manifest.schema.json":       schema.ReleaseManifestURL,
+		"policy-config.schema.json":              schema.PolicyConfigURL,
+		"completion-report.schema.json":          schema.CompletionReportURL,
+		"policy-lock.schema.json":                schema.LegacyPolicyLockURL,
+		"policy-report.schema.json":              schema.PolicyReportURL,
+		"policy-fix-plan.schema.json":            schema.PolicyFixPlanURL,
+		"proof-bundle.schema.json":               schema.ProofBundleURL,
+		"installation-receipt.schema.json":       schema.InstallationReceiptURL,
+		"global-diagnostic.schema.json":          schema.GlobalDiagnosticURL,
+		"global-lifecycle.schema.json":           schema.GlobalLifecycleURL,
+		"harness-pack-manifest.schema.json":      schema.HarnessPackManifestURL,
+		"repository-install.schema.json":         schema.RepositoryInstallURL,
+		"repository-sync-plan.schema.json":       schema.RepositorySyncPlanURL,
+		"repository-sync-report.schema.json":     schema.RepositorySyncReportURL,
+		"release-manifest.schema.json":           schema.ReleaseManifestURL,
+		"custom-runtime-manifest.schema.json":    customruntime.ManifestSchemaURL,
+		"neutral-hook-request.schema.json":       customruntime.NeutralRequestSchemaURL,
+		"neutral-hook-response.schema.json":      customruntime.NeutralResponseSchemaURL,
+		"custom-runtime-liveness.schema.json":    customruntime.LivenessSchemaURL,
+		"custom-runtime-conformance.schema.json": customruntime.ConformanceSchemaURL,
 	}
 	root := filepath.Join("..", "..", "schemas", "v1")
 	paths, err := filepath.Glob(filepath.Join(root, "*.schema.json"))
@@ -160,11 +166,17 @@ func TestPublishedSchemaPropertiesMatchEmittedGoTypes(t *testing.T) {
 	repositorySyncPlan := readSchemaDocument(t, "repository-sync-plan.schema.json")
 	repositorySyncReport := readSchemaDocument(t, "repository-sync-report.schema.json")
 	releaseManifest := readSchemaDocument(t, "release-manifest.schema.json")
+	customManifest := readSchemaDocument(t, "custom-runtime-manifest.schema.json")
+	neutralRequest := readSchemaDocument(t, "neutral-hook-request.schema.json")
+	neutralResponse := readSchemaDocument(t, "neutral-hook-response.schema.json")
+	customLiveness := readSchemaDocument(t, "custom-runtime-liveness.schema.json")
+	customConformance := readSchemaDocument(t, "custom-runtime-conformance.schema.json")
 
 	assertPropertiesMatch(t, schemaDefinition(t, lock, "discovery"), ingest.DiscoveryResult{})
 	assertPropertiesMatch(t, schemaDefinition(t, lock, "source"), legacyPolicySource{})
 	currentLock := readCurrentLockSchemaDocument(t)
 	assertPropertiesMatch(t, schemaDefinition(t, currentLock, "source"), compiler.CompiledSource{})
+	assertPropertiesMatch(t, schemaDefinition(t, currentLock, "customRuntime"), customruntime.Summary{})
 	assertPropertiesMatch(t, schemaDefinition(t, lock, "requiredFile"), policy.RequiredFile{})
 	assertPropertiesMatch(t, schemaDefinition(t, lock, "evidence"), policy.EvidenceCheck{})
 	assertPropertiesMatch(t, schemaDefinition(t, lock, "check"), policy.Check{})
@@ -219,6 +231,15 @@ func TestPublishedSchemaPropertiesMatchEmittedGoTypes(t *testing.T) {
 	assertPropertiesMatch(t, schemaDefinition(t, repositorySyncReport, "resolution"), bootstrap.SyncResolutionReport{})
 	assertPropertiesMatch(t, schemaRootProperties(t, releaseManifest), usercli.ReleaseManifest{})
 	assertPropertiesMatch(t, schemaDefinition(t, releaseManifest, "asset"), usercli.ReleaseAsset{})
+	assertPropertiesMatch(t, schemaRootProperties(t, customManifest), customruntime.Manifest{})
+	assertPropertiesMatch(t, schemaDefinition(t, customManifest, "route"), customruntime.Route{})
+	assertPropertiesMatch(t, schemaDefinition(t, customManifest, "fields"), customruntime.FieldMappings{})
+	assertPropertiesMatch(t, schemaDefinition(t, customManifest, "guarantees"), customruntime.HostGuarantees{})
+	assertPropertiesMatch(t, schemaRootProperties(t, neutralRequest), customruntime.NeutralRequest{})
+	assertPropertiesMatch(t, schemaRootProperties(t, neutralResponse), customruntime.NeutralResponse{})
+	assertPropertiesMatch(t, schemaRootProperties(t, customLiveness), customruntime.LivenessRecord{})
+	assertPropertiesMatch(t, schemaRootProperties(t, customConformance), customruntime.ConformanceSuite{})
+	assertPropertiesMatch(t, schemaDefinition(t, customConformance, "case"), customruntime.ConformanceCase{})
 }
 
 func TestPublishedAssuranceEnumMatchesPolicyKinds(t *testing.T) {

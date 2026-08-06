@@ -98,6 +98,17 @@ func (e *CompiledPolicyEvaluator) RequireScriptRuleIDs() []string {
 	return requireScriptRuleIDs(e.plan.rules)
 }
 
+// CustomRuntimeManifestDigest returns the compiled identity for one
+// repository-owned runtime so bridge callers can bind the bytes they execute
+// to the already validated immutable plan.
+func (e *CompiledPolicyEvaluator) CustomRuntimeManifestDigest(runtime string) (string, bool) {
+	if e == nil || e.plan == nil {
+		return "", false
+	}
+	digest, ok := e.plan.customRuntimeDigests[runtime]
+	return digest, ok
+}
+
 // CheckRepoPolicyWithMetrics validates the current repository lock and returns
 // the same report plus deterministic structural cost evidence.
 func (e *Evaluator) CheckRepoPolicyWithMetrics(startPath string, inputs ExecutionInputs) (*CheckReport, EvaluationMetrics, error) {

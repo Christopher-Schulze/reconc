@@ -34,6 +34,13 @@ func inspectHookRuntimeCompatibility(discovery ingest.DiscoveryResult) hookRunti
 		result.Detail = "cannot inspect hook platforms: " + err.Error()
 		return result
 	}
+	customReports, err := inspectCustomRuntimeStatuses(discovery.RepoRoot)
+	if err != nil {
+		result.Status = doctorStatusWarn
+		result.Detail = "cannot inspect custom hook runtimes: " + err.Error()
+		return result
+	}
+	reports = append(reports, customReports...)
 	parts := make([]string, 0, len(reports))
 	runtimeKinds := make([]string, 0, len(reports))
 	hasWarn := false

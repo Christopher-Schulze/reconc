@@ -16,8 +16,8 @@ import (
 
 const (
 	hookLivenessWriteInterval = 6 * time.Hour
-	maxHookLivenessBytes      = 64 * 1024
-	maxHookLivenessRuntimes   = 16
+	maxHookLivenessBytes      = 256 * 1024
+	maxHookLivenessRuntimes   = 64
 	// maxHookLivenessRoutes mirrors the read-side validation cap so the
 	// writer never persists a record the next read would reject.
 	maxHookLivenessRoutes = 32

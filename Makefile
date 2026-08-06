@@ -157,7 +157,7 @@ checksums: sbom
 	@mkdir -p $(DISTDIR)
 	@cp install.sh install.ps1 $(DISTDIR)/
 	@cp harness/advanced-pack.zip $(DISTDIR)/reconc-harness-pack-advanced-1.0.0.zip
-	@cp schemas/v1/completion-report.schema.json schemas/v1/global-diagnostic.schema.json schemas/v1/global-lifecycle.schema.json schemas/v1/harness-pack-manifest.schema.json schemas/v1/installation-receipt.schema.json schemas/v1/policy-config.schema.json schemas/v1/policy-fix-plan.schema.json schemas/v1/policy-report.schema.json schemas/v1/proof-bundle.schema.json schemas/v1/release-manifest.schema.json schemas/v1/repository-install.schema.json schemas/v1/repository-sync-plan.schema.json schemas/v1/repository-sync-report.schema.json $(DISTDIR)/
+	@cp schemas/v1/completion-report.schema.json schemas/v1/custom-runtime-conformance.schema.json schemas/v1/custom-runtime-liveness.schema.json schemas/v1/custom-runtime-manifest.schema.json schemas/v1/global-diagnostic.schema.json schemas/v1/global-lifecycle.schema.json schemas/v1/harness-pack-manifest.schema.json schemas/v1/installation-receipt.schema.json schemas/v1/neutral-hook-request.schema.json schemas/v1/neutral-hook-response.schema.json schemas/v1/policy-config.schema.json schemas/v1/policy-fix-plan.schema.json schemas/v1/policy-report.schema.json schemas/v1/proof-bundle.schema.json schemas/v1/release-manifest.schema.json schemas/v1/repository-install.schema.json schemas/v1/repository-sync-plan.schema.json schemas/v1/repository-sync-report.schema.json $(DISTDIR)/
 	@cp schemas/v1/policy-lock.schema.json $(DISTDIR)/policy-lock-v1.schema.json
 	@cp schemas/v2/policy-lock.schema.json $(DISTDIR)/policy-lock-v2.schema.json
 	@cp schemas/v3/policy-lock.schema.json $(DISTDIR)/policy-lock.schema.json

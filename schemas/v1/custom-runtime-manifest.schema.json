@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reconc.dev/schemas/custom-runtime-manifest/v1",
+  "title": "Reconc declarative custom runtime manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "format_version", "name", "display_name", "routes"],
+  "properties": {
+    "$schema": { "const": "https://reconc.dev/schemas/custom-runtime-manifest/v1" },
+    "format_version": { "const": "reconc-custom-runtime/v1" },
+    "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,47}$" },
+    "display_name": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "routes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": { "$ref": "#/$defs/route" }
+    }
+  },
+  "$defs": {
+    "pointer": { "type": "string", "maxLength": 256, "pattern": "^(?:/(?:[^~/]|~[01])*)+$" },
+    "fields": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_id"],
+      "properties": {
+        "session_id": { "$ref": "#/$defs/pointer" },
+        "tool_name": { "$ref": "#/$defs/pointer" },
+        "tool_input": { "$ref": "#/$defs/pointer" },
+        "tool_response": { "$ref": "#/$defs/pointer" },
+        "tool_use_id": { "$ref": "#/$defs/pointer" },
+        "error": { "$ref": "#/$defs/pointer" },
+        "is_interrupt": { "$ref": "#/$defs/pointer" },
+        "stop_hook_active": { "$ref": "#/$defs/pointer" },
+        "strict_continuation": { "$ref": "#/$defs/pointer" },
+        "exit_code": { "$ref": "#/$defs/pointer" },
+        "mcp_tool": { "$ref": "#/$defs/pointer" },
+        "mcp_server_fingerprint": { "$ref": "#/$defs/pointer" },
+        "mcp_outcome": { "$ref": "#/$defs/pointer" }
+      }
+    },
+    "guarantees": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pre_execution", "synchronous_response", "authoritative_outcome", "continuation", "continuation_ack", "mcp_identity"],
+      "properties": {
+        "pre_execution": { "type": "boolean" },
+        "synchronous_response": { "type": "boolean" },
+        "authoritative_outcome": { "type": "boolean" },
+        "continuation": { "type": "boolean" },
+        "continuation_ack": { "type": "boolean" },
+        "mcp_identity": { "type": "boolean" }
+      }
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host_event", "event", "support", "response", "error_policy", "timeout_policy", "timeout_seconds", "max_output_bytes", "guarantees", "fields"],
+      "properties": {
+        "host_event": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,95}$" },
+        "event": { "enum": ["session-start", "user-prompt-submit", "pre-tool-use", "permission-request", "permission-result", "post-tool-use", "post-tool-use-failure", "mcp-before", "mcp-after", "stop", "interrupt", "session-end", "notification", "subagent-start", "subagent-stop", "pre-compaction", "post-compaction", "workspace-open"] },
+        "support": { "enum": ["native", "adapted", "inferred", "unsupported"] },
+        "response": { "enum": ["decision", "observation", "stop-continuation"] },
+        "error_policy": { "enum": ["block", "allow", "host"] },
+        "timeout_policy": { "enum": ["block", "allow", "host"] },
+        "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 600 },
+        "max_output_bytes": { "type": "integer", "minimum": 256, "maximum": 65536 },
+        "max_continuations": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "guarantees": { "$ref": "#/$defs/guarantees" },
+        "fields": { "$ref": "#/$defs/fields" }
+      }
+    }
+  }
+}

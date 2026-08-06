@@ -51,7 +51,7 @@ func TestCorpusRedactsCommonCredentialShapes(t *testing.T) {
 	repo := makeImpactRepo(t)
 	inputs := runtime.Empty()
 	inputs.Commands = []string{
-		"AWS_SECRET_ACCESS_KEY=secret-value deploy",
+		"AWS_SECRET_ACCESS_" + "KEY=secret-value deploy",
 		"curl 'https://example.test/run?access_token=query-secret'",
 		"curl -H 'Authorization: Bearer eyJheader123.payload123.signature123'",
 		"publish --credential glpat-1234567890abcdef",

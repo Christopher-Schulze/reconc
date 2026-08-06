@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reconc.dev/schemas/custom-runtime-conformance/v1",
+  "title": "Reconc custom runtime conformance suite v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "format_version", "runtime", "cases"],
+  "properties": {
+    "$schema": { "const": "https://reconc.dev/schemas/custom-runtime-conformance/v1" },
+    "format_version": { "const": "reconc-custom-runtime-conformance/v1" },
+    "runtime": { "type": "string", "pattern": "^custom:[a-z0-9][a-z0-9_-]{0,47}$" },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": { "$ref": "#/$defs/case" }
+    }
+  },
+  "$defs": {
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "host_event", "host_payload", "expected_payload", "result", "expected_decision", "proves"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "host_event": { "type": "string", "minLength": 1 },
+        "host_payload": { "type": "object" },
+        "expected_payload": { "type": "object" },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["exit_code"],
+          "properties": {
+            "exit_code": { "type": "integer" },
+            "stdout": { "type": "string" },
+            "stderr": { "type": "string" },
+            "operational_error": { "type": "string" },
+            "timed_out": { "type": "boolean" }
+          }
+        },
+        "expected_decision": { "enum": ["allow", "block", "observe", "continue", "host", "unsupported"] },
+        "private_markers": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "proves": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["request", "response", "timeout", "failure", "liveness", "privacy"] }
+        }
+      }
+    }
+  }
+}

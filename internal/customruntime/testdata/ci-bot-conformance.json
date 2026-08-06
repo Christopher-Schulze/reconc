@@ -1,0 +1,35 @@
+{
+  "$schema": "https://reconc.dev/schemas/custom-runtime-conformance/v1",
+  "format_version": "reconc-custom-runtime-conformance/v1",
+  "runtime": "custom:ci-bot",
+  "cases": [
+    {
+      "name": "ci-request-response-privacy-liveness",
+      "host_event": "job.requested",
+      "host_payload": {"run":{"id":"ci-1"},"job":{"name":"Bash","input":{"command":"make test"}},"token":"CI-PRIVATE"},
+      "expected_payload": {"session_id":"ci-1","reconc_runtime":"custom:ci-bot","tool_name":"Bash","tool_input":{"command":"make test"}},
+      "result": {"exit_code":0},
+      "expected_decision": "allow",
+      "private_markers": ["CI-PRIVATE"],
+      "proves": ["request", "response", "privacy", "liveness"]
+    },
+    {
+      "name": "ci-timeout",
+      "host_event": "job.requested",
+      "host_payload": {"run":{"id":"ci-2"},"job":{"name":"Write","input":{"path":"artifact"}}},
+      "expected_payload": {"session_id":"ci-2","reconc_runtime":"custom:ci-bot","tool_name":"Write","tool_input":{"path":"artifact"}},
+      "result": {"exit_code":0,"timed_out":true},
+      "expected_decision": "block",
+      "proves": ["timeout"]
+    },
+    {
+      "name": "ci-failure",
+      "host_event": "job.requested",
+      "host_payload": {"run":{"id":"ci-3"},"job":{"name":"Bash","input":{"command":"false"}}},
+      "expected_payload": {"session_id":"ci-3","reconc_runtime":"custom:ci-bot","tool_name":"Bash","tool_input":{"command":"false"}},
+      "result": {"exit_code":1,"operational_error":"adapter unavailable"},
+      "expected_decision": "block",
+      "proves": ["failure"]
+    }
+  ]
+}

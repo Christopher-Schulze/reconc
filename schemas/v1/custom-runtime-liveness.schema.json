@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reconc.dev/schemas/custom-runtime-liveness/v1",
+  "title": "Reconc custom runtime liveness record v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "format_version", "runtime", "host_event", "observed_at", "manifest_digest"],
+  "properties": {
+    "$schema": { "const": "https://reconc.dev/schemas/custom-runtime-liveness/v1" },
+    "format_version": { "const": "reconc-custom-runtime-liveness/v1" },
+    "runtime": { "type": "string", "pattern": "^custom:[a-z0-9][a-z0-9_-]{0,47}$" },
+    "host_event": { "type": "string", "minLength": 1, "maxLength": 96 },
+    "observed_at": { "type": "string", "format": "date-time" },
+    "manifest_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

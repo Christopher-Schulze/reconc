@@ -297,10 +297,15 @@ release_assets=(
   reconc.bash
   reconc.fish
   completion-report.schema.json
+  custom-runtime-conformance.schema.json
+  custom-runtime-liveness.schema.json
+  custom-runtime-manifest.schema.json
   global-diagnostic.schema.json
   global-lifecycle.schema.json
   harness-pack-manifest.schema.json
   installation-receipt.schema.json
+  neutral-hook-request.schema.json
+  neutral-hook-response.schema.json
   policy-fix-plan.schema.json
   policy-config.schema.json
   policy-lock-v1.schema.json

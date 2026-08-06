@@ -409,6 +409,7 @@ const (
 	SourceCompilerConfig SourceKind = "compiler_config"
 	SourcePreset         SourceKind = "preset"
 	SourcePolicyFile     SourceKind = "policy_file"
+	SourceCustomRuntime  SourceKind = "custom_runtime"
 )
 
 // SourcePrecedence is the canonical order in which sources contribute to

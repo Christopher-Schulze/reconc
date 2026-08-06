@@ -23,6 +23,14 @@ func TestMCPEnumValidationIsClosed(t *testing.T) {
 	if MCPPlatform("claude").Valid() {
 		t.Error("unknown MCP platform must be invalid")
 	}
+	if !MCPPlatform("custom:local-agent").Valid() {
+		t.Error("valid custom MCP platform must be accepted")
+	}
+	for _, invalid := range []MCPPlatform{"custom:", "custom:Local", "custom:-agent", "custom:agent/name"} {
+		if invalid.Valid() {
+			t.Errorf("invalid custom MCP platform %q must be rejected", invalid)
+		}
+	}
 
 	for _, effect := range []MCPEffect{MCPEffectRepositoryRead, MCPEffectRepositoryWrite, MCPEffectCommand, MCPEffectExternal} {
 		if !effect.Valid() {

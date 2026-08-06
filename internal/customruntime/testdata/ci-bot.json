@@ -1,0 +1,44 @@
+{
+  "$schema": "https://reconc.dev/schemas/custom-runtime-manifest/v1",
+  "format_version": "reconc-custom-runtime/v1",
+  "name": "ci-bot",
+  "display_name": "Generic CI Bot",
+  "routes": [
+    {
+      "host_event": "job.completed",
+      "event": "post-tool-use",
+      "support": "adapted",
+      "response": "observation",
+      "error_policy": "allow",
+      "timeout_policy": "allow",
+      "timeout_seconds": 30,
+      "max_output_bytes": 2048,
+      "guarantees": {"pre_execution": false, "synchronous_response": false, "authoritative_outcome": true, "continuation": false, "continuation_ack": false, "mcp_identity": false},
+      "fields": {"session_id": "/run/id", "tool_name": "/job/name", "tool_input": "/job/input", "tool_response": "/job/result", "exit_code": "/job/exit_code"}
+    },
+    {
+      "host_event": "job.requested",
+      "event": "pre-tool-use",
+      "support": "adapted",
+      "response": "decision",
+      "error_policy": "block",
+      "timeout_policy": "block",
+      "timeout_seconds": 10,
+      "max_output_bytes": 2048,
+      "guarantees": {"pre_execution": true, "synchronous_response": true, "authoritative_outcome": false, "continuation": false, "continuation_ack": false, "mcp_identity": false},
+      "fields": {"session_id": "/run/id", "tool_name": "/job/name", "tool_input": "/job/input"}
+    },
+    {
+      "host_event": "run.started",
+      "event": "session-start",
+      "support": "native",
+      "response": "observation",
+      "error_policy": "allow",
+      "timeout_policy": "allow",
+      "timeout_seconds": 10,
+      "max_output_bytes": 2048,
+      "guarantees": {"pre_execution": false, "synchronous_response": false, "authoritative_outcome": false, "continuation": false, "continuation_ack": false, "mcp_identity": false},
+      "fields": {"session_id": "/run/id"}
+    }
+  ]
+}

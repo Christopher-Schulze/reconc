@@ -1,0 +1,57 @@
+{
+  "$schema": "https://reconc.dev/schemas/custom-runtime-manifest/v1",
+  "format_version": "reconc-custom-runtime/v1",
+  "name": "local-agent",
+  "display_name": "Generic Local Agent",
+  "routes": [
+    {
+      "host_event": "after-tool",
+      "event": "post-tool-use",
+      "support": "adapted",
+      "response": "observation",
+      "error_policy": "allow",
+      "timeout_policy": "host",
+      "timeout_seconds": 10,
+      "max_output_bytes": 4096,
+      "guarantees": {"pre_execution": false, "synchronous_response": false, "authoritative_outcome": true, "continuation": false, "continuation_ack": false, "mcp_identity": false},
+      "fields": {"session_id": "/context/session", "tool_name": "/tool/name", "tool_input": "/tool/input", "tool_response": "/tool/result", "exit_code": "/tool/exit"}
+    },
+    {
+      "host_event": "before-tool",
+      "event": "pre-tool-use",
+      "support": "adapted",
+      "response": "decision",
+      "error_policy": "block",
+      "timeout_policy": "block",
+      "timeout_seconds": 5,
+      "max_output_bytes": 4096,
+      "guarantees": {"pre_execution": true, "synchronous_response": true, "authoritative_outcome": false, "continuation": false, "continuation_ack": false, "mcp_identity": false},
+      "fields": {"session_id": "/context/session", "tool_name": "/tool/name", "tool_input": "/tool/input"}
+    },
+    {
+      "host_event": "session-start",
+      "event": "session-start",
+      "support": "native",
+      "response": "observation",
+      "error_policy": "allow",
+      "timeout_policy": "allow",
+      "timeout_seconds": 5,
+      "max_output_bytes": 4096,
+      "guarantees": {"pre_execution": false, "synchronous_response": false, "authoritative_outcome": false, "continuation": false, "continuation_ack": false, "mcp_identity": false},
+      "fields": {"session_id": "/context/session"}
+    },
+    {
+      "host_event": "stop",
+      "event": "stop",
+      "support": "native",
+      "response": "stop-continuation",
+      "error_policy": "block",
+      "timeout_policy": "block",
+      "timeout_seconds": 20,
+      "max_output_bytes": 4096,
+      "max_continuations": 3,
+      "guarantees": {"pre_execution": false, "synchronous_response": true, "authoritative_outcome": false, "continuation": true, "continuation_ack": true, "mcp_identity": false},
+      "fields": {"session_id": "/context/session", "stop_hook_active": "/continuation/active"}
+    }
+  ]
+}

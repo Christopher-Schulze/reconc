@@ -316,8 +316,14 @@ weaker host lifecycle respectively.
   timeouts, and every other non-zero exit are host-fail-open. Post-tool output
   has no authoritative exit status. Static configuration is not live proof.
 - **Generic / other agents (Aider, ...)**: invoke the CLI
-  directly. `reconc can`, `reconc check --terse`, `reconc next`, and
-  `reconc done` are token-optimised for this path.
+  directly, or add a repository-owned declarative runtime manifest under
+  `.reconc/runtimes/<name>.json`. A host adapter calls `reconc hook bridge
+  <name> <host-event> .`; it can map only exact JSON Pointers and cannot supply
+  executable code, expressions, shell expansion, or network behavior. Run
+  `reconc hook conform <manifest> <fixtures>` before activation. Missing host
+  guarantees remain degraded or unsupported. Built-in runtime names cannot be
+  overridden. `reconc can`, `reconc check --terse`, `reconc next`, and `reconc
+  done` remain the direct token-optimised path.
 - **Git**: `reconc hook install git-pre-commit .` drops a pre-commit
   hook that runs `reconc ci --staged` as a hard commit-time backstop.
 
@@ -401,7 +407,7 @@ For session entry and reentry, prefer the compact versioned
 - `.reconc/install.lock.json` - portable repository ownership and sync identity
 - `.reconc/policy.lock.json` - the compiled lockfile (source of truth at evaluation time)
 - `.reconc.yml` - authored config (preset extends, rule overrides)
-- `AGENTS.md` - in-prose rules (ingested during compile if `cldc`/`reconc` fenced blocks are present)
+- `AGENTS.md` - in-prose rules (ingested during compile if `reconc` fenced blocks are present)
 
 ## Golden Rules
 

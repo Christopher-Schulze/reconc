@@ -22,7 +22,7 @@ import (
 // agent-session packages.
 func runHook(args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return &CLIError{ExitCode: 1, Message: "reconc hook: missing subcommand (generate | install | uninstall | status | verify | sync-scaffold | claim | evidence-status | evidence-resolve)"}
+		return &CLIError{ExitCode: 1, Message: "reconc hook: missing subcommand (generate | install | uninstall | status | verify | bridge | conform | sync-scaffold | claim | evidence-status | evidence-resolve)"}
 	}
 	switch args[0] {
 	case "-h", "--help":
@@ -32,6 +32,8 @@ func runHook(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintln(stdout, "       reconc hook status   [repo] [--json]")
 		fmt.Fprintln(stdout, "       reconc hook verify   [--host KIND [--surface SURFACE]] [--json]")
 		fmt.Fprintln(stdout, "       reconc hook verify   --live --host KIND --surface SURFACE --allow-authenticated [--json]")
+		fmt.Fprintln(stdout, "       reconc hook bridge  <runtime> <host-event> [repo]   (reads host JSON from stdin)")
+		fmt.Fprintln(stdout, "       reconc hook conform <manifest.json> <fixtures.json> [--json]")
 		fmt.Fprintln(stdout, "       reconc hook sync-scaffold <repo-root-scaffold> [--json]")
 		fmt.Fprintln(stdout, "       reconc hook claim    <repo> <claim-name> [--session ID] [--json] [--output PATH]")
 		fmt.Fprintln(stdout, "       reconc hook evidence-status [repo] [--json]")
@@ -54,6 +56,10 @@ func runHook(args []string, stdout, stderr io.Writer) error {
 		return runHookSyncScaffold(args[1:], stdout, stderr)
 	case "runtime":
 		return runHookRuntime(args[1:], stdout, stderr)
+	case "bridge":
+		return runHookBridge(args[1:], os.Stdin, stdout, stderr)
+	case "conform":
+		return runHookConform(args[1:], stdout)
 	case "worker":
 		return runHookWorker(args[1:], os.Stdin, stdout)
 	case "kimi-runtime":
@@ -67,7 +73,7 @@ func runHook(args []string, stdout, stderr io.Writer) error {
 	case "evidence-resolve":
 		return runHookEvidenceResolve(args[1:], stdout)
 	}
-	return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook: unknown subcommand %q (expected generate | install | uninstall | status | verify | sync-scaffold | claim | evidence-status | evidence-resolve)", args[0])}
+	return &CLIError{ExitCode: 1, Message: fmt.Sprintf("reconc hook: unknown subcommand %q (expected generate | install | uninstall | status | verify | bridge | conform | sync-scaffold | claim | evidence-status | evidence-resolve)", args[0])}
 }
 
 func runHookEvidenceStatus(args []string, stdout io.Writer) error {
@@ -185,6 +191,11 @@ func runHookStatus(args []string, stdout io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc hook status: " + err.Error()}
 	}
+	customReports, err := inspectCustomRuntimeStatuses(repo)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc hook status: custom runtimes: " + err.Error()}
+	}
+	reports = append(reports, customReports...)
 	liveness, err := agentsession.ReadHookLiveness(repo)
 	if err != nil {
 		for i := range reports {
@@ -260,7 +271,9 @@ func enrichMCPPlatformStatus(repo string, reports []hooks.PlatformStatus) {
 			Mappings:               []hooks.MCPMappingStatus{},
 			StrictUnclassifiedDeny: platform == policy.MCPPlatformCursor,
 		}
-		if platform != policy.MCPPlatformCursor {
+		if strings.HasPrefix(string(platform), "custom:") {
+			status.Limitation = "custom MCP enforcement requires a non-degraded manifest route with exact host MCP identity; unsupported routes never dispatch"
+		} else if platform != policy.MCPPlatformCursor {
 			status.Limitation = "generic tool hooks expose an exact host tool identity but no MCP discriminator; configured identities are enforceable, unconfigured MCP calls cannot be distinguished from built-in or custom tools"
 		}
 		if contractErr != nil {
@@ -301,6 +314,9 @@ func enrichMCPPlatformStatus(repo string, reports []hooks.PlatformStatus) {
 }
 
 func hookRuntimeName(kind string) string {
+	if strings.HasPrefix(kind, "custom:") {
+		return "custom-" + strings.TrimPrefix(kind, "custom:")
+	}
 	switch kind {
 	case hooks.KindClaudeCode:
 		return "claude"

@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"reconc.dev/reconc/internal/compiler"
+	"reconc.dev/reconc/internal/customruntime"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/parser"
@@ -32,31 +33,33 @@ type runtimePlanCacheEntry struct {
 }
 
 type runtimePlan struct {
-	defaultMode     policy.Mode
-	rules           []policy.Rule
-	ruleByID        map[string]int
-	rulesByKind     map[policy.Kind][]int
-	preCommandRules []int
-	sourceDigest    string
-	sourceCount     int
-	mcp             *policy.MCPPolicy
+	defaultMode          policy.Mode
+	rules                []policy.Rule
+	ruleByID             map[string]int
+	rulesByKind          map[policy.Kind][]int
+	preCommandRules      []int
+	sourceDigest         string
+	sourceCount          int
+	mcp                  *policy.MCPPolicy
+	customRuntimeDigests map[string]string
 }
 
 type runtimeEnvelope struct {
-	Schema           string                 `json:"$schema"`
-	CompilerVersion  string                 `json:"compiler_version"`
-	FormatVersion    string                 `json:"format_version"`
-	RepoRoot         string                 `json:"repo_root"`
-	DefaultMode      policy.Mode            `json:"default_mode"`
-	RuleCount        int                    `json:"rule_count"`
-	SourceCount      int                    `json:"source_count"`
-	SourceDigest     string                 `json:"source_digest"`
-	LockDigest       string                 `json:"lock_digest"`
-	SourcePrecedence []policy.SourceKind    `json:"source_precedence"`
-	Discovery        ingest.DiscoveryResult `json:"discovery"`
-	Sources          []runtimeSource        `json:"sources"`
-	Rules            json.RawMessage        `json:"rules"`
-	MCP              *policy.MCPPolicy      `json:"mcp,omitempty"`
+	Schema           string                  `json:"$schema"`
+	CompilerVersion  string                  `json:"compiler_version"`
+	FormatVersion    string                  `json:"format_version"`
+	RepoRoot         string                  `json:"repo_root"`
+	DefaultMode      policy.Mode             `json:"default_mode"`
+	RuleCount        int                     `json:"rule_count"`
+	SourceCount      int                     `json:"source_count"`
+	SourceDigest     string                  `json:"source_digest"`
+	LockDigest       string                  `json:"lock_digest"`
+	SourcePrecedence []policy.SourceKind     `json:"source_precedence"`
+	Discovery        ingest.DiscoveryResult  `json:"discovery"`
+	Sources          []runtimeSource         `json:"sources"`
+	Rules            json.RawMessage         `json:"rules"`
+	MCP              *policy.MCPPolicy       `json:"mcp,omitempty"`
+	CustomRuntimes   []customruntime.Summary `json:"custom_runtimes,omitempty"`
 }
 
 type runtimeSource struct {
@@ -148,6 +151,39 @@ func compileRuntimePlan(payload map[string]interface{}) (*runtimePlan, error) {
 	if envelope.SourceCount < 0 || len(envelope.Sources) != envelope.SourceCount {
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile source_count does not match the typed runtime plan"}
 	}
+	customRuntimeDigests := map[string]string{}
+	for _, summary := range envelope.CustomRuntimes {
+		if err := customruntime.ValidateSummary(summary); err != nil {
+			return nil, &rerrors.LockfileError{Message: "compiled lockfile custom runtime is invalid: " + err.Error()}
+		}
+		if _, duplicate := customRuntimeDigests[summary.Runtime]; duplicate {
+			return nil, &rerrors.LockfileError{Message: "compiled lockfile contains duplicate custom runtime " + summary.Runtime}
+		}
+		customRuntimeDigests[summary.Runtime] = summary.ManifestDigest
+	}
+	customSourceNames := map[string]struct{}{}
+	for _, source := range envelope.Sources {
+		if source.Kind != policy.SourceCustomRuntime {
+			continue
+		}
+		const prefix = ".reconc/runtimes/"
+		if !strings.HasPrefix(source.Path, prefix) || !strings.HasSuffix(source.Path, ".json") {
+			return nil, &rerrors.LockfileError{Message: "compiled lockfile custom runtime source path is invalid"}
+		}
+		name := strings.TrimSuffix(strings.TrimPrefix(source.Path, prefix), ".json")
+		if strings.Contains(name, "/") {
+			return nil, &rerrors.LockfileError{Message: "compiled lockfile custom runtime source path is invalid"}
+		}
+		customSourceNames["custom:"+name] = struct{}{}
+	}
+	if len(customSourceNames) != len(customRuntimeDigests) {
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile custom runtime summaries do not match manifest sources"}
+	}
+	for runtimeName := range customSourceNames {
+		if _, ok := customRuntimeDigests[runtimeName]; !ok {
+			return nil, &rerrors.LockfileError{Message: "compiled lockfile custom runtime summaries do not match manifest sources"}
+		}
+	}
 	mcp := envelope.MCP
 	if mcp != nil {
 		if err := mcp.Validate(); err != nil {
@@ -156,14 +192,15 @@ func compileRuntimePlan(payload map[string]interface{}) (*runtimePlan, error) {
 		mcp.Tools = policy.SortedMCPTools(mcp.Tools)
 	}
 	plan := &runtimePlan{
-		defaultMode:     envelope.DefaultMode,
-		rules:           rules,
-		ruleByID:        make(map[string]int, len(rules)),
-		rulesByKind:     make(map[policy.Kind][]int, len(policy.AllKinds())),
-		preCommandRules: make([]int, 0),
-		sourceDigest:    envelope.SourceDigest,
-		sourceCount:     envelope.SourceCount,
-		mcp:             mcp,
+		defaultMode:          envelope.DefaultMode,
+		rules:                rules,
+		ruleByID:             make(map[string]int, len(rules)),
+		rulesByKind:          make(map[policy.Kind][]int, len(policy.AllKinds())),
+		preCommandRules:      make([]int, 0),
+		sourceDigest:         envelope.SourceDigest,
+		sourceCount:          envelope.SourceCount,
+		mcp:                  mcp,
+		customRuntimeDigests: customRuntimeDigests,
 	}
 	for index := range plan.rules {
 		rule := &plan.rules[index]

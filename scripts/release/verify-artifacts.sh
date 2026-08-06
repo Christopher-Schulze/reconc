@@ -36,7 +36,7 @@ sha256_file() {
   printf '%s\n' "$hash"
 }
 
-expected_assets="_reconc install.ps1 install.sh reconc.1 reconc.bash reconc.fish completion-report.schema.json global-diagnostic.schema.json global-lifecycle.schema.json harness-pack-manifest.schema.json installation-receipt.schema.json policy-config.schema.json policy-fix-plan.schema.json policy-lock-v1.schema.json policy-lock-v2.schema.json policy-lock.schema.json policy-report.schema.json proof-bundle.schema.json reconc-harness-pack-advanced-1.0.0.zip release-manifest.schema.json release-manifest.json repository-install.schema.json repository-sync-plan.schema.json repository-sync-report.schema.json reconc-$version.spdx.json reconc-$version.cdx.json"
+expected_assets="_reconc install.ps1 install.sh reconc.1 reconc.bash reconc.fish completion-report.schema.json custom-runtime-conformance.schema.json custom-runtime-liveness.schema.json custom-runtime-manifest.schema.json global-diagnostic.schema.json global-lifecycle.schema.json harness-pack-manifest.schema.json installation-receipt.schema.json neutral-hook-request.schema.json neutral-hook-response.schema.json policy-config.schema.json policy-fix-plan.schema.json policy-lock-v1.schema.json policy-lock-v2.schema.json policy-lock.schema.json policy-report.schema.json proof-bundle.schema.json reconc-harness-pack-advanced-1.0.0.zip release-manifest.schema.json release-manifest.json repository-install.schema.json repository-sync-plan.schema.json repository-sync-report.schema.json reconc-$version.spdx.json reconc-$version.cdx.json"
 for target in "$@"; do
   os=${target%/*}
   arch=${target##*/}
@@ -173,10 +173,15 @@ verify_canonical_asset() {
 
 for name in \
   completion-report.schema.json \
+  custom-runtime-conformance.schema.json \
+  custom-runtime-liveness.schema.json \
+  custom-runtime-manifest.schema.json \
   global-diagnostic.schema.json \
   global-lifecycle.schema.json \
   harness-pack-manifest.schema.json \
   installation-receipt.schema.json \
+  neutral-hook-request.schema.json \
+  neutral-hook-response.schema.json \
   policy-config.schema.json \
   policy-fix-plan.schema.json \
   policy-report.schema.json \

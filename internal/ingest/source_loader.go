@@ -11,6 +11,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 	"reconc.dev/reconc/internal/boundedio"
+	"reconc.dev/reconc/internal/customruntime"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/policy"
@@ -29,6 +30,7 @@ const (
 	maxPolicySourceBytes = 8 << 20
 	maxPolicyBundleBytes = 64 << 20
 	maxPolicySources     = 4096
+	maxCustomRuntimes    = 32
 )
 
 // inlineBlockRegex matches fenced ```reconc ... ``` blocks inside
@@ -166,6 +168,14 @@ func LoadPolicySources(repoStartPath string) (*SourceBundle, error) {
 	sources = append(sources, fragmentSources...)
 	discovery.Warnings = append(discovery.Warnings, fragmentWarnings...)
 
+	// 8. Declarative custom runtime manifests. They are not policy YAML, but
+	// their exact bytes participate in the same source identity.
+	runtimeSources, err := LoadCustomRuntimeSources(root)
+	if err != nil {
+		return nil, err
+	}
+	sources = append(sources, runtimeSources...)
+
 	if err := validatePolicySourceBounds(sources); err != nil {
 		return nil, err
 	}
@@ -174,6 +184,51 @@ func LoadPolicySources(repoStartPath string) (*SourceBundle, error) {
 		Discovery: discovery,
 		Sources:   sources,
 	}, nil
+}
+
+// LoadCustomRuntimeSources reads repository-owned declarative manifests in a
+// deterministic order. Symlinks and non-regular JSON entries are rejected so
+// the compiled identity always refers to bytes physically owned by the repo.
+func LoadCustomRuntimeSources(root string) ([]policy.PolicySource, error) {
+	directory := filepath.Join(root, ".reconc", "runtimes")
+	entries, err := os.ReadDir(directory)
+	if os.IsNotExist(err) {
+		return []policy.PolicySource{}, nil
+	}
+	if err != nil {
+		return nil, &rerrors.PolicySourceError{Message: "read custom runtime directory", Cause: err}
+	}
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		if len(paths) >= maxCustomRuntimes {
+			return nil, &rerrors.PolicySourceError{Message: fmt.Sprintf("custom runtime directory exceeds %d manifests", maxCustomRuntimes)}
+		}
+		paths = append(paths, filepath.ToSlash(filepath.Join(".reconc", "runtimes", entry.Name())))
+	}
+	sort.Strings(paths)
+	sources := make([]policy.PolicySource, 0, len(paths))
+	for _, rel := range paths {
+		full := filepath.Join(root, filepath.FromSlash(rel))
+		info, err := os.Lstat(full)
+		if err != nil {
+			return nil, &rerrors.PolicySourceError{Message: "stat custom runtime " + rel, Cause: err}
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return nil, &rerrors.PolicySourceError{Message: "custom runtime " + rel + " must be a non-symlink regular file"}
+		}
+		body, err := readRepositorySource(root, rel)
+		if err != nil {
+			return nil, &rerrors.PolicySourceError{Message: "read custom runtime " + rel, Cause: err}
+		}
+		if len(body) > customruntime.MaxManifestBytes {
+			return nil, &rerrors.PolicySourceError{Message: fmt.Sprintf("custom runtime %s exceeds %d bytes", rel, customruntime.MaxManifestBytes)}
+		}
+		sources = append(sources, policy.PolicySource{Kind: policy.SourceCustomRuntime, Path: rel, Content: string(body)})
+	}
+	return sources, nil
 }
 
 // loadGlobalPolicySource reads ~/.reconc/global-policy.yml (or whatever

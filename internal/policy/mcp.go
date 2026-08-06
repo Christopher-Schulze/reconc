@@ -65,7 +65,20 @@ func (m MCPUnclassifiedMode) Valid() bool {
 
 // Valid reports whether the platform is part of the public contract.
 func (p MCPPlatform) Valid() bool {
-	return p == MCPPlatformCursor || p == MCPPlatformOpenCode || p == MCPPlatformKilo || p == MCPPlatformOMP || p == MCPPlatformPi
+	if p == MCPPlatformCursor || p == MCPPlatformOpenCode || p == MCPPlatformKilo || p == MCPPlatformOMP || p == MCPPlatformPi {
+		return true
+	}
+	name := strings.TrimPrefix(string(p), "custom:")
+	if name == string(p) || name == "" || len(name) > 48 {
+		return false
+	}
+	for index, character := range name {
+		if character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || index > 0 && (character == '-' || character == '_') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // Valid reports whether the effect is part of the public contract.
@@ -106,7 +119,7 @@ func (p MCPPolicy) Validate() error {
 // Validate checks one exact MCP selector and its effect-specific fields.
 func (t MCPToolPolicy) Validate() error {
 	if !t.Platform.Valid() {
-		return fmt.Errorf("platform must be cursor, opencode, kilo, omp, or pi")
+		return fmt.Errorf("platform must be cursor, opencode, kilo, omp, pi, or a configured custom:<name> runtime")
 	}
 	if t.Tool == "" || strings.TrimSpace(t.Tool) != t.Tool {
 		return fmt.Errorf("tool must be an exact non-empty identity without surrounding whitespace")

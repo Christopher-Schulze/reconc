@@ -84,6 +84,7 @@ internal/
   completion/     bash / zsh / fish completion generators
   completiongate/ exact final-completion report over policy, candidate, evidence, and TASK state
   contextsize/    token-budget guard for canonical entrypoints + active TASK
+  customruntime/  non-executable third-party runtime manifests, neutral transport, and conformance
   errors/         typed exception hierarchy (PolicySourceError, LockfileError, ...)
   execfile/       cross-platform regular-file and executable validation
   extractor/      prose-to-rule heuristic scanner (regex-only, no LLM)
@@ -215,16 +216,27 @@ handling.
 - **CheckReport / CompletionReport / FixPlan schemas**: same policy. Additive changes
   (new optional fields) don't bump the version; breaking changes do.
 
-- **Published schema documents**: the fourteen immutable
+- **Published schema documents**: the nineteen versioned
   `schemas/v1/*.schema.json` contracts, legacy
   `schemas/v2/policy-lock.schema.json`, and current
   `schemas/v3/policy-lock.schema.json` are canonical Draft 2020-12 documents,
-  use release-tagged format-versioned repository URLs as `$id`, are
+  use stable format-versioned identities as `$id`, are
   byte-compared against the canonical source during release verification, and
   ship in the checksummed release inventory. `policy-config.schema.json` is
   the strict authoring contract; the v3 lock schema describes current
   body-free portable lockfiles, while v1 and v2 remain validated migration
   inputs.
+
+- **Declarative custom-runtime contract**: `.reconc/runtimes/*.json` is the
+  only repository source. Manifests are bounded non-symlink regular files,
+  strictly decoded, filename-bound to a reserved-safe `custom:<name>` identity,
+  and digested with policy sources. They select exact RFC 6901 pointers only;
+  Reconc evaluates no manifest code, expressions, templates, shell text, or
+  network references. `hook bridge` resolves one compiled manifest and routes
+  its neutral payload through the existing agent-session handlers. Missing
+  host guarantees produce `unsupported` rather than synthetic enforcement.
+  `hook conform` executes only bounded JSON fixtures and requires request,
+  response, timeout, failure, liveness, and privacy proofs.
 
 - **MCP authoring and lock contract**: `mcp.unclassified` is `host` or `deny`;
   tool mappings use the typed platform, optional SHA-256 server fingerprint,
@@ -449,6 +461,9 @@ class of hostile input.
 | Native assurance run | **4,096 files / 32 MiB reads** | Bounds aggregate source and evidence inspection across all gates. |
 | Assurance findings | **50 + omitted-count marker** | Keeps policy output useful without consuming agent context. |
 | Policy source | **8 MiB each / 4,096 files / 64 MiB aggregate** | Bounds repository and fragment ingestion before compilation. |
+| Custom runtime manifest | **256 KiB each / 32 manifests / 32 routes each** | Bounds declarative bridge compilation and prevents adapter configuration from becoming executable input. |
+| Custom runtime conformance suite | **1 MiB / 128 cases** | Bounds offline third-party adapter verification. |
+| Hook liveness | **64 runtimes / 32 routes each / 256 KiB aggregate** | Covers the built-in registry plus the bounded custom-runtime set without unbounded status state. |
 | Policy lock / execution input | **16 MiB each** | Bounds evaluator control input before JSON decoding. |
 | Policy evidence / TASK control file | **4 MiB each** | Bounds file-backed checks and executable TASK state before parsing. |
 
@@ -529,6 +544,15 @@ bytes rebuild the plan; changed source identity invalidates it and fails closed
 until `reconc refresh`. Session state, taint, and binary selection remain fresh
 per request. Shell-only hosts continue using one-shot
 execution and no daemon, listener, socket, or network surface is introduced.
+
+Custom runtimes do not enter the built-in registry and cannot override it.
+Their host adapter invokes `reconc hook bridge <name> <host-event> [repo]` and
+owns the outer process timeout declared in the manifest. Reconc reads one
+bounded JSON object, copies only declared exact fields into the neutral
+payload, validates the fresh compiled source digest, executes the existing
+handler, emits one bounded neutral response, and records a collision-resistant
+route liveness key. Status and deep doctor keep manifest configuration,
+degraded guarantees, and observed route liveness as separate facts.
 
 Passive lifecycle events are observation-only. They validate an existing
 session under its cross-process lock but do not create missing state, rewrite

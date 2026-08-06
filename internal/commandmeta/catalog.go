@@ -156,6 +156,8 @@ var commandCatalog = []Command{
 		subArgs("uninstall", "reconc hook uninstall <kind> [repo] [--json] [--output PATH]", "remove one Reconc-managed hook safely", flags(f("--json", ""), f("--output", "PATH")), []Argument{{Name: "kind", Values: hookKinds}}, modes(OutputText, OutputJSON, OutputFile)),
 		sub("status", "reconc hook status [repo] [--json]", "inspect registered hook installation and liveness", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 		sub("verify", "reconc hook verify [--host KIND [--surface SURFACE]] [--json]", "verify generated hook transports offline or prepare an explicit live probe", flags(f("--host", "KIND", hookKinds...), f("--surface", "SURFACE"), f("--live", ""), f("--allow-authenticated", ""), f("--json", "")), nil, modes(OutputText, OutputJSON)),
+		sub("bridge", "reconc hook bridge <runtime> <host-event> [repo]", "dispatch a declarative repository-owned custom runtime event", nil, nil, modes(OutputJSON)),
+		sub("conform", "reconc hook conform <manifest.json> <fixtures.json> [--json]", "verify a custom runtime adapter contract offline", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 		sub("sync-scaffold", "reconc hook sync-scaffold <repo-root-scaffold> [--json]", "synchronize generated scaffold hook artifacts", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 		internalSub("runtime", "reconc hook runtime <event> <repo>", "dispatch one registry-owned runtime event"),
 		internalSub("worker", "reconc hook worker", "serve versioned session-owned hook requests over stdio"),

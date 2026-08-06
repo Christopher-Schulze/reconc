@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/customruntime"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/parser"
@@ -62,17 +63,18 @@ const LockfileRelativePath = ".reconc/policy.lock.json"
 // CompiledPolicy is the summary of a successful compile run plus the
 // metadata needed to surface the result to the user.
 type CompiledPolicy struct {
-	RepoRoot        string      `json:"repo_root"`
-	LockfilePath    string      `json:"lockfile_path"`
-	CompilerVersion string      `json:"compiler_version"`
-	FormatVersion   string      `json:"format_version"`
-	SourceDigest    string      `json:"source_digest"`
-	DefaultMode     policy.Mode `json:"default_mode"`
-	RuleCount       int         `json:"rule_count"`
-	MCPToolCount    int         `json:"mcp_tool_count"`
-	SourceCount     int         `json:"source_count"`
-	SourcePaths     []string    `json:"source_paths"`
-	Warnings        []string    `json:"warnings"`
+	RepoRoot        string                  `json:"repo_root"`
+	LockfilePath    string                  `json:"lockfile_path"`
+	CompilerVersion string                  `json:"compiler_version"`
+	FormatVersion   string                  `json:"format_version"`
+	SourceDigest    string                  `json:"source_digest"`
+	DefaultMode     policy.Mode             `json:"default_mode"`
+	RuleCount       int                     `json:"rule_count"`
+	MCPToolCount    int                     `json:"mcp_tool_count"`
+	SourceCount     int                     `json:"source_count"`
+	SourcePaths     []string                `json:"source_paths"`
+	CustomRuntimes  []customruntime.Summary `json:"custom_runtimes"`
+	Warnings        []string                `json:"warnings"`
 	// Conflicts lists static rule-pair inconsistencies detected at
 	// compile time (duplicates, deny-vs-require contradictions, etc).
 	// Empty slice when the ruleset is clean. Never nil.
@@ -152,6 +154,10 @@ func renderPolicyBundle(bundle *ingest.SourceBundle, compilerVersion string) (*C
 	if err != nil {
 		return nil, nil, err
 	}
+	customRuntimes, err := compileCustomRuntimes(bundle, parsed.MCP)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	root := bundle.RepoRoot
 	digest, err := computeSourceDigest(bundle)
@@ -195,7 +201,7 @@ func renderPolicyBundle(bundle *ingest.SourceBundle, compilerVersion string) (*C
 	}
 	compiledDiscovery.Warnings = append(compiledDiscovery.Warnings, braceVariableWarnings(parsed.Rules)...)
 
-	payload := buildLockPayload(bundle, parsed, digest, compilerVersion, compiledDiscovery)
+	payload := buildLockPayload(bundle, parsed, digest, compilerVersion, compiledDiscovery, customRuntimes)
 	lockDigest, err := ComputeLockDigest(payload)
 	if err != nil {
 		return nil, nil, &rerrors.LockfileError{Message: "compute lockfile digest", Cause: err}
@@ -218,6 +224,7 @@ func renderPolicyBundle(bundle *ingest.SourceBundle, compilerVersion string) (*C
 		MCPToolCount:    mcpToolCount(parsed.MCP),
 		SourceCount:     len(bundle.Sources),
 		SourcePaths:     sourcePathsOf(bundle.Sources),
+		CustomRuntimes:  customRuntimes,
 		Warnings:        compiledDiscovery.Warnings,
 		Conflicts:       conflicts,
 		Discovery:       compiledDiscovery,
@@ -357,6 +364,7 @@ func buildLockPayload(
 	digest string,
 	compilerVersion string,
 	discovery ingest.DiscoveryResult,
+	customRuntimes []customruntime.Summary,
 ) map[string]interface{} {
 	rulesOut := make([]interface{}, 0, len(parsed.Rules))
 	for _, r := range parsed.Rules {
@@ -382,10 +390,55 @@ func buildLockPayload(
 		"sources":           sourcesOut,
 		"rules":             rulesOut,
 	}
+	if len(customRuntimes) > 0 {
+		out := make([]interface{}, 0, len(customRuntimes))
+		for _, summary := range customRuntimes {
+			degradedRoutes := append([]string{}, summary.DegradedRoutes...)
+			out = append(out, map[string]interface{}{
+				"name": summary.Name, "runtime": summary.Runtime,
+				"manifest_digest": summary.ManifestDigest, "route_count": summary.RouteCount,
+				"degraded_routes": degradedRoutes,
+			})
+		}
+		payload["custom_runtimes"] = out
+	}
 	if parsed.MCP != nil {
 		payload["mcp"] = mcpToMap(*parsed.MCP)
 	}
 	return payload
+}
+
+func compileCustomRuntimes(bundle *ingest.SourceBundle, mcp *policy.MCPPolicy) ([]customruntime.Summary, error) {
+	summaries := []customruntime.Summary{}
+	configured := map[string]struct{}{}
+	for _, source := range bundle.Sources {
+		if source.Kind != policy.SourceCustomRuntime {
+			continue
+		}
+		manifest, err := customruntime.DecodeManifest([]byte(source.Content))
+		if err != nil {
+			return nil, &rerrors.PolicySourceError{Message: "invalid custom runtime " + source.Path, Cause: err}
+		}
+		if filepath.Base(source.Path) != manifest.Name+".json" {
+			return nil, &rerrors.PolicySourceError{Message: fmt.Sprintf("custom runtime %s must be named %s.json", source.Path, manifest.Name)}
+		}
+		if _, duplicate := configured[manifest.Runtime()]; duplicate {
+			return nil, &rerrors.PolicySourceError{Message: "duplicate custom runtime identity " + manifest.Runtime()}
+		}
+		configured[manifest.Runtime()] = struct{}{}
+		summaries = append(summaries, manifest.Summary())
+	}
+	if mcp != nil {
+		for _, tool := range mcp.Tools {
+			platform := string(tool.Platform)
+			if strings.HasPrefix(platform, "custom:") {
+				if _, ok := configured[platform]; !ok {
+					return nil, &rerrors.PolicySourceError{Message: "MCP selector references unconfigured custom runtime " + platform}
+				}
+			}
+		}
+	}
+	return summaries, nil
 }
 
 func mcpToolCount(contract *policy.MCPPolicy) int {
@@ -798,6 +851,9 @@ func portableSourcePath(value string) bool {
 }
 
 func sourceKindValid(kind policy.SourceKind) bool {
+	if kind == policy.SourceCustomRuntime {
+		return true
+	}
 	for _, candidate := range policy.SourcePrecedence() {
 		if kind == candidate {
 			return true

@@ -52,10 +52,25 @@ type historyException struct {
 	Rationale     string
 }
 
+type historicalFindingException struct {
+	BlobID    string
+	Rule      string
+	Line      int
+	Owner     string
+	Rationale string
+}
+
 var legacyHistoryException = historyException{
 	ThroughCommit: defaultHistoryBoundary,
 	Owner:         "repository maintainer",
 	Rationale:     "legacy public session trailers and pre-sanitization vocabulary predate the publication boundary; history and protected tags remain immutable",
+}
+
+var historicalFindingExceptions = []historicalFindingException{
+	{
+		BlobID: "61ce12d07ecbf45d856d181a767539de232c5c72", Rule: "content/key-assignment", Line: 54,
+		Owner: "repository maintainer", Rationale: "synthetic impact-corpus redaction fixture; current source constructs the marker without publishing a literal assignment",
+	},
 }
 
 var forbiddenWordDigests = map[string]string{
@@ -105,6 +120,14 @@ func auditRepository(ctx context.Context, options auditOptions) (auditReport, er
 	if options.HistoryBoundary == legacyHistoryException.ThroughCommit {
 		if strings.TrimSpace(legacyHistoryException.Owner) == "" || strings.TrimSpace(legacyHistoryException.Rationale) == "" {
 			return auditReport{}, errors.New("legacy history exception requires an owner and rationale")
+		}
+	}
+	for _, exception := range historicalFindingExceptions {
+		if len(exception.BlobID) != 40 || exception.Rule == "" || exception.Line < 1 || strings.TrimSpace(exception.Owner) == "" || strings.TrimSpace(exception.Rationale) == "" {
+			return auditReport{}, errors.New("historical finding exception is incomplete")
+		}
+		if _, err := hex.DecodeString(exception.BlobID); err != nil {
+			return auditReport{}, errors.New("historical finding exception has an invalid Git object ID")
 		}
 	}
 	paths, err := trackedPaths(ctx, root)
@@ -381,8 +404,25 @@ func auditPostBoundaryBlobs(ctx context.Context, root, boundary string, maxBytes
 	if err != nil {
 		return nil, 0, err
 	}
-	findings = append(findings, blobFindings...)
+	findings = append(findings, filterHistoricalFindingExceptions(blobFindings)...)
 	return findings, blobCount, nil
+}
+
+func filterHistoricalFindingExceptions(findings []auditFinding) []auditFinding {
+	out := make([]auditFinding, 0, len(findings))
+	for _, finding := range findings {
+		excepted := false
+		for _, exception := range historicalFindingExceptions {
+			if finding.Path == "history/blob/"+exception.BlobID && finding.Rule == exception.Rule && finding.Line == exception.Line {
+				excepted = true
+				break
+			}
+		}
+		if !excepted {
+			out = append(out, finding)
+		}
+	}
+	return out
 }
 
 func auditGitBlobBatch(ctx context.Context, root string, objects []gitObjectMetadata) ([]auditFinding, error) {
