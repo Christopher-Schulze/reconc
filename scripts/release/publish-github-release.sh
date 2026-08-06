@@ -67,25 +67,41 @@ LC_ALL=C sort -o "$expected_inventory" "$expected_inventory"
 
 gh api "repos/$repository/git/ref/tags/$tag" --silent >/dev/null \
   || fail "remote release tag could not be verified: $tag"
-gh api --paginate "repos/$repository/releases?per_page=100" \
-  --jq '.[] | [.tag_name, (.draft | tostring)] | @tsv' > "$release_list"
-[ "$(wc -l < "$release_list" | tr -d ' ')" -le 512 ] \
-  || fail "remote release inventory exceeds the bounded lookup"
 release_state="missing"
+release_id=""
 release_matches=0
-while IFS=$'\t' read -r release_tag release_draft extra; do
-  [ -n "$release_tag" ] || continue
-  [ -z "${extra:-}" ] || fail "release lookup returned malformed data"
-  if [ "$release_tag" = "$tag" ]; then
-    case "$release_draft" in
-      true|false) ;;
-      *) fail "release returned invalid draft state: $release_draft" ;;
-    esac
-    release_state="$release_draft"
-    release_matches=$((release_matches + 1))
-  fi
-done < "$release_list"
-[ "$release_matches" -le 1 ] || fail "remote release lookup returned duplicate tags"
+load_release_list() {
+  gh api --paginate "repos/$repository/releases?per_page=100" \
+    --jq '.[] | [(.id | tostring), .tag_name, (.draft | tostring)] | @tsv' > "$release_list"
+  [ "$(wc -l < "$release_list" | tr -d ' ')" -le 512 ] \
+    || fail "remote release inventory exceeds the bounded lookup"
+}
+
+resolve_release() {
+  release_id=""
+  release_state="missing"
+  release_matches=0
+  while IFS=$'\t' read -r candidate_id release_tag release_draft extra; do
+    [ -n "$release_tag" ] || continue
+    [ -z "${extra:-}" ] || fail "release lookup returned malformed data"
+    if [ "$release_tag" = "$tag" ]; then
+      case "$candidate_id" in
+        ''|*[!0-9]*) fail "release lookup returned an invalid release id: $candidate_id" ;;
+      esac
+      case "$release_draft" in
+        true|false) ;;
+        *) fail "release returned invalid draft state: $release_draft" ;;
+      esac
+      release_id="$candidate_id"
+      release_state="$release_draft"
+      release_matches=$((release_matches + 1))
+    fi
+  done < "$release_list"
+  [ "$release_matches" -le 1 ] || fail "remote release lookup returned duplicate tags"
+}
+
+load_release_list
+resolve_release
 
 case "$release_state:$mode" in
   missing:new)
@@ -94,6 +110,9 @@ case "$release_state:$mode" in
       --notes-file "$notes_file" \
       --verify-tag \
       --draft
+    load_release_list
+    resolve_release
+    [ "$release_state" = true ] || fail "new release was not created as a draft"
     ;;
   missing:replace)
     fail "replacement was requested but no release exists for $tag"
@@ -112,13 +131,15 @@ case "$release_state:$mode" in
     fail "unsupported release transition: $release_state:$mode"
     ;;
 esac
+[ -n "$release_id" ] || fail "release id could not be resolved for $tag"
+release_api="repos/$repository/releases/$release_id"
 
 gh release edit "$tag" \
   --title "reconc ${tag#reconc-v}" \
   --notes-file "$notes_file" \
   --draft
 
-gh api "repos/$repository/releases/tags/$tag" --jq '.assets[].name' > "$remote_names"
+gh api "$release_api" --jq '.assets[].name' > "$remote_names"
 while IFS= read -r remote_name; do
   [ -n "$remote_name" ] || continue
   case "$remote_name" in
@@ -130,7 +151,7 @@ done < "$remote_names"
 gh release upload "$tag" "${assets[@]}"
 
 verify_remote_inventory() {
-  gh api "repos/$repository/releases/tags/$tag" \
+  gh api "$release_api" \
     --jq '.assets[] | [.name, (.size | tostring), (.digest // "")] | @tsv' \
     | LC_ALL=C sort > "$remote_inventory"
   cmp -s "$expected_inventory" "$remote_inventory"

@@ -2590,6 +2590,9 @@ Release:
   compares each remote name, byte size, and SHA-256 digest with the local
   inventory. Missing, extra, stale, or mismatched assets fail before publish;
   the final published state and inventory are read back once more.
+- Draft asset reconciliation resolves the immutable GitHub release ID from the
+  bounded release listing because GitHub's tag-only release endpoint excludes
+  draft releases.
 - No Docker image is built or published.
 
 Reproducibility basis: release binaries are cross-compiled with a pinned Go

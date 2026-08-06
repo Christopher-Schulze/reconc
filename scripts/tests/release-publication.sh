@@ -67,10 +67,10 @@ case "$command" in
       state="$(cat "$state_file")"
       draft=false
       [ "$state" = draft ] && draft=true
-      printf 'reconc-v1.2.3\t%s\n' "$draft"
+      printf '123\treconc-v1.2.3\t%s\n' "$draft"
     fi
     ;;
-  "api repos/test/repo/releases/tags/reconc-v1.2.3")
+  "api repos/test/repo/releases/123")
     if printf '%s\n' "$@" | grep -Fq '.assets[].name'; then
       cut -f1 "$inventory_file"
     else

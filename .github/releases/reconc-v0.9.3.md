@@ -34,6 +34,9 @@ migration.
 
 - Windows Bun hook timeouts now terminate the complete wrapper process tree,
   preventing detached shell descendants from poisoning the next hook event.
+- Draft release reconciliation now addresses the release by its immutable
+  GitHub release ID, so draft assets can be replaced and verified before
+  publication instead of failing on the tag-only API view.
 - Removed stale current-release references that could direct users to the
   superseded v0.9.2 installer while leaving historical v0.9.2 migration and
   release notes intact.
