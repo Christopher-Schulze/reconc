@@ -347,7 +347,7 @@ func VerifyFile(file File, body []byte) error {
 func validateFile(file File) error {
 	if file.Path == "" || len(file.Path) > 512 || strings.Contains(file.Path, `\`) ||
 		path.IsAbs(file.Path) || path.Clean(file.Path) != file.Path ||
-		file.Path == "." || strings.HasPrefix(file.Path, "../") {
+		file.Path == "." || file.Path == ".." || strings.HasPrefix(file.Path, "../") {
 		return fmt.Errorf("path is not canonical repository-relative: %q", file.Path)
 	}
 	if file.Mode != 0o644 && file.Mode != 0o755 {
@@ -380,7 +380,7 @@ func validateSortedIdentifiers(values []string, field string) error {
 func validateTargetPrefix(value string) (string, error) {
 	prefix := strings.TrimSuffix(strings.TrimSpace(value), "/")
 	if prefix == "" || strings.Contains(prefix, `\`) || path.IsAbs(prefix) ||
-		path.Clean(prefix) != prefix || prefix == "." || strings.HasPrefix(prefix, "../") {
+		path.Clean(prefix) != prefix || prefix == "." || prefix == ".." || strings.HasPrefix(prefix, "../") {
 		return "", fmt.Errorf("invalid harness pack target prefix %q", value)
 	}
 	return prefix, nil

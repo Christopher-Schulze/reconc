@@ -12,7 +12,7 @@ import (
 func TestConfigureScriptProcessUsesUnixProcessGroup(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "exit 0")
 	done := make(chan struct{})
-	configureScriptProcess(context.Background(), cmd, done, 2)
+	configureScriptProcess(context.Background(), cmd, done, 2*time.Second)
 	close(done)
 
 	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setpgid {

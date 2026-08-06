@@ -652,8 +652,16 @@ Every path in the payload is:
 5. Rejected with `RepoBoundaryError` if outside.
 
 Prospective hook-install targets, agent-session repository identities, evaluator
-evidence paths, and assurance inputs share `internal/pathidentity`; each caller
-retains only its bounded purpose-specific containment policy.
+evidence paths, `require_script` targets, and assurance inputs share
+`internal/pathidentity`; each caller retains only its bounded purpose-specific
+containment policy.
+
+`require_script` splits the two checks it needs. Containment is enforced on the
+resolved parent directory, because a path whose every segment is a plain name
+can still leave the repository through an intermediate directory symlink, which
+no lexical `..` rejection sees. The script leaf stays lexical so `execfile.Is`
+keeps refusing a symlinked script file. A directory symlink that resolves back
+inside the repository remains a legal layout.
 
 ### Command-injection
 

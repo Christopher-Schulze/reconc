@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"sort"
 )
@@ -17,6 +18,9 @@ import (
 func ReadFile(path string, maxBytes int64) ([]byte, error) {
 	if maxBytes <= 0 {
 		return nil, errors.New("bounded file read requires a positive byte limit")
+	}
+	if maxBytes > math.MaxInt64-1 {
+		return nil, errors.New("bounded file read byte limit is too large")
 	}
 	before, err := os.Stat(path)
 	if err != nil {
@@ -58,6 +62,9 @@ func ReadFile(path string, maxBytes int64) ([]byte, error) {
 func OpenRegularFile(path string, maxBytes int64) (*os.File, error) {
 	if maxBytes <= 0 {
 		return nil, errors.New("bounded regular-file open requires a positive byte limit")
+	}
+	if maxBytes > math.MaxInt64-1 {
+		return nil, errors.New("bounded regular-file open byte limit is too large")
 	}
 	before, err := os.Lstat(path)
 	if err != nil {
@@ -118,6 +125,9 @@ func ReadDirNoSymlink(path string, maxEntries int) ([]os.DirEntry, error) {
 func readDir(path string, maxEntries int, rejectSymlink bool) ([]os.DirEntry, error) {
 	if maxEntries <= 0 {
 		return nil, errors.New("bounded directory read requires a positive entry limit")
+	}
+	if maxEntries > math.MaxInt-1 {
+		return nil, errors.New("bounded directory read entry limit is too large")
 	}
 	var before os.FileInfo
 	var err error

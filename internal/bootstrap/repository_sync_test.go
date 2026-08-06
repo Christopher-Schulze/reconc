@@ -1494,9 +1494,18 @@ func TestRepositoryReceiptRejectsInvalidOwnershipContracts(t *testing.T) {
 		{name: "policy source", mutate: func(receipt *RepositoryReceipt) {
 			receipt.PolicySources = []string{"../escape"}
 		}},
+		{name: "policy source parent", mutate: func(receipt *RepositoryReceipt) {
+			receipt.PolicySources = []string{".."}
+		}},
 		{name: "managed file", mutate: func(receipt *RepositoryReceipt) {
 			receipt.ManagedFiles = []ManagedFile{{
 				Path: "../escape", Mode: 0o644, SHA256: strings.Repeat("a", 64),
+				Component: "hook:test", Ownership: "file",
+			}}
+		}},
+		{name: "managed file parent", mutate: func(receipt *RepositoryReceipt) {
+			receipt.ManagedFiles = []ManagedFile{{
+				Path: "..", Mode: 0o644, SHA256: strings.Repeat("a", 64),
 				Component: "hook:test", Ownership: "file",
 			}}
 		}},

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/execfile"
 	"reconc.dev/reconc/internal/pathidentity"
 )
@@ -415,19 +415,15 @@ func piAgentDir(root string) (string, error) {
 }
 
 func readBoundedPiJSON(path string) ([]byte, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, maxPiTrustConfigBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(data) > maxPiTrustConfigBytes {
-		return nil, fmt.Errorf("file exceeds %d-byte inspection limit", maxPiTrustConfigBytes)
-	}
-	return data, nil
+	// Status inspection must not block on a FIFO or read an unbounded special
+	// file, and the file identity must not change between the size check and
+	// the read. boundedio.ReadFile enforces exactly that.
+	//
+	// Unlike readManagedArtifact, the final symlink is followed on purpose:
+	// these are Pi's own user-owned configs, and a symlinked ~/.pi/agent entry
+	// is the normal dotfile-manager layout. Refusing it would report a healthy
+	// trust store as unreadable.
+	return boundedio.ReadFile(path, int64(maxPiTrustConfigBytes))
 }
 
 func missingGeneratedJSONEntries(mode InstallMode, generated, installed []byte) ([]string, error) {

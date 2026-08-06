@@ -2,6 +2,7 @@ package boundedio
 
 import (
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -111,5 +112,18 @@ func TestReadDirBoundsAndSymlinkPolicy(t *testing.T) {
 	}
 	if entries, err := ReadDir(link, 2); err != nil || len(entries) != 2 {
 		t.Fatalf("follow directory read = %d, %v", len(entries), err)
+	}
+}
+
+func TestReadRejectsOverflowingLimits(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ok")
+	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadFile(path, math.MaxInt64); err == nil {
+		t.Fatal("MaxInt64 byte limit must be rejected before LimitReader wrap")
+	}
+	if _, err := ReadDir(t.TempDir(), math.MaxInt); err == nil {
+		t.Fatal("MaxInt entry limit must be rejected before ReadDir wrap")
 	}
 }

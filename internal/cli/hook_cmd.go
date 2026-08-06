@@ -1004,14 +1004,76 @@ func boundHookResult(result agentsession.Result, route hooks.RuntimeRoute) agent
 	if len(result.Stdout) <= stdoutLimit {
 		return result
 	}
-	result.Stdout = ""
-	result.Stderr = truncateUTF8("reconc hook output exceeded the platform byte budget", limit)
-	if route.ErrorPolicy == hooks.FailureBlock {
-		result.ExitCode = 2
-	} else {
+	// An oversized result must still deliver a decision, and it must deliver it
+	// through the channel the host actually reads.
+	//
+	// Cursor, GitHub Copilot, and Grok express deny/block as exit 0 plus JSON:
+	// clearing stdout there hands the host an undecided non-zero exit, which
+	// several of them treat as a failed hook rather than a block, and on Copilot
+	// the non-zero exit additionally re-triggers the installed shell fallback so
+	// two decision bodies reach the host. Those routes get a compact envelope
+	// that fits the whole budget, with the adapter's exit code preserved.
+	//
+	// Everywhere else the exit code carries the decision, where empty stdout
+	// plus exit 2 already is the fail-closed shape.
+	if route.ErrorPolicy != hooks.FailureBlock {
+		result.Stdout = ""
+		result.Stderr = truncateUTF8(hookOversizeDiagnostic, stderrLimit)
 		result.ExitCode = 0
+		return result
 	}
+	if envelope := failClosedOversizeEnvelope(route); envelope != "" && len(envelope) <= limit {
+		result.Stdout = envelope
+		result.Stderr = truncateUTF8(hookOversizeDiagnostic, limit-len(envelope))
+		result.ExitCode = 0
+		return result
+	}
+	result.Stdout = ""
+	result.Stderr = truncateUTF8(hookOversizeDiagnostic, stderrLimit)
+	result.ExitCode = 2
 	return result
+}
+
+const hookOversizeDiagnostic = "reconc hook output exceeded the platform byte budget"
+
+// failClosedOversizeEnvelope returns the smallest JSON body that denies or
+// blocks on a platform whose decision travels in stdout, mirroring the shape
+// the matching adapter emits. An empty return means the platform carries its
+// decision in the exit code instead.
+func failClosedOversizeEnvelope(route hooks.RuntimeRoute) string {
+	const reason = "reconc hook output budget exceeded"
+	stopEvent := route.Event == hooks.EventStop || route.Event == hooks.EventSubagentStop
+	var body map[string]interface{}
+	switch route.PlatformKind {
+	case hooks.KindCursor:
+		if stopEvent {
+			body = map[string]interface{}{"continue": false, "user_message": reason, "agent_message": reason}
+			break
+		}
+		body = map[string]interface{}{"permission": "deny", "user_message": reason, "agent_message": reason}
+	case hooks.KindGitHubCopilot:
+		switch {
+		case route.Event == hooks.EventPermissionRequest:
+			body = map[string]interface{}{"behavior": "deny", "message": reason}
+		case stopEvent:
+			body = map[string]interface{}{"decision": "block", "reason": reason}
+		default:
+			body = map[string]interface{}{"permissionDecision": "deny", "permissionDecisionReason": reason}
+		}
+	case hooks.KindGrok:
+		if stopEvent {
+			body = map[string]interface{}{"decision": "block", "reason": reason}
+			break
+		}
+		body = map[string]interface{}{"decision": "deny", "reason": reason}
+	default:
+		return ""
+	}
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return ""
+	}
+	return string(encoded)
 }
 
 func truncateWithSuffix(value string, limit int, suffix string) string {

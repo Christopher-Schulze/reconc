@@ -62,9 +62,23 @@ func generateGitHubCopilot() (*Artifact, error) {
 	command := func(event string, lifecycle Event, matcher string) map[string]interface{} {
 		bashCommand := fmt.Sprintf("tools/reconc/bin/hook %s .", event)
 		powershellCommand := fmt.Sprintf(`& sh "tools/reconc/bin/hook" "%s" "."; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`, event)
-		if lifecycle == EventStop || lifecycle == EventSubagentStop {
+		// Copilot honors deny/block only via exit 0 + JSON. Missing binary,
+		// crash, or non-zero exit without a decision body is host fail-open,
+		// so PreToolUse / PermissionRequest / Stop emit the exact deny envelope.
+		switch lifecycle {
+		case EventStop, EventSubagentStop:
 			reason := "Reconc could not evaluate this GitHub Copilot stop. Reinstall the GitHub Copilot hook and tools/reconc/bin/hook."
 			fallback := fmt.Sprintf(`{"decision":"block","reason":%q}`, reason)
+			bashCommand += fmt.Sprintf(` || printf '%%s\n' '%s'`, fallback)
+			powershellCommand = fmt.Sprintf(`if (Get-Command sh -ErrorAction SilentlyContinue) { & sh "tools/reconc/bin/hook" "%s" "."; if ($LASTEXITCODE -ne 0) { Write-Output '%s'; exit 0 } } else { Write-Output '%s'; exit 0 }`, event, fallback, fallback)
+		case EventPreToolUse:
+			reason := "Reconc could not evaluate this GitHub Copilot tool call. Reinstall the GitHub Copilot hook and tools/reconc/bin/hook."
+			fallback := fmt.Sprintf(`{"permissionDecision":"deny","permissionDecisionReason":%q}`, reason)
+			bashCommand += fmt.Sprintf(` || printf '%%s\n' '%s'`, fallback)
+			powershellCommand = fmt.Sprintf(`if (Get-Command sh -ErrorAction SilentlyContinue) { & sh "tools/reconc/bin/hook" "%s" "."; if ($LASTEXITCODE -ne 0) { Write-Output '%s'; exit 0 } } else { Write-Output '%s'; exit 0 }`, event, fallback, fallback)
+		case EventPermissionRequest:
+			reason := "Reconc could not evaluate this GitHub Copilot permission request. Reinstall the GitHub Copilot hook and tools/reconc/bin/hook."
+			fallback := fmt.Sprintf(`{"behavior":"deny","message":%q}`, reason)
 			bashCommand += fmt.Sprintf(` || printf '%%s\n' '%s'`, fallback)
 			powershellCommand = fmt.Sprintf(`if (Get-Command sh -ErrorAction SilentlyContinue) { & sh "tools/reconc/bin/hook" "%s" "."; if ($LASTEXITCODE -ne 0) { Write-Output '%s'; exit 0 } } else { Write-Output '%s'; exit 0 }`, event, fallback, fallback)
 		}

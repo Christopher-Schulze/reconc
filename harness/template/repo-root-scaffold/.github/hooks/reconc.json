@@ -11,10 +11,10 @@
     ],
     "PermissionRequest": [
       {
-        "bash": "tools/reconc/bin/hook copilot-permission-request .",
+        "bash": "tools/reconc/bin/hook copilot-permission-request . || printf '%s\\n' '{\"behavior\":\"deny\",\"message\":\"Reconc could not evaluate this GitHub Copilot permission request. Reinstall the GitHub Copilot hook and tools/reconc/bin/hook.\"}'",
         "cwd": ".",
         "matcher": "Bash|Edit|Write",
-        "powershell": "\u0026 sh \"tools/reconc/bin/hook\" \"copilot-permission-request\" \".\"; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
+        "powershell": "if (Get-Command sh -ErrorAction SilentlyContinue) { \u0026 sh \"tools/reconc/bin/hook\" \"copilot-permission-request\" \".\"; if ($LASTEXITCODE -ne 0) { Write-Output '{\"behavior\":\"deny\",\"message\":\"Reconc could not evaluate this GitHub Copilot permission request. Reinstall the GitHub Copilot hook and tools/reconc/bin/hook.\"}'; exit 0 } } else { Write-Output '{\"behavior\":\"deny\",\"message\":\"Reconc could not evaluate this GitHub Copilot permission request. Reinstall the GitHub Copilot hook and tools/reconc/bin/hook.\"}'; exit 0 }",
         "timeoutSec": 10,
         "type": "command"
       }
@@ -50,10 +50,10 @@
     ],
     "PreToolUse": [
       {
-        "bash": "tools/reconc/bin/hook copilot-pre-tool-use .",
+        "bash": "tools/reconc/bin/hook copilot-pre-tool-use . || printf '%s\\n' '{\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Reconc could not evaluate this GitHub Copilot tool call. Reinstall the GitHub Copilot hook and tools/reconc/bin/hook.\"}'",
         "cwd": ".",
         "matcher": "Bash|Edit|Write",
-        "powershell": "\u0026 sh \"tools/reconc/bin/hook\" \"copilot-pre-tool-use\" \".\"; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
+        "powershell": "if (Get-Command sh -ErrorAction SilentlyContinue) { \u0026 sh \"tools/reconc/bin/hook\" \"copilot-pre-tool-use\" \".\"; if ($LASTEXITCODE -ne 0) { Write-Output '{\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Reconc could not evaluate this GitHub Copilot tool call. Reinstall the GitHub Copilot hook and tools/reconc/bin/hook.\"}'; exit 0 } } else { Write-Output '{\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Reconc could not evaluate this GitHub Copilot tool call. Reinstall the GitHub Copilot hook and tools/reconc/bin/hook.\"}'; exit 0 }",
         "timeoutSec": 10,
         "type": "command"
       }

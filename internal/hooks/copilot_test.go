@@ -52,9 +52,6 @@ func TestGenerateGitHubCopilotMatchesOfficialRepositoryHookShape(t *testing.T) {
 			t.Fatalf("%s has no numeric timeoutSec: %#v", event, entry)
 		}
 	}
-	if command := document.Hooks["PreToolUse"][0]["powershell"].(string); !strings.Contains(command, "exit $LASTEXITCODE") {
-		t.Fatalf("PreToolUse PowerShell route does not propagate wrapper failure: %s", command)
-	}
 	for _, unsupported := range []string{"PostCompact", "ErrorOccurred", "userPromptTransformed"} {
 		if _, ok := document.Hooks[unsupported]; ok {
 			t.Fatalf("unsupported event %s was generated", unsupported)
@@ -71,6 +68,21 @@ func TestGenerateGitHubCopilotMatchesOfficialRepositoryHookShape(t *testing.T) {
 			!strings.Contains(entry["powershell"].(string), "Get-Command sh -ErrorAction SilentlyContinue") {
 			t.Fatalf("%s lacks missing-runtime block fallback: %#v", event, entry)
 		}
+	}
+	// Copilot denials are exit 0 + JSON. PreToolUse / PermissionRequest must
+	// emit deny envelopes when the wrapper/binary is missing; a bare non-zero
+	// exit is host fail-open.
+	pre := document.Hooks["PreToolUse"][0]
+	if !strings.Contains(pre["bash"].(string), `"permissionDecision":"deny"`) ||
+		!strings.Contains(pre["powershell"].(string), `"permissionDecision":"deny"`) ||
+		!strings.Contains(pre["powershell"].(string), "Get-Command sh -ErrorAction SilentlyContinue") {
+		t.Fatalf("PreToolUse lacks missing-runtime deny fallback: %#v", pre)
+	}
+	perm := document.Hooks["PermissionRequest"][0]
+	if !strings.Contains(perm["bash"].(string), `"behavior":"deny"`) ||
+		!strings.Contains(perm["powershell"].(string), `"behavior":"deny"`) ||
+		!strings.Contains(perm["powershell"].(string), "Get-Command sh -ErrorAction SilentlyContinue") {
+		t.Fatalf("PermissionRequest lacks missing-runtime deny fallback: %#v", perm)
 	}
 }
 
@@ -203,5 +215,36 @@ func TestGitHubCopilotStopFallbackBlocksWhenBinaryIsMissing(t *testing.T) {
 	}
 	if !strings.Contains(string(output), `{"decision":"block"`) || !strings.Contains(string(output), "could not evaluate") {
 		t.Fatalf("missing binary did not produce explicit Stop block:\n%s", output)
+	}
+}
+
+func TestGitHubCopilotPreToolUseFallbackDeniesWhenBinaryIsMissing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX fallback execution is covered on POSIX hosts; PowerShell shape is contract-tested")
+	}
+	repo := t.TempDir()
+	if _, err := Install(KindGitHubCopilot, repo, false); err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := Generate(KindGitHubCopilot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		Hooks map[string][]map[string]interface{} `json:"hooks"`
+	}
+	if err := json.Unmarshal([]byte(artifact.Content), &document); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("/bin/sh", "-c", document.Hooks["PreToolUse"][0]["bash"].(string))
+	command.Dir = repo
+	command.Env = []string{"PATH=/usr/bin:/bin"}
+	command.Stdin = strings.NewReader(`{"hook_event_name":"PreToolUse","session_id":"missing-binary","tool_name":"Write","tool_input":{"file_path":"src/x.go"}}`)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("fallback command: %v\n%s", err, output)
+	}
+	if !strings.Contains(string(output), `"permissionDecision":"deny"`) || !strings.Contains(string(output), "could not evaluate") {
+		t.Fatalf("missing binary did not produce explicit PreToolUse deny:\n%s", output)
 	}
 }

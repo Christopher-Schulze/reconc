@@ -15,8 +15,10 @@ import (
 	"strings"
 	"time"
 
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/pathidentity"
+	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/tasklifecycle"
 )
@@ -512,12 +514,67 @@ func hashStopPolicyFingerprintInput(input stopPolicyFingerprintInput) string {
 }
 
 func stopPolicyFingerprintCacheable(input stopPolicyFingerprintInput) bool {
-	return input.GitStatusOK &&
+	if !(input.GitStatusOK &&
 		!strings.HasPrefix(input.GitHead, "error:") &&
 		!strings.HasPrefix(input.PolicyLockHash, "error:") &&
 		!strings.HasPrefix(input.PolicySourceDigest, "error:") &&
 		!strings.HasPrefix(input.TaskStateHash, "error:") &&
-		completionDirtyFilesTrusted(input.GitDirtyFiles)
+		completionDirtyFilesTrusted(input.GitDirtyFiles)) {
+		return false
+	}
+	// require_fresh_file can flip solely from wall-clock age while the Git
+	// dirty set and session evidence stay identical. Reusing a clean report
+	// across that boundary would fail open on Stop; keep those plans warm-path
+	// free. require_script remains cacheable: its purity assumption is the
+	// documented incremental Stop contract covered by dedicated tests.
+	if stopPolicyLockfileHasWallClockRule(input.RepoRoot) {
+		return false
+	}
+	return true
+}
+
+// stopPolicyLockfileHasWallClockRule reports whether the compiled policy
+// contains a rule whose outcome can change from wall-clock time alone.
+//
+// The lockfile is decoded instead of scanned for a token: a rule message that
+// quotes require_fresh_file must not disable the warm path, and a
+// require_fresh_file check nested in an all_of / any_of / not rule must.
+func stopPolicyLockfileHasWallClockRule(repoRoot string) bool {
+	if repoRoot == "" {
+		// Fingerprint unit tests exercise cacheability without a repo root;
+		// production Stop always supplies a resolved root before caching.
+		return false
+	}
+	body, err := boundedio.ReadFile(filepath.Join(repoRoot, ".reconc", "policy.lock.json"), stopPolicyLockfileScanBound)
+	if err != nil {
+		// Unreadable lock already fails evaluation; treat uncertainty as
+		// non-cacheable so we never reuse a report we cannot revalidate.
+		return true
+	}
+	var lock struct {
+		Rules []struct {
+			Kind   string `json:"kind"`
+			Checks []struct {
+				Kind string `json:"kind"`
+			} `json:"checks"`
+		} `json:"rules"`
+	}
+	if err := json.Unmarshal(body, &lock); err != nil {
+		// A lock we cannot decode is a lock we cannot reason about.
+		return true
+	}
+	wallClock := string(policy.KindRequireFreshFile)
+	for _, rule := range lock.Rules {
+		if rule.Kind == wallClock {
+			return true
+		}
+		for _, check := range rule.Checks {
+			if check.Kind == wallClock {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func stopPolicyGitStatus(repoRoot string) (status string, mode string) {
@@ -1158,6 +1215,11 @@ func readBoundedFile(path string, maxBytes int64) ([]byte, error) {
 // hashed exactly. The policy lockfile stays far below the bound, so its hash
 // is always content-exact.
 const stopPolicyContentHashBound = 64 * 1024 * 1024
+
+// stopPolicyLockfileScanBound matches the runtime's own lockfile read bound so
+// a policy the evaluator would still load can never be silently treated as
+// unreadable by the cache-eligibility scan.
+const stopPolicyLockfileScanBound int64 = 16 << 20
 
 func hashFileContent(path string) (string, error) {
 	info, err := os.Lstat(path)

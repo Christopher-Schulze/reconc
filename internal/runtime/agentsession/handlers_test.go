@@ -457,6 +457,21 @@ func TestRunPreToolUseFailsClosedOnMalformedPayload(t *testing.T) {
 	}
 }
 
+func TestRunPreToolUseFailsClosedWhenWriteToolHasNoPaths(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	_ = RunSessionStart(repo, []byte(`{"session_id":"s-write-no-path"}`))
+	// Write tools without extractable paths are envelope drift; passing them
+	// would silently skip deny_write / require_read.
+	result := RunPreToolUse(repo, []byte(`{"session_id":"s-write-no-path","tool_name":"Write","tool_input":{"content":"x"}}`))
+	if result.ExitCode != 2 || !strings.Contains(result.Stderr, "no extractable file paths") {
+		t.Fatalf("write tool without paths must fail closed: code=%d stderr=%s", result.ExitCode, result.Stderr)
+	}
+	result = RunPreToolUse(repo, []byte(`{"session_id":"s-write-no-path","tool_name":"Edit","tool_input":{"old_string":"a","new_string":"b"}}`))
+	if result.ExitCode != 2 || !strings.Contains(result.Stderr, "no extractable file paths") {
+		t.Fatalf("Edit without path must fail closed: code=%d stderr=%s", result.ExitCode, result.Stderr)
+	}
+}
+
 func TestRunPostToolUseRecordsEvidence(t *testing.T) {
 	repo := setupPolicyRepo(t)
 	_ = RunSessionStart(repo, []byte(`{"session_id":"s1"}`))

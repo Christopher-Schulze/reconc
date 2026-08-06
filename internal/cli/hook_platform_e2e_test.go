@@ -524,6 +524,112 @@ func TestBoundHookResultCapsCombinedOutput(t *testing.T) {
 	}
 }
 
+// TestBoundHookResultPreservesFailClosedControlEnvelope drives the shipped
+// output bound for every platform whose deny/block decision travels in stdout.
+// Clearing stdout there hands the host an undecided non-zero exit, and on
+// GitHub Copilot the non-zero exit also re-triggers the installed shell
+// fallback, so the decision must survive the byte budget as exit-0 JSON.
+func TestBoundHookResultPreservesFailClosedControlEnvelope(t *testing.T) {
+	const limit = 8 * 1024
+	cases := []struct {
+		name     string
+		kind     string
+		event    hooks.Event
+		wantKeys map[string]interface{}
+	}{
+		{
+			name: "cursor stop", kind: hooks.KindCursor, event: hooks.EventStop,
+			wantKeys: map[string]interface{}{"continue": false},
+		},
+		{
+			name: "cursor pre tool use", kind: hooks.KindCursor, event: hooks.EventPreToolUse,
+			wantKeys: map[string]interface{}{"permission": "deny"},
+		},
+		{
+			name: "copilot pre tool use", kind: hooks.KindGitHubCopilot, event: hooks.EventPreToolUse,
+			wantKeys: map[string]interface{}{"permissionDecision": "deny"},
+		},
+		{
+			name: "copilot permission request", kind: hooks.KindGitHubCopilot, event: hooks.EventPermissionRequest,
+			wantKeys: map[string]interface{}{"behavior": "deny"},
+		},
+		{
+			name: "copilot stop", kind: hooks.KindGitHubCopilot, event: hooks.EventStop,
+			wantKeys: map[string]interface{}{"decision": "block"},
+		},
+		{
+			name: "grok pre tool use", kind: hooks.KindGrok, event: hooks.EventPreToolUse,
+			wantKeys: map[string]interface{}{"decision": "deny"},
+		},
+		{
+			name: "grok stop", kind: hooks.KindGrok, event: hooks.EventStop,
+			wantKeys: map[string]interface{}{"decision": "block"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := boundHookResult(
+				agentsession.Result{ExitCode: 0, Stdout: strings.Repeat("x", limit)},
+				hooks.RuntimeRoute{
+					PlatformKind: tc.kind, Event: tc.event,
+					MaxOutputBytes: limit, ErrorPolicy: hooks.FailureBlock,
+				},
+			)
+			if result.ExitCode != 0 {
+				t.Fatalf("decision-carrying platforms must keep the adapter exit code 0, got %d", result.ExitCode)
+			}
+			var envelope map[string]interface{}
+			if err := json.Unmarshal([]byte(result.Stdout), &envelope); err != nil {
+				t.Fatalf("fail-closed stdout must stay valid JSON: %v (%q)", err, result.Stdout)
+			}
+			for key, want := range tc.wantKeys {
+				if envelope[key] != want {
+					t.Fatalf("envelope %v is missing %s=%v", envelope, key, want)
+				}
+			}
+			if len(result.Stdout)+len(result.Stderr) > limit {
+				t.Fatalf("fail-closed envelope escaped budget: stdout=%d stderr=%d", len(result.Stdout), len(result.Stderr))
+			}
+		})
+	}
+}
+
+// TestBoundHookResultUsesExitCodeWhereTheDecisionLivesThere covers the other
+// half of the contract: platforms that read the exit code keep the historical
+// empty-stdout shape, and a budget too small for any envelope degrades to that
+// same fail-closed shape instead of emitting truncated JSON.
+func TestBoundHookResultUsesExitCodeWhereTheDecisionLivesThere(t *testing.T) {
+	cases := []struct {
+		name  string
+		kind  string
+		limit int
+	}{
+		{name: "claude code", kind: hooks.KindClaudeCode, limit: 8 * 1024},
+		{name: "codex", kind: hooks.KindCodex, limit: 8 * 1024},
+		{name: "budget below any envelope", kind: hooks.KindGrok, limit: 16},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := boundHookResult(
+				agentsession.Result{ExitCode: 0, Stdout: strings.Repeat("x", tc.limit*2)},
+				hooks.RuntimeRoute{
+					PlatformKind: tc.kind, Event: hooks.EventStop,
+					MaxOutputBytes: tc.limit, ErrorPolicy: hooks.FailureBlock,
+				},
+			)
+			if result.ExitCode != 2 {
+				t.Fatalf("exit-code platforms must fail closed with exit 2, got %d", result.ExitCode)
+			}
+			if result.Stdout != "" {
+				t.Fatalf("exit-code platforms must not invent a stdout envelope: %q", result.Stdout)
+			}
+			if len(result.Stderr) > tc.limit {
+				t.Fatalf("diagnostic escaped byte budget: %d", len(result.Stderr))
+			}
+		})
+	}
+}
+
 func TestRunHookStatusJSONReportsActivePlugin(t *testing.T) {
 	t.Setenv(agentsession.StateRootEnv, t.TempDir())
 	repo := t.TempDir()

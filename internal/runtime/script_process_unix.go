@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func configureScriptProcess(ctx context.Context, cmd *exec.Cmd, done <-chan struct{}, killTimeoutSec int) {
+func configureScriptProcess(ctx context.Context, cmd *exec.Cmd, done <-chan struct{}, killGrace time.Duration) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	// Cancel sends SIGTERM to the whole process group. A shell script may spawn
@@ -28,13 +28,13 @@ func configureScriptProcess(ctx context.Context, cmd *exec.Cmd, done <-chan stru
 		}
 		return nil
 	}
-	cmd.WaitDelay = time.Duration(killTimeoutSec) * time.Second
+	cmd.WaitDelay = killGrace
 
 	go func() {
 		select {
 		case <-ctx.Done():
 			select {
-			case <-time.After(time.Duration(killTimeoutSec) * time.Second):
+			case <-time.After(killGrace):
 				if cmd.Process != nil {
 					_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 				}

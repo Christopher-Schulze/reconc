@@ -182,6 +182,7 @@ partial snapshot when the entry ceiling is exceeded.
 | Bootstrap and repository sync | Managed text is capped at 16 MiB; bootstrap plans at 4 MiB; sync plans at 8 MiB; portable receipts at 4 MiB; rollback before-images at 64 MiB aggregate; journals at 96 MiB; binary artifacts at 256 MiB. Writes remain create-only or atomic and preserve user-owned bytes. |
 | Build provenance | Binary marker inspection streams at most 256 MiB without executing or retaining the binary. Production source hashing accepts at most 16,384 real files, 64 MiB per file, and 512 MiB aggregate. |
 | Command proofs and owned state | Each command proof is capped at 16 KiB and its directory at 4,096 entries. Retention directories and tree walks have explicit entry ceilings and abort without deleting from a partial inventory. |
+| Policy script execution | A `require_script` target resolves inside the repository before launch, `timeout_sec` is capped at 300 seconds, and `kill_timeout_sec` at 60 seconds. Captured stdout and stderr stop at 64 KiB per stream. |
 
 Best-effort detection is best-effort only about recommendations, not about
 input integrity. A malformed package manifest, unreadable source, oversized
@@ -1788,6 +1789,17 @@ every six hours.
 Human output keeps only the seen/expected count and last event so large route
 registries do not dominate the terminal.
 
+Hook output that exceeds a route's byte budget still delivers a decision, on
+the channel that route's host reads. Cursor, GitHub Copilot, and Grok express
+deny and block as exit code 0 plus a JSON body, so an oversized fail-closed
+result is replaced by the smallest valid envelope of that same shape and keeps
+exit code 0; emptying stdout there would hand the host an undecided non-zero
+exit, and on GitHub Copilot it would additionally re-trigger the installed
+missing-binary fallback so two decision bodies arrive. Routes whose decision
+travels in the exit code keep the empty-stdout, exit-code-2 shape, which is
+also the fallback whenever no envelope fits the budget. Fail-open routes stay
+exit code 0 with a bounded diagnostic.
+
 Repository-owned third-party adapters live only in
 `.reconc/runtimes/<name>.json`. Each manifest is a bounded non-symlink regular
 JSON file with a reserved-safe `custom:<name>` identity, sorted exact host
@@ -1960,7 +1972,11 @@ trust. `reconc hook install pi` owns exactly `.pi/extensions/reconc.ts`, never
 replaces foreign content, and never mutates `~/.pi/agent/trust.json` or the Pi
 settings file. Status resolves `PI_CODING_AGENT_DIR`, canonicalizes the
 repository root, applies nearest-parent saved trust, and accepts
-`defaultProjectTrust: "always"` as the other persistent configured state.
+`defaultProjectTrust: "always"` as the other persistent configured state. Both
+Pi files are read through the bounded discovery contract: special files such as
+FIFOs are refused instead of blocking status, the file identity must not change
+between the size check and the read, and a final symlink is followed on purpose
+because these are user-owned Pi configs that dotfile managers commonly link.
 Interactive trust or `pi --approve` can activate one run but does not become a
 static saved-trust claim.
 
@@ -2168,7 +2184,10 @@ User prompts, pre/post compaction, subagent start/stop, permission, tool, and
 Stop lifecycles are all routed. `apply_patch` is routed through Reconc by
 parsing patch headers from `tool_input.command`; a non-empty patch with zero
 parseable file operations fails closed instead of silently bypassing the write
-gate. GitHub Copilot uses the version-1 repository hook contract at
+gate. The same rule covers every registered write tool: a payload that names a
+write tool but carries no extractable file path is envelope drift, and passing
+it through would skip `deny_write` and `require_read` entirely, so it is
+refused rather than admitted. GitHub Copilot uses the version-1 repository hook contract at
 `.github/hooks/reconc.json`. Copilot CLI and coding agent load the same
 repository file, while the coding agent honors only its Linux `bash` command
 in `/workspace`. Reconc generates documented PascalCase compatibility events
@@ -2176,8 +2195,11 @@ plus native `subagentStart`, validates `cwd` against the selected repository,
 normalizes `tool_result` into evidence, and translates PreToolUse,
 PermissionRequest, PostToolUseFailure, Stop, and SubagentStop output into
 Copilot's exact schemas. `PermissionRequest` and `Notification` are CLI-only; cloud permission
-enforcement therefore uses `PreToolUse`. Missing or failed Stop wrappers emit
-an explicit block while Copilot's own timeout behavior remains fail-open. The
+enforcement therefore uses `PreToolUse`. Copilot reads deny and block as exit
+code 0 plus JSON, so a missing or failed wrapper on `PreToolUse`,
+`PermissionRequest`, `Stop`, and `SubagentStop` emits that platform's explicit
+deny or block envelope from the generated bash and PowerShell commands instead
+of a bare non-zero exit; Copilot's own timeout behavior remains fail-open. The
 managed filename is never overwritten when it contains foreign content, even
 with `--force`. Static configuration and contract tests are not live proof;
 only per-route liveness in `reconc hook status . --json` can establish that a
@@ -2375,6 +2397,14 @@ repository/session entries and starts no watcher or background process.
 Equivalent concurrent Stops serialize under the report lock and reload session
 evidence before reuse or evaluation. Re-entrant `stop_hook_active=true` calls
 apply the same exact identities before reusing a clean report.
+
+Report reuse additionally requires that no decision in the compiled policy can
+change from wall-clock time alone. A policy that declares `require_fresh_file`,
+at the top level or as a check inside a composite rule, is never cacheable: its
+`max_age_hours` boundary can elapse while the fingerprint stays identical, so a
+stored clean report would admit a Stop the fresh evaluation refuses. The
+eligibility scan decodes the lockfile rather than matching text, and a lockfile
+that cannot be read or decoded is treated as non-cacheable.
 
 Dirty regular files up to 64 MiB contribute exact SHA-256 content identity. A
 larger dirty file receives only a bounded size/mtime diagnostic identity, makes
@@ -2726,7 +2756,13 @@ Security posture:
 - Repository path evidence preserves legal leading and trailing spaces from
   host payload through persisted session state and evaluator matching.
 - Payload command strings are matched as data and are not executed.
-- Only policy-authored `require_script` entries execute subprocesses.
+- Only policy-authored `require_script` entries execute subprocesses. The
+  declared path is repo-relative, the script itself must be a real executable
+  file rather than a symlink, and the directory it resolves through must stay
+  inside the repository, so neither a lexical `..` nor an intermediate
+  directory symlink moves execution outside the repository root. The declared
+  timeout and SIGTERM-to-SIGKILL grace are both clamped before they become
+  durations, so no policy value can wrap the conversion or outlive the cap.
 - Audit log is opt-in via `RECONC_AUDIT=1`.
 - Non-portable current lockfile root markers are a hard stale/fail condition;
   equivalent clones and worktrees share the portable `.` identity.

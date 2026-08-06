@@ -56,6 +56,7 @@ func TestManifestRejectsUntrustedShapes(t *testing.T) {
 		mutate func(*Manifest)
 	}{
 		{name: "traversal", mutate: func(value *Manifest) { value.Files[0].Path = "../escape" }},
+		{name: "parent segment", mutate: func(value *Manifest) { value.Files[0].Path = ".." }},
 		{name: "absolute", mutate: func(value *Manifest) { value.Files[0].Path = "/tmp/escape" }},
 		{name: "windows separator", mutate: func(value *Manifest) { value.Files[0].Path = `tools\escape` }},
 		{name: "duplicate", mutate: func(value *Manifest) { value.Files = append(value.Files, value.Files[0]) }},
@@ -200,6 +201,7 @@ func TestFileAndPathSecurityBoundaries(t *testing.T) {
 		{name: "empty path", mutate: func(value *File) { value.Path = "" }},
 		{name: "long path", mutate: func(value *File) { value.Path = strings.Repeat("a", 513) }},
 		{name: "dot path", mutate: func(value *File) { value.Path = "." }},
+		{name: "parent path", mutate: func(value *File) { value.Path = ".." }},
 		{name: "negative size", mutate: func(value *File) { value.Size = -1 }},
 		{name: "ownership", mutate: func(value *File) { value.Ownership = "user" }},
 	}
@@ -222,7 +224,7 @@ func TestFileAndPathSecurityBoundaries(t *testing.T) {
 	if err := VerifyFile(checksumDrift, body); err == nil {
 		t.Fatal("checksum drift was accepted")
 	}
-	for _, prefix := range []string{"", ".", "../escape", "/absolute", `tools\reconc`} {
+	for _, prefix := range []string{"", ".", "..", "../escape", "/absolute", `tools\reconc`} {
 		if _, err := validateTargetPrefix(prefix); err == nil {
 			t.Fatalf("invalid target prefix %q was accepted", prefix)
 		}

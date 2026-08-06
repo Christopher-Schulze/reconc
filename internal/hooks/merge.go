@@ -3,6 +3,7 @@ package hooks
 import (
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 )
 
@@ -135,7 +136,7 @@ func mergeReconcNestedEventMaps(destEvents, reconcEvents map[string]interface{},
 			destEvents[event] = filtered
 		}
 	}
-	return diff
+	return finalizeMergeDiff(diff)
 }
 
 func hookEntryArray(raw interface{}) ([]interface{}, string) {
@@ -287,6 +288,15 @@ func mergeReconcHookMaps(destHooks, reconcHooks map[string]interface{}, opts Mer
 		}
 		destHooks[event] = filtered
 	}
+	return finalizeMergeDiff(diff)
+}
+
+// finalizeMergeDiff gives both report slices a stable order. They are built by
+// ranging over hook-event maps, so without this the same reinstall emits its
+// warnings in a different order on every run.
+func finalizeMergeDiff(diff MergeDiff) MergeDiff {
+	sort.Strings(diff.Removed)
+	sort.Strings(diff.Kept)
 	return diff
 }
 

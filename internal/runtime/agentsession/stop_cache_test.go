@@ -166,6 +166,68 @@ func TestOversizedDirtyFileDisablesStopPolicyCache(t *testing.T) {
 	}
 }
 
+// TestRequireFreshFileDisablesStopPolicyCache drives the shipped eligibility
+// predicate across the lockfile shapes the compiler can emit. A cached clean
+// Stop report must not outlive a require_fresh_file max_age boundary, while a
+// policy that merely mentions the kind in prose must keep the warm path.
+func TestRequireFreshFileDisablesStopPolicyCache(t *testing.T) {
+	cases := []struct {
+		name      string
+		lock      string
+		cacheable bool
+	}{
+		{
+			name:      "top-level require_fresh_file",
+			lock:      `{"rules":[{"id":"fresh","kind":"require_fresh_file","required_files":[{"path":"STATUS.md","max_age_hours":1}]}]}`,
+			cacheable: false,
+		},
+		{
+			name:      "require_fresh_file nested in a composite rule",
+			lock:      `{"rules":[{"id":"gate","kind":"all_of","checks":[{"kind":"require_claim","claims":["x"]},{"kind":"require_fresh_file","path":"STATUS.md","max_age_hours":1}]}]}`,
+			cacheable: false,
+		},
+		{
+			name:      "kind token quoted in a rule message",
+			lock:      `{"rules":[{"id":"doc","kind":"require_claim","message":"use \"kind\":\"require_fresh_file\" for staleness gates","claims":["x"]}]}`,
+			cacheable: true,
+		},
+		{
+			name:      "no wall-clock rules",
+			lock:      `{"rules":[{"id":"deny","kind":"deny_write","paths":["vendor/**"]}]}`,
+			cacheable: true,
+		},
+		{
+			name:      "undecodable lock stays out of the warm path",
+			lock:      `{"rules":[`,
+			cacheable: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(repo, ".reconc"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(repo, ".reconc", "policy.lock.json"), []byte(tc.lock), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			input := stopPolicyFingerprintInput{RepoRoot: repo, GitStatusOK: true}
+			if got := stopPolicyFingerprintCacheable(input); got != tc.cacheable {
+				t.Fatalf("cacheable = %v, want %v", got, tc.cacheable)
+			}
+		})
+	}
+}
+
+// TestMissingLockfileDisablesStopPolicyCache keeps the uncertainty branch
+// fail-closed: a report we cannot revalidate is never reused.
+func TestMissingLockfileDisablesStopPolicyCache(t *testing.T) {
+	input := stopPolicyFingerprintInput{RepoRoot: t.TempDir(), GitStatusOK: true}
+	if stopPolicyFingerprintCacheable(input) {
+		t.Fatal("a repository without a readable policy lock must not reuse stop reports")
+	}
+}
+
 func TestOversizedDirtyFileForcesStopPolicyReevaluation(t *testing.T) {
 	counterPath := filepath.Join(t.TempDir(), "counter")
 	repo := setupStopScriptPolicyRepo(t, counterPath, 0, "")

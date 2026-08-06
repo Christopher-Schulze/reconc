@@ -413,7 +413,7 @@ func validateSortedPaths(values []string, label string) error {
 
 func validRepositoryRelativePath(value string) bool {
 	return value != "" && len(value) <= 512 && !strings.Contains(value, `\`) &&
-		!path.IsAbs(value) && path.Clean(value) == value && value != "." &&
+		!path.IsAbs(value) && path.Clean(value) == value && value != "." && value != ".." &&
 		!strings.HasPrefix(value, "../")
 }
 

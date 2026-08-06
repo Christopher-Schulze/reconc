@@ -9,12 +9,12 @@ import (
 	"time"
 )
 
-func configureScriptProcess(_ context.Context, cmd *exec.Cmd, _ <-chan struct{}, killTimeoutSec int) {
+func configureScriptProcess(_ context.Context, cmd *exec.Cmd, _ <-chan struct{}, killGrace time.Duration) {
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
 			return os.ErrProcessDone
 		}
 		return cmd.Process.Kill()
 	}
-	cmd.WaitDelay = time.Duration(killTimeoutSec) * time.Second
+	cmd.WaitDelay = killGrace
 }

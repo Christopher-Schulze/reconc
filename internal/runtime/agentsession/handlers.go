@@ -235,14 +235,14 @@ func runPreToolUseResolvedWithEvaluator(root string, payloadBytes []byte, evalua
 	}
 	pendingWrites := payload.FilePaths()
 	if len(pendingWrites) == 0 {
-		// An apply_patch call whose patch body parses to zero file
-		// operations means the envelope format drifted; passing it
-		// through would silently ungate every Codex write. Fail closed
-		// like any other malformed pre-write payload.
+		// Write tools with no extractable paths mean envelope drift or an
+		// unsupported path shape. Passing them through would silently ungate
+		// deny_write / require_read. Fail closed for every write tool name,
+		// not only apply_patch.
 		if payload.ToolName == "apply_patch" && payload.Command() != "" {
 			return Result{ExitCode: 2, Stderr: "reconc hook (pre): apply_patch payload contains no parseable file operations; refusing to pass an unparseable write through the gate"}
 		}
-		return Result{ExitCode: 0}
+		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): write tool %q has no extractable file paths; refusing to pass an unparseable write through the gate", payload.ToolName)}
 	}
 	// Agent persistent-memory writes (~/.claude/projects/<p>/memory/**) are
 	// harness runtime state, not repository writes: they are excluded from the

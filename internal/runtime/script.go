@@ -11,6 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	rerrors "reconc.dev/reconc/internal/errors"
+	"reconc.dev/reconc/internal/pathidentity"
 )
 
 // Script execution constants.
@@ -19,10 +22,16 @@ import (
 // preventing a misconfigured rule from blocking the hook pipeline
 // indefinitely. The default of 300s (5 min) is generous enough for any
 // reasonable check; CI-grade harnesses can override globally if needed.
+//
+// MaxScriptKillTimeoutSec hard-caps the SIGTERM-to-SIGKILL grace the same way.
+// Without a cap, a lockfile value near math.MaxInt64 overflows the
+// time.Duration conversion and either wraps into a nonsense delay or pins a
+// script that ignores SIGTERM long past MaxScriptTimeoutSec.
 const (
 	DefaultScriptTimeoutSec     = 60
 	DefaultScriptKillTimeoutSec = 5
 	MaxScriptTimeoutSec         = 300
+	MaxScriptKillTimeoutSec     = 60
 
 	MaxScriptOutputBytes = 64 * 1024 // captured stdout/stderr cap per stream
 )
@@ -84,9 +93,11 @@ type ScriptInput struct {
 //   - timeout  = timeoutSec (or DefaultScriptTimeoutSec when 0),
 //     hard-capped by MaxScriptTimeoutSec
 //   - SIGTERM is sent on timeout, then SIGKILL after killTimeoutSec
-//     (or DefaultScriptKillTimeoutSec when 0)
+//     (or DefaultScriptKillTimeoutSec when 0), hard-capped by
+//     MaxScriptKillTimeoutSec
 //
 // Errors:
+//   - script escapes the repository -> ("error", non-nil error)
 //   - script not found or not executable -> ("error", non-nil error)
 //   - subprocess crashed (signal etc.) -> ("error", non-nil error)
 //   - timeout -> ("error", nil error, TimedOut=true)
@@ -94,11 +105,10 @@ type ScriptInput struct {
 //   - exit 2 -> ("block", nil error)
 //   - any other exit -> ("error", non-nil error)
 func RunScript(repoRoot, scriptPath string, args []string, input ScriptInput, timeoutSec, killTimeoutSec int) (ScriptOutcome, error) {
-	if killTimeoutSec == 0 {
-		killTimeoutSec = DefaultScriptKillTimeoutSec
+	full, err := resolveRepoScriptPath(repoRoot, scriptPath)
+	if err != nil {
+		return ScriptOutcome{Status: "error"}, err
 	}
-
-	full := filepath.Join(repoRoot, scriptPath)
 	info, err := os.Stat(full)
 	if err != nil {
 		return ScriptOutcome{Status: "error"}, fmt.Errorf("script not found: %s: %w", scriptPath, err)
@@ -126,7 +136,7 @@ func RunScript(repoRoot, scriptPath string, args []string, input ScriptInput, ti
 	cmd.Stdin = bytes.NewReader(stdinJSON)
 
 	done := make(chan struct{})
-	configureScriptProcess(ctx, cmd, done, killTimeoutSec)
+	configureScriptProcess(ctx, cmd, done, normalizedScriptKillTimeout(killTimeoutSec))
 
 	stdoutBuf := newCappedWriter(MaxScriptOutputBytes)
 	stderrBuf := newCappedWriter(MaxScriptOutputBytes)
@@ -182,6 +192,54 @@ func normalizedScriptTimeout(timeoutSec int) time.Duration {
 		timeoutSec = MaxScriptTimeoutSec
 	}
 	return time.Duration(timeoutSec) * time.Second
+}
+
+// normalizedScriptKillTimeout is the single conversion point from a declared
+// kill_timeout_sec to the SIGTERM-to-SIGKILL grace. Every process backend takes
+// the normalized duration, so an out-of-range lockfile value can neither
+// overflow time.Duration nor outlive the script timeout cap.
+func normalizedScriptKillTimeout(killTimeoutSec int) time.Duration {
+	if killTimeoutSec <= 0 {
+		killTimeoutSec = DefaultScriptKillTimeoutSec
+	}
+	if killTimeoutSec > MaxScriptKillTimeoutSec {
+		killTimeoutSec = MaxScriptKillTimeoutSec
+	}
+	return time.Duration(killTimeoutSec) * time.Second
+}
+
+// resolveRepoScriptPath validates that scriptPath names a script inside the
+// repository and returns the path to execute.
+//
+// Containment is enforced on the resolved parent directory, which is what the
+// lexical parser cannot see: rejecting `..` segments does not stop an
+// intermediate directory symlink from moving the execution target outside the
+// repository. The returned leaf stays lexical so scriptCommand's execfile.Is
+// check keeps rejecting a symlinked script file itself.
+func resolveRepoScriptPath(repoRoot, scriptPath string) (string, error) {
+	configured := filepath.FromSlash(scriptPath)
+	cleaned := filepath.Clean(configured)
+	if configured == "" || filepath.IsAbs(configured) || filepath.VolumeName(configured) != "" ||
+		cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return "", &rerrors.RepoBoundaryError{Path: scriptPath, RepoRoot: repoRoot}
+	}
+	resolvedRoot, err := pathidentity.ResolveExisting(repoRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolve repository root for script %q: %w", scriptPath, err)
+	}
+	lexical := filepath.Join(resolvedRoot, cleaned)
+	resolvedParent, err := pathidentity.ResolveProspective(filepath.Dir(lexical))
+	if err != nil {
+		return "", fmt.Errorf("resolve script directory for %q: %w", scriptPath, err)
+	}
+	rel, err := filepath.Rel(resolvedRoot, resolvedParent)
+	if err != nil {
+		return "", fmt.Errorf("validate script %q containment: %w", scriptPath, err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", &rerrors.RepoBoundaryError{Path: scriptPath, RepoRoot: resolvedRoot}
+	}
+	return lexical, nil
 }
 
 // classifyScriptOutcome is the single fail-closed contract shared by every
