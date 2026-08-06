@@ -179,6 +179,13 @@ type Rule struct {
 	TimeoutSec     int      `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`
 	KillTimeoutSec int      `json:"kill_timeout_sec,omitempty" yaml:"kill_timeout_sec,omitempty"`
 
+	// CacheInputs names the repository-relative files the script reads. A
+	// script is opaque to static analysis, so Stop report reuse binds these
+	// declared paths and refuses to reuse a report for a script that declares
+	// none. Literal paths only: resolving a glob would require a directory
+	// walk on the Stop hot path.
+	CacheInputs []string `json:"cache_inputs,omitempty" yaml:"cache_inputs,omitempty"`
+
 	// Assurance contains native, typed gate configurations. The parent rule's
 	// when_paths determines when the gate set runs.
 	Assurance []AssuranceGate `json:"assurance,omitempty" yaml:"assurance,omitempty"`
@@ -370,6 +377,8 @@ type Check struct {
 	Script     string   `json:"script,omitempty" yaml:"script,omitempty"`
 	Args       []string `json:"args,omitempty" yaml:"args,omitempty"`
 	TimeoutSec int      `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`
+	// CacheInputs mirrors Rule.CacheInputs for script sub-checks.
+	CacheInputs []string `json:"cache_inputs,omitempty" yaml:"cache_inputs,omitempty"`
 
 	// Shared list-shaped fields (require_claim, require_command,
 	// forbid_command, deny_write, require_read, couple_change)

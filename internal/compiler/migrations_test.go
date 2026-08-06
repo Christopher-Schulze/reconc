@@ -48,7 +48,7 @@ func TestMigrateLockfileV1ToPortableV2(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MigrateLockfile: %v", err)
 	}
-	if len(applied) != 2 || applied[0].FromVersion != "1" || applied[1].ToVersion != LockfileFormatVersion {
+	if len(applied) != 3 || applied[0].FromVersion != "1" || applied[len(applied)-1].ToVersion != LockfileFormatVersion {
 		t.Fatalf("unexpected migration chain: %+v", applied)
 	}
 	if out["$schema"] != DefaultLockfileSchema {
@@ -100,7 +100,7 @@ func TestMigrateLockfileV2RemovesSourceBodiesAndPreservesFreshnessDigest(t *test
 	if err != nil {
 		t.Fatalf("MigrateLockfile: %v", err)
 	}
-	if len(applied) != 1 || applied[0].FromVersion != "2" || applied[0].ToVersion != "3" {
+	if len(applied) != 2 || applied[0].FromVersion != "2" || applied[len(applied)-1].ToVersion != LockfileFormatVersion {
 		t.Fatalf("unexpected migration chain: %+v", applied)
 	}
 	source := out["sources"].([]interface{})[0].(map[string]interface{})
@@ -228,3 +228,76 @@ func TestMigrateLockfilePropagatesApplyError(t *testing.T) {
 type testErr struct{ msg string }
 
 func (e *testErr) Error() string { return e.msg }
+
+// TestMigrateLockfileV3ToV4StampsTheCurrentContract proves a format-3 lock
+// reaches the current format with a consistent self-digest. The rule payload is
+// carried verbatim: a legacy lock simply declares no script cache inputs.
+func TestMigrateLockfileV3ToV4StampsTheCurrentContract(t *testing.T) {
+	t.Setenv("RECONC_SCHEMA_BASE_URL", "")
+	payload := map[string]interface{}{
+		"$schema":        schema.LegacyPolicyLockV3URL,
+		"format_version": "3",
+		"repo_root":      PortableRepoRoot,
+		"discovery": map[string]interface{}{
+			"repo_root":  PortableRepoRoot,
+			"start_path": PortableRepoRoot,
+			"discovered": true,
+		},
+		"sources": []interface{}{
+			map[string]interface{}{
+				"kind":           string(policy.SourcePolicyFile),
+				"path":           "policies/rules.yml",
+				"content_sha256": strings.Repeat("a", 64),
+			},
+		},
+		"rules": []interface{}{
+			map[string]interface{}{
+				"id": "gate", "kind": "require_script", "message": "gate",
+				"script": "scripts/check.sh",
+			},
+		},
+	}
+	digest, err := ComputeLockDigest(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload["lock_digest"] = digest
+
+	out, applied, err := MigrateLockfile(payload)
+	if err != nil {
+		t.Fatalf("MigrateLockfile: %v", err)
+	}
+	if len(applied) != 1 || applied[0].FromVersion != "3" || applied[0].ToVersion != LockfileFormatVersion {
+		t.Fatalf("unexpected migration chain: %+v", applied)
+	}
+	if out["format_version"] != LockfileFormatVersion {
+		t.Fatalf("format_version = %v, want %s", out["format_version"], LockfileFormatVersion)
+	}
+	if out["$schema"] != DefaultLockfileSchema {
+		t.Fatalf("schema = %v, want %q", out["$schema"], DefaultLockfileSchema)
+	}
+	migratedDigest, err := ComputeLockDigest(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out["lock_digest"] != migratedDigest {
+		t.Fatal("migrated lockfile digest does not describe its own contents")
+	}
+	rule := out["rules"].([]interface{})[0].(map[string]interface{})
+	if _, declared := rule["cache_inputs"]; declared {
+		t.Fatalf("migration invented a declaration: %#v", rule)
+	}
+}
+
+// TestMigrateLockfileV3RejectsForeignSchema keeps the step from accepting a
+// payload that only claims to be format 3.
+func TestMigrateLockfileV3RejectsForeignSchema(t *testing.T) {
+	t.Setenv("RECONC_SCHEMA_BASE_URL", "")
+	_, _, err := MigrateLockfile(map[string]interface{}{
+		"$schema":        "https://example.test/other.schema.json",
+		"format_version": "3",
+	})
+	if err == nil || !strings.Contains(err.Error(), "is not recognized") {
+		t.Fatalf("error = %v, want an unrecognized-schema refusal", err)
+	}
+}

@@ -36,7 +36,7 @@ func TestPublicSchemaAliasesHaveOneOwner(t *testing.T) {
 
 func TestResolveEnterpriseSchemaBase(t *testing.T) {
 	t.Setenv("RECONC_SCHEMA_BASE_URL", "https://schemas.example.test/")
-	if got, want := schema.Resolve(schema.PolicyLock), "https://schemas.example.test/schemas/policy-lock/v3"; got != want {
+	if got, want := schema.Resolve(schema.PolicyLock), "https://schemas.example.test/schemas/policy-lock/v4"; got != want {
 		t.Fatalf("Resolve() = %q, want %q", got, want)
 	}
 	if got, want := schema.Resolve(schema.PolicyReport), "https://schemas.example.test/schemas/policy-report/v1"; got != want {
@@ -128,7 +128,8 @@ func TestPublishedSchemasAreVersionedJSONContracts(t *testing.T) {
 		}
 	}
 	assertPublishedSchema(t, filepath.Join("..", "..", "schemas", "v2", "policy-lock.schema.json"), schema.LegacyPolicyLockV2URL)
-	assertPublishedSchema(t, filepath.Join("..", "..", "schemas", "v3", "policy-lock.schema.json"), schema.PolicyLockURL)
+	assertPublishedSchema(t, filepath.Join("..", "..", "schemas", "v3", "policy-lock.schema.json"), schema.LegacyPolicyLockV3URL)
+	assertPublishedSchema(t, filepath.Join("..", "..", "schemas", "v4", "policy-lock.schema.json"), schema.PolicyLockURL)
 }
 
 func assertPublishedSchema(t *testing.T, path, wantID string) {
@@ -179,10 +180,10 @@ func TestPublishedSchemaPropertiesMatchEmittedGoTypes(t *testing.T) {
 	assertPropertiesMatch(t, schemaDefinition(t, currentLock, "customRuntime"), customruntime.Summary{})
 	assertPropertiesMatch(t, schemaDefinition(t, lock, "requiredFile"), policy.RequiredFile{})
 	assertPropertiesMatch(t, schemaDefinition(t, lock, "evidence"), policy.EvidenceCheck{})
-	assertPropertiesMatch(t, schemaDefinition(t, lock, "check"), policy.Check{})
+	assertPropertiesMatch(t, schemaDefinition(t, currentLock, "check"), policy.Check{})
 	assertPropertiesMatch(t, schemaDefinition(t, lock, "assuranceExemption"), policy.AssuranceExemption{})
 	assertPropertiesMatch(t, schemaDefinition(t, lock, "assurance"), policy.AssuranceGate{})
-	assertPropertiesMatch(t, schemaDefinition(t, lock, "rule"), policy.Rule{})
+	assertPropertiesMatch(t, schemaDefinition(t, currentLock, "rule"), policy.Rule{})
 
 	assertPropertiesMatch(t, schemaRootProperties(t, report), runtime.CheckReport{})
 	assertPropertiesMatch(t, schemaDefinition(t, report, "commandResult"), runtime.CommandResult{})
@@ -297,7 +298,7 @@ func readLegacyLockSchemaDocument(t *testing.T) map[string]interface{} {
 
 func readCurrentLockSchemaDocument(t *testing.T) map[string]interface{} {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "schemas", "v3", "policy-lock.schema.json"))
+	data, err := os.ReadFile(filepath.Join("..", "..", "schemas", "v4", "policy-lock.schema.json"))
 	if err != nil {
 		t.Fatalf("read current lock schema: %v", err)
 	}

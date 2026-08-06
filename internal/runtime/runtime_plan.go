@@ -286,7 +286,7 @@ func validateRuntimeRuleFieldPresence(data []byte, rules []policy.Rule) error {
 		allowed := runtimeFieldSet(
 			"id", "kind", "mode", "message", "paths", "before_paths", "when_paths",
 			"commands", "claims", "command_match", "required_files", "evidence", "checks",
-			"script", "args", "timeout_sec", "kill_timeout_sec", "assurance",
+			"script", "args", "timeout_sec", "kill_timeout_sec", "cache_inputs", "assurance",
 			"source_path", "source_block_id",
 			"deprecated", "deprecated_reason", "deprecated_since", "deprecated_replaced_by",
 			"scope_paths", "scope_id",
@@ -327,7 +327,7 @@ func validateRuntimeCheckFieldPresence(data json.RawMessage, checks []policy.Che
 		case policy.KindDenyWrite:
 			runtimeAddFields(allowed, "paths")
 		case policy.KindRequireScript:
-			runtimeAddFields(allowed, "script", "args", "timeout_sec")
+			runtimeAddFields(allowed, "script", "args", "timeout_sec", "cache_inputs")
 		}
 		if err := rejectRuntimeFields(rawCheck, allowed, fmt.Sprintf("rules[%d].checks[%d]", ruleIndex, index)); err != nil {
 			return err
@@ -528,6 +528,9 @@ func validateRuntimeRuleShape(rule *policy.Rule) error {
 		if rule.TimeoutSec < 0 || rule.KillTimeoutSec < 0 {
 			return fmt.Errorf("script timeouts must be non-negative")
 		}
+		if err := validateRuntimePlanCacheInputs(rule.CacheInputs); err != nil {
+			return err
+		}
 		return require("when_paths", rule.WhenPaths)
 	case policy.KindAllOf, policy.KindAnyOf, policy.KindNot:
 		if len(rule.Checks) == 0 {
@@ -541,7 +544,7 @@ func validateRuntimeRuleShape(rule *policy.Rule) error {
 		if len(rule.Assurance) == 0 {
 			return fmt.Errorf("kind require_assurance requires assurance")
 		}
-		if len(rule.Paths) > 0 || len(rule.BeforePaths) > 0 || len(rule.Commands) > 0 || len(rule.Claims) > 0 || len(rule.RequiredFiles) > 0 || len(rule.Evidence) > 0 || rule.Script != "" || len(rule.Args) > 0 || rule.TimeoutSec != 0 || rule.KillTimeoutSec != 0 || len(rule.Checks) > 0 {
+		if len(rule.Paths) > 0 || len(rule.BeforePaths) > 0 || len(rule.Commands) > 0 || len(rule.Claims) > 0 || len(rule.RequiredFiles) > 0 || len(rule.Evidence) > 0 || rule.Script != "" || len(rule.Args) > 0 || rule.TimeoutSec != 0 || rule.KillTimeoutSec != 0 || len(rule.CacheInputs) > 0 || len(rule.Checks) > 0 {
 			return fmt.Errorf("kind require_assurance contains fields that are invalid for this kind")
 		}
 		return require("when_paths", rule.WhenPaths)
@@ -637,6 +640,23 @@ func validateRuntimeStrings(field string, values []string) error {
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("%s[%d] must be non-empty", field, index)
 		}
+	}
+	return nil
+}
+
+// validateRuntimePlanCacheInputs re-checks the declared script inputs against
+// the shape Stop report reuse can bind, so a hand-edited lockfile cannot smuggle
+// a glob or an escaping path past the compiler.
+func validateRuntimePlanCacheInputs(inputs []string) error {
+	seen := make(map[string]struct{}, len(inputs))
+	for _, input := range inputs {
+		if !runtimePlanRepoRelativePath(input) || strings.ContainsAny(input, "*?[]{}") {
+			return fmt.Errorf("cache_inputs must name literal repo-relative files")
+		}
+		if _, duplicate := seen[input]; duplicate {
+			return fmt.Errorf("cache_inputs lists %s more than once", input)
+		}
+		seen[input] = struct{}{}
 	}
 	return nil
 }

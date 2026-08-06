@@ -547,9 +547,9 @@ func stopPolicyFingerprintCacheable(input stopPolicyFingerprintInput) bool {
 // Stop caching needs: which repository paths the rules read, and which of them
 // can turn a clean report stale from wall-clock time alone.
 //
-// It binds what the policy names. A require_script body can additionally read
-// state the policy does not name, which no static scan can bind; that boundary
-// is documented rather than guessed at.
+// It binds what the policy names. A require_script body is opaque, so it must
+// declare the files it reads through `cache_inputs`; a script that declares
+// none keeps its plan off the warm path entirely.
 type stopPolicyLockScan struct {
 	// Cacheable is false when the lock cannot be read or decoded, or when a
 	// policy path is template-generated and therefore not enumerable here.
@@ -604,11 +604,15 @@ func scanStopPolicyLockfile(repoRoot string) stopPolicyLockScan {
 			scan.FreshFiles = append(scan.FreshFiles, stopPolicyFreshFile{Path: path, MaxAgeHours: maxAgeHours})
 		}
 	}
+	undeclaredScript := false
 	for _, rule := range lock.Rules {
-		rule.collectInto(collect)
+		rule.collectInto(collect, &undeclaredScript)
 		for _, check := range rule.Checks {
-			check.collectInto(collect)
+			check.collectInto(collect, &undeclaredScript)
 		}
+	}
+	if undeclaredScript {
+		scan.Cacheable = false
 	}
 	scan.Paths = sortedKeys(paths)
 	sort.Slice(scan.FreshFiles, func(i, j int) bool {
@@ -628,6 +632,7 @@ type stopPolicyLockRule struct {
 	Path          string               `json:"path"`
 	File          string               `json:"file"`
 	Script        string               `json:"script"`
+	CacheInputs   []string             `json:"cache_inputs"`
 	MaxAgeHours   int                  `json:"max_age_hours"`
 	RequiredFiles []stopPolicyLockFile `json:"required_files"`
 	Evidence      []stopPolicyLockFile `json:"evidence"`
@@ -640,7 +645,7 @@ type stopPolicyLockFile struct {
 	MaxAgeHours int    `json:"max_age_hours"`
 }
 
-func (r stopPolicyLockRule) collectInto(collect func(path string, maxAgeHours int, fresh bool)) {
+func (r stopPolicyLockRule) collectInto(collect func(path string, maxAgeHours int, fresh bool), undeclaredScript *bool) {
 	fresh := r.Kind == string(policy.KindRequireFreshFile)
 	collect(r.Path, r.MaxAgeHours, fresh)
 	collect(r.File, 0, false)
@@ -648,6 +653,17 @@ func (r stopPolicyLockRule) collectInto(collect func(path string, maxAgeHours in
 	// while it is tracked: a gitignored check script could otherwise be
 	// rewritten and the stored report would still be served.
 	collect(r.Script, 0, false)
+	if r.Kind == string(policy.KindRequireScript) {
+		// The script body itself is opaque. Only the inputs its author
+		// declares can be bound, so an undeclared script plan is not a
+		// function of the fingerprint and must not reuse a report.
+		if len(r.CacheInputs) == 0 {
+			*undeclaredScript = true
+		}
+		for _, input := range r.CacheInputs {
+			collect(input, 0, false)
+		}
+	}
 	for _, required := range r.RequiredFiles {
 		collect(required.Path, required.MaxAgeHours, fresh)
 	}

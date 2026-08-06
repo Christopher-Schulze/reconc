@@ -43,9 +43,12 @@ the check entry.
 | `require_script` | `script`, `when_paths` | Writes matching `when_paths` require a repo-local policy-authored script to return success. |
 | `require_assurance` | `assurance`, `when_paths` | Writes matching `when_paths` require every applicable typed native assurance gate to pass. |
 
-`require_script` may use `args`, `timeout_sec`, and
-`kill_timeout_sec`. Script paths must be repo-relative and must not
-escape the repository root. Payload-provided command strings are never
+`require_script` may use `args`, `timeout_sec`, `kill_timeout_sec`, and
+`cache_inputs`. Script paths must be repo-relative and must not
+escape the repository root. `cache_inputs` names the literal repo-relative
+files the script reads; globs, template variables, escaping paths, and
+duplicates are invalid. Stop report reuse binds those files and never reuses a
+report for a script that declares none. Payload-provided command strings are never
 executed as scripts. Only `status=pass` with exit code 0 passes. Exit code 2 is
 a policy block. Timeout, launch or process failure, any other exit, and an
 unknown or contradictory status fail closed. Timeout diagnostics identify the

@@ -254,3 +254,58 @@ func TestMigratedRuntimePlanRetainsEmbeddedRuleParityCheck(t *testing.T) {
 		t.Fatalf("migrated embedded-rule drift was accepted: %v", err)
 	}
 }
+
+// TestRuntimePlanRejectsUnbindableCacheInputs re-checks the declared script
+// inputs against the shape the Stop fingerprint can bind, so a hand-edited
+// lockfile cannot smuggle a glob or an escaping path past the compiler.
+func TestRuntimePlanRejectsUnbindableCacheInputs(t *testing.T) {
+	const policyText = "rules:\n  - id: gate\n    kind: require_script\n    when_paths: ['src/**']\n    script: 'scripts/check.sh'\n    cache_inputs: ['build/report.json']\n    mode: block\n    message: gate\n"
+	for _, test := range []struct {
+		name  string
+		value []interface{}
+	}{
+		{name: "glob", value: []interface{}{"build/**/*.json"}},
+		{name: "escaping path", value: []interface{}{"../outside.json"}},
+		{name: "absolute path", value: []interface{}{"/etc/passwd"}},
+		{name: "duplicate", value: []interface{}{"build/report.json", "build/report.json"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			withRECONCHome(t)
+			repo := makeRepo(t, "# project\n", "", policyText)
+			rewriteLockfileWithDigest(t, repo, func(payload map[string]interface{}) {
+				rule := payload["rules"].([]interface{})[0].(map[string]interface{})
+				rule["cache_inputs"] = test.value
+			})
+			if _, err := CheckRepoPolicy(repo, Empty()); err == nil || !strings.Contains(err.Error(), "refresh required") {
+				t.Fatalf("unbindable cache_inputs was accepted: %v", err)
+			}
+		})
+	}
+}
+
+// TestRuntimePlanCarriesDeclaredCacheInputs guards the accepted side so the
+// rejection cases cannot pass by refusing everything.
+func TestRuntimePlanCarriesDeclaredCacheInputs(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "",
+		"rules:\n  - id: gate\n    kind: require_script\n    when_paths: ['src/**']\n    script: 'scripts/check.sh'\n    cache_inputs: ['build/report.json', 'STATUS.md']\n    mode: block\n    message: gate\n")
+	if _, err := CheckRepoPolicy(repo, Empty()); err != nil {
+		t.Fatalf("declared cache_inputs was rejected: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(repo, ".reconc", "policy.lock.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lock struct {
+		Rules []struct {
+			CacheInputs []string `json:"cache_inputs"`
+		} `json:"rules"`
+	}
+	if err := json.Unmarshal(body, &lock); err != nil {
+		t.Fatal(err)
+	}
+	if len(lock.Rules) != 1 || len(lock.Rules[0].CacheInputs) != 2 ||
+		lock.Rules[0].CacheInputs[0] != "build/report.json" || lock.Rules[0].CacheInputs[1] != "STATUS.md" {
+		t.Fatalf("compiled lockfile did not carry the declaration: %s", body)
+	}
+}

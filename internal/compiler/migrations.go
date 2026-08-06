@@ -46,6 +46,11 @@ var Migrations = []Migration{
 		ToVersion:   "3",
 		Apply:       migrateLockfileV2ToV3,
 	},
+	{
+		FromVersion: "3",
+		ToVersion:   "4",
+		Apply:       migrateLockfileV3ToV4,
+	},
 }
 
 func migrateLockfileV1ToV2(payload map[string]interface{}) (map[string]interface{}, error) {
@@ -139,19 +144,47 @@ func migrateLockfileV2ToV3(payload map[string]interface{}) (map[string]interface
 		return nil, fmt.Errorf("compute migrated source digest: %w", err)
 	}
 	out := cloneLockfileMap(payload)
-	out["$schema"] = LockfileSchema()
+	// Each step writes the schema of the version it produces. The chain
+	// continues to the current format, which stamps its own schema last.
+	out["$schema"] = legacyLockfileSchemaForEnterprise("v3")
 	out["sources"] = sources
 	out["source_digest"] = sourceDigest
+	return out, nil
+}
+
+// migrateLockfileV3ToV4 carries a format-3 lock into the format that can
+// express `cache_inputs`. The rule payload itself is unchanged: a legacy lock
+// simply declares no script cache inputs, which keeps its script plans out of
+// the Stop warm path until the policy is recompiled with declarations.
+func migrateLockfileV3ToV4(payload map[string]interface{}) (map[string]interface{}, error) {
+	schemaURL, _ := payload["$schema"].(string)
+	if schemaURL != schema.LegacyPolicyLockV3URL &&
+		schemaURL != schema.LegacyPolicyLockV3URLUnpinned &&
+		schemaURL != legacyLockfileSchemaForEnterprise("v3") {
+		return nil, fmt.Errorf("legacy lockfile schema %q is not recognized", schemaURL)
+	}
+	out := cloneLockfileMap(payload)
+	out["$schema"] = LockfileSchema()
+	out["format_version"] = "4"
+	digest, err := ComputeLockDigest(out)
+	if err != nil {
+		return nil, fmt.Errorf("compute migrated v4 lockfile digest: %w", err)
+	}
+	out["lock_digest"] = digest
 	return out, nil
 }
 
 func legacyLockfileSchemaForEnterprise(version string) string {
 	base := strings.TrimRight(os.Getenv("RECONC_SCHEMA_BASE_URL"), "/")
 	if base == "" {
-		if version == "v1" {
+		switch version {
+		case "v1":
 			return LegacyLockfileSchemaV1
+		case "v3":
+			return schema.LegacyPolicyLockV3URL
+		default:
+			return schema.LegacyPolicyLockV2URL
 		}
-		return schema.LegacyPolicyLockV2URL
 	}
 	return base + "/schemas/policy-lock/" + version
 }

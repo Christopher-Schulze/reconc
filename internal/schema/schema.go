@@ -11,7 +11,7 @@ import (
 // immutable format-1 contracts. Policy lockfiles evolve independently.
 const DefaultBaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1"
 
-const PolicyLockBaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v3"
+const PolicyLockBaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4"
 
 // Artifact identifies one stable JSON contract emitted by Reconc.
 type Artifact string
@@ -51,6 +51,8 @@ const (
 	LegacyPolicyLockURLUnpinned   = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/policy-lock.schema.json"
 	LegacyPolicyLockV2URL         = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v2/policy-lock.schema.json"
 	LegacyPolicyLockV2URLUnpinned = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v2/policy-lock.schema.json"
+	LegacyPolicyLockV3URL         = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v3/policy-lock.schema.json"
+	LegacyPolicyLockV3URLUnpinned = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v3/policy-lock.schema.json"
 )
 
 // DefaultURL returns the repository-hosted, format-versioned schema URL.
@@ -98,7 +100,7 @@ func Resolve(artifact Artifact) string {
 	}
 	version := "v1"
 	if artifact == PolicyLock {
-		version = "v3"
+		version = "v4"
 	}
 	return base + "/schemas/" + string(artifact) + "/" + version
 }

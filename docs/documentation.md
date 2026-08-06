@@ -20,6 +20,7 @@ usage, architecture, release, and security facts should be kept here first.
 - [v0.9.0 To v0.9.1 Migration](#v090-to-v091-migration)
 - [v0.9.1 To v0.9.2 Migration](#v091-to-v092-migration)
 - [v0.9.2 To v0.9.3 Migration](#v092-to-v093-migration)
+- [v0.9.3 To v0.9.4 Migration](#v093-to-v094-migration)
 - [Uninstall And Remove](#uninstall-and-remove)
 - [Development Control Plane](#development-control-plane)
 - [Minimal Example Policy](#minimal-example-policy)
@@ -1048,6 +1049,36 @@ No policy or schema migration is required. The v0.9.1 schema URLs remain the
 immutable canonical identities for compatible v1 artifact schemas and the v3
 policy-lock schema. Test measurement output remains review evidence only; Reconc
 has no fixed percentage requirement.
+
+## v0.9.3 To v0.9.4 Migration
+
+The policy lockfile moves to format version `4`, published as the v0.9.4
+`schemas/v4/policy-lock.schema.json` identity. Format 1, 2, and 3 lockfiles
+migrate automatically on read, so no repository action is required; `reconc
+refresh .` rewrites the lock in the current format whenever the policy sources
+change. The v0.9.1 schema URLs remain the immutable canonical identities for
+compatible v1 artifact schemas and for the v1, v2, and v3 policy-lock schemas.
+
+Format 4 carries one new optional field. A `require_script` rule, or a
+`require_script` check inside a composite rule, may declare `cache_inputs`: the
+literal repository-relative files the script reads.
+
+```yaml
+rules:
+  - id: schema-drift
+    kind: require_script
+    when_paths: ['src/**']
+    script: 'scripts/check-schema-drift.sh'
+    cache_inputs: ['build/schema-report.json']
+    mode: block
+    message: schema drift gate
+```
+
+Stop report reuse binds those files exactly. A `require_script` that declares
+nothing is never reused, which is the behaviour change to expect on upgrade:
+such gates run on every Stop until their inputs are declared. Globs, template
+variables, escaping paths, and duplicate entries are refused at compile time,
+because binding them would require a directory walk on the Stop path.
 
 ## Uninstall And Remove
 
@@ -2436,14 +2467,14 @@ max_age_hours` across the age requirements, and both the session-state and the
 persistent-worker warm paths re-evaluate past that instant. A policy without
 age requirements carries no expiry and never ages out on time alone.
 
-What report reuse binds is what the policy names. A `require_script` body can
-additionally read state no rule names: files outside the repository, host
-processes, or a service. Reuse assumes such a script answers as a function of
-the bound inputs. That is the same class of assumption as self-reported
-evidence in the threat model below, and it is the documented boundary of Stop
-caching rather than an inferred property. A policy whose script inspects
-unnamed state should name that state through `require_evidence` or
-`require_fresh_file`, which binds it exactly.
+A `require_script` body is opaque to that scan, so its author declares what it
+reads. `cache_inputs` lists literal repository-relative files; globs, template
+variables, escaping paths, and duplicates are refused at compile time because
+the Stop path binds these declarations without a directory walk. A declared
+script plan is reused only while every declared file keeps its exact content
+identity. A `require_script` that declares nothing keeps its plan off the warm
+path entirely, so no report is ever reused for a script whose inputs are
+unknown.
 
 Dirty regular files up to 64 MiB contribute exact SHA-256 content identity. A
 larger dirty file receives only a bounded size/mtime diagnostic identity, makes
@@ -2796,8 +2827,8 @@ Security posture:
   host payload through persisted session state and evaluator matching.
 - Payload command strings are matched as data and are not executed.
 - Stop report reuse binds exactly the repository paths the compiled policy
-  names, including the script target; a script that reads unnamed state is a
-  documented assumption, not a bound input.
+  names, including the script target and the files a `require_script` declares
+  through `cache_inputs`. A script that declares nothing is never reused.
 - Only policy-authored `require_script` entries execute subprocesses. The
   declared path is repo-relative, the script itself must be a real executable
   file rather than a symlink, and the directory it resolves through must stay

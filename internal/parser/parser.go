@@ -552,6 +552,10 @@ func validateRuleItem(item map[string]interface{}, src policy.PolicySource, inde
 	if err != nil {
 		return policy.Rule{}, err
 	}
+	cacheInputs, err := optionalContainList(item, "cache_inputs", id, "rule", index)
+	if err != nil {
+		return policy.Rule{}, err
+	}
 	if kind == policy.KindRequireScript {
 		if script == "" {
 			return policy.Rule{}, &rerrors.RuleValidationError{
@@ -572,6 +576,13 @@ func validateRuleItem(item map[string]interface{}, src policy.PolicySource, inde
 			return policy.Rule{}, &rerrors.RuleValidationError{
 				Message: "rule '" + id + "' timeout_sec / kill_timeout_sec must be >= 0",
 			}
+		}
+		if err := validateScriptCacheInputs(cacheInputs, "rule '"+id+"' field 'cache_inputs'"); err != nil {
+			return policy.Rule{}, err
+		}
+	} else if len(cacheInputs) > 0 {
+		return policy.Rule{}, &rerrors.RuleValidationError{
+			Message: "rule '" + id + "' field 'cache_inputs' is only valid for kind require_script",
 		}
 	}
 
@@ -659,6 +670,7 @@ func validateRuleItem(item map[string]interface{}, src policy.PolicySource, inde
 		Args:                 args,
 		TimeoutSec:           timeoutSec,
 		KillTimeoutSec:       killTimeoutSec,
+		CacheInputs:          cacheInputs,
 		Assurance:            assurance,
 		SourcePath:           src.Path,
 		SourceBlockID:        src.BlockID,
@@ -701,6 +713,33 @@ func parseCommandMatch(item map[string]interface{}, kind policy.Kind, id string)
 		return "", nil
 	}
 	return match, nil
+}
+
+// validateScriptCacheInputs enforces the shape Stop report reuse can bind: a
+// literal, repo-relative, duplicate-free path list. A glob or template would
+// have to be resolved on the Stop hot path, and a path that leaves the
+// repository cannot be bound at all.
+func validateScriptCacheInputs(inputs []string, context string) error {
+	seen := make(map[string]struct{}, len(inputs))
+	for _, input := range inputs {
+		if !isRepoRelativePath(input) {
+			return &rerrors.RuleValidationError{
+				Message: context + " must contain repo-relative paths (no absolute, no '..' escapes): " + input,
+			}
+		}
+		if strings.ContainsAny(input, "*?[]{}") {
+			return &rerrors.RuleValidationError{
+				Message: context + " must name literal files, not globs or template variables: " + input,
+			}
+		}
+		if _, duplicate := seen[input]; duplicate {
+			return &rerrors.RuleValidationError{
+				Message: context + " lists " + input + " more than once",
+			}
+		}
+		seen[input] = struct{}{}
+	}
+	return nil
 }
 
 // isRepoRelativePath reports whether p is safe to interpret as
@@ -928,6 +967,14 @@ func parseCheck(item map[string]interface{}, ruleID, listKey string, index int) 
 			}
 		}
 		check.TimeoutSec = timeoutSec
+		cacheInputs, err := optionalContainList(item, "cache_inputs", ruleID, listKey, index)
+		if err != nil {
+			return policy.Check{}, err
+		}
+		if err := validateScriptCacheInputs(cacheInputs, "rule '"+ruleID+"' field '"+listKey+"["+itoa(index)+"].cache_inputs'"); err != nil {
+			return policy.Check{}, err
+		}
+		check.CacheInputs = cacheInputs
 
 	default:
 		// Other kinds (require_read, couple_change) are not yet

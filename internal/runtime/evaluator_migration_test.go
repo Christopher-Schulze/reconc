@@ -44,7 +44,7 @@ func TestCheckRejectsOldLockfileWithoutRegisteredMigration(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for old lockfile without migration")
 	}
-	if !strings.Contains(err.Error(), "no migration registered from format_version 0 to 3") {
+	if !strings.Contains(err.Error(), "no migration registered from format_version 0 to "+compiler.LockfileFormatVersion) {
 		t.Fatalf("expected missing-migration error, got: %v", err)
 	}
 }

@@ -1225,9 +1225,10 @@ func TestRepositorySyncMigratesOnlyReceiptOwnedPolicyLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	action := syncActionForPath(t, plan, ".reconc/policy.lock.json")
-	if action.State != SyncReplaceOwned || len(plan.Migrations) != 2 ||
+	last := len(plan.Migrations) - 1
+	if action.State != SyncReplaceOwned || len(plan.Migrations) < 2 ||
 		plan.Migrations[0].From != "1" || plan.Migrations[0].To != "2" ||
-		plan.Migrations[1].From != "2" || plan.Migrations[1].To != compiler.LockfileFormatVersion {
+		plan.Migrations[last].To != compiler.LockfileFormatVersion {
 		t.Fatalf("policy migration action = %+v migrations=%v", action, plan.Migrations)
 	}
 	if _, err := ApplySyncPlan(plan, plan.PlanDigest, syncTestVersion); err != nil {

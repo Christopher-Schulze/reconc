@@ -1037,7 +1037,9 @@ func setupStopScriptPolicyRepo(t *testing.T, counterPath string, exitCode int, o
 	if err := os.MkdirAll(filepath.Join(repo, ".reconc", "scripts"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	script := fmt.Sprintf("#!/bin/sh\nprintf x >> %q\nprintf '%s\\n'\nexit %d\n", counterPath, output, exitCode)
+	// The gate reads the file it declares as a cache input, so the fixture
+	// models a script whose answer is a function of bound repository state.
+	script := fmt.Sprintf("#!/bin/sh\ncat AGENTS.md >/dev/null 2>&1 || true\nprintf x >> %q\nprintf '%s\\n'\nexit %d\n", counterPath, output, exitCode)
 	scriptPath := filepath.Join(repo, ".reconc", "scripts", "stop-gate.sh")
 	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -1050,6 +1052,7 @@ func setupStopScriptPolicyRepo(t *testing.T, counterPath string, exitCode int, o
     kind: require_script
     when_paths: ['src/**']
     script: '.reconc/scripts/stop-gate.sh'
+    cache_inputs: ['AGENTS.md']
     mode: block
     timeout_sec: 10
     message: stop script gate

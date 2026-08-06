@@ -34,7 +34,7 @@ import (
 // LockfileFormatVersion is bumped whenever the lockfile contract changes in a
 // non-additive way. Version 3 replaces embedded raw source bodies with
 // portable SHA-256 provenance.
-const LockfileFormatVersion = "3"
+const LockfileFormatVersion = "4"
 
 // PortableRepoRoot is the only repository identity serialized into current
 // lockfiles. Runtime binds it to the discovered checkout and verifies semantic
@@ -566,6 +566,9 @@ func ruleToMap(r policy.Rule) map[string]interface{} {
 	if r.KillTimeoutSec > 0 {
 		m["kill_timeout_sec"] = r.KillTimeoutSec
 	}
+	if len(r.CacheInputs) > 0 {
+		m["cache_inputs"] = r.CacheInputs
+	}
 	if len(r.Assurance) > 0 {
 		out := make([]interface{}, len(r.Assurance))
 		for i, gate := range r.Assurance {
@@ -693,6 +696,9 @@ func checkToMap(c policy.Check) map[string]interface{} {
 	}
 	if c.TimeoutSec > 0 {
 		m["timeout_sec"] = c.TimeoutSec
+	}
+	if len(c.CacheInputs) > 0 {
+		m["cache_inputs"] = c.CacheInputs
 	}
 	if len(c.Paths) > 0 {
 		m["paths"] = c.Paths

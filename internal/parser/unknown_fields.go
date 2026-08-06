@@ -12,7 +12,7 @@ import (
 var ruleFields = fieldSet(
 	"id", "kind", "mode", "message", "paths", "before_paths", "when_paths",
 	"commands", "claims", "command_match", "required_files", "evidence", "checks",
-	"script", "args", "timeout_sec", "kill_timeout_sec", "assurance", "template",
+	"script", "args", "timeout_sec", "kill_timeout_sec", "cache_inputs", "assurance", "template",
 	"deprecated", "deprecated_reason", "deprecated_since", "deprecated_replaced_by",
 )
 
@@ -132,11 +132,11 @@ func validateCheckFields(check map[string]interface{}, context string) error {
 	case policy.KindDenyWrite:
 		addFields(allowed, "paths")
 	case policy.KindRequireScript:
-		addFields(allowed, "script", "args", "timeout_sec")
+		addFields(allowed, "script", "args", "timeout_sec", "cache_inputs")
 	default:
 		// The existing kind validator owns unknown and unsupported kinds. Use
 		// the full known field union so its more precise diagnostic survives.
-		addFields(allowed, "path", "max_age_hours", "file", "must_exist", "must_contain", "must_not_contain", "max_line_count", "claims", "commands", "paths", "script", "args", "timeout_sec")
+		addFields(allowed, "path", "max_age_hours", "file", "must_exist", "must_contain", "must_not_contain", "max_line_count", "claims", "commands", "paths", "script", "args", "timeout_sec", "cache_inputs")
 	}
 	return rejectUnknownFields(check, allowed, context)
 }

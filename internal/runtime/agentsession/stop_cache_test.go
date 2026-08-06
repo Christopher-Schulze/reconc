@@ -1007,3 +1007,79 @@ func TestStopPolicyFingerprintBindsScriptTargets(t *testing.T) {
 		})
 	}
 }
+
+// TestScriptCacheInputsDecideStopReuse is the contract TASK 147 introduces: a
+// script body is opaque, so only the inputs its author declares make the plan a
+// function of the fingerprint. An undeclared script plan is never reused.
+func TestScriptCacheInputsDecideStopReuse(t *testing.T) {
+	cases := []struct {
+		name      string
+		lock      string
+		cacheable bool
+	}{
+		{
+			name:      "undeclared script plan stays off the warm path",
+			lock:      `{"rules":[{"id":"gate","kind":"require_script","script":"scripts/check.sh","when_paths":["**"]}]}`,
+			cacheable: false,
+		},
+		{
+			name:      "declared inputs make the plan cacheable",
+			lock:      `{"rules":[{"id":"gate","kind":"require_script","script":"scripts/check.sh","cache_inputs":["build/report.json"],"when_paths":["**"]}]}`,
+			cacheable: true,
+		},
+		{
+			name:      "undeclared script check inside a composite rule",
+			lock:      `{"rules":[{"id":"gate","kind":"all_of","checks":[{"kind":"require_script","script":"scripts/inner.sh"}]}]}`,
+			cacheable: false,
+		},
+		{
+			name:      "declared script check inside a composite rule",
+			lock:      `{"rules":[{"id":"gate","kind":"all_of","checks":[{"kind":"require_script","script":"scripts/inner.sh","cache_inputs":["build/inner.json"]}]}]}`,
+			cacheable: true,
+		},
+		{
+			name:      "one undeclared script disqualifies the whole plan",
+			lock:      `{"rules":[{"id":"a","kind":"require_script","script":"scripts/a.sh","cache_inputs":["build/a.json"],"when_paths":["**"]},{"id":"b","kind":"require_script","script":"scripts/b.sh","when_paths":["**"]}]}`,
+			cacheable: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := t.TempDir()
+			writePolicyLock(t, repo, tc.lock)
+			input := stopPolicyFingerprintInput{RepoRoot: repo, GitStatusOK: true}
+			if got := stopPolicyFingerprintCacheable(input); got != tc.cacheable {
+				t.Fatalf("cacheable = %v, want %v", got, tc.cacheable)
+			}
+		})
+	}
+}
+
+// TestStopPolicyFingerprintBindsDeclaredScriptInputs proves the declaration is
+// load-bearing: a declared input moves the fingerprint when it changes, so a
+// stored report cannot survive the state its script inspects.
+func TestStopPolicyFingerprintBindsDeclaredScriptInputs(t *testing.T) {
+	repo := t.TempDir()
+	writePolicyLock(t, repo, `{"rules":[{"id":"gate","kind":"require_script","script":"scripts/check.sh","cache_inputs":["build/report.json"],"when_paths":["**"]}]}`)
+	declared := filepath.Join(repo, "build", "report.json")
+	if err := os.MkdirAll(filepath.Dir(declared), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(declared, []byte(`{"status":"pass"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1"}))
+	if err := os.WriteFile(declared, []byte(`{"status":"fail"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	after := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1"}))
+	if before == "" || before == after {
+		t.Fatal("rewriting a declared script input must move the fingerprint")
+	}
+	if err := os.Remove(declared); err != nil {
+		t.Fatal(err)
+	}
+	if removed := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1"})); removed == after {
+		t.Fatal("deleting a declared script input must move the fingerprint")
+	}
+}
