@@ -546,6 +546,10 @@ func stopPolicyFingerprintCacheable(input stopPolicyFingerprintInput) bool {
 // stopPolicyLockScan is the bounded static view of the compiled policy that
 // Stop caching needs: which repository paths the rules read, and which of them
 // can turn a clean report stale from wall-clock time alone.
+//
+// It binds what the policy names. A require_script body can additionally read
+// state the policy does not name, which no static scan can bind; that boundary
+// is documented rather than guessed at.
 type stopPolicyLockScan struct {
 	// Cacheable is false when the lock cannot be read or decoded, or when a
 	// policy path is template-generated and therefore not enumerable here.
@@ -623,6 +627,7 @@ type stopPolicyLockRule struct {
 	Kind          string               `json:"kind"`
 	Path          string               `json:"path"`
 	File          string               `json:"file"`
+	Script        string               `json:"script"`
 	MaxAgeHours   int                  `json:"max_age_hours"`
 	RequiredFiles []stopPolicyLockFile `json:"required_files"`
 	Evidence      []stopPolicyLockFile `json:"evidence"`
@@ -639,6 +644,10 @@ func (r stopPolicyLockRule) collectInto(collect func(path string, maxAgeHours in
 	fresh := r.Kind == string(policy.KindRequireFreshFile)
 	collect(r.Path, r.MaxAgeHours, fresh)
 	collect(r.File, 0, false)
+	// A require_script target is an input by definition. Git binds it only
+	// while it is tracked: a gitignored check script could otherwise be
+	// rewritten and the stored report would still be served.
+	collect(r.Script, 0, false)
 	for _, required := range r.RequiredFiles {
 		collect(required.Path, required.MaxAgeHours, fresh)
 	}

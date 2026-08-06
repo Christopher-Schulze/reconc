@@ -966,3 +966,44 @@ func setupStopBenchmarkRepo(tb testing.TB) string {
 	git("commit", "-m", "benchmark fixture", "--quiet")
 	return repo
 }
+
+// TestStopPolicyFingerprintBindsScriptTargets closes the check-script hole: a
+// require_script body is an input by definition, and Git binds it only while it
+// is tracked. A gitignored check script could otherwise be rewritten while the
+// stored report kept being served.
+func TestStopPolicyFingerprintBindsScriptTargets(t *testing.T) {
+	cases := []struct {
+		name string
+		lock string
+	}{
+		{
+			name: "top-level require_script",
+			lock: `{"rules":[{"id":"gate","kind":"require_script","script":"scripts/check.sh","when_paths":["**"]}]}`,
+		},
+		{
+			name: "require_script nested in a composite rule",
+			lock: `{"rules":[{"id":"gate","kind":"all_of","checks":[{"kind":"require_script","script":"scripts/check.sh"}]}]}`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := t.TempDir()
+			writePolicyLock(t, repo, tc.lock)
+			script := filepath.Join(repo, "scripts", "check.sh")
+			if err := os.MkdirAll(filepath.Dir(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			before := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1"}))
+			if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 2\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			after := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1"}))
+			if before == "" || before == after {
+				t.Fatal("rewriting the check script must move the fingerprint")
+			}
+		})
+	}
+}

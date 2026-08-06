@@ -2418,7 +2418,8 @@ Equivalent concurrent Stops serialize under the report lock and reload session
 evidence before reuse or evaluation. Re-entrant `stop_hook_active=true` calls
 apply the same exact identities before reusing a clean report.
 
-Report reuse additionally binds the repository paths the compiled policy names.
+Report reuse additionally binds the repository paths the compiled policy names,
+including the `require_script` target itself.
 `git status` never lists ignored files, so a gitignored `require_evidence` or
 `require_fresh_file` target could otherwise be rewritten or deleted without
 moving any fingerprint field. Every path a rule or composite check names,
@@ -2434,6 +2435,15 @@ alone, so the report expires at the earliest `modification time +
 max_age_hours` across the age requirements, and both the session-state and the
 persistent-worker warm paths re-evaluate past that instant. A policy without
 age requirements carries no expiry and never ages out on time alone.
+
+What report reuse binds is what the policy names. A `require_script` body can
+additionally read state no rule names: files outside the repository, host
+processes, or a service. Reuse assumes such a script answers as a function of
+the bound inputs. That is the same class of assumption as self-reported
+evidence in the threat model below, and it is the documented boundary of Stop
+caching rather than an inferred property. A policy whose script inspects
+unnamed state should name that state through `require_evidence` or
+`require_fresh_file`, which binds it exactly.
 
 Dirty regular files up to 64 MiB contribute exact SHA-256 content identity. A
 larger dirty file receives only a bounded size/mtime diagnostic identity, makes
@@ -2785,6 +2795,9 @@ Security posture:
 - Repository path evidence preserves legal leading and trailing spaces from
   host payload through persisted session state and evaluator matching.
 - Payload command strings are matched as data and are not executed.
+- Stop report reuse binds exactly the repository paths the compiled policy
+  names, including the script target; a script that reads unnamed state is a
+  documented assumption, not a bound input.
 - Only policy-authored `require_script` entries execute subprocesses. The
   declared path is repo-relative, the script itself must be a real executable
   file rather than a symlink, and the directory it resolves through must stay
