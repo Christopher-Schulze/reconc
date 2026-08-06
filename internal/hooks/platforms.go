@@ -56,13 +56,14 @@ const (
 type InstallMode string
 
 const (
-	InstallExecutable  InstallMode = "executable"
-	InstallNestedJSON  InstallMode = "nested-json-merge"
-	InstallFlatJSON    InstallMode = "flat-json-merge"
-	InstallOwnedJSON   InstallMode = "owned-json-key"
-	InstallPlugin      InstallMode = "managed-plugin"
-	InstallManagedJSON InstallMode = "managed-json-file"
-	InstallGlobalTOML  InstallMode = "global-toml-block"
+	InstallExecutable       InstallMode = "executable"
+	InstallNestedJSON       InstallMode = "nested-json-merge"
+	InstallNestedEventsJSON InstallMode = "nested-events-json-merge"
+	InstallFlatJSON         InstallMode = "flat-json-merge"
+	InstallOwnedJSON        InstallMode = "owned-json-key"
+	InstallPlugin           InstallMode = "managed-plugin"
+	InstallManagedJSON      InstallMode = "managed-json-file"
+	InstallGlobalTOML       InstallMode = "global-toml-block"
 )
 
 // ActivationMode defines how a correct artifact becomes discoverable.
@@ -176,6 +177,7 @@ const (
 	generatorGrok
 	generatorOMP
 	generatorPi
+	generatorZCode
 	generatorKimiCode
 )
 
@@ -383,6 +385,22 @@ var platformRegistry = []platformDefinition{
 		generator: generatorPi,
 	},
 	{
+		Platform: Platform{Kind: KindZCode, DisplayName: "ZCode", TargetPath: ZCodeConfigPath, ScaffoldPath: ZCodeConfigPath, InstallMode: InstallNestedEventsJSON, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".zcode"}, RequiresWrapper: true}, Capabilities: []Capability{
+			capability(EventSessionStart, "SessionStart", SupportNative, FailureAllow, FailureAllow, 5, "zcode-session-start"),
+			capability(EventUserPromptSubmit, "UserPromptSubmit", SupportNative, FailureAllow, FailureAllow, 5, "zcode-user-prompt-submit"),
+			capability(EventPreToolUse, "PreToolUse", SupportNative, FailureBlock, FailureAllow, 10, "zcode-pre-tool-use"),
+			capability(EventPermissionRequest, "PermissionRequest", SupportNative, FailureBlock, FailureAllow, 10, "zcode-permission-request"),
+			capability(EventPostToolUse, "PostToolUse", SupportNative, FailureAllow, FailureAllow, 5, "zcode-post-tool-use"),
+			capability(EventPostToolUseFailure, "PostToolUseFailure", SupportNative, FailureAllow, FailureAllow, 5, "zcode-post-tool-use-failure"),
+			adaptedFallback(EventMCPBefore, EventPreToolUse, FailureBlock, FailureAllow, 10),
+			adaptedFallback(EventMCPAfter, EventPostToolUse, FailureAllow, FailureAllow, 5),
+			zcodeStopCapability(),
+			unsupported(EventSessionEnd),
+			unsupported(EventPostCompaction),
+		}},
+		generator: generatorZCode,
+	},
+	{
 		Platform: Platform{Kind: KindKimiCode, DisplayName: "Kimi Code CLI", TargetPath: KimiCodeConfigDisplayPath, InstallMode: InstallGlobalTOML, Activation: ActivationProbe{Mode: ActivationGlobal, ConfigDirs: []string{"~/.kimi-code"}}, Capabilities: []Capability{
 			capability(EventSessionStart, "SessionStart", SupportNative, FailureAllow, FailureAllow, 5, "kimi-session-start"),
 			capability(EventUserPromptSubmit, "UserPromptSubmit", SupportNative, FailureAllow, FailureAllow, 5, "kimi-user-prompt-submit"),
@@ -482,6 +500,12 @@ func bunStopCapability(prefix string) Capability {
 func ompStopCapability() Capability {
 	capability := capability(EventStop, "session_stop", SupportNative, FailureBlock, FailureBlock, 29, "omp-stop")
 	capability.MaxContinuations = 8
+	return capability
+}
+
+func zcodeStopCapability() Capability {
+	capability := capability(EventStop, "Stop", SupportNative, FailureBlock, FailureAllow, 30, "zcode-stop")
+	capability.MaxContinuations = 3
 	return capability
 }
 

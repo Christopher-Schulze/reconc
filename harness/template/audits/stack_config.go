@@ -68,6 +68,7 @@ type agentHooksConfig struct {
 	RequireGrokHooks        bool `yaml:"require_grok_hooks"`
 	RequireOMPExtension     bool `yaml:"require_omp_extension"`
 	RequirePiExtension      bool `yaml:"require_pi_extension"`
+	RequireZCodeHooks       bool `yaml:"require_zcode_hooks"`
 }
 
 func stackConfigPath(root string) string {
@@ -125,6 +126,7 @@ func defaultStackConfig() stackConfig {
 			RequireGrokHooks:        true,
 			RequireOMPExtension:     true,
 			RequirePiExtension:      true,
+			RequireZCodeHooks:       true,
 		},
 	}
 	return cfg

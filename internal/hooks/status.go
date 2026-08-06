@@ -239,6 +239,9 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 	if platform.Kind == KindCodex {
 		contractIssues = append(contractIssues, codexRouteBudgetIssues(data, platform)...)
 	}
+	if platform.Kind == KindZCode {
+		contractIssues = append(contractIssues, zcodeConfigIssues(data)...)
+	}
 	if len(contractIssues) > 0 {
 		report.State = StateDegraded
 		report.Detail = "artifact contract drift: " + strings.Join(contractIssues, "; ") + "; reinstall the hook"
@@ -273,6 +276,13 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 		report.State = StateDegraded
 		report.Detail = "configuration is complete but tools/reconc/bin/hook is missing or not executable"
 		return report
+	}
+	if platform.Kind == KindZCode {
+		if _, err := exec.LookPath("sh"); err != nil {
+			report.State = StateDegraded
+			report.Detail = "configuration is complete but ZCode's process executor cannot resolve sh on PATH"
+			return report
+		}
 	}
 
 	switch platform.Activation.Mode {
@@ -470,6 +480,12 @@ func hookEventMap(mode InstallMode, document map[string]interface{}) (map[string
 		return document, nil
 	case InstallOwnedJSON:
 		raw = document["reconc"]
+	case InstallNestedEventsJSON:
+		hooksSettings, ok := document["hooks"].(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("hook settings map is missing or invalid")
+		}
+		raw = hooksSettings["events"]
 	default:
 		raw = document["hooks"]
 	}
@@ -583,11 +599,26 @@ func managedArtifactRequiresExactMatch(mode InstallMode) bool {
 
 func requiresJSON(mode InstallMode) bool {
 	switch mode {
-	case InstallNestedJSON, InstallFlatJSON, InstallOwnedJSON, InstallManagedJSON:
+	case InstallNestedJSON, InstallNestedEventsJSON, InstallFlatJSON, InstallOwnedJSON, InstallManagedJSON:
 		return true
 	default:
 		return false
 	}
+}
+
+func zcodeConfigIssues(data []byte) []string {
+	var document struct {
+		Hooks struct {
+			Enabled *bool `json:"enabled"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(data, &document); err != nil {
+		return []string{"invalid ZCode hook settings"}
+	}
+	if document.Hooks.Enabled == nil || !*document.Hooks.Enabled {
+		return []string{"hooks.enabled must be true"}
+	}
+	return nil
 }
 
 func missingRuntimeEvents(platform Platform, content string) []string {

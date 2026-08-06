@@ -743,8 +743,8 @@ network when invoked.
 ### Which agent runtimes are supported?
 
 The registry owns integrations for Claude Code, Codex, GitHub Copilot, Cursor,
-OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, Pi, Grok Build, and Kimi
-Code CLI, plus git pre-commit as the repository backstop. Host capabilities
+OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, Pi, ZCode, Grok Build,
+and Kimi Code CLI, plus git pre-commit as the repository backstop. Host capabilities
 differ: some expose synchronous Stop, GitHub Copilot and Kimi Code retain
 documented host-fail-open timeout behavior, OpenCode and Kilo expose inferred
 `session.idle`, OMP exposes awaited main-session `session_stop`, Pi exposes
@@ -1572,7 +1572,7 @@ them and supplies the repository-owned paths, commands, or script where the
 shape requires those inputs.
 
 Generic dependency-locality audits exclude supported agent-runtime state trees,
-including `.devin/`, `.grok/`, `.kilo/`, legacy `.kilocode/`, `.omp/`, `.pi/`, and the
+including `.devin/`, `.grok/`, `.kilo/`, legacy `.kilocode/`, `.omp/`, `.pi/`, `.zcode/`, and the
 other registered platform directories, so plugin dependencies are not mistaken
 for product dependency leakage.
 
@@ -1728,7 +1728,7 @@ Key invariants:
 
 The repo ships one agent-facing skill at `skills/reconc/SKILL.md`.
 
-It is written for Codex, OpenCode, Claude Code, Oh My Pi, Pi, and other coding agents. The
+It is written for Codex, OpenCode, Claude Code, Oh My Pi, Pi, ZCode, and other coding agents. The
 skill documents the same reconc workflow for every agent runtime:
 
 - begin and reenter with the versioned `session-briefing --json` contract
@@ -1739,7 +1739,7 @@ skill documents the same reconc workflow for every agent runtime:
 
 The typed platform registry is the source of truth for Git pre-commit, Claude
 Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI,
-Kilo Code, Oh My Pi, Pi, Grok Build, and Kimi Code CLI. It owns native event names,
+Kilo Code, Oh My Pi, Pi, ZCode, Grok Build, and Kimi Code CLI. It owns native event names,
 normalized lifecycle coverage, compatibility routes, config and scaffold paths,
 failure behavior, timeout budgets, output budgets, installation strategy, and
 activation probes. `reconc hook status
@@ -1833,6 +1833,7 @@ contains no second matrix.
 | Kilo Code VS Code host | The same canonical project plugin when that host loads external project plugins | CLI observations are never reused as VS Code proof |
 | Oh My Pi CLI | `.omp/extensions/reconc.ts`; native session, input, tool, approval, compaction, shutdown, and awaited main-session Stop routes | Static extension contract plus per-route liveness; `tool_call` and `session_stop` can enforce before host action |
 | Pi Coding Agent | `.pi/extensions/reconc.ts`; trusted-project session, input, tool, user-shell, result, compaction, settled, and shutdown routes | Static extension and saved-trust contract plus per-route liveness; `tool_call` and `user_bash` can enforce before host action, while settled continuation remains inferred |
+| ZCode CLI | `.zcode/config.json`; all seven native session, prompt, tool, permission, failure, and synchronous Stop routes through the documented process executor | Static workspace contract plus per-route liveness; pre-tool, permission, and Stop can block, while host timeouts remain fail-open |
 | Kimi Code CLI | User-global `$KIMI_CODE_HOME/config.toml`; all 16 native hooks dispatch through bare `reconc` and discover the current repository | Generator-exact global configuration only; no live claim without a real Kimi route observation |
 
 Cursor's registry classifies all 21 current host events exactly once. Reconc
@@ -1952,6 +1953,29 @@ source revision `4279da1b7f27926216836393dc1a50bd6a2487b3` at
 `@earendil-works/pi-coding-agent` v0.83.0 and OMP revision
 `06343fef4200c4e32d18f08df5a6a8bd84dcc710` at v17.2.4.
 
+ZCode snapshots workspace configuration from `.zcode/config.json` when a
+session starts. `reconc hook install zcode` sets `hooks.enabled=true` and
+merges the seven generated event groups under `hooks.events` while preserving
+unrelated top-level keys, hook settings, and foreign event entries. An
+incompatible `hooks` or `hooks.events` shape fails closed; `--force` first
+publishes a private content-addressed backup and then repairs only the invalid
+hook subtree. Repeated install is byte-stable. Uninstall removes only exact
+Reconc process entries and refuses a modified Reconc-looking entry without
+mutating the file.
+
+The process executor invokes `sh` with explicit argv
+`tools/reconc/bin/hook`, the ZCode route, and `.`. Status requires the shared
+wrapper, `hooks.enabled=true`, all generated entries, and `sh` on `PATH`.
+ZCode exposes `SessionStart`, `UserPromptSubmit`, `PreToolUse`,
+`PermissionRequest`, `PostToolUse`, `PostToolUseFailure`, and `Stop` as
+one-line snake_case JSON envelopes. Hard pre-tool blocks use exit code 2,
+permission denials use the native `hookSpecificOutput.decision` object, and
+Stop continuation uses `decision: "block"`; malformed fail-closed requests use
+the native exit-code-2 shortcut. Observation errors and all host timeouts are
+fail-open. Stop can request at most three consecutive continuations. ZCode has
+no native SessionEnd or post-compaction event, and Reconc reports both as
+unsupported rather than inventing compatibility routes.
+
 OpenCode and Kilo shell success is accepted only from an integer
 `output.metadata.exit`. Exit zero succeeds. Non-zero, timeout, abort, explicit
 error, missing exit, fractional/non-finite/overflowing value, numeric string,
@@ -1999,6 +2023,10 @@ mcp:
     - platform: pi
       tool: deploy_preview
       effect: external
+    - platform: zcode
+      tool: Write
+      effect: repository_write
+      path_fields: [/file_path]
 ```
 
 Each mapping is an exact `(platform, server_fingerprint, tool)` selector.
@@ -2011,7 +2039,7 @@ produce no positive evidence. `external` calls never become repository
 evidence.
 
 Cursor's dedicated MCP pre-hook can enforce `unclassified: deny`. OpenCode,
-Kilo, OMP, and Pi expose exact generic tool identities but no reliable discriminator
+Kilo, OMP, Pi, and ZCode expose exact generic tool identities but no reliable discriminator
 between an unconfigured MCP tool and a built-in/custom tool, so strict
 unclassified deny is unavailable on those generic surfaces. Configured exact
 identities remain enforceable. Server locators, credentials, arguments,
@@ -2032,8 +2060,8 @@ the managed artifact is published.
 
 The registry assigns 5-second observation/session budgets, 10-second pre-tool
 and permission budgets, and platform-specific Stop budgets instead of one
-blanket timeout. Claude, Codex, GitHub Copilot, Cursor, Devin, Antigravity, and
-Grok generators emit those host timeouts; OpenCode, Kilo Code, OMP, and Pi
+blanket timeout. Claude, Codex, GitHub Copilot, Cursor, Devin, Antigravity, Grok,
+and ZCode generators emit those host timeouts; OpenCode, Kilo Code, OMP, and Pi
 enforce them inside their adapters. OMP uses a 29-second internal Stop budget
 so its fail-closed response is returned before the host's 30-second
 extension-handler deadline.
@@ -2060,7 +2088,7 @@ lock-free read fast path. If that optimistic read overlaps an atomic Windows
 publication, Reconc rechecks once under the existing active-session lock;
 persistent read or validation failures still fail closed.
 
-Claude Code, Codex, GitHub Copilot, Cursor, Devin, Antigravity, and Grok
+Claude Code, Codex, GitHub Copilot, Cursor, Devin, Antigravity, Grok, and ZCode
 generated repository configs use `tools/reconc/bin/hook` on POSIX; the wrapper
 owns repo-local binary selection and PATH `reconc` as last fallback. Kimi Code
 is global and therefore invokes bare `reconc` directly after explicit install
@@ -2157,6 +2185,15 @@ the nine native events and host decisions only; policy and durable session
 state stay in Go. Its adapter shares the bounded output, UTF-8, timeout, kill,
 await, wrapper-resolution, and Windows `sh` transport contract, while preserving
 the host abort signal as authoritative cancellation.
+ZCode uses `.zcode/config.json` instead of a generated TypeScript adapter. Its
+native `process` entries call the same repository wrapper with explicit argv,
+5/10/30-second event-specific `timeoutMs` values, and `*` matchers only on
+tool-bearing events. The Go normalizer validates route/event identity,
+repository cwd, session, stable tool-call identity, object-shaped tool input,
+authoritative post-tool success/failure fields, and Stop reentry state before
+dispatch. Generated configuration and native response shapes are pinned by an
+official-contract fixture; live host execution remains a separate liveness
+claim.
 Grok Build uses the dedicated `.grok/hooks/reconc.json` native artifact.
 Its camelCase envelopes and native tools (`run_terminal_command`,
 `run_terminal_cmd`,
@@ -2208,7 +2245,7 @@ leader protocol plus `_x.ai/interject` with a random nonexistent session.
 Its durable state applies only to the selected repository, not the whole machine.
 Repository mode persists across sessions for Claude Code, Codex, GitHub
 Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, Pi,
-Grok Build, and Kimi Code CLI. The agent
+ZCode, Grok Build, and Kimi Code CLI. The agent
 runs these commands itself; users do not need to operate Reconc. Prompt text,
 runtime interrupts, compaction, session boundaries, runtime changes, and
 application restarts never mutate the switch. An interrupt releases only the
@@ -2456,7 +2493,7 @@ CI checks:
 - every CI job that executes Go provisions the SHA-pinned `actions/setup-go`
   action from `go.mod`, including the isolated release-trust job
 - clean-repository self-hosting golden path on Ubuntu and macOS across all three
-  bootstrap profiles, git pre-commit, and all twelve agent runtimes
+  bootstrap profiles, git pre-commit, and all thirteen agent runtimes
 - current-tree and post-boundary-history publication audit once in candidate CI
   and once in the tagged artifact-build path
 - immutable action commit pins plus an explicit GitHub-owned action allowlist;

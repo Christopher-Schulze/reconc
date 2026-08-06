@@ -24,6 +24,7 @@ func TestPlatformRegistryOwnsEveryHookKind(t *testing.T) {
 		KindGrok,
 		KindOMP,
 		KindPi,
+		KindZCode,
 		KindKimiCode,
 	}
 	if got := SupportedKinds(); !reflect.DeepEqual(got, want) {
@@ -506,6 +507,31 @@ func TestNewPlatformArtifactsUseCurrentContracts(t *testing.T) {
 	}
 	if len(pi.Content) > 40*1024 {
 		t.Fatalf("Pi extension is not thin: %d bytes", len(pi.Content))
+	}
+
+	zcode, err := Generate(KindZCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{
+		`"enabled": true`,
+		`"SessionStart"`,
+		`"UserPromptSubmit"`,
+		`"PreToolUse"`,
+		`"PermissionRequest"`,
+		`"PostToolUse"`,
+		`"PostToolUseFailure"`,
+		`"Stop"`,
+		`"type": "process"`,
+		`"command": "sh"`,
+		`"timeoutMs": 5000`,
+		`"timeoutMs": 10000`,
+		`"timeoutMs": 30000`,
+		`"tools/reconc/bin/hook"`,
+	} {
+		if !strings.Contains(zcode.Content, token) {
+			t.Fatalf("ZCode artifact missing %q:\n%s", token, zcode.Content)
+		}
 	}
 
 	kimi, err := Generate(KindKimiCode)

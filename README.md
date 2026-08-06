@@ -24,7 +24,7 @@ proof, protected edits, documentation drift, unfinished work, and stuck loops
 become deterministic decisions with one exact next action.
 
 No second model judges the first. One local Go binary compiles repository-owned
-rules and enforces them across the CLI, Git, CI, and twelve coding-agent
+rules and enforces them across the CLI, Git, CI, and thirteen coding-agent
 integrations. The exact
 [guarantees and limits](docs/documentation.md#evidence-bound-completion-control)
 stay explicit.
@@ -126,8 +126,8 @@ Core invariants are deliberately strict:
 | TASK continuity | Validates and mutates typed TASK state with recoverable claim, block, resume, split, promote, archive, and transaction recovery operations. |
 | Autonomous run control | `reconc run on|off|reset|status|log` provides one durable repository switch, bounded decision logs, terminal gates, and per-session no-progress guards. |
 | Transactional adoption | Inspects existing repositories, proposes evidence-backed packs and commands, and plans, applies, verifies, synchronizes, or removes only receipt-owned rollout state. |
-| Runtime enforcement | Generates, installs, verifies, and safely removes registry-backed hooks for twelve coding-agent runtimes, with capability-specific failure semantics and git pre-commit as the repository backstop. |
-| MCP side-effect control | Classifies explicitly configured Cursor, OpenCode, Kilo, Oh My Pi, and Pi MCP tools as repository reads, writes, commands, or external effects using exact selectors and fail-closed extraction. |
+| Runtime enforcement | Generates, installs, verifies, and safely removes registry-backed hooks for thirteen coding-agent runtimes, with capability-specific failure semantics and git pre-commit as the repository backstop. |
+| MCP side-effect control | Classifies explicitly configured Cursor, OpenCode, Kilo, Oh My Pi, Pi, and ZCode MCP tools as repository reads, writes, commands, or external effects using exact selectors and fail-closed extraction. |
 | Operator and CI tooling | Provides exact remediation, body-free source-provenance inspection, an offline policy impact lab, staged command execution, deterministic SARIF 2.1.0 and JUnit XML reports, CI proofs, global diagnostics, update and uninstall, cryptographically verified audit inspection, retention, TUI, shell completions, and a generated manpage. |
 | Release trust | Publishes strict release manifests, SHA-256 checksums, build-provenance attestations, and deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs tied to the release commit. |
 
@@ -635,6 +635,7 @@ being reported as successful partial publication.
 | Kimi Code CLI | explicit user-global `$KIMI_CODE_HOME/config.toml` integration for all 16 native hook events; repository discovery prevents global hooks from acting outside initialized Reconc repositories |
 | Oh My Pi CLI | project-local `.omp/extensions/reconc.ts` ExtensionAPI adapter with native session, prompt, approval, tool-result, compaction, shutdown, and synchronous `session_stop` handling |
 | Pi Coding Agent | trust-aware project-local `.pi/extensions/reconc.ts` extension with blocking tool and user-shell interception, exact tool outcomes, lifecycle and compaction observations, and bounded asynchronous `agent_settled` continuation |
+| ZCode | project-local `.zcode/config.json` integration for all seven native hook events, process-executor transport, hard pre-tool and permission decisions, and synchronous Stop continuation |
 | Declarative custom runtimes | repository-owned `.reconc/runtimes/*.json` manifests map exact host events and JSON Pointers into the neutral lifecycle; `hook bridge` reuses the same policy/session engine and `hook conform` proves the public adapter contract offline |
 
 Integration claims use precise states:
@@ -651,7 +652,7 @@ Integration claims use precise states:
 | `unsupported` | The host does not expose the required lifecycle on that surface, or Reconc has no sound implementation for it. |
 
 Claude Code, Codex, GitHub Copilot, Cursor, Devin CLI, Antigravity CLI,
-Kimi Code CLI, and Oh My Pi CLI expose a synchronous Stop event. OMP awaits
+Kimi Code CLI, Oh My Pi CLI, and ZCode expose a synchronous Stop event. OMP awaits
 `session_stop` and caps continuation at eight turns. GitHub Copilot host timeouts
 remain fail-open,
 and this adapter is contract-tested rather than claimed live until
@@ -719,6 +720,18 @@ Tool-result, lifecycle, compaction, and shutdown observations fail open. Pi has
 no native permission event, MCP discriminator, post-`user_bash` result, or
 synchronous Stop gate, so Reconc does not invent those capabilities.
 
+ZCode snapshots workspace hooks from `.zcode/config.json` at session start.
+`reconc hook install zcode .` preserves unrelated top-level and hook settings,
+sets `hooks.enabled=true`, merges only exact Reconc entries under
+`hooks.events`, and backs up an incompatible hook subtree before a forced
+repair. All seven documented native events are wired. Hard `PreToolUse` blocks
+use exit code 2, `PermissionRequest` denials use ZCode's native decision object,
+and Stop continuation uses `decision: "block"`; malformed fail-closed requests
+use the native exit-code-2 shortcut. Host timeouts remain fail-open. Stop is
+capped by the host at three consecutive blocks. ZCode exposes exact tool names
+but no MCP server discriminator, so only explicitly configured tool identities
+are classifiable.
+
 Use the following commands before claiming a runtime is active:
 
 ```bash
@@ -737,7 +750,7 @@ process output, timeouts, evidence collections, and stored diagnostics. It
 accepts positive command evidence only from authoritative host outcome fields,
 never from stdout text. OMP and Pi Bash success is accepted only when `isError`
 is false, with exit code zero synthesized solely for that successful built-in
-result. Cursor, OpenCode, Kilo, OMP, and Pi MCP mappings use exact
+result. Cursor, OpenCode, Kilo, OMP, Pi, and ZCode MCP mappings use exact
 platform, server fingerprint, tool, and JSON Pointer selectors; malformed or
 unclassified calls produce no positive repository evidence.
 
@@ -926,7 +939,7 @@ access. Uninstall and core repository control remain offline.
 ### Which agents are supported?
 
 Claude Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity
-CLI, Kilo Code, Grok Build, Kimi Code CLI, Oh My Pi CLI, and Pi have registry-backed
+CLI, Kilo Code, Grok Build, Kimi Code CLI, Oh My Pi CLI, Pi, and ZCode have registry-backed
 integrations. Their host capabilities are not identical; `reconc hook status
 . --json` reports
 the static activation state separately from per-route live evidence without
@@ -1086,7 +1099,7 @@ credentials are not persisted, and release/publication jobs use full history
 where the post-boundary audit requires it.
 
 `make self-host` builds the local binary and runs the clean-repository golden
-path across all three bootstrap profiles, git pre-commit plus all twelve agent
+path across all three bootstrap profiles, git pre-commit plus all thirteen agent
 runtimes, TASK lifecycle, retention, and stable release-layout binary
 resolution.
 

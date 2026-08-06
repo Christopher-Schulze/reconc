@@ -239,7 +239,7 @@ reconc hook evidence-resolve . --token <sha256> --reason "<reviewed reason>"
 
 The typed registry supports Claude Code, Codex, GitHub Copilot, Cursor,
 OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, Pi Coding Agent,
-Grok Build, and Kimi
+Grok Build, ZCode, and Kimi
 Code CLI. Run
 `reconc hook status . --json`
 instead of guessing whether an artifact is installed, configured, degraded,
@@ -296,6 +296,14 @@ weaker host lifecycle respectively.
   capped at ten requests per session and reports no delivery acknowledgement.
   Pi exposes no native permission event, MCP discriminator, post-user-shell
   result, or synchronous Stop gate.
+- **ZCode**: `reconc hook install zcode .` merges exact Reconc process entries
+  into `.zcode/config.json` while preserving foreign settings, events, and
+  commands. It covers all seven native events. Hard PreToolUse blocks use exit
+  code 2, PermissionRequest denials use the native decision object, and Stop
+  uses native block JSON. Observation routes and host timeouts fail open.
+  ZCode limits Stop to three consecutive blocks and
+  snapshots config at session start, so restart the session after installation
+  or removal.
 - **Grok Build**: `reconc hook install grok .` owns
   `.grok/hooks/reconc.json`. Run `/hooks-trust` once. Native PreToolUse is hard.
   Reconc emits exact Stop block JSON without a leader and probes the installed
@@ -335,7 +343,7 @@ Configured MCP tools are exact opt-in mappings in `.reconc.yml`. Unknown
 identity, wrong fingerprint presence, malformed selected values, unknown
 outcome, and `external` effects produce no repository evidence. Cursor's
 dedicated pre-hook can deny unclassified MCP calls. OpenCode/Kilo generic hooks
-and OMP/Pi tool hooks cannot soundly identify unconfigured MCP calls, so strict
+and OMP/Pi/ZCode tool hooks cannot soundly identify unconfigured MCP calls, so strict
 unclassified deny is unavailable there. Exact configured tool identities remain
 enforceable. Inspect the compiled redacted contract with
 `reconc why mcp .`.
@@ -353,9 +361,9 @@ reconc run off .
 
 Repository mode applies to Claude Code, Codex, GitHub Copilot, Cursor,
 OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, Pi Coding Agent,
-Grok Build, and Kimi
+Grok Build, ZCode, and Kimi
 Code CLI, scoped to this repository rather than the whole machine. Claude Code,
-Codex, GitHub Copilot, Cursor, Devin CLI, Antigravity CLI, Oh My Pi, and Kimi
+Codex, GitHub Copilot, Cursor, Devin CLI, Antigravity CLI, Oh My Pi, ZCode, and Kimi
 Code CLI expose synchronous Stop gates. OpenCode and Kilo Code use
 inferred `session.idle`, so their host continuation is best-effort and fail-open.
 Pi uses inferred fail-open `agent_settled` continuation; a requested

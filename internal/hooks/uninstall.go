@@ -117,6 +117,8 @@ func planPlatformUninstall(root string, definition platformDefinition) ([]uninst
 		return []uninstallMutation{mutation}, display, "removed", 1, nil
 	case InstallNestedJSON:
 		return planNestedJSONUninstall(target, display, data, info.Mode().Perm(), definition.Kind)
+	case InstallNestedEventsJSON:
+		return planNestedEventsJSONUninstall(target, display, data, info.Mode().Perm(), definition.Kind)
 	case InstallFlatJSON:
 		return planFlatJSONUninstall(target, display, data, info.Mode().Perm(), definition.Kind)
 	case InstallOwnedJSON:
@@ -158,6 +160,22 @@ func planNestedJSONUninstall(target, display string, data []byte, mode os.FileMo
 		return nil, display, "", 0, err
 	}
 	removed, err := removeCanonicalReconcHooks(document, generated)
+	if err != nil {
+		return nil, display, "", 0, &rerrors.PolicySourceError{Message: display + ": " + err.Error()}
+	}
+	return jsonUninstallMutation(target, display, data, mode, document, removed)
+}
+
+func planNestedEventsJSONUninstall(target, display string, data []byte, mode os.FileMode, kind string) ([]uninstallMutation, string, string, int, error) {
+	var document map[string]interface{}
+	if err := json.Unmarshal(data, &document); err != nil {
+		return nil, display, "", 0, &rerrors.PolicySourceError{Message: display + " is not valid JSON; refusing removal", Cause: err}
+	}
+	generated, err := generatedJSONDocument(kind)
+	if err != nil {
+		return nil, display, "", 0, err
+	}
+	removed, err := removeCanonicalReconcNestedEventHooks(document, generated)
 	if err != nil {
 		return nil, display, "", 0, &rerrors.PolicySourceError{Message: display + ": " + err.Error()}
 	}

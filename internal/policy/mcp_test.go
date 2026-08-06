@@ -15,7 +15,7 @@ func TestMCPEnumValidationIsClosed(t *testing.T) {
 		t.Error("unknown unclassified mode must be invalid")
 	}
 
-	for _, platform := range []MCPPlatform{MCPPlatformCursor, MCPPlatformOpenCode, MCPPlatformKilo, MCPPlatformOMP, MCPPlatformPi} {
+	for _, platform := range []MCPPlatform{MCPPlatformCursor, MCPPlatformOpenCode, MCPPlatformKilo, MCPPlatformOMP, MCPPlatformPi, MCPPlatformZCode} {
 		if !platform.Valid() {
 			t.Errorf("canonical platform %q is invalid", platform)
 		}

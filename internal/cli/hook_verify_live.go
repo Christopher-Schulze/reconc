@@ -79,6 +79,8 @@ func liveHookHostAvailability(kind, surface string) (bool, bool) {
 		candidates = []string{"omp"}
 	case hooks.KindPi + ":cli":
 		candidates = []string{"pi"}
+	case hooks.KindZCode + ":cli":
+		candidates = []string{"zcode"}
 	default:
 		return false, false
 	}

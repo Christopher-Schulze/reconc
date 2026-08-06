@@ -107,7 +107,7 @@
       "properties": {
         "platform": {
           "anyOf": [
-            { "enum": ["cursor", "opencode", "kilo", "omp", "pi"] },
+            { "enum": ["cursor", "opencode", "kilo", "omp", "pi", "zcode"] },
             { "type": "string", "pattern": "^custom:[a-z0-9][a-z0-9_-]{0,47}$" }
           ]
         },

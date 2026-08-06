@@ -103,7 +103,7 @@ func normalizeRuntimeName(value string) string {
 	if value == "copilot" || value == "github-copilot" || strings.HasPrefix(value, "copilot-") || strings.HasPrefix(value, "github-copilot-") {
 		return "github-copilot"
 	}
-	for _, prefix := range []string{"cursor-", "codex-", "claude-", "opencode-", "devin-", "antigravity-", "kilo-", "grok-", "omp-", "pi-"} {
+	for _, prefix := range []string{"cursor-", "codex-", "claude-", "opencode-", "devin-", "antigravity-", "kilo-", "grok-", "omp-", "pi-", "zcode-"} {
 		if strings.HasPrefix(value, prefix) {
 			return strings.TrimSuffix(prefix, "-")
 		}

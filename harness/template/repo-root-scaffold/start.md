@@ -47,8 +47,8 @@ When autonomous execution is requested, the agent enables the durable switch
 itself with `reconc run on .`, verifies it with `reconc run status .`, and
 disables it with `reconc run off .` on explicit user stop or a real blocker.
 Never ask the user to operate these commands. The switch is scoped to this
-repository. Claude Code, Codex, GitHub Copilot, Cursor, Devin CLI, and
-Antigravity CLI expose synchronous Stop continuation. Oh My Pi exposes awaited
+repository. Claude Code, Codex, GitHub Copilot, Cursor, Devin CLI, Antigravity
+CLI, and ZCode expose synchronous Stop continuation. Oh My Pi exposes awaited
 main-session `session_stop` with an eight-continuation cap; Pi uses inferred
 fail-open `agent_settled` continuation with no delivery acknowledgement; OpenCode and Kilo
 Code use best-effort, fail-open `session.idle` adapters. It claims queued work when

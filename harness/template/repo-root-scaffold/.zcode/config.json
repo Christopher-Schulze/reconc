@@ -1,0 +1,123 @@
+{
+  "hooks": {
+    "enabled": true,
+    "events": {
+      "PermissionRequest": [
+        {
+          "hooks": [
+            {
+              "args": [
+                "tools/reconc/bin/hook",
+                "zcode-permission-request",
+                "."
+              ],
+              "command": "sh",
+              "timeoutMs": 10000,
+              "type": "process"
+            }
+          ],
+          "matcher": "*"
+        }
+      ],
+      "PostToolUse": [
+        {
+          "hooks": [
+            {
+              "args": [
+                "tools/reconc/bin/hook",
+                "zcode-post-tool-use",
+                "."
+              ],
+              "command": "sh",
+              "timeoutMs": 5000,
+              "type": "process"
+            }
+          ],
+          "matcher": "*"
+        }
+      ],
+      "PostToolUseFailure": [
+        {
+          "hooks": [
+            {
+              "args": [
+                "tools/reconc/bin/hook",
+                "zcode-post-tool-use-failure",
+                "."
+              ],
+              "command": "sh",
+              "timeoutMs": 5000,
+              "type": "process"
+            }
+          ],
+          "matcher": "*"
+        }
+      ],
+      "PreToolUse": [
+        {
+          "hooks": [
+            {
+              "args": [
+                "tools/reconc/bin/hook",
+                "zcode-pre-tool-use",
+                "."
+              ],
+              "command": "sh",
+              "timeoutMs": 10000,
+              "type": "process"
+            }
+          ],
+          "matcher": "*"
+        }
+      ],
+      "SessionStart": [
+        {
+          "hooks": [
+            {
+              "args": [
+                "tools/reconc/bin/hook",
+                "zcode-session-start",
+                "."
+              ],
+              "command": "sh",
+              "timeoutMs": 5000,
+              "type": "process"
+            }
+          ]
+        }
+      ],
+      "Stop": [
+        {
+          "hooks": [
+            {
+              "args": [
+                "tools/reconc/bin/hook",
+                "zcode-stop",
+                "."
+              ],
+              "command": "sh",
+              "timeoutMs": 30000,
+              "type": "process"
+            }
+          ]
+        }
+      ],
+      "UserPromptSubmit": [
+        {
+          "hooks": [
+            {
+              "args": [
+                "tools/reconc/bin/hook",
+                "zcode-user-prompt-submit",
+                "."
+              ],
+              "command": "sh",
+              "timeoutMs": 5000,
+              "type": "process"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

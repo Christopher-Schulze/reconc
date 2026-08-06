@@ -82,7 +82,7 @@ cmp -s "$tmp/source-version.txt" "$tmp/stable-version.txt" \
 "$stable_binary" hook install kimi-code --json >"$tmp/kimi-install.json"
 require_text "$tmp/kimi-install.json" '"repo_root": "global"'
 run_json "$tmp/hook-status.json" "$stable_binary" hook status "$governed"
-[ "$(grep -c '"state": "configured"' "$tmp/hook-status.json")" -eq 13 ] || fail "not all thirteen hook platforms are configured"
+[ "$(grep -c '"state": "configured"' "$tmp/hook-status.json")" -eq 14 ] || fail "git pre-commit plus all thirteen agent platforms are not configured"
 
 wrapper="$governed/tools/reconc/bin/hook"
 for event in \
@@ -96,7 +96,8 @@ for event in \
   kilo-session-start \
   grok-session-start \
   omp-session-start \
-  pi-session-start
+  pi-session-start \
+  zcode-session-start
 do
   session=${event%%-*}
   if [ "$event" = "copilot-session-start" ]; then
@@ -110,6 +111,9 @@ do
       | "$wrapper" "$event" "$governed" >"$tmp/hook-$session.json"
   elif [ "$event" = "pi-session-start" ]; then
     printf '{"hook_event_name":"session_start","session_id":"golden-pi","cwd":"%s","reason":"startup"}\n' "$governed" \
+      | "$wrapper" "$event" "$governed" >"$tmp/hook-$session.json"
+  elif [ "$event" = "zcode-session-start" ]; then
+    printf '{"hook_event_name":"SessionStart","session_id":"golden-zcode","cwd":"%s","source":"startup"}\n' "$governed" \
       | "$wrapper" "$event" "$governed" >"$tmp/hook-$session.json"
   else
     printf '{"session_id":"golden-%s","reconc_runtime":"%s"}\n' "$session" "$session" \

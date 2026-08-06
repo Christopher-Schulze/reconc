@@ -27,7 +27,7 @@ evidence, or human approval.
 ## Trigger
 
 Use this skill in Codex, OpenCode, Claude Code, Oh My Pi, Pi Coding Agent,
-Kimi Code CLI, or any other agent runtime
+ZCode, Kimi Code CLI, or any other agent runtime
 when:
 
 - the repo has `.reconc.yml`, `.reconc/policy.lock.json`, or `AGENTS.md`
@@ -99,7 +99,8 @@ reconc session-briefing . --json
 `init` is the canonical CLI onboarding path. It scaffolds `.reconc.yml` and
 `AGENTS.md` when missing, compiles the lockfile, installs git hooks, and wires
 native agent hooks when supported directories such as `.claude/`, `.codex/`,
-`.cursor/`, `.opencode/`, `.devin/`, `.agents/`, `.kilo/`, `.omp/`, `.pi/`, or `.grok/`
+`.cursor/`, `.opencode/`, `.devin/`, `.agents/`, `.kilo/`, `.omp/`, `.pi/`,
+`.zcode/`, or `.grok/`
 already exist.
 Kimi Code is intentionally excluded because its hooks are user-global. Only an
 explicit operator action installs them:
@@ -184,7 +185,7 @@ reconc run off
 ```
 
 Repository mode is durable for this repository, not machine-global. Claude
-Code, Codex, GitHub Copilot, Cursor, Devin CLI, Antigravity CLI, and Kimi Code
+Code, Codex, GitHub Copilot, Cursor, Devin CLI, Antigravity CLI, ZCode, and Kimi Code
 CLI expose synchronous Stop continuation. Oh My Pi exposes awaited native
 main-session Stop continuation capped at eight accepted requests. OpenCode and
 Kilo Code use inferred
@@ -303,6 +304,7 @@ timeout policy, output budgets, artifact paths, and activation probes:
 | Kilo Code | `.kilo/plugin/reconc.js` | Thin CLI/VS Code project plugin with strict shell exits and inferred bounded async idle continuation; disabled when `KILO_PURE` is set |
 | Oh My Pi | `.omp/extensions/reconc.ts` | Typed project extension with blocking pre-tool and awaited main-session Stop; observational approval, outcome, compaction, and shutdown routes |
 | Pi Coding Agent | `.pi/extensions/reconc.ts` | Trust-aware typed project extension with blocking tool/user-shell boundaries, observational results/lifecycle/compaction, and inferred bounded settled continuation |
+| ZCode | `.zcode/config.json` | Native seven-event process hooks with blocking pre-tool, permission, and synchronous Stop routes |
 | Grok Build | `.grok/hooks/reconc.json` | Native lifecycle and hard PreToolUse; project trust required; capability-probed native Stop or optional local leader fallback |
 | Kimi Code CLI | `$KIMI_CODE_HOME/config.toml` | Explicit user-global 16-event hook block; repository discovery before action; exit-code-2 PreToolUse, prompt, and Stop control |
 
@@ -355,12 +357,20 @@ successful built-in `Bash` result receives synthetic exit code zero. Pi has no
 native permission event, MCP discriminator, post-user-shell result,
 synchronous Stop gate, or continuation acknowledgement.
 
+ZCode snapshots `.zcode/config.json` at session start. Reconc merges only exact
+managed process entries and preserves foreign settings, events, and commands.
+Restart the ZCode session after install or uninstall. Hard `PreToolUse` blocks
+use exit code 2, `PermissionRequest` denials use the native decision object,
+and Stop uses native block JSON. Observation routes and host timeouts fail
+open. Stop is limited by the host to three consecutive blocks. Static
+configuration and offline fixtures are not live route proof.
+
 MCP repository effects are opt-in exact mappings in `.reconc.yml`. Use
 `reconc why mcp .` to inspect the compiled contract. Never treat an unknown
 identity, malformed selector value, unknown outcome, or `external` effect as
 repository evidence. Cursor can strictly deny unclassified calls through its
 dedicated MCP pre-hook. OpenCode/Kilo generic hooks cannot identify
-unconfigured MCP calls soundly; OMP and Pi have the same generic-tool identity limit.
+unconfigured MCP calls soundly; OMP, Pi, and ZCode have the same generic-tool identity limit.
 Report strict unclassified deny as unavailable on those surfaces while exact
 configured tool identities remain enforceable.
 

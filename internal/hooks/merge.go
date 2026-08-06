@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 )
 
@@ -37,16 +38,174 @@ type MergeDiff struct {
 }
 
 func mergeReconcHooks(dest, reconcPart map[string]interface{}, opts MergeOptions) MergeDiff {
-	var diff MergeDiff
 	reconcHooks, ok := reconcPart["hooks"].(map[string]interface{})
 	if !ok {
-		return diff
+		return MergeDiff{}
 	}
 	destHooks, ok := dest["hooks"].(map[string]interface{})
 	if !ok {
 		destHooks = map[string]interface{}{}
 		dest["hooks"] = destHooks
 	}
+	return mergeReconcHookMaps(destHooks, reconcHooks, opts)
+}
+
+func mergeReconcNestedEventHooks(dest, reconcPart map[string]interface{}, opts MergeOptions) MergeDiff {
+	reconcHooks, ok := reconcPart["hooks"].(map[string]interface{})
+	if !ok {
+		return MergeDiff{}
+	}
+	reconcEvents, ok := reconcHooks["events"].(map[string]interface{})
+	if !ok {
+		return MergeDiff{}
+	}
+	destHooks, ok := dest["hooks"].(map[string]interface{})
+	if !ok {
+		destHooks = map[string]interface{}{}
+		dest["hooks"] = destHooks
+	}
+	destEvents, ok := destHooks["events"].(map[string]interface{})
+	if !ok {
+		destEvents = map[string]interface{}{}
+		destHooks["events"] = destEvents
+	}
+	destHooks["enabled"] = true
+	return mergeReconcNestedEventMaps(destEvents, reconcEvents, opts)
+}
+
+func mergeReconcNestedEventMaps(destEvents, reconcEvents map[string]interface{}, opts MergeOptions) MergeDiff {
+	var diff MergeDiff
+	for event, generatedRaw := range reconcEvents {
+		generatedEntries, _ := generatedRaw.([]interface{})
+		existingEntries, shapeIssue := hookEntryArray(destEvents[event])
+		if shapeIssue != "" {
+			diff.Removed = append(diff.Removed, event+": "+shapeIssue)
+		}
+		filtered := make([]interface{}, 0, len(existingEntries)+len(generatedEntries))
+		for _, entry := range existingEntries {
+			if containsExactHookEntry(generatedEntries, entry) {
+				continue
+			}
+			preserved, owned, command := withoutNestedReconcProcesses(entry)
+			if !owned {
+				filtered = append(filtered, entry)
+				continue
+			}
+			if opts.KeepUserEdits {
+				filtered = append(filtered, entry)
+				diff.Kept = append(diff.Kept, event+": "+command)
+				continue
+			}
+			diff.Removed = append(diff.Removed, event+": "+command)
+			if preserved != nil {
+				filtered = append(filtered, preserved)
+			}
+		}
+		filtered = append(filtered, generatedEntries...)
+		destEvents[event] = filtered
+	}
+	for event, existingRaw := range destEvents {
+		if _, generated := reconcEvents[event]; generated {
+			continue
+		}
+		existingEntries, ok := existingRaw.([]interface{})
+		if !ok {
+			continue
+		}
+		filtered := make([]interface{}, 0, len(existingEntries))
+		for _, entry := range existingEntries {
+			preserved, owned, command := withoutNestedReconcProcesses(entry)
+			if !owned {
+				filtered = append(filtered, entry)
+				continue
+			}
+			if opts.KeepUserEdits {
+				filtered = append(filtered, entry)
+				diff.Kept = append(diff.Kept, event+": "+command)
+				continue
+			}
+			diff.Removed = append(diff.Removed, event+": "+command)
+			if preserved != nil {
+				filtered = append(filtered, preserved)
+			}
+		}
+		if len(filtered) == 0 {
+			delete(destEvents, event)
+		} else {
+			destEvents[event] = filtered
+		}
+	}
+	return diff
+}
+
+func hookEntryArray(raw interface{}) ([]interface{}, string) {
+	if raw == nil {
+		return nil, ""
+	}
+	entries, ok := raw.([]interface{})
+	if !ok {
+		return nil, "(non-array " + describeJSONType(raw) + " overwritten)"
+	}
+	return entries, ""
+}
+
+func withoutNestedReconcProcesses(entry interface{}) (interface{}, bool, string) {
+	group, ok := entry.(map[string]interface{})
+	if !ok {
+		return entry, false, ""
+	}
+	rawHooks, ok := group["hooks"].([]interface{})
+	if !ok {
+		if !hookEntryContainsReconcInvocation(group) {
+			return entry, false, ""
+		}
+		return nil, true, firstHookCommand([]interface{}{entry})
+	}
+	foreign := make([]interface{}, 0, len(rawHooks))
+	owned := false
+	command := ""
+	for _, raw := range rawHooks {
+		hook, hookOK := raw.(map[string]interface{})
+		if !hookOK {
+			foreign = append(foreign, raw)
+			continue
+		}
+		hookCommand, _ := hook["command"].(string)
+		if !reconcCommandOwned(commandSignature(hookCommand, hook["args"])) {
+			foreign = append(foreign, raw)
+			continue
+		}
+		owned = true
+		if command == "" {
+			command = hookCommandLabel(hookCommand, hook["args"])
+		}
+	}
+	if !owned {
+		return entry, false, ""
+	}
+	if len(foreign) == 0 {
+		return nil, true, command
+	}
+	preserved := make(map[string]interface{}, len(group))
+	for key, value := range group {
+		preserved[key] = value
+	}
+	preserved["hooks"] = foreign
+	return preserved, true, command
+}
+
+func hookCommandLabel(command string, argsValue interface{}) string {
+	parts := []string{strings.TrimSpace(command)}
+	if args, ok := argsValue.([]interface{}); ok {
+		for _, raw := range args {
+			parts = append(parts, fmt.Sprint(raw))
+		}
+	}
+	return strings.TrimSpace(strings.Join(parts, " "))
+}
+
+func mergeReconcHookMaps(destHooks, reconcHooks map[string]interface{}, opts MergeOptions) MergeDiff {
+	var diff MergeDiff
 
 	for event, newEntriesRaw := range reconcHooks {
 		newEntries, _ := newEntriesRaw.([]interface{})
@@ -143,6 +302,47 @@ func removeCanonicalReconcHooks(dest, reconcPart map[string]interface{}) (int, e
 	if !ok {
 		return 0, nil
 	}
+	removed, err := removeCanonicalReconcHookMaps(destHooks, reconcHooks)
+	if err != nil {
+		return 0, err
+	}
+	if len(destHooks) == 0 {
+		delete(dest, "hooks")
+	}
+	return removed, nil
+}
+
+func removeCanonicalReconcNestedEventHooks(dest, reconcPart map[string]interface{}) (int, error) {
+	reconcHooks, ok := reconcPart["hooks"].(map[string]interface{})
+	if !ok {
+		return 0, fmt.Errorf("generated hook settings are missing")
+	}
+	reconcEvents, ok := reconcHooks["events"].(map[string]interface{})
+	if !ok {
+		return 0, fmt.Errorf("generated hook event map is missing")
+	}
+	destHooks, ok := dest["hooks"].(map[string]interface{})
+	if !ok {
+		return 0, nil
+	}
+	destEvents, ok := destHooks["events"].(map[string]interface{})
+	if !ok {
+		return 0, nil
+	}
+	removed, err := removeCanonicalReconcHookMaps(destEvents, reconcEvents)
+	if err != nil {
+		return 0, err
+	}
+	if len(destEvents) == 0 {
+		delete(destHooks, "events")
+	}
+	if len(destHooks) == 1 && destHooks["enabled"] == true {
+		delete(dest, "hooks")
+	}
+	return removed, nil
+}
+
+func removeCanonicalReconcHookMaps(destHooks, reconcHooks map[string]interface{}) (int, error) {
 	removed := 0
 	for event, existingRaw := range destHooks {
 		existingEntries, ok := existingRaw.([]interface{})
@@ -150,8 +350,9 @@ func removeCanonicalReconcHooks(dest, reconcPart map[string]interface{}) (int, e
 			continue
 		}
 		canonical := map[string]struct{}{}
+		var generatedEntries []interface{}
 		if generatedRaw, exists := reconcHooks[event]; exists {
-			generatedEntries, _ := generatedRaw.([]interface{})
+			generatedEntries, _ = generatedRaw.([]interface{})
 			canonical = hookSignatureSet(generatedEntries)
 		}
 		filtered := make([]interface{}, 0, len(existingEntries))
@@ -160,6 +361,9 @@ func removeCanonicalReconcHooks(dest, reconcPart map[string]interface{}) (int, e
 			case NonReconc:
 				filtered = append(filtered, entry)
 			case CanonicalReconc:
+				if !containsExactHookEntry(generatedEntries, entry) {
+					return 0, fmt.Errorf("event %s contains a modified Reconc entry; refusing removal", event)
+				}
 				removed++
 			case ModifiedReconc:
 				return 0, fmt.Errorf("event %s contains a modified Reconc entry; refusing removal", event)
@@ -171,10 +375,16 @@ func removeCanonicalReconcHooks(dest, reconcPart map[string]interface{}) (int, e
 			destHooks[event] = filtered
 		}
 	}
-	if len(destHooks) == 0 {
-		delete(dest, "hooks")
-	}
 	return removed, nil
+}
+
+func containsExactHookEntry(entries []interface{}, candidate interface{}) bool {
+	for _, entry := range entries {
+		if reflect.DeepEqual(entry, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 // describeJSONType returns a human-readable label for a
@@ -302,29 +512,40 @@ func classifyHookEntry(entry interface{}, canonicalSignatures map[string]struct{
 	if !ok {
 		return NonReconc
 	}
-	cmd, _ := m["command"].(string)
-	if strings.TrimSpace(cmd) == "" {
-		hookList, ok := m["hooks"].([]interface{})
-		if !ok || len(hookList) == 0 {
-			return NonReconc
-		}
-		hm, ok := hookList[0].(map[string]interface{})
-		if !ok {
-			return NonReconc
-		}
-		cmd, _ = hm["command"].(string)
-	}
 	// Generated hooks may call a repo-local binary directly or wrap the
 	// runtime invocation in a shell resolver so it works without PATH. We
-	// still classify both shapes as reconc-owned.
-	trimmed := strings.TrimSpace(cmd)
-	if !strings.Contains(trimmed, "reconc hook runtime ") &&
-		!(strings.Contains(trimmed, "tools/reconc/dist/reconc-") && strings.Contains(trimmed, " hook runtime ")) &&
-		!strings.Contains(trimmed, "tools/reconc/bin/hook") {
+	// still classify both shapes as reconc-owned. Inspect every nested hook:
+	// prepending a foreign process to a modified Reconc group must not hide
+	// the managed invocation from strict uninstall or reinstall handling.
+	if !hookEntryContainsReconcInvocation(m) {
 		return NonReconc
 	}
 	if _, ok := canonicalSignatures[hookEntrySignature(entry)]; ok {
 		return CanonicalReconc
 	}
 	return ModifiedReconc
+}
+
+func hookEntryContainsReconcInvocation(entry map[string]interface{}) bool {
+	if command, _ := entry["command"].(string); reconcCommandOwned(commandSignature(command, entry["args"])) {
+		return true
+	}
+	hooks, _ := entry["hooks"].([]interface{})
+	for _, raw := range hooks {
+		hook, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		command, _ := hook["command"].(string)
+		if reconcCommandOwned(commandSignature(command, hook["args"])) {
+			return true
+		}
+	}
+	return false
+}
+
+func reconcCommandOwned(command string) bool {
+	return strings.Contains(command, "reconc hook runtime ") ||
+		(strings.Contains(command, "tools/reconc/dist/reconc-") && strings.Contains(command, " hook runtime ")) ||
+		strings.Contains(command, "tools/reconc/bin/hook")
 }

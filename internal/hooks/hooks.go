@@ -37,6 +37,7 @@ const (
 	GrokHooksPath             = ".grok/hooks/reconc.json"
 	OMPExtensionPath          = ".omp/extensions/reconc.ts"
 	PiExtensionPath           = ".pi/extensions/reconc.ts"
+	ZCodeConfigPath           = ".zcode/config.json"
 	KimiCodeConfigDisplayPath = "~/.kimi-code/config.toml"
 )
 
@@ -54,6 +55,7 @@ const (
 	KindGrok          = "grok"
 	KindOMP           = "omp"
 	KindPi            = "pi"
+	KindZCode         = "zcode"
 	KindKimiCode      = "kimi-code"
 )
 
@@ -171,6 +173,8 @@ func Generate(kind string) (*Artifact, error) {
 		return generateOMP()
 	case generatorPi:
 		return generatePi()
+	case generatorZCode:
+		return generateZCode()
 	case generatorKimiCode:
 		return generateKimiCode()
 	}
@@ -254,6 +258,8 @@ func installPlatform(definition platformDefinition, repoRoot string, force bool)
 	case InstallExecutable:
 		return installGitPreCommit(repoRoot, force)
 	case InstallNestedJSON:
+		return installJSONHooks(definition.Kind, definition.TargetPath, repoRoot, force)
+	case InstallNestedEventsJSON:
 		return installJSONHooks(definition.Kind, definition.TargetPath, repoRoot, force)
 	case InstallFlatJSON:
 		return installDevinCLI(repoRoot, force)
@@ -563,10 +569,28 @@ func installJSONHooks(kind, relPath, repoRoot string, force bool) (*InstallRepor
 			}
 			merged = reconcPart
 		} else {
+			if kind == KindZCode {
+				if shapeErr := validateZCodeHookMergeShape(merged); shapeErr != nil {
+					if !force {
+						return nil, &rerrors.PolicySourceError{
+							Message: target + " has an incompatible ZCode hook shape: " + shapeErr.Error() + "; pass --force to preserve a backup and repair the hook subtree",
+						}
+					}
+					backupPath, err = backupMalformedConfig(target, existing)
+					if err != nil {
+						return nil, err
+					}
+					repairZCodeHookMergeShape(merged)
+				}
+			}
 			// Collect dropped user-modified reconc entries so the caller
 			// can warn. KeepUserEdits is false by default to preserve
 			// reinstall semantics. Stored in the InstallReport.
-			mergeDiff = mergeReconcHooks(merged, reconcPart, MergeOptions{KeepUserEdits: false})
+			if kind == KindZCode {
+				mergeDiff = mergeReconcNestedEventHooks(merged, reconcPart, MergeOptions{KeepUserEdits: false})
+			} else {
+				mergeDiff = mergeReconcHooks(merged, reconcPart, MergeOptions{KeepUserEdits: false})
+			}
 		}
 	}
 
@@ -581,6 +605,9 @@ func installJSONHooks(kind, relPath, repoRoot string, force bool) (*InstallRepor
 	}
 
 	nextAction := "Restart your agent session so it picks up the new hooks."
+	if kind == KindZCode {
+		nextAction = "Restart ZCode in this repository so it snapshots .zcode/config.json."
+	}
 	return &InstallReport{
 		Kind:             kind,
 		RepoRoot:         root,

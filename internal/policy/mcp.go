@@ -26,6 +26,7 @@ const (
 	MCPPlatformKilo     MCPPlatform = "kilo"
 	MCPPlatformOMP      MCPPlatform = "omp"
 	MCPPlatformPi       MCPPlatform = "pi"
+	MCPPlatformZCode    MCPPlatform = "zcode"
 )
 
 // MCPEffect is the only behavior an operator may assign to an exact MCP tool.
@@ -65,7 +66,7 @@ func (m MCPUnclassifiedMode) Valid() bool {
 
 // Valid reports whether the platform is part of the public contract.
 func (p MCPPlatform) Valid() bool {
-	if p == MCPPlatformCursor || p == MCPPlatformOpenCode || p == MCPPlatformKilo || p == MCPPlatformOMP || p == MCPPlatformPi {
+	if p == MCPPlatformCursor || p == MCPPlatformOpenCode || p == MCPPlatformKilo || p == MCPPlatformOMP || p == MCPPlatformPi || p == MCPPlatformZCode {
 		return true
 	}
 	name := strings.TrimPrefix(string(p), "custom:")
@@ -119,7 +120,7 @@ func (p MCPPolicy) Validate() error {
 // Validate checks one exact MCP selector and its effect-specific fields.
 func (t MCPToolPolicy) Validate() error {
 	if !t.Platform.Valid() {
-		return fmt.Errorf("platform must be cursor, opencode, kilo, omp, pi, or a configured custom:<name> runtime")
+		return fmt.Errorf("platform must be cursor, opencode, kilo, omp, pi, zcode, or a configured custom:<name> runtime")
 	}
 	if t.Tool == "" || strings.TrimSpace(t.Tool) != t.Tool {
 		return fmt.Errorf("tool must be an exact non-empty identity without surrounding whitespace")

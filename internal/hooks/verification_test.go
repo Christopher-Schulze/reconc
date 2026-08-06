@@ -52,3 +52,18 @@ func TestGeneratedArtifactsThatInvokeWrapperDeclareWrapperRequirement(t *testing
 		}
 	}
 }
+
+func TestZCodeVerificationActionNamesOnlySupportedRoutes(t *testing.T) {
+	surface, ok := VerificationSurfaceFor(KindZCode, "cli")
+	if !ok {
+		t.Fatal("ZCode CLI verification surface is missing")
+	}
+	if strings.Contains(strings.ToLower(surface.Action), "compaction") {
+		t.Fatalf("ZCode verification action requests an unsupported route: %s", surface.Action)
+	}
+	for _, event := range []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "Stop"} {
+		if !strings.Contains(surface.Action, event) {
+			t.Fatalf("ZCode verification action omits %s: %s", event, surface.Action)
+		}
+	}
+}

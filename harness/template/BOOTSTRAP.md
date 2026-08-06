@@ -35,7 +35,7 @@ After `reconc init --profile advanced`, the target repository contains:
 - `tools/reconc/harness/template/repo-root-scaffold/AGENTS.md` - workflow excerpt, not necessarily the whole target AGENTS file.
 - `tools/reconc/harness/template/repo-root-scaffold/start.md` - onboarding entrypoint.
 - `tools/reconc/harness/template/repo-root-scaffold/.reconc.yml` - Reconc rules wired to `tools/reconc/harness/project/...`.
-- `tools/reconc/harness/template/repo-root-scaffold/.codex/`, `.github/`, `.cursor/`, `.agents/`, `.claude/`, `.opencode/`, `.devin/`, `.kilo/`, `.omp/`, `.pi/`, `.grok/`, `.githooks/` - generated local hook/plugin configs and source-controlled git hook twin.
+- `tools/reconc/harness/template/repo-root-scaffold/.codex/`, `.github/`, `.cursor/`, `.agents/`, `.claude/`, `.opencode/`, `.devin/`, `.kilo/`, `.omp/`, `.pi/`, `.zcode/`, `.grok/`, `.githooks/` - generated local hook/plugin configs and source-controlled git hook twin.
 - `tools/reconc/harness/template/repo-root-scaffold/.cursorindexingignore`, `.codeiumignore`, `.windsurfignore`, `.ignore`, `.vscode/settings.json` - local indexing/search/watcher load-shed surfaces only; never mirror these into `.gitignore`.
 - `tools/reconc/harness/template/repo-root-scaffold/.gitignore.excerpt` - gitignore entries to merge.
 - `tools/reconc/harness/template/repo-root-scaffold/docs/` - starter TASK/documentation files for empty repos.
@@ -244,6 +244,7 @@ Default empty repo profile:
 - `agent_hooks.require_kilo_plugin: true`
 - `agent_hooks.require_omp_extension: true`
 - `agent_hooks.require_pi_extension: true`
+- `agent_hooks.require_zcode_hooks: true`
 - `agent_hooks.require_grok_hooks: true`
 
 For Rust CLI:
@@ -316,7 +317,7 @@ First sync generated hook artifacts from the repo-local Reconc generator:
 tools/reconc/dist/<local-reconc-binary> hook sync-scaffold tools/reconc/harness/<project-name>/repo-root-scaffold
 ```
 
-This writes `.githooks/pre-commit`, `.codex/hooks.json`, `.github/hooks/reconc.json`, `.cursor/hooks.json`, `.agents/hooks.json`, `.claude/settings.json`, `.opencode/plugins/reconc.js`, `.devin/hooks.v1.json`, `.kilo/plugin/reconc.js`, `.omp/extensions/reconc.ts`, `.pi/extensions/reconc.ts`, and `.grok/hooks/reconc.json` from the same generator used by `reconc hook install`. Do not edit these hook artifacts manually and do not copy them from any source-specific harness.
+This writes `.githooks/pre-commit`, `.codex/hooks.json`, `.github/hooks/reconc.json`, `.cursor/hooks.json`, `.agents/hooks.json`, `.claude/settings.json`, `.opencode/plugins/reconc.js`, `.devin/hooks.v1.json`, `.kilo/plugin/reconc.js`, `.omp/extensions/reconc.ts`, `.pi/extensions/reconc.ts`, `.zcode/config.json`, and `.grok/hooks/reconc.json` from the same generator used by `reconc hook install`. Do not edit these hook artifacts manually and do not copy them from any source-specific harness.
 
 Direct-copy files when the target file is missing:
 
@@ -333,6 +334,7 @@ Direct-copy files when the target file is missing:
 - `.kilo/plugin/reconc.js`
 - `.omp/extensions/reconc.ts`
 - `.pi/extensions/reconc.ts`
+- `.zcode/config.json`
 - `.grok/hooks/reconc.json`
 - `.cursorindexingignore`
 - `.codeiumignore`
@@ -495,7 +497,7 @@ The scaffold hook configs must first call the repo-local wrapper:
 
 - `tools/reconc/bin/hook`
 
-Hook files in `repo-root-scaffold/` are generated with `reconc hook sync-scaffold`. The typed registry is the source of truth for Claude Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, Pi, Grok Build, and the source-controlled `.githooks/pre-commit` twin. Root repo artifacts and template scaffold artifacts must never be reconciled by copying from each other; both are regenerated from the same Reconc binary. A target repo must never compare against, depend on, or copy from a source-specific harness.
+Hook files in `repo-root-scaffold/` are generated with `reconc hook sync-scaffold`. The typed registry is the source of truth for Claude Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Oh My Pi, Pi, ZCode, Grok Build, and the source-controlled `.githooks/pre-commit` twin. Root repo artifacts and template scaffold artifacts must never be reconciled by copying from each other; both are regenerated from the same Reconc binary. A target repo must never compare against, depend on, or copy from a source-specific harness.
 
 Hook installation and scaffold sync reject any target whose existing parent symlinks resolve outside the selected repository. Scaffold sync preflights every target before writing, preventing partial rollout. Forced malformed-config backups remain private and crash-durable.
 
@@ -521,6 +523,12 @@ native Stop claim.
 
 Claude Code generated hooks use exec-form `command` plus `args`, pass `${CLAUDE_PROJECT_DIR}` directly to the wrapper, and use the context-capable `SessionStart` `compact` matcher for recovery instead of spawning the notification-only `PostCompact` event. Codex bootstrap and direct install manage `hooks = true` under `[features]`; root-level `hooks=true` is invalid. Direct install rejects an explicit user `hooks = false` before any hook write unless `--force` is supplied. Transactional bootstrap exposes the same change as managed drift and requires explicit marker-only acceptance. Uninstall restores the exact original line. Codex has no `SessionEnd` event. GitHub Copilot uses `.github/hooks/reconc.json`; Copilot CLI and coding agent share the version-1 repository contract, but `PermissionRequest` and `Notification` are CLI-only and every host timeout remains fail-open. A foreign file at the managed path is never overwritten, including with `--force`. Cursor's one `.cursor/hooks.json` is shared configuration, not proof of identical Agent, Cmd+K, Tab, CLI, print, or cloud event delivery. Its `postToolUse` route is successful generic evidence, `postToolUseFailure` is failure only, and `afterShellExecution` is passive because that payload has no exit status. Devin uses `.devin/hooks.v1.json`, passes `DEVIN_PROJECT_DIR`, and includes `PostCompaction`. OpenCode and Kilo Code plugins are transport adapters only: policy, session state, continuation, and context recovery remain in the Go runtime. Shell success requires integer `output.metadata.exit == 0`. Their bounded asynchronous continuation trigger is inferred from `session.idle`, not a synchronous native Stop gate, and never falls back to synchronous prompt submission. Kilo Code requires `KILO_PURE` to be unset so project plugins load. Oh My Pi loads the typed project extension `.omp/extensions/reconc.ts`. Native `tool_call` and awaited main-session `session_stop` are fail-closed boundaries; approval, outcome, compaction, and shutdown routes are observational. Tool outcome follows exact `isError`, with synthetic exit code zero only for a successful built-in `Bash` call. Stop continuation is capped at eight accepted requests per session, and task/subagent sessions never enter the Stop route. Pi loads `.pi/extensions/reconc.ts` only after project trust. Reconc never edits trust; native `tool_call` and `user_bash` are fail-closed, while outcomes, lifecycle, compaction, and shutdown are observational. Inferred `agent_settled` continuation is capped at ten requested messages per session, and `sendUserMessage` provides no delivery acknowledgement. OpenCode, Kilo Code, OMP, and Pi own one repository-scoped Reconc child per live plugin instance. They exchange bounded format-1 NDJSON requests over stdio in deterministic order, kill the worker on cancellation or timeout, and use the remaining route budget for one-shot recovery after startup, crash, or protocol failure. Shutdown or parent stdin closure prevents orphan workers. No daemon, socket, listener, or network call is introduced.
 
+ZCode loads `.zcode/config.json` at session start. Reconc owns only its exact
+process entries across all seven native events; pre-tool, permission, and Stop
+errors block through native exit code 2, host timeouts fail open, and Stop is
+capped at three consecutive blocks. Restart the ZCode session after installing
+or removing hooks.
+
 Cursor CLI uses the primary `agent` command; `cursor-agent` is its compatibility
 alias. The documented CLI surface is registry-owned instead of inferred from
 the desktop artifact. `workspaceOpen` is sessionless liveness only and returns
@@ -530,6 +538,10 @@ reconstructed by Reconc.
 Grok Build loads `.grok/hooks/reconc.json` only after project trust is granted with `/hooks-trust` or `--trust`. Native PreToolUse is a hard explicit allow/deny boundary. Reconc also emits exact native Stop block JSON without a leader, marks eligible live Stops strict, uses a 600-second Stop budget, and leaves user interrupts plus `channel_closed`/`shutdown` untouched. It accepts synchronous native enforcement only when the hook guide shipped with the installed Grok distribution explicitly advertises blocking Stop decision control, never from the version string. The generated wrapper converts missing/broken/ambiguous binaries, malformed payloads, runtime failures, and invalid output into deny/block JSON while it can still respond; a host timeout or OS kill before output remains fail-open. Passive Stop distributions can use optional leader fallback over the Unix socket or Windows named pipe. Protocol-1 `_x.ai/interject` attempts are bounded to 32 delivered no-progress continuations and reset on material progress, a new block, or a clean Stop; capability-proven native hosts suppress duplicate interjection. `RECONC_GROK_STEER=0` disables only leader steering. Deep doctor reports native Stop capability separately and probes optional leader protocol plus `_x.ai/interject`.
 
 The registry assigns 5-second observation/session timeouts, 10-second pre-tool/permission timeouts, and platform-specific Stop budgets. Grok uses its native 600-second Stop default; ordinary synchronous platforms use 30 seconds. OpenCode, Kilo Code, OMP, and Pi adapters enforce their budgets internally. OMP uses a 29-second internal Stop budget inside the host's 30-second extension-handler deadline and a one-second shutdown observation budget inside the host's two-second shutdown limit. All four adapters concurrently drain both pipes, kill and await slow subprocesses, cap combined output at 8 KiB, reject invalid UTF-8 or truncated decision JSON, and never embed a versioned release filename. OpenCode and Kilo async continuation state is capped at 1,024 sessions and ten accepted requests per session; OMP's native Stop continuation is capped at eight; Pi state is capped at 1,024 sessions and ten requested continuations. Generated Claude, Codex, GitHub Copilot, Cursor, Devin, Antigravity, and Grok configs do not spawn PreToolUse for read-only matchers; read evidence remains in authoritative PostToolUse while pre-execution hooks stay focused on write/shell/apply_patch policy checks. Shell-command runtimes first exec `./tools/reconc/bin/hook` directly when their cwd is already the repo root, and only fall back to `git rev-parse` plus `RECONC_HOOK_REPO_RESOLVED=1` when needed. The agent-hooks audit rejects git-first launchers, Claude/Devin shell/git launchers, project-specific OpenCode/Kilo Code/OMP/Pi state logic, version-pinned OpenCode/Kilo Code/OMP/Pi binaries, stale hook timeouts, and wrapper configs that omit the direct-wrapper fast path. The wrapper trusts the resolved marker or an already-valid repo-local wrapper/dist path, normalizes only direct/manual calls, and execs the first available repo-local Reconc binary. An owned current-host stable binary also publishes `tools/reconc/bin/hook-target`; the wrapper validates and reads that exact one-line direct target without platform discovery, directory scans, version-glob expansion, or PATH lookup. Missing, invalid, symlinked, or non-executable direct targets enter the portable unambiguous resolver. The Go hook runtime lowers observation-only hook priority on Unix for post/after/session-end events; PreToolUse, permission and Stop keep normal priority. The final `exec` keeps hook process trees shallow and avoids idle parent shells where the host runtime allows it.
+
+ZCode uses the registry's 5-second observation/session, 10-second pre-tool and
+permission, and 30-second Stop budgets. Its generated config omits read-only
+pre-tool matchers and uses authoritative post-tool delivery for read evidence.
 
 The wrapper resolves binaries without pinning a Reconc release number. It
 tries this exact order:
@@ -556,8 +568,9 @@ JSON hook configs must not inline binary fallback loops; they call
 permission and Stop hooks remain hard/interactive priority; only observation
 hooks are lowered.
 
-On native Windows, generated shell hook routes, the OpenCode/Kilo/OMP/Pi transport to
-the extensionless Reconc wrapper, and `.sh` or extensionless policy scripts
+On native Windows, generated shell hook routes, the OpenCode/Kilo/OMP/Pi
+transport, ZCode process routes, the extensionless Reconc wrapper, and `.sh`
+or extensionless policy scripts
 require `sh` on `PATH`; Git for Windows supplies it. Native `.exe` and `.com`
 policy scripts execute directly. Do not invent a per-project wrapper variant.
 

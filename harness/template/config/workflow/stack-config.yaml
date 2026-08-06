@@ -75,3 +75,4 @@ agent_hooks:
   require_grok_hooks: true
   require_omp_extension: true
   require_pi_extension: true
+  require_zcode_hooks: true

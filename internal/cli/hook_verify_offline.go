@@ -360,6 +360,8 @@ func hookVerificationPayload(kind, repo string) ([]byte, error) {
 		payload = map[string]interface{}{"conversationId": "verify-antigravity", "stepIdx": 1, "toolCall": map[string]interface{}{"name": "write_to_file", "args": map[string]interface{}{"TargetFile": "forbidden.txt"}}}
 	case hooks.KindKimiCode:
 		payload = map[string]interface{}{"hook_event_name": "PreToolUse", "session_id": "verify-kimi", "cwd": repo, "tool_name": "Write", "tool_input": map[string]interface{}{"path": "forbidden.txt"}, "tool_call_id": "call-1"}
+	case hooks.KindZCode:
+		payload = map[string]interface{}{"hook_event_name": "PreToolUse", "session_id": "verify-zcode", "cwd": repo, "tool_name": "Write", "tool_input": map[string]interface{}{"file_path": "forbidden.txt"}, "tool_use_id": "call-1"}
 	default:
 		return nil, fmt.Errorf("no synthetic payload contract for %s", kind)
 	}

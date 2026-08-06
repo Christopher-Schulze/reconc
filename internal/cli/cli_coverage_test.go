@@ -592,7 +592,7 @@ func TestRunBootstrapHintsAndAgentInstall(t *testing.T) {
 				t.Fatalf("expected focused bootstrap output %q, got %q", expected, out)
 			}
 		}
-		for _, unrelated := range []string{"Claude Code: create", "Codex: create", "Cursor: create", "OpenCode: create", "Devin CLI: create", "Antigravity CLI: create", "Kilo Code: create", "Oh My Pi: create", "Pi Coding Agent: create"} {
+		for _, unrelated := range []string{"Claude Code: create", "Codex: create", "Cursor: create", "OpenCode: create", "Devin CLI: create", "Antigravity CLI: create", "Kilo Code: create", "Oh My Pi: create", "Pi Coding Agent: create", "ZCode: create"} {
 			if strings.Contains(out, unrelated) {
 				t.Fatalf("unexpected unrelated platform hint %q in %q", unrelated, out)
 			}
@@ -628,6 +628,9 @@ func TestRunBootstrapHintsAndAgentInstall(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(repo, ".pi"), 0o755); err != nil {
 			t.Fatal(err)
 		}
+		if err := os.MkdirAll(filepath.Join(repo, ".zcode"), 0o755); err != nil {
+			t.Fatal(err)
+		}
 		var stdout, stderr bytes.Buffer
 		if err := Run([]string{"init", repo, "--json"}, "0.5.0-test", &stdout, &stderr); err != nil {
 			t.Fatalf("init json with agent dirs: %v", err)
@@ -637,7 +640,7 @@ func TestRunBootstrapHintsAndAgentInstall(t *testing.T) {
 			t.Fatalf("expected bootstrap JSON, got %v\n%s", err, stdout.String())
 		}
 		joined := strings.Join(payload.Hooks, "\n")
-		if !strings.Contains(joined, "claude-code") || !strings.Contains(joined, "codex") || !strings.Contains(joined, "cursor") || !strings.Contains(joined, "opencode") || !strings.Contains(joined, "antigravity") || !strings.Contains(joined, "omp") || !strings.Contains(joined, "pi") {
+		if !strings.Contains(joined, "claude-code") || !strings.Contains(joined, "codex") || !strings.Contains(joined, "cursor") || !strings.Contains(joined, "opencode") || !strings.Contains(joined, "antigravity") || !strings.Contains(joined, "omp") || !strings.Contains(joined, "pi") || !strings.Contains(joined, "zcode") {
 			t.Fatalf("expected detected agent hooks, got %q", joined)
 		}
 		if payload.Operation != "init" || payload.Status != reconbootstrap.InitComplete {
@@ -762,6 +765,7 @@ func TestRunHookSyncScaffold(t *testing.T) {
 		".claude/settings.json",
 		".agents/hooks.json",
 		".opencode/plugins/reconc.js",
+		".zcode/config.json",
 	} {
 		if _, err := os.Stat(filepath.Join(scaffoldRoot, filepath.FromSlash(want))); err != nil {
 			t.Fatalf("expected generated scaffold artifact %s: %v", want, err)

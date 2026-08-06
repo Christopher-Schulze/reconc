@@ -1,0 +1,152 @@
+{
+  "host": "zcode",
+  "host_version": "3.3.6",
+  "source_url": "https://zcode.z.ai/en/docs/hooks",
+  "source_revision": "sha256:9c5043d1b06816fa3435b261a78ba32ac8bf08b6a098ded6262ce5ed0adf4f9b",
+  "capture_date": "2026-08-06",
+  "events": {
+    "SessionStart": {
+      "payload": {
+        "session_id": "ses_fixture",
+        "transcript_path": "/fixture/transcript.jsonl",
+        "cwd": "/fixture/repo",
+        "permission_mode": "default",
+        "hook_event_name": "SessionStart",
+        "source": "startup"
+      },
+      "result": {
+        "continue": true,
+        "hookSpecificOutput": {
+          "hookEventName": "SessionStart",
+          "additionalContext": "synthetic session context"
+        }
+      }
+    },
+    "UserPromptSubmit": {
+      "payload": {
+        "session_id": "ses_fixture",
+        "transcript_path": "/fixture/transcript.jsonl",
+        "cwd": "/fixture/repo",
+        "permission_mode": "default",
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "inspect the repository"
+      },
+      "result": {
+        "continue": true,
+        "hookSpecificOutput": {
+          "hookEventName": "UserPromptSubmit",
+          "additionalContext": "synthetic prompt context"
+        }
+      }
+    },
+    "PreToolUse": {
+      "payload": {
+        "session_id": "ses_fixture",
+        "transcript_path": "/fixture/transcript.jsonl",
+        "cwd": "/fixture/repo",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "src/app.go",
+          "content": "package app"
+        },
+        "tool_use_id": "tool_fixture"
+      },
+      "result": {
+        "hookSpecificOutput": {
+          "hookEventName": "PreToolUse",
+          "permissionDecision": "deny",
+          "permissionDecisionReason": "synthetic denial",
+          "updatedInput": {
+            "file_path": "src/app.go"
+          }
+        }
+      }
+    },
+    "PermissionRequest": {
+      "payload": {
+        "session_id": "ses_fixture",
+        "transcript_path": "/fixture/transcript.jsonl",
+        "cwd": "/fixture/repo",
+        "permission_mode": "default",
+        "hook_event_name": "PermissionRequest",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "go test ./..."
+        }
+      },
+      "result": {
+        "hookSpecificOutput": {
+          "hookEventName": "PermissionRequest",
+          "decision": {
+            "behavior": "deny",
+            "message": "synthetic denial"
+          }
+        }
+      }
+    },
+    "PostToolUse": {
+      "payload": {
+        "session_id": "ses_fixture",
+        "transcript_path": "/fixture/transcript.jsonl",
+        "cwd": "/fixture/repo",
+        "permission_mode": "default",
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "go test ./..."
+        },
+        "tool_response": {
+          "stdout": "ok",
+          "stderr": "",
+          "exit_code": 0
+        },
+        "tool_use_id": "tool_fixture"
+      },
+      "result": {
+        "hookSpecificOutput": {
+          "hookEventName": "PostToolUse",
+          "additionalContext": "synthetic result context"
+        }
+      }
+    },
+    "PostToolUseFailure": {
+      "payload": {
+        "session_id": "ses_fixture",
+        "transcript_path": "/fixture/transcript.jsonl",
+        "cwd": "/fixture/repo",
+        "permission_mode": "default",
+        "hook_event_name": "PostToolUseFailure",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "false"
+        },
+        "tool_use_id": "tool_fixture",
+        "error": "command failed",
+        "is_interrupt": false
+      },
+      "result": {
+        "hookSpecificOutput": {
+          "hookEventName": "PostToolUseFailure",
+          "additionalContext": "synthetic failure context"
+        }
+      }
+    },
+    "Stop": {
+      "payload": {
+        "session_id": "ses_fixture",
+        "transcript_path": "/fixture/transcript.jsonl",
+        "cwd": "/fixture/repo",
+        "permission_mode": "default",
+        "hook_event_name": "Stop",
+        "stop_hook_active": false,
+        "last_assistant_message": "Ready to stop."
+      },
+      "result": {
+        "decision": "block",
+        "reason": "synthetic continuation"
+      }
+    }
+  }
+}

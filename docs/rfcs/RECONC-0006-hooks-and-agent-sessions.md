@@ -1,7 +1,7 @@
 # RECONC-0006: Hooks And Agent Sessions
 
 - Status: Frozen
-- Contract: git, Claude Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Grok Build, Kimi Code CLI, Oh My Pi CLI, Pi Coding Agent, and generic-agent integration
+- Contract: git, Claude Code, Codex, GitHub Copilot, Cursor, OpenCode, Devin CLI, Antigravity CLI, Kilo Code, Grok Build, Kimi Code CLI, Oh My Pi CLI, Pi Coding Agent, ZCode, and generic-agent integration
 
 ## Hook Kinds
 
@@ -22,6 +22,7 @@
 | `kimi-code` | `$KIMI_CODE_HOME/config.toml` | Explicit user-global integration for all 16 native events; commands discover an initialized Reconc repository before acting. |
 | `omp` | `.omp/extensions/reconc.ts` | Project ExtensionAPI adapter for native session, input, approval, tool, compaction, shutdown, and awaited `session_stop` events. |
 | `pi` | `.pi/extensions/reconc.ts` | Trust-aware project extension for native session, input, blocking tool and user-shell calls, outcomes, compaction, shutdown, and inferred settled continuation. |
+| `zcode` | `.zcode/config.json` | Project hook integration for all seven native lifecycle, prompt, tool, permission, outcome, and synchronous Stop events. |
 
 Installers are idempotent. Reconc-owned JSON hook entries are
 identified by `reconc hook runtime` command tokens and replaced on
@@ -37,6 +38,11 @@ and never overwrites foreign content at its dedicated path, including with
 `--force`.
 Pi owns only `.pi/extensions/reconc.ts`, applies the same foreign-content
 refusal, and never edits Pi's project trust or settings files.
+ZCode owns only exact Reconc process entries under `hooks.events` and the
+required `hooks.enabled` activation in `.zcode/config.json`. It preserves
+foreign settings, events, and commands. Invalid nested shapes fail unless
+explicit force first publishes the exact prior file as a private,
+content-addressed backup.
 The Git installer resolves the same active `core.hooksPath` used by status,
 updates managed content idempotently, supports linked-worktree common Git
 storage, and refuses to write into a shared external hooks directory.
@@ -67,9 +73,29 @@ source-controlled scaffold twins from the same generator:
 `.githooks/pre-commit`, `.codex/hooks.json`, `.github/hooks/reconc.json`, `.cursor/hooks.json`,
 `.agents/hooks.json`, `.claude/settings.json`, and
 `.opencode/plugins/reconc.js`, `.devin/hooks.v1.json`,
-`.kilo/plugin/reconc.js`, `.grok/hooks/reconc.json`, and
-`.omp/extensions/reconc.ts`, and `.pi/extensions/reconc.ts`. Template scaffolds are never synced from
+`.kilo/plugin/reconc.js`, `.grok/hooks/reconc.json`,
+`.omp/extensions/reconc.ts`, `.pi/extensions/reconc.ts`, and
+`.zcode/config.json`. Template scaffolds are never synced from
 a source-specific harness.
+
+## ZCode Guarantee
+
+ZCode discovers repository configuration at `.zcode/config.json` and snapshots
+it when a session starts. Reconc installs `SessionStart`, `UserPromptSubmit`,
+`PreToolUse`, `PermissionRequest`, `PostToolUse`, `PostToolUseFailure`, and
+`Stop` as direct process executors with argument arrays and native millisecond
+timeouts. Install and uninstall therefore require a new ZCode session before
+the host can observe the change.
+
+The adapter strictly normalizes the documented snake_case envelope, canonical
+repository `cwd`, session identity, available tool-call identity, tool input,
+result, error, interrupt, and Stop fields. Hard `PreToolUse` blocks use exit
+code 2, `PermissionRequest` denials use the native decision object, and Stop
+continuation uses `decision: "block"`; malformed fail-closed requests use the
+native exit-code-2 shortcut. Observation routes and host timeouts fail open.
+Native Stop blocking is bounded by ZCode to three consecutive blocks. The fixture pins ZCode 3.3.6
+hook documentation revision
+`sha256:9c5043d1b06816fa3435b261a78ba32ac8bf08b6a098ded6262ce5ed0adf4f9b`.
 
 ## Kimi Code CLI Guarantee
 
@@ -264,10 +290,10 @@ outcome uncertainty produces no positive evidence.
 
 Cursor's dedicated `beforeMCPExecution` can enforce exact mappings and
 `unclassified: deny`; `afterMCPExecution` accepts repository evidence only
-from an explicit successful host result. OpenCode, Kilo, OMP, and Pi generic hooks
+from an explicit successful host result. OpenCode, Kilo, OMP, Pi, and ZCode generic hooks
 enforce exact configured tool identities, but cannot distinguish an
 unconfigured MCP tool from a built-in or custom tool. Strict unclassified deny
-is therefore unavailable on those four surfaces and is reported as a
+is therefore unavailable on those five surfaces and is reported as a
 limitation, not an enforcement success.
 
 MCP audit and status retain only redacted platform/tool/fingerprint/effect

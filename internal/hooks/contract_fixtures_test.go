@@ -25,7 +25,7 @@ type hostContractEvent struct {
 }
 
 func TestOfficialHostContractFixturesCoverEveryInstalledBinding(t *testing.T) {
-	for _, kind := range []string{KindCursor, KindOpenCode, KindKilo, KindOMP, KindPi} {
+	for _, kind := range []string{KindCursor, KindOpenCode, KindKilo, KindOMP, KindPi, KindZCode} {
 		fixture := readHostContractFixture(t, kind)
 		revisionValid := len(fixture.SourceRevision) == 40 ||
 			(strings.HasPrefix(fixture.SourceRevision, "sha256:") && len(fixture.SourceRevision) == len("sha256:")+64)
@@ -131,6 +131,23 @@ func TestOfficialHostContractFixturesPreserveSecurityRelevantStates(t *testing.T
 	settled := pi.Events["agent_settled"].Result.(map[string]interface{})
 	if settled["deliveryAcknowledged"] != false || settled["sendUserMessageReturn"] != nil {
 		t.Fatalf("Pi settled fixture invents a continuation acknowledgement: %#v", settled)
+	}
+
+	zcode := readHostContractFixture(t, KindZCode)
+	preToolResult := zcode.Events["PreToolUse"].Result.(map[string]interface{})
+	preToolOutput := preToolResult["hookSpecificOutput"].(map[string]interface{})
+	if preToolOutput["hookEventName"] != "PreToolUse" || preToolOutput["permissionDecision"] != "deny" || preToolOutput["updatedInput"] == nil {
+		t.Fatalf("ZCode PreToolUse fixture lacks native deny/update response: %#v", preToolResult)
+	}
+	permissionResult := zcode.Events["PermissionRequest"].Result.(map[string]interface{})
+	permissionOutput := permissionResult["hookSpecificOutput"].(map[string]interface{})
+	decision := permissionOutput["decision"].(map[string]interface{})
+	if decision["behavior"] != "deny" || decision["message"] == "" {
+		t.Fatalf("ZCode PermissionRequest fixture lacks native denial: %#v", permissionResult)
+	}
+	zcodeStopResult := zcode.Events["Stop"].Result.(map[string]interface{})
+	if zcodeStopResult["decision"] != "block" || zcodeStopResult["reason"] == "" {
+		t.Fatalf("ZCode Stop fixture lacks native continuation response: %#v", zcodeStopResult)
 	}
 }
 

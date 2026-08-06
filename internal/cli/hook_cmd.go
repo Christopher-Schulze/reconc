@@ -792,6 +792,9 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 	case hooks.KindPi:
 		payload, err = agentsession.NormalizePiPayload(event, payload, repo)
 		timing.mark("pi_normalize")
+	case hooks.KindZCode:
+		payload, err = agentsession.NormalizeZCodePayload(event, payload, repo)
+		timing.mark("zcode_normalize")
 	}
 	if err != nil {
 		if route.PlatformKind == hooks.KindGitHubCopilot && (route.Event == hooks.EventStop || route.Event == hooks.EventSubagentStop) {
@@ -950,7 +953,7 @@ func hookHandlerForRoute(event string, route hooks.RuntimeRoute) (agentsession.H
 		}
 		return agentsession.HookHandlerPassive, true
 	case hooks.EventPreToolUse:
-		if route.PlatformKind == hooks.KindOpenCode || route.PlatformKind == hooks.KindKilo || route.PlatformKind == hooks.KindOMP || route.PlatformKind == hooks.KindPi {
+		if route.PlatformKind == hooks.KindOpenCode || route.PlatformKind == hooks.KindKilo || route.PlatformKind == hooks.KindOMP || route.PlatformKind == hooks.KindPi || route.PlatformKind == hooks.KindZCode {
 			return agentsession.HookHandlerMCPAwarePreToolUse, true
 		}
 		return agentsession.HookHandlerPreToolUse, true
@@ -960,7 +963,7 @@ func hookHandlerForRoute(event string, route hooks.RuntimeRoute) (agentsession.H
 		}
 		return agentsession.HookHandlerPermissionRequest, true
 	case hooks.EventPostToolUse:
-		if event == "opencode-post-tool-use" || event == "kilo-post-tool-use" || event == "omp-post-tool-use" || event == "pi-post-tool-use" {
+		if event == "opencode-post-tool-use" || event == "kilo-post-tool-use" || event == "omp-post-tool-use" || event == "pi-post-tool-use" || event == "zcode-post-tool-use" {
 			return agentsession.HookHandlerMCPAwarePostToolUse, true
 		}
 		if event == "codex-post-tool-use" || event == "devin-post-tool-use" {
@@ -968,7 +971,7 @@ func hookHandlerForRoute(event string, route hooks.RuntimeRoute) (agentsession.H
 		}
 		return agentsession.HookHandlerPostToolUse, true
 	case hooks.EventPostToolUseFailure:
-		if route.PlatformKind == hooks.KindOpenCode || route.PlatformKind == hooks.KindKilo || route.PlatformKind == hooks.KindOMP || route.PlatformKind == hooks.KindPi {
+		if route.PlatformKind == hooks.KindOpenCode || route.PlatformKind == hooks.KindKilo || route.PlatformKind == hooks.KindOMP || route.PlatformKind == hooks.KindPi || route.PlatformKind == hooks.KindZCode {
 			return agentsession.HookHandlerMCPAwarePostToolUse, true
 		}
 		return agentsession.HookHandlerPostToolUseFailure, true

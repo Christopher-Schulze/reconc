@@ -112,6 +112,8 @@ func verificationSurfaceAction(kind, surface string) string {
 		return "Open the disposable repository in Kilo Code's VS Code host and exercise the documented project-plugin routes."
 	case KindGitPreCommit + ":pre-commit":
 		return "Stage a disposable denied change and attempt a commit without bypassing hooks."
+	case KindZCode + ":cli":
+		return "Start ZCode in the disposable repository and exercise SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, PostToolUse, PostToolUseFailure, and Stop."
 	default:
 		return "Start " + kind + " in the disposable repository and exercise its documented positive, negative, compaction, and Stop routes."
 	}

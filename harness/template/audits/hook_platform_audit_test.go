@@ -20,6 +20,7 @@ var generatedHookScaffoldFiles = []string{
 	".grok/hooks/reconc.json",
 	".omp/extensions/reconc.ts",
 	".pi/extensions/reconc.ts",
+	".zcode/config.json",
 }
 
 func installGeneratedHookScaffold(t *testing.T, root string) {
@@ -37,6 +38,7 @@ func installGeneratedHookScaffold(t *testing.T, root string) {
   require_grok_hooks: true
   require_omp_extension: true
   require_pi_extension: true
+  require_zcode_hooks: true
 `)
 	for _, relative := range generatedHookScaffoldFiles {
 		data, err := os.ReadFile(filepath.Join("..", "repo-root-scaffold", filepath.FromSlash(relative)))
@@ -74,6 +76,7 @@ func TestAuditAgentHooksRejectsMissingGeneratedPlatformContracts(t *testing.T) {
 		{name: "grok hooks", relative: ".grok/hooks/reconc.json", token: "grok-notification"},
 		{name: "OMP extension", relative: ".omp/extensions/reconc.ts", token: "omp-post-compaction"},
 		{name: "Pi extension", relative: ".pi/extensions/reconc.ts", token: "pi-continuation-requested"},
+		{name: "ZCode hooks", relative: ".zcode/config.json", token: "zcode-permission-request"},
 	}
 
 	for _, test := range tests {
@@ -205,6 +208,25 @@ func TestAuditAgentHooksRejectsStalePiStopBudget(t *testing.T) {
 	}
 }
 
+func TestAuditAgentHooksRejectsZCodeContractDrift(t *testing.T) {
+	root := t.TempDir()
+	installGeneratedHookScaffold(t, root)
+	relative := ".zcode/config.json"
+	path := filepath.Join(root, filepath.FromSlash(relative))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if !strings.Contains(content, `"timeoutMs": 30000`) {
+		t.Fatal("generated ZCode config has no 30-second Stop budget")
+	}
+	writeFile(t, root, relative, strings.Replace(content, `"timeoutMs": 30000`, `"timeoutMs": 120000`, 1))
+	if failures := auditAgentHooks(root); !containsFailure(failures, "drifted process, args, matcher, or timeout contract") {
+		t.Fatalf("ZCode contract drift must fail the audit:\n%s", strings.Join(failures, "\n"))
+	}
+}
+
 func TestAuditAgentHooksRejectsGitHubCopilotContractDrift(t *testing.T) {
 	root := t.TempDir()
 	installGeneratedHookScaffold(t, root)
@@ -238,6 +260,7 @@ func TestAuditAgentHooksRejectsProjectSpecificPluginState(t *testing.T) {
   require_grok_hooks: false
   require_omp_extension: false
   require_pi_extension: false
+  require_zcode_hooks: false
   require_opencode_plugin: true
 `)
 	data, err := os.ReadFile(filepath.Join("..", "repo-root-scaffold", ".opencode", "plugins", "reconc.js"))
@@ -267,6 +290,7 @@ func TestAuditAgentHooksRejectsVersionPinnedPluginBinary(t *testing.T) {
   require_grok_hooks: false
   require_omp_extension: false
   require_pi_extension: false
+  require_zcode_hooks: false
 `)
 	data, err := os.ReadFile(filepath.Join("..", "repo-root-scaffold", ".kilo", "plugin", "reconc.js"))
 	if err != nil {

@@ -280,7 +280,7 @@ func auditRepoLayout(root string) []string {
 	var failures []string
 	allowedRoot := map[string]bool{
 		".DS_Store": true, ".agents": true, ".claude": true, ".codex": true, ".git": true, ".github": true, ".gitignore": true,
-		".cursor": true, ".omp": true, ".opencode": true, ".pi": true, ".reconc": true, ".reconc.yml": true, "AGENTS.md": true, "README.md": true, "_drop": true,
+		".cursor": true, ".omp": true, ".opencode": true, ".pi": true, ".zcode": true, ".reconc": true, ".reconc.yml": true, "AGENTS.md": true, "README.md": true, "_drop": true,
 		"codebase": true, "docs": true, "go.mod": true, "go.sum": true, "research": true, "start.md": true, "tools": true, "workflow-complete-loop.md": true,
 	}
 	// Repo with codebase/ enforces a thin root: product subtrees live under
@@ -345,7 +345,7 @@ func auditDependencyLocality(root string) []string {
 	}
 	skipDirs := map[string]bool{
 		".git": true, ".reconc": true, "_drop": true, "research": true,
-		".agents": true, ".claude": true, ".codex": true, ".cursor": true, ".devin": true, ".grok": true, ".kilo": true, ".kilocode": true, ".omp": true, ".opencode": true, ".pi": true, ".vscode": true,
+		".agents": true, ".claude": true, ".codex": true, ".cursor": true, ".devin": true, ".grok": true, ".kilo": true, ".kilocode": true, ".omp": true, ".opencode": true, ".pi": true, ".zcode": true, ".vscode": true,
 	}
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
@@ -1248,6 +1248,21 @@ func auditAgentHooks(root string) []string {
 			`pi.on("agent_settled"`,
 		}
 	}
+	if cfg.AgentHooks.RequireZCodeHooks {
+		hooks[filepath.Join(root, ".zcode/config.json")] = []string{
+			`"enabled": true`,
+			`"type": "process"`,
+			`"command": "sh"`,
+			"tools/reconc/bin/hook",
+			"zcode-session-start",
+			"zcode-user-prompt-submit",
+			"zcode-pre-tool-use",
+			"zcode-permission-request",
+			"zcode-post-tool-use",
+			"zcode-post-tool-use-failure",
+			"zcode-stop",
+		}
+	}
 	forbidden := map[string][]string{
 		".codex/hooks.json":           {`"SessionEnd"`, "codex-session-end"},
 		".github/hooks/reconc.json":   {`"PostCompact"`, "claude-", "cursor-", "opencode-", "kilo-", "grok-"},
@@ -1255,6 +1270,7 @@ func auditAgentHooks(root string) []string {
 		".kilo/plugin/reconc.js":      {".reconc/runloop", "runloop autocontinue", "opencode_continuation_driver", "STFU", "tools/reconc/dist", "reconc-0.6.0-"},
 		".omp/extensions/reconc.ts":   {".reconc/runloop", "runloop autocontinue", "tools/reconc/dist", "reconc-0.6.0-", "claude-", "cursor-", "opencode-", "kilo-"},
 		".pi/extensions/reconc.ts":    {".reconc/runloop", "runloop autocontinue", "tools/reconc/dist", "reconc-0.6.0-", "claude-", "cursor-", "opencode-", "kilo-", "omp-", "session_stop", "tool_approval_requested"},
+		".zcode/config.json":          {"claude-", "cursor-", "opencode-", "kilo-", "omp-", "pi-"},
 		".agents/hooks.json":          {`"timeout": 120`},
 		".grok/hooks/reconc.json":     {"claude-", "cursor-", "opencode-", "kilo-"},
 	}
@@ -1285,6 +1301,9 @@ func auditAgentHooks(root string) []string {
 		}
 		if relative == ".github/hooks/reconc.json" {
 			failures = append(failures, auditGitHubCopilotContract(relative, content)...)
+		}
+		if relative == ".zcode/config.json" {
+			failures = append(failures, auditZCodeContract(relative, content)...)
 		}
 		switch relative {
 		case ".github/hooks/reconc.json":
@@ -1462,6 +1481,62 @@ func auditGitHubCopilotContract(relative string, content string) []string {
 		if entry.Type != "command" || entry.CWD != "." || entry.Matcher != want.matcher ||
 			!commandHasExactToken(entry.Bash, want.route) || !commandHasExactToken(entry.PowerShell, want.route) {
 			failures = append(failures, fmt.Sprintf("%s event %q has drifted command, cwd, matcher, or cross-platform route", relative, want.event))
+		}
+	}
+	return failures
+}
+
+func auditZCodeContract(relative string, content string) []string {
+	type processHook struct {
+		Type      string   `json:"type"`
+		Command   string   `json:"command"`
+		Args      []string `json:"args"`
+		TimeoutMS int      `json:"timeoutMs"`
+	}
+	type eventHook struct {
+		Matcher string        `json:"matcher"`
+		Hooks   []processHook `json:"hooks"`
+	}
+	var document struct {
+		Hooks struct {
+			Enabled bool                   `json:"enabled"`
+			Events  map[string][]eventHook `json:"events"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal([]byte(content), &document); err != nil {
+		return nil
+	}
+	expected := []struct {
+		event, route, matcher string
+		timeoutMS             int
+	}{
+		{event: "SessionStart", route: "zcode-session-start", timeoutMS: 5000},
+		{event: "UserPromptSubmit", route: "zcode-user-prompt-submit", timeoutMS: 5000},
+		{event: "PreToolUse", route: "zcode-pre-tool-use", matcher: "*", timeoutMS: 10000},
+		{event: "PermissionRequest", route: "zcode-permission-request", matcher: "*", timeoutMS: 10000},
+		{event: "PostToolUse", route: "zcode-post-tool-use", matcher: "*", timeoutMS: 5000},
+		{event: "PostToolUseFailure", route: "zcode-post-tool-use-failure", matcher: "*", timeoutMS: 5000},
+		{event: "Stop", route: "zcode-stop", timeoutMS: 30000},
+	}
+	var failures []string
+	if !document.Hooks.Enabled {
+		failures = append(failures, fmt.Sprintf("%s hooks.enabled must be true", relative))
+	}
+	if len(document.Hooks.Events) != len(expected) {
+		failures = append(failures, fmt.Sprintf("%s has %d ZCode events; want %d", relative, len(document.Hooks.Events), len(expected)))
+	}
+	for _, want := range expected {
+		entries := document.Hooks.Events[want.event]
+		if len(entries) != 1 || len(entries[0].Hooks) != 1 {
+			failures = append(failures, fmt.Sprintf("%s event %q must contain exactly one process hook", relative, want.event))
+			continue
+		}
+		entry := entries[0]
+		hook := entry.Hooks[0]
+		if entry.Matcher != want.matcher || hook.Type != "process" || hook.Command != "sh" ||
+			hook.TimeoutMS != want.timeoutMS || len(hook.Args) != 3 || hook.Args[0] != "tools/reconc/bin/hook" ||
+			hook.Args[1] != want.route || hook.Args[2] != "." {
+			failures = append(failures, fmt.Sprintf("%s event %q has drifted process, args, matcher, or timeout contract", relative, want.event))
 		}
 	}
 	return failures

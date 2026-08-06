@@ -67,6 +67,40 @@ func TestHookRuntimePiNativeShapeBlocksDeniedWrite(t *testing.T) {
 	}
 }
 
+func TestHookRuntimeZCodeNativeShapeBlocksDeniedWrite(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	payload := fmt.Sprintf(`{
+		"hook_event_name":"PreToolUse",
+		"session_id":"zcode-1",
+		"cwd":%q,
+		"tool_name":"Write",
+		"tool_input":{"file_path":"generated/blocked.go"},
+		"tool_use_id":"call-1"
+	}`, repo)
+	_, stderr, code := runWithStdin(t, payload,
+		"hook", "runtime", "zcode-pre-tool-use", repo)
+	if code != 2 || !strings.Contains(stderr, "deny-gen") {
+		t.Fatalf("ZCode native payload must block denied write, code=%d stderr=%q", code, stderr)
+	}
+}
+
+func TestHookRuntimeZCodePermissionRequestUsesNativeDenyShape(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	payload := fmt.Sprintf(`{
+		"hook_event_name":"PermissionRequest",
+		"session_id":"zcode-permission-1",
+		"cwd":%q,
+		"tool_name":"Write",
+		"tool_input":{"file_path":"generated/blocked.go"}
+	}`, repo)
+	stdout, stderr, code := runWithStdin(t, payload,
+		"hook", "runtime", "zcode-permission-request", repo)
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"hookEventName":"PermissionRequest"`) ||
+		!strings.Contains(stdout, `"behavior":"deny"`) || !strings.Contains(stdout, "deny-gen") {
+		t.Fatalf("ZCode PermissionRequest must return native denial, code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+}
+
 func TestHookRuntimeDevinUserPromptSubmitCreatesSession(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
 	stdout, stderr, code := runWithStdin(t,
@@ -229,6 +263,7 @@ func TestRepositoryRunControlReturnsContinuationForEveryAgentAdapter(t *testing.
 		{name: "Kilo", event: "kilo-stop", payload: `{"session_id":"kilo-run","reconc_runtime":"kilo"}`, want: `"decision":"block"`},
 		{name: "Oh My Pi", event: "omp-stop", payload: fmt.Sprintf(`{"hook_event_name":"session_stop","session_id":"omp-run","cwd":%q,"stop_hook_active":false}`, repo), want: `"decision":"block"`},
 		{name: "Pi", event: "pi-stop", payload: fmt.Sprintf(`{"hook_event_name":"agent_settled","session_id":"pi-run","cwd":%q,"stop_hook_active":false}`, repo), want: `"decision":"block"`},
+		{name: "ZCode", event: "zcode-stop", payload: fmt.Sprintf(`{"hook_event_name":"Stop","session_id":"zcode-run","cwd":%q,"stop_hook_active":false}`, repo), want: `"decision":"block"`},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

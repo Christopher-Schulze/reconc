@@ -169,7 +169,9 @@ handling.
    SHA-verifies owned files, strips only managed blocks, and preserves drift
    and user-owned paths.
    Hook merges and uninstalls preserve
-   unrelated host configuration. Kimi Code's user-global TOML is a separate
+   unrelated host configuration. ZCode's repository-local nested JSON merger
+   owns only exact Reconc process entries and the required `hooks.enabled`
+   activation. Kimi Code's user-global TOML is a separate
    explicit lifecycle: one process-locked marker block is merged, replaced, or
    removed atomically, while bootstrap and scaffold transactions remain
    repository-only. Bounded JSONL writers rotate under a process
@@ -507,7 +509,7 @@ Decision is per-event based on the security role of the event:
 | `PostToolUseFailure` | **fail-open** (exit 0, stderr warn) | Same as PostToolUse. |
 | `Stop` | **fail-closed** (exit 2) | GATES session completion; uncertain input must block. |
 | `SessionEnd` | **fail-open** (exit 0, stderr warn) | Cleanup-only; forced close shouldn't propagate errors. |
-| MCP pre-action | **host capability** | Cursor's native pre-hook can deny an exact or strict-unclassified call. OpenCode/Kilo/OMP/Pi generic hooks enforce configured identities but cannot soundly identify unconfigured MCP calls. |
+| MCP pre-action | **host capability** | Cursor's native pre-hook can deny an exact or strict-unclassified call. OpenCode/Kilo/OMP/Pi/ZCode generic hooks enforce configured identities but cannot soundly identify unconfigured MCP calls. |
 | MCP post-action | **fail-open, non-evidentiary on uncertainty** | Post-action blocking cannot undo a side effect. Positive evidence requires exact identity, valid selected values, and explicit success. |
 
 The CLI applies the registry failure policy after handler execution as well as
@@ -593,6 +595,19 @@ shape. Kimi's control contract is exit code 2 on `PreToolUse`,
 timeouts remain fail-open and cannot be upgraded into an enforcement claim.
 Kimi post-tool output has no authoritative exit status, so it is
 non-evidentiary for command success.
+
+ZCode generation is registry-driven into `.zcode/config.json`. The nested
+merger preserves foreign settings, events, and commands while owning the exact
+Reconc process entries under `hooks.events`; invalid `hooks` or `events`
+shapes fail unless explicit force first publishes a private content-addressed
+backup. The adapter validates the native snake_case envelope, repository
+identity, session identity, available tool-call identity, tool input, result,
+and error shapes across all seven documented events. Hard pre-tool blocks use
+exit code 2, permission denials use the native decision object, and Stop uses
+native block JSON; malformed fail-closed requests use exit code 2. Observation
+routes and host timeouts remain fail-open, and Stop continuation uses ZCode's
+three-consecutive-block host bound. Generic tool payloads can enforce configured
+MCP identities but cannot soundly identify an unconfigured MCP call.
 
 OpenCode and Kilo plugins are generated transport adapters. Shell outcomes are
 normalized from the exact integer `output.metadata.exit` into the neutral Go
