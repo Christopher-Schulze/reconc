@@ -192,7 +192,7 @@ const runOneShot = async (
       killSignal: "SIGKILL",
     })
     kill = (): void => {
-      try { proc.kill("SIGKILL") } catch {}
+      killReconcProcessTree(proc)
     }
     if (aborted) {
       outputAbort.abort()
@@ -230,6 +230,18 @@ const runOneShot = async (
   }
 }
 
+const killReconcProcessTree = (proc) => {
+  if (process.platform === "win32" && Number.isSafeInteger(proc?.pid) && proc.pid > 0) {
+    try {
+      Bun.spawnSync(["taskkill", "/PID", String(proc.pid), "/T", "/F"], {
+        stdout: "ignore",
+        stderr: "ignore",
+      })
+    } catch {}
+  }
+  try { proc.kill("SIGKILL") } catch {}
+}
+
 const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessage) => {
   const workerProtocolVersion = 1
   const maxWorkerResponseBytes = 128 * 1024
@@ -245,7 +257,7 @@ const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessa
     worker = undefined
     if (!current) return
     try { current.process.stdin.end() } catch {}
-    try { current.process.kill("SIGKILL") } catch {}
+    killReconcProcessTree(current.process)
     try { current.reader.cancel() } catch {}
   }
 

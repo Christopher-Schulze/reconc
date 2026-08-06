@@ -275,7 +275,7 @@ func installVersionedRecoveryBinary(t *testing.T, repo string, artifact *Artifac
 	if runtime.GOOS == "windows" {
 		extension = ".exe"
 	}
-	name := "reconc-v0.9.2-" + runtime.GOOS + "-" + runtime.GOARCH + extension
+	name := "reconc-v0.9.3-" + runtime.GOOS + "-" + runtime.GOARCH + extension
 	body := []byte("#!/bin/sh\nprintf 'recovery|%s\\n' \"$*\"\n")
 	if err := os.WriteFile(filepath.Join(directory, name), body, 0o755); err != nil {
 		t.Fatal(err)

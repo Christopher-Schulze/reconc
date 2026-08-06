@@ -442,14 +442,14 @@ __EXPORT_HEAD__ async ({ directory, worktree, client }) => {
       timeoutID = setTimeout(() => {
         timedOut = true
         outputAbort.abort()
-        proc.kill("SIGKILL")
+        killReconcProcessTree(proc)
       }, timeoutOverride || budget.timeoutMilliseconds)
       const [code, output] = await Promise.all([proc.exited, readCombined(proc.stdout, proc.stderr, budget.maxOutputBytes, outputAbort.signal)])
       return { code, stdout: output.stdout, stderr: output.stderr, timedOut, truncated: output.truncated, invalidUTF8: output.invalidUTF8 }
     } catch (error) {
       if (proc) {
         outputAbort.abort()
-        try { proc.kill("SIGKILL") } catch {}
+        killReconcProcessTree(proc)
       }
       return { code: 1, stdout: "", stderr: boundedText(error, budget.maxOutputBytes), timedOut, truncated: false, invalidUTF8: false }
     } finally {

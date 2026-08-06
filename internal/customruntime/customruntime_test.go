@@ -79,6 +79,96 @@ func TestNormalizeHostPayloadUsesExactPointersAndExcludesUnselectedData(t *testi
 	}
 }
 
+func TestNormalizeHostPayloadRejectsAmbiguousAndMalformedInput(t *testing.T) {
+	t.Parallel()
+	manifest := mustManifest(t, "testdata/local-agent.json")
+	route, _ := manifest.Route("before-tool")
+	tests := []struct {
+		name    string
+		body    []byte
+		mutate  func(*Route)
+		wantErr string
+	}{
+		{name: "duplicate key", body: []byte(`{"context":{"session":"a"},"context":{"session":"b"}}`), wantErr: "duplicate key"},
+		{name: "trailing value", body: []byte(`{"context":{"session":"a"}}{"extra":true}`), wantErr: "exactly one JSON value"},
+		{name: "non-object", body: []byte(`null`), wantErr: "JSON object"},
+		{name: "invalid pointer", body: []byte(`{"context":{"session":"a"}}`), mutate: func(value *Route) { value.Fields.SessionID = "context/session" }, wantErr: "JSON Pointer"},
+		{name: "oversized", body: make([]byte, maxHostPayloadBytes+1), wantErr: "1.."},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := route
+			if test.mutate != nil {
+				test.mutate(&candidate)
+			}
+			if _, _, err := NormalizeHostPayload(manifest, candidate, test.body); err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("NormalizeHostPayload() error = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestNormalizeHostPayloadBuildsMCPEnvelopeAndExitCode(t *testing.T) {
+	t.Parallel()
+	manifest := mustManifest(t, "testdata/local-agent.json")
+	route := Route{
+		HostEvent: "mcp-before",
+		Event:     EventMCPBefore,
+		Guarantees: HostGuarantees{
+			PreExecution: true, SynchronousResponse: true, MCPIdentity: true,
+		},
+		Fields: FieldMappings{
+			SessionID:            "/context/session",
+			ToolInput:            "/tool/input",
+			ExitCode:             "/tool/exit",
+			MCPTool:              "/mcp/tool",
+			MCPServerFingerprint: "/mcp/fingerprint",
+			MCPOutcome:           "/mcp/outcome",
+		},
+	}
+	body := []byte(`{"context":{"session":"session-1"},"tool":{"input":{"path":"src/app.go"},"exit":0},"mcp":{"tool":"read_file","fingerprint":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","outcome":"success"}}`)
+	request, encoded, err := NormalizeHostPayload(manifest, route, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.Payload["session_id"] != "session-1" || !json.Valid(encoded) {
+		t.Fatalf("normalized payload = %#v, encoded=%s", request.Payload, encoded)
+	}
+	response, ok := request.Payload["tool_response"].(map[string]interface{})
+	if !ok || response["exit_code"] != 0 {
+		t.Fatalf("exit code mapping = %#v", request.Payload["tool_response"])
+	}
+	mcp, ok := request.Payload["reconc_mcp"].(map[string]interface{})
+	if !ok || mcp["platform"] != manifest.Runtime() || mcp["tool"] != "read_file" || mcp["blocking_pre_hook"] != true || mcp["server_fingerprint"] == nil || mcp["outcome"] != "success" {
+		t.Fatalf("MCP envelope = %#v", request.Payload["reconc_mcp"])
+	}
+}
+
+func TestManifestSummaryAndRouteLookupRemainDeterministic(t *testing.T) {
+	t.Parallel()
+	manifest := mustManifest(t, "testdata/local-agent.json")
+	summary := manifest.Summary()
+	if summary.Name != "local-agent" || summary.Runtime != "custom:local-agent" || summary.RouteCount != 4 || !validSHA256Digest(summary.ManifestDigest) {
+		t.Fatalf("summary = %+v", summary)
+	}
+	if route, ok := manifest.Route("before-tool"); !ok || route.Event != EventPreToolUse {
+		t.Fatalf("before-tool route = %+v, found=%t", route, ok)
+	}
+	if _, ok := manifest.Route("missing"); ok {
+		t.Fatal("unknown route unexpectedly resolved")
+	}
+	for _, invalid := range []Summary{
+		{Name: "local-agent", Runtime: "custom:other", ManifestDigest: summary.ManifestDigest, RouteCount: 1},
+		{Name: "local-agent", Runtime: summary.Runtime, ManifestDigest: "sha256:bad", RouteCount: 1},
+		{Name: "local-agent", Runtime: summary.Runtime, ManifestDigest: summary.ManifestDigest, RouteCount: 0},
+		{Name: "local-agent", Runtime: summary.Runtime, ManifestDigest: summary.ManifestDigest, RouteCount: 1, DegradedRoutes: []string{"z", "a"}},
+	} {
+		if err := ValidateSummary(invalid); err == nil {
+			t.Fatalf("invalid summary unexpectedly validated: %+v", invalid)
+		}
+	}
+}
+
 func TestUnsupportedGuaranteeNeverEnforces(t *testing.T) {
 	t.Parallel()
 	manifest := mustManifest(t, "testdata/local-agent.json")

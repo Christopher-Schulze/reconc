@@ -297,7 +297,7 @@ exit 2
     when_paths: ['src/**']
     script: audits/run-workflow-audit
     args: ['mode-a']
-    timeout_sec: 1
+    timeout_sec: 3
     mode: block
     message: a
   - id: audit-b
@@ -305,7 +305,7 @@ exit 2
     when_paths: ['src/**']
     script: audits/run-workflow-audit
     args: ['mode-b']
-    timeout_sec: 1
+    timeout_sec: 3
     mode: block
     message: b
 `)

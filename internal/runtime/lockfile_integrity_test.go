@@ -9,6 +9,7 @@ import (
 
 	"reconc.dev/reconc/internal/compiler"
 	rerrors "reconc.dev/reconc/internal/errors"
+	"reconc.dev/reconc/internal/policy"
 )
 
 func TestValidatePolicyLockfileRejectsEmbeddedRuleTampering(t *testing.T) {
@@ -59,5 +60,22 @@ func TestValidatePolicyLockfileRejectsEmbeddedRuleTampering(t *testing.T) {
 	var target *rerrors.LockfileError
 	if !errors.As(err, &target) {
 		t.Fatalf("expected LockfileError for tampered rules, got %T: %v", err, err)
+	}
+}
+
+func TestLockfileDefaultModeIsCheckedBeforeEvaluation(t *testing.T) {
+	valid := map[string]interface{}{"default_mode": string(policy.ModeBlock)}
+	mode, err := lockfileDefaultMode(valid)
+	if err != nil || mode != policy.ModeBlock {
+		t.Fatalf("lockfileDefaultMode(valid) = %q, %v", mode, err)
+	}
+	for _, payload := range []map[string]interface{}{
+		{},
+		{"default_mode": 1},
+		{"default_mode": nil},
+	} {
+		if _, err := lockfileDefaultMode(payload); err == nil {
+			t.Fatalf("lockfileDefaultMode(%#v) unexpectedly succeeded", payload)
+		}
 	}
 }

@@ -208,7 +208,7 @@ const runOneShot = async (
       killSignal: "SIGKILL",
     })
     kill = (): void => {
-      try { proc.kill("SIGKILL") } catch {}
+      killReconcProcessTree(proc)
     }
     if (aborted) {
       outputAbort.abort()

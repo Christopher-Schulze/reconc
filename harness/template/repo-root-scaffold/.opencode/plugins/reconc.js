@@ -166,14 +166,14 @@ export const ReconcOpenCodePlugin = async ({ directory, worktree, client }) => {
       timeoutID = setTimeout(() => {
         timedOut = true
         outputAbort.abort()
-        proc.kill("SIGKILL")
+        killReconcProcessTree(proc)
       }, timeoutOverride || budget.timeoutMilliseconds)
       const [code, output] = await Promise.all([proc.exited, readCombined(proc.stdout, proc.stderr, budget.maxOutputBytes, outputAbort.signal)])
       return { code, stdout: output.stdout, stderr: output.stderr, timedOut, truncated: output.truncated, invalidUTF8: output.invalidUTF8 }
     } catch (error) {
       if (proc) {
         outputAbort.abort()
-        try { proc.kill("SIGKILL") } catch {}
+        killReconcProcessTree(proc)
       }
       return { code: 1, stdout: "", stderr: boundedText(error, budget.maxOutputBytes), timedOut, truncated: false, invalidUTF8: false }
     } finally {
@@ -181,7 +181,19 @@ export const ReconcOpenCodePlugin = async ({ directory, worktree, client }) => {
     }
   }
 
-  const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessage) => {
+  const killReconcProcessTree = (proc) => {
+  if (process.platform === "win32" && Number.isSafeInteger(proc?.pid) && proc.pid > 0) {
+    try {
+      Bun.spawnSync(["taskkill", "/PID", String(proc.pid), "/T", "/F"], {
+        stdout: "ignore",
+        stderr: "ignore",
+      })
+    } catch {}
+  }
+  try { proc.kill("SIGKILL") } catch {}
+}
+
+const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessage) => {
   const workerProtocolVersion = 1
   const maxWorkerResponseBytes = 128 * 1024
   let worker = undefined
@@ -196,7 +208,7 @@ export const ReconcOpenCodePlugin = async ({ directory, worktree, client }) => {
     worker = undefined
     if (!current) return
     try { current.process.stdin.end() } catch {}
-    try { current.process.kill("SIGKILL") } catch {}
+    killReconcProcessTree(current.process)
     try { current.reader.cancel() } catch {}
   }
 
