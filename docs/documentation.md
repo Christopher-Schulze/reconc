@@ -1787,7 +1787,21 @@ the complete artifact routes and which ones a live runtime actually executed.
 Liveness is stored outside the repository and each route writes at most once
 every six hours.
 Human output keeps only the seen/expected count and last event so large route
-registries do not dominate the terminal.
+registries do not dominate the terminal. A route counts as installed only when
+the artifact carries it as a complete token: many routes are prefixes of a
+sibling, for example `claude-stop` of `claude-stop-failure` and every
+`<platform>-post-tool-use` of its `-failure` variant, so a text match would
+hide the shorter route instead of reporting it missing.
+
+Merge ownership is decided on what an entry executes, not on the wrapper path
+appearing somewhere in its text. A user hook that only names
+`tools/reconc/bin/hook` in an argument or a message stays user-owned and is
+preserved, while any executable inside `tools/reconc/bin/`, including a renamed
+wrapper, remains a Reconc entry that install and uninstall refuse to treat as
+foreign. Commands whose executable positions cannot be enumerated, which
+includes the generated wrappers because they dispatch through a shell variable,
+keep the conservative text match: losing ownership there would duplicate every
+managed entry on the next install.
 
 Hook output that exceeds a route's byte budget still delivers a decision, on
 the channel that route's host reads. Cursor, GitHub Copilot, and Grok express

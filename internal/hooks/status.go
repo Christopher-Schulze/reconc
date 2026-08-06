@@ -621,7 +621,7 @@ func missingRuntimeEvents(platform Platform, content string) []string {
 	missing := []string{}
 	for _, capability := range platform.Capabilities {
 		for _, binding := range capability.Bindings {
-			if binding.RuntimeEvent != "" && !binding.Compatibility && !strings.Contains(content, binding.RuntimeEvent) {
+			if binding.RuntimeEvent != "" && !binding.Compatibility && !containsRuntimeEventToken(content, binding.RuntimeEvent) {
 				missing = append(missing, binding.RuntimeEvent)
 			}
 		}
@@ -631,6 +631,48 @@ func missingRuntimeEvents(platform Platform, content string) []string {
 		missing = append(missing, "git-pre-commit")
 	}
 	return missing
+}
+
+// containsRuntimeEventToken reports whether the artifact carries event as a
+// complete route token.
+//
+// Plain substring matching under-reports: many registered routes are prefixes
+// of another route, for example `claude-stop` of `claude-stop-failure` and
+// every `<platform>-post-tool-use` of its `-failure` sibling. An artifact that
+// installs only the longer route would then hide the shorter one from status
+// instead of reporting it as missing. Route tokens are lowercase, digits, and
+// dashes, so a match counts only when neither neighbouring byte can continue
+// the token.
+func containsRuntimeEventToken(content, event string) bool {
+	if event == "" {
+		return false
+	}
+	for offset := 0; offset <= len(content)-len(event); {
+		index := strings.Index(content[offset:], event)
+		if index < 0 {
+			return false
+		}
+		start := offset + index
+		if !routeTokenByte(content, start-1) && !routeTokenByte(content, start+len(event)) {
+			return true
+		}
+		offset = start + 1
+	}
+	return false
+}
+
+func routeTokenByte(content string, index int) bool {
+	if index < 0 || index >= len(content) {
+		return false
+	}
+	value := content[index]
+	switch {
+	case value >= 'a' && value <= 'z', value >= 'A' && value <= 'Z',
+		value >= '0' && value <= '9', value == '-', value == '_':
+		return true
+	default:
+		return false
+	}
 }
 
 func envTruthy(name string) bool {

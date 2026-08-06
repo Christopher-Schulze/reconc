@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+
+	"reconc.dev/reconc/internal/shellcommand"
 )
 
 // mergeReconcHooks merges reconcPart['hooks'] into dest['hooks'].
@@ -554,8 +556,89 @@ func hookEntryContainsReconcInvocation(entry map[string]interface{}) bool {
 	return false
 }
 
-func reconcCommandOwned(command string) bool {
-	return strings.Contains(command, "reconc hook runtime ") ||
-		(strings.Contains(command, "tools/reconc/dist/reconc-") && strings.Contains(command, " hook runtime ")) ||
-		strings.Contains(command, "tools/reconc/bin/hook")
+// shellOwnershipDepth bounds the nested shell analysis used to locate
+// executable positions inside a hook command.
+const shellOwnershipDepth = 8
+
+// reconcCommandOwned reports whether a hook entry executes a Reconc hook
+// wrapper. The signature is the command word followed by its literal argv,
+// separated by NUL.
+//
+// Ownership is decided on executable positions, not on the wrapper path
+// appearing anywhere in the text. A user hook that merely names
+// tools/reconc/bin/hook in an argument, a message, or an echo would otherwise
+// be classified as Reconc-owned and dropped on the next install.
+//
+// Shell strings whose executable positions cannot be enumerated keep the
+// conservative text match. The generated wrappers dispatch through a shell
+// variable and are therefore always in that class: losing a true positive
+// there would duplicate every managed entry on reinstall, which is a worse
+// failure than the residual false positive this narrowing does not reach.
+func reconcCommandOwned(signature string) bool {
+	if !reconcSignatureNamesWrapper(signature) {
+		return false
+	}
+	words := strings.Split(signature, "\x00")
+	if len(words) > 1 {
+		// Exec form: the command word is the executable and the rest is
+		// literal argv, so no shell analysis is needed or valid.
+		return reconcInvocationWords(words)
+	}
+	invocations, complete := shellcommand.Invocations(words[0], shellOwnershipDepth)
+	if !complete {
+		return true
+	}
+	for _, invocation := range invocations {
+		if reconcInvocationWords(invocation.Words) {
+			return true
+		}
+	}
+	return false
+}
+
+// reconcSignatureNamesWrapper is the historical text match, kept as the
+// pre-filter so the narrowing can only ever remove ownership, never add it.
+func reconcSignatureNamesWrapper(signature string) bool {
+	return strings.Contains(signature, "reconc hook runtime ") ||
+		(strings.Contains(signature, "tools/reconc/dist/reconc-") && strings.Contains(signature, " hook runtime ")) ||
+		strings.Contains(signature, "tools/reconc/bin/hook")
+}
+
+func reconcInvocationWords(words []string) bool {
+	words = interpretedInvocationWords(words)
+	if len(words) == 0 {
+		return false
+	}
+	executable := strings.ReplaceAll(words[0], `\`, "/")
+	// Any executable inside the managed wrapper directory is Reconc's, including
+	// a renamed wrapper: that is a modified Reconc entry the install and
+	// uninstall paths must refuse, not a foreign hook they may ignore.
+	if strings.Contains(executable, "tools/reconc/bin/") {
+		return true
+	}
+	if len(words) < 3 || words[1] != "hook" || words[2] != "runtime" {
+		return false
+	}
+	return commandBaseName(executable) == "reconc" ||
+		strings.Contains(executable, "tools/reconc/dist/reconc-")
+}
+
+// interpretedInvocationWords resolves the program a shell interpreter runs on
+// behalf of an exec-form entry. ZCode installs its wrapper as `sh
+// tools/reconc/bin/hook <route> .`, so the executable position that matters is
+// the script argument, not the interpreter.
+func interpretedInvocationWords(words []string) []string {
+	if len(words) < 2 || strings.HasPrefix(words[1], "-") {
+		return words
+	}
+	switch commandBaseName(strings.ReplaceAll(words[0], `\`, "/")) {
+	case "sh", "bash", "dash", "zsh", "ksh":
+		return words[1:]
+	default:
+		return words
+	}
+}
+
+func commandBaseName(path string) string {
+	return path[strings.LastIndex(path, "/")+1:]
 }
