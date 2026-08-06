@@ -2055,6 +2055,10 @@ still reads bounded lock bytes and the complete source bundle identity:
 lock-byte drift rebuilds the plan, while source drift invalidates it and fails
 closed. Session and taint inputs remain freshly loaded. No daemon, socket,
 listener, or runtime network call is added.
+Concurrent session updates keep the unchanged active-session pointer on a
+lock-free read fast path. If that optimistic read overlaps an atomic Windows
+publication, Reconc rechecks once under the existing active-session lock;
+persistent read or validation failures still fail closed.
 
 Claude Code, Codex, GitHub Copilot, Cursor, Devin, Antigravity, and Grok
 generated repository configs use `tools/reconc/bin/hook` on POSIX; the wrapper

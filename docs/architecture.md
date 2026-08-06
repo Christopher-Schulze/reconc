@@ -545,6 +545,9 @@ reads. Changed lock bytes rebuild the plan; changed source identity invalidates
 it and fails closed until `reconc refresh`. Session state, taint, and binary
 selection remain fresh per request. Shell-only hosts continue using one-shot
 execution and no daemon, listener, socket, or network surface is introduced.
+Active-session pointer updates use an optimistic unchanged-value read. A
+transient Windows sharing conflict is rechecked under the existing pointer
+lock, while persistent read or validation failures remain fatal.
 
 Custom runtimes do not enter the built-in registry and cannot override it.
 Their host adapter invokes `reconc hook bridge <name> <host-event> [repo]` and
