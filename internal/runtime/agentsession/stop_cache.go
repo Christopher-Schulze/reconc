@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	stopPolicyFingerprintVersion = "stop-policy-report-v7"
+	stopPolicyFingerprintVersion = "stop-policy-report-v8"
 	stopPolicyUntrackedModeEnv   = "RECONC_STOP_FINGERPRINT_UNTRACKED"
 	maxStopReportBytes           = 32 << 20
 	maxGitControlFileBytes       = 1 << 20
@@ -53,6 +53,17 @@ type stopPolicyFingerprintInput struct {
 	GitStatus          string            `json:"git_status"`
 	GitDirtyFiles      []gitDirtyFile    `json:"git_dirty_files"`
 	ReconcAuditNoCache string            `json:"reconc_audit_no_cache"`
+	// PolicyInputs binds the repository paths the compiled policy names but
+	// Git does not report, most importantly gitignored require_evidence and
+	// require_fresh_file targets.
+	PolicyInputs []policyInputIdentity `json:"policy_inputs,omitempty"`
+}
+
+// policyInputIdentity is one policy-named repository path and its exact
+// content identity at fingerprint time.
+type policyInputIdentity struct {
+	Path     string `json:"path"`
+	Identity string `json:"identity"`
 }
 
 type stopPolicyEvidenceInput struct {
@@ -186,7 +197,8 @@ func runStopPolicyCheckLocked(
 	fingerprintInput := stopPolicyFingerprintInputForSnapshotWithGeneration(repoRoot, state, gitSnapshot, taskSnapshot, stopGenerationCapture{})
 	cacheable := stopPolicyFingerprintCacheable(fingerprintInput)
 	fingerprint := hashStopPolicyFingerprintInput(fingerprintInput)
-	if cacheable && fingerprint != "" && state.StopPolicyFingerprint == fingerprint && state.StopPolicyReportHash != "" {
+	if cacheable && fingerprint != "" && state.StopPolicyFingerprint == fingerprint &&
+		state.StopPolicyReportHash != "" && !stopPolicyReportExpired(state.StopPolicyExpiresAt) {
 		report, reportHash, err := readLatestReport(repoRoot, state.SessionID)
 		if err == nil && reportHash == state.StopPolicyReportHash {
 			storeStopGenerationIfWorthwhile(cache, repoRoot, state, gitSnapshot, fingerprintInput)
@@ -210,11 +222,13 @@ func runStopPolicyCheckLocked(
 		initialEvidenceHash := stopPolicyEvidenceHash(state)
 		fingerprintInput.PolicyLockHash = fileContentHash(filepath.Join(repoRoot, ".reconc", "policy.lock.json"))
 		reportFingerprint := hashStopPolicyFingerprintInput(fingerprintInput)
+		expiresAt := stopPolicyReportExpiry(repoRoot, scanStopPolicyLockfile(repoRoot).FreshFiles)
 		updated, err := mutateSessionStateResolved(repoRoot, state.SessionID, func(current SessionState) SessionState {
 			if stopPolicyEvidenceHash(current) == initialEvidenceHash {
 				current.StopPolicyFingerprint = reportFingerprint
 				current.StopPolicyEvidenceHash = initialEvidenceHash
 				current.StopPolicyReportHash = reportHash
+				current.StopPolicyExpiresAt = expiresAt
 				current.ReportPath = sessionReportPath(repoRoot, state.SessionID)
 			}
 			return current
@@ -479,6 +493,7 @@ func stopPolicyFingerprintInputForSnapshotWithGeneration(
 	if gitSnapshot.StatusOK {
 		dirtyFiles = gitDirtyFiles(root, gitSnapshot.Status)
 	}
+	policyScan := scanStopPolicyLockfile(root)
 	return stopPolicyFingerprintInput{
 		Version:            stopPolicyFingerprintVersion,
 		RepoRoot:           root,
@@ -501,6 +516,7 @@ func stopPolicyFingerprintInputForSnapshotWithGeneration(
 		GitStatus:          gitSnapshot.Status,
 		GitDirtyFiles:      dirtyFiles,
 		ReconcAuditNoCache: os.Getenv("RECONC_AUDIT_NO_CACHE"),
+		PolicyInputs:       stopPolicyInputIdentities(root, policyScan.Paths, dirtyFiles),
 	}
 }
 
@@ -522,59 +538,182 @@ func stopPolicyFingerprintCacheable(input stopPolicyFingerprintInput) bool {
 		completionDirtyFilesTrusted(input.GitDirtyFiles)) {
 		return false
 	}
-	// require_fresh_file can flip solely from wall-clock age while the Git
-	// dirty set and session evidence stay identical. Reusing a clean report
-	// across that boundary would fail open on Stop; keep those plans warm-path
-	// free. require_script remains cacheable: its purity assumption is the
-	// documented incremental Stop contract covered by dedicated tests.
-	if stopPolicyLockfileHasWallClockRule(input.RepoRoot) {
-		return false
-	}
-	return true
+	// A policy path the compiler cannot name statically cannot be bound into
+	// the fingerprint, so the report it produced cannot be revalidated.
+	return scanStopPolicyLockfile(input.RepoRoot).Cacheable
 }
 
-// stopPolicyLockfileHasWallClockRule reports whether the compiled policy
-// contains a rule whose outcome can change from wall-clock time alone.
-//
-// The lockfile is decoded instead of scanned for a token: a rule message that
-// quotes require_fresh_file must not disable the warm path, and a
-// require_fresh_file check nested in an all_of / any_of / not rule must.
-func stopPolicyLockfileHasWallClockRule(repoRoot string) bool {
+// stopPolicyLockScan is the bounded static view of the compiled policy that
+// Stop caching needs: which repository paths the rules read, and which of them
+// can turn a clean report stale from wall-clock time alone.
+type stopPolicyLockScan struct {
+	// Cacheable is false when the lock cannot be read or decoded, or when a
+	// policy path is template-generated and therefore not enumerable here.
+	Cacheable bool
+	// Paths are the repository-relative paths the policy names, sorted and
+	// deduplicated.
+	Paths []string
+	// FreshFiles are the age-bounded requirements, used to give a stored
+	// report the expiry its inputs imply.
+	FreshFiles []stopPolicyFreshFile
+}
+
+type stopPolicyFreshFile struct {
+	Path        string
+	MaxAgeHours int
+}
+
+// scanStopPolicyLockfile decodes the compiled policy instead of scanning it for
+// tokens: a rule message that quotes a kind must not change caching, and a
+// check nested in an all_of / any_of / not rule must.
+func scanStopPolicyLockfile(repoRoot string) stopPolicyLockScan {
 	if repoRoot == "" {
 		// Fingerprint unit tests exercise cacheability without a repo root;
 		// production Stop always supplies a resolved root before caching.
-		return false
+		return stopPolicyLockScan{Cacheable: true}
 	}
 	body, err := boundedio.ReadFile(filepath.Join(repoRoot, ".reconc", "policy.lock.json"), stopPolicyLockfileScanBound)
 	if err != nil {
 		// Unreadable lock already fails evaluation; treat uncertainty as
 		// non-cacheable so we never reuse a report we cannot revalidate.
-		return true
+		return stopPolicyLockScan{}
 	}
 	var lock struct {
-		Rules []struct {
-			Kind   string `json:"kind"`
-			Checks []struct {
-				Kind string `json:"kind"`
-			} `json:"checks"`
-		} `json:"rules"`
+		Rules []stopPolicyLockRule `json:"rules"`
 	}
 	if err := json.Unmarshal(body, &lock); err != nil {
 		// A lock we cannot decode is a lock we cannot reason about.
-		return true
+		return stopPolicyLockScan{}
 	}
-	wallClock := string(policy.KindRequireFreshFile)
+	scan := stopPolicyLockScan{Cacheable: true}
+	paths := map[string]struct{}{}
+	collect := func(path string, maxAgeHours int, fresh bool) {
+		if path == "" {
+			return
+		}
+		if runtime.HasTemplateVars(path) {
+			scan.Cacheable = false
+			return
+		}
+		paths[path] = struct{}{}
+		if fresh && maxAgeHours > 0 {
+			scan.FreshFiles = append(scan.FreshFiles, stopPolicyFreshFile{Path: path, MaxAgeHours: maxAgeHours})
+		}
+	}
 	for _, rule := range lock.Rules {
-		if rule.Kind == wallClock {
-			return true
-		}
+		rule.collectInto(collect)
 		for _, check := range rule.Checks {
-			if check.Kind == wallClock {
-				return true
-			}
+			check.collectInto(collect)
 		}
 	}
-	return false
+	scan.Paths = sortedKeys(paths)
+	sort.Slice(scan.FreshFiles, func(i, j int) bool {
+		if scan.FreshFiles[i].Path == scan.FreshFiles[j].Path {
+			return scan.FreshFiles[i].MaxAgeHours < scan.FreshFiles[j].MaxAgeHours
+		}
+		return scan.FreshFiles[i].Path < scan.FreshFiles[j].Path
+	})
+	return scan
+}
+
+// stopPolicyLockRule decodes both the list form used by rules and the inline
+// form used by composite checks, so one type covers every place a policy names
+// a repository path.
+type stopPolicyLockRule struct {
+	Kind          string               `json:"kind"`
+	Path          string               `json:"path"`
+	File          string               `json:"file"`
+	MaxAgeHours   int                  `json:"max_age_hours"`
+	RequiredFiles []stopPolicyLockFile `json:"required_files"`
+	Evidence      []stopPolicyLockFile `json:"evidence"`
+	Checks        []stopPolicyLockRule `json:"checks"`
+}
+
+type stopPolicyLockFile struct {
+	Path        string `json:"path"`
+	File        string `json:"file"`
+	MaxAgeHours int    `json:"max_age_hours"`
+}
+
+func (r stopPolicyLockRule) collectInto(collect func(path string, maxAgeHours int, fresh bool)) {
+	fresh := r.Kind == string(policy.KindRequireFreshFile)
+	collect(r.Path, r.MaxAgeHours, fresh)
+	collect(r.File, 0, false)
+	for _, required := range r.RequiredFiles {
+		collect(required.Path, required.MaxAgeHours, fresh)
+	}
+	for _, evidence := range r.Evidence {
+		collect(evidence.File, 0, false)
+		collect(evidence.Path, 0, false)
+	}
+}
+
+// stopPolicyInputIdentities binds every repository path the policy names.
+//
+// Git alone does not cover them: `git status` never lists ignored files, so a
+// gitignored evidence file can be deleted or rewritten without moving any
+// fingerprint field. Paths already carried by the dirty set are skipped
+// because their exact content identity is bound there.
+func stopPolicyInputIdentities(repoRoot string, paths []string, dirty []gitDirtyFile) []policyInputIdentity {
+	if len(paths) == 0 {
+		return nil
+	}
+	bound := make(map[string]struct{}, len(dirty))
+	for _, file := range dirty {
+		bound[file.Path] = struct{}{}
+	}
+	identities := make([]policyInputIdentity, 0, len(paths))
+	for _, path := range paths {
+		if _, ok := bound[path]; ok {
+			continue
+		}
+		identities = append(identities, policyInputIdentity{
+			Path:     path,
+			Identity: worktreePathHash(repoRoot, path, ""),
+		})
+	}
+	if len(identities) == 0 {
+		return nil
+	}
+	return identities
+}
+
+// stopPolicyReportExpiry is the instant a stored report stops describing its
+// inputs because an age requirement elapses. Zero means the report has no
+// wall-clock dependence. A missing required file is already a violation, and
+// its later appearance moves a bound identity, so it needs no expiry.
+func stopPolicyReportExpiry(repoRoot string, freshFiles []stopPolicyFreshFile) int64 {
+	expiry := int64(0)
+	for _, fresh := range freshFiles {
+		info, err := os.Lstat(filepath.Join(repoRoot, filepath.FromSlash(fresh.Path)))
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		candidate := info.ModTime().Add(time.Duration(fresh.MaxAgeHours) * time.Hour).Unix()
+		if expiry == 0 || candidate < expiry {
+			expiry = candidate
+		}
+	}
+	return expiry
+}
+
+// stopPolicyReportExpired reports whether a stored report has outlived the age
+// requirement that produced it. Zero means the policy has no wall-clock
+// dependence, so the report never expires on time alone.
+func stopPolicyReportExpired(expiresAt int64) bool {
+	return expiresAt != 0 && time.Now().Unix() >= expiresAt
+}
+
+func sortedKeys(values map[string]struct{}) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func stopPolicyGitStatus(repoRoot string) (status string, mode string) {

@@ -5,6 +5,7 @@ import (
 	stderrors "errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -118,7 +119,7 @@ func TestIsLockfileRepairCommandAdmitsEveryDocumentedInvocationForm(t *testing.T
 		"reconc-0.8.8-windows-amd64.exe refresh .",
 		"reconc --json refresh .",
 	} {
-		if !isLockfileRepairCommand(command) {
+		if !isLockfileRepairCommand("", command) {
 			t.Fatalf("%q must be admitted as a lockfile repair command", command)
 		}
 	}
@@ -144,7 +145,7 @@ func TestIsLockfileRepairCommandRejectsEverythingElse(t *testing.T) {
 		"$TOOL refresh .",
 		"",
 	} {
-		if isLockfileRepairCommand(command) {
+		if isLockfileRepairCommand("", command) {
 			t.Fatalf("%q must NOT be admitted as a lockfile repair command", command)
 		}
 	}
@@ -213,8 +214,69 @@ func TestLockfileBlockMessageNamesAReachableEscape(t *testing.T) {
 			}
 		}
 		// The escape it names must be one it actually admits.
-		if !isLockfileRepairCommand("reconc refresh .") {
+		if !isLockfileRepairCommand("", "reconc refresh .") {
 			t.Fatal("the command named in the block message must be admitted by the gate")
 		}
+	}
+}
+
+// TestLockfileRepairRequiresAVouchedBinaryInsideTheRepository closes the hole
+// the name match left open: an agent can write an executable called `reconc`
+// into the repository it is being gated on, and a stale lockfile is exactly
+// when every other command is blocked.
+func TestLockfileRepairRequiresAVouchedBinaryInsideTheRepository(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX executable bits and PATH resolution are covered on POSIX hosts")
+	}
+	repo := t.TempDir()
+	writeExecutable := func(relative string) {
+		t.Helper()
+		full := filepath.Join(repo, filepath.FromSlash(relative))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeExecutable("reconc")
+	writeExecutable("build/reconc-9.9.9-darwin-arm64")
+	writeExecutable("tools/reconc/dist/reconc-9.9.9-darwin-arm64")
+
+	for _, command := range []string{
+		"./reconc refresh .",
+		"./build/reconc-9.9.9-darwin-arm64 refresh .",
+	} {
+		if isLockfileRepairCommand(repo, command) {
+			t.Fatalf("%q is agent-writable repository content and must not inherit the repair exemption", command)
+		}
+	}
+	if !isLockfileRepairCommand(repo, "./tools/reconc/dist/reconc-9.9.9-darwin-arm64 refresh .") {
+		t.Fatal("the bootstrap-managed tool tree must stay admitted")
+	}
+
+	// An installed CLI outside the repository keeps the documented name match,
+	// otherwise the sealed-session escape becomes unreachable.
+	outside := t.TempDir()
+	external := filepath.Join(outside, "reconc")
+	if err := os.WriteFile(external, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !isLockfileRepairCommand(repo, external+" refresh .") {
+		t.Fatalf("an installed CLI outside the repository must stay admitted: %s", external)
+	}
+	t.Setenv("PATH", outside)
+	if !isLockfileRepairCommand(repo, "reconc refresh .") {
+		t.Fatal("a PATH-resolved CLI outside the repository must stay admitted")
+	}
+}
+
+// TestLockfileRepairAdmitsUnresolvableBinaries keeps the fallback explicit: a
+// repair that cannot be admitted leaves no reachable recovery.
+func TestLockfileRepairAdmitsUnresolvableBinaries(t *testing.T) {
+	repo := t.TempDir()
+	t.Setenv("PATH", t.TempDir())
+	if !isLockfileRepairCommand(repo, "reconc refresh .") {
+		t.Fatal("an unresolvable reconc must keep the documented name match")
 	}
 }

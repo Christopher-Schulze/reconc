@@ -166,25 +166,34 @@ func TestOversizedDirtyFileDisablesStopPolicyCache(t *testing.T) {
 	}
 }
 
-// TestRequireFreshFileDisablesStopPolicyCache drives the shipped eligibility
-// predicate across the lockfile shapes the compiler can emit. A cached clean
-// Stop report must not outlive a require_fresh_file max_age boundary, while a
-// policy that merely mentions the kind in prose must keep the warm path.
-func TestRequireFreshFileDisablesStopPolicyCache(t *testing.T) {
+func writePolicyLock(t *testing.T, repo, lock string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(repo, ".reconc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".reconc", "policy.lock.json"), []byte(lock), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestStopPolicyCacheEligibilityAcrossLockShapes drives the shipped eligibility
+// predicate across the lockfile shapes the compiler can emit. Only a policy
+// this pass cannot bind statically leaves the warm path.
+func TestStopPolicyCacheEligibilityAcrossLockShapes(t *testing.T) {
 	cases := []struct {
 		name      string
 		lock      string
 		cacheable bool
 	}{
 		{
-			name:      "top-level require_fresh_file",
+			name:      "require_fresh_file is bound by expiry, not excluded",
 			lock:      `{"rules":[{"id":"fresh","kind":"require_fresh_file","required_files":[{"path":"STATUS.md","max_age_hours":1}]}]}`,
-			cacheable: false,
+			cacheable: true,
 		},
 		{
-			name:      "require_fresh_file nested in a composite rule",
-			lock:      `{"rules":[{"id":"gate","kind":"all_of","checks":[{"kind":"require_claim","claims":["x"]},{"kind":"require_fresh_file","path":"STATUS.md","max_age_hours":1}]}]}`,
-			cacheable: false,
+			name:      "require_evidence names a bindable path",
+			lock:      `{"rules":[{"id":"ev","kind":"require_evidence","evidence":[{"file":"build/coverage.out","must_exist":true}]}]}`,
+			cacheable: true,
 		},
 		{
 			name:      "kind token quoted in a rule message",
@@ -192,9 +201,9 @@ func TestRequireFreshFileDisablesStopPolicyCache(t *testing.T) {
 			cacheable: true,
 		},
 		{
-			name:      "no wall-clock rules",
-			lock:      `{"rules":[{"id":"deny","kind":"deny_write","paths":["vendor/**"]}]}`,
-			cacheable: true,
+			name:      "template-generated evidence path cannot be bound",
+			lock:      `{"rules":[{"id":"ev","kind":"require_evidence","evidence":[{"file":"reports/{capture}.json","must_exist":true}]}]}`,
+			cacheable: false,
 		},
 		{
 			name:      "undecodable lock stays out of the warm path",
@@ -205,17 +214,88 @@ func TestRequireFreshFileDisablesStopPolicyCache(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := t.TempDir()
-			if err := os.MkdirAll(filepath.Join(repo, ".reconc"), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(repo, ".reconc", "policy.lock.json"), []byte(tc.lock), 0o600); err != nil {
-				t.Fatal(err)
-			}
+			writePolicyLock(t, repo, tc.lock)
 			input := stopPolicyFingerprintInput{RepoRoot: repo, GitStatusOK: true}
 			if got := stopPolicyFingerprintCacheable(input); got != tc.cacheable {
 				t.Fatalf("cacheable = %v, want %v", got, tc.cacheable)
 			}
 		})
+	}
+}
+
+// TestStopPolicyFingerprintBindsGitignoredEvidence is the gap this pass closes:
+// `git status` never lists ignored files, so a gitignored evidence file could
+// be rewritten or deleted without moving any fingerprint field.
+func TestStopPolicyFingerprintBindsGitignoredEvidence(t *testing.T) {
+	repo := t.TempDir()
+	writePolicyLock(t, repo, `{"rules":[{"id":"ev","kind":"require_evidence","evidence":[{"file":"build/coverage.out","must_exist":true}]}]}`)
+	evidence := filepath.Join(repo, "build", "coverage.out")
+	if err := os.MkdirAll(filepath.Dir(evidence), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evidence, []byte("total: 91.4%\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// The path is invisible to Git here: no repository, so no dirty entry can
+	// carry it. Only the policy-input binding can notice the change.
+	before := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1"}))
+	if err := os.WriteFile(evidence, []byte("total: 12.0%\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	after := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1"}))
+	if before == "" || before == after {
+		t.Fatalf("rewriting a gitignored evidence file must move the fingerprint: %q", before)
+	}
+
+	if err := os.Remove(evidence); err != nil {
+		t.Fatal(err)
+	}
+	removed := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1"}))
+	if removed == after {
+		t.Fatal("deleting a gitignored evidence file must move the fingerprint")
+	}
+}
+
+// TestStopPolicyReportExpiryFollowsFreshFileAge proves a stored report carries
+// the instant its own inputs stop describing it, and that a report past that
+// instant is no longer reused.
+func TestStopPolicyReportExpiryFollowsFreshFileAge(t *testing.T) {
+	repo := t.TempDir()
+	writePolicyLock(t, repo, `{"rules":[{"id":"fresh","kind":"require_fresh_file","required_files":[{"path":"STATUS.md","max_age_hours":2}]}]}`)
+	status := filepath.Join(repo, "STATUS.md")
+	if err := os.WriteFile(status, []byte("current\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	modified := time.Now().Add(-30 * time.Minute)
+	if err := os.Chtimes(status, modified, modified); err != nil {
+		t.Fatal(err)
+	}
+
+	scan := scanStopPolicyLockfile(repo)
+	if len(scan.FreshFiles) != 1 || scan.FreshFiles[0].Path != "STATUS.md" {
+		t.Fatalf("fresh-file requirement was not scanned: %+v", scan.FreshFiles)
+	}
+	expiry := stopPolicyReportExpiry(repo, scan.FreshFiles)
+	want := modified.Add(2 * time.Hour).Unix()
+	if expiry != want {
+		t.Fatalf("expiry = %d, want %d", expiry, want)
+	}
+	if stopPolicyReportExpired(expiry) {
+		t.Fatal("a report inside its age window must stay reusable")
+	}
+	if !stopPolicyReportExpired(time.Now().Add(-time.Second).Unix()) {
+		t.Fatal("a report past its age window must be re-evaluated")
+	}
+	if stopPolicyReportExpired(0) {
+		t.Fatal("a policy without wall-clock rules must never expire on time alone")
+	}
+
+	// A policy with no age requirement produces no expiry at all.
+	plain := t.TempDir()
+	writePolicyLock(t, plain, `{"rules":[{"id":"deny","kind":"deny_write","paths":["vendor/**"]}]}`)
+	if got := stopPolicyReportExpiry(plain, scanStopPolicyLockfile(plain).FreshFiles); got != 0 {
+		t.Fatalf("expiry without an age requirement = %d, want 0", got)
 	}
 }
 

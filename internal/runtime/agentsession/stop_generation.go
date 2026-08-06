@@ -257,6 +257,13 @@ func (cache *StopDecisionCache) readStableReport(
 		entry.fingerprint != state.StopPolicyFingerprint || entry.reportHash != state.StopPolicyReportHash {
 		return nil, false
 	}
+	// The warm path must honour the same age boundary as the session-state
+	// path; otherwise a persistent worker keeps serving a report whose
+	// require_fresh_file window has closed.
+	if stopPolicyReportExpired(state.StopPolicyExpiresAt) {
+		cache.invalidate(root, state.SessionID)
+		return nil, false
+	}
 	generation, generationOK := captureStopRepositoryGeneration(root, gitSnapshot, taskSnapshot)
 	if !generationOK || entry.generation != generation.Fingerprint {
 		cache.invalidate(root, state.SessionID)

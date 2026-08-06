@@ -85,11 +85,15 @@ type SessionState struct {
 	// CommandResults so the append budget check is O(1) instead of
 	// re-marshaling every stored result. Legacy states load with it zero
 	// and backfill through the normalize rebuild.
-	CommandResultBytes         int64                      `json:"command_result_bytes,omitempty"`
-	ReportPath                 string                     `json:"report_path"`
-	StopPolicyFingerprint      string                     `json:"stop_policy_fingerprint,omitempty"`
-	StopPolicyEvidenceHash     string                     `json:"stop_policy_evidence_hash,omitempty"`
-	StopPolicyReportHash       string                     `json:"stop_policy_report_hash,omitempty"`
+	CommandResultBytes     int64  `json:"command_result_bytes,omitempty"`
+	ReportPath             string `json:"report_path"`
+	StopPolicyFingerprint  string `json:"stop_policy_fingerprint,omitempty"`
+	StopPolicyEvidenceHash string `json:"stop_policy_evidence_hash,omitempty"`
+	StopPolicyReportHash   string `json:"stop_policy_report_hash,omitempty"`
+	// StopPolicyExpiresAt is the Unix second after which the cached report no
+	// longer describes its inputs because a require_fresh_file age elapses.
+	// Zero means the policy has no wall-clock dependence.
+	StopPolicyExpiresAt        int64                      `json:"stop_policy_expires_at,omitempty"`
 	LastStopBlockViolationHash string                     `json:"last_stop_block_violation_hash,omitempty"`
 	PendingToolCalls           map[string]PendingToolCall `json:"pending_tool_calls,omitempty"`
 	MaterialEvents             uint64                     `json:"material_events,omitempty"`

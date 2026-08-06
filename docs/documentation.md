@@ -635,7 +635,13 @@ with the explicit clear state `No remediation needed.` or
 `task status`, `task validate`, `task check-done`, `run status`, `run log`,
 `session-briefing`, `done`, `proof`, `start`, and `tui` never compile or write
 the lockfile. Missing, stale, malformed, schema-drifted, or non-portable current
-lockfiles fail closed with one explicit remediation: `reconc refresh .`.
+lockfiles fail closed with one explicit remediation: `reconc refresh .`. The
+pre-command gate admits exactly that repair while everything else stays
+blocked, otherwise the stale lockfile would seal the session. The exemption
+requires a Reconc binary the environment vouches for: inside the repository
+only the bootstrap-managed `tools/reconc/` tree qualifies, so an executable an
+agent writes into the repository under the product name does not inherit it,
+while an installed CLI outside the repository still does.
 When `RECONC_AUDIT=1`, enforcement commands may still append decision records;
 that opt-in audit write is independent of policy refresh. Explicit `check`,
 `ci`, and `done` decisions may also write or clear one
@@ -2412,13 +2418,22 @@ Equivalent concurrent Stops serialize under the report lock and reload session
 evidence before reuse or evaluation. Re-entrant `stop_hook_active=true` calls
 apply the same exact identities before reusing a clean report.
 
-Report reuse additionally requires that no decision in the compiled policy can
-change from wall-clock time alone. A policy that declares `require_fresh_file`,
-at the top level or as a check inside a composite rule, is never cacheable: its
-`max_age_hours` boundary can elapse while the fingerprint stays identical, so a
-stored clean report would admit a Stop the fresh evaluation refuses. The
-eligibility scan decodes the lockfile rather than matching text, and a lockfile
-that cannot be read or decoded is treated as non-cacheable.
+Report reuse additionally binds the repository paths the compiled policy names.
+`git status` never lists ignored files, so a gitignored `require_evidence` or
+`require_fresh_file` target could otherwise be rewritten or deleted without
+moving any fingerprint field. Every path a rule or composite check names,
+except those the dirty set already carries exactly, contributes its content
+identity to the fingerprint. A path that only exists after template
+substitution cannot be named statically and makes the policy non-cacheable, as
+does a lockfile that cannot be read or decoded. The eligibility scan decodes
+the lockfile rather than matching text.
+
+A stored report additionally carries the instant its own inputs stop describing
+it. `require_fresh_file` can turn a clean report stale from wall-clock time
+alone, so the report expires at the earliest `modification time +
+max_age_hours` across the age requirements, and both the session-state and the
+persistent-worker warm paths re-evaluate past that instant. A policy without
+age requirements carries no expiry and never ages out on time alone.
 
 Dirty regular files up to 64 MiB contribute exact SHA-256 content identity. A
 larger dirty file receives only a bounded size/mtime diagnostic identity, makes

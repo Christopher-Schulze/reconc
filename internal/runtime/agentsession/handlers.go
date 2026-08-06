@@ -218,7 +218,7 @@ func runPreToolUseResolvedWithEvaluator(root string, payloadBytes []byte, evalua
 				// A stale lockfile blocks every gated command, including the
 				// refresh that repairs it. Admitting the repair is what keeps
 				// this fail-closed instead of sealed shut.
-				if isLockfileRepairCommand(payload.Command()) {
+				if isLockfileRepairCommand(root, payload.Command()) {
 					return Result{ExitCode: 0}
 				}
 				return Result{ExitCode: 2, Stderr: lockfileBlockMessage("pre", err)}
