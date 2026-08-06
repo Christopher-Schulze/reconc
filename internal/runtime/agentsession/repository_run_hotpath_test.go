@@ -150,6 +150,54 @@ func TestRepoRunModeSkipsStopPolicyOnlyForExecutableTask(t *testing.T) {
 	}
 }
 
+func TestRepoRunTerminalStopFailsClosedOnRequireScriptTimeout(t *testing.T) {
+	repo := setupStopScriptPolicyRepo(t, filepath.Join(t.TempDir(), "counter"), 0, "")
+	scriptPath := filepath.Join(repo, ".reconc", "scripts", "stop-gate.sh")
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nprintf 'untrusted terminal output\\n'\nsleep 5\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rules := `rules:
+  - id: stop-script-gate
+    kind: require_script
+    when_paths: ['src/**']
+    script: '.reconc/scripts/stop-gate.sh'
+    mode: block
+    timeout_sec: 1
+    kill_timeout_sec: 1
+    message: stop script gate
+`
+	if err := os.WriteFile(filepath.Join(repo, "policies", "rules.yml"), []byte(rules), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compiler.CompileRepoPolicy(repo, "test"); err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	if _, err := SetRepositoryRun(repo, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InitializeSessionState(repo, "terminal-timeout"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MutateSessionState(repo, "terminal-timeout", func(state SessionState) SessionState {
+		return AppendWritePath(state, "src/a.go")
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result := RunStop(repo, []byte(`{"session_id":"terminal-timeout","runtime":"codex"}`))
+	if result.ExitCode != 0 || !strings.Contains(result.Stdout, `"decision":"block"`) || containsRepositoryRunBlock(result.Stdout) {
+		t.Fatalf("terminal timeout did not remain a policy block: %+v", result)
+	}
+	for _, want := range []string{"[src/a.go]", "timed out after 1s"} {
+		if !strings.Contains(result.Stdout, want) {
+			t.Fatalf("terminal timeout output missing %q: %s", want, result.Stdout)
+		}
+	}
+	if strings.Contains(result.Stdout, "untrusted terminal output") {
+		t.Fatalf("terminal timeout must not trust script output: %s", result.Stdout)
+	}
+}
+
 func TestRepoRunExecutableStopPublishesPerSessionGuardState(t *testing.T) {
 	repo := setupPolicyRepo(t)
 	writeTaskFixture(t, repo)

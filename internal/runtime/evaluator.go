@@ -379,7 +379,8 @@ func evaluateBatchedRequireScripts(ctx *evalContext, rules []*policy.Rule, defau
 			CommandResults: inputs.CommandResults,
 		}
 		outcome, err := RunScript(ctx.repoRoot, key.scriptPath, args, input, key.timeoutSec, key.killTimeoutSec)
-		if err != nil || (outcome.Status != "pass" && outcome.Status != "block") {
+		evaluation := classifyScriptOutcome(outcome, err, key.timeoutSec)
+		if evaluation.disposition != scriptOutcomePass && evaluation.disposition != scriptOutcomeBlock {
 			continue
 		}
 		failuresByMode, ok := parseWorkflowAuditBatchOutput(outcome.Stdout, modes)
@@ -1091,24 +1092,14 @@ func evalRequireScript(ctx *evalContext, rule *policy.Rule, defaultMode policy.M
 			CommandResults: inputs.CommandResults,
 		}
 		outcome, err := RunScript(ctx.repoRoot, scriptPath, substArgs, input, timeoutSec, killTimeoutSec)
-		if err != nil {
-			// Hard error (script crashed, missing, timeout, etc.).
-			detail := err.Error()
-			if outcome.TimedOut {
-				detail = fmt.Sprintf("timed out after %.1fs", outcome.Duration.Seconds())
-			}
-			failures = append(failures, fmt.Sprintf("[%s] script %s error: %s", mc.path, scriptPath, detail))
+		evaluation := classifyScriptOutcome(outcome, err, timeoutSec)
+		switch evaluation.disposition {
+		case scriptOutcomePass:
 			continue
-		}
-		if outcome.Status == "block" {
-			detail := strings.TrimSpace(outcome.Stdout)
-			if detail == "" {
-				detail = strings.TrimSpace(outcome.Stderr)
-			}
-			if detail == "" {
-				detail = "no output"
-			}
-			failures = append(failures, fmt.Sprintf("[%s] script %s blocked: %s", mc.path, scriptPath, detail))
+		case scriptOutcomeBlock:
+			failures = append(failures, fmt.Sprintf("[%s] script %s blocked: %s", mc.path, scriptPath, evaluation.detail))
+		case scriptOutcomeError:
+			failures = append(failures, fmt.Sprintf("[%s] script %s error: %s", mc.path, scriptPath, evaluation.detail))
 		}
 	}
 	if len(failures) == 0 {

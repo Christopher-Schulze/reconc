@@ -213,23 +213,16 @@ func evalCheckRequireScript(ctx *evalContext, c policy.Check, captures map[strin
 		CommandResults: inputs.CommandResults,
 	}
 	outcome, err := RunScript(ctx.repoRoot, c.Script, args, input, c.TimeoutSec, 0)
-	if err != nil {
-		if outcome.TimedOut {
-			return false, "", &checkEvalError{reason: fmt.Sprintf("script %s timed out after %.1fs", c.Script, outcome.Duration.Seconds())}
-		}
-		return false, "", &checkEvalError{reason: fmt.Sprintf("script %s error: %v", c.Script, err)}
+	evaluation := classifyScriptOutcome(outcome, err, c.TimeoutSec)
+	switch evaluation.disposition {
+	case scriptOutcomePass:
+		return true, "", nil
+	case scriptOutcomeBlock:
+		return false, fmt.Sprintf("script %s blocked: %s", c.Script, evaluation.detail), nil
+	case scriptOutcomeError:
+		return false, "", &checkEvalError{reason: fmt.Sprintf("script %s error: %s", c.Script, evaluation.detail)}
 	}
-	if outcome.Status == "block" {
-		detail := strings.TrimSpace(outcome.Stdout)
-		if detail == "" {
-			detail = strings.TrimSpace(outcome.Stderr)
-		}
-		if detail == "" {
-			detail = "no output"
-		}
-		return false, fmt.Sprintf("script %s blocked: %s", c.Script, detail), nil
-	}
-	return true, "", nil
+	return false, "", &checkEvalError{reason: fmt.Sprintf("script %s returned an unclassified outcome", c.Script)}
 }
 
 func evalCheckRequireFreshFile(ctx *evalContext, c policy.Check, captures map[string]string) (bool, string, error) {

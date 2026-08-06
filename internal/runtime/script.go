@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -30,11 +31,10 @@ const (
 //
 // Status:
 //   - "pass":    exit 0
-//   - "block":   exit 2 (or any non-zero non-1 if AllowAnyNonZero is set;
-//     today only exit 2 = block per the contract)
+//   - "block":   exit 2
 //   - "error":   any other condition - script crash, IO failure,
-//     timeout, malformed config; treated as a HARD error (exit 1)
-//     because we do not know the answer
+//     timeout, malformed config; callers fail closed because the script
+//     did not produce a trustworthy policy answer
 //
 // Stdout / Stderr are size-capped to MaxScriptOutputBytes per stream
 // to keep audit logs and violation reports bounded.
@@ -45,6 +45,19 @@ type ScriptOutcome struct {
 	Stderr   string
 	Duration time.Duration
 	TimedOut bool
+}
+
+type scriptOutcomeDisposition uint8
+
+const (
+	scriptOutcomePass scriptOutcomeDisposition = iota
+	scriptOutcomeBlock
+	scriptOutcomeError
+)
+
+type scriptOutcomeEvaluation struct {
+	disposition scriptOutcomeDisposition
+	detail      string
 }
 
 // ScriptInput is the JSON payload reconc writes to the script's stdin.
@@ -81,12 +94,6 @@ type ScriptInput struct {
 //   - exit 2 -> ("block", nil error)
 //   - any other exit -> ("error", non-nil error)
 func RunScript(repoRoot, scriptPath string, args []string, input ScriptInput, timeoutSec, killTimeoutSec int) (ScriptOutcome, error) {
-	if timeoutSec == 0 {
-		timeoutSec = DefaultScriptTimeoutSec
-	}
-	if timeoutSec > MaxScriptTimeoutSec {
-		timeoutSec = MaxScriptTimeoutSec
-	}
 	if killTimeoutSec == 0 {
 		killTimeoutSec = DefaultScriptKillTimeoutSec
 	}
@@ -106,7 +113,7 @@ func RunScript(repoRoot, scriptPath string, args []string, input ScriptInput, ti
 		return ScriptOutcome{Status: "error"}, fmt.Errorf("encode script input: %w", err)
 	}
 
-	timeout := time.Duration(timeoutSec) * time.Second
+	timeout := normalizedScriptTimeout(timeoutSec)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -165,6 +172,72 @@ func RunScript(repoRoot, scriptPath string, args []string, input ScriptInput, ti
 	outcome.ExitCode = 0
 	outcome.Status = "pass"
 	return outcome, nil
+}
+
+func normalizedScriptTimeout(timeoutSec int) time.Duration {
+	if timeoutSec == 0 {
+		timeoutSec = DefaultScriptTimeoutSec
+	}
+	if timeoutSec > MaxScriptTimeoutSec {
+		timeoutSec = MaxScriptTimeoutSec
+	}
+	return time.Duration(timeoutSec) * time.Second
+}
+
+// classifyScriptOutcome is the single fail-closed contract shared by every
+// require_script caller. Only a consistent pass outcome admits the write; a
+// declared block stays a policy failure, while timeouts, process failures, and
+// contradictory or unknown outcomes are operational failures.
+func classifyScriptOutcome(outcome ScriptOutcome, runErr error, timeoutSec int) scriptOutcomeEvaluation {
+	if outcome.TimedOut {
+		return scriptOutcomeEvaluation{
+			disposition: scriptOutcomeError,
+			detail:      "timed out after " + normalizedScriptTimeout(timeoutSec).String(),
+		}
+	}
+	if runErr != nil {
+		return scriptOutcomeEvaluation{disposition: scriptOutcomeError, detail: runErr.Error()}
+	}
+
+	switch outcome.Status {
+	case "pass":
+		if outcome.ExitCode != 0 {
+			return scriptOutcomeEvaluation{
+				disposition: scriptOutcomeError,
+				detail:      fmt.Sprintf("returned pass status with exit code %d", outcome.ExitCode),
+			}
+		}
+		return scriptOutcomeEvaluation{disposition: scriptOutcomePass}
+	case "block":
+		if outcome.ExitCode != 2 {
+			return scriptOutcomeEvaluation{
+				disposition: scriptOutcomeError,
+				detail:      fmt.Sprintf("returned block status with exit code %d", outcome.ExitCode),
+			}
+		}
+		return scriptOutcomeEvaluation{disposition: scriptOutcomeBlock, detail: scriptBlockDetail(outcome)}
+	case "error":
+		return scriptOutcomeEvaluation{
+			disposition: scriptOutcomeError,
+			detail:      fmt.Sprintf("returned error status with exit code %d", outcome.ExitCode),
+		}
+	default:
+		return scriptOutcomeEvaluation{
+			disposition: scriptOutcomeError,
+			detail:      fmt.Sprintf("returned invalid status %q with exit code %d", outcome.Status, outcome.ExitCode),
+		}
+	}
+}
+
+func scriptBlockDetail(outcome ScriptOutcome) string {
+	detail := strings.TrimSpace(outcome.Stdout)
+	if detail == "" {
+		detail = strings.TrimSpace(outcome.Stderr)
+	}
+	if detail == "" {
+		return "no output"
+	}
+	return detail
 }
 
 // sanitizedEnv returns a minimal env for script execution. We strip

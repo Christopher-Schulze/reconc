@@ -46,7 +46,12 @@ the check entry.
 `require_script` may use `args`, `timeout_sec`, and
 `kill_timeout_sec`. Script paths must be repo-relative and must not
 escape the repository root. Payload-provided command strings are never
-executed as scripts.
+executed as scripts. Only `status=pass` with exit code 0 passes. Exit code 2 is
+a policy block. Timeout, launch or process failure, any other exit, and an
+unknown or contradictory status fail closed. Timeout diagnostics identify the
+effective configured duration and matched write path without relying on partial
+script output; composite checks and batched-audit fallback use the same result
+contract.
 
 `require_assurance` performs no network calls and spawns no subprocesses. Its
 typed gates are `repository_layout`, `generated_reference`,

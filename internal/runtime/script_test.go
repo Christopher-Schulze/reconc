@@ -3,6 +3,7 @@
 package runtime
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,6 +100,40 @@ func TestRunScriptTimeout(t *testing.T) {
 	}
 	if out.Status != "error" {
 		t.Errorf("expected status=error, got %s", out.Status)
+	}
+}
+
+func TestClassifyScriptOutcomeIsExhaustiveAndFailClosed(t *testing.T) {
+	processErr := errors.New("launch failed")
+	tests := []struct {
+		name         string
+		outcome      ScriptOutcome
+		runErr       error
+		timeoutSec   int
+		want         scriptOutcomeDisposition
+		wantDetail   string
+		rejectDetail string
+	}{
+		{name: "pass", outcome: ScriptOutcome{Status: "pass", ExitCode: 0}, want: scriptOutcomePass},
+		{name: "block", outcome: ScriptOutcome{Status: "block", ExitCode: 2, Stdout: "blocked\n"}, want: scriptOutcomeBlock, wantDetail: "blocked"},
+		{name: "block stderr", outcome: ScriptOutcome{Status: "block", ExitCode: 2, Stderr: "stderr block\n"}, want: scriptOutcomeBlock, wantDetail: "stderr block"},
+		{name: "timeout", outcome: ScriptOutcome{Status: "error", ExitCode: -1, Stdout: "untrusted timeout output", TimedOut: true}, timeoutSec: 1, want: scriptOutcomeError, wantDetail: "timed out after 1s", rejectDetail: "untrusted"},
+		{name: "process error", outcome: ScriptOutcome{Status: "error", ExitCode: -1}, runErr: processErr, want: scriptOutcomeError, wantDetail: "launch failed"},
+		{name: "error without go error", outcome: ScriptOutcome{Status: "error", ExitCode: -1}, want: scriptOutcomeError, wantDetail: "returned error status with exit code -1"},
+		{name: "invalid status", outcome: ScriptOutcome{Status: "unknown", ExitCode: 0}, want: scriptOutcomeError, wantDetail: `returned invalid status "unknown" with exit code 0`},
+		{name: "contradictory pass", outcome: ScriptOutcome{Status: "pass", ExitCode: 2}, want: scriptOutcomeError, wantDetail: "returned pass status with exit code 2"},
+		{name: "contradictory block", outcome: ScriptOutcome{Status: "block", ExitCode: 0}, want: scriptOutcomeError, wantDetail: "returned block status with exit code 0"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := classifyScriptOutcome(test.outcome, test.runErr, test.timeoutSec)
+			if got.disposition != test.want || got.detail != test.wantDetail {
+				t.Fatalf("classification = (%d, %q), want (%d, %q)", got.disposition, got.detail, test.want, test.wantDetail)
+			}
+			if test.rejectDetail != "" && strings.Contains(got.detail, test.rejectDetail) {
+				t.Fatalf("classification leaked rejected detail %q: %q", test.rejectDetail, got.detail)
+			}
+		})
 	}
 }
 
@@ -213,6 +248,86 @@ func TestEvalRequireScriptBlockWhenScriptExitsTwo(t *testing.T) {
 	}
 }
 
+func TestEvalRequireScriptTimeoutBlocksWithConfiguredDurationAndPath(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repo := t.TempDir()
+	writeFile(t, repo, "AGENTS.md", "# t\n")
+	writeScript(t, repo, ".reconc/scripts/timeout.sh", "#!/bin/sh\nprintf 'untrusted timeout output\\n'\nsleep 5\n")
+	writeFile(t, repo, "policies/r.yml",
+		"rules:\n  - id: timeout-gate\n    kind: require_script\n    when_paths: ['src/**']\n    script: '.reconc/scripts/timeout.sh'\n    timeout_sec: 1\n    kill_timeout_sec: 1\n    mode: block\n    message: m\n")
+	if _, err := compileTestHelper(repo); err != nil {
+		t.Fatal(err)
+	}
+
+	inputs := Empty()
+	inputs.WritePaths = []string{"src/main.go"}
+	report, err := CheckRepoPolicy(repo, inputs)
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if report.Decision != DecisionBlock || len(report.Violations) != 1 {
+		t.Fatalf("timeout must block, got decision=%s violations=%#v", report.Decision, report.Violations)
+	}
+	explanation := report.Violations[0].Explanation
+	for _, want := range []string{"[src/main.go]", "timed out after 1s"} {
+		if !strings.Contains(explanation, want) {
+			t.Fatalf("timeout explanation missing %q: %s", want, explanation)
+		}
+	}
+	if strings.Contains(explanation, "untrusted timeout output") {
+		t.Fatalf("timeout explanation must not depend on script output: %s", explanation)
+	}
+}
+
+func TestWorkflowAuditBatchTimeoutFallsBackToFailClosedPerRuleChecks(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repo := t.TempDir()
+	writeFile(t, repo, "AGENTS.md", "# t\n")
+	writeScript(t, repo, "audits/run-workflow-audit", `#!/bin/sh
+if [ "${1:-}" = "--batch-json" ]; then
+  sleep 5
+  exit 0
+fi
+printf 'fallback blocked %s\n' "${1:-}"
+exit 2
+`)
+	writeFile(t, repo, "policies/r.yml", `rules:
+  - id: audit-a
+    kind: require_script
+    when_paths: ['src/**']
+    script: audits/run-workflow-audit
+    args: ['mode-a']
+    timeout_sec: 1
+    mode: block
+    message: a
+  - id: audit-b
+    kind: require_script
+    when_paths: ['src/**']
+    script: audits/run-workflow-audit
+    args: ['mode-b']
+    timeout_sec: 1
+    mode: block
+    message: b
+`)
+	if _, err := compileTestHelper(repo); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := CheckRepoPolicy(repo, ExecutionInputs{WritePaths: []string{"src/main.go"}})
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if report.Decision != DecisionBlock || len(report.Violations) != 2 {
+		t.Fatalf("batch timeout fallback must preserve both blocks, got decision=%s violations=%#v", report.Decision, report.Violations)
+	}
+	for index, ruleID := range []string{"audit-a", "audit-b"} {
+		violation := report.Violations[index]
+		if violation.RuleID != ruleID || !strings.Contains(violation.Explanation, "fallback blocked mode-") {
+			t.Fatalf("fallback violation %d = %#v", index, violation)
+		}
+	}
+}
+
 func TestEvalRequireScriptArgsSubstituteTemplateVars(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
@@ -259,5 +374,29 @@ func TestEvalRequireScriptInsideAllOf(t *testing.T) {
 	report, _ := CheckRepoPolicy(repo, inputs)
 	if report.Decision != DecisionBlock {
 		t.Errorf("expected block (one of two scripts blocked), got %s", report.Decision)
+	}
+}
+
+func TestEvalRequireScriptTimeoutFailsClosedInsideAllOf(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repo := t.TempDir()
+	writeFile(t, repo, "AGENTS.md", "# t\n")
+	writeScript(t, repo, ".reconc/scripts/timeout.sh", "#!/bin/sh\nprintf 'composite timeout output\\n'\nsleep 5\n")
+	writeFile(t, repo, "policies/r.yml",
+		"rules:\n  - id: gate\n    kind: all_of\n    when_paths: ['src/**']\n    checks:\n      - kind: require_script\n        script: '.reconc/scripts/timeout.sh'\n        timeout_sec: 1\n    mode: block\n    message: m\n")
+	if _, err := compileTestHelper(repo); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := CheckRepoPolicy(repo, ExecutionInputs{WritePaths: []string{"src/main.go"}})
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	if report.Decision != DecisionBlock || len(report.Violations) != 1 {
+		t.Fatalf("composite timeout must block, got decision=%s violations=%#v", report.Decision, report.Violations)
+	}
+	explanation := report.Violations[0].Explanation
+	if !strings.Contains(explanation, "timed out after 1s") || strings.Contains(explanation, "composite timeout output") {
+		t.Fatalf("unexpected composite timeout explanation: %s", explanation)
 	}
 }

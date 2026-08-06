@@ -2308,7 +2308,13 @@ to stderr for hook latency diagnosis.
 Require-script subprocesses run in their own process group; on timeout Reconc
 sends SIGTERM to the group and escalates to SIGKILL after the configured kill
 grace period, so shell grandchildren such as `go build` compiler workers cannot
-survive as orphans after a blocked hook. Workflow-audit launchers bind their
+survive as orphans after a blocked hook. The evaluator admits only a consistent
+`pass` outcome with exit code 0. Exit code 2 remains an attributed policy block;
+timeouts, launch or process failures, every other exit, and contradictory or
+unknown statuses fail closed. Timeout diagnostics use the effective configured
+duration and matched path without trusting partial script output. A failed or
+malformed batched workflow audit falls back to per-rule execution under the same
+contract instead of being counted as handled. Workflow-audit launchers bind their
 cache keys to a recursive content digest of the runner source, module files,
 and generated inputs; missing or unreadable inputs fail closed. They build
 cached binaries behind an atomic mkdir build lock and publish via temp binary +
