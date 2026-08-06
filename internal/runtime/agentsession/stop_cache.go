@@ -18,10 +18,11 @@ import (
 	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/runtime"
+	"reconc.dev/reconc/internal/tasklifecycle"
 )
 
 const (
-	stopPolicyFingerprintVersion = "stop-policy-report-v6"
+	stopPolicyFingerprintVersion = "stop-policy-report-v7"
 	stopPolicyUntrackedModeEnv   = "RECONC_STOP_FINGERPRINT_UNTRACKED"
 	maxStopReportBytes           = 32 << 20
 	maxGitControlFileBytes       = 1 << 20
@@ -33,6 +34,9 @@ type stopPolicyFingerprintInput struct {
 	RepoRoot           string            `json:"repo_root"`
 	SessionID          string            `json:"session_id,omitempty"`
 	PolicyLockHash     string            `json:"policy_lock_hash"`
+	PolicySourceDigest string            `json:"policy_source_digest"`
+	PolicySourceCount  int               `json:"policy_source_count"`
+	TaskStateHash      string            `json:"task_state_hash"`
 	ReportFormat       string            `json:"report_format"`
 	SchemaBase         string            `json:"schema_base"`
 	ReadPaths          []string          `json:"read_paths"`
@@ -72,8 +76,10 @@ type stopPolicyGitSnapshot struct {
 }
 
 type stopPolicyCheckResult struct {
-	Report      *runtime.CheckReport
-	GitSnapshot stopPolicyGitSnapshot
+	Report        *runtime.CheckReport
+	GitSnapshot   stopPolicyGitSnapshot
+	TaskSnapshot  stopTaskSnapshot
+	GenerationHit bool
 }
 
 // CompletionStateSnapshot is the read-only repository/session identity shared
@@ -124,39 +130,73 @@ func runStopPolicyCheckWithSnapshot(repoRoot string, state SessionState) (stopPo
 }
 
 func runStopPolicyCheckWithSnapshotWithEvaluator(repoRoot string, state SessionState, evaluator *runtime.Evaluator) (stopPolicyCheckResult, error) {
+	return runStopPolicyCheckWithSnapshotWithEvaluatorAndCache(repoRoot, state, evaluator, nil, nil)
+}
+
+func runStopPolicyCheckWithSnapshotWithEvaluatorAndCache(
+	repoRoot string,
+	state SessionState,
+	evaluator *runtime.Evaluator,
+	cache *StopDecisionCache,
+	taskSnapshot *stopTaskSnapshot,
+) (stopPolicyCheckResult, error) {
 	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
 		return stopPolicyCheckResult{}, err
+	}
+	if taskSnapshot == nil {
+		captured, captureErr := captureStopTaskSnapshot(root)
+		if captureErr != nil {
+			return stopPolicyCheckResult{}, fmt.Errorf("capture TASK snapshot: %w", captureErr)
+		}
+		taskSnapshot = &captured
 	}
 	state, err = loadCompleteSessionEvidence(root, state)
 	if err != nil {
 		return stopPolicyCheckResult{}, fmt.Errorf("load evidence chain: %w", err)
 	}
 	return withStopPolicyReportLock(root, state.SessionID, func() (stopPolicyCheckResult, error) {
-		return runStopPolicyCheckLocked(root, state, evaluator)
+		current, loadErr := loadSessionStateWithLockResolved(root, state.SessionID)
+		if loadErr != nil {
+			return stopPolicyCheckResult{}, loadErr
+		}
+		current, loadErr = loadCompleteSessionEvidence(root, current)
+		if loadErr != nil {
+			return stopPolicyCheckResult{}, fmt.Errorf("reload evidence chain under Stop cache lock: %w", loadErr)
+		}
+		return runStopPolicyCheckLocked(root, current, evaluator, cache, *taskSnapshot)
 	})
 }
 
-func runStopPolicyCheckLocked(repoRoot string, state SessionState, evaluator *runtime.Evaluator) (stopPolicyCheckResult, error) {
-	fingerprintInput := stopPolicyFingerprintInputFor(repoRoot, state)
-	cacheable := stopPolicyFingerprintCacheable(fingerprintInput)
-	snapshot := stopPolicyGitSnapshot{
-		Head: fingerprintInput.GitHead, Status: fingerprintInput.GitStatus,
-		StatusMode: fingerprintInput.GitStatusMode, StatusOK: fingerprintInput.GitStatusOK,
+func runStopPolicyCheckLocked(
+	repoRoot string,
+	state SessionState,
+	evaluator *runtime.Evaluator,
+	cache *StopDecisionCache,
+	taskSnapshot stopTaskSnapshot,
+) (stopPolicyCheckResult, error) {
+	gitSnapshot := stopPolicyGitSnapshotFor(repoRoot)
+	if report, ok := cache.readStableReport(repoRoot, state, taskSnapshot, gitSnapshot); ok {
+		return stopPolicyCheckResult{
+			Report: report, GitSnapshot: gitSnapshot, TaskSnapshot: taskSnapshot, GenerationHit: true,
+		}, nil
 	}
+	fingerprintInput := stopPolicyFingerprintInputForSnapshotWithGeneration(repoRoot, state, gitSnapshot, taskSnapshot, stopGenerationCapture{})
+	cacheable := stopPolicyFingerprintCacheable(fingerprintInput)
 	fingerprint := hashStopPolicyFingerprintInput(fingerprintInput)
 	if cacheable && fingerprint != "" && state.StopPolicyFingerprint == fingerprint && state.StopPolicyReportHash != "" {
 		report, reportHash, err := readLatestReport(repoRoot, state.SessionID)
 		if err == nil && reportHash == state.StopPolicyReportHash {
-			return stopPolicyCheckResult{Report: report, GitSnapshot: snapshot}, nil
+			storeStopGenerationIfWorthwhile(cache, repoRoot, state, gitSnapshot, fingerprintInput)
+			return stopPolicyCheckResult{Report: report, GitSnapshot: gitSnapshot, TaskSnapshot: taskSnapshot}, nil
 		}
 	}
 
 	scopedWritePaths := stopScopeWritePathsToUncommitted(repoRoot, state.WritePaths, stopPolicyGitSnapshot{
-		Head:       fingerprintInput.GitHead,
-		Status:     fingerprintInput.GitStatus,
-		StatusMode: fingerprintInput.GitStatusMode,
-		StatusOK:   fingerprintInput.GitStatusOK,
+		Head:       gitSnapshot.Head,
+		Status:     gitSnapshot.Status,
+		StatusMode: gitSnapshot.StatusMode,
+		StatusOK:   gitSnapshot.StatusOK,
 	})
 	report, err := runCheckAndSaveWithEvaluator(evaluator, repoRoot, state.SessionID, state.ReadPaths,
 		scopedWritePaths, filterWriteEpochs(state.WriteEpochs, scopedWritePaths), state.Commands, state.CommandResults, state.Claims)
@@ -168,7 +208,7 @@ func runStopPolicyCheckLocked(repoRoot string, state SessionState, evaluator *ru
 		initialEvidenceHash := stopPolicyEvidenceHash(state)
 		fingerprintInput.PolicyLockHash = fileContentHash(filepath.Join(repoRoot, ".reconc", "policy.lock.json"))
 		reportFingerprint := hashStopPolicyFingerprintInput(fingerprintInput)
-		if _, err := mutateSessionStateResolved(repoRoot, state.SessionID, func(current SessionState) SessionState {
+		updated, err := mutateSessionStateResolved(repoRoot, state.SessionID, func(current SessionState) SessionState {
 			if stopPolicyEvidenceHash(current) == initialEvidenceHash {
 				current.StopPolicyFingerprint = reportFingerprint
 				current.StopPolicyEvidenceHash = initialEvidenceHash
@@ -176,11 +216,39 @@ func runStopPolicyCheckLocked(repoRoot string, state SessionState, evaluator *ru
 				current.ReportPath = sessionReportPath(repoRoot, state.SessionID)
 			}
 			return current
-		}); err != nil {
+		})
+		if err != nil {
 			return stopPolicyCheckResult{}, fmt.Errorf("persist stop-policy cache metadata: %w", err)
 		}
+		state = updated
 	}
-	return stopPolicyCheckResult{Report: report, GitSnapshot: snapshot}, nil
+	storeStopGenerationIfWorthwhile(cache, repoRoot, state, gitSnapshot, fingerprintInput)
+	return stopPolicyCheckResult{Report: report, GitSnapshot: gitSnapshot, TaskSnapshot: taskSnapshot}, nil
+}
+
+func storeStopGenerationIfWorthwhile(
+	cache *StopDecisionCache,
+	root string,
+	state SessionState,
+	gitSnapshot stopPolicyGitSnapshot,
+	fingerprintInput stopPolicyFingerprintInput,
+) {
+	if cache == nil || !stopPolicyFingerprintCacheable(fingerprintInput) || !stopGenerationWorthwhile(root, fingerprintInput.GitDirtyFiles) {
+		cache.invalidate(root, state.SessionID)
+		return
+	}
+	generation, ok := captureStopRepositoryGenerationWithIdentity(
+		root,
+		gitSnapshot,
+		fingerprintInput.PolicySourceDigest,
+		fingerprintInput.PolicySourceCount,
+		fingerprintInput.TaskStateHash,
+	)
+	if !ok {
+		cache.invalidate(root, state.SessionID)
+		return
+	}
+	cache.store(root, state, generation.Fingerprint)
 }
 
 func filterWriteEpochs(epochs map[string]uint64, paths []string) map[string]uint64 {
@@ -264,10 +332,32 @@ func stopRepoRelPosix(repoRoot, raw string) string {
 }
 
 func cachedCleanStopPolicyReportForEvidence(repoRoot string, state SessionState, evidenceHash string) (*runtime.CheckReport, bool) {
+	root, err := ResolveRepoRoot(repoRoot)
+	if err != nil {
+		return nil, false
+	}
+	taskSnapshot, err := captureStopTaskSnapshot(root)
+	if err != nil {
+		return nil, false
+	}
+	return cachedCleanStopPolicyReportForEvidenceAndSnapshot(
+		root, state, evidenceHash, taskSnapshot, stopPolicyGitSnapshotFor(root),
+	)
+}
+
+func cachedCleanStopPolicyReportForEvidenceAndSnapshot(
+	repoRoot string,
+	state SessionState,
+	evidenceHash string,
+	taskSnapshot stopTaskSnapshot,
+	gitSnapshot stopPolicyGitSnapshot,
+) (*runtime.CheckReport, bool) {
 	if evidenceHash == "" || state.StopPolicyEvidenceHash != evidenceHash || state.StopPolicyReportHash == "" {
 		return nil, false
 	}
-	fingerprintInput := stopPolicyFingerprintInputFor(repoRoot, state)
+	fingerprintInput := stopPolicyFingerprintInputForSnapshotWithGeneration(
+		repoRoot, state, gitSnapshot, taskSnapshot, stopGenerationCapture{},
+	)
 	if !stopPolicyFingerprintCacheable(fingerprintInput) {
 		return nil, false
 	}
@@ -283,6 +373,32 @@ func cachedCleanStopPolicyReportForEvidence(repoRoot string, state SessionState,
 		return nil, false
 	}
 	return report, true
+}
+
+func cachedCleanStopPolicyReportForEvidenceWithCache(
+	repoRoot string,
+	state SessionState,
+	evidenceHash string,
+	cache *StopDecisionCache,
+	taskSnapshot stopTaskSnapshot,
+) (*runtime.CheckReport, bool) {
+	if evidenceHash == "" || state.StopPolicyEvidenceHash != evidenceHash || state.StopPolicyReportHash == "" {
+		return nil, false
+	}
+	root := repoRoot
+	if state.RepoRoot != "" {
+		root = state.RepoRoot
+	}
+	gitSnapshot := stopPolicyGitSnapshotFor(root)
+	entry, generationAvailable := cache.entry(root, state.SessionID)
+	if generationAvailable && entry.evidenceHash == evidenceHash &&
+		entry.fingerprint == state.StopPolicyFingerprint && entry.reportHash == state.StopPolicyReportHash {
+		report, ok := cache.readStableReport(root, state, taskSnapshot, gitSnapshot)
+		if ok && len(blockingViolations(report)) == 0 {
+			return report, true
+		}
+	}
+	return cachedCleanStopPolicyReportForEvidenceAndSnapshot(root, state, evidenceHash, taskSnapshot, gitSnapshot)
 }
 
 func withStopPolicyReportLock(repoRoot, sessionID string, fn func() (stopPolicyCheckResult, error)) (stopPolicyCheckResult, error) {
@@ -324,6 +440,39 @@ func stopPolicyFingerprintInputFor(repoRoot string, state SessionState) stopPoli
 }
 
 func stopPolicyFingerprintInputForSnapshot(root string, state SessionState, gitSnapshot stopPolicyGitSnapshot) stopPolicyFingerprintInput {
+	taskSnapshot, err := captureStopTaskSnapshot(root)
+	if err != nil {
+		return stopPolicyFingerprintInput{
+			Version: stopPolicyFingerprintVersion, RepoRoot: root, SessionID: state.SessionID,
+			PolicyLockHash:     fileContentHash(filepath.Join(root, ".reconc", "policy.lock.json")),
+			PolicySourceDigest: "error:" + err.Error(), TaskStateHash: "error:" + err.Error(),
+			GitHead: gitSnapshot.Head, GitStatus: gitSnapshot.Status,
+			GitStatusMode: gitSnapshot.StatusMode, GitStatusOK: gitSnapshot.StatusOK,
+		}
+	}
+	return stopPolicyFingerprintInputForSnapshotWithGeneration(root, state, gitSnapshot, taskSnapshot, stopGenerationCapture{})
+}
+
+func stopPolicyFingerprintInputForSnapshotWithGeneration(
+	root string,
+	state SessionState,
+	gitSnapshot stopPolicyGitSnapshot,
+	taskSnapshot stopTaskSnapshot,
+	generation stopGenerationCapture,
+) stopPolicyFingerprintInput {
+	policyDigest := generation.PolicySourceDigest
+	policyCount := generation.PolicySourceCount
+	if policyDigest == "" {
+		var err error
+		policyDigest, policyCount, err = stopPolicySourceIdentity(root)
+		if err != nil {
+			policyDigest = "error:" + err.Error()
+		}
+	}
+	taskHash := generation.TaskStateHash
+	if taskHash == "" {
+		taskHash = stopTaskSnapshotHash(taskSnapshot)
+	}
 	dirtyFiles := []gitDirtyFile{}
 	if gitSnapshot.StatusOK {
 		dirtyFiles = gitDirtyFiles(root, gitSnapshot.Status)
@@ -333,6 +482,9 @@ func stopPolicyFingerprintInputForSnapshot(root string, state SessionState, gitS
 		RepoRoot:           root,
 		SessionID:          state.SessionID,
 		PolicyLockHash:     fileContentHash(filepath.Join(root, ".reconc", "policy.lock.json")),
+		PolicySourceDigest: policyDigest,
+		PolicySourceCount:  policyCount,
+		TaskStateHash:      taskHash,
 		ReportFormat:       runtime.CheckReportFormatVersion,
 		SchemaBase:         os.Getenv("RECONC_SCHEMA_BASE_URL"),
 		ReadPaths:          sortedUniqueExact(state.ReadPaths),
@@ -360,12 +512,12 @@ func hashStopPolicyFingerprintInput(input stopPolicyFingerprintInput) string {
 }
 
 func stopPolicyFingerprintCacheable(input stopPolicyFingerprintInput) bool {
-	for _, file := range input.GitDirtyFiles {
-		if strings.HasPrefix(file.WorktreeHash, "oversized:") {
-			return false
-		}
-	}
-	return true
+	return input.GitStatusOK &&
+		!strings.HasPrefix(input.GitHead, "error:") &&
+		!strings.HasPrefix(input.PolicyLockHash, "error:") &&
+		!strings.HasPrefix(input.PolicySourceDigest, "error:") &&
+		!strings.HasPrefix(input.TaskStateHash, "error:") &&
+		completionDirtyFilesTrusted(input.GitDirtyFiles)
 }
 
 func stopPolicyGitStatus(repoRoot string) (status string, mode string) {
@@ -463,7 +615,23 @@ func CaptureCompletionState(repoRoot string) (CompletionStateSnapshot, error) {
 			return CompletionStateSnapshot{}, fmt.Errorf("fingerprint Git index: %w", err)
 		}
 	}
-	fingerprintInput := stopPolicyFingerprintInputForSnapshot(root, state, gitSnapshot)
+	taskSnapshot, err := captureStopTaskSnapshot(root)
+	if err != nil {
+		taskSnapshot = stopTaskSnapshot{State: tasklifecycle.RunState{
+			Disposition: tasklifecycle.RunInvalid,
+			Blocker:     err.Error(),
+		}}
+	}
+	policyDigest, policyCount, err := stopPolicySourceIdentity(root)
+	if err != nil {
+		policyDigest = "error:" + err.Error()
+		policyCount = 0
+	}
+	fingerprintInput := stopPolicyFingerprintInputForSnapshotWithGeneration(root, state, gitSnapshot, taskSnapshot, stopGenerationCapture{
+		PolicySourceDigest: policyDigest,
+		PolicySourceCount:  policyCount,
+		TaskStateHash:      stopTaskSnapshotHash(taskSnapshot),
+	})
 	dirtyFiles := fingerprintInput.GitDirtyFiles
 	worktreeBody, err := json.Marshal(struct {
 		Status     string         `json:"status"`
@@ -780,6 +948,8 @@ func completionDirtyFilesTrusted(files []gitDirtyFile) bool {
 		switch {
 		case hash == "missing":
 			continue
+		case strings.HasPrefix(hash, "dir:"):
+			hash = strings.TrimPrefix(hash, "dir:")
 		case strings.HasPrefix(hash, "symlink:"):
 			hash = strings.TrimPrefix(hash, "symlink:")
 		case strings.HasPrefix(hash, "submodule:"):
@@ -916,7 +1086,7 @@ func worktreePathHash(repoRoot string, path, indexEntry string) string {
 		if strings.HasPrefix(indexEntry, "160000 ") {
 			return submoduleWorktreeHash(fullPath)
 		}
-		return "dir"
+		return stopDirectoryContentHash(fullPath)
 	}
 	if !info.Mode().IsRegular() {
 		return "mode:" + info.Mode().String()
@@ -990,6 +1160,17 @@ func readBoundedFile(path string, maxBytes int64) ([]byte, error) {
 const stopPolicyContentHashBound = 64 * 1024 * 1024
 
 func hashFileContent(path string) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", err
+	}
+	return hashFileContentExpected(path, info)
+}
+
+func hashFileContentExpected(path string, expected os.FileInfo) (string, error) {
+	if !expected.Mode().IsRegular() {
+		return "", fmt.Errorf("hash content: %s is not a regular file", path)
+	}
 	file, err := os.Open(path)
 	if err != nil {
 		return "", err
@@ -998,6 +1179,9 @@ func hashFileContent(path string) (string, error) {
 	if statErr != nil {
 		closeErr := file.Close()
 		return "", errors.Join(statErr, closeErr)
+	}
+	if !info.Mode().IsRegular() || !os.SameFile(expected, info) {
+		return "", errors.Join(fmt.Errorf("hash content: %s changed before open", path), file.Close())
 	}
 	if info.Size() > stopPolicyContentHashBound {
 		closeErr := file.Close()
@@ -1008,9 +1192,18 @@ func hashFileContent(path string) (string, error) {
 	}
 	hash := sha256.New()
 	_, readErr := io.Copy(hash, io.LimitReader(file, stopPolicyContentHashBound))
+	after, statErr := file.Stat()
 	closeErr := file.Close()
-	if err := errors.Join(readErr, closeErr); err != nil {
+	if err := errors.Join(readErr, statErr, closeErr); err != nil {
 		return "", err
+	}
+	if !os.SameFile(info, after) || info.Size() != after.Size() || !info.ModTime().Equal(after.ModTime()) {
+		return "", fmt.Errorf("hash content: %s changed while reading", path)
+	}
+	beforeGeneration, beforeOK := stopPathMetadataGeneration(path, info)
+	afterGeneration, afterOK := stopPathMetadataGeneration(path, after)
+	if beforeOK != afterOK || (beforeOK && beforeGeneration != afterGeneration) {
+		return "", fmt.Errorf("hash content: %s changed while reading", path)
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }

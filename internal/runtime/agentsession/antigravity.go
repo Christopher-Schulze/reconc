@@ -168,11 +168,21 @@ func runAntigravityStopResolved(root string, payloadBytes []byte, runtimeName st
 }
 
 func runAntigravityStopResolvedWithEvaluator(root string, payloadBytes []byte, runtimeName string, evaluator *runtime.Evaluator) Result {
+	return runAntigravityStopResolvedWithEvaluatorAndCache(root, payloadBytes, runtimeName, evaluator, nil)
+}
+
+func runAntigravityStopResolvedWithEvaluatorAndCache(
+	root string,
+	payloadBytes []byte,
+	runtimeName string,
+	evaluator *runtime.Evaluator,
+	stopCache *StopDecisionCache,
+) Result {
 	payload, err := NormalizeAntigravityPayload("antigravity-stop", payloadBytes)
 	if err != nil {
 		return AdaptAntigravityResult("antigravity-stop", Result{ExitCode: 2, Stderr: err.Error()})
 	}
-	return AdaptAntigravityResult("antigravity-stop", runStopResolvedWithEvaluator(root, payload, runtimeName, evaluator))
+	return AdaptAntigravityResult("antigravity-stop", runStopResolvedWithEvaluatorAndCache(root, payload, runtimeName, evaluator, stopCache))
 }
 
 func NormalizeAntigravityPayload(event string, payloadBytes []byte) ([]byte, error) {

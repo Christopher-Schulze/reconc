@@ -184,7 +184,7 @@ func TestHookWorkerEvaluatorReusesAndInvalidatesRepositoryPlan(t *testing.T) {
 		Repo:          repo,
 		Payload:       json.RawMessage(`{"session_id":"worker-plan","tool_name":"Bash","tool_use_id":"one","tool_input":{"command":"go test ./..."}}`),
 	}
-	first, stop := executeHookWorkerRequest(request, cache.resolve, cache.evaluator)
+	first, stop := executeHookWorkerRequest(request, cache.resolve, cache.evaluator, cache.stopCache)
 	if stop || first.Code != 0 {
 		t.Fatalf("first worker policy request = %+v stop=%t", first, stop)
 	}
@@ -198,7 +198,7 @@ func TestHookWorkerEvaluatorReusesAndInvalidatesRepositoryPlan(t *testing.T) {
 	}
 	request.ID = "drifted"
 	request.Payload = json.RawMessage(`{"session_id":"worker-plan","tool_name":"Bash","tool_use_id":"two","tool_input":{"command":"go test ./..."}}`)
-	drifted, stop := executeHookWorkerRequest(request, cache.resolve, cache.evaluator)
+	drifted, stop := executeHookWorkerRequest(request, cache.resolve, cache.evaluator, cache.stopCache)
 	if stop || drifted.Code != 2 || !strings.Contains(drifted.Stderr, "source_digest") {
 		t.Fatalf("drifted worker policy request = %+v stop=%t", drifted, stop)
 	}

@@ -43,6 +43,19 @@ func RunHookRequest(root ResolvedRepoRoot, handler HookHandler, runtimeEvent str
 // RunHookRequestWithEvaluator lets a session-owned hook worker reuse one
 // immutable policy-plan owner while preserving the same normalized dispatch.
 func RunHookRequestWithEvaluator(root ResolvedRepoRoot, handler HookHandler, runtimeEvent string, payload []byte, evaluator *runtime.Evaluator) Result {
+	return RunHookRequestWithEvaluatorAndStopCache(root, handler, runtimeEvent, payload, evaluator, nil)
+}
+
+// RunHookRequestWithEvaluatorAndStopCache lets a persistent worker reuse both
+// its immutable runtime plans and its conservative Stop generation oracle.
+func RunHookRequestWithEvaluatorAndStopCache(
+	root ResolvedRepoRoot,
+	handler HookHandler,
+	runtimeEvent string,
+	payload []byte,
+	evaluator *runtime.Evaluator,
+	stopCache *StopDecisionCache,
+) Result {
 	if evaluator == nil {
 		evaluator = runtime.NewEvaluator()
 	}
@@ -77,7 +90,7 @@ func RunHookRequestWithEvaluator(root ResolvedRepoRoot, handler HookHandler, run
 	case HookHandlerMCPAwarePostToolUse:
 		return runMCPAfterResolvedWithEvaluator(root.path, payload, false, evaluator)
 	case HookHandlerStop:
-		return runStopResolvedWithEvaluator(root.path, payload, normalizeRuntimeName(runtimeEvent), evaluator)
+		return runStopResolvedWithEvaluatorAndCache(root.path, payload, normalizeRuntimeName(runtimeEvent), evaluator, stopCache)
 	case HookHandlerSessionEnd:
 		return runSessionEndResolved(root.path, payload)
 	case HookHandlerPostCompaction:
@@ -91,7 +104,7 @@ func RunHookRequestWithEvaluator(root ResolvedRepoRoot, handler HookHandler, run
 	case HookHandlerAntigravityPostInvoke:
 		return runAntigravityPostInvocationResolved(payload)
 	case HookHandlerAntigravityStop:
-		return runAntigravityStopResolvedWithEvaluator(root.path, payload, normalizeRuntimeName(runtimeEvent), evaluator)
+		return runAntigravityStopResolvedWithEvaluatorAndCache(root.path, payload, normalizeRuntimeName(runtimeEvent), evaluator, stopCache)
 	default:
 		return Result{ExitCode: 1, Stderr: "reconc hook: unsupported normalized handler"}
 	}

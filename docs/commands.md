@@ -59,7 +59,10 @@ Runtime:
   `schemas/v1/`, legacy policy locks use `schemas/v1/` or `schemas/v2/`, and
   current policy lockfiles use `schemas/v3/`
 - `RECONC_STOP_FINGERPRINT_UNTRACKED` (`normal` default, `all`, `no`) --
-  untracked-file mode for the Stop fingerprint's git status snapshot
+  untracked-file mode for the Stop fingerprint's git status snapshot. `normal`
+  content-binds each untracked directory recursively under bounded entry and
+  byte limits; `all` asks Git to enumerate every untracked path; `no` excludes
+  untracked paths from this fingerprint
 - `RECONC_GROK_STEER=0` -- disable optional Grok TUI leader steering over the
   Unix socket or Windows named pipe; PreToolUse remains enforced and native
   Stop remains available only when the installed Grok guide advertises it

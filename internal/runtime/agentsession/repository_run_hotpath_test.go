@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -334,6 +335,53 @@ func TestStrictContinuationUsesNoSixStopRelease(t *testing.T) {
 	decisions, err := ReadRunDecisions(repo, 1)
 	if err != nil || len(decisions) != 1 || !decisions[0].StrictContinuation {
 		t.Fatalf("strict continuation bound is not observable: %#v err=%v", decisions, err)
+	}
+}
+
+func TestRepoRunEquivalentContinuationLogsOnlyBoundedCheckpoints(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	writeTaskFixture(t, repo)
+	if _, err := SetRepositoryRun(repo, true); err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < 7; index++ {
+		result := RunStop(repo, []byte(`{"session_id":"bounded-log","runtime":"codex"}`))
+		if result.ExitCode != 0 {
+			t.Fatalf("Stop %d: %+v", index+1, result)
+		}
+	}
+	decisions, err := ReadRunDecisions(repo, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	branches := []string{}
+	for _, decision := range decisions {
+		if decision.Event == "stop" {
+			branches = append(branches, decision.Branch)
+		}
+	}
+	want := []string{"run_followup", "run_followup", "run_followup", "repo_no_progress_release"}
+	if !reflect.DeepEqual(branches, want) {
+		t.Fatalf("bounded continuation decisions = %#v, want %#v", branches, want)
+	}
+}
+
+func TestRepoRunContinuationFailsClosedWhenDecisionPublicationFails(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	writeTaskFixture(t, repo)
+	if _, err := SetRepositoryRun(repo, true); err != nil {
+		t.Fatal(err)
+	}
+	decisionPath := filepath.Join(repo, ".reconc", "run", "decisions.jsonl")
+	if err := os.Remove(decisionPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(decisionPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	result := RunStop(repo, []byte(`{"session_id":"decision-publication","runtime":"codex"}`))
+	if result.ExitCode != 2 || !strings.Contains(result.Stderr, "record repository continuation") {
+		t.Fatalf("decision publication failure = %+v", result)
 	}
 }
 

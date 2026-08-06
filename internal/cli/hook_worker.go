@@ -46,6 +46,7 @@ type hookWorkerResponse struct {
 type hookWorkerRootCache struct {
 	roots     map[string]agentsession.ResolvedRepoRoot
 	evaluator *policyruntime.Evaluator
+	stopCache *agentsession.StopDecisionCache
 }
 
 func runHookWorker(args []string, input io.Reader, output io.Writer) error {
@@ -58,7 +59,10 @@ func runHookWorker(args []string, input io.Reader, output io.Writer) error {
 	}
 	reader := bufio.NewReaderSize(input, 64<<10)
 	encoder := json.NewEncoder(output)
-	rootCache := hookWorkerRootCache{roots: make(map[string]agentsession.ResolvedRepoRoot), evaluator: policyruntime.NewEvaluator()}
+	rootCache := hookWorkerRootCache{
+		roots: make(map[string]agentsession.ResolvedRepoRoot), evaluator: policyruntime.NewEvaluator(),
+		stopCache: agentsession.NewStopDecisionCache(),
+	}
 	for {
 		frame, err := readHookWorkerFrame(reader)
 		if errors.Is(err, io.EOF) {
@@ -85,7 +89,7 @@ func runHookWorker(args []string, input io.Reader, output io.Writer) error {
 			}
 			continue
 		}
-		response, stop := executeHookWorkerRequest(request, rootCache.resolve, rootCache.evaluator)
+		response, stop := executeHookWorkerRequest(request, rootCache.resolve, rootCache.evaluator, rootCache.stopCache)
 		if err := encoder.Encode(response); err != nil {
 			return &CLIError{ExitCode: 1, Message: "reconc hook worker: write response: " + err.Error()}
 		}
@@ -201,6 +205,7 @@ func executeHookWorkerRequest(
 	request hookWorkerRequest,
 	resolveRoot func(string) (agentsession.ResolvedRepoRoot, error),
 	evaluator *policyruntime.Evaluator,
+	stopCache *agentsession.StopDecisionCache,
 ) (hookWorkerResponse, bool) {
 	response := hookWorkerResponse{
 		FormatVersion: hookWorkerFormatVersion,
@@ -216,13 +221,14 @@ func executeHookWorkerRequest(
 	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	err := runHookRuntimeWithResolverAndEvaluator(
+	err := runHookRuntimeWithResolverEvaluatorAndStopCache(
 		[]string{request.Event, request.Repo},
 		bytes.NewReader(request.Payload),
 		&stdout,
 		&stderr,
 		resolveRoot,
 		evaluator,
+		stopCache,
 	)
 	response.Code = ExitCode(err)
 	response.Stdout = strings.TrimSuffix(stdout.String(), "\n")

@@ -33,12 +33,14 @@ func SetRepositoryRun(repoRoot string, enabled bool) (RepositoryRunStatus, error
 		return RepositoryRunStatus{}, err
 	}
 	if before != after {
-		_ = appendRunDecisionResolved(root, RunDecision{
+		if err := appendRunDecisionResolved(root, RunDecision{
 			Event: "command", Branch: branch,
 			EnabledBefore: before.Enabled, EnabledAfter: after.Enabled,
 			DisabledReasonBefore: before.DisabledReason.String(),
 			DisabledReasonAfter:  after.DisabledReason.String(),
-		})
+		}); err != nil {
+			return RepositoryRunStatus{}, fmt.Errorf("record repository run transition: %w", err)
+		}
 	}
 	return readRepositoryRunStatusResolved(root)
 }
@@ -73,9 +75,11 @@ func ResetRepositoryRun(repoRoot string) (RepositoryRunStatus, error) {
 	if err != nil {
 		return RepositoryRunStatus{}, err
 	}
-	_ = appendRunDecisionResolved(root, RunDecision{
+	if err := appendRunDecisionResolved(root, RunDecision{
 		Event: "recovery", Branch: "run_state_reset",
 		DisabledReasonAfter: repositoryRunDisabledCommandOff.String(),
-	})
+	}); err != nil {
+		return RepositoryRunStatus{}, fmt.Errorf("record repository run recovery: %w", err)
+	}
 	return readRepositoryRunStatusResolved(root)
 }

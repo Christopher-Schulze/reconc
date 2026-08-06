@@ -2254,8 +2254,11 @@ only that session without silently changing the durable switch. Strict Grok
 Stops bypass the six-event guard and use the separate 32-delivered-interjection
 cap. Every continuation and material transition is persisted in
 `.reconc/run/decisions.jsonl` with bounded identifiers, branch, and counters,
-never prompt text. The live log and two archives are each bounded at
-2 MiB; readers merge the ring in chronological order.
+never prompt text. Repeated equivalent continuations persist only the initial
+observation, material progress, the third and fifth unchanged nudge, and the
+no-progress release; terminal and policy-checkpoint transitions are always
+durable. The live log and two archives are each bounded at 2 MiB; readers merge
+the ring in chronological order.
 Repeated identical policy feedback shrinks to stable `RB-*` feedback IDs,
 rule IDs, and the saved report path. PreToolUse evaluates only pre-execution
 write/shell rules,
@@ -2284,26 +2287,42 @@ with best-effort Unix process priority while keeping PreToolUse, permission,
 and Stop at normal priority. Routine executable repository continuation never
 builds a Stop fingerprint. Terminal Stop uses one git status snapshot
 per report build with default `--untracked-files=normal`, dirty-path
-content/index hashes, direct loose/packed/worktree HEAD resolution, and a
+content/index hashes, policy-source identity, typed TASK state, direct
+loose/packed/worktree HEAD resolution, and a
 per-session report lock instead of full `git diff --binary` output or repeated
 status walks. The same bounded status snapshot scopes Stop-time write evidence
 to paths that are both session-recorded and still uncommitted; unknown Git or
 path state keeps the full session write set and therefore fails closed. The
 completed report is cached under that initial fingerprint and the exact
-read/write/command/claim evidence hash. Normal Stops still rebuild the
-fingerprint, while reentrant `stop_hook_active=true` calls may reuse a clean
-cached report only when both the full repo fingerprint and evidence hash still
-match, so the next Stop reruns if the repo or evidence changes after the report
-was built. Dirty regular files up to 64 MiB contribute exact SHA-256 content
-identity. A larger dirty file receives only a bounded size/mtime diagnostic
-identity, makes stop-policy report caching ineligible, and marks the completion
-worktree untrusted; Reconc therefore never reuses a report or certifies a
-candidate whose changed bytes were not hashed exactly. Alternate Git ref backends fall back to `git rev-parse`; the normal
+read/write/command/claim evidence hash. One-shot hooks, small dirty states, and
+all uncertain inputs rebuild that exact fingerprint. A persistent session
+worker may reuse a fully published report for a dirty state of at least 16 MiB
+or 1,024 entries after a memory-only generation sample matches canonical root,
+Git status/HEAD/index, platform file identity and change time, recursive
+untracked-tree metadata, policy lock and sources, typed TASK state,
+configuration, and session evidence. The cache owns at most 64
+repository/session entries and starts no watcher or background process.
+Equivalent concurrent Stops serialize under the report lock and reload session
+evidence before reuse or evaluation. Re-entrant `stop_hook_active=true` calls
+apply the same exact identities before reusing a clean report.
+
+Dirty regular files up to 64 MiB contribute exact SHA-256 content identity. A
+larger dirty file receives only a bounded size/mtime diagnostic identity, makes
+stop-policy report caching ineligible, and marks the completion worktree
+untrusted; Reconc therefore never reuses a report or certifies a candidate
+whose changed bytes were not hashed exactly. Normal-mode untracked directory
+sentinels are recursively content-hashed under a 100,000-entry and 64 MiB
+aggregate-content bound. Directory or file identity replacement during the
+scan fails closed. Unsupported file metadata, dirty submodules, scan overflow,
+malformed Git/TASK state, and interrupted report publication bypass generation
+reuse. Alternate Git ref backends fall back to `git rev-parse`; the normal
 path avoids that extra process. Reconc's own `.reconc/cache/`,
 `.reconc/run/`, `.reconc/locks/`, `.reconc/reports/`, and
 `.reconc/audit.jsonl` runtime artefacts are excluded from the dirty fingerprint
-so report writes cannot invalidate their own cache. `RECONC_STOP_FINGERPRINT_UNTRACKED=all`
-restores the old all-untracked cache key for repos that need it. Matching `require_script` rules
+so report writes cannot invalidate their own cache.
+`RECONC_STOP_FINGERPRINT_UNTRACKED=all` asks Git to enumerate every untracked
+path; the default `normal` mode still binds all nested content below each
+directory sentinel, while `no` excludes untracked paths. Matching `require_script` rules
 that call the same `run-workflow-audit` runner are batched through
 `--batch-json` in one process and then split back into per-rule pass/block
 reports, so subprocess startup drops without weakening rule attribution. All

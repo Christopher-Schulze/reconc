@@ -117,8 +117,44 @@ func TestHashFileContentBoundsOversizedFiles(t *testing.T) {
 	}
 }
 
+func TestHashFileContentExpectedRejectsFileReplacement(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.txt")
+	second := filepath.Join(dir, "second.txt")
+	if err := os.WriteFile(first, []byte("first\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("second\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	expected, err := os.Lstat(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hashFileContentExpected(second, expected); err == nil {
+		t.Fatal("content hashing accepted a different file identity")
+	}
+}
+
+func TestReadStopDirectoryEntriesRejectsBoundBeforeFullAllocation(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a", "b"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	info, err := os.Lstat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readStopDirectoryEntries(dir, info, 1); err == nil || !strings.Contains(err.Error(), "tree exceeds") {
+		t.Fatalf("bounded directory read error = %v, want tree limit", err)
+	}
+}
+
 func TestOversizedDirtyFileDisablesStopPolicyCache(t *testing.T) {
 	input := stopPolicyFingerprintInput{
+		GitStatusOK:   true,
 		GitDirtyFiles: []gitDirtyFile{{Path: "large.bin", WorktreeHash: "oversized:67108865:2026-07-14T12:00:00Z"}},
 	}
 	if stopPolicyFingerprintCacheable(input) {
@@ -255,6 +291,31 @@ func TestCachedCleanStopReportRequiresCurrentFingerprint(t *testing.T) {
 	}
 	if _, ok := cachedCleanStopPolicyReportForEvidence(state.RepoRoot, state, evidenceHash); ok {
 		t.Fatal("dirty-state drift must invalidate the clean reentrant report")
+	}
+}
+
+func TestCachedCleanStopWorkerCacheRetainsSmallExactFallback(t *testing.T) {
+	counterPath := filepath.Join(t.TempDir(), "counter")
+	repo := setupStopScriptPolicyRepo(t, counterPath, 0, "")
+	state, err := InitializeSessionState(repo, "s-worker-exact-cache")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runStopPolicyCheck(repo, state); err != nil {
+		t.Fatal(err)
+	}
+	state, err = LoadSessionState(repo, state.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskSnapshot, err := captureStopTaskSnapshot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cachedCleanStopPolicyReportForEvidenceWithCache(
+		repo, state, stopPolicyEvidenceHash(state), NewStopDecisionCache(), taskSnapshot,
+	); !ok {
+		t.Fatal("worker cache without a costly-state generation lost the exact clean fallback")
 	}
 }
 
@@ -502,6 +563,7 @@ func TestCompletionDirtyFilesTrustFailsClosed(t *testing.T) {
 	for _, file := range []gitDirtyFile{
 		{Path: "deleted", WorktreeHash: "missing"},
 		{Path: "regular", WorktreeHash: strings.Repeat("a", 64)},
+		{Path: "directory", WorktreeHash: "dir:" + strings.Repeat("d", 64)},
 		{Path: "link", WorktreeHash: "symlink:" + strings.Repeat("b", 64)},
 		{Path: "submodule", WorktreeHash: "submodule:" + strings.Repeat("c", 64), IndexEntry: "160000 abc 0"},
 	} {
@@ -511,7 +573,7 @@ func TestCompletionDirtyFilesTrustFailsClosed(t *testing.T) {
 	}
 }
 
-func TestStopPolicyFingerprintUntrackedModeAllIsOptIn(t *testing.T) {
+func TestStopPolicyFingerprintBindsUntrackedDirectoryContentInEveryMode(t *testing.T) {
 	counterPath := filepath.Join(t.TempDir(), "counter")
 	repo := setupStopScriptPolicyRepo(t, counterPath, 0, "")
 	state, err := InitializeSessionState(repo, "s-untracked-mode")
@@ -533,8 +595,8 @@ func TestStopPolicyFingerprintUntrackedModeAllIsOptIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	normalB := stopPolicyFingerprint(repo, state)
-	if normalA != normalB {
-		t.Fatal("default normal untracked mode should not hash every file inside an untracked directory")
+	if normalA == normalB {
+		t.Fatal("default normal mode must bind content below an untracked directory sentinel")
 	}
 
 	t.Setenv(stopPolicyUntrackedModeEnv, "all")

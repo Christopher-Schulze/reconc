@@ -38,6 +38,16 @@ func runStopResolved(root string, payloadBytes []byte, runtimeName string) (resu
 }
 
 func runStopResolvedWithEvaluator(root string, payloadBytes []byte, runtimeName string, evaluator *runtime.Evaluator) (result Result) {
+	return runStopResolvedWithEvaluatorAndCache(root, payloadBytes, runtimeName, evaluator, nil)
+}
+
+func runStopResolvedWithEvaluatorAndCache(
+	root string,
+	payloadBytes []byte,
+	runtimeName string,
+	evaluator *runtime.Evaluator,
+	stopCache *StopDecisionCache,
+) (result Result) {
 	payload, err := ParsePayload(payloadBytes)
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): %s", err)}
@@ -76,18 +86,13 @@ func runStopResolvedWithEvaluator(root string, payloadBytes []byte, runtimeName 
 		return Result{ExitCode: 0}
 	}
 
-	var taskStateInspected bool
-	var taskState repositoryRunTaskState
+	taskSnapshot, err := captureStopTaskSnapshot(root)
+	if err != nil {
+		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): capture TASK snapshot: %s", err)}
+	}
+	taskState := repositoryRunTaskState{RunState: taskSnapshot.State}
 	checkpointDue := false
 	runApplies := repositoryRunEnabled(runState)
-	if runApplies {
-		inspected, inspectErr := inspectRepositoryRunTask(root)
-		if inspectErr != nil {
-			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc run: inspect TASK state: %s", inspectErr)}
-		}
-		taskState = repositoryRunTaskState{RunState: inspected}
-		taskStateInspected = true
-	}
 
 	// Repository mode is explicitly autonomous. An executable TASK continues
 	// before the terminal Stop policy and never shells out to Git. Task mutation,
@@ -137,7 +142,7 @@ func runStopResolvedWithEvaluator(root string, payloadBytes []byte, runtimeName 
 
 	if payload.StopHookActive && !payload.StrictContinuation && !checkpointDue {
 		evidenceHash := stopPolicyEvidenceHash(state)
-		if _, ok := cachedCleanStopPolicyReportForEvidence(root, state, evidenceHash); ok {
+		if _, ok := cachedCleanStopPolicyReportForEvidenceWithCache(root, state, evidenceHash, stopCache, taskSnapshot); ok {
 			currentRun, _ := loadRepositoryRunStateResolved(root)
 			if repositoryRunEnabled(currentRun) {
 				logRunStopDecision(root, "stop_hook_active_clean_cache", payload, runtimeName, currentRun, currentRun, false, 0)
@@ -146,7 +151,7 @@ func runStopResolvedWithEvaluator(root string, payloadBytes []byte, runtimeName 
 		}
 	}
 
-	policyResult, err := runStopPolicyCheckWithSnapshotWithEvaluator(root, state, evaluator)
+	policyResult, err := runStopPolicyCheckWithSnapshotWithEvaluatorAndCache(root, state, evaluator, stopCache, &taskSnapshot)
 	if err != nil {
 		if isLockfileError(err) {
 			// A stale lockfile must still hold the session open, but it must
@@ -181,7 +186,7 @@ func runStopResolvedWithEvaluator(root string, payloadBytes []byte, runtimeName 
 		return Result{ExitCode: 0, Stdout: stopBlockJSONOutput(root, state.SessionID, report, violations)}
 	}
 
-	if result, blocked, terminalErr := taskCompletionCommitGate(root, policyResult.GitSnapshot); terminalErr != nil {
+	if result, blocked, terminalErr := taskCompletionCommitGate(policyResult.TaskSnapshot, policyResult.GitSnapshot); terminalErr != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (stop): TASK completion gate: %s", terminalErr)}
 	} else if blocked {
 		return result
@@ -193,13 +198,6 @@ func runStopResolvedWithEvaluator(root string, payloadBytes []byte, runtimeName 
 	}
 
 	if repositoryRunEnabled(runState) {
-		if !taskStateInspected {
-			inspected, inspectErr := inspectRepositoryRunTask(root)
-			if inspectErr != nil {
-				return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc run: inspect TASK state: %s", inspectErr)}
-			}
-			taskState = repositoryRunTaskState{RunState: inspected}
-		}
 		if contResult, contHandled, err := runRepositoryContinuation(root, runFile, payload, runtimeName, taskState.RunState); err != nil {
 			return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc run: %s", err)}
 		} else if contHandled {
@@ -237,20 +235,19 @@ func markRepoPolicyCheckpoint(root string, runFile *os.File, payload *HookPayloa
 		return state
 	})
 	if err == nil && before != after {
-		logRunStopDecision(root, "repo_policy_checkpoint", payload, runtimeName, before, after, false, 0)
+		if logErr := appendRunStopDecision(root, "repo_policy_checkpoint", payload, runtimeName, before, after, false, 0); logErr != nil {
+			return fmt.Errorf("record repository policy checkpoint: %w", logErr)
+		}
 	}
 	return err
 }
 
-func taskCompletionCommitGate(root string, snapshot stopPolicyGitSnapshot) (Result, bool, error) {
-	cfg, err := tasklifecycle.LoadConfig(root)
-	if err != nil || !cfg.Enabled || !cfg.Completion.RequireCommitted {
-		return Result{}, false, err
+func taskCompletionCommitGate(taskSnapshot stopTaskSnapshot, snapshot stopPolicyGitSnapshot) (Result, bool, error) {
+	cfg := taskSnapshot.Config
+	if !cfg.Enabled || !cfg.Completion.RequireCommitted {
+		return Result{}, false, nil
 	}
-	state, err := tasklifecycle.InspectRunState(root)
-	if err != nil {
-		return Result{}, false, err
-	}
+	state := taskSnapshot.State
 	if state.Disposition != tasklifecycle.RunComplete {
 		return Result{}, false, nil
 	}
@@ -366,11 +363,30 @@ func runRepositoryContinuation(root string, runFile *os.File, payload *HookPaylo
 		return Result{}, false, err
 	}
 	if decisionBranch == "run_followup" || decisionBranch == "repo_no_progress_release" {
-		logRunContinuationDecision(root, decisionBranch, payload, runtimeName, before, after, sessionNudges, strictContinuation)
+		if shouldLogRunContinuation(decisionBranch, before, after, sessionNudges, strictContinuation) {
+			if err := logRunContinuationDecision(root, decisionBranch, payload, runtimeName, before, after, sessionNudges, strictContinuation); err != nil {
+				return Result{}, false, fmt.Errorf("record repository continuation: %w", err)
+			}
+		}
 	} else if decisionBranch != "" && before != after {
-		logRunStopDecision(root, decisionBranch, payload, runtimeName, before, after, false, 0)
+		if err := appendRunStopDecision(root, decisionBranch, payload, runtimeName, before, after, false, 0); err != nil {
+			return Result{}, false, fmt.Errorf("record repository transition: %w", err)
+		}
 	}
 	return contResult, contHandled, nil
+}
+
+func shouldLogRunContinuation(branch string, before, after repositoryRunState, nudges int, strict bool) bool {
+	if branch == "repo_no_progress_release" {
+		return true
+	}
+	if before.AwaitingContinuation != after.AwaitingContinuation || before.LastProgressHash != after.LastProgressHash {
+		return true
+	}
+	if strict {
+		return false
+	}
+	return nudges == 3 || nudges == 5
 }
 
 // joinStderr combines two stderr fragments with a newline, tolerating

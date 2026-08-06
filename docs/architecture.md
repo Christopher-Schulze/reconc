@@ -667,15 +667,41 @@ Reconc does not generate, authenticate, HMAC, or expire host session IDs, so a
 hostile process with the same user and filesystem authority remains outside
 this boundary.
 
+### Incremental Stop decision cache
+
+One-shot hook processes always use the exact Stop fingerprint. A persistent
+session worker additionally owns an isolated, memory-only cache of at most 64
+repository/session generations. After an exact successful report for a costly
+dirty state, a repeated Stop may replace dirty-file content hashing with one
+conservative generation sample. The generation binds canonical root identity,
+Git status, HEAD and index entries, platform file identity and change time,
+recursive untracked-tree metadata, policy lock and source identity, typed TASK
+state, schema configuration, and session evidence. It never starts a watcher,
+daemon, or background lifecycle.
+
+Generation reuse is enabled only when the exact dirty state contains at least
+16 MiB or 1,024 entries. Small states, one-shot routes, dirty submodules,
+oversized content, unsupported file metadata, malformed Git or TASK state,
+bounded-tree overflow, and any identity uncertainty use the exact path. Normal
+untracked-directory sentinels are recursively content-hashed under a 100,000
+entry and 64 MiB aggregate-content bound, so nested edits cannot retain a
+constant directory identity. File replacement during exact hashing and
+directory replacement during traversal fail closed. The existing per-session
+report lock serializes equivalent Stops and reloads session evidence before
+evaluation; a concurrent follower therefore either reads the fully published
+report with matching hashes or evaluates current state.
+
 ### Run state concurrency and Stop routing
 
 `.reconc/run/state.bin` uses two CRC-protected slots and is published only for
 material transitions.
 Disabled hook events do not create run state or decisions. Enabled
-continuations append one bounded decision even when the coarse run snapshot is
-unchanged. Parallel agent tool calls can still spawn concurrent
-`reconc hook runtime` processes, so three invariants keep an active run from
-being silently disabled:
+continuations append decisions for the first observation, material progress,
+the third and fifth unchanged nudge, the no-progress release, and terminal or
+checkpoint transitions. Equivalent observations between those points do not
+force-sync duplicate JSONL records. Parallel agent tool calls can still spawn
+concurrent `reconc hook runtime` processes, so three invariants keep an active
+run from being silently disabled:
 
 - **Crash-safe fixed layout.** Each state update writes a fixed 88-byte payload
   into the inactive 512-byte slot with a monotonic sequence and CRC32C over
@@ -726,7 +752,8 @@ use the separate 32-delivered-interjection cap. Repository runs leave the fast
 path only after 64 new material events, 30 minutes with new progress, or a
 failed command, then reuse the normal full Stop report as a policy checkpoint.
 Explicitly configured TASK state fails closed if its overview disappears, and
-optional committed completion reuses that terminal report's Git snapshot.
+optional committed completion reuses that terminal report's Git and typed TASK
+snapshot instead of inspecting either control plane again.
 The shared `completiongate` used by Stop-facing views, `done`, and TUI binds
 that snapshot to current policy, session
 evidence, staged command proofs, and typed TASK completion. It captures state

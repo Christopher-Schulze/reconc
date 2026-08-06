@@ -135,7 +135,11 @@ func runPassiveEventResolved(root string, payloadBytes []byte) Result {
 }
 
 func logRunStopDecision(repoRoot, branch string, payload *HookPayload, runtime string, before, after repositoryRunState, policyBlocked bool, violationCount int) {
-	_ = appendRunDecisionResolved(repoRoot, RunDecision{
+	_ = appendRunStopDecision(repoRoot, branch, payload, runtime, before, after, policyBlocked, violationCount)
+}
+
+func appendRunStopDecision(repoRoot, branch string, payload *HookPayload, runtime string, before, after repositoryRunState, policyBlocked bool, violationCount int) error {
+	return appendRunDecisionResolved(repoRoot, RunDecision{
 		Event:                      "stop",
 		Branch:                     branch,
 		Runtime:                    strings.TrimSpace(runtime),
@@ -152,8 +156,8 @@ func logRunStopDecision(repoRoot, branch string, payload *HookPayload, runtime s
 	})
 }
 
-func logRunContinuationDecision(repoRoot, branch string, payload *HookPayload, runtime string, before, after repositoryRunState, nudges int, strict bool) {
-	_ = appendRunDecisionResolved(repoRoot, RunDecision{
+func logRunContinuationDecision(repoRoot, branch string, payload *HookPayload, runtime string, before, after repositoryRunState, nudges int, strict bool) error {
+	return appendRunDecisionResolved(repoRoot, RunDecision{
 		Event: "stop", Branch: branch, Runtime: strings.TrimSpace(runtime),
 		SessionID:     sessionIDFromPayload(payload),
 		EnabledBefore: before.Enabled, EnabledAfter: after.Enabled,
