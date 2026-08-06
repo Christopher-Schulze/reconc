@@ -732,6 +732,9 @@ a blocking synthetic policy. It then verifies artifact generation,
 installation/configuration, the generated shell or Bun transport, a real
 policy denial, the platform-native response adaptation, and route duration.
 It invokes no host, model, account, cloud service, or caller repository.
+Native Windows discovers a POSIX `sh` transport from `PATH` (normally Git for
+Windows) and uses platform-correct file URLs for generated Bun adapters; a
+missing shell produces an explicit incomplete result.
 
 Offline `configured`, `discoverable`, and `synthetic_enforced` facts refer only
 to that disposable repository. `loaded`, `observed`, and `enforced` remain

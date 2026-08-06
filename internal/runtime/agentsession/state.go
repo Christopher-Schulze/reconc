@@ -284,6 +284,12 @@ func ResolveRepoRootRef(repoRoot string) (ResolvedRepoRoot, error) {
 	if err != nil {
 		return ResolvedRepoRoot{}, fmt.Errorf("inspect resolved repo filesystem identity: %w", err)
 	}
+	// Go resolves Windows file IDs lazily inside os.SameFile. Compare the two
+	// known-current handles now so the stored identity is frozen before a
+	// persistent worker can observe the same lexical path after replacement.
+	if !os.SameFile(info, identity) {
+		return ResolvedRepoRoot{}, errors.New("resolved repository filesystem identity changed during resolution")
+	}
 	return ResolvedRepoRoot{path: resolved, identity: identity}, nil
 }
 

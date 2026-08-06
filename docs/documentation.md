@@ -1801,8 +1801,11 @@ disposable repository and separately verifies artifact generation,
 configuration, generated wrapper or Bun-adapter transport, a real synthetic
 policy decision, native response adaptation, and duration. It never invokes a
 host, model, account, cloud service, or the caller's repository. Offline
-`synthetic_enforced` is not promoted to `loaded`, `observed`, or live
-`enforced`; all expected host routes remain explicitly unproven.
+verification discovers the POSIX `sh` transport on native Windows, including
+Git for Windows, and normalizes generated Bun module paths with file URLs; an
+absent shell remains explicitly incomplete rather than passing by inspection.
+The offline `synthetic_enforced` fact is not promoted to `loaded`, `observed`,
+or live `enforced`; all expected host routes remain explicitly unproven.
 
 The explicit `--live --host KIND --surface SURFACE --allow-authenticated` mode
 prepares one disposable host exercise and waits for the operator without
@@ -2045,10 +2048,13 @@ the existing one-shot path. Protocol drift disables reuse for that plugin
 instance, while a later plugin instance picks up an installed binary upgrade.
 Shutdown closes the worker, and stdin EOF prevents orphans if the host exits.
 The worker reuses a revalidated operating-system repository identity and an
-immutable typed policy plan. Each request still reads bounded lock bytes and
-the complete source bundle identity: lock-byte drift rebuilds the plan, while
-source drift invalidates it and fails closed. Session and taint inputs remain
-freshly loaded. No daemon, socket, listener, or runtime network call is added.
+immutable typed policy plan. Resolution eagerly freezes the filesystem object
+ID before caching, including Go's otherwise lazy Windows file ID, so replacing
+a repository at the same lexical path invalidates the cached handle. Each request
+still reads bounded lock bytes and the complete source bundle identity:
+lock-byte drift rebuilds the plan, while source drift invalidates it and fails
+closed. Session and taint inputs remain freshly loaded. No daemon, socket,
+listener, or runtime network call is added.
 
 Claude Code, Codex, GitHub Copilot, Cursor, Devin, Antigravity, and Grok
 generated repository configs use `tools/reconc/bin/hook` on POSIX; the wrapper

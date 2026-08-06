@@ -536,13 +536,14 @@ the next event. Shutdown sends a bounded acknowledgement and kills any child
 that does not exit; parent stdin closure also terminates the worker. A running
 worker keeps its current binary until plugin shutdown, so an installed upgrade
 is picked up by the next plugin instance without mutating an in-flight request.
-The worker caches `ResolvedRepoRoot` plus an immutable typed policy plan. It
-proves the same filesystem object with `os.SameFile` before root reuse and
-resolves again after repository replacement or alias drift. Every policy check
-still performs bounded lock-byte and source-bundle identity reads. Changed lock
-bytes rebuild the plan; changed source identity invalidates it and fails closed
-until `reconc refresh`. Session state, taint, and binary selection remain fresh
-per request. Shell-only hosts continue using one-shot
+The worker caches `ResolvedRepoRoot` plus an immutable typed policy plan. Root
+resolution eagerly materializes the filesystem object identity before caching,
+including Go's lazy Windows file ID; reuse proves that same object with
+`os.SameFile` and resolves again after same-path replacement or alias drift.
+Every policy check still performs bounded lock-byte and source-bundle identity
+reads. Changed lock bytes rebuild the plan; changed source identity invalidates
+it and fails closed until `reconc refresh`. Session state, taint, and binary
+selection remain fresh per request. Shell-only hosts continue using one-shot
 execution and no daemon, listener, socket, or network surface is introduced.
 
 Custom runtimes do not enter the built-in registry and cannot override it.

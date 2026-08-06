@@ -384,31 +384,46 @@ func hookVerificationBlocked(kind string, err error, stdout, stderr string) bool
 }
 
 func verifyGeneratedHookTransport(kind, repo string) (string, string, []string, string) {
-	if runtime.GOOS == "windows" {
-		return "unavailable", "unavailable", []string{"generated shell transport execution on native Windows"}, "transport execution requires the shipped POSIX-compatible hook shell"
-	}
-	if kind == hooks.KindGitPreCommit {
-		return verifyGeneratedGitTransport(repo)
-	}
 	if kind == hooks.KindKimiCode {
 		return verifyGeneratedKimiTransport()
+	}
+	shell, err := hookVerificationShell()
+	if err != nil {
+		return "unavailable", "unavailable",
+			[]string{"generated shell transport execution without POSIX sh"},
+			"transport execution requires the shipped POSIX-compatible hook shell: " + err.Error()
+	}
+	if kind == hooks.KindGitPreCommit {
+		return verifyGeneratedGitTransport(repo, shell)
 	}
 	if err := writeHookVerificationFakeBinary(repo); err != nil {
 		return "failed", "failed", nil, "create transport probe: " + err.Error()
 	}
-	transport, detail := verifyGeneratedWrapperTransport(kind, repo)
+	transport, detail := verifyGeneratedWrapperTransport(kind, repo, shell)
 	if transport != "verified" {
 		return transport, "failed", nil, detail
 	}
 	return verifyGeneratedAdapterTransport(kind, repo)
 }
 
-func verifyGeneratedGitTransport(repo string) (string, string, []string, string) {
+func hookVerificationShell() (string, error) {
+	name := "/bin/sh"
+	if runtime.GOOS == "windows" {
+		name = "sh"
+	}
+	path, err := exec.LookPath(name)
+	if err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func verifyGeneratedGitTransport(repo, shell string) (string, string, []string, string) {
 	if err := writeHookVerificationFakeBinary(repo); err != nil {
 		return "failed", "failed", nil, "create transport probe: " + err.Error()
 	}
 	hookPath := filepath.Join(repo, filepath.FromSlash(hooks.GitPreCommitPath))
-	command := exec.Command("/bin/sh", hookPath)
+	command := exec.Command(shell, hookPath)
 	command.Dir = repo
 	output, err := command.CombinedOutput()
 	if exitCodeOfProcess(err) != 2 || !strings.Contains(string(output), "hook-verify-transport") {
@@ -425,7 +440,7 @@ func verifyGeneratedKimiTransport() (string, string, []string, string) {
 	return "verified", "not-applicable", nil, ""
 }
 
-func verifyGeneratedWrapperTransport(kind, repo string) (string, string) {
+func verifyGeneratedWrapperTransport(kind, repo, shell string) (string, string) {
 	event, ok := hooks.RuntimeEventFor(kind, hooks.EventPreToolUse)
 	if !ok {
 		return "failed", "registry pre-tool route missing"
@@ -433,10 +448,10 @@ func verifyGeneratedWrapperTransport(kind, repo string) (string, string) {
 	wrapperPath := filepath.Join(repo, filepath.FromSlash(hooks.WrapperPath))
 	if info, statErr := os.Stat(wrapperPath); statErr != nil {
 		return "failed", "generated wrapper is unavailable after installation: " + statErr.Error()
-	} else if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
+	} else if !info.Mode().IsRegular() || (runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0) {
 		return "failed", "generated wrapper is not a regular executable file after installation"
 	}
-	command := exec.Command("/bin/sh", wrapperPath, event, repo)
+	command := exec.Command(shell, wrapperPath, event, repo)
 	command.Dir = repo
 	command.Stdin = strings.NewReader("{}")
 	output, err := command.CombinedOutput()
@@ -505,10 +520,11 @@ func exitCodeOfProcess(err error) int {
 	return exitError.ExitCode()
 }
 
-const generatedBunAdapterDriver = `const path = Bun.argv[2]
+const generatedBunAdapterDriver = `import { pathToFileURL } from "node:url"
+const path = Bun.argv[2]
 const kind = Bun.argv[3]
 const repo = Bun.argv[4]
-const module = await import("file://" + path + "?verify=" + Date.now())
+const module = await import(pathToFileURL(path).href + "?verify=" + Date.now())
 if (kind === "opencode" || kind === "kilo") {
   const factory = kind === "opencode" ? module.ReconcOpenCodePlugin : module.default?.server
   if (typeof factory !== "function") throw new Error("plugin factory missing")
