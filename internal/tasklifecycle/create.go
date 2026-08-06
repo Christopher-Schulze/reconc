@@ -8,9 +8,12 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"reconc.dev/reconc/internal/boundedio"
 )
 
 const maxTaskTitleRunes = 200
+const maxTaskDirectoryEntries = 4096
 
 // Create adds one queued TASK row and one grammar-correct detail file through
 // the same recoverable transaction used by every other lifecycle mutation.
@@ -129,7 +132,7 @@ func selectCreateID(board *Board, requested string) (string, error) {
 		}
 	}
 	for _, dir := range []string{board.Config.DetailDir, board.Config.DoneDir} {
-		entries, err := os.ReadDir(filepath.Join(board.RepoRoot, filepath.FromSlash(dir)))
+		entries, err := boundedio.ReadDirNoSymlink(filepath.Join(board.RepoRoot, filepath.FromSlash(dir)), maxTaskDirectoryEntries)
 		if err != nil && !os.IsNotExist(err) {
 			return "", fmt.Errorf("scan TASK IDs in %s: %w", dir, err)
 		}
@@ -150,7 +153,7 @@ func taskIDReserved(board *Board, id string) (bool, error) {
 		return true, nil
 	}
 	for _, dir := range []string{board.Config.DetailDir, board.Config.DoneDir} {
-		entries, err := os.ReadDir(filepath.Join(board.RepoRoot, filepath.FromSlash(dir)))
+		entries, err := boundedio.ReadDirNoSymlink(filepath.Join(board.RepoRoot, filepath.FromSlash(dir)), maxTaskDirectoryEntries)
 		if err != nil && !os.IsNotExist(err) {
 			return false, fmt.Errorf("scan TASK IDs in %s: %w", dir, err)
 		}

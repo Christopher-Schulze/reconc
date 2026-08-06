@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/filelock"
 )
 
@@ -273,13 +274,19 @@ func PathsOldestFirst(path string, maxArchives int) ([]string, error) {
 	paths := make([]string, 0, maxArchives+1)
 	for index := maxArchives; index >= 1; index-- {
 		candidate := fmt.Sprintf("%s.%d", path, index)
-		if _, err := os.Stat(candidate); err == nil {
+		if info, err := os.Lstat(candidate); err == nil {
+			if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+				return nil, fmt.Errorf("JSONL archive must be a non-symlink regular file: %s", candidate)
+			}
 			paths = append(paths, candidate)
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return nil, err
 		}
 	}
-	if _, err := os.Stat(path); err == nil {
+	if info, err := os.Lstat(path); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("JSONL live path must be a non-symlink regular file: %s", path)
+		}
 		paths = append(paths, path)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
@@ -745,7 +752,7 @@ type archiveCandidate struct {
 
 func archiveCandidates(path string) ([]archiveCandidate, error) {
 	directory := filepath.Dir(path)
-	entries, err := os.ReadDir(directory)
+	entries, err := boundedio.ReadDir(directory, 4096)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}

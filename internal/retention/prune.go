@@ -12,6 +12,7 @@ import (
 
 	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/audit"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/jsonl"
 )
@@ -24,6 +25,11 @@ type candidate struct {
 	active bool
 	dir    bool
 }
+
+const (
+	maxRetentionDirectoryEntries = 16_384
+	maxRetentionWalkEntries      = 100_000
+)
 
 // Run executes an immediate, cross-process-serialized retention pass.
 func Run(options Options) Report {
@@ -217,7 +223,7 @@ func pruneProjectRootsInterval(options Options, force bool, report *Report) (Cla
 func pruneProjectRoots(options Options, report *Report, preserveRecent bool) ClassReport {
 	class := ClassReport{Name: "project-state-roots"}
 	projects := filepath.Join(options.StateRoot, "projects")
-	entries, err := os.ReadDir(projects)
+	entries, err := boundedio.ReadDirNoSymlink(projects, maxRetentionDirectoryEntries)
 	if errors.Is(err, os.ErrNotExist) {
 		return class
 	}
@@ -305,9 +311,14 @@ func policyDecisionPresent(project string) (bool, error) {
 func projectTreeSizeAndLatest(root string, initial time.Time) (int64, time.Time, error) {
 	var size int64
 	latest := initial
+	visited := 0
 	err := filepath.WalkDir(root, func(_ string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
+		}
+		visited++
+		if visited > maxRetentionWalkEntries {
+			return fmt.Errorf("project state tree exceeds %d entries", maxRetentionWalkEntries)
 		}
 		info, err := entry.Info()
 		if err != nil {
@@ -415,7 +426,7 @@ func withPruneLock(options Options, run func() Report) Report {
 
 func pruneClass(name, dir string, policy ClassPolicy, now time.Time, dryRun bool, activeNames map[string]bool, include func(os.DirEntry) bool, report *Report) ClassReport {
 	class := ClassReport{Name: name}
-	entries, err := os.ReadDir(dir)
+	entries, err := boundedio.ReadDirNoSymlink(dir, maxRetentionDirectoryEntries)
 	if errors.Is(err, os.ErrNotExist) {
 		return class
 	}
@@ -656,7 +667,7 @@ func readOwnedDirectory(path string) ([]os.DirEntry, error) {
 	if !info.IsDir() {
 		return nil, fmt.Errorf("%s is not a directory", path)
 	}
-	return os.ReadDir(path)
+	return boundedio.ReadDirNoSymlink(path, maxRetentionDirectoryEntries)
 }
 
 func classTotals(classes []ClassReport, names ...string) (int64, int64) {

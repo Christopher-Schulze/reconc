@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/hooks"
 	reconruntime "reconc.dev/reconc/internal/runtime"
@@ -465,7 +466,7 @@ func desiredSyncBytes(root string, action SyncAction, artifact desiredArtifact, 
 		info.Size() <= 0 || info.Size() > maxBinaryBytes {
 		return nil, fmt.Errorf("repository sync binary source is not a bounded real regular file")
 	}
-	body, err := os.ReadFile(artifact.sourcePath)
+	body, err := boundedio.ReadRegularFile(artifact.sourcePath, maxBinaryBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read repository sync binary source: %w", err)
 	}

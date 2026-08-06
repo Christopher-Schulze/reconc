@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/pathidentity"
 )
 
@@ -61,6 +62,7 @@ func Detect(root string) (Result, error) {
 	evidence := map[string][]string{}
 	packageManagers := map[string][]string{}
 	repositoryMarkers := []string{}
+	inspectionWarnings := []string{}
 	entries := 0
 	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -93,13 +95,20 @@ func Detect(root string) (Result, error) {
 		}
 		stacks, err := stacksForFile(path, entry)
 		if err != nil {
-			return err
+			inspectionWarnings = append(inspectionWarnings, relative+": "+err.Error())
 		}
 		for _, stack := range stacks {
 			appendBoundedEvidence(evidence, stack, relative)
 		}
 		if manager := packageManagerForFile(path, entry); manager != "" {
 			appendBoundedEvidence(packageManagers, manager, relative)
+		}
+		if strings.EqualFold(entry.Name(), "package.json") {
+			for _, manager := range []string{"bun", "npm", "pnpm", "yarn"} {
+				if containsStack(stacks, manager) {
+					appendBoundedEvidence(packageManagers, manager, relative)
+				}
+			}
 		}
 		return nil
 	})
@@ -117,9 +126,11 @@ func Detect(root string) (Result, error) {
 	}
 	sort.Strings(stacks)
 	sort.Strings(repositoryMarkers)
+	sort.Strings(inspectionWarnings)
+	ambiguities := append(packageManagerAmbiguities(packageManagers), inspectionWarnings...)
 	return Result{
 		Stacks: stacks, Evidence: evidence, PackageManagers: packageManagers,
-		RepositoryMarkers: repositoryMarkers, Ambiguities: packageManagerAmbiguities(packageManagers),
+		RepositoryMarkers: repositoryMarkers, Ambiguities: ambiguities,
 	}, nil
 }
 
@@ -169,8 +180,6 @@ func packageManagerForFile(path string, entry fs.DirEntry) string {
 		return "mix"
 	case "build.zig.zon":
 		return "zig"
-	case "package.json":
-		return packageManagerFromManifest(path, entry)
 	}
 	return ""
 }
@@ -276,13 +285,10 @@ func stacksForFile(path string, entry fs.DirEntry) ([]string, error) {
 		add("javascript")
 		frameworks, err := packageFrameworks(path, entry)
 		if err != nil {
-			return nil, err
+			return stacks, err
 		}
 		for _, framework := range frameworks {
 			add(framework)
-		}
-		if manager := packageManagerFromManifest(path, entry); manager != "" {
-			add(manager)
 		}
 	default:
 		if lowerName == "tsconfig.json" || (strings.HasPrefix(lowerName, "tsconfig.") && strings.HasSuffix(lowerName, ".json")) {
@@ -325,18 +331,16 @@ func packageFrameworks(path string, entry fs.DirEntry) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("inspect package manifest %s: %w", path, err)
 	}
-	// Framework recommendations are optional discovery signals, not policy
-	// validation. Only a bounded, valid manifest is strong enough evidence.
 	if info.Size() > maxPackageJSONBytes {
-		return nil, nil
+		return nil, fmt.Errorf("package manifest %s exceeds %d bytes", path, maxPackageJSONBytes)
 	}
-	body, err := os.ReadFile(path)
+	body, err := boundedio.ReadRegularFile(path, maxPackageJSONBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read package manifest %s: %w", path, err)
 	}
 	var manifest packageManifest
 	if err := json.Unmarshal(body, &manifest); err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("parse package manifest %s: %w", path, err)
 	}
 	frameworks := []string{}
 	for _, dependencies := range []map[string]string{
@@ -355,33 +359,25 @@ func packageFrameworks(path string, entry fs.DirEntry) ([]string, error) {
 			frameworks = appendUnique(frameworks, "svelte")
 		}
 	}
+	manager := strings.ToLower(strings.TrimSpace(manifest.PackageManager))
+	if separator := strings.IndexByte(manager, '@'); separator >= 0 {
+		manager = manager[:separator]
+	}
+	switch manager {
+	case "bun", "npm", "pnpm", "yarn":
+		frameworks = appendUnique(frameworks, manager)
+	}
 	sort.Strings(frameworks)
 	return frameworks, nil
 }
 
-func packageManagerFromManifest(path string, entry fs.DirEntry) string {
-	info, err := entry.Info()
-	if err != nil || info.Size() > maxPackageJSONBytes {
-		return ""
+func containsStack(stacks []string, target string) bool {
+	for _, stack := range stacks {
+		if stack == target {
+			return true
+		}
 	}
-	body, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	var manifest packageManifest
-	if json.Unmarshal(body, &manifest) != nil {
-		return ""
-	}
-	name := strings.ToLower(strings.TrimSpace(manifest.PackageManager))
-	if separator := strings.IndexByte(name, '@'); separator >= 0 {
-		name = name[:separator]
-	}
-	switch name {
-	case "bun", "npm", "pnpm", "yarn":
-		return name
-	default:
-		return ""
-	}
+	return false
 }
 
 func appendUnique(values []string, value string) []string {
@@ -398,6 +394,6 @@ func pathDepth(relative string) int {
 }
 
 func regularFile(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.Mode().IsRegular()
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0
 }

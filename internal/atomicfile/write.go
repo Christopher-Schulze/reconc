@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"reconc.dev/reconc/internal/boundedio"
 )
 
 // WriteIfChanged atomically replaces path with data only when its current
@@ -19,20 +21,26 @@ func WriteIfChanged(path string, data []byte, mode os.FileMode) (bool, error) {
 	if lstatErr != nil && !os.IsNotExist(lstatErr) {
 		return false, fmt.Errorf("inspect current %s: %w", path, lstatErr)
 	}
-	current, err := os.ReadFile(path)
-	if err == nil && bytes.Equal(current, data) {
-		info, statErr := os.Stat(path)
-		if statErr != nil {
-			return false, fmt.Errorf("stat current %s: %w", path, statErr)
+	if lstatErr == nil && info.Size() == int64(len(data)) {
+		limit := int64(len(data))
+		if limit == 0 {
+			limit = 1
 		}
-		modeChanged, modeErr := reconcileMode(path, info.Mode(), mode)
-		if modeErr != nil {
-			return false, fmt.Errorf("reconcile mode for current %s: %w", path, modeErr)
+		current, err := boundedio.ReadRegularFile(path, limit)
+		if err != nil {
+			return false, fmt.Errorf("read current %s: %w", path, err)
 		}
-		return modeChanged, nil
-	}
-	if err != nil && !os.IsNotExist(err) {
-		return false, fmt.Errorf("read current %s: %w", path, err)
+		if bytes.Equal(current, data) {
+			info, statErr := os.Stat(path)
+			if statErr != nil {
+				return false, fmt.Errorf("stat current %s: %w", path, statErr)
+			}
+			modeChanged, modeErr := reconcileMode(path, info.Mode(), mode)
+			if modeErr != nil {
+				return false, fmt.Errorf("reconcile mode for current %s: %w", path, modeErr)
+			}
+			return modeChanged, nil
+		}
 	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

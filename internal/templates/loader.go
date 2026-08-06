@@ -28,8 +28,14 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/presets"
 	"reconc.dev/reconc/internal/safename"
+)
+
+const (
+	maxUserTemplateBytes   = 8 << 20
+	maxUserTemplateEntries = 4096
 )
 
 //go:embed builtin/*.yml
@@ -139,7 +145,7 @@ func List() ([]Template, error) {
 
 	// User overrides.
 	if home := userTemplatesDir(); home != "" {
-		entries, err := os.ReadDir(home)
+		entries, err := boundedio.ReadDirNoSymlink(home, maxUserTemplateEntries)
 		if err != nil && !os.IsNotExist(err) {
 			return nil, fmt.Errorf("list user templates: %w", err)
 		}
@@ -225,7 +231,7 @@ func readRegularFile(path string) ([]byte, error) {
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("%s must be a regular file and not a symlink", path)
 	}
-	return os.ReadFile(path)
+	return boundedio.ReadRegularFile(path, maxUserTemplateBytes)
 }
 
 func parseTemplateBytes(data []byte, contextPath string) (map[string]interface{}, string, error) {

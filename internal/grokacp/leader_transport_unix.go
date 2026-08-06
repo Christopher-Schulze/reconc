@@ -10,7 +10,11 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"reconc.dev/reconc/internal/boundedio"
 )
+
+const maxGrokHomeEntries = 4096
 
 // leaderSocketCandidates lists the Unix sockets a running Grok leader may be
 // bound to, most specific first. Hooks dispatched by a leader-hosted session
@@ -36,7 +40,7 @@ func leaderSocketCandidates() ([]string, error) {
 		}
 		home = filepath.Join(userHome, ".grok")
 	}
-	entries, err := os.ReadDir(home)
+	entries, err := boundedio.ReadDir(home, maxGrokHomeEntries)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}

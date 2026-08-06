@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/schema"
 )
 
@@ -196,7 +197,7 @@ func buildRepositorySyncTransaction(
 			if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 				return nil, fmt.Errorf("repository sync source is not a real regular file: %s", mutation.Path)
 			}
-			before, err := os.ReadFile(target)
+			before, err := boundedio.ReadRegularFile(target, maxSyncRollbackBytes)
 			if err != nil {
 				return nil, fmt.Errorf("read repository sync source %s: %w", mutation.Path, err)
 			}
@@ -302,7 +303,7 @@ func publishRepositorySyncMutation(
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("repository sync precondition is not a real regular file: %s", mutation.Path)
 	}
-	current, err := os.ReadFile(target)
+	current, err := boundedio.ReadRegularFile(target, maxSyncRollbackBytes)
 	if err != nil {
 		return fmt.Errorf("read repository sync precondition %s: %w", mutation.Path, err)
 	}
@@ -325,7 +326,7 @@ func verifyRepositorySyncMutation(target, expectedSHA string, expectedMode uint3
 		!modeSatisfies(info.Mode(), expectedMode) {
 		return fmt.Errorf("published repository sync artifact has an invalid type or mode: %s", target)
 	}
-	body, err := os.ReadFile(target)
+	body, err := boundedio.ReadRegularFile(target, maxBinaryBytes)
 	if err != nil {
 		return fmt.Errorf("read published repository sync artifact: %w", err)
 	}
@@ -482,7 +483,7 @@ func inspectRepositorySyncTransactionState(
 		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 			return syncTransactionMixed, fmt.Errorf("recovery conflict: %s is not a real regular file", file.Path)
 		}
-		body, err := os.ReadFile(target)
+		body, err := boundedio.ReadRegularFile(target, maxBinaryBytes)
 		if err != nil {
 			return syncTransactionMixed, fmt.Errorf("recovery conflict: read %s: %w", file.Path, err)
 		}
@@ -535,7 +536,7 @@ func rollbackRepositorySyncTransaction(
 			if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 				return restored, fmt.Errorf("refuse rollback after concurrent change: %s is not a real regular file", file.Path)
 			}
-			body, readErr := os.ReadFile(target)
+			body, readErr := boundedio.ReadRegularFile(target, maxBinaryBytes)
 			if readErr != nil {
 				return restored, fmt.Errorf("read interrupted repository sync artifact %s: %w", file.Path, readErr)
 			}
@@ -555,7 +556,7 @@ func rollbackRepositorySyncTransaction(
 		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 			return restored, fmt.Errorf("refuse rollback after concurrent change: %s is not a real regular file", file.Path)
 		}
-		body, err := os.ReadFile(target)
+		body, err := boundedio.ReadRegularFile(target, maxBinaryBytes)
 		if err != nil {
 			return restored, fmt.Errorf("read interrupted repository sync artifact %s: %w", file.Path, err)
 		}

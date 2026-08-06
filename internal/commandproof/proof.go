@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/retention"
@@ -28,6 +29,7 @@ const (
 	proofSchema       = "reconc.command-proof/v1"
 	proofScope        = "staged-index"
 	maxProofSize      = 16 * 1024
+	maxProofFiles     = 4096
 	maxGitOutputBytes = 16 << 20
 	gitCommandTimeout = 30 * time.Second
 )
@@ -196,7 +198,7 @@ func LoadCurrentSuccesses(repoRoot string, now time.Time) ([]Proof, error) {
 	if err != nil {
 		return nil, err
 	}
-	entries, err := os.ReadDir(proofDir(root))
+	entries, err := boundedio.ReadDirNoSymlink(proofDir(root), maxProofFiles)
 	if errors.Is(err, os.ErrNotExist) {
 		return []Proof{}, nil
 	}
@@ -213,7 +215,7 @@ func LoadCurrentSuccesses(repoRoot string, now time.Time) ([]Proof, error) {
 		if infoErr != nil || !info.Mode().IsRegular() || info.Size() > maxProofSize {
 			continue
 		}
-		data, readErr := os.ReadFile(filepath.Join(proofDir(root), entry.Name()))
+		data, readErr := boundedio.ReadRegularFile(filepath.Join(proofDir(root), entry.Name()), maxProofSize)
 		if readErr != nil {
 			continue
 		}

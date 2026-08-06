@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/jsonl"
 )
@@ -371,7 +372,7 @@ func ExportJSONL(repoRoot string, w io.Writer) error {
 			return fmt.Errorf("audit: enumerate archive ring: %w", err)
 		}
 		for _, source := range sources {
-			file, err := os.Open(source)
+			file, err := boundedio.OpenRegularFile(source, DefaultMaxSizeBytes)
 			if err != nil {
 				if errors.Is(err, os.ErrNotExist) {
 					continue
@@ -456,7 +457,7 @@ func loadAppendCheckpoint(repoRoot string) (*chainHead, *Entry, error) {
 }
 
 func readLastAuditEntry(path string) (*Entry, bool, error) {
-	file, err := os.Open(path)
+	file, err := boundedio.OpenRegularFile(path, DefaultMaxSizeBytes)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, false, nil
 	}
@@ -618,7 +619,7 @@ func readAuditEntries(path string) ([]Entry, error) {
 	}
 	entries := []Entry{}
 	for _, source := range sources {
-		data, err := os.ReadFile(source)
+		data, err := boundedio.ReadRegularFile(source, DefaultMaxSizeBytes)
 		if err != nil {
 			return nil, fmt.Errorf("audit: read %s: %w", source, err)
 		}
@@ -706,15 +707,12 @@ func verifyChainHead(entries []Entry, head *chainHead) error {
 
 func readChainHead(repoRoot string) (*chainHead, error) {
 	path := filepath.Join(repoRoot, AuditHeadRelative)
-	data, err := os.ReadFile(path)
+	data, err := boundedio.ReadRegularFile(path, auditHeadMaxBytes)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("audit: read detached head: %w", err)
-	}
-	if len(data) > auditHeadMaxBytes {
-		return nil, fmt.Errorf("audit: detached head exceeds %d bytes", auditHeadMaxBytes)
 	}
 	var head chainHead
 	if err := decodeStrictJSON(data, &head); err != nil {

@@ -15,6 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"reconc.dev/reconc/internal/audit"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/grokacp"
 	"reconc.dev/reconc/internal/hooks"
@@ -32,6 +33,8 @@ const (
 	doctorStatusWarn          = "WARN"
 	doctorStatusFail          = "FAIL"
 	doctorGrokInspectMaxBytes = 4 << 20
+	doctorSourceMaxBytes      = 8 << 20
+	doctorSourceAggregateMax  = 64 << 20
 
 	// doctorAuditWarnBytes is the live+archive ring ceiling: the writer
 	// rotates the live file at audit.DefaultMaxSizeBytes and keeps
@@ -343,7 +346,7 @@ func doctorCheckAuditSize(discovery ingest.DiscoveryResult) doctorCheck {
 	}
 
 	path := filepath.Join(discovery.RepoRoot, audit.AuditFileRelative)
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return check
@@ -352,11 +355,26 @@ func doctorCheckAuditSize(discovery ingest.DiscoveryResult) doctorCheck {
 		check.Detail = "cannot stat audit log: " + err.Error()
 		return check
 	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		check.Status = doctorStatusWarn
+		check.Detail = "audit log must be a non-symlink regular file"
+		return check
+	}
 	// Measure the whole ring: live file plus rotation archives.
 	total := info.Size()
 	for index := 1; index <= audit.MaxArchiveFiles; index++ {
-		if archiveInfo, archiveErr := os.Stat(fmt.Sprintf("%s.%d", path, index)); archiveErr == nil {
+		archivePath := fmt.Sprintf("%s.%d", path, index)
+		if archiveInfo, archiveErr := os.Lstat(archivePath); archiveErr == nil {
+			if archiveInfo.Mode()&os.ModeSymlink != 0 || !archiveInfo.Mode().IsRegular() {
+				check.Status = doctorStatusWarn
+				check.Detail = fmt.Sprintf("audit archive %s must be a non-symlink regular file", filepath.Base(archivePath))
+				return check
+			}
 			total += archiveInfo.Size()
+		} else if !os.IsNotExist(archiveErr) {
+			check.Status = doctorStatusWarn
+			check.Detail = "cannot inspect audit archive: " + archiveErr.Error()
+			return check
 		}
 	}
 	if total > doctorAuditWarnBytes {
@@ -504,22 +522,21 @@ func doctorCheckConflictCount(discovery ingest.DiscoveryResult) doctorCheck {
 func collectDoctorRefs(discovery ingest.DiscoveryResult) ([]string, []string, error) {
 	presetSet := map[string]struct{}{}
 	templateSet := map[string]struct{}{}
-
+	totalBytes := int64(0)
 	if discovery.ConfigPath != nil {
-		configText, err := os.ReadFile(filepath.Join(discovery.RepoRoot, *discovery.ConfigPath))
+		body, err := readDoctorTemplateSource(discovery.RepoRoot, *discovery.ConfigPath, &totalBytes)
 		if err != nil {
 			return nil, nil, fmt.Errorf("read compiler config: %w", err)
 		}
-		presets, err := extractPresetRefs(string(configText), *discovery.ConfigPath)
+		names, err := extractPresetRefs(string(body), *discovery.ConfigPath)
 		if err != nil {
 			return nil, nil, err
 		}
-		for _, name := range presets {
+		for _, name := range names {
 			presetSet[name] = struct{}{}
 		}
 	}
-
-	sources, err := loadDoctorTemplateSources(discovery)
+	sources, err := loadDoctorTemplateSources(discovery, &totalBytes)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -541,7 +558,7 @@ type doctorTemplateSource struct {
 	content string
 }
 
-func loadDoctorTemplateSources(discovery ingest.DiscoveryResult) ([]doctorTemplateSource, error) {
+func loadDoctorTemplateSources(discovery ingest.DiscoveryResult, totalBytes *int64) ([]doctorTemplateSource, error) {
 	out := []doctorTemplateSource{}
 	for _, entry := range []struct {
 		path *string
@@ -555,39 +572,39 @@ func loadDoctorTemplateSources(discovery ingest.DiscoveryResult) ([]doctorTempla
 		if entry.path == nil {
 			continue
 		}
-		full := filepath.Join(discovery.RepoRoot, *entry.path)
-		data, err := os.ReadFile(full)
+		body, err := readDoctorTemplateSource(discovery.RepoRoot, *entry.path, totalBytes)
 		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", *entry.path, err)
+			return nil, err
 		}
-		text := string(data)
+		text := string(body)
 		if entry.md {
 			for _, block := range extractDoctorInlineBlocks(text) {
-				out = append(out, doctorTemplateSource{
-					label:   *entry.path + " inline block",
-					content: block,
-				})
+				out = append(out, doctorTemplateSource{label: *entry.path + " inline block", content: block})
 			}
 			continue
 		}
-		out = append(out, doctorTemplateSource{
-			label:   *entry.path,
-			content: text,
-		})
+		out = append(out, doctorTemplateSource{label: *entry.path, content: text})
 	}
-
-	for _, rel := range discovery.PolicyPaths {
-		full := filepath.Join(discovery.RepoRoot, rel)
-		data, err := os.ReadFile(full)
+	for _, relative := range discovery.PolicyPaths {
+		body, err := readDoctorTemplateSource(discovery.RepoRoot, relative, totalBytes)
 		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", rel, err)
+			return nil, err
 		}
-		out = append(out, doctorTemplateSource{
-			label:   rel,
-			content: string(data),
-		})
+		out = append(out, doctorTemplateSource{label: relative, content: string(body)})
 	}
 	return out, nil
+}
+
+func readDoctorTemplateSource(root, relative string, totalBytes *int64) ([]byte, error) {
+	body, err := boundedio.ReadRegularFile(filepath.Join(root, relative), doctorSourceMaxBytes)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", relative, err)
+	}
+	*totalBytes += int64(len(body))
+	if *totalBytes > doctorSourceAggregateMax {
+		return nil, fmt.Errorf("doctor template source aggregate exceeds %d bytes", doctorSourceAggregateMax)
+	}
+	return body, nil
 }
 
 func extractDoctorInlineBlocks(text string) []string {

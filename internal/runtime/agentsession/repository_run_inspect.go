@@ -1,6 +1,7 @@
 package agentsession
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/jsonl"
 	"reconc.dev/reconc/internal/tasklifecycle"
@@ -74,16 +76,33 @@ func readRepositoryRunStatusResolved(root string) (RepositoryRunStatus, error) {
 // error (returns nil). The JSONL writer lock is held while taking the snapshot,
 // and malformed or truncated records fail closed rather than disappearing.
 func ReadRunDecisions(repoRoot string, limit int) ([]RunDecision, error) {
-	path, err := runDecisionLogPath(repoRoot)
+	if limit < 0 {
+		return nil, fmt.Errorf("run decision limit must be non-negative")
+	}
+	root, err := ResolveRepoRoot(repoRoot)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := os.Stat(filepath.Dir(path)); errors.Is(err, os.ErrNotExist) {
+	path := runDecisionLogPathResolved(root)
+	if err := validateRepositoryRunStatePath(root, path); err != nil {
+		return nil, err
+	}
+	directoryInfo, err := os.Lstat(filepath.Dir(path))
+	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	} else if err != nil {
 		return nil, err
 	}
-	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o644)
+	if directoryInfo.Mode()&os.ModeSymlink != 0 || !directoryInfo.IsDir() {
+		return nil, fmt.Errorf("repository run log parent must be a non-symlink directory")
+	}
+	lockPath := path + ".lock"
+	if info, lstatErr := os.Lstat(lockPath); lstatErr == nil && (info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular()) {
+		return nil, fmt.Errorf("repository run log lock must be a non-symlink regular file")
+	} else if lstatErr != nil && !errors.Is(lstatErr, os.ErrNotExist) {
+		return nil, lstatErr
+	}
+	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return nil, err
 	}
@@ -92,57 +111,112 @@ func ReadRunDecisions(repoRoot string, limit int) ([]RunDecision, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []RunDecision
+	collector := runDecisionCollector{limit: limit}
 	sources, err := jsonl.PathsOldestFirst(path, runDecisionMaxArchives)
 	if err == nil {
 		for _, source := range sources {
-			if err = readRunDecisionFile(source, &out); err != nil {
+			if err = readRunDecisionFile(source, collector.add); err != nil {
 				break
 			}
 		}
 	}
 	unlockErr := unlock()
 	if err != nil {
-		return out, err
+		return collector.values(), err
 	}
 	if unlockErr != nil {
-		return out, fmt.Errorf("unlock run decision log: %w", unlockErr)
+		return collector.values(), fmt.Errorf("unlock run decision log: %w", unlockErr)
 	}
-	if limit > 0 && len(out) > limit {
-		out = out[len(out)-limit:]
-	}
-	return out, nil
+	return collector.values(), nil
 }
 
-func readRunDecisionFile(path string, out *[]RunDecision) error {
-	data, err := os.ReadFile(path)
+const runDecisionMaxRecordBytes = 32 * 1024
+
+type runDecisionCollector struct {
+	limit   int
+	items   []RunDecision
+	next    int
+	wrapped bool
+}
+
+func (collector *runDecisionCollector) add(decision RunDecision) {
+	if collector.limit == 0 || len(collector.items) < collector.limit {
+		collector.items = append(collector.items, decision)
+		return
+	}
+	collector.items[collector.next] = decision
+	collector.next = (collector.next + 1) % collector.limit
+	collector.wrapped = true
+}
+
+func (collector *runDecisionCollector) values() []RunDecision {
+	if !collector.wrapped || collector.next == 0 {
+		return collector.items
+	}
+	out := make([]RunDecision, 0, len(collector.items))
+	out = append(out, collector.items[collector.next:]...)
+	out = append(out, collector.items[:collector.next]...)
+	return out
+}
+
+func readRunDecisionFile(path string, emit func(RunDecision)) error {
+	file, err := boundedio.OpenRegularFile(path, runDecisionMaxBytes)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
 		return err
 	}
-	if len(data) > 0 && data[len(data)-1] != '\n' {
-		return fmt.Errorf("%s: truncated JSONL record: missing final newline", path)
+	info, err := file.Stat()
+	if err != nil {
+		return errors.Join(err, file.Close())
 	}
-	for index, line := range bytes.Split(data, []byte{'\n'}) {
-		if len(line) == 0 {
+	if info.Size() > 0 {
+		if _, err := file.Seek(-1, io.SeekEnd); err != nil {
+			return errors.Join(err, file.Close())
+		}
+		last := []byte{0}
+		if _, err := io.ReadFull(file, last); err != nil {
+			return errors.Join(err, file.Close())
+		}
+		if last[0] != '\n' {
+			return errors.Join(fmt.Errorf("%s: truncated JSONL record: missing final newline", path), file.Close())
+		}
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			return errors.Join(err, file.Close())
+		}
+	}
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 4096), runDecisionMaxRecordBytes)
+	lineNumber := 0
+	for scanner.Scan() {
+		lineNumber++
+		line := scanner.Bytes()
+		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}
-		var d RunDecision
-		decoder := json.NewDecoder(bytes.NewReader(line))
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&d); err != nil {
-			return fmt.Errorf("%s:%d: malformed run decision: %w", path, index+1, err)
+		d, err := decodeRunDecisionLine(line)
+		if err != nil {
+			return errors.Join(fmt.Errorf("%s:%d: malformed run decision: %w", path, lineNumber, err), file.Close())
 		}
-		var trailing interface{}
-		if err := decoder.Decode(&trailing); err != io.EOF {
-			if err == nil {
-				err = errors.New("multiple JSON values are not allowed")
-			}
-			return fmt.Errorf("%s:%d: malformed run decision: %w", path, index+1, err)
-		}
-		*out = append(*out, d)
+		emit(d)
 	}
-	return nil
+	if err := scanner.Err(); err != nil {
+		return errors.Join(fmt.Errorf("%s: read run decisions: %w", path, err), file.Close())
+	}
+	return file.Close()
+}
+
+func decodeRunDecisionLine(line []byte) (RunDecision, error) {
+	var decision RunDecision
+	decoder := json.NewDecoder(bytes.NewReader(line))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&decision); err != nil {
+		return RunDecision{}, err
+	}
+	var trailing interface{}
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			err = errors.New("multiple JSON values are not allowed")
+		}
+		return RunDecision{}, err
+	}
+	return decision, nil
 }

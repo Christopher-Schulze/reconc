@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/bmatcuk/doublestar/v4"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/policy"
 )
 
@@ -192,7 +193,7 @@ func manifestDirectoryHasMarker(directory string, patterns []string) (bool, erro
 			return false, doublestar.ErrBadPattern
 		}
 	}
-	entries, err := os.ReadDir(directory)
+	entries, err := boundedio.ReadDir(directory, maxWalkEntries)
 	if err != nil {
 		return false, err
 	}

@@ -13,13 +13,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"reflect"
 	"sort"
 	"strings"
 
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/compiler"
 )
+
+const maxLockfileBytes = 16 << 20
 
 // Report is the structured result of comparing two lockfiles.
 type Report struct {
@@ -67,7 +69,7 @@ func Diff(pathA, pathB string) (*Report, error) {
 }
 
 func loadLockfile(path string) (map[string]interface{}, error) {
-	data, err := os.ReadFile(path)
+	data, err := boundedio.ReadRegularFile(path, maxLockfileBytes)
 	if err != nil {
 		return nil, err
 	}

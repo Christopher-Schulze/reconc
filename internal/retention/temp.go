@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"reconc.dev/reconc/internal/boundedio"
 )
 
 func enforceStateTotal(options Options, project, activeID string, hasActive bool, report *Report) ClassReport {
@@ -16,7 +18,7 @@ func enforceStateTotal(options Options, project, activeID string, hasActive bool
 	candidates := []candidate{}
 	for _, dir := range []string{"sessions", "reports", "locks", "command-proofs", "policy-decisions"} {
 		path := filepath.Join(project, dir)
-		entries, err := os.ReadDir(path)
+		entries, err := boundedio.ReadDirNoSymlink(path, maxRetentionDirectoryEntries)
 		if err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
 				report.Errors = append(report.Errors, fmt.Sprintf("read state directory %s: %v", path, err))
@@ -74,12 +76,17 @@ func pruneRepoTemps(options Options, report *Report) ClassReport {
 	class := ClassReport{Name: "abandoned-repo-temp"}
 	root := filepath.Join(options.RepoRoot, ".reconc")
 	var candidates []candidate
+	visited := 0
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 		if path == root {
 			return nil
+		}
+		visited++
+		if visited > maxRetentionWalkEntries {
+			return fmt.Errorf("repository temporary tree exceeds %d entries", maxRetentionWalkEntries)
 		}
 		name := entry.Name()
 		if entry.IsDir() {
@@ -116,7 +123,7 @@ func pruneRepoTemps(options Options, report *Report) ClassReport {
 
 func pruneOwnedTempRoots(options Options, report *Report) ClassReport {
 	class := ClassReport{Name: "abandoned-owned-temp"}
-	entries, err := os.ReadDir(options.TempRoot)
+	entries, err := boundedio.ReadDir(options.TempRoot, maxRetentionDirectoryEntries)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			report.Errors = append(report.Errors, fmt.Sprintf("read temp root %s: %v", options.TempRoot, err))
@@ -264,9 +271,14 @@ func isOwnedTempRoot(name string) bool {
 func treeSizeAndLatest(root string, initial time.Time) (int64, time.Time, error) {
 	var size int64
 	latest := initial
+	visited := 0
 	err := filepath.WalkDir(root, func(_ string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
+		}
+		visited++
+		if visited > maxRetentionWalkEntries {
+			return fmt.Errorf("temporary tree exceeds %d entries", maxRetentionWalkEntries)
 		}
 		info, err := entry.Info()
 		if err != nil {

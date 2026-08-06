@@ -20,11 +20,18 @@ import (
 	"strings"
 
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/parser"
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/presets"
 	"reconc.dev/reconc/internal/stackdetect"
+)
+
+const (
+	maxAdoptManifestBytes   = 1 << 20
+	maxAdoptConfigBytes     = 8 << 20
+	maxAdoptWorkflowEntries = 4096
 )
 
 // Suggestion is one rule the detector wants to propose. Kept small +
@@ -96,9 +103,13 @@ func Scan(repoRoot string) (Report, error) {
 	// --- JS / TS ---
 	if exists(filepath.Join(repoRoot, "package.json")) {
 		r.Detected = append(r.Detected, "package.json")
-		pkgData, readErr := os.ReadFile(filepath.Join(repoRoot, "package.json"))
+		pkgData, readErr := boundedio.ReadRegularFile(filepath.Join(repoRoot, "package.json"), maxAdoptManifestBytes)
 		var manifest packageJSONDocument
-		if readErr == nil && json.Unmarshal(pkgData, &manifest) == nil {
+		if readErr != nil {
+			r.Ambiguities = append(r.Ambiguities, "package.json could not be inspected: "+readErr.Error())
+		} else if err := json.Unmarshal(pkgData, &manifest); err != nil {
+			r.Ambiguities = append(r.Ambiguities, "package.json is malformed: "+err.Error())
+		} else {
 			if runner, unambiguous := detectRootJSRunner(detection.PackageManagers); unambiguous {
 				for _, script := range []string{"test", "lint", "build", "typecheck"} {
 					if strings.TrimSpace(manifest.Scripts[script]) == "" {
@@ -116,7 +127,11 @@ func Scan(repoRoot string) (Report, error) {
 	// --- Python ---
 	if exists(filepath.Join(repoRoot, "pyproject.toml")) {
 		r.Detected = append(r.Detected, "pyproject.toml")
-		py, _ := os.ReadFile(filepath.Join(repoRoot, "pyproject.toml"))
+		py, readErr := boundedio.ReadRegularFile(filepath.Join(repoRoot, "pyproject.toml"), maxAdoptManifestBytes)
+		if readErr != nil {
+			r.Ambiguities = append(r.Ambiguities, "pyproject.toml could not be inspected: "+readErr.Error())
+			py = nil
+		}
 		if contains(py, "ruff") {
 			r.Suggestions = append(r.Suggestions, Suggestion{
 				ID:        "adopt-py-ruff",
@@ -207,7 +222,10 @@ func Scan(repoRoot string) (Report, error) {
 	// --- GitHub Actions / CI ---
 	ciPath := filepath.Join(repoRoot, ".github", "workflows")
 	if isDir(ciPath) {
-		entries, _ := os.ReadDir(ciPath)
+		entries, readErr := boundedio.ReadDirNoSymlink(ciPath, maxAdoptWorkflowEntries)
+		if readErr != nil {
+			r.Ambiguities = append(r.Ambiguities, ".github/workflows could not be inspected completely: "+readErr.Error())
+		}
 		hasCI := false
 		for _, e := range entries {
 			if !e.IsDir() && (strings.HasSuffix(e.Name(), ".yml") || strings.HasSuffix(e.Name(), ".yaml")) {
@@ -438,7 +456,7 @@ func RenderText(r Report) string {
 // loud instead of producing invalid YAML.
 func Apply(repoRoot string, r Report) (added []string, err error) {
 	configPath := filepath.Join(repoRoot, ".reconc.yml")
-	existing, readErr := os.ReadFile(configPath)
+	existing, readErr := boundedio.ReadRegularFile(configPath, maxAdoptConfigBytes)
 	if readErr != nil && !os.IsNotExist(readErr) {
 		return nil, readErr
 	}
@@ -582,13 +600,13 @@ func ToJSON(r Report, indent bool) ([]byte, error) {
 // -------- helpers (tiny, stdlib-free-ish where useful) ---------------
 
 func exists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0
 }
 
 func isDir(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
+	info, err := os.Lstat(path)
+	return err == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0
 }
 
 func contains(haystack []byte, needle string) bool {

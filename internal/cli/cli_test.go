@@ -1576,6 +1576,36 @@ func TestRunExtractCustomFile(t *testing.T) {
 	}
 }
 
+func TestRunExtractRejectsEscapingAndOversizedSources(t *testing.T) {
+	repo := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.md")
+	if err := os.WriteFile(outside, []byte("Never commit secrets."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	err := Run([]string{"extract", repo, "--from", outside}, "test", &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "repository-relative") {
+		t.Fatalf("escaping source error = %v", err)
+	}
+	oversized := filepath.Join(repo, "large.md")
+	file, err := os.Create(oversized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(maxExtractSourceBytes + 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	err = Run([]string{"extract", repo, "--from", "large.md"}, "test", &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "exceeds 8388608 bytes") {
+		t.Fatalf("oversized source error = %v", err)
+	}
+}
+
 func TestRunExtractMutuallyExclusive(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("x"), 0o644); err != nil {
@@ -2261,6 +2291,35 @@ func TestRunSessionBriefingBoundsCurrentPolicyFeedback(t *testing.T) {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("briefing missing %q: %s", want, stdout.String())
 		}
+	}
+}
+
+func TestRunSessionBriefingReportsOversizedSavedPolicyReport(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repo := makeAssertRepo(t, "rules: []\n")
+	state, err := agentsession.InitializeSessionState(repo, "briefing-oversize")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(state.ReportPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Create(state.ReportPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(maxBriefingReportBytes + 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"session-briefing", repo, "--json"}, "test", &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), `"policy_report_error"`) || !strings.Contains(stdout.String(), "exceeds 1048576 bytes") {
+		t.Fatalf("oversized report diagnostic = %s", stdout.String())
 	}
 }
 

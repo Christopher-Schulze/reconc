@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/runtime"
 	"strings"
 )
+
+const maxExplainReportBytes = 32 << 20
 
 // runExplain implements `reconc explain [repo] (evidence flags...) | --report-file PATH
 // [--format text|markdown] [--json]`.
@@ -107,7 +109,7 @@ func runExplain(args []string, stdout, stderr io.Writer) (resultErr error) {
 
 	var report *runtime.CheckReport
 	if reportFile != "" {
-		data, err := os.ReadFile(reportFile)
+		data, err := boundedio.ReadRegularFile(reportFile, maxExplainReportBytes)
 		if err != nil {
 			return &CLIError{ExitCode: 1, Message: "reconc explain: read report file: " + err.Error()}
 		}
@@ -203,7 +205,7 @@ func runWhy(args []string, stdout, stderr io.Writer) error {
 	}
 
 	lockPath := filepath.Join(discovery.RepoRoot, ingest.LockfilePath)
-	data, err := os.ReadFile(lockPath)
+	data, err := boundedio.ReadRegularFile(lockPath, maxCLILockfileBytes)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc why: read lockfile: " + err.Error()}
 	}

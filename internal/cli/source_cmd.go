@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -9,9 +10,12 @@ import (
 	"strings"
 
 	"reconc.dev/reconc/internal/adopt"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/extractor"
 	"reconc.dev/reconc/internal/lockdiff"
 )
+
+const maxExtractSourceBytes = 8 << 20
 
 // runExtract implements `reconc extract [repo] [--from PATH] [--yaml|--json]` (W20).
 //
@@ -74,7 +78,15 @@ func runExtract(args []string, stdout, stderr io.Writer) error {
 	var sourcePath string
 	if from != "" {
 		sourcePath = from
-		contents, err = os.ReadFile(filepath.Join(abs, from))
+		if filepath.IsAbs(from) {
+			return &CLIError{ExitCode: 1, Message: "reconc extract: --from must be repository-relative"}
+		}
+		target := filepath.Clean(filepath.Join(abs, from))
+		relative, relErr := filepath.Rel(abs, target)
+		if relErr != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return &CLIError{ExitCode: 1, Message: "reconc extract: --from escapes the repository"}
+		}
+		contents, err = boundedio.ReadRegularFile(target, maxExtractSourceBytes)
 		if err != nil {
 			return &CLIError{ExitCode: 1, Message: "reconc extract: read " + from + ": " + err.Error()}
 		}
@@ -82,10 +94,12 @@ func runExtract(args []string, stdout, stderr io.Writer) error {
 		// Try AGENTS.md then CLAUDE.md.
 		for _, candidate := range []string{"AGENTS.md", "CLAUDE.md"} {
 			path := filepath.Join(abs, candidate)
-			if b, rerr := os.ReadFile(path); rerr == nil {
+			if b, rerr := boundedio.ReadRegularFile(path, maxExtractSourceBytes); rerr == nil {
 				contents = b
 				sourcePath = candidate
 				break
+			} else if !errors.Is(rerr, os.ErrNotExist) {
+				return &CLIError{ExitCode: 1, Message: "reconc extract: inspect " + candidate + ": " + rerr.Error()}
 			}
 		}
 		if sourcePath == "" {

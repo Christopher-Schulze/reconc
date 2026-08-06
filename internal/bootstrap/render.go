@@ -8,16 +8,18 @@ import (
 	"sort"
 	"strings"
 
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/execfile"
 	"reconc.dev/reconc/internal/hooks"
 	"reconc.dev/reconc/internal/repositoryignore"
 )
 
 const (
-	agentBlockStart = "<!-- reconc-bootstrap:agent:start -->"
-	agentBlockEnd   = "<!-- reconc-bootstrap:agent:end -->"
-	docsBlockStart  = "<!-- reconc-bootstrap:docs:start -->"
-	docsBlockEnd    = "<!-- reconc-bootstrap:docs:end -->"
+	agentBlockStart                    = "<!-- reconc-bootstrap:agent:start -->"
+	agentBlockEnd                      = "<!-- reconc-bootstrap:agent:end -->"
+	docsBlockStart                     = "<!-- reconc-bootstrap:docs:start -->"
+	docsBlockEnd                       = "<!-- reconc-bootstrap:docs:end -->"
+	maxManagedBootstrapTextBytes int64 = 16 << 20
 )
 
 func buildDesiredArtifacts(root string, selection Selection, productVersion string) ([]desiredArtifact, error) {
@@ -123,7 +125,7 @@ func renderCodexActivation(root string) (string, error) {
 	existing := ""
 	info, err := os.Lstat(path)
 	if err == nil && info.Mode().IsRegular() {
-		data, readErr := os.ReadFile(path)
+		data, readErr := boundedio.ReadRegularFile(path, maxManagedBootstrapTextBytes)
 		if readErr != nil {
 			return "", fmt.Errorf("read %s for Codex hook activation: %w", relative, readErr)
 		}
@@ -155,7 +157,7 @@ func renderManagedFile(root, relative, start, end, block string) (string, error)
 	if !info.Mode().IsRegular() {
 		return managedBlock(start, end, block), nil
 	}
-	data, err := os.ReadFile(path)
+	data, err := boundedio.ReadRegularFile(path, maxManagedBootstrapTextBytes)
 	if err != nil {
 		return "", fmt.Errorf("read %s for managed bootstrap block: %w", relative, err)
 	}

@@ -11,10 +11,12 @@ import (
 	"sort"
 	"strings"
 
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/pathidentity"
 )
 
 const maxBinaryBytes int64 = 256 << 20
+const maxBootstrapDirectoryEntries = 4096
 
 func CurrentBinarySelection() (*BinarySelection, error) {
 	path, err := os.Executable()
@@ -120,7 +122,7 @@ func resolveBinaryDirectory(directory, stable, targetOS, targetArch string) (str
 	if executableRegular(stablePath, targetOS) {
 		return stablePath, []string{stablePath}, ""
 	}
-	entries, err := os.ReadDir(directory)
+	entries, err := boundedio.ReadDirNoSymlink(directory, maxBootstrapDirectoryEntries)
 	if os.IsNotExist(err) {
 		return "", []string{}, ""
 	}
@@ -181,7 +183,7 @@ func executableRegular(path, targetOS string) bool {
 }
 
 func fileSHA256(path string) (string, error) {
-	file, err := os.Open(path)
+	file, err := boundedio.OpenRegularFile(path, maxBinaryBytes)
 	if err != nil {
 		return "", fmt.Errorf("open %s for checksum: %w", path, err)
 	}

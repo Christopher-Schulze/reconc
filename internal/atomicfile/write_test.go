@@ -51,3 +51,25 @@ func TestWriteIfChangedRejectsSymlinkTargets(t *testing.T) {
 		t.Fatalf("symlink target changed: %q", data)
 	}
 }
+
+func TestWriteIfChangedReplacesDifferentSizedSparseFileWithoutWholeRead(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sparse")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(64 << 20); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	written, err := WriteIfChanged(path, []byte("small\n"), 0o600)
+	if err != nil || !written {
+		t.Fatalf("replace sparse file: written=%v err=%v", written, err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil || string(body) != "small\n" {
+		t.Fatalf("replacement = %q, %v", body, err)
+	}
+}

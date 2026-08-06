@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/hooks"
 	"reconc.dev/reconc/internal/runtime/agentsession"
@@ -638,7 +639,7 @@ func rollbackCreated(root string, created []createdRecord, dirs []createdDirecto
 			errors = append(errors, "refuse rollback of externally replaced directory "+directory.path)
 			continue
 		}
-		entries, err := os.ReadDir(directory.path)
+		entries, err := boundedio.ReadDirNoSymlink(directory.path, maxBootstrapDirectoryEntries)
 		if err != nil {
 			errors = append(errors, "read rollback directory "+directory.path+": "+err.Error())
 			continue

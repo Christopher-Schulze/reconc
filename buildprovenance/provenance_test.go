@@ -90,6 +90,45 @@ func TestBuildMarkerRoundTripAndBinaryInspection(t *testing.T) {
 	}
 }
 
+func TestInspectBinaryStreamsAcrossChunkBoundaryAndRejectsUnsafeInputs(t *testing.T) {
+	marker, err := FormatMarker(Provenance{
+		Version: "0.9.2", GOOS: "darwin", GOARCH: "arm64",
+		SourceDigest: strings.Repeat("c", 64),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	binary := filepath.Join(root, "boundary")
+	prefix := strings.Repeat("x", (64<<10)-len(MarkerPrefix)/2)
+	if err := os.WriteFile(binary, []byte(prefix+marker+"suffix"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := InspectBinary(binary); err != nil || got.SourceDigest != strings.Repeat("c", 64) {
+		t.Fatalf("boundary marker = %#v, %v", got, err)
+	}
+	sparse := filepath.Join(root, "oversized")
+	file, err := os.Create(sparse)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(maxBinaryBytes + 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InspectBinary(sparse); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized binary error = %v", err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(binary, link); err == nil {
+		if _, err := InspectBinary(link); err == nil || !strings.Contains(err.Error(), "non-symlink") {
+			t.Fatalf("symlink binary error = %v", err)
+		}
+	}
+}
+
 func TestInspectBinaryFailsClosedOnMissingMalformedAndAmbiguousMarkers(t *testing.T) {
 	validA, err := FormatMarker(Provenance{
 		Version:      "0.8.5",

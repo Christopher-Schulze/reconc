@@ -13,10 +13,12 @@ import (
 	"sync"
 	"time"
 
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/hooks"
 )
 
 const maxGrokInspectBytes = 4 << 20
+const maxManagedGrokBytes = 1 << 20
 const grokInspectTimeout = 10 * time.Second
 
 type commandRunner func(context.Context, string, ...string) *exec.Cmd
@@ -82,7 +84,7 @@ func validateManagedGrokFiles(repoRoot string) error {
 		return fmt.Errorf("generate native Grok hook: %w", err)
 	}
 	target := filepath.Join(repoRoot, filepath.FromSlash(generated.TargetPath))
-	data, err := os.ReadFile(target)
+	data, err := boundedio.ReadRegularFile(target, maxManagedGrokBytes)
 	if err != nil {
 		return fmt.Errorf("native Grok hook is not installed at %s; run `reconc hook install grok %s`", generated.TargetPath, repoRoot)
 	}
@@ -94,7 +96,7 @@ func validateManagedGrokFiles(repoRoot string) error {
 	if err != nil || info.IsDir() || (runtime.GOOS != "windows" && info.Mode()&0o111 == 0) {
 		return fmt.Errorf("%s is missing or not executable; restore it before running `reconc grok`", hooks.WrapperPath)
 	}
-	wrapperData, err := os.ReadFile(wrapper)
+	wrapperData, err := boundedio.ReadRegularFile(wrapper, maxManagedGrokBytes)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", hooks.WrapperPath, err)
 	}

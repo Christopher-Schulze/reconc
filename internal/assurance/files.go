@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/policy"
 )
@@ -305,11 +306,11 @@ func (state *evaluationState) read(path string) ([]byte, error) {
 }
 
 func readBounded(path string, budget *scanBudget) ([]byte, error) {
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if err != nil {
 		return nil, err
 	}
-	if !info.Mode().IsRegular() {
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 		return nil, fmt.Errorf("not a regular file: %s", path)
 	}
 	if info.Size() > maxFileBytes {
@@ -321,7 +322,16 @@ func readBounded(path string, budget *scanBudget) ([]byte, error) {
 	if err := budget.observeBytes(info.Size()); err != nil {
 		return nil, err
 	}
-	return os.ReadFile(path)
+	body, err := boundedio.ReadRegularFile(path, maxFileBytes)
+	if err != nil {
+		return nil, err
+	}
+	if growth := int64(len(body)) - info.Size(); growth > 0 {
+		if err := budget.observeBytes(growth); err != nil {
+			return nil, err
+		}
+	}
+	return body, nil
 }
 
 func readDirectoryEntries(path string, limit int) ([]os.DirEntry, error) {

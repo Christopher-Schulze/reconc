@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/schema"
 )
@@ -191,7 +192,7 @@ func WriteSyncPlan(outputPath string, plan *SyncPlan) (string, error) {
 		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 			return "", fmt.Errorf("repository sync plan output is not a real regular file: %s", absolute)
 		}
-		current, readErr := os.ReadFile(absolute)
+		current, readErr := boundedio.ReadRegularFile(absolute, maxSyncPlanBytes)
 		if readErr != nil {
 			return "", fmt.Errorf("read repository sync plan output: %w", readErr)
 		}

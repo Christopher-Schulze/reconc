@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/boundedio"
 )
 
 const (
@@ -136,7 +137,7 @@ func rotateSessionEvidenceLocked(repoRoot string, state SessionState) (SessionSt
 	if err := ensurePrivateStateDir(filepath.Dir(path)); err != nil {
 		return state, fmt.Errorf("mkdir evidence segment dir: %w", err)
 	}
-	if existing, readErr := os.ReadFile(path); readErr == nil {
+	if existing, readErr := boundedio.ReadRegularFile(path, maxEvidenceSegmentBytes); readErr == nil {
 		if string(existing) != string(body) {
 			return state, fmt.Errorf("evidence segment %d already exists with different content", index)
 		}

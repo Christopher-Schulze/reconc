@@ -8,6 +8,7 @@ usage, architecture, release, and security facts should be kept here first.
 
 - [Product](#product)
 - [Evidence-Bound Completion Control](#evidence-bound-completion-control)
+- [Input Bounds And Diagnostic Completeness](#input-bounds-and-diagnostic-completeness)
 - [Install And Build](#install-and-build)
 - [Transactional Bootstrap](#transactional-bootstrap)
 - [v0.9 CLI Product Contract](#v09-cli-product-contract)
@@ -159,6 +160,32 @@ remain historical evidence. Current README and documentation use this
 terminology; future repository descriptions, release notes, video captions, and
 social posts should derive from this section instead of retroactively editing
 the submission or copying a second long-form explanation.
+
+## Input Bounds And Diagnostic Completeness
+
+Repository and operator input is inspected before allocation. Shared readers
+reject special files, enforce a byte or entry ceiling, and verify opened-file
+identity. Strict surfaces reject final symlinks; the few discovery reads that
+intentionally follow a symlink still require the resolved target to remain the
+same regular file. FIFO, device, sparse oversize, replaced-path, unreadable, and
+truncated inputs return an explicit error. Bounded directory reads return no
+partial snapshot when the entry ceiling is exceeded.
+
+| Surface | Current read contract |
+| --- | --- |
+| Policy and deep doctor sources | 8 MiB per source, 64 MiB aggregate, at most 4,096 policy sources; deep doctor reports source, preset, and template errors independently. |
+| CLI lockfiles, reports, and extraction | Lockfile summaries are capped at 16 MiB; saved `why` reports at 32 MiB; session-briefing reports at 1 MiB; `extract --from` at 8 MiB and repository-relative only. |
+| Adoption and overlays | Root manifests are capped at 1 MiB, `.reconc.yml`, user presets, and user templates at 8 MiB; workflow, preset, and template directories stop at 4,096 entries and report incomplete inspection. |
+| Run decisions | Each live or archived JSONL file is capped at 2 MiB and each record at 32 KiB. Two archives are retained. `run log --limit N` validates the full retained chain while keeping only the requested tail in memory. |
+| Audit evidence | Each live or archived JSONL file is capped at 2 MiB, each record at 32 KiB, the detached head at 16 KiB, and the ring at two archives. Export streams only after the complete chain verifies. |
+| Bootstrap and repository sync | Managed text is capped at 16 MiB; bootstrap plans at 4 MiB; sync plans at 8 MiB; portable receipts at 4 MiB; rollback before-images at 64 MiB aggregate; journals at 96 MiB; binary artifacts at 256 MiB. Writes remain create-only or atomic and preserve user-owned bytes. |
+| Build provenance | Binary marker inspection streams at most 256 MiB without executing or retaining the binary. Production source hashing accepts at most 16,384 real files, 64 MiB per file, and 512 MiB aggregate. |
+| Command proofs and owned state | Each command proof is capped at 16 KiB and its directory at 4,096 entries. Retention directories and tree walks have explicit entry ceilings and abort without deleting from a partial inventory. |
+
+Best-effort detection is best-effort only about recommendations, not about
+input integrity. A malformed package manifest, unreadable source, oversized
+report, or overfull workflow directory is surfaced as an ambiguity or error and
+is never converted into “not present.”
 
 ## Install And Build
 

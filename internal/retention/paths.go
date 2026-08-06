@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"unicode"
+
+	"reconc.dev/reconc/internal/boundedio"
 )
 
 // canonicalCaseCache memoizes CanonicalizePathCase per process: hook
@@ -19,6 +21,7 @@ var canonicalCaseCache sync.Map
 const (
 	MaxSessionIDBytes  = 512
 	maxSessionFileStem = 120
+	maxCaseDirEntries  = 65_536
 )
 
 // ResolveStateRoot returns the product-wide session state root.
@@ -78,7 +81,7 @@ func canonicalizePathCaseUncached(path string) string {
 			if _, err := os.Lstat(next); err != nil {
 				return path
 			}
-			entries, err := os.ReadDir(canonical)
+			entries, err := boundedio.ReadDir(canonical, maxCaseDirEntries)
 			if err != nil {
 				canonical = next
 				continue

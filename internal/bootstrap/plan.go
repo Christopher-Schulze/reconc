@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/hooks"
 	"reconc.dev/reconc/internal/presets"
 	reconruntime "reconc.dev/reconc/internal/runtime"
@@ -99,7 +100,7 @@ func WritePlan(path string, plan *Plan) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve bootstrap plan output: %w", err)
 	}
-	if current, err := os.ReadFile(abs); err == nil {
+	if current, err := boundedio.ReadRegularFile(abs, maxPlanBytes); err == nil {
 		if bytes.Equal(current, data) {
 			return "unchanged", nil
 		}

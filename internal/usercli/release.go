@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/buildprovenance"
+	"reconc.dev/reconc/internal/boundedio"
 )
 
 const (
@@ -34,6 +35,7 @@ const (
 	maxReleaseMetadataBytes = 2 << 20
 	maxReleaseAssets        = 128
 	maxReleaseList          = 32
+	maxReleaseDirEntries    = 512
 )
 
 var (
@@ -491,7 +493,7 @@ func validateLocalInventory(directory string, manifest ReleaseManifest, checksum
 			return fmt.Errorf("local release asset checksum mismatch: %s", asset.Name)
 		}
 	}
-	entries, err := os.ReadDir(directory)
+	entries, err := boundedio.ReadDirNoSymlink(directory, maxReleaseDirEntries)
 	if err != nil {
 		return err
 	}
@@ -564,7 +566,7 @@ func materializeCandidate(ctx context.Context, release selectedRelease, destinat
 		if statErr != nil || !info.Mode().IsRegular() {
 			return fmt.Errorf("local candidate is missing or irregular: %s", source)
 		}
-		body, err = os.ReadFile(source)
+		body, err = boundedio.ReadRegularFile(source, maxBinaryBytes)
 	} else {
 		body, err = downloadBounded(ctx, release.asset.URL, maxBinaryBytes)
 	}

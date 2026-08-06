@@ -5,9 +5,11 @@ package buildprovenance
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"go/build"
 	"hash"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -15,12 +17,21 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"reconc.dev/reconc/internal/boundedio"
 )
 
 const (
 	sourceDigestDomain = "reconc-production-source-v1"
 	// MarkerPrefix identifies the stable, machine-readable binary marker.
-	MarkerPrefix = "reconc-build-provenance-v1"
+	MarkerPrefix                = "reconc-build-provenance-v1"
+	maxBinaryBytes              = 256 << 20
+	maxBuildMarkerBytes         = 1024
+	maxModuleFileBytes          = 1 << 20
+	maxProductionFileBytes      = 64 << 20
+	maxProductionAggregate      = 512 << 20
+	maxProductionFiles          = 16_384
+	maxEmbeddedDirectoryEntries = 100_000
 )
 
 var (
@@ -75,18 +86,25 @@ func FormatMarker(provenance Provenance) (string, error) {
 	if !digestPattern.MatchString(provenance.SourceDigest) {
 		return "", fmt.Errorf("invalid source digest %q", provenance.SourceDigest)
 	}
-	return fmt.Sprintf(
+	marker := fmt.Sprintf(
 		"%s|version=%s|goos=%s|goarch=%s|source=%s|end",
 		MarkerPrefix,
 		provenance.Version,
 		provenance.GOOS,
 		provenance.GOARCH,
 		provenance.SourceDigest,
-	), nil
+	)
+	if len(marker) > maxBuildMarkerBytes {
+		return "", fmt.Errorf("build provenance marker exceeds %d bytes", maxBuildMarkerBytes)
+	}
+	return marker, nil
 }
 
 // ParseMarker validates a serialized provenance marker.
 func ParseMarker(marker string) (Provenance, error) {
+	if len(marker) > maxBuildMarkerBytes {
+		return Provenance{}, fmt.Errorf("build provenance marker exceeds %d bytes", maxBuildMarkerBytes)
+	}
 	match := markerPattern.FindStringSubmatch(marker)
 	if len(match) != 5 || match[0] != marker {
 		return Provenance{}, fmt.Errorf("missing or malformed Reconc build provenance")
@@ -107,22 +125,67 @@ func EmbeddedProvenance() (Provenance, error) {
 // InspectBinary reads provenance directly from binary bytes. It never executes
 // the inspected file.
 func InspectBinary(binaryPath string) (Provenance, error) {
-	data, err := os.ReadFile(binaryPath)
+	file, err := boundedio.OpenRegularFile(binaryPath, maxBinaryBytes)
 	if err != nil {
 		return Provenance{}, fmt.Errorf("read Reconc binary: %w", err)
 	}
-	matches := markerPattern.FindAllSubmatch(data, -1)
-	if len(matches) == 0 {
+	marker, scanErr := scanBinaryMarker(file)
+	closeErr := file.Close()
+	if err := errors.Join(scanErr, closeErr); err != nil {
+		return Provenance{}, fmt.Errorf("read Reconc binary: %w", err)
+	}
+	if marker == "" {
 		return Provenance{}, fmt.Errorf("missing or malformed embedded build provenance")
 	}
-	if len(matches) != 1 {
-		return Provenance{}, fmt.Errorf("ambiguous embedded build provenance")
-	}
-	provenance, err := ParseMarker(string(matches[0][0]))
+	provenance, err := ParseMarker(marker)
 	if err != nil {
 		return Provenance{}, err
 	}
 	return provenance, nil
+}
+
+func scanBinaryMarker(file *os.File) (string, error) {
+	chunk := make([]byte, 64<<10)
+	tail := []byte{}
+	seen := map[int64]bool{}
+	marker := ""
+	var consumed int64
+	reader := io.LimitReader(file, maxBinaryBytes+1)
+	for {
+		n, readErr := reader.Read(chunk)
+		if n > 0 {
+			window := make([]byte, 0, len(tail)+n)
+			window = append(window, tail...)
+			window = append(window, chunk[:n]...)
+			base := consumed - int64(len(tail))
+			for _, match := range markerPattern.FindAllIndex(window, -1) {
+				position := base + int64(match[0])
+				if seen[position] {
+					continue
+				}
+				seen[position] = true
+				if marker != "" {
+					return "", fmt.Errorf("ambiguous embedded build provenance")
+				}
+				marker = string(window[match[0]:match[1]])
+			}
+			keep := maxBuildMarkerBytes - 1
+			if len(window) < keep {
+				keep = len(window)
+			}
+			tail = append(tail[:0], window[len(window)-keep:]...)
+			consumed += int64(n)
+			if consumed > maxBinaryBytes {
+				return "", fmt.Errorf("binary exceeds %d bytes", maxBinaryBytes)
+			}
+		}
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				return marker, nil
+			}
+			return "", readErr
+		}
+	}
 }
 
 func productionFiles(root string, modulePath string, goos string, goarch string) ([]string, error) {
@@ -231,9 +294,14 @@ func matchEmbeddedFiles(directory string, pattern string) ([]string, error) {
 		return nil, fmt.Errorf("invalid go:embed pattern %q", originalPattern)
 	}
 	var matches []string
+	visited := 0
 	err := filepath.WalkDir(directory, func(filePath string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
+		}
+		visited++
+		if visited > maxEmbeddedDirectoryEntries {
+			return fmt.Errorf("embedded input tree exceeds %d entries", maxEmbeddedDirectoryEntries)
 		}
 		relative, err := filepath.Rel(directory, filePath)
 		if err != nil {
@@ -313,7 +381,7 @@ func hasHiddenPathElement(relative string) bool {
 }
 
 func readModulePath(goModPath string) (string, error) {
-	content, err := os.ReadFile(goModPath)
+	content, err := boundedio.ReadRegularFile(goModPath, maxModuleFileBytes)
 	if err != nil {
 		return "", fmt.Errorf("read go.mod: %w", err)
 	}
@@ -327,33 +395,67 @@ func readModulePath(goModPath string) (string, error) {
 }
 
 func addOptionalFile(root string, relative string, files map[string]struct{}) error {
-	info, err := os.Stat(filepath.Join(root, filepath.FromSlash(relative)))
+	info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(relative)))
 	if os.IsNotExist(err) {
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("stat %s: %w", relative, err)
 	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("%s is not a regular file", relative)
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s is not a non-symlink regular file", relative)
 	}
 	files[relative] = struct{}{}
 	return nil
 }
 
 func digestFiles(root string, files []string, goos string, goarch string) (string, error) {
+	if len(files) > maxProductionFiles {
+		return "", fmt.Errorf("production input set exceeds %d files", maxProductionFiles)
+	}
 	digest := sha256.New()
 	writeDigestRecord(digest, "domain", []byte(sourceDigestDomain))
 	writeDigestRecord(digest, "goos", []byte(goos))
 	writeDigestRecord(digest, "goarch", []byte(goarch))
+	var aggregate int64
 	for _, relative := range files {
-		content, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative)))
-		if err != nil {
+		full := filepath.Join(root, filepath.FromSlash(relative))
+		info, err := os.Lstat(full)
+		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			if err == nil {
+				err = fmt.Errorf("not a non-symlink regular file")
+			}
+			return "", fmt.Errorf("inspect production input %s: %w", relative, err)
+		}
+		if info.Size() > maxProductionFileBytes {
+			return "", fmt.Errorf("production input %s exceeds %d bytes", relative, maxProductionFileBytes)
+		}
+		aggregate += info.Size()
+		if aggregate > maxProductionAggregate {
+			return "", fmt.Errorf("production input set exceeds %d bytes", maxProductionAggregate)
+		}
+		if err := writeFileDigestRecord(digest, filepath.ToSlash(relative), full, info.Size()); err != nil {
 			return "", fmt.Errorf("read production input %s: %w", relative, err)
 		}
-		writeDigestRecord(digest, filepath.ToSlash(relative), content)
 	}
 	return hex.EncodeToString(digest.Sum(nil)), nil
+}
+
+func writeFileDigestRecord(digest hash.Hash, name, filePath string, size int64) error {
+	fmt.Fprintf(digest, "%d:%s:%d:", len(name), name, size)
+	file, err := boundedio.OpenRegularFile(filePath, maxProductionFileBytes)
+	if err != nil {
+		return err
+	}
+	written, copyErr := io.Copy(digest, io.LimitReader(file, size+1))
+	closeErr := file.Close()
+	if err := errors.Join(copyErr, closeErr); err != nil {
+		return err
+	}
+	if written != size {
+		return fmt.Errorf("file size changed while hashing: expected %d, read %d", size, written)
+	}
+	return nil
 }
 
 func writeDigestRecord(digest hash.Hash, name string, content []byte) {

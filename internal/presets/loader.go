@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+	"reconc.dev/reconc/internal/boundedio"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/safename"
 )
@@ -31,6 +32,11 @@ import (
 // HomeEnvVar overrides the location of the reconc home directory.
 // Default is ~/.reconc/.
 const HomeEnvVar = "RECONC_HOME"
+
+const (
+	maxUserPresetBytes   = 8 << 20
+	maxUserPresetEntries = 4096
+)
 
 // PresetSuffix is the only filename suffix that counts as a preset.
 const PresetSuffix = ".yml"
@@ -428,7 +434,7 @@ func scanUser() ([]Metadata, error) {
 	}
 
 	out := []Metadata{}
-	entries, err := os.ReadDir(dir)
+	entries, err := boundedio.ReadDirNoSymlink(dir, maxUserPresetEntries)
 	if err != nil {
 		return nil, err
 	}
@@ -460,5 +466,5 @@ func readRegularFile(path string) ([]byte, error) {
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("%s must be a regular file and not a symlink", path)
 	}
-	return os.ReadFile(path)
+	return boundedio.ReadRegularFile(path, maxUserPresetBytes)
 }

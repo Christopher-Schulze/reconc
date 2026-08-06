@@ -31,6 +31,7 @@ const (
 	maxPolicyBundleBytes = 64 << 20
 	maxPolicySources     = 4096
 	maxCustomRuntimes    = 32
+	maxRuntimeDirEntries = 4096
 )
 
 // inlineBlockRegex matches fenced ```reconc ... ``` blocks inside
@@ -191,7 +192,7 @@ func LoadPolicySources(repoStartPath string) (*SourceBundle, error) {
 // the compiled identity always refers to bytes physically owned by the repo.
 func LoadCustomRuntimeSources(root string) ([]policy.PolicySource, error) {
 	directory := filepath.Join(root, ".reconc", "runtimes")
-	entries, err := os.ReadDir(directory)
+	entries, err := boundedio.ReadDirNoSymlink(directory, maxRuntimeDirEntries)
 	if os.IsNotExist(err) {
 		return []policy.PolicySource{}, nil
 	}

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/parser"
@@ -17,6 +18,8 @@ import (
 	"reconc.dev/reconc/internal/tui"
 	"reconc.dev/reconc/internal/usercli"
 )
+
+const maxCLILockfileBytes = 16 << 20
 
 // runDoctor implements `reconc doctor [repo] [--json]`.
 //
@@ -342,7 +345,7 @@ func runTUI(args []string, stdout, stderr io.Writer) (resultErr error) {
 
 func readLockfileSummary(repoRoot string) (map[string]interface{}, error) {
 	path := filepath.Join(repoRoot, ingest.LockfilePath)
-	data, err := os.ReadFile(path)
+	data, err := boundedio.ReadRegularFile(path, maxCLILockfileBytes)
 	if err != nil {
 		return nil, err
 	}

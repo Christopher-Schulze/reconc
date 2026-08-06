@@ -12,6 +12,7 @@ import (
 
 	"reconc.dev/reconc/harness"
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/presets"
 	"reconc.dev/reconc/internal/schema"
 )
@@ -428,7 +429,7 @@ func readRepositoryRegularFile(root, relative string) ([]byte, error) {
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > maxBinaryBytes {
 		return nil, fmt.Errorf("repository artifact is not a bounded regular file: %s", relative)
 	}
-	body, err := os.ReadFile(target)
+	body, err := boundedio.ReadRegularFile(target, maxBinaryBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read repository artifact %s: %w", relative, err)
 	}

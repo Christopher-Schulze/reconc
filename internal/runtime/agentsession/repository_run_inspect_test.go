@@ -1,8 +1,11 @@
 package agentsession
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -15,6 +18,18 @@ func TestReadRunDecisionsMissingIsEmpty(t *testing.T) {
 	if len(ds) != 0 {
 		t.Fatalf("missing log must be empty, got %d", len(ds))
 	}
+}
+
+func FuzzDecodeRunDecisionLine(f *testing.F) {
+	f.Add([]byte(`{"event":"stop","branch":"main"}`))
+	f.Add([]byte(`{"event":"stop"} {"event":"stop"}`))
+	f.Add([]byte(`{"unknown":true}`))
+	f.Fuzz(func(t *testing.T, body []byte) {
+		if len(body) > runDecisionMaxRecordBytes {
+			return
+		}
+		_, _ = decodeRunDecisionLine(body)
+	})
 }
 
 func TestReadRunDecisionsOrderAndLimit(t *testing.T) {
@@ -41,6 +56,72 @@ func TestReadRunDecisionsOrderAndLimit(t *testing.T) {
 	}
 	if len(last2) != 2 || last2[0].Branch != "b" || last2[1].Branch != "c" {
 		t.Fatalf("limit must return the last N in order, got %+v", last2)
+	}
+}
+
+func TestReadRunDecisionsStreamsValidatedTail(t *testing.T) {
+	repo := t.TempDir()
+	for index := 0; index < 200; index++ {
+		if err := appendRunDecision(repo, RunDecision{Event: "stop", Branch: fmt.Sprintf("branch-%03d", index)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	decisions, err := ReadRunDecisions(repo, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decisions) != 3 || decisions[0].Branch != "branch-197" || decisions[2].Branch != "branch-199" {
+		t.Fatalf("streamed tail = %+v", decisions)
+	}
+	path, err := RunDecisionLogPath(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path+".2", []byte("{malformed}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadRunDecisions(repo, 1); err == nil || !strings.Contains(err.Error(), "malformed run decision") {
+		t.Fatalf("old malformed archive was not validated: %v", err)
+	}
+}
+
+func TestReadRunDecisionsRejectsOversizeAndSymlinkFiles(t *testing.T) {
+	repo := t.TempDir()
+	path, err := RunDecisionLogPath(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(runDecisionMaxBytes + 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadRunDecisions(repo, 1); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversize error = %v", err)
+	}
+	if runtime.GOOS == "windows" {
+		return
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside.jsonl")
+	if err := os.WriteFile(outside, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadRunDecisions(repo, 1); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("symlink error = %v", err)
 	}
 }
 

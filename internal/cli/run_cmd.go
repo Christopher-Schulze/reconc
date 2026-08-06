@@ -267,7 +267,11 @@ func runRunLog(args []string, stdout, stderr io.Writer) error {
 		return &CLIError{ExitCode: 1, Message: "reconc run log: " + err.Error()}
 	}
 
-	decisions, err := agentsession.ReadRunDecisions(abs, 0)
+	readLimit := 0
+	if !follow && branch == "" && session == "" && n > 0 {
+		readLimit = n
+	}
+	decisions, err := agentsession.ReadRunDecisions(abs, readLimit)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc run log: " + err.Error()}
 	}

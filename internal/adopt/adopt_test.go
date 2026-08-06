@@ -1,6 +1,7 @@
 package adopt
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -221,6 +222,28 @@ func TestScanCIAndGeneratedDirs(t *testing.T) {
 		if s.Kind == "require_claim" && len(s.WhenPaths) == 0 {
 			t.Errorf("require_claim %s missing when_paths", s.ID)
 		}
+	}
+}
+
+func TestScanReportsMalformedManifestAndPartialWorkflowEnumeration(t *testing.T) {
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "package.json"), "{")
+	workflowDir := filepath.Join(repo, ".github", "workflows")
+	if err := os.MkdirAll(workflowDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index <= maxAdoptWorkflowEntries; index++ {
+		mustWrite(t, filepath.Join(workflowDir, fmt.Sprintf("%04d.yml", index)), "on: push\n")
+	}
+	report := mustScan(t, repo)
+	joined := strings.Join(report.Ambiguities, "\n")
+	if !strings.Contains(joined, "package.json is malformed") ||
+		!strings.Contains(joined, "could not be inspected completely") ||
+		!strings.Contains(joined, "exceeds 4096 directory entries") {
+		t.Fatalf("partial scan diagnostics = %v", report.Ambiguities)
+	}
+	if containsString(collectIDs(report), "adopt-ci-green-gate") {
+		t.Fatalf("partial workflow scan produced a CI suggestion: %+v", report.Suggestions)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/audit"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/completiongate"
 	"reconc.dev/reconc/internal/contextsize"
 	"reconc.dev/reconc/internal/ingest"
@@ -20,6 +21,8 @@ import (
 )
 
 const agentBriefingFormatVersion = "1"
+
+const maxBriefingReportBytes = 1 << 20
 
 // runSessionBriefing emits one bounded, versioned machine handshake for
 // session entry and reentry. It combines policy, typed TASK, and repository-run
@@ -124,7 +127,7 @@ func compactSessionBriefing(full map[string]interface{}) map[string]interface{} 
 	if nextAction, exists := full["next_action"]; exists && nextAction != nil {
 		out["remediation"] = nextAction
 	}
-	for _, key := range []string{"task", "task_error", "run", "run_error", "policy_blockers", "omitted_policy_blockers", "required_evidence", "report_path"} {
+	for _, key := range []string{"task", "task_error", "run", "run_error", "policy_report_error", "policy_blockers", "omitted_policy_blockers", "required_evidence", "report_path"} {
 		if value, exists := full[key]; exists && value != nil {
 			out[key] = value
 		}
@@ -237,15 +240,18 @@ func addActivePolicyBriefing(out map[string]interface{}, repoRoot string) {
 	if err != nil || state.ReportPath == "" {
 		return
 	}
-	body, err := os.ReadFile(state.ReportPath)
-	if err != nil || len(body) > 1<<20 {
+	body, err := boundedio.ReadRegularFile(state.ReportPath, maxBriefingReportBytes)
+	if err != nil {
+		out["policy_report_error"] = boundedBriefingText(err.Error())
 		return
 	}
 	var report runtime.CheckReport
 	if err := json.Unmarshal(body, &report); err != nil {
+		out["policy_report_error"] = boundedBriefingText("saved report is malformed: " + err.Error())
 		return
 	}
 	if filepath.Clean(report.RepoRoot) != filepath.Clean(repoRoot) {
+		out["policy_report_error"] = "saved report belongs to a different repository"
 		return
 	}
 	blockers := make([]policyBriefingBlocker, 0, 3)

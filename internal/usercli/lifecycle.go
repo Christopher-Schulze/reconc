@@ -13,10 +13,12 @@ import (
 	"strings"
 
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/schema"
 )
 
 const LifecycleFormatVersion = "reconc.global-lifecycle/v1"
+const maxInstallationDirectoryEntries = 32
 
 type LifecycleStatus string
 
@@ -195,7 +197,7 @@ func purgeInstallationState(paths receiptPaths) error {
 }
 
 func validatePurgeInventory(paths receiptPaths, receiptPresent bool) error {
-	entries, err := os.ReadDir(paths.directory)
+	entries, err := boundedio.ReadDirNoSymlink(paths.directory, maxInstallationDirectoryEntries)
 	if os.IsNotExist(err) {
 		return nil
 	}
