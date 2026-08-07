@@ -240,15 +240,15 @@ state exactly what remains outside the boundary.
 
 ## Install and Bootstrap
 
-Install the checksummed, provenance-attested v0.9.3 release once.
+Install the checksummed, provenance-attested v0.9.4 release once.
 
 ### Native release installation
 
 macOS or Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.3/install.sh \
-  | sh -s -- --version 0.9.3
+curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/install.sh \
+  | sh -s -- --version 0.9.4
 export PATH="$HOME/.local/bin:$PATH"
 reconc --version
 ```
@@ -257,14 +257,14 @@ Windows x64:
 
 ```powershell
 $installer = Join-Path $env:TEMP "reconc-install.ps1"
-Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.3/install.ps1 -OutFile $installer
-& $installer -Version 0.9.3
+Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/install.ps1 -OutFile $installer
+& $installer -Version 0.9.4
 Remove-Item $installer
 $env:Path = "$env:LOCALAPPDATA\Programs\Reconc\bin;$env:Path"
 reconc --version
 ```
 
-The immutable `reconc-v0.9.3` tag contains both installer scripts, so these
+The immutable `reconc-v0.9.4` tag contains both installer scripts, so these
 commands do not fetch executable installation logic from mutable `main`. The
 installers:
 
@@ -1083,7 +1083,7 @@ through the private route in
 
 ## Status
 
-The source line is `v0.9.x`, and the current source version is `v0.9.3`.
+The source line is `v0.9.x`, and the current source version is `v0.9.4`.
 Release artifacts are produced only by
 an explicit manual workflow dispatch that uses an existing
 `reconc-vX.Y.Z` tag as both workflow ref and input; branch-ref dispatches are

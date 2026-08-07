@@ -92,7 +92,7 @@ func TestBuildMarkerRoundTripAndBinaryInspection(t *testing.T) {
 
 func TestInspectBinaryStreamsAcrossChunkBoundaryAndRejectsUnsafeInputs(t *testing.T) {
 	marker, err := FormatMarker(Provenance{
-		Version: "0.9.3", GOOS: "darwin", GOARCH: "arm64",
+		Version: "0.9.4", GOOS: "darwin", GOARCH: "arm64",
 		SourceDigest: strings.Repeat("c", 64),
 	})
 	if err != nil {

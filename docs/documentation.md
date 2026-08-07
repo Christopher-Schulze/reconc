@@ -234,8 +234,8 @@ make cover
 make bench
 make self-host
 make publication-audit
-make sbom VERSION=0.9.3
-make release VERSION=0.9.3
+make sbom VERSION=0.9.4
+make release VERSION=0.9.4
 ```
 
 `make coverage` runs both Go modules with atomic whole-module instrumentation
@@ -311,9 +311,9 @@ The v0.9 platform contract is one matrix:
 Direct installers own only the verified binary and receipt. No path silently
 edits a shell profile or global environment.
 
-The immutable v0.9.3 tag contains both `install.sh` and `install.ps1`. Public
+The immutable v0.9.4 tag contains both `install.sh` and `install.ps1`. Public
 bootstrap commands fetch the appropriate script from that tag, never from
-mutable `main`, and install the matching checksummed v0.9.3 binary.
+mutable `main`, and install the matching checksummed v0.9.4 binary.
 
 When the GitHub CLI (`gh`) is available, the installer additionally verifies
 the downloaded binary against its GitHub build-provenance attestation before
@@ -684,7 +684,7 @@ reconc ci . --base "$CI_MERGE_REQUEST_DIFF_BASE_SHA" --head "$CI_COMMIT_SHA" --f
 reconc ci . --base origin/main --head HEAD --format junit --output reconc-junit.xml
 ```
 
-The current v0.9.3 release can export the same completion candidate for external
+The current v0.9.4 release can export the same completion candidate for external
 review:
 
 ```bash
@@ -771,8 +771,8 @@ is live.
 
 ### How do I install and test it?
 
-Use the immutable v0.9.3 POSIX installer for macOS or Linux and the immutable
-v0.9.3 PowerShell installer for Windows x64. Put the installed binary on
+Use the immutable v0.9.4 POSIX installer for macOS or Linux and the immutable
+v0.9.4 PowerShell installer for Windows x64. Put the installed binary on
 `PATH`, verify it with `reconc doctor --global`, and initialize the target
 repository with `reconc init .`. Contributors building current source can use
 `go build -o .build/bin/reconc ./cmd/reconc` followed by
@@ -1058,6 +1058,18 @@ policy-lock schema. Test measurement output remains review evidence only; Reconc
 has no fixed percentage requirement.
 
 ## v0.9.3 To v0.9.4 Migration
+
+Update the global CLI through the existing installation owner:
+
+```bash
+reconc update
+reconc doctor --global
+```
+
+Exact native installs may instead rerun the immutable v0.9.4 installer.
+Source-owned installs build the v0.9.4 source and run that binary's
+`install-cli` transaction. The update changes only the globally owned CLI and
+receipt. It never mutates a repository.
 
 The policy lockfile moves to format version `4`, published as the v0.9.4
 `schemas/v4/policy-lock.schema.json` identity. Format 1, 2, and 3 lockfiles
@@ -2966,7 +2978,7 @@ current-state documentation.
 
 ## Release State
 
-The current source line is `v0.9.x`; the source version is `v0.9.3`. Release
+The current source line is `v0.9.x`; the source version is `v0.9.4`. Release
 artifacts are produced only through an explicit manual Release workflow
 dispatch for an existing `reconc-vX.Y.Z` tag; tag pushes never publish a
 release.

@@ -24,7 +24,7 @@ func hostileModel(t *testing.T) Model {
 			Explanation: text, RecommendedAction: text,
 		}},
 	}
-	return FromCheck("check", "0.9.3", Candidate{Fingerprint: "f"}, nil, report)
+	return FromCheck("check", "0.9.4", Candidate{Fingerprint: "f"}, nil, report)
 }
 
 // TestJUnitOutputStaysLegalXML pins the property a CI system depends on. A
