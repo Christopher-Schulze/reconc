@@ -56,8 +56,8 @@ Runtime:
   root used to recognize the current project's persistent-memory state
 - `RECONC_SCHEMA_BASE_URL` -- enterprise override for schema URLs; without an
   override, config/report/fix-plan/proof-bundle contracts use release-pinned
-  `schemas/v1/`, legacy policy locks use `schemas/v1/` or `schemas/v2/`, and
-  current policy lockfiles use `schemas/v3/`
+  `schemas/v1/`, legacy policy locks use `schemas/v1/`, `schemas/v2/`, or
+  `schemas/v3/`, and current policy lockfiles use `schemas/v4/`
 - `RECONC_STOP_FINGERPRINT_UNTRACKED` (`normal` default, `all`, `no`) --
   untracked-file mode for the Stop fingerprint's git status snapshot. `normal`
   content-binds each untracked directory recursively under bounded entry and

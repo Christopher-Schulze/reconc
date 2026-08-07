@@ -135,7 +135,7 @@ handling.
 ## Key invariants
 
 1. **Byte-stable private portable lockfile.** Two compiles of identical sources
-   in different clones or worktrees produce identical bytes. Format 3 uses `.`
+   in different clones or worktrees produce identical bytes. Format 4 uses `.`
    as its repository/discovery root marker and stores only logical source
    paths plus SHA-256 content digests, never raw source bodies or physical
    global-policy paths. Compiler emits canonical JSON (sorted keys, indent-2,
@@ -220,13 +220,13 @@ handling.
 
 - **Published schema documents**: the nineteen versioned
   `schemas/v1/*.schema.json` contracts, legacy
-  `schemas/v2/policy-lock.schema.json`, and current
-  `schemas/v3/policy-lock.schema.json` are canonical Draft 2020-12 documents,
+  `schemas/v2/policy-lock.schema.json` and `schemas/v3/policy-lock.schema.json`,
+  and current `schemas/v4/policy-lock.schema.json` are canonical Draft 2020-12 documents,
   use stable format-versioned identities as `$id`, are
   byte-compared against the canonical source during release verification, and
   ship in the checksummed release inventory. `policy-config.schema.json` is
-  the strict authoring contract; the v3 lock schema describes current
-  body-free portable lockfiles, while v1 and v2 remain validated migration
+  the strict authoring contract; the v4 lock schema describes current
+  body-free portable lockfiles, while v1, v2, and v3 remain validated migration
   inputs.
 
 - **Declarative custom-runtime contract**: `.reconc/runtimes/*.json` is the
@@ -242,8 +242,8 @@ handling.
 
 - **MCP authoring and lock contract**: `mcp.unclassified` is `host` or `deny`;
   tool mappings use the typed platform, optional SHA-256 server fingerprint,
-  exact tool, effect, and effect-specific JSON Pointers. The authoring and v2
-  and v3 lock schemas reject unknown fields and invalid cross-field
+  exact tool, effect, and effect-specific JSON Pointers. The authoring and v2,
+  v3, and v4 lock schemas reject unknown fields and invalid cross-field
   combinations.
 
 - **Exit codes 0/1/2**: stable across all subcommands for agent
@@ -323,7 +323,7 @@ refusal, never an inferred owner or partial success.
      `.reconc.yml`, `AGENTS.md`, etc.
    - `internal/runtime/lockfile.go` performs a 16 MiB bounded read and validates
      schema, version, repository root, migration state, and source freshness.
-     Current format-3 locks prove freshness from the complete lock digest plus
+     Current format-4 locks prove freshness from the complete lock digest plus
      one bounded source-bundle digest pass. Migrated legacy locks additionally
      reparse sources and prove exact embedded rule and MCP parity.
    - The validated payload is decoded once into an immutable typed runtime plan.
@@ -426,9 +426,9 @@ contract URLs. Runtime lockfile loading imports compiler only for registered
 migrations, current-envelope validation, and source-digest freshness
 validation. The runtime then owns the strict typed plan and its deterministic
 indexes; evaluators no longer extract fields from generic rule maps. Format-1
-absolute-root and format-2 content-bearing lockfiles migrate in memory to the
-body-free portable format-3 envelope; freshly compiled lockfiles never persist
-a checkout root or source body.
+absolute-root, format-2 content-bearing, and format-3 lockfiles migrate in
+memory to the current body-free portable envelope; freshly compiled lockfiles
+never persist a checkout root or source body.
 
 ## Threat model: hook runtime
 

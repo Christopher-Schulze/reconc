@@ -2,8 +2,8 @@
 
 - Status: Frozen
 - Contract: `.reconc/policy.lock.json`
-- Schema: `https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v3/policy-lock.schema.json`
-- Format version: `3`
+- Schema: `https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json`
+- Format version: `4`
 
 ## Purpose
 
@@ -75,10 +75,10 @@ global-policy paths are forbidden in the current lockfile.
 
 `lock_digest` is SHA-256 over canonical JSON for every top-level field except
 `lock_digest` itself. Runtime verifies it before using embedded rules. A current
-format-3 lock then proves freshness by comparing its source count and
+format-4 lock then proves freshness by comparing its source count and
 `source_digest` with one bounded load of the current source bundle. Runtime
 strictly decodes the rules and optional MCP contract into one typed immutable
-plan. A migrated format-1 or format-2 lock additionally re-parses current
+plan. A migrated format-1, format-2, or format-3 lock additionally re-parses current
 sources and requires byte-equivalent canonical rule and optional MCP payloads,
 so an in-memory legacy migration cannot legitimize policy drift.
 
@@ -107,11 +107,11 @@ Runtime loaders must:
 1. Refuse missing, malformed, stale, schema-drifted, or non-portable current
    lockfiles.
 2. Validate registered legacy schema identities and migrate known format-1
-   absolute-root and format-2 content-bearing lockfiles in memory to the
-   body-free format-3 `.` envelope without mutating the input.
+   absolute-root, format-2 content-bearing, and format-3 lockfiles in memory to
+   the current body-free `.` envelope without mutating the input.
 3. Validate rule count and source count consistency.
 4. Validate the complete `lock_digest`, then compare the current source-bundle
-   identity with `source_digest` without reparsing a current format-3 lock.
+   identity with `source_digest` without reparsing a current format-4 lock.
 5. For every migrated legacy lock, additionally validate exact embedded-rule
    plus optional MCP parity with reparsed current sources.
 6. Strictly decode one typed immutable runtime plan, reject unknown fields and

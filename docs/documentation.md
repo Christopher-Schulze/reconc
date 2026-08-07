@@ -248,8 +248,8 @@ still require their matching platform jobs or integration boundaries.
 
 `make release` cross-compiles five binaries into `dist/`, copies the native
 POSIX and Windows installers, generates three flat shell-completion artifacts,
-generates a man page, copies the nineteen v1 schemas plus the legacy v2 and
-current v3 policy-lock schemas, generates deterministic SPDX 2.3 and CycloneDX
+generates a man page, copies the nineteen v1 schemas plus the legacy v2 and v3
+and current v4 policy-lock schemas, generates deterministic SPDX 2.3 and CycloneDX
 1.6 SBOMs,
 generates a strict `release-manifest.json`, and writes `dist/SHA256SUMS`. The
 target stops on the first build, SBOM, manifest, or checksum failure. The
@@ -1304,15 +1304,16 @@ For exact flags, run `reconc help <command>` or
 In governed target repositories, repo-local policy lives in `.reconc.yml` and
 should be committed. The generated `.reconc/policy.lock.json` is a portable,
 committable policy contract and should be reviewed with policy-source changes.
-Format 3 is checkout-independent and byte-identical across equivalent clones
+Format 4 is checkout-independent and byte-identical across equivalent clones
 and worktrees. Source records contain only portable logical paths, SHA-256
 content identities, kinds, and bounded inline locations; raw source bodies and
 physical global-policy paths never enter the committable lock. Its
 `lock_digest` binds the complete canonical payload except for the digest field
-itself. For current format-3 locks, runtime verifies that envelope and reads the
+itself. For current format-4 locks, runtime verifies that envelope and reads the
 bounded source bundle once to compare its complete identity digest, then
-strictly decodes one typed immutable rule plan. Format-1 and format-2 lockfiles
-are migrated in memory only after their legacy schema identity and digest pass;
+strictly decodes one typed immutable rule plan. Format-1, format-2, and
+format-3 lockfiles are migrated in memory only after their legacy schema
+identity and digest pass;
 their sources are reparsed and must retain exact embedded rule and MCP parity.
 Publication
 uses atomic replacement and skips the write entirely when the canonical bytes
@@ -1789,7 +1790,7 @@ summarizes the core runtime responsibilities:
 Key invariants:
 
 - Deterministic JSON artifacts
-- Stable schema and `format_version` fields; versioned v1 contracts live under `schemas/v1/`, legacy portable policy locks use `schemas/v2/`, and current portable policy locks use `schemas/v3/`; all nineteen v1 schemas plus the v2 and v3 lock schemas ship in every future release containing repository sync
+- Stable schema and `format_version` fields; versioned v1 contracts live under `schemas/v1/`, legacy portable policy locks use `schemas/v2/` or `schemas/v3/`, and current portable policy locks use `schemas/v4/`; all nineteen v1 schemas plus the v2, v3, and v4 lock schemas ship in every future release containing repository sync
 - Fail closed on malformed policy, stale lockfiles, schema drift, invalid globs, unsupported rule kinds, and non-portable current lock envelopes
 - No core policy-runtime network calls; supported agent hosts own their
   authenticated inference traffic
