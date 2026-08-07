@@ -1,0 +1,38 @@
+# Every release artifact that is copied from the repository, as
+# "<name in dist>\t<path in the repository>".
+#
+# This file is the only place that mapping exists. The build copies from it, the
+# artifact verifier derives both its expected asset set and its byte-identity
+# checks from it, and the release trust gate assembles its tamper fixture from
+# it. Before this file the same list lived in three places and drifted: format 4
+# added a fourth policy-lock schema, the build shipped it, the verifier still
+# described three, and the v0.9.4 release stopped after its artifacts were
+# already built and attested.
+#
+# Generated artifacts (binaries, completions, man page, SBOMs) are not listed
+# here: they have no repository source to be compared against.
+install.sh	install.sh
+install.ps1	install.ps1
+reconc-harness-pack-advanced-1.0.0.zip	harness/advanced-pack.zip
+completion-report.schema.json	schemas/v1/completion-report.schema.json
+custom-runtime-conformance.schema.json	schemas/v1/custom-runtime-conformance.schema.json
+custom-runtime-liveness.schema.json	schemas/v1/custom-runtime-liveness.schema.json
+custom-runtime-manifest.schema.json	schemas/v1/custom-runtime-manifest.schema.json
+global-diagnostic.schema.json	schemas/v1/global-diagnostic.schema.json
+global-lifecycle.schema.json	schemas/v1/global-lifecycle.schema.json
+harness-pack-manifest.schema.json	schemas/v1/harness-pack-manifest.schema.json
+installation-receipt.schema.json	schemas/v1/installation-receipt.schema.json
+neutral-hook-request.schema.json	schemas/v1/neutral-hook-request.schema.json
+neutral-hook-response.schema.json	schemas/v1/neutral-hook-response.schema.json
+policy-config.schema.json	schemas/v1/policy-config.schema.json
+policy-fix-plan.schema.json	schemas/v1/policy-fix-plan.schema.json
+policy-report.schema.json	schemas/v1/policy-report.schema.json
+proof-bundle.schema.json	schemas/v1/proof-bundle.schema.json
+release-manifest.schema.json	schemas/v1/release-manifest.schema.json
+repository-install.schema.json	schemas/v1/repository-install.schema.json
+repository-sync-plan.schema.json	schemas/v1/repository-sync-plan.schema.json
+repository-sync-report.schema.json	schemas/v1/repository-sync-report.schema.json
+policy-lock-v1.schema.json	schemas/v1/policy-lock.schema.json
+policy-lock-v2.schema.json	schemas/v2/policy-lock.schema.json
+policy-lock-v3.schema.json	schemas/v3/policy-lock.schema.json
+policy-lock.schema.json	schemas/v4/policy-lock.schema.json

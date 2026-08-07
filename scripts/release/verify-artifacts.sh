@@ -36,7 +36,30 @@ sha256_file() {
   printf '%s\n' "$hash"
 }
 
-expected_assets="_reconc install.ps1 install.sh reconc.1 reconc.bash reconc.fish completion-report.schema.json custom-runtime-conformance.schema.json custom-runtime-liveness.schema.json custom-runtime-manifest.schema.json global-diagnostic.schema.json global-lifecycle.schema.json harness-pack-manifest.schema.json installation-receipt.schema.json neutral-hook-request.schema.json neutral-hook-response.schema.json policy-config.schema.json policy-fix-plan.schema.json policy-lock-v1.schema.json policy-lock-v2.schema.json policy-lock-v3.schema.json policy-lock.schema.json policy-report.schema.json proof-bundle.schema.json reconc-harness-pack-advanced-1.0.0.zip release-manifest.schema.json release-manifest.json repository-install.schema.json repository-sync-plan.schema.json repository-sync-report.schema.json reconc-$version.spdx.json reconc-$version.cdx.json"
+# Repository-sourced assets come from the one manifest the build copies from,
+# so the verifier cannot describe a different release than the build produces.
+copied_manifest="$root/scripts/release/copied-assets.tsv"
+[ -f "$copied_manifest" ] || {
+  printf 'error: copied-asset manifest is missing: %s\n' "$copied_manifest" >&2
+  exit 1
+}
+copied_assets=""
+while IFS="$(printf '\t')" read -r copied_name copied_source copied_extra; do
+  case "$copied_name" in
+    ''|'#'*) continue ;;
+  esac
+  [ -n "$copied_source" ] && [ -z "${copied_extra:-}" ] || {
+    printf 'error: malformed copied-asset entry: %s\n' "$copied_name" >&2
+    exit 1
+  }
+  copied_assets="$copied_assets $copied_name"
+done < "$copied_manifest"
+[ -n "$copied_assets" ] || {
+  printf 'error: copied-asset manifest lists no artifacts\n' >&2
+  exit 1
+}
+# Generated artifacts have no repository source and are named here.
+expected_assets="_reconc reconc.1 reconc.bash reconc.fish release-manifest.json reconc-$version.spdx.json reconc-$version.cdx.json$copied_assets"
 for target in "$@"; do
   os=${target%/*}
   arch=${target##*/}
@@ -171,29 +194,11 @@ verify_canonical_asset() {
   }
 }
 
-for name in \
-  completion-report.schema.json \
-  custom-runtime-conformance.schema.json \
-  custom-runtime-liveness.schema.json \
-  custom-runtime-manifest.schema.json \
-  global-diagnostic.schema.json \
-  global-lifecycle.schema.json \
-  harness-pack-manifest.schema.json \
-  installation-receipt.schema.json \
-  neutral-hook-request.schema.json \
-  neutral-hook-response.schema.json \
-  policy-config.schema.json \
-  policy-fix-plan.schema.json \
-  policy-report.schema.json \
-  proof-bundle.schema.json \
-  release-manifest.schema.json \
-  repository-install.schema.json \
-  repository-sync-plan.schema.json \
-  repository-sync-report.schema.json
-do
-  verify_canonical_asset "$root/schemas/v1/$name" "$name"
-done
-verify_canonical_asset "$root/schemas/v1/policy-lock.schema.json" "policy-lock-v1.schema.json"
-verify_canonical_asset "$root/schemas/v2/policy-lock.schema.json" "policy-lock-v2.schema.json"
-verify_canonical_asset "$root/schemas/v3/policy-lock.schema.json" "policy-lock-v3.schema.json"
-verify_canonical_asset "$root/schemas/v4/policy-lock.schema.json" "policy-lock.schema.json"
+# Every copied asset must be byte-identical to the repository file it claims to
+# be a copy of, and the manifest states which file that is.
+while IFS="$(printf '\t')" read -r copied_name copied_source copied_extra; do
+  case "$copied_name" in
+    ''|'#'*) continue ;;
+  esac
+  verify_canonical_asset "$root/$copied_source" "$copied_name"
+done < "$copied_manifest"

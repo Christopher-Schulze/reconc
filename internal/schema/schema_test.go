@@ -380,3 +380,46 @@ func assertPropertiesMatch(t *testing.T, properties map[string]interface{}, valu
 		t.Fatalf("schema properties for %T = %v, want %v", value, got, want)
 	}
 }
+
+// TestReleaseShipsTheCanonicalPolicyLockSchema ties the release manifest to the
+// identity the product stamps. The copied-asset manifest is a single source, so
+// a wrong mapping there is consistent with itself: the build would ship an
+// older lock schema under the canonical name and every artifact check would
+// still agree. This is the one place that can tell it is wrong.
+func TestReleaseShipsTheCanonicalPolicyLockSchema(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "scripts", "release", "copied-assets.tsv"))
+	if err != nil {
+		t.Fatalf("read copied-asset manifest: %v", err)
+	}
+	sources := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		if len(fields) != 2 {
+			t.Fatalf("malformed copied-asset entry: %q", line)
+		}
+		sources[fields[0]] = fields[1]
+	}
+
+	// The canonical lock schema must come from the directory the stamped URL
+	// names, so a lockfile's schema identity and the shipped file agree.
+	base := schema.PolicyLockURL
+	cut := strings.LastIndex(base, "/schemas/")
+	if cut < 0 {
+		t.Fatalf("policy lock URL has no schema directory: %q", base)
+	}
+	wantDirectory := strings.TrimPrefix(base[cut:], "/")
+	wantDirectory = wantDirectory[:strings.LastIndex(wantDirectory, "/")]
+	if got := sources["policy-lock.schema.json"]; got != wantDirectory+"/policy-lock.schema.json" {
+		t.Fatalf("release ships %q as the canonical lock schema, want %s/policy-lock.schema.json", got, wantDirectory)
+	}
+
+	// Every superseded format stays available under its own name.
+	for _, legacy := range []string{"policy-lock-v1.schema.json", "policy-lock-v2.schema.json", "policy-lock-v3.schema.json"} {
+		if sources[legacy] == "" {
+			t.Errorf("release no longer ships %s", legacy)
+		}
+	}
+}

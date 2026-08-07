@@ -248,12 +248,22 @@ still require their matching platform jobs or integration boundaries.
 
 `make release` cross-compiles five binaries into `dist/`, copies the native
 POSIX and Windows installers, generates three flat shell-completion artifacts,
-generates a man page, copies the nineteen v1 schemas plus the legacy v2 and v3
-and current v4 policy-lock schemas, generates deterministic SPDX 2.3 and CycloneDX
+generates a man page, copies the eighteen v1 schemas plus the v1, v2, and v3
+policy-lock schemas under their own names and the current v4 schema under the
+canonical name, generates deterministic SPDX 2.3 and CycloneDX
 1.6 SBOMs,
 generates a strict `release-manifest.json`, and writes `dist/SHA256SUMS`. The
-target stops on the first build, SBOM, manifest, or checksum failure. The
-release verifier requires exactly those thirty-six checksummed artifacts,
+target stops on the first build, SBOM, manifest, or checksum failure.
+
+Every artifact copied out of the repository is named once, in
+`scripts/release/copied-assets.tsv`, together with the file it must be a copy
+of. The build copies from that manifest, the verifier derives both its expected
+set and its byte-identity comparisons from it, and the release trust gate
+assembles its tamper fixture with the same script. Adding or renaming a shipped
+artifact is therefore one edit; before this the list lived in three places and
+drifted far enough that a release could not complete.
+
+The release verifier requires exactly those thirty-seven checksummed artifacts,
 rejects missing, extra, duplicate, unsafe, mutable, or corrupted entries, and
 never accepts an empty manifest. It independently verifies every manifest
 asset and digest, then regenerates Bash, Zsh, Fish, and the versioned man page
@@ -1825,7 +1835,7 @@ summarizes the core runtime responsibilities:
 Key invariants:
 
 - Deterministic JSON artifacts
-- Stable schema and `format_version` fields; versioned v1 contracts live under `schemas/v1/`, legacy portable policy locks use `schemas/v2/` or `schemas/v3/`, and current portable policy locks use `schemas/v4/`; all nineteen v1 schemas plus the v2, v3, and v4 lock schemas ship in every future release containing repository sync
+- Stable schema and `format_version` fields; versioned v1 contracts live under `schemas/v1/`, legacy portable policy locks use `schemas/v2/` or `schemas/v3/`, and current portable policy locks use `schemas/v4/`; all nineteen v1 schemas ship in every future release containing repository sync, with the v1 lock schema under its own name alongside the v2, v3, and v4 lock schemas
 - Fail closed on malformed policy, stale lockfiles, schema drift, invalid globs, unsupported rule kinds, and non-portable current lock envelopes
 - No core policy-runtime network calls; supported agent hosts own their
   authenticated inference traffic

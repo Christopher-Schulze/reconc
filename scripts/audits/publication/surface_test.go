@@ -526,14 +526,16 @@ func TestNativeWindowsInstallerIsWiredIntoCIAndRelease(t *testing.T) {
 		}
 	}
 
+	// The build, the verifier, and the release trust fixture all read the same
+	// copied-asset manifest, so publishing both installers is stated once.
 	makefile := readPublicSurfaceFile(t, root, "Makefile")
-	if !strings.Contains(makefile, "cp install.sh install.ps1 $(DISTDIR)/") {
-		t.Error("release build does not publish both native installers")
+	if !strings.Contains(makefile, "./scripts/release/copy-assets.sh $(DISTDIR)") {
+		t.Error("release build no longer copies its artifacts through the shared manifest")
 	}
-	verifier := readPublicSurfaceFile(t, root, "scripts/release/verify-artifacts.sh")
-	for _, installer := range []string{"install.sh", "install.ps1"} {
-		if !strings.Contains(verifier, installer) {
-			t.Errorf("release verifier omits %s", installer)
+	copied := readPublicSurfaceFile(t, root, "scripts/release/copied-assets.tsv")
+	for _, installer := range []string{"install.sh\tinstall.sh", "install.ps1\tinstall.ps1"} {
+		if !strings.Contains(copied, installer) {
+			t.Errorf("release build does not publish %q", strings.ReplaceAll(installer, "\t", " -> "))
 		}
 	}
 }

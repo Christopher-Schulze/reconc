@@ -25,6 +25,19 @@ expect_failure() {
   fi
 }
 
+# expect_failure only proves that something went wrong. Where the reason is the
+# point of the check, assert the reason too, so a scenario cannot pass because
+# an unrelated earlier check happened to fail first.
+expect_failure_reason() {
+  reason="$1"
+  shift
+  output=$("$@" 2>&1) && fail "command unexpectedly succeeded: $*"
+  case "$output" in
+    *"$reason"*) ;;
+    *) fail "expected failure mentioning '$reason', got: $output" ;;
+  esac
+}
+
 require_text() {
   file="$1"
   value="$2"
@@ -289,55 +302,22 @@ release_epoch=$(git -C "$root" show -s --format=%ct "$release_commit")
   SOURCE_DATE_EPOCH="$release_epoch" go run \
     -ldflags "-X main.Version=$project_version" ./cmd/reconc manpage > "$release_dir/reconc.1"
 )
-release_assets=(
-  _reconc
-  install.ps1
-  install.sh
-  reconc.1
-  reconc.bash
-  reconc.fish
-  completion-report.schema.json
-  custom-runtime-conformance.schema.json
-  custom-runtime-liveness.schema.json
-  custom-runtime-manifest.schema.json
-  global-diagnostic.schema.json
-  global-lifecycle.schema.json
-  harness-pack-manifest.schema.json
-  installation-receipt.schema.json
-  neutral-hook-request.schema.json
-  neutral-hook-response.schema.json
-  policy-fix-plan.schema.json
-  policy-config.schema.json
-  policy-lock-v1.schema.json
-  policy-lock-v2.schema.json
-  policy-lock-v3.schema.json
-  policy-lock.schema.json
-  policy-report.schema.json
-  proof-bundle.schema.json
-  reconc-harness-pack-advanced-1.0.0.zip
-  release-manifest.schema.json
-  repository-install.schema.json
-  repository-sync-plan.schema.json
-  repository-sync-report.schema.json
-  "reconc-$project_version-darwin-amd64"
-  "reconc-$project_version-darwin-arm64"
-  "reconc-$project_version-linux-amd64"
-  "reconc-$project_version-linux-arm64"
-  "reconc-$project_version-windows-amd64.exe"
-)
-for name in "${release_assets[@]}"; do
-  case "$name" in
-    _reconc|reconc.1|reconc.bash|reconc.fish) ;;
-    install.ps1|install.sh) cp "$root/$name" "$release_dir/$name" ;;
-    policy-lock-v1.schema.json) cp "$root/schemas/v1/policy-lock.schema.json" "$release_dir/$name" ;;
-    policy-lock-v2.schema.json) cp "$root/schemas/v2/policy-lock.schema.json" "$release_dir/$name" ;;
-    policy-lock-v3.schema.json) cp "$root/schemas/v3/policy-lock.schema.json" "$release_dir/$name" ;;
-    policy-lock.schema.json) cp "$root/schemas/v4/policy-lock.schema.json" "$release_dir/$name" ;;
-    *.schema.json) cp "$root/schemas/v1/$name" "$release_dir/$name" ;;
-    reconc-harness-pack-advanced-1.0.0.zip) cp "$root/harness/advanced-pack.zip" "$release_dir/$name" ;;
-    *) printf '%s\n' "$name" > "$release_dir/$name" ;;
-  esac
+# The fixture is assembled by the same script the build uses, from the same
+# manifest, so a tamper matrix can never certify a release the build does not
+# produce. Only the binaries stand in for real ones: corrupting a real binary
+# a dozen times would cost minutes and prove nothing the placeholder cannot.
+"$root/scripts/release/copy-assets.sh" "$release_dir"
+for name in \
+  "reconc-$project_version-darwin-amd64" \
+  "reconc-$project_version-darwin-arm64" \
+  "reconc-$project_version-linux-amd64" \
+  "reconc-$project_version-linux-arm64" \
+  "reconc-$project_version-windows-amd64.exe" \
+  release-manifest.json
+do
+  printf '%s\n' "$name" > "$release_dir/$name"
 done
+
 generate_sbom() {
   (
     cd "$root"
@@ -377,6 +357,35 @@ printf '%s\n' "reconc-$project_version-linux-amd64" > "$release_dir/reconc-$proj
 printf 'unlisted\n' > "$release_dir/unlisted"
 expect_failure "${verify_release[@]}"
 rm "$release_dir/unlisted"
+
+# The failure that shipped a broken v0.9.4 build: the release carries an
+# artifact the verifier does not expect, or misses one it requires. Both are
+# now driven from the one manifest, so both directions are proved here against
+# the real copier rather than a second hand-written list.
+drift_manifest="$tmp/copied-assets-drift.tsv"
+cp "$root/scripts/release/copied-assets.tsv" "$drift_manifest"
+printf 'policy-lock-v5.schema.json\tschemas/v4/policy-lock.schema.json\n' >> "$drift_manifest"
+drift_dir="$tmp/release-drift"
+mkdir -p "$drift_dir"
+cp "$release_dir"/* "$drift_dir/"
+cp "$root/schemas/v4/policy-lock.schema.json" "$drift_dir/policy-lock-v5.schema.json"
+"$root/scripts/release/write-checksums.sh" "$drift_dir"
+expect_failure_reason "expected exactly" \
+  "$root/scripts/release/verify-artifacts.sh" "$drift_dir" reconc "$project_version" \
+  darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64
+rm "$drift_dir/policy-lock-v5.schema.json"
+rm "$drift_dir/policy-lock.schema.json"
+"$root/scripts/release/write-checksums.sh" "$drift_dir"
+expect_failure_reason "required release artifact is absent from manifest: policy-lock.schema.json" \
+  "$root/scripts/release/verify-artifacts.sh" "$drift_dir" reconc "$project_version" \
+  darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64
+rm -rf "$drift_dir"
+
+# The build must copy through the shared script instead of listing artifacts
+# again in the Makefile.
+require_text "$root/Makefile" "./scripts/release/copy-assets.sh"
+grep -Fq 'schemas/v1/policy-config.schema.json' "$root/Makefile" \
+  && fail "Makefile lists release artifacts again instead of using the shared manifest"
 
 spdx="$release_dir/reconc-$project_version.spdx.json"
 cyclonedx="$release_dir/reconc-$project_version.cdx.json"
