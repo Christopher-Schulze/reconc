@@ -808,3 +808,98 @@ func TestHookRuntimeApplyPatchWithoutParseablePathsFailsClosed(t *testing.T) {
 		t.Fatalf("expected parse-failure explanation, got: %q", stderrStr)
 	}
 }
+
+// TestHookRuntimeClaudeAndCodexNamespacedMCPRoutes drives the complete path an
+// MCP call takes on the two hosts that publish no dedicated MCP event: the host
+// fires its generic tool event under the `mcp__<server>__<tool>` namespace, the
+// runtime derives the exact identity, and the repository policy decides.
+func TestHookRuntimeClaudeAndCodexNamespacedMCPRoutes(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	mcpConfig := `mcp:
+  unclassified: deny
+  tools:
+    - platform: claude-code
+      tool: mcp__filesystem__write_file
+      effect: repository_write
+      path_fields: [/path]
+    - platform: codex
+      tool: mcp__filesystem__write_file
+      effect: repository_write
+      path_fields: [/path]
+`
+	if err := os.WriteFile(filepath.Join(repo, ".reconc.yml"), []byte(mcpConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compiler.CompileRepoPolicy(repo, "e2e"); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, code := runWithStdin(t, `{"session_id":"mcp1"}`, "hook", "runtime", "claude-session-start", repo)
+	if code != 0 {
+		t.Fatalf("claude-session-start exit %d", code)
+	}
+
+	// A protected path is refused before the MCP server ever runs.
+	_, stderr, code := runWithStdin(t,
+		`{"session_id":"mcp1","tool_name":"mcp__filesystem__write_file","tool_input":{"path":"generated/out.go"}}`,
+		"hook", "runtime", "claude-mcp-before", repo)
+	if code != 2 {
+		t.Fatalf("protected MCP write must fail closed, got exit %d stderr=%q", code, stderr)
+	}
+
+	// An allowed path passes and its post event records the write.
+	_, stderr, code = runWithStdin(t,
+		`{"session_id":"mcp1","tool_name":"mcp__filesystem__write_file","tool_input":{"path":"docs/mcp.md"}}`,
+		"hook", "runtime", "claude-mcp-before", repo)
+	if code != 0 {
+		t.Fatalf("allowed MCP write exit %d stderr=%q", code, stderr)
+	}
+	_, stderr, code = runWithStdin(t,
+		`{"session_id":"mcp1","tool_name":"mcp__filesystem__write_file","tool_input":{"path":"docs/mcp.md"},"tool_response":{"isError":false}}`,
+		"hook", "runtime", "claude-mcp-after", repo)
+	if code != 0 {
+		t.Fatalf("allowed MCP write post exit %d stderr=%q", code, stderr)
+	}
+	state, err := agentsession.LoadSessionState(repo, "mcp1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(state.WritePaths, "docs/mcp.md") {
+		t.Fatalf("MCP write evidence = %#v", state.WritePaths)
+	}
+
+	// A completed call without an explicit host success records no write.
+	_, _, code = runWithStdin(t,
+		`{"session_id":"mcp1","tool_name":"mcp__filesystem__write_file","tool_input":{"path":"docs/unproven.md"},"tool_response":{"content":"done"}}`,
+		"hook", "runtime", "claude-mcp-after", repo)
+	if code != 0 {
+		t.Fatalf("unproven MCP post must stay fail-open, got exit %d", code)
+	}
+	state, err = agentsession.LoadSessionState(repo, "mcp1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(state.WritePaths, "docs/unproven.md") {
+		t.Fatalf("a completed call without an explicit success must not create write evidence: %#v", state.WritePaths)
+	}
+
+	// A built-in tool identity on the MCP route is envelope drift.
+	_, stderr, code = runWithStdin(t,
+		`{"session_id":"mcp1","tool_name":"Write","tool_input":{"file_path":"docs/mcp.md"}}`,
+		"hook", "runtime", "claude-mcp-before", repo)
+	if code != 2 {
+		t.Fatalf("a built-in tool on the MCP route must fail closed, got exit %d stderr=%q", code, stderr)
+	}
+
+	// The same contract on Codex, whose identity is a separate selector.
+	_, _, code = runWithStdin(t, `{"session_id":"mcp2"}`, "hook", "runtime", "codex-session-start", repo)
+	if code != 0 {
+		t.Fatalf("codex-session-start exit %d", code)
+	}
+	_, stderr, code = runWithStdin(t,
+		`{"session_id":"mcp2","tool_name":"mcp__filesystem__write_file","tool_input":{"path":"generated/out.go"}}`,
+		"hook", "runtime", "codex-mcp-before", repo)
+	if code != 2 {
+		t.Fatalf("protected Codex MCP write must fail closed, got exit %d stderr=%q", code, stderr)
+	}
+}

@@ -63,7 +63,7 @@ func generateClaudeCode() (*Artifact, error) {
 		EventPreToolUse, EventPermissionRequest, EventPermissionDenied,
 		EventPostToolUse, EventPostToolUseFailure, EventSubagentStart,
 		EventSubagentStop, EventPreCompaction, EventStop, EventStopFailure,
-		EventSessionEnd, EventNotification,
+		EventSessionEnd, EventNotification, EventMCPBefore, EventMCPAfter,
 	)
 	if err != nil {
 		return nil, err
@@ -82,6 +82,11 @@ func generateClaudeCode() (*Artifact, error) {
 	}
 	const guardedTools = "Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash"
 	const evidenceTools = "Read|Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash"
+	// Claude names every MCP call `mcp__<server>__<tool>`. The namespace needs
+	// its own matcher group: a matcher built only from exact-match characters is
+	// compared literally, so the regular expression cannot join the exact tool
+	// alternations above without changing how they match.
+	const mcpTools = "mcp__.*"
 	template := map[string]interface{}{
 		"hooks": map[string]interface{}{
 			"SessionStart": []interface{}{
@@ -110,6 +115,12 @@ func generateClaudeCode() (*Artifact, error) {
 						command("claude-pre-tool-use", EventPreToolUse),
 					},
 				},
+				map[string]interface{}{
+					"matcher": mcpTools,
+					"hooks": []interface{}{
+						command("claude-mcp-before", EventMCPBefore),
+					},
+				},
 			},
 			"PermissionRequest": []interface{}{
 				map[string]interface{}{
@@ -132,12 +143,24 @@ func generateClaudeCode() (*Artifact, error) {
 						command("claude-post-tool-use", EventPostToolUse),
 					},
 				},
+				map[string]interface{}{
+					"matcher": mcpTools,
+					"hooks": []interface{}{
+						command("claude-mcp-after", EventMCPAfter),
+					},
+				},
 			},
 			"PostToolUseFailure": []interface{}{
 				map[string]interface{}{
 					"matcher": evidenceTools,
 					"hooks": []interface{}{
 						command("claude-post-tool-use-failure", EventPostToolUseFailure),
+					},
+				},
+				map[string]interface{}{
+					"matcher": mcpTools,
+					"hooks": []interface{}{
+						command("claude-mcp-after", EventMCPAfter),
 					},
 				},
 			},
@@ -177,7 +200,7 @@ func generateCodex() (*Artifact, error) {
 		EventSessionStart, EventUserPromptSubmit, EventPreToolUse,
 		EventPermissionRequest, EventPostToolUse, EventPreCompaction,
 		EventPostCompaction, EventSubagentStart, EventSubagentStop, EventStop,
-		EventSessionEnd,
+		EventSessionEnd, EventMCPBefore, EventMCPAfter,
 	)
 	if err != nil {
 		return nil, err
@@ -215,6 +238,14 @@ func generateCodex() (*Artifact, error) {
 						command("codex-pre-tool-use", EventPreToolUse, ""),
 					},
 				},
+				// Codex compares a matcher without regular-expression characters
+				// literally, so the MCP namespace needs its own group.
+				map[string]interface{}{
+					"matcher": "mcp__.*",
+					"hooks": []interface{}{
+						command("codex-mcp-before", EventMCPBefore, ""),
+					},
+				},
 			},
 			"PermissionRequest": []interface{}{
 				map[string]interface{}{
@@ -229,6 +260,12 @@ func generateCodex() (*Artifact, error) {
 					"matcher": "Read|Edit|Write|MultiEdit|Bash|apply_patch",
 					"hooks": []interface{}{
 						command("codex-post-tool-use", EventPostToolUse, ""),
+					},
+				},
+				map[string]interface{}{
+					"matcher": "mcp__.*",
+					"hooks": []interface{}{
+						command("codex-mcp-after", EventMCPAfter, ""),
 					},
 				},
 			},

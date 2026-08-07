@@ -1088,11 +1088,14 @@ such gates run on every Stop until their inputs are declared. Globs, template
 variables, escaping paths, and duplicate entries are refused at compile time,
 because binding them would require a directory walk on the Stop path.
 
-Two hook routes were added after verifying the hosts' own configuration
-surfaces. Codex accepts `SessionEnd` among its eleven matcher groups, and
-Claude Code accepts `Notification`; both are now generated. Repositories that
-installed hooks before the upgrade keep working, and their installed artifacts
-report as stale until they are reinstalled:
+Hook routes were added after verifying the hosts' own configuration surfaces.
+Codex accepts `SessionEnd` among its eleven matcher groups, and Claude Code
+accepts `Notification`; both are now generated. Claude Code and Codex also gain
+a matcher group for the `mcp__<server>__<tool>` namespace, which makes MCP
+policy enforceable on both hosts, and Codex's `SessionEnd` timeout is declared
+as the three seconds that host accepts instead of a value it clamps.
+Repositories that installed hooks before the upgrade keep working, and their
+installed artifacts report as stale until they are reinstalled:
 
 ```bash
 reconc hook status . --json
@@ -2153,6 +2156,14 @@ mcp:
       tool: Write
       effect: repository_write
       path_fields: [/file_path]
+    - platform: claude-code
+      tool: mcp__filesystem__write_file
+      effect: repository_write
+      path_fields: [/path]
+    - platform: codex
+      tool: mcp__filesystem__write_file
+      effect: repository_write
+      path_fields: [/path]
 ```
 
 Each mapping is an exact `(platform, server_fingerprint, tool)` selector.
@@ -2168,7 +2179,18 @@ Cursor's dedicated MCP pre-hook can enforce `unclassified: deny`. OpenCode,
 Kilo, OMP, Pi, and ZCode expose exact generic tool identities but no reliable discriminator
 between an unconfigured MCP tool and a built-in/custom tool, so strict
 unclassified deny is unavailable on those generic surfaces. Configured exact
-identities remain enforceable. Server locators, credentials, arguments,
+identities remain enforceable.
+
+Claude Code and Codex publish no dedicated MCP event, but both name every MCP
+call `mcp__<server>__<tool>` and both accept a regular-expression matcher.
+Reconc installs that namespace as its own matcher group on the generic tool
+events and routes it into the MCP path, so the exact selector is the identity
+the host itself uses. The namespace is the discriminator those generic surfaces
+lack, which makes `unclassified: deny` enforceable before execution on both
+hosts. Only the identity and the arguments continue past normalization; a
+payload that reaches the namespace route under a built-in tool name is envelope
+drift and fails closed. A completed call is still not a successful one: positive
+MCP evidence requires an explicit host success result. Server locators, credentials, arguments,
 results, prompts, and command bodies are not persisted in MCP status/audit.
 Use `reconc why mcp .`, `reconc hook status . --json`, and
 `reconc doctor . --deep` to inspect the compiled mappings, redacted
@@ -2297,7 +2319,9 @@ evidence, plus the `SessionStart` `compact` recovery matcher. The remaining
 events stay unbound on purpose: they carry no decision Reconc can make and no
 evidence it can attribute. `FileChanged` is the closest miss, because it
 reports mutations from any source, including the user's own editor, so it
-cannot establish that an agent session wrote a path. After compaction, the context-capable `SessionStart`
+cannot establish that an agent session wrote a path. On top of those event
+keys, Claude's tool events carry a second matcher group for the `mcp__.*`
+namespace, which is how MCP calls reach the MCP policy path. After compaction, the context-capable `SessionStart`
 `compact` matcher restores a bounded recovery packet; native `PostCompact` is
 retained as an observation event because it cannot inject context. Devin uses
 `.devin/hooks.v1.json`, including native `UserPromptSubmit` and

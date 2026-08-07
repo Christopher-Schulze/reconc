@@ -770,6 +770,13 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 			return nil
 		}
 	}
+	if platform, namespaced := namespacedMCPPlatform(route); namespaced {
+		// Claude Code and Codex route their `mcp__<server>__<tool>` namespace
+		// into the MCP path on generic tool events. Every other event on those
+		// hosts keeps the host payload untouched.
+		payload, err = agentsession.NormalizeNamespacedMCPPayload(platform, route.Event == hooks.EventMCPBefore, payload)
+		timing.mark("namespaced_mcp_normalize")
+	}
 	switch route.PlatformKind {
 	case hooks.KindCursor:
 		payload, err = agentsession.NormalizeCursorPayload(event, payload)
@@ -911,6 +918,22 @@ func writeGrokRuntimeDeny(stdout io.Writer, reason string) {
 		"reason":   strings.TrimSpace(reason),
 	})
 	fmt.Fprintln(stdout, string(body))
+}
+
+// namespacedMCPPlatform reports the MCP policy platform for hosts that publish
+// MCP calls as namespaced generic tool calls instead of a dedicated host event.
+func namespacedMCPPlatform(route hooks.RuntimeRoute) (policy.MCPPlatform, bool) {
+	if route.Event != hooks.EventMCPBefore && route.Event != hooks.EventMCPAfter {
+		return "", false
+	}
+	switch route.PlatformKind {
+	case hooks.KindClaudeCode:
+		return policy.MCPPlatformClaudeCode, true
+	case hooks.KindCodex:
+		return policy.MCPPlatformCodex, true
+	default:
+		return "", false
+	}
 }
 
 func hookHandlerForRoute(event string, route hooks.RuntimeRoute) (agentsession.HookHandler, bool) {

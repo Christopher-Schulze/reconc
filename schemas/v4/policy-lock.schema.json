@@ -375,6 +375,8 @@
           "anyOf": [
             {
               "enum": [
+                "claude-code",
+                "codex",
                 "cursor",
                 "opencode",
                 "kilo",

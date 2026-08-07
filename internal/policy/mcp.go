@@ -21,12 +21,14 @@ const (
 type MCPPlatform string
 
 const (
-	MCPPlatformCursor   MCPPlatform = "cursor"
-	MCPPlatformOpenCode MCPPlatform = "opencode"
-	MCPPlatformKilo     MCPPlatform = "kilo"
-	MCPPlatformOMP      MCPPlatform = "omp"
-	MCPPlatformPi       MCPPlatform = "pi"
-	MCPPlatformZCode    MCPPlatform = "zcode"
+	MCPPlatformClaudeCode MCPPlatform = "claude-code"
+	MCPPlatformCodex      MCPPlatform = "codex"
+	MCPPlatformCursor     MCPPlatform = "cursor"
+	MCPPlatformOpenCode   MCPPlatform = "opencode"
+	MCPPlatformKilo       MCPPlatform = "kilo"
+	MCPPlatformOMP        MCPPlatform = "omp"
+	MCPPlatformPi         MCPPlatform = "pi"
+	MCPPlatformZCode      MCPPlatform = "zcode"
 )
 
 // MCPEffect is the only behavior an operator may assign to an exact MCP tool.
@@ -66,7 +68,9 @@ func (m MCPUnclassifiedMode) Valid() bool {
 
 // Valid reports whether the platform is part of the public contract.
 func (p MCPPlatform) Valid() bool {
-	if p == MCPPlatformCursor || p == MCPPlatformOpenCode || p == MCPPlatformKilo || p == MCPPlatformOMP || p == MCPPlatformPi || p == MCPPlatformZCode {
+	switch p {
+	case MCPPlatformClaudeCode, MCPPlatformCodex, MCPPlatformCursor, MCPPlatformOpenCode,
+		MCPPlatformKilo, MCPPlatformOMP, MCPPlatformPi, MCPPlatformZCode:
 		return true
 	}
 	name := strings.TrimPrefix(string(p), "custom:")

@@ -76,6 +76,20 @@
           }
         ],
         "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash"
+      },
+      {
+        "hooks": [
+          {
+            "args": [
+              "claude-mcp-after",
+              "${CLAUDE_PROJECT_DIR}"
+            ],
+            "command": "${CLAUDE_PROJECT_DIR}/tools/reconc/bin/hook",
+            "timeout": 5,
+            "type": "command"
+          }
+        ],
+        "matcher": "mcp__.*"
       }
     ],
     "PostToolUseFailure": [
@@ -92,6 +106,20 @@
           }
         ],
         "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash"
+      },
+      {
+        "hooks": [
+          {
+            "args": [
+              "claude-mcp-after",
+              "${CLAUDE_PROJECT_DIR}"
+            ],
+            "command": "${CLAUDE_PROJECT_DIR}/tools/reconc/bin/hook",
+            "timeout": 5,
+            "type": "command"
+          }
+        ],
+        "matcher": "mcp__.*"
       }
     ],
     "PreCompact": [
@@ -123,6 +151,20 @@
           }
         ],
         "matcher": "Edit|Write|MultiEdit|NotebookEdit|TabWrite|StrReplace|Delete|Bash"
+      },
+      {
+        "hooks": [
+          {
+            "args": [
+              "claude-mcp-before",
+              "${CLAUDE_PROJECT_DIR}"
+            ],
+            "command": "${CLAUDE_PROJECT_DIR}/tools/reconc/bin/hook",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "mcp__.*"
       }
     ],
     "SessionEnd": [

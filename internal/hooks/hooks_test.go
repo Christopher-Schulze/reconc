@@ -227,14 +227,25 @@ func TestGenerateClaudeCodeIsValidJSON(t *testing.T) {
 	if !strings.Contains(a.Content, `"matcher": "`+writeMatchers+`"`) {
 		t.Errorf("expected Claude Code PreToolUse/PermissionRequest to cover write/shell matchers")
 	}
-	if got := matchersForEvent(t, a.Content, "hooks", "PreToolUse"); strings.Join(got, "|") != writeMatchers {
+	// The MCP namespace is its own matcher group. Claude compares a matcher
+	// built only from exact-match characters literally, so joining `mcp__.*`
+	// into the alternation above would turn those exact names into an
+	// unanchored regular expression.
+	const mcpMatcher = "mcp__.*"
+	if got := matchersForEvent(t, a.Content, "hooks", "PreToolUse"); strings.Join(got, " ") != writeMatchers+" "+mcpMatcher {
 		t.Errorf("Claude PreToolUse matcher = %v", got)
 	}
 	if got := matchersForEvent(t, a.Content, "hooks", "PermissionRequest"); strings.Join(got, "|") != writeMatchers {
 		t.Errorf("Claude PermissionRequest matcher = %v", got)
 	}
-	if got := matchersForEvent(t, a.Content, "hooks", "PostToolUse"); strings.Join(got, "|") != "Read|"+writeMatchers {
+	if got := matchersForEvent(t, a.Content, "hooks", "PostToolUse"); strings.Join(got, " ") != "Read|"+writeMatchers+" "+mcpMatcher {
 		t.Errorf("Claude PostToolUse matcher = %v", got)
+	}
+	if got := matchersForEvent(t, a.Content, "hooks", "PostToolUseFailure"); strings.Join(got, " ") != "Read|"+writeMatchers+" "+mcpMatcher {
+		t.Errorf("Claude PostToolUseFailure matcher = %v", got)
+	}
+	if !strings.Contains(a.Content, "claude-mcp-before") || !strings.Contains(a.Content, "claude-mcp-after") {
+		t.Errorf("Claude template misses the MCP namespace routes")
 	}
 }
 
@@ -273,18 +284,58 @@ func TestGenerateCodexIsValidJSON(t *testing.T) {
 	if strings.Contains(a.Content, `"matcher": "Read|Write|Edit|MultiEdit|Bash|apply_patch"`) {
 		t.Errorf("codex pre-execution hooks should not spawn for read-only tools")
 	}
-	if got := matchersForEvent(t, a.Content, "hooks", "PreToolUse"); strings.Join(got, "|") != "Write|Edit|MultiEdit|Bash|apply_patch" {
+	if got := matchersForEvent(t, a.Content, "hooks", "PreToolUse"); strings.Join(got, " ") != "Write|Edit|MultiEdit|Bash|apply_patch mcp__.*" {
 		t.Errorf("Codex PreToolUse matcher = %v", got)
 	}
 	if got := matchersForEvent(t, a.Content, "hooks", "PermissionRequest"); strings.Join(got, "|") != "Write|Edit|MultiEdit|Bash|apply_patch" {
 		t.Errorf("Codex PermissionRequest matcher = %v", got)
 	}
-	if got := matchersForEvent(t, a.Content, "hooks", "PostToolUse"); strings.Join(got, "|") != "Read|Edit|Write|MultiEdit|Bash|apply_patch" {
+	if got := matchersForEvent(t, a.Content, "hooks", "PostToolUse"); strings.Join(got, " ") != "Read|Edit|Write|MultiEdit|Bash|apply_patch mcp__.*" {
 		t.Errorf("Codex PostToolUse matcher = %v", got)
+	}
+	if !strings.Contains(a.Content, "codex-mcp-before") || !strings.Contains(a.Content, "codex-mcp-after") {
+		t.Errorf("Codex template misses the MCP namespace routes")
+	}
+	// codex-rs/hooks/src/engine/discovery.rs clamps SessionEnd to three seconds
+	// and warns above it; a larger declared timeout would be dead configuration.
+	if timeout := codexHookTimeout(t, payload, "SessionEnd"); timeout != 3 {
+		t.Errorf("Codex SessionEnd timeout = %v, want the host-accepted 3", timeout)
 	}
 	if strings.Contains(a.Content, "sh -lc") {
 		t.Errorf("Codex hooks should rely on the host shell instead of spawning a nested shell")
 	}
+}
+
+// codexHookTimeout returns the declared timeout of the first hook entry for an
+// event, so a host-imposed bound can be asserted on the parsed document instead
+// of on a substring that a command line could satisfy by accident.
+func codexHookTimeout(t *testing.T, payload map[string]interface{}, event string) float64 {
+	t.Helper()
+	hooks, ok := payload["hooks"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("generated Codex hooks have no hooks object")
+	}
+	groups, ok := hooks[event].([]interface{})
+	if !ok || len(groups) == 0 {
+		t.Fatalf("generated Codex hooks have no %s group", event)
+	}
+	group, ok := groups[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("generated Codex %s group is not an object", event)
+	}
+	entries, ok := group["hooks"].([]interface{})
+	if !ok || len(entries) == 0 {
+		t.Fatalf("generated Codex %s group has no hook entries", event)
+	}
+	entry, ok := entries[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("generated Codex %s hook entry is not an object", event)
+	}
+	timeout, ok := entry["timeout"].(float64)
+	if !ok {
+		t.Fatalf("generated Codex %s hook entry has no numeric timeout", event)
+	}
+	return timeout
 }
 
 func TestGenerateCursorIsValidJSON(t *testing.T) {
