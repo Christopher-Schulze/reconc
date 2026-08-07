@@ -149,14 +149,15 @@ evaluates saved canonical-path trust using Pi's nearest-parent rule plus
 `defaultProjectTrust`. Status does not treat interactive approval or one-run
 `pi --approve` as persisted configuration, and Reconc never mutates the trust
 store. The contract fixture pins official source revision
-`4279da1b7f27926216836393dc1a50bd6a2487b3`, package
-`@earendil-works/pi-coding-agent` v0.83.0. The companion OMP fixture remains at
+`ac4ac9eaf69f2b01ca3af984a5c48f3b99b84278`, package
+`@earendil-works/pi-coding-agent` v0.84.1. The companion OMP fixture remains at
 revision `06343fef4200c4e32d18f08df5a6a8bd84dcc710`, v17.2.4.
 
 The generated typed extension registers `session_start`, `input`, `tool_call`,
 `tool_result`, `user_bash`, `session_before_compact`, `session_compact`,
 `agent_settled`, and `session_shutdown`. Awaited `tool_call` blocks through the
-native `{block, reason}` result. `user_bash` denial returns a complete synthetic
+native `{block, reason}` result; the host's optional `terminate` hint stays
+unused because no Reconc policy mode ends a session. `user_bash` denial returns a complete synthetic
 shell result with exit code 2, while allow returns no replacement result and
 preserves host execution. Both fail closed on malformed or failed Reconc
 decisions. Tool results are observational and route exact `isError`; only a

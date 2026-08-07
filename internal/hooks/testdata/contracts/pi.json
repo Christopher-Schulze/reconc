@@ -1,9 +1,9 @@
 {
   "host": "pi",
-  "host_version": "0.83.0",
-  "source_url": "https://github.com/earendil-works/pi/tree/4279da1b7f27926216836393dc1a50bd6a2487b3/packages/coding-agent/src/core/extensions",
-  "source_revision": "4279da1b7f27926216836393dc1a50bd6a2487b3",
-  "capture_date": "2026-08-02",
+  "host_version": "0.84.1",
+  "source_url": "https://github.com/earendil-works/pi/tree/ac4ac9eaf69f2b01ca3af984a5c48f3b99b84278/packages/coding-agent/src/core/extensions",
+  "source_revision": "ac4ac9eaf69f2b01ca3af984a5c48f3b99b84278",
+  "capture_date": "2026-08-07",
   "events": {
     "session_start": {"payload": {"type": "session_start", "reason": "startup"}, "result": null},
     "input": {"payload": {"type": "input", "text": "synthetic prompt", "source": "interactive"}, "result": null},

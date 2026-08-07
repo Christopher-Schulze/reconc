@@ -226,3 +226,48 @@ func installedNativeEvents(t *testing.T, kind string) []string {
 	sort.Strings(out)
 	return out
 }
+
+// TestPiBlockResponseStaysInsideTheHostResultContract pins the response Reconc
+// returns from Pi's only blocking event against `ToolCallEventResult` as the
+// host declares it. Pi 0.84.1 widened that result with `terminate`, a hint that
+// takes effect only when every finalized call in a tool batch sets it. Reconc
+// has no policy mode that ends a session, so the field stays unused on purpose;
+// this test fails if a future change starts emitting it, or emits any other
+// field the host would drop.
+func TestPiBlockResponseStaysInsideTheHostResultContract(t *testing.T) {
+	// The fields ToolCallEventResult declares in
+	// packages/coding-agent/src/core/extensions/types.ts.
+	accepted := map[string]bool{"block": true, "reason": true, "terminate": true}
+	// The fields Reconc's adapter actually returns.
+	emitted := map[string]bool{"block": true, "reason": true}
+
+	fixture := readHostContractFixture(t, KindPi)
+	result, ok := fixture.Events["tool_call"].Result.(map[string]interface{})
+	if !ok {
+		t.Fatal("Pi tool_call fixture has no blocking result contract")
+	}
+	for field := range result {
+		if !accepted[field] {
+			t.Errorf("Pi tool_call result declares %q, which the host result contract does not accept", field)
+		}
+		if !emitted[field] {
+			t.Errorf("Pi tool_call fixture claims %q, which the adapter does not emit", field)
+		}
+	}
+	for field := range emitted {
+		if _, present := result[field]; !present {
+			t.Errorf("Pi tool_call fixture omits %q, which the adapter emits", field)
+		}
+	}
+
+	adapter, err := Generate(KindPi)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if strings.Contains(adapter.Content, "terminate") {
+		t.Error("the Pi adapter emits `terminate`; Reconc has no policy mode that ends a session, so wiring it needs an explicit decision first")
+	}
+	if !strings.Contains(adapter.Content, "block: true") {
+		t.Error("the Pi adapter no longer returns the host's blocking result")
+	}
+}

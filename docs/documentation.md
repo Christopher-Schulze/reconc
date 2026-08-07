@@ -2078,9 +2078,13 @@ events and injected Reconc input are suppressed by generation and in-flight
 state. `sendUserMessage` returning only `void` means the adapter reports
 requested, failed-before-call, or suppressed delivery without claiming host
 acceptance. Host cancellation releases immediately. Contract fixtures pin Pi
-source revision `4279da1b7f27926216836393dc1a50bd6a2487b3` at
-`@earendil-works/pi-coding-agent` v0.83.0 and OMP revision
-`06343fef4200c4e32d18f08df5a6a8bd84dcc710` at v17.2.4.
+source revision `ac4ac9eaf69f2b01ca3af984a5c48f3b99b84278` at
+`@earendil-works/pi-coding-agent` v0.84.1 and OMP revision
+`06343fef4200c4e32d18f08df5a6a8bd84dcc710` at v17.2.4. That Pi revision widened
+the blocking tool result with `terminate`, a hint the host honors only when
+every finalized call in a tool batch sets it. Reconc has no policy mode that
+ends a session, so the adapter keeps returning `{block, reason}` and leaves the
+hint unused.
 
 ZCode snapshots workspace configuration from `.zcode/config.json` when a
 session starts. `reconc hook install zcode` sets `hooks.enabled=true` and
