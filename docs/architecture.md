@@ -665,6 +665,16 @@ inside the repository remains a legal layout.
 
 ### Command-injection
 
+Words are resolved to the literal strings a shell would hand to `execve`
+before any comparison: quotes are removed and backslash escapes are applied, so
+`\rm`, `r''m`, and `"rm"` all compare as `rm`. ANSI-C quoting (`$'\x72\x6d'`)
+is not decoded and is reported as a dynamic word instead, which makes callers
+fail closed rather than compare text that is not what runs. Deny matching also
+folds the case of the program name, because `RM` and `rm` name the same program
+on the case-insensitive filesystems this product supports; evidence matching
+stays case-sensitive so a claim is only satisfied by the command the author
+named.
+
 Command / tool-use strings in the payload are **data**, never
 executed by reconc. The evaluator's rule-matching compares them as
 strings; no `exec.Command` call path in the runtime handlers takes

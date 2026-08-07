@@ -53,6 +53,24 @@ type Invocation struct {
 // to fail closed without blocking unrelated commands that merely use dynamic
 // arguments.
 func Match(invocation Invocation, expected string, prefix bool) (matched, uncertain bool) {
+	return match(invocation, expected, prefix, false)
+}
+
+// MatchFoldingExecutable is Match with a case-insensitive comparison of the
+// program name only. Arguments stay case-sensitive.
+//
+// It exists for the deny direction. On the case-insensitive filesystems this
+// product supports, `RM` and `rm` name the same program, so a matcher that
+// compares the program name byte for byte lets a forbidden command through by
+// changing its case. Blocking `RM` where a policy forbids `rm` is the
+// fail-closed reading of the author's intent on every platform, which keeps the
+// decision identical across hosts. The evidence direction must not use this:
+// there, folding would accept a command the author did not name.
+func MatchFoldingExecutable(invocation Invocation, expected string, prefix bool) (matched, uncertain bool) {
+	return match(invocation, expected, prefix, true)
+}
+
+func match(invocation Invocation, expected string, prefix bool, foldExecutable bool) (matched, uncertain bool) {
 	expectedInvocations, complete := Invocations(expected, 8)
 	if !complete || len(expectedInvocations) != 1 {
 		return false, true
@@ -68,7 +86,7 @@ func Match(invocation Invocation, expected string, prefix bool) (matched, uncert
 		if index < len(invocation.DynamicWords) && invocation.DynamicWords[index] {
 			return false, true
 		}
-		if index == 0 && executableWordMatches(invocation.Words[index], word) {
+		if index == 0 && executableWordMatches(invocation.Words[index], word, foldExecutable) {
 			continue
 		}
 		if invocation.Words[index] != word {
@@ -84,11 +102,18 @@ func Match(invocation Invocation, expected string, prefix bool) (matched, uncert
 	return false, false
 }
 
-func executableWordMatches(actual, expected string) bool {
+func executableWordMatches(actual, expected string, fold bool) bool {
 	if strings.Contains(expected, "/") {
-		return actual == expected
+		return equalCommandWord(actual, expected, fold)
 	}
-	return baseName(actual) == expected
+	return equalCommandWord(baseName(actual), expected, fold)
+}
+
+func equalCommandWord(actual, expected string, fold bool) bool {
+	if actual == expected {
+		return true
+	}
+	return fold && strings.EqualFold(actual, expected)
 }
 
 func anyDynamic(dynamic []bool) bool {
@@ -253,15 +278,32 @@ func commandWords(words []*syntax.Word) []commandWord {
 }
 
 func staticWordParts(parts []syntax.WordPart) (string, bool) {
+	return staticWordPartsIn(parts, false)
+}
+
+// staticWordPartsIn resolves a word to the literal string the shell would pass
+// to execve. Quote removal alone is not enough: outside quotes a backslash
+// preserves the next character, so `\rm` and `rm` name the same program. That
+// escape is the documented way to bypass an alias, agents emit it, and a
+// matcher that compares the unresolved text would let it through a
+// forbid_command rule.
+func staticWordPartsIn(parts []syntax.WordPart, insideDoubleQuotes bool) (string, bool) {
 	var value strings.Builder
 	for _, part := range parts {
 		switch typed := part.(type) {
 		case *syntax.Lit:
-			value.WriteString(typed.Value)
+			value.WriteString(unescapeShellLiteral(typed.Value, insideDoubleQuotes))
 		case *syntax.SglQuoted:
+			if typed.Dollar && strings.Contains(typed.Value, `\`) {
+				// ANSI-C quoting ($'\x72\x6d') builds a word from escape
+				// sequences this package does not decode. Report it as
+				// non-static so callers fail closed instead of comparing text
+				// that is not what the shell will run.
+				return "", false
+			}
 			value.WriteString(typed.Value)
 		case *syntax.DblQuoted:
-			inside, static := staticWordParts(typed.Parts)
+			inside, static := staticWordPartsIn(typed.Parts, true)
 			if !static {
 				return "", false
 			}
@@ -271,6 +313,37 @@ func staticWordParts(parts []syntax.WordPart) (string, bool) {
 		}
 	}
 	return value.String(), true
+}
+
+// doubleQuotedEscapes are the only characters a backslash escapes inside double
+// quotes. Anywhere else in a double-quoted string the backslash is literal.
+const doubleQuotedEscapes = "$`\"\\\n"
+
+func unescapeShellLiteral(value string, insideDoubleQuotes bool) string {
+	if !strings.Contains(value, `\`) {
+		return value
+	}
+	var out strings.Builder
+	out.Grow(len(value))
+	for index := 0; index < len(value); index++ {
+		if value[index] != '\\' || index+1 >= len(value) {
+			out.WriteByte(value[index])
+			continue
+		}
+		next := value[index+1]
+		if insideDoubleQuotes && !strings.ContainsRune(doubleQuotedEscapes, rune(next)) {
+			out.WriteByte(value[index])
+			continue
+		}
+		if next == '\n' {
+			// A line continuation removes both bytes.
+			index++
+			continue
+		}
+		out.WriteByte(next)
+		index++
+	}
+	return out.String()
 }
 
 func renderedWord(word *syntax.Word) string {

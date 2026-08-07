@@ -1192,6 +1192,10 @@ func (t *hookRuntimeTiming) finish(exitCode int) {
 	fmt.Fprintln(t.diagnostic, strings.Join(parts, " "))
 }
 
+// maxHookTimingThresholdMS bounds the diagnostic threshold at one hour, far
+// past any hook budget the registry grants.
+const maxHookTimingThresholdMS = 60 * 60 * 1000
+
 func hookRuntimeTimingThreshold() time.Duration {
 	raw := strings.TrimSpace(os.Getenv("RECONC_HOOK_TIMING_THRESHOLD_MS"))
 	if raw == "" {
@@ -1200,6 +1204,12 @@ func hookRuntimeTimingThreshold() time.Duration {
 	ms, err := atoi(raw)
 	if err != nil || ms <= 0 {
 		return 0
+	}
+	// Clamp before the conversion: an operator value beyond the duration range
+	// wraps negative, which would turn "print only slow hooks" into "print
+	// every hook".
+	if ms > maxHookTimingThresholdMS {
+		ms = maxHookTimingThresholdMS
 	}
 	return time.Duration(ms) * time.Millisecond
 }

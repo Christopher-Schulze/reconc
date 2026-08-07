@@ -2842,7 +2842,11 @@ Security posture:
   discovered repository root, including Windows junction and 8.3 aliases.
 - Repository path evidence preserves legal leading and trailing spaces from
   host payload through persisted session state and evaluator matching.
-- Payload command strings are matched as data and are not executed.
+- Payload command strings are matched as data and are not executed. Matching
+  compares the literal words a shell would execute, so quote removal and
+  backslash escapes cannot hide a forbidden program, and an undecodable
+  construct fails closed instead of comparing unresolved text. Deny matching
+  folds the program name's case; evidence matching does not.
 - Stop report reuse binds exactly the repository paths the compiled policy
   names, including the script target and the files a `require_script` declares
   through `cache_inputs`. A script that declares nothing is never reused.

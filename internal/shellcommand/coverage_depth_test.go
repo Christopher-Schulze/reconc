@@ -99,7 +99,7 @@ func TestInvocationsDiscoversEverySupportedLauncherShape(t *testing.T) {
 			name:    "find exec variants",
 			command: `find . -execdir git status \; -ok git diff \; -okdir git log -1 +`,
 			want: [][]string{
-				{"find", ".", "-execdir", "git", "status", `\;`, "-ok", "git", "diff", `\;`, "-okdir", "git", "log", "-1", "+"},
+				{"find", ".", "-execdir", "git", "status", ";", "-ok", "git", "diff", ";", "-okdir", "git", "log", "-1", "+"},
 				{"git", "status"},
 				{"git", "diff"},
 				{"git", "log", "-1"},

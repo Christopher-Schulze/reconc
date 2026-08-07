@@ -1641,7 +1641,10 @@ func matchingForbiddenCommands(commands, expected []string, repoRoot string, mat
 		commandMatched := false
 		for _, invocation := range segments {
 			for _, expectedCommand := range normalizedExpected {
-				matched, uncertain := shellcommand.Match(invocation, expectedCommand, match == policy.CommandMatchPrefix)
+				// Deny direction: fold the program name so a forbidden command
+				// cannot be smuggled past the gate by changing its case on a
+				// case-insensitive filesystem.
+				matched, uncertain := shellcommand.MatchFoldingExecutable(invocation, expectedCommand, match == policy.CommandMatchPrefix)
 				if matched || uncertain {
 					commandMatched = true
 					break
