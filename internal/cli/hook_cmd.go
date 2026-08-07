@@ -1018,23 +1018,39 @@ func boundHookResult(result agentsession.Result, route hooks.RuntimeRoute) agent
 	// plus exit 2 already is the fail-closed shape.
 	if route.ErrorPolicy != hooks.FailureBlock {
 		result.Stdout = ""
-		result.Stderr = truncateUTF8(hookOversizeDiagnostic, stderrLimit)
+		result.Stderr = oversizeDiagnostic(result.Stderr, stderrLimit)
 		result.ExitCode = 0
 		return result
 	}
 	if envelope := failClosedOversizeEnvelope(route); envelope != "" && len(envelope) <= limit {
 		result.Stdout = envelope
-		result.Stderr = truncateUTF8(hookOversizeDiagnostic, limit-len(envelope))
+		result.Stderr = oversizeDiagnostic(result.Stderr, limit-len(envelope))
 		result.ExitCode = 0
 		return result
 	}
 	result.Stdout = ""
-	result.Stderr = truncateUTF8(hookOversizeDiagnostic, stderrLimit)
+	result.Stderr = oversizeDiagnostic(result.Stderr, stderrLimit)
 	result.ExitCode = 2
 	return result
 }
 
 const hookOversizeDiagnostic = "reconc hook output exceeded the platform byte budget"
+
+// oversizeDiagnostic keeps the runtime's own explanation when it has one. The
+// oversized stream is stdout, so a bounded stderr still carries the reason the
+// decision was made, and replacing it with the byte-budget notice alone would
+// leave the operator with a symptom instead of a cause.
+func oversizeDiagnostic(stderr string, limit int) string {
+	reason := strings.TrimSpace(stderr)
+	if reason == "" {
+		return truncateUTF8(hookOversizeDiagnostic, limit)
+	}
+	marker := "\n[" + hookOversizeDiagnostic + "]"
+	if len(reason)+len(marker) <= limit {
+		return reason + marker
+	}
+	return truncateWithSuffix(reason, limit, marker)
+}
 
 // failClosedOversizeEnvelope returns the smallest JSON body that denies or
 // blocks on a platform whose decision travels in stdout, mirroring the shape

@@ -77,3 +77,46 @@ func TestPiTrustProbeBoundsOversizedConfig(t *testing.T) {
 		t.Fatal("an oversized Pi config must be refused")
 	}
 }
+
+// TestPiAgentDirResolvesEveryConfiguredForm covers the override an operator
+// actually types. A relative value is repository-relative and a tilde value is
+// home-relative; both resolve to an absolute directory before any probe runs.
+func TestPiAgentDirResolvesEveryConfiguredForm(t *testing.T) {
+	repo := t.TempDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("no home directory on this host: %v", err)
+	}
+	cases := []struct {
+		name       string
+		configured string
+		want       string
+	}{
+		{name: "absolute", configured: filepath.Join(repo, "agent"), want: filepath.Join(repo, "agent")},
+		{name: "repository relative", configured: ".pi/agent", want: filepath.Join(repo, ".pi", "agent")},
+		{name: "home tilde", configured: "~", want: home},
+		{name: "home relative", configured: "~/.pi/agent", want: filepath.Join(home, ".pi", "agent")},
+		{name: "trailing separator", configured: filepath.Join(repo, "agent") + "/", want: filepath.Join(repo, "agent")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("PI_CODING_AGENT_DIR", tc.configured)
+			got, err := piAgentDir(repo)
+			if err != nil {
+				t.Fatalf("piAgentDir: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("piAgentDir(%q) = %q, want %q", tc.configured, got, tc.want)
+			}
+		})
+	}
+
+	t.Setenv("PI_CODING_AGENT_DIR", "")
+	got, err := piAgentDir(repo)
+	if err != nil {
+		t.Fatalf("piAgentDir default: %v", err)
+	}
+	if got != filepath.Join(home, ".pi", "agent") {
+		t.Fatalf("default agent dir = %q", got)
+	}
+}

@@ -309,3 +309,31 @@ func TestRuntimePlanCarriesDeclaredCacheInputs(t *testing.T) {
 		t.Fatalf("compiled lockfile did not carry the declaration: %s", body)
 	}
 }
+
+// TestRuntimePlanRejectsUnbindableCacheInputsInComposites is the sub-check half
+// of the same contract: a composite carries its own script entries, and a
+// hand-edited lockfile must not smuggle an unbindable declaration through them.
+func TestRuntimePlanRejectsUnbindableCacheInputsInComposites(t *testing.T) {
+	const policyText = "rules:\n  - id: gate\n    kind: all_of\n    when_paths: ['src/**']\n    checks:\n      - kind: require_script\n        script: 'scripts/check.sh'\n        cache_inputs: ['build/report.json']\n    mode: block\n    message: gate\n"
+	for _, test := range []struct {
+		name  string
+		value []interface{}
+	}{
+		{name: "glob", value: []interface{}{"build/**/*.json"}},
+		{name: "escaping path", value: []interface{}{"../outside.json"}},
+		{name: "duplicate", value: []interface{}{"build/report.json", "build/report.json"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			withRECONCHome(t)
+			repo := makeRepo(t, "# project\n", "", policyText)
+			rewriteLockfileWithDigest(t, repo, func(payload map[string]interface{}) {
+				rule := payload["rules"].([]interface{})[0].(map[string]interface{})
+				check := rule["checks"].([]interface{})[0].(map[string]interface{})
+				check["cache_inputs"] = test.value
+			})
+			if _, err := CheckRepoPolicy(repo, Empty()); err == nil || !strings.Contains(err.Error(), "refresh required") {
+				t.Fatalf("unbindable composite cache_inputs was accepted: %v", err)
+			}
+		})
+	}
+}

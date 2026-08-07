@@ -978,11 +978,11 @@ func TestStopPolicyFingerprintBindsScriptTargets(t *testing.T) {
 	}{
 		{
 			name: "top-level require_script",
-			lock: `{"rules":[{"id":"gate","kind":"require_script","script":"scripts/check.sh","cache_inputs":["build/report.json"],"when_paths":["**"]}]}`,
+			lock: `{"rules":[{"id":"gate","kind":"require_script","script":"scripts/check.sh","when_paths":["**"]}]}`,
 		},
 		{
 			name: "require_script nested in a composite rule",
-			lock: `{"rules":[{"id":"gate","kind":"all_of","when_paths":["**"],"checks":[{"kind":"require_script","script":"scripts/check.sh","cache_inputs":["build/report.json"]}]}]}`,
+			lock: `{"rules":[{"id":"gate","kind":"all_of","when_paths":["**"],"checks":[{"kind":"require_script","script":"scripts/check.sh"}]}]}`,
 		},
 	}
 	for _, tc := range cases {
@@ -1226,5 +1226,147 @@ func TestScriptRuleReachabilityFailsTowardTriggerable(t *testing.T) {
 				t.Fatalf("stopPolicyRuleReachable(%v, %v) = %v, want %v", tc.whenPaths, tc.writePaths, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestCompletionFingerprintBindsPolicyInputsEvenWhenNotCacheable guards a trap
+// this pass walked into once: the same fingerprint identifies the completion
+// candidate, so policy-named inputs must stay bound even for a policy whose
+// Stop reports are never reused. Skipping that work as an optimisation would
+// let a candidate survive a change to evidence the policy names.
+func TestCompletionFingerprintBindsPolicyInputsEvenWhenNotCacheable(t *testing.T) {
+	repo := t.TempDir()
+	// One declared gate plus one undeclared gate: the plan is not cacheable,
+	// and the declared input must still be bound.
+	writePolicyLock(t, repo, `{"rules":[
+		{"id":"declared","kind":"require_script","script":"audits/a.sh","cache_inputs":["build/report.json"],"when_paths":["src/**"]},
+		{"id":"undeclared","kind":"require_script","script":"audits/b.sh","when_paths":["src/**"]}
+	]}`)
+	declared := filepath.Join(repo, "build", "report.json")
+	if err := os.MkdirAll(filepath.Dir(declared), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(declared, []byte(`{"status":"pass"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state := SessionState{SessionID: "s-completion", WritePaths: []string{"src/a.go"}}
+	if stopPolicyFingerprintCacheable(stopPolicyFingerprintInputFor(repo, state)) {
+		t.Fatal("fixture must describe a non-cacheable plan")
+	}
+
+	before := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, state))
+	if err := os.WriteFile(declared, []byte(`{"status":"fail"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if after := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, state)); after == before {
+		t.Fatal("a policy-named input must stay bound when the plan is not cacheable")
+	}
+}
+
+// TestGitRefResolutionCoversLooseAndPackedRefs pins HEAD resolution, which the
+// Stop fingerprint binds directly. A repository that has been packed keeps no
+// loose ref file, so a resolver that only reads loose refs would silently bind
+// an empty HEAD and make every Stop look identical.
+func TestGitRefResolutionCoversLooseAndPackedRefs(t *testing.T) {
+	const ref = "refs/heads/main"
+	const objectID = "9f1c0d5cba1c1f9b6f2f5cfd8a2a4a2f1b0d3c4e"
+	cleanRef, err := cleanGitRefPath(ref)
+	if err != nil {
+		t.Fatalf("clean ref: %v", err)
+	}
+
+	t.Run("loose ref wins", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(root, "refs", "heads"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, cleanRef), []byte(objectID+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "packed-refs"), []byte("0000000000000000000000000000000000000000 "+ref+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got, found, err := readLooseGitRef([]string{root}, cleanRef)
+		if err != nil || !found || got != objectID {
+			t.Fatalf("loose ref = %q found=%v err=%v", got, found, err)
+		}
+	})
+
+	t.Run("packed ref is used when no loose ref exists", func(t *testing.T) {
+		root := t.TempDir()
+		body := "# pack-refs with: peeled fully-peeled sorted\n" +
+			objectID + " " + ref + "\n" +
+			"1111111111111111111111111111111111111111 refs/heads/other\n"
+		if err := os.WriteFile(filepath.Join(root, "packed-refs"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, found, err := readLooseGitRef([]string{root}, cleanRef); err != nil || found {
+			t.Fatalf("loose lookup found=%v err=%v, want a miss", found, err)
+		}
+		got, found, err := readPackedGitRef([]string{root}, ref)
+		if err != nil || !found || got != objectID {
+			t.Fatalf("packed ref = %q found=%v err=%v", got, found, err)
+		}
+	})
+
+	t.Run("peeled tag lines never match", func(t *testing.T) {
+		root := t.TempDir()
+		body := "2222222222222222222222222222222222222222 refs/tags/v1\n^" + objectID + "\n"
+		if err := os.WriteFile(filepath.Join(root, "packed-refs"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, found, _ := readPackedGitRef([]string{root}, "refs/heads/main"); found {
+			t.Fatal("an unrelated packed entry must not resolve the requested ref")
+		}
+	})
+
+	t.Run("absent packed-refs is a clean miss", func(t *testing.T) {
+		got, found, err := readPackedGitRef([]string{t.TempDir()}, ref)
+		if err != nil || found || got != "" {
+			t.Fatalf("absent packed-refs = %q found=%v err=%v", got, found, err)
+		}
+	})
+
+	t.Run("escaping refs are refused", func(t *testing.T) {
+		for _, unsafe := range []string{"../outside", "/etc/passwd", ".."} {
+			if _, err := cleanGitRefPath(unsafe); err == nil {
+				t.Fatalf("unsafe ref %q was accepted", unsafe)
+			}
+		}
+	})
+}
+
+// TestWorktreePathHashDistinguishesEveryPathShape covers the primitive that
+// binds both dirty files and policy-named inputs. Each shape must produce a
+// distinct, stable identity so a swap between them invalidates a report.
+func TestWorktreePathHashDistinguishesEveryPathShape(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("body\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "dir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "dir", "inner.txt"), []byte("inner\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	regular := worktreePathHash(repo, "file.txt", "")
+	directory := worktreePathHash(repo, "dir", "")
+	missing := worktreePathHash(repo, "absent.txt", "")
+	if missing != "missing" {
+		t.Fatalf("absent path identity = %q, want missing", missing)
+	}
+	if regular == directory || regular == missing || directory == missing {
+		t.Fatalf("path shapes share an identity: file=%q dir=%q missing=%q", regular, directory, missing)
+	}
+	if again := worktreePathHash(repo, "file.txt", ""); again != regular {
+		t.Fatalf("identity is not stable: %q vs %q", regular, again)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("changed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if changed := worktreePathHash(repo, "file.txt", ""); changed == regular {
+		t.Fatal("rewriting a file must change its identity")
 	}
 }

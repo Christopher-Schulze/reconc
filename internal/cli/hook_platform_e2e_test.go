@@ -779,3 +779,74 @@ func TestRunBootstrapJSONIncludesActivationTruth(t *testing.T) {
 	}
 	t.Fatalf("init did not report Devin configured: %s", stdout.String())
 }
+
+// TestBoundHookResultKeepsTheRuntimeReasonOnOversize covers what an operator
+// actually reads. The oversized stream is stdout, so a bounded stderr still
+// carries why the decision was made; replacing it with the byte-budget notice
+// alone would report a symptom instead of a cause.
+func TestBoundHookResultKeepsTheRuntimeReasonOnOversize(t *testing.T) {
+	const limit = 8 * 1024
+	const reason = "reconc blocked this Stop: TASK 143 has unmet acceptance criteria"
+	cases := []struct {
+		name  string
+		route hooks.RuntimeRoute
+	}{
+		{
+			name: "decision carried in json",
+			route: hooks.RuntimeRoute{
+				PlatformKind: hooks.KindGrok, Event: hooks.EventStop,
+				MaxOutputBytes: limit, ErrorPolicy: hooks.FailureBlock,
+			},
+		},
+		{
+			name: "decision carried in the exit code",
+			route: hooks.RuntimeRoute{
+				PlatformKind: hooks.KindClaudeCode, Event: hooks.EventStop,
+				MaxOutputBytes: limit, ErrorPolicy: hooks.FailureBlock,
+			},
+		},
+		{
+			name: "fail-open route",
+			route: hooks.RuntimeRoute{
+				PlatformKind: hooks.KindClaudeCode, Event: hooks.EventPostToolUse,
+				MaxOutputBytes: limit, ErrorPolicy: hooks.FailureAllow,
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := boundHookResult(
+				agentsession.Result{Stdout: strings.Repeat("x", limit), Stderr: reason},
+				tc.route,
+			)
+			if !strings.Contains(result.Stderr, "TASK 143 has unmet acceptance criteria") {
+				t.Fatalf("the runtime reason was discarded: %q", result.Stderr)
+			}
+			if !strings.Contains(result.Stderr, "exceeded the platform byte budget") {
+				t.Fatalf("the operator is not told output was dropped: %q", result.Stderr)
+			}
+			if len(result.Stdout)+len(result.Stderr) > limit {
+				t.Fatalf("combined output escaped the budget: stdout=%d stderr=%d", len(result.Stdout), len(result.Stderr))
+			}
+		})
+	}
+
+	// Without a reason the notice stands alone rather than emitting an empty
+	// diagnostic.
+	result := boundHookResult(
+		agentsession.Result{Stdout: strings.Repeat("x", limit)},
+		hooks.RuntimeRoute{PlatformKind: hooks.KindClaudeCode, Event: hooks.EventStop, MaxOutputBytes: limit, ErrorPolicy: hooks.FailureBlock},
+	)
+	if result.Stderr != "reconc hook output exceeded the platform byte budget" {
+		t.Fatalf("empty stderr diagnostic = %q", result.Stderr)
+	}
+
+	// A budget too small for reason plus marker still stays inside the budget.
+	tight := boundHookResult(
+		agentsession.Result{Stdout: strings.Repeat("x", 64), Stderr: reason},
+		hooks.RuntimeRoute{PlatformKind: hooks.KindClaudeCode, Event: hooks.EventStop, MaxOutputBytes: 32, ErrorPolicy: hooks.FailureBlock},
+	)
+	if len(tight.Stdout)+len(tight.Stderr) > 32 {
+		t.Fatalf("tight budget escaped: stdout=%d stderr=%d", len(tight.Stdout), len(tight.Stderr))
+	}
+}

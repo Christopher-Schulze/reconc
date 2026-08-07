@@ -1855,7 +1855,9 @@ exit, and on GitHub Copilot it would additionally re-trigger the installed
 missing-binary fallback so two decision bodies arrive. Routes whose decision
 travels in the exit code keep the empty-stdout, exit-code-2 shape, which is
 also the fallback whenever no envelope fits the budget. Fail-open routes stay
-exit code 0 with a bounded diagnostic.
+exit code 0. In every case the bounded stderr keeps the runtime's own reason
+when it has one and appends the byte-budget notice, because the oversized
+stream is stdout and the operator needs the cause, not only the symptom.
 
 Repository-owned third-party adapters live only in
 `.reconc/runtimes/<name>.json`. Each manifest is a bounded non-symlink regular

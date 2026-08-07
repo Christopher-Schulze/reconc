@@ -222,7 +222,7 @@ func runStopPolicyCheckLocked(
 		initialEvidenceHash := stopPolicyEvidenceHash(state)
 		fingerprintInput.PolicyLockHash = fileContentHash(filepath.Join(repoRoot, ".reconc", "policy.lock.json"))
 		reportFingerprint := hashStopPolicyFingerprintInput(fingerprintInput)
-		expiresAt := stopPolicyReportExpiry(repoRoot, scanStopPolicyLockfile(repoRoot, state.WritePaths).FreshFiles)
+		expiresAt := stopPolicyReportExpiry(repoRoot, scanStopPolicyLockfile(repoRoot, sortedUniqueExact(state.WritePaths)).FreshFiles)
 		updated, err := mutateSessionStateResolved(repoRoot, state.SessionID, func(current SessionState) SessionState {
 			if stopPolicyEvidenceHash(current) == initialEvidenceHash {
 				current.StopPolicyFingerprint = reportFingerprint
@@ -628,11 +628,10 @@ func scanStopPolicyLockfile(repoRoot string, writePaths []string) stopPolicyLock
 	if undeclaredScript {
 		scan.Cacheable = false
 	}
-	if !scan.Cacheable {
-		// The fingerprint of a non-cacheable plan is never compared, so hashing
-		// its declared inputs would be work with no reader.
-		return stopPolicyLockScan{}
-	}
+	// Paths stay bound even when the plan is not cacheable. The same
+	// fingerprint identifies the completion candidate, and a candidate must not
+	// survive a change to a policy-named input just because some other rule in
+	// the same policy keeps the plan off the Stop warm path.
 	scan.Paths = sortedKeys(paths)
 	sort.Slice(scan.FreshFiles, func(i, j int) bool {
 		if scan.FreshFiles[i].Path == scan.FreshFiles[j].Path {

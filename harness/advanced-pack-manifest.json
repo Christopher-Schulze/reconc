@@ -240,6 +240,13 @@
       "ownership": "pack-file"
     },
     {
+      "path": "tools/reconc/harness/template/audits/scaffold_cache_inputs_test.go",
+      "mode": 420,
+      "size": 3103,
+      "sha256": "cae55d8135c5c4efbbb05e54231c4ad34226d382b8e079891eda961bc167de61",
+      "ownership": "pack-file"
+    },
+    {
       "path": "tools/reconc/harness/template/audits/spec_audit_artifacts.go",
       "mode": 420,
       "size": 31662,
@@ -744,6 +751,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 764534,
-  "digest": "0ee44c154a140724f099fd67c799f5c735a72301862ae138a69cee5109d59270"
+  "total_bytes": 767637,
+  "digest": "7676238a2b7de220588afb7e26c6c671521747d4c672dad14cb113c619346773"
 }

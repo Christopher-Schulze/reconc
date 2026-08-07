@@ -612,6 +612,9 @@ func validateRuntimeCheck(check *policy.Check) error {
 		if check.TimeoutSec < 0 {
 			return fmt.Errorf("timeout_sec must be non-negative")
 		}
+		if err := validateRuntimePlanCacheInputs(check.CacheInputs); err != nil {
+			return err
+		}
 	}
 	return nil
 }
