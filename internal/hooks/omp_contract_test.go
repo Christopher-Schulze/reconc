@@ -138,11 +138,7 @@ if (canceled !== undefined) throw new Error("aborted OMP Stop must yield to the 
 	if err := os.WriteFile(driverPath, []byte(driver), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	command := exec.Command(bun, driverPath, extensionPath, repo)
-	command.Env = append(os.Environ(), "RECONC_TEST_LOG="+logPath)
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("OMP extension contract: %v\n%s", err, output)
-	}
+	runBunContractDriver(t, []string{"RECONC_TEST_LOG=" + logPath}, bun, driverPath, extensionPath, repo)
 
 	records := readBunHookRecords(t, logPath)
 	for event, want := range map[string]int{
@@ -274,15 +270,15 @@ if (stop?.decision !== "block" || typeof stop.reason !== "string" || stop.reason
 }
 if (new TextEncoder().encode(stop.reason).length > 8192) throw new Error("OMP Stop failure exceeded output budget")
 if (Bun.argv[4] === "timeout" && Date.now() - started > 1500) throw new Error("OMP timeouts did not kill promptly")
+// The extension owns a session worker until the session ends. Releasing it
+// here keeps the driver from exiting its own work and then waiting on a live
+// child. It runs after the timing assertion so shutdown never counts toward it.
+try { await handlers.get("session_shutdown")({ type: "session_shutdown" }, ctx) } catch {}
 `
 			if err := os.WriteFile(driverPath, []byte(driver), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			command := exec.Command(bun, driverPath, extensionPath, repo, mode)
-			command.Env = append(os.Environ(), "RECONC_OMP_TRANSPORT_MODE="+mode)
-			if output, err := command.CombinedOutput(); err != nil {
-				t.Fatalf("OMP %s transport contract: %v\n%s", mode, err, output)
-			}
+			runBunContractDriver(t, []string{"RECONC_OMP_TRANSPORT_MODE=" + mode}, bun, driverPath, extensionPath, repo, mode)
 		})
 	}
 }

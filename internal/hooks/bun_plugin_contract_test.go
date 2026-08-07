@@ -1,13 +1,20 @@
 package hooks
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+// bunDriverBudget bounds each Bun contract driver. A driver that keeps a live
+// child would otherwise consume the whole package timeout and leave the worker
+// process behind, turning one stuck run into a twenty-minute stall.
+const bunDriverBudget = 90 * time.Second
 
 type bunHookRecord struct {
 	event   string
@@ -143,11 +150,7 @@ await hooks.event({ event: failureEvent })
 				t.Fatalf("write Bun contract driver: %v", err)
 			}
 
-			cmd := exec.Command(bun, driverPath, pluginPath, kind, repo)
-			cmd.Env = append(os.Environ(), "RECONC_TEST_LOG="+logPath)
-			if output, err := cmd.CombinedOutput(); err != nil {
-				t.Fatalf("run %s plugin contract: %v\n%s", kind, err, output)
-			}
+			runBunContractDriver(t, []string{"RECONC_TEST_LOG=" + logPath}, bun, driverPath, pluginPath, kind, repo)
 
 			records := readBunHookRecords(t, logPath)
 			prefix := kind
@@ -300,15 +303,19 @@ if (size > 8192) throw new Error("combined output exceeded route budget: " + siz
 if (mode === "large" && !failure.includes("[reconc output truncated]")) throw new Error("large output has no truncation marker")
 if (mode === "invalid-utf8" && !failure.includes("[reconc invalid UTF-8 output]")) throw new Error("invalid UTF-8 was not rejected")
 if (mode === "timeout" && Date.now() - started > 1500) throw new Error("timeout did not kill the child promptly")
+// The plugin owns a session worker for as long as a session is open. Ending
+// the session releases it; without this the driver exits its own work and then
+// waits on a live child forever.
+if (typeof hooks.event === "function") {
+  try {
+    await hooks.event({ event: { type: "session.deleted", properties: { info: { id: "ses_transport" } } } })
+  } catch {}
+}
 `
 				if err := os.WriteFile(driverPath, []byte(driver), 0o644); err != nil {
 					t.Fatal(err)
 				}
-				command := exec.Command(bun, driverPath, pluginPath, kind, mode, repo)
-				command.Env = append(os.Environ(), "RECONC_TRANSPORT_MODE="+mode)
-				if output, err := command.CombinedOutput(); err != nil {
-					t.Fatalf("%s %s transport contract: %v\n%s", kind, mode, err, output)
-				}
+				runBunContractDriver(t, []string{"RECONC_TRANSPORT_MODE=" + mode}, bun, driverPath, pluginPath, kind, mode, repo)
 			})
 		}
 	}
@@ -514,11 +521,8 @@ if (syncCalls !== 0) throw new Error("synchronous prompt fallback was called")
 			if err := os.WriteFile(driverPath, []byte(driver), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			command := exec.Command(bun, driverPath, pluginPath, kind, repo, modePath)
-			command.Env = append(os.Environ(), "RECONC_TEST_LOG="+logPath, "RECONC_IDLE_MODE="+modePath)
-			if output, err := command.CombinedOutput(); err != nil {
-				t.Fatalf("%s idle continuation contract: %v\n%s", kind, err, output)
-			}
+			runBunContractDriver(t, []string{"RECONC_TEST_LOG=" + logPath, "RECONC_IDLE_MODE=" + modePath},
+				bun, driverPath, pluginPath, kind, repo, modePath)
 			records := readBunHookRecords(t, logPath)
 			assertBunHookCount(t, records, kind+"-continuation-accepted", 16)
 			failedPayloads := bunHookPayloads(records, kind+"-continuation-failed")
@@ -622,4 +626,31 @@ func bunHookPayloads(records []bunHookRecord, event string) []map[string]interfa
 		}
 	}
 	return payloads
+}
+
+// runBunContractDriver executes one Bun contract driver under a bound.
+//
+// These drivers load a generated plugin and exercise its hook surface. A plugin
+// keeps a session-owned worker alive until the session ends, so a driver that
+// leaves a session open leaves a live child, and an unbounded CombinedOutput
+// then waits for it until the package timeout expires, taking the whole suite
+// with it and orphaning the worker. The bound turns that into a fast, named
+// failure.
+func runBunContractDriver(t *testing.T, environment []string, bun string, args ...string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), bunDriverBudget)
+	defer cancel()
+	command := exec.CommandContext(ctx, bun, args...)
+	if len(environment) > 0 {
+		command.Env = append(os.Environ(), environment...)
+	}
+	command.WaitDelay = time.Second
+	output, err := command.CombinedOutput()
+	if err == nil {
+		return
+	}
+	if ctx.Err() != nil {
+		t.Fatalf("Bun contract driver did not finish within %s; the plugin left a live child:\n%s", bunDriverBudget, output)
+	}
+	t.Fatalf("Bun contract driver failed: %v\n%s", err, output)
 }

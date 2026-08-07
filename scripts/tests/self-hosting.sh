@@ -160,6 +160,46 @@ require_text "$tmp/existing-verify.json" '"valid": true'
 
 "$stable_binary" hook uninstall kimi-code --json >"$tmp/kimi-uninstall.json"
 require_text "$tmp/kimi-uninstall.json" '"removed_entries": 16'
+# The advanced profile ships the largest artifact set: the complete harness
+# pack plus its repo-root scaffold. Nothing else in this run applies it, so a
+# pack that extracts wrong, a scaffold file that lands unreadable, or a
+# non-idempotent second apply would first surface in a user's repository.
+advanced="$tmp/advanced"
+mkdir -p "$advanced"
+git -C "$advanced" init --quiet
+git -C "$advanced" config user.email reconc@example.invalid
+git -C "$advanced" config user.name "Reconc self-host"
+
+run_json "$tmp/advanced-plan.json" "$binary" bootstrap plan "$advanced" --profile advanced
+run_json "$tmp/advanced-apply.json" "$binary" bootstrap apply --plan "$tmp/advanced-plan.json"
+run_json "$tmp/advanced-verify.json" "$binary" bootstrap verify --plan "$tmp/advanced-plan.json"
+require_text "$tmp/advanced-apply.json" '"status": "complete"'
+require_text "$tmp/advanced-verify.json" '"valid": true'
+
+advanced_scaffold="$advanced/tools/reconc/harness/template/repo-root-scaffold/.reconc.yml"
+[ -f "$advanced_scaffold" ] || fail "advanced profile did not ship the repo-root scaffold policy"
+require_text "$advanced_scaffold" "kind: require_script"
+require_text "$advanced_scaffold" "cache_inputs:"
+
+# The generated repository policy must compile, and the shipped scaffold must
+# compile in its own right: a user adopting it is the documented path.
+"$binary" refresh "$advanced" --json >"$tmp/advanced-refresh.json"
+adopted="$tmp/advanced-adopted"
+mkdir -p "$adopted"
+git -C "$adopted" init --quiet
+cp "$advanced_scaffold" "$adopted/.reconc.yml"
+"$binary" refresh "$adopted" --json >"$tmp/adopted-refresh.json" \
+  || fail "the shipped repo-root scaffold policy does not compile"
+require_text "$adopted/.reconc/policy.lock.json" '"kind": "require_script"'
+require_text "$adopted/.reconc/policy.lock.json" '"cache_inputs"'
+
+run_json "$tmp/advanced-second-plan.json" "$binary" bootstrap plan "$advanced" --profile advanced
+if grep -Fq '"state": "create"' "$tmp/advanced-second-plan.json" || grep -Fq '"state": "conflict"' "$tmp/advanced-second-plan.json"; then
+  fail "advanced profile is not idempotent"
+fi
+grep -Fq '"state": "unchanged"' "$tmp/advanced-second-plan.json" \
+  || fail "advanced profile second plan reports no installed artifact"
+
 if find "$tmp/runtime-tmp" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
   fail "owned temporary residue escaped cleanup"
 fi
