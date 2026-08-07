@@ -623,8 +623,8 @@ being reported as successful partial publication.
 
 | Runtime | Integration |
 | --- | --- |
-| Claude Code | repo-local hook wiring in `.claude/settings.json` |
-| Codex | session, tool, permission, evidence, and Stop hooks with `apply_patch` path extraction |
+| Claude Code | repo-local hook wiring in `.claude/settings.json` covering prompt, tool, permission, notification, compaction, subagent, session, and Stop routes |
+| Codex | session start and end, prompt, tool, permission, evidence, compaction, subagent, and Stop hooks with `apply_patch` path extraction |
 | GitHub Copilot | contract-tested repository hooks for Copilot CLI and coding agent; hard PreToolUse and Stop decisions where the host fires them; host timeouts remain fail-open |
 | Cursor | one registry-generated `.cursor/hooks.json` for Agent/Cmd+K, Tab, CLI, and supported cloud routes; registry-derived `surface_events`, native prompt/subagent decisions, sessionless workspace liveness, and tool/Stop behavior remain event-specific |
 | OpenCode | thin project plugin with strict `metadata.exit` shell outcomes, permission/tool/session/compaction routes, and bounded asynchronous `session.idle` continuation |

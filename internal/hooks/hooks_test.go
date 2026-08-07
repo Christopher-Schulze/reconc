@@ -250,8 +250,10 @@ func TestGenerateCodexIsValidJSON(t *testing.T) {
 	if !strings.Contains(a.Content, "codex-pre-tool-use") {
 		t.Errorf("expected codex routes in template")
 	}
-	if strings.Contains(a.Content, "codex-session-end") || strings.Contains(a.Content, `"SessionEnd"`) {
-		t.Errorf("Codex template retained unsupported SessionEnd routing")
+	// Codex accepts SessionEnd in its hook config: codex-rs/config/src/hook_config.rs
+	// carries it among the eleven matcher groups, so the route is native.
+	if !strings.Contains(a.Content, "codex-session-end") || !strings.Contains(a.Content, `"SessionEnd"`) {
+		t.Errorf("Codex template misses the native SessionEnd route")
 	}
 	if strings.Contains(a.Content, "codex-post-tool-use-failure") || strings.Contains(a.Content, `"PostToolUseFailure"`) {
 		t.Errorf("Codex template retained unsupported PostToolUseFailure routing")

@@ -1088,6 +1088,18 @@ such gates run on every Stop until their inputs are declared. Globs, template
 variables, escaping paths, and duplicate entries are refused at compile time,
 because binding them would require a directory walk on the Stop path.
 
+Two hook routes were added after verifying the hosts' own configuration
+surfaces. Codex accepts `SessionEnd` among its eleven matcher groups, and
+Claude Code accepts `Notification`; both are now generated. Repositories that
+installed hooks before the upgrade keep working, and their installed artifacts
+report as stale until they are reinstalled:
+
+```bash
+reconc hook status . --json
+reconc hook install claude-code . --json
+reconc hook install codex . --json
+```
+
 ## Uninstall And Remove
 
 Prefer receipt- and registry-owned removal:
@@ -2240,9 +2252,10 @@ Transactional bootstrap reports the change as managed drift and requires the
 explicit marker-only acceptance path. Forced or accepted activation records
 the exact original line inside the managed block; hook uninstall and bootstrap
 removal restore that line byte-for-byte. A root-level `hooks=true` lookalike is
-invalid. Codex
-does not expose `SessionEnd`; Reconc generates only supported routes and gives
-each route its exact 5, 10, or 30 second host timeout. Codex also has no
+invalid. Codex accepts `SessionEnd` among the eleven matcher groups its hook
+configuration defines, so Reconc routes it like every other host that publishes
+the event. Reconc generates only supported routes and gives each route its
+exact 5, 10, or 30 second host timeout. Codex also has no
 separate failed-tool event: Reconc classifies non-successful Bash outcomes from
 the released `PostToolUse` payload and records them through the failure path.
 User prompts, pre/post compaction, subagent start/stop, permission, tool, and
@@ -2260,7 +2273,10 @@ plus native `subagentStart`, validates `cwd` against the selected repository,
 normalizes `tool_result` into evidence, and translates PreToolUse,
 PermissionRequest, PostToolUseFailure, Stop, and SubagentStop output into
 Copilot's exact schemas. `PermissionRequest` and `Notification` are CLI-only; cloud permission
-enforcement therefore uses `PreToolUse`. Copilot reads deny and block as exit
+enforcement therefore uses `PreToolUse`. The published hooks reference names
+fourteen events. Reconc binds the twelve it can decide or attribute and leaves
+`errorOccurred` and `userPromptTransformed` unbound; `PostCompact` does not
+exist on this host and is reported as unsupported rather than generated. Copilot reads deny and block as exit
 code 0 plus JSON, so a missing or failed wrapper on `PreToolUse`,
 `PermissionRequest`, `Stop`, and `SubagentStop` emits that platform's explicit
 deny or block envelope from the generated bash and PowerShell commands instead
@@ -2274,8 +2290,14 @@ registry-driven, surface-specific outcome contract defined in
 executes compatible `.claude/settings.json` hooks, Reconc detects Cursor-native
 payload markers and no-ops those non-native Claude hook invocations before they
 can duplicate Cursor session evidence. Claude routes its native prompt,
-permission-denied, failed-tool, Stop-failure, subagent, pre/post-compaction,
-and session events. After compaction, the context-capable `SessionStart`
+permission-denied, failed-tool, Stop-failure, notification, subagent,
+pre/post-compaction, and session events. Claude Code accepts 31 hook events.
+Reconc installs the 15 that carry a policy decision or authoritative session
+evidence, plus the `SessionStart` `compact` recovery matcher. The remaining
+events stay unbound on purpose: they carry no decision Reconc can make and no
+evidence it can attribute. `FileChanged` is the closest miss, because it
+reports mutations from any source, including the user's own editor, so it
+cannot establish that an agent session wrote a path. After compaction, the context-capable `SessionStart`
 `compact` matcher restores a bounded recovery packet; native `PostCompact` is
 retained as an observation event because it cannot inject context. Devin uses
 `.devin/hooks.v1.json`, including native `UserPromptSubmit` and

@@ -10,8 +10,8 @@
 | Kind | Target | Enforcement |
 |---|---|---|
 | `git-pre-commit` | active Git hooks path (`.git/hooks/pre-commit` by default) | Runs `reconc ci --staged` before commit. |
-| `claude-code` | `.claude/settings.json` | Prompt, permission, tool, failure, compaction, subagent, session, and stop hooks. |
-| `codex` | `.codex/hooks.json` | Released prompt, permission, tool, compaction, subagent, session-start, and stop hooks. |
+| `claude-code` | `.claude/settings.json` | Prompt, permission, tool, failure, notification, compaction, subagent, session, and stop hooks. |
+| `codex` | `.codex/hooks.json` | Released prompt, permission, tool, compaction, subagent, session-start, session-end, and stop hooks. |
 | `github-copilot` | `.github/hooks/reconc.json` | Version-1 repository hooks for Copilot CLI and coding agent, with contract-tested tool, lifecycle, compaction, subagent, and Stop translation. |
 | `cursor` | `.cursor/hooks.json` | Desktop/CLI session and workspace liveness, native prompt/subagent decisions, write/shell policy, post-tool evidence, and Stop gate. |
 | `opencode` | `.opencode/plugins/reconc.js` | Project plugin for prompt, permission, complete tool outcomes, terminal errors, compaction, session lifecycle, and idle stop gate. |
@@ -193,7 +193,8 @@ Codex exposes prompt, session-start, tool, permission, pre/post-compaction,
 subagent, evidence, and Stop routes. Reconc extracts write paths from native
 tool fields and `apply_patch` headers, intercepts shell commands, infers failed
 Bash outcomes from the single `PostToolUse` contract, and blocks Stop on unmet
-invariants. Codex has no `SessionEnd` or separate failed-tool route. Bootstrap writes
+invariants. Codex has no separate failed-tool route; its `PostToolUse`
+payload carries the outcome, and Reconc classifies failures from it. Bootstrap writes
 `hooks = true` under `[features]`; a root-level lookalike does not activate the
 host. Git pre-commit remains the hard repository backstop.
 

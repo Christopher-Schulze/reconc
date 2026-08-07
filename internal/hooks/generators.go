@@ -63,7 +63,7 @@ func generateClaudeCode() (*Artifact, error) {
 		EventPreToolUse, EventPermissionRequest, EventPermissionDenied,
 		EventPostToolUse, EventPostToolUseFailure, EventSubagentStart,
 		EventSubagentStop, EventPreCompaction, EventStop, EventStopFailure,
-		EventSessionEnd,
+		EventSessionEnd, EventNotification,
 	)
 	if err != nil {
 		return nil, err
@@ -141,6 +141,7 @@ func generateClaudeCode() (*Artifact, error) {
 					},
 				},
 			},
+			"Notification":  []interface{}{map[string]interface{}{"hooks": []interface{}{command("claude-notification", EventNotification)}}},
 			"SubagentStart": []interface{}{map[string]interface{}{"hooks": []interface{}{command("claude-subagent-start", EventSubagentStart)}}},
 			"SubagentStop":  []interface{}{map[string]interface{}{"hooks": []interface{}{command("claude-subagent-stop", EventSubagentStop)}}},
 			"PreCompact":    []interface{}{map[string]interface{}{"hooks": []interface{}{command("claude-pre-compaction", EventPreCompaction)}}},
@@ -176,6 +177,7 @@ func generateCodex() (*Artifact, error) {
 		EventSessionStart, EventUserPromptSubmit, EventPreToolUse,
 		EventPermissionRequest, EventPostToolUse, EventPreCompaction,
 		EventPostCompaction, EventSubagentStart, EventSubagentStop, EventStop,
+		EventSessionEnd,
 	)
 	if err != nil {
 		return nil, err
@@ -238,6 +240,13 @@ func generateCodex() (*Artifact, error) {
 				map[string]interface{}{
 					"hooks": []interface{}{
 						command("codex-stop", EventStop, ""),
+					},
+				},
+			},
+			"SessionEnd": []interface{}{
+				map[string]interface{}{
+					"hooks": []interface{}{
+						command("codex-session-end", EventSessionEnd, ""),
 					},
 				},
 			},

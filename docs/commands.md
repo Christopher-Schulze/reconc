@@ -687,8 +687,8 @@ configuration is incomplete. It also reports registry-derived
 activation state. `configured` proves only that the host can discover a
 complete static artifact. Codex accepts
 `hooks = true` under `[features]`, rejects root-level `hooks=true`, and has no
-`SessionEnd` or separate failed-tool route; failed Bash outcomes are inferred
-from `PostToolUse`. OpenCode and Kilo Code preserve complete post-tool output,
+separate failed-tool route; failed Bash outcomes are inferred from
+`PostToolUse`. OpenCode and Kilo Code preserve complete post-tool output,
 deduplicate terminal tool errors from `message.part.updated`, and route user
 prompts plus pre/post-compaction lifecycle. Their continuation is inferred from
 `session.idle`, not a synchronous native Stop gate. OMP uses native awaited
