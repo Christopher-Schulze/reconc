@@ -407,7 +407,10 @@ pass. `install-cli` cannot claim an unsupported ownership type.
 `reconc doctor --global [--json] [--output PATH]` is the read-only authority
 for that state. It independently inspects the running executable, bare PATH
 resolution, canonical target, additional PATH candidates, receipt checksum,
-and embedded build provenance. It reports `healthy`,
+and embedded build provenance. Candidates are collected in the order a shell
+resolves them, directory by directory, and on Windows across every name
+PATHEXT makes executable, so a `reconc.bat` or `reconc.cmd` ahead of the
+installed `reconc.exe` is reported as a shadow instead of being missed. It reports `healthy`,
 `unowned`, `stale`, `shadowed`, `ambiguous`, or `invalid` plus exactly one
 ownership-aware remediation. Malformed receipts, checksum drift, conflicting
 owners, and ambiguous legacy installations fail closed. The JSON contracts are

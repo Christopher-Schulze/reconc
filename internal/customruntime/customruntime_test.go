@@ -269,8 +269,14 @@ func TestLivenessKeysAreSafeAndCollisionResistantWhenTruncated(t *testing.T) {
 }
 
 func FuzzDecodeManifest(f *testing.F) {
-	body, _ := os.ReadFile("testdata/local-agent.json")
+	// A silently dropped seed leaves the target fuzzing empty input forever.
+	body, err := os.ReadFile("testdata/local-agent.json")
+	if err != nil {
+		f.Fatalf("read manifest seed: %v", err)
+	}
 	f.Add(body)
+	f.Add([]byte(`{}`))
+	f.Add([]byte(`{"$schema":"x","format_version":"1","name":"a","display_name":"A","routes":[]}`))
 	f.Fuzz(func(t *testing.T, candidate []byte) {
 		_, _ = DecodeManifest(candidate)
 	})

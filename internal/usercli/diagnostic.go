@@ -287,44 +287,89 @@ func pathCandidates() ([]string, error) {
 	if len(entries) > maxPATHEntries {
 		return nil, fmt.Errorf("PATH contains more than %d entries", maxPATHEntries)
 	}
-	name := executableName()
+	names := executableCandidateNames()
 	seen := map[string]bool{}
 	candidates := []string{}
 	for _, directory := range entries {
 		if strings.TrimSpace(directory) == "" {
 			continue
 		}
-		candidate := filepath.Join(directory, name)
-		info, err := os.Lstat(candidate)
-		if os.IsNotExist(err) {
-			continue
+		// Directory-major, name-minor: that is the order a shell resolves a
+		// bare command, so the first candidate is the one that would run.
+		for _, name := range names {
+			candidate := filepath.Join(directory, name)
+			info, err := os.Lstat(candidate)
+			if os.IsNotExist(err) {
+				continue
+			}
+			if err != nil {
+				return nil, fmt.Errorf("inspect PATH candidate %s: %w", candidate, err)
+			}
+			if !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
+				continue
+			}
+			resolved, err := pathidentity.ResolveExisting(candidate)
+			if err != nil {
+				return nil, fmt.Errorf("resolve PATH candidate %s: %w", candidate, err)
+			}
+			info, err = os.Stat(resolved)
+			if err != nil {
+				return nil, fmt.Errorf("inspect resolved PATH candidate %s: %w", candidate, err)
+			}
+			if !info.Mode().IsRegular() ||
+				(runtime.GOOS != "windows" && info.Mode()&0o111 == 0) {
+				continue
+			}
+			key := pathKey(resolved)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			candidates = append(candidates, resolved)
 		}
-		if err != nil {
-			return nil, fmt.Errorf("inspect PATH candidate %s: %w", candidate, err)
-		}
-		if !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
-			continue
-		}
-		resolved, err := pathidentity.ResolveExisting(candidate)
-		if err != nil {
-			return nil, fmt.Errorf("resolve PATH candidate %s: %w", candidate, err)
-		}
-		info, err = os.Stat(resolved)
-		if err != nil {
-			return nil, fmt.Errorf("inspect resolved PATH candidate %s: %w", candidate, err)
-		}
-		if !info.Mode().IsRegular() ||
-			(runtime.GOOS != "windows" && info.Mode()&0o111 == 0) {
-			continue
-		}
-		key := pathKey(resolved)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		candidates = append(candidates, resolved)
 	}
 	return candidates, nil
+}
+
+// defaultWindowsPATHEXT is the extension set cmd.exe assumes when PATHEXT is
+// unset. Keeping the executable ones is enough: a bare `reconc` never resolves
+// to a script type the shell will not run directly.
+const defaultWindowsPATHEXT = ".COM;.EXE;.BAT;.CMD"
+
+// executableCandidateNames returns every filename a shell would try for a bare
+// `reconc`, in resolution order.
+//
+// On Windows that is not one name. cmd.exe and PowerShell walk PATHEXT, so a
+// `reconc.bat` placed earlier in PATH shadows the installed `reconc.exe` and
+// runs instead of it. Scanning only the .exe reported such an installation as
+// unshadowed, which is the one answer `reconc doctor --global` must never give
+// wrongly.
+func executableCandidateNames() []string {
+	if runtime.GOOS != "windows" {
+		return []string{"reconc"}
+	}
+	raw := strings.TrimSpace(os.Getenv("PATHEXT"))
+	if raw == "" {
+		raw = defaultWindowsPATHEXT
+	}
+	names := make([]string, 0, 8)
+	seen := map[string]bool{}
+	for _, extension := range strings.Split(raw, ";") {
+		extension = strings.TrimSpace(extension)
+		if extension == "" || !strings.HasPrefix(extension, ".") {
+			continue
+		}
+		name := strings.ToLower("reconc" + extension)
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return []string{executableName()}
+	}
+	return names
 }
 
 func samePath(left string, right string) bool {

@@ -353,7 +353,9 @@ rows are `OK` or `WARN`.
 Read-only global installation diagnosis. Reports the running version, resolved
 and target binary identities, ownership manager, channel, receipt validity,
 checksum identity, PATH shadows, release provenance, evidence, and one exact
-next action. The stable JSON contract is
+next action. The shadow scan walks PATH in resolution order and, on Windows,
+every name PATHEXT makes executable, so a `reconc.bat` ahead of the installed
+`reconc.exe` is reported rather than missed. The stable JSON contract is
 `schemas/v1/global-diagnostic.schema.json`. Status is `healthy`, `unowned`,
 `stale`, `shadowed`, `ambiguous`, or `invalid`; all except `healthy` and a
 single deterministic legacy `unowned` installation exit 1. `--global` cannot
