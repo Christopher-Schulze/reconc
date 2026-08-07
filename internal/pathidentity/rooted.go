@@ -27,12 +27,14 @@ func Rooted(value string) bool {
 		return true
 	}
 	// `C:file` is drive-relative rather than absolute, and Windows resolves it
-	// against that drive's working directory instead of the repository.
+	// against that drive's working directory instead of the repository. The
+	// prefix counts whatever character precedes the colon: Windows treats a
+	// non-letter prefix as a volume too, so restricting this to letters would
+	// hand the two platforms different answers for the same string, which is
+	// exactly what this helper exists to prevent. Nothing repo-relative needs a
+	// colon in second position.
 	if len(trimmed) >= 2 && trimmed[1] == ':' {
-		letter := trimmed[0]
-		if letter >= 'a' && letter <= 'z' || letter >= 'A' && letter <= 'Z' {
-			return true
-		}
+		return true
 	}
 	return false
 }

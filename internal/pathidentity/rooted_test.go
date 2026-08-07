@@ -22,6 +22,9 @@ func TestRootedDecidesTheSameWayOnEveryPlatform(t *testing.T) {
 		`\\server\share\file`,
 		"//server/share/file",
 		"  /leading-space-is-still-rooted",
+		// Windows reports a volume for any character before a colon, so this
+		// is rooted everywhere rather than relative on one platform only.
+		"1:file",
 	}
 	for _, value := range rooted {
 		if !pathidentity.Rooted(value) {
@@ -38,7 +41,6 @@ func TestRootedDecidesTheSameWayOnEveryPlatform(t *testing.T) {
 		"",
 		"   ",
 		"not-a-drive:file",
-		"1:file",
 	}
 	for _, value := range relative {
 		if pathidentity.Rooted(value) {
