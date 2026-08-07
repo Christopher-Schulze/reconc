@@ -1083,3 +1083,91 @@ func TestStopPolicyFingerprintBindsDeclaredScriptInputs(t *testing.T) {
 		t.Fatal("deleting a declared script input must move the fingerprint")
 	}
 }
+
+// TestDeclaredScriptInputMayBeADirectory keeps the declaration usable for the
+// gates that inspect a surface rather than a single file. A declared directory
+// contributes its bounded recursive content identity, so an added, removed, or
+// rewritten file inside it invalidates the stored report.
+func TestDeclaredScriptInputMayBeADirectory(t *testing.T) {
+	repo := t.TempDir()
+	writePolicyLock(t, repo, `{"rules":[{"id":"gate","kind":"require_script","script":"scripts/check.sh","cache_inputs":["docs/tasks"],"when_paths":["**"]}]}`)
+	tasks := filepath.Join(repo, "docs", "tasks")
+	if err := os.MkdirAll(tasks, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tasks, "001.md"), []byte("first\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := func() string {
+		return hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1"}))
+	}
+	initial := fingerprint()
+	if initial == "" {
+		t.Fatal("fingerprint is empty")
+	}
+	if err := os.WriteFile(filepath.Join(tasks, "002.md"), []byte("second\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	added := fingerprint()
+	if added == initial {
+		t.Fatal("adding a file inside a declared directory must move the fingerprint")
+	}
+	if err := os.WriteFile(filepath.Join(tasks, "002.md"), []byte("rewritten\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rewritten := fingerprint()
+	if rewritten == added {
+		t.Fatal("rewriting a file inside a declared directory must move the fingerprint")
+	}
+	if err := os.Remove(filepath.Join(tasks, "002.md")); err != nil {
+		t.Fatal(err)
+	}
+	if removed := fingerprint(); removed != initial {
+		t.Fatal("restoring a declared directory must restore its identity")
+	}
+}
+
+// TestPolicyInputsSkipPathsTheDirtySetAlreadyBinds keeps the fingerprint from
+// hashing the same path twice: a dirty file already contributes its exact
+// content identity through the Git snapshot.
+func TestPolicyInputsSkipPathsTheDirtySetAlreadyBinds(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "STATUS.md"), []byte("current\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dirty := []gitDirtyFile{{Path: "STATUS.md", WorktreeHash: strings.Repeat("a", 64)}}
+	if got := stopPolicyInputIdentities(repo, []string{"STATUS.md"}, dirty); got != nil {
+		t.Fatalf("a dirty path must not be bound twice: %+v", got)
+	}
+	got := stopPolicyInputIdentities(repo, []string{"STATUS.md"}, nil)
+	if len(got) != 1 || got[0].Path != "STATUS.md" || got[0].Identity == "" {
+		t.Fatalf("a path Git does not report must be bound: %+v", got)
+	}
+	missing := stopPolicyInputIdentities(repo, []string{"build/absent.json"}, nil)
+	if len(missing) != 1 || missing[0].Identity != "missing" {
+		t.Fatalf("an absent declared input must bind as missing: %+v", missing)
+	}
+}
+
+// TestExpiredReportLeavesThePersistentWorkerWarmPath proves the age boundary is
+// enforced on the persistent-worker cache too, not only in session state.
+func TestExpiredReportLeavesThePersistentWorkerWarmPath(t *testing.T) {
+	cache := NewStopDecisionCache()
+	root := t.TempDir()
+	state := SessionState{
+		SessionID:             "s-expired",
+		StopPolicyFingerprint: "fingerprint",
+		StopPolicyReportHash:  "report",
+		StopPolicyExpiresAt:   time.Now().Add(-time.Minute).Unix(),
+	}
+	cache.store(root, state, "generation")
+	if _, ok := cache.entry(root, state.SessionID); !ok {
+		t.Fatal("cache entry was not stored")
+	}
+	if _, ok := cache.readStableReport(root, state, stopTaskSnapshot{}, stopPolicyGitSnapshot{}); ok {
+		t.Fatal("an expired report must not be served from the warm path")
+	}
+	if _, ok := cache.entry(root, state.SessionID); ok {
+		t.Fatal("an expired entry must be dropped, not left to be retried")
+	}
+}

@@ -206,3 +206,33 @@ func platformHasRoute(platform Platform, route string) bool {
 	}
 	return false
 }
+
+// TestContainsRuntimeEventTokenBoundaries pins the token rule directly, so the
+// registry-driven test above cannot be the only thing standing between a route
+// prefix and a false "installed" report.
+func TestContainsRuntimeEventTokenBoundaries(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		event   string
+		want    bool
+	}{
+		{name: "quoted json value", content: `{"command":"hook claude-stop ."}`, event: "claude-stop", want: true},
+		{name: "argv element", content: `["claude-stop","."]`, event: "claude-stop", want: true},
+		{name: "longer sibling only", content: `{"command":"hook claude-stop-failure ."}`, event: "claude-stop", want: false},
+		{name: "prefixed by a word", content: `xclaude-stop`, event: "claude-stop", want: false},
+		{name: "underscore neighbour", content: `claude-stop_v2`, event: "claude-stop", want: false},
+		{name: "at the very start", content: `claude-stop .`, event: "claude-stop", want: true},
+		{name: "at the very end", content: `hook claude-stop`, event: "claude-stop", want: true},
+		{name: "both routes present", content: `claude-stop-failure claude-stop`, event: "claude-stop", want: true},
+		{name: "absent", content: `{"hooks":{}}`, event: "claude-stop", want: false},
+		{name: "empty event", content: `anything`, event: "", want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := containsRuntimeEventToken(tc.content, tc.event); got != tc.want {
+				t.Fatalf("containsRuntimeEventToken(%q, %q) = %v, want %v", tc.content, tc.event, got, tc.want)
+			}
+		})
+	}
+}

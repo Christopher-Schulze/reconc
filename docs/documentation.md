@@ -1061,7 +1061,8 @@ compatible v1 artifact schemas and for the v1, v2, and v3 policy-lock schemas.
 
 Format 4 carries one new optional field. A `require_script` rule, or a
 `require_script` check inside a composite rule, may declare `cache_inputs`: the
-literal repository-relative files the script reads.
+literal repository-relative paths the script reads. Each entry may be a file or
+a directory.
 
 ```yaml
 rules:
@@ -2469,9 +2470,12 @@ persistent-worker warm paths re-evaluate past that instant. A policy without
 age requirements carries no expiry and never ages out on time alone.
 
 A `require_script` body is opaque to that scan, so its author declares what it
-reads. `cache_inputs` lists literal repository-relative files; globs, template
-variables, escaping paths, and duplicates are refused at compile time because
-the Stop path binds these declarations without a directory walk. A declared
+reads. `cache_inputs` lists literal repository-relative paths. A declared file
+contributes its exact content identity; a declared directory contributes its
+bounded recursive content identity, so a gate that inspects a surface can name
+that surface directly. Globs, template variables, escaping paths, and
+duplicates are refused at compile time, because resolving a pattern would put
+a search on the Stop path instead of a fixed set of reads. A declared
 script plan is reused only while every declared file keeps its exact content
 identity. A `require_script` that declares nothing keeps its plan off the warm
 path entirely, so no report is ever reused for a script whose inputs are

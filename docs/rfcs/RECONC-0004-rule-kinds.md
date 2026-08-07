@@ -46,9 +46,9 @@ the check entry.
 `require_script` may use `args`, `timeout_sec`, `kill_timeout_sec`, and
 `cache_inputs`. Script paths must be repo-relative and must not
 escape the repository root. `cache_inputs` names the literal repo-relative
-files the script reads; globs, template variables, escaping paths, and
-duplicates are invalid. Stop report reuse binds those files and never reuses a
-report for a script that declares none. Payload-provided command strings are never
+paths the script reads, each a file or a directory; globs, template variables,
+escaping paths, and duplicates are invalid. Stop report reuse binds those paths
+and never reuses a report for a script that declares none. Payload-provided command strings are never
 executed as scripts. Only `status=pass` with exit code 0 passes. Exit code 2 is
 a policy block. Timeout, launch or process failure, any other exit, and an
 unknown or contradictory status fail closed. Timeout diagnostics identify the

@@ -8,4 +8,7 @@ kill_timeout_sec: 5
 #   script:     repo-relative executable path
 #   when_paths: change patterns that activate the gate
 # Optional:
-#   args:       arguments passed directly to the executable
+#   args:         arguments passed directly to the executable
+#   cache_inputs: repo-relative files or directories the script reads. Declaring
+#                 them lets Stop reuse the gate's result while they are
+#                 unchanged; without a declaration the gate runs on every Stop.

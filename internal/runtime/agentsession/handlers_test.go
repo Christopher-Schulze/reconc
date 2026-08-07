@@ -1037,9 +1037,19 @@ func setupStopScriptPolicyRepo(t *testing.T, counterPath string, exitCode int, o
 	if err := os.MkdirAll(filepath.Join(repo, ".reconc", "scripts"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// The gate reads the file it declares as a cache input, so the fixture
-	// models a script whose answer is a function of bound repository state.
-	script := fmt.Sprintf("#!/bin/sh\ncat AGENTS.md >/dev/null 2>&1 || true\nprintf x >> %q\nprintf '%s\\n'\nexit %d\n", counterPath, output, exitCode)
+	// The gate reads the file it declares as a cache input, and that file is
+	// gitignored, so the fixture models the case only the declaration can
+	// bind: build output Git never reports.
+	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("build/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "build"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "build", "report.json"), []byte(`{"status":"pass"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := fmt.Sprintf("#!/bin/sh\ncat build/report.json >/dev/null 2>&1 || true\nprintf x >> %q\nprintf '%s\\n'\nexit %d\n", counterPath, output, exitCode)
 	scriptPath := filepath.Join(repo, ".reconc", "scripts", "stop-gate.sh")
 	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -1052,7 +1062,7 @@ func setupStopScriptPolicyRepo(t *testing.T, counterPath string, exitCode int, o
     kind: require_script
     when_paths: ['src/**']
     script: '.reconc/scripts/stop-gate.sh'
-    cache_inputs: ['AGENTS.md']
+    cache_inputs: ['build/report.json']
     mode: block
     timeout_sec: 10
     message: stop script gate
@@ -1076,4 +1086,91 @@ func readCounter(t *testing.T, path string) int {
 		t.Fatal(err)
 	}
 	return len(body)
+}
+
+// TestRunStopReevaluatesWhenADeclaredScriptInputChanges drives the declaration
+// contract end to end on the shipped Stop path: the gate is cached while its
+// declared input is unchanged, and rewriting that input alone, with no session
+// evidence change, makes the gate run again.
+func TestRunStopReevaluatesWhenADeclaredScriptInputChanges(t *testing.T) {
+	counterPath := filepath.Join(t.TempDir(), "counter")
+	repo := setupStopScriptPolicyRepo(t, counterPath, 0, "")
+	if _, err := InitializeSessionState(repo, "s-declared-input"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MutateSessionState(repo, "s-declared-input", func(state SessionState) SessionState {
+		return AppendWritePath(state, "src/a.go")
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if result := RunStop(repo, []byte(`{"session_id":"s-declared-input"}`)); result.ExitCode != 0 {
+		t.Fatalf("first stop: exit=%d stderr=%s", result.ExitCode, result.Stderr)
+	}
+	if got := readCounter(t, counterPath); got != 1 {
+		t.Fatalf("expected the gate to run once, got %d", got)
+	}
+	if result := RunStop(repo, []byte(`{"session_id":"s-declared-input"}`)); result.ExitCode != 0 {
+		t.Fatalf("second stop: exit=%d stderr=%s", result.ExitCode, result.Stderr)
+	}
+	if got := readCounter(t, counterPath); got != 1 {
+		t.Fatalf("an unchanged declared input must keep the gate cached, got %d runs", got)
+	}
+
+	// Only the declared input changes. Session evidence, the policy, and the
+	// script itself all stay identical.
+	if err := os.WriteFile(filepath.Join(repo, "build", "report.json"), []byte(`{"status":"fail"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if result := RunStop(repo, []byte(`{"session_id":"s-declared-input"}`)); result.ExitCode != 0 {
+		t.Fatalf("third stop: exit=%d stderr=%s", result.ExitCode, result.Stderr)
+	}
+	if got := readCounter(t, counterPath); got != 2 {
+		t.Fatalf("a changed declared input must re-run the gate, got %d runs", got)
+	}
+}
+
+// TestRunStopNeverReusesAnUndeclaredScriptGate is the other half of the
+// contract: without a declaration the gate is opaque, so every Stop runs it.
+func TestRunStopNeverReusesAnUndeclaredScriptGate(t *testing.T) {
+	counterPath := filepath.Join(t.TempDir(), "counter")
+	repo := setupStopScriptPolicyRepo(t, counterPath, 0, "")
+	removeScriptCacheInputs(t, repo)
+	if _, err := InitializeSessionState(repo, "s-undeclared"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MutateSessionState(repo, "s-undeclared", func(state SessionState) SessionState {
+		return AppendWritePath(state, "src/a.go")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for attempt := 1; attempt <= 3; attempt++ {
+		if result := RunStop(repo, []byte(`{"session_id":"s-undeclared"}`)); result.ExitCode != 0 {
+			t.Fatalf("stop %d: exit=%d stderr=%s", attempt, result.ExitCode, result.Stderr)
+		}
+		if got := readCounter(t, counterPath); got != attempt {
+			t.Fatalf("undeclared gate must run on every stop: attempt %d saw %d runs", attempt, got)
+		}
+	}
+}
+
+// removeScriptCacheInputs recompiles the fixture policy without its declaration
+// so the undeclared contract is exercised on a real compiled lockfile.
+func removeScriptCacheInputs(t *testing.T, repo string) {
+	t.Helper()
+	path := filepath.Join(repo, "policies", "rules.yml")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stripped := strings.Replace(string(body), "    cache_inputs: ['build/report.json']\n", "", 1)
+	if stripped == string(body) {
+		t.Fatal("fixture policy no longer declares cache_inputs")
+	}
+	if err := os.WriteFile(path, []byte(stripped), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compiler.CompileRepoPolicy(repo, "test"); err != nil {
+		t.Fatal(err)
+	}
 }
