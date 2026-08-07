@@ -14,7 +14,13 @@ import (
 // bunDriverBudget bounds each Bun contract driver. A driver that keeps a live
 // child would otherwise consume the whole package timeout and leave the worker
 // process behind, turning one stuck run into a twenty-minute stall.
-const bunDriverBudget = 90 * time.Second
+//
+// This bounds a hang; it is not a performance assertion. Every driver step
+// spawns the hook binary, and process creation on Windows costs an order of
+// magnitude more than on Unix, so the same driver that finishes in forty
+// seconds on macOS runs well past a minute and a half there. The budget stays
+// far below the stall it exists to prevent while leaving that difference room.
+const bunDriverBudget = 6 * time.Minute
 
 type bunHookRecord struct {
 	event   string

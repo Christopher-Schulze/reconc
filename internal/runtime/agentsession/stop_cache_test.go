@@ -1328,7 +1328,13 @@ func TestGitRefResolutionCoversLooseAndPackedRefs(t *testing.T) {
 	})
 
 	t.Run("escaping refs are refused", func(t *testing.T) {
-		for _, unsafe := range []string{"../outside", "/etc/passwd", ".."} {
+		// Every rooting and escape convention, on every platform: the decision
+		// must not depend on which operating system evaluates the ref.
+		for _, unsafe := range []string{
+			"../outside", "/etc/passwd", "..",
+			`..\outside`, `\etc\passwd`, `C:\refs\heads\main`, `\\server\share\ref`,
+			"refs/../../../etc/passwd",
+		} {
 			if _, err := cleanGitRefPath(unsafe); err == nil {
 				t.Fatalf("unsafe ref %q was accepted", unsafe)
 			}

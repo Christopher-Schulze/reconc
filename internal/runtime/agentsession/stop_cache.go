@@ -1091,8 +1091,15 @@ func gitHeadFingerprint(repoRoot string) string {
 }
 
 func cleanGitRefPath(ref string) (string, error) {
+	// Rooting and escape are decided before cleaning and without asking the
+	// running platform: `filepath.IsAbs` calls a POSIX root relative on Windows,
+	// which would resolve `/etc/passwd` against the git directory there and
+	// refuse it everywhere else.
+	if pathidentity.Rooted(ref) || pathidentity.EscapesLexically(ref) {
+		return "", fmt.Errorf("unsafe HEAD ref")
+	}
 	cleanRef := filepath.Clean(filepath.FromSlash(ref))
-	if filepath.IsAbs(cleanRef) || cleanRef == ".." || strings.HasPrefix(cleanRef, ".."+string(filepath.Separator)) {
+	if cleanRef == "." || pathidentity.Rooted(cleanRef) || pathidentity.EscapesLexically(cleanRef) {
 		return "", fmt.Errorf("unsafe HEAD ref")
 	}
 	return cleanRef, nil

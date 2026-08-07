@@ -266,7 +266,13 @@ func TestRuntimePlanRejectsUnbindableCacheInputs(t *testing.T) {
 	}{
 		{name: "glob", value: []interface{}{"build/**/*.json"}},
 		{name: "escaping path", value: []interface{}{"../outside.json"}},
+		// Both rooting conventions, because the same policy file must be
+		// refused on Unix and on Windows.
 		{name: "absolute path", value: []interface{}{"/etc/passwd"}},
+		{name: "windows drive path", value: []interface{}{`C:\Windows\hosts`}},
+		{name: "windows unc path", value: []interface{}{`\\server\share\report.json`}},
+		{name: "backslash rooted path", value: []interface{}{`\etc\passwd`}},
+		{name: "backslash escaping path", value: []interface{}{`..\outside.json`}},
 		{name: "duplicate", value: []interface{}{"build/report.json", "build/report.json"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {

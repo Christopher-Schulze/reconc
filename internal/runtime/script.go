@@ -219,7 +219,7 @@ func normalizedScriptKillTimeout(killTimeoutSec int) time.Duration {
 func resolveRepoScriptPath(repoRoot, scriptPath string) (string, error) {
 	configured := filepath.FromSlash(scriptPath)
 	cleaned := filepath.Clean(configured)
-	if configured == "" || filepath.IsAbs(configured) || filepath.VolumeName(configured) != "" ||
+	if configured == "" || pathidentity.Rooted(scriptPath) || pathidentity.EscapesLexically(scriptPath) ||
 		cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
 		return "", &rerrors.RepoBoundaryError{Path: scriptPath, RepoRoot: repoRoot}
 	}

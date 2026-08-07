@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -16,6 +15,7 @@ import (
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/parser"
+	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/policy"
 )
 
@@ -666,15 +666,10 @@ func validateRuntimePlanCacheInputs(inputs []string) error {
 
 func runtimePlanRepoRelativePath(value string) bool {
 	value = strings.TrimSpace(value)
-	if value == "" || filepath.IsAbs(filepath.FromSlash(value)) || strings.Contains(value, ":") {
+	if value == "" || pathidentity.Rooted(value) || strings.Contains(value, ":") {
 		return false
 	}
-	for _, segment := range strings.Split(strings.ReplaceAll(value, `\`, "/"), "/") {
-		if segment == ".." {
-			return false
-		}
-	}
-	return true
+	return !pathidentity.EscapesLexically(value)
 }
 
 func runtimeRuleContainsForbidCommand(rule *policy.Rule) bool {

@@ -14,7 +14,8 @@ const maxEvidenceFileBytes int64 = 4 << 20
 func resolvePolicyFile(repoRoot, relative string) (string, error) {
 	configured := filepath.FromSlash(relative)
 	cleaned := filepath.Clean(configured)
-	if configured == "" || filepath.IsAbs(configured) || filepath.VolumeName(configured) != "" || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+	if configured == "" || pathidentity.Rooted(relative) || pathidentity.EscapesLexically(relative) ||
+		cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
 		return "", &rerrors.RepoBoundaryError{Path: relative, RepoRoot: repoRoot}
 	}
 	resolvedRoot, err := pathidentity.ResolveExisting(repoRoot)
