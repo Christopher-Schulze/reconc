@@ -222,7 +222,7 @@ func runStopPolicyCheckLocked(
 		initialEvidenceHash := stopPolicyEvidenceHash(state)
 		fingerprintInput.PolicyLockHash = fileContentHash(filepath.Join(repoRoot, ".reconc", "policy.lock.json"))
 		reportFingerprint := hashStopPolicyFingerprintInput(fingerprintInput)
-		expiresAt := stopPolicyReportExpiry(repoRoot, scanStopPolicyLockfile(repoRoot).FreshFiles)
+		expiresAt := stopPolicyReportExpiry(repoRoot, scanStopPolicyLockfile(repoRoot, state.WritePaths).FreshFiles)
 		updated, err := mutateSessionStateResolved(repoRoot, state.SessionID, func(current SessionState) SessionState {
 			if stopPolicyEvidenceHash(current) == initialEvidenceHash {
 				current.StopPolicyFingerprint = reportFingerprint
@@ -493,7 +493,7 @@ func stopPolicyFingerprintInputForSnapshotWithGeneration(
 	if gitSnapshot.StatusOK {
 		dirtyFiles = gitDirtyFiles(root, gitSnapshot.Status)
 	}
-	policyScan := scanStopPolicyLockfile(root)
+	policyScan := scanStopPolicyLockfile(root, sortedUniqueExact(state.WritePaths))
 	return stopPolicyFingerprintInput{
 		Version:            stopPolicyFingerprintVersion,
 		RepoRoot:           root,
@@ -529,6 +529,13 @@ func hashStopPolicyFingerprintInput(input stopPolicyFingerprintInput) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// stopPolicyWritePaths is the exact set require_script rules match their
+// when_paths against, so a rule this Stop cannot trigger cannot affect the
+// report it would reuse.
+func stopPolicyWritePaths(input stopPolicyFingerprintInput) []string {
+	return input.WritePaths
+}
+
 func stopPolicyFingerprintCacheable(input stopPolicyFingerprintInput) bool {
 	if !(input.GitStatusOK &&
 		!strings.HasPrefix(input.GitHead, "error:") &&
@@ -540,7 +547,7 @@ func stopPolicyFingerprintCacheable(input stopPolicyFingerprintInput) bool {
 	}
 	// A policy path the compiler cannot name statically cannot be bound into
 	// the fingerprint, so the report it produced cannot be revalidated.
-	return scanStopPolicyLockfile(input.RepoRoot).Cacheable
+	return scanStopPolicyLockfile(input.RepoRoot, stopPolicyWritePaths(input)).Cacheable
 }
 
 // stopPolicyLockScan is the bounded static view of the compiled policy that
@@ -570,7 +577,7 @@ type stopPolicyFreshFile struct {
 // scanStopPolicyLockfile decodes the compiled policy instead of scanning it for
 // tokens: a rule message that quotes a kind must not change caching, and a
 // check nested in an all_of / any_of / not rule must.
-func scanStopPolicyLockfile(repoRoot string) stopPolicyLockScan {
+func scanStopPolicyLockfile(repoRoot string, writePaths []string) stopPolicyLockScan {
 	if repoRoot == "" {
 		// Fingerprint unit tests exercise cacheability without a repo root;
 		// production Stop always supplies a resolved root before caching.
@@ -606,13 +613,25 @@ func scanStopPolicyLockfile(repoRoot string) stopPolicyLockScan {
 	}
 	undeclaredScript := false
 	for _, rule := range lock.Rules {
+		// A require_script rule matches its when_paths against the session's
+		// write paths. One this Stop cannot trigger runs no script, so it can
+		// neither contribute to the report nor invalidate its reuse.
+		if !stopPolicyRuleReachable(rule.WhenPaths, writePaths) {
+			continue
+		}
 		rule.collectInto(collect, &undeclaredScript)
 		for _, check := range rule.Checks {
+			// Composite sub-checks inherit the parent rule's trigger surface.
 			check.collectInto(collect, &undeclaredScript)
 		}
 	}
 	if undeclaredScript {
 		scan.Cacheable = false
+	}
+	if !scan.Cacheable {
+		// The fingerprint of a non-cacheable plan is never compared, so hashing
+		// its declared inputs would be work with no reader.
+		return stopPolicyLockScan{}
 	}
 	scan.Paths = sortedKeys(paths)
 	sort.Slice(scan.FreshFiles, func(i, j int) bool {
@@ -632,6 +651,7 @@ type stopPolicyLockRule struct {
 	Path          string               `json:"path"`
 	File          string               `json:"file"`
 	Script        string               `json:"script"`
+	WhenPaths     []string             `json:"when_paths"`
 	CacheInputs   []string             `json:"cache_inputs"`
 	MaxAgeHours   int                  `json:"max_age_hours"`
 	RequiredFiles []stopPolicyLockFile `json:"required_files"`
@@ -727,6 +747,26 @@ func stopPolicyReportExpiry(repoRoot string, freshFiles []stopPolicyFreshFile) i
 // dependence, so the report never expires on time alone.
 func stopPolicyReportExpired(expiresAt int64) bool {
 	return expiresAt != 0 && time.Now().Unix() >= expiresAt
+}
+
+// stopPolicyRuleReachable reports whether any recorded write path can trigger a
+// rule. It fails toward reachable: a rule without when_paths, a templated
+// pattern, or a match error is treated as triggerable so uncertainty never
+// admits a report the rule might have changed.
+func stopPolicyRuleReachable(whenPaths, writePaths []string) bool {
+	if len(whenPaths) == 0 {
+		return true
+	}
+	for _, pattern := range whenPaths {
+		if runtime.HasTemplateVars(pattern) {
+			return true
+		}
+	}
+	_, _, matched, err := runtime.MatchAnyPath(whenPaths, writePaths)
+	if err != nil {
+		return true
+	}
+	return matched
 }
 
 func sortedKeys(values map[string]struct{}) []string {

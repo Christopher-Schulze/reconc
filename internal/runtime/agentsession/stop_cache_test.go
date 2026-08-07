@@ -215,7 +215,7 @@ func TestStopPolicyCacheEligibilityAcrossLockShapes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := t.TempDir()
 			writePolicyLock(t, repo, tc.lock)
-			input := stopPolicyFingerprintInput{RepoRoot: repo, GitStatusOK: true}
+			input := stopPolicyFingerprintInput{RepoRoot: repo, GitStatusOK: true, WritePaths: []string{"src/a.go"}}
 			if got := stopPolicyFingerprintCacheable(input); got != tc.cacheable {
 				t.Fatalf("cacheable = %v, want %v", got, tc.cacheable)
 			}
@@ -239,11 +239,11 @@ func TestStopPolicyFingerprintBindsGitignoredEvidence(t *testing.T) {
 
 	// The path is invisible to Git here: no repository, so no dirty entry can
 	// carry it. Only the policy-input binding can notice the change.
-	before := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1"}))
+	before := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1", WritePaths: []string{"src/a.go"}}))
 	if err := os.WriteFile(evidence, []byte("total: 12.0%\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	after := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1"}))
+	after := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1", WritePaths: []string{"src/a.go"}}))
 	if before == "" || before == after {
 		t.Fatalf("rewriting a gitignored evidence file must move the fingerprint: %q", before)
 	}
@@ -251,7 +251,7 @@ func TestStopPolicyFingerprintBindsGitignoredEvidence(t *testing.T) {
 	if err := os.Remove(evidence); err != nil {
 		t.Fatal(err)
 	}
-	removed := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1"}))
+	removed := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1", WritePaths: []string{"src/a.go"}}))
 	if removed == after {
 		t.Fatal("deleting a gitignored evidence file must move the fingerprint")
 	}
@@ -272,7 +272,7 @@ func TestStopPolicyReportExpiryFollowsFreshFileAge(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	scan := scanStopPolicyLockfile(repo)
+	scan := scanStopPolicyLockfile(repo, nil)
 	if len(scan.FreshFiles) != 1 || scan.FreshFiles[0].Path != "STATUS.md" {
 		t.Fatalf("fresh-file requirement was not scanned: %+v", scan.FreshFiles)
 	}
@@ -294,7 +294,7 @@ func TestStopPolicyReportExpiryFollowsFreshFileAge(t *testing.T) {
 	// A policy with no age requirement produces no expiry at all.
 	plain := t.TempDir()
 	writePolicyLock(t, plain, `{"rules":[{"id":"deny","kind":"deny_write","paths":["vendor/**"]}]}`)
-	if got := stopPolicyReportExpiry(plain, scanStopPolicyLockfile(plain).FreshFiles); got != 0 {
+	if got := stopPolicyReportExpiry(plain, scanStopPolicyLockfile(plain, nil).FreshFiles); got != 0 {
 		t.Fatalf("expiry without an age requirement = %d, want 0", got)
 	}
 }
@@ -302,7 +302,7 @@ func TestStopPolicyReportExpiryFollowsFreshFileAge(t *testing.T) {
 // TestMissingLockfileDisablesStopPolicyCache keeps the uncertainty branch
 // fail-closed: a report we cannot revalidate is never reused.
 func TestMissingLockfileDisablesStopPolicyCache(t *testing.T) {
-	input := stopPolicyFingerprintInput{RepoRoot: t.TempDir(), GitStatusOK: true}
+	input := stopPolicyFingerprintInput{RepoRoot: t.TempDir(), GitStatusOK: true, WritePaths: []string{"src/a.go"}}
 	if stopPolicyFingerprintCacheable(input) {
 		t.Fatal("a repository without a readable policy lock must not reuse stop reports")
 	}
@@ -978,11 +978,11 @@ func TestStopPolicyFingerprintBindsScriptTargets(t *testing.T) {
 	}{
 		{
 			name: "top-level require_script",
-			lock: `{"rules":[{"id":"gate","kind":"require_script","script":"scripts/check.sh","when_paths":["**"]}]}`,
+			lock: `{"rules":[{"id":"gate","kind":"require_script","script":"scripts/check.sh","cache_inputs":["build/report.json"],"when_paths":["**"]}]}`,
 		},
 		{
 			name: "require_script nested in a composite rule",
-			lock: `{"rules":[{"id":"gate","kind":"all_of","checks":[{"kind":"require_script","script":"scripts/check.sh"}]}]}`,
+			lock: `{"rules":[{"id":"gate","kind":"all_of","when_paths":["**"],"checks":[{"kind":"require_script","script":"scripts/check.sh","cache_inputs":["build/report.json"]}]}]}`,
 		},
 	}
 	for _, tc := range cases {
@@ -996,11 +996,11 @@ func TestStopPolicyFingerprintBindsScriptTargets(t *testing.T) {
 			if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			before := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1"}))
+			before := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1", WritePaths: []string{"src/a.go"}}))
 			if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 2\n"), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			after := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1"}))
+			after := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1", WritePaths: []string{"src/a.go"}}))
 			if before == "" || before == after {
 				t.Fatal("rewriting the check script must move the fingerprint")
 			}
@@ -1047,7 +1047,7 @@ func TestScriptCacheInputsDecideStopReuse(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := t.TempDir()
 			writePolicyLock(t, repo, tc.lock)
-			input := stopPolicyFingerprintInput{RepoRoot: repo, GitStatusOK: true}
+			input := stopPolicyFingerprintInput{RepoRoot: repo, GitStatusOK: true, WritePaths: []string{"src/a.go"}}
 			if got := stopPolicyFingerprintCacheable(input); got != tc.cacheable {
 				t.Fatalf("cacheable = %v, want %v", got, tc.cacheable)
 			}
@@ -1068,18 +1068,18 @@ func TestStopPolicyFingerprintBindsDeclaredScriptInputs(t *testing.T) {
 	if err := os.WriteFile(declared, []byte(`{"status":"pass"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	before := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1"}))
+	before := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1", WritePaths: []string{"src/a.go"}}))
 	if err := os.WriteFile(declared, []byte(`{"status":"fail"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	after := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1"}))
+	after := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1", WritePaths: []string{"src/a.go"}}))
 	if before == "" || before == after {
 		t.Fatal("rewriting a declared script input must move the fingerprint")
 	}
 	if err := os.Remove(declared); err != nil {
 		t.Fatal(err)
 	}
-	if removed := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1"})); removed == after {
+	if removed := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1", WritePaths: []string{"src/a.go"}})); removed == after {
 		t.Fatal("deleting a declared script input must move the fingerprint")
 	}
 }
@@ -1099,7 +1099,7 @@ func TestDeclaredScriptInputMayBeADirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	fingerprint := func() string {
-		return hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1"}))
+		return hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, SessionState{SessionID: "s1", WritePaths: []string{"src/a.go"}}))
 	}
 	initial := fingerprint()
 	if initial == "" {
@@ -1169,5 +1169,62 @@ func TestExpiredReportLeavesThePersistentWorkerWarmPath(t *testing.T) {
 	}
 	if _, ok := cache.entry(root, state.SessionID); ok {
 		t.Fatal("an expired entry must be dropped, not left to be retried")
+	}
+}
+
+// TestUnreachableScriptRulesDoNotDisqualifyReuse is what makes the declaration
+// practical: a policy carries gates for many surfaces, and a Stop that touches
+// none of a gate's when_paths never runs it. Only the gates this Stop can
+// actually trigger decide whether its report may be reused.
+func TestUnreachableScriptRulesDoNotDisqualifyReuse(t *testing.T) {
+	const lock = `{"rules":[
+		{"id":"docs-gate","kind":"require_script","script":"audits/docs.sh","when_paths":["docs/**"]},
+		{"id":"code-gate","kind":"require_script","script":"audits/code.sh","cache_inputs":["build/report.json"],"when_paths":["src/**"]}
+	]}`
+	cases := []struct {
+		name       string
+		writePaths []string
+		cacheable  bool
+	}{
+		{name: "only the declared gate is reachable", writePaths: []string{"src/a.go"}, cacheable: true},
+		{name: "the undeclared gate is reachable", writePaths: []string{"docs/guide.md"}, cacheable: false},
+		{name: "both are reachable", writePaths: []string{"src/a.go", "docs/guide.md"}, cacheable: false},
+		{name: "no write reaches either gate", writePaths: []string{"README.md"}, cacheable: true},
+		{name: "no writes at all", writePaths: nil, cacheable: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := t.TempDir()
+			writePolicyLock(t, repo, lock)
+			input := stopPolicyFingerprintInput{RepoRoot: repo, GitStatusOK: true, WritePaths: tc.writePaths}
+			if got := stopPolicyFingerprintCacheable(input); got != tc.cacheable {
+				t.Fatalf("cacheable = %v, want %v", got, tc.cacheable)
+			}
+		})
+	}
+}
+
+// TestScriptRuleReachabilityFailsTowardTriggerable keeps the scoping
+// conservative: anything this pass cannot decide statically counts as
+// reachable, so uncertainty never admits a report a gate might have changed.
+func TestScriptRuleReachabilityFailsTowardTriggerable(t *testing.T) {
+	cases := []struct {
+		name       string
+		whenPaths  []string
+		writePaths []string
+		want       bool
+	}{
+		{name: "no when_paths applies everywhere", whenPaths: nil, writePaths: []string{"src/a.go"}, want: true},
+		{name: "templated pattern cannot be decided", whenPaths: []string{"docs/tasks/{task_id}.md"}, writePaths: []string{"src/a.go"}, want: true},
+		{name: "malformed pattern cannot be decided", whenPaths: []string{"["}, writePaths: []string{"src/a.go"}, want: true},
+		{name: "plain miss", whenPaths: []string{"docs/**"}, writePaths: []string{"src/a.go"}, want: false},
+		{name: "plain hit", whenPaths: []string{"src/**"}, writePaths: []string{"src/a.go"}, want: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := stopPolicyRuleReachable(tc.whenPaths, tc.writePaths); got != tc.want {
+				t.Fatalf("stopPolicyRuleReachable(%v, %v) = %v, want %v", tc.whenPaths, tc.writePaths, got, tc.want)
+			}
+		})
 	}
 }

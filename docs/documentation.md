@@ -368,7 +368,11 @@ one pack digest. The same deterministic
 `reconc-harness-pack-advanced-1.0.0.zip` is embedded in every platform binary
 and shipped in the checksummed, provenance-attested release inventory.
 Bootstrap plans and private install receipts bind `advanced@1.0.0` plus its
-digest. Loading rejects unknown fields, incompatible versions, traversal,
+digest. Its scaffolded policy declares `cache_inputs` for every workflow gate
+whose audit reads a narrow input set, and deliberately declares nothing for the
+gates that walk a broad surface or shell out: a partial declaration there would
+re-enable Stop report reuse across state the gate actually inspects, so those
+gates run whenever a write reaches them. Loading rejects unknown fields, incompatible versions, traversal,
 absolute or duplicate paths, links, unsupported modes, oversized input,
 unmanifested files, and checksum or digest drift. Daily init performs no
 network request and requires no standalone source checkout.
@@ -2468,6 +2472,12 @@ alone, so the report expires at the earliest `modification time +
 max_age_hours` across the age requirements, and both the session-state and the
 persistent-worker warm paths re-evaluate past that instant. A policy without
 age requirements carries no expiry and never ages out on time alone.
+
+Only the gates a Stop can actually trigger decide whether its report may be
+reused: a `require_script` rule whose `when_paths` match none of the session's
+write paths runs no script, so it neither contributes to the report nor blocks
+its reuse. A rule with no `when_paths`, a templated pattern, or a pattern that
+cannot be matched counts as triggerable.
 
 A `require_script` body is opaque to that scan, so its author declares what it
 reads. `cache_inputs` lists literal repository-relative paths. A declared file

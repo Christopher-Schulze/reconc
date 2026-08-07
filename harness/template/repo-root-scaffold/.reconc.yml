@@ -100,6 +100,11 @@ rules:
     args:
       - "task-state"
     timeout_sec: 30
+    cache_inputs:
+      - "docs/tasks.md"
+      - "docs/tasks"
+      - "docs/spec.md"
+      - "tools/reconc/harness/project/config/workflow/task-schema.yaml"
     message: TASK index/detail/archive state, Scheduling order, Current selection, dependency readiness, Expected Touch Surfaces, parallel-group disjointness, Done-time Final Reality Check and spec parity evidence must stay internally consistent before task files are accepted.
 
   - id: project-tasks-md-rows-immutable
@@ -111,6 +116,8 @@ rules:
     args:
       - "tasks-md-rows-immutable"
     timeout_sec: 15
+    cache_inputs:
+      - "docs/tasks.md"
     message: docs/tasks.md is APPEND-ONLY. Historical task rows present in HEAD must remain in the working tree and must not reverse-flip [x] to [ ]. Only [ ] to [x] flips with target swap and appended new rows are allowed.
 
   - id: project-git-hooks-audit
@@ -236,6 +243,9 @@ rules:
     args:
       - "start-entrypoint"
     timeout_sec: 30
+    cache_inputs:
+      - "start.md"
+      - "AGENTS.md"
     message: start.md must remain a read-only Project onboarding entrypoint, not a scaffold/setup script.
 
   - id: project-spec-format-audit
@@ -247,6 +257,8 @@ rules:
     args:
       - "spec-format"
     timeout_sec: 30
+    cache_inputs:
+      - "docs/spec.md"
     message: docs/spec.md must remain markdown-only target-state spec content.
 
   - id: project-architecture-boundaries-audit
@@ -315,6 +327,16 @@ rules:
     args:
       - "build-baseline"
     timeout_sec: 60
+    cache_inputs:
+      - "tools/reconc/harness/project/config/workflow/stack-config.yaml"
+      - "go.mod"
+      - "Cargo.toml"
+      - "frontend/package.json"
+      - "scripts/build"
+      - "backend/project/main.go"
+      - "codebase/frontend/package.json"
+      - "codebase/scripts/build"
+      - "codebase/backend/project/main.go"
     message: Selected stack module, build runner and binary entrypoints must stay aligned with stack-config.yaml.
 
   - id: project-durable-store-audit
@@ -332,6 +354,12 @@ rules:
     args:
       - "durable-store"
     timeout_sec: 60
+    cache_inputs:
+      - "tools/reconc/harness/project/config/workflow/stack-config.yaml"
+      - "backend/project/internal/store"
+      - "db/migrations"
+      - "codebase/backend/project/internal/store"
+      - "codebase/db/migrations"
     message: Durable store code, embedded migrations, migration ledger and SQLite safety defaults must stay aligned.
 
   - id: project-workflow-audit-self-check
@@ -362,6 +390,9 @@ rules:
     args:
       - "schema-present"
     timeout_sec: 30
+    cache_inputs:
+      - "tools/reconc/harness/project/config/workflow/task-schema.yaml"
+      - "tools/reconc/harness/project/audits/lib/donecheck/schema.go"
     message: tools/reconc/harness/project/config/workflow/task-schema.yaml is the single source of truth for TASK structural rules; it must stay valid and consistent with donecheck.DefaultSchema().
 
   - id: project-agents-md-mirror-audit
@@ -375,6 +406,9 @@ rules:
     args:
       - "agents-md-mirror"
     timeout_sec: 30
+    cache_inputs:
+      - "AGENTS.md"
+      - "tools/reconc/harness/project/config/workflow/task-schema.yaml"
     message: AGENTS.md narrative must mention every machine value declared in task-schema.yaml so prose and machine rules cannot drift.
 
   - id: project-code-test-coverage-audit
