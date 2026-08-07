@@ -66,12 +66,28 @@ func (m MCPUnclassifiedMode) Valid() bool {
 	return m == MCPUnclassifiedHost || m == MCPUnclassifiedDeny
 }
 
+// BuiltinMCPPlatforms is the ordered set of host namespaces the public contract
+// defines. Everything that enumerates platforms derives from this slice, so a
+// new host cannot be accepted by one surface and dropped by another.
+func BuiltinMCPPlatforms() []MCPPlatform {
+	return []MCPPlatform{
+		MCPPlatformClaudeCode,
+		MCPPlatformCodex,
+		MCPPlatformCursor,
+		MCPPlatformOpenCode,
+		MCPPlatformKilo,
+		MCPPlatformOMP,
+		MCPPlatformPi,
+		MCPPlatformZCode,
+	}
+}
+
 // Valid reports whether the platform is part of the public contract.
 func (p MCPPlatform) Valid() bool {
-	switch p {
-	case MCPPlatformClaudeCode, MCPPlatformCodex, MCPPlatformCursor, MCPPlatformOpenCode,
-		MCPPlatformKilo, MCPPlatformOMP, MCPPlatformPi, MCPPlatformZCode:
-		return true
+	for _, builtin := range BuiltinMCPPlatforms() {
+		if p == builtin {
+			return true
+		}
 	}
 	name := strings.TrimPrefix(string(p), "custom:")
 	if name == string(p) || name == "" || len(name) > 48 {

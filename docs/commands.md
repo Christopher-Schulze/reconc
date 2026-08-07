@@ -726,13 +726,15 @@ network API. The worker owns an immutable typed policy-plan cache: unchanged
 lock bytes reuse the decoded and indexed plan, while every request still
 recomputes the bounded source-bundle identity. Lock drift rebuilds; source drift
 fails closed until explicit refresh.
-Cursor, OpenCode, Kilo, OMP, Pi, and ZCode rows additionally expose a redacted `mcp` object:
+Claude Code, Codex, Cursor, OpenCode, Kilo, OMP, Pi, and ZCode rows additionally expose a redacted `mcp` object:
 the configured unclassified mode, exact tool/fingerprint/effect mappings,
 classified and unclassified observation counts, denials, failures,
 strict-unavailable observations, and whether strict unclassified deny exists
 on that surface. Locator strings, arguments, prompts, results, and command
 bodies are never reported. Cursor can enforce strict unclassified deny through
-its dedicated native MCP pre-hook. OpenCode, Kilo, OMP, Pi, and ZCode generic tool hooks cannot
+its dedicated native MCP pre-hook, and Claude Code and Codex through the
+`mcp__<server>__<tool>` namespace group Reconc installs on their tool events.
+OpenCode, Kilo, OMP, Pi, and ZCode generic tool hooks cannot
 distinguish an unconfigured MCP call from a built-in/custom tool, so status
 reports that limitation without claiming enforcement.
 Default text reports seen/expected counts and the last event without listing

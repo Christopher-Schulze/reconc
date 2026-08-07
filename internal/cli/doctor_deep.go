@@ -123,15 +123,14 @@ func doctorCheckMCPPolicy(discovery ingest.DiscoveryResult) doctorCheck {
 			observed += count
 		}
 	}
+	mappings := make([]string, 0, len(policy.BuiltinMCPPlatforms()))
+	for _, platform := range policy.BuiltinMCPPlatforms() {
+		mappings = append(mappings, fmt.Sprintf("%s=%d", platform, counts[platform]))
+	}
 	check.Detail = fmt.Sprintf(
-		"mode=%s; mappings cursor=%d opencode=%d kilo=%d omp=%d pi=%d zcode=%d; observed=%d; server locators and payloads are redacted",
+		"mode=%s; mappings %s; observed=%d; server locators and payloads are redacted",
 		contract.Unclassified,
-		counts[policy.MCPPlatformCursor],
-		counts[policy.MCPPlatformOpenCode],
-		counts[policy.MCPPlatformKilo],
-		counts[policy.MCPPlatformOMP],
-		counts[policy.MCPPlatformPi],
-		counts[policy.MCPPlatformZCode],
+		strings.Join(mappings, " "),
 		observed,
 	)
 	if auditErr != nil {
@@ -140,7 +139,7 @@ func doctorCheckMCPPolicy(discovery ingest.DiscoveryResult) doctorCheck {
 	}
 	if contract.Unclassified == policy.MCPUnclassifiedDeny {
 		check.Status = doctorStatusWarn
-		check.Detail += "; Cursor can block native unclassified MCP calls, but OpenCode/Kilo/OMP/Pi/ZCode generic hooks expose no discriminator for unconfigured MCP identities, so strict unclassified deny is unavailable on those surfaces"
+		check.Detail += "; Cursor, Claude Code, and Codex can block unclassified MCP calls, but OpenCode/Kilo/OMP/Pi/ZCode generic hooks expose no discriminator for unconfigured MCP identities, so strict unclassified deny is unavailable on those surfaces"
 	}
 	return check
 }

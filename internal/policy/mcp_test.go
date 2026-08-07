@@ -1,6 +1,11 @@
 package policy
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -202,4 +207,90 @@ func TestResolveJSONPointerTraversesObjectsAndArrays(t *testing.T) {
 	if value, ok := ResolveJSONPointer(map[string]interface{}{"scalar": "value"}, "/scalar/child"); ok {
 		t.Fatalf("pointer unexpectedly traversed scalar to %#v", value)
 	}
+}
+
+// TestPublishedSchemasAcceptExactlyTheBuiltinMCPPlatforms keeps the two live
+// JSON contracts and the Go vocabulary from drifting apart. A platform Go
+// accepts but a schema rejects makes a valid policy fail external validation; a
+// platform a schema accepts but Go rejects promises enforcement that never runs.
+func TestPublishedSchemasAcceptExactlyTheBuiltinMCPPlatforms(t *testing.T) {
+	contracts := []struct {
+		path    string
+		pointer []string
+	}{
+		{filepath.Join("..", "..", "schemas", "v1", "policy-config.schema.json"), []string{"$defs", "mcpTool", "properties", "platform"}},
+		{filepath.Join("..", "..", "schemas", "v4", "policy-lock.schema.json"), []string{"$defs", "mcpTool", "properties", "platform"}},
+	}
+	want := make([]string, 0, len(BuiltinMCPPlatforms()))
+	for _, platform := range BuiltinMCPPlatforms() {
+		want = append(want, string(platform))
+	}
+	sort.Strings(want)
+
+	for _, contract := range contracts {
+		t.Run(filepath.Base(filepath.Dir(contract.path)), func(t *testing.T) {
+			data, err := os.ReadFile(contract.path)
+			if err != nil {
+				t.Fatalf("read schema: %v", err)
+			}
+			var document map[string]interface{}
+			if err := json.Unmarshal(data, &document); err != nil {
+				t.Fatalf("parse schema: %v", err)
+			}
+			node := interface{}(document)
+			for _, key := range contract.pointer {
+				object, ok := node.(map[string]interface{})
+				if !ok {
+					t.Fatalf("schema has no object at %q", key)
+				}
+				node, ok = object[key]
+				if !ok {
+					t.Fatalf("schema has no %q member", key)
+				}
+			}
+			got := schemaPlatformEnum(t, node)
+			sort.Strings(got)
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("schema platform enum = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+// schemaPlatformEnum collects the enumerated platform values from the
+// `anyOf` branch of a platform property, ignoring the `custom:` pattern branch.
+func schemaPlatformEnum(t *testing.T, node interface{}) []string {
+	t.Helper()
+	property, ok := node.(map[string]interface{})
+	if !ok {
+		t.Fatal("platform property is not an object")
+	}
+	branches, ok := property["anyOf"].([]interface{})
+	if !ok {
+		t.Fatal("platform property has no anyOf branches")
+	}
+	var values []string
+	enumBranches := 0
+	for _, branch := range branches {
+		object, ok := branch.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		entries, ok := object["enum"].([]interface{})
+		if !ok {
+			continue
+		}
+		enumBranches++
+		for _, entry := range entries {
+			text, ok := entry.(string)
+			if !ok {
+				t.Fatalf("platform enum holds a non-string value %#v", entry)
+			}
+			values = append(values, text)
+		}
+	}
+	if enumBranches != 1 {
+		t.Fatalf("platform property has %d enum branches, want exactly one", enumBranches)
+	}
+	return values
 }

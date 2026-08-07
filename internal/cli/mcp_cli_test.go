@@ -104,3 +104,89 @@ func TestMCPContractIsVisibleInWhyDoctorAndHookStatus(t *testing.T) {
 		}
 	}
 }
+
+// TestHookStatusReportsStrictMCPDenyOnlyWhereADiscriminatorExists pins the
+// status claim per host. Cursor has a dedicated MCP event; Claude Code and
+// Codex publish the `mcp__<server>__<tool>` namespace and install a matcher for
+// it, so strict unclassified deny is real there. The generic-tool hosts cannot
+// tell an unconfigured MCP call from a built-in tool, so status must report
+// that limitation instead of claiming enforcement.
+func TestHookStatusReportsStrictMCPDenyOnlyWhereADiscriminatorExists(t *testing.T) {
+	repo := setupMCPStatusRepo(t)
+
+	var statusOut bytes.Buffer
+	if err := runHookStatus([]string{repo, "--json"}, &statusOut); err != nil {
+		t.Fatal(err)
+	}
+	var statuses []struct {
+		Kind string `json:"kind"`
+		MCP  *struct {
+			StrictUnclassifiedDeny bool   `json:"strict_unclassified_deny_available"`
+			Limitation             string `json:"limitation"`
+		} `json:"mcp"`
+	}
+	if err := json.Unmarshal(statusOut.Bytes(), &statuses); err != nil {
+		t.Fatal(err)
+	}
+	strict := map[string]bool{"cursor": true, "claude-code": true, "codex": true}
+	generic := map[string]bool{"opencode": true, "kilo": true, "omp": true, "pi": true, "zcode": true}
+	seen := map[string]bool{}
+	for _, status := range statuses {
+		if status.MCP == nil {
+			continue
+		}
+		switch {
+		case strict[status.Kind]:
+			seen[status.Kind] = true
+			if !status.MCP.StrictUnclassifiedDeny {
+				t.Errorf("%s must report strict unclassified deny as available", status.Kind)
+			}
+			if status.MCP.Limitation != "" {
+				t.Errorf("%s must not report an MCP discriminator limitation, got %q", status.Kind, status.MCP.Limitation)
+			}
+		case generic[status.Kind]:
+			seen[status.Kind] = true
+			if status.MCP.StrictUnclassifiedDeny {
+				t.Errorf("%s has no MCP discriminator and must not claim strict deny", status.Kind)
+			}
+			if status.MCP.Limitation == "" {
+				t.Errorf("%s must report the missing-discriminator limitation", status.Kind)
+			}
+		}
+	}
+	for kind := range strict {
+		if !seen[kind] {
+			t.Errorf("%s reported no MCP status at all", kind)
+		}
+	}
+	for kind := range generic {
+		if !seen[kind] {
+			t.Errorf("%s reported no MCP status at all", kind)
+		}
+	}
+}
+
+func setupMCPStatusRepo(t *testing.T) string {
+	t.Helper()
+	t.Setenv(agentsession.StateRootEnv, t.TempDir())
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("# fixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	config := `mcp:
+  unclassified: deny
+  tools:
+    - platform: claude-code
+      tool: mcp__filesystem__write_file
+      effect: repository_write
+      path_fields: [/path]
+`
+	if err := os.WriteFile(filepath.Join(repo, ".reconc.yml"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compiler.CompileRepoPolicy(repo, "test"); err != nil {
+		t.Fatal(err)
+	}
+	return repo
+}

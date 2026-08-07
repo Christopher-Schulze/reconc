@@ -753,9 +753,9 @@ process output, timeouts, evidence collections, and stored diagnostics. It
 accepts positive command evidence only from authoritative host outcome fields,
 never from stdout text. OMP and Pi Bash success is accepted only when `isError`
 is false, with exit code zero synthesized solely for that successful built-in
-result. Cursor, OpenCode, Kilo, OMP, Pi, and ZCode MCP mappings use exact
-platform, server fingerprint, tool, and JSON Pointer selectors; malformed or
-unclassified calls produce no positive repository evidence.
+result. MCP mappings on Claude Code, Codex, Cursor, OpenCode, Kilo, OMP, Pi, and
+ZCode use exact platform, server fingerprint, tool, and JSON Pointer selectors;
+malformed or unclassified calls produce no positive repository evidence.
 
 ## Release Trust and Reproducibility
 

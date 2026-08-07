@@ -258,6 +258,21 @@ func runHookStatus(args []string, stdout io.Writer) error {
 	return nil
 }
 
+// mcpDiscriminatorAvailable reports whether a host lets Reconc tell an MCP call
+// apart from a built-in or custom tool before it executes. Cursor publishes a
+// dedicated MCP event; Claude Code and Codex publish the `mcp__<server>__<tool>`
+// namespace on their generic tool events and accept a matcher for it. Only on
+// those hosts can `unclassified: deny` be enforced instead of reported as a
+// limitation.
+func mcpDiscriminatorAvailable(platform policy.MCPPlatform) bool {
+	switch platform {
+	case policy.MCPPlatformCursor, policy.MCPPlatformClaudeCode, policy.MCPPlatformCodex:
+		return true
+	default:
+		return false
+	}
+}
+
 func enrichMCPPlatformStatus(repo string, reports []hooks.PlatformStatus) {
 	contract, contractErr := runtime.LoadMCPPolicy(repo)
 	audit, auditErr := agentsession.ReadMCPAudit(repo)
@@ -269,11 +284,11 @@ func enrichMCPPlatformStatus(repo string, reports []hooks.PlatformStatus) {
 		status := &hooks.MCPStatus{
 			UnclassifiedMode:       string(policy.MCPUnclassifiedHost),
 			Mappings:               []hooks.MCPMappingStatus{},
-			StrictUnclassifiedDeny: platform == policy.MCPPlatformCursor,
+			StrictUnclassifiedDeny: mcpDiscriminatorAvailable(platform),
 		}
 		if strings.HasPrefix(string(platform), "custom:") {
 			status.Limitation = "custom MCP enforcement requires a non-degraded manifest route with exact host MCP identity; unsupported routes never dispatch"
-		} else if platform != policy.MCPPlatformCursor {
+		} else if !mcpDiscriminatorAvailable(platform) {
 			status.Limitation = "generic tool hooks expose an exact host tool identity but no MCP discriminator; configured identities are enforceable, unconfigured MCP calls cannot be distinguished from built-in or custom tools"
 		}
 		if contractErr != nil {

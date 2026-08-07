@@ -292,7 +292,10 @@ outcome uncertainty produces no positive evidence.
 
 Cursor's dedicated `beforeMCPExecution` can enforce exact mappings and
 `unclassified: deny`; `afterMCPExecution` accepts repository evidence only
-from an explicit successful host result. OpenCode, Kilo, OMP, Pi, and ZCode generic hooks
+from an explicit successful host result. Claude Code and Codex reach the same
+enforcement through the `mcp__<server>__<tool>` namespace group Reconc installs
+on their generic tool events: the namespace is the discriminator, so a route
+that fires is an MCP call by construction. OpenCode, Kilo, OMP, Pi, and ZCode generic hooks
 enforce exact configured tool identities, but cannot distinguish an
 unconfigured MCP tool from a built-in or custom tool. Strict unclassified deny
 is therefore unavailable on those five surfaces and is reported as a
