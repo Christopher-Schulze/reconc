@@ -21,6 +21,8 @@ func TestNormalizeOMPPayloadCoversEveryNativeRoute(t *testing.T) {
 				extra = `,"prompt":"ship it","input_source":"interactive"`
 			case "omp-pre-tool-use":
 				extra = `,"tool_name":"write","tool_input":{"path":"docs/x.md"},"tool_call_id":"call-1"`
+			case "omp-user-bash":
+				extra = fmt.Sprintf(`,"tool_name":"bash","tool_input":{"command":"ls"},"user_bash_cwd":%q,"exclude_from_context":false`, repo)
 			case "omp-permission-request":
 				extra = `,"tool_name":"bash","tool_call_id":"call-1","approval_mode":"always-ask"`
 			case "omp-permission-result":
@@ -169,5 +171,49 @@ func TestNormalizeOMPPayloadAcceptsResolvedSubdirectory(t *testing.T) {
 	}
 	if normalized["strict_continuation"] != true || normalized["stop_hook_active"] != true {
 		t.Fatalf("normalized Stop = %#v", normalized)
+	}
+}
+
+// TestOMPUserBashIsGatedLikeAToolCall covers the gap the host event records
+// exposed: Oh My Pi publishes `user_bash` with the same full-replacement result
+// contract as a tool call, so a command the user types must reach the same
+// policy decision instead of running unobserved.
+func TestOMPUserBashIsGatedLikeAToolCall(t *testing.T) {
+	repo := t.TempDir()
+	valid := fmt.Sprintf(`{"hook_event_name":"user_bash","session_id":"omp-s1","cwd":%q,`+
+		`"tool_name":"bash","tool_input":{"command":"rm -rf build"},"user_bash_cwd":%q,"exclude_from_context":true}`, repo, repo)
+	body, err := NormalizeOMPPayload("omp-user-bash", []byte(valid), repo)
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	parsed, err := ParsePayload(body)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if parsed.ToolName != "Bash" {
+		t.Fatalf("tool identity = %q, want the normalized Bash identity", parsed.ToolName)
+	}
+	if parsed.ToolInput["command"] != "rm -rf build" {
+		t.Fatalf("command = %v, want the exact command the user typed", parsed.ToolInput["command"])
+	}
+	if parsed.MCP == nil {
+		t.Fatal("the pre-execution route must carry the exact identity envelope")
+	}
+
+	for name, payload := range map[string]string{
+		"foreign tool identity": fmt.Sprintf(`{"hook_event_name":"user_bash","session_id":"s","cwd":%q,`+
+			`"tool_name":"write","tool_input":{"command":"ls"},"user_bash_cwd":%q,"exclude_from_context":false}`, repo, repo),
+		"missing context flag": fmt.Sprintf(`{"hook_event_name":"user_bash","session_id":"s","cwd":%q,`+
+			`"tool_name":"bash","tool_input":{"command":"ls"},"user_bash_cwd":%q}`, repo, repo),
+		"working directory outside the repository": fmt.Sprintf(`{"hook_event_name":"user_bash","session_id":"s","cwd":%q,`+
+			`"tool_name":"bash","tool_input":{"command":"ls"},"user_bash_cwd":"/","exclude_from_context":false}`, repo),
+		"command is not an object": fmt.Sprintf(`{"hook_event_name":"user_bash","session_id":"s","cwd":%q,`+
+			`"tool_name":"bash","tool_input":"ls","user_bash_cwd":%q,"exclude_from_context":false}`, repo, repo),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := NormalizeOMPPayload("omp-user-bash", []byte(payload), repo); err == nil {
+				t.Fatal("a malformed user_bash payload must be refused before it can decide anything")
+			}
+		})
 	}
 }

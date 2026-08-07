@@ -693,7 +693,8 @@ deduplicate terminal tool errors from `message.part.updated`, and route user
 prompts plus pre/post-compaction lifecycle. Their continuation is inferred from
 `session.idle`, not a synchronous native Stop gate. OMP uses native awaited
 `session_stop`, with at most eight continuation turns, and routes `tool_call`
-blocking separately from observational approval events. Reconc emits native Grok
+and `user_bash` blocking separately from observational approval events. A shell
+command the user types reaches the same decision as one the agent requests. Reconc emits native Grok
 `Stop` block JSON directly in the normal TUI without a leader, but treats it as
 synchronously enforced only when the installed Grok hook guide advertises
 blocking Stop decision control. Otherwise optional leader steering over the

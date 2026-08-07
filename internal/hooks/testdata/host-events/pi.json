@@ -1,0 +1,72 @@
+{
+  "host": "pi",
+  "display_name": "Pi Coding Agent",
+  "host_version": "0.84.1",
+  "source_url": "https://github.com/earendil-works/pi/tree/ac4ac9eaf69f2b01ca3af984a5c48f3b99b84278/packages/coding-agent/src/core/extensions",
+  "source_revision": "ac4ac9eaf69f2b01ca3af984a5c48f3b99b84278",
+  "capture_date": "2026-08-07",
+  "scope": "Extension events Reconc's capability vocabulary can express. Turn, message, and provider events are outside it.",
+  "events": [
+    {
+      "name": "session_start",
+      "bound": true
+    },
+    {
+      "name": "input",
+      "bound": true
+    },
+    {
+      "name": "tool_call",
+      "bound": true
+    },
+    {
+      "name": "user_bash",
+      "bound": true
+    },
+    {
+      "name": "tool_result",
+      "bound": true
+    },
+    {
+      "name": "agent_settled",
+      "bound": true
+    },
+    {
+      "name": "session_shutdown",
+      "bound": true
+    },
+    {
+      "name": "session_before_compact",
+      "bound": true
+    },
+    {
+      "name": "session_compact",
+      "bound": true
+    },
+    {
+      "name": "project_trust",
+      "bound": false,
+      "reason": "decides whether the project is trusted at all rather than whether one action is permitted; that is the user's decision, and Reconc reads it through the status probe instead of answering it"
+    },
+    {
+      "name": "session_before_switch",
+      "bound": false,
+      "reason": "vetoes session navigation, not a repository effect"
+    },
+    {
+      "name": "session_before_fork",
+      "bound": false,
+      "reason": "vetoes session navigation, not a repository effect"
+    },
+    {
+      "name": "session_before_tree",
+      "bound": false,
+      "reason": "vetoes session navigation, not a repository effect"
+    },
+    {
+      "name": "agent_end",
+      "bound": false,
+      "reason": "reports that a turn ended without waiting for a decision; completion is gated through the settled continuation instead"
+    }
+  ]
+}

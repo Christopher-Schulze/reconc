@@ -15,6 +15,7 @@ var ompNativeEvents = map[string]string{
 	"omp-session-start":         "session_start",
 	"omp-user-prompt-submit":    "input",
 	"omp-pre-tool-use":          "tool_call",
+	"omp-user-bash":             "user_bash",
 	"omp-permission-request":    "tool_approval_requested",
 	"omp-permission-result":     "tool_approval_resolved",
 	"omp-post-tool-use":         "tool_result",
@@ -42,6 +43,10 @@ type ompPayload struct {
 	IsError        *bool           `json:"is_error"`
 	InputSource    string          `json:"input_source"`
 	ApprovalMode   string          `json:"approval_mode"`
+	// user_bash carries the command the user typed rather than a tool call, so
+	// it has no tool_call_id and reports its own working directory.
+	UserBashCWD        string `json:"user_bash_cwd"`
+	ExcludeFromContext *bool  `json:"exclude_from_context"`
 }
 
 type ompNormalizedPayload struct {
@@ -108,7 +113,7 @@ func NormalizeOMPPayload(event string, payloadBytes []byte, repoRoot string) ([]
 	if err := validateHookPayloadCWD(raw.CWD, repoRoot, "OMP"); err != nil {
 		return nil, err
 	}
-	if err := validateOMPEventPayload(event, raw); err != nil {
+	if err := validateOMPEventPayload(event, raw, repoRoot); err != nil {
 		return nil, err
 	}
 
@@ -154,12 +159,13 @@ func NormalizeOMPPayload(event string, payloadBytes []byte, repoRoot string) ([]
 	return body, nil
 }
 
-func validateOMPEventPayload(event string, raw ompPayload) error {
+func validateOMPEventPayload(event string, raw ompPayload, repoRoot string) error {
 	if ompToolEvent(event) || event == "omp-permission-request" || event == "omp-permission-result" {
 		if strings.TrimSpace(raw.ToolName) == "" {
 			return fmt.Errorf("missing tool_name in OMP %s payload", raw.HookEventName)
 		}
-		if strings.TrimSpace(raw.ToolCallID) == "" {
+		// A user-typed command is not a tool call and carries no call id.
+		if event != "omp-user-bash" && strings.TrimSpace(raw.ToolCallID) == "" {
 			return fmt.Errorf("missing tool_call_id in OMP %s payload", raw.HookEventName)
 		}
 	}
@@ -167,6 +173,16 @@ func validateOMPEventPayload(event string, raw ompPayload) error {
 		return fmt.Errorf("tool_input in OMP %s payload must be a JSON object", raw.HookEventName)
 	}
 	switch event {
+	case "omp-user-bash":
+		if !strings.EqualFold(strings.TrimSpace(raw.ToolName), "bash") {
+			return errors.New("OMP user_bash payload must use the bash tool identity")
+		}
+		if raw.ExcludeFromContext == nil {
+			return errors.New("missing exclude_from_context in OMP user_bash payload")
+		}
+		if err := validateHookPayloadCWD(raw.UserBashCWD, repoRoot, "OMP user_bash"); err != nil {
+			return err
+		}
 	case "omp-post-tool-use", "omp-post-tool-use-failure":
 		if raw.IsError == nil {
 			return errors.New("missing is_error in OMP tool_result payload")
@@ -192,7 +208,7 @@ func validateOMPEventPayload(event string, raw ompPayload) error {
 
 func ompToolEvent(event string) bool {
 	switch event {
-	case "omp-pre-tool-use", "omp-post-tool-use", "omp-post-tool-use-failure":
+	case "omp-pre-tool-use", "omp-user-bash", "omp-post-tool-use", "omp-post-tool-use-failure":
 		return true
 	default:
 		return false

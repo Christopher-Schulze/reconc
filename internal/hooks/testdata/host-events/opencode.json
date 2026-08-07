@@ -1,0 +1,56 @@
+{
+  "host": "opencode",
+  "display_name": "OpenCode",
+  "host_version": "1.18.4",
+  "source_url": "https://github.com/anomalyco/opencode/tree/62e4641235d7847dadc60da37cca8a023dd54fc1/packages/plugin",
+  "source_revision": "62e4641235d7847dadc60da37cca8a023dd54fc1",
+  "capture_date": "2026-07-23",
+  "scope": "Plugin hooks and bus events Reconc's capability vocabulary can express. Presentation, provider, and transform hooks are outside it.",
+  "events": [
+    {
+      "name": "session.created",
+      "bound": true
+    },
+    {
+      "name": "chat.message",
+      "bound": true
+    },
+    {
+      "name": "tool.execute.before",
+      "bound": true
+    },
+    {
+      "name": "permission.ask",
+      "bound": true
+    },
+    {
+      "name": "tool.execute.after",
+      "bound": true
+    },
+    {
+      "name": "message.part.updated(error)",
+      "bound": true
+    },
+    {
+      "name": "session.idle",
+      "bound": true
+    },
+    {
+      "name": "session.deleted",
+      "bound": true
+    },
+    {
+      "name": "experimental.session.compacting",
+      "bound": true
+    },
+    {
+      "name": "session.compacted",
+      "bound": true
+    },
+    {
+      "name": "command.execute.before",
+      "bound": false,
+      "reason": "gates slash commands, which Reconc's policy vocabulary does not address; a shell command run by a slash command still reaches tool.execute.before"
+    }
+  ]
+}

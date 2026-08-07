@@ -1,0 +1,67 @@
+{
+  "host": "github-copilot",
+  "display_name": "GitHub Copilot",
+  "source_url": "https://docs.github.com/en/copilot/reference/hooks-reference",
+  "capture_date": "2026-08-07",
+  "scope": "Every event the published hooks reference names. The host accepts a camelCase and a PascalCase spelling for most events; each name below is the spelling Reconc writes.",
+  "events": [
+    {
+      "name": "SessionStart",
+      "bound": true
+    },
+    {
+      "name": "UserPromptSubmit",
+      "bound": true
+    },
+    {
+      "name": "PreToolUse",
+      "bound": true
+    },
+    {
+      "name": "PermissionRequest",
+      "bound": true
+    },
+    {
+      "name": "PostToolUse",
+      "bound": true
+    },
+    {
+      "name": "PostToolUseFailure",
+      "bound": true
+    },
+    {
+      "name": "Stop",
+      "bound": true
+    },
+    {
+      "name": "SessionEnd",
+      "bound": true
+    },
+    {
+      "name": "Notification",
+      "bound": true
+    },
+    {
+      "name": "subagentStart",
+      "bound": true
+    },
+    {
+      "name": "SubagentStop",
+      "bound": true
+    },
+    {
+      "name": "PreCompact",
+      "bound": true
+    },
+    {
+      "name": "errorOccurred",
+      "bound": false,
+      "reason": "the reference states hook output is not processed for this event, so it can neither decide nor contribute evidence"
+    },
+    {
+      "name": "userPromptTransformed",
+      "bound": false,
+      "reason": "rewrites the model-facing prompt only; the submitted prompt is already observed through UserPromptSubmit"
+    }
+  ]
+}

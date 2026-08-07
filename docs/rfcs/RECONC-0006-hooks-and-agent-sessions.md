@@ -19,7 +19,7 @@
 | `antigravity` | `.agents/hooks.json` | Invocation, tool, and stop hook group under the top-level `reconc` key. |
 | `kilo` | `.kilo/plugin/reconc.js` | Thin project plugin for prompt, permission, complete tool outcomes, terminal errors, compaction, session lifecycle, and idle handling. |
 | `grok` | `.grok/hooks/reconc.json` | Native lifecycle, strict PreToolUse, capability-probed no-leader Stop, compaction, permission-denial, and subagent events. |
-| `kimi-code` | `$KIMI_CODE_HOME/config.toml` | Explicit user-global integration for all 16 native events; commands discover an initialized Reconc repository before acting. |
+| `kimi-code` | `$KIMI_CODE_HOME/config.toml` | Explicit user-global integration for 16 of the host's twenty events; commands discover an initialized Reconc repository before acting. |
 | `omp` | `.omp/extensions/reconc.ts` | Project ExtensionAPI adapter for native session, input, approval, tool, compaction, shutdown, and awaited `session_stop` events. |
 | `pi` | `.pi/extensions/reconc.ts` | Trust-aware project extension for native session, input, blocking tool and user-shell calls, outcomes, compaction, shutdown, and inferred settled continuation. |
 | `zcode` | `.zcode/config.json` | Project hook integration for all seven native lifecycle, prompt, tool, permission, outcome, and synchronous Stop events. |

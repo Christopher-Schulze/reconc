@@ -7,6 +7,7 @@
   "events": {
     "session_start": {"payload": {"type": "session_start"}, "result": null},
     "input": {"payload": {"type": "input", "text": "synthetic prompt", "source": "interactive"}, "result": null},
+    "user_bash": {"payload": {"type": "user_bash", "command": "rm generated.txt", "excludeFromContext": false, "cwd": "/fixture/repo"}, "result": {"result": {"output": "synthetic denial", "exitCode": 2, "cancelled": false, "truncated": false}}},
     "tool_call": {"payload": {"type": "tool_call", "toolCallId": "fixture-call", "toolName": "write", "input": {"path": "src/app.go", "content": "synthetic content"}}, "result": {"block": true, "reason": "synthetic denial"}},
     "tool_approval_requested": {"payload": {"type": "tool_approval_requested", "sessionId": "fixture-session", "toolCallId": "fixture-call", "toolName": "bash", "reason": "synthetic approval", "approvalMode": "always-ask"}, "result": null},
     "tool_approval_resolved": {"payload": {"type": "tool_approval_resolved", "sessionId": "fixture-session", "toolCallId": "fixture-call", "toolName": "bash", "approved": true, "reason": "synthetic approval"}, "result": null},

@@ -1,0 +1,54 @@
+{
+  "host": "codex",
+  "display_name": "Codex",
+  "source_url": "https://github.com/openai/codex/tree/45f8cafa4e2ec20f9b189d5aa9409e424b6d3d09/codex-rs",
+  "source_revision": "45f8cafa4e2ec20f9b189d5aa9409e424b6d3d09",
+  "capture_date": "2026-08-07",
+  "scope": "The eleven matcher groups codex-rs/config/src/hook_config.rs accepts in a hook configuration.",
+  "events": [
+    {
+      "name": "SessionStart",
+      "bound": true
+    },
+    {
+      "name": "UserPromptSubmit",
+      "bound": true
+    },
+    {
+      "name": "PreToolUse",
+      "bound": true
+    },
+    {
+      "name": "PermissionRequest",
+      "bound": true
+    },
+    {
+      "name": "PostToolUse",
+      "bound": true
+    },
+    {
+      "name": "Stop",
+      "bound": true
+    },
+    {
+      "name": "SessionEnd",
+      "bound": true
+    },
+    {
+      "name": "SubagentStart",
+      "bound": true
+    },
+    {
+      "name": "SubagentStop",
+      "bound": true
+    },
+    {
+      "name": "PreCompact",
+      "bound": true
+    },
+    {
+      "name": "PostCompact",
+      "bound": true
+    }
+  ]
+}

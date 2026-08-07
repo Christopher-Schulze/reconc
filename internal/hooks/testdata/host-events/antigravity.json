@@ -1,0 +1,29 @@
+{
+  "host": "antigravity",
+  "display_name": "Antigravity CLI",
+  "source_url": "https://antigravity.google/docs/hooks",
+  "capture_date": "2026-08-07",
+  "scope": "All five hook events the published reference names.",
+  "events": [
+    {
+      "name": "PreInvocation",
+      "bound": true
+    },
+    {
+      "name": "PreToolUse",
+      "bound": true
+    },
+    {
+      "name": "PostToolUse",
+      "bound": true
+    },
+    {
+      "name": "Stop",
+      "bound": true
+    },
+    {
+      "name": "PostInvocation",
+      "bound": true
+    }
+  ]
+}

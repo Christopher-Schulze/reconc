@@ -1,0 +1,41 @@
+{
+  "host": "devin-cli",
+  "display_name": "Devin CLI",
+  "source_url": "https://docs.devin.ai/cli/extensibility/hooks/lifecycle-hooks",
+  "capture_date": "2026-08-07",
+  "scope": "Every lifecycle hook event the published reference names.",
+  "events": [
+    {
+      "name": "SessionStart",
+      "bound": true
+    },
+    {
+      "name": "UserPromptSubmit",
+      "bound": true
+    },
+    {
+      "name": "PreToolUse",
+      "bound": true
+    },
+    {
+      "name": "PermissionRequest",
+      "bound": true
+    },
+    {
+      "name": "PostToolUse",
+      "bound": true
+    },
+    {
+      "name": "Stop",
+      "bound": true
+    },
+    {
+      "name": "SessionEnd",
+      "bound": true
+    },
+    {
+      "name": "PostCompaction",
+      "bound": true
+    }
+  ]
+}

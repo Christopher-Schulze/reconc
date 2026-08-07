@@ -357,7 +357,7 @@ var platformRegistry = []platformDefinition{
 		Platform: Platform{Kind: KindOMP, DisplayName: "Oh My Pi", TargetPath: OMPExtensionPath, ScaffoldPath: OMPExtensionPath, InstallMode: InstallPlugin, Activation: ActivationProbe{Mode: ActivationAutomatic, ConfigDirs: []string{".omp"}, RequiresWrapper: true}, Capabilities: []Capability{
 			capability(EventSessionStart, "session_start", SupportNative, FailureAllow, FailureAllow, 5, "omp-session-start"),
 			capability(EventUserPromptSubmit, "input", SupportNative, FailureAllow, FailureAllow, 5, "omp-user-prompt-submit"),
-			capability(EventPreToolUse, "tool_call", SupportNative, FailureBlock, FailureBlock, 10, "omp-pre-tool-use"),
+			ompPreToolCapability(),
 			capability(EventPermissionRequest, "tool_approval_requested", SupportNative, FailureAllow, FailureAllow, 5, "omp-permission-request"),
 			capability(EventPermissionResult, "tool_approval_resolved", SupportNative, FailureAllow, FailureAllow, 5, "omp-permission-result"),
 			capability(EventPostToolUse, "tool_result", SupportNative, FailureAllow, FailureAllow, 5, "omp-post-tool-use"),
@@ -512,6 +512,22 @@ func zcodeStopCapability() Capability {
 	capability := capability(EventStop, "Stop", SupportNative, FailureBlock, FailureAllow, 30, "zcode-stop")
 	capability.MaxContinuations = 3
 	return capability
+}
+
+// ompPreToolCapability gates the agent's tool calls and the shell commands the
+// user starts. Oh My Pi publishes `user_bash` with the same full-replacement
+// result contract as its tool calls, so a command typed by the user reaches the
+// same policy decision instead of bypassing it.
+func ompPreToolCapability() Capability {
+	return Capability{
+		Event: EventPreToolUse,
+		Bindings: []NativeBinding{
+			{NativeEvent: "tool_call", RuntimeEvent: "omp-pre-tool-use"},
+			{NativeEvent: "user_bash", RuntimeEvent: "omp-user-bash"},
+		},
+		Support: SupportNative, ErrorPolicy: FailureBlock, TimeoutPolicy: FailureBlock,
+		TimeoutSeconds: 10, MaxOutputBytes: defaultHookOutputBytes,
+	}
 }
 
 func piPreToolCapability() Capability {

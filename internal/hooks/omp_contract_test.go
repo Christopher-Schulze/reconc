@@ -37,6 +37,11 @@ event="$1"
 payload="$(cat)"
 printf '%s\t%s\n' "$event" "$payload" >> "$RECONC_TEST_LOG"
 case "$event" in
+  omp-user-bash)
+    case "$payload" in
+      *'"command":"rm generated.txt"'*) printf '%s\n' 'policy denied shell' >&2; exit 2 ;;
+    esac
+    ;;
   omp-pre-tool-use)
     case "$payload" in
       *'"tool_name":"write"'*) printf '%s\n' 'policy denied write' >&2; exit 2 ;;
@@ -66,7 +71,7 @@ const pi = {
 }
 module.default(pi)
 const expected = [
-  "session_start", "input", "tool_call", "tool_approval_requested",
+  "session_start", "input", "tool_call", "user_bash", "tool_approval_requested",
   "tool_approval_resolved", "tool_result", "session_stop",
   "auto_compaction_start", "auto_compaction_end", "session_shutdown",
 ]
@@ -91,6 +96,16 @@ const denied = await handlers.get("tool_call")({
 }, ctx)
 if (denied?.block !== true || !denied.reason.includes("policy denied write")) {
   throw new Error("OMP tool denial drift: " + JSON.stringify(denied))
+}
+const shellAllowed = await handlers.get("user_bash")({
+  type: "user_bash", command: "ls", excludeFromContext: false, cwd: repo,
+}, ctx)
+if (shellAllowed !== undefined) throw new Error("allowed OMP shell command gained a replacement result")
+const shellDenied = await handlers.get("user_bash")({
+  type: "user_bash", command: "rm generated.txt", excludeFromContext: false, cwd: repo,
+}, ctx)
+if (shellDenied?.result?.exitCode !== 2 || !shellDenied.result.output.includes("policy denied shell")) {
+  throw new Error("OMP user_bash denial drift: " + JSON.stringify(shellDenied))
 }
 const approvalObservation = await handlers.get("tool_approval_requested")({
   type: "tool_approval_requested", sessionId: "omp-contract", toolCallId: "call-write",
@@ -203,6 +218,14 @@ func TestGeneratedOMPExtensionTransportFailsClosedWithinBudget(t *testing.T) {
 				`"omp-stop":{"timeoutMilliseconds":50`,
 				1,
 			)
+			// The user's own shell command runs under the same blocking budget
+			// as a tool call and must fail closed the same way.
+			content = strings.Replace(
+				content,
+				`"omp-user-bash":{"timeoutMilliseconds":10000`,
+				`"omp-user-bash":{"timeoutMilliseconds":50`,
+				1,
+			)
 			extensionPath := filepath.Join(repo, filepath.FromSlash(artifact.TargetPath))
 			if err := os.MkdirAll(filepath.Dir(extensionPath), 0o755); err != nil {
 				t.Fatal(err)
@@ -261,6 +284,10 @@ if (result?.block !== true || typeof result.reason !== "string" || result.reason
   throw new Error("OMP transport failure did not block: " + JSON.stringify(result))
 }
 if (new TextEncoder().encode(result.reason).length > 8192) throw new Error("OMP failure exceeded output budget")
+const shell = await handlers.get("user_bash")({
+  type: "user_bash", command: "rm blocked", excludeFromContext: false, cwd: Bun.argv[3],
+}, ctx)
+if (shell?.result?.exitCode !== 2) throw new Error("OMP transport failure did not block user_bash")
 const stop = await handlers.get("session_stop")({
   type: "session_stop", session_id: "omp-transport", turn_id: 1,
   stop_hook_active: false, signal: new AbortController().signal,

@@ -632,8 +632,8 @@ being reported as successful partial publication.
 | Antigravity CLI | invocation, tool, post-tool, and stop hook coverage |
 | Kilo Code | thin CLI/VS Code project plugin with strict `metadata.exit` shell outcomes and the same bounded asynchronous continuation contract as OpenCode |
 | Grok Build | native lifecycle and hard PreToolUse hooks, strict ACP continuation, and leader-mode TUI steering |
-| Kimi Code CLI | explicit user-global `$KIMI_CODE_HOME/config.toml` integration for all 16 native hook events; repository discovery prevents global hooks from acting outside initialized Reconc repositories |
-| Oh My Pi | project-local `.omp/extensions/reconc.ts` ExtensionAPI adapter with native session, prompt, approval, tool-result, compaction, shutdown, and synchronous `session_stop` handling |
+| Kimi Code CLI | explicit user-global `$KIMI_CODE_HOME/config.toml` integration for the 16 decision- and evidence-carrying events of the host's twenty; repository discovery prevents global hooks from acting outside initialized Reconc repositories |
+| Oh My Pi | project-local `.omp/extensions/reconc.ts` ExtensionAPI adapter with native session, prompt, approval, tool-result, compaction, shutdown, and synchronous `session_stop` handling, and the same policy decision for shell commands the user types |
 | Pi Coding Agent | trust-aware project-local `.pi/extensions/reconc.ts` extension with blocking tool and user-shell interception, exact tool outcomes, lifecycle and compaction observations, and bounded asynchronous `agent_settled` continuation |
 | ZCode | project-local `.zcode/config.json` integration for all seven native hook events, process-executor transport, hard pre-tool and permission decisions, and synchronous Stop continuation |
 | Declarative custom runtimes | repository-owned `.reconc/runtimes/*.json` manifests map exact host events and JSON Pointers into the neutral lifecycle; `hook bridge` reuses the same policy/session engine and `hook conform` proves the public adapter contract offline |

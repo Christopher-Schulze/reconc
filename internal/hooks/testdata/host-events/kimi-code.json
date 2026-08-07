@@ -1,0 +1,93 @@
+{
+  "host": "kimi-code",
+  "display_name": "Kimi Code CLI",
+  "source_url": "https://moonshotai.github.io/kimi-code/en/customization/hooks",
+  "capture_date": "2026-08-07",
+  "scope": "Every hook event the published reference names.",
+  "events": [
+    {
+      "name": "SessionStart",
+      "bound": true
+    },
+    {
+      "name": "UserPromptSubmit",
+      "bound": true
+    },
+    {
+      "name": "PreToolUse",
+      "bound": true
+    },
+    {
+      "name": "PermissionRequest",
+      "bound": true
+    },
+    {
+      "name": "PermissionResult",
+      "bound": true
+    },
+    {
+      "name": "PostToolUse",
+      "bound": true
+    },
+    {
+      "name": "PostToolUseFailure",
+      "bound": true
+    },
+    {
+      "name": "Stop",
+      "bound": true
+    },
+    {
+      "name": "StopFailure",
+      "bound": true
+    },
+    {
+      "name": "Interrupt",
+      "bound": true
+    },
+    {
+      "name": "SessionEnd",
+      "bound": true
+    },
+    {
+      "name": "SubagentStart",
+      "bound": true
+    },
+    {
+      "name": "SubagentStop",
+      "bound": true
+    },
+    {
+      "name": "PreCompact",
+      "bound": true
+    },
+    {
+      "name": "PostCompact",
+      "bound": true
+    },
+    {
+      "name": "Notification",
+      "bound": true
+    },
+    {
+      "name": "UserPromptQueued",
+      "bound": false,
+      "reason": "reports that a prompt was queued; the submitted prompt is already observed through UserPromptSubmit"
+    },
+    {
+      "name": "TurnStarted",
+      "bound": false,
+      "reason": "turn bookkeeping; carries no decision Reconc can make and no evidence it can attribute to an agent session"
+    },
+    {
+      "name": "SessionHeartbeat",
+      "bound": false,
+      "reason": "periodic liveness ping; session liveness is recorded from real events instead"
+    },
+    {
+      "name": "TaskStarted",
+      "bound": false,
+      "reason": "host task bookkeeping unrelated to repository policy"
+    }
+  ]
+}

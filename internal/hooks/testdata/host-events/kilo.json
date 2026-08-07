@@ -1,0 +1,56 @@
+{
+  "host": "kilo",
+  "display_name": "Kilo Code",
+  "host_version": "7.4.15",
+  "source_url": "https://github.com/Kilo-Org/kilocode/tree/d0e8a86bfce001821441e8ac8d7398bfba6c93f6/packages/plugin",
+  "source_revision": "d0e8a86bfce001821441e8ac8d7398bfba6c93f6",
+  "capture_date": "2026-07-23",
+  "scope": "Plugin hooks and bus events Reconc's capability vocabulary can express. Presentation, provider, and transform hooks are outside it.",
+  "events": [
+    {
+      "name": "session.created",
+      "bound": true
+    },
+    {
+      "name": "chat.message",
+      "bound": true
+    },
+    {
+      "name": "tool.execute.before",
+      "bound": true
+    },
+    {
+      "name": "permission.ask",
+      "bound": true
+    },
+    {
+      "name": "tool.execute.after",
+      "bound": true
+    },
+    {
+      "name": "message.part.updated(error)",
+      "bound": true
+    },
+    {
+      "name": "session.idle",
+      "bound": true
+    },
+    {
+      "name": "session.deleted",
+      "bound": true
+    },
+    {
+      "name": "experimental.session.compacting",
+      "bound": true
+    },
+    {
+      "name": "session.compacted",
+      "bound": true
+    },
+    {
+      "name": "command.execute.before",
+      "bound": false,
+      "reason": "gates slash commands, which Reconc's policy vocabulary does not address; a shell command run by a slash command still reaches tool.execute.before"
+    }
+  ]
+}

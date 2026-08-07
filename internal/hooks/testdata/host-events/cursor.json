@@ -1,0 +1,98 @@
+{
+  "host": "cursor",
+  "display_name": "Cursor",
+  "host_version": "desktop 3.13.21; CLI 2026.07.23-e383d2b",
+  "source_url": "https://cursor.com/docs/hooks",
+  "capture_date": "2026-08-07",
+  "scope": "All twenty-one current host events across the Agent, Tab, and app-lifecycle surfaces.",
+  "events": [
+    {
+      "name": "sessionStart",
+      "bound": true
+    },
+    {
+      "name": "beforeSubmitPrompt",
+      "bound": true
+    },
+    {
+      "name": "preToolUse",
+      "bound": true
+    },
+    {
+      "name": "beforeShellExecution",
+      "bound": true
+    },
+    {
+      "name": "postToolUse",
+      "bound": true
+    },
+    {
+      "name": "afterFileEdit",
+      "bound": true
+    },
+    {
+      "name": "afterTabFileEdit",
+      "bound": true
+    },
+    {
+      "name": "postToolUseFailure",
+      "bound": true
+    },
+    {
+      "name": "afterShellExecution",
+      "bound": true
+    },
+    {
+      "name": "beforeMCPExecution",
+      "bound": true
+    },
+    {
+      "name": "afterMCPExecution",
+      "bound": true
+    },
+    {
+      "name": "subagentStart",
+      "bound": true
+    },
+    {
+      "name": "subagentStop",
+      "bound": true
+    },
+    {
+      "name": "preCompact",
+      "bound": true
+    },
+    {
+      "name": "stop",
+      "bound": true
+    },
+    {
+      "name": "sessionEnd",
+      "bound": true
+    },
+    {
+      "name": "workspaceOpen",
+      "bound": true
+    },
+    {
+      "name": "beforeReadFile",
+      "bound": false,
+      "reason": "cannot prove a successful read, so it produces no read evidence a rule could rely on"
+    },
+    {
+      "name": "beforeTabFileRead",
+      "bound": false,
+      "reason": "cannot prove a successful read, so it produces no read evidence a rule could rely on"
+    },
+    {
+      "name": "afterAgentResponse",
+      "bound": false,
+      "reason": "expands a privacy-sensitive, non-evidentiary surface: model output rather than repository effect"
+    },
+    {
+      "name": "afterAgentThought",
+      "bound": false,
+      "reason": "expands a privacy-sensitive, non-evidentiary surface: model reasoning rather than repository effect"
+    }
+  ]
+}

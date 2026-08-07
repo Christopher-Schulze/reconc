@@ -1,0 +1,60 @@
+{
+  "host": "omp",
+  "display_name": "Oh My Pi",
+  "host_version": "17.2.4",
+  "source_url": "https://github.com/can1357/oh-my-pi/tree/06343fef4200c4e32d18f08df5a6a8bd84dcc710/packages/coding-agent/src/extensibility",
+  "source_revision": "06343fef4200c4e32d18f08df5a6a8bd84dcc710",
+  "capture_date": "2026-08-02",
+  "scope": "Extension events Reconc's capability vocabulary can express. Turn, message, provider, and presentation events are outside it.",
+  "events": [
+    {
+      "name": "session_start",
+      "bound": true
+    },
+    {
+      "name": "input",
+      "bound": true
+    },
+    {
+      "name": "tool_call",
+      "bound": true
+    },
+    {
+      "name": "user_bash",
+      "bound": true
+    },
+    {
+      "name": "tool_approval_requested",
+      "bound": true
+    },
+    {
+      "name": "tool_approval_resolved",
+      "bound": true
+    },
+    {
+      "name": "tool_result",
+      "bound": true
+    },
+    {
+      "name": "session_stop",
+      "bound": true
+    },
+    {
+      "name": "session_shutdown",
+      "bound": true
+    },
+    {
+      "name": "auto_compaction_start",
+      "bound": true
+    },
+    {
+      "name": "auto_compaction_end",
+      "bound": true
+    },
+    {
+      "name": "user_python",
+      "bound": false,
+      "reason": "runs Python source rather than a shell command; forbid_command matches shell grammar, and treating Python source as a command line would classify it wrongly"
+    }
+  ]
+}

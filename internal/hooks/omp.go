@@ -24,6 +24,8 @@ import type {
   ToolCallEvent,
   ToolCallEventResult,
   ToolResultEvent,
+  UserBashEvent,
+  UserBashEventResult,
 } from "@oh-my-pi/pi-coding-agent"
 
 type JsonObject = Record<string, unknown>
@@ -345,6 +347,26 @@ export default function ReconcOMPExtension(pi: ExtensionAPI): void {
     const route = "omp-pre-tool-use"
     const result = await run(route, toolPayload(ctx, event, "tool_call"), ctx.cwd)
     return toolDecision(route, result)
+  })
+
+  pi.on("user_bash", async (event: UserBashEvent, ctx: ExtensionContext): Promise<UserBashEventResult | undefined> => {
+    const route = "omp-user-bash"
+    const result = await run(route, sessionPayload(ctx, "user_bash", {
+      tool_name: "bash",
+      tool_input: { command: event.command },
+      user_bash_cwd: event.cwd,
+      exclude_from_context: event.excludeFromContext,
+    }), ctx.cwd)
+    const decision = toolDecision(route, result)
+    if (!decision?.block) return undefined
+    return {
+      result: {
+        output: decision.reason || "Reconc blocked this OMP shell command",
+        exitCode: 2,
+        cancelled: false,
+        truncated: false,
+      },
+    }
   })
 
   pi.on("tool_approval_requested", async (event, ctx) => {

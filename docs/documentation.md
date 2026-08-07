@@ -1965,10 +1965,10 @@ contains no second matrix.
 | OpenCode CLI | `.opencode/plugins/reconc.js`; prompt, permission, tool, session, compaction, terminal failure, and inferred idle continuation | Static plugin contract plus per-route liveness; continuation remains inferred |
 | Kilo Code CLI | `.kilo/plugin/reconc.js` with `KILO_PURE` unset; same lifecycle classes as OpenCode | Static plugin contract plus per-route liveness; continuation remains inferred |
 | Kilo Code VS Code host | The same canonical project plugin when that host loads external project plugins | CLI observations are never reused as VS Code proof |
-| Oh My Pi CLI | `.omp/extensions/reconc.ts`; native session, input, tool, approval, compaction, shutdown, and awaited main-session Stop routes | Static extension contract plus per-route liveness; `tool_call` and `session_stop` can enforce before host action |
+| Oh My Pi CLI | `.omp/extensions/reconc.ts`; native session, input, tool, user-shell, approval, compaction, shutdown, and awaited main-session Stop routes | Static extension contract plus per-route liveness; `tool_call`, `user_bash`, and `session_stop` can enforce before host action |
 | Pi Coding Agent | `.pi/extensions/reconc.ts`; trusted-project session, input, tool, user-shell, result, compaction, settled, and shutdown routes | Static extension and saved-trust contract plus per-route liveness; `tool_call` and `user_bash` can enforce before host action, while settled continuation remains inferred |
 | ZCode CLI | `.zcode/config.json`; all seven native session, prompt, tool, permission, failure, and synchronous Stop routes through the documented process executor | Static workspace contract plus per-route liveness; pre-tool, permission, and Stop can block, while host timeouts remain fail-open |
-| Kimi Code CLI | User-global `$KIMI_CODE_HOME/config.toml`; all 16 native hooks dispatch through bare `reconc` and discover the current repository | Generator-exact global configuration only; no live claim without a real Kimi route observation |
+| Kimi Code CLI | User-global `$KIMI_CODE_HOME/config.toml`; the 16 decision- and evidence-carrying hooks of the host's twenty dispatch through bare `reconc` and discover the current repository | Generator-exact global configuration only; no live claim without a real Kimi route observation |
 
 Cursor's registry classifies all 21 current host events exactly once. Reconc
 installs 17: `sessionStart`, `sessionEnd`, `preToolUse`, `postToolUse`,
@@ -2089,7 +2089,14 @@ and MCP policy only through the generic pre-tool identity, and maps
 events and injected Reconc input are suppressed by generation and in-flight
 state. `sendUserMessage` returning only `void` means the adapter reports
 requested, failed-before-call, or suppressed delivery without claiming host
-acceptance. Host cancellation releases immediately. Contract fixtures pin Pi
+acceptance. Host cancellation releases immediately. Every registered runtime additionally carries a host event record: the event
+vocabulary that host accepts, transcribed from its own published reference or
+source, with the location, the revision where one exists, and the date it was
+taken. A test compares each record against the registry in both directions, so
+a route the host does not publish and an event the host publishes that Reconc
+drops both fail. Every deliberate non-binding carries its reason in the record,
+which is how "the host cannot do this" stays distinguishable from "Reconc
+chooses not to". Contract fixtures pin Pi
 source revision `ac4ac9eaf69f2b01ca3af984a5c48f3b99b84278` at
 `@earendil-works/pi-coding-agent` v0.84.1 and OMP revision
 `06343fef4200c4e32d18f08df5a6a8bd84dcc710` at v17.2.4. That Pi revision widened

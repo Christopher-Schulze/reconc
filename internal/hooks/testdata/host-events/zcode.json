@@ -1,0 +1,38 @@
+{
+  "host": "zcode",
+  "display_name": "ZCode",
+  "host_version": "3.3.6",
+  "source_url": "https://zcode.z.ai/en/docs/hooks",
+  "capture_date": "2026-08-06",
+  "scope": "All seven documented hook events.",
+  "events": [
+    {
+      "name": "SessionStart",
+      "bound": true
+    },
+    {
+      "name": "UserPromptSubmit",
+      "bound": true
+    },
+    {
+      "name": "PreToolUse",
+      "bound": true
+    },
+    {
+      "name": "PermissionRequest",
+      "bound": true
+    },
+    {
+      "name": "PostToolUse",
+      "bound": true
+    },
+    {
+      "name": "PostToolUseFailure",
+      "bound": true
+    },
+    {
+      "name": "Stop",
+      "bound": true
+    }
+  ]
+}

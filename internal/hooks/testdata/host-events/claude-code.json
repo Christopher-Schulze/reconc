@@ -1,0 +1,149 @@
+{
+  "host": "claude-code",
+  "display_name": "Claude Code",
+  "source_url": "https://code.claude.com/docs/en/hooks",
+  "capture_date": "2026-08-07",
+  "scope": "Every event Claude Code accepts in settings.json.",
+  "events": [
+    {
+      "name": "SessionStart",
+      "bound": true
+    },
+    {
+      "name": "UserPromptSubmit",
+      "bound": true
+    },
+    {
+      "name": "PreToolUse",
+      "bound": true
+    },
+    {
+      "name": "PermissionRequest",
+      "bound": true
+    },
+    {
+      "name": "PermissionDenied",
+      "bound": true
+    },
+    {
+      "name": "PostToolUse",
+      "bound": true
+    },
+    {
+      "name": "PostToolUseFailure",
+      "bound": true
+    },
+    {
+      "name": "Stop",
+      "bound": true
+    },
+    {
+      "name": "StopFailure",
+      "bound": true
+    },
+    {
+      "name": "SessionEnd",
+      "bound": true
+    },
+    {
+      "name": "Notification",
+      "bound": true
+    },
+    {
+      "name": "SubagentStart",
+      "bound": true
+    },
+    {
+      "name": "SubagentStop",
+      "bound": true
+    },
+    {
+      "name": "PreCompact",
+      "bound": true
+    },
+    {
+      "name": "PostCompact",
+      "bound": true
+    },
+    {
+      "name": "Setup",
+      "bound": false,
+      "reason": "one-time environment preparation before a session exists; there is no session to bind evidence to"
+    },
+    {
+      "name": "UserPromptExpansion",
+      "bound": false,
+      "reason": "reports prompt text after expansion; the submitted prompt is already observed through UserPromptSubmit"
+    },
+    {
+      "name": "PostToolBatch",
+      "bound": false,
+      "reason": "aggregates calls already observed individually through PostToolUse"
+    },
+    {
+      "name": "MessageDisplay",
+      "bound": false,
+      "reason": "presentation of model output; carries no decision Reconc can make and no evidence it can attribute to an agent session"
+    },
+    {
+      "name": "TaskCreated",
+      "bound": false,
+      "reason": "host task bookkeeping unrelated to repository policy"
+    },
+    {
+      "name": "TaskCompleted",
+      "bound": false,
+      "reason": "host task bookkeeping unrelated to repository policy"
+    },
+    {
+      "name": "TeammateIdle",
+      "bound": false,
+      "reason": "multi-agent presence signal; Stop already gates completion"
+    },
+    {
+      "name": "InstructionsLoaded",
+      "bound": false,
+      "reason": "reports which instruction files the host read; carries no decision Reconc can make and no evidence it can attribute to an agent session"
+    },
+    {
+      "name": "ConfigChange",
+      "bound": false,
+      "reason": "host configuration change; carries no decision Reconc can make and no evidence it can attribute to an agent session"
+    },
+    {
+      "name": "CwdChanged",
+      "bound": false,
+      "reason": "working-directory change; repository identity is resolved per event instead"
+    },
+    {
+      "name": "DirectoryAdded",
+      "bound": false,
+      "reason": "workspace directory addition; carries no decision Reconc can make and no evidence it can attribute to an agent session"
+    },
+    {
+      "name": "FileChanged",
+      "bound": false,
+      "reason": "reports mutations from any source, including the user's own editor, so it cannot establish that an agent session wrote a path"
+    },
+    {
+      "name": "WorktreeCreate",
+      "bound": false,
+      "reason": "host worktree bookkeeping; repository identity is resolved per event instead"
+    },
+    {
+      "name": "WorktreeRemove",
+      "bound": false,
+      "reason": "host worktree bookkeeping; repository identity is resolved per event instead"
+    },
+    {
+      "name": "Elicitation",
+      "bound": false,
+      "reason": "interactive prompt to the user; carries no decision Reconc can make and no evidence it can attribute to an agent session"
+    },
+    {
+      "name": "ElicitationResult",
+      "bound": false,
+      "reason": "the user's answer to an interactive prompt; carries no decision Reconc can make and no evidence it can attribute to an agent session"
+    }
+  ]
+}

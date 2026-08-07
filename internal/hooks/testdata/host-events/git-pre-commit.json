@@ -1,0 +1,13 @@
+{
+  "host": "git-pre-commit",
+  "display_name": "Git pre-commit",
+  "source_url": "https://git-scm.com/docs/githooks",
+  "capture_date": "2026-08-07",
+  "scope": "Reconc owns the pre-commit hook as the repository backstop. Git's other hooks fire outside an agent session and are not part of this integration.",
+  "events": [
+    {
+      "name": "pre-commit",
+      "bound": true
+    }
+  ]
+}

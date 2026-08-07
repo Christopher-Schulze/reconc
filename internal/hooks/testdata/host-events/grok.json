@@ -1,0 +1,65 @@
+{
+  "host": "grok",
+  "display_name": "Grok Build",
+  "source_url": "https://docs.x.ai/build/features/hooks",
+  "capture_date": "2026-08-07",
+  "scope": "All fourteen hook events the published reference names.",
+  "events": [
+    {
+      "name": "SessionStart",
+      "bound": true
+    },
+    {
+      "name": "UserPromptSubmit",
+      "bound": true
+    },
+    {
+      "name": "PreToolUse",
+      "bound": true
+    },
+    {
+      "name": "PermissionDenied",
+      "bound": true
+    },
+    {
+      "name": "PostToolUse",
+      "bound": true
+    },
+    {
+      "name": "PostToolUseFailure",
+      "bound": true
+    },
+    {
+      "name": "Stop",
+      "bound": true
+    },
+    {
+      "name": "StopFailure",
+      "bound": true
+    },
+    {
+      "name": "SessionEnd",
+      "bound": true
+    },
+    {
+      "name": "Notification",
+      "bound": true
+    },
+    {
+      "name": "SubagentStart",
+      "bound": true
+    },
+    {
+      "name": "SubagentStop",
+      "bound": true
+    },
+    {
+      "name": "PreCompact",
+      "bound": true
+    },
+    {
+      "name": "PostCompact",
+      "bound": true
+    }
+  ]
+}
