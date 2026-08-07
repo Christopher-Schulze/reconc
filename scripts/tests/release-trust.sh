@@ -310,6 +310,7 @@ release_assets=(
   policy-config.schema.json
   policy-lock-v1.schema.json
   policy-lock-v2.schema.json
+  policy-lock-v3.schema.json
   policy-lock.schema.json
   policy-report.schema.json
   proof-bundle.schema.json
@@ -330,7 +331,8 @@ for name in "${release_assets[@]}"; do
     install.ps1|install.sh) cp "$root/$name" "$release_dir/$name" ;;
     policy-lock-v1.schema.json) cp "$root/schemas/v1/policy-lock.schema.json" "$release_dir/$name" ;;
     policy-lock-v2.schema.json) cp "$root/schemas/v2/policy-lock.schema.json" "$release_dir/$name" ;;
-    policy-lock.schema.json) cp "$root/schemas/v3/policy-lock.schema.json" "$release_dir/$name" ;;
+    policy-lock-v3.schema.json) cp "$root/schemas/v3/policy-lock.schema.json" "$release_dir/$name" ;;
+    policy-lock.schema.json) cp "$root/schemas/v4/policy-lock.schema.json" "$release_dir/$name" ;;
     *.schema.json) cp "$root/schemas/v1/$name" "$release_dir/$name" ;;
     reconc-harness-pack-advanced-1.0.0.zip) cp "$root/harness/advanced-pack.zip" "$release_dir/$name" ;;
     *) printf '%s\n' "$name" > "$release_dir/$name" ;;
