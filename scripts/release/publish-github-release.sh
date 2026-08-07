@@ -100,6 +100,22 @@ resolve_release() {
   [ "$release_matches" -le 1 ] || fail "remote release lookup returned duplicate tags"
 }
 
+# The releases listing is eventually consistent: a release can be absent from
+# it for a moment after it was created. Poll a bounded number of times so a
+# normal API delay cannot be mistaken for a failed creation, and keep failing
+# closed once the window is exhausted.
+await_release_state() {
+  attempt=0
+  while [ "$attempt" -lt 10 ]; do
+    load_release_list
+    resolve_release
+    [ "$release_state" = "missing" ] || return 0
+    attempt=$((attempt + 1))
+    sleep 3
+  done
+  return 1
+}
+
 load_release_list
 resolve_release
 
@@ -110,8 +126,7 @@ case "$release_state:$mode" in
       --notes-file "$notes_file" \
       --verify-tag \
       --draft
-    load_release_list
-    resolve_release
+    await_release_state || fail "new release did not appear in the release listing"
     [ "$release_state" = true ] || fail "new release was not created as a draft"
     ;;
   missing:replace)
