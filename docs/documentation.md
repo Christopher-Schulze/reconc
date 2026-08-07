@@ -2051,7 +2051,10 @@ with exit code 2. Pi exposes no post-user-shell event. `tool_result.isError` is
 authoritative, and only a successful built-in `Bash` result receives synthetic
 exit code zero. Failed output never becomes an inferred exit status.
 
-Pi has no native permission event, MCP discriminator, synchronous Stop event,
+Pi's only veto of that shape is `project_trust`, which decides whether the
+project is trusted at all rather than whether one tool call is permitted;
+Reconc reads that saved decision instead of casting a vote in it. Pi therefore
+exposes no per-call permission event, MCP discriminator, synchronous Stop event,
 or continuation delivery acknowledgement. Reconc therefore maps permission
 and MCP policy only through the generic pre-tool identity, and maps
 `agent_settled` to a fail-open bounded continuation request. State is capped at

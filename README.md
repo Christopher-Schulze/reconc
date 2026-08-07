@@ -623,7 +623,7 @@ being reported as successful partial publication.
 
 | Runtime | Integration |
 | --- | --- |
-| Claude Code | repo-local hook wiring |
+| Claude Code | repo-local hook wiring in `.claude/settings.json` |
 | Codex | session, tool, permission, evidence, and Stop hooks with `apply_patch` path extraction |
 | GitHub Copilot | contract-tested repository hooks for Copilot CLI and coding agent; hard PreToolUse and Stop decisions where the host fires them; host timeouts remain fail-open |
 | Cursor | one registry-generated `.cursor/hooks.json` for Agent/Cmd+K, Tab, CLI, and supported cloud routes; registry-derived `surface_events`, native prompt/subagent decisions, sessionless workspace liveness, and tool/Stop behavior remain event-specific |
@@ -633,7 +633,7 @@ being reported as successful partial publication.
 | Kilo Code | thin CLI/VS Code project plugin with strict `metadata.exit` shell outcomes and the same bounded asynchronous continuation contract as OpenCode |
 | Grok Build | native lifecycle and hard PreToolUse hooks, strict ACP continuation, and leader-mode TUI steering |
 | Kimi Code CLI | explicit user-global `$KIMI_CODE_HOME/config.toml` integration for all 16 native hook events; repository discovery prevents global hooks from acting outside initialized Reconc repositories |
-| Oh My Pi CLI | project-local `.omp/extensions/reconc.ts` ExtensionAPI adapter with native session, prompt, approval, tool-result, compaction, shutdown, and synchronous `session_stop` handling |
+| Oh My Pi | project-local `.omp/extensions/reconc.ts` ExtensionAPI adapter with native session, prompt, approval, tool-result, compaction, shutdown, and synchronous `session_stop` handling |
 | Pi Coding Agent | trust-aware project-local `.pi/extensions/reconc.ts` extension with blocking tool and user-shell interception, exact tool outcomes, lifecycle and compaction observations, and bounded asynchronous `agent_settled` continuation |
 | ZCode | project-local `.zcode/config.json` integration for all seven native hook events, process-executor transport, hard pre-tool and permission decisions, and synchronous Stop continuation |
 | Declarative custom runtimes | repository-owned `.reconc/runtimes/*.json` manifests map exact host events and JSON Pointers into the neutral lifecycle; `hook bridge` reuses the same policy/session engine and `hook conform` proves the public adapter contract offline |
@@ -716,9 +716,12 @@ store. `reconc hook status .` reports `configured` only when the canonical
 repository root is saved as trusted or `defaultProjectTrust` is `always`;
 otherwise it reports `installed` with an exact trust or `pi --approve`
 remediation. Native `tool_call` and `user_bash` interception fail closed.
-Tool-result, lifecycle, compaction, and shutdown observations fail open. Pi has
-no native permission event, MCP discriminator, post-`user_bash` result, or
-synchronous Stop gate, so Reconc does not invent those capabilities.
+Tool-result, lifecycle, compaction, and shutdown observations fail open. Pi's
+`project_trust` veto decides whether the project is trusted at all, not whether
+one tool call is permitted, so Reconc reads that saved decision rather than
+answering it. Pi exposes no per-call permission event, MCP discriminator,
+post-`user_bash` result, or synchronous Stop gate, and Reconc does not invent
+those capabilities.
 
 ZCode snapshots workspace hooks from `.zcode/config.json` at session start.
 `reconc hook install zcode .` preserves unrelated top-level and hook settings,

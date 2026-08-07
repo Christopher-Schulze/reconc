@@ -635,7 +635,8 @@ tool results, lifecycle, compaction, and shutdown remain observational.
 synthesize exit code zero, while failed Bash output never becomes a fabricated
 exit status. `agent_settled` can request a bounded continuation through
 `sendUserMessage`, but the host API returns no delivery acknowledgement. Pi
-has no native permission event, MCP discriminator, post-`user_bash` result, or
+exposes `project_trust` as a project-level veto, which Reconc reads rather than
+answers, and no per-call permission event, MCP discriminator, post-`user_bash` result, or
 synchronous Stop gate. Host cancellation wins over Reconc subprocess output.
 The Pi shutdown route closes its repository worker after recording SessionEnd.
 
