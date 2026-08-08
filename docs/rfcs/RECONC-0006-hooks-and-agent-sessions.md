@@ -20,7 +20,7 @@
 | `kilo` | `.kilo/plugin/reconc.js` | Thin project plugin for prompt, permission, complete tool outcomes, terminal errors, compaction, session lifecycle, and idle handling. |
 | `grok` | `.grok/hooks/reconc.json` | Native lifecycle, strict PreToolUse, capability-probed no-leader Stop, compaction, permission-denial, and subagent events. |
 | `kimi-code` | `$KIMI_CODE_HOME/config.toml` | Explicit user-global integration for 16 of the host's twenty events; commands discover an initialized Reconc repository before acting. |
-| `omp` | `.omp/extensions/reconc.ts` | Project ExtensionAPI adapter for native session, input, approval, tool, compaction, shutdown, and awaited `session_stop` events. |
+| `omp` | `.omp/extensions/reconc.ts` | Project ExtensionAPI adapter for native session, input, approval, tool, user-shell, user-Python, compaction, shutdown, and awaited `session_stop` events. |
 | `pi` | `.pi/extensions/reconc.ts` | Trust-aware project extension for native session, input, blocking tool and user-shell calls, outcomes, compaction, shutdown, and inferred settled continuation. |
 | `zcode` | `.zcode/config.json` | Project hook integration for all seven native lifecycle, prompt, tool, permission, outcome, and synchronous Stop events. |
 
@@ -123,7 +123,14 @@ directory. The generated TypeScript module registers only documented
 continuation decisions to Reconc's Go runtime through the shared repo-local
 wrapper.
 
-`tool_call` is the blocking pre-action boundary. OMP's
+`tool_call` is the blocking pre-action boundary, and `user_bash` is the same
+boundary for a shell command the user types: OMP publishes it with the same
+full-replacement result contract, so both reach one decision. `user_python` is
+observed and never decided, because the policy vocabulary reads shell grammar
+and Python source is not a command line. That code can start a shell, so the
+execution, its working directory, and the size of the code are recorded while
+the code itself never leaves the host, and the user-shell guarantee is stated
+as covering shell commands only. OMP's
 `tool_approval_requested` and `tool_approval_resolved` events are observation
 events and are never misrepresented as a permission-decision surface.
 `tool_result` always routes success or failure from the authoritative

@@ -34,7 +34,8 @@ func FuzzNormalizeHostPayloadsNoPanic(f *testing.F) {
 	for _, seed := range normalizerSeeds {
 		for _, event := range []string{
 			"cursor-pre-tool-use", "cursor-stop", "grok-pre-tool-use", "copilot-pre-tool-use",
-			"omp-pre-tool-use", "pi-pre-tool-use", "zcode-pre-tool-use", "kimi-pre-tool-use",
+			"omp-pre-tool-use", "omp-user-bash", "omp-user-python",
+			"pi-pre-tool-use", "pi-user-bash", "zcode-pre-tool-use", "kimi-pre-tool-use",
 			"devin-pre-tool-use", "antigravity-pre-tool-use", "",
 		} {
 			f.Add(event, []byte(seed))

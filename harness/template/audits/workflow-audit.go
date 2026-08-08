@@ -1217,6 +1217,8 @@ func auditAgentHooks(root string) []string {
 			"omp-session-start",
 			"omp-user-prompt-submit",
 			"omp-pre-tool-use",
+			"omp-user-bash",
+			"omp-user-python",
 			"omp-permission-request",
 			"omp-permission-result",
 			"omp-post-tool-use",

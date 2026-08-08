@@ -574,6 +574,7 @@ func TestBunAdapterRoutesAreRegistered(t *testing.T) {
 		},
 		KindOMP: {
 			"omp-session-start", "omp-user-prompt-submit", "omp-pre-tool-use",
+			"omp-user-bash", "omp-user-python",
 			"omp-permission-request", "omp-permission-result", "omp-post-tool-use",
 			"omp-post-tool-use-failure", "omp-stop", "omp-session-end",
 			"omp-pre-compaction", "omp-post-compaction",

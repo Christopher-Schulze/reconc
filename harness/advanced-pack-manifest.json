@@ -312,8 +312,8 @@
     {
       "path": "tools/reconc/harness/template/audits/workflow-audit.go",
       "mode": 420,
-      "size": 82941,
-      "sha256": "c8184b31e98acb70fe09b9543b46541c0a4e21dfca7d70a3be4534f8fa00a724",
+      "size": 82983,
+      "sha256": "69f977d70e893ce8fae6d33bb744378f93764289fbe3d7e37c845a13f709eb60",
       "ownership": "pack-file"
     },
     {
@@ -751,6 +751,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 772010,
-  "digest": "4dfb6ab014b94ef77ae1b0ca2da81b071962c8fdbd903da02c9f78bce84a4f27"
+  "total_bytes": 772052,
+  "digest": "e4ae1383601cfe7885aca74bef8fa13cf1272548f8acc30fe8fd8afe2390b1cb"
 }
