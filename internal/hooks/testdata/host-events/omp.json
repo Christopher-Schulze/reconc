@@ -53,8 +53,7 @@
     },
     {
       "name": "user_python",
-      "bound": false,
-      "reason": "runs Python source rather than a shell command; forbid_command matches shell grammar, and treating Python source as a command line would classify it wrongly"
+      "bound": true
     }
   ]
 }

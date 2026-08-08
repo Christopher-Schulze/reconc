@@ -26,6 +26,7 @@ import type {
   ToolResultEvent,
   UserBashEvent,
   UserBashEventResult,
+  UserPythonEvent,
 } from "@oh-my-pi/pi-coding-agent"
 
 type JsonObject = Record<string, unknown>
@@ -367,6 +368,17 @@ export default function ReconcOMPExtension(pi: ExtensionAPI): void {
         truncated: false,
       },
     }
+  })
+
+  // Observation only: Reconc cannot decide Python source, but an execution
+  // surface that stays invisible would make the user_bash gate look wider than
+  // it is.
+  pi.on("user_python", async (event: UserPythonEvent, ctx: ExtensionContext) => {
+    await observe("omp-user-python", sessionPayload(ctx, "user_python", {
+      user_python_cwd: event.cwd,
+      exclude_from_context: event.excludeFromContext,
+      code_bytes: new TextEncoder().encode(event.code).length,
+    }), ctx)
   })
 
   pi.on("tool_approval_requested", async (event, ctx) => {

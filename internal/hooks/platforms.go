@@ -358,6 +358,12 @@ var platformRegistry = []platformDefinition{
 			capability(EventSessionStart, "session_start", SupportNative, FailureAllow, FailureAllow, 5, "omp-session-start"),
 			capability(EventUserPromptSubmit, "input", SupportNative, FailureAllow, FailureAllow, 5, "omp-user-prompt-submit"),
 			ompPreToolCapability(),
+			// Python execution cannot be decided: the policy vocabulary reads
+			// shell grammar, and Python source is not a command line. It is
+			// still an execution surface that can write files and start a
+			// shell, so it is observed rather than left invisible next to the
+			// gate that covers `user_bash`.
+			capability(EventToolObservation, "user_python", SupportNative, FailureAllow, FailureAllow, 5, "omp-user-python"),
 			capability(EventPermissionRequest, "tool_approval_requested", SupportNative, FailureAllow, FailureAllow, 5, "omp-permission-request"),
 			capability(EventPermissionResult, "tool_approval_resolved", SupportNative, FailureAllow, FailureAllow, 5, "omp-permission-result"),
 			capability(EventPostToolUse, "tool_result", SupportNative, FailureAllow, FailureAllow, 5, "omp-post-tool-use"),

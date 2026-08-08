@@ -16,6 +16,7 @@ var ompNativeEvents = map[string]string{
 	"omp-user-prompt-submit":    "input",
 	"omp-pre-tool-use":          "tool_call",
 	"omp-user-bash":             "user_bash",
+	"omp-user-python":           "user_python",
 	"omp-permission-request":    "tool_approval_requested",
 	"omp-permission-result":     "tool_approval_resolved",
 	"omp-post-tool-use":         "tool_result",
@@ -47,6 +48,10 @@ type ompPayload struct {
 	// it has no tool_call_id and reports its own working directory.
 	UserBashCWD        string `json:"user_bash_cwd"`
 	ExcludeFromContext *bool  `json:"exclude_from_context"`
+	// user_python is observed, never decided: the code itself never leaves the
+	// host, only its size and where it ran.
+	UserPythonCWD string `json:"user_python_cwd"`
+	CodeBytes     *int   `json:"code_bytes"`
 }
 
 type ompNormalizedPayload struct {
@@ -181,6 +186,16 @@ func validateOMPEventPayload(event string, raw ompPayload, repoRoot string) erro
 			return errors.New("missing exclude_from_context in OMP user_bash payload")
 		}
 		if err := validateHookPayloadCWD(raw.UserBashCWD, repoRoot, "OMP user_bash"); err != nil {
+			return err
+		}
+	case "omp-user-python":
+		if raw.ExcludeFromContext == nil {
+			return errors.New("missing exclude_from_context in OMP user_python payload")
+		}
+		if raw.CodeBytes == nil || *raw.CodeBytes < 0 {
+			return errors.New("OMP user_python payload must report a non-negative code size")
+		}
+		if err := validateHookPayloadCWD(raw.UserPythonCWD, repoRoot, "OMP user_python"); err != nil {
 			return err
 		}
 	case "omp-post-tool-use", "omp-post-tool-use-failure":

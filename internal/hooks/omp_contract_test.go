@@ -71,7 +71,7 @@ const pi = {
 }
 module.default(pi)
 const expected = [
-  "session_start", "input", "tool_call", "user_bash", "tool_approval_requested",
+  "session_start", "input", "tool_call", "user_bash", "user_python", "tool_approval_requested",
   "tool_approval_resolved", "tool_result", "session_stop",
   "auto_compaction_start", "auto_compaction_end", "session_shutdown",
 ]
@@ -107,6 +107,10 @@ const shellDenied = await handlers.get("user_bash")({
 if (shellDenied?.result?.exitCode !== 2 || !shellDenied.result.output.includes("policy denied shell")) {
   throw new Error("OMP user_bash denial drift: " + JSON.stringify(shellDenied))
 }
+const pythonObservation = await handlers.get("user_python")({
+  type: "user_python", code: "import os; os.system('ls')", excludeFromContext: false, cwd: repo,
+}, ctx)
+if (pythonObservation !== undefined) throw new Error("the OMP Python observation gained a decision")
 const approvalObservation = await handlers.get("tool_approval_requested")({
   type: "tool_approval_requested", sessionId: "omp-contract", toolCallId: "call-write",
   toolName: "write", reason: "outside cwd", approvalMode: "always-ask",

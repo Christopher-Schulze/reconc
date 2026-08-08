@@ -10,6 +10,7 @@ import type {
   ToolResultEvent,
   UserBashEvent,
   UserBashEventResult,
+  UserPythonEvent,
 } from "@oh-my-pi/pi-coding-agent"
 
 type JsonObject = Record<string, unknown>
@@ -39,7 +40,7 @@ interface CombinedOutput {
   invalidUTF8: boolean
 }
 
-const routeBudgets: Record<string, RouteBudget> = {"omp-permission-request":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"omp-permission-result":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"omp-post-compaction":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"omp-post-tool-use":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"omp-post-tool-use-failure":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"omp-pre-compaction":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"omp-pre-tool-use":{"timeoutMilliseconds":10000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"block"},"omp-session-end":{"timeoutMilliseconds":1000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"omp-session-start":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"omp-stop":{"timeoutMilliseconds":29000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"block","maxContinuations":8},"omp-user-bash":{"timeoutMilliseconds":10000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"block"},"omp-user-prompt-submit":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"}}
+const routeBudgets: Record<string, RouteBudget> = {"omp-permission-request":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"omp-permission-result":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"omp-post-compaction":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"omp-post-tool-use":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"omp-post-tool-use-failure":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"omp-pre-compaction":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"omp-pre-tool-use":{"timeoutMilliseconds":10000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"block"},"omp-session-end":{"timeoutMilliseconds":1000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"omp-session-start":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"omp-stop":{"timeoutMilliseconds":29000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"block","maxContinuations":8},"omp-user-bash":{"timeoutMilliseconds":10000,"maxOutputBytes":8192,"errorPolicy":"block","timeoutPolicy":"block"},"omp-user-prompt-submit":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"},"omp-user-python":{"timeoutMilliseconds":5000,"maxOutputBytes":8192,"errorPolicy":"allow","timeoutPolicy":"allow"}}
 const defaultBudget: RouteBudget = {
   timeoutMilliseconds: 5000,
   maxOutputBytes: 8192,
@@ -598,6 +599,17 @@ export default function ReconcOMPExtension(pi: ExtensionAPI): void {
         truncated: false,
       },
     }
+  })
+
+  // Observation only: Reconc cannot decide Python source, but an execution
+  // surface that stays invisible would make the user_bash gate look wider than
+  // it is.
+  pi.on("user_python", async (event: UserPythonEvent, ctx: ExtensionContext) => {
+    await observe("omp-user-python", sessionPayload(ctx, "user_python", {
+      user_python_cwd: event.cwd,
+      exclude_from_context: event.excludeFromContext,
+      code_bytes: new TextEncoder().encode(event.code).length,
+    }), ctx)
   })
 
   pi.on("tool_approval_requested", async (event, ctx) => {

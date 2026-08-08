@@ -21,6 +21,8 @@ func TestNormalizeOMPPayloadCoversEveryNativeRoute(t *testing.T) {
 				extra = `,"prompt":"ship it","input_source":"interactive"`
 			case "omp-pre-tool-use":
 				extra = `,"tool_name":"write","tool_input":{"path":"docs/x.md"},"tool_call_id":"call-1"`
+			case "omp-user-python":
+				extra = fmt.Sprintf(`,"user_python_cwd":%q,"exclude_from_context":true,"code_bytes":42`, repo)
 			case "omp-user-bash":
 				extra = fmt.Sprintf(`,"tool_name":"bash","tool_input":{"command":"ls"},"user_bash_cwd":%q,"exclude_from_context":false`, repo)
 			case "omp-permission-request":
@@ -213,6 +215,50 @@ func TestOMPUserBashIsGatedLikeAToolCall(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if _, err := NormalizeOMPPayload("omp-user-bash", []byte(payload), repo); err == nil {
 				t.Fatal("a malformed user_bash payload must be refused before it can decide anything")
+			}
+		})
+	}
+}
+
+// TestOMPUserPythonIsObservedWithoutItsSource covers the surface next to the
+// user_bash gate. Python cannot be decided against a policy that reads shell
+// grammar, but it can start a shell, so leaving it invisible would make that
+// gate look wider than it is. The code itself never leaves the host.
+func TestOMPUserPythonIsObservedWithoutItsSource(t *testing.T) {
+	repo := t.TempDir()
+	payload := fmt.Sprintf(`{"hook_event_name":"user_python","session_id":"omp-s1","cwd":%q,`+
+		`"user_python_cwd":%q,"exclude_from_context":false,"code_bytes":128}`, repo, repo)
+	body, err := NormalizeOMPPayload("omp-user-python", []byte(payload), repo)
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	if strings.Contains(string(body), "import ") || strings.Contains(string(body), "code\"") {
+		t.Fatalf("normalized Python observation must not carry source: %s", body)
+	}
+	parsed, err := ParsePayload(body)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if parsed.SessionID != "omp-s1" {
+		t.Fatalf("session identity = %q", parsed.SessionID)
+	}
+	if parsed.ToolName != "" || parsed.MCP != nil {
+		t.Fatal("an observation must not claim a tool identity or an MCP envelope")
+	}
+
+	for name, broken := range map[string]string{
+		"missing context flag": fmt.Sprintf(`{"hook_event_name":"user_python","session_id":"s","cwd":%q,`+
+			`"user_python_cwd":%q,"code_bytes":1}`, repo, repo),
+		"missing code size": fmt.Sprintf(`{"hook_event_name":"user_python","session_id":"s","cwd":%q,`+
+			`"user_python_cwd":%q,"exclude_from_context":false}`, repo, repo),
+		"negative code size": fmt.Sprintf(`{"hook_event_name":"user_python","session_id":"s","cwd":%q,`+
+			`"user_python_cwd":%q,"exclude_from_context":false,"code_bytes":-1}`, repo, repo),
+		"working directory outside the repository": fmt.Sprintf(`{"hook_event_name":"user_python","session_id":"s","cwd":%q,`+
+			`"user_python_cwd":"/","exclude_from_context":false,"code_bytes":1}`, repo),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := NormalizeOMPPayload("omp-user-python", []byte(broken), repo); err == nil {
+				t.Fatal("a malformed observation must be refused rather than recorded as liveness")
 			}
 		})
 	}

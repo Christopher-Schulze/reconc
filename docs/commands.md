@@ -694,7 +694,12 @@ prompts plus pre/post-compaction lifecycle. Their continuation is inferred from
 `session.idle`, not a synchronous native Stop gate. OMP uses native awaited
 `session_stop`, with at most eight continuation turns, and routes `tool_call`
 and `user_bash` blocking separately from observational approval events. A shell
-command the user types reaches the same decision as one the agent requests. Reconc emits native Grok
+command the user types reaches the same decision as one the agent requests.
+Python the user runs through OMP's own prefix cannot: the policy vocabulary
+reads shell grammar, and Python source is not a command line. Because that code
+can start a shell and so step around the `user_bash` decision, Reconc records
+the execution, its working directory, and the size of the code, and never the
+code itself. Treat the user-shell gate on OMP as covering shell commands only. Reconc emits native Grok
 `Stop` block JSON directly in the normal TUI without a leader, but treats it as
 synchronously enforced only when the installed Grok hook guide advertises
 blocking Stop decision control. Otherwise optional leader steering over the
