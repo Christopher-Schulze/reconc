@@ -240,15 +240,15 @@ state exactly what remains outside the boundary.
 
 ## Install and Bootstrap
 
-Install the checksummed, provenance-attested v0.9.4 release once.
+Install the checksummed, provenance-attested v0.9.5 release once.
 
 ### Native release installation
 
 macOS or Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/install.sh \
-  | sh -s -- --version 0.9.4
+curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.5/install.sh \
+  | sh -s -- --version 0.9.5
 export PATH="$HOME/.local/bin:$PATH"
 reconc --version
 ```
@@ -257,14 +257,14 @@ Windows x64:
 
 ```powershell
 $installer = Join-Path $env:TEMP "reconc-install.ps1"
-Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/install.ps1 -OutFile $installer
-& $installer -Version 0.9.4
+Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.5/install.ps1 -OutFile $installer
+& $installer -Version 0.9.5
 Remove-Item $installer
 $env:Path = "$env:LOCALAPPDATA\Programs\Reconc\bin;$env:Path"
 reconc --version
 ```
 
-The immutable `reconc-v0.9.4` tag contains both installer scripts, so these
+The immutable `reconc-v0.9.5` tag contains both installer scripts, so these
 commands do not fetch executable installation logic from mutable `main`. The
 installers:
 
@@ -1083,9 +1083,9 @@ through the private route in
 
 ## Status
 
-The source line is `v0.9.x`, and the current source version is `v0.9.4`.
-The latest published release is the immutable `reconc-v0.9.4` tag. Source on
-`main` may be ahead of that tag while retaining source version `v0.9.4`; those
+The source line is `v0.9.x`, and the current source version is `v0.9.5`.
+The latest published release is the immutable `reconc-v0.9.5` tag. Source on
+`main` may be ahead of that tag while retaining source version `v0.9.5`; those
 commits remain unreleased until an explicitly requested version and matching
 tag are built and published. Version text alone is not release identity; use
 the exact commit and build provenance.

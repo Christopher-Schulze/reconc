@@ -5,8 +5,8 @@
 # Usage:
 #   sh install.sh                      # install the latest stable release
 #   sh install.sh --channel preview    # install the latest preview
-#   sh install.sh --version 0.9.4      # install one exact version
-#   sh install.sh 0.9.4                # compatible exact-version form
+#   sh install.sh --version 0.9.5      # install one exact version
+#   sh install.sh 0.9.5                # compatible exact-version form
 #   RECONC_INSTALL_DIR=/tmp sh install.sh
 #
 # Pre-install-bootstrap exception: the installer must run before the Go binary

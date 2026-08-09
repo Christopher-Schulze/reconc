@@ -21,6 +21,7 @@ usage, architecture, release, and security facts should be kept here first.
 - [v0.9.1 To v0.9.2 Migration](#v091-to-v092-migration)
 - [v0.9.2 To v0.9.3 Migration](#v092-to-v093-migration)
 - [v0.9.3 To v0.9.4 Migration](#v093-to-v094-migration)
+- [v0.9.4 To v0.9.5 Migration](#v094-to-v095-migration)
 - [Uninstall And Remove](#uninstall-and-remove)
 - [Development Control Plane](#development-control-plane)
 - [Minimal Example Policy](#minimal-example-policy)
@@ -220,7 +221,7 @@ make publication-audit
 ```
 
 The canonical Make targets cover both the root Go module and
-`harness/template`; `make test` first rejects unformatted tracked Go sources,
+`harness/template`; `make test` first rejects unformatted non-ignored Go sources,
 runs the real-repository publication audit once, then runs both race suites and
 the release-trust failure-path checks. The publication CLI contract test uses a
 bounded temporary Git fixture instead of rescanning the real repository under
@@ -238,8 +239,8 @@ make cover
 make bench
 make self-host
 make publication-audit
-make sbom VERSION=0.9.4
-make release VERSION=0.9.4
+make sbom VERSION=0.9.5
+make release VERSION=0.9.5
 ```
 
 `make coverage` runs both Go modules with atomic whole-module instrumentation
@@ -327,9 +328,9 @@ The v0.9 platform contract is one matrix:
 Direct installers own only the verified binary and receipt. No path silently
 edits a shell profile or global environment.
 
-The immutable v0.9.4 tag contains both `install.sh` and `install.ps1`. Public
+The immutable v0.9.5 tag contains both `install.sh` and `install.ps1`. Public
 bootstrap commands fetch the appropriate script from that tag, never from
-mutable `main`, and install the matching checksummed v0.9.4 binary.
+mutable `main`, and install the matching checksummed v0.9.5 binary.
 
 When the GitHub CLI (`gh`) is available, the installer additionally verifies
 the downloaded binary against its GitHub build-provenance attestation before
@@ -705,7 +706,7 @@ reconc ci . --base "$CI_MERGE_REQUEST_DIFF_BASE_SHA" --head "$CI_COMMIT_SHA" --f
 reconc ci . --base origin/main --head HEAD --format junit --output reconc-junit.xml
 ```
 
-The current v0.9.4 release can export the same completion candidate for external
+The current v0.9.5 release can export the same completion candidate for external
 review:
 
 ```bash
@@ -792,8 +793,8 @@ is live.
 
 ### How do I install and test it?
 
-Use the immutable v0.9.4 POSIX installer for macOS or Linux and the immutable
-v0.9.4 PowerShell installer for Windows x64. Put the installed binary on
+Use the immutable v0.9.5 POSIX installer for macOS or Linux and the immutable
+v0.9.5 PowerShell installer for Windows x64. Put the installed binary on
 `PATH`, verify it with `reconc doctor --global`, and initialize the target
 repository with `reconc init .`. Contributors building current source can use
 `go build -o .build/bin/reconc ./cmd/reconc` followed by
@@ -1141,6 +1142,40 @@ reconc hook status . --json
 reconc hook install claude-code . --json
 reconc hook install codex . --json
 ```
+
+## v0.9.4 To v0.9.5 Migration
+
+Update the global CLI through the existing installation owner:
+
+```bash
+reconc update
+reconc doctor --global
+```
+
+Exact native installs may instead rerun the immutable v0.9.5 installer.
+Source-owned installs build the v0.9.5 source and run that binary's
+`install-cli` transaction. The update changes only the globally owned CLI and
+receipt. It never mutates a repository.
+
+No policy or schema migration is required. Policy locks remain format `4`, and
+the immutable v0.9.4 `schemas/v4/policy-lock.schema.json` URL remains their
+canonical schema identity. Stop report reuse is stricter: policy-declared
+inputs are reused only while their exact supported content and metadata
+identity remains trustworthy; oversized trees, escaping symlinks, special
+files, and unstable inputs evaluate without reuse.
+
+Oh My Pi now persists bounded, source-free `user_python` execution metadata in
+hook liveness and exposes it through `reconc hook status`; Python source is
+never stored. Repositories using OMP must refresh the owned extension to receive
+that route:
+
+```bash
+reconc hook install omp . --json
+reconc hook status . --json
+```
+
+Other repository artifacts remain untouched until an explicit hook install or
+repository-sync transaction.
 
 ## Uninstall And Remove
 
@@ -3061,7 +3096,7 @@ current-state documentation.
 
 ## Release State
 
-The current source line is `v0.9.x`; the source version is `v0.9.4`. Release
+The current source line is `v0.9.x`; the source version is `v0.9.5`. Release
 artifacts are produced only through an explicit manual Release workflow
 dispatch for an existing `reconc-vX.Y.Z` tag; tag pushes never publish a
 release.
