@@ -242,6 +242,9 @@ func TestOMPUserPythonIsObservedWithoutItsSource(t *testing.T) {
 	if parsed.SessionID != "omp-s1" {
 		t.Fatalf("session identity = %q", parsed.SessionID)
 	}
+	if parsed.Raw["user_python_cwd"] != repo || parsed.Raw["exclude_from_context"] != false || parsed.Raw["code_bytes"] != json.Number("128") {
+		t.Fatalf("redacted Python metadata was not preserved: %#v", parsed.Raw)
+	}
 	if parsed.ToolName != "" || parsed.MCP != nil {
 		t.Fatal("an observation must not claim a tool identity or an MCP envelope")
 	}
@@ -261,5 +264,52 @@ func TestOMPUserPythonIsObservedWithoutItsSource(t *testing.T) {
 				t.Fatal("a malformed observation must be refused rather than recorded as liveness")
 			}
 		})
+	}
+}
+
+func TestOMPUserPythonObservationPersistsWithoutSource(t *testing.T) {
+	t.Setenv(StateRootEnv, t.TempDir())
+	repo := t.TempDir()
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalize := func(codeBytes int, excluded bool) []byte {
+		t.Helper()
+		payload := fmt.Sprintf(`{"hook_event_name":"user_python","session_id":"omp-observation","cwd":%q,`+
+			`"user_python_cwd":%q,"exclude_from_context":%t,"code_bytes":%d}`, repo, repo, excluded, codeBytes)
+		body, err := NormalizeOMPPayload("omp-user-python", []byte(payload), repo)
+		if err != nil {
+			t.Fatalf("normalize: %v", err)
+		}
+		return body
+	}
+	for _, body := range [][]byte{normalize(128, false), normalize(256, true)} {
+		parsed, err := ParsePayload(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if parsed.Raw["reconc_runtime"] != "omp" || parsed.Raw["omp_event"] != "omp-user-python" {
+			t.Fatalf("normalized observation identity = %#v", parsed.Raw)
+		}
+		result := runPassiveEventResolved(root, body)
+		if result.ExitCode != 0 || result.Stderr != "" {
+			t.Fatalf("persist observation: %+v", result)
+		}
+	}
+	records, err := ReadHookLiveness(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation := records["omp"].Observations["omp-user-python"]
+	if observation.Count != 2 || observation.WorkingDirectory != "." || observation.CodeBytes != 256 || !observation.ExcludeFromContext || observation.LastSeen == "" {
+		t.Fatalf("persisted Python observation = %+v; records=%+v", observation, records)
+	}
+	encoded, err := json.Marshal(records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "import ") || strings.Contains(string(encoded), `"code":`) {
+		t.Fatalf("persisted observation leaked Python source: %s", encoded)
 	}
 }

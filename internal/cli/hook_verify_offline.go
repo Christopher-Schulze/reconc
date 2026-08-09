@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,9 +14,16 @@ import (
 	"strings"
 	"time"
 
+	"reconc.dev/reconc/internal/boundedexec"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/hooks"
 	"reconc.dev/reconc/internal/runtime/agentsession"
+)
+
+const (
+	maxHookVerificationOutput     = 1 << 20
+	maxHookVerificationExecutable = 256 << 20
 )
 
 func runOfflineHookVerification(surfaces []hooks.VerificationSurface) (hookVerificationReport, error) {
@@ -121,7 +127,7 @@ func initializeHookVerificationRepo(repo string, stageDeniedPath bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, "git", "-C", repo, "init", "-q")
-	if output, err := command.CombinedOutput(); err != nil {
+	if output, err := boundedexec.CombinedOutput(command, maxHookVerificationOutput); err != nil {
 		return fmt.Errorf("initialize disposable Git repository: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	files := map[string]string{
@@ -141,7 +147,7 @@ func initializeHookVerificationRepo(repo string, stageDeniedPath bool) error {
 	}
 	if stageDeniedPath {
 		command = exec.CommandContext(ctx, "git", "-C", repo, "add", "--", "forbidden.txt")
-		if output, err := command.CombinedOutput(); err != nil {
+		if output, err := boundedexec.CombinedOutput(command, maxHookVerificationOutput); err != nil {
 			return fmt.Errorf("stage disposable denied path: %w: %s", err, strings.TrimSpace(string(output)))
 		}
 	}
@@ -212,24 +218,57 @@ func restoreHookVerificationEnvironment(prior map[string]hookVerificationPriorEn
 }
 
 func linkOrCopyVerificationExecutable(source, target string) error {
-	if err := os.Link(source, target); err == nil {
-		return nil
-	}
-	input, err := os.Open(source)
+	resolved, err := filepath.EvalSymlinks(source)
 	if err != nil {
-		return fmt.Errorf("open running executable: %w", err)
+		return fmt.Errorf("resolve running executable identity: %w", err)
 	}
-	defer input.Close()
+	before, err := os.Lstat(resolved)
+	if err != nil {
+		return fmt.Errorf("inspect running executable: %w", err)
+	}
+	if !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 ||
+		before.Size() <= 0 || before.Size() > maxHookVerificationExecutable {
+		return fmt.Errorf("running executable must be a non-symlink regular file within %d bytes", maxHookVerificationExecutable)
+	}
+	if err := os.Link(resolved, target); err == nil {
+		afterSource, sourceErr := os.Lstat(resolved)
+		targetInfo, targetErr := os.Lstat(target)
+		stable := sourceErr == nil && targetErr == nil && targetInfo.Mode().IsRegular() &&
+			targetInfo.Mode()&os.ModeSymlink == 0 && os.SameFile(before, afterSource) &&
+			os.SameFile(afterSource, targetInfo) && before.Mode() == afterSource.Mode() &&
+			before.Size() == afterSource.Size() && before.ModTime().Equal(afterSource.ModTime())
+		if stable {
+			return nil
+		}
+		_ = os.Remove(target)
+		return errors.Join(sourceErr, targetErr, errors.New("running executable changed while creating disposable hard link"))
+	}
+	body, err := boundedio.ReadRegularFile(resolved, maxHookVerificationExecutable)
+	if err != nil {
+		return fmt.Errorf("read running executable: %w", err)
+	}
 	output, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
 	if err != nil {
 		return fmt.Errorf("create disposable bare executable: %w", err)
 	}
-	if _, err := io.Copy(output, input); err != nil {
+	written, err := output.Write(body)
+	if err != nil {
 		_ = output.Close()
+		_ = os.Remove(target)
 		return fmt.Errorf("copy running executable: %w", err)
 	}
+	if written != len(body) {
+		_ = output.Close()
+		_ = os.Remove(target)
+		return errors.New("copy running executable: short write")
+	}
 	if err := output.Close(); err != nil {
+		_ = os.Remove(target)
 		return fmt.Errorf("close disposable bare executable: %w", err)
+	}
+	if err := os.Chmod(target, 0o700); err != nil {
+		_ = os.Remove(target)
+		return fmt.Errorf("make disposable bare executable runnable: %w", err)
 	}
 	return nil
 }
@@ -287,8 +326,18 @@ func verifyOfflinePolicyDecision(kind, repo string) syntheticHookDecision {
 }
 
 func verifyOfflineGitDecision(repo string, started time.Time) syntheticHookDecision {
-	var stdout, stderr bytes.Buffer
-	err := runCI([]string{repo, "--staged", "--json"}, "hook-verify", &stdout, &stderr)
+	stdout, err := boundedexec.NewBuffer(maxHookRuntimeCapture)
+	if err != nil {
+		return syntheticHookDecision{durationMillis: elapsedMillis(started), detail: err.Error()}
+	}
+	stderr, err := boundedexec.NewBuffer(maxHookRuntimeCapture)
+	if err != nil {
+		return syntheticHookDecision{durationMillis: elapsedMillis(started), detail: err.Error()}
+	}
+	err = runCI([]string{repo, "--staged", "--json"}, "hook-verify", stdout, stderr)
+	if stdout.Truncated() || stderr.Truncated() {
+		return syntheticHookDecision{durationMillis: elapsedMillis(started), detail: "synthetic staged decision output exceeded the hook limit"}
+	}
 	verified := ExitCode(err) == 2 && strings.Contains(stdout.String()+stderr.String(), "hook-verify-deny-write")
 	detail := ""
 	if !verified {
@@ -306,8 +355,18 @@ func verifyOfflineAgentDecision(kind, repo string, started time.Time) syntheticH
 	if err != nil {
 		return syntheticHookDecision{detail: err.Error()}
 	}
-	var stdout, stderr bytes.Buffer
-	runtimeErr := runHookRuntimeWithInput([]string{event, repo}, bytes.NewReader(payload), &stdout, &stderr)
+	stdout, err := boundedexec.NewBuffer(maxHookRuntimeCapture)
+	if err != nil {
+		return syntheticHookDecision{durationMillis: elapsedMillis(started), detail: err.Error()}
+	}
+	stderr, err := boundedexec.NewBuffer(maxHookRuntimeCapture)
+	if err != nil {
+		return syntheticHookDecision{durationMillis: elapsedMillis(started), detail: err.Error()}
+	}
+	runtimeErr := runHookRuntimeWithInput([]string{event, repo}, bytes.NewReader(payload), stdout, stderr)
+	if stdout.Truncated() || stderr.Truncated() {
+		return syntheticHookDecision{durationMillis: elapsedMillis(started), detail: "synthetic agent decision output exceeded the hook limit"}
+	}
 	verified := hookVerificationBlocked(kind, runtimeErr, stdout.String(), stderr.String())
 	detail := ""
 	if !verified {
@@ -427,7 +486,7 @@ func verifyGeneratedGitTransport(repo, shell string) (string, string, []string, 
 	hookPath := filepath.Join(repo, filepath.FromSlash(hooks.GitPreCommitPath))
 	command := exec.Command(shell, hookPath)
 	command.Dir = repo
-	output, err := command.CombinedOutput()
+	output, err := boundedexec.CombinedOutput(command, maxHookVerificationOutput)
 	if exitCodeOfProcess(err) != 2 || !strings.Contains(string(output), "hook-verify-transport") {
 		return "failed", "failed", nil, "generated pre-commit transport did not preserve the blocking exit contract"
 	}
@@ -456,7 +515,7 @@ func verifyGeneratedWrapperTransport(kind, repo, shell string) (string, string) 
 	command := exec.Command(shell, wrapperPath, event, repo)
 	command.Dir = repo
 	command.Stdin = strings.NewReader("{}")
-	output, err := command.CombinedOutput()
+	output, err := boundedexec.CombinedOutput(command, maxHookVerificationOutput)
 	if kind == hooks.KindGrok {
 		if err != nil || !strings.Contains(string(output), `"decision":"deny"`) {
 			return "failed", "generated Grok wrapper did not preserve explicit deny JSON"
@@ -575,7 +634,7 @@ func verifyGeneratedBunAdapter(kind, repo string) (string, string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, bun, driverPath, artifactPath, kind, repo)
-	if output, err := command.CombinedOutput(); err != nil {
+	if output, err := boundedexec.CombinedOutput(command, maxHookVerificationOutput); err != nil {
 		return "failed", fmt.Sprintf("generated TypeScript adapter failed: %v: %s", err, strings.TrimSpace(string(output)))
 	}
 	return "verified", ""

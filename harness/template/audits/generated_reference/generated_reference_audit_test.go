@@ -40,6 +40,18 @@ func TestGeneratedReferenceAuditReportsGeneratorFailure(t *testing.T) {
 	}
 }
 
+func TestGeneratedReferenceAuditOutputIsBounded(t *testing.T) {
+	var output boundedGeneratedReferenceOutput
+	payload := []byte(strings.Repeat("x", maxGeneratedReferenceOutput+1))
+	written, err := output.Write(payload)
+	if err != nil || written != len(payload) {
+		t.Fatalf("Write() = %d, %v", written, err)
+	}
+	if !output.truncated || len(output.String()) != maxGeneratedReferenceOutput {
+		t.Fatalf("bounded output length=%d truncated=%v", len(output.String()), output.truncated)
+	}
+}
+
 func TestGeneratedReferenceAuditCommandUsesRepoRoot(t *testing.T) {
 	root := t.TempDir()
 	writeGeneratedReferenceGenerator(t, root, `package main

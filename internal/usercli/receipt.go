@@ -17,6 +17,7 @@ import (
 
 	"reconc.dev/reconc/buildprovenance"
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/schema"
@@ -304,27 +305,12 @@ func ensurePrivateDirectory(path string) error {
 }
 
 func loadReceiptFile(path string) (*Receipt, error) {
-	file, err := os.Open(path)
+	body, err := boundedio.ReadRegularFile(path, maxInstallationReceipt)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, os.ErrNotExist
 		}
-		return nil, fmt.Errorf("open installation receipt: %w", err)
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("stat installation receipt: %w", err)
-	}
-	if !info.Mode().IsRegular() {
-		return nil, errors.New("installation receipt is not a regular file")
-	}
-	body, err := io.ReadAll(io.LimitReader(file, maxInstallationReceipt+1))
-	if err != nil {
 		return nil, fmt.Errorf("read installation receipt: %w", err)
-	}
-	if len(body) > maxInstallationReceipt {
-		return nil, fmt.Errorf("installation receipt exceeds %d bytes", maxInstallationReceipt)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()

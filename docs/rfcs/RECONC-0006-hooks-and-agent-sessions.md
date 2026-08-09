@@ -128,9 +128,10 @@ boundary for a shell command the user types: OMP publishes it with the same
 full-replacement result contract, so both reach one decision. `user_python` is
 observed and never decided, because the policy vocabulary reads shell grammar
 and Python source is not a command line. That code can start a shell, so the
-execution, its working directory, and the size of the code are recorded while
-the code itself never leaves the host, and the user-shell guarantee is stated
-as covering shell commands only. OMP's
+hook-liveness record persists a saturating execution count plus the latest
+timestamp, repository-relative working directory, code byte size, and
+context-exclusion flag. The code itself never leaves the host, and the
+user-shell guarantee is stated as covering shell commands only. OMP's
 `tool_approval_requested` and `tool_approval_resolved` events are observation
 events and are never misrepresented as a permission-decision surface.
 `tool_result` always routes success or failure from the authoritative

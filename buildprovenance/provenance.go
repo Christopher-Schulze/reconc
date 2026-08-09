@@ -125,13 +125,13 @@ func EmbeddedProvenance() (Provenance, error) {
 // InspectBinary reads provenance directly from binary bytes. It never executes
 // the inspected file.
 func InspectBinary(binaryPath string) (Provenance, error) {
-	file, err := boundedio.OpenRegularFile(binaryPath, maxBinaryBytes)
+	var marker string
+	err := boundedio.WithRegularFileSnapshot(binaryPath, maxBinaryBytes, func(file *os.File, _ os.FileInfo) error {
+		var scanErr error
+		marker, scanErr = scanBinaryMarker(file)
+		return scanErr
+	})
 	if err != nil {
-		return Provenance{}, fmt.Errorf("read Reconc binary: %w", err)
-	}
-	marker, scanErr := scanBinaryMarker(file)
-	closeErr := file.Close()
-	if err := errors.Join(scanErr, closeErr); err != nil {
 		return Provenance{}, fmt.Errorf("read Reconc binary: %w", err)
 	}
 	if marker == "" {
@@ -443,19 +443,19 @@ func digestFiles(root string, files []string, goos string, goarch string) (strin
 
 func writeFileDigestRecord(digest hash.Hash, name, filePath string, size int64) error {
 	fmt.Fprintf(digest, "%d:%s:%d:", len(name), name, size)
-	file, err := boundedio.OpenRegularFile(filePath, maxProductionFileBytes)
-	if err != nil {
-		return err
-	}
-	written, copyErr := io.Copy(digest, io.LimitReader(file, size+1))
-	closeErr := file.Close()
-	if err := errors.Join(copyErr, closeErr); err != nil {
-		return err
-	}
-	if written != size {
-		return fmt.Errorf("file size changed while hashing: expected %d, read %d", size, written)
-	}
-	return nil
+	return boundedio.WithRegularFileSnapshot(filePath, maxProductionFileBytes, func(file *os.File, info os.FileInfo) error {
+		if info.Size() != size {
+			return fmt.Errorf("file size changed before hashing: expected %d, found %d", size, info.Size())
+		}
+		written, err := io.Copy(digest, io.LimitReader(file, size+1))
+		if err != nil {
+			return err
+		}
+		if written != size {
+			return fmt.Errorf("file size changed while hashing: expected %d, read %d", size, written)
+		}
+		return nil
+	})
 }
 
 func writeDigestRecord(digest hash.Hash, name string, content []byte) {

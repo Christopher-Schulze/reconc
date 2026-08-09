@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -209,17 +208,9 @@ func persistEvidenceChainFailure(repoRoot string, state SessionState, cause erro
 
 func readEvidenceSegment(repoRoot, sessionID string, index uint64) (evidenceSegment, error) {
 	path := evidenceSegmentPath(repoRoot, sessionID, index)
-	file, err := os.Open(path)
+	body, err := boundedio.ReadRegularFile(path, maxEvidenceSegmentBytes)
 	if err != nil {
 		return evidenceSegment{}, fmt.Errorf("read evidence segment %d: %w", index, err)
-	}
-	body, readErr := io.ReadAll(io.LimitReader(file, maxEvidenceSegmentBytes+1))
-	closeErr := file.Close()
-	if err := errors.Join(readErr, closeErr); err != nil {
-		return evidenceSegment{}, fmt.Errorf("read evidence segment %d: %w", index, err)
-	}
-	if len(body) > maxEvidenceSegmentBytes {
-		return evidenceSegment{}, fmt.Errorf("evidence segment %d exceeds %d bytes", index, maxEvidenceSegmentBytes)
 	}
 	var segment evidenceSegment
 	if err := json.Unmarshal(body, &segment); err != nil {
@@ -347,20 +338,12 @@ func persistEvidenceTaint(repoRoot string, state SessionState) error {
 
 func loadEvidenceTaint(repoRoot string) (*evidenceTaint, error) {
 	path := evidenceTaintPath(repoRoot)
-	file, err := os.Open(path)
+	body, err := boundedio.ReadRegularFile(path, maxEvidenceTaintBytes)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read evidence taint: %w", err)
-	}
-	body, readErr := io.ReadAll(io.LimitReader(file, maxEvidenceTaintBytes+1))
-	closeErr := file.Close()
-	if err := errors.Join(readErr, closeErr); err != nil {
-		return nil, fmt.Errorf("read evidence taint: %w", err)
-	}
-	if len(body) > maxEvidenceTaintBytes {
-		return nil, fmt.Errorf("evidence taint exceeds %d bytes", maxEvidenceTaintBytes)
 	}
 	var taint evidenceTaint
 	if err := json.Unmarshal(body, &taint); err != nil {

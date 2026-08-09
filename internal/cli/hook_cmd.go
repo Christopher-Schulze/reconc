@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -206,6 +206,18 @@ func runHookStatus(args []string, stdout io.Writer) error {
 			if live, ok := liveness[hookRuntimeName(reports[i].Kind)]; ok {
 				reports[i].LastSeen = live.LastSeen
 				reports[i].LastEvent = live.Event
+				if len(live.Observations) > 0 {
+					reports[i].Observations = make(map[string]hooks.HookObservationStatus, len(live.Observations))
+					for event, observation := range live.Observations {
+						reports[i].Observations[event] = hooks.HookObservationStatus{
+							Count:              observation.Count,
+							LastSeen:           observation.LastSeen,
+							WorkingDirectory:   observation.WorkingDirectory,
+							CodeBytes:          observation.CodeBytes,
+							ExcludeFromContext: observation.ExcludeFromContext,
+						}
+					}
+				}
 				for _, event := range reports[i].ExpectedEvents {
 					if _, seen := live.Routes[event]; seen {
 						reports[i].LiveEvents = append(reports[i].LiveEvents, event)
@@ -239,6 +251,17 @@ func runHookStatus(args []string, stdout io.Writer) error {
 		fmt.Fprintf(stdout, "%s: %s (%s; %s)\n", report.Kind, style.decision(string(report.State)), report.Detail, live)
 		fmt.Fprintf(stdout, "  generated=%t installed=%t executable=%t configured=%t live=%t\n",
 			report.Generated, report.Installed, report.Executable, report.Configured, report.Live)
+		observationEvents := make([]string, 0, len(report.Observations))
+		for event := range report.Observations {
+			observationEvents = append(observationEvents, event)
+		}
+		sort.Strings(observationEvents)
+		for _, event := range observationEvents {
+			observation := report.Observations[event]
+			fmt.Fprintf(stdout, "  observation %s: count=%d last=%s cwd=%s code_bytes=%d exclude_from_context=%t\n",
+				event, observation.Count, observation.LastSeen, observation.WorkingDirectory,
+				observation.CodeBytes, observation.ExcludeFromContext)
+		}
 		if report.Remediation != "" {
 			fmt.Fprintf(stdout, "  remediation: %s\n", report.Remediation)
 		}
@@ -613,18 +636,21 @@ func runHookSyncScaffold(args []string, stdout, stderr io.Writer) error {
 // stdout/stderr.
 //
 // dedupToFirstClassRoute suppresses a cross-runtime duplicate event only
-// when the first-class platform's hooks are actually installed in this
+// when the first-class platform is fully configured and executable in this
 // repository. Without that gate, a stray environment variable
 // (DEVIN_PROJECT_DIR) or overlapping payload field names could silently
 // no-op the ONLY enforcement route in arbitrary repos. The dedup is
 // recorded (stderr note + liveness) so `reconc hook status` reflects
 // activity instead of showing dead routes.
-func dedupToFirstClassRoute(root agentsession.ResolvedRepoRoot, configRelPath, event string, stderr io.Writer) bool {
-	if _, err := os.Stat(filepath.Join(root.Path(), filepath.FromSlash(configRelPath))); err != nil {
+func dedupToFirstClassRoute(root agentsession.ResolvedRepoRoot, sourceRuntime, firstClassKind, event string, stderr io.Writer) bool {
+	report, err := hooks.InspectPlatform(root.Path(), firstClassKind)
+	if err != nil || report.State != hooks.StateConfigured {
 		return false
 	}
-	fmt.Fprintf(stderr, "reconc hook runtime: %s deduplicated; first-class %s owns this event\n", event, configRelPath)
-	_ = agentsession.RecordHookLivenessResolved(root, event, event)
+	fmt.Fprintf(stderr, "reconc hook runtime: %s deduplicated; first-class %s owns this event\n", event, report.TargetPath)
+	if err := agentsession.RecordHookLivenessResolved(root, sourceRuntime, event); err != nil {
+		fmt.Fprintf(stderr, "reconc hook liveness (warn): %s\n", err)
+	}
 	return true
 }
 
@@ -769,19 +795,17 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 	repo = root.Path()
 	timing.mark("root_resolve")
 	if route.PlatformKind != hooks.KindCursor && agentsession.PayloadLooksLikeCursor(payload) {
-		if dedupToFirstClassRoute(root, hooks.CursorHooksPath, event, stderr) {
+		if dedupToFirstClassRoute(root, route.PlatformKind, hooks.KindCursor, event, stderr) {
 			return nil
 		}
 	}
-	if route.PlatformKind != hooks.KindDevinCLI && agentsession.PayloadLooksLikeDevin(payload) {
-		if dedupToFirstClassRoute(root, hooks.DevinHooksPath, event, stderr) {
+	if route.PlatformKind != hooks.KindDevinCLI && agentsession.PayloadLooksLikeDevin(payload, repo) {
+		if dedupToFirstClassRoute(root, route.PlatformKind, hooks.KindDevinCLI, event, stderr) {
 			return nil
 		}
 	}
 	if route.PlatformKind != hooks.KindGrok && agentsession.PayloadLooksLikeGrok(payload) {
-		if hooks.HasManagedGrokHook(repo) {
-			fmt.Fprintf(stderr, "reconc hook runtime: %s deduplicated; first-class %s owns this event\n", event, hooks.GrokHooksPath)
-			_ = agentsession.RecordHookLivenessResolved(root, event, event)
+		if dedupToFirstClassRoute(root, route.PlatformKind, hooks.KindGrok, event, stderr) {
 			return nil
 		}
 	}

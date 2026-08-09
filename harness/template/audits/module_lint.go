@@ -21,7 +21,7 @@ func auditModuleContracts(root string) []string {
 			failures = append(failures, fmt.Sprintf("%s missing for module %s", manifestRel, name))
 			continue
 		}
-		manifest, err := os.ReadFile(manifestPath)
+		manifest, err := readAuditFile(manifestPath)
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("read %s: %v", manifestRel, err))
 			continue
@@ -85,7 +85,7 @@ func discoverModuleNames(root string) []string {
 		filepath.Join(root, "frontend/modules"),
 	}
 	for _, base := range bases {
-		entries, err := os.ReadDir(base)
+		entries, err := readAuditDirectory(base)
 		if err != nil {
 			continue
 		}
@@ -129,7 +129,7 @@ func auditModuleDirectImports(root string, name string) []string {
 		return nil
 	}
 	var failures []string
-	err := filepath.WalkDir(base, func(path string, entry os.DirEntry, err error) error {
+	err := walkAuditTree(base, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("walk %s: %v", rel(root, path), err))
 			return nil
@@ -160,7 +160,7 @@ func auditModuleDirectImports(root string, name string) []string {
 func auditStubModuleSurface(root string, name string) []string {
 	var failures []string
 	for _, base := range moduleSurfaceDirs(root, name) {
-		err := filepath.WalkDir(base, func(path string, entry os.DirEntry, err error) error {
+		err := walkAuditTree(base, func(path string, entry os.DirEntry, err error) error {
 			if err != nil {
 				failures = append(failures, fmt.Sprintf("walk %s: %v", rel(root, path), err))
 				return nil
@@ -169,7 +169,7 @@ func auditStubModuleSurface(root string, name string) []string {
 				return nil
 			}
 			if strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), ".ts") || strings.HasSuffix(entry.Name(), ".tsx") || strings.HasSuffix(entry.Name(), ".yaml") {
-				content, readErr := os.ReadFile(path)
+				content, readErr := readAuditFile(path)
 				if readErr != nil {
 					failures = append(failures, fmt.Sprintf("read %s: %v", rel(root, path), readErr))
 					return nil

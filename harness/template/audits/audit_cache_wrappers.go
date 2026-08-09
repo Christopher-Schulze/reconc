@@ -31,7 +31,7 @@ func taskStateCacheInputs(root string) *cacheInputs {
 	inputs := newCacheInputs()
 	tasksPath := filepath.Join(root, "docs/tasks.md")
 	inputs.AddFile(tasksPath)
-	if body, err := os.ReadFile(tasksPath); err == nil {
+	if body, err := readAuditFile(tasksPath); err == nil {
 		index, _ := parseTaskIndex(string(body))
 		for _, entry := range index.entries {
 			if entry.icon == "x" {
@@ -62,7 +62,7 @@ func taskArchiveRevisionWithTimeout(root string, timeout time.Duration) (string,
 	}
 	revision, err := runAuditCommand(timeout, "git", "-C", root, "rev-parse", "--verify", "HEAD:docs/tasks/done")
 	if err != nil {
-		entries, readErr := os.ReadDir(filepath.Join(root, "docs/tasks/done"))
+		entries, readErr := readAuditDirectory(filepath.Join(root, "docs/tasks/done"))
 		if errors.Is(readErr, os.ErrNotExist) || (readErr == nil && len(entries) == 0) {
 			return "absent", true
 		}
@@ -109,15 +109,10 @@ func cachedStartEntrypoint(root string) []string {
 func cachedBuildBaseline(root string) []string {
 	inputs := newCacheInputs()
 	inputs.AddFile(stackConfigPath(root))
-	for _, rel := range []string{
-		"go.mod",
-		"Cargo.toml",
-		projectRel(root, "frontend/package.json"),
-		projectRel(root, "scripts/build/build.go"),
-		projectRel(root, "scripts/build/build_test.go"),
-		projectRel(root, "backend/project/main.go"),
-	} {
-		inputs.AddFile(filepath.Join(root, filepath.FromSlash(rel)))
+	if cfg, failures := loadStackConfig(root); len(failures) == 0 {
+		for _, rel := range buildBaselineRequiredFiles(root, cfg) {
+			inputs.AddFile(filepath.Join(root, filepath.FromSlash(rel)))
+		}
 	}
 	return runWithCache(root, "build-baseline", inputs, func() []string {
 		return auditBuildBaseline(root)
@@ -142,15 +137,10 @@ func cachedTestCoverage(root string) []string {
 func cachedDurableStoreBaseline(root string) []string {
 	inputs := newCacheInputs()
 	inputs.AddFile(stackConfigPath(root))
-	for _, rel := range []string{
-		projectRel(root, "backend/project/internal/store/store.go"),
-		projectRel(root, "backend/project/internal/store/hash.go"),
-		projectRel(root, "backend/project/internal/store/store_test.go"),
-		projectRel(root, "db/migrations/migrations.go"),
-		projectRel(root, "db/migrations/migrations_test.go"),
-		projectRel(root, "db/migrations/project/core/001_initial.sql"),
-	} {
-		inputs.AddFile(filepath.Join(root, filepath.FromSlash(rel)))
+	if cfg, failures := loadStackConfig(root); len(failures) == 0 {
+		for _, rel := range durableStoreRequiredFiles(root, cfg) {
+			inputs.AddFile(filepath.Join(root, filepath.FromSlash(rel)))
+		}
 	}
 	return runWithCache(root, "durable-store", inputs, func() []string {
 		return auditDurableStoreBaseline(root)

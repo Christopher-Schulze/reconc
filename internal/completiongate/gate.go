@@ -11,9 +11,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"time"
 
-	"reconc.dev/reconc/internal/commandproof"
 	"reconc.dev/reconc/internal/policyproof"
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
@@ -267,45 +265,14 @@ func VerifyReport(report *Report) error {
 }
 
 func completionInputs(state agentsession.CompletionStateSnapshot) (runtime.ExecutionInputs, error) {
-	inputs := runtime.ExecutionInputs{
+	return runtime.ExecutionInputs{
 		ReadPaths:      append([]string{}, state.Inputs.ReadPaths...),
+		WritePaths:     append([]string{}, state.Inputs.WritePaths...),
+		WriteEpochs:    cloneEpochs(state.Inputs.WriteEpochs),
 		Commands:       append([]string{}, state.Inputs.Commands...),
 		Claims:         append([]string{}, state.Inputs.Claims...),
 		CommandResults: append([]runtime.CommandResult{}, state.Inputs.CommandResults...),
-	}
-	if !state.GitAvailable || !state.GitStatusOK {
-		inputs.WritePaths = append([]string{}, state.Inputs.WritePaths...)
-		inputs.WriteEpochs = cloneEpochs(state.Inputs.WriteEpochs)
-		return inputs, nil
-	}
-	inputs.WritePaths = append([]string{}, state.DirtyPaths...)
-	inputs.WriteEpochs = runtime.RelativizeEpochKeys(state.RepoRoot, state.Inputs.WriteEpochs)
-	if inputs.WriteEpochs == nil {
-		inputs.WriteEpochs = map[string]uint64{}
-	}
-	nextEpoch := state.EvidenceEpoch
-	if nextEpoch < runtime.ExplicitEvidenceEpoch-1 {
-		nextEpoch++
-	}
-	for _, path := range inputs.WritePaths {
-		if inputs.WriteEpochs[path] == 0 {
-			inputs.WriteEpochs[path] = nextEpoch
-		}
-	}
-	if len(inputs.WritePaths) == 0 || !state.WorktreeMatchesIndex {
-		return inputs, nil
-	}
-	proofs, err := commandproof.LoadCurrentSuccesses(state.RepoRoot, time.Now())
-	if err != nil {
-		return runtime.ExecutionInputs{}, fmt.Errorf("load current command proofs: %w", err)
-	}
-	for _, proof := range proofs {
-		inputs.Commands = append(inputs.Commands, proof.Command)
-		inputs.CommandResults = append(inputs.CommandResults, runtime.CommandResult{
-			Command: proof.Command, Outcome: runtime.CommandOutcomeSuccess, EvidenceEpoch: runtime.ExplicitEvidenceEpoch,
-		})
-	}
-	return inputs, nil
+	}, nil
 }
 
 func collectTaskChecks(report *Report, state agentsession.CompletionStateSnapshot, add func(string, Status, string, string)) {

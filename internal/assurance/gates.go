@@ -22,6 +22,15 @@ func evaluateRepositoryLayout(root string, gate policy.AssuranceGate, state *eva
 	forbidden := stringSet(gate.ForbiddenRootEntries)
 	present := map[string]bool{}
 	findings := []Finding{}
+	entryNames := make([]string, len(entries))
+	for index, entry := range entries {
+		entryNames[index] = entry.Name()
+	}
+	entryBody, err := json.Marshal(entryNames)
+	if err != nil {
+		return nil, fmt.Errorf("encode repository root entries: %w", err)
+	}
+	state.recordObservation("repository-layout:"+gate.ID, string(entryBody))
 	for _, entry := range entries {
 		name := entry.Name()
 		present[name] = true
@@ -69,6 +78,7 @@ func evaluateRepositoryLayout(root string, gate policy.AssuranceGate, state *eva
 		if !hasContent {
 			findings = append(findings, Finding{GateID: gate.ID, Paths: []string{relative}, Message: "reserved directory has no real content: " + relative, Remediation: "Remove the empty reserved directory until its first owned file exists."})
 		}
+		state.recordObservation("reserved-directory:"+gate.ID+":"+relative, fmt.Sprint(hasContent))
 	}
 	return findings, nil
 }

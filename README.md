@@ -770,8 +770,8 @@ The release inventory includes:
 - immutable POSIX and PowerShell installers;
 - Bash, Zsh, and Fish completion artifacts plus a generated manpage;
 - the embedded advanced harness pack as a standalone checksummed archive;
-- public v1 schemas, the legacy v2 policy-lock schema, and the current v3
-  policy-lock schema;
+- public v1 schemas plus the v1, v2, and v3 policy-lock schemas and the current
+  v4 policy-lock schema;
 - deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs;
 - strict `release-manifest.json` and `SHA256SUMS`.
 
@@ -1084,6 +1084,11 @@ through the private route in
 ## Status
 
 The source line is `v0.9.x`, and the current source version is `v0.9.4`.
+The latest published release is the immutable `reconc-v0.9.4` tag. Source on
+`main` may be ahead of that tag while retaining source version `v0.9.4`; those
+commits remain unreleased until an explicitly requested version and matching
+tag are built and published. Version text alone is not release identity; use
+the exact commit and build provenance.
 Release artifacts are produced only by
 an explicit manual workflow dispatch that uses an existing
 `reconc-vX.Y.Z` tag as both workflow ref and input; branch-ref dispatches are

@@ -12,7 +12,7 @@ if [ "$#" -ne 1 ]; then
 fi
 
 dist="$1"
-root="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
+root="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 manifest="$root/scripts/release/copied-assets.tsv"
 
 [ -d "$dist" ] || {

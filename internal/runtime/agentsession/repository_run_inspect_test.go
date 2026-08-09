@@ -143,8 +143,12 @@ func TestReadRunDecisionsRejectsMalformedRecord(t *testing.T) {
 	}
 	f.Close()
 
-	if _, err := ReadRunDecisions(repo, 0); err == nil {
+	decisions, err := ReadRunDecisions(repo, 0)
+	if err == nil {
 		t.Fatal("malformed record must fail closed")
+	}
+	if decisions != nil {
+		t.Fatalf("malformed snapshot leaked %d partial decisions", len(decisions))
 	}
 }
 

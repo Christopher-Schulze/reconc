@@ -210,19 +210,9 @@ func isManagedGitHubCopilotConfig(data []byte) bool {
 	if json.Unmarshal(data, &document) != nil || document.Version != 1 || len(document.Hooks) == 0 {
 		return false
 	}
-	expectedRoutes := map[string]string{
-		"SessionStart":       "copilot-session-start",
-		"UserPromptSubmit":   "copilot-user-prompt-submit",
-		"PreToolUse":         "copilot-pre-tool-use",
-		"PermissionRequest":  "copilot-permission-request",
-		"PostToolUse":        "copilot-post-tool-use",
-		"PostToolUseFailure": "copilot-post-tool-use-failure",
-		"Stop":               "copilot-stop",
-		"SessionEnd":         "copilot-session-end",
-		"Notification":       "copilot-notification",
-		"subagentStart":      "copilot-subagent-start",
-		"SubagentStop":       "copilot-subagent-stop",
-		"PreCompact":         "copilot-pre-compaction",
+	expectedRoutes, ok := githubCopilotExpectedRoutes()
+	if !ok {
+		return false
 	}
 	if len(document.Hooks) != len(expectedRoutes) {
 		return false
@@ -244,6 +234,26 @@ func isManagedGitHubCopilotConfig(data []byte) bool {
 		}
 	}
 	return true
+}
+
+func githubCopilotExpectedRoutes() (map[string]string, bool) {
+	platform, ok := PlatformForKind(KindGitHubCopilot)
+	if !ok {
+		return nil, false
+	}
+	routes := make(map[string]string, len(platform.Capabilities))
+	for _, capability := range platform.Capabilities {
+		for _, binding := range capability.Bindings {
+			if binding.Compatibility || binding.NativeEvent == "" || binding.RuntimeEvent == "" {
+				continue
+			}
+			if _, duplicate := routes[binding.NativeEvent]; duplicate {
+				return nil, false
+			}
+			routes[binding.NativeEvent] = binding.RuntimeEvent
+		}
+	}
+	return routes, len(routes) != 0
 }
 
 func githubCopilotCommandHasRoute(command, route string) bool {

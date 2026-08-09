@@ -42,6 +42,7 @@ is_semantic_version() {
       prerelease=${version#*-}
       old_ifs=$IFS
       IFS=.
+      # shellcheck disable=SC2086 # The validated prerelease is intentionally split on dots.
       set -- $prerelease
       IFS=$old_ifs
       for identifier in "$@"; do

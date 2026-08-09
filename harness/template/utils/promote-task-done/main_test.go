@@ -108,8 +108,12 @@ func TestResolveCommandRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveCommandRoot: %v", err)
 	}
-	if got != root {
-		t.Fatalf("got %q want %q", got, root)
+	want, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
 	}
 }
 
@@ -434,7 +438,8 @@ func TestWriteAtomicPreservesExistingMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantMode := before.Mode().Perm()
-	if err := writeAtomic(path, []byte("after")); err != nil {
+	root := filepath.Dir(path)
+	if err := writeAtomic(root, path, []byte("after"), []byte("before")); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(path)
@@ -453,7 +458,7 @@ func TestApplyChangesRollbackSurfacesIncompleteRestore(t *testing.T) {
 	dst := filepath.Join(root, "docs/tasks/done/TASK-0001-First.md")
 	writeFile(t, root, "docs/tasks.md", "before")
 	writeFile(t, root, "docs/tasks/TASK-0001-First.md", "detail")
-	rollback, err := applyChanges(root, tasksPath, "after", src, dst, "", taskRow{})
+	rollback, err := applyChanges(root, tasksPath, []byte("before"), "after", src, []byte("detail"), dst, "", taskRow{})
 	if err != nil {
 		t.Fatal(err)
 	}

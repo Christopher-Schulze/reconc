@@ -228,6 +228,17 @@ func TestHookRuntimeGrokCompatibilityRouteDeduplicatesOnlyWhenNativeInstalled(t 
 	if code != 0 || stdout != "" || !strings.Contains(stderr, "deduplicated") {
 		t.Fatalf("native Grok hook must own duplicate route: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
+	if err := os.Remove(filepath.Join(repo, filepath.FromSlash(hooks.WrapperPath))); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, code = runWithStdin(t, payload,
+		"hook", "runtime", "claude-pre-tool-use", repo)
+	if code != 2 || strings.Contains(stderr, "deduplicated") {
+		t.Fatalf("Grok without an executable wrapper suppressed compatibility enforcement: code=%d stderr=%q", code, stderr)
+	}
+	if _, err := hooks.Install(hooks.KindGrok, repo, false); err != nil {
+		t.Fatal(err)
+	}
 	target := filepath.Join(repo, filepath.FromSlash(hooks.GrokHooksPath))
 	data, err := os.ReadFile(target)
 	if err != nil {

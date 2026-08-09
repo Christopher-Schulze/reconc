@@ -255,9 +255,10 @@ weaker host lifecycle respectively.
   writes / commands, `Stop` gates session end, and `SessionStart(compact)`
   restores a bounded context packet after compaction.
 - **Codex**: session, Bash, `apply_patch`, permission, evidence, and Stop
-  hooks. Bootstrap writes `hooks = true` under `[features]`; Codex has no
-  `SessionEnd` event. Code-hosted command tools that omit PostToolUse results
-  use `reconc exec --staged` for commit-bound success evidence.
+  hooks, including native `SessionEnd` cleanup while saved reports remain
+  available. Bootstrap writes `hooks = true` under `[features]`. Code-hosted
+  command tools that omit PostToolUse results use `reconc exec --staged` for
+  commit-bound success evidence.
 - **GitHub Copilot**: `.github/hooks/reconc.json` uses the documented
   version-1 repository contract for Copilot CLI and coding agent. PreToolUse
   and Stop translate to Copilot's exact decision schemas. PermissionRequest

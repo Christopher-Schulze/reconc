@@ -8,12 +8,33 @@ cache_dir=".reconc/cache"
 bin="$cache_dir/workflow-audit-template"
 digest_file="$bin.source-digest"
 lock_dir="$bin.build.lock"
-mkdir -p "$cache_dir"
+
+ensure_real_dir() {
+  path="$1"
+  if [ -L "$path" ]; then
+    echo "workflow-audit state directory must not be a symlink: $path" >&2
+    return 1
+  fi
+  if [ -e "$path" ]; then
+    if [ ! -d "$path" ]; then
+      echo "workflow-audit state path must be a directory: $path" >&2
+      return 1
+    fi
+    return 0
+  fi
+  mkdir "$path"
+  if [ -L "$path" ] || [ ! -d "$path" ]; then
+    echo "workflow-audit state directory identity changed: $path" >&2
+    return 1
+  fi
+}
+
+ensure_real_dir ".reconc"
+ensure_real_dir "$cache_dir"
 
 source_digest() {
-  sources="$cache_dir/.workflow-audit-sources.$$"
-  manifest="$cache_dir/.workflow-audit-manifest.$$"
-  : >"$sources"
+  sources="$(mktemp "$cache_dir/.workflow-audit-sources.XXXXXX")"
+  manifest="$(mktemp "$cache_dir/.workflow-audit-manifest.XXXXXX")"
   for src in "$harness/go.mod" "$harness/go.sum"; do
     [ -f "$src" ] && printf '%s\n' "$src" >>"$sources"
   done
@@ -30,16 +51,21 @@ source_digest() {
     return 1
   fi
   : >"$manifest"
+  failed=0
   while IFS= read -r src; do
-    hash="$(git hash-object -- "$src")" || {
-      rm -f "$sources" "$manifest"
-      return 1
-    }
-    printf '%s\0%s\n' "$src" "$hash" >>"$manifest" || {
-      rm -f "$sources" "$manifest"
-      return 1
-    }
+    if ! hash="$(git hash-object -- "$src")"; then
+      failed=1
+      break
+    fi
+    if ! printf '%s\0%s\n' "$src" "$hash" >>"$manifest"; then
+      failed=1
+      break
+    fi
   done <"$sources"
+  if [ "$failed" -ne 0 ]; then
+    rm -f "$sources" "$manifest"
+    return 1
+  fi
   digest="$(git hash-object -- "$manifest")" || {
     rm -f "$sources" "$manifest"
     return 1
@@ -49,11 +75,11 @@ source_digest() {
 }
 
 needs_rebuild() {
-  if [ ! -x "$bin" ]; then
+  if [ -L "$bin" ] || [ ! -f "$bin" ] || [ ! -x "$bin" ]; then
     return 0
   fi
-  [ -f "$digest_file" ] || return 0
-  cached_digest="$(cat "$digest_file")" || return 0
+  [ ! -L "$digest_file" ] && [ -f "$digest_file" ] || return 0
+  cached_digest="$(dd if="$digest_file" bs=129 count=1 2>/dev/null)" || return 0
   [ "$cached_digest" = "$expected_digest" ] || return 0
   return 1
 }
@@ -61,8 +87,12 @@ needs_rebuild() {
 acquire_lock() {
   attempts=0
   while ! mkdir "$lock_dir" 2>/dev/null; do
-    if [ -f "$lock_dir/pid" ]; then
-      holder="$(cat "$lock_dir/pid" 2>/dev/null || true)"
+    if [ ! -L "$lock_dir" ] && [ ! -L "$lock_dir/pid" ] && [ -f "$lock_dir/pid" ]; then
+      holder="$(dd if="$lock_dir/pid" bs=32 count=1 2>/dev/null || true)"
+      case "$holder" in
+        ''|*[!0-9]*) holder="" ;;
+      esac
+      [ "${#holder}" -le 20 ] || holder=""
       if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
         rm -rf "$lock_dir"
         continue
@@ -81,8 +111,8 @@ acquire_lock() {
 expected_digest="$(source_digest)"
 if needs_rebuild; then
   acquire_lock
-  tmp="$bin.tmp.$$"
-  digest_tmp="$digest_file.tmp.$$"
+  tmp="$(mktemp "$cache_dir/.workflow-audit-bin.XXXXXX")"
+  digest_tmp="$(mktemp "$cache_dir/.workflow-audit-digest.XXXXXX")"
   trap 'rm -f "$tmp" "$digest_tmp"; rm -rf "$lock_dir"' EXIT INT TERM
   expected_digest="$(source_digest)"
   if needs_rebuild; then

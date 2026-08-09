@@ -71,6 +71,7 @@ func evaluatePackageScripts(root string, gate policy.AssuranceGate, successful [
 		if err != nil {
 			return nil, fmt.Errorf("resolve package manager for %s: %w", manifest.relative, err)
 		}
+		state.recordObservation("package-managers:"+manifest.relative, strings.Join(managers, "\x00"))
 		if len(managers) > 1 {
 			findings = append(findings, Finding{
 				GateID: gate.ID, Paths: []string{manifest.relative},

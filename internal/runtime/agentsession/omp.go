@@ -70,6 +70,9 @@ type ompNormalizedPayload struct {
 	OMPInputSource     string          `json:"omp_input_source,omitempty"`
 	OMPApprovalMode    string          `json:"omp_approval_mode,omitempty"`
 	OMPApproved        *bool           `json:"omp_approved,omitempty"`
+	UserPythonCWD      string          `json:"user_python_cwd,omitempty"`
+	ExcludeFromContext *bool           `json:"exclude_from_context,omitempty"`
+	CodeBytes          *int            `json:"code_bytes,omitempty"`
 	MCP                *ompMCPEnvelope `json:"reconc_mcp,omitempty"`
 }
 
@@ -141,6 +144,11 @@ func NormalizeOMPPayload(event string, payloadBytes []byte, repoRoot string) ([]
 	if event == "omp-stop" {
 		normalized.StrictContinuation = true
 	}
+	if event == "omp-user-python" {
+		normalized.UserPythonCWD = raw.UserPythonCWD
+		normalized.ExcludeFromContext = raw.ExcludeFromContext
+		normalized.CodeBytes = raw.CodeBytes
+	}
 	if ompToolEvent(event) {
 		outcome := ""
 		if event == "omp-post-tool-use" {
@@ -162,6 +170,25 @@ func NormalizeOMPPayload(event string, payloadBytes []byte, repoRoot string) ([]
 		return nil, fmt.Errorf("normalize OMP payload: %w", err)
 	}
 	return body, nil
+}
+
+func recordOMPUserPythonObservationResolved(root string, payload *HookPayload) error {
+	if payload == nil || payload.Raw["reconc_runtime"] != "omp" || payload.Raw["omp_event"] != "omp-user-python" {
+		return nil
+	}
+	workingDirectory, ok := payload.Raw["user_python_cwd"].(string)
+	if !ok || workingDirectory == "" {
+		return errors.New("normalized OMP user_python observation is missing its working directory")
+	}
+	codeBytes, ok := strictInteger(payload.Raw["code_bytes"])
+	if !ok || codeBytes < 0 {
+		return errors.New("normalized OMP user_python observation has an invalid code size")
+	}
+	excludeFromContext, ok := payload.Raw["exclude_from_context"].(bool)
+	if !ok {
+		return errors.New("normalized OMP user_python observation is missing its context flag")
+	}
+	return recordHookObservationResolved(root, "omp", "omp-user-python", workingDirectory, codeBytes, excludeFromContext)
 }
 
 func validateOMPEventPayload(event string, raw ompPayload, repoRoot string) error {

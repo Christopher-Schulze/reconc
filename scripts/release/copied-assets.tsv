@@ -3,14 +3,14 @@
 #
 # This file is the only place that mapping exists. The build copies from it, the
 # artifact verifier derives both its expected asset set and its byte-identity
-# checks from it, and the release trust gate assembles its tamper fixture from
+# checks from it, and the real release target used by the trust gate consumes
 # it. Before this file the same list lived in three places and drifted: format 4
 # added a fourth policy-lock schema, the build shipped it, the verifier still
 # described three, and the v0.9.4 release stopped after its artifacts were
 # already built and attested.
 #
-# Generated artifacts (binaries, completions, man page, SBOMs) are not listed
-# here: they have no repository source to be compared against.
+# Generated artifacts and binaries have no repository source to compare and
+# are owned separately by scripts/release/generated-assets.sh.
 install.sh	install.sh
 install.ps1	install.ps1
 reconc-harness-pack-advanced-1.0.0.zip	harness/advanced-pack.zip

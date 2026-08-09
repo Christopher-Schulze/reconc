@@ -4,7 +4,11 @@
 package assurance
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -43,17 +47,39 @@ func Evaluate(repoRoot string, gates []policy.AssuranceGate, inputs Inputs) ([]F
 	return findings, err
 }
 
+// EvaluateWithInputIdentity evaluates the same native gates as Evaluate and
+// returns a deterministic identity of every filesystem fact and derived
+// directory observation that influenced the result. Completion callers use
+// it before and after the policy evaluation to reject concurrent assurance
+// input drift without executing scripts or network operations.
+func EvaluateWithInputIdentity(repoRoot string, gates []policy.AssuranceGate, inputs Inputs) ([]Finding, string, error) {
+	findings, state, err := evaluateWithState(repoRoot, gates, inputs, maxAnalysisWorkers)
+	if err != nil {
+		return nil, "", err
+	}
+	identity, err := state.inputIdentity(findings)
+	if err != nil {
+		return nil, "", fmt.Errorf("encode assurance input identity: %w", err)
+	}
+	return findings, identity, nil
+}
+
 func evaluateWithStats(repoRoot string, gates []policy.AssuranceGate, inputs Inputs) ([]Finding, analysisStats, error) {
 	return evaluateWithWorkerLimit(repoRoot, gates, inputs, maxAnalysisWorkers)
 }
 
 func evaluateWithWorkerLimit(repoRoot string, gates []policy.AssuranceGate, inputs Inputs, workerLimit int) ([]Finding, analysisStats, error) {
+	findings, state, err := evaluateWithState(repoRoot, gates, inputs, workerLimit)
+	return findings, state.analysisStats(), err
+}
+
+func evaluateWithState(repoRoot string, gates []policy.AssuranceGate, inputs Inputs, workerLimit int) ([]Finding, *evaluationState, error) {
 	root, err := canonicalRoot(repoRoot)
 	if err != nil {
-		return nil, analysisStats{}, err
+		return nil, newEvaluationState(nil, workerLimit), err
 	}
 	if len(inputs.ChangedPaths) > maxChangedPaths {
-		return nil, analysisStats{}, fmt.Errorf("assurance changed-path budget exceeded: %d > %d", len(inputs.ChangedPaths), maxChangedPaths)
+		return nil, newEvaluationState(nil, workerLimit), fmt.Errorf("assurance changed-path budget exceeded: %d > %d", len(inputs.ChangedPaths), maxChangedPaths)
 	}
 	if inputs.Now.IsZero() {
 		inputs.Now = time.Now().UTC()
@@ -63,7 +89,7 @@ func evaluateWithWorkerLimit(repoRoot string, gates []policy.AssuranceGate, inpu
 	for _, gate := range gates {
 		applies, err := state.applies(root, gate.ApplicableIf)
 		if err != nil {
-			return nil, state.analysisStats(), fmt.Errorf("assurance gate %s applicability: %w", gate.ID, err)
+			return nil, state, fmt.Errorf("assurance gate %s applicability: %w", gate.ID, err)
 		}
 		if !applies {
 			continue
@@ -94,11 +120,104 @@ func evaluateWithWorkerLimit(repoRoot string, gates []policy.AssuranceGate, inpu
 			err = fmt.Errorf("unsupported assurance kind %q", gate.Type)
 		}
 		if err != nil {
-			return nil, state.analysisStats(), fmt.Errorf("assurance gate %s: %w", gate.ID, err)
+			return nil, state, fmt.Errorf("assurance gate %s: %w", gate.ID, err)
 		}
 		findings = append(findings, gateFindings...)
 	}
-	return limitFindings(findings), state.analysisStats(), nil
+	return limitFindings(findings), state, nil
+}
+
+type assuranceIdentityPath struct {
+	Path   string `json:"path"`
+	Exists bool   `json:"exists"`
+	Mode   uint32 `json:"mode,omitempty"`
+}
+
+type assuranceIdentityFile struct {
+	Path string `json:"path"`
+	Hash string `json:"hash"`
+}
+
+type assuranceIdentityManifests struct {
+	Selector string   `json:"selector"`
+	Paths    []string `json:"paths"`
+}
+
+type assuranceIdentityChangedPath struct {
+	Path      string `json:"path"`
+	Extension string `json:"extension"`
+}
+
+type assuranceIdentityInput struct {
+	ChangedPaths     []assuranceIdentityChangedPath `json:"changed_paths"`
+	Paths            []assuranceIdentityPath        `json:"paths"`
+	Files            []assuranceIdentityFile        `json:"files"`
+	Applicability    map[string]bool                `json:"applicability"`
+	PackageManifests []assuranceIdentityManifests   `json:"package_manifests"`
+	ManifestMarkers  map[string]bool                `json:"manifest_markers"`
+	Observations     map[string]string              `json:"observations"`
+	Findings         []Finding                      `json:"findings"`
+}
+
+func (state *evaluationState) inputIdentity(findings []Finding) (string, error) {
+	changedPaths := make([]assuranceIdentityChangedPath, len(state.changedPaths))
+	for index, changed := range state.changedPaths {
+		changedPaths[index] = assuranceIdentityChangedPath{Path: changed.relative, Extension: changed.extension}
+	}
+	paths := make([]assuranceIdentityPath, 0, len(state.paths))
+	for path, resolved := range state.paths {
+		paths = append(paths, assuranceIdentityPath{Path: path, Exists: resolved.exists, Mode: uint32(resolved.mode)})
+	}
+	sort.Slice(paths, func(i, j int) bool { return paths[i].Path < paths[j].Path })
+
+	files := make([]assuranceIdentityFile, 0, len(state.facts))
+	for path, fact := range state.facts {
+		if !fact.bodyLoaded || fact.bodyErr != nil {
+			continue
+		}
+		sum := sha256.Sum256(fact.bodyBytes)
+		files = append(files, assuranceIdentityFile{Path: path, Hash: hex.EncodeToString(sum[:])})
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+
+	manifests := make([]assuranceIdentityManifests, 0, len(state.packageManifests))
+	for selector, matched := range state.packageManifests {
+		paths := make([]string, len(matched))
+		for index, file := range matched {
+			paths[index] = file.relative
+		}
+		manifests = append(manifests, assuranceIdentityManifests{Selector: selector, Paths: paths})
+	}
+	sort.Slice(manifests, func(i, j int) bool { return manifests[i].Selector < manifests[j].Selector })
+
+	body, err := json.Marshal(assuranceIdentityInput{
+		ChangedPaths: changedPaths,
+		Paths:        paths, Files: files,
+		Applicability: cloneBoolMap(state.applicability), PackageManifests: manifests,
+		ManifestMarkers: cloneBoolMap(state.manifestMarkers), Observations: cloneStringMap(state.observations),
+		Findings: append([]Finding(nil), findings...),
+	})
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(body)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func cloneBoolMap(values map[string]bool) map[string]bool {
+	out := make(map[string]bool, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
 }
 
 func normalizeCommand(command string) string {

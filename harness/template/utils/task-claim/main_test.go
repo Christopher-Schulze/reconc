@@ -117,8 +117,12 @@ func TestFindRepoRootFromNestedHarnessDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("findRepoRoot: %v", err)
 	}
-	if got != root {
-		t.Fatalf("got %q want %q", got, root)
+	want, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
 	}
 }
 

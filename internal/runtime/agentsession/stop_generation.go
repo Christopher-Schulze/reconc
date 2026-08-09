@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	stopGenerationVersion       = "stop-generation-v1"
+	stopGenerationVersion       = "stop-generation-v2"
 	maxStopDecisionCacheEntries = 64
 )
 
@@ -43,26 +43,32 @@ type stopTaskSnapshot struct {
 }
 
 type stopRepositoryGeneration struct {
-	Version            string                    `json:"version"`
-	RepoRoot           string                    `json:"repo_root"`
-	RootIdentity       string                    `json:"root_identity"`
-	PolicyLockHash     string                    `json:"policy_lock_hash"`
-	PolicySourceDigest string                    `json:"policy_source_digest"`
-	PolicySourceCount  int                       `json:"policy_source_count"`
-	TaskStateHash      string                    `json:"task_state_hash"`
-	GitHead            string                    `json:"git_head"`
-	GitStatus          string                    `json:"git_status"`
-	GitStatusMode      string                    `json:"git_status_mode"`
-	GitStatusOK        bool                      `json:"git_status_ok"`
-	DirtyPaths         []stopDirtyPathGeneration `json:"dirty_paths"`
-	SchemaBase         string                    `json:"schema_base"`
-	AuditNoCache       string                    `json:"audit_no_cache"`
+	Version            string                     `json:"version"`
+	RepoRoot           string                     `json:"repo_root"`
+	RootIdentity       string                     `json:"root_identity"`
+	PolicyLockHash     string                     `json:"policy_lock_hash"`
+	PolicySourceDigest string                     `json:"policy_source_digest"`
+	PolicySourceCount  int                        `json:"policy_source_count"`
+	TaskStateHash      string                     `json:"task_state_hash"`
+	GitHead            string                     `json:"git_head"`
+	GitStatus          string                     `json:"git_status"`
+	GitStatusMode      string                     `json:"git_status_mode"`
+	GitStatusOK        bool                       `json:"git_status_ok"`
+	DirtyPaths         []stopDirtyPathGeneration  `json:"dirty_paths"`
+	PolicyInputs       []stopPolicyPathGeneration `json:"policy_inputs,omitempty"`
+	SchemaBase         string                     `json:"schema_base"`
+	AuditNoCache       string                     `json:"audit_no_cache"`
 }
 
 type stopDirtyPathGeneration struct {
 	Path       string `json:"path"`
 	IndexEntry string `json:"index_entry"`
 	Worktree   string `json:"worktree"`
+}
+
+type stopPolicyPathGeneration struct {
+	Path       string `json:"path"`
+	Generation string `json:"generation"`
 }
 
 type stopGenerationCapture struct {
@@ -115,6 +121,7 @@ func captureStopRepositoryGeneration(
 	root string,
 	gitSnapshot stopPolicyGitSnapshot,
 	taskSnapshot stopTaskSnapshot,
+	writePaths []string,
 ) (stopGenerationCapture, bool) {
 	policyDigest, policyCount, err := stopPolicySourceIdentity(root)
 	if err != nil {
@@ -122,7 +129,7 @@ func captureStopRepositoryGeneration(
 	}
 	return captureStopRepositoryGenerationWithIdentity(
 		root, gitSnapshot,
-		policyDigest, policyCount, stopTaskSnapshotHash(taskSnapshot),
+		policyDigest, policyCount, stopTaskSnapshotHash(taskSnapshot), writePaths,
 	)
 }
 
@@ -132,6 +139,7 @@ func captureStopRepositoryGenerationWithIdentity(
 	policyDigest string,
 	policyCount int,
 	taskStateHash string,
+	writePaths []string,
 ) (stopGenerationCapture, bool) {
 	rootInfo, err := os.Lstat(root)
 	if err != nil {
@@ -156,6 +164,14 @@ func captureStopRepositoryGenerationWithIdentity(
 		}
 		dirty = append(dirty, stopDirtyPathGeneration{Path: path, IndexEntry: indexEntry, Worktree: worktree})
 	}
+	policyScan := scanStopPolicyLockfile(root, sortedUniqueExact(writePaths))
+	if !policyScan.Cacheable {
+		return stopGenerationCapture{}, false
+	}
+	policyInputs, ok := stopPolicyPathGenerations(root, policyScan.Paths)
+	if !ok {
+		return stopGenerationCapture{}, false
+	}
 	generation := stopRepositoryGeneration{
 		Version:            stopGenerationVersion,
 		RepoRoot:           root,
@@ -169,6 +185,7 @@ func captureStopRepositoryGenerationWithIdentity(
 		GitStatusMode:      gitSnapshot.StatusMode,
 		GitStatusOK:        gitSnapshot.StatusOK,
 		DirtyPaths:         dirty,
+		PolicyInputs:       policyInputs,
 		SchemaBase:         os.Getenv("RECONC_SCHEMA_BASE_URL"),
 		AuditNoCache:       os.Getenv("RECONC_AUDIT_NO_CACHE"),
 	}
@@ -185,6 +202,37 @@ func captureStopRepositoryGenerationWithIdentity(
 		PolicySourceCount:  policyCount,
 		TaskStateHash:      generation.TaskStateHash,
 	}, true
+}
+
+func stopPolicyPathGenerations(root string, paths []string) ([]stopPolicyPathGeneration, bool) {
+	generations := make([]stopPolicyPathGeneration, 0, len(paths))
+	for _, path := range paths {
+		resolved, err := resolveStopPolicyInputPath(root, path)
+		if err != nil {
+			return nil, false
+		}
+		info, err := os.Lstat(resolved)
+		if os.IsNotExist(err) {
+			generations = append(generations, stopPolicyPathGeneration{Path: path, Generation: "missing"})
+			continue
+		}
+		if err != nil {
+			return nil, false
+		}
+		var generation string
+		var reliable bool
+		switch {
+		case info.IsDir():
+			generation, reliable = stopPolicyDirectoryGeneration(resolved)
+		case info.Mode().IsRegular():
+			generation, reliable = stopPathMetadataGeneration(resolved, info)
+		}
+		if !reliable {
+			return nil, false
+		}
+		generations = append(generations, stopPolicyPathGeneration{Path: path, Generation: generation})
+	}
+	return generations, true
 }
 
 func (cache *StopDecisionCache) entry(root, sessionID string) (stopDecisionCacheEntry, bool) {
@@ -264,13 +312,25 @@ func (cache *StopDecisionCache) readStableReport(
 		cache.invalidate(root, state.SessionID)
 		return nil, false
 	}
-	generation, generationOK := captureStopRepositoryGeneration(root, gitSnapshot, taskSnapshot)
-	if !generationOK || entry.generation != generation.Fingerprint {
+	generationBefore, generationOK := captureStopRepositoryGeneration(root, gitSnapshot, taskSnapshot, state.WritePaths)
+	if !generationOK || entry.generation != generationBefore.Fingerprint {
 		cache.invalidate(root, state.SessionID)
 		return nil, false
 	}
 	report, reportHash, readErr := readLatestReport(root, state.SessionID)
 	if readErr != nil || reportHash != entry.reportHash {
+		cache.invalidate(root, state.SessionID)
+		return nil, false
+	}
+	taskAfter, taskErr := captureStopTaskSnapshot(root)
+	if taskErr != nil {
+		cache.invalidate(root, state.SessionID)
+		return nil, false
+	}
+	generationAfter, generationOK := captureStopRepositoryGeneration(
+		root, stopPolicyGitSnapshotFor(root), taskAfter, state.WritePaths,
+	)
+	if !generationOK || generationBefore.Fingerprint != generationAfter.Fingerprint {
 		cache.invalidate(root, state.SessionID)
 		return nil, false
 	}

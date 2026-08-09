@@ -77,14 +77,18 @@ func TestNormalizeDevinSuccessfulStderrRemainsDiagnosticOutput(t *testing.T) {
 }
 
 func TestPayloadLooksLikeDevin(t *testing.T) {
-	if !PayloadLooksLikeDevin([]byte(`{"source":"devin-cli"}`)) {
+	if !PayloadLooksLikeDevin([]byte(`{"source":"devin-cli"}`), t.TempDir()) {
 		t.Fatal("source marker should identify Devin")
 	}
-	if PayloadLooksLikeDevin([]byte(`{"source":"cursor"}`)) {
+	if PayloadLooksLikeDevin([]byte(`{"source":"cursor"}`), t.TempDir()) {
 		t.Fatal("Cursor must not identify as Devin")
 	}
-	t.Setenv("DEVIN_PROJECT_DIR", "/repo")
-	if !PayloadLooksLikeDevin([]byte(`{"source":"claude"}`)) {
+	repo := t.TempDir()
+	t.Setenv("DEVIN_PROJECT_DIR", repo)
+	if !PayloadLooksLikeDevin([]byte(`{"source":"claude"}`), repo) {
 		t.Fatal("DEVIN_PROJECT_DIR should suppress compatible Claude duplicates")
+	}
+	if PayloadLooksLikeDevin([]byte(`{"source":"claude"}`), t.TempDir()) {
+		t.Fatal("a foreign DEVIN_PROJECT_DIR must not suppress this repository's route")
 	}
 }

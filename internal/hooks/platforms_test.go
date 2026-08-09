@@ -557,35 +557,15 @@ func TestNewPlatformArtifactsUseCurrentContracts(t *testing.T) {
 }
 
 func TestBunAdapterRoutesAreRegistered(t *testing.T) {
-	for kind, events := range map[string][]string{
-		KindOpenCode: {
-			"opencode-session-start", "opencode-user-prompt-submit", "opencode-pre-tool-use",
-			"opencode-permission-request", "opencode-post-tool-use", "opencode-post-tool-use-failure",
-			"opencode-pre-compaction", "opencode-post-compaction", "opencode-session-end", "opencode-stop",
-			"opencode-continuation-accepted", "opencode-continuation-failed",
-			"opencode-continuation-unavailable", "opencode-continuation-suppressed",
-		},
-		KindKilo: {
-			"kilo-session-start", "kilo-user-prompt-submit", "kilo-pre-tool-use",
-			"kilo-permission-request", "kilo-post-tool-use", "kilo-post-tool-use-failure",
-			"kilo-pre-compaction", "kilo-post-compaction", "kilo-session-end", "kilo-stop",
-			"kilo-continuation-accepted", "kilo-continuation-failed",
-			"kilo-continuation-unavailable", "kilo-continuation-suppressed",
-		},
-		KindOMP: {
-			"omp-session-start", "omp-user-prompt-submit", "omp-pre-tool-use",
-			"omp-user-bash", "omp-user-python",
-			"omp-permission-request", "omp-permission-result", "omp-post-tool-use",
-			"omp-post-tool-use-failure", "omp-stop", "omp-session-end",
-			"omp-pre-compaction", "omp-post-compaction",
-		},
-		KindPi: {
-			"pi-session-start", "pi-user-prompt-submit", "pi-pre-tool-use", "pi-user-bash",
-			"pi-post-tool-use", "pi-post-tool-use-failure", "pi-stop",
-			"pi-continuation-requested", "pi-continuation-failed", "pi-continuation-suppressed",
-			"pi-session-end", "pi-pre-compaction", "pi-post-compaction",
-		},
-	} {
+	for _, kind := range []string{KindOpenCode, KindKilo, KindOMP, KindPi} {
+		platform, ok := PlatformForKind(kind)
+		if !ok {
+			t.Fatalf("Bun adapter %s is missing from the registry", kind)
+		}
+		events := platformRuntimeEvents(platform)
+		if len(events) == 0 {
+			t.Fatalf("Bun adapter %s has no runtime routes", kind)
+		}
 		for _, event := range events {
 			route, ok := RuntimeEvent(event)
 			if !ok || route.PlatformKind != kind {
@@ -593,45 +573,20 @@ func TestBunAdapterRoutesAreRegistered(t *testing.T) {
 			}
 		}
 	}
-	for _, event := range []string{
-		"claude-user-prompt-submit",
-		"codex-user-prompt-submit",
-		"opencode-user-prompt-submit",
-		"devin-user-prompt-submit",
-		"kilo-user-prompt-submit",
-		"omp-user-prompt-submit",
-		"pi-user-prompt-submit",
-	} {
-		if _, ok := RuntimeEvent(event); !ok {
-			t.Fatalf("native user-prompt route %s is not registered", event)
-		}
-	}
-	for _, event := range []string{
-		"antigravity-user-prompt-submit",
-	} {
-		if _, ok := RuntimeEvent(event); ok {
-			t.Fatalf("unsupported user-prompt route %s is registered", event)
-		}
-	}
-	for _, event := range []string{
-		"grok-session-start",
-		"grok-user-prompt-submit",
-		"grok-pre-tool-use",
-		"grok-post-tool-use",
-		"grok-post-tool-use-failure",
-		"grok-permission-denied",
-		"grok-stop",
-		"grok-stop-failure",
-		"grok-notification",
-		"grok-subagent-start",
-		"grok-subagent-stop",
-		"grok-pre-compaction",
-		"grok-post-compaction",
-		"grok-session-end",
-	} {
-		route, ok := RuntimeEvent(event)
-		if !ok || route.PlatformKind != KindGrok {
-			t.Fatalf("Grok route %s = %+v, %t", event, route, ok)
+	for _, platform := range Platforms() {
+		for _, capability := range platform.Capabilities {
+			if capability.Event != EventUserPromptSubmit || capability.Support == SupportUnsupported {
+				continue
+			}
+			for _, binding := range capability.Bindings {
+				if binding.RuntimeEvent == "" {
+					continue
+				}
+				route, ok := RuntimeEvent(binding.RuntimeEvent)
+				if !ok || route.PlatformKind != platform.Kind || route.Event != EventUserPromptSubmit {
+					t.Fatalf("user-prompt route %s = %+v, %t; want %s", binding.RuntimeEvent, route, ok, platform.Kind)
+				}
+			}
 		}
 	}
 }

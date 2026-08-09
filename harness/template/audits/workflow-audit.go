@@ -300,7 +300,7 @@ func auditRepoLayout(root string) []string {
 			allowedRoot[name] = true
 		}
 	}
-	entries, err := os.ReadDir(root)
+	entries, err := readAuditDirectory(root)
 	if err != nil {
 		return []string{fmt.Sprintf("read repo root: %v", err)}
 	}
@@ -347,7 +347,7 @@ func auditDependencyLocality(root string) []string {
 		".git": true, ".reconc": true, "_drop": true, "research": true,
 		".agents": true, ".claude": true, ".codex": true, ".cursor": true, ".devin": true, ".grok": true, ".kilo": true, ".kilocode": true, ".omp": true, ".opencode": true, ".pi": true, ".zcode": true, ".vscode": true,
 	}
-	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+	err := walkAuditTree(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("walk %s: %v", rel(root, path), err))
 			return nil
@@ -404,7 +404,7 @@ func auditGitHooks(root string) []string {
 		failures = append(failures, ".githooks/pre-commit is not executable (run `chmod +x .githooks/pre-commit`)")
 	}
 	cmd, cancel := commandWithTimeout(shortAuditCommandTimeout, "git", "-C", root, "config", "--get", "core.hooksPath")
-	out, err := cmd.Output()
+	out, err := runPreparedAuditCommand(cmd, false)
 	cancel()
 	configured := strings.TrimSpace(string(out))
 	if err != nil || configured != ".githooks" {
@@ -425,13 +425,13 @@ func auditGitHooks(root string) []string {
 // task-state audit surfaces parse problems separately).
 func auditTasksMdRowsImmutable(root string) []string {
 	wtPath := filepath.Join(root, "docs/tasks.md")
-	wtBytes, err := os.ReadFile(wtPath)
+	wtBytes, err := readAuditFile(wtPath)
 	if err != nil {
 		// Missing working-tree file is handled by auditTaskState.
 		return nil
 	}
 	cmd, cancel := commandWithTimeout(shortAuditCommandTimeout, "git", "-C", root, "show", "HEAD:docs/tasks.md")
-	headBytes, err := cmd.Output()
+	headBytes, err := runPreparedAuditCommand(cmd, false)
 	cancel()
 	if err != nil {
 		// No HEAD yet, or file not in HEAD: nothing to compare against.
@@ -468,7 +468,7 @@ func auditTasksMdRowsImmutable(root string) []string {
 func auditTaskState(root string) []string {
 	var failures []string
 	path := filepath.Join(root, "docs/tasks.md")
-	content, err := os.ReadFile(path)
+	content, err := readAuditFile(path)
 	if err != nil {
 		return []string{fmt.Sprintf("read docs/tasks.md: %v", err)}
 	}
@@ -616,7 +616,7 @@ func parseTaskIndex(content string) (taskIndex, []string) {
 func auditTaskDetail(root string, path string, entry taskEntry, isCurrent bool, loopRequired bool) (taskDetailInfo, []string) {
 	var info taskDetailInfo
 	var failures []string
-	contentBytes, err := os.ReadFile(path)
+	contentBytes, err := readAuditFile(path)
 	if err != nil {
 		return info, []string{fmt.Sprintf("read %s: %v", path, err)}
 	}
@@ -898,11 +898,11 @@ func validSpecLineRefs(value string) bool {
 
 func auditSpecTaskCoverage(root string) []string {
 	var failures []string
-	specBytes, err := os.ReadFile(filepath.Join(root, "docs/spec.md"))
+	specBytes, err := readAuditFile(filepath.Join(root, "docs/spec.md"))
 	if err != nil {
 		return []string{fmt.Sprintf("read docs/spec.md: %v", err)}
 	}
-	tasksBytes, err := os.ReadFile(filepath.Join(root, "docs/tasks.md"))
+	tasksBytes, err := readAuditFile(filepath.Join(root, "docs/tasks.md"))
 	if err != nil {
 		return []string{fmt.Sprintf("read docs/tasks.md: %v", err)}
 	}
@@ -920,7 +920,7 @@ func auditSpecTaskCoverage(root string) []string {
 		}
 		openTasks++
 		detailPath := filepath.Join(root, "docs", filepath.FromSlash(entry.target))
-		content, err := os.ReadFile(detailPath)
+		content, err := readAuditFile(detailPath)
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("read docs/%s: %v", entry.target, err))
 			continue
@@ -1073,10 +1073,17 @@ func auditAgentHooks(root string) []string {
 			"cursor-session-end",
 			"cursor-pre-tool-use",
 			"cursor-post-tool-use",
+			"cursor-post-tool-use-failure",
 			"cursor-before-shell-execution",
 			"cursor-after-shell-execution",
+			"cursor-before-mcp-execution",
+			"cursor-after-mcp-execution",
 			"cursor-after-file-edit",
 			"cursor-after-tab-file-edit",
+			"cursor-subagent-start",
+			"cursor-subagent-stop",
+			"cursor-pre-compaction",
+			"cursor-workspace-open",
 			"Write|Edit|MultiEdit|StrReplace|Delete|FileEdit|TabWrite",
 			"StrReplace|Delete|FileEdit",
 			"cursor-stop",
@@ -1128,6 +1135,10 @@ func auditAgentHooks(root string) []string {
 			"opencode-pre-compaction",
 			"opencode-post-compaction",
 			"opencode-stop",
+			"opencode-continuation-accepted",
+			"opencode-continuation-failed",
+			"opencode-continuation-unavailable",
+			"opencode-continuation-suppressed",
 			"session.idle",
 			"client.session.prompt",
 		}
@@ -1177,6 +1188,10 @@ func auditAgentHooks(root string) []string {
 			"kilo-pre-compaction",
 			"kilo-post-compaction",
 			"kilo-stop",
+			"kilo-continuation-accepted",
+			"kilo-continuation-failed",
+			"kilo-continuation-unavailable",
+			"kilo-continuation-suppressed",
 			`export default { id: "reconc", server: ReconcKiloServer }`,
 		}
 	}
@@ -1283,7 +1298,7 @@ func auditAgentHooks(root string) []string {
 	}
 	for path, required := range hooks {
 		relative := filepath.ToSlash(rel(root, path))
-		contentBytes, err := os.ReadFile(path)
+		contentBytes, err := readAuditFile(path)
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("%s missing or unreadable: %v", relative, err))
 			continue
@@ -1685,7 +1700,7 @@ func visitJSONCommands(value interface{}, visit func(command string, args interf
 
 func auditRepoCleanliness(root string) []string {
 	insideCommand, cancel := commandWithTimeout(shortAuditCommandTimeout, "git", "-C", root, "rev-parse", "--is-inside-work-tree")
-	inside, err := insideCommand.CombinedOutput()
+	inside, err := runPreparedAuditCommand(insideCommand, true)
 	cancel()
 	if err != nil {
 		if _, statErr := os.Stat(filepath.Join(root, ".git")); statErr == nil {
@@ -1771,7 +1786,7 @@ func auditUnreferencedTaskFiles(root string, referenced map[string]bool) []strin
 
 func auditStartEntrypoint(root string) []string {
 	path := filepath.Join(root, "start.md")
-	contentBytes, err := os.ReadFile(path)
+	contentBytes, err := readAuditFile(path)
 	if err != nil {
 		return []string{fmt.Sprintf("read start.md: %v", err)}
 	}
@@ -1802,7 +1817,7 @@ func auditStartEntrypoint(root string) []string {
 			failures = append(failures, fmt.Sprintf("start.md contains forbidden stale/setup token %q", token))
 		}
 	}
-	agentsBytes, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
+	agentsBytes, err := readAuditFile(filepath.Join(root, "AGENTS.md"))
 	if err != nil {
 		failures = append(failures, fmt.Sprintf("read AGENTS.md: %v", err))
 		return failures
@@ -1826,7 +1841,7 @@ func auditStartEntrypoint(root string) []string {
 
 func auditSpecFormat(root string) []string {
 	path := filepath.Join(root, "docs/spec.md")
-	contentBytes, err := os.ReadFile(path)
+	contentBytes, err := readAuditFile(path)
 	if err != nil {
 		return []string{fmt.Sprintf("read docs/spec.md: %v", err)}
 	}
@@ -1865,14 +1880,14 @@ func auditGeneratedReferences(root string) []string {
 		}
 		build, cancel := commandWithTimeout(buildAuditCommandTimeout, "go", "build", "-ldflags=-s -w", "-trimpath", "-buildvcs=false", "-o", bin, "./audits/generated_reference")
 		build.Dir = filepath.Join(root, "tools/reconc/harness/template")
-		out, err := build.CombinedOutput()
+		out, err := runPreparedAuditCommand(build, true)
 		cancel()
 		if err != nil {
 			return []string{fmt.Sprintf("generated-references audit build failed: %v\n%s", err, string(out))}
 		}
 		cmd, cancel := commandWithTimeout(buildAuditCommandTimeout, bin)
 		cmd.Dir = root
-		output, err := cmd.CombinedOutput()
+		output, err := runPreparedAuditCommand(cmd, true)
 		cancel()
 		if err != nil {
 			return []string{fmt.Sprintf("generated-references audit failed: %v\n%s", err, string(output))}
@@ -1883,7 +1898,7 @@ func auditGeneratedReferences(root string) []string {
 
 func validateGeneratedReferenceSource(srcDir string) error {
 	found := false
-	err := filepath.WalkDir(srcDir, func(path string, d os.DirEntry, err error) error {
+	err := walkAuditTree(srcDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -1914,6 +1929,77 @@ func auditBuildBaseline(root string) []string {
 		return nil
 	}
 	var failures []string
+	for _, relative := range buildBaselineRequiredFiles(root, cfg) {
+		if !exists(filepath.Join(root, filepath.FromSlash(relative))) {
+			failures = append(failures, fmt.Sprintf("build baseline missing %s", relative))
+		}
+	}
+	if cfg.Build.RequireGoMod {
+		goMod, err := readAuditFile(filepath.Join(root, "go.mod"))
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("read go.mod: %v", err))
+		} else {
+			text := string(goMod)
+			for _, token := range cfg.Build.GoModTokens {
+				if !strings.Contains(text, token) {
+					failures = append(failures, fmt.Sprintf("go.mod missing %q", token))
+				}
+			}
+		}
+	}
+	if cfg.Build.RequireCargoToml {
+		cargoToml, err := readAuditFile(filepath.Join(root, "Cargo.toml"))
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("read Cargo.toml: %v", err))
+		} else {
+			text := string(cargoToml)
+			for _, token := range cfg.Build.CargoTomlTokens {
+				if !strings.Contains(text, token) {
+					failures = append(failures, fmt.Sprintf("Cargo.toml missing %q", token))
+				}
+			}
+		}
+	}
+	if cfg.Build.RequireFrontendPackage {
+		packageJSONRel := projectRel(root, "frontend/package.json")
+		packageJSON, err := readAuditFile(filepath.Join(root, packageJSONRel))
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("read %s: %v", packageJSONRel, err))
+		} else {
+			text := string(packageJSON)
+			for _, token := range cfg.Build.FrontendPackageTokens {
+				if !strings.Contains(text, token) {
+					failures = append(failures, fmt.Sprintf("%s missing %s", packageJSONRel, token))
+				}
+			}
+			for _, token := range cfg.Build.ForbiddenFrontendTokens {
+				if strings.Contains(text, token) {
+					failures = append(failures, fmt.Sprintf("%s uses forbidden package manager token %s", packageJSONRel, token))
+				}
+			}
+		}
+	}
+	if cfg.Build.RequireBuildRunner {
+		buildRunnerRel := projectRel(root, "scripts/build/build.go")
+		buildRunner, err := readAuditFile(filepath.Join(root, buildRunnerRel))
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("read %s: %v", buildRunnerRel, err))
+		} else {
+			text := string(buildRunner)
+			for _, token := range cfg.Build.BuildRunnerTokens {
+				if !strings.Contains(text, token) {
+					failures = append(failures, fmt.Sprintf("%s missing build-baseline token %q", buildRunnerRel, token))
+				}
+			}
+		}
+	}
+	return failures
+}
+
+func buildBaselineRequiredFiles(root string, cfg stackConfig) []string {
+	if !cfg.Build.Enabled {
+		return nil
+	}
 	var requiredFiles []string
 	if cfg.Build.RequireGoMod {
 		requiredFiles = append(requiredFiles, "go.mod")
@@ -1933,71 +2019,7 @@ func auditBuildBaseline(root string) []string {
 	for _, entrypoint := range cfg.Build.BackendEntrypoints {
 		requiredFiles = append(requiredFiles, projectRel(root, filepath.ToSlash(filepath.Join("backend", entrypoint, "main.go"))))
 	}
-	for _, relative := range requiredFiles {
-		if !exists(filepath.Join(root, filepath.FromSlash(relative))) {
-			failures = append(failures, fmt.Sprintf("build baseline missing %s", relative))
-		}
-	}
-	if cfg.Build.RequireGoMod {
-		goMod, err := os.ReadFile(filepath.Join(root, "go.mod"))
-		if err != nil {
-			failures = append(failures, fmt.Sprintf("read go.mod: %v", err))
-		} else {
-			text := string(goMod)
-			for _, token := range cfg.Build.GoModTokens {
-				if !strings.Contains(text, token) {
-					failures = append(failures, fmt.Sprintf("go.mod missing %q", token))
-				}
-			}
-		}
-	}
-	if cfg.Build.RequireCargoToml {
-		cargoToml, err := os.ReadFile(filepath.Join(root, "Cargo.toml"))
-		if err != nil {
-			failures = append(failures, fmt.Sprintf("read Cargo.toml: %v", err))
-		} else {
-			text := string(cargoToml)
-			for _, token := range cfg.Build.CargoTomlTokens {
-				if !strings.Contains(text, token) {
-					failures = append(failures, fmt.Sprintf("Cargo.toml missing %q", token))
-				}
-			}
-		}
-	}
-	if cfg.Build.RequireFrontendPackage {
-		packageJSONRel := projectRel(root, "frontend/package.json")
-		packageJSON, err := os.ReadFile(filepath.Join(root, packageJSONRel))
-		if err != nil {
-			failures = append(failures, fmt.Sprintf("read %s: %v", packageJSONRel, err))
-		} else {
-			text := string(packageJSON)
-			for _, token := range cfg.Build.FrontendPackageTokens {
-				if !strings.Contains(text, token) {
-					failures = append(failures, fmt.Sprintf("%s missing %s", packageJSONRel, token))
-				}
-			}
-			for _, token := range cfg.Build.ForbiddenFrontendTokens {
-				if strings.Contains(text, token) {
-					failures = append(failures, fmt.Sprintf("%s uses forbidden package manager token %s", packageJSONRel, token))
-				}
-			}
-		}
-	}
-	if cfg.Build.RequireBuildRunner {
-		buildRunnerRel := projectRel(root, "scripts/build/build.go")
-		buildRunner, err := os.ReadFile(filepath.Join(root, buildRunnerRel))
-		if err != nil {
-			failures = append(failures, fmt.Sprintf("read %s: %v", buildRunnerRel, err))
-		} else {
-			text := string(buildRunner)
-			for _, token := range cfg.Build.BuildRunnerTokens {
-				if !strings.Contains(text, token) {
-					failures = append(failures, fmt.Sprintf("%s missing build-baseline token %q", buildRunnerRel, token))
-				}
-			}
-		}
-	}
-	return failures
+	return requiredFiles
 }
 
 func auditDurableStoreBaseline(root string) []string {
@@ -2009,20 +2031,14 @@ func auditDurableStoreBaseline(root string) []string {
 		return nil
 	}
 	var failures []string
-	requiredFiles := append([]string{}, cfg.DurableStore.StoreFiles...)
-	requiredFiles = append(requiredFiles, cfg.DurableStore.MigrationGoFiles...)
-	if cfg.DurableStore.InitialSQL != "" {
-		requiredFiles = append(requiredFiles, cfg.DurableStore.InitialSQL)
-	}
-	for _, relative := range requiredFiles {
-		relative = stackProjectRel(root, cfg, relative)
+	for _, relative := range durableStoreRequiredFiles(root, cfg) {
 		if !exists(filepath.Join(root, filepath.FromSlash(relative))) {
 			failures = append(failures, fmt.Sprintf("durable store baseline missing %s", relative))
 		}
 	}
 	if len(cfg.DurableStore.StoreFiles) > 0 {
 		storeRel := stackProjectRel(root, cfg, cfg.DurableStore.StoreFiles[0])
-		storeGo, err := os.ReadFile(filepath.Join(root, storeRel))
+		storeGo, err := readAuditFile(filepath.Join(root, storeRel))
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("read %s: %v", storeRel, err))
 		} else {
@@ -2036,7 +2052,7 @@ func auditDurableStoreBaseline(root string) []string {
 	}
 	if cfg.DurableStore.InitialSQL != "" {
 		initialSQLRel := stackProjectRel(root, cfg, cfg.DurableStore.InitialSQL)
-		initialSQL, err := os.ReadFile(filepath.Join(root, initialSQLRel))
+		initialSQL, err := readAuditFile(filepath.Join(root, initialSQLRel))
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("read %s: %v", initialSQLRel, err))
 		} else {
@@ -2049,6 +2065,21 @@ func auditDurableStoreBaseline(root string) []string {
 		}
 	}
 	return failures
+}
+
+func durableStoreRequiredFiles(root string, cfg stackConfig) []string {
+	if !cfg.DurableStore.Enabled {
+		return nil
+	}
+	requiredFiles := append([]string{}, cfg.DurableStore.StoreFiles...)
+	requiredFiles = append(requiredFiles, cfg.DurableStore.MigrationGoFiles...)
+	if cfg.DurableStore.InitialSQL != "" {
+		requiredFiles = append(requiredFiles, cfg.DurableStore.InitialSQL)
+	}
+	for index, relative := range requiredFiles {
+		requiredFiles[index] = stackProjectRel(root, cfg, relative)
+	}
+	return requiredFiles
 }
 
 func auditTestCoverage(root string) []string {
@@ -2069,7 +2100,7 @@ func auditTestCoverage(root string) []string {
 		if !exists(base) {
 			continue
 		}
-		err := filepath.WalkDir(base, func(path string, entry os.DirEntry, err error) error {
+		err := walkAuditTree(base, func(path string, entry os.DirEntry, err error) error {
 			if err != nil {
 				failures = append(failures, fmt.Sprintf("walk %s: %v", rel(root, path), err))
 				return nil

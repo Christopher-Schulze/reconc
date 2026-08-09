@@ -12,7 +12,10 @@ import (
 
 	"reconc.dev/reconc/buildprovenance"
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/boundedexec"
 )
+
+const maxLifecycleCommandOutput = 1 << 20
 
 func update(ctx context.Context, currentVersion string, request UpdateRequest, apply bool) (*LifecycleReport, error) {
 	operation := "update.check"
@@ -205,7 +208,7 @@ func applyDirectUpdate(ctx context.Context, report *LifecycleReport, release sel
 }
 
 func smokeCandidate(ctx context.Context, candidate string, version string) error {
-	output, err := lifecycleCommand(ctx, candidate, "--version").CombinedOutput()
+	output, err := boundedexec.CombinedOutput(lifecycleCommand(ctx, candidate, "--version"), maxLifecycleCommandOutput)
 	if err != nil {
 		return fmt.Errorf("candidate smoke test failed: %w", err)
 	}
@@ -241,7 +244,7 @@ func verifyAttestation(ctx context.Context, candidate string, release selectedRe
 		}
 		args = append(args, "--bundle", bundle, "--custom-trusted-root", root)
 	}
-	output, err := lifecycleCommand(ctx, path, args...).CombinedOutput()
+	output, err := boundedexec.CombinedOutput(lifecycleCommand(ctx, path, args...), maxLifecycleCommandOutput)
 	if err != nil {
 		return "", fmt.Errorf("attestation verification failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}

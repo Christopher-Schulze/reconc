@@ -148,7 +148,8 @@ func validateRepositoryRunStatePath(root, path string) error {
 		return fmt.Errorf("repository run state path escapes the repository")
 	}
 	current := root
-	for _, component := range strings.Split(rel, string(filepath.Separator)) {
+	components := strings.Split(rel, string(filepath.Separator))
+	for index, component := range components {
 		if component == "" || component == "." {
 			continue
 		}
@@ -160,8 +161,15 @@ func validateRepositoryRunStatePath(root, path string) error {
 		if statErr != nil {
 			return fmt.Errorf("inspect repository run state path %s: %w", current, statErr)
 		}
-		if info.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+		if info.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("repository run state path uses a symlink component: %s", current)
+		}
+		if index == len(components)-1 {
+			if !info.Mode().IsRegular() {
+				return fmt.Errorf("repository run state path is not a regular file: %s", current)
+			}
+		} else if !info.IsDir() {
+			return fmt.Errorf("repository run state parent is not a directory: %s", current)
 		}
 	}
 	return nil
@@ -248,12 +256,16 @@ func openRepositoryRunStateResolved(root string) (*os.File, repositoryRunSnapsho
 	}
 	snapshot, err := readRepositoryRunSnapshotFile(file)
 	if err != nil {
-		_ = file.Close()
-		return nil, repositoryRunSnapshot{}, wrapRepositoryRunRecovery(root, err)
+		return nil, repositoryRunSnapshot{}, errors.Join(
+			wrapRepositoryRunRecovery(root, err),
+			wrapOperationError("close repository run state", file.Close()),
+		)
 	}
 	if err := validateRepositoryRunIdentity(root, snapshot); err != nil {
-		_ = file.Close()
-		return nil, repositoryRunSnapshot{}, wrapRepositoryRunRecovery(root, err)
+		return nil, repositoryRunSnapshot{}, errors.Join(
+			wrapRepositoryRunRecovery(root, err),
+			wrapOperationError("close repository run state", file.Close()),
+		)
 	}
 	return file, snapshot, nil
 }
@@ -290,13 +302,21 @@ func withRepositoryRunFileResolved(root string, fn func(*os.File) error) error {
 	if err != nil {
 		return fmt.Errorf("open repository run state: %w", err)
 	}
-	defer file.Close()
 	unlock, err := filelock.Lock(file)
 	if err != nil {
-		return fmt.Errorf("lock repository run state: %w", err)
+		return errors.Join(
+			fmt.Errorf("lock repository run state: %w", err),
+			wrapOperationError("close repository run state", file.Close()),
+		)
 	}
-	defer func() { _ = unlock() }()
-	return fn(file)
+	fnErr := fn(file)
+	unlockErr := unlock()
+	closeErr := file.Close()
+	return errors.Join(
+		fnErr,
+		wrapOperationError("unlock repository run state", unlockErr),
+		wrapOperationError("close repository run state", closeErr),
+	)
 }
 
 // saveRepositoryRunState persists state while holding the repository run state
@@ -352,8 +372,8 @@ func mutateRepositoryRunStateOpenFile(root string, file *os.File, fn func(reposi
 	if err != nil {
 		return repositoryRunState{}, repositoryRunState{}, fmt.Errorf("lock repository run state: %w", err)
 	}
-	defer func() { _ = unlock() }()
-	return mutateRepositoryRunStateLockedFile(root, file, fn)
+	before, after, mutateErr := mutateRepositoryRunStateLockedFile(root, file, fn)
+	return before, after, errors.Join(mutateErr, wrapOperationError("unlock repository run state", unlock()))
 }
 
 func mutateRepositoryRunStateLockedFile(root string, file *os.File, fn func(repositoryRunState) repositoryRunState) (repositoryRunState, repositoryRunState, error) {

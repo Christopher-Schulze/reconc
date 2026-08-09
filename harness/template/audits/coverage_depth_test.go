@@ -66,6 +66,90 @@ func TestCacheInputValueChangesDigest(t *testing.T) {
 	}
 }
 
+func TestAuditCacheRejectsEvaluationAcrossInputMutation(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "input.txt", "old\n")
+	inputs := func() *cacheInputs {
+		result := newCacheInputs()
+		result.AddFile(filepath.Join(root, "input.txt"))
+		return result
+	}
+
+	first := runWithCache(root, "mutation-race", inputs(), func() []string {
+		writeFile(t, root, "input.txt", "new\n")
+		return nil
+	})
+	if !containsFailure(first, "cache input changed during evaluation") {
+		t.Fatalf("concurrent input mutation must fail closed, got %#v", first)
+	}
+
+	writeFile(t, root, "input.txt", "old\n")
+	calls := 0
+	second := runWithCache(root, "mutation-race", inputs(), func() []string {
+		calls++
+		return nil
+	})
+	if len(second) != 0 || calls != 1 {
+		t.Fatalf("mutated evaluation must not publish a reusable pass: result=%#v calls=%d", second, calls)
+	}
+}
+
+func TestConfiguredBaselineCacheInputsFollowStackConfig(t *testing.T) {
+	t.Run("build baseline", func(t *testing.T) {
+		root := t.TempDir()
+		writeFile(t, root, stackConfigRel, `stack: go-cli
+project: alpha
+build:
+  enabled: true
+  language: go
+  require_go_mod: false
+  require_cargo_toml: false
+  require_frontend_package: false
+  require_build_runner: false
+  require_build_runner_test: false
+  backend_entrypoints: [custom]
+durable_store:
+  enabled: false
+`)
+		writeFile(t, root, "backend/custom/main.go", "package main\n")
+		if failures := cachedBuildBaseline(root); len(failures) != 0 {
+			t.Fatalf("initial configured build baseline failed: %v", failures)
+		}
+		if err := os.Remove(filepath.Join(root, "backend/custom/main.go")); err != nil {
+			t.Fatalf("remove configured build input: %v", err)
+		}
+		if failures := cachedBuildBaseline(root); !containsFailure(failures, "build baseline missing backend/custom/main.go") {
+			t.Fatalf("configured build input change reused a stale pass: %v", failures)
+		}
+	})
+
+	t.Run("durable store", func(t *testing.T) {
+		root := t.TempDir()
+		writeFile(t, root, stackConfigRel, `stack: go-cli
+project: alpha
+build:
+  enabled: false
+durable_store:
+  enabled: true
+  store_files: ["backend/{project}/custom/store.go"]
+  store_go_tokens: [STORE_TOKEN]
+  migration_go_files: [db/custom.go]
+  initial_sql: "db/{project}/custom.sql"
+  initial_sql_tokens: [SQL_TOKEN]
+`)
+		writeFile(t, root, "backend/alpha/custom/store.go", "STORE_TOKEN\n")
+		writeFile(t, root, "db/custom.go", "package db\n")
+		writeFile(t, root, "db/alpha/custom.sql", "SQL_TOKEN\n")
+		if failures := cachedDurableStoreBaseline(root); len(failures) != 0 {
+			t.Fatalf("initial configured durable-store baseline failed: %v", failures)
+		}
+		writeFile(t, root, "backend/alpha/custom/store.go", "changed\n")
+		if failures := cachedDurableStoreBaseline(root); !containsFailure(failures, `store.go missing durable-store token "STORE_TOKEN"`) {
+			t.Fatalf("configured durable-store input change reused a stale pass: %v", failures)
+		}
+	})
+}
+
 func TestSpecAuditEnumerationsRejectUnknownValues(t *testing.T) {
 	tests := []struct {
 		name    string

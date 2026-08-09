@@ -1,7 +1,6 @@
 package completiongate
 
 import (
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -45,7 +44,7 @@ func TestVerifyReportRejectsEveryEnvelopeFailure(t *testing.T) {
 	}
 }
 
-func TestCompletionInputsPreserveEvidenceAndBindGitDirtyPaths(t *testing.T) {
+func TestCompletionInputsCloneCapturedCandidateEvidence(t *testing.T) {
 	repo := t.TempDir()
 	base := agentsession.CompletionStateSnapshot{
 		RepoRoot: repo,
@@ -75,7 +74,8 @@ func TestCompletionInputsPreserveEvidenceAndBindGitDirtyPaths(t *testing.T) {
 	state.GitStatusOK = true
 	state.DirtyPaths = []string{"src/main.go", "docs/tasks.md"}
 	state.WorktreeMatchesIndex = false
-	state.Inputs.WriteEpochs = map[string]uint64{filepath.Join(repo, "src", "main.go"): 3}
+	state.Inputs.WritePaths = append([]string{}, state.DirtyPaths...)
+	state.Inputs.WriteEpochs = map[string]uint64{"src/main.go": 3, "docs/tasks.md": 5}
 	inputs, err = completionInputs(state)
 	if err != nil {
 		t.Fatalf("completionInputs(Git): %v", err)
@@ -83,7 +83,7 @@ func TestCompletionInputsPreserveEvidenceAndBindGitDirtyPaths(t *testing.T) {
 	if !reflect.DeepEqual(inputs.WritePaths, state.DirtyPaths) ||
 		inputs.WriteEpochs["src/main.go"] != 3 ||
 		inputs.WriteEpochs["docs/tasks.md"] != 5 {
-		t.Fatalf("Git candidate binding is wrong: %+v", inputs)
+		t.Fatalf("captured Git candidate evidence changed: %+v", inputs)
 	}
 }
 

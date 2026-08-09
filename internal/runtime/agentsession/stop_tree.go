@@ -146,15 +146,15 @@ func stopDirectoryContentHash(root string) string {
 		if err != nil {
 			return err
 		}
+		metadata, ok := stopPathMetadataGeneration(path, info)
+		if !ok {
+			return fmt.Errorf("platform identity unavailable for %s", filepath.ToSlash(rel))
+		}
 		writeStopTreeComponent(hasher, filepath.ToSlash(rel))
-		writeStopTreeComponent(hasher, info.Mode().String())
+		writeStopTreeComponent(hasher, metadata)
 		switch {
 		case info.Mode()&os.ModeSymlink != 0:
-			target, err := os.Readlink(path)
-			if err != nil {
-				return err
-			}
-			writeStopTreeComponent(hasher, "symlink:"+target)
+			return fmt.Errorf("tree contains symlink %s", filepath.ToSlash(rel))
 		case info.IsDir():
 			writeStopTreeComponent(hasher, "directory")
 		case info.Mode().IsRegular():
@@ -179,6 +179,30 @@ func stopDirectoryContentHash(root string) string {
 		return "dir-error:" + err.Error()
 	}
 	return "dir:" + hex.EncodeToString(hasher.Sum(nil))
+}
+
+func stopPolicyDirectoryGeneration(root string) (string, bool) {
+	hasher := sha256.New()
+	_, err := walkStopTree(root, func(path string, info os.FileInfo) error {
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || (!info.IsDir() && !info.Mode().IsRegular()) {
+			return fmt.Errorf("unsupported policy-input mode %s at %s", info.Mode(), filepath.ToSlash(rel))
+		}
+		generation, ok := stopPathMetadataGeneration(path, info)
+		if !ok {
+			return fmt.Errorf("platform identity unavailable for %s", filepath.ToSlash(rel))
+		}
+		writeStopTreeComponent(hasher, filepath.ToSlash(rel))
+		writeStopTreeComponent(hasher, generation)
+		return nil
+	})
+	if err != nil {
+		return "", false
+	}
+	return "policy-dir-generation:" + hex.EncodeToString(hasher.Sum(nil)), true
 }
 
 func walkStopTree(root string, visit func(string, os.FileInfo) error) (int, error) {

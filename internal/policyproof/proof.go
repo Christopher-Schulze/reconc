@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/retention"
 	"reconc.dev/reconc/internal/runtime"
@@ -108,27 +109,12 @@ func clear(repoRoot string) error {
 // bytes fail closed.
 func LoadLatest(repoRoot string) (Record, bool, error) {
 	path := Path(repoRoot)
-	info, err := os.Lstat(path)
+	body, err := boundedio.ReadRegularFile(path, maxProofBytes)
 	if errors.Is(err, os.ErrNotExist) {
 		return Record{}, false, nil
 	}
 	if err != nil {
-		return Record{}, false, fmt.Errorf("inspect policy decision proof: %w", err)
-	}
-	if !info.Mode().IsRegular() || info.Size() > maxProofBytes {
-		return Record{}, false, fmt.Errorf("policy decision proof is not a bounded regular file: %s", path)
-	}
-	file, err := os.Open(path)
-	if err != nil {
-		return Record{}, false, fmt.Errorf("open policy decision proof: %w", err)
-	}
-	body, readErr := io.ReadAll(io.LimitReader(file, maxProofBytes+1))
-	closeErr := file.Close()
-	if err := errors.Join(readErr, closeErr); err != nil {
-		return Record{}, false, fmt.Errorf("read policy decision proof: %w", err)
-	}
-	if len(body) > maxProofBytes {
-		return Record{}, false, fmt.Errorf("policy decision proof exceeds %d bytes", maxProofBytes)
+		return Record{}, false, fmt.Errorf("read policy decision proof as a bounded regular file: %w", err)
 	}
 	var record Record
 	decoder := json.NewDecoder(bytes.NewReader(body))

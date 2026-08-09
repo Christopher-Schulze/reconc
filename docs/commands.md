@@ -684,7 +684,11 @@ configuration is incomplete. It also reports registry-derived
 `surface_events` for documented per-surface route sets, complete-artifact
 `expected_events`, and rate-limited `live_events`, `unseen_events`,
 `last_seen`, and `last_event` runtime evidence separately from static
-activation state. `configured` proves only that the host can discover a
+activation state. Source-free metadata for observational routes is exposed
+under `observations` in JSON and as deterministic `observation` lines in text;
+OMP `user_python` reports only count, latest timestamp, repository-relative
+working directory, code byte size, and context-exclusion flag. `configured`
+proves only that the host can discover a
 complete static artifact. Codex accepts
 `hooks = true` under `[features]`, rejects root-level `hooks=true`, and has no
 separate failed-tool route; failed Bash outcomes are inferred from
@@ -697,8 +701,10 @@ and `user_bash` blocking separately from observational approval events. A shell
 command the user types reaches the same decision as one the agent requests.
 Python the user runs through OMP's own prefix cannot: the policy vocabulary
 reads shell grammar, and Python source is not a command line. Because that code
-can start a shell and so step around the `user_bash` decision, Reconc records
-the execution, its working directory, and the size of the code, and never the
+can start a shell and so step around the `user_bash` decision, Reconc persists
+a bounded, source-free observation in hook-liveness state: a saturating
+execution count plus the latest timestamp, repository-relative working
+directory, code byte size, and context-exclusion flag. It never stores the
 code itself. Treat the user-shell gate on OMP as covering shell commands only. Reconc emits native Grok
 `Stop` block JSON directly in the normal TUI without a leader, but treats it as
 synchronously enforced only when the installed Grok hook guide advertises

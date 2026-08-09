@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -15,19 +16,17 @@ import (
 // state the gate actually inspects.
 func TestScaffoldGatesDeclareTheirCacheInputs(t *testing.T) {
 	declared := map[string][]string{
-		"task-state":              {"docs/tasks.md", "docs/tasks", "docs/spec.md"},
+		"task-state":              {"docs/tasks.md", "docs/tasks", "docs/spec.md", "tools/reconc/harness/project/config/workflow/task-schema.yaml"},
 		"tasks-md-rows-immutable": {"docs/tasks.md"},
 		"start-entrypoint":        {"start.md", "AGENTS.md"},
 		"spec-format":             {"docs/spec.md"},
-		"schema-present":          {"task-schema.yaml", "donecheck/schema.go"},
-		"agents-md-mirror":        {"AGENTS.md", "task-schema.yaml"},
-		"build-baseline":          {"stack-config.yaml", "go.mod", "Cargo.toml"},
-		"durable-store":           {"stack-config.yaml", "db/migrations"},
+		"schema-present":          {"tools/reconc/harness/project/config/workflow/task-schema.yaml", "tools/reconc/harness/project/audits/lib/donecheck/schema.go"},
+		"agents-md-mirror":        {"AGENTS.md", "tools/reconc/harness/project/config/workflow/task-schema.yaml"},
 	}
 	undeclared := []string{
 		"repo-layout", "repo-cleanliness", "agent-quality", "agent-hooks",
 		"arch-boundaries", "module-contracts", "generated-references",
-		"test-coverage", "git-hooks", "all",
+		"build-baseline", "durable-store", "test-coverage", "git-hooks", "all",
 	}
 
 	body, err := os.ReadFile(filepath.Join("..", "repo-root-scaffold", ".reconc.yml"))
@@ -45,20 +44,21 @@ func TestScaffoldGatesDeclareTheirCacheInputs(t *testing.T) {
 			t.Fatalf("require_script rule %q declares no audit mode", strings.SplitN(rule, "\n", 2)[0])
 		}
 		seen[mode] = true
-		block := cacheInputsBlockOf(rule)
+		inputs := cacheInputsOf(rule)
 		if want, ok := declared[mode]; ok {
-			if block == "" {
+			if len(inputs) == 0 {
 				t.Fatalf("audit %q declares narrow inputs but its gate declares none", mode)
 			}
-			for _, fragment := range want {
-				if !strings.Contains(block, fragment) {
-					t.Fatalf("gate %q must declare %q, got:%s", mode, fragment, block)
-				}
+			slices.Sort(inputs)
+			want = slices.Clone(want)
+			slices.Sort(want)
+			if !slices.Equal(inputs, want) {
+				t.Fatalf("gate %q cache inputs drifted\ngot:  %#v\nwant: %#v", mode, inputs, want)
 			}
 			continue
 		}
-		if block != "" {
-			t.Fatalf("audit %q walks a broad surface; a partial declaration would re-enable unsound reuse:%s", mode, block)
+		if len(inputs) != 0 {
+			t.Fatalf("audit %q walks a broad surface; a partial declaration would re-enable unsound reuse: %#v", mode, inputs)
 		}
 	}
 	for mode := range declared {
@@ -82,17 +82,18 @@ func auditModeOf(rule string) string {
 	return strings.Trim(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "-")), `"`)
 }
 
-func cacheInputsBlockOf(rule string) string {
+func cacheInputsOf(rule string) []string {
 	_, after, found := strings.Cut(rule, "cache_inputs:\n")
 	if !found {
-		return ""
+		return nil
 	}
-	block := ""
+	inputs := []string{}
 	for _, line := range strings.Split(after, "\n") {
 		if !strings.HasPrefix(line, "      - ") {
 			break
 		}
-		block += "\n" + line
+		input := strings.TrimSpace(strings.TrimPrefix(line, "      - "))
+		inputs = append(inputs, strings.Trim(input, `"`))
 	}
-	return block
+	return inputs
 }

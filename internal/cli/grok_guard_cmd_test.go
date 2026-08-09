@@ -67,3 +67,24 @@ func TestGrokPreToolGuardTimesOutWithExplicitDeny(t *testing.T) {
 		t.Fatalf("timeout guard stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 }
+
+func TestGrokPreToolGuardRejectsOversizedRuntimeOutput(t *testing.T) {
+	originalRuntime := grokPreToolGuardRuntime
+	defer func() { grokPreToolGuardRuntime = originalRuntime }()
+	grokPreToolGuardRuntime = func(_ context.Context, _ []string, stdout, _ io.Writer) error {
+		_, _ = io.WriteString(stdout, strings.Repeat("x", maxHookRuntimeCapture+1))
+		return nil
+	}
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"hook", "grok-pre-tool-guard", "."}, "test", &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	var decision map[string]string
+	if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &decision); err != nil {
+		t.Fatalf("oversized decision JSON: %v\n%s", err, stdout.String())
+	}
+	if decision["decision"] != "deny" || !strings.Contains(decision["reason"], "oversized") ||
+		!strings.Contains(stderr.String(), "output exceeded") {
+		t.Fatalf("oversized guard stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}

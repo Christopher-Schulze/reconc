@@ -20,7 +20,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -37,9 +39,14 @@ import (
 )
 
 const (
-	tasksRel     = "docs/tasks.md"
-	bindingsRel  = "tools/reconc/harness/template/config/workflow/task-claim-bindings.yaml"
-	claimTimeout = 30 * time.Second
+	tasksRel           = "docs/tasks.md"
+	bindingsRel        = "tools/reconc/harness/template/config/workflow/task-claim-bindings.yaml"
+	claimTimeout       = 30 * time.Second
+	maxInputBytes      = 4 << 20
+	maxOutputBytes     = 64 << 10
+	maxBindingEntries  = 4096
+	maxClaimEntries    = 8192
+	maxBindingTextSize = 1024
 )
 
 var currentRe = regexp.MustCompile(`(?m)^Current: (TASK-[0-9]{4}-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*) -> tasks/`)
@@ -128,6 +135,10 @@ func findRepoRoot(start string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve start path %s: %w", start, err)
 	}
+	dir, err = filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", fmt.Errorf("resolve start identity %s: %w", start, err)
+	}
 	for {
 		if isRegularFile(filepath.Join(dir, filepath.FromSlash(tasksRel))) &&
 			isRegularFile(filepath.Join(dir, filepath.FromSlash(bindingsRel))) {
@@ -143,8 +154,8 @@ func findRepoRoot(start string) (string, error) {
 }
 
 func isRegularFile(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.Mode().IsRegular()
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode()&os.ModeSymlink == 0 && info.Mode().IsRegular()
 }
 
 func resolveTask(root string, override string) (string, error) {
@@ -152,7 +163,7 @@ func resolveTask(root string, override string) (string, error) {
 		return override, nil
 	}
 	tasksPath := filepath.Join(root, filepath.FromSlash(tasksRel))
-	bytes, err := os.ReadFile(tasksPath)
+	bytes, err := readRegularFile(tasksPath)
 	if err != nil {
 		return "", fmt.Errorf("read %s: %w", tasksRel, err)
 	}
@@ -164,30 +175,74 @@ func resolveTask(root string, override string) (string, error) {
 }
 
 func loadBindings(path string) (bindingsConfig, error) {
-	bytes, err := os.ReadFile(path)
+	body, err := readRegularFile(path)
 	if err != nil {
 		return bindingsConfig{}, fmt.Errorf("read %s: %w", path, err)
 	}
 	var cfg bindingsConfig
-	if err := yaml.Unmarshal(bytes, &cfg); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader(body))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&cfg); err != nil {
 		return bindingsConfig{}, fmt.Errorf("parse %s: %w", path, err)
 	}
+	var extra yaml.Node
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return bindingsConfig{}, fmt.Errorf("parse %s: multiple YAML documents are not allowed", path)
+		}
+		return bindingsConfig{}, fmt.Errorf("parse trailing document in %s: %w", path, err)
+	}
+	if err := validateBindings(cfg); err != nil {
+		return bindingsConfig{}, fmt.Errorf("validate %s: %w", path, err)
+	}
 	return cfg, nil
+}
+
+func validateBindings(cfg bindingsConfig) error {
+	if len(cfg.Bindings) > maxBindingEntries {
+		return fmt.Errorf("bindings count %d exceeds %d", len(cfg.Bindings), maxBindingEntries)
+	}
+	totalClaims := len(cfg.DefaultClaims)
+	for _, item := range cfg.Bindings {
+		if len(item.Match) > maxBindingTextSize {
+			return fmt.Errorf("binding match exceeds %d bytes", maxBindingTextSize)
+		}
+		totalClaims += len(item.Claims)
+	}
+	if totalClaims > maxClaimEntries {
+		return fmt.Errorf("claim entry count %d exceeds %d", totalClaims, maxClaimEntries)
+	}
+	for _, claim := range cfg.DefaultClaims {
+		if len(claim) > maxBindingTextSize {
+			return fmt.Errorf("default claim exceeds %d bytes", maxBindingTextSize)
+		}
+	}
+	for _, item := range cfg.Bindings {
+		for _, claim := range item.Claims {
+			if len(claim) > maxBindingTextSize {
+				return fmt.Errorf("claim for match %q exceeds %d bytes", item.Match, maxBindingTextSize)
+			}
+		}
+	}
+	return nil
 }
 
 func claimsForTask(taskName string, cfg bindingsConfig) []string {
 	set := map[string]bool{}
 	for _, c := range cfg.DefaultClaims {
+		c = strings.TrimSpace(c)
 		if c != "" {
 			set[c] = true
 		}
 	}
 	for _, b := range cfg.Bindings {
+		b.Match = strings.TrimSpace(b.Match)
 		if b.Match == "" {
 			continue
 		}
 		if strings.Contains(taskName, b.Match) {
 			for _, c := range b.Claims {
+				c = strings.TrimSpace(c)
 				if c != "" {
 					set[c] = true
 				}
@@ -225,26 +280,93 @@ func assertClaimsWithTimeout(root string, taskName string, claims []string, time
 	}
 	binaryRel := reconcBinaryRel()
 	binPath := filepath.Join(root, filepath.FromSlash(binaryRel))
-	if _, err := os.Stat(binPath); err != nil {
+	info, err := os.Lstat(binPath)
+	if err != nil {
 		return fmt.Errorf("reconc binary missing at %s: %w", binaryRel, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || runtime.GOOS != "windows" && info.Mode()&0o111 == 0 {
+		return fmt.Errorf("reconc binary at %s must be a non-symlink executable regular file", binaryRel)
 	}
 	fmt.Printf("task: %s\n", taskName)
 	for _, claim := range claims {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		cmd := exec.CommandContext(ctx, binPath, "hook", "claim", root, claim)
 		cmd.WaitDelay = 2 * time.Second
-		out, err := cmd.CombinedOutput()
+		var stdout boundedOutput
+		var stderr boundedOutput
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		err := cmd.Run()
 		timedOut := ctx.Err() == context.DeadlineExceeded
 		cancel()
 		if timedOut {
 			return fmt.Errorf("reconc hook claim %s timed out after %s", claim, timeout)
 		}
 		if err != nil {
-			return fmt.Errorf("reconc hook claim %s failed: %v\n%s", claim, err, strings.TrimSpace(string(out)))
+			return fmt.Errorf("reconc hook claim %s failed: %v\n%s", claim, err, strings.TrimSpace(stdout.String()+stderr.String()))
 		}
 		fmt.Printf("  asserted: %s\n", claim)
 	}
 	return nil
+}
+
+type boundedOutput struct {
+	buffer    bytes.Buffer
+	truncated bool
+}
+
+func (output *boundedOutput) Write(value []byte) (int, error) {
+	remaining := maxOutputBytes - output.buffer.Len()
+	if remaining > 0 {
+		if len(value) < remaining {
+			remaining = len(value)
+		}
+		_, _ = output.buffer.Write(value[:remaining])
+	}
+	if len(value) > remaining {
+		output.truncated = true
+	}
+	return len(value), nil
+}
+
+func (output *boundedOutput) String() string {
+	if output.truncated {
+		return output.buffer.String() + "\n[output truncated]"
+	}
+	return output.buffer.String()
+}
+
+func readRegularFile(path string) ([]byte, error) {
+	before, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
+		return nil, fmt.Errorf("must be a non-symlink regular file")
+	}
+	if before.Size() > maxInputBytes {
+		return nil, fmt.Errorf("exceeds %d bytes", maxInputBytes)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	body, readErr := io.ReadAll(io.LimitReader(file, maxInputBytes+1))
+	afterFile, statErr := file.Stat()
+	afterPath, lstatErr := os.Lstat(path)
+	closeErr := file.Close()
+	if err := errors.Join(readErr, statErr, lstatErr, closeErr); err != nil {
+		return nil, err
+	}
+	if len(body) > maxInputBytes {
+		return nil, fmt.Errorf("exceeds %d bytes", maxInputBytes)
+	}
+	if !os.SameFile(before, afterFile) || !os.SameFile(afterFile, afterPath) ||
+		before.Mode() != afterFile.Mode() || before.Size() != afterFile.Size() ||
+		!before.ModTime().Equal(afterFile.ModTime()) {
+		return nil, fmt.Errorf("changed while reading")
+	}
+	return body, nil
 }
 
 func reconcBinaryRel() string {

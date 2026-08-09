@@ -74,6 +74,7 @@ internal/
   assurance/      bounded native layout/source/manifest/proof gates + per-run fact graph
   atomicfile/     write-on-change and atomic publication primitives
   audit/          SHA-256-linked JSONL decision evidence + detached head + bounded rotation
+  boundedexec/    concurrency-safe bounded stdout/stderr capture for subprocess boundaries
   boundedio/      exact-size reads for untrusted and repository-controlled files
   bootstrap/      init, repository sync/remove/recovery, portable receipts, journals, and binary resolution
   cireport/       bounded provider-neutral SARIF 2.1.0 and JUnit XML report rendering
@@ -468,6 +469,8 @@ class of hostile input.
 | Hook liveness | **64 runtimes / 32 routes each / 256 KiB aggregate** | Covers the built-in registry plus the bounded custom-runtime set without unbounded status state. |
 | Policy lock / execution input | **16 MiB each** | Bounds evaluator control input before JSON decoding. |
 | Policy evidence / TASK control file | **4 MiB each** | Bounds file-backed checks and executable TASK state before parsing. |
+| Portable workflow-audit input | **64 MiB per file / 100,000 walked entries** | Strict regular-file and real-directory readers reject links, FIFOs, special files, replacement, and partial over-budget trees; task schemas and legacy prune policies use a narrower 1 MiB cap. |
+| Auxiliary subprocess capture | **64 KiB to 64 MiB by boundary** | TASK claim diagnostics use 64 KiB per stream; lifecycle, offline-hook, promotion, and generated-reference probes use 1 MiB; workflow/SBOM commands use 16 MiB; Stop Git uses 32 MiB; publication-history Git uses 64 MiB. Overflow fails the invoking operation instead of growing process memory. |
 
 Breaches use the registry's platform-specific blocking response or exit code for
 PreToolUse, permission, and Stop. Observation and cleanup routes fail open with
@@ -706,24 +709,39 @@ this boundary.
 One-shot hook processes always use the exact Stop fingerprint. A persistent
 session worker additionally owns an isolated, memory-only cache of at most 64
 repository/session generations. After an exact successful report for a costly
-dirty state, a repeated Stop may replace dirty-file content hashing with one
-conservative generation sample. The generation binds canonical root identity,
+dirty state, a repeated Stop may replace dirty-file content hashing with
+conservative generation samples. The generation binds canonical root identity,
 Git status, HEAD and index entries, platform file identity and change time,
-recursive untracked-tree metadata, policy lock and source identity, typed TASK
-state, schema configuration, and session evidence. It never starts a watcher,
-daemon, or background lifecycle.
+recursive untracked-tree metadata, policy lock and source identity, every
+reachable policy-declared input, typed TASK state, schema configuration, and
+session evidence. It never starts a watcher, daemon, or background lifecycle.
 
 Generation reuse is enabled only when the exact dirty state contains at least
 16 MiB or 1,024 entries. Small states, one-shot routes, dirty submodules,
 oversized content, unsupported file metadata, malformed Git or TASK state,
 bounded-tree overflow, and any identity uncertainty use the exact path. Normal
-untracked-directory sentinels are recursively content-hashed under a 100,000
-entry and 64 MiB aggregate-content bound, so nested edits cannot retain a
-constant directory identity. File replacement during exact hashing and
-directory replacement during traversal fail closed. The existing per-session
-report lock serializes equivalent Stops and reloads session evidence before
-evaluation; a concurrent follower therefore either reads the fully published
-report with matching hashes or evaluates current state.
+untracked-directory sentinels are recursively content-and-metadata hashed under
+a 100,000 entry and 64 MiB aggregate-content bound, so nested edits cannot
+retain a constant directory identity. File replacement during exact hashing
+and directory replacement during traversal fail closed. Generation state is
+sampled around report loading and revalidated after the final evidence reload.
+The existing per-session report lock serializes equivalent Stops. Evidence or
+exact cache-input mutation during evaluation triggers a current-state retry;
+three consecutive unstable evaluations fail closed. A concurrent follower
+therefore either reads a fully published report whose bindings still match or
+evaluates current state.
+
+Applicable native-assurance rules always bypass report reuse. Their complete
+globbed authority surfaces and wall-clock-aged proof inputs are intentionally
+richer than the fixed path identity set. Completion nevertheless samples a
+deterministic native-assurance input identity before and after evaluation. That
+identity covers exact loaded bodies, bounded directory observations,
+applicability, derived facts, findings, and time-dependent verdicts, so a moving
+authority surface invalidates the candidate rather than reusing a Stop report.
+`require_script cache_inputs` is a
+trusted author assertion over content and the supported mode, size,
+modification-time, and platform change/identity metadata; scripts that depend
+on any ambient or unsupported input must omit it and therefore run each time.
 
 ### Run state concurrency and Stop routing
 
@@ -789,9 +807,15 @@ Explicitly configured TASK state fails closed if its overview disappears, and
 optional committed completion reuses that terminal report's Git and typed TASK
 snapshot instead of inspecting either control plane again.
 The shared `completiongate` used by Stop-facing views, `done`, and TUI binds
-that snapshot to current policy, session
-evidence, staged command proofs, and typed TASK completion. It captures state
-again after evaluation and rejects races. A same-candidate explicit block is
+that snapshot to current policy, session evidence, staged command proofs, and
+typed TASK completion. Snapshot construction first derives the exact
+`runtime.ExecutionInputs` that evaluation will consume: Git dirty paths and
+relativized epochs when Git is available, otherwise session paths and epochs,
+plus staged command proofs loaded at capture time. Valid template captures are
+resolved with evaluator first-match semantics and bind every concrete evidence
+or freshness target. The snapshot also binds temporal freshness and native
+assurance authority identities. It captures all of that state again after
+evaluation and rejects races. A same-candidate explicit block is
 stored outside the repository until a later validated explicit pass clears it;
 retention cannot manufacture a pass.
 

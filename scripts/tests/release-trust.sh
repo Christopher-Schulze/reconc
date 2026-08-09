@@ -115,8 +115,10 @@ release_line="v${project_version%.*}.x"
 require_text "$root/Makefile" "VERSION   ?= $project_version"
 require_text "$root/install.sh" "sh install.sh --channel preview"
 require_text "$root/install.sh" "sh install.sh --version $project_version"
+# shellcheck disable=SC2016 # Match the installer expression literally.
 require_text "$root/install.sh" 'LC_ALL=C awk -v left="$1" -v right="$2"'
 require_text "$root/install.ps1" '[ValidateSet("Stable", "Preview")]'
+# shellcheck disable=SC2016 # Match the PowerShell declaration literally.
 require_text "$root/install.ps1" '[switch]$AllowDowngrade'
 require_text "$root/README.md" "The source line is \`$release_line\`, and the current source version is \`v$project_version\`."
 require_text "$root/SECURITY.md" "only to the latest GitHub Release when one exists"
@@ -221,21 +223,28 @@ bun_integrity='sha512-aB6GVd42x1Y5ie1K16SF+oLGtgSkwX9hgoDdIW88pjvfTccU8F1vfpoOt3
 for workflow in "$ci_workflow" "$release_workflow"; do
   require_text "$workflow" "BUN_VERSION: 1.3.14"
   require_text "$workflow" "BUN_INTEGRITY: $bun_integrity"
+  # shellcheck disable=SC2016 # Match the workflow expression literally.
   require_text "$workflow" 'test "$actual_bun_integrity" = "$BUN_INTEGRITY"'
   if grep -Fq 'npm install --global bun@' "$workflow"; then
     fail "$workflow installs Bun directly without verifying the packed artifact"
   fi
 done
+# shellcheck disable=SC2016 # Match the workflow expression literally.
 [ "$(grep -Fc 'npm pack "bun@$BUN_VERSION"' "$ci_workflow")" -eq 2 ] \
   || fail "$ci_workflow must fetch the exact Bun package in both executable-test jobs"
+# shellcheck disable=SC2016 # Match the workflow expression literally.
 [ "$(grep -Fc 'npm pack "bun@$BUN_VERSION"' "$release_workflow")" -eq 1 ] \
   || fail "$release_workflow must fetch the exact Bun package exactly once"
+# shellcheck disable=SC2016 # Match the workflow expression literally.
 [ "$(grep -Fc 'npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"' "$ci_workflow")" -eq 2 ] \
   || fail "$ci_workflow must install only the verified Bun tarball in both executable-test jobs"
+# shellcheck disable=SC2016 # Match the workflow expression literally.
 [ "$(grep -Fc 'npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"' "$release_workflow")" -eq 1 ] \
   || fail "$release_workflow must install only the verified Bun tarball exactly once"
+# shellcheck disable=SC2016 # Match the workflow expression literally.
 [ "$(grep -Fc 'test "$(bun --version)" = "$BUN_VERSION"' "$ci_workflow")" -eq 2 ] \
   || fail "$ci_workflow must verify the exact Bun version in both executable-test jobs"
+# shellcheck disable=SC2016 # Match the workflow expression literally.
 [ "$(grep -Fc 'test "$(bun --version)" = "$BUN_VERSION"' "$release_workflow")" -eq 1 ] \
   || fail "$release_workflow must verify the exact Bun version exactly once"
 require_text "$release_workflow" "subject-checksums: dist/SHA256SUMS"
@@ -256,6 +265,20 @@ require_text "$release_workflow" 'test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"'
 # shellcheck disable=SC2016 # Match workflow shell expressions literally.
 require_text "$release_workflow" 'REPLACE_PUBLISHED: ${{ inputs.replace_published }}'
 require_text "$release_workflow" './scripts/release/publish-github-release.sh'
+# shellcheck disable=SC2016 # Match the workflow shell expression literally.
+require_text "$release_workflow" 'make verify-release VERSION="$version"'
+if grep -Fq './scripts/release/verify-artifacts.sh dist reconc' "$release_workflow"; then
+  fail "$release_workflow duplicates the canonical Makefile release matrix"
+fi
+require_text "$root/Makefile" './scripts/release/generated-assets.sh generate completion'
+require_text "$root/Makefile" './scripts/release/generated-assets.sh generate manpage'
+require_text "$root/Makefile" './scripts/release/generated-assets.sh generate sbom'
+require_text "$root/scripts/release/verify-artifacts.sh" 'scripts/release/generated-assets.sh" list'
+for duplicated_name in reconc.bash _reconc reconc.fish release-manifest.json '.spdx.json' '.cdx.json'; do
+  if grep -Fq "$duplicated_name" "$root/Makefile" || grep -Fq "$duplicated_name" "$root/scripts/release/verify-artifacts.sh"; then
+    fail "generated release asset $duplicated_name escaped the canonical generated-assets inventory"
+  fi
+done
 for runner in ubuntu-24.04 macos-15 windows-2025; do
   require_text "$ci_workflow" "$runner"
 done
@@ -294,29 +317,13 @@ mkdir -p "$release_dir"
 expect_failure "$root/scripts/release/write-checksums.sh" "$release_dir"
 release_commit=$(git -C "$root" rev-parse HEAD)
 release_epoch=$(git -C "$root" show -s --format=%ct "$release_commit")
-(
-  cd "$root"
-  go run ./cmd/reconc completion bash > "$release_dir/reconc.bash"
-  go run ./cmd/reconc completion zsh > "$release_dir/_reconc"
-  go run ./cmd/reconc completion fish > "$release_dir/reconc.fish"
-  SOURCE_DATE_EPOCH="$release_epoch" go run \
-    -ldflags "-X main.Version=$project_version" ./cmd/reconc manpage > "$release_dir/reconc.1"
-)
-# The fixture is assembled by the same script the build uses, from the same
-# manifest, so a tamper matrix can never certify a release the build does not
-# produce. Only the binaries stand in for real ones: corrupting a real binary
-# a dozen times would cost minutes and prove nothing the placeholder cannot.
-"$root/scripts/release/copy-assets.sh" "$release_dir"
-for name in \
-  "reconc-$project_version-darwin-amd64" \
-  "reconc-$project_version-darwin-arm64" \
-  "reconc-$project_version-linux-amd64" \
-  "reconc-$project_version-linux-arm64" \
-  "reconc-$project_version-windows-amd64.exe" \
-  release-manifest.json
-do
-  printf '%s\n' "$name" > "$release_dir/$name"
-done
+release_target="$(go env GOOS)/$(go env GOARCH)"
+release_started=$SECONDS
+(cd "$root" && make --no-print-directory release \
+  DISTDIR="$release_dir" \
+  RELEASE_TARGETS="$release_target") \
+  || fail "the shipped release target failed while building the trust fixture"
+release_build_seconds=$((SECONDS - release_started))
 
 generate_sbom() {
   (
@@ -330,55 +337,60 @@ generate_sbom() {
   )
 }
 generate_sbom "$release_dir" "$project_version"
-"$root/scripts/release/write-checksums.sh" "$release_dir"
-verify_release=("$root/scripts/release/verify-artifacts.sh" "$release_dir" reconc "$project_version" darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64)
-"${verify_release[@]}"
+verify_release_artifacts() {
+  "$root/scripts/release/verify-artifacts.sh" "$1" reconc "$project_version" "$release_target"
+}
+verify_release_artifacts "$release_dir"
 printf '\n# stale despite a valid checksum\n' >> "$release_dir/install.ps1"
 "$root/scripts/release/write-checksums.sh" "$release_dir"
-expect_failure "${verify_release[@]}"
+expect_failure verify_release_artifacts "$release_dir"
 cp "$root/install.ps1" "$release_dir/install.ps1"
 "$root/scripts/release/write-checksums.sh" "$release_dir"
-"${verify_release[@]}"
+verify_release_artifacts "$release_dir"
 printf '\n' >> "$release_dir/completion-report.schema.json"
 "$root/scripts/release/write-checksums.sh" "$release_dir"
-expect_failure "${verify_release[@]}"
+expect_failure verify_release_artifacts "$release_dir"
 cp "$root/schemas/v1/completion-report.schema.json" "$release_dir/completion-report.schema.json"
 "$root/scripts/release/write-checksums.sh" "$release_dir"
-"${verify_release[@]}"
+verify_release_artifacts "$release_dir"
 printf '\n# stale despite a valid checksum\n' >> "$release_dir/reconc.bash"
 "$root/scripts/release/write-checksums.sh" "$release_dir"
-expect_failure "${verify_release[@]}"
+expect_failure verify_release_artifacts "$release_dir"
 (cd "$root" && go run ./cmd/reconc completion bash > "$release_dir/reconc.bash")
 "$root/scripts/release/write-checksums.sh" "$release_dir"
-"${verify_release[@]}"
-printf 'corrupt\n' >> "$release_dir/reconc-$project_version-linux-amd64"
-expect_failure "${verify_release[@]}"
-printf '%s\n' "reconc-$project_version-linux-amd64" > "$release_dir/reconc-$project_version-linux-amd64"
+verify_release_artifacts "$release_dir"
+release_os=${release_target%/*}
+release_arch=${release_target##*/}
+release_extension=""
+[ "$release_os" = "windows" ] && release_extension=".exe"
+release_binary="$release_dir/reconc-$project_version-$release_os-$release_arch$release_extension"
+release_binary_backup="$tmp/release-binary"
+cp "$release_binary" "$release_binary_backup"
+printf 'corrupt\n' >> "$release_binary"
+expect_failure verify_release_artifacts "$release_dir"
+cp "$release_binary_backup" "$release_binary"
+"$root/scripts/release/write-checksums.sh" "$release_dir"
+verify_release_artifacts "$release_dir"
 printf 'unlisted\n' > "$release_dir/unlisted"
-expect_failure "${verify_release[@]}"
+expect_failure verify_release_artifacts "$release_dir"
 rm "$release_dir/unlisted"
 
 # The failure that shipped a broken v0.9.4 build: the release carries an
 # artifact the verifier does not expect, or misses one it requires. Both are
-# now driven from the one manifest, so both directions are proved here against
-# the real copier rather than a second hand-written list.
-drift_manifest="$tmp/copied-assets-drift.tsv"
-cp "$root/scripts/release/copied-assets.tsv" "$drift_manifest"
-printf 'policy-lock-v5.schema.json\tschemas/v4/policy-lock.schema.json\n' >> "$drift_manifest"
+# now proved by mutating a copy of the real shipped-target output. No second
+# target matrix or copied-asset manifest participates in this test.
 drift_dir="$tmp/release-drift"
 mkdir -p "$drift_dir"
 cp "$release_dir"/* "$drift_dir/"
 cp "$root/schemas/v4/policy-lock.schema.json" "$drift_dir/policy-lock-v5.schema.json"
 "$root/scripts/release/write-checksums.sh" "$drift_dir"
 expect_failure_reason "expected exactly" \
-  "$root/scripts/release/verify-artifacts.sh" "$drift_dir" reconc "$project_version" \
-  darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64
+  verify_release_artifacts "$drift_dir"
 rm "$drift_dir/policy-lock-v5.schema.json"
 rm "$drift_dir/policy-lock.schema.json"
 "$root/scripts/release/write-checksums.sh" "$drift_dir"
 expect_failure_reason "required release artifact is absent from manifest: policy-lock.schema.json" \
-  "$root/scripts/release/verify-artifacts.sh" "$drift_dir" reconc "$project_version" \
-  darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64
+  verify_release_artifacts "$drift_dir"
 rm -rf "$drift_dir"
 
 # The build must copy through the shared script instead of listing artifacts
@@ -390,17 +402,17 @@ grep -Fq 'schemas/v1/policy-config.schema.json' "$root/Makefile" \
 spdx="$release_dir/reconc-$project_version.spdx.json"
 cyclonedx="$release_dir/reconc-$project_version.cdx.json"
 mv "$spdx" "$spdx.missing"
-expect_failure "${verify_release[@]}"
+expect_failure verify_release_artifacts "$release_dir"
 mv "$spdx.missing" "$spdx"
 
 duplicate_manifest_line=$(head -n 1 "$release_dir/SHA256SUMS")
 printf '%s\n' "$duplicate_manifest_line" >> "$release_dir/SHA256SUMS"
-expect_failure "${verify_release[@]}"
+expect_failure verify_release_artifacts "$release_dir"
 "$root/scripts/release/write-checksums.sh" "$release_dir"
 
 printf '{\n' >> "$cyclonedx"
 "$root/scripts/release/write-checksums.sh" "$release_dir"
-expect_failure "${verify_release[@]}"
+expect_failure verify_release_artifacts "$release_dir"
 generate_sbom "$release_dir" "$project_version"
 "$root/scripts/release/write-checksums.sh" "$release_dir"
 
@@ -409,13 +421,13 @@ generate_sbom "$stale_dir" "9.8.7"
 cp "$stale_dir/reconc-9.8.7.spdx.json" "$spdx"
 cp "$stale_dir/reconc-9.8.7.cdx.json" "$cyclonedx"
 "$root/scripts/release/write-checksums.sh" "$release_dir"
-expect_failure "${verify_release[@]}"
+expect_failure verify_release_artifacts "$release_dir"
 generate_sbom "$release_dir" "$project_version"
 "$root/scripts/release/write-checksums.sh" "$release_dir"
 
 grep -v "  reconc-$project_version.spdx.json$" "$release_dir/SHA256SUMS" > "$release_dir/SHA256SUMS.filtered"
 mv "$release_dir/SHA256SUMS.filtered" "$release_dir/SHA256SUMS"
-expect_failure "${verify_release[@]}"
+expect_failure verify_release_artifacts "$release_dir"
 
 rm "$release_dir/SHA256SUMS"
 mkdir -p "$tmp/broken-hash-bin"
@@ -608,4 +620,4 @@ RECONC_TEST_ATTESTATION_TOOL=reconc-attestation-fail run_installer >/dev/null 2>
 [ "$("$install_dir/reconc" --version)" = "reconc ${project_version}" ] \
   || fail "optional failed attestation must not block the install"
 
-printf 'release-trust: ok\n'
+printf 'release-trust: ok (real release target: %ss)\n' "$release_build_seconds"

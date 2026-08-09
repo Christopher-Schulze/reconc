@@ -16,16 +16,18 @@ import (
 	"strings"
 
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/usercli"
 )
 
 const (
-	manifestName   = "release-manifest.json"
-	checksumsName  = "SHA256SUMS"
-	manifestFormat = "reconc.release/v1"
-	repository     = "Christopher-Schulze/reconc"
-	maxAssets      = 128
-	maxAssetBytes  = 256 << 20
+	manifestName     = "release-manifest.json"
+	checksumsName    = "SHA256SUMS"
+	manifestFormat   = "reconc.release/v1"
+	repository       = "Christopher-Schulze/reconc"
+	maxAssets        = 128
+	maxAssetBytes    = 256 << 20
+	maxManifestBytes = 1 << 20
 )
 
 var versionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
@@ -63,7 +65,7 @@ func run(args []string, stdout io.Writer) error {
 	body = append(body, '\n')
 	path := filepath.Join(directory, manifestName)
 	if verify {
-		current, err := os.ReadFile(path)
+		current, err := boundedio.ReadRegularFile(path, maxManifestBytes)
 		if err != nil {
 			return fmt.Errorf("read release manifest: %w", err)
 		}
@@ -90,7 +92,7 @@ func buildManifest(directory string, version string) (usercli.ReleaseManifest, e
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return usercli.ReleaseManifest{}, fmt.Errorf("output directory must be a real directory: %s", directory)
 	}
-	entries, err := os.ReadDir(directory)
+	entries, err := boundedio.ReadDirNoSymlink(directory, maxAssets+2)
 	if err != nil {
 		return usercli.ReleaseManifest{}, err
 	}
@@ -111,13 +113,12 @@ func buildManifest(directory string, version string) (usercli.ReleaseManifest, e
 		if info.Size() <= 0 || info.Size() > maxAssetBytes {
 			return usercli.ReleaseManifest{}, fmt.Errorf("release asset size is outside 1..%d bytes: %s", maxAssetBytes, entry.Name())
 		}
-		body, err := os.ReadFile(path)
+		digest, size, err := hashReleaseAsset(path, info)
 		if err != nil {
 			return usercli.ReleaseManifest{}, err
 		}
-		sum := sha256.Sum256(body)
 		assets = append(assets, usercli.ReleaseAsset{
-			Name: entry.Name(), SHA256: hex.EncodeToString(sum[:]), Size: info.Size(),
+			Name: entry.Name(), SHA256: digest, Size: size,
 		})
 	}
 	if len(assets) == 0 || len(assets) > maxAssets {
@@ -131,4 +132,28 @@ func buildManifest(directory string, version string) (usercli.ReleaseManifest, e
 		Tag: "reconc-v" + version, Version: version,
 		Prerelease: strings.Contains(version, "-"), Assets: assets,
 	}, nil
+}
+
+func hashReleaseAsset(path string, before os.FileInfo) (string, int64, error) {
+	hash := sha256.New()
+	var written int64
+	err := boundedio.WithRegularFileSnapshot(path, maxAssetBytes, func(file *os.File, opened os.FileInfo) error {
+		if !os.SameFile(before, opened) || before.Mode() != opened.Mode() ||
+			before.Size() != opened.Size() || !before.ModTime().Equal(opened.ModTime()) {
+			return fmt.Errorf("release asset changed before hashing: %s", path)
+		}
+		var copyErr error
+		written, copyErr = io.Copy(hash, io.LimitReader(file, maxAssetBytes+1))
+		if copyErr != nil {
+			return copyErr
+		}
+		if written <= 0 || written > maxAssetBytes || written != opened.Size() {
+			return fmt.Errorf("release asset size changed while hashing: %s", path)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", 0, err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), written, nil
 }

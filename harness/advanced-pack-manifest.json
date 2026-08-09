@@ -18,8 +18,8 @@
     {
       "path": "tools/reconc/harness/template/BOOTSTRAP.md",
       "mode": 420,
-      "size": 46488,
-      "sha256": "9044034fdd9e0f312cfe24a268d7005150fe7a2a513f0813b885b12111d0dafe",
+      "size": 46542,
+      "sha256": "95cdc9b00fddb5f5a74ebdb8f54e34764d8c7b74026766e18c771234b6aa1c00",
       "ownership": "pack-file"
     },
     {
@@ -32,15 +32,15 @@
     {
       "path": "tools/reconc/harness/template/audits/agent_quality.go",
       "mode": 420,
-      "size": 8779,
-      "sha256": "2c2e5fe0931984a70b175f5ceeff4c56271ecc5b80f44689ced9d31fd0259c67",
+      "size": 8807,
+      "sha256": "76a2f37512ecc8f02ab1bc448137463445457caee7e63f746d5cb6cd92e3eded",
       "ownership": "pack-file"
     },
     {
       "path": "tools/reconc/harness/template/audits/agents_md_mirror.go",
       "mode": 420,
-      "size": 3148,
-      "sha256": "72c8f2e1c465a0de8056b0459839d051673732a346ddf0baafe7e96d6f46819f",
+      "size": 3150,
+      "sha256": "b227e5a7869b15c883dad38c4b95ebb90adff8e6e96f2a45091708a7b18c26ad",
       "ownership": "pack-file"
     },
     {
@@ -53,8 +53,8 @@
     {
       "path": "tools/reconc/harness/template/audits/arch_lint.go",
       "mode": 420,
-      "size": 7769,
-      "sha256": "18937683c128fd90053374add85c07ed35dd1effd4b00585cd4fe1292166bea2",
+      "size": 7768,
+      "sha256": "043605a2681a93d67db07ee65e6d900646d3fa674eb4a9bccc33ca7e8118bb80",
       "ownership": "pack-file"
     },
     {
@@ -67,8 +67,8 @@
     {
       "path": "tools/reconc/harness/template/audits/audit_cache.go",
       "mode": 420,
-      "size": 11156,
-      "sha256": "14120f65b77cf4855353393740043b24a42d942f7395f4ca0d9cdfe2897dc51b",
+      "size": 17596,
+      "sha256": "c70fd3f611544d2d43ec3488874cbf38d09e5105baee82559daba1ea60bf317e",
       "ownership": "pack-file"
     },
     {
@@ -88,36 +88,50 @@
     {
       "path": "tools/reconc/harness/template/audits/audit_cache_test.go",
       "mode": 420,
-      "size": 20838,
-      "sha256": "ba432d2ffa7205458b785de89520f97e87c203aa37e11774f499d2f362949b3c",
+      "size": 20840,
+      "sha256": "3341bb1b94c6e017804a47a01ed92c4c4ed8ba5d0f43c091351f4bf2104362f4",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/audit_cache_unix_test.go",
+      "mode": 420,
+      "size": 2026,
+      "sha256": "cb7ace585270af0e046edb39be02658a4d07335c86ded7309d8fa47337fbdb93",
       "ownership": "pack-file"
     },
     {
       "path": "tools/reconc/harness/template/audits/audit_cache_wrappers.go",
       "mode": 420,
-      "size": 5842,
-      "sha256": "09fb6e6c45dcc242a81596b58f6136bf6a58b08cb7de328675ae424db073c1d8",
+      "size": 5460,
+      "sha256": "3443b35a35eb0030de68f494f4bf5db5583c6c5d7d7ad877e07e241e187d5a41",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/audit_input.go",
+      "mode": 420,
+      "size": 2139,
+      "sha256": "47b3ece91d825d3a8d1ec08b848dd2da52150b27383e3e10cbbbd9f0216c436a",
       "ownership": "pack-file"
     },
     {
       "path": "tools/reconc/harness/template/audits/command.go",
       "mode": 420,
-      "size": 2941,
-      "sha256": "b0fe99de2bc1708b8508bda9a5623e1a3ae59aad273a604785b950e8c4f11b46",
+      "size": 4142,
+      "sha256": "591d704d665b86c612e26c1a066c2124307e21f7c9ed5101449bf04525ca947b",
       "ownership": "pack-file"
     },
     {
       "path": "tools/reconc/harness/template/audits/command_test.go",
       "mode": 420,
-      "size": 5018,
-      "sha256": "84d049f85ece13c43f2866e7009448ab86691bdb322389215d2dc8d74e7e3dc2",
+      "size": 5477,
+      "sha256": "247a2fad1f079cd841c42b2ab2bb204970ae552cf9501b9bf623d18c77b0f251",
       "ownership": "pack-file"
     },
     {
       "path": "tools/reconc/harness/template/audits/coverage_depth_test.go",
       "mode": 420,
-      "size": 35033,
-      "sha256": "7c0de2beec06825512770b1d11dede13dec9f42a6bddd217cddf3736c65b7d85",
+      "size": 37928,
+      "sha256": "d381b7303bf9057ec79cae83c7153b5904943f82e4164d9fd776cccf6c594220",
       "ownership": "pack-file"
     },
     {
@@ -130,15 +144,15 @@
     {
       "path": "tools/reconc/harness/template/audits/generated_reference/generated_reference_audit.go",
       "mode": 420,
-      "size": 1132,
-      "sha256": "b8a8fa724d0d6dff745f8ecb860dbf51e021de81651d1bc8583b387b2d458c9b",
+      "size": 2028,
+      "sha256": "8d5a3e3e18decb84c3a0b750e82b03ef1dcca69aeffd4959f68ca6e65031ed6d",
       "ownership": "pack-file"
     },
     {
       "path": "tools/reconc/harness/template/audits/generated_reference/generated_reference_audit_test.go",
       "mode": 420,
-      "size": 2129,
-      "sha256": "6f628d76c9d26be64a0c19be53ba94462bd8bf3273c98a079e19f4a67b26596e",
+      "size": 2616,
+      "sha256": "4c57846d60154abd971de72b05949e2eff3087eb787c1528454f4325aba456ba",
       "ownership": "pack-file"
     },
     {
@@ -172,8 +186,8 @@
     {
       "path": "tools/reconc/harness/template/audits/lib/donecheck/schema.go",
       "mode": 420,
-      "size": 6390,
-      "sha256": "94f8f3924797a0672236de16ce86de561647772b433db116aa3699507d4fb870",
+      "size": 7491,
+      "sha256": "d926c39f121a777b32169279d8b46da1481f70a1b1ff7fcfe964d01735d15a84",
       "ownership": "pack-file"
     },
     {
@@ -181,6 +195,13 @@
       "mode": 420,
       "size": 4334,
       "sha256": "132cbd17905e1eb74cc304cf38e758cbddd1fdd21970c1edbfd690a469d6c039",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/lib/donecheck/schema_unix_test.go",
+      "mode": 420,
+      "size": 548,
+      "sha256": "7d74c0a95536d04c4aae90ae88b3a2dde11282f3183596e5b0ba612b2ee0c1b6",
       "ownership": "pack-file"
     },
     {
@@ -193,8 +214,8 @@
     {
       "path": "tools/reconc/harness/template/audits/lib/prune/prune.go",
       "mode": 420,
-      "size": 12158,
-      "sha256": "0d6a1ce05200c9ae3c8a68b166efc0131173f6da60eae0619da2574f667e3141",
+      "size": 21322,
+      "sha256": "51dc9e6644c7aaec9ec18d2eff6b392ed02ac9c2b0b10f1f88a7b86a531e10c4",
       "ownership": "pack-file"
     },
     {
@@ -202,6 +223,20 @@
       "mode": 420,
       "size": 12045,
       "sha256": "d10e722e36b850b4505fc01474ebd98c6e9102d58f4d6d49b32b26f5576a7b87",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/lib/prune/safety_test.go",
+      "mode": 420,
+      "size": 780,
+      "sha256": "8bf4cba1c144165d3f6b580a110db21c1527344ef8613ccd781f230f8bd032b2",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/audits/lib/prune/safety_unix_test.go",
+      "mode": 420,
+      "size": 3036,
+      "sha256": "d9dde46da304b51d166c6c3d131a2ea5a223c8ea7ab21876bbbcbd1043547f1b",
       "ownership": "pack-file"
     },
     {
@@ -214,8 +249,8 @@
     {
       "path": "tools/reconc/harness/template/audits/module_lint.go",
       "mode": 420,
-      "size": 7268,
-      "sha256": "6318ca0e214ce6d3293be1f1b6811d93c9070d7ddf34d2051934bb3648ebe45d",
+      "size": 7274,
+      "sha256": "22fa153427d2dc361531108b14a91ac9aaf769619dbefe7e9ff43b95913c4921",
       "ownership": "pack-file"
     },
     {
@@ -228,8 +263,8 @@
     {
       "path": "tools/reconc/harness/template/audits/run-workflow-audit",
       "mode": 493,
-      "size": 2770,
-      "sha256": "b4e863e67e8c5ebca0e7b7ec35ff12888d3f02eee1991f70a600ff87af07cc1f",
+      "size": 3694,
+      "sha256": "fa56d09b783a384f0f3342b09b0023d95802474ae1f8752f8e02379aff7691a1",
       "ownership": "pack-file"
     },
     {
@@ -240,31 +275,38 @@
       "ownership": "pack-file"
     },
     {
+      "path": "tools/reconc/harness/template/audits/runner_cache_unix_test.go",
+      "mode": 420,
+      "size": 948,
+      "sha256": "e4842b4ca79d95f14364ed432e104293d52eab08431fc3a7e84f47f7018939c4",
+      "ownership": "pack-file"
+    },
+    {
       "path": "tools/reconc/harness/template/audits/scaffold_cache_inputs_test.go",
       "mode": 420,
-      "size": 3103,
-      "sha256": "cae55d8135c5c4efbbb05e54231c4ad34226d382b8e079891eda961bc167de61",
+      "size": 3350,
+      "sha256": "1e922f3d2280de0834d1cb00f6b3ba89d8630de1f111f70fe701293928323567",
       "ownership": "pack-file"
     },
     {
       "path": "tools/reconc/harness/template/audits/spec_audit_artifacts.go",
       "mode": 420,
-      "size": 31662,
-      "sha256": "05b515f1d91b7027f9e2e169f09728e8517596d113a3b85ca9138f788364c2c8",
+      "size": 31690,
+      "sha256": "97864ed2d1ea23f1520aaf09b1a9aa5261454379e39b0a6426cb86380f85a2a9",
       "ownership": "pack-file"
     },
     {
       "path": "tools/reconc/harness/template/audits/stack_config.go",
       "mode": 420,
-      "size": 7388,
-      "sha256": "e155415b484ff9bd457396ab766a7646afc2d12386999d90cbb95baa547a1100",
+      "size": 7384,
+      "sha256": "90f06d09d33db3c6dea3a05bc78823b54362aa45f89ba2b64ef54a5ed718ca29",
       "ownership": "pack-file"
     },
     {
       "path": "tools/reconc/harness/template/audits/task_spec_bindings.go",
       "mode": 420,
-      "size": 8164,
-      "sha256": "608783f433028a4073069a1932506fd4b99e044876175c55135a786aa293077a",
+      "size": 8160,
+      "sha256": "04670901e92db800899e5e2cd929aec29da04716f892149a08a79bcd01f2abc8",
       "ownership": "pack-file"
     },
     {
@@ -312,8 +354,8 @@
     {
       "path": "tools/reconc/harness/template/audits/workflow-audit.go",
       "mode": 420,
-      "size": 82983,
-      "sha256": "69f977d70e893ce8fae6d33bb744378f93764289fbe3d7e37c845a13f709eb60",
+      "size": 83993,
+      "sha256": "adbf1dc61880ce04b1d46df67b93266a85e23c4eecf6da8ac80b9c6dd4258fff",
       "ownership": "pack-file"
     },
     {
@@ -536,8 +578,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.reconc.yml",
       "mode": 420,
-      "size": 16282,
-      "sha256": "cef05131bf3575f0295ece3da0528ecf015c5ced17f878dfd27f26f3f6ec93e2",
+      "size": 15707,
+      "sha256": "65201bd0af5752670d3828cec81b2919abb661aaa6ca54dbbce19ceef9251312",
       "ownership": "pack-file"
     },
     {
@@ -655,8 +697,8 @@
     {
       "path": "tools/reconc/harness/template/utils/promote-task-done/coverage_depth_test.go",
       "mode": 420,
-      "size": 1381,
-      "sha256": "ce18cb969a2a1aff297879c6f61394a573e8dc1d64f2710b591bfbf3e58ab7a0",
+      "size": 1078,
+      "sha256": "8430e331f8d6975666da0e11a2b7d4517202e1fc7b785e940eb7949017da7e64",
       "ownership": "pack-file"
     },
     {
@@ -676,15 +718,15 @@
     {
       "path": "tools/reconc/harness/template/utils/promote-task-done/main.go",
       "mode": 420,
-      "size": 17803,
-      "sha256": "bfec61620c60dc9390fed79e6de1cb1c23c08d091cf671bd0edc5909e6419847",
+      "size": 25064,
+      "sha256": "06957fa96fbf094aba13c13a4fb2029db844b4b51886cc25259c023944623890",
       "ownership": "pack-file"
     },
     {
       "path": "tools/reconc/harness/template/utils/promote-task-done/main_test.go",
       "mode": 420,
-      "size": 25894,
-      "sha256": "c387a82f30d4bbeb54f248101c8a49c7a21260d1ad38cea0cbb09b937f6e6147",
+      "size": 26059,
+      "sha256": "48d8fd88309ee33d94ff34fb165c467a68042674ab1effb1a4ea5e5d4eb9d802",
       "ownership": "pack-file"
     },
     {
@@ -692,6 +734,20 @@
       "mode": 493,
       "size": 367,
       "sha256": "97526a03890199b6caa6443b0151b64b9e644a012a9c6337e0754fb9231387ac",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/utils/promote-task-done/safety_test.go",
+      "mode": 420,
+      "size": 1944,
+      "sha256": "e8cbafb036f1d2a016dd54b780126b593c0a295e838cc886c6b99038d597a266",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/utils/promote-task-done/safety_unix_test.go",
+      "mode": 420,
+      "size": 1097,
+      "sha256": "7cab78b897d4bb9111e85c91dbe09d26466acd96314be675bb4eeaae4b63d2d5",
       "ownership": "pack-file"
     },
     {
@@ -725,15 +781,15 @@
     {
       "path": "tools/reconc/harness/template/utils/task-claim/main.go",
       "mode": 420,
-      "size": 7621,
-      "sha256": "e0c9358f6776ea184edeeeb70ff68c185dee985bb56c0a09a1bd4e1752c907fc",
+      "size": 11447,
+      "sha256": "c88471589055352337607b6dbc2218ca935f66b73556c51df093386c804ce401",
       "ownership": "pack-file"
     },
     {
       "path": "tools/reconc/harness/template/utils/task-claim/main_test.go",
       "mode": 420,
-      "size": 11947,
-      "sha256": "459b5defa9073642d1f3a05319c73e81ceb7f54b98fd334fdfe021d2987a5638",
+      "size": 12024,
+      "sha256": "6030cb310a2ca6bd8709f554085b5560f1dcaa7de575875caef5f6355e1c63b9",
       "ownership": "pack-file"
     },
     {
@@ -744,6 +800,20 @@
       "ownership": "pack-file"
     },
     {
+      "path": "tools/reconc/harness/template/utils/task-claim/safety_test.go",
+      "mode": 420,
+      "size": 2160,
+      "sha256": "45138c36bc5ba10aa90b3b2759a8629e5631ea9557baeb8e1727f750014594ca",
+      "ownership": "pack-file"
+    },
+    {
+      "path": "tools/reconc/harness/template/utils/task-claim/safety_unix_test.go",
+      "mode": 420,
+      "size": 1225,
+      "sha256": "c05ca8f9f5b5e1d2b6a935ca1d657c218d0a7c5f03743ec1fd0b95dd90a668ac",
+      "ownership": "pack-file"
+    },
+    {
       "path": "tools/reconc/harness/template/utils/task-claim/timeout_unix_test.go",
       "mode": 420,
       "size": 676,
@@ -751,6 +821,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 772052,
-  "digest": "e4ae1383601cfe7885aca74bef8fa13cf1272548f8acc30fe8fd8afe2390b1cb"
+  "total_bytes": 822959,
+  "digest": "77f458c8f22d8f41c8bb78f6da3d6cd6acb13c44a92b45edd0996922a9591c6d"
 }

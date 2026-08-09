@@ -183,21 +183,19 @@ func executableRegular(path, targetOS string) bool {
 }
 
 func fileSHA256(path string) (string, error) {
-	file, err := boundedio.OpenRegularFile(path, maxBinaryBytes)
-	if err != nil {
-		return "", fmt.Errorf("open %s for checksum: %w", path, err)
-	}
 	hash := sha256.New()
-	written, copyErr := io.Copy(hash, io.LimitReader(file, maxBinaryBytes+1))
-	closeErr := file.Close()
-	if copyErr != nil {
-		return "", fmt.Errorf("hash %s: %w", path, copyErr)
-	}
-	if closeErr != nil {
-		return "", fmt.Errorf("close %s after checksum: %w", path, closeErr)
-	}
-	if written > maxBinaryBytes {
-		return "", fmt.Errorf("artifact exceeds %d-byte checksum limit: %s", maxBinaryBytes, path)
+	err := boundedio.WithRegularFileSnapshot(path, maxBinaryBytes, func(file *os.File, info os.FileInfo) error {
+		written, copyErr := io.Copy(hash, io.LimitReader(file, maxBinaryBytes+1))
+		if copyErr != nil {
+			return copyErr
+		}
+		if written > maxBinaryBytes || written != info.Size() {
+			return fmt.Errorf("artifact size changed or exceeds %d bytes", maxBinaryBytes)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("hash %s: %w", path, err)
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }

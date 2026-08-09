@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestReadFileEnforcesExactLimit(t *testing.T) {
@@ -47,11 +48,32 @@ func TestReadRegularFileRejectsOversizeSparseAndIrregularInputs(t *testing.T) {
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ReadRegularFile(sparse, 5); err == nil || !strings.Contains(err.Error(), "exceeds 5 bytes") {
+	body, err := ReadRegularFile(sparse, 5)
+	if err == nil || !strings.Contains(err.Error(), "exceeds 5 bytes") {
 		t.Fatalf("sparse oversize error = %v", err)
+	}
+	if body != nil {
+		t.Fatalf("failed strict read exposed %d bytes", len(body))
 	}
 	if _, err := ReadRegularFile(root, 5); err == nil || !strings.Contains(err.Error(), "regular file") {
 		t.Fatalf("directory error = %v", err)
+	}
+}
+
+func TestOpenedSnapshotRejectsSameSizeMutation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mutable")
+	if err := os.WriteFile(path, []byte("before"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := WithRegularFileSnapshot(path, 6, func(_ *os.File, before os.FileInfo) error {
+		if err := os.WriteFile(path, []byte("after!"), 0o600); err != nil {
+			return err
+		}
+		future := before.ModTime().Add(time.Second)
+		return os.Chtimes(path, future, future)
+	})
+	if err == nil || !strings.Contains(err.Error(), "changed while reading") {
+		t.Fatalf("same-size mutation was accepted: %v", err)
 	}
 }
 

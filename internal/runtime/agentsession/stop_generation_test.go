@@ -105,6 +105,212 @@ func TestStopGenerationCacheDetectsSameSizeSameMtimeRewrite(t *testing.T) {
 	}
 }
 
+func TestStopGenerationCacheDetectsDeclaredInputRewrite(t *testing.T) {
+	counterPath := filepath.Join(t.TempDir(), "counter")
+	repo := setupStopScriptPolicyRepo(t, counterPath, 0, "")
+	trackStopGenerationBytes(t, repo, "src/a.go", bytes.Repeat([]byte{'a'}, stopGenerationMinBytes))
+	if err := os.WriteFile(filepath.Join(repo, "src", "a.go"), bytes.Repeat([]byte{'b'}, stopGenerationMinBytes), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	declaredInput := filepath.Join(repo, "build", "report.json")
+	fixed := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(declaredInput, fixed, fixed); err != nil {
+		t.Fatal(err)
+	}
+	state, err := InitializeSessionState(repo, "generation-declared-input")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err = MutateSessionState(repo, state.SessionID, func(current SessionState) SessionState {
+		return AppendWritePath(current, "src/a.go")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache := NewStopDecisionCache()
+	evaluator := runtime.NewEvaluator()
+	if _, err := runStopPolicyCheckWithSnapshotWithEvaluatorAndCache(repo, state, evaluator, cache, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(declaredInput, []byte(`{"status":"fail"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(declaredInput, fixed, fixed); err != nil {
+		t.Fatal(err)
+	}
+	state, err = LoadSessionState(repo, state.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := runStopPolicyCheckWithSnapshotWithEvaluatorAndCache(repo, state, evaluator, cache, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.GenerationHit {
+		t.Fatal("same-size, same-mtime declared-input rewrite reused a stale generation")
+	}
+	if got := readCounter(t, counterPath); got != 2 {
+		t.Fatalf("rewritten declared input ran policy script %d times, want 2", got)
+	}
+}
+
+func TestStopGenerationReevaluatesConcurrentEvidenceBeforeWarming(t *testing.T) {
+	counterPath := filepath.Join(t.TempDir(), "counter")
+	repo := setupStopScriptPolicyRepo(t, counterPath, 0, "")
+	trackStopGenerationBytes(t, repo, "src/a.go", bytes.Repeat([]byte{'a'}, stopGenerationMinBytes))
+	if err := os.WriteFile(filepath.Join(repo, "src", "a.go"), bytes.Repeat([]byte{'b'}, stopGenerationMinBytes), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	state, err := InitializeSessionState(repo, "generation-concurrent-evidence")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err = MutateSessionState(repo, state.SessionID, func(current SessionState) SessionState {
+		return AppendWritePath(current, "src/a.go")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache := NewStopDecisionCache()
+	evaluator := runtime.NewEvaluator()
+	if _, err := runStopPolicyCheckWithSnapshotWithEvaluatorAndCache(repo, state, evaluator, cache, nil); err != nil {
+		t.Fatal(err)
+	}
+	state, err = LoadSessionState(repo, state.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := filepath.Join(t.TempDir(), "started")
+	release := filepath.Join(t.TempDir(), "release")
+	script := fmt.Sprintf(
+		"#!/bin/sh\n: > %q\nwhile [ ! -f %q ]; do sleep 0.05; done\nprintf x >> %q\nexit 0\n",
+		started, release, counterPath,
+	)
+	if err := os.WriteFile(filepath.Join(repo, ".reconc", "scripts", "stop-gate.sh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	type stopResult struct {
+		result stopPolicyCheckResult
+		err    error
+	}
+	resultCh := make(chan stopResult, 1)
+	go func() {
+		result, runErr := runStopPolicyCheckWithSnapshotWithEvaluatorAndCache(repo, state, evaluator, cache, nil)
+		resultCh <- stopResult{result: result, err: runErr}
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, statErr := os.Stat(started); statErr == nil {
+			break
+		} else if !os.IsNotExist(statErr) {
+			t.Fatal(statErr)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Stop policy script did not reach the concurrency barrier")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := MutateSessionState(repo, state.SessionID, func(current SessionState) SessionState {
+		current.Claims = append(current.Claims, "concurrent-evidence")
+		current.EvidenceEpoch++
+		return current
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(release, []byte("release\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	concurrent := <-resultCh
+	if concurrent.err != nil {
+		t.Fatal(concurrent.err)
+	}
+	if concurrent.result.GenerationHit {
+		t.Fatal("changed policy script unexpectedly reused the generation cache")
+	}
+	state, err = LoadSessionState(repo, state.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.StopPolicyFingerprint == "" || state.StopPolicyEvidenceHash == "" || state.StopPolicyReportHash == "" {
+		t.Fatalf("reevaluated concurrent evidence was not cached: %+v", state)
+	}
+	if got := stopPolicyEvidenceHash(state); state.StopPolicyEvidenceHash != got {
+		t.Fatalf("cached evidence hash = %q, want current %q", state.StopPolicyEvidenceHash, got)
+	}
+	result, err := runStopPolicyCheckWithSnapshotWithEvaluatorAndCache(repo, state, evaluator, cache, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.GenerationHit {
+		t.Fatal("report reevaluated with concurrent evidence did not become the warm generation")
+	}
+	if got := readCounter(t, counterPath); got != 3 {
+		t.Fatalf("concurrent-evidence sequence ran policy script %d times, want 3", got)
+	}
+}
+
+func TestStopGenerationCacheSupportsSealedEvidenceSegments(t *testing.T) {
+	counterPath := filepath.Join(t.TempDir(), "counter")
+	repo := setupStopScriptPolicyRepo(t, counterPath, 0, "")
+	trackStopGenerationBytes(t, repo, "src/a.go", bytes.Repeat([]byte{'a'}, stopGenerationMinBytes))
+	if err := os.WriteFile(filepath.Join(repo, "src", "a.go"), bytes.Repeat([]byte{'b'}, stopGenerationMinBytes), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	const sessionID = "generation-sealed-evidence"
+	if _, err := InitializeSessionState(repo, sessionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MutateSessionState(repo, sessionID, func(current SessionState) SessionState {
+		return AppendWritePath(current, "src/a.go")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	seed, err := LoadSessionState(repo, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := seed.RepoRoot
+	if err := withSessionLock(root, sessionID, func() error {
+		current, loadErr := loadSessionStateResolved(root, sessionID)
+		if loadErr != nil {
+			return loadErr
+		}
+		rotated, rotateErr := rotateSessionEvidenceLocked(root, current)
+		if rotateErr != nil {
+			return rotateErr
+		}
+		return saveSessionStateLocked(rotated)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	state, err := LoadSessionState(repo, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.EvidenceSegmentCount != 1 || len(state.WritePaths) != 0 {
+		t.Fatalf("fixture did not seal its write evidence: %+v", state)
+	}
+	cache := NewStopDecisionCache()
+	evaluator := runtime.NewEvaluator()
+	if _, err := runStopPolicyCheckWithSnapshotWithEvaluatorAndCache(repo, state, evaluator, cache, nil); err != nil {
+		t.Fatal(err)
+	}
+	state, err = LoadSessionState(repo, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := runStopPolicyCheckWithSnapshotWithEvaluatorAndCache(repo, state, evaluator, cache, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.GenerationHit {
+		t.Fatal("unchanged sealed evidence did not use the generation cache")
+	}
+	if got := readCounter(t, counterPath); got != 1 {
+		t.Fatalf("sealed evidence ran policy script %d times, want 1", got)
+	}
+}
+
 func TestStopGenerationCacheCoalescesConcurrentEquivalentStops(t *testing.T) {
 	counterPath := filepath.Join(t.TempDir(), "counter")
 	repo := setupStopScriptPolicyRepo(t, counterPath, 0, "")
@@ -285,7 +491,7 @@ func requireStopGeneration(
 	taskSnapshot stopTaskSnapshot,
 ) stopGenerationCapture {
 	t.Helper()
-	generation, ok := captureStopRepositoryGeneration(repo, gitSnapshot, taskSnapshot)
+	generation, ok := captureStopRepositoryGeneration(repo, gitSnapshot, taskSnapshot, nil)
 	if !ok || generation.Fingerprint == "" {
 		t.Fatal("repository generation capture failed")
 	}

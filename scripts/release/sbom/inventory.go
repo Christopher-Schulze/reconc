@@ -13,7 +13,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"reconc.dev/reconc/internal/boundedexec"
 )
+
+const maxSBOMCommandOutput = 16 << 20
 
 var (
 	versionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
@@ -213,7 +217,7 @@ func moduleKey(path, version string) string {
 func runGo(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	command := exec.CommandContext(ctx, "go", args...)
 	command.Dir = dir
-	body, err := command.CombinedOutput()
+	body, err := boundedexec.CombinedOutput(command, maxSBOMCommandOutput)
 	if err != nil {
 		return nil, fmt.Errorf("go %s in %s: %w: %s", strings.Join(args, " "), dir, err, strings.TrimSpace(string(body)))
 	}

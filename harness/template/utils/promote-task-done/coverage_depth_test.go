@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -20,27 +19,14 @@ func TestWrapRollbackErrorPreservesNilAndCause(t *testing.T) {
 	}
 }
 
-func TestWriteAtomicCreatesNewFileWithPrivateStableMode(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "new.md")
-	if err := writeAtomic(path, []byte("content\n")); err != nil {
-		t.Fatalf("writeAtomic: %v", err)
+func TestWriteAtomicRejectsMissingTargetWithoutCreatingIt(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "new.md")
+	if err := writeAtomic(root, path, []byte("content\n"), nil); err == nil {
+		t.Fatal("writeAtomic accepted a missing transaction target")
 	}
-	body, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read result: %v", err)
-	}
-	if string(body) != "content\n" {
-		t.Fatalf("content = %q", body)
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat result: %v", err)
-	}
-	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o644 {
-		t.Fatalf("new-file mode = %o, want 644", info.Mode().Perm())
-	}
-	if !info.Mode().IsRegular() {
-		t.Fatalf("new-file mode = %s, want regular file", info.Mode())
+	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing target was created, err=%v", err)
 	}
 	matches, err := filepath.Glob(filepath.Join(filepath.Dir(path), ".promote-task-done-*"))
 	if err != nil {

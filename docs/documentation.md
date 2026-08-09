@@ -171,7 +171,10 @@ identity. Strict surfaces reject final symlinks; the few discovery reads that
 intentionally follow a symlink still require the resolved target to remain the
 same regular file. FIFO, device, sparse oversize, replaced-path, unreadable, and
 truncated inputs return an explicit error. Bounded directory reads return no
-partial snapshot when the entry ceiling is exceeded.
+partial snapshot when the entry ceiling is exceeded. Streaming readers also
+revalidate file identity, mode, size, and modification time after the complete
+consumer callback; drift invalidates the whole result instead of exposing a
+partial audit, run-log, checksum, release, or provenance snapshot.
 
 | Surface | Current read contract |
 | --- | --- |
@@ -179,11 +182,12 @@ partial snapshot when the entry ceiling is exceeded.
 | CLI lockfiles, reports, and extraction | Lockfile summaries are capped at 16 MiB; saved `why` reports at 32 MiB; session-briefing reports at 1 MiB; `extract --from` at 8 MiB and repository-relative only. |
 | Adoption and overlays | Root manifests are capped at 1 MiB, `.reconc.yml`, user presets, and user templates at 8 MiB; workflow, preset, and template directories stop at 4,096 entries and report incomplete inspection. |
 | Run decisions | Each live or archived JSONL file is capped at 2 MiB and each record at 32 KiB. Two archives are retained. `run log --limit N` validates the full retained chain while keeping only the requested tail in memory. |
-| Audit evidence | Each live or archived JSONL file is capped at 2 MiB, each record at 32 KiB, the detached head at 16 KiB, and the ring at two archives. Export streams only after the complete chain verifies. |
+| Audit evidence | Each live or archived JSONL file is capped at 2 MiB, each record at 32 KiB, the detached head at 16 KiB, and the ring at two archives. Export streams only after the complete chain verifies. Portable workflow-audit files are strict non-symlink regular reads capped at 64 MiB; directory walks stop at 100,000 entries, task schemas and legacy prune policies at 1 MiB, and legacy retention directories at 4,096 entries. |
 | Bootstrap and repository sync | Managed text is capped at 16 MiB; bootstrap plans at 4 MiB; sync plans at 8 MiB; portable receipts at 4 MiB; rollback before-images at 64 MiB aggregate; journals at 96 MiB; binary artifacts at 256 MiB. Writes remain create-only or atomic and preserve user-owned bytes. |
 | Build provenance | Binary marker inspection streams at most 256 MiB without executing or retaining the binary. Production source hashing accepts at most 16,384 real files, 64 MiB per file, and 512 MiB aggregate. |
-| Command proofs and owned state | Each command proof is capped at 16 KiB and its directory at 4,096 entries. Retention directories and tree walks have explicit entry ceilings and abort without deleting from a partial inventory. |
+| Command proofs and owned state | Each command proof is capped at 16 KiB and its directory at 4,096 entries; unresolved-policy proofs and workflow-audit cache state are capped at 8 MiB. All are strict regular-file reads that reject links and special files. Retention directories and tree walks have explicit entry ceilings and abort without deleting from a partial inventory. |
 | Policy script execution | A `require_script` target resolves inside the repository before launch, `timeout_sec` is capped at 300 seconds, and `kill_timeout_sec` at 60 seconds. Captured stdout and stderr stop at 64 KiB per stream. |
+| Auxiliary commands and release inventory | Git, Go, attestation, offline-hook, TASK utility, generated-reference, SBOM, and publication-audit subprocesses use purpose-specific 64 KiB to 64 MiB output ceilings and fail on overflow. Release assets are hashed as stable non-symlink regular-file streams, release directories stop after the declared inventory ceiling, and committed manifests, archives, and SBOMs use strict bounded reads. |
 
 Best-effort detection is best-effort only about recommendations, not about
 input integrity. A malformed package manifest, unreadable source, oversized
@@ -258,10 +262,12 @@ target stops on the first build, SBOM, manifest, or checksum failure.
 Every artifact copied out of the repository is named once, in
 `scripts/release/copied-assets.tsv`, together with the file it must be a copy
 of. The build copies from that manifest, the verifier derives both its expected
-set and its byte-identity comparisons from it, and the release trust gate
-assembles its tamper fixture with the same script. Adding or renaming a shipped
-artifact is therefore one edit; before this the list lived in three places and
-drifted far enough that a release could not complete.
+set and its byte-identity comparisons from it, and the real release target used
+by the trust gate consumes it. Generated surfaces and target-derived binary
+names are likewise owned once by `scripts/release/generated-assets.sh`; the
+Makefile generates from that executable inventory and the verifier lists from
+it. Before these owners existed, release names lived in multiple unsynchronised
+lists and drifted far enough that a release could not complete.
 
 The release verifier requires exactly those thirty-seven checksummed artifacts,
 rejects missing, extra, duplicate, unsafe, mutable, or corrupted entries, and
@@ -380,9 +386,14 @@ and shipped in the checksummed, provenance-attested release inventory.
 Bootstrap plans and private install receipts bind `advanced@1.0.0` plus its
 digest. Its scaffolded policy declares `cache_inputs` for every workflow gate
 whose audit reads a narrow input set, and deliberately declares nothing for the
-gates that walk a broad surface or shell out: a partial declaration there would
+gates that walk a broad surface, select input paths dynamically, or shell out:
+a partial declaration there would
 re-enable Stop report reuse across state the gate actually inspects, so those
-gates run whenever a write reaches them. Loading rejects unknown fields, incompatible versions, traversal,
+gates run whenever a write reaches them. The portable audit's separate result
+cache derives stack-configured build and durable-store paths from the same
+normalized helpers as the audits, verifies its input fingerprint again after
+evaluation, and refuses to publish a pass if those inputs move concurrently.
+Loading rejects unknown fields, incompatible versions, traversal,
 absolute or duplicate paths, links, unsupported modes, oversized input,
 unmanifested files, and checksum or digest drift. Daily init performs no
 network request and requires no standalone source checkout.
@@ -405,8 +416,8 @@ or ordering is incomplete, it exits non-zero with the exact durable PATH
 remediation.
 
 Global installation state is separate from repository bootstrap state.
-`$RECONC_HOME/install/receipt.json` is strict-decoding, bounded to 64 KiB,
-self-digested, written with private permissions, and serialized by
+`$RECONC_HOME/install/receipt.json` is a strict-decoding, bounded 64 KiB
+non-symlink regular file, self-digested, written with private permissions, and serialized by
 `$RECONC_HOME/install/receipt.lock`. It records `direct` or `source`
 ownership, channel, exact version, artifact checksum, canonical
 binary identity, build target, source digest, provenance state, and canonical
@@ -1104,11 +1115,17 @@ rules:
     message: schema drift gate
 ```
 
-Stop report reuse binds those files exactly. A `require_script` that declares
-nothing is never reused, which is the behaviour change to expect on upgrade:
-such gates run on every Stop until their inputs are declared. Globs, template
+Stop report reuse binds those paths exactly. Declaring `cache_inputs` is also
+an author contract that the script result is a deterministic function of its
+script, policy arguments, Reconc execution input, and the declared paths'
+content plus supported metadata. A script that reads wall-clock time,
+randomness, network state, mutable ambient environment, an undeclared path, or
+unsupported filesystem metadata such as access time, ownership, ACLs,
+extended attributes, or the link object behind a followed symlink must leave
+`cache_inputs` absent. Such a gate is never reused and runs on every applicable
+Stop. Globs, template
 variables, escaping paths, and duplicate entries are refused at compile time,
-because binding them would require a directory walk on the Stop path.
+because binding them would require a search on the Stop path.
 
 Hook routes were added after verifying the hosts' own configuration surfaces.
 Codex accepts `SessionEnd` among its eleven matcher groups, and Claude Code
@@ -1207,8 +1224,15 @@ cannot clear this filesystem audit.
 self-digested completion report binds the policy lock, Git
 HEAD and logical index, worktree contents, dirty paths, active-session evidence,
 saved session report, current policy result, current staged command proofs, and
-typed TASK completion. Candidate state is captured before and after evaluation;
-any change aborts the gate. A blocking explicit `check` or `ci` decision for the
+typed TASK completion. Its snapshot owns the exact evaluator input: Git dirty
+paths and relativized epochs when Git is available, otherwise session paths and
+epochs, plus the staged command proofs loaded at capture time. It also binds the
+concrete targets selected by dynamic evidence and freshness templates, their
+trusted filesystem identities, native-assurance authority observations, and
+the current temporal freshness verdict. Policy evaluation consumes that
+captured input rather than rebuilding it. Candidate state and every dynamic
+identity are captured before and after evaluation; any change aborts the gate.
+A blocking explicit `check` or `ci` decision for the
 same candidate remains unresolved until a later explicit non-blocking decision
 clears its tamper-evident receipt. Time and retention never clear it. With no
 typed TASK lifecycle, the TASK check is a minimal pass; configured lifecycle
@@ -1519,6 +1543,10 @@ Global temp and project-root scanning use independent six-hour markers, so
 multiple repos do not re-walk either tree on every session start.
 Durable publication and CLI output paths propagate write, sync, close, and
 unlock failures instead of reporting partial output as success.
+The legacy `reconc-prune` compatibility utility applies the documented defaults
+to a zero-valued policy, bounds every override, and refuses linked state
+directories, linked audit logs, special files, or identities that move before
+deletion or replacement. Product-core `reconc prune` remains the normal owner.
 
 ## Policy Packs And Native Assurance
 
@@ -1939,7 +1967,10 @@ different facts. Reconc uses these terms consistently:
 `configured`, `degraded`, `shadowed`, and `unsupported`. Its
 `surface_events`, `expected_events`, `live_events`, `unseen_events`,
 `last_seen`, and `last_event` fields keep documented surface eligibility,
-complete artifact coverage, and live truth separate. `reconc hook verify`
+complete artifact coverage, and live truth separate. Its `observations` map
+exposes only bounded, source-free metadata for observational routes; OMP
+`user_python` reports count, latest timestamp, repository-relative working
+directory, code byte size, and context-exclusion flag. `reconc hook verify`
 owns the same registry-derived matrix. Its default offline mode creates a
 disposable repository and separately verifies artifact generation,
 configuration, generated wrapper or Bun-adapter transport, a real synthetic
@@ -2533,25 +2564,36 @@ completed report is cached under that initial fingerprint and the exact
 read/write/command/claim evidence hash. One-shot hooks, small dirty states, and
 all uncertain inputs rebuild that exact fingerprint. A persistent session
 worker may reuse a fully published report for a dirty state of at least 16 MiB
-or 1,024 entries after a memory-only generation sample matches canonical root,
+or 1,024 entries after memory-only generation samples match canonical root,
 Git status/HEAD/index, platform file identity and change time, recursive
-untracked-tree metadata, policy lock and sources, typed TASK state,
-configuration, and session evidence. The cache owns at most 64
+untracked-tree metadata, policy lock and sources, every reachable
+policy-declared input, typed TASK state, configuration, and session evidence.
+The cache owns at most 64
 repository/session entries and starts no watcher or background process.
 Equivalent concurrent Stops serialize under the report lock and reload session
-evidence before reuse or evaluation. Re-entrant `stop_hook_active=true` calls
-apply the same exact identities before reusing a clean report.
+evidence before reuse or evaluation. Generation state is sampled around report
+loading and revalidated after the final evidence reload. If evidence or an
+exact cache input changes during policy evaluation, Stop re-evaluates current
+state up to three times and then fails closed instead of returning or warming a
+stale report. Re-entrant `stop_hook_active=true` calls apply the same final
+revalidation before reusing a clean report.
 
 Report reuse additionally binds the repository paths the compiled policy names,
 including the `require_script` target itself.
 `git status` never lists ignored files, so a gitignored `require_evidence` or
 `require_fresh_file` target could otherwise be rewritten or deleted without
 moving any fingerprint field. Every path a rule or composite check names,
-except those the dirty set already carries exactly, contributes its content
-identity to the fingerprint. A path that only exists after template
-substitution cannot be named statically and makes the policy non-cacheable, as
-does a lockfile that cannot be read or decoded. The eligibility scan decodes
-the lockfile rather than matching text.
+contributes its supported cache identity to the fingerprint,
+even when Git also reports that path as dirty. This separate identity is
+required because Git describes a symlink object while a policy input may
+follow a contained symlink to its target. A path that only exists after
+template substitution makes Stop-report reuse non-cacheable. Completion remains
+stricter: valid captures are resolved against the exact candidate write paths
+with the evaluator's first-match semantics, and every resulting concrete target
+is bound before and after evaluation. Malformed, unmatched, or untrusted
+dynamic input fails closed. A lockfile that cannot be read or decoded is
+likewise non-cacheable. The eligibility scan decodes the lockfile rather than
+matching text.
 
 A stored report additionally carries the instant its own inputs stop describing
 it. `require_fresh_file` can turn a clean report stale from wall-clock time
@@ -2563,20 +2605,40 @@ age requirements carries no expiry and never ages out on time alone.
 Only the gates a Stop can actually trigger decide whether its report may be
 reused: a `require_script` rule whose `when_paths` match none of the session's
 write paths runs no script, so it neither contributes to the report nor blocks
-its reuse. A rule with no `when_paths`, a templated pattern, or a pattern that
-cannot be matched counts as triggerable.
+its reuse. A rule with no `when_paths` is triggerable. Valid templated patterns
+are matched exactly against the session write paths; only malformed patterns
+fail toward triggerable.
+
+An applicable `require_assurance` rule is never report-cacheable. Native
+assurance may inspect complete globbed authority surfaces and wall-clock-aged
+proof records, which cannot be represented by the fixed path identity set used
+by Stop caching. It therefore evaluates on every applicable Stop. Completion
+additionally hashes the bounded native evaluation's exact loaded bodies,
+directory observations, applicability results, derived facts, and
+time-dependent findings before and after the policy decision, so a moving
+assurance authority surface cannot certify a stale candidate.
 
 A `require_script` body is opaque to that scan, so its author declares what it
 reads. `cache_inputs` lists literal repository-relative paths. A declared file
-contributes its exact content identity; a declared directory contributes its
-bounded recursive content identity, so a gate that inspects a surface can name
-that surface directly. Globs, template variables, escaping paths, and
-duplicates are refused at compile time, because resolving a pattern would put
-a search on the Stop path instead of a fixed set of reads. A declared
-script plan is reused only while every declared file keeps its exact content
-identity. A `require_script` that declares nothing keeps its plan off the warm
-path entirely, so no report is ever reused for a script whose inputs are
-unknown.
+contributes its supported cache identity, including content,
+modification time, and mode; a declared directory contributes its bounded
+recursive content, modification-time, and mode identity, so a gate that
+inspects a surface can name that surface directly. Platform file identity and
+change-time metadata also bind the persistent-worker generation fast path.
+Globs, template variables, escaping paths, and duplicates are refused at
+compile time, because resolving a pattern would put a search on the Stop path
+instead of a fixed set of reads. A declared script plan is reused only while
+every declared path keeps its exact content and supported metadata identity. Oversized
+files, directory-scan overflow, escaping or nested
+symlinks, and special files make that identity untrusted and bypass report
+reuse instead of accepting an approximation. A contained leaf symlink is
+bound to the followed target it names. `cache_inputs` is an explicit
+determinism assertion over those supported identities: scripts that consult
+time, randomness, network state, mutable ambient environment, undeclared
+repository state, access time, ownership, ACLs, extended attributes, or the
+symlink object itself must omit it. A
+`require_script` that declares nothing keeps its plan off the warm path
+entirely, so no report is ever reused for a script whose inputs are unknown.
 
 Dirty regular files up to 64 MiB contribute exact SHA-256 content identity. A
 larger dirty file receives only a bounded size/mtime diagnostic identity, makes
@@ -2618,9 +2680,13 @@ malformed batched workflow audit falls back to per-rule execution under the same
 contract instead of being counted as handled. Workflow-audit launchers bind their
 cache keys to a recursive content digest of the runner source, module files,
 and generated inputs; missing or unreadable inputs fail closed. They build
-cached binaries behind an atomic mkdir build lock and publish via temp binary +
-rename; parallel agent hooks therefore wait for one rebuild instead of stampeding
-the Go compiler or exposing a partially written cache binary. Direct audit Git
+cached binaries behind an atomic mkdir build lock and publish through randomized
+temporary files plus rename. The launcher requires real non-symlink cache
+directories and rejects linked or non-regular cached binaries and digests.
+Cache-state and lock reads are bounded regular-file operations with before/after
+identity checks; an unsafe cache input blocks before the audit function can
+open it. Parallel agent hooks therefore wait for one rebuild instead of
+stampeding the Go compiler or exposing a partially written cache binary. Direct audit Git
 commands have a 15-second deadline; generated-reference build and execution
 have a two-minute deadline, and every command has a two-second process/pipe
 wait bound after cancellation.

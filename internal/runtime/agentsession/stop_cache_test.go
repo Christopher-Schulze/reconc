@@ -1042,6 +1042,11 @@ func TestScriptCacheInputsDecideStopReuse(t *testing.T) {
 			lock:      `{"rules":[{"id":"a","kind":"require_script","script":"scripts/a.sh","cache_inputs":["build/a.json"],"when_paths":["**"]},{"id":"b","kind":"require_script","script":"scripts/b.sh","when_paths":["**"]}]}`,
 			cacheable: false,
 		},
+		{
+			name:      "native assurance has dynamic authority and clock inputs",
+			lock:      `{"rules":[{"id":"proof","kind":"require_assurance","when_paths":["**"],"assurance":[{"id":"proof","type":"substantive_proof","proof_file":"proof.json","max_age_hours":24}]}]}`,
+			cacheable: false,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1122,30 +1127,126 @@ func TestDeclaredScriptInputMayBeADirectory(t *testing.T) {
 	if err := os.Remove(filepath.Join(tasks, "002.md")); err != nil {
 		t.Fatal(err)
 	}
-	if removed := fingerprint(); removed != initial {
-		t.Fatal("restoring a declared directory must restore its identity")
+	if removed := fingerprint(); removed == rewritten {
+		t.Fatal("removing a file inside a declared directory must move the fingerprint")
 	}
 }
 
-// TestPolicyInputsSkipPathsTheDirtySetAlreadyBinds keeps the fingerprint from
-// hashing the same path twice: a dirty file already contributes its exact
-// content identity through the Git snapshot.
-func TestPolicyInputsSkipPathsTheDirtySetAlreadyBinds(t *testing.T) {
+func TestPolicyInputMtimeMovesExactDirectoryIdentity(t *testing.T) {
+	repo := t.TempDir()
+	tree := filepath.Join(repo, "cache-inputs")
+	if err := os.MkdirAll(tree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	leaf := filepath.Join(tree, "input.txt")
+	if err := os.WriteFile(leaf, []byte("same content\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first := stopPolicyInputIdentity(repo, "cache-inputs")
+	fileTime := time.Unix(1_600_000_000, 123)
+	if err := os.Chtimes(leaf, fileTime, fileTime); err != nil {
+		t.Fatal(err)
+	}
+	second := stopPolicyInputIdentity(repo, "cache-inputs")
+	if !first.Trusted || !second.Trusted || first.Identity == second.Identity {
+		t.Fatalf("nested mtime-only change stayed invisible: first=%+v second=%+v", first, second)
+	}
+	directoryTime := time.Unix(1_600_000_100, 456)
+	if err := os.Chtimes(tree, directoryTime, directoryTime); err != nil {
+		t.Fatal(err)
+	}
+	third := stopPolicyInputIdentity(repo, "cache-inputs")
+	if !third.Trusted || second.Identity == third.Identity {
+		t.Fatalf("directory mtime-only change stayed invisible: second=%+v third=%+v", second, third)
+	}
+}
+
+// TestPolicyInputsUseEvaluatorVisibleIdentityEvenWhenDirty keeps the two path
+// contracts separate: Git binds a symlink object, while a policy follows a
+// contained symlink and therefore must bind the target content independently.
+func TestPolicyInputsUseEvaluatorVisibleIdentityEvenWhenDirty(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, "STATUS.md"), []byte("current\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	dirty := []gitDirtyFile{{Path: "STATUS.md", WorktreeHash: strings.Repeat("a", 64)}}
-	if got := stopPolicyInputIdentities(repo, []string{"STATUS.md"}, dirty); got != nil {
-		t.Fatalf("a dirty path must not be bound twice: %+v", got)
-	}
-	got := stopPolicyInputIdentities(repo, []string{"STATUS.md"}, nil)
-	if len(got) != 1 || got[0].Path != "STATUS.md" || got[0].Identity == "" {
+	got := stopPolicyInputIdentities(repo, []string{"STATUS.md"})
+	if len(got) != 1 || got[0].Path != "STATUS.md" || got[0].Identity == "" || !got[0].Trusted {
 		t.Fatalf("a path Git does not report must be bound: %+v", got)
 	}
-	missing := stopPolicyInputIdentities(repo, []string{"build/absent.json"}, nil)
-	if len(missing) != 1 || missing[0].Identity != "missing" {
+	missing := stopPolicyInputIdentities(repo, []string{"build/absent.json"})
+	if len(missing) != 1 || missing[0].Identity != "missing" || !missing[0].Trusted {
 		t.Fatalf("an absent declared input must bind as missing: %+v", missing)
+	}
+}
+
+func TestPolicyInputTrustRejectsBoundedDiagnosticIdentities(t *testing.T) {
+	repo := t.TempDir()
+	large := filepath.Join(repo, "large.bin")
+	file, err := os.Create(large)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(stopPolicyContentHashBound + 1); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	identity := stopPolicyInputIdentity(repo, "large.bin")
+	if identity.Trusted || !strings.Contains(identity.Identity, "oversized:") {
+		t.Fatalf("oversized declared input was cache-trusted: %+v", identity)
+	}
+	writePolicyLock(t, repo, `{"rules":[{"id":"gate","kind":"require_script","script":"scripts/check.sh","cache_inputs":["large.bin"],"when_paths":["**"]}]}`)
+	cacheInput := stopPolicyFingerprintInput{
+		RepoRoot: repo, GitStatusOK: true, WritePaths: []string{"src/a.go"},
+		PolicyInputs: []policyInputIdentity{identity},
+	}
+	if !scanStopPolicyLockfile(repo, cacheInput.WritePaths).Cacheable {
+		t.Fatal("fixture must describe a statically cacheable declared-input policy")
+	}
+	if stopPolicyFingerprintCacheable(cacheInput) {
+		t.Fatal("an untrusted declared-input identity must disable Stop report reuse")
+	}
+
+	tree := filepath.Join(repo, "tree")
+	if err := os.MkdirAll(tree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a.bin", "b.bin"} {
+		path := filepath.Join(tree, name)
+		entry, createErr := os.Create(path)
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+		if truncateErr := entry.Truncate(stopPolicyContentHashBound/2 + 1); truncateErr != nil {
+			entry.Close()
+			t.Fatal(truncateErr)
+		}
+		if closeErr := entry.Close(); closeErr != nil {
+			t.Fatal(closeErr)
+		}
+	}
+	identity = stopPolicyInputIdentity(repo, "tree")
+	if identity.Trusted || !strings.HasPrefix(identity.Identity, "dir-error:") {
+		t.Fatalf("over-budget declared directory was cache-trusted: %+v", identity)
+	}
+}
+
+func TestPolicyInputMtimeMovesExactFileIdentity(t *testing.T) {
+	repo := t.TempDir()
+	path := filepath.Join(repo, "STATUS.md")
+	if err := os.WriteFile(path, []byte("same content\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first := stopPolicyInputIdentity(repo, "STATUS.md")
+	modified := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(path, modified, modified); err != nil {
+		t.Fatal(err)
+	}
+	second := stopPolicyInputIdentity(repo, "STATUS.md")
+	if !first.Trusted || !second.Trusted || first.Identity == second.Identity {
+		t.Fatalf("mtime-only freshness change stayed invisible: first=%+v second=%+v", first, second)
 	}
 }
 
@@ -1215,7 +1316,8 @@ func TestScriptRuleReachabilityFailsTowardTriggerable(t *testing.T) {
 		want       bool
 	}{
 		{name: "no when_paths applies everywhere", whenPaths: nil, writePaths: []string{"src/a.go"}, want: true},
-		{name: "templated pattern cannot be decided", whenPaths: []string{"docs/tasks/{task_id}.md"}, writePaths: []string{"src/a.go"}, want: true},
+		{name: "templated pattern exact miss", whenPaths: []string{"docs/tasks/{task_id}.md"}, writePaths: []string{"src/a.go"}, want: false},
+		{name: "templated pattern exact hit", whenPaths: []string{"docs/tasks/{task_id}.md"}, writePaths: []string{"docs/tasks/151.md"}, want: true},
 		{name: "malformed pattern cannot be decided", whenPaths: []string{"["}, writePaths: []string{"src/a.go"}, want: true},
 		{name: "plain miss", whenPaths: []string{"docs/**"}, writePaths: []string{"src/a.go"}, want: false},
 		{name: "plain hit", whenPaths: []string{"src/**"}, writePaths: []string{"src/a.go"}, want: true},
@@ -1260,6 +1362,147 @@ func TestCompletionFingerprintBindsPolicyInputsEvenWhenNotCacheable(t *testing.T
 	}
 	if after := hashStopPolicyFingerprintInput(stopPolicyFingerprintInputFor(repo, state)); after == before {
 		t.Fatal("a policy-named input must stay bound when the plan is not cacheable")
+	}
+}
+
+func TestTemplatedPolicyInputsBindEveryConcreteEvaluationTarget(t *testing.T) {
+	cases := []struct {
+		name string
+		lock string
+		want []string
+	}{
+		{
+			name: "top-level evidence",
+			lock: `{"rules":[{"id":"evidence","kind":"require_evidence","when_paths":["docs/tasks/{task}.md"],"evidence":[{"file":"reports/{task}.json","must_exist":true}]}]}`,
+			want: []string{"reports/151.json", "reports/152.json"},
+		},
+		{
+			name: "composite fresh file",
+			lock: `{"rules":[{"id":"composite","kind":"all_of","when_paths":["docs/tasks/{task}.md"],"checks":[{"kind":"require_fresh_file","path":"status/{task}.md","max_age_hours":1}]}]}`,
+			want: []string{"status/151.md", "status/152.md"},
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			repo := t.TempDir()
+			writePolicyLock(t, repo, test.lock)
+			scan := scanStopPolicyLockfile(repo, []string{"docs/tasks/151.md", "docs/tasks/152.md", "src/main.go"})
+			if scan.Cacheable {
+				t.Fatal("template-generated policy inputs must keep Stop report reuse disabled")
+			}
+			if !reflect.DeepEqual(scan.Paths, test.want) {
+				t.Fatalf("concrete policy inputs = %#v, want %#v", scan.Paths, test.want)
+			}
+		})
+	}
+}
+
+func TestCaptureCompletionStateUsesGitCandidatePathsForTemplatedInputs(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	t.Setenv(StateRootEnv, t.TempDir())
+	repo := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		if output, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, output)
+		}
+	}
+	git("init", "--quiet")
+	git("config", "user.email", "test@reconc.dev")
+	git("config", "user.name", "reconc test")
+	writePolicyLock(t, repo, `{"rules":[{"id":"evidence","kind":"require_evidence","when_paths":["docs/tasks/{task}.md"],"evidence":[{"file":"reports/{task}.json","must_exist":true}]}]}`)
+	for path, body := range map[string]string{
+		".gitignore":        "reports/\n",
+		"AGENTS.md":         "# Test\n",
+		"docs/tasks/151.md": "initial\n",
+	} {
+		full := filepath.Join(repo, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git("add", "-A")
+	git("commit", "-m", "fixture", "--quiet")
+	if err := os.WriteFile(filepath.Join(repo, "docs/tasks/151.md"), []byte("dirty\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "reports"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	report := filepath.Join(repo, "reports/151.json")
+	if err := os.WriteFile(report, []byte(`{"status":"pass"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := CaptureCompletionState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before.Inputs.WritePaths, []string{"docs/tasks/151.md"}) {
+		t.Fatalf("completion inputs did not use Git candidate paths: %#v", before.Inputs.WritePaths)
+	}
+	if err := os.WriteFile(report, []byte(`{"status":"fail"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	after, err := CaptureCompletionState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Fingerprint == after.Fingerprint {
+		t.Fatal("gitignored templated evidence drift did not move the completion candidate")
+	}
+}
+
+func TestCaptureCompletionStateBindsDynamicAssuranceAuthority(t *testing.T) {
+	t.Setenv("RECONC_HOME", t.TempDir())
+	t.Setenv(StateRootEnv, t.TempDir())
+	repo := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		if output, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, output)
+		}
+	}
+	git("init", "--quiet")
+	git("config", "user.email", "test@reconc.dev")
+	git("config", "user.name", "reconc test")
+	writePolicyLock(t, repo, `{"rules":[{"id":"layout","kind":"require_assurance","when_paths":["**"],"assurance":[{"id":"layout","type":"repository_layout","allow_hidden_entries":true}]}]}`)
+	for path, body := range map[string]string{
+		".gitignore":  "ignored-root\n",
+		"AGENTS.md":   "# Test\n",
+		"src/main.go": "package main\n",
+	} {
+		full := filepath.Join(repo, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git("add", "-A")
+	git("commit", "-m", "fixture", "--quiet")
+	if err := os.WriteFile(filepath.Join(repo, "src/main.go"), []byte("package main // dirty\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := CaptureCompletionState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "ignored-root"), []byte("authority drift\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	after, err := CaptureCompletionState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.GitStatus != after.GitStatus {
+		t.Fatalf("fixture authority path unexpectedly changed Git status: %q vs %q", before.GitStatus, after.GitStatus)
+	}
+	if before.Fingerprint == after.Fingerprint {
+		t.Fatal("gitignored assurance authority drift did not move the completion candidate")
 	}
 }
 

@@ -1,11 +1,15 @@
 package donecheck
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 
 	"gopkg.in/yaml.v3"
 )
+
+const maxSchemaBytes = 1 << 20
 
 // Schema is the canonical machine-readable description of the TASK detail
 // structure. It is loaded from tools/reconc/harness/template/config/workflow/task-schema.yaml and
@@ -34,7 +38,7 @@ type FinalRealityCheck struct {
 
 // LoadSchema reads and validates the canonical task-schema.yaml file.
 func LoadSchema(path string) (Schema, error) {
-	bytes, err := os.ReadFile(path)
+	bytes, err := readSchemaFile(path)
 	if err != nil {
 		return Schema{}, fmt.Errorf("read %s: %w", path, err)
 	}
@@ -46,6 +50,38 @@ func LoadSchema(path string) (Schema, error) {
 		return Schema{}, fmt.Errorf("validate %s: %w", path, err)
 	}
 	return schema, nil
+}
+
+func readSchemaFile(path string) ([]byte, error) {
+	before, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
+		return nil, fmt.Errorf("schema must be a non-symlink regular file")
+	}
+	if before.Size() > maxSchemaBytes {
+		return nil, fmt.Errorf("schema exceeds %d bytes", maxSchemaBytes)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	body, readErr := io.ReadAll(io.LimitReader(file, maxSchemaBytes+1))
+	afterFile, statErr := file.Stat()
+	afterPath, lstatErr := os.Lstat(path)
+	closeErr := file.Close()
+	if err := errors.Join(readErr, statErr, lstatErr, closeErr); err != nil {
+		return nil, err
+	}
+	if len(body) > maxSchemaBytes {
+		return nil, fmt.Errorf("schema exceeds %d bytes", maxSchemaBytes)
+	}
+	if !os.SameFile(before, afterFile) || !os.SameFile(afterFile, afterPath) ||
+		before.Size() != afterFile.Size() || !before.ModTime().Equal(afterFile.ModTime()) {
+		return nil, fmt.Errorf("schema changed while reading")
+	}
+	return body, nil
 }
 
 // DefaultSchema returns a self-contained schema mirroring task-schema.yaml.

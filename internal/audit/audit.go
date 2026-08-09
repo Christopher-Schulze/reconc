@@ -372,20 +372,19 @@ func ExportJSONL(repoRoot string, w io.Writer) error {
 			return fmt.Errorf("audit: enumerate archive ring: %w", err)
 		}
 		for _, source := range sources {
-			file, err := boundedio.OpenRegularFile(source, DefaultMaxSizeBytes)
+			body, err := boundedio.ReadRegularFile(source, DefaultMaxSizeBytes)
 			if err != nil {
 				if errors.Is(err, os.ErrNotExist) {
 					continue
 				}
 				return err
 			}
-			_, copyErr := io.Copy(w, file)
-			closeErr := file.Close()
-			if copyErr != nil {
-				return copyErr
+			written, err := w.Write(body)
+			if err != nil {
+				return err
 			}
-			if closeErr != nil {
-				return closeErr
+			if written != len(body) {
+				return io.ErrShortWrite
 			}
 		}
 		return nil
@@ -457,48 +456,50 @@ func loadAppendCheckpoint(repoRoot string) (*chainHead, *Entry, error) {
 }
 
 func readLastAuditEntry(path string) (*Entry, bool, error) {
-	file, err := boundedio.OpenRegularFile(path, DefaultMaxSizeBytes)
+	var entry Entry
+	found := false
+	err := boundedio.WithRegularFileSnapshot(path, DefaultMaxSizeBytes, func(file *os.File, info os.FileInfo) error {
+		if info.Size() == 0 {
+			return nil
+		}
+		readBytes := int64(maxRecordBytes)
+		if info.Size() < readBytes {
+			readBytes = info.Size()
+		}
+		if _, err := file.Seek(-readBytes, io.SeekEnd); err != nil {
+			return err
+		}
+		data, readErr := io.ReadAll(io.LimitReader(file, readBytes))
+		if readErr != nil {
+			return readErr
+		}
+		if int64(len(data)) != readBytes {
+			return errors.New("audit: live log changed while reading its tail")
+		}
+		if data[len(data)-1] != '\n' {
+			return errors.New("audit: live log contains a truncated tail record")
+		}
+		lineStart := bytes.LastIndexByte(data[:len(data)-1], '\n') + 1
+		line := data[lineStart : len(data)-1]
+		if len(line) == 0 {
+			return errors.New("audit: live log ends with an empty record")
+		}
+		if err := decodeStrictJSON(line, &entry); err != nil {
+			return fmt.Errorf("audit: live tail contains malformed JSON: %w", err)
+		}
+		found = true
+		return nil
+	})
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, false, nil
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("audit: open live tail: %w", err)
-	}
-	info, statErr := file.Stat()
-	if statErr != nil {
-		return nil, false, errors.Join(statErr, file.Close())
-	}
-	if !info.Mode().IsRegular() {
-		return nil, false, errors.Join(errors.New("audit: live log is not a regular file"), file.Close())
-	}
-	if info.Size() == 0 {
-		return nil, false, file.Close()
-	}
-	readBytes := int64(maxRecordBytes)
-	if info.Size() < readBytes {
-		readBytes = info.Size()
-	}
-	if _, err := file.Seek(-readBytes, io.SeekEnd); err != nil {
-		return nil, false, errors.Join(err, file.Close())
-	}
-	data, readErr := io.ReadAll(io.LimitReader(file, readBytes))
-	closeErr := file.Close()
-	if err := errors.Join(readErr, closeErr); err != nil {
 		return nil, false, fmt.Errorf("audit: read live tail: %w", err)
 	}
-	if len(data) == 0 || data[len(data)-1] != '\n' {
-		return nil, false, errors.New("audit: live log contains a truncated tail record")
+	if !found {
+		return nil, false, nil
 	}
-	lineStart := bytes.LastIndexByte(data[:len(data)-1], '\n') + 1
-	line := data[lineStart : len(data)-1]
-	if len(line) == 0 {
-		return nil, false, errors.New("audit: live log ends with an empty record")
-	}
-	var entry Entry
-	if err := decodeStrictJSON(line, &entry); err != nil {
-		return nil, false, fmt.Errorf("audit: live tail contains malformed JSON: %w", err)
-	}
-	return &entry, true, nil
+	return &entry, found, nil
 }
 
 func verifyAppendCheckpoint(last Entry, head *chainHead) error {

@@ -15,7 +15,10 @@ import (
 	"strings"
 	"time"
 
+	"reconc.dev/reconc/internal/assurance"
+	"reconc.dev/reconc/internal/boundedexec"
 	"reconc.dev/reconc/internal/boundedio"
+	"reconc.dev/reconc/internal/commandproof"
 	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/policy"
@@ -24,11 +27,13 @@ import (
 )
 
 const (
-	stopPolicyFingerprintVersion = "stop-policy-report-v8"
+	stopPolicyFingerprintVersion = "stop-policy-report-v11"
 	stopPolicyUntrackedModeEnv   = "RECONC_STOP_FINGERPRINT_UNTRACKED"
 	maxStopReportBytes           = 32 << 20
 	maxGitControlFileBytes       = 1 << 20
 	maxPackedRefsBytes           = 64 << 20
+	maxStopGitOutputBytes        = 32 << 20
+	maxStopPolicyStabilityRuns   = 3
 )
 
 type stopPolicyFingerprintInput struct {
@@ -59,11 +64,15 @@ type stopPolicyFingerprintInput struct {
 	PolicyInputs []policyInputIdentity `json:"policy_inputs,omitempty"`
 }
 
-// policyInputIdentity is one policy-named repository path and its exact
-// content identity at fingerprint time.
+// policyInputIdentity is one policy-named repository path and its declared
+// cache identity at fingerprint time. Trusted is explicit because bounded
+// hashing can produce diagnostic identities that must never authorize report
+// reuse. Opaque scripts remain responsible for the documented cache_inputs
+// determinism contract.
 type policyInputIdentity struct {
 	Path     string `json:"path"`
 	Identity string `json:"identity"`
+	Trusted  bool   `json:"trusted"`
 }
 
 type stopPolicyEvidenceInput struct {
@@ -73,6 +82,15 @@ type stopPolicyEvidenceInput struct {
 	Commands       []string          `json:"commands"`
 	Claims         []string          `json:"claims"`
 	CommandResults []CommandResult   `json:"command_results"`
+}
+
+type stopPolicyEvidenceRevisionInput struct {
+	Evidence             stopPolicyEvidenceInput `json:"evidence"`
+	EvidenceEpoch        uint64                  `json:"evidence_epoch"`
+	EvidenceSegmentCount uint64                  `json:"evidence_segment_count"`
+	EvidenceSegmentHash  string                  `json:"evidence_segment_hash"`
+	EvidenceOverflow     bool                    `json:"evidence_overflow"`
+	MaterialEvents       uint64                  `json:"material_events"`
 }
 
 type gitDirtyFile struct {
@@ -128,9 +146,19 @@ type CompletionStateSnapshot struct {
 type completionStateFingerprintInput struct {
 	Version                   string                     `json:"version"`
 	StopPolicyFingerprint     stopPolicyFingerprintInput `json:"stop_policy_fingerprint"`
+	CompletionInputs          runtime.ExecutionInputs    `json:"completion_inputs"`
+	CompletionPolicyInputs    []policyInputIdentity      `json:"completion_policy_inputs,omitempty"`
+	CompletionFreshness       []completionFreshnessState `json:"completion_freshness,omitempty"`
+	AssuranceInputIdentity    string                     `json:"assurance_input_identity,omitempty"`
 	SessionReportHash         string                     `json:"session_report_hash"`
 	ExpectedSessionReportHash string                     `json:"expected_session_report_hash"`
 	GitIndexHash              string                     `json:"git_index_hash,omitempty"`
+}
+
+type completionFreshnessState struct {
+	Path        string `json:"path"`
+	MaxAgeHours int    `json:"max_age_hours"`
+	Expired     bool   `json:"expired"`
 }
 
 func runStopPolicyCheck(repoRoot string, state SessionState) (*runtime.CheckReport, error) {
@@ -188,11 +216,47 @@ func runStopPolicyCheckLocked(
 	cache *StopDecisionCache,
 	taskSnapshot stopTaskSnapshot,
 ) (stopPolicyCheckResult, error) {
+	return runStopPolicyCheckLockedAttempt(repoRoot, state, evaluator, cache, taskSnapshot, 1)
+}
+
+func runStopPolicyCheckLockedAttempt(
+	repoRoot string,
+	state SessionState,
+	evaluator *runtime.Evaluator,
+	cache *StopDecisionCache,
+	taskSnapshot stopTaskSnapshot,
+	stabilityRun int,
+) (stopPolicyCheckResult, error) {
+	currentState, initialEvidenceRevision, err := loadCurrentStopPolicyStateWithRevision(repoRoot, state.SessionID)
+	if err != nil {
+		return stopPolicyCheckResult{}, err
+	}
+	state = currentState
 	gitSnapshot := stopPolicyGitSnapshotFor(repoRoot)
 	if report, ok := cache.readStableReport(repoRoot, state, taskSnapshot, gitSnapshot); ok {
-		return stopPolicyCheckResult{
-			Report: report, GitSnapshot: gitSnapshot, TaskSnapshot: taskSnapshot, GenerationHit: true,
-		}, nil
+		current, loadErr := loadCurrentStopPolicyState(repoRoot, state.SessionID)
+		if loadErr != nil {
+			return stopPolicyCheckResult{}, loadErr
+		}
+		currentTask, captureErr := captureStopTaskSnapshot(repoRoot)
+		if captureErr != nil {
+			return stopPolicyCheckResult{}, fmt.Errorf("recapture TASK snapshot for generation cache: %w", captureErr)
+		}
+		currentGit := stopPolicyGitSnapshotFor(repoRoot)
+		currentGeneration, generationOK := captureStopRepositoryGeneration(
+			repoRoot, currentGit, currentTask, current.WritePaths,
+		)
+		entry, entryOK := cache.entry(repoRoot, state.SessionID)
+		if stopPolicyCacheBindingMatches(current, state) && generationOK && entryOK &&
+			entry.generation == currentGeneration.Fingerprint {
+			return stopPolicyCheckResult{
+				Report: report, GitSnapshot: currentGit, TaskSnapshot: currentTask, GenerationHit: true,
+			}, nil
+		}
+		cache.invalidate(repoRoot, state.SessionID)
+		state = current
+		taskSnapshot = currentTask
+		gitSnapshot = currentGit
 	}
 	fingerprintInput := stopPolicyFingerprintInputForSnapshotWithGeneration(repoRoot, state, gitSnapshot, taskSnapshot, stopGenerationCapture{})
 	cacheable := stopPolicyFingerprintCacheable(fingerprintInput)
@@ -201,8 +265,32 @@ func runStopPolicyCheckLocked(
 		state.StopPolicyReportHash != "" && !stopPolicyReportExpired(state.StopPolicyExpiresAt) {
 		report, reportHash, err := readLatestReport(repoRoot, state.SessionID)
 		if err == nil && reportHash == state.StopPolicyReportHash {
-			storeStopGenerationIfWorthwhile(cache, repoRoot, state, gitSnapshot, fingerprintInput)
-			return stopPolicyCheckResult{Report: report, GitSnapshot: gitSnapshot, TaskSnapshot: taskSnapshot}, nil
+			current, loadErr := loadCurrentStopPolicyState(repoRoot, state.SessionID)
+			if loadErr != nil {
+				return stopPolicyCheckResult{}, loadErr
+			}
+			currentTask, captureErr := captureStopTaskSnapshot(repoRoot)
+			if captureErr != nil {
+				return stopPolicyCheckResult{}, fmt.Errorf("recapture TASK snapshot for cached Stop: %w", captureErr)
+			}
+			currentGit := stopPolicyGitSnapshotFor(repoRoot)
+			currentInput := stopPolicyFingerprintInputForSnapshotWithGeneration(
+				repoRoot, current, currentGit, currentTask, stopGenerationCapture{},
+			)
+			if stopPolicyCacheBindingMatches(current, state) &&
+				stopPolicyFingerprintCacheable(currentInput) &&
+				hashStopPolicyFingerprintInput(currentInput) == fingerprint &&
+				!stopPolicyReportExpired(current.StopPolicyExpiresAt) {
+				storeStopGenerationIfWorthwhile(cache, repoRoot, current, currentInput)
+				return stopPolicyCheckResult{Report: report, GitSnapshot: currentGit, TaskSnapshot: currentTask}, nil
+			}
+			cache.invalidate(repoRoot, state.SessionID)
+			state = current
+			taskSnapshot = currentTask
+			gitSnapshot = currentGit
+			fingerprintInput = currentInput
+			cacheable = stopPolicyFingerprintCacheable(fingerprintInput)
+			fingerprint = hashStopPolicyFingerprintInput(fingerprintInput)
 		}
 	}
 
@@ -218,53 +306,154 @@ func runStopPolicyCheckLocked(
 		return stopPolicyCheckResult{}, err
 	}
 	reportHash := hashCheckReport(report)
+	initialEvidenceHash := stopPolicyEvidenceHash(state)
+	cacheInputsStable := false
+	var postFingerprintInput stopPolicyFingerprintInput
 	if cacheable && fingerprint != "" && reportHash != "" {
-		initialEvidenceHash := stopPolicyEvidenceHash(state)
-		fingerprintInput.PolicyLockHash = fileContentHash(filepath.Join(repoRoot, ".reconc", "policy.lock.json"))
-		reportFingerprint := hashStopPolicyFingerprintInput(fingerprintInput)
-		expiresAt := stopPolicyReportExpiry(repoRoot, scanStopPolicyLockfile(repoRoot, sortedUniqueExact(state.WritePaths)).FreshFiles)
-		updated, err := mutateSessionStateResolved(repoRoot, state.SessionID, func(current SessionState) SessionState {
-			if stopPolicyEvidenceHash(current) == initialEvidenceHash {
-				current.StopPolicyFingerprint = reportFingerprint
-				current.StopPolicyEvidenceHash = initialEvidenceHash
-				current.StopPolicyReportHash = reportHash
-				current.StopPolicyExpiresAt = expiresAt
-				current.ReportPath = sessionReportPath(repoRoot, state.SessionID)
-			}
-			return current
-		})
-		if err != nil {
-			return stopPolicyCheckResult{}, fmt.Errorf("persist stop-policy cache metadata: %w", err)
+		if currentTaskSnapshot, captureErr := captureStopTaskSnapshot(repoRoot); captureErr == nil {
+			postGitSnapshot := stopPolicyGitSnapshotFor(repoRoot)
+			postFingerprintInput = stopPolicyFingerprintInputForSnapshotWithGeneration(
+				repoRoot, state, postGitSnapshot, currentTaskSnapshot, stopGenerationCapture{},
+			)
+			cacheInputsStable = stopPolicyFingerprintCacheable(postFingerprintInput) &&
+				hashStopPolicyFingerprintInput(postFingerprintInput) == fingerprint
 		}
-		state = updated
 	}
-	storeStopGenerationIfWorthwhile(cache, repoRoot, state, gitSnapshot, fingerprintInput)
+	cacheMetadataPublished := false
+	evidenceStable := false
+	completeEvaluatedState := state
+	updated, err := mutateSessionStateResolved(repoRoot, state.SessionID, func(current SessionState) SessionState {
+		evidenceStable = stopPolicyEvidenceRevision(current) == initialEvidenceRevision
+		if cacheInputsStable && evidenceStable {
+			current.StopPolicyFingerprint = fingerprint
+			current.StopPolicyEvidenceHash = initialEvidenceHash
+			current.StopPolicyReportHash = reportHash
+			current.StopPolicyExpiresAt = stopPolicyReportExpiry(
+				repoRoot,
+				scanStopPolicyLockfile(repoRoot, sortedUniqueExact(state.WritePaths)).FreshFiles,
+			)
+			cacheMetadataPublished = true
+		} else {
+			clearStopPolicyCacheMetadata(&current)
+		}
+		current.ReportPath = sessionReportPath(repoRoot, state.SessionID)
+		return current
+	})
+	if err != nil {
+		return stopPolicyCheckResult{}, fmt.Errorf("persist stop-policy cache metadata: %w", err)
+	}
+	state = updated
+	inputsChangedDuringEvaluation := cacheable && !cacheInputsStable
+	if !evidenceStable || inputsChangedDuringEvaluation {
+		cache.invalidate(repoRoot, state.SessionID)
+		if stabilityRun >= maxStopPolicyStabilityRuns {
+			return stopPolicyCheckResult{}, fmt.Errorf(
+				"stop inputs changed during %d consecutive policy evaluations",
+				maxStopPolicyStabilityRuns,
+			)
+		}
+		current, loadErr := loadCurrentStopPolicyState(repoRoot, state.SessionID)
+		if loadErr != nil {
+			return stopPolicyCheckResult{}, loadErr
+		}
+		currentTask, captureErr := captureStopTaskSnapshot(repoRoot)
+		if captureErr != nil {
+			return stopPolicyCheckResult{}, fmt.Errorf("recapture TASK snapshot after unstable Stop: %w", captureErr)
+		}
+		return runStopPolicyCheckLockedAttempt(
+			repoRoot, current, evaluator, cache, currentTask, stabilityRun+1,
+		)
+	}
+	if cacheMetadataPublished {
+		completeEvaluatedState.StopPolicyFingerprint = updated.StopPolicyFingerprint
+		completeEvaluatedState.StopPolicyEvidenceHash = updated.StopPolicyEvidenceHash
+		completeEvaluatedState.StopPolicyReportHash = updated.StopPolicyReportHash
+		completeEvaluatedState.StopPolicyExpiresAt = updated.StopPolicyExpiresAt
+		completeEvaluatedState.ReportPath = updated.ReportPath
+		storeStopGenerationIfWorthwhile(cache, repoRoot, completeEvaluatedState, postFingerprintInput)
+	} else {
+		cache.invalidate(repoRoot, state.SessionID)
+	}
 	return stopPolicyCheckResult{Report: report, GitSnapshot: gitSnapshot, TaskSnapshot: taskSnapshot}, nil
+}
+
+func loadCurrentStopPolicyState(repoRoot, sessionID string) (SessionState, error) {
+	current, _, err := loadCurrentStopPolicyStateWithRevision(repoRoot, sessionID)
+	return current, err
+}
+
+func loadCurrentStopPolicyStateWithRevision(repoRoot, sessionID string) (SessionState, string, error) {
+	current, err := loadSessionStateWithLockResolved(repoRoot, sessionID)
+	if err != nil {
+		return SessionState{}, "", fmt.Errorf("reload session state for Stop revalidation: %w", err)
+	}
+	revision := stopPolicyEvidenceRevision(current)
+	current, err = loadCompleteSessionEvidence(repoRoot, current)
+	if err != nil {
+		return SessionState{}, "", fmt.Errorf("reload evidence chain for Stop revalidation: %w", err)
+	}
+	if current.EvidenceOverflow {
+		return SessionState{}, "", errors.New("session evidence overflowed during Stop evaluation")
+	}
+	return current, revision, nil
+}
+
+func stopPolicyCacheBindingMatches(current, expected SessionState) bool {
+	return stopPolicyEvidenceHash(current) == stopPolicyEvidenceHash(expected) &&
+		current.StopPolicyFingerprint == expected.StopPolicyFingerprint &&
+		current.StopPolicyEvidenceHash == expected.StopPolicyEvidenceHash &&
+		current.StopPolicyReportHash == expected.StopPolicyReportHash &&
+		current.StopPolicyExpiresAt == expected.StopPolicyExpiresAt
+}
+
+func clearStopPolicyCacheMetadata(state *SessionState) {
+	state.StopPolicyFingerprint = ""
+	state.StopPolicyEvidenceHash = ""
+	state.StopPolicyReportHash = ""
+	state.StopPolicyExpiresAt = 0
 }
 
 func storeStopGenerationIfWorthwhile(
 	cache *StopDecisionCache,
 	root string,
 	state SessionState,
-	gitSnapshot stopPolicyGitSnapshot,
 	fingerprintInput stopPolicyFingerprintInput,
 ) {
 	if cache == nil || !stopPolicyFingerprintCacheable(fingerprintInput) || !stopGenerationWorthwhile(root, fingerprintInput.GitDirtyFiles) {
 		cache.invalidate(root, state.SessionID)
 		return
 	}
-	generation, ok := captureStopRepositoryGenerationWithIdentity(
-		root,
-		gitSnapshot,
-		fingerprintInput.PolicySourceDigest,
-		fingerprintInput.PolicySourceCount,
-		fingerprintInput.TaskStateHash,
-	)
+	taskBefore, err := captureStopTaskSnapshot(root)
+	if err != nil {
+		cache.invalidate(root, state.SessionID)
+		return
+	}
+	gitBefore := stopPolicyGitSnapshotFor(root)
+	generationBefore, ok := captureStopRepositoryGeneration(root, gitBefore, taskBefore, state.WritePaths)
 	if !ok {
 		cache.invalidate(root, state.SessionID)
 		return
 	}
-	cache.store(root, state, generation.Fingerprint)
+	currentInput := stopPolicyFingerprintInputForSnapshotWithGeneration(
+		root, state, gitBefore, taskBefore, stopGenerationCapture{},
+	)
+	if !stopPolicyFingerprintCacheable(currentInput) ||
+		hashStopPolicyFingerprintInput(currentInput) != state.StopPolicyFingerprint {
+		cache.invalidate(root, state.SessionID)
+		return
+	}
+	taskAfter, err := captureStopTaskSnapshot(root)
+	if err != nil {
+		cache.invalidate(root, state.SessionID)
+		return
+	}
+	gitAfter := stopPolicyGitSnapshotFor(root)
+	generationAfter, ok := captureStopRepositoryGeneration(root, gitAfter, taskAfter, state.WritePaths)
+	if !ok || generationBefore.Fingerprint != generationAfter.Fingerprint {
+		cache.invalidate(root, state.SessionID)
+		return
+	}
+	cache.store(root, state, generationAfter.Fingerprint)
 }
 
 func filterWriteEpochs(epochs map[string]uint64, paths []string) map[string]uint64 {
@@ -388,6 +577,22 @@ func cachedCleanStopPolicyReportForEvidenceAndSnapshot(
 	if len(blockingViolations(report)) != 0 {
 		return nil, false
 	}
+	current, err := loadCurrentStopPolicyState(repoRoot, state.SessionID)
+	if err != nil || !stopPolicyCacheBindingMatches(current, state) {
+		return nil, false
+	}
+	currentTask, err := captureStopTaskSnapshot(repoRoot)
+	if err != nil {
+		return nil, false
+	}
+	currentInput := stopPolicyFingerprintInputForSnapshotWithGeneration(
+		repoRoot, current, stopPolicyGitSnapshotFor(repoRoot), currentTask, stopGenerationCapture{},
+	)
+	if !stopPolicyFingerprintCacheable(currentInput) ||
+		hashStopPolicyFingerprintInput(currentInput) != current.StopPolicyFingerprint ||
+		stopPolicyReportExpired(current.StopPolicyExpiresAt) {
+		return nil, false
+	}
 	return report, true
 }
 
@@ -411,7 +616,18 @@ func cachedCleanStopPolicyReportForEvidenceWithCache(
 		entry.fingerprint == state.StopPolicyFingerprint && entry.reportHash == state.StopPolicyReportHash {
 		report, ok := cache.readStableReport(root, state, taskSnapshot, gitSnapshot)
 		if ok && len(blockingViolations(report)) == 0 {
-			return report, true
+			current, loadErr := loadCurrentStopPolicyState(root, state.SessionID)
+			currentTask, taskErr := captureStopTaskSnapshot(root)
+			currentGit := stopPolicyGitSnapshotFor(root)
+			currentGeneration, generationOK := captureStopRepositoryGeneration(
+				root, currentGit, currentTask, current.WritePaths,
+			)
+			if loadErr == nil && taskErr == nil && generationOK &&
+				stopPolicyCacheBindingMatches(current, state) &&
+				currentGeneration.Fingerprint == entry.generation {
+				return report, true
+			}
+			cache.invalidate(root, state.SessionID)
 		}
 	}
 	return cachedCleanStopPolicyReportForEvidenceAndSnapshot(root, state, evidenceHash, taskSnapshot, gitSnapshot)
@@ -516,7 +732,7 @@ func stopPolicyFingerprintInputForSnapshotWithGeneration(
 		GitStatus:          gitSnapshot.Status,
 		GitDirtyFiles:      dirtyFiles,
 		ReconcAuditNoCache: os.Getenv("RECONC_AUDIT_NO_CACHE"),
-		PolicyInputs:       stopPolicyInputIdentities(root, policyScan.Paths, dirtyFiles),
+		PolicyInputs:       stopPolicyInputIdentities(root, policyScan.Paths),
 	}
 }
 
@@ -545,6 +761,11 @@ func stopPolicyFingerprintCacheable(input stopPolicyFingerprintInput) bool {
 		completionDirtyFilesTrusted(input.GitDirtyFiles)) {
 		return false
 	}
+	for _, policyInput := range input.PolicyInputs {
+		if !policyInput.Trusted {
+			return false
+		}
+	}
 	// A policy path the compiler cannot name statically cannot be bound into
 	// the fingerprint, so the report it produced cannot be revalidated.
 	return scanStopPolicyLockfile(input.RepoRoot, stopPolicyWritePaths(input)).Cacheable
@@ -558,8 +779,10 @@ func stopPolicyFingerprintCacheable(input stopPolicyFingerprintInput) bool {
 // declare the files it reads through `cache_inputs`; a script that declares
 // none keeps its plan off the warm path entirely.
 type stopPolicyLockScan struct {
-	// Cacheable is false when the lock cannot be read or decoded, or when a
-	// policy path is template-generated and therefore not enumerable here.
+	// Cacheable is false when the lock cannot be read or decoded, when a policy
+	// path is template-generated, or when an applicable gate has a dynamic
+	// authority surface. Completion still binds every concrete path that can be
+	// resolved from the exact candidate inputs.
 	Cacheable bool
 	// Paths are the repository-relative paths the policy names, sorted and
 	// deduplicated.
@@ -567,6 +790,10 @@ type stopPolicyLockScan struct {
 	// FreshFiles are the age-bounded requirements, used to give a stored
 	// report the expiry its inputs imply.
 	FreshFiles []stopPolicyFreshFile
+	// Assurance contains only native gates on rules reachable from this
+	// evaluation's write paths. Completion snapshots evaluate these read-only
+	// gates to bind their dynamic authority surfaces and time windows.
+	Assurance []policy.AssuranceGate
 }
 
 type stopPolicyFreshFile struct {
@@ -598,12 +825,22 @@ func scanStopPolicyLockfile(repoRoot string, writePaths []string) stopPolicyLock
 	}
 	scan := stopPolicyLockScan{Cacheable: true}
 	paths := map[string]struct{}{}
-	collect := func(path string, maxAgeHours int, fresh bool) {
+	collect := func(path string, maxAgeHours int, fresh bool, captures []map[string]string) {
 		if path == "" {
 			return
 		}
 		if runtime.HasTemplateVars(path) {
 			scan.Cacheable = false
+			for _, capture := range captures {
+				resolved, substituteErr := runtime.SubstituteTemplate(path, capture)
+				if substituteErr != nil {
+					continue
+				}
+				paths[resolved] = struct{}{}
+				if fresh && maxAgeHours > 0 {
+					scan.FreshFiles = append(scan.FreshFiles, stopPolicyFreshFile{Path: resolved, MaxAgeHours: maxAgeHours})
+				}
+			}
 			return
 		}
 		paths[path] = struct{}{}
@@ -611,7 +848,7 @@ func scanStopPolicyLockfile(repoRoot string, writePaths []string) stopPolicyLock
 			scan.FreshFiles = append(scan.FreshFiles, stopPolicyFreshFile{Path: path, MaxAgeHours: maxAgeHours})
 		}
 	}
-	undeclaredScript := false
+	dynamicInputRule := false
 	for _, rule := range lock.Rules {
 		// A require_script rule matches its when_paths against the session's
 		// write paths. One this Stop cannot trigger runs no script, so it can
@@ -619,13 +856,17 @@ func scanStopPolicyLockfile(repoRoot string, writePaths []string) stopPolicyLock
 		if !stopPolicyRuleReachable(rule.WhenPaths, writePaths) {
 			continue
 		}
-		rule.collectInto(collect, &undeclaredScript)
+		captures := stopPolicyTemplateCaptures(rule.WhenPaths, writePaths)
+		rule.collectInto(collect, captures, &dynamicInputRule)
+		if rule.Kind == string(policy.KindRequireAssurance) {
+			scan.Assurance = append(scan.Assurance, rule.Assurance...)
+		}
 		for _, check := range rule.Checks {
 			// Composite sub-checks inherit the parent rule's trigger surface.
-			check.collectInto(collect, &undeclaredScript)
+			check.collectInto(collect, captures, &dynamicInputRule)
 		}
 	}
-	if undeclaredScript {
+	if dynamicInputRule {
 		scan.Cacheable = false
 	}
 	// Paths stay bound even when the plan is not cacheable. The same
@@ -646,16 +887,17 @@ func scanStopPolicyLockfile(repoRoot string, writePaths []string) stopPolicyLock
 // form used by composite checks, so one type covers every place a policy names
 // a repository path.
 type stopPolicyLockRule struct {
-	Kind          string               `json:"kind"`
-	Path          string               `json:"path"`
-	File          string               `json:"file"`
-	Script        string               `json:"script"`
-	WhenPaths     []string             `json:"when_paths"`
-	CacheInputs   []string             `json:"cache_inputs"`
-	MaxAgeHours   int                  `json:"max_age_hours"`
-	RequiredFiles []stopPolicyLockFile `json:"required_files"`
-	Evidence      []stopPolicyLockFile `json:"evidence"`
-	Checks        []stopPolicyLockRule `json:"checks"`
+	Kind          string                 `json:"kind"`
+	Path          string                 `json:"path"`
+	File          string                 `json:"file"`
+	Script        string                 `json:"script"`
+	WhenPaths     []string               `json:"when_paths"`
+	CacheInputs   []string               `json:"cache_inputs"`
+	MaxAgeHours   int                    `json:"max_age_hours"`
+	RequiredFiles []stopPolicyLockFile   `json:"required_files"`
+	Evidence      []stopPolicyLockFile   `json:"evidence"`
+	Assurance     []policy.AssuranceGate `json:"assurance"`
+	Checks        []stopPolicyLockRule   `json:"checks"`
 }
 
 type stopPolicyLockFile struct {
@@ -664,62 +906,186 @@ type stopPolicyLockFile struct {
 	MaxAgeHours int    `json:"max_age_hours"`
 }
 
-func (r stopPolicyLockRule) collectInto(collect func(path string, maxAgeHours int, fresh bool), undeclaredScript *bool) {
+func (r stopPolicyLockRule) collectInto(collect func(path string, maxAgeHours int, fresh bool, captures []map[string]string), captures []map[string]string, dynamicInputRule *bool) {
 	fresh := r.Kind == string(policy.KindRequireFreshFile)
-	collect(r.Path, r.MaxAgeHours, fresh)
-	collect(r.File, 0, false)
+	collect(r.Path, r.MaxAgeHours, fresh, captures)
+	collect(r.File, 0, false, captures)
 	// A require_script target is an input by definition. Git binds it only
 	// while it is tracked: a gitignored check script could otherwise be
 	// rewritten and the stored report would still be served.
-	collect(r.Script, 0, false)
+	collect(r.Script, 0, false, captures)
 	if r.Kind == string(policy.KindRequireScript) {
 		// The script body itself is opaque. Only the inputs its author
 		// declares can be bound, so an undeclared script plan is not a
 		// function of the fingerprint and must not reuse a report.
 		if len(r.CacheInputs) == 0 {
-			*undeclaredScript = true
+			*dynamicInputRule = true
 		}
 		for _, input := range r.CacheInputs {
-			collect(input, 0, false)
+			collect(input, 0, false, captures)
+		}
+	}
+	// Native assurance may inspect complete globbed authority surfaces and
+	// wall-clock-aged proof records. Those inputs are intentionally richer than
+	// the fixed path set this cache scanner can bind, so an applicable assurance
+	// rule always evaluates instead of reusing a Stop report.
+	if r.Kind == string(policy.KindRequireAssurance) {
+		*dynamicInputRule = true
+		for _, gate := range r.Assurance {
+			collect(gate.ProofFile, gate.MaxAgeHours, false, captures)
 		}
 	}
 	for _, required := range r.RequiredFiles {
-		collect(required.Path, required.MaxAgeHours, fresh)
+		collect(required.Path, required.MaxAgeHours, fresh, captures)
 	}
 	for _, evidence := range r.Evidence {
-		collect(evidence.File, 0, false)
-		collect(evidence.Path, 0, false)
+		collect(evidence.File, 0, false, captures)
+		collect(evidence.Path, 0, false, captures)
 	}
+}
+
+// stopPolicyTemplateCaptures mirrors the evaluator's one-context-per-write,
+// first-matching-pattern rule. It is deliberately best-effort: any malformed
+// or unresolved template already makes the plan non-cacheable, while every
+// successfully resolved concrete target remains bound to the completion
+// candidate.
+func stopPolicyTemplateCaptures(patterns, writePaths []string) []map[string]string {
+	contexts := make([]map[string]string, 0, len(writePaths))
+	for _, writePath := range writePaths {
+		_, captures, matched, err := runtime.MatchTemplateAny(patterns, writePath)
+		if err != nil || !matched {
+			continue
+		}
+		contexts = append(contexts, captures)
+	}
+	return contexts
 }
 
 // stopPolicyInputIdentities binds every repository path the policy names.
 //
 // Git alone does not cover them: `git status` never lists ignored files, so a
 // gitignored evidence file can be deleted or rewritten without moving any
-// fingerprint field. Paths already carried by the dirty set are skipped
-// because their exact content identity is bound there.
-func stopPolicyInputIdentities(repoRoot string, paths []string, dirty []gitDirtyFile) []policyInputIdentity {
+// fingerprint field. Every policy path is resolved and hashed independently
+// even when Git also reports it: dirty-set symlink identity deliberately
+// describes the link itself, while policy evaluation follows contained links.
+func stopPolicyInputIdentities(repoRoot string, paths []string) []policyInputIdentity {
 	if len(paths) == 0 {
 		return nil
 	}
-	bound := make(map[string]struct{}, len(dirty))
-	for _, file := range dirty {
-		bound[file.Path] = struct{}{}
-	}
 	identities := make([]policyInputIdentity, 0, len(paths))
 	for _, path := range paths {
-		if _, ok := bound[path]; ok {
-			continue
-		}
-		identities = append(identities, policyInputIdentity{
-			Path:     path,
-			Identity: worktreePathHash(repoRoot, path, ""),
-		})
-	}
-	if len(identities) == 0 {
-		return nil
+		identities = append(identities, stopPolicyInputIdentity(repoRoot, path))
 	}
 	return identities
+}
+
+func stopPolicyInputIdentity(repoRoot, path string) policyInputIdentity {
+	identity := policyInputIdentity{Path: path}
+	resolved, err := resolveStopPolicyInputPath(repoRoot, path)
+	if err != nil {
+		identity.Identity = "resolve-error:" + err.Error()
+		return identity
+	}
+	info, err := os.Lstat(resolved)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			identity.Identity = "missing"
+			identity.Trusted = true
+			return identity
+		}
+		identity.Identity = "error:" + err.Error()
+		return identity
+	}
+	switch {
+	case info.IsDir():
+		identity.Identity = stopDirectoryContentHash(resolved)
+		identity.Trusted = trustedStopDirectoryIdentity(identity.Identity)
+	case info.Mode().IsRegular():
+		contentHash, hashErr := hashFileContentExpected(resolved, info)
+		if hashErr != nil {
+			identity.Identity = "error:" + hashErr.Error()
+			return identity
+		}
+		metadata, metadataOK := stopPathMetadataGeneration(resolved, info)
+		if !metadataOK {
+			identity.Identity = "metadata-error:platform identity unavailable"
+			return identity
+		}
+		identity.Identity = fmt.Sprintf("file:%s:%s", contentHash, metadata)
+		identity.Trusted = exactSHA256(contentHash)
+	default:
+		identity.Identity = "mode:" + info.Mode().String()
+	}
+	return identity
+}
+
+func resolveStopPolicyInputPath(repoRoot, path string) (string, error) {
+	configured := filepath.FromSlash(path)
+	cleaned := filepath.Clean(configured)
+	if configured == "" || pathidentity.Rooted(path) || pathidentity.EscapesLexically(path) ||
+		cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("policy input %q escapes the repository", path)
+	}
+	resolvedRoot, err := pathidentity.ResolveExisting(repoRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolve repository root: %w", err)
+	}
+	if cleaned == "." {
+		return resolvedRoot, nil
+	}
+	lexical := filepath.Join(resolvedRoot, cleaned)
+	resolvedParent, err := pathidentity.ResolveProspective(filepath.Dir(lexical))
+	if err != nil {
+		return "", fmt.Errorf("resolve policy input parent %q: %w", path, err)
+	}
+	parentRelative, err := filepath.Rel(resolvedRoot, resolvedParent)
+	if err != nil {
+		return "", fmt.Errorf("validate policy input %q containment: %w", path, err)
+	}
+	if parentRelative == ".." || strings.HasPrefix(parentRelative, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("policy input %q resolves outside the repository", path)
+	}
+	candidate := filepath.Join(resolvedParent, filepath.Base(lexical))
+	leaf, leafErr := os.Lstat(candidate)
+	if leafErr != nil {
+		if errors.Is(leafErr, os.ErrNotExist) {
+			return candidate, nil
+		}
+		return "", fmt.Errorf("inspect policy input %q: %w", path, leafErr)
+	}
+	// ResolveExisting uses an operating-system file handle to normalize leaf
+	// identity. Opening a FIFO blocks, so special leaves and symlinks whose
+	// current target is special must stay unresolved and non-cacheable.
+	if leaf.Mode()&os.ModeSymlink == 0 && !leaf.IsDir() && !leaf.Mode().IsRegular() {
+		return candidate, nil
+	}
+	if leaf.Mode()&os.ModeSymlink != 0 {
+		target, statErr := os.Stat(candidate)
+		if statErr != nil || (!target.IsDir() && !target.Mode().IsRegular()) {
+			return candidate, nil
+		}
+	}
+	resolved, err := pathidentity.ResolveExisting(candidate)
+	if err != nil {
+		return "", fmt.Errorf("resolve policy input %q: %w", path, err)
+	}
+	relative, err := filepath.Rel(resolvedRoot, resolved)
+	if err != nil {
+		return "", fmt.Errorf("validate policy input %q containment: %w", path, err)
+	}
+	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("policy input %q resolves outside the repository", path)
+	}
+	return resolved, nil
+}
+
+func trustedStopDirectoryIdentity(identity string) bool {
+	return strings.HasPrefix(identity, "dir:") && exactSHA256(strings.TrimPrefix(identity, "dir:"))
+}
+
+func exactSHA256(value string) bool {
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == sha256.Size
 }
 
 // stopPolicyReportExpiry is the instant a stored report stops describing its
@@ -729,7 +1095,11 @@ func stopPolicyInputIdentities(repoRoot string, paths []string, dirty []gitDirty
 func stopPolicyReportExpiry(repoRoot string, freshFiles []stopPolicyFreshFile) int64 {
 	expiry := int64(0)
 	for _, fresh := range freshFiles {
-		info, err := os.Lstat(filepath.Join(repoRoot, filepath.FromSlash(fresh.Path)))
+		resolved, err := resolveStopPolicyInputPath(repoRoot, fresh.Path)
+		if err != nil {
+			continue
+		}
+		info, err := os.Stat(resolved)
 		if err != nil || !info.Mode().IsRegular() {
 			continue
 		}
@@ -749,17 +1119,24 @@ func stopPolicyReportExpired(expiresAt int64) bool {
 }
 
 // stopPolicyRuleReachable reports whether any recorded write path can trigger a
-// rule. It fails toward reachable: a rule without when_paths, a templated
-// pattern, or a match error is treated as triggerable so uncertainty never
-// admits a report the rule might have changed.
+// rule. Template patterns use the same matcher as evaluation. Malformed input
+// fails toward reachable so uncertainty never admits a report the rule might
+// have changed.
 func stopPolicyRuleReachable(whenPaths, writePaths []string) bool {
 	if len(whenPaths) == 0 {
 		return true
 	}
-	for _, pattern := range whenPaths {
-		if runtime.HasTemplateVars(pattern) {
-			return true
+	if runtime.PatternHasAnyTemplateVar(whenPaths) {
+		for _, writePath := range writePaths {
+			_, _, matched, err := runtime.MatchTemplateAny(whenPaths, writePath)
+			if err != nil {
+				return true
+			}
+			if matched {
+				return true
+			}
 		}
+		return false
 	}
 	_, _, matched, err := runtime.MatchAnyPath(whenPaths, writePaths)
 	if err != nil {
@@ -817,7 +1194,32 @@ func completionPolicyGitSnapshotFor(repoRoot string) stopPolicyGitSnapshot {
 }
 
 func stopPolicyEvidenceHash(state SessionState) string {
-	input := stopPolicyEvidenceInput{
+	input := stopPolicyEvidenceInputFor(state)
+	body, err := json.Marshal(input)
+	if err != nil {
+		return ""
+	}
+	return hashBytes(body)
+}
+
+func stopPolicyEvidenceRevision(state SessionState) string {
+	input := stopPolicyEvidenceRevisionInput{
+		Evidence:             stopPolicyEvidenceInputFor(state),
+		EvidenceEpoch:        state.EvidenceEpoch,
+		EvidenceSegmentCount: state.EvidenceSegmentCount,
+		EvidenceSegmentHash:  state.EvidenceSegmentDigest,
+		EvidenceOverflow:     state.EvidenceOverflow,
+		MaterialEvents:       state.MaterialEvents,
+	}
+	body, err := json.Marshal(input)
+	if err != nil {
+		return ""
+	}
+	return hashBytes(body)
+}
+
+func stopPolicyEvidenceInputFor(state SessionState) stopPolicyEvidenceInput {
+	return stopPolicyEvidenceInput{
 		ReadPaths:      sortedUniqueExact(state.ReadPaths),
 		WritePaths:     sortedUniqueExact(state.WritePaths),
 		WriteEpochs:    cloneWriteEpochs(state.WriteEpochs),
@@ -825,11 +1227,6 @@ func stopPolicyEvidenceHash(state SessionState) string {
 		Claims:         sortedUnique(state.Claims),
 		CommandResults: append([]CommandResult{}, state.CommandResults...),
 	}
-	body, err := json.Marshal(input)
-	if err != nil {
-		return ""
-	}
-	return hashBytes(body)
 }
 
 // CaptureCompletionState returns a stable, content-bound snapshot without
@@ -893,6 +1290,38 @@ func CaptureCompletionState(repoRoot string) (CompletionStateSnapshot, error) {
 		TaskStateHash:      stopTaskSnapshotHash(taskSnapshot),
 	})
 	dirtyFiles := fingerprintInput.GitDirtyFiles
+	dirtyPaths := []string{}
+	worktreeMatchesIndex := false
+	if gitSnapshot.StatusOK {
+		dirtyPaths = dirtyPathsFromStatus(gitSnapshot.Status)
+		worktreeMatchesIndex = gitWorktreeMatchesIndex(gitSnapshot.Status)
+	}
+	capturedAt := time.Now().UTC()
+	inputs, err := completionExecutionInputs(
+		root, state, gitAvailable, gitSnapshot.StatusOK, dirtyPaths, worktreeMatchesIndex, capturedAt,
+	)
+	if err != nil {
+		return CompletionStateSnapshot{}, err
+	}
+	policyScan := scanStopPolicyLockfile(root, inputs.WritePaths)
+	completionPolicyInputs := stopPolicyInputIdentities(root, policyScan.Paths)
+	worktreeTrusted := completionDirtyFilesTrusted(dirtyFiles) && completionPolicyInputsTrusted(completionPolicyInputs)
+	assuranceInputIdentity := ""
+	if len(policyScan.Assurance) > 0 {
+		successfulCommands := make([]string, 0, len(inputs.CommandResults))
+		for _, result := range inputs.CommandResults {
+			if result.Outcome == runtime.CommandOutcomeSuccess {
+				successfulCommands = append(successfulCommands, result.Command)
+			}
+		}
+		_, assuranceInputIdentity, err = assurance.EvaluateWithInputIdentity(root, policyScan.Assurance, assurance.Inputs{
+			ChangedPaths: inputs.WritePaths, SuccessfulCommands: successfulCommands, Now: capturedAt,
+		})
+		if err != nil {
+			return CompletionStateSnapshot{}, fmt.Errorf("capture native assurance inputs: %w", err)
+		}
+	}
+	freshness := completionFreshnessStates(root, policyScan.FreshFiles, capturedAt)
 	worktreeBody, err := json.Marshal(struct {
 		Status     string         `json:"status"`
 		DirtyFiles []gitDirtyFile `json:"dirty_files"`
@@ -917,8 +1346,12 @@ func CaptureCompletionState(repoRoot string) (CompletionStateSnapshot, error) {
 		}
 	}
 	completionInput := completionStateFingerprintInput{
-		Version:                   "completion-state-v3",
+		Version:                   "completion-state-v4",
 		StopPolicyFingerprint:     fingerprintInput,
+		CompletionInputs:          inputs,
+		CompletionPolicyInputs:    completionPolicyInputs,
+		CompletionFreshness:       freshness,
+		AssuranceInputIdentity:    assuranceInputIdentity,
 		SessionReportHash:         reportHash,
 		ExpectedSessionReportHash: state.StopPolicyReportHash,
 		GitIndexHash:              gitIndexHash,
@@ -927,20 +1360,8 @@ func CaptureCompletionState(repoRoot string) (CompletionStateSnapshot, error) {
 	if err != nil {
 		return CompletionStateSnapshot{}, fmt.Errorf("marshal completion state identity: %w", err)
 	}
-	inputs := executionInputs(
-		filterRepoScopedReadPaths(root, state.ReadPaths),
-		append([]string{}, state.WritePaths...), cloneWriteEpochs(state.WriteEpochs),
-		append([]string{}, state.Commands...), append([]CommandResult{}, state.CommandResults...),
-		append([]string{}, state.Claims...),
-	)
-	dirtyPaths := []string{}
-	worktreeMatchesIndex := false
-	if gitSnapshot.StatusOK {
-		dirtyPaths = dirtyPathsFromStatus(gitSnapshot.Status)
-		worktreeMatchesIndex = gitWorktreeMatchesIndex(gitSnapshot.Status)
-	}
 	return CompletionStateSnapshot{
-		FormatVersion: "3", RepoRoot: root, Fingerprint: hashBytes(completionBody),
+		FormatVersion: "4", RepoRoot: root, Fingerprint: hashBytes(completionBody),
 		PolicyLockHash: fingerprintInput.PolicyLockHash,
 		SessionID:      sessionID, SessionEvidenceHash: stopPolicyEvidenceHash(state),
 		SessionReportHash: reportHash, SessionReportTrusted: reportTrusted,
@@ -950,10 +1371,81 @@ func CaptureCompletionState(repoRoot string) (CompletionStateSnapshot, error) {
 		GitAvailable:          gitAvailable,
 		GitHead:               gitSnapshot.Head, GitIndexHash: gitIndexHash, GitStatusMode: gitSnapshot.StatusMode,
 		GitStatusOK: gitSnapshot.StatusOK, GitStatus: gitSnapshot.Status,
-		WorktreeHash: hashBytes(worktreeBody), WorktreeTrusted: completionDirtyFilesTrusted(dirtyFiles),
+		WorktreeHash: hashBytes(worktreeBody), WorktreeTrusted: worktreeTrusted,
 		WorktreeMatchesIndex: worktreeMatchesIndex,
 		DirtyPaths:           dirtyPaths, Inputs: inputs,
 	}, nil
+}
+
+func completionExecutionInputs(
+	root string,
+	state SessionState,
+	gitAvailable, gitStatusOK bool,
+	dirtyPaths []string,
+	worktreeMatchesIndex bool,
+	now time.Time,
+) (runtime.ExecutionInputs, error) {
+	inputs := executionInputs(
+		filterRepoScopedReadPaths(root, state.ReadPaths),
+		append([]string{}, state.WritePaths...), cloneWriteEpochs(state.WriteEpochs),
+		append([]string{}, state.Commands...), append([]CommandResult{}, state.CommandResults...),
+		append([]string{}, state.Claims...),
+	)
+	if !gitAvailable || !gitStatusOK {
+		return inputs, nil
+	}
+	inputs.WritePaths = append([]string{}, dirtyPaths...)
+	inputs.WriteEpochs = runtime.RelativizeEpochKeys(root, state.WriteEpochs)
+	if inputs.WriteEpochs == nil {
+		inputs.WriteEpochs = map[string]uint64{}
+	}
+	nextEpoch := state.EvidenceEpoch
+	if nextEpoch < runtime.ExplicitEvidenceEpoch-1 {
+		nextEpoch++
+	}
+	for _, path := range inputs.WritePaths {
+		if inputs.WriteEpochs[path] == 0 {
+			inputs.WriteEpochs[path] = nextEpoch
+		}
+	}
+	if len(inputs.WritePaths) == 0 || !worktreeMatchesIndex {
+		return inputs, nil
+	}
+	proofs, err := commandproof.LoadCurrentSuccesses(root, now)
+	if err != nil {
+		return runtime.ExecutionInputs{}, fmt.Errorf("load current command proofs: %w", err)
+	}
+	for _, proof := range proofs {
+		inputs.Commands = append(inputs.Commands, proof.Command)
+		inputs.CommandResults = append(inputs.CommandResults, runtime.CommandResult{
+			Command: proof.Command, Outcome: runtime.CommandOutcomeSuccess, EvidenceEpoch: runtime.ExplicitEvidenceEpoch,
+		})
+	}
+	return inputs, nil
+}
+
+func completionPolicyInputsTrusted(inputs []policyInputIdentity) bool {
+	for _, input := range inputs {
+		if !input.Trusted {
+			return false
+		}
+	}
+	return true
+}
+
+func completionFreshnessStates(root string, files []stopPolicyFreshFile, now time.Time) []completionFreshnessState {
+	states := make([]completionFreshnessState, 0, len(files))
+	for _, fresh := range files {
+		state := completionFreshnessState{Path: fresh.Path, MaxAgeHours: fresh.MaxAgeHours}
+		resolved, err := resolveStopPolicyInputPath(root, fresh.Path)
+		if err == nil {
+			if info, statErr := os.Stat(resolved); statErr == nil && info.Mode().IsRegular() {
+				state.Expired = now.Sub(info.ModTime()) > time.Duration(fresh.MaxAgeHours)*time.Hour
+			}
+		}
+		states = append(states, state)
+	}
+	return states
 }
 
 func gitMetadataPresent(repoRoot string) bool {
@@ -998,7 +1490,7 @@ func gitWorktreeMatchesIndex(status string) bool {
 
 func readLatestReport(repoRoot, sessionID string) (*runtime.CheckReport, string, error) {
 	path := sessionReportPath(repoRoot, sessionID)
-	body, err := readBoundedFile(path, maxStopReportBytes)
+	body, err := boundedio.ReadRegularFile(path, maxStopReportBytes)
 	if err != nil {
 		return nil, "", err
 	}
@@ -1045,7 +1537,7 @@ func gitCommandOutput(repoRoot string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", repoRoot}, args...)...)
-	out, err := cmd.CombinedOutput()
+	out, err := boundedexec.CombinedOutput(cmd, maxStopGitOutputBytes)
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return string(out), fmt.Errorf("git %s timed out", strings.Join(args, " "))
 	}
@@ -1399,19 +1891,7 @@ func submoduleWorktreeHash(root string) string {
 }
 
 func readBoundedFile(path string, maxBytes int64) ([]byte, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	body, readErr := io.ReadAll(io.LimitReader(file, maxBytes+1))
-	closeErr := file.Close()
-	if err := errors.Join(readErr, closeErr); err != nil {
-		return nil, err
-	}
-	if int64(len(body)) > maxBytes {
-		return nil, fmt.Errorf("%s exceeds %d bytes", path, maxBytes)
-	}
-	return body, nil
+	return boundedio.ReadFile(path, maxBytes)
 }
 
 // stopPolicyContentHashBound caps the bytes a single file contributes to the

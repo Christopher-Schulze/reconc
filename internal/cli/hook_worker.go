@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"reconc.dev/reconc/internal/boundedexec"
 	policyruntime "reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
@@ -20,6 +21,7 @@ const (
 	hookWorkerMaxIDBytes    = 128
 	hookWorkerMaxEventBytes = 128
 	hookWorkerMaxRepoBytes  = 16 << 10
+	maxHookRuntimeCapture   = 8 << 10
 )
 
 var errHookWorkerFrameTooLarge = errors.New("hook worker frame exceeds the bounded protocol limit")
@@ -219,13 +221,23 @@ func executeHookWorkerRequest(
 		response.Type = "shutdown"
 		return response, true
 	}
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	err := runHookRuntimeWithResolverEvaluatorAndStopCache(
+	stdout, err := boundedexec.NewBuffer(maxHookRuntimeCapture)
+	if err != nil {
+		response.Code = 1
+		response.Error = truncateUTF8(err.Error(), 4096)
+		return response, false
+	}
+	stderr, err := boundedexec.NewBuffer(maxHookRuntimeCapture)
+	if err != nil {
+		response.Code = 1
+		response.Error = truncateUTF8(err.Error(), 4096)
+		return response, false
+	}
+	err = runHookRuntimeWithResolverEvaluatorAndStopCache(
 		[]string{request.Event, request.Repo},
 		bytes.NewReader(request.Payload),
-		&stdout,
-		&stderr,
+		stdout,
+		stderr,
 		resolveRoot,
 		evaluator,
 		stopCache,
@@ -233,11 +245,15 @@ func executeHookWorkerRequest(
 	response.Code = ExitCode(err)
 	response.Stdout = strings.TrimSuffix(stdout.String(), "\n")
 	response.Stderr = strings.TrimSuffix(stderr.String(), "\n")
+	if stdout.Truncated() || stderr.Truncated() {
+		response.Code = 1
+		response.Error = fmt.Sprintf("hook runtime output exceeded %d bytes per stream", maxHookRuntimeCapture)
+	}
 	if err != nil && err.Error() != "" {
 		if response.Stderr != "" {
 			response.Stderr += "\n"
 		}
-		response.Stderr += err.Error()
+		response.Stderr += truncateUTF8(err.Error(), 4096)
 	}
 	return response, false
 }

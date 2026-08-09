@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/policy"
 )
@@ -162,20 +162,12 @@ func ReadMCPAudit(repoRoot string) (MCPAuditSummary, error) {
 }
 
 func readMCPAuditResolved(root string) (MCPAuditSummary, error) {
-	file, err := os.Open(mcpAuditPath(root))
+	body, err := boundedio.ReadRegularFile(mcpAuditPath(root), maxMCPAuditBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return emptyMCPAuditSummary(), nil
 		}
-		return MCPAuditSummary{}, fmt.Errorf("open MCP audit: %w", err)
-	}
-	body, readErr := io.ReadAll(io.LimitReader(file, maxMCPAuditBytes+1))
-	closeErr := file.Close()
-	if readErr != nil || closeErr != nil {
-		return MCPAuditSummary{}, fmt.Errorf("read MCP audit: %w", errors.Join(readErr, closeErr))
-	}
-	if len(body) > maxMCPAuditBytes {
-		return MCPAuditSummary{}, fmt.Errorf("MCP audit exceeds %d bytes", maxMCPAuditBytes)
+		return MCPAuditSummary{}, fmt.Errorf("read MCP audit: %w", err)
 	}
 	var summary MCPAuditSummary
 	if err := json.Unmarshal(body, &summary); err != nil {

@@ -131,6 +131,9 @@ func runPassiveEventResolved(root string, payloadBytes []byte) Result {
 	if err := observeSessionStateResolved(root, payload.SessionID); err != nil {
 		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (passive, warn): %s", err)}
 	}
+	if err := recordOMPUserPythonObservationResolved(root, payload); err != nil {
+		return Result{ExitCode: 0, Stderr: fmt.Sprintf("reconc hook (passive, warn): %s", err)}
+	}
 	return Result{ExitCode: 0}
 }
 

@@ -58,15 +58,18 @@ done < "$copied_manifest"
   printf 'error: copied-asset manifest lists no artifacts\n' >&2
   exit 1
 }
-# Generated artifacts have no repository source and are named here.
-expected_assets="_reconc reconc.1 reconc.bash reconc.fish release-manifest.json reconc-$version.spdx.json reconc-$version.cdx.json$copied_assets"
-for target in "$@"; do
-  os=${target%/*}
-  arch=${target##*/}
-  extension=""
-  [ "$os" = "windows" ] && extension=".exe"
-  expected_assets="$expected_assets $bin-$version-$os-$arch$extension"
-done
+# Generated artifacts and binaries come from the same executable inventory the
+# Makefile uses, so the verifier owns no second release-name list.
+generated_assets=$(
+  "$root/scripts/release/generated-assets.sh" list "$bin" "$version" "$@"
+) || exit $?
+expected_assets="$copied_assets"
+while IFS= read -r name; do
+  [ -n "$name" ] || continue
+  expected_assets="$expected_assets $name"
+done <<EOF
+$generated_assets
+EOF
 
 seen=""
 count=0
@@ -164,27 +167,23 @@ epoch=$(git -C "$root" show -s --format=%ct "$commit")
 
 surface_tmp=$(mktemp -d "${TMPDIR:-/tmp}/reconc-release-surface.XXXXXX")
 trap 'rm -rf "$surface_tmp"' EXIT INT HUP TERM
-"$go_bin" -C "$root" run ./cmd/reconc completion bash > "$surface_tmp/reconc.bash"
-"$go_bin" -C "$root" run ./cmd/reconc completion zsh > "$surface_tmp/_reconc"
-"$go_bin" -C "$root" run ./cmd/reconc completion fish > "$surface_tmp/reconc.fish"
-SOURCE_DATE_EPOCH="$epoch" "$go_bin" -C "$root" run \
-  -ldflags "-X main.Version=$version" ./cmd/reconc manpage > "$surface_tmp/reconc.1"
-for name in reconc.bash _reconc reconc.fish reconc.1; do
+GO="$go_bin" "$root/scripts/release/generated-assets.sh" generate completion \
+  "$surface_tmp" "$version" "$commit" "$epoch"
+GO="$go_bin" "$root/scripts/release/generated-assets.sh" generate manpage \
+  "$surface_tmp" "$version" "$commit" "$epoch"
+surface_names=$(
+  "$root/scripts/release/generated-assets.sh" list-mode completion "$version"
+  "$root/scripts/release/generated-assets.sh" list-mode manpage "$version"
+)
+while IFS= read -r name; do
+  [ -n "$name" ] || continue
   cmp -s "$surface_tmp/$name" "$dist/$name" || {
     printf 'error: release surface is stale or noncanonical: %s\n' "$name" >&2
     exit 1
   }
-done
-for name in install.sh install.ps1; do
-  cmp -s "$root/$name" "$dist/$name" || {
-    printf 'error: release installer is stale or noncanonical: %s\n' "$name" >&2
-    exit 1
-  }
-done
-cmp -s "$root/harness/advanced-pack.zip" "$dist/reconc-harness-pack-advanced-1.0.0.zip" || {
-  printf 'error: release harness pack is stale or noncanonical\n' >&2
-  exit 1
-}
+done <<EOF
+$surface_names
+EOF
 verify_canonical_asset() {
   source="$1"
   name="$2"

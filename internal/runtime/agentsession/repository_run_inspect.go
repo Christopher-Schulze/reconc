@@ -122,7 +122,7 @@ func ReadRunDecisions(repoRoot string, limit int) ([]RunDecision, error) {
 	}
 	unlockErr := unlock()
 	if err != nil {
-		return collector.values(), err
+		return nil, err
 	}
 	if unlockErr != nil {
 		return collector.values(), fmt.Errorf("unlock run decision log: %w", unlockErr)
@@ -160,48 +160,43 @@ func (collector *runDecisionCollector) values() []RunDecision {
 }
 
 func readRunDecisionFile(path string, emit func(RunDecision)) error {
-	file, err := boundedio.OpenRegularFile(path, runDecisionMaxBytes)
-	if err != nil {
-		return err
-	}
-	info, err := file.Stat()
-	if err != nil {
-		return errors.Join(err, file.Close())
-	}
-	if info.Size() > 0 {
+	return boundedio.WithRegularFileSnapshot(path, runDecisionMaxBytes, func(file *os.File, info os.FileInfo) error {
+		if info.Size() == 0 {
+			return nil
+		}
 		if _, err := file.Seek(-1, io.SeekEnd); err != nil {
-			return errors.Join(err, file.Close())
+			return err
 		}
 		last := []byte{0}
 		if _, err := io.ReadFull(file, last); err != nil {
-			return errors.Join(err, file.Close())
+			return err
 		}
 		if last[0] != '\n' {
-			return errors.Join(fmt.Errorf("%s: truncated JSONL record: missing final newline", path), file.Close())
+			return fmt.Errorf("%s: truncated JSONL record: missing final newline", path)
 		}
 		if _, err := file.Seek(0, io.SeekStart); err != nil {
-			return errors.Join(err, file.Close())
+			return err
 		}
-	}
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 4096), runDecisionMaxRecordBytes)
-	lineNumber := 0
-	for scanner.Scan() {
-		lineNumber++
-		line := scanner.Bytes()
-		if len(bytes.TrimSpace(line)) == 0 {
-			continue
+		scanner := bufio.NewScanner(file)
+		scanner.Buffer(make([]byte, 4096), runDecisionMaxRecordBytes)
+		lineNumber := 0
+		for scanner.Scan() {
+			lineNumber++
+			line := scanner.Bytes()
+			if len(bytes.TrimSpace(line)) == 0 {
+				continue
+			}
+			d, err := decodeRunDecisionLine(line)
+			if err != nil {
+				return fmt.Errorf("%s:%d: malformed run decision: %w", path, lineNumber, err)
+			}
+			emit(d)
 		}
-		d, err := decodeRunDecisionLine(line)
-		if err != nil {
-			return errors.Join(fmt.Errorf("%s:%d: malformed run decision: %w", path, lineNumber, err), file.Close())
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("%s: read run decisions: %w", path, err)
 		}
-		emit(d)
-	}
-	if err := scanner.Err(); err != nil {
-		return errors.Join(fmt.Errorf("%s: read run decisions: %w", path, err), file.Close())
-	}
-	return file.Close()
+		return nil
+	})
 }
 
 func decodeRunDecisionLine(line []byte) (RunDecision, error) {

@@ -45,67 +45,111 @@ func ReadFile(path string, maxBytes int64) ([]byte, error) {
 		}
 		return nil, errors.Join(statErr, pathStatErr, file.Close())
 	}
-	body, readErr := io.ReadAll(io.LimitReader(file, maxBytes+1))
-	closeErr := file.Close()
-	if err := errors.Join(readErr, closeErr); err != nil {
-		return nil, err
-	}
-	if int64(len(body)) > maxBytes {
-		return nil, fmt.Errorf("%s exceeds %d bytes", path, maxBytes)
-	}
-	return body, nil
+	return readOpenedFileSnapshot(path, file, opened, maxBytes, os.Stat)
 }
 
-// OpenRegularFile opens a non-symlink regular file whose declared size fits
-// maxBytes. Identity is checked before and after open so a path swap cannot
-// turn the strict read into a symlink or different-file read.
-func OpenRegularFile(path string, maxBytes int64) (*os.File, error) {
+func openRegularFile(path string, maxBytes int64) (*os.File, os.FileInfo, error) {
 	if maxBytes <= 0 {
-		return nil, errors.New("bounded regular-file open requires a positive byte limit")
+		return nil, nil, errors.New("bounded regular-file open requires a positive byte limit")
 	}
 	if maxBytes > math.MaxInt64-1 {
-		return nil, errors.New("bounded regular-file open byte limit is too large")
+		return nil, nil, errors.New("bounded regular-file open byte limit is too large")
 	}
 	before, err := os.Lstat(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s must be a non-symlink regular file", path)
+		return nil, nil, fmt.Errorf("%s must be a non-symlink regular file", path)
 	}
 	if before.Size() > maxBytes {
-		return nil, fmt.Errorf("%s exceeds %d bytes", path, maxBytes)
+		return nil, nil, fmt.Errorf("%s exceeds %d bytes", path, maxBytes)
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	opened, statErr := file.Stat()
 	after, lstatErr := os.Lstat(path)
 	if statErr != nil || lstatErr != nil {
-		return nil, errors.Join(statErr, lstatErr, file.Close())
+		return nil, nil, errors.Join(statErr, lstatErr, file.Close())
 	}
-	if !opened.Mode().IsRegular() || opened.Size() > maxBytes ||
-		!os.SameFile(before, opened) || !os.SameFile(opened, after) {
-		return nil, errors.Join(fmt.Errorf("%s changed identity or exceeded %d bytes while opening", path, maxBytes), file.Close())
+	if !sameRegularSnapshot(before, opened) || !sameRegularSnapshot(opened, after) || opened.Size() > maxBytes {
+		return nil, nil, errors.Join(fmt.Errorf("%s changed identity, metadata, or exceeded %d bytes while opening", path, maxBytes), file.Close())
 	}
-	return file, nil
+	return file, opened, nil
+}
+
+// WithRegularFileSnapshot exposes a bounded non-symlink regular file to use,
+// then rejects identity, mode, size, or modification-time drift before the
+// result can be accepted. The callback must not close the file.
+func WithRegularFileSnapshot(path string, maxBytes int64, use func(*os.File, os.FileInfo) error) error {
+	if use == nil {
+		return errors.New("bounded regular-file snapshot requires a callback")
+	}
+	file, before, err := openRegularFile(path, maxBytes)
+	if err != nil {
+		return err
+	}
+	useErr := use(file, before)
+	afterFile, statErr := file.Stat()
+	afterPath, pathStatErr := os.Lstat(path)
+	closeErr := file.Close()
+	var stableErr error
+	if statErr == nil && pathStatErr == nil &&
+		(!sameRegularSnapshot(before, afterFile) || !sameRegularSnapshot(afterFile, afterPath) || afterFile.Size() > maxBytes) {
+		stableErr = fmt.Errorf("%s changed while reading", path)
+	}
+	return errors.Join(useErr, statErr, pathStatErr, closeErr, stableErr)
 }
 
 // ReadRegularFile reads one non-symlink regular file within maxBytes. The
 // limit reader catches growth after the size and identity checks.
 func ReadRegularFile(path string, maxBytes int64) ([]byte, error) {
-	file, err := OpenRegularFile(path, maxBytes)
+	var body []byte
+	err := WithRegularFileSnapshot(path, maxBytes, func(file *os.File, opened os.FileInfo) error {
+		var readErr error
+		body, readErr = io.ReadAll(io.LimitReader(file, maxBytes+1))
+		if readErr != nil {
+			return readErr
+		}
+		if int64(len(body)) > maxBytes {
+			return fmt.Errorf("%s exceeds %d bytes", path, maxBytes)
+		}
+		if int64(len(body)) != opened.Size() {
+			return fmt.Errorf("%s changed while reading", path)
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
+	return body, nil
+}
+
+func sameRegularSnapshot(left, right os.FileInfo) bool {
+	return left != nil && right != nil && left.Mode().IsRegular() && right.Mode().IsRegular() &&
+		left.Mode()&os.ModeSymlink == 0 && right.Mode()&os.ModeSymlink == 0 &&
+		os.SameFile(left, right) && left.Mode() == right.Mode() && left.Size() == right.Size() &&
+		left.ModTime().Equal(right.ModTime())
+}
+
+func readOpenedFileSnapshot(path string, file *os.File, before os.FileInfo, maxBytes int64, pathStat func(string) (os.FileInfo, error)) ([]byte, error) {
 	body, readErr := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	afterFile, statErr := file.Stat()
+	afterPath, pathStatErr := pathStat(path)
 	closeErr := file.Close()
-	if err := errors.Join(readErr, closeErr); err != nil {
+	if err := errors.Join(readErr, statErr, pathStatErr, closeErr); err != nil {
 		return nil, err
 	}
 	if int64(len(body)) > maxBytes {
 		return nil, fmt.Errorf("%s exceeds %d bytes", path, maxBytes)
+	}
+	if !afterFile.Mode().IsRegular() || !afterPath.Mode().IsRegular() ||
+		!os.SameFile(before, afterFile) || !os.SameFile(afterFile, afterPath) ||
+		before.Mode() != afterFile.Mode() || before.Size() != afterFile.Size() ||
+		int64(len(body)) != afterFile.Size() || !before.ModTime().Equal(afterFile.ModTime()) {
+		return nil, fmt.Errorf("%s changed while reading", path)
 	}
 	return body, nil
 }
@@ -139,6 +183,14 @@ func readDir(path string, maxEntries int, rejectSymlink bool) ([]os.DirEntry, er
 		if before.Mode()&os.ModeSymlink != 0 || !before.IsDir() {
 			return nil, fmt.Errorf("%s must be a non-symlink directory", path)
 		}
+	} else {
+		before, err = os.Stat(path)
+		if err != nil {
+			return nil, err
+		}
+		if !before.IsDir() {
+			return nil, fmt.Errorf("%s must resolve to a directory", path)
+		}
 	}
 	directory, err := os.Open(path)
 	if err != nil {
@@ -152,14 +204,21 @@ func readDir(path string, maxEntries int, rejectSymlink bool) ([]os.DirEntry, er
 		return nil, errors.Join(statErr, directory.Close())
 	}
 	entries, readErr := directory.ReadDir(maxEntries + 1)
+	var after os.FileInfo
+	var afterErr error
 	if rejectSymlink {
-		after, afterErr := os.Lstat(path)
-		if afterErr != nil || !os.SameFile(opened, after) {
-			if afterErr == nil {
-				afterErr = fmt.Errorf("%s changed identity during directory read", path)
-			}
-			return nil, errors.Join(afterErr, directory.Close())
+		after, afterErr = os.Lstat(path)
+	} else {
+		after, afterErr = os.Stat(path)
+	}
+	if afterErr != nil || !after.IsDir() || !os.SameFile(before, opened) || !os.SameFile(opened, after) ||
+		before.Mode() != opened.Mode() || before.Size() != opened.Size() ||
+		!before.ModTime().Equal(opened.ModTime()) || opened.Mode() != after.Mode() ||
+		opened.Size() != after.Size() || !opened.ModTime().Equal(after.ModTime()) {
+		if afterErr == nil {
+			afterErr = fmt.Errorf("%s changed identity or metadata during directory read", path)
 		}
+		return nil, errors.Join(afterErr, directory.Close())
 	}
 	closeErr := directory.Close()
 	if readErr != nil && !errors.Is(readErr, io.EOF) {

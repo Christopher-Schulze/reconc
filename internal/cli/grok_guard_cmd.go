@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"time"
+
+	"reconc.dev/reconc/internal/boundedexec"
 )
 
 var (
@@ -34,14 +35,21 @@ func runGrokPreToolGuard(args []string, stdout, stderr io.Writer) error {
 	if len(args) != 1 {
 		return &CLIError{ExitCode: 1, Message: "reconc hook grok-pre-tool-guard: expected <repo>"}
 	}
-	var runtimeStdout, runtimeStderr bytes.Buffer
+	runtimeStdout, bufferErr := boundedexec.NewBuffer(maxHookRuntimeCapture)
+	if bufferErr != nil {
+		return bufferErr
+	}
+	runtimeStderr, bufferErr := boundedexec.NewBuffer(maxHookRuntimeCapture)
+	if bufferErr != nil {
+		return bufferErr
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), grokPreToolGuardTimeout)
 	defer cancel()
 	err := grokPreToolGuardRuntime(
 		ctx,
 		[]string{"grok-pre-tool-use", args[0]},
-		&runtimeStdout,
-		&runtimeStderr,
+		runtimeStdout,
+		runtimeStderr,
 	)
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		body, _ := json.Marshal(map[string]string{
@@ -50,6 +58,15 @@ func runGrokPreToolGuard(args []string, stdout, stderr io.Writer) error {
 		})
 		fmt.Fprintln(stdout, string(body))
 		fmt.Fprintf(stderr, "reconc hook grok-pre-tool-guard: runtime exceeded %s; denied before Grok's host timeout\n", grokPreToolGuardTimeout)
+		return nil
+	}
+	if runtimeStdout.Truncated() || runtimeStderr.Truncated() {
+		body, _ := json.Marshal(map[string]string{
+			"decision": "deny",
+			"reason":   "Reconc produced an oversized Grok guard response; execution was denied.",
+		})
+		fmt.Fprintln(stdout, string(body))
+		fmt.Fprintf(stderr, "reconc hook grok-pre-tool-guard: runtime output exceeded %d bytes per stream; denied\n", maxHookRuntimeCapture)
 		return nil
 	}
 	_, _ = stdout.Write(runtimeStdout.Bytes())

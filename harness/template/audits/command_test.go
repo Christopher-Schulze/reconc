@@ -53,6 +53,18 @@ func TestRunAuditCommandReturnsOutputOnSuccess(t *testing.T) {
 	}
 }
 
+func TestBoundedAuditOutputRejectsExcessOutput(t *testing.T) {
+	var output boundedAuditOutput
+	payload := []byte(strings.Repeat("x", maxAuditCommandOutput+1))
+	written, err := output.Write(payload)
+	if err != nil || written != len(payload) {
+		t.Fatalf("Write() = %d, %v", written, err)
+	}
+	if !output.truncated || len(output.bytes()) != maxAuditCommandOutput {
+		t.Fatalf("bounded output length=%d truncated=%v", len(output.bytes()), output.truncated)
+	}
+}
+
 // TestRepoScanTimeoutFailureExplainsItself guards the message against decaying
 // back into an opaque refusal.
 func TestRepoScanTimeoutFailureExplainsItself(t *testing.T) {

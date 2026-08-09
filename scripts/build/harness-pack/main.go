@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/boundedexec"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/harnesspack"
 )
 
@@ -90,14 +92,14 @@ func run(args []string, stdout io.Writer) error {
 			return fmt.Errorf("write harness pack archive: %w", err)
 		}
 	case *check:
-		current, err := os.ReadFile(*manifestPath)
+		current, err := boundedio.ReadRegularFile(*manifestPath, harnesspack.MaxManifestBytes)
 		if err != nil {
 			return fmt.Errorf("read harness pack manifest: %w", err)
 		}
 		if !bytes.Equal(current, body) {
 			return errors.New("harness pack manifest is stale; run `go run ./scripts/build/harness-pack --write`")
 		}
-		currentArchive, err := os.ReadFile(*archivePath)
+		currentArchive, err := boundedio.ReadRegularFile(*archivePath, harnesspack.MaxArchiveBytes)
 		if err != nil {
 			return fmt.Errorf("read harness pack archive: %w", err)
 		}
@@ -171,7 +173,7 @@ func canonicalSource(sourcePath string) (fs.FS, error) {
 			info.Size() > harnesspack.MaxFileBytes {
 			return nil, fmt.Errorf("tracked harness source is not a bounded regular file: %s", repositoryPath)
 		}
-		body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(repositoryPath)))
+		body, err := boundedio.ReadRegularFile(filepath.Join(root, filepath.FromSlash(repositoryPath)), harnesspack.MaxFileBytes)
 		if err != nil {
 			return nil, fmt.Errorf("read tracked harness source %s: %w", repositoryPath, err)
 		}
@@ -220,7 +222,7 @@ func gitOutput(directory string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, "git", append([]string{"-C", directory}, args...)...)
-	output, err := command.Output()
+	output, err := boundedexec.Output(command, harnesspack.MaxManifestBytes)
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("git command timed out: %w", ctx.Err())
 	}

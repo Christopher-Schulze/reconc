@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"reconc.dev/reconc/internal/pathidentity"
 )
 
 // NormalizeDevinPayload converts Devin CLI hook payloads into the internal
@@ -72,9 +74,13 @@ func NormalizeDevinPayload(event string, payloadBytes []byte, repoRoot string) (
 // PayloadLooksLikeDevin detects compatible Claude hooks that Devin also
 // loaded. First-class .devin hooks win so duplicate routes do not mutate state
 // or run Stop twice.
-func PayloadLooksLikeDevin(payloadBytes []byte) bool {
-	if os.Getenv("DEVIN_PROJECT_DIR") != "" {
-		return true
+func PayloadLooksLikeDevin(payloadBytes []byte, repoRoot string) bool {
+	if projectDir := strings.TrimSpace(os.Getenv("DEVIN_PROJECT_DIR")); projectDir != "" {
+		resolvedProject, projectErr := pathidentity.ResolveExisting(projectDir)
+		resolvedRoot, rootErr := pathidentity.ResolveExisting(repoRoot)
+		if projectErr == nil && rootErr == nil && resolvedProject == resolvedRoot {
+			return true
+		}
 	}
 	if len(bytes.TrimSpace(payloadBytes)) == 0 {
 		return false

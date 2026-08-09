@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"reconc.dev/reconc/internal/boundedexec"
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/execfile"
 	"reconc.dev/reconc/internal/pathidentity"
@@ -32,26 +33,37 @@ const (
 
 // PlatformStatus is one deterministic activation report.
 type PlatformStatus struct {
-	Kind           string                   `json:"kind"`
-	DisplayName    string                   `json:"display_name"`
-	TargetPath     string                   `json:"target_path"`
-	State          ActivationState          `json:"state"`
-	Detail         string                   `json:"detail"`
-	MissingEvents  []string                 `json:"missing_events,omitempty"`
-	ExpectedEvents []string                 `json:"expected_events,omitempty"`
-	SurfaceEvents  map[HostSurface][]string `json:"surface_events,omitempty"`
-	LiveEvents     []string                 `json:"live_events,omitempty"`
-	UnseenEvents   []string                 `json:"unseen_events,omitempty"`
-	LastSeen       string                   `json:"last_seen,omitempty"`
-	LastEvent      string                   `json:"last_event,omitempty"`
-	LivenessError  string                   `json:"liveness_error,omitempty"`
-	Generated      bool                     `json:"generated"`
-	Installed      bool                     `json:"installed"`
-	Executable     bool                     `json:"executable"`
-	Configured     bool                     `json:"configured"`
-	Live           bool                     `json:"live"`
-	Remediation    string                   `json:"remediation,omitempty"`
-	MCP            *MCPStatus               `json:"mcp,omitempty"`
+	Kind           string                           `json:"kind"`
+	DisplayName    string                           `json:"display_name"`
+	TargetPath     string                           `json:"target_path"`
+	State          ActivationState                  `json:"state"`
+	Detail         string                           `json:"detail"`
+	MissingEvents  []string                         `json:"missing_events,omitempty"`
+	ExpectedEvents []string                         `json:"expected_events,omitempty"`
+	SurfaceEvents  map[HostSurface][]string         `json:"surface_events,omitempty"`
+	LiveEvents     []string                         `json:"live_events,omitempty"`
+	UnseenEvents   []string                         `json:"unseen_events,omitempty"`
+	LastSeen       string                           `json:"last_seen,omitempty"`
+	LastEvent      string                           `json:"last_event,omitempty"`
+	Observations   map[string]HookObservationStatus `json:"observations,omitempty"`
+	LivenessError  string                           `json:"liveness_error,omitempty"`
+	Generated      bool                             `json:"generated"`
+	Installed      bool                             `json:"installed"`
+	Executable     bool                             `json:"executable"`
+	Configured     bool                             `json:"configured"`
+	Live           bool                             `json:"live"`
+	Remediation    string                           `json:"remediation,omitempty"`
+	MCP            *MCPStatus                       `json:"mcp,omitempty"`
+}
+
+// HookObservationStatus is the public, source-free view of one observed
+// runtime surface. It deliberately carries metadata only, never host payloads.
+type HookObservationStatus struct {
+	Count              uint64 `json:"count"`
+	LastSeen           string `json:"last_seen"`
+	WorkingDirectory   string `json:"working_directory"`
+	CodeBytes          int    `json:"code_bytes"`
+	ExcludeFromContext bool   `json:"exclude_from_context"`
 }
 
 // MCPMappingStatus is the public, redacted view of one configured selector.
@@ -93,6 +105,26 @@ func InspectPlatforms(repoRoot string) ([]PlatformStatus, error) {
 		reports = append(reports, report)
 	}
 	return reports, nil
+}
+
+// InspectPlatform validates one registered artifact and activation probe.
+// Callers that need a single readiness decision should not inspect unrelated
+// global or repository-local hosts.
+func InspectPlatform(repoRoot, kind string) (PlatformStatus, error) {
+	root, err := existingRepoRoot(repoRoot)
+	if err != nil {
+		return PlatformStatus{}, err
+	}
+	platform, ok := PlatformForKind(kind)
+	if !ok {
+		return PlatformStatus{}, fmt.Errorf("unknown hook kind %q", kind)
+	}
+	if platform.Kind == KindKimiCode {
+		return inspectKimiCodePlatform(platform), nil
+	}
+	report := inspectPlatform(root, platform)
+	finalizePlatformStatus(root, platform, &report)
+	return report, nil
 }
 
 func finalizePlatformStatus(root string, platform Platform, report *PlatformStatus) {
@@ -330,6 +362,7 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 }
 
 const maxPiTrustConfigBytes = 1 << 20
+const maxGitPathOutputBytes = 1 << 20
 
 func inspectPiProjectTrust(root string) (bool, string, string, error) {
 	agentDir, err := piAgentDir(root)
@@ -745,7 +778,7 @@ func activeGitPreCommitPath(root string) (string, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, "git", "-C", root, "rev-parse", "--git-path", "hooks")
-	output, err := command.Output()
+	output, err := boundedexec.Output(command, maxGitPathOutputBytes)
 	if err != nil {
 		return "", "", err
 	}
@@ -775,7 +808,7 @@ func gitHookTargetIsRepositoryOwned(root, target string) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, "git", "-C", root, "rev-parse", "--git-common-dir")
-	output, err := command.Output()
+	output, err := boundedexec.Output(command, maxGitPathOutputBytes)
 	if err != nil {
 		return false, err
 	}

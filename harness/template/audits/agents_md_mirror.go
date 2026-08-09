@@ -34,7 +34,7 @@ func auditSchemaPresent(root string) []string {
 // machine-enforced rules detectable instead of silent.
 func auditAgentsMdMirror(root string) []string {
 	agentsPath := filepath.Join(root, "AGENTS.md")
-	contentBytes, err := os.ReadFile(agentsPath)
+	contentBytes, err := readAuditFile(agentsPath)
 	if err != nil {
 		return []string{fmt.Sprintf("read AGENTS.md: %v", err)}
 	}

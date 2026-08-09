@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/sha256"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -69,7 +68,7 @@ func auditTaskSpecBindings(root string, relative string, content string, info ta
 		return []string{fmt.Sprintf("%s: Scheduling Spec Bindings count %d does not match Spec Lines count %d", relative, len(bindings), len(refs))}
 	}
 
-	specBytes, err := os.ReadFile(filepath.Join(root, "docs", "spec.md"))
+	specBytes, err := readAuditFile(filepath.Join(root, "docs", "spec.md"))
 	if err != nil {
 		return []string{fmt.Sprintf("%s: read docs/spec.md for Spec Bindings: %v", relative, err)}
 	}

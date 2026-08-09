@@ -327,16 +327,6 @@ rules:
     args:
       - "build-baseline"
     timeout_sec: 60
-    cache_inputs:
-      - "tools/reconc/harness/project/config/workflow/stack-config.yaml"
-      - "go.mod"
-      - "Cargo.toml"
-      - "frontend/package.json"
-      - "scripts/build"
-      - "backend/project/main.go"
-      - "codebase/frontend/package.json"
-      - "codebase/scripts/build"
-      - "codebase/backend/project/main.go"
     message: Selected stack module, build runner and binary entrypoints must stay aligned with stack-config.yaml.
 
   - id: project-durable-store-audit
@@ -354,12 +344,6 @@ rules:
     args:
       - "durable-store"
     timeout_sec: 60
-    cache_inputs:
-      - "tools/reconc/harness/project/config/workflow/stack-config.yaml"
-      - "backend/project/internal/store"
-      - "db/migrations"
-      - "codebase/backend/project/internal/store"
-      - "codebase/db/migrations"
     message: Durable store code, embedded migrations, migration ledger and SQLite safety defaults must stay aligned.
 
   - id: project-workflow-audit-self-check

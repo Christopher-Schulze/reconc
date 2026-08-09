@@ -118,8 +118,7 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
           version="${RELEASE_TAG#reconc-v}"
-          ./scripts/release/verify-artifacts.sh dist reconc "$version" \
-            darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64
+          make verify-release VERSION="$version"
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v4.1.1

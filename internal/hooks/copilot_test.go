@@ -166,6 +166,29 @@ func TestInstallGitHubCopilotUpdatesRecognizedManagedRevision(t *testing.T) {
 	}
 }
 
+func TestGitHubCopilotManagedOwnershipUsesRegistryRoutes(t *testing.T) {
+	artifact, err := Generate(KindGitHubCopilot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isManagedGitHubCopilotConfig([]byte(artifact.Content)) {
+		t.Fatal("current registry-generated Copilot artifact was not recognized as managed")
+	}
+	routes, ok := githubCopilotExpectedRoutes()
+	if !ok {
+		t.Fatal("Copilot registry routes are ambiguous")
+	}
+	var document struct {
+		Hooks map[string][]map[string]interface{} `json:"hooks"`
+	}
+	if err := json.Unmarshal([]byte(artifact.Content), &document); err != nil {
+		t.Fatal(err)
+	}
+	if len(routes) != len(document.Hooks) {
+		t.Fatalf("managed route ownership = %d registry routes, generated artifact has %d", len(routes), len(document.Hooks))
+	}
+}
+
 func TestInspectGitHubCopilotRequiresWrapper(t *testing.T) {
 	repo := t.TempDir()
 	if _, err := Install(KindGitHubCopilot, repo, false); err != nil {

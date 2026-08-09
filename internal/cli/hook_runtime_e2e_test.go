@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"reconc.dev/reconc/internal/compiler"
+	"reconc.dev/reconc/internal/hooks"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
 
@@ -778,10 +779,7 @@ func TestHookRuntimeDevinEnvDoesNotDisableClaudeRouteWithoutDevinHooks(t *testin
 func TestHookRuntimeDevinDedupIsVisibleWhenDevinHooksInstalled(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
 	t.Setenv("DEVIN_PROJECT_DIR", repo)
-	if err := os.MkdirAll(filepath.Join(repo, ".devin"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(repo, ".devin", "hooks.v1.json"), []byte("{}"), 0o644); err != nil {
+	if _, err := hooks.Install(hooks.KindDevinCLI, repo, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -792,6 +790,46 @@ func TestHookRuntimeDevinDedupIsVisibleWhenDevinHooksInstalled(t *testing.T) {
 	}
 	if !strings.Contains(stderrStr, "deduplicated") {
 		t.Fatalf("dedup must be visible on stderr, got: %q", stderrStr)
+	}
+	liveness, err := agentsession.ReadHookLiveness(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if liveness["claude"].Routes["claude-pre-tool-use"] == "" {
+		t.Fatalf("dedup liveness was not attributed to the source runtime: %#v", liveness)
+	}
+	if _, orphaned := liveness["claude-pre-tool-use"]; orphaned {
+		t.Fatalf("dedup created an orphan runtime record: %#v", liveness)
+	}
+}
+
+func TestHookRuntimeDevinDegradedConfigCannotSuppressClaudeRoute(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	t.Setenv("DEVIN_PROJECT_DIR", repo)
+	config := filepath.Join(repo, filepath.FromSlash(hooks.DevinHooksPath))
+	if err := os.MkdirAll(filepath.Dir(config), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	payload := `{"session_id":"ses_devenv3","tool_name":"Write","tool_input":{"file_path":"generated/out.txt"}}`
+	_, stderrStr, code := runWithStdin(t, payload, "hook", "runtime", "claude-pre-tool-use", repo)
+	if code != 2 || strings.Contains(stderrStr, "deduplicated") {
+		t.Fatalf("degraded Devin config suppressed Claude enforcement: code=%d stderr=%q", code, stderrStr)
+	}
+}
+
+func TestHookRuntimeForeignDevinEnvironmentCannotSuppressClaudeRoute(t *testing.T) {
+	repo := bootstrapE2ERepo(t)
+	if _, err := hooks.Install(hooks.KindDevinCLI, repo, false); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DEVIN_PROJECT_DIR", t.TempDir())
+	payload := `{"session_id":"ses-devenv-foreign","tool_name":"Write","tool_input":{"file_path":"generated/out.txt"}}`
+	_, stderrStr, code := runWithStdin(t, payload, "hook", "runtime", "claude-pre-tool-use", repo)
+	if code != 2 || strings.Contains(stderrStr, "deduplicated") {
+		t.Fatalf("foreign Devin environment suppressed Claude enforcement: code=%d stderr=%q", code, stderrStr)
 	}
 }
 

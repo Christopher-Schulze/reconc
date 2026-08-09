@@ -134,6 +134,33 @@ func TestHookLivenessRebuildsMissingFastPathMarkerWithoutRewritingState(t *testi
 	}
 }
 
+func TestHookLivenessRebuildsMissingStateDespiteFreshMarker(t *testing.T) {
+	t.Setenv(StateRootEnv, t.TempDir())
+	repo := t.TempDir()
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+	if err := recordHookLivenessAt(root, "codex", "codex-stop", first); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(hookLivenessPath(root)); err != nil {
+		t.Fatal(err)
+	}
+	second := first.Add(time.Hour)
+	if err := recordHookLivenessAt(root, "codex", "codex-stop", second); err != nil {
+		t.Fatal(err)
+	}
+	records, err := ReadHookLiveness(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if records["codex"].Routes["codex-stop"] != second.Format(time.RFC3339Nano) {
+		t.Fatalf("missing liveness state was not rebuilt: %+v", records["codex"])
+	}
+}
+
 func TestRecordHookLivenessNormalizesRuntimeAndPreservesRoute(t *testing.T) {
 	t.Setenv(StateRootEnv, t.TempDir())
 	repo := t.TempDir()
@@ -146,5 +173,32 @@ func TestRecordHookLivenessNormalizesRuntimeAndPreservesRoute(t *testing.T) {
 	}
 	if records["codex"].Event != "codex-session-start" || records["codex"].Routes["codex-session-start"] == "" {
 		t.Fatalf("normalized runtime liveness missing: %+v", records)
+	}
+}
+
+func TestHookObservationPreservesLegacyLivenessRoute(t *testing.T) {
+	t.Setenv(StateRootEnv, t.TempDir())
+	repo := t.TempDir()
+	root, err := ResolveRepoRoot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacySeen := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
+	legacy := fmt.Sprintf(`{"omp":{"runtime":"omp","last_seen":%q,"event":"omp-session-start"}}`, legacySeen)
+	if err := os.MkdirAll(filepath.Dir(hookLivenessPath(root)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hookLivenessPath(root), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordHookObservationAt(root, "omp", "omp-user-python", repo, 1, false, time.Date(2026, 7, 14, 13, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	records, err := ReadHookLiveness(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if records["omp"].Routes["omp-session-start"] != legacySeen {
+		t.Fatalf("legacy liveness route was lost: %+v", records["omp"])
 	}
 }

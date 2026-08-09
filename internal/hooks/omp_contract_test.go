@@ -160,24 +160,30 @@ if (canceled !== undefined) throw new Error("aborted OMP Stop must yield to the 
 	runBunContractDriver(t, []string{"RECONC_TEST_LOG=" + logPath}, bun, driverPath, extensionPath, repo)
 
 	records := readBunHookRecords(t, logPath)
-	for event, want := range map[string]int{
-		"omp-session-start":         1,
-		"omp-user-prompt-submit":    1,
-		"omp-pre-tool-use":          2,
-		"omp-permission-request":    1,
-		"omp-permission-result":     1,
-		"omp-post-tool-use":         1,
-		"omp-post-tool-use-failure": 1,
-		"omp-stop":                  1,
-		"omp-pre-compaction":        1,
-		"omp-post-compaction":       1,
-		"omp-session-end":           1,
-	} {
+	platform, ok := PlatformForKind(KindOMP)
+	if !ok {
+		t.Fatal("OMP registry entry is missing")
+	}
+	expectedCounts := map[string]int{}
+	for _, event := range platformRuntimeEvents(platform) {
+		expectedCounts[event] = 1
+	}
+	expectedCounts["omp-pre-tool-use"] = 2
+	expectedCounts["omp-user-bash"] = 2
+	for event, want := range expectedCounts {
 		assertBunHookCount(t, records, event, want)
 	}
 	input := bunHookPayload(t, records, "omp-user-prompt-submit")
 	if input["prompt"] != "ship it" || input["input_source"] != "interactive" {
 		t.Fatalf("OMP input payload = %#v", input)
+	}
+	bashPayloads := bunHookPayloads(records, "omp-user-bash")
+	if len(bashPayloads) != 2 || bashPayloads[0]["user_bash_cwd"] != repo || bashPayloads[0]["exclude_from_context"] != false {
+		t.Fatalf("OMP user_bash payloads = %#v", bashPayloads)
+	}
+	python := bunHookPayload(t, records, "omp-user-python")
+	if python["user_python_cwd"] != repo || python["exclude_from_context"] != false || python["code_bytes"] != float64(len("import os; os.system('ls')")) {
+		t.Fatalf("OMP user_python payload = %#v", python)
 	}
 	resolved := bunHookPayload(t, records, "omp-permission-result")
 	if resolved["approved"] != false || resolved["tool_name"] != "write" {

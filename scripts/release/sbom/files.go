@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"reconc.dev/reconc/internal/boundedio"
 )
 
 type documentFile struct {
@@ -26,7 +28,10 @@ func writeDocuments(outputDir, version string, spdx, cyclonedx []byte) error {
 
 func verifyDocuments(outputDir, version string, spdx, cyclonedx []byte) error {
 	for _, document := range documentFiles(outputDir, version, spdx, cyclonedx) {
-		actual, err := os.ReadFile(document.path)
+		if len(document.body) == 0 {
+			return fmt.Errorf("generated SBOM is empty: %s", document.path)
+		}
+		actual, err := boundedio.ReadRegularFile(document.path, int64(len(document.body)))
 		if err != nil {
 			return fmt.Errorf("read SBOM %s: %w", document.path, err)
 		}

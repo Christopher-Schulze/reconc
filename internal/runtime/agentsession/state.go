@@ -30,7 +30,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -38,6 +37,7 @@ import (
 	"strings"
 
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/retention"
@@ -329,11 +329,11 @@ func loadSessionStateResolved(root, sessionID string) (SessionState, error) {
 		return SessionState{}, err
 	}
 	path := sessionStatePath(root, sessionID)
-	file, err := os.Open(path)
+	data, err := boundedio.ReadRegularFile(path, maxLegacySessionStateBytes)
 	loadedLegacyPath := false
 	legacyPath := legacySessionStatePath(root, sessionID)
 	if os.IsNotExist(err) && legacyPath != path {
-		file, err = os.Open(legacyPath)
+		data, err = boundedio.ReadRegularFile(legacyPath, maxLegacySessionStateBytes)
 		if err == nil {
 			path = legacyPath
 			loadedLegacyPath = true
@@ -344,14 +344,6 @@ func loadSessionStateResolved(root, sessionID string) (SessionState, error) {
 			return emptyState(root, sessionID), nil
 		}
 		return SessionState{}, fmt.Errorf("read session state %s: %w", path, err)
-	}
-	data, readErr := io.ReadAll(io.LimitReader(file, maxLegacySessionStateBytes+1))
-	closeErr := file.Close()
-	if readErr != nil || closeErr != nil {
-		return SessionState{}, fmt.Errorf("read session state %s: %w", path, errors.Join(readErr, closeErr))
-	}
-	if len(data) > maxLegacySessionStateBytes {
-		return SessionState{}, fmt.Errorf("session state exceeds %d-byte recovery limit: %s", maxLegacySessionStateBytes, path)
 	}
 
 	var state SessionState
@@ -825,20 +817,12 @@ func resolveActiveSessionIDResolved(root string) (string, error) {
 }
 
 func readActiveSessionID(path string) (string, error) {
-	file, err := os.Open(path)
+	data, err := boundedio.ReadRegularFile(path, maxSessionIDBytes+1)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil
 		}
 		return "", fmt.Errorf("read active session file: %w", err)
-	}
-	data, readErr := io.ReadAll(io.LimitReader(file, maxSessionIDBytes+2))
-	closeErr := file.Close()
-	if readErr != nil || closeErr != nil {
-		return "", fmt.Errorf("read active session file: %w", errors.Join(readErr, closeErr))
-	}
-	if len(data) > maxSessionIDBytes+1 {
-		return "", fmt.Errorf("active session file exceeds %d bytes", maxSessionIDBytes+1)
 	}
 	sessionID := strings.TrimSuffix(string(data), "\n")
 	if err := validateSessionID(sessionID); err != nil {

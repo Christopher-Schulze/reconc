@@ -7,10 +7,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -39,6 +41,8 @@ const (
 	auditRunner     = "tools/reconc/harness/template/audits/run-workflow-audit"
 	schemaRel       = "tools/reconc/harness/template/config/workflow/task-schema.yaml"
 	auditTimeout    = 2 * time.Minute
+	maxInputBytes   = 4 << 20
+	maxAuditOutput  = 1 << 20
 )
 
 // loadedSchema is the workflow Schema used by every donecheck call.
@@ -98,7 +102,11 @@ func main() {
 	if err != nil {
 		fail("resolve repository root: %v", err)
 	}
-	schema, schemaErr := donecheck.LoadSchema(filepath.Join(root, filepath.FromSlash(schemaRel)))
+	schemaPath := filepath.Join(root, filepath.FromSlash(schemaRel))
+	if err := validateRepoPath(root, schemaPath, false); err != nil {
+		fail("validate workflow schema path: %v", err)
+	}
+	schema, schemaErr := donecheck.LoadSchema(schemaPath)
 	if schemaErr != nil {
 		fail("load workflow schema: %v", schemaErr)
 	}
@@ -115,10 +123,17 @@ func main() {
 }
 
 func resolveCommandRoot(explicit string) (string, error) {
+	var root string
+	var err error
 	if explicit == "" {
-		return os.Getwd()
+		root, err = os.Getwd()
+	} else {
+		root, err = filepath.Abs(explicit)
 	}
-	return filepath.Abs(explicit)
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(root)
 }
 
 func runWithLock(root string, opts options) (runErr error) {
@@ -126,8 +141,18 @@ func runWithLock(root string, opts options) (runErr error) {
 		return promote(root, opts)
 	}
 	lockPath := filepath.Join(root, filepath.FromSlash(lockRel))
-	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
+	lockDir := filepath.Dir(lockPath)
+	if err := validateRepoPath(root, lockDir, true); err != nil {
+		return fmt.Errorf("validate lock directory path: %w", err)
+	}
+	if err := os.MkdirAll(lockDir, 0o755); err != nil {
 		return fmt.Errorf("create lock dir: %w", err)
+	}
+	if err := validateRepoPath(root, lockDir, false); err != nil {
+		return fmt.Errorf("validate lock directory: %w", err)
+	}
+	if err := validateRepoPath(root, lockPath, true); err != nil {
+		return fmt.Errorf("validate lock path: %w", err)
 	}
 	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
@@ -145,7 +170,10 @@ func runWithLock(root string, opts options) (runErr error) {
 
 func promote(root string, opts options) error {
 	tasksPath := filepath.Join(root, filepath.FromSlash(tasksRel))
-	content, err := os.ReadFile(tasksPath)
+	if err := validateRepoPath(root, tasksPath, false); err != nil {
+		return err
+	}
+	content, err := readRegularFile(tasksPath)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", tasksRel, err)
 	}
@@ -177,13 +205,19 @@ func promote(root string, opts options) error {
 	dstRel := filepath.ToSlash(filepath.Join("docs", "tasks", "done", filepath.Base(row.target)))
 	srcAbs := filepath.Join(root, filepath.FromSlash(srcRel))
 	dstAbs := filepath.Join(root, filepath.FromSlash(dstRel))
+	if err := validateRepoPath(root, srcAbs, false); err != nil {
+		return err
+	}
+	if err := validateRepoPath(root, dstAbs, true); err != nil {
+		return err
+	}
 	if !exists(srcAbs) {
 		return fmt.Errorf("detail file %s does not exist", srcRel)
 	}
 	if exists(dstAbs) {
 		return fmt.Errorf("destination %s already exists; resolve the duplicate before promoting", dstRel)
 	}
-	detailBytes, err := os.ReadFile(srcAbs)
+	detailBytes, err := readRegularFile(srcAbs)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", srcRel, err)
 	}
@@ -205,7 +239,7 @@ func promote(root string, opts options) error {
 		fmt.Print(plan)
 		return nil
 	}
-	rollback, err := applyChanges(root, tasksPath, newTasks, srcAbs, dstAbs, nextName, nextRow)
+	rollback, err := applyChanges(root, tasksPath, content, newTasks, srcAbs, detailBytes, dstAbs, nextName, nextRow)
 	if err != nil {
 		return err
 	}
@@ -319,7 +353,10 @@ func pickNextExecutable(index taskIndex, root string, doneSet map[string]bool, p
 
 func readDetailInfo(root string, target string) (detailInfo, error) {
 	path := filepath.Join(root, "docs", filepath.FromSlash(target))
-	bytes, err := os.ReadFile(path)
+	if err := validateRepoPath(root, path, false); err != nil {
+		return detailInfo{}, err
+	}
+	bytes, err := readRegularFile(path)
 	if err != nil {
 		return detailInfo{}, err
 	}
@@ -427,13 +464,16 @@ func mutateNextDetail(content string) (string, error) {
 
 type rollbackFunc func() error
 
-func applyChanges(root string, tasksPath string, newTasks string, srcAbs string, dstAbs string, nextName string, nextRow taskRow) (rollbackFunc, error) {
+func applyChanges(root string, tasksPath string, expectedTasks []byte, newTasks string, srcAbs string, expectedDetail []byte, dstAbs string, nextName string, nextRow taskRow) (rollbackFunc, error) {
 	var nextPath string
 	var newNextContent string
 	var origNextContent []byte
 	if nextName != "" {
 		nextPath = filepath.Join(root, "docs", filepath.FromSlash(nextRow.target))
-		original, err := os.ReadFile(nextPath)
+		if err := validateRepoPath(root, nextPath, false); err != nil {
+			return nil, fmt.Errorf("validate next detail %s: %w", nextRow.target, err)
+		}
+		original, err := readRegularFile(nextPath)
 		if err != nil {
 			return nil, fmt.Errorf("read next detail %s: %w", nextRow.target, err)
 		}
@@ -444,29 +484,42 @@ func applyChanges(root string, tasksPath string, newTasks string, srcAbs string,
 		}
 		newNextContent = mutated
 	}
-	origTasks, err := os.ReadFile(tasksPath)
+	origTasks, err := readRegularFile(tasksPath)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", tasksRel, err)
 	}
-	if err := writeAtomic(tasksPath, []byte(newTasks)); err != nil {
+	if !bytes.Equal(origTasks, expectedTasks) {
+		return nil, fmt.Errorf("%s changed after planning; retry", tasksRel)
+	}
+	currentDetail, err := readRegularFile(srcAbs)
+	if err != nil {
+		return nil, fmt.Errorf("re-read promoted detail: %w", err)
+	}
+	if !bytes.Equal(currentDetail, expectedDetail) {
+		return nil, fmt.Errorf("promoted detail changed after planning; retry")
+	}
+	if exists(dstAbs) {
+		return nil, fmt.Errorf("destination appeared after planning; retry")
+	}
+	if err := writeAtomic(root, tasksPath, []byte(newTasks), origTasks); err != nil {
 		return nil, fmt.Errorf("write %s: %w", tasksRel, err)
 	}
-	if err := os.Rename(srcAbs, dstAbs); err != nil {
-		rollbackErr := writeAtomic(tasksPath, origTasks)
+	if err := moveNoClobber(srcAbs, dstAbs, expectedDetail); err != nil {
+		rollbackErr := writeAtomic(root, tasksPath, origTasks, []byte(newTasks))
 		return nil, errors.Join(fmt.Errorf("move detail file: %w", err), wrapRollbackError(rollbackErr))
 	}
 	if nextName != "" {
-		if err := writeAtomic(nextPath, []byte(newNextContent)); err != nil {
-			rollbackErr := errors.Join(os.Rename(dstAbs, srcAbs), writeAtomic(tasksPath, origTasks))
+		if err := writeAtomic(root, nextPath, []byte(newNextContent), origNextContent); err != nil {
+			rollbackErr := errors.Join(moveNoClobber(dstAbs, srcAbs, expectedDetail), writeAtomic(root, tasksPath, origTasks, []byte(newTasks)))
 			return nil, errors.Join(fmt.Errorf("write next detail %s: %w", nextRow.target, err), wrapRollbackError(rollbackErr))
 		}
 	}
 	rollback := func() error {
 		var rollbackErr error
 		if nextName != "" {
-			rollbackErr = errors.Join(rollbackErr, writeAtomic(nextPath, origNextContent))
+			rollbackErr = errors.Join(rollbackErr, writeAtomic(root, nextPath, origNextContent, []byte(newNextContent)))
 		}
-		rollbackErr = errors.Join(rollbackErr, os.Rename(dstAbs, srcAbs), writeAtomic(tasksPath, origTasks))
+		rollbackErr = errors.Join(rollbackErr, moveNoClobber(dstAbs, srcAbs, expectedDetail), writeAtomic(root, tasksPath, origTasks, []byte(newTasks)))
 		return rollbackErr
 	}
 	return rollback, nil
@@ -479,7 +532,17 @@ func wrapRollbackError(err error) error {
 	return fmt.Errorf("rollback failed: %w", err)
 }
 
-func writeAtomic(path string, content []byte) error {
+func writeAtomic(root string, path string, content, expected []byte) error {
+	if err := validateRepoPath(root, path, false); err != nil {
+		return err
+	}
+	beforeBody, err := readRegularFile(path)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(beforeBody, expected) {
+		return fmt.Errorf("atomic target differs from the expected transaction image: %s", path)
+	}
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".promote-task-done-*")
 	if err != nil {
@@ -487,7 +550,7 @@ func writeAtomic(path string, content []byte) error {
 	}
 	tmpName := tmp.Name()
 	mode := os.FileMode(0o644)
-	if info, statErr := os.Stat(path); statErr == nil {
+	if info, statErr := os.Lstat(path); statErr == nil {
 		mode = info.Mode().Perm()
 	} else if !os.IsNotExist(statErr) {
 		_ = tmp.Close()
@@ -508,8 +571,56 @@ func writeAtomic(path string, content []byte) error {
 	if err := tmp.Close(); err != nil {
 		return errors.Join(err, os.Remove(tmpName))
 	}
+	if err := validateRepoPath(root, path, false); err != nil {
+		return errors.Join(err, os.Remove(tmpName))
+	}
+	current, err := os.Lstat(path)
+	if err != nil || current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() {
+		return errors.Join(fmt.Errorf("atomic target must remain a non-symlink regular file: %s", path), err, os.Remove(tmpName))
+	}
+	currentBody, err := readRegularFile(path)
+	if err != nil || !bytes.Equal(beforeBody, currentBody) {
+		return errors.Join(fmt.Errorf("atomic target changed before publication: %s", path), err, os.Remove(tmpName))
+	}
 	if err := os.Rename(tmpName, path); err != nil {
 		return errors.Join(err, os.Remove(tmpName))
+	}
+	return nil
+}
+
+func moveNoClobber(source, destination string, expected []byte) error {
+	sourceInfo, err := os.Lstat(source)
+	if err != nil {
+		return err
+	}
+	if sourceInfo.Mode()&os.ModeSymlink != 0 || !sourceInfo.Mode().IsRegular() {
+		return fmt.Errorf("move source must be a non-symlink regular file: %s", source)
+	}
+	sourceBody, err := readRegularFile(source)
+	if err != nil {
+		return fmt.Errorf("read move source: %w", err)
+	}
+	if !bytes.Equal(sourceBody, expected) {
+		return fmt.Errorf("move source differs from the expected transaction image: %s", source)
+	}
+	if _, err := os.Lstat(destination); err == nil {
+		return fmt.Errorf("move destination already exists: %s", destination)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := os.Link(source, destination); err != nil {
+		return err
+	}
+	destinationInfo, err := os.Lstat(destination)
+	if err != nil || destinationInfo.Mode()&os.ModeSymlink != 0 || !os.SameFile(sourceInfo, destinationInfo) {
+		return errors.Join(fmt.Errorf("move destination identity mismatch: %s", destination), err, os.Remove(destination))
+	}
+	destinationBody, err := readRegularFile(destination)
+	if err != nil || !bytes.Equal(destinationBody, expected) {
+		return errors.Join(fmt.Errorf("move destination content mismatch: %s", destination), err, os.Remove(destination))
+	}
+	if err := os.Remove(source); err != nil {
+		return errors.Join(err, os.Remove(destination))
 	}
 	return nil
 }
@@ -534,12 +645,19 @@ func runAuditTaskState(root string) error {
 	cmd := auditTaskStateCommand(ctx, filepath.Join(root, filepath.FromSlash(auditRunner)))
 	cmd.Dir = root
 	cmd.WaitDelay = 2 * time.Second
-	output, err := cmd.CombinedOutput()
+	var stdout boundedCommandOutput
+	var stderr boundedCommandOutput
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
 	if ctx.Err() == context.DeadlineExceeded {
 		return fmt.Errorf("audit task-state timed out after %s", auditTimeout)
 	}
+	if stdout.truncated || stderr.truncated {
+		return fmt.Errorf("audit task-state output exceeded %d bytes per stream", maxAuditOutput)
+	}
 	if err != nil {
-		trimmed := strings.TrimSpace(string(output))
+		trimmed := strings.TrimSpace(stdout.String() + stderr.String())
 		if trimmed == "" {
 			return fmt.Errorf("audit task-state failed: %w", err)
 		}
@@ -548,8 +666,96 @@ func runAuditTaskState(root string) error {
 	return nil
 }
 
+type boundedCommandOutput struct {
+	buffer    bytes.Buffer
+	truncated bool
+}
+
+func (output *boundedCommandOutput) Write(value []byte) (int, error) {
+	remaining := maxAuditOutput - output.buffer.Len()
+	if remaining > len(value) {
+		remaining = len(value)
+	}
+	if remaining > 0 {
+		_, _ = output.buffer.Write(value[:remaining])
+	}
+	if remaining < len(value) {
+		output.truncated = true
+	}
+	return len(value), nil
+}
+
+func (output *boundedCommandOutput) String() string {
+	return output.buffer.String()
+}
+
+func readRegularFile(path string) ([]byte, error) {
+	before, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
+		return nil, fmt.Errorf("must be a non-symlink regular file")
+	}
+	if before.Size() > maxInputBytes {
+		return nil, fmt.Errorf("exceeds %d bytes", maxInputBytes)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	body, readErr := io.ReadAll(io.LimitReader(file, maxInputBytes+1))
+	afterFile, statErr := file.Stat()
+	afterPath, lstatErr := os.Lstat(path)
+	closeErr := file.Close()
+	if err := errors.Join(readErr, statErr, lstatErr, closeErr); err != nil {
+		return nil, err
+	}
+	if len(body) > maxInputBytes {
+		return nil, fmt.Errorf("exceeds %d bytes", maxInputBytes)
+	}
+	if !os.SameFile(before, afterFile) || !os.SameFile(afterFile, afterPath) ||
+		before.Mode() != afterFile.Mode() || before.Size() != afterFile.Size() ||
+		!before.ModTime().Equal(afterFile.ModTime()) {
+		return nil, fmt.Errorf("changed while reading")
+	}
+	return body, nil
+}
+
+func validateRepoPath(root, path string, allowMissingLeaf bool) error {
+	relative, err := filepath.Rel(root, path)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("path %s escapes repository root", path)
+	}
+	current := filepath.Clean(root)
+	components := strings.Split(relative, string(filepath.Separator))
+	for index, component := range components {
+		if component == "" || component == "." {
+			continue
+		}
+		current = filepath.Join(current, component)
+		info, err := os.Lstat(current)
+		if errors.Is(err, os.ErrNotExist) && allowMissingLeaf && index == len(components)-1 {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("inspect %s: %w", current, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("repository path component must not be a symlink: %s", current)
+		}
+		if index < len(components)-1 && !info.IsDir() {
+			return fmt.Errorf("repository path component must be a directory: %s", current)
+		}
+		if index == len(components)-1 && !info.IsDir() && !info.Mode().IsRegular() {
+			return fmt.Errorf("repository path leaf must be regular: %s", current)
+		}
+	}
+	return nil
+}
+
 func exists(path string) bool {
-	_, err := os.Stat(path)
+	_, err := os.Lstat(path)
 	return err == nil
 }
 

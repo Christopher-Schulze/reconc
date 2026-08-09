@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/runtime"
@@ -134,20 +134,14 @@ func preDecisionSessionIdentity(root, sessionID string) (string, bool) {
 }
 
 func hashPreDecisionFile(path string, allowMissing bool) (string, bool) {
-	file, err := os.Open(path)
+	body, err := boundedio.ReadRegularFile(path, maxPreDecisionIdentityFile)
 	if errors.Is(err, os.ErrNotExist) && allowMissing {
 		return "missing", true
 	}
 	if err != nil {
 		return "", false
 	}
-	defer file.Close()
-	hash := sha256.New()
-	written, err := io.Copy(hash, io.LimitReader(file, maxPreDecisionIdentityFile+1))
-	if err != nil || written > maxPreDecisionIdentityFile {
-		return "", false
-	}
-	return hex.EncodeToString(hash.Sum(nil)), true
+	return hashBytes(body), true
 }
 
 func preDecisionCachePath(root string, payloadBytes []byte) string {
@@ -163,13 +157,8 @@ func readPreDecisionCache(root string, payloadBytes []byte, expectedKey string) 
 	if path == "" {
 		return Result{}, false
 	}
-	file, err := os.Open(path)
+	body, err := boundedio.ReadRegularFile(path, maxPreDecisionCacheBytes)
 	if err != nil {
-		return Result{}, false
-	}
-	body, readErr := io.ReadAll(io.LimitReader(file, maxPreDecisionCacheBytes+1))
-	closeErr := file.Close()
-	if readErr != nil || closeErr != nil || len(body) > maxPreDecisionCacheBytes {
 		return Result{}, false
 	}
 	var cached preDecisionCache

@@ -61,7 +61,10 @@ require Bun.
 
 ## Current Release State
 
-The current source line is `v0.9.x`; the source version is `v0.9.4`. Core
-tests, race tests, vet, static analysis, and release artifact generation must
-pass before publication. Coverage is measured across each complete Go module,
-not inferred from package-local percentages.
+The current source line is `v0.9.x`; the source version is `v0.9.4`.
+The latest published release is the immutable `reconc-v0.9.4` tag. Source
+commits ahead of that tag remain unreleased even while they report source
+version `v0.9.4`; version text alone is not release identity. Core tests, race
+tests, vet, static analysis, and release artifact generation must pass before
+publication. Coverage is measured across each complete Go module, not inferred
+from package-local percentages.

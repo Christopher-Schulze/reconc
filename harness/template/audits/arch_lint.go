@@ -47,7 +47,7 @@ func auditArchitectureBoundaries(root string) []string {
 func auditArchitectureConfig(root string, cfg stackConfig) []string {
 	archRel := projectRel(root, "config/arch/arch-rules.yaml")
 	path := filepath.Join(root, filepath.FromSlash(archRel))
-	content, err := os.ReadFile(path)
+	content, err := readAuditFile(path)
 	if err != nil {
 		return []string{fmt.Sprintf("%s missing or unreadable: %v", archRel, err)}
 	}
@@ -83,7 +83,7 @@ func collectGoPackages(root string, base string) ([]goPackageNode, []string) {
 	}
 	byDir := map[string]map[string]bool{}
 	var failures []string
-	err := filepath.WalkDir(base, func(path string, entry os.DirEntry, err error) error {
+	err := walkAuditTree(base, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("walk %s: %v", rel(root, path), err))
 			return nil

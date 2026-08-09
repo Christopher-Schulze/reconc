@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"reconc.dev/reconc/internal/boundedexec"
 	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/retention"
 )
@@ -132,7 +133,7 @@ func expectedClaudeProjectKeys(repoRoot string) claudeProjectKeyMatcher {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, "git", "-C", repoRoot, "rev-parse", "--git-common-dir")
-	if output, err := command.Output(); err == nil {
+	if output, err := boundedexec.Output(command, maxGitControlFileBytes); err == nil {
 		common := filepath.Clean(strings.TrimSpace(string(output)))
 		if !filepath.IsAbs(common) {
 			common = filepath.Join(repoRoot, common)

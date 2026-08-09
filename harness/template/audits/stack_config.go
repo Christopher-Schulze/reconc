@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -78,7 +77,7 @@ func stackConfigPath(root string) string {
 func loadStackConfig(root string) (stackConfig, []string) {
 	cfg := defaultStackConfig()
 	path := stackConfigPath(root)
-	content, err := os.ReadFile(path)
+	content, err := readAuditFile(path)
 	if err != nil {
 		return cfg, []string{fmt.Sprintf("%s missing or unreadable: %v", stackConfigRel, err)}
 	}

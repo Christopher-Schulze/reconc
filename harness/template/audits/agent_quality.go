@@ -34,7 +34,7 @@ func auditAgentQuality(root string) []string {
 
 func collectGitDiffFiles(root string) (map[string]*gitDiffFile, []string) {
 	insideCommand, cancel := commandWithTimeout(shortAuditCommandTimeout, "git", "-C", root, "rev-parse", "--is-inside-work-tree")
-	inside, err := insideCommand.CombinedOutput()
+	inside, err := runPreparedAuditCommand(insideCommand, true)
 	cancel()
 	if err != nil {
 		if _, statErr := os.Stat(filepath.Join(root, ".git")); statErr == nil {
@@ -52,7 +52,7 @@ func collectGitDiffFiles(root string) (map[string]*gitDiffFile, []string) {
 		{"diff", "--unified=0", "--no-ext-diff", "--"},
 	} {
 		cmd, cancel := commandWithTimeout(shortAuditCommandTimeout, "git", append([]string{"-C", root}, args...)...)
-		out, err := cmd.CombinedOutput()
+		out, err := runPreparedAuditCommand(cmd, true)
 		cancel()
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("git %s failed: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out))))

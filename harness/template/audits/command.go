@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os/exec"
+	"sync"
 	"time"
 )
 
@@ -20,12 +22,59 @@ const (
 	repoScanCommandTimeout   = 25 * time.Second
 	buildAuditCommandTimeout = 2 * time.Minute
 	auditProcessWaitDelay    = 2 * time.Second
+	maxAuditCommandOutput    = 16 << 20
 )
 
 // errAuditCommandTimeout marks a command that was killed because its own
 // budget expired. Callers distinguish it from a genuine command failure so a
 // slow scan is never reported as a policy violation.
 var errAuditCommandTimeout = errors.New("audit command budget exceeded")
+
+var errAuditCommandOutputLimit = errors.New("audit command output limit exceeded")
+
+type boundedAuditOutput struct {
+	mutex     sync.Mutex
+	buffer    bytes.Buffer
+	truncated bool
+}
+
+func (output *boundedAuditOutput) Write(value []byte) (int, error) {
+	output.mutex.Lock()
+	defer output.mutex.Unlock()
+	remaining := maxAuditCommandOutput - output.buffer.Len()
+	if remaining > len(value) {
+		remaining = len(value)
+	}
+	if remaining > 0 {
+		_, _ = output.buffer.Write(value[:remaining])
+	}
+	if remaining < len(value) {
+		output.truncated = true
+	}
+	return len(value), nil
+}
+
+func (output *boundedAuditOutput) bytes() []byte {
+	output.mutex.Lock()
+	defer output.mutex.Unlock()
+	return append([]byte(nil), output.buffer.Bytes()...)
+}
+
+func runPreparedAuditCommand(command *exec.Cmd, combined bool) ([]byte, error) {
+	var stdout boundedAuditOutput
+	var stderr boundedAuditOutput
+	command.Stdout = &stdout
+	if combined {
+		command.Stderr = &stdout
+	} else {
+		command.Stderr = &stderr
+	}
+	err := command.Run()
+	if stdout.truncated || stderr.truncated {
+		err = errors.Join(err, errAuditCommandOutputLimit)
+	}
+	return stdout.bytes(), err
+}
 
 func commandWithTimeout(timeout time.Duration, name string, args ...string) (*exec.Cmd, context.CancelFunc) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -43,7 +92,7 @@ func runAuditCommand(timeout time.Duration, name string, args ...string) ([]byte
 	defer cancel()
 	command := exec.CommandContext(ctx, name, args...)
 	command.WaitDelay = auditProcessWaitDelay
-	out, err := command.CombinedOutput()
+	out, err := runPreparedAuditCommand(command, true)
 	if err != nil && ctx.Err() != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return out, fmt.Errorf("%w after %s: %v", errAuditCommandTimeout, timeout, err)
 	}

@@ -50,13 +50,13 @@ func auditSpecAuditArtifacts(root string) []string {
 	}
 
 	var failures []string
-	specBytes, err := os.ReadFile(filepath.Join(root, "docs/spec.md"))
+	specBytes, err := readAuditFile(filepath.Join(root, "docs/spec.md"))
 	if err != nil {
 		return []string{fmt.Sprintf("read docs/spec.md: %v", err)}
 	}
 	specLineCount := lineCount(string(specBytes))
 
-	stateBytes, err := os.ReadFile(filepath.Join(root, "docs/spec-audit/state.md"))
+	stateBytes, err := readAuditFile(filepath.Join(root, "docs/spec-audit/state.md"))
 	if err != nil {
 		return []string{fmt.Sprintf("read docs/spec-audit/state.md: %v", err)}
 	}
@@ -87,7 +87,7 @@ func auditSpecAuditArtifacts(root string) []string {
 }
 
 func specAuditWorkflowActive(root string) (bool, []string) {
-	stateBytes, err := os.ReadFile(filepath.Join(root, "docs/spec-audit/state.md"))
+	stateBytes, err := readAuditFile(filepath.Join(root, "docs/spec-audit/state.md"))
 	if err != nil {
 		return false, []string{fmt.Sprintf("read docs/spec-audit/state.md: %v", err)}
 	}
@@ -111,7 +111,7 @@ func specAuditWorkflowActive(root string) (bool, []string) {
 }
 
 func currentTaskIsSpecAuditRange(root string) (bool, []string) {
-	tasksBytes, err := os.ReadFile(filepath.Join(root, "docs/tasks.md"))
+	tasksBytes, err := readAuditFile(filepath.Join(root, "docs/tasks.md"))
 	if err != nil {
 		return false, nil
 	}
@@ -119,7 +119,7 @@ func currentTaskIsSpecAuditRange(root string) (bool, []string) {
 	if len(failures) > 0 || index.currentTarget == "" {
 		return false, nil
 	}
-	detailBytes, err := os.ReadFile(filepath.Join(root, "docs", filepath.FromSlash(index.currentTarget)))
+	detailBytes, err := readAuditFile(filepath.Join(root, "docs", filepath.FromSlash(index.currentTarget)))
 	if err != nil {
 		return false, nil
 	}
@@ -152,7 +152,7 @@ func hasChangedSpecAuditEvidence(root string) bool {
 }
 
 func hasSpecAuditFiles(dir string) bool {
-	entries, err := os.ReadDir(dir)
+	entries, err := readAuditDirectory(dir)
 	if err != nil {
 		return false
 	}
@@ -178,7 +178,7 @@ func touchSurfacesContain(surfaces []string, prefix string) bool {
 
 func readSpecAuditAtoms(root string, specLineCount int) (map[string]specAuditAtom, []string) {
 	path := filepath.Join(root, "docs/spec-audit/spec-atoms.md")
-	contentBytes, err := os.ReadFile(path)
+	contentBytes, err := readAuditFile(path)
 	if err != nil {
 		return nil, []string{fmt.Sprintf("read docs/spec-audit/spec-atoms.md: %v", err)}
 	}
@@ -261,7 +261,7 @@ func auditSpecAuditAtomRow(rowNo int, atom specAuditAtom) []string {
 }
 
 func readSpecAuditResearchFloors(root string) (map[string]specAuditResearchFloor, []string) {
-	contentBytes, err := os.ReadFile(filepath.Join(root, "docs/spec-audit/research-floor.md"))
+	contentBytes, err := readAuditFile(filepath.Join(root, "docs/spec-audit/research-floor.md"))
 	if err != nil {
 		return nil, []string{fmt.Sprintf("read docs/spec-audit/research-floor.md: %v", err)}
 	}
@@ -300,7 +300,7 @@ func readSpecAuditResearchFloors(root string) (map[string]specAuditResearchFloor
 }
 
 func readSpecAuditGaps(root string) (map[string]string, []string) {
-	contentBytes, err := os.ReadFile(filepath.Join(root, "docs/spec-audit/gaps.md"))
+	contentBytes, err := readAuditFile(filepath.Join(root, "docs/spec-audit/gaps.md"))
 	if err != nil {
 		return nil, []string{fmt.Sprintf("read docs/spec-audit/gaps.md: %v", err)}
 	}
@@ -391,7 +391,7 @@ func auditSpecAuditRangeArtifacts(root string, completedRanges []specAuditRange,
 	for _, auditRange := range completedRanges {
 		artifactName := specAuditRangeArtifactName(auditRange)
 		artifactPath := filepath.Join(root, "docs/spec-audit/ranges", artifactName)
-		contentBytes, err := os.ReadFile(artifactPath)
+		contentBytes, err := readAuditFile(artifactPath)
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("docs/spec-audit/ranges/%s: completed range artifact missing or unreadable: %v", artifactName, err))
 			continue
@@ -889,7 +889,7 @@ func auditRepoFileLineRef(root string, ref specAuditFileLineRef, context string)
 	if ref.Line <= 0 {
 		return fmt.Sprintf("docs/spec-audit: %s uses invalid line in evidence path %s:L%d", context, ref.Path, ref.Line)
 	}
-	content, err := os.ReadFile(path)
+	content, err := readAuditFile(path)
 	if err != nil {
 		return fmt.Sprintf("docs/spec-audit: %s cannot read evidence path %s: %v", context, ref.Path, err)
 	}

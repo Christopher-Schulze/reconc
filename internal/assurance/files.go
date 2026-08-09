@@ -27,6 +27,7 @@ type evaluationState struct {
 	patternMatches   map[string]*patternMatchBits
 	packageManifests map[string][]changedFile
 	manifestMarkers  map[string]bool
+	observations     map[string]string
 	analysisWorkers  int
 	stats            analysisCounters
 }
@@ -74,6 +75,7 @@ func newEvaluationState(changed []string, workerLimit int) *evaluationState {
 		patternMatches:   map[string]*patternMatchBits{},
 		packageManifests: map[string][]changedFile{},
 		manifestMarkers:  map[string]bool{},
+		observations:     map[string]string{},
 		analysisWorkers:  workerLimit,
 	}
 	seen := make(map[string]bool, len(changed))
@@ -92,6 +94,10 @@ func newEvaluationState(changed []string, workerLimit int) *evaluationState {
 		return state.changedPaths[i].relative < state.changedPaths[j].relative
 	})
 	return state
+}
+
+func (state *evaluationState) recordObservation(key, value string) {
+	state.observations[key] = value
 }
 
 func (state *evaluationState) applies(root string, patterns []string) (bool, error) {

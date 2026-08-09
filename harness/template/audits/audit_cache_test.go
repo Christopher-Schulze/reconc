@@ -431,8 +431,8 @@ func TestRunWithCacheFailsClosedOnTreeWalkError(t *testing.T) {
 				calls++
 				return nil
 			})
-			if calls != 1 || !containsFailure(result, "cache input failed") {
-				t.Fatalf("walk failure must execute the audit and fail closed: calls=%d result=%v", calls, result)
+			if calls != 0 || !containsFailure(result, "cache input failed") {
+				t.Fatalf("unsafe inputs must block the audit before it can hang: calls=%d result=%v", calls, result)
 			}
 			if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(cacheRel))); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("walk failure must not publish a cache pass: %v", err)

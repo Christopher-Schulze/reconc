@@ -166,6 +166,24 @@ func TestReceiptStateRejectsSymlinkAndUnwritableParent(t *testing.T) {
 			t.Fatalf("symlink state error = %v", err)
 		}
 	})
+	t.Run("receipt file symlink", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("RECONC_HOME", home)
+		_, path, err := WriteReceipt(testReceipt(t, "1.2.3", ManagerSource))
+		if err != nil {
+			t.Fatal(err)
+		}
+		target := path + ".target"
+		if err := os.Rename(path, target); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, path); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := LoadReceipt(); err == nil || !strings.Contains(err.Error(), "non-symlink regular file") {
+			t.Fatalf("symlink receipt error = %v", err)
+		}
+	})
 	t.Run("unwritable parent", func(t *testing.T) {
 		home := t.TempDir()
 		t.Setenv("RECONC_HOME", home)

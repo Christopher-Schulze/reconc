@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/audit"
+	"reconc.dev/reconc/internal/boundedexec"
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/completiongate"
 	"reconc.dev/reconc/internal/contextsize"
@@ -23,6 +24,7 @@ import (
 const agentBriefingFormatVersion = "1"
 
 const maxBriefingReportBytes = 1 << 20
+const maxGitPorcelainBytes = 16 << 20
 
 // runSessionBriefing emits one bounded, versioned machine handshake for
 // session entry and reentry. It combines policy, typed TASK, and repository-run
@@ -826,7 +828,7 @@ func gitIsClean(repoRoot string) (bool, string) {
 func runGitPorcelain(repoRoot string) (string, error) {
 	cmd := osExecCommand("git", "status", "--porcelain")
 	cmd.Dir = repoRoot
-	b, err := cmd.Output()
+	b, err := boundedexec.Output(cmd, maxGitPorcelainBytes)
 	return string(b), err
 }
 

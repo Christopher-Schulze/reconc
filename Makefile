@@ -3,7 +3,7 @@
 # Targets:
 #   make build              -- build the reconc binary for the host OS/arch
 #   make test               -- run all tests with -race
-#   make fmt-check          -- reject unformatted tracked Go sources
+#   make fmt-check          -- reject unformatted non-ignored Go sources
 #   make fmt                -- format all Go sources
 #   make vet                -- run go vet
 #   make lint               -- run pinned staticcheck
@@ -16,6 +16,7 @@
 #   make completion         -- emit flat shell completion artifacts into dist/
 #   make sbom               -- emit deterministic SPDX and CycloneDX SBOMs
 #   make checksums          -- generate dist/SHA256SUMS over release artefacts
+#   make verify-release      -- verify dist/ against the canonical release matrix
 #   make self-host          -- run the clean-repository bootstrap golden path
 #   make publication-audit  -- scan the public tree and post-boundary history
 
@@ -39,7 +40,7 @@ RELEASE_TARGETS := \
 	linux/arm64 \
 	windows/amd64
 
-.PHONY: build test test-release-trust self-host publication-audit harness-pack-check fmt-check fmt vet lint coverage cover clean run tidy release completion manpage sbom checksums release-all bench
+.PHONY: build test test-release-trust self-host publication-audit harness-pack-check fmt-check fmt vet lint coverage cover clean run tidy release completion manpage sbom checksums verify-release release-all bench
 
 build:
 	@mkdir -p $(BINDIR)
@@ -72,7 +73,7 @@ harness-pack-check:
 	$(GO) run ./scripts/build/harness-pack --check
 
 fmt-check:
-	@unformatted="$$(git ls-files -z -- '*.go' | xargs -0 gofmt -l)"; \
+	@unformatted="$$(git ls-files -co --exclude-standard -z -- '*.go' | xargs -0 gofmt -l)"; \
 	 test -z "$$unformatted" || { \
 	   printf 'Go files require gofmt:\n%s\n' "$$unformatted" >&2; \
 	   exit 1; \
@@ -139,23 +140,25 @@ release: publication-audit clean
 
 completion:
 	@mkdir -p $(DISTDIR)
-	@$(GO) run ./cmd/reconc completion bash > $(DISTDIR)/reconc.bash
-	@$(GO) run ./cmd/reconc completion zsh  > $(DISTDIR)/_reconc
-	@$(GO) run ./cmd/reconc completion fish > $(DISTDIR)/reconc.fish
+	@GO="$(GO)" ./scripts/release/generated-assets.sh generate completion "$(DISTDIR)" "$(VERSION)" "$(RELEASE_COMMIT)" "$(SOURCE_DATE_EPOCH)"
 	@echo "completion scripts -> $(DISTDIR)/"
 
 manpage:
 	@mkdir -p $(DISTDIR)
-	@SOURCE_DATE_EPOCH="$(SOURCE_DATE_EPOCH)" $(GO) run -ldflags "-X main.Version=$(VERSION)" ./cmd/reconc manpage > $(DISTDIR)/reconc.1
+	@GO="$(GO)" ./scripts/release/generated-assets.sh generate manpage "$(DISTDIR)" "$(VERSION)" "$(RELEASE_COMMIT)" "$(SOURCE_DATE_EPOCH)"
 	@echo "man page -> $(DISTDIR)/reconc.1"
 
 sbom:
-	@$(GO) run ./scripts/release/sbom generate --root . --output-dir $(DISTDIR) --version $(VERSION) --commit $(RELEASE_COMMIT) --source-date-epoch $(SOURCE_DATE_EPOCH)
+	@mkdir -p $(DISTDIR)
+	@GO="$(GO)" ./scripts/release/generated-assets.sh generate sbom "$(DISTDIR)" "$(VERSION)" "$(RELEASE_COMMIT)" "$(SOURCE_DATE_EPOCH)"
 	@echo "SBOMs -> $(DISTDIR)/"
 
 checksums: sbom
 	@mkdir -p $(DISTDIR)
 	@./scripts/release/copy-assets.sh $(DISTDIR)
 	@./scripts/release/write-checksums.sh $(DISTDIR)
-	@GO="$(GO)" ./scripts/release/verify-artifacts.sh $(DISTDIR) $(BIN) $(VERSION) $(RELEASE_TARGETS)
+	@$(MAKE) --no-print-directory verify-release
 	@echo "checksums -> $(DISTDIR)/SHA256SUMS"
+
+verify-release:
+	@GO="$(GO)" ./scripts/release/verify-artifacts.sh $(DISTDIR) $(BIN) $(VERSION) $(RELEASE_TARGETS)
