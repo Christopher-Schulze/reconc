@@ -35,9 +35,27 @@ Every JSON contract has:
 
 - `$schema`: hard compatibility boundary, for example
   `https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json`.
-- `format_version`: minor format marker inside the same schema URL.
+- `format_version`: exact representation marker owned by that schema version.
 
-Additive fields with clear defaults may keep the schema URL and bump
-`format_version` when needed. Removing, repurposing, or changing the
-type of an existing field requires a new schema URL and a superseding
-RFC.
+Every published schema URL is immutable. Any schema-byte or represented-shape
+change, including an additive field or a new format marker, requires a newly
+versioned schema URL and registry entry. Removing, repurposing, changing a
+type, or changing semantics additionally requires a superseding RFC.
+
+`internal/schema` is the single registry for public JSON Schema contracts.
+Each artifact has exactly one current schema version; every retained legacy
+version remains independently registered with its local path, immutable
+release asset, introduction tag, canonical SHA-256, supported format versions,
+and explicit compatibility aliases. A decoder accepts only a registered
+schema-URL and format-version pair. Unknown future versions and crossed pairs
+fail closed.
+
+Default URLs name immutable release tags and must return bytes whose `$id` and
+SHA-256 equal the registry. Compatibility aliases are input-only: Reconc never
+emits an unpinned, missing-tag, or otherwise historical alias, and accepting an
+alias does not claim that its old location serves the current local bytes.
+`RECONC_SCHEMA_BASE_URL` resolves a configured enterprise identity at
+`/schemas/<artifact>/v<schema-version>`; portable public exports keep their
+registered public default identity so private infrastructure does not leak.
+Runtime validation is offline and never fetches a schema. Network retrieval is
+restricted to publication verification.

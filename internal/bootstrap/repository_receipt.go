@@ -166,8 +166,9 @@ func LoadRepositoryReceipt(repoRoot string) (*RepositoryReceipt, error) {
 }
 
 func ValidateRepositoryReceipt(receipt *RepositoryReceipt) error {
-	if receipt == nil || !matchesSchema(receipt.Schema, schema.RepositoryInstallURL, schema.Resolve(schema.RepositoryInstall)) ||
-		receipt.FormatVersion != RepositoryReceiptFormatVersion {
+	if receipt == nil || !schema.AcceptsFormat(
+		schema.RepositoryInstall, receipt.Schema, receipt.FormatVersion,
+	) {
 		return fmt.Errorf("unsupported repository receipt schema or format")
 	}
 	if strings.TrimSpace(receipt.ProductVersion) == "" {

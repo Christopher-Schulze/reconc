@@ -309,7 +309,11 @@ and provenance.
 
 The shipped CLI has no Bun, Node, Python, Docker, or service dependency. Bun
 `1.3.14` is required only by contributors running the executable OpenCode,
-Kilo Code, Oh My Pi, and Pi adapter contract tests.
+Kilo Code, Oh My Pi, and Pi adapter contract tests. The Go test graph also uses
+`jsonschema/v6` with an ECMAScript-compatible regular-expression engine to
+compile every public Draft 2020-12 schema and validate representative current
+and legacy artifacts entirely offline; neither package is linked into release
+binaries.
 
 ### Initialize a repository
 
@@ -614,10 +618,14 @@ from becoming a committable project artifact. Each mutating lifecycle has its
 own lock, ownership check, atomic publication path, and rollback boundary.
 
 Public JSON contracts carry explicit `format_version` and schema identities.
-Canonical ordering, normalized paths, portable root identity, and self-digests
-make equivalent inputs reviewable across clones and worktrees. Failures in
-write, sync, close, unlock, or final verification are propagated instead of
-being reported as successful partial publication.
+One typed registry owns each artifact version, immutable release-tagged URL,
+local source, release asset, digest, enterprise mirror path, and input-only
+legacy alias. Current runtime validation stays offline; release verification
+fetches every canonical URL and requires exact registered bytes without
+redirects. Canonical ordering, normalized paths, portable root identity, and
+self-digests make equivalent inputs reviewable across clones and worktrees.
+Failures in write, sync, close, unlock, or final verification are propagated
+instead of being reported as successful partial publication.
 
 ## Supported Agent Runtimes
 
@@ -770,8 +778,8 @@ The release inventory includes:
 - immutable POSIX and PowerShell installers;
 - Bash, Zsh, and Fish completion artifacts plus a generated manpage;
 - the embedded advanced harness pack as a standalone checksummed archive;
-- public v1 schemas plus the v1, v2, and v3 policy-lock schemas and the current
-  v4 policy-lock schema;
+- every registry-owned public schema version, including historical migration
+  inputs and each current per-artifact contract;
 - deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs;
 - strict `release-manifest.json` and `SHA256SUMS`.
 
@@ -1083,9 +1091,9 @@ through the private route in
 
 ## Status
 
-The source line is `v0.9.x`, and the current source version is `v0.9.5`.
+The source line is `v0.9.x`, and the current source version is `v0.9.6`.
 The latest published release is the immutable `reconc-v0.9.5` tag. Source on
-`main` may be ahead of that tag while retaining source version `v0.9.5`; those
+`main` is ahead of that tag and reports source version `v0.9.6`; those
 commits remain unreleased until an explicitly requested version and matching
 tag are built and published. Version text alone is not release identity; use
 the exact commit and build provenance.

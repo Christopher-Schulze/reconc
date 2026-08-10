@@ -36,7 +36,7 @@ The compiled `source_precedence` field is:
 | Field | Type | Rule |
 |---|---|---|
 | `$schema` | string | Must equal the schema URL above unless `RECONC_SCHEMA_BASE_URL` deliberately rewrites the base. |
-| `format_version` | string | Must equal `3`. |
+| `format_version` | string | Must equal `4`. |
 | `compiler_version` | string | Build version that wrote the lockfile. |
 | `repo_root` | string | Portable marker `.`. Physical checkout roots never enter current lockfiles. |
 | `default_mode` | string | One of `observe`, `warn`, `block`, `fix`. |

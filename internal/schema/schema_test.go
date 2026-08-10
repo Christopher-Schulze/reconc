@@ -45,32 +45,16 @@ func TestResolveEnterpriseSchemaBase(t *testing.T) {
 }
 
 func TestDefaultURLAndResolveCoverEveryArtifact(t *testing.T) {
-	artifacts := []struct {
-		artifact schema.Artifact
-		want     string
-	}{
-		{schema.PolicyLock, schema.PolicyLockURL},
-		{schema.PolicyConfig, schema.PolicyConfigURL},
-		{schema.PolicyReport, schema.PolicyReportURL},
-		{schema.PolicyFixPlan, schema.PolicyFixPlanURL},
-		{schema.CompletionReport, schema.CompletionReportURL},
-		{schema.ProofBundle, schema.ProofBundleURL},
-		{schema.InstallationReceipt, schema.InstallationReceiptURL},
-		{schema.GlobalDiagnostic, schema.GlobalDiagnosticURL},
-		{schema.GlobalLifecycle, schema.GlobalLifecycleURL},
-		{schema.HarnessPackManifest, schema.HarnessPackManifestURL},
-		{schema.RepositoryInstall, schema.RepositoryInstallURL},
-		{schema.RepositorySyncPlan, schema.RepositorySyncPlanURL},
-		{schema.RepositorySyncReport, schema.RepositorySyncReportURL},
-		{schema.ReleaseManifest, schema.ReleaseManifestURL},
-	}
 	t.Setenv("RECONC_SCHEMA_BASE_URL", "")
-	for _, artifact := range artifacts {
-		if got := schema.DefaultURL(artifact.artifact); got != artifact.want {
-			t.Errorf("DefaultURL(%q) = %q, want %q", artifact.artifact, got, artifact.want)
+	for _, contract := range schema.Contracts() {
+		if contract.State != schema.StateCurrent {
+			continue
 		}
-		if got := schema.Resolve(artifact.artifact); got != artifact.want {
-			t.Errorf("Resolve(%q) without override = %q, want %q", artifact.artifact, got, artifact.want)
+		if got := schema.DefaultURL(contract.Artifact); got != contract.DefaultURL {
+			t.Errorf("DefaultURL(%q) = %q, want %q", contract.Artifact, got, contract.DefaultURL)
+		}
+		if got := schema.Resolve(contract.Artifact); got != contract.DefaultURL {
+			t.Errorf("Resolve(%q) without override = %q, want %q", contract.Artifact, got, contract.DefaultURL)
 		}
 	}
 	if got := schema.DefaultURL(schema.Artifact("unknown")); got != "" {
@@ -79,99 +63,46 @@ func TestDefaultURLAndResolveCoverEveryArtifact(t *testing.T) {
 }
 
 func TestPublishedSchemasAreVersionedJSONContracts(t *testing.T) {
-	contracts := map[string]string{
-		"policy-config.schema.json":              schema.PolicyConfigURL,
-		"completion-report.schema.json":          schema.CompletionReportURL,
-		"policy-lock.schema.json":                schema.LegacyPolicyLockURL,
-		"policy-report.schema.json":              schema.PolicyReportURL,
-		"policy-fix-plan.schema.json":            schema.PolicyFixPlanURL,
-		"proof-bundle.schema.json":               schema.ProofBundleURL,
-		"installation-receipt.schema.json":       schema.InstallationReceiptURL,
-		"global-diagnostic.schema.json":          schema.GlobalDiagnosticURL,
-		"global-lifecycle.schema.json":           schema.GlobalLifecycleURL,
-		"harness-pack-manifest.schema.json":      schema.HarnessPackManifestURL,
-		"repository-install.schema.json":         schema.RepositoryInstallURL,
-		"repository-sync-plan.schema.json":       schema.RepositorySyncPlanURL,
-		"repository-sync-report.schema.json":     schema.RepositorySyncReportURL,
-		"release-manifest.schema.json":           schema.ReleaseManifestURL,
-		"custom-runtime-manifest.schema.json":    customruntime.ManifestSchemaURL,
-		"neutral-hook-request.schema.json":       customruntime.NeutralRequestSchemaURL,
-		"neutral-hook-response.schema.json":      customruntime.NeutralResponseSchemaURL,
-		"custom-runtime-liveness.schema.json":    customruntime.LivenessSchemaURL,
-		"custom-runtime-conformance.schema.json": customruntime.ConformanceSchemaURL,
-	}
-	root := filepath.Join("..", "..", "schemas", "v1")
-	paths, err := filepath.Glob(filepath.Join(root, "*.schema.json"))
-	if err != nil {
-		t.Fatalf("glob schemas: %v", err)
-	}
-	if len(paths) != len(contracts) {
-		t.Fatalf("published schema count = %d, want %d", len(paths), len(contracts))
-	}
-	for name, wantID := range contracts {
-		data, err := os.ReadFile(filepath.Join(root, name))
+	for _, contract := range schema.Contracts() {
+		data, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(contract.LocalPath)))
 		if err != nil {
-			t.Fatalf("read %s: %v", name, err)
+			t.Fatalf("read %s: %v", contract.LocalPath, err)
 		}
 		var document map[string]interface{}
 		if err := json.Unmarshal(data, &document); err != nil {
-			t.Fatalf("parse %s: %v", name, err)
+			t.Fatalf("parse %s: %v", contract.LocalPath, err)
 		}
-		if got := document["$id"]; got != wantID {
-			t.Fatalf("%s $id = %v, want %s", name, got, wantID)
+		if got := document["$id"]; got != contract.DefaultURL {
+			t.Fatalf("%s $id = %v, want %s", contract.LocalPath, got, contract.DefaultURL)
 		}
 		if got := document["$schema"]; got != "https://json-schema.org/draft/2020-12/schema" {
-			t.Fatalf("%s draft = %v", name, got)
+			t.Fatalf("%s draft = %v", contract.LocalPath, got)
 		}
 		if got := document["type"]; got != "object" {
-			t.Fatalf("%s root type = %v", name, got)
+			t.Fatalf("%s root type = %v", contract.LocalPath, got)
 		}
-	}
-	assertPublishedSchema(t, filepath.Join("..", "..", "schemas", "v2", "policy-lock.schema.json"), schema.LegacyPolicyLockV2URL)
-	assertPublishedSchema(t, filepath.Join("..", "..", "schemas", "v3", "policy-lock.schema.json"), schema.LegacyPolicyLockV3URL)
-	assertPublishedSchema(t, filepath.Join("..", "..", "schemas", "v4", "policy-lock.schema.json"), schema.PolicyLockURL)
-}
-
-func assertPublishedSchema(t *testing.T, path, wantID string) {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	var document map[string]interface{}
-	if err := json.Unmarshal(data, &document); err != nil {
-		t.Fatalf("parse %s: %v", path, err)
-	}
-	if got := document["$id"]; got != wantID {
-		t.Fatalf("%s $id = %v, want %s", path, got, wantID)
-	}
-	if got := document["$schema"]; got != "https://json-schema.org/draft/2020-12/schema" {
-		t.Fatalf("%s draft = %v", path, got)
-	}
-	if got := document["type"]; got != "object" {
-		t.Fatalf("%s root type = %v", path, got)
 	}
 }
 
 func TestPublishedSchemaPropertiesMatchEmittedGoTypes(t *testing.T) {
 	lock := readLegacyLockSchemaDocument(t)
-	report := readSchemaDocument(t, "policy-report.schema.json")
-	fixPlan := readSchemaDocument(t, "policy-fix-plan.schema.json")
-	completion := readSchemaDocument(t, "completion-report.schema.json")
-	proof := readSchemaDocument(t, "proof-bundle.schema.json")
-	installationReceipt := readSchemaDocument(t, "installation-receipt.schema.json")
-	globalDiagnostic := readSchemaDocument(t, "global-diagnostic.schema.json")
-	globalLifecycle := readSchemaDocument(t, "global-lifecycle.schema.json")
-	harnessPackManifest := readSchemaDocument(t, "harness-pack-manifest.schema.json")
-	repositoryInstall := readSchemaDocument(t, "repository-install.schema.json")
-	repositorySyncPlan := readSchemaDocument(t, "repository-sync-plan.schema.json")
-	repositorySyncReport := readSchemaDocument(t, "repository-sync-report.schema.json")
-	releaseManifest := readSchemaDocument(t, "release-manifest.schema.json")
-	customManifest := readSchemaDocument(t, "custom-runtime-manifest.schema.json")
-	neutralRequest := readSchemaDocument(t, "neutral-hook-request.schema.json")
-	neutralResponse := readSchemaDocument(t, "neutral-hook-response.schema.json")
-	customLiveness := readSchemaDocument(t, "custom-runtime-liveness.schema.json")
-	customConformance := readSchemaDocument(t, "custom-runtime-conformance.schema.json")
+	report := readCurrentSchemaDocument(t, schema.PolicyReport)
+	fixPlan := readCurrentSchemaDocument(t, schema.PolicyFixPlan)
+	completion := readCurrentSchemaDocument(t, schema.CompletionReport)
+	proof := readCurrentSchemaDocument(t, schema.ProofBundle)
+	installationReceipt := readCurrentSchemaDocument(t, schema.InstallationReceipt)
+	globalDiagnostic := readCurrentSchemaDocument(t, schema.GlobalDiagnostic)
+	globalLifecycle := readCurrentSchemaDocument(t, schema.GlobalLifecycle)
+	harnessPackManifest := readCurrentSchemaDocument(t, schema.HarnessPackManifest)
+	repositoryInstall := readCurrentSchemaDocument(t, schema.RepositoryInstall)
+	repositorySyncPlan := readCurrentSchemaDocument(t, schema.RepositorySyncPlan)
+	repositorySyncReport := readCurrentSchemaDocument(t, schema.RepositorySyncReport)
+	releaseManifest := readCurrentSchemaDocument(t, schema.ReleaseManifest)
+	customManifest := readCurrentSchemaDocument(t, schema.CustomRuntimeManifest)
+	neutralRequest := readCurrentSchemaDocument(t, schema.NeutralHookRequest)
+	neutralResponse := readCurrentSchemaDocument(t, schema.NeutralHookResponse)
+	customLiveness := readCurrentSchemaDocument(t, schema.CustomRuntimeLiveness)
+	customConformance := readCurrentSchemaDocument(t, schema.CustomRuntimeConformance)
 
 	assertPropertiesMatch(t, schemaDefinition(t, lock, "discovery"), ingest.DiscoveryResult{})
 	assertPropertiesMatch(t, schemaDefinition(t, lock, "source"), legacyPolicySource{})
@@ -265,10 +196,10 @@ func TestPublishedAssuranceEnumMatchesPolicyKinds(t *testing.T) {
 }
 
 func TestCurrentLockSchemaRequiresPortableIdentity(t *testing.T) {
-	lock := readSchemaDocument(t, "policy-lock.schema.json")
+	lock := readCurrentLockSchemaDocument(t)
 	properties := schemaRootProperties(t, lock)
-	if got := properties["format_version"].(map[string]interface{})["const"]; got != "3" {
-		t.Fatalf("format_version const = %v, want 3", got)
+	if got := properties["format_version"].(map[string]interface{})["const"]; got != "4" {
+		t.Fatalf("format_version const = %v, want 4", got)
 	}
 	if got := properties["repo_root"].(map[string]interface{})["const"]; got != "." {
 		t.Fatalf("repo_root const = %v, want .", got)
@@ -309,19 +240,19 @@ func readCurrentLockSchemaDocument(t *testing.T) map[string]interface{} {
 	return document
 }
 
-func readSchemaDocument(t *testing.T, name string) map[string]interface{} {
+func readCurrentSchemaDocument(t *testing.T, artifact schema.Artifact) map[string]interface{} {
 	t.Helper()
-	version := "v1"
-	if name == "policy-lock.schema.json" {
-		version = "v3"
+	contract, ok := schema.CurrentContract(artifact)
+	if !ok {
+		t.Fatalf("registry has no current %s contract", artifact)
 	}
-	data, err := os.ReadFile(filepath.Join("..", "..", "schemas", version, name))
+	data, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(contract.LocalPath)))
 	if err != nil {
-		t.Fatalf("read %s: %v", name, err)
+		t.Fatalf("read %s: %v", contract.LocalPath, err)
 	}
 	var document map[string]interface{}
 	if err := json.Unmarshal(data, &document); err != nil {
-		t.Fatalf("parse %s: %v", name, err)
+		t.Fatalf("parse %s: %v", contract.LocalPath, err)
 	}
 	return document
 }
@@ -381,44 +312,26 @@ func assertPropertiesMatch(t *testing.T, properties map[string]interface{}, valu
 	}
 }
 
-// TestReleaseShipsTheCanonicalPolicyLockSchema ties the release manifest to the
-// identity the product stamps. The copied-asset manifest is a single source, so
-// a wrong mapping there is consistent with itself: the build would ship an
-// older lock schema under the canonical name and every artifact check would
-// still agree. This is the one place that can tell it is wrong.
+// TestReleaseShipsTheCanonicalPolicyLockSchema ties the registry release name
+// to the identity the product stamps.
 func TestReleaseShipsTheCanonicalPolicyLockSchema(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "scripts", "release", "copied-assets.tsv"))
-	if err != nil {
-		t.Fatalf("read copied-asset manifest: %v", err)
+	current, ok := schema.CurrentContract(schema.PolicyLock)
+	if !ok {
+		t.Fatal("registry has no current policy-lock contract")
 	}
-	sources := map[string]string{}
-	for _, line := range strings.Split(string(data), "\n") {
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		fields := strings.Split(line, "\t")
-		if len(fields) != 2 {
-			t.Fatalf("malformed copied-asset entry: %q", line)
-		}
-		sources[fields[0]] = fields[1]
-	}
-
-	// The canonical lock schema must come from the directory the stamped URL
-	// names, so a lockfile's schema identity and the shipped file agree.
-	base := schema.PolicyLockURL
-	cut := strings.LastIndex(base, "/schemas/")
-	if cut < 0 {
-		t.Fatalf("policy lock URL has no schema directory: %q", base)
-	}
-	wantDirectory := strings.TrimPrefix(base[cut:], "/")
-	wantDirectory = wantDirectory[:strings.LastIndex(wantDirectory, "/")]
-	if got := sources["policy-lock.schema.json"]; got != wantDirectory+"/policy-lock.schema.json" {
-		t.Fatalf("release ships %q as the canonical lock schema, want %s/policy-lock.schema.json", got, wantDirectory)
+	if current.ReleaseAsset != "policy-lock.schema.json" || current.LocalPath != "schemas/v4/policy-lock.schema.json" {
+		t.Fatalf("current lock release mapping = %s -> %s", current.ReleaseAsset, current.LocalPath)
 	}
 
 	// Every superseded format stays available under its own name.
+	legacyAssets := map[string]bool{}
+	for _, contract := range schema.Contracts() {
+		if contract.Artifact == schema.PolicyLock && contract.State == schema.StateLegacy {
+			legacyAssets[contract.ReleaseAsset] = true
+		}
+	}
 	for _, legacy := range []string{"policy-lock-v1.schema.json", "policy-lock-v2.schema.json", "policy-lock-v3.schema.json"} {
-		if sources[legacy] == "" {
+		if !legacyAssets[legacy] {
 			t.Errorf("release no longer ships %s", legacy)
 		}
 	}

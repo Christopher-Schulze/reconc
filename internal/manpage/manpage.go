@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/commandmeta"
-	"reconc.dev/reconc/internal/schema"
 )
 
 // Render writes a groff man(1) page for reconc to w. The version is
@@ -93,7 +92,7 @@ coding agents' behaviour auditable and gate-able rather than hopeful.`)
 	fmt.Fprintln(w, "Override the global agent-session state root.")
 	fmt.Fprintln(w, ".TP")
 	fmt.Fprintln(w, ".B RECONC_SCHEMA_BASE_URL")
-	fmt.Fprintf(w, "Enterprise override for schema URLs stamped on lockfiles, check reports, and fix plans. Without an override, v1 contracts use \\fI%s\\fR and current policy locks use \\fI%s\\fR.\n", schema.DefaultBaseURL, schema.PolicyLockBaseURL)
+	fmt.Fprintln(w, "Enterprise base URL for every schema identity stamped on newly emitted artifacts. Without an override, each artifact uses the immutable default URL registered for its exact schema version.")
 	fmt.Fprintln(w, ".TP")
 	fmt.Fprintln(w, ".B RECONC_STOP_FINGERPRINT_UNTRACKED")
 	fmt.Fprintln(w, "Untracked-file mode for the Stop fingerprint's git status snapshot: \\fBnormal\\fR (default), \\fBall\\fR, or \\fBno\\fR.")

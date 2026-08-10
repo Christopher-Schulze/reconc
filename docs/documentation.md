@@ -22,6 +22,7 @@ usage, architecture, release, and security facts should be kept here first.
 - [v0.9.2 To v0.9.3 Migration](#v092-to-v093-migration)
 - [v0.9.3 To v0.9.4 Migration](#v093-to-v094-migration)
 - [v0.9.4 To v0.9.5 Migration](#v094-to-v095-migration)
+- [v0.9.5 To v0.9.6 Migration](#v095-to-v096-migration)
 - [Uninstall And Remove](#uninstall-and-remove)
 - [Development Control Plane](#development-control-plane)
 - [Minimal Example Policy](#minimal-example-policy)
@@ -240,8 +241,8 @@ make cover
 make bench
 make self-host
 make publication-audit
-make sbom VERSION=0.9.5
-make release VERSION=0.9.5
+make sbom VERSION=0.9.6
+make release VERSION=0.9.6
 ```
 
 `make coverage` runs both Go modules with atomic whole-module instrumentation
@@ -254,24 +255,21 @@ still require their matching platform jobs or integration boundaries.
 
 `make release` cross-compiles five binaries into `dist/`, copies the native
 POSIX and Windows installers, generates three flat shell-completion artifacts,
-generates a man page, copies the eighteen v1 schemas plus the v1, v2, and v3
-policy-lock schemas under their own names and the current v4 schema under the
-canonical name, generates deterministic SPDX 2.3 and CycloneDX
+generates a man page, copies all 26 independently versioned schemas from the
+typed registry under unique current or legacy release names, and generates
+deterministic SPDX 2.3 and CycloneDX
 1.6 SBOMs,
 generates a strict `release-manifest.json`, and writes `dist/SHA256SUMS`. The
 target stops on the first build, SBOM, manifest, or checksum failure.
 
-Every artifact copied out of the repository is named once, in
-`scripts/release/copied-assets.tsv`, together with the file it must be a copy
-of. The build copies from that manifest, the verifier derives both its expected
-set and its byte-identity comparisons from it, and the real release target used
-by the trust gate consumes it. Generated surfaces and target-derived binary
-names are likewise owned once by `scripts/release/generated-assets.sh`; the
-Makefile generates from that executable inventory and the verifier lists from
-it. Before these owners existed, release names lived in multiple unsynchronised
-lists and drifted far enough that a release could not complete.
+Each copied artifact has one owner. `internal/schema` owns schema source paths,
+release names, immutable URLs, and digests; `scripts/release/copied-assets.tsv`
+owns the three non-schema source copies. The build and verifier consume both
+inventories directly. Generated surfaces and target-derived binary names are
+owned once by `scripts/release/generated-assets.sh`; the Makefile generates
+from that executable inventory and the verifier lists from it.
 
-The release verifier requires exactly those thirty-seven checksummed artifacts,
+The release verifier requires exactly those forty-one checksummed artifacts,
 rejects missing, extra, duplicate, unsafe, mutable, or corrupted entries, and
 never accepts an empty manifest. It independently verifies every manifest
 asset and digest, then regenerates Bash, Zsh, Fish, and the versioned man page
@@ -1042,11 +1040,13 @@ agent hook only when that repository should receive its updated generated
 adapter. Kimi Code remains an explicit user-global opt-in through
 `reconc hook install kimi-code`; `init` and repository sync never select it.
 
-No policy or schema migration is required. The v0.9.1 schema URLs remain the
-immutable canonical identities for the compatible v1 artifact schemas and v3
-policy-lock schema. TASK transaction journals, repository-sync journals, and
-ownership receipts remain format-compatible. The removed `demo` command and
-retired legacy command aliases do not return in v0.9.2.
+No policy or schema migration was required by v0.9.2. That release continued
+accepting and emitting v0.9.1 schema URLs. Current source retains those URLs
+only as explicit legacy aliases because several named files were absent or did
+not contain the later local bytes; new artifacts never emit those aliases.
+TASK transaction journals, repository-sync journals, and ownership receipts
+remain format-compatible. The removed `demo` command and retired legacy
+command aliases do not return in v0.9.2.
 
 ## v0.9.2 To v0.9.3 Migration
 
@@ -1075,10 +1075,10 @@ events, and enforces the native synchronous Stop contract where the host
 provides it. Existing repository hooks and generated artifacts remain
 untouched until an explicit install or repository-sync transaction.
 
-No policy or schema migration is required. The v0.9.1 schema URLs remain the
-immutable canonical identities for compatible v1 artifact schemas and the v3
-policy-lock schema. Test measurement output remains review evidence only; Reconc
-has no fixed percentage requirement.
+No policy or schema migration was required by v0.9.3. That release continued
+accepting legacy v0.9.1 identities; current source classifies them as input-only
+aliases rather than verified publication locations. Test measurement output
+remains review evidence only; Reconc has no fixed percentage requirement.
 
 ## v0.9.3 To v0.9.4 Migration
 
@@ -1098,8 +1098,9 @@ The policy lockfile moves to format version `4`, published as the v0.9.4
 `schemas/v4/policy-lock.schema.json` identity. Format 1, 2, and 3 lockfiles
 migrate automatically on read, so no repository action is required; `reconc
 refresh .` rewrites the lock in the current format whenever the policy sources
-change. The v0.9.1 schema URLs remain the immutable canonical identities for
-compatible v1 artifact schemas and for the v1, v2, and v3 policy-lock schemas.
+change. The v0.9.1 schema URLs remained accepted compatibility identities at
+that release. Current source never emits them and does not claim that those
+locations contain the later schema bytes.
 
 Format 4 carries one new optional field. A `require_script` rule, or a
 `require_script` check inside a composite rule, may declare `cache_inputs`: the
@@ -1177,6 +1178,23 @@ reconc hook status . --json
 
 Other repository artifacts remain untouched until an explicit hook install or
 repository-sync transaction.
+
+## v0.9.5 To v0.9.6 Migration
+
+Source-owned installations build version `0.9.6`. Until the immutable
+`reconc-v0.9.6` release is published, the latest native release installer
+remains v0.9.5. Version text alone is not release identity.
+
+Policy locks remain format `4` under the unchanged immutable v0.9.4 schema.
+No lockfile rewrite is required. Public schema ownership is now per artifact:
+all 26 contract versions are registered with exact local bytes, digest,
+release asset, immutable URL, enterprise path, and compatibility aliases.
+Policy config, repository-sync plan/report, and custom-runtime manifest use
+new v2 schemas for semantics added after their restored v1 contracts. Existing
+supported v1 inputs remain accepted; legacy custom-runtime routes must declare
+enough output bytes for the current canonical response metadata. Manifest v2
+makes that minimum explicit at 512 bytes. New output emits only the current
+registered identity. Runtime validation stays offline.
 
 ## Uninstall And Remove
 
@@ -1432,7 +1450,7 @@ Policy authoring is strict. Unknown keys at the document, scope, rule,
 evidence, composite-check, and TASK-lifecycle levels fail compilation instead
 of being ignored. This validation applies only to structured YAML fields;
 free-form rule messages and agent prompts remain unrestricted text. Editors and
-automation can use `schemas/v1/policy-config.schema.json`; emitted lock, policy
+automation can use `schemas/v2/policy-config.schema.json`; emitted lock, policy
 report, completion report, fix-plan, and proof-bundle artifacts keep their separate public
 schemas.
 
@@ -1924,7 +1942,7 @@ summarizes the core runtime responsibilities:
 - `internal/usercli`: locked binary-plus-receipt installation, manager classification, exact PATH identity, global diagnostics, bounded release selection, atomic direct updates, package-manager delegation, and ownership-safe uninstall
 - `internal/stackdetect`: shared bounded manifest/source stack discovery
 - `internal/runtime`: strict lock trust, immutable typed and indexed policy plans, policy evaluation, remediation, git integration, scripts, templates
-- `internal/schema`: canonical format-versioned public JSON schema locations and enterprise URL resolution
+- `internal/schema`: typed per-artifact public JSON schema registry, immutable publication identities, compatibility aliases, digests, release assets, and enterprise URL resolution
 - `internal/assurance`: bounded native repository assurance evaluators
 - `internal/hooks`: typed hook platform and verification-surface registry, artifact generation, non-destructive install/uninstall, scaffold sync, managed activation, and diagnostics
 - `internal/runtime/agentsession`: hook-runtime session state and event handling
@@ -1949,7 +1967,7 @@ summarizes the core runtime responsibilities:
 Key invariants:
 
 - Deterministic JSON artifacts
-- Stable schema and `format_version` fields; versioned v1 contracts live under `schemas/v1/`, legacy portable policy locks use `schemas/v2/` or `schemas/v3/`, and current portable policy locks use `schemas/v4/`; all nineteen v1 schemas ship in every future release containing repository sync, with the v1 lock schema under its own name alongside the v2, v3, and v4 lock schemas
+- Stable schema and `format_version` fields; all 26 current and legacy contracts are registry-owned and ship under unique names, current artifact schemas span v1 and v2, legacy portable policy locks use v1-v3, and current portable policy locks retain the frozen v4 contract
 - Fail closed on malformed policy, stale lockfiles, schema drift, invalid globs, unsupported rule kinds, and non-portable current lock envelopes
 - No core policy-runtime network calls; supported agent hosts own their
   authenticated inference traffic
@@ -3147,7 +3165,8 @@ current-state documentation.
 
 ## Release State
 
-The current source line is `v0.9.x`; the source version is `v0.9.5`. Release
+The current source line is `v0.9.x`; the source version is `v0.9.6`. The latest
+published release remains the immutable `reconc-v0.9.5` tag. Release
 artifacts are produced only through an explicit manual Release workflow
 dispatch for an existing `reconc-vX.Y.Z` tag; tag pushes never publish a
 release.

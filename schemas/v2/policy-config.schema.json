@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/policy-config.schema.json",
-  "title": "Reconc policy authoring config v1",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json",
+  "title": "Reconc policy authoring config v2",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -54,7 +54,12 @@
       "additionalProperties": false,
       "required": ["platform", "tool", "effect"],
       "properties": {
-        "platform": { "enum": ["cursor", "opencode", "kilo"] },
+        "platform": {
+          "anyOf": [
+            { "enum": ["claude-code", "codex", "cursor", "opencode", "kilo", "omp", "pi", "zcode"] },
+            { "type": "string", "pattern": "^custom:[a-z0-9][a-z0-9_-]{0,47}$" }
+          ]
+        },
         "server_fingerprint": {
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$"
@@ -184,6 +189,7 @@
         "script": { "type": "string" },
         "args": { "$ref": "#/$defs/nonEmptyStrings" },
         "timeout_sec": { "type": "integer", "minimum": 0 },
+        "cache_inputs": { "$ref": "#/$defs/nonEmptyStrings" },
         "paths": { "$ref": "#/$defs/nonEmptyStrings" },
         "commands": { "$ref": "#/$defs/nonEmptyStrings" },
         "claims": { "$ref": "#/$defs/nonEmptyStrings" },
@@ -257,6 +263,7 @@
         "args": { "$ref": "#/$defs/nonEmptyStrings" },
         "timeout_sec": { "type": "integer", "minimum": 0 },
         "kill_timeout_sec": { "type": "integer", "minimum": 0 },
+        "cache_inputs": { "$ref": "#/$defs/nonEmptyStrings" },
         "assurance": { "type": "array", "items": { "$ref": "#/$defs/assurance" } },
         "template": { "type": "string" },
         "deprecated": { "type": "boolean" },

@@ -9,14 +9,17 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"reconc.dev/reconc/internal/schema"
 )
 
 const (
-	ManifestSchemaURL        = "https://reconc.dev/schemas/custom-runtime-manifest/v1"
-	NeutralRequestSchemaURL  = "https://reconc.dev/schemas/neutral-hook-request/v1"
-	NeutralResponseSchemaURL = "https://reconc.dev/schemas/neutral-hook-response/v1"
-	LivenessSchemaURL        = "https://reconc.dev/schemas/custom-runtime-liveness/v1"
-	ManifestFormatVersion    = "reconc-custom-runtime/v1"
+	ManifestSchemaURL        = schema.CustomRuntimeManifestURL
+	NeutralRequestSchemaURL  = schema.NeutralHookRequestURL
+	NeutralResponseSchemaURL = schema.NeutralHookResponseURL
+	LivenessSchemaURL        = schema.CustomRuntimeLivenessURL
+	ManifestFormatVersion    = "reconc-custom-runtime/v2"
+	LegacyManifestFormatV1   = "reconc-custom-runtime/v1"
 	RequestFormatVersion     = "reconc-neutral-hook-request/v1"
 	ResponseFormatVersion    = "reconc-neutral-hook-response/v1"
 	LivenessFormatVersion    = "reconc-custom-runtime-liveness/v1"
@@ -287,11 +290,11 @@ var reservedRuntimeNames = map[string]struct{}{
 }
 
 func validateManifest(manifest Manifest) error {
-	if manifest.Schema != ManifestSchemaURL {
+	if !schema.Accepts(schema.CustomRuntimeManifest, manifest.Schema) {
 		return fmt.Errorf("custom runtime $schema must be %q", ManifestSchemaURL)
 	}
-	if manifest.FormatVersion != ManifestFormatVersion {
-		return fmt.Errorf("custom runtime format_version must be %q", ManifestFormatVersion)
+	if !schema.AcceptsFormat(schema.CustomRuntimeManifest, manifest.Schema, manifest.FormatVersion) {
+		return fmt.Errorf("custom runtime format_version must match its registered schema contract")
 	}
 	if !validName(manifest.Name, maxNameBytes) {
 		return fmt.Errorf("custom runtime name must be a lowercase identifier of at most %d bytes", maxNameBytes)
@@ -306,7 +309,7 @@ func validateManifest(manifest Manifest) error {
 		return fmt.Errorf("custom runtime must contain 1..%d routes", MaxRoutes)
 	}
 	for index := range manifest.Routes {
-		if err := validateRoute(manifest.Routes[index]); err != nil {
+		if err := validateRoute(manifest, manifest.Routes[index]); err != nil {
 			return fmt.Errorf("custom runtime route[%d]: %w", index, err)
 		}
 		if index > 0 && manifest.Routes[index-1].HostEvent >= manifest.Routes[index].HostEvent {
@@ -316,7 +319,7 @@ func validateManifest(manifest Manifest) error {
 	return nil
 }
 
-func validateRoute(route Route) error {
+func validateRoute(manifest Manifest, route Route) error {
 	if !validHostEvent(route.HostEvent) || !validEvent(route.Event) {
 		return fmt.Errorf("host_event or neutral event is invalid")
 	}
@@ -329,8 +332,21 @@ func validateRoute(route Route) error {
 	if route.TimeoutPolicy != FailureBlock && route.TimeoutPolicy != FailureAllow && route.TimeoutPolicy != FailureHost {
 		return fmt.Errorf("timeout_policy is invalid")
 	}
-	if route.TimeoutSeconds < 1 || route.TimeoutSeconds > 600 || route.MaxOutputBytes < 256 || route.MaxOutputBytes > 64<<10 {
-		return fmt.Errorf("route budget must use timeout_seconds 1..600 and max_output_bytes 256..65536")
+	minimumOutputBytes := 256
+	if manifest.FormatVersion == ManifestFormatVersion {
+		minimumOutputBytes = 512
+	}
+	metadataBytes := len(MarshalResponse(NeutralResponse{
+		Schema: schema.Resolve(schema.NeutralHookResponse), FormatVersion: ResponseFormatVersion,
+		Runtime: manifest.Runtime(), HostEvent: route.HostEvent, Event: route.Event,
+		Decision: DecisionUnsupported, ExitCode: 2,
+	}))
+	if metadataBytes > minimumOutputBytes {
+		minimumOutputBytes = metadataBytes
+	}
+	if route.TimeoutSeconds < 1 || route.TimeoutSeconds > 600 ||
+		route.MaxOutputBytes < minimumOutputBytes || route.MaxOutputBytes > 64<<10 {
+		return fmt.Errorf("route budget must use timeout_seconds 1..600 and max_output_bytes %d..65536", minimumOutputBytes)
 	}
 	if route.MaxContinuations < 0 || route.MaxContinuations > 100 {
 		return fmt.Errorf("max_continuations must be 0..100")

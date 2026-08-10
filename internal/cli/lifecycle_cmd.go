@@ -180,7 +180,7 @@ func lifecycleBlocking(report *usercli.LifecycleReport) bool {
 
 func writeLifecycleFailure(stdout io.Writer, operation string, version string, cause string) error {
 	report := &usercli.LifecycleReport{
-		Schema: schema.GlobalLifecycleURL, FormatVersion: usercli.LifecycleFormatVersion,
+		Schema: schema.Resolve(schema.GlobalLifecycle), FormatVersion: usercli.LifecycleFormatVersion,
 		Operation: operation, Status: usercli.LifecycleFailed, Changed: false,
 		CurrentVersion: version, Checks: []usercli.DiagnosticCheck{{
 			Name: "request", Status: "fail", Detail: cause,

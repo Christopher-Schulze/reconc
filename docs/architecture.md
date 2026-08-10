@@ -250,23 +250,24 @@ in [RECONC-0008](rfcs/RECONC-0008-go-only-action-plane.md).
 
 ## Key external contracts
 
-- **Lockfile schema** (`$schema` in policy.lock.json): bumped only on
-  shape-breaking changes. Migration chain in `compiler/migrations.go`
-  walks older versions forward.
+- **Lockfile schema** (`$schema` in policy.lock.json): every published URL is
+  immutable; any represented-shape change receives a new schema version.
+  Migration chain in `compiler/migrations.go` walks older versions forward.
 
-- **CheckReport / CompletionReport / FixPlan schemas**: same policy. Additive changes
-  (new optional fields) don't bump the version; breaking changes do.
+- **CheckReport / CompletionReport / FixPlan schemas**: the same immutable-URL
+  rule applies. Additive and breaking shape changes both receive a new schema
+  version; breaking semantic changes also require a superseding RFC.
 
-- **Published schema documents**: the nineteen versioned
-  `schemas/v1/*.schema.json` contracts, legacy
-  `schemas/v2/policy-lock.schema.json` and `schemas/v3/policy-lock.schema.json`,
-  and current `schemas/v4/policy-lock.schema.json` are canonical Draft 2020-12 documents,
-  use stable format-versioned identities as `$id`, are
-  byte-compared against the canonical source during release verification, and
-  ship in the checksummed release inventory. `policy-config.schema.json` is
-  the strict authoring contract; the v4 lock schema describes current
-  body-free portable lockfiles, while v1, v2, and v3 remain validated migration
-  inputs.
+- **Published schema documents**: `internal/schema` owns all 26 Draft 2020-12
+  contracts as independently versioned registry entries. Each entry binds one
+  local path, immutable release-tagged `$id`, release asset, SHA-256 digest,
+  enterprise mirror path, current or legacy state, and input-only compatibility
+  aliases. Current policy authoring, custom-runtime manifests, and repository
+  sync use their v2 schemas; current lockfiles retain the frozen v4 schema;
+  v1-v3 lock schemas and every other superseded artifact version remain
+  validated inputs. Release output derives the complete schema inventory from
+  the registry, byte-compares it locally, and verifies every canonical URL
+  online after publication. Runtime validation remains offline.
 
 - **Declarative custom-runtime contract**: `.reconc/runtimes/*.json` is the
   only repository source. Manifests are bounded non-symlink regular files,

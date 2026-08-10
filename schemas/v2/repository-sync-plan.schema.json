@@ -1,0 +1,379 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/repository-sync-plan.schema.json",
+  "title": "Reconc repository synchronization plan v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "format_version",
+    "repo_root",
+    "current_product_version",
+    "target_product_version",
+    "current_receipt_digest",
+    "legacy_receipt_import",
+    "git_snapshot",
+    "current_policy_packs",
+    "current_harness_packs",
+    "target_policy_packs",
+    "target_harness_packs",
+    "actions",
+    "migrations",
+    "candidates",
+    "blocking_issues",
+    "plan_digest"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/repository-sync-plan.schema.json"
+    },
+    "format_version": {
+      "const": "reconc.repository-sync-plan/v1"
+    },
+    "repo_root": {
+      "type": "string",
+      "minLength": 1
+    },
+    "current_product_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target_product_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "current_receipt_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "legacy_receipt_import": {
+      "type": "boolean"
+    },
+    "git_snapshot": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/gitSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "current_policy_packs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/repository-install.schema.json#/$defs/policyPack"
+      }
+    },
+    "current_harness_packs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/repository-install.schema.json#/$defs/harnessPack"
+      }
+    },
+    "target_policy_packs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/repository-install.schema.json#/$defs/policyPack"
+      }
+    },
+    "target_harness_packs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/repository-install.schema.json#/$defs/harnessPack"
+      }
+    },
+    "actions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/action"
+      }
+    },
+    "migrations": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/migration"
+      }
+    },
+    "candidates": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "blocking_issues": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "plan_digest": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "gitSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repo_root",
+        "head",
+        "index_tree"
+      ],
+      "properties": {
+        "repo_root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "head": {
+          "oneOf": [
+            {
+              "const": "UNBORN"
+            },
+            {
+              "type": "string",
+              "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+            }
+          ]
+        },
+        "index_tree": {
+          "type": "string",
+          "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+        }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "component",
+        "path",
+        "mode",
+        "state",
+        "reason"
+      ],
+      "properties": {
+        "component": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/repository-install.schema.json#/$defs/path"
+        },
+        "mode": {
+          "enum": [
+            420,
+            493
+          ]
+        },
+        "state": {
+          "enum": [
+            "unchanged",
+            "replace-owned",
+            "update-managed-block",
+            "create-owned",
+            "user-drift",
+            "orphaned-legacy",
+            "incompatible",
+            "manual-review"
+          ]
+        },
+        "current_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "receipt_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "desired_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "current_mode": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 511
+        },
+        "candidate_path": {
+          "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/repository-install.schema.json#/$defs/path"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "unchanged"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "desired_sha256"
+            ],
+            "not": {
+              "required": [
+                "candidate_path"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "replace-owned",
+                  "update-managed-block"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "current_sha256",
+              "receipt_sha256",
+              "desired_sha256"
+            ],
+            "not": {
+              "required": [
+                "candidate_path"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "create-owned"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "desired_sha256"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "current_sha256"
+                  ]
+                },
+                {
+                  "required": [
+                    "candidate_path"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "user-drift",
+                  "manual-review"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "candidate_path"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "orphaned-legacy"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "receipt_sha256"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "desired_sha256"
+                  ]
+                },
+                {
+                  "required": [
+                    "candidate_path"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "incompatible"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "candidate_path"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "from",
+        "to",
+        "path"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "from": {
+          "type": "string",
+          "minLength": 1
+        },
+        "to": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/repository-install.schema.json#/$defs/path"
+        }
+      }
+    }
+  }
+}

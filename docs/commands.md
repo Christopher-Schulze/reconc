@@ -54,10 +54,11 @@ Runtime:
 - `RECONC_CLAUDE_STATE_DIR` -- override the global session-state root
 - `CLAUDE_CONFIG_DIR` (default `~/.claude`) -- absolute Claude configuration
   root used to recognize the current project's persistent-memory state
-- `RECONC_SCHEMA_BASE_URL` -- enterprise override for schema URLs; without an
-  override, config/report/fix-plan/proof-bundle contracts use release-pinned
-  `schemas/v1/`, legacy policy locks use `schemas/v1/`, `schemas/v2/`, or
-  `schemas/v3/`, and current policy lockfiles use `schemas/v4/`
+- `RECONC_SCHEMA_BASE_URL` -- enterprise override resolved through the typed
+  per-artifact registry at `/schemas/<artifact>/v<schema-version>`; without an
+  override, current contracts use their release-pinned v1, v2, or frozen v4
+  identities. Registered legacy aliases remain input-only. Runtime validation
+  never fetches schema URLs
 - `RECONC_STOP_FINGERPRINT_UNTRACKED` (`normal` default, `all`, `no`) --
   untracked-file mode for the Stop fingerprint's git status snapshot. `normal`
   content-binds each untracked directory recursively under bounded entry and

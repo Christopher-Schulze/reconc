@@ -16,6 +16,7 @@ case "$dist" in
   *) dist="$(pwd)/$dist" ;;
 esac
 root=$(cd "$(dirname "$0")/../.." && pwd)
+go_bin=${GO:-go}
 manifest="$dist/SHA256SUMS"
 [ -f "$manifest" ] || {
   printf 'error: checksum manifest not found: %s\n' "$manifest" >&2
@@ -43,17 +44,50 @@ copied_manifest="$root/scripts/release/copied-assets.tsv"
   printf 'error: copied-asset manifest is missing: %s\n' "$copied_manifest" >&2
   exit 1
 }
+schema_assets=$("$go_bin" -C "$root" run ./scripts/release/schema-assets list-release)
 copied_assets=""
+copied_seen=""
+record_copied_asset() {
+  copied_name="$1"
+  copied_source="$2"
+  copied_extra="$3"
+  [ -n "$copied_name" ] && [ -n "$copied_source" ] && [ -z "$copied_extra" ] || {
+    printf 'error: malformed copied-asset entry: %s\n' "$copied_name" >&2
+    exit 1
+  }
+  case "$copied_name" in
+    */*|*'..'*)
+      printf 'error: unsafe copied release asset name: %s\n' "$copied_name" >&2
+      exit 1
+      ;;
+  esac
+  case "$copied_source" in
+    ''|/*|.|./*|*/.|*/./*|..|../*|*/..|*/../*|*\\*)
+      printf 'error: unsafe copied release asset source: %s\n' "$copied_source" >&2
+      exit 1
+      ;;
+  esac
+  case " $copied_seen " in
+    *" $copied_name "*)
+      printf 'error: duplicate copied release asset mapping: %s\n' "$copied_name" >&2
+      exit 1
+      ;;
+  esac
+  copied_seen="$copied_seen $copied_name"
+  copied_assets="$copied_assets $copied_name"
+}
+
 while IFS="$(printf '\t')" read -r copied_name copied_source copied_extra; do
   case "$copied_name" in
     ''|'#'*) continue ;;
   esac
-  [ -n "$copied_source" ] && [ -z "${copied_extra:-}" ] || {
-    printf 'error: malformed copied-asset entry: %s\n' "$copied_name" >&2
-    exit 1
-  }
-  copied_assets="$copied_assets $copied_name"
+  record_copied_asset "$copied_name" "$copied_source" "${copied_extra:-}"
 done < "$copied_manifest"
+while IFS="$(printf '\t')" read -r copied_name copied_source copied_extra; do
+  record_copied_asset "$copied_name" "$copied_source" "${copied_extra:-}"
+done <<EOF
+$schema_assets
+EOF
 [ -n "$copied_assets" ] || {
   printf 'error: copied-asset manifest lists no artifacts\n' >&2
   exit 1
@@ -150,7 +184,6 @@ for artifact in "$dist"/*; do
   esac
 done
 
-go_bin=${GO:-go}
 "$go_bin" -C "$root" run ./scripts/release/manifest \
   --output-dir "$dist" \
   --version "$version" \
@@ -201,3 +234,8 @@ while IFS="$(printf '\t')" read -r copied_name copied_source copied_extra; do
   esac
   verify_canonical_asset "$root/$copied_source" "$copied_name"
 done < "$copied_manifest"
+while IFS="$(printf '\t')" read -r copied_name copied_source copied_extra; do
+  verify_canonical_asset "$root/$copied_source" "$copied_name"
+done <<EOF
+$schema_assets
+EOF

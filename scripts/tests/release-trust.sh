@@ -265,6 +265,7 @@ require_text "$release_workflow" 'test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"'
 # shellcheck disable=SC2016 # Match workflow shell expressions literally.
 require_text "$release_workflow" 'REPLACE_PUBLISHED: ${{ inputs.replace_published }}'
 require_text "$release_workflow" './scripts/release/publish-github-release.sh'
+require_text "$release_workflow" 'go run ./scripts/release/schema-assets verify-published'
 # shellcheck disable=SC2016 # Match the workflow shell expression literally.
 require_text "$release_workflow" 'make verify-release VERSION="$version"'
 if grep -Fq './scripts/release/verify-artifacts.sh dist reconc' "$release_workflow"; then
@@ -274,6 +275,11 @@ require_text "$root/Makefile" './scripts/release/generated-assets.sh generate co
 require_text "$root/Makefile" './scripts/release/generated-assets.sh generate manpage'
 require_text "$root/Makefile" './scripts/release/generated-assets.sh generate sbom'
 require_text "$root/scripts/release/verify-artifacts.sh" 'scripts/release/generated-assets.sh" list'
+require_text "$root/scripts/release/copy-assets.sh" 'scripts/release/schema-assets list-release'
+require_text "$root/scripts/release/verify-artifacts.sh" 'scripts/release/schema-assets list-release'
+if grep -Fq '.schema.json' "$root/scripts/release/copied-assets.tsv"; then
+  fail "copied-assets.tsv duplicates the typed schema registry"
+fi
 for duplicated_name in reconc.bash _reconc reconc.fish release-manifest.json '.spdx.json' '.cdx.json'; do
   if grep -Fq "$duplicated_name" "$root/Makefile" || grep -Fq "$duplicated_name" "$root/scripts/release/verify-artifacts.sh"; then
     fail "generated release asset $duplicated_name escaped the canonical generated-assets inventory"
@@ -311,6 +317,14 @@ bash -n "$root/scripts/release/publish-github-release.sh" \
   || fail "release publication helper has invalid Bash syntax"
 "$root/scripts/tests/release-publication.sh" \
   || fail "release publication transition tests failed"
+
+copy_collision_dir="$tmp/copy-collision"
+mkdir -p "$copy_collision_dir"
+printf 'sentinel\n' > "$copy_collision_dir/install.sh"
+expect_failure_reason "destination already exists: install.sh" \
+  "$root/scripts/release/copy-assets.sh" "$copy_collision_dir"
+[ "$(cat "$copy_collision_dir/install.sh")" = "sentinel" ] \
+  || fail "copied release asset overwrote an existing destination"
 
 release_dir="$tmp/release"
 mkdir -p "$release_dir"
@@ -350,7 +364,14 @@ verify_release_artifacts "$release_dir"
 printf '\n' >> "$release_dir/completion-report.schema.json"
 "$root/scripts/release/write-checksums.sh" "$release_dir"
 expect_failure verify_release_artifacts "$release_dir"
-cp "$root/schemas/v1/completion-report.schema.json" "$release_dir/completion-report.schema.json"
+schema_asset_rows=$(go -C "$root" run ./scripts/release/schema-assets list-release)
+completion_schema_source=$(
+  printf '%s\n' "$schema_asset_rows" \
+    | awk -F '\t' '$1 == "completion-report.schema.json" { print $2 }'
+)
+[ -n "$completion_schema_source" ] \
+  || fail "typed schema registry omits completion-report.schema.json"
+cp "$root/$completion_schema_source" "$release_dir/completion-report.schema.json"
 "$root/scripts/release/write-checksums.sh" "$release_dir"
 verify_release_artifacts "$release_dir"
 printf '\n# stale despite a valid checksum\n' >> "$release_dir/reconc.bash"
@@ -396,8 +417,8 @@ rm -rf "$drift_dir"
 # The build must copy through the shared script instead of listing artifacts
 # again in the Makefile.
 require_text "$root/Makefile" "./scripts/release/copy-assets.sh"
-grep -Fq 'schemas/v1/policy-config.schema.json' "$root/Makefile" \
-  && fail "Makefile lists release artifacts again instead of using the shared manifest"
+grep -Fq '.schema.json' "$root/Makefile" \
+  && fail "Makefile lists schema artifacts again instead of using the typed registry"
 
 spdx="$release_dir/reconc-$project_version.spdx.json"
 cyclonedx="$release_dir/reconc-$project_version.cdx.json"

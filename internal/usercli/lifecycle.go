@@ -93,7 +93,7 @@ func Uninstall(ctx context.Context, currentVersion string, request UninstallRequ
 
 func lifecycleFromDiagnostic(operation string, diagnostic *GlobalDiagnostic) *LifecycleReport {
 	report := &LifecycleReport{
-		Schema: schema.GlobalLifecycleURL, FormatVersion: LifecycleFormatVersion,
+		Schema: schema.Resolve(schema.GlobalLifecycle), FormatVersion: LifecycleFormatVersion,
 		Operation: operation, Status: LifecycleFailed, Changed: false,
 		CurrentVersion: diagnostic.CurrentVersion, Owner: diagnostic.Owner,
 		Channel: diagnostic.Channel, BinaryPath: diagnostic.BinaryPath,

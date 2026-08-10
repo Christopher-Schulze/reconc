@@ -309,8 +309,9 @@ func LoadSyncPlan(planPath string) (*SyncPlan, error) {
 }
 
 func ValidateSyncPlan(plan *SyncPlan) error {
-	if plan == nil || !matchesSchema(plan.Schema, schema.RepositorySyncPlanURL, schema.Resolve(schema.RepositorySyncPlan)) ||
-		plan.FormatVersion != SyncPlanFormatVersion {
+	if plan == nil || !schema.AcceptsFormat(
+		schema.RepositorySyncPlan, plan.Schema, plan.FormatVersion,
+	) {
 		return fmt.Errorf("unsupported repository sync plan schema or format")
 	}
 	root, err := canonicalRepoRoot(plan.RepoRoot)
@@ -921,8 +922,4 @@ func validSyncState(state SyncActionState) bool {
 	default:
 		return false
 	}
-}
-
-func matchesSchema(got, defaultURL, resolvedURL string) bool {
-	return got == defaultURL || got == resolvedURL
 }

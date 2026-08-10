@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"strings"
 
 	rerrors "reconc.dev/reconc/internal/errors"
@@ -55,9 +54,7 @@ var Migrations = []Migration{
 
 func migrateLockfileV1ToV2(payload map[string]interface{}) (map[string]interface{}, error) {
 	schemaURL, _ := payload["$schema"].(string)
-	if schemaURL != LegacyLockfileSchemaV1 &&
-		schemaURL != schema.LegacyPolicyLockURLUnpinned &&
-		schemaURL != legacyLockfileSchemaForEnterprise("v1") {
+	if !schema.AcceptsVersion(schema.PolicyLock, "1", schemaURL) {
 		return nil, fmt.Errorf("legacy lockfile schema %q is not recognized", schemaURL)
 	}
 	if root, ok := payload["repo_root"].(string); !ok || strings.TrimSpace(root) == "" {
@@ -75,7 +72,7 @@ func migrateLockfileV1ToV2(payload map[string]interface{}) (map[string]interface
 
 	out := cloneLockfileMap(payload)
 	portableDiscovery := cloneLockfileMap(discovery)
-	out["$schema"] = legacyLockfileSchemaForEnterprise("v2")
+	out["$schema"] = schema.ResolveVersion(schema.PolicyLock, "2")
 	out["format_version"] = "2"
 	out["repo_root"] = PortableRepoRoot
 	portableDiscovery["repo_root"] = PortableRepoRoot
@@ -91,9 +88,7 @@ func migrateLockfileV1ToV2(payload map[string]interface{}) (map[string]interface
 
 func migrateLockfileV2ToV3(payload map[string]interface{}) (map[string]interface{}, error) {
 	schemaURL, _ := payload["$schema"].(string)
-	if schemaURL != schema.LegacyPolicyLockV2URL &&
-		schemaURL != schema.LegacyPolicyLockV2URLUnpinned &&
-		schemaURL != legacyLockfileSchemaForEnterprise("v2") {
+	if !schema.AcceptsVersion(schema.PolicyLock, "2", schemaURL) {
 		return nil, fmt.Errorf("legacy lockfile schema %q is not recognized", schemaURL)
 	}
 	storedDigest, _ := payload["lock_digest"].(string)
@@ -146,7 +141,7 @@ func migrateLockfileV2ToV3(payload map[string]interface{}) (map[string]interface
 	out := cloneLockfileMap(payload)
 	// Each step writes the schema of the version it produces. The chain
 	// continues to the current format, which stamps its own schema last.
-	out["$schema"] = legacyLockfileSchemaForEnterprise("v3")
+	out["$schema"] = schema.ResolveVersion(schema.PolicyLock, "3")
 	out["sources"] = sources
 	out["source_digest"] = sourceDigest
 	return out, nil
@@ -158,9 +153,7 @@ func migrateLockfileV2ToV3(payload map[string]interface{}) (map[string]interface
 // the Stop warm path until the policy is recompiled with declarations.
 func migrateLockfileV3ToV4(payload map[string]interface{}) (map[string]interface{}, error) {
 	schemaURL, _ := payload["$schema"].(string)
-	if schemaURL != schema.LegacyPolicyLockV3URL &&
-		schemaURL != schema.LegacyPolicyLockV3URLUnpinned &&
-		schemaURL != legacyLockfileSchemaForEnterprise("v3") {
+	if !schema.AcceptsVersion(schema.PolicyLock, "3", schemaURL) {
 		return nil, fmt.Errorf("legacy lockfile schema %q is not recognized", schemaURL)
 	}
 	out := cloneLockfileMap(payload)
@@ -172,21 +165,6 @@ func migrateLockfileV3ToV4(payload map[string]interface{}) (map[string]interface
 	}
 	out["lock_digest"] = digest
 	return out, nil
-}
-
-func legacyLockfileSchemaForEnterprise(version string) string {
-	base := strings.TrimRight(os.Getenv("RECONC_SCHEMA_BASE_URL"), "/")
-	if base == "" {
-		switch version {
-		case "v1":
-			return LegacyLockfileSchemaV1
-		case "v3":
-			return schema.LegacyPolicyLockV3URL
-		default:
-			return schema.LegacyPolicyLockV2URL
-		}
-	}
-	return base + "/schemas/policy-lock/" + version
 }
 
 func cloneLockfileMap(input map[string]interface{}) map[string]interface{} {

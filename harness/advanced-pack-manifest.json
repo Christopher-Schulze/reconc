@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/harness-pack-manifest.schema.json",
+  "$schema": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/harness-pack-manifest.schema.json",
   "format_version": "reconc.harness-pack/v1",
   "kind": "harness-pack",
   "name": "advanced",
@@ -822,5 +822,5 @@
     }
   ],
   "total_bytes": 822959,
-  "digest": "77f458c8f22d8f41c8bb78f6da3d6cd6acb13c44a92b45edd0996922a9591c6d"
+  "digest": "aa0df619fb0f6a00653b274d588859d33b87c7ee81cc9ae043424caa38752442"
 }

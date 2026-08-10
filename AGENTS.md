@@ -36,7 +36,9 @@ make publication-audit
 
 Bun `1.3.14` is a test-only dependency for executing the generated OpenCode,
 Kilo Code, Oh My Pi, and Pi adapter contracts; the shipped Reconc binary does not
-require Bun.
+require Bun. `github.com/santhosh-tekuri/jsonschema/v6` and
+`github.com/dlclark/regexp2` are test-only dependencies for independent offline
+Draft 2020-12 schema compilation and validation.
 
 ## Conventions
 
@@ -61,10 +63,10 @@ require Bun.
 
 ## Current Release State
 
-The current source line is `v0.9.x`; the source version is `v0.9.5`.
+The current source line is `v0.9.x`; the source version is `v0.9.6`.
 The latest published release is the immutable `reconc-v0.9.5` tag. Source
 commits ahead of that tag remain unreleased even while they report source
-version `v0.9.5`; version text alone is not release identity. Core tests, race
+version `v0.9.6`; version text alone is not release identity. Core tests, race
 tests, vet, static analysis, and release artifact generation must pass before
 publication. Coverage is measured across each complete Go module, not inferred
 from package-local percentages.

@@ -20,6 +20,7 @@ import (
 	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/retention"
 	"reconc.dev/reconc/internal/runtime"
+	"reconc.dev/reconc/internal/schema"
 )
 
 const (
@@ -220,7 +221,7 @@ func validateRecordShape(record Record) error {
 }
 
 func validatePolicyReport(report *runtime.CheckReport) error {
-	if report.FormatVersion != runtime.CheckReportFormatVersion || report.Schema != runtime.ResolveCheckReportSchema() {
+	if !schema.AcceptsFormat(schema.PolicyReport, report.Schema, report.FormatVersion) {
 		return errors.New("policy decision proof report schema or format version is invalid")
 	}
 	derived := *report

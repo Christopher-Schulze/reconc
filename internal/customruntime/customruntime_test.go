@@ -236,6 +236,41 @@ func TestBoundResponseOmitsSuffixWhenOnlyMetadataFits(t *testing.T) {
 	}
 }
 
+func TestManifestVersionOwnsCanonicalResponseBudget(t *testing.T) {
+	t.Parallel()
+	legacy := mustManifest(t, "testdata/local-agent.json")
+	legacy.Routes[0].MaxOutputBytes = 256
+	legacyBody, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeManifest(legacyBody); err == nil || !strings.Contains(err.Error(), "max_output_bytes") {
+		t.Fatalf("undersized legacy response budget error = %v", err)
+	}
+
+	current := legacy
+	current.Schema = ManifestSchemaURL
+	current.FormatVersion = ManifestFormatVersion
+	for index := range current.Routes {
+		current.Routes[index].MaxOutputBytes = 512
+	}
+	currentBody, err := json.Marshal(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeManifest(currentBody); err != nil {
+		t.Fatalf("current 512-byte response budget was rejected: %v", err)
+	}
+	current.Routes[0].MaxOutputBytes = 511
+	currentBody, err = json.Marshal(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeManifest(currentBody); err == nil || !strings.Contains(err.Error(), "512..65536") {
+		t.Fatalf("undersized current response budget error = %v", err)
+	}
+}
+
 func TestConformancePrivacyIncludesResponse(t *testing.T) {
 	t.Parallel()
 	manifest := mustManifest(t, "testdata/local-agent.json")

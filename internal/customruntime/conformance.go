@@ -9,10 +9,12 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+
+	"reconc.dev/reconc/internal/schema"
 )
 
 const (
-	ConformanceSchemaURL     = "https://reconc.dev/schemas/custom-runtime-conformance/v1"
+	ConformanceSchemaURL     = schema.CustomRuntimeConformanceURL
 	ConformanceFormatVersion = "reconc-custom-runtime-conformance/v1"
 	MaxConformanceBytes      = 1 << 20
 )
@@ -82,7 +84,7 @@ func DecodeConformanceSuite(body []byte) (ConformanceSuite, error) {
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return ConformanceSuite{}, fmt.Errorf("custom runtime conformance suite must contain exactly one JSON object")
 	}
-	if suite.Schema != ConformanceSchemaURL || suite.FormatVersion != ConformanceFormatVersion || suite.Cases == nil || len(suite.Cases) == 0 || len(suite.Cases) > 128 {
+	if !schema.AcceptsFormat(schema.CustomRuntimeConformance, suite.Schema, suite.FormatVersion) || suite.Cases == nil || len(suite.Cases) == 0 || len(suite.Cases) > 128 {
 		return ConformanceSuite{}, fmt.Errorf("custom runtime conformance suite schema, format_version, or case count is invalid")
 	}
 	return suite, nil
@@ -185,7 +187,7 @@ func validateConformanceClaim(capability ConformanceCapability, testCase Conform
 		return nil
 	case ConformanceLiveness:
 		return ValidateLivenessRecord(LivenessRecord{
-			Schema: LivenessSchemaURL, FormatVersion: LivenessFormatVersion,
+			Schema: schema.Resolve(schema.CustomRuntimeLiveness), FormatVersion: LivenessFormatVersion,
 			Runtime: manifest.Runtime(), HostEvent: route.HostEvent,
 			ObservedAt: "2000-01-01T00:00:00Z", ManifestDigest: manifest.Digest(),
 		})

@@ -2,7 +2,7 @@
 
 - Status: Frozen
 - Producer: `reconc fix`
-- Schema: `https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/policy-fix-plan.schema.json`
+- Schema: `https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/policy-fix-plan.schema.json`
 - Format version: `1`
 
 ## Purpose

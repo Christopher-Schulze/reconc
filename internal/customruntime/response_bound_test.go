@@ -32,9 +32,10 @@ func TestBoundResponseNeverBreaksTheHostContract(t *testing.T) {
 				}
 				body, err := BoundResponse(response, budget)
 				if err != nil {
-					// Only a budget too small for the metadata alone may fail.
-					if len(reason) == 0 {
-						t.Fatalf("budget %d rejected a reason-free response: %v", budget, err)
+					metadata := response
+					metadata.Reason = ""
+					if budget >= len(MarshalResponse(metadata)) {
+						t.Fatalf("budget %d fits metadata but was rejected: %v", budget, err)
 					}
 					return
 				}

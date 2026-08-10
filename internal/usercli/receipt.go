@@ -110,7 +110,7 @@ func NewReceipt(input ReceiptInput) (*Receipt, error) {
 		installedAt = time.Now().UTC()
 	}
 	receipt := &Receipt{
-		Schema: schema.InstallationReceiptURL, FormatVersion: ReceiptFormatVersion,
+		Schema: schema.Resolve(schema.InstallationReceipt), FormatVersion: ReceiptFormatVersion,
 		Manager: input.Manager, Channel: input.Channel, Version: strings.TrimSpace(input.Version),
 		SourceRepository: strings.TrimSpace(input.SourceRepository), ReleaseTag: input.ReleaseTag,
 		ArtifactName: strings.TrimSpace(input.ArtifactName), ArtifactSHA256: strings.TrimSpace(input.ArtifactSHA256),
@@ -350,7 +350,7 @@ func validateReceipt(receipt *Receipt) error {
 	if receipt == nil {
 		return errors.New("installation receipt is required")
 	}
-	if receipt.Schema != schema.InstallationReceiptURL || receipt.FormatVersion != ReceiptFormatVersion {
+	if !schema.AcceptsFormat(schema.InstallationReceipt, receipt.Schema, receipt.FormatVersion) {
 		return errors.New("unsupported installation receipt schema or format")
 	}
 	if !validManager(receipt.Manager) || !validChannel(receipt.Channel) {

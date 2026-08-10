@@ -249,7 +249,7 @@ func TestHostIntegrationDocumentationCoversStructuredContract(t *testing.T) {
 	}
 }
 
-func TestBootstrapUsesCurrentReleaseTag(t *testing.T) {
+func TestBootstrapUsesDeclaredLatestPublishedReleaseTag(t *testing.T) {
 	root := publicSurfaceRoot(t)
 	readme := readPublicSurfaceFile(t, root, "README.md")
 	versionSource := readPublicSurfaceFile(t, root, "cmd/reconc/main.go")
@@ -258,7 +258,30 @@ func TestBootstrapUsesCurrentReleaseTag(t *testing.T) {
 	if len(versionMatch) != 2 {
 		t.Fatal("cmd/reconc/main.go does not expose one stable source version")
 	}
-	expectedRef := "reconc-v" + versionMatch[1]
+	publishedPattern := regexp.MustCompile("latest published release is the immutable `?(reconc-v[0-9]+\\.[0-9]+\\.[0-9]+)`? tag")
+	publishedMatch := publishedPattern.FindStringSubmatch(readme)
+	if len(publishedMatch) != 2 {
+		t.Fatal("README.md does not declare one latest published release tag")
+	}
+	expectedRef := publishedMatch[1]
+	command := exec.Command("git", "rev-parse", "--verify", "refs/tags/"+expectedRef+"^{commit}")
+	command.Dir = root
+	if err := command.Run(); err != nil {
+		t.Fatalf("declared latest published tag %q does not exist: %v", expectedRef, err)
+	}
+	command = exec.Command("git", "show", expectedRef+":cmd/reconc/main.go")
+	command.Dir = root
+	taggedVersionSource, err := command.Output()
+	if err != nil {
+		t.Fatalf("read source version from %s: %v", expectedRef, err)
+	}
+	taggedVersionMatch := versionPattern.FindStringSubmatch(string(taggedVersionSource))
+	if len(taggedVersionMatch) != 2 || expectedRef != "reconc-v"+taggedVersionMatch[1] {
+		t.Fatalf("declared latest published tag %q does not match its source version", expectedRef)
+	}
+	if compareSemanticCore(versionMatch[1], taggedVersionMatch[1]) < 0 {
+		t.Fatalf("source version %s precedes latest published version %s", versionMatch[1], taggedVersionMatch[1])
+	}
 	for _, installer := range []string{"install.sh", "install.ps1"} {
 		pattern := regexp.MustCompile(`https://raw\.githubusercontent\.com/Christopher-Schulze/reconc/([^/]+)/` + regexp.QuoteMeta(installer))
 		matches := pattern.FindAllStringSubmatch(readme, -1)
@@ -268,10 +291,30 @@ func TestBootstrapUsesCurrentReleaseTag(t *testing.T) {
 		}
 		for _, match := range matches {
 			if match[1] != expectedRef {
-				t.Errorf("README.md %s source = %q, want current release tag %q", installer, match[1], expectedRef)
+				t.Errorf("README.md %s source = %q, want declared latest published tag %q", installer, match[1], expectedRef)
 			}
 		}
 	}
+}
+
+func compareSemanticCore(left string, right string) int {
+	leftParts := strings.Split(left, ".")
+	rightParts := strings.Split(right, ".")
+	for index := range leftParts {
+		if len(leftParts[index]) != len(rightParts[index]) {
+			if len(leftParts[index]) < len(rightParts[index]) {
+				return -1
+			}
+			return 1
+		}
+		if leftParts[index] < rightParts[index] {
+			return -1
+		}
+		if leftParts[index] > rightParts[index] {
+			return 1
+		}
+	}
+	return 0
 }
 
 func TestPublicBrandImageHasExactDimensionsAndBoundedSize(t *testing.T) {

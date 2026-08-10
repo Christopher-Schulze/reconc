@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"reconc.dev/reconc/internal/schema"
 )
 
 type Decision string
@@ -31,7 +33,7 @@ type NeutralResponse struct {
 
 func BuildResponse(manifest Manifest, route Route, exitCode int, stdout, stderr string, operationalError error, timedOut bool) NeutralResponse {
 	response := NeutralResponse{
-		Schema:        NeutralResponseSchemaURL,
+		Schema:        schema.Resolve(schema.NeutralHookResponse),
 		FormatVersion: ResponseFormatVersion, Runtime: manifest.Runtime(),
 		HostEvent: route.HostEvent, Event: route.Event, ExitCode: exitCode,
 	}
@@ -126,7 +128,7 @@ type LivenessRecord struct {
 }
 
 func ValidateLivenessRecord(record LivenessRecord) error {
-	if record.Schema != LivenessSchemaURL || record.FormatVersion != LivenessFormatVersion {
+	if !schema.AcceptsFormat(schema.CustomRuntimeLiveness, record.Schema, record.FormatVersion) {
 		return fmt.Errorf("custom runtime liveness schema or format_version is invalid")
 	}
 	name := strings.TrimPrefix(record.Runtime, "custom:")

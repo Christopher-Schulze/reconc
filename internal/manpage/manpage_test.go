@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"reconc.dev/reconc/internal/commandmeta"
-	"reconc.dev/reconc/internal/schema"
 )
 
 func TestRenderContainsSuppliedVersion(t *testing.T) {
@@ -27,14 +26,14 @@ func TestRenderContainsSuppliedVersion(t *testing.T) {
 	}
 }
 
-func TestRenderUsesCanonicalSchemaURLs(t *testing.T) {
+func TestRenderDescribesRegistryBackedSchemaResolution(t *testing.T) {
 	var buf bytes.Buffer
 	if err := Render(&buf, "0.2.0"); err != nil {
 		t.Fatal(err)
 	}
-	for _, schemaURL := range []string{schema.DefaultBaseURL, schema.PolicyLockBaseURL} {
-		if !strings.Contains(buf.String(), schemaURL) {
-			t.Errorf("man page omitted canonical schema URL %q", schemaURL)
+	for _, statement := range []string{"every schema identity", "immutable default URL registered for its exact schema version"} {
+		if !strings.Contains(buf.String(), statement) {
+			t.Errorf("man page omitted registry-backed schema contract %q", statement)
 		}
 	}
 }

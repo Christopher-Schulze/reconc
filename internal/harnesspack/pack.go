@@ -101,7 +101,7 @@ func ValidateManifest(manifest *Manifest) error {
 	if manifest == nil {
 		return errors.New("harness pack manifest is nil")
 	}
-	if manifest.Schema != ManifestSchema || manifest.FormatVersion != FormatVersion {
+	if !schema.AcceptsFormat(schema.HarnessPackManifest, manifest.Schema, manifest.FormatVersion) {
 		return fmt.Errorf("unsupported harness pack schema or format")
 	}
 	if manifest.Kind != "harness-pack" || !identifierPattern.MatchString(manifest.Name) {
@@ -291,7 +291,7 @@ func Build(source fs.FS, options BuildOptions) (*Manifest, error) {
 	capabilities := append([]string{}, options.Capabilities...)
 	sort.Strings(capabilities)
 	manifest := &Manifest{
-		Schema: ManifestSchema, FormatVersion: FormatVersion, Kind: "harness-pack",
+		Schema: schema.Resolve(schema.HarnessPackManifest), FormatVersion: FormatVersion, Kind: "harness-pack",
 		Name: options.Name, Version: options.Version,
 		ProductCompatibility: options.ProductCompatibility,
 		Capabilities:         capabilities, Files: files, TotalBytes: total,

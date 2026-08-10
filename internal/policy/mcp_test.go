@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"reconc.dev/reconc/internal/schema"
 )
 
 func TestMCPEnumValidationIsClosed(t *testing.T) {
@@ -214,12 +216,20 @@ func TestResolveJSONPointerTraversesObjectsAndArrays(t *testing.T) {
 // accepts but a schema rejects makes a valid policy fail external validation; a
 // platform a schema accepts but Go rejects promises enforcement that never runs.
 func TestPublishedSchemasAcceptExactlyTheBuiltinMCPPlatforms(t *testing.T) {
+	policyConfig, ok := schema.CurrentContract(schema.PolicyConfig)
+	if !ok {
+		t.Fatal("schema registry has no current policy-config contract")
+	}
+	policyLock, ok := schema.CurrentContract(schema.PolicyLock)
+	if !ok {
+		t.Fatal("schema registry has no current policy-lock contract")
+	}
 	contracts := []struct {
 		path    string
 		pointer []string
 	}{
-		{filepath.Join("..", "..", "schemas", "v1", "policy-config.schema.json"), []string{"$defs", "mcpTool", "properties", "platform"}},
-		{filepath.Join("..", "..", "schemas", "v4", "policy-lock.schema.json"), []string{"$defs", "mcpTool", "properties", "platform"}},
+		{filepath.Join("..", "..", filepath.FromSlash(policyConfig.LocalPath)), []string{"$defs", "mcpTool", "properties", "platform"}},
+		{filepath.Join("..", "..", filepath.FromSlash(policyLock.LocalPath)), []string{"$defs", "mcpTool", "properties", "platform"}},
 	}
 	want := make([]string, 0, len(BuiltinMCPPlatforms()))
 	for _, platform := range BuiltinMCPPlatforms() {

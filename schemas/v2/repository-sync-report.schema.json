@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/repository-sync-report.schema.json",
-  "title": "Reconc repository synchronization result",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/repository-sync-report.schema.json",
+  "title": "Reconc repository synchronization result v2",
   "type": "object",
   "oneOf": [
     {
@@ -9,6 +9,12 @@
     },
     {
       "$ref": "#/$defs/verification"
+    },
+    {
+      "$ref": "#/$defs/recovery"
+    },
+    {
+      "$ref": "#/$defs/resolution"
     }
   ],
   "$defs": {
@@ -65,7 +71,7 @@
       ],
       "properties": {
         "$schema": {
-          "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/repository-sync-report.schema.json"
+          "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/repository-sync-report.schema.json"
         },
         "format_version": {
           "const": "reconc.repository-sync-report/v1"
@@ -100,30 +106,35 @@
         },
         "changed": {
           "type": "array",
+          "uniqueItems": true,
           "items": {
             "type": "string"
           }
         },
         "unchanged": {
           "type": "array",
+          "uniqueItems": true,
           "items": {
             "type": "string"
           }
         },
         "candidates": {
           "type": "array",
+          "uniqueItems": true,
           "items": {
             "type": "string"
           }
         },
         "migrations": {
           "type": "array",
+          "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/migration"
           }
         },
         "rolled_back": {
           "type": "array",
+          "uniqueItems": true,
           "items": {
             "type": "string"
           }
@@ -152,7 +163,7 @@
       ],
       "properties": {
         "$schema": {
-          "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/repository-sync-report.schema.json"
+          "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/repository-sync-report.schema.json"
         },
         "format_version": {
           "const": "reconc.repository-sync-verify/v1"
@@ -168,6 +179,131 @@
           "$ref": "#/$defs/sha256"
         },
         "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/check"
+          }
+        },
+        "next_action": {
+          "type": "string"
+        }
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "$schema",
+        "format_version",
+        "repo_root",
+        "status",
+        "restored",
+        "verification",
+        "next_action"
+      ],
+      "properties": {
+        "$schema": {
+          "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/repository-sync-report.schema.json"
+        },
+        "format_version": {
+          "const": "reconc.repository-sync-recovery/v1"
+        },
+        "repo_root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "clean",
+            "finalized",
+            "refused",
+            "rolled-back"
+          ]
+        },
+        "plan_digest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "restored": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "verification": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/check"
+          }
+        },
+        "next_action": {
+          "type": "string"
+        }
+      }
+    },
+    "resolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "$schema",
+        "format_version",
+        "repo_root",
+        "status",
+        "plan_digest",
+        "path",
+        "strategy",
+        "changed",
+        "rolled_back",
+        "verification",
+        "next_action"
+      ],
+      "properties": {
+        "$schema": {
+          "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/repository-sync-report.schema.json"
+        },
+        "format_version": {
+          "const": "reconc.repository-sync-resolution/v1"
+        },
+        "repo_root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "complete",
+            "refused",
+            "rolled-back"
+          ]
+        },
+        "plan_digest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "strategy": {
+          "enum": [
+            "keep-current",
+            "use-target",
+            "use-binary"
+          ]
+        },
+        "changed": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "rolled_back": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "verification": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/check"

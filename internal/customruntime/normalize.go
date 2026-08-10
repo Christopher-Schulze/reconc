@@ -8,6 +8,8 @@ import (
 	"io"
 	"strconv"
 	"strings"
+
+	"reconc.dev/reconc/internal/schema"
 )
 
 const maxHostPayloadBytes = 64 << 20
@@ -49,7 +51,7 @@ func NormalizeHostPayload(manifest Manifest, route Route, body []byte) (NeutralR
 		return NeutralRequest{}, nil, err
 	}
 	request := NeutralRequest{
-		Schema:        NeutralRequestSchemaURL,
+		Schema:        schema.Resolve(schema.NeutralHookRequest),
 		FormatVersion: RequestFormatVersion, Runtime: manifest.Runtime(),
 		HostEvent: route.HostEvent, Event: route.Event, Payload: neutral,
 	}

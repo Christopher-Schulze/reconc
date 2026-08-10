@@ -254,7 +254,7 @@ func VerifyReport(report *Report) error {
 	if report == nil {
 		return errors.New("completion report is nil")
 	}
-	if report.Schema != schema.Resolve(schema.CompletionReport) || report.FormatVersion != FormatVersion {
+	if !schema.AcceptsFormat(schema.CompletionReport, report.Schema, report.FormatVersion) {
 		return errors.New("unsupported completion report schema or format version")
 	}
 	expected := reportDigest(report)

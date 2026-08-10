@@ -90,7 +90,7 @@ func DiagnoseGlobal(version string) (*GlobalDiagnostic, error) {
 		return nil, err
 	}
 	report := &GlobalDiagnostic{
-		Schema: schema.GlobalDiagnosticURL, FormatVersion: GlobalDiagnosticFormatVersion,
+		Schema: schema.Resolve(schema.GlobalDiagnostic), FormatVersion: GlobalDiagnosticFormatVersion,
 		Operation: "doctor.global", Status: DiagnosticUnowned, CurrentVersion: strings.TrimSpace(version),
 		RunningPath: status.SourcePath, InstallTargetPath: status.TargetPath,
 		PathShadows: []string{}, Checks: []DiagnosticCheck{}, Actions: []DiagnosticAction{},

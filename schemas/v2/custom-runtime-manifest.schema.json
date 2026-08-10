@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/custom-runtime-manifest.schema.json",
-  "title": "Reconc declarative custom runtime manifest v1",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/custom-runtime-manifest.schema.json",
+  "title": "Reconc declarative custom runtime manifest v2",
   "type": "object",
   "additionalProperties": false,
   "required": ["$schema", "format_version", "name", "display_name", "routes"],
   "properties": {
-    "$schema": { "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/custom-runtime-manifest.schema.json" },
-    "format_version": { "const": "reconc-custom-runtime/v1" },
+    "$schema": { "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/custom-runtime-manifest.schema.json" },
+    "format_version": { "const": "reconc-custom-runtime/v2" },
     "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,47}$" },
     "display_name": { "type": "string", "minLength": 1, "maxLength": 120 },
     "routes": {
@@ -64,7 +64,7 @@
         "error_policy": { "enum": ["block", "allow", "host"] },
         "timeout_policy": { "enum": ["block", "allow", "host"] },
         "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 600 },
-        "max_output_bytes": { "type": "integer", "minimum": 256, "maximum": 65536 },
+        "max_output_bytes": { "type": "integer", "minimum": 512, "maximum": 65536 },
         "max_continuations": { "type": "integer", "minimum": 0, "maximum": 100 },
         "guarantees": { "$ref": "#/$defs/guarantees" },
         "fields": { "$ref": "#/$defs/fields" }

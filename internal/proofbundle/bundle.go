@@ -141,7 +141,7 @@ func Generate(repo, version string) (*Bundle, error) {
 	}
 	root := filepath.Clean(report.RepoRoot)
 	bundle := &Bundle{
-		Schema: schema.ProofBundleURL, FormatVersion: FormatVersion,
+		Schema: schema.Resolve(schema.ProofBundle), FormatVersion: FormatVersion,
 		OK: report.OK, Decision: report.Decision, RepoRoot: ".",
 		Build: buildIdentity(version), Task: taskIdentity(report),
 		Candidate: candidateIdentity(root, report.Candidate),
@@ -443,7 +443,7 @@ func Verify(bundle *Bundle) error {
 	if bundle == nil {
 		return invalidProof("is nil")
 	}
-	if bundle.Schema != schema.ProofBundleURL || bundle.FormatVersion != FormatVersion || bundle.RepoRoot != "." {
+	if !schema.AcceptsFormat(schema.ProofBundle, bundle.Schema, bundle.FormatVersion) || bundle.RepoRoot != "." {
 		return ErrUnsupportedContract
 	}
 	if err := verifyBundleCollections(bundle); err != nil {

@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://reconc.dev/schemas/custom-runtime-conformance/v1",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/custom-runtime-conformance.schema.json",
   "title": "Reconc custom runtime conformance suite v1",
   "type": "object",
   "additionalProperties": false,
   "required": ["$schema", "format_version", "runtime", "cases"],
   "properties": {
-    "$schema": { "const": "https://reconc.dev/schemas/custom-runtime-conformance/v1" },
+    "$schema": { "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/custom-runtime-conformance.schema.json" },
     "format_version": { "const": "reconc-custom-runtime-conformance/v1" },
     "runtime": { "type": "string", "pattern": "^custom:[a-z0-9][a-z0-9_-]{0,47}$" },
     "cases": {

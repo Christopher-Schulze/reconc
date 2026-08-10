@@ -618,8 +618,8 @@ wrong-mode, stale, or rotated key material makes the dependent identity
 unavailable. Reconc never falls back to plain SHA-256 for low-entropy or
 secret-adjacent values.
 
-Safe policy and operator labels use lowercase ASCII
-`[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?` and are at most 64 bytes. They are
+Safe policy and operator labels use lowercase ASCII `[a-z0-9]` followed by the
+optional suffix `(?:[a-z0-9-]{0,62}[a-z0-9])?` and are at most 64 bytes. They are
 case-sensitive and never trimmed or normalized. Operator run and session IDs
 may use `[A-Za-z0-9._:-]{1,128}`, remain case-sensitive, and are persisted
 only through their domain-separated keyed identity. Invalid or duplicate
@@ -1136,10 +1136,10 @@ owns `why action`, TASK 160 owns ledger commands, TASK 161 owns
 ## Schema And Versioning
 
 The canonical format-5 policy lock stores one `actions` plan and no parallel
-`mcp` runtime plan. The schema URL and introduction tag are intentionally not
-minted in this Draft. TASK 165 must first restore per-artifact schema truth, and
-Christopher must explicitly select the exact release version that owns any new
-immutable URL.
+`mcp` runtime plan. Christopher selected `v0.9.6`; TASK 165 owns the truthful
+per-artifact registry and `reconc-v0.9.6` publication identity. TASK 154 must
+add the format-5 lock and action-authoring contracts to that registry without
+mutating any published or restored legacy schema.
 
 The contract rules are:
 

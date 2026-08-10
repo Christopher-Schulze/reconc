@@ -90,6 +90,18 @@ jobs:
             exit 1
           }
 
+      - name: Verify immutable schema publication
+        run: |
+          verified=false
+          for attempt in 1 2 3 4 5; do
+            if go run ./scripts/release/schema-assets verify-published; then
+              verified=true
+              break
+            fi
+            [ "$attempt" -eq 5 ] || sleep 3
+          done
+          test "$verified" = true
+
       - name: Verify source and release gates
         run: |
           make fmt-check

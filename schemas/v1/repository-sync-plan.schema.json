@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/repository-sync-plan.schema.json",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/repository-sync-plan.schema.json",
   "title": "Reconc repository synchronization plan",
   "type": "object",
   "additionalProperties": false,
@@ -13,8 +13,6 @@
     "current_receipt_digest",
     "legacy_receipt_import",
     "git_snapshot",
-    "current_policy_packs",
-    "current_harness_packs",
     "target_policy_packs",
     "target_harness_packs",
     "actions",
@@ -25,7 +23,7 @@
   ],
   "properties": {
     "$schema": {
-      "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/repository-sync-plan.schema.json"
+      "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/repository-sync-plan.schema.json"
     },
     "format_version": {
       "const": "reconc.repository-sync-plan/v1"
@@ -58,44 +56,26 @@
         }
       ]
     },
-    "current_policy_packs": {
-      "type": "array",
-      "uniqueItems": true,
-      "items": {
-        "$ref": "repository-install.schema.json#/$defs/policyPack"
-      }
-    },
-    "current_harness_packs": {
-      "type": "array",
-      "uniqueItems": true,
-      "items": {
-        "$ref": "repository-install.schema.json#/$defs/harnessPack"
-      }
-    },
     "target_policy_packs": {
       "type": "array",
-      "uniqueItems": true,
       "items": {
         "$ref": "repository-install.schema.json#/$defs/policyPack"
       }
     },
     "target_harness_packs": {
       "type": "array",
-      "uniqueItems": true,
       "items": {
         "$ref": "repository-install.schema.json#/$defs/harnessPack"
       }
     },
     "actions": {
       "type": "array",
-      "uniqueItems": true,
       "items": {
         "$ref": "#/$defs/action"
       }
     },
     "migrations": {
       "type": "array",
-      "uniqueItems": true,
       "items": {
         "$ref": "#/$defs/migration"
       }
@@ -139,19 +119,11 @@
           "minLength": 1
         },
         "head": {
-          "oneOf": [
-            {
-              "const": "UNBORN"
-            },
-            {
-              "type": "string",
-              "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
-            }
-          ]
+          "type": "string"
         },
         "index_tree": {
           "type": "string",
-          "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+          "minLength": 1
         }
       }
     },
@@ -171,7 +143,8 @@
           "minLength": 1
         },
         "path": {
-          "$ref": "repository-install.schema.json#/$defs/path"
+          "type": "string",
+          "minLength": 1
         },
         "mode": {
           "enum": [
@@ -202,151 +175,17 @@
         },
         "current_mode": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 511
+          "minimum": 0
         },
         "candidate_path": {
-          "$ref": "repository-install.schema.json#/$defs/path"
+          "type": "string",
+          "minLength": 1
         },
         "reason": {
           "type": "string",
           "minLength": 1
         }
-      },
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "state": {
-                "const": "unchanged"
-              }
-            }
-          },
-          "then": {
-            "required": [
-              "desired_sha256"
-            ],
-            "not": {
-              "required": [
-                "candidate_path"
-              ]
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "state": {
-                "enum": [
-                  "replace-owned",
-                  "update-managed-block"
-                ]
-              }
-            }
-          },
-          "then": {
-            "required": [
-              "current_sha256",
-              "receipt_sha256",
-              "desired_sha256"
-            ],
-            "not": {
-              "required": [
-                "candidate_path"
-              ]
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "state": {
-                "const": "create-owned"
-              }
-            }
-          },
-          "then": {
-            "required": [
-              "desired_sha256"
-            ],
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "current_sha256"
-                  ]
-                },
-                {
-                  "required": [
-                    "candidate_path"
-                  ]
-                }
-              ]
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "state": {
-                "enum": [
-                  "user-drift",
-                  "manual-review"
-                ]
-              }
-            }
-          },
-          "then": {
-            "required": [
-              "candidate_path"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "state": {
-                "const": "orphaned-legacy"
-              }
-            }
-          },
-          "then": {
-            "required": [
-              "receipt_sha256"
-            ],
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "desired_sha256"
-                  ]
-                },
-                {
-                  "required": [
-                    "candidate_path"
-                  ]
-                }
-              ]
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "state": {
-                "const": "incompatible"
-              }
-            }
-          },
-          "then": {
-            "not": {
-              "required": [
-                "candidate_path"
-              ]
-            }
-          }
-        }
-      ]
+      }
     },
     "migration": {
       "type": "object",
@@ -371,7 +210,8 @@
           "minLength": 1
         },
         "path": {
-          "$ref": "repository-install.schema.json#/$defs/path"
+          "type": "string",
+          "minLength": 1
         }
       }
     }
