@@ -28,6 +28,7 @@ usage, architecture, release, and security facts should be kept here first.
 - [Command Surface](#command-surface)
 - [Repository Policy](#repository-policy)
 - [Policy Packs And Native Assurance](#policy-packs-and-native-assurance)
+- [Proposed Go-Only Action Plane](#proposed-go-only-action-plane)
 - [Architecture](#architecture)
 - [Agent Skill](#agent-skill)
 - [Publication Boundary](#publication-boundary)
@@ -1847,6 +1848,56 @@ manager, source-hygiene policy, test command, or build command. The default
 pack handles generated-output boundaries only. Explicit assurance packs own
 language-specific hygiene, formatting, concurrency, architecture, performance,
 and repository checks.
+
+## Proposed Go-Only Action Plane
+
+RECONC-0008 is a Draft contract for a future Action Plane. The current binary
+and the published v0.9.5 release do not implement it. The commands and policy
+fields named in this section are unavailable until their owning implementation
+tasks ship and the RFC is frozen.
+
+The proposal keeps all Reconc-owned product and adapter code in Go. One local,
+tool-only stdio MCP gateway would wrap one operator-selected downstream stdio
+MCP server. Calls routed through that gateway would be evaluated before
+downstream dispatch, and results and progress would be inspected before
+upstream delivery. LangChain would launch the Go binary through LangChain's own
+MCP adapter; Reconc would not ship a Python or TypeScript LangChain adapter.
+
+Coverage is explicit. Only tools configured to use the Reconc gateway would be
+enforced. Native LangChain tools, direct downstream MCP configurations, and
+other bypass routes would remain unenforced. The gateway would not claim
+transparent prompts, resources, sampling, roots, tasks, HTTP, SSE, or general
+framework interception. A pre-call block could prevent a routed tool from
+executing. Post-result containment could withhold data from the model boundary
+but could not undo a side effect that already occurred.
+
+The proposed compiler would lower new `actions.tools`, `actions.rules`, and
+`actions.defaults` plus compatible legacy `mcp` authoring into one canonical
+format-5 action plan. Runtime decisions would be exactly `allow`, `warn`,
+`require_approval`, and `block` with
+`block > require_approval > warn > allow` precedence. Arguments and trusted
+context would use strict typed JSON, exact RFC 6901 pointers, deterministic
+predicates, explicit provenance, fail-closed bounds, and complete cache
+identities rather than an opaque numeric risk score.
+
+Independent enforcement would require an operator-supplied expected lock digest.
+An explicit repository-managed mode would remain available with lower
+provenance and a visible policy-tampering boundary. Repository policy could
+never select the downstream executable, argv, working directory, inherited
+environment, credential material, state key, or approval authority.
+
+Later layers would add atomic cumulative budgets, signed one-time Ed25519
+approval receipts, deterministic local argument and result detectors,
+post-result withholding, a privacy-bounded tamper-evident retained action
+ledger, Impact Lab action scenarios, and local control-evidence mappings.
+Low-entropy or secret-adjacent persisted identities would use
+domain-separated operator-keyed HMAC values; missing keys would make evidence
+unavailable instead of falling back to a dictionary-attackable plain digest.
+
+The full proposed contract, exact resource limits, timeouts, failure matrix,
+versioning rules, package ownership, and deterministic conformance vectors are
+in
+[RECONC-0008](rfcs/RECONC-0008-go-only-action-plane.md).
 
 ## Architecture
 

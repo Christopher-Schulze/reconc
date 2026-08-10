@@ -210,6 +210,44 @@ handling.
    evidence handling. Unknown identity, malformed input, and unknown outcome
    are non-evidentiary.
 
+## Proposed Go-Only Action Plane (Draft)
+
+RECONC-0008 defines a proposed Action Plane. It is not implemented by the
+current binary and is not part of the published v0.9.5 release.
+
+The proposed topology is one local, tool-only stdio MCP gateway around one
+operator-selected downstream stdio MCP server. Every routed `tools/call` would
+enter one canonical compiled action plan before dispatch and every downstream
+result or progress event would enter the same plan before upstream delivery.
+Native LangChain tools, clients configured directly against the downstream
+server, prompts, resources, sampling, roots, tasks, HTTP, SSE, and arbitrary
+framework calls remain outside that boundary.
+
+The dependency direction is intentionally one-way:
+
+~~~text
+policy/parser -> compiler -> immutable action plan -> pure action evaluator
+                                                       |
+operator state -> budgets/approvals/inspection/ledger -> MCP stdio gateway
+                                                       |
+                                               external MCP client
+~~~
+
+The pure evaluator owns decisions, predicates, provenance, traces, and exact
+cache eligibility without filesystem, process, network, clock, CLI, or MCP SDK
+dependencies. IO packages inject typed snapshots. The gateway owns protocol and
+child-process lifecycle but cannot reimplement policy semantics. Existing `mcp`
+authoring becomes compatibility input lowered into the same action plan; the
+custom-runtime bridge remains a lifecycle normalizer rather than a second
+action engine.
+
+The proposal remains one Go binary. LangChain integration would use
+LangChain's own MCP adapter to launch that binary over stdio. Reconc would ship
+no Python or TypeScript LangChain adapter. The complete proposed trust model,
+authority modes, resource limits, failure matrix, approval and budget state
+machines, privacy-bounded ledger, conformance vectors, and package ownership are
+in [RECONC-0008](rfcs/RECONC-0008-go-only-action-plane.md).
+
 ## Key external contracts
 
 - **Lockfile schema** (`$schema` in policy.lock.json): bumped only on

@@ -18,15 +18,16 @@ bug in whichever side is stale and fix them together.
 
 ## Index
 
-| RFC | Contract |
-|---|---|
-| RECONC-0001 | Policy lockfile |
-| RECONC-0002 | Check report |
-| RECONC-0003 | Fix plan |
-| RECONC-0004 | Rule kinds |
-| RECONC-0005 | Presets and templates |
-| RECONC-0006 | Hooks and agent sessions |
-| RECONC-0007 | v0.9 CLI product, ownership, update, and repository synchronization |
+| RFC | Status | Contract |
+|---|---|---|
+| RECONC-0001 | Frozen | Policy lockfile |
+| RECONC-0002 | Frozen | Check report |
+| RECONC-0003 | Frozen | Fix plan |
+| RECONC-0004 | Frozen | Rule kinds |
+| RECONC-0005 | Frozen | Presets and templates |
+| RECONC-0006 | Frozen | Hooks and agent sessions |
+| RECONC-0007 | Frozen | v0.9 CLI product, ownership, update, and repository synchronization |
+| RECONC-0008 | Draft | Go-only Action Plane |
 
 ## Versioning
 

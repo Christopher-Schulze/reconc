@@ -110,6 +110,47 @@ plumbing, not user configuration.
 
 ---
 
+## Proposed Action Plane commands (Draft, unavailable)
+
+The following surfaces are specified by Draft RECONC-0008 and are not
+implemented by the current binary or published v0.9.5 release. They are listed
+only to freeze future ownership and must not be used as current command
+documentation.
+
+### `reconc mcp gateway [repo] --server LABEL (--expect-lock-digest SHA256 | --allow-repository-managed-policy) [trusted-context flags] -- COMMAND [ARG...]`
+
+Would start one local, tool-only stdio gateway around one
+operator-selected downstream stdio MCP server. Exactly one policy-authority
+flag would be required. Operator context, downstream working directory,
+inherited environment names, approval configuration, timeout, command, and argv
+would come only from launch arguments outside repository policy. Only tools
+routed through this gateway would be enforced. Native framework tools and
+direct downstream configurations would remain unenforced.
+
+### `reconc why action [repo]`
+
+Would explain the canonical compiled action plan, exact defaults, provenance,
+legacy MCP lowering, redacted operands, and coverage boundary.
+
+### `reconc action log tail|stats|verify|export [repo]`
+
+Would read, verify, summarize, or privacy-preservingly export the separate
+action decision ledger without exposing raw arguments, results, credentials,
+environment values, or downstream stderr.
+
+### `reconc action evidence export|verify [repo]`
+
+Would export or verify local technical control-evidence mappings. Output would
+describe covered, partial, missing, and not-evaluated evidence, never
+certification or legal sufficiency.
+
+The exact Draft contract, flags, failure behavior, limits, protocol versions,
+and package owners are in
+[RECONC-0008](rfcs/RECONC-0008-go-only-action-plane.md). Command metadata,
+dispatch, completions, and manpages remain unchanged until implementation.
+
+---
+
 ## Bootstrap & inspection
 
 ### `reconc install-cli [--install-dir PATH] [--json]`
