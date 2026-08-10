@@ -66,6 +66,7 @@ func TestCheckAcceptsMigratedV1LockfileFromEquivalentCheckout(t *testing.T) {
 	}
 	payload["$schema"] = compiler.LegacyLockfileSchemaV1
 	payload["format_version"] = "1"
+	delete(payload, "actions")
 	payload["repo_root"] = repoA
 	payload["sources"] = []interface{}{
 		map[string]interface{}{

@@ -80,7 +80,7 @@ why a task is allowed to be called done.
 The control flow has four stages:
 
 1. **Compile repository intent.** Reconc ingests `AGENTS.md`, `.reconc.yml`,
-   policy packs, templates, and repository-owned files. `reconc refresh .`
+   policy packs, templates, action declarations, and repository-owned files. `reconc refresh .`
    emits a portable `.reconc/policy.lock.json` with deterministic ordering,
    provenance, schema identity, source digest, and lock digest.
 2. **Observe real activity.** CLI commands and installed runtime adapters
@@ -118,6 +118,7 @@ Core invariants are deliberately strict:
 | Control surface | What Reconc provides |
 | --- | --- |
 | Policy compiler | Compiles repository instructions, YAML policy, packs, templates, and provenance into a portable lockfile. Unknown fields, stale sources, schema drift, invalid globs, unsupported rule kinds, and non-portable current roots fail closed. |
+| Action policy compilation | Unreleased v0.9.6 source strictly compiles `actions` and compatible legacy `mcp` authoring into one canonical format-5 action plan and explains it through `reconc why action`; operand values stay redacted. |
 | Scope and change control | Records and evaluates reads, writes, commands, claims, protected paths, coupled changes, generated files, secret state, destructive commands, and out-of-scope edits or deletions. |
 | Evidence freshness | Binds command success to the write epoch or staged Git candidate it verified. A later relevant write invalidates earlier success instead of laundering stale proof. |
 | Completion | `reconc done .` accepts completion only when policy, HEAD, index, worktree, evidence, reports, unresolved blocks, staged proofs, and typed TASK state agree. |
@@ -130,6 +131,11 @@ Core invariants are deliberately strict:
 | MCP side-effect control | Classifies explicitly configured Cursor, OpenCode, Kilo, Oh My Pi, Pi, and ZCode MCP tools as repository reads, writes, commands, or external effects using exact selectors and fail-closed extraction. |
 | Operator and CI tooling | Provides exact remediation, body-free source-provenance inspection, an offline policy impact lab, staged command execution, deterministic SARIF 2.1.0 and JUnit XML reports, CI proofs, global diagnostics, update and uninstall, cryptographically verified audit inspection, retention, TUI, shell completions, and a generated manpage. |
 | Release trust | Publishes strict release manifests, SHA-256 checksums, build-provenance attestations, and deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs tied to the release commit. |
+
+Action compilation is not yet action enforcement: current source does not
+route tool calls through a Reconc-owned gateway or evaluate the compiled action
+rules. The published v0.9.5 release does not contain the format-5 Action Plane
+compiler additions.
 
 ## Evidence Model
 
@@ -591,7 +597,7 @@ and routes behavior into internal packages with explicit boundaries:
 
 | Layer | Responsibility |
 | --- | --- |
-| Ingest, parser, compiler | Discover repository roots and policy sources, validate strict YAML and templates, resolve packs, detect conflicts, generate portable canonical lockfiles, and migrate supported lock formats. |
+| Ingest, parser, compiler, action | Discover repository roots and policy sources, validate strict YAML and templates, resolve packs, compile canonical repository and action plans with immutable matcher programs, detect conflicts, generate portable lockfiles, and migrate supported formats. |
 | Runtime and assurance | Evaluate normalized evidence, path and command rules, native repository assurance, scripts, templates, remediation, and Git-derived candidates. |
 | Hooks and agent sessions | Generate platform artifacts, normalize untrusted host payloads, enforce pre-action policy, record bounded outcomes, manage compaction context, and evaluate Stop. |
 | Bootstrap and harness packs | Inspect repositories, build deterministic plans, publish create-only artifacts and ownership receipts, embed the advanced pack, synchronize owned state, and roll back failed transactions. |

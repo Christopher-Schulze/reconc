@@ -19,7 +19,7 @@ var ruleFields = fieldSet(
 func validateDocumentFields(src policy.PolicySource, doc map[string]interface{}) error {
 	rootFields := fieldSet("default_mode", "rules", "scopes")
 	if src.Kind == policy.SourceCompilerConfig {
-		addFields(rootFields, "extends", "include", "task_lifecycle", "mcp")
+		addFields(rootFields, "extends", "include", "task_lifecycle", "mcp", "actions")
 	}
 	if src.Kind == policy.SourcePreset {
 		addFields(rootFields, "pack")

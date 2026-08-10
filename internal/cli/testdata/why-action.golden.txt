@@ -1,0 +1,5 @@
+Action plan: 1
+Defaults: declared=allow gateway-unmatched=block host-unmatched=allow evaluation-error=block post-error=block progress-error=block cache=exact
+Tools: 0
+Rules: 1
+  - block-secret -> block indeterminate=block cache=exact selector=phases="pre_call" source=.reconc.yml when=arguments:/token eq value=string/25B/redacted

@@ -240,6 +240,7 @@ func TestMigratedRuntimePlanRetainsEmbeddedRuleParityCheck(t *testing.T) {
 	rewriteLockfile(t, repo, func(payload map[string]interface{}) {
 		payload["$schema"] = compiler.LegacyLockfileSchemaV1
 		payload["format_version"] = "1"
+		delete(payload, "actions")
 		payload["repo_root"] = repo
 		payload["sources"] = []interface{}{
 			map[string]interface{}{"kind": "agents_md", "path": "AGENTS.md", "content": "# project\n"},

@@ -29,7 +29,7 @@ usage, architecture, release, and security facts should be kept here first.
 - [Command Surface](#command-surface)
 - [Repository Policy](#repository-policy)
 - [Policy Packs And Native Assurance](#policy-packs-and-native-assurance)
-- [Proposed Go-Only Action Plane](#proposed-go-only-action-plane)
+- [Go-Only Action Plane](#go-only-action-plane)
 - [Architecture](#architecture)
 - [Agent Skill](#agent-skill)
 - [Publication Boundary](#publication-boundary)
@@ -255,7 +255,7 @@ still require their matching platform jobs or integration boundaries.
 
 `make release` cross-compiles five binaries into `dist/`, copies the native
 POSIX and Windows installers, generates three flat shell-completion artifacts,
-generates a man page, copies all 26 independently versioned schemas from the
+generates a man page, copies all 28 independently versioned schemas from the
 typed registry under unique current or legacy release names, and generates
 deterministic SPDX 2.3 and CycloneDX
 1.6 SBOMs,
@@ -269,7 +269,7 @@ inventories directly. Generated surfaces and target-derived binary names are
 owned once by `scripts/release/generated-assets.sh`; the Makefile generates
 from that executable inventory and the verifier lists from it.
 
-The release verifier requires exactly those forty-one checksummed artifacts,
+The release verifier requires exactly those forty-three checksummed artifacts,
 rejects missing, extra, duplicate, unsafe, mutable, or corrupted entries, and
 never accepts an empty manifest. It independently verifies every manifest
 asset and digest, then regenerates Bash, Zsh, Fish, and the versioned man page
@@ -1185,16 +1185,17 @@ Source-owned installations build version `0.9.6`. Until the immutable
 `reconc-v0.9.6` release is published, the latest native release installer
 remains v0.9.5. Version text alone is not release identity.
 
-Policy locks remain format `4` under the unchanged immutable v0.9.4 schema.
-No lockfile rewrite is required. Public schema ownership is now per artifact:
-all 26 contract versions are registered with exact local bytes, digest,
-release asset, immutable URL, enterprise path, and compatibility aliases.
-Policy config, repository-sync plan/report, and custom-runtime manifest use
-new v2 schemas for semantics added after their restored v1 contracts. Existing
-supported v1 inputs remain accepted; legacy custom-runtime routes must declare
-enough output bytes for the current canonical response metadata. Manifest v2
-makes that minimum explicit at 512 bytes. New output emits only the current
-registered identity. Runtime validation stays offline.
+Policy locks move to format `5` under the planned immutable v0.9.6
+`schemas/v5/policy-lock.schema.json` identity. Formats 1 through 4 migrate in
+memory; `reconc refresh .` intentionally persists the current format. Format 5
+contains one canonical `actions` plan and never a parallel runtime `mcp` plan.
+Legacy `mcp` authoring remains accepted and lowers deterministically into that
+plan. Public schema ownership is per artifact: all 28 contract versions are
+registered with exact local bytes, digest, release asset, immutable URL,
+enterprise path, and compatibility aliases. Policy config uses v3;
+repository-sync plan/report and custom-runtime manifest use v2. Existing
+supported legacy inputs remain accepted. New output emits only the current
+registered identity, and runtime validation stays offline.
 
 ## Uninstall And Remove
 
@@ -1427,17 +1428,19 @@ For exact flags, run `reconc help <command>` or
 In governed target repositories, repo-local policy lives in `.reconc.yml` and
 should be committed. The generated `.reconc/policy.lock.json` is a portable,
 committable policy contract and should be reviewed with policy-source changes.
-Format 4 is checkout-independent and byte-identical across equivalent clones
+Format 5 is checkout-independent and byte-identical across equivalent clones
 and worktrees. Source records contain only portable logical paths, SHA-256
 content identities, kinds, and bounded inline locations; raw source bodies and
 physical global-policy paths never enter the committable lock. Its
 `lock_digest` binds the complete canonical payload except for the digest field
-itself. For current format-4 locks, runtime verifies that envelope and reads the
+itself. For current format-5 locks, runtime verifies that envelope and reads the
 bounded source bundle once to compare its complete identity digest, then
-strictly decodes one typed immutable rule plan. Format-1, format-2, and
-format-3 lockfiles are migrated in memory only after their legacy schema
+strictly decodes one typed immutable repository-rule and action plan. Format-1,
+format-2, format-3, and format-4 lockfiles are migrated in memory only after
+their legacy schema
 identity and digest pass;
-their sources are reparsed and must retain exact embedded rule and MCP parity.
+their sources are reparsed and must retain exact embedded rule and canonical
+action parity.
 Publication
 uses atomic replacement and skips the write entirely when the canonical bytes
 are unchanged, so readers never see partial JSON and repeated compiles do not
@@ -1867,16 +1870,19 @@ pack handles generated-output boundaries only. Explicit assurance packs own
 language-specific hygiene, formatting, concurrency, architecture, performance,
 and repository checks.
 
-## Proposed Go-Only Action Plane
+## Go-Only Action Plane
 
-RECONC-0008 is a Draft contract for a future Action Plane. The current binary
-and the published v0.9.5 release do not implement it. The commands and policy
-fields named in this section are unavailable until their owning implementation
-tasks ship and the RFC is frozen.
+RECONC-0008 remains Draft. Unreleased source version `v0.9.6` implements strict
+`actions` authoring, canonical format-5 compilation, deterministic lowering of
+legacy `mcp` declarations, immutable typed matcher programs, a derived MCP
+compatibility view, and `reconc why action`. The published v0.9.5 release does
+not contain those additions. No current source command routes tool calls through
+an enforcing gateway, and the current runtime does not yet evaluate action
+rules.
 
-The proposal keeps all Reconc-owned product and adapter code in Go. One local,
-tool-only stdio MCP gateway would wrap one operator-selected downstream stdio
-MCP server. Calls routed through that gateway would be evaluated before
+The design keeps all Reconc-owned product and adapter code in Go. The target
+gateway is one local, tool-only stdio MCP process around one operator-selected
+downstream stdio MCP server. Calls routed through that gateway would be evaluated before
 downstream dispatch, and results and progress would be inspected before
 upstream delivery. LangChain would launch the Go binary through LangChain's own
 MCP adapter; Reconc would not ship a Python or TypeScript LangChain adapter.
@@ -1889,9 +1895,16 @@ framework interception. A pre-call block could prevent a routed tool from
 executing. Post-result containment could withhold data from the model boundary
 but could not undo a side effect that already occurred.
 
-The proposed compiler would lower new `actions.tools`, `actions.rules`, and
-`actions.defaults` plus compatible legacy `mcp` authoring into one canonical
-format-5 action plan. Runtime decisions would be exactly `allow`, `warn`,
+The compiler lowers `actions.tools`, `actions.rules`, and `actions.defaults`
+plus compatible legacy `mcp` authoring into one canonical format-5 action plan.
+It rejects unknown nested fields, ambiguous values, invalid or oversized
+predicates, duplicate ownership, incompatible defaults, and unsupported
+cross-field combinations. Regexes, doublestar globs, CIDRs, URL/path
+constraints, JSON Pointers, and typed constants are compiled once into the
+immutable runtime plan. `reconc why action .` explains the result with operand
+values redacted.
+
+The later evaluator will produce exactly `allow`, `warn`,
 `require_approval`, and `block` with
 `block > require_approval > warn > allow` precedence. Arguments and trusted
 context would use strict typed JSON, exact RFC 6901 pointers, deterministic
@@ -1904,7 +1917,8 @@ provenance and a visible policy-tampering boundary. Repository policy could
 never select the downstream executable, argv, working directory, inherited
 environment, credential material, state key, or approval authority.
 
-Later layers would add atomic cumulative budgets, signed one-time Ed25519
+Later layers add pure action evaluation, deterministic inspection, atomic
+cumulative budgets, signed one-time Ed25519
 approval receipts, deterministic local argument and result detectors,
 post-result withholding, a privacy-bounded tamper-evident retained action
 ledger, Impact Lab action scenarios, and local control-evidence mappings.
@@ -1933,6 +1947,7 @@ summarizes the core runtime responsibilities:
 - `cmd/reconc`: CLI entry point only
 - `buildprovenance`: deterministic target/source build identity and byte-only binary inspection
 - `internal/cli`: argument parsing and command dispatch
+- `internal/action`: pure canonical action contract, normalization, immutable matcher programs, and defensive views
 - `internal/ingest`: repository discovery and source loading
 - `internal/parser`: YAML-to-policy validation and normalization
 - `internal/compiler`: canonical JSON lockfile generation, digesting, conflicts, migrations, compile lock
@@ -1967,7 +1982,7 @@ summarizes the core runtime responsibilities:
 Key invariants:
 
 - Deterministic JSON artifacts
-- Stable schema and `format_version` fields; all 26 current and legacy contracts are registry-owned and ship under unique names, current artifact schemas span v1 and v2, legacy portable policy locks use v1-v3, and current portable policy locks retain the frozen v4 contract
+- Stable schema and `format_version` fields; all 28 current and legacy contracts are registry-owned and ship under unique names, current artifact schemas span v1-v3, legacy portable policy locks use v1-v4, and current portable policy locks use v5
 - Fail closed on malformed policy, stale lockfiles, schema drift, invalid globs, unsupported rule kinds, and non-portable current lock envelopes
 - No core policy-runtime network calls; supported agent hosts own their
   authenticated inference traffic

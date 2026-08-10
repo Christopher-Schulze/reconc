@@ -2,8 +2,8 @@
 
 - Status: Frozen
 - Contract: `.reconc/policy.lock.json`
-- Schema: `https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json`
-- Format version: `4`
+- Schema: `https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v5/policy-lock.schema.json`
+- Format version: `5`
 
 ## Purpose
 
@@ -36,7 +36,7 @@ The compiled `source_precedence` field is:
 | Field | Type | Rule |
 |---|---|---|
 | `$schema` | string | Must equal the schema URL above unless `RECONC_SCHEMA_BASE_URL` deliberately rewrites the base. |
-| `format_version` | string | Must equal `4`. |
+| `format_version` | string | Must equal `5`. |
 | `compiler_version` | string | Build version that wrote the lockfile. |
 | `repo_root` | string | Portable marker `.`. Physical checkout roots never enter current lockfiles. |
 | `default_mode` | string | One of `observe`, `warn`, `block`, `fix`. |
@@ -48,12 +48,17 @@ The compiled `source_precedence` field is:
 | `discovery` | object | Snapshot of discovery state and warnings. |
 | `sources` | object array | Body-free provenance for every input source in precedence order. |
 | `rules` | object array | Parsed, normalized, validated rules. |
+| `actions` | object | Canonical action-plan format 1 with explicit defaults, canonical tools, and canonical rules. Legacy `mcp` authoring is lowered into this object. |
 
-## Optional Top-Level Fields
+## Canonical Action Plan
 
-| Field | Type | Rule |
-|---|---|---|
-| `mcp` | object | Present only when compiler configuration contains `mcp`. Requires `unclassified` (`host` or `deny`) and a canonical `tools` array of exact platform, optional server fingerprint, tool, effect, effect-specific RFC 6901 selectors, and source provenance. Unknown fields and invalid cross-field combinations fail schema and runtime validation. |
+Format 5 always contains exactly one `actions` runtime source of truth and
+forbids a parallel top-level `mcp` object. The action plan carries its own
+format version, frozen defaults, canonical tool declarations, and canonical
+rules. Strict typed decoding, bounds, selectors, effects, conditions,
+predicates, provenance, failure policy, and cache policy are defined in
+RECONC-0008. Legacy `mcp` remains accepted authoring input during its
+compatibility window and is deterministically lowered before serialization.
 
 ## Source Digest
 
@@ -75,11 +80,12 @@ global-policy paths are forbidden in the current lockfile.
 
 `lock_digest` is SHA-256 over canonical JSON for every top-level field except
 `lock_digest` itself. Runtime verifies it before using embedded rules. A current
-format-4 lock then proves freshness by comparing its source count and
+format-5 lock then proves freshness by comparing its source count and
 `source_digest` with one bounded load of the current source bundle. Runtime
-strictly decodes the rules and optional MCP contract into one typed immutable
-plan. A migrated format-1, format-2, or format-3 lock additionally re-parses current
-sources and requires byte-equivalent canonical rule and optional MCP payloads,
+strictly decodes repository rules and the canonical action contract into one
+typed immutable plan. A migrated format-1, format-2, format-3, or format-4 lock
+additionally re-parses current sources and requires equivalent canonical rule
+and action behavior,
 so an in-memory legacy migration cannot legitimize policy drift.
 
 ## Rule Entries
@@ -107,13 +113,13 @@ Runtime loaders must:
 1. Refuse missing, malformed, stale, schema-drifted, or non-portable current
    lockfiles.
 2. Validate registered legacy schema identities and migrate known format-1
-   absolute-root, format-2 content-bearing, and format-3 lockfiles in memory to
-   the current body-free `.` envelope without mutating the input.
+   absolute-root, format-2 content-bearing, format-3, and format-4 lockfiles in
+   memory to the current body-free `.` envelope without mutating the input.
 3. Validate rule count and source count consistency.
 4. Validate the complete `lock_digest`, then compare the current source-bundle
-   identity with `source_digest` without reparsing a current format-4 lock.
+   identity with `source_digest` without reparsing a current format-5 lock.
 5. For every migrated legacy lock, additionally validate exact embedded-rule
-   plus optional MCP parity with reparsed current sources.
+   plus canonical action parity with reparsed current sources.
 6. Strictly decode one typed immutable runtime plan, reject unknown fields and
    unsupported shapes, and preserve declaration order through indexed subsets.
 7. Treat generated lockfiles as generated output; users must re-run

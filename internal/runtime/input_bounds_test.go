@@ -59,3 +59,23 @@ func TestLockfileAndExecutionInputReadsAreBounded(t *testing.T) {
 		})
 	}
 }
+
+func TestDecodeLockfileRejectsNonStrictJSON(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		body []byte
+		want string
+	}{
+		{name: "trailing", body: []byte(`{} {}`), want: "multiple JSON values"},
+		{name: "duplicate root", body: []byte(`{"format_version":"5","format_version":"4"}`), want: "duplicate object key"},
+		{name: "duplicate nested", body: []byte(`{"actions":{"rules":[],"rules":[]}}`), want: "duplicate object key"},
+		{name: "invalid UTF-8", body: []byte{'{', '"', 'x', '"', ':', '"', 0xff, '"', '}'}, want: "invalid UTF-8"},
+		{name: "unpaired surrogate", body: []byte(`{"x":"\ud800"}`), want: "unpaired high surrogate"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := decodeLockfile(test.body); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("strict lockfile JSON error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}

@@ -4,9 +4,13 @@ Status: Draft
 
 Contract family: `reconc.action/v1`
 
-Implementation state: proposed and not implemented. No released Reconc binary
-implements this RFC, and integrations must not depend on it until its status is
-Frozen together with implementation and release evidence.
+Implementation state: partially implemented in unreleased source version
+`v0.9.6`. TASK 154 implements strict action authoring, canonical format-5
+compilation and v4 migration, immutable matcher programs, the legacy MCP
+compatibility view, and `reconc why action`. The published v0.9.5 binary has
+none of those additions. Evaluation, inspection, budgets, approvals, ledger,
+gateway enforcement, Impact Lab action cases, and control-evidence export remain
+unavailable until their owning tasks are complete.
 
 ## Purpose And Boundary
 
@@ -1129,9 +1133,11 @@ configuration and approval-authority files must be outside the canonical
 repository and outside any path writable by the agent for independent-authority
 claims; otherwise startup refuses that claim.
 
-These commands are proposed and unavailable while this RFC is Draft. TASK 154
-owns `why action`, TASK 160 owns ledger commands, TASK 161 owns
-`mcp gateway`, and TASK 163 owns evidence commands.
+`reconc why action` is implemented in unreleased source version `v0.9.6` and
+explains only the compiled contract; it does not claim enforcement. The ledger,
+gateway, and evidence commands remain proposed and unavailable while this RFC
+is Draft. TASK 160 owns ledger commands, TASK 161 owns `mcp gateway`, and TASK
+163 owns evidence commands.
 
 ## Schema And Versioning
 
@@ -1313,7 +1319,7 @@ rows in this table. Evolution: vectors are append-only within contract version
 | `CONTROL-003` | required chain integrity fails | `missing` |
 | `CONTROL-004` | mapping was not run | `not_evaluated` |
 | `CONTROL-005` | custom mapping prose claims absent evidence | status remains `missing` |
-| `CLI-001` | command appears in docs while RFC is Draft | publication gate requires explicit unavailable label |
+| `CLI-001` | command appears before its owning task is implemented | publication gate requires an exact implemented or unavailable label |
 | `COMPAT-001` | each valid legacy effect lowers to format 5 | identical current host decision and evidence effect |
 | `COMPAT-002` | legacy unclassified host or deny | exact host-unmatched allow or block |
 | `COMPAT-003` | fingerprinted call with only unqualified declaration | no fallback |

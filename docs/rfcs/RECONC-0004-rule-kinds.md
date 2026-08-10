@@ -98,3 +98,12 @@ closed.
 Claims are explicit opaque strings. `reconc` checks whether a claim was
 asserted; it does not verify that the external fact is true. Agents
 must only pass claims that actually happened in the session or CI run.
+
+## Action Policy Rules
+
+Format-5 policy locks also contain the separate canonical `actions` plan from
+RECONC-0008. Action rules use transport/tool selectors, action phases, typed
+conditions, and action decisions; they are not repository rule kinds and never
+enter the `rules` array described above. Legacy `mcp` authoring lowers only into
+that action plan, so repository-rule dispatch and action-policy dispatch have
+one unambiguous owner each.

@@ -403,11 +403,17 @@ rm "$release_dir/unlisted"
 drift_dir="$tmp/release-drift"
 mkdir -p "$drift_dir"
 cp "$release_dir"/* "$drift_dir/"
-cp "$root/schemas/v4/policy-lock.schema.json" "$drift_dir/policy-lock-v5.schema.json"
+policy_lock_schema_source=$(
+  printf '%s\n' "$schema_asset_rows" \
+    | awk -F '\t' '$1 == "policy-lock.schema.json" { print $2 }'
+)
+[ -n "$policy_lock_schema_source" ] \
+  || fail "typed schema registry omits policy-lock.schema.json"
+cp "$root/$policy_lock_schema_source" "$drift_dir/unexpected-policy-lock.schema.json"
 "$root/scripts/release/write-checksums.sh" "$drift_dir"
 expect_failure_reason "expected exactly" \
   verify_release_artifacts "$drift_dir"
-rm "$drift_dir/policy-lock-v5.schema.json"
+rm "$drift_dir/unexpected-policy-lock.schema.json"
 rm "$drift_dir/policy-lock.schema.json"
 "$root/scripts/release/write-checksums.sh" "$drift_dir"
 expect_failure_reason "required release artifact is absent from manifest: policy-lock.schema.json" \

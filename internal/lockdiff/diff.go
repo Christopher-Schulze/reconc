@@ -21,7 +21,7 @@ import (
 	"reconc.dev/reconc/internal/compiler"
 )
 
-const maxLockfileBytes = 16 << 20
+const maxLockfileBytes = compiler.MaxLockfileBytes
 
 // Report is the structured result of comparing two lockfiles.
 type Report struct {

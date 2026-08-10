@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"reconc.dev/reconc/internal/action"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/policy"
@@ -49,6 +50,11 @@ var Migrations = []Migration{
 		FromVersion: "3",
 		ToVersion:   "4",
 		Apply:       migrateLockfileV3ToV4,
+	},
+	{
+		FromVersion: "4",
+		ToVersion:   "5",
+		Apply:       migrateLockfileV4ToV5,
 	},
 }
 
@@ -157,11 +163,61 @@ func migrateLockfileV3ToV4(payload map[string]interface{}) (map[string]interface
 		return nil, fmt.Errorf("legacy lockfile schema %q is not recognized", schemaURL)
 	}
 	out := cloneLockfileMap(payload)
-	out["$schema"] = LockfileSchema()
+	out["$schema"] = schema.ResolveVersion(schema.PolicyLock, "4")
 	out["format_version"] = "4"
 	digest, err := ComputeLockDigest(out)
 	if err != nil {
 		return nil, fmt.Errorf("compute migrated v4 lockfile digest: %w", err)
+	}
+	out["lock_digest"] = digest
+	return out, nil
+}
+
+// migrateLockfileV4ToV5 replaces the specialized MCP runtime representation
+// with the canonical action plan. Legacy policy remains authoring input only;
+// every migrated lock contains exactly one runtime source of truth.
+func migrateLockfileV4ToV5(payload map[string]interface{}) (map[string]interface{}, error) {
+	schemaURL, _ := payload["$schema"].(string)
+	if !schema.AcceptsVersion(schema.PolicyLock, "4", schemaURL) {
+		return nil, fmt.Errorf("legacy lockfile schema %q is not recognized", schemaURL)
+	}
+	storedDigest, _ := payload["lock_digest"].(string)
+	computedDigest, err := ComputeLockDigest(payload)
+	if err != nil {
+		return nil, fmt.Errorf("compute legacy v4 lockfile digest: %w", err)
+	}
+	if storedDigest == "" || storedDigest != computedDigest {
+		return nil, fmt.Errorf("legacy v4 lockfile payload digest does not match its contents")
+	}
+	if _, present := payload["actions"]; present {
+		return nil, fmt.Errorf("legacy v4 lockfile must not contain actions")
+	}
+	plan := action.Plan{FormatVersion: action.PlanFormatVersion}
+	if rawMCP, present := payload["mcp"]; present {
+		legacy, decodeErr := decodeLegacyMCP(rawMCP)
+		if decodeErr != nil {
+			return nil, fmt.Errorf("legacy v4 MCP contract is invalid: %w", decodeErr)
+		}
+		if lowerErr := lowerLegacyMCP(&plan, *legacy); lowerErr != nil {
+			return nil, lowerErr
+		}
+	}
+	compiled, err := action.CompilePlan(plan)
+	if err != nil {
+		return nil, fmt.Errorf("compile migrated action plan: %w", err)
+	}
+	out := cloneLockfileMap(payload)
+	delete(out, "mcp")
+	out["$schema"] = schema.ResolveVersion(schema.PolicyLock, "5")
+	out["format_version"] = "5"
+	out["actions"] = compiled.Plan()
+	out, err = normalizeLockPayload(out)
+	if err != nil {
+		return nil, fmt.Errorf("normalize migrated v5 lockfile: %w", err)
+	}
+	digest, err := ComputeLockDigest(out)
+	if err != nil {
+		return nil, fmt.Errorf("compute migrated v5 lockfile digest: %w", err)
 	}
 	out["lock_digest"] = digest
 	return out, nil

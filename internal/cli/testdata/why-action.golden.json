@@ -1,0 +1,39 @@
+{
+  "format_version": "1",
+  "defaults": {
+    "declared_tool": "allow",
+    "gateway_unmatched": "block",
+    "host_unmatched": "allow",
+    "evaluation_error": "block",
+    "post_error": "block",
+    "progress_error": "block",
+    "cache": "exact"
+  },
+  "tools": [],
+  "rules": [
+    {
+      "id": "block-secret",
+      "selector": {
+        "phases": [
+          "pre_call"
+        ]
+      },
+      "when": {
+        "predicate": {
+          "source": "arguments",
+          "pointer": "/token",
+          "op": "eq",
+          "value": {
+            "redacted": true,
+            "kind": "string",
+            "canonical_bytes": 25
+          }
+        }
+      },
+      "decision": "block",
+      "on_indeterminate": "block",
+      "cache": "exact",
+      "source_identity": ".reconc.yml"
+    }
+  ]
+}

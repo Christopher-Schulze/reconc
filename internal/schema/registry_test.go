@@ -265,6 +265,7 @@ func schemaFormatVersions(document map[string]interface{}) []string {
 				if format, ok := properties["format_version"].(map[string]interface{}); ok {
 					if constant, ok := format["const"].(string); ok {
 						values[constant] = true
+						return
 					}
 				}
 			}

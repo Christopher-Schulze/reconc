@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	stderrors "errors"
 	"fmt"
+	"io"
 	"os"
 
+	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/compiler"
 	rerrors "reconc.dev/reconc/internal/errors"
@@ -16,7 +18,9 @@ import (
 	"reconc.dev/reconc/internal/policy"
 )
 
-const maxLockfileBytes int64 = 16 << 20
+const maxLockfileBytes = compiler.MaxLockfileBytes
+
+const maxLockfileJSONDepth = action.MaxJSONDepth + 2*action.MaxConditionDepth + 16
 
 // --- Lockfile loading + freshness ---
 
@@ -85,11 +89,21 @@ func readLockfileBytes(root string) ([]byte, error) {
 }
 
 func decodeLockfile(data []byte) (*decodedLockfile, error) {
+	if err := validateLockfileJSONKeys(data); err != nil {
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile is not strict JSON", Cause: err}
+	}
 	var payload map[string]interface{}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
 	if err := dec.Decode(&payload); err != nil {
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile is not valid JSON", Cause: err}
+	}
+	var trailing interface{}
+	if err := dec.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return nil, &rerrors.LockfileError{Message: "compiled lockfile contains trailing JSON"}
+		}
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile has invalid trailing JSON", Cause: err}
 	}
 	if payload == nil {
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile must contain a JSON object at the top level"}
@@ -138,11 +152,83 @@ func decodeLockfile(data []byte) (*decodedLockfile, error) {
 	if int(expectedSourceCount) != len(sources) {
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile source_count does not match the embedded sources"}
 	}
-	if _, err := decodeMCPPolicy(payload); err != nil {
+	if _, err := decodeActionPlan(payload); err != nil {
 		return nil, err
 	}
 
 	return &decodedLockfile{payload: payload, migrated: len(applied) > 0}, nil
+}
+
+func validateLockfileJSONKeys(data []byte) error {
+	if err := action.ValidateJSONUnicode(data); err != nil {
+		return err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	first, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	if delimiter, ok := first.(json.Delim); !ok || delimiter != '{' {
+		return fmt.Errorf("root value must be an object")
+	}
+	if err := validateLockfileJSONContainer(decoder, '{', 1); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); !stderrors.Is(err, io.EOF) {
+		if err == nil {
+			return fmt.Errorf("multiple JSON values are not allowed")
+		}
+		return err
+	}
+	return nil
+}
+
+func validateLockfileJSONContainer(decoder *json.Decoder, delimiter json.Delim, depth int) error {
+	if depth > maxLockfileJSONDepth {
+		return fmt.Errorf("JSON nesting exceeds %d levels", maxLockfileJSONDepth)
+	}
+	seen := map[string]struct{}{}
+	for decoder.More() {
+		if delimiter == '{' {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return fmt.Errorf("object key is not a string")
+			}
+			if _, duplicate := seen[key]; duplicate {
+				return fmt.Errorf("duplicate object key %q", key)
+			}
+			seen[key] = struct{}{}
+		}
+		value, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		if nested, ok := value.(json.Delim); ok {
+			if nested != '{' && nested != '[' {
+				return fmt.Errorf("unexpected JSON delimiter %q", nested)
+			}
+			if err := validateLockfileJSONContainer(decoder, nested, depth+1); err != nil {
+				return err
+			}
+		}
+	}
+	closing, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	want := json.Delim('}')
+	if delimiter == '[' {
+		want = ']'
+	}
+	if closing != want {
+		return fmt.Errorf("JSON container closed by %q, want %q", closing, want)
+	}
+	return nil
 }
 
 func validateLockfileFreshness(root string, payload map[string]interface{}, migrated bool) error {
@@ -213,8 +299,32 @@ func (e *Evaluator) ValidatePolicyLockfile(startPath string) error {
 	return err
 }
 
-// LoadMCPPolicy returns the fresh, validated MCP contract. A nil contract
-// means the optional compiler-config section is absent.
+// LoadActionPlan returns the fresh canonical action contract as a defensive
+// copy. Runtime matcher programs remain owned by the evaluator.
+func LoadActionPlan(startPath string) (action.Plan, error) {
+	return NewEvaluator().LoadActionPlan(startPath)
+}
+
+// LoadActionPlan returns the typed canonical action contract from this
+// evaluator's immutable runtime plan.
+func (e *Evaluator) LoadActionPlan(startPath string) (action.Plan, error) {
+	discovery, err := ingest.DiscoverPolicyRepo(startPath)
+	if err != nil {
+		return action.Plan{}, err
+	}
+	if !discovery.Discovered {
+		return action.Plan{}, fmt.Errorf("no policy markers discovered")
+	}
+	plan, err := e.loadFreshRuntimePlan(discovery.RepoRoot)
+	if err != nil {
+		return action.Plan{}, err
+	}
+	return plan.actions.Plan(), nil
+}
+
+// LoadMCPPolicy returns the fresh compatibility view derived from canonical
+// host_mcp action declarations. A nil contract means the action plan retains
+// the legacy host baseline and declares no host tools.
 func LoadMCPPolicy(startPath string) (*policy.MCPPolicy, error) {
 	return NewEvaluator().LoadMCPPolicy(startPath)
 }
@@ -232,34 +342,49 @@ func (e *Evaluator) LoadMCPPolicy(startPath string) (*policy.MCPPolicy, error) {
 	if err != nil {
 		return nil, err
 	}
-	if plan.mcp == nil {
-		return nil, nil
-	}
-	contract := *plan.mcp
-	contract.Tools = policy.SortedMCPTools(contract.Tools)
-	return &contract, nil
+	return deriveMCPPolicy(plan.actions.Plan())
 }
 
-func decodeMCPPolicy(payload map[string]interface{}) (*policy.MCPPolicy, error) {
-	raw, present := payload["mcp"]
+func decodeActionPlan(payload map[string]interface{}) (*action.CompiledPlan, error) {
+	raw, present := payload["actions"]
 	if !present {
-		return nil, nil
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile must contain an actions object"}
 	}
 	data, err := json.Marshal(raw)
 	if err != nil {
-		return nil, &rerrors.LockfileError{Message: "encode compiled lockfile MCP contract", Cause: err}
+		return nil, &rerrors.LockfileError{Message: "encode compiled lockfile action plan", Cause: err}
 	}
-	var contract policy.MCPPolicy
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&contract); err != nil {
-		return nil, &rerrors.LockfileError{Message: "compiled lockfile MCP contract is invalid", Cause: err}
+	return decodeActionPlanJSON(data)
+}
+
+func deriveMCPPolicy(plan action.Plan) (*policy.MCPPolicy, error) {
+	mode := policy.MCPUnclassifiedHost
+	if plan.Defaults.HostUnmatched == action.DecisionBlock {
+		mode = policy.MCPUnclassifiedDeny
+	}
+	contract := &policy.MCPPolicy{Unclassified: mode, Tools: []policy.MCPToolPolicy{}}
+	for _, tool := range plan.Tools {
+		if tool.Transport != action.TransportHostMCP {
+			continue
+		}
+		contract.Tools = append(contract.Tools, policy.MCPToolPolicy{
+			Platform:          policy.MCPPlatform(tool.Platform),
+			ServerFingerprint: tool.ServerFingerprint,
+			Tool:              tool.Tool,
+			Effect:            policy.MCPEffect(tool.Effect.Kind),
+			PathFields:        append([]string(nil), tool.Effect.PathFields...),
+			CommandField:      tool.Effect.CommandField,
+			SourcePath:        tool.SourceIdentity,
+		})
+	}
+	if len(contract.Tools) == 0 && mode == policy.MCPUnclassifiedHost {
+		return nil, nil
 	}
 	if err := contract.Validate(); err != nil {
-		return nil, &rerrors.LockfileError{Message: "compiled lockfile MCP contract is invalid: " + err.Error()}
+		return nil, &rerrors.LockfileError{Message: "canonical action plan cannot produce the MCP compatibility view: " + err.Error()}
 	}
 	contract.Tools = policy.SortedMCPTools(contract.Tools)
-	return &contract, nil
+	return contract, nil
 }
 
 func numAsInt(v interface{}) int64 {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 	"gopkg.in/yaml.v3"
+	"reconc.dev/reconc/internal/action"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/policy"
@@ -50,6 +51,7 @@ const DefaultMode = policy.ModeWarn
 type ParsedPolicy struct {
 	DefaultMode policy.Mode       `json:"default_mode"`
 	Rules       []policy.Rule     `json:"rules"`
+	Actions     *action.Plan      `json:"actions,omitempty"`
 	MCP         *policy.MCPPolicy `json:"mcp,omitempty"`
 }
 
@@ -73,6 +75,7 @@ func ParseRuleDocuments(bundle *ingest.SourceBundle) (*ParsedPolicy, error) {
 	rules := []policy.Rule{}
 	seen := map[string]string{} // rule id -> source path of first sighting
 	var mcpPolicy *policy.MCPPolicy
+	var actionPolicy *action.Plan
 
 	for _, src := range bundle.Sources {
 		// Skip context-only sources; their fenced blocks land as
@@ -114,6 +117,13 @@ func ParseRuleDocuments(bundle *ingest.SourceBundle) (*ParsedPolicy, error) {
 			if present {
 				mcpPolicy = parsedMCP
 			}
+			parsedActions, present, err := parseActionPolicy(src)
+			if err != nil {
+				return nil, err
+			}
+			if present {
+				actionPolicy = parsedActions
+			}
 		}
 
 		coerced, err := coerceRules(src, doc)
@@ -152,6 +162,7 @@ func ParseRuleDocuments(bundle *ingest.SourceBundle) (*ParsedPolicy, error) {
 	return &ParsedPolicy{
 		DefaultMode: defaultMode,
 		Rules:       rules,
+		Actions:     actionPolicy,
 		MCP:         mcpPolicy,
 	}, nil
 }

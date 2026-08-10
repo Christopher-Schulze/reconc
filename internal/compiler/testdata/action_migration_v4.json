@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json",
+  "format_version": "4",
+  "mcp": {
+    "unclassified": "deny",
+    "tools": [
+      {
+        "platform": "cursor",
+        "tool": "write",
+        "effect": "repository_write",
+        "path_fields": ["/path"],
+        "source_path": ".reconc.yml"
+      }
+    ]
+  }
+}

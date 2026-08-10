@@ -17,11 +17,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
+	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/customruntime"
 	rerrors "reconc.dev/reconc/internal/errors"
@@ -32,9 +34,13 @@ import (
 )
 
 // LockfileFormatVersion is bumped whenever the lockfile contract changes in a
-// non-additive way. Version 3 replaces embedded raw source bodies with
-// portable SHA-256 provenance.
-const LockfileFormatVersion = "4"
+// non-additive way. Version 5 replaces the specialized MCP runtime contract
+// with one canonical, transport-neutral action plan.
+const LockfileFormatVersion = "5"
+
+// MaxLockfileBytes is the one compiler/runtime/diff admission boundary. The
+// compiler must never publish bytes that its consumers refuse to read.
+const MaxLockfileBytes int64 = 16 << 20
 
 // PortableRepoRoot is the only repository identity serialized into current
 // lockfiles. Runtime binds it to the discovered checkout and verifies semantic
@@ -70,6 +76,8 @@ type CompiledPolicy struct {
 	SourceDigest    string                  `json:"source_digest"`
 	DefaultMode     policy.Mode             `json:"default_mode"`
 	RuleCount       int                     `json:"rule_count"`
+	ActionToolCount int                     `json:"action_tool_count"`
+	ActionRuleCount int                     `json:"action_rule_count"`
 	MCPToolCount    int                     `json:"mcp_tool_count"`
 	SourceCount     int                     `json:"source_count"`
 	SourcePaths     []string                `json:"source_paths"`
@@ -154,7 +162,12 @@ func renderPolicyBundle(bundle *ingest.SourceBundle, compilerVersion string) (*C
 	if err != nil {
 		return nil, nil, err
 	}
-	customRuntimes, err := compileCustomRuntimes(bundle, parsed.MCP)
+	actions, err := compileCanonicalActions(parsed)
+	if err != nil {
+		return nil, nil, err
+	}
+	actionPlan := actions.Plan()
+	customRuntimes, err := compileCustomRuntimes(bundle, actionPlan)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -201,7 +214,11 @@ func renderPolicyBundle(bundle *ingest.SourceBundle, compilerVersion string) (*C
 	}
 	compiledDiscovery.Warnings = append(compiledDiscovery.Warnings, braceVariableWarnings(parsed.Rules)...)
 
-	payload := buildLockPayload(bundle, parsed, digest, compilerVersion, compiledDiscovery, customRuntimes)
+	payload := buildLockPayload(bundle, parsed, actionPlan, digest, compilerVersion, compiledDiscovery, customRuntimes)
+	payload, err = normalizeLockPayload(payload)
+	if err != nil {
+		return nil, nil, &rerrors.LockfileError{Message: "normalize lockfile payload", Cause: err}
+	}
 	lockDigest, err := ComputeLockDigest(payload)
 	if err != nil {
 		return nil, nil, &rerrors.LockfileError{Message: "compute lockfile digest", Cause: err}
@@ -221,7 +238,9 @@ func renderPolicyBundle(bundle *ingest.SourceBundle, compilerVersion string) (*C
 		SourceDigest:    digest,
 		DefaultMode:     parsed.DefaultMode,
 		RuleCount:       len(parsed.Rules),
-		MCPToolCount:    mcpToolCount(parsed.MCP),
+		ActionToolCount: len(actionPlan.Tools),
+		ActionRuleCount: len(actionPlan.Rules),
+		MCPToolCount:    hostMCPToolCount(actionPlan),
 		SourceCount:     len(bundle.Sources),
 		SourcePaths:     sourcePathsOf(bundle.Sources),
 		CustomRuntimes:  customRuntimes,
@@ -288,6 +307,39 @@ func marshalCanonical(v interface{}) ([]byte, error) {
 	return data, nil
 }
 
+// normalizeLockPayload freezes custom marshalers and typed numeric fields into
+// the exact generic JSON tree that the runtime decoder later verifies. Digest
+// computation and emitted bytes therefore share one representation.
+func normalizeLockPayload(payload map[string]interface{}) (map[string]interface{}, error) {
+	normalized, err := normalizeJSONValue(payload)
+	if err != nil {
+		return nil, err
+	}
+	object, ok := normalized.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("normalized lockfile is not an object")
+	}
+	return object, nil
+}
+
+func normalizeJSONValue(value interface{}) (interface{}, error) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	var normalized interface{}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&normalized); err != nil {
+		return nil, err
+	}
+	var trailing interface{}
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return nil, fmt.Errorf("normalized value contains trailing JSON")
+	}
+	return normalized, nil
+}
+
 // ComputeLockDigest returns the canonical SHA-256 digest of the complete
 // lockfile payload except for the lock_digest field itself. It binds embedded
 // rules and discovery metadata in addition to the independently verified
@@ -326,27 +378,28 @@ func ValidateEmbeddedRules(payload map[string]interface{}, parsed *parser.Parsed
 	if !bytes.Equal(actualData, expectedData) {
 		return &rerrors.LockfileError{Message: "compiled lockfile rules do not match the current policy sources"}
 	}
-	expectedMCP := interface{}(nil)
-	if parsed.MCP != nil {
-		expectedMCP = mcpToMap(*parsed.MCP)
-	}
-	actualMCP, present := payload["mcp"]
-	if parsed.MCP == nil && present {
-		return &rerrors.LockfileError{Message: "compiled lockfile MCP contract does not match the current policy sources"}
-	}
-	if parsed.MCP != nil && !present {
-		return &rerrors.LockfileError{Message: "compiled lockfile MCP contract does not match the current policy sources"}
-	}
-	expectedMCPData, err := marshalCanonical(expectedMCP)
+	expectedActions, err := compileCanonicalActions(parsed)
 	if err != nil {
-		return &rerrors.LockfileError{Message: "encode MCP contract parsed from current policy sources", Cause: err}
+		return &rerrors.LockfileError{Message: "compile actions parsed from current policy sources", Cause: err}
 	}
-	actualMCPData, err := marshalCanonical(actualMCP)
+	actualActions, present := payload["actions"]
+	if !present {
+		return &rerrors.LockfileError{Message: "compiled lockfile action plan does not match the current policy sources"}
+	}
+	expectedActionsValue, err := normalizeJSONValue(expectedActions.Plan())
 	if err != nil {
-		return &rerrors.LockfileError{Message: "encode embedded lockfile MCP contract", Cause: err}
+		return &rerrors.LockfileError{Message: "normalize action plan parsed from current policy sources", Cause: err}
 	}
-	if !bytes.Equal(actualMCPData, expectedMCPData) {
-		return &rerrors.LockfileError{Message: "compiled lockfile MCP contract does not match the current policy sources"}
+	expectedActionsData, err := marshalCanonical(expectedActionsValue)
+	if err != nil {
+		return &rerrors.LockfileError{Message: "encode action plan parsed from current policy sources", Cause: err}
+	}
+	actualActionsData, err := marshalCanonical(actualActions)
+	if err != nil {
+		return &rerrors.LockfileError{Message: "encode embedded lockfile action plan", Cause: err}
+	}
+	if !bytes.Equal(actualActionsData, expectedActionsData) {
+		return &rerrors.LockfileError{Message: "compiled lockfile action plan does not match the current policy sources"}
 	}
 	return nil
 }
@@ -361,6 +414,7 @@ func ValidateEmbeddedRules(payload map[string]interface{}, parsed *parser.Parsed
 func buildLockPayload(
 	bundle *ingest.SourceBundle,
 	parsed *parser.ParsedPolicy,
+	actions action.Plan,
 	digest string,
 	compilerVersion string,
 	discovery ingest.DiscoveryResult,
@@ -389,6 +443,7 @@ func buildLockPayload(
 		"discovery":         discoveryToMap(discovery),
 		"sources":           sourcesOut,
 		"rules":             rulesOut,
+		"actions":           actions,
 	}
 	if len(customRuntimes) > 0 {
 		out := make([]interface{}, 0, len(customRuntimes))
@@ -402,13 +457,10 @@ func buildLockPayload(
 		}
 		payload["custom_runtimes"] = out
 	}
-	if parsed.MCP != nil {
-		payload["mcp"] = mcpToMap(*parsed.MCP)
-	}
 	return payload
 }
 
-func compileCustomRuntimes(bundle *ingest.SourceBundle, mcp *policy.MCPPolicy) ([]customruntime.Summary, error) {
+func compileCustomRuntimes(bundle *ingest.SourceBundle, actions action.Plan) ([]customruntime.Summary, error) {
 	summaries := []customruntime.Summary{}
 	configured := map[string]struct{}{}
 	for _, source := range bundle.Sources {
@@ -428,12 +480,12 @@ func compileCustomRuntimes(bundle *ingest.SourceBundle, mcp *policy.MCPPolicy) (
 		configured[manifest.Runtime()] = struct{}{}
 		summaries = append(summaries, manifest.Summary())
 	}
-	if mcp != nil {
-		for _, tool := range mcp.Tools {
+	for _, tool := range actions.Tools {
+		if tool.Transport == action.TransportHostMCP {
 			platform := string(tool.Platform)
 			if strings.HasPrefix(platform, "custom:") {
 				if _, ok := configured[platform]; !ok {
-					return nil, &rerrors.PolicySourceError{Message: "MCP selector references unconfigured custom runtime " + platform}
+					return nil, &rerrors.PolicySourceError{Message: "action tool references unconfigured custom runtime " + platform}
 				}
 			}
 		}
@@ -441,40 +493,14 @@ func compileCustomRuntimes(bundle *ingest.SourceBundle, mcp *policy.MCPPolicy) (
 	return summaries, nil
 }
 
-func mcpToolCount(contract *policy.MCPPolicy) int {
-	if contract == nil {
-		return 0
+func hostMCPToolCount(plan action.Plan) int {
+	count := 0
+	for _, tool := range plan.Tools {
+		if tool.Transport == action.TransportHostMCP {
+			count++
+		}
 	}
-	return len(contract.Tools)
-}
-
-func mcpToMap(contract policy.MCPPolicy) map[string]interface{} {
-	tools := policy.SortedMCPTools(contract.Tools)
-	toolsOut := make([]interface{}, 0, len(tools))
-	for _, tool := range tools {
-		entry := map[string]interface{}{
-			"platform": string(tool.Platform),
-			"tool":     tool.Tool,
-			"effect":   string(tool.Effect),
-		}
-		if tool.ServerFingerprint != "" {
-			entry["server_fingerprint"] = tool.ServerFingerprint
-		}
-		if len(tool.PathFields) > 0 {
-			entry["path_fields"] = append([]string(nil), tool.PathFields...)
-		}
-		if tool.CommandField != "" {
-			entry["command_field"] = tool.CommandField
-		}
-		if tool.SourcePath != "" {
-			entry["source_path"] = tool.SourcePath
-		}
-		toolsOut = append(toolsOut, entry)
-	}
-	return map[string]interface{}{
-		"unclassified": string(contract.Unclassified),
-		"tools":        toolsOut,
-	}
+	return count
 }
 
 // ruleToMap converts a Rule to a generic map so json.Marshal applies
@@ -879,7 +905,11 @@ func encodeLockfile(payload map[string]interface{}) ([]byte, error) {
 	if err != nil {
 		return nil, &rerrors.LockfileError{Message: "marshal lockfile", Cause: err}
 	}
-	return append(data, '\n'), nil
+	data = append(data, '\n')
+	if int64(len(data)) > MaxLockfileBytes {
+		return nil, &rerrors.LockfileError{Message: fmt.Sprintf("compiled lockfile exceeds %d bytes", MaxLockfileBytes)}
+	}
+	return data, nil
 }
 
 func writeLockfile(repoRoot string, body []byte) error {

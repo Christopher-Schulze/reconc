@@ -1,5 +1,13 @@
 default_mode: warn
 
+# Action policy is compiled into the same lockfile. The gateway baseline is
+# fail-closed; direct host MCP calls retain legacy allow-unmatched behavior
+# until a repository deliberately selects block.
+actions:
+  defaults:
+    gateway_unmatched: block
+    host_unmatched: allow
+
 # This harness models TASK state in the logbook-v1 grammar (Current:
 # header plus TASK-NNNN-Name rows). Declaring it explicitly keeps the
 # profile independent of auto-detection. The `reconc bootstrap`

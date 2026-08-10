@@ -1,0 +1,24 @@
+actions:
+  tools:
+    - id: warehouse-query
+      transport: mcp_stdio
+      server_label: warehouse
+      tool: query
+      effect:
+        kind: external
+  defaults:
+    declared_tool: warn
+    cache: never
+  rules:
+    - id: block-production
+      selector:
+        tool_ids: [warehouse-query]
+        phases: [pre_call]
+      when:
+        predicate:
+          source: arguments
+          pointer: /database
+          op: eq
+          value: production
+      decision: block
+      message: Production access is forbidden.

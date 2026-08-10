@@ -1,6 +1,8 @@
 package compiler
 
 import (
+	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -48,7 +50,7 @@ func TestMigrateLockfileV1ToPortableV2(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MigrateLockfile: %v", err)
 	}
-	if len(applied) != 3 || applied[0].FromVersion != "1" || applied[len(applied)-1].ToVersion != LockfileFormatVersion {
+	if len(applied) != 4 || applied[0].FromVersion != "1" || applied[len(applied)-1].ToVersion != LockfileFormatVersion {
 		t.Fatalf("unexpected migration chain: %+v", applied)
 	}
 	if out["$schema"] != DefaultLockfileSchema {
@@ -100,7 +102,7 @@ func TestMigrateLockfileV2RemovesSourceBodiesAndPreservesFreshnessDigest(t *test
 	if err != nil {
 		t.Fatalf("MigrateLockfile: %v", err)
 	}
-	if len(applied) != 2 || applied[0].FromVersion != "2" || applied[len(applied)-1].ToVersion != LockfileFormatVersion {
+	if len(applied) != 3 || applied[0].FromVersion != "2" || applied[len(applied)-1].ToVersion != LockfileFormatVersion {
 		t.Fatalf("unexpected migration chain: %+v", applied)
 	}
 	source := out["sources"].([]interface{})[0].(map[string]interface{})
@@ -229,10 +231,10 @@ type testErr struct{ msg string }
 
 func (e *testErr) Error() string { return e.msg }
 
-// TestMigrateLockfileV3ToV4StampsTheCurrentContract proves a format-3 lock
+// TestMigrateLockfileV3ToCurrentStampsTheCurrentContract proves a format-3 lock
 // reaches the current format with a consistent self-digest. The rule payload is
 // carried verbatim: a legacy lock simply declares no script cache inputs.
-func TestMigrateLockfileV3ToV4StampsTheCurrentContract(t *testing.T) {
+func TestMigrateLockfileV3ToCurrentStampsTheCurrentContract(t *testing.T) {
 	t.Setenv("RECONC_SCHEMA_BASE_URL", "")
 	payload := map[string]interface{}{
 		"$schema":        schema.LegacyPolicyLockV3URL,
@@ -267,7 +269,7 @@ func TestMigrateLockfileV3ToV4StampsTheCurrentContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MigrateLockfile: %v", err)
 	}
-	if len(applied) != 1 || applied[0].FromVersion != "3" || applied[0].ToVersion != LockfileFormatVersion {
+	if len(applied) != 2 || applied[0].FromVersion != "3" || applied[len(applied)-1].ToVersion != LockfileFormatVersion {
 		t.Fatalf("unexpected migration chain: %+v", applied)
 	}
 	if out["format_version"] != LockfileFormatVersion {
@@ -299,5 +301,67 @@ func TestMigrateLockfileV3RejectsForeignSchema(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "is not recognized") {
 		t.Fatalf("error = %v, want an unrecognized-schema refusal", err)
+	}
+}
+
+func TestMigrateLockfileV4LowersLegacyMCPIntoOneStableActionPlan(t *testing.T) {
+	t.Setenv("RECONC_SCHEMA_BASE_URL", "")
+	payload := map[string]interface{}{
+		"$schema":        schema.LegacyPolicyLockV4URL,
+		"format_version": "4",
+		"mcp": map[string]interface{}{
+			"unclassified": "deny",
+			"tools": []interface{}{
+				map[string]interface{}{
+					"platform": "cursor", "tool": "write", "effect": "repository_write",
+					"path_fields": []interface{}{`/path`}, "source_path": ".reconc.yml",
+				},
+			},
+		},
+	}
+	digest, err := ComputeLockDigest(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload["lock_digest"] = digest
+
+	first, applied, err := MigrateLockfile(payload)
+	if err != nil {
+		t.Fatalf("migrate v4: %v", err)
+	}
+	second, _, err := MigrateLockfile(payload)
+	if err != nil {
+		t.Fatalf("repeat migrate v4: %v", err)
+	}
+	firstJSON, _ := json.Marshal(first)
+	secondJSON, _ := json.Marshal(second)
+	if !bytes.Equal(firstJSON, secondJSON) {
+		t.Fatal("repeated v4 migrations are not byte-identical")
+	}
+	if len(applied) != 1 || applied[0].FromVersion != "4" || applied[0].ToVersion != "5" {
+		t.Fatalf("migration chain = %+v", applied)
+	}
+	if _, present := first["mcp"]; present {
+		t.Fatal("migrated lock retained a parallel MCP plan")
+	}
+	actions := first["actions"].(map[string]interface{})
+	defaults := actions["defaults"].(map[string]interface{})
+	tools := actions["tools"].([]interface{})
+	tool := tools[0].(map[string]interface{})
+	if defaults["host_unmatched"] != "block" || defaults["gateway_unmatched"] != "block" ||
+		tool["origin"] != "legacy_mcp" || tool["transport"] != "host_mcp" ||
+		!strings.HasPrefix(tool["id"].(string), legacyMCPIDPrefix) {
+		t.Fatalf("migrated action contract = %#v", actions)
+	}
+}
+
+func TestMigrateLockfileV4RejectsTamperingBeforeLowering(t *testing.T) {
+	payload := map[string]interface{}{
+		"$schema":        schema.LegacyPolicyLockV4URL,
+		"format_version": "4",
+		"lock_digest":    strings.Repeat("a", 64),
+	}
+	if _, _, err := MigrateLockfile(payload); err == nil || !strings.Contains(err.Error(), "digest") {
+		t.Fatalf("tampered v4 lock accepted: %v", err)
 	}
 }

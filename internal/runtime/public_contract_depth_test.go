@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/policy"
 )
 
@@ -103,6 +104,13 @@ func TestLoadMCPPolicyReturnsCanonicalOptionalContract(t *testing.T) {
 		len(contract.Tools) != 2 || contract.Tools[0].Tool != "a_write" || contract.Tools[1].Tool != "z_external" {
 		t.Fatalf("unexpected MCP contract: %+v", contract)
 	}
+	actions, err := LoadActionPlan(repo)
+	if err != nil {
+		t.Fatalf("LoadActionPlan: %v", err)
+	}
+	if len(actions.Tools) != 2 || actions.Tools[0].Origin != action.OriginLegacyMCP || actions.Defaults.HostUnmatched != action.DecisionBlock {
+		t.Fatalf("unexpected canonical action plan: %+v", actions)
+	}
 
 	without := makeRepo(t, "# project\n", "", "rules: []\n")
 	contract, err = LoadMCPPolicy(without)
@@ -111,18 +119,19 @@ func TestLoadMCPPolicyReturnsCanonicalOptionalContract(t *testing.T) {
 	}
 }
 
-func TestDecodeMCPPolicyRejectsMalformedPayloads(t *testing.T) {
+func TestDecodeActionPlanRejectsMalformedPayloads(t *testing.T) {
 	for _, test := range []struct {
 		name    string
 		payload map[string]interface{}
 		err     string
 	}{
-		{name: "wrong type", payload: map[string]interface{}{"mcp": "deny"}, err: "contract is invalid"},
-		{name: "unknown field", payload: map[string]interface{}{"mcp": map[string]interface{}{"unclassified": "deny", "tools": []interface{}{}, "extra": true}}, err: "contract is invalid"},
-		{name: "invalid mode", payload: map[string]interface{}{"mcp": map[string]interface{}{"unclassified": "unknown", "tools": []interface{}{}}}, err: "unclassified"},
+		{name: "missing", payload: map[string]interface{}{}, err: "actions object"},
+		{name: "wrong type", payload: map[string]interface{}{"actions": "deny"}, err: "plan is invalid"},
+		{name: "unknown field", payload: map[string]interface{}{"actions": map[string]interface{}{"format_version": "1", "tools": []interface{}{}, "rules": []interface{}{}, "defaults": map[string]interface{}{}, "extra": true}}, err: "plan is invalid"},
+		{name: "invalid default", payload: map[string]interface{}{"actions": map[string]interface{}{"format_version": "1", "tools": []interface{}{}, "rules": []interface{}{}, "defaults": map[string]interface{}{"host_unmatched": "warn"}}}, err: "host_unmatched"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := decodeMCPPolicy(test.payload); err == nil || !strings.Contains(err.Error(), test.err) {
+			if _, err := decodeActionPlan(test.payload); err == nil || !strings.Contains(err.Error(), test.err) {
 				t.Fatalf("expected %q error, got %v", test.err, err)
 			}
 		})

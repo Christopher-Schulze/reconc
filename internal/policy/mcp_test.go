@@ -211,10 +211,10 @@ func TestResolveJSONPointerTraversesObjectsAndArrays(t *testing.T) {
 	}
 }
 
-// TestPublishedSchemasAcceptExactlyTheBuiltinMCPPlatforms keeps the two live
-// JSON contracts and the Go vocabulary from drifting apart. A platform Go
-// accepts but a schema rejects makes a valid policy fail external validation; a
-// platform a schema accepts but Go rejects promises enforcement that never runs.
+// TestPublishedSchemasAcceptExactlyTheBuiltinMCPPlatforms keeps the inherited
+// legacy MCP contracts and the Go vocabulary from drifting apart. Format 5 no
+// longer serializes the compatibility view, so the current lock must not expose
+// a parallel MCP plan.
 func TestPublishedSchemasAcceptExactlyTheBuiltinMCPPlatforms(t *testing.T) {
 	policyConfig, ok := schema.CurrentContract(schema.PolicyConfig)
 	if !ok {
@@ -224,12 +224,32 @@ func TestPublishedSchemasAcceptExactlyTheBuiltinMCPPlatforms(t *testing.T) {
 	if !ok {
 		t.Fatal("schema registry has no current policy-lock contract")
 	}
+	legacyConfig, ok := schema.ContractVersion(schema.PolicyConfig, "2")
+	if !ok {
+		t.Fatal("schema registry has no policy-config v2 contract")
+	}
+	legacyLock, ok := schema.ContractVersion(schema.PolicyLock, "4")
+	if !ok {
+		t.Fatal("schema registry has no policy-lock v4 contract")
+	}
+
+	currentConfigDocument := readMCPSchemaDocument(t, policyConfig.LocalPath)
+	mcpReference := schemaObjectMember(t, currentConfigDocument, "properties", "mcp")
+	if got, want := mcpReference["$ref"], legacyConfig.DefaultURL+"#/$defs/mcp"; got != want {
+		t.Fatalf("current policy-config MCP reference = %v, want %s", got, want)
+	}
+	currentLockDocument := readMCPSchemaDocument(t, policyLock.LocalPath)
+	currentLockProperties := schemaObjectMember(t, currentLockDocument, "properties")
+	if _, parallel := currentLockProperties["mcp"]; parallel {
+		t.Fatal("current policy-lock schema exposes a parallel MCP plan")
+	}
+
 	contracts := []struct {
 		path    string
 		pointer []string
 	}{
-		{filepath.Join("..", "..", filepath.FromSlash(policyConfig.LocalPath)), []string{"$defs", "mcpTool", "properties", "platform"}},
-		{filepath.Join("..", "..", filepath.FromSlash(policyLock.LocalPath)), []string{"$defs", "mcpTool", "properties", "platform"}},
+		{filepath.Join("..", "..", filepath.FromSlash(legacyConfig.LocalPath)), []string{"$defs", "mcpTool", "properties", "platform"}},
+		{filepath.Join("..", "..", filepath.FromSlash(legacyLock.LocalPath)), []string{"$defs", "mcpTool", "properties", "platform"}},
 	}
 	want := make([]string, 0, len(BuiltinMCPPlatforms()))
 	for _, platform := range BuiltinMCPPlatforms() {
@@ -265,6 +285,39 @@ func TestPublishedSchemasAcceptExactlyTheBuiltinMCPPlatforms(t *testing.T) {
 			}
 		})
 	}
+}
+
+func readMCPSchemaDocument(t *testing.T, localPath string) map[string]interface{} {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(localPath)))
+	if err != nil {
+		t.Fatalf("read schema: %v", err)
+	}
+	var document map[string]interface{}
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatalf("parse schema: %v", err)
+	}
+	return document
+}
+
+func schemaObjectMember(t *testing.T, document map[string]interface{}, path ...string) map[string]interface{} {
+	t.Helper()
+	var node interface{} = document
+	for _, key := range path {
+		object, ok := node.(map[string]interface{})
+		if !ok {
+			t.Fatalf("schema has no object at %q", key)
+		}
+		node, ok = object[key]
+		if !ok {
+			t.Fatalf("schema has no %q member", key)
+		}
+	}
+	object, ok := node.(map[string]interface{})
+	if !ok {
+		t.Fatalf("schema member %q is not an object", strings.Join(path, "/"))
+	}
+	return object
 }
 
 // schemaPlatformEnum collects the enumerated platform values from the

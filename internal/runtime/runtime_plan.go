@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/customruntime"
 	rerrors "reconc.dev/reconc/internal/errors"
@@ -40,7 +41,7 @@ type runtimePlan struct {
 	preCommandRules      []int
 	sourceDigest         string
 	sourceCount          int
-	mcp                  *policy.MCPPolicy
+	actions              *action.CompiledPlan
 	customRuntimeDigests map[string]string
 }
 
@@ -58,7 +59,7 @@ type runtimeEnvelope struct {
 	Discovery        ingest.DiscoveryResult  `json:"discovery"`
 	Sources          []runtimeSource         `json:"sources"`
 	Rules            json.RawMessage         `json:"rules"`
-	MCP              *policy.MCPPolicy       `json:"mcp,omitempty"`
+	Actions          json.RawMessage         `json:"actions"`
 	CustomRuntimes   []customruntime.Summary `json:"custom_runtimes,omitempty"`
 }
 
@@ -151,6 +152,10 @@ func compileRuntimePlan(payload map[string]interface{}) (*runtimePlan, error) {
 	if envelope.SourceCount < 0 || len(envelope.Sources) != envelope.SourceCount {
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile source_count does not match the typed runtime plan"}
 	}
+	actions, err := decodeActionPlanJSON(envelope.Actions)
+	if err != nil {
+		return nil, err
+	}
 	customRuntimeDigests := map[string]string{}
 	for _, summary := range envelope.CustomRuntimes {
 		if err := customruntime.ValidateSummary(summary); err != nil {
@@ -184,13 +189,6 @@ func compileRuntimePlan(payload map[string]interface{}) (*runtimePlan, error) {
 			return nil, &rerrors.LockfileError{Message: "compiled lockfile custom runtime summaries do not match manifest sources"}
 		}
 	}
-	mcp := envelope.MCP
-	if mcp != nil {
-		if err := mcp.Validate(); err != nil {
-			return nil, &rerrors.LockfileError{Message: "compiled lockfile MCP contract is invalid: " + err.Error()}
-		}
-		mcp.Tools = policy.SortedMCPTools(mcp.Tools)
-	}
 	plan := &runtimePlan{
 		defaultMode:          envelope.DefaultMode,
 		rules:                rules,
@@ -199,7 +197,7 @@ func compileRuntimePlan(payload map[string]interface{}) (*runtimePlan, error) {
 		preCommandRules:      make([]int, 0),
 		sourceDigest:         envelope.SourceDigest,
 		sourceCount:          envelope.SourceCount,
-		mcp:                  mcp,
+		actions:              actions,
 		customRuntimeDigests: customRuntimeDigests,
 	}
 	for index := range plan.rules {
@@ -247,6 +245,27 @@ func decodeRuntimeRulesJSON(data []byte) ([]policy.Rule, error) {
 	return rules, nil
 }
 
+func decodeActionPlanJSON(data []byte) (*action.CompiledPlan, error) {
+	if len(data) == 0 || bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile must contain an actions object"}
+	}
+	var plan action.Plan
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&plan); err != nil {
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile action plan is invalid", Cause: err}
+	}
+	var trailing interface{}
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile action plan contains trailing JSON"}
+	}
+	compiled, err := action.CompilePlan(plan)
+	if err != nil {
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile action plan is invalid: " + err.Error()}
+	}
+	return compiled, nil
+}
+
 func decodeRuntimeEnvelope(payload map[string]interface{}) (*runtimeEnvelope, error) {
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -262,7 +281,7 @@ func decodeRuntimeEnvelope(payload map[string]interface{}) (*runtimeEnvelope, er
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile typed envelope contains trailing JSON"}
 	}
-	if envelope.CompilerVersion == "" || !envelope.DefaultMode.Valid() || envelope.Rules == nil {
+	if envelope.CompilerVersion == "" || !envelope.DefaultMode.Valid() || envelope.Rules == nil || envelope.Actions == nil {
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile typed envelope is incomplete"}
 	}
 	precedence := policy.SourcePrecedence()

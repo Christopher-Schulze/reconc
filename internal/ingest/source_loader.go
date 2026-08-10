@@ -62,11 +62,12 @@ type SourceBundle struct {
 //
 // The order matches the precedence chain in policy.SourcePrecedence():
 //
-//	global -> agents_md -> inline_block -> claude_md -> inline_block ->
-//	start_md -> compiler_config -> preset -> policy_file
+//	global -> claude_md -> agents_md -> start_md -> inline_block ->
+//	compiler_config -> preset -> policy_file -> custom_runtime
 //
-// (When both AGENTS.md and CLAUDE.md exist, AGENTS.md takes precedence;
-// each contributes its own kind tag and any inline blocks found.)
+// Inline blocks retain their parent-file order inside the one inline_block
+// precedence tier. Custom runtime manifests are identity inputs after policy
+// sources; they do not author rules.
 //
 // Returns *PolicySourceError for malformed YAML or unsafe include
 // patterns; *PresetNotFoundError when an extends entry doesn't resolve;
@@ -94,32 +95,35 @@ func LoadPolicySources(repoStartPath string) (*SourceBundle, error) {
 		sources = append(sources, *gs)
 	}
 
-	// 2. AGENTS.md context file + inline blocks.
-	if discovery.AgentsPath != nil {
-		ss, err := loadEntryFileWithBlocks(root, *discovery.AgentsPath, policy.SourceAgentsMD)
-		if err != nil {
-			return nil, err
-		}
-		sources = append(sources, ss...)
-	}
-
-	// 3. CLAUDE.md context file + inline blocks (legacy still supported).
+	// 2-4. Context files in the exact low-to-high order declared by
+	// policy.SourcePrecedence. Their rule-bearing inline blocks are collected
+	// into the later inline_block tier rather than interleaved with prose.
+	inlineSources := []policy.PolicySource{}
 	if discovery.ClaudePath != nil {
 		ss, err := loadEntryFileWithBlocks(root, *discovery.ClaudePath, policy.SourceClaudeMD)
 		if err != nil {
 			return nil, err
 		}
-		sources = append(sources, ss...)
+		sources = append(sources, ss[0])
+		inlineSources = append(inlineSources, ss[1:]...)
 	}
-
-	// 4. start.md context file + inline blocks.
+	if discovery.AgentsPath != nil {
+		ss, err := loadEntryFileWithBlocks(root, *discovery.AgentsPath, policy.SourceAgentsMD)
+		if err != nil {
+			return nil, err
+		}
+		sources = append(sources, ss[0])
+		inlineSources = append(inlineSources, ss[1:]...)
+	}
 	if discovery.StartMDPath != nil {
 		ss, err := loadEntryFileWithBlocks(root, *discovery.StartMDPath, policy.SourceStartMD)
 		if err != nil {
 			return nil, err
 		}
-		sources = append(sources, ss...)
+		sources = append(sources, ss[0])
+		inlineSources = append(inlineSources, ss[1:]...)
 	}
+	sources = append(sources, inlineSources...)
 
 	// 5. .reconc.yml compiler config + extends + include.
 	includePatterns := append([]string(nil), DefaultPolicyGlobs...)

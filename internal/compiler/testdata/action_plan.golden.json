@@ -1,0 +1,51 @@
+{
+  "format_version": "1",
+  "tools": [
+    {
+      "id": "warehouse-query",
+      "transport": "mcp_stdio",
+      "server_label": "warehouse",
+      "tool": "query",
+      "effect": {
+        "kind": "external"
+      },
+      "origin": "actions",
+      "source_identity": ".reconc.yml"
+    }
+  ],
+  "rules": [
+    {
+      "id": "block-production",
+      "selector": {
+        "tool_ids": [
+          "warehouse-query"
+        ],
+        "phases": [
+          "pre_call"
+        ]
+      },
+      "when": {
+        "predicate": {
+          "source": "arguments",
+          "pointer": "/database",
+          "op": "eq",
+          "value": "production"
+        }
+      },
+      "decision": "block",
+      "on_indeterminate": "block",
+      "cache": "never",
+      "message": "Production access is forbidden.",
+      "source_identity": ".reconc.yml"
+    }
+  ],
+  "defaults": {
+    "declared_tool": "warn",
+    "gateway_unmatched": "block",
+    "host_unmatched": "allow",
+    "evaluation_error": "block",
+    "post_error": "block",
+    "progress_error": "block",
+    "cache": "never"
+  }
+}

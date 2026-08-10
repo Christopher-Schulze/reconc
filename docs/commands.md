@@ -56,7 +56,7 @@ Runtime:
   root used to recognize the current project's persistent-memory state
 - `RECONC_SCHEMA_BASE_URL` -- enterprise override resolved through the typed
   per-artifact registry at `/schemas/<artifact>/v<schema-version>`; without an
-  override, current contracts use their release-pinned v1, v2, or frozen v4
+  override, current contracts use their release-pinned v1, v2, v3, or v5
   identities. Registered legacy aliases remain input-only. Runtime validation
   never fetches schema URLs
 - `RECONC_STOP_FINGERPRINT_UNTRACKED` (`normal` default, `all`, `no`) --
@@ -111,12 +111,13 @@ plumbing, not user configuration.
 
 ---
 
-## Proposed Action Plane commands (Draft, unavailable)
+## Remaining Action Plane commands (Draft, unavailable)
 
-The following surfaces are specified by Draft RECONC-0008 and are not
-implemented by the current binary or published v0.9.5 release. They are listed
-only to freeze future ownership and must not be used as current command
-documentation.
+`reconc why action` is implemented in unreleased source version `v0.9.6` and is
+documented under Explain and remediate. The following enforcement and
+retained-evidence surfaces remain unavailable in current source and in the
+published v0.9.5 release. They are listed only to freeze future ownership and
+must not be used as current command documentation.
 
 ### `reconc mcp gateway [repo] --server LABEL (--expect-lock-digest SHA256 | --allow-repository-managed-policy) [trusted-context flags] -- COMMAND [ARG...]`
 
@@ -127,11 +128,6 @@ inherited environment names, approval configuration, timeout, command, and argv
 would come only from launch arguments outside repository policy. Only tools
 routed through this gateway would be enforced. Native framework tools and
 direct downstream configurations would remain unenforced.
-
-### `reconc why action [repo]`
-
-Would explain the canonical compiled action plan, exact defaults, provenance,
-legacy MCP lowering, redacted operands, and coverage boundary.
 
 ### `reconc action log tail|stats|verify|export [repo]`
 
@@ -147,8 +143,8 @@ certification or legal sufficiency.
 
 The exact Draft contract, flags, failure behavior, limits, protocol versions,
 and package owners are in
-[RECONC-0008](rfcs/RECONC-0008-go-only-action-plane.md). Command metadata,
-dispatch, completions, and manpages remain unchanged until implementation.
+[RECONC-0008](rfcs/RECONC-0008-go-only-action-plane.md). These remaining
+commands have no metadata, dispatch, completion, or manpage entries.
 
 ---
 
@@ -605,14 +601,17 @@ claiming that no remediation is needed. When no persisted block exists, the
 command succeeds with `No remediation needed.` or JSON
 `{"state":"clear","remediation":null}`.
 
-### `reconc why <rule-id|mcp> [repo] [--json] [--terse]`
+### `reconc why <rule-id|action|mcp> [repo] [--json] [--terse]`
 Prints one full rule from the lockfile (kind, mode, message, paths,
-provenance, DEPRECATED label if set). The reserved selector `mcp` prints the
-compiled MCP unclassified mode and exact redacted tool mappings. `--terse`
-emits only the compact rule or MCP summary. `--json` and `--terse` are
-mutually exclusive.
+provenance, DEPRECATED label if set). The reserved selector `action` prints the
+canonical action format, exact defaults, provenance, legacy lowering origin,
+selectors, decisions, failure/cache policy, and operand kind and size while
+redacting every operand value. The reserved selector `mcp` prints the derived
+MCP compatibility view. `--terse` emits only the compact rule or plan summary.
+`--json` and `--terse` are mutually exclusive.
 
-Use `reconc why mcp .` to inspect that compiled MCP contract without exposing
+Use `reconc why action .` for the complete canonical plan and `reconc why mcp
+.` for its legacy host-MCP subset. Neither output exposes operand values,
 server locators, arguments, prompts, results, or command bodies.
 
 ---

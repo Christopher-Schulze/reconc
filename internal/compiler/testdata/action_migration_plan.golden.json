@@ -1,0 +1,29 @@
+{
+  "defaults": {
+    "cache": "exact",
+    "declared_tool": "allow",
+    "evaluation_error": "block",
+    "gateway_unmatched": "block",
+    "host_unmatched": "block",
+    "post_error": "block",
+    "progress_error": "block"
+  },
+  "format_version": "1",
+  "rules": [],
+  "tools": [
+    {
+      "effect": {
+        "kind": "repository_write",
+        "path_fields": [
+          "/path"
+        ]
+      },
+      "id": "legacy-mcp-ac31d07eb3868c3e604401ca8190391992671196d549aeee",
+      "origin": "legacy_mcp",
+      "platform": "cursor",
+      "source_identity": ".reconc.yml",
+      "tool": "write",
+      "transport": "host_mcp"
+    }
+  ]
+}

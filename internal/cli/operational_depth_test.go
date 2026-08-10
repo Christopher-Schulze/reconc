@@ -11,7 +11,9 @@ import (
 	"strings"
 	"testing"
 
+	"reconc.dev/reconc/internal/action"
 	reconbootstrap "reconc.dev/reconc/internal/bootstrap"
+	"reconc.dev/reconc/internal/policy"
 )
 
 func TestBootstrapRequestRejectsEveryCrossFlagContradiction(t *testing.T) {
@@ -165,19 +167,17 @@ func TestBootstrapInspectRendersTextAndJSONContracts(t *testing.T) {
 }
 
 func TestRenderWhyMCPAllOutputModes(t *testing.T) {
-	contract := map[string]interface{}{
-		"unclassified": "deny",
-		"tools": []interface{}{
-			map[string]interface{}{
-				"platform": "cursor", "tool": "write", "effect": "repository_write",
-				"source_path": ".reconc.yml", "server_fingerprint": "sha256:abc",
-			},
-			"invalid-entry",
-		},
+	contract := &policy.MCPPolicy{
+		Unclassified: policy.MCPUnclassifiedDeny,
+		Tools: []policy.MCPToolPolicy{{
+			Platform: policy.MCPPlatformCursor, Tool: "write", Effect: policy.MCPEffectRepositoryWrite,
+			PathFields: []string{"/path"}, SourcePath: ".reconc.yml",
+			ServerFingerprint: "sha256:" + strings.Repeat("a", 64),
+		}},
 	}
 	for _, test := range []struct {
 		name    string
-		raw     interface{}
+		raw     *policy.MCPPolicy
 		json    bool
 		terse   bool
 		want    string
@@ -185,11 +185,11 @@ func TestRenderWhyMCPAllOutputModes(t *testing.T) {
 	}{
 		{name: "absent text", want: "not configured"},
 		{name: "absent JSON", json: true, want: "null"},
-		{name: "text", raw: contract, want: "cursor:write@sha256:abc"},
-		{name: "terse", raw: contract, terse: true, want: "unclassified=deny mappings=2"},
+		{name: "text", raw: contract, want: "cursor:write@sha256:"},
+		{name: "terse", raw: contract, terse: true, want: "unclassified=deny mappings=1"},
 		{name: "JSON", raw: contract, json: true, want: `"unclassified": "deny"`},
 		{name: "conflicting formats", raw: contract, json: true, terse: true, wantErr: "mutually exclusive"},
-		{name: "invalid contract", raw: "invalid", wantErr: "contract is invalid"},
+		{name: "invalid contract", raw: &policy.MCPPolicy{Unclassified: "invalid"}, wantErr: "compatibility view is invalid"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var output bytes.Buffer
@@ -204,6 +204,75 @@ func TestRenderWhyMCPAllOutputModes(t *testing.T) {
 				t.Fatalf("renderWhyMCP = output %q, error %v; want %q", output.String(), err, test.want)
 			}
 		})
+	}
+}
+
+func TestRenderWhyActionRedactsEveryOperand(t *testing.T) {
+	operandMarker := "seeded redaction marker"
+	value, err := action.String(operandMarker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := action.Plan{
+		FormatVersion: action.PlanFormatVersion,
+		Defaults:      action.FrozenDefaults(),
+		Tools:         []action.Tool{},
+		Rules: []action.Rule{{
+			ID: "block-secret", Selector: action.Selector{Phases: []action.Phase{action.PhasePreCall}},
+			When: &action.Condition{Predicate: &action.Predicate{
+				Source: action.SourceArguments, Pointer: "/token", Op: action.OperatorEqual, Value: &value,
+			}},
+			Decision: action.DecisionBlock, OnIndeterminate: action.DecisionBlock,
+			Cache: action.CacheExact, SourceIdentity: ".reconc.yml",
+		}},
+	}
+	for _, test := range []struct {
+		name   string
+		json   bool
+		terse  bool
+		want   string
+		golden string
+	}{
+		{name: "text", golden: "testdata/why-action.golden.txt"},
+		{name: "JSON", json: true, golden: "testdata/why-action.golden.json"},
+		{name: "terse", terse: true, want: "format=1 tools=0 rules=1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var output bytes.Buffer
+			if err := renderWhyAction(plan, test.json, test.terse, &output); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(output.String(), operandMarker) {
+				t.Fatalf("why action output = %q", output.String())
+			}
+			if test.golden != "" {
+				want, err := os.ReadFile(test.golden)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !bytes.Equal(output.Bytes(), want) {
+					t.Fatalf("why action golden mismatch\ngot:\n%s\nwant:\n%s", output.Bytes(), want)
+				}
+			} else if !strings.Contains(output.String(), test.want) {
+				t.Fatalf("why action output = %q", output.String())
+			}
+		})
+	}
+}
+
+func TestWhyActionTextIncludesSelectorAndContextProvenance(t *testing.T) {
+	condition := &whyActionCondition{Predicate: &whyActionPredicate{
+		Source: action.SourceContext, Pointer: "/environment",
+		MinimumProvenance: action.ProvenanceHostObserved, Op: action.OperatorExists,
+	}}
+	if got := summarizeConditionText(condition); !strings.Contains(got, "provenance=host_observed") {
+		t.Fatalf("condition summary = %q", got)
+	}
+	selector := action.Selector{
+		ToolIDs: []string{"query"}, Phases: []action.Phase{action.PhasePreCall},
+	}
+	if got := summarizeActionSelector(selector); got != `tool_ids="query";phases="pre_call"` {
+		t.Fatalf("selector summary = %q", got)
 	}
 }
 

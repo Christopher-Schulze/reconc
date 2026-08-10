@@ -1,9 +1,10 @@
 # reconc v0.9.6
 
-Reconc v0.9.6 restores immutable public-schema truth before introducing the
-Go-only Action Plane. It preserves the current policy-lock format while making
-every emitted schema identity, retained compatibility input, release asset, and
-publication check derive from one exact registry.
+Reconc v0.9.6 restores immutable public-schema truth and introduces the first
+Go-only Action Plane layer. It compiles strict action authoring into one
+canonical format-5 policy lock while making every emitted schema identity,
+retained compatibility input, release asset, and publication check derive from
+one exact registry.
 
 ## Added
 
@@ -17,11 +18,16 @@ publication check derive from one exact registry.
 - Release-time online verification that every published canonical schema URL
   returns HTTP 200 without redirects and is byte-identical to the registered
   local file.
+- Strict `actions.tools`, `actions.rules`, and `actions.defaults` authoring with
+  typed selectors, effects, phases, conditions, decisions, failure/cache policy,
+  provenance, deterministic normalization, and frozen resource bounds.
+- `reconc why action` for redacted explanation of canonical action policy,
+  defaults, provenance, selectors, and legacy lowering.
 
 ## Changed
 
-- Current policy authoring, repository-sync plan/report, and custom-runtime
-  manifests use v2 schemas. Restored v1 inputs remain readable; a legacy
+- Current policy authoring uses v3, repository-sync plan/report and
+  custom-runtime manifests use v2. Restored legacy inputs remain readable; a legacy
   custom-runtime route must still budget enough bytes for the current canonical
   response metadata, while v2 makes the safe 512-byte minimum explicit.
 - Release copying, verification, checksums, manifest, SBOM, and provenance
@@ -30,6 +36,9 @@ publication check derive from one exact registry.
 - Custom-runtime manifest v2 requires a response budget large enough to hold
   the canonical neutral-response metadata introduced by release-pinned schema
   identities.
+- Policy-lock format 5 stores one canonical `actions` plan. Legacy `mcp`
+  authoring lowers into it, existing host MCP consumers derive their
+  compatibility view from it, and no parallel runtime `mcp` plan remains.
 
 ## Fixed
 
@@ -38,18 +47,23 @@ publication check derive from one exact registry.
   are never emitted as verified publication URLs.
 - Semantic additions are no longer retroactively attributed to v1 policy,
   repository-sync, or custom-runtime contracts.
-- Policy-lock v2 and v3 use truthful immutable identities, while the current
-  v4 file remains byte-identical to its v0.9.4 tag.
-- RFC 0001 consistently identifies policy-lock format 4, and the RFC index now
+- Policy-lock v2 and v3 use truthful immutable identities, while the legacy v4
+  file remains byte-identical to its v0.9.4 tag.
+- RFC 0001 consistently identifies policy-lock format 5, and the RFC index now
   states the immutable schema-evolution rule enforced by the registry.
+- Action globs and regexes are precompiled, strict URL/path/CIDR operands are
+  canonicalized once, source precedence matches its declared contract, and all
+  action-plan views are defensive copies.
 
 ## Compatibility
 
-- Current policy locks remain format `4` and retain the immutable v0.9.4
-  `schemas/v4/policy-lock.schema.json` identity.
-- Supported legacy schema aliases and policy-lock formats 1 through 3 continue
+- Current policy locks use format `5` and the planned immutable v0.9.6
+  `schemas/v5/policy-lock.schema.json` identity.
+- Supported legacy schema aliases and policy-lock formats 1 through 4 continue
   to migrate offline. Unknown URLs, crossed URL/format pairs, and future
   versions fail closed.
+- Legacy top-level `mcp` authoring remains accepted during this compatibility
+  window and preserves existing host behavior after canonical lowering.
 - Core runtime behavior makes no schema-network request. Online retrieval is a
   release-publication gate only.
 
@@ -71,6 +85,6 @@ export PATH="$HOME/.local/bin:$PATH"
 reconc doctor --global
 ```
 
-Repository policy locks do not require a migration. Re-run `reconc refresh .`
-only when policy sources change or when you intentionally want newly emitted
-artifact identities.
+Formats 1 through 4 migrate in memory. Run `reconc refresh .` when you
+intentionally want the repository to persist the current format-5 lock and its
+canonical action plan; review and commit policy source and lock together.

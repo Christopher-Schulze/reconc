@@ -5,10 +5,14 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strconv"
+	"strings"
+
+	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/ingest"
+	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/runtime"
-	"strings"
 )
 
 const maxExplainReportBytes = 32 << 20
@@ -148,7 +152,7 @@ func runExplain(args []string, stdout, stderr io.Writer) (resultErr error) {
 	return nil
 }
 
-// runWhy implements `reconc why <rule-id|mcp> [repo] [--json]` (W13).
+// runWhy implements `reconc why <rule-id|action|mcp> [repo] [--json]` (W13).
 //
 // Prints everything known about a rule: kind, mode, message, all
 // targeting fields, source provenance. Useful when a violation
@@ -157,13 +161,13 @@ func runWhy(args []string, stdout, stderr io.Writer) error {
 	// Handle --help before requiring a rule-id so `reconc why --help` works.
 	for _, a := range args {
 		if a == "-h" || a == "--help" {
-			fmt.Fprintln(stdout, "Usage: reconc why <rule-id|mcp> [repo] [--json|--terse]")
-			fmt.Fprintln(stdout, "Show one rule or the MCP side-effect contract from the compiled lockfile.")
+			fmt.Fprintln(stdout, "Usage: reconc why <rule-id|action|mcp> [repo] [--json|--terse]")
+			fmt.Fprintln(stdout, "Show one repository rule, the canonical action plan, or its MCP compatibility view.")
 			return nil
 		}
 	}
 	if len(args) == 0 {
-		return &CLIError{ExitCode: 1, Message: "reconc why: missing required <rule-id> argument"}
+		return &CLIError{ExitCode: 1, Message: "reconc why: missing required <rule-id|action|mcp> argument"}
 	}
 	ruleID := args[0]
 	repo := "."
@@ -178,8 +182,8 @@ func runWhy(args []string, stdout, stderr io.Writer) error {
 		case "--terse":
 			terse = true
 		case "-h", "--help":
-			fmt.Fprintln(stdout, "Usage: reconc why <rule-id|mcp> [repo] [--json|--terse]")
-			fmt.Fprintln(stdout, "Show one rule or the MCP side-effect contract from the compiled lockfile.")
+			fmt.Fprintln(stdout, "Usage: reconc why <rule-id|action|mcp> [repo] [--json|--terse]")
+			fmt.Fprintln(stdout, "Show one repository rule, the canonical action plan, or its MCP compatibility view.")
 			return nil
 		default:
 			if len(a) > 0 && a[0] == '-' {
@@ -203,6 +207,23 @@ func runWhy(args []string, stdout, stderr io.Writer) error {
 	if err := runtime.ValidatePolicyLockfile(discovery.RepoRoot); err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc why: " + err.Error()}
 	}
+	if jsonOut && terse {
+		return &CLIError{ExitCode: 1, Message: "reconc why: --json and --terse are mutually exclusive"}
+	}
+	if ruleID == "action" {
+		plan, loadErr := runtime.LoadActionPlan(discovery.RepoRoot)
+		if loadErr != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc why: " + loadErr.Error()}
+		}
+		return renderWhyAction(plan, jsonOut, terse, stdout)
+	}
+	if ruleID == "mcp" {
+		contract, loadErr := runtime.LoadMCPPolicy(discovery.RepoRoot)
+		if loadErr != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc why: " + loadErr.Error()}
+		}
+		return renderWhyMCP(contract, jsonOut, terse, stdout)
+	}
 
 	lockPath := filepath.Join(discovery.RepoRoot, ingest.LockfilePath)
 	data, err := boundedio.ReadRegularFile(lockPath, maxCLILockfileBytes)
@@ -212,9 +233,6 @@ func runWhy(args []string, stdout, stderr io.Writer) error {
 	var payload map[string]interface{}
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc why: lockfile is not valid JSON: " + err.Error()}
-	}
-	if ruleID == "mcp" {
-		return renderWhyMCP(payload["mcp"], jsonOut, terse, stdout)
 	}
 	rules, _ := payload["rules"].([]interface{})
 	var target map[string]interface{}
@@ -231,10 +249,6 @@ func runWhy(args []string, stdout, stderr io.Writer) error {
 	if target == nil {
 		return &CLIError{ExitCode: 1, Message: "reconc why: rule '" + ruleID + "' not found in lockfile"}
 	}
-	if jsonOut && terse {
-		return &CLIError{ExitCode: 1, Message: "reconc why: --json and --terse are mutually exclusive"}
-	}
-
 	if jsonOut {
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
@@ -326,11 +340,222 @@ func runWhy(args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
-func renderWhyMCP(raw interface{}, jsonOut, terse bool, stdout io.Writer) error {
+type whyActionPlan struct {
+	FormatVersion string          `json:"format_version"`
+	Defaults      action.Defaults `json:"defaults"`
+	Tools         []action.Tool   `json:"tools"`
+	Rules         []whyActionRule `json:"rules"`
+}
+
+type whyActionRule struct {
+	ID              string              `json:"id"`
+	Selector        action.Selector     `json:"selector"`
+	When            *whyActionCondition `json:"when,omitempty"`
+	Decision        action.Decision     `json:"decision"`
+	OnIndeterminate action.Decision     `json:"on_indeterminate"`
+	Cache           action.CachePolicy  `json:"cache"`
+	Message         string              `json:"message,omitempty"`
+	SourceIdentity  string              `json:"source_identity"`
+}
+
+type whyActionCondition struct {
+	All       []whyActionCondition `json:"all,omitempty"`
+	Any       []whyActionCondition `json:"any,omitempty"`
+	Not       *whyActionCondition  `json:"not,omitempty"`
+	Predicate *whyActionPredicate  `json:"predicate,omitempty"`
+}
+
+type whyActionPredicate struct {
+	Source            action.ValueSource `json:"source"`
+	Pointer           string             `json:"pointer"`
+	MinimumProvenance action.Provenance  `json:"minimum_provenance,omitempty"`
+	Op                action.Operator    `json:"op"`
+	Value             *whyActionOperand  `json:"value,omitempty"`
+}
+
+type whyActionOperand struct {
+	Redacted       bool             `json:"redacted"`
+	Kind           action.ValueKind `json:"kind"`
+	CanonicalBytes int              `json:"canonical_bytes"`
+}
+
+func renderWhyAction(plan action.Plan, jsonOut, terse bool, stdout io.Writer) error {
+	view := whyActionPlan{
+		FormatVersion: plan.FormatVersion,
+		Defaults:      plan.Defaults,
+		Tools:         make([]action.Tool, len(plan.Tools)),
+		Rules:         make([]whyActionRule, len(plan.Rules)),
+	}
+	copy(view.Tools, plan.Tools)
+	for index, rule := range plan.Rules {
+		condition, err := summarizeActionCondition(rule.When)
+		if err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc why: summarize action operand: " + err.Error()}
+		}
+		view.Rules[index] = whyActionRule{
+			ID: rule.ID, Selector: rule.Selector, When: condition,
+			Decision: rule.Decision, OnIndeterminate: rule.OnIndeterminate,
+			Cache: rule.Cache, Message: rule.Message, SourceIdentity: rule.SourceIdentity,
+		}
+	}
+	if jsonOut {
+		encoder := json.NewEncoder(stdout)
+		encoder.SetIndent("", "  ")
+		_ = encoder.Encode(view)
+		return nil
+	}
+	if terse {
+		fmt.Fprintf(stdout, "format=%s tools=%d rules=%d declared=%s gateway-unmatched=%s host-unmatched=%s\n",
+			view.FormatVersion, len(view.Tools), len(view.Rules), view.Defaults.DeclaredTool,
+			view.Defaults.GatewayUnmatched, view.Defaults.HostUnmatched)
+		return nil
+	}
+	fmt.Fprintf(stdout, "Action plan: %s\n", view.FormatVersion)
+	fmt.Fprintf(stdout, "Defaults: declared=%s gateway-unmatched=%s host-unmatched=%s evaluation-error=%s post-error=%s progress-error=%s cache=%s\n",
+		view.Defaults.DeclaredTool, view.Defaults.GatewayUnmatched, view.Defaults.HostUnmatched,
+		view.Defaults.EvaluationError, view.Defaults.PostError, view.Defaults.ProgressError, view.Defaults.Cache)
+	fmt.Fprintf(stdout, "Tools: %d\n", len(view.Tools))
+	for _, tool := range view.Tools {
+		identity := string(tool.Platform)
+		if identity == "" {
+			identity = tool.ServerLabel
+		}
+		if tool.ServerFingerprint != "" {
+			identity += "@" + tool.ServerFingerprint
+		}
+		fmt.Fprintf(stdout, "  - %s %s:%s -> %s origin=%s source=%s\n",
+			tool.ID, identity, tool.Tool, tool.Effect.Kind, tool.Origin, tool.SourceIdentity)
+	}
+	fmt.Fprintf(stdout, "Rules: %d\n", len(view.Rules))
+	for _, rule := range view.Rules {
+		fmt.Fprintf(stdout, "  - %s -> %s indeterminate=%s cache=%s selector=%s source=%s",
+			rule.ID, rule.Decision, rule.OnIndeterminate, rule.Cache,
+			summarizeActionSelector(rule.Selector), rule.SourceIdentity)
+		if rule.When != nil {
+			fmt.Fprintf(stdout, " when=%s", summarizeConditionText(rule.When))
+		}
+		fmt.Fprintln(stdout)
+	}
+	return nil
+}
+
+func summarizeActionSelector(selector action.Selector) string {
+	parts := make([]string, 0, 8)
+	appendValues := func(name string, values []string) {
+		if len(values) > 0 {
+			quoted := make([]string, len(values))
+			for index := range values {
+				quoted[index] = strconv.Quote(values[index])
+			}
+			parts = append(parts, name+"="+strings.Join(quoted, ","))
+		}
+	}
+	appendValues("tool_ids", selector.ToolIDs)
+	transports := make([]string, len(selector.Transports))
+	for index := range selector.Transports {
+		transports[index] = string(selector.Transports[index])
+	}
+	appendValues("transports", transports)
+	platforms := make([]string, len(selector.Platforms))
+	for index := range selector.Platforms {
+		platforms[index] = string(selector.Platforms[index])
+	}
+	appendValues("platforms", platforms)
+	appendValues("server_labels", selector.ServerLabels)
+	appendValues("server_fingerprints", selector.ServerFingerprints)
+	appendValues("tools", selector.Tools)
+	appendValues("tool_contract_digests", selector.ToolContractDigests)
+	phases := make([]string, len(selector.Phases))
+	for index := range selector.Phases {
+		phases[index] = string(selector.Phases[index])
+	}
+	appendValues("phases", phases)
+	if len(parts) == 0 {
+		return "*"
+	}
+	return strings.Join(parts, ";")
+}
+
+func summarizeActionCondition(condition *action.Condition) (*whyActionCondition, error) {
+	if condition == nil {
+		return nil, nil
+	}
+	view := &whyActionCondition{}
+	if condition.All != nil {
+		view.All = make([]whyActionCondition, len(condition.All))
+		for index := range condition.All {
+			child, err := summarizeActionCondition(&condition.All[index])
+			if err != nil {
+				return nil, err
+			}
+			view.All[index] = *child
+		}
+	}
+	if condition.Any != nil {
+		view.Any = make([]whyActionCondition, len(condition.Any))
+		for index := range condition.Any {
+			child, err := summarizeActionCondition(&condition.Any[index])
+			if err != nil {
+				return nil, err
+			}
+			view.Any[index] = *child
+		}
+	}
+	if condition.Not != nil {
+		child, err := summarizeActionCondition(condition.Not)
+		if err != nil {
+			return nil, err
+		}
+		view.Not = child
+	}
+	if condition.Predicate != nil {
+		predicate := condition.Predicate
+		view.Predicate = &whyActionPredicate{
+			Source: predicate.Source, Pointer: predicate.Pointer,
+			MinimumProvenance: predicate.MinimumProvenance, Op: predicate.Op,
+		}
+		if predicate.Value != nil {
+			canonical, err := predicate.Value.MarshalJSON()
+			if err != nil {
+				return nil, err
+			}
+			view.Predicate.Value = &whyActionOperand{Redacted: true, Kind: predicate.Value.Kind(), CanonicalBytes: len(canonical)}
+		}
+	}
+	return view, nil
+}
+
+func summarizeConditionText(condition *whyActionCondition) string {
+	switch {
+	case condition == nil:
+		return "true"
+	case condition.Predicate != nil:
+		predicate := condition.Predicate
+		value := ""
+		if predicate.Value != nil {
+			value = fmt.Sprintf(" value=%s/%dB/redacted", predicate.Value.Kind, predicate.Value.CanonicalBytes)
+		}
+		provenance := ""
+		if predicate.MinimumProvenance != "" {
+			provenance = " provenance=" + string(predicate.MinimumProvenance)
+		}
+		return fmt.Sprintf("%s:%s %s%s%s", predicate.Source, predicate.Pointer, predicate.Op, provenance, value)
+	case condition.All != nil:
+		return fmt.Sprintf("all(%d)", len(condition.All))
+	case condition.Any != nil:
+		return fmt.Sprintf("any(%d)", len(condition.Any))
+	case condition.Not != nil:
+		return "not(" + summarizeConditionText(condition.Not) + ")"
+	default:
+		return "invalid"
+	}
+}
+
+func renderWhyMCP(contract *policy.MCPPolicy, jsonOut, terse bool, stdout io.Writer) error {
 	if jsonOut && terse {
 		return &CLIError{ExitCode: 1, Message: "reconc why: --json and --terse are mutually exclusive"}
 	}
-	if raw == nil {
+	if contract == nil {
 		if jsonOut {
 			_, _ = fmt.Fprintln(stdout, "null")
 		} else {
@@ -338,9 +563,8 @@ func renderWhyMCP(raw interface{}, jsonOut, terse bool, stdout io.Writer) error 
 		}
 		return nil
 	}
-	contract, ok := raw.(map[string]interface{})
-	if !ok {
-		return &CLIError{ExitCode: 1, Message: "reconc why: compiled MCP contract is invalid"}
+	if err := contract.Validate(); err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc why: compiled MCP compatibility view is invalid: " + err.Error()}
 	}
 	if jsonOut {
 		encoder := json.NewEncoder(stdout)
@@ -348,23 +572,18 @@ func renderWhyMCP(raw interface{}, jsonOut, terse bool, stdout io.Writer) error 
 		_ = encoder.Encode(contract)
 		return nil
 	}
-	tools, _ := contract["tools"].([]interface{})
 	if terse {
-		fmt.Fprintf(stdout, "unclassified=%s mappings=%d\n", strOrEmpty(contract["unclassified"]), len(tools))
+		fmt.Fprintf(stdout, "unclassified=%s mappings=%d\n", contract.Unclassified, len(contract.Tools))
 		return nil
 	}
-	fmt.Fprintf(stdout, "MCP unclassified: %s\n", strOrEmpty(contract["unclassified"]))
-	fmt.Fprintf(stdout, "Mappings: %d\n", len(tools))
-	for _, rawTool := range tools {
-		tool, ok := rawTool.(map[string]interface{})
-		if !ok {
-			continue
+	fmt.Fprintf(stdout, "MCP unclassified: %s\n", contract.Unclassified)
+	fmt.Fprintf(stdout, "Mappings: %d\n", len(contract.Tools))
+	for _, tool := range contract.Tools {
+		identity := string(tool.Platform) + ":" + tool.Tool
+		if tool.ServerFingerprint != "" {
+			identity += "@" + tool.ServerFingerprint
 		}
-		identity := strOrEmpty(tool["platform"]) + ":" + strOrEmpty(tool["tool"])
-		if fingerprint := strOrEmpty(tool["server_fingerprint"]); fingerprint != "" {
-			identity += "@" + fingerprint
-		}
-		fmt.Fprintf(stdout, "  - %s -> %s (%s)\n", identity, strOrEmpty(tool["effect"]), strOrEmpty(tool["source_path"]))
+		fmt.Fprintf(stdout, "  - %s -> %s (%s)\n", identity, tool.Effect, tool.SourcePath)
 	}
 	return nil
 }

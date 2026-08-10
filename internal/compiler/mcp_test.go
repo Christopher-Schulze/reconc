@@ -7,11 +7,12 @@ import (
 	"path/filepath"
 	"testing"
 
+	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/parser"
 )
 
-func TestCompileMCPContractIsCanonicalDeterministicAndRedacted(t *testing.T) {
+func TestCompileLegacyMCPIntoCanonicalActionsIsDeterministicAndRedacted(t *testing.T) {
 	withRECONCHome(t)
 	repo := t.TempDir()
 	writeFile(t, repo, "AGENTS.md", "# project\n")
@@ -33,6 +34,9 @@ func TestCompileMCPContractIsCanonicalDeterministicAndRedacted(t *testing.T) {
 	}
 	if compiled.MCPToolCount != 2 {
 		t.Fatalf("MCP tool count=%d", compiled.MCPToolCount)
+	}
+	if compiled.ActionToolCount != 2 || compiled.ActionRuleCount != 0 {
+		t.Fatalf("action counts=(%d,%d)", compiled.ActionToolCount, compiled.ActionRuleCount)
 	}
 	path := filepath.Join(repo, LockfileRelativePath)
 	first, err := os.ReadFile(path)
@@ -56,16 +60,23 @@ func TestCompileMCPContractIsCanonicalDeterministicAndRedacted(t *testing.T) {
 	if err := json.Unmarshal(first, &payload); err != nil {
 		t.Fatal(err)
 	}
-	mcp := payload["mcp"].(map[string]interface{})
-	tools := mcp["tools"].([]interface{})
+	if _, parallel := payload["mcp"]; parallel {
+		t.Fatal("format 5 retained a parallel MCP runtime plan")
+	}
+	actions := payload["actions"].(map[string]interface{})
+	tools := actions["tools"].([]interface{})
 	firstTool := tools[0].(map[string]interface{})
 	secondTool := tools[1].(map[string]interface{})
-	if firstTool["platform"] != "cursor" || secondTool["platform"] != "kilo" {
-		t.Fatalf("MCP mappings are not canonical: %#v", tools)
+	if firstTool["id"].(string) >= secondTool["id"].(string) || firstTool["origin"] != string(action.OriginLegacyMCP) || secondTool["origin"] != string(action.OriginLegacyMCP) {
+		t.Fatalf("lowered action mappings are not canonical: %#v", tools)
+	}
+	seen := map[string]bool{firstTool["platform"].(string): true, secondTool["platform"].(string): true}
+	if !seen["cursor"] || !seen["kilo"] {
+		t.Fatalf("lowered action mappings changed identities: %#v", tools)
 	}
 }
 
-func TestValidateEmbeddedRulesBindsMCPContract(t *testing.T) {
+func TestValidateEmbeddedRulesBindsCanonicalActionPlan(t *testing.T) {
 	withRECONCHome(t)
 	repo := t.TempDir()
 	writeFile(t, repo, "AGENTS.md", "# project\n")
@@ -90,8 +101,8 @@ func TestValidateEmbeddedRulesBindsMCPContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	delete(payload, "mcp")
+	delete(payload, "actions")
 	if err := ValidateEmbeddedRules(payload, parsed); err == nil {
-		t.Fatal("missing embedded MCP contract was accepted")
+		t.Fatal("missing embedded action plan was accepted")
 	}
 }

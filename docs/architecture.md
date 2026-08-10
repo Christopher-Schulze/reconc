@@ -69,6 +69,7 @@ side-effect-free replay contract.
 buildprovenance/ deterministic target/source identity + byte-only binary inspection
 harness/         embedded immutable advanced harness pack
 internal/
+  action/         pure canonical action contract, normalization, immutable matcher programs, and defensive views
   adopt/          convention detector, rule suggestions, and stack-pack recommendations
   agentguide/     embedded agent-integration guide + section lookup
   assurance/      bounded native layout/source/manifest/proof gates + per-run fact graph
@@ -136,7 +137,7 @@ handling.
 ## Key invariants
 
 1. **Byte-stable private portable lockfile.** Two compiles of identical sources
-   in different clones or worktrees produce identical bytes. Format 4 uses `.`
+   in different clones or worktrees produce identical bytes. Format 5 uses `.`
    as its repository/discovery root marker and stores only logical source
    paths plus SHA-256 content digests, never raw source bodies or physical
    global-policy paths. Compiler emits canonical JSON (sorted keys, indent-2,
@@ -210,12 +211,16 @@ handling.
    evidence handling. Unknown identity, malformed input, and unknown outcome
    are non-evidentiary.
 
-## Proposed Go-Only Action Plane (Draft)
+## Go-Only Action Plane (Draft)
 
-RECONC-0008 defines a proposed Action Plane. It is not implemented by the
-current binary and is not part of the published v0.9.5 release.
+RECONC-0008 remains Draft. The unreleased v0.9.6 source implements strict action
+authoring, deterministic legacy MCP lowering, one canonical format-5 action
+plan, immutable typed matcher programs, a derived MCP compatibility view, and
+`reconc why action`. It does not yet evaluate or enforce action rules, inspect
+results, maintain action state or a ledger, or route calls through a gateway.
+The published v0.9.5 release has none of the Action Plane additions.
 
-The proposed topology is one local, tool-only stdio MCP gateway around one
+The target topology is one local, tool-only stdio MCP gateway around one
 operator-selected downstream stdio MCP server. Every routed `tools/call` would
 enter one canonical compiled action plan before dispatch and every downstream
 result or progress event would enter the same plan before upstream delivery.
@@ -258,13 +263,13 @@ in [RECONC-0008](rfcs/RECONC-0008-go-only-action-plane.md).
   rule applies. Additive and breaking shape changes both receive a new schema
   version; breaking semantic changes also require a superseding RFC.
 
-- **Published schema documents**: `internal/schema` owns all 26 Draft 2020-12
+- **Published schema documents**: `internal/schema` owns all 28 Draft 2020-12
   contracts as independently versioned registry entries. Each entry binds one
   local path, immutable release-tagged `$id`, release asset, SHA-256 digest,
   enterprise mirror path, current or legacy state, and input-only compatibility
-  aliases. Current policy authoring, custom-runtime manifests, and repository
-  sync use their v2 schemas; current lockfiles retain the frozen v4 schema;
-  v1-v3 lock schemas and every other superseded artifact version remain
+  aliases. Current policy authoring uses v3, custom-runtime manifests and
+  repository sync use v2, and current lockfiles use v5; v1-v4 lock schemas and
+  every other superseded artifact version remain
   validated inputs. Release output derives the complete schema inventory from
   the registry, byte-compares it locally, and verifies every canonical URL
   online after publication. Runtime validation remains offline.
@@ -280,11 +285,12 @@ in [RECONC-0008](rfcs/RECONC-0008-go-only-action-plane.md).
   `hook conform` executes only bounded JSON fixtures and requires request,
   response, timeout, failure, liveness, and privacy proofs.
 
-- **MCP authoring and lock contract**: `mcp.unclassified` is `host` or `deny`;
-  tool mappings use the typed platform, optional SHA-256 server fingerprint,
-  exact tool, effect, and effect-specific JSON Pointers. The authoring and v2,
-  v3, and v4 lock schemas reject unknown fields and invalid cross-field
-  combinations.
+- **Action authoring and lock contract**: strict `actions` authoring owns
+  canonical tools, selectors, effects, phases, conditions, decisions, failure
+  policy, cache policy, defaults, and provenance. Legacy `mcp` authoring remains
+  compatibility input and lowers into the same plan. Format 5 contains
+  `actions` and forbids a parallel `mcp` runtime representation; legacy v2-v4
+  lock schemas remain immutable migration inputs.
 
 - **Exit codes 0/1/2**: stable across all subcommands for agent
   consumption. 0 = pass or warn, 1 = runtime/input error, 2 = at
@@ -363,9 +369,9 @@ refusal, never an inferred owner or partial success.
      `.reconc.yml`, `AGENTS.md`, etc.
    - `internal/runtime/lockfile.go` performs a 16 MiB bounded read and validates
      schema, version, repository root, migration state, and source freshness.
-     Current format-4 locks prove freshness from the complete lock digest plus
+     Current format-5 locks prove freshness from the complete lock digest plus
      one bounded source-bundle digest pass. Migrated legacy locks additionally
-     reparse sources and prove exact embedded rule and MCP parity.
+     reparse sources and prove exact embedded rule and canonical-action parity.
    - The validated payload is decoded once into an immutable typed runtime plan.
      ID, kind, pre-command composite, and scope metadata are indexed before any
      evidence is evaluated; malformed or unknown typed fields fail closed.
@@ -968,8 +974,9 @@ reconc's non-stdlib dependencies processing the payload:
   to this threat model).
 - `github.com/pelletier/go-toml/v2` (strict syntax validation for the explicit
   Kimi Code global hook lifecycle; it does not decode runtime hook payloads).
-- `github.com/bmatcuk/doublestar/v4` (glob matching — string-only
-  surface, no eval).
+- `github.com/bmatcuk/doublestar/v4` (compile-time glob syntax validation and
+  differential contract oracle; runtime action matching uses immutable
+  precompiled tokens, with no eval).
 - `mvdan.cc/sh/v3/syntax` (bounded AST parsing of untrusted shell text for
   command matching only; parsed input is never executed and unsupported or
   over-deep executable structure fails closed).

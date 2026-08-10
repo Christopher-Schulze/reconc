@@ -140,7 +140,7 @@ var commandCatalog = []Command{
 
 	command("explain", CategoryExplain, "reconc explain [repo] [evidence flags] | --report-file PATH", "render a check report as text or Markdown", flags(f("--read", "PATH"), f("--write", "PATH"), f("--command", "CMD"), f("--claim", "NAME"), f("--format", "FORMAT", "text", "markdown"), f("--report-file", "PATH"), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputMarkdown, OutputJSON, OutputFile)),
 	command("fix", CategoryExplain, "reconc fix [repo] [evidence flags]", "build a structured remediation plan", flags(f("--read", "PATH"), f("--write", "PATH"), f("--command", "CMD"), f("--command-success", "CMD"), f("--command-failure", "CMD"), f("--claim", "NAME"), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
-	command("why", CategoryExplain, "reconc why <rule-id|mcp> [repo] [--terse] [--json]", "print one compiled rule or the MCP side-effect contract", flags(f("--json", ""), f("--terse", "")), nil, modes(OutputText, OutputJSON)),
+	command("why", CategoryExplain, "reconc why <rule-id|action|mcp> [repo] [--terse] [--json]", "print one compiled rule, the canonical action plan, or its MCP compatibility view", flags(f("--json", ""), f("--terse", "")), nil, modes(OutputText, OutputJSON)),
 
 	command("preset", CategoryWiring, "reconc preset <list|show>", "list or show bundled and user presets", nil, []Subcommand{
 		sub("list", "reconc preset list [--json] [--output PATH]", "list bundled and user presets", flags(f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),

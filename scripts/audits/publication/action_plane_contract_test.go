@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestDraftActionPlaneContractIsExplicitlyUnavailable(t *testing.T) {
+func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T) {
 	root := publicSurfaceRoot(t)
 	rfc := readPublicSurfaceFile(t, root, "docs/rfcs/RECONC-0008-go-only-action-plane.md")
 	index := readPublicSurfaceFile(t, root, "docs/rfcs/README.md")
@@ -16,27 +16,30 @@ func TestDraftActionPlaneContractIsExplicitlyUnavailable(t *testing.T) {
 
 	assertContainsAll(t, "RECONC-0008", rfc,
 		"Status: Draft",
-		"Implementation state: proposed and not implemented.",
-		"Until then this document remains a proposed contract only.",
+		"Implementation state: partially implemented in unreleased source version",
+		"TASK 154 implements strict action authoring",
+		"gateway enforcement",
+		"unavailable until their owning tasks",
 	)
 	assertContainsAll(t, "RFC index", index,
 		"| RECONC-0008 | Draft | Go-only Action Plane |",
 	)
 	assertContainsAll(t, "architecture", architecture,
-		"## Proposed Go-Only Action Plane (Draft)",
-		"proposed Action Plane. It is not implemented by the",
-		"current binary and is not part of the published v0.9.5 release.",
+		"## Go-Only Action Plane (Draft)",
+		"unreleased v0.9.6 source implements strict action",
+		"does not yet evaluate or enforce action rules",
 	)
 	assertContainsAll(t, "documentation", documentation,
-		"## Proposed Go-Only Action Plane",
-		"The current binary",
-		"published v0.9.5 release do not implement it.",
+		"## Go-Only Action Plane",
+		"Unreleased source version `v0.9.6` implements strict",
+		"No current source command routes tool calls through",
+		"an enforcing gateway",
 	)
 	assertContainsAll(t, "commands", commands,
-		"## Proposed Action Plane commands (Draft, unavailable)",
-		"specified by Draft RECONC-0008 and are not",
-		"implemented by the current binary or published v0.9.5 release.",
-		"dispatch, completions, and manpages remain unchanged until implementation.",
+		"## Remaining Action Plane commands (Draft, unavailable)",
+		"`reconc why action` is implemented in unreleased source version `v0.9.6`",
+		"The following enforcement and",
+		"retained-evidence surfaces remain unavailable",
 	)
 }
 

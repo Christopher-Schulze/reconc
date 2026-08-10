@@ -267,7 +267,9 @@ func TestLoadPolicySourcesPrecedenceOrder(t *testing.T) {
 		t.Fatalf("write global: %v", err)
 	}
 	repo := t.TempDir()
+	writeFile(t, repo, "CLAUDE.md", "# claude\n```reconc\nrules: []\n```\n")
 	writeFile(t, repo, "AGENTS.md", "# agents\n```reconc\nrules: []\n```\n")
+	writeFile(t, repo, "start.md", "# start\n```reconc\nrules: []\n```\n")
 	writeFile(t, repo, ".reconc.yml", "extends:\n  - default\nrules: []\n")
 	writeFile(t, repo, "policies/extra.yml", "rules: []\n")
 
@@ -277,7 +279,11 @@ func TestLoadPolicySourcesPrecedenceOrder(t *testing.T) {
 	}
 	want := []policy.SourceKind{
 		policy.SourceGlobal,
+		policy.SourceClaudeMD,
 		policy.SourceAgentsMD,
+		policy.SourceStartMD,
+		policy.SourceInlineBlock,
+		policy.SourceInlineBlock,
 		policy.SourceInlineBlock,
 		policy.SourceCompilerConfig,
 		policy.SourcePreset,
@@ -293,6 +299,11 @@ func TestLoadPolicySourcesPrecedenceOrder(t *testing.T) {
 	for i := range want {
 		if got[i] != want[i] {
 			t.Errorf("position %d: expected %s, got %s", i, want[i], got[i])
+		}
+	}
+	for index, wantPath := range []string{"CLAUDE.md", "AGENTS.md", "start.md"} {
+		if gotPath := bundle.Sources[4+index].Path; gotPath != wantPath {
+			t.Errorf("inline block %d path = %s, want %s", index, gotPath, wantPath)
 		}
 	}
 }
