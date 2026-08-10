@@ -1,0 +1,208 @@
+{
+  "format_version": "1",
+  "vectors": [
+    {
+      "id": "declared-allow",
+      "rules": [],
+      "arguments": {},
+      "context": [],
+      "expected": {
+        "decision": "allow",
+        "reason_code": "declared_tool",
+        "tool_id": "database-write",
+        "matched_rule_ids": [],
+        "candidates": [
+          {
+            "source": "baseline",
+            "id": "declared-tool",
+            "decision": "allow",
+            "reason": "declared_tool"
+          }
+        ],
+        "trace": [],
+        "trace_complete": true,
+        "trace_omitted": 0,
+        "completeness": {
+          "request_complete": true,
+          "policy_complete": true,
+          "identity_complete": true,
+          "context_complete": true,
+          "state_complete": true,
+          "phase_complete": true,
+          "missing": []
+        },
+        "cache_eligible": true,
+        "cache_reason": "eligible",
+        "phase_outcome": "dispatch_eligible"
+      }
+    },
+    {
+      "id": "argument-block",
+      "rules": [
+        {
+          "id": "block-production",
+          "selector": {
+            "phases": ["pre_call"]
+          },
+          "when": {
+            "predicate": {
+              "source": "arguments",
+              "pointer": "/target",
+              "op": "eq",
+              "value": "production"
+            }
+          },
+          "decision": "block",
+          "on_indeterminate": "block",
+          "cache": "exact",
+          "source_identity": ".reconc.yml"
+        }
+      ],
+      "arguments": {
+        "target": "production"
+      },
+      "context": [],
+      "expected": {
+        "decision": "block",
+        "reason_code": "rule_matched",
+        "tool_id": "database-write",
+        "matched_rule_ids": ["block-production"],
+        "candidates": [
+          {
+            "source": "rule",
+            "id": "block-production",
+            "decision": "block",
+            "reason": "rule_matched"
+          },
+          {
+            "source": "baseline",
+            "id": "declared-tool",
+            "decision": "allow",
+            "reason": "declared_tool"
+          }
+        ],
+        "trace": [
+          {
+            "rule_id": "block-production",
+            "tool_id": "database-write",
+            "selector": "matched",
+            "condition": "true",
+            "candidate_decision": "block",
+            "reason": "rule_matched",
+            "actual_provenance": "agent_supplied",
+            "complete": true,
+            "operand": {
+              "pointer_state": "present",
+              "kind": "string",
+              "byte_length": 12
+            }
+          }
+        ],
+        "trace_complete": true,
+        "trace_omitted": 0,
+        "completeness": {
+          "request_complete": true,
+          "policy_complete": true,
+          "identity_complete": true,
+          "context_complete": true,
+          "state_complete": true,
+          "phase_complete": true,
+          "missing": []
+        },
+        "cache_eligible": true,
+        "cache_reason": "eligible",
+        "phase_outcome": "dispatch_blocked"
+      }
+    },
+    {
+      "id": "untrusted-context-cannot-allow",
+      "rules": [
+        {
+          "id": "allow-operator",
+          "selector": {
+            "phases": ["pre_call"]
+          },
+          "when": {
+            "predicate": {
+              "source": "context",
+              "pointer": "/role",
+              "minimum_provenance": "host_observed",
+              "op": "eq",
+              "value": "operator"
+            }
+          },
+          "decision": "allow",
+          "on_indeterminate": "block",
+          "cache": "exact",
+          "source_identity": ".reconc.yml"
+        }
+      ],
+      "arguments": {},
+      "context": [
+        {
+          "name": "role",
+          "value": "operator",
+          "provenance": "adapter_asserted",
+          "available": true
+        }
+      ],
+      "expected": {
+        "decision": "block",
+        "reason_code": "context_untrusted",
+        "tool_id": "database-write",
+        "matched_rule_ids": ["allow-operator"],
+        "candidates": [
+          {
+            "source": "rule",
+            "id": "allow-operator",
+            "decision": "block",
+            "reason": "context_untrusted"
+          },
+          {
+            "source": "baseline",
+            "id": "declared-tool",
+            "decision": "allow",
+            "reason": "declared_tool"
+          }
+        ],
+        "trace": [
+          {
+            "rule_id": "allow-operator",
+            "tool_id": "database-write",
+            "selector": "matched",
+            "condition": "indeterminate",
+            "candidate_decision": "block",
+            "reason": "context_untrusted",
+            "actual_provenance": "adapter_asserted",
+            "required_provenance": "host_observed",
+            "complete": false,
+            "operand": {
+              "pointer_state": "present",
+              "kind": "string",
+              "byte_length": 10
+            }
+          }
+        ],
+        "trace_complete": true,
+        "trace_omitted": 0,
+        "completeness": {
+          "request_complete": true,
+          "policy_complete": true,
+          "identity_complete": true,
+          "context_complete": false,
+          "state_complete": true,
+          "phase_complete": true,
+          "missing": [
+            {
+              "field": "context",
+              "reason": "context_untrusted"
+            }
+          ]
+        },
+        "cache_eligible": false,
+        "cache_reason": "evidence_incomplete",
+        "phase_outcome": "dispatch_blocked"
+      }
+    }
+  ]
+}

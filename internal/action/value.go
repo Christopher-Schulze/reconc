@@ -25,6 +25,42 @@ const (
 	ValueObject ValueKind = "object"
 )
 
+type JSONErrorKind string
+
+const (
+	JSONErrorInvalid      JSONErrorKind = "invalid"
+	JSONErrorInvalidUTF8  JSONErrorKind = "invalid_utf8"
+	JSONErrorDuplicateKey JSONErrorKind = "duplicate_key"
+	JSONErrorLimit        JSONErrorKind = "limit_exceeded"
+)
+
+type JSONValueError struct {
+	Kind  JSONErrorKind
+	Cause error
+}
+
+func (e *JSONValueError) Error() string {
+	if e == nil || e.Cause == nil {
+		return "invalid JSON value"
+	}
+	return e.Cause.Error()
+}
+
+func (e *JSONValueError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
+func JSONErrorKindOf(err error) JSONErrorKind {
+	var valueError *JSONValueError
+	if errors.As(err, &valueError) {
+		return valueError.Kind
+	}
+	return JSONErrorInvalid
+}
+
 type Decimal struct {
 	negative    bool
 	coefficient string
@@ -85,7 +121,83 @@ func (d Decimal) String() string {
 }
 
 func (d Decimal) Equal(other Decimal) bool {
+	if d.coefficient == "" || d.coefficient == "0" {
+		d = Decimal{coefficient: "0"}
+	}
+	if other.coefficient == "" || other.coefficient == "0" {
+		other = Decimal{coefficient: "0"}
+	}
 	return d.negative == other.negative && d.coefficient == other.coefficient && d.exponent == other.exponent
+}
+
+// Compare returns -1, 0, or 1 when d is less than, equal to, or greater than
+// other. Decimal comparison never converts through a floating-point value.
+func (d Decimal) Compare(other Decimal) int {
+	if d.Equal(other) {
+		return 0
+	}
+	if d.coefficient == "" {
+		d.coefficient = "0"
+	}
+	if other.coefficient == "" {
+		other.coefficient = "0"
+	}
+	if d.coefficient == "0" {
+		if other.negative {
+			return 1
+		}
+		return -1
+	}
+	if other.coefficient == "0" {
+		if d.negative {
+			return -1
+		}
+		return 1
+	}
+	if d.negative != other.negative {
+		if d.negative {
+			return -1
+		}
+		return 1
+	}
+	comparison := compareDecimalMagnitude(d, other)
+	if d.negative {
+		return -comparison
+	}
+	return comparison
+}
+
+func compareDecimalMagnitude(left, right Decimal) int {
+	leftMagnitude := len(left.coefficient) + left.exponent
+	rightMagnitude := len(right.coefficient) + right.exponent
+	if leftMagnitude < rightMagnitude {
+		return -1
+	}
+	if leftMagnitude > rightMagnitude {
+		return 1
+	}
+	return compareDecimalDigits(left.coefficient, right.coefficient)
+}
+
+func compareDecimalDigits(left, right string) int {
+	width := max(len(left), len(right))
+	for index := 0; index < width; index++ {
+		leftDigit := byte('0')
+		if index < len(left) {
+			leftDigit = left[index]
+		}
+		rightDigit := byte('0')
+		if index < len(right) {
+			rightDigit = right[index]
+		}
+		if leftDigit < rightDigit {
+			return -1
+		}
+		if leftDigit > rightDigit {
+			return 1
+		}
+	}
+	return 0
 }
 
 type Member struct {
@@ -104,9 +216,14 @@ type Value struct {
 	object []Member
 }
 
-func Null() Value                { return Value{kind: ValueNull} }
-func Boolean(value bool) Value   { return Value{kind: ValueBool, bool: value} }
-func Number(value Decimal) Value { return Value{kind: ValueNumber, number: value} }
+func Null() Value              { return Value{kind: ValueNull} }
+func Boolean(value bool) Value { return Value{kind: ValueBool, bool: value} }
+func Number(value Decimal) Value {
+	if value.coefficient == "" || value.coefficient == "0" {
+		value = Decimal{coefficient: "0"}
+	}
+	return Value{kind: ValueNumber, number: value}
+}
 func String(value string) (Value, error) {
 	if !utf8.ValidString(value) || len(value) > MaxJSONStringBytes {
 		return Value{}, fmt.Errorf("string must be valid UTF-8 and at most %d bytes", MaxJSONStringBytes)
@@ -182,12 +299,42 @@ func (v Value) Scalar() bool {
 }
 
 func (v Value) Equal(other Value) bool {
-	left, err := v.MarshalJSON()
-	if err != nil {
+	if v.kind != other.kind {
 		return false
 	}
-	right, err := other.MarshalJSON()
-	return err == nil && bytes.Equal(left, right)
+	switch v.kind {
+	case ValueNull:
+		return true
+	case ValueBool:
+		return v.bool == other.bool
+	case ValueNumber:
+		return v.number.Equal(other.number)
+	case ValueString:
+		return v.string == other.string
+	case ValueArray:
+		if len(v.array) != len(other.array) {
+			return false
+		}
+		for index := range v.array {
+			if !v.array[index].Equal(other.array[index]) {
+				return false
+			}
+		}
+		return true
+	case ValueObject:
+		if len(v.object) != len(other.object) {
+			return false
+		}
+		for index := range v.object {
+			if v.object[index].Name != other.object[index].Name ||
+				!v.object[index].Value.Equal(other.object[index].Value) {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
 }
 
 func (v Value) MarshalJSON() ([]byte, error) {
@@ -263,24 +410,27 @@ func (v *Value) UnmarshalJSON(data []byte) error {
 }
 
 func ParseJSON(data []byte) (Value, error) {
-	if len(data) == 0 || len(data) > MaxArgumentBytes {
-		return Value{}, fmt.Errorf("JSON value must contain 1 to %d bytes", MaxArgumentBytes)
+	if len(data) == 0 {
+		return Value{}, jsonValueError(JSONErrorInvalid, errors.New("JSON value is empty"))
+	}
+	if len(data) > MaxArgumentBytes {
+		return Value{}, jsonValueError(JSONErrorLimit, fmt.Errorf("JSON value must contain 1 to %d bytes", MaxArgumentBytes))
 	}
 	if err := ValidateJSONUnicode(data); err != nil {
-		return Value{}, err
+		return Value{}, jsonValueError(JSONErrorInvalidUTF8, err)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	state := valueDecodeState{}
 	value, err := state.read(decoder, 0)
 	if err != nil {
-		return Value{}, err
+		return Value{}, classifyJSONValueError(err)
 	}
 	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
 		if err == nil {
-			return Value{}, errors.New("JSON value contains trailing data")
+			return Value{}, jsonValueError(JSONErrorInvalid, errors.New("JSON value contains trailing data"))
 		}
-		return Value{}, fmt.Errorf("read trailing JSON: %w", err)
+		return Value{}, jsonValueError(JSONErrorInvalid, fmt.Errorf("read trailing JSON: %w", err))
 	}
 	return value, nil
 }
@@ -291,9 +441,27 @@ func ParseObjectJSON(data []byte) (Value, error) {
 		return Value{}, err
 	}
 	if value.kind != ValueObject {
-		return Value{}, errors.New("JSON value must contain one object")
+		return Value{}, jsonValueError(JSONErrorInvalid, errors.New("JSON value must contain one object"))
 	}
 	return value, nil
+}
+
+func jsonValueError(kind JSONErrorKind, cause error) error {
+	return &JSONValueError{Kind: kind, Cause: cause}
+}
+
+func classifyJSONValueError(err error) error {
+	message := err.Error()
+	switch {
+	case strings.Contains(message, "duplicate object key"):
+		return jsonValueError(JSONErrorDuplicateKey, err)
+	case strings.Contains(message, "maximum"), strings.Contains(message, "exceeds"),
+		strings.Contains(message, "at most"), strings.Contains(message, "must contain 1 to"),
+		strings.Contains(message, "outside the supported range"):
+		return jsonValueError(JSONErrorLimit, err)
+	default:
+		return jsonValueError(JSONErrorInvalid, err)
+	}
 }
 
 type valueDecodeState struct {

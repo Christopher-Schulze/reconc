@@ -7,10 +7,14 @@ Contract family: `reconc.action/v1`
 Implementation state: partially implemented in unreleased source version
 `v0.9.6`. TASK 154 implements strict action authoring, canonical format-5
 compilation and v4 migration, immutable matcher programs, the legacy MCP
-compatibility view, and `reconc why action`. The published v0.9.5 binary has
-none of those additions. Evaluation, inspection, budgets, approvals, ledger,
-gateway enforcement, Impact Lab action cases, and control-evidence export remain
-unavailable until their owning tasks are complete.
+compatibility view, and `reconc why action`. TASK 155 implements the pure
+transport-neutral evaluator, strict normalized requests, exact predicates and
+precedence, provenance enforcement, bounded redacted traces, phase isolation,
+typed fail-closed results, and exact resampled in-memory decision caching. The
+published v0.9.5 binary has none of those additions. Inspection, budgets,
+approvals, ledger, gateway enforcement, Impact Lab action cases, and
+control-evidence export remain unavailable until their owning tasks are
+complete.
 
 ## Purpose And Boundary
 

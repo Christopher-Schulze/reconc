@@ -1875,10 +1875,10 @@ and repository checks.
 RECONC-0008 remains Draft. Unreleased source version `v0.9.6` implements strict
 `actions` authoring, canonical format-5 compilation, deterministic lowering of
 legacy `mcp` declarations, immutable typed matcher programs, a derived MCP
-compatibility view, and `reconc why action`. The published v0.9.5 release does
-not contain those additions. No current source command routes tool calls through
-an enforcing gateway, and the current runtime does not yet evaluate action
-rules.
+compatibility view, `reconc why action`, and the transport-neutral deterministic
+action evaluator. The published v0.9.5 release does not contain those additions.
+No current source command routes tool calls through an enforcing gateway, so the
+implemented evaluator is not yet a live tool-call interception boundary.
 
 The design keeps all Reconc-owned product and adapter code in Go. The target
 gateway is one local, tool-only stdio MCP process around one operator-selected
@@ -1904,12 +1904,16 @@ constraints, JSON Pointers, and typed constants are compiled once into the
 immutable runtime plan. `reconc why action .` explains the result with operand
 values redacted.
 
-The later evaluator will produce exactly `allow`, `warn`,
-`require_approval`, and `block` with
+The pure evaluator produces exactly `allow`, `warn`, `require_approval`, and
+`block` with
 `block > require_approval > warn > allow` precedence. Arguments and trusted
-context would use strict typed JSON, exact RFC 6901 pointers, deterministic
-predicates, explicit provenance, fail-closed bounds, and complete cache
-identities rather than an opaque numeric risk score.
+context use strict typed JSON, exact RFC 6901 pointers, deterministic predicates,
+explicit provenance, fail-closed bounds, redacted bounded traces, and complete
+in-memory cache identities rather than an opaque numeric risk score. Cache reuse
+requires exact request, transport, tool, plan, policy, context, principal,
+credential, state, approval, taint, repository-effect, phase, deadline, and
+lifecycle identity plus immediate resampling. Persistent low-entropy identities
+remain unavailable until their operator-keyed state owner is implemented.
 
 Independent enforcement would require an operator-supplied expected lock digest.
 An explicit repository-managed mode would remain available with lower
@@ -1917,8 +1921,8 @@ provenance and a visible policy-tampering boundary. Repository policy could
 never select the downstream executable, argv, working directory, inherited
 environment, credential material, state key, or approval authority.
 
-Later layers add pure action evaluation, deterministic inspection, atomic
-cumulative budgets, signed one-time Ed25519
+Later layers add deterministic inspection, atomic cumulative budgets, signed
+one-time Ed25519
 approval receipts, deterministic local argument and result detectors,
 post-result withholding, a privacy-bounded tamper-evident retained action
 ledger, Impact Lab action scenarios, and local control-evidence mappings.
@@ -1947,7 +1951,7 @@ summarizes the core runtime responsibilities:
 - `cmd/reconc`: CLI entry point only
 - `buildprovenance`: deterministic target/source build identity and byte-only binary inspection
 - `internal/cli`: argument parsing and command dispatch
-- `internal/action`: pure canonical action contract, normalization, immutable matcher programs, and defensive views
+- `internal/action`: pure canonical action contract, strict normalized values, immutable matcher programs, deterministic evaluation, redacted traces, and exact in-memory decision caching
 - `internal/ingest`: repository discovery and source loading
 - `internal/parser`: YAML-to-policy validation and normalization
 - `internal/compiler`: canonical JSON lockfile generation, digesting, conflicts, migrations, compile lock

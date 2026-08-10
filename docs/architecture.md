@@ -69,7 +69,7 @@ side-effect-free replay contract.
 buildprovenance/ deterministic target/source identity + byte-only binary inspection
 harness/         embedded immutable advanced harness pack
 internal/
-  action/         pure canonical action contract, normalization, immutable matcher programs, and defensive views
+  action/         pure action contract, strict values, immutable matchers, evaluator, traces, and exact cache
   adopt/          convention detector, rule suggestions, and stack-pack recommendations
   agentguide/     embedded agent-integration guide + section lookup
   assurance/      bounded native layout/source/manifest/proof gates + per-run fact graph
@@ -216,9 +216,13 @@ handling.
 RECONC-0008 remains Draft. The unreleased v0.9.6 source implements strict action
 authoring, deterministic legacy MCP lowering, one canonical format-5 action
 plan, immutable typed matcher programs, a derived MCP compatibility view, and
-`reconc why action`. It does not yet evaluate or enforce action rules, inspect
-results, maintain action state or a ledger, or route calls through a gateway.
-The published v0.9.5 release has none of the Action Plane additions.
+`reconc why action`. The transport-neutral pure evaluator now implements strict
+request normalization, exact predicates and precedence, provenance monotonicity,
+phase isolation, fail-closed errors, bounded redacted traces, and exact
+resampled in-memory decision caching. No CLI or gateway currently invokes it,
+so source does not yet enforce live tool calls, inspect downstream content,
+maintain action state or a ledger, or route calls through a gateway. The
+published v0.9.5 release has none of the Action Plane additions.
 
 The target topology is one local, tool-only stdio MCP gateway around one
 operator-selected downstream stdio MCP server. Every routed `tools/call` would

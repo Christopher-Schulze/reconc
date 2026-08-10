@@ -18,6 +18,7 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 		"Status: Draft",
 		"Implementation state: partially implemented in unreleased source version",
 		"TASK 154 implements strict action authoring",
+		"TASK 155 implements the pure",
 		"gateway enforcement",
 		"unavailable until their owning tasks",
 	)
@@ -27,13 +28,15 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 	assertContainsAll(t, "architecture", architecture,
 		"## Go-Only Action Plane (Draft)",
 		"unreleased v0.9.6 source implements strict action",
-		"does not yet evaluate or enforce action rules",
+		"transport-neutral pure evaluator now implements strict",
+		"does not yet enforce live tool calls",
 	)
 	assertContainsAll(t, "documentation", documentation,
 		"## Go-Only Action Plane",
 		"Unreleased source version `v0.9.6` implements strict",
 		"No current source command routes tool calls through",
 		"an enforcing gateway",
+		"implemented evaluator is not yet a live tool-call interception boundary",
 	)
 	assertContainsAll(t, "commands", commands,
 		"## Remaining Action Plane commands (Draft, unavailable)",

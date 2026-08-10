@@ -345,6 +345,12 @@ func normalizeCIDRs(value Value) ([]netip.Prefix, Value, error) {
 		if err != nil {
 			return nil, Value{}, fmt.Errorf("cidr value %d is invalid: %w", index, err)
 		}
+		if prefix.Addr().Is4In6() {
+			if prefix.Bits() < 96 {
+				return nil, Value{}, fmt.Errorf("cidr value %d crosses the IPv4-mapped boundary", index)
+			}
+			prefix = netip.PrefixFrom(prefix.Addr().Unmap(), prefix.Bits()-96)
+		}
 		prefixes[index] = prefix.Masked()
 		canonical := prefixes[index].String()
 		items[index], _ = String(canonical)
@@ -623,7 +629,14 @@ func duplicateString(values []string) bool {
 }
 
 func normalizeConstraintHost(host string) (string, error) {
-	host = strings.TrimSuffix(strings.ToLower(host), ".")
+	host = strings.ToLower(host)
+	if strings.HasSuffix(host, ".") {
+		trimmed := strings.TrimSuffix(host, ".")
+		if _, err := netip.ParseAddr(trimmed); err == nil {
+			return "", fmt.Errorf("IP literals cannot contain a trailing DNS dot")
+		}
+		host = trimmed
+	}
 	if host == "" || len(host) > 253 || !asciiHostPattern.MatchString(host) {
 		return "", fmt.Errorf("must be non-empty canonical ASCII")
 	}

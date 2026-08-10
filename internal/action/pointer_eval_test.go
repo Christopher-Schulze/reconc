@@ -1,0 +1,58 @@
+package action
+
+import "testing"
+
+func TestResolvePointerRFC6901States(t *testing.T) {
+	t.Parallel()
+	root := mustTestValue(t, `{"a/b":{"~":[null,{"value":"ok"}]},"01":"object-key"}`)
+	tests := []struct {
+		name    string
+		pointer string
+		state   PointerState
+		text    string
+	}{
+		{name: "root", pointer: "", state: PointerPresent},
+		{name: "escaped null", pointer: "/a~1b/~0/0", state: PointerNull},
+		{name: "array member", pointer: "/a~1b/~0/1/value", state: PointerPresent, text: "ok"},
+		{name: "missing member", pointer: "/missing", state: PointerMissing},
+		{name: "out of range", pointer: "/a~1b/~0/2", state: PointerMissing},
+		{name: "wrong container", pointer: "/a~1b/~0/0/x", state: PointerWrongContainer},
+		{name: "leading zero object key", pointer: "/01", state: PointerPresent, text: "object-key"},
+		{name: "leading zero array index", pointer: "/a~1b/~0/01", state: PointerInvalidIndex},
+		{name: "dash array index", pointer: "/a~1b/~0/-", state: PointerInvalidIndex},
+		{name: "signed array index", pointer: "/a~1b/~0/+1", state: PointerInvalidIndex},
+		{name: "overflow array index", pointer: "/a~1b/~0/999999999999999999999999", state: PointerInvalidIndex},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			result, err := ResolvePointer(root, test.pointer)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.State != test.state {
+				t.Fatalf("state = %s, want %s", result.State, test.state)
+			}
+			if test.text != "" {
+				text, ok := result.Value.Text()
+				if !ok || text != test.text {
+					t.Fatalf("text = %q, %v; want %q", text, ok, test.text)
+				}
+			}
+		})
+	}
+}
+
+func TestResolvePointerRejectsInvalidSyntax(t *testing.T) {
+	t.Parallel()
+	root := mustTestValue(t, `{}`)
+	for _, pointer := range []string{"relative", "/bad~", "/bad~2"} {
+		pointer := pointer
+		t.Run(pointer, func(t *testing.T) {
+			t.Parallel()
+			if _, err := ResolvePointer(root, pointer); err == nil {
+				t.Fatal("invalid pointer unexpectedly resolved")
+			}
+		})
+	}
+}
