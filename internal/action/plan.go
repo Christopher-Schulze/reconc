@@ -40,6 +40,9 @@ func CompilePlan(input Plan) (*CompiledPlan, error) {
 	if plan.Approvals == nil {
 		plan.Approvals = []ApprovalDisclosure{}
 	}
+	if plan.Detectors == nil {
+		plan.Detectors = []DetectorPolicy{}
+	}
 	if err := normalizeDefaults(&plan.Defaults); err != nil {
 		return nil, err
 	}
@@ -54,6 +57,9 @@ func CompilePlan(input Plan) (*CompiledPlan, error) {
 	}
 	if len(plan.Approvals) > MaxApprovalDisclosures {
 		return nil, fmt.Errorf("actions.approvals contains %d declarations; maximum is %d", len(plan.Approvals), MaxApprovalDisclosures)
+	}
+	if len(plan.Detectors) > MaxDetectors {
+		return nil, fmt.Errorf("actions.detectors contains %d declarations; maximum is %d", len(plan.Detectors), MaxDetectors)
 	}
 	toolByID := make(map[string]int, len(plan.Tools))
 	toolByExact := make(map[string]int, len(plan.Tools))
@@ -72,6 +78,11 @@ func CompilePlan(input Plan) (*CompiledPlan, error) {
 		key := ToolIdentityKey(*tool)
 		if previous, duplicate := toolByExact[key]; duplicate {
 			return nil, fmt.Errorf("actions.tools %q and %q own the same exact tool declaration", plan.Tools[previous].ID, tool.ID)
+		}
+		for previous := 0; previous < index; previous++ {
+			if toolDeclarationsOverlap(plan.Tools[previous], *tool) {
+				return nil, fmt.Errorf("actions.tools %q and %q own overlapping fingerprint-bound tool declarations", plan.Tools[previous].ID, tool.ID)
+			}
 		}
 		toolByExact[key] = index
 	}
@@ -118,22 +129,51 @@ func CompilePlan(input Plan) (*CompiledPlan, error) {
 			return nil, fmt.Errorf("actions.approvals contains duplicate id %q", plan.Approvals[index].ID)
 		}
 	}
+	compiledDetectors := make([]CompiledDetectorPolicy, len(plan.Detectors))
+	for index := range plan.Detectors {
+		compiled, err := normalizeDetectorPolicy(&plan.Detectors[index], plan.Tools, toolByID)
+		if err != nil {
+			return nil, fmt.Errorf("actions.detectors[%d]: %w", index, err)
+		}
+		compiledDetectors[index] = compiled
+	}
+	sort.Slice(compiledDetectors, func(i, j int) bool {
+		return compiledDetectors[i].Policy.ID < compiledDetectors[j].Policy.ID
+	})
+	plan.Detectors = make([]DetectorPolicy, len(compiledDetectors))
+	for index := range compiledDetectors {
+		if index > 0 && compiledDetectors[index-1].Policy.ID == compiledDetectors[index].Policy.ID {
+			return nil, fmt.Errorf("actions.detectors contains duplicate id %q", compiledDetectors[index].Policy.ID)
+		}
+		plan.Detectors[index] = compiledDetectors[index].Policy
+	}
 	body, err := json.Marshal(plan)
 	if err != nil {
 		return nil, fmt.Errorf("encode canonical action plan: %w", err)
 	}
-	logicalBytes := len(body)
+	logicalBytes, err := extendCompiledPlanBytes(0, len(body))
+	if err != nil {
+		return nil, err
+	}
 	for _, rule := range compiledRules {
-		logicalBytes += compiledConditionLogicalBytes(rule.Condition)
-		if logicalBytes > MaxCompiledPlanBytes {
-			return nil, fmt.Errorf("compiled action plan requires %d logical bytes; maximum is %d", logicalBytes, MaxCompiledPlanBytes)
+		logicalBytes, err = extendCompiledPlanBytes(logicalBytes, compiledConditionLogicalBytes(rule.Condition))
+		if err != nil {
+			return nil, err
 		}
 	}
 	return &CompiledPlan{
 		plan: plan, toolByID: toolByID, toolByExact: toolByExact,
 		rules: compiledRules, budgets: cloneSlice(plan.Budgets),
-		approvals: cloneSlice(plan.Approvals),
+		approvals: cloneSlice(plan.Approvals), detectors: compiledDetectors,
 	}, nil
+}
+
+func extendCompiledPlanBytes(current, additional int) (int, error) {
+	if current < 0 || additional < 0 || current > MaxCompiledPlanBytes ||
+		additional > MaxCompiledPlanBytes-current {
+		return 0, fmt.Errorf("compiled action plan exceeds %d logical bytes", MaxCompiledPlanBytes)
+	}
+	return current + additional, nil
 }
 
 func normalizeDefaults(defaults *Defaults) error {
@@ -616,6 +656,25 @@ func ToolIdentityKey(tool Tool) string {
 	return string(tool.Transport) + "\x00" + string(tool.Platform) + "\x00" + tool.ServerLabel + "\x00" + tool.ServerFingerprint + "\x00" + tool.Tool
 }
 
+func toolDeclarationsOverlap(left, right Tool) bool {
+	return left.Transport == right.Transport && left.Platform == right.Platform &&
+		left.ServerLabel == right.ServerLabel && left.Tool == right.Tool &&
+		(left.ServerFingerprint == "" || right.ServerFingerprint == "" ||
+			left.ServerFingerprint == right.ServerFingerprint)
+}
+
+func lookupToolIndex(index map[string]int, tool Tool) (int, bool) {
+	if matched, ok := index[ToolIdentityKey(tool)]; ok {
+		return matched, true
+	}
+	if tool.ServerFingerprint == "" {
+		return 0, false
+	}
+	tool.ServerFingerprint = ""
+	matched, ok := index[ToolIdentityKey(tool)]
+	return matched, ok
+}
+
 func (p *CompiledPlan) Plan() Plan {
 	if p == nil {
 		return Plan{}
@@ -642,6 +701,18 @@ func (p *CompiledPlan) Budgets() []Budget {
 	out := cloneSlice(p.budgets)
 	for index := range out {
 		cloneSelector(&out[index].Selector, p.budgets[index].Selector)
+	}
+	return out
+}
+
+// Detectors returns canonical detector declarations in stable ID order.
+func (p *CompiledPlan) Detectors() []DetectorPolicy {
+	if p == nil {
+		return nil
+	}
+	out := make([]DetectorPolicy, len(p.detectors))
+	for index := range p.detectors {
+		out[index] = cloneDetectorPolicy(p.detectors[index].Policy)
 	}
 	return out
 }
@@ -757,6 +828,10 @@ func clonePlan(input Plan) Plan {
 	for index := range out.Approvals {
 		cloneSelector(&out.Approvals[index].Selector, input.Approvals[index].Selector)
 		out.Approvals[index].SelectedArguments = cloneSlice(input.Approvals[index].SelectedArguments)
+	}
+	out.Detectors = make([]DetectorPolicy, len(input.Detectors))
+	for index := range input.Detectors {
+		out.Detectors[index] = cloneDetectorPolicy(input.Detectors[index])
 	}
 	return out
 }

@@ -110,6 +110,7 @@ func FuzzDecodeImpactDeltaManifest(f *testing.F) {
 }
 
 func FuzzActionPrivacyTransform(f *testing.F) {
+	scanner := mustActionPrivacyScanner(f)
 	syntheticUserPath := "/" + "Users/example/private"
 	for _, seed := range [][]byte{
 		[]byte(`{"authorization":"Bearer sk-secretvalue123"}`),
@@ -123,17 +124,17 @@ func FuzzActionPrivacyTransform(f *testing.F) {
 		if len(input) > 64<<10 {
 			return
 		}
-		first, summaries, err := sanitizeActionRawValue(ActionPayload(input), action.SourceArguments,
+		first, summaries, err := sanitizeActionRawValue(scanner, ActionPayload(input), action.SourceArguments,
 			action.ProvenanceAgentSupplied, "", []ActionValueSummary{})
 		if err != nil {
 			return
 		}
-		second, secondSummaries, err := sanitizeActionRawValue(ActionPayload(input), action.SourceArguments,
+		second, secondSummaries, err := sanitizeActionRawValue(scanner, ActionPayload(input), action.SourceArguments,
 			action.ProvenanceAgentSupplied, "", []ActionValueSummary{})
 		if err != nil || first != second || !equalValueSummaries(summaries, secondSummaries) {
 			t.Fatalf("privacy transform is nondeterministic: %v", err)
 		}
-		if sensitiveRawActionText(json.RawMessage(first)) {
+		if sensitiveRawActionText(scanner, json.RawMessage(first)) {
 			t.Fatalf("privacy transform retained sensitive output %q", first)
 		}
 	})

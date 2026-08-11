@@ -16,7 +16,8 @@ this root, and docs/comments should not depend on any external source tree.
 - Module: `reconc.dev/reconc`
 - Runtime dependencies: `github.com/Microsoft/go-winio`,
   `github.com/bmatcuk/doublestar/v4`, `github.com/pelletier/go-toml/v2`,
-  `golang.org/x/sys`, `gopkg.in/yaml.v3`, and `mvdan.cc/sh/v3`
+  `github.com/santhosh-tekuri/jsonschema/v6`, `golang.org/x/sys`,
+  `golang.org/x/text`, `gopkg.in/yaml.v3`, and `mvdan.cc/sh/v3`
 - Test runner: `make test` (publication audit, root module, portable template module, and release trust)
 - Coverage measurement: `make coverage` (whole-module root and portable-template profiles for review evidence)
 - Entry point: `cmd/reconc/main.go`
@@ -36,9 +37,9 @@ make publication-audit
 
 Bun `1.3.14` is a test-only dependency for executing the generated OpenCode,
 Kilo Code, Oh My Pi, and Pi adapter contracts; the shipped Reconc binary does not
-require Bun. `github.com/santhosh-tekuri/jsonschema/v6` and
-`github.com/dlclark/regexp2` are test-only dependencies for independent offline
-Draft 2020-12 schema compilation and validation.
+require Bun. `github.com/dlclark/regexp2` is a test-only dependency for the
+independent ECMAScript schema-pattern oracle. Production output-schema
+validation uses `github.com/santhosh-tekuri/jsonschema/v6` entirely offline.
 
 ## Conventions
 

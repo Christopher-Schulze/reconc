@@ -56,3 +56,23 @@ func TestResolvePointerRejectsInvalidSyntax(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveCompiledPointerUsesValidatedTokens(t *testing.T) {
+	t.Parallel()
+	root := mustTestValue(t, `{"items":[{"name":"ok"}]}`)
+	tokens, err := CompilePointer("/items/0/name")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := ResolveCompiledPointer(root, tokens)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, ok := result.Value.Text()
+	if result.State != PointerPresent || !ok || text != "ok" {
+		t.Fatalf("compiled pointer result = %#v", result)
+	}
+	if _, err := ResolveCompiledPointer(root, []string{string([]byte{0xff})}); err == nil {
+		t.Fatal("invalid compiled token unexpectedly resolved")
+	}
+}

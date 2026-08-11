@@ -10,6 +10,7 @@
     "post_error": "block",
     "progress_error": "block"
   },
+  "detectors": [],
   "format_version": "1",
   "rules": [],
   "tools": [

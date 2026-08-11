@@ -137,6 +137,7 @@ type ActionStateFixture struct {
 	Lifecycle          action.LifecycleState             `json:"lifecycle"`
 	CachePolicyVersion string                            `json:"cache_policy_version"`
 	Budget             action.BudgetSnapshot             `json:"budget"`
+	Inspection         *action.InspectionEvidence        `json:"inspection,omitempty"`
 	ResampleDrift      []ActionIdentityComponent         `json:"resample_drift"`
 }
 
@@ -163,6 +164,7 @@ const (
 	IdentityApproval         ActionIdentityComponent = "approval"
 	IdentityTaint            ActionIdentityComponent = "taint"
 	IdentityRepositoryEffect ActionIdentityComponent = "repository_effect"
+	IdentityInspection       ActionIdentityComponent = "inspection"
 )
 
 func (c ActionIdentityComponent) Valid() bool {
@@ -171,7 +173,7 @@ func (c ActionIdentityComponent) Valid() bool {
 		IdentityAuthority, IdentityServer, IdentityToolContract, IdentityExecutable,
 		IdentityRepository, IdentityContext, IdentityPrincipal,
 		IdentityCredentials, IdentityState, IdentityBudget, IdentityReservation,
-		IdentityApproval, IdentityTaint,
+		IdentityApproval, IdentityTaint, IdentityInspection,
 		IdentityRepositoryEffect:
 		return true
 	default:

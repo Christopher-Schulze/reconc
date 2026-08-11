@@ -60,7 +60,8 @@ func evaluateActionScenario(scenario ActionCase, compiled runtime.CompiledAction
 		Principal:        scenario.State.Principal, CredentialLabels: append([]string(nil), scenario.State.CredentialLabels...),
 		Budget:   scenario.State.Budget,
 		Approval: scenario.State.Approval, Taint: scenario.State.Taint,
-		Lifecycle: scenario.State.Lifecycle, CachePolicyVersion: scenario.State.CachePolicyVersion,
+		Inspection: cloneFixtureInspection(scenario.State.Inspection),
+		Lifecycle:  scenario.State.Lifecycle, CachePolicyVersion: scenario.State.CachePolicyVersion,
 	}
 	if scenario.State.RepositoryEffect != nil {
 		effect := *scenario.State.RepositoryEffect
@@ -163,6 +164,8 @@ func applyIdentityDrift(snapshot *action.IdentitySnapshot, components []ActionId
 			snapshot.TaintIdentity = "taint-drift"
 		case IdentityRepositoryEffect:
 			snapshot.RepositoryEffectIdentity = "repository-effect-drift"
+		case IdentityInspection:
+			snapshot.InspectionIdentity = "inspection-drift"
 		}
 	}
 }

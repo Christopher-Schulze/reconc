@@ -14,6 +14,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"reconc.dev/reconc/internal/actioninspect"
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/runtime"
 )
@@ -40,9 +41,13 @@ func NewCorpusWithActionCoverage(repoRoot string, cases []Case, complete []Event
 	if err != nil {
 		return Corpus{}, err
 	}
+	scanner, err := actionPrivacyScanner(cases)
+	if err != nil {
+		return Corpus{}, err
+	}
 	sanitized := make([]Case, 0, len(cases))
 	for _, replayCase := range cases {
-		cleaned, err := sanitizeCase(repoRoot, replayCase)
+		cleaned, err := sanitizeCase(repoRoot, scanner, replayCase)
 		if err != nil {
 			return Corpus{}, err
 		}
@@ -218,6 +223,10 @@ func validateCorpusContract(corpus Corpus) error {
 }
 
 func validateCases(cases []Case) error {
+	scanner, err := actionPrivacyScanner(cases)
+	if err != nil {
+		return err
+	}
 	totalItems := 0
 	for index, replayCase := range cases {
 		if !validCaseID(replayCase.ID) || !replayCase.Kind.Valid() {
@@ -226,7 +235,7 @@ func validateCases(cases []Case) error {
 		if index > 0 && cases[index-1].ID >= replayCase.ID {
 			return fmt.Errorf("impact corpus case ids must be unique and lexically sorted")
 		}
-		items, err := validateCase(replayCase)
+		items, err := validateCase(scanner, replayCase)
 		if err != nil {
 			return fmt.Errorf("impact corpus case[%d]: %w", index, err)
 		}
@@ -238,7 +247,7 @@ func validateCases(cases []Case) error {
 	return rejectDuplicateCaseIDs(cases)
 }
 
-func validateCase(replayCase Case) (int, error) {
+func validateCase(scanner *actioninspect.TextScanner, replayCase Case) (int, error) {
 	switch replayCase.Kind {
 	case CaseRepository:
 		if replayCase.Repository == nil || replayCase.Action != nil {
@@ -249,10 +258,24 @@ func validateCase(replayCase Case) (int, error) {
 		if replayCase.Action == nil || replayCase.Repository != nil {
 			return 0, fmt.Errorf("action case must contain only action evidence")
 		}
-		return validateActionCase(replayCase.Kind, *replayCase.Action)
+		return validateActionCaseWithScanner(scanner, replayCase.Kind, *replayCase.Action)
 	default:
 		return 0, fmt.Errorf("unsupported impact case kind %q", replayCase.Kind)
 	}
+}
+
+func actionPrivacyScanner(cases []Case) (*actioninspect.TextScanner, error) {
+	for _, replayCase := range cases {
+		if replayCase.Kind != CaseActionPre && replayCase.Kind != CaseActionPost {
+			continue
+		}
+		scanner, err := actioninspect.NewTextScanner()
+		if err != nil {
+			return nil, fmt.Errorf("prepare action privacy scanner: %w", err)
+		}
+		return scanner, nil
+	}
+	return nil, nil
 }
 
 func validateRepositoryCase(replayCase RepositoryCase) (int, error) {

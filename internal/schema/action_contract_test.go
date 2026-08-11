@@ -2,10 +2,12 @@ package schema_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"reconc.dev/reconc/internal/actioninspect"
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/schema"
 )
@@ -43,6 +45,16 @@ func TestCurrentPolicyConfigSchemaAcceptsOnlyTheImplementedActionSurface(t *test
 					"tool_ids": []interface{}{"warehouse-query"}, "phases": []interface{}{"pre_call"},
 				},
 				"selected_arguments": []interface{}{"/database"},
+			}},
+			"detectors": []interface{}{map[string]interface{}{
+				"id": "inspect-database", "pack_id": "reconc-core-v1",
+				"pack_digest": actioninspect.BuiltinPackIdentity(),
+				"selector": map[string]interface{}{
+					"tool_ids": []interface{}{"warehouse-query"}, "phases": []interface{}{"pre_call"},
+				},
+				"fields":          []interface{}{map[string]interface{}{"source": "arguments", "pointer": "/database"}},
+				"categories":      []interface{}{"forbidden_data"},
+				"forbidden_terms": []interface{}{"production"},
 			}},
 			"defaults": map[string]interface{}{"gateway_unmatched": "block", "host_unmatched": "allow"},
 		},
@@ -82,6 +94,42 @@ func TestCurrentPolicyConfigSchemaAcceptsOnlyTheImplementedActionSurface(t *test
 		func(candidate map[string]interface{}) {
 			candidate["actions"].(map[string]interface{})["budgets"].([]interface{})[0].(map[string]interface{})["limits"] = map[string]interface{}{"calls": 1}
 		},
+		func(candidate map[string]interface{}) {
+			candidate["actions"].(map[string]interface{})["detectors"].([]interface{})[0].(map[string]interface{})["categories"] = []interface{}{"unknown"}
+		},
+		func(candidate map[string]interface{}) {
+			candidate["actions"].(map[string]interface{})["detectors"].([]interface{})[0].(map[string]interface{})["allowed_content_types"] = []interface{}{"unknown"}
+		},
+		func(candidate map[string]interface{}) {
+			candidate["actions"].(map[string]interface{})["detectors"].([]interface{})[0].(map[string]interface{})["selector"].(map[string]interface{})["phases"] = []interface{}{"observation"}
+		},
+		func(candidate map[string]interface{}) {
+			delete(candidate["actions"].(map[string]interface{})["detectors"].([]interface{})[0].(map[string]interface{}), "fields")
+		},
+		func(candidate map[string]interface{}) {
+			delete(candidate["actions"].(map[string]interface{})["detectors"].([]interface{})[0].(map[string]interface{}), "forbidden_terms")
+		},
+		func(candidate map[string]interface{}) {
+			candidate["actions"].(map[string]interface{})["detectors"].([]interface{})[0].(map[string]interface{})["trusted_annotation_fields"] = []interface{}{"audience"}
+		},
+		func(candidate map[string]interface{}) {
+			candidate["actions"].(map[string]interface{})["detectors"].([]interface{})[0].(map[string]interface{})["pack_digest"] = "sha256:ABC"
+		},
+		func(candidate map[string]interface{}) {
+			candidate["actions"].(map[string]interface{})["detectors"].([]interface{})[0].(map[string]interface{})["limits"] = map[string]interface{}{"max_depth": 0}
+		},
+		func(candidate map[string]interface{}) {
+			candidate["actions"].(map[string]interface{})["detectors"].([]interface{})[0].(map[string]interface{})["limits"] = map[string]interface{}{"max_bytes": 8388609}
+		},
+		func(candidate map[string]interface{}) {
+			candidate["actions"].(map[string]interface{})["detectors"].([]interface{})[0].(map[string]interface{})["limits"] = map[string]interface{}{"max_milliseconds": 501}
+		},
+		func(candidate map[string]interface{}) {
+			detector := candidate["actions"].(map[string]interface{})["detectors"].([]interface{})[0].(map[string]interface{})
+			detector["selector"].(map[string]interface{})["phases"] = []interface{}{"progress"}
+			detector["fields"] = []interface{}{map[string]interface{}{"source": "progress", "pointer": "/message"}}
+			detector["limits"] = map[string]interface{}{"max_milliseconds": 251}
+		},
 	} {
 		candidate := cloneJSONValue(t, valid).(map[string]interface{})
 		mutate(candidate)
@@ -97,7 +145,7 @@ func TestCompilerEmitsOneSchemaValidFormat5ActionPlan(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("# fixture\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	config := `mcp:
+	config := fmt.Sprintf(`mcp:
   unclassified: deny
   tools:
     - platform: cursor
@@ -105,12 +153,30 @@ func TestCompilerEmitsOneSchemaValidFormat5ActionPlan(t *testing.T) {
       effect: repository_write
       path_fields: [/path]
 actions:
+  tools:
+    - id: inspect-query
+      transport: mcp_stdio
+      server_label: warehouse
+      tool: query
+      effect:
+        kind: external
   rules:
     - id: warn-write
       selector:
         tools: [write]
       decision: warn
-`
+  detectors:
+    - id: inspect-query-output
+      selector:
+        tool_ids: [inspect-query]
+        phases: [post_result]
+      pack_id: reconc-core-v1
+      pack_digest: %s
+      fields:
+        - source: result
+          pointer: /structuredContent
+      categories: [secret]
+`, actioninspect.BuiltinPackIdentity())
 	if err := os.WriteFile(filepath.Join(repo, ".reconc.yml"), []byte(config), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -127,6 +193,10 @@ actions:
 	}
 	if _, parallel := lock["mcp"]; parallel {
 		t.Fatal("format-5 lock emitted a parallel MCP plan")
+	}
+	actions := lock["actions"].(map[string]interface{})
+	if got := len(actions["detectors"].([]interface{})); got != 1 {
+		t.Fatalf("compiled detector count = %d, want 1", got)
 	}
 	compiled := compileRegisteredSchemas(t)
 	contract, _ := schema.CurrentContract(schema.PolicyLock)

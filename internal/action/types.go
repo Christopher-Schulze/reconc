@@ -31,6 +31,10 @@ const (
 	MaxTools                = 512
 	MaxBudgets              = 1024
 	MaxApprovalDisclosures  = 1024
+	MaxDetectors            = 1024
+	MaxDetectorFields       = 256
+	MaxDetectorCategories   = 32
+	MaxForbiddenTerms       = 256
 	MaxConcurrentCalls      = 4
 	MaxCompiledPlanBytes    = 24 << 20
 )
@@ -386,6 +390,7 @@ type Plan struct {
 	Rules         []Rule               `json:"rules"`
 	Budgets       []Budget             `json:"budgets"`
 	Approvals     []ApprovalDisclosure `json:"approvals"`
+	Detectors     []DetectorPolicy     `json:"detectors"`
 	Defaults      Defaults             `json:"defaults"`
 }
 
@@ -398,6 +403,7 @@ type CompiledPlan struct {
 	rules       []CompiledRule
 	budgets     []Budget
 	approvals   []ApprovalDisclosure
+	detectors   []CompiledDetectorPolicy
 }
 
 type CompiledRule struct {

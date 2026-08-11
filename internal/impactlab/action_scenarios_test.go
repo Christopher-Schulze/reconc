@@ -756,6 +756,7 @@ func TestActionDeltaManifestPartialReviewKeepsGateBlocked(t *testing.T) {
 
 func TestActionCorpusPrivacyAndCompletenessMutationsFailClosed(t *testing.T) {
 	repo, evaluator := makeActionImpactRepo(t, "")
+	scanner := mustActionPrivacyScanner(t)
 	fixture := newActionFixture("private", CaseActionPre, `{"authorization":"Bearer sk-secretvalue123","target":"staging"}`,
 		actionAssertion(action.DecisionAllow, action.ReasonDeclaredTool, "database-write", nil, action.CacheEligible, action.OutcomeDispatchEligible, ""))
 	fixture.Action.Expected.Approval = &ActionApprovalAssertion{
@@ -777,12 +778,12 @@ func TestActionCorpusPrivacyAndCompletenessMutationsFailClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	syntheticUserPath := "/" + "Users/example/private"
-	if _, _, err := sanitizeActionRawValue(ActionPayload(`{"path":"`+syntheticUserPath+`"`), action.SourceArguments,
+	if _, _, err := sanitizeActionRawValue(scanner, ActionPayload(`{"path":"`+syntheticUserPath+`"`), action.SourceArguments,
 		action.ProvenanceAgentSupplied, "", []ActionValueSummary{}); err == nil {
 		t.Fatal("malformed physical path escaped action privacy validation")
 	}
 	cleanedPath, pathSummaries, err := sanitizeActionRawValue(
-		ActionPayload(`{"path":"`+syntheticUserPath+`"}`), action.SourceArguments,
+		scanner, ActionPayload(`{"path":"`+syntheticUserPath+`"}`), action.SourceArguments,
 		action.ProvenanceAgentSupplied, "", []ActionValueSummary{},
 	)
 	if err != nil || strings.Contains(string(cleanedPath), "/"+"Users/") ||
@@ -800,7 +801,7 @@ func TestActionCorpusPrivacyAndCompletenessMutationsFailClosed(t *testing.T) {
 			t.Fatal(marshalErr)
 		}
 		embeddedPath, embeddedSummaries, embeddedErr := sanitizeActionRawValue(
-			ActionPayload(`{"message":`+string(privateJSON)+`}`), action.SourceResult,
+			scanner, ActionPayload(`{"message":`+string(privateJSON)+`}`), action.SourceResult,
 			action.ProvenanceHostObserved, "", []ActionValueSummary{},
 		)
 		if embeddedErr != nil || strings.Contains(string(embeddedPath), "output.txt") ||
@@ -810,25 +811,25 @@ func TestActionCorpusPrivacyAndCompletenessMutationsFailClosed(t *testing.T) {
 	}
 	safeURL := ActionPayload(`{"endpoint":"https://example.test/public/result"}`)
 	cleanedURL, urlSummaries, err := sanitizeActionRawValue(
-		safeURL, action.SourceResult, action.ProvenanceHostObserved, "", []ActionValueSummary{},
+		scanner, safeURL, action.SourceResult, action.ProvenanceHostObserved, "", []ActionValueSummary{},
 	)
 	if err != nil || cleanedURL != safeURL || len(urlSummaries) != 0 {
 		t.Fatalf("safe URL privacy = %q, %+v, %v", cleanedURL, urlSummaries, err)
 	}
 	if _, _, err := sanitizeActionRawValue(
-		ActionPayload(`{"sk-secretvalue123":"safe"}`), action.SourceArguments,
+		scanner, ActionPayload(`{"sk-secretvalue123":"safe"}`), action.SourceArguments,
 		action.ProvenanceAgentSupplied, "", []ActionValueSummary{},
 	); err == nil {
 		t.Fatal("secret-shaped JSON member name escaped action privacy validation")
 	}
 	if _, _, err := sanitizeActionRawValue(
-		ActionPayload(`{"auth\u006frization":"safe"`), action.SourceArguments,
+		scanner, ActionPayload(`{"auth\u006frization":"safe"`), action.SourceArguments,
 		action.ProvenanceAgentSupplied, "", []ActionValueSummary{},
 	); err == nil {
 		t.Fatal("escaped secret-shaped malformed JSON escaped action privacy validation")
 	}
 	if _, _, err := sanitizeActionRawValue(
-		ActionPayload(string([]byte{'"', 0xff, '"'})), action.SourceArguments,
+		scanner, ActionPayload(string([]byte{'"', 0xff, '"'})), action.SourceArguments,
 		action.ProvenanceAgentSupplied, "", []ActionValueSummary{},
 	); err == nil {
 		t.Fatal("invalid UTF-8 action payload escaped deterministic export validation")
@@ -847,7 +848,7 @@ func TestActionCorpusPrivacyAndCompletenessMutationsFailClosed(t *testing.T) {
 		t.Fatal("secret-shaped case id escaped action privacy validation")
 	}
 	oversizedSafe := ActionPayload(`"` + strings.Repeat("x", maxValueBytes+1) + `"`)
-	cleaned, summaries, err := sanitizeActionRawValue(oversizedSafe, action.SourceResult,
+	cleaned, summaries, err := sanitizeActionRawValue(scanner, oversizedSafe, action.SourceResult,
 		action.ProvenanceHostObserved, "", []ActionValueSummary{})
 	if err != nil || cleaned != ActionPayload(`"\u003credacted\u003e"`) || len(summaries) != 1 || summaries[0].Category != "oversized-value" {
 		t.Fatalf("oversized safe value privacy = %q, %+v, %v", cleaned, summaries, err)

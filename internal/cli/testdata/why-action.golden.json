@@ -35,5 +35,75 @@
       "cache": "exact",
       "source_identity": ".reconc.yml"
     }
+  ],
+  "budgets": [
+    {
+      "id": "call-cap",
+      "selector": {
+        "tool_ids": [
+          "inspect"
+        ]
+      },
+      "limits": {
+        "call_count": 10
+      },
+      "reset": "operator_run",
+      "on_exhaustion": "block",
+      "source_identity": ".reconc.yml"
+    }
+  ],
+  "approvals": [
+    {
+      "id": "inspect-approval",
+      "selector": {
+        "tool_ids": [
+          "inspect"
+        ]
+      },
+      "selected_arguments": [
+        "/token"
+      ],
+      "source_identity": ".reconc.yml"
+    }
+  ],
+  "detectors": [
+    {
+      "id": "inspect-secret",
+      "selector": {
+        "tool_ids": [
+          "inspect"
+        ],
+        "phases": [
+          "pre_call"
+        ]
+      },
+      "pack_id": "reconc-core-v1",
+      "pack_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "fields": [
+        {
+          "source": "arguments",
+          "pointer": "/token"
+        }
+      ],
+      "categories": [
+        "forbidden_data"
+      ],
+      "forbidden_terms_count": 1,
+      "pre_call_decision": "block",
+      "post_result_disposition": "withhold",
+      "progress_disposition": "suppress",
+      "schema_policy": "validate_if_declared",
+      "allowed_content_types": [
+        "text"
+      ],
+      "trusted_annotation_fields": [],
+      "limits": {
+        "max_bytes": 4096,
+        "max_items": 128,
+        "max_depth": 8,
+        "max_milliseconds": 100
+      },
+      "source_identity": ".reconc.yml"
+    }
   ]
 }

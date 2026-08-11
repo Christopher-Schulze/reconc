@@ -357,6 +357,7 @@ type IdentitySnapshot struct {
 	ApprovalIdentity         string        `json:"approval_identity"`
 	TaintIdentity            string        `json:"taint_identity"`
 	RepositoryEffectIdentity string        `json:"repository_effect_identity"`
+	InspectionIdentity       string        `json:"inspection_identity"`
 }
 
 type RepositoryEffectCandidate struct {
@@ -365,6 +366,71 @@ type RepositoryEffectCandidate struct {
 	RuleIDs  []string   `json:"rule_ids"`
 	Identity string     `json:"identity"`
 	Complete bool       `json:"complete"`
+}
+
+type InspectionStatus string
+
+const (
+	InspectionClean      InspectionStatus = "clean"
+	InspectionMatched    InspectionStatus = "matched"
+	InspectionIncomplete InspectionStatus = "incomplete"
+)
+
+func (s InspectionStatus) Valid() bool {
+	return s == InspectionClean || s == InspectionMatched || s == InspectionIncomplete
+}
+
+type InspectionSchemaStatus string
+
+const (
+	InspectionSchemaNotApplicable InspectionSchemaStatus = "not_applicable"
+	InspectionSchemaNotDeclared   InspectionSchemaStatus = "not_declared"
+	InspectionSchemaValid         InspectionSchemaStatus = "valid"
+	InspectionSchemaInvalid       InspectionSchemaStatus = "invalid"
+	InspectionSchemaRequired      InspectionSchemaStatus = "required_missing"
+)
+
+func (s InspectionSchemaStatus) Valid() bool {
+	switch s {
+	case InspectionSchemaNotApplicable, InspectionSchemaNotDeclared,
+		InspectionSchemaValid, InspectionSchemaInvalid, InspectionSchemaRequired:
+		return true
+	default:
+		return false
+	}
+}
+
+type InspectionFieldEvidence struct {
+	Source          ValueSource `json:"source"`
+	PointerIdentity string      `json:"pointer_identity"`
+	ValueIdentity   string      `json:"value_identity"`
+	ByteLength      uint64      `json:"byte_length"`
+	ItemCount       uint32      `json:"item_count"`
+}
+
+type InspectionContentEvidence struct {
+	ContentType ContentType `json:"content_type"`
+	Identity    string      `json:"identity"`
+	ByteLength  uint64      `json:"byte_length"`
+}
+
+// InspectionEvidence is deliberately payload-free. It is the only inspection
+// value accepted by the evaluator, cache, future ledger, and explanation
+// surfaces.
+type InspectionEvidence struct {
+	Status             InspectionStatus            `json:"status"`
+	Identity           string                      `json:"identity"`
+	Decision           Decision                    `json:"decision,omitempty"`
+	Reason             ReasonCode                  `json:"reason,omitempty"`
+	RuleIDs            []string                    `json:"rule_ids"`
+	Categories         []DetectorCategory          `json:"categories"`
+	PackIdentities     []string                    `json:"pack_identities"`
+	SchemaStatus       InspectionSchemaStatus      `json:"schema_status"`
+	SchemaIdentity     string                      `json:"schema_identity"`
+	Fields             []InspectionFieldEvidence   `json:"fields"`
+	UnsupportedContent []InspectionContentEvidence `json:"unsupported_content"`
+	ScannedBytes       uint64                      `json:"scanned_bytes"`
+	ScannedItems       uint32                      `json:"scanned_items"`
 }
 
 type EvaluationInput struct {
@@ -378,6 +444,7 @@ type EvaluationInput struct {
 	Approval            ApprovalSnapshot           `json:"approval"`
 	Taint               TaintSnapshot              `json:"taint"`
 	RepositoryEffect    *RepositoryEffectCandidate `json:"repository_effect,omitempty"`
+	Inspection          *InspectionEvidence        `json:"inspection,omitempty"`
 	Lifecycle           LifecycleState             `json:"lifecycle"`
 	CachePolicyVersion  string                     `json:"cache_policy_version"`
 	ResampledIdentities IdentitySnapshot           `json:"resampled_identities"`
@@ -436,6 +503,7 @@ const (
 	CandidateRule             CandidateSource = "rule"
 	CandidateRepositoryEffect CandidateSource = "repository_effect"
 	CandidateBudget           CandidateSource = "budget"
+	CandidateInspection       CandidateSource = "inspection"
 )
 
 type Candidate struct {
@@ -508,24 +576,25 @@ type Failure struct {
 }
 
 type EvaluationResult struct {
-	Decision                 Decision          `json:"decision"`
-	Reason                   ReasonCode        `json:"reason_code"`
-	ToolID                   string            `json:"tool_id,omitempty"`
-	MatchedRuleIDs           []string          `json:"matched_rule_ids"`
-	Candidates               []Candidate       `json:"candidates"`
-	BudgetCandidates         []BudgetCandidate `json:"budget_candidates"`
-	Trace                    []TraceEntry      `json:"trace"`
-	TraceComplete            bool              `json:"trace_complete"`
-	TraceOmitted             int               `json:"trace_omitted"`
-	Completeness             Completeness      `json:"completeness"`
-	PolicyDigest             string            `json:"policy_digest"`
-	LockDigest               string            `json:"lock_digest"`
-	PlanIdentity             string            `json:"plan_identity"`
-	SourceIdentity           string            `json:"source_identity"`
-	Cache                    CacheResult       `json:"cache"`
-	RequiredApprovalIdentity string            `json:"required_approval_identity,omitempty"`
-	PhaseOutcome             PhaseOutcome      `json:"phase_outcome"`
-	Failure                  *Failure          `json:"failure,omitempty"`
+	Decision                 Decision            `json:"decision"`
+	Reason                   ReasonCode          `json:"reason_code"`
+	ToolID                   string              `json:"tool_id,omitempty"`
+	MatchedRuleIDs           []string            `json:"matched_rule_ids"`
+	Candidates               []Candidate         `json:"candidates"`
+	BudgetCandidates         []BudgetCandidate   `json:"budget_candidates"`
+	Trace                    []TraceEntry        `json:"trace"`
+	TraceComplete            bool                `json:"trace_complete"`
+	TraceOmitted             int                 `json:"trace_omitted"`
+	Completeness             Completeness        `json:"completeness"`
+	PolicyDigest             string              `json:"policy_digest"`
+	LockDigest               string              `json:"lock_digest"`
+	PlanIdentity             string              `json:"plan_identity"`
+	SourceIdentity           string              `json:"source_identity"`
+	Cache                    CacheResult         `json:"cache"`
+	RequiredApprovalIdentity string              `json:"required_approval_identity,omitempty"`
+	Inspection               *InspectionEvidence `json:"inspection,omitempty"`
+	PhaseOutcome             PhaseOutcome        `json:"phase_outcome"`
+	Failure                  *Failure            `json:"failure,omitempty"`
 }
 
 type RequestError struct {

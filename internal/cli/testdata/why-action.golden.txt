@@ -3,3 +3,9 @@ Defaults: declared=allow gateway-unmatched=block host-unmatched=allow evaluation
 Tools: 0
 Rules: 1
   - block-secret -> block indeterminate=block cache=exact selector=phases="pre_call" source=.reconc.yml when=arguments:/token eq value=string/25B/redacted
+Budgets: 1
+  - call-cap reset=operator_run exhaustion=block selector=tool_ids="inspect" limits=call_count=10 source=.reconc.yml
+Approvals: 1
+  - inspect-approval selector=tool_ids="inspect" selected=/token source=.reconc.yml
+Detectors: 1
+  - inspect-secret pack=reconc-core-v1@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb selector=tool_ids="inspect";phases="pre_call" fields=arguments:/token categories=forbidden_data forbidden-terms=1 pre=block post=withhold progress=suppress schema=validate_if_declared allowed=text trusted-annotations= limits=4096B/128items/8depth/100ms source=.reconc.yml

@@ -26,7 +26,7 @@ func parseActionPolicy(source policy.PolicySource) (*action.Plan, bool, error) {
 	if !present {
 		return nil, false, nil
 	}
-	fields, err := actionMapping(actionsNode, source.Path+" actions", actionFieldSet("tools", "rules", "budgets", "approvals", "defaults"))
+	fields, err := actionMapping(actionsNode, source.Path+" actions", actionFieldSet("tools", "rules", "budgets", "approvals", "detectors", "defaults"))
 	if err != nil {
 		return nil, true, err
 	}
@@ -51,6 +51,12 @@ func parseActionPolicy(source policy.PolicySource) (*action.Plan, bool, error) {
 	}
 	if node, ok := fields["approvals"]; ok {
 		plan.Approvals, err = parseActionApprovalDisclosures(node, source.Path)
+		if err != nil {
+			return nil, true, err
+		}
+	}
+	if node, ok := fields["detectors"]; ok {
+		plan.Detectors, err = parseActionDetectors(node, source.Path)
 		if err != nil {
 			return nil, true, err
 		}
@@ -84,6 +90,7 @@ func mergeActionPolicies(current, additive *action.Plan) (*action.Plan, error) {
 			Rules:         append([]action.Rule(nil), additive.Rules...),
 			Budgets:       append([]action.Budget(nil), additive.Budgets...),
 			Approvals:     append([]action.ApprovalDisclosure(nil), additive.Approvals...), Defaults: additive.Defaults,
+			Detectors: append([]action.DetectorPolicy(nil), additive.Detectors...),
 		}, nil
 	}
 	if current.FormatVersion != additive.FormatVersion {
@@ -96,6 +103,9 @@ func mergeActionPolicies(current, additive *action.Plan) (*action.Plan, error) {
 		Budgets:       append(append([]action.Budget(nil), current.Budgets...), additive.Budgets...),
 		Approvals: append(
 			append([]action.ApprovalDisclosure(nil), current.Approvals...), additive.Approvals...,
+		),
+		Detectors: append(
+			append([]action.DetectorPolicy(nil), current.Detectors...), additive.Detectors...,
 		),
 		Defaults: mergeActionDefaults(current.Defaults, additive.Defaults),
 	}

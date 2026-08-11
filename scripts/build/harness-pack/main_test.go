@@ -138,6 +138,25 @@ func TestCanonicalSourceIncludesOnlyTrackedBytesAndGitModes(t *testing.T) {
 	}
 }
 
+func TestRepositoryRelativePathUsesFilesystemIdentity(t *testing.T) {
+	repo := t.TempDir()
+	source := filepath.Join(repo, "harness", "template")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "repo-alias")
+	if err := os.Symlink(repo, alias); err != nil {
+		t.Fatal(err)
+	}
+	relative, err := repositoryRelativePath(alias, source)
+	if err != nil || filepath.ToSlash(relative) != "harness/template" {
+		t.Fatalf("identity-relative path = %q, %v", relative, err)
+	}
+	if _, err := repositoryRelativePath(repo, t.TempDir()); err == nil {
+		t.Fatal("outside source was accepted")
+	}
+}
+
 func runGit(t *testing.T, directory string, args ...string) {
 	t.Helper()
 	command := exec.Command("git", append([]string{"-C", directory}, args...)...)

@@ -129,7 +129,7 @@ func canonicalSource(sourcePath string) (fs.FS, error) {
 		return os.DirFS(absoluteSource), nil
 	}
 	source := fstest.MapFS{}
-	sourcePrefix, err := filepath.Rel(root, absoluteSource)
+	sourcePrefix, err := repositoryRelativePath(root, absoluteSource)
 	if err != nil {
 		return nil, fmt.Errorf("resolve tracked harness source: %w", err)
 	}
@@ -195,11 +195,35 @@ func trackedSourceInventory(source string) (string, bool, error) {
 	if root == "" {
 		return "", false, errors.New("git returned an empty repository root for the harness source")
 	}
-	relative, err := filepath.Rel(root, source)
-	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+	if _, err := repositoryRelativePath(root, source); err != nil {
 		return "", false, fmt.Errorf("harness source is outside its git repository: %s", source)
 	}
 	return root, true, nil
+}
+
+func repositoryRelativePath(root, source string) (string, error) {
+	rootInfo, err := os.Stat(root)
+	if err != nil {
+		return "", fmt.Errorf("inspect git repository root: %w", err)
+	}
+	for ancestor := source; ; ancestor = filepath.Dir(ancestor) {
+		info, statErr := os.Stat(ancestor)
+		if statErr != nil {
+			return "", fmt.Errorf("inspect harness source ancestor: %w", statErr)
+		}
+		if os.SameFile(rootInfo, info) {
+			relative, relErr := filepath.Rel(ancestor, source)
+			if relErr != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+				return "", errors.New("harness source has no safe repository-relative path")
+			}
+			return relative, nil
+		}
+		parent := filepath.Dir(ancestor)
+		if parent == ancestor {
+			break
+		}
+	}
+	return "", errors.New("harness source is outside its git repository")
 }
 
 func hasGitAncestor(source string) (bool, error) {

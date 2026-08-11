@@ -52,6 +52,7 @@ const (
 	DomainState            IdentityDomain = "reconc/action/state/v1"
 	DomainTransaction      IdentityDomain = "reconc/action/state-transaction/v1"
 	DomainCredential       IdentityDomain = "reconc/action/credential/v1"
+	DomainInspection       IdentityDomain = "reconc/action/inspection/v1"
 )
 
 type IdentityKey struct {
@@ -114,7 +115,7 @@ func (d IdentityDomain) Valid() bool {
 	case DomainServer, DomainRepository, DomainWorkingDirectory, DomainArgv, DomainEnvironmentName,
 		DomainEnvironment, DomainArgument, DomainResult, DomainUpstream,
 		DomainApproval, DomainBudget, DomainLedger, DomainRun, DomainSession,
-		DomainContext, DomainState, DomainTransaction, DomainCredential:
+		DomainContext, DomainState, DomainTransaction, DomainCredential, DomainInspection:
 		return true
 	default:
 		return false

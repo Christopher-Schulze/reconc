@@ -225,6 +225,33 @@ func TestRenderWhyActionRedactsEveryOperand(t *testing.T) {
 			Decision: action.DecisionBlock, OnIndeterminate: action.DecisionBlock,
 			Cache: action.CacheExact, SourceIdentity: ".reconc.yml",
 		}},
+		Budgets: []action.Budget{{
+			ID: "call-cap", Selector: action.Selector{ToolIDs: []string{"inspect"}},
+			Limits: action.BudgetLimits{CallCount: 10}, Reset: action.BudgetResetOperatorRun,
+			OnExhaustion: action.DecisionBlock, SourceIdentity: ".reconc.yml",
+		}},
+		Approvals: []action.ApprovalDisclosure{{
+			ID: "inspect-approval", Selector: action.Selector{ToolIDs: []string{"inspect"}},
+			SelectedArguments: []string{"/token"}, SourceIdentity: ".reconc.yml",
+		}},
+		Detectors: []action.DetectorPolicy{{
+			ID: "inspect-secret", Selector: action.Selector{
+				ToolIDs: []string{"inspect"}, Phases: []action.Phase{action.PhasePreCall},
+			},
+			PackID: "reconc-core-v1", PackDigest: "sha256:" + strings.Repeat("b", 64),
+			Fields:         []action.DetectorField{{Source: action.SourceArguments, Pointer: "/token"}},
+			Categories:     []action.DetectorCategory{action.DetectorForbiddenData},
+			ForbiddenTerms: []string{operandMarker}, PreCallDecision: action.DecisionBlock,
+			PostResultDisposition:   action.ResultDispositionWithhold,
+			ProgressDisposition:     action.ProgressDispositionSuppress,
+			SchemaPolicy:            action.SchemaValidateIfDeclared,
+			AllowedContentTypes:     []action.ContentType{action.ContentText},
+			TrustedAnnotationFields: []string{},
+			Limits: action.InspectionLimits{
+				MaxBytes: 4096, MaxItems: 128, MaxDepth: 8, MaxMilliseconds: 100,
+			},
+			SourceIdentity: ".reconc.yml",
+		}},
 	}
 	for _, test := range []struct {
 		name   string
@@ -235,7 +262,7 @@ func TestRenderWhyActionRedactsEveryOperand(t *testing.T) {
 	}{
 		{name: "text", golden: "testdata/why-action.golden.txt"},
 		{name: "JSON", json: true, golden: "testdata/why-action.golden.json"},
-		{name: "terse", terse: true, want: "format=1 tools=0 rules=1"},
+		{name: "terse", terse: true, want: "format=1 tools=0 rules=1 budgets=1 approvals=1 detectors=1"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var output bytes.Buffer

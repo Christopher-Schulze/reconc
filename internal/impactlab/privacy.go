@@ -9,6 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"reconc.dev/reconc/internal/actioninspect"
 	"reconc.dev/reconc/internal/runtime"
 )
 
@@ -17,7 +18,7 @@ var secretPrefix = regexp.MustCompile(`(?i)(?:sk-[a-z0-9_-]{8,}|gh[pousr]_[a-z0-
 var secretURL = regexp.MustCompile(`(?i)(://)[^/@[:space:]]+:[^/@[:space:]]+@`)
 var secretQuery = regexp.MustCompile(`(?i)([?&](?:[^=&#]*(?:api[_-]?key|access[_-]?key|secret|token|password|passwd|authorization|cookie|credential|private[_-]?key)[^=&#]*)=)[^&#[:space:]]+`)
 
-func sanitizeCase(repoRoot string, replayCase Case) (Case, error) {
+func sanitizeCase(repoRoot string, scanner *actioninspect.TextScanner, replayCase Case) (Case, error) {
 	if !validCaseID(replayCase.ID) {
 		return Case{}, fmt.Errorf("impact case id must be 1..%d bytes using letters, digits, dot, dash, or underscore", maxCaseIDBytes)
 	}
@@ -31,7 +32,7 @@ func sanitizeCase(repoRoot string, replayCase Case) (Case, error) {
 		if replayCase.Action == nil || replayCase.Repository != nil {
 			return Case{}, fmt.Errorf("action case must contain only action evidence")
 		}
-		return sanitizeActionCase(replayCase.ID, replayCase.Kind, *replayCase.Action)
+		return sanitizeActionCase(scanner, replayCase.ID, replayCase.Kind, *replayCase.Action)
 	default:
 		return Case{}, fmt.Errorf("impact case %q has unsupported kind %q", replayCase.ID, replayCase.Kind)
 	}

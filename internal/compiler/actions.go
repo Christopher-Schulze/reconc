@@ -9,6 +9,7 @@ import (
 	"io"
 
 	"reconc.dev/reconc/internal/action"
+	"reconc.dev/reconc/internal/actioninspect"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/parser"
 	"reconc.dev/reconc/internal/policy"
@@ -28,6 +29,7 @@ func compileCanonicalActions(parsed *parser.ParsedPolicy) (*action.CompiledPlan,
 			Rules:         append([]action.Rule(nil), parsed.Actions.Rules...),
 			Budgets:       append([]action.Budget(nil), parsed.Actions.Budgets...),
 			Approvals:     append([]action.ApprovalDisclosure(nil), parsed.Actions.Approvals...),
+			Detectors:     append([]action.DetectorPolicy(nil), parsed.Actions.Detectors...),
 			Defaults:      parsed.Actions.Defaults,
 		}
 	}
@@ -38,6 +40,9 @@ func compileCanonicalActions(parsed *parser.ParsedPolicy) (*action.CompiledPlan,
 	}
 	compiled, err := action.CompilePlan(plan)
 	if err != nil {
+		return nil, &rerrors.RuleValidationError{Message: "actions: " + err.Error()}
+	}
+	if err := actioninspect.ValidateCompiledPlan(compiled); err != nil {
 		return nil, &rerrors.RuleValidationError{Message: "actions: " + err.Error()}
 	}
 	return compiled, nil

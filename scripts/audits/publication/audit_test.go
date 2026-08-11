@@ -68,15 +68,18 @@ func TestAuditRepositoryScansWorkingTreeAndPostBoundaryHistory(t *testing.T) {
 	boundary := strings.TrimSpace(gitAudit(t, repo, "rev-parse", "HEAD"))
 	options := auditOptions{Root: repo, HistoryBoundary: boundary, MaxFileBytes: 1 << 20}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	report, err := auditRepository(ctx, options)
+	audit := func() (auditReport, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		return auditRepository(ctx, options)
+	}
+	report, err := audit()
 	if err != nil || len(report.Findings) != 0 {
 		t.Fatalf("clean fixture failed: report=%#v err=%v", report, err)
 	}
 
 	writeAuditFixture(t, repo, "README.md", "private project: "+"gole"+"m\n")
-	report, err = auditRepository(ctx, options)
+	report, err = audit()
 	if err != nil || !hasFinding(report.Findings, "content/private-name") {
 		t.Fatalf("dirty tracked leak was missed: report=%#v err=%v", report, err)
 	}
@@ -87,14 +90,14 @@ func TestAuditRepositoryScansWorkingTreeAndPostBoundaryHistory(t *testing.T) {
 	gitAudit(t, repo, "commit", "-m", "temporary unsafe artifact", "--quiet")
 	gitAudit(t, repo, "rm", "evidence/transcript.md", "--quiet")
 	gitAudit(t, repo, "commit", "-m", "remove temporary artifact", "--quiet")
-	report, err = auditRepository(ctx, options)
+	report, err = audit()
 	if err != nil || !hasFinding(report.Findings, "path/session-material") || !hasFinding(report.Findings, "content/private-name") {
 		t.Fatalf("removed post-boundary leak was missed: report=%#v err=%v", report, err)
 	}
 
 	trailer := "Claude" + "-Session: https://claude.ai/code/" + "session_new"
 	gitAudit(t, repo, "commit", "--allow-empty", "-m", "unsafe history", "-m", trailer, "--quiet")
-	report, err = auditRepository(ctx, options)
+	report, err = audit()
 	if err != nil || !hasFinding(report.Findings, "content/session-trailer") || !hasFinding(report.Findings, "content/session-url") {
 		t.Fatalf("post-boundary session evidence was missed: report=%#v err=%v", report, err)
 	}

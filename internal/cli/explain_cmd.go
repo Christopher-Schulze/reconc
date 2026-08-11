@@ -341,10 +341,13 @@ func runWhy(args []string, stdout, stderr io.Writer) error {
 }
 
 type whyActionPlan struct {
-	FormatVersion string          `json:"format_version"`
-	Defaults      action.Defaults `json:"defaults"`
-	Tools         []action.Tool   `json:"tools"`
-	Rules         []whyActionRule `json:"rules"`
+	FormatVersion string                      `json:"format_version"`
+	Defaults      action.Defaults             `json:"defaults"`
+	Tools         []action.Tool               `json:"tools"`
+	Rules         []whyActionRule             `json:"rules"`
+	Budgets       []action.Budget             `json:"budgets"`
+	Approvals     []action.ApprovalDisclosure `json:"approvals"`
+	Detectors     []whyActionDetector         `json:"detectors"`
 }
 
 type whyActionRule struct {
@@ -379,14 +382,37 @@ type whyActionOperand struct {
 	CanonicalBytes int              `json:"canonical_bytes"`
 }
 
+type whyActionDetector struct {
+	ID                      string                     `json:"id"`
+	Selector                action.Selector            `json:"selector"`
+	PackID                  string                     `json:"pack_id"`
+	PackDigest              string                     `json:"pack_digest"`
+	Fields                  []action.DetectorField     `json:"fields"`
+	Categories              []action.DetectorCategory  `json:"categories"`
+	ForbiddenTermsCount     int                        `json:"forbidden_terms_count"`
+	PreCallDecision         action.Decision            `json:"pre_call_decision"`
+	PostResultDisposition   action.ResultDisposition   `json:"post_result_disposition"`
+	ProgressDisposition     action.ProgressDisposition `json:"progress_disposition"`
+	SchemaPolicy            action.SchemaPolicy        `json:"schema_policy"`
+	AllowedContentTypes     []action.ContentType       `json:"allowed_content_types"`
+	TrustedAnnotationFields []string                   `json:"trusted_annotation_fields"`
+	Limits                  action.InspectionLimits    `json:"limits"`
+	SourceIdentity          string                     `json:"source_identity"`
+}
+
 func renderWhyAction(plan action.Plan, jsonOut, terse bool, stdout io.Writer) error {
 	view := whyActionPlan{
 		FormatVersion: plan.FormatVersion,
 		Defaults:      plan.Defaults,
 		Tools:         make([]action.Tool, len(plan.Tools)),
 		Rules:         make([]whyActionRule, len(plan.Rules)),
+		Budgets:       make([]action.Budget, len(plan.Budgets)),
+		Approvals:     make([]action.ApprovalDisclosure, len(plan.Approvals)),
+		Detectors:     make([]whyActionDetector, len(plan.Detectors)),
 	}
 	copy(view.Tools, plan.Tools)
+	copy(view.Budgets, plan.Budgets)
+	copy(view.Approvals, plan.Approvals)
 	for index, rule := range plan.Rules {
 		condition, err := summarizeActionCondition(rule.When)
 		if err != nil {
@@ -398,6 +424,22 @@ func renderWhyAction(plan action.Plan, jsonOut, terse bool, stdout io.Writer) er
 			Cache: rule.Cache, Message: rule.Message, SourceIdentity: rule.SourceIdentity,
 		}
 	}
+	for index, detector := range plan.Detectors {
+		view.Detectors[index] = whyActionDetector{
+			ID: detector.ID, Selector: detector.Selector,
+			PackID: detector.PackID, PackDigest: detector.PackDigest,
+			Fields:                  append(make([]action.DetectorField, 0, len(detector.Fields)), detector.Fields...),
+			Categories:              append(make([]action.DetectorCategory, 0, len(detector.Categories)), detector.Categories...),
+			ForbiddenTermsCount:     len(detector.ForbiddenTerms),
+			PreCallDecision:         detector.PreCallDecision,
+			PostResultDisposition:   detector.PostResultDisposition,
+			ProgressDisposition:     detector.ProgressDisposition,
+			SchemaPolicy:            detector.SchemaPolicy,
+			AllowedContentTypes:     append(make([]action.ContentType, 0, len(detector.AllowedContentTypes)), detector.AllowedContentTypes...),
+			TrustedAnnotationFields: append(make([]string, 0, len(detector.TrustedAnnotationFields)), detector.TrustedAnnotationFields...),
+			Limits:                  detector.Limits, SourceIdentity: detector.SourceIdentity,
+		}
+	}
 	if jsonOut {
 		encoder := json.NewEncoder(stdout)
 		encoder.SetIndent("", "  ")
@@ -405,8 +447,8 @@ func renderWhyAction(plan action.Plan, jsonOut, terse bool, stdout io.Writer) er
 		return nil
 	}
 	if terse {
-		fmt.Fprintf(stdout, "format=%s tools=%d rules=%d declared=%s gateway-unmatched=%s host-unmatched=%s\n",
-			view.FormatVersion, len(view.Tools), len(view.Rules), view.Defaults.DeclaredTool,
+		fmt.Fprintf(stdout, "format=%s tools=%d rules=%d budgets=%d approvals=%d detectors=%d declared=%s gateway-unmatched=%s host-unmatched=%s\n",
+			view.FormatVersion, len(view.Tools), len(view.Rules), len(view.Budgets), len(view.Approvals), len(view.Detectors), view.Defaults.DeclaredTool,
 			view.Defaults.GatewayUnmatched, view.Defaults.HostUnmatched)
 		return nil
 	}
@@ -436,7 +478,72 @@ func renderWhyAction(plan action.Plan, jsonOut, terse bool, stdout io.Writer) er
 		}
 		fmt.Fprintln(stdout)
 	}
+	fmt.Fprintf(stdout, "Budgets: %d\n", len(view.Budgets))
+	for _, budget := range view.Budgets {
+		fmt.Fprintf(stdout, "  - %s reset=%s exhaustion=%s selector=%s limits=%s source=%s\n",
+			budget.ID, budget.Reset, budget.OnExhaustion, summarizeActionSelector(budget.Selector),
+			summarizeBudgetLimits(budget.Limits), budget.SourceIdentity)
+	}
+	fmt.Fprintf(stdout, "Approvals: %d\n", len(view.Approvals))
+	for _, approval := range view.Approvals {
+		fmt.Fprintf(stdout, "  - %s selector=%s selected=%s source=%s\n",
+			approval.ID, summarizeActionSelector(approval.Selector),
+			strings.Join(approval.SelectedArguments, ","), approval.SourceIdentity)
+	}
+	fmt.Fprintf(stdout, "Detectors: %d\n", len(view.Detectors))
+	for _, detector := range view.Detectors {
+		fmt.Fprintf(stdout, "  - %s pack=%s@%s selector=%s fields=%s categories=%s forbidden-terms=%d pre=%s post=%s progress=%s schema=%s allowed=%s trusted-annotations=%s limits=%dB/%ditems/%ddepth/%dms source=%s\n",
+			detector.ID, detector.PackID, detector.PackDigest, summarizeActionSelector(detector.Selector),
+			summarizeDetectorFields(detector.Fields), summarizeDetectorCategories(detector.Categories),
+			detector.ForbiddenTermsCount, detector.PreCallDecision, detector.PostResultDisposition,
+			detector.ProgressDisposition, detector.SchemaPolicy, summarizeContentTypes(detector.AllowedContentTypes),
+			strings.Join(detector.TrustedAnnotationFields, ","), detector.Limits.MaxBytes, detector.Limits.MaxItems,
+			detector.Limits.MaxDepth, detector.Limits.MaxMilliseconds, detector.SourceIdentity)
+	}
 	return nil
+}
+
+func summarizeBudgetLimits(limits action.BudgetLimits) string {
+	values := []struct {
+		name  string
+		value uint64
+	}{
+		{"call_count", limits.CallCount}, {"denied_count", limits.DeniedCount},
+		{"approval_count", limits.ApprovalCount}, {"argument_bytes", limits.ArgumentBytes},
+		{"result_bytes", limits.ResultBytes}, {"cost_units", limits.CostUnits},
+		{"concurrent", limits.Concurrent}, {"rate_window", limits.RateWindow},
+	}
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		if value.value > 0 {
+			parts = append(parts, value.name+"="+strconv.FormatUint(value.value, 10))
+		}
+	}
+	return strings.Join(parts, ",")
+}
+
+func summarizeDetectorFields(fields []action.DetectorField) string {
+	parts := make([]string, len(fields))
+	for index, field := range fields {
+		parts[index] = string(field.Source) + ":" + field.Pointer
+	}
+	return strings.Join(parts, ",")
+}
+
+func summarizeDetectorCategories(categories []action.DetectorCategory) string {
+	parts := make([]string, len(categories))
+	for index, category := range categories {
+		parts[index] = string(category)
+	}
+	return strings.Join(parts, ",")
+}
+
+func summarizeContentTypes(contentTypes []action.ContentType) string {
+	parts := make([]string, len(contentTypes))
+	for index, contentType := range contentTypes {
+		parts[index] = string(contentType)
+	}
+	return strings.Join(parts, ",")
 }
 
 func summarizeActionSelector(selector action.Selector) string {

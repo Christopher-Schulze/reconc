@@ -123,6 +123,10 @@ Unreleased source contains the internal trusted-context and cumulative-budget
 state owner used by the future gateway. It intentionally has no public command
 surface yet and does not intercept a direct tool call.
 
+Unreleased source also contains the deterministic action-inspection core and
+safe result-withholding envelope. No command invokes it for live MCP traffic;
+TASK 161 owns that boundary.
+
 The same internal boundary implements canonical one-call approval requests,
 Ed25519 approve or reject receipts, strict operator-owned authority registries,
 single-use atomic consumption, budget coupling, expiry reconciliation, and
@@ -570,10 +574,11 @@ Action payloads are explicit synthetic, minimized fixtures, never captured live
 arguments or complete downstream results. The exporter removes recognized
 secret-shaped values, physical paths, oversized scalars, and unsafe metadata,
 and replaces an over-limit payload with one canonical safe surrogate that
-preserves the production `limit_exceeded` path without retaining source bytes,
-but it cannot infer that an otherwise ordinary opaque value is confidential.
-Do not author scenarios from live sensitive data. Detector-backed content
-classification remains unavailable until TASK 159.
+preserves the production `limit_exceeded` path without retaining source bytes.
+Format 2 carries exact payload-free inspection evidence and uses the production
+detector pack to redact recognized secret and PII shapes. It cannot infer that
+an otherwise ordinary opaque value is confidential. Do not author scenarios
+from live sensitive data.
 
 Action comparison reports every decision change plus newly allowed, warned,
 approval-required, and blocked changes and reason, rule-trace, cache,

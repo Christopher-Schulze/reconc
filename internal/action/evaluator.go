@@ -118,6 +118,9 @@ func (e *Evaluator) Evaluate(input EvaluationInput) EvaluationResult {
 		return *failure
 	}
 	accumulator := newEvaluationAccumulator(e, normalized, requestIdentity)
+	if failure = accumulator.addInspection(); failure != nil {
+		return *failure
+	}
 	if failure = accumulator.addBudgets(); failure != nil {
 		return *failure
 	}
@@ -198,6 +201,37 @@ func (a *evaluationAccumulator) addBudgets() *EvaluationResult {
 		a.candidates = append(a.candidates, Candidate{
 			Source: CandidateBudget, ID: budget.BudgetID,
 			Decision: DecisionBlock, Reason: ReasonBudgetExhausted,
+		})
+	}
+	return nil
+}
+
+func (a *evaluationAccumulator) addInspection() *EvaluationResult {
+	if a.input.Inspection == nil {
+		return nil
+	}
+	evidence := a.input.Inspection
+	if evidence.Status == InspectionIncomplete {
+		markEvaluationIncomplete(&a.completeness, evidence.Reason)
+		a.input.Request.Completeness = a.completeness
+		failure := failEvaluation(a.evaluator, a.input, evidence.Reason, "content inspection did not complete safely")
+		return &failure
+	}
+	if evidence.Status != InspectionMatched {
+		return nil
+	}
+	candidate := Candidate{
+		Source: CandidateInspection, ID: evidence.RuleIDs[0],
+		Decision: evidence.Decision, Reason: evidence.Reason,
+	}
+	a.candidates = append(a.candidates, candidate)
+	for _, ruleID := range evidence.RuleIDs {
+		a.matched = append(a.matched, matchedRule{id: ruleID, decision: candidate.Decision})
+		a.trace = append(a.trace, TraceEntry{
+			RuleID: ruleID, ToolID: a.toolID, Selector: SelectorMatched,
+			Condition: ConditionTrue, CandidateDecision: candidate.Decision,
+			Reason: candidate.Reason, Completeness: true,
+			Operand: OperandSummary{ByteLength: int(evidence.ScannedBytes), ItemCount: int(evidence.ScannedItems)},
 		})
 	}
 	return nil
@@ -300,6 +334,7 @@ func (a *evaluationAccumulator) result() EvaluationResult {
 		LockDigest: a.input.Request.LockDigest, PlanIdentity: a.evaluator.identity,
 		SourceIdentity: a.input.SourceIdentity,
 		PhaseOutcome:   phaseOutcome(a.input.Request.Phase, decision),
+		Inspection:     cloneInspectionEvidence(a.input.Inspection),
 	}
 	result.Trace, result.TraceComplete, result.TraceOmitted = boundTrace(a.trace)
 	result.Cache = a.evaluator.cacheResult(
@@ -354,6 +389,13 @@ func (e *Evaluator) normalizeEvaluationInput(input EvaluationInput) (EvaluationI
 		candidate.RuleIDs = ruleIDs
 		input.RepositoryEffect = &candidate
 	}
+	inspection, inspectionErr := normalizeInspectionEvidence(
+		input.Inspection, e.inspectionExpectation(input.Request), input.Request.Phase,
+	)
+	if inspectionErr != nil {
+		return EvaluationInput{}, inspectionErr
+	}
+	input.Inspection = inspection
 	if budgetErr := e.normalizeBudgetInput(&input); budgetErr != nil {
 		return EvaluationInput{}, budgetErr
 	}
@@ -387,7 +429,8 @@ func normalizeIdentitySnapshot(snapshot IdentitySnapshot) (IdentitySnapshot, boo
 		validOpaqueIdentity(snapshot.ReservationIdentity) &&
 		validOpaqueIdentity(snapshot.ApprovalIdentity) &&
 		validOpaqueIdentity(snapshot.TaintIdentity) &&
-		validOpaqueIdentity(snapshot.RepositoryEffectIdentity)
+		validOpaqueIdentity(snapshot.RepositoryEffectIdentity) &&
+		validOpaqueIdentity(snapshot.InspectionIdentity)
 	if !valid {
 		return IdentitySnapshot{}, false
 	}
@@ -426,6 +469,7 @@ func (e *Evaluator) expectedIdentities(input EvaluationInput) IdentitySnapshot {
 		ReservationIdentity: reservationIdentity,
 		ApprovalIdentity:    input.Approval.Identity, TaintIdentity: input.Taint.Identity,
 		RepositoryEffectIdentity: repositoryEffectIdentity,
+		InspectionIdentity:       inspectionIdentity(input.Inspection),
 	}
 }
 
@@ -458,7 +502,8 @@ func (e *Evaluator) verifyResampledIdentities(input EvaluationInput) ReasonCode 
 		actual.BudgetIdentity != expected.BudgetIdentity ||
 		actual.ReservationIdentity != expected.ReservationIdentity ||
 		actual.ApprovalIdentity != expected.ApprovalIdentity ||
-		actual.RepositoryEffectIdentity != expected.RepositoryEffectIdentity {
+		actual.RepositoryEffectIdentity != expected.RepositoryEffectIdentity ||
+		actual.InspectionIdentity != expected.InspectionIdentity {
 		return ReasonStateUnavailable
 	}
 	if actual.TaintIdentity != expected.TaintIdentity {
@@ -495,7 +540,8 @@ func (e *Evaluator) compiledBoundsValid() bool {
 			return false
 		}
 	}
-	return len(e.plan.Budgets) <= MaxBudgets && len(e.plan.Approvals) <= MaxApprovalDisclosures
+	return len(e.plan.Budgets) <= MaxBudgets && len(e.plan.Approvals) <= MaxApprovalDisclosures &&
+		len(e.plan.Detectors) <= MaxDetectors
 }
 
 func validExecutableSnapshot(value string) bool {
@@ -633,12 +679,12 @@ func compiledPredicateDecisionValid(predicate *CompiledPredicate, decision Decis
 }
 
 func (e *Evaluator) selectTool(request Request) (*Tool, string) {
-	key := ToolIdentityKey(Tool{
+	tool := Tool{
 		Transport: request.Transport, Platform: request.Platform,
 		ServerLabel: request.ServerLabel, ServerFingerprint: request.ServerFingerprint,
 		Tool: request.Tool,
-	})
-	index, ok := e.toolByExact[key]
+	}
+	index, ok := lookupToolIndex(e.toolByExact, tool)
 	if !ok || index < 0 || index >= len(e.plan.Tools) {
 		return nil, ""
 	}
@@ -736,12 +782,14 @@ func candidateOrder(candidate Candidate) string {
 	switch candidate.Source {
 	case CandidateRule:
 		return "0:" + candidate.ID
-	case CandidateBudget:
+	case CandidateInspection:
 		return "1:" + candidate.ID
-	case CandidateRepositoryEffect:
+	case CandidateBudget:
 		return "2:" + candidate.ID
-	default:
+	case CandidateRepositoryEffect:
 		return "3:" + candidate.ID
+	default:
+		return "4:" + candidate.ID
 	}
 }
 
@@ -888,6 +936,7 @@ func failEvaluation(
 		Cache:        CacheResult{Reason: CacheFailureResult},
 		PhaseOutcome: phaseOutcome(phase, DecisionBlock),
 		Failure:      &Failure{Code: code, Message: message},
+		Inspection:   cloneInspectionEvidence(input.Inspection),
 	}
 	if e != nil {
 		result.Cache = e.CacheIdentity(input)

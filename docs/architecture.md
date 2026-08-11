@@ -71,6 +71,7 @@ harness/         embedded immutable advanced harness pack
 internal/
   action/         pure action contract, strict values, immutable matchers, evaluator, traces, and exact cache
   actionapproval/ canonical signed approval contracts, authority registry, provider boundary, and MCP mapping
+  actioninspect/  strict MCP results, offline output schemas, deterministic content inspection, and safe withholding
   actionstate/    trusted identities, budgets, approval consumption, reservations, and crash-safe local state
   adopt/          convention detector, rule suggestions, and stack-pack recommendations
   agentguide/     embedded agent-integration guide + section lookup
@@ -225,10 +226,15 @@ resampled in-memory decision caching. `reconc impact` invokes the production
 compiler and evaluator for strict offline `action_pre` and `action_post`
 scenarios, exact current expectations, candidate deltas, approval-state
 assertions with separate snapshot and transition coverage, and reviewed
-newly-allowed or newly-blocked gates. No gateway
-currently invokes it for a live call, so source does not yet enforce live tool
-calls, inspect downstream content, maintain an action ledger, or route calls
-through a gateway.
+newly-allowed or newly-blocked gates. `internal/actioninspect` now strictly
+decodes bounded MCP results, validates local Draft 2020-12 output schemas with
+offline internal references and a bounded RE2-compatible pattern subset,
+scans policy-selected argument, result, and progress fields through a
+content-digested detector pack, classifies unsupported content and annotations,
+and creates payload-free evidence or bounded withheld results. No gateway
+currently invokes these primitives for a live call, so source does not yet
+enforce live tool calls, maintain an action ledger, or route calls through a
+gateway.
 The published v0.9.5 release has none of the Action Plane additions.
 
 `internal/actionapproval` and `internal/actionstate` now own the implemented
@@ -273,7 +279,7 @@ The dependency direction is intentionally one-way:
 ~~~text
 policy/parser -> compiler -> immutable action plan -> pure action evaluator
                                                        |
-operator state -> budgets/approvals/inspection/ledger -> MCP stdio gateway
+operator state -> budgets/approvals/actioninspect/ledger -> MCP stdio gateway
                                                        |
                                                external MCP client
 ~~~
@@ -985,6 +991,10 @@ coupling to any specific tool beyond recognizing that prefix.
   timeout + 32-level depth.
 - Session evidence has per-field item and byte caps plus a 1 MiB serialized
   ceiling. Overflow persists a fail-closed marker used by PreToolUse and Stop.
+- Action inspection bounds canonical values to 8 MiB, strings to 4 MiB,
+  nesting to 32, JSON items to 65,536, output schemas to 1 MiB and 8,192
+  items, results to 4,096 content blocks, decoded binary blocks to 3 MiB, and
+  phase work to 500 ms pre-call, 1 second post-result, or 250 ms progress.
 - Audit and run-decision JSONL writes rotate before append through fixed archive
   rings; lifecycle retention bounds sessions, reports, locks, staged command
   proofs, the product-wide
@@ -1023,6 +1033,12 @@ reconc's non-stdlib dependencies processing the payload:
 - `github.com/Microsoft/go-winio` plus `golang.org/x/sys/windows` (Windows-only
   named-pipe dialing and enumeration for Grok leader IPC; no network access,
   command execution, or JSON decoding).
+- `github.com/santhosh-tekuri/jsonschema/v6` (offline Draft 2020-12 compilation
+  and validation for declared MCP output schemas; remote references are
+  rejected, patterns use the bounded RE2-compatible subset, and no loader
+  performs network IO).
+- `golang.org/x/text/unicode/norm` (deterministic Unicode normalization before
+  bounded local detector matching).
 
 No dep is used for JSON decoding; the stdlib `encoding/json` with
 our own depth-limited decoder is the only entry point.

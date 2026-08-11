@@ -16,6 +16,15 @@ func ResolvePointer(root Value, pointer string) (PointerResult, error) {
 	if err != nil {
 		return PointerResult{}, err
 	}
+	return ResolveCompiledPointer(root, tokens)
+}
+
+// ResolveCompiledPointer resolves an RFC 6901 token program compiled and
+// validated when the immutable action plan was built.
+func ResolveCompiledPointer(root Value, tokens []string) (PointerResult, error) {
+	if err := validateCompiledPointer(tokens); err != nil {
+		return PointerResult{}, err
+	}
 	return resolvePointerTokens(root, tokens), nil
 }
 

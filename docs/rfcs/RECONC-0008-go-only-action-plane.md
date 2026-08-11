@@ -23,9 +23,13 @@ has none of those additions. TASK 158 implements approval disclosure policy,
 canonical authority requests and signed approve or reject receipts, strict
 operator-owned key registries, exact MCP input-required mapping, atomic
 single-use consumption, crash-orphan expiry, and redacted transition evidence.
-Content inspection, the retained ledger, gateway enforcement, and
-control-evidence export remain unavailable until their owning tasks are
-complete.
+TASK 159 implements canonical detector policy, strict MCP tool-result decoding,
+offline Draft 2020-12 output-schema validation, bounded deterministic input,
+result, and progress inspection, exact annotation trust, payload-free evidence,
+safe result withholding, and detector-backed Impact Lab privacy. No command
+invokes that inspection core for live traffic yet. The retained ledger, gateway
+enforcement, and control-evidence export remain unavailable until their owning
+tasks are complete.
 
 ## Purpose And Boundary
 
@@ -847,8 +851,8 @@ false-positive corpus, limits, privacy review, and a contract revision.
 | Text content | selected deterministic text detectors | withhold |
 | Embedded text resource | URI metadata and selected text detectors | withhold |
 | Resource link | bounded URI and metadata checks, no fetch | withhold on unsupported URI or metadata |
-| Image, audio, blob, embedded binary resource | type, length, keyed identity only; no OCR or decoding | withhold unless policy explicitly permits type |
-| Unknown content or annotation | no trust inference | withhold |
+| Image, audio, blob, embedded binary resource | canonical base64 decoding, type, length, and keyed identity only; no media parsing or OCR | withhold unless policy explicitly permits type |
+| Unknown content or untrusted annotation | no trust inference | withhold |
 | Progress or logging-like event | inspect before forwarding | suppress |
 | Tool error content | inspect as untrusted content | withhold raw unsafe content |
 
@@ -876,6 +880,32 @@ field pointers, an exact restrictive pre-call decision, post-result disposition
 `suppress`, and an unsupported-content type allowlist. An empty field list,
 unknown pack, unbound pack digest, source-phase mismatch, pre-call allow
 decision, raw-content rewrite, or unsupported content type is a compile error.
+Every returned content block must be fully covered by a selected result field
+or be explicitly allowlisted by type. `structuredContent` and arbitrary
+`_meta` objects must be fully covered by selected fields; they have no
+type-only bypass. Known annotation classes additionally require exact
+server-fingerprint trust.
+
+| Field | Authoring contract | Canonical default or invariant |
+|---|---|---|
+| `selector` | At least one exact selector constraint; phases are `pre_call`, `post_result`, or `progress` | Observation is forbidden; every selected phase has a matching field source |
+| `pack_id`, `pack_digest` | Required safe pack ID and exact `sha256:<hex>` content identity | Runtime accepts only an installed byte-identical pack |
+| `fields` | 1 to 256 unique `{source,pointer}` entries; source is `arguments`, `result`, or `progress` | RFC 6901 pointers are compiled once and phase-source mismatches fail compilation |
+| `categories` | 1 to 32 unique known detector categories | A match only adds a restrictive candidate or containment outcome |
+| `forbidden_terms` | Required and non-empty only with `forbidden_data`; at most 256 normalized terms | No raw matched term is emitted as evidence |
+| `pre_call_decision` | `warn`, `require_approval`, or `block` | `block` |
+| `post_result_disposition` | `warn`, `withhold`, or `require_schema` | `withhold` |
+| `progress_disposition` | `forward` or `suppress` | `suppress` |
+| `schema_policy` | `validate_if_declared` or `require` | `validate_if_declared`; external references are forbidden and patterns use the bounded RE2-compatible subset |
+| `allowed_content_types` | Unique subset of text, image, audio, resource text, resource blob, and resource link | Empty; unknown content is never allowlisted |
+| `trusted_annotation_fields` | Unique subset of `audience`, `priority`, and `lastModified` | Empty; non-empty requires an exact server fingerprint selector |
+| `limits` | Positive byte, item, depth, and elapsed-time bounds | 8 MiB, 65,536 items, depth 32; 500 ms pre-call, 1 s post-result, 250 ms progress |
+
+Inspection evidence is payload-free and binds the selected fields, keyed value
+identities, safe lengths and item counts, detector rule IDs, categories, pack
+identities, schema identity and status, unsupported content identities,
+completeness, outcome, and exact phase. Mismatched totals, identities, pack
+sets, schema state, or phase are invalid evidence and fail closed.
 
 Raw argument, progress, and result buffers are transient. After canonical
 forwarding or a withhold decision, owners drop all references as soon as the
@@ -1107,9 +1137,11 @@ and exact expected decision, reason, ordered rule IDs, cache eligibility, and
 phase outcome. The implemented approval extension adds exact redacted approval
 status and identity plus required-approval identity; approval status is also an
 explicit completeness dimension, approval transition is a separate exact
-completeness dimension, and both share one semantic delta. Later tasks add
-typed detector, containment, and ledger assertions to the same object without
-changing format 2.
+completeness dimension, and both share one semantic delta. The implemented
+inspection extension adds exact payload-free detector status, identity,
+categories, pack identities, selected-field identities, schema status,
+unsupported-content evidence, containment outcome, and detector deltas to that
+same format-2 object. TASK 160 adds ledger assertions without changing format 2.
 
 Current-candidate comparison separately reports exact decision changes, newly
 allowed, warned, approval-required, blocked, withheld, rule-trace, cache,
@@ -1136,11 +1168,12 @@ tool result, environment value, or physical path. Selected values use the same
 keyed identity and completeness rules as the ledger. Text, JSON, JUnit, SARIF,
 and GitHub summary render from one bounded typed report with stable case IDs.
 
-TASK 156's implementation accepts synthetic, minimized scenario payloads and
-rejects or removes recognized private shapes. It is not a live-result capture
-or arbitrary-data classifier: safe-looking opaque values cannot be inferred as
-confidential until TASK 159 supplies detector-backed inspection. Scenario
-authors must not seed corpora with live sensitive data.
+Impact Lab accepts only synthetic, minimized scenario payloads and rejects or
+removes recognized private shapes. TASK 159 adds the same deterministic
+detector pack used by inspection to classify and redact recognized secret and
+PII shapes before export. It is not a live-result capture or arbitrary-data
+classifier: safe-looking opaque values still cannot be inferred as
+confidential. Scenario authors must not seed corpora with live sensitive data.
 
 ## Control Evidence
 
@@ -1258,7 +1291,7 @@ rows in this table. Evolution: vectors are append-only within contract version
 | `AUTH-003` | explicit repository-managed fresh lock | eligible with lower provenance |
 | `AUTH-004` | both or neither authority flags | usage failure |
 | `CFG-001` | unknown field at every action depth | compile failure |
-| `CFG-002` | later-owned inert detector field before TASK 159 | compile failure |
+| `CFG-002` | later-owned inert ledger field before TASK 160 | compile failure |
 | `TOOL-001` | exact declared stdio tool | one declaration selected |
 | `TOOL-002` | gateway name is 128 ASCII characters | accepted |
 | `TOOL-003` | gateway name is 129 ASCII characters | rejected |

@@ -20,6 +20,8 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 		"TASK 154 implements strict action authoring",
 		"TASK 155 implements the pure",
 		"TASK 156 implements strict format-2 action scenarios",
+		"TASK 159 implements canonical detector policy",
+		"No command invokes that inspection core for live traffic yet",
 		"gateway enforcement",
 		"unavailable until their owning tasks",
 	)
@@ -30,6 +32,8 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 		"## Go-Only Action Plane (Draft)",
 		"unreleased v0.9.6 source implements strict action",
 		"transport-neutral pure evaluator now implements strict",
+		"`internal/actioninspect` now strictly",
+		"No gateway currently invokes these primitives for a live call",
 		"does not yet enforce live tool calls",
 	)
 	assertContainsAll(t, "documentation", documentation,
@@ -38,7 +42,7 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 		"`reconc impact` invokes that production evaluator",
 		"No current source command",
 		"routes tool calls through an enforcing gateway",
-		"offline simulation and internal approval machinery are not a",
+		"offline simulation and these internal primitives are not a",
 		"live tool-call interception boundary",
 	)
 	assertContainsAll(t, "commands", commands,
@@ -46,6 +50,8 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 		"`reconc why action` is implemented in unreleased source version `v0.9.6`",
 		"The following enforcement and",
 		"retained-evidence surfaces remain unavailable",
+		"deterministic action-inspection core",
+		"No command invokes it for live MCP traffic",
 	)
 }
 

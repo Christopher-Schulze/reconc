@@ -9,9 +9,22 @@ import (
 
 	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/actionapproval"
+	"reconc.dev/reconc/internal/actioninspect"
 )
 
 func validateActionCase(kind CaseKind, scenario ActionCase) (int, error) {
+	scanner, err := actioninspect.NewTextScanner()
+	if err != nil {
+		return 0, fmt.Errorf("prepare action privacy scanner: %w", err)
+	}
+	return validateActionCaseWithScanner(scanner, kind, scenario)
+}
+
+func validateActionCaseWithScanner(
+	scanner *actioninspect.TextScanner,
+	kind CaseKind,
+	scenario ActionCase,
+) (int, error) {
 	if !action.SafeLabel(scenario.ToolID) || scenario.RedactionCount < 0 ||
 		unsafeActionMetadata(scenario.ToolID) ||
 		scenario.Request.Context == nil || scenario.State.CredentialLabels == nil ||
@@ -29,7 +42,7 @@ func validateActionCase(kind CaseKind, scenario ActionCase) (int, error) {
 	if err := validateActionAssertion(scenario.Request.Phase, scenario.ToolID, scenario.Expected); err != nil {
 		return 0, fmt.Errorf("expected outcome: %w", err)
 	}
-	if err := validateActionState(scenario.State); err != nil {
+	if err := validateActionState(scenario.State, scenario.Request.Phase); err != nil {
 		return 0, err
 	}
 	if scenario.Expected.Approval == nil &&
@@ -47,7 +60,7 @@ func validateActionCase(kind CaseKind, scenario ActionCase) (int, error) {
 	if scenario.State.Budget.StateVersion != scenario.Request.StateVersion {
 		return 0, fmt.Errorf("action budget state version does not match the request")
 	}
-	if err := validateActionRequestFixture(scenario.Request, scenario.Expected); err != nil {
+	if err := validateActionRequestFixture(scanner, scenario.Request, scenario.Expected); err != nil {
 		return 0, err
 	}
 	for index, selected := range scenario.SelectedValues {
@@ -61,13 +74,22 @@ func validateActionCase(kind CaseKind, scenario ActionCase) (int, error) {
 	items := len(scenario.Request.Context) + len(scenario.State.CredentialLabels) +
 		len(scenario.Expected.MatchedRuleIDs) + len(scenario.Expected.Completeness.Missing) +
 		len(scenario.SelectedValues)
+	if scenario.State.Inspection != nil {
+		items += len(scenario.State.Inspection.RuleIDs) + len(scenario.State.Inspection.Categories) +
+			len(scenario.State.Inspection.PackIdentities) + len(scenario.State.Inspection.Fields) +
+			len(scenario.State.Inspection.UnsupportedContent) + 1
+	}
 	if scenario.State.RepositoryEffect != nil {
 		items += len(scenario.State.RepositoryEffect.RuleIDs) + 1
 	}
 	return items, nil
 }
 
-func validateActionRequestFixture(request ActionRequestFixture, expected ActionAssertion) error {
+func validateActionRequestFixture(
+	scanner *actioninspect.TextScanner,
+	request ActionRequestFixture,
+	expected ActionAssertion,
+) error {
 	oversized := len(request.Arguments)+len(request.Result)+len(request.Progress) > action.MaxArgumentBytes
 	if oversized && expected.FailureCode != action.ReasonLimitExceeded {
 		return fmt.Errorf("action request phase values exceed %d bytes", action.MaxArgumentBytes)
@@ -94,7 +116,7 @@ func validateActionRequestFixture(request ActionRequestFixture, expected ActionA
 	if _, err := action.NormalizeCompleteness(request.Completeness); err != nil {
 		return fmt.Errorf("action request completeness is invalid: %w", err)
 	}
-	if err := validateActionPrivateRequest(request); err != nil {
+	if err := validateActionPrivateRequest(scanner, request); err != nil {
 		return err
 	}
 	raw := actionRawRequest(request, samplePolicyDigest, sampleLockDigest)
@@ -109,7 +131,7 @@ func validateActionRequestFixture(request ActionRequestFixture, expected ActionA
 	return nil
 }
 
-func validateActionState(state ActionStateFixture) error {
+func validateActionState(state ActionStateFixture, phase action.Phase) error {
 	if state.ResampleDrift == nil || len(state.CredentialLabels) > action.MaxCredentialLabels ||
 		state.Budget.Candidates == nil || !validFixtureIdentity(state.ContextIdentity) ||
 		!action.ValidSHA256Identity(state.ExecutableDigest) || !action.SafeLabel(state.Principal) ||
@@ -145,6 +167,9 @@ func validateActionState(state ActionStateFixture) error {
 			return fmt.Errorf("resampled identity drift must be valid, unique, and sorted")
 		}
 	}
+	if err := validateFixtureInspection(state.Inspection, phase); err != nil {
+		return err
+	}
 	if state.RepositoryEffect == nil {
 		return nil
 	}
@@ -159,6 +184,147 @@ func validateActionState(state ActionStateFixture) error {
 		if !action.SafeLabel(id) || unsafeActionMetadata(id) ||
 			index > 0 && effect.RuleIDs[index-1] >= id {
 			return fmt.Errorf("repository-effect rule ids must be valid, unique, and sorted")
+		}
+	}
+	return nil
+}
+
+func validateFixtureInspection(evidence *action.InspectionEvidence, phase action.Phase) error {
+	if evidence == nil {
+		return nil
+	}
+	if !evidence.Status.Valid() || !action.ValidKeyedIdentity(evidence.Identity) ||
+		!evidence.SchemaStatus.Valid() || evidence.RuleIDs == nil || evidence.Categories == nil ||
+		evidence.PackIdentities == nil || evidence.Fields == nil || evidence.UnsupportedContent == nil ||
+		len(evidence.RuleIDs) > action.MaxDetectors || len(evidence.Categories) > action.MaxDetectorCategories ||
+		len(evidence.PackIdentities) == 0 || len(evidence.PackIdentities) > action.MaxDetectors ||
+		len(evidence.Fields) > action.MaxJSONItems || len(evidence.UnsupportedContent) > action.MaxJSONItems {
+		return fmt.Errorf("action inspection evidence has invalid metadata or null collections")
+	}
+	if err := validateFixtureInspectionOutcome(evidence, phase); err != nil {
+		return err
+	}
+	if err := validateFixtureInspectionLists(evidence); err != nil {
+		return err
+	}
+	return validateFixtureInspectionFields(evidence, phase)
+}
+
+func validateFixtureInspectionOutcome(evidence *action.InspectionEvidence, phase action.Phase) error {
+	if evidence.SchemaStatus == action.InspectionSchemaValid || evidence.SchemaStatus == action.InspectionSchemaInvalid {
+		if !action.ValidSHA256Identity(evidence.SchemaIdentity) {
+			return fmt.Errorf("action inspection schema identity is invalid")
+		}
+	} else if evidence.SchemaIdentity != "absent" {
+		return fmt.Errorf("action inspection schema identity is unexpected")
+	}
+	if phase == action.PhasePostResult {
+		if evidence.SchemaStatus == action.InspectionSchemaNotApplicable {
+			return fmt.Errorf("post-result inspection schema status is not applicable")
+		}
+	} else if evidence.SchemaStatus != action.InspectionSchemaNotApplicable || len(evidence.UnsupportedContent) > 0 {
+		return fmt.Errorf("non-result inspection contains result-only evidence")
+	}
+	switch evidence.Status {
+	case action.InspectionClean:
+		if evidence.Decision != "" || evidence.Reason != "" || len(evidence.RuleIDs) != 0 || len(evidence.Categories) != 0 {
+			return fmt.Errorf("clean action inspection contains a match")
+		}
+	case action.InspectionMatched:
+		if len(evidence.RuleIDs) == 0 || len(evidence.Categories) == 0 || !validFixtureInspectionMatch(evidence, phase) {
+			return fmt.Errorf("matched action inspection has an invalid outcome")
+		}
+	case action.InspectionIncomplete:
+		if evidence.Decision != action.DecisionBlock || len(evidence.RuleIDs) != 0 || len(evidence.Categories) != 0 ||
+			!validFixtureInspectionFailure(evidence.Reason) {
+			return fmt.Errorf("incomplete action inspection has an invalid outcome")
+		}
+		if evidence.Reason == action.ReasonUnsupportedContent &&
+			(phase != action.PhasePostResult || len(evidence.UnsupportedContent) == 0) {
+			return fmt.Errorf("unsupported action content has no content evidence")
+		}
+		if evidence.Reason == action.ReasonSchemaInvalid && phase != action.PhasePostResult {
+			return fmt.Errorf("action inspection schema failure is outside post-result")
+		}
+	}
+	return nil
+}
+
+func validFixtureInspectionMatch(evidence *action.InspectionEvidence, phase action.Phase) bool {
+	switch phase {
+	case action.PhasePreCall:
+		return evidence.Reason == action.ReasonRuleMatched &&
+			(evidence.Decision == action.DecisionWarn || evidence.Decision == action.DecisionRequireApproval ||
+				evidence.Decision == action.DecisionBlock)
+	case action.PhasePostResult, action.PhaseProgress:
+		return evidence.Decision == action.DecisionWarn && evidence.Reason == action.ReasonRuleMatched ||
+			evidence.Decision == action.DecisionBlock && evidence.Reason == action.ReasonResultWithheld
+	default:
+		return false
+	}
+}
+
+func validFixtureInspectionFailure(reason action.ReasonCode) bool {
+	switch reason {
+	case action.ReasonInspectionIncomplete, action.ReasonUnsupportedContent, action.ReasonSchemaInvalid,
+		action.ReasonLimitExceeded, action.ReasonInvalidUTF8, action.ReasonCancelled, action.ReasonDeadlineExceeded:
+		return true
+	default:
+		return false
+	}
+}
+
+func validateFixtureInspectionLists(evidence *action.InspectionEvidence) error {
+	for index, value := range evidence.RuleIDs {
+		if !action.SafeLabel(value) || index > 0 && evidence.RuleIDs[index-1] >= value {
+			return fmt.Errorf("action inspection rule identities are invalid or unsorted")
+		}
+	}
+	for index, value := range evidence.Categories {
+		if !value.Valid() || index > 0 && evidence.Categories[index-1] >= value {
+			return fmt.Errorf("action inspection categories are invalid or unsorted")
+		}
+	}
+	for index, value := range evidence.PackIdentities {
+		if !action.ValidSHA256Identity(value) || index > 0 && evidence.PackIdentities[index-1] >= value {
+			return fmt.Errorf("action inspection pack identities are invalid or unsorted")
+		}
+	}
+	return nil
+}
+
+func validateFixtureInspectionFields(evidence *action.InspectionEvidence, phase action.Phase) error {
+	wantSource := action.SourceArguments
+	if phase == action.PhasePostResult {
+		wantSource = action.SourceResult
+	} else if phase == action.PhaseProgress {
+		wantSource = action.SourceProgress
+	}
+	var bytes uint64
+	var items uint32
+	for index, field := range evidence.Fields {
+		if field.Source != wantSource || !action.ValidKeyedIdentity(field.PointerIdentity) ||
+			!action.ValidKeyedIdentity(field.ValueIdentity) || field.ByteLength > action.MaxArgumentBytes ||
+			field.ItemCount > action.MaxJSONItems ||
+			index > 0 && evidence.Fields[index-1].PointerIdentity >= field.PointerIdentity {
+			return fmt.Errorf("action inspection field evidence is invalid or unsorted")
+		}
+		if field.ByteLength > action.MaxArgumentBytes-bytes || field.ItemCount > action.MaxJSONItems-items {
+			return fmt.Errorf("action inspection field totals exceed their boundary")
+		}
+		bytes += field.ByteLength
+		items += field.ItemCount
+	}
+	if bytes != evidence.ScannedBytes || items != evidence.ScannedItems {
+		return fmt.Errorf("action inspection field totals do not match")
+	}
+	for index, binary := range evidence.UnsupportedContent {
+		if !binary.ContentType.Valid() || !action.ValidKeyedIdentity(binary.Identity) ||
+			binary.ByteLength > action.MaxArgumentBytes || index > 0 &&
+			(evidence.UnsupportedContent[index-1].ContentType > binary.ContentType ||
+				evidence.UnsupportedContent[index-1].ContentType == binary.ContentType &&
+					evidence.UnsupportedContent[index-1].Identity >= binary.Identity) {
+			return fmt.Errorf("action inspection content evidence is invalid or unsorted")
 		}
 	}
 	return nil

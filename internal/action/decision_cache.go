@@ -36,6 +36,8 @@ type cacheBinding struct {
 	Completeness             Completeness               `json:"completeness"`
 	RepositoryEffect         *RepositoryEffectCandidate `json:"repository_effect,omitempty"`
 	RepositoryEffectIdentity string                     `json:"repository_effect_identity"`
+	Inspection               *InspectionEvidence        `json:"inspection,omitempty"`
+	InspectionIdentity       string                     `json:"inspection_identity"`
 	Resampled                IdentitySnapshot           `json:"resampled"`
 }
 
@@ -192,6 +194,8 @@ func (e *Evaluator) cacheIdentityWithReason(
 		Taint:    input.Taint, Lifecycle: input.Lifecycle,
 		Completeness: input.Request.Completeness, RepositoryEffect: input.RepositoryEffect,
 		RepositoryEffectIdentity: e.expectedIdentities(input).RepositoryEffectIdentity,
+		Inspection:               cloneInspectionEvidence(input.Inspection),
+		InspectionIdentity:       e.expectedIdentities(input).InspectionIdentity,
 		Resampled:                input.ResampledIdentities,
 	}
 	body, err := json.Marshal(binding)
@@ -212,6 +216,7 @@ func cloneEvaluationResult(source EvaluationResult) EvaluationResult {
 	out.BudgetCandidates = cloneBudgetSnapshot(BudgetSnapshot{Candidates: source.BudgetCandidates}).Candidates
 	out.Trace = append([]TraceEntry(nil), source.Trace...)
 	out.Completeness.Missing = append([]MissingEvidence(nil), source.Completeness.Missing...)
+	out.Inspection = cloneInspectionEvidence(source.Inspection)
 	if source.Failure != nil {
 		failure := *source.Failure
 		out.Failure = &failure

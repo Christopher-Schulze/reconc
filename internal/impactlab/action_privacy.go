@@ -2,6 +2,7 @@ package impactlab
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -10,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"reconc.dev/reconc/internal/action"
+	"reconc.dev/reconc/internal/actioninspect"
 )
 
 const redactedActionValue = "<redacted>"
@@ -27,27 +29,30 @@ var oversizedPrivateNeedles = [][]byte{
 	[]byte("asia"), []byte("eyj"),
 }
 
-func sanitizeActionCase(id string, kind CaseKind, input ActionCase) (Case, error) {
+func sanitizeActionCase(scanner *actioninspect.TextScanner, id string, kind CaseKind, input ActionCase) (Case, error) {
 	if len(input.SelectedValues) != 0 || input.RedactionCount != 0 {
 		return Case{}, fmt.Errorf("new action fixtures must supply raw synthetic values; selected-value summaries are exporter-owned")
+	}
+	if scanner == nil {
+		return Case{}, fmt.Errorf("action privacy scanner is unavailable")
 	}
 	cleaned := cloneActionCase(input)
 	cleaned.SelectedValues = []ActionValueSummary{}
 	var err error
 	cleaned.Request.Arguments, cleaned.SelectedValues, err = sanitizeActionRawValue(
-		cleaned.Request.Arguments, action.SourceArguments, action.ProvenanceAgentSupplied, "", cleaned.SelectedValues,
+		scanner, cleaned.Request.Arguments, action.SourceArguments, action.ProvenanceAgentSupplied, "", cleaned.SelectedValues,
 	)
 	if err != nil {
 		return Case{}, fmt.Errorf("sanitize action arguments: %w", err)
 	}
 	cleaned.Request.Result, cleaned.SelectedValues, err = sanitizeActionRawValue(
-		cleaned.Request.Result, action.SourceResult, action.ProvenanceHostObserved, "", cleaned.SelectedValues,
+		scanner, cleaned.Request.Result, action.SourceResult, action.ProvenanceHostObserved, "", cleaned.SelectedValues,
 	)
 	if err != nil {
 		return Case{}, fmt.Errorf("sanitize action result: %w", err)
 	}
 	cleaned.Request.Progress, cleaned.SelectedValues, err = sanitizeActionRawValue(
-		cleaned.Request.Progress, action.SourceProgress, action.ProvenanceHostObserved, "", cleaned.SelectedValues,
+		scanner, cleaned.Request.Progress, action.SourceProgress, action.ProvenanceHostObserved, "", cleaned.SelectedValues,
 	)
 	if err != nil {
 		return Case{}, fmt.Errorf("sanitize action progress: %w", err)
@@ -60,7 +65,7 @@ func sanitizeActionCase(id string, kind CaseKind, input ActionCase) (Case, error
 		base := "/" + escapePointerToken(entry.Name)
 		var contextPayload ActionPayload
 		contextPayload, cleaned.SelectedValues, err = sanitizeActionRawValue(
-			ActionPayload(entry.Value), action.SourceContext, entry.Provenance, base, cleaned.SelectedValues,
+			scanner, ActionPayload(entry.Value), action.SourceContext, entry.Provenance, base, cleaned.SelectedValues,
 		)
 		if err != nil {
 			return Case{}, fmt.Errorf("sanitize action context %q: %w", entry.Name, err)
@@ -77,7 +82,7 @@ func sanitizeActionCase(id string, kind CaseKind, input ActionCase) (Case, error
 		return actionValueSummaryKey(cleaned.SelectedValues[i]) < actionValueSummaryKey(cleaned.SelectedValues[j])
 	})
 	cleaned.RedactionCount = len(cleaned.SelectedValues)
-	if _, err := validateActionCase(kind, cleaned); err != nil {
+	if _, err := validateActionCaseWithScanner(scanner, kind, cleaned); err != nil {
 		return Case{}, err
 	}
 	return Case{ID: id, Kind: kind, Action: &cleaned}, nil
@@ -98,6 +103,7 @@ func cloneActionCase(input ActionCase) ActionCase {
 		)
 	}
 	out.State.ResampleDrift = append([]ActionIdentityComponent{}, input.State.ResampleDrift...)
+	out.State.Inspection = cloneFixtureInspection(input.State.Inspection)
 	if input.State.RepositoryEffect != nil {
 		effect := *input.State.RepositoryEffect
 		effect.RuleIDs = append([]string{}, input.State.RepositoryEffect.RuleIDs...)
@@ -113,7 +119,21 @@ func cloneActionCase(input ActionCase) ActionCase {
 	return out
 }
 
+func cloneFixtureInspection(input *action.InspectionEvidence) *action.InspectionEvidence {
+	if input == nil {
+		return nil
+	}
+	out := *input
+	out.RuleIDs = append([]string{}, input.RuleIDs...)
+	out.Categories = append([]action.DetectorCategory{}, input.Categories...)
+	out.PackIdentities = append([]string{}, input.PackIdentities...)
+	out.Fields = append([]action.InspectionFieldEvidence{}, input.Fields...)
+	out.UnsupportedContent = append([]action.InspectionContentEvidence{}, input.UnsupportedContent...)
+	return &out
+}
+
 func sanitizeActionRawValue(
+	scanner *actioninspect.TextScanner,
 	raw ActionPayload,
 	source action.ValueSource,
 	provenance action.Provenance,
@@ -135,12 +155,12 @@ func sanitizeActionRawValue(
 	}
 	value, err := action.ParseJSON([]byte(raw))
 	if err != nil {
-		if sensitiveRawActionText(json.RawMessage(raw)) {
+		if sensitiveRawActionText(scanner, json.RawMessage(raw)) {
 			return "", nil, fmt.Errorf("malformed action JSON contains secret-shaped content")
 		}
 		return raw, summaries, nil
 	}
-	cleaned, summaries, err := sanitizeActionValue(value, source, provenance, basePointer, "", summaries)
+	cleaned, summaries, err := sanitizeActionValue(scanner, value, source, provenance, basePointer, "", summaries)
 	if err != nil {
 		return "", nil, err
 	}
@@ -152,6 +172,7 @@ func sanitizeActionRawValue(
 }
 
 func sanitizeActionValue(
+	scanner *actioninspect.TextScanner,
 	value action.Value,
 	source action.ValueSource,
 	provenance action.Provenance,
@@ -162,7 +183,7 @@ func sanitizeActionValue(
 	if fieldName != "" && unsafeActionMetadata(fieldName) {
 		return action.Value{}, nil, fmt.Errorf("action JSON member name contains private metadata")
 	}
-	if category, private := privateActionValueCategory(value, fieldName); private {
+	if category, private := privateActionValueCategory(scanner, value, fieldName); private {
 		byteLength, itemCount, err := actionValueShape(value)
 		if err != nil {
 			return action.Value{}, nil, err
@@ -181,7 +202,7 @@ func sanitizeActionValue(
 		out := make([]action.Value, len(items))
 		for index, item := range items {
 			child := pointer + "/" + fmt.Sprintf("%d", index)
-			cleaned, next, err := sanitizeActionValue(item, source, provenance, child, "", summaries)
+			cleaned, next, err := sanitizeActionValue(scanner, item, source, provenance, child, "", summaries)
 			if err != nil {
 				return action.Value{}, nil, err
 			}
@@ -194,7 +215,7 @@ func sanitizeActionValue(
 		out := make([]action.Member, len(members))
 		for index, member := range members {
 			child := pointer + "/" + escapePointerToken(member.Name)
-			cleaned, next, err := sanitizeActionValue(member.Value, source, provenance, child, member.Name, summaries)
+			cleaned, next, err := sanitizeActionValue(scanner, member.Value, source, provenance, child, member.Name, summaries)
 			if err != nil {
 				return action.Value{}, nil, err
 			}
@@ -222,7 +243,11 @@ func sensitiveTextWithoutOversize(text string) bool {
 	return count > 0
 }
 
-func privateActionValueCategory(value action.Value, fieldName string) (string, bool) {
+func privateActionValueCategory(
+	scanner *actioninspect.TextScanner,
+	value action.Value,
+	fieldName string,
+) (string, bool) {
 	text, textValue := value.Text()
 	if textValue && text == redactedActionValue {
 		return "", false
@@ -241,6 +266,15 @@ func privateActionValueCategory(value action.Value, fieldName string) (string, b
 	}
 	if sensitiveActionScalar(value) {
 		return "credential", true
+	}
+	if textValue {
+		categories, err := scanner.PrivateCategories(context.Background(), text, action.MaxArgumentBytes)
+		if err != nil {
+			return "inspection-incomplete", true
+		}
+		if len(categories) > 0 {
+			return strings.ReplaceAll(string(categories[0]), "_", "-"), true
+		}
 	}
 	if physicalPathScalar(value) {
 		return "physical-path", true
@@ -319,13 +353,16 @@ func actionValueItems(value action.Value) int {
 	return 0
 }
 
-func validateActionPrivateRequest(request ActionRequestFixture) error {
+func validateActionPrivateRequest(scanner *actioninspect.TextScanner, request ActionRequestFixture) error {
+	if scanner == nil {
+		return fmt.Errorf("action privacy scanner is unavailable")
+	}
 	values := []ActionPayload{request.Arguments, request.Result, request.Progress}
 	for _, raw := range values {
 		if len(raw) > action.MaxArgumentBytes && !canonicalOversizedActionSurrogate(raw) {
 			return fmt.Errorf("oversized action fixture is not the canonical privacy surrogate")
 		}
-		if sensitiveRawActionText(json.RawMessage(raw)) {
+		if sensitiveRawActionText(scanner, json.RawMessage(raw)) {
 			return fmt.Errorf("action fixture contains raw secret-shaped or physical-path content")
 		}
 	}
@@ -334,14 +371,14 @@ func validateActionPrivateRequest(request ActionRequestFixture) error {
 			!canonicalOversizedActionSurrogate(ActionPayload(context.Value)) {
 			return fmt.Errorf("oversized action context %q is not the canonical privacy surrogate", context.Name)
 		}
-		if sensitiveRawActionText(context.Value) {
+		if sensitiveRawActionText(scanner, context.Value) {
 			return fmt.Errorf("action context %q contains raw secret-shaped or physical-path content", context.Name)
 		}
 	}
 	return nil
 }
 
-func sensitiveRawActionText(raw json.RawMessage) bool {
+func sensitiveRawActionText(scanner *actioninspect.TextScanner, raw json.RawMessage) bool {
 	if len(raw) == 0 {
 		return false
 	}
@@ -350,9 +387,9 @@ func sensitiveRawActionText(raw json.RawMessage) bool {
 	}
 	value, err := action.ParseJSON(raw)
 	if err != nil {
-		return sensitiveMalformedActionJSON(raw)
+		return sensitiveMalformedActionJSON(scanner, raw)
 	}
-	return actionValueContainsPrivate(value, "")
+	return actionValueContainsPrivate(scanner, value, "")
 }
 
 func oversizedActionPayloadPrivate(raw []byte) bool {
@@ -384,10 +421,11 @@ func canonicalOversizedActionSurrogate(raw ActionPayload) bool {
 	return strings.Trim(string(raw[1:len(raw)-1]), "x") == ""
 }
 
-func sensitiveMalformedActionJSON(raw json.RawMessage) bool {
+func sensitiveMalformedActionJSON(scanner *actioninspect.TextScanner, raw json.RawMessage) bool {
 	text := string(raw)
 	if secretKey.MatchString(text) || secretPrefix.MatchString(text) ||
-		secretURL.MatchString(text) || secretQuery.MatchString(text) || physicalPathString(text) {
+		secretURL.MatchString(text) || secretQuery.MatchString(text) || physicalPathString(text) ||
+		privateTextCategory(scanner, text) {
 		return true
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -399,37 +437,42 @@ func sensitiveMalformedActionJSON(raw json.RawMessage) bool {
 		}
 		value, ok := token.(string)
 		if ok && (secretKey.MatchString(value) || sensitiveTextWithoutOversize(value) ||
-			physicalPathString(value)) {
+			physicalPathString(value) || privateTextCategory(scanner, value)) {
 			return true
 		}
 	}
 }
 
-func actionValueContainsPrivate(value action.Value, fieldName string) bool {
+func actionValueContainsPrivate(scanner *actioninspect.TextScanner, value action.Value, fieldName string) bool {
 	if secretKey.MatchString(fieldName) {
 		text, redacted := value.Text()
 		if !redacted || text != redactedActionValue {
 			return true
 		}
 	}
-	if _, private := privateActionValueCategory(value, fieldName); private {
+	if _, private := privateActionValueCategory(scanner, value, fieldName); private {
 		return true
 	}
 	if items, ok := value.Items(); ok {
 		for _, item := range items {
-			if actionValueContainsPrivate(item, "") {
+			if actionValueContainsPrivate(scanner, item, "") {
 				return true
 			}
 		}
 	}
 	if members, ok := value.Members(); ok {
 		for _, member := range members {
-			if actionValueContainsPrivate(member.Value, member.Name) {
+			if actionValueContainsPrivate(scanner, member.Value, member.Name) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+func privateTextCategory(scanner *actioninspect.TextScanner, text string) bool {
+	categories, err := scanner.PrivateCategories(context.Background(), text, action.MaxArgumentBytes)
+	return err != nil || len(categories) > 0
 }
 
 func escapePointerToken(value string) string {

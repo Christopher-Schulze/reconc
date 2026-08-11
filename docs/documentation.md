@@ -192,6 +192,7 @@ partial audit, run-log, checksum, release, or provenance snapshot.
 | Policy script execution | A `require_script` target resolves inside the repository before launch, `timeout_sec` is capped at 300 seconds, and `kill_timeout_sec` at 60 seconds. Captured stdout and stderr stop at 64 KiB per stream. |
 | Impact Lab | Candidate policy files are capped at 8 MiB; strict replay corpora and full typed JSON reports at 64 MiB, corpora at 10,000 cases, and reviewed action-delta manifests at 8 MiB. JUnit, SARIF, and GitHub projections retain at most 1,024 findings and 8 MiB. |
 | Action approvals and state | Canonical approval objects are capped at 64 KiB, authority registries at 1 MiB, sealed request state at 4 KiB, approval TTL at 120 seconds, future issuance skew at 30 seconds, pending approvals at four, retained approval records at 65,536, and the complete private action state at 16 MiB. |
+| Action content inspection | Canonical action values are capped at 8 MiB, strings at 4 MiB, nesting at 32, and JSON items at 65,536. Output schemas are capped at 1 MiB and 8,192 items, MCP results at 4,096 content blocks, decoded binary blocks at 3 MiB, and inspection at 500 ms pre-call, 1 second post-result, or 250 ms progress. |
 | Auxiliary commands and release inventory | Git, Go, attestation, offline-hook, TASK utility, generated-reference, SBOM, and publication-audit subprocesses use purpose-specific 64 KiB to 64 MiB output ceilings and fail on overflow. Release assets are hashed as stable non-symlink regular-file streams, release directories stop after the declared inventory ceiling, and committed manifests, archives, and SBOMs use strict bounded reads. |
 
 Best-effort detection is best-effort only about recommendations, not about
@@ -689,9 +690,11 @@ for live arguments or complete tool results. Export removes recognized
 secret-shaped values, physical paths, oversized scalars, and unsafe metadata,
 and replaces an over-limit payload with one canonical safe surrogate that
 still exercises the production `limit_exceeded` path without retaining source
-bytes. It cannot infer confidentiality from an otherwise ordinary opaque value.
-Authors must never seed scenarios with live sensitive data. Detector-backed
-classification belongs to TASK 159 and is not implemented yet.
+bytes. The format-2 inspection extension carries exact payload-free detector,
+schema, selected-field, unsupported-content, and containment evidence. Export
+uses the same deterministic detector pack to redact recognized secret and PII
+shapes, but it cannot infer confidentiality from an otherwise ordinary opaque
+value. Authors must never seed scenarios with live sensitive data.
 
 Action comparison separates every decision change and newly allowed, warned,
 approval-required, and blocked changes from reason, rule-trace, cache, phase,
@@ -1285,6 +1288,20 @@ input-required transport mapping, and payload-free transition evidence. It
 does not add a public approver, command, dashboard, or live gateway. Authority
 keys and the signing process remain operator-owned and cannot be supplied by
 repository policy or agent input.
+
+Action authoring may now declare `actions.detectors`. The compiler binds the
+built-in detector-pack ID and digest, exact phase-compatible RFC 6901 fields,
+categories, dispositions, schema policy, supported content policy, exact
+fingerprint-bound annotation trust, and hard inspection limits into format 5.
+The internal Go inspection core strictly decodes bounded MCP tool results,
+validates local Draft 2020-12 output schemas without remote references and with
+a bounded RE2-compatible pattern subset, scans selected arguments, results,
+and progress deterministically, and requires every returned content block to
+be fully selected or explicitly type-allowlisted. Unselected structured
+content, metadata, unknown content, and untrusted annotations fail closed. The
+core emits only payload-free evidence or a bounded withheld result.
+No current command routes a live call through this core; TASK 161 owns that
+gateway boundary.
 
 ## Uninstall And Remove
 
@@ -1973,10 +1990,13 @@ approval requests and receipts plus private atomic approval consumption. The
 published v0.9.5 release does not contain those additions.
 `reconc impact` invokes that production evaluator for strict offline action
 scenarios, exact current and approval-state assertions, candidate deltas,
-completeness, privacy, and reviewed newly-allowed or newly-blocked gates. No
-current source command routes tool calls through an enforcing gateway, so
-offline simulation and internal approval machinery are not a live tool-call
-interception boundary.
+completeness, privacy, exact inspection evidence, detector deltas, and reviewed
+newly-allowed or newly-blocked gates. The internal Go inspection core performs
+strict MCP result decoding, local output-schema validation, deterministic
+selected-field scanning, fingerprint-bound annotation trust, and bounded result
+withholding. No current source command routes tool calls through an enforcing
+gateway, so offline simulation and these internal primitives are not a live
+tool-call interception boundary.
 
 The same unreleased source implements trusted operator and host context
 bindings, domain-separated HMAC identities, explicit key leases and rotation
@@ -2020,10 +2040,11 @@ raw selected values, receipts, credentials, or private keys.
 
 The design keeps all Reconc-owned product and adapter code in Go. The target
 gateway is one local, tool-only stdio MCP process around one operator-selected
-downstream stdio MCP server. Calls routed through that gateway would be evaluated before
-downstream dispatch, and results and progress would be inspected before
-upstream delivery. LangChain would launch the Go binary through LangChain's own
-MCP adapter; Reconc would not ship a Python or TypeScript LangChain adapter.
+downstream stdio MCP server. The evaluator and inspection core already own the
+transport-neutral pre-call and post-result decisions; TASK 161 must invoke them
+before downstream dispatch and before upstream result or progress delivery.
+LangChain would launch the Go binary through LangChain's own MCP adapter; Reconc
+would not ship a Python or TypeScript LangChain adapter.
 
 Coverage is explicit. Only tools configured to use the Reconc gateway would be
 enforced. Native LangChain tools, direct downstream MCP configurations, and
@@ -2034,8 +2055,8 @@ executing. Post-result containment could withhold data from the model boundary
 but could not undo a side effect that already occurred.
 
 The compiler lowers `actions.tools`, `actions.rules`, `actions.budgets`,
-`actions.approvals`, and `actions.defaults` plus compatible legacy `mcp`
-authoring into one canonical format-5 action plan.
+`actions.approvals`, `actions.detectors`, and `actions.defaults` plus compatible
+legacy `mcp` authoring into one canonical format-5 action plan.
 It rejects unknown nested fields, ambiguous values, invalid or oversized
 predicates, duplicate ownership, incompatible defaults, and unsupported
 cross-field combinations. Regexes, doublestar globs, CIDRs, URL/path
@@ -2062,9 +2083,11 @@ provenance and a visible policy-tampering boundary. Repository policy could
 never select the downstream executable, argv, working directory, inherited
 environment, credential material, state key, or approval authority.
 
-Later layers add deterministic local argument and result detectors, post-result
-withholding, a privacy-bounded tamper-evident retained action ledger, a live MCP
-stdio gateway, and local control-evidence mappings.
+The implemented inspection layer adds deterministic local argument, result, and
+progress detectors, strict output-schema validation, unsupported-content
+classification, and post-result withholding. Later layers add a privacy-bounded
+tamper-evident retained action ledger, a live MCP stdio gateway, and local
+control-evidence mappings.
 Key rotation cannot return budget capacity: it is serialized against live key
 leases and refused while dependent action state exists unless a future explicit
 atomic migration or reset owns every dependent identity and record.
@@ -2092,6 +2115,7 @@ summarizes the core runtime responsibilities:
 - `internal/cli`: argument parsing and command dispatch
 - `internal/action`: pure canonical action contract, strict normalized values, immutable matcher programs, deterministic evaluation, redacted traces, and exact in-memory decision caching
 - `internal/actionapproval`: canonical signed requests and receipts, operator authority registry, transport-neutral provider contract, and exact MCP input-required mapping
+- `internal/actioninspect`: strict MCP result decoding, offline output-schema validation, deterministic bounded content inspection, and safe withholding
 - `internal/actionstate`: trusted context identities, key leases, cumulative budgets, atomic approval consumption, and crash-safe private state
 - `internal/ingest`: repository discovery and source loading
 - `internal/parser`: YAML-to-policy validation and normalization
@@ -3252,6 +3276,10 @@ Ignore:
 Security posture:
 
 - Agent payloads are untrusted input.
+- Action inspection is local and deterministic: selected content is bounded,
+  matched raw values are never placed in evidence, output-schema references
+  cannot fetch remote data, and the implementation makes no network or model
+  call. Dropping Go references is prompt rather than guaranteed memory erasure.
 - Approval authority is accepted only from a private operator-owned registry
   outside the repository. Repository policy selects bounded disclosure only;
   it cannot choose authority keys. A signed receipt is exact-call, expiring,

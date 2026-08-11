@@ -57,6 +57,46 @@
       "source_identity": ".reconc.yml"
     }
   ],
+  "detectors": [
+    {
+      "id": "inspect-database",
+      "selector": {
+        "tool_ids": [
+          "warehouse-query"
+        ],
+        "phases": [
+          "pre_call"
+        ]
+      },
+      "pack_id": "reconc-core-v1",
+      "pack_digest": "sha256:0b4b8260995839139f2d0ba8521fc1d6f3d98744db854717364612fc626ed972",
+      "fields": [
+        {
+          "source": "arguments",
+          "pointer": "/database"
+        }
+      ],
+      "categories": [
+        "forbidden_data"
+      ],
+      "forbidden_terms": [
+        "production"
+      ],
+      "pre_call_decision": "block",
+      "post_result_disposition": "withhold",
+      "progress_disposition": "suppress",
+      "schema_policy": "validate_if_declared",
+      "allowed_content_types": [],
+      "trusted_annotation_fields": [],
+      "limits": {
+        "max_bytes": 8388608,
+        "max_items": 65536,
+        "max_depth": 32,
+        "max_milliseconds": 500
+      },
+      "source_identity": ".reconc.yml"
+    }
+  ],
   "defaults": {
     "declared_tool": "warn",
     "gateway_unmatched": "block",
