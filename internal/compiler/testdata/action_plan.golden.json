@@ -9,6 +9,7 @@
       "effect": {
         "kind": "external"
       },
+      "ledger_name_safe": true,
       "origin": "actions",
       "source_identity": ".reconc.yml"
     }
@@ -97,6 +98,20 @@
       "source_identity": ".reconc.yml"
     }
   ],
+  "ledger": {
+    "mode": "best_effort",
+    "tool_identity": "exact_name",
+    "selected_fields": [
+      {
+        "source": "arguments",
+        "pointer": "/database"
+      },
+      {
+        "source": "result",
+        "pointer": "/rows"
+      }
+    ]
+  },
   "defaults": {
     "declared_tool": "warn",
     "gateway_unmatched": "block",

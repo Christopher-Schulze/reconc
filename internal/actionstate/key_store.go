@@ -88,6 +88,34 @@ func AcquireIdentityKey(ctx context.Context, home string) (*IdentityKeyLease, er
 	return &IdentityKeyLease{Key: key, lock: lock}, nil
 }
 
+// AcquireExistingIdentityKey opens an already initialized key owner without
+// creating directories, lock files, or key material. It is the read-only
+// entrypoint for ledger inspection commands.
+func AcquireExistingIdentityKey(ctx context.Context, home string) (*IdentityKeyLease, error) {
+	resolved, err := ResolveHome(home)
+	if err != nil {
+		return nil, err
+	}
+	actionDirectory := filepath.Join(resolved, "action")
+	if err := validatePrivateDirectory(resolved); err != nil {
+		return nil, fmt.Errorf("validate existing Reconc home: %w", err)
+	}
+	if err := validatePrivateDirectory(actionDirectory); err != nil {
+		return nil, fmt.Errorf("validate existing action key directory: %w", err)
+	}
+	lock, err := acquireExistingSharedFileLock(
+		ctx, filepath.Join(actionDirectory, "identity-key.lock"), StateLockTimeout,
+	)
+	if err != nil {
+		return nil, err
+	}
+	key, err := readIdentityKey(filepath.Join(actionDirectory, "identity-key.json"))
+	if err != nil {
+		return nil, errors.Join(err, lock.close())
+	}
+	return &IdentityKeyLease{Key: key, lock: lock}, nil
+}
+
 func (l *IdentityKeyLease) Close() error {
 	if l == nil {
 		return nil

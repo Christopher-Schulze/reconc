@@ -176,6 +176,14 @@ var commandCatalog = []Command{
 		sub("export", "reconc audit export [repo]", "export raw audit JSONL", nil, nil, modes(OutputJSONL)),
 		sub("verify", "reconc audit verify [repo] [--json]", "verify every retained record and detached chain head", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	}, modes(OutputText, OutputJSON, OutputJSONL)),
+	command("action", CategoryMaintenance, "reconc action log <tail|stats|verify|export>", "inspect or export privacy-bounded action decisions", nil, []Subcommand{
+		subgroup("log", "reconc action log <tail|stats|verify|export>", "inspect, verify, or export the action decision ledger", []Subcommand{
+			sub("tail", "reconc action log tail [repo] [filters]", "tail bounded action ledger events", actionLogFilterFlags(true, true), nil, modes(OutputText, OutputJSON)),
+			sub("stats", "reconc action log stats [repo] [filters]", "aggregate explicit action call lifecycles", actionLogFilterFlags(false, true), nil, modes(OutputText, OutputJSON)),
+			sub("verify", "reconc action log verify [repo] [--json]", "verify retained action records, archives, and detached head", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
+			sub("export", "reconc action log export [repo] [filters] [--output PATH]", "export complete privacy-bounded Impact Lab action cases", append(actionLogFilterFlags(false, false), f("--output", "PATH")), nil, modes(OutputJSON, OutputFile)),
+		}),
+	}, modes(OutputText, OutputJSON, OutputFile)),
 	command("run", CategoryMaintenance, "reconc run <on|off|reset|status|log>", "operate durable repository run control", nil, []Subcommand{
 		sub("on", "reconc run on [repo] [--force] [--json]", "enable repository run control", flags(f("--force", ""), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 		sub("off", "reconc run off [repo] [--json]", "disable repository run control", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
@@ -326,6 +334,22 @@ func evidenceFlags(autoClaim, output bool) []Flag {
 	values = append(values, f("--json", ""), f("--terse", ""))
 	if output {
 		values = append(values, f("--output", "PATH"))
+	}
+	return values
+}
+
+func actionLogFilterFlags(limit, jsonOutput bool) []Flag {
+	values := flags(
+		f("--call", "ID"), f("--run", "ID"), f("--session", "ID"),
+		f("--principal", "LABEL"), f("--tool", "MODE:VALUE"),
+		f("--event", "EVENT"), f("--decision", "DECISION"),
+		f("--since", "RFC3339"),
+	)
+	if limit {
+		values = append([]Flag{f("-n", "N")}, values...)
+	}
+	if jsonOutput {
+		values = append(values, f("--json", ""))
 	}
 	return values
 }

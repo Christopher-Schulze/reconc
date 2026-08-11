@@ -24,7 +24,7 @@ func TestCurrentPolicyConfigSchemaAcceptsOnlyTheImplementedActionSurface(t *test
 			"tools": []interface{}{map[string]interface{}{
 				"id": "warehouse-query", "transport": "mcp_stdio", "server_label": "warehouse",
 				"tool": "query", "effect": map[string]interface{}{"kind": "external"},
-				"cost_units": 3, "max_result_bytes": 4096,
+				"cost_units": 3, "max_result_bytes": 4096, "ledger_name_safe": true,
 			}},
 			"rules": []interface{}{map[string]interface{}{
 				"id": "block-production", "decision": "block",
@@ -56,6 +56,13 @@ func TestCurrentPolicyConfigSchemaAcceptsOnlyTheImplementedActionSurface(t *test
 				"categories":      []interface{}{"forbidden_data"},
 				"forbidden_terms": []interface{}{"production"},
 			}},
+			"ledger": map[string]interface{}{
+				"mode": "best_effort", "tool_identity": "exact_name",
+				"selected_fields": []interface{}{
+					map[string]interface{}{"source": "arguments", "pointer": "/database"},
+					map[string]interface{}{"source": "result", "pointer": "/rows"},
+				},
+			},
 			"defaults": map[string]interface{}{"gateway_unmatched": "block", "host_unmatched": "allow"},
 		},
 	}
@@ -63,6 +70,12 @@ func TestCurrentPolicyConfigSchemaAcceptsOnlyTheImplementedActionSurface(t *test
 		t.Fatalf("valid action authoring rejected: %v", err)
 	}
 	for _, mutate := range []func(map[string]interface{}){
+		func(candidate map[string]interface{}) {
+			candidate["actions"].(map[string]interface{})["ledger"].(map[string]interface{})["selected_fields"].([]interface{})[0].(map[string]interface{})["source"] = "context"
+		},
+		func(candidate map[string]interface{}) {
+			candidate["actions"].(map[string]interface{})["tools"].([]interface{})[0].(map[string]interface{})["ledger_name_safe"] = "true"
+		},
 		func(candidate map[string]interface{}) {
 			candidate["actions"].(map[string]interface{})["approvals"].([]interface{})[0].(map[string]interface{})["authority_key_id"] = "repository-key"
 		},
@@ -139,7 +152,7 @@ func TestCurrentPolicyConfigSchemaAcceptsOnlyTheImplementedActionSurface(t *test
 	}
 }
 
-func TestCompilerEmitsOneSchemaValidFormat5ActionPlan(t *testing.T) {
+func TestCompilerEmitsOneSchemaValidFormat6ActionPlan(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("# fixture\n"), 0o600); err != nil {
@@ -192,7 +205,7 @@ actions:
 		t.Fatal(err)
 	}
 	if _, parallel := lock["mcp"]; parallel {
-		t.Fatal("format-5 lock emitted a parallel MCP plan")
+		t.Fatal("format-6 lock emitted a parallel MCP plan")
 	}
 	actions := lock["actions"].(map[string]interface{})
 	if got := len(actions["detectors"].([]interface{})); got != 1 {
@@ -201,6 +214,6 @@ actions:
 	compiled := compileRegisteredSchemas(t)
 	contract, _ := schema.CurrentContract(schema.PolicyLock)
 	if err := compiled[contract.DefaultURL].Validate(lock); err != nil {
-		t.Fatalf("real compiled format-5 lock is schema-invalid: %v", err)
+		t.Fatalf("real compiled format-6 lock is schema-invalid: %v", err)
 	}
 }

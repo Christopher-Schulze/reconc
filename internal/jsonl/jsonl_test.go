@@ -249,6 +249,11 @@ func TestAppendJournalValidationFailsClosed(t *testing.T) {
 		{name: "state", mutate: func(j *appendJournal) { j.State = "unknown" }},
 		{name: "policy", mutate: func(j *appendJournal) { j.MaxBytes = 0 }},
 		{name: "live size", mutate: func(j *appendJournal) { j.LiveSize = -1 }},
+		{name: "absent live with size", mutate: func(j *appendJournal) { j.LiveSize = 1 }},
+		{name: "live exceeds bound", mutate: func(j *appendJournal) {
+			j.LiveExisted = true
+			j.LiveSize = j.MaxBytes + 1
+		}},
 		{name: "unexpected backups", mutate: func(j *appendJournal) { j.Backups = []appendJournalBackup{{Index: 0}} }},
 		{name: "missing backups", mutate: func(j *appendJournal) { j.Rotated = true }},
 		{name: "backup index", mutate: func(j *appendJournal) {
@@ -262,6 +267,10 @@ func TestAppendJournalValidationFailsClosed(t *testing.T) {
 		{name: "backup digest", mutate: func(j *appendJournal) {
 			j.Rotated = true
 			j.Backups = []appendJournalBackup{{Index: 0, Existed: true, Mode: 0o600, Digest: "bad"}, {Index: 1}}
+		}},
+		{name: "uppercase backup digest", mutate: func(j *appendJournal) {
+			j.Rotated = true
+			j.Backups = []appendJournalBackup{{Index: 0, Existed: true, Mode: 0o600, Digest: strings.Repeat("A", 64)}, {Index: 1}}
 		}},
 		{name: "absent metadata", mutate: func(j *appendJournal) {
 			j.Rotated = true
@@ -281,9 +290,23 @@ func TestAppendJournalValidationFailsClosed(t *testing.T) {
 
 func TestReadAppendJournalRejectsMalformedAndOversizedData(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.jsonl")
+	duplicateState := []byte(`{
+  "format_version": 1,
+  "state": "prepared",
+  "state": "prepared",
+  "transactional": false,
+  "rotated": false,
+  "max_bytes": 64,
+  "max_archives": 1,
+  "live_existed": false,
+  "live_size": 0
+}
+`)
 	for _, body := range [][]byte{
 		[]byte("{} trailing"),
 		append([]byte(`{"format_version":1}`), make([]byte, maxAppendJournalBytes)...),
+		[]byte(`{"format_version":1,"state":"prepared","transactional":false,"rotated":false,"max_bytes":64,"max_archives":1,"live_existed":false,"live_size":0}`),
+		duplicateState,
 	} {
 		if err := os.WriteFile(appendJournalPath(path), body, 0o600); err != nil {
 			t.Fatal(err)

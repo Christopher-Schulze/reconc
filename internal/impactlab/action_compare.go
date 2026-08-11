@@ -85,10 +85,26 @@ func evaluateActionScenario(scenario ActionCase, compiled runtime.CompiledAction
 			approval.RequiredApprovalIdentity = result.RequiredApprovalIdentity
 		}
 	}
-	return observationFromResult(result, approval)
+	var ledger *ActionLedgerAssertion
+	if scenario.Expected.Ledger != nil {
+		plan := compiled.Evaluator.Plan()
+		ledger, err = LedgerAssertionForPhase(scenario.Request.Phase, plan.Ledger)
+		if err != nil {
+			return ActionObservation{}, err
+		}
+	}
+	return observationFromResultWithLedger(result, approval, ledger)
 }
 
 func observationFromResult(result action.EvaluationResult, approval *ActionApprovalAssertion) (ActionObservation, error) {
+	return observationFromResultWithLedger(result, approval, nil)
+}
+
+func observationFromResultWithLedger(
+	result action.EvaluationResult,
+	approval *ActionApprovalAssertion,
+	ledger *ActionLedgerAssertion,
+) (ActionObservation, error) {
 	failureCode := action.ReasonCode("")
 	if result.Failure != nil {
 		failureCode = result.Failure.Code
@@ -98,7 +114,7 @@ func observationFromResult(result action.EvaluationResult, approval *ActionAppro
 		MatchedRuleIDs: append([]string{}, result.MatchedRuleIDs...),
 		Cache:          ActionCacheAssertion{Eligible: result.Cache.Eligible, Reason: result.Cache.Reason},
 		Completeness:   result.Completeness, PhaseOutcome: result.PhaseOutcome, FailureCode: failureCode,
-		Approval: approval,
+		Approval: approval, Ledger: ledger,
 	}
 	outcome.Completeness.Missing = append([]action.MissingEvidence{}, result.Completeness.Missing...)
 	identity, err := actionAssertionIdentity(outcome)
@@ -215,6 +231,9 @@ func actionDeltas(current, candidate ActionObservation) []ActionDeltaKind {
 	if !equalActionApprovalAssertion(current.Outcome.Approval, candidate.Outcome.Approval) {
 		deltas = append(deltas, DeltaApproval)
 	}
+	if !equalActionLedgerAssertion(current.Outcome.Ledger, candidate.Outcome.Ledger) {
+		deltas = append(deltas, DeltaLedger)
+	}
 	return deltas
 }
 
@@ -233,7 +252,8 @@ func equalActionAssertion(left, right ActionAssertion) bool {
 		slices.Equal(left.MatchedRuleIDs, right.MatchedRuleIDs) && left.Cache == right.Cache &&
 		equalActionCompleteness(left.Completeness, right.Completeness) &&
 		left.PhaseOutcome == right.PhaseOutcome && left.FailureCode == right.FailureCode &&
-		equalActionApprovalAssertion(left.Approval, right.Approval)
+		equalActionApprovalAssertion(left.Approval, right.Approval) &&
+		equalActionLedgerAssertion(left.Ledger, right.Ledger)
 }
 
 func equalActionApprovalAssertion(left, right *ActionApprovalAssertion) bool {
@@ -281,6 +301,8 @@ func addActionSummary(summary *Summary, comparison ActionComparison) {
 			summary.ActionFailureChanges++
 		case DeltaApproval:
 			summary.ActionApprovalChanges++
+		case DeltaLedger:
+			summary.ActionLedgerChanges++
 		}
 	}
 }

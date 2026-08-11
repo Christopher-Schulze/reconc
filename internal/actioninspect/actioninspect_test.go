@@ -146,7 +146,8 @@ func TestEngineDetectsSyntheticCredentialWithoutPersistingPayload(t *testing.T) 
 	engine, request := testEngine(t, action.PhasePreCall, []action.DetectorCategory{
 		action.DetectorCredential, action.DetectorPromptInjection,
 	}, nil)
-	arguments := mustValue(t, `{"payload":"ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`)
+	token := "ghp_" + strings.Repeat("a", 36)
+	arguments := mustValue(t, `{"payload":"`+token+`"}`)
 	request.Arguments = &arguments
 	evidence, err := engine.Inspect(context.Background(), request, nil, nil)
 	if err != nil {
@@ -160,7 +161,7 @@ func TestEngineDetectsSyntheticCredentialWithoutPersistingPayload(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(body), "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") {
+	if strings.Contains(string(body), token) {
 		t.Fatalf("inspection evidence disclosed selected content: %s", body)
 	}
 }

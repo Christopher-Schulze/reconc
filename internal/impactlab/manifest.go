@@ -179,6 +179,9 @@ func validateManifestAssertion(assertion ActionAssertion) error {
 	if assertion.ToolID != "" && (!action.SafeLabel(assertion.ToolID) || unsafeActionMetadata(assertion.ToolID)) {
 		return fmt.Errorf("outcome tool id is invalid")
 	}
+	if err := validateActionLedgerAssertion("", assertion.Ledger); err != nil {
+		return err
+	}
 	canonical, err := action.NormalizeCompleteness(assertion.Completeness)
 	if err != nil || !equalActionCompleteness(canonical, assertion.Completeness) {
 		return fmt.Errorf("outcome completeness is invalid or non-canonical")
@@ -328,6 +331,7 @@ func cloneManifestAssertion(assertion ActionAssertion) ActionAssertion {
 	if assertion.Completeness.Missing != nil {
 		out.Completeness.Missing = append([]action.MissingEvidence{}, assertion.Completeness.Missing...)
 	}
+	out.Ledger = cloneActionLedgerAssertion(assertion.Ledger)
 	return out
 }
 

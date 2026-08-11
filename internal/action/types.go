@@ -32,6 +32,7 @@ const (
 	MaxBudgets              = 1024
 	MaxApprovalDisclosures  = 1024
 	MaxDetectors            = 1024
+	MaxLedgerFields         = 256
 	MaxDetectorFields       = 256
 	MaxDetectorCategories   = 32
 	MaxForbiddenTerms       = 256
@@ -268,6 +269,7 @@ type Tool struct {
 	Effect            Effect    `json:"effect"`
 	CostUnits         *uint64   `json:"cost_units,omitempty"`
 	MaxResultBytes    uint64    `json:"max_result_bytes,omitempty"`
+	LedgerNameSafe    bool      `json:"ledger_name_safe,omitempty"`
 	Origin            Origin    `json:"origin"`
 	SourceIdentity    string    `json:"source_identity"`
 }
@@ -384,6 +386,41 @@ type ApprovalDisclosure struct {
 	SourceIdentity    string   `json:"source_identity"`
 }
 
+type LedgerMode string
+
+const (
+	LedgerRequired   LedgerMode = "required"
+	LedgerBestEffort LedgerMode = "best_effort"
+	LedgerOff        LedgerMode = "off"
+)
+
+func (m LedgerMode) Valid() bool {
+	return m == LedgerRequired || m == LedgerBestEffort || m == LedgerOff
+}
+
+type LedgerToolIdentity string
+
+const (
+	LedgerDeclarationID LedgerToolIdentity = "declaration_id"
+	LedgerExactName     LedgerToolIdentity = "exact_name"
+	LedgerKeyedName     LedgerToolIdentity = "keyed_name"
+)
+
+func (i LedgerToolIdentity) Valid() bool {
+	return i == LedgerDeclarationID || i == LedgerExactName || i == LedgerKeyedName
+}
+
+type LedgerField struct {
+	Source  ValueSource `json:"source"`
+	Pointer string      `json:"pointer"`
+}
+
+type LedgerPolicy struct {
+	Mode           LedgerMode         `json:"mode"`
+	ToolIdentity   LedgerToolIdentity `json:"tool_identity"`
+	SelectedFields []LedgerField      `json:"selected_fields"`
+}
+
 type Plan struct {
 	FormatVersion string               `json:"format_version"`
 	Tools         []Tool               `json:"tools"`
@@ -391,6 +428,7 @@ type Plan struct {
 	Budgets       []Budget             `json:"budgets"`
 	Approvals     []ApprovalDisclosure `json:"approvals"`
 	Detectors     []DetectorPolicy     `json:"detectors"`
+	Ledger        *LedgerPolicy        `json:"ledger,omitempty"`
 	Defaults      Defaults             `json:"defaults"`
 }
 

@@ -5,6 +5,7 @@ package impactlab
 import (
 	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/actionapproval"
+	"reconc.dev/reconc/internal/actionledger"
 	"reconc.dev/reconc/internal/runtime"
 )
 
@@ -196,6 +197,16 @@ type ActionApprovalAssertion struct {
 	Transition               actionapproval.Status `json:"transition,omitempty"`
 }
 
+// ActionLedgerAssertion binds the exact recording contract visible to one
+// action phase. It contains declarations only, never selected values.
+type ActionLedgerAssertion struct {
+	Mode           action.LedgerMode         `json:"mode"`
+	Event          actionledger.EventType    `json:"event,omitempty"`
+	Required       bool                      `json:"required"`
+	ToolIdentity   action.LedgerToolIdentity `json:"tool_identity"`
+	SelectedFields []action.LedgerField      `json:"selected_fields"`
+}
+
 // ActionAssertion is mandatory for every action case and contains only stable,
 // privacy-bounded outcome fields.
 type ActionAssertion struct {
@@ -208,6 +219,7 @@ type ActionAssertion struct {
 	PhaseOutcome   action.PhaseOutcome      `json:"phase_outcome"`
 	FailureCode    action.ReasonCode        `json:"failure_code,omitempty"`
 	Approval       *ActionApprovalAssertion `json:"approval,omitempty"`
+	Ledger         *ActionLedgerAssertion   `json:"ledger,omitempty"`
 }
 
 // ActionValueSummary records a removed selected value without retaining it.
@@ -299,13 +311,14 @@ const (
 	DeltaToolIdentity          ActionDeltaKind = "tool_identity"
 	DeltaFailure               ActionDeltaKind = "failure"
 	DeltaApproval              ActionDeltaKind = "approval"
+	DeltaLedger                ActionDeltaKind = "ledger"
 )
 
 func (k ActionDeltaKind) Valid() bool {
 	switch k {
 	case DeltaDecision, DeltaNewlyAllowed, DeltaNewlyWarned, DeltaNewlyApprovalRequired,
 		DeltaNewlyBlocked, DeltaRuleTrace, DeltaCache, DeltaPhaseOutcome,
-		DeltaCompleteness, DeltaReason, DeltaToolIdentity, DeltaFailure, DeltaApproval:
+		DeltaCompleteness, DeltaReason, DeltaToolIdentity, DeltaFailure, DeltaApproval, DeltaLedger:
 		return true
 	default:
 		return false
@@ -371,6 +384,7 @@ type Summary struct {
 	ActionToolIdentityChanges        int   `json:"action_tool_identity_changes"`
 	ActionFailureChanges             int   `json:"action_failure_changes"`
 	ActionApprovalChanges            int   `json:"action_approval_changes"`
+	ActionLedgerChanges              int   `json:"action_ledger_changes"`
 }
 
 // DeltaGate is the exact CI review state for permission and block changes.

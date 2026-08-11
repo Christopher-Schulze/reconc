@@ -12,14 +12,19 @@ const Version2BaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/r
 
 const Version3BaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + CurrentSchemaTag + "/schemas/v3"
 
+const Version4BaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + CurrentSchemaTag + "/schemas/v4"
+
 const Version5BaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + CurrentSchemaTag + "/schemas/v5"
 
-const PolicyLockBaseURL = Version5BaseURL
+const Version6BaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + CurrentSchemaTag + "/schemas/v6"
+
+const PolicyLockBaseURL = Version6BaseURL
 
 // Artifact identifies one stable JSON contract emitted by Reconc.
 type Artifact string
 
 const (
+	ActionLedger             Artifact = "action-ledger"
 	PolicyLock               Artifact = "policy-lock"
 	PolicyConfig             Artifact = "policy-config"
 	PolicyReport             Artifact = "policy-report"
@@ -40,9 +45,10 @@ const (
 	NeutralHookRequest       Artifact = "neutral-hook-request"
 	NeutralHookResponse      Artifact = "neutral-hook-response"
 
+	ActionLedgerURL             = DefaultBaseURL + "/action-ledger.schema.json"
 	LegacyPolicyLockURL         = DefaultBaseURL + "/policy-lock.schema.json"
 	PolicyLockURL               = PolicyLockBaseURL + "/policy-lock.schema.json"
-	PolicyConfigURL             = Version3BaseURL + "/policy-config.schema.json"
+	PolicyConfigURL             = Version4BaseURL + "/policy-config.schema.json"
 	PolicyReportURL             = DefaultBaseURL + "/policy-report.schema.json"
 	PolicyFixPlanURL            = DefaultBaseURL + "/policy-fix-plan.schema.json"
 	CompletionReportURL         = DefaultBaseURL + "/completion-report.schema.json"
@@ -67,6 +73,7 @@ const (
 	LegacyPolicyLockV3URL         = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + CurrentSchemaTag + "/schemas/v3/policy-lock.schema.json"
 	LegacyPolicyLockV3URLUnpinned = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v3/policy-lock.schema.json"
 	LegacyPolicyLockV4URL         = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json"
+	LegacyPolicyLockV5URL         = Version5BaseURL + "/policy-lock.schema.json"
 
 	LegacyPolicyLockURLV091   = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v1/policy-lock.schema.json"
 	LegacyPolicyLockV2URLV091 = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.1/schemas/v2/policy-lock.schema.json"

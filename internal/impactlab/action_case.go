@@ -74,6 +74,9 @@ func validateActionCaseWithScanner(
 	items := len(scenario.Request.Context) + len(scenario.State.CredentialLabels) +
 		len(scenario.Expected.MatchedRuleIDs) + len(scenario.Expected.Completeness.Missing) +
 		len(scenario.SelectedValues)
+	if scenario.Expected.Ledger != nil {
+		items += len(scenario.Expected.Ledger.SelectedFields) + 1
+	}
 	if scenario.State.Inspection != nil {
 		items += len(scenario.State.Inspection.RuleIDs) + len(scenario.State.Inspection.Categories) +
 			len(scenario.State.Inspection.PackIdentities) + len(scenario.State.Inspection.Fields) +
@@ -343,6 +346,9 @@ func validateActionAssertion(phase action.Phase, toolID string, assertion Action
 		return fmt.Errorf("phase outcome does not match phase and decision")
 	}
 	if err := validateActionApprovalAssertion(assertion); err != nil {
+		return err
+	}
+	if err := validateActionLedgerAssertion(phase, assertion.Ledger); err != nil {
 		return err
 	}
 	canonical, err := action.NormalizeCompleteness(assertion.Completeness)

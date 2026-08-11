@@ -3,6 +3,7 @@
 package filelock
 
 import (
+	"errors"
 	"os"
 	"syscall"
 )
@@ -46,4 +47,10 @@ func TryRLock(file *os.File) (func() error, error) {
 	return func() error {
 		return syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
 	}, nil
+}
+
+// IsContended reports whether a non-blocking lock failed only because another
+// owner currently holds an incompatible lock.
+func IsContended(err error) bool {
+	return errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EWOULDBLOCK)
 }

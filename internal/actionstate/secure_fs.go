@@ -127,6 +127,39 @@ func acquireSharedFileLock(ctx context.Context, path string, timeout time.Durati
 	return acquirePrivateFileLock(ctx, path, timeout, true)
 }
 
+func acquireExistingSharedFileLock(ctx context.Context, path string, timeout time.Duration) (*heldLock, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("lock context is required")
+	}
+	if timeout <= 0 || timeout > StateLockTimeout {
+		return nil, fmt.Errorf("lock timeout must be between zero and %s", StateLockTimeout)
+	}
+	file, err := openExistingPrivateLockFile(path)
+	if err != nil {
+		return nil, err
+	}
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		unlock, lockErr := filelock.TryRLock(file)
+		if lockErr == nil {
+			return &heldLock{file: file, unlock: unlock}, nil
+		}
+		if !filelock.IsContended(lockErr) {
+			return nil, errors.Join(fmt.Errorf("acquire state lock: %w", lockErr), file.Close())
+		}
+		select {
+		case <-ctx.Done():
+			return nil, errors.Join(fmt.Errorf("acquire state lock: %w", ctx.Err()), file.Close())
+		case <-deadline.C:
+			return nil, errors.Join(fmt.Errorf("state lock timed out after %s", timeout), file.Close())
+		case <-ticker.C:
+		}
+	}
+}
+
 func acquirePrivateFileLock(ctx context.Context, path string, timeout time.Duration, shared bool) (*heldLock, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("lock context is required")
@@ -152,6 +185,9 @@ func acquirePrivateFileLock(ctx context.Context, path string, timeout time.Durat
 		}
 		if lockErr == nil {
 			return &heldLock{file: file, unlock: unlock}, nil
+		}
+		if !filelock.IsContended(lockErr) {
+			return nil, errors.Join(fmt.Errorf("acquire state lock: %w", lockErr), file.Close())
 		}
 		select {
 		case <-ctx.Done():
@@ -194,6 +230,34 @@ func openPrivateLockFile(path string) (*os.File, error) {
 	}
 	if err := validatePrivateFile(file, secured); err != nil {
 		return nil, errors.Join(fmt.Errorf("validate private lock %s: %w", path, err), file.Close())
+	}
+	return file, nil
+}
+
+func openExistingPrivateLockFile(path string) (*os.File, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("inspect existing lock path %s: %w", path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("lock path %s must be a non-symlink regular file", path)
+	}
+	file, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		return nil, fmt.Errorf("open existing private lock %s: %w", path, err)
+	}
+	opened, statErr := file.Stat()
+	current, lstatErr := os.Lstat(path)
+	if statErr != nil || lstatErr != nil || !opened.Mode().IsRegular() ||
+		current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() ||
+		!os.SameFile(opened, current) {
+		if statErr == nil && lstatErr == nil {
+			statErr = fmt.Errorf("lock path changed identity while opening")
+		}
+		return nil, errors.Join(statErr, lstatErr, file.Close())
+	}
+	if err := validatePrivateFile(file, opened); err != nil {
+		return nil, errors.Join(fmt.Errorf("validate existing private lock %s: %w", path, err), file.Close())
 	}
 	return file, nil
 }

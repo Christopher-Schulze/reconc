@@ -73,3 +73,21 @@ func TestWriteIfChangedReplacesDifferentSizedSparseFileWithoutWholeRead(t *testi
 		t.Fatalf("replacement = %q, %v", body, err)
 	}
 }
+
+func TestWriteNewPublishesCompleteBytesAndRefusesExistingTarget(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "export.json")
+	if err := WriteNew(path, []byte("first\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteNew(path, []byte("second\n"), 0o600); err == nil {
+		t.Fatal("WriteNew replaced an existing target")
+	}
+	body, err := os.ReadFile(path)
+	if err != nil || string(body) != "first\n" {
+		t.Fatalf("published bytes = %q, %v", body, err)
+	}
+	matches, err := filepath.Glob(filepath.Join(filepath.Dir(path), ".export.json.*.tmp"))
+	if err != nil || len(matches) != 0 {
+		t.Fatalf("new-file temporary residue = %v, %v", matches, err)
+	}
+}

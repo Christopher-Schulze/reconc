@@ -6,6 +6,7 @@ actions:
       tool: query
       effect:
         kind: external
+      ledger_name_safe: true
   defaults:
     declared_tool: warn
     cache: never
@@ -40,3 +41,11 @@ actions:
           pointer: /database
       categories: [forbidden_data]
       forbidden_terms: [production]
+  ledger:
+    mode: best_effort
+    tool_identity: exact_name
+    selected_fields:
+      - source: result
+        pointer: /rows
+      - source: arguments
+        pointer: /database

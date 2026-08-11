@@ -1,8 +1,10 @@
 package schema_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -24,6 +26,86 @@ func TestEveryRegisteredSchemaCompilesOffline(t *testing.T) {
 	}
 }
 
+func TestEveryRegisteredSchemaHasUniqueJSONObjectKeys(t *testing.T) {
+	for _, contract := range contractschema.Contracts() {
+		t.Run(string(contract.Artifact)+"-v"+contract.SchemaVersion, func(t *testing.T) {
+			body, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(contract.LocalPath)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := validateUniqueSchemaJSONKeys(body); err != nil {
+				t.Fatalf("%s: %v", contract.LocalPath, err)
+			}
+		})
+	}
+}
+
+func validateUniqueSchemaJSONKeys(body []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	if err := validateUniqueSchemaJSONValue(decoder, 0); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		return fmt.Errorf("schema JSON contains trailing data")
+	}
+	return nil
+}
+
+func validateUniqueSchemaJSONValue(decoder *json.Decoder, depth int) error {
+	if depth > 256 {
+		return fmt.Errorf("schema JSON exceeds 256 levels")
+	}
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delimiter, container := token.(json.Delim)
+	if !container {
+		return nil
+	}
+	switch delimiter {
+	case '{':
+		seen := make(map[string]struct{})
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return fmt.Errorf("schema JSON object key is not a string")
+			}
+			if _, duplicate := seen[key]; duplicate {
+				return fmt.Errorf("schema JSON contains duplicate object key %q", key)
+			}
+			seen[key] = struct{}{}
+			if err := validateUniqueSchemaJSONValue(decoder, depth+1); err != nil {
+				return err
+			}
+		}
+	case '[':
+		for decoder.More() {
+			if err := validateUniqueSchemaJSONValue(decoder, depth+1); err != nil {
+				return err
+			}
+		}
+	default:
+		return fmt.Errorf("schema JSON contains unexpected delimiter %q", delimiter)
+	}
+	closing, err := decoder.Token()
+	if err != nil || closing != matchingSchemaJSONDelimiter(delimiter) {
+		return fmt.Errorf("schema JSON container is malformed")
+	}
+	return nil
+}
+
+func matchingSchemaJSONDelimiter(open json.Delim) json.Delim {
+	if open == '{' {
+		return '}'
+	}
+	return ']'
+}
+
 func TestEveryCurrentSchemaValidatesARepresentativeArtifact(t *testing.T) {
 	compiled := compileRegisteredSchemas(t)
 	for _, contract := range contractschema.Contracts() {
@@ -32,6 +114,16 @@ func TestEveryCurrentSchemaValidatesARepresentativeArtifact(t *testing.T) {
 		}
 		t.Run(string(contract.Artifact), func(t *testing.T) {
 			artifact := representativeArtifact(t, compiled[contract.DefaultURL])
+			if contract.Artifact == contractschema.ActionLedger {
+				completeness := artifact["decision"].(map[string]any)["completeness"].(map[string]any)
+				for _, field := range []string{
+					"request_complete", "policy_complete", "identity_complete",
+					"context_complete", "state_complete", "phase_complete",
+				} {
+					completeness[field] = true
+				}
+				completeness["missing"] = []any{}
+			}
 			if err := compiled[contract.DefaultURL].Validate(artifact); err != nil {
 				t.Fatalf("representative artifact is invalid: %v\nartifact: %s", err, mustJSON(t, artifact))
 			}
@@ -140,7 +232,9 @@ func readSchemaResource(t *testing.T, localPath string) any {
 		t.Fatalf("read %s: %v", localPath, err)
 	}
 	var document any
-	if err := json.Unmarshal(body, &document); err != nil {
+	decoder := json.NewDecoder(strings.NewReader(string(body)))
+	decoder.UseNumber()
+	if err := decoder.Decode(&document); err != nil {
 		t.Fatalf("decode %s: %v", localPath, err)
 	}
 	return document
@@ -330,6 +424,8 @@ func exampleString(t *testing.T, definition *jsonschema.Schema) string {
 		strings.Repeat("a", 40),
 		strings.Repeat("a", 64),
 		"sha256:" + strings.Repeat("a", 64),
+		"hmac-sha256:v1:ledger-key:" + strings.Repeat("a", 64),
+		"act_" + strings.Repeat("a", 26),
 		"2000-01-01T00:00:00Z",
 		"https://example.test/schema.json",
 	}

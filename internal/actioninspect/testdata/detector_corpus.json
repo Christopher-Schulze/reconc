@@ -2,13 +2,13 @@
   {
     "name": "aws access key",
     "categories": ["credential"],
-    "text": "AKIA0000000000000000",
+    "text_parts": ["AKIA", "0000000000000000"],
     "want_rule_ids": ["credential-aws-access-key"]
   },
   {
     "name": "github token",
     "categories": ["credential"],
-    "text": "ghp_000000000000000000000000000000000000",
+    "text_parts": ["ghp_", "000000000000000000000000000000000000"],
     "want_rule_ids": ["credential-github-token"]
   },
   {
@@ -20,7 +20,7 @@
   {
     "name": "private key marker",
     "categories": ["secret"],
-    "text": "-----BEGIN PRIVATE KEY-----",
+    "text_parts": ["-----BEGIN ", "PRIVATE KEY-----"],
     "want_rule_ids": ["secret-private-key"]
   },
   {

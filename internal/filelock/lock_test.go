@@ -77,6 +77,8 @@ func TestTryLockRejectsContendedFileWithoutWaiting(t *testing.T) {
 	}
 	if _, err := TryLock(second); err == nil {
 		t.Fatal("contended TryLock unexpectedly succeeded")
+	} else if !IsContended(err) {
+		t.Fatalf("contended TryLock error was not classified as contention: %v", err)
 	}
 	if err := unlockFirst(); err != nil {
 		t.Fatal(err)
@@ -87,6 +89,21 @@ func TestTryLockRejectsContendedFileWithoutWaiting(t *testing.T) {
 	}
 	if err := unlockSecond(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestIsContendedRejectsPermanentLockError(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "closed-lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := TryLock(file); err == nil {
+		t.Fatal("TryLock unexpectedly accepted a closed file")
+	} else if IsContended(err) {
+		t.Fatalf("closed-file lock error was misclassified as contention: %v", err)
 	}
 }
 

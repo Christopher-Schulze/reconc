@@ -55,8 +55,8 @@ func TestRegistryHasOneCurrentContractPerArtifact(t *testing.T) {
 			current[contract.Artifact]++
 		}
 	}
-	if len(current) != 19 {
-		t.Fatalf("current artifact count = %d, want 19", len(current))
+	if len(current) != 20 {
+		t.Fatalf("current artifact count = %d, want 20", len(current))
 	}
 	for artifact, count := range current {
 		if count != 1 {
@@ -96,12 +96,22 @@ func TestRegistrySnapshotsAreDetached(t *testing.T) {
 		t.Fatal("registry fixture has no format version")
 	}
 	first[0].FormatVersions[0] = "mutated"
-	first[0].Aliases[0].URL = "mutated"
+	aliasIndex := -1
+	for index := range first {
+		if len(first[index].Aliases) > 0 {
+			aliasIndex = index
+			break
+		}
+	}
+	if aliasIndex < 0 {
+		t.Fatal("registry fixture has no compatibility alias")
+	}
+	first[aliasIndex].Aliases[0].URL = "mutated"
 	second := schema.Contracts()
 	if second[0].FormatVersions[0] == "mutated" {
 		t.Fatal("Contracts returned shared format-version storage")
 	}
-	if second[0].Aliases[0].URL == "mutated" {
+	if second[aliasIndex].Aliases[0].URL == "mutated" {
 		t.Fatal("Contracts returned shared alias storage")
 	}
 	current, ok := schema.CurrentContract(second[0].Artifact)

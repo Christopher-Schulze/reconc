@@ -318,6 +318,16 @@ func validPrefixedID(value, prefix string) bool {
 	return true
 }
 
+// ValidRequestID reports whether value is a canonical approval request ID.
+func ValidRequestID(value string) bool {
+	return validPrefixedID(value, "apr_")
+}
+
+// ValidReceiptID reports whether value is a canonical approval receipt ID.
+func ValidReceiptID(value string) bool {
+	return validPrefixedID(value, "arc_")
+}
+
 func validCallID(value string) bool {
 	return validPrefixedID(value, "act_")
 }

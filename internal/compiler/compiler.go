@@ -34,9 +34,9 @@ import (
 )
 
 // LockfileFormatVersion is bumped whenever the lockfile contract changes in a
-// non-additive way. Version 5 replaces the specialized MCP runtime contract
-// with one canonical, transport-neutral action plan.
-const LockfileFormatVersion = "5"
+// non-additive way. Version 6 adds the enforced Action Ledger policy while
+// preserving the canonical, transport-neutral action plan introduced in v5.
+const LockfileFormatVersion = "6"
 
 // MaxLockfileBytes is the one compiler/runtime/diff admission boundary. The
 // compiler must never publish bytes that its consumers refuse to read.

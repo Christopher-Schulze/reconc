@@ -50,7 +50,7 @@ func TestMigrateLockfileV1ToPortableV2(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MigrateLockfile: %v", err)
 	}
-	if len(applied) != 4 || applied[0].FromVersion != "1" || applied[len(applied)-1].ToVersion != LockfileFormatVersion {
+	if len(applied) != 5 || applied[0].FromVersion != "1" || applied[len(applied)-1].ToVersion != LockfileFormatVersion {
 		t.Fatalf("unexpected migration chain: %+v", applied)
 	}
 	if out["$schema"] != DefaultLockfileSchema {
@@ -102,7 +102,7 @@ func TestMigrateLockfileV2RemovesSourceBodiesAndPreservesFreshnessDigest(t *test
 	if err != nil {
 		t.Fatalf("MigrateLockfile: %v", err)
 	}
-	if len(applied) != 3 || applied[0].FromVersion != "2" || applied[len(applied)-1].ToVersion != LockfileFormatVersion {
+	if len(applied) != 4 || applied[0].FromVersion != "2" || applied[len(applied)-1].ToVersion != LockfileFormatVersion {
 		t.Fatalf("unexpected migration chain: %+v", applied)
 	}
 	source := out["sources"].([]interface{})[0].(map[string]interface{})
@@ -269,7 +269,7 @@ func TestMigrateLockfileV3ToCurrentStampsTheCurrentContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MigrateLockfile: %v", err)
 	}
-	if len(applied) != 2 || applied[0].FromVersion != "3" || applied[len(applied)-1].ToVersion != LockfileFormatVersion {
+	if len(applied) != 3 || applied[0].FromVersion != "3" || applied[len(applied)-1].ToVersion != LockfileFormatVersion {
 		t.Fatalf("unexpected migration chain: %+v", applied)
 	}
 	if out["format_version"] != LockfileFormatVersion {
@@ -338,7 +338,7 @@ func TestMigrateLockfileV4LowersLegacyMCPIntoOneStableActionPlan(t *testing.T) {
 	if !bytes.Equal(firstJSON, secondJSON) {
 		t.Fatal("repeated v4 migrations are not byte-identical")
 	}
-	if len(applied) != 1 || applied[0].FromVersion != "4" || applied[0].ToVersion != "5" {
+	if len(applied) != 2 || applied[0].FromVersion != "4" || applied[len(applied)-1].ToVersion != LockfileFormatVersion {
 		t.Fatalf("migration chain = %+v", applied)
 	}
 	if _, present := first["mcp"]; present {
@@ -352,6 +352,42 @@ func TestMigrateLockfileV4LowersLegacyMCPIntoOneStableActionPlan(t *testing.T) {
 		tool["origin"] != "legacy_mcp" || tool["transport"] != "host_mcp" ||
 		!strings.HasPrefix(tool["id"].(string), legacyMCPIDPrefix) {
 		t.Fatalf("migrated action contract = %#v", actions)
+	}
+	ledger := actions["ledger"].(map[string]interface{})
+	if ledger["mode"] != "required" || ledger["tool_identity"] != "declaration_id" ||
+		len(ledger["selected_fields"].([]interface{})) != 0 {
+		t.Fatalf("migrated ledger contract = %#v", ledger)
+	}
+}
+
+func TestMigrateLockfileV5AddsLedgerWithoutMutatingInput(t *testing.T) {
+	t.Setenv("RECONC_SCHEMA_BASE_URL", "")
+	actions := map[string]interface{}{
+		"format_version": "1", "tools": []interface{}{}, "rules": []interface{}{},
+		"budgets": []interface{}{}, "approvals": []interface{}{}, "detectors": []interface{}{},
+		"defaults": map[string]interface{}{},
+	}
+	payload := map[string]interface{}{
+		"$schema": schema.LegacyPolicyLockV5URL, "format_version": "5", "actions": actions,
+	}
+	digest, err := ComputeLockDigest(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload["lock_digest"] = digest
+	out, applied, err := MigrateLockfile(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(applied) != 1 || applied[0].FromVersion != "5" || applied[0].ToVersion != "6" {
+		t.Fatalf("migration chain = %+v", applied)
+	}
+	if _, mutated := actions["ledger"]; mutated {
+		t.Fatal("v5 migration mutated the caller's nested action plan")
+	}
+	ledger := out["actions"].(map[string]interface{})["ledger"].(map[string]interface{})
+	if ledger["mode"] != "required" || ledger["tool_identity"] != "declaration_id" {
+		t.Fatalf("migrated ledger = %#v", ledger)
 	}
 }
 

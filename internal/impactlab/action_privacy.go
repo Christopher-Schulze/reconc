@@ -115,6 +115,7 @@ func cloneActionCase(input ActionCase) ActionCase {
 		approval := *input.Expected.Approval
 		out.Expected.Approval = &approval
 	}
+	out.Expected.Ledger = cloneActionLedgerAssertion(input.Expected.Ledger)
 	out.SelectedValues = append([]ActionValueSummary{}, input.SelectedValues...)
 	return out
 }

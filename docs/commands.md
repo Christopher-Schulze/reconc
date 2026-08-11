@@ -56,7 +56,7 @@ Runtime:
   root used to recognize the current project's persistent-memory state
 - `RECONC_SCHEMA_BASE_URL` -- enterprise override resolved through the typed
   per-artifact registry at `/schemas/<artifact>/v<schema-version>`; without an
-  override, current contracts use their release-pinned v1, v2, v3, or v5
+  override, current contracts use their release-pinned v1, v2, v3, v4, or v6
   identities. Registered legacy aliases remain input-only. Runtime validation
   never fetches schema URLs
 - `RECONC_STOP_FINGERPRINT_UNTRACKED` (`normal` default, `all`, `no`) --
@@ -111,17 +111,61 @@ plumbing, not user configuration.
 
 ---
 
-## Remaining Action Plane commands (Draft, unavailable)
+## Action Plane commands
 
 `reconc why action` is implemented in unreleased source version `v0.9.6` and is
-documented under Explain and remediate. The following enforcement and
-retained-evidence surfaces remain unavailable in current source and in the
-published v0.9.5 release. They are listed only to freeze future ownership and
-must not be used as current command documentation.
+documented under Explain and remediate. The published v0.9.5 release contains
+none of the commands in this section.
 
-Unreleased source contains the internal trusted-context and cumulative-budget
-state owner used by the future gateway. It intentionally has no public command
-surface yet and does not intercept a direct tool call.
+### `reconc action log tail [repo] [-n N] [filters] [--json]`
+
+Verify the complete retained action-ledger chain, then return the last `N`
+matching typed events. `N` defaults to 20 and must be from 1 through 1,000.
+Filters are exact and combine: `--call`, `--run`, `--session`, `--principal`,
+`--tool MODE:VALUE`, `--event`, `--decision`, and RFC3339 `--since`; tool mode
+is `declaration_id`, `exact_name`, or `keyed_name`. A missing ledger is a
+valid empty report and creates no state. Corrupt, unsafe, or unverifiable
+retained evidence fails instead of returning a partial tail. Explicitly
+incomplete lifecycles remain visible with their completeness flags.
+
+### `reconc action log stats [repo] [filters] [--json]`
+
+Verify the retained chain and aggregate explicit call lifecycles selected by
+the same exact filters. The report separates evaluated, approved, dispatched,
+downstream succeeded/failed/unknown, delivered/withheld/suppressed, terminal,
+and incomplete calls, and groups them by run, session, principal, and tool.
+Run and session groups use their keyed identities. Missing events never become
+inferred success, and inactivity or MCP connection closure never becomes an
+invented run or session terminal event.
+
+### `reconc action log verify [repo] [--json]`
+
+Verify record digests and sequence, archive order and continuity, detached
+head, retained range, dropped-history boundary, and event completeness. A
+missing ledger returns the canonical empty verification report without creating
+state. If a durable interrupted transaction exists, verification first rolls
+back its prepared append or completes its already-published detached head.
+`events_evaluated` and `calls_evaluated` state whether completeness analysis
+ran; `events_complete` and `calls_complete` state its result. An invalid chain
+never reports unevaluated evidence as complete.
+
+### `reconc action log export [repo] [filters] [--output PATH]`
+
+Build a deterministic `reconc.action-ledger-impact-export/v1` wrapper around
+verified synthetic minimized Impact Lab action cases. A call is exported only
+when its retained lifecycle, policy/lock identity, tool identity, evidence, and
+minimized replay reproduce the exact decision. Every omission has an explicit
+reason. The report always states that it is not replay-complete and lists the
+raw dimensions that cannot be reconstructed; it never expands keyed digests or
+exports raw arguments, results, credentials, headers, environment values, or
+metadata. Only declaration IDs and explicitly disclosure-safe exact tool names
+can produce a synthetic case; keyed names and unsafe exact names remain explicit
+omissions. `--output` publishes a new private `0600` file atomically and refuses
+an existing path.
+
+The source also contains the internal trusted-context, cumulative-budget,
+approval, inspection, and action-ledger owners used by the future gateway.
+None intercepts a direct tool call.
 
 Unreleased source also contains the deterministic action-inspection core and
 safe result-withholding envelope. No command invokes it for live MCP traffic;
@@ -144,22 +188,17 @@ would come only from launch arguments outside repository policy. Only tools
 routed through this gateway would be enforced. Native framework tools and
 direct downstream configurations would remain unenforced.
 
-### `reconc action log tail|stats|verify|export [repo]`
-
-Would read, verify, summarize, or privacy-preservingly export the separate
-action decision ledger without exposing raw arguments, results, credentials,
-environment values, or downstream stderr.
-
 ### `reconc action evidence export|verify [repo]`
 
 Would export or verify local technical control-evidence mappings. Output would
 describe covered, partial, missing, and not-evaluated evidence, never
 certification or legal sufficiency.
 
-The exact Draft contract, flags, failure behavior, limits, protocol versions,
-and package owners are in
-[RECONC-0008](rfcs/RECONC-0008-go-only-action-plane.md). These remaining
-commands have no metadata, dispatch, completion, or manpage entries.
+The exact Draft contract, failure behavior, limits, protocol versions, and
+package owners are in
+[RECONC-0008](rfcs/RECONC-0008-go-only-action-plane.md). The remaining gateway
+and evidence commands have no metadata, dispatch, completion, or manpage
+entries.
 
 ---
 
@@ -565,7 +604,10 @@ outcome, and any failure code. An optional approval assertion also requires
 the exact status, redacted identity, call-specific required-approval identity,
 and any explicit pending, approved, rejected, expired, cancelled, unavailable,
 malformed, or replayed transition. Snapshot and transition coverage are tracked
-separately. Reconc executes both sides through the
+separately. The optional ledger assertion binds recording mode, the
+phase-derived `pre_decision` or `result_inspection` event, required state,
+tool-identity mode, and exact canonical selected-field declarations. Reconc
+reports ledger-policy changes as a separate delta. Reconc executes both sides through the
 production compiler, runtime plan, normalizer, and evaluator. A malformed,
 oversized, stale, unsupported, incomplete, or expectation-mismatched case fails
 instead of becoming a skipped scenario.
@@ -1094,7 +1136,9 @@ global project-state contract keeps at most 256 recognized roots / 128 MiB /
 30 days while preserving the current project, live sessions, unknown
 directories, recently active lifecycle roots, and every recognized root with a
 durable `action/` state boundary. Generic retention never deletes budget state
-because doing so could silently return consumed capacity.
+because doing so could silently return consumed capacity, and it preserves the
+action ledger live file, archives, detached head, and active transaction because
+removing them would silently break retained-chain truth.
 SessionStart and SessionEnd invoke the same core through a
 six-hour due check; Stop never prunes. Historical parser compatibility is not
 part of the public command surface.

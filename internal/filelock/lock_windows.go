@@ -3,11 +3,14 @@
 package filelock
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"syscall"
 	"unsafe"
 )
+
+const errorLockViolation = syscall.Errno(33)
 
 const (
 	lockfileFailImmediately = 0x00000001
@@ -39,6 +42,12 @@ func RLock(file *os.File) (func() error, error) {
 // TryRLock takes a shared lock without waiting for an exclusive owner.
 func TryRLock(file *os.File) (func() error, error) {
 	return lock(file, lockfileFailImmediately)
+}
+
+// IsContended reports whether a non-blocking lock failed only because another
+// owner currently holds an incompatible lock.
+func IsContended(err error) bool {
+	return errors.Is(err, errorLockViolation)
 }
 
 func lock(file *os.File, flags uint32) (func() error, error) {

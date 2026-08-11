@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -26,7 +27,7 @@ func parseActionPolicy(source policy.PolicySource) (*action.Plan, bool, error) {
 	if !present {
 		return nil, false, nil
 	}
-	fields, err := actionMapping(actionsNode, source.Path+" actions", actionFieldSet("tools", "rules", "budgets", "approvals", "detectors", "defaults"))
+	fields, err := actionMapping(actionsNode, source.Path+" actions", actionFieldSet("tools", "rules", "budgets", "approvals", "detectors", "ledger", "defaults"))
 	if err != nil {
 		return nil, true, err
 	}
@@ -61,6 +62,12 @@ func parseActionPolicy(source policy.PolicySource) (*action.Plan, bool, error) {
 			return nil, true, err
 		}
 	}
+	if node, ok := fields["ledger"]; ok {
+		plan.Ledger, err = parseActionLedger(node, source.Path)
+		if err != nil {
+			return nil, true, err
+		}
+	}
 	if node, ok := fields["defaults"]; ok {
 		plan.Defaults, err = parseActionDefaults(node, source.Path)
 		if err != nil {
@@ -91,6 +98,7 @@ func mergeActionPolicies(current, additive *action.Plan) (*action.Plan, error) {
 			Budgets:       append([]action.Budget(nil), additive.Budgets...),
 			Approvals:     append([]action.ApprovalDisclosure(nil), additive.Approvals...), Defaults: additive.Defaults,
 			Detectors: append([]action.DetectorPolicy(nil), additive.Detectors...),
+			Ledger:    cloneActionLedger(additive.Ledger),
 		}, nil
 	}
 	if current.FormatVersion != additive.FormatVersion {
@@ -109,7 +117,69 @@ func mergeActionPolicies(current, additive *action.Plan) (*action.Plan, error) {
 		),
 		Defaults: mergeActionDefaults(current.Defaults, additive.Defaults),
 	}
+	ledger, err := mergeActionLedger(current.Ledger, additive.Ledger)
+	if err != nil {
+		return nil, err
+	}
+	merged.Ledger = ledger
 	return merged, nil
+}
+
+func mergeActionLedger(current, additive *action.LedgerPolicy) (*action.LedgerPolicy, error) {
+	if current == nil {
+		return canonicalActionLedger(additive), nil
+	}
+	if additive == nil {
+		return canonicalActionLedger(current), nil
+	}
+	left := canonicalActionLedger(current)
+	right := canonicalActionLedger(additive)
+	if left.Mode != right.Mode || left.ToolIdentity != right.ToolIdentity ||
+		len(left.SelectedFields) != len(right.SelectedFields) {
+		return nil, actionError("actions.ledger declarations conflict across policy sources")
+	}
+	for index := range left.SelectedFields {
+		if left.SelectedFields[index] != right.SelectedFields[index] {
+			return nil, actionError("actions.ledger declarations conflict across policy sources")
+		}
+	}
+	return left, nil
+}
+
+func canonicalActionLedger(source *action.LedgerPolicy) *action.LedgerPolicy {
+	out := cloneActionLedger(source)
+	if out == nil {
+		return nil
+	}
+	if out.Mode == "" {
+		out.Mode = action.LedgerRequired
+	}
+	if out.ToolIdentity == "" {
+		out.ToolIdentity = action.LedgerDeclarationID
+	}
+	if out.SelectedFields == nil {
+		out.SelectedFields = []action.LedgerField{}
+	}
+	sortLedgerFields(out.SelectedFields)
+	return out
+}
+
+func sortLedgerFields(fields []action.LedgerField) {
+	sort.Slice(fields, func(i, j int) bool {
+		if fields[i].Source != fields[j].Source {
+			return fields[i].Source < fields[j].Source
+		}
+		return fields[i].Pointer < fields[j].Pointer
+	})
+}
+
+func cloneActionLedger(source *action.LedgerPolicy) *action.LedgerPolicy {
+	if source == nil {
+		return nil
+	}
+	out := *source
+	out.SelectedFields = append([]action.LedgerField(nil), source.SelectedFields...)
+	return &out
 }
 
 func mergeActionDefaults(current, additive action.Defaults) action.Defaults {
@@ -146,7 +216,7 @@ func parseActionTools(node *yaml.Node, sourcePath string) ([]action.Tool, error)
 		context := fmt.Sprintf("%s actions.tools[%d]", sourcePath, index)
 		fields, err := actionMapping(item, context, actionFieldSet(
 			"id", "transport", "platform", "server_label", "server_fingerprint",
-			"tool", "effect", "cost_units", "max_result_bytes",
+			"tool", "effect", "cost_units", "max_result_bytes", "ledger_name_safe",
 		))
 		if err != nil {
 			return nil, err
@@ -182,17 +252,61 @@ func parseActionTools(node *yaml.Node, sourcePath string) ([]action.Tool, error)
 		if err != nil {
 			return nil, err
 		}
+		ledgerNameSafe, err := optionalActionBool(fields, "ledger_name_safe", context)
+		if err != nil {
+			return nil, err
+		}
 		tools = append(tools, action.Tool{
 			ID: id, Transport: action.Transport(transport),
 			Platform:          action.Platform(optionalActionString(fields, "platform")),
 			ServerLabel:       optionalActionString(fields, "server_label"),
 			ServerFingerprint: optionalActionString(fields, "server_fingerprint"),
 			Tool:              toolName, Effect: effect, CostUnits: costUnits,
-			MaxResultBytes: optionalUintValue(maxResultBytes), Origin: action.OriginActions,
+			MaxResultBytes: optionalUintValue(maxResultBytes), LedgerNameSafe: ledgerNameSafe,
+			Origin:         action.OriginActions,
 			SourceIdentity: sourcePath,
 		})
 	}
 	return tools, nil
+}
+
+func parseActionLedger(node *yaml.Node, sourcePath string) (*action.LedgerPolicy, error) {
+	context := sourcePath + " actions.ledger"
+	fields, err := actionMapping(node, context, actionFieldSet("mode", "tool_identity", "selected_fields"))
+	if err != nil {
+		return nil, err
+	}
+	if err := validateOptionalActionStrings(fields, context, "mode", "tool_identity"); err != nil {
+		return nil, err
+	}
+	selected := []action.LedgerField(nil)
+	if selectedNode, ok := fields["selected_fields"]; ok {
+		if selectedNode.Kind != yaml.SequenceNode {
+			return nil, actionError(context + ".selected_fields must be a list")
+		}
+		selected = make([]action.LedgerField, 0, len(selectedNode.Content))
+		for index, item := range selectedNode.Content {
+			itemContext := fmt.Sprintf("%s.selected_fields[%d]", context, index)
+			itemFields, err := actionMapping(item, itemContext, actionFieldSet("source", "pointer"))
+			if err != nil {
+				return nil, err
+			}
+			source, err := requiredActionString(itemFields, "source", itemContext)
+			if err != nil {
+				return nil, err
+			}
+			pointer, err := requiredActionStringAllowEmpty(itemFields, "pointer", itemContext)
+			if err != nil {
+				return nil, err
+			}
+			selected = append(selected, action.LedgerField{Source: action.ValueSource(source), Pointer: pointer})
+		}
+	}
+	return &action.LedgerPolicy{
+		Mode:           action.LedgerMode(optionalActionString(fields, "mode")),
+		ToolIdentity:   action.LedgerToolIdentity(optionalActionString(fields, "tool_identity")),
+		SelectedFields: selected,
+	}, nil
 }
 
 func parseActionBudgets(node *yaml.Node, sourcePath string) ([]action.Budget, error) {
@@ -658,6 +772,18 @@ func optionalActionUint(
 		))
 	}
 	return &value, nil
+}
+
+func optionalActionBool(fields map[string]*yaml.Node, field, context string) (bool, error) {
+	node, ok := fields[field]
+	if !ok {
+		return false, nil
+	}
+	if node.Kind != yaml.ScalarNode || node.Tag != "!!bool" ||
+		(node.Value != "true" && node.Value != "false") {
+		return false, actionError(context + "." + field + " must be a canonical boolean")
+	}
+	return node.Value == "true", nil
 }
 
 func optionalUintValue(value *uint64) uint64 {

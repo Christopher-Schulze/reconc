@@ -5,7 +5,7 @@ Status: Draft
 Contract family: `reconc.action/v1`
 
 Implementation state: partially implemented in unreleased source version
-`v0.9.6`. TASK 154 implements strict action authoring, canonical format-5
+`v0.9.6`. TASK 154 implements strict action authoring, canonical action
 compilation and v4 migration, immutable matcher programs, the legacy MCP
 compatibility view, and `reconc why action`. TASK 155 implements the pure
 transport-neutral evaluator, strict normalized requests, exact predicates and
@@ -27,9 +27,14 @@ TASK 159 implements canonical detector policy, strict MCP tool-result decoding,
 offline Draft 2020-12 output-schema validation, bounded deterministic input,
 result, and progress inspection, exact annotation trust, payload-free evidence,
 safe result withholding, and detector-backed Impact Lab privacy. No command
-invokes that inspection core for live traffic yet. The retained ledger, gateway
-enforcement, and control-evidence export remain unavailable until their owning
-tasks are complete.
+invokes that inspection core for live traffic yet. TASK 160 implements
+`actions.ledger`, canonical policy-lock format 6 and policy-config schema v4,
+the separate private format-1 retained Action Ledger, typed lifecycle and
+privacy contracts, atomic multi-process append, rotation and crash recovery,
+retained-chain and detached-head verification, bounded lifecycle queries,
+exact Impact Lab ledger assertions, and verified minimized export with explicit
+omissions. The gateway enforcement and control-evidence export remain
+unavailable until their owning tasks are complete.
 
 ## Purpose And Boundary
 
@@ -200,12 +205,13 @@ change and the dependency direction below remains acyclic.
 |---|---|---|
 | `internal/action` | Canonical types, strict normalized values, pure evaluator, traces, error taxonomy | Go standard library and immutable compiled values |
 | `internal/policy` and `internal/parser` | Authoring DTOs, legacy `mcp` compatibility input, strict YAML validation | `internal/action` |
-| `internal/compiler` | Lowering, canonical order, format-5 lock, digests, immutable compiled programs | `internal/policy`, `internal/action` |
+| `internal/compiler` | Lowering, canonical order, format-6 lock, digests, immutable compiled programs | `internal/policy`, `internal/action` |
 | `internal/schema` | Per-artifact schema registry and immutable URL ownership | no runtime policy package |
 | `internal/actionstate` | Keyed identities, budgets, replay state, crash-safe local IO | `internal/action` and existing file primitives |
 | `internal/actionapproval` | Approval request, canonical receipt, Ed25519 verification, provider boundary | `internal/action` |
 | `internal/actioninspect` | Deterministic input, result, progress, and metadata inspection | `internal/action` |
-| `internal/actionledger` | Typed privacy-bounded events, chain, retention, export | `internal/action` and narrow keyed-identity interfaces |
+| `internal/actionledger` | Typed privacy-bounded events, chain, retention, lifecycle queries, and verification | `internal/action`, `internal/actionstate`, and narrow JSONL primitives |
+| `internal/actionledgerexport` | Verified synthetic minimized Impact Lab export with explicit omissions | `internal/actionledger` and `internal/impactlab` |
 | `internal/actionevidence` | Strict control maps and deterministic local evidence exports | action ledger, action state, approval verification, and Impact Lab read models |
 | `internal/mcpgateway` | Official SDK boundary, child lifecycle, orchestration, protocol mapping | action packages, never compiler internals |
 | `internal/impactlab` | Format-2 action scenarios and current-candidate comparison | production compiler and `internal/action` |
@@ -299,9 +305,10 @@ ownership. Unknown fields always fail.
 | `actions.detectors` | Input, result, progress, schema, and content policy | TASK 159 |
 | `actions.ledger` | Recording requirement and privacy selection | TASK 160 |
 
-Later-owned fields are frozen here but must be rejected by the parser until
-their real enforcement ships. Accepting inert security configuration is
-forbidden.
+Later-owned fields remain rejected by the parser until their real enforcement
+ships. `actions.ledger` is accepted because TASK 160 now owns its compiled
+policy, persistence, verification, query, and export contracts; live gateway
+emission remains TASK 161. Accepting inert security configuration is forbidden.
 
 Legacy top-level `mcp.tools` is compatibility input. Each entry lowers into one
 `actions.tools` declaration. Legacy `mcp.unclassified` lowers into
@@ -363,7 +370,7 @@ version and lock format.
 | `progress_error` | `block` only in contract v1 | `block` | Progress event is suppressed |
 | `cache` | `exact` or `never` | `exact` | Reuse only under the complete identity contract |
 
-Defaults are always canonical fields in format 5. Omission in authoring inserts
+Defaults are always canonical fields in format 6. Omission in authoring inserts
 these exact values. A rule candidate merges with the baseline; `allow` cannot
 override a stronger baseline or candidate.
 
@@ -945,7 +952,7 @@ or permanent storage. Verification reports retained range, archive continuity,
 detached head, dropped-history boundary, and event completeness independently.
 
 Recording policy is `required`, `best_effort`, or `off` and defaults to
-`required` for the gateway once TASK 160 ships. Required pre-decision recording
+`required`. Required pre-decision recording
 failure blocks before dispatch. Best-effort failure is explicit incomplete
 evidence and cannot satisfy a control or completeness claim.
 
@@ -957,6 +964,33 @@ safe for disclosure. Selected values are always keyed identities, never raw.
 Retention limits remain product-owned constants and cannot be raised by
 repository policy.
 
+Selected-field evidence preserves the zero-based policy declaration index.
+`pre_call` accepts only `arguments`, `post_result` accepts only `result`, and
+`progress` or `observation` accepts no selected field. Pointer and value HMAC
+inputs bind the repository identity, declaration index, policy digest, lock
+digest, tool-contract digest, source, pointer, pointer state, kind, and canonical
+value. Missing identity produces explicit incomplete evidence and no unkeyed
+fallback. Two unavailable declarations therefore remain distinct by their
+declaration indexes without inventing a value identity.
+
+Approval transitions bind each terminal status to its exact stable reason and
+carry either complete receipt provenance or none. Budget reservation precedes
+approval, dispatch commitment follows any required approval, and a denial,
+release, or indeterminate transition prevents later approval or dispatch.
+`denied` records the state store's final pre-dispatch denial transition: it
+binds the live reservation identity, released reservation delta, and only the
+resulting denied-count consumption. A budget-exhausted evaluation for which no
+reservation was created is represented by its blocking `pre_decision`, not by
+an invented budget mutation.
+Unknown dispatch or delivery flags require incomplete state evidence.
+
+Decision and reason combinations are closed for non-failure events. Declared
+tool baselines use `declared_tool`, unmatched host baselines use
+`host_unmatched`, matched policy rules use `rule_matched`, and an unsatisfied
+approval decision uses `approval_required`. Approval transitions retain the
+exact status-specific approval reason. Post-result `pre_decision` events are
+invalid, and progress or observation decisions cannot mutate dispatch state.
+
 The local paths are
 `$RECONC_HOME/projects/<repository-key>/action/ledger.jsonl`,
 `ledger.jsonl.1`, `ledger.jsonl.2`, `ledger.head.json`,
@@ -966,7 +1000,17 @@ repository identity. Symlinks, special files, unexpected entries, foreign
 journals, and identity drift fail closed. Ledger tail, stats, verify, and
 export report evaluated, approved, dispatched, downstream
 succeeded/failed/unknown, delivered/withheld, and incomplete terminal calls
-without inferring missing events.
+without inferring missing events. Read commands create no missing state. An
+existing preparing transaction is rolled back, while an already-published
+record completes its idempotent detached-head commit before verification.
+Rotation refuses before pruning the earliest retained record of an active call.
+Verification exposes separate evaluated and complete Booleans for events and
+calls; a failed lifecycle analysis never becomes a completeness assertion.
+Queries group only explicit keyed run and session identities and never infer a
+terminal event from inactivity, timeout, or MCP connection closure. Export can
+construct a synthetic case only from a declaration ID or an explicitly safe
+exact tool name; keyed names, unsafe exact names, selected values, and incomplete
+identity remain explicit omissions.
 
 ## Resource Limits And Memory Admission
 
@@ -1141,7 +1185,9 @@ completeness dimension, and both share one semantic delta. The implemented
 inspection extension adds exact payload-free detector status, identity,
 categories, pack identities, selected-field identities, schema status,
 unsupported-content evidence, containment outcome, and detector deltas to that
-same format-2 object. TASK 160 adds ledger assertions without changing format 2.
+same format-2 object. The implemented ledger extension adds recording mode,
+phase-derived event, required state, tool-identity mode, canonical selected-field
+declarations, and exact ledger-policy deltas without changing format 2.
 
 Current-candidate comparison separately reports exact decision changes, newly
 allowed, warned, approval-required, blocked, withheld, rule-trace, cache,
@@ -1208,13 +1254,13 @@ digests, counts, categories, coverage, and gaps. It never contains raw
 arguments, results, secrets, or personal data and never says certified,
 compliant, guaranteed, regulator-approved, or legally sufficient.
 
-## Proposed CLI Surface
+## CLI Surface
 
 Contract table AP-T24. Owner: `internal/commandmeta`. Vectors: `CLI-*`.
 Evolution: command registration precedes dispatch, help, docs, completion, and
 manpage generation in the same implementation task.
 
-| Proposed command | Contract |
+| Command | Contract |
 |---|---|
 | `reconc mcp gateway [repo] --server LABEL (--expect-lock-digest SHA256 \| --allow-repository-managed-policy) [trusted-context flags] -- COMMAND [ARG...]` | Start one local tool-only gateway |
 | `reconc why action [repo]` | Explain canonical action policy and lowering |
@@ -1239,17 +1285,19 @@ repository and outside any path writable by the agent for independent-authority
 claims; otherwise startup refuses that claim.
 
 `reconc why action` is implemented in unreleased source version `v0.9.6` and
-explains only the compiled contract; it does not claim enforcement. The ledger,
-gateway, and evidence commands remain proposed and unavailable while this RFC
-is Draft. TASK 160 owns ledger commands, TASK 161 owns `mcp gateway`, and TASK
-163 owns evidence commands.
+explains only the compiled contract; it does not claim enforcement. `reconc
+action log tail|stats|verify|export` is also implemented: every read verifies
+the retained chain first, absent state is an empty non-mutating result, and
+export emits only synthetic minimized verified cases with explicit omissions.
+The gateway and evidence commands remain proposed and unavailable while this
+RFC is Draft. TASK 161 owns `mcp gateway`, and TASK 163 owns evidence commands.
 
 ## Schema And Versioning
 
-The canonical format-5 policy lock stores one `actions` plan and no parallel
+The canonical format-6 policy lock stores one `actions` plan and no parallel
 `mcp` runtime plan. Christopher selected `v0.9.6`; TASK 165 owns the truthful
 per-artifact registry and `reconc-v0.9.6` publication identity. TASK 154 must
-add the format-5 lock and action-authoring contracts to that registry without
+add the initial action-authoring contracts to that registry without
 mutating any published or restored legacy schema.
 
 The contract rules are:
@@ -1257,6 +1305,8 @@ The contract rules are:
 - legacy lock formats remain immutable migration inputs;
 - v4-to-v5 migration lowers the exact existing MCP contract without inventing
   argument inspection or changing host behavior;
+- v5-to-v6 migration adds the canonical required ledger policy without changing
+  legacy host-MCP decisions;
 - an additive field with a safe explicit default may bump its owning artifact
   format version only when every consumer rejects unsupported future versions;
 - removal, repurposing, type change, semantic default change, decision-order
@@ -1418,6 +1468,17 @@ rows in this table. Evolution: vectors are append-only within contract version
 | `SCAN-003` | unsupported binary with no allow policy | withhold |
 | `LEDGER-001` | raw synthetic secret crosses every lifecycle | serialized ledger contains none |
 | `LEDGER-002` | archive missing | chain range incomplete, never complete |
+| `LEDGER-003` | each of nine typed lifecycle events is sealed and decoded | exact canonical event; every contradictory payload is rejected |
+| `LEDGER-004` | required, best-effort, and off recording encounter append failure | block-before-dispatch, explicit incomplete observation, and no write respectively |
+| `LEDGER-005` | concurrent goroutines and independent processes append one chain | unique contiguous sequence and one valid detached head |
+| `LEDGER-006` | disk-full failure after ledger publication but before head publication | no false success; recovery advances the exact head once |
+| `LEDGER-007` | ledger path becomes symlink, FIFO, device, wrong-mode file, or replaced directory | fail closed without blocking on the special file |
+| `LEDGER-008` | tail tamper, truncation, reorder, duplication, archive gap, or missing head | no records returned; exact invalid verification state |
+| `LEDGER-009` | allow, warn, block, approval, timeout, cancellation, crash, unknown, or withheld lifecycle ends early | exact explicit status; missing event never inferred success |
+| `LEDGER-010` | missing ledger is queried through every action-log command | canonical empty output and no filesystem creation |
+| `LEDGER-011` | retained call cannot reproduce a safe minimized case | explicit omission reason and `replay_complete: false` |
+| `LEDGER-012` | generic retention encounters live ledger, archives, head, or active transaction | every protected ledger artifact remains untouched |
+| `LEDGER-013` | compiled ledger assertion mode, event, required bit, identity mode, or selected fields mutate | exact Impact Lab ledger delta or strict corpus rejection |
 | `LIMIT-001` | every AP-T19 byte/count limit minus one, exact, plus one | accept, accept, reject |
 | `TIME-001` | every AP-T20 boundary before, at, after deadline | complete, `deadline_exceeded`, `deadline_exceeded` |
 | `FAIL-001` | blocked request | fake downstream invocation count remains zero |
@@ -1430,10 +1491,10 @@ rows in this table. Evolution: vectors are append-only within contract version
 | `CONTROL-004` | mapping was not run | `not_evaluated` |
 | `CONTROL-005` | custom mapping prose claims absent evidence | status remains `missing` |
 | `CLI-001` | command appears before its owning task is implemented | publication gate requires an exact implemented or unavailable label |
-| `COMPAT-001` | each valid legacy effect lowers to format 5 | identical current host decision and evidence effect |
+| `COMPAT-001` | each valid legacy effect lowers to format 6 | identical current host decision and evidence effect |
 | `COMPAT-002` | legacy unclassified host or deny | exact host-unmatched allow or block |
 | `COMPAT-003` | fingerprinted call with only unqualified declaration | no fallback |
-| `COMPAT-004` | valid format-4 lock migrates twice | byte-identical format-5 result and decision |
+| `COMPAT-004` | valid format-4 lock migrates twice | byte-identical format-6 result and decision |
 | `COMPAT-005` | legacy and action declarations are disjoint | compile succeeds with one canonical plan |
 
 Every implementation task must convert the vectors it owns into table-driven
@@ -1445,7 +1506,7 @@ not a substitute for executable proof.
 This RFC may move from Draft to Frozen only when:
 
 - TASK 154 through TASK 164 and TASK 165 satisfy their acceptance;
-- the format-5 schema and every new artifact have truthful immutable registry
+- the format-6 schema and every new artifact have truthful immutable registry
   identities;
 - all AP-T25 vectors are executable against production owners;
 - the real Go gateway passes current and supported legacy MCP conformance;

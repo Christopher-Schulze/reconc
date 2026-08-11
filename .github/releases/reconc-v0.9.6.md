@@ -2,7 +2,7 @@
 
 Reconc v0.9.6 restores immutable public-schema truth and introduces the first
 Go-only Action Plane layer. It compiles strict action authoring into one
-canonical format-5 policy lock while making every emitted schema identity,
+canonical format-6 policy lock while making every emitted schema identity,
 retained compatibility input, release asset, and publication check derive from
 one exact registry.
 
@@ -23,10 +23,21 @@ one exact registry.
   provenance, deterministic normalization, and frozen resource bounds.
 - `reconc why action` for redacted explanation of canonical action policy,
   defaults, provenance, selectors, and legacy lowering.
+- Strict `actions.ledger` authoring with required, best-effort, or disabled
+  recording, bounded selected fields, and declaration, exact, or keyed tool
+  identity.
+- A separate private format-1 Action Ledger with nine payload-free lifecycle
+  events, domain-separated selected-field identities, atomic multi-process
+  append, bounded rotation, crash recovery, archive continuity, and detached
+  chain-head verification.
+- `reconc action log tail|stats|verify|export` for deterministic verified
+  lifecycle inspection and privacy-bounded minimized Impact Lab export. Missing
+  state is read-only empty; corruption fails; export omissions and replay gaps
+  remain explicit; output is private and create-only.
 
 ## Changed
 
-- Current policy authoring uses v3, repository-sync plan/report and
+- Current policy authoring uses v4, repository-sync plan/report and
   custom-runtime manifests use v2. Restored legacy inputs remain readable; a legacy
   custom-runtime route must still budget enough bytes for the current canonical
   response metadata, while v2 makes the safe 512-byte minimum explicit.
@@ -36,7 +47,7 @@ one exact registry.
 - Custom-runtime manifest v2 requires a response budget large enough to hold
   the canonical neutral-response metadata introduced by release-pinned schema
   identities.
-- Policy-lock format 5 stores one canonical `actions` plan. Legacy `mcp`
+- Policy-lock format 6 stores one canonical `actions` plan. Legacy `mcp`
   authoring lowers into it, existing host MCP consumers derive their
   compatibility view from it, and no parallel runtime `mcp` plan remains.
 
@@ -49,17 +60,26 @@ one exact registry.
   repository-sync, or custom-runtime contracts.
 - Policy-lock v2 and v3 use truthful immutable identities, while the legacy v4
   file remains byte-identical to its v0.9.4 tag.
-- RFC 0001 consistently identifies policy-lock format 5, and the RFC index now
+- RFC 0001 consistently identifies policy-lock format 6, and the RFC index now
   states the immutable schema-evolution rule enforced by the registry.
 - Action globs and regexes are precompiled, strict URL/path/CIDR operands are
   canonicalized once, source precedence matches its declared contract, and all
   action-plan views are defensive copies.
+- Action-ledger rotation now journals backup preparation before any primary
+  mutation, rejects permission drift without repair, preserves existing generic
+  JSONL modes, and enforces exact approval, budget, and terminal ordering.
+- Action-ledger denial evidence now matches persisted budget state: it binds the
+  live reservation, released capacity, and denied-count-only consumption.
+- Action-ledger selected-field identities now bind repository and declaration
+  identity, strict phase/source ownership, and explicit unavailable-identity
+  completeness. Rotation refuses to prune active calls, and verification keeps
+  evaluated state separate from completeness.
 
 ## Compatibility
 
-- Current policy locks use format `5` and the planned immutable v0.9.6
-  `schemas/v5/policy-lock.schema.json` identity.
-- Supported legacy schema aliases and policy-lock formats 1 through 4 continue
+- Current policy locks use format `6` and the planned immutable v0.9.6
+  `schemas/v6/policy-lock.schema.json` identity.
+- Supported legacy schema aliases and policy-lock formats 1 through 5 continue
   to migrate offline. Unknown URLs, crossed URL/format pairs, and future
   versions fail closed.
 - Legacy top-level `mcp` authoring remains accepted during this compatibility
@@ -85,6 +105,6 @@ export PATH="$HOME/.local/bin:$PATH"
 reconc doctor --global
 ```
 
-Formats 1 through 4 migrate in memory. Run `reconc refresh .` when you
-intentionally want the repository to persist the current format-5 lock and its
+Formats 1 through 5 migrate in memory. Run `reconc refresh .` when you
+intentionally want the repository to persist the current format-6 lock and its
 canonical action plan; review and commit policy source and lock together.

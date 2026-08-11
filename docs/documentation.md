@@ -193,6 +193,7 @@ partial audit, run-log, checksum, release, or provenance snapshot.
 | Impact Lab | Candidate policy files are capped at 8 MiB; strict replay corpora and full typed JSON reports at 64 MiB, corpora at 10,000 cases, and reviewed action-delta manifests at 8 MiB. JUnit, SARIF, and GitHub projections retain at most 1,024 findings and 8 MiB. |
 | Action approvals and state | Canonical approval objects are capped at 64 KiB, authority registries at 1 MiB, sealed request state at 4 KiB, approval TTL at 120 seconds, future issuance skew at 30 seconds, pending approvals at four, retained approval records at 65,536, and the complete private action state at 16 MiB. |
 | Action content inspection | Canonical action values are capped at 8 MiB, strings at 4 MiB, nesting at 32, and JSON items at 65,536. Output schemas are capped at 1 MiB and 8,192 items, MCP results at 4,096 content blocks, decoded binary blocks at 3 MiB, and inspection at 500 ms pre-call, 1 second post-result, or 250 ms progress. |
+| Action decision ledger | Each typed payload-free record is capped at 64 KiB, the live file and each of two archives at 4 MiB, and the detached head at 8 KiB. Appends and reads use a two-second private cross-process transaction boundary; queries return records only after the retained chain, archives, and detached head verify. |
 | Auxiliary commands and release inventory | Git, Go, attestation, offline-hook, TASK utility, generated-reference, SBOM, and publication-audit subprocesses use purpose-specific 64 KiB to 64 MiB output ceilings and fail on overflow. Release assets are hashed as stable non-symlink regular-file streams, release directories stop after the declared inventory ceiling, and committed manifests, archives, and SBOMs use strict bounded reads. |
 
 Best-effort detection is best-effort only about recommendations, not about
@@ -258,7 +259,7 @@ still require their matching platform jobs or integration boundaries.
 
 `make release` cross-compiles five binaries into `dist/`, copies the native
 POSIX and Windows installers, generates three flat shell-completion artifacts,
-generates a man page, copies all 28 independently versioned schemas from the
+generates a man page, copies all 31 independently versioned schemas from the
 typed registry under unique current or legacy release names, and generates
 deterministic SPDX 2.3 and CycloneDX
 1.6 SBOMs,
@@ -272,7 +273,7 @@ inventories directly. Generated surfaces and target-derived binary names are
 owned once by `scripts/release/generated-assets.sh`; the Makefile generates
 from that executable inventory and the verifier lists from it.
 
-The release verifier requires exactly those forty-three checksummed artifacts,
+The release verifier requires exactly those forty-six checksummed artifacts,
 rejects missing, extra, duplicate, unsafe, mutable, or corrupted entries, and
 never accepts an empty manifest. It independently verifies every manifest
 asset and digest, then regenerates Bash, Zsh, Fish, and the versioned man page
@@ -669,6 +670,11 @@ An optional approval assertion additionally binds the exact approval status,
 its redacted identity, the exact approval transition when one exists, and the
 call-specific required-approval SHA-256 identity. Coverage records evaluator
 approval snapshots and approval transitions as separate exact dimensions.
+The ledger assertion binds recording mode, the phase-derived `pre_decision` or
+`result_inspection` event, required-recording state, tool-identity mode, and the
+exact canonical selected-field declarations. It contains declarations only,
+never selected values. Ledger-policy changes are reported as their own exact
+delta.
 Reconc runs the current and additive candidate action plans through the
 production compiler, runtime plan, normalizer, and evaluator. It never
 dispatches the declared tool.
@@ -727,6 +733,7 @@ with the explicit clear state `No remediation needed.` or
 
 `status`, `doctor`, `sources`, `repo sync plan`, `repo sync verify`, `check`,
 `ci`, `assert`, `can`, `why`, `audit tail|stats|export|verify`,
+`action log tail|stats|verify|export`,
 `task status`, `task validate`, `task check-done`, `run status`, `run log`,
 `session-briefing`, `done`, `proof`, `start`, and `tui` never compile or write
 the lockfile. Missing, stale, malformed, schema-drifted, or non-portable current
@@ -1251,14 +1258,14 @@ Source-owned installations build version `0.9.6`. Until the immutable
 `reconc-v0.9.6` release is published, the latest native release installer
 remains v0.9.5. Version text alone is not release identity.
 
-Policy locks move to format `5` under the planned immutable v0.9.6
-`schemas/v5/policy-lock.schema.json` identity. Formats 1 through 4 migrate in
-memory; `reconc refresh .` intentionally persists the current format. Format 5
+Policy locks move to format `6` under the planned immutable v0.9.6
+`schemas/v6/policy-lock.schema.json` identity. Formats 1 through 5 migrate in
+memory; `reconc refresh .` intentionally persists the current format. Format 6
 contains one canonical `actions` plan and never a parallel runtime `mcp` plan.
 Legacy `mcp` authoring remains accepted and lowers deterministically into that
-plan. Public schema ownership is per artifact: all 28 contract versions are
+plan. Public schema ownership is per artifact: all 31 contract versions are
 registered with exact local bytes, digest, release asset, immutable URL,
-enterprise path, and compatibility aliases. Policy config uses v3;
+enterprise path, and compatibility aliases. Policy config uses v4;
 repository-sync plan/report and custom-runtime manifest use v2. Existing
 supported legacy inputs remain accepted. New output emits only the current
 registered identity, and runtime validation stays offline.
@@ -1271,7 +1278,7 @@ claims, and reviewed candidate-delta gates. Candidate policy files may add
 live tool call.
 
 Action authoring may now include strict cumulative budgets. Their compiled
-declarations and evaluator snapshots are format-5 data. Durable reservations
+declarations and evaluator snapshots are format-6 data. Durable reservations
 live only under the operator-selected `RECONC_HOME`, never in the repository,
 and do not exist until an internal consumer explicitly opens the action-state
 owner. Existing repositories therefore gain no live interception or implicit
@@ -1292,7 +1299,7 @@ repository policy or agent input.
 Action authoring may now declare `actions.detectors`. The compiler binds the
 built-in detector-pack ID and digest, exact phase-compatible RFC 6901 fields,
 categories, dispositions, schema policy, supported content policy, exact
-fingerprint-bound annotation trust, and hard inspection limits into format 5.
+fingerprint-bound annotation trust, and hard inspection limits into format 6.
 The internal Go inspection core strictly decodes bounded MCP tool results,
 validates local Draft 2020-12 output schemas without remote references and with
 a bounded RE2-compatible pattern subset, scans selected arguments, results,
@@ -1302,6 +1309,25 @@ content, metadata, unknown content, and untrusted annotations fail closed. The
 core emits only payload-free evidence or a bounded withheld result.
 No current command routes a live call through this core; TASK 161 owns that
 gateway boundary.
+
+Action authoring may now declare `actions.ledger` with recording mode
+`required`, `best_effort`, or `off`, one declaration/exact/keyed tool-identity
+mode, and bounded selected argument or result pointers. Format 6 binds this
+policy into the canonical plan. The separate private ledger stores only typed,
+payload-free lifecycle records in a bounded retained hash chain with two
+archives, a detached head, and crash recovery. `reconc action log
+tail|stats|verify|export` verifies before reading, never creates missing state,
+and reports lifecycle gaps instead of inferring success. Export contains only
+verified synthetic minimized Impact Lab cases, explicitly lists every omitted
+call and missing raw dimension, never claims complete replay, and refuses to
+replace an existing output file. TASK 161 must make required pre-decision
+recording a live pre-dispatch gateway gate.
+
+Budget ledger transitions mirror persisted state changes. A `denied` event
+therefore binds the live reservation it closes, the released reserved capacity,
+and denied-count consumption only. If reservation itself was refused because a
+budget was already exhausted, the blocking `pre_decision` is the complete fact;
+the ledger never fabricates a reservation or counter delta.
 
 ## Uninstall And Remove
 
@@ -1509,6 +1535,7 @@ Packs and wiring:
 
 Workflow maintenance:
 
+- `action` - verify, query, summarize, or minimize retained action decisions
 - `agent-intro`
 - `audit`
 - `run`
@@ -1534,16 +1561,15 @@ For exact flags, run `reconc help <command>` or
 In governed target repositories, repo-local policy lives in `.reconc.yml` and
 should be committed. The generated `.reconc/policy.lock.json` is a portable,
 committable policy contract and should be reviewed with policy-source changes.
-Format 5 is checkout-independent and byte-identical across equivalent clones
+Format 6 is checkout-independent and byte-identical across equivalent clones
 and worktrees. Source records contain only portable logical paths, SHA-256
 content identities, kinds, and bounded inline locations; raw source bodies and
 physical global-policy paths never enter the committable lock. Its
 `lock_digest` binds the complete canonical payload except for the digest field
-itself. For current format-5 locks, runtime verifies that envelope and reads the
+itself. For current format-6 locks, runtime verifies that envelope and reads the
 bounded source bundle once to compare its complete identity digest, then
-strictly decodes one typed immutable repository-rule and action plan. Format-1,
-format-2, format-3, and format-4 lockfiles are migrated in memory only after
-their legacy schema
+strictly decodes one typed immutable repository-rule and action plan. Format-1
+through format-5 lockfiles are migrated in memory only after their legacy schema
 identity and digest pass;
 their sources are reparsed and must retain exact embedded rule and canonical
 action parity.
@@ -1559,7 +1585,7 @@ Policy authoring is strict. Unknown keys at the document, scope, rule,
 evidence, composite-check, and TASK-lifecycle levels fail compilation instead
 of being ignored. This validation applies only to structured YAML fields;
 free-form rule messages and agent prompts remain unrestricted text. Editors and
-automation can use `schemas/v2/policy-config.schema.json`; emitted lock, policy
+automation can use `schemas/v4/policy-config.schema.json`; emitted lock, policy
 report, completion report, fix-plan, and proof-bundle artifacts keep their separate public
 schemas.
 
@@ -1682,7 +1708,9 @@ and 30 days. Explicit prune enforces that global bound immediately; lifecycle
 passes protect the current project, live sessions, and roots touched within the
 24-hour concurrency grace. A recognized root containing a durable `action/`
 state boundary is also protected because generic retention cannot safely return
-consumed budget capacity; action-specific bounded compaction owns that state.
+consumed budget capacity or break action-ledger archive and transaction truth;
+action-specific bounded compaction owns that state. The ledger live file,
+archives, detached head, and active transaction remain protected together.
 Unknown directories are never treated as product-owned. Audit and run-decision
 JSONL each use a 2 MiB live file plus two
 archives, with file-locked append and pre-append rotation. Audit entries
@@ -1982,21 +2010,24 @@ and repository checks.
 ## Go-Only Action Plane
 
 RECONC-0008 remains Draft. Unreleased source version `v0.9.6` implements strict
-`actions` authoring, canonical format-5 compilation, deterministic lowering of
+`actions` authoring, canonical format-6 compilation, deterministic lowering of
 legacy `mcp` declarations, immutable typed matcher programs, a derived MCP
 compatibility view, `reconc why action`, and the transport-neutral deterministic
 action evaluator. It also implements canonical authority-bound one-time
-approval requests and receipts plus private atomic approval consumption. The
-published v0.9.5 release does not contain those additions.
+approval requests and receipts plus private atomic approval consumption, and a
+separate privacy-bounded retained Action Ledger. The published v0.9.5 release
+does not contain those additions.
 `reconc impact` invokes that production evaluator for strict offline action
 scenarios, exact current and approval-state assertions, candidate deltas,
 completeness, privacy, exact inspection evidence, detector deltas, and reviewed
 newly-allowed or newly-blocked gates. The internal Go inspection core performs
 strict MCP result decoding, local output-schema validation, deterministic
 selected-field scanning, fingerprint-bound annotation trust, and bounded result
-withholding. No current source command routes tool calls through an enforcing
-gateway, so offline simulation and these internal primitives are not a live
-tool-call interception boundary.
+withholding. `reconc action log tail|stats|verify|export` reads the verified
+Action Ledger without creating missing state. No current source command routes
+tool calls through an enforcing gateway, so offline simulation, retained
+fixtures, and these internal primitives are not a live tool-call interception
+boundary.
 
 The same unreleased source implements trusted operator and host context
 bindings, domain-separated HMAC identities, explicit key leases and rotation
@@ -2038,6 +2069,37 @@ their pre-dispatch reservations do not remain stranded. Transition evidence
 contains only safe labels, timestamps, counters, and bound identities, never
 raw selected values, receipts, credentials, or private keys.
 
+The action ledger uses
+`$RECONC_HOME/projects/<repository-key>/action/ledger.jsonl`, two bounded
+archives, `ledger.head.json`, and private lock and transaction files. Its nine
+typed events cover request acceptance, pre-decision, approval and budget
+transitions, dispatch, downstream outcome, result inspection, final delivery,
+and terminal failure. Domain types and strict validation exclude raw arguments,
+results, headers, credentials, environment values, stderr, prompts, and
+arbitrary metadata. Selected values are represented only by domain-separated
+keyed identities. Selection is phase-exact: `pre_call` may bind only argument
+fields, `post_result` only result fields, and progress or observation events no
+selected fields. Each identity also binds its declaration index and repository
+identity, preventing cross-policy, cross-declaration, and cross-repository
+correlation. Unavailable identity makes the evidence incomplete with no plain
+digest fallback. The chain is tamper-evident within retained evidence, not
+immutable or deletion proof against the filesystem owner.
+
+Approval status and reason are exact, receipt provenance is all-or-none, and a
+terminal budget stop cannot be bypassed by a later approval or dispatch. Unknown
+dispatch or delivery state is recorded as incomplete evidence, never inferred.
+Read commands create no missing ledger state; an existing durable transaction is
+resolved atomically before its verified snapshot is returned.
+
+Rotation refuses to prune a retained beginning for any active call. Tail and
+stats therefore expose exact retained-history boundaries rather than silently
+closing a lifecycle. Verification distinguishes whether events and calls were
+evaluated for completeness from whether they were complete. Stats group only
+explicit keyed run and session identities and never turn inactivity, a timeout,
+or MCP connection closure into a fabricated terminal event. Export accepts only
+declaration IDs or explicitly safe exact tool names; keyed or unsafe names and
+selected values remain explicit omissions.
+
 The design keeps all Reconc-owned product and adapter code in Go. The target
 gateway is one local, tool-only stdio MCP process around one operator-selected
 downstream stdio MCP server. The evaluator and inspection core already own the
@@ -2055,8 +2117,9 @@ executing. Post-result containment could withhold data from the model boundary
 but could not undo a side effect that already occurred.
 
 The compiler lowers `actions.tools`, `actions.rules`, `actions.budgets`,
-`actions.approvals`, `actions.detectors`, and `actions.defaults` plus compatible
-legacy `mcp` authoring into one canonical format-5 action plan.
+`actions.approvals`, `actions.detectors`, `actions.ledger`, and
+`actions.defaults` plus compatible legacy `mcp` authoring into one canonical
+format-6 action plan.
 It rejects unknown nested fields, ambiguous values, invalid or oversized
 predicates, duplicate ownership, incompatible defaults, and unsupported
 cross-field combinations. Regexes, doublestar globs, CIDRs, URL/path
@@ -2085,9 +2148,12 @@ environment, credential material, state key, or approval authority.
 
 The implemented inspection layer adds deterministic local argument, result, and
 progress detectors, strict output-schema validation, unsupported-content
-classification, and post-result withholding. Later layers add a privacy-bounded
-tamper-evident retained action ledger, a live MCP stdio gateway, and local
-control-evidence mappings.
+classification, and post-result withholding. The implemented ledger layer adds
+typed payload-free events, selected-field keyed identities, private atomic
+multi-process append, bounded rotation, crash recovery, archive and detached-head
+verification, explicit lifecycle aggregation, exact Impact Lab ledger
+assertions, and verified minimized export with explicit omissions. Later layers
+add the live MCP stdio gateway and local control-evidence mappings.
 Key rotation cannot return budget capacity: it is serialized against live key
 leases and refused while dependent action state exists unless a future explicit
 atomic migration or reset owns every dependent identity and record.
@@ -2116,6 +2182,8 @@ summarizes the core runtime responsibilities:
 - `internal/action`: pure canonical action contract, strict normalized values, immutable matcher programs, deterministic evaluation, redacted traces, and exact in-memory decision caching
 - `internal/actionapproval`: canonical signed requests and receipts, operator authority registry, transport-neutral provider contract, and exact MCP input-required mapping
 - `internal/actioninspect`: strict MCP result decoding, offline output-schema validation, deterministic bounded content inspection, and safe withholding
+- `internal/actionledger`: strict payload-free lifecycle events, private retained chain, crash recovery, exact lifecycle aggregation, and deterministic verification
+- `internal/actionledgerexport`: verified synthetic minimized Impact Lab export with explicit omission and replay-completeness truth
 - `internal/actionstate`: trusted context identities, key leases, cumulative budgets, atomic approval consumption, and crash-safe private state
 - `internal/ingest`: repository discovery and source loading
 - `internal/parser`: YAML-to-policy validation and normalization
@@ -2151,7 +2219,7 @@ summarizes the core runtime responsibilities:
 Key invariants:
 
 - Deterministic JSON artifacts
-- Stable schema and `format_version` fields; all 28 current and legacy contracts are registry-owned and ship under unique names, current artifact schemas span v1-v3, legacy portable policy locks use v1-v4, and current portable policy locks use v5
+- Stable schema and `format_version` fields; all 31 current and legacy contracts are registry-owned and ship under unique names, current artifact schemas span v1-v6, legacy portable policy locks use v1-v5, and current portable policy locks use v6
 - Fail closed on malformed policy, stale lockfiles, schema drift, invalid globs, unsupported rule kinds, and non-portable current lock envelopes
 - No core policy-runtime network calls; supported agent hosts own their
   authenticated inference traffic
@@ -3285,6 +3353,11 @@ Security posture:
   it cannot choose authority keys. A signed receipt is exact-call, expiring,
   single-use evidence and is not an independent boundary when the signer or
   private key is under the agent's authority.
+- The action ledger has a separate strict schema whose types cannot carry raw
+  arguments, results, headers, credentials, environment values, stderr,
+  prompts, or arbitrary metadata. Every reader verifies the retained chain,
+  archive continuity, and detached head before returning data; deletion by the
+  filesystem owner remains outside the local tamper-evidence claim.
 - Hook runtime payloads are size and depth bounded.
 - Paths use operating-system filesystem identity and are constrained to the
   discovered repository root, including Windows junction and 8.3 aliases.

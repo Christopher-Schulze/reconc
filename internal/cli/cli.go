@@ -145,6 +145,8 @@ func Run(argv []string, version string, stdout, stderr io.Writer) (runErr error)
 		return runAgentIntro(argv[1:], stdout, stderr)
 	case "audit":
 		return runAudit(argv[1:], stdout, stderr)
+	case "action":
+		return runAction(argv[1:], stdout)
 	case "run":
 		return runRunControl(argv[1:], stdout, stderr)
 	case "task":

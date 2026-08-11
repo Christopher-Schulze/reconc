@@ -30,6 +30,7 @@ func compileCanonicalActions(parsed *parser.ParsedPolicy) (*action.CompiledPlan,
 			Budgets:       append([]action.Budget(nil), parsed.Actions.Budgets...),
 			Approvals:     append([]action.ApprovalDisclosure(nil), parsed.Actions.Approvals...),
 			Detectors:     append([]action.DetectorPolicy(nil), parsed.Actions.Detectors...),
+			Ledger:        cloneLedgerPolicy(parsed.Actions.Ledger),
 			Defaults:      parsed.Actions.Defaults,
 		}
 	}
@@ -46,6 +47,15 @@ func compileCanonicalActions(parsed *parser.ParsedPolicy) (*action.CompiledPlan,
 		return nil, &rerrors.RuleValidationError{Message: "actions: " + err.Error()}
 	}
 	return compiled, nil
+}
+
+func cloneLedgerPolicy(source *action.LedgerPolicy) *action.LedgerPolicy {
+	if source == nil {
+		return nil
+	}
+	out := *source
+	out.SelectedFields = append([]action.LedgerField(nil), source.SelectedFields...)
+	return &out
 }
 
 func lowerLegacyMCP(plan *action.Plan, legacy policy.MCPPolicy) error {

@@ -12,6 +12,11 @@
   },
   "detectors": [],
   "format_version": "1",
+  "ledger": {
+    "mode": "required",
+    "selected_fields": [],
+    "tool_identity": "declaration_id"
+  },
   "rules": [],
   "tools": [
     {

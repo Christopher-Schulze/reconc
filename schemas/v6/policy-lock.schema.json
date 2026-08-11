@@ -1,0 +1,337 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v6/policy-lock.schema.json",
+  "title": "Reconc compiled policy lock v6",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "compiler_version",
+    "format_version",
+    "repo_root",
+    "default_mode",
+    "rule_count",
+    "source_count",
+    "source_digest",
+    "lock_digest",
+    "source_precedence",
+    "discovery",
+    "sources",
+    "rules",
+    "actions"
+  ],
+  "properties": {
+    "$schema": { "const": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v6/policy-lock.schema.json" },
+    "compiler_version": { "type": "string", "minLength": 1 },
+    "format_version": { "const": "6" },
+    "repo_root": { "const": "." },
+    "default_mode": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/properties/default_mode" },
+    "rule_count": { "type": "integer", "minimum": 0 },
+    "source_count": { "type": "integer", "minimum": 0 },
+    "source_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "lock_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "custom_runtimes": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/properties/custom_runtimes" },
+    "source_precedence": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/properties/source_precedence" },
+    "discovery": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/properties/discovery" },
+    "sources": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/properties/sources" },
+    "rules": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/properties/rules" },
+    "actions": { "$ref": "#/$defs/actions" }
+  },
+  "$defs": {
+    "safeLabel": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/safeLabel" },
+    "identity": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/identity" },
+    "platform": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/platform" },
+    "toolName": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/toolName" },
+    "effect": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/effect" },
+    "selector": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/selector" },
+    "condition": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/condition" },
+    "decision": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/decision" },
+    "cache": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/cache" },
+    "budgetSelector": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/budgetSelector" },
+    "budgetLimits": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/budgetLimits" },
+    "approvalDisclosure": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/approvalDisclosure" },
+    "detectorSelector": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/detectorSelector" },
+    "detectorField": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/detectorField" },
+    "detectorCategory": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/detectorCategory" },
+    "contentType": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/contentType" },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "transport", "tool", "effect", "origin", "source_identity"],
+      "properties": {
+        "id": { "$ref": "#/$defs/safeLabel" },
+        "transport": { "enum": ["host_mcp", "mcp_stdio"] },
+        "platform": { "$ref": "#/$defs/platform" },
+        "server_label": { "$ref": "#/$defs/safeLabel" },
+        "server_fingerprint": { "$ref": "#/$defs/identity" },
+        "tool": { "$ref": "#/$defs/toolName" },
+        "effect": { "$ref": "#/$defs/effect" },
+        "cost_units": { "type": "integer", "minimum": 0, "maximum": 9223372036854775807 },
+        "max_result_bytes": { "type": "integer", "minimum": 1, "maximum": 8388608 },
+        "ledger_name_safe": { "type": "boolean" },
+        "origin": { "enum": ["actions", "legacy_mcp"] },
+        "source_identity": { "type": "string", "minLength": 1, "maxLength": 1024 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "transport": { "const": "host_mcp" } }, "required": ["transport"] },
+          "then": {
+            "required": ["platform"],
+            "not": { "required": ["server_label"] },
+            "properties": { "server_fingerprint": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/hostFingerprint" } }
+          }
+        },
+        {
+          "if": { "properties": { "transport": { "const": "mcp_stdio" } }, "required": ["transport"] },
+          "then": {
+            "required": ["server_label"],
+            "not": { "required": ["platform"] },
+            "properties": {
+              "server_fingerprint": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/serverFingerprint" },
+              "tool": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/gatewayToolName" }
+            }
+          }
+        }
+      ]
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "selector", "decision", "on_indeterminate", "cache", "source_identity"],
+      "properties": {
+        "id": { "$ref": "#/$defs/safeLabel" },
+        "selector": { "$ref": "#/$defs/selector" },
+        "when": { "$ref": "#/$defs/condition" },
+        "decision": { "$ref": "#/$defs/decision" },
+        "on_indeterminate": { "enum": ["require_approval", "block"] },
+        "cache": { "$ref": "#/$defs/cache" },
+        "message": { "type": "string", "maxLength": 512 },
+        "source_identity": { "type": "string", "minLength": 1, "maxLength": 1024 }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "selector", "limits", "reset", "on_exhaustion", "source_identity"],
+      "properties": {
+        "id": { "$ref": "#/$defs/safeLabel" },
+        "selector": { "$ref": "#/$defs/budgetSelector" },
+        "limits": { "$ref": "#/$defs/budgetLimits" },
+        "reset": { "enum": ["never", "operator_run", "operator_session", "fixed_window"] },
+        "window_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "on_exhaustion": { "const": "block" },
+        "source_identity": { "type": "string", "minLength": 1, "maxLength": 1024 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "reset": { "const": "fixed_window" } }, "required": ["reset"] },
+          "then": { "required": ["window_seconds"] },
+          "else": { "not": { "required": ["window_seconds"] } }
+        },
+        {
+          "if": { "properties": { "limits": { "required": ["rate_window"] } }, "required": ["limits"] },
+          "then": { "properties": { "reset": { "const": "fixed_window" } } }
+        }
+      ]
+    },
+    "compiledApprovalDisclosure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "selector", "selected_arguments", "source_identity"],
+      "properties": {
+        "id": { "$ref": "#/$defs/safeLabel" },
+        "selector": {
+          "allOf": [
+            { "$ref": "#/$defs/selector" },
+            {
+              "minProperties": 1,
+              "properties": {
+                "phases": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 2,
+                  "uniqueItems": true,
+                  "items": { "enum": ["pre_call", "post_result"] }
+                }
+              }
+            }
+          ]
+        },
+        "selected_arguments": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/pointer" }
+        },
+        "source_identity": { "type": "string", "minLength": 1, "maxLength": 1024 }
+      }
+    },
+    "compiledInspectionLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_bytes", "max_items", "max_depth", "max_milliseconds"],
+      "properties": {
+        "max_bytes": { "type": "integer", "minimum": 1, "maximum": 8388608 },
+        "max_items": { "type": "integer", "minimum": 1, "maximum": 65536 },
+        "max_depth": { "type": "integer", "minimum": 1, "maximum": 32 },
+        "max_milliseconds": { "type": "integer", "minimum": 1, "maximum": 1000 }
+      }
+    },
+    "compiledDetector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "selector",
+        "pack_id",
+        "pack_digest",
+        "fields",
+        "categories",
+        "forbidden_terms",
+        "pre_call_decision",
+        "post_result_disposition",
+        "progress_disposition",
+        "schema_policy",
+        "allowed_content_types",
+        "trusted_annotation_fields",
+        "limits",
+        "source_identity"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/safeLabel" },
+        "selector": { "$ref": "#/$defs/detectorSelector" },
+        "pack_id": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/safeLabel" },
+        "pack_digest": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/sha256Identity" },
+        "fields": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/detectorField" }
+        },
+        "categories": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/detectorCategory" }
+        },
+        "forbidden_terms": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+        },
+        "pre_call_decision": { "enum": ["warn", "require_approval", "block"] },
+        "post_result_disposition": { "enum": ["warn", "withhold", "require_schema"] },
+        "progress_disposition": { "enum": ["forward", "suppress"] },
+        "schema_policy": { "enum": ["validate_if_declared", "require"] },
+        "allowed_content_types": {
+          "type": "array",
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/contentType" }
+        },
+        "trusted_annotation_fields": {
+          "type": "array",
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": { "enum": ["audience", "priority", "lastModified"] }
+        },
+        "limits": { "$ref": "#/$defs/compiledInspectionLimits" },
+        "source_identity": { "type": "string", "minLength": 1, "maxLength": 1024 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "categories": { "contains": { "const": "forbidden_data" } } },
+            "required": ["categories"]
+          },
+          "then": { "properties": { "forbidden_terms": { "minItems": 1 } } },
+          "else": { "properties": { "forbidden_terms": { "maxItems": 0 } } }
+        },
+        {
+          "if": { "properties": { "trusted_annotation_fields": { "minItems": 1 } } },
+          "then": { "properties": { "selector": { "required": ["server_fingerprints"] } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "selector": {
+                "properties": { "phases": { "contains": { "const": "pre_call" } } },
+                "required": ["phases"]
+              }
+            },
+            "required": ["selector"]
+          },
+          "then": {
+            "properties": {
+              "limits": { "properties": { "max_milliseconds": { "maximum": 500 } } }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "selector": {
+                "properties": { "phases": { "contains": { "const": "progress" } } },
+                "required": ["phases"]
+              }
+            },
+            "required": ["selector"]
+          },
+          "then": {
+            "properties": {
+              "limits": { "properties": { "max_milliseconds": { "maximum": 250 } } }
+            }
+          }
+        }
+      ]
+    },
+    "ledger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "tool_identity", "selected_fields"],
+      "properties": {
+        "mode": { "enum": ["required", "best_effort", "off"] },
+        "tool_identity": { "enum": ["declaration_id", "exact_name", "keyed_name"] },
+        "selected_fields": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v4/policy-config.schema.json#/$defs/ledgerField" }
+        }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["declared_tool", "gateway_unmatched", "host_unmatched", "evaluation_error", "post_error", "progress_error", "cache"],
+      "properties": {
+        "declared_tool": { "$ref": "#/$defs/decision" },
+        "gateway_unmatched": { "const": "block" },
+        "host_unmatched": { "enum": ["allow", "block"] },
+        "evaluation_error": { "const": "block" },
+        "post_error": { "const": "block" },
+        "progress_error": { "const": "block" },
+        "cache": { "$ref": "#/$defs/cache" }
+      }
+    },
+    "actions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format_version", "tools", "rules", "budgets", "approvals", "detectors", "ledger", "defaults"],
+      "properties": {
+        "format_version": { "const": "1" },
+        "tools": { "type": "array", "maxItems": 512, "items": { "$ref": "#/$defs/tool" } },
+        "rules": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/rule" } },
+        "budgets": { "type": "array", "maxItems": 1024, "items": { "$ref": "#/$defs/budget" } },
+        "approvals": { "type": "array", "maxItems": 1024, "items": { "$ref": "#/$defs/compiledApprovalDisclosure" } },
+        "detectors": { "type": "array", "maxItems": 1024, "items": { "$ref": "#/$defs/compiledDetector" } },
+        "ledger": { "$ref": "#/$defs/ledger" },
+        "defaults": { "$ref": "#/$defs/defaults" }
+      }
+    }
+  }
+}

@@ -23,12 +23,12 @@ func TestPolicyLockRFCReportsCurrentFormat(t *testing.T) {
 	root := publicSurfaceRoot(t)
 	rfc := readPublicSurfaceFile(t, root, "docs/rfcs/RECONC-0001-policy-lockfile.md")
 	assertContainsAll(t, "RECONC-0001", rfc,
-		"- Format version: `5`",
-		"| `format_version` | string | Must equal `5`. |",
-		"format-5 lock",
+		"- Format version: `6`",
+		"| `format_version` | string | Must equal `6`. |",
+		"format-6 lock",
 	)
-	if strings.Contains(rfc, "| `format_version` | string | Must equal `4`. |") {
-		t.Fatal("RECONC-0001 still attributes the current lock contract to format 4")
+	if strings.Contains(rfc, "| `format_version` | string | Must equal `5`. |") {
+		t.Fatal("RECONC-0001 still attributes the current lock contract to format 5")
 	}
 }
 

@@ -98,6 +98,26 @@ var historicalFindingExceptions = []historicalFindingException{
 		BlobID: "7c3573310d2133cf05c5334a817e146db1d1d1c8", Rule: "content/private-path", Line: 569,
 		Owner: "repository maintainer", Rationale: "synthetic action-privacy regression fixture committed in TASK 156; current source constructs the marker without publishing a literal path",
 	},
+	{
+		BlobID: "26f3bdfdf22e5261dee3a1e1f1a3fd10e4c07564", Rule: "content/access-token", Line: 149,
+		Owner: "repository maintainer", Rationale: "synthetic credential-detector regression fixture committed in TASK 159; current source constructs the token from non-matching fragments",
+	},
+	{
+		BlobID: "26f3bdfdf22e5261dee3a1e1f1a3fd10e4c07564", Rule: "content/access-token", Line: 163,
+		Owner: "repository maintainer", Rationale: "synthetic credential-detector non-persistence assertion committed in TASK 159; current source reuses the constructed fixture value",
+	},
+	{
+		BlobID: "740d18a5635bb10c1dab6824af5d9842f33806c7", Rule: "content/access-token", Line: 5,
+		Owner: "repository maintainer", Rationale: "synthetic AWS credential-detector corpus fixture committed in TASK 159; current corpus joins non-matching fragments at test time",
+	},
+	{
+		BlobID: "740d18a5635bb10c1dab6824af5d9842f33806c7", Rule: "content/access-token", Line: 11,
+		Owner: "repository maintainer", Rationale: "synthetic GitHub credential-detector corpus fixture committed in TASK 159; current corpus joins non-matching fragments at test time",
+	},
+	{
+		BlobID: "740d18a5635bb10c1dab6824af5d9842f33806c7", Rule: "content/private-key", Line: 23,
+		Owner: "repository maintainer", Rationale: "synthetic private-key detector corpus fixture committed in TASK 159; current corpus joins non-matching fragments at test time",
+	},
 }
 
 var forbiddenWordDigests = map[string]string{

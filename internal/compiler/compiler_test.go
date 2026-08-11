@@ -515,7 +515,7 @@ func TestLockfileSchemaDefault(t *testing.T) {
 func TestLockfileSchemaHonorsEnvOverride(t *testing.T) {
 	t.Setenv("RECONC_SCHEMA_BASE_URL", "https://reconc.acme.com")
 	got := LockfileSchema()
-	want := "https://reconc.acme.com/schemas/policy-lock/v5"
+	want := "https://reconc.acme.com/schemas/policy-lock/v6"
 	if got != want {
 		t.Errorf("expected %q, got %q", want, got)
 	}
@@ -524,7 +524,7 @@ func TestLockfileSchemaHonorsEnvOverride(t *testing.T) {
 func TestLockfileSchemaStripsTrailingSlash(t *testing.T) {
 	t.Setenv("RECONC_SCHEMA_BASE_URL", "https://acme.com/")
 	got := LockfileSchema()
-	want := "https://acme.com/schemas/policy-lock/v5"
+	want := "https://acme.com/schemas/policy-lock/v6"
 	if got != want {
 		t.Errorf("trailing slash should be stripped; got %q", got)
 	}
@@ -547,7 +547,7 @@ func TestCompileWritesCustomSchemaURL(t *testing.T) {
 	if err := json.Unmarshal(data, &payload); err != nil {
 		t.Fatal(err)
 	}
-	want := "https://internal.corp/schemas/policy-lock/v5"
+	want := "https://internal.corp/schemas/policy-lock/v6"
 	if payload["$schema"] != want {
 		t.Errorf("expected $schema %q, got %v", want, payload["$schema"])
 	}

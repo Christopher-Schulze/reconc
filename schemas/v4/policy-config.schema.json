@@ -1,0 +1,569 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v4/policy-config.schema.json",
+  "title": "Reconc policy authoring config v4",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "default_mode": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/mode" },
+    "extends": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/nonEmptyStrings" },
+    "include": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/nonEmptyStrings" },
+    "task_lifecycle": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/taskLifecycle" },
+    "mcp": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/mcp" },
+    "actions": { "$ref": "#/$defs/actions" },
+    "rules": {
+      "type": "array",
+      "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/rule" }
+    },
+    "scopes": {
+      "type": "array",
+      "items": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/policy-config.schema.json#/$defs/scope" }
+    }
+  },
+  "$defs": {
+    "decision": { "enum": ["allow", "warn", "require_approval", "block"] },
+    "cache": { "enum": ["exact", "never"] },
+    "safeLabel": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$"
+    },
+    "platform": {
+      "anyOf": [
+        { "enum": ["claude-code", "codex", "cursor", "opencode", "kilo", "omp", "pi", "zcode"] },
+        { "type": "string", "pattern": "^custom:[a-z0-9][a-z0-9_-]{0,47}$" }
+      ]
+    },
+    "hostFingerprint": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "sha256Identity": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "serverFingerprint": { "type": "string", "pattern": "^hmac-sha256:v1:[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?:[0-9a-f]{64}$" },
+    "identity": {
+      "anyOf": [
+        { "$ref": "#/$defs/hostFingerprint" },
+        { "$ref": "#/$defs/serverFingerprint" }
+      ]
+    },
+    "pointer": {
+      "type": "string",
+      "maxLength": 1024,
+      "pattern": "^(?:/(?:[^~/]|~[01])*)*$"
+    },
+    "nonRootPointer": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?:/(?:[^~/]|~[01])*)+$"
+    },
+    "toolName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$"
+    },
+    "gatewayToolName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9_.-]+$"
+    },
+    "effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["repository_read", "repository_write", "command", "external"] },
+        "path_fields": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/nonRootPointer" }
+        },
+        "command_field": { "$ref": "#/$defs/nonRootPointer" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "enum": ["repository_read", "repository_write"] } }, "required": ["kind"] },
+          "then": { "required": ["path_fields"], "not": { "required": ["command_field"] } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "command" } }, "required": ["kind"] },
+          "then": { "required": ["command_field"], "not": { "required": ["path_fields"] } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "external" } }, "required": ["kind"] },
+          "then": { "not": { "anyOf": [{ "required": ["path_fields"] }, { "required": ["command_field"] }] } }
+        }
+      ]
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "transport", "tool", "effect"],
+      "properties": {
+        "id": { "$ref": "#/$defs/safeLabel" },
+        "transport": { "enum": ["host_mcp", "mcp_stdio"] },
+        "platform": { "$ref": "#/$defs/platform" },
+        "server_label": { "$ref": "#/$defs/safeLabel" },
+        "server_fingerprint": { "$ref": "#/$defs/identity" },
+        "tool": { "$ref": "#/$defs/toolName" },
+        "effect": { "$ref": "#/$defs/effect" },
+        "cost_units": { "type": "integer", "minimum": 0, "maximum": 9223372036854775807 },
+        "max_result_bytes": { "type": "integer", "minimum": 1, "maximum": 8388608 },
+        "ledger_name_safe": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "transport": { "const": "host_mcp" } }, "required": ["transport"] },
+          "then": {
+            "required": ["platform"],
+            "not": { "required": ["server_label"] },
+            "properties": { "server_fingerprint": { "$ref": "#/$defs/hostFingerprint" } }
+          }
+        },
+        {
+          "if": { "properties": { "transport": { "const": "mcp_stdio" } }, "required": ["transport"] },
+          "then": {
+            "required": ["server_label"],
+            "not": { "required": ["platform"] },
+            "properties": {
+              "server_fingerprint": { "$ref": "#/$defs/serverFingerprint" },
+              "tool": { "$ref": "#/$defs/gatewayToolName" }
+            }
+          }
+        }
+      ]
+    },
+    "nonEmptyLabels": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/safeLabel" }
+    },
+    "nonEmptyToolNames": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/toolName" }
+    },
+    "selector": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tool_ids": { "$ref": "#/$defs/nonEmptyLabels" },
+        "transports": { "type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true, "items": { "enum": ["host_mcp", "mcp_stdio"] } },
+        "platforms": { "type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true, "items": { "$ref": "#/$defs/platform" } },
+        "server_labels": { "$ref": "#/$defs/nonEmptyLabels" },
+        "server_fingerprints": { "type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true, "items": { "$ref": "#/$defs/identity" } },
+        "tools": { "$ref": "#/$defs/nonEmptyToolNames" },
+        "tool_contract_digests": { "type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true, "items": { "$ref": "#/$defs/hostFingerprint" } },
+        "phases": { "type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true, "items": { "enum": ["pre_call", "post_result", "progress", "observation"] } }
+      }
+    },
+    "predicate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "pointer", "op"],
+      "properties": {
+        "source": { "enum": ["arguments", "context", "result", "progress"] },
+        "pointer": { "$ref": "#/$defs/pointer" },
+        "minimum_provenance": { "enum": ["agent_supplied", "adapter_asserted", "host_observed", "operator_bound"] },
+        "op": { "enum": ["exists", "eq", "neq", "in", "not_in", "prefix", "suffix", "contains", "glob", "regex", "gt", "gte", "lt", "lte", "url", "cidr", "path_within"] },
+        "value": {}
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "source": { "const": "context" } }, "required": ["source"] },
+          "else": { "not": { "required": ["minimum_provenance"] } }
+        },
+        {
+          "if": { "properties": { "op": { "const": "exists" } }, "required": ["op"] },
+          "then": { "not": { "required": ["value"] } },
+          "else": { "required": ["value"] }
+        },
+        {
+          "if": { "properties": { "op": { "enum": ["prefix", "suffix", "contains", "glob", "regex"] } }, "required": ["op"] },
+          "then": { "properties": { "value": { "type": "string", "maxLength": 4096 } } }
+        },
+        {
+          "if": { "properties": { "op": { "enum": ["gt", "gte", "lt", "lte"] } }, "required": ["op"] },
+          "then": { "properties": { "value": { "type": "number" } } }
+        },
+        {
+          "if": { "properties": { "op": { "enum": ["in", "not_in"] } }, "required": ["op"] },
+          "then": {
+            "properties": {
+              "value": {
+                "oneOf": [
+                  { "type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true, "items": { "type": "boolean" } },
+                  { "type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true, "items": { "type": "number" } },
+                  { "type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true, "items": { "type": "string" } }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "op": { "const": "cidr" } }, "required": ["op"] },
+          "then": { "properties": { "value": { "type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } } } }
+        },
+        {
+          "if": { "properties": { "op": { "const": "url" } }, "required": ["op"] },
+          "then": { "properties": { "value": { "$ref": "#/$defs/urlConstraint" } } }
+        },
+        {
+          "if": { "properties": { "op": { "const": "path_within" } }, "required": ["op"] },
+          "then": { "properties": { "value": { "$ref": "#/$defs/pathConstraint" } } }
+        }
+      ]
+    },
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+	  "properties": {
+		"all": { "type": "array", "minItems": 1, "maxItems": 1024, "items": { "$ref": "#/$defs/condition" } },
+		"any": { "type": "array", "minItems": 1, "maxItems": 1024, "items": { "$ref": "#/$defs/condition" } },
+		"not": { "$ref": "#/$defs/condition" },
+		"predicate": { "$ref": "#/$defs/predicate" }
+	  },
+      "oneOf": [
+		{ "required": ["all"] },
+		{ "required": ["any"] },
+		{ "required": ["not"] },
+		{ "required": ["predicate"] }
+      ]
+    },
+    "urlConstraint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemes", "hosts", "allow_query", "allow_ip_literals"],
+      "properties": {
+        "schemes": { "type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9+.-]*$" } },
+        "hosts": { "type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "ports": { "type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true, "items": { "type": "integer", "minimum": 1, "maximum": 65535 } },
+        "path_prefixes": { "type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true, "items": { "type": "string", "pattern": "^/" } },
+        "allow_query": { "type": "boolean" },
+        "allow_ip_literals": { "type": "boolean" }
+      }
+    },
+    "pathConstraint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["style", "base", "case_sensitive"],
+      "properties": {
+        "style": { "enum": ["repository", "posix", "windows"] },
+        "base": { "type": "string", "minLength": 1 },
+        "case_sensitive": { "type": "boolean" }
+      }
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "decision"],
+      "properties": {
+        "id": { "$ref": "#/$defs/safeLabel" },
+        "selector": { "$ref": "#/$defs/selector" },
+        "when": { "$ref": "#/$defs/condition" },
+        "decision": { "$ref": "#/$defs/decision" },
+        "on_indeterminate": { "enum": ["require_approval", "block"] },
+        "cache": { "$ref": "#/$defs/cache" },
+        "message": { "type": "string", "maxLength": 512 }
+      }
+    },
+    "budgetSelector": {
+      "allOf": [
+        { "$ref": "#/$defs/selector" },
+        {
+          "minProperties": 1,
+          "properties": {
+            "phases": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "const": "pre_call" }
+            }
+          }
+        }
+      ]
+    },
+    "budgetLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "call_count": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+        "denied_count": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+        "approval_count": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+        "argument_bytes": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+        "result_bytes": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+        "cost_units": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+        "concurrent": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "rate_window": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "selector", "limits", "reset", "on_exhaustion"],
+      "properties": {
+        "id": { "$ref": "#/$defs/safeLabel" },
+        "selector": { "$ref": "#/$defs/budgetSelector" },
+        "limits": { "$ref": "#/$defs/budgetLimits" },
+        "reset": { "enum": ["never", "operator_run", "operator_session", "fixed_window"] },
+        "window_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "on_exhaustion": { "const": "block" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "reset": { "const": "fixed_window" } }, "required": ["reset"] },
+          "then": { "required": ["window_seconds"] },
+          "else": { "not": { "required": ["window_seconds"] } }
+        },
+        {
+          "if": { "properties": { "limits": { "required": ["rate_window"] } }, "required": ["limits"] },
+          "then": { "properties": { "reset": { "const": "fixed_window" } } }
+        }
+      ]
+    },
+    "approvalDisclosure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "selector", "selected_arguments"],
+      "properties": {
+        "id": { "$ref": "#/$defs/safeLabel" },
+        "selector": {
+          "allOf": [
+            { "$ref": "#/$defs/selector" },
+            {
+              "minProperties": 1,
+              "properties": {
+                "phases": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 2,
+                  "uniqueItems": true,
+                  "items": { "enum": ["pre_call", "post_result"] }
+                }
+              }
+            }
+          ]
+        },
+        "selected_arguments": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/pointer" }
+        }
+      }
+    },
+    "detectorSelector": {
+      "allOf": [
+        { "$ref": "#/$defs/selector" },
+        {
+          "minProperties": 1,
+          "properties": {
+            "phases": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 3,
+              "uniqueItems": true,
+              "items": { "enum": ["pre_call", "post_result", "progress"] }
+            }
+          }
+        }
+      ]
+    },
+    "detectorField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "pointer"],
+      "properties": {
+        "source": { "enum": ["arguments", "result", "progress"] },
+        "pointer": { "$ref": "#/$defs/pointer" }
+      }
+    },
+    "detectorCategory": {
+      "enum": [
+        "credential",
+        "secret",
+        "pii_email",
+        "pii_phone",
+        "pii_payment_card",
+        "forbidden_data",
+        "prompt_injection",
+        "role_override",
+        "privilege_claim",
+        "indirect_instruction",
+        "delimiter_attack",
+        "exfiltration"
+      ]
+    },
+    "contentType": {
+      "enum": ["text", "image", "audio", "resource_text", "resource_blob", "resource_link"]
+    },
+    "inspectionLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_bytes": { "type": "integer", "minimum": 1, "maximum": 8388608 },
+        "max_items": { "type": "integer", "minimum": 1, "maximum": 65536 },
+        "max_depth": { "type": "integer", "minimum": 1, "maximum": 32 },
+        "max_milliseconds": { "type": "integer", "minimum": 1, "maximum": 1000 }
+      }
+    },
+    "detector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "selector", "pack_id", "pack_digest", "fields", "categories"],
+      "properties": {
+        "id": { "$ref": "#/$defs/safeLabel" },
+        "selector": { "$ref": "#/$defs/detectorSelector" },
+        "pack_id": { "$ref": "#/$defs/safeLabel" },
+        "pack_digest": { "$ref": "#/$defs/sha256Identity" },
+        "fields": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/detectorField" }
+        },
+        "categories": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/detectorCategory" }
+        },
+        "forbidden_terms": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+        },
+        "pre_call_decision": { "enum": ["warn", "require_approval", "block"] },
+        "post_result_disposition": { "enum": ["warn", "withhold", "require_schema"] },
+        "progress_disposition": { "enum": ["forward", "suppress"] },
+        "schema_policy": { "enum": ["validate_if_declared", "require"] },
+        "allowed_content_types": {
+          "type": "array",
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/contentType" }
+        },
+        "trusted_annotation_fields": {
+          "type": "array",
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": { "enum": ["audience", "priority", "lastModified"] }
+        },
+        "limits": { "$ref": "#/$defs/inspectionLimits" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "categories": { "contains": { "const": "forbidden_data" } } },
+            "required": ["categories"]
+          },
+          "then": {
+            "required": ["forbidden_terms"],
+            "properties": { "forbidden_terms": { "minItems": 1 } }
+          },
+          "else": { "properties": { "forbidden_terms": { "maxItems": 0 } } }
+        },
+        {
+          "if": {
+            "properties": { "trusted_annotation_fields": { "minItems": 1 } },
+            "required": ["trusted_annotation_fields"]
+          },
+          "then": { "properties": { "selector": { "required": ["server_fingerprints"] } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "selector": {
+                "properties": { "phases": { "contains": { "const": "pre_call" } } },
+                "required": ["phases"]
+              }
+            },
+            "required": ["selector"]
+          },
+          "then": {
+            "properties": {
+              "limits": { "properties": { "max_milliseconds": { "maximum": 500 } } }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "selector": {
+                "properties": { "phases": { "contains": { "const": "progress" } } },
+                "required": ["phases"]
+              }
+            },
+            "required": ["selector"]
+          },
+          "then": {
+            "properties": {
+              "limits": { "properties": { "max_milliseconds": { "maximum": 250 } } }
+            }
+          }
+        }
+      ]
+    },
+    "ledgerField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "pointer"],
+      "properties": {
+        "source": { "enum": ["arguments", "result"] },
+        "pointer": { "$ref": "#/$defs/pointer" }
+      }
+    },
+    "ledger": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["required", "best_effort", "off"] },
+        "tool_identity": { "enum": ["declaration_id", "exact_name", "keyed_name"] },
+        "selected_fields": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/ledgerField" }
+        }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "declared_tool": { "$ref": "#/$defs/decision" },
+        "gateway_unmatched": { "const": "block" },
+        "host_unmatched": { "enum": ["allow", "block"] },
+        "evaluation_error": { "const": "block" },
+        "post_error": { "const": "block" },
+        "progress_error": { "const": "block" },
+        "cache": { "$ref": "#/$defs/cache" }
+      }
+    },
+    "actions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tools": { "type": "array", "maxItems": 512, "items": { "$ref": "#/$defs/tool" } },
+        "rules": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/rule" } },
+        "budgets": { "type": "array", "maxItems": 1024, "items": { "$ref": "#/$defs/budget" } },
+        "approvals": { "type": "array", "maxItems": 1024, "items": { "$ref": "#/$defs/approvalDisclosure" } },
+        "detectors": { "type": "array", "maxItems": 1024, "items": { "$ref": "#/$defs/detector" } },
+        "ledger": { "$ref": "#/$defs/ledger" },
+        "defaults": { "$ref": "#/$defs/defaults" }
+      }
+    }
+  }
+}

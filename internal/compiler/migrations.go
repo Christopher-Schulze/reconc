@@ -56,6 +56,11 @@ var Migrations = []Migration{
 		ToVersion:   "5",
 		Apply:       migrateLockfileV4ToV5,
 	},
+	{
+		FromVersion: "5",
+		ToVersion:   "6",
+		Apply:       migrateLockfileV5ToV6,
+	},
 }
 
 func migrateLockfileV1ToV2(payload map[string]interface{}) (map[string]interface{}, error) {
@@ -210,7 +215,9 @@ func migrateLockfileV4ToV5(payload map[string]interface{}) (map[string]interface
 	delete(out, "mcp")
 	out["$schema"] = schema.ResolveVersion(schema.PolicyLock, "5")
 	out["format_version"] = "5"
-	out["actions"] = compiled.Plan()
+	v5Plan := compiled.Plan()
+	v5Plan.Ledger = nil
+	out["actions"] = v5Plan
 	out, err = normalizeLockPayload(out)
 	if err != nil {
 		return nil, fmt.Errorf("normalize migrated v5 lockfile: %w", err)
@@ -218,6 +225,49 @@ func migrateLockfileV4ToV5(payload map[string]interface{}) (map[string]interface
 	digest, err := ComputeLockDigest(out)
 	if err != nil {
 		return nil, fmt.Errorf("compute migrated v5 lockfile digest: %w", err)
+	}
+	out["lock_digest"] = digest
+	return out, nil
+}
+
+// migrateLockfileV5ToV6 adds the canonical default Action Ledger contract.
+// Format 5 could not represent ledger policy or tool-name disclosure consent,
+// so every valid v5 artifact deterministically migrates to the private default.
+func migrateLockfileV5ToV6(payload map[string]interface{}) (map[string]interface{}, error) {
+	schemaURL, _ := payload["$schema"].(string)
+	if !schema.AcceptsVersion(schema.PolicyLock, "5", schemaURL) {
+		return nil, fmt.Errorf("legacy lockfile schema %q is not recognized", schemaURL)
+	}
+	storedDigest, _ := payload["lock_digest"].(string)
+	computedDigest, err := ComputeLockDigest(payload)
+	if err != nil {
+		return nil, fmt.Errorf("compute legacy v5 lockfile digest: %w", err)
+	}
+	if storedDigest == "" || storedDigest != computedDigest {
+		return nil, fmt.Errorf("legacy v5 lockfile payload digest does not match its contents")
+	}
+	actions, ok := payload["actions"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("legacy v5 lockfile actions must contain an object")
+	}
+	if _, present := actions["ledger"]; present {
+		return nil, fmt.Errorf("legacy v5 lockfile actions must not contain ledger")
+	}
+	nextActions := cloneLockfileMap(actions)
+	nextActions["ledger"] = map[string]interface{}{
+		"mode": "required", "tool_identity": "declaration_id", "selected_fields": []interface{}{},
+	}
+	out := cloneLockfileMap(payload)
+	out["$schema"] = schema.ResolveVersion(schema.PolicyLock, "6")
+	out["format_version"] = "6"
+	out["actions"] = nextActions
+	out, err = normalizeLockPayload(out)
+	if err != nil {
+		return nil, fmt.Errorf("normalize migrated v6 lockfile: %w", err)
+	}
+	digest, err := ComputeLockDigest(out)
+	if err != nil {
+		return nil, fmt.Errorf("compute migrated v6 lockfile digest: %w", err)
 	}
 	out["lock_digest"] = digest
 	return out, nil

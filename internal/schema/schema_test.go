@@ -36,7 +36,7 @@ func TestPublicSchemaAliasesHaveOneOwner(t *testing.T) {
 
 func TestResolveEnterpriseSchemaBase(t *testing.T) {
 	t.Setenv("RECONC_SCHEMA_BASE_URL", "https://schemas.example.test/")
-	if got, want := schema.Resolve(schema.PolicyLock), "https://schemas.example.test/schemas/policy-lock/v5"; got != want {
+	if got, want := schema.Resolve(schema.PolicyLock), "https://schemas.example.test/schemas/policy-lock/v6"; got != want {
 		t.Fatalf("Resolve() = %q, want %q", got, want)
 	}
 	if got, want := schema.Resolve(schema.PolicyReport), "https://schemas.example.test/schemas/policy-report/v1"; got != want {
@@ -319,7 +319,7 @@ func TestReleaseShipsTheCanonicalPolicyLockSchema(t *testing.T) {
 	if !ok {
 		t.Fatal("registry has no current policy-lock contract")
 	}
-	if current.ReleaseAsset != "policy-lock.schema.json" || current.LocalPath != "schemas/v5/policy-lock.schema.json" {
+	if current.ReleaseAsset != "policy-lock.schema.json" || current.LocalPath != "schemas/v6/policy-lock.schema.json" {
 		t.Fatalf("current lock release mapping = %s -> %s", current.ReleaseAsset, current.LocalPath)
 	}
 
@@ -330,7 +330,7 @@ func TestReleaseShipsTheCanonicalPolicyLockSchema(t *testing.T) {
 			legacyAssets[contract.ReleaseAsset] = true
 		}
 	}
-	for _, legacy := range []string{"policy-lock-v1.schema.json", "policy-lock-v2.schema.json", "policy-lock-v3.schema.json", "policy-lock-v4.schema.json"} {
+	for _, legacy := range []string{"policy-lock-v1.schema.json", "policy-lock-v2.schema.json", "policy-lock-v3.schema.json", "policy-lock-v4.schema.json", "policy-lock-v5.schema.json"} {
 		if !legacyAssets[legacy] {
 			t.Errorf("release no longer ships %s", legacy)
 		}

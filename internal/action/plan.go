@@ -43,6 +43,12 @@ func CompilePlan(input Plan) (*CompiledPlan, error) {
 	if plan.Detectors == nil {
 		plan.Detectors = []DetectorPolicy{}
 	}
+	if plan.Ledger == nil {
+		plan.Ledger = &LedgerPolicy{}
+	}
+	if err := normalizeLedgerPolicy(plan.Ledger, plan.Tools); err != nil {
+		return nil, err
+	}
 	if err := normalizeDefaults(&plan.Defaults); err != nil {
 		return nil, err
 	}
@@ -249,6 +255,9 @@ func normalizeTool(tool *Tool) error {
 			return fmt.Errorf("mcp_stdio server_fingerprint must be a keyed HMAC identity")
 		}
 	}
+	if tool.LedgerNameSafe && tool.Transport != TransportMCPStdio {
+		return fmt.Errorf("ledger_name_safe is valid only for mcp_stdio")
+	}
 	if !tool.Effect.Kind.Valid() {
 		return fmt.Errorf("effect.kind is invalid")
 	}
@@ -285,6 +294,62 @@ func normalizeTool(tool *Tool) error {
 	}
 	if strings.TrimSpace(tool.SourceIdentity) == "" || !utf8.ValidString(tool.SourceIdentity) || len(tool.SourceIdentity) > MaxPointerBytes {
 		return fmt.Errorf("source_identity must be a non-empty UTF-8 identity of at most %d bytes", MaxPointerBytes)
+	}
+	return nil
+}
+
+func normalizeLedgerPolicy(policy *LedgerPolicy, tools []Tool) error {
+	if policy.Mode == "" {
+		policy.Mode = LedgerRequired
+	}
+	if !policy.Mode.Valid() {
+		return fmt.Errorf("actions.ledger.mode must be required, best_effort, or off")
+	}
+	if policy.ToolIdentity == "" {
+		policy.ToolIdentity = LedgerDeclarationID
+	}
+	if !policy.ToolIdentity.Valid() {
+		return fmt.Errorf("actions.ledger.tool_identity must be declaration_id, exact_name, or keyed_name")
+	}
+	if policy.SelectedFields == nil {
+		policy.SelectedFields = []LedgerField{}
+	}
+	if len(policy.SelectedFields) > MaxLedgerFields {
+		return fmt.Errorf("actions.ledger.selected_fields contains %d declarations; maximum is %d", len(policy.SelectedFields), MaxLedgerFields)
+	}
+	for index, field := range policy.SelectedFields {
+		if field.Source != SourceArguments && field.Source != SourceResult {
+			return fmt.Errorf("actions.ledger.selected_fields[%d].source must be arguments or result", index)
+		}
+		if _, err := CompilePointer(field.Pointer); err != nil {
+			return fmt.Errorf("actions.ledger.selected_fields[%d].pointer: %w", index, err)
+		}
+	}
+	sort.Slice(policy.SelectedFields, func(i, j int) bool {
+		if policy.SelectedFields[i].Source != policy.SelectedFields[j].Source {
+			return policy.SelectedFields[i].Source < policy.SelectedFields[j].Source
+		}
+		return policy.SelectedFields[i].Pointer < policy.SelectedFields[j].Pointer
+	})
+	for index := 1; index < len(policy.SelectedFields); index++ {
+		if policy.SelectedFields[index-1] == policy.SelectedFields[index] {
+			return fmt.Errorf("actions.ledger.selected_fields contains duplicate %s pointer %q", policy.SelectedFields[index].Source, policy.SelectedFields[index].Pointer)
+		}
+	}
+	if policy.ToolIdentity == LedgerExactName {
+		gatewayTools := 0
+		for _, tool := range tools {
+			if tool.Transport != TransportMCPStdio {
+				continue
+			}
+			gatewayTools++
+			if !tool.LedgerNameSafe {
+				return fmt.Errorf("actions.ledger.tool_identity exact_name requires ledger_name_safe on mcp_stdio tool %q", tool.ID)
+			}
+		}
+		if gatewayTools == 0 {
+			return fmt.Errorf("actions.ledger.tool_identity exact_name requires at least one mcp_stdio tool")
+		}
 	}
 	return nil
 }
@@ -832,6 +897,11 @@ func clonePlan(input Plan) Plan {
 	out.Detectors = make([]DetectorPolicy, len(input.Detectors))
 	for index := range input.Detectors {
 		out.Detectors[index] = cloneDetectorPolicy(input.Detectors[index])
+	}
+	if input.Ledger != nil {
+		ledger := *input.Ledger
+		ledger.SelectedFields = cloneSlice(input.Ledger.SelectedFields)
+		out.Ledger = &ledger
 	}
 	return out
 }

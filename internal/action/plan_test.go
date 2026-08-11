@@ -26,11 +26,81 @@ func TestCompilePlanCanonicalizesDefaultsAndOrdering(t *testing.T) {
 	if got.FormatVersion != PlanFormatVersion || got.Defaults != FrozenDefaults() {
 		t.Fatalf("canonical metadata = %#v", got)
 	}
+	if got.Ledger == nil || got.Ledger.Mode != LedgerRequired ||
+		got.Ledger.ToolIdentity != LedgerDeclarationID || len(got.Ledger.SelectedFields) != 0 {
+		t.Fatalf("canonical ledger = %#v", got.Ledger)
+	}
 	if got.Tools[0].ID != "a-tool" || got.Tools[1].Effect.PathFields[0] != "/a" {
 		t.Fatalf("canonical tools = %#v", got.Tools)
 	}
 	if got.Rules[0].ID != "a-rule" || got.Rules[0].Cache != CacheExact || got.Rules[0].OnIndeterminate != DecisionBlock {
 		t.Fatalf("canonical rules = %#v", got.Rules)
+	}
+}
+
+func TestCompilePlanCanonicalizesAndDefensivelyCopiesLedgerPolicy(t *testing.T) {
+	t.Parallel()
+	tool := gatewayTool("query", "query")
+	tool.LedgerNameSafe = true
+	compiled, err := CompilePlan(Plan{
+		Tools: []Tool{tool},
+		Ledger: &LedgerPolicy{
+			Mode: LedgerBestEffort, ToolIdentity: LedgerExactName,
+			SelectedFields: []LedgerField{
+				{Source: SourceResult, Pointer: "/rows"},
+				{Source: SourceArguments, Pointer: "/database"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := compiled.Plan()
+	if first.Ledger == nil || first.Ledger.SelectedFields[0].Source != SourceArguments ||
+		first.Ledger.SelectedFields[1].Pointer != "/rows" {
+		t.Fatalf("canonical ledger = %#v", first.Ledger)
+	}
+	first.Ledger.SelectedFields[0].Pointer = "/mutated"
+	second := compiled.Plan()
+	if second.Ledger.SelectedFields[0].Pointer != "/database" {
+		t.Fatal("compiled ledger mutated through Plan")
+	}
+}
+
+func TestCompilePlanRejectsInvalidLedgerPolicy(t *testing.T) {
+	t.Parallel()
+	tool := gatewayTool("query", "query")
+	valid := LedgerPolicy{Mode: LedgerRequired, ToolIdentity: LedgerDeclarationID, SelectedFields: []LedgerField{{Source: SourceArguments, Pointer: "/database"}}}
+	tests := []struct {
+		name   string
+		mutate func(*LedgerPolicy, *Tool)
+		want   string
+	}{
+		{name: "mode", mutate: func(policy *LedgerPolicy, _ *Tool) { policy.Mode = "sometimes" }, want: "mode"},
+		{name: "tool identity", mutate: func(policy *LedgerPolicy, _ *Tool) { policy.ToolIdentity = "raw" }, want: "tool_identity"},
+		{name: "context source", mutate: func(policy *LedgerPolicy, _ *Tool) { policy.SelectedFields[0].Source = SourceContext }, want: "arguments or result"},
+		{name: "invalid pointer", mutate: func(policy *LedgerPolicy, _ *Tool) { policy.SelectedFields[0].Pointer = "relative" }, want: "pointer"},
+		{name: "duplicate", mutate: func(policy *LedgerPolicy, _ *Tool) {
+			policy.SelectedFields = append(policy.SelectedFields, policy.SelectedFields[0])
+		}, want: "duplicate"},
+		{name: "too many", mutate: func(policy *LedgerPolicy, _ *Tool) { policy.SelectedFields = make([]LedgerField, MaxLedgerFields+1) }, want: "maximum"},
+		{name: "unsafe exact name", mutate: func(policy *LedgerPolicy, _ *Tool) { policy.ToolIdentity = LedgerExactName }, want: "ledger_name_safe"},
+		{name: "host name disclosure", mutate: func(_ *LedgerPolicy, tool *Tool) {
+			*tool = hostTool("query", "query", EffectExternal, nil, "")
+			tool.LedgerNameSafe = true
+		}, want: "only for mcp_stdio"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			policy := valid
+			policy.SelectedFields = append([]LedgerField(nil), valid.SelectedFields...)
+			candidate := tool
+			test.mutate(&policy, &candidate)
+			_, err := CompilePlan(Plan{Tools: []Tool{candidate}, Ledger: &policy})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
 	}
 }
 

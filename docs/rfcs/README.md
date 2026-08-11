@@ -34,7 +34,7 @@ bug in whichever side is stale and fix them together.
 Every JSON contract has:
 
 - `$schema`: hard compatibility boundary, for example
-  `https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v5/policy-lock.schema.json`.
+  `https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v6/policy-lock.schema.json`.
 - `format_version`: exact representation marker owned by that schema version.
 
 Every published schema URL is immutable. Any schema-byte or represented-shape

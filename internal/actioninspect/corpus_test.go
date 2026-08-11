@@ -18,6 +18,7 @@ type detectorCorpusCase struct {
 	Categories     []action.DetectorCategory `json:"categories"`
 	ForbiddenTerms []string                  `json:"forbidden_terms"`
 	Text           string                    `json:"text"`
+	TextParts      []string                  `json:"text_parts"`
 	WantRuleIDs    []string                  `json:"want_rule_ids"`
 }
 
@@ -96,6 +97,15 @@ func loadDetectorCorpus(t testing.TB) []detectorCorpusCase {
 	var corpus []detectorCorpusCase
 	if err := json.Unmarshal(body, &corpus); err != nil {
 		t.Fatal(err)
+	}
+	for index := range corpus {
+		if (corpus[index].Text == "") == (len(corpus[index].TextParts) == 0) {
+			t.Fatalf("detector corpus case %q must define exactly one of text or text_parts", corpus[index].Name)
+		}
+		if len(corpus[index].TextParts) > 0 {
+			corpus[index].Text = strings.Join(corpus[index].TextParts, "")
+			corpus[index].TextParts = nil
+		}
 	}
 	return corpus
 }

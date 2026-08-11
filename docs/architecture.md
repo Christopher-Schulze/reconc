@@ -72,6 +72,8 @@ internal/
   action/         pure action contract, strict values, immutable matchers, evaluator, traces, and exact cache
   actionapproval/ canonical signed approval contracts, authority registry, provider boundary, and MCP mapping
   actioninspect/  strict MCP results, offline output schemas, deterministic content inspection, and safe withholding
+  actionledger/   privacy-bounded typed events, private retained chain, lifecycle queries, and verification
+  actionledgerexport/ verified synthetic minimized Impact Lab export with explicit omissions
   actionstate/    trusted identities, budgets, approval consumption, reservations, and crash-safe local state
   adopt/          convention detector, rule suggestions, and stack-pack recommendations
   agentguide/     embedded agent-integration guide + section lookup
@@ -140,7 +142,7 @@ handling.
 ## Key invariants
 
 1. **Byte-stable private portable lockfile.** Two compiles of identical sources
-   in different clones or worktrees produce identical bytes. Format 5 uses `.`
+   in different clones or worktrees produce identical bytes. Format 6 uses `.`
    as its repository/discovery root marker and stores only logical source
    paths plus SHA-256 content digests, never raw source bodies or physical
    global-policy paths. Compiler emits canonical JSON (sorted keys, indent-2,
@@ -217,7 +219,7 @@ handling.
 ## Go-Only Action Plane (Draft)
 
 RECONC-0008 remains Draft. The unreleased v0.9.6 source implements strict action
-authoring, deterministic legacy MCP lowering, one canonical format-5 action
+authoring, deterministic legacy MCP lowering, one canonical format-6 action
 plan, immutable typed matcher programs, a derived MCP compatibility view, and
 `reconc why action`. The transport-neutral pure evaluator now implements strict
 request normalization, exact predicates and precedence, provenance monotonicity,
@@ -231,11 +233,25 @@ decodes bounded MCP results, validates local Draft 2020-12 output schemas with
 offline internal references and a bounded RE2-compatible pattern subset,
 scans policy-selected argument, result, and progress fields through a
 content-digested detector pack, classifies unsupported content and annotations,
-and creates payload-free evidence or bounded withheld results. No gateway
-currently invokes these primitives for a live call, so source does not yet
-enforce live tool calls, maintain an action ledger, or route calls through a
-gateway.
+and creates payload-free evidence or bounded withheld results. The separate
+Action Ledger records typed payload-free lifecycle evidence through private
+atomic append, bounded rotation, retained-chain verification, and detached-head
+recovery. `reconc action log tail|stats|verify|export` provides deterministic
+non-creating queries and verified minimized Impact Lab export. Existing durable
+append transactions are resolved before their snapshot is returned; missing
+state stays absent. No gateway currently invokes these primitives for a live call,
+so source does not yet enforce or route live tool calls.
 The published v0.9.5 release has none of the Action Plane additions.
+
+Ledger-selected fields are valid only for `arguments` during `pre_call` and
+`result` during `post_result`; progress and observation events carry none.
+Their pointer and value identities bind the policy declaration index, policy,
+lock, tool contract, source, canonical value state, repository identity, and
+the active identity-key generation. Missing keyed identity produces explicit
+incomplete evidence, never an unkeyed fallback. Rotation refuses to prune the
+first retained event of any active call. Verification reports whether event and
+call completeness were actually evaluated separately from whether they were
+complete, so an invalid chain cannot manufacture a completeness claim.
 
 `internal/actionapproval` and `internal/actionstate` now own the implemented
 approval boundary in addition to trusted identity and cumulative budgets.
@@ -279,7 +295,7 @@ The dependency direction is intentionally one-way:
 ~~~text
 policy/parser -> compiler -> immutable action plan -> pure action evaluator
                                                        |
-operator state -> budgets/approvals/actioninspect/ledger -> MCP stdio gateway
+operator state -> budgets/approvals/actioninspect/actionledger -> MCP stdio gateway
                                                        |
                                                external MCP client
 ~~~
@@ -309,12 +325,12 @@ in [RECONC-0008](rfcs/RECONC-0008-go-only-action-plane.md).
   rule applies. Additive and breaking shape changes both receive a new schema
   version; breaking semantic changes also require a superseding RFC.
 
-- **Published schema documents**: `internal/schema` owns all 28 Draft 2020-12
+- **Published schema documents**: `internal/schema` owns all 31 Draft 2020-12
   contracts as independently versioned registry entries. Each entry binds one
   local path, immutable release-tagged `$id`, release asset, SHA-256 digest,
   enterprise mirror path, current or legacy state, and input-only compatibility
-  aliases. Current policy authoring uses v3, custom-runtime manifests and
-  repository sync use v2, and current lockfiles use v5; v1-v4 lock schemas and
+  aliases. Current policy authoring uses v4, custom-runtime manifests and
+  repository sync use v2, and current lockfiles use v6; v1-v5 lock schemas and
   every other superseded artifact version remain
   validated inputs. Release output derives the complete schema inventory from
   the registry, byte-compares it locally, and verifies every canonical URL
@@ -333,9 +349,10 @@ in [RECONC-0008](rfcs/RECONC-0008-go-only-action-plane.md).
 
 - **Action authoring and lock contract**: strict `actions` authoring owns
   canonical tools, selectors, effects, phases, conditions, decisions, failure
-  policy, cache policy, defaults, and provenance. Legacy `mcp` authoring remains
-  compatibility input and lowers into the same plan. Format 5 contains
-  `actions` and forbids a parallel `mcp` runtime representation; legacy v2-v4
+  policy, cache policy, budgets, approvals, detectors, ledger policy, defaults,
+  and provenance. Legacy `mcp` authoring remains compatibility input and lowers
+  into the same plan. Format 6 contains
+  `actions` and forbids a parallel `mcp` runtime representation; legacy v1-v5
   lock schemas remain immutable migration inputs.
 
 - **Exit codes 0/1/2**: stable across all subcommands for agent
@@ -415,7 +432,7 @@ refusal, never an inferred owner or partial success.
      `.reconc.yml`, `AGENTS.md`, etc.
    - `internal/runtime/lockfile.go` performs a 16 MiB bounded read and validates
      schema, version, repository root, migration state, and source freshness.
-     Current format-5 locks prove freshness from the complete lock digest plus
+     Current format-6 locks prove freshness from the complete lock digest plus
      one bounded source-bundle digest pass. Migrated legacy locks additionally
      reparse sources and prove exact embedded rule and canonical-action parity.
    - The validated payload is decoded once into an immutable typed runtime plan.
@@ -496,6 +513,8 @@ responsibility-owned command file, canonical command metadata, focused tests, an
         ├──► extractor
         ├──► lockdiff
         ├──► audit
+        ├──► actionledger ──► action, actionstate, jsonl
+        ├──► actionledgerexport ──► actionledger, impactlab
         ├──► contextsize
         ├──► commandproof
         ├──► completiongate ──► commandproof, policyproof, runtime, tasklifecycle
@@ -517,10 +536,9 @@ the serialized lockfile is the boundary. `schema` is the single owner of public
 contract URLs. Runtime lockfile loading imports compiler only for registered
 migrations, current-envelope validation, and source-digest freshness
 validation. The runtime then owns the strict typed plan and its deterministic
-indexes; evaluators no longer extract fields from generic rule maps. Format-1
-absolute-root, format-2 content-bearing, and format-3 lockfiles migrate in
-memory to the current body-free portable envelope; freshly compiled lockfiles
-never persist a checkout root or source body.
+indexes; evaluators no longer extract fields from generic rule maps. Formats 1
+through 5 migrate in memory to the current body-free portable envelope; freshly
+compiled lockfiles never persist a checkout root or source body.
 
 ## Threat model: hook runtime
 
@@ -543,6 +561,7 @@ class of hostile input.
 | Evidence collections | **item + byte caps per field; 64 chained segments** | A full live collection rotates losslessly; non-segmentable evidence or chain failure creates durable project taint. |
 | Audit record | **32 KiB** | Bounds one locked JSONL append. |
 | Audit/run storage | **2 MiB live + 2 archives each** | Fixed rings and transition-only run records prevent repository-local log growth. |
+| Action ledger | **64 KiB per record / 4 MiB live + 2 archives** | Bounds payload-free lifecycle evidence; rotation refuses to prune an active call whose retained beginning would be lost. |
 | Hook output | **8 KiB per route** | Prevents verbose host output from consuming agent context. |
 | Bun adapter process output | **8 KiB combined stdout + stderr** | OpenCode, Kilo, OMP, and Pi concurrently drain both pipes; overflow, invalid UTF-8, timeout, and truncated decision JSON fail according to the registry route policy. |
 | Hook worker request frame | **64 MiB payload + 64 KiB envelope** | Keeps complete supported hook payloads while bounding protocol metadata and buffering. |
@@ -995,6 +1014,10 @@ coupling to any specific tool beyond recognizing that prefix.
   nesting to 32, JSON items to 65,536, output schemas to 1 MiB and 8,192
   items, results to 4,096 content blocks, decoded binary blocks to 3 MiB, and
   phase work to 500 ms pre-call, 1 second post-result, or 250 ms progress.
+- Action-ledger records are capped at 64 KiB. Its live file and each of two
+  archives are capped at 4 MiB, its detached head at 8 KiB, and append or read
+  transactions at two seconds. An active-call retention conflict fails the
+  append instead of pruning the call's retained beginning.
 - Audit and run-decision JSONL writes rotate before append through fixed archive
   rings; lifecycle retention bounds sessions, reports, locks, staged command
   proofs, the product-wide
@@ -1016,6 +1039,11 @@ Tool-use `command` strings may contain API keys or tokens as
 arguments. Default audit-log record only stores the FIRST token of
 the command (e.g. `"go"` not `"go test -api-key=sk-..."`).
 `RECONC_AUDIT_VERBOSE=1` opts into full command strings for debugging.
+
+The Action Ledger has no verbose payload mode. Its closed event types cannot
+carry raw arguments, results, headers, credential or environment values,
+stderr, prompts, or arbitrary MCP metadata. Policy-selected values use only
+repository-bound, domain-separated keyed identities and explicit completeness.
 
 ### Dependency review
 

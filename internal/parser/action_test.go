@@ -23,6 +23,7 @@ actions:
         kind: external
       cost_units: 3
       max_result_bytes: 4096
+      ledger_name_safe: true
   defaults:
     declared_tool: warn
     cache: never
@@ -55,13 +56,22 @@ actions:
         tool_ids: [production-query]
         phases: [pre_call]
       selected_arguments: [/database]
+  ledger:
+    mode: best_effort
+    tool_identity: exact_name
+    selected_fields:
+      - source: result
+        pointer: /rows
+      - source: arguments
+        pointer: /database
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if parsed.Actions == nil || len(parsed.Actions.Tools) != 1 ||
 		len(parsed.Actions.Rules) != 1 || len(parsed.Actions.Budgets) != 1 ||
-		len(parsed.Actions.Approvals) != 1 {
+		len(parsed.Actions.Approvals) != 1 || parsed.Actions.Ledger == nil ||
+		len(parsed.Actions.Ledger.SelectedFields) != 2 {
 		t.Fatalf("parsed actions = %#v", parsed.Actions)
 	}
 	compiled, err := action.CompilePlan(*parsed.Actions)
@@ -72,6 +82,10 @@ actions:
 	if plan.Defaults.DeclaredTool != action.DecisionWarn || plan.Defaults.Cache != action.CacheNever {
 		t.Fatalf("compiled defaults = %#v", plan.Defaults)
 	}
+	if plan.Ledger.Mode != action.LedgerBestEffort || plan.Ledger.ToolIdentity != action.LedgerExactName ||
+		plan.Ledger.SelectedFields[0].Source != action.SourceArguments {
+		t.Fatalf("compiled ledger = %#v", plan.Ledger)
+	}
 }
 
 func TestParseActionPolicyRejectsStrictSurfaceViolations(t *testing.T) {
@@ -81,6 +95,16 @@ func TestParseActionPolicyRejectsStrictSurfaceViolations(t *testing.T) {
 		body string
 		want string
 	}{
+		{
+			name: "non-boolean ledger name safety",
+			body: "actions:\n  tools:\n    - id: tool\n      transport: mcp_stdio\n      server_label: server\n      tool: query\n      effect: {kind: external}\n      ledger_name_safe: yes\n",
+			want: "canonical boolean",
+		},
+		{
+			name: "unknown ledger field",
+			body: "actions:\n  ledger:\n    raw_results: true\n",
+			want: "unknown field",
+		},
 		{
 			name: "repository-owned approval authority",
 			body: "actions:\n  approvals:\n    - id: disclosure\n      selector: {tool_ids: [tool]}\n      selected_arguments: [/value]\n      authority_key_id: repository-key\n",
@@ -256,6 +280,29 @@ func TestParseActionPolicyMergesOnlyExplicitImpactCandidateSources(t *testing.T)
 	if _, err := ParseRuleDocuments(&ingest.SourceBundle{Sources: []policy.PolicySource{base, candidate}}); err == nil ||
 		!strings.Contains(err.Error(), "unknown field") {
 		t.Fatalf("ordinary fragment gained action authority: %v", err)
+	}
+}
+
+func TestParseActionPolicyMergesSemanticallyIdenticalLedgerDefaults(t *testing.T) {
+	t.Parallel()
+	base := policy.PolicySource{
+		Kind: policy.SourceCompilerConfig, Path: ".reconc.yml",
+		Content: "actions:\n  ledger: {}\n",
+	}
+	candidate := policy.PolicySource{
+		Kind: policy.SourcePolicyFile, Path: ".reconc/impact/candidate.yml",
+		BlockID: policy.ImpactCandidateBlockPrefix + "candidate",
+		Content: "actions:\n  ledger:\n    mode: required\n    tool_identity: declaration_id\n    selected_fields: []\n",
+	}
+	parsed, err := ParseRuleDocuments(&ingest.SourceBundle{Sources: []policy.PolicySource{base, candidate}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledger := parsed.Actions.Ledger
+	if ledger == nil || ledger.Mode != action.LedgerRequired ||
+		ledger.ToolIdentity != action.LedgerDeclarationID || ledger.SelectedFields == nil ||
+		len(ledger.SelectedFields) != 0 {
+		t.Fatalf("merged ledger = %#v", ledger)
 	}
 }
 
