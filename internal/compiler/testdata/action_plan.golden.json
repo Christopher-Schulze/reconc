@@ -39,6 +39,7 @@
       "source_identity": ".reconc.yml"
     }
   ],
+  "budgets": [],
   "defaults": {
     "declared_tool": "warn",
     "gateway_unmatched": "block",

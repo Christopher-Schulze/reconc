@@ -15,10 +15,13 @@ TASK 156 implements strict format-2 action scenarios, deterministic format-1
 migration, production compiler and evaluator replay, exact expectations,
 privacy and completeness checks, current-candidate deltas, exact reviewed
 delta manifests, and bounded text, JSON, JUnit, SARIF, and GitHub output. The
-published v0.9.5 binary has none of those additions. Budgets, approvals,
-content inspection, the retained ledger, gateway enforcement, and
-control-evidence export remain unavailable until their owning tasks are
-complete.
+TASK 157 implements trusted operator and host context bindings, domain-separated
+keyed identities, explicit identity-key leases and rotation blocking, compiled
+cumulative budgets, exact evaluator budget snapshots, and a private bounded
+crash-consistent multi-process reservation store. The published v0.9.5 binary
+has none of those additions. Approval receipts, content inspection, the
+retained ledger, gateway enforcement, and control-evidence export remain
+unavailable until their owning tasks are complete.
 
 ## Purpose And Boundary
 
@@ -644,9 +647,12 @@ key bytes in
 private permissions. The key ID is the first 32 lowercase hexadecimal
 characters of SHA-256 over the random key and is not secret. Key creation,
 selection, and rotation are explicit operator operations serialized by
-`$RECONC_HOME/action/identity-key.lock` with dependent state. A rotation either
-atomically migrates every dependent keyed identity, budget, replay, and ledger
-reference or leaves the old generation active and blocks new dependent work.
+`$RECONC_HOME/action/identity-key.lock`. Live consumers hold a shared lease;
+creation and rotation require the exclusive lease. Rotation is refused while
+any dependent action state exists, leaving the old generation active and every
+budget intact. A future explicit atomic migration or reset must move every
+dependent keyed identity, budget, replay, and ledger reference before a new key
+generation can become active.
 
 An in-memory decision cache may reuse a result only when canonical request
 bytes, transport, server label and fingerprint, tool, tool contract, phase,
@@ -718,7 +724,16 @@ cannot oversubscribe. Idempotent call IDs prevent double settlement.
 The store is private operator state below `RECONC_HOME`, outside repository
 redirection. It is bounded, versioned, locked across processes, regular-file
 only, no-follow, atomically replaced, file- and directory-synced, and
-crash-consistent on Linux, macOS, and Windows.
+crash-consistent on Linux, macOS, and Windows. Unix state additionally requires
+the effective user owner and private modes, and macOS rejects extended ACLs;
+Windows state receives and verifies a protected current-user-only DACL. Every
+filesystem root is rejected as `RECONC_HOME`; an existing selected root must
+already satisfy the private ownership, mode, and ACL contract and is never
+repermissioned implicitly. Every trusted clock observation is checked
+against a persisted high-water mark so rollback cannot revive a reservation or
+window. Generic project-root retention never deletes a root containing the
+durable `action/` boundary; later action-specific compaction must preserve all
+consumed capacity and unresolved reservations.
 
 Budget and approval replay share one transaction domain at
 `$RECONC_HOME/projects/<repository-key>/action/state.json` with
@@ -729,6 +744,8 @@ Status and explanation expose budget ID, safe scope labels, configured limits,
 consumed values, live and indeterminate reservations, reset basis, governing
 generation, provenance, completeness, and exact remediation. They never expose
 credential values, raw keyed inputs, or unrestricted call payloads.
+The current surface is a typed internal API for the later gateway and CLI; no
+public budget-state command is claimed yet.
 
 ## Approval Contract
 

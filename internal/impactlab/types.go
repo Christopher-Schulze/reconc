@@ -124,6 +124,7 @@ type ActionPayload string
 // can be upgraded from the action arguments or downstream result.
 type ActionStateFixture struct {
 	ContextIdentity    string                            `json:"context_identity"`
+	ExecutableDigest   string                            `json:"executable_digest"`
 	Principal          string                            `json:"principal"`
 	CredentialLabels   []string                          `json:"credential_labels"`
 	Approval           action.ApprovalSnapshot           `json:"approval"`
@@ -131,6 +132,7 @@ type ActionStateFixture struct {
 	RepositoryEffect   *action.RepositoryEffectCandidate `json:"repository_effect,omitempty"`
 	Lifecycle          action.LifecycleState             `json:"lifecycle"`
 	CachePolicyVersion string                            `json:"cache_policy_version"`
+	Budget             action.BudgetSnapshot             `json:"budget"`
 	ResampleDrift      []ActionIdentityComponent         `json:"resample_drift"`
 }
 
@@ -146,11 +148,14 @@ const (
 	IdentityAuthority        ActionIdentityComponent = "authority"
 	IdentityServer           ActionIdentityComponent = "server"
 	IdentityToolContract     ActionIdentityComponent = "tool_contract"
+	IdentityExecutable       ActionIdentityComponent = "executable"
 	IdentityRepository       ActionIdentityComponent = "repository"
 	IdentityContext          ActionIdentityComponent = "context"
 	IdentityPrincipal        ActionIdentityComponent = "principal"
 	IdentityCredentials      ActionIdentityComponent = "credentials"
 	IdentityState            ActionIdentityComponent = "state"
+	IdentityBudget           ActionIdentityComponent = "budget"
+	IdentityReservation      ActionIdentityComponent = "reservation"
 	IdentityApproval         ActionIdentityComponent = "approval"
 	IdentityTaint            ActionIdentityComponent = "taint"
 	IdentityRepositoryEffect ActionIdentityComponent = "repository_effect"
@@ -159,9 +164,10 @@ const (
 func (c ActionIdentityComponent) Valid() bool {
 	switch c {
 	case IdentityPlan, IdentitySource, IdentityPolicy, IdentityLock,
-		IdentityAuthority, IdentityServer, IdentityToolContract,
+		IdentityAuthority, IdentityServer, IdentityToolContract, IdentityExecutable,
 		IdentityRepository, IdentityContext, IdentityPrincipal,
-		IdentityCredentials, IdentityState, IdentityApproval, IdentityTaint,
+		IdentityCredentials, IdentityState, IdentityBudget, IdentityReservation,
+		IdentityApproval, IdentityTaint,
 		IdentityRepositoryEffect:
 		return true
 	default:

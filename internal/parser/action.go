@@ -3,6 +3,8 @@ package parser
 import (
 	"fmt"
 	"io"
+	"math"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -24,7 +26,7 @@ func parseActionPolicy(source policy.PolicySource) (*action.Plan, bool, error) {
 	if !present {
 		return nil, false, nil
 	}
-	fields, err := actionMapping(actionsNode, source.Path+" actions", actionFieldSet("tools", "rules", "defaults"))
+	fields, err := actionMapping(actionsNode, source.Path+" actions", actionFieldSet("tools", "rules", "budgets", "defaults"))
 	if err != nil {
 		return nil, true, err
 	}
@@ -37,6 +39,12 @@ func parseActionPolicy(source policy.PolicySource) (*action.Plan, bool, error) {
 	}
 	if node, ok := fields["rules"]; ok {
 		plan.Rules, err = parseActionRules(node, source.Path)
+		if err != nil {
+			return nil, true, err
+		}
+	}
+	if node, ok := fields["budgets"]; ok {
+		plan.Budgets, err = parseActionBudgets(node, source.Path)
 		if err != nil {
 			return nil, true, err
 		}
@@ -67,7 +75,8 @@ func mergeActionPolicies(current, additive *action.Plan) (*action.Plan, error) {
 		return &action.Plan{
 			FormatVersion: additive.FormatVersion,
 			Tools:         append([]action.Tool(nil), additive.Tools...),
-			Rules:         append([]action.Rule(nil), additive.Rules...), Defaults: additive.Defaults,
+			Rules:         append([]action.Rule(nil), additive.Rules...),
+			Budgets:       append([]action.Budget(nil), additive.Budgets...), Defaults: additive.Defaults,
 		}, nil
 	}
 	if current.FormatVersion != additive.FormatVersion {
@@ -77,6 +86,7 @@ func mergeActionPolicies(current, additive *action.Plan) (*action.Plan, error) {
 		FormatVersion: current.FormatVersion,
 		Tools:         append(append([]action.Tool(nil), current.Tools...), additive.Tools...),
 		Rules:         append(append([]action.Rule(nil), current.Rules...), additive.Rules...),
+		Budgets:       append(append([]action.Budget(nil), current.Budgets...), additive.Budgets...),
 		Defaults:      mergeActionDefaults(current.Defaults, additive.Defaults),
 	}
 	return merged, nil
@@ -114,7 +124,10 @@ func parseActionTools(node *yaml.Node, sourcePath string) ([]action.Tool, error)
 	tools := make([]action.Tool, 0, len(node.Content))
 	for index, item := range node.Content {
 		context := fmt.Sprintf("%s actions.tools[%d]", sourcePath, index)
-		fields, err := actionMapping(item, context, actionFieldSet("id", "transport", "platform", "server_label", "server_fingerprint", "tool", "effect"))
+		fields, err := actionMapping(item, context, actionFieldSet(
+			"id", "transport", "platform", "server_label", "server_fingerprint",
+			"tool", "effect", "cost_units", "max_result_bytes",
+		))
 		if err != nil {
 			return nil, err
 		}
@@ -141,16 +154,128 @@ func parseActionTools(node *yaml.Node, sourcePath string) ([]action.Tool, error)
 		if err != nil {
 			return nil, err
 		}
+		costUnits, err := optionalActionUint(fields, "cost_units", context, true)
+		if err != nil {
+			return nil, err
+		}
+		maxResultBytes, err := optionalActionUint(fields, "max_result_bytes", context, false)
+		if err != nil {
+			return nil, err
+		}
 		tools = append(tools, action.Tool{
 			ID: id, Transport: action.Transport(transport),
 			Platform:          action.Platform(optionalActionString(fields, "platform")),
 			ServerLabel:       optionalActionString(fields, "server_label"),
 			ServerFingerprint: optionalActionString(fields, "server_fingerprint"),
-			Tool:              toolName, Effect: effect, Origin: action.OriginActions,
+			Tool:              toolName, Effect: effect, CostUnits: costUnits,
+			MaxResultBytes: optionalUintValue(maxResultBytes), Origin: action.OriginActions,
 			SourceIdentity: sourcePath,
 		})
 	}
 	return tools, nil
+}
+
+func parseActionBudgets(node *yaml.Node, sourcePath string) ([]action.Budget, error) {
+	if node.Kind != yaml.SequenceNode {
+		return nil, actionError("actions.budgets must be a list in " + sourcePath)
+	}
+	budgets := make([]action.Budget, 0, len(node.Content))
+	for index, item := range node.Content {
+		context := fmt.Sprintf("%s actions.budgets[%d]", sourcePath, index)
+		fields, err := actionMapping(item, context, actionFieldSet(
+			"id", "selector", "limits", "reset", "window_seconds", "on_exhaustion",
+		))
+		if err != nil {
+			return nil, err
+		}
+		id, err := requiredActionString(fields, "id", context)
+		if err != nil {
+			return nil, err
+		}
+		selectorNode, ok := fields["selector"]
+		if !ok {
+			return nil, actionError(context + ".selector is required")
+		}
+		selector, err := parseActionSelector(selectorNode, context)
+		if err != nil {
+			return nil, err
+		}
+		limitsNode, ok := fields["limits"]
+		if !ok {
+			return nil, actionError(context + ".limits is required")
+		}
+		limits, err := parseActionBudgetLimits(limitsNode, context)
+		if err != nil {
+			return nil, err
+		}
+		reset, err := requiredActionString(fields, "reset", context)
+		if err != nil {
+			return nil, err
+		}
+		onExhaustion, err := requiredActionString(fields, "on_exhaustion", context)
+		if err != nil {
+			return nil, err
+		}
+		window, err := optionalActionUint(fields, "window_seconds", context, false)
+		if err != nil {
+			return nil, err
+		}
+		if window != nil && *window > math.MaxUint32 {
+			return nil, actionError(context + ".window_seconds exceeds 32-bit range")
+		}
+		budgets = append(budgets, action.Budget{
+			ID: id, Selector: selector, Limits: limits, Reset: action.BudgetReset(reset),
+			WindowSeconds: uint32(optionalUintValue(window)),
+			OnExhaustion:  action.Decision(onExhaustion), SourceIdentity: sourcePath,
+		})
+	}
+	return budgets, nil
+}
+
+func parseActionBudgetLimits(node *yaml.Node, context string) (action.BudgetLimits, error) {
+	fields, err := actionMapping(node, context+".limits", actionFieldSet(
+		"call_count", "denied_count", "approval_count", "argument_bytes",
+		"result_bytes", "cost_units", "concurrent", "rate_window",
+	))
+	if err != nil {
+		return action.BudgetLimits{}, err
+	}
+	if len(fields) == 0 {
+		return action.BudgetLimits{}, actionError(context + ".limits must not be empty")
+	}
+	value := func(name string) (uint64, error) {
+		parsed, parseErr := optionalActionUint(fields, name, context+".limits", false)
+		if parseErr != nil {
+			return 0, parseErr
+		}
+		return optionalUintValue(parsed), nil
+	}
+	limits := action.BudgetLimits{}
+	if limits.CallCount, err = value("call_count"); err != nil {
+		return action.BudgetLimits{}, err
+	}
+	if limits.DeniedCount, err = value("denied_count"); err != nil {
+		return action.BudgetLimits{}, err
+	}
+	if limits.ApprovalCount, err = value("approval_count"); err != nil {
+		return action.BudgetLimits{}, err
+	}
+	if limits.ArgumentBytes, err = value("argument_bytes"); err != nil {
+		return action.BudgetLimits{}, err
+	}
+	if limits.ResultBytes, err = value("result_bytes"); err != nil {
+		return action.BudgetLimits{}, err
+	}
+	if limits.CostUnits, err = value("cost_units"); err != nil {
+		return action.BudgetLimits{}, err
+	}
+	if limits.Concurrent, err = value("concurrent"); err != nil {
+		return action.BudgetLimits{}, err
+	}
+	if limits.RateWindow, err = value("rate_window"); err != nil {
+		return action.BudgetLimits{}, err
+	}
+	return limits, nil
 }
 
 func parseActionEffect(node *yaml.Node, context string) (action.Effect, error) {
@@ -447,6 +572,40 @@ func optionalActionString(fields map[string]*yaml.Node, field string) string {
 		return ""
 	}
 	return node.Value
+}
+
+func optionalActionUint(
+	fields map[string]*yaml.Node,
+	field, context string,
+	allowZero bool,
+) (*uint64, error) {
+	node, ok := fields[field]
+	if !ok {
+		return nil, nil
+	}
+	if node.Kind != yaml.ScalarNode || node.Tag != "!!int" ||
+		node.Value == "" || node.Value[0] == '+' || node.Value[0] == '-' ||
+		len(node.Value) > 1 && node.Value[0] == '0' {
+		return nil, actionError(context + "." + field + " must be a canonical non-negative integer")
+	}
+	value, err := strconv.ParseUint(node.Value, 10, 64)
+	if err != nil || value > math.MaxInt64 || !allowZero && value == 0 {
+		minimum := "1"
+		if allowZero {
+			minimum = "0"
+		}
+		return nil, actionError(fmt.Sprintf(
+			"%s.%s must be between %s and %d", context, field, minimum, int64(math.MaxInt64),
+		))
+	}
+	return &value, nil
+}
+
+func optionalUintValue(value *uint64) uint64 {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 func validateOptionalActionStrings(fields map[string]*yaml.Node, context string, names ...string) error {

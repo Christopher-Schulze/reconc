@@ -26,6 +26,7 @@ func compileCanonicalActions(parsed *parser.ParsedPolicy) (*action.CompiledPlan,
 			FormatVersion: parsed.Actions.FormatVersion,
 			Tools:         append([]action.Tool(nil), parsed.Actions.Tools...),
 			Rules:         append([]action.Rule(nil), parsed.Actions.Rules...),
+			Budgets:       append([]action.Budget(nil), parsed.Actions.Budgets...),
 			Defaults:      parsed.Actions.Defaults,
 		}
 	}

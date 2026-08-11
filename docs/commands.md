@@ -119,6 +119,10 @@ retained-evidence surfaces remain unavailable in current source and in the
 published v0.9.5 release. They are listed only to freeze future ownership and
 must not be used as current command documentation.
 
+Unreleased source contains the internal trusted-context and cumulative-budget
+state owner used by the future gateway. It intentionally has no public command
+surface yet and does not intercept a direct tool call.
+
 ### `reconc mcp gateway [repo] --server LABEL (--expect-lock-digest SHA256 | --allow-repository-managed-policy) [trusted-context flags] -- COMMAND [ARG...]`
 
 Would start one local, tool-only stdio gateway around one
@@ -1072,7 +1076,9 @@ repo-local atomic/build temps; and owned `reconc-proof-*` temp trees.
 trees use a two-hour inactivity grace. The
 global project-state contract keeps at most 256 recognized roots / 128 MiB /
 30 days while preserving the current project, live sessions, unknown
-directories, and recently active lifecycle roots.
+directories, recently active lifecycle roots, and every recognized root with a
+durable `action/` state boundary. Generic retention never deletes budget state
+because doing so could silently return consumed capacity.
 SessionStart and SessionEnd invoke the same core through a
 six-hour due check; Stop never prunes. Historical parser compatibility is not
 part of the public command surface.

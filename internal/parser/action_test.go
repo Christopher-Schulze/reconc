@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -20,6 +21,8 @@ actions:
       tool: query
       effect:
         kind: external
+      cost_units: 3
+      max_result_bytes: 4096
   defaults:
     declared_tool: warn
     cache: never
@@ -36,11 +39,22 @@ actions:
           value: production
       decision: block
       message: Production access is forbidden.
+  budgets:
+    - id: query-run-cap
+      selector:
+        tool_ids: [production-query]
+      limits:
+        call_count: 10
+        result_bytes: 40960
+        cost_units: 30
+      reset: operator_run
+      on_exhaustion: block
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if parsed.Actions == nil || len(parsed.Actions.Tools) != 1 || len(parsed.Actions.Rules) != 1 {
+	if parsed.Actions == nil || len(parsed.Actions.Tools) != 1 ||
+		len(parsed.Actions.Rules) != 1 || len(parsed.Actions.Budgets) != 1 {
 		t.Fatalf("parsed actions = %#v", parsed.Actions)
 	}
 	compiled, err := action.CompilePlan(*parsed.Actions)
@@ -61,8 +75,8 @@ func TestParseActionPolicyRejectsStrictSurfaceViolations(t *testing.T) {
 		want string
 	}{
 		{
-			name: "later-owned budget",
-			body: "actions:\n  budgets: []\n",
+			name: "later-owned approval",
+			body: "actions:\n  approvals: []\n",
 			want: "unknown field",
 		},
 		{
@@ -123,6 +137,61 @@ func TestParseActionPolicyPreservesPresentEmptySelectorList(t *testing.T) {
 	}
 	if _, err := action.CompilePlan(*parsed.Actions); err == nil || !strings.Contains(err.Error(), "empty present list") {
 		t.Fatalf("compile error = %v", err)
+	}
+}
+
+func TestParseActionBudgetLimitsRejectEveryNonPositiveOrNonCanonicalValue(t *testing.T) {
+	t.Parallel()
+	for _, field := range []string{
+		"call_count", "denied_count", "approval_count", "argument_bytes",
+		"result_bytes", "cost_units", "concurrent", "rate_window",
+	} {
+		field := field
+		t.Run(field, func(t *testing.T) {
+			t.Parallel()
+			body := fmt.Sprintf(`actions:
+  budgets:
+    - id: invalid
+      selector: {tool_ids: [tool]}
+      limits: {%s: 0}
+      reset: never
+      on_exhaustion: block
+`, field)
+			if _, err := ParseRuleDocuments(actionBundle(body)); err == nil ||
+				!strings.Contains(err.Error(), "must be between 1") {
+				t.Fatalf("zero %s error = %v", field, err)
+			}
+		})
+	}
+	for _, test := range []struct {
+		name  string
+		value string
+	}{
+		{name: "negative", value: "-1"},
+		{name: "explicit plus", value: "+1"},
+		{name: "leading zero", value: "01"},
+		{name: "overflow", value: "9223372036854775808"},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			body := "actions:\n  budgets:\n    - id: invalid\n      selector: {tool_ids: [tool]}\n" +
+				"      limits: {call_count: " + test.value + "}\n      reset: never\n      on_exhaustion: block\n"
+			if _, err := ParseRuleDocuments(actionBundle(body)); err == nil {
+				t.Fatalf("non-canonical budget value %q was accepted", test.value)
+			}
+		})
+	}
+	unknown := `actions:
+  budgets:
+    - id: invalid
+      selector: {tool_ids: [tool]}
+      limits: {calls: 1}
+      reset: never
+      on_exhaustion: block
+`
+	if _, err := ParseRuleDocuments(actionBundle(unknown)); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("unknown budget limit error = %v", err)
 	}
 }
 

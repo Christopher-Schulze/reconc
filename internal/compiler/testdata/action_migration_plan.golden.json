@@ -1,4 +1,5 @@
 {
+  "budgets": [],
   "defaults": {
     "cache": "exact",
     "declared_tool": "allow",

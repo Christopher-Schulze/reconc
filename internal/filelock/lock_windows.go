@@ -31,6 +31,16 @@ func TryLock(file *os.File) (func() error, error) {
 	return lock(file, lockfileExclusiveLock|lockfileFailImmediately)
 }
 
+// RLock takes a blocking shared lock on file and returns its unlock function.
+func RLock(file *os.File) (func() error, error) {
+	return lock(file, 0)
+}
+
+// TryRLock takes a shared lock without waiting for an exclusive owner.
+func TryRLock(file *os.File) (func() error, error) {
+	return lock(file, lockfileFailImmediately)
+}
+
 func lock(file *os.File, flags uint32) (func() error, error) {
 	handle := syscall.Handle(file.Fd())
 	overlapped := &syscall.Overlapped{}

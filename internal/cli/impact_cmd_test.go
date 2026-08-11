@@ -118,10 +118,15 @@ func TestImpactActionDeltaGateAndEveryReportFormat(t *testing.T) {
 				Completeness: action.CompleteEvidence(), Deadline: action.DeadlineReady, StateVersion: "state-v1",
 			},
 			State: impactlab.ActionStateFixture{
-				ContextIdentity: "context-v1", Principal: "operator", CredentialLabels: []string{"database-writer"},
+				ContextIdentity: "context-v1", ExecutableDigest: actionImpactExecutableDigest,
+				Principal: "operator", CredentialLabels: []string{"database-writer"},
 				Approval:  action.ApprovalSnapshot{Status: action.ApprovalNone, Identity: "approval-none"},
 				Taint:     action.TaintSnapshot{Status: action.TaintClean, Identity: "taint-clean"},
 				Lifecycle: action.LifecycleActive, CachePolicyVersion: action.CacheIdentityVersion,
+				Budget: action.BudgetSnapshot{
+					StateVersion: "state-v1", Identity: "absent",
+					ReservationIdentity: "absent", Complete: true, Candidates: []action.BudgetCandidate{},
+				},
 				ResampleDrift: []impactlab.ActionIdentityComponent{},
 			},
 			Expected: impactlab.ActionAssertion{
@@ -262,6 +267,7 @@ const (
 	actionImpactServerIdentity     = "hmac-sha256:v1:fixture:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	actionImpactToolDigest         = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	actionImpactRepositoryIdentity = "hmac-sha256:v1:fixture:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	actionImpactExecutableDigest   = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 	actionImpactCurrentPolicy      = `actions:
   tools:
     - id: database-write

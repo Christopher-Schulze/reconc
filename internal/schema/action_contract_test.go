@@ -22,6 +22,7 @@ func TestCurrentPolicyConfigSchemaAcceptsOnlyTheImplementedActionSurface(t *test
 			"tools": []interface{}{map[string]interface{}{
 				"id": "warehouse-query", "transport": "mcp_stdio", "server_label": "warehouse",
 				"tool": "query", "effect": map[string]interface{}{"kind": "external"},
+				"cost_units": 3, "max_result_bytes": 4096,
 			}},
 			"rules": []interface{}{map[string]interface{}{
 				"id": "block-production", "decision": "block",
@@ -29,6 +30,12 @@ func TestCurrentPolicyConfigSchemaAcceptsOnlyTheImplementedActionSurface(t *test
 				"when": map[string]interface{}{"predicate": map[string]interface{}{
 					"source": "arguments", "pointer": "/database", "op": "eq", "value": "production",
 				}},
+			}},
+			"budgets": []interface{}{map[string]interface{}{
+				"id":       "query-run-cap",
+				"selector": map[string]interface{}{"tool_ids": []interface{}{"warehouse-query"}},
+				"limits":   map[string]interface{}{"call_count": 10, "result_bytes": 40960, "cost_units": 30},
+				"reset":    "operator_run", "on_exhaustion": "block",
 			}},
 			"defaults": map[string]interface{}{"gateway_unmatched": "block", "host_unmatched": "allow"},
 		},
@@ -38,7 +45,10 @@ func TestCurrentPolicyConfigSchemaAcceptsOnlyTheImplementedActionSurface(t *test
 	}
 	for _, mutate := range []func(map[string]interface{}){
 		func(candidate map[string]interface{}) {
-			candidate["actions"].(map[string]interface{})["budgets"] = []interface{}{}
+			candidate["actions"].(map[string]interface{})["approvals"] = []interface{}{}
+		},
+		func(candidate map[string]interface{}) {
+			candidate["actions"].(map[string]interface{})["budgets"].([]interface{})[0].(map[string]interface{})["limits"] = map[string]interface{}{}
 		},
 		func(candidate map[string]interface{}) {
 			candidate["actions"].(map[string]interface{})["rules"].([]interface{})[0].(map[string]interface{})["selector"] = map[string]interface{}{"tools": []interface{}{}}
@@ -49,6 +59,21 @@ func TestCurrentPolicyConfigSchemaAcceptsOnlyTheImplementedActionSurface(t *test
 		func(candidate map[string]interface{}) {
 			candidate["actions"].(map[string]interface{})["rules"].([]interface{})[0].(map[string]interface{})["when"].(map[string]interface{})["predicate"].(map[string]interface{})["op"] = "in"
 			candidate["actions"].(map[string]interface{})["rules"].([]interface{})[0].(map[string]interface{})["when"].(map[string]interface{})["predicate"].(map[string]interface{})["value"] = []interface{}{"production", true}
+		},
+		func(candidate map[string]interface{}) {
+			candidate["actions"].(map[string]interface{})["budgets"].([]interface{})[0].(map[string]interface{})["limits"] = map[string]interface{}{"call_count": 0}
+		},
+		func(candidate map[string]interface{}) {
+			candidate["actions"].(map[string]interface{})["budgets"].([]interface{})[0].(map[string]interface{})["limits"] = map[string]interface{}{"concurrent": 5}
+		},
+		func(candidate map[string]interface{}) {
+			candidate["actions"].(map[string]interface{})["budgets"].([]interface{})[0].(map[string]interface{})["limits"] = map[string]interface{}{"rate_window": 1}
+		},
+		func(candidate map[string]interface{}) {
+			candidate["actions"].(map[string]interface{})["budgets"].([]interface{})[0].(map[string]interface{})["window_seconds"] = 60
+		},
+		func(candidate map[string]interface{}) {
+			candidate["actions"].(map[string]interface{})["budgets"].([]interface{})[0].(map[string]interface{})["limits"] = map[string]interface{}{"calls": 1}
 		},
 	} {
 		candidate := cloneJSONValue(t, valid).(map[string]interface{})

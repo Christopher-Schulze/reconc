@@ -56,7 +56,9 @@ func evaluateActionScenario(scenario ActionCase, compiled runtime.CompiledAction
 	raw := actionRawRequest(scenario.Request, compiled.SourceDigest, compiled.LockDigest)
 	input := action.EvaluationInput{
 		SourceIdentity: compiled.SourceDigest, ContextIdentity: scenario.State.ContextIdentity,
-		Principal: scenario.State.Principal, CredentialLabels: append([]string(nil), scenario.State.CredentialLabels...),
+		ExecutableDigest: scenario.State.ExecutableDigest,
+		Principal:        scenario.State.Principal, CredentialLabels: append([]string(nil), scenario.State.CredentialLabels...),
+		Budget:   scenario.State.Budget,
 		Approval: scenario.State.Approval, Taint: scenario.State.Taint,
 		Lifecycle: scenario.State.Lifecycle, CachePolicyVersion: scenario.State.CachePolicyVersion,
 	}
@@ -128,6 +130,8 @@ func applyIdentityDrift(snapshot *action.IdentitySnapshot, components []ActionId
 			snapshot.ServerFingerprint = driftHMACIdentity
 		case IdentityToolContract:
 			snapshot.ToolContractDigest = driftSHAIdentity
+		case IdentityExecutable:
+			snapshot.ExecutableDigest = driftSHAIdentity
 		case IdentityRepository:
 			snapshot.RepositoryIdentity = driftHMACIdentity
 		case IdentityContext:
@@ -138,6 +142,10 @@ func applyIdentityDrift(snapshot *action.IdentitySnapshot, components []ActionId
 			snapshot.CredentialLabels = []string{"drifted"}
 		case IdentityState:
 			snapshot.StateVersion = "state-drift"
+		case IdentityBudget:
+			snapshot.BudgetIdentity = "budget-drift"
+		case IdentityReservation:
+			snapshot.ReservationIdentity = "reservation-drift"
 		case IdentityApproval:
 			snapshot.ApprovalIdentity = "approval-drift"
 		case IdentityTaint:

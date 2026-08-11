@@ -70,6 +70,7 @@ buildprovenance/ deterministic target/source identity + byte-only binary inspect
 harness/         embedded immutable advanced harness pack
 internal/
   action/         pure action contract, strict values, immutable matchers, evaluator, traces, and exact cache
+  actionstate/    trusted identities, key leases, cumulative budgets, reservations, and crash-safe local state
   adopt/          convention detector, rule suggestions, and stack-pack recommendations
   agentguide/     embedded agent-integration guide + section lookup
   assurance/      bounded native layout/source/manifest/proof gates + per-run fact graph
@@ -224,8 +225,19 @@ compiler and evaluator for strict offline `action_pre` and `action_post`
 scenarios, exact current expectations, candidate deltas, and reviewed
 newly-allowed or newly-blocked gates. No gateway currently invokes it for a
 live call, so source does not yet enforce live tool calls, inspect downstream
-content, maintain action state or a ledger, or route calls through a gateway.
+content, maintain an action ledger, or route calls through a gateway.
 The published v0.9.5 release has none of the Action Plane additions.
+
+`internal/actionstate` now owns the implemented trusted identity and cumulative
+budget boundary. It binds operator context, filesystem-observed repository and
+server identities, domain-separated HMAC identities, shared live key leases,
+and exact policy authority into evaluator snapshots. Its private versioned
+store serializes processes, journals atomic state replacement, preserves
+capacity across governing-generation changes, blocks clock rollback and unsafe
+key rotation, and models reserved, dispatched, indeterminate, and terminal
+transitions. Generic project-root retention protects this durable state instead
+of silently returning capacity. The package is not a live interception claim:
+TASK 161 must still resample and consume it at the gateway dispatch boundary.
 
 The target topology is one local, tool-only stdio MCP gateway around one
 operator-selected downstream stdio MCP server. Every routed `tools/call` would

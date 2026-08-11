@@ -29,6 +29,9 @@ type candidate struct {
 const (
 	maxRetentionDirectoryEntries = 16_384
 	maxRetentionWalkEntries      = 100_000
+	// ProjectRootRetentionLockName serializes root deletion with creation of
+	// durable action state in another process.
+	ProjectRootRetentionLockName = ".project-root-retention.lock"
 )
 
 // Run executes an immediate, cross-process-serialized retention pass.
@@ -189,7 +192,7 @@ func pruneProjectRootsInterval(options Options, force bool, report *Report) (Cla
 		report.Errors = append(report.Errors, fmt.Sprintf("create project retention dir: %v", err))
 		return class, false
 	}
-	lockPath := filepath.Join(options.StateRoot, ".project-root-retention.lock")
+	lockPath := filepath.Join(options.StateRoot, ProjectRootRetentionLockName)
 	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("open project retention lock: %v", err))
@@ -257,7 +260,12 @@ func pruneProjectRoots(options Options, report *Report, preserveRecent bool) Cla
 		if decisionErr != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("inspect policy decision for project state root %s: %v", path, decisionErr))
 		}
-		live := path == current || activeSession != "" || activeErr != nil || decisionPresent || decisionErr != nil
+		actionStatePresent, actionStateErr := durableActionStateBoundaryPresent(path)
+		if actionStateErr != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("inspect action state for project state root %s: %v", path, actionStateErr))
+		}
+		live := path == current || activeSession != "" || activeErr != nil || decisionPresent || decisionErr != nil ||
+			actionStatePresent || actionStateErr != nil
 		recent := preserveRecent && options.Policy.Locks.MaxAge > 0 && options.Now.Sub(latest) <= options.Policy.Locks.MaxAge
 		item := candidate{path: path, name: entry.Name(), size: size, mtime: latest, active: live || recent, dir: true}
 		class.BytesBefore += size
@@ -292,6 +300,21 @@ func pruneProjectRoots(options Options, report *Report, preserveRecent bool) Cla
 		class.BytesAfter += item.size
 	}
 	return class
+}
+
+func durableActionStateBoundaryPresent(project string) (bool, error) {
+	path := filepath.Join(project, "action")
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return false, fmt.Errorf("action state boundary must be a non-symlink directory")
+	}
+	return true, nil
 }
 
 func policyDecisionPresent(project string) (bool, error) {

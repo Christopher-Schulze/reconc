@@ -1258,6 +1258,15 @@ claims, and reviewed candidate-delta gates. Candidate policy files may add
 `actions` declarations in memory; this does not alter live policy or enforce a
 live tool call.
 
+Action authoring may now include strict cumulative budgets. Their compiled
+declarations and evaluator snapshots are format-5 data. Durable reservations
+live only under the operator-selected `RECONC_HOME`, never in the repository,
+and do not exist until an internal consumer explicitly opens the action-state
+owner. Existing repositories therefore gain no live interception or implicit
+state mutation merely by compiling or refreshing policy. A filesystem root is
+never accepted as `RECONC_HOME`, and an existing selected root must already be
+private because Reconc never changes its permissions implicitly.
+
 ## Uninstall And Remove
 
 Prefer receipt- and registry-owned removal:
@@ -1635,8 +1644,11 @@ generated audit binaries. The product-wide project
 state root is independently bounded to 256 recognized project roots, 128 MiB,
 and 30 days. Explicit prune enforces that global bound immediately; lifecycle
 passes protect the current project, live sessions, and roots touched within the
-24-hour concurrency grace. Unknown directories are never treated as
-product-owned. Audit and run-decision JSONL each use a 2 MiB live file plus two
+24-hour concurrency grace. A recognized root containing a durable `action/`
+state boundary is also protected because generic retention cannot safely return
+consumed budget capacity; action-specific bounded compaction owns that state.
+Unknown directories are never treated as product-owned. Audit and run-decision
+JSONL each use a 2 MiB live file plus two
 archives, with file-locked append and pre-append rotation. Audit entries
 additionally carry one contiguous sequence and SHA-256 previous/current digest
 chain, with the latest identity stored in `.reconc/audit.head.json`. Every
@@ -1944,6 +1956,18 @@ and reviewed newly-allowed or newly-blocked gates. No current source command
 routes tool calls through an enforcing gateway, so offline simulation is not a
 live tool-call interception boundary.
 
+The same unreleased source implements trusted operator and host context
+bindings, domain-separated HMAC identities, explicit key leases and rotation
+blocking, compiled cumulative budgets, evaluator budget snapshots, and a
+private bounded multi-process action-state store. Budget reservations are
+created before dispatch and can be released before dispatch, committed after
+dispatch, settled terminally, or retained as indeterminate after uncertain
+outcomes. The store rejects stale identities, malformed or oversized state,
+clock rollback, partial publication, symlinks, special files, permission drift,
+counter overflow, duplicate calls, and capacity oversubscription. This is an
+internal enforcement primitive until the gateway owns the live dispatch
+boundary; it does not make current direct MCP or framework calls enforced.
+
 The design keeps all Reconc-owned product and adapter code in Go. The target
 gateway is one local, tool-only stdio MCP process around one operator-selected
 downstream stdio MCP server. Calls routed through that gateway would be evaluated before
@@ -1976,8 +2000,10 @@ explicit provenance, fail-closed bounds, redacted bounded traces, and complete
 in-memory cache identities rather than an opaque numeric risk score. Cache reuse
 requires exact request, transport, tool, plan, policy, context, principal,
 credential, state, approval, taint, repository-effect, phase, deadline, and
-lifecycle identity plus immediate resampling. Persistent low-entropy identities
-remain unavailable until their operator-keyed state owner is implemented.
+lifecycle identity plus immediate resampling. Persistent low-entropy and
+secret-adjacent identities use exact domain-separated keyed identities from an
+operator-owned local key. Missing, malformed, wrongly permissioned, rotated, or
+unleased key material makes the dependent identity unavailable.
 
 Independent enforcement would require an operator-supplied expected lock digest.
 An explicit repository-managed mode would remain available with lower
@@ -1985,14 +2011,13 @@ provenance and a visible policy-tampering boundary. Repository policy could
 never select the downstream executable, argv, working directory, inherited
 environment, credential material, state key, or approval authority.
 
-Later layers add atomic cumulative budgets, signed
-one-time Ed25519
-approval receipts, deterministic local argument and result detectors,
+Later layers add signed one-time Ed25519 approval receipts, deterministic local
+argument and result detectors,
 post-result withholding, a privacy-bounded tamper-evident retained action
 ledger, a live MCP stdio gateway, and local control-evidence mappings.
-Low-entropy or secret-adjacent persisted identities would use
-domain-separated operator-keyed HMAC values; missing keys would make evidence
-unavailable instead of falling back to a dictionary-attackable plain digest.
+Key rotation cannot return budget capacity: it is serialized against live key
+leases and refused while dependent action state exists unless a future explicit
+atomic migration or reset owns every dependent identity and record.
 
 The full proposed contract, exact resource limits, timeouts, failure matrix,
 versioning rules, package ownership, and deterministic conformance vectors are

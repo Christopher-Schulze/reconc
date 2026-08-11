@@ -29,6 +29,7 @@ type evaluationAccumulator struct {
 	candidates      []Candidate
 	matched         []matchedRule
 	trace           []TraceEntry
+	budgets         []BudgetCandidate
 	cacheNever      bool
 	completeness    Completeness
 }
@@ -117,6 +118,9 @@ func (e *Evaluator) Evaluate(input EvaluationInput) EvaluationResult {
 		return *failure
 	}
 	accumulator := newEvaluationAccumulator(e, normalized, requestIdentity)
+	if failure = accumulator.addBudgets(); failure != nil {
+		return *failure
+	}
 	if failure = accumulator.addRepositoryEffect(); failure != nil {
 		return *failure
 	}
@@ -181,8 +185,22 @@ func newEvaluationAccumulator(
 		candidates:   []Candidate{evaluator.baselineCandidate(input.Request, tool)},
 		matched:      make([]matchedRule, 0, len(evaluator.rules)),
 		trace:        make([]TraceEntry, 0, min(len(evaluator.rules)+1, MaxTraceEntries)),
+		budgets:      cloneBudgetSnapshot(input.Budget).Candidates,
 		completeness: input.Request.Completeness,
 	}
+}
+
+func (a *evaluationAccumulator) addBudgets() *EvaluationResult {
+	for _, budget := range a.budgets {
+		if budget.Available {
+			continue
+		}
+		a.candidates = append(a.candidates, Candidate{
+			Source: CandidateBudget, ID: budget.BudgetID,
+			Decision: DecisionBlock, Reason: ReasonBudgetExhausted,
+		})
+	}
+	return nil
 }
 
 func (a *evaluationAccumulator) addRepositoryEffect() *EvaluationResult {
@@ -277,7 +295,8 @@ func (a *evaluationAccumulator) result() EvaluationResult {
 	result := EvaluationResult{
 		Decision: decision, Reason: a.candidates[0].Reason, ToolID: a.toolID,
 		MatchedRuleIDs: matchedRuleIDs(a.matched), Candidates: a.candidates,
-		Completeness: a.completeness, PolicyDigest: a.input.Request.PolicyDigest,
+		BudgetCandidates: cloneBudgetSnapshot(a.input.Budget).Candidates,
+		Completeness:     a.completeness, PolicyDigest: a.input.Request.PolicyDigest,
 		LockDigest: a.input.Request.LockDigest, PlanIdentity: a.evaluator.identity,
 		SourceIdentity: a.input.SourceIdentity,
 		PhaseOutcome:   phaseOutcome(a.input.Request.Phase, decision),
@@ -311,6 +330,13 @@ func (e *Evaluator) normalizeEvaluationInput(input EvaluationInput) (EvaluationI
 		return EvaluationInput{}, &RequestError{Code: ReasonInvalidRequest, Message: "credential labels are invalid"}
 	}
 	input.CredentialLabels = credentials
+	if input.Request.Transport == TransportMCPStdio {
+		if !sha256IdentityPattern.MatchString(input.ExecutableDigest) {
+			return EvaluationInput{}, &RequestError{Code: ReasonIdentityUnavailable, Message: "executable identity is unavailable"}
+		}
+	} else if input.ExecutableDigest == "" {
+		input.ExecutableDigest = "absent"
+	}
 	if !input.Approval.Status.Valid() || !validOpaqueIdentity(input.Approval.Identity) ||
 		!input.Taint.Status.Valid() || !validOpaqueIdentity(input.Taint.Identity) ||
 		!input.Lifecycle.Valid() || input.CachePolicyVersion != CacheIdentityVersion {
@@ -327,6 +353,9 @@ func (e *Evaluator) normalizeEvaluationInput(input EvaluationInput) (EvaluationI
 		}
 		candidate.RuleIDs = ruleIDs
 		input.RepositoryEffect = &candidate
+	}
+	if budgetErr := e.normalizeBudgetInput(&input); budgetErr != nil {
+		return EvaluationInput{}, budgetErr
 	}
 	snapshot, valid := normalizeIdentitySnapshot(input.ResampledIdentities)
 	if !valid {
@@ -349,10 +378,13 @@ func normalizeIdentitySnapshot(snapshot IdentitySnapshot) (IdentitySnapshot, boo
 		(snapshot.ServerLabel == "" || SafeLabel(snapshot.ServerLabel)) &&
 		ValidIdentity(snapshot.ServerFingerprint) &&
 		sha256IdentityPattern.MatchString(snapshot.ToolContractDigest) &&
+		validExecutableSnapshot(snapshot.ExecutableDigest) &&
 		ValidIdentity(snapshot.RepositoryIdentity) &&
 		validOpaqueIdentity(snapshot.ContextIdentity) &&
 		SafeLabel(snapshot.Principal) &&
 		validOpaqueIdentity(snapshot.StateVersion) &&
+		validOpaqueIdentity(snapshot.BudgetIdentity) &&
+		validOpaqueIdentity(snapshot.ReservationIdentity) &&
 		validOpaqueIdentity(snapshot.ApprovalIdentity) &&
 		validOpaqueIdentity(snapshot.TaintIdentity) &&
 		validOpaqueIdentity(snapshot.RepositoryEffectIdentity)
@@ -368,19 +400,31 @@ func (e *Evaluator) expectedIdentities(input EvaluationInput) IdentitySnapshot {
 	if input.RepositoryEffect != nil {
 		repositoryEffectIdentity = input.RepositoryEffect.Identity
 	}
+	budgetIdentity := input.Budget.Identity
+	reservationIdentity := input.Budget.ReservationIdentity
+	if budgetSnapshotZero(input.Budget) {
+		budgetIdentity, reservationIdentity = "absent", "absent"
+	}
+	executableDigest := input.ExecutableDigest
+	if executableDigest == "" && input.Request.Transport == TransportHostMCP {
+		executableDigest = "absent"
+	}
 	return IdentitySnapshot{
 		PlanIdentity: e.identity, SourceIdentity: input.SourceIdentity,
 		PolicyDigest: input.Request.PolicyDigest, LockDigest: input.Request.LockDigest,
-		AuthorityMode:      input.Request.AuthorityMode,
-		ServerLabel:        input.Request.ServerLabel,
-		ServerFingerprint:  input.Request.ServerFingerprint,
-		ToolContractDigest: input.Request.ToolContractDigest,
-		RepositoryIdentity: input.Request.RepositoryIdentity,
-		ContextIdentity:    input.ContextIdentity,
-		Principal:          input.Principal,
-		CredentialLabels:   append([]string(nil), input.CredentialLabels...),
-		StateVersion:       input.Request.StateVersion,
-		ApprovalIdentity:   input.Approval.Identity, TaintIdentity: input.Taint.Identity,
+		AuthorityMode:       input.Request.AuthorityMode,
+		ServerLabel:         input.Request.ServerLabel,
+		ServerFingerprint:   input.Request.ServerFingerprint,
+		ToolContractDigest:  input.Request.ToolContractDigest,
+		ExecutableDigest:    executableDigest,
+		RepositoryIdentity:  input.Request.RepositoryIdentity,
+		ContextIdentity:     input.ContextIdentity,
+		Principal:           input.Principal,
+		CredentialLabels:    append([]string(nil), input.CredentialLabels...),
+		StateVersion:        input.Request.StateVersion,
+		BudgetIdentity:      budgetIdentity,
+		ReservationIdentity: reservationIdentity,
+		ApprovalIdentity:    input.Approval.Identity, TaintIdentity: input.Taint.Identity,
 		RepositoryEffectIdentity: repositoryEffectIdentity,
 	}
 }
@@ -398,6 +442,9 @@ func (e *Evaluator) verifyResampledIdentities(input EvaluationInput) ReasonCode 
 	if actual.ToolContractDigest != expected.ToolContractDigest {
 		return ReasonToolContractStale
 	}
+	if actual.ExecutableDigest != expected.ExecutableDigest {
+		return ReasonIdentityUnavailable
+	}
 	if actual.AuthorityMode != expected.AuthorityMode ||
 		actual.ServerLabel != expected.ServerLabel ||
 		actual.ServerFingerprint != expected.ServerFingerprint ||
@@ -408,6 +455,8 @@ func (e *Evaluator) verifyResampledIdentities(input EvaluationInput) ReasonCode 
 		return ReasonIdentityUnavailable
 	}
 	if actual.StateVersion != expected.StateVersion ||
+		actual.BudgetIdentity != expected.BudgetIdentity ||
+		actual.ReservationIdentity != expected.ReservationIdentity ||
 		actual.ApprovalIdentity != expected.ApprovalIdentity ||
 		actual.RepositoryEffectIdentity != expected.RepositoryEffectIdentity {
 		return ReasonStateUnavailable
@@ -446,7 +495,11 @@ func (e *Evaluator) compiledBoundsValid() bool {
 			return false
 		}
 	}
-	return true
+	return len(e.plan.Budgets) <= MaxBudgets
+}
+
+func validExecutableSnapshot(value string) bool {
+	return value == "absent" || sha256IdentityPattern.MatchString(value)
 }
 
 func evaluatorHeaderValid(e *Evaluator) bool {
@@ -586,7 +639,7 @@ func (e *Evaluator) selectTool(request Request) (*Tool, string) {
 		Tool: request.Tool,
 	})
 	index, ok := e.toolByExact[key]
-	if !ok {
+	if !ok || index < 0 || index >= len(e.plan.Tools) {
 		return nil, ""
 	}
 	return &e.plan.Tools[index], e.plan.Tools[index].ID
@@ -683,10 +736,12 @@ func candidateOrder(candidate Candidate) string {
 	switch candidate.Source {
 	case CandidateRule:
 		return "0:" + candidate.ID
-	case CandidateRepositoryEffect:
+	case CandidateBudget:
 		return "1:" + candidate.ID
-	default:
+	case CandidateRepositoryEffect:
 		return "2:" + candidate.ID
+	default:
+		return "3:" + candidate.ID
 	}
 }
 
@@ -826,7 +881,8 @@ func failEvaluation(
 	result := EvaluationResult{
 		Decision: DecisionBlock, Reason: code,
 		MatchedRuleIDs: []string{}, Candidates: []Candidate{}, Trace: []TraceEntry{},
-		TraceComplete: true, Completeness: input.Request.Completeness,
+		BudgetCandidates: cloneBudgetSnapshot(input.Budget).Candidates,
+		TraceComplete:    true, Completeness: input.Request.Completeness,
 		PolicyDigest: input.Request.PolicyDigest, LockDigest: input.Request.LockDigest,
 		PlanIdentity: planIdentity, SourceIdentity: input.SourceIdentity,
 		Cache:        CacheResult{Reason: CacheFailureResult},

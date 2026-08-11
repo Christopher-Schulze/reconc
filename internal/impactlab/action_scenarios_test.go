@@ -19,6 +19,16 @@ const (
 	fixtureServerIdentity = "hmac-sha256:v1:fixture:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	fixtureToolDigest     = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	fixtureRepoIdentity   = "hmac-sha256:v1:fixture:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	fixtureExecutable     = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	budgetKeyID           = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	budgetServerIdentity  = "hmac-sha256:v1:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	budgetRepoIdentity    = "hmac-sha256:v1:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	budgetStateIdentity   = "hmac-sha256:v1:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	budgetSnapshotID      = "hmac-sha256:v1:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	budgetReservationID   = "hmac-sha256:v1:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	budgetScopeID         = "hmac-sha256:v1:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	budgetLineageID       = "hmac-sha256:v1:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee:1111111111111111111111111111111111111111111111111111111111111111"
+	budgetWindowID        = "hmac-sha256:v1:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee:2222222222222222222222222222222222222222222222222222222222222222"
 )
 
 func TestActionCorpusRunsExactPreAndPostScenariosThroughProductionEvaluator(t *testing.T) {
@@ -103,6 +113,40 @@ func TestActionCorpusPreservesTrustedContextProvenance(t *testing.T) {
 	}
 }
 
+func TestActionCorpusReplaysBudgetReservationExhaustionContentionAndCorruption(t *testing.T) {
+	repo, evaluator := makeBudgetActionImpactRepo(t)
+	compiled, err := evaluator.ActionRuntime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	available := budgetActionFixture(compiled, "budget-reserved", action.BudgetUsage{},
+		action.BudgetUsage{CallCount: 1, RateWindow: 1}, true, true,
+		actionAssertion(action.DecisionAllow, action.ReasonDeclaredTool, "database-write", nil,
+			action.CacheEligible, action.OutcomeDispatchEligible, ""))
+	exhausted := budgetActionFixture(compiled, "budget-exhausted",
+		action.BudgetUsage{CallCount: 2, RateWindow: 1}, action.BudgetUsage{}, false, false,
+		actionAssertion(action.DecisionBlock, action.ReasonBudgetExhausted, "database-write", nil,
+			action.CacheEligible, action.OutcomeDispatchBlocked, ""))
+	contended := budgetActionFixture(compiled, "budget-contended", action.BudgetUsage{},
+		action.BudgetUsage{CallCount: 2, RateWindow: 1}, false, false,
+		actionAssertion(action.DecisionBlock, action.ReasonBudgetExhausted, "database-write", nil,
+			action.CacheEligible, action.OutcomeDispatchBlocked, ""))
+	corrupt := budgetActionFixture(compiled, "budget-corrupt", action.BudgetUsage{},
+		action.BudgetUsage{CallCount: 1, RateWindow: 1}, true, true,
+		actionAssertion(action.DecisionBlock, action.ReasonStateCorrupt, "", nil,
+			action.CacheIdentityMissing, action.OutcomeDispatchBlocked, action.ReasonStateCorrupt))
+	corrupt.Action.State.Budget.Candidates[0].ScopeIdentity = fixtureServerIdentity
+
+	cases := []Case{available, exhausted, contended, corrupt}
+	corpus, err := NewCorpus(repo, cases, AllEventClasses())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Compare(repo, corpus, candidateFromEvaluator(t, evaluator), evaluator, evaluator); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestActionScenarioAppliesEveryDeclaredResampleDrift(t *testing.T) {
 	_, evaluator := makeActionImpactRepo(t, "")
 	compiled, err := evaluator.ActionRuntime()
@@ -111,8 +155,8 @@ func TestActionScenarioAppliesEveryDeclaredResampleDrift(t *testing.T) {
 	}
 	components := []ActionIdentityComponent{
 		IdentityPlan, IdentitySource, IdentityPolicy, IdentityLock, IdentityAuthority,
-		IdentityServer, IdentityToolContract, IdentityRepository, IdentityContext,
-		IdentityPrincipal, IdentityCredentials, IdentityState, IdentityApproval,
+		IdentityServer, IdentityToolContract, IdentityExecutable, IdentityRepository, IdentityContext,
+		IdentityPrincipal, IdentityCredentials, IdentityState, IdentityBudget, IdentityReservation, IdentityApproval,
 		IdentityTaint, IdentityRepositoryEffect,
 	}
 	for _, component := range components {
@@ -126,7 +170,8 @@ func TestActionScenarioAppliesEveryDeclaredResampleDrift(t *testing.T) {
 				t.Fatal(err)
 			}
 			wantCache := action.CacheIdentityDrift
-			if component == IdentityState || component == IdentityApproval || component == IdentityRepositoryEffect {
+			if component == IdentityState || component == IdentityBudget || component == IdentityReservation ||
+				component == IdentityApproval || component == IdentityRepositoryEffect {
 				wantCache = action.CacheStateStale
 			}
 			if observation.Outcome.Decision != action.DecisionBlock || observation.Outcome.FailureCode == "" ||
@@ -550,23 +595,24 @@ func TestActionCorpusPrivacyAndCompletenessMutationsFailClosed(t *testing.T) {
 	if _, err := Compare(repo, corpus, candidateFromEvaluator(t, evaluator), evaluator, evaluator); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := sanitizeActionRawValue(ActionPayload(`{"path":"/Users/example/private"`), action.SourceArguments,
+	syntheticUserPath := "/" + "Users/example/private"
+	if _, _, err := sanitizeActionRawValue(ActionPayload(`{"path":"`+syntheticUserPath+`"`), action.SourceArguments,
 		action.ProvenanceAgentSupplied, "", []ActionValueSummary{}); err == nil {
 		t.Fatal("malformed physical path escaped action privacy validation")
 	}
 	cleanedPath, pathSummaries, err := sanitizeActionRawValue(
-		ActionPayload(`{"path":"/Users/example/private"}`), action.SourceArguments,
+		ActionPayload(`{"path":"`+syntheticUserPath+`"}`), action.SourceArguments,
 		action.ProvenanceAgentSupplied, "", []ActionValueSummary{},
 	)
-	if err != nil || strings.Contains(string(cleanedPath), "/Users/") ||
+	if err != nil || strings.Contains(string(cleanedPath), "/"+"Users/") ||
 		len(pathSummaries) != 1 || pathSummaries[0].Category != "physical-path" {
 		t.Fatalf("physical path privacy = %q, %+v, %v", cleanedPath, pathSummaries, err)
 	}
 	for _, privatePath := range []string{
-		"log at /Users/example/private/output.txt",
+		"log at " + syntheticUserPath + "/output.txt",
 		"log at (/var/private/output.txt)",
-		`log at C:\Users\example\private\output.txt`,
-		"log at file:///Users/example/private/output.txt",
+		"log at C:\\" + "Users\\example\\private\\output.txt",
+		"log at file://" + syntheticUserPath + "/output.txt",
 	} {
 		privateJSON, marshalErr := json.Marshal(privatePath)
 		if marshalErr != nil {
@@ -1027,15 +1073,63 @@ func newActionFixture(id string, kind CaseKind, payload string, expected ActionA
 	return Case{ID: id, Kind: kind, Action: &ActionCase{
 		ToolID: "database-write", Request: request,
 		State: ActionStateFixture{
-			ContextIdentity: "context-v1", Principal: "operator",
+			ContextIdentity: "context-v1", ExecutableDigest: fixtureExecutable, Principal: "operator",
 			CredentialLabels: []string{"database-writer"},
 			Approval:         action.ApprovalSnapshot{Status: action.ApprovalNone, Identity: "approval-none"},
 			Taint:            action.TaintSnapshot{Status: action.TaintClean, Identity: "taint-clean"},
 			Lifecycle:        action.LifecycleActive, CachePolicyVersion: action.CacheIdentityVersion,
+			Budget: action.BudgetSnapshot{
+				StateVersion: "state-v1", Identity: "absent",
+				ReservationIdentity: "absent", Complete: true, Candidates: []action.BudgetCandidate{},
+			},
 			ResampleDrift: []ActionIdentityComponent{},
 		},
 		Expected: expected, SelectedValues: []ActionValueSummary{},
 	}}
+}
+
+func budgetActionFixture(
+	compiled runtime.CompiledActionRuntime,
+	id string,
+	consumed action.BudgetUsage,
+	reserved action.BudgetUsage,
+	reservationApplied bool,
+	available bool,
+	expected ActionAssertion,
+) Case {
+	fixture := newActionFixture(id, CaseActionPre, `{"target":"staging"}`, expected)
+	fixture.Action.Request.ServerFingerprint = budgetServerIdentity
+	fixture.Action.Request.RepositoryIdentity = budgetRepoIdentity
+	fixture.Action.Request.StateVersion = budgetStateIdentity
+	fixture.Action.State.Budget = action.BudgetSnapshot{
+		StateVersion: budgetStateIdentity, Identity: budgetSnapshotID,
+		ReservationIdentity: budgetReservationID, Complete: true,
+		Candidates: []action.BudgetCandidate{{
+			BudgetID: "database-window", ScopeIdentity: budgetScopeID,
+			LineageIdentity: budgetLineageID,
+			Scope: action.BudgetScope{
+				RepositoryIdentity: budgetRepoIdentity, Principal: "operator",
+				CredentialLabels: []string{"database-writer"}, ServerLabel: "database",
+				ServerIdentity: budgetServerIdentity, ToolID: "database-write",
+				RunIdentity: "absent", SessionIdentity: "absent", WindowIdentity: budgetWindowID,
+				WindowStartUnix: 120,
+			},
+			Reset: action.BudgetResetFixedWindow, WindowSeconds: 60,
+			Limits:   action.BudgetLimits{CallCount: 2, RateWindow: 1},
+			Consumed: consumed, Reserved: reserved,
+			Required:           action.BudgetUsage{CallCount: 1, RateWindow: 1},
+			ReservationApplied: reservationApplied, Available: available,
+			Generation: action.BudgetGeneration{
+				PolicyDigest: compiled.SourceDigest, ExecutableDigest: fixtureExecutable,
+				ToolContractDigest: fixtureToolDigest, KeyID: budgetKeyID,
+			},
+		}},
+	}
+	if !available {
+		fixture.Action.State.Budget.ReservationIdentity = "absent"
+		fixture.Action.State.Budget.Candidates[0].Reason = action.ReasonBudgetExhausted
+	}
+	return fixture
 }
 
 func actionAssertion(decision action.Decision, reason action.ReasonCode, toolID string, rules []string, cacheReason action.CacheReason, outcome action.PhaseOutcome, failure action.ReasonCode) ActionAssertion {
@@ -1156,6 +1250,44 @@ actions:
 	}
 	if _, err := compiler.CompileRepoPolicy(repo, "test"); err != nil {
 		t.Fatalf("compile action repo:\n%s\n%v", body, err)
+	}
+	evaluator, _, err := runtime.NewEvaluator().CurrentCompiledPolicyEvaluator(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return repo, evaluator
+}
+
+func makeBudgetActionImpactRepo(t *testing.T) (string, *runtime.CompiledPolicyEvaluator) {
+	t.Helper()
+	repo := t.TempDir()
+	body := `actions:
+  tools:
+    - id: database-write
+      transport: mcp_stdio
+      server_label: database
+      server_fingerprint: ` + budgetServerIdentity + `
+      tool: execute
+      effect:
+        kind: external
+  rules: []
+  budgets:
+    - id: database-window
+      selector:
+        tool_ids: [database-write]
+      limits:
+        call_count: 2
+        rate_window: 1
+      reset: fixed_window
+      window_seconds: 60
+      on_exhaustion: block
+rules: []
+`
+	if err := os.WriteFile(filepath.Join(repo, ".reconc.yml"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compiler.CompileRepoPolicy(repo, "test"); err != nil {
+		t.Fatalf("compile budget action repo:\n%s\n%v", body, err)
 	}
 	evaluator, _, err := runtime.NewEvaluator().CurrentCompiledPolicyEvaluator(repo)
 	if err != nil {

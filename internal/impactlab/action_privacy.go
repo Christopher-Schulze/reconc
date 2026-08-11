@@ -91,6 +91,12 @@ func cloneActionCase(input ActionCase) ActionCase {
 	out.Request.Context = cloneRawContext(input.Request.Context)
 	out.Request.Completeness.Missing = append([]action.MissingEvidence{}, input.Request.Completeness.Missing...)
 	out.State.CredentialLabels = append([]string{}, input.State.CredentialLabels...)
+	out.State.Budget.Candidates = append([]action.BudgetCandidate{}, input.State.Budget.Candidates...)
+	for index := range out.State.Budget.Candidates {
+		out.State.Budget.Candidates[index].Scope.CredentialLabels = append(
+			[]string{}, input.State.Budget.Candidates[index].Scope.CredentialLabels...,
+		)
+	}
 	out.State.ResampleDrift = append([]ActionIdentityComponent{}, input.State.ResampleDrift...)
 	if input.State.RepositoryEffect != nil {
 		effect := *input.State.RepositoryEffect

@@ -89,3 +89,47 @@ func TestTryLockRejectsContendedFileWithoutWaiting(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSharedLocksCoexistAndExcludeWriter(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "shared.lock")
+	first, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	second, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	writer, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+
+	unlockFirst, err := TryRLock(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unlockSecond, err := TryRLock(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := TryLock(writer); err == nil {
+		t.Fatal("exclusive lock entered while shared leases were active")
+	}
+	if err := unlockFirst(); err != nil {
+		t.Fatal(err)
+	}
+	if err := unlockSecond(); err != nil {
+		t.Fatal(err)
+	}
+	unlockWriter, err := TryLock(writer)
+	if err != nil {
+		t.Fatalf("exclusive lock did not acquire after shared leases closed: %v", err)
+	}
+	if err := unlockWriter(); err != nil {
+		t.Fatal(err)
+	}
+}

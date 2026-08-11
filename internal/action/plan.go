@@ -3,6 +3,7 @@ package action
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"unicode"
@@ -33,6 +34,9 @@ func CompilePlan(input Plan) (*CompiledPlan, error) {
 	if plan.Rules == nil {
 		plan.Rules = []Rule{}
 	}
+	if plan.Budgets == nil {
+		plan.Budgets = []Budget{}
+	}
 	if err := normalizeDefaults(&plan.Defaults); err != nil {
 		return nil, err
 	}
@@ -41,6 +45,9 @@ func CompilePlan(input Plan) (*CompiledPlan, error) {
 	}
 	if len(plan.Rules) > MaxRules {
 		return nil, fmt.Errorf("actions.rules contains %d rules; maximum is %d", len(plan.Rules), MaxRules)
+	}
+	if len(plan.Budgets) > MaxBudgets {
+		return nil, fmt.Errorf("actions.budgets contains %d declarations; maximum is %d", len(plan.Budgets), MaxBudgets)
 	}
 	toolByID := make(map[string]int, len(plan.Tools))
 	toolByExact := make(map[string]int, len(plan.Tools))
@@ -83,6 +90,17 @@ func CompilePlan(input Plan) (*CompiledPlan, error) {
 		}
 		plan.Rules[index] = compiledRules[index].Rule
 	}
+	for index := range plan.Budgets {
+		if err := normalizeBudget(&plan.Budgets[index], plan.Tools, toolByID); err != nil {
+			return nil, fmt.Errorf("actions.budgets[%d]: %w", index, err)
+		}
+	}
+	sort.Slice(plan.Budgets, func(i, j int) bool { return plan.Budgets[i].ID < plan.Budgets[j].ID })
+	for index := 1; index < len(plan.Budgets); index++ {
+		if plan.Budgets[index-1].ID == plan.Budgets[index].ID {
+			return nil, fmt.Errorf("actions.budgets contains duplicate id %q", plan.Budgets[index].ID)
+		}
+	}
 	body, err := json.Marshal(plan)
 	if err != nil {
 		return nil, fmt.Errorf("encode canonical action plan: %w", err)
@@ -94,7 +112,10 @@ func CompilePlan(input Plan) (*CompiledPlan, error) {
 			return nil, fmt.Errorf("compiled action plan requires %d logical bytes; maximum is %d", logicalBytes, MaxCompiledPlanBytes)
 		}
 	}
-	return &CompiledPlan{plan: plan, toolByID: toolByID, toolByExact: toolByExact, rules: compiledRules}, nil
+	return &CompiledPlan{
+		plan: plan, toolByID: toolByID, toolByExact: toolByExact,
+		rules: compiledRules, budgets: cloneSlice(plan.Budgets),
+	}, nil
 }
 
 func normalizeDefaults(defaults *Defaults) error {
@@ -173,6 +194,12 @@ func normalizeTool(tool *Tool) error {
 	if !tool.Effect.Kind.Valid() {
 		return fmt.Errorf("effect.kind is invalid")
 	}
+	if tool.CostUnits != nil && *tool.CostUnits > math.MaxInt64 {
+		return fmt.Errorf("cost_units must be between 0 and %d", int64(math.MaxInt64))
+	}
+	if tool.MaxResultBytes > MaxArgumentBytes {
+		return fmt.Errorf("max_result_bytes must be between 1 and %d when present", MaxArgumentBytes)
+	}
 	if err := normalizePointers(&tool.Effect.PathFields, "effect.path_fields", false); err != nil {
 		return err
 	}
@@ -202,6 +229,105 @@ func normalizeTool(tool *Tool) error {
 		return fmt.Errorf("source_identity must be a non-empty UTF-8 identity of at most %d bytes", MaxPointerBytes)
 	}
 	return nil
+}
+
+func normalizeBudget(budget *Budget, tools []Tool, toolByID map[string]int) error {
+	if !SafeLabel(budget.ID) {
+		return fmt.Errorf("id must be a lower-kebab label of 1 to %d bytes", MaxSafeLabelBytes)
+	}
+	if selectorEmpty(budget.Selector) {
+		return fmt.Errorf("selector must contain at least one exact constraint")
+	}
+	if err := normalizeSelector(&budget.Selector, toolByID); err != nil {
+		return err
+	}
+	if len(budget.Selector.Phases) > 0 &&
+		(len(budget.Selector.Phases) != 1 || budget.Selector.Phases[0] != PhasePreCall) {
+		return fmt.Errorf("selector.phases may contain only pre_call for a dispatch budget")
+	}
+	if budget.Limits.Empty() {
+		return fmt.Errorf("limits must contain at least one dimension")
+	}
+	if err := validateBudgetLimits(budget.Limits); err != nil {
+		return err
+	}
+	if !budget.Reset.Valid() {
+		return fmt.Errorf("reset must be never, operator_run, operator_session, or fixed_window")
+	}
+	if budget.Reset == BudgetResetFixedWindow {
+		if budget.WindowSeconds == 0 || budget.WindowSeconds > 86400 {
+			return fmt.Errorf("fixed_window requires window_seconds between 1 and 86400")
+		}
+	} else if budget.WindowSeconds != 0 {
+		return fmt.Errorf("window_seconds is valid only with fixed_window")
+	}
+	if budget.Limits.RateWindow != 0 && budget.Reset != BudgetResetFixedWindow {
+		return fmt.Errorf("rate_window requires fixed_window reset")
+	}
+	if budget.OnExhaustion != DecisionBlock {
+		return fmt.Errorf("on_exhaustion must be block")
+	}
+	if strings.TrimSpace(budget.SourceIdentity) == "" ||
+		!utf8.ValidString(budget.SourceIdentity) || len(budget.SourceIdentity) > MaxPointerBytes {
+		return fmt.Errorf("source_identity must be a non-empty UTF-8 identity of at most %d bytes", MaxPointerBytes)
+	}
+	matched := 0
+	for _, tool := range tools {
+		if !selectorCanMatchTool(budget.Selector, tool) {
+			continue
+		}
+		matched++
+		if tool.Transport != TransportMCPStdio {
+			return fmt.Errorf("budget selects host_mcp tool %q, which cannot be reserved before host dispatch", tool.ID)
+		}
+		if budget.Limits.ResultBytes != 0 && tool.MaxResultBytes == 0 {
+			return fmt.Errorf("result_bytes requires max_result_bytes on selected tool %q", tool.ID)
+		}
+		if budget.Limits.CostUnits != 0 && tool.CostUnits == nil {
+			return fmt.Errorf("cost_units requires cost_units on selected tool %q", tool.ID)
+		}
+	}
+	if matched == 0 {
+		return fmt.Errorf("selector cannot match any declared tool")
+	}
+	return nil
+}
+
+func validateBudgetLimits(limits BudgetLimits) error {
+	values := []struct {
+		name  string
+		value uint64
+	}{
+		{"call_count", limits.CallCount}, {"denied_count", limits.DeniedCount},
+		{"approval_count", limits.ApprovalCount}, {"argument_bytes", limits.ArgumentBytes},
+		{"result_bytes", limits.ResultBytes}, {"cost_units", limits.CostUnits},
+		{"concurrent", limits.Concurrent}, {"rate_window", limits.RateWindow},
+	}
+	for _, value := range values {
+		if value.value > math.MaxInt64 {
+			return fmt.Errorf("limits.%s exceeds %d", value.name, int64(math.MaxInt64))
+		}
+	}
+	if limits.Concurrent > MaxConcurrentCalls {
+		return fmt.Errorf("limits.concurrent exceeds gateway maximum %d", MaxConcurrentCalls)
+	}
+	return nil
+}
+
+func selectorEmpty(selector Selector) bool {
+	return len(selector.ToolIDs) == 0 && len(selector.Transports) == 0 &&
+		len(selector.Platforms) == 0 && len(selector.ServerLabels) == 0 &&
+		len(selector.ServerFingerprints) == 0 && len(selector.Tools) == 0 &&
+		len(selector.ToolContractDigests) == 0 && len(selector.Phases) == 0
+}
+
+func selectorCanMatchTool(selector Selector, tool Tool) bool {
+	return stringListed(selector.ToolIDs, tool.ID) &&
+		transportListed(selector.Transports, tool.Transport) &&
+		platformListed(selector.Platforms, tool.Platform) &&
+		stringListed(selector.ServerLabels, tool.ServerLabel) &&
+		stringListed(selector.ServerFingerprints, tool.ServerFingerprint) &&
+		stringListed(selector.Tools, tool.Tool)
 }
 
 func normalizeRule(rule *Rule, defaults Defaults, toolByID map[string]int) (*CompiledCondition, int, error) {
@@ -387,6 +513,27 @@ func ValidIdentity(value string) bool {
 	return sha256IdentityPattern.MatchString(value) || hmacIdentityPattern.MatchString(value)
 }
 
+func ValidKeyedIdentity(value string) bool {
+	return hmacIdentityPattern.MatchString(value)
+}
+
+func KeyedIdentityKeyID(value string) (string, bool) {
+	const prefix = "hmac-sha256:v1:"
+	if !ValidKeyedIdentity(value) {
+		return "", false
+	}
+	remainder := strings.TrimPrefix(value, prefix)
+	separator := strings.IndexByte(remainder, ':')
+	if separator <= 0 {
+		return "", false
+	}
+	return remainder[:separator], true
+}
+
+func ValidSHA256Identity(value string) bool {
+	return sha256IdentityPattern.MatchString(value)
+}
+
 func validateToolName(value string, gateway bool) error {
 	if value == "" || !utf8.ValidString(value) || len(value) > MaxToolNameBytes {
 		return fmt.Errorf("tool must contain 1 to %d valid UTF-8 bytes", MaxToolNameBytes)
@@ -422,6 +569,36 @@ func (p *CompiledPlan) Rules() []CompiledRule {
 		out[index] = cloneCompiledRule(p.rules[index])
 	}
 	return out
+}
+
+// Budgets returns canonical immutable budget declarations in stable ID order.
+func (p *CompiledPlan) Budgets() []Budget {
+	if p == nil {
+		return nil
+	}
+	out := cloneSlice(p.budgets)
+	for index := range out {
+		cloneSelector(&out[index].Selector, p.budgets[index].Selector)
+	}
+	return out
+}
+
+// Tool returns one defensively copied canonical declaration by stable ID.
+func (p *CompiledPlan) Tool(id string) (Tool, bool) {
+	if p == nil {
+		return Tool{}, false
+	}
+	index, ok := p.toolByID[id]
+	if !ok {
+		return Tool{}, false
+	}
+	tool := p.plan.Tools[index]
+	tool.Effect.PathFields = cloneSlice(tool.Effect.PathFields)
+	if tool.CostUnits != nil {
+		value := *tool.CostUnits
+		tool.CostUnits = &value
+	}
+	return tool, true
 }
 
 func cloneCompiledRule(source CompiledRule) CompiledRule {
@@ -500,10 +677,18 @@ func clonePlan(input Plan) Plan {
 	out.Tools = cloneSlice(input.Tools)
 	for index := range out.Tools {
 		out.Tools[index].Effect.PathFields = cloneSlice(input.Tools[index].Effect.PathFields)
+		if input.Tools[index].CostUnits != nil {
+			value := *input.Tools[index].CostUnits
+			out.Tools[index].CostUnits = &value
+		}
 	}
 	out.Rules = cloneSlice(input.Rules)
 	for index := range out.Rules {
 		out.Rules[index] = *cloneRule(&input.Rules[index])
+	}
+	out.Budgets = cloneSlice(input.Budgets)
+	for index := range out.Budgets {
+		cloneSelector(&out.Budgets[index].Selector, input.Budgets[index].Selector)
 	}
 	return out
 }

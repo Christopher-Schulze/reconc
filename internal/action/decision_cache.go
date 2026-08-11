@@ -19,6 +19,7 @@ type cacheBinding struct {
 	ServerFingerprint        string                     `json:"server_fingerprint"`
 	Tool                     string                     `json:"tool"`
 	ToolContractDigest       string                     `json:"tool_contract_digest"`
+	ExecutableDigest         string                     `json:"executable_digest"`
 	Phase                    Phase                      `json:"phase"`
 	PlanIdentity             string                     `json:"plan_identity"`
 	SourceIdentity           string                     `json:"source_identity"`
@@ -28,6 +29,7 @@ type cacheBinding struct {
 	CredentialLabels         []string                   `json:"credential_labels"`
 	RepositoryIdentity       string                     `json:"repository_identity"`
 	StateVersion             string                     `json:"state_version"`
+	Budget                   BudgetSnapshot             `json:"budget"`
 	Approval                 ApprovalSnapshot           `json:"approval"`
 	Taint                    TaintSnapshot              `json:"taint"`
 	Lifecycle                LifecycleState             `json:"lifecycle"`
@@ -179,13 +181,15 @@ func (e *Evaluator) cacheIdentityWithReason(
 		Transport: input.Request.Transport, ServerLabel: input.Request.ServerLabel,
 		ServerFingerprint: input.Request.ServerFingerprint, Tool: input.Request.Tool,
 		ToolContractDigest: input.Request.ToolContractDigest, Phase: input.Request.Phase,
-		PlanIdentity: e.identity, SourceIdentity: input.SourceIdentity,
+		ExecutableDigest: input.ExecutableDigest,
+		PlanIdentity:     e.identity, SourceIdentity: input.SourceIdentity,
 		PolicyAuthority: input.Request.AuthorityMode, ContextIdentity: input.ContextIdentity,
 		Principal:          input.Principal,
 		CredentialLabels:   input.CredentialLabels,
 		RepositoryIdentity: input.Request.RepositoryIdentity,
-		StateVersion:       input.Request.StateVersion, Approval: input.Approval,
-		Taint: input.Taint, Lifecycle: input.Lifecycle,
+		StateVersion:       input.Request.StateVersion, Budget: cloneBudgetSnapshot(input.Budget),
+		Approval: input.Approval,
+		Taint:    input.Taint, Lifecycle: input.Lifecycle,
 		Completeness: input.Request.Completeness, RepositoryEffect: input.RepositoryEffect,
 		RepositoryEffectIdentity: e.expectedIdentities(input).RepositoryEffectIdentity,
 		Resampled:                input.ResampledIdentities,
@@ -205,6 +209,7 @@ func cloneEvaluationResult(source EvaluationResult) EvaluationResult {
 	out := source
 	out.MatchedRuleIDs = append([]string(nil), source.MatchedRuleIDs...)
 	out.Candidates = append([]Candidate(nil), source.Candidates...)
+	out.BudgetCandidates = cloneBudgetSnapshot(BudgetSnapshot{Candidates: source.BudgetCandidates}).Candidates
 	out.Trace = append([]TraceEntry(nil), source.Trace...)
 	out.Completeness.Missing = append([]MissingEvidence(nil), source.Completeness.Missing...)
 	if source.Failure != nil {

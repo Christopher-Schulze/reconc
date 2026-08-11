@@ -7,6 +7,7 @@ const (
 	testPolicyDigest       = "2222222222222222222222222222222222222222222222222222222222222222"
 	testLockDigest         = "3333333333333333333333333333333333333333333333333333333333333333"
 	testToolContractDigest = "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+	testExecutableDigest   = "sha256:7777777777777777777777777777777777777777777777777777777777777777"
 	testServerFingerprint  = "hmac-sha256:v1:key1:5555555555555555555555555555555555555555555555555555555555555555"
 	testRepositoryIdentity = "hmac-sha256:v1:key2:6666666666666666666666666666666666666666666666666666666666666666"
 )
@@ -50,10 +51,15 @@ func testActionEvaluator(
 			Deadline: DeadlineReady, StateVersion: "state-v1",
 		},
 		SourceIdentity: testSourceDigest, ContextIdentity: "context-v1", Principal: "operator",
+		ExecutableDigest: testExecutableDigest,
 		CredentialLabels: []string{"database-writer"},
-		Approval:         ApprovalSnapshot{Status: ApprovalNone, Identity: "approval-none"},
-		Taint:            TaintSnapshot{Status: TaintClean, Identity: "taint-clean"},
-		Lifecycle:        LifecycleActive, CachePolicyVersion: CacheIdentityVersion,
+		Budget: BudgetSnapshot{
+			StateVersion: "state-v1", Identity: "absent",
+			ReservationIdentity: "absent", Complete: true, Candidates: []BudgetCandidate{},
+		},
+		Approval:  ApprovalSnapshot{Status: ApprovalNone, Identity: "approval-none"},
+		Taint:     TaintSnapshot{Status: TaintClean, Identity: "taint-clean"},
+		Lifecycle: LifecycleActive, CachePolicyVersion: CacheIdentityVersion,
 	}
 	input.ResampledIdentities = evaluator.expectedIdentities(input)
 	return evaluator, input

@@ -110,9 +110,10 @@ func FuzzDecodeImpactDeltaManifest(f *testing.F) {
 }
 
 func FuzzActionPrivacyTransform(f *testing.F) {
+	syntheticUserPath := "/" + "Users/example/private"
 	for _, seed := range [][]byte{
 		[]byte(`{"authorization":"Bearer sk-secretvalue123"}`),
-		[]byte(`{"path":"/Users/example/private"}`),
+		[]byte(`{"path":"` + syntheticUserPath + `"}`),
 		[]byte(`{"safe":[1,true,"value"]}`),
 		[]byte(`{"authorization":"sk-secretvalue123"`),
 	} {

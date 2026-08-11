@@ -118,7 +118,7 @@ Core invariants are deliberately strict:
 | Control surface | What Reconc provides |
 | --- | --- |
 | Policy compiler | Compiles repository instructions, YAML policy, packs, templates, and provenance into a portable lockfile. Unknown fields, stale sources, schema drift, invalid globs, unsupported rule kinds, and non-portable current roots fail closed. |
-| Action policy compilation and simulation | Unreleased v0.9.6 source strictly compiles `actions` and compatible legacy `mcp` authoring into one canonical format-5 action plan, explains it through `reconc why action`, and evaluates strict offline action scenarios through `reconc impact`; operand values stay redacted. |
+| Action policy, trusted context, and budgets | Unreleased v0.9.6 source strictly compiles `actions` and compatible legacy `mcp` authoring into one canonical format-5 action plan, explains and simulates it offline, and implements private keyed identities plus crash-safe cumulative budget reservations; no current command routes live calls through that state. |
 | Scope and change control | Records and evaluates reads, writes, commands, claims, protected paths, coupled changes, generated files, secret state, destructive commands, and out-of-scope edits or deletions. |
 | Evidence freshness | Binds command success to the write epoch or staged Git candidate it verified. A later relevant write invalidates earlier success instead of laundering stale proof. |
 | Completion | `reconc done .` accepts completion only when policy, HEAD, index, worktree, evidence, reports, unresolved blocks, staged proofs, and typed TASK state agree. |
@@ -133,7 +133,8 @@ Core invariants are deliberately strict:
 | Release trust | Publishes strict release manifests, SHA-256 checksums, build-provenance attestations, and deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs tied to the release commit. |
 
 Offline action evaluation is not live action enforcement: current source
-evaluates compiled action rules only for explicit `reconc impact` scenarios and
+evaluates compiled action rules for explicit `reconc impact` scenarios and
+provides the internal trusted-context and cumulative-budget state owner, but it
 does not route real tool calls through a Reconc-owned gateway. The published
 v0.9.5 release does not contain the format-5 Action Plane additions.
 
@@ -618,6 +619,7 @@ and routes behavior into internal packages with explicit boundaries:
 | Layer | Responsibility |
 | --- | --- |
 | Ingest, parser, compiler, action | Discover repository roots and policy sources, validate strict YAML and templates, resolve packs, compile canonical repository and action plans with immutable matcher programs, detect conflicts, generate portable lockfiles, and migrate supported formats. |
+| Action state | Bind operator and host identities, hold leased keyed identity material, reserve and settle cumulative budgets, and preserve crash-consistent cross-process state outside repositories. |
 | Runtime and assurance | Evaluate normalized evidence, path and command rules, native repository assurance, scripts, templates, remediation, and Git-derived candidates. |
 | Hooks and agent sessions | Generate platform artifacts, normalize untrusted host payloads, enforce pre-action policy, record bounded outcomes, manage compaction context, and evaluate Stop. |
 | Bootstrap and harness packs | Inspect repositories, build deterministic plans, publish create-only artifacts and ownership receipts, embed the advanced pack, synchronize owned state, and roll back failed transactions. |
@@ -635,6 +637,7 @@ policy, and mutable runtime evidence separate:
 | Repository installation receipt | `.reconc/install.lock.json` | Yes | Defines portable ownership for bootstrap, sync, verification, and bounded removal. |
 | Compiled policy | `.reconc/policy.lock.json` | Yes | Portable deterministic contract reviewed with policy-source changes. |
 | Runtime evidence | Bounded repository and user state under Reconc-owned roots | No | Session events, reports, unresolved blocks, run decisions, staged proofs, liveness, and retention metadata. |
+| Action budget state | `$RECONC_HOME/projects/<repository-key>/action/state.json` | No | Private keyed budget generations, consumption, reservations, terminal calls, and trusted-clock high-water state. |
 | Repository run state | `.reconc/run/` | No | Durable repository-scoped autonomous switch and bounded decision log. |
 | TASK control plane | Repository-configured Markdown overview and detail paths | Yes | Human-readable and machine-validated work state. |
 

@@ -1,6 +1,7 @@
 package action
 
 import (
+	"math"
 	"strings"
 	"testing"
 )
@@ -30,6 +31,130 @@ func TestCompilePlanCanonicalizesDefaultsAndOrdering(t *testing.T) {
 	}
 	if got.Rules[0].ID != "a-rule" || got.Rules[0].Cache != CacheExact || got.Rules[0].OnIndeterminate != DecisionBlock {
 		t.Fatalf("canonical rules = %#v", got.Rules)
+	}
+}
+
+func TestCompilePlanCanonicalizesAndDefensivelyCopiesBudgets(t *testing.T) {
+	t.Parallel()
+	tool := gatewayTool("query", "query")
+	tool.CostUnits = uint64Pointer(2)
+	tool.MaxResultBytes = 4096
+	compiled, err := CompilePlan(Plan{
+		Tools: []Tool{tool},
+		Budgets: []Budget{
+			{
+				ID: "z-budget", Selector: Selector{ToolIDs: []string{"query"}},
+				Limits: BudgetLimits{CallCount: 5}, Reset: BudgetResetNever,
+				OnExhaustion: DecisionBlock, SourceIdentity: ".reconc.yml",
+			},
+			{
+				ID: "a-budget", Selector: Selector{ToolIDs: []string{"query"}},
+				Limits: BudgetLimits{ResultBytes: 8192, CostUnits: 4, Concurrent: 2},
+				Reset:  BudgetResetOperatorRun, OnExhaustion: DecisionBlock,
+				SourceIdentity: ".reconc.yml",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := compiled.Budgets()
+	if len(first) != 2 || first[0].ID != "a-budget" || first[1].ID != "z-budget" {
+		t.Fatalf("canonical budgets = %#v", first)
+	}
+	first[0].ID = "mutated"
+	first[0].Selector.ToolIDs[0] = "mutated"
+	second := compiled.Budgets()
+	if second[0].ID != "a-budget" || second[0].Selector.ToolIDs[0] != "query" {
+		t.Fatalf("budget mutated through defensive copy: %#v", second)
+	}
+	copyTool, ok := compiled.Tool("query")
+	if !ok || copyTool.CostUnits == nil || *copyTool.CostUnits != 2 {
+		t.Fatalf("compiled tool lookup = %#v, %t", copyTool, ok)
+	}
+	*copyTool.CostUnits = 99
+	copyTool, _ = compiled.Tool("query")
+	if *copyTool.CostUnits != 2 {
+		t.Fatal("compiled cost units mutated through Tool")
+	}
+}
+
+func TestCompilePlanRejectsInvalidBudgetContracts(t *testing.T) {
+	t.Parallel()
+	baseTool := gatewayTool("query", "query")
+	baseTool.CostUnits = uint64Pointer(1)
+	baseTool.MaxResultBytes = 64
+	valid := Budget{
+		ID: "budget", Selector: Selector{ToolIDs: []string{"query"}},
+		Limits: BudgetLimits{CallCount: 1}, Reset: BudgetResetNever,
+		OnExhaustion: DecisionBlock, SourceIdentity: ".reconc.yml",
+	}
+	tests := []struct {
+		name   string
+		mutate func(*Budget, *Tool)
+		want   string
+	}{
+		{name: "empty selector", mutate: func(b *Budget, _ *Tool) { b.Selector = Selector{} }, want: "selector must contain"},
+		{name: "empty limits", mutate: func(b *Budget, _ *Tool) { b.Limits = BudgetLimits{} }, want: "limits must contain"},
+		{name: "limit overflow", mutate: func(b *Budget, _ *Tool) { b.Limits.CallCount = math.MaxInt64 + 1 }, want: "exceeds"},
+		{name: "concurrency overflow", mutate: func(b *Budget, _ *Tool) { b.Limits = BudgetLimits{Concurrent: 5} }, want: "gateway maximum"},
+		{name: "invalid reset", mutate: func(b *Budget, _ *Tool) { b.Reset = "hourly" }, want: "reset must"},
+		{name: "missing window", mutate: func(b *Budget, _ *Tool) { b.Reset = BudgetResetFixedWindow }, want: "requires window_seconds"},
+		{name: "extraneous window", mutate: func(b *Budget, _ *Tool) { b.WindowSeconds = 60 }, want: "valid only"},
+		{name: "oversized window", mutate: func(b *Budget, _ *Tool) { b.Reset = BudgetResetFixedWindow; b.WindowSeconds = 86401 }, want: "between 1 and 86400"},
+		{name: "rate without window", mutate: func(b *Budget, _ *Tool) { b.Limits = BudgetLimits{RateWindow: 1} }, want: "requires fixed_window"},
+		{name: "non-block exhaustion", mutate: func(b *Budget, _ *Tool) { b.OnExhaustion = DecisionWarn }, want: "on_exhaustion"},
+		{name: "post phase", mutate: func(b *Budget, _ *Tool) { b.Selector.Phases = []Phase{PhasePostResult} }, want: "only pre_call"},
+		{name: "no matching tool", mutate: func(b *Budget, _ *Tool) { b.Selector.Tools = []string{"different"} }, want: "cannot match"},
+		{name: "result contract absent", mutate: func(b *Budget, tool *Tool) { b.Limits = BudgetLimits{ResultBytes: 1}; tool.MaxResultBytes = 0 }, want: "max_result_bytes"},
+		{name: "cost contract absent", mutate: func(b *Budget, tool *Tool) { b.Limits = BudgetLimits{CostUnits: 1}; tool.CostUnits = nil }, want: "cost_units"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			budget, tool := valid, baseTool
+			test.mutate(&budget, &tool)
+			_, err := CompilePlan(Plan{Tools: []Tool{tool}, Budgets: []Budget{budget}})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
+	}
+
+	_, err := CompilePlan(Plan{Tools: []Tool{baseTool}, Budgets: []Budget{valid, valid}})
+	if err == nil || !strings.Contains(err.Error(), "duplicate id") {
+		t.Fatalf("duplicate budget error = %v", err)
+	}
+	limitSetters := []struct {
+		name string
+		set  func(*BudgetLimits)
+	}{
+		{name: "call_count", set: func(value *BudgetLimits) { value.CallCount = math.MaxInt64 + 1 }},
+		{name: "denied_count", set: func(value *BudgetLimits) { value.DeniedCount = math.MaxInt64 + 1 }},
+		{name: "approval_count", set: func(value *BudgetLimits) { value.ApprovalCount = math.MaxInt64 + 1 }},
+		{name: "argument_bytes", set: func(value *BudgetLimits) { value.ArgumentBytes = math.MaxInt64 + 1 }},
+		{name: "result_bytes", set: func(value *BudgetLimits) { value.ResultBytes = math.MaxInt64 + 1 }},
+		{name: "cost_units", set: func(value *BudgetLimits) { value.CostUnits = math.MaxInt64 + 1 }},
+		{name: "concurrent", set: func(value *BudgetLimits) { value.Concurrent = math.MaxInt64 + 1 }},
+		{name: "rate_window", set: func(value *BudgetLimits) { value.RateWindow = math.MaxInt64 + 1 }},
+	}
+	for _, setter := range limitSetters {
+		setter := setter
+		t.Run("unbounded "+setter.name, func(t *testing.T) {
+			t.Parallel()
+			budget := valid
+			budget.Limits = BudgetLimits{}
+			setter.set(&budget.Limits)
+			_, err := CompilePlan(Plan{Tools: []Tool{baseTool}, Budgets: []Budget{budget}})
+			if err == nil {
+				t.Fatalf("unbounded %s limit compiled", setter.name)
+			}
+		})
+	}
+	tool := baseTool
+	tool.CostUnits = uint64Pointer(math.MaxInt64 + 1)
+	if _, err := CompilePlan(Plan{Tools: []Tool{tool}}); err == nil || !strings.Contains(err.Error(), "cost_units") {
+		t.Fatalf("oversized cost error = %v", err)
 	}
 }
 
@@ -273,4 +398,16 @@ func hostTool(id, name string, effect EffectKind, paths []string, command string
 		Tool: name, Effect: Effect{Kind: effect, PathFields: paths, CommandField: command},
 		Origin: OriginActions, SourceIdentity: ".reconc.yml",
 	}
+}
+
+func gatewayTool(id, name string) Tool {
+	return Tool{
+		ID: id, Transport: TransportMCPStdio, ServerLabel: "server",
+		Tool: name, Effect: Effect{Kind: EffectExternal},
+		Origin: OriginActions, SourceIdentity: ".reconc.yml",
+	}
+}
+
+func uint64Pointer(value uint64) *uint64 {
+	return &value
 }

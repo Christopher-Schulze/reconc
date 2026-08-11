@@ -281,6 +281,62 @@ type TaintSnapshot struct {
 	Identity string      `json:"identity"`
 }
 
+type BudgetUsage struct {
+	CallCount     uint64 `json:"call_count"`
+	DeniedCount   uint64 `json:"denied_count"`
+	ApprovalCount uint64 `json:"approval_count"`
+	ArgumentBytes uint64 `json:"argument_bytes"`
+	ResultBytes   uint64 `json:"result_bytes"`
+	CostUnits     uint64 `json:"cost_units"`
+	Concurrent    uint64 `json:"concurrent"`
+	RateWindow    uint64 `json:"rate_window"`
+}
+
+type BudgetGeneration struct {
+	PolicyDigest       string `json:"policy_digest"`
+	ExecutableDigest   string `json:"executable_digest"`
+	ToolContractDigest string `json:"tool_contract_digest"`
+	KeyID              string `json:"key_id"`
+}
+
+type BudgetScope struct {
+	RepositoryIdentity string   `json:"repository_identity"`
+	Principal          string   `json:"principal"`
+	CredentialLabels   []string `json:"credential_labels"`
+	ServerLabel        string   `json:"server_label"`
+	ServerIdentity     string   `json:"server_identity"`
+	ToolID             string   `json:"tool_id"`
+	RunIdentity        string   `json:"run_identity"`
+	SessionIdentity    string   `json:"session_identity"`
+	WindowIdentity     string   `json:"window_identity"`
+	WindowStartUnix    int64    `json:"window_start_unix,omitempty"`
+}
+
+type BudgetCandidate struct {
+	BudgetID           string           `json:"budget_id"`
+	ScopeIdentity      string           `json:"scope_identity"`
+	LineageIdentity    string           `json:"lineage_identity"`
+	Scope              BudgetScope      `json:"scope"`
+	Reset              BudgetReset      `json:"reset"`
+	WindowSeconds      uint32           `json:"window_seconds,omitempty"`
+	Limits             BudgetLimits     `json:"limits"`
+	Consumed           BudgetUsage      `json:"consumed"`
+	Reserved           BudgetUsage      `json:"reserved"`
+	Required           BudgetUsage      `json:"required"`
+	ReservationApplied bool             `json:"reservation_applied"`
+	Available          bool             `json:"available"`
+	Reason             ReasonCode       `json:"reason,omitempty"`
+	Generation         BudgetGeneration `json:"generation"`
+}
+
+type BudgetSnapshot struct {
+	StateVersion        string            `json:"state_version"`
+	Identity            string            `json:"identity"`
+	ReservationIdentity string            `json:"reservation_identity"`
+	Complete            bool              `json:"complete"`
+	Candidates          []BudgetCandidate `json:"candidates"`
+}
+
 type IdentitySnapshot struct {
 	PlanIdentity             string        `json:"plan_identity"`
 	SourceIdentity           string        `json:"source_identity"`
@@ -290,11 +346,14 @@ type IdentitySnapshot struct {
 	ServerLabel              string        `json:"server_label"`
 	ServerFingerprint        string        `json:"server_fingerprint"`
 	ToolContractDigest       string        `json:"tool_contract_digest"`
+	ExecutableDigest         string        `json:"executable_digest"`
 	RepositoryIdentity       string        `json:"repository_identity"`
 	ContextIdentity          string        `json:"context_identity"`
 	Principal                string        `json:"principal"`
 	CredentialLabels         []string      `json:"credential_labels"`
 	StateVersion             string        `json:"state_version"`
+	BudgetIdentity           string        `json:"budget_identity"`
+	ReservationIdentity      string        `json:"reservation_identity"`
 	ApprovalIdentity         string        `json:"approval_identity"`
 	TaintIdentity            string        `json:"taint_identity"`
 	RepositoryEffectIdentity string        `json:"repository_effect_identity"`
@@ -312,8 +371,10 @@ type EvaluationInput struct {
 	Request             Request                    `json:"request"`
 	SourceIdentity      string                     `json:"source_identity"`
 	ContextIdentity     string                     `json:"context_identity"`
+	ExecutableDigest    string                     `json:"executable_digest"`
 	Principal           string                     `json:"principal"`
 	CredentialLabels    []string                   `json:"credential_labels"`
+	Budget              BudgetSnapshot             `json:"budget"`
 	Approval            ApprovalSnapshot           `json:"approval"`
 	Taint               TaintSnapshot              `json:"taint"`
 	RepositoryEffect    *RepositoryEffectCandidate `json:"repository_effect,omitempty"`
@@ -374,6 +435,7 @@ const (
 	CandidateBaseline         CandidateSource = "baseline"
 	CandidateRule             CandidateSource = "rule"
 	CandidateRepositoryEffect CandidateSource = "repository_effect"
+	CandidateBudget           CandidateSource = "budget"
 )
 
 type Candidate struct {
@@ -446,23 +508,24 @@ type Failure struct {
 }
 
 type EvaluationResult struct {
-	Decision                 Decision     `json:"decision"`
-	Reason                   ReasonCode   `json:"reason_code"`
-	ToolID                   string       `json:"tool_id,omitempty"`
-	MatchedRuleIDs           []string     `json:"matched_rule_ids"`
-	Candidates               []Candidate  `json:"candidates"`
-	Trace                    []TraceEntry `json:"trace"`
-	TraceComplete            bool         `json:"trace_complete"`
-	TraceOmitted             int          `json:"trace_omitted"`
-	Completeness             Completeness `json:"completeness"`
-	PolicyDigest             string       `json:"policy_digest"`
-	LockDigest               string       `json:"lock_digest"`
-	PlanIdentity             string       `json:"plan_identity"`
-	SourceIdentity           string       `json:"source_identity"`
-	Cache                    CacheResult  `json:"cache"`
-	RequiredApprovalIdentity string       `json:"required_approval_identity,omitempty"`
-	PhaseOutcome             PhaseOutcome `json:"phase_outcome"`
-	Failure                  *Failure     `json:"failure,omitempty"`
+	Decision                 Decision          `json:"decision"`
+	Reason                   ReasonCode        `json:"reason_code"`
+	ToolID                   string            `json:"tool_id,omitempty"`
+	MatchedRuleIDs           []string          `json:"matched_rule_ids"`
+	Candidates               []Candidate       `json:"candidates"`
+	BudgetCandidates         []BudgetCandidate `json:"budget_candidates"`
+	Trace                    []TraceEntry      `json:"trace"`
+	TraceComplete            bool              `json:"trace_complete"`
+	TraceOmitted             int               `json:"trace_omitted"`
+	Completeness             Completeness      `json:"completeness"`
+	PolicyDigest             string            `json:"policy_digest"`
+	LockDigest               string            `json:"lock_digest"`
+	PlanIdentity             string            `json:"plan_identity"`
+	SourceIdentity           string            `json:"source_identity"`
+	Cache                    CacheResult       `json:"cache"`
+	RequiredApprovalIdentity string            `json:"required_approval_identity,omitempty"`
+	PhaseOutcome             PhaseOutcome      `json:"phase_outcome"`
+	Failure                  *Failure          `json:"failure,omitempty"`
 }
 
 type RequestError struct {

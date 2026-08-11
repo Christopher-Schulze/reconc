@@ -27,3 +27,23 @@ func TryLock(file *os.File) (func() error, error) {
 		return syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
 	}, nil
 }
+
+// RLock takes a blocking shared lock on file and returns its unlock function.
+func RLock(file *os.File) (func() error, error) {
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_SH); err != nil {
+		return nil, err
+	}
+	return func() error {
+		return syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+	}, nil
+}
+
+// TryRLock takes a shared lock without waiting for an exclusive owner.
+func TryRLock(file *os.File) (func() error, error) {
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_SH|syscall.LOCK_NB); err != nil {
+		return nil, err
+	}
+	return func() error {
+		return syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+	}, nil
+}

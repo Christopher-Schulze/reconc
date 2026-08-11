@@ -31,6 +31,9 @@ func validateActionCase(kind CaseKind, scenario ActionCase) (int, error) {
 	if err := validateActionState(scenario.State); err != nil {
 		return 0, err
 	}
+	if scenario.State.Budget.StateVersion != scenario.Request.StateVersion {
+		return 0, fmt.Errorf("action budget state version does not match the request")
+	}
 	if err := validateActionRequestFixture(scenario.Request, scenario.Expected); err != nil {
 		return 0, err
 	}
@@ -95,19 +98,25 @@ func validateActionRequestFixture(request ActionRequestFixture, expected ActionA
 
 func validateActionState(state ActionStateFixture) error {
 	if state.ResampleDrift == nil || len(state.CredentialLabels) > action.MaxCredentialLabels ||
-		!validFixtureIdentity(state.ContextIdentity) || !action.SafeLabel(state.Principal) ||
+		state.Budget.Candidates == nil || !validFixtureIdentity(state.ContextIdentity) ||
+		!action.ValidSHA256Identity(state.ExecutableDigest) || !action.SafeLabel(state.Principal) ||
 		!state.Approval.Status.Valid() || !validFixtureIdentity(state.Approval.Identity) ||
 		!state.Taint.Status.Valid() || !validFixtureIdentity(state.Taint.Identity) ||
 		!state.Lifecycle.Valid() || state.CachePolicyVersion != action.CacheIdentityVersion {
 		return fmt.Errorf("action state identity is invalid")
 	}
 	for _, value := range []string{
-		state.ContextIdentity, state.Principal, state.Approval.Identity,
+		state.ContextIdentity, state.ExecutableDigest, state.Principal, state.Approval.Identity,
 		state.Taint.Identity,
 	} {
 		if unsafeActionMetadata(value) {
 			return fmt.Errorf("action state metadata contains private content")
 		}
+	}
+	if !validFixtureIdentity(state.Budget.StateVersion) ||
+		!validFixtureIdentity(state.Budget.Identity) ||
+		!validFixtureIdentity(state.Budget.ReservationIdentity) || !state.Budget.Complete {
+		return fmt.Errorf("action budget state is invalid or incomplete")
 	}
 	for index, label := range state.CredentialLabels {
 		if !action.SafeLabel(label) || unsafeActionMetadata(label) ||

@@ -29,6 +29,8 @@ const (
 	MaxRuleMessageBytes     = 512
 	MaxRules                = 4096
 	MaxTools                = 512
+	MaxBudgets              = 1024
+	MaxConcurrentCalls      = 4
 	MaxCompiledPlanBytes    = 24 << 20
 )
 
@@ -259,6 +261,8 @@ type Tool struct {
 	ServerFingerprint string    `json:"server_fingerprint,omitempty"`
 	Tool              string    `json:"tool"`
 	Effect            Effect    `json:"effect"`
+	CostUnits         *uint64   `json:"cost_units,omitempty"`
+	MaxResultBytes    uint64    `json:"max_result_bytes,omitempty"`
 	Origin            Origin    `json:"origin"`
 	SourceIdentity    string    `json:"source_identity"`
 }
@@ -319,10 +323,57 @@ type Rule struct {
 	SourceIdentity  string      `json:"source_identity"`
 }
 
+type BudgetReset string
+
+const (
+	BudgetResetNever           BudgetReset = "never"
+	BudgetResetOperatorRun     BudgetReset = "operator_run"
+	BudgetResetOperatorSession BudgetReset = "operator_session"
+	BudgetResetFixedWindow     BudgetReset = "fixed_window"
+)
+
+func (r BudgetReset) Valid() bool {
+	switch r {
+	case BudgetResetNever, BudgetResetOperatorRun, BudgetResetOperatorSession,
+		BudgetResetFixedWindow:
+		return true
+	default:
+		return false
+	}
+}
+
+// BudgetLimits is the closed cumulative-capacity vocabulary. Zero means that
+// the dimension is absent; every present authoring value is strictly positive.
+type BudgetLimits struct {
+	CallCount     uint64 `json:"call_count,omitempty"`
+	DeniedCount   uint64 `json:"denied_count,omitempty"`
+	ApprovalCount uint64 `json:"approval_count,omitempty"`
+	ArgumentBytes uint64 `json:"argument_bytes,omitempty"`
+	ResultBytes   uint64 `json:"result_bytes,omitempty"`
+	CostUnits     uint64 `json:"cost_units,omitempty"`
+	Concurrent    uint64 `json:"concurrent,omitempty"`
+	RateWindow    uint64 `json:"rate_window,omitempty"`
+}
+
+func (l BudgetLimits) Empty() bool {
+	return l == (BudgetLimits{})
+}
+
+type Budget struct {
+	ID             string       `json:"id"`
+	Selector       Selector     `json:"selector"`
+	Limits         BudgetLimits `json:"limits"`
+	Reset          BudgetReset  `json:"reset"`
+	WindowSeconds  uint32       `json:"window_seconds,omitempty"`
+	OnExhaustion   Decision     `json:"on_exhaustion"`
+	SourceIdentity string       `json:"source_identity"`
+}
+
 type Plan struct {
 	FormatVersion string   `json:"format_version"`
 	Tools         []Tool   `json:"tools"`
 	Rules         []Rule   `json:"rules"`
+	Budgets       []Budget `json:"budgets"`
 	Defaults      Defaults `json:"defaults"`
 }
 
@@ -333,6 +384,7 @@ type CompiledPlan struct {
 	toolByID    map[string]int
 	toolByExact map[string]int
 	rules       []CompiledRule
+	budgets     []Budget
 }
 
 type CompiledRule struct {

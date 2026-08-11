@@ -107,7 +107,9 @@
         "server_label": { "$ref": "#/$defs/safeLabel" },
         "server_fingerprint": { "$ref": "#/$defs/identity" },
         "tool": { "$ref": "#/$defs/toolName" },
-        "effect": { "$ref": "#/$defs/effect" }
+        "effect": { "$ref": "#/$defs/effect" },
+        "cost_units": { "type": "integer", "minimum": 0, "maximum": 9223372036854775807 },
+        "max_result_bytes": { "type": "integer", "minimum": 1, "maximum": 8388608 }
       },
       "allOf": [
         {
@@ -269,6 +271,62 @@
         "message": { "type": "string", "maxLength": 512 }
       }
     },
+    "budgetSelector": {
+      "allOf": [
+        { "$ref": "#/$defs/selector" },
+        {
+          "minProperties": 1,
+          "properties": {
+            "phases": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 1,
+              "uniqueItems": true,
+              "items": { "const": "pre_call" }
+            }
+          }
+        }
+      ]
+    },
+    "budgetLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "call_count": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+        "denied_count": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+        "approval_count": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+        "argument_bytes": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+        "result_bytes": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+        "cost_units": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+        "concurrent": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "rate_window": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "selector", "limits", "reset", "on_exhaustion"],
+      "properties": {
+        "id": { "$ref": "#/$defs/safeLabel" },
+        "selector": { "$ref": "#/$defs/budgetSelector" },
+        "limits": { "$ref": "#/$defs/budgetLimits" },
+        "reset": { "enum": ["never", "operator_run", "operator_session", "fixed_window"] },
+        "window_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "on_exhaustion": { "const": "block" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "reset": { "const": "fixed_window" } }, "required": ["reset"] },
+          "then": { "required": ["window_seconds"] },
+          "else": { "not": { "required": ["window_seconds"] } }
+        },
+        {
+          "if": { "properties": { "limits": { "required": ["rate_window"] } }, "required": ["limits"] },
+          "then": { "properties": { "reset": { "const": "fixed_window" } } }
+        }
+      ]
+    },
     "defaults": {
       "type": "object",
       "additionalProperties": false,
@@ -288,6 +346,7 @@
       "properties": {
         "tools": { "type": "array", "maxItems": 512, "items": { "$ref": "#/$defs/tool" } },
         "rules": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/rule" } },
+        "budgets": { "type": "array", "maxItems": 1024, "items": { "$ref": "#/$defs/budget" } },
         "defaults": { "$ref": "#/$defs/defaults" }
       }
     }

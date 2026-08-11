@@ -47,6 +47,8 @@
     "condition": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/condition" },
     "decision": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/decision" },
     "cache": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/cache" },
+    "budgetSelector": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/budgetSelector" },
+    "budgetLimits": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v3/policy-config.schema.json#/$defs/budgetLimits" },
     "tool": {
       "type": "object",
       "additionalProperties": false,
@@ -59,6 +61,8 @@
         "server_fingerprint": { "$ref": "#/$defs/identity" },
         "tool": { "$ref": "#/$defs/toolName" },
         "effect": { "$ref": "#/$defs/effect" },
+        "cost_units": { "type": "integer", "minimum": 0, "maximum": 9223372036854775807 },
+        "max_result_bytes": { "type": "integer", "minimum": 1, "maximum": 8388608 },
         "origin": { "enum": ["actions", "legacy_mcp"] },
         "source_identity": { "type": "string", "minLength": 1, "maxLength": 1024 }
       },
@@ -99,6 +103,31 @@
         "source_identity": { "type": "string", "minLength": 1, "maxLength": 1024 }
       }
     },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "selector", "limits", "reset", "on_exhaustion", "source_identity"],
+      "properties": {
+        "id": { "$ref": "#/$defs/safeLabel" },
+        "selector": { "$ref": "#/$defs/budgetSelector" },
+        "limits": { "$ref": "#/$defs/budgetLimits" },
+        "reset": { "enum": ["never", "operator_run", "operator_session", "fixed_window"] },
+        "window_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "on_exhaustion": { "const": "block" },
+        "source_identity": { "type": "string", "minLength": 1, "maxLength": 1024 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "reset": { "const": "fixed_window" } }, "required": ["reset"] },
+          "then": { "required": ["window_seconds"] },
+          "else": { "not": { "required": ["window_seconds"] } }
+        },
+        {
+          "if": { "properties": { "limits": { "required": ["rate_window"] } }, "required": ["limits"] },
+          "then": { "properties": { "reset": { "const": "fixed_window" } } }
+        }
+      ]
+    },
     "defaults": {
       "type": "object",
       "additionalProperties": false,
@@ -116,11 +145,12 @@
     "actions": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["format_version", "tools", "rules", "defaults"],
+      "required": ["format_version", "tools", "rules", "budgets", "defaults"],
       "properties": {
         "format_version": { "const": "1" },
         "tools": { "type": "array", "maxItems": 512, "items": { "$ref": "#/$defs/tool" } },
         "rules": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/rule" } },
+        "budgets": { "type": "array", "maxItems": 1024, "items": { "$ref": "#/$defs/budget" } },
         "defaults": { "$ref": "#/$defs/defaults" }
       }
     }

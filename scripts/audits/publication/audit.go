@@ -74,6 +74,30 @@ var historicalFindingExceptions = []historicalFindingException{
 		BlobID: "61ce12d07ecbf45d856d181a767539de232c5c72", Rule: "content/key-assignment", Line: 54,
 		Owner: "repository maintainer", Rationale: "synthetic impact-corpus redaction fixture; current source constructs the marker without publishing a literal assignment",
 	},
+	{
+		BlobID: "6ce72489cf01a97df409a5e822806aa557bdc9ee", Rule: "content/private-path", Line: 115,
+		Owner: "repository maintainer", Rationale: "synthetic action-privacy fuzz fixture committed in TASK 156; current source constructs the marker without publishing a literal path",
+	},
+	{
+		BlobID: "7c3573310d2133cf05c5334a817e146db1d1d1c8", Rule: "content/private-path", Line: 553,
+		Owner: "repository maintainer", Rationale: "synthetic action-privacy regression fixture committed in TASK 156; current source constructs the marker without publishing a literal path",
+	},
+	{
+		BlobID: "7c3573310d2133cf05c5334a817e146db1d1d1c8", Rule: "content/private-path", Line: 558,
+		Owner: "repository maintainer", Rationale: "synthetic action-privacy regression fixture committed in TASK 156; current source constructs the marker without publishing a literal path",
+	},
+	{
+		BlobID: "7c3573310d2133cf05c5334a817e146db1d1d1c8", Rule: "content/private-path", Line: 566,
+		Owner: "repository maintainer", Rationale: "synthetic action-privacy regression fixture committed in TASK 156; current source constructs the marker without publishing a literal path",
+	},
+	{
+		BlobID: "7c3573310d2133cf05c5334a817e146db1d1d1c8", Rule: "content/private-path", Line: 568,
+		Owner: "repository maintainer", Rationale: "synthetic action-privacy regression fixture committed in TASK 156; current source constructs the marker without publishing a literal path",
+	},
+	{
+		BlobID: "7c3573310d2133cf05c5334a817e146db1d1d1c8", Rule: "content/private-path", Line: 569,
+		Owner: "repository maintainer", Rationale: "synthetic action-privacy regression fixture committed in TASK 156; current source constructs the marker without publishing a literal path",
+	},
 }
 
 var forbiddenWordDigests = map[string]string{

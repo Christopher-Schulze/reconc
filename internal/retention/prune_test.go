@@ -303,6 +303,38 @@ func TestProjectRootRetentionProtectsUnresolvedPolicyDecision(t *testing.T) {
 	}
 }
 
+func TestProjectRootRetentionNeverReturnsDurableActionCapacity(t *testing.T) {
+	repo := t.TempDir()
+	stateRoot := t.TempDir()
+	now := time.Now().UTC()
+	policy := DefaultPolicy()
+	policy.ProjectRoots = ClassPolicy{MaxFiles: 1, MaxBytes: 1, MaxAge: time.Hour}
+	current := ProjectDir(stateRoot, repo)
+	writeTimed(t, filepath.Join(current, "current"), []byte("current"), now)
+	actionRoot := filepath.Join(stateRoot, "projects", "1111111111111111")
+	writeTimed(
+		t, filepath.Join(actionRoot, "action", "state.json"),
+		[]byte(`{"schema":"reconc.action-state/v1"}`), now.Add(-365*24*time.Hour),
+	)
+	stale := filepath.Join(stateRoot, "projects", "2222222222222222")
+	writeTimed(t, filepath.Join(stale, "stale"), []byte("stale"), now.Add(-365*24*time.Hour))
+
+	report := Run(Options{
+		RepoRoot: repo, StateRoot: stateRoot, Policy: policy, Now: now, TempRoot: t.TempDir(),
+	})
+	for _, path := range []string{current, actionRoot} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("capacity-owning project root was removed: %s: %v", path, err)
+		}
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("unprotected stale project root survived: %v", err)
+	}
+	if !strings.Contains(strings.Join(report.Errors, "\n"), "protected project state uses") {
+		t.Fatalf("protected over-budget action state was not reported: %+v", report)
+	}
+}
+
 func TestProjectRootSizingFailsClosedOnIrregularEntries(t *testing.T) {
 	repo := t.TempDir()
 	stateRoot := t.TempDir()
