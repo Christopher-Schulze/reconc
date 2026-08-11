@@ -79,6 +79,82 @@ func TestCompilePlanCanonicalizesAndDefensivelyCopiesBudgets(t *testing.T) {
 	}
 }
 
+func TestCompilePlanCanonicalizesApprovalDisclosuresAndExactUnion(t *testing.T) {
+	t.Parallel()
+	tool := gatewayTool("query", "query")
+	compiled, err := CompilePlan(Plan{
+		Tools: []Tool{tool},
+		Approvals: []ApprovalDisclosure{
+			{
+				ID: "z-summary", Selector: Selector{ToolIDs: []string{"query"}},
+				SelectedArguments: []string{"/query", "/database"}, SourceIdentity: ".reconc.yml",
+			},
+			{
+				ID: "a-summary", Selector: Selector{ToolIDs: []string{"query"}, Phases: []Phase{PhasePreCall}},
+				SelectedArguments: []string{"/database"}, SourceIdentity: ".reconc.yml",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{
+		Transport: TransportMCPStdio, ServerLabel: "server", Tool: "query", Phase: PhasePreCall,
+	}
+	disclosures, pointers, err := compiled.ApprovalDisclosures(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(disclosures) != 2 || disclosures[0].ID != "a-summary" ||
+		len(pointers) != 2 || pointers[0] != "/database" || pointers[1] != "/query" {
+		t.Fatalf("approval disclosure union = %#v, %#v", disclosures, pointers)
+	}
+	disclosures[0].SelectedArguments[0] = "/mutated"
+	again, _, err := compiled.ApprovalDisclosures(request)
+	if err != nil || again[0].SelectedArguments[0] != "/database" {
+		t.Fatal("approval disclosure mutated through returned copy")
+	}
+	request.Phase = PhaseProgress
+	disclosures, pointers, err = compiled.ApprovalDisclosures(request)
+	if err != nil || len(disclosures) != 0 || len(pointers) != 0 {
+		t.Fatalf("non-approval phase disclosures = %#v, %#v, %v", disclosures, pointers, err)
+	}
+}
+
+func TestCompilePlanRejectsUnsafeApprovalDisclosures(t *testing.T) {
+	t.Parallel()
+	valid := ApprovalDisclosure{
+		ID: "summary", Selector: Selector{ToolIDs: []string{"query"}},
+		SelectedArguments: []string{"/query"}, SourceIdentity: ".reconc.yml",
+	}
+	tests := []struct {
+		name   string
+		mutate func(*ApprovalDisclosure)
+		want   string
+	}{
+		{name: "empty selector", mutate: func(value *ApprovalDisclosure) { value.Selector = Selector{} }, want: "selector must contain"},
+		{name: "empty arguments", mutate: func(value *ApprovalDisclosure) { value.SelectedArguments = []string{} }, want: "at least one"},
+		{name: "invalid pointer", mutate: func(value *ApprovalDisclosure) { value.SelectedArguments = []string{"relative"} }, want: "invalid value"},
+		{name: "progress", mutate: func(value *ApprovalDisclosure) { value.Selector.Phases = []Phase{PhaseProgress} }, want: "only pre_call or post_result"},
+		{name: "no tool", mutate: func(value *ApprovalDisclosure) { value.Selector.Tools = []string{"missing"} }, want: "cannot match"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			disclosure := valid
+			test.mutate(&disclosure)
+			_, err := CompilePlan(Plan{Tools: []Tool{gatewayTool("query", "query")}, Approvals: []ApprovalDisclosure{disclosure}})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
+	}
+	host := hostTool("query", "query", EffectExternal, nil, "")
+	if _, err := CompilePlan(Plan{Tools: []Tool{host}, Approvals: []ApprovalDisclosure{valid}}); err == nil ||
+		!strings.Contains(err.Error(), "host_mcp") {
+		t.Fatalf("host approval disclosure error = %v", err)
+	}
+}
+
 func TestCompilePlanRejectsInvalidBudgetContracts(t *testing.T) {
 	t.Parallel()
 	baseTool := gatewayTool("query", "query")

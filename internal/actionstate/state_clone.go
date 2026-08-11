@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"reconc.dev/reconc/internal/action"
+	"reconc.dev/reconc/internal/actionapproval"
 )
 
 func cloneState(input State) State {
@@ -29,6 +30,21 @@ func cloneState(input State) State {
 	if out.TerminalCalls == nil {
 		out.TerminalCalls = []TerminalCall{}
 	}
+	out.Approvals = append([]ApprovalRecord(nil), input.Approvals...)
+	if out.Approvals == nil {
+		out.Approvals = []ApprovalRecord{}
+	}
+	for index := range out.Approvals {
+		out.Approvals[index].Request = cloneApprovalRequest(input.Approvals[index].Request)
+	}
+	return out
+}
+
+func cloneApprovalRequest(input actionapproval.Request) actionapproval.Request {
+	out := input
+	out.CredentialLabels = append([]string(nil), input.CredentialLabels...)
+	out.SelectedArguments = append([]actionapproval.SelectedArgument(nil), input.SelectedArguments...)
+	out.RuleIDs = append([]string(nil), input.RuleIDs...)
 	return out
 }
 

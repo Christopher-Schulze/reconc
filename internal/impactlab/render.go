@@ -38,11 +38,11 @@ func RenderText(report Report) []byte {
 		report.Summary.ActionCaseCount, report.Summary.ActionDecisionChanges,
 		report.Summary.NewlyAllowedActionCases, report.Summary.NewlyWarnedActionCases,
 		report.Summary.NewlyApprovalRequiredActionCases, report.Summary.NewlyBlockedActionCases)
-	fmt.Fprintf(&output, "Action deltas: trace=%d, cache=%d, phase=%d, completeness=%d, reason=%d, tool=%d, failure=%d.\n",
+	fmt.Fprintf(&output, "Action deltas: trace=%d, cache=%d, phase=%d, completeness=%d, reason=%d, tool=%d, failure=%d, approval=%d.\n",
 		report.Summary.ActionRuleTraceChanges, report.Summary.ActionCacheChanges,
 		report.Summary.ActionPhaseOutcomeChanges, report.Summary.ActionCompletenessChanges,
 		report.Summary.ActionReasonChanges, report.Summary.ActionToolIdentityChanges,
-		report.Summary.ActionFailureChanges)
+		report.Summary.ActionFailureChanges, report.Summary.ActionApprovalChanges)
 	fmt.Fprintf(&output, "Corpus: %s; complete=%t; missing=%s; redactions=%d.\n",
 		report.CorpusID, report.CorpusCompleteness.CompleteReplay,
 		eventClassText(report.CorpusCompleteness.MissingEventClasses),

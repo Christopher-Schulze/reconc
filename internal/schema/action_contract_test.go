@@ -37,6 +37,13 @@ func TestCurrentPolicyConfigSchemaAcceptsOnlyTheImplementedActionSurface(t *test
 				"limits":   map[string]interface{}{"call_count": 10, "result_bytes": 40960, "cost_units": 30},
 				"reset":    "operator_run", "on_exhaustion": "block",
 			}},
+			"approvals": []interface{}{map[string]interface{}{
+				"id": "production-disclosure",
+				"selector": map[string]interface{}{
+					"tool_ids": []interface{}{"warehouse-query"}, "phases": []interface{}{"pre_call"},
+				},
+				"selected_arguments": []interface{}{"/database"},
+			}},
 			"defaults": map[string]interface{}{"gateway_unmatched": "block", "host_unmatched": "allow"},
 		},
 	}
@@ -45,7 +52,7 @@ func TestCurrentPolicyConfigSchemaAcceptsOnlyTheImplementedActionSurface(t *test
 	}
 	for _, mutate := range []func(map[string]interface{}){
 		func(candidate map[string]interface{}) {
-			candidate["actions"].(map[string]interface{})["approvals"] = []interface{}{}
+			candidate["actions"].(map[string]interface{})["approvals"].([]interface{})[0].(map[string]interface{})["authority_key_id"] = "repository-key"
 		},
 		func(candidate map[string]interface{}) {
 			candidate["actions"].(map[string]interface{})["budgets"].([]interface{})[0].(map[string]interface{})["limits"] = map[string]interface{}{}

@@ -37,6 +37,9 @@ func CompilePlan(input Plan) (*CompiledPlan, error) {
 	if plan.Budgets == nil {
 		plan.Budgets = []Budget{}
 	}
+	if plan.Approvals == nil {
+		plan.Approvals = []ApprovalDisclosure{}
+	}
 	if err := normalizeDefaults(&plan.Defaults); err != nil {
 		return nil, err
 	}
@@ -48,6 +51,9 @@ func CompilePlan(input Plan) (*CompiledPlan, error) {
 	}
 	if len(plan.Budgets) > MaxBudgets {
 		return nil, fmt.Errorf("actions.budgets contains %d declarations; maximum is %d", len(plan.Budgets), MaxBudgets)
+	}
+	if len(plan.Approvals) > MaxApprovalDisclosures {
+		return nil, fmt.Errorf("actions.approvals contains %d declarations; maximum is %d", len(plan.Approvals), MaxApprovalDisclosures)
 	}
 	toolByID := make(map[string]int, len(plan.Tools))
 	toolByExact := make(map[string]int, len(plan.Tools))
@@ -101,6 +107,17 @@ func CompilePlan(input Plan) (*CompiledPlan, error) {
 			return nil, fmt.Errorf("actions.budgets contains duplicate id %q", plan.Budgets[index].ID)
 		}
 	}
+	for index := range plan.Approvals {
+		if err := normalizeApprovalDisclosure(&plan.Approvals[index], plan.Tools, toolByID); err != nil {
+			return nil, fmt.Errorf("actions.approvals[%d]: %w", index, err)
+		}
+	}
+	sort.Slice(plan.Approvals, func(i, j int) bool { return plan.Approvals[i].ID < plan.Approvals[j].ID })
+	for index := 1; index < len(plan.Approvals); index++ {
+		if plan.Approvals[index-1].ID == plan.Approvals[index].ID {
+			return nil, fmt.Errorf("actions.approvals contains duplicate id %q", plan.Approvals[index].ID)
+		}
+	}
 	body, err := json.Marshal(plan)
 	if err != nil {
 		return nil, fmt.Errorf("encode canonical action plan: %w", err)
@@ -115,6 +132,7 @@ func CompilePlan(input Plan) (*CompiledPlan, error) {
 	return &CompiledPlan{
 		plan: plan, toolByID: toolByID, toolByExact: toolByExact,
 		rules: compiledRules, budgets: cloneSlice(plan.Budgets),
+		approvals: cloneSlice(plan.Approvals),
 	}, nil
 }
 
@@ -285,6 +303,51 @@ func normalizeBudget(budget *Budget, tools []Tool, toolByID map[string]int) erro
 		}
 		if budget.Limits.CostUnits != 0 && tool.CostUnits == nil {
 			return fmt.Errorf("cost_units requires cost_units on selected tool %q", tool.ID)
+		}
+	}
+	if matched == 0 {
+		return fmt.Errorf("selector cannot match any declared tool")
+	}
+	return nil
+}
+
+func normalizeApprovalDisclosure(
+	disclosure *ApprovalDisclosure,
+	tools []Tool,
+	toolByID map[string]int,
+) error {
+	if !SafeLabel(disclosure.ID) {
+		return fmt.Errorf("id must be a lower-kebab label of 1 to %d bytes", MaxSafeLabelBytes)
+	}
+	if selectorEmpty(disclosure.Selector) {
+		return fmt.Errorf("selector must contain at least one exact constraint")
+	}
+	if err := normalizeSelector(&disclosure.Selector, toolByID); err != nil {
+		return err
+	}
+	for _, phase := range disclosure.Selector.Phases {
+		if phase != PhasePreCall && phase != PhasePostResult {
+			return fmt.Errorf("selector.phases may contain only pre_call or post_result")
+		}
+	}
+	if len(disclosure.SelectedArguments) == 0 {
+		return fmt.Errorf("selected_arguments must contain at least one JSON pointer")
+	}
+	if err := normalizePointers(&disclosure.SelectedArguments, "selected_arguments", true); err != nil {
+		return err
+	}
+	if strings.TrimSpace(disclosure.SourceIdentity) == "" ||
+		!utf8.ValidString(disclosure.SourceIdentity) || len(disclosure.SourceIdentity) > MaxPointerBytes {
+		return fmt.Errorf("source_identity must be a non-empty UTF-8 identity of at most %d bytes", MaxPointerBytes)
+	}
+	matched := 0
+	for _, tool := range tools {
+		if !selectorCanMatchTool(disclosure.Selector, tool) {
+			continue
+		}
+		matched++
+		if tool.Transport != TransportMCPStdio {
+			return fmt.Errorf("approval disclosure selects host_mcp tool %q without a dispatch gateway", tool.ID)
 		}
 	}
 	if matched == 0 {
@@ -689,6 +752,11 @@ func clonePlan(input Plan) Plan {
 	out.Budgets = cloneSlice(input.Budgets)
 	for index := range out.Budgets {
 		cloneSelector(&out.Budgets[index].Selector, input.Budgets[index].Selector)
+	}
+	out.Approvals = cloneSlice(input.Approvals)
+	for index := range out.Approvals {
+		cloneSelector(&out.Approvals[index].Selector, input.Approvals[index].Selector)
+		out.Approvals[index].SelectedArguments = cloneSlice(input.Approvals[index].SelectedArguments)
 	}
 	return out
 }

@@ -2,6 +2,8 @@ package impactlab
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/action"
+	"reconc.dev/reconc/internal/actionapproval"
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/runtime"
@@ -33,6 +36,10 @@ const (
 
 func TestActionCorpusRunsExactPreAndPostScenariosThroughProductionEvaluator(t *testing.T) {
 	repo, evaluator := makeActionImpactRepo(t, baseActionPolicyRules)
+	compiled, err := evaluator.ActionRuntime()
+	if err != nil {
+		t.Fatal(err)
+	}
 	cases := []Case{
 		newActionFixture("pre-allow", CaseActionPre, `{"target":"staging","operation":"read"}`, actionAssertion(action.DecisionAllow, action.ReasonDeclaredTool, "database-write", nil, action.CacheEligible, action.OutcomeDispatchEligible, "")),
 		newActionFixture("pre-warn", CaseActionPre, `{"target":"staging","operation":"bulk-delete"}`, actionAssertion(action.DecisionWarn, action.ReasonRuleMatched, "database-write", []string{"warn-bulk-delete"}, action.CacheEligible, action.OutcomeDispatchEligible, "")),
@@ -59,6 +66,16 @@ func TestActionCorpusRunsExactPreAndPostScenariosThroughProductionEvaluator(t *t
 			action.OutcomeDispatchEligible, action.OutcomeDispatchBlocked,
 			action.OutcomeDeliveryEligible, action.OutcomeWithheld,
 		},
+		Approvals:           []action.ApprovalStatus{action.ApprovalNone},
+		ApprovalTransitions: []actionapproval.Status{},
+	}
+	cases[0].Action.Expected.Approval = &ActionApprovalAssertion{
+		Status: action.ApprovalNone, Identity: "approval-none",
+	}
+	_, approvalRequirement := exactApprovalEvaluation(t, *cases[3].Action, compiled)
+	cases[3].Action.Expected.Approval = &ActionApprovalAssertion{
+		Status: action.ApprovalNone, Identity: "approval-none",
+		RequiredApprovalIdentity: approvalRequirement,
 	}
 	corpus, err := NewCorpusWithActionCoverage(repo, cases, AllEventClasses(), required)
 	if err != nil {
@@ -85,6 +102,47 @@ func TestActionCorpusRunsExactPreAndPostScenariosThroughProductionEvaluator(t *t
 	}
 }
 
+func TestActionCaseRequiresAssertionForEveryApprovalRelevantState(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*ActionCase)
+	}{
+		{name: "approval decision", mutate: func(value *ActionCase) {
+			value.Expected.Decision = action.DecisionRequireApproval
+			value.Expected.Reason = action.ReasonApprovalRequired
+			value.Expected.Cache = ActionCacheAssertion{Reason: action.CacheApprovalPending}
+			value.Expected.PhaseOutcome = action.OutcomeDispatchBlocked
+		}},
+		{name: "approval snapshot", mutate: func(value *ActionCase) {
+			value.State.Approval = action.ApprovalSnapshot{Status: action.ApprovalPending, Identity: "approval-pending"}
+			value.State.ApprovalTransition = actionapproval.StatusPending
+		}},
+		{name: "approval transition", mutate: func(value *ActionCase) {
+			value.State.Approval = action.ApprovalSnapshot{Status: action.ApprovalNone, Identity: "approval-rejected"}
+			value.State.ApprovalTransition = actionapproval.StatusRejected
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newActionFixture("approval-assertion", CaseActionPre, `{"target":"staging"}`,
+				actionAssertion(action.DecisionAllow, action.ReasonDeclaredTool, "database-write", nil,
+					action.CacheEligible, action.OutcomeDispatchEligible, ""))
+			test.mutate(fixture.Action)
+			if _, err := validateActionCase(fixture.Kind, *fixture.Action); err == nil ||
+				!strings.Contains(err.Error(), "requires an exact approval assertion") {
+				t.Fatalf("missing approval assertion error = %v", err)
+			}
+		})
+	}
+
+	baseline := newActionFixture("no-approval", CaseActionPre, `{"target":"staging"}`,
+		actionAssertion(action.DecisionAllow, action.ReasonDeclaredTool, "database-write", nil,
+			action.CacheEligible, action.OutcomeDispatchEligible, ""))
+	if _, err := validateActionCase(baseline.Kind, *baseline.Action); err != nil {
+		t.Fatalf("ordinary action case unexpectedly requires approval assertion: %v", err)
+	}
+}
+
 func TestActionCorpusPreservesTrustedContextProvenance(t *testing.T) {
 	repo, evaluator := makeActionImpactRepo(t, trustedContextActionPolicyRule)
 	trusted := newActionFixture("trusted-context", CaseActionPre, `{"target":"staging"}`,
@@ -97,9 +155,14 @@ func TestActionCorpusPreservesTrustedContextProvenance(t *testing.T) {
 	untrusted.Action.Request.Context[0].Provenance = action.ProvenanceAgentSupplied
 	required := ActionDimensions{
 		Classes: []CaseKind{CaseActionPre}, Tools: []string{"database-write"}, Phases: []action.Phase{action.PhasePreCall},
-		Decisions:  []action.Decision{action.DecisionAllow, action.DecisionBlock},
-		Provenance: []action.Provenance{action.ProvenanceAgentSupplied, action.ProvenanceHostObserved},
-		Outcomes:   []action.PhaseOutcome{action.OutcomeDispatchEligible, action.OutcomeDispatchBlocked},
+		Decisions:           []action.Decision{action.DecisionAllow, action.DecisionBlock},
+		Provenance:          []action.Provenance{action.ProvenanceAgentSupplied, action.ProvenanceHostObserved},
+		Outcomes:            []action.PhaseOutcome{action.OutcomeDispatchEligible, action.OutcomeDispatchBlocked},
+		Approvals:           []action.ApprovalStatus{action.ApprovalNone},
+		ApprovalTransitions: []actionapproval.Status{},
+	}
+	trusted.Action.Expected.Approval = &ActionApprovalAssertion{
+		Status: action.ApprovalNone, Identity: "approval-none",
 	}
 	corpus, err := NewCorpusWithActionCoverage(repo, []Case{trusted, untrusted}, AllEventClasses(), required)
 	if err != nil {
@@ -144,6 +207,121 @@ func TestActionCorpusReplaysBudgetReservationExhaustionContentionAndCorruption(t
 	}
 	if _, err := Compare(repo, corpus, candidateFromEvaluator(t, evaluator), evaluator, evaluator); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestActionCorpusReplaysEveryApprovalSnapshotTransitionAndExactRequirementIdentity(t *testing.T) {
+	repo, evaluator := makeActionImpactRepo(t, baseActionPolicyRules)
+	compiled, err := evaluator.ActionRuntime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name       string
+		status     action.ApprovalStatus
+		transition actionapproval.Status
+		identity   string
+		cache      action.CacheReason
+	}{
+		{name: "none", status: action.ApprovalNone, identity: "approval-none", cache: action.CacheApprovalPending},
+		{name: "pending", status: action.ApprovalPending, transition: actionapproval.StatusPending, identity: "approval-pending", cache: action.CacheApprovalPending},
+		{name: "current", status: action.ApprovalCurrentUnconsumed, transition: actionapproval.StatusApproved, identity: driftSHAIdentity, cache: action.CacheEligible},
+		{name: "consumed", status: action.ApprovalConsumed, transition: actionapproval.StatusApproved, identity: driftSHAIdentity, cache: action.CacheApprovalPending},
+		{name: "rejected", status: action.ApprovalNone, transition: actionapproval.StatusRejected, identity: "approval-rejected", cache: action.CacheApprovalPending},
+		{name: "expired", status: action.ApprovalNone, transition: actionapproval.StatusExpired, identity: "approval-expired", cache: action.CacheApprovalPending},
+		{name: "cancelled", status: action.ApprovalNone, transition: actionapproval.StatusCancelled, identity: "approval-cancelled", cache: action.CacheApprovalPending},
+		{name: "unavailable", status: action.ApprovalNone, transition: actionapproval.StatusUnavailable, identity: "approval-unavailable", cache: action.CacheApprovalPending},
+		{name: "malformed", status: action.ApprovalNone, transition: actionapproval.StatusMalformed, identity: "approval-malformed", cache: action.CacheApprovalPending},
+		{name: "replayed", status: action.ApprovalNone, transition: actionapproval.StatusReplayed, identity: "approval-replayed", cache: action.CacheApprovalPending},
+	}
+	cases := make([]Case, 0, len(tests))
+	for _, test := range tests {
+		fixture := newActionFixture("approval-"+test.name, CaseActionPre,
+			`{"target":"sensitive","operation":"read"}`,
+			actionAssertion(action.DecisionRequireApproval, action.ReasonApprovalRequired,
+				"database-write", []string{"approve-sensitive"}, test.cache,
+				action.OutcomeDispatchBlocked, ""))
+		fixture.Action.State.Approval = action.ApprovalSnapshot{Status: test.status, Identity: test.identity}
+		fixture.Action.State.ApprovalTransition = test.transition
+		result, wantRequirement := exactApprovalEvaluation(t, *fixture.Action, compiled)
+		if result.Decision != action.DecisionRequireApproval || result.Reason != action.ReasonApprovalRequired ||
+			result.RequiredApprovalIdentity != wantRequirement || result.Cache.Reason != test.cache ||
+			result.Cache.Eligible != (test.cache == action.CacheEligible) {
+			t.Fatalf("approval %s result = %+v, want requirement %s", test.name, result, wantRequirement)
+		}
+		approval := &ActionApprovalAssertion{
+			Status: test.status, Identity: test.identity,
+			RequiredApprovalIdentity: wantRequirement,
+			Transition:               test.transition,
+		}
+		observation, observationErr := observationFromResult(result, approval)
+		if observationErr != nil {
+			t.Fatal(observationErr)
+		}
+		fixture.Action.Expected = observation.Outcome
+		cases = append(cases, fixture)
+	}
+	required := ActionDimensions{
+		Classes: []CaseKind{CaseActionPre}, Tools: []string{"database-write"},
+		Phases: []action.Phase{action.PhasePreCall}, Decisions: []action.Decision{action.DecisionRequireApproval},
+		Provenance: []action.Provenance{action.ProvenanceHostObserved},
+		Outcomes:   []action.PhaseOutcome{action.OutcomeDispatchBlocked},
+		Approvals: []action.ApprovalStatus{
+			action.ApprovalNone, action.ApprovalPending,
+			action.ApprovalCurrentUnconsumed, action.ApprovalConsumed,
+		},
+		ApprovalTransitions: []actionapproval.Status{
+			actionapproval.StatusPending, actionapproval.StatusApproved,
+			actionapproval.StatusRejected, actionapproval.StatusExpired,
+			actionapproval.StatusCancelled, actionapproval.StatusUnavailable,
+			actionapproval.StatusMalformed, actionapproval.StatusReplayed,
+		},
+	}
+	corpus, err := NewCorpusWithActionCoverage(repo, cases, AllEventClasses(), required)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !corpus.Completeness.Action.Complete {
+		t.Fatalf("approval action coverage = %+v", corpus.Completeness.Action)
+	}
+	if _, err := Compare(repo, corpus, candidateFromEvaluator(t, evaluator), evaluator, evaluator); err != nil {
+		t.Fatal(err)
+	}
+
+	mutations := []struct {
+		name   string
+		mutate func(*ActionCase)
+	}{
+		{name: "status", mutate: func(value *ActionCase) {
+			if value.Expected.Approval.Status == action.ApprovalNone {
+				value.Expected.Approval.Status = action.ApprovalConsumed
+			} else {
+				value.Expected.Approval.Status = action.ApprovalNone
+			}
+		}},
+		{name: "identity", mutate: func(value *ActionCase) { value.Expected.Approval.Identity = "approval-altered" }},
+		{name: "requirement", mutate: func(value *ActionCase) { value.Expected.Approval.RequiredApprovalIdentity = driftSHAIdentity }},
+		{name: "transition", mutate: func(value *ActionCase) { value.Expected.Approval.Transition = actionapproval.StatusReplayed }},
+	}
+	for _, mutation := range mutations {
+		t.Run(mutation.name, func(t *testing.T) {
+			mutated := cloneCorpusForTest(t, corpus)
+			mutation.mutate(mutated.Cases[0].Action)
+			mutated.CorpusID = mustCorpusIdentity(t, mutated)
+			_, marshalErr := MarshalCorpus(mutated)
+			if marshalErr == nil {
+				_, marshalErr = Compare(repo, mutated, candidateFromEvaluator(t, evaluator), evaluator, evaluator)
+			}
+			if marshalErr == nil {
+				t.Fatal("altered approval assertion passed")
+			}
+		})
+	}
+	current := ActionObservation{Outcome: cases[0].Action.Expected, Trace: []action.TraceEntry{}, TraceComplete: true}
+	candidate := cloneActionObservation(current)
+	candidate.Outcome.Approval.RequiredApprovalIdentity = driftSHAIdentity
+	if got := actionDeltas(current, candidate); !slicesEqualActionDelta(got, []ActionDeltaKind{DeltaApproval}) {
+		t.Fatalf("approval deltas = %v", got)
 	}
 }
 
@@ -580,6 +758,9 @@ func TestActionCorpusPrivacyAndCompletenessMutationsFailClosed(t *testing.T) {
 	repo, evaluator := makeActionImpactRepo(t, "")
 	fixture := newActionFixture("private", CaseActionPre, `{"authorization":"Bearer sk-secretvalue123","target":"staging"}`,
 		actionAssertion(action.DecisionAllow, action.ReasonDeclaredTool, "database-write", nil, action.CacheEligible, action.OutcomeDispatchEligible, ""))
+	fixture.Action.Expected.Approval = &ActionApprovalAssertion{
+		Status: action.ApprovalNone, Identity: "approval-none",
+	}
 	corpus, err := NewCorpus(repo, []Case{fixture}, AllEventClasses())
 	if err != nil {
 		t.Fatal(err)
@@ -681,6 +862,10 @@ func TestActionCorpusPrivacyAndCompletenessMutationsFailClosed(t *testing.T) {
 		{name: "decision", mutate: func(value *ActionCoverage) { value.Observed.Decisions = []action.Decision{} }},
 		{name: "provenance", mutate: func(value *ActionCoverage) { value.Observed.Provenance = []action.Provenance{} }},
 		{name: "outcome", mutate: func(value *ActionCoverage) { value.Observed.Outcomes = []action.PhaseOutcome{} }},
+		{name: "approval", mutate: func(value *ActionCoverage) { value.Observed.Approvals = []action.ApprovalStatus{} }},
+		{name: "approval transition", mutate: func(value *ActionCoverage) {
+			value.Observed.ApprovalTransitions = []actionapproval.Status{actionapproval.StatusPending}
+		}},
 		{name: "complete", mutate: func(value *ActionCoverage) { value.Complete = !value.Complete }},
 	}
 	for _, mutation := range mutations {
@@ -700,8 +885,10 @@ func TestRequiredActionCoverageCannotBeCompleteWithoutActionCases(t *testing.T) 
 	required := ActionDimensions{
 		Classes: []CaseKind{CaseActionPre}, Tools: []string{"database-write"},
 		Phases: []action.Phase{action.PhasePreCall}, Decisions: []action.Decision{action.DecisionAllow},
-		Provenance: []action.Provenance{action.ProvenanceHostObserved},
-		Outcomes:   []action.PhaseOutcome{action.OutcomeDispatchEligible},
+		Provenance:          []action.Provenance{action.ProvenanceHostObserved},
+		Outcomes:            []action.PhaseOutcome{action.OutcomeDispatchEligible},
+		Approvals:           []action.ApprovalStatus{action.ApprovalNone},
+		ApprovalTransitions: []actionapproval.Status{},
 	}
 	corpus, err := NewCorpusWithActionCoverage(repo,
 		[]Case{NewRepositoryCase("repository-only", runtime.Empty())}, AllEventClasses(), required)
@@ -731,6 +918,12 @@ func TestDecodedActionCoverageCannotBypassConstructorValidation(t *testing.T) {
 		{name: "invalid class", mutate: func(value *ActionDimensions) { value.Classes = []CaseKind{"unknown"} }},
 		{name: "duplicate phase", mutate: func(value *ActionDimensions) {
 			value.Phases = []action.Phase{action.PhasePreCall, action.PhasePreCall}
+		}},
+		{name: "invalid approval", mutate: func(value *ActionDimensions) {
+			value.Approvals = []action.ApprovalStatus{"invalid"}
+		}},
+		{name: "invalid approval transition", mutate: func(value *ActionDimensions) {
+			value.ApprovalTransitions = []actionapproval.Status{"invalid"}
 		}},
 		{name: "tool bound", mutate: func(value *ActionDimensions) {
 			value.Tools = make([]string, action.MaxTools+1)
@@ -1223,8 +1416,54 @@ func cloneActionObservation(input ActionObservation) ActionObservation {
 	output := input
 	output.Outcome.MatchedRuleIDs = append([]string{}, input.Outcome.MatchedRuleIDs...)
 	output.Outcome.Completeness.Missing = append([]action.MissingEvidence{}, input.Outcome.Completeness.Missing...)
+	if input.Outcome.Approval != nil {
+		approval := *input.Outcome.Approval
+		output.Outcome.Approval = &approval
+	}
 	output.Trace = append([]action.TraceEntry{}, input.Trace...)
 	return output
+}
+
+func exactApprovalEvaluation(
+	t testing.TB,
+	scenario ActionCase,
+	compiled runtime.CompiledActionRuntime,
+) (action.EvaluationResult, string) {
+	t.Helper()
+	raw := actionRawRequest(scenario.Request, compiled.SourceDigest, compiled.LockDigest)
+	request, err := action.NormalizeRequest(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := action.EvaluationInput{
+		Request: request, SourceIdentity: compiled.SourceDigest,
+		ContextIdentity: scenario.State.ContextIdentity, ExecutableDigest: scenario.State.ExecutableDigest,
+		Principal: scenario.State.Principal, CredentialLabels: append([]string(nil), scenario.State.CredentialLabels...),
+		Budget: scenario.State.Budget, Approval: scenario.State.Approval, Taint: scenario.State.Taint,
+		Lifecycle: scenario.State.Lifecycle, CachePolicyVersion: scenario.State.CachePolicyVersion,
+	}
+	input.ResampledIdentities = compiled.Evaluator.IdentitySnapshot(input)
+	result := compiled.Evaluator.EvaluateRaw(raw, input)
+	binding := struct {
+		CallID       string          `json:"call_id"`
+		Request      string          `json:"request"`
+		Plan         string          `json:"plan"`
+		Source       string          `json:"source"`
+		Rules        []string        `json:"rules"`
+		Decision     action.Decision `json:"decision"`
+		StateVersion string          `json:"state_version"`
+	}{
+		CallID: input.Request.CallID, Request: result.Cache.Identity,
+		Plan: result.PlanIdentity, Source: result.SourceIdentity,
+		Rules: result.MatchedRuleIDs, Decision: result.Decision,
+		StateVersion: input.Request.StateVersion,
+	}
+	body, err := json.Marshal(binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(body)
+	return result, "sha256:" + hex.EncodeToString(digest[:])
 }
 
 func makeActionImpactRepo(t *testing.T, rules string) (string, *runtime.CompiledPolicyEvaluator) {

@@ -1,6 +1,6 @@
 {
   "format_version": "reconc-impact-corpus/v2",
-  "corpus_id": "sha256:5a988cf5ee3dfa83b50d2eb90a1f7b0d29718deb0add2df7338df88aac643283",
+  "corpus_id": "sha256:7f4aea8f8865a00c9da4c3b728867020e042e677012733abf9841c44b52e9723",
   "completeness": {
     "observed_event_classes": [],
     "complete_event_classes": [
@@ -33,7 +33,9 @@
         ],
         "outcomes": [
           "dispatch_eligible"
-        ]
+        ],
+        "approvals": [],
+        "approval_transitions": []
       },
       "required": {
         "classes": [],
@@ -41,7 +43,9 @@
         "phases": [],
         "decisions": [],
         "provenance": [],
-        "outcomes": []
+        "outcomes": [],
+        "approvals": [],
+        "approval_transitions": []
       },
       "missing": {
         "classes": [],
@@ -49,7 +53,9 @@
         "phases": [],
         "decisions": [],
         "provenance": [],
-        "outcomes": []
+        "outcomes": [],
+        "approvals": [],
+        "approval_transitions": []
       },
       "complete": false
     }

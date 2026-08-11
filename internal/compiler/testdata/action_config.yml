@@ -22,3 +22,9 @@ actions:
           value: production
       decision: block
       message: Production access is forbidden.
+  approvals:
+    - id: warehouse-summary
+      selector:
+        tool_ids: [warehouse-query]
+        phases: [pre_call]
+      selected_arguments: [/database]

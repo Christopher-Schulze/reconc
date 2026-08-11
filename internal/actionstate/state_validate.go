@@ -2,6 +2,7 @@ package actionstate
 
 import (
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"math"
 	"sort"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/action"
+	"reconc.dev/reconc/internal/actionapproval"
 )
 
 const MaxGenerationHistory = 256
@@ -20,7 +22,7 @@ func (s *Store) stateDigest(state State) (string, error) {
 		Revision: state.Revision, ClockSource: state.ClockSource,
 		LastObservedUnixNano: state.LastObservedUnixNano,
 		Budgets:              state.Budgets, Reservations: state.Reservations,
-		TerminalCalls: state.TerminalCalls,
+		TerminalCalls: state.TerminalCalls, Approvals: state.Approvals,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -53,11 +55,11 @@ func (s *Store) validateState(state State, persisted bool) error {
 	if state.RepositoryIdentity != s.repositoryIdentity {
 		return stateError(action.ReasonStateCorrupt, "action state belongs to a different repository identity", nil)
 	}
-	if state.Budgets == nil || state.Reservations == nil || state.TerminalCalls == nil {
+	if state.Budgets == nil || state.Reservations == nil || state.TerminalCalls == nil || state.Approvals == nil {
 		return stateError(action.ReasonStateCorrupt, "action state collections must be explicit arrays", nil)
 	}
 	if len(state.Budgets) > MaxBudgetRecords || len(state.Reservations) > MaxReservations ||
-		len(state.TerminalCalls) > MaxTerminalCallRecords {
+		len(state.TerminalCalls) > MaxTerminalCallRecords || len(state.Approvals) > MaxApprovalRecords {
 		return stateError(action.ReasonStateCorrupt, "action state collection capacity is exceeded", nil)
 	}
 	if persisted && (state.Revision == 0 || !action.SafeLabel(state.ClockSource) || state.LastObservedUnixNano <= 0) {
@@ -73,6 +75,9 @@ func (s *Store) validateState(state State, persisted bool) error {
 		return err
 	}
 	if err := s.validateTerminalCalls(state); err != nil {
+		return err
+	}
+	if err := s.validateApprovalRecords(state); err != nil {
 		return err
 	}
 	digest, err := s.stateDigest(state)
@@ -213,15 +218,189 @@ func (s *Store) validateTerminalCalls(state State) error {
 	for _, reservation := range state.Reservations {
 		active[reservation.CallID] = true
 	}
+	reservations := make(map[string]bool, len(state.TerminalCalls))
 	for index, call := range state.TerminalCalls {
 		if index > 0 && state.TerminalCalls[index-1].CallID >= call.CallID ||
 			!validCallID(call.CallID) || !identityUsesKey(call.ReservationIdentity, state.KeyID) ||
 			!call.Outcome.Valid() || call.CompletedAtUnix <= 0 || active[call.CallID] ||
+			reservations[call.ReservationIdentity] ||
 			state.LastObservedUnixNano > 0 && call.CompletedAtUnix > state.LastObservedUnixNano/int64(time.Second) {
 			return stateError(action.ReasonStateCorrupt, "terminal action call is invalid", nil)
 		}
+		reservations[call.ReservationIdentity] = true
 	}
 	return nil
+}
+
+func (s *Store) validateApprovalRecords(state State) error {
+	calls := make(map[string]bool, len(state.Approvals))
+	nonces := make(map[string]bool, len(state.Approvals))
+	receipts := make(map[string]bool, len(state.Approvals))
+	reservations := make(map[string]Reservation, len(state.Reservations))
+	for _, reservation := range state.Reservations {
+		reservations[reservation.Identity] = reservation
+	}
+	terminals := make(map[string]TerminalCall, len(state.TerminalCalls))
+	for _, terminal := range state.TerminalCalls {
+		terminals[terminal.ReservationIdentity] = terminal
+	}
+	budgets := make(map[string]BudgetRecord, len(state.Budgets))
+	for _, budget := range state.Budgets {
+		budgets[budget.LineageIdentity] = budget
+	}
+	pending := 0
+	for index, record := range state.Approvals {
+		request := record.Request
+		if index > 0 && state.Approvals[index-1].Request.RequestID >= request.RequestID ||
+			request.Validate() != nil || request.RepositoryIdentity != state.RepositoryIdentity ||
+			!identityUsesKey(request.RequestIdentity, state.KeyID) ||
+			!identityUsesKey(request.StateVersion, state.KeyID) ||
+			record.ReservationIdentity != request.BudgetReservationID ||
+			(record.ReservationIdentity != "absent" && !identityUsesKey(record.ReservationIdentity, state.KeyID)) ||
+			!identityUsesKey(record.NonceIdentity, state.KeyID) ||
+			!record.Status.Valid() || record.UpdatedAtUnix <= 0 || calls[request.CallID] || nonces[record.NonceIdentity] ||
+			state.LastObservedUnixNano > 0 && record.UpdatedAtUnix > state.LastObservedUnixNano/int64(time.Second) {
+			return stateError(action.ReasonStateCorrupt, "approval replay record is invalid", nil)
+		}
+		for _, selected := range request.SelectedArguments {
+			if !identityUsesKey(selected.Identity, state.KeyID) {
+				return stateError(action.ReasonStateCorrupt, "selected approval identity uses a different key", nil)
+			}
+		}
+		nonce, err := base64.RawURLEncoding.Strict().DecodeString(request.Nonce)
+		if err != nil || !constantIdentityEqual(
+			record.NonceIdentity,
+			s.key.Identity(DomainApproval, []byte("nonce"), nonce),
+		) {
+			return stateError(action.ReasonStateCorrupt, "approval nonce identity is invalid", err)
+		}
+		calls[request.CallID] = true
+		nonces[record.NonceIdentity] = true
+		if record.Status == actionapproval.StatusPending {
+			pending++
+		}
+		metadataEmpty := record.RegistryIdentity == "" && record.AuthorityKeyID == "" &&
+			record.ReceiptID == "" && record.ReceiptIdentity == "" && record.ReceiptSignedAt == ""
+		metadataValid := action.ValidSHA256Identity(record.RegistryIdentity) &&
+			action.SafeLabel(record.AuthorityKeyID) && validApprovalReceiptID(record.ReceiptID) &&
+			action.ValidSHA256Identity(record.ReceiptIdentity) && !receipts[record.ReceiptID] &&
+			validStoredReceiptTime(record)
+		if record.Status == actionapproval.StatusApproved || record.Status == actionapproval.StatusRejected {
+			if !metadataValid {
+				return stateError(action.ReasonStateCorrupt, "verified approval receipt metadata is invalid", nil)
+			}
+			receipts[record.ReceiptID] = true
+		} else if !metadataEmpty {
+			return stateError(action.ReasonStateCorrupt, "non-approved replay record contains receipt metadata", nil)
+		}
+		if err := validateApprovalRecordTransition(record, reservations, terminals, budgets); err != nil {
+			return err
+		}
+	}
+	if pending > MaxPendingApprovals {
+		return stateError(action.ReasonStateCorrupt, "pending approval capacity is exceeded", nil)
+	}
+	return nil
+}
+
+func validStoredReceiptTime(record ApprovalRecord) bool {
+	signedAt, err := time.Parse(time.RFC3339Nano, record.ReceiptSignedAt)
+	if err != nil || signedAt.IsZero() || signedAt.UTC().Format(time.RFC3339Nano) != record.ReceiptSignedAt {
+		return false
+	}
+	issuedAt, err := time.Parse(time.RFC3339Nano, record.Request.IssuedAt)
+	if err != nil {
+		return false
+	}
+	expiresAt, err := time.Parse(time.RFC3339Nano, record.Request.ExpiresAt)
+	return err == nil && !signedAt.Before(issuedAt) && signedAt.Before(expiresAt)
+}
+
+func validateApprovalRecordTransition(
+	record ApprovalRecord,
+	reservations map[string]Reservation,
+	terminals map[string]TerminalCall,
+	budgets map[string]BudgetRecord,
+) error {
+	if record.ReservationIdentity == "absent" {
+		return nil
+	}
+	reservation, active := reservations[record.ReservationIdentity]
+	terminal, completed := terminals[record.ReservationIdentity]
+	switch record.Status {
+	case actionapproval.StatusPending:
+		if !active || completed || reservation.Status != ReservationReserved {
+			return stateError(action.ReasonStateCorrupt, "pending approval reservation state is invalid", nil)
+		}
+		if err := validateApprovalReservationBinding(record, reservation); err != nil {
+			return err
+		}
+		return validateApprovalChargeState(reservation, budgets, false)
+	case actionapproval.StatusApproved:
+		if active == completed {
+			return stateError(action.ReasonStateCorrupt, "approved call must have exactly one active or terminal reservation", nil)
+		}
+		if completed {
+			if terminal.CallID != record.Request.CallID {
+				return stateError(action.ReasonStateCorrupt, "approved terminal call binding is invalid", nil)
+			}
+			return nil
+		}
+		if err := validateApprovalReservationBinding(record, reservation); err != nil {
+			return err
+		}
+		return validateApprovalChargeState(reservation, budgets, true)
+	default:
+		if active || !completed || terminal.CallID != record.Request.CallID || terminal.Outcome != OutcomeBlocked {
+			return stateError(action.ReasonStateCorrupt, "failed approval terminal state is invalid", nil)
+		}
+		return nil
+	}
+}
+
+func validateApprovalReservationBinding(record ApprovalRecord, reservation Reservation) error {
+	if reservation.CallID != record.Request.CallID ||
+		reservation.RequestIdentity != record.Request.RequestIdentity ||
+		reservation.ContextIdentity != record.Request.ContextIdentity ||
+		reservation.ExecutableDigest != record.Request.ExecutableDigest {
+		return stateError(action.ReasonStateCorrupt, "approval reservation binding is invalid", nil)
+	}
+	return nil
+}
+
+func validateApprovalChargeState(
+	reservation Reservation,
+	budgets map[string]BudgetRecord,
+	committed bool,
+) error {
+	for _, charge := range reservation.Charges {
+		record, exists := budgets[charge.LineageIdentity]
+		if !exists {
+			return stateError(action.ReasonStateCorrupt, "approval charge budget is absent", nil)
+		}
+		if record.Limits.ApprovalCount == 0 {
+			continue
+		}
+		if charge.ApprovalCommitted != committed || committed && charge.Reserved.ApprovalCount != 0 ||
+			!committed && charge.Reserved.ApprovalCount != 1 {
+			return stateError(action.ReasonStateCorrupt, "approval charge transition is invalid", nil)
+		}
+	}
+	return nil
+}
+
+func validApprovalReceiptID(value string) bool {
+	if len(value) != 30 || !strings.HasPrefix(value, "arc_") {
+		return false
+	}
+	for _, character := range value[4:] {
+		if character < 'a' || character > 'z' {
+			if character < '2' || character > '7' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func validateReservationCharge(status ReservationStatus, charge ReservationCharge, record BudgetRecord) error {

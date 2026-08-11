@@ -191,6 +191,7 @@ partial audit, run-log, checksum, release, or provenance snapshot.
 | Command proofs and owned state | Each command proof is capped at 16 KiB and its directory at 4,096 entries; unresolved-policy proofs and workflow-audit cache state are capped at 8 MiB. All are strict regular-file reads that reject links and special files. Retention directories and tree walks have explicit entry ceilings and abort without deleting from a partial inventory. |
 | Policy script execution | A `require_script` target resolves inside the repository before launch, `timeout_sec` is capped at 300 seconds, and `kill_timeout_sec` at 60 seconds. Captured stdout and stderr stop at 64 KiB per stream. |
 | Impact Lab | Candidate policy files are capped at 8 MiB; strict replay corpora and full typed JSON reports at 64 MiB, corpora at 10,000 cases, and reviewed action-delta manifests at 8 MiB. JUnit, SARIF, and GitHub projections retain at most 1,024 findings and 8 MiB. |
+| Action approvals and state | Canonical approval objects are capped at 64 KiB, authority registries at 1 MiB, sealed request state at 4 KiB, approval TTL at 120 seconds, future issuance skew at 30 seconds, pending approvals at four, retained approval records at 65,536, and the complete private action state at 16 MiB. |
 | Auxiliary commands and release inventory | Git, Go, attestation, offline-hook, TASK utility, generated-reference, SBOM, and publication-audit subprocesses use purpose-specific 64 KiB to 64 MiB output ceilings and fail on overflow. Release assets are hashed as stable non-symlink regular-file streams, release directories stop after the declared inventory ceiling, and committed manifests, archives, and SBOMs use strict bounded reads. |
 
 Best-effort detection is best-effort only about recommendations, not about
@@ -663,6 +664,10 @@ sanitized phase payload, trusted context and provenance, principal and credentia
 labels, evaluator state, completeness, and an exact expected current outcome.
 The current expectation includes decision, stable reason, tool ID, ordered
 matched rule IDs, cache result, completeness, phase outcome, and failure code.
+An optional approval assertion additionally binds the exact approval status,
+its redacted identity, the exact approval transition when one exists, and the
+call-specific required-approval SHA-256 identity. Coverage records evaluator
+approval snapshots and approval transitions as separate exact dimensions.
 Reconc runs the current and additive candidate action plans through the
 production compiler, runtime plan, normalizer, and evaluator. It never
 dispatches the declared tool.
@@ -690,9 +695,13 @@ classification belongs to TASK 159 and is not implemented yet.
 
 Action comparison separates every decision change and newly allowed, warned,
 approval-required, and blocked changes from reason, rule-trace, cache, phase,
-completeness, tool-identity, and failure deltas. `newly_allowed` describes any
-less-restrictive decision, while `newly_blocked` describes an exact block or a
-transition from eligible to non-dispatchable or withheld. Therefore
+completeness, tool-identity, approval-state, and failure deltas. Approval-state
+comparison includes status, redacted identity, and required-approval identity.
+It also compares the explicit pending, approved, rejected, expired, cancelled,
+unavailable, malformed, or replayed transition when present.
+`newly_allowed` describes any less-restrictive decision, while `newly_blocked`
+describes an exact block or a transition from eligible to non-dispatchable or
+withheld. Therefore
 `block -> require_approval`, `block -> warn`, and `warn -> allow` cannot
 bypass review. Newly allowed or newly blocked cases exit 2 until an
 exact reviewed delta manifest binds the case identity, current and candidate
@@ -1266,6 +1275,16 @@ owner. Existing repositories therefore gain no live interception or implicit
 state mutation merely by compiling or refreshing policy. A filesystem root is
 never accepted as `RECONC_HOME`, and an existing selected root must already be
 private because Reconc never changes its permissions implicitly.
+
+Action authoring may also declare `actions.approvals` to select safe argument
+summaries for an external approver. The current source implements canonical
+one-call requests, Ed25519 approve or reject receipts, strict operator-owned
+authority registries outside the repository, single-use replay protection,
+atomic budget coupling, expiry reconciliation, exact MCP `2026-07-28`
+input-required transport mapping, and payload-free transition evidence. It
+does not add a public approver, command, dashboard, or live gateway. Authority
+keys and the signing process remain operator-owned and cannot be supplied by
+repository policy or agent input.
 
 ## Uninstall And Remove
 
@@ -1949,12 +1968,15 @@ RECONC-0008 remains Draft. Unreleased source version `v0.9.6` implements strict
 `actions` authoring, canonical format-5 compilation, deterministic lowering of
 legacy `mcp` declarations, immutable typed matcher programs, a derived MCP
 compatibility view, `reconc why action`, and the transport-neutral deterministic
-action evaluator. The published v0.9.5 release does not contain those additions.
+action evaluator. It also implements canonical authority-bound one-time
+approval requests and receipts plus private atomic approval consumption. The
+published v0.9.5 release does not contain those additions.
 `reconc impact` invokes that production evaluator for strict offline action
-scenarios, exact current assertions, candidate deltas, completeness, privacy,
-and reviewed newly-allowed or newly-blocked gates. No current source command
-routes tool calls through an enforcing gateway, so offline simulation is not a
-live tool-call interception boundary.
+scenarios, exact current and approval-state assertions, candidate deltas,
+completeness, privacy, and reviewed newly-allowed or newly-blocked gates. No
+current source command routes tool calls through an enforcing gateway, so
+offline simulation and internal approval machinery are not a live tool-call
+interception boundary.
 
 The same unreleased source implements trusted operator and host context
 bindings, domain-separated HMAC identities, explicit key leases and rotation
@@ -1967,6 +1989,34 @@ clock rollback, partial publication, symlinks, special files, permission drift,
 counter overflow, duplicate calls, and capacity oversubscription. This is an
 internal enforcement primitive until the gateway owns the live dispatch
 boundary; it does not make current direct MCP or framework calls enforced.
+
+The action-state owner issues an approval request only after the current
+evaluator still returns `require_approval` and an exact applicable budget
+reservation is live. The request binds one call, policy and lock, executable,
+server and tool contract, trusted principal and context, credential labels,
+selected keyed argument identities, taint, repository effect, rule trace,
+reservation, issuance, expiry, and nonce. A canonical Ed25519 receipt may
+approve or reject that exact request and binds its own canonical signing time
+inside the request validity interval. Verification revalidates current trusted
+bindings under the state lock, accepts only a key allowed and active at that
+signed time by an operator-owned registry, and consumes the receipt at most
+once in the same durable transaction that commits its approval budget charge. Malformed,
+expired, replayed, cancelled, rejected, unavailable, stale, or unpersistable
+transitions fail closed.
+
+Authority is not repository policy. The registry must be a bounded private
+regular file outside the canonical repository; the private signing key and
+confirmation UI must be outside the agent's authority. `actions.approvals`
+selects bounded safe summaries and keyed identities for informed disclosure,
+not who may approve. The state consumer accepts only the opaque result of that
+trusted registry loader, never registry bytes or keys from a call or repository
+input. MCP `2026-07-28` input-required can transport the request,
+sealed retry state, and signed receipt, but an unsigned client response has no
+authority. Unsupported clients receive a bounded approval-required failure.
+Startup and pre-work reconciliation atomically expire crashed pending waits so
+their pre-dispatch reservations do not remain stranded. Transition evidence
+contains only safe labels, timestamps, counters, and bound identities, never
+raw selected values, receipts, credentials, or private keys.
 
 The design keeps all Reconc-owned product and adapter code in Go. The target
 gateway is one local, tool-only stdio MCP process around one operator-selected
@@ -1983,8 +2033,9 @@ framework interception. A pre-call block could prevent a routed tool from
 executing. Post-result containment could withhold data from the model boundary
 but could not undo a side effect that already occurred.
 
-The compiler lowers `actions.tools`, `actions.rules`, and `actions.defaults`
-plus compatible legacy `mcp` authoring into one canonical format-5 action plan.
+The compiler lowers `actions.tools`, `actions.rules`, `actions.budgets`,
+`actions.approvals`, and `actions.defaults` plus compatible legacy `mcp`
+authoring into one canonical format-5 action plan.
 It rejects unknown nested fields, ambiguous values, invalid or oversized
 predicates, duplicate ownership, incompatible defaults, and unsupported
 cross-field combinations. Regexes, doublestar globs, CIDRs, URL/path
@@ -2011,10 +2062,9 @@ provenance and a visible policy-tampering boundary. Repository policy could
 never select the downstream executable, argv, working directory, inherited
 environment, credential material, state key, or approval authority.
 
-Later layers add signed one-time Ed25519 approval receipts, deterministic local
-argument and result detectors,
-post-result withholding, a privacy-bounded tamper-evident retained action
-ledger, a live MCP stdio gateway, and local control-evidence mappings.
+Later layers add deterministic local argument and result detectors, post-result
+withholding, a privacy-bounded tamper-evident retained action ledger, a live MCP
+stdio gateway, and local control-evidence mappings.
 Key rotation cannot return budget capacity: it is serialized against live key
 leases and refused while dependent action state exists unless a future explicit
 atomic migration or reset owns every dependent identity and record.
@@ -2041,6 +2091,8 @@ summarizes the core runtime responsibilities:
 - `buildprovenance`: deterministic target/source build identity and byte-only binary inspection
 - `internal/cli`: argument parsing and command dispatch
 - `internal/action`: pure canonical action contract, strict normalized values, immutable matcher programs, deterministic evaluation, redacted traces, and exact in-memory decision caching
+- `internal/actionapproval`: canonical signed requests and receipts, operator authority registry, transport-neutral provider contract, and exact MCP input-required mapping
+- `internal/actionstate`: trusted context identities, key leases, cumulative budgets, atomic approval consumption, and crash-safe private state
 - `internal/ingest`: repository discovery and source loading
 - `internal/parser`: YAML-to-policy validation and normalization
 - `internal/compiler`: canonical JSON lockfile generation, digesting, conflicts, migrations, compile lock
@@ -3200,6 +3252,11 @@ Ignore:
 Security posture:
 
 - Agent payloads are untrusted input.
+- Approval authority is accepted only from a private operator-owned registry
+  outside the repository. Repository policy selects bounded disclosure only;
+  it cannot choose authority keys. A signed receipt is exact-call, expiring,
+  single-use evidence and is not an independent boundary when the signer or
+  private key is under the agent's authority.
 - Hook runtime payloads are size and depth bounded.
 - Paths use operating-system filesystem identity and are constrained to the
   discovered repository root, including Windows junction and 8.3 aliases.

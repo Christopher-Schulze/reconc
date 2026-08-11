@@ -495,7 +495,7 @@ func (e *Evaluator) compiledBoundsValid() bool {
 			return false
 		}
 	}
-	return len(e.plan.Budgets) <= MaxBudgets
+	return len(e.plan.Budgets) <= MaxBudgets && len(e.plan.Approvals) <= MaxApprovalDisclosures
 }
 
 func validExecutableSnapshot(value string) bool {

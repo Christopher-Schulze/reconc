@@ -26,7 +26,7 @@ func parseActionPolicy(source policy.PolicySource) (*action.Plan, bool, error) {
 	if !present {
 		return nil, false, nil
 	}
-	fields, err := actionMapping(actionsNode, source.Path+" actions", actionFieldSet("tools", "rules", "budgets", "defaults"))
+	fields, err := actionMapping(actionsNode, source.Path+" actions", actionFieldSet("tools", "rules", "budgets", "approvals", "defaults"))
 	if err != nil {
 		return nil, true, err
 	}
@@ -45,6 +45,12 @@ func parseActionPolicy(source policy.PolicySource) (*action.Plan, bool, error) {
 	}
 	if node, ok := fields["budgets"]; ok {
 		plan.Budgets, err = parseActionBudgets(node, source.Path)
+		if err != nil {
+			return nil, true, err
+		}
+	}
+	if node, ok := fields["approvals"]; ok {
+		plan.Approvals, err = parseActionApprovalDisclosures(node, source.Path)
 		if err != nil {
 			return nil, true, err
 		}
@@ -76,7 +82,8 @@ func mergeActionPolicies(current, additive *action.Plan) (*action.Plan, error) {
 			FormatVersion: additive.FormatVersion,
 			Tools:         append([]action.Tool(nil), additive.Tools...),
 			Rules:         append([]action.Rule(nil), additive.Rules...),
-			Budgets:       append([]action.Budget(nil), additive.Budgets...), Defaults: additive.Defaults,
+			Budgets:       append([]action.Budget(nil), additive.Budgets...),
+			Approvals:     append([]action.ApprovalDisclosure(nil), additive.Approvals...), Defaults: additive.Defaults,
 		}, nil
 	}
 	if current.FormatVersion != additive.FormatVersion {
@@ -87,7 +94,10 @@ func mergeActionPolicies(current, additive *action.Plan) (*action.Plan, error) {
 		Tools:         append(append([]action.Tool(nil), current.Tools...), additive.Tools...),
 		Rules:         append(append([]action.Rule(nil), current.Rules...), additive.Rules...),
 		Budgets:       append(append([]action.Budget(nil), current.Budgets...), additive.Budgets...),
-		Defaults:      mergeActionDefaults(current.Defaults, additive.Defaults),
+		Approvals: append(
+			append([]action.ApprovalDisclosure(nil), current.Approvals...), additive.Approvals...,
+		),
+		Defaults: mergeActionDefaults(current.Defaults, additive.Defaults),
 	}
 	return merged, nil
 }
@@ -230,6 +240,45 @@ func parseActionBudgets(node *yaml.Node, sourcePath string) ([]action.Budget, er
 		})
 	}
 	return budgets, nil
+}
+
+func parseActionApprovalDisclosures(
+	node *yaml.Node,
+	sourcePath string,
+) ([]action.ApprovalDisclosure, error) {
+	if node.Kind != yaml.SequenceNode {
+		return nil, actionError("actions.approvals must be a list in " + sourcePath)
+	}
+	disclosures := make([]action.ApprovalDisclosure, 0, len(node.Content))
+	for index, item := range node.Content {
+		context := fmt.Sprintf("%s actions.approvals[%d]", sourcePath, index)
+		fields, err := actionMapping(
+			item, context, actionFieldSet("id", "selector", "selected_arguments"),
+		)
+		if err != nil {
+			return nil, err
+		}
+		id, err := requiredActionString(fields, "id", context)
+		if err != nil {
+			return nil, err
+		}
+		selectorNode, ok := fields["selector"]
+		if !ok {
+			return nil, actionError(context + ".selector is required")
+		}
+		selector, err := parseActionSelector(selectorNode, context)
+		if err != nil {
+			return nil, err
+		}
+		selected, err := optionalActionStrings(fields, "selected_arguments", context)
+		if err != nil {
+			return nil, err
+		}
+		disclosures = append(disclosures, action.ApprovalDisclosure{
+			ID: id, Selector: selector, SelectedArguments: selected, SourceIdentity: sourcePath,
+		})
+	}
+	return disclosures, nil
 }
 
 func parseActionBudgetLimits(node *yaml.Node, context string) (action.BudgetLimits, error) {

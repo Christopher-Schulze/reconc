@@ -14,14 +14,18 @@ typed fail-closed results, and exact resampled in-memory decision caching.
 TASK 156 implements strict format-2 action scenarios, deterministic format-1
 migration, production compiler and evaluator replay, exact expectations,
 privacy and completeness checks, current-candidate deltas, exact reviewed
-delta manifests, and bounded text, JSON, JUnit, SARIF, and GitHub output. The
-TASK 157 implements trusted operator and host context bindings, domain-separated
+delta manifests, and bounded text, JSON, JUnit, SARIF, and GitHub output. TASK
+157 implements trusted operator and host context bindings, domain-separated
 keyed identities, explicit identity-key leases and rotation blocking, compiled
 cumulative budgets, exact evaluator budget snapshots, and a private bounded
 crash-consistent multi-process reservation store. The published v0.9.5 binary
-has none of those additions. Approval receipts, content inspection, the
-retained ledger, gateway enforcement, and control-evidence export remain
-unavailable until their owning tasks are complete.
+has none of those additions. TASK 158 implements approval disclosure policy,
+canonical authority requests and signed approve or reject receipts, strict
+operator-owned key registries, exact MCP input-required mapping, atomic
+single-use consumption, crash-orphan expiry, and redacted transition evidence.
+Content inspection, the retained ledger, gateway enforcement, and
+control-evidence export remain unavailable until their owning tasks are
+complete.
 
 ## Purpose And Boundary
 
@@ -51,8 +55,8 @@ The enforcement claim is deliberately narrow:
 
 ## Current Baseline
 
-The implemented pre-RFC baseline remains unchanged while this document is
-Draft:
+The implemented host-runtime compatibility baseline remains available while
+the Action Plane is Draft:
 
 - top-level `mcp` policy classifies one exact
   `(platform, server_fingerprint, tool)` identity as
@@ -74,8 +78,9 @@ Draft:
   summaries, not server locators, credentials, raw arguments, results, prompts,
   or command bodies.
 
-The Action Plane may supersede the internal representation only after migration
-tests prove this baseline behavior remains exact at the TASK 154 boundary.
+TASK 154 lowered this authoring into the canonical action plan and its migration
+tests prove exact compatibility. Existing host-runtime enforcement still uses
+that derived view until the gateway owns live Action Plane dispatch.
 
 ## Verified External Basis
 
@@ -194,7 +199,7 @@ change and the dependency direction below remains acyclic.
 | `internal/compiler` | Lowering, canonical order, format-5 lock, digests, immutable compiled programs | `internal/policy`, `internal/action` |
 | `internal/schema` | Per-artifact schema registry and immutable URL ownership | no runtime policy package |
 | `internal/actionstate` | Keyed identities, budgets, replay state, crash-safe local IO | `internal/action` and existing file primitives |
-| `internal/actionapproval` | Approval request, canonical receipt, Ed25519 verification, provider boundary | `internal/action`, `internal/actionstate` |
+| `internal/actionapproval` | Approval request, canonical receipt, Ed25519 verification, provider boundary | `internal/action` |
 | `internal/actioninspect` | Deterministic input, result, progress, and metadata inspection | `internal/action` |
 | `internal/actionledger` | Typed privacy-bounded events, chain, retention, export | `internal/action` and narrow keyed-identity interfaces |
 | `internal/actionevidence` | Strict control maps and deterministic local evidence exports | action ledger, action state, approval verification, and Impact Lab read models |
@@ -286,7 +291,7 @@ ownership. Unknown fields always fail.
 | `actions.rules` | Selectors, bounded conditions, decisions, failure and cache policy | TASK 154 |
 | `actions.defaults` | Declared, gateway-unmatched, host-unmatched, error, and cache defaults | TASK 154 |
 | `actions.budgets` | Cumulative local limits | TASK 157 |
-| `actions.approvals` | Required authority and disclosure policy | TASK 158 |
+| `actions.approvals` | Policy-selected argument disclosure for approval requests; authority remains operator-owned | TASK 158 |
 | `actions.detectors` | Input, result, progress, schema, and content policy | TASK 159 |
 | `actions.ledger` | Recording requirement and privacy selection | TASK 160 |
 
@@ -755,24 +760,31 @@ semantics, or accepted algorithms requires a new receipt format.
 
 | Approval request field | Required binding |
 |---|---|
-| `format_version` | exact `1` |
-| `request_id` and `call_id` | random Reconc identities |
+| `schema` and `format_version` | exact `reconc.action-approval-request/v1` and `1` |
+| `request_id` and `call_id` | random request identity and exact Reconc call identity |
+| `request_identity` and `required_approval_identity` | exact canonical call binding and evaluator requirement |
+| `plan_identity`, `source_identity`, and `state_version` | exact compiled plan, policy source, and issuance snapshot |
 | `repository_identity` | exact keyed repository |
-| `policy_digest` and `lock_digest` | exact governing policy |
-| `server_label`, `server_fingerprint`, `tool_id`, `tool_contract_digest` | exact action selector |
-| `phase` | exact phase |
-| `principal` and `credential_labels` | exact operator-bound context |
-| `selected_argument_identities` | policy-selected domain-separated HMAC values |
-| `budget_reservation_id` | required when a budget applies |
-| `reason_code` and `rule_ids` | exact decision basis |
-| `issued_at` and `expires_at` | trusted UTC times |
+| `policy_digest` and `lock_digest` | exact governing policy and lock |
+| `executable_digest` | exact observed downstream executable content |
+| `server_label`, `server_fingerprint`, `tool_id`, `tool`, `tool_contract_digest` | exact action selector and discovered contract |
+| `phase` | exact pre-call or post-result phase |
+| `principal`, `context_identity`, and `credential_labels` | exact trusted context |
+| `taint_identity` and `repository_effect_identity` | exact evaluator-visible evidence state |
+| `selected_arguments` | sorted pointer, pointer state, value kind, byte length, and domain-separated keyed identity; never raw value |
+| `budget_reservation_id` | exact live reservation or `absent` |
+| `reason_code` and `rule_ids` | exact approval-required decision basis |
+| `authority_policy_id` | exact operator-owned registry policy |
+| `issued_at` and `expires_at` | canonical trusted UTC times |
 | `nonce` | 256-bit CSPRNG value |
 
-An approval receipt repeats every request binding, adds exact decision
-`approve`, authority key ID, receipt ID, and signature. Canonical signing bytes
-are the canonical JSON receipt without `signature`, prefixed by
-`reconc/action-approval-receipt/v1 NUL`. The only signature algorithm is
-Ed25519 from the Go standard library.
+An approval receipt embeds the complete request, adds exact decision `approve`
+or `reject`, authority key ID, receipt ID, canonical `signed_at`, and signature.
+`signed_at` must be at or after request issuance and strictly before request
+expiry. Canonical signing bytes are UTF-8
+`reconc/action-approval-receipt/v1`, immediately followed by one NUL byte and
+the canonical JSON receipt without `signature`. The only signature algorithm
+is Ed25519 from the Go standard library.
 
 Request IDs use `apr_` plus 26 lowercase base32 characters. Authority key IDs
 use the safe-label contract. Nonces are 32 random bytes encoded as unpadded
@@ -781,30 +793,46 @@ base64url. Receipt IDs use `arc_` plus 26 lowercase base32 characters generated
 by the authority CSPRNG and are covered by the signature. `expires_at` must be
 later than `issued_at` and no more than 120 seconds later.
 
-A receipt is valid for one exact call and one successful atomic consumption.
-Verification rejects unknown or revoked keys, invalid signatures,
-non-canonical data, field drift, future issuance beyond 30 seconds, expiry,
-wrong principal, missing reservation, duplicate nonce, duplicate call ID, and
-any decision other than `approve`. Historical verification honors key
-activation and revocation intervals and never accepts issuance after
-revocation.
+A signed approve receipt is valid for one exact call and one successful atomic
+consumption. A signed rejection is authenticated and persisted with authority
+provenance but never authorizes dispatch. Verification rejects unknown or
+revoked keys, invalid signatures, non-canonical data, field drift, future
+issuance or signature time beyond 30 seconds, expiry, wrong principal, missing
+reservation, and unsupported decisions. The shared action-state transaction rejects duplicate
+request, nonce, call, and receipt use. Historical verification honors key
+activation and revocation intervals at the signed receipt time and never
+accepts a receipt signed at or after revocation.
 
 Approval public keys and authority policy come only from operator-owned
-configuration. Reconc does not describe a same-agent prompt as independent
-human approval. A local approver is independent only when its private key and
-confirmation UI are outside agent authority.
+canonical configuration outside the repository. Its directory and file must
+be private, regular, no-follow state; public-key aliases, unknown policy keys,
+non-canonical collection order, ambiguous activation, and invalid revocation
+intervals are rejected. The state consumer accepts only the opaque result of
+that trusted loader, not a registry constructed from call or repository input.
+Reconc does not describe a same-agent prompt as
+independent human approval. A local approver is independent only when its
+private key, registry, and confirmation UI are outside agent authority.
 
 For MCP `2026-07-28`, a capable client may receive an `input_required` result
 with one `elicitation/create` request. The opaque `requestState` contains only
 safe identifiers and digests plus expiry and is protected with the action-state
-HMAC. A retry must use a different JSON-RPC ID, identical salient arguments,
-the exact request state, and a signed receipt in the declared input response.
-The client response itself is untrusted. Unsupported or legacy clients receive
-a bounded `approval_required` result and no downstream dispatch.
+HMAC. Its `issuance_state_version` is the issuance snapshot echoed by the
+caller, not a claim that unrelated state may never advance. Consumption holds
+the shared state lock and revalidates the current approval record, reservation,
+policy, context, executable, arguments, and identities. A retry must use a
+different JSON-RPC ID, semantically identical original parameters, the exact
+request state, and only the declared `reconc_approval` input response. The
+client response itself is untrusted. Unsupported or legacy clients receive a
+bounded `approval_required` result and no downstream dispatch.
 
 Timeout, cancellation, malformed response, unsupported capability, key
 rotation ambiguity, replay-store failure, or shutdown blocks and settles the
-budget reservation through the frozen budget state machine.
+budget reservation through the frozen budget state machine. Startup and
+pre-work reconciliation atomically expire pending requests left by a crashed
+authority wait, release their pre-dispatch reservations, and is idempotent.
+Every transition exposes a typed payload-free evidence object with request,
+receipt, authority, policy, state, timestamp, and bound-identity provenance for
+the later ledger; it cannot represent raw arguments or receipt bytes.
 
 ## Deterministic Content Inspection
 
@@ -1062,7 +1090,7 @@ formats.
 | `action_pre` | decision, reason, ordered rules, phase, cache eligibility, completeness |
 | `action_post` | decision, containment, schema, ordered rules, completeness |
 | Budget extension | reservation, settlement, exhaustion, state generation |
-| Approval extension | request, receipt state, authority, single-use result |
+| Approval extension | exact evaluator approval status and identity, exact approval transition, plus call-specific required-approval identity |
 | Detector extension | category, completeness, delivery or withhold |
 | Ledger extension | required lifecycle event and privacy-bounded fields |
 
@@ -1076,8 +1104,12 @@ declaration ID and exact tool name, tool-contract digest, canonical argument or
 result fixture, context values with provenance, principal and credential
 labels, authority mode, evaluator state identity, completeness declaration,
 and exact expected decision, reason, ordered rule IDs, cache eligibility, and
-phase outcome. Later tasks add typed budget, approval, detector, containment,
-and ledger assertions to the same object without changing format 2.
+phase outcome. The implemented approval extension adds exact redacted approval
+status and identity plus required-approval identity; approval status is also an
+explicit completeness dimension, approval transition is a separate exact
+completeness dimension, and both share one semantic delta. Later tasks add
+typed detector, containment, and ledger assertions to the same object without
+changing format 2.
 
 Current-candidate comparison separately reports exact decision changes, newly
 allowed, warned, approval-required, blocked, withheld, rule-trace, cache,
@@ -1096,8 +1128,8 @@ separation of duties; Reconc does not upgrade a writable manifest into an
 independent approval authority.
 
 Completeness enumerates represented tools, phases, decisions, provenance
-classes, outcome classes, and later state dimensions. Case count alone never
-means complete.
+classes, outcome classes, approval snapshots, and approval transitions. Case
+count alone never means complete.
 
 Export stores no raw credential, header, token, secret-shaped field, complete
 tool result, environment value, or physical path. Selected values use the same
@@ -1343,6 +1375,11 @@ rows in this table. Evolution: vectors are append-only within contract version
 | `APPROVAL-001` | exact valid signature and unused nonce | consume once |
 | `APPROVAL-002` | same receipt consumed twice | second use blocks |
 | `APPROVAL-003` | altered argument, policy, principal, or reservation | signature/binding rejection |
+| `APPROVAL-004` | signed authority rejection | persist provenance, block, release reservation |
+| `APPROVAL-005` | two independent pending calls and unrelated state transitions | both remain independently consumable |
+| `APPROVAL-006` | eight concurrent consumers across two stores | exactly one consumes the receipt |
+| `APPROVAL-007` | crashed wait passes trusted expiry | atomic reconciliation expires it and releases reservation once |
+| `APPROVAL-008` | current, consumed, rejected, expired, unavailable, or replayed evaluator state | exact format-2 approval assertion and delta |
 | `SCAN-001` | selected synthetic secret with configured block detector | block before dispatch |
 | `SCAN-002` | unsafe text result after successful side effect | withhold, success remains explicit |
 | `SCAN-003` | unsupported binary with no allow policy | withhold |

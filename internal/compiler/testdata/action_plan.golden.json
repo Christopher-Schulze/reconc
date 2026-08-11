@@ -40,6 +40,23 @@
     }
   ],
   "budgets": [],
+  "approvals": [
+    {
+      "id": "warehouse-summary",
+      "selector": {
+        "tool_ids": [
+          "warehouse-query"
+        ],
+        "phases": [
+          "pre_call"
+        ]
+      },
+      "selected_arguments": [
+        "/database"
+      ],
+      "source_identity": ".reconc.yml"
+    }
+  ],
   "defaults": {
     "declared_tool": "warn",
     "gateway_unmatched": "block",

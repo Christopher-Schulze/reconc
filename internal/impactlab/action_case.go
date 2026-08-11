@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"reconc.dev/reconc/internal/action"
+	"reconc.dev/reconc/internal/actionapproval"
 )
 
 func validateActionCase(kind CaseKind, scenario ActionCase) (int, error) {
@@ -30,6 +31,18 @@ func validateActionCase(kind CaseKind, scenario ActionCase) (int, error) {
 	}
 	if err := validateActionState(scenario.State); err != nil {
 		return 0, err
+	}
+	if scenario.Expected.Approval == nil &&
+		(scenario.Expected.Decision == action.DecisionRequireApproval ||
+			scenario.State.Approval.Status != action.ApprovalNone ||
+			scenario.State.ApprovalTransition != "") {
+		return 0, fmt.Errorf("approval-relevant action case requires an exact approval assertion")
+	}
+	if scenario.Expected.Approval != nil &&
+		(scenario.Expected.Approval.Status != scenario.State.Approval.Status ||
+			scenario.Expected.Approval.Identity != scenario.State.Approval.Identity ||
+			scenario.Expected.Approval.Transition != scenario.State.ApprovalTransition) {
+		return 0, fmt.Errorf("approval assertion does not match evaluator-visible state")
 	}
 	if scenario.State.Budget.StateVersion != scenario.Request.StateVersion {
 		return 0, fmt.Errorf("action budget state version does not match the request")
@@ -105,6 +118,9 @@ func validateActionState(state ActionStateFixture) error {
 		!state.Lifecycle.Valid() || state.CachePolicyVersion != action.CacheIdentityVersion {
 		return fmt.Errorf("action state identity is invalid")
 	}
+	if !validApprovalTransition(state.Approval.Status, state.ApprovalTransition) {
+		return fmt.Errorf("action approval transition does not match its evaluator snapshot")
+	}
 	for _, value := range []string{
 		state.ContextIdentity, state.ExecutableDigest, state.Principal, state.Approval.Identity,
 		state.Taint.Identity,
@@ -160,6 +176,9 @@ func validateActionAssertion(phase action.Phase, toolID string, assertion Action
 	if assertion.PhaseOutcome != action.OutcomeFor(phase, assertion.Decision) {
 		return fmt.Errorf("phase outcome does not match phase and decision")
 	}
+	if err := validateActionApprovalAssertion(assertion); err != nil {
+		return err
+	}
 	canonical, err := action.NormalizeCompleteness(assertion.Completeness)
 	if err != nil || !equalActionCompleteness(canonical, assertion.Completeness) {
 		return fmt.Errorf("completeness assertion is invalid or non-canonical")
@@ -175,6 +194,47 @@ func validateActionAssertion(phase action.Phase, toolID string, assertion Action
 		seen[id] = struct{}{}
 	}
 	return nil
+}
+
+func validateActionApprovalAssertion(assertion ActionAssertion) error {
+	if assertion.Approval == nil {
+		return nil
+	}
+	approval := assertion.Approval
+	if !approval.Status.Valid() || !validFixtureIdentity(approval.Identity) ||
+		unsafeActionMetadata(approval.Identity) ||
+		!validApprovalTransition(approval.Status, approval.Transition) {
+		return fmt.Errorf("approval assertion state is invalid")
+	}
+	if assertion.Decision == action.DecisionRequireApproval {
+		if !action.ValidSHA256Identity(approval.RequiredApprovalIdentity) {
+			return fmt.Errorf("approval assertion requirement identity is invalid")
+		}
+		return nil
+	}
+	if approval.RequiredApprovalIdentity != "" {
+		return fmt.Errorf("non-approval assertion contains a requirement identity")
+	}
+	return nil
+}
+
+func validApprovalTransition(snapshot action.ApprovalStatus, transition actionapproval.Status) bool {
+	if transition == "" {
+		return snapshot == action.ApprovalNone
+	}
+	if !transition.Valid() {
+		return false
+	}
+	switch snapshot {
+	case action.ApprovalPending:
+		return transition == actionapproval.StatusPending
+	case action.ApprovalCurrentUnconsumed, action.ApprovalConsumed:
+		return transition == actionapproval.StatusApproved
+	case action.ApprovalNone:
+		return transition != actionapproval.StatusPending && transition != actionapproval.StatusApproved
+	default:
+		return false
+	}
 }
 
 func validateActionValueSummary(summary ActionValueSummary) error {

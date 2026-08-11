@@ -175,7 +175,7 @@ func impactChanged(report impactlab.Report) bool {
 		report.Summary.ActionRuleTraceChanges > 0 || report.Summary.ActionCacheChanges > 0 ||
 		report.Summary.ActionPhaseOutcomeChanges > 0 || report.Summary.ActionCompletenessChanges > 0 ||
 		report.Summary.ActionReasonChanges > 0 || report.Summary.ActionToolIdentityChanges > 0 ||
-		report.Summary.ActionFailureChanges > 0
+		report.Summary.ActionFailureChanges > 0 || report.Summary.ActionApprovalChanges > 0
 }
 
 // Model is the complete deterministic input shared by both renderers.

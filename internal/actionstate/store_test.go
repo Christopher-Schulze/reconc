@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/action"
+	"reconc.dev/reconc/internal/actionapproval"
 	"reconc.dev/reconc/internal/retention"
 )
 
@@ -135,7 +136,18 @@ func compileStorePlan(t testing.TB, fingerprint string, budgets []action.Budget)
 		Effect: action.Effect{Kind: action.EffectExternal}, CostUnits: &cost,
 		MaxResultBytes: 100, Origin: action.OriginActions, SourceIdentity: ".reconc.yml",
 	}
-	compiled, err := action.CompilePlan(action.Plan{Tools: []action.Tool{tool}, Budgets: budgets})
+	compiled, err := action.CompilePlan(action.Plan{
+		Tools: []action.Tool{tool}, Budgets: budgets,
+		Rules: []action.Rule{{
+			ID: "approve-database-write", Selector: action.Selector{ToolIDs: []string{"database-write"}},
+			Decision: action.DecisionRequireApproval, OnIndeterminate: action.DecisionBlock,
+			Cache: action.CacheExact, SourceIdentity: ".reconc.yml",
+		}},
+		Approvals: []action.ApprovalDisclosure{{
+			ID: "database-write-summary", Selector: action.Selector{ToolIDs: []string{"database-write"}},
+			SelectedArguments: []string{"/target"}, SourceIdentity: ".reconc.yml",
+		}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,16 +236,12 @@ func TestBudgetStoreCommitsEveryDispatchAndApprovalDimension(t *testing.T) {
 		t.Fatalf("reserved candidate = %#v, want required %#v", candidate, wantRequired)
 	}
 
-	version, err := fixture.store.ReserveApproval(
-		context.Background(), reserved.Reservation.Identity, reserved.Snapshot.StateVersion,
-	)
+	issued := issueFixtureApproval(t, fixture, input, reserved)
+	approval, err := consumeFixtureApproval(t, fixture, issued, actionapproval.DecisionApprove)
 	if err != nil {
 		t.Fatal(err)
 	}
-	version, err = fixture.store.CommitApproval(context.Background(), reserved.Reservation.Identity, version)
-	if err != nil {
-		t.Fatal(err)
-	}
+	version := approval.StateVersion
 	version, err = fixture.store.MarkDispatched(context.Background(), reserved.Reservation.Identity, version)
 	if err != nil {
 		t.Fatal(err)
@@ -427,23 +435,40 @@ func TestBudgetStoreRecordsDenialsAndExhaustsApprovalAtomically(t *testing.T) {
 	}
 
 	_, approved := fixture.reserve(t, callID("d"))
-	version, err = fixture.store.ReserveApproval(
-		context.Background(), approved.Reservation.Identity, approved.Snapshot.StateVersion,
-	)
+	approvedInput := fixture.request
+	approvedInput.CallID = callID("d")
+	approvedInput.StateVersion = approved.Snapshot.StateVersion
+	issued := issueFixtureApproval(t, fixture, ReserveRequest{
+		Plan: fixture.plan, Request: approvedInput, Context: fixture.context,
+		Authority: fixture.authority, Server: fixture.server,
+	}, approved)
+	approval, err := consumeFixtureApproval(t, fixture, issued, actionapproval.DecisionApprove)
 	if err != nil {
 		t.Fatal(err)
 	}
-	version, err = fixture.store.CommitApproval(context.Background(), approved.Reservation.Identity, version)
-	if err != nil {
-		t.Fatal(err)
-	}
+	version = approval.StateVersion
 	if _, err := fixture.store.Release(context.Background(), approved.Reservation.Identity, version); err != nil {
 		t.Fatal(err)
 	}
 	_, exhausted := fixture.reserve(t, callID("e"))
-	if _, err := fixture.store.ReserveApproval(
-		context.Background(), exhausted.Reservation.Identity, exhausted.Snapshot.StateVersion,
-	); err == nil {
+	exhaustedRequest := fixture.request
+	exhaustedRequest.CallID = callID("e")
+	exhaustedRequest.StateVersion = exhausted.Snapshot.StateVersion
+	if _, err := fixture.store.IssueApproval(context.Background(), ApprovalIssueRequest{
+		Binding: ApprovalBinding{
+			Plan: fixture.plan, Context: fixture.context, Authority: fixture.authority, Server: fixture.server,
+			Evaluation: action.EvaluationInput{
+				Request: exhaustedRequest, SourceIdentity: strings.Repeat("8", 64),
+				ContextIdentity: fixture.context.ContextIdentity, ExecutableDigest: fixture.server.ExecutableDigest,
+				Principal: fixture.context.Principal, CredentialLabels: credentialLabels(fixture.context.Credentials),
+				Budget:    exhausted.Snapshot,
+				Approval:  action.ApprovalSnapshot{Status: action.ApprovalNone, Identity: "approval-none"},
+				Taint:     action.TaintSnapshot{Status: action.TaintClean, Identity: "taint-clean"},
+				Lifecycle: action.LifecycleActive, CachePolicyVersion: action.CacheIdentityVersion,
+			},
+		},
+		AuthorityPolicyID: "production-writes", TTL: 30 * time.Second,
+	}); err == nil {
 		t.Fatal("exhausted approval capacity was reserved")
 	} else {
 		requireStateCode(t, err, action.ReasonBudgetExhausted)

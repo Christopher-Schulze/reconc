@@ -105,6 +105,10 @@ func cloneActionCase(input ActionCase) ActionCase {
 	}
 	out.Expected.MatchedRuleIDs = append([]string{}, input.Expected.MatchedRuleIDs...)
 	out.Expected.Completeness.Missing = append([]action.MissingEvidence{}, input.Expected.Completeness.Missing...)
+	if input.Expected.Approval != nil {
+		approval := *input.Expected.Approval
+		out.Expected.Approval = &approval
+	}
 	out.SelectedValues = append([]ActionValueSummary{}, input.SelectedValues...)
 	return out
 }

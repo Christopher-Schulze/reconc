@@ -4,6 +4,7 @@ package impactlab
 
 import (
 	"reconc.dev/reconc/internal/action"
+	"reconc.dev/reconc/internal/actionapproval"
 	"reconc.dev/reconc/internal/runtime"
 )
 
@@ -57,12 +58,14 @@ func (k CaseKind) Valid() bool {
 // ActionDimensions names exact coverage requirements and observations. Every
 // collection is canonical, unique, and non-null.
 type ActionDimensions struct {
-	Classes    []CaseKind            `json:"classes"`
-	Tools      []string              `json:"tools"`
-	Phases     []action.Phase        `json:"phases"`
-	Decisions  []action.Decision     `json:"decisions"`
-	Provenance []action.Provenance   `json:"provenance"`
-	Outcomes   []action.PhaseOutcome `json:"outcomes"`
+	Classes             []CaseKind              `json:"classes"`
+	Tools               []string                `json:"tools"`
+	Phases              []action.Phase          `json:"phases"`
+	Decisions           []action.Decision       `json:"decisions"`
+	Provenance          []action.Provenance     `json:"provenance"`
+	Outcomes            []action.PhaseOutcome   `json:"outcomes"`
+	Approvals           []action.ApprovalStatus `json:"approvals"`
+	ApprovalTransitions []actionapproval.Status `json:"approval_transitions"`
 }
 
 // ActionCoverage distinguishes represented dimensions from explicit review
@@ -128,6 +131,7 @@ type ActionStateFixture struct {
 	Principal          string                            `json:"principal"`
 	CredentialLabels   []string                          `json:"credential_labels"`
 	Approval           action.ApprovalSnapshot           `json:"approval"`
+	ApprovalTransition actionapproval.Status             `json:"approval_transition,omitempty"`
 	Taint              action.TaintSnapshot              `json:"taint"`
 	RepositoryEffect   *action.RepositoryEffectCandidate `json:"repository_effect,omitempty"`
 	Lifecycle          action.LifecycleState             `json:"lifecycle"`
@@ -181,17 +185,27 @@ type ActionCacheAssertion struct {
 	Reason   action.CacheReason `json:"reason"`
 }
 
+// ActionApprovalAssertion binds the exact redacted approval state visible to
+// the evaluator and, for approval decisions, its call-specific requirement.
+type ActionApprovalAssertion struct {
+	Status                   action.ApprovalStatus `json:"status"`
+	Identity                 string                `json:"identity"`
+	RequiredApprovalIdentity string                `json:"required_approval_identity,omitempty"`
+	Transition               actionapproval.Status `json:"transition,omitempty"`
+}
+
 // ActionAssertion is mandatory for every action case and contains only stable,
 // privacy-bounded outcome fields.
 type ActionAssertion struct {
-	Decision       action.Decision      `json:"decision"`
-	Reason         action.ReasonCode    `json:"reason"`
-	ToolID         string               `json:"tool_id"`
-	MatchedRuleIDs []string             `json:"matched_rule_ids"`
-	Cache          ActionCacheAssertion `json:"cache"`
-	Completeness   action.Completeness  `json:"completeness"`
-	PhaseOutcome   action.PhaseOutcome  `json:"phase_outcome"`
-	FailureCode    action.ReasonCode    `json:"failure_code,omitempty"`
+	Decision       action.Decision          `json:"decision"`
+	Reason         action.ReasonCode        `json:"reason"`
+	ToolID         string                   `json:"tool_id"`
+	MatchedRuleIDs []string                 `json:"matched_rule_ids"`
+	Cache          ActionCacheAssertion     `json:"cache"`
+	Completeness   action.Completeness      `json:"completeness"`
+	PhaseOutcome   action.PhaseOutcome      `json:"phase_outcome"`
+	FailureCode    action.ReasonCode        `json:"failure_code,omitempty"`
+	Approval       *ActionApprovalAssertion `json:"approval,omitempty"`
 }
 
 // ActionValueSummary records a removed selected value without retaining it.
@@ -282,13 +296,14 @@ const (
 	DeltaReason                ActionDeltaKind = "reason"
 	DeltaToolIdentity          ActionDeltaKind = "tool_identity"
 	DeltaFailure               ActionDeltaKind = "failure"
+	DeltaApproval              ActionDeltaKind = "approval"
 )
 
 func (k ActionDeltaKind) Valid() bool {
 	switch k {
 	case DeltaDecision, DeltaNewlyAllowed, DeltaNewlyWarned, DeltaNewlyApprovalRequired,
 		DeltaNewlyBlocked, DeltaRuleTrace, DeltaCache, DeltaPhaseOutcome,
-		DeltaCompleteness, DeltaReason, DeltaToolIdentity, DeltaFailure:
+		DeltaCompleteness, DeltaReason, DeltaToolIdentity, DeltaFailure, DeltaApproval:
 		return true
 	default:
 		return false
@@ -353,6 +368,7 @@ type Summary struct {
 	ActionReasonChanges              int   `json:"action_reason_changes"`
 	ActionToolIdentityChanges        int   `json:"action_tool_identity_changes"`
 	ActionFailureChanges             int   `json:"action_failure_changes"`
+	ActionApprovalChanges            int   `json:"action_approval_changes"`
 }
 
 // DeltaGate is the exact CI review state for permission and block changes.

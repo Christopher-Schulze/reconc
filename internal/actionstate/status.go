@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"reconc.dev/reconc/internal/action"
+	"reconc.dev/reconc/internal/actionapproval"
 )
 
 // Status returns a bounded, payload-free view of the complete local budget
@@ -44,6 +45,7 @@ func statusFromState(state State) (StateStatus, error) {
 	}
 	status := newStateStatus(state, len(stateBody))
 	fillBudgetStatus(&status, state, reservedByLineage)
+	fillApprovalStatus(&status, state)
 	if err := fillReservationStatus(&status, state); err != nil {
 		return StateStatus{}, err
 	}
@@ -59,16 +61,35 @@ func newStateStatus(state State, stateBytes int) StateStatus {
 		RepositoryIdentity: state.RepositoryIdentity, ClockSource: state.ClockSource,
 		Budgets:          make([]BudgetStatus, len(state.Budgets)),
 		Reservations:     make([]ReservationView, len(state.Reservations)),
+		ApprovalRecords:  make([]ApprovalRecordView, len(state.Approvals)),
 		LiveReservations: len(state.Reservations), TerminalCallCount: len(state.TerminalCalls),
 		Capacity: StateCapacity{
 			StateBytes: stateBytes, StateBytesMaximum: MaxStateBytes,
 			BudgetRecords: len(state.Budgets), BudgetRecordsMaximum: MaxBudgetRecords,
 			Reservations: len(state.Reservations), ReservationsMaximum: MaxReservations,
 			TerminalCalls: len(state.TerminalCalls), TerminalCallsMaximum: MaxTerminalCallRecords,
-			GenerationHistoryMax: MaxGenerationHistory,
+			ApprovalRecords: len(state.Approvals), ApprovalRecordsMaximum: MaxApprovalRecords,
+			PendingApprovalsMaximum: MaxPendingApprovals,
+			GenerationHistoryMax:    MaxGenerationHistory,
 		},
 		Remediations: []StateRemediation{},
 		Provenance:   IdentityAuthorities(), Complete: true,
+	}
+}
+
+func fillApprovalStatus(status *StateStatus, state State) {
+	for index, record := range state.Approvals {
+		status.ApprovalRecords[index] = ApprovalRecordView{
+			RequestID: record.Request.RequestID, CallID: record.Request.CallID,
+			Status: record.Status, AuthorityPolicy: record.Request.AuthorityPolicyID,
+			AuthorityKeyID: record.AuthorityKeyID, ReceiptID: record.ReceiptID,
+			ReceiptSignedAt: record.ReceiptSignedAt,
+			IssuedAt:        record.Request.IssuedAt, ExpiresAt: record.Request.ExpiresAt,
+			UpdatedAtUnix: record.UpdatedAtUnix,
+		}
+		if record.Status == actionapproval.StatusPending {
+			status.PendingApprovals++
+		}
 	}
 }
 

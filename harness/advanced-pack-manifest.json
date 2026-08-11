@@ -319,8 +319,8 @@
     {
       "path": "tools/reconc/harness/template/audits/testdata/action-impact/corpus.json",
       "mode": 420,
-      "size": 4141,
-      "sha256": "c700f8ea512b15e12dbac0526a4596e9b0dde6b90791d2a69dea9a9639a5fc6d",
+      "size": 4324,
+      "sha256": "5f0e2de6bf490cb79707e6240a4204062843533d805867ff00a9bd8b189cad21",
       "ownership": "pack-file"
     },
     {
@@ -828,6 +828,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 827378,
-  "digest": "3e8f8b043ec5f7f95c05b83a7b23abd746b69604927668fd309eafda20cd24e0"
+  "total_bytes": 827561,
+  "digest": "b96900cc353920189f499699e63304f1032134fe45f25c1d9978c9cc0ee91889"
 }

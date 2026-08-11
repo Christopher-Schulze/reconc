@@ -70,7 +70,8 @@ buildprovenance/ deterministic target/source identity + byte-only binary inspect
 harness/         embedded immutable advanced harness pack
 internal/
   action/         pure action contract, strict values, immutable matchers, evaluator, traces, and exact cache
-  actionstate/    trusted identities, key leases, cumulative budgets, reservations, and crash-safe local state
+  actionapproval/ canonical signed approval contracts, authority registry, provider boundary, and MCP mapping
+  actionstate/    trusted identities, budgets, approval consumption, reservations, and crash-safe local state
   adopt/          convention detector, rule suggestions, and stack-pack recommendations
   agentguide/     embedded agent-integration guide + section lookup
   assurance/      bounded native layout/source/manifest/proof gates + per-run fact graph
@@ -222,22 +223,42 @@ request normalization, exact predicates and precedence, provenance monotonicity,
 phase isolation, fail-closed errors, bounded redacted traces, and exact
 resampled in-memory decision caching. `reconc impact` invokes the production
 compiler and evaluator for strict offline `action_pre` and `action_post`
-scenarios, exact current expectations, candidate deltas, and reviewed
-newly-allowed or newly-blocked gates. No gateway currently invokes it for a
-live call, so source does not yet enforce live tool calls, inspect downstream
-content, maintain an action ledger, or route calls through a gateway.
+scenarios, exact current expectations, candidate deltas, approval-state
+assertions with separate snapshot and transition coverage, and reviewed
+newly-allowed or newly-blocked gates. No gateway
+currently invokes it for a live call, so source does not yet enforce live tool
+calls, inspect downstream content, maintain an action ledger, or route calls
+through a gateway.
 The published v0.9.5 release has none of the Action Plane additions.
 
-`internal/actionstate` now owns the implemented trusted identity and cumulative
-budget boundary. It binds operator context, filesystem-observed repository and
-server identities, domain-separated HMAC identities, shared live key leases,
-and exact policy authority into evaluator snapshots. Its private versioned
-store serializes processes, journals atomic state replacement, preserves
-capacity across governing-generation changes, blocks clock rollback and unsafe
-key rotation, and models reserved, dispatched, indeterminate, and terminal
-transitions. Generic project-root retention protects this durable state instead
-of silently returning capacity. The package is not a live interception claim:
-TASK 161 must still resample and consume it at the gateway dispatch boundary.
+`internal/actionapproval` and `internal/actionstate` now own the implemented
+approval boundary in addition to trusted identity and cumulative budgets.
+Canonical approval requests bind one exact call, policy and lock, executable,
+server and tool contract, trusted principal and context, credential labels,
+selected keyed argument identities, taint, repository effect, rule trace,
+budget reservation, issuance, expiry, and nonce. Canonical Ed25519 receipts
+carry exact approve or reject decisions. Verification accepts only an active
+operator-configured authority key and consumes an approval at most once under
+the same atomic cross-process state transaction as its budget reservation.
+Cancellation, malformed input, rejection, expiry, replay, unavailable
+authority, persistence failure, and crash-orphan reconciliation are explicit
+fail-closed transitions with payload-free evidence.
+
+The authority registry is a bounded private regular file outside the
+repository. Repository policy may select only safe argument summaries for an
+informed decision; it cannot select authority keys, private key material, or
+the authority process. A prompt or signer under the same agent's authority is
+not an independent approval boundary. MCP `2026-07-28` input-required is only
+an exact transport mapping for request state and a signed receipt; unsupported
+clients receive an explicit approval-required failure. The packages remain
+internal primitives until TASK 161 resamples and consumes them at the gateway
+dispatch boundary.
+
+The private versioned state store serializes processes, journals atomic state
+replacement, preserves capacity across governing-generation changes, blocks
+clock rollback and unsafe key rotation, and models reserved, approval-pending,
+dispatched, indeterminate, and terminal transitions. Generic project-root
+retention protects this durable state instead of silently returning capacity.
 
 The target topology is one local, tool-only stdio MCP gateway around one
 operator-selected downstream stdio MCP server. Every routed `tools/call` would

@@ -199,6 +199,7 @@ func (s *Store) initialState() (State, error) {
 		Schema: StateSchema, FormatVersion: StateFormatVersion,
 		KeyID: s.key.ID(), RepositoryIdentity: s.repositoryIdentity,
 		Budgets: []BudgetRecord{}, Reservations: []Reservation{}, TerminalCalls: []TerminalCall{},
+		Approvals: []ApprovalRecord{},
 	}
 	digest, err := s.stateDigest(state)
 	if err != nil {

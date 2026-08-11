@@ -123,6 +123,13 @@ Unreleased source contains the internal trusted-context and cumulative-budget
 state owner used by the future gateway. It intentionally has no public command
 surface yet and does not intercept a direct tool call.
 
+The same internal boundary implements canonical one-call approval requests,
+Ed25519 approve or reject receipts, strict operator-owned authority registries,
+single-use atomic consumption, budget coupling, expiry reconciliation, and
+exact MCP `2026-07-28` input-required transport mapping. It still exposes no
+public approver or live interception command. An unsigned client response or a
+signer under the agent's authority is not an independent approval.
+
 ### `reconc mcp gateway [repo] --server LABEL (--expect-lock-digest SHA256 | --allow-repository-managed-policy) [trusted-context flags] -- COMMAND [ARG...]`
 
 Would start one local, tool-only stdio gateway around one
@@ -550,7 +557,11 @@ fingerprint, tool and tool-contract digest, phase payload, trusted context with
 provenance, principal, credential labels, evaluator state, completeness, and
 an exact current expectation. The expectation requires decision, reason, tool
 ID, ordered rule IDs, cache eligibility and reason, completeness, phase
-outcome, and any failure code. Reconc executes both sides through the
+outcome, and any failure code. An optional approval assertion also requires
+the exact status, redacted identity, call-specific required-approval identity,
+and any explicit pending, approved, rejected, expired, cancelled, unavailable,
+malformed, or replayed transition. Snapshot and transition coverage are tracked
+separately. Reconc executes both sides through the
 production compiler, runtime plan, normalizer, and evaluator. A malformed,
 oversized, stale, unsupported, incomplete, or expectation-mismatched case fails
 instead of becoming a skipped scenario.
@@ -566,7 +577,7 @@ classification remains unavailable until TASK 159.
 
 Action comparison reports every decision change plus newly allowed, warned,
 approval-required, and blocked changes and reason, rule-trace, cache,
-phase-outcome, completeness, tool-identity, and failure deltas.
+phase-outcome, completeness, tool-identity, approval-state, and failure deltas.
 `newly_allowed` means the decision became less restrictive, including
 `block -> require_approval`, `block -> warn`, and `warn -> allow`;
 `newly_blocked` means the candidate became an exact block or changed an

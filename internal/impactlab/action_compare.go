@@ -74,10 +74,20 @@ func evaluateActionScenario(scenario ActionCase, compiled runtime.CompiledAction
 		applyIdentityDrift(&input.ResampledIdentities, scenario.State.ResampleDrift)
 	}
 	result := compiled.Evaluator.EvaluateRaw(raw, input)
-	return observationFromResult(result)
+	var approval *ActionApprovalAssertion
+	if scenario.Expected.Approval != nil {
+		approval = &ActionApprovalAssertion{
+			Status: scenario.State.Approval.Status, Identity: scenario.State.Approval.Identity,
+			Transition: scenario.State.ApprovalTransition,
+		}
+		if result.Decision == action.DecisionRequireApproval {
+			approval.RequiredApprovalIdentity = result.RequiredApprovalIdentity
+		}
+	}
+	return observationFromResult(result, approval)
 }
 
-func observationFromResult(result action.EvaluationResult) (ActionObservation, error) {
+func observationFromResult(result action.EvaluationResult, approval *ActionApprovalAssertion) (ActionObservation, error) {
 	failureCode := action.ReasonCode("")
 	if result.Failure != nil {
 		failureCode = result.Failure.Code
@@ -87,6 +97,7 @@ func observationFromResult(result action.EvaluationResult) (ActionObservation, e
 		MatchedRuleIDs: append([]string{}, result.MatchedRuleIDs...),
 		Cache:          ActionCacheAssertion{Eligible: result.Cache.Eligible, Reason: result.Cache.Reason},
 		Completeness:   result.Completeness, PhaseOutcome: result.PhaseOutcome, FailureCode: failureCode,
+		Approval: approval,
 	}
 	outcome.Completeness.Missing = append([]action.MissingEvidence{}, result.Completeness.Missing...)
 	identity, err := actionAssertionIdentity(outcome)
@@ -198,6 +209,9 @@ func actionDeltas(current, candidate ActionObservation) []ActionDeltaKind {
 	if !equalActionCompleteness(current.Outcome.Completeness, candidate.Outcome.Completeness) {
 		deltas = append(deltas, DeltaCompleteness)
 	}
+	if !equalActionApprovalAssertion(current.Outcome.Approval, candidate.Outcome.Approval) {
+		deltas = append(deltas, DeltaApproval)
+	}
 	return deltas
 }
 
@@ -215,7 +229,16 @@ func equalActionAssertion(left, right ActionAssertion) bool {
 	return left.Decision == right.Decision && left.Reason == right.Reason && left.ToolID == right.ToolID &&
 		slices.Equal(left.MatchedRuleIDs, right.MatchedRuleIDs) && left.Cache == right.Cache &&
 		equalActionCompleteness(left.Completeness, right.Completeness) &&
-		left.PhaseOutcome == right.PhaseOutcome && left.FailureCode == right.FailureCode
+		left.PhaseOutcome == right.PhaseOutcome && left.FailureCode == right.FailureCode &&
+		equalActionApprovalAssertion(left.Approval, right.Approval)
+}
+
+func equalActionApprovalAssertion(left, right *ActionApprovalAssertion) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return left.Status == right.Status && left.Identity == right.Identity &&
+		left.RequiredApprovalIdentity == right.RequiredApprovalIdentity && left.Transition == right.Transition
 }
 
 func addActionRuleMatches(matches map[string]int, observation ActionObservation) {
@@ -253,6 +276,8 @@ func addActionSummary(summary *Summary, comparison ActionComparison) {
 			summary.ActionToolIdentityChanges++
 		case DeltaFailure:
 			summary.ActionFailureChanges++
+		case DeltaApproval:
+			summary.ActionApprovalChanges++
 		}
 	}
 }

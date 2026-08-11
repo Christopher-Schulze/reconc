@@ -30,6 +30,7 @@ const (
 	MaxRules                = 4096
 	MaxTools                = 512
 	MaxBudgets              = 1024
+	MaxApprovalDisclosures  = 1024
 	MaxConcurrentCalls      = 4
 	MaxCompiledPlanBytes    = 24 << 20
 )
@@ -369,12 +370,23 @@ type Budget struct {
 	SourceIdentity string       `json:"source_identity"`
 }
 
+// ApprovalDisclosure selects only the argument fields whose keyed summaries
+// may be rendered to an external approval authority. It never selects or
+// defines authority keys; those remain operator-owned configuration.
+type ApprovalDisclosure struct {
+	ID                string   `json:"id"`
+	Selector          Selector `json:"selector"`
+	SelectedArguments []string `json:"selected_arguments"`
+	SourceIdentity    string   `json:"source_identity"`
+}
+
 type Plan struct {
-	FormatVersion string   `json:"format_version"`
-	Tools         []Tool   `json:"tools"`
-	Rules         []Rule   `json:"rules"`
-	Budgets       []Budget `json:"budgets"`
-	Defaults      Defaults `json:"defaults"`
+	FormatVersion string               `json:"format_version"`
+	Tools         []Tool               `json:"tools"`
+	Rules         []Rule               `json:"rules"`
+	Budgets       []Budget             `json:"budgets"`
+	Approvals     []ApprovalDisclosure `json:"approvals"`
+	Defaults      Defaults             `json:"defaults"`
 }
 
 // CompiledPlan is the immutable runtime-owned form. Plan returns a defensive
@@ -385,6 +397,7 @@ type CompiledPlan struct {
 	toolByExact map[string]int
 	rules       []CompiledRule
 	budgets     []Budget
+	approvals   []ApprovalDisclosure
 }
 
 type CompiledRule struct {

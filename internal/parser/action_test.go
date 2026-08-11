@@ -49,12 +49,19 @@ actions:
         cost_units: 30
       reset: operator_run
       on_exhaustion: block
+  approvals:
+    - id: production-summary
+      selector:
+        tool_ids: [production-query]
+        phases: [pre_call]
+      selected_arguments: [/database]
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if parsed.Actions == nil || len(parsed.Actions.Tools) != 1 ||
-		len(parsed.Actions.Rules) != 1 || len(parsed.Actions.Budgets) != 1 {
+		len(parsed.Actions.Rules) != 1 || len(parsed.Actions.Budgets) != 1 ||
+		len(parsed.Actions.Approvals) != 1 {
 		t.Fatalf("parsed actions = %#v", parsed.Actions)
 	}
 	compiled, err := action.CompilePlan(*parsed.Actions)
@@ -75,8 +82,8 @@ func TestParseActionPolicyRejectsStrictSurfaceViolations(t *testing.T) {
 		want string
 	}{
 		{
-			name: "later-owned approval",
-			body: "actions:\n  approvals: []\n",
+			name: "repository-owned approval authority",
+			body: "actions:\n  approvals:\n    - id: disclosure\n      selector: {tool_ids: [tool]}\n      selected_arguments: [/value]\n      authority_key_id: repository-key\n",
 			want: "unknown field",
 		},
 		{
@@ -222,6 +229,12 @@ func TestParseActionPolicyMergesOnlyExplicitImpactCandidateSources(t *testing.T)
       selector:
         tool_ids: [database-write]
       decision: block
+  approvals:
+    - id: database-summary
+      selector:
+        tool_ids: [database-write]
+        phases: [pre_call]
+      selected_arguments: [/target]
 `,
 	}
 	parsed, err := ParseRuleDocuments(&ingest.SourceBundle{Sources: []policy.PolicySource{base, candidate}})
@@ -229,8 +242,10 @@ func TestParseActionPolicyMergesOnlyExplicitImpactCandidateSources(t *testing.T)
 		t.Fatal(err)
 	}
 	if parsed.Actions == nil || len(parsed.Actions.Tools) != 1 || len(parsed.Actions.Rules) != 1 ||
+		len(parsed.Actions.Approvals) != 1 ||
 		parsed.Actions.Defaults.DeclaredTool != action.DecisionWarn ||
-		parsed.Actions.Rules[0].SourceIdentity != candidate.Path {
+		parsed.Actions.Rules[0].SourceIdentity != candidate.Path ||
+		parsed.Actions.Approvals[0].SourceIdentity != candidate.Path {
 		t.Fatalf("merged action candidate = %#v", parsed.Actions)
 	}
 	if _, err := action.CompilePlan(*parsed.Actions); err != nil {

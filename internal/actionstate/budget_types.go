@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/action"
+	"reconc.dev/reconc/internal/actionapproval"
 )
 
 const (
@@ -16,6 +17,8 @@ const (
 	MaxBudgetRecords       = 65536
 	MaxReservations        = 65536
 	MaxTerminalCallRecords = 65536
+	MaxApprovalRecords     = 65536
+	MaxPendingApprovals    = 4
 )
 
 type ClockSnapshot struct {
@@ -103,31 +106,46 @@ type TerminalCall struct {
 	CompletedAtUnix     int64           `json:"completed_at_unix"`
 }
 
+type ApprovalRecord struct {
+	Request             actionapproval.Request `json:"request"`
+	Status              actionapproval.Status  `json:"status"`
+	ReservationIdentity string                 `json:"reservation_identity"`
+	NonceIdentity       string                 `json:"nonce_identity"`
+	RegistryIdentity    string                 `json:"registry_identity,omitempty"`
+	AuthorityKeyID      string                 `json:"authority_key_id,omitempty"`
+	ReceiptID           string                 `json:"receipt_id,omitempty"`
+	ReceiptIdentity     string                 `json:"receipt_identity,omitempty"`
+	ReceiptSignedAt     string                 `json:"receipt_signed_at,omitempty"`
+	UpdatedAtUnix       int64                  `json:"updated_at_unix"`
+}
+
 type State struct {
-	Schema               string         `json:"schema"`
-	FormatVersion        string         `json:"format_version"`
-	KeyID                string         `json:"key_id"`
-	RepositoryIdentity   string         `json:"repository_identity"`
-	Revision             uint64         `json:"revision"`
-	ClockSource          string         `json:"clock_source"`
-	LastObservedUnixNano int64          `json:"last_observed_unix_nano"`
-	Budgets              []BudgetRecord `json:"budgets"`
-	Reservations         []Reservation  `json:"reservations"`
-	TerminalCalls        []TerminalCall `json:"terminal_calls"`
-	Digest               string         `json:"digest"`
+	Schema               string           `json:"schema"`
+	FormatVersion        string           `json:"format_version"`
+	KeyID                string           `json:"key_id"`
+	RepositoryIdentity   string           `json:"repository_identity"`
+	Revision             uint64           `json:"revision"`
+	ClockSource          string           `json:"clock_source"`
+	LastObservedUnixNano int64            `json:"last_observed_unix_nano"`
+	Budgets              []BudgetRecord   `json:"budgets"`
+	Reservations         []Reservation    `json:"reservations"`
+	TerminalCalls        []TerminalCall   `json:"terminal_calls"`
+	Approvals            []ApprovalRecord `json:"approvals"`
+	Digest               string           `json:"digest"`
 }
 
 type statePayload struct {
-	Schema               string         `json:"schema"`
-	FormatVersion        string         `json:"format_version"`
-	KeyID                string         `json:"key_id"`
-	RepositoryIdentity   string         `json:"repository_identity"`
-	Revision             uint64         `json:"revision"`
-	ClockSource          string         `json:"clock_source"`
-	LastObservedUnixNano int64          `json:"last_observed_unix_nano"`
-	Budgets              []BudgetRecord `json:"budgets"`
-	Reservations         []Reservation  `json:"reservations"`
-	TerminalCalls        []TerminalCall `json:"terminal_calls"`
+	Schema               string           `json:"schema"`
+	FormatVersion        string           `json:"format_version"`
+	KeyID                string           `json:"key_id"`
+	RepositoryIdentity   string           `json:"repository_identity"`
+	Revision             uint64           `json:"revision"`
+	ClockSource          string           `json:"clock_source"`
+	LastObservedUnixNano int64            `json:"last_observed_unix_nano"`
+	Budgets              []BudgetRecord   `json:"budgets"`
+	Reservations         []Reservation    `json:"reservations"`
+	TerminalCalls        []TerminalCall   `json:"terminal_calls"`
+	Approvals            []ApprovalRecord `json:"approvals"`
 }
 
 type stateTransaction struct {
@@ -163,32 +181,37 @@ type ReserveResult struct {
 }
 
 type StateStatus struct {
-	StateVersion       string             `json:"state_version"`
-	Revision           uint64             `json:"revision"`
-	KeyID              string             `json:"key_id"`
-	RepositoryIdentity string             `json:"repository_identity"`
-	ClockSource        string             `json:"clock_source"`
-	Budgets            []BudgetStatus     `json:"budgets"`
-	Reservations       []ReservationView  `json:"reservations"`
-	LiveReservations   int                `json:"live_reservations"`
-	Indeterminate      int                `json:"indeterminate_reservations"`
-	TerminalCallCount  int                `json:"terminal_call_count"`
-	Capacity           StateCapacity      `json:"capacity"`
-	Remediations       []StateRemediation `json:"remediations"`
-	Provenance         []AuthorityBinding `json:"provenance"`
-	Complete           bool               `json:"complete"`
+	StateVersion       string               `json:"state_version"`
+	Revision           uint64               `json:"revision"`
+	KeyID              string               `json:"key_id"`
+	RepositoryIdentity string               `json:"repository_identity"`
+	ClockSource        string               `json:"clock_source"`
+	Budgets            []BudgetStatus       `json:"budgets"`
+	Reservations       []ReservationView    `json:"reservations"`
+	LiveReservations   int                  `json:"live_reservations"`
+	Indeterminate      int                  `json:"indeterminate_reservations"`
+	TerminalCallCount  int                  `json:"terminal_call_count"`
+	ApprovalRecords    []ApprovalRecordView `json:"approval_records"`
+	PendingApprovals   int                  `json:"pending_approvals"`
+	Capacity           StateCapacity        `json:"capacity"`
+	Remediations       []StateRemediation   `json:"remediations"`
+	Provenance         []AuthorityBinding   `json:"provenance"`
+	Complete           bool                 `json:"complete"`
 }
 
 type StateCapacity struct {
-	StateBytes           int `json:"state_bytes"`
-	StateBytesMaximum    int `json:"state_bytes_maximum"`
-	BudgetRecords        int `json:"budget_records"`
-	BudgetRecordsMaximum int `json:"budget_records_maximum"`
-	Reservations         int `json:"reservations"`
-	ReservationsMaximum  int `json:"reservations_maximum"`
-	TerminalCalls        int `json:"terminal_calls"`
-	TerminalCallsMaximum int `json:"terminal_calls_maximum"`
-	GenerationHistoryMax int `json:"generation_history_maximum_per_budget"`
+	StateBytes              int `json:"state_bytes"`
+	StateBytesMaximum       int `json:"state_bytes_maximum"`
+	BudgetRecords           int `json:"budget_records"`
+	BudgetRecordsMaximum    int `json:"budget_records_maximum"`
+	Reservations            int `json:"reservations"`
+	ReservationsMaximum     int `json:"reservations_maximum"`
+	TerminalCalls           int `json:"terminal_calls"`
+	TerminalCallsMaximum    int `json:"terminal_calls_maximum"`
+	ApprovalRecords         int `json:"approval_records"`
+	ApprovalRecordsMaximum  int `json:"approval_records_maximum"`
+	PendingApprovalsMaximum int `json:"pending_approvals_maximum"`
+	GenerationHistoryMax    int `json:"generation_history_maximum_per_budget"`
 }
 
 type StateRemediation string
@@ -223,6 +246,19 @@ type BudgetStatus struct {
 	GenerationHistory         []action.BudgetGeneration `json:"generation_history"`
 	LiveReservations          int                       `json:"live_reservations"`
 	IndeterminateReservations int                       `json:"indeterminate_reservations"`
+}
+
+type ApprovalRecordView struct {
+	RequestID       string                `json:"request_id"`
+	CallID          string                `json:"call_id"`
+	Status          actionapproval.Status `json:"status"`
+	AuthorityPolicy string                `json:"authority_policy"`
+	AuthorityKeyID  string                `json:"authority_key_id,omitempty"`
+	ReceiptID       string                `json:"receipt_id,omitempty"`
+	ReceiptSignedAt string                `json:"receipt_signed_at,omitempty"`
+	IssuedAt        string                `json:"issued_at"`
+	ExpiresAt       string                `json:"expires_at"`
+	UpdatedAtUnix   int64                 `json:"updated_at_unix"`
 }
 
 type StateError struct {

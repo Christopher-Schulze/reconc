@@ -38,7 +38,7 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 		"`reconc impact` invokes that production evaluator",
 		"No current source command",
 		"routes tool calls through an enforcing gateway",
-		"offline simulation is not a",
+		"offline simulation and internal approval machinery are not a",
 		"live tool-call interception boundary",
 	)
 	assertContainsAll(t, "commands", commands,
@@ -107,8 +107,9 @@ func TestDraftActionPlaneContractTablesHaveExactOwnersVectorsAndEvolution(t *tes
 
 func assertContainsAll(t *testing.T, surface, body string, values ...string) {
 	t.Helper()
+	normalizedBody := strings.Join(strings.Fields(body), " ")
 	for _, value := range values {
-		if !strings.Contains(body, value) {
+		if !strings.Contains(normalizedBody, strings.Join(strings.Fields(value), " ")) {
 			t.Errorf("%s omits exact contract text %q", surface, value)
 		}
 	}
