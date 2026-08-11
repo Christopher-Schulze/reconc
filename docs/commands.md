@@ -520,11 +520,14 @@ reconc ci . --base "$CI_MERGE_REQUEST_DIFF_BASE_SHA" --head "$CI_COMMIT_SHA" --f
 reconc ci . --base origin/main --head HEAD --format junit --output reconc-junit.xml
 ```
 
-### `reconc impact [repo] (--candidate FILE | --pack NAME) [--corpus FILE | --fixture FILE] [evidence flags] [--json] [--output PATH]`
+### `reconc impact [repo] (--candidate FILE | --pack NAME) [--corpus FILE | --fixture FILE] [evidence flags] [--delta-manifest FILE] [--format text|json|sarif|junit|github | --json] [--output PATH]`
 
 Compile one additive candidate policy file or resolved preset in memory, then
 compare the fresh current policy and candidate over explicit evidence fixtures
-or imported replay corpora. The command writes no policy source, lockfile,
+or imported replay corpora. Candidate policy may add repository rules and
+`actions` tools, rules, and explicitly supplied defaults; duplicate tool or
+rule ownership is still rejected by the production compiler. The command
+writes no policy source, lockfile,
 hook, session state, audit record, or TASK file, applies no suggestion, invokes
 no model, and makes no network call. Candidate files are bounded regular UTF-8
 files; their physical path is excluded from compiled provenance.
@@ -536,6 +539,55 @@ evaluation-unit deltas. These units count rules, normalized evidence,
 pattern-comparison opportunities, and external-rule boundaries; they are
 stable comparison evidence, not wall-clock timing. An unmatched rule is never
 reported as dead or safe.
+
+Format 2 adds strict discriminated `repository`, `action_pre`, and
+`action_post` cases. Every action case binds transport, server label and
+fingerprint, tool and tool-contract digest, phase payload, trusted context with
+provenance, principal, credential labels, evaluator state, completeness, and
+an exact current expectation. The expectation requires decision, reason, tool
+ID, ordered rule IDs, cache eligibility and reason, completeness, phase
+outcome, and any failure code. Reconc executes both sides through the
+production compiler, runtime plan, normalizer, and evaluator. A malformed,
+oversized, stale, unsupported, incomplete, or expectation-mismatched case fails
+instead of becoming a skipped scenario.
+
+Action payloads are explicit synthetic, minimized fixtures, never captured live
+arguments or complete downstream results. The exporter removes recognized
+secret-shaped values, physical paths, oversized scalars, and unsafe metadata,
+and replaces an over-limit payload with one canonical safe surrogate that
+preserves the production `limit_exceeded` path without retaining source bytes,
+but it cannot infer that an otherwise ordinary opaque value is confidential.
+Do not author scenarios from live sensitive data. Detector-backed content
+classification remains unavailable until TASK 159.
+
+Action comparison reports every decision change plus newly allowed, warned,
+approval-required, and blocked changes and reason, rule-trace, cache,
+phase-outcome, completeness, tool-identity, and failure deltas.
+`newly_allowed` means the decision became less restrictive, including
+`block -> require_approval`, `block -> warn`, and `warn -> allow`;
+`newly_blocked` means the candidate became an exact block or changed an
+eligible phase to non-dispatchable or withheld. Any newly
+allowed or newly blocked action exits 2 after rendering unless
+`--delta-manifest` supplies an exact current review. Each manifest entry binds
+case ID and identity, delta class, current and candidate outcomes, candidate
+lock digest, rationale, and either canonical UTC expiry or permanent status.
+Duplicate, wildcard, orphaned, partial, stale, expired, or digest-mismatched
+review never passes the gate.
+
+The manifest proves that an exact delta was acknowledged; it does not prove who
+reviewed or authored the file. Reviewer identity and separation of duties must
+come from repository governance such as protected reviews or signed commits.
+Reconc never treats the manifest as a human-approval authority.
+
+Compact text and full typed JSON render from the bounded impact report; JUnit,
+SARIF, and GitHub render from its bounded 1,024-finding, 8 MiB CI projection.
+Every format carries stable case IDs. Selected action values are removed before
+replay and retained only as source, pointer, category, length, item count,
+provenance, and an optional trusted identity. Raw credentials, headers, tokens,
+physical paths, and full results are never report content. Format-1 corpora
+migrate deterministically to repository cases; new output is always format 2.
+A corpus is limited to 64 MiB and 10,000 cases, a full JSON report to 64 MiB,
+and a delta manifest to 8 MiB.
 
 Policies containing `require_script` are refused before replay because an
 arbitrary repository script cannot be proven side-effect-free.
@@ -552,6 +604,12 @@ accepts `read`, `write`, `command`, `command_outcome`, `claim`, or
 Every corpus is bounded, deterministically ordered, self-identified, strict
 about unknown/duplicate fields, and refused after mutation. `--output`
 publishes the exact stdout JSON atomically.
+
+`impact export` emits repository evidence cases only. Action corpora are
+explicitly authored because a capture cannot infer trusted transport,
+principal, credential, state, or expectation data. A full portable action-case
+shape is committed at
+`harness/template/audits/testdata/action-impact/corpus.json`.
 
 ### `reconc exec [repo] [--staged] [--shell] -- COMMAND [ARG ...]`
 Execute a command from the repository root and record its real exit status in

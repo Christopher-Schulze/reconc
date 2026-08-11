@@ -180,6 +180,12 @@ func normalizeCompleteness(input Completeness) (Completeness, error) {
 	return out, nil
 }
 
+// NormalizeCompleteness validates and canonicalizes one evidence declaration
+// without requiring a complete action request.
+func NormalizeCompleteness(input Completeness) (Completeness, error) {
+	return normalizeCompleteness(input)
+}
+
 func completenessField(value Completeness, field EvidenceField) bool {
 	switch field {
 	case EvidenceRequest:

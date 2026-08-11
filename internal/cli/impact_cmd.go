@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 	"unicode/utf8"
 
 	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/boundedio"
+	"reconc.dev/reconc/internal/cireport"
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/impactlab"
 	"reconc.dev/reconc/internal/policy"
@@ -34,6 +36,14 @@ func runImpact(args []string, version string, stdout io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc impact: prepare candidate: " + err.Error()}
 	}
+	actionRuntime, err := evaluator.ActionRuntime()
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc impact: prepare candidate actions: " + err.Error()}
+	}
+	candidate.metadata.LockDigest = actionRuntime.LockDigest
+	candidate.metadata.ActionPlanIdentity = actionRuntime.Evaluator.PlanIdentity()
+	candidate.metadata.ActionToolCount = actionRuntime.ToolCount
+	candidate.metadata.ActionRuleCount = actionRuntime.ActionRuleCount
 	corpus, err := loadImpactCorpora(options)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc impact: " + err.Error()}
@@ -49,14 +59,48 @@ func runImpact(args []string, version string, stdout io.Writer) error {
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc impact: compare: " + err.Error()}
 	}
-	output := impactlab.RenderText(report)
-	if options.jsonOutput {
+	if options.deltaManifest != "" {
+		manifest, manifestErr := impactlab.DecodeDeltaManifestFile(options.deltaManifest)
+		if manifestErr != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc impact: delta manifest: " + manifestErr.Error()}
+		}
+		report, manifestErr = impactlab.ApplyDeltaManifest(report, manifest, time.Now().UTC())
+		if manifestErr != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc impact: delta manifest: " + manifestErr.Error()}
+		}
+	}
+	format, err := resolveImpactReportFormat(options.format, options.jsonOutput)
+	if err != nil {
+		return &CLIError{ExitCode: 1, Message: "reconc impact: " + err.Error()}
+	}
+	var output []byte
+	switch format {
+	case impactText:
+		output = impactlab.RenderText(report)
+	case impactJSON:
 		output, err = impactlab.MarshalReport(report)
 		if err != nil {
 			return &CLIError{ExitCode: 1, Message: "reconc impact: render JSON: " + err.Error()}
 		}
+	case impactSARIF, impactJUnit, impactGitHub:
+		ciFormat := cireport.FormatSARIF
+		if format == impactJUnit {
+			ciFormat = cireport.FormatJUnit
+		} else if format == impactGitHub {
+			ciFormat = cireport.FormatGitHub
+		}
+		output, err = cireport.Render(ciFormat, cireport.FromImpact(version, report))
+		if err != nil {
+			return &CLIError{ExitCode: 1, Message: "reconc impact: render " + string(format) + ": " + err.Error()}
+		}
 	}
-	return writeImpactBytes("impact", options.outputPath, stdout, output)
+	if err := writeImpactBytes("impact", options.outputPath, stdout, output); err != nil {
+		return err
+	}
+	if !report.DeltaGate.Passed {
+		return &CLIError{ExitCode: 2, Message: ""}
+	}
+	return nil
 }
 
 type compiledImpactCandidate struct {
@@ -122,9 +166,9 @@ func loadImpactCorpora(options impactCompareOptions) (impactlab.Corpus, error) {
 		corpora = append(corpora, corpus)
 	}
 	if options.hasEvidence {
-		corpus, err := impactlab.NewCorpus(options.repo, []impactlab.Case{{
-			ID: options.caseID, Inputs: options.inputs,
-		}}, impactlab.AllEventClasses())
+		corpus, err := impactlab.NewCorpus(options.repo, []impactlab.Case{
+			impactlab.NewRepositoryCase(options.caseID, options.inputs),
+		}, impactlab.AllEventClasses())
 		if err != nil {
 			return impactlab.Corpus{}, err
 		}
@@ -145,9 +189,9 @@ func runImpactExport(args []string, stdout io.Writer) error {
 		}
 		options.inputs = options.inputs.MergedWith(sessionInputs)
 	}
-	corpus, err := impactlab.NewCorpus(options.repo, []impactlab.Case{{
-		ID: options.caseID, Inputs: options.inputs,
-	}}, options.complete)
+	corpus, err := impactlab.NewCorpus(options.repo, []impactlab.Case{
+		impactlab.NewRepositoryCase(options.caseID, options.inputs),
+	}, options.complete)
 	if err != nil {
 		return &CLIError{ExitCode: 1, Message: "reconc impact export: " + err.Error()}
 	}

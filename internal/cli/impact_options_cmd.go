@@ -16,6 +16,8 @@ type impactCompareOptions struct {
 	corpusPaths   []string
 	caseID        string
 	jsonOutput    bool
+	format        string
+	deltaManifest string
 	outputPath    string
 	inputs        runtime.ExecutionInputs
 	hasEvidence   bool
@@ -35,6 +37,12 @@ func parseImpactCompareOptions(args []string, output io.Writer) (impactCompareOp
 	if len(options.corpusPaths) == 0 && !options.hasEvidence {
 		return options, false, &CLIError{ExitCode: 1, Message: "reconc impact: provide --corpus/--fixture or explicit evidence flags"}
 	}
+	if options.jsonOutput && options.format != "" {
+		return options, false, &CLIError{ExitCode: 1, Message: "reconc impact: --json and --format are mutually exclusive"}
+	}
+	if _, err := resolveImpactReportFormat(options.format, options.jsonOutput); err != nil {
+		return options, false, &CLIError{ExitCode: 1, Message: "reconc impact: " + err.Error()}
+	}
 	return options, false, nil
 }
 
@@ -46,7 +54,7 @@ func (options *impactCompareOptions) consume(args []string, index *int, output i
 		return true, nil
 	case "--json":
 		options.jsonOutput = true
-	case "--candidate", "--pack", "--corpus", "--fixture", "--case-id", "--output":
+	case "--candidate", "--pack", "--corpus", "--fixture", "--case-id", "--output", "--format", "--delta-manifest":
 		return false, options.consumeValue(flag, args, index)
 	case "--read", "--write", "--command", "--command-success", "--command-failure", "--claim":
 		return false, consumeImpactEvidence(flag, args, index, &options.inputs, &options.hasEvidence)
@@ -78,6 +86,10 @@ func (options *impactCompareOptions) consumeValue(flag string, args []string, in
 		options.caseID = value
 	case "--output":
 		options.outputPath = value
+	case "--format":
+		options.format = value
+	case "--delta-manifest":
+		options.deltaManifest = value
 	}
 	return nil
 }
@@ -196,10 +208,36 @@ func parseImpactEventClasses(value string) ([]impactlab.EventClass, error) {
 }
 
 func writeImpactHelp(output io.Writer) {
-	fmt.Fprintln(output, "Usage: reconc impact [repo] (--candidate FILE | --pack NAME) [--corpus FILE | --fixture FILE] [evidence flags] [--json] [--output PATH]")
+	fmt.Fprintln(output, "Usage: reconc impact [repo] (--candidate FILE | --pack NAME) [--corpus FILE | --fixture FILE] [evidence flags] [--delta-manifest FILE] [--format text|json|sarif|junit|github | --json] [--output PATH]")
 	fmt.Fprintln(output, "       reconc impact export [repo] (--session | evidence flags) [--complete CLASS] [--case-id ID] [--output PATH]")
 	fmt.Fprintln(output, "")
 	fmt.Fprintln(output, "Compile an additive candidate in memory and compare it with the fresh current policy over bounded replay evidence.")
 	fmt.Fprintln(output, "Evidence: --read PATH --write PATH --command CMD --command-success CMD --command-failure CMD --claim NAME")
+	fmt.Fprintln(output, "Unreviewed newly allowed or newly blocked action deltas exit 2 after rendering the report.")
 	fmt.Fprintln(output, "Unmatched always means unmatched in this corpus, never a dead or safe rule.")
+}
+
+type impactReportFormat string
+
+const (
+	impactText   impactReportFormat = "text"
+	impactJSON   impactReportFormat = "json"
+	impactSARIF  impactReportFormat = "sarif"
+	impactJUnit  impactReportFormat = "junit"
+	impactGitHub impactReportFormat = "github"
+)
+
+func resolveImpactReportFormat(explicit string, jsonOutput bool) (impactReportFormat, error) {
+	if jsonOutput {
+		return impactJSON, nil
+	}
+	if explicit == "" {
+		return impactText, nil
+	}
+	format := impactReportFormat(explicit)
+	if format != impactText && format != impactJSON && format != impactSARIF &&
+		format != impactJUnit && format != impactGitHub {
+		return "", fmt.Errorf("--format must be text, json, sarif, junit, or github")
+	}
+	return format, nil
 }

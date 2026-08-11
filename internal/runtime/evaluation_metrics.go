@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 
+	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/policy"
@@ -23,6 +24,16 @@ type EvaluationMetrics struct {
 // CompiledPolicyEvaluator owns one validated in-memory runtime plan.
 type CompiledPolicyEvaluator struct {
 	plan *runtimePlan
+}
+
+// CompiledActionRuntime is the production action evaluator and the exact
+// immutable policy identities from the same decoded lock snapshot.
+type CompiledActionRuntime struct {
+	Evaluator       *action.Evaluator
+	SourceDigest    string
+	LockDigest      string
+	ToolCount       int
+	ActionRuleCount int
 }
 
 // EvaluationTrace records which rules were actually triggered by the replay
@@ -96,6 +107,25 @@ func (e *CompiledPolicyEvaluator) RequireScriptRuleIDs() []string {
 		return []string{}
 	}
 	return requireScriptRuleIDs(e.plan.rules)
+}
+
+// ActionRuntime returns a fresh pure evaluator over the canonical action plan
+// already validated by the production lock decoder. The returned source and
+// lock digests belong to that exact plan snapshot.
+func (e *CompiledPolicyEvaluator) ActionRuntime() (CompiledActionRuntime, error) {
+	if e == nil || e.plan == nil || e.plan.actions == nil {
+		return CompiledActionRuntime{}, fmt.Errorf("compiled policy evaluator is nil")
+	}
+	evaluator, err := action.NewEvaluator(e.plan.actions)
+	if err != nil {
+		return CompiledActionRuntime{}, fmt.Errorf("prepare compiled action evaluator: %w", err)
+	}
+	plan := e.plan.actions.Plan()
+	return CompiledActionRuntime{
+		Evaluator: evaluator, SourceDigest: e.plan.sourceDigest,
+		LockDigest: e.plan.lockDigest, ToolCount: len(plan.Tools),
+		ActionRuleCount: len(plan.Rules),
+	}, nil
 }
 
 // CustomRuntimeManifestDigest returns the compiled identity for one

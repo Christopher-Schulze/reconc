@@ -395,6 +395,16 @@ const (
 	OutcomeRecorded         PhaseOutcome = "recorded"
 )
 
+func (o PhaseOutcome) Valid() bool {
+	switch o {
+	case OutcomeDispatchEligible, OutcomeDispatchBlocked, OutcomeDeliveryEligible,
+		OutcomeWithheld, OutcomeProgressEligible, OutcomeSuppressed, OutcomeRecorded:
+		return true
+	default:
+		return false
+	}
+}
+
 type CacheReason string
 
 const (
@@ -411,6 +421,18 @@ const (
 	CacheFailureResult      CacheReason = "failure_result"
 	CacheLifecycleInactive  CacheReason = "lifecycle_inactive"
 )
+
+func (r CacheReason) Valid() bool {
+	switch r {
+	case CacheEligible, CachePolicyNever, CacheRuleNever, CacheIdentityMissing,
+		CacheIdentityDrift, CacheContextUnresolved, CacheStateStale,
+		CacheApprovalPending, CacheEvidenceTainted, CacheEvidenceIncomplete,
+		CacheFailureResult, CacheLifecycleInactive:
+		return true
+	default:
+		return false
+	}
+}
 
 type CacheResult struct {
 	Eligible bool        `json:"eligible"`

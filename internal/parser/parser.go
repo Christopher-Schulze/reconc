@@ -117,12 +117,17 @@ func ParseRuleDocuments(bundle *ingest.SourceBundle) (*ParsedPolicy, error) {
 			if present {
 				mcpPolicy = parsedMCP
 			}
+		}
+		if src.Kind == policy.SourceCompilerConfig || impactCandidateSource(src) {
 			parsedActions, present, err := parseActionPolicy(src)
 			if err != nil {
 				return nil, err
 			}
 			if present {
-				actionPolicy = parsedActions
+				actionPolicy, err = mergeActionPolicies(actionPolicy, parsedActions)
+				if err != nil {
+					return nil, err
+				}
 			}
 		}
 

@@ -21,7 +21,7 @@ func TestCorpusExportIsPrivateDeterministicAndStrict(t *testing.T) {
 		Command: "OPENAI_API_KEY=secretvalue go test ./...", Outcome: runtime.CommandOutcomeSuccess,
 	}}
 	inputs.Claims = []string{"api_key=claimsecret"}
-	corpus, err := NewCorpus(repo, []Case{{ID: "private", Inputs: inputs}}, AllEventClasses())
+	corpus, err := NewCorpus(repo, []Case{NewRepositoryCase("private", inputs)}, AllEventClasses())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,10 @@ func TestCorpusExportIsPrivateDeterministicAndStrict(t *testing.T) {
 	if err != nil || decoded.CorpusID != corpus.CorpusID {
 		t.Fatalf("decode = %+v, %v", decoded, err)
 	}
-	second, _ := MarshalCorpus(decoded)
+	second, err := MarshalCorpus(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !bytes.Equal(body, second) {
 		t.Fatal("corpus marshal is not deterministic")
 	}
@@ -56,7 +59,7 @@ func TestCorpusRedactsCommonCredentialShapes(t *testing.T) {
 		"curl -H 'Authorization: Bearer eyJheader123.payload123.signature123'",
 		"publish --credential glpat-1234567890abcdef",
 	}
-	corpus, err := NewCorpus(repo, []Case{{ID: "credentials", Inputs: inputs}}, AllEventClasses())
+	corpus, err := NewCorpus(repo, []Case{NewRepositoryCase("credentials", inputs)}, AllEventClasses())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,13 +80,16 @@ func TestCorpusRedactsCommonCredentialShapes(t *testing.T) {
 func TestCorpusRejectsMutationDuplicateKeysAndSymlink(t *testing.T) {
 	repo := makeImpactRepo(t)
 	corpus := simpleCorpus(t, repo)
-	body, _ := MarshalCorpus(corpus)
+	body, err := MarshalCorpus(corpus)
+	if err != nil {
+		t.Fatal(err)
+	}
 	mutated := bytes.Replace(body, []byte(`"id": "write-src"`), []byte(`"id": "other"`), 1)
 	if _, err := DecodeCorpus(mutated); err == nil || !strings.Contains(err.Error(), "identity") {
 		t.Fatalf("mutated corpus error = %v", err)
 	}
-	duplicate := bytes.Replace(body, []byte(`"format_version": "reconc-impact-corpus/v1"`),
-		[]byte(`"format_version": "reconc-impact-corpus/v1", "format_version": "other"`), 1)
+	duplicate := bytes.Replace(body, []byte(`"format_version": "reconc-impact-corpus/v2"`),
+		[]byte(`"format_version": "reconc-impact-corpus/v2", "format_version": "other"`), 1)
 	if _, err := DecodeCorpus(duplicate); err == nil || !strings.Contains(err.Error(), "duplicate") {
 		t.Fatalf("duplicate corpus error = %v", err)
 	}
@@ -121,17 +127,15 @@ func TestCompareFindsBlockingDeltaWithoutRepositoryMutation(t *testing.T) {
 		t.Fatal(err)
 	}
 	corpus := simpleCorpus(t, repo)
-	report, err := Compare(repo, corpus, Candidate{
-		Kind: "policy_file", Name: "candidate", SourceDigest: compiled.SourceDigest, RuleCount: compiled.RuleCount,
-	}, currentImpactEvaluator(t, repo), evaluator)
+	report, err := Compare(repo, corpus, impactCandidateMetadata(t, compiled, evaluator), currentImpactEvaluator(t, repo), evaluator)
 	if err != nil {
 		t.Fatal(err)
 	}
 	comparison := report.Cases[0]
-	if comparison.CurrentDecision != runtime.DecisionPass ||
-		comparison.CandidateDecision != runtime.DecisionBlock ||
-		!comparison.DecisionChanged ||
-		!slicesEqual(comparison.NewlyBlockingRules, []string{"candidate-deny"}) {
+	if comparison.Repository == nil || comparison.Repository.CurrentDecision != runtime.DecisionPass ||
+		comparison.Repository.CandidateDecision != runtime.DecisionBlock ||
+		!comparison.Repository.DecisionChanged ||
+		!slicesEqual(comparison.Repository.NewlyBlockingRules, []string{"candidate-deny"}) {
 		t.Fatalf("comparison = %+v", comparison)
 	}
 	if report.Summary.EstimatedUnitsDelta <= 0 || len(report.CorpusUnmatchedRules) != 0 {
@@ -141,8 +145,14 @@ func TestCompareFindsBlockingDeltaWithoutRepositoryMutation(t *testing.T) {
 	if err != nil || !bytes.Equal(before, after) {
 		t.Fatalf("impact compile mutated lockfile: %v", err)
 	}
-	first, _ := MarshalReport(report)
-	second, _ := MarshalReport(report)
+	first, err := MarshalReport(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := MarshalReport(report)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !bytes.Equal(first, second) {
 		t.Fatal("impact report is not deterministic")
 	}
@@ -162,16 +172,14 @@ func TestComparePreservesIncompleteCorpusDisclaimerAndUnmatchedRules(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	corpus, err := NewCorpus(repo, []Case{{ID: "src", Inputs: runtime.ExecutionInputs{
+	corpus, err := NewCorpus(repo, []Case{NewRepositoryCase("src", runtime.ExecutionInputs{
 		ReadPaths: []string{}, WritePaths: []string{"src/main.go"}, WriteEpochs: map[string]uint64{},
 		Commands: []string{}, Claims: []string{}, CommandResults: []runtime.CommandResult{},
-	}}}, []EventClass{EventClassWrite})
+	})}, []EventClass{EventClassWrite})
 	if err != nil {
 		t.Fatal(err)
 	}
-	report, err := Compare(repo, corpus, Candidate{
-		Kind: "policy_file", Name: "candidate", SourceDigest: compiled.SourceDigest, RuleCount: compiled.RuleCount,
-	}, currentImpactEvaluator(t, repo), evaluator)
+	report, err := Compare(repo, corpus, impactCandidateMetadata(t, compiled, evaluator), currentImpactEvaluator(t, repo), evaluator)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,13 +207,11 @@ func TestCompareCountsSatisfiedRuleAsCorpusMatched(t *testing.T) {
 	inputs := runtime.Empty()
 	inputs.WritePaths = []string{"src/main.go"}
 	inputs.ReadPaths = []string{"README.md"}
-	corpus, err := NewCorpus(repo, []Case{{ID: "satisfied", Inputs: inputs}}, AllEventClasses())
+	corpus, err := NewCorpus(repo, []Case{NewRepositoryCase("satisfied", inputs)}, AllEventClasses())
 	if err != nil {
 		t.Fatal(err)
 	}
-	report, err := Compare(repo, corpus, Candidate{
-		Kind: "policy_file", Name: "candidate", SourceDigest: compiled.SourceDigest, RuleCount: compiled.RuleCount,
-	}, currentImpactEvaluator(t, repo), evaluator)
+	report, err := Compare(repo, corpus, impactCandidateMetadata(t, compiled, evaluator), currentImpactEvaluator(t, repo), evaluator)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,15 +249,13 @@ func TestCompareScaleRemainsDeterministicAndBounded(t *testing.T) {
 	for index := range cases {
 		inputs := runtime.Empty()
 		inputs.WritePaths = []string{"src/file-" + string(rune('a'+index%26)) + ".go"}
-		cases[index] = Case{ID: "case-" + fixedDecimal(index, 3), Inputs: inputs}
+		cases[index] = NewRepositoryCase("case-"+fixedDecimal(index, 3), inputs)
 	}
 	corpus, err := NewCorpus(repo, cases, AllEventClasses())
 	if err != nil {
 		t.Fatal(err)
 	}
-	report, err := Compare(repo, corpus, Candidate{
-		Kind: "policy_file", Name: "candidate", SourceDigest: compiled.SourceDigest, RuleCount: compiled.RuleCount,
-	}, currentImpactEvaluator(t, repo), evaluator)
+	report, err := Compare(repo, corpus, impactCandidateMetadata(t, compiled, evaluator), currentImpactEvaluator(t, repo), evaluator)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,9 +287,7 @@ func TestCompareRefusesRequireScriptBeforeExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = Compare(repo, simpleCorpus(t, repo), Candidate{
-		Kind: "policy_file", Name: "candidate", SourceDigest: compiled.SourceDigest, RuleCount: compiled.RuleCount,
-	}, currentImpactEvaluator(t, repo), evaluator)
+	_, err = Compare(repo, simpleCorpus(t, repo), impactCandidateMetadata(t, compiled, evaluator), currentImpactEvaluator(t, repo), evaluator)
 	if err == nil || !strings.Contains(err.Error(), "side-effect-free replay refuses require_script") {
 		t.Fatalf("require_script error = %v", err)
 	}
@@ -312,9 +314,7 @@ func TestCompareRefusesCompositeRequireScriptBeforeExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = Compare(repo, simpleCorpus(t, repo), Candidate{
-		Kind: "policy_file", Name: "candidate", SourceDigest: compiled.SourceDigest, RuleCount: compiled.RuleCount,
-	}, currentImpactEvaluator(t, repo), evaluator)
+	_, err = Compare(repo, simpleCorpus(t, repo), impactCandidateMetadata(t, compiled, evaluator), currentImpactEvaluator(t, repo), evaluator)
 	if err == nil || !strings.Contains(err.Error(), "composite-external") {
 		t.Fatalf("composite require_script error = %v", err)
 	}
@@ -327,7 +327,7 @@ func simpleCorpus(t *testing.T, repo string) Corpus {
 	t.Helper()
 	inputs := runtime.Empty()
 	inputs.WritePaths = []string{"src/main.go"}
-	corpus, err := NewCorpus(repo, []Case{{ID: "write-src", Inputs: inputs}}, AllEventClasses())
+	corpus, err := NewCorpus(repo, []Case{NewRepositoryCase("write-src", inputs)}, AllEventClasses())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,6 +353,20 @@ func currentImpactEvaluator(t *testing.T, repo string) *runtime.CompiledPolicyEv
 		t.Fatal(err)
 	}
 	return evaluator
+}
+
+func impactCandidateMetadata(t *testing.T, compiled *compiler.CompiledPolicy, evaluator *runtime.CompiledPolicyEvaluator) Candidate {
+	t.Helper()
+	actions, err := evaluator.ActionRuntime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return Candidate{
+		Kind: "policy_file", Name: "candidate", SourceDigest: compiled.SourceDigest,
+		LockDigest: actions.LockDigest, ActionPlanIdentity: actions.Evaluator.PlanIdentity(),
+		RuleCount: compiled.RuleCount, ActionToolCount: actions.ToolCount,
+		ActionRuleCount: actions.ActionRuleCount,
+	}
 }
 
 func slicesEqual(left, right []string) bool {

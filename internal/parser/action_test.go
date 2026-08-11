@@ -126,6 +126,55 @@ func TestParseActionPolicyPreservesPresentEmptySelectorList(t *testing.T) {
 	}
 }
 
+func TestParseActionPolicyMergesOnlyExplicitImpactCandidateSources(t *testing.T) {
+	t.Parallel()
+	base := policy.PolicySource{
+		Kind: policy.SourceCompilerConfig, Path: ".reconc.yml",
+		Content: `actions:
+  tools:
+    - id: database-write
+      transport: mcp_stdio
+      server_label: database
+      tool: execute
+      effect:
+        kind: external
+  defaults:
+    declared_tool: allow
+`,
+	}
+	candidate := policy.PolicySource{
+		Kind: policy.SourcePolicyFile, Path: ".reconc/impact/candidate.yml",
+		BlockID: policy.ImpactCandidateBlockPrefix + "candidate",
+		Content: `actions:
+  defaults:
+    declared_tool: warn
+  rules:
+    - id: block-production
+      selector:
+        tool_ids: [database-write]
+      decision: block
+`,
+	}
+	parsed, err := ParseRuleDocuments(&ingest.SourceBundle{Sources: []policy.PolicySource{base, candidate}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Actions == nil || len(parsed.Actions.Tools) != 1 || len(parsed.Actions.Rules) != 1 ||
+		parsed.Actions.Defaults.DeclaredTool != action.DecisionWarn ||
+		parsed.Actions.Rules[0].SourceIdentity != candidate.Path {
+		t.Fatalf("merged action candidate = %#v", parsed.Actions)
+	}
+	if _, err := action.CompilePlan(*parsed.Actions); err != nil {
+		t.Fatal(err)
+	}
+
+	candidate.BlockID = "ordinary-policy-fragment"
+	if _, err := ParseRuleDocuments(&ingest.SourceBundle{Sources: []policy.PolicySource{base, candidate}}); err == nil ||
+		!strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("ordinary fragment gained action authority: %v", err)
+	}
+}
+
 func actionBundle(content string) *ingest.SourceBundle {
 	return &ingest.SourceBundle{Sources: []policy.PolicySource{{
 		Kind: policy.SourceCompilerConfig, Path: ".reconc.yml", Content: content,

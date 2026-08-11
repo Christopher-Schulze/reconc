@@ -78,11 +78,17 @@ type sarifArtifactLocation struct {
 }
 
 type sarifResultProperties struct {
-	Mode         string   `json:"mode"`
-	Remediation  string   `json:"remediation,omitempty"`
-	SourcePath   string   `json:"source_path,omitempty"`
-	MatchedPaths []string `json:"matched_paths"`
-	OmittedPaths int      `json:"omitted_matched_paths"`
+	Mode           string   `json:"mode"`
+	Remediation    string   `json:"remediation,omitempty"`
+	SourcePath     string   `json:"source_path,omitempty"`
+	MatchedPaths   []string `json:"matched_paths"`
+	OmittedPaths   int      `json:"omitted_matched_paths"`
+	CaseID         string   `json:"case_id,omitempty"`
+	DeltaKind      string   `json:"delta_kind,omitempty"`
+	Current        string   `json:"current_decision,omitempty"`
+	Candidate      string   `json:"candidate_decision,omitempty"`
+	ReviewRequired bool     `json:"review_required"`
+	Reviewed       bool     `json:"reviewed"`
 }
 
 type sarifProperties struct {
@@ -156,6 +162,9 @@ func sarifResultFromFinding(ruleID string, finding Finding) sarifResult {
 			Mode: finding.Mode, Remediation: finding.Remediation,
 			SourcePath: finding.SourcePath, MatchedPaths: append([]string{}, finding.Paths...),
 			OmittedPaths: finding.OmittedPaths,
+			CaseID:       finding.CaseID, DeltaKind: finding.DeltaKind,
+			Current: finding.Current, Candidate: finding.Candidate,
+			ReviewRequired: finding.ReviewRequired, Reviewed: finding.Reviewed,
 		},
 	}
 }

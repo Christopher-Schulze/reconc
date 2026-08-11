@@ -190,6 +190,7 @@ partial audit, run-log, checksum, release, or provenance snapshot.
 | Build provenance | Binary marker inspection streams at most 256 MiB without executing or retaining the binary. Production source hashing accepts at most 16,384 real files, 64 MiB per file, and 512 MiB aggregate. |
 | Command proofs and owned state | Each command proof is capped at 16 KiB and its directory at 4,096 entries; unresolved-policy proofs and workflow-audit cache state are capped at 8 MiB. All are strict regular-file reads that reject links and special files. Retention directories and tree walks have explicit entry ceilings and abort without deleting from a partial inventory. |
 | Policy script execution | A `require_script` target resolves inside the repository before launch, `timeout_sec` is capped at 300 seconds, and `kill_timeout_sec` at 60 seconds. Captured stdout and stderr stop at 64 KiB per stream. |
+| Impact Lab | Candidate policy files are capped at 8 MiB; strict replay corpora and full typed JSON reports at 64 MiB, corpora at 10,000 cases, and reviewed action-delta manifests at 8 MiB. JUnit, SARIF, and GitHub projections retain at most 1,024 findings and 8 MiB. |
 | Auxiliary commands and release inventory | Git, Go, attestation, offline-hook, TASK utility, generated-reference, SBOM, and publication-audit subprocesses use purpose-specific 64 KiB to 64 MiB output ceilings and fail on overflow. Release assets are hashed as stable non-symlink regular-file streams, release directories stop after the declared inventory ceiling, and committed manifests, archives, and SBOMs use strict bounded reads. |
 
 Best-effort detection is best-effort only about recommendations, not about
@@ -622,6 +623,8 @@ Review candidate policy before changing the live contract:
 reconc impact . --candidate candidate.yml --write src/main.go
 reconc impact export . --session --complete write,command,command_outcome --output impact-corpus.json
 reconc impact . --pack go-assurance --corpus impact-corpus.json --json --output impact-report.json
+reconc impact . --candidate candidate-actions.yml --corpus action-corpus.json --format github
+reconc impact . --candidate candidate-actions.yml --corpus action-corpus.json --delta-manifest reviewed-deltas.json
 ```
 
 `impact` adds one candidate policy file or resolved pack to the current source
@@ -652,6 +655,57 @@ boundaries, not wall-clock time. Completeness declares which event classes the
 capture covered and which were missing or redacted. Even a complete declared
 replay describes only its bounded corpus; an unmatched rule is never called
 dead or safe.
+
+Format-2 corpora preserve format-1 repository replay through deterministic
+migration and add strict `action_pre` and `action_post` cases. An action case
+binds the server label and fingerprint, tool and tool-contract digest, exact
+sanitized phase payload, trusted context and provenance, principal and credential
+labels, evaluator state, completeness, and an exact expected current outcome.
+The current expectation includes decision, stable reason, tool ID, ordered
+matched rule IDs, cache result, completeness, phase outcome, and failure code.
+Reconc runs the current and additive candidate action plans through the
+production compiler, runtime plan, normalizer, and evaluator. It never
+dispatches the declared tool.
+
+Use explicit scenarios for each security boundary. A dangerous database case
+can pass `{"target":"production"}` and expect `block`; a bulk-delete case can
+pass `{"operation":"bulk-delete"}` and expect `warn`; a credential-scoped
+case records only a safe label such as `database-writer` and proves that label
+is included in exact identity resampling; an untrusted-context spoof marks
+`environment=test` as `agent_supplied` and expects `context_untrusted`; an
+approval case expects `require_approval`; malformed duplicate-key and payloads
+larger than the action argument limit expect exact fail-closed reason codes.
+Post-result cases use the same contract for delivery or withholding. The full
+portable JSON shape is committed at
+`harness/template/audits/testdata/action-impact/corpus.json`.
+
+Action payloads must be synthetic and minimized; they are not a capture format
+for live arguments or complete tool results. Export removes recognized
+secret-shaped values, physical paths, oversized scalars, and unsafe metadata,
+and replaces an over-limit payload with one canonical safe surrogate that
+still exercises the production `limit_exceeded` path without retaining source
+bytes. It cannot infer confidentiality from an otherwise ordinary opaque value.
+Authors must never seed scenarios with live sensitive data. Detector-backed
+classification belongs to TASK 159 and is not implemented yet.
+
+Action comparison separates every decision change and newly allowed, warned,
+approval-required, and blocked changes from reason, rule-trace, cache, phase,
+completeness, tool-identity, and failure deltas. `newly_allowed` describes any
+less-restrictive decision, while `newly_blocked` describes an exact block or a
+transition from eligible to non-dispatchable or withheld. Therefore
+`block -> require_approval`, `block -> warn`, and `warn -> allow` cannot
+bypass review. Newly allowed or newly blocked cases exit 2 until an
+exact reviewed delta manifest binds the case identity, current and candidate
+outcomes, candidate lock digest, rationale, and either canonical UTC expiry or
+permanent status. Duplicate, wildcard, orphaned, partial, stale, expired, or
+digest-mismatched review fails. Compact text and full typed JSON retain stable
+case IDs; JUnit, SARIF, and GitHub use the bounded CI projection. Selected
+values are removed before replay and retained only as category, source,
+pointer, size, provenance, and optional trusted identity. Raw credentials,
+headers, tokens, physical paths, and complete results never enter the report.
+The manifest binds acknowledged content but carries no reviewer-authentication
+claim. Protected review or signed-commit policy must supply reviewer identity
+and separation of duties.
 
 `reconc next [PATH]` loads the latest persisted blocking decision for the
 explicit or normally discovered repository. Stale decision state fails with
@@ -1196,6 +1250,13 @@ enterprise path, and compatibility aliases. Policy config uses v3;
 repository-sync plan/report and custom-runtime manifest use v2. Existing
 supported legacy inputs remain accepted. New output emits only the current
 registered identity, and runtime validation stays offline.
+
+Impact corpora now emit `reconc-impact-corpus/v2`. Existing strict v1 corpora
+migrate deterministically to repository cases. Format 2 adds offline
+`action_pre` and `action_post` scenarios, exact current assertions, completeness
+claims, and reviewed candidate-delta gates. Candidate policy files may add
+`actions` declarations in memory; this does not alter live policy or enforce a
+live tool call.
 
 ## Uninstall And Remove
 
@@ -1877,8 +1938,11 @@ RECONC-0008 remains Draft. Unreleased source version `v0.9.6` implements strict
 legacy `mcp` declarations, immutable typed matcher programs, a derived MCP
 compatibility view, `reconc why action`, and the transport-neutral deterministic
 action evaluator. The published v0.9.5 release does not contain those additions.
-No current source command routes tool calls through an enforcing gateway, so the
-implemented evaluator is not yet a live tool-call interception boundary.
+`reconc impact` invokes that production evaluator for strict offline action
+scenarios, exact current assertions, candidate deltas, completeness, privacy,
+and reviewed newly-allowed or newly-blocked gates. No current source command
+routes tool calls through an enforcing gateway, so offline simulation is not a
+live tool-call interception boundary.
 
 The design keeps all Reconc-owned product and adapter code in Go. The target
 gateway is one local, tool-only stdio MCP process around one operator-selected
@@ -1921,11 +1985,11 @@ provenance and a visible policy-tampering boundary. Repository policy could
 never select the downstream executable, argv, working directory, inherited
 environment, credential material, state key, or approval authority.
 
-Later layers add deterministic inspection, atomic cumulative budgets, signed
+Later layers add atomic cumulative budgets, signed
 one-time Ed25519
 approval receipts, deterministic local argument and result detectors,
 post-result withholding, a privacy-bounded tamper-evident retained action
-ledger, Impact Lab action scenarios, and local control-evidence mappings.
+ledger, a live MCP stdio gateway, and local control-evidence mappings.
 Low-entropy or secret-adjacent persisted identities would use
 domain-separated operator-keyed HMAC values; missing keys would make evidence
 unavailable instead of falling back to a dictionary-attackable plain digest.
@@ -1955,7 +2019,7 @@ summarizes the core runtime responsibilities:
 - `internal/ingest`: repository discovery and source loading
 - `internal/parser`: YAML-to-policy validation and normalization
 - `internal/compiler`: canonical JSON lockfile generation, digesting, conflicts, migrations, compile lock
-- `internal/impactlab`: strict private replay corpora and deterministic current-versus-candidate comparison
+- `internal/impactlab`: strict format-2 repository/action replay corpora, exact reviewed action-delta gates, privacy and completeness checks, and deterministic current-versus-candidate comparison
 - `internal/bootstrap`: deterministic canonical init plus inspect/plan/apply/verify/remove; hermetic read-only repository planning; digest-bound resolution, apply, durable recovery, and verification; portable/private receipts; repository locking; managed-block ownership; policy migration; and platform-bound binary resolution
 - `harness` and `internal/harnesspack`: embedded advanced pack ownership, strict manifest/archive validation, compatibility, and byte parity
 - `internal/usercli`: locked binary-plus-receipt installation, manager classification, exact PATH identity, global diagnostics, bounded release selection, atomic direct updates, package-manager delegation, and ownership-safe uninstall

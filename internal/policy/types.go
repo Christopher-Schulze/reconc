@@ -419,6 +419,10 @@ const (
 	SourcePreset         SourceKind = "preset"
 	SourcePolicyFile     SourceKind = "policy_file"
 	SourceCustomRuntime  SourceKind = "custom_runtime"
+	// ImpactCandidateBlockPrefix marks an ephemeral, additive candidate
+	// source. The marker participates in source identity but never grants a
+	// repository-discovered policy fragment compiler-config authority.
+	ImpactCandidateBlockPrefix = "impact-candidate:"
 )
 
 // SourcePrecedence is the canonical order in which sources contribute to

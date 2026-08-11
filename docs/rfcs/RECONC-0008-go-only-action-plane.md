@@ -10,9 +10,13 @@ compilation and v4 migration, immutable matcher programs, the legacy MCP
 compatibility view, and `reconc why action`. TASK 155 implements the pure
 transport-neutral evaluator, strict normalized requests, exact predicates and
 precedence, provenance enforcement, bounded redacted traces, phase isolation,
-typed fail-closed results, and exact resampled in-memory decision caching. The
-published v0.9.5 binary has none of those additions. Inspection, budgets,
-approvals, ledger, gateway enforcement, Impact Lab action cases, and
+typed fail-closed results, and exact resampled in-memory decision caching.
+TASK 156 implements strict format-2 action scenarios, deterministic format-1
+migration, production compiler and evaluator replay, exact expectations,
+privacy and completeness checks, current-candidate deltas, exact reviewed
+delta manifests, and bounded text, JSON, JUnit, SARIF, and GitHub output. The
+published v0.9.5 binary has none of those additions. Budgets, approvals,
+content inspection, the retained ledger, gateway enforcement, and
 control-evidence export remain unavailable until their owning tasks are
 complete.
 
@@ -1058,12 +1062,21 @@ and exact expected decision, reason, ordered rule IDs, cache eligibility, and
 phase outcome. Later tasks add typed budget, approval, detector, containment,
 and ledger assertions to the same object without changing format 2.
 
-Current-candidate comparison separately reports newly allowed, warned,
-approval-required, blocked, withheld, rule-trace, cache, completeness, budget,
-approval, detector, and ledger deltas. Newly allowed or newly blocked cases
-require an exact reviewed manifest binding case ID, old result, new result,
-candidate lock digest, rationale, and expiry or permanent status. Wildcards,
-stale entries, orphan entries, changed identities, and missing rationale fail.
+Current-candidate comparison separately reports exact decision changes, newly
+allowed, warned, approval-required, blocked, withheld, rule-trace, cache,
+completeness, budget, approval, detector, and ledger deltas. Newly allowed
+means any less-restrictive decision; newly blocked means an exact candidate
+block or a transition from eligible to non-dispatchable or withheld. Thus
+`block -> require_approval`, `block -> warn`, and `warn -> allow` are
+review-gated. Newly allowed or newly blocked cases require an exact reviewed
+manifest binding case ID, old result, new result, candidate lock digest,
+rationale, and expiry or permanent status. Wildcards, stale entries, orphan
+entries, changed identities, and missing rationale fail.
+
+The delta manifest is an exact content-acknowledgement artifact, not a signed
+human-identity claim. Repository governance owns reviewer authentication and
+separation of duties; Reconc does not upgrade a writable manifest into an
+independent approval authority.
 
 Completeness enumerates represented tools, phases, decisions, provenance
 classes, outcome classes, and later state dimensions. Case count alone never
@@ -1073,6 +1086,12 @@ Export stores no raw credential, header, token, secret-shaped field, complete
 tool result, environment value, or physical path. Selected values use the same
 keyed identity and completeness rules as the ledger. Text, JSON, JUnit, SARIF,
 and GitHub summary render from one bounded typed report with stable case IDs.
+
+TASK 156's implementation accepts synthetic, minimized scenario payloads and
+rejects or removes recognized private shapes. It is not a live-result capture
+or arbitrary-data classifier: safe-looking opaque values cannot be inferred as
+confidential until TASK 159 supplies detector-backed inspection. Scenario
+authors must not seed corpora with live sensitive data.
 
 ## Control Evidence
 

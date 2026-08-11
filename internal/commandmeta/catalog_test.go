@@ -97,7 +97,7 @@ func validateSurface(t *testing.T, name, synopsis, summary string, stability Sta
 
 func validOutputMode(mode OutputMode) bool {
 	switch mode {
-	case OutputText, OutputJSON, OutputYAML, OutputMarkdown, OutputJSONL, OutputScript, OutputRoff, OutputSARIF, OutputJUnit, OutputFile:
+	case OutputText, OutputJSON, OutputYAML, OutputMarkdown, OutputJSONL, OutputScript, OutputRoff, OutputSARIF, OutputJUnit, OutputGitHub, OutputFile:
 		return true
 	default:
 		return false

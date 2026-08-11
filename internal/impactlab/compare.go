@@ -18,6 +18,20 @@ func Compare(repoRoot string, corpus Corpus, candidate Candidate, current, evalu
 	if current == nil || evaluator == nil {
 		return Report{}, fmt.Errorf("current and candidate evaluators are required")
 	}
+	currentActions, err := current.ActionRuntime()
+	if err != nil {
+		return Report{}, fmt.Errorf("prepare current action runtime: %w", err)
+	}
+	candidateActions, err := evaluator.ActionRuntime()
+	if err != nil {
+		return Report{}, fmt.Errorf("prepare candidate action runtime: %w", err)
+	}
+	if err := validateCandidateActionIdentity(candidate, candidateActions); err != nil {
+		return Report{}, err
+	}
+	if candidate.RuleCount != len(evaluator.RuleIDs()) {
+		return Report{}, fmt.Errorf("candidate metadata does not match its compiled repository runtime")
+	}
 	currentScripts := current.RequireScriptRuleIDs()
 	candidateScripts := evaluator.RequireScriptRuleIDs()
 	if len(currentScripts) > 0 || len(candidateScripts) > 0 {
@@ -30,17 +44,40 @@ func Compare(repoRoot string, corpus Corpus, candidate Candidate, current, evalu
 		FormatVersion: ReportFormatVersion, CorpusID: corpus.CorpusID,
 		CorpusCompleteness: corpus.Completeness, Candidate: candidate,
 		Cases: []CaseComparison{}, Rules: []RuleImpact{}, CorpusUnmatchedRules: []string{},
+		ActionRules: []RuleImpact{}, ActionCorpusUnmatchedRules: []string{},
+		DeltaGate: DeltaGate{UnreviewedCases: []string{}},
 	}
 	currentMatches, candidateMatches := map[string]int{}, map[string]int{}
+	currentActionMatches, candidateActionMatches := map[string]int{}, map[string]int{}
 	for _, replayCase := range corpus.Cases {
-		comparison, currentReport, proposed, err := compareCase(repoRoot, replayCase, current, evaluator)
-		if err != nil {
-			return Report{}, fmt.Errorf("impact case %q: %w", replayCase.ID, err)
+		identity, identityErr := caseIdentity(replayCase)
+		if identityErr != nil {
+			return Report{}, identityErr
+		}
+		comparison := CaseComparison{ID: replayCase.ID, Kind: replayCase.Kind, CaseIdentity: identity}
+		switch replayCase.Kind {
+		case CaseRepository:
+			repository, currentTrace, candidateTrace, compareErr := compareRepositoryCase(repoRoot, *replayCase.Repository, current, evaluator)
+			if compareErr != nil {
+				return Report{}, fmt.Errorf("impact case %q: %w", replayCase.ID, compareErr)
+			}
+			comparison.Repository = &repository
+			addRuleMatches(currentMatches, currentTrace)
+			addRuleMatches(candidateMatches, candidateTrace)
+			addRepositorySummary(&report.Summary, repository)
+		case CaseActionPre, CaseActionPost:
+			actionComparison, compareErr := compareActionCase(replayCase, currentActions, candidateActions)
+			if compareErr != nil {
+				return Report{}, fmt.Errorf("impact case %q: %w", replayCase.ID, compareErr)
+			}
+			comparison.Action = &actionComparison
+			addActionRuleMatches(currentActionMatches, actionComparison.Current)
+			addActionRuleMatches(candidateActionMatches, actionComparison.Candidate)
+			addActionSummary(&report.Summary, actionComparison)
+		default:
+			return Report{}, fmt.Errorf("impact case %q has unsupported kind %q", replayCase.ID, replayCase.Kind)
 		}
 		report.Cases = append(report.Cases, comparison)
-		addRuleMatches(currentMatches, currentReport)
-		addRuleMatches(candidateMatches, proposed)
-		addCaseSummary(&report.Summary, comparison)
 	}
 	report.Rules = buildRuleImpacts(evaluator.RuleIDs(), currentMatches, candidateMatches)
 	for _, impact := range report.Rules {
@@ -48,23 +85,30 @@ func Compare(repoRoot string, corpus Corpus, candidate Candidate, current, evalu
 			report.CorpusUnmatchedRules = append(report.CorpusUnmatchedRules, impact.RuleID)
 		}
 	}
+	report.ActionRules = buildRuleImpacts(candidateActions.Evaluator.RuleIDs(), currentActionMatches, candidateActionMatches)
+	for _, impact := range report.ActionRules {
+		if impact.CandidateMatches == 0 {
+			report.ActionCorpusUnmatchedRules = append(report.ActionCorpusUnmatchedRules, impact.RuleID)
+		}
+	}
+	initializeDeltaGate(&report)
 	report.SafetyConclusion = safetyConclusion(corpus.Completeness)
 	return report, nil
 }
 
-func compareCase(repoRoot string, replayCase Case, current, candidate *runtime.CompiledPolicyEvaluator) (CaseComparison, runtime.EvaluationTrace, runtime.EvaluationTrace, error) {
+func compareRepositoryCase(repoRoot string, replayCase RepositoryCase, current, candidate *runtime.CompiledPolicyEvaluator) (RepositoryComparison, runtime.EvaluationTrace, runtime.EvaluationTrace, error) {
 	currentReport, currentCost, currentTrace, err := current.CheckWithTrace(repoRoot, replayCase.Inputs)
 	if err != nil {
-		return CaseComparison{}, runtime.EvaluationTrace{}, runtime.EvaluationTrace{}, err
+		return RepositoryComparison{}, runtime.EvaluationTrace{}, runtime.EvaluationTrace{}, err
 	}
 	candidateReport, candidateCost, candidateTrace, err := candidate.CheckWithTrace(repoRoot, replayCase.Inputs)
 	if err != nil {
-		return CaseComparison{}, runtime.EvaluationTrace{}, runtime.EvaluationTrace{}, err
+		return RepositoryComparison{}, runtime.EvaluationTrace{}, runtime.EvaluationTrace{}, err
 	}
 	currentActions, currentRedactions := sanitizeActions(repoRoot, currentReport.Actions)
 	candidateActions, candidateRedactions := sanitizeActions(repoRoot, candidateReport.Actions)
-	comparison := CaseComparison{
-		ID: replayCase.ID, CurrentDecision: currentReport.Decision, CandidateDecision: candidateReport.Decision,
+	comparison := RepositoryComparison{
+		CurrentDecision: currentReport.Decision, CandidateDecision: candidateReport.Decision,
 		DecisionChanged: currentReport.Decision != candidateReport.Decision,
 		CurrentActions:  currentActions, CandidateActions: candidateActions,
 		ActionChanged:        !slices.Equal(currentActions, candidateActions),
@@ -137,7 +181,7 @@ func buildRuleImpacts(candidateRuleIDs []string, current, candidate map[string]i
 	return impacts
 }
 
-func addCaseSummary(summary *Summary, comparison CaseComparison) {
+func addRepositorySummary(summary *Summary, comparison RepositoryComparison) {
 	summary.CaseCount++
 	if comparison.DecisionChanged {
 		summary.DecisionChanges++
@@ -159,7 +203,7 @@ func addCaseSummary(summary *Summary, comparison CaseComparison) {
 
 func safetyConclusion(completeness Completeness) string {
 	if completeness.CompleteReplay {
-		return "Complete declared event-class replay; results still describe only this corpus and are not proof that an unmatched rule is dead or safe."
+		return "Complete declared repository and action coverage replay; results still describe only this corpus and are not live-host proof or proof that an unmatched rule is dead or safe."
 	}
-	return "Incomplete replay; missing or redacted event classes prevent safety, dead-rule, or full-impact conclusions. Unmatched means only unmatched in this corpus."
+	return "Incomplete replay; missing repository or action dimensions and redactions prevent safety, dead-rule, live-host, or full-impact conclusions. Unmatched means only unmatched in this corpus."
 }

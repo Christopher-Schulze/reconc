@@ -66,7 +66,10 @@ func TestRenderIsDeterministicBoundedAndURISafe(t *testing.T) {
 			t.Fatalf("%s bytes = %d", format, len(first))
 		}
 	}
-	sarifBody, _ := Render(FormatSARIF, model)
+	sarifBody, err := Render(FormatSARIF, model)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, uri := range []string{"src/a%20b.go", "src/%23workflow.go", "src/new%0Aline.go"} {
 		if !bytes.Contains(sarifBody, []byte(uri)) {
 			t.Errorf("SARIF omitted escaped URI %q:\n%s", uri, sarifBody)
@@ -95,11 +98,17 @@ func TestOperationalReportsPreserveExitAndRedactHostPaths(t *testing.T) {
 			t.Fatalf("%s operational report leaked or omitted detail:\n%s", format, body)
 		}
 	}
-	junitBody, _ := Render(FormatJUnit, model)
+	junitBody, err := Render(FormatJUnit, model)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !bytes.Contains(junitBody, []byte("<"+fixture.JUnit.OperationalElement)) {
 		t.Fatalf("JUnit omitted operational element:\n%s", junitBody)
 	}
-	sarifBody, _ := Render(FormatSARIF, model)
+	sarifBody, err := Render(FormatSARIF, model)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !bytes.Contains(sarifBody, []byte(`"exitCode": 2`)) {
 		t.Fatalf("SARIF lost exit code:\n%s", sarifBody)
 	}

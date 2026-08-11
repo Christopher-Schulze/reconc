@@ -40,6 +40,7 @@ type runtimePlan struct {
 	rulesByKind          map[policy.Kind][]int
 	preCommandRules      []int
 	sourceDigest         string
+	lockDigest           string
 	sourceCount          int
 	actions              *action.CompiledPlan
 	customRuntimeDigests map[string]string
@@ -196,6 +197,7 @@ func compileRuntimePlan(payload map[string]interface{}) (*runtimePlan, error) {
 		rulesByKind:          make(map[policy.Kind][]int, len(policy.AllKinds())),
 		preCommandRules:      make([]int, 0),
 		sourceDigest:         envelope.SourceDigest,
+		lockDigest:           envelope.LockDigest,
 		sourceCount:          envelope.SourceCount,
 		actions:              actions,
 		customRuntimeDigests: customRuntimeDigests,

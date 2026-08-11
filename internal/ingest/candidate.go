@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"fmt"
+	"strings"
 
 	"reconc.dev/reconc/internal/policy"
 )
@@ -19,10 +20,43 @@ func AppendCandidateSource(bundle *SourceBundle, source policy.PolicySource) (*S
 	if source.Path == "" || source.Content == "" {
 		return nil, fmt.Errorf("candidate source path and content must be non-empty")
 	}
-	copy := *bundle
-	copy.Sources = append(append([]policy.PolicySource(nil), bundle.Sources...), source)
-	if err := validatePolicySourceBounds(copy.Sources); err != nil {
+	if !strings.HasPrefix(source.BlockID, policy.ImpactCandidateBlockPrefix) ||
+		len(source.BlockID) == len(policy.ImpactCandidateBlockPrefix) {
+		return nil, fmt.Errorf("candidate source block identity is invalid")
+	}
+	out := *bundle
+	out.Sources = insertCandidateSource(bundle.Sources, source)
+	if err := validatePolicySourceBounds(out.Sources); err != nil {
 		return nil, err
 	}
-	return &copy, nil
+	return &out, nil
+}
+
+func insertCandidateSource(sources []policy.PolicySource, candidate policy.PolicySource) []policy.PolicySource {
+	index := len(sources)
+	precedence := policy.SourcePrecedence()
+	candidateRank := candidateSourceRank(candidate.Kind, precedence)
+	for sourceIndex, source := range sources {
+		if candidateSourceRank(source.Kind, precedence) > candidateRank {
+			index = sourceIndex
+			break
+		}
+	}
+	out := make([]policy.PolicySource, len(sources)+1)
+	copy(out, sources[:index])
+	out[index] = candidate
+	copy(out[index+1:], sources[index:])
+	return out
+}
+
+func candidateSourceRank(kind policy.SourceKind, precedence []policy.SourceKind) int {
+	for index, candidate := range precedence {
+		if kind == candidate {
+			return index
+		}
+	}
+	if kind == policy.SourceCustomRuntime {
+		return len(precedence)
+	}
+	return len(precedence) + 1
 }

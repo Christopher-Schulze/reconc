@@ -21,11 +21,28 @@ func sanitizeCase(repoRoot string, replayCase Case) (Case, error) {
 	if !validCaseID(replayCase.ID) {
 		return Case{}, fmt.Errorf("impact case id must be 1..%d bytes using letters, digits, dot, dash, or underscore", maxCaseIDBytes)
 	}
+	switch replayCase.Kind {
+	case CaseRepository:
+		if replayCase.Repository == nil || replayCase.Action != nil {
+			return Case{}, fmt.Errorf("repository case must contain only repository evidence")
+		}
+		return sanitizeRepositoryCase(repoRoot, replayCase.ID, *replayCase.Repository)
+	case CaseActionPre, CaseActionPost:
+		if replayCase.Action == nil || replayCase.Repository != nil {
+			return Case{}, fmt.Errorf("action case must contain only action evidence")
+		}
+		return sanitizeActionCase(replayCase.ID, replayCase.Kind, *replayCase.Action)
+	default:
+		return Case{}, fmt.Errorf("impact case %q has unsupported kind %q", replayCase.ID, replayCase.Kind)
+	}
+}
+
+func sanitizeRepositoryCase(repoRoot, id string, replayCase RepositoryCase) (Case, error) {
 	normalized, err := runtime.NormalizeReplayInputs(repoRoot, replayCase.Inputs)
 	if err != nil {
 		return Case{}, err
 	}
-	cleaned := Case{ID: replayCase.ID, Inputs: normalized, RedactedEventClasses: []EventClass{}}
+	cleaned := RepositoryCase{Inputs: normalized, RedactedEventClasses: []EventClass{}}
 	cleaned.Inputs.ReadPaths = uniqueStrings(cleaned.Inputs.ReadPaths)
 	cleaned.Inputs.WritePaths = uniqueStrings(cleaned.Inputs.WritePaths)
 	cleaned.Inputs.Commands, cleaned.RedactionCount = sanitizeValues(cleaned.Inputs.Commands)
@@ -43,10 +60,10 @@ func sanitizeCase(repoRoot string, replayCase Case) (Case, error) {
 		cleaned.RedactedEventClasses = append(cleaned.RedactedEventClasses, EventClassClaim)
 	}
 	cleaned.RedactedEventClasses = canonicalEventClasses(cleaned.RedactedEventClasses)
-	if _, err := validateCaseInputs(cleaned); err != nil {
+	if _, err := validateRepositoryCase(cleaned); err != nil {
 		return Case{}, err
 	}
-	return cleaned, nil
+	return Case{ID: id, Kind: CaseRepository, Repository: &cleaned}, nil
 }
 
 func sanitizeValues(values []string) ([]string, int) {
@@ -289,21 +306,34 @@ func equalEventClasses(left, right []EventClass) bool {
 	return true
 }
 
-func buildCompleteness(cases []Case, complete []EventClass) Completeness {
+func buildCompleteness(cases []Case, complete []EventClass, required ActionDimensions) Completeness {
 	observedSet, redactedSet := map[EventClass]struct{}{}, map[EventClass]struct{}{}
-	redactions := 0
+	redactions, actionRedactions := 0, 0
+	hasActions := false
 	for _, replayCase := range cases {
-		addObservedClasses(observedSet, replayCase.Inputs)
-		for _, class := range replayCase.RedactedEventClasses {
-			redactedSet[class] = struct{}{}
+		if replayCase.Repository != nil {
+			addObservedClasses(observedSet, replayCase.Repository.Inputs)
+			for _, class := range replayCase.Repository.RedactedEventClasses {
+				redactedSet[class] = struct{}{}
+			}
+			redactions += replayCase.Repository.RedactionCount
 		}
-		redactions += replayCase.RedactionCount
+		if replayCase.Action != nil {
+			hasActions = true
+			redactions += replayCase.Action.RedactionCount
+			actionRedactions += replayCase.Action.RedactionCount
+		}
 	}
 	complete = canonicalEventClasses(complete)
 	for class := range redactedSet {
 		complete = removeEventClass(complete, class)
 	}
-	return completenessFromSets(observedSet, redactedSet, complete, redactions)
+	result := completenessFromSets(observedSet, redactedSet, complete, redactions)
+	result.Action = buildActionCoverage(cases, required, actionRedactions)
+	if (hasActions || !actionDimensionsEmpty(required)) && !result.Action.Complete {
+		result.CompleteReplay = false
+	}
+	return result
 }
 
 func addObservedClasses(set map[EventClass]struct{}, inputs runtime.ExecutionInputs) {
@@ -330,6 +360,10 @@ func completenessFromSets(observed, redacted map[EventClass]struct{}, complete [
 		CompleteEventClasses: canonicalEventClasses(complete),
 		RedactedEventClasses: eventClassesFromSet(redacted),
 		RedactionCount:       redactions,
+		Action: ActionCoverage{
+			Observed: emptyActionDimensions(), Required: emptyActionDimensions(),
+			Missing: emptyActionDimensions(),
+		},
 	}
 	result.MissingEventClasses = eventClassDifference(AllEventClasses(), result.CompleteEventClasses)
 	result.CompleteReplay = len(result.MissingEventClasses) == 0 && redactions == 0

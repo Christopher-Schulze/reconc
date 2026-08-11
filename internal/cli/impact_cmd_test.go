@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/impactlab"
 )
@@ -40,7 +41,7 @@ func TestImpactComparesCandidateWithoutMutatingRepository(t *testing.T) {
 		t.Fatal(err)
 	}
 	if report.Summary.DecisionChanges != 1 || report.Summary.NewlyBlockingCases != 1 ||
-		len(report.Cases) != 1 || !report.Cases[0].DecisionChanged {
+		len(report.Cases) != 1 || report.Cases[0].Repository == nil || !report.Cases[0].Repository.DecisionChanged {
 		t.Fatalf("impact report = %+v", report)
 	}
 	after, err := os.ReadFile(lockPath)
@@ -93,6 +94,143 @@ func TestImpactExportRedactsAndImportsCorpus(t *testing.T) {
 	}
 }
 
+func TestImpactActionDeltaGateAndEveryReportFormat(t *testing.T) {
+	repo := makeActionImpactCLIRepo(t)
+	candidate := filepath.Join(t.TempDir(), "candidate.yml")
+	writeCLIFile(t, filepath.Dir(candidate), filepath.Base(candidate), actionImpactCandidatePolicy)
+	corpus, err := impactlab.NewCorpus(repo, []impactlab.Case{{
+		ID: "database-staging", Kind: impactlab.CaseActionPre, Action: &impactlab.ActionCase{
+			ToolID: "database-write",
+			Request: impactlab.ActionRequestFixture{
+				FormatVersion: action.RequestFormatVersion, CallID: "act_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+				Transport: action.TransportMCPStdio, ServerLabel: "database",
+				ServerFingerprint:  actionImpactServerIdentity,
+				Tool:               "execute",
+				ToolContractDigest: actionImpactToolDigest,
+				Phase:              action.PhasePreCall,
+				RepositoryIdentity: actionImpactRepositoryIdentity,
+				AuthorityMode:      action.AuthorityOperatorPinned,
+				Arguments:          impactlab.ActionPayload(`{"authorization":"Bearer sk-secretvalue123","target":"staging"}`),
+				Context: []action.RawContextValue{{
+					Name: "environment", Value: json.RawMessage(`"test"`),
+					Provenance: action.ProvenanceHostObserved, Available: true,
+				}},
+				Completeness: action.CompleteEvidence(), Deadline: action.DeadlineReady, StateVersion: "state-v1",
+			},
+			State: impactlab.ActionStateFixture{
+				ContextIdentity: "context-v1", Principal: "operator", CredentialLabels: []string{"database-writer"},
+				Approval:  action.ApprovalSnapshot{Status: action.ApprovalNone, Identity: "approval-none"},
+				Taint:     action.TaintSnapshot{Status: action.TaintClean, Identity: "taint-clean"},
+				Lifecycle: action.LifecycleActive, CachePolicyVersion: action.CacheIdentityVersion,
+				ResampleDrift: []impactlab.ActionIdentityComponent{},
+			},
+			Expected: impactlab.ActionAssertion{
+				Decision: action.DecisionAllow, Reason: action.ReasonDeclaredTool, ToolID: "database-write",
+				MatchedRuleIDs: []string{}, Cache: impactlab.ActionCacheAssertion{Eligible: true, Reason: action.CacheEligible},
+				Completeness: action.CompleteEvidence(), PhaseOutcome: action.OutcomeDispatchEligible,
+			},
+			SelectedValues: []impactlab.ActionValueSummary{},
+		},
+	}}, impactlab.AllEventClasses())
+	if err != nil {
+		t.Fatal(err)
+	}
+	corpusBody, err := impactlab.MarshalCorpus(corpus)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(corpusBody, []byte("secretvalue123")) {
+		t.Fatalf("action corpus leaked credential: %s", corpusBody)
+	}
+	corpusPath := filepath.Join(t.TempDir(), "action-corpus.json")
+	if err := os.WriteFile(corpusPath, corpusBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	outputPath := filepath.Join(t.TempDir(), "unreviewed.json")
+	var stdout, stderr bytes.Buffer
+	err = Run([]string{
+		"impact", repo, "--candidate", candidate, "--corpus", corpusPath,
+		"--format", "json", "--output", outputPath,
+	}, "test", &stdout, &stderr)
+	if err == nil || ExitCode(err) != 2 {
+		t.Fatalf("unreviewed action delta error = %v", err)
+	}
+	outputBody, readErr := os.ReadFile(outputPath)
+	if readErr != nil || !bytes.Equal(outputBody, stdout.Bytes()) || stderr.Len() != 0 {
+		t.Fatalf("unreviewed output = %v, equal=%t, stderr=%q", readErr, bytes.Equal(outputBody, stdout.Bytes()), stderr.String())
+	}
+	var report impactlab.Report
+	if err := json.Unmarshal(outputBody, &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.DeltaGate.Passed || report.DeltaGate.RequiredCount != 1 || len(report.Cases) != 1 ||
+		report.Cases[0].Action == nil || report.Cases[0].Action.Candidate.Outcome.Decision != action.DecisionBlock {
+		t.Fatalf("unreviewed action report = %+v", report)
+	}
+	comparison := report.Cases[0]
+	manifest, err := impactlab.NewDeltaManifest([]impactlab.ReviewedActionDelta{{
+		CaseID: comparison.ID, CaseIdentity: comparison.CaseIdentity, Delta: impactlab.DeltaNewlyBlocked,
+		CandidateLockDigest: report.Candidate.LockDigest,
+		Current:             comparison.Action.Current.Outcome,
+		Candidate:           comparison.Action.Candidate.Outcome,
+		Rationale:           "reviewed staging block",
+		Permanent:           true,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestBody, err := impactlab.MarshalDeltaManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(t.TempDir(), "delta-manifest.json")
+	if err := os.WriteFile(manifestPath, manifestBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	formats := []struct {
+		name string
+		want string
+	}{
+		{name: "text", want: "database-staging"},
+		{name: "json", want: `"reviewed": true`},
+		{name: "junit", want: `<testsuite`},
+		{name: "sarif", want: `"version": "2.1.0"`},
+		{name: "github", want: "## Reconc impact"},
+	}
+	for _, format := range formats {
+		t.Run(format.name, func(t *testing.T) {
+			stdout.Reset()
+			stderr.Reset()
+			if err := Run([]string{
+				"impact", repo, "--candidate", candidate, "--corpus", corpusPath,
+				"--delta-manifest", manifestPath, "--format", format.name,
+			}, "test", &stdout, &stderr); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(stdout.String(), format.want) || !strings.Contains(stdout.String(), "database-staging") ||
+				strings.Contains(stdout.String(), "secretvalue123") || stderr.Len() != 0 {
+				t.Fatalf("%s output = %q; stderr=%q", format.name, stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
+func makeActionImpactCLIRepo(t *testing.T) string {
+	t.Helper()
+	t.Setenv("RECONC_HOME", t.TempDir())
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, ".reconc.yml"), []byte(actionImpactCurrentPolicy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"compile", repo}, "test", &stdout, &stderr); err != nil {
+		t.Fatalf("compile action impact repo: %v\nstderr: %s", err, stderr.String())
+	}
+	return repo
+}
+
 func TestImpactRejectsUnsafeCandidateAndInvalidOptions(t *testing.T) {
 	repo := makeCheckRepo(t, "rules: []\n")
 	root := t.TempDir()
@@ -109,6 +247,8 @@ func TestImpactRejectsUnsafeCandidateAndInvalidOptions(t *testing.T) {
 		{"impact", repo, "--candidate", target, "--pack", "default", "--write", "src/main.go"},
 		{"impact", repo, "--candidate", target},
 		{"impact", "export", repo, "--write", "src/main.go", "--complete", "unknown"},
+		{"impact", repo, "--candidate", target, "--write", "src/main.go", "--format", "yaml"},
+		{"impact", repo, "--candidate", target, "--write", "src/main.go", "--json", "--format", "json"},
 	}
 	for _, args := range tests {
 		var stdout, stderr bytes.Buffer
@@ -117,6 +257,40 @@ func TestImpactRejectsUnsafeCandidateAndInvalidOptions(t *testing.T) {
 		}
 	}
 }
+
+const (
+	actionImpactServerIdentity     = "hmac-sha256:v1:fixture:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	actionImpactToolDigest         = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	actionImpactRepositoryIdentity = "hmac-sha256:v1:fixture:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	actionImpactCurrentPolicy      = `actions:
+  tools:
+    - id: database-write
+      transport: mcp_stdio
+      server_label: database
+      server_fingerprint: ` + actionImpactServerIdentity + `
+      tool: execute
+      effect:
+        kind: external
+  rules: []
+rules: []
+`
+	actionImpactCandidatePolicy = `actions:
+  rules:
+    - id: block-staging
+      selector:
+        tool_ids: [database-write]
+        phases: [pre_call]
+      when:
+        predicate:
+          source: arguments
+          pointer: /target
+          op: eq
+          value: staging
+      decision: block
+      message: Staging blocked.
+rules: []
+`
+)
 
 func TestImpactHelpAndExportHelpAreCanonical(t *testing.T) {
 	for _, args := range [][]string{{"impact", "--help"}, {"help", "impact", "export"}} {

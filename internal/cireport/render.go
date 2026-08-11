@@ -14,6 +14,8 @@ func Render(format Format, model Model) ([]byte, error) {
 		body, err = renderSARIF(model)
 	case FormatJUnit:
 		body, err = renderJUnit(model)
+	case FormatGitHub:
+		body, err = renderGitHub(model)
 	default:
 		return nil, fmt.Errorf("unsupported CI report format %q", format)
 	}

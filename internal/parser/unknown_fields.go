@@ -21,6 +21,9 @@ func validateDocumentFields(src policy.PolicySource, doc map[string]interface{})
 	if src.Kind == policy.SourceCompilerConfig {
 		addFields(rootFields, "extends", "include", "task_lifecycle", "mcp", "actions")
 	}
+	if impactCandidateSource(src) {
+		addFields(rootFields, "actions")
+	}
 	if src.Kind == policy.SourcePreset {
 		addFields(rootFields, "pack")
 	}

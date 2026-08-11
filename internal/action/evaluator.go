@@ -2,6 +2,7 @@ package action
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"unicode/utf8"
@@ -65,6 +66,46 @@ func (e *Evaluator) PlanIdentity() string {
 		return ""
 	}
 	return e.identity
+}
+
+// RuleIDs returns the canonical action rule identities in stable order.
+func (e *Evaluator) RuleIDs() []string {
+	if e == nil {
+		return []string{}
+	}
+	ids := make([]string, len(e.plan.Rules))
+	for index, rule := range e.plan.Rules {
+		ids[index] = rule.ID
+	}
+	return ids
+}
+
+// IdentitySnapshot derives the exact identity binding expected by this pure
+// evaluator from caller-supplied state. It performs no IO or trust upgrade;
+// callers remain responsible for freshly observing every supplied identity.
+func (e *Evaluator) IdentitySnapshot(input EvaluationInput) IdentitySnapshot {
+	if e == nil {
+		return IdentitySnapshot{}
+	}
+	return e.expectedIdentities(input)
+}
+
+// EvaluateRaw applies the production request normalizer before evaluation.
+// The Request field in input is replaced by raw; all other state and the
+// independently resampled identity snapshot remain caller-owned.
+func (e *Evaluator) EvaluateRaw(raw RawRequest, input EvaluationInput) EvaluationResult {
+	request, err := NormalizeRequest(raw)
+	if err != nil {
+		input.Request = requestMetadata(raw)
+		code, message := ReasonInvalidRequest, "request normalization failed"
+		var requestError *RequestError
+		if errors.As(err, &requestError) {
+			code, message = requestError.Code, requestError.Message
+		}
+		return failEvaluation(e, input, code, message)
+	}
+	input.Request = request
+	return e.Evaluate(input)
 }
 
 func (e *Evaluator) Evaluate(input EvaluationInput) EvaluationResult {
@@ -764,6 +805,11 @@ func phaseOutcome(phase Phase, decision Decision) PhaseOutcome {
 	default:
 		return OutcomeDispatchBlocked
 	}
+}
+
+// OutcomeFor returns the stable phase outcome for one decision.
+func OutcomeFor(phase Phase, decision Decision) PhaseOutcome {
+	return phaseOutcome(phase, decision)
 }
 
 func failEvaluation(

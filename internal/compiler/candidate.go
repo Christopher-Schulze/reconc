@@ -47,12 +47,12 @@ func (candidate CandidateSource) policySource() (policy.PolicySource, error) {
 	case policy.SourcePolicyFile:
 		return policy.PolicySource{
 			Kind: candidate.Kind, Path: ".reconc/impact/candidate.yml",
-			BlockID: candidate.Name, Content: candidate.Content,
+			BlockID: policy.ImpactCandidateBlockPrefix + candidate.Name, Content: candidate.Content,
 		}, nil
 	case policy.SourcePreset:
 		return policy.PolicySource{
 			Kind: candidate.Kind, Path: "preset:" + candidate.Name,
-			BlockID: candidate.Name, Content: candidate.Content,
+			BlockID: policy.ImpactCandidateBlockPrefix + candidate.Name, Content: candidate.Content,
 		}, nil
 	default:
 		return policy.PolicySource{}, fmt.Errorf("candidate kind %q must be policy_file or preset", candidate.Kind)

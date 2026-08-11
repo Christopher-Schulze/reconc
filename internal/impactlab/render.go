@@ -34,13 +34,35 @@ func RenderText(report Report) []byte {
 	fmt.Fprintf(&output, "Evaluation units: %d -> %d (%+d).\n",
 		report.Summary.CurrentEstimatedUnits, report.Summary.CandidateEstimatedUnits,
 		report.Summary.EstimatedUnitsDelta)
+	fmt.Fprintf(&output, "Action impact: %d case(s), %d decision change(s), allowed=%d, warned=%d, approval=%d, blocked=%d.\n",
+		report.Summary.ActionCaseCount, report.Summary.ActionDecisionChanges,
+		report.Summary.NewlyAllowedActionCases, report.Summary.NewlyWarnedActionCases,
+		report.Summary.NewlyApprovalRequiredActionCases, report.Summary.NewlyBlockedActionCases)
+	fmt.Fprintf(&output, "Action deltas: trace=%d, cache=%d, phase=%d, completeness=%d, reason=%d, tool=%d, failure=%d.\n",
+		report.Summary.ActionRuleTraceChanges, report.Summary.ActionCacheChanges,
+		report.Summary.ActionPhaseOutcomeChanges, report.Summary.ActionCompletenessChanges,
+		report.Summary.ActionReasonChanges, report.Summary.ActionToolIdentityChanges,
+		report.Summary.ActionFailureChanges)
 	fmt.Fprintf(&output, "Corpus: %s; complete=%t; missing=%s; redactions=%d.\n",
 		report.CorpusID, report.CorpusCompleteness.CompleteReplay,
 		eventClassText(report.CorpusCompleteness.MissingEventClasses),
 		report.CorpusCompleteness.RedactionCount)
 	fmt.Fprintf(&output, "Corpus-unmatched rules: %s.\n", stringListText(report.CorpusUnmatchedRules))
+	fmt.Fprintf(&output, "Action-corpus-unmatched rules: %s.\n", stringListText(report.ActionCorpusUnmatchedRules))
+	fmt.Fprintf(&output, "Impact cases: %s.\n", comparisonIDText(report.Cases))
+	fmt.Fprintf(&output, "Action delta gate: passed=%t; reviewed=%d/%d; unreviewed=%s.\n",
+		report.DeltaGate.Passed, report.DeltaGate.ReviewedCount,
+		report.DeltaGate.RequiredCount, stringListText(report.DeltaGate.UnreviewedCases))
 	fmt.Fprintln(&output, report.SafetyConclusion)
 	return []byte(output.String())
+}
+
+func comparisonIDText(values []CaseComparison) string {
+	ids := make([]string, len(values))
+	for index := range values {
+		ids[index] = values[index].ID
+	}
+	return stringListText(ids)
 }
 
 func eventClassText(values []EventClass) string {

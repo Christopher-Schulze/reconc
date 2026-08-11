@@ -50,6 +50,63 @@ func parseActionPolicy(source policy.PolicySource) (*action.Plan, bool, error) {
 	return plan, true, nil
 }
 
+func impactCandidateSource(source policy.PolicySource) bool {
+	return (source.Kind == policy.SourcePolicyFile || source.Kind == policy.SourcePreset) &&
+		strings.HasPrefix(source.BlockID, policy.ImpactCandidateBlockPrefix) &&
+		len(source.BlockID) > len(policy.ImpactCandidateBlockPrefix)
+}
+
+func mergeActionPolicies(current, additive *action.Plan) (*action.Plan, error) {
+	if additive == nil {
+		return current, nil
+	}
+	if additive.FormatVersion != action.PlanFormatVersion {
+		return nil, actionError("candidate actions format version is invalid")
+	}
+	if current == nil {
+		return &action.Plan{
+			FormatVersion: additive.FormatVersion,
+			Tools:         append([]action.Tool(nil), additive.Tools...),
+			Rules:         append([]action.Rule(nil), additive.Rules...), Defaults: additive.Defaults,
+		}, nil
+	}
+	if current.FormatVersion != additive.FormatVersion {
+		return nil, actionError("action policy format versions conflict")
+	}
+	merged := &action.Plan{
+		FormatVersion: current.FormatVersion,
+		Tools:         append(append([]action.Tool(nil), current.Tools...), additive.Tools...),
+		Rules:         append(append([]action.Rule(nil), current.Rules...), additive.Rules...),
+		Defaults:      mergeActionDefaults(current.Defaults, additive.Defaults),
+	}
+	return merged, nil
+}
+
+func mergeActionDefaults(current, additive action.Defaults) action.Defaults {
+	if additive.DeclaredTool != "" {
+		current.DeclaredTool = additive.DeclaredTool
+	}
+	if additive.GatewayUnmatched != "" {
+		current.GatewayUnmatched = additive.GatewayUnmatched
+	}
+	if additive.HostUnmatched != "" {
+		current.HostUnmatched = additive.HostUnmatched
+	}
+	if additive.EvaluationError != "" {
+		current.EvaluationError = additive.EvaluationError
+	}
+	if additive.PostError != "" {
+		current.PostError = additive.PostError
+	}
+	if additive.ProgressError != "" {
+		current.ProgressError = additive.ProgressError
+	}
+	if additive.Cache != "" {
+		current.Cache = additive.Cache
+	}
+	return current
+}
+
 func parseActionTools(node *yaml.Node, sourcePath string) ([]action.Tool, error) {
 	if node.Kind != yaml.SequenceNode {
 		return nil, actionError("actions.tools must be a list in " + sourcePath)

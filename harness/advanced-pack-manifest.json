@@ -317,6 +317,13 @@
       "ownership": "pack-file"
     },
     {
+      "path": "tools/reconc/harness/template/audits/testdata/action-impact/corpus.json",
+      "mode": 420,
+      "size": 3820,
+      "sha256": "7bcbb76aa014f6a5b564c59c5c9b3390a8d692ce49b0adc5d0446502316035ff",
+      "ownership": "pack-file"
+    },
+    {
       "path": "tools/reconc/harness/template/audits/testdata/task-index/cases.json",
       "mode": 420,
       "size": 349,
@@ -821,6 +828,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 823237,
-  "digest": "a311a28fd5df0451a764e9b96deba379ac4e1ae116c074b64d0ee38330f19ee8"
+  "total_bytes": 827057,
+  "digest": "0613c9c56002cc66625b2a0b8f5c2cbff15d67bf70348809ec044aaf707424ff"
 }

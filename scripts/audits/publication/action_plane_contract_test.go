@@ -19,6 +19,7 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 		"Implementation state: partially implemented in unreleased source version",
 		"TASK 154 implements strict action authoring",
 		"TASK 155 implements the pure",
+		"TASK 156 implements strict format-2 action scenarios",
 		"gateway enforcement",
 		"unavailable until their owning tasks",
 	)
@@ -34,9 +35,11 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 	assertContainsAll(t, "documentation", documentation,
 		"## Go-Only Action Plane",
 		"Unreleased source version `v0.9.6` implements strict",
-		"No current source command routes tool calls through",
-		"an enforcing gateway",
-		"implemented evaluator is not yet a live tool-call interception boundary",
+		"`reconc impact` invokes that production evaluator",
+		"No current source command",
+		"routes tool calls through an enforcing gateway",
+		"offline simulation is not a",
+		"live tool-call interception boundary",
 	)
 	assertContainsAll(t, "commands", commands,
 		"## Remaining Action Plane commands (Draft, unavailable)",

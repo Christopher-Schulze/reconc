@@ -88,6 +88,12 @@ func junitFindingCase(command string, finding Finding) junitCase {
 		{Name: "matched_paths", Value: strings.Join(finding.Paths, ",")},
 		{Name: "omitted_matched_paths", Value: strconv.Itoa(finding.OmittedPaths)},
 		{Name: "source_path", Value: finding.SourcePath},
+		{Name: "case_id", Value: finding.CaseID},
+		{Name: "delta_kind", Value: finding.DeltaKind},
+		{Name: "current_decision", Value: finding.Current},
+		{Name: "candidate_decision", Value: finding.Candidate},
+		{Name: "review_required", Value: strconv.FormatBool(finding.ReviewRequired)},
+		{Name: "reviewed", Value: strconv.FormatBool(finding.Reviewed)},
 	}
 	testCase := junitCase{Name: name, ClassName: "reconc." + command, Properties: properties}
 	detail := finding.Message

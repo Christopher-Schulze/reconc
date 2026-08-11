@@ -118,7 +118,7 @@ Core invariants are deliberately strict:
 | Control surface | What Reconc provides |
 | --- | --- |
 | Policy compiler | Compiles repository instructions, YAML policy, packs, templates, and provenance into a portable lockfile. Unknown fields, stale sources, schema drift, invalid globs, unsupported rule kinds, and non-portable current roots fail closed. |
-| Action policy compilation | Unreleased v0.9.6 source strictly compiles `actions` and compatible legacy `mcp` authoring into one canonical format-5 action plan and explains it through `reconc why action`; operand values stay redacted. |
+| Action policy compilation and simulation | Unreleased v0.9.6 source strictly compiles `actions` and compatible legacy `mcp` authoring into one canonical format-5 action plan, explains it through `reconc why action`, and evaluates strict offline action scenarios through `reconc impact`; operand values stay redacted. |
 | Scope and change control | Records and evaluates reads, writes, commands, claims, protected paths, coupled changes, generated files, secret state, destructive commands, and out-of-scope edits or deletions. |
 | Evidence freshness | Binds command success to the write epoch or staged Git candidate it verified. A later relevant write invalidates earlier success instead of laundering stale proof. |
 | Completion | `reconc done .` accepts completion only when policy, HEAD, index, worktree, evidence, reports, unresolved blocks, staged proofs, and typed TASK state agree. |
@@ -129,13 +129,13 @@ Core invariants are deliberately strict:
 | Transactional adoption | Inspects existing repositories, proposes evidence-backed packs and commands, and plans, applies, verifies, synchronizes, or removes only receipt-owned rollout state. |
 | Runtime enforcement | Generates, installs, verifies, and safely removes registry-backed hooks for thirteen coding-agent runtimes, with capability-specific failure semantics and git pre-commit as the repository backstop. |
 | MCP side-effect control | Classifies explicitly configured Cursor, OpenCode, Kilo, Oh My Pi, Pi, and ZCode MCP tools as repository reads, writes, commands, or external effects using exact selectors and fail-closed extraction. |
-| Operator and CI tooling | Provides exact remediation, body-free source-provenance inspection, an offline policy impact lab, staged command execution, deterministic SARIF 2.1.0 and JUnit XML reports, CI proofs, global diagnostics, update and uninstall, cryptographically verified audit inspection, retention, TUI, shell completions, and a generated manpage. |
+| Operator and CI tooling | Provides exact remediation, body-free source-provenance inspection, an offline policy impact lab, staged command execution, deterministic text, JSON, SARIF 2.1.0, JUnit XML, and GitHub impact reports, CI proofs, global diagnostics, update and uninstall, cryptographically verified audit inspection, retention, TUI, shell completions, and a generated manpage. |
 | Release trust | Publishes strict release manifests, SHA-256 checksums, build-provenance attestations, and deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs tied to the release commit. |
 
-Action compilation is not yet action enforcement: current source does not
-route tool calls through a Reconc-owned gateway or evaluate the compiled action
-rules. The published v0.9.5 release does not contain the format-5 Action Plane
-compiler additions.
+Offline action evaluation is not live action enforcement: current source
+evaluates compiled action rules only for explicit `reconc impact` scenarios and
+does not route real tool calls through a Reconc-owned gateway. The published
+v0.9.5 release does not contain the format-5 Action Plane additions.
 
 ## Evidence Model
 
@@ -386,6 +386,26 @@ Missing or redacted event classes stay explicit, and an unmatched rule means
 only unmatched in that corpus. Because arbitrary policy scripts cannot be
 proven side-effect-free, impact analysis refuses `require_script` policies
 before executing any script.
+
+Format-2 corpora also carry strict `action_pre` and `action_post` scenarios.
+An action candidate may add `actions.tools`, `actions.rules`, and explicit
+`actions.defaults`; duplicate ownership still fails compilation. Every action
+case requires an exact current decision, reason, tool ID, ordered rule IDs,
+cache result, completeness result, and phase outcome. The committed
+`harness/template/audits/testdata/action-impact/corpus.json` is a portable
+shape example. Run action regressions and emit a CI-native report with:
+
+```bash
+reconc impact . --candidate candidate-actions.yml --corpus action-corpus.json --format github
+reconc impact . --candidate candidate-actions.yml --corpus action-corpus.json --format sarif --output action-impact.sarif
+reconc impact . --candidate candidate-actions.yml --corpus action-corpus.json --delta-manifest reviewed-deltas.json
+```
+
+Newly allowed and newly blocked action cases exit 2 until an exact reviewed
+manifest binds the case identity, old and new outcomes, candidate lock digest,
+rationale, and either expiry or permanent status. Warn, approval, reason,
+trace, cache, phase, completeness, tool-identity, and failure deltas remain
+separately visible. Simulation never dispatches a downstream tool.
 
 ### Update the CLI and repository separately
 

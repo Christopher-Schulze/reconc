@@ -1,5 +1,5 @@
-// Package cireport renders provider-neutral policy decisions as CI-native
-// SARIF 2.1.0 and JUnit XML artifacts.
+// Package cireport renders provider-neutral policy decisions as bounded
+// SARIF 2.1.0, JUnit XML, and GitHub summary artifacts.
 package cireport
 
 import (
@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"reconc.dev/reconc/internal/impactlab"
 	"reconc.dev/reconc/internal/runtime"
 )
 
@@ -23,8 +24,9 @@ const (
 type Format string
 
 const (
-	FormatSARIF Format = "sarif"
-	FormatJUnit Format = "junit"
+	FormatSARIF  Format = "sarif"
+	FormatJUnit  Format = "junit"
+	FormatGitHub Format = "github"
 )
 
 // Candidate identifies the evaluated state without exposing its host path.
@@ -47,15 +49,133 @@ type Git struct {
 
 // Finding is the provider-independent representation of one violation.
 type Finding struct {
-	RuleID       string
-	Kind         string
-	Mode         string
-	Level        string
-	Message      string
-	Remediation  string
-	SourcePath   string
-	Paths        []string
-	OmittedPaths int
+	RuleID         string
+	Kind           string
+	Mode           string
+	Level          string
+	Message        string
+	Remediation    string
+	SourcePath     string
+	Paths          []string
+	OmittedPaths   int
+	CaseID         string
+	DeltaKind      string
+	Current        string
+	Candidate      string
+	ReviewRequired bool
+	Reviewed       bool
+}
+
+// FromImpact converts one privacy-bounded policy-impact report into the shared
+// CI-native model. An unreviewed permission or block delta is an error; other
+// changes remain review-visible without inventing a failure.
+func FromImpact(version string, report impactlab.Report) Model {
+	decision := "pass"
+	if !report.DeltaGate.Passed {
+		decision = "block"
+	} else if impactChanged(report) {
+		decision = "warn"
+	}
+	model := Model{
+		FormatVersion: FormatVersion, Command: "impact", ToolVersion: cleanText(version),
+		Decision: decision, ExitCode: decisionExitCode(decision),
+		Summary: cleanText(fmt.Sprintf(
+			"%s Action delta gate: reviewed %d/%d; unreviewed %d.",
+			report.SafetyConclusion, report.DeltaGate.ReviewedCount,
+			report.DeltaGate.RequiredCount, len(report.DeltaGate.UnreviewedCases),
+		)),
+		Candidate: Candidate{
+			Fingerprint:    report.Candidate.ActionPlanIdentity,
+			PolicyLockHash: report.Candidate.LockDigest, GitAvailable: false,
+			WorktreeTrusted: false,
+		},
+		Findings: []Finding{},
+	}
+	appendFinding := func(finding Finding) {
+		if len(model.Findings) == maxFindings {
+			model.TruncatedFindings++
+			if finding.Level == "error" {
+				for index := len(model.Findings) - 1; index >= 0; index-- {
+					if model.Findings[index].Level != "error" {
+						model.Findings[index] = finding
+						break
+					}
+				}
+			}
+			return
+		}
+		model.Findings = append(model.Findings, finding)
+	}
+	for _, comparison := range report.Cases {
+		if comparison.Action != nil {
+			if len(comparison.Action.Deltas) == 0 {
+				appendFinding(Finding{
+					RuleID: "reconc/impact/action-case", Kind: "action_impact", Mode: "unchanged", Level: "note",
+					Message: "Action policy outcome is unchanged for " + comparison.ID + ".",
+					CaseID:  comparison.ID, Current: string(comparison.Action.Current.Outcome.Decision),
+					Candidate: string(comparison.Action.Candidate.Outcome.Decision), Paths: []string{},
+				})
+			}
+			for _, delta := range comparison.Action.Deltas {
+				reviewRequired := delta == impactlab.DeltaNewlyAllowed || delta == impactlab.DeltaNewlyBlocked
+				level := "warning"
+				if reviewRequired && !comparison.Action.Reviewed {
+					level = "error"
+				}
+				appendFinding(Finding{
+					RuleID: "reconc/impact/" + string(delta), Kind: "action_impact", Mode: string(delta),
+					Level: level, Message: "Action policy delta " + string(delta) + " for " + comparison.ID + ".",
+					CaseID: comparison.ID, DeltaKind: string(delta),
+					Current:        string(comparison.Action.Current.Outcome.Decision),
+					Candidate:      string(comparison.Action.Candidate.Outcome.Decision),
+					ReviewRequired: reviewRequired,
+					Reviewed:       reviewRequired && comparison.Action.Reviewed,
+					Paths:          []string{},
+				})
+			}
+		}
+		if comparison.Repository != nil {
+			if !comparison.Repository.DecisionChanged && !comparison.Repository.ActionChanged {
+				appendFinding(Finding{
+					RuleID: "reconc/impact/repository-case", Kind: "repository_impact", Mode: "unchanged", Level: "note",
+					Message: "Repository policy outcome is unchanged for " + comparison.ID + ".",
+					CaseID:  comparison.ID, Current: string(comparison.Repository.CurrentDecision),
+					Candidate: string(comparison.Repository.CandidateDecision), Paths: []string{},
+				})
+			}
+			if comparison.Repository.DecisionChanged {
+				appendFinding(Finding{
+					RuleID: "reconc/impact/repository-decision", Kind: "repository_impact",
+					Mode: "decision_changed", Level: "warning",
+					Message: "Repository policy decision changed for " + comparison.ID + ".",
+					CaseID:  comparison.ID, DeltaKind: "repository_decision",
+					Current:   string(comparison.Repository.CurrentDecision),
+					Candidate: string(comparison.Repository.CandidateDecision), Paths: []string{},
+				})
+			}
+			if comparison.Repository.ActionChanged {
+				appendFinding(Finding{
+					RuleID: "reconc/impact/repository-action", Kind: "repository_impact",
+					Mode: "action_changed", Level: "warning",
+					Message: "Repository remediation actions changed for " + comparison.ID + ".",
+					CaseID:  comparison.ID, DeltaKind: "repository_action",
+					Current:   string(comparison.Repository.CurrentDecision),
+					Candidate: string(comparison.Repository.CandidateDecision), Paths: []string{},
+				})
+			}
+		}
+	}
+	sortFindings(model.Findings)
+	return model
+}
+
+func impactChanged(report impactlab.Report) bool {
+	return report.Summary.DecisionChanges > 0 || report.Summary.ActionChanges > 0 ||
+		report.Summary.ActionDecisionChanges > 0 ||
+		report.Summary.ActionRuleTraceChanges > 0 || report.Summary.ActionCacheChanges > 0 ||
+		report.Summary.ActionPhaseOutcomeChanges > 0 || report.Summary.ActionCompletenessChanges > 0 ||
+		report.Summary.ActionReasonChanges > 0 || report.Summary.ActionToolIdentityChanges > 0 ||
+		report.Summary.ActionFailureChanges > 0
 }
 
 // Model is the complete deterministic input shared by both renderers.
@@ -144,8 +264,8 @@ func cleanGit(git *Git) *Git {
 func sortFindings(findings []Finding) {
 	sort.Slice(findings, func(left, right int) bool {
 		a, b := findings[left], findings[right]
-		return strings.Join([]string{a.RuleID, a.Mode, a.Message, strings.Join(a.Paths, "\x00")}, "\x00") <
-			strings.Join([]string{b.RuleID, b.Mode, b.Message, strings.Join(b.Paths, "\x00")}, "\x00")
+		return strings.Join([]string{a.CaseID, a.RuleID, a.Mode, a.Message, strings.Join(a.Paths, "\x00")}, "\x00") <
+			strings.Join([]string{b.CaseID, b.RuleID, b.Mode, b.Message, strings.Join(b.Paths, "\x00")}, "\x00")
 	})
 }
 

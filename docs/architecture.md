@@ -78,7 +78,7 @@ internal/
   boundedexec/    concurrency-safe bounded stdout/stderr capture for subprocess boundaries
   boundedio/      exact-size reads for untrusted and repository-controlled files
   bootstrap/      init, repository sync/remove/recovery, portable receipts, journals, and binary resolution
-  cireport/       bounded provider-neutral SARIF 2.1.0 and JUnit XML report rendering
+  cireport/       bounded provider-neutral SARIF 2.1.0, JUnit XML, and GitHub report rendering
   cli/            command dispatch plus responsibility-owned command modules
   commandmeta/    canonical dependency-neutral command, flag, help, and output contract
   commandproof/   staged candidate-bound command-success receipts
@@ -94,7 +94,7 @@ internal/
   harnesspack/    strict versioned harness-pack manifest, archive, digest, and compatibility contract
   hooks/          typed registry + generators + install/uninstall + activation + scaffold sync
   ingest/         discovery + source loading (AGENTS.md, .reconc.yml, presets, globals)
-  impactlab/      private replay-corpus contract + deterministic policy comparison
+  impactlab/      strict format-2 repository/action corpora, exact action-delta review, and deterministic policy comparison
   lockdiff/       structural lockfile comparison (ignore-provenance semantics)
   filelock/       cross-platform process locks
   jsonl/          bounded locked JSONL append + archive rings
@@ -219,10 +219,13 @@ plan, immutable typed matcher programs, a derived MCP compatibility view, and
 `reconc why action`. The transport-neutral pure evaluator now implements strict
 request normalization, exact predicates and precedence, provenance monotonicity,
 phase isolation, fail-closed errors, bounded redacted traces, and exact
-resampled in-memory decision caching. No CLI or gateway currently invokes it,
-so source does not yet enforce live tool calls, inspect downstream content,
-maintain action state or a ledger, or route calls through a gateway. The
-published v0.9.5 release has none of the Action Plane additions.
+resampled in-memory decision caching. `reconc impact` invokes the production
+compiler and evaluator for strict offline `action_pre` and `action_post`
+scenarios, exact current expectations, candidate deltas, and reviewed
+newly-allowed or newly-blocked gates. No gateway currently invokes it for a
+live call, so source does not yet enforce live tool calls, inspect downstream
+content, maintain action state or a ledger, or route calls through a gateway.
+The published v0.9.5 release has none of the Action Plane additions.
 
 The target topology is one local, tool-only stdio MCP gateway around one
 operator-selected downstream stdio MCP server. Every routed `tools/call` would

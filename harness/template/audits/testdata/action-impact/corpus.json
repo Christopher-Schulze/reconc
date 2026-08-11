@@ -1,0 +1,138 @@
+{
+  "format_version": "reconc-impact-corpus/v2",
+  "corpus_id": "sha256:f35d96d4fcc3dbe403d2e3e8e431de4fd97573580883b06a64dbe2a76a10b8ed",
+  "completeness": {
+    "observed_event_classes": [],
+    "complete_event_classes": [
+      "read",
+      "write",
+      "command",
+      "command_outcome",
+      "claim"
+    ],
+    "missing_event_classes": [],
+    "redacted_event_classes": [],
+    "redaction_count": 0,
+    "complete_replay": false,
+    "action": {
+      "observed": {
+        "classes": [
+          "action_pre"
+        ],
+        "tools": [
+          "database-write"
+        ],
+        "phases": [
+          "pre_call"
+        ],
+        "decisions": [
+          "allow"
+        ],
+        "provenance": [
+          "host_observed"
+        ],
+        "outcomes": [
+          "dispatch_eligible"
+        ]
+      },
+      "required": {
+        "classes": [],
+        "tools": [],
+        "phases": [],
+        "decisions": [],
+        "provenance": [],
+        "outcomes": []
+      },
+      "missing": {
+        "classes": [],
+        "tools": [],
+        "phases": [],
+        "decisions": [],
+        "provenance": [],
+        "outcomes": []
+      },
+      "complete": false
+    }
+  },
+  "cases": [
+    {
+      "id": "portable-database-staging",
+      "kind": "action_pre",
+      "action": {
+        "tool_id": "database-write",
+        "request": {
+          "format_version": "1",
+          "call_id": "act_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "transport": "mcp_stdio",
+          "server_label": "database",
+          "server_fingerprint": "hmac-sha256:v1:fixture:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "tool": "execute",
+          "tool_contract_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "phase": "pre_call",
+          "repository_identity": "hmac-sha256:v1:fixture:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "authority_mode": "operator_pinned",
+          "arguments": "{\"target\":\"staging\"}",
+          "context": [
+            {
+              "name": "environment",
+              "value": "test",
+              "provenance": "host_observed",
+              "available": true
+            }
+          ],
+          "completeness": {
+            "request_complete": true,
+            "policy_complete": true,
+            "identity_complete": true,
+            "context_complete": true,
+            "state_complete": true,
+            "phase_complete": true,
+            "missing": []
+          },
+          "deadline": "ready",
+          "state_version": "state-v1"
+        },
+        "state": {
+          "context_identity": "context-v1",
+          "principal": "operator",
+          "credential_labels": [
+            "database-writer"
+          ],
+          "approval": {
+            "status": "none",
+            "identity": "approval-none"
+          },
+          "taint": {
+            "status": "clean",
+            "identity": "taint-clean"
+          },
+          "lifecycle": "active",
+          "cache_policy_version": "action-decision-v1",
+          "resample_drift": []
+        },
+        "expected": {
+          "decision": "allow",
+          "reason": "declared_tool",
+          "tool_id": "database-write",
+          "matched_rule_ids": [],
+          "cache": {
+            "eligible": true,
+            "reason": "eligible"
+          },
+          "completeness": {
+            "request_complete": true,
+            "policy_complete": true,
+            "identity_complete": true,
+            "context_complete": true,
+            "state_complete": true,
+            "phase_complete": true,
+            "missing": []
+          },
+          "phase_outcome": "dispatch_eligible"
+        },
+        "selected_values": [],
+        "redaction_count": 0
+      }
+    }
+  ]
+}
