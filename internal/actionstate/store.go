@@ -102,7 +102,10 @@ func OpenStore(options StoreOptions) (*Store, error) {
 
 func ensureActionStateDirectory(home, projectKey string) (directory string, resultErr error) {
 	lockPath := filepath.Join(home, retention.ProjectRootRetentionLockName)
-	lock, err := acquireSharedFileLock(context.Background(), lockPath, StateLockTimeout)
+	// Directory creation and Windows DACL publication are one private-boundary
+	// transition. Serialize creators as well as retention so another process
+	// cannot observe the directory between those two operations.
+	lock, err := acquireFileLock(context.Background(), lockPath, StateLockTimeout)
 	if err != nil {
 		return "", fmt.Errorf("coordinate action state with project retention: %w", err)
 	}

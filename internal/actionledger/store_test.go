@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,6 +23,7 @@ import (
 
 const (
 	ledgerHelperCall = "RECONC_LEDGER_HELPER_CALL"
+	ledgerHelperGate = "RECONC_LEDGER_HELPER_GATE"
 	ledgerHelperHome = "RECONC_LEDGER_HELPER_HOME"
 	ledgerHelperRepo = "RECONC_LEDGER_HELPER_REPO"
 )
@@ -250,6 +252,7 @@ func TestExistingStateSerializesWithLedgerWriter(t *testing.T) {
 func TestStoreSerializesMultipleProcesses(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "reconc-home")
 	repository := t.TempDir()
+	gate := filepath.Join(t.TempDir(), "start")
 	if _, err := actionstate.CreateIdentityKey(home, time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatal(err)
 	}
@@ -260,6 +263,7 @@ func TestStoreSerializesMultipleProcesses(t *testing.T) {
 		commands[index] = exec.Command(os.Args[0], "-test.run=^TestStoreMultiprocessHelper$")
 		commands[index].Env = append(os.Environ(),
 			ledgerHelperCall+"="+callID,
+			ledgerHelperGate+"="+gate,
 			ledgerHelperHome+"="+home,
 			ledgerHelperRepo+"="+repository,
 		)
@@ -268,6 +272,9 @@ func TestStoreSerializesMultipleProcesses(t *testing.T) {
 		if err := commands[index].Start(); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := os.WriteFile(gate, []byte("start\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	for index, command := range commands {
 		if err := command.Wait(); err != nil {
@@ -303,6 +310,19 @@ func TestStoreMultiprocessHelper(t *testing.T) {
 	callID := os.Getenv(ledgerHelperCall)
 	if callID == "" {
 		return
+	}
+	gate := os.Getenv(ledgerHelperGate)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(gate); err == nil {
+			break
+		} else if !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("ledger helper gate timed out")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 	lease, err := actionstate.AcquireIdentityKey(context.Background(), os.Getenv(ledgerHelperHome))
 	if err != nil {

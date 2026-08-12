@@ -78,6 +78,10 @@ one exact registry.
   creators converge on that one protected file, transient directory-snapshot
   changes are retried within a strict bound, and existing permission, ACL,
   symlink, special-file, or identity drift still fails without repair.
+- Private project-directory initialization now serializes creation and Windows
+  DACL publication under the retention lock, so concurrent first-use processes
+  cannot observe a partially secured directory while existing unsafe state
+  still fails without repair.
 - Schema files no longer claim mutable, missing-tag, or unreachable canonical
   locations. Historical identities remain explicit compatibility aliases and
   are never emitted as verified publication URLs.

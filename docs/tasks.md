@@ -2,6 +2,8 @@
 
 ## Active
 
+- [~] 170 Serialize private Windows directory initialization -> tasks/170-serialize-private-windows-directory-initialization.md
+
 ## Queue
 
 ## Blocked
