@@ -195,6 +195,7 @@ done
 require_action "$ci_workflow" "actions/setup-go"
 require_action "$ci_workflow" "actions/setup-python"
 require_action "$release_workflow" "actions/setup-go"
+require_action "$release_workflow" "actions/setup-python"
 require_action "$codeql_workflow" "actions/setup-go"
 require_action "$codeql_workflow" "github/codeql-action/init"
 require_action "$codeql_workflow" "github/codeql-action/analyze"
@@ -207,8 +208,8 @@ require_action "$release_workflow" "actions/attest-build-provenance"
   || fail "$ci_workflow must derive Go from go.mod in all four jobs"
 [ "$(grep -Fc 'fetch-depth: 0' "$ci_workflow")" -eq 4 ] \
   || fail "$ci_workflow must fetch full history in all four jobs"
-[ "$(grep -Fc 'fetch-depth: 0' "$release_workflow")" -eq 2 ] \
-  || fail "$release_workflow must fetch full history in both release jobs"
+[ "$(grep -Fc 'fetch-depth: 0' "$release_workflow")" -eq 3 ] \
+  || fail "$release_workflow must fetch full history in all three release jobs"
 for workflow in "$ci_workflow" "$release_workflow"; do
   require_text "$workflow" "uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0"
 done
@@ -224,6 +225,12 @@ require_text "$ci_workflow" "uses: actions/setup-python@5fda3b95a4ea91299a34e894
 require_text "$ci_workflow" "python-version: 3.13.14"
 require_text "$ci_workflow" "python -m pip install --require-hashes -r scripts/tests/langchain-requirements.lock"
 require_text "$ci_workflow" "make test-langchain PYTHON=python"
+require_text "$release_workflow" "  langchain-runtime:"
+require_text "$release_workflow" "    name: LangChain MCP release gate"
+require_text "$release_workflow" "uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0"
+require_text "$release_workflow" "python-version: 3.13.14"
+require_text "$release_workflow" "python -m pip install --require-hashes -r scripts/tests/langchain-requirements.lock"
+require_text "$release_workflow" "make test-langchain PYTHON=python"
 bun_integrity='sha512-aB6GVd42x1Y5ie1K16SF+oLGtgSkwX9hgoDdIW88pjvfTccU8F1vfpoOt34QLv0dZ1v3XimtaxPlZUG81Gx9Zg=='
 for workflow in "$ci_workflow" "$release_workflow"; do
   require_text "$workflow" "BUN_VERSION: 1.3.14"
@@ -273,7 +280,7 @@ require_text "$release_workflow" './scripts/release/publish-github-release.sh'
 require_text "$release_workflow" 'go run ./scripts/release/schema-assets verify-published'
 require_text "$release_workflow" "  windows-runtime:"
 require_text "$release_workflow" "    runs-on: windows-2025"
-require_text "$release_workflow" "    needs: windows-runtime"
+require_text "$release_workflow" "    needs: [windows-runtime, langchain-runtime]"
 require_text "$release_workflow" "      - name: Test natively"
 require_text "$release_workflow" "(cd harness/template && go test ./...)"
 require_text "$release_workflow" "./scripts/tests/test-windows-installer.ps1"

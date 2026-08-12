@@ -124,6 +124,8 @@ EXPECTED_SCHEMA = {
 EXPECTED_TOOLS = {
     "approval", "blocked", "budgeted", "echo", "slow", "tool-error", "warn", "withheld"
 }
+ASYNC_POLL_ATTEMPTS = 500
+ASYNC_POLL_INTERVAL_SECONDS = 0.02
 
 
 def connection() -> dict[str, object]:
@@ -185,20 +187,34 @@ async def invoke(tool, value: str, call_id: str) -> ToolMessage:
 
 
 async def wait_for_file(path: Path) -> None:
-    for _ in range(100):
+    for _ in range(ASYNC_POLL_ATTEMPTS):
         if path.exists():
             return
-        await asyncio.sleep(0.02)
+        await asyncio.sleep(ASYNC_POLL_INTERVAL_SECONDS)
     raise AssertionError(f"timed out waiting for {path}")
 
 
-async def wait_for_event_count(name: str, expected: int) -> None:
-    for _ in range(100):
+async def wait_for_event_count(name: str, expected: int, task) -> None:
+    for _ in range(ASYNC_POLL_ATTEMPTS):
         if event_count(name) == expected:
             return
-        await asyncio.sleep(0.02)
+        if task.done():
+            result = await task
+            raise AssertionError(
+                f"tool completed before {expected} {name!r} event(s): {result!r}"
+            )
+        await asyncio.sleep(ASYNC_POLL_INTERVAL_SECONDS)
+    task.cancel()
+    try:
+        await task
+    except BaseException as error:
+        raise AssertionError(
+            f"timed out waiting for {expected} {name!r} event(s); "
+            f"got {event_count(name)}"
+        ) from error
     raise AssertionError(
-        f"timed out waiting for {expected} {name!r} event(s); got {event_count(name)}"
+        f"timed out waiting for {expected} {name!r} event(s); "
+        f"got {event_count(name)}"
     )
 
 
@@ -298,7 +314,7 @@ async def main() -> None:
             raise AssertionError(f"stateful session flow drifted: {stateful!r}")
 
     slow_task = asyncio.create_task(invoke(by_name["slow"], "cancel", "call-slow"))
-    await wait_for_event_count("slow", 1)
+    await wait_for_event_count("slow", 1, slow_task)
     slow_task.cancel()
     try:
         await slow_task

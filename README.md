@@ -16,7 +16,7 @@ agree.
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Offline](https://img.shields.io/badge/runtime-offline_by_default-111827)](#what-reconc-controls)
 
-[Why Reconc](#why-reconc-exists) · [Install](#install-and-bootstrap) · [Architecture](#architecture-and-operational-boundaries) · [Integrations](#supported-agent-runtimes) · [Documentation](docs/documentation.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [Issues](https://github.com/Christopher-Schulze/reconc/issues/new/choose) · [Releases](https://github.com/Christopher-Schulze/reconc/releases)
+[Why Reconc](#why-reconc-exists) · [MCP Gateway](#enforce-agent-tool-calls-before-execution) · [Install](#install-and-bootstrap) · [Architecture](#architecture-and-operational-boundaries) · [Integrations](#supported-agent-runtimes) · [Documentation](docs/documentation.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [Issues](https://github.com/Christopher-Schulze/reconc/issues/new/choose) · [Releases](https://github.com/Christopher-Schulze/reconc/releases)
 
 An agent saying "done" is a claim. Reconc verifies that claim against the
 current repository, policy, evidence, and TASK state. Missing tests, stale
@@ -28,6 +28,37 @@ rules and enforces them across the CLI, Git, CI, and thirteen coding-agent
 integrations. The exact
 [guarantees and limits](docs/documentation.md#evidence-bound-completion-control)
 stay explicit.
+
+## Enforce Agent Tool Calls Before Execution
+
+LangChain and any other MCP client can launch the Go-only
+`reconc mcp gateway` as a local stdio server instead of connecting directly to
+the downstream tool server:
+
+```text
+LangChain or MCP client
+  -> reconc mcp gateway
+     -> policy + trusted context + budgets + approvals + input/result inspection + ledger
+        -> operator-selected downstream MCP server
+```
+
+Every explicitly routed tool call is checked before execution. Reconc validates
+the advertised tool contract and arguments, resamples policy and executable
+identity, decides allow, warn, approval, or block, reserves cumulative budget,
+verifies one-time approvals, inspects progress and results, and records a
+payload-free lifecycle. Reconc remains one Go binary; Python belongs only to
+the external LangChain client and the pinned interoperability test.
+
+The exact proven matrix is Reconc `0.9.6`, MCP Go SDK `v1.7.0`,
+`langchain-mcp-adapters==0.3.2`, `langchain-core==1.5.4`, MCP Python SDK
+`1.29.0`, Python `3.13.14`, legacy MCP `2025-11-25`, and current MCP
+`2026-07-28`. Start with the
+[copy-paste LangChain configuration](docs/documentation.md#langchain-mcp-interoperability).
+
+**Boundary:** The Go-only `reconc mcp gateway` is live enforcement only for
+tools explicitly routed through it. Direct downstream MCP connections, native
+LangChain tools, and host-native tools bypass Reconc and are reported as
+unenforced, never inferred safe.
 
 ## Why Reconc Exists
 
@@ -133,25 +164,6 @@ Core invariants are deliberately strict:
 | MCP side-effect control | Classifies explicitly configured Cursor, OpenCode, Kilo, Oh My Pi, Pi, and ZCode MCP tools as repository reads, writes, commands, or external effects using exact selectors and fail-closed extraction. |
 | Operator and CI tooling | Provides exact remediation, body-free source-provenance inspection, an offline policy impact lab, staged command execution, deterministic text, JSON, SARIF 2.1.0, JUnit XML, and GitHub impact reports, CI proofs, global diagnostics, update and uninstall, cryptographically verified audit inspection, retention, TUI, shell completions, and a generated manpage. |
 | Release trust | Publishes strict release manifests, SHA-256 checksums, build-provenance attestations, the project license, exact third-party notices, and deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs tied to the release commit. |
-
-The Go-only `reconc mcp gateway` is live enforcement only for tools explicitly
-routed through it. Direct access to the downstream server, native LangChain
-tools, and host-native tools bypass that boundary.
-
-Current source is proven against LangChain's official MCP adapter over local
-stdio, without a Reconc Python adapter, model call, service, or runtime network
-access. The pinned matrix is Reconc `0.9.6`, MCP Go SDK `v1.7.0`,
-`langchain-mcp-adapters==0.3.2`, `langchain-core==1.5.4`, MCP Python SDK
-`1.29.0`, Python `3.13.14`, legacy MCP `2025-11-25`, and Go fixture format `1`;
-the legacy consumer completes an externally signed form-elicitation approval,
-and the pure-Go suite also proves MCP `2026-07-28` input-required approval.
-Initialize operator state with
-`reconc action key init --reconc-home PATH`, then use the
-[exact LangChain configuration](docs/documentation.md#langchain-mcp-interoperability).
-`reconc status . --json` and `reconc doctor . --deep` state that external
-client configuration is not inspected and direct/native bypass routes are
-unenforced. The adapter and Python runtime remain consumer-owned test inputs,
-not shipped Reconc dependencies or release assets.
 
 ## Evidence Model
 

@@ -56,6 +56,63 @@ func TestLangChainExamplesMatchCanonicalGatewayMetadata(t *testing.T) {
 	assertExampleFlagsFollowMetadata(t, gateway, documentationArgs)
 }
 
+func TestLangChainGatewayIsProminentAndReleaseBlocking(t *testing.T) {
+	root := publicSurfaceRoot(t)
+	readme := readPublicSurfaceFile(t, root, "README.md")
+	documentation := readPublicSurfaceFile(t, root, "docs/documentation.md")
+	releaseWorkflow := readPublicSurfaceFile(t, root, ".github/workflows/reconc-release.yml")
+
+	const heading = "Enforce Agent Tool Calls Before Execution"
+	featureIndex := strings.Index(readme, "\n## "+heading+"\n")
+	whyIndex := strings.Index(readme, "\n## Why Reconc Exists\n")
+	if featureIndex < 0 || whyIndex < 0 || featureIndex > whyIndex {
+		t.Fatalf("README must present %q before Why Reconc Exists", heading)
+	}
+	assertContainsAll(t, "README navigation", readme[:whyIndex],
+		"[MCP Gateway](#enforce-agent-tool-calls-before-execution)",
+	)
+	assertContainsAll(t, "README MCP gateway", markdownSection(t, "README.md", readme, heading),
+		"LangChain or MCP client",
+		"reconc mcp gateway",
+		"policy + trusted context + budgets + approvals + input/result inspection + ledger",
+		"operator-selected downstream MCP server",
+		"Every explicitly routed tool call is checked before execution.",
+		"Reconc remains one Go binary",
+		"copy-paste LangChain configuration",
+		"Direct downstream MCP connections, native LangChain tools, and host-native tools bypass Reconc",
+		"reported as unenforced, never inferred safe",
+	)
+
+	assertContainsAll(t, "documentation release contract", documentation,
+		"The `LangChain MCP interoperability` check is required for protected `main`",
+		"Both exact-tag prerequisite jobs must pass before artifact publication can start",
+	)
+	gateStart := strings.Index(releaseWorkflow, "\n  langchain-runtime:\n")
+	releaseStart := strings.Index(releaseWorkflow, "\n  release:\n")
+	if gateStart < 0 || releaseStart < 0 || gateStart > releaseStart {
+		t.Fatal("release workflow omits or reorders the LangChain prerequisite job")
+	}
+	langChainGate := releaseWorkflow[gateStart:releaseStart]
+	assertContainsAll(t, "release workflow LangChain job", langChainGate,
+		"name: LangChain MCP release gate",
+		"actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+		"python-version: 3.13.14",
+		"python -m pip install --require-hashes -r scripts/tests/langchain-requirements.lock",
+		"make test-langchain PYTHON=python",
+		"ref: ${{ inputs.tag }}",
+	)
+	assertContainsAll(t, "release workflow publication job", releaseWorkflow[releaseStart:],
+		"needs: [windows-runtime, langchain-runtime]",
+		"./scripts/release/publish-github-release.sh",
+	)
+	if count := strings.Count(releaseWorkflow, "ref: ${{ inputs.tag }}"); count != 3 {
+		t.Fatalf("release workflow exact-tag checkouts = %d, want 3", count)
+	}
+	if count := strings.Count(releaseWorkflow, "make test-langchain PYTHON=python"); count != 1 {
+		t.Fatalf("release workflow LangChain gates = %d, want 1", count)
+	}
+}
+
 func TestLangChainProofPinsVersionsAndUnenforcedBoundary(t *testing.T) {
 	root := publicSurfaceRoot(t)
 	surfaces := map[string]string{

@@ -237,7 +237,10 @@ The canonical Make targets cover both the root Go module and
 runs the real-repository publication audit once, then runs both race suites and
 the release-trust failure-path checks. The publication CLI contract test uses a
 bounded temporary Git fixture instead of rescanning the real repository under
-the race detector. `make fuzz` uses 500 executions and one worker per target
+the race detector. `make test-langchain` is the separate hash-pinned external
+consumer proof. The `LangChain MCP interoperability` check is required for
+protected `main`, and the Release workflow reruns the same proof against the
+exact selected tag before publication. `make fuzz` uses 500 executions and one worker per target
 by default, avoiding the Go 1.26 time-deadline shutdown race while keeping the
 gate deterministic and bounded. Minimization is likewise bounded to ten exact
 executions, and a disposable per-run Go fuzz cache prevents machine-local corpus
@@ -3363,7 +3366,8 @@ CI checks:
 - an isolated Ubuntu job provisions SHA-pinned `actions/setup-python`, exact
   Python `3.13.14`, and the hash-pinned external LangChain dependency lock, then
   builds the Go gateway and Go fixture and runs the local-stdio interoperability
-  proof with runtime network access denied
+  proof with runtime network access denied; its `LangChain MCP interoperability`
+  result is mandatory on protected `main`
 - clean-repository self-hosting golden path on Ubuntu and macOS across all three
   bootstrap profiles, git pre-commit, and all thirteen agent runtimes
 - current-tree and post-boundary-history publication audit once in candidate CI
@@ -3388,10 +3392,11 @@ and the repository does not enable auto-merge.
 
 The public source repository protects its default branch with the active
 `Protect main` ruleset. It blocks branch deletion and non-fast-forward updates,
-and requires successful Ubuntu, macOS, native Windows, release-trust, and Go
-CodeQL checks for the exact candidate commit before `main` can advance. A pull
-request is not mandatory, but an unchecked direct push is rejected; maintainer
-fast-forwards must first obtain the same checks on a candidate branch.
+and requires successful Ubuntu, macOS, native Windows, LangChain MCP,
+release-trust, and Go CodeQL checks for the exact candidate commit before
+`main` can advance. A pull request is not mandatory, but an unchecked direct
+push is rejected; maintainer fast-forwards must first obtain the same checks on
+a candidate branch.
 Effective rules are read back with
 `gh api repos/Christopher-Schulze/reconc/rulesets/18998289`.
 Repository Actions settings allow only GitHub-owned actions and require full
@@ -3412,9 +3417,12 @@ Release:
 - The tag version must be stable semantic versioning, match the source version, and have committed release notes.
 - Release workflow first runs root and portable-template tests, a binary smoke
   test, and the installer gate natively on Windows 2025 against the exact tag.
-  Artifact publication cannot start until that prerequisite succeeds. The
-  artifact job then provisions the same pinned GitHub-owned Node.js runtime and
-  exact verified Bun runtime and runs formatting, tidy, vet, pinned
+  In parallel, an isolated Ubuntu prerequisite checks out the same tag and runs
+  the hash-pinned official LangChain consumer against the Go gateway and Go
+  fixture. Both exact-tag prerequisite jobs must pass before artifact
+  publication can start. The artifact job then provisions the same pinned
+  GitHub-owned Node.js runtime and exact verified Bun runtime and runs formatting,
+  tidy, vet, pinned
   Govulncheck, pinned Staticcheck, race, publication, trust, and clean-repository
   self-hosting checks before building.
 - `make release VERSION=<tag-version>` builds the exact flat release inventory.
