@@ -24,6 +24,8 @@ const (
 	transactionFileName = "ledger-transaction.json"
 	transactionBackup   = "ledger-transaction-backup"
 	appendLockTimeout   = 2 * time.Second
+	directoryReadTries  = 20
+	directoryRetryDelay = 5 * time.Millisecond
 )
 
 var errRecordAlreadyCommitted = errors.New("action ledger record is already committed")
@@ -69,7 +71,7 @@ func (s *Store) ExistingState(ctx context.Context) (bool, error) {
 	if err := s.storage.Validate(); err != nil {
 		return false, ledgerError(action.ReasonLedgerUnavailable, "validate action ledger storage", err)
 	}
-	lock, err := s.validateExistingLock()
+	lock, err := s.validateExistingLock(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -78,7 +80,7 @@ func (s *Store) ExistingState(ctx context.Context) (bool, error) {
 	}
 	material, observedLock, err := s.inspectExistingState()
 	if err != nil {
-		if retryLock, lockErr := s.validateExistingLock(); lockErr != nil {
+		if retryLock, lockErr := s.validateExistingLock(ctx); lockErr != nil {
 			return false, lockErr
 		} else if retryLock {
 			return s.existingStateLocked(ctx)
@@ -112,7 +114,7 @@ func (s *Store) existingStateLocked(ctx context.Context) (bool, error) {
 }
 
 func (s *Store) inspectExistingState() (material bool, lock bool, resultErr error) {
-	entries, err := boundedio.ReadDirNoSymlink(s.directory, 4096)
+	entries, err := s.readActionDirectorySnapshot()
 	if err != nil {
 		return false, false, ledgerError(action.ReasonLedgerUnavailable, "inspect action ledger directory", err)
 	}
@@ -133,7 +135,22 @@ func (s *Store) inspectExistingState() (material bool, lock bool, resultErr erro
 	return material, lock, nil
 }
 
-func (s *Store) validateExistingLock() (bool, error) {
+func (s *Store) readActionDirectorySnapshot() ([]os.DirEntry, error) {
+	var err error
+	for attempt := 0; attempt < directoryReadTries; attempt++ {
+		var entries []os.DirEntry
+		entries, err = boundedio.ReadDirNoSymlink(s.directory, 4096)
+		if err == nil || !errors.Is(err, boundedio.ErrDirectorySnapshotChanged) {
+			return entries, err
+		}
+		if attempt+1 < directoryReadTries {
+			time.Sleep(directoryRetryDelay)
+		}
+	}
+	return nil, err
+}
+
+func (s *Store) validateExistingLock(ctx context.Context) (bool, error) {
 	info, err := os.Lstat(s.layout.LockPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
@@ -146,10 +163,24 @@ func (s *Store) validateExistingLock() (bool, error) {
 			"action ledger lock has mode %o; want %o", info.Mode().Perm(), s.layout.FileMode.Perm(),
 		), nil)
 	}
-	if err := s.storage.ValidateJSONLFile(s.layout.LockPath, 4<<10); err != nil {
-		return false, ledgerError(action.ReasonLedgerCorrupt, "validate private action ledger lock", err)
+	securityErr := s.storage.ValidateJSONLFile(s.layout.LockPath, 4<<10)
+	if securityErr == nil {
+		return true, nil
 	}
-	return true, nil
+	waitErr := jsonl.WithExistingLayoutLockContext(ctx, s.livePath, s.layout, func() error {
+		return nil
+	})
+	if waitErr == nil {
+		return true, nil
+	}
+	if retryErr := s.storage.ValidateJSONLFile(s.layout.LockPath, 4<<10); retryErr == nil {
+		return true, nil
+	} else {
+		return false, ledgerError(
+			action.ReasonLedgerCorrupt, "validate private action ledger lock",
+			errors.Join(securityErr, waitErr, retryErr),
+		)
+	}
 }
 
 func (s *Store) Append(ctx context.Context, record Record) (Record, error) {
@@ -159,7 +190,7 @@ func (s *Store) Append(ctx context.Context, record Record) (Record, error) {
 	if err := s.storage.Validate(); err != nil {
 		return Record{}, ledgerError(action.ReasonLedgerUnavailable, "validate action ledger storage", err)
 	}
-	if _, err := s.validateExistingLock(); err != nil {
+	if _, err := s.validateExistingLock(ctx); err != nil {
 		return Record{}, err
 	}
 	if record.Call.RepositoryIdentity != s.storage.RepositoryIdentity() {
@@ -328,7 +359,7 @@ func (s *Store) Recover(ctx context.Context) error {
 	if err := s.storage.Validate(); err != nil {
 		return ledgerError(action.ReasonLedgerUnavailable, "validate action ledger storage", err)
 	}
-	if _, err := s.validateExistingLock(); err != nil {
+	if _, err := s.validateExistingLock(ctx); err != nil {
 		return err
 	}
 	err := jsonl.ReadSnapshotContextWithLayout(

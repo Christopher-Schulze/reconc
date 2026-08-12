@@ -649,58 +649,25 @@ func withLayoutLockModeContext(
 	if err := validateLayoutDirectory(path, layout); err != nil {
 		return err
 	}
-	lockExisted := false
-	if info, err := os.Lstat(layout.LockPath); err == nil {
-		lockExisted = true
-		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			return fmt.Errorf("jsonl lock path must be a non-symlink regular file: %s", layout.LockPath)
-		}
-		if !layoutIsDefault(path, layout) && runtime.GOOS != "windows" &&
-			info.Mode().Perm() != layout.FileMode.Perm() {
-			return fmt.Errorf("jsonl lock path has mode %o; want %o", info.Mode().Perm(), layout.FileMode.Perm())
-		}
-		if err := validateLayoutSecurityFile(layout, layout.LockPath, 4<<10); err != nil {
-			return err
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	flags := os.O_RDWR
-	if create {
-		flags |= os.O_CREATE
-	}
-	lock, err := os.OpenFile(layout.LockPath, flags, layout.FileMode)
+	lock, err := openLayoutLockFile(path, layout, create)
 	if err != nil {
 		return err
-	}
-	opened, statErr := lock.Stat()
-	current, lstatErr := os.Lstat(layout.LockPath)
-	if statErr != nil || lstatErr != nil || !opened.Mode().IsRegular() ||
-		current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() || !os.SameFile(opened, current) {
-		if statErr == nil && lstatErr == nil {
-			statErr = fmt.Errorf("jsonl lock path changed identity while opening")
-		}
-		return errors.Join(statErr, lstatErr, lock.Close())
-	}
-	if layout.Security != nil && !lockExisted {
-		if err := secureLayoutSecurityFile(layout, layout.LockPath, 4<<10); err != nil {
-			return errors.Join(err, lock.Close())
-		}
-	} else if layout.Security == nil && create && (!lockExisted || !layoutIsDefault(path, layout)) {
-		if err := lock.Chmod(layout.FileMode); err != nil {
-			return errors.Join(err, lock.Close())
-		}
-	} else if layout.Security == nil && runtime.GOOS != "windows" && opened.Mode().Perm() != layout.FileMode.Perm() {
-		return errors.Join(fmt.Errorf(
-			"jsonl lock path has mode %o; want %o", opened.Mode().Perm(), layout.FileMode.Perm(),
-		), lock.Close())
-	}
-	if err := validateLayoutSecurityFile(layout, layout.LockPath, 4<<10); err != nil {
-		return errors.Join(err, lock.Close())
 	}
 	unlock, err := acquireLayoutLock(ctx, lock, layout.LockTimeout)
 	if err != nil {
 		return errors.Join(err, lock.Close())
+	}
+	closeLocked := func(cause error) error {
+		return errors.Join(cause, unlock(), lock.Close())
+	}
+	if err := validateOpenedLayoutLock(path, layout, lock); err != nil {
+		return closeLocked(err)
+	}
+	if err := validateLayoutSecurityFile(layout, layout.LockPath, 4<<10); err != nil {
+		return closeLocked(err)
+	}
+	if err := validateOpenedLayoutLock(path, layout, lock); err != nil {
+		return closeLocked(err)
 	}
 	fnErr := fn()
 	unlockErr := unlock()
@@ -712,6 +679,140 @@ func withLayoutLockModeContext(
 		return errors.Join(fmt.Errorf("unlock JSONL: %w", unlockErr), closeErr)
 	}
 	return closeErr
+}
+
+func openLayoutLockFile(path string, layout Layout, create bool) (*os.File, error) {
+	before, err := os.Lstat(layout.LockPath)
+	if errors.Is(err, os.ErrNotExist) {
+		if !create {
+			return nil, err
+		}
+		lock, createErr := createLayoutLockFile(path, layout)
+		if createErr == nil {
+			return lock, nil
+		}
+		if !errors.Is(createErr, os.ErrExist) {
+			return nil, createErr
+		}
+		before, err = os.Lstat(layout.LockPath)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := validateLayoutLockInfo(path, layout, before); err != nil {
+		return nil, err
+	}
+	lock, err := os.OpenFile(layout.LockPath, os.O_RDWR, 0)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateOpenedLayoutLockIdentity(layout.LockPath, lock, before); err != nil {
+		return nil, errors.Join(err, lock.Close())
+	}
+	return lock, nil
+}
+
+func createLayoutLockFile(path string, layout Layout) (*os.File, error) {
+	if layout.Security == nil {
+		return createDirectLayoutLockFile(layout)
+	}
+	return createSecuredLayoutLockFile(path, layout)
+}
+
+func createDirectLayoutLockFile(layout Layout) (*os.File, error) {
+	lock, err := os.OpenFile(
+		layout.LockPath, os.O_CREATE|os.O_EXCL|os.O_RDWR, layout.FileMode,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if err := lock.Chmod(layout.FileMode); err != nil {
+		return nil, errors.Join(err, lock.Close())
+	}
+	if err := validateOpenedLayoutLockIdentity(layout.LockPath, lock, nil); err != nil {
+		return nil, errors.Join(err, lock.Close())
+	}
+	return lock, nil
+}
+
+func createSecuredLayoutLockFile(path string, layout Layout) (*os.File, error) {
+	candidate, err := os.CreateTemp(filepath.Dir(layout.LockPath), ".reconc-jsonl-lock-*")
+	if err != nil {
+		return nil, err
+	}
+	candidatePath := candidate.Name()
+	closeCandidate := func(cause error) error {
+		return errors.Join(cause, candidate.Close(), os.Remove(candidatePath))
+	}
+	if err := secureLayoutSecurityFile(layout, candidatePath, 4<<10); err != nil {
+		return nil, closeCandidate(err)
+	}
+	if err := validateOpenedLayoutLockIdentity(candidatePath, candidate, nil); err != nil {
+		return nil, closeCandidate(err)
+	}
+	if err := candidate.Close(); err != nil {
+		return nil, errors.Join(err, os.Remove(candidatePath))
+	}
+	if err := os.Link(candidatePath, layout.LockPath); err != nil {
+		return nil, errors.Join(fmt.Errorf("atomically publish secured JSONL lock: %w", err), os.Remove(candidatePath))
+	}
+	if err := os.Remove(candidatePath); err != nil {
+		return nil, err
+	}
+	before, err := os.Lstat(layout.LockPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateLayoutLockInfo(path, layout, before); err != nil {
+		return nil, err
+	}
+	lock, err := os.OpenFile(layout.LockPath, os.O_RDWR, 0)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateOpenedLayoutLockIdentity(layout.LockPath, lock, before); err != nil {
+		return nil, errors.Join(err, lock.Close())
+	}
+	if err := validateLayoutSecurityFile(layout, layout.LockPath, 4<<10); err != nil {
+		return nil, errors.Join(err, lock.Close())
+	}
+	return lock, nil
+}
+
+func validateOpenedLayoutLock(path string, layout Layout, lock *os.File) error {
+	if err := validateOpenedLayoutLockIdentity(layout.LockPath, lock, nil); err != nil {
+		return err
+	}
+	opened, err := lock.Stat()
+	if err != nil {
+		return err
+	}
+	return validateLayoutLockInfo(path, layout, opened)
+}
+
+func validateOpenedLayoutLockIdentity(lockPath string, lock *os.File, before os.FileInfo) error {
+	opened, statErr := lock.Stat()
+	current, lstatErr := os.Lstat(lockPath)
+	if statErr != nil || lstatErr != nil || !opened.Mode().IsRegular() ||
+		current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() ||
+		!os.SameFile(opened, current) || before != nil && !os.SameFile(before, opened) {
+		if statErr == nil && lstatErr == nil {
+			statErr = fmt.Errorf("jsonl lock path changed identity while opening")
+		}
+		return errors.Join(statErr, lstatErr)
+	}
+	return nil
+}
+
+func validateLayoutLockInfo(path string, layout Layout, info os.FileInfo) error {
+	if info == nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return fmt.Errorf("jsonl lock path must be a non-symlink regular file: %s", layout.LockPath)
+	}
+	if !layoutIsDefault(path, layout) && runtime.GOOS != "windows" &&
+		info.Mode().Perm() != layout.FileMode.Perm() {
+		return fmt.Errorf("jsonl lock path has mode %o; want %o", info.Mode().Perm(), layout.FileMode.Perm())
+	}
+	return nil
 }
 
 func validateLayoutDirectory(path string, layout Layout) error {

@@ -170,8 +170,9 @@ func (s PrivateProjectStorage) ValidateJSONLDirectory(path string) error {
 	return nil
 }
 
-// SecureJSONLFile applies the private-file contract to a newly published JSONL
-// file. Existing files are validated before JSONL calls this method.
+// SecureJSONLFile applies the private-file contract to a newly created JSONL
+// object before or immediately after publication. Existing files are validated
+// without repair.
 func (s PrivateProjectStorage) SecureJSONLFile(path string) error {
 	if err := s.validateJSONLFilePath(path); err != nil {
 		return err

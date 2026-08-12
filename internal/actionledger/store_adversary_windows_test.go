@@ -69,3 +69,16 @@ func TestStoreRejectsUnsafeWindowsLockDACLWithoutMutatingLedger(t *testing.T) {
 		t.Fatal("rejected append repaired the unsafe Windows lock DACL")
 	}
 }
+
+func TestExistingStateRejectsUnsafeWindowsLockDACLWithoutRepair(t *testing.T) {
+	fixture := newLedgerStoreFixture(t)
+	fixture.append(t, EventRequestAccepted)
+	makeLedgerFileUnsafe(t, fixture.store.layout.LockPath)
+	if _, err := fixture.store.ExistingState(context.Background()); err == nil ||
+		ErrorCode(err) != action.ReasonLedgerCorrupt {
+		t.Fatalf("ExistingState() error = %v", err)
+	}
+	if err := fixture.storage.ValidateJSONLFile(fixture.store.layout.LockPath, 4<<10); err == nil {
+		t.Fatal("rejected read repaired the unsafe Windows lock DACL")
+	}
+}

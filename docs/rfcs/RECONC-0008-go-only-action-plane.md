@@ -984,7 +984,9 @@ detached head, dropped-history boundary, and event completeness independently.
 The live file, archives, lock, journal, and recovery backups all use one
 layout-bound private-filesystem contract. Existing permission or ACL drift
 fails without repair; newly published files are secured and revalidated, with
-a protected current-user-only DACL required on Windows.
+a protected current-user-only DACL required on Windows. First lock creation
+secures and verifies a private candidate before atomic publication; concurrent
+creators converge on the published lock before ledger work begins.
 
 Recording policy is `required`, `best_effort`, or `off` and defaults to
 `required`. Required pre-decision recording

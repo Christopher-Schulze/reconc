@@ -2146,7 +2146,10 @@ Every live file, archive, lock, journal, and recovery backup is bound to the
 same private-filesystem contract as action state: existing ownership, mode, or
 ACL drift fails without repair, while each newly created or atomically replaced
 file is secured and revalidated. On Windows this requires a protected,
-current-user-only DACL for every durable and recovery path.
+current-user-only DACL for every durable and recovery path. A missing lock is
+secured and verified as a private candidate before its final path becomes
+visible; concurrent creators converge on that one published lock before any
+ledger operation proceeds.
 
 Approval status and reason are exact, receipt provenance is all-or-none, and a
 terminal budget stop cannot be bypassed by a later approval or dispatch. Unknown

@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 
 	"reconc.dev/reconc/internal/action"
-	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/jsonl"
 )
 
@@ -66,7 +65,7 @@ func (s *Store) Snapshot(ctx context.Context) ([]Record, VerificationReport, err
 		report.Integrity = StatusInvalid
 		return nil, report, err
 	}
-	lock, err := s.validateExistingLock()
+	lock, err := s.validateExistingLock(ctx)
 	if err != nil {
 		report.Integrity = StatusInvalid
 		return nil, report, err
@@ -292,7 +291,7 @@ func (s *Store) validateArchiveSet() error {
 }
 
 func (s *Store) validateStablePathsAfterRecovery() error {
-	entries, err := boundedio.ReadDirNoSymlink(s.directory, 4096)
+	entries, err := s.readActionDirectorySnapshot()
 	if err != nil {
 		return err
 	}

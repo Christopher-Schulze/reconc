@@ -2,6 +2,7 @@ package jsonl
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -9,7 +10,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 )
 
 type recordingLayoutSecurity struct {
@@ -17,8 +20,118 @@ type recordingLayoutSecurity struct {
 	directory       string
 	rejectPath      string
 	secured         map[string]bool
+	securedFiles    []os.FileInfo
 	validated       map[string]int
 	directoryChecks int
+}
+
+type blockingLockSecurity struct {
+	directory     string
+	secureStarted chan struct{}
+	releaseSecure chan struct{}
+	mu            sync.Mutex
+	secureCalls   int
+	secured       []os.FileInfo
+}
+
+func (s *blockingLockSecurity) JSONLSecurityIdentity() string {
+	return "blocking-private-v1"
+}
+
+func (s *blockingLockSecurity) ValidateJSONLDirectory(path string) error {
+	if path != s.directory {
+		return errors.New("unexpected directory")
+	}
+	return nil
+}
+
+func (s *blockingLockSecurity) SecureJSONLFile(path string) error {
+	s.mu.Lock()
+	first := s.secureCalls == 0
+	s.secureCalls++
+	s.mu.Unlock()
+	if first {
+		close(s.secureStarted)
+		<-s.releaseSecure
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.secured = append(s.secured, info)
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *blockingLockSecurity) ValidateJSONLFile(path string, _ int64) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	secured := false
+	for _, candidate := range s.secured {
+		if os.SameFile(info, candidate) {
+			secured = true
+			break
+		}
+	}
+	s.mu.Unlock()
+	if !secured {
+		return errors.New("file security publication is incomplete")
+	}
+	return nil
+}
+
+func TestLayoutSecurityPublishesFirstLockOnlyAfterSecurity(t *testing.T) {
+	directory := privateTestDirectory(t)
+	path := filepath.Join(directory, "ledger.jsonl")
+	layout := privateTestLayout(path)
+	layout.LockTimeout = time.Second
+	security := &blockingLockSecurity{
+		directory:     directory,
+		secureStarted: make(chan struct{}), releaseSecure: make(chan struct{}),
+	}
+	layout.Security = security
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(security.releaseSecure) }) }
+	defer release()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- withLayoutLockContext(ctx, path, layout, func() error { return nil })
+	}()
+	select {
+	case <-security.secureStarted:
+	case <-ctx.Done():
+		t.Fatal("first lock publication did not start")
+	}
+	if _, err := os.Lstat(layout.LockPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("final lock became visible before security publication: %v", err)
+	}
+	secondDone := make(chan error, 1)
+	go func() {
+		secondDone <- withLayoutLockContext(ctx, path, layout, func() error { return nil })
+	}()
+	select {
+	case err := <-secondDone:
+		if err != nil {
+			t.Fatalf("second secure publisher: %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("second secure publisher did not finish")
+	}
+	release()
+	select {
+	case err := <-firstDone:
+		if err != nil {
+			t.Fatalf("first secure publisher: %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("first secure publisher did not converge on the published lock")
+	}
 }
 
 func (s *recordingLayoutSecurity) JSONLSecurityIdentity() string {
@@ -34,8 +147,29 @@ func (s *recordingLayoutSecurity) ValidateJSONLDirectory(path string) error {
 }
 
 func (s *recordingLayoutSecurity) SecureJSONLFile(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
 	s.secured[path] = true
+	s.securedFiles = append(s.securedFiles, info)
 	return nil
+}
+
+func (s *recordingLayoutSecurity) securedFile(path string) bool {
+	if s.secured[path] {
+		return true
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false
+	}
+	for _, candidate := range s.securedFiles {
+		if os.SameFile(info, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *recordingLayoutSecurity) ValidateJSONLFile(path string, _ int64) error {
@@ -108,7 +242,7 @@ func TestLayoutSecuritySecuresEveryNewDurableFileAndRejectsExistingDrift(t *test
 		t.Fatal(err)
 	}
 	for _, candidate := range []string{path, layout.LockPath, layout.JournalPath} {
-		if !security.secured[candidate] {
+		if !security.securedFile(candidate) {
 			t.Fatalf("new durable JSONL file was not secured: %s", candidate)
 		}
 	}

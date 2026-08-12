@@ -11,6 +11,10 @@ import (
 	"sort"
 )
 
+// ErrDirectorySnapshotChanged identifies a directory whose metadata changed
+// while a bounded snapshot was being read.
+var ErrDirectorySnapshotChanged = errors.New("directory snapshot changed")
+
 // ReadFile reads at most maxBytes from a regular file and reports a stable
 // error instead of blocking on a special file or allocating oversized input.
 // Final symlinks are followed intentionally; strict callers use
@@ -216,7 +220,10 @@ func readDir(path string, maxEntries int, rejectSymlink bool) ([]os.DirEntry, er
 		!before.ModTime().Equal(opened.ModTime()) || opened.Mode() != after.Mode() ||
 		opened.Size() != after.Size() || !opened.ModTime().Equal(after.ModTime()) {
 		if afterErr == nil {
-			afterErr = fmt.Errorf("%s changed identity or metadata during directory read", path)
+			afterErr = fmt.Errorf(
+				"%s changed identity or metadata during directory read: %w",
+				path, ErrDirectorySnapshotChanged,
+			)
 		}
 		return nil, errors.Join(afterErr, directory.Close())
 	}
