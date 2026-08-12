@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -30,24 +31,52 @@ type rawGatewayHarness struct {
 	closeErr  error
 }
 
+type rawGatewayOptions struct {
+	repository          string
+	home                string
+	approvalAuthorities string
+	approvalPolicyID    string
+}
+
 func newRawGatewayHarness(
 	t *testing.T,
 	plan *action.CompiledPlan,
 	evaluator *action.Evaluator,
 ) *rawGatewayHarness {
+	return newRawGatewayHarnessWithOptions(t, plan, evaluator, rawGatewayOptions{})
+}
+
+func newRawGatewayHarnessWithOptions(
+	t *testing.T,
+	plan *action.CompiledPlan,
+	evaluator *action.Evaluator,
+	options rawGatewayOptions,
+) *rawGatewayHarness {
 	t.Helper()
-	repository, err := pathidentity.ResolveExisting(t.TempDir())
+	repository := options.repository
+	if repository == "" {
+		repository = t.TempDir()
+	}
+	repository, err := pathidentity.ResolveExisting(repository)
 	if err != nil {
 		t.Fatal(err)
 	}
-	home, err := pathidentity.ResolveExisting(t.TempDir())
+	home := options.home
+	createKey := home == ""
+	if createKey {
+		home = t.TempDir()
+	}
+	home, err = pathidentity.ResolveExisting(home)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chmod(home, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := actionstate.CreateIdentityKey(home, time.Unix(1, 0)); err != nil {
+	if createKey {
+		_, err = actionstate.CreateIdentityKey(home, time.Unix(1, 0))
+	}
+	if err != nil {
 		t.Fatal(err)
 	}
 	loader := staticPolicyLoader{snapshot: PolicySnapshot{
@@ -72,7 +101,9 @@ func newRawGatewayHarness(
 			fakeModeEnvironment, fakeProcessEnvironment,
 		),
 		ReconcHome: home, Version: "test", CallTimeout: 5 * time.Second,
-		Input: gatewayInput, Output: gatewayOutput, Diagnostics: io.Discard,
+		ApprovalAuthorities: options.approvalAuthorities,
+		ApprovalPolicyID:    options.approvalPolicyID,
+		Input:               gatewayInput, Output: gatewayOutput, Diagnostics: io.Discard,
 		PolicyLoader: loader,
 	})
 	if err != nil {
@@ -115,22 +146,33 @@ func (h *rawGatewayHarness) Close() error {
 
 func (h *rawGatewayHarness) exchange(t *testing.T, request string) rawRPCResponse {
 	t.Helper()
-	if _, err := io.WriteString(h.input, request+"\n"); err != nil {
-		t.Fatal(err)
-	}
-	line, err := h.output.ReadBytes('\n')
+	h.notify(t, request)
+	return h.readResponse(t)
+}
+
+func (h *rawGatewayHarness) readResponse(t *testing.T) rawRPCResponse {
+	t.Helper()
+	response, err := h.readResponseValue()
 	if err != nil {
 		t.Fatal(err)
 	}
+	return response
+}
+
+func (h *rawGatewayHarness) readResponseValue() (rawRPCResponse, error) {
+	line, err := h.output.ReadBytes('\n')
+	if err != nil {
+		return rawRPCResponse{}, err
+	}
 	line = bytes.TrimSuffix(line, []byte{'\n'})
 	if err := validateFrameJSON(line); err != nil {
-		t.Fatalf("invalid gateway response: %v", err)
+		return rawRPCResponse{}, fmt.Errorf("invalid gateway response: %w", err)
 	}
 	var response rawRPCResponse
 	if err := json.Unmarshal(line, &response); err != nil {
-		t.Fatal(err)
+		return rawRPCResponse{}, err
 	}
-	return response
+	return response, nil
 }
 
 func (h *rawGatewayHarness) notify(t *testing.T, notification string) {

@@ -500,13 +500,14 @@ func TestDependabotCoversBoundedDependencySurfaces(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(readPublicSurfaceFile(t, root, path)), &config); err != nil {
 		t.Fatalf("parse %s: %v", path, err)
 	}
-	if config.Version != 2 || len(config.Updates) != 3 {
-		t.Fatalf("%s must define version 2 with exactly three update surfaces", path)
+	if config.Version != 2 || len(config.Updates) != 4 {
+		t.Fatalf("%s must define version 2 with exactly four update surfaces", path)
 	}
 	want := map[string]bool{
 		"github-actions@/":        true,
 		"gomod@/":                 true,
 		"gomod@/harness/template": true,
+		"pip@/scripts/tests":      true,
 	}
 	seen := map[string]bool{}
 	for _, update := range config.Updates {

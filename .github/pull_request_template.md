@@ -16,6 +16,7 @@ List the exact commands, fixtures, or proof artifacts used to verify the result.
 - [ ] The change is focused and contains no unrelated files.
 - [ ] New or changed behavior has failable tests.
 - [ ] `make test`, `make vet`, and `make lint` pass, or the exception is explained.
+- [ ] `make test-langchain` passes when the Action Plane, MCP gateway, command metadata, integration fixture, or its public contract changes.
 - [ ] `make self-host` passes when bootstrap, hooks, TASKs, or completion behavior changes.
 - [ ] `make publication-audit` passes.
 - [ ] Public documentation and command surfaces match the implemented behavior.

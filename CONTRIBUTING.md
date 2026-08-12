@@ -20,6 +20,7 @@ Requirements:
 - Go 1.26
 - Git and a POSIX shell
 - Bun 1.3.14 only for the executable OpenCode, Kilo Code, Oh My Pi, and Pi adapter tests
+- Python 3.13.14 only for the hash-pinned disposable LangChain MCP interoperability test
 
 Build and inspect the CLI:
 
@@ -51,6 +52,7 @@ Run the complete contributor gate before opening a pull request:
 
 ```bash
 make test
+make test-langchain
 make coverage
 make vet
 make lint
@@ -59,7 +61,11 @@ make publication-audit
 ```
 
 `make test` covers the publication audit, root and portable-template race
-suites, and release-trust contract. `make coverage` instruments every package
+suites, and release-trust contract. `make test-langchain` builds the Go gateway
+and fixture, invokes them through LangChain's official pinned MCP adapter with
+no model or service, and denies runtime network access. Its Python environment
+is external test infrastructure, never a shipped Reconc dependency.
+`make coverage` instruments every package
 in each module, writes separate root and template profiles, and reports the
 measurements for review only. `make cover` records
 the same measurements and also writes separate HTML reports. Coverage review

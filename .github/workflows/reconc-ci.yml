@@ -196,6 +196,42 @@ jobs:
             -ExpectedVersion $version `
             -LiveRelease $liveRelease
 
+  langchain-integration:
+    name: LangChain MCP interoperability
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PIP_NO_INPUT: "1"
+      PIP_ONLY_BINARY: ":all:"
+    steps:
+      - name: Check out
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: 3.13.14
+          check-latest: false
+
+      - name: Install pinned external consumer
+        run: |
+          test "$(python -c 'import platform; print(platform.python_version())')" = "3.13.14"
+          python -m pip install --require-hashes -r scripts/tests/langchain-requirements.lock
+
+      - name: Prove LangChain MCP interoperability
+        run: make test-langchain PYTHON=python
+
   release-trust:
     name: Release trust
     runs-on: ubuntu-24.04

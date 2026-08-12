@@ -49,3 +49,19 @@ updates:
         applies-to: security-updates
         patterns:
           - "*"
+
+  - package-ecosystem: pip
+    directory: /scripts/tests
+    schedule:
+      interval: weekly
+      day: thursday
+      time: "05:10"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 0
+    labels:
+      - dependencies
+    groups:
+      langchain-proof-security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"

@@ -310,10 +310,30 @@ action engine.
 
 The product remains one Go binary. LangChain integration uses LangChain's own
 MCP adapter to launch that binary over stdio. Reconc ships no Python or
-TypeScript LangChain adapter. The complete trust model,
+TypeScript LangChain adapter. The disposable consumer job installs a hash-pinned
+external Python environment, invokes converted tools directly, and denies
+runtime socket connections; it is test infrastructure, not product code or a
+release artifact. The built Go fixture owns downstream observations and
+cancellation markers, while a separate raw Go client independently proves both
+supported protocol generations. The complete trust model,
 authority modes, resource limits, failure matrix, approval and budget state
 machines, privacy-bounded ledger, conformance vectors, and package ownership are
 in [RECONC-0008](rfcs/RECONC-0008-go-only-action-plane.md).
+
+The interoperability matrix is Reconc `0.9.6`, Go MCP SDK `v1.7.0`, current
+protocol `2026-07-28`, legacy protocol `2025-11-25`, official
+`langchain-mcp-adapters==0.3.2`, `langchain-core==1.5.4`, MCP Python SDK
+`1.29.0`, Python CI `3.13.14`, and Go fixture format `1`. The external adapter
+currently negotiates the legacy protocol only. Fresh Python client sessions do
+not own Reconc principal, credential, run, session, budget, approval-replay,
+policy, or ledger identity; those remain operator-bound and durable below the
+selected Reconc home. An explicit stateful Python session is tested separately.
+
+External framework configuration is not an observable authority surface.
+`status` and deep `doctor` therefore expose the invariant
+`explicit_routes_only / not_inspected / unenforced` instead of attempting to
+parse arbitrary Python or claiming a direct downstream entry is safe. Native
+LangChain tools and alternate MCP entries remain outside the gateway graph.
 
 ## Key external contracts
 

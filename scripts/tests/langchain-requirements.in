@@ -1,0 +1,5 @@
+# Disposable external-consumer proof only. Reconc ships no Python runtime.
+langchain-core==1.5.4
+langchain-mcp-adapters==0.3.2
+mcp==1.29.0
+typing-extensions==4.16.0

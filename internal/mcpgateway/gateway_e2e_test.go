@@ -648,6 +648,18 @@ func testGatewayApprovalPlan(
 	t *testing.T,
 	phase action.Phase,
 ) (*action.CompiledPlan, *action.Evaluator) {
+	return testGatewayApprovalPlanWithLimits(
+		t,
+		phase,
+		action.BudgetLimits{CallCount: 1, ApprovalCount: 1},
+	)
+}
+
+func testGatewayApprovalPlanWithLimits(
+	t *testing.T,
+	phase action.Phase,
+	limits action.BudgetLimits,
+) (*action.CompiledPlan, *action.Evaluator) {
 	t.Helper()
 	compiled, err := action.CompilePlan(action.Plan{
 		Tools: []action.Tool{{
@@ -664,7 +676,7 @@ func testGatewayApprovalPlan(
 		}},
 		Budgets: []action.Budget{{
 			ID: "echo-approvals", Selector: action.Selector{ToolIDs: []string{"echo-tool"}},
-			Limits: action.BudgetLimits{CallCount: 1, ApprovalCount: 1},
+			Limits: limits,
 			Reset:  action.BudgetResetNever, OnExhaustion: action.DecisionBlock,
 			SourceIdentity: "test-policy",
 		}},

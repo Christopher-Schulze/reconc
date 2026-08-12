@@ -34,7 +34,10 @@ privacy contracts, atomic multi-process append, rotation and crash recovery,
 retained-chain and detached-head verification, bounded lifecycle queries,
 exact Impact Lab ledger assertions, and verified minimized export with explicit
 omissions. TASK 161 implements the enforcing Go MCP stdio gateway; TASK 163
-still owns control-evidence export.
+still owns control-evidence export. TASK 162 proves raw current and legacy MCP
+interoperability plus the official external LangChain consumer, adds the
+one-time operator identity-key command, and pins the integration, diagnostic,
+CI, documentation, and publication contracts.
 
 ## Purpose And Boundary
 
@@ -98,22 +101,39 @@ Contract table AP-T01. Owner: `internal/mcpgateway`. Vectors: `EXT-*`.
 Evolution: any supported-version change requires re-verification, updated
 conformance evidence, and a revision of this table before release.
 
-| Surface | Verified basis on 2026-08-10 | Draft target |
+| Surface | Verified basis on 2026-08-12 | Draft target |
 |---|---|---|
 | MCP protocol | Official specification `2026-07-28` | Tools-only current protocol |
 | MCP legacy protocol | Official specification `2025-11-25` | Tools-only compatibility where the SDK implements it |
 | MCP Go SDK | `github.com/modelcontextprotocol/go-sdk` `v1.7.0`, peeled commit `bc72835f62eb94d0fb484439f886b6885b075f36` | Pinned after TASK 161 dependency review |
 | LangChain MCP adapter | Official `langchain-mcp-adapters` documentation, package `0.3.2` | External consumer proof only |
-| LangChain | Official documentation and package `1.3.14` | External consumer proof only |
+| LangChain Core | Official package `1.5.4` | Direct converted-tool invocation only; no model |
+| MCP Python SDK | Official package `1.29.0`, latest protocol `2025-11-25` | Legacy external-consumer proof only |
+| Python | CPython `3.13.14` in CI | Disposable external-consumer runtime only |
+| Reconc downstream fixture | Go fixture format `1` | Test-only server, not an adapter or release artifact |
 
 The MCP protocol and Go SDK snapshot is the implemented TASK 161 gateway basis.
-TASK 162 must independently re-verify the external LangChain consumer at its
-implementation time.
+TASK 162 independently re-verified the external consumer, its source and
+package constraints, default fresh-session lifecycle, explicit stateful
+session, tool-error conversion, transport-error behavior, structured result,
+annotations, and progress mapping. The adapter's `mcp<2` constraint means its
+current line negotiates only `2025-11-25`; the pure-Go suite owns independent
+`2026-07-28` and `2025-11-25` proof.
 
 Primary references are the
 [MCP 2026-07-28 specification](https://modelcontextprotocol.io/specification/2026-07-28),
 [official Go SDK](https://github.com/modelcontextprotocol/go-sdk), and
 [official LangChain MCP integration](https://docs.langchain.com/oss/python/langchain/mcp).
+
+The disposable proof builds Reconc `0.9.6` and Go fixture format `1`, installs
+the external Python packages from a hash-pinned universal lock, invokes tools
+directly without a model or service, and rejects runtime socket connections. It
+proves discovery, exact schema and annotations, structured content, progress,
+allow, warn, pre-dispatch block, legacy approval-required, durable budget
+exhaustion across fresh client sessions, downstream tool error, result
+withholding, explicit stateful session, cancellation, transport failure, and
+ledger terminal truth. The fixture, lock, Python runtime, and LangChain packages
+are CI-only inputs and never Reconc release artifacts.
 
 MCP `2026-07-28` permits a `tools/call` response with
 `resultType: input_required`. The retry has a different JSON-RPC ID and echoes
@@ -1271,6 +1291,7 @@ manpage generation in the same implementation task.
 | Command | Contract |
 |---|---|
 | `reconc mcp gateway [repo] --server LABEL (--expect-lock-digest SHA256 \| --allow-repository-managed-policy) --principal LABEL [trusted-context flags] -- COMMAND [ARG...]` | Start one local tool-only gateway |
+| `reconc action key init [--reconc-home PATH] [--json]` | Create the private action identity key exactly once; never replace or rotate an existing generation |
 | `reconc why action [repo]` | Explain canonical action policy and lowering |
 | `reconc action log tail\|stats\|verify\|export [repo]` | Read and verify the action ledger |
 | `reconc action evidence export\|verify [repo]` | Produce local control-evidence mappings |
@@ -1299,6 +1320,16 @@ the retained chain first, absent state is an empty non-mutating result, and
 export emits only synthetic minimized verified cases with explicit omissions.
 `reconc mcp gateway` is implemented for explicitly routed tools. The evidence
 commands remain proposed and unavailable while TASK 163 is open.
+
+LangChain uses its official `MultiServerMCPClient` stdio configuration. The
+absolute Reconc binary, repository, all trusted-context and authority flags,
+and exactly one policy-authority mode precede `--`; only the absolute
+downstream executable and argv follow it. `reconc action key init` must use the
+same private home selected for the gateway. Native LangChain tools and direct
+downstream entries are unenforced. Because arbitrary Python configuration is
+not soundly inspectable, `status` reports `explicit_routes_only`,
+`not_inspected`, and `unenforced`, while deep `doctor` states the same boundary
+instead of certifying an external configuration.
 
 ## Schema And Versioning
 

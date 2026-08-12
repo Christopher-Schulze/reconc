@@ -35,6 +35,8 @@ In scope:
 - path traversal or symlink escapes outside the discovered repo root
 - secret leakage through default audit/session output
 - unsafe execution paths caused by policy, hook, or payload handling
+- policy, approval, budget, inspection, or containment bypasses for calls
+  explicitly routed through `reconc mcp gateway`
 - malformed input that should be rejected but is accepted
 
 Out of scope:
@@ -69,6 +71,9 @@ Security-relevant defaults:
 - release metadata is generated only from verified checksums and immutable
   tagged source
 - audit logging is opt-in via `RECONC_AUDIT=1`
+- the Go MCP gateway enforces only calls explicitly launched through its stdio
+  boundary; native framework tools, direct downstream configurations, and
+  arbitrary external client code are not inspected and remain unenforced
 - repository-local hook wrappers may prefer development binaries for
   self-hosting and otherwise select stable or unambiguous versioned local
   binaries before `PATH`; those same-user-writable files are not an

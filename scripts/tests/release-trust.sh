@@ -65,7 +65,7 @@ verify_action_pins() {
       return 1
     fi
     case "$action" in
-      actions/checkout|actions/setup-go|actions/setup-node|actions/upload-artifact|actions/attest-build-provenance|github/codeql-action/init|github/codeql-action/analyze) ;;
+      actions/checkout|actions/setup-go|actions/setup-node|actions/setup-python|actions/upload-artifact|actions/attest-build-provenance|github/codeql-action/init|github/codeql-action/analyze) ;;
       *)
         printf '%s\n' "$workflow uses an action outside the allowlist: $action" >&2
         return 1
@@ -193,6 +193,7 @@ for workflow in "$ci_workflow" "$release_workflow" "$codeql_workflow"; do
   require_action "$workflow" "actions/checkout"
 done
 require_action "$ci_workflow" "actions/setup-go"
+require_action "$ci_workflow" "actions/setup-python"
 require_action "$release_workflow" "actions/setup-go"
 require_action "$codeql_workflow" "actions/setup-go"
 require_action "$codeql_workflow" "github/codeql-action/init"
@@ -200,12 +201,12 @@ require_action "$codeql_workflow" "github/codeql-action/analyze"
 require_action "$ci_workflow" "actions/setup-node"
 require_action "$release_workflow" "actions/setup-node"
 require_action "$release_workflow" "actions/attest-build-provenance"
-[ "$(grep -Fc 'uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0' "$ci_workflow")" -eq 3 ] \
-  || fail "$ci_workflow must provision pinned Go in all three jobs"
-[ "$(grep -Fc 'go-version-file: go.mod' "$ci_workflow")" -eq 3 ] \
-  || fail "$ci_workflow must derive Go from go.mod in all three jobs"
-[ "$(grep -Fc 'fetch-depth: 0' "$ci_workflow")" -eq 3 ] \
-  || fail "$ci_workflow must fetch full history in all three jobs"
+[ "$(grep -Fc 'uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0' "$ci_workflow")" -eq 4 ] \
+  || fail "$ci_workflow must provision pinned Go in all four jobs"
+[ "$(grep -Fc 'go-version-file: go.mod' "$ci_workflow")" -eq 4 ] \
+  || fail "$ci_workflow must derive Go from go.mod in all four jobs"
+[ "$(grep -Fc 'fetch-depth: 0' "$ci_workflow")" -eq 4 ] \
+  || fail "$ci_workflow must fetch full history in all four jobs"
 [ "$(grep -Fc 'fetch-depth: 0' "$release_workflow")" -eq 1 ] \
   || fail "$release_workflow must fetch full history exactly once"
 for workflow in "$ci_workflow" "$release_workflow"; do
@@ -219,6 +220,10 @@ done
   || fail "$ci_workflow must disable implicit package-manager caching in both executable-test jobs"
 [ "$(grep -Fc 'package-manager-cache: false' "$release_workflow")" -eq 1 ] \
   || fail "$release_workflow must disable implicit package-manager caching exactly once"
+require_text "$ci_workflow" "uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0"
+require_text "$ci_workflow" "python-version: 3.13.14"
+require_text "$ci_workflow" "python -m pip install --require-hashes -r scripts/tests/langchain-requirements.lock"
+require_text "$ci_workflow" "make test-langchain PYTHON=python"
 bun_integrity='sha512-aB6GVd42x1Y5ie1K16SF+oLGtgSkwX9hgoDdIW88pjvfTccU8F1vfpoOt34QLv0dZ1v3XimtaxPlZUG81Gx9Zg=='
 for workflow in "$ci_workflow" "$release_workflow"; do
   require_text "$workflow" "BUN_VERSION: 1.3.14"

@@ -244,14 +244,17 @@ func runStatus(args []string, stdout, stderr io.Writer) (resultErr error) {
 
 	if jsonOut {
 		payload := map[string]interface{}{
-			"repo_root":      discovery.RepoRoot,
-			"discovered":     discovery.Discovered,
-			"healthy":        healthy,
-			"rule_count":     ruleCount,
-			"source_count":   sourceCount,
-			"lockfile_fresh": lockfileFresh,
-			"default_mode":   defaultMode,
-			"issues":         issues,
+			"repo_root":                  discovery.RepoRoot,
+			"discovered":                 discovery.Discovered,
+			"healthy":                    healthy,
+			"rule_count":                 ruleCount,
+			"source_count":               sourceCount,
+			"lockfile_fresh":             lockfileFresh,
+			"default_mode":               defaultMode,
+			"issues":                     issues,
+			"mcp_gateway_scope":          "explicit_routes_only",
+			"mcp_external_configuration": "not_inspected",
+			"mcp_bypass_routes":          "unenforced",
 		}
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
@@ -275,6 +278,7 @@ func runStatus(args []string, stdout, stderr io.Writer) (resultErr error) {
 	if len(issues) > 0 {
 		parts = append(parts, fmt.Sprintf("%d issue(s): %s", len(issues), issues[0]))
 	}
+	parts = append(parts, "external MCP configs uninspected; direct/native routes unenforced")
 	fmt.Fprintf(out, "[%s] %s\n", icon, joinList(parts))
 	return nil
 }

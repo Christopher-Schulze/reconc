@@ -117,6 +117,16 @@ plumbing, not user configuration.
 documented under Explain and remediate. The published v0.9.5 release contains
 none of the commands in this section.
 
+### `reconc action key init [--reconc-home PATH] [--json]`
+
+Create the private operator-owned action identity key exactly once. The selected
+home defaults through the normal Reconc home contract; an explicit gateway
+deployment should pass the same private `--reconc-home` path to this command and
+the gateway. Reconc creates missing private directories, publishes the key with
+private permissions, and returns its non-secret key ID. If a key already exists,
+the command fails without replacing or changing it. It never rotates a key,
+returns budget capacity, or mutates repository files.
+
 ### `reconc action log tail [repo] [-n N] [filters] [--json]`
 
 Verify the complete retained action-ledger chain, then return the last `N`
@@ -202,6 +212,65 @@ and results, withholds unsafe output, bounds protocol and child-process
 resources, and owns process-tree shutdown. Stdout is MCP protocol only. Only
 tools configured to launch through this gateway are enforced; native framework
 tools and direct downstream configurations remain unenforced.
+
+LangChain uses its official external MCP adapter, not Reconc-authored adapter
+code. After `reconc action key init --reconc-home
+/private/operator/reconc-home`, the exact operator-pinned stdio shape is:
+
+```python
+from datetime import timedelta
+
+from langchain_mcp_adapters.client import MultiServerMCPClient
+
+client = MultiServerMCPClient({
+    "reconc": {
+        "transport": "stdio",
+        "command": "/absolute/path/to/reconc",
+        "args": [
+            "mcp", "gateway", "/absolute/path/to/repository",
+            "--server", "downstream",
+            "--expect-lock-digest", "<64-lowercase-hex-lock-digest>",
+            "--principal", "langchain-operator",
+            "--role", "automation",
+            "--environment", "production",
+            "--credential", "database-writer",
+            "--run", "run-2026-08-12",
+            "--session", "session-001",
+            "--approval-authorities", "/private/operator/approval-authorities.json",
+            "--approval-policy", "default",
+            "--timeout", "60s",
+            "--reconc-home", "/private/operator/reconc-home",
+            "--",
+            "/absolute/path/to/downstream-mcp-server",
+            "--downstream-flag",
+        ],
+        "session_kwargs": {"read_timeout_seconds": timedelta(seconds=75)},
+    }
+})
+```
+
+The repository path and every trusted-context flag are before `--`; only the
+downstream executable and its argv follow it. Replace the lock placeholder with
+the reviewed current lock digest. The explicit lower-provenance alternative
+replaces that flag/value pair with `--allow-repository-managed-policy`.
+Exactly one authority mode is required. `--credential` is a safe label, never a
+credential value. Approval configuration is an all-or-none pair and must remain
+outside repository and agent authority.
+
+The pinned external proof uses Reconc `0.9.6`, MCP Go SDK `v1.7.0`,
+`langchain-mcp-adapters==0.3.2`, `langchain-core==1.5.4`, MCP Python SDK
+`1.29.0`, Python `3.13.14`, legacy protocol `2025-11-25`, and Go fixture format
+`1`. The pure-Go suite additionally proves current protocol `2026-07-28`.
+The adapter, Python runtime, package lifecycle, and client sessions belong to
+the consumer and are not product or release dependencies. The proof invokes
+tools directly, uses no model or service, and denies runtime network access.
+
+Native LangChain tools, a client entry that launches the downstream server
+directly, and all alternate routes are unenforced. Reconc does not parse
+arbitrary Python configuration. `reconc status . --json` reports the gateway
+scope as `explicit_routes_only`, external configuration as `not_inspected`, and
+bypass routes as `unenforced`; the MCP row in `reconc doctor . --deep` states
+the same limit. Neither diagnostic certifies an external configuration.
 
 ### `reconc action evidence export|verify [repo]`
 
@@ -455,7 +524,9 @@ Grok leader steering protocol/extension compatibility, lockfile freshness,
 the compiled MCP side-effect contract and redacted observation state,
 audit-log size, preset/template reference resolution, session-claim age, and
 static rule conflicts. Deep mode exits 1 when any check is `FAIL`, 0 when all
-rows are `OK` or `WARN`.
+rows are `OK` or `WARN`. The MCP row always states that gateway enforcement is
+limited to explicit `reconc mcp gateway` routes, external client configuration
+is not inspected, and direct/native routes are unenforced.
 
 ### `reconc doctor --global [--json] [--output PATH]`
 Read-only global installation diagnosis. Reports the running version, resolved
@@ -473,6 +544,11 @@ be combined with `--deep` or a repository operand.
 One-line, read-only policy health summary. Missing, stale, malformed,
 schema-drifted, migration-drifted, and non-portable current lockfiles surface as issues
 with explicit `reconc refresh .` remediation. Useful as a session-start ping.
+Text also names the external-MCP inspection limit. JSON exposes
+`mcp_gateway_scope: "explicit_routes_only"`,
+`mcp_external_configuration: "not_inspected"`, and
+`mcp_bypass_routes: "unenforced"`; these are boundary facts, not inspection of
+an arbitrary LangChain configuration.
 
 ### `reconc done [repo] [--require-clean-git] [--json]`
 Evidence-complete task-finish gate. It binds current policy, the exact

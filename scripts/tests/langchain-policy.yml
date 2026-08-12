@@ -1,0 +1,108 @@
+actions:
+  tools:
+    - id: fixture-approval
+      transport: mcp_stdio
+      server_label: langchain-fixture
+      tool: approval
+      effect: {kind: external}
+      ledger_name_safe: true
+    - id: fixture-blocked
+      transport: mcp_stdio
+      server_label: langchain-fixture
+      tool: blocked
+      effect: {kind: external}
+      ledger_name_safe: true
+    - id: fixture-budgeted
+      transport: mcp_stdio
+      server_label: langchain-fixture
+      tool: budgeted
+      effect: {kind: external}
+      ledger_name_safe: true
+    - id: fixture-echo
+      transport: mcp_stdio
+      server_label: langchain-fixture
+      tool: echo
+      effect: {kind: external}
+      ledger_name_safe: true
+    - id: fixture-slow
+      transport: mcp_stdio
+      server_label: langchain-fixture
+      tool: slow
+      effect: {kind: external}
+      ledger_name_safe: true
+    - id: fixture-tool-error
+      transport: mcp_stdio
+      server_label: langchain-fixture
+      tool: tool-error
+      effect: {kind: external}
+      ledger_name_safe: true
+    - id: fixture-warn
+      transport: mcp_stdio
+      server_label: langchain-fixture
+      tool: warn
+      effect: {kind: external}
+      ledger_name_safe: true
+    - id: fixture-withheld
+      transport: mcp_stdio
+      server_label: langchain-fixture
+      tool: withheld
+      effect: {kind: external}
+      ledger_name_safe: true
+  defaults:
+    declared_tool: allow
+    gateway_unmatched: block
+    host_unmatched: allow
+    evaluation_error: block
+    post_error: block
+    progress_error: block
+    cache: never
+  rules:
+    - id: fixture-approval-required
+      selector:
+        tool_ids: [fixture-approval]
+        phases: [pre_call]
+      decision: require_approval
+      message: Independent approval is required for this fixture call.
+    - id: fixture-block-before-dispatch
+      selector:
+        tool_ids: [fixture-blocked]
+        phases: [pre_call]
+      decision: block
+      message: This fixture call is blocked before dispatch.
+    - id: fixture-warn-before-dispatch
+      selector:
+        tool_ids: [fixture-warn]
+        phases: [pre_call]
+      decision: warn
+      message: This fixture call is allowed with an explicit warning.
+    - id: fixture-withhold-after-dispatch
+      selector:
+        tool_ids: [fixture-withheld]
+        phases: [post_result]
+      decision: block
+      message: This fixture result is withheld after inspection.
+  budgets:
+    - id: fixture-one-call-lifetime
+      selector:
+        tool_ids: [fixture-budgeted]
+      limits:
+        call_count: 1
+      reset: never
+      on_exhaustion: block
+    - id: fixture-one-approval-lifetime
+      selector:
+        tool_ids: [fixture-approval]
+      limits:
+        approval_count: 1
+      reset: never
+      on_exhaustion: block
+  approvals:
+    - id: fixture-approval-summary
+      selector:
+        tool_ids: [fixture-approval]
+        phases: [pre_call]
+      selected_arguments: [/value]
+  ledger:
+    mode: required
+    tool_identity: exact_name
+    selected_fields: []

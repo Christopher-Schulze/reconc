@@ -188,7 +188,10 @@ var commandCatalog = []Command{
 		sub("export", "reconc audit export [repo]", "export raw audit JSONL", nil, nil, modes(OutputJSONL)),
 		sub("verify", "reconc audit verify [repo] [--json]", "verify every retained record and detached chain head", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	}, modes(OutputText, OutputJSON, OutputJSONL)),
-	command("action", CategoryMaintenance, "reconc action log <tail|stats|verify|export>", "inspect or export privacy-bounded action decisions", nil, []Subcommand{
+	command("action", CategoryMaintenance, "reconc action <key|log>", "initialize action state or inspect privacy-bounded decisions", nil, []Subcommand{
+		subgroup("key", "reconc action key init", "initialize private operator-owned action state", []Subcommand{
+			sub("init", "reconc action key init [--reconc-home PATH] [--json]", "create the action identity key exactly once", flags(f("--reconc-home", "PATH"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
+		}),
 		subgroup("log", "reconc action log <tail|stats|verify|export>", "inspect, verify, or export the action decision ledger", []Subcommand{
 			sub("tail", "reconc action log tail [repo] [filters]", "tail bounded action ledger events", actionLogFilterFlags(true, true), nil, modes(OutputText, OutputJSON)),
 			sub("stats", "reconc action log stats [repo] [filters]", "aggregate explicit action call lifecycles", actionLogFilterFlags(false, true), nil, modes(OutputText, OutputJSON)),

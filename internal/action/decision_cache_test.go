@@ -290,6 +290,14 @@ func TestDecisionCacheExplicitNonCacheableReasons(t *testing.T) {
 			reason: CacheApprovalPending,
 		},
 		{
+			name: "approval pending with rule cache disabled",
+			rules: []Rule{{
+				ID: "approve-never", Decision: DecisionRequireApproval,
+				Cache: CacheNever, SourceIdentity: ".reconc.yml",
+			}},
+			reason: CacheApprovalPending,
+		},
+		{
 			name: "tainted",
 			mutate: func(input *EvaluationInput) {
 				input.Taint.Status = TaintPresent

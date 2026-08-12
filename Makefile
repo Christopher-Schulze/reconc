@@ -3,6 +3,7 @@
 # Targets:
 #   make build              -- build the reconc binary for the host OS/arch
 #   make test               -- run all tests with -race
+#   make test-langchain     -- run the pinned disposable LangChain proof
 #   make fmt-check          -- reject unformatted non-ignored Go sources
 #   make fmt                -- format all Go sources
 #   make vet                -- run go vet
@@ -21,6 +22,7 @@
 #   make publication-audit  -- scan the public tree and post-boundary history
 
 GO        ?= go
+PYTHON    ?= python3
 BIN       := reconc
 PKG       := ./...
 BINDIR    := .build/bin
@@ -40,7 +42,7 @@ RELEASE_TARGETS := \
 	linux/arm64 \
 	windows/amd64
 
-.PHONY: build test test-release-trust self-host publication-audit harness-pack-check fmt-check fmt vet lint coverage cover clean run tidy release completion manpage sbom checksums verify-release release-all bench
+.PHONY: build test test-langchain test-release-trust self-host publication-audit harness-pack-check fmt-check fmt vet lint coverage cover clean run tidy release completion manpage sbom checksums verify-release release-all bench
 
 build:
 	@mkdir -p $(BINDIR)
@@ -61,6 +63,9 @@ test:
 
 test-release-trust:
 	./scripts/tests/release-trust.sh
+
+test-langchain:
+	PYTHON="$(PYTHON)" ./scripts/tests/langchain-integration.sh
 
 self-host: build
 	RECONC_BIN="$(CURDIR)/$(BINDIR)/$(BIN)" ./scripts/tests/self-hosting.sh

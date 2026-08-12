@@ -35,6 +35,7 @@ const (
 	doctorGrokInspectMaxBytes = 4 << 20
 	doctorSourceMaxBytes      = 8 << 20
 	doctorSourceAggregateMax  = 64 << 20
+	mcpGatewayBoundaryDetail  = "gateway enforcement covers only explicit reconc mcp gateway routes; external client configuration is not inspected; native tools and direct downstream configurations are unenforced"
 
 	// doctorAuditWarnBytes is the live+archive ring ceiling: the writer
 	// rotates the live file at audit.DefaultMaxSizeBytes and keeps
@@ -93,17 +94,17 @@ func doctorCheckMCPPolicy(discovery ingest.DiscoveryResult) doctorCheck {
 	check := doctorCheck{
 		Name:   "MCP side-effect policy",
 		Status: doctorStatusOK,
-		Detail: "MCP policy not configured; host behavior is preserved and MCP calls produce no classified repository evidence",
+		Detail: "MCP policy not configured; host behavior is preserved and MCP calls produce no classified repository evidence; " + mcpGatewayBoundaryDetail,
 	}
 	if !discovery.Discovered {
 		check.Status = doctorStatusWarn
-		check.Detail = "cannot inspect MCP policy without a discovered reconc repo"
+		check.Detail = "cannot inspect MCP policy without a discovered reconc repo; " + mcpGatewayBoundaryDetail
 		return check
 	}
 	contract, err := runtime.LoadMCPPolicy(discovery.RepoRoot)
 	if err != nil {
 		check.Status = doctorStatusFail
-		check.Detail = err.Error()
+		check.Detail = err.Error() + "; " + mcpGatewayBoundaryDetail
 		return check
 	}
 	if contract == nil {
@@ -128,10 +129,11 @@ func doctorCheckMCPPolicy(discovery ingest.DiscoveryResult) doctorCheck {
 		mappings = append(mappings, fmt.Sprintf("%s=%d", platform, counts[platform]))
 	}
 	check.Detail = fmt.Sprintf(
-		"mode=%s; mappings %s; observed=%d; server locators and payloads are redacted",
+		"mode=%s; mappings %s; observed=%d; server locators and payloads are redacted; %s",
 		contract.Unclassified,
 		strings.Join(mappings, " "),
 		observed,
+		mcpGatewayBoundaryDetail,
 	)
 	if auditErr != nil {
 		check.Status = doctorStatusWarn

@@ -396,7 +396,7 @@ func blockedGatewayResult(callID string, reason action.ReasonCode) (*mcp.CallToo
 
 func blockedGatewayResultValue(callID string, reason action.ReasonCode) *mcp.CallToolResult {
 	return safeGatewayResult(
-		"blocked", reason, "Reconc blocked this tool call.", callID,
+		"blocked", reason, fmt.Sprintf("Reconc blocked this tool call (%s).", reason), callID,
 		"not_dispatched", "blocked",
 	)
 }

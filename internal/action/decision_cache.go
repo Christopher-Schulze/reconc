@@ -160,14 +160,14 @@ func (e *Evaluator) cacheResult(
 		base.Reason = CacheEvidenceIncomplete
 		return base
 	}
-	if ruleNever {
-		base.Eligible = false
-		base.Reason = CacheRuleNever
-		return base
-	}
 	if decision == DecisionRequireApproval && input.Approval.Status != ApprovalCurrentUnconsumed {
 		base.Eligible = false
 		base.Reason = CacheApprovalPending
+		return base
+	}
+	if ruleNever {
+		base.Eligible = false
+		base.Reason = CacheRuleNever
 		return base
 	}
 	return base

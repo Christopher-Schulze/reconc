@@ -210,6 +210,9 @@ Requirements:
 - Git for `reconc ci` and hook installation
 - Bun `1.3.14` for executable OpenCode, Kilo Code, Oh My Pi, and Pi adapter tests
   only; the shipped Reconc binary has no Bun runtime dependency
+- Python `3.13.14` only for the pinned disposable LangChain MCP interoperability
+  job; the shipped binary, product code, and core tests have no Python runtime
+  dependency
 - On Windows, `sh` on `PATH` for generated shell hook wrappers plus `.sh` and
   extensionless policy scripts; Git for Windows supplies it. Native `.exe` and
   `.com` policy scripts execute directly.
@@ -218,6 +221,7 @@ Common commands:
 
 ```bash
 make test
+make test-langchain
 make vet
 make lint
 make coverage
@@ -239,6 +243,7 @@ Make targets:
 ```bash
 make build
 make test
+make test-langchain
 make vet
 make lint
 make coverage
@@ -988,6 +993,19 @@ If bootstrap reports that the running build is not directly callable, run the
 exact path-qualified `install-cli` remediation it prints, apply any emitted PATH
 line, open a new terminal, and retry. Do not work around the check with
 versioned paths.
+
+For a LangChain gateway launch, initialize the selected private operator state
+once with `reconc action key init --reconc-home /private/operator/reconc-home`.
+An existing key is never replaced. `identity-key.json` missing means the
+operator initialization step was skipped; a repeat-init error means a valid
+generation already exists and must be preserved. A legacy LangChain client that
+receives `approval_required` cannot complete the current-protocol approval
+exchange and does not dispatch the downstream tool. Policy or lock drift is
+repaired with an explicit `reconc refresh .` followed by a reviewed new lock
+digest and a restarted operator-pinned gateway, never by weakening the launch
+to repository-managed authority silently. `reconc status . --json` and
+`reconc doctor . --deep` deliberately report that external client
+configuration is not inspected and direct/native bypass routes are unenforced.
 
 ## Upgrading
 
@@ -2112,13 +2130,134 @@ inspection core before downstream dispatch and before upstream result or
 progress delivery. LangChain launches the Go binary through LangChain's own MCP
 adapter; Reconc ships no Python or TypeScript LangChain adapter.
 
-Coverage is explicit. Only tools configured to use the Reconc gateway are
-enforced. Native LangChain tools, direct downstream MCP configurations, and
-other bypass routes remain unenforced. The gateway does not claim
-transparent prompts, resources, sampling, roots, tasks, HTTP, SSE, or general
-framework interception. A pre-call block prevents a routed tool from
-executing. Post-result containment can withhold data from the model boundary
-but cannot undo a side effect that already occurred.
+### LangChain MCP interoperability
+
+The exact supported LangChain configuration launches the built Reconc binary
+as the stdio server and places the real downstream executable only after
+`--`. Initialize the private identity generation once before launch:
+
+```bash
+reconc action key init --reconc-home /private/operator/reconc-home
+```
+
+```python
+from datetime import timedelta
+
+from langchain_mcp_adapters.client import MultiServerMCPClient
+
+client = MultiServerMCPClient({
+    "reconc": {
+        "transport": "stdio",
+        "command": "/absolute/path/to/reconc",
+        "args": [
+            "mcp", "gateway", "/absolute/path/to/repository",
+            "--server", "downstream",
+            "--expect-lock-digest", "<64-lowercase-hex-lock-digest>",
+            "--principal", "langchain-operator",
+            "--role", "automation",
+            "--environment", "production",
+            "--credential", "database-writer",
+            "--run", "run-2026-08-12",
+            "--session", "session-001",
+            "--approval-authorities", "/private/operator/approval-authorities.json",
+            "--approval-policy", "default",
+            "--timeout", "60s",
+            "--reconc-home", "/private/operator/reconc-home",
+            "--",
+            "/absolute/path/to/downstream-mcp-server",
+            "--downstream-flag",
+        ],
+        "session_kwargs": {"read_timeout_seconds": timedelta(seconds=75)},
+    }
+})
+
+tools = await client.get_tools(server_name="reconc")
+```
+
+Exactly one policy-authority mode is required. The example is
+operator-pinned: replace the placeholder with the reviewed current
+`.reconc/policy.lock.json` `lock_digest`. The explicit lower-provenance
+alternative is to replace both `--expect-lock-digest` and its value with
+`--allow-repository-managed-policy`. Never supply both or neither. Principal,
+role, environment, credential labels, run ID, session ID, approval registry,
+approval policy, state root, repository, and downstream argv are operator
+launch inputs. A credential value is never passed through `--credential`; the
+flag carries a safe label only. The approval registry and independent signer
+remain outside repository and agent authority.
+
+The supported and continuously tested matrix is exact:
+
+| Component | Proven version or protocol | Proof boundary |
+| --- | --- | --- |
+| Reconc source binary | `0.9.6` | Built from current source and version-smoked before the test |
+| MCP Go SDK | `v1.7.0` | Pinned product dependency |
+| Current MCP protocol | `2026-07-28` | Pure-Go raw protocol suite |
+| Legacy MCP protocol | `2025-11-25` | Pure-Go raw suite and external LangChain consumer |
+| LangChain MCP adapter | `0.3.2` | Official external consumer package |
+| LangChain Core | `1.5.4` | Direct tool invocation, no model |
+| MCP Python SDK | `1.29.0` | Legacy protocol client used by the adapter |
+| Python CI runtime | `3.13.14` | Disposable integration job only |
+| Go downstream fixture | format `1` | Test-only Reconc-owned server, not a product adapter |
+
+The external package set is installed from the hash-pinned
+`scripts/tests/langchain-requirements.lock`; the test then denies socket
+connections. Package download belongs to CI setup, while the proof itself uses
+only local stdio. LangChain owns the adapter, Python runtime, MCP session
+lifecycle, and package updates. None is linked into the Reconc binary, included
+in release assets, or required by product features. Reconc depends on no
+LangChain middleware, callbacks, agent state, model provider, or hosted model.
+The proof calls converted tools directly and sends no repository data to a
+third party.
+
+`MultiServerMCPClient.get_tools()` uses fresh sessions for discovery and calls;
+an explicit `client.session()` plus `load_mcp_tools()` owns one stateful
+session. Reconc binds principal, credential labels, run, session, budgets,
+approval replay, policy state, and ledger correlation to operator and private
+state identities, not to a Python `ClientSession`. Recreating the LangChain
+client therefore cannot return consumed capacity or replay a receipt.
+
+At the LangChain boundary, policy block, approval-required, budget exhaustion,
+and result withholding are error `ToolMessage` values with bounded safe text
+and a stable Reconc reason code. An authoritative downstream tool error remains
+a downstream tool error. Transport, session, and conversion failures raise
+instead of being converted into a policy result. Structured content is exposed
+as the adapter artifact; progress is forwarded through the adapter callback.
+The current adapter negotiates only `2025-11-25`, so it receives the explicit
+legacy `approval_required` result and never downstream dispatch. Current
+`2026-07-28` input-required approval is independently covered by the pure-Go
+suite.
+
+Coverage remains explicit. Only tools configured to use the Reconc gateway are
+enforced. Native LangChain tools, another MCP entry that
+points directly to the downstream server, and every other route that does not
+launch `reconc mcp gateway` are unenforced. Reconc cannot soundly parse or
+certify arbitrary Python configuration. This configuration is intentionally
+**unenforced** because it launches the downstream server directly:
+
+```python
+unenforced_direct = MultiServerMCPClient({
+    "direct-downstream": {
+        "transport": "stdio",
+        "command": "/absolute/path/to/downstream-mcp-server",
+        "args": ["--downstream-flag"],
+    }
+})
+```
+
+The disposable integration test proves that a tool blocked through Reconc
+executes through this direct configuration, then verifies that both diagnostics
+retain the unenforced classification. `reconc status . --json` therefore
+reports `mcp_gateway_scope: "explicit_routes_only"`,
+`mcp_external_configuration: "not_inspected"`, and
+`mcp_bypass_routes: "unenforced"`; `reconc doctor . --deep` emits the same
+boundary in its MCP diagnostic. Those reports never turn an uninspected direct
+configuration into a safe or enforced claim.
+
+The gateway also does not claim transparent prompts, resources, sampling,
+roots, tasks, HTTP, SSE, or general framework interception. A pre-call block
+prevents a routed tool from executing. Post-result containment can withhold
+data from the model boundary but cannot undo a side effect that already
+occurred.
 
 The compiler lowers `actions.tools`, `actions.rules`, `actions.budgets`,
 `actions.approvals`, `actions.detectors`, `actions.ledger`, and
@@ -3156,6 +3295,10 @@ CI checks:
   version before executing OpenCode, Kilo Code, OMP, and Pi adapter contracts
 - every CI job that executes Go provisions the SHA-pinned `actions/setup-go`
   action from `go.mod`, including the isolated release-trust job
+- an isolated Ubuntu job provisions SHA-pinned `actions/setup-python`, exact
+  Python `3.13.14`, and the hash-pinned external LangChain dependency lock, then
+  builds the Go gateway and Go fixture and runs the local-stdio interoperability
+  proof with runtime network access denied
 - clean-repository self-hosting golden path on Ubuntu and macOS across all three
   bootstrap profiles, git pre-commit, and all thirteen agent runtimes
 - current-tree and post-boundary-history publication audit once in candidate CI
@@ -3173,8 +3316,9 @@ CI runs on candidate branches, on contributor pull requests, after accepted
 updates to `main`, and through explicit manual dispatch. The pull-request
 trigger only tests a pull request that somebody already opened; it never
 creates one. `.github/dependabot.yml` groups security-update pull requests
-separately for GitHub Actions, the root Go module, and `harness/template`.
-Routine version-update pull requests remain disabled on all three surfaces,
+separately for GitHub Actions, the root Go module, `harness/template`, and the
+external Python proof lock under `scripts/tests`.
+Routine version-update pull requests remain disabled on all four surfaces,
 and the repository does not enable auto-merge.
 
 The public source repository protects its default branch with the active
@@ -3355,6 +3499,10 @@ Security posture:
   matched raw values are never placed in evidence, output-schema references
   cannot fetch remote data, and the implementation makes no network or model
   call. Dropping Go references is prompt rather than guaranteed memory erasure.
+- LangChain and other MCP clients are enforced only for tool calls launched
+  through `reconc mcp gateway`. Reconc does not inspect arbitrary external
+  client code or configuration; native tools and direct downstream entries are
+  reported as unenforced, never inferred safe.
 - Approval authority is accepted only from a private operator-owned registry
   outside the repository. Repository policy selects bounded disclosure only;
   it cannot choose authority keys. A signed receipt is exact-call, expiring,

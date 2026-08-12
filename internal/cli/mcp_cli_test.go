@@ -58,10 +58,26 @@ func TestMCPContractIsVisibleInWhyDoctorAndHookStatus(t *testing.T) {
 		t.Fatalf("MCP doctor status = %s", status)
 	}
 	detail := doctorCheckDetail(t, report, "MCP side-effect policy")
-	for _, want := range []string{"cursor=1", "opencode=1", "omp=0", "strict unclassified deny is unavailable", "redacted"} {
+	for _, want := range []string{"cursor=1", "opencode=1", "omp=0", "strict unclassified deny is unavailable", "redacted", "external client configuration is not inspected", "direct downstream configurations are unenforced"} {
 		if !strings.Contains(detail, want) {
 			t.Fatalf("MCP doctor detail misses %q: %s", want, detail)
 		}
+	}
+
+	var policyStatusOut bytes.Buffer
+	if err := runStatus([]string{repo, "--json"}, &policyStatusOut, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	var policyStatus struct {
+		GatewayScope          string `json:"mcp_gateway_scope"`
+		ExternalConfiguration string `json:"mcp_external_configuration"`
+		BypassRoutes          string `json:"mcp_bypass_routes"`
+	}
+	if err := json.Unmarshal(policyStatusOut.Bytes(), &policyStatus); err != nil {
+		t.Fatal(err)
+	}
+	if policyStatus.GatewayScope != "explicit_routes_only" || policyStatus.ExternalConfiguration != "not_inspected" || policyStatus.BypassRoutes != "unenforced" {
+		t.Fatalf("policy status MCP boundary = %#v", policyStatus)
 	}
 
 	var statusOut bytes.Buffer

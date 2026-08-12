@@ -45,17 +45,21 @@ type existingActionLedger struct {
 
 func runAction(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return actionLogCLIError("action", "missing subcommand (log)")
+		return actionLogCLIError("action", "missing subcommand (key | log)")
 	}
 	if len(args) == 1 && isHelpFlag(args[0]) {
-		fmt.Fprintln(stdout, "Usage: reconc action log <tail|stats|verify|export>")
-		fmt.Fprintln(stdout, "Inspect, verify, or export the privacy-bounded action decision ledger.")
+		fmt.Fprintln(stdout, "Usage: reconc action <key|log>")
+		fmt.Fprintln(stdout, "Initialize operator-owned action state or inspect the privacy-bounded action ledger.")
 		return nil
 	}
-	if args[0] != "log" {
-		return actionLogCLIError("action", fmt.Sprintf("unknown subcommand %q (expected log)", args[0]))
+	switch args[0] {
+	case "key":
+		return runActionKey(args[1:], stdout)
+	case "log":
+		return runActionLog(args[1:], stdout)
+	default:
+		return actionLogCLIError("action", fmt.Sprintf("unknown subcommand %q (expected key or log)", args[0]))
 	}
-	return runActionLog(args[1:], stdout)
 }
 
 func runActionLog(args []string, stdout io.Writer) error {

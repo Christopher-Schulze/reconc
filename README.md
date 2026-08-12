@@ -138,6 +138,19 @@ routed through it. Direct access to the downstream server, native LangChain
 tools, and host-native tools bypass that boundary. The published v0.9.5 release
 does not contain the format-6 Action Plane or gateway additions.
 
+Current source is proven against LangChain's official MCP adapter over local
+stdio, without a Reconc Python adapter, model call, service, or runtime network
+access. The pinned matrix is Reconc `0.9.6`, MCP Go SDK `v1.7.0`,
+`langchain-mcp-adapters==0.3.2`, `langchain-core==1.5.4`, MCP Python SDK
+`1.29.0`, Python `3.13.14`, legacy MCP `2025-11-25`, and Go fixture format `1`;
+the pure-Go suite also proves MCP `2026-07-28`. Initialize operator state with
+`reconc action key init --reconc-home PATH`, then use the
+[exact LangChain configuration](docs/documentation.md#langchain-mcp-interoperability).
+`reconc status . --json` and `reconc doctor . --deep` state that external
+client configuration is not inspected and direct/native bypass routes are
+unenforced. The adapter and Python runtime remain consumer-owned test inputs,
+not shipped Reconc dependencies or release assets.
+
 ## Evidence Model
 
 Reconc separates different kinds of evidence instead of treating every green
@@ -321,6 +334,8 @@ Kilo Code, Oh My Pi, and Pi adapter contract tests. The Go test graph also uses
 compile every public Draft 2020-12 schema and validate representative current
 and legacy artifacts entirely offline; neither package is linked into release
 binaries.
+Python `3.13.14` is used only by the separately pinned disposable LangChain
+consumer job; it is not required by `make test` or the release binary.
 
 ### Initialize a repository
 
@@ -416,6 +431,16 @@ reconc action log stats . --json
 reconc action log verify . --json
 reconc action log export . --output action-impact-export.json
 ```
+
+Initialize the private Action Plane identity generation once before the first
+gateway launch:
+
+```bash
+reconc action key init --reconc-home /private/operator/reconc-home
+```
+
+The command refuses to replace an existing key. Use the same private state root
+for the gateway process.
 
 Every read verifies the retained live file, archives, detached head, and
 lifecycle facts first. Export is deliberately non-reconstructive: omitted calls
@@ -1126,7 +1151,7 @@ reconc <command> --help
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, change scope,
 verification requirements, and the pull-request checklist. Run `make test`,
-`make coverage`, `make vet`, `make lint`, `make self-host`, and
+`make test-langchain`, `make coverage`, `make vet`, `make lint`, `make self-host`, and
 `make publication-audit` before proposing a change. `make coverage` measures
 the complete root and portable-template modules with cross-package
 instrumentation and reports the measured percentages without enforcing a fixed
@@ -1155,7 +1180,8 @@ byte-verified before its checksum and build provenance are published.
 Candidate CI runs root and portable-template race tests on Ubuntu, normal tests
 on macOS and native Windows, Windows installer failure paths, whole-module
 coverage measurement, formatting, tidy checks, Vet, pinned Staticcheck, pinned
-Govulncheck, release-trust tests, one publication-boundary check, harness-pack
+Govulncheck, the pinned official LangChain MCP consumer proof, release-trust
+tests, one publication-boundary check, harness-pack
 parity, and Go CodeQL. GitHub Actions are allowlisted and commit-pinned, checkout
 credentials are not persisted, and release/publication jobs use full history
 where the post-boundary audit requires it.
