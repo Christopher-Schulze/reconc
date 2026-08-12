@@ -354,12 +354,16 @@ func parseActionBudgets(node *yaml.Node, sourcePath string) ([]action.Budget, er
 		if err != nil {
 			return nil, err
 		}
-		if window != nil && *window > math.MaxUint32 {
-			return nil, actionError(context + ".window_seconds exceeds 32-bit range")
+		windowSeconds := uint32(0)
+		if window != nil {
+			if *window > math.MaxUint32 {
+				return nil, actionError(context + ".window_seconds exceeds 32-bit range")
+			}
+			windowSeconds = uint32(*window)
 		}
 		budgets = append(budgets, action.Budget{
 			ID: id, Selector: selector, Limits: limits, Reset: action.BudgetReset(reset),
-			WindowSeconds: uint32(optionalUintValue(window)),
+			WindowSeconds: windowSeconds,
 			OnExhaustion:  action.Decision(onExhaustion), SourceIdentity: sourcePath,
 		})
 	}

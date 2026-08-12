@@ -63,6 +63,9 @@ one exact registry.
 - Policy-lock format 6 stores one canonical `actions` plan. Legacy `mcp`
   authoring lowers into it, existing host MCP consumers derive their
   compatibility view from it, and no parallel runtime `mcp` plan remains.
+- The Go-only MCP gateway is now presented as the primary LangChain boundary,
+  and release publication is blocked by the pinned official LangChain client
+  interoperability test.
 
 ## Fixed
 
@@ -106,6 +109,9 @@ one exact registry.
   identity, strict phase/source ownership, and explicit unavailable-identity
   completeness. Rotation refuses to prune active calls, and verification keeps
   evaluated state separate from completeness.
+- Native-width JSON Pointer indexes, 32-bit budget windows, publication Git
+  blob reads, and merged policy capacities now enforce explicit allocation and
+  conversion bounds.
 
 ## Compatibility
 

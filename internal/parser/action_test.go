@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 
@@ -223,6 +224,33 @@ func TestParseActionBudgetLimitsRejectEveryNonPositiveOrNonCanonicalValue(t *tes
 `
 	if _, err := ParseRuleDocuments(actionBundle(unknown)); err == nil || !strings.Contains(err.Error(), "unknown field") {
 		t.Fatalf("unknown budget limit error = %v", err)
+	}
+}
+
+func TestParseActionBudgetWindowEnforcesUint32Range(t *testing.T) {
+	t.Parallel()
+	parse := func(value uint64) (*ParsedPolicy, error) {
+		body := fmt.Sprintf(`actions:
+  budgets:
+    - id: bounded-window
+      selector: {tool_ids: [tool]}
+      limits: {call_count: 1}
+      reset: fixed_window
+      window_seconds: %d
+      on_exhaustion: block
+`, value)
+		return ParseRuleDocuments(actionBundle(body))
+	}
+	parsed, err := parse(math.MaxUint32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := parsed.Actions.Budgets[0].WindowSeconds; got != math.MaxUint32 {
+		t.Fatalf("window_seconds = %d, want %d", got, uint32(math.MaxUint32))
+	}
+	if _, err := parse(uint64(math.MaxUint32) + 1); err == nil ||
+		!strings.Contains(err.Error(), "exceeds 32-bit range") {
+		t.Fatalf("overflowing window error = %v", err)
 	}
 }
 

@@ -506,7 +506,7 @@ func auditGitBlobBatch(ctx context.Context, root string, objects []gitObjectMeta
 			return nil, abortGitBlobBatch(command, stderr, fmt.Errorf("unexpected Git blob header %q", strings.TrimSpace(header)))
 		}
 		size, parseErr := strconv.ParseInt(fields[2], 10, 64)
-		if parseErr != nil || size < 0 || size != object.Size {
+		if parseErr != nil || size < 0 || size > maxPublicationGitBytes || size != object.Size {
 			return nil, abortGitBlobBatch(command, stderr, fmt.Errorf("git blob %s size changed during publication audit", object.ID))
 		}
 		blob := make([]byte, int(size))

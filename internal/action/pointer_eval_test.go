@@ -1,6 +1,10 @@
 package action
 
-import "testing"
+import (
+	"math"
+	"strconv"
+	"testing"
+)
 
 func TestResolvePointerRFC6901States(t *testing.T) {
 	t.Parallel()
@@ -40,6 +44,23 @@ func TestResolvePointerRFC6901States(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCanonicalArrayIndexEnforcesNativeIntRange(t *testing.T) {
+	t.Parallel()
+	maximum := strconv.FormatUint(uint64(math.MaxInt), 10)
+	if index, ok := canonicalArrayIndex(maximum); !ok || index != math.MaxInt {
+		t.Fatalf("native maximum = %d, %v; want %d, true", index, ok, math.MaxInt)
+	}
+	if strconv.IntSize == 32 {
+		if _, ok := canonicalArrayIndex("2147483648"); ok {
+			t.Fatal("value above 32-bit native int range was accepted")
+		}
+		return
+	}
+	if _, ok := canonicalArrayIndex("9223372036854775808"); ok {
+		t.Fatal("value above 64-bit native int range was accepted")
 	}
 }
 

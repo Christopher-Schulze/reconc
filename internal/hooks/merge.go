@@ -84,7 +84,7 @@ func mergeReconcNestedEventMaps(destEvents, reconcEvents map[string]interface{},
 		if shapeIssue != "" {
 			diff.Removed = append(diff.Removed, event+": "+shapeIssue)
 		}
-		filtered := make([]interface{}, 0, len(existingEntries)+len(generatedEntries))
+		filtered := make([]interface{}, 0, len(existingEntries))
 		for _, entry := range existingEntries {
 			if containsExactHookEntry(generatedEntries, entry) {
 				continue

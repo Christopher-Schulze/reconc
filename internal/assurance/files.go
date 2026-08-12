@@ -425,7 +425,7 @@ func matchAnyUnvalidated(patterns []string, relative string) bool {
 }
 
 func (state *evaluationState) validateGatePatterns(includes, excludes []string, exemptions []policy.AssuranceExemption) error {
-	patterns := make([]string, 0, len(includes)+len(excludes)+len(exemptions))
+	patterns := make([]string, 0, len(includes))
 	patterns = append(patterns, includes...)
 	patterns = append(patterns, excludes...)
 	for _, exemption := range exemptions {

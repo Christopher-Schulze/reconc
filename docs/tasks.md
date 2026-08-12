@@ -2,6 +2,9 @@
 
 ## Active
 
+- [~] 173 Eliminate misleading CodeQL severity signals -> tasks/173-eliminate-misleading-codeql-signals.md
+
+
 ## Queue
 
 ## Blocked
