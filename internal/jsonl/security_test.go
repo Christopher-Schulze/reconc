@@ -54,7 +54,7 @@ func (s *blockingLockSecurity) SecureJSONLFile(path string) error {
 		close(s.secureStarted)
 		<-s.releaseSecure
 	}
-	info, err := os.Lstat(path)
+	info, err := openedFileInfo(path)
 	if err != nil {
 		return err
 	}
@@ -147,13 +147,22 @@ func (s *recordingLayoutSecurity) ValidateJSONLDirectory(path string) error {
 }
 
 func (s *recordingLayoutSecurity) SecureJSONLFile(path string) error {
-	info, err := os.Lstat(path)
+	info, err := openedFileInfo(path)
 	if err != nil {
 		return err
 	}
 	s.secured[path] = true
 	s.securedFiles = append(s.securedFiles, info)
 	return nil
+}
+
+func openedFileInfo(path string) (os.FileInfo, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	info, statErr := file.Stat()
+	return info, errors.Join(statErr, file.Close())
 }
 
 func (s *recordingLayoutSecurity) securedFile(path string) bool {
