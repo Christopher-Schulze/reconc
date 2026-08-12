@@ -140,9 +140,10 @@ func injectUpstreamCorrelation(frame []byte, correlation string) ([]byte, error)
 
 func (o *upstreamObserver) outbound(frame []byte) error {
 	var envelope struct {
-		ID json.RawMessage `json:"id"`
+		ID     json.RawMessage `json:"id"`
+		Method string          `json:"method"`
 	}
-	if err := json.Unmarshal(frame, &envelope); err != nil || len(envelope.ID) == 0 {
+	if err := json.Unmarshal(frame, &envelope); err != nil || len(envelope.ID) == 0 || envelope.Method != "" {
 		return nil
 	}
 	id, err := canonicalProtocolID(envelope.ID)

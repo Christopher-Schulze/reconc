@@ -183,9 +183,12 @@ func (h *rawGatewayHarness) notify(t *testing.T, notification string) {
 }
 
 type rawRPCResponse struct {
-	ID     json.RawMessage `json:"id"`
-	Result json.RawMessage `json:"result"`
-	Error  json.RawMessage `json:"error"`
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params"`
+	Result  json.RawMessage `json:"result"`
+	Error   json.RawMessage `json:"error"`
 }
 
 func TestGatewaySupportsExactLegacyToolProtocolEndToEnd(t *testing.T) {

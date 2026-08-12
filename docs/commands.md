@@ -185,10 +185,11 @@ instead of a withheld result.
 The same internal boundary implements canonical one-call approval requests,
 Ed25519 approve or reject receipts, strict operator-owned authority registries,
 single-use atomic consumption, budget coupling, expiry reconciliation, and
-exact MCP `2026-07-28` input-required transport mapping. It exposes no public
-approver: the upstream MCP client must return a valid one-time signed receipt.
-An unsigned client response or a signer under the agent's authority is not an
-independent approval.
+exact MCP `2026-07-28` input-required and MCP `2025-11-25` standard
+form-elicitation transport mappings. It exposes no public approver: the
+upstream MCP client must return a valid one-time signed receipt. An unsigned
+client response or a signer under the agent's authority is not an independent
+approval; missing elicitation support or a valid response fails closed.
 
 ### `reconc mcp gateway [repo] --server LABEL (--expect-lock-digest SHA256 | --allow-repository-managed-policy) --principal LABEL [trusted-context flags] -- COMMAND [ARG...]`
 
@@ -260,7 +261,8 @@ outside repository and agent authority.
 The pinned external proof uses Reconc `0.9.6`, MCP Go SDK `v1.7.0`,
 `langchain-mcp-adapters==0.3.2`, `langchain-core==1.5.4`, MCP Python SDK
 `1.29.0`, Python `3.13.14`, legacy protocol `2025-11-25`, and Go fixture format
-`1`. The pure-Go suite additionally proves current protocol `2026-07-28`.
+`1`. It completes an externally signed legacy form approval; the pure-Go suite
+additionally proves current protocol `2026-07-28` input-required approval.
 The adapter, Python runtime, package lifecycle, and client sessions belong to
 the consumer and are not product or release dependencies. The proof invokes
 tools directly, uses no model or service, and denies runtime network access.

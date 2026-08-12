@@ -19,6 +19,7 @@ manpage - reconc.1
 manifest - release-manifest.json
 sbom spdx reconc-{version}.spdx.json
 sbom cyclonedx reconc-{version}.cdx.json
+notices - THIRD_PARTY_NOTICES.txt
 EOF
 }
 
@@ -70,7 +71,7 @@ list_mode_assets() {
   mode=$1
   version=$2
   case "$mode" in
-    all|completion|manpage|manifest|sbom) ;;
+    all|completion|manpage|manifest|sbom|notices) ;;
     *) fail "unknown generated release asset mode: $mode" ;;
   esac
   asset_specs | while read -r kind variant template extra; do
@@ -86,14 +87,15 @@ list_mode_assets() {
 }
 
 generate_assets() {
-  [ "$#" -eq 5 ] || fail "usage: ${0##*/} generate MODE DIST VERSION COMMIT SOURCE_DATE_EPOCH"
+  [ "$#" -ge 5 ] || fail "usage: ${0##*/} generate MODE DIST VERSION COMMIT SOURCE_DATE_EPOCH [OS/ARCH...]"
   mode=$1
   dist=$2
   version=$3
   commit=$4
   epoch=$5
+  shift 5
   case "$mode" in
-    all|completion|manpage|sbom) ;;
+    all|completion|manpage|sbom|notices) ;;
     *) fail "unknown generated release asset mode: $mode" ;;
   esac
   [ -d "$dist" ] || fail "distribution directory does not exist: $dist"
@@ -115,7 +117,7 @@ generate_assets() {
             -ldflags "-X main.Version=$version" ./cmd/reconc manpage > "$dist/$name"
         fi
         ;;
-      manifest|sbom) ;;
+      manifest|sbom|notices) ;;
       *) fail "unknown generated release asset kind: $kind" ;;
     esac
   done
@@ -129,6 +131,15 @@ generate_assets() {
       name=$(expand_name "$template" "$version")
       [ -f "$dist/$name" ] || fail "SBOM generator omitted declared asset: $name"
     done
+  fi
+
+  if [ "$mode" = all ] || [ "$mode" = notices ]; then
+    [ "$#" -gt 0 ] || fail "license notices require at least one release target"
+    notice_name=$(asset_specs | awk '$1 == "notices" { print $3 }')
+    [ -n "$notice_name" ] || fail "generated notice asset is not declared"
+    "$go_bin" -C "$root" run ./scripts/release/notices \
+      --root "$root" --output "$dist/$notice_name" --go "$go_bin" "$@"
+    [ -f "$dist/$notice_name" ] || fail "notice generator omitted declared asset: $notice_name"
   fi
 }
 

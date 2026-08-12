@@ -279,13 +279,14 @@ fi
 require_text "$root/Makefile" './scripts/release/generated-assets.sh generate completion'
 require_text "$root/Makefile" './scripts/release/generated-assets.sh generate manpage'
 require_text "$root/Makefile" './scripts/release/generated-assets.sh generate sbom'
+require_text "$root/Makefile" './scripts/release/generated-assets.sh generate notices'
 require_text "$root/scripts/release/verify-artifacts.sh" 'scripts/release/generated-assets.sh" list'
 require_text "$root/scripts/release/copy-assets.sh" 'scripts/release/schema-assets list-release'
 require_text "$root/scripts/release/verify-artifacts.sh" 'scripts/release/schema-assets list-release'
 if grep -Fq '.schema.json' "$root/scripts/release/copied-assets.tsv"; then
   fail "copied-assets.tsv duplicates the typed schema registry"
 fi
-for duplicated_name in reconc.bash _reconc reconc.fish release-manifest.json '.spdx.json' '.cdx.json'; do
+for duplicated_name in reconc.bash _reconc reconc.fish release-manifest.json '.spdx.json' '.cdx.json' THIRD_PARTY_NOTICES.txt; do
   if grep -Fq "$duplicated_name" "$root/Makefile" || grep -Fq "$duplicated_name" "$root/scripts/release/verify-artifacts.sh"; then
     fail "generated release asset $duplicated_name escaped the canonical generated-assets inventory"
   fi
@@ -359,6 +360,19 @@ generate_sbom "$release_dir" "$project_version"
 verify_release_artifacts() {
   "$root/scripts/release/verify-artifacts.sh" "$1" reconc "$project_version" "$release_target"
 }
+verify_release_artifacts "$release_dir"
+printf '\n# stale despite a valid checksum\n' >> "$release_dir/LICENSE"
+"$root/scripts/release/write-checksums.sh" "$release_dir"
+expect_failure verify_release_artifacts "$release_dir"
+cp "$root/LICENSE" "$release_dir/LICENSE"
+"$root/scripts/release/write-checksums.sh" "$release_dir"
+verify_release_artifacts "$release_dir"
+printf '\ncorrupt notice\n' >> "$release_dir/THIRD_PARTY_NOTICES.txt"
+"$root/scripts/release/write-checksums.sh" "$release_dir"
+expect_failure verify_release_artifacts "$release_dir"
+GO=go "$root/scripts/release/generated-assets.sh" generate notices \
+  "$release_dir" "$project_version" "$release_commit" "$release_epoch" "$release_target"
+"$root/scripts/release/write-checksums.sh" "$release_dir"
 verify_release_artifacts "$release_dir"
 printf '\n# stale despite a valid checksum\n' >> "$release_dir/install.ps1"
 "$root/scripts/release/write-checksums.sh" "$release_dir"

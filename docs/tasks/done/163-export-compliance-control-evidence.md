@@ -104,9 +104,8 @@ canonical UTC and retained-record bounds, exact report/status reconstruction,
 privacy scanning, four registry-owned public contracts, and real release-asset
 coverage. Final gates passed: `make test`, `make vet lint`, serial
 `make coverage`, `make self-host`, focused race tests, `git diff --check`, and
-Go formatting. Coverage measured 81.9398% for the root module and 83.5729% for
-the portable template module; coverage remains review evidence, not a numeric
-acceptance threshold.
+Go formatting. Coverage remains review evidence, not a numeric acceptance
+threshold.
 
 ## Deviations
 

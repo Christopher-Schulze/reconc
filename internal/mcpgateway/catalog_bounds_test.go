@@ -44,6 +44,26 @@ func TestValidateCatalogSortsAndRejectsDuplicateOrExcessTools(t *testing.T) {
 	}
 }
 
+func TestValidateCatalogReusesIdenticalCompiledSchemas(t *testing.T) {
+	tool := func(name, schema string) json.RawMessage {
+		return json.RawMessage(fmt.Sprintf(`{"name":%q,"inputSchema":%s}`, name, schema))
+	}
+	shared := `{"type":"object","additionalProperties":false}`
+	distinct := `{"type":"object","properties":{"value":{"type":"string"}}}`
+	contracts, err := validateCatalog(context.Background(), []ToolPage{{Tools: []json.RawMessage{
+		tool("alpha", shared), tool("beta", shared), tool("gamma", distinct),
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contracts[0].InputSchema != contracts[1].InputSchema {
+		t.Fatal("identical canonical schemas were compiled more than once")
+	}
+	if contracts[0].InputSchema == contracts[2].InputSchema {
+		t.Fatal("distinct canonical schemas shared one compiled schema")
+	}
+}
+
 func TestDiscoverToolsRejectsRepeatedCursor(t *testing.T) {
 	downstream := &catalogDownstream{pages: map[string]ToolPage{
 		"":       {NextCursor: "repeat"},

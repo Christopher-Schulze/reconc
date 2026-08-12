@@ -19,17 +19,19 @@ import (
 )
 
 type ownedProcess struct {
-	command    *exec.Cmd
-	stdin      io.WriteCloser
-	stdout     io.ReadCloser
-	boundary   processBoundary
-	done       chan struct{}
-	stderrDone chan struct{}
-	waitMu     sync.Mutex
-	waitErr    error
-	stderr     *boundedStderr
-	close      sync.Once
-	closeErr   error
+	command      *exec.Cmd
+	stdin        io.WriteCloser
+	stdout       io.ReadCloser
+	boundary     processBoundary
+	done         chan struct{}
+	stderrDone   chan struct{}
+	waitMu       sync.Mutex
+	waitErr      error
+	exited       bool
+	exitExpected bool
+	stderr       *boundedStderr
+	close        sync.Once
+	closeErr     error
 }
 
 type boundedStderr struct {
@@ -98,6 +100,7 @@ func startOwnedProcess(observed actionstate.ObservedServer, arguments, environme
 		waitErr := command.Wait()
 		process.waitMu.Lock()
 		process.waitErr = waitErr
+		process.exited = true
 		process.waitMu.Unlock()
 		close(process.done)
 	}()
@@ -120,11 +123,11 @@ func (p *ownedProcess) Close() error {
 		return nil
 	}
 	p.close.Do(func() {
-		alreadyExited := channelClosed(p.done)
+		unexpectedExit := p.beginClose()
 		p.closeErr = errors.Join(closeProcessPipe(p.stdin), closeProcessPipe(p.stdout))
 		select {
 		case <-p.done:
-			if alreadyExited {
+			if unexpectedExit {
 				p.closeErr = errors.Join(p.closeErr, p.processError())
 			}
 			p.closeErr = errors.Join(p.closeErr, p.boundary.Close())
@@ -152,6 +155,22 @@ func (p *ownedProcess) Close() error {
 	return p.closeErr
 }
 
+func (p *ownedProcess) expectShutdown() {
+	p.waitMu.Lock()
+	defer p.waitMu.Unlock()
+	if !p.exited {
+		p.exitExpected = true
+	}
+}
+
+func (p *ownedProcess) beginClose() bool {
+	p.waitMu.Lock()
+	defer p.waitMu.Unlock()
+	unexpectedExit := p.exited && !p.exitExpected
+	p.exitExpected = true
+	return unexpectedExit
+}
+
 func closeProcessPipe(closer io.Closer) error {
 	if closer == nil {
 		return nil
@@ -161,15 +180,6 @@ func closeProcessPipe(closer io.Closer) error {
 		return nil
 	}
 	return err
-}
-
-func channelClosed(channel <-chan struct{}) bool {
-	select {
-	case <-channel:
-		return true
-	default:
-		return false
-	}
 }
 
 func (p *ownedProcess) waitForStderr() {

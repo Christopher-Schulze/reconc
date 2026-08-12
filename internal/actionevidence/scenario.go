@@ -53,7 +53,7 @@ func scenarioEvidence(
 	}
 	sort.Strings(missingDimensions)
 	return ScenarioEvidence{
-		Evaluated: true, CorpusIDs: corpusIDs, CaseCount: report.Summary.CaseCount,
+		Evaluated: true, CorpusIDs: corpusIDs, CaseCount: len(report.Cases),
 		ActionCaseCount: report.Summary.ActionCaseCount, ResultsCurrent: true,
 		Complete: merged.Completeness.Action.Complete && report.Summary.ActionCaseCount > 0 &&
 			len(report.ActionCorpusUnmatchedRules) == 0 && len(missing) == 0,

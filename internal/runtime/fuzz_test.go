@@ -38,9 +38,9 @@ func FuzzNormalizePathsStaysRepoRelative(f *testing.F) {
 	} {
 		f.Add(seed)
 	}
+	root := f.TempDir()
 
 	f.Fuzz(func(t *testing.T, raw string) {
-		root := t.TempDir()
 		got, err := normalizePaths([]string{raw}, root)
 		if err != nil {
 			return

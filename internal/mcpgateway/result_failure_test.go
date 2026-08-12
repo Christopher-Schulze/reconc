@@ -49,6 +49,37 @@ func TestPostResultFailurePathsWithholdWithoutRawContent(t *testing.T) {
 	})
 }
 
+func TestPostSuccessDecisionPreservesTheAuthorizedDecisionBinding(t *testing.T) {
+	for _, test := range []struct {
+		name              string
+		decision          action.Decision
+		reason            action.ReasonCode
+		approvalCommitted bool
+		wantDecision      action.Decision
+		wantReason        action.ReasonCode
+	}{
+		{name: "allow", decision: action.DecisionAllow, reason: action.ReasonDeclaredTool, wantDecision: action.DecisionAllow, wantReason: action.ReasonDeclaredTool},
+		{name: "warn", decision: action.DecisionWarn, reason: action.ReasonRuleMatched, wantDecision: action.DecisionWarn, wantReason: action.ReasonRuleMatched},
+		{name: "approved", decision: action.DecisionRequireApproval, reason: action.ReasonApprovalRequired, approvalCommitted: true, wantDecision: action.DecisionAllow, wantReason: action.ReasonRuleMatched},
+		{name: "unapproved", decision: action.DecisionRequireApproval, reason: action.ReasonApprovalRequired, wantDecision: action.DecisionRequireApproval, wantReason: action.ReasonApprovalRequired},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input := action.EvaluationResult{
+				Decision: test.decision,
+				Reason:   test.reason,
+				Failure:  &action.Failure{Code: action.ReasonInternalInvariant},
+			}
+			got := postSuccessDecision(&gatewayCall{
+				decision: input, approvalCommitted: test.approvalCommitted,
+			})
+			if got.Decision != test.wantDecision || got.Reason != test.wantReason ||
+				got.PhaseOutcome != action.OutcomeDeliveryEligible || got.Failure != nil {
+				t.Fatalf("postSuccessDecision() = %#v", got)
+			}
+		})
+	}
+}
+
 func preparedGatewayCall(t *testing.T) (*rawGatewayHarness, *gatewayCall) {
 	t.Helper()
 	markers := t.TempDir()

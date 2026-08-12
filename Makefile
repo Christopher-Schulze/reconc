@@ -10,12 +10,14 @@
 #   make lint               -- run pinned staticcheck
 #   make coverage           -- measure root and template coverage
 #   make cover              -- measure coverage and write root/template HTML reports
+#   make fuzz               -- run every discovered Go fuzz target with a bounded budget
 #   make clean              -- remove build artifacts + dist/
 #   make run ARGS="--help"  -- build and run with args
 #   make tidy               -- go mod tidy
 #   make release            -- build release binaries for dist/ (darwin, linux, windows)
 #   make completion         -- emit flat shell completion artifacts into dist/
 #   make sbom               -- emit deterministic SPDX and CycloneDX SBOMs
+#   make notices            -- emit deterministic third-party license notices
 #   make checksums          -- generate dist/SHA256SUMS over release artefacts
 #   make verify-release      -- verify dist/ against the canonical release matrix
 #   make self-host          -- run the clean-repository bootstrap golden path
@@ -42,7 +44,7 @@ RELEASE_TARGETS := \
 	linux/arm64 \
 	windows/amd64
 
-.PHONY: build test test-langchain test-release-trust self-host publication-audit harness-pack-check fmt-check fmt vet lint coverage cover clean run tidy release completion manpage sbom checksums verify-release release-all bench
+.PHONY: build test test-langchain test-release-trust self-host publication-audit harness-pack-check fmt-check fmt vet lint coverage cover fuzz clean run tidy release completion manpage sbom notices checksums verify-release release-all bench
 
 build:
 	@mkdir -p $(BINDIR)
@@ -102,6 +104,9 @@ coverage:
 cover:
 	GO="$(GO)" ./scripts/tests/coverage.sh --html
 
+fuzz:
+	GO="$(GO)" ./scripts/tests/run-fuzz.sh
+
 bench:
 	$(GO) test -run '^$$' -bench . -benchmem -benchtime=1000x $(PKG)
 
@@ -158,7 +163,12 @@ sbom:
 	@GO="$(GO)" ./scripts/release/generated-assets.sh generate sbom "$(DISTDIR)" "$(VERSION)" "$(RELEASE_COMMIT)" "$(SOURCE_DATE_EPOCH)"
 	@echo "SBOMs -> $(DISTDIR)/"
 
-checksums: sbom
+notices:
+	@mkdir -p $(DISTDIR)
+	@GO="$(GO)" ./scripts/release/generated-assets.sh generate notices "$(DISTDIR)" "$(VERSION)" "$(RELEASE_COMMIT)" "$(SOURCE_DATE_EPOCH)" $(RELEASE_TARGETS)
+	@echo "license notices -> $(DISTDIR)/"
+
+checksums: sbom notices
 	@mkdir -p $(DISTDIR)
 	@./scripts/release/copy-assets.sh $(DISTDIR)
 	@./scripts/release/write-checksums.sh $(DISTDIR)

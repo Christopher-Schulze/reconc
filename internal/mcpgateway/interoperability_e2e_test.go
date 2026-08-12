@@ -9,12 +9,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/actionapproval"
+	"reconc.dev/reconc/internal/actionledger"
 	"reconc.dev/reconc/internal/actionstate"
 	"reconc.dev/reconc/internal/pathidentity"
 )
@@ -54,8 +56,165 @@ func TestGatewayRawMCPInteroperabilityMatrix(t *testing.T) {
 	}
 	t.Run("policy-and-error-categories", testRawPolicyAndErrorCategories)
 	t.Run("current-approval-and-fresh-session-budget", testRawApprovalAndFreshSessionBudget)
+	t.Run("legacy-form-elicitation-approval", testRawLegacyFormApproval)
+	t.Run("legacy-two-phase-form-elicitation", testRawLegacyTwoPhaseFormApproval)
+	t.Run("legacy-approval-without-elicitation", testRawLegacyApprovalWithoutElicitation)
 	t.Run("fresh-session-call-budget", testRawFreshSessionCallBudget)
 	t.Run("cancellation", testRawCancellation)
+}
+
+func testRawLegacyFormApproval(t *testing.T) {
+	paths := prepareRawFixture(t, "normal", true)
+	seed := bytes.Repeat([]byte{0x59}, ed25519.SeedSize)
+	privateKey := ed25519.NewKeyFromSeed(seed)
+	registry := writeGatewayApprovalRegistry(t, privateKey.Public().(ed25519.PublicKey))
+	plan, _ := testGatewayApprovalPlan(t, action.PhasePreCall)
+	source := plan.Plan()
+	source.Ledger.Mode = action.LedgerRequired
+	plan, err := action.CompilePlan(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evaluator, err := action.NewEvaluator(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	harness := newRawGatewayHarnessWithOptions(t, plan, evaluator, rawGatewayOptions{
+		approvalAuthorities: registry, approvalPolicyID: "post-result-policy",
+	})
+	initializeRawGateway(t, harness, gatewayProtocolLegacy)
+	harness.notify(t, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"echo","arguments":{"value":"legacy-approved"}}}`)
+	elicitation := harness.readResponse(t)
+	if elicitation.Method != "elicitation/create" || len(elicitation.ID) == 0 {
+		t.Fatalf("legacy approval elicitation = %#v", elicitation)
+	}
+	var params struct {
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(elicitation.Params, &params); err != nil || params.Message == "" {
+		t.Fatalf("legacy approval params = %s, %v", elicitation.Params, err)
+	}
+	response, err := json.Marshal(struct {
+		JSONRPC string          `json:"jsonrpc"`
+		ID      json.RawMessage `json:"id"`
+		Result  struct {
+			Action  string            `json:"action"`
+			Content map[string]string `json:"content"`
+		} `json:"result"`
+	}{
+		JSONRPC: "2.0",
+		ID:      elicitation.ID,
+		Result: struct {
+			Action  string            `json:"action"`
+			Content map[string]string `json:"content"`
+		}{
+			Action: "accept",
+			Content: map[string]string{
+				"receipt": signRawApproval(t, params.Message, privateKey),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	harness.notify(t, string(response))
+	result := decodeRawToolResult(t, harness.readResponse(t))
+	if result.IsError || rawResultText(result) != "hello" {
+		records, report, ledgerErr := harness.gateway.ledger.Snapshot(context.Background())
+		t.Fatalf("legacy approved result = %#v; records=%#v; report=%#v; ledger=%v", result, records, report, ledgerErr)
+	}
+	assertApprovedLedgerLifecycle(t, harness)
+	assertInvocationCount(t, paths.invocations, "1\n")
+}
+
+func assertApprovedLedgerLifecycle(t *testing.T, harness *rawGatewayHarness) {
+	t.Helper()
+	records, report, err := harness.gateway.ledger.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantEvents := []actionledger.EventType{
+		actionledger.EventRequestAccepted,
+		actionledger.EventPreDecision,
+		actionledger.EventBudgetTransition,
+		actionledger.EventApprovalTransition,
+		actionledger.EventApprovalTransition,
+		actionledger.EventBudgetTransition,
+		actionledger.EventDownstreamDispatch,
+		actionledger.EventDownstreamOutcome,
+		actionledger.EventResultInspection,
+		actionledger.EventBudgetTransition,
+		actionledger.EventFinalDelivery,
+	}
+	if report.Integrity != actionledger.StatusVerified || !report.EventsEvaluated ||
+		!report.EventsComplete || !report.CallsEvaluated || !report.CallsComplete ||
+		report.RecordCount != uint64(len(wantEvents)) || len(records) != len(wantEvents) {
+		t.Fatalf("approved required-ledger report = %#v; records=%#v", report, records)
+	}
+	callID := records[0].Call.CallID
+	for index, want := range wantEvents {
+		if records[index].Event != want || records[index].Call.CallID != callID {
+			t.Fatalf("approved required-ledger event %d = %#v, want %q", index, records[index], want)
+		}
+	}
+}
+
+func testRawLegacyApprovalWithoutElicitation(t *testing.T) {
+	paths := prepareRawFixture(t, "normal", false)
+	seed := bytes.Repeat([]byte{0x5a}, ed25519.SeedSize)
+	privateKey := ed25519.NewKeyFromSeed(seed)
+	registry := writeGatewayApprovalRegistry(t, privateKey.Public().(ed25519.PublicKey))
+	plan, evaluator := testGatewayApprovalPlan(t, action.PhasePreCall)
+	harness := newRawGatewayHarnessWithOptions(t, plan, evaluator, rawGatewayOptions{
+		approvalAuthorities: registry, approvalPolicyID: "post-result-policy",
+	})
+	initialized := harness.exchange(t, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"raw-no-elicitation","version":"1"}}}`)
+	if len(initialized.Error) != 0 {
+		t.Fatalf("legacy initialization failed: %s", initialized.Error)
+	}
+	harness.notify(t, `{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}`)
+	result := callRawTool(t, harness, 2, "echo", "unapproved")
+	if !result.IsError || !strings.Contains(rawResultText(result), string(action.ReasonApprovalRequired)) {
+		t.Fatalf("legacy unsupported approval result = %#v", result)
+	}
+	assertRawInvocation(t, paths.marker, false)
+}
+
+func testRawLegacyTwoPhaseFormApproval(t *testing.T) {
+	paths := prepareRawFixture(t, "normal", true)
+	seed := bytes.Repeat([]byte{0x5b}, ed25519.SeedSize)
+	privateKey := ed25519.NewKeyFromSeed(seed)
+	registry := writeGatewayApprovalRegistry(t, privateKey.Public().(ed25519.PublicKey))
+	plan, evaluator := testGatewayDoubleApprovalPlan(t)
+	harness := newRawGatewayHarnessWithOptions(t, plan, evaluator, rawGatewayOptions{
+		approvalAuthorities: registry, approvalPolicyID: "post-result-policy",
+	})
+	initializeRawGateway(t, harness, gatewayProtocolLegacy)
+	harness.notify(t, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"echo","arguments":{"value":"legacy-two-phase"}}}`)
+	for sequence := uint64(1); sequence <= 2; sequence++ {
+		elicitation := harness.readResponse(t)
+		if elicitation.Method != "elicitation/create" || len(elicitation.ID) == 0 {
+			t.Fatalf("legacy approval elicitation %d = %#v", sequence, elicitation)
+		}
+		var params struct {
+			Message string `json:"message"`
+		}
+		if err := json.Unmarshal(elicitation.Params, &params); err != nil || params.Message == "" {
+			t.Fatalf("legacy approval params %d = %s, %v", sequence, elicitation.Params, err)
+		}
+		receipt := signRawApprovalSequence(t, params.Message, privateKey, sequence)
+		response := fmt.Sprintf(
+			`{"jsonrpc":"2.0","id":%s,"result":{"action":"accept","content":{"receipt":%s}}}`,
+			elicitation.ID,
+			strconv.Quote(receipt),
+		)
+		harness.notify(t, response)
+	}
+	result := decodeRawToolResult(t, harness.readResponse(t))
+	if result.IsError || rawResultText(result) != "hello" {
+		t.Fatalf("legacy two-phase approved result = %#v", result)
+	}
+	assertInvocationCount(t, paths.invocations, "1\n")
 }
 
 func testRawDiscoveryAndAllow(t *testing.T, protocol string) {
@@ -381,6 +540,15 @@ func rawApprovalRetryParams(t *testing.T, harness *rawGatewayHarness, key ed2551
 }
 
 func signRawApproval(t *testing.T, message string, key ed25519.PrivateKey) string {
+	return signRawApprovalSequence(t, message, key, 1)
+}
+
+func signRawApprovalSequence(
+	t *testing.T,
+	message string,
+	key ed25519.PrivateKey,
+	sequence uint64,
+) string {
 	t.Helper()
 	start := strings.Index(message, "{")
 	if start < 0 {
@@ -395,7 +563,7 @@ func signRawApproval(t *testing.T, message string, key ed25519.PrivateKey) strin
 		t.Fatal(err)
 	}
 	nonce := make([]byte, 16)
-	binary.BigEndian.PutUint64(nonce[8:], 1)
+	binary.BigEndian.PutUint64(nonce[8:], sequence)
 	_, receipt, err := actionapproval.SignReceipt(
 		request, "gateway-authority", key, actionapproval.DecisionApprove,
 		signedAt, bytes.NewReader(nonce),

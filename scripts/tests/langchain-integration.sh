@@ -45,6 +45,7 @@ mkdir -p "$tmp/bin" "$tmp/operator" "$tmp/repository" "$tmp/reconc-home"
 chmod 700 "$tmp/operator" "$tmp/reconc-home"
 go build -trimpath -o "$tmp/bin/reconc" ./cmd/reconc
 go build -trimpath -o "$tmp/bin/langchain-fixture" ./scripts/tests/langchain-fixture
+go build -trimpath -o "$tmp/bin/approval-fixture" ./scripts/tests/approval-fixture
 [ "$("$tmp/bin/reconc" --version)" = "reconc $reconc_version" ] ||
   fail "Reconc binary version drifted"
 
@@ -64,18 +65,17 @@ PY
 [ "${#lock_digest}" -eq 64 ] || fail "compiled lock digest is invalid"
 
 registry="$tmp/operator/approval-authorities.json"
-"$python" - "$registry" <<'PY'
-import base64
+public_key=$("$tmp/bin/approval-fixture" --public-key)
+"$python" - "$registry" "$public_key" <<'PY'
 import json
 import os
 import sys
 
-public_key = base64.urlsafe_b64encode(bytes([0x42]) * 32).rstrip(b"=").decode()
 registry = {
     "authorities": [{
         "active_from": "2026-01-01T00:00:00Z",
         "id": "integration-authority",
-        "public_key": public_key,
+        "public_key": sys.argv[2],
     }],
     "authority_policies": [{
         "authority_key_ids": ["integration-authority"],
@@ -91,6 +91,7 @@ with os.fdopen(descriptor, "wb") as handle:
 PY
 
 export RECONC_INTEROP_BINARY="$tmp/bin/reconc"
+export RECONC_INTEROP_APPROVAL_FIXTURE="$tmp/bin/approval-fixture"
 export RECONC_INTEROP_BYPASS_CANCELLATION="$tmp/bypass-cancellation.log"
 export RECONC_INTEROP_BYPASS_EVENTS="$tmp/bypass-events.log"
 export RECONC_INTEROP_CANCELLATION="$tmp/cancellation.log"
@@ -112,6 +113,7 @@ from langchain_core.messages import ToolMessage
 from langchain_mcp_adapters.callbacks import Callbacks
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
+from mcp.types import ElicitResult
 
 EXPECTED_SCHEMA = {
     "additionalProperties": False,
@@ -200,6 +202,27 @@ async def wait_for_event_count(name: str, expected: int) -> None:
     )
 
 
+async def approve_elicitation(mcp_context, params, context) -> ElicitResult:
+    del mcp_context
+    if context.server_name != "reconc" or context.tool_name != "approval":
+        raise AssertionError(f"unexpected elicitation context: {context!r}")
+    prefix = "Reconc requires an independent signed receipt for this exact canonical request: "
+    if params.mode != "form" or not params.message.startswith(prefix):
+        raise AssertionError(f"approval elicitation drifted: {params!r}")
+    signer = await asyncio.create_subprocess_exec(
+        os.environ["RECONC_INTEROP_APPROVAL_FIXTURE"],
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    receipt, signer_error = await signer.communicate(params.message[len(prefix):].encode())
+    if signer.returncode != 0 or signer_error or not receipt:
+        raise AssertionError(
+            f"separate approval fixture failed: {signer.returncode}, {signer_error!r}"
+        )
+    return ElicitResult(action="accept", content={"receipt": receipt.decode()})
+
+
 async def main() -> None:
     progress = []
 
@@ -207,7 +230,8 @@ async def main() -> None:
         progress.append((value, total, message, context.server_name, context.tool_name))
 
     client = MultiServerMCPClient(
-        {"reconc": connection()}, callbacks=Callbacks(on_progress=on_progress)
+        {"reconc": connection()},
+        callbacks=Callbacks(on_progress=on_progress, on_elicitation=approve_elicitation),
     )
     tools = await client.get_tools(server_name="reconc")
     if {tool.name for tool in tools} != EXPECTED_TOOLS:
@@ -238,10 +262,10 @@ async def main() -> None:
         raise AssertionError("blocked call reached the downstream fixture")
 
     approval = await invoke(by_name["approval"], "review", "call-approval")
-    if approval.status != "error" or "(approval_required)" not in message_text(approval):
-        raise AssertionError(f"approval-required category drifted: {approval!r}")
-    if event_count("approval") != 0:
-        raise AssertionError("unsupported legacy approval reached the downstream fixture")
+    if approval.status != "success" or "fixture:approval:review" not in message_text(approval):
+        raise AssertionError(f"signed approval flow drifted: {approval!r}")
+    if event_count("approval") != 1:
+        raise AssertionError("signed legacy approval did not reach the downstream fixture exactly once")
 
     warned = await invoke(by_name["warn"], "warn", "call-warn")
     if warned.status != "success" or event_count("warn") != 1:
@@ -392,10 +416,10 @@ expected_counts = {
     "warned": 1,
     "approval_required": 1,
     "blocked": 2,
-    "not_dispatched": 3,
-    "downstream_succeeded": 6,
+    "not_dispatched": 2,
+    "downstream_succeeded": 7,
     "downstream_unknown": 1,
-    "delivered": 5,
+    "delivered": 6,
     "withheld": 1,
     "terminal_complete": 10,
     "incomplete_terminal": 0,
@@ -413,12 +437,12 @@ if stats["by_principal"][0].get("identity") != "langchain-consumer":
     raise SystemExit(f"operator principal binding drifted: {stats['by_principal']!r}")
 calls = {call["tool_identity"]["value"]: call for call in stats.get("calls", [])}
 approval = calls.get("approval", {})
-if approval.get("approval") != "unavailable" or not approval.get("terminal_complete"):
+if approval.get("approval") != "approved" or not approval.get("terminal_complete"):
     raise SystemExit(f"legacy approval terminal state drifted: {approval!r}")
 slow = calls.get("slow", {})
 if slow.get("dispatch") != "unknown" or slow.get("evidence_complete") is not False or not slow.get("terminal_complete"):
     raise SystemExit(f"cancelled call lifecycle drifted: {slow!r}")
 PY
 
-printf 'langchain-integration: ok (Reconc %s, Go MCP SDK %s, LangChain MCP adapter 0.3.2, LangChain Core 1.5.4, MCP Python SDK 1.29.0, Python 3.13.14, protocol 2025-11-25, Go fixture 1)\n' \
+printf 'langchain-integration: ok (Reconc %s, Go MCP SDK %s, LangChain MCP adapter 0.3.2, LangChain Core 1.5.4, MCP Python SDK 1.29.0, Python 3.13.14, protocol 2025-11-25, Go fixture 1, signed form approval)\n' \
   "$reconc_version" "$go_mcp_sdk_version"

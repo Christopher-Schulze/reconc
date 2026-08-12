@@ -37,7 +37,7 @@ type gatewayLifecycleHarness struct {
 }
 
 func newGatewayLifecycleHarness(
-	t *testing.T,
+	t testing.TB,
 	plan *action.CompiledPlan,
 	evaluator *action.Evaluator,
 	approvalAuthorities string,
@@ -57,7 +57,7 @@ func newGatewayLifecycleHarness(
 }
 
 func newGatewayLifecycleHarnessWithCommand(
-	t *testing.T,
+	t testing.TB,
 	plan *action.CompiledPlan,
 	evaluator *action.Evaluator,
 	approvalAuthorities string,
@@ -76,7 +76,7 @@ func newGatewayLifecycleHarnessWithCommand(
 }
 
 func newGatewayLifecycleHarnessWithAuthority(
-	t *testing.T,
+	t testing.TB,
 	plan *action.CompiledPlan,
 	evaluator *action.Evaluator,
 	approvalAuthorities string,
@@ -540,6 +540,88 @@ func TestGatewayRecordsAndVerifiesRequiredLedgerLifecycleEndToEnd(t *testing.T) 
 	if records[len(records)-1].Delivery == nil ||
 		records[len(records)-1].Delivery.Status != actionledger.DeliveryForwarded {
 		t.Fatalf("required ledger terminal delivery = %#v", records[len(records)-1])
+	}
+}
+
+func TestGatewayTerminalizesApprovedReservationWhenRequiredLedgerFails(t *testing.T) {
+	markerDirectory := t.TempDir()
+	t.Setenv(fakeProcessEnvironment, "1")
+	t.Setenv(fakeMarkerEnvironment, filepath.Join(markerDirectory, "invoked"))
+	t.Setenv(fakeModeEnvironment, "normal")
+	t.Setenv(fakeCancellationMarkerEnvironment, filepath.Join(markerDirectory, "cancelled"))
+	seed := bytes.Repeat([]byte{0x43}, ed25519.SeedSize)
+	privateKey := ed25519.NewKeyFromSeed(seed)
+	registry := writeGatewayApprovalRegistry(t, privateKey.Public().(ed25519.PublicKey))
+	plan, _ := testGatewayApprovalPlan(t, action.PhasePreCall)
+	source := plan.Plan()
+	source.Ledger.Mode = action.LedgerRequired
+	plan, err := action.CompilePlan(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evaluator, err := action.NewEvaluator(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	elicitationStarted := make(chan struct{})
+	releaseElicitation := make(chan struct{})
+	originalHandler := approvalClientOptions(privateKey).ElicitationHandler
+	options := &mcp.ClientOptions{ElicitationHandler: func(
+		ctx context.Context,
+		request *mcp.ElicitRequest,
+	) (*mcp.ElicitResult, error) {
+		close(elicitationStarted)
+		<-releaseElicitation
+		return originalHandler(ctx, request)
+	}}
+	harness := newGatewayLifecycleHarness(
+		t, plan, evaluator, registry, "post-result-policy", options, 5*time.Second,
+	)
+	type callOutcome struct {
+		result *mcp.CallToolResult
+		err    error
+	}
+	done := make(chan callOutcome, 1)
+	go func() {
+		result, callErr := harness.session.CallTool(context.Background(), &mcp.CallToolParams{
+			Name: "echo", Arguments: json.RawMessage(`{"value":"ledger-failure"}`),
+		})
+		done <- callOutcome{result: result, err: callErr}
+	}()
+	select {
+	case <-elicitationStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("approval elicitation did not start")
+	}
+	harness.gateway.pendingMu.Lock()
+	pendingCount := len(harness.gateway.pending)
+	if pendingCount != 1 {
+		harness.gateway.pendingMu.Unlock()
+		t.Fatalf("pending approvals = %d, want 1", pendingCount)
+	}
+	for _, pending := range harness.gateway.pending {
+		pending.ledger.store = nil
+	}
+	harness.gateway.pendingMu.Unlock()
+	close(releaseElicitation)
+	select {
+	case outcome := <-done:
+		body, marshalErr := json.Marshal(outcome.result)
+		if outcome.err != nil || outcome.result == nil || !outcome.result.IsError ||
+			marshalErr != nil || !bytes.Contains(body, []byte(action.ReasonLedgerUnavailable)) {
+			t.Fatalf("required-ledger failure result = %#v, %v; body=%s, marshal=%v", outcome.result, outcome.err, body, marshalErr)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("required-ledger failure call did not terminate")
+	}
+	status, err := harness.gateway.state.Status(context.Background())
+	if err != nil || status.LiveReservations != 0 || status.PendingApprovals != 0 ||
+		status.TerminalCallCount != 1 || len(status.ApprovalRecords) != 1 ||
+		status.ApprovalRecords[0].Status != actionapproval.StatusApproved {
+		t.Fatalf("required-ledger failure state = %#v, %v", status, err)
+	}
+	if _, err := os.Stat(filepath.Join(markerDirectory, "invoked")); !os.IsNotExist(err) {
+		t.Fatalf("required-ledger failure reached downstream: %v", err)
 	}
 }
 

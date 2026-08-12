@@ -19,6 +19,53 @@ func BenchmarkActionEvaluatorMaximumLegalPlan(b *testing.B) {
 	benchmarkActionEvaluator(b, evaluatorBenchmarkRules(MaxRules, false))
 }
 
+func BenchmarkActionCompilerRepresentative(b *testing.B) {
+	plan := Plan{
+		Tools: []Tool{{
+			ID: "database-write", Transport: TransportMCPStdio,
+			ServerLabel: "database", ServerFingerprint: testServerFingerprint,
+			Tool: "execute", Effect: testExternalEffect(), Origin: OriginActions,
+			SourceIdentity: ".reconc.yml",
+		}},
+		Rules: evaluatorBenchmarkRules(64, true), Defaults: FrozenDefaults(),
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for iteration := 0; iteration < b.N; iteration++ {
+		if _, err := CompilePlan(plan); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkDecisionCacheHit(b *testing.B) {
+	evaluator, input := testActionEvaluator(b, evaluatorBenchmarkRules(16, true), Defaults{}, testExternalEffect())
+	result := evaluator.Evaluate(input)
+	cache := NewDecisionCache()
+	if !cache.Store(evaluator, input, result) {
+		b.Fatal("eligible decision was not stored")
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for iteration := 0; iteration < b.N; iteration++ {
+		if _, hit, _ := cache.Lookup(evaluator, input); !hit {
+			b.Fatal("cache hit became a miss")
+		}
+	}
+}
+
+func BenchmarkDecisionCacheMiss(b *testing.B) {
+	evaluator, input := testActionEvaluator(b, evaluatorBenchmarkRules(16, true), Defaults{}, testExternalEffect())
+	cache := NewDecisionCache()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for iteration := 0; iteration < b.N; iteration++ {
+		if _, hit, _ := cache.Lookup(evaluator, input); hit {
+			b.Fatal("empty cache returned a hit")
+		}
+	}
+}
+
 func benchmarkActionEvaluator(b *testing.B, rules []Rule) {
 	b.Helper()
 	b.Run("serial", func(b *testing.B) {

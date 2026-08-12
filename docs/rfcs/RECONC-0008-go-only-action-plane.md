@@ -21,7 +21,8 @@ cumulative budgets, exact evaluator budget snapshots, and a private bounded
 crash-consistent multi-process reservation store. The published v0.9.5 binary
 has none of those additions. TASK 158 implements approval disclosure policy,
 canonical authority requests and signed approve or reject receipts, strict
-operator-owned key registries, exact MCP input-required mapping, atomic
+operator-owned key registries, exact current MCP input-required and legacy
+form-elicitation mappings, atomic
 single-use consumption, crash-orphan expiry, and redacted transition evidence.
 TASK 159 implements canonical detector policy, strict MCP tool-result decoding,
 offline Draft 2020-12 output-schema validation, bounded deterministic input,
@@ -132,7 +133,8 @@ The disposable proof builds Reconc `0.9.6` and Go fixture format `1`, installs
 the external Python packages from a hash-pinned universal lock, invokes tools
 directly without a model or service, and rejects runtime socket connections. It
 proves discovery, exact schema and annotations, structured content, progress,
-allow, warn, pre-dispatch block, legacy approval-required, durable budget
+allow, warn, pre-dispatch block, externally signed legacy form approval,
+durable budget
 exhaustion across fresh client sessions, downstream tool error, result
 withholding, explicit stateful session, cancellation, transport failure, and
 ledger terminal truth. The fixture, lock, Python runtime, and LangChain packages
@@ -858,8 +860,13 @@ the shared state lock and revalidates the current approval record, reservation,
 policy, context, executable, arguments, and identities. A retry must use a
 different JSON-RPC ID, semantically identical original parameters, the exact
 request state, and only the declared `reconc_approval` input response. The
-client response itself is untrusted. Unsupported or legacy clients receive a
-bounded `approval_required` result and no downstream dispatch.
+client response itself is untrusted. For MCP `2025-11-25`, a client advertising
+standard form elicitation may receive one `elicitation/create` request and
+return the same externally signed receipt. The gateway reuses the exact pending
+request, state, reservation, and consumption path; the elicitation response
+never gains authority from the client. Clients without the required capability
+or a valid response receive a bounded `approval_required` result and no
+downstream dispatch.
 
 Timeout, cancellation, malformed response, unsupported capability, key
 rotation ambiguity, replay-store failure, or shutdown blocks and settles the
@@ -1560,7 +1567,7 @@ This RFC may move from Draft to Frozen only when:
 - all AP-T25 vectors are executable against production owners;
 - the real Go gateway passes current and supported legacy MCP conformance;
 - the disposable LangChain consumer proof uses no Reconc-authored adapter;
-- release output, docs, help, schemas, SBOM, and provenance agree;
+- release output, docs, help, schemas, licenses, SBOM, and provenance agree;
 - a source-first contradiction pass finds no ambiguous default, unowned state,
   circular dependency, unsupported claim, or bypass represented as enforced.
 

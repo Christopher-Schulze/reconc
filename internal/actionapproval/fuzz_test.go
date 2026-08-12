@@ -75,3 +75,12 @@ func FuzzParseMCPApprovalRetry(f *testing.F) {
 		_, _ = ParseMCPApprovalRetry([]byte(`1`), []byte(`2`), original, retry, state)
 	})
 }
+
+func FuzzParseMCPElicitationResponse(f *testing.F) {
+	f.Add([]byte(`{"action":"accept","content":{"receipt":"signed"}}`))
+	f.Add([]byte(`{"action":"cancel"}`))
+	f.Add([]byte(`{}`))
+	f.Fuzz(func(t *testing.T, input []byte) {
+		_, _ = ParseMCPElicitationResponse(input)
+	})
+}

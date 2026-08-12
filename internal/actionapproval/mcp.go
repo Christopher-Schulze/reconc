@@ -165,6 +165,25 @@ func CanonicalMCPApprovalBaseParams(params []byte) ([]byte, error) {
 	return body, nil
 }
 
+// ParseMCPElicitationResponse extracts the same signed receipt carried by a
+// legacy MCP form-elicitation response. The client response remains untrusted;
+// only the exact action/content contract accepted by the signed approval path
+// is allowed.
+func ParseMCPElicitationResponse(body []byte) ([]byte, error) {
+	if len(body) == 0 || len(body) > MaxMCPApprovalMessage {
+		return nil, approvalError(action.ReasonLimitExceeded, "MCP approval elicitation response exceeds its bound", nil)
+	}
+	response, err := action.ParseObjectJSON(body)
+	if err != nil {
+		return nil, approvalError(action.ReasonProtocolError, "decode MCP approval elicitation response", err)
+	}
+	wrapped, err := action.Object([]action.Member{{Name: MCPApprovalInputID, Value: response}})
+	if err != nil {
+		return nil, approvalError(action.ReasonProtocolError, "normalize MCP approval elicitation response", err)
+	}
+	return extractMCPReceipt(wrapped)
+}
+
 func parseMCPRPCID(raw []byte) (action.Value, error) {
 	if len(raw) == 0 || len(raw) > 1024 {
 		return action.Value{}, approvalError(action.ReasonProtocolError, "MCP JSON-RPC ID is outside its bound", nil)

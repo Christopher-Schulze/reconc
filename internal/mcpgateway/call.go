@@ -41,6 +41,7 @@ type gatewayCall struct {
 	upstreamProtocol      string
 	repositoryPaths       []RepositoryPathBinding
 	progress              *callProgress
+	legacyApprovalState   string
 }
 
 func (g *Gateway) handleTool(
@@ -113,6 +114,9 @@ func (g *Gateway) startCall(
 		return response, nil
 	}
 	call.progress = progress
+	if call.legacyApprovalState != "" {
+		return g.elicitLegacyApproval(callCtx, call.legacyApprovalState, call.callID, progress)
+	}
 	return g.executeCall(callCtx, call)
 }
 
@@ -278,14 +282,6 @@ func (g *Gateway) requestApproval(
 		g.finalizeIssuedApproval(ctx, issued, actionapproval.StatusUnavailable)
 		return nil, blockedGatewayResultValue(call.callID, action.ReasonLedgerUnavailable)
 	}
-	protocol := call.upstreamProtocol
-	if protocol != actionapproval.MCPProtocolVersion {
-		finalized := g.finalizeIssuedApproval(ctx, issued, actionapproval.StatusUnavailable)
-		g.recordTerminalizedApproval(
-			ctx, call, finalized, action.ReasonAuthorityUnavailable, false,
-		)
-		return nil, blockedGatewayResultValue(call.callID, action.ReasonApprovalRequired)
-	}
 	baseParams, err := actionapproval.CanonicalMCPApprovalBaseParams(call.wire.params)
 	if err != nil {
 		finalized := g.finalizeIssuedApproval(ctx, issued, actionapproval.StatusMalformed)
@@ -296,14 +292,15 @@ func (g *Gateway) requestApproval(
 	}
 	pending := pendingApproval{
 		phase: action.PhasePreCall, callID: call.callID,
-		requestState: issued.RequestState, originalRPCID: bytes.Clone(call.wire.id),
+		approvalRequest: issued.Request,
+		requestState:    issued.RequestState, originalRPCID: bytes.Clone(call.wire.id),
 		originalParams: baseParams, canonicalArguments: bytes.Clone(call.canonicalArguments),
 		contract: call.contract, generation: call.generation, snapshot: call.snapshot,
 		preRequest: call.preRequest,
 		evaluation: call.evaluation, decision: call.decision,
 		reservation: call.reservation, budget: call.budget,
 		issuanceVersion: issued.StateVersion, ledger: call.ledger,
-		approvalReserved: call.approvalReserved, upstreamProtocol: protocol,
+		approvalReserved: call.approvalReserved, upstreamProtocol: call.upstreamProtocol,
 		repositoryPaths: cloneRepositoryPathBindings(call.repositoryPaths),
 	}
 	if err := g.storePending(issued.RequestState, pending); err != nil {
@@ -312,6 +309,19 @@ func (g *Gateway) requestApproval(
 			ctx, call, finalized, action.ReasonStateUnavailable, false,
 		)
 		return nil, blockedGatewayResultValue(call.callID, action.ReasonStateUnavailable)
+	}
+	protocol := call.upstreamProtocol
+	if protocol == gatewayProtocolLegacy {
+		call.legacyApprovalState = issued.RequestState
+		return call, nil
+	}
+	if protocol != actionapproval.MCPProtocolVersion {
+		g.removePending(issued.RequestState)
+		finalized := g.finalizeIssuedApproval(ctx, issued, actionapproval.StatusUnavailable)
+		g.recordTerminalizedApproval(
+			ctx, call, finalized, action.ReasonAuthorityUnavailable, false,
+		)
+		return nil, blockedGatewayResultValue(call.callID, action.ReasonApprovalRequired)
 	}
 	inputRequired, err := actionapproval.BuildMCPInputRequired(issued.Request, issued.RequestState)
 	if err != nil {
@@ -405,9 +415,11 @@ func (g *Gateway) storePending(state string, pending pendingApproval) error {
 	g.pendingMu.Lock()
 	defer g.pendingMu.Unlock()
 	if state == "" || len(g.pending) >= MaxPendingApprovals {
+		pending.release()
 		return fmt.Errorf("pending approval capacity is exhausted")
 	}
 	if _, duplicate := g.pending[state]; duplicate {
+		pending.release()
 		return fmt.Errorf("pending approval state is duplicated")
 	}
 	g.pending[state] = pending
@@ -415,9 +427,10 @@ func (g *Gateway) storePending(state string, pending pendingApproval) error {
 }
 
 func (g *Gateway) removePending(state string) {
-	g.pendingMu.Lock()
-	delete(g.pending, state)
-	g.pendingMu.Unlock()
+	pending, exists := g.takePending(state)
+	if exists {
+		pending.release()
+	}
 }
 
 func (g *Gateway) takePending(state string) (pendingApproval, bool) {
@@ -427,6 +440,13 @@ func (g *Gateway) takePending(state string) (pendingApproval, bool) {
 	if ok {
 		delete(g.pending, state)
 	}
+	return pending, ok
+}
+
+func (g *Gateway) peekPending(state string) (pendingApproval, bool) {
+	g.pendingMu.Lock()
+	defer g.pendingMu.Unlock()
+	pending, ok := g.pending[state]
 	return pending, ok
 }
 

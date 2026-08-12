@@ -23,7 +23,8 @@ binary and a configuration example.
   against the built Go Reconc binary without adding a Reconc-authored Python or
   TypeScript adapter, package, source module, or release artifact.
 - The disposable job proves tool discovery, exact input schema, allowed call,
-  blocked call with zero downstream invocation, approval-required behavior,
+  blocked call with zero downstream invocation, externally signed legacy form
+  approval with exactly one downstream invocation,
   cancellation, downstream error, structured result, result withholding, and
   fresh-client sessions.
 - A pure-Go protocol suite independently proves the same flows so core CI and
@@ -134,6 +135,12 @@ across default fresh client calls plus an explicit stateful client session.
 Existing gateway lifecycle, catalog, progress, protocol, and failure suites own
 tool-list-change, annotations, unsupported-protocol/capability, redacted internal
 failure, and conservative cancellation terminal-state proof.
+
+TASK 164 added the missing external-consumer approval proof. The LangChain
+callback now receives standard MCP form elicitation, delegates signing to an
+external Go fixture process, returns only the signed receipt, and proves the
+approved call's complete durable ledger lifecycle. The deterministic test key
+is fixture material, not proof of production authority independence.
 
 Two implementation defects were found by the real consumer path and fixed at
 their source: an approval rule with `cache: never` incorrectly reported

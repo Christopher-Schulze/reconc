@@ -36,6 +36,11 @@ func validateCatalog(ctx context.Context, pages []ToolPage) ([]ToolContract, err
 	toolCount, catalogBytes := 0, 0
 	contracts := make([]ToolContract, 0)
 	seen := make(map[string]struct{})
+	schemas := make(map[[sha256.Size]byte]*actioninspect.OutputSchema)
+	scanner, err := actioninspect.NewTextScanner()
+	if err != nil {
+		return nil, fmt.Errorf("initialize tool metadata inspection: %w", err)
+	}
 	for pageIndex, page := range pages {
 		if len(page.Tools) > MaxToolsPerPage {
 			return nil, fmt.Errorf("downstream tool page %d exceeds %d tools", pageIndex+1, MaxToolsPerPage)
@@ -46,7 +51,7 @@ func validateCatalog(ctx context.Context, pages []ToolPage) ([]ToolContract, err
 			if toolCount > MaxTools || catalogBytes > MaxCatalogBytes {
 				return nil, fmt.Errorf("downstream tool catalog exceeds its boundary")
 			}
-			contract, err := validateToolContract(ctx, raw)
+			contract, err := validateToolContractWithCache(ctx, raw, schemas, scanner)
 			if err != nil {
 				return nil, fmt.Errorf("validate downstream tool %d: %w", toolCount, err)
 			}
@@ -65,6 +70,19 @@ func validateCatalog(ctx context.Context, pages []ToolPage) ([]ToolContract, err
 }
 
 func validateToolContract(ctx context.Context, raw []byte) (ToolContract, error) {
+	scanner, err := actioninspect.NewTextScanner()
+	if err != nil {
+		return ToolContract{}, fmt.Errorf("initialize tool metadata inspection: %w", err)
+	}
+	return validateToolContractWithCache(ctx, raw, nil, scanner)
+}
+
+func validateToolContractWithCache(
+	ctx context.Context,
+	raw []byte,
+	schemas map[[sha256.Size]byte]*actioninspect.OutputSchema,
+	scanner *actioninspect.TextScanner,
+) (ToolContract, error) {
 	if len(raw) == 0 || len(raw) > MaxToolMetadataBytes {
 		return ToolContract{}, fmt.Errorf("tool metadata must contain 1 to %d bytes", MaxToolMetadataBytes)
 	}
@@ -98,7 +116,7 @@ func validateToolContract(ctx context.Context, raw []byte) (ToolContract, error)
 	if err != nil {
 		return ToolContract{}, fmt.Errorf("canonicalize input schema: %w", err)
 	}
-	inputSchema, err := actioninspect.CompileOutputSchema(inputBody)
+	inputSchema, err := compileToolSchema(inputBody, schemas)
 	if err != nil {
 		return ToolContract{}, fmt.Errorf("compile input schema: %w", err)
 	}
@@ -114,7 +132,7 @@ func validateToolContract(ctx context.Context, raw []byte) (ToolContract, error)
 		if encodeErr != nil {
 			return ToolContract{}, fmt.Errorf("canonicalize output schema: %w", encodeErr)
 		}
-		outputSchema, err = actioninspect.CompileOutputSchema(outputBody)
+		outputSchema, err = compileToolSchema(outputBody, schemas)
 		if err != nil {
 			return ToolContract{}, fmt.Errorf("compile output schema: %w", err)
 		}
@@ -122,7 +140,7 @@ func validateToolContract(ctx context.Context, raw []byte) (ToolContract, error)
 	if err := validateToolIcons(value); err != nil {
 		return ToolContract{}, err
 	}
-	if err := inspectToolText(ctx, value); err != nil {
+	if err := inspectToolText(ctx, scanner, value); err != nil {
 		return ToolContract{}, err
 	}
 	canonical, err := value.MarshalJSON()
@@ -135,6 +153,24 @@ func validateToolContract(ctx context.Context, raw []byte) (ToolContract, error)
 		ContractDigest: "sha256:" + hex.EncodeToString(digest[:]),
 		InputSchema:    inputSchema, OutputSchema: outputSchema,
 	}, nil
+}
+
+func compileToolSchema(
+	body []byte,
+	cache map[[sha256.Size]byte]*actioninspect.OutputSchema,
+) (*actioninspect.OutputSchema, error) {
+	digest := sha256.Sum256(body)
+	if schema := cache[digest]; schema != nil {
+		return schema, nil
+	}
+	schema, err := actioninspect.CompileOutputSchema(body)
+	if err != nil {
+		return nil, err
+	}
+	if cache != nil {
+		cache[digest] = schema
+	}
+	return schema, nil
 }
 
 func normalizeToolAnnotations(tool action.Value) (action.Value, error) {
@@ -418,13 +454,13 @@ func iconSizesExact(value action.Value, width, height int) bool {
 	return size == want
 }
 
-func inspectToolText(ctx context.Context, value action.Value) error {
+func inspectToolText(
+	ctx context.Context,
+	scanner *actioninspect.TextScanner,
+	value action.Value,
+) error {
 	stringsToScan := make([]string, 0)
 	collectToolStrings(value, &stringsToScan)
-	scanner, err := actioninspect.NewTextScanner()
-	if err != nil {
-		return err
-	}
 	for _, text := range stringsToScan {
 		if text == "" {
 			continue

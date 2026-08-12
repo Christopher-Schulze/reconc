@@ -28,8 +28,12 @@ func (g *Gateway) executeCall(
 		return g.failUnknownDownstream(ctx, call, err)
 	}
 	g.stateMu.Lock()
-	defer g.stateMu.Unlock()
-	return g.finishCall(ctx, call, result)
+	response, finishErr := g.finishCall(ctx, call, result)
+	g.stateMu.Unlock()
+	if state, callID, pending := legacyPendingState(finishErr); pending {
+		return g.elicitLegacyApproval(ctx, state, callID, call.progress)
+	}
+	return response, finishErr
 }
 
 func (g *Gateway) failUnknownDownstream(
@@ -526,9 +530,9 @@ func postFailureSchemaStatus(call *gatewayCall) action.InspectionSchemaStatus {
 
 func postSuccessDecision(call *gatewayCall) action.EvaluationResult {
 	result := call.decision
-	result.Decision = action.DecisionAllow
-	if call.decision.Decision == action.DecisionWarn {
-		result.Decision = action.DecisionWarn
+	if result.Decision == action.DecisionRequireApproval && call.approvalCommitted {
+		result.Decision = action.DecisionAllow
+		result.Reason = action.ReasonRuleMatched
 	}
 	result.PhaseOutcome = action.OutcomeDeliveryEligible
 	result.Failure = nil

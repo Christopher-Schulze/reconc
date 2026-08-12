@@ -8,6 +8,7 @@
 #
 # Generated artifacts and binaries have no repository source to compare and
 # are owned separately by scripts/release/generated-assets.sh.
+LICENSE	LICENSE
 install.sh	install.sh
 install.ps1	install.ps1
 reconc-harness-pack-advanced-1.0.0.zip	harness/advanced-pack.zip

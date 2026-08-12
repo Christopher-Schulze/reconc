@@ -222,6 +222,7 @@ Common commands:
 ```bash
 make test
 make test-langchain
+make fuzz
 make vet
 make lint
 make coverage
@@ -244,6 +245,7 @@ Make targets:
 make build
 make test
 make test-langchain
+make fuzz
 make vet
 make lint
 make coverage
@@ -252,6 +254,7 @@ make bench
 make self-host
 make publication-audit
 make sbom VERSION=0.9.6
+make notices VERSION=0.9.6
 make release VERSION=0.9.6
 ```
 
@@ -268,18 +271,20 @@ POSIX and Windows installers, generates three flat shell-completion artifacts,
 generates a man page, copies all 36 independently versioned schemas from the
 typed registry under unique current or legacy release names, and generates
 deterministic SPDX 2.3 and CycloneDX
-1.6 SBOMs,
+1.6 SBOMs, copies the project license, generates deterministic exact
+third-party notices from the binary dependency graph for all five release
+targets,
 generates a strict `release-manifest.json`, and writes `dist/SHA256SUMS`. The
-target stops on the first build, SBOM, manifest, or checksum failure.
+target stops on the first build, license, SBOM, manifest, or checksum failure.
 
 Each copied artifact has one owner. `internal/schema` owns schema source paths,
 release names, immutable URLs, and digests; `scripts/release/copied-assets.tsv`
-owns the three non-schema source copies. The build and verifier consume both
+owns the four non-schema source copies. The build and verifier consume both
 inventories directly. Generated surfaces and target-derived binary names are
 owned once by `scripts/release/generated-assets.sh`; the Makefile generates
 from that executable inventory and the verifier lists from it.
 
-The release verifier requires exactly those forty-six checksummed artifacts,
+The release verifier requires exactly those fifty-three checksummed artifacts,
 rejects missing, extra, duplicate, unsafe, mutable, or corrupted entries, and
 never accepts an empty manifest. It independently verifies every manifest
 asset and digest, then regenerates Bash, Zsh, Fish, and the versioned man page
@@ -302,6 +307,13 @@ component property `reconc:source-commit`. Fixed inputs produce byte-identical
 documents. Verification regenerates both files from the tagged source and
 rejects missing, malformed, stale-version, or otherwise non-identical output
 before checksums and provenance are accepted.
+
+The release notice generator unions the exact package dependency graphs of all
+five `CGO_ENABLED=0` release targets, rejects module replacements and missing or
+symlinked root license files, includes the Go toolchain license and patent
+notice, and preserves each source text with its SHA-256 digest. Verification
+regenerates `THIRD_PARTY_NOTICES.txt` from the tagged source and byte-compares
+it before checksums and provenance are accepted.
 
 `install.sh [--channel stable|preview | --version VERSION]
 [--allow-downgrade]` supports macOS and Linux. `install.ps1 [-Channel
@@ -998,9 +1010,11 @@ For a LangChain gateway launch, initialize the selected private operator state
 once with `reconc action key init --reconc-home /private/operator/reconc-home`.
 An existing key is never replaced. `identity-key.json` missing means the
 operator initialization step was skipped; a repeat-init error means a valid
-generation already exists and must be preserved. A legacy LangChain client that
-receives `approval_required` cannot complete the current-protocol approval
-exchange and does not dispatch the downstream tool. Policy or lock drift is
+generation already exists and must be preserved. The pinned legacy LangChain
+client can complete approval only through standard MCP form elicitation by
+returning an externally signed receipt from the configured authority. A client
+without the required elicitation capability, callback, or valid receipt fails
+closed and does not dispatch the downstream tool. Policy or lock drift is
 repaired with an explicit `reconc refresh .` followed by a reviewed new lock
 digest and a restarted operator-pinned gateway, never by weakening the launch
 to repository-managed authority silently. `reconc status . --json` and
@@ -1310,7 +1324,8 @@ summaries for an external approver. The current source implements canonical
 one-call requests, Ed25519 approve or reject receipts, strict operator-owned
 authority registries outside the repository, single-use replay protection,
 atomic budget coupling, expiry reconciliation, exact MCP `2026-07-28`
-input-required transport mapping, and payload-free transition evidence. It
+input-required plus MCP `2025-11-25` form-elicitation transport mapping, and
+payload-free transition evidence. It
 does not add a public approver or dashboard. `reconc mcp gateway` accepts a
 signed one-time receipt from the upstream MCP client only when an operator-owned
 authority registry verifies it. Authority keys and the signing process remain
@@ -2098,7 +2113,10 @@ not who may approve. The state consumer accepts only the opaque result of that
 trusted registry loader, never registry bytes or keys from a call or repository
 input. MCP `2026-07-28` input-required can transport the request,
 sealed retry state, and signed receipt, but an unsigned client response has no
-authority. Unsupported clients receive a bounded approval-required failure.
+authority. MCP `2025-11-25` clients with standard form elicitation can transport
+the same signed receipt in one bounded `elicitation/create` exchange. Clients
+without the required capability or valid response receive a bounded
+approval-required failure.
 Startup and pre-work reconciliation atomically expire crashed pending waits so
 their pre-dispatch reservations do not remain stranded. Transition evidence
 contains only safe labels, timestamps, counters, and bound identities, never
@@ -2221,6 +2239,18 @@ LangChain middleware, callbacks, agent state, model provider, or hosted model.
 The proof calls converted tools directly and sends no repository data to a
 third party.
 
+Five benchmark repetitions on Apple M1 with Go `1.26.5` measured medians of
+44.5 microseconds for representative compilation, 72.4 microseconds for
+representative serial evaluation, 1.49 milliseconds for the maximum legal
+plan, 18.2 microseconds for an exact cache hit, 382 microseconds for approval
+verification, 34.5 microseconds for representative text inspection, 9.75
+microseconds for representative structured inspection, 39.7 milliseconds for
+one durable ledger append, 50.0 milliseconds for budget reserve-and-release,
+2.81 milliseconds for discovery with shared schemas, and 7.94 milliseconds for
+one end-to-end gateway call. These local observations include the benchmark
+fixtures' durability and process costs where applicable; they are review
+evidence, not latency guarantees.
+
 `MultiServerMCPClient.get_tools()` uses fresh sessions for discovery and calls;
 an explicit `client.session()` plus `load_mcp_tools()` owns one stateful
 session. Reconc binds principal, credential labels, run, session, budgets,
@@ -2234,10 +2264,11 @@ and a stable Reconc reason code. An authoritative downstream tool error remains
 a downstream tool error. Transport, session, and conversion failures raise
 instead of being converted into a policy result. Structured content is exposed
 as the adapter artifact; progress is forwarded through the adapter callback.
-The current adapter negotiates only `2025-11-25`, so it receives the explicit
-legacy `approval_required` result and never downstream dispatch. Current
-`2026-07-28` input-required approval is independently covered by the pure-Go
-suite.
+The current adapter negotiates only `2025-11-25`; its standard form-elicitation
+callback returns an externally signed receipt, which Reconc verifies and
+consumes before dispatch. Missing capability, callback, receipt, or authority
+still fails closed. Current `2026-07-28` input-required approval is
+independently covered by the pure-Go suite.
 
 Coverage remains explicit. Only tools configured to use the Reconc gateway are
 enforced. Native LangChain tools, another MCP entry that
@@ -2346,7 +2377,7 @@ summarizes the core runtime responsibilities:
 - `buildprovenance`: deterministic target/source build identity and byte-only binary inspection
 - `internal/cli`: argument parsing and command dispatch
 - `internal/action`: pure canonical action contract, strict normalized values, immutable matcher programs, deterministic evaluation, redacted traces, and exact in-memory decision caching
-- `internal/actionapproval`: canonical signed requests and receipts, operator authority registry, transport-neutral provider contract, and exact MCP input-required mapping
+- `internal/actionapproval`: canonical signed requests and receipts, operator authority registry, transport-neutral provider contract, and exact current input-required and legacy form-elicitation mappings
 - `internal/actioninspect`: strict MCP result decoding, offline output-schema validation, deterministic bounded content inspection, and safe withholding
 - `internal/actionledger`: strict payload-free lifecycle events, private retained chain, crash recovery, exact lifecycle aggregation, and deterministic verification
 - `internal/actionledgerexport`: verified synthetic minimized Impact Lab export with explicit omission and replay-completeness truth
@@ -3379,6 +3410,8 @@ Release:
   provenance manifest as the binaries.
 - Release output includes deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs for
   both Go modules, selected dependencies, the Go toolchain, version, and commit.
+- Release output includes the Reconc license and deterministic exact license and
+  notice texts for the cross-target binary dependency graph and Go toolchain.
 - Every artifact is verified against `SHA256SUMS` before upload.
 - Embedded deterministic build provenance binds every binary to its target and production-source digest; GitHub build-provenance attestations bind every manifest-listed artifact to the tagged workflow run.
 - GitHub publication is rerun-safe and stays draft while it removes the prior

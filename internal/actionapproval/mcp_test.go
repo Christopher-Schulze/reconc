@@ -112,6 +112,41 @@ func TestCanonicalMCPApprovalBaseParamsRemovesConsumedRound(t *testing.T) {
 	}
 }
 
+func TestMCPElicitationResponseUsesTheExactApprovalResponseContract(t *testing.T) {
+	receipt := []byte(`{"signed":"receipt"}`)
+	accepted := []byte(`{"action":"accept","content":{"receipt":"{\"signed\":\"receipt\"}"}}`)
+	got, err := ParseMCPElicitationResponse(accepted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, receipt) {
+		t.Fatalf("elicitation receipt = %s, want %s", got, receipt)
+	}
+	acceptedBeforeMutation := bytes.Clone(accepted)
+	got[0] = 'x'
+	if !bytes.Equal(accepted, acceptedBeforeMutation) {
+		t.Fatal("elicitation parser returned an aliased receipt buffer")
+	}
+
+	for _, test := range []struct {
+		name string
+		body string
+		want action.ReasonCode
+	}{
+		{name: "declined", body: `{"action":"decline"}`, want: action.ReasonApprovalRejected},
+		{name: "cancelled", body: `{"action":"cancel"}`, want: action.ReasonCancelled},
+		{name: "missing receipt", body: `{"action":"accept","content":{}}`, want: action.ReasonApprovalInvalid},
+		{name: "extra field", body: `{"action":"accept","content":{"receipt":"signed"},"extra":true}`, want: action.ReasonApprovalInvalid},
+		{name: "duplicate field", body: `{"action":"accept","action":"accept","content":{"receipt":"signed"}}`, want: action.ReasonProtocolError},
+		{name: "invalid root", body: `[]`, want: action.ReasonProtocolError},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := ParseMCPElicitationResponse([]byte(test.body))
+			requireApprovalCode(t, err, test.want)
+		})
+	}
+}
+
 func TestMCPApprovalResultRejectsInvalidConstructionAndUnsupportedClientIsBounded(t *testing.T) {
 	request, _, _, _ := testApprovalFixture(t)
 	state := base64.RawURLEncoding.EncodeToString([]byte("sealed-approval-state"))

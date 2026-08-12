@@ -88,6 +88,7 @@ type pendingApproval struct {
 	phase                 action.Phase
 	callID                string
 	requestState          string
+	approvalRequest       actionapproval.Request
 	originalRPCID         json.RawMessage
 	originalParams        json.RawMessage
 	canonicalArguments    json.RawMessage
@@ -111,6 +112,17 @@ type pendingApproval struct {
 	downstreamProtocol    string
 	rawResult             json.RawMessage
 	repositoryPaths       []RepositoryPathBinding
+}
+
+func (p *pendingApproval) release() {
+	if p == nil {
+		return
+	}
+	clear(p.originalRPCID)
+	clear(p.originalParams)
+	clear(p.canonicalArguments)
+	clear(p.rawResult)
+	*p = pendingApproval{}
 }
 
 func Run(ctx context.Context, config Config) (resultErr error) {
@@ -541,6 +553,10 @@ func (g *Gateway) Close() error {
 		return nil
 	}
 	g.closeOnce.Do(func() {
+		// Mark the child before cancellation or transport closure can make it exit.
+		if g.process != nil {
+			g.process.expectShutdown()
+		}
 		g.lifecycleMu.Lock()
 		g.closing = true
 		g.lifecycleMu.Unlock()
@@ -602,6 +618,11 @@ func (g *Gateway) shutdownPending(ctx context.Context) error {
 	}
 	g.pending = make(map[string]pendingApproval)
 	g.pendingMu.Unlock()
+	defer func() {
+		for index := range pending {
+			pending[index].release()
+		}
+	}()
 	sort.Slice(pending, func(i, j int) bool { return pending[i].callID < pending[j].callID })
 	g.stateMu.Lock()
 	defer g.stateMu.Unlock()

@@ -90,6 +90,29 @@ func TestUpstreamObserverCleansCallRejectedBeforeHandler(t *testing.T) {
 	}
 }
 
+func TestUpstreamObserverDoesNotDrainClientCallForServerRequest(t *testing.T) {
+	observer := newUpstreamObserver()
+	request := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"echo","arguments":{"value":"x"}}}`)
+	params := instrumentedToolParams(t, observer, request)
+	if _, err := observer.take(params); err != nil {
+		t.Fatal(err)
+	}
+	serverRequest := []byte(`{"jsonrpc":"2.0","id":1,"method":"elicitation/create","params":{"message":"approve"}}`)
+	if err := observer.outbound(serverRequest); err != nil {
+		t.Fatal(err)
+	}
+	observer.mu.Lock()
+	active := len(observer.active)
+	correlated := len(observer.correlationByID)
+	observer.mu.Unlock()
+	if active != 1 || correlated != 1 {
+		t.Fatalf("server request drained client call: active=%d ids=%d", active, correlated)
+	}
+	if err := observer.outbound([]byte(`{"jsonrpc":"2.0","id":1,"result":{}}`)); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestUpstreamObserverCorrelatesIdenticalCallsIndependentOfHandlerOrder(t *testing.T) {
 	observer := newUpstreamObserver()
 	params := `{"name":"echo","arguments":{"value":"x"}}`

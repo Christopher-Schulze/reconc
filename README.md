@@ -132,7 +132,7 @@ Core invariants are deliberately strict:
 | Runtime enforcement | Generates, installs, verifies, and safely removes registry-backed hooks for thirteen coding-agent runtimes, with capability-specific failure semantics and git pre-commit as the repository backstop. |
 | MCP side-effect control | Classifies explicitly configured Cursor, OpenCode, Kilo, Oh My Pi, Pi, and ZCode MCP tools as repository reads, writes, commands, or external effects using exact selectors and fail-closed extraction. |
 | Operator and CI tooling | Provides exact remediation, body-free source-provenance inspection, an offline policy impact lab, staged command execution, deterministic text, JSON, SARIF 2.1.0, JUnit XML, and GitHub impact reports, CI proofs, global diagnostics, update and uninstall, cryptographically verified audit inspection, retention, TUI, shell completions, and a generated manpage. |
-| Release trust | Publishes strict release manifests, SHA-256 checksums, build-provenance attestations, and deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs tied to the release commit. |
+| Release trust | Publishes strict release manifests, SHA-256 checksums, build-provenance attestations, the project license, exact third-party notices, and deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs tied to the release commit. |
 
 The Go-only `reconc mcp gateway` is live enforcement only for tools explicitly
 routed through it. Direct access to the downstream server, native LangChain
@@ -144,7 +144,9 @@ stdio, without a Reconc Python adapter, model call, service, or runtime network
 access. The pinned matrix is Reconc `0.9.6`, MCP Go SDK `v1.7.0`,
 `langchain-mcp-adapters==0.3.2`, `langchain-core==1.5.4`, MCP Python SDK
 `1.29.0`, Python `3.13.14`, legacy MCP `2025-11-25`, and Go fixture format `1`;
-the pure-Go suite also proves MCP `2026-07-28`. Initialize operator state with
+the legacy consumer completes an externally signed form-elicitation approval,
+and the pure-Go suite also proves MCP `2026-07-28` input-required approval.
+Initialize operator state with
 `reconc action key init --reconc-home PATH`, then use the
 [exact LangChain configuration](docs/documentation.md#langchain-mcp-interoperability).
 `reconc status . --json` and `reconc doctor . --deep` state that external
@@ -687,7 +689,7 @@ and routes behavior into internal packages with explicit boundaries:
 | Global CLI lifecycle | Install, diagnose, update, and uninstall one bare `reconc` command using checksum-bound ownership and cross-process locks. |
 | TASK and completion | Parse typed TASK profiles, publish recoverable transitions, build final completion reports, retain unresolved decisions, and export portable proof bundles. |
 | Audit and retention | Maintain a SHA-256-linked, sequence-checked decision ring with a detached chain head, plus evidence segments, liveness records, command proofs, reports, and owned temporary-state cleanup. |
-| Release trust | Build deterministic multi-platform binaries, strict manifests, checksums, manpages, completions, SBOMs, and provenance-bound artifacts. |
+| Release trust | Build deterministic multi-platform binaries, strict manifests, checksums, manpages, completions, license notices, SBOMs, and provenance-bound artifacts. |
 
 The state model keeps global installation, repository ownership, compiled
 policy, and mutable runtime evidence separate:
@@ -871,6 +873,8 @@ The release inventory includes:
 - the embedded advanced harness pack as a standalone checksummed archive;
 - every registry-owned public schema version, including historical migration
   inputs and each current per-artifact contract;
+- the Reconc license and deterministic third-party notices generated from the
+  exact cross-target binary dependency graph;
 - deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs;
 - strict `release-manifest.json` and `SHA256SUMS`.
 
@@ -883,7 +887,9 @@ tagged workflow run.
 
 Binaries use a pinned Go toolchain, `CGO_ENABLED=0`, and `-trimpath`.
 `SOURCE_DATE_EPOCH` supplies deterministic timestamps for SBOM and manpage
-generation. This supports reproducible output from the same toolchain and
+generation. License notices preserve the exact dependency and Go toolchain
+license files and bind each included text to its SHA-256 digest. This supports
+reproducible output from the same toolchain and
 source, but the repository does not claim an independent third-party rebuild
 attestation.
 
@@ -1149,7 +1155,7 @@ The trust model is explicit:
 | Repository files | Scope rules, candidate identity, receipt-bounded mutation, atomic writes, and drift refusal. | A hostile same-user process can bypass hooks or replace local bytes. |
 | Command evidence | Causal epochs, exact staged candidate binding, bounded receipts, and exit-status validation. | A malicious trusted command or compromised toolchain can still produce deceptive output. |
 | Portable proof | Deterministic typed output, current candidate identity, redaction, strict offline verification, optional fresh local binding, and self-digest. | An unsigned bundle proves integrity and the configured contract, not author identity, universal correctness, or independent remote execution. |
-| Release artifacts | Checksums, strict manifest, embedded provenance, SBOMs, tagged workflow attestation, and installer verification. | No independent third-party reproducible-build attestation is claimed. |
+| Release artifacts | Checksums, strict manifest, embedded provenance, exact license notices, SBOMs, tagged workflow attestation, and installer verification. | No independent third-party reproducible-build attestation is claimed. |
 
 Repository-local development binaries and hook wrappers are writable by the
 repository owner and are not re-attested on every hook event. That is an
@@ -1171,8 +1177,9 @@ reconc <command> --help
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, change scope,
 verification requirements, and the pull-request checklist. Run `make test`,
-`make test-langchain`, `make coverage`, `make vet`, `make lint`, `make self-host`, and
-`make publication-audit` before proposing a change. `make coverage` measures
+`make test-langchain`, `make fuzz`, `make coverage`, `make vet`, `make lint`,
+`make self-host`, and `make publication-audit` before proposing a change.
+`make coverage` measures
 the complete root and portable-template modules with cross-package
 instrumentation and reports the measured percentages without enforcing a fixed
 threshold;

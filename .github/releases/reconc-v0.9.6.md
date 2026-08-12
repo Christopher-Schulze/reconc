@@ -41,7 +41,8 @@ one exact registry.
   inspected progress and results, bounded stderr diagnostics, and owned child
   process-tree shutdown.
 - Current MCP `2026-07-28` and legacy `2025-11-25` tool-call interoperability
-  through the pinned official Go MCP SDK `v1.7.0`, with direct/native tool
+  through the pinned official Go MCP SDK `v1.7.0`, including signed current
+  input-required and legacy form-elicitation approvals, with direct/native tool
   bypasses and unsupported capabilities kept explicit.
 
 ## Changed
@@ -53,9 +54,9 @@ one exact registry.
 - Current Action Ledger events use schema v2 for gateway approval and delivery
   semantics; the published v1 schema remains byte-identical and registered as
   a legacy contract.
-- Release copying, verification, checksums, manifest, SBOM, and provenance
-  inventories consume the registry directly instead of maintaining a separate
-  schema list.
+- Release copying, verification, checksums, manifest, SBOM, provenance, project
+  license, and exact third-party notices consume their canonical inventories
+  instead of maintaining parallel release lists.
 - Custom-runtime manifest v2 requires a response budget large enough to hold
   the canonical neutral-response metadata introduced by release-pinned schema
   identities.

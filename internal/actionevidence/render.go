@@ -1,12 +1,9 @@
 package actionevidence
 
 import (
-	"bytes"
 	"crypto/subtle"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"slices"
 	"sort"
 	"strings"
@@ -40,13 +37,8 @@ func DecodeReport(body []byte) (Report, error) {
 		return Report{}, fmt.Errorf("action evidence report must contain 1 to %d bytes", MaxReportBytes)
 	}
 	var report Report
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&report); err != nil {
+	if err := decodeStrictObject(body, &report); err != nil {
 		return Report{}, fmt.Errorf("decode action evidence report: %w", err)
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return Report{}, fmt.Errorf("action evidence report must contain exactly one JSON object")
 	}
 	if err := ValidateReport(report); err != nil {
 		return Report{}, err
@@ -336,6 +328,9 @@ func validateReportControls(
 }
 
 func validateCanonicalTextList(scanner *actioninspect.TextScanner, values []string) error {
+	if !sort.StringsAreSorted(values) {
+		return fmt.Errorf("text values must be lexically sorted")
+	}
 	for index, value := range values {
 		if index > 0 && values[index-1] == value {
 			return fmt.Errorf("text values must be unique")

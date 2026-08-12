@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -12,6 +13,15 @@ import (
 	"reconc.dev/reconc/internal/actioninspect"
 	"reconc.dev/reconc/internal/actionstate"
 )
+
+type legacyApprovalPendingError struct {
+	state  string
+	callID string
+}
+
+func (e *legacyApprovalPendingError) Error() string {
+	return "legacy MCP approval requires form elicitation"
+}
 
 func (g *Gateway) resumeApproval(
 	ctx context.Context,
@@ -25,6 +35,7 @@ func (g *Gateway) resumeApproval(
 	if !exists {
 		return blockedGatewayResult(fallbackCallID, action.ReasonApprovalInvalid)
 	}
+	defer pending.release()
 	if pending.upstreamProtocol != actionapproval.MCPProtocolVersion ||
 		sdkRequest.ProtocolVersion() != pending.upstreamProtocol ||
 		pending.contract.ContractDigest != contract.ContractDigest ||
@@ -65,6 +76,102 @@ func (g *Gateway) resumeApproval(
 	call.wire = wire
 	call.progress = progress
 	return g.executeCall(callCtx, call)
+}
+
+func (g *Gateway) elicitLegacyApproval(
+	ctx context.Context,
+	state string,
+	fallbackCallID string,
+	progress *callProgress,
+) (*mcp.CallToolResult, error) {
+	pending, exists := g.peekPending(state)
+	if !exists {
+		return blockedGatewayResult(fallbackCallID, action.ReasonApprovalInvalid)
+	}
+	if pending.callID != "" {
+		fallbackCallID = pending.callID
+	}
+	if pending.upstreamProtocol != gatewayProtocolLegacy {
+		pending, exists = g.takePending(state)
+		if !exists {
+			return blockedGatewayResult(fallbackCallID, action.ReasonApprovalInvalid)
+		}
+		defer pending.release()
+		return g.failPendingApproval(
+			ctx, pending, actionapproval.StatusMalformed, action.ReasonApprovalInvalid,
+		)
+	}
+	inputRequired, err := actionapproval.BuildMCPInputRequired(
+		pending.approvalRequest,
+		pending.requestState,
+	)
+	if err != nil {
+		pending, exists = g.takePending(state)
+		if !exists {
+			return blockedGatewayResult(fallbackCallID, action.ReasonApprovalInvalid)
+		}
+		defer pending.release()
+		return g.failPendingApproval(
+			ctx, pending, actionapproval.StatusMalformed, action.ReasonApprovalInvalid,
+		)
+	}
+	request := inputRequired.InputRequests[actionapproval.MCPApprovalInputID]
+	session := g.upstreamSession()
+	if session == nil {
+		pending, exists = g.takePending(state)
+		if !exists {
+			return blockedGatewayResult(fallbackCallID, action.ReasonApprovalInvalid)
+		}
+		defer pending.release()
+		return g.failPendingApproval(
+			ctx, pending, actionapproval.StatusUnavailable, action.ReasonApprovalRequired,
+		)
+	}
+	result, elicitErr := session.Elicit(ctx, &mcp.ElicitParams{
+		Mode: request.Params.Mode, Message: request.Params.Message,
+		RequestedSchema: request.Params.RequestedSchema,
+	})
+	pending, exists = g.takePending(state)
+	if !exists {
+		reason := action.ReasonApprovalInvalid
+		if g.ctx.Err() != nil {
+			reason = action.ReasonShutdown
+		}
+		return blockedGatewayResult(fallbackCallID, reason)
+	}
+	defer pending.release()
+	if elicitErr != nil {
+		return g.failPendingApproval(
+			ctx, pending, actionapproval.StatusUnavailable, action.ReasonApprovalRequired,
+		)
+	}
+	body, err := json.Marshal(result)
+	if err != nil {
+		return g.failPendingApproval(
+			ctx, pending, actionapproval.StatusMalformed, action.ReasonProtocolError,
+		)
+	}
+	receipt, err := actionapproval.ParseMCPElicitationResponse(body)
+	if err != nil {
+		reason := gatewayReason(err, action.ReasonApprovalInvalid)
+		return g.failPendingApproval(ctx, pending, approvalFailureFinalizeStatus(err), reason)
+	}
+	g.stateMu.Lock()
+	if pending.phase == action.PhasePostResult {
+		response, consumeErr := g.consumePostApproval(ctx, pending, receipt)
+		g.stateMu.Unlock()
+		return response, consumeErr
+	}
+	call, response := g.consumeApproval(ctx, pending, receipt)
+	g.stateMu.Unlock()
+	if response != nil || call == nil {
+		return response, nil
+	}
+	call.wire = upstreamWireCall{
+		id: bytes.Clone(pending.originalRPCID), params: bytes.Clone(pending.originalParams),
+	}
+	call.progress = progress
+	return g.executeCall(ctx, call)
 }
 
 func (g *Gateway) requestPostApproval(
@@ -117,12 +224,6 @@ func (g *Gateway) requestPostApproval(
 		}
 		return blockedGatewayResult(call.callID, action.ReasonLedgerUnavailable)
 	}
-	if call.upstreamProtocol != actionapproval.MCPProtocolVersion {
-		finalized := g.finalizeIssuedApproval(ctx, issued, actionapproval.StatusUnavailable)
-		return g.finalizePostApproval(
-			ctx, call, finalized, action.ReasonApprovalRequired,
-		)
-	}
 	baseParams, err := actionapproval.CanonicalMCPApprovalBaseParams(call.wire.params)
 	if err != nil {
 		finalized := g.finalizeIssuedApproval(ctx, issued, actionapproval.StatusMalformed)
@@ -130,7 +231,8 @@ func (g *Gateway) requestPostApproval(
 	}
 	pending := pendingApproval{
 		phase: action.PhasePostResult, callID: call.callID,
-		requestState: issued.RequestState, originalRPCID: bytes.Clone(call.wire.id),
+		approvalRequest: issued.Request,
+		requestState:    issued.RequestState, originalRPCID: bytes.Clone(call.wire.id),
 		originalParams: baseParams, canonicalArguments: bytes.Clone(call.canonicalArguments),
 		contract: call.contract, generation: call.generation, snapshot: call.snapshot,
 		preRequest: call.preRequest, evaluation: call.evaluation, decision: call.decision,
@@ -147,6 +249,16 @@ func (g *Gateway) requestPostApproval(
 	if err := g.storePending(issued.RequestState, pending); err != nil {
 		finalized := g.finalizeIssuedApproval(ctx, issued, actionapproval.StatusUnavailable)
 		return g.finalizePostApproval(ctx, call, finalized, action.ReasonStateUnavailable)
+	}
+	if call.upstreamProtocol == gatewayProtocolLegacy {
+		return nil, &legacyApprovalPendingError{state: issued.RequestState, callID: call.callID}
+	}
+	if call.upstreamProtocol != actionapproval.MCPProtocolVersion {
+		g.removePending(issued.RequestState)
+		finalized := g.finalizeIssuedApproval(ctx, issued, actionapproval.StatusUnavailable)
+		return g.finalizePostApproval(
+			ctx, call, finalized, action.ReasonApprovalRequired,
+		)
 	}
 	inputRequired, err := actionapproval.BuildMCPInputRequired(issued.Request, issued.RequestState)
 	if err != nil {
@@ -547,4 +659,12 @@ func (g *Gateway) terminalizeApprovedReservation(
 	call.stateVersion = stateVersion
 	call.approvalCommitted = true
 	g.denyCall(ctx, call, true)
+}
+
+func legacyPendingState(err error) (string, string, bool) {
+	var pending *legacyApprovalPendingError
+	if !errors.As(err, &pending) || pending == nil || pending.state == "" {
+		return "", "", false
+	}
+	return pending.state, pending.callID, true
 }

@@ -280,9 +280,10 @@ The authority registry is a bounded private regular file outside the
 repository. Repository policy may select only safe argument summaries for an
 informed decision; it cannot select authority keys, private key material, or
 the authority process. A prompt or signer under the same agent's authority is
-not an independent approval boundary. MCP `2026-07-28` input-required is only
-an exact transport mapping for request state and a signed receipt; unsupported
-clients receive an explicit approval-required failure. The gateway resamples
+not an independent approval boundary. MCP `2026-07-28` input-required and MCP
+`2025-11-25` standard form elicitation are exact transport mappings for request
+state and a signed receipt; clients without the required capability or valid
+response receive an explicit approval-required failure. The gateway resamples
 and consumes these boundaries before dispatch and again before result delivery.
 
 The private versioned state store serializes processes, journals atomic state
@@ -333,7 +334,9 @@ The interoperability matrix is Reconc `0.9.6`, Go MCP SDK `v1.7.0`, current
 protocol `2026-07-28`, legacy protocol `2025-11-25`, official
 `langchain-mcp-adapters==0.3.2`, `langchain-core==1.5.4`, MCP Python SDK
 `1.29.0`, Python CI `3.13.14`, and Go fixture format `1`. The external adapter
-currently negotiates the legacy protocol only. Fresh Python client sessions do
+currently negotiates the legacy protocol only and completes approval through
+an externally signed standard form-elicitation response. Fresh Python client
+sessions do
 not own Reconc principal, credential, run, session, budget, approval-replay,
 policy, or ledger identity; those remain operator-bound and durable below the
 selected Reconc home. An explicit stateful Python session is tested separately.
@@ -450,6 +453,13 @@ updates require both the selected asset's Sigstore bundle and the trusted root.
 Native installer policy is a separate boundary and may make attestation
 optional or required explicitly. Any broken required link is an actionable
 refusal, never an inferred owner or partial success.
+
+Release licensing has one copied project-license owner and one generated
+third-party-notice owner. The notice generator unions the exact dependency
+graphs of all five static binary targets, accepts only bounded root regular-file
+licenses/notices, includes the Go toolchain license, and renders deterministic
+component identities plus source-text digests. Release verification regenerates
+and byte-compares the notice before checksums and provenance are accepted.
 
 ## Request flow example: `reconc check --write src/x.go`
 
@@ -617,7 +627,7 @@ class of hostile input.
 | Policy lock / execution input | **16 MiB each** | Bounds evaluator control input before JSON decoding. |
 | Policy evidence / TASK control file | **4 MiB each** | Bounds file-backed checks and executable TASK state before parsing. |
 | Portable workflow-audit input | **64 MiB per file / 100,000 walked entries** | Strict regular-file and real-directory readers reject links, FIFOs, special files, replacement, and partial over-budget trees; task schemas and legacy prune policies use a narrower 1 MiB cap. |
-| Auxiliary subprocess capture | **64 KiB to 64 MiB by boundary** | TASK claim diagnostics use 64 KiB per stream; lifecycle, offline-hook, promotion, and generated-reference probes use 1 MiB; workflow/SBOM commands use 16 MiB; Stop Git uses 32 MiB; publication-history Git uses 64 MiB. Overflow fails the invoking operation instead of growing process memory. |
+| Auxiliary subprocess capture | **64 KiB to 64 MiB by boundary** | TASK claim diagnostics use 64 KiB per stream; lifecycle, offline-hook, promotion, and generated-reference probes use 1 MiB; workflow/SBOM/license-notice commands use 16 MiB to 32 MiB; Stop Git uses 32 MiB; publication-history Git uses 64 MiB. Overflow fails the invoking operation instead of growing process memory. |
 
 Breaches use the registry's platform-specific blocking response or exit code for
 PreToolUse, permission, and Stop. Observation and cleanup routes fail open with
