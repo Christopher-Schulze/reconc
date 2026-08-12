@@ -22,7 +22,7 @@ failed closed instead of converging on the completed private boundary.
 - [x] Serialize private project-directory initialization under the retention lock
 - [x] Strengthen the multiprocess first-use regression
 - [x] Reconcile release and TASK truth
-- [~] Run focused and complete release gates
+- [x] Run focused and complete release gates
 
 ## Notes
 
@@ -37,6 +37,10 @@ affected Windows test packages cross-compiled. Complete race tests, release
 trust, vet, static analysis, whole-module coverage, all 50 discovered fuzz
 targets, both vulnerability scans, the pinned LangChain proof, self-hosting,
 and the real five-target `0.9.6` release build passed locally.
+
+Candidate CI `31624884426` passed every job at commit `2dfcd29`, including the
+complete native Windows test, binary smoke, and installer gates. CodeQL run
+`31624884481` passed against the same commit.
 
 ## Deviations
 
