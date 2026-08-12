@@ -413,16 +413,7 @@ func runGatewayScenario(
 	if err != nil {
 		t.Fatal(err)
 	}
-	home, err := pathidentity.ResolveExisting(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(home, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := actionstate.CreateIdentityKey(home, time.Unix(1, 0)); err != nil {
-		t.Fatal(err)
-	}
+	home := newPrivateGatewayHome(t)
 	loader := staticPolicyLoader{snapshot: PolicySnapshot{
 		Repository: repository, Evaluator: evaluator, Plan: plan,
 		SourceDigest: strings.Repeat("a", 64), LockDigest: strings.Repeat("b", 64),
@@ -699,13 +690,7 @@ func testGatewayApprovalPlanWithLimits(
 
 func writeGatewayApprovalRegistry(t *testing.T, publicKey ed25519.PublicKey) string {
 	t.Helper()
-	directory, err := pathidentity.ResolveExisting(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(directory, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	directory := filepath.Join(newPrivateGatewayHome(t), "action")
 	registry := actionapproval.Registry{
 		Schema: actionapproval.RegistrySchema, FormatVersion: actionapproval.FormatVersion,
 		Authorities: []actionapproval.Authority{{
@@ -730,9 +715,7 @@ func writeGatewayApprovalRegistry(t *testing.T, publicKey ed25519.PublicKey) str
 		t.Fatal(err)
 	}
 	path := filepath.Join(directory, "approval-authorities.json")
-	if err := os.WriteFile(path, body, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writePrivateGatewayFixture(t, path, body)
 	return path
 }
 

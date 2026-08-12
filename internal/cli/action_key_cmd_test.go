@@ -2,9 +2,11 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -39,15 +41,24 @@ func TestActionKeyInitCreatesPrivateStableIdentityExactlyOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{home, filepath.Join(home, "action")} {
-		info, err := os.Stat(path)
-		if err != nil || info.Mode().Perm() != 0o700 {
-			t.Fatalf("private directory %s mode = %v, %v", path, infoMode(info), err)
-		}
+	lease, err := actionstate.AcquireExistingIdentityKey(context.Background(), home)
+	if err != nil {
+		t.Fatalf("validate initialized private identity: %v", err)
 	}
-	info, err := os.Stat(keyPath)
-	if err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("identity key mode = %v, %v", infoMode(info), err)
+	if err := lease.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" {
+		for _, path := range []string{home, filepath.Join(home, "action")} {
+			info, err := os.Stat(path)
+			if err != nil || info.Mode().Perm() != 0o700 {
+				t.Fatalf("private directory %s mode = %v, %v", path, infoMode(info), err)
+			}
+		}
+		info, err := os.Stat(keyPath)
+		if err != nil || info.Mode().Perm() != 0o600 {
+			t.Fatalf("identity key mode = %v, %v", infoMode(info), err)
+		}
 	}
 	stdout.Reset()
 	err = runAction([]string{"key", "init", "--reconc-home", home}, &stdout)

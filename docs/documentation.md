@@ -237,7 +237,13 @@ The canonical Make targets cover both the root Go module and
 runs the real-repository publication audit once, then runs both race suites and
 the release-trust failure-path checks. The publication CLI contract test uses a
 bounded temporary Git fixture instead of rescanning the real repository under
-the race detector. Direct `go test ./...` validates only the root module.
+the race detector. `make fuzz` uses 500 executions and one worker per target
+by default, avoiding the Go 1.26 time-deadline shutdown race while keeping the
+gate deterministic and bounded. Minimization is likewise bounded to ten exact
+executions, and a disposable per-run Go fuzz cache prevents machine-local corpus
+history from consuming or changing that fixed budget. `FUZZ_TIME`,
+`FUZZ_MINIMIZE`, and `FUZZ_PARALLEL` explicitly change those budgets and the
+worker count. Direct `go test ./...` validates only the root module.
 
 Make targets:
 
@@ -349,9 +355,9 @@ The v0.9 platform contract is one matrix:
 Direct installers own only the verified binary and receipt. No path silently
 edits a shell profile or global environment.
 
-The immutable v0.9.5 tag contains both `install.sh` and `install.ps1`. Public
+The immutable v0.9.6 tag contains both `install.sh` and `install.ps1`. Public
 bootstrap commands fetch the appropriate script from that tag, never from
-mutable `main`, and install the matching checksummed v0.9.5 binary.
+mutable `main`, and install the matching checksummed v0.9.6 binary.
 
 When the GitHub CLI (`gh`) is available, the installer additionally verifies
 the downloaded binary against its GitHub build-provenance attestation before
@@ -883,8 +889,8 @@ is live.
 
 ### How do I install and test it?
 
-Use the immutable v0.9.5 POSIX installer for macOS or Linux and the immutable
-v0.9.5 PowerShell installer for Windows x64. Put the installed binary on
+Use the immutable v0.9.6 POSIX installer for macOS or Linux and the immutable
+v0.9.6 PowerShell installer for Windows x64. Put the installed binary on
 `PATH`, verify it with `reconc doctor --global`, and initialize the target
 repository with `reconc init .`. Contributors building current source can use
 `go build -o .build/bin/reconc ./cmd/reconc` followed by
@@ -2058,7 +2064,7 @@ and repository checks.
 
 ## Go-Only Action Plane
 
-RECONC-0008 remains Draft. Unreleased source version `v0.9.6` implements strict
+RECONC-0008 remains Draft. Source and release version `v0.9.6` implements strict
 `actions` authoring, canonical format-6 compilation, deterministic lowering of
 legacy `mcp` declarations, immutable typed matcher programs, a derived MCP
 compatibility view, `reconc why action`, and the transport-neutral deterministic
@@ -2066,8 +2072,7 @@ action evaluator. It also implements canonical authority-bound one-time
 approval requests and receipts plus private atomic approval consumption, and a
 separate privacy-bounded retained Action Ledger. `reconc mcp gateway` owns one
 operator-selected downstream stdio MCP process and applies those controls to
-every tool call routed through it. The published v0.9.5 release does not contain
-those additions.
+every tool call routed through it.
 `reconc impact` invokes that production evaluator for strict offline action
 scenarios, exact current and approval-state assertions, candidate deltas,
 completeness, privacy, exact inspection evidence, detector deltas, and reviewed
@@ -2079,7 +2084,7 @@ Action Ledger without creating missing state. Offline simulation and retained
 fixtures remain non-enforcement evidence; only explicitly routed gateway calls
 cross the live tool-call interception boundary.
 
-The same unreleased source implements trusted operator and host context
+The same v0.9.6 implementation provides trusted operator and host context
 bindings, domain-separated HMAC identities, explicit key leases and rotation
 blocking, compiled cumulative budgets, evaluator budget snapshots, and a
 private bounded multi-process action-state store. Budget reservations are
@@ -2137,6 +2142,11 @@ identity, preventing cross-policy, cross-declaration, and cross-repository
 correlation. Unavailable identity makes the evidence incomplete with no plain
 digest fallback. The chain is tamper-evident within retained evidence, not
 immutable or deletion proof against the filesystem owner.
+Every live file, archive, lock, journal, and recovery backup is bound to the
+same private-filesystem contract as action state: existing ownership, mode, or
+ACL drift fails without repair, while each newly created or atomically replaced
+file is secured and revalidated. On Windows this requires a protected,
+current-user-only DACL for every durable and recovery path.
 
 Approval status and reason are exact, receipt provenance is all-or-none, and a
 terminal budget stop cannot be bypassed by a later approval or dispatch. Unknown
@@ -3397,8 +3407,11 @@ Release:
   `-f replace_published=true`; requesting replacement when no release exists
   also fails. Existing drafts remain resumable without expanding authority.
 - The tag version must be stable semantic versioning, match the source version, and have committed release notes.
-- Release workflow provisions the same pinned GitHub-owned Node.js runtime and
-  exact verified Bun runtime, then runs formatting, tidy, vet, pinned
+- Release workflow first runs root and portable-template tests, a binary smoke
+  test, and the installer gate natively on Windows 2025 against the exact tag.
+  Artifact publication cannot start until that prerequisite succeeds. The
+  artifact job then provisions the same pinned GitHub-owned Node.js runtime and
+  exact verified Bun runtime and runs formatting, tidy, vet, pinned
   Govulncheck, pinned Staticcheck, race, publication, trust, and clean-repository
   self-hosting checks before building.
 - `make release VERSION=<tag-version>` builds the exact flat release inventory.
@@ -3641,7 +3654,7 @@ current-state documentation.
 ## Release State
 
 The current source line is `v0.9.x`; the source version is `v0.9.6`. The latest
-published release remains the immutable `reconc-v0.9.5` tag. Release
+published release is the immutable `reconc-v0.9.6` tag. Release
 artifacts are produced only through an explicit manual Release workflow
 dispatch for an existing `reconc-vX.Y.Z` tag; tag pushes never publish a
 release.

@@ -62,22 +62,13 @@ func newRawGatewayHarnessWithOptions(
 		t.Fatal(err)
 	}
 	home := options.home
-	createKey := home == ""
-	if createKey {
-		home = t.TempDir()
-	}
-	home, err = pathidentity.ResolveExisting(home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(home, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if createKey {
-		_, err = actionstate.CreateIdentityKey(home, time.Unix(1, 0))
-	}
-	if err != nil {
-		t.Fatal(err)
+	if home == "" {
+		home = newPrivateGatewayHome(t)
+	} else {
+		home, err = pathidentity.ResolveExisting(home)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	loader := staticPolicyLoader{snapshot: PolicySnapshot{
 		Repository: repository, Plan: plan, Evaluator: evaluator,

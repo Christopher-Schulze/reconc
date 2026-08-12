@@ -52,7 +52,7 @@ func OpenStore(storage actionstate.PrivateProjectStorage) (*Store, error) {
 			JournalPath:   filepath.Join(directory, transactionFileName),
 			BackupPrefix:  filepath.Join(directory, transactionBackup),
 			DirectoryMode: 0o700, FileMode: 0o600, JournalMode: 0o600,
-			LockTimeout: appendLockTimeout,
+			LockTimeout: appendLockTimeout, Security: storage,
 		},
 		policy:      jsonl.Policy{MaxBytes: MaxLiveBytes, MaxArchives: MaxArchives},
 		publishHead: storage.PublishPrivateFile,
@@ -145,6 +145,9 @@ func (s *Store) validateExistingLock() (bool, error) {
 		return false, ledgerError(action.ReasonLedgerCorrupt, fmt.Sprintf(
 			"action ledger lock has mode %o; want %o", info.Mode().Perm(), s.layout.FileMode.Perm(),
 		), nil)
+	}
+	if err := s.storage.ValidateJSONLFile(s.layout.LockPath, 4<<10); err != nil {
+		return false, ledgerError(action.ReasonLedgerCorrupt, "validate private action ledger lock", err)
 	}
 	return true, nil
 }
@@ -246,8 +249,8 @@ func (s *Store) protectActiveCallsFromRotation(record []byte, statuses []CallSta
 }
 
 func (s *Store) oldestArchiveLastSequence() (uint64, error) {
-	path := fmt.Sprintf("%s.%d", s.livePath, MaxArchives)
-	body, err := boundedio.ReadRegularFile(path, MaxLiveBytes)
+	name := fmt.Sprintf("%s.%d", liveFileName, MaxArchives)
+	body, err := s.storage.ReadPrivateFile(name, MaxLiveBytes)
 	if errors.Is(err, os.ErrNotExist) {
 		return 0, nil
 	}

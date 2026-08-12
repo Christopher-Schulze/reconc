@@ -34,13 +34,7 @@ func TestOwnedProcessEnvironmentIsEmptyUnlessExplicitlySelected(t *testing.T) {
 		{name: "explicit selection only", selectedNames: []string{processEnvironmentSelected}, wantSelected: "selected-value"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			home := t.TempDir()
-			if err := os.Chmod(home, 0o700); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := actionstate.CreateIdentityKey(home, time.Unix(1, 0)); err != nil {
-				t.Fatal(err)
-			}
+			home := newPrivateGatewayHome(t)
 			lease, err := actionstate.AcquireIdentityKey(context.Background(), home)
 			if err != nil {
 				t.Fatal(err)
@@ -121,16 +115,7 @@ func TestGatewayRejectsInvalidChildStartupWithoutLeakingProtocolErrors(t *testin
 			if err != nil {
 				t.Fatal(err)
 			}
-			home, err := pathidentity.ResolveExisting(t.TempDir())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.Chmod(home, 0o700); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := actionstate.CreateIdentityKey(home, time.Unix(1, 0)); err != nil {
-				t.Fatal(err)
-			}
+			home := newPrivateGatewayHome(t)
 			plan, evaluator := testGatewayPlan(t, action.DecisionAllow)
 			executable, err := os.Executable()
 			if err != nil {

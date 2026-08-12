@@ -220,7 +220,7 @@ handling.
 
 ## Go-Only Action Plane (Draft)
 
-RECONC-0008 remains Draft. The unreleased v0.9.6 source implements strict action
+RECONC-0008 remains Draft. v0.9.6 implements strict action
 authoring, deterministic legacy MCP lowering, one canonical format-6 action
 plan, immutable typed matcher programs, a derived MCP compatibility view, and
 `reconc why action`. The transport-neutral pure evaluator now implements strict
@@ -251,7 +251,6 @@ organizational assessment, legal determination, or external assurance. `reconc
 action evidence export|verify` exposes that read-only evidence path.
 `reconc mcp gateway` invokes the enforcement primitives around every routed
 live tool call.
-The published v0.9.5 release has none of the Action Plane additions.
 
 Ledger-selected fields are valid only for `arguments` during `pre_call` and
 `result` during `post_result`; progress and observation events carry none.

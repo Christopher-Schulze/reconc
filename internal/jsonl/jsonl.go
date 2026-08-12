@@ -37,6 +37,16 @@ type Policy struct {
 	MaxArchives int
 }
 
+// LayoutSecurity binds a custom JSONL layout to a caller-owned filesystem
+// security contract. Existing objects are validated without repair; only
+// newly created or atomically replaced files are secured.
+type LayoutSecurity interface {
+	JSONLSecurityIdentity() string
+	ValidateJSONLDirectory(path string) error
+	SecureJSONLFile(path string) error
+	ValidateJSONLFile(path string, maximum int64) error
+}
+
 // Layout binds the lock, transaction journal, temporary backup prefix, and
 // filesystem modes used by one JSONL publication. All paths must be distinct,
 // clean siblings of the live file. Callers that need stable public names or
@@ -49,6 +59,7 @@ type Layout struct {
 	FileMode      os.FileMode
 	JournalMode   os.FileMode
 	LockTimeout   time.Duration
+	Security      LayoutSecurity
 }
 
 func defaultLayout(path string) Layout {
@@ -57,6 +68,14 @@ func defaultLayout(path string) Layout {
 		BackupPrefix: path + ".append-backup", DirectoryMode: 0o755, FileMode: 0o644,
 		JournalMode: 0o600,
 	}
+}
+
+func layoutIsDefault(path string, layout Layout) bool {
+	want := defaultLayout(path)
+	return layout.Security == nil && layout.LockPath == want.LockPath &&
+		layout.JournalPath == want.JournalPath && layout.BackupPrefix == want.BackupPrefix &&
+		layout.DirectoryMode == want.DirectoryMode && layout.FileMode == want.FileMode &&
+		layout.JournalMode == want.JournalMode && layout.LockTimeout == want.LockTimeout
 }
 
 func validateLayout(path string, layout Layout) error {
@@ -82,7 +101,34 @@ func validateLayout(path string, layout Layout) error {
 	if layout.LockTimeout < 0 || layout.LockTimeout > time.Minute {
 		return errors.New("jsonl layout lock timeout must be between zero and one minute")
 	}
+	if layout.Security != nil {
+		identity := layout.Security.JSONLSecurityIdentity()
+		if identity == "" || len(identity) > 128 || strings.TrimSpace(identity) != identity ||
+			strings.ContainsAny(identity, "\x00\r\n") {
+			return errors.New("jsonl layout security identity is invalid")
+		}
+	}
 	return nil
+}
+
+func validateLayoutSecurityFile(layout Layout, path string, maximum int64) error {
+	if layout.Security == nil {
+		return nil
+	}
+	if err := layout.Security.ValidateJSONLFile(path, maximum); err != nil {
+		return fmt.Errorf("validate JSONL file security: %w", err)
+	}
+	return nil
+}
+
+func secureLayoutSecurityFile(layout Layout, path string, maximum int64) error {
+	if layout.Security == nil {
+		return nil
+	}
+	if err := layout.Security.SecureJSONLFile(path); err != nil {
+		return fmt.Errorf("secure JSONL file: %w", err)
+	}
+	return validateLayoutSecurityFile(layout, path, maximum)
 }
 
 // EnforceResult reports bytes removed from existing live/archive files.
@@ -105,12 +151,20 @@ type appendJournal struct {
 }
 
 func layoutIdentity(path string, layout Layout) string {
+	return layoutIdentityWithSecurity(path, layout, true)
+}
+
+func layoutIdentityWithSecurity(path string, layout Layout, includeSecurity bool) string {
 	hash := sha256.New()
-	for _, value := range []string{
+	values := []string{
 		filepath.Clean(path), layout.LockPath, layout.JournalPath, layout.BackupPrefix,
 		fmt.Sprintf("%04o", layout.DirectoryMode.Perm()), fmt.Sprintf("%04o", layout.FileMode.Perm()),
 		fmt.Sprintf("%04o", layout.JournalMode.Perm()), layout.LockTimeout.String(),
-	} {
+	}
+	if includeSecurity && layout.Security != nil {
+		values = append(values, layout.Security.JSONLSecurityIdentity())
+	}
+	for _, value := range values {
 		_, _ = io.WriteString(hash, value)
 		_, _ = hash.Write([]byte{0})
 	}
@@ -347,16 +401,21 @@ func appendLockedWithLayout(path string, record []byte, policy Policy, layout La
 		return fmt.Errorf("jsonl record is %d bytes; maximum is %d", len(record), policy.MaxBytes)
 	}
 	info, err := os.Lstat(path)
+	if err == nil {
+		if securityErr := validateLayoutSecurityFile(layout, path, policy.MaxBytes); securityErr != nil {
+			return securityErr
+		}
+	}
 	rotateRequired := false
 	switch {
 	case err == nil && (info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular()):
 		return fmt.Errorf("jsonl live path must be a non-symlink regular file: %s", path)
-	case err == nil && layout != defaultLayout(path) && runtime.GOOS != "windows" &&
+	case err == nil && !layoutIsDefault(path, layout) && runtime.GOOS != "windows" &&
 		info.Mode().Perm() != layout.FileMode.Perm():
 		return fmt.Errorf("jsonl live path has mode %o; want %o", info.Mode().Perm(), layout.FileMode.Perm())
 	case err == nil && info.Size()+int64(len(record)) > policy.MaxBytes:
 		rotateRequired = true
-		if err := prepareRotationInputs(path, policy.MaxArchives, policy.MaxBytes); err != nil {
+		if err := prepareRotationInputsWithLayout(path, policy.MaxArchives, policy.MaxBytes, layout); err != nil {
 			return err
 		}
 	case err != nil && !errors.Is(err, os.ErrNotExist):
@@ -377,11 +436,11 @@ func appendLockedWithLayout(path string, record []byte, policy Policy, layout La
 		}
 	}
 	appendLayout := layout
-	if rotateRequired && layout == defaultLayout(path) && journal != nil &&
+	if rotateRequired && layoutIsDefault(path, layout) && journal != nil &&
 		len(journal.Backups) > 0 && journal.Backups[0].Existed {
 		appendLayout.FileMode = os.FileMode(journal.Backups[0].Mode)
 	}
-	if err := appendRecordWithLayout(path, record, appendLayout); err != nil {
+	if err := appendRecordWithLayout(path, record, appendLayout, policy.MaxBytes); err != nil {
 		return rollbackAppendErrorWithLayout(path, layout, journal, err)
 	}
 	if journal != nil {
@@ -402,14 +461,17 @@ func appendLockedWithLayout(path string, record []byte, policy Policy, layout La
 }
 
 func appendRecord(path string, record []byte) error {
-	return appendRecordWithLayout(path, record, defaultLayout(path))
+	return appendRecordWithLayout(path, record, defaultLayout(path), int64(len(record))+1)
 }
 
-func appendRecordWithLayout(path string, record []byte, layout Layout) error {
+func appendRecordWithLayout(path string, record []byte, layout Layout, maximum int64) error {
 	var before os.FileInfo
 	if info, err := os.Lstat(path); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			return fmt.Errorf("jsonl live path must be a non-symlink regular file: %s", path)
+		}
+		if err := validateLayoutSecurityFile(layout, path, maximum); err != nil {
+			return err
 		}
 		before = info
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -429,7 +491,11 @@ func appendRecordWithLayout(path string, record []byte, layout Layout) error {
 		}
 		return errors.Join(statErr, lstatErr, file.Close())
 	}
-	if before == nil || layout != defaultLayout(path) {
+	if layout.Security != nil && before == nil {
+		if err := secureLayoutSecurityFile(layout, path, maximum); err != nil {
+			return errors.Join(err, file.Close())
+		}
+	} else if layout.Security == nil && (before == nil || !layoutIsDefault(path, layout)) {
 		if err := file.Chmod(layout.FileMode); err != nil {
 			return errors.Join(err, file.Close())
 		}
@@ -443,7 +509,10 @@ func appendRecordWithLayout(path string, record []byte, layout Layout) error {
 	if syncErr != nil {
 		return syncErr
 	}
-	return closeErr
+	if closeErr != nil {
+		return closeErr
+	}
+	return validateLayoutSecurityFile(layout, path, maximum)
 }
 
 // Enforce compacts oversized historical files and removes archives outside
@@ -490,7 +559,7 @@ func EnforceWithLayout(path string, policy Policy, layout Layout) (EnforceResult
 			if index > 0 {
 				candidate = fmt.Sprintf("%s.%d", path, index)
 			}
-			freed, err := trimTail(candidate, policy.MaxBytes)
+			freed, err := trimTailWithLayout(candidate, policy.MaxBytes, layout)
 			if err != nil {
 				return err
 			}
@@ -586,9 +655,12 @@ func withLayoutLockModeContext(
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			return fmt.Errorf("jsonl lock path must be a non-symlink regular file: %s", layout.LockPath)
 		}
-		if layout != defaultLayout(path) && runtime.GOOS != "windows" &&
+		if !layoutIsDefault(path, layout) && runtime.GOOS != "windows" &&
 			info.Mode().Perm() != layout.FileMode.Perm() {
 			return fmt.Errorf("jsonl lock path has mode %o; want %o", info.Mode().Perm(), layout.FileMode.Perm())
+		}
+		if err := validateLayoutSecurityFile(layout, layout.LockPath, 4<<10); err != nil {
+			return err
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -610,14 +682,21 @@ func withLayoutLockModeContext(
 		}
 		return errors.Join(statErr, lstatErr, lock.Close())
 	}
-	if create && (!lockExisted || layout != defaultLayout(path)) {
+	if layout.Security != nil && !lockExisted {
+		if err := secureLayoutSecurityFile(layout, layout.LockPath, 4<<10); err != nil {
+			return errors.Join(err, lock.Close())
+		}
+	} else if layout.Security == nil && create && (!lockExisted || !layoutIsDefault(path, layout)) {
 		if err := lock.Chmod(layout.FileMode); err != nil {
 			return errors.Join(err, lock.Close())
 		}
-	} else if runtime.GOOS != "windows" && opened.Mode().Perm() != layout.FileMode.Perm() {
+	} else if layout.Security == nil && runtime.GOOS != "windows" && opened.Mode().Perm() != layout.FileMode.Perm() {
 		return errors.Join(fmt.Errorf(
 			"jsonl lock path has mode %o; want %o", opened.Mode().Perm(), layout.FileMode.Perm(),
 		), lock.Close())
+	}
+	if err := validateLayoutSecurityFile(layout, layout.LockPath, 4<<10); err != nil {
+		return errors.Join(err, lock.Close())
 	}
 	unlock, err := acquireLayoutLock(ctx, lock, layout.LockTimeout)
 	if err != nil {
@@ -644,11 +723,16 @@ func validateLayoutDirectory(path string, layout Layout) error {
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return fmt.Errorf("jsonl parent must be a non-symlink directory: %s", directory)
 	}
-	if layout != defaultLayout(path) && runtime.GOOS != "windows" &&
+	if !layoutIsDefault(path, layout) && runtime.GOOS != "windows" &&
 		info.Mode().Perm() != layout.DirectoryMode.Perm() {
 		return fmt.Errorf(
 			"jsonl parent has mode %o; want %o", info.Mode().Perm(), layout.DirectoryMode.Perm(),
 		)
+	}
+	if layout.Security != nil {
+		if err := layout.Security.ValidateJSONLDirectory(directory); err != nil {
+			return fmt.Errorf("validate JSONL directory security: %w", err)
+		}
 	}
 	return nil
 }
@@ -696,9 +780,13 @@ func writeFull(writer io.Writer, data []byte) error {
 }
 
 func prepareRotationInputs(path string, maxArchives int, maxBytes int64) error {
+	return prepareRotationInputsWithLayout(path, maxArchives, maxBytes, defaultLayout(path))
+}
+
+func prepareRotationInputsWithLayout(path string, maxArchives int, maxBytes int64, layout Layout) error {
 	for index := maxArchives; index >= 0; index-- {
 		candidate := archivePath(path, index)
-		if _, err := trimTail(candidate, maxBytes); err != nil {
+		if _, err := trimTailWithLayout(candidate, maxBytes, layout); err != nil {
 			return err
 		}
 	}
@@ -821,7 +909,10 @@ func createAppendBackupWithLayout(path string, layout Layout, index int, maxByte
 	if !info.Mode().IsRegular() {
 		return appendJournalBackup{}, fmt.Errorf("jsonl archive is not a regular file: %s", source)
 	}
-	if layout != defaultLayout(path) && runtime.GOOS != "windows" &&
+	if err := validateLayoutSecurityFile(layout, source, maxBytes); err != nil {
+		return appendJournalBackup{}, err
+	}
+	if !layoutIsDefault(path, layout) && runtime.GOOS != "windows" &&
 		info.Mode().Perm() != layout.FileMode.Perm() {
 		return appendJournalBackup{}, fmt.Errorf(
 			"jsonl archive has mode %o; want %o: %s", info.Mode().Perm(), layout.FileMode.Perm(), source,
@@ -831,6 +922,9 @@ func createAppendBackupWithLayout(path string, layout Layout, index int, maxByte
 	backup.Mode = uint32(info.Mode().Perm())
 	backupPath := appendBackupPathWithLayout(layout, index)
 	if _, err := os.Lstat(backupPath); err == nil {
+		if err := validateLayoutSecurityFile(layout, backupPath, maxBytes); err != nil {
+			return appendJournalBackup{}, err
+		}
 		if err := os.Remove(backupPath); err != nil {
 			return appendJournalBackup{}, fmt.Errorf("remove stale JSONL append backup: %w", err)
 		}
@@ -843,18 +937,24 @@ func createAppendBackupWithLayout(path string, layout Layout, index int, maxByte
 			return appendJournalBackup{}, readErr
 		}
 		backupMode := layout.FileMode
-		if layout == defaultLayout(path) {
+		if layoutIsDefault(path, layout) {
 			backupMode = info.Mode().Perm()
 		}
-		if _, writeErr := atomicfile.WriteIfChanged(backupPath, data, backupMode); writeErr != nil {
+		changed, writeErr := atomicfile.WriteIfChanged(backupPath, data, backupMode)
+		if writeErr != nil {
 			return appendJournalBackup{}, fmt.Errorf("write JSONL append backup: %w", writeErr)
+		}
+		if changed {
+			if secureErr := secureLayoutSecurityFile(layout, backupPath, maxBytes); secureErr != nil {
+				return appendJournalBackup{}, secureErr
+			}
 		}
 	}
 	expectedMode := info.Mode().Perm()
-	if layout != defaultLayout(path) {
+	if !layoutIsDefault(path, layout) {
 		expectedMode = layout.FileMode
 	}
-	digest, err := digestBoundedBackupWithMode(backupPath, maxBytes, expectedMode)
+	digest, err := digestBoundedBackupWithLayout(backupPath, maxBytes, expectedMode, layout)
 	if err != nil {
 		return appendJournalBackup{}, err
 	}
@@ -862,8 +962,8 @@ func createAppendBackupWithLayout(path string, layout Layout, index int, maxByte
 	return backup, nil
 }
 
-func digestBoundedBackupWithMode(path string, maxBytes int64, mode os.FileMode) (string, error) {
-	data, err := readBoundedBackupWithMode(path, maxBytes, mode)
+func digestBoundedBackupWithLayout(path string, maxBytes int64, mode os.FileMode, layout Layout) (string, error) {
+	data, err := readBoundedBackupWithLayout(path, maxBytes, mode, layout)
 	if err != nil {
 		return "", err
 	}
@@ -875,7 +975,10 @@ func readBoundedBackup(path string, maxBytes int64) ([]byte, error) {
 	return boundedio.ReadRegularFile(path, maxBytes)
 }
 
-func readBoundedBackupWithMode(path string, maxBytes int64, mode os.FileMode) ([]byte, error) {
+func readBoundedBackupWithLayout(path string, maxBytes int64, mode os.FileMode, layout Layout) ([]byte, error) {
+	if err := validateLayoutSecurityFile(layout, path, maxBytes); err != nil {
+		return nil, err
+	}
 	var data []byte
 	err := boundedio.WithRegularFileSnapshot(path, maxBytes, func(file *os.File, info os.FileInfo) error {
 		if runtime.GOOS != "windows" && info.Mode().Perm() != mode.Perm() {
@@ -907,8 +1010,21 @@ func writeAppendJournalWithLayout(path string, layout Layout, journal appendJour
 	if len(body) > maxAppendJournalBytes {
 		return fmt.Errorf("JSONL append journal is %d bytes; maximum is %d", len(body), maxAppendJournalBytes)
 	}
-	if _, err := atomicfile.WriteIfChanged(layout.JournalPath, body, layout.JournalMode); err != nil {
+	if _, err := os.Lstat(layout.JournalPath); err == nil {
+		if err := validateLayoutSecurityFile(layout, layout.JournalPath, maxAppendJournalBytes); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	changed, err := atomicfile.WriteIfChanged(layout.JournalPath, body, layout.JournalMode)
+	if err != nil {
 		return fmt.Errorf("write JSONL append journal: %w", err)
+	}
+	if changed {
+		if err := secureLayoutSecurityFile(layout, layout.JournalPath, maxAppendJournalBytes); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -918,7 +1034,7 @@ func readAppendJournal(path string) (*appendJournal, error) {
 }
 
 func readAppendJournalWithLayout(path string, layout Layout) (*appendJournal, error) {
-	body, err := readBoundedBackupWithMode(layout.JournalPath, maxAppendJournalBytes, layout.JournalMode)
+	body, err := readBoundedBackupWithLayout(layout.JournalPath, maxAppendJournalBytes, layout.JournalMode, layout)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -948,11 +1064,14 @@ func readAppendJournalWithLayout(path string, layout Layout) (*appendJournal, er
 	}
 	wantLayout := layoutIdentity(path, layout)
 	if journal.LayoutIdentity == "" {
-		if layout != defaultLayout(path) {
+		if !layoutIsDefault(path, layout) {
 			return nil, errors.New("custom JSONL append journal lacks its exact layout identity")
 		}
 	} else if journal.LayoutIdentity != wantLayout {
-		return nil, errors.New("JSONL append journal belongs to a different layout")
+		legacyIdentity := layoutIdentityWithSecurity(path, layout, false)
+		if layout.Security == nil || journal.LayoutIdentity != legacyIdentity {
+			return nil, errors.New("JSONL append journal belongs to a different layout")
+		}
 	}
 	return &journal, nil
 }
@@ -1060,11 +1179,11 @@ func rollbackAppendJournalWithLayout(path string, layout Layout, journal appendJ
 				continue
 			}
 			mode := os.FileMode(backup.Mode)
-			if layout != defaultLayout(path) {
+			if !layoutIsDefault(path, layout) {
 				mode = layout.FileMode
 			}
-			data, err := readBoundedBackupWithMode(
-				appendBackupPathWithLayout(layout, backup.Index), journal.MaxBytes, mode,
+			data, err := readBoundedBackupWithLayout(
+				appendBackupPathWithLayout(layout, backup.Index), journal.MaxBytes, mode, layout,
 			)
 			if err != nil {
 				return err
@@ -1074,15 +1193,28 @@ func rollbackAppendJournalWithLayout(path string, layout Layout, journal appendJ
 				return fmt.Errorf("JSONL append backup digest mismatch for archive %d", backup.Index)
 			}
 			restoreMode := os.FileMode(backup.Mode)
-			if layout != defaultLayout(path) {
+			if !layoutIsDefault(path, layout) {
 				restoreMode = layout.FileMode
 			}
-			if _, err := atomicfile.WriteIfChanged(destination, data, restoreMode); err != nil {
+			if _, err := os.Lstat(destination); err == nil {
+				if err := validateLayoutSecurityFile(layout, destination, journal.MaxBytes); err != nil {
+					return err
+				}
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			changed, err := atomicfile.WriteIfChanged(destination, data, restoreMode)
+			if err != nil {
 				return fmt.Errorf("restore JSONL append backup: %w", err)
+			}
+			if changed {
+				if err := secureLayoutSecurityFile(layout, destination, journal.MaxBytes); err != nil {
+					return err
+				}
 			}
 		}
 	} else if journal.LiveExisted {
-		if err := truncateRegularFile(path, journal.LiveSize); err != nil {
+		if err := truncateRegularFileWithLayout(path, journal.LiveSize, journal.MaxBytes, layout); err != nil {
 			return fmt.Errorf("truncate interrupted JSONL append: %w", err)
 		}
 	} else if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -1095,7 +1227,10 @@ func rollbackAppendJournalWithLayout(path string, layout Layout, journal appendJ
 	return finishAppendJournalWithLayout(path, layout, journal)
 }
 
-func truncateRegularFile(path string, size int64) error {
+func truncateRegularFileWithLayout(path string, size, maximum int64, layout Layout) error {
+	if err := validateLayoutSecurityFile(layout, path, maximum); err != nil {
+		return err
+	}
 	before, err := os.Lstat(path)
 	if err != nil {
 		return err
@@ -1125,7 +1260,10 @@ func truncateRegularFile(path string, size int64) error {
 	truncateErr := file.Truncate(size)
 	syncErr := file.Sync()
 	closeErr := file.Close()
-	return errors.Join(truncateErr, syncErr, closeErr)
+	if err := errors.Join(truncateErr, syncErr, closeErr); err != nil {
+		return err
+	}
+	return validateLayoutSecurityFile(layout, path, maximum)
 }
 
 func finishAppendJournalWithLayout(path string, layout Layout, journal appendJournal) error {
@@ -1171,18 +1309,28 @@ func wrapAppendCleanupError(err error) error {
 	return fmt.Errorf("clean up JSONL append backups: %w", err)
 }
 
-func trimTail(path string, maxBytes int64) (int64, error) {
-	original, kept, data, mode, err := tailData(path, maxBytes)
+func trimTailWithLayout(path string, maxBytes int64, layout Layout) (int64, error) {
+	original, kept, data, mode, err := tailDataWithLayout(path, maxBytes, layout)
 	if err != nil || original == kept {
 		return 0, err
 	}
-	if _, err := atomicfile.WriteIfChanged(path, data, mode); err != nil {
+	changed, err := atomicfile.WriteIfChanged(path, data, mode)
+	if err != nil {
 		return 0, err
+	}
+	if changed {
+		if err := secureLayoutSecurityFile(layout, path, maxBytes); err != nil {
+			return 0, err
+		}
 	}
 	return original - kept, nil
 }
 
 func tailData(path string, maxBytes int64) (int64, int64, []byte, os.FileMode, error) {
+	return tailDataWithLayout(path, maxBytes, defaultLayout(path))
+}
+
+func tailDataWithLayout(path string, maxBytes int64, layout Layout) (int64, int64, []byte, os.FileMode, error) {
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return 0, 0, nil, 0, nil
@@ -1192,6 +1340,9 @@ func tailData(path string, maxBytes int64) (int64, int64, []byte, os.FileMode, e
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return 0, 0, nil, 0, fmt.Errorf("JSONL path must be a non-symlink regular file: %s", path)
+	}
+	if err := validateLayoutSecurityFile(layout, path, maxBytes); err != nil {
+		return 0, 0, nil, 0, err
 	}
 	if info.Size() <= maxBytes {
 		return info.Size(), info.Size(), nil, info.Mode().Perm(), nil

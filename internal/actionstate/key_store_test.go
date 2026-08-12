@@ -46,13 +46,11 @@ func TestIdentityKeyRotationLeavesOldGenerationActiveWhenStateExists(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	actionDir := filepath.Join(home, "projects", "0123456789abcdef", "action")
-	if err := os.MkdirAll(actionDir, 0o700); err != nil {
+	actionDir, err := ensurePrivateSubdirectories(home, "projects", "0123456789abcdef", "action")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(actionDir, "state.json"), []byte("dependent"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writePrivateTestFile(t, filepath.Join(actionDir, "state.json"), []byte("dependent"))
 	if _, err := RotateIdentityKey(home, now.Add(time.Second)); err == nil || !strings.Contains(err.Error(), "dependent action state") {
 		t.Fatalf("rotation error = %v", err)
 	}
@@ -68,8 +66,8 @@ func TestIdentityKeyStrictlyRejectsSymlinkAndUnknownFields(t *testing.T) {
 	if err := os.WriteFile(other, []byte(`{"format_version":"1"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	actionDir := filepath.Join(home, "action")
-	if err := os.MkdirAll(actionDir, 0o700); err != nil {
+	actionDir, err := ensurePrivateSubdirectories(home, "action")
+	if err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(actionDir, "identity-key.json")

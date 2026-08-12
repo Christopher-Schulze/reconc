@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 
 	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/boundedio"
@@ -242,7 +241,7 @@ func (s *Store) loadRecordsLocked() ([]Record, error) {
 	}
 	records := make([]Record, 0)
 	for _, path := range paths {
-		body, err := boundedio.ReadRegularFile(path, MaxLiveBytes)
+		body, err := s.storage.ReadPrivateFile(filepath.Base(path), MaxLiveBytes)
 		if err != nil {
 			return nil, ledgerError(action.ReasonLedgerUnavailable, "read action ledger file "+filepath.Base(path), err)
 		}
@@ -281,8 +280,8 @@ func (s *Store) validateArchiveSet() error {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() > MaxLiveBytes {
 			return ledgerError(action.ReasonLedgerUnavailable, "action ledger file must be a bounded non-symlink regular file: "+path, nil)
 		}
-		if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
-			return ledgerError(action.ReasonLedgerUnavailable, fmt.Sprintf("action ledger file %s has mode %o; want 600", path, info.Mode().Perm()), nil)
+		if err := s.storage.ValidateJSONLFile(path, MaxLiveBytes); err != nil {
+			return ledgerError(action.ReasonLedgerUnavailable, "validate private action ledger file "+filepath.Base(path), err)
 		}
 		exists[index] = true
 	}

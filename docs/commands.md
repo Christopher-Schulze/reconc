@@ -113,9 +113,8 @@ plumbing, not user configuration.
 
 ## Action Plane commands
 
-`reconc why action` is implemented in unreleased source version `v0.9.6` and is
-documented under Explain and remediate. The published v0.9.5 release contains
-none of the commands in this section.
+`reconc why action` is implemented in source and release version `v0.9.6` and
+is documented under Explain and remediate.
 
 ### `reconc action key init [--reconc-home PATH] [--json]`
 

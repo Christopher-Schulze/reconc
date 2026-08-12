@@ -3,14 +3,26 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 go_cmd="${GO:-go}"
-fuzz_time="${FUZZ_TIME:-2s}"
+fuzz_time="${FUZZ_TIME:-500x}"
+fuzz_minimize="${FUZZ_MINIMIZE:-10x}"
+fuzz_parallel="${FUZZ_PARALLEL:-1}"
+fuzz_cache="$(mktemp -d "${TMPDIR:-/tmp}/reconc-fuzz-cache.XXXXXX")"
+trap 'rm -rf "$fuzz_cache"' EXIT INT HUP TERM
 
 if (($# != 0)); then
-  printf 'usage: FUZZ_TIME=2s GO=go %s\n' "${0##*/}" >&2
+  printf 'usage: FUZZ_TIME=500x FUZZ_MINIMIZE=10x FUZZ_PARALLEL=1 GO=go %s\n' "${0##*/}" >&2
   exit 64
 fi
 if [[ -z "$fuzz_time" ]]; then
   printf 'FUZZ_TIME must not be empty\n' >&2
+  exit 64
+fi
+if [[ -z "$fuzz_minimize" ]]; then
+  printf 'FUZZ_MINIMIZE must not be empty\n' >&2
+  exit 64
+fi
+if [[ ! "$fuzz_parallel" =~ ^[1-9][0-9]*$ ]] || ((fuzz_parallel > 64)); then
+  printf 'FUZZ_PARALLEL must be an integer between 1 and 64\n' >&2
   exit 64
 fi
 
@@ -24,16 +36,18 @@ run_module() {
       printf 'fuzz %s %s (%s)\n' "$package" "$target" "$fuzz_time"
       (
         cd "$module_root"
-        "$go_cmd" test -run '^$' -fuzz "^${target}$" -fuzztime "$fuzz_time" "$package"
+        GOCACHE="$fuzz_cache" "$go_cmd" test -run '^$' -parallel "$fuzz_parallel" \
+          -fuzz "^${target}$" -fuzztime "$fuzz_time" \
+          -fuzzminimizetime "$fuzz_minimize" "$package"
       )
       count=$((count + 1))
     done < <(
       cd "$module_root"
-      "$go_cmd" test -run '^$' -list '^Fuzz' "$package" |
+      GOCACHE="$fuzz_cache" "$go_cmd" test -run '^$' -list '^Fuzz' "$package" |
         awk '/^Fuzz[A-Za-z0-9_]+$/ { print }' |
         LC_ALL=C sort
     )
-  done < <(cd "$module_root" && "$go_cmd" list ./... | LC_ALL=C sort)
+  done < <(cd "$module_root" && GOCACHE="$fuzz_cache" "$go_cmd" list ./... | LC_ALL=C sort)
   printf 'fuzz module %s: %d targets passed\n' "$module_root" "$count"
 }
 

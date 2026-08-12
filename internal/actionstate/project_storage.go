@@ -7,6 +7,8 @@ import (
 	"reconc.dev/reconc/internal/retention"
 )
 
+const privateJSONLSecurityIdentity = "reconc-private-project-jsonl-v1"
+
 // PrivateProjectStorage is the narrow private filesystem and keyed-identity
 // capability shared with Action Plane persistence owners. Values can only be
 // obtained from a validated Store and never expose key material.
@@ -148,6 +150,56 @@ func (s PrivateProjectStorage) PublishPrivateFile(name string, body []byte) erro
 		return err
 	}
 	return publishPrivateFile(path, body)
+}
+
+// JSONLSecurityIdentity binds durable JSONL journals to Reconc's private-file
+// contract instead of treating modes alone as sufficient on Windows.
+func (s PrivateProjectStorage) JSONLSecurityIdentity() string {
+	return privateJSONLSecurityIdentity
+}
+
+// ValidateJSONLDirectory verifies that JSONL state remains in this exact
+// validated private project directory.
+func (s PrivateProjectStorage) ValidateJSONLDirectory(path string) error {
+	if err := s.Validate(); err != nil {
+		return err
+	}
+	if filepath.Clean(path) != path || path != s.directory {
+		return fmt.Errorf("JSONL directory is outside private project storage")
+	}
+	return nil
+}
+
+// SecureJSONLFile applies the private-file contract to a newly published JSONL
+// file. Existing files are validated before JSONL calls this method.
+func (s PrivateProjectStorage) SecureJSONLFile(path string) error {
+	if err := s.validateJSONLFilePath(path); err != nil {
+		return err
+	}
+	return securePublishedPrivateFile(path)
+}
+
+// ValidateJSONLFile verifies one bounded private JSONL file without exposing
+// its contents or repairing an existing unsafe object.
+func (s PrivateProjectStorage) ValidateJSONLFile(path string, maximum int64) error {
+	if err := s.validateJSONLFilePath(path); err != nil {
+		return err
+	}
+	return validatePrivateRegularFile(path, maximum)
+}
+
+func (s PrivateProjectStorage) validateJSONLFilePath(path string) error {
+	if filepath.Clean(path) != path {
+		return fmt.Errorf("JSONL file path is not clean")
+	}
+	expected, err := s.privateFilePath(filepath.Base(path))
+	if err != nil {
+		return err
+	}
+	if path != expected {
+		return fmt.Errorf("JSONL file is outside private project storage")
+	}
+	return nil
 }
 
 func (s PrivateProjectStorage) privateFilePath(name string) (string, error) {

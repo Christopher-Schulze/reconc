@@ -22,9 +22,7 @@ func TestLoadApprovalAuthorityRegistryAcceptsOnlyPrivateExternalCanonicalFile(t 
 	operatorRoot := privateTestHome(t)
 	body := approvalRegistryBody(t)
 	path := filepath.Join(operatorRoot, "approval-authorities.json")
-	if err := os.WriteFile(path, body, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writePrivateTestFile(t, path, body)
 	loaded, err := LoadApprovalAuthorityRegistry(path, repository)
 	if err != nil {
 		t.Fatal(err)
@@ -48,9 +46,7 @@ func TestLoadApprovalAuthorityRegistryAcceptsOnlyPrivateExternalCanonicalFile(t 
 	}
 
 	whitespace := filepath.Join(operatorRoot, "non-canonical.json")
-	if err := os.WriteFile(whitespace, append([]byte(" "), body...), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writePrivateTestFile(t, whitespace, append([]byte(" "), body...))
 	if _, err := LoadApprovalAuthorityRegistry(whitespace, repository); err == nil {
 		t.Fatal("non-canonical approval authority registry was accepted")
 	}
@@ -61,9 +57,7 @@ func TestLoadApprovalAuthorityRegistryRejectsFilesystemSubstitutionAndBounds(t *
 	operatorRoot := privateTestHome(t)
 	body := approvalRegistryBody(t)
 	target := filepath.Join(operatorRoot, "target.json")
-	if err := os.WriteFile(target, body, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writePrivateTestFile(t, target, body)
 	link := filepath.Join(operatorRoot, "link.json")
 	if err := os.Symlink(target, link); err != nil {
 		if runtime.GOOS == "windows" {
@@ -76,9 +70,7 @@ func TestLoadApprovalAuthorityRegistryRejectsFilesystemSubstitutionAndBounds(t *
 	}
 
 	oversized := filepath.Join(operatorRoot, "oversized.json")
-	if err := os.WriteFile(oversized, bytes.Repeat([]byte{'x'}, actionapproval.MaxAuthorityRegistryBytes+1), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writePrivateTestFile(t, oversized, bytes.Repeat([]byte{'x'}, actionapproval.MaxAuthorityRegistryBytes+1))
 	if _, err := LoadApprovalAuthorityRegistry(oversized, repository); err == nil {
 		t.Fatal("oversized approval authority registry was accepted")
 	}

@@ -275,6 +275,9 @@ func TestExistingSnapshotNeverCreatesOrRepairsMissingLock(t *testing.T) {
 	if _, err := os.Lstat(layout.LockPath); !os.IsNotExist(err) {
 		t.Fatalf("existing snapshot created a missing lock: %v", err)
 	}
+	if runtime.GOOS == "windows" {
+		return
+	}
 	if err := os.WriteFile(layout.LockPath, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}

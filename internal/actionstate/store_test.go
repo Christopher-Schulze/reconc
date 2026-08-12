@@ -1185,9 +1185,7 @@ func TestBudgetStoreRejectsCrossRepositoryStateAndClosedKeyLease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(otherStore.statePath, body, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writePrivateTestFile(t, otherStore.statePath, body)
 	if _, err := otherStore.CurrentStateVersion(context.Background()); err == nil {
 		t.Fatal("state from a different repository identity was accepted")
 	} else {
@@ -1303,16 +1301,15 @@ func TestBudgetStateStrictDecoderRejectsUnknownAndOversizedInput(t *testing.T) {
 			name: "unknown field",
 			write: func(t testing.TB, store *Store) {
 				t.Helper()
-				if err := os.WriteFile(store.statePath, []byte(`{"unknown":true}`), 0o600); err != nil {
-					t.Fatal(err)
-				}
+				writePrivateTestFile(t, store.statePath, []byte(`{"unknown":true}`))
 			},
 		},
 		{
 			name: "oversized file",
 			write: func(t testing.TB, store *Store) {
 				t.Helper()
-				file, err := os.OpenFile(store.statePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+				writePrivateTestFile(t, store.statePath, nil)
+				file, err := os.OpenFile(store.statePath, os.O_WRONLY|os.O_TRUNC, 0)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -1380,7 +1377,7 @@ func TestPolicyAuthorityVerifiesFreshObservedDigest(t *testing.T) {
 func TestStorePathsRemainOutsideRepository(t *testing.T) {
 	repository := t.TempDir()
 	home := filepath.Join(repository, "operator-state")
-	if err := os.Mkdir(home, 0o700); err != nil {
+	if err := ensurePrivateDirectory(home); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := createIdentityKey(home, time.Now().UTC(), strings.NewReader(strings.Repeat("z", 32))); err != nil {

@@ -207,19 +207,19 @@ require_action "$release_workflow" "actions/attest-build-provenance"
   || fail "$ci_workflow must derive Go from go.mod in all four jobs"
 [ "$(grep -Fc 'fetch-depth: 0' "$ci_workflow")" -eq 4 ] \
   || fail "$ci_workflow must fetch full history in all four jobs"
-[ "$(grep -Fc 'fetch-depth: 0' "$release_workflow")" -eq 1 ] \
-  || fail "$release_workflow must fetch full history exactly once"
+[ "$(grep -Fc 'fetch-depth: 0' "$release_workflow")" -eq 2 ] \
+  || fail "$release_workflow must fetch full history in both release jobs"
 for workflow in "$ci_workflow" "$release_workflow"; do
   require_text "$workflow" "uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0"
 done
 [ "$(grep -Fc 'node-version: 24.18.0' "$ci_workflow")" -eq 2 ] \
   || fail "$ci_workflow must provision Node.js 24.18.0 in both executable-test jobs"
-[ "$(grep -Fc 'node-version: 24.18.0' "$release_workflow")" -eq 1 ] \
-  || fail "$release_workflow must provision Node.js 24.18.0 exactly once"
+[ "$(grep -Fc 'node-version: 24.18.0' "$release_workflow")" -eq 2 ] \
+  || fail "$release_workflow must provision Node.js 24.18.0 in both release jobs"
 [ "$(grep -Fc 'package-manager-cache: false' "$ci_workflow")" -eq 2 ] \
   || fail "$ci_workflow must disable implicit package-manager caching in both executable-test jobs"
-[ "$(grep -Fc 'package-manager-cache: false' "$release_workflow")" -eq 1 ] \
-  || fail "$release_workflow must disable implicit package-manager caching exactly once"
+[ "$(grep -Fc 'package-manager-cache: false' "$release_workflow")" -eq 2 ] \
+  || fail "$release_workflow must disable implicit package-manager caching in both release jobs"
 require_text "$ci_workflow" "uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0"
 require_text "$ci_workflow" "python-version: 3.13.14"
 require_text "$ci_workflow" "python -m pip install --require-hashes -r scripts/tests/langchain-requirements.lock"
@@ -238,20 +238,20 @@ done
 [ "$(grep -Fc 'npm pack "bun@$BUN_VERSION"' "$ci_workflow")" -eq 2 ] \
   || fail "$ci_workflow must fetch the exact Bun package in both executable-test jobs"
 # shellcheck disable=SC2016 # Match the workflow expression literally.
-[ "$(grep -Fc 'npm pack "bun@$BUN_VERSION"' "$release_workflow")" -eq 1 ] \
-  || fail "$release_workflow must fetch the exact Bun package exactly once"
+[ "$(grep -Fc 'npm pack "bun@$BUN_VERSION"' "$release_workflow")" -eq 2 ] \
+  || fail "$release_workflow must fetch the exact Bun package in both release jobs"
 # shellcheck disable=SC2016 # Match the workflow expression literally.
 [ "$(grep -Fc 'npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"' "$ci_workflow")" -eq 2 ] \
   || fail "$ci_workflow must install only the verified Bun tarball in both executable-test jobs"
 # shellcheck disable=SC2016 # Match the workflow expression literally.
-[ "$(grep -Fc 'npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"' "$release_workflow")" -eq 1 ] \
-  || fail "$release_workflow must install only the verified Bun tarball exactly once"
+[ "$(grep -Fc 'npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"' "$release_workflow")" -eq 2 ] \
+  || fail "$release_workflow must install only the verified Bun tarball in both release jobs"
 # shellcheck disable=SC2016 # Match the workflow expression literally.
 [ "$(grep -Fc 'test "$(bun --version)" = "$BUN_VERSION"' "$ci_workflow")" -eq 2 ] \
   || fail "$ci_workflow must verify the exact Bun version in both executable-test jobs"
 # shellcheck disable=SC2016 # Match the workflow expression literally.
-[ "$(grep -Fc 'test "$(bun --version)" = "$BUN_VERSION"' "$release_workflow")" -eq 1 ] \
-  || fail "$release_workflow must verify the exact Bun version exactly once"
+[ "$(grep -Fc 'test "$(bun --version)" = "$BUN_VERSION"' "$release_workflow")" -eq 2 ] \
+  || fail "$release_workflow must verify the exact Bun version in both release jobs"
 require_text "$release_workflow" "subject-checksums: dist/SHA256SUMS"
 [ "$(grep -Fc 'make publication-audit' "$ci_workflow")" -eq 1 ] \
   || fail "$ci_workflow must run the publication audit exactly once"
@@ -271,6 +271,12 @@ require_text "$release_workflow" 'test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"'
 require_text "$release_workflow" 'REPLACE_PUBLISHED: ${{ inputs.replace_published }}'
 require_text "$release_workflow" './scripts/release/publish-github-release.sh'
 require_text "$release_workflow" 'go run ./scripts/release/schema-assets verify-published'
+require_text "$release_workflow" "  windows-runtime:"
+require_text "$release_workflow" "    runs-on: windows-2025"
+require_text "$release_workflow" "    needs: windows-runtime"
+require_text "$release_workflow" "      - name: Test natively"
+require_text "$release_workflow" "(cd harness/template && go test ./...)"
+require_text "$release_workflow" "./scripts/tests/test-windows-installer.ps1"
 # shellcheck disable=SC2016 # Match the workflow shell expression literally.
 require_text "$release_workflow" 'make verify-release VERSION="$version"'
 if grep -Fq './scripts/release/verify-artifacts.sh dist reconc' "$release_workflow"; then

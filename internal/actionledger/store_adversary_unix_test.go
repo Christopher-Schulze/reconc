@@ -14,6 +14,13 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+func makeLedgerFileUnsafe(t testing.TB, path string) {
+	t.Helper()
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestStoreRejectsSymlinkAndSpecialFilesWithoutBlocking(t *testing.T) {
 	tests := []struct {
 		name   string

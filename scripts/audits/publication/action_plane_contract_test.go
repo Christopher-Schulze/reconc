@@ -17,7 +17,7 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 
 	assertContainsAll(t, "RECONC-0008", rfc,
 		"Status: Draft",
-		"Implementation state: partially implemented in unreleased source version",
+		"Implementation state: partially implemented in source and release version",
 		"TASK 154 implements strict action authoring",
 		"TASK 155 implements the pure",
 		"TASK 156 implements strict format-2 action scenarios",
@@ -33,7 +33,7 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 	)
 	assertContainsAll(t, "architecture", architecture,
 		"## Go-Only Action Plane (Draft)",
-		"unreleased v0.9.6 source implements strict action",
+		"v0.9.6 implements strict action",
 		"transport-neutral pure evaluator now implements strict",
 		"`internal/actioninspect` now strictly",
 		"Action Ledger records typed payload-free lifecycle evidence",
@@ -46,7 +46,7 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 	)
 	assertContainsAll(t, "documentation", documentation,
 		"## Go-Only Action Plane",
-		"Unreleased source version `v0.9.6` implements strict",
+		"Source and release version `v0.9.6` implements strict",
 		"`reconc impact` invokes that production evaluator",
 		"`reconc action log tail|stats|verify|export`",
 		"`reconc mcp gateway` owns one operator-selected downstream stdio MCP process",
@@ -55,7 +55,7 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 	)
 	assertContainsAll(t, "commands", commands,
 		"## Action Plane commands",
-		"`reconc why action` is implemented in unreleased source version `v0.9.6`",
+		"`reconc why action` is implemented in source and release version `v0.9.6`",
 		"### `reconc action log tail",
 		"### `reconc action log stats",
 		"### `reconc action log verify",

@@ -4,7 +4,7 @@ Status: Draft
 
 Contract family: `reconc.action/v1`
 
-Implementation state: partially implemented in unreleased source version
+Implementation state: partially implemented in source and release version
 `v0.9.6`. TASK 154 implements strict action authoring, canonical action
 compilation and v4 migration, immutable matcher programs, the legacy MCP
 compatibility view, and `reconc why action`. TASK 155 implements the pure
@@ -18,8 +18,7 @@ delta manifests, and bounded text, JSON, JUnit, SARIF, and GitHub output. TASK
 157 implements trusted operator and host context bindings, domain-separated
 keyed identities, explicit identity-key leases and rotation blocking, compiled
 cumulative budgets, exact evaluator budget snapshots, and a private bounded
-crash-consistent multi-process reservation store. The published v0.9.5 binary
-has none of those additions. TASK 158 implements approval disclosure policy,
+crash-consistent multi-process reservation store. TASK 158 implements approval disclosure policy,
 canonical authority requests and signed approve or reject receipts, strict
 operator-owned key registries, exact current MCP input-required and legacy
 form-elicitation mappings, atomic
@@ -982,6 +981,10 @@ compatibility contract. It may reuse proven JSONL, locking, rotation, journal,
 and hash-chain primitives. It is a tamper-evident retained ledger, not immutable
 or permanent storage. Verification reports retained range, archive continuity,
 detached head, dropped-history boundary, and event completeness independently.
+The live file, archives, lock, journal, and recovery backups all use one
+layout-bound private-filesystem contract. Existing permission or ACL drift
+fails without repair; newly published files are secured and revalidated, with
+a protected current-user-only DACL required on Windows.
 
 Recording policy is `required`, `best_effort`, or `off` and defaults to
 `required`. Required pre-decision recording
@@ -1326,7 +1329,7 @@ configuration and approval-authority files must be outside the canonical
 repository and outside any path writable by the agent for independent-authority
 claims; otherwise startup refuses that claim.
 
-`reconc why action` is implemented in unreleased source version `v0.9.6` and
+`reconc why action` is implemented in source and release version `v0.9.6` and
 explains only the compiled contract; it does not claim enforcement. `reconc
 action log tail|stats|verify|export` is also implemented: every read verifies
 the retained chain first, absent state is an empty non-mutating result, and

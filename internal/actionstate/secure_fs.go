@@ -114,6 +114,12 @@ func readPrivateRegularFile(path string, maxBytes int64) ([]byte, error) {
 	return body, nil
 }
 
+func validatePrivateRegularFile(path string, maxBytes int64) error {
+	return boundedio.WithRegularFileSnapshot(path, maxBytes, func(file *os.File, info os.FileInfo) error {
+		return validatePrivateFile(file, info)
+	})
+}
+
 type heldLock struct {
 	file   *os.File
 	unlock func() error

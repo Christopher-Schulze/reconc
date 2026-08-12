@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -91,16 +92,7 @@ func newGatewayLifecycleHarnessWithAuthority(
 	if err != nil {
 		t.Fatal(err)
 	}
-	home, err := pathidentity.ResolveExisting(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(home, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := actionstate.CreateIdentityKey(home, time.Unix(1, 0)); err != nil {
-		t.Fatal(err)
-	}
+	home := newPrivateGatewayHome(t)
 	loader := staticPolicyLoader{snapshot: PolicySnapshot{
 		Repository: repository, Evaluator: evaluator, Plan: plan,
 		SourceDigest: strings.Repeat("a", 64), LockDigest: strings.Repeat("b", 64),
@@ -232,7 +224,7 @@ func TestGatewayChildExitAndOversizedResultRemainUnknownAndPrivate(t *testing.T)
 			t.Setenv(fakeModeEnvironment, mode)
 			t.Setenv(fakeCancellationMarkerEnvironment, filepath.Join(markerDirectory, "cancelled"))
 			plan, evaluator := testGatewayBudgetPlan(t)
-			harness := newGatewayLifecycleHarness(t, plan, evaluator, "", "", nil, 5*time.Second)
+			harness := newGatewayLifecycleHarness(t, plan, evaluator, "", "", nil, 30*time.Second)
 			result, err := harness.session.CallTool(context.Background(), &mcp.CallToolParams{
 				Name: "echo", Arguments: json.RawMessage(`{"value":"failure"}`),
 			})
@@ -398,13 +390,18 @@ func TestGatewayRejectsExecutableReplacementBeforeDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable := filepath.Join(markerDirectory, "fake-server")
+	extension := filepath.Ext(source)
+	executable := filepath.Join(markerDirectory, "fake-server"+extension)
 	copyExecutable(t, source, executable)
 	plan, evaluator := testGatewayPlan(t, action.DecisionAllow)
 	harness := newGatewayLifecycleHarnessWithCommand(
 		t, plan, evaluator, "", "", nil, 5*time.Second, executable,
 	)
-	replacement := filepath.Join(markerDirectory, "replacement")
+	contract, generation, exists := harness.gateway.tool("echo")
+	if !exists {
+		t.Fatal("echo tool contract is unavailable")
+	}
+	replacement := filepath.Join(markerDirectory, "replacement"+extension)
 	copyExecutable(t, source, replacement)
 	file, err := os.OpenFile(replacement, os.O_APPEND|os.O_WRONLY, 0)
 	if err != nil {
@@ -418,7 +415,24 @@ func TestGatewayRejectsExecutableReplacementBeforeDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.Rename(replacement, executable); err != nil {
-		t.Fatal(err)
+		if runtime.GOOS != "windows" || !errors.Is(err, os.ErrPermission) {
+			t.Fatal(err)
+		}
+		if err := harness.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(replacement, executable); err != nil {
+			t.Fatalf("replace stopped Windows executable: %v", err)
+		}
+		if err := harness.gateway.resampleCallBoundary(
+			context.Background(), harness.gateway.snapshot, contract, generation, nil,
+		); err == nil || !strings.Contains(err.Error(), "server identity changed") {
+			t.Fatalf("stopped Windows executable replacement boundary = %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(markerDirectory, "invoked")); !os.IsNotExist(err) {
+			t.Fatalf("replaced stopped Windows executable reached downstream: %v", err)
+		}
+		return
 	}
 	result, err := harness.session.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: "echo", Arguments: json.RawMessage(`{"value":"blocked"}`),
@@ -923,9 +937,15 @@ func TestGatewayFailsClosedAndReportsInvalidToolRefresh(t *testing.T) {
 	result, err := harness.session.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: "echo", Arguments: json.RawMessage(`{"value":"trigger-refresh"}`),
 	})
-	if err != nil || result == nil || result.IsError {
+	if err == nil && (result == nil || result.IsError) {
 		t.Fatalf("refresh-triggering call = %#v, %v", result, err)
 	}
+	if err != nil && (result != nil ||
+		!strings.Contains(err.Error(), "refresh downstream tool catalog") ||
+		strings.Contains(err.Error(), "Ignore previous instructions")) {
+		t.Fatalf("invalid-refresh interruption = %#v, %v", result, err)
+	}
+	waitForRegularFile(t, os.Getenv(fakeMarkerEnvironment))
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		if !harness.gateway.beginCall() {

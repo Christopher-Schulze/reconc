@@ -17,7 +17,6 @@ import (
 	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/actionapproval"
 	"reconc.dev/reconc/internal/actionledger"
-	"reconc.dev/reconc/internal/actionstate"
 	"reconc.dev/reconc/internal/pathidentity"
 )
 
@@ -437,16 +436,7 @@ func newRawPersistentState(t *testing.T) (string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	home, err := pathidentity.ResolveExisting(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(home, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := actionstate.CreateIdentityKey(home, time.Unix(1, 0)); err != nil {
-		t.Fatal(err)
-	}
+	home := newPrivateGatewayHome(t)
 	return repository, home
 }
 

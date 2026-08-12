@@ -65,9 +65,9 @@ validation uses `github.com/santhosh-tekuri/jsonschema/v6` entirely offline.
 ## Current Release State
 
 The current source line is `v0.9.x`; the source version is `v0.9.6`.
-The latest published release is the immutable `reconc-v0.9.5` tag. Source
-commits ahead of that tag remain unreleased even while they report source
-version `v0.9.6`; version text alone is not release identity. Core tests, race
+The latest published release is the immutable `reconc-v0.9.6` tag. Source
+commits after that tag remain unreleased even while they report the same source
+version; version text alone is not release identity. Core tests, race
 tests, vet, static analysis, and release artifact generation must pass before
 publication. Coverage is measured across each complete Go module, not inferred
 from package-local percentages.

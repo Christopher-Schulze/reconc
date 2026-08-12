@@ -118,7 +118,7 @@ Core invariants are deliberately strict:
 | Control surface | What Reconc provides |
 | --- | --- |
 | Policy compiler | Compiles repository instructions, YAML policy, packs, templates, and provenance into a portable lockfile. Unknown fields, stale sources, schema drift, invalid globs, unsupported rule kinds, and non-portable current roots fail closed. |
-| Action policy, trusted context, and budgets | Unreleased v0.9.6 source strictly compiles `actions` and compatible legacy `mcp` authoring into one canonical format-6 action plan, explains and simulates it offline, and routes explicitly configured tools through `reconc mcp gateway` with private keyed identities, crash-safe cumulative budgets, approvals, result inspection, and a decision ledger. |
+| Action policy, trusted context, and budgets | v0.9.6 strictly compiles `actions` and compatible legacy `mcp` authoring into one canonical format-6 action plan, explains and simulates it offline, and routes explicitly configured tools through `reconc mcp gateway` with private keyed identities, crash-safe cumulative budgets, approvals, result inspection, and a decision ledger. |
 | Action decision ledger | `reconc action log tail|stats|verify|export` reads a separate private, tamper-evident, privacy-bounded ledger with exact retained-chain verification and explicit lifecycle gaps. Export produces only verified synthetic minimized Impact Lab cases and never reconstructs raw arguments or results. |
 | Action control evidence | `reconc action evidence export|verify` derives deterministic local JSON or Markdown from current policy, verified retained history, read-only state, reverified approval receipts, and exact scenarios. Built-in SOC 2, GDPR, HIPAA Security Rule, and EU AI Act mappings describe bounded technical evidence only; organizational assessment, legal determination, and external assurance remain outside Reconc. |
 | Scope and change control | Records and evaluates reads, writes, commands, claims, protected paths, coupled changes, generated files, secret state, destructive commands, and out-of-scope edits or deletions. |
@@ -136,8 +136,7 @@ Core invariants are deliberately strict:
 
 The Go-only `reconc mcp gateway` is live enforcement only for tools explicitly
 routed through it. Direct access to the downstream server, native LangChain
-tools, and host-native tools bypass that boundary. The published v0.9.5 release
-does not contain the format-6 Action Plane or gateway additions.
+tools, and host-native tools bypass that boundary.
 
 Current source is proven against LangChain's official MCP adapter over local
 stdio, without a Reconc Python adapter, model call, service, or runtime network
@@ -264,15 +263,15 @@ state exactly what remains outside the boundary.
 
 ## Install and Bootstrap
 
-Install the checksummed, provenance-attested v0.9.5 release once.
+Install the checksummed, provenance-attested v0.9.6 release once.
 
 ### Native release installation
 
 macOS or Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.5/install.sh \
-  | sh -s -- --version 0.9.5
+curl -fsSL https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/install.sh \
+  | sh -s -- --version 0.9.6
 export PATH="$HOME/.local/bin:$PATH"
 reconc --version
 ```
@@ -281,14 +280,14 @@ Windows x64:
 
 ```powershell
 $installer = Join-Path $env:TEMP "reconc-install.ps1"
-Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.5/install.ps1 -OutFile $installer
-& $installer -Version 0.9.5
+Invoke-WebRequest https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/install.ps1 -OutFile $installer
+& $installer -Version 0.9.6
 Remove-Item $installer
 $env:Path = "$env:LOCALAPPDATA\Programs\Reconc\bin;$env:Path"
 reconc --version
 ```
 
-The immutable `reconc-v0.9.5` tag contains both installer scripts, so these
+The immutable `reconc-v0.9.6` tag contains both installer scripts, so these
 commands do not fetch executable installation logic from mutable `main`. The
 installers:
 
@@ -1190,11 +1189,10 @@ through the private route in
 ## Status
 
 The source line is `v0.9.x`, and the current source version is `v0.9.6`.
-The latest published release is the immutable `reconc-v0.9.5` tag. Source on
-`main` is ahead of that tag and reports source version `v0.9.6`; those
-commits remain unreleased until an explicitly requested version and matching
-tag are built and published. Version text alone is not release identity; use
-the exact commit and build provenance.
+The latest published release is the immutable `reconc-v0.9.6` tag. Version text
+alone is not release identity; use the exact tag commit and build provenance.
+Any later source commit remains unreleased until an explicitly requested
+version and matching tag are built and published.
 Release artifacts are produced only by
 an explicit manual workflow dispatch that uses an existing
 `reconc-vX.Y.Z` tag as both workflow ref and input; branch-ref dispatches are

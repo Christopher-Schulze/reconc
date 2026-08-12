@@ -840,16 +840,8 @@ func writeActiveSessionIfChanged(repoRoot, sessionID string) (bool, error) {
 	if err := validateSessionID(sessionID); err != nil {
 		return false, err
 	}
-	current, err := activeSessionMatches(repoRoot, sessionID)
-	if err == nil && current {
-		return false, nil
-	}
-	// The optimistic read can overlap another session's atomic publication on
-	// Windows and briefly receive a sharing violation. Recheck under the active
-	// session lock below; persistent read or validation errors still propagate
-	// from writeActiveSessionLockedIfChanged.
 	var written bool
-	err = withActiveSessionLock(repoRoot, func() error {
+	err := withActiveSessionLock(repoRoot, func() error {
 		changed, writeErr := writeActiveSessionLockedIfChanged(repoRoot, sessionID)
 		written = changed
 		return writeErr

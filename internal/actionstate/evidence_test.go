@@ -127,9 +127,7 @@ func TestReadExistingEvidenceDoesNotRepairUnresolvedTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := []byte(`{"incomplete":true}`)
-	if err := os.WriteFile(fixture.store.transactionPath, body, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writePrivateTestFile(t, fixture.store.transactionPath, body)
 	before, err := os.Stat(fixture.store.transactionPath)
 	if err != nil {
 		t.Fatal(err)

@@ -27,8 +27,79 @@ env:
   BUN_INTEGRITY: sha512-aB6GVd42x1Y5ie1K16SF+oLGtgSkwX9hgoDdIW88pjvfTccU8F1vfpoOt34QLv0dZ1v3XimtaxPlZUG81Gx9Zg==
 
 jobs:
+  windows-runtime:
+    name: Native Windows release gate
+    runs-on: windows-2025
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ inputs.tag }}
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            harness/template/go.sum
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.18.0
+          package-manager-cache: false
+
+      - name: Set up Bun
+        run: |
+          bun_package_dir="$(mktemp -d)"
+          trap 'rm -rf "$bun_package_dir"' EXIT
+          npm pack "bun@$BUN_VERSION" --pack-destination "$bun_package_dir" --json > "$bun_package_dir/pack.json"
+          actual_bun_integrity="$(node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(data[0].integrity)' "$bun_package_dir/pack.json")"
+          test "$actual_bun_integrity" = "$BUN_INTEGRITY"
+          npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"
+          test "$(bun --version)" = "$BUN_VERSION"
+
+      - name: Download modules
+        run: |
+          go mod download
+          (cd harness/template && go mod download)
+
+      - name: Test natively
+        run: |
+          go test ./...
+          (cd harness/template && go test ./...)
+
+      - name: Build and smoke CLI
+        run: |
+          version="$(sed -n 's/^var Version = "\([^"]*\)"$/\1/p' cmd/reconc/main.go)"
+          test -n "$version"
+          make release-one TARGET=windows/amd64 VERSION="$version"
+          artifact="dist/reconc-$version-windows-amd64.exe"
+          "$artifact" --version
+          "$artifact" --help >/dev/null
+
+      - name: Test native Windows installer
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path cmd/reconc/main.go -Pattern '^var Version = "([^"]+)"$').Matches.Groups[1].Value
+          ./scripts/tests/test-windows-installer.ps1 `
+            -InstallerPath ./install.ps1 `
+            -BinaryPath "./dist/reconc-$version-windows-amd64.exe" `
+            -ExpectedVersion $version
+
   release:
     name: Build release artifacts
+    needs: windows-runtime
     runs-on: macos-15
     timeout-minutes: 45
     defaults:

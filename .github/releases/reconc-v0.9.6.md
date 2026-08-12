@@ -66,6 +66,13 @@ one exact registry.
 
 ## Fixed
 
+- Native Windows state validation accepts Windows-normalized multi-ACE DACLs
+  only when their complete effective and inherited access remains owner-only
+  and full. Action-ledger live files, archives, locks, journals, and recovery
+  backups now enforce that same private DACL contract instead of relying on
+  POSIX mode checks. Concurrent active-session publication keeps every pointer read
+  and replacement under the same lock, and release publication waits for the
+  exact tag to pass native Windows tests, binary smoke, and installer gates.
 - Schema files no longer claim mutable, missing-tag, or unreachable canonical
   locations. Historical identities remain explicit compatibility aliases and
   are never emitted as verified publication URLs.

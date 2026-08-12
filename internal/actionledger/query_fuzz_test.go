@@ -2,7 +2,6 @@ package actionledger
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -27,26 +26,25 @@ func FuzzFilterValidateAndMatch(f *testing.F) {
 func FuzzMalformedArchiveSets(f *testing.F) {
 	f.Add(uint8(1), []byte("{}\n"))
 	f.Add(uint8(6), []byte("not-json\n"))
+	fixture := newLedgerStoreFixture(f)
 	f.Fuzz(func(t *testing.T, presence uint8, input []byte) {
 		if len(input) > MaxRecordBytes {
 			input = input[:MaxRecordBytes]
 		}
-		directory := t.TempDir()
-		live := filepath.Join(directory, liveFileName)
 		for index := 0; index <= MaxArchives; index++ {
+			path := fixture.store.livePath
+			if index > 0 {
+				path += "." + string(rune('0'+index))
+			}
 			if presence&(1<<index) == 0 {
+				if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+					t.Fatal(err)
+				}
 				continue
 			}
-			path := live
-			if index > 0 {
-				path = live + "." + string(rune('0'+index))
-			}
-			if err := os.WriteFile(path, input, 0o600); err != nil {
-				t.Fatal(err)
-			}
+			writePrivateLedgerTestFile(t, fixture, path, input)
 		}
-		store := &Store{directory: directory, livePath: live}
-		_ = store.validateArchiveSet()
-		_, _ = store.loadRecordsLocked()
+		_ = fixture.store.validateArchiveSet()
+		_, _ = fixture.store.loadRecordsLocked()
 	})
 }

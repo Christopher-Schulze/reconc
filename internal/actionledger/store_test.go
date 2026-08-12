@@ -112,6 +112,16 @@ func (f *ledgerStoreFixture) append(t testing.TB, event EventType) Record {
 	return record
 }
 
+func writePrivateLedgerTestFile(t testing.TB, fixture *ledgerStoreFixture, path string, body []byte) {
+	t.Helper()
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.storage.SecureJSONLFile(path); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestStoreAppendsVerifiesAndReopensCompleteLifecycle(t *testing.T) {
 	fixture := newLedgerStoreFixture(t)
 	records := successfulBudgetLifecycle()
@@ -135,12 +145,16 @@ func TestStoreAppendsVerifiesAndReopensCompleteLifecycle(t *testing.T) {
 		t.Fatalf("reopened Verify() = %#v, %v; want %#v", second, err, report)
 	}
 	for _, name := range []string{liveFileName, headFileName, lockFileName} {
-		info, err := os.Lstat(filepath.Join(fixture.store.directory, name))
+		path := filepath.Join(fixture.store.directory, name)
+		info, err := os.Lstat(path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if info.Mode().Perm() != 0o600 {
+		if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 			t.Fatalf("%s mode = %o, want 600", name, info.Mode().Perm())
+		}
+		if err := fixture.storage.ValidateJSONLFile(path, MaxLiveBytes); err != nil {
+			t.Fatalf("%s is not private: %v", name, err)
 		}
 	}
 }
@@ -471,9 +485,7 @@ func TestStoreDetectsTamperTruncationReorderDuplicateArchiveGapAndMissingHead(t 
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(fixture.store.livePath+".2", body, 0o600); err != nil {
-					t.Fatal(err)
-				}
+				writePrivateLedgerTestFile(t, fixture, fixture.store.livePath+".2", body)
 			},
 		},
 		{
@@ -548,12 +560,8 @@ func TestStoreVerificationRejectsForeignIdentityKeyGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(fixture.store.layout.LockPath, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(fixture.store.livePath, append(body, '\n'), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writePrivateLedgerTestFile(t, fixture, fixture.store.layout.LockPath, nil)
+	writePrivateLedgerTestFile(t, fixture, fixture.store.livePath, append(body, '\n'))
 	head, err := encodeChainHead(newChainHead(sealed))
 	if err != nil {
 		t.Fatal(err)
@@ -643,9 +651,7 @@ func TestRecordingModeControlsPreDispatchFailure(t *testing.T) {
 	t.Run("best effort and required", func(t *testing.T) {
 		fixture := newLedgerStoreFixture(t)
 		fixture.append(t, EventRequestAccepted)
-		if err := os.Chmod(fixture.store.livePath, 0o644); err != nil {
-			t.Fatal(err)
-		}
+		makeLedgerFileUnsafe(t, fixture.store.livePath)
 		record := fixture.record(EventPreDecision)
 		best, err := fixture.store.Record(context.Background(), action.LedgerBestEffort, record)
 		if err != nil || best.Status != RecordingFailed || !best.Proceed || best.EvidenceComplete ||
