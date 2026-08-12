@@ -37,17 +37,22 @@ above one minute. The delayed-release regression holds the real ledger lock for
 2.5 seconds, beyond the old limit, and passed ten consecutive runs together
 with the synchronized multiprocess first-use regression.
 
-The complete coverage gate exposed an independent synchronization flaw in its
+The complete measurement run exposed an independent synchronization flaw in its
 real child-process fixture: `os.WriteFile` made the count path visible before
 writing `1\n`, so a polling reader could observe an empty file. The counter now
 serializes increments and atomically publishes complete bytes; assertions stay
 exact.
 
 Local release proof is green: `make test`, `make vet`, `make lint`, `make
-coverage`, `make fuzz`, `make self-host`, and `make release` passed. Whole-module
-coverage is 82.0734% for the root module and 83.5729% for the portable template;
-all 50 root fuzz targets passed, both modules report no known vulnerabilities,
-and the pinned real LangChain stdio integration passed on CPython 3.13.14.
+coverage`, `make fuzz`, `make self-host`, and `make release` passed. Both complete
+module coverage profiles passed as review evidence; all 50 root fuzz targets
+passed, both modules report no known vulnerabilities, and the pinned real
+LangChain stdio integration passed on CPython 3.13.14.
+
+Candidate run `31630010986` correctly rejected an earlier task note that
+recorded numeric measurement percentages. The note now records the passed
+whole-module profiles without turning review evidence into a policy threshold,
+and the exact release-trust script passes locally.
 
 ## Deviations
 
