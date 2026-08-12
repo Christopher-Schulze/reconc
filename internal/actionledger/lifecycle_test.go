@@ -497,6 +497,72 @@ func TestLifecycleEnforcesBudgetSettlementAndIdentity(t *testing.T) {
 	})
 }
 
+func TestLifecycleBindsPostResultApprovalBudgetAndDelivery(t *testing.T) {
+	tests := []struct {
+		name     string
+		status   actionapproval.Status
+		delivery DeliveryStatus
+	}{
+		{name: "approved", status: actionapproval.StatusApproved, delivery: DeliveryForwarded},
+		{name: "rejected", status: actionapproval.StatusRejected, delivery: DeliveryWithheld},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			inspection := testLedgerRecord(EventResultInspection)
+			inspection.Decision.Decision = action.DecisionRequireApproval
+			inspection.Decision.Reason = action.ReasonApprovalRequired
+			inspection.Inspection.Status = action.InspectionClean
+
+			approvalBudget := budgetLifecycleTransition(BudgetReserved)
+			approvalBudget.Decision.Phase = action.PhasePostResult
+			approvalBudget.Decision.Decision = action.DecisionRequireApproval
+			approvalBudget.Decision.Reason = action.ReasonApprovalRequired
+			approvalBudget.SelectedFields[0].Source = action.SourceResult
+			approvalBudget.Budget.ReservedDelta = BudgetDelta{ApprovalCount: 1}
+
+			pending := testLedgerRecord(EventApprovalTransition)
+			pending.Decision.Phase = action.PhasePostResult
+			pending.SelectedFields[0].Source = action.SourceResult
+			terminal := testLedgerRecord(EventApprovalTransition)
+			terminal.Decision.Phase = action.PhasePostResult
+			terminal.SelectedFields[0].Source = action.SourceResult
+			terminal.Approval.Status = test.status
+			terminal.Approval.AuthorityKeyID = "security-primary"
+			terminal.Approval.ReceiptID = "arc_" + strings.Repeat("c", 26)
+			terminal.Approval.ReceiptIdentity = "sha256:" + strings.Repeat("c", 64)
+			if test.status == actionapproval.StatusRejected {
+				terminal.Decision.Reason = action.ReasonApprovalRejected
+			}
+
+			settled := budgetLifecycleTransition(BudgetSettled)
+			settled.Budget.ReservedDelta.ApprovalCount = -1
+			if test.status == actionapproval.StatusApproved {
+				settled.Budget.ConsumedDelta.ApprovalCount = 1
+			}
+
+			delivery := testLedgerRecord(EventFinalDelivery)
+			if test.status == actionapproval.StatusApproved {
+				delivery.Decision.Decision = action.DecisionRequireApproval
+				delivery.Decision.Reason = action.ReasonApprovalRequired
+			} else {
+				delivery.Decision.Decision = action.DecisionBlock
+				delivery.Decision.Reason = action.ReasonApprovalRejected
+				delivery.Delivery.Status = DeliveryWithheld
+				delivery.Delivery.ByteLength = 0
+				delivery.Delivery.ItemCount = 0
+			}
+
+			records := successfulBudgetLifecycle()[:6]
+			records = append(records, inspection, approvalBudget, pending, terminal, settled, delivery)
+			statuses, err := BuildCallStatuses(sealLifecycle(t, records))
+			if err != nil || len(statuses) != 1 || !statuses[0].TerminalComplete ||
+				statuses[0].Approval != test.status || statuses[0].Delivery != test.delivery {
+				t.Fatalf("post-result approval lifecycle = %#v, %v", statuses, err)
+			}
+		})
+	}
+}
+
 func TestLifecycleRejectsApprovalAndBudgetOrderingBypasses(t *testing.T) {
 	approvalDecision := func() Record {
 		record := testLedgerRecord(EventPreDecision)
@@ -533,7 +599,7 @@ func TestLifecycleRejectsApprovalAndBudgetOrderingBypasses(t *testing.T) {
 				testLedgerRecord(EventRequestAccepted), approvalDecision(),
 				testLedgerRecord(EventApprovalTransition), budgetLifecycleTransition(BudgetReserved),
 			},
-			want: "reservation is duplicated or follows approval",
+			want: "event bypasses a pending approval transition",
 		},
 		{
 			name: "dispatch commitment before required approval",

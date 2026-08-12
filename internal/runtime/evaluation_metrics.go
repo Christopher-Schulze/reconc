@@ -30,6 +30,7 @@ type CompiledPolicyEvaluator struct {
 // immutable policy identities from the same decoded lock snapshot.
 type CompiledActionRuntime struct {
 	Evaluator       *action.Evaluator
+	Plan            *action.CompiledPlan
 	SourceDigest    string
 	LockDigest      string
 	ToolCount       int
@@ -122,7 +123,7 @@ func (e *CompiledPolicyEvaluator) ActionRuntime() (CompiledActionRuntime, error)
 	}
 	plan := e.plan.actions.Plan()
 	return CompiledActionRuntime{
-		Evaluator: evaluator, SourceDigest: e.plan.sourceDigest,
+		Evaluator: evaluator, Plan: e.plan.actions, SourceDigest: e.plan.sourceDigest,
 		LockDigest: e.plan.lockDigest, ToolCount: len(plan.Tools),
 		ActionRuleCount: len(plan.Rules),
 	}, nil

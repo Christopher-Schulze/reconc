@@ -26,22 +26,22 @@ single-use consumption, crash-orphan expiry, and redacted transition evidence.
 TASK 159 implements canonical detector policy, strict MCP tool-result decoding,
 offline Draft 2020-12 output-schema validation, bounded deterministic input,
 result, and progress inspection, exact annotation trust, payload-free evidence,
-safe result withholding, and detector-backed Impact Lab privacy. No command
-invokes that inspection core for live traffic yet. TASK 160 implements
+safe result withholding, and detector-backed Impact Lab privacy. TASK 161 now
+invokes that inspection core for live routed traffic. TASK 160 implements
 `actions.ledger`, canonical policy-lock format 6 and policy-config schema v4,
 the separate private format-1 retained Action Ledger, typed lifecycle and
 privacy contracts, atomic multi-process append, rotation and crash recovery,
 retained-chain and detached-head verification, bounded lifecycle queries,
 exact Impact Lab ledger assertions, and verified minimized export with explicit
-omissions. The gateway enforcement and control-evidence export remain
-unavailable until their owning tasks are complete.
+omissions. TASK 161 implements the enforcing Go MCP stdio gateway; TASK 163
+still owns control-evidence export.
 
 ## Purpose And Boundary
 
 This RFC defines one deterministic Action Plane for tool calls routed through a
 Reconc-owned boundary. It extends repository policy without creating a second
 policy engine. The same compiled action plan is consumed by evaluation, Impact
-Lab, the future MCP gateway, approvals, budgets, result inspection, and the
+Lab, the MCP gateway, approvals, budgets, result inspection, and the
 action ledger.
 
 Reconc remains one Go binary. Reconc-authored production code, adapters, test
@@ -89,7 +89,8 @@ the Action Plane is Draft:
 
 TASK 154 lowered this authoring into the canonical action plan and its migration
 tests prove exact compatibility. Existing host-runtime enforcement still uses
-that derived view until the gateway owns live Action Plane dispatch.
+that derived view; `reconc mcp gateway` owns live dispatch only for tools routed
+through its separate stdio boundary.
 
 ## Verified External Basis
 
@@ -101,12 +102,13 @@ conformance evidence, and a revision of this table before release.
 |---|---|---|
 | MCP protocol | Official specification `2026-07-28` | Tools-only current protocol |
 | MCP legacy protocol | Official specification `2025-11-25` | Tools-only compatibility where the SDK implements it |
-| MCP Go SDK | `github.com/modelcontextprotocol/go-sdk` `v1.7.0`, peeled commit `bc72835f62eb94d0fb484439f886b6885b075f36` | Pin only after TASK 161 dependency review |
+| MCP Go SDK | `github.com/modelcontextprotocol/go-sdk` `v1.7.0`, peeled commit `bc72835f62eb94d0fb484439f886b6885b075f36` | Pinned after TASK 161 dependency review |
 | LangChain MCP adapter | Official `langchain-mcp-adapters` documentation, package `0.3.2` | External consumer proof only |
 | LangChain | Official documentation and package `1.3.14` | External consumer proof only |
 
-The version snapshot is research evidence, not a current product support claim.
-TASK 161 and TASK 162 must re-verify it at implementation time.
+The MCP protocol and Go SDK snapshot is the implemented TASK 161 gateway basis.
+TASK 162 must independently re-verify the external LangChain consumer at its
+implementation time.
 
 Primary references are the
 [MCP 2026-07-28 specification](https://modelcontextprotocol.io/specification/2026-07-28),
@@ -306,9 +308,9 @@ ownership. Unknown fields always fail.
 | `actions.ledger` | Recording requirement and privacy selection | TASK 160 |
 
 Later-owned fields remain rejected by the parser until their real enforcement
-ships. `actions.ledger` is accepted because TASK 160 now owns its compiled
-policy, persistence, verification, query, and export contracts; live gateway
-emission remains TASK 161. Accepting inert security configuration is forbidden.
+ships. `actions.ledger` is accepted because TASK 160 owns its compiled policy,
+persistence, verification, query, and export contracts, and TASK 161 emits its
+live gateway lifecycle. Accepting inert security configuration is forbidden.
 
 Legacy top-level `mcp.tools` is compatibility input. Each entry lowers into one
 `actions.tools` declaration. Legacy `mcp.unclassified` lowers into
@@ -760,8 +762,8 @@ Status and explanation expose budget ID, safe scope labels, configured limits,
 consumed values, live and indeterminate reservations, reset basis, governing
 generation, provenance, completeness, and exact remediation. They never expose
 credential values, raw keyed inputs, or unrestricted call payloads.
-The current surface is a typed internal API for the later gateway and CLI; no
-public budget-state command is claimed yet.
+The gateway consumes the typed API directly; no public budget-state command is
+claimed yet.
 
 ## Approval Contract
 
@@ -1047,6 +1049,7 @@ exact, and plus one and updated aggregate math.
 | Approval-authority configuration / authority keys | 1 MiB / 256 | `internal/actionapproval` |
 | Concurrent calls / pending approvals | 4 / 4 | `internal/mcpgateway` |
 | Downstream stderr retained | 256 KiB per child | `internal/mcpgateway` |
+| One operator diagnostic line | 4 KiB | `internal/mcpgateway` |
 | Decision trace | 256 entries and 64 KiB | `internal/action` |
 | Compiled action plan | 24 MiB admitted logical bytes | `internal/compiler` |
 | Gateway admitted logical memory | 192 MiB | `internal/mcpgateway` |
@@ -1139,6 +1142,11 @@ input schema, output schema, annotations, icons, and accepted safe metadata.
 Remote schema references, executable metadata, credential hints, unsupported
 URIs, duplicate keys, and over-limit definitions are rejected. JSON Schema
 validation is local, bounded, and does not apply defaults or coercions.
+Icons are self-contained fully decoded PNG or JPEG data URIs only: remote URLs,
+animated or incompletely decoded formats, payloads above 48 KiB, dimensions
+above 2,048 pixels per side, and images above 4,194,304 pixels are rejected.
+Tool `_meta` must be absent or empty because v1 does not enforce any extension
+semantics; annotation fields remain the closed typed MCP hint set.
 
 Gateway policy outcomes use one safe tool-result envelope with:
 
@@ -1262,22 +1270,22 @@ manpage generation in the same implementation task.
 
 | Command | Contract |
 |---|---|
-| `reconc mcp gateway [repo] --server LABEL (--expect-lock-digest SHA256 \| --allow-repository-managed-policy) [trusted-context flags] -- COMMAND [ARG...]` | Start one local tool-only gateway |
+| `reconc mcp gateway [repo] --server LABEL (--expect-lock-digest SHA256 \| --allow-repository-managed-policy) --principal LABEL [trusted-context flags] -- COMMAND [ARG...]` | Start one local tool-only gateway |
 | `reconc why action [repo]` | Explain canonical action policy and lowering |
 | `reconc action log tail\|stats\|verify\|export [repo]` | Read and verify the action ledger |
 | `reconc action evidence export\|verify [repo]` | Produce local control-evidence mappings |
 
 Trusted-context flags are operator inputs before `--`:
-`--principal`, `--role`, `--environment`, repeated
-`--credential-label`, `--run-id`, `--session-id`,
-`--approval-authorities`, `--server-cwd`, repeated `--inherit-env`, and
-`--timeout`. Values after `--` are only the downstream command and argv.
+`--principal`, `--role`, `--environment`, repeated `--credential`, `--run`,
+`--session`, `--approval-authorities` paired with `--approval-policy`,
+`--server-working-dir`, repeated `--inherit-env`, `--timeout`, and
+`--reconc-home`. Values after `--` are only the downstream command and argv.
 Environment values are inherited by exact operator-selected name, bound through
 keyed value identities, and never rendered or persisted.
 
 The downstream environment is empty by default. `--inherit-env NAME` adds one
 exact inherited name after validating platform syntax; duplicates and
-case-collisions on Windows are rejected. `--server-cwd` defaults to the
+case-collisions on Windows are rejected. `--server-working-dir` defaults to the
 canonical repository root. Reconc resolves the downstream executable to an
 absolute regular executable before replacing the child environment. Operator
 configuration and approval-authority files must be outside the canonical
@@ -1289,8 +1297,8 @@ explains only the compiled contract; it does not claim enforcement. `reconc
 action log tail|stats|verify|export` is also implemented: every read verifies
 the retained chain first, absent state is an empty non-mutating result, and
 export emits only synthetic minimized verified cases with explicit omissions.
-The gateway and evidence commands remain proposed and unavailable while this
-RFC is Draft. TASK 161 owns `mcp gateway`, and TASK 163 owns evidence commands.
+`reconc mcp gateway` is implemented for explicitly routed tools. The evidence
+commands remain proposed and unavailable while TASK 163 is open.
 
 ## Schema And Versioning
 

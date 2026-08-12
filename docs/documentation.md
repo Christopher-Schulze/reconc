@@ -194,6 +194,7 @@ partial audit, run-log, checksum, release, or provenance snapshot.
 | Action approvals and state | Canonical approval objects are capped at 64 KiB, authority registries at 1 MiB, sealed request state at 4 KiB, approval TTL at 120 seconds, future issuance skew at 30 seconds, pending approvals at four, retained approval records at 65,536, and the complete private action state at 16 MiB. |
 | Action content inspection | Canonical action values are capped at 8 MiB, strings at 4 MiB, nesting at 32, and JSON items at 65,536. Output schemas are capped at 1 MiB and 8,192 items, MCP results at 4,096 content blocks, decoded binary blocks at 3 MiB, and inspection at 500 ms pre-call, 1 second post-result, or 250 ms progress. |
 | Action decision ledger | Each typed payload-free record is capped at 64 KiB, the live file and each of two archives at 4 MiB, and the detached head at 8 KiB. Appends and reads use a two-second private cross-process transaction boundary; queries return records only after the retained chain, archives, and detached head verify. |
+| MCP gateway | Protocol frames and results are capped at 10 MiB, arguments at 8 MiB, discovery at 512 tools across 64 pages and 8 MiB aggregate metadata, concurrent calls and pending approvals at four each, progress at 128 events and 1 MiB per call, retained child stderr at 256 KiB, and serialized operator diagnostics at 4 KiB per line. Tool icons are limited to 32 fully decoded self-contained PNG or JPEG data URIs, 48 KiB each, 2,048 pixels per side, and 4,194,304 pixels; remote URLs and decompression bombs fail closed. Tool `_meta` is absent or empty because extension semantics are not enforced. Definitions, frames, progress, stderr, and results are validated or inspected before exposure. |
 | Auxiliary commands and release inventory | Git, Go, attestation, offline-hook, TASK utility, generated-reference, SBOM, and publication-audit subprocesses use purpose-specific 64 KiB to 64 MiB output ceilings and fail on overflow. Release assets are hashed as stable non-symlink regular-file streams, release directories stop after the declared inventory ceiling, and committed manifests, archives, and SBOMs use strict bounded reads. |
 
 Best-effort detection is best-effort only about recommendations, not about
@@ -1280,11 +1281,11 @@ live tool call.
 Action authoring may now include strict cumulative budgets. Their compiled
 declarations and evaluator snapshots are format-6 data. Durable reservations
 live only under the operator-selected `RECONC_HOME`, never in the repository,
-and do not exist until an internal consumer explicitly opens the action-state
-owner. Existing repositories therefore gain no live interception or implicit
-state mutation merely by compiling or refreshing policy. A filesystem root is
-never accepted as `RECONC_HOME`, and an existing selected root must already be
-private because Reconc never changes its permissions implicitly.
+and are opened only when an operator explicitly launches `reconc mcp gateway`.
+Existing repositories therefore gain no live interception or implicit state
+mutation merely by compiling or refreshing policy. A filesystem root is never
+accepted as `RECONC_HOME`, and an existing selected root must already be private
+because Reconc never changes its permissions implicitly.
 
 Action authoring may also declare `actions.approvals` to select safe argument
 summaries for an external approver. The current source implements canonical
@@ -1292,9 +1293,10 @@ one-call requests, Ed25519 approve or reject receipts, strict operator-owned
 authority registries outside the repository, single-use replay protection,
 atomic budget coupling, expiry reconciliation, exact MCP `2026-07-28`
 input-required transport mapping, and payload-free transition evidence. It
-does not add a public approver, command, dashboard, or live gateway. Authority
-keys and the signing process remain operator-owned and cannot be supplied by
-repository policy or agent input.
+does not add a public approver or dashboard. `reconc mcp gateway` accepts a
+signed one-time receipt from the upstream MCP client only when an operator-owned
+authority registry verifies it. Authority keys and the signing process remain
+operator-owned and cannot be supplied by repository policy or agent input.
 
 Action authoring may now declare `actions.detectors`. The compiler binds the
 built-in detector-pack ID and digest, exact phase-compatible RFC 6901 fields,
@@ -1307,8 +1309,8 @@ and progress deterministically, and requires every returned content block to
 be fully selected or explicitly type-allowlisted. Unselected structured
 content, metadata, unknown content, and untrusted annotations fail closed. The
 core emits only payload-free evidence or a bounded withheld result.
-No current command routes a live call through this core; TASK 161 owns that
-gateway boundary.
+`reconc mcp gateway` applies this core to arguments before dispatch and to
+progress and results before upstream delivery.
 
 Action authoring may now declare `actions.ledger` with recording mode
 `required`, `best_effort`, or `off`, one declaration/exact/keyed tool-identity
@@ -1320,8 +1322,9 @@ tail|stats|verify|export` verifies before reading, never creates missing state,
 and reports lifecycle gaps instead of inferring success. Export contains only
 verified synthetic minimized Impact Lab cases, explicitly lists every omitted
 call and missing raw dimension, never claims complete replay, and refuses to
-replace an existing output file. TASK 161 must make required pre-decision
-recording a live pre-dispatch gateway gate.
+replace an existing output file. In `ledger: required` mode, the gateway must
+record the accepted request and pre-decision before downstream dispatch or fail
+closed without invoking the tool.
 
 Budget ledger transitions mirror persisted state changes. A `denied` event
 therefore binds the live reservation it closes, the released reserved capacity,
@@ -1529,6 +1532,7 @@ Explain and remediate:
 
 Packs and wiring:
 
+- `mcp` - run one enforcing tools-only stdio gateway
 - `preset`
 - `template`
 - `hook`
@@ -2015,8 +2019,10 @@ legacy `mcp` declarations, immutable typed matcher programs, a derived MCP
 compatibility view, `reconc why action`, and the transport-neutral deterministic
 action evaluator. It also implements canonical authority-bound one-time
 approval requests and receipts plus private atomic approval consumption, and a
-separate privacy-bounded retained Action Ledger. The published v0.9.5 release
-does not contain those additions.
+separate privacy-bounded retained Action Ledger. `reconc mcp gateway` owns one
+operator-selected downstream stdio MCP process and applies those controls to
+every tool call routed through it. The published v0.9.5 release does not contain
+those additions.
 `reconc impact` invokes that production evaluator for strict offline action
 scenarios, exact current and approval-state assertions, candidate deltas,
 completeness, privacy, exact inspection evidence, detector deltas, and reviewed
@@ -2024,10 +2030,9 @@ newly-allowed or newly-blocked gates. The internal Go inspection core performs
 strict MCP result decoding, local output-schema validation, deterministic
 selected-field scanning, fingerprint-bound annotation trust, and bounded result
 withholding. `reconc action log tail|stats|verify|export` reads the verified
-Action Ledger without creating missing state. No current source command routes
-tool calls through an enforcing gateway, so offline simulation, retained
-fixtures, and these internal primitives are not a live tool-call interception
-boundary.
+Action Ledger without creating missing state. Offline simulation and retained
+fixtures remain non-enforcement evidence; only explicitly routed gateway calls
+cross the live tool-call interception boundary.
 
 The same unreleased source implements trusted operator and host context
 bindings, domain-separated HMAC identities, explicit key leases and rotation
@@ -2038,8 +2043,8 @@ dispatch, settled terminally, or retained as indeterminate after uncertain
 outcomes. The store rejects stale identities, malformed or oversized state,
 clock rollback, partial publication, symlinks, special files, permission drift,
 counter overflow, duplicate calls, and capacity oversubscription. This is an
-internal enforcement primitive until the gateway owns the live dispatch
-boundary; it does not make current direct MCP or framework calls enforced.
+enforcement primitive used by the gateway; it does not make direct MCP or
+framework calls enforced.
 
 The action-state owner issues an approval request only after the current
 evaluator still returns `require_approval` and an exact applicable budget
@@ -2100,21 +2105,20 @@ or MCP connection closure into a fabricated terminal event. Export accepts only
 declaration IDs or explicitly safe exact tool names; keyed or unsafe names and
 selected values remain explicit omissions.
 
-The design keeps all Reconc-owned product and adapter code in Go. The target
-gateway is one local, tool-only stdio MCP process around one operator-selected
-downstream stdio MCP server. The evaluator and inspection core already own the
-transport-neutral pre-call and post-result decisions; TASK 161 must invoke them
-before downstream dispatch and before upstream result or progress delivery.
-LangChain would launch the Go binary through LangChain's own MCP adapter; Reconc
-would not ship a Python or TypeScript LangChain adapter.
+The design keeps all Reconc-owned product and adapter code in Go. The gateway
+is one local, tool-only stdio MCP process around one operator-selected
+downstream stdio MCP server. It invokes the transport-neutral evaluator and
+inspection core before downstream dispatch and before upstream result or
+progress delivery. LangChain launches the Go binary through LangChain's own MCP
+adapter; Reconc ships no Python or TypeScript LangChain adapter.
 
-Coverage is explicit. Only tools configured to use the Reconc gateway would be
+Coverage is explicit. Only tools configured to use the Reconc gateway are
 enforced. Native LangChain tools, direct downstream MCP configurations, and
-other bypass routes would remain unenforced. The gateway would not claim
+other bypass routes remain unenforced. The gateway does not claim
 transparent prompts, resources, sampling, roots, tasks, HTTP, SSE, or general
-framework interception. A pre-call block could prevent a routed tool from
-executing. Post-result containment could withhold data from the model boundary
-but could not undo a side effect that already occurred.
+framework interception. A pre-call block prevents a routed tool from
+executing. Post-result containment can withhold data from the model boundary
+but cannot undo a side effect that already occurred.
 
 The compiler lowers `actions.tools`, `actions.rules`, `actions.budgets`,
 `actions.approvals`, `actions.detectors`, `actions.ledger`, and
@@ -2140,10 +2144,10 @@ secret-adjacent identities use exact domain-separated keyed identities from an
 operator-owned local key. Missing, malformed, wrongly permissioned, rotated, or
 unleased key material makes the dependent identity unavailable.
 
-Independent enforcement would require an operator-supplied expected lock digest.
-An explicit repository-managed mode would remain available with lower
-provenance and a visible policy-tampering boundary. Repository policy could
-never select the downstream executable, argv, working directory, inherited
+Independent enforcement requires an operator-supplied expected lock digest.
+An explicit repository-managed mode is available with lower provenance and a
+visible policy-tampering boundary. Repository policy can never select the
+downstream executable, argv, working directory, inherited
 environment, credential material, state key, or approval authority.
 
 The implemented inspection layer adds deterministic local argument, result, and
@@ -2153,7 +2157,8 @@ typed payload-free events, selected-field keyed identities, private atomic
 multi-process append, bounded rotation, crash recovery, archive and detached-head
 verification, explicit lifecycle aggregation, exact Impact Lab ledger
 assertions, and verified minimized export with explicit omissions. Later layers
-add the live MCP stdio gateway and local control-evidence mappings.
+add local control-evidence mappings; the MCP stdio gateway is live for routed
+tools.
 Key rotation cannot return budget capacity: it is serialized against live key
 leases and refused while dependent action state exists unless a future explicit
 atomic migration or reset owns every dependent identity and record.
@@ -2170,6 +2175,7 @@ Pipeline:
 ```text
 repo root -> ingest -> parser -> compiler -> .reconc/policy.lock.json -> runtime -> CheckReport/FixPlan/CompletionReport -> ProofBundle
                                   \-> in-memory candidate -> impactlab -> ImpactReport
+                                  \-> action plan -> mcpgateway -> downstream stdio MCP tool
 ```
 
 The exhaustive contributor package map is maintained in
@@ -2185,6 +2191,7 @@ summarizes the core runtime responsibilities:
 - `internal/actionledger`: strict payload-free lifecycle events, private retained chain, crash recovery, exact lifecycle aggregation, and deterministic verification
 - `internal/actionledgerexport`: verified synthetic minimized Impact Lab export with explicit omission and replay-completeness truth
 - `internal/actionstate`: trusted context identities, key leases, cumulative budgets, atomic approval consumption, and crash-safe private state
+- `internal/mcpgateway`: strict MCP framing and tool discovery, operator-bound child process ownership, live pre-dispatch enforcement, approval flow, progress/result inspection, lifecycle ledger completion, and bounded upstream delivery
 - `internal/ingest`: repository discovery and source loading
 - `internal/parser`: YAML-to-policy validation and normalization
 - `internal/compiler`: canonical JSON lockfile generation, digesting, conflicts, migrations, compile lock

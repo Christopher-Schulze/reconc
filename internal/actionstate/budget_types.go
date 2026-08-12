@@ -77,13 +77,13 @@ type BudgetRecord struct {
 }
 
 type ReservationCharge struct {
-	BudgetID          string                  `json:"budget_id"`
-	ScopeIdentity     string                  `json:"scope_identity"`
-	LineageIdentity   string                  `json:"lineage_identity"`
-	Generation        action.BudgetGeneration `json:"generation"`
-	Reserved          action.BudgetUsage      `json:"reserved"`
-	DispatchCommitted bool                    `json:"dispatch_committed"`
-	ApprovalCommitted bool                    `json:"approval_committed"`
+	BudgetID           string                  `json:"budget_id"`
+	ScopeIdentity      string                  `json:"scope_identity"`
+	LineageIdentity    string                  `json:"lineage_identity"`
+	Generation         action.BudgetGeneration `json:"generation"`
+	Reserved           action.BudgetUsage      `json:"reserved"`
+	DispatchCommitted  bool                    `json:"dispatch_committed"`
+	CommittedApprovals uint64                  `json:"committed_approvals"`
 }
 
 type Reservation struct {

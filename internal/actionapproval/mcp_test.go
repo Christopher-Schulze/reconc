@@ -94,6 +94,24 @@ func TestMCPApprovalRetryRejectsEveryProtocolDrift(t *testing.T) {
 	}
 }
 
+func TestCanonicalMCPApprovalBaseParamsRemovesConsumedRound(t *testing.T) {
+	params := []byte(`{"requestState":"c3RhdGU","name":"execute","inputResponses":{"reconc_approval":{"action":"accept","content":{"receipt":"secret"}}},"arguments":{"target":"staging"}}`)
+	got, err := CanonicalMCPApprovalBaseParams(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte(`{"arguments":{"target":"staging"},"name":"execute"}`)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("approval base params = %s, want %s", got, want)
+	}
+	if bytes.Contains(got, []byte("secret")) {
+		t.Fatal("consumed approval response remained in the next approval base")
+	}
+	if _, err := CanonicalMCPApprovalBaseParams([]byte(`{"name":"a","name":"b"}`)); err == nil {
+		t.Fatal("duplicate MCP approval base field was accepted")
+	}
+}
+
 func TestMCPApprovalResultRejectsInvalidConstructionAndUnsupportedClientIsBounded(t *testing.T) {
 	request, _, _, _ := testApprovalFixture(t)
 	state := base64.RawURLEncoding.EncodeToString([]byte("sealed-approval-state"))

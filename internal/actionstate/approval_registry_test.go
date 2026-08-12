@@ -34,7 +34,8 @@ func TestLoadApprovalAuthorityRegistryAcceptsOnlyPrivateExternalCanonicalFile(t 
 		t.Fatal(err)
 	}
 	if loaded.Path() != resolved || loaded.compiled() == nil || loaded.Identity() != loaded.compiled().Identity() ||
-		!action.ValidSHA256Identity(loaded.Identity()) {
+		!action.ValidSHA256Identity(loaded.Identity()) || !loaded.HasPolicy("production-writes") ||
+		loaded.HasPolicy("missing") {
 		t.Fatalf("loaded approval registry = %#v", loaded)
 	}
 

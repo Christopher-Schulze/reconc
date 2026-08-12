@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"strings"
@@ -81,7 +82,7 @@ func consumeFixtureApproval(
 	decision actionapproval.Decision,
 ) (ApprovalConsumeResult, error) {
 	t.Helper()
-	receiptEntropy := issued.issue.Request.CallID[len(issued.issue.Request.CallID)-1]
+	receiptEntropy := sha256.Sum256([]byte(issued.issue.Request.RequestID))
 	signedAt, err := time.Parse(time.RFC3339Nano, issued.issue.Request.IssuedAt)
 	if err != nil {
 		t.Fatal(err)
@@ -89,7 +90,7 @@ func consumeFixtureApproval(
 	_, receipt, err := actionapproval.SignReceipt(
 		issued.issue.Request, "security-primary", issued.privateKey, decision,
 		signedAt,
-		bytes.NewReader(bytes.Repeat([]byte{receiptEntropy}, 16)),
+		bytes.NewReader(receiptEntropy[:16]),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -247,5 +248,76 @@ func TestApprovalStoreReconcilesEveryExpiredCrashOrphanAtomically(t *testing.T) 
 	again, err := fixture.store.ReconcileExpiredApprovals(context.Background())
 	if err != nil || len(again.Expired) != 0 || again.StateVersion != reconciled.StateVersion {
 		t.Fatalf("idempotent reconciliation = %#v, %v", again, err)
+	}
+}
+
+func TestApprovalStoreCountsPreAndPostReceiptsOnOneDispatchedReservation(t *testing.T) {
+	fixture := newStoreFixture(t, []action.Budget{storeBudget(
+		"two-phase-approval",
+		action.BudgetLimits{CallCount: 1, ApprovalCount: 2, ResultBytes: 100},
+		action.BudgetResetNever,
+	)})
+	input, reserved := fixture.reserve(t, callID("g"))
+	pre := issueFixtureApproval(t, fixture, input, reserved)
+	preResult, err := consumeFixtureApproval(t, fixture, pre, actionapproval.DecisionApprove)
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, err := fixture.store.MarkDispatched(
+		context.Background(), reserved.Reservation.Identity, preResult.StateVersion,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := action.ParseJSON([]byte(`{"target":"production","ok":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	postRequest := input.Request
+	postRequest.Phase = action.PhasePostResult
+	postRequest.Arguments = nil
+	postRequest.Result = &result
+	postRequest.StateVersion = version
+	postBinding := ApprovalBinding{
+		Plan: fixture.plan, BudgetRequest: input.Request,
+		Context: fixture.context, Authority: fixture.authority, Server: fixture.server,
+		Evaluation: action.EvaluationInput{
+			Request: postRequest, SourceIdentity: strings.Repeat("8", 64),
+			ContextIdentity:  fixture.context.ContextIdentity,
+			ExecutableDigest: fixture.server.ExecutableDigest,
+			Principal:        fixture.context.Principal,
+			CredentialLabels: credentialLabels(fixture.context.Credentials),
+			Budget:           absentBudgetSnapshot(version),
+			Approval:         action.ApprovalSnapshot{Status: action.ApprovalNone, Identity: "approval-none"},
+			Taint:            action.TaintSnapshot{Status: action.TaintClean, Identity: "taint-clean"},
+			Lifecycle:        action.LifecycleActive, CachePolicyVersion: action.CacheIdentityVersion,
+		},
+	}
+	postIssue, err := fixture.store.IssueApproval(context.Background(), ApprovalIssueRequest{
+		Binding: postBinding, AuthorityPolicyID: "production-writes", TTL: 30 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	post := issuedApprovalFixture{
+		binding: postBinding, issue: postIssue, registry: pre.registry, privateKey: pre.privateKey,
+	}
+	postResult, err := consumeFixtureApproval(t, fixture, post, actionapproval.DecisionApprove)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := fixture.store.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.PendingApprovals != 0 || status.LiveReservations != 1 ||
+		len(status.Budgets) != 1 || status.Budgets[0].Consumed.ApprovalCount != 2 {
+		t.Fatalf("two-phase approval state = %#v", status)
+	}
+	if _, err := fixture.store.Settle(
+		context.Background(), reserved.Reservation.Identity,
+		postResult.StateVersion, OutcomeSucceeded, 32,
+	); err != nil {
+		t.Fatal(err)
 	}
 }

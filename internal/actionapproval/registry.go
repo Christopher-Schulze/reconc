@@ -166,6 +166,14 @@ func (r *CompiledRegistry) Identity() string {
 	return r.identity
 }
 
+func (r *CompiledRegistry) HasPolicy(policyID string) bool {
+	if r == nil || !action.SafeLabel(policyID) {
+		return false
+	}
+	_, exists := r.policies[policyID]
+	return exists
+}
+
 func (r *CompiledRegistry) authorityKey(policyID, keyID string, issued time.Time) (ed25519.PublicKey, error) {
 	if r == nil {
 		return nil, approvalError(action.ReasonAuthorityUnavailable, "approval authority registry is unavailable", nil)

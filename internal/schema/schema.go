@@ -45,7 +45,7 @@ const (
 	NeutralHookRequest       Artifact = "neutral-hook-request"
 	NeutralHookResponse      Artifact = "neutral-hook-response"
 
-	ActionLedgerURL             = DefaultBaseURL + "/action-ledger.schema.json"
+	ActionLedgerURL             = Version2BaseURL + "/action-ledger.schema.json"
 	LegacyPolicyLockURL         = DefaultBaseURL + "/policy-lock.schema.json"
 	PolicyLockURL               = PolicyLockBaseURL + "/policy-lock.schema.json"
 	PolicyConfigURL             = Version4BaseURL + "/policy-config.schema.json"

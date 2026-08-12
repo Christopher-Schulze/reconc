@@ -104,6 +104,7 @@ internal/
   filelock/       cross-platform process locks
   jsonl/          bounded locked JSONL append + archive rings
   manpage/        groff reconc(1) generation from the canonical command table
+  mcpgateway/     tools-only MCP stdio enforcement, SDK boundary, child ownership, and orchestration
   parser/         YAML-to-Rule validation + template expansion + scope expansion
   pathidentity/   Unix symlink + Windows reparse/8.3 filesystem identity
   policy/         Rule / Scope / Source / Kind / Mode types
@@ -239,8 +240,8 @@ atomic append, bounded rotation, retained-chain verification, and detached-head
 recovery. `reconc action log tail|stats|verify|export` provides deterministic
 non-creating queries and verified minimized Impact Lab export. Existing durable
 append transactions are resolved before their snapshot is returned; missing
-state stays absent. No gateway currently invokes these primitives for a live call,
-so source does not yet enforce or route live tool calls.
+state stays absent. `reconc mcp gateway` now invokes these primitives around
+every routed live tool call.
 The published v0.9.5 release has none of the Action Plane additions.
 
 Ledger-selected fields are valid only for `arguments` during `pre_call` and
@@ -272,9 +273,8 @@ informed decision; it cannot select authority keys, private key material, or
 the authority process. A prompt or signer under the same agent's authority is
 not an independent approval boundary. MCP `2026-07-28` input-required is only
 an exact transport mapping for request state and a signed receipt; unsupported
-clients receive an explicit approval-required failure. The packages remain
-internal primitives until TASK 161 resamples and consumes them at the gateway
-dispatch boundary.
+clients receive an explicit approval-required failure. The gateway resamples
+and consumes these boundaries before dispatch and again before result delivery.
 
 The private versioned state store serializes processes, journals atomic state
 replacement, preserves capacity across governing-generation changes, blocks
@@ -282,10 +282,10 @@ clock rollback and unsafe key rotation, and models reserved, approval-pending,
 dispatched, indeterminate, and terminal transitions. Generic project-root
 retention protects this durable state instead of silently returning capacity.
 
-The target topology is one local, tool-only stdio MCP gateway around one
-operator-selected downstream stdio MCP server. Every routed `tools/call` would
-enter one canonical compiled action plan before dispatch and every downstream
-result or progress event would enter the same plan before upstream delivery.
+The implemented topology is one local, tool-only stdio MCP gateway around one
+operator-selected downstream stdio MCP server. Every routed `tools/call`
+enters one canonical compiled action plan before dispatch, and every downstream
+result or progress event enters the same plan before upstream delivery.
 Native LangChain tools, clients configured directly against the downstream
 server, prompts, resources, sampling, roots, tasks, HTTP, SSE, and arbitrary
 framework calls remain outside that boundary.
@@ -308,9 +308,9 @@ authoring becomes compatibility input lowered into the same action plan; the
 custom-runtime bridge remains a lifecycle normalizer rather than a second
 action engine.
 
-The proposal remains one Go binary. LangChain integration would use
-LangChain's own MCP adapter to launch that binary over stdio. Reconc would ship
-no Python or TypeScript LangChain adapter. The complete proposed trust model,
+The product remains one Go binary. LangChain integration uses LangChain's own
+MCP adapter to launch that binary over stdio. Reconc ships no Python or
+TypeScript LangChain adapter. The complete trust model,
 authority modes, resource limits, failure matrix, approval and budget state
 machines, privacy-bounded ledger, conformance vectors, and package ownership are
 in [RECONC-0008](rfcs/RECONC-0008-go-only-action-plane.md).
@@ -325,7 +325,7 @@ in [RECONC-0008](rfcs/RECONC-0008-go-only-action-plane.md).
   rule applies. Additive and breaking shape changes both receive a new schema
   version; breaking semantic changes also require a superseding RFC.
 
-- **Published schema documents**: `internal/schema` owns all 31 Draft 2020-12
+- **Published schema documents**: `internal/schema` owns all 32 Draft 2020-12
   contracts as independently versioned registry entries. Each entry binds one
   local path, immutable release-tagged `$id`, release asset, SHA-256 digest,
   enterprise mirror path, current or legacy state, and input-only compatibility
@@ -515,6 +515,7 @@ responsibility-owned command file, canonical command metadata, focused tests, an
         ├──► audit
         ├──► actionledger ──► action, actionstate, jsonl
         ├──► actionledgerexport ──► actionledger, impactlab
+        ├──► mcpgateway ──► action, actionapproval, actioninspect, actionledger, actionstate, MCP Go SDK
         ├──► contextsize
         ├──► commandproof
         ├──► completiongate ──► commandproof, policyproof, runtime, tasklifecycle
@@ -562,6 +563,12 @@ class of hostile input.
 | Audit record | **32 KiB** | Bounds one locked JSONL append. |
 | Audit/run storage | **2 MiB live + 2 archives each** | Fixed rings and transition-only run records prevent repository-local log growth. |
 | Action ledger | **64 KiB per record / 4 MiB live + 2 archives** | Bounds payload-free lifecycle evidence; rotation refuses to prune an active call whose retained beginning would be lost. |
+| MCP gateway frames / arguments / results | **10 MiB / 8 MiB / 10 MiB** | Strict framed JSON rejects overflow, duplicate keys, malformed values, and unsupported protocol shapes before dispatch or delivery. |
+| MCP gateway tools / pages / metadata | **512 / 64 / 8 MiB aggregate** | Bounds discovery, validates each contract, requires tool `_meta` to be absent or empty, and rejects unsafe schemas, icons, extension metadata, collisions, and churn. |
+| MCP gateway tool icons | **32 / 48 KiB each / 2,048 px per side / 4,194,304 pixels** | Accepts only fully decoded self-contained PNG or JPEG data URIs; remote URLs, animated or incompletely decoded formats, MIME contradictions, and decompression bombs fail closed. |
+| MCP gateway calls / approvals / progress | **4 / 4 / 128 events and 1 MiB aggregate per call** | Bounds parallel lifecycle state, approval retention, and inspected progress before forwarding. |
+| MCP gateway child stderr | **256 KiB retained** | Drains without blocking, counts overflow, classifies retained text, and emits only a redacted summary. |
+| MCP gateway operator diagnostic | **4 KiB per serialized line** | Removes invalid UTF-8 and control characters; diagnostics contain typed reasons or redacted summaries, never raw child output. |
 | Hook output | **8 KiB per route** | Prevents verbose host output from consuming agent context. |
 | Bun adapter process output | **8 KiB combined stdout + stderr** | OpenCode, Kilo, OMP, and Pi concurrently drain both pipes; overflow, invalid UTF-8, timeout, and truncated decision JSON fail according to the registry route policy. |
 | Hook worker request frame | **64 MiB payload + 64 KiB envelope** | Keeps complete supported hook payloads while bounding protocol metadata and buffering. |
@@ -1018,6 +1025,10 @@ coupling to any specific tool beyond recognizing that prefix.
   archives are capped at 4 MiB, its detached head at 8 KiB, and append or read
   transactions at two seconds. An active-call retention conflict fails the
   append instead of pruning the call's retained beginning.
+- The MCP gateway caps protocol frames and results at 10 MiB, arguments at
+  8 MiB, tools at 512, active calls and pending approvals at four each,
+  progress at 128 events and 1 MiB per call, and retained child stderr at
+  256 KiB. Overflow fails closed without forwarding raw content.
 - Audit and run-decision JSONL writes rotate before append through fixed archive
   rings; lifecycle retention bounds sessions, reports, locks, staged command
   proofs, the product-wide
@@ -1059,8 +1070,12 @@ reconc's non-stdlib dependencies processing the payload:
   command matching only; parsed input is never executed and unsupported or
   over-deep executable structure fails closed).
 - `github.com/Microsoft/go-winio` plus `golang.org/x/sys/windows` (Windows-only
-  named-pipe dialing and enumeration for Grok leader IPC; no network access,
-  command execution, or JSON decoding).
+  named-pipe dialing and enumeration for Grok leader IPC, plus Windows Job
+  Object ownership for gateway child trees; no network listener).
+- `github.com/modelcontextprotocol/go-sdk` (official pinned MCP `v1.7.0`
+  protocol/session implementation behind `internal/mcpgateway`; Reconc owns
+  strict frame bounds, canonical arguments, policy orchestration, result
+  inspection, and process lifecycle).
 - `github.com/santhosh-tekuri/jsonschema/v6` (offline Draft 2020-12 compilation
   and validation for declared MCP output schemas; remote references are
   rejected, patterns use the bounded RE2-compatible subset, and no loader
@@ -1068,8 +1083,10 @@ reconc's non-stdlib dependencies processing the payload:
 - `golang.org/x/text/unicode/norm` (deterministic Unicode normalization before
   bounded local detector matching).
 
-No dep is used for JSON decoding; the stdlib `encoding/json` with
-our own depth-limited decoder is the only entry point.
+Repository hook payload decoding uses stdlib `encoding/json` behind Reconc's
+depth-limited reader. MCP frames additionally pass through the pinned official
+SDK only after Reconc's strict bounded frame reader and before independent
+canonical argument, schema, policy, and result validation.
 
 ### What this threat model does NOT cover
 

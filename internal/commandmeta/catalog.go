@@ -39,6 +39,7 @@ const (
 	OutputJUnit    OutputMode = "junit"
 	OutputGitHub   OutputMode = "github"
 	OutputFile     OutputMode = "file"
+	OutputMCP      OutputMode = "mcp"
 )
 
 type Flag struct {
@@ -143,6 +144,17 @@ var commandCatalog = []Command{
 	command("fix", CategoryExplain, "reconc fix [repo] [evidence flags]", "build a structured remediation plan", flags(f("--read", "PATH"), f("--write", "PATH"), f("--command", "CMD"), f("--command-success", "CMD"), f("--command-failure", "CMD"), f("--claim", "NAME"), f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
 	command("why", CategoryExplain, "reconc why <rule-id|action|mcp> [repo] [--terse] [--json]", "print one compiled rule, the canonical action plan, or its MCP compatibility view", flags(f("--json", ""), f("--terse", "")), nil, modes(OutputText, OutputJSON)),
 
+	command("mcp", CategoryWiring, "reconc mcp gateway [repo] [flags] -- COMMAND [ARG...]", "run an enforcing tools-only MCP stdio gateway", nil, []Subcommand{
+		sub("gateway", "reconc mcp gateway [repo] --server LABEL (--expect-lock-digest SHA256 | --allow-repository-managed-policy) --principal LABEL [trusted-context flags] -- COMMAND [ARG...]", "enforce one operator-selected downstream MCP stdio server", flags(
+			f("--server", "LABEL"), f("--expect-lock-digest", "SHA256"),
+			f("--allow-repository-managed-policy", ""), f("--principal", "LABEL"),
+			f("--role", "LABEL"), f("--environment", "LABEL"), repeat("--credential", "LABEL"),
+			f("--run", "ID"), f("--session", "ID"),
+			f("--approval-authorities", "PATH"), f("--approval-policy", "ID"),
+			f("--server-working-dir", "PATH"), repeat("--inherit-env", "NAME"),
+			f("--timeout", "DURATION"), f("--reconc-home", "PATH"),
+		), []Argument{{Name: "repo"}, {Name: "command"}}, modes(OutputMCP)),
+	}, modes(OutputMCP)),
 	command("preset", CategoryWiring, "reconc preset <list|show>", "list or show bundled and user presets", nil, []Subcommand{
 		sub("list", "reconc preset list [--json] [--output PATH]", "list bundled and user presets", flags(f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),
 		sub("show", "reconc preset show <name> [--json] [--output PATH]", "show one resolved preset", flags(f("--json", ""), f("--output", "PATH")), nil, modes(OutputText, OutputJSON, OutputFile)),

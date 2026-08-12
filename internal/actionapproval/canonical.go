@@ -368,8 +368,8 @@ func validateSafeLabels(values []string, maximum int, name string) error {
 
 func cloneRequest(input Request) Request {
 	out := input
-	out.CredentialLabels = append([]string(nil), input.CredentialLabels...)
-	out.SelectedArguments = append([]SelectedArgument(nil), input.SelectedArguments...)
-	out.RuleIDs = append([]string(nil), input.RuleIDs...)
+	out.CredentialLabels = append([]string{}, input.CredentialLabels...)
+	out.SelectedArguments = append([]SelectedArgument{}, input.SelectedArguments...)
+	out.RuleIDs = append([]string{}, input.RuleIDs...)
 	return out
 }

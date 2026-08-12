@@ -31,8 +31,9 @@ func TestApprovalRegistryRequiresCanonicalCollectionOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if compiled.Identity() == "" {
-		t.Fatal("canonical registry lacks an identity")
+	if compiled.Identity() == "" || !compiled.HasPolicy("policy-a") ||
+		compiled.HasPolicy("missing") || compiled.HasPolicy("") {
+		t.Fatal("canonical registry identity or policy index is invalid")
 	}
 
 	unsortedAuthorities := canonical

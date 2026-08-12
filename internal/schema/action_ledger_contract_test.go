@@ -213,6 +213,13 @@ func TestActionLedgerSchemaMatchesStrictPayloadFreeRecord(t *testing.T) {
 	if err := compiled[contract.DefaultURL].Validate(approvalValue); err != nil {
 		t.Fatalf("valid approval transition rejected: %v", err)
 	}
+	postApproval := approval
+	postApproval.Decision.Phase = action.PhasePostResult
+	postApproval.SelectedFields = append([]actionledger.SelectedFieldEvidence(nil), record.SelectedFields...)
+	postApproval.SelectedFields[0].Source = action.SourceResult
+	if err := compiled[contract.DefaultURL].Validate(sealedLedgerValue(t, postApproval)); err != nil {
+		t.Fatalf("valid post-result approval transition rejected: %v", err)
+	}
 	genericApprovalRequest := cloneJSONValue(t, approvalValue).(map[string]interface{})
 	genericApprovalRequest["approval_transition"].(map[string]interface{})["request_id"] = "request-id"
 	if err := compiled[contract.DefaultURL].Validate(genericApprovalRequest); err == nil {
@@ -257,6 +264,25 @@ func TestActionLedgerSchemaMatchesStrictPayloadFreeRecord(t *testing.T) {
 	budgetValue := sealedLedgerValue(t, budget)
 	if err := compiled[contract.DefaultURL].Validate(budgetValue); err != nil {
 		t.Fatalf("valid budget reservation rejected: %v", err)
+	}
+	postApprovalBudget := budget
+	postApprovalBudget.Decision.Phase = action.PhasePostResult
+	postApprovalBudget.Decision.Decision = action.DecisionRequireApproval
+	postApprovalBudget.Decision.Reason = action.ReasonApprovalRequired
+	postApprovalBudget.SelectedFields = append([]actionledger.SelectedFieldEvidence(nil), record.SelectedFields...)
+	postApprovalBudget.SelectedFields[0].Source = action.SourceResult
+	postApprovalBudget.Budget = &actionledger.BudgetTransition{
+		Kind: actionledger.BudgetReserved, ReservationIdentity: identity("c"),
+		StateVersion: identity("d"), BudgetIDs: []string{"database-calls"},
+		ReservedDelta: actionledger.BudgetDelta{ApprovalCount: 1},
+	}
+	postApprovalBudgetValue := sealedLedgerValue(t, postApprovalBudget)
+	if err := compiled[contract.DefaultURL].Validate(postApprovalBudgetValue); err != nil {
+		t.Fatalf("valid post-result approval reservation rejected: %v", err)
+	}
+	postApprovalBudgetValue["budget_transition"].(map[string]interface{})["reserved_delta"].(map[string]interface{})["call_count"] = float64(1)
+	if err := compiled[contract.DefaultURL].Validate(postApprovalBudgetValue); err == nil {
+		t.Fatal("action-ledger schema accepted a non-approval post-result reservation delta")
 	}
 	budgetValue["budget_transition"].(map[string]interface{})["reserved_delta"].(map[string]interface{})["call_count"] = float64(-1)
 	if err := compiled[contract.DefaultURL].Validate(budgetValue); err == nil {
@@ -316,6 +342,12 @@ func TestActionLedgerSchemaMatchesStrictPayloadFreeRecord(t *testing.T) {
 	if err := compiled[contract.DefaultURL].Validate(committedValue); err != nil {
 		t.Fatalf("valid budget dispatch commitment rejected: %v", err)
 	}
+	approvedCommit := sealedLedgerValue(t, committed)
+	approvedCommit["decision"].(map[string]interface{})["decision"] = "require_approval"
+	approvedCommit["decision"].(map[string]interface{})["reason_code"] = "approval_required"
+	if err := compiled[contract.DefaultURL].Validate(approvedCommit); err != nil {
+		t.Fatalf("valid approved budget dispatch commitment rejected: %v", err)
+	}
 	committedValue["decision"].(map[string]interface{})["decision"] = "block"
 	if err := compiled[contract.DefaultURL].Validate(committedValue); err == nil {
 		t.Fatal("action-ledger schema accepted a blocking budget dispatch commitment")
@@ -330,6 +362,12 @@ func TestActionLedgerSchemaMatchesStrictPayloadFreeRecord(t *testing.T) {
 	dispatchValue := sealedLedgerValue(t, dispatch)
 	if err := compiled[contract.DefaultURL].Validate(dispatchValue); err != nil {
 		t.Fatalf("valid no-budget dispatch rejected: %v", err)
+	}
+	approvedDispatch := sealedLedgerValue(t, dispatch)
+	approvedDispatch["decision"].(map[string]interface{})["decision"] = "require_approval"
+	approvedDispatch["decision"].(map[string]interface{})["reason_code"] = "approval_required"
+	if err := compiled[contract.DefaultURL].Validate(approvedDispatch); err != nil {
+		t.Fatalf("valid approved downstream dispatch rejected: %v", err)
 	}
 	dispatchValue["decision"].(map[string]interface{})["decision"] = "block"
 	if err := compiled[contract.DefaultURL].Validate(dispatchValue); err == nil {
@@ -431,6 +469,12 @@ func TestActionLedgerSchemaMatchesStrictPayloadFreeRecord(t *testing.T) {
 	deliveryValue := sealedLedgerValue(t, delivery)
 	if err := compiled[contract.DefaultURL].Validate(deliveryValue); err != nil {
 		t.Fatalf("valid final delivery rejected: %v", err)
+	}
+	approvedDelivery := sealedLedgerValue(t, delivery)
+	approvedDelivery["decision"].(map[string]interface{})["decision"] = "require_approval"
+	approvedDelivery["decision"].(map[string]interface{})["reason_code"] = "approval_required"
+	if err := compiled[contract.DefaultURL].Validate(approvedDelivery); err != nil {
+		t.Fatalf("valid approved post-result delivery rejected: %v", err)
 	}
 	deliveryWrongPhase := cloneJSONValue(t, deliveryValue).(map[string]interface{})
 	deliveryWrongPhase["decision"].(map[string]interface{})["phase"] = "progress"

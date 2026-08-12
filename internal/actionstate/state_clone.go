@@ -42,9 +42,9 @@ func cloneState(input State) State {
 
 func cloneApprovalRequest(input actionapproval.Request) actionapproval.Request {
 	out := input
-	out.CredentialLabels = append([]string(nil), input.CredentialLabels...)
-	out.SelectedArguments = append([]actionapproval.SelectedArgument(nil), input.SelectedArguments...)
-	out.RuleIDs = append([]string(nil), input.RuleIDs...)
+	out.CredentialLabels = append([]string{}, input.CredentialLabels...)
+	out.SelectedArguments = append([]actionapproval.SelectedArgument{}, input.SelectedArguments...)
+	out.RuleIDs = append([]string{}, input.RuleIDs...)
 	return out
 }
 

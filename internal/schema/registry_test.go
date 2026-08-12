@@ -73,6 +73,20 @@ func TestRegistryHasOneCurrentContractPerArtifact(t *testing.T) {
 	}
 }
 
+func TestActionLedgerRevisionPreservesPublishedV1(t *testing.T) {
+	legacy, legacyOK := schema.ContractVersion(schema.ActionLedger, "1")
+	current, currentOK := schema.ContractVersion(schema.ActionLedger, "2")
+	if !legacyOK || legacy.State != schema.StateLegacy ||
+		legacy.DefaultURL != schema.DefaultBaseURL+"/action-ledger.schema.json" ||
+		legacy.SHA256 != "c8d85f2bdc82c51de468cbe7a62cce5251c2e724ec4dd29dd3c9d1535614c1cb" {
+		t.Fatalf("immutable Action Ledger v1 contract = %#v, present=%t", legacy, legacyOK)
+	}
+	if !currentOK || current.State != schema.StateCurrent || current.DefaultURL != schema.ActionLedgerURL ||
+		schema.DefaultURL(schema.ActionLedger) != current.DefaultURL {
+		t.Fatalf("current Action Ledger v2 contract = %#v, present=%t", current, currentOK)
+	}
+}
+
 func TestRegistryRecordsExactForensicClassification(t *testing.T) {
 	got := make(map[schema.Compatibility]int)
 	for _, observation := range schema.Observations() {

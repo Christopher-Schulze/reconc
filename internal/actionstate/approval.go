@@ -13,11 +13,12 @@ import (
 )
 
 type ApprovalBinding struct {
-	Plan       *action.CompiledPlan
-	Evaluation action.EvaluationInput
-	Context    BoundContext
-	Authority  PolicyAuthority
-	Server     ObservedServer
+	Plan          *action.CompiledPlan
+	Evaluation    action.EvaluationInput
+	BudgetRequest action.Request
+	Context       BoundContext
+	Authority     PolicyAuthority
+	Server        ObservedServer
 }
 
 type ApprovalIssueRequest struct {
@@ -127,11 +128,13 @@ func (s *Store) issueApprovalLocked(input ApprovalIssueRequest) (ApprovalIssueRe
 	if err != nil {
 		return ApprovalIssueResult{}, err
 	}
-	evaluation, decision, err := s.prepareApprovalEvaluation(state, persisted, clock, input.Binding)
+	evaluation, decision, reservationIdentity, err := s.prepareApprovalEvaluation(state, persisted, clock, input.Binding)
 	if err != nil {
 		return ApprovalIssueResult{}, err
 	}
-	request, err := s.newApprovalRequest(input, evaluation, decision, state, clock.Time)
+	request, err := s.newApprovalRequest(
+		input, evaluation, decision, reservationIdentity, state, clock.Time,
+	)
 	if err != nil {
 		return ApprovalIssueResult{}, err
 	}
@@ -143,26 +146,28 @@ func (s *Store) prepareApprovalEvaluation(
 	persisted bool,
 	clock ClockSnapshot,
 	binding ApprovalBinding,
-) (action.EvaluationInput, action.EvaluationResult, error) {
+) (action.EvaluationInput, action.EvaluationResult, string, error) {
 	reserve := binding.reserveRequest()
 	if err := s.validateReserveRequest(reserve); err != nil {
-		return action.EvaluationInput{}, action.EvaluationResult{}, err
+		return action.EvaluationInput{}, action.EvaluationResult{}, "", err
 	}
 	if reserve.Request.StateVersion != state.Digest {
-		return action.EvaluationInput{}, action.EvaluationResult{}, stateError(
+		return action.EvaluationInput{}, action.EvaluationResult{}, "", stateError(
 			action.ReasonStateUnavailable, "action state changed before approval issuance", nil,
 		)
 	}
 	if err := validateEvaluationBinding(binding); err != nil {
-		return action.EvaluationInput{}, action.EvaluationResult{}, err
+		return action.EvaluationInput{}, action.EvaluationResult{}, "", err
 	}
-	budget, err := s.approvalBudgetSnapshot(state, persisted, clock, reserve)
+	budget, reservationIdentity, err := s.approvalBudgetSnapshot(
+		state, persisted, clock, binding,
+	)
 	if err != nil {
-		return action.EvaluationInput{}, action.EvaluationResult{}, err
+		return action.EvaluationInput{}, action.EvaluationResult{}, "", err
 	}
 	evaluator, err := action.NewEvaluator(binding.Plan)
 	if err != nil {
-		return action.EvaluationInput{}, action.EvaluationResult{}, stateError(action.ReasonPolicyMissing, "compile approval evaluator", err)
+		return action.EvaluationInput{}, action.EvaluationResult{}, "", stateError(action.ReasonPolicyMissing, "compile approval evaluator", err)
 	}
 	evaluation := binding.Evaluation
 	evaluation.Budget = budget
@@ -171,11 +176,11 @@ func (s *Store) prepareApprovalEvaluation(
 	if result.Failure != nil || result.Decision != action.DecisionRequireApproval ||
 		!action.ValidSHA256Identity(result.RequiredApprovalIdentity) || result.Cache.Eligible ||
 		result.Cache.Reason != action.CacheApprovalPending {
-		return action.EvaluationInput{}, action.EvaluationResult{}, stateError(
+		return action.EvaluationInput{}, action.EvaluationResult{}, "", stateError(
 			action.ReasonApprovalInvalid, "current action decision does not require a fresh approval", nil,
 		)
 	}
-	return evaluation, result, nil
+	return evaluation, result, reservationIdentity, nil
 }
 
 func validateEvaluationBinding(binding ApprovalBinding) error {
@@ -189,6 +194,19 @@ func validateEvaluationBinding(binding ApprovalBinding) error {
 		evaluation.Lifecycle != action.LifecycleActive {
 		return stateError(action.ReasonIdentityUnavailable, "approval evaluation does not match fresh trusted context", nil)
 	}
+	if evaluation.Request.Phase == action.PhasePostResult {
+		budget := binding.BudgetRequest
+		request := evaluation.Request
+		if budget.Phase != action.PhasePreCall || budget.CallID != request.CallID ||
+			budget.RepositoryIdentity != request.RepositoryIdentity ||
+			budget.PolicyDigest != request.PolicyDigest || budget.LockDigest != request.LockDigest ||
+			budget.AuthorityMode != request.AuthorityMode || budget.Transport != request.Transport ||
+			budget.Platform != request.Platform || budget.ServerLabel != request.ServerLabel ||
+			budget.ServerFingerprint != request.ServerFingerprint || budget.Tool != request.Tool ||
+			budget.ToolContractDigest != request.ToolContractDigest {
+			return stateError(action.ReasonIdentityUnavailable, "post-result approval budget request binding changed", nil)
+		}
+	}
 	return nil
 }
 
@@ -196,30 +214,72 @@ func (s *Store) approvalBudgetSnapshot(
 	state State,
 	persisted bool,
 	clock ClockSnapshot,
-	input ReserveRequest,
-) (action.BudgetSnapshot, error) {
+	binding ApprovalBinding,
+) (action.BudgetSnapshot, string, error) {
+	input := binding.budgetReserveRequest()
+	input.Request.StateVersion = state.Digest
+	if err := s.validateReserveRequest(input); err != nil {
+		return action.BudgetSnapshot{}, "", err
+	}
 	tool, declarations, err := input.Plan.BudgetContract(input.Request)
 	if err != nil {
-		return action.BudgetSnapshot{}, stateError(action.ReasonStateCorrupt, "resolve approval budget contract", err)
+		return action.BudgetSnapshot{}, "", stateError(action.ReasonStateCorrupt, "resolve approval budget contract", err)
 	}
 	if len(declarations) == 0 {
-		return absentBudgetSnapshot(state.Digest), nil
+		return absentBudgetSnapshot(state.Digest), "absent", nil
 	}
 	reservation := reservationForCall(state.Reservations, input.Request.CallID)
-	if reservation == nil || reservation.OwnerID != s.ownerID || reservation.Status != ReservationReserved {
-		return action.BudgetSnapshot{}, stateError(action.ReasonReservationIndeterminate, "approval requires its live owned budget reservation", nil)
+	wantStatus := ReservationReserved
+	if binding.Evaluation.Request.Phase == action.PhasePostResult {
+		wantStatus = ReservationDispatched
+	}
+	if reservation == nil || reservation.OwnerID != s.ownerID || reservation.Status != wantStatus {
+		return action.BudgetSnapshot{}, "", stateError(action.ReasonReservationIndeterminate, "approval requires its live owned budget reservation", nil)
+	}
+	if err := requireCurrentReservationContract(state, *reservation, clock.Time); err != nil {
+		return action.BudgetSnapshot{}, "", s.persistClockObservationOnFailure(state, persisted, clock, err)
+	}
+	requestIdentity, err := s.reservationRequestIdentity(input)
+	if err != nil {
+		return action.BudgetSnapshot{}, "", err
+	}
+	if reservation.RequestIdentity != requestIdentity ||
+		reservation.ContextIdentity != input.Context.ContextIdentity ||
+		reservation.ExecutableDigest != input.Server.ExecutableDigest ||
+		!reservationMatchesDeclarations(*reservation, declarations) {
+		return action.BudgetSnapshot{}, "", stateError(action.ReasonReservationIndeterminate, "approval budget reservation binding changed", nil)
+	}
+	if binding.Evaluation.Request.Phase == action.PhasePostResult {
+		return absentBudgetSnapshot(state.Digest), reservation.Identity, nil
 	}
 	result, err := s.retryReservationSnapshot(state, persisted, *reservation, declarations, tool, input, clock)
 	if err != nil {
-		return action.BudgetSnapshot{}, err
+		return action.BudgetSnapshot{}, "", err
 	}
-	return result.Snapshot, nil
+	return result.Snapshot, reservation.Identity, nil
+}
+
+func reservationMatchesDeclarations(reservation Reservation, declarations []action.Budget) bool {
+	if len(reservation.Charges) != len(declarations) {
+		return false
+	}
+	budgetIDs := make(map[string]bool, len(declarations))
+	for _, declaration := range declarations {
+		budgetIDs[declaration.ID] = true
+	}
+	for _, charge := range reservation.Charges {
+		if !budgetIDs[charge.BudgetID] {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Store) newApprovalRequest(
 	input ApprovalIssueRequest,
 	evaluation action.EvaluationInput,
 	decision action.EvaluationResult,
+	budgetReservationIdentity string,
 	state State,
 	now time.Time,
 ) (actionapproval.Request, error) {
@@ -244,7 +304,7 @@ func (s *Store) newApprovalRequest(
 		Principal: input.Binding.Context.Principal, ContextIdentity: input.Binding.Context.ContextIdentity,
 		CredentialLabels: credentialLabels(input.Binding.Context.Credentials),
 		TaintIdentity:    evaluation.Taint.Identity, RepositoryEffectIdentity: repositoryEffectIdentity(evaluation),
-		SelectedArguments: selected, BudgetReservationID: evaluation.Budget.ReservationIdentity,
+		SelectedArguments: selected, BudgetReservationID: budgetReservationIdentity,
 		ReasonCode: decision.Reason, RuleIDs: append([]string(nil), decision.MatchedRuleIDs...),
 		AuthorityPolicyID: input.AuthorityPolicyID, IssuedAt: now, TTL: input.TTL,
 	}, secureRandomReader)
@@ -312,8 +372,8 @@ func (s *Store) persistPendingApproval(
 	if len(state.Approvals) >= MaxApprovalRecords || pendingApprovalCount(state.Approvals) >= MaxPendingApprovals {
 		return ApprovalIssueResult{}, stateError(action.ReasonStateUnavailable, "approval state capacity is exhausted", nil)
 	}
-	if approvalRecordForCall(state.Approvals, request.CallID) != nil {
-		return ApprovalIssueResult{}, stateError(action.ReasonApprovalReplayed, "action call already has an approval record", nil)
+	if approvalRecordForCallPhase(state.Approvals, request.CallID, request.Phase) != nil {
+		return ApprovalIssueResult{}, stateError(action.ReasonApprovalReplayed, "action call phase already has an approval record", nil)
 	}
 	next := cloneState(state)
 	if request.BudgetReservationID != "absent" {
@@ -460,16 +520,21 @@ func (s *Store) validateCurrentApprovalBinding(
 		currentEffect != record.Request.RepositoryEffectIdentity {
 		return stateError(action.ReasonIdentityUnavailable, "current trusted approval binding changed", nil)
 	}
-	return s.validateApprovalReservation(state, clock.Time, reserve, record)
+	return s.validateApprovalReservation(state, clock.Time, binding, record)
 }
 
 func (s *Store) validateApprovalReservation(
 	state State,
 	now time.Time,
-	binding ReserveRequest,
+	binding ApprovalBinding,
 	record ApprovalRecord,
 ) error {
-	tool, declarations, err := binding.Plan.BudgetContract(binding.Request)
+	budget := binding.budgetReserveRequest()
+	budget.Request.StateVersion = state.Digest
+	if err := s.validateReserveRequest(budget); err != nil {
+		return err
+	}
+	tool, declarations, err := budget.Plan.BudgetContract(budget.Request)
 	if err != nil || tool.ID != record.Request.ToolID {
 		return stateError(action.ReasonPolicyMissing, "current approval tool contract changed", err)
 	}
@@ -484,10 +549,19 @@ func (s *Store) validateApprovalReservation(
 		return stateError(action.ReasonReservationIndeterminate, "approval budget reservation is absent", nil)
 	}
 	reservation := state.Reservations[index]
-	if reservation.Status != ReservationReserved || reservation.OwnerID != s.ownerID ||
-		reservation.CallID != record.Request.CallID || reservation.RequestIdentity != record.Request.RequestIdentity ||
+	wantStatus := ReservationReserved
+	if record.Request.Phase == action.PhasePostResult {
+		wantStatus = ReservationDispatched
+	}
+	requestIdentity, identityErr := s.reservationRequestIdentity(budget)
+	if identityErr != nil {
+		return identityErr
+	}
+	if reservation.Status != wantStatus || reservation.OwnerID != s.ownerID ||
+		reservation.CallID != record.Request.CallID || reservation.RequestIdentity != requestIdentity ||
 		reservation.ContextIdentity != record.Request.ContextIdentity ||
-		reservation.ExecutableDigest != record.Request.ExecutableDigest {
+		reservation.ExecutableDigest != record.Request.ExecutableDigest ||
+		!reservationMatchesDeclarations(reservation, declarations) {
 		return stateError(action.ReasonReservationIndeterminate, "approval budget reservation binding changed", nil)
 	}
 	return requireCurrentReservationContract(state, reservation, now)
@@ -697,6 +771,16 @@ func terminalizeApprovalReservation(state *State, record ApprovalRecord, now tim
 		return false, stateError(action.ReasonStateCorrupt, "pending approval budget reservation is absent", nil)
 	}
 	reservation := &state.Reservations[index]
+	if record.Request.Phase == action.PhasePostResult {
+		if reservation.Status != ReservationDispatched {
+			return false, stateError(action.ReasonStateCorrupt, "post-result approval reservation is not dispatched", nil)
+		}
+		if _, err := releaseApprovalCharges(state, index); err != nil {
+			return false, err
+		}
+		reservation.UpdatedAtUnix = now.Unix()
+		return false, nil
+	}
 	if reservation.Status != ReservationReserved {
 		return false, stateError(action.ReasonStateCorrupt, "pending approval budget reservation passed dispatch", nil)
 	}
@@ -763,10 +847,10 @@ func approvalEvidence(record ApprovalRecord) ApprovalEvidence {
 		ServerLabel: request.ServerLabel, ServerFingerprint: request.ServerFingerprint,
 		ToolID: request.ToolID, ToolContractDigest: request.ToolContractDigest,
 		Phase: request.Phase, Principal: request.Principal, ContextIdentity: request.ContextIdentity,
-		CredentialLabels: append([]string(nil), request.CredentialLabels...),
+		CredentialLabels: append([]string{}, request.CredentialLabels...),
 		TaintIdentity:    request.TaintIdentity, RepositoryEffectIdentity: request.RepositoryEffectIdentity,
 		BudgetReservationIdentity: request.BudgetReservationID,
-		RuleIDs:                   append([]string(nil), request.RuleIDs...), IssuedAt: request.IssuedAt,
+		RuleIDs:                   append([]string{}, request.RuleIDs...), IssuedAt: request.IssuedAt,
 		ExpiresAt: request.ExpiresAt, UpdatedAtUnix: record.UpdatedAtUnix,
 	}
 }
@@ -810,6 +894,17 @@ func (b ApprovalBinding) reserveRequest() ReserveRequest {
 	}
 }
 
+func (b ApprovalBinding) budgetReserveRequest() ReserveRequest {
+	request := b.Evaluation.Request
+	if request.Phase == action.PhasePostResult {
+		request = b.BudgetRequest
+	}
+	return ReserveRequest{
+		Plan: b.Plan, Request: request, Context: b.Context,
+		Authority: b.Authority, Server: b.Server,
+	}
+}
+
 func credentialLabels(credentials []CredentialBinding) []string {
 	labels := make([]string, len(credentials))
 	for index, credential := range credentials {
@@ -837,9 +932,13 @@ func equalStringSlices(left, right []string) bool {
 	return true
 }
 
-func approvalRecordForCall(records []ApprovalRecord, callID string) *ApprovalRecord {
+func approvalRecordForCallPhase(
+	records []ApprovalRecord,
+	callID string,
+	phase action.Phase,
+) *ApprovalRecord {
 	for index := range records {
-		if records[index].Request.CallID == callID {
+		if records[index].Request.CallID == callID && records[index].Request.Phase == phase {
 			return &records[index]
 		}
 	}

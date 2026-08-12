@@ -115,14 +115,7 @@ func TestEveryCurrentSchemaValidatesARepresentativeArtifact(t *testing.T) {
 		t.Run(string(contract.Artifact), func(t *testing.T) {
 			artifact := representativeArtifact(t, compiled[contract.DefaultURL])
 			if contract.Artifact == contractschema.ActionLedger {
-				completeness := artifact["decision"].(map[string]any)["completeness"].(map[string]any)
-				for _, field := range []string{
-					"request_complete", "policy_complete", "identity_complete",
-					"context_complete", "state_complete", "phase_complete",
-				} {
-					completeness[field] = true
-				}
-				completeness["missing"] = []any{}
+				completeActionLedgerRepresentative(artifact)
 			}
 			if err := compiled[contract.DefaultURL].Validate(artifact); err != nil {
 				t.Fatalf("representative artifact is invalid: %v\nartifact: %s", err, mustJSON(t, artifact))
@@ -144,6 +137,9 @@ func TestEveryLegacySchemaValidatesARepresentativeArtifact(t *testing.T) {
 		}
 		t.Run(string(contract.Artifact)+"-v"+contract.SchemaVersion, func(t *testing.T) {
 			artifact := representativeArtifact(t, compiled[contract.DefaultURL])
+			if contract.Artifact == contractschema.ActionLedger {
+				completeActionLedgerRepresentative(artifact)
+			}
 			if err := compiled[contract.DefaultURL].Validate(artifact); err != nil {
 				t.Fatalf("representative legacy artifact is invalid: %v\nartifact: %s", err, mustJSON(t, artifact))
 			}
@@ -154,6 +150,17 @@ func TestEveryLegacySchemaValidatesARepresentativeArtifact(t *testing.T) {
 			}
 		})
 	}
+}
+
+func completeActionLedgerRepresentative(artifact map[string]any) {
+	completeness := artifact["decision"].(map[string]any)["completeness"].(map[string]any)
+	for _, field := range []string{
+		"request_complete", "policy_complete", "identity_complete",
+		"context_complete", "state_complete", "phase_complete",
+	} {
+		completeness[field] = true
+	}
+	completeness["missing"] = []any{}
 }
 
 func TestEveryLegacyPolicyLockSchemaMigratesToAValidCurrentArtifact(t *testing.T) {

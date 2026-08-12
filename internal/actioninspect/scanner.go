@@ -28,18 +28,47 @@ func (s *TextScanner) PrivateCategories(
 	text string,
 	maxBytes uint64,
 ) ([]action.DetectorCategory, error) {
-	if s == nil || len(s.pack.rules) == 0 {
-		return nil, fmt.Errorf("text scanner is unavailable")
-	}
-	if !utf8.ValidString(text) || maxBytes == 0 || maxBytes > action.MaxArgumentBytes {
-		return nil, fmt.Errorf("text scanner input is outside its boundary")
-	}
-	categories := map[action.DetectorCategory]struct{}{
+	return s.categories(ctx, text, maxBytes, map[action.DetectorCategory]struct{}{
 		action.DetectorCredential:     {},
 		action.DetectorSecret:         {},
 		action.DetectorPIIEmail:       {},
 		action.DetectorPIIPhone:       {},
 		action.DetectorPIIPaymentCard: {},
+	})
+}
+
+// UntrustedInstructionCategories classifies deterministic instruction and
+// exfiltration markers in untrusted public metadata. It deliberately excludes
+// PII detectors so ordinary tool documentation and contact text do not become
+// an accidental availability policy.
+func (s *TextScanner) UntrustedInstructionCategories(
+	ctx context.Context,
+	text string,
+	maxBytes uint64,
+) ([]action.DetectorCategory, error) {
+	return s.categories(ctx, text, maxBytes, map[action.DetectorCategory]struct{}{
+		action.DetectorCredential:          {},
+		action.DetectorSecret:              {},
+		action.DetectorPromptInjection:     {},
+		action.DetectorRoleOverride:        {},
+		action.DetectorPrivilegeClaim:      {},
+		action.DetectorIndirectInstruction: {},
+		action.DetectorDelimiterAttack:     {},
+		action.DetectorExfiltration:        {},
+	})
+}
+
+func (s *TextScanner) categories(
+	ctx context.Context,
+	text string,
+	maxBytes uint64,
+	categories map[action.DetectorCategory]struct{},
+) ([]action.DetectorCategory, error) {
+	if s == nil || len(s.pack.rules) == 0 {
+		return nil, fmt.Errorf("text scanner is unavailable")
+	}
+	if !utf8.ValidString(text) || maxBytes == 0 || maxBytes > action.MaxArgumentBytes {
+		return nil, fmt.Errorf("text scanner input is outside its boundary")
 	}
 	findings, err := s.pack.scan(ctx, text, categories, nil, maxBytes)
 	if err != nil {

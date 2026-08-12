@@ -163,30 +163,45 @@ can produce a synthetic case; keyed names and unsafe exact names remain explicit
 omissions. `--output` publishes a new private `0600` file atomically and refuses
 an existing path.
 
-The source also contains the internal trusted-context, cumulative-budget,
-approval, inspection, and action-ledger owners used by the future gateway.
-None intercepts a direct tool call.
+The source also contains the enforcing Go MCP gateway plus its trusted-context,
+cumulative-budget, approval, inspection, and action-ledger owners. These
+controls apply only to calls routed through `reconc mcp gateway`; they do not
+intercept a direct downstream or native framework tool call.
 
-Unreleased source also contains the deterministic action-inspection core and
-safe result-withholding envelope. No command invokes it for live MCP traffic;
-TASK 161 owns that boundary.
+The gateway invokes the deterministic action-inspection core before dispatch,
+inspects progress and downstream results, and returns a bounded safe envelope
+instead of a withheld result.
 
 The same internal boundary implements canonical one-call approval requests,
 Ed25519 approve or reject receipts, strict operator-owned authority registries,
 single-use atomic consumption, budget coupling, expiry reconciliation, and
-exact MCP `2026-07-28` input-required transport mapping. It still exposes no
-public approver or live interception command. An unsigned client response or a
-signer under the agent's authority is not an independent approval.
+exact MCP `2026-07-28` input-required transport mapping. It exposes no public
+approver: the upstream MCP client must return a valid one-time signed receipt.
+An unsigned client response or a signer under the agent's authority is not an
+independent approval.
 
-### `reconc mcp gateway [repo] --server LABEL (--expect-lock-digest SHA256 | --allow-repository-managed-policy) [trusted-context flags] -- COMMAND [ARG...]`
+### `reconc mcp gateway [repo] --server LABEL (--expect-lock-digest SHA256 | --allow-repository-managed-policy) --principal LABEL [trusted-context flags] -- COMMAND [ARG...]`
 
-Would start one local, tool-only stdio gateway around one
-operator-selected downstream stdio MCP server. Exactly one policy-authority
-flag would be required. Operator context, downstream working directory,
-inherited environment names, approval configuration, timeout, command, and argv
-would come only from launch arguments outside repository policy. Only tools
-routed through this gateway would be enforced. Native framework tools and
-direct downstream configurations would remain unenforced.
+Starts one local, tool-only stdio gateway around one operator-selected
+downstream stdio MCP server. Exactly one policy-authority flag is required.
+`--expect-lock-digest` pins startup and every call to one lock digest.
+`--allow-repository-managed-policy` deliberately accepts refreshed repository
+policy and therefore has lower provenance when the calling agent can modify
+that repository. `--server` and `--principal` are mandatory;
+`--role`, `--environment`, repeatable `--credential`, `--run`, `--session`,
+paired `--approval-authorities` and `--approval-policy`,
+`--server-working-dir`, repeatable `--inherit-env`, `--timeout`, and
+`--reconc-home` are operator launch inputs. The command and exact argv begin
+after `--` and never come from repository policy or tool arguments.
+
+The gateway exposes only validated downstream tools, supports MCP `2026-07-28`
+and `2025-11-25`, and binds each tool-contract generation, executable identity,
+policy identity, trusted context, budget, approval, and ledger lifecycle before
+dispatch. It validates original arguments without coercion, inspects progress
+and results, withholds unsafe output, bounds protocol and child-process
+resources, and owns process-tree shutdown. Stdout is MCP protocol only. Only
+tools configured to launch through this gateway are enforced; native framework
+tools and direct downstream configurations remain unenforced.
 
 ### `reconc action evidence export|verify [repo]`
 
@@ -196,9 +211,10 @@ certification or legal sufficiency.
 
 The exact Draft contract, failure behavior, limits, protocol versions, and
 package owners are in
-[RECONC-0008](rfcs/RECONC-0008-go-only-action-plane.md). The remaining gateway
-and evidence commands have no metadata, dispatch, completion, or manpage
-entries.
+[RECONC-0008](rfcs/RECONC-0008-go-only-action-plane.md). The gateway is
+registered in dispatch, command metadata, completion, and manpage generation.
+The evidence command remains planned under TASK 163 and has no live command
+entry.
 
 ---
 

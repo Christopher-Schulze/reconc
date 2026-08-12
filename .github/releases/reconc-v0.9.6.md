@@ -34,6 +34,15 @@ one exact registry.
   lifecycle inspection and privacy-bounded minimized Impact Lab export. Missing
   state is read-only empty; corruption fails; export omissions and replay gaps
   remain explicit; output is private and create-only.
+- `reconc mcp gateway` as a Go-only, tools-only stdio enforcement boundary
+  around one operator-selected downstream MCP server. Routed calls receive
+  strict tool-contract validation, policy and executable identity resampling,
+  cumulative budgets, signed one-time approvals, required lifecycle recording,
+  inspected progress and results, bounded stderr diagnostics, and owned child
+  process-tree shutdown.
+- Current MCP `2026-07-28` and legacy `2025-11-25` tool-call interoperability
+  through the pinned official Go MCP SDK `v1.7.0`, with direct/native tool
+  bypasses and unsupported capabilities kept explicit.
 
 ## Changed
 
@@ -41,6 +50,9 @@ one exact registry.
   custom-runtime manifests use v2. Restored legacy inputs remain readable; a legacy
   custom-runtime route must still budget enough bytes for the current canonical
   response metadata, while v2 makes the safe 512-byte minimum explicit.
+- Current Action Ledger events use schema v2 for gateway approval and delivery
+  semantics; the published v1 schema remains byte-identical and registered as
+  a legacy contract.
 - Release copying, verification, checksums, manifest, SBOM, and provenance
   inventories consume the registry directly instead of maintaining a separate
   schema list.

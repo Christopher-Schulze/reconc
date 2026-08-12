@@ -13,6 +13,7 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 	architecture := readPublicSurfaceFile(t, root, "docs/architecture.md")
 	documentation := readPublicSurfaceFile(t, root, "docs/documentation.md")
 	commands := readPublicSurfaceFile(t, root, "docs/commands.md")
+	readme := readPublicSurfaceFile(t, root, "README.md")
 
 	assertContainsAll(t, "RECONC-0008", rfc,
 		"Status: Draft",
@@ -23,9 +24,9 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 		"TASK 159 implements canonical detector policy",
 		"TASK 160 implements",
 		"the separate private format-1 retained Action Ledger",
-		"No command invokes that inspection core for live traffic yet",
-		"gateway enforcement",
-		"unavailable until their owning tasks",
+		"TASK 161 implements the enforcing Go MCP stdio gateway",
+		"TASK 163 still owns control-evidence export",
+		"`reconc mcp gateway` is implemented for explicitly routed tools",
 	)
 	assertContainsAll(t, "RFC index", index,
 		"| RECONC-0008 | Draft | Go-only Action Plane |",
@@ -37,18 +38,18 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 		"`internal/actioninspect` now strictly",
 		"Action Ledger records typed payload-free lifecycle evidence",
 		"`reconc action log tail|stats|verify|export`",
-		"No gateway currently invokes these primitives for a live call",
-		"does not yet enforce or route live tool calls",
+		"`reconc mcp gateway` now invokes these primitives around every routed live tool call",
+		"The implemented topology is one local, tool-only stdio MCP gateway",
+		"Native LangChain tools, clients configured directly against the downstream server",
 	)
 	assertContainsAll(t, "documentation", documentation,
 		"## Go-Only Action Plane",
 		"Unreleased source version `v0.9.6` implements strict",
 		"`reconc impact` invokes that production evaluator",
-		"No current source command",
-		"routes tool calls through an enforcing gateway",
 		"`reconc action log tail|stats|verify|export`",
-		"offline simulation, retained fixtures, and these internal primitives are not a",
-		"live tool-call interception boundary",
+		"`reconc mcp gateway` owns one operator-selected downstream stdio MCP process",
+		"only explicitly routed gateway calls cross the live tool-call interception boundary",
+		"Only tools configured to use the Reconc gateway are enforced",
 	)
 	assertContainsAll(t, "commands", commands,
 		"## Action Plane commands",
@@ -57,9 +58,17 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 		"### `reconc action log stats",
 		"### `reconc action log verify",
 		"### `reconc action log export",
-		"The remaining gateway and evidence commands have no metadata",
+		"### `reconc mcp gateway",
 		"deterministic action-inspection core",
-		"No command invokes it for live MCP traffic",
+		"controls apply only to calls routed through `reconc mcp gateway`",
+		"The gateway is registered in dispatch, command metadata, completion, and manpage generation",
+		"The evidence command remains planned under TASK 163",
+	)
+	assertContainsAll(t, "README", readme,
+		"routes explicitly configured tools through `reconc mcp gateway`",
+		"The Go-only `reconc mcp gateway` is live enforcement only for tools explicitly routed through it",
+		"native LangChain tools",
+		"MCP gateway",
 	)
 }
 

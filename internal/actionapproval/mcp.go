@@ -143,6 +143,28 @@ func ParseMCPApprovalRetry(
 	return parseMCPApprovalResponse(original, retry, expectedRequestState)
 }
 
+// CanonicalMCPApprovalBaseParams removes an already-consumed multi-round-trip
+// response before another independent approval round is issued. Callers may use
+// it only after the current retry fields have been authenticated and consumed.
+func CanonicalMCPApprovalBaseParams(params []byte) ([]byte, error) {
+	if len(params) == 0 || len(params) > MaxMCPApprovalRetryBytes {
+		return nil, approvalError(action.ReasonLimitExceeded, "MCP approval params exceed their bound", nil)
+	}
+	value, err := action.ParseObjectJSON(params)
+	if err != nil {
+		return nil, approvalError(action.ReasonProtocolError, "decode MCP approval params", err)
+	}
+	base, _, _, err := splitMCPApprovalParams(value)
+	if err != nil {
+		return nil, err
+	}
+	body, err := base.MarshalJSON()
+	if err != nil {
+		return nil, approvalError(action.ReasonProtocolError, "canonicalize MCP approval base params", err)
+	}
+	return body, nil
+}
+
 func parseMCPRPCID(raw []byte) (action.Value, error) {
 	if len(raw) == 0 || len(raw) > 1024 {
 		return action.Value{}, approvalError(action.ReasonProtocolError, "MCP JSON-RPC ID is outside its bound", nil)

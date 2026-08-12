@@ -422,7 +422,8 @@ func taggedSchemaURL(tag string, localPath string) string {
 
 func contracts() []Contract {
 	return []Contract{
-		contract(ActionLedger, "1", []string{"1"}, "schemas/v1/action-ledger.schema.json", "action-ledger.schema.json", ActionLedgerURL, CurrentSchemaTag, "c8d85f2bdc82c51de468cbe7a62cce5251c2e724ec4dd29dd3c9d1535614c1cb", StateCurrent),
+		contract(ActionLedger, "1", []string{"1"}, "schemas/v1/action-ledger.schema.json", "action-ledger-v1.schema.json", DefaultBaseURL+"/action-ledger.schema.json", CurrentSchemaTag, "c8d85f2bdc82c51de468cbe7a62cce5251c2e724ec4dd29dd3c9d1535614c1cb", StateLegacy),
+		contract(ActionLedger, "2", []string{"1"}, "schemas/v2/action-ledger.schema.json", "action-ledger.schema.json", ActionLedgerURL, CurrentSchemaTag, "02a2e2c5ac76d77709ab3f33f600a99a0119288dfbb8a4166ffacf0aeed916a8", StateCurrent),
 		contract(CompletionReport, "1", []string{"1"}, "schemas/v1/completion-report.schema.json", "completion-report.schema.json", CompletionReportURL, CurrentSchemaTag, "811f87716131ce2561b55917805ce0c84146521778a30c316389e401e03843c1", StateCurrent, misbound("schemas/v1/completion-report.schema.json"), unpinned("schemas/v1/completion-report.schema.json")),
 		contract(CustomRuntimeConformance, "1", []string{"reconc-custom-runtime-conformance/v1"}, "schemas/v1/custom-runtime-conformance.schema.json", "custom-runtime-conformance.schema.json", CustomRuntimeConformanceURL, CurrentSchemaTag, "3931edb9a5c61ea3f423a933cb40cae435b1f3dab09295dd37db101c511c919b", StateCurrent, unreachable("https://reconc.dev/schemas/custom-runtime-conformance/v1")),
 		contract(CustomRuntimeLiveness, "1", []string{"reconc-custom-runtime-liveness/v1"}, "schemas/v1/custom-runtime-liveness.schema.json", "custom-runtime-liveness.schema.json", CustomRuntimeLivenessURL, CurrentSchemaTag, "321e760512ea5332bc6830d297968a5fb6f238e2f4e70035d54b1e545a1358c4", StateCurrent, unreachable("https://reconc.dev/schemas/custom-runtime-liveness/v1")),

@@ -12,12 +12,12 @@ func (p *CompiledPlan) BudgetContract(request Request) (Tool, []Budget, error) {
 	if p == nil {
 		return Tool{}, nil, fmt.Errorf("compiled action plan is unavailable")
 	}
-	key := ToolIdentityKey(Tool{
+	toolIdentity := Tool{
 		Transport: request.Transport, Platform: request.Platform,
 		ServerLabel: request.ServerLabel, ServerFingerprint: request.ServerFingerprint,
 		Tool: request.Tool,
-	})
-	index, ok := p.toolByExact[key]
+	}
+	index, ok := lookupToolIndex(p.toolByExact, toolIdentity)
 	if !ok || index < 0 || index >= len(p.plan.Tools) {
 		return Tool{}, []Budget{}, nil
 	}

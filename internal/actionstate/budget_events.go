@@ -68,9 +68,6 @@ func reserveApprovalCharges(state *State, reservationIndex int) (bool, error) {
 			continue
 		}
 		relevant++
-		if charge.ApprovalCommitted {
-			return false, stateError(action.ReasonReservationIndeterminate, "approval count is already committed", nil)
-		}
 		if charge.Reserved.ApprovalCount == 1 {
 			alreadyReserved++
 		} else if charge.Reserved.ApprovalCount != 0 {
@@ -107,7 +104,7 @@ func reserveApprovalCharges(state *State, reservationIndex int) (bool, error) {
 
 func commitApprovalCharges(state *State, reservationIndex int) (bool, error) {
 	reservation := &state.Reservations[reservationIndex]
-	relevant, committed := 0, 0
+	relevant := 0
 	for chargeIndex := range reservation.Charges {
 		charge := &reservation.Charges[chargeIndex]
 		record := budgetRecordForLineage(state.Budgets, charge.LineageIdentity)
@@ -118,19 +115,12 @@ func commitApprovalCharges(state *State, reservationIndex int) (bool, error) {
 			continue
 		}
 		relevant++
-		if charge.ApprovalCommitted {
-			committed++
-			continue
-		}
 		if charge.Reserved.ApprovalCount != 1 {
 			return false, stateError(action.ReasonReservationIndeterminate, "approval count was not reserved", nil)
 		}
 	}
-	if relevant == 0 || committed == relevant {
+	if relevant == 0 {
 		return false, nil
-	}
-	if committed != 0 {
-		return false, stateError(action.ReasonStateCorrupt, "approval count is only partially committed", nil)
 	}
 	for chargeIndex := range reservation.Charges {
 		charge := &reservation.Charges[chargeIndex]
@@ -142,11 +132,35 @@ func commitApprovalCharges(state *State, reservationIndex int) (bool, error) {
 		if overflow {
 			return false, stateError(action.ReasonStateCorrupt, "approval counter overflowed", nil)
 		}
+		if charge.CommittedApprovals == ^uint64(0) {
+			return false, stateError(action.ReasonStateCorrupt, "reservation approval counter overflowed", nil)
+		}
 		record.Consumed = consumed
 		charge.Reserved.ApprovalCount = 0
-		charge.ApprovalCommitted = true
+		charge.CommittedApprovals++
 	}
 	return true, nil
+}
+
+func releaseApprovalCharges(state *State, reservationIndex int) (bool, error) {
+	reservation := &state.Reservations[reservationIndex]
+	released := false
+	for chargeIndex := range reservation.Charges {
+		charge := &reservation.Charges[chargeIndex]
+		record := budgetRecordForLineage(state.Budgets, charge.LineageIdentity)
+		if record == nil {
+			return false, stateError(action.ReasonStateCorrupt, "approval budget record is absent", nil)
+		}
+		if record.Limits.ApprovalCount == 0 {
+			continue
+		}
+		if charge.Reserved.ApprovalCount != 1 {
+			return false, stateError(action.ReasonReservationIndeterminate, "approval count was not reserved", nil)
+		}
+		charge.Reserved.ApprovalCount = 0
+		released = true
+	}
+	return released, nil
 }
 
 func recordDenialCharges(state *State, reservationIndex int) (bool, error) {

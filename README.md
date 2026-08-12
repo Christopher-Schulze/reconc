@@ -118,7 +118,7 @@ Core invariants are deliberately strict:
 | Control surface | What Reconc provides |
 | --- | --- |
 | Policy compiler | Compiles repository instructions, YAML policy, packs, templates, and provenance into a portable lockfile. Unknown fields, stale sources, schema drift, invalid globs, unsupported rule kinds, and non-portable current roots fail closed. |
-| Action policy, trusted context, and budgets | Unreleased v0.9.6 source strictly compiles `actions` and compatible legacy `mcp` authoring into one canonical format-6 action plan, explains and simulates it offline, and implements private keyed identities plus crash-safe cumulative budget reservations; no current command routes live calls through that state. |
+| Action policy, trusted context, and budgets | Unreleased v0.9.6 source strictly compiles `actions` and compatible legacy `mcp` authoring into one canonical format-6 action plan, explains and simulates it offline, and routes explicitly configured tools through `reconc mcp gateway` with private keyed identities, crash-safe cumulative budgets, approvals, result inspection, and a decision ledger. |
 | Action decision ledger | `reconc action log tail|stats|verify|export` reads a separate private, tamper-evident, privacy-bounded ledger with exact retained-chain verification and explicit lifecycle gaps. Export produces only verified synthetic minimized Impact Lab cases and never reconstructs raw arguments or results. |
 | Scope and change control | Records and evaluates reads, writes, commands, claims, protected paths, coupled changes, generated files, secret state, destructive commands, and out-of-scope edits or deletions. |
 | Evidence freshness | Binds command success to the write epoch or staged Git candidate it verified. A later relevant write invalidates earlier success instead of laundering stale proof. |
@@ -133,12 +133,10 @@ Core invariants are deliberately strict:
 | Operator and CI tooling | Provides exact remediation, body-free source-provenance inspection, an offline policy impact lab, staged command execution, deterministic text, JSON, SARIF 2.1.0, JUnit XML, and GitHub impact reports, CI proofs, global diagnostics, update and uninstall, cryptographically verified audit inspection, retention, TUI, shell completions, and a generated manpage. |
 | Release trust | Publishes strict release manifests, SHA-256 checksums, build-provenance attestations, and deterministic SPDX 2.3 and CycloneDX 1.6 SBOMs tied to the release commit. |
 
-Offline action evaluation is not live action enforcement: current source
-evaluates compiled action rules for explicit `reconc impact` scenarios and
-provides the internal trusted-context, cumulative-budget, approval, inspection,
-and action-ledger owners, but it does not route real tool calls through a
-Reconc-owned gateway. The published v0.9.5 release does not contain the
-format-6 Action Plane additions.
+The Go-only `reconc mcp gateway` is live enforcement only for tools explicitly
+routed through it. Direct access to the downstream server, native LangChain
+tools, and host-native tools bypass that boundary. The published v0.9.5 release
+does not contain the format-6 Action Plane or gateway additions.
 
 ## Evidence Model
 
@@ -637,6 +635,7 @@ and routes behavior into internal packages with explicit boundaries:
 | Ingest, parser, compiler, action | Discover repository roots and policy sources, validate strict YAML and templates, resolve packs, compile canonical repository and action plans with immutable matcher programs, detect conflicts, generate portable lockfiles, and migrate supported formats. |
 | Action state | Bind operator and host identities, hold leased keyed identity material, reserve and settle cumulative budgets, and preserve crash-consistent cross-process state outside repositories. |
 | Action ledger | Record and verify privacy-bounded typed action lifecycle events in a private retained hash chain; expose deterministic read-only tail, stats, verification, and minimized Impact Lab export. |
+| MCP gateway | Own one operator-selected downstream stdio process, validate and digest its advertised tools, enforce every routed call before dispatch, inspect progress and results before delivery, and terminate the complete child process tree. |
 | Runtime and assurance | Evaluate normalized evidence, path and command rules, native repository assurance, scripts, templates, remediation, and Git-derived candidates. |
 | Hooks and agent sessions | Generate platform artifacts, normalize untrusted host payloads, enforce pre-action policy, record bounded outcomes, manage compaction context, and evaluate Stop. |
 | Bootstrap and harness packs | Inspect repositories, build deterministic plans, publish create-only artifacts and ownership receipts, embed the advanced pack, synchronize owned state, and roll back failed transactions. |

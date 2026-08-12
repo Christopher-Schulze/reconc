@@ -1,0 +1,1192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v2/action-ledger.schema.json",
+  "title": "Reconc Action Ledger Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "format_version",
+    "chain_version",
+    "sequence",
+    "digest",
+    "timestamp",
+    "latency_micros",
+    "event",
+    "call",
+    "decision",
+    "selected_fields"
+  ],
+  "properties": {
+    "schema": {"const": "reconc.action-ledger-event/v1"},
+    "format_version": {"const": "1"},
+    "chain_version": {"const": "action-ledger-chain-v1"},
+    "sequence": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
+    "previous_digest": {"$ref": "#/$defs/digest"},
+    "digest": {"$ref": "#/$defs/digest"},
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]{0,8}[1-9])?Z$",
+      "maxLength": 30
+    },
+    "latency_micros": {"type": "integer", "minimum": 0, "maximum": 600000000},
+    "event": {
+      "enum": [
+        "request_accepted",
+        "pre_decision",
+        "approval_transition",
+        "budget_transition",
+        "downstream_dispatch",
+        "downstream_outcome",
+        "result_inspection",
+        "final_delivery",
+        "terminal_failure"
+      ]
+    },
+    "call": {"$ref": "#/$defs/call"},
+    "decision": {"$ref": "#/$defs/decision"},
+    "selected_fields": {
+      "type": "array",
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/selectedField"}
+    },
+    "request_accepted": {"$ref": "#/$defs/requestAccepted"},
+    "pre_decision": {"$ref": "#/$defs/preDecision"},
+    "approval_transition": {"$ref": "#/$defs/approvalTransition"},
+    "budget_transition": {"$ref": "#/$defs/budgetTransition"},
+    "downstream_dispatch": {"$ref": "#/$defs/downstreamDispatch"},
+    "downstream_outcome": {"$ref": "#/$defs/downstreamOutcome"},
+    "result_inspection": {"$ref": "#/$defs/resultInspection"},
+    "final_delivery": {"$ref": "#/$defs/finalDelivery"},
+    "terminal_failure": {"$ref": "#/$defs/terminalFailure"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"sequence": {"const": 1}}, "required": ["sequence"]},
+      "then": {"not": {"required": ["previous_digest"]}},
+      "else": {"required": ["previous_digest"]}
+    },
+    {
+      "if": {
+        "properties": {
+          "selected_fields": {
+            "contains": {
+              "properties": {"complete": {"const": false}},
+              "required": ["complete"]
+            }
+          }
+        },
+        "required": ["selected_fields"]
+      },
+      "then": {
+        "properties": {
+          "decision": {
+            "properties": {
+              "completeness": {
+                "properties": {
+                  "identity_complete": {"const": false},
+                  "missing": {
+                    "contains": {
+                      "properties": {
+                        "field": {"const": "identity"},
+                        "reason": {"const": "identity_unavailable"}
+                      },
+                      "required": ["field", "reason"]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"decision": {"properties": {"phase": {"const": "pre_call"}}}},
+        "required": ["decision"]
+      },
+      "then": {
+        "properties": {
+          "selected_fields": {"items": {"properties": {"source": {"const": "arguments"}}}}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"decision": {"properties": {"phase": {"const": "post_result"}}}},
+        "required": ["decision"]
+      },
+      "then": {
+        "properties": {
+          "selected_fields": {"items": {"properties": {"source": {"const": "result"}}}}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"decision": {"properties": {"phase": {"enum": ["progress", "observation"]}}}},
+        "required": ["decision"]
+      },
+      "then": {"properties": {"selected_fields": {"maxItems": 0}}}
+    },
+    {
+      "if": {
+        "properties": {
+          "decision": {
+            "properties": {"decision": {"const": "allow"}},
+            "required": ["decision"]
+          }
+        },
+        "required": ["decision"]
+      },
+      "then": {
+        "properties": {
+          "decision": {
+            "properties": {
+              "reason_code": {"enum": ["declared_tool", "host_unmatched", "rule_matched"]}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "decision": {
+            "properties": {"decision": {"const": "warn"}},
+            "required": ["decision"]
+          }
+        },
+        "required": ["decision"]
+      },
+      "then": {
+        "properties": {
+          "decision": {
+            "properties": {"reason_code": {"enum": ["declared_tool", "rule_matched"]}}
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {"not": {"const": "approval_transition"}},
+          "decision": {
+            "properties": {"decision": {"const": "require_approval"}},
+            "required": ["decision"]
+          }
+        },
+        "required": ["event", "decision"]
+      },
+      "then": {
+        "properties": {
+          "decision": {"properties": {"reason_code": {"const": "approval_required"}}}
+        }
+      }
+    }
+  ],
+  "oneOf": [
+    {"$ref": "#/$defs/requestAcceptedEvent"},
+    {"$ref": "#/$defs/preDecisionEvent"},
+    {"$ref": "#/$defs/approvalTransitionEvent"},
+    {"$ref": "#/$defs/budgetTransitionEvent"},
+    {"$ref": "#/$defs/downstreamDispatchEvent"},
+    {"$ref": "#/$defs/downstreamOutcomeEvent"},
+    {"$ref": "#/$defs/resultInspectionEvent"},
+    {"$ref": "#/$defs/finalDeliveryEvent"},
+    {"$ref": "#/$defs/terminalFailureEvent"}
+  ],
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "shaIdentity": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "keyedIdentity": {
+      "type": "string",
+      "pattern": "^hmac-sha256:v1:[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?:[0-9a-f]{64}$"
+    },
+    "safeLabel": {
+      "type": "string",
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$",
+      "maxLength": 64
+    },
+    "approvalRequestID": {"type": "string", "pattern": "^apr_[a-z2-7]{26}$"},
+    "approvalReceiptID": {"type": "string", "pattern": "^arc_[a-z2-7]{26}$"},
+    "callID": {"type": "string", "pattern": "^act_[a-z2-7]{26}$"},
+    "toolIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "value"],
+      "properties": {
+        "mode": {"enum": ["declaration_id", "exact_name", "keyed_name"]},
+        "value": {"type": "string"}
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "mode": {"const": "declaration_id"},
+            "value": {"$ref": "#/$defs/safeLabel"}
+          }
+        },
+        {
+          "properties": {
+            "mode": {"const": "exact_name"},
+            "value": {"type": "string", "pattern": "^[A-Za-z0-9_.-]{1,128}$"}
+          }
+        },
+        {
+          "properties": {
+            "mode": {"const": "keyed_name"},
+            "value": {"$ref": "#/$defs/keyedIdentity"}
+          }
+        }
+      ]
+    },
+    "call": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "call_id",
+        "repository_identity",
+        "policy_digest",
+        "lock_digest",
+        "server_label",
+        "server_fingerprint",
+        "tool_identity",
+        "tool_contract_digest",
+        "principal",
+        "credential_labels",
+        "context_identity",
+        "context_provenance"
+      ],
+      "properties": {
+        "call_id": {"$ref": "#/$defs/callID"},
+        "request_identity": {"$ref": "#/$defs/keyedIdentity"},
+        "repository_identity": {"$ref": "#/$defs/keyedIdentity"},
+        "policy_digest": {"$ref": "#/$defs/digest"},
+        "lock_digest": {"$ref": "#/$defs/digest"},
+        "server_label": {"$ref": "#/$defs/safeLabel"},
+        "server_fingerprint": {"$ref": "#/$defs/keyedIdentity"},
+        "tool_identity": {"$ref": "#/$defs/toolIdentity"},
+        "tool_contract_digest": {"$ref": "#/$defs/shaIdentity"},
+        "principal": {"$ref": "#/$defs/safeLabel"},
+        "credential_labels": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/safeLabel"}
+        },
+        "run_identity": {"$ref": "#/$defs/keyedIdentity"},
+        "session_identity": {"$ref": "#/$defs/keyedIdentity"},
+        "context_identity": {"$ref": "#/$defs/keyedIdentity"},
+        "context_provenance": {"const": "operator_bound"}
+      }
+    },
+    "missingEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "reason"],
+      "properties": {
+        "field": {"enum": ["request", "policy", "identity", "context", "state", "phase"]},
+        "reason": {
+          "enum": [
+            "invalid_request", "duplicate_key", "invalid_utf8", "schema_invalid", "limit_exceeded",
+            "policy_missing", "policy_stale", "lock_mismatch", "unsupported_phase", "tool_unclassified",
+            "tool_contract_stale", "context_untrusted", "identity_unavailable", "condition_indeterminate",
+            "budget_exhausted", "state_unavailable", "state_corrupt", "reservation_indeterminate",
+            "approval_required", "approval_rejected", "approval_invalid", "approval_expired", "approval_replayed",
+            "authority_unavailable", "inspection_incomplete", "unsupported_content", "result_withheld",
+            "ledger_unavailable", "ledger_corrupt", "downstream_unavailable", "downstream_error",
+            "downstream_outcome_unknown", "protocol_error", "cancelled", "deadline_exceeded", "shutdown",
+            "internal_invariant"
+          ]
+        }
+      }
+    },
+    "completeness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_complete", "policy_complete", "identity_complete", "context_complete",
+        "state_complete", "phase_complete", "missing"
+      ],
+      "properties": {
+        "request_complete": {"type": "boolean"},
+        "policy_complete": {"type": "boolean"},
+        "identity_complete": {"type": "boolean"},
+        "context_complete": {"type": "boolean"},
+        "state_complete": {"type": "boolean"},
+        "phase_complete": {"type": "boolean"},
+        "missing": {
+          "type": "array",
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/missingEvidence"}
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"request_complete": {"const": true}}, "required": ["request_complete"]},
+          "then": {"properties": {"missing": {"not": {"contains": {"properties": {"field": {"const": "request"}}, "required": ["field"]}}}}},
+          "else": {"properties": {"missing": {"contains": {"properties": {"field": {"const": "request"}}, "required": ["field"]}}}}
+        },
+        {
+          "if": {"properties": {"policy_complete": {"const": true}}, "required": ["policy_complete"]},
+          "then": {"properties": {"missing": {"not": {"contains": {"properties": {"field": {"const": "policy"}}, "required": ["field"]}}}}},
+          "else": {"properties": {"missing": {"contains": {"properties": {"field": {"const": "policy"}}, "required": ["field"]}}}}
+        },
+        {
+          "if": {"properties": {"identity_complete": {"const": true}}, "required": ["identity_complete"]},
+          "then": {"properties": {"missing": {"not": {"contains": {"properties": {"field": {"const": "identity"}}, "required": ["field"]}}}}},
+          "else": {"properties": {"missing": {"contains": {"properties": {"field": {"const": "identity"}}, "required": ["field"]}}}}
+        },
+        {
+          "if": {"properties": {"context_complete": {"const": true}}, "required": ["context_complete"]},
+          "then": {"properties": {"missing": {"not": {"contains": {"properties": {"field": {"const": "context"}}, "required": ["field"]}}}}},
+          "else": {"properties": {"missing": {"contains": {"properties": {"field": {"const": "context"}}, "required": ["field"]}}}}
+        },
+        {
+          "if": {"properties": {"state_complete": {"const": true}}, "required": ["state_complete"]},
+          "then": {"properties": {"missing": {"not": {"contains": {"properties": {"field": {"const": "state"}}, "required": ["field"]}}}}},
+          "else": {"properties": {"missing": {"contains": {"properties": {"field": {"const": "state"}}, "required": ["field"]}}}}
+        },
+        {
+          "if": {"properties": {"phase_complete": {"const": true}}, "required": ["phase_complete"]},
+          "then": {"properties": {"missing": {"not": {"contains": {"properties": {"field": {"const": "phase"}}, "required": ["field"]}}}}},
+          "else": {"properties": {"missing": {"contains": {"properties": {"field": {"const": "phase"}}, "required": ["field"]}}}}
+        }
+      ]
+    },
+    "completeEvidence": {
+      "type": "object",
+      "properties": {
+        "request_complete": {"const": true},
+        "policy_complete": {"const": true},
+        "identity_complete": {"const": true},
+        "context_complete": {"const": true},
+        "state_complete": {"const": true},
+        "phase_complete": {"const": true},
+        "missing": {"maxItems": 0}
+      },
+      "required": [
+        "request_complete", "policy_complete", "identity_complete", "context_complete",
+        "state_complete", "phase_complete", "missing"
+      ]
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "rule_ids", "completeness"],
+      "properties": {
+        "phase": {"enum": ["pre_call", "post_result", "progress", "observation"]},
+        "decision": {"enum": ["allow", "warn", "require_approval", "block"]},
+        "reason_code": {
+          "enum": [
+            "declared_tool", "host_unmatched", "rule_matched", "invalid_request", "duplicate_key",
+            "invalid_utf8", "schema_invalid", "limit_exceeded", "policy_missing", "policy_stale",
+            "lock_mismatch", "unsupported_phase", "tool_unclassified", "tool_contract_stale",
+            "context_untrusted", "identity_unavailable", "condition_indeterminate", "budget_exhausted",
+            "state_unavailable", "state_corrupt", "reservation_indeterminate", "approval_required",
+            "approval_rejected", "approval_invalid", "approval_expired", "approval_replayed",
+            "authority_unavailable", "inspection_incomplete", "unsupported_content", "result_withheld",
+            "ledger_unavailable", "ledger_corrupt", "downstream_unavailable", "downstream_error",
+            "downstream_outcome_unknown", "protocol_error", "cancelled", "deadline_exceeded", "shutdown",
+            "internal_invariant"
+          ]
+        },
+        "rule_ids": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/safeLabel"}
+        },
+        "completeness": {"$ref": "#/$defs/completeness"}
+      }
+    },
+    "requestDecision": {
+      "allOf": [
+        {"$ref": "#/$defs/decision"},
+        {"properties": {"decision": false, "reason_code": false}}
+      ]
+    },
+    "resolvedDecision": {
+      "allOf": [
+        {"$ref": "#/$defs/decision"},
+        {"required": ["decision", "reason_code"]}
+      ]
+    },
+    "selectedField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["declaration_index", "source", "state", "byte_length", "item_count", "complete"],
+      "properties": {
+        "declaration_index": {"type": "integer", "minimum": 0, "maximum": 255},
+        "source": {"enum": ["arguments", "result"]},
+        "pointer_identity": {"$ref": "#/$defs/keyedIdentity"},
+        "state": {"enum": ["present", "null", "missing", "wrong_container", "invalid_index"]},
+        "kind": {"enum": ["null", "boolean", "number", "string", "array", "object"]},
+        "value_identity": {"$ref": "#/$defs/keyedIdentity"},
+        "byte_length": {"type": "integer", "minimum": 0, "maximum": 8388608},
+        "item_count": {"type": "integer", "minimum": 0, "maximum": 65536},
+        "complete": {"type": "boolean"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"complete": {"const": true}}, "required": ["complete"]},
+          "then": {"required": ["pointer_identity"]},
+          "else": {"properties": {"pointer_identity": false, "value_identity": false}}
+        },
+        {
+          "if": {"properties": {"state": {"enum": ["present", "null"]}}, "required": ["state"]},
+          "then": {
+            "required": ["kind"],
+            "properties": {"byte_length": {"minimum": 1}},
+            "oneOf": [
+              {"properties": {"complete": {"const": true}}, "required": ["value_identity"]},
+              {"properties": {"complete": {"const": false}}, "not": {"required": ["value_identity"]}}
+            ]
+          },
+          "else": {
+            "properties": {
+              "kind": false,
+              "value_identity": false,
+              "byte_length": {"const": 0},
+              "item_count": {"const": 0}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"state": {"const": "null"}}, "required": ["state"]},
+          "then": {"properties": {"kind": {"const": "null"}}}
+        },
+        {
+          "if": {"properties": {"state": {"const": "present"}}, "required": ["state"]},
+          "then": {
+            "properties": {
+              "kind": {"enum": ["boolean", "number", "string", "array", "object"]}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"kind": {"enum": ["null", "boolean", "number", "string"]}},
+            "required": ["kind"]
+          },
+          "then": {"properties": {"item_count": {"const": 0}}}
+        }
+      ]
+    },
+    "requestAccepted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["argument_bytes", "argument_items"],
+      "properties": {
+        "argument_bytes": {"type": "integer", "minimum": 0, "maximum": 8388608},
+        "argument_items": {"type": "integer", "minimum": 0, "maximum": 65536}
+      }
+    },
+    "preDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "cached"],
+      "properties": {
+        "outcome": {
+          "enum": [
+            "dispatch_eligible", "dispatch_blocked", "delivery_eligible", "withheld",
+            "progress_eligible", "suppressed", "recorded"
+          ]
+        },
+        "cached": {"type": "boolean"}
+      }
+    },
+    "approvalTransition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "status", "authority_policy_id"],
+      "properties": {
+        "request_id": {"$ref": "#/$defs/approvalRequestID"},
+        "status": {"enum": ["pending", "approved", "rejected", "expired", "cancelled", "unavailable", "malformed", "replayed"]},
+        "authority_policy_id": {"$ref": "#/$defs/safeLabel"},
+        "authority_key_id": {"$ref": "#/$defs/safeLabel"},
+        "receipt_id": {"$ref": "#/$defs/approvalReceiptID"},
+        "receipt_identity": {"$ref": "#/$defs/shaIdentity"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"enum": ["approved", "rejected"]}}, "required": ["status"]},
+          "then": {"required": ["authority_key_id", "receipt_id", "receipt_identity"]}
+        },
+        {
+          "if": {"properties": {"status": {"const": "pending"}}, "required": ["status"]},
+          "then": {
+            "properties": {"authority_key_id": false, "receipt_id": false, "receipt_identity": false}
+          }
+        },
+        {
+          "oneOf": [
+            {"required": ["authority_key_id", "receipt_id", "receipt_identity"]},
+            {
+              "properties": {"authority_key_id": false, "receipt_id": false, "receipt_identity": false}
+            }
+          ]
+        }
+      ]
+    },
+    "budgetDelta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["call_count", "denied_count", "approval_count", "argument_bytes", "result_bytes", "cost_units", "concurrent", "rate_window"],
+      "properties": {
+        "call_count": {"type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807},
+        "denied_count": {"type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807},
+        "approval_count": {"type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807},
+        "argument_bytes": {"type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807},
+        "result_bytes": {"type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807},
+        "cost_units": {"type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807},
+        "concurrent": {"type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807},
+        "rate_window": {"type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807}
+      }
+    },
+    "zeroBudgetDelta": {
+      "allOf": [
+        {"$ref": "#/$defs/budgetDelta"},
+        {"properties": {
+          "call_count": {"const": 0}, "denied_count": {"const": 0},
+          "approval_count": {"const": 0}, "argument_bytes": {"const": 0},
+          "result_bytes": {"const": 0}, "cost_units": {"const": 0},
+          "concurrent": {"const": 0}, "rate_window": {"const": 0}
+        }}
+      ]
+    },
+    "nonNegativeBudgetDelta": {
+      "allOf": [
+        {"$ref": "#/$defs/budgetDelta"},
+        {"properties": {
+          "call_count": {"minimum": 0}, "denied_count": {"minimum": 0},
+          "approval_count": {"minimum": 0}, "argument_bytes": {"minimum": 0},
+          "result_bytes": {"minimum": 0}, "cost_units": {"minimum": 0},
+          "concurrent": {"minimum": 0}, "rate_window": {"minimum": 0}
+        }}
+      ]
+    },
+    "nonPositiveBudgetDelta": {
+      "allOf": [
+        {"$ref": "#/$defs/budgetDelta"},
+        {"properties": {
+          "call_count": {"maximum": 0}, "denied_count": {"maximum": 0},
+          "approval_count": {"maximum": 0}, "argument_bytes": {"maximum": 0},
+          "result_bytes": {"maximum": 0}, "cost_units": {"maximum": 0},
+          "concurrent": {"maximum": 0}, "rate_window": {"maximum": 0}
+        }}
+      ]
+    },
+    "budgetTransition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "reservation_identity", "state_version", "budget_ids", "reserved_delta", "consumed_delta"],
+      "properties": {
+        "kind": {"enum": ["reserved", "released", "dispatch_committed", "settled", "indeterminate", "denied"]},
+        "reservation_identity": {"oneOf": [{"const": "absent"}, {"$ref": "#/$defs/keyedIdentity"}]},
+        "state_version": {"$ref": "#/$defs/keyedIdentity"},
+        "budget_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1024,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/safeLabel"}
+        },
+        "reserved_delta": {"$ref": "#/$defs/budgetDelta"},
+        "consumed_delta": {"$ref": "#/$defs/budgetDelta"}
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {"const": "reserved"},
+            "reservation_identity": {"$ref": "#/$defs/keyedIdentity"},
+            "reserved_delta": {
+              "allOf": [
+                {"$ref": "#/$defs/nonNegativeBudgetDelta"},
+                {"not": {"$ref": "#/$defs/zeroBudgetDelta"}}
+              ]
+            },
+            "consumed_delta": {"$ref": "#/$defs/zeroBudgetDelta"}
+          }
+        },
+        {
+          "properties": {
+            "kind": {"const": "released"},
+            "reservation_identity": {"$ref": "#/$defs/keyedIdentity"},
+            "reserved_delta": {
+              "allOf": [
+                {"$ref": "#/$defs/nonPositiveBudgetDelta"},
+                {"not": {"$ref": "#/$defs/zeroBudgetDelta"}}
+              ]
+            },
+            "consumed_delta": {"$ref": "#/$defs/zeroBudgetDelta"}
+          }
+        },
+        {
+          "properties": {
+            "kind": {"enum": ["dispatch_committed", "settled"]},
+            "reservation_identity": {"$ref": "#/$defs/keyedIdentity"},
+            "reserved_delta": {"$ref": "#/$defs/nonPositiveBudgetDelta"},
+            "consumed_delta": {"$ref": "#/$defs/nonNegativeBudgetDelta"}
+          },
+          "not": {
+            "properties": {
+              "reserved_delta": {"$ref": "#/$defs/zeroBudgetDelta"},
+              "consumed_delta": {"$ref": "#/$defs/zeroBudgetDelta"}
+            }
+          }
+        },
+        {
+          "properties": {
+            "kind": {"const": "indeterminate"},
+            "reservation_identity": {"$ref": "#/$defs/keyedIdentity"},
+            "reserved_delta": {"$ref": "#/$defs/zeroBudgetDelta"},
+            "consumed_delta": {"$ref": "#/$defs/zeroBudgetDelta"}
+          }
+        },
+        {
+          "properties": {
+            "kind": {"const": "denied"},
+            "reservation_identity": {"$ref": "#/$defs/keyedIdentity"},
+            "reserved_delta": {
+              "allOf": [
+                {"$ref": "#/$defs/nonPositiveBudgetDelta"},
+                {"properties": {"denied_count": {"const": 0}}}
+              ]
+            },
+            "consumed_delta": {
+              "allOf": [
+                {"$ref": "#/$defs/nonNegativeBudgetDelta"},
+                {"properties": {
+                  "call_count": {"const": 0}, "approval_count": {"const": 0},
+                  "argument_bytes": {"const": 0}, "result_bytes": {"const": 0},
+                  "cost_units": {"const": 0}, "concurrent": {"const": 0},
+                  "rate_window": {"const": 0}
+                }}
+              ]
+            }
+          },
+          "not": {
+            "properties": {
+              "reserved_delta": {"$ref": "#/$defs/zeroBudgetDelta"},
+              "consumed_delta": {"$ref": "#/$defs/zeroBudgetDelta"}
+            }
+          }
+        }
+      ]
+    },
+    "downstreamDispatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reservation_identity"],
+      "properties": {
+        "reservation_identity": {"oneOf": [{"const": "absent"}, {"$ref": "#/$defs/keyedIdentity"}]}
+      }
+    },
+    "downstreamOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {"status": {"enum": ["succeeded", "failed", "unknown"]}}
+    },
+    "resultInspection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "categories", "schema_status", "scanned_bytes", "scanned_items", "unsupported_content"],
+      "properties": {
+        "status": {"enum": ["clean", "matched", "incomplete"]},
+        "categories": {
+          "type": "array",
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": {"enum": ["secret", "personal_data", "forbidden_data", "schema", "unsupported_content", "annotation"]}
+        },
+        "schema_status": {"enum": ["not_applicable", "not_declared", "valid", "invalid", "required_missing"]},
+        "scanned_bytes": {"type": "integer", "minimum": 0, "maximum": 8388608},
+        "scanned_items": {"type": "integer", "minimum": 0, "maximum": 65536},
+        "unsupported_content": {"type": "integer", "minimum": 0, "maximum": 65536}
+      }
+    },
+    "finalDelivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "byte_length", "item_count"],
+      "properties": {
+        "status": {"enum": ["forwarded", "withheld", "suppressed"]},
+        "byte_length": {"type": "integer", "minimum": 0, "maximum": 8388608},
+        "item_count": {"type": "integer", "minimum": 0, "maximum": 65536}
+      }
+    },
+    "terminalFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lifecycle", "dispatch_known", "delivery_known"],
+      "properties": {
+        "lifecycle": {"enum": ["active", "cancelled", "shutdown"]},
+        "dispatch_known": {"type": "boolean"},
+        "delivery_known": {"type": "boolean"}
+      }
+    },
+    "requestAcceptedEvent": {
+      "properties": {
+        "event": {"const": "request_accepted"},
+        "decision": {
+          "allOf": [
+            {"$ref": "#/$defs/requestDecision"},
+            {"properties": {"phase": {"const": "pre_call"}, "rule_ids": {"maxItems": 0}}}
+          ]
+        },
+        "request_accepted": {"$ref": "#/$defs/requestAccepted"},
+        "pre_decision": false,
+        "approval_transition": false,
+        "budget_transition": false,
+        "downstream_dispatch": false,
+        "downstream_outcome": false,
+        "result_inspection": false,
+        "final_delivery": false,
+        "terminal_failure": false
+      },
+      "required": ["request_accepted"]
+    },
+    "preDecisionEvent": {
+      "properties": {
+        "event": {"const": "pre_decision"},
+        "decision": {"$ref": "#/$defs/resolvedDecision"},
+        "pre_decision": {"$ref": "#/$defs/preDecision"},
+        "request_accepted": false,
+        "approval_transition": false,
+        "budget_transition": false,
+        "downstream_dispatch": false,
+        "downstream_outcome": false,
+        "result_inspection": false,
+        "final_delivery": false,
+        "terminal_failure": false
+      },
+      "required": ["pre_decision"],
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "decision": {"properties": {"phase": {"const": "pre_call"}, "decision": {"enum": ["allow", "warn"]}}},
+                "pre_decision": {"properties": {"outcome": {"const": "dispatch_eligible"}}}
+              }
+            },
+            {
+              "properties": {
+                "decision": {"properties": {"phase": {"const": "pre_call"}, "decision": {"enum": ["require_approval", "block"]}}},
+                "pre_decision": {"properties": {"outcome": {"const": "dispatch_blocked"}}}
+              }
+            },
+            {
+              "properties": {
+                "decision": {"properties": {"phase": {"const": "progress"}, "decision": {"enum": ["allow", "warn"]}}},
+                "pre_decision": {"properties": {"outcome": {"const": "progress_eligible"}}}
+              }
+            },
+            {
+              "properties": {
+                "decision": {"properties": {"phase": {"const": "progress"}, "decision": {"enum": ["require_approval", "block"]}}},
+                "pre_decision": {"properties": {"outcome": {"const": "suppressed"}}}
+              }
+            },
+            {
+              "properties": {
+                "decision": {"properties": {"phase": {"const": "observation"}}},
+                "pre_decision": {"properties": {"outcome": {"const": "recorded"}}}
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "approvalTransitionEvent": {
+      "properties": {
+        "event": {"const": "approval_transition"},
+        "decision": {
+          "allOf": [
+            {"$ref": "#/$defs/resolvedDecision"},
+            {"properties": {"phase": {"enum": ["pre_call", "post_result"]}, "decision": {"const": "require_approval"}}}
+          ]
+        },
+        "approval_transition": {"$ref": "#/$defs/approvalTransition"},
+        "request_accepted": false,
+        "pre_decision": false,
+        "budget_transition": false,
+        "downstream_dispatch": false,
+        "downstream_outcome": false,
+        "result_inspection": false,
+        "final_delivery": false,
+        "terminal_failure": false
+      },
+      "required": ["approval_transition"],
+      "oneOf": [
+        {
+          "properties": {
+            "approval_transition": {"properties": {"status": {"enum": ["pending", "approved"]}}},
+            "decision": {"properties": {"reason_code": {"const": "approval_required"}}}
+          }
+        },
+        {
+          "properties": {
+            "approval_transition": {"properties": {"status": {"const": "rejected"}}},
+            "decision": {"properties": {"reason_code": {"const": "approval_rejected"}}}
+          }
+        },
+        {
+          "properties": {
+            "approval_transition": {"properties": {"status": {"const": "expired"}}},
+            "decision": {"properties": {"reason_code": {"const": "approval_expired"}}}
+          }
+        },
+        {
+          "properties": {
+            "approval_transition": {"properties": {"status": {"const": "cancelled"}}},
+            "decision": {"properties": {"reason_code": {"const": "cancelled"}}}
+          }
+        },
+        {
+          "properties": {
+            "approval_transition": {"properties": {"status": {"const": "unavailable"}}},
+            "decision": {"properties": {"reason_code": {"const": "authority_unavailable"}}}
+          }
+        },
+        {
+          "properties": {
+            "approval_transition": {"properties": {"status": {"const": "malformed"}}},
+            "decision": {"properties": {"reason_code": {"const": "approval_invalid"}}}
+          }
+        },
+        {
+          "properties": {
+            "approval_transition": {"properties": {"status": {"const": "replayed"}}},
+            "decision": {"properties": {"reason_code": {"const": "approval_replayed"}}}
+          }
+        }
+      ]
+    },
+    "budgetTransitionEvent": {
+      "properties": {
+        "event": {"const": "budget_transition"},
+        "decision": {"$ref": "#/$defs/resolvedDecision"},
+        "budget_transition": {"$ref": "#/$defs/budgetTransition"},
+        "request_accepted": false,
+        "pre_decision": false,
+        "approval_transition": false,
+        "downstream_dispatch": false,
+        "downstream_outcome": false,
+        "result_inspection": false,
+        "final_delivery": false,
+        "terminal_failure": false
+      },
+      "required": ["budget_transition"],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "budget_transition": {
+                "properties": {"kind": {"enum": ["released", "dispatch_committed", "denied"]}}
+              }
+            }
+          },
+          "then": {"properties": {"decision": {"properties": {"phase": {"const": "pre_call"}}}}}
+        },
+        {
+          "if": {"properties": {"budget_transition": {"properties": {"kind": {"const": "reserved"}}}}},
+          "then": {"properties": {"decision": {"properties": {"phase": {"enum": ["pre_call", "post_result"]}}}}}
+        },
+        {
+          "if": {
+            "properties": {
+              "budget_transition": {"properties": {"kind": {"const": "reserved"}}},
+              "decision": {"properties": {"phase": {"const": "post_result"}}}
+            }
+          },
+          "then": {
+            "properties": {
+              "decision": {"properties": {"decision": {"const": "require_approval"}}},
+              "budget_transition": {
+                "properties": {
+                  "reserved_delta": {
+                    "properties": {
+                      "call_count": {"const": 0}, "denied_count": {"const": 0},
+                      "approval_count": {"minimum": 1}, "argument_bytes": {"const": 0},
+                      "result_bytes": {"const": 0}, "cost_units": {"const": 0},
+                      "concurrent": {"const": 0}, "rate_window": {"const": 0}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {"properties": {"budget_transition": {"properties": {"kind": {"const": "settled"}}}}},
+          "then": {"properties": {"decision": {"properties": {"phase": {"const": "post_result"}}}}}
+        },
+        {
+          "if": {"properties": {"budget_transition": {"properties": {"kind": {"const": "released"}}}}},
+          "then": {"properties": {"decision": {"properties": {"decision": {"const": "block"}}}}}
+        },
+        {
+          "if": {"properties": {"budget_transition": {"properties": {"kind": {"const": "dispatch_committed"}}}}},
+          "then": {"properties": {"decision": {"properties": {"decision": {"enum": ["allow", "warn", "require_approval"]}}}}}
+        },
+        {
+          "if": {"properties": {"budget_transition": {"properties": {"kind": {"const": "indeterminate"}}}}},
+          "then": {
+            "properties": {
+              "decision": {
+                "properties": {
+                  "phase": {"enum": ["pre_call", "post_result"]},
+                  "decision": {"const": "block"},
+                  "reason_code": {"const": "reservation_indeterminate"}
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {"properties": {"budget_transition": {"properties": {"kind": {"const": "denied"}}}}},
+          "then": {
+            "properties": {
+              "decision": {
+                "properties": {
+                  "decision": {"const": "block"}
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "downstreamDispatchEvent": {
+      "properties": {
+        "event": {"const": "downstream_dispatch"},
+        "decision": {
+          "allOf": [
+            {"$ref": "#/$defs/resolvedDecision"},
+            {"properties": {"phase": {"const": "pre_call"}, "decision": {"enum": ["allow", "warn", "require_approval"]}}}
+          ]
+        },
+        "downstream_dispatch": {"$ref": "#/$defs/downstreamDispatch"},
+        "request_accepted": false,
+        "pre_decision": false,
+        "approval_transition": false,
+        "budget_transition": false,
+        "downstream_outcome": false,
+        "result_inspection": false,
+        "final_delivery": false,
+        "terminal_failure": false
+      },
+      "required": ["downstream_dispatch"]
+    },
+    "downstreamOutcomeEvent": {
+      "properties": {
+        "event": {"const": "downstream_outcome"},
+        "decision": {
+          "allOf": [
+            {"$ref": "#/$defs/resolvedDecision"},
+            {"properties": {"phase": {"const": "post_result"}}}
+          ]
+        },
+        "downstream_outcome": {"$ref": "#/$defs/downstreamOutcome"},
+        "request_accepted": false,
+        "pre_decision": false,
+        "approval_transition": false,
+        "budget_transition": false,
+        "downstream_dispatch": false,
+        "result_inspection": false,
+        "final_delivery": false,
+        "terminal_failure": false
+      },
+      "required": ["downstream_outcome"],
+      "allOf": [
+        {
+          "if": {"properties": {"downstream_outcome": {"properties": {"status": {"const": "succeeded"}}}}},
+          "then": {
+            "properties": {
+              "decision": {
+                "properties": {
+                  "decision": {"enum": ["allow", "warn"]},
+                  "reason_code": {
+                    "not": {"enum": ["downstream_unavailable", "downstream_error", "downstream_outcome_unknown", "protocol_error"]}
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {"properties": {"downstream_outcome": {"properties": {"status": {"const": "failed"}}}}},
+          "then": {
+            "properties": {
+              "decision": {
+                "properties": {
+                  "decision": {"const": "block"},
+                  "reason_code": {"enum": ["downstream_unavailable", "downstream_error", "protocol_error"]}
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {"properties": {"downstream_outcome": {"properties": {"status": {"const": "unknown"}}}}},
+          "then": {
+            "properties": {
+              "decision": {
+                "properties": {
+                  "decision": {"const": "block"},
+                  "reason_code": {"enum": ["downstream_outcome_unknown", "cancelled", "deadline_exceeded", "shutdown"]}
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "resultInspectionEvent": {
+      "properties": {
+        "event": {"const": "result_inspection"},
+        "decision": {
+          "allOf": [
+            {"$ref": "#/$defs/resolvedDecision"},
+            {"properties": {"phase": {"const": "post_result"}}}
+          ]
+        },
+        "result_inspection": {"$ref": "#/$defs/resultInspection"},
+        "request_accepted": false,
+        "pre_decision": false,
+        "approval_transition": false,
+        "budget_transition": false,
+        "downstream_dispatch": false,
+        "downstream_outcome": false,
+        "final_delivery": false,
+        "terminal_failure": false
+      },
+      "required": ["result_inspection"],
+      "allOf": [
+        {
+          "if": {"properties": {"result_inspection": {"properties": {"status": {"const": "matched"}}}}},
+          "then": {
+            "properties": {"result_inspection": {"properties": {"categories": {"minItems": 1}}}},
+            "oneOf": [
+              {"properties": {"decision": {"properties": {"decision": {"const": "warn"}, "reason_code": {"const": "rule_matched"}}}}},
+              {"properties": {"decision": {"properties": {"decision": {"const": "block"}, "reason_code": {"const": "result_withheld"}}}}}
+            ]
+          },
+          "else": {"properties": {"result_inspection": {"properties": {"categories": {"maxItems": 0}}}}}
+        },
+        {
+          "if": {"properties": {"result_inspection": {"properties": {"status": {"const": "incomplete"}}}}},
+          "then": {
+            "properties": {
+              "decision": {
+                "properties": {
+                  "decision": {"const": "block"},
+                  "reason_code": {
+                    "enum": [
+                      "inspection_incomplete", "unsupported_content", "schema_invalid", "limit_exceeded",
+                      "invalid_utf8", "cancelled", "deadline_exceeded"
+                    ]
+                  },
+                  "completeness": {"not": {"$ref": "#/$defs/completeEvidence"}}
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"result_inspection": {"properties": {"schema_status": {"enum": ["invalid", "required_missing"]}}}}
+          },
+          "then": {"properties": {"result_inspection": {"properties": {"status": {"const": "incomplete"}}}}}
+        }
+      ]
+    },
+    "finalDeliveryEvent": {
+      "properties": {
+        "event": {"const": "final_delivery"},
+        "decision": {"$ref": "#/$defs/resolvedDecision"},
+        "final_delivery": {"$ref": "#/$defs/finalDelivery"},
+        "request_accepted": false,
+        "pre_decision": false,
+        "approval_transition": false,
+        "budget_transition": false,
+        "downstream_dispatch": false,
+        "downstream_outcome": false,
+        "result_inspection": false,
+        "terminal_failure": false
+      },
+      "required": ["final_delivery"],
+      "allOf": [
+        {
+          "if": {"properties": {"final_delivery": {"properties": {"status": {"const": "forwarded"}}}}},
+          "then": {"properties": {"decision": {"properties": {"decision": {"enum": ["allow", "warn", "require_approval"]}}}}},
+          "else": {"properties": {"decision": {"properties": {"decision": {"enum": ["require_approval", "block"]}}}}}
+        },
+        {
+          "if": {"properties": {"final_delivery": {"properties": {"status": {"const": "suppressed"}}}}},
+          "then": {"properties": {"decision": {"properties": {"phase": {"const": "progress"}}}}},
+          "else": {"properties": {"decision": {"properties": {"phase": {"const": "post_result"}}}}}
+        }
+      ]
+    },
+    "terminalFailureEvent": {
+      "properties": {
+        "event": {"const": "terminal_failure"},
+        "decision": {"$ref": "#/$defs/resolvedDecision"},
+        "terminal_failure": {"$ref": "#/$defs/terminalFailure"},
+        "request_accepted": false,
+        "pre_decision": false,
+        "approval_transition": false,
+        "budget_transition": false,
+        "downstream_dispatch": false,
+        "downstream_outcome": false,
+        "result_inspection": false,
+        "final_delivery": false
+      },
+      "required": ["terminal_failure"],
+      "allOf": [
+        {"properties": {"decision": {"properties": {"decision": {"const": "block"}}}}},
+        {
+          "if": {"properties": {"terminal_failure": {"properties": {"lifecycle": {"const": "cancelled"}}}}},
+          "then": {"properties": {"decision": {"properties": {"reason_code": {"const": "cancelled"}}}}}
+        },
+        {
+          "if": {"properties": {"terminal_failure": {"properties": {"lifecycle": {"const": "shutdown"}}}}},
+          "then": {"properties": {"decision": {"properties": {"reason_code": {"const": "shutdown"}}}}}
+        },
+        {
+          "if": {"properties": {"terminal_failure": {"properties": {"lifecycle": {"const": "active"}}}}},
+          "then": {"properties": {"decision": {"properties": {"reason_code": {"not": {"enum": ["cancelled", "shutdown"]}}}}}}
+        },
+        {
+          "if": {
+            "properties": {
+              "terminal_failure": {
+                "anyOf": [
+                  {"properties": {"dispatch_known": {"const": false}}},
+                  {"properties": {"delivery_known": {"const": false}}}
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "decision": {
+                "properties": {
+                  "completeness": {"properties": {"state_complete": {"const": false}}}
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

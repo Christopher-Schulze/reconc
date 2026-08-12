@@ -123,7 +123,7 @@ func TestStateDigestBindsEveryPersistedComponent(t *testing.T) {
 		{name: "charge generation", mutate: func(state *State) { state.Reservations[0].Charges[0].Generation.PolicyDigest = policy }},
 		{name: "charge reserved", mutate: func(state *State) { state.Reservations[0].Charges[0].Reserved.CallCount++ }},
 		{name: "charge dispatch", mutate: func(state *State) { state.Reservations[0].Charges[0].DispatchCommitted = true }},
-		{name: "charge approval", mutate: func(state *State) { state.Reservations[0].Charges[0].ApprovalCommitted = false }},
+		{name: "charge approval", mutate: func(state *State) { state.Reservations[0].Charges[0].CommittedApprovals-- }},
 		{name: "terminal call", mutate: func(state *State) { state.TerminalCalls[0].CallID = callID("f") }},
 		{name: "terminal reservation", mutate: func(state *State) { state.TerminalCalls[0].ReservationIdentity = keyed("terminal") }},
 		{name: "terminal outcome", mutate: func(state *State) { state.TerminalCalls[0].Outcome = OutcomeFailed }},
@@ -247,7 +247,7 @@ func TestStateSemanticValidationRejectsMalformedStateWithFreshDigest(t *testing.
 			clearReceipt(record)
 		}},
 		{name: "approved approval has uncommitted charge", mutate: func(state *State) {
-			state.Reservations[0].Charges[0].ApprovalCommitted = false
+			state.Reservations[0].Charges[0].CommittedApprovals = 0
 			state.Reservations[0].Charges[0].Reserved.ApprovalCount = 1
 		}},
 		{name: "approved approval loses reservation linkage", mutate: func(state *State) {

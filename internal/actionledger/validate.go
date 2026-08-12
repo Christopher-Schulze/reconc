@@ -340,7 +340,8 @@ func validateApprovalTransition(r Record) error {
 		!action.SafeLabel(value.AuthorityPolicyID) || value.AuthorityKeyID != "" && !action.SafeLabel(value.AuthorityKeyID) ||
 		value.ReceiptID != "" && !actionapproval.ValidReceiptID(value.ReceiptID) ||
 		value.ReceiptIdentity != "" && !action.ValidSHA256Identity(value.ReceiptIdentity) ||
-		r.Decision.Phase != action.PhasePreCall || r.Decision.Decision != action.DecisionRequireApproval {
+		(r.Decision.Phase != action.PhasePreCall && r.Decision.Phase != action.PhasePostResult) ||
+		r.Decision.Decision != action.DecisionRequireApproval {
 		return fmt.Errorf("approval_transition payload is invalid")
 	}
 	hasReceipt := value.AuthorityKeyID != "" && value.ReceiptID != "" && value.ReceiptIdentity != ""
@@ -406,9 +407,13 @@ func validateBudgetTransition(r Record) error {
 		return fmt.Errorf("non-denial budget transition carries a denied-count delta")
 	}
 	switch value.Kind {
-	case BudgetReserved, BudgetReleased, BudgetDispatched, BudgetDenied:
+	case BudgetReleased, BudgetDispatched, BudgetDenied:
 		if r.Decision.Phase != action.PhasePreCall {
 			return fmt.Errorf("pre-dispatch budget transition has an invalid phase")
+		}
+	case BudgetReserved:
+		if r.Decision.Phase != action.PhasePreCall && r.Decision.Phase != action.PhasePostResult {
+			return fmt.Errorf("budget reservation transition has an invalid phase")
 		}
 	case BudgetSettled:
 		if r.Decision.Phase != action.PhasePostResult {
@@ -421,7 +426,7 @@ func validateBudgetTransition(r Record) error {
 	}
 	if value.Kind == BudgetDenied {
 		if value.ReservationIdentity == "absent" || !value.ReservedDelta.nonPositive() ||
-			!value.ConsumedDelta.denialOnly() ||
+			!value.ConsumedDelta.denialAndApprovalOnly() ||
 			value.ReservedDelta.zero() && value.ConsumedDelta.zero() ||
 			r.Decision.Decision != action.DecisionBlock {
 			return fmt.Errorf("denied budget transition carries invalid deltas")
@@ -436,20 +441,24 @@ func validateBudgetTransition(r Record) error {
 		if !value.ReservedDelta.nonNegativeNonZero() || !value.ConsumedDelta.zero() {
 			return fmt.Errorf("reservation budget deltas are invalid")
 		}
+		if r.Decision.Phase == action.PhasePostResult &&
+			(!value.ReservedDelta.positiveApprovalOnly() ||
+				r.Decision.Decision != action.DecisionRequireApproval) {
+			return fmt.Errorf("post-result approval reservation deltas are invalid")
+		}
 	case BudgetReleased:
-		if !value.ReservedDelta.nonPositiveNonZero() || !value.ConsumedDelta.zero() ||
+		if !value.ReservedDelta.nonPositiveNonZero() || !value.ConsumedDelta.approvalOnly() ||
 			r.Decision.Decision != action.DecisionBlock {
 			return fmt.Errorf("release budget deltas are invalid")
 		}
 	case BudgetDispatched:
 		if !value.ReservedDelta.nonPositive() || !value.ConsumedDelta.nonNegative() ||
-			value.ReservedDelta.zero() && value.ConsumedDelta.zero() ||
-			r.Decision.Decision != action.DecisionAllow && r.Decision.Decision != action.DecisionWarn {
+			r.Decision.Decision != action.DecisionAllow && r.Decision.Decision != action.DecisionWarn &&
+				r.Decision.Decision != action.DecisionRequireApproval {
 			return fmt.Errorf("dispatch-committed budget deltas are invalid")
 		}
 	case BudgetSettled:
-		if !value.ReservedDelta.nonPositive() || !value.ConsumedDelta.nonNegative() ||
-			value.ReservedDelta.zero() && value.ConsumedDelta.zero() {
+		if !value.ReservedDelta.nonPositive() || !value.ConsumedDelta.nonNegative() {
 			return fmt.Errorf("committed budget deltas are invalid")
 		}
 	case BudgetIndeterminate:
@@ -503,17 +512,28 @@ func (d BudgetDelta) nonPositiveNonZero() bool {
 	return d.nonPositive() && !d.zero()
 }
 
-func (d BudgetDelta) denialOnly() bool {
-	return d.DeniedCount >= 0 && d.CallCount == 0 && d.ApprovalCount == 0 &&
+func (d BudgetDelta) denialAndApprovalOnly() bool {
+	return d.DeniedCount >= 0 && d.ApprovalCount >= 0 && d.CallCount == 0 &&
 		d.ArgumentBytes == 0 && d.ResultBytes == 0 && d.CostUnits == 0 &&
 		d.Concurrent == 0 && d.RateWindow == 0
+}
+
+func (d BudgetDelta) approvalOnly() bool {
+	return d.ApprovalCount >= 0 && d.CallCount == 0 && d.DeniedCount == 0 &&
+		d.ArgumentBytes == 0 && d.ResultBytes == 0 && d.CostUnits == 0 &&
+		d.Concurrent == 0 && d.RateWindow == 0
+}
+
+func (d BudgetDelta) positiveApprovalOnly() bool {
+	return d.approvalOnly() && d.ApprovalCount > 0
 }
 
 func validateDispatch(r Record) error {
 	if r.Dispatch == nil ||
 		r.Dispatch.ReservationIdentity != "absent" && !action.ValidKeyedIdentity(r.Dispatch.ReservationIdentity) ||
 		r.Decision.Phase != action.PhasePreCall ||
-		r.Decision.Decision != action.DecisionAllow && r.Decision.Decision != action.DecisionWarn {
+		r.Decision.Decision != action.DecisionAllow && r.Decision.Decision != action.DecisionWarn &&
+			r.Decision.Decision != action.DecisionRequireApproval {
 		return fmt.Errorf("downstream_dispatch payload is invalid")
 	}
 	return nil
@@ -612,7 +632,8 @@ func validateDelivery(r Record) error {
 		r.Delivery.Status != DeliverySuppressed && r.Decision.Phase != action.PhasePostResult {
 		return fmt.Errorf("final_delivery phase and status disagree")
 	}
-	permitted := r.Decision.Decision == action.DecisionAllow || r.Decision.Decision == action.DecisionWarn
+	permitted := r.Decision.Decision == action.DecisionAllow || r.Decision.Decision == action.DecisionWarn ||
+		r.Decision.Decision == action.DecisionRequireApproval
 	if r.Delivery.Status == DeliveryForwarded && !permitted ||
 		r.Delivery.Status != DeliveryForwarded && permitted {
 		return fmt.Errorf("final_delivery status contradicts its decision")

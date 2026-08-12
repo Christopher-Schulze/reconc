@@ -124,13 +124,23 @@ func (s *Store) validateBudgetRecords(state State) error {
 
 func validateStoredScope(record BudgetRecord, state State) error {
 	scope := record.Scope
-	credentials := append([]string(nil), scope.CredentialLabels...)
-	if credentials == nil || !sort.StringsAreSorted(credentials) || hasDuplicateStrings(credentials) ||
-		scope.RepositoryIdentity != state.RepositoryIdentity || !action.SafeLabel(scope.Principal) ||
-		!action.SafeLabel(scope.ServerLabel) || !action.SafeLabel(scope.ToolID) ||
-		!identityUsesKey(scope.RepositoryIdentity, state.KeyID) ||
-		!identityUsesKey(scope.ServerIdentity, state.KeyID) {
-		return stateError(action.ReasonStateCorrupt, "budget scope identity is invalid", nil)
+	if scope.CredentialLabels == nil {
+		return stateError(action.ReasonStateCorrupt, "budget credential scope must be an explicit list", nil)
+	}
+	credentials := append([]string{}, scope.CredentialLabels...)
+	if !sort.StringsAreSorted(credentials) || hasDuplicateStrings(credentials) {
+		return stateError(action.ReasonStateCorrupt, "budget credential scope is not an explicit unique sorted list", nil)
+	}
+	if scope.RepositoryIdentity != state.RepositoryIdentity ||
+		!identityUsesKey(scope.RepositoryIdentity, state.KeyID) {
+		return stateError(action.ReasonStateCorrupt, "budget repository scope identity is invalid", nil)
+	}
+	if !action.SafeLabel(scope.Principal) || !action.SafeLabel(scope.ServerLabel) ||
+		!action.SafeLabel(scope.ToolID) {
+		return stateError(action.ReasonStateCorrupt, "budget principal, server, or tool scope label is invalid", nil)
+	}
+	if !identityUsesKey(scope.ServerIdentity, state.KeyID) {
+		return stateError(action.ReasonStateCorrupt, "budget server scope identity is invalid", nil)
 	}
 	for _, credential := range credentials {
 		if !action.SafeLabel(credential) {
@@ -233,7 +243,7 @@ func (s *Store) validateTerminalCalls(state State) error {
 }
 
 func (s *Store) validateApprovalRecords(state State) error {
-	calls := make(map[string]bool, len(state.Approvals))
+	callPhases := make(map[string]bool, len(state.Approvals))
 	nonces := make(map[string]bool, len(state.Approvals))
 	receipts := make(map[string]bool, len(state.Approvals))
 	reservations := make(map[string]Reservation, len(state.Reservations))
@@ -248,9 +258,12 @@ func (s *Store) validateApprovalRecords(state State) error {
 	for _, budget := range state.Budgets {
 		budgets[budget.LineageIdentity] = budget
 	}
+	approvedByReservation := make(map[string]uint64, len(state.Reservations))
+	pendingByReservation := make(map[string]uint64, len(state.Reservations))
 	pending := 0
 	for index, record := range state.Approvals {
 		request := record.Request
+		callPhase := request.CallID + "\x00" + string(request.Phase)
 		if index > 0 && state.Approvals[index-1].Request.RequestID >= request.RequestID ||
 			request.Validate() != nil || request.RepositoryIdentity != state.RepositoryIdentity ||
 			!identityUsesKey(request.RequestIdentity, state.KeyID) ||
@@ -258,7 +271,7 @@ func (s *Store) validateApprovalRecords(state State) error {
 			record.ReservationIdentity != request.BudgetReservationID ||
 			(record.ReservationIdentity != "absent" && !identityUsesKey(record.ReservationIdentity, state.KeyID)) ||
 			!identityUsesKey(record.NonceIdentity, state.KeyID) ||
-			!record.Status.Valid() || record.UpdatedAtUnix <= 0 || calls[request.CallID] || nonces[record.NonceIdentity] ||
+			!record.Status.Valid() || record.UpdatedAtUnix <= 0 || callPhases[callPhase] || nonces[record.NonceIdentity] ||
 			state.LastObservedUnixNano > 0 && record.UpdatedAtUnix > state.LastObservedUnixNano/int64(time.Second) {
 			return stateError(action.ReasonStateCorrupt, "approval replay record is invalid", nil)
 		}
@@ -274,10 +287,15 @@ func (s *Store) validateApprovalRecords(state State) error {
 		) {
 			return stateError(action.ReasonStateCorrupt, "approval nonce identity is invalid", err)
 		}
-		calls[request.CallID] = true
+		callPhases[callPhase] = true
 		nonces[record.NonceIdentity] = true
 		if record.Status == actionapproval.StatusPending {
 			pending++
+			if record.ReservationIdentity != "absent" {
+				pendingByReservation[record.ReservationIdentity]++
+			}
+		} else if record.Status == actionapproval.StatusApproved && record.ReservationIdentity != "absent" {
+			approvedByReservation[record.ReservationIdentity]++
 		}
 		metadataEmpty := record.RegistryIdentity == "" && record.AuthorityKeyID == "" &&
 			record.ReceiptID == "" && record.ReceiptIdentity == "" && record.ReceiptSignedAt == ""
@@ -293,12 +311,22 @@ func (s *Store) validateApprovalRecords(state State) error {
 		} else if !metadataEmpty {
 			return stateError(action.ReasonStateCorrupt, "non-approved replay record contains receipt metadata", nil)
 		}
-		if err := validateApprovalRecordTransition(record, reservations, terminals, budgets); err != nil {
+		if err := validateApprovalRecordTransition(record, reservations, terminals); err != nil {
 			return err
 		}
 	}
 	if pending > MaxPendingApprovals {
 		return stateError(action.ReasonStateCorrupt, "pending approval capacity is exceeded", nil)
+	}
+	for identity, reservation := range reservations {
+		if err := validateApprovalChargeState(
+			reservation,
+			budgets,
+			approvedByReservation[identity],
+			pendingByReservation[identity],
+		); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -320,7 +348,6 @@ func validateApprovalRecordTransition(
 	record ApprovalRecord,
 	reservations map[string]Reservation,
 	terminals map[string]TerminalCall,
-	budgets map[string]BudgetRecord,
 ) error {
 	if record.ReservationIdentity == "absent" {
 		return nil
@@ -329,13 +356,14 @@ func validateApprovalRecordTransition(
 	terminal, completed := terminals[record.ReservationIdentity]
 	switch record.Status {
 	case actionapproval.StatusPending:
-		if !active || completed || reservation.Status != ReservationReserved {
+		wantStatus := ReservationReserved
+		if record.Request.Phase == action.PhasePostResult {
+			wantStatus = ReservationDispatched
+		}
+		if !active || completed || reservation.Status != wantStatus {
 			return stateError(action.ReasonStateCorrupt, "pending approval reservation state is invalid", nil)
 		}
-		if err := validateApprovalReservationBinding(record, reservation); err != nil {
-			return err
-		}
-		return validateApprovalChargeState(reservation, budgets, false)
+		return validateApprovalReservationBinding(record, reservation)
 	case actionapproval.StatusApproved:
 		if active == completed {
 			return stateError(action.ReasonStateCorrupt, "approved call must have exactly one active or terminal reservation", nil)
@@ -349,10 +377,21 @@ func validateApprovalRecordTransition(
 		if err := validateApprovalReservationBinding(record, reservation); err != nil {
 			return err
 		}
-		return validateApprovalChargeState(reservation, budgets, true)
+		if record.Request.Phase == action.PhasePostResult && reservation.Status == ReservationReserved {
+			return stateError(action.ReasonStateCorrupt, "approved post-result reservation precedes dispatch", nil)
+		}
+		return nil
 	default:
-		if active || !completed || terminal.CallID != record.Request.CallID || terminal.Outcome != OutcomeBlocked {
-			return stateError(action.ReasonStateCorrupt, "failed approval terminal state is invalid", nil)
+		if record.Request.Phase == action.PhasePreCall {
+			if active || !completed || terminal.CallID != record.Request.CallID || terminal.Outcome != OutcomeBlocked {
+				return stateError(action.ReasonStateCorrupt, "failed pre-call approval terminal state is invalid", nil)
+			}
+			return nil
+		}
+		if active == completed || active && reservation.Status == ReservationReserved ||
+			completed && (terminal.CallID != record.Request.CallID ||
+				terminal.Outcome == OutcomeReleased || terminal.Outcome == OutcomeBlocked) {
+			return stateError(action.ReasonStateCorrupt, "failed post-result approval state is invalid", nil)
 		}
 		return nil
 	}
@@ -360,7 +399,7 @@ func validateApprovalRecordTransition(
 
 func validateApprovalReservationBinding(record ApprovalRecord, reservation Reservation) error {
 	if reservation.CallID != record.Request.CallID ||
-		reservation.RequestIdentity != record.Request.RequestIdentity ||
+		record.Request.Phase == action.PhasePreCall && reservation.RequestIdentity != record.Request.RequestIdentity ||
 		reservation.ContextIdentity != record.Request.ContextIdentity ||
 		reservation.ExecutableDigest != record.Request.ExecutableDigest {
 		return stateError(action.ReasonStateCorrupt, "approval reservation binding is invalid", nil)
@@ -371,8 +410,12 @@ func validateApprovalReservationBinding(record ApprovalRecord, reservation Reser
 func validateApprovalChargeState(
 	reservation Reservation,
 	budgets map[string]BudgetRecord,
-	committed bool,
+	committed uint64,
+	pending uint64,
 ) error {
+	if pending > 1 {
+		return stateError(action.ReasonStateCorrupt, "approval reservation has multiple pending charges", nil)
+	}
 	for _, charge := range reservation.Charges {
 		record, exists := budgets[charge.LineageIdentity]
 		if !exists {
@@ -381,8 +424,7 @@ func validateApprovalChargeState(
 		if record.Limits.ApprovalCount == 0 {
 			continue
 		}
-		if charge.ApprovalCommitted != committed || committed && charge.Reserved.ApprovalCount != 0 ||
-			!committed && charge.Reserved.ApprovalCount != 1 {
+		if charge.CommittedApprovals != committed || charge.Reserved.ApprovalCount != pending {
 			return stateError(action.ReasonStateCorrupt, "approval charge transition is invalid", nil)
 		}
 	}
@@ -416,7 +458,8 @@ func validateReservationCharge(status ReservationStatus, charge ReservationCharg
 		!reservedDimensionValid(usage.RateWindow, record.Limits.RateWindow) {
 		return stateError(action.ReasonStateCorrupt, "reservation charge exceeds its budget contract", nil)
 	}
-	if charge.ApprovalCommitted && (record.Limits.ApprovalCount == 0 || usage.ApprovalCount != 0) {
+	if charge.CommittedApprovals != 0 &&
+		(record.Limits.ApprovalCount == 0 || charge.CommittedApprovals > record.Consumed.ApprovalCount) {
 		return stateError(action.ReasonStateCorrupt, "committed approval charge is invalid", nil)
 	}
 	if status == ReservationReserved && charge.DispatchCommitted {
@@ -426,7 +469,7 @@ func validateReservationCharge(status ReservationStatus, charge ReservationCharg
 		return stateError(action.ReasonStateCorrupt, "post-dispatch reservation lacks a dispatch commit", nil)
 	}
 	if charge.DispatchCommitted &&
-		(usage.CallCount != 0 || usage.ApprovalCount != 0 || usage.ArgumentBytes != 0 ||
+		(usage.CallCount != 0 || usage.ArgumentBytes != 0 ||
 			usage.CostUnits != 0 || usage.RateWindow != 0) {
 		return stateError(action.ReasonStateCorrupt, "post-dispatch reservation retains committed capacity", nil)
 	}

@@ -60,12 +60,19 @@ type lifecycleState struct {
 	budgetSeen         bool
 	budgetTerminal     bool
 	budgetStopsCall    bool
-	approvalTerminal   bool
-	approvalRequestID  string
-	approvalPolicyID   string
-	approvalReason     action.ReasonCode
+	preApproval        approvalLifecycle
+	postApproval       approvalLifecycle
+	postApprovalBudget int64
 	historyMissing     bool
 	lastTimestamp      time.Time
+}
+
+type approvalLifecycle struct {
+	status    actionapproval.Status
+	terminal  bool
+	requestID string
+	policyID  string
+	reason    action.ReasonCode
 }
 
 func BuildCallStatuses(records []Record) ([]CallStatus, error) {
@@ -124,9 +131,17 @@ func (s *lifecycleState) apply(record Record) error {
 	if s.budgetStopsCall {
 		return fmt.Errorf("event follows a terminal budget transition")
 	}
-	if s.approvalTerminal && s.status.Approval != actionapproval.StatusApproved &&
+	if s.preApproval.terminal && s.preApproval.status != actionapproval.StatusApproved &&
 		record.Event != EventBudgetTransition {
 		return fmt.Errorf("event follows a terminal approval transition")
+	}
+	if s.preApproval.status == actionapproval.StatusPending && record.Event != EventApprovalTransition ||
+		s.postApproval.status == actionapproval.StatusPending && record.Event != EventApprovalTransition {
+		return fmt.Errorf("event bypasses a pending approval transition")
+	}
+	if s.postApproval.terminal && s.postApproval.status != actionapproval.StatusApproved &&
+		record.Event != EventBudgetTransition && record.Event != EventFinalDelivery {
+		return fmt.Errorf("event follows a terminal post-result approval transition")
 	}
 	if s.preDecisionSeen && s.status.Decision == action.DecisionBlock &&
 		record.Event != EventBudgetTransition {
@@ -167,28 +182,9 @@ func (s *lifecycleState) apply(record Record) error {
 			s.terminalSeen = true
 		}
 	case EventApprovalTransition:
-		if !s.historyMissing && (!s.preDecisionSeen || s.status.Decision != action.DecisionRequireApproval) ||
-			s.dispatchSeen || s.approvalTerminal || s.budgetStopsCall || s.budgetStage == BudgetDispatched {
-			return fmt.Errorf("approval transition is outside the pre-dispatch approval window")
+		if err := s.applyApprovalTransition(record); err != nil {
+			return err
 		}
-		if record.Approval.Status == actionapproval.StatusPending && s.status.Approval != "" {
-			return fmt.Errorf("pending approval is duplicated")
-		}
-		if record.Approval.Status != actionapproval.StatusPending && s.approvalRequestID == "" && !s.historyMissing {
-			return fmt.Errorf("terminal approval transition lacks one pending transition")
-		}
-		if s.approvalRequestID != "" &&
-			(s.approvalRequestID != record.Approval.RequestID ||
-				s.approvalPolicyID != record.Approval.AuthorityPolicyID) {
-			return fmt.Errorf("approval transition binding drifted")
-		}
-		s.approvalRequestID = record.Approval.RequestID
-		s.approvalPolicyID = record.Approval.AuthorityPolicyID
-		if record.Approval.Status != actionapproval.StatusPending {
-			s.approvalTerminal = true
-			s.approvalReason = record.Decision.Reason
-		}
-		s.status.Approval = record.Approval.Status
 	case EventBudgetTransition:
 		if !s.preDecisionSeen && !s.historyMissing {
 			return fmt.Errorf("budget transition precedes evaluation")
@@ -198,12 +194,12 @@ func (s *lifecycleState) apply(record Record) error {
 		}
 	case EventDownstreamDispatch:
 		approvalEligible := s.status.Decision == action.DecisionRequireApproval &&
-			s.status.Approval == actionapproval.StatusApproved
+			s.preApproval.status == actionapproval.StatusApproved
 		if s.dispatchSeen || (!s.historyMissing &&
 			(!s.preDecisionSeen || s.preOutcome != action.OutcomeDispatchEligible && !approvalEligible)) {
 			return fmt.Errorf("dispatch lacks one eligible pre-call decision")
 		}
-		if s.status.Decision == action.DecisionRequireApproval && s.status.Approval != actionapproval.StatusApproved {
+		if s.status.Decision == action.DecisionRequireApproval && s.preApproval.status != actionapproval.StatusApproved {
 			return fmt.Errorf("approval-required call dispatched without approval")
 		}
 		if s.budgetStopsCall {
@@ -264,7 +260,9 @@ func (s *lifecycleState) apply(record Record) error {
 			return fmt.Errorf("final delivery follows a terminal non-dispatch budget transition")
 		}
 		inspectionPermitted := s.inspectionDecision == action.DecisionAllow ||
-			s.inspectionDecision == action.DecisionWarn
+			s.inspectionDecision == action.DecisionWarn ||
+			s.inspectionDecision == action.DecisionRequireApproval &&
+				s.postApproval.status == actionapproval.StatusApproved
 		if !s.historyMissing && (record.Delivery.Status == DeliveryForwarded) != inspectionPermitted {
 			return fmt.Errorf("final delivery contradicts the result inspection decision")
 		}
@@ -292,10 +290,61 @@ func (s *lifecycleState) apply(record Record) error {
 	return nil
 }
 
+func (s *lifecycleState) applyApprovalTransition(record Record) error {
+	var lifecycle *approvalLifecycle
+	switch record.Decision.Phase {
+	case action.PhasePreCall:
+		if (!s.historyMissing && (!s.preDecisionSeen || s.status.Decision != action.DecisionRequireApproval)) ||
+			s.dispatchSeen || s.preApproval.terminal || s.budgetStopsCall || s.budgetStage == BudgetDispatched {
+			return fmt.Errorf("approval transition is outside the pre-dispatch approval window")
+		}
+		lifecycle = &s.preApproval
+	case action.PhasePostResult:
+		if (!s.historyMissing && (!s.inspectionSeen || s.inspectionDecision != action.DecisionRequireApproval)) ||
+			s.status.Dispatch != DispatchSucceeded || s.terminalSeen || s.postApproval.terminal ||
+			s.budgetStopsCall {
+			return fmt.Errorf("approval transition is outside the post-result delivery window")
+		}
+		lifecycle = &s.postApproval
+	default:
+		return fmt.Errorf("approval transition phase is unsupported")
+	}
+	if record.Approval.Status == actionapproval.StatusPending && lifecycle.status != "" {
+		return fmt.Errorf("pending approval is duplicated")
+	}
+	if record.Approval.Status != actionapproval.StatusPending && lifecycle.requestID == "" && !s.historyMissing {
+		return fmt.Errorf("terminal approval transition lacks one pending transition")
+	}
+	if lifecycle.requestID != "" &&
+		(lifecycle.requestID != record.Approval.RequestID || lifecycle.policyID != record.Approval.AuthorityPolicyID) {
+		return fmt.Errorf("approval transition binding drifted")
+	}
+	lifecycle.requestID = record.Approval.RequestID
+	lifecycle.policyID = record.Approval.AuthorityPolicyID
+	lifecycle.status = record.Approval.Status
+	if record.Approval.Status != actionapproval.StatusPending {
+		lifecycle.terminal = true
+		lifecycle.reason = record.Decision.Reason
+	}
+	s.status.Approval = record.Approval.Status
+	return nil
+}
+
 func (s *lifecycleState) applyBudgetTransition(record Record) error {
 	value := *record.Budget
 	if s.budgetTerminal {
 		return fmt.Errorf("budget transition follows a terminal budget transition")
+	}
+	if value.Kind == BudgetReserved && record.Decision.Phase == action.PhasePostResult {
+		if !s.budgetSeen || s.budgetStage != BudgetDispatched || !s.downstreamSeen ||
+			!s.inspectionSeen || s.inspectionDecision != action.DecisionRequireApproval ||
+			s.postApproval.status != "" || s.postApprovalBudget != 0 ||
+			value.ReservationIdentity != s.budgetReservation ||
+			!reflect.DeepEqual(value.BudgetIDs, s.budgetIDs) {
+			return fmt.Errorf("post-result approval budget reservation is outside its lifecycle window")
+		}
+		s.postApprovalBudget = value.ReservedDelta.ApprovalCount
+		return nil
 	}
 	historyStart := !s.budgetSeen && s.historyMissing
 	if !s.budgetSeen {
@@ -323,13 +372,13 @@ func (s *lifecycleState) applyBudgetTransition(record Record) error {
 			return fmt.Errorf("budget dispatch commitment lacks one pre-dispatch reservation")
 		}
 		if !historyStart && s.status.Decision == action.DecisionRequireApproval &&
-			s.status.Approval != actionapproval.StatusApproved {
+			s.preApproval.status != actionapproval.StatusApproved {
 			return fmt.Errorf("budget dispatch commitment precedes required approval")
 		}
 		dispatchEligible := s.status.Decision == action.DecisionAllow ||
 			s.status.Decision == action.DecisionWarn ||
 			s.status.Decision == action.DecisionRequireApproval &&
-				s.status.Approval == actionapproval.StatusApproved
+				s.preApproval.status == actionapproval.StatusApproved
 		if !historyStart && !dispatchEligible {
 			return fmt.Errorf("budget dispatch commitment lacks one dispatch-eligible decision")
 		}
@@ -347,6 +396,14 @@ func (s *lifecycleState) applyBudgetTransition(record Record) error {
 			record.Decision.Reason != s.downstreamReason) {
 			return fmt.Errorf("budget settlement decision does not match downstream outcome")
 		}
+		wantCommitted := int64(0)
+		if s.postApproval.status == actionapproval.StatusApproved {
+			wantCommitted = s.postApprovalBudget
+		}
+		if value.ReservedDelta.ApprovalCount != -s.postApprovalBudget ||
+			value.ConsumedDelta.ApprovalCount != wantCommitted {
+			return fmt.Errorf("budget settlement does not match post-result approval state")
+		}
 		s.budgetTerminal = true
 	case BudgetIndeterminate:
 		if !historyStart && s.budgetStage != BudgetReserved && s.budgetStage != BudgetDispatched {
@@ -359,8 +416,8 @@ func (s *lifecycleState) applyBudgetTransition(record Record) error {
 			return fmt.Errorf("budget denial lacks one live pre-dispatch reservation")
 		}
 		terminalReason := s.status.Reason
-		if s.approvalTerminal && s.status.Approval != actionapproval.StatusApproved {
-			terminalReason = s.approvalReason
+		if s.preApproval.terminal && s.preApproval.status != actionapproval.StatusApproved {
+			terminalReason = s.preApproval.reason
 		} else if s.status.Decision != action.DecisionBlock {
 			return fmt.Errorf("budget denial lacks one terminal pre-dispatch decision")
 		}
@@ -376,7 +433,7 @@ func (s *lifecycleState) applyBudgetTransition(record Record) error {
 
 func (s *lifecycleState) finish() {
 	terminalDecision := s.preDecisionSeen && s.status.Decision == action.DecisionBlock
-	terminalApproval := s.approvalTerminal && s.status.Approval != actionapproval.StatusApproved
+	terminalApproval := s.preApproval.terminal && s.preApproval.status != actionapproval.StatusApproved
 	terminalDownstream := s.status.Dispatch == DispatchFailed || s.status.Dispatch == DispatchUnknown
 	s.status.TerminalComplete = s.terminalSeen || terminalDecision || terminalApproval || terminalDownstream || s.budgetStopsCall
 	if s.budgetSeen && !s.budgetTerminal {

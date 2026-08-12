@@ -23,6 +23,11 @@ func (r LoadedApprovalRegistry) Identity() string {
 	return r.identity
 }
 
+func (r LoadedApprovalRegistry) HasPolicy(policyID string) bool {
+	compiled := r.compiled()
+	return compiled != nil && compiled.HasPolicy(policyID)
+}
+
 func (r LoadedApprovalRegistry) compiled() *actionapproval.CompiledRegistry {
 	if r.path == "" || r.registry == nil || r.identity == "" || r.identity != r.registry.Identity() {
 		return nil

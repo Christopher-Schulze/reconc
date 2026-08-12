@@ -97,10 +97,19 @@ func validateSurface(t *testing.T, name, synopsis, summary string, stability Sta
 
 func validOutputMode(mode OutputMode) bool {
 	switch mode {
-	case OutputText, OutputJSON, OutputYAML, OutputMarkdown, OutputJSONL, OutputScript, OutputRoff, OutputSARIF, OutputJUnit, OutputGitHub, OutputFile:
+	case OutputText, OutputJSON, OutputYAML, OutputMarkdown, OutputJSONL, OutputScript, OutputRoff, OutputSARIF, OutputJUnit, OutputGitHub, OutputFile, OutputMCP:
 		return true
 	default:
 		return false
+	}
+}
+
+func TestMCPGatewayCatalogDeclaresProtocolOnlyOutput(t *testing.T) {
+	command, ok := Lookup("mcp")
+	if !ok || !reflect.DeepEqual(command.OutputModes, []OutputMode{OutputMCP}) ||
+		len(command.Subcommands) != 1 || command.Subcommands[0].Name != "gateway" ||
+		!reflect.DeepEqual(command.Subcommands[0].OutputModes, []OutputMode{OutputMCP}) {
+		t.Fatalf("MCP gateway output contract = %#v, present=%t", command, ok)
 	}
 }
 

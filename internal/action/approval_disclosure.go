@@ -14,12 +14,12 @@ func (p *CompiledPlan) ApprovalDisclosures(request Request) ([]ApprovalDisclosur
 	if request.Phase != PhasePreCall && request.Phase != PhasePostResult {
 		return []ApprovalDisclosure{}, []string{}, nil
 	}
-	key := ToolIdentityKey(Tool{
+	toolIdentity := Tool{
 		Transport: request.Transport, Platform: request.Platform,
 		ServerLabel: request.ServerLabel, ServerFingerprint: request.ServerFingerprint,
 		Tool: request.Tool,
-	})
-	index, exists := p.toolByExact[key]
+	}
+	index, exists := lookupToolIndex(p.toolByExact, toolIdentity)
 	if !exists || index < 0 || index >= len(p.plan.Tools) {
 		return []ApprovalDisclosure{}, []string{}, nil
 	}

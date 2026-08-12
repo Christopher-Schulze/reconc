@@ -2,8 +2,6 @@
 
 ## Active
 
-- [~] 161 Build the Go MCP stdio tool gateway -> tasks/161-build-go-mcp-stdio-tool-gateway.md
-
 ## Queue
 
 - [ ] 162 Prove LangChain and MCP interoperability -> tasks/162-prove-langchain-mcp-interoperability.md
@@ -14,6 +12,7 @@
 
 ## Done
 
+- [x] 161 Build the Go MCP stdio tool gateway -> tasks/done/161-build-go-mcp-stdio-tool-gateway.md
 - [x] 160 Record a privacy-bounded action decision ledger -> tasks/done/160-record-action-decision-ledger.md
 - [x] 159 Inspect action inputs and tool results -> tasks/done/159-inspect-action-inputs-and-tool-results.md
 - [x] 158 Issue authority-bound one-time approval receipts -> tasks/done/158-issue-authority-bound-approval-receipts.md
@@ -23,4 +22,3 @@
 - [x] 154 Compile canonical action policy into lock format 5 -> tasks/done/154-compile-canonical-action-policy.md
 - [x] 165 Restore immutable schema and RFC contract truth -> tasks/done/165-restore-schema-and-rfc-contract-truth.md
 - [x] 153 Specify the Go-only Action Plane contract -> tasks/done/153-specify-go-only-action-plane-contract.md
-- [x] 152 Release v0.9.5 with audited hardening -> tasks/done/152-release-0-9-5-with-audited-hardening.md

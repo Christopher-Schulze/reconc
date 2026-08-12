@@ -152,8 +152,8 @@ current-tree scanner.
 Final proof: focused and complete race suites, Windows cross-compilation,
 release-trust, publication audit, root and template coverage, self-hosting,
 build, vet, pinned staticcheck, and pinned govulncheck all pass. Whole-module
-coverage is 82.7209 percent for the root module and 83.5729 percent for the
-portable template module.
+coverage was measured for both the root and portable template modules as review
+evidence, not as a pass/fail threshold.
 
 ## Deviations
 
