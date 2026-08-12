@@ -23,7 +23,7 @@ even though the holder completed normally and no state was corrupt.
 - [x] Add a real-lock delayed-release regression
 - [x] Make the gateway invocation-count fixture publish atomically
 - [x] Reconcile release and TASK truth
-- [~] Run focused and complete release gates
+- [x] Run focused and complete release gates
 
 ## Notes
 
@@ -53,6 +53,11 @@ Candidate run `31630010986` correctly rejected an earlier task note that
 recorded numeric measurement percentages. The note now records the passed
 whole-module profiles without turning review evidence into a policy threshold,
 and the exact release-trust script passes locally.
+
+Candidate CI `31630565486` passed on exact source commit
+`d937f67782ad699e586195c4437b19bc437e6938`, including native Windows tests,
+binary smoke, installer coverage, Linux race tests, release trust, and the real
+LangChain integration. CodeQL run `31630565485` passed on the same commit.
 
 ## Deviations
 
