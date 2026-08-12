@@ -802,7 +802,7 @@ reconc ci . --base "$CI_MERGE_REQUEST_DIFF_BASE_SHA" --head "$CI_COMMIT_SHA" --f
 reconc ci . --base origin/main --head HEAD --format junit --output reconc-junit.xml
 ```
 
-The current v0.9.5 release can export the same completion candidate for external
+The current v0.9.6 release can export the same completion candidate for external
 review:
 
 ```bash
@@ -1293,11 +1293,11 @@ repository-sync transaction.
 
 ## v0.9.5 To v0.9.6 Migration
 
-Source-owned installations build version `0.9.6`. Until the immutable
-`reconc-v0.9.6` release is published, the latest native release installer
-remains v0.9.5. Version text alone is not release identity.
+Source-owned installations build version `0.9.6`. Exact native installations
+use the immutable `reconc-v0.9.6` release. Version text alone is not release
+identity: verify the tag, checksums, manifest, and provenance.
 
-Policy locks move to format `6` under the planned immutable v0.9.6
+Policy locks move to format `6` under the immutable v0.9.6
 `schemas/v6/policy-lock.schema.json` identity. Formats 1 through 5 migrate in
 memory; `reconc refresh .` intentionally persists the current format. Format 6
 contains one canonical `actions` plan and never a parallel runtime `mcp` plan.

@@ -73,6 +73,11 @@ one exact registry.
   POSIX mode checks. Concurrent active-session publication keeps every pointer read
   and replacement under the same lock, and release publication waits for the
   exact tag to pass native Windows tests, binary smoke, and installer gates.
+- Private Action Ledger lock creation now secures and verifies a same-directory
+  candidate before atomically publishing the final lock path. Concurrent
+  creators converge on that one protected file, transient directory-snapshot
+  changes are retried within a strict bound, and existing permission, ACL,
+  symlink, special-file, or identity drift still fails without repair.
 - Schema files no longer claim mutable, missing-tag, or unreachable canonical
   locations. Historical identities remain explicit compatibility aliases and
   are never emitted as verified publication URLs.
@@ -97,7 +102,7 @@ one exact registry.
 
 ## Compatibility
 
-- Current policy locks use format `6` and the planned immutable v0.9.6
+- Current policy locks use format `6` and the immutable v0.9.6
   `schemas/v6/policy-lock.schema.json` identity.
 - Supported legacy schema aliases and policy-lock formats 1 through 5 continue
   to migrate offline. Unknown URLs, crossed URL/format pairs, and future

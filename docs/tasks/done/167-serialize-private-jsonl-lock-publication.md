@@ -48,7 +48,7 @@ creation without accepting a persistent identity or metadata change.
 
 Local proof passed: the focused multiprocess suite 100 times; root and portable
 template race suites; publication and release-trust audits; vet; staticcheck;
-82.0697% root and 83.5729% template coverage; all 50 discovered fuzz targets;
+complete root and template coverage measurement; all 50 discovered fuzz targets;
 both module vulnerability scans; pinned Python 3.13.14 LangChain interoperability;
 self-hosting; and the complete five-target `0.9.6` release build and verification.
 

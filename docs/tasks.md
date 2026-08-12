@@ -8,6 +8,7 @@
 
 ## Done
 
+- [x] 168 Reconcile v0.9.6 publication truth -> tasks/done/168-reconcile-v0-9-6-publication-truth.md
 - [x] 167 Serialize private JSONL lock publication -> tasks/done/167-serialize-private-jsonl-lock-publication.md
 - [x] 166 Restore native Windows release truth -> tasks/done/166-restore-native-windows-release-truth.md
 - [x] 165 Restore immutable schema and RFC contract truth -> tasks/done/165-restore-schema-and-rfc-contract-truth.md
@@ -17,4 +18,3 @@
 - [x] 161 Build the Go MCP stdio tool gateway -> tasks/done/161-build-go-mcp-stdio-tool-gateway.md
 - [x] 160 Record a privacy-bounded action decision ledger -> tasks/done/160-record-action-decision-ledger.md
 - [x] 159 Inspect action inputs and tool results -> tasks/done/159-inspect-action-inputs-and-tool-results.md
-- [x] 158 Issue authority-bound one-time approval receipts -> tasks/done/158-issue-authority-bound-approval-receipts.md
