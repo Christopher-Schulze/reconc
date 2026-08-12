@@ -12,8 +12,16 @@ import (
 	"reconc.dev/reconc/internal/runtime"
 )
 
-func validateCandidateActionIdentity(candidate Candidate, compiled runtime.CompiledActionRuntime) error {
-	if (candidate.Kind != string(policy.SourcePolicyFile) && candidate.Kind != string(policy.SourcePreset)) ||
+func validateCandidateActionIdentity(
+	candidate Candidate,
+	compiled runtime.CompiledActionRuntime,
+	allowCurrent bool,
+) error {
+	kindValid := candidate.Kind == string(policy.SourcePolicyFile) || candidate.Kind == string(policy.SourcePreset)
+	if allowCurrent {
+		kindValid = candidate.Kind == CandidateKindCurrent && candidate.Name == "current-policy"
+	}
+	if !kindValid ||
 		!validCaseID(candidate.Name) || unsafeActionMetadata(candidate.Name) ||
 		candidate.SourceDigest != compiled.SourceDigest || candidate.LockDigest != compiled.LockDigest ||
 		candidate.ActionPlanIdentity != compiled.Evaluator.PlanIdentity() ||

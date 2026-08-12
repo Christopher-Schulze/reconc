@@ -272,18 +272,55 @@ scope as `explicit_routes_only`, external configuration as `not_inspected`, and
 bypass routes as `unenforced`; the MCP row in `reconc doctor . --deep` states
 the same limit. Neither diagnostic certifies an external configuration.
 
-### `reconc action evidence export|verify [repo]`
+### `reconc action evidence export [repo] --as-of RFC3339 [--since RFC3339] [--until RFC3339] [evidence flags] [--format json|markdown] [--output PATH]`
 
-Would export or verify local technical control-evidence mappings. Output would
-describe covered, partial, missing, and not-evaluated evidence, never
-certification or legal sufficiency.
+Build a deterministic local `reconc.action-evidence/v1` report from the current
+compiled policy, the verified retained Action Ledger, read-only action state,
+cryptographically reverified approval receipts, and optional Impact Lab
+corpora. `--as-of` is mandatory canonical UTC; `--since` defaults to the Unix
+epoch and `--until` defaults to `--as-of`. The inclusive start and exclusive
+end select complete call lifecycles by their accepted-request timestamp.
+`--as-of` cannot precede the latest retained record, so a current snapshot
+cannot be presented as historical evidence.
+
+The four built-in reviewed mapping packs reference SOC 2, GDPR, the HIPAA
+Security Rule, and the EU AI Act by control identifier and primary-source URL.
+They contain original Reconc technical mappings, source edition/date, review
+date, exact evidence selectors, and known gaps. This is technical evidence and
+mapping only. Organizational control design and operation, legal assessment,
+external assurance, and every determination outside the selected Reconc
+boundary remain external responsibilities.
+
+Repeat `--corpus FILE` for strict privacy-bounded Impact Lab evidence. Supply
+`--approval-authorities PATH` to reverify stored signed approval decisions
+against the exact operator-owned registry identity. Repeat `--map-pack FILE`
+for custom `reconc.action-control-map/v1` packs and choose exactly one
+authentication mode for the complete custom set: one matching
+`--map-pack-digest SHA256` per pack, or one `--map-pack-signature FILE` per pack
+plus `--map-pack-authorities PATH`. Custom text cannot set status or override an
+evidence fact.
+
+JSON is the default; Markdown renders the same report. `--output` atomically
+creates a new file and refuses an existing path. The command makes no network
+call and does not create, repair, or mutate action state. Missing state,
+unavailable authority, failed integrity, stale mapping review, incomplete
+history, unsupported host coverage, or absent scenario dimensions remains an
+explicit downgrade rather than an inferred pass.
+
+### `reconc action evidence verify [repo] --as-of RFC3339 [--since RFC3339] [--until RFC3339] [evidence flags] [--json]`
+
+Build and verify the same current report, including its deterministic
+self-identity and exact status derivation. Text is the default; `--json` emits
+the full report. The command exits successfully only when every selected
+mapping is `covered`; `partial`, `missing`, and `not_evaluated` emit the report
+and then fail. It verifies technical evidence, not an organization, legal
+obligation, external framework assessment, or third-party assurance result.
 
 The exact Draft contract, failure behavior, limits, protocol versions, and
 package owners are in
-[RECONC-0008](rfcs/RECONC-0008-go-only-action-plane.md). The gateway is
-registered in dispatch, command metadata, completion, and manpage generation.
-The evidence command remains planned under TASK 163 and has no live command
-entry.
+[RECONC-0008](rfcs/RECONC-0008-go-only-action-plane.md). Gateway and evidence
+commands are registered in dispatch, command metadata, completion, and manpage
+generation.
 
 ---
 

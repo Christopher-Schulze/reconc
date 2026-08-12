@@ -107,16 +107,18 @@ type TerminalCall struct {
 }
 
 type ApprovalRecord struct {
-	Request             actionapproval.Request `json:"request"`
-	Status              actionapproval.Status  `json:"status"`
-	ReservationIdentity string                 `json:"reservation_identity"`
-	NonceIdentity       string                 `json:"nonce_identity"`
-	RegistryIdentity    string                 `json:"registry_identity,omitempty"`
-	AuthorityKeyID      string                 `json:"authority_key_id,omitempty"`
-	ReceiptID           string                 `json:"receipt_id,omitempty"`
-	ReceiptIdentity     string                 `json:"receipt_identity,omitempty"`
-	ReceiptSignedAt     string                 `json:"receipt_signed_at,omitempty"`
-	UpdatedAtUnix       int64                  `json:"updated_at_unix"`
+	Request             actionapproval.Request  `json:"request"`
+	Status              actionapproval.Status   `json:"status"`
+	ReservationIdentity string                  `json:"reservation_identity"`
+	NonceIdentity       string                  `json:"nonce_identity"`
+	RegistryIdentity    string                  `json:"registry_identity,omitempty"`
+	AuthorityKeyID      string                  `json:"authority_key_id,omitempty"`
+	ReceiptID           string                  `json:"receipt_id,omitempty"`
+	ReceiptIdentity     string                  `json:"receipt_identity,omitempty"`
+	ReceiptSignedAt     string                  `json:"receipt_signed_at,omitempty"`
+	ReceiptDecision     actionapproval.Decision `json:"receipt_decision,omitempty"`
+	ReceiptSignature    string                  `json:"receipt_signature,omitempty"`
+	UpdatedAtUnix       int64                   `json:"updated_at_unix"`
 }
 
 type State struct {

@@ -12,6 +12,36 @@ import (
 // Compare evaluates every corpus case against the fresh current policy and one
 // already compiled in-memory candidate.
 func Compare(repoRoot string, corpus Corpus, candidate Candidate, current, evaluator *runtime.CompiledPolicyEvaluator) (Report, error) {
+	return compare(repoRoot, corpus, candidate, current, evaluator, false)
+}
+
+// CompareCurrent verifies exact corpus expectations against one immutable
+// current evaluator without pretending that evaluator came from a candidate
+// policy file or preset.
+func CompareCurrent(repoRoot string, corpus Corpus, current *runtime.CompiledPolicyEvaluator) (Report, error) {
+	if current == nil {
+		return Report{}, fmt.Errorf("current evaluator is required")
+	}
+	compiled, err := current.ActionRuntime()
+	if err != nil {
+		return Report{}, fmt.Errorf("prepare current action runtime: %w", err)
+	}
+	candidate := Candidate{
+		Kind: CandidateKindCurrent, Name: "current-policy", SourceDigest: compiled.SourceDigest,
+		LockDigest: compiled.LockDigest, ActionPlanIdentity: compiled.Evaluator.PlanIdentity(),
+		RuleCount: len(current.RuleIDs()), ActionToolCount: compiled.ToolCount,
+		ActionRuleCount: compiled.ActionRuleCount,
+	}
+	return compare(repoRoot, corpus, candidate, current, current, true)
+}
+
+func compare(
+	repoRoot string,
+	corpus Corpus,
+	candidate Candidate,
+	current, evaluator *runtime.CompiledPolicyEvaluator,
+	allowCurrentCandidate bool,
+) (Report, error) {
 	if err := validateCorpus(corpus); err != nil {
 		return Report{}, err
 	}
@@ -26,7 +56,7 @@ func Compare(repoRoot string, corpus Corpus, candidate Candidate, current, evalu
 	if err != nil {
 		return Report{}, fmt.Errorf("prepare candidate action runtime: %w", err)
 	}
-	if err := validateCandidateActionIdentity(candidate, candidateActions); err != nil {
+	if err := validateCandidateActionIdentity(candidate, candidateActions, allowCurrentCandidate); err != nil {
 		return Report{}, err
 	}
 	if candidate.RuleCount != len(evaluator.RuleIDs()) {

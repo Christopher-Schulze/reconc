@@ -55,8 +55,8 @@ func TestRegistryHasOneCurrentContractPerArtifact(t *testing.T) {
 			current[contract.Artifact]++
 		}
 	}
-	if len(current) != 20 {
-		t.Fatalf("current artifact count = %d, want 20", len(current))
+	if len(current) != 24 {
+		t.Fatalf("current artifact count = %d, want 24", len(current))
 	}
 	for artifact, count := range current {
 		if count != 1 {

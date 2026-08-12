@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/action-control-map-signature.schema.json",
+  "title": "Reconc Action Control Map Signature",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "format_version", "pack_identity", "authority_key_id", "signature"],
+  "properties": {
+    "schema": {"const": "reconc.action-control-map-signature/v1"},
+    "format_version": {"const": "1"},
+    "pack_identity": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "authority_key_id": {"type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$"},
+    "signature": {"type": "string", "pattern": "^[A-Za-z0-9_-]{86}$"}
+  }
+}

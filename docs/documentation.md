@@ -265,7 +265,7 @@ still require their matching platform jobs or integration boundaries.
 
 `make release` cross-compiles five binaries into `dist/`, copies the native
 POSIX and Windows installers, generates three flat shell-completion artifacts,
-generates a man page, copies all 31 independently versioned schemas from the
+generates a man page, copies all 36 independently versioned schemas from the
 typed registry under unique current or legacy release names, and generates
 deterministic SPDX 2.3 and CycloneDX
 1.6 SBOMs,
@@ -1282,7 +1282,7 @@ Policy locks move to format `6` under the planned immutable v0.9.6
 memory; `reconc refresh .` intentionally persists the current format. Format 6
 contains one canonical `actions` plan and never a parallel runtime `mcp` plan.
 Legacy `mcp` authoring remains accepted and lowers deterministically into that
-plan. Public schema ownership is per artifact: all 31 contract versions are
+plan. Public schema ownership is per artifact: all 36 contract versions are
 registered with exact local bytes, digest, release asset, immutable URL,
 enterprise path, and compatibility aliases. Policy config uses v4;
 repository-sync plan/report and custom-runtime manifest use v2. Existing
@@ -1349,6 +1349,18 @@ therefore binds the live reservation it closes, the released reserved capacity,
 and denied-count consumption only. If reservation itself was refused because a
 budget was already exhausted, the blocking `pre_decision` is the complete fact;
 the ledger never fabricates a reservation or counter delta.
+
+`reconc action evidence export|verify` reads those private action surfaces
+without creating or repairing state. The report schema, control-map schema,
+control-map signature, and mapping-authority registry are versioned v1
+artifacts. Export requires an explicit canonical UTC `--as-of`, records exact
+window and retained-history boundaries, derives every control status from a
+closed evidence-fact set, and emits no raw arguments, results, receipts,
+credentials, headers, environment values, paths, or personal data. Verification
+rejects an `--as-of` before the latest retained record, rebuilds current evidence,
+and exits successfully only when every selected
+mapping is `covered`. These commands provide technical evidence and mapping,
+not organizational assessment, legal determination, or external assurance.
 
 ## Uninstall And Remove
 
@@ -1557,7 +1569,7 @@ Packs and wiring:
 
 Workflow maintenance:
 
-- `action` - verify, query, summarize, or minimize retained action decisions
+- `action` - verify, query, summarize, minimize, or map retained action evidence
 - `agent-intro`
 - `audit`
 - `run`
@@ -2295,9 +2307,18 @@ classification, and post-result withholding. The implemented ledger layer adds
 typed payload-free events, selected-field keyed identities, private atomic
 multi-process append, bounded rotation, crash recovery, archive and detached-head
 verification, explicit lifecycle aggregation, exact Impact Lab ledger
-assertions, and verified minimized export with explicit omissions. Later layers
-add local control-evidence mappings; the MCP stdio gateway is live for routed
-tools.
+assertions, and verified minimized export with explicit omissions. The
+implemented `internal/actionevidence` layer builds deterministic local JSON or
+Markdown from the current policy and lock identity, retained ledger integrity,
+read-only budget state, reverified approval receipts, and exact Impact Lab
+scenario results. Built-in versioned maps reference SOC 2, GDPR, the HIPAA
+Security Rule, and the EU AI Act by control identifier and primary-source URL;
+strict digest-pinned or Ed25519-signed custom maps may add selectors but cannot
+set status or override evidence facts. Missing, invalid, stale, incomplete, or
+out-of-window evidence is downgraded explicitly. This is bounded technical
+evidence mapping only; organizational control operation, legal assessment, and
+external assurance remain outside Reconc. The MCP stdio gateway is live only
+for routed tools.
 Key rotation cannot return budget capacity: it is serialized against live key
 leases and refused while dependent action state exists unless a future explicit
 atomic migration or reset owns every dependent identity and record.
@@ -2365,7 +2386,7 @@ summarizes the core runtime responsibilities:
 Key invariants:
 
 - Deterministic JSON artifacts
-- Stable schema and `format_version` fields; all 31 current and legacy contracts are registry-owned and ship under unique names, current artifact schemas span v1-v6, legacy portable policy locks use v1-v5, and current portable policy locks use v6
+- Stable schema and `format_version` fields; all 36 current and legacy contracts are registry-owned and ship under unique names, current artifact schemas span v1-v6, legacy portable policy locks use v1-v5, and current portable policy locks use v6
 - Fail closed on malformed policy, stale lockfiles, schema drift, invalid globs, unsupported rule kinds, and non-portable current lock envelopes
 - No core policy-runtime network calls; supported agent hosts own their
   authenticated inference traffic

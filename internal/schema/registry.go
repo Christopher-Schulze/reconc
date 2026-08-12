@@ -422,6 +422,10 @@ func taggedSchemaURL(tag string, localPath string) string {
 
 func contracts() []Contract {
 	return []Contract{
+		contract(ActionControlMap, "1", []string{"1"}, "schemas/v1/action-control-map.schema.json", "action-control-map.schema.json", ActionControlMapURL, CurrentSchemaTag, "2116b35ea99397c47b2a5fc64a150564d775ba23417eef7e83ab95e74eab0c57", StateCurrent),
+		contract(ActionControlMapAuthorities, "1", []string{"1"}, "schemas/v1/action-control-map-authorities.schema.json", "action-control-map-authorities.schema.json", ActionControlMapAuthoritiesURL, CurrentSchemaTag, "a40e9e641ea75cd3158a31026ef78d72206bf88d11a63d2a55b9a7988eb09207", StateCurrent),
+		contract(ActionControlMapSignature, "1", []string{"1"}, "schemas/v1/action-control-map-signature.schema.json", "action-control-map-signature.schema.json", ActionControlMapSignatureURL, CurrentSchemaTag, "cac8a8400bcb923a89f749e23a099a1f07d19bd16537b49d47e5c33284348ba1", StateCurrent),
+		contract(ActionEvidence, "1", []string{"1"}, "schemas/v1/action-evidence.schema.json", "action-evidence.schema.json", ActionEvidenceURL, CurrentSchemaTag, "19a5687a3032cce72a0db66e14dc739e811ed80ba6b1f583c59d4a742582c558", StateCurrent),
 		contract(ActionLedger, "1", []string{"1"}, "schemas/v1/action-ledger.schema.json", "action-ledger-v1.schema.json", DefaultBaseURL+"/action-ledger.schema.json", CurrentSchemaTag, "c8d85f2bdc82c51de468cbe7a62cce5251c2e724ec4dd29dd3c9d1535614c1cb", StateLegacy),
 		contract(ActionLedger, "2", []string{"1"}, "schemas/v2/action-ledger.schema.json", "action-ledger.schema.json", ActionLedgerURL, CurrentSchemaTag, "02a2e2c5ac76d77709ab3f33f600a99a0119288dfbb8a4166ffacf0aeed916a8", StateCurrent),
 		contract(CompletionReport, "1", []string{"1"}, "schemas/v1/completion-report.schema.json", "completion-report.schema.json", CompletionReportURL, CurrentSchemaTag, "811f87716131ce2561b55917805ce0c84146521778a30c316389e401e03843c1", StateCurrent, misbound("schemas/v1/completion-report.schema.json"), unpinned("schemas/v1/completion-report.schema.json")),

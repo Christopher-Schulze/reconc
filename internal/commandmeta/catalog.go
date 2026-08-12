@@ -188,7 +188,11 @@ var commandCatalog = []Command{
 		sub("export", "reconc audit export [repo]", "export raw audit JSONL", nil, nil, modes(OutputJSONL)),
 		sub("verify", "reconc audit verify [repo] [--json]", "verify every retained record and detached chain head", flags(f("--json", "")), nil, modes(OutputText, OutputJSON)),
 	}, modes(OutputText, OutputJSON, OutputJSONL)),
-	command("action", CategoryMaintenance, "reconc action <key|log>", "initialize action state or inspect privacy-bounded decisions", nil, []Subcommand{
+	command("action", CategoryMaintenance, "reconc action <evidence|key|log>", "initialize action state, inspect decisions, or produce technical control evidence", nil, []Subcommand{
+		subgroup("evidence", "reconc action evidence <export|verify>", "export or verify local technical control-evidence mappings", []Subcommand{
+			sub("export", "reconc action evidence export [repo] --as-of RFC3339 [evidence flags] [--format json|markdown] [--output PATH]", "export deterministic privacy-bounded technical control evidence", actionEvidenceFlags(true), nil, modes(OutputJSON, OutputMarkdown, OutputFile)),
+			sub("verify", "reconc action evidence verify [repo] --as-of RFC3339 [evidence flags] [--json]", "verify current technical evidence and fail unless every selected mapping is covered", actionEvidenceFlags(false), nil, modes(OutputText, OutputJSON)),
+		}),
 		subgroup("key", "reconc action key init", "initialize private operator-owned action state", []Subcommand{
 			sub("init", "reconc action key init [--reconc-home PATH] [--json]", "create the action identity key exactly once", flags(f("--reconc-home", "PATH"), f("--json", "")), nil, modes(OutputText, OutputJSON)),
 		}),
@@ -367,6 +371,19 @@ func actionLogFilterFlags(limit, jsonOutput bool) []Flag {
 		values = append(values, f("--json", ""))
 	}
 	return values
+}
+
+func actionEvidenceFlags(export bool) []Flag {
+	values := flags(
+		f("--as-of", "RFC3339"), f("--since", "RFC3339"), f("--until", "RFC3339"),
+		repeat("--corpus", "FILE"), f("--approval-authorities", "PATH"),
+		repeat("--map-pack", "FILE"), repeat("--map-pack-digest", "SHA256"),
+		repeat("--map-pack-signature", "FILE"), f("--map-pack-authorities", "PATH"),
+	)
+	if export {
+		return append(values, f("--format", "FORMAT", "json", "markdown"), f("--output", "PATH"))
+	}
+	return append(values, f("--json", ""))
 }
 
 func bootstrapSelectionFlags(allowOutput bool) []Flag {

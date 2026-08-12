@@ -33,8 +33,11 @@ the separate private format-1 retained Action Ledger, typed lifecycle and
 privacy contracts, atomic multi-process append, rotation and crash recovery,
 retained-chain and detached-head verification, bounded lifecycle queries,
 exact Impact Lab ledger assertions, and verified minimized export with explicit
-omissions. TASK 161 implements the enforcing Go MCP stdio gateway; TASK 163
-still owns control-evidence export. TASK 162 proves raw current and legacy MCP
+omissions. TASK 161 implements the enforcing Go MCP stdio gateway. TASK 163
+implements deterministic privacy-bounded control-evidence export, strict
+versioned built-in and authenticated custom mapping packs, exact status
+derivation, read-only state and receipt reverification, and public v1 schemas.
+TASK 162 proves raw current and legacy MCP
 interoperability plus the official external LangChain consumer, adds the
 one-time operator identity-key command, and pins the integration, diagnostic,
 CI, documentation, and publication contracts.
@@ -1265,9 +1268,10 @@ change requires a new mapping-pack version and primary-source review.
 The versioned control-map record contains stable control ID, framework and
 edition/date, mapping-pack identity, primary-source reference, bounded
 rationale, exact evidence selectors, known gaps, review status, and required
-completeness. Built-in mappings for SOC 2, GDPR, HIPAA, or the EU AI Act are
-added only after TASK 163 re-verifies the current primary source and permitted
-quotation boundary.
+completeness. The reviewed built-in mappings reference SOC 2 Trust Services
+Criteria, GDPR, the HIPAA Security Rule, and the EU AI Act by exact control
+identifier and primary-source URL. They store source edition/date and original
+Reconc technical paraphrases without embedding source quotations.
 
 Export verifies policy and lock identity, retained ledger chain and range,
 approval receipts, scenario results, budget state, authority provenance,
@@ -1276,6 +1280,8 @@ downgrades `covered` to `partial` or `missing`. `not_evaluated` never becomes
 another status by inference. A strict digest-pinned or signed custom mapping
 pack may add a mapping but cannot override evidence facts, integrity,
 provenance, completeness, or promote a weaker status.
+The explicit canonical UTC `as_of` cannot precede the latest retained record;
+the current policy and state snapshot is never backdated as historical evidence.
 
 Output is deterministic local JSON or Markdown containing safe identifiers,
 digests, counts, categories, coverage, and gaps. It never contains raw
@@ -1318,8 +1324,12 @@ explains only the compiled contract; it does not claim enforcement. `reconc
 action log tail|stats|verify|export` is also implemented: every read verifies
 the retained chain first, absent state is an empty non-mutating result, and
 export emits only synthetic minimized verified cases with explicit omissions.
-`reconc mcp gateway` is implemented for explicitly routed tools. The evidence
-commands remain proposed and unavailable while TASK 163 is open.
+`reconc mcp gateway` is implemented for explicitly routed tools. `reconc action
+evidence export|verify` is implemented with explicit canonical UTC evidence
+windows, built-in and authenticated custom mapping packs, JSON or Markdown
+export, exact fact-derived status, and a non-zero verification result unless
+every selected mapping is `covered`. It reads existing action evidence without
+creating or repairing state and makes no network call.
 
 LangChain uses its official `MultiServerMCPClient` stdio configuration. The
 absolute Reconc binary, repository, all trusted-context and authority flags,

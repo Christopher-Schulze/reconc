@@ -38,27 +38,31 @@ type actionLogParseMode struct {
 }
 
 type existingActionLedger struct {
-	store      *actionledger.Store
-	lease      *actionstate.IdentityKeyLease
-	repository string
+	store              *actionledger.Store
+	stateStorage       *actionstate.PrivateProjectStorage
+	lease              *actionstate.IdentityKeyLease
+	repository         string
+	repositoryIdentity string
 }
 
 func runAction(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return actionLogCLIError("action", "missing subcommand (key | log)")
+		return actionLogCLIError("action", "missing subcommand (evidence | key | log)")
 	}
 	if len(args) == 1 && isHelpFlag(args[0]) {
-		fmt.Fprintln(stdout, "Usage: reconc action <key|log>")
-		fmt.Fprintln(stdout, "Initialize operator-owned action state or inspect the privacy-bounded action ledger.")
+		fmt.Fprintln(stdout, "Usage: reconc action <evidence|key|log>")
+		fmt.Fprintln(stdout, "Initialize action state, inspect its ledger, or produce local technical control evidence.")
 		return nil
 	}
 	switch args[0] {
+	case "evidence":
+		return runActionEvidence(args[1:], stdout)
 	case "key":
 		return runActionKey(args[1:], stdout)
 	case "log":
 		return runActionLog(args[1:], stdout)
 	default:
-		return actionLogCLIError("action", fmt.Sprintf("unknown subcommand %q (expected key or log)", args[0]))
+		return actionLogCLIError("action", fmt.Sprintf("unknown subcommand %q (expected evidence, key, or log)", args[0]))
 	}
 }
 
@@ -344,12 +348,15 @@ func openExistingActionLedger(ctx context.Context, repository string) (existingA
 		return existingActionLedger{}, errors.Join(err, lease.Close())
 	}
 	if !exists {
-		if err := lease.Close(); err != nil {
-			return existingActionLedger{}, err
-		}
-		return existingActionLedger{repository: resolvedRepository}, nil
+		return existingActionLedger{
+			stateStorage: &storage, lease: lease, repository: resolvedRepository,
+			repositoryIdentity: storage.RepositoryIdentity(),
+		}, nil
 	}
-	return existingActionLedger{store: store, lease: lease, repository: resolvedRepository}, nil
+	return existingActionLedger{
+		store: store, stateStorage: &storage, lease: lease, repository: resolvedRepository,
+		repositoryIdentity: storage.RepositoryIdentity(),
+	}, nil
 }
 
 func joinActionLedgerCloseError(resultErr *error, reader existingActionLedger) {

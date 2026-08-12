@@ -807,6 +807,8 @@ func setVerifiedApprovalMetadata(
 	record.ReceiptID = verified.Receipt.ReceiptID
 	record.ReceiptIdentity = verified.Identity
 	record.ReceiptSignedAt = verified.Receipt.SignedAt
+	record.ReceiptDecision = verified.Receipt.Decision
+	record.ReceiptSignature = verified.Receipt.Signature
 }
 
 func approvalResult(version string, record ApprovalRecord) ApprovalConsumeResult {

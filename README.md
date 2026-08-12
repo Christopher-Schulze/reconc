@@ -120,6 +120,7 @@ Core invariants are deliberately strict:
 | Policy compiler | Compiles repository instructions, YAML policy, packs, templates, and provenance into a portable lockfile. Unknown fields, stale sources, schema drift, invalid globs, unsupported rule kinds, and non-portable current roots fail closed. |
 | Action policy, trusted context, and budgets | Unreleased v0.9.6 source strictly compiles `actions` and compatible legacy `mcp` authoring into one canonical format-6 action plan, explains and simulates it offline, and routes explicitly configured tools through `reconc mcp gateway` with private keyed identities, crash-safe cumulative budgets, approvals, result inspection, and a decision ledger. |
 | Action decision ledger | `reconc action log tail|stats|verify|export` reads a separate private, tamper-evident, privacy-bounded ledger with exact retained-chain verification and explicit lifecycle gaps. Export produces only verified synthetic minimized Impact Lab cases and never reconstructs raw arguments or results. |
+| Action control evidence | `reconc action evidence export|verify` derives deterministic local JSON or Markdown from current policy, verified retained history, read-only state, reverified approval receipts, and exact scenarios. Built-in SOC 2, GDPR, HIPAA Security Rule, and EU AI Act mappings describe bounded technical evidence only; organizational assessment, legal determination, and external assurance remain outside Reconc. |
 | Scope and change control | Records and evaluates reads, writes, commands, claims, protected paths, coupled changes, generated files, secret state, destructive commands, and out-of-scope edits or deletions. |
 | Evidence freshness | Binds command success to the write epoch or staged Git candidate it verified. A later relevant write invalidates earlier success instead of laundering stale proof. |
 | Completion | `reconc done .` accepts completion only when policy, HEAD, index, worktree, evidence, reports, unresolved blocks, staged proofs, and typed TASK state agree. |
@@ -165,6 +166,7 @@ signal as equivalent.
 | TASK state | Configured overview/detail grammar and current repository files | Continuation, transition, and final-completion decisions. |
 | Hook liveness | Runtime, exact route, bounded timestamp, and repository identity | Distinguishing configured integration from a route actually observed in use. |
 | Completion report | Policy, candidate fingerprint, evidence, checks, and TASK disposition | Local final gate and source data for portable proof export. |
+| Action control evidence | Current policy and lock, retained ledger window, read-only state, approval receipt verification, scenarios, and versioned mapping-pack identity | Bounded technical evidence mapping for local review or external GRC ingestion; never an organizational, legal, or external assurance conclusion. |
 
 Evidence is causal, bounded, and reload-safe:
 
@@ -447,6 +449,23 @@ lifecycle facts first. Export is deliberately non-reconstructive: omitted calls
 and incomplete history remain explicit, raw tool payloads never appear, and an
 existing output path is never replaced.
 
+Export or strictly evaluate local technical control evidence with an explicit
+canonical UTC time basis:
+
+```bash
+reconc action evidence export . --as-of 2026-08-12T12:00:00Z --corpus action-corpus.json --format markdown --output action-evidence.md
+reconc action evidence verify . --as-of 2026-08-12T12:00:00Z --corpus action-corpus.json --json
+```
+
+Built-in maps are versioned, source-linked, and gap-explicit. Optional custom
+maps must be digest-pinned or Ed25519-signed and cannot set status or override
+the closed evidence-fact set. Missing, corrupt, stale, unavailable, or
+out-of-window evidence lowers the affected mapping. Reports contain safe
+identifiers, digests, counts, status, and gaps, never raw tool payloads,
+receipts, credentials, headers, environment values, or personal data. These
+commands generate and verify technical evidence mappings only; organizational
+control operation, legal assessment, and external assurance remain separate.
+
 ### Update the CLI and repository separately
 
 Update Reconc itself with one command:
@@ -660,6 +679,7 @@ and routes behavior into internal packages with explicit boundaries:
 | Ingest, parser, compiler, action | Discover repository roots and policy sources, validate strict YAML and templates, resolve packs, compile canonical repository and action plans with immutable matcher programs, detect conflicts, generate portable lockfiles, and migrate supported formats. |
 | Action state | Bind operator and host identities, hold leased keyed identity material, reserve and settle cumulative budgets, and preserve crash-consistent cross-process state outside repositories. |
 | Action ledger | Record and verify privacy-bounded typed action lifecycle events in a private retained hash chain; expose deterministic read-only tail, stats, verification, and minimized Impact Lab export. |
+| Action evidence | Derive exact evidence facts from current policy, retained ledger integrity, read-only state, signed approval receipts, and scenario results; map them through strict versioned built-in or authenticated custom control packs without status overrides. |
 | MCP gateway | Own one operator-selected downstream stdio process, validate and digest its advertised tools, enforce every routed call before dispatch, inspect progress and results before delivery, and terminate the complete child process tree. |
 | Runtime and assurance | Evaluate normalized evidence, path and command rules, native repository assurance, scripts, templates, remediation, and Git-derived candidates. |
 | Hooks and agent sessions | Generate platform artifacts, normalize untrusted host payloads, enforce pre-action policy, record bounded outcomes, manage compaction context, and evaluate Stop. |

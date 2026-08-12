@@ -174,6 +174,14 @@ func TestStateDigestBindsEveryPersistedComponent(t *testing.T) {
 		{name: "approval receipt id", mutate: func(state *State) { state.Approvals[0].ReceiptID = "arc_" + strings.Repeat("z", 26) }},
 		{name: "approval receipt identity", mutate: func(state *State) { state.Approvals[0].ReceiptIdentity = sha("f") }},
 		{name: "approval receipt signed time", mutate: func(state *State) { state.Approvals[0].ReceiptSignedAt = state.Approvals[0].Request.ExpiresAt }},
+		{name: "approval receipt decision", mutate: func(state *State) { state.Approvals[0].ReceiptDecision = actionapproval.DecisionReject }},
+		{name: "approval receipt signature", mutate: func(state *State) {
+			prefix := "A"
+			if state.Approvals[0].ReceiptSignature[0] == 'A' {
+				prefix = "B"
+			}
+			state.Approvals[0].ReceiptSignature = prefix + state.Approvals[0].ReceiptSignature[1:]
+		}},
 		{name: "approval updated time", mutate: func(state *State) { state.Approvals[0].UpdatedAtUnix++ }},
 	}
 	for _, test := range tests {
@@ -209,6 +217,8 @@ func TestStateSemanticValidationRejectsMalformedStateWithFreshDigest(t *testing.
 		record.ReceiptID = ""
 		record.ReceiptIdentity = ""
 		record.ReceiptSignedAt = ""
+		record.ReceiptDecision = ""
+		record.ReceiptSignature = ""
 	}
 	tests := []struct {
 		name   string

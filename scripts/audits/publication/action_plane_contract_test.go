@@ -25,7 +25,7 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 		"TASK 160 implements",
 		"the separate private format-1 retained Action Ledger",
 		"TASK 161 implements the enforcing Go MCP stdio gateway",
-		"TASK 163 still owns control-evidence export",
+		"TASK 163 implements deterministic privacy-bounded control-evidence export",
 		"`reconc mcp gateway` is implemented for explicitly routed tools",
 	)
 	assertContainsAll(t, "RFC index", index,
@@ -38,7 +38,9 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 		"`internal/actioninspect` now strictly",
 		"Action Ledger records typed payload-free lifecycle evidence",
 		"`reconc action log tail|stats|verify|export`",
-		"`reconc mcp gateway` now invokes these primitives around every routed live tool call",
+		"`internal/actionevidence` now derives exact facts",
+		"`reconc action evidence export|verify`",
+		"`reconc mcp gateway` invokes the enforcement primitives around every routed",
 		"The implemented topology is one local, tool-only stdio MCP gateway",
 		"Native LangChain tools, clients configured directly against the downstream server",
 	)
@@ -61,14 +63,17 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 		"### `reconc mcp gateway",
 		"deterministic action-inspection core",
 		"controls apply only to calls routed through `reconc mcp gateway`",
-		"The gateway is registered in dispatch, command metadata, completion, and manpage generation",
-		"The evidence command remains planned under TASK 163",
+		"### `reconc action evidence export",
+		"### `reconc action evidence verify",
+		"Gateway and evidence commands are registered in dispatch",
 	)
 	assertContainsAll(t, "README", readme,
 		"routes explicitly configured tools through `reconc mcp gateway`",
 		"The Go-only `reconc mcp gateway` is live enforcement only for tools explicitly routed through it",
 		"native LangChain tools",
 		"MCP gateway",
+		"Action control evidence",
+		"reconc action evidence export|verify",
 	)
 }
 

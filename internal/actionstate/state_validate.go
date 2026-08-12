@@ -1,6 +1,7 @@
 package actionstate
 
 import (
+	"crypto/ed25519"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
@@ -298,11 +299,12 @@ func (s *Store) validateApprovalRecords(state State) error {
 			approvedByReservation[record.ReservationIdentity]++
 		}
 		metadataEmpty := record.RegistryIdentity == "" && record.AuthorityKeyID == "" &&
-			record.ReceiptID == "" && record.ReceiptIdentity == "" && record.ReceiptSignedAt == ""
+			record.ReceiptID == "" && record.ReceiptIdentity == "" && record.ReceiptSignedAt == "" &&
+			record.ReceiptDecision == "" && record.ReceiptSignature == ""
 		metadataValid := action.ValidSHA256Identity(record.RegistryIdentity) &&
 			action.SafeLabel(record.AuthorityKeyID) && validApprovalReceiptID(record.ReceiptID) &&
 			action.ValidSHA256Identity(record.ReceiptIdentity) && !receipts[record.ReceiptID] &&
-			validStoredReceiptTime(record)
+			validStoredReceiptTime(record) && validStoredReceiptMaterial(record)
 		if record.Status == actionapproval.StatusApproved || record.Status == actionapproval.StatusRejected {
 			if !metadataValid {
 				return stateError(action.ReasonStateCorrupt, "verified approval receipt metadata is invalid", nil)
@@ -342,6 +344,20 @@ func validStoredReceiptTime(record ApprovalRecord) bool {
 	}
 	expiresAt, err := time.Parse(time.RFC3339Nano, record.Request.ExpiresAt)
 	return err == nil && !signedAt.Before(issuedAt) && signedAt.Before(expiresAt)
+}
+
+func validStoredReceiptMaterial(record ApprovalRecord) bool {
+	if record.ReceiptDecision == "" && record.ReceiptSignature == "" {
+		return true
+	}
+	wantDecision := actionapproval.DecisionApprove
+	if record.Status == actionapproval.StatusRejected {
+		wantDecision = actionapproval.DecisionReject
+	}
+	signature, err := base64.RawURLEncoding.Strict().DecodeString(record.ReceiptSignature)
+	return err == nil && len(signature) == ed25519.SignatureSize &&
+		base64.RawURLEncoding.EncodeToString(signature) == record.ReceiptSignature &&
+		record.ReceiptDecision == wantDecision
 }
 
 func validateApprovalRecordTransition(

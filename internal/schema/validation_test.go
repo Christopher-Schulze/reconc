@@ -429,10 +429,14 @@ func exampleString(t *testing.T, definition *jsonschema.Schema) string {
 		"reconc-v0.9.6",
 		"custom:a",
 		strings.Repeat("a", 40),
+		strings.Repeat("a", 43),
 		strings.Repeat("a", 64),
+		strings.Repeat("a", 86),
 		"sha256:" + strings.Repeat("a", 64),
 		"hmac-sha256:v1:ledger-key:" + strings.Repeat("a", 64),
+		"hmac-sha256:v1:" + strings.Repeat("a", 32) + ":" + strings.Repeat("a", 64),
 		"act_" + strings.Repeat("a", 26),
+		"2000-01-01",
 		"2000-01-01T00:00:00Z",
 		"https://example.test/schema.json",
 	}
@@ -440,6 +444,8 @@ func exampleString(t *testing.T, definition *jsonschema.Schema) string {
 		switch definition.Format.Name {
 		case "date-time":
 			candidates = append([]string{"2000-01-01T00:00:00Z"}, candidates...)
+		case "date":
+			candidates = append([]string{"2000-01-01"}, candidates...)
 		case "uri":
 			candidates = append([]string{"https://example.test/schema.json"}, candidates...)
 		}

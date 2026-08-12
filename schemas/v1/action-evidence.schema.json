@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v1/action-evidence.schema.json",
+  "title": "Reconc Action Evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "format_version", "as_of", "repository_identity", "policy", "window", "ledger", "state", "scenarios", "mapping_packs", "facts", "controls", "overall_status", "disclaimer", "identity"],
+  "properties": {
+    "schema": {"const": "reconc.action-evidence/v1"},
+    "format_version": {"const": "1"},
+    "as_of": {"$ref": "#/$defs/timestamp"},
+    "repository_identity": {"oneOf": [{"const": "unavailable"}, {"$ref": "#/$defs/keyedIdentity"}]},
+    "policy": {"$ref": "#/$defs/policy"},
+    "window": {"$ref": "#/$defs/window"},
+    "ledger": {"$ref": "#/$defs/ledger"},
+    "state": {"$ref": "#/$defs/state"},
+    "scenarios": {"$ref": "#/$defs/scenarios"},
+    "mapping_packs": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/packSummary"}},
+    "facts": {"type": "array", "minItems": 17, "maxItems": 17, "items": {"$ref": "#/$defs/fact"}},
+    "controls": {"type": "array", "minItems": 1, "maxItems": 4096, "items": {"$ref": "#/$defs/control"}},
+    "overall_status": {"$ref": "#/$defs/status"},
+    "disclaimer": {"const": "This report covers local technical evidence only. Organizational control design, operation, legal assessment, and external assurance remain outside Reconc."},
+    "identity": {"$ref": "#/$defs/shaIdentity"}
+  },
+  "$defs": {
+    "status": {"enum": ["covered", "partial", "missing", "not_evaluated"]},
+    "timestamp": {"type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,9})?Z$"},
+    "shaIdentity": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "keyedIdentity": {"type": "string", "pattern": "^hmac-sha256:v1:[0-9a-f]{32}:[0-9a-f]{64}$"},
+    "safeText": {"type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[^\\r\\n\\u0000-\\u001f\\u007f]+$"},
+    "stringArray": {"type": "array", "maxItems": 4096, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 1024}},
+    "factID": {
+      "enum": [
+        "approval.authority", "approval.receipts", "budget.identity", "budget.state",
+        "identity.repository", "ledger.archive-continuity", "ledger.calls.complete",
+        "ledger.events.complete", "ledger.integrity", "ledger.policy-identity",
+        "ledger.window.complete", "policy.action.rules", "policy.action.tools",
+        "policy.lock.current", "scenario.completeness", "scenario.host-coverage",
+        "scenario.results"
+      ]
+    },
+    "policy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_digest", "lock_digest", "plan_identity", "tool_count", "rule_count", "budget_count", "approval_count"],
+      "properties": {
+        "source_digest": {"$ref": "#/$defs/digest"}, "lock_digest": {"$ref": "#/$defs/digest"},
+        "plan_identity": {"$ref": "#/$defs/shaIdentity"},
+        "tool_count": {"type": "integer", "minimum": 0}, "rule_count": {"type": "integer", "minimum": 0},
+        "budget_count": {"type": "integer", "minimum": 0}, "approval_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "window": {
+      "type": "object", "additionalProperties": false,
+      "required": ["since", "until", "selected_calls", "selected_records", "dropped_history", "complete"],
+      "properties": {
+        "since": {"$ref": "#/$defs/timestamp"}, "until": {"$ref": "#/$defs/timestamp"},
+        "first_retained_at": {"$ref": "#/$defs/timestamp"}, "last_retained_at": {"$ref": "#/$defs/timestamp"},
+        "first_retained_sequence": {"type": "integer", "minimum": 1}, "last_retained_sequence": {"type": "integer", "minimum": 1},
+        "selected_calls": {"type": "integer", "minimum": 0}, "selected_records": {"type": "integer", "minimum": 0},
+        "dropped_history": {"type": "boolean"}, "complete": {"type": "boolean"}
+      }
+    },
+    "ledger": {
+      "type": "object", "additionalProperties": false,
+      "required": ["integrity", "archive_continuity", "detached_head", "record_count", "archive_count", "events_complete", "calls_complete"],
+      "properties": {
+        "integrity": {"enum": ["empty", "verified", "invalid"]}, "archive_continuity": {"enum": ["empty", "verified", "invalid"]},
+        "detached_head": {"enum": ["absent", "matched", "invalid"]},
+        "record_count": {"type": "integer", "minimum": 0}, "archive_count": {"type": "integer", "minimum": 0, "maximum": 2},
+        "events_complete": {"type": "boolean"}, "calls_complete": {"type": "boolean"}
+      }
+    },
+    "state": {
+      "type": "object", "additionalProperties": false,
+      "required": ["integrity", "present", "revision", "budget_count", "live_reservations", "indeterminate_reservations", "approval_record_count", "pending_approvals", "receipt_applicable", "receipt_verified", "receipt_unavailable", "receipt_invalid", "complete"],
+      "allOf": [{
+        "if": {"properties": {"integrity": {"const": "verified"}}, "required": ["integrity"]},
+        "then": {"properties": {"present": {"const": true}}, "required": ["state_version", "key_id"]},
+        "else": {
+          "properties": {
+            "present": {"const": false}, "revision": {"const": 0}, "budget_count": {"const": 0},
+            "live_reservations": {"const": 0}, "indeterminate_reservations": {"const": 0},
+            "approval_record_count": {"const": 0}, "pending_approvals": {"const": 0},
+            "receipt_applicable": {"const": 0}, "receipt_verified": {"const": 0},
+            "receipt_unavailable": {"const": 0}, "receipt_invalid": {"const": 0}, "complete": {"const": false}
+          },
+          "not": {"anyOf": [{"required": ["state_version"]}, {"required": ["key_id"]}]}
+        }
+      }],
+      "properties": {
+        "integrity": {"enum": ["unavailable", "verified", "invalid"]},
+        "present": {"type": "boolean"}, "state_version": {"$ref": "#/$defs/keyedIdentity"},
+        "revision": {"type": "integer", "minimum": 0}, "key_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+        "budget_count": {"type": "integer", "minimum": 0}, "live_reservations": {"type": "integer", "minimum": 0},
+        "indeterminate_reservations": {"type": "integer", "minimum": 0}, "approval_record_count": {"type": "integer", "minimum": 0},
+        "pending_approvals": {"type": "integer", "minimum": 0}, "receipt_applicable": {"type": "integer", "minimum": 0},
+        "receipt_verified": {"type": "integer", "minimum": 0}, "receipt_unavailable": {"type": "integer", "minimum": 0},
+        "receipt_invalid": {"type": "integer", "minimum": 0}, "complete": {"type": "boolean"}
+      }
+    },
+    "scenarios": {
+      "type": "object", "additionalProperties": false,
+      "required": ["evaluated", "corpus_ids", "case_count", "action_case_count", "results_current", "complete", "missing_dimensions", "observed_platforms", "missing_platforms"],
+      "properties": {
+        "evaluated": {"type": "boolean"},
+        "corpus_ids": {"type": "array", "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/shaIdentity"}},
+        "case_count": {"type": "integer", "minimum": 0}, "action_case_count": {"type": "integer", "minimum": 0},
+        "results_current": {"type": "boolean"}, "complete": {"type": "boolean"},
+        "missing_dimensions": {"$ref": "#/$defs/stringArray"},
+        "observed_platforms": {"type": "array", "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/platform"}},
+        "missing_platforms": {"type": "array", "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/platform"}}
+      }
+    },
+    "packSummary": {
+      "type": "object", "additionalProperties": false,
+      "required": ["pack_id", "pack_version", "framework", "identity", "provenance", "review_status", "edition", "source_date", "reviewed_at", "source_url"],
+      "properties": {
+        "pack_id": {"type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$"},
+        "pack_version": {"type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$"}, "framework": {"$ref": "#/$defs/safeText"},
+        "identity": {"$ref": "#/$defs/shaIdentity"},
+        "provenance": {"oneOf": [{"enum": ["builtin", "digest-pinned"]}, {"type": "string", "pattern": "^signed:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$"}]},
+        "review_status": {"enum": ["reviewed", "stale", "not-reviewed"]}, "edition": {"$ref": "#/$defs/safeText"},
+        "source_date": {"type": "string", "format": "date"}, "reviewed_at": {"type": "string", "format": "date"},
+        "source_url": {"type": "string", "format": "uri", "maxLength": 1024, "pattern": "^https://"}
+      }
+    },
+    "fact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "status", "basis", "gaps"],
+      "properties": {"id": {"$ref": "#/$defs/factID"}, "status": {"$ref": "#/$defs/status"}, "basis": {"$ref": "#/$defs/stringArray"}, "gaps": {"$ref": "#/$defs/stringArray"}}
+    },
+    "control": {
+      "type": "object", "additionalProperties": false,
+      "required": ["pack_id", "framework", "control_id", "reference", "status", "rationale", "evidence_selectors", "known_gaps", "evidence_gaps"],
+      "properties": {
+        "pack_id": {"type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$"}, "framework": {"$ref": "#/$defs/safeText"},
+        "control_id": {"type": "string", "maxLength": 128, "pattern": "^[a-z0-9][a-z0-9.-]*$"},
+        "reference": {"$ref": "#/$defs/safeText"}, "status": {"$ref": "#/$defs/status"}, "rationale": {"$ref": "#/$defs/safeText"},
+        "evidence_selectors": {"type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/factID"}},
+        "known_gaps": {"$ref": "#/$defs/stringArray"}, "evidence_gaps": {"$ref": "#/$defs/stringArray"}
+      }
+    },
+    "platform": {"oneOf": [{"enum": ["claude-code", "codex", "cursor", "opencode", "kilo", "omp", "pi", "zcode"]}, {"type": "string", "pattern": "^custom:[a-z0-9][a-z0-9_-]{0,47}$"}]}
+  }
+}

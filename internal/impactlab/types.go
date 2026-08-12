@@ -14,6 +14,7 @@ const (
 	CorpusFormatVersion        = "reconc-impact-corpus/v2"
 	ReportFormatVersion        = "reconc-impact-report/v2"
 	DeltaManifestFormatVersion = "reconc-impact-delta-manifest/v1"
+	CandidateKindCurrent       = "current"
 	MaxCorpusBytes             = 64 << 20
 	MaxDeltaManifestBytes      = 8 << 20
 	maxCases                   = 10000

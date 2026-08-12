@@ -72,6 +72,7 @@ internal/
   action/         pure action contract, strict values, immutable matchers, evaluator, traces, and exact cache
   actionapproval/ canonical signed approval contracts, authority registry, provider boundary, and MCP mapping
   actioninspect/  strict MCP results, offline output schemas, deterministic content inspection, and safe withholding
+  actionevidence/ strict versioned control maps and deterministic privacy-bounded local evidence reports
   actionledger/   privacy-bounded typed events, private retained chain, lifecycle queries, and verification
   actionledgerexport/ verified synthetic minimized Impact Lab export with explicit omissions
   actionstate/    trusted identities, budgets, approval consumption, reservations, and crash-safe local state
@@ -240,8 +241,16 @@ atomic append, bounded rotation, retained-chain verification, and detached-head
 recovery. `reconc action log tail|stats|verify|export` provides deterministic
 non-creating queries and verified minimized Impact Lab export. Existing durable
 append transactions are resolved before their snapshot is returned; missing
-state stays absent. `reconc mcp gateway` now invokes these primitives around
-every routed live tool call.
+state stays absent. `internal/actionevidence` now derives exact facts from the
+current policy and lock, retained ledger window, read-only action state,
+reverified signed approval receipts, and Impact Lab scenarios. Versioned
+built-in maps reference SOC 2, GDPR, the HIPAA Security Rule, and the EU AI Act;
+strict digest-pinned or Ed25519-signed custom maps cannot set status or override
+facts. JSON and Markdown reports remain technical evidence mappings only, not
+organizational assessment, legal determination, or external assurance. `reconc
+action evidence export|verify` exposes that read-only evidence path.
+`reconc mcp gateway` invokes the enforcement primitives around every routed
+live tool call.
 The published v0.9.5 release has none of the Action Plane additions.
 
 Ledger-selected fields are valid only for `arguments` during `pre_call` and
@@ -345,7 +354,7 @@ LangChain tools and alternate MCP entries remain outside the gateway graph.
   rule applies. Additive and breaking shape changes both receive a new schema
   version; breaking semantic changes also require a superseding RFC.
 
-- **Published schema documents**: `internal/schema` owns all 32 Draft 2020-12
+- **Published schema documents**: `internal/schema` owns all 36 Draft 2020-12
   contracts as independently versioned registry entries. Each entry binds one
   local path, immutable release-tagged `$id`, release asset, SHA-256 digest,
   enterprise mirror path, current or legacy state, and input-only compatibility
@@ -535,6 +544,7 @@ responsibility-owned command file, canonical command metadata, focused tests, an
         ├──► audit
         ├──► actionledger ──► action, actionstate, jsonl
         ├──► actionledgerexport ──► actionledger, impactlab
+        ├──► actionevidence ──► action, actionledger, actionstate, impactlab
         ├──► mcpgateway ──► action, actionapproval, actioninspect, actionledger, actionstate, MCP Go SDK
         ├──► contextsize
         ├──► commandproof
