@@ -82,6 +82,9 @@ one exact registry.
   DACL publication under the retention lock, so concurrent first-use processes
   cannot observe a partially secured directory while existing unsafe state
   still fails without repair.
+- Action Ledger lock acquisition remains context-cancellable and strictly
+  bounded while allowing valid serialized writers enough time to complete
+  under observed native Windows contention.
 - Schema files no longer claim mutable, missing-tag, or unreachable canonical
   locations. Historical identities remain explicit compatibility aliases and
   are never emitted as verified publication URLs.

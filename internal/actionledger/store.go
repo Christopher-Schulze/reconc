@@ -23,7 +23,7 @@ const (
 	lockFileName        = "ledger.lock"
 	transactionFileName = "ledger-transaction.json"
 	transactionBackup   = "ledger-transaction-backup"
-	appendLockTimeout   = 2 * time.Second
+	appendLockTimeout   = 10 * time.Second
 	directoryReadTries  = 20
 	directoryRetryDelay = 5 * time.Millisecond
 )

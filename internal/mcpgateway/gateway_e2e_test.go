@@ -24,6 +24,7 @@ import (
 	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/actionapproval"
 	"reconc.dev/reconc/internal/actionstate"
+	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/pathidentity"
 )
 
@@ -793,6 +794,7 @@ func TestMCPGatewayFakeProcess(t *testing.T) {
 		tool.OutputSchema = json.RawMessage(`{"type":"object","properties":{"integer":{"type":"integer"}},"required":["integer"],"additionalProperties":false}`)
 	}
 	var changeOnce sync.Once
+	var invocationLock sync.Mutex
 	var invocations atomic.Uint32
 	var handler mcp.ToolHandler
 	changeTool := func() {
@@ -815,8 +817,11 @@ func TestMCPGatewayFakeProcess(t *testing.T) {
 			return nil, fmt.Errorf("write invocation marker: %w", err)
 		}
 		if countPath := os.Getenv(fakeInvocationCountEnvironment); countPath != "" {
+			invocationLock.Lock()
 			count := invocations.Add(1)
-			if err := os.WriteFile(countPath, []byte(fmt.Sprintf("%d\n", count)), 0o600); err != nil {
+			_, err := atomicfile.WriteIfChanged(countPath, []byte(fmt.Sprintf("%d\n", count)), 0o600)
+			invocationLock.Unlock()
+			if err != nil {
 				return nil, fmt.Errorf("write invocation count: %w", err)
 			}
 		}

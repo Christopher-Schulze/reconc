@@ -212,6 +212,40 @@ func TestStoreSerializesConcurrentWriters(t *testing.T) {
 	}
 }
 
+func TestStoreWaitsForBoundedLedgerContention(t *testing.T) {
+	fixture := newLedgerStoreFixture(t)
+	fixture.append(t, EventRequestAccepted)
+	acquired := make(chan struct{})
+	release := make(chan struct{})
+	holderDone := make(chan error, 1)
+	go func() {
+		holderDone <- boundedio.WithRegularFileSnapshot(
+			fixture.store.layout.LockPath, 1,
+			func(file *os.File, _ os.FileInfo) error {
+				unlock, err := filelock.Lock(file)
+				if err != nil {
+					return err
+				}
+				close(acquired)
+				<-release
+				return unlock()
+			},
+		)
+	}()
+	<-acquired
+	time.AfterFunc(2500*time.Millisecond, func() { close(release) })
+	decision := fixture.record(EventPreDecision)
+	decision.Decision.Decision = action.DecisionBlock
+	decision.Decision.Reason = action.ReasonRuleMatched
+	decision.PreDecision.Outcome = action.OutcomeDispatchBlocked
+	if _, err := fixture.store.Append(context.Background(), decision); err != nil {
+		t.Fatalf("Append() after valid contention = %v", err)
+	}
+	if err := <-holderDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestExistingStateSerializesWithLedgerWriter(t *testing.T) {
 	fixture := newLedgerStoreFixture(t)
 	fixture.append(t, EventRequestAccepted)
