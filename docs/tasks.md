@@ -2,15 +2,13 @@
 
 ## Active
 
-- [~] 173 Eliminate misleading CodeQL severity signals -> tasks/173-eliminate-misleading-codeql-signals.md
-
-
 ## Queue
 
 ## Blocked
 
 ## Done
 
+- [x] 173 Reconcile CodeQL findings -> tasks/done/173-reconcile-codeql-findings.md
 - [x] 172 Make LangChain MCP a prominent release-blocking feature -> tasks/done/172-make-langchain-mcp-release-blocking.md
 - [x] 171 Tolerate bounded Action Ledger contention -> tasks/done/171-tolerate-bounded-action-ledger-contention.md
 - [x] 170 Serialize private Windows directory initialization -> tasks/done/170-serialize-private-windows-directory-initialization.md
@@ -20,4 +18,3 @@
 - [x] 166 Restore native Windows release truth -> tasks/done/166-restore-native-windows-release-truth.md
 - [x] 165 Restore immutable schema and RFC contract truth -> tasks/done/165-restore-schema-and-rfc-contract-truth.md
 - [x] 164 Complete Action Plane hardening and release readiness -> tasks/done/164-complete-action-plane-release-readiness.md
-- [x] 163 Export compliance-ready control evidence -> tasks/done/163-export-compliance-control-evidence.md

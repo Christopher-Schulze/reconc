@@ -1,13 +1,11 @@
-# TASK 173: Eliminate misleading CodeQL severity signals
+# TASK 173: Reconcile CodeQL findings
 
 ## Why
 
-GitHub CodeQL reports 31 Critical or High alerts on the public repository. Seven
-integer and allocation findings should be made locally self-evident through
-explicit native-width and capacity bounds. The remaining 24 findings trace
-untrusted values into diagnostic strings that are serialized as data and never
-executed; changing those messages would reduce product fidelity rather than
-close a security boundary.
+Fresh CodeQL analysis identified seven integer and allocation hardening
+opportunities plus 24 diagnostic-string false positives. The implementation
+must make every bound statically provable and classify only source-to-sink paths
+that remain serialized data and never reach an execution interpreter.
 
 ## Acceptance
 
@@ -29,13 +27,13 @@ close a security boundary.
 - [x] Add explicit integer and allocation bounds
 - [x] Add boundary and regression tests
 - [x] Run focused and complete local verification
-- [~] Run candidate CI and CodeQL on the exact commit
-- [ ] Reconcile every alert against the new analysis
-- [ ] Update public alert state with evidence-backed classifications
-- [ ] Reconcile TASK state and publish the completed commit
+- [x] Run candidate CI and CodeQL on the exact commit
+- [x] Reconcile every alert against the new analysis
+- [x] Update public alert state with evidence-backed classifications
+- [x] Reconcile TASK state and publish the completed commit
 
 ## Deviations
 
-- A temporary candidate-branch commit is required before TASK completion so
-  GitHub CodeQL can analyze the exact source; it will not enter `main` until
-  the remote analysis and alert reconciliation pass.
+- A temporary candidate branch was used so GitHub CodeQL could analyze the
+  exact source before main publication; it was removed after the guarded alert
+  reconciliation completed successfully.
