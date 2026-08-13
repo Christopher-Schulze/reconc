@@ -72,6 +72,7 @@ type Gateway struct {
 	lifecycleMu  sync.Mutex
 	diagnosticMu sync.Mutex
 	closing      bool
+	fatalErr     error
 
 	pendingMu sync.Mutex
 	pending   map[string]pendingApproval
@@ -480,11 +481,10 @@ func (g *Gateway) runToolRefreshes() {
 			err := g.refreshTools(refreshCtx)
 			cancel()
 			if err != nil {
-				g.lifecycleMu.Lock()
-				g.closing = true
-				g.lifecycleMu.Unlock()
+				fatalErr := fmt.Errorf("refresh downstream tool catalog: %w", err)
+				g.recordFatalError(fatalErr)
 				select {
-				case g.fatalErrors <- fmt.Errorf("refresh downstream tool catalog: %w", err):
+				case g.fatalErrors <- fatalErr:
 				default:
 				}
 				return
@@ -586,6 +586,7 @@ func (g *Gateway) Close() error {
 				g.closeErr = errors.Join(g.closeErr, fmt.Errorf("tool refresh worker did not terminate"))
 			}
 		}
+		g.closeErr = errors.Join(g.closeErr, g.fatalError())
 		if g.lease != nil {
 			g.closeErr = errors.Join(g.closeErr, g.lease.Close())
 		}
@@ -597,6 +598,21 @@ func (g *Gateway) beginCall() bool {
 	g.lifecycleMu.Lock()
 	defer g.lifecycleMu.Unlock()
 	return !g.closing
+}
+
+func (g *Gateway) recordFatalError(err error) {
+	g.lifecycleMu.Lock()
+	defer g.lifecycleMu.Unlock()
+	if g.fatalErr == nil {
+		g.fatalErr = err
+	}
+	g.closing = true
+}
+
+func (g *Gateway) fatalError() error {
+	g.lifecycleMu.Lock()
+	defer g.lifecycleMu.Unlock()
+	return g.fatalErr
 }
 
 func (g *Gateway) waitForCalls(ctx context.Context) error {

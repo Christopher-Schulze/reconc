@@ -37,3 +37,6 @@ that remain serialized data and never reach an execution interpreter.
 - A temporary candidate branch was used so GitHub CodeQL could analyze the
   exact source before main publication; it was removed after the guarded alert
   reconciliation completed successfully.
+- The first completed-main CI pass exposed a scheduler-dependent loss of a
+  fatal MCP tool-refresh error during concurrent shutdown. The fatal state is
+  now latched and re-reported by both serve and close paths.

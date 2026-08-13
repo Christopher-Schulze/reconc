@@ -310,9 +310,12 @@ func (g *Gateway) serve() error {
 	go func() { wait <- waitResult{owner: "process", err: g.process.Wait()} }()
 	select {
 	case <-g.ctx.Done():
+		if fatalErr := g.fatalError(); fatalErr != nil {
+			return fatalErr
+		}
 		return g.ctx.Err()
 	case err := <-g.fatalErrors:
-		if contextErr := g.ctx.Err(); contextErr != nil {
+		if contextErr := g.ctx.Err(); contextErr != nil && g.fatalError() == nil {
 			return contextErr
 		}
 		return err
