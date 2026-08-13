@@ -350,16 +350,9 @@ func parseActionBudgets(node *yaml.Node, sourcePath string) ([]action.Budget, er
 		if err != nil {
 			return nil, err
 		}
-		window, err := optionalActionUint(fields, "window_seconds", context, false)
+		windowSeconds, err := optionalActionUint32(fields, "window_seconds", context)
 		if err != nil {
 			return nil, err
-		}
-		windowSeconds := uint32(0)
-		if window != nil {
-			if *window > math.MaxUint32 {
-				return nil, actionError(context + ".window_seconds exceeds 32-bit range")
-			}
-			windowSeconds = uint32(*window)
 		}
 		budgets = append(budgets, action.Budget{
 			ID: id, Selector: selector, Limits: limits, Reset: action.BudgetReset(reset),
@@ -776,6 +769,23 @@ func optionalActionUint(
 		))
 	}
 	return &value, nil
+}
+
+func optionalActionUint32(fields map[string]*yaml.Node, field, context string) (uint32, error) {
+	node, ok := fields[field]
+	if !ok {
+		return 0, nil
+	}
+	if node.Kind != yaml.ScalarNode || node.Tag != "!!int" ||
+		node.Value == "" || node.Value[0] == '+' || node.Value[0] == '-' ||
+		len(node.Value) > 1 && node.Value[0] == '0' {
+		return 0, actionError(context + "." + field + " must be a canonical positive integer")
+	}
+	value, err := strconv.ParseUint(node.Value, 10, 32)
+	if err != nil || value == 0 {
+		return 0, actionError(context + "." + field + " must be between 1 and 4294967295")
+	}
+	return uint32(value), nil
 }
 
 func optionalActionBool(fields map[string]*yaml.Node, field, context string) (bool, error) {

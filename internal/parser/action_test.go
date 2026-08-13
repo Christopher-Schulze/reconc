@@ -249,7 +249,7 @@ func TestParseActionBudgetWindowEnforcesUint32Range(t *testing.T) {
 		t.Fatalf("window_seconds = %d, want %d", got, uint32(math.MaxUint32))
 	}
 	if _, err := parse(uint64(math.MaxUint32) + 1); err == nil ||
-		!strings.Contains(err.Error(), "exceeds 32-bit range") {
+		!strings.Contains(err.Error(), "must be between 1 and 4294967295") {
 		t.Fatalf("overflowing window error = %v", err)
 	}
 }

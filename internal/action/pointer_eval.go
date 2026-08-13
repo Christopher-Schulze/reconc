@@ -2,7 +2,6 @@ package action
 
 import (
 	"fmt"
-	"math"
 	"strconv"
 	"unicode/utf8"
 )
@@ -68,11 +67,11 @@ func canonicalArrayIndex(token string) (int, bool) {
 			return 0, false
 		}
 	}
-	value, err := strconv.ParseUint(token, 10, 64)
-	if err != nil || value > uint64(math.MaxInt) {
+	value, err := strconv.Atoi(token)
+	if err != nil {
 		return 0, false
 	}
-	return int(value), true
+	return value, true
 }
 
 func validateCompiledPointer(tokens []string) error {
