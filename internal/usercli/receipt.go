@@ -2,6 +2,7 @@ package usercli
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -276,7 +277,7 @@ func withReceiptLock(paths receiptPaths, operation func() error) (resultErr erro
 	defer func() {
 		resultErr = errors.Join(resultErr, lockFile.Close())
 	}()
-	unlock, err := filelock.Lock(lockFile)
+	unlock, err := filelock.LockContext(context.Background(), lockFile, filelock.DefaultTimeout)
 	if err != nil {
 		return fmt.Errorf("lock installation receipt: %w", err)
 	}

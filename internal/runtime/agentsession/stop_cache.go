@@ -645,7 +645,7 @@ func withStopPolicyReportLock(repoRoot, sessionID string, fn func() (stopPolicyC
 	if err != nil {
 		return stopPolicyCheckResult{}, fmt.Errorf("open stop-policy lock: %w", err)
 	}
-	unlock, err := filelock.Lock(file)
+	unlock, err := filelock.LockContext(context.Background(), file, agentSessionLockTimeout)
 	if err != nil {
 		closeErr := file.Close()
 		return stopPolicyCheckResult{}, errors.Join(fmt.Errorf("lock stop-policy report: %w", err), wrapOperationError("close stop-policy lock", closeErr))

@@ -1,6 +1,7 @@
 package agentsession
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -99,7 +100,7 @@ func recordMCPAuditResolved(root string, envelope *MCPPayload, effect policy.MCP
 	if err != nil {
 		return fmt.Errorf("open MCP audit lock: %w", err)
 	}
-	unlock, err := filelock.Lock(lockFile)
+	unlock, err := filelock.LockContext(context.Background(), lockFile, agentSessionLockTimeout)
 	if err != nil {
 		closeErr := lockFile.Close()
 		return errors.Join(fmt.Errorf("lock MCP audit: %w", err), closeErr)

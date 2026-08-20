@@ -2,6 +2,7 @@ package tasklifecycle
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -86,7 +87,7 @@ func withMutationLock(repoRoot string, fn func() error) error {
 		return fmt.Errorf("open TASK lock: %w", err)
 	}
 	defer file.Close()
-	unlock, err := filelock.Lock(file)
+	unlock, err := filelock.LockContext(context.Background(), file, filelock.DefaultTimeout)
 	if err != nil {
 		return fmt.Errorf("lock TASK lifecycle: %w", err)
 	}

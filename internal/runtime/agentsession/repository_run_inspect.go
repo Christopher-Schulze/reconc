@@ -3,6 +3,7 @@ package agentsession
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -107,7 +108,7 @@ func ReadRunDecisions(repoRoot string, limit int) ([]RunDecision, error) {
 		return nil, err
 	}
 	defer lock.Close()
-	unlock, err := filelock.Lock(lock)
+	unlock, err := filelock.LockContext(context.Background(), lock, agentSessionLockTimeout)
 	if err != nil {
 		return nil, err
 	}

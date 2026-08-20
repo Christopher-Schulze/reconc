@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -371,7 +372,7 @@ func withKimiCodeLock(home string, fn func() error) error {
 		return &rerrors.PolicySourceError{Message: "open Kimi Code hook lock", Cause: err}
 	}
 	defer lock.Close()
-	unlock, err := filelock.Lock(lock)
+	unlock, err := filelock.LockContext(context.Background(), lock, filelock.DefaultTimeout)
 	if err != nil {
 		return &rerrors.PolicySourceError{Message: "lock Kimi Code hook config", Cause: err}
 	}

@@ -257,7 +257,7 @@ func capture(repoRoot string) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("open command proof snapshot lock: %w", err)
 	}
-	unlock, err := filelock.Lock(lock)
+	unlock, err := filelock.LockContext(context.Background(), lock, filelock.DefaultTimeout)
 	if err != nil {
 		return Snapshot{}, errors.Join(fmt.Errorf("lock command proof snapshot: %w", err), lock.Close())
 	}

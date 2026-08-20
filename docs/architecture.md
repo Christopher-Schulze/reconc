@@ -899,6 +899,22 @@ entry before returning it. Action state, installation receipts, retention,
 command proofs, and unresolved policy proofs use this boundary; their paths,
 filenames, retention policy, and public JSON contracts are unchanged.
 
+### Production lock acquisition and ordering
+
+No production path calls the raw blocking `filelock.Lock` or `RLock` APIs.
+Immediate probes use `TryLock`/`TryRLock`; operational locks use the bounded
+`LockContext`/`RLockContext` loop and return typed cancellation or timeout
+errors. The legacy APIs without a context use the explicit ten-second default;
+the hook-runtime state boundary uses a thirty-second contention budget because
+its concurrent writers perform bounded JSON/state work under the lock.
+
+The lock order is one-way: Stop-policy report lock -> session lock; repository
+run state descriptor -> run-decision JSONL lock. Receipt, audit, retention,
+TASK lifecycle, command-proof, compiler, and bootstrap locks are independent
+transaction boundaries and are never acquired while holding one of those
+other class locks. Command-proof retention runs only after its capture lock is
+released. Unlock and close errors are joined with the operation result.
+
 ### Incremental Stop decision cache
 
 One-shot hook processes always use the exact Stop fingerprint. A persistent

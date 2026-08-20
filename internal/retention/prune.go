@@ -1,6 +1,7 @@
 package retention
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -199,7 +200,7 @@ func pruneProjectRootsInterval(options Options, force bool, report *Report) (Cla
 		return class, false
 	}
 	defer lock.Close()
-	unlock, err := filelock.Lock(lock)
+	unlock, err := filelock.LockContext(context.Background(), lock, filelock.DefaultTimeout)
 	if err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("lock project retention: %v", err))
 		return class, false
@@ -378,7 +379,7 @@ func pruneOwnedTempRootsInterval(options Options, force bool, report *Report) (C
 		return class, false
 	}
 	defer lock.Close()
-	unlock, err := filelock.Lock(lock)
+	unlock, err := filelock.LockContext(context.Background(), lock, filelock.DefaultTimeout)
 	if err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("lock global retention: %v", err))
 		return class, false
@@ -436,7 +437,7 @@ func withPruneLock(options Options, run func() Report) Report {
 		return Report{Errors: []string{fmt.Sprintf("open retention lock: %v", err)}}
 	}
 	defer lock.Close()
-	unlock, err := filelock.Lock(lock)
+	unlock, err := filelock.LockContext(context.Background(), lock, filelock.DefaultTimeout)
 	if err != nil {
 		return Report{Errors: []string{fmt.Sprintf("lock retention: %v", err)}}
 	}

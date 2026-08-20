@@ -17,6 +17,7 @@ package audit
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -779,7 +780,7 @@ func withAuditLock(repoRoot string, fn func() error) error {
 		return err
 	}
 	defer lock.Close()
-	unlock, err := filelock.Lock(lock)
+	unlock, err := filelock.LockContext(context.Background(), lock, filelock.DefaultTimeout)
 	if err != nil {
 		return err
 	}

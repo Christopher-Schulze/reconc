@@ -25,6 +25,7 @@
 package agentsession
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -35,6 +36,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 
 	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/boundedio"
@@ -47,6 +49,8 @@ import (
 // specific location. Useful for sandboxes and CI isolation. When
 // unset we default to $RECONC_HOME/sessions/claude/.
 const StateRootEnv = "RECONC_CLAUDE_STATE_DIR"
+
+const agentSessionLockTimeout = 30 * time.Second
 
 // CommandResult mirrors the evaluator's runtime.CommandResult but we
 // keep our own copy in the session state so we can replay / inspect
@@ -484,7 +488,7 @@ func withStateLock(lockPath, subject string, fn func() error) error {
 	if err != nil {
 		return fmt.Errorf("open %s lock: %w", subject, err)
 	}
-	unlock, err := filelock.Lock(file)
+	unlock, err := filelock.LockContext(context.Background(), file, agentSessionLockTimeout)
 	if err != nil {
 		closeErr := file.Close()
 		return errors.Join(fmt.Errorf("lock %s state: %w", subject, err), wrapOperationError("close "+subject+" lock", closeErr))
