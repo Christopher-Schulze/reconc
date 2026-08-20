@@ -204,7 +204,12 @@ handling.
 6. **Advisory compile lock.** `.reconc/.compile.lock` is a reusable OS-backed
    exclusive file lock. A second compiler fails immediately, process exit
    releases ownership automatically, and no timestamp-based stale reaping can
-   steal a live lock.
+   steal a live lock. Refresh discovers only the prospective repository root
+   before locking; it captures the complete authoritative policy-source bundle
+   after acquisition and refuses publication if discovery resolves to a
+   different root. The repository and `.reconc` directories stay bound through
+   opened `os.Root` identities, and unsafe or replaced lock objects fail before
+   locking an unrelated inode.
 
 7. **Satisfiable conflict analysis.** Static command contradictions follow
    runtime `require_command` semantics: any configured alternative can satisfy

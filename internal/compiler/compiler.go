@@ -113,27 +113,38 @@ type CompiledSource struct {
 // in the returned CompiledPolicy so callers can show "compiled with
 // reconc X.Y.Z" diagnostics.
 func CompileRepoPolicy(repoStartPath, compilerVersion string) (compiled *CompiledPolicy, err error) {
-	bundle, err := ingest.LoadPolicySources(repoStartPath)
+	return compileRepoPolicyWithLoader(repoStartPath, compilerVersion, ingest.LoadPolicySources)
+}
+
+func compileRepoPolicyWithLoader(
+	repoStartPath string,
+	compilerVersion string,
+	load func(string) (*ingest.SourceBundle, error),
+) (compiled *CompiledPolicy, err error) {
+	discovery, err := ingest.DiscoverPolicyRepo(repoStartPath)
 	if err != nil {
 		return nil, err
 	}
-
-	// Advisory compile lock (W35). Prevents two `reconc compile`
-	// invocations on the same repo from racing on the lockfile.
-	// Best-effort: if the repo is not yet discovered we skip locking
-	// (there's nothing to protect and the error surface is already
-	// handled below).
-	if bundle.RepoRoot != "" {
-		release, lockErr := AcquireCompileLock(bundle.RepoRoot)
-		if lockErr != nil {
-			return nil, lockErr
+	if !discovery.Discovered {
+		_, loadErr := load(repoStartPath)
+		return nil, loadErr
+	}
+	release, err := AcquireCompileLock(discovery.RepoRoot)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if releaseErr := release(); releaseErr != nil {
+			compiled = nil
+			err = errors.Join(err, fmt.Errorf("release compile lock: %w", releaseErr))
 		}
-		defer func() {
-			if releaseErr := release(); releaseErr != nil {
-				compiled = nil
-				err = errors.Join(err, fmt.Errorf("release compile lock: %w", releaseErr))
-			}
-		}()
+	}()
+	bundle, err := load(repoStartPath)
+	if err != nil {
+		return nil, err
+	}
+	if bundle == nil || bundle.RepoRoot != discovery.RepoRoot {
+		return nil, errors.New("repository policy root changed while acquiring the compile lock; retry refresh")
 	}
 	compiled, body, err := renderPolicyBundle(bundle, compilerVersion)
 	if err != nil {

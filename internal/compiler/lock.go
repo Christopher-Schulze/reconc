@@ -28,21 +28,97 @@ const CompileLockRelativePath = ".reconc/.compile.lock"
 // (e.g. CI running simultaneously with a developer's local refresh) and
 // producing a torn lockfile.
 func AcquireCompileLock(repoRoot string) (release func() error, err error) {
-	lockDir := filepath.Join(repoRoot, ".reconc")
-	if err := os.MkdirAll(lockDir, 0o755); err != nil {
-		return nil, fmt.Errorf("create lock dir: %w", err)
+	repository, err := os.OpenRoot(repoRoot)
+	if err != nil {
+		return nil, fmt.Errorf("open compile repository root: %w", err)
+	}
+	closeRepository := func(cause error) error {
+		return errors.Join(cause, repository.Close())
+	}
+	if err := repository.Mkdir(".reconc", 0o755); err != nil && !errors.Is(err, os.ErrExist) {
+		return nil, closeRepository(fmt.Errorf("create compile lock directory: %w", err))
+	}
+	directoryInfo, err := repository.Lstat(".reconc")
+	if err != nil || directoryInfo.Mode()&os.ModeSymlink != 0 || !directoryInfo.IsDir() {
+		return nil, closeRepository(errors.Join(
+			fmt.Errorf("compile lock parent must be a non-symlink directory"), err,
+		))
+	}
+	directory, err := repository.OpenRoot(".reconc")
+	if err != nil {
+		return nil, closeRepository(fmt.Errorf("open compile lock directory: %w", err))
+	}
+	closeRoots := func(cause error) error {
+		return errors.Join(cause, directory.Close(), repository.Close())
+	}
+	openedDirectory, statErr := directory.Stat(".")
+	currentDirectory, lstatErr := repository.Lstat(".reconc")
+	if statErr != nil || lstatErr != nil || currentDirectory.Mode()&os.ModeSymlink != 0 ||
+		!openedDirectory.IsDir() || !currentDirectory.IsDir() ||
+		!os.SameFile(directoryInfo, openedDirectory) || !os.SameFile(openedDirectory, currentDirectory) {
+		return nil, closeRoots(errors.Join(
+			fmt.Errorf("compile lock parent changed identity while opening"), statErr, lstatErr,
+		))
+	}
+	lockName := filepath.Base(CompileLockRelativePath)
+	before, err := directory.Lstat(lockName)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, closeRoots(fmt.Errorf("inspect compile lock: %w", err))
+	}
+	if err == nil && (before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular()) {
+		return nil, closeRoots(fmt.Errorf("compile lock must be a non-symlink regular file"))
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		before = nil
+	}
+	file, err := openCompileLockFile(directory, lockName, before)
+	if err != nil {
+		return nil, closeRoots(err)
+	}
+	closeAll := func(cause error) error {
+		return errors.Join(cause, file.Close(), directory.Close(), repository.Close())
+	}
+	currentDirectory, err = repository.Lstat(".reconc")
+	if err != nil || currentDirectory.Mode()&os.ModeSymlink != 0 ||
+		!currentDirectory.IsDir() || !os.SameFile(openedDirectory, currentDirectory) {
+		return nil, closeAll(errors.Join(fmt.Errorf("compile lock parent changed identity before locking"), err))
 	}
 	lockPath := filepath.Join(repoRoot, CompileLockRelativePath)
-	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	unlock, err := filelock.TryLock(file)
+	if err != nil {
+		return nil, closeAll(fmt.Errorf("another reconc refresh is in progress (lock: %s): %w", lockPath, err))
+	}
+	return func() error {
+		return errors.Join(unlock(), file.Close(), directory.Close(), repository.Close())
+	}, nil
+}
+
+func openCompileLockFile(directory *os.Root, name string, before os.FileInfo) (*os.File, error) {
+	flags := os.O_RDWR
+	if before == nil {
+		flags |= os.O_CREATE | os.O_EXCL
+	}
+	file, err := directory.OpenFile(name, flags, 0o600)
+	if before == nil && errors.Is(err, os.ErrExist) {
+		before, err = directory.Lstat(name)
+		if err == nil && (before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular()) {
+			return nil, fmt.Errorf("compile lock must be a non-symlink regular file")
+		}
+		if err == nil {
+			file, err = directory.OpenFile(name, os.O_RDWR, 0)
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("open compile lock: %w", err)
 	}
-	unlock, err := filelock.TryLock(file)
-	if err != nil {
-		closeErr := file.Close()
-		return nil, errors.Join(fmt.Errorf("another reconc refresh is in progress (lock: %s): %w", lockPath, err), closeErr)
+	opened, statErr := file.Stat()
+	current, lstatErr := directory.Lstat(name)
+	if statErr != nil || lstatErr != nil || !opened.Mode().IsRegular() ||
+		current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() ||
+		!os.SameFile(opened, current) || before != nil && !os.SameFile(before, opened) {
+		return nil, errors.Join(
+			fmt.Errorf("compile lock changed identity while opening"), statErr, lstatErr, file.Close(),
+		)
 	}
-	return func() error {
-		return errors.Join(unlock(), file.Close())
-	}, nil
+	return file, nil
 }

@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 176 Compile one locked policy-source snapshot -> tasks/176-compile-one-locked-policy-source-snapshot.md
 - [ ] 177 Secure atomic publication parent identities -> tasks/177-secure-atomic-publication-parent-identities.md
 - [ ] 178 Verify bootstrap publications through open file identities -> tasks/178-verify-bootstrap-publications-through-open-file-identities.md
 - [ ] 179 Unify secure private state and lock publication -> tasks/179-unify-secure-private-state-and-lock-publication.md
@@ -53,6 +52,7 @@
 
 ## Done
 
+- [x] 176 Compile one locked policy-source snapshot -> tasks/done/176-compile-one-locked-policy-source-snapshot.md
 - [x] 175 Distinguish warned and blocked action deltas -> tasks/done/175-distinguish-warned-and-blocked-action-deltas.md
 - [x] 174 Recover failed transactional JSONL commits -> tasks/done/174-recover-failed-transactional-jsonl-commits.md
 - [x] 173 Reconcile CodeQL findings -> tasks/done/173-reconcile-codeql-findings.md
@@ -62,4 +62,3 @@
 - [x] 169 Stabilize Windows hard-link security proof -> tasks/done/169-stabilize-windows-hardlink-security-proof.md
 - [x] 168 Reconcile v0.9.6 publication truth -> tasks/done/168-reconcile-v0-9-6-publication-truth.md
 - [x] 167 Serialize private JSONL lock publication -> tasks/done/167-serialize-private-jsonl-lock-publication.md
-- [x] 166 Restore native Windows release truth -> tasks/done/166-restore-native-windows-release-truth.md

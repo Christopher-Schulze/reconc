@@ -640,7 +640,10 @@ trusted publication provenance. Verification never uses a network service.
 ### `reconc refresh [repo] [--json] [--strict-conflicts] [--output PATH]`
 Explicit policy refresh. Produces `.reconc/policy.lock.json` through the
 deterministic compiler pipeline and is the only public remediation emitted by
-read-only commands. With `--strict-conflicts`, exits 1 when any rule conflict
+read-only commands. Refresh captures its complete policy-source snapshot only
+after acquiring the repository compile lock; concurrent refreshes cannot
+publish an older pre-lock snapshot over newer policy. With
+`--strict-conflicts`, exits 1 when any rule conflict
 is detected. A `forbid_command` conflicts with `require_command` only when
 their exact trigger scopes overlap and the forbid rule blocks every acceptable
 required command; one blocked option among several valid alternatives remains

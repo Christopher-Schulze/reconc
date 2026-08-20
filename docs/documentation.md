@@ -1636,10 +1636,14 @@ action parity.
 Publication
 uses atomic replacement and skips the write entirely when the canonical bytes
 are unchanged, so readers never see partial JSON and repeated compiles do not
-create needless filesystem churn. This standalone product repository does not
-carry either file and must exercise policy compilation only inside isolated
-test repositories. Its ignore patterns remain as a defensive boundary against
-accidental local state and for nested bootstrap fixtures.
+create needless filesystem churn. Refresh acquires the repository compile lock
+before loading the authoritative source bundle, rejects repository-root drift,
+and binds the repository, `.reconc` directory, and compile-lock file to opened
+filesystem identities. Concurrent refreshes therefore cannot publish an older
+pre-lock snapshot after a newer source state. This standalone product
+repository does not carry either file and must exercise policy compilation only
+inside isolated test repositories. Its ignore patterns remain as a defensive
+boundary against accidental local state and for nested bootstrap fixtures.
 
 Policy authoring is strict. Unknown keys at the document, scope, rule,
 evidence, composite-check, and TASK-lifecycle levels fail compilation instead
