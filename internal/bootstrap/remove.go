@@ -109,6 +109,7 @@ func removeLegacyReceipt(plan *Plan) (*RemovalReport, error) {
 	}
 	if len(report.Preserved) > 0 || len(candidates) > 0 {
 		created, dirs, candidateErr := materializeRemovalCandidates(plan, candidates)
+		defer func() { closeCreatedRecords(created) }()
 		defer closeCreatedDirectoryIdentities(dirs)
 		if candidateErr != nil {
 			rolledBack, rollbackErr := rollbackCreated(plan.RepoRoot, created, dirs)
@@ -198,6 +199,7 @@ func removePortableReceipt(plan *Plan, receipt *RepositoryReceipt) (*RemovalRepo
 
 	if len(report.Preserved) > 0 || len(candidates) > 0 {
 		created, dirs, candidateErr := materializeRemovalCandidates(plan, candidates)
+		defer func() { closeCreatedRecords(created) }()
 		defer closeCreatedDirectoryIdentities(dirs)
 		if candidateErr != nil {
 			rolledBack, rollbackErr := rollbackCreated(plan.RepoRoot, created, dirs)

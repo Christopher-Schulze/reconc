@@ -287,14 +287,16 @@ func publishRepositorySyncMutation(
 			component: "repository-sync", path: mutation.Path,
 			mode: mutation.Mode, content: mutation.After,
 		}
-		_, directories, err := publishArtifact(
+		record, directories, err := publishArtifact(
 			root, artifact, mutation.Path, journalFile.AfterSHA256, planDigest,
 		)
 		closeCreatedDirectoryIdentities(directories)
 		if err != nil {
+			_ = record.close()
 			return err
 		}
-		return verifyRepositorySyncMutation(target, journalFile.AfterSHA256, journalFile.AfterMode)
+		verifyErr := verifyRepositorySyncMutation(target, journalFile.AfterSHA256, journalFile.AfterMode)
+		return errors.Join(verifyErr, record.close())
 	}
 	info, err := os.Lstat(target)
 	if err != nil {

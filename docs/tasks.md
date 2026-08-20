@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 178 Verify bootstrap publications through open file identities -> tasks/178-verify-bootstrap-publications-through-open-file-identities.md
 - [ ] 179 Unify secure private state and lock publication -> tasks/179-unify-secure-private-state-and-lock-publication.md
 - [ ] 180 Bound and cancel production file-lock acquisition -> tasks/180-bound-and-cancel-production-file-lock-acquisition.md
 - [ ] 181 Store audit evidence with a private JSONL layout -> tasks/181-store-audit-evidence-with-a-private-jsonl-layout.md
@@ -51,6 +50,7 @@
 
 ## Done
 
+- [x] 178 Verify bootstrap publications through open file identities -> tasks/done/178-verify-bootstrap-publications-through-open-file-identities.md
 - [x] 177 Secure atomic publication parent identities -> tasks/done/177-secure-atomic-publication-parent-identities.md
 - [x] 176 Compile one locked policy-source snapshot -> tasks/done/176-compile-one-locked-policy-source-snapshot.md
 - [x] 175 Distinguish warned and blocked action deltas -> tasks/done/175-distinguish-warned-and-blocked-action-deltas.md
@@ -60,4 +60,3 @@
 - [x] 171 Tolerate bounded Action Ledger contention -> tasks/done/171-tolerate-bounded-action-ledger-contention.md
 - [x] 170 Serialize private Windows directory initialization -> tasks/done/170-serialize-private-windows-directory-initialization.md
 - [x] 169 Stabilize Windows hard-link security proof -> tasks/done/169-stabilize-windows-hardlink-security-proof.md
-- [x] 168 Reconcile v0.9.6 publication truth -> tasks/done/168-reconcile-v0-9-6-publication-truth.md

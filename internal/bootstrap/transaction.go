@@ -20,9 +20,13 @@ type applyOptions struct {
 }
 
 type createdRecord struct {
-	path   string
-	sha256 string
-	file   os.FileInfo
+	path       string
+	sha256     string
+	file       *os.File
+	info       os.FileInfo
+	parent     *os.Root
+	parentInfo os.FileInfo
+	name       string
 }
 
 type createdDirectory struct {
@@ -94,6 +98,7 @@ func apply(plan *Plan, productVersion string, options applyOptions) (*Report, er
 	}
 	if len(conflicts) > 0 {
 		created, dirs, err := materializeCandidates(plan, conflicts, artifactByPath, options)
+		defer func() { closeCreatedRecords(created) }()
 		defer closeCreatedDirectoryIdentities(dirs)
 		if err != nil {
 			rolledBack, rollbackErr := rollbackCreated(plan.RepoRoot, created, dirs)
@@ -112,6 +117,7 @@ func apply(plan *Plan, productVersion string, options applyOptions) (*Report, er
 	createdDirs := []createdDirectory{}
 	compiledLockSHA := ""
 	defer func() {
+		closeCreatedRecords(created)
 		closeCreatedDirectoryIdentities(createdDirs)
 	}()
 	for _, action := range plan.Actions {
@@ -403,7 +409,17 @@ func preflightPlanState(plan *Plan) error {
 	return nil
 }
 
+type publicationHooks struct {
+	beforeChmod   func(string) error
+	beforeHash    func(string) error
+	beforeCleanup func(string) error
+}
+
 func publishArtifact(root string, artifact desiredArtifact, relative, expectedSHA, planDigest string) (createdRecord, []createdDirectory, error) {
+	return publishArtifactWithHooks(root, artifact, relative, expectedSHA, planDigest, publicationHooks{})
+}
+
+func publishArtifactWithHooks(root string, artifact desiredArtifact, relative, expectedSHA, planDigest string, hooks publicationHooks) (createdRecord, []createdDirectory, error) {
 	target, err := safeBootstrapTarget(root, relative)
 	if err != nil {
 		return createdRecord{}, nil, err
@@ -412,92 +428,182 @@ func publishArtifact(root string, artifact desiredArtifact, relative, expectedSH
 	if err != nil {
 		return createdRecord{}, createdDirs, err
 	}
-	stage := filepath.Join(filepath.Dir(target), "."+filepath.Base(target)+".reconc-bootstrap-"+planDigest[:12]+".tmp")
-	file, err := os.OpenFile(stage, os.O_CREATE|os.O_EXCL|os.O_WRONLY, os.FileMode(artifact.mode))
+	parent, parentInfo, name, err := openCreatedParent(target)
+	if err != nil {
+		return createdRecord{}, createdDirs, err
+	}
+	closeParent := true
+	defer func() {
+		if closeParent {
+			_ = parent.Close()
+		}
+	}()
+	stageName := "." + name + ".reconc-bootstrap-" + planDigest[:12] + ".tmp"
+	stagePath := filepath.Join(filepath.Dir(target), stageName)
+	file, err := parent.OpenFile(stageName, os.O_CREATE|os.O_EXCL|os.O_RDWR, os.FileMode(artifact.mode))
 	if err != nil {
 		return createdRecord{}, createdDirs, fmt.Errorf("create bootstrap staging file for %s: %w", relative, err)
+	}
+	stageOpen := true
+	cleanupStage := func() error {
+		var cleanupErr error
+		if stageOpen {
+			cleanupErr = errors.Join(cleanupErr, file.Close())
+			stageOpen = false
+		}
+		removeErr := parent.Remove(stageName)
+		if !errors.Is(removeErr, os.ErrNotExist) {
+			cleanupErr = errors.Join(cleanupErr, removeErr)
+		}
+		return cleanupErr
 	}
 	writeErr := writeArtifactBody(file, artifact)
 	if writeErr == nil {
 		writeErr = file.Sync()
 	}
-	closeErr := file.Close()
-	if writeErr != nil || closeErr != nil {
-		removeErr := os.Remove(stage)
-		primary := writeErr
-		if primary == nil {
-			primary = closeErr
-			closeErr = nil
-		}
-		return createdRecord{}, createdDirs, combineWriteFailure("stage bootstrap artifact "+relative, primary, closeErr, removeErr)
+	if writeErr != nil {
+		return createdRecord{}, createdDirs, combineWriteFailure("stage bootstrap artifact "+relative, writeErr, nil, cleanupStage())
 	}
-	stagedSHA, err := fileSHA256(stage)
+	stagedSHA, stagedInfo, err := hashOpenedCreatedFile(file, stagePath)
 	if err != nil {
-		removeErr := os.Remove(stage)
-		return createdRecord{}, createdDirs, combineWriteFailure("verify staged bootstrap artifact "+relative, err, nil, removeErr)
+		return createdRecord{}, createdDirs, combineWriteFailure("verify staged bootstrap artifact "+relative, err, nil, cleanupStage())
 	}
 	if stagedSHA != expectedSHA {
-		removeErr := os.Remove(stage)
-		return createdRecord{}, createdDirs, combineWriteFailure("verify staged bootstrap artifact "+relative, fmt.Errorf("checksum mismatch: expected %s, got %s", expectedSHA, stagedSHA), nil, removeErr)
+		return createdRecord{}, createdDirs, combineWriteFailure("verify staged bootstrap artifact "+relative, fmt.Errorf("checksum mismatch: expected %s, got %s", expectedSHA, stagedSHA), nil, cleanupStage())
 	}
-	stagedInfo, err := os.Lstat(stage)
-	if err != nil {
-		removeErr := os.Remove(stage)
-		return createdRecord{}, createdDirs, combineWriteFailure("inspect staged bootstrap artifact "+relative, err, nil, removeErr)
+	stagedPathInfo, err := parent.Lstat(stageName)
+	if err != nil || !sameCreatedFile(stagedInfo, stagedPathInfo) {
+		if err == nil {
+			err = errors.New("staging file changed identity")
+		}
+		return createdRecord{}, createdDirs, combineWriteFailure("inspect staged bootstrap artifact "+relative, err, nil, cleanupStage())
 	}
-	if !stagedInfo.Mode().IsRegular() || stagedInfo.Mode()&os.ModeSymlink != 0 {
-		removeErr := os.Remove(stage)
-		return createdRecord{}, createdDirs, combineWriteFailure("inspect staged bootstrap artifact "+relative, fmt.Errorf("staging path is not a real regular file"), nil, removeErr)
-	}
-	if err := os.Link(stage, target); err != nil {
+	var published *os.File
+	if err := parent.Link(stageName, name); err != nil {
 		if os.IsExist(err) {
-			removeErr := os.Remove(stage)
-			return createdRecord{}, createdDirs, combineWriteFailure("publish bootstrap artifact "+relative, err, nil, removeErr)
+			return createdRecord{}, createdDirs, combineWriteFailure("publish bootstrap artifact "+relative, err, nil, cleanupStage())
 		}
 		// Filesystems without hardlink support (FAT/exFAT, some network
 		// mounts) fail here. Fall back to an O_EXCL copy that keeps the
 		// create-only guarantee; the published-checksum re-verification
 		// below still guards content integrity.
-		if copyErr := copyStagedExclusive(stage, target, os.FileMode(artifact.mode)); copyErr != nil {
-			removeErr := os.Remove(stage)
-			return createdRecord{}, createdDirs, combineWriteFailure("publish bootstrap artifact "+relative, fmt.Errorf("hardlink: %v; exclusive copy: %w", err, copyErr), nil, removeErr)
+		var copyErr error
+		published, copyErr = copyStagedExclusiveRoot(parent, file, name, os.FileMode(artifact.mode))
+		if copyErr != nil {
+			return createdRecord{}, createdDirs, combineWriteFailure("publish bootstrap artifact "+relative, fmt.Errorf("hardlink: %v; exclusive copy: %w", err, copyErr), nil, cleanupStage())
 		}
+	} else {
+		published = file
+		file = nil
+		stageOpen = false
 	}
-	publishedInfo, err := os.Lstat(target)
+	publishedInfo, err := published.Stat()
 	if err != nil {
-		removeTargetErr := os.Remove(target)
-		removeStageErr := os.Remove(stage)
-		return createdRecord{}, createdDirs, combineWriteFailure("inspect published bootstrap artifact "+relative, err, removeTargetErr, removeStageErr)
+		_ = published.Close()
+		return createdRecord{}, createdDirs, combineWriteFailure("inspect published bootstrap artifact "+relative, err, nil, cleanupStage())
 	}
-	record := createdRecord{path: target, sha256: expectedSHA, file: publishedInfo}
-	if err := os.Chmod(target, os.FileMode(artifact.mode)); err != nil {
-		removeTargetErr := removeCreatedRecord(record)
-		removeStageErr := os.Remove(stage)
+	currentTarget, err := parent.Lstat(name)
+	if err != nil || !sameCreatedFile(publishedInfo, currentTarget) {
+		if err == nil {
+			err = errors.New("published artifact changed identity")
+		}
+		_ = published.Close()
+		return createdRecord{}, createdDirs, combineWriteFailure("inspect published bootstrap artifact "+relative, err, nil, cleanupStage())
+	}
+	record := createdRecord{
+		path: target, sha256: expectedSHA, file: published, info: publishedInfo,
+		parent: parent, parentInfo: parentInfo, name: name,
+	}
+	closeParent = false
+	if err := validateCreatedParent(parent, parentInfo, target); err != nil {
+		cleanupErr := cleanupStage()
+		_ = record.close()
+		return createdRecord{}, createdDirs, combineWriteFailure("verify published bootstrap artifact "+relative, err, nil, cleanupErr)
+	}
+	var modeErr error
+	if hooks.beforeChmod != nil {
+		modeErr = hooks.beforeChmod(target)
+	}
+	if modeErr == nil {
+		modeErr = published.Chmod(os.FileMode(artifact.mode))
+	}
+	if modeErr != nil {
+		removeStageErr := cleanupStage()
+		removeTargetErr := removeCreatedRecord(&record)
 		if removeTargetErr == nil {
 			record = createdRecord{}
 		}
-		return record, createdDirs, combineWriteFailure("set bootstrap artifact mode "+relative, err, removeTargetErr, removeStageErr)
+		return record, createdDirs, combineWriteFailure("set bootstrap artifact mode "+relative, modeErr, removeTargetErr, removeStageErr)
 	}
-	publishedSHA, err := fileSHA256(target)
-	if err != nil || publishedSHA != expectedSHA {
-		if err == nil {
-			err = fmt.Errorf("published checksum mismatch: expected %s, got %s", expectedSHA, publishedSHA)
+	var hashErr error
+	if hooks.beforeHash != nil {
+		hashErr = hooks.beforeHash(target)
+	}
+	var publishedSHA string
+	var hashedInfo os.FileInfo
+	if hashErr == nil {
+		publishedSHA, hashedInfo, hashErr = hashOpenedCreatedFile(published, target)
+	}
+	if hashErr != nil || publishedSHA != expectedSHA {
+		if hashErr == nil {
+			hashErr = fmt.Errorf("published checksum mismatch: expected %s, got %s", expectedSHA, publishedSHA)
 		}
-		removeTargetErr := removeCreatedRecord(record)
-		removeStageErr := os.Remove(stage)
+		removeStageErr := cleanupStage()
+		removeTargetErr := removeCreatedRecord(&record)
+		if removeTargetErr == nil {
+			record = createdRecord{}
+		}
+		return record, createdDirs, combineWriteFailure("verify published bootstrap artifact "+relative, hashErr, removeTargetErr, removeStageErr)
+	}
+	record.info = hashedInfo
+	if err := validateCreatedTarget(&record); err != nil {
+		removeStageErr := cleanupStage()
+		removeTargetErr := removeCreatedRecord(&record)
 		if removeTargetErr == nil {
 			record = createdRecord{}
 		}
 		return record, createdDirs, combineWriteFailure("verify published bootstrap artifact "+relative, err, removeTargetErr, removeStageErr)
 	}
-	if err := os.Remove(stage); err != nil {
-		removeTargetErr := removeCreatedRecord(record)
+	var cleanupHookErr error
+	if hooks.beforeCleanup != nil {
+		cleanupHookErr = hooks.beforeCleanup(target)
+	}
+	cleanupErr := errors.Join(cleanupHookErr, cleanupStage())
+	if cleanupErr != nil {
+		removeTargetErr := removeCreatedRecord(&record)
 		if removeTargetErr == nil {
 			record = createdRecord{}
 		}
-		return record, createdDirs, combineWriteFailure("remove bootstrap staging file "+relative, err, removeTargetErr, nil)
+		return record, createdDirs, combineWriteFailure("remove bootstrap staging file "+relative, cleanupErr, removeTargetErr, nil)
+	}
+	if err := validateCreatedTarget(&record); err != nil {
+		removeTargetErr := removeCreatedRecord(&record)
+		if removeTargetErr == nil {
+			record = createdRecord{}
+		}
+		return record, createdDirs, combineWriteFailure("verify published bootstrap artifact "+relative, err, removeTargetErr, nil)
 	}
 	return record, createdDirs, nil
+}
+
+func copyStagedExclusiveRoot(parent *os.Root, source *os.File, target string, mode os.FileMode) (*os.File, error) {
+	if _, err := source.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+	out, err := parent.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_RDWR, mode)
+	if err != nil {
+		return nil, err
+	}
+	cleanup := func(primary error) (*os.File, error) {
+		return nil, errors.Join(primary, out.Close(), parent.Remove(target))
+	}
+	if _, err := io.Copy(out, source); err != nil {
+		return cleanup(err)
+	}
+	if err := out.Sync(); err != nil {
+		return cleanup(err)
+	}
+	return out, nil
 }
 
 // copyStagedExclusive publishes the staged file to target with the same
@@ -615,7 +721,7 @@ func rollbackCreated(root string, created []createdRecord, dirs []createdDirecto
 	rolledBack := []string{}
 	errors := []string{}
 	for index := len(created) - 1; index >= 0; index-- {
-		record := created[index]
+		record := &created[index]
 		if err := removeCreatedRecord(record); err != nil {
 			errors = append(errors, "remove rollback target "+record.path+": "+err.Error())
 			continue
@@ -675,47 +781,70 @@ func captureCreatedDirectory(path string) (createdDirectory, error) {
 	return createdDirectory{path: path, identity: identity}, nil
 }
 
-func removeCreatedRecord(record createdRecord) error {
-	info, err := os.Lstat(record.path)
-	if os.IsNotExist(err) {
+func removeCreatedRecord(record *createdRecord) error {
+	defer record.close()
+	if record.parent == nil || record.file == nil || record.info == nil {
+		if _, err := os.Lstat(record.path); errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("created file identity is unavailable")
+	}
+	current, err := record.parent.Lstat(record.name)
+	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("inspect created file: %w", err)
 	}
-	if record.file == nil || !os.SameFile(info, record.file) {
+	if err := validateCreatedParent(record.parent, record.parentInfo, record.path); err != nil {
+		return fmt.Errorf("refuse removal after parent replacement: %w", err)
+	}
+	opened, err := record.file.Stat()
+	if err != nil || !sameCreatedFile(record.info, opened) || !sameCreatedFile(opened, current) {
 		return fmt.Errorf("refuse removal of externally replaced file")
 	}
-	digest, err := fileSHA256(record.path)
+	digest, info, err := hashOpenedCreatedFile(record.file, record.path)
 	if err != nil {
 		return fmt.Errorf("verify created file: %w", err)
 	}
 	if digest != record.sha256 {
 		return fmt.Errorf("refuse removal of externally changed file")
 	}
-	return os.Remove(record.path)
+	record.info = info
+	if err := validateCreatedTarget(record); err != nil {
+		return fmt.Errorf("refuse removal after target replacement: %w", err)
+	}
+	if err := record.parent.Remove(record.name); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 func captureCreatedRecord(path string) (createdRecord, error) {
-	before, err := os.Lstat(path)
+	parent, parentInfo, name, err := openCreatedParent(path)
 	if err != nil {
 		return createdRecord{}, err
 	}
-	if !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 {
-		return createdRecord{}, fmt.Errorf("created path is not a real regular file: %s", path)
-	}
-	digest, err := fileSHA256(path)
+	file, info, err := openCreatedFile(parent, name, path)
 	if err != nil {
+		_ = parent.Close()
 		return createdRecord{}, err
 	}
-	after, err := os.Lstat(path)
+	digest, info, err := hashOpenedCreatedFile(file, path)
 	if err != nil {
+		_ = file.Close()
+		_ = parent.Close()
 		return createdRecord{}, err
 	}
-	if !os.SameFile(before, after) {
-		return createdRecord{}, fmt.Errorf("created file changed identity while hashing: %s", path)
+	record := createdRecord{
+		path: path, sha256: digest, file: file, info: info,
+		parent: parent, parentInfo: parentInfo, name: name,
 	}
-	return createdRecord{path: path, sha256: digest, file: after}, nil
+	if err := validateCreatedTarget(&record); err != nil {
+		_ = record.close()
+		return createdRecord{}, err
+	}
+	return record, nil
 }
 
 func appendUniqueDirectories(directories []createdDirectory, additions ...createdDirectory) []createdDirectory {

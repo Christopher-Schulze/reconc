@@ -396,10 +396,11 @@ func TestBootstrapTransactionValidationAndRollbackBranches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rolledBack, err := rollbackCreated(root, []createdRecord{record}, nil); err != nil || strings.Join(rolledBack, ",") != "created.txt" {
+	records := []createdRecord{record}
+	if rolledBack, err := rollbackCreated(root, records, nil); err != nil || strings.Join(rolledBack, ",") != "created.txt" {
 		t.Fatalf("rollback = %v, %v", rolledBack, err)
 	}
-	if err := removeCreatedRecord(record); err != nil {
+	if err := removeCreatedRecord(&records[0]); err != nil {
 		t.Fatalf("idempotent removal = %v", err)
 	}
 	changedPath := filepath.Join(root, "changed.txt")
@@ -413,7 +414,7 @@ func TestBootstrapTransactionValidationAndRollbackBranches(t *testing.T) {
 	if err := os.WriteFile(changedPath, []byte("after"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := removeCreatedRecord(changedRecord); err == nil || !strings.Contains(err.Error(), "externally changed") {
+	if err := removeCreatedRecord(&changedRecord); err == nil || !strings.Contains(err.Error(), "externally changed") {
 		t.Fatalf("changed record removal error = %v", err)
 	}
 	if _, err := captureCreatedRecord(root); err == nil || !strings.Contains(err.Error(), "not a real regular file") {
@@ -490,4 +491,90 @@ func cloneBootstrapPlan(t *testing.T, source *Plan) *Plan {
 		t.Fatal(err)
 	}
 	return &clone
+}
+
+func TestPublishArtifactPreservesTargetReplacedAtEveryIdentityBoundary(t *testing.T) {
+	tests := []struct {
+		name string
+		set  func(*publicationHooks, func(string) error)
+	}{
+		{name: "before chmod", set: func(hooks *publicationHooks, swap func(string) error) {
+			hooks.beforeChmod = swap
+		}},
+		{name: "during hashing", set: func(hooks *publicationHooks, swap func(string) error) {
+			hooks.beforeHash = swap
+		}},
+		{name: "before cleanup", set: func(hooks *publicationHooks, swap func(string) error) {
+			hooks.beforeCleanup = swap
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			artifact := desiredArtifact{component: "identity-test", path: "owned.txt", mode: 0o644, content: []byte("owned\n")}
+			expected := bytesSHA256(artifact.content)
+			hooks := publicationHooks{}
+			target := filepath.Join(root, artifact.path)
+			test.set(&hooks, func(path string) error {
+				if err := os.Rename(path, path+".original"); err != nil {
+					return err
+				}
+				return os.WriteFile(path, []byte("external\n"), 0o640)
+			})
+			record, directories, err := publishArtifactWithHooks(root, artifact, artifact.path, expected, strings.Repeat("a", 64), hooks)
+			closeCreatedDirectoryIdentities(directories)
+			if err == nil || !strings.Contains(err.Error(), "externally") {
+				t.Fatalf("replacement at %s was accepted: record=%+v err=%v", test.name, record, err)
+			}
+			body, readErr := os.ReadFile(target)
+			if readErr != nil || string(body) != "external\n" {
+				t.Fatalf("external target changed at %s: body=%q err=%v", test.name, body, readErr)
+			}
+			matches, globErr := filepath.Glob(filepath.Join(filepath.Dir(target), ".owned.txt.reconc-bootstrap-*.tmp"))
+			if globErr != nil || len(matches) != 0 {
+				t.Fatalf("staging residue at %s: matches=%v err=%v", test.name, matches, globErr)
+			}
+		})
+	}
+}
+
+func TestCopyStagedExclusiveRootReturnsThePublishedIdentity(t *testing.T) {
+	root := t.TempDir()
+	parent, err := os.OpenRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer parent.Close()
+	source, err := parent.OpenFile("stage", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := source.Write([]byte("payload\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	published, err := copyStagedExclusiveRoot(parent, source, "target", 0o640)
+	if err != nil {
+		_ = source.Close()
+		t.Fatal(err)
+	}
+	targetInfo, err := published.Stat()
+	targetPathInfo, pathErr := parent.Lstat("target")
+	if err != nil || pathErr != nil || !os.SameFile(targetInfo, targetPathInfo) {
+		t.Fatalf("exclusive copy identity = %v/%v, err=%v pathErr=%v", targetInfo, targetPathInfo, err, pathErr)
+	}
+	if err := published.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := parent.Remove("target"); err != nil {
+		t.Fatal(err)
+	}
+	if err := parent.Remove("stage"); err != nil {
+		t.Fatal(err)
+	}
 }

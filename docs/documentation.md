@@ -493,9 +493,15 @@ A mutating compatibility or transactional bootstrap first atomically installs
 the exact running build as the stable user CLI, proves that bare `reconc`
 resolves to it, and otherwise fails before any repository write. A stale plan
 fails before publication. New files are staged beside the target,
-synced, checksum-verified, and published without replacement. On failure,
-rollback removes only transaction-owned files whose file identity and checksum
-still match, plus transaction-created directories that are still empty.
+synced, checksum-verified, and published without replacement. Publication
+retains an open descriptor for the exact created inode through mode setting,
+checksum verification, and transaction ownership capture. Rollback reuses
+that descriptor and an opened parent identity, revalidates both before rooted
+removal, and preserves any externally replaced target. Hard-link publication
+and the exclusive-copy fallback share the same descriptor and cleanup
+contract. On failure, rollback removes only transaction-owned files whose
+file identity and checksum still match, plus transaction-created directories
+that are still empty.
 Verification is read-only and checks artifacts, lockfile freshness, selected
 hooks, governed TASK state, selected binary resolution, and the exact running
 user CLI on PATH.

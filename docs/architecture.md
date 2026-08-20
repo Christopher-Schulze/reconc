@@ -177,7 +177,10 @@ handling.
    Bootstrap removal treats portable ownership as its maximum authority,
    SHA-verifies owned files, strips only managed blocks, and preserves drift
    and user-owned paths.
-   Hook merges and uninstalls preserve
+   Bootstrap-created artifact verification and rollback retain opened file and
+   parent identities through chmod, hashing, durability, and rooted cleanup;
+   external target replacement is reported and preserved. Hook merges and
+   uninstalls preserve
    unrelated host configuration. ZCode's repository-local nested JSON merger
    owns only exact Reconc process entries and the required `hooks.enabled`
    activation. Kimi Code's user-global TOML is a separate
