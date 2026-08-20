@@ -18,7 +18,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -909,8 +908,9 @@ func sourceKindValid(kind policy.SourceKind) bool {
 // with sorted keys (Go's json.Marshal already does this for maps) and
 // 2-space indentation, terminated by a single newline.
 //
-// MkdirAll handles a missing .reconc/ directory; existing files are replaced
-// with temp-file-then-rename so readers never observe a truncated lockfile.
+// The atomic publisher creates and identity-binds a missing .reconc/ directory;
+// existing files are replaced with temp-file-then-rename so readers never
+// observe a truncated lockfile.
 func encodeLockfile(payload map[string]interface{}) ([]byte, error) {
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
@@ -924,12 +924,8 @@ func encodeLockfile(payload map[string]interface{}) ([]byte, error) {
 }
 
 func writeLockfile(repoRoot string, body []byte) error {
-	lockDir := filepath.Join(repoRoot, ".reconc")
-	if err := os.MkdirAll(lockDir, 0o755); err != nil {
-		return &rerrors.LockfileError{Message: "create .reconc/", Cause: err}
-	}
-	full := filepath.Join(lockDir, "policy.lock.json")
-	if _, err := atomicfile.WriteIfChanged(full, body, 0o644); err != nil {
+	full := filepath.Join(repoRoot, ".reconc", "policy.lock.json")
+	if _, err := atomicfile.WritePrivateIfChanged(full, body, 0o644); err != nil {
 		return &rerrors.LockfileError{Message: "write lockfile", Cause: err}
 	}
 	return nil

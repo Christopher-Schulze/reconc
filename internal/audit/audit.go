@@ -761,7 +761,7 @@ func writeChainHeadValue(repoRoot string, head chainHead) error {
 		return fmt.Errorf("audit: marshal detached head: %w", err)
 	}
 	body = append(body, '\n')
-	if _, err := atomicfile.WriteIfChanged(filepath.Join(repoRoot, AuditHeadRelative), body, 0o600); err != nil {
+	if _, err := atomicfile.WritePrivateIfChanged(filepath.Join(repoRoot, AuditHeadRelative), body, 0o600); err != nil {
 		return fmt.Errorf("audit: write detached head: %w", err)
 	}
 	return nil

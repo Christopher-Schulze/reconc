@@ -308,7 +308,7 @@ func publishPrivateFileIfChanged(path string, body []byte) (bool, error) {
 	if err := validatePrivateDirectory(directory); err != nil {
 		return false, fmt.Errorf("validate private publication directory: %w", err)
 	}
-	changed, err := atomicfile.WriteIfChanged(path, body, 0o600)
+	changed, err := atomicfile.WritePrivateIfChanged(path, body, 0o600)
 	if err != nil {
 		return false, err
 	}

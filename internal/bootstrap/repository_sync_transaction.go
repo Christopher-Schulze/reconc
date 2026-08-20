@@ -348,7 +348,7 @@ func writeRepositorySyncTransaction(root string, transaction *repositorySyncTran
 	if err != nil {
 		return err
 	}
-	if _, err := atomicfile.WriteIfChanged(path, body, 0o600); err != nil {
+	if _, err := atomicfile.WritePrivateIfChanged(path, body, 0o600); err != nil {
 		return fmt.Errorf("publish repository sync transaction journal: %w", err)
 	}
 	return nil

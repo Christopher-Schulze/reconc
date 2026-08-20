@@ -79,7 +79,7 @@ internal/
   adopt/          convention detector, rule suggestions, and stack-pack recommendations
   agentguide/     embedded agent-integration guide + section lookup
   assurance/      bounded native layout/source/manifest/proof gates + per-run fact graph
-  atomicfile/     write-on-change and atomic publication primitives
+  atomicfile/     identity-bound write-on-change, private-parent, and atomic publication primitives
   audit/          SHA-256-linked JSONL decision evidence + detached head + bounded rotation
   boundedexec/    concurrency-safe bounded stdout/stderr capture for subprocess boundaries
   boundedio/      exact-size reads for untrusted and repository-controlled files
@@ -864,6 +864,23 @@ payload-handling package must be a string literal.
 Reconc does not generate, authenticate, HMAC, or expire host session IDs, so a
 hostile process with the same user and filesystem authority remains outside
 this boundary.
+
+### Atomic publication identity boundary
+
+`internal/atomicfile` binds every existing and newly created parent component
+to an opened `os.Root` directory identity before placing a temporary file.
+The same rooted directory performs target comparison, temporary-file cleanup,
+replacement or hard-link publication, and parent synchronization. Parent
+identity is revalidated before mutation and after publication; a component
+that becomes a symlink, non-directory, or different inode fails closed.
+Existing targets are opened as non-symlink regular files. Byte comparison and
+mode reconciliation use that opened file, then revalidate its path identity,
+so a substituted symlink target is never chmodded. Public writes create
+missing parents with `0755`; state-bearing callers use the explicit private
+API and create them with `0700`. The macOS `/var`-style filesystem-root alias
+is canonicalized before binding, while nested publication symlinks remain
+rejected. Unix uses rooted rename plus directory fsync; Windows uses rooted
+replacement and flushes the temporary file before publication.
 
 ### Incremental Stop decision cache
 

@@ -4,11 +4,11 @@ package atomicfile
 
 import "os"
 
-func reconcileMode(path string, current, requested os.FileMode) (bool, error) {
+func reconcileMode(file *os.File, current, requested os.FileMode) (bool, error) {
 	if current.Perm() == requested.Perm() {
 		return false, nil
 	}
-	if err := os.Chmod(path, requested); err != nil {
+	if err := file.Chmod(requested); err != nil {
 		return false, err
 	}
 	return true, nil

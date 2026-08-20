@@ -226,7 +226,7 @@ func writeHookLivenessRecords(root string, records map[string]HookLiveness) erro
 	if len(body) > maxHookLivenessBytes {
 		return fmt.Errorf("hook liveness exceeds %d bytes", maxHookLivenessBytes)
 	}
-	if _, err := atomicfile.WriteIfChanged(hookLivenessPath(root), body, 0o600); err != nil {
+	if _, err := atomicfile.WritePrivateIfChanged(hookLivenessPath(root), body, 0o600); err != nil {
 		return fmt.Errorf("write hook liveness: %w", err)
 	}
 	return nil
@@ -237,7 +237,7 @@ func writeHookLivenessMarker(markerPath, timestamp string, modTime time.Time) er
 		return fmt.Errorf("create hook-liveness marker directory: %w", err)
 	}
 	markerBody := []byte(timestamp + "\n")
-	if _, err := atomicfile.WriteIfChanged(markerPath, markerBody, 0o600); err != nil {
+	if _, err := atomicfile.WritePrivateIfChanged(markerPath, markerBody, 0o600); err != nil {
 		return fmt.Errorf("write hook-liveness marker: %w", err)
 	}
 	if err := os.Chtimes(markerPath, modTime, modTime); err != nil {

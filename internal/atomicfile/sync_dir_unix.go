@@ -7,8 +7,8 @@ import (
 	"os"
 )
 
-func syncParentDir(path string) error {
-	dir, err := os.Open(path)
+func syncParentDir(directory *os.Root) error {
+	dir, err := directory.Open(".")
 	if err != nil {
 		return err
 	}

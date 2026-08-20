@@ -180,7 +180,7 @@ func StoreSuccess(snapshot Snapshot, command, executionMode string, startedAt, c
 		return Proof{}, fmt.Errorf("secure command proof directory: %w", err)
 	}
 	path := filepath.Join(dir, proofIdentity(proof)+".json")
-	if _, err := atomicfile.WriteIfChanged(path, data, 0o600); err != nil {
+	if _, err := atomicfile.WritePrivateIfChanged(path, data, 0o600); err != nil {
 		return Proof{}, fmt.Errorf("write command proof: %w", err)
 	}
 	retention.RunIfDue(retention.Options{RepoRoot: snapshot.RepoRoot, StateRoot: retention.ResolveStateRoot()})

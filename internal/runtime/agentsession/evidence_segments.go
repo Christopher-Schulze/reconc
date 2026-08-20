@@ -142,7 +142,7 @@ func rotateSessionEvidenceLocked(repoRoot string, state SessionState) (SessionSt
 		}
 	} else if !errors.Is(readErr, os.ErrNotExist) {
 		return state, fmt.Errorf("inspect evidence segment: %w", readErr)
-	} else if _, err := atomicfile.WriteIfChanged(path, body, 0o600); err != nil {
+	} else if _, err := atomicfile.WritePrivateIfChanged(path, body, 0o600); err != nil {
 		return state, fmt.Errorf("write evidence segment: %w", err)
 	}
 	state.ReadPaths = []string{}
@@ -330,7 +330,7 @@ func persistEvidenceTaint(repoRoot string, state SessionState) error {
 	if err := ensurePrivateStateDir(filepath.Dir(path)); err != nil {
 		return fmt.Errorf("mkdir evidence taint dir: %w", err)
 	}
-	if _, err := atomicfile.WriteIfChanged(path, body, 0o600); err != nil {
+	if _, err := atomicfile.WritePrivateIfChanged(path, body, 0o600); err != nil {
 		return fmt.Errorf("write evidence taint: %w", err)
 	}
 	return nil
@@ -446,7 +446,7 @@ func ResolveEvidenceTaint(repoRoot, expectedToken, reason string) (EvidenceTaint
 	if err := ensurePrivateStateDir(filepath.Dir(path)); err != nil {
 		return EvidenceTaintStatus{}, fmt.Errorf("mkdir evidence taint resolution dir: %w", err)
 	}
-	if _, err := atomicfile.WriteIfChanged(path, body, 0o600); err != nil {
+	if _, err := atomicfile.WritePrivateIfChanged(path, body, 0o600); err != nil {
 		return EvidenceTaintStatus{}, fmt.Errorf("write evidence taint resolution: %w", err)
 	}
 	if err := os.Remove(evidenceTaintPath(root)); err != nil {

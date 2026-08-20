@@ -339,7 +339,7 @@ func writeReceiptUnlocked(path string, receipt *Receipt) (bool, error) {
 	if len(body) > maxInstallationReceipt {
 		return false, fmt.Errorf("installation receipt exceeds %d bytes", maxInstallationReceipt)
 	}
-	changed, err := atomicfile.WriteIfChanged(path, body, 0o600)
+	changed, err := atomicfile.WritePrivateIfChanged(path, body, 0o600)
 	if err != nil {
 		return false, fmt.Errorf("publish installation receipt: %w", err)
 	}

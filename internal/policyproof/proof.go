@@ -78,7 +78,7 @@ func Store(repoRoot, event, candidateFingerprint string, report *runtime.CheckRe
 	if err := os.Chmod(dir, 0o700); err != nil {
 		return fmt.Errorf("secure policy decision proof directory: %w", err)
 	}
-	if _, err := atomicfile.WriteIfChanged(Path(repoRoot), body, 0o600); err != nil {
+	if _, err := atomicfile.WritePrivateIfChanged(Path(repoRoot), body, 0o600); err != nil {
 		return fmt.Errorf("write policy decision proof: %w", err)
 	}
 	return nil

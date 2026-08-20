@@ -3,57 +3,71 @@ package atomicfile
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
-	"path/filepath"
-
-	"reconc.dev/reconc/internal/boundedio"
 )
 
 // WriteIfChanged atomically replaces path with data only when its current
 // bytes differ. It returns true only when a filesystem write was published.
 func WriteIfChanged(path string, data []byte, mode os.FileMode) (bool, error) {
-	info, lstatErr := os.Lstat(path)
-	if lstatErr == nil && !info.Mode().IsRegular() {
-		return false, fmt.Errorf("current %s is not a regular file", path)
+	return writeIfChanged(path, data, mode, PublicParentMode)
+}
+
+// WritePrivateIfChanged is WriteIfChanged with private permissions for every
+// parent directory that must be created.
+func WritePrivateIfChanged(path string, data []byte, mode os.FileMode) (bool, error) {
+	return writeIfChanged(path, data, mode, PrivateParentMode)
+}
+
+func writeIfChanged(path string, data []byte, mode, parentMode os.FileMode) (changed bool, err error) {
+	parent, name, err := bindParent(path, parentMode)
+	if err != nil {
+		return false, err
 	}
-	if lstatErr != nil && !os.IsNotExist(lstatErr) {
-		return false, fmt.Errorf("inspect current %s: %w", path, lstatErr)
+	defer func() { err = errors.Join(err, parent.close()) }()
+	directory := parent.directory()
+	currentFile, currentInfo, err := openCurrent(directory, name, path)
+	if err != nil {
+		return false, err
 	}
-	if lstatErr == nil && info.Size() == int64(len(data)) {
-		limit := int64(len(data))
-		if limit == 0 {
-			limit = 1
+	if currentFile != nil {
+		identical, compareErr := matchesCurrent(directory, name, path, currentFile, currentInfo, data)
+		if compareErr != nil {
+			return false, compareErr
 		}
-		current, err := boundedio.ReadRegularFile(path, limit)
-		if err != nil {
-			return false, fmt.Errorf("read current %s: %w", path, err)
-		}
-		if bytes.Equal(current, data) {
-			info, statErr := os.Stat(path)
-			if statErr != nil {
-				return false, fmt.Errorf("stat current %s: %w", path, statErr)
+		if identical {
+			if err := parent.validate(); err != nil {
+				return false, errors.Join(err, currentFile.Close())
 			}
-			modeChanged, modeErr := reconcileMode(path, info.Mode(), mode)
-			if modeErr != nil {
-				return false, fmt.Errorf("reconcile mode for current %s: %w", path, modeErr)
+			modeChanged, modeErr := reconcileMode(currentFile, currentInfo.Mode(), mode)
+			validationErr := validateCurrent(directory, name, currentInfo)
+			parentErr := parent.validate()
+			closeErr := currentFile.Close()
+			if err := errors.Join(modeErr, validationErr, parentErr, closeErr); err != nil {
+				return false, fmt.Errorf("reconcile mode for current %s: %w", path, err)
 			}
 			return modeChanged, nil
 		}
+		if err := currentFile.Close(); err != nil {
+			return false, fmt.Errorf("close current %s: %w", path, err)
+		}
 	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return false, fmt.Errorf("create parent %s: %w", dir, err)
-	}
-	tmpFile, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp")
+	tmpFile, tmp, err := createTemporary(directory, name)
 	if err != nil {
 		return false, fmt.Errorf("create temp for %s: %w", path, err)
 	}
-	tmp := tmpFile.Name()
+	closed := false
 	cleanup := func() error {
-		closeErr := tmpFile.Close()
-		removeErr := os.Remove(tmp)
+		var closeErr error
+		if !closed {
+			closeErr = tmpFile.Close()
+			closed = true
+		}
+		removeErr := directory.Remove(tmp)
 		if os.IsNotExist(removeErr) {
 			removeErr = nil
 		}
@@ -69,21 +83,122 @@ func WriteIfChanged(path string, data []byte, mode os.FileMode) (bool, error) {
 		return false, errors.Join(fmt.Errorf("sync temp for %s: %w", path, err), cleanup())
 	}
 	if err := tmpFile.Close(); err != nil {
-		removeErr := os.Remove(tmp)
+		closed = true
+		removeErr := directory.Remove(tmp)
 		if os.IsNotExist(removeErr) {
 			removeErr = nil
 		}
 		return false, errors.Join(fmt.Errorf("close temp for %s: %w", path, err), removeErr)
 	}
-	if err := replaceFile(tmp, path); err != nil {
-		removeErr := os.Remove(tmp)
-		if os.IsNotExist(removeErr) {
-			removeErr = nil
-		}
-		return false, errors.Join(fmt.Errorf("publish %s: %w", path, err), removeErr)
+	closed = true
+	if err := parent.validate(); err != nil {
+		return false, errors.Join(err, cleanup())
 	}
-	if err := syncParentDir(dir); err != nil {
+	if err := validateCurrent(directory, name, currentInfo); err != nil {
+		return false, errors.Join(fmt.Errorf("validate publication target %s: %w", path, err), cleanup())
+	}
+	if err := replaceTemporary(directory, tmp, name); err != nil {
+		return false, fmt.Errorf("publish %s: %w", path, err)
+	}
+	if err := parent.validate(); err != nil {
+		return true, fmt.Errorf("validate parent after publishing %s: %w", path, err)
+	}
+	if err := syncParentDir(directory); err != nil {
 		return true, fmt.Errorf("sync parent for %s: %w", path, err)
 	}
+	if err := parent.validate(); err != nil {
+		return true, fmt.Errorf("validate parent after syncing %s: %w", path, err)
+	}
 	return true, nil
+}
+
+func replaceTemporary(directory *os.Root, temporary, target string) error {
+	if err := replaceFile(directory, temporary, target); err != nil {
+		removeErr := directory.Remove(temporary)
+		if errors.Is(removeErr, os.ErrNotExist) {
+			removeErr = nil
+		}
+		return errors.Join(err, removeErr)
+	}
+	return nil
+}
+
+func openCurrent(directory *os.Root, name, path string) (*os.File, os.FileInfo, error) {
+	before, err := directory.Lstat(name)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("inspect current %s: %w", path, err)
+	}
+	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
+		return nil, nil, fmt.Errorf("current %s is not a non-symlink regular file", path)
+	}
+	file, err := directory.OpenFile(name, os.O_RDONLY, 0)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open current %s: %w", path, err)
+	}
+	opened, statErr := file.Stat()
+	after, lstatErr := directory.Lstat(name)
+	if statErr != nil || lstatErr != nil || !sameRegularIdentity(before, opened) || !sameRegularIdentity(opened, after) {
+		return nil, nil, errors.Join(
+			fmt.Errorf("current %s changed identity while opening", path), statErr, lstatErr, file.Close(),
+		)
+	}
+	return file, opened, nil
+}
+
+func matchesCurrent(directory *os.Root, name, path string, file *os.File, info os.FileInfo, data []byte) (bool, error) {
+	if info.Size() != int64(len(data)) {
+		return false, nil
+	}
+	current, readErr := io.ReadAll(io.LimitReader(file, int64(len(data))+1))
+	after, statErr := file.Stat()
+	pathInfo, lstatErr := directory.Lstat(name)
+	if readErr != nil || statErr != nil || lstatErr != nil || int64(len(current)) != info.Size() ||
+		!sameRegularIdentity(info, after) || !sameRegularIdentity(after, pathInfo) ||
+		info.Size() != after.Size() || !info.ModTime().Equal(after.ModTime()) {
+		return false, errors.Join(
+			fmt.Errorf("current %s changed while reading", path), readErr, statErr, lstatErr,
+		)
+	}
+	return bytes.Equal(current, data), nil
+}
+
+func validateCurrent(directory *os.Root, name string, expected os.FileInfo) error {
+	current, err := directory.Lstat(name)
+	if expected == nil && errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if expected == nil || !sameRegularIdentity(expected, current) {
+		return errors.New("publication target changed identity")
+	}
+	return nil
+}
+
+func sameRegularIdentity(left, right os.FileInfo) bool {
+	return left != nil && right != nil && left.Mode()&os.ModeSymlink == 0 &&
+		right.Mode()&os.ModeSymlink == 0 && left.Mode().IsRegular() && right.Mode().IsRegular() &&
+		os.SameFile(left, right)
+}
+
+func createTemporary(directory *os.Root, target string) (*os.File, string, error) {
+	var random [16]byte
+	for range 10 {
+		if _, err := rand.Read(random[:]); err != nil {
+			return nil, "", err
+		}
+		name := "." + target + "." + hex.EncodeToString(random[:]) + ".tmp"
+		file, err := directory.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
+		if err == nil {
+			return file, name, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return nil, "", err
+		}
+	}
+	return nil, "", errors.New("temporary filename collision limit reached")
 }

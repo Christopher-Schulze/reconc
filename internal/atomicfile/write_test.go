@@ -1,8 +1,11 @@
 package atomicfile
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 )
 
@@ -89,5 +92,160 @@ func TestWriteNewPublishesCompleteBytesAndRefusesExistingTarget(t *testing.T) {
 	matches, err := filepath.Glob(filepath.Join(filepath.Dir(path), ".export.json.*.tmp"))
 	if err != nil || len(matches) != 0 {
 		t.Fatalf("new-file temporary residue = %v, %v", matches, err)
+	}
+}
+
+func TestPublicationCreatesExplicitPublicAndPrivateParents(t *testing.T) {
+	root := t.TempDir()
+	public := filepath.Join(root, "public", "nested", "state")
+	if _, err := WriteIfChanged(public, []byte("public\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	private := filepath.Join(root, "private", "nested", "state")
+	if _, err := WritePrivateIfChanged(private, []byte("private\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(filepath.Dir(public)); err != nil || info.Mode().Perm() != PublicParentMode {
+		t.Fatalf("public parent mode = %v, err=%v", info, err)
+	}
+	if info, err := os.Stat(filepath.Dir(private)); err != nil || info.Mode().Perm() != PrivateParentMode {
+		t.Fatalf("private parent mode = %v, err=%v", info, err)
+	}
+}
+
+func TestPublicationRejectsNestedParentSymlink(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	link := filepath.Join(root, "nested")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	path := filepath.Join(link, "state.json")
+	if _, err := WriteIfChanged(path, []byte("blocked\n"), 0o600); err == nil {
+		t.Fatal("nested parent symlink was accepted")
+	}
+	if _, err := os.Lstat(filepath.Join(outside, "state.json")); !os.IsNotExist(err) {
+		t.Fatalf("publication escaped through parent symlink: %v", err)
+	}
+}
+
+func TestBoundParentDetectsDirectoryIdentitySwap(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "nested", "state.json")
+	parent, _, err := bindParent(path, PublicParentMode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer parent.close()
+	original := filepath.Join(root, "nested")
+	moved := filepath.Join(root, "moved")
+	if err := os.Rename(original, moved); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(original, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := parent.validate(); err == nil {
+		t.Fatal("parent identity swap was accepted")
+	}
+}
+
+func TestTargetIdentitySwapIsRejectedWithoutTouchingReplacement(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "state.json")
+	if err := os.WriteFile(path, []byte("before\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	parent, name, err := bindParent(path, PublicParentMode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer parent.close()
+	file, info, err := openCurrent(parent.directory(), name, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(path, path+".old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("replacement\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateCurrent(parent.directory(), name, info); err == nil {
+		t.Fatal("target identity swap was accepted")
+	}
+	body, err := os.ReadFile(path)
+	if err != nil || string(body) != "replacement\n" {
+		t.Fatalf("replacement target changed: body=%q err=%v", body, err)
+	}
+}
+
+func TestConcurrentPublicationsRemainWholeAndLeaveNoTemporaries(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "state.json")
+	const writers = 24
+	var wait sync.WaitGroup
+	errorsByWriter := make(chan error, writers)
+	for index := range writers {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			body := []byte(fmt.Sprintf("writer-%02d\n", index))
+			_, err := WriteIfChanged(path, body, 0o600)
+			errorsByWriter <- err
+		}()
+	}
+	wait.Wait()
+	close(errorsByWriter)
+	succeeded := 0
+	for err := range errorsByWriter {
+		if err == nil {
+			succeeded++
+			continue
+		}
+		if !strings.Contains(err.Error(), "changed") {
+			t.Fatalf("unexpected concurrent publication error: %v", err)
+		}
+	}
+	if succeeded == 0 {
+		t.Fatal("no concurrent publication succeeded")
+	}
+	body, err := os.ReadFile(path)
+	if err != nil || !strings.HasPrefix(string(body), "writer-") || len(body) != len("writer-00\n") {
+		t.Fatalf("published body is torn: %q err=%v", body, err)
+	}
+	matches, err := filepath.Glob(filepath.Join(filepath.Dir(path), ".state.json.*.tmp"))
+	if err != nil || len(matches) != 0 {
+		t.Fatalf("concurrent temporary residue = %v, %v", matches, err)
+	}
+}
+
+func TestReplacementFailureRemovesPreparedTemporary(t *testing.T) {
+	root := t.TempDir()
+	directory, err := os.OpenRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer directory.Close()
+	if err := os.Mkdir(filepath.Join(root, "target"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file, temporary, err := createTemporary(directory, "target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Write([]byte("prepared\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := replaceTemporary(directory, temporary, "target"); err == nil {
+		t.Fatal("replacement over a directory unexpectedly succeeded")
+	}
+	if _, err := directory.Lstat(temporary); !os.IsNotExist(err) {
+		t.Fatalf("failed replacement left temporary: %v", err)
 	}
 }

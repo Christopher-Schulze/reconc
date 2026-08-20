@@ -64,7 +64,7 @@ func RunIfDue(options Options) Report {
 		report := runLocked(options, false)
 		if !options.DryRun {
 			body := []byte(options.Now.UTC().Format(time.RFC3339Nano) + "\n")
-			if _, err := atomicfile.WriteIfChanged(marker, body, 0o600); err != nil {
+			if _, err := atomicfile.WritePrivateIfChanged(marker, body, 0o600); err != nil {
 				report.Errors = append(report.Errors, fmt.Sprintf("write retention marker: %v", err))
 			}
 		}
@@ -217,7 +217,7 @@ func pruneProjectRootsInterval(options Options, force bool, report *Report) (Cla
 	}
 	class = pruneProjectRoots(options, report, !force)
 	body := []byte(options.Now.UTC().Format(time.RFC3339Nano) + "\n")
-	if _, err := atomicfile.WriteIfChanged(marker, body, 0o600); err != nil {
+	if _, err := atomicfile.WritePrivateIfChanged(marker, body, 0o600); err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("write project retention marker: %v", err))
 	}
 	return class, true
@@ -397,7 +397,7 @@ func pruneOwnedTempRootsInterval(options Options, force bool, report *Report) (C
 	class = pruneOwnedTempRoots(options, report)
 	if !options.DryRun {
 		body := []byte(options.Now.UTC().Format(time.RFC3339Nano) + "\n")
-		if _, err := atomicfile.WriteIfChanged(marker, body, 0o600); err != nil {
+		if _, err := atomicfile.WritePrivateIfChanged(marker, body, 0o600); err != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("write global retention marker: %v", err))
 		}
 	}

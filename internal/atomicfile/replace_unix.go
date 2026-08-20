@@ -4,6 +4,6 @@ package atomicfile
 
 import "os"
 
-func replaceFile(source, destination string) error {
-	return os.Rename(source, destination)
+func replaceFile(directory *os.Root, source, destination string) error {
+	return directory.Rename(source, destination)
 }

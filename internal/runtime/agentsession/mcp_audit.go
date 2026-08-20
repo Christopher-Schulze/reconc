@@ -146,7 +146,7 @@ func appendMCPAuditLocked(root string, entry MCPAuditEntry) error {
 	if len(body) > maxMCPAuditBytes {
 		return fmt.Errorf("MCP audit exceeds %d bytes", maxMCPAuditBytes)
 	}
-	if _, err := atomicfile.WriteIfChanged(mcpAuditPath(root), body, 0o600); err != nil {
+	if _, err := atomicfile.WritePrivateIfChanged(mcpAuditPath(root), body, 0o600); err != nil {
 		return fmt.Errorf("write MCP audit: %w", err)
 	}
 	return nil

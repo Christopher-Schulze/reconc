@@ -119,7 +119,7 @@ func applyTransaction(repoRoot, action string, files []fileMutation, moves []mov
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect TASK transaction: %w", err)
 	}
-	if _, err := atomicfile.WriteIfChanged(journalPath, body, 0o600); err != nil {
+	if _, err := atomicfile.WritePrivateIfChanged(journalPath, body, 0o600); err != nil {
 		return fmt.Errorf("publish TASK transaction: %w", err)
 	}
 	if err := publishTransaction(repoRoot, journal, files, moves); err != nil {

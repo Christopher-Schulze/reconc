@@ -197,6 +197,6 @@ func writePreDecisionCache(root string, payloadBytes []byte, key string, decisio
 	if err := ensurePrivateStateDir(filepath.Dir(path)); err != nil {
 		return err
 	}
-	_, err = atomicfile.WriteIfChanged(path, body, 0o600)
+	_, err = atomicfile.WritePrivateIfChanged(path, body, 0o600)
 	return err
 }

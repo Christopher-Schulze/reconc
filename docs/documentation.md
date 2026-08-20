@@ -1633,9 +1633,9 @@ through format-5 lockfiles are migrated in memory only after their legacy schema
 identity and digest pass;
 their sources are reparsed and must retain exact embedded rule and canonical
 action parity.
-Publication
-uses atomic replacement and skips the write entirely when the canonical bytes
-are unchanged, so readers never see partial JSON and repeated compiles do not
+Publication uses identity-bound atomic replacement and skips the write entirely
+when the canonical bytes are unchanged, so readers never see partial JSON and
+repeated compiles do not
 create needless filesystem churn. Refresh acquires the repository compile lock
 before loading the authoritative source bundle, rejects repository-root drift,
 and binds the repository, `.reconc` directory, and compile-lock file to opened
