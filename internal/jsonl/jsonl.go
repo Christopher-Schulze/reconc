@@ -23,13 +23,20 @@ import (
 )
 
 const (
-	appendJournalVersion  = 1
+	appendJournalVersion  = 2
+	legacyJournalVersion  = 1
 	appendStatePreparing  = "preparing"
 	appendStatePrepared   = "prepared"
 	appendStatePublished  = "published"
+	appendStateCommitting = "committing"
 	appendStateResolved   = "resolved"
 	maxAppendJournalBytes = 64 * 1024
 )
+
+// ErrTransactionCommitRequired means recovery reached a transaction whose
+// caller-owned commit may have started. Only the owner can safely complete it
+// by supplying the same idempotent commit callback used for the append.
+var ErrTransactionCommitRequired = errors.New("JSONL transaction commit may have started; owner callback is required for recovery")
 
 // Policy bounds one live JSONL file plus a fixed archive ring.
 type Policy struct {
@@ -298,8 +305,10 @@ func AppendTransactionContextWithLayout(
 }
 
 // Recover resolves a durable append journal left by an interrupted process.
-// A transactional published append requires the same idempotent commit
-// callback used by AppendTransaction; prepared writes roll back automatically.
+// Prepared writes and version-2 publications whose commit did not start roll
+// back without a callback. Once commit may have started, recovery requires the
+// same idempotent callback used by AppendTransaction. A resolved journal only
+// needs artifact cleanup and never invokes commit again.
 func Recover(path string, commit func() error) error {
 	return RecoverWithLayout(path, defaultLayout(path), commit)
 }
@@ -450,7 +459,15 @@ func appendLockedWithLayout(path string, record []byte, policy Policy, layout La
 		}
 	}
 	if commit != nil {
+		journal.State = appendStateCommitting
+		if err := writeAppendJournalWithLayout(path, layout, *journal); err != nil {
+			return err
+		}
 		if err := commit(); err != nil {
+			return err
+		}
+		journal.State = appendStateResolved
+		if err := writeAppendJournalWithLayout(path, layout, *journal); err != nil {
 			return err
 		}
 	}
@@ -1178,15 +1195,22 @@ func readAppendJournalWithLayout(path string, layout Layout) (*appendJournal, er
 }
 
 func validateAppendJournal(journal appendJournal) error {
-	if journal.FormatVersion != appendJournalVersion {
+	if journal.FormatVersion != legacyJournalVersion && journal.FormatVersion != appendJournalVersion {
 		return fmt.Errorf("unsupported JSONL append journal version %d", journal.FormatVersion)
 	}
 	if journal.LayoutIdentity != "" && !lowerHexDigest(journal.LayoutIdentity) {
 		return errors.New("JSONL append journal layout identity is invalid")
 	}
 	if journal.State != appendStatePreparing && journal.State != appendStatePrepared &&
-		journal.State != appendStatePublished && journal.State != appendStateResolved {
+		journal.State != appendStatePublished && journal.State != appendStateCommitting &&
+		journal.State != appendStateResolved {
 		return fmt.Errorf("invalid JSONL append journal state %q", journal.State)
+	}
+	if journal.FormatVersion == legacyJournalVersion && journal.State == appendStateCommitting {
+		return errors.New("legacy JSONL append journal has an unsupported committing state")
+	}
+	if journal.State == appendStateCommitting && !journal.Transactional {
+		return errors.New("non-transactional JSONL append journal cannot be committing")
 	}
 	if err := validatePolicy(Policy{MaxBytes: journal.MaxBytes, MaxArchives: journal.MaxArchives}); err != nil {
 		return err
@@ -1245,11 +1269,24 @@ func recoverAppendLockedWithLayout(path string, layout Layout, commit func() err
 		return finishAppendJournalWithLayout(path, layout, *journal)
 	}
 	if journal.Transactional {
+		if journal.State == appendStatePublished && journal.FormatVersion == appendJournalVersion && commit == nil {
+			return rollbackAppendJournalWithLayout(path, layout, *journal)
+		}
 		if commit == nil {
-			return errors.New("published JSONL transaction requires its commit callback for recovery")
+			return ErrTransactionCommitRequired
+		}
+		if journal.State == appendStatePublished {
+			journal.State = appendStateCommitting
+			if err := writeAppendJournalWithLayout(path, layout, *journal); err != nil {
+				return err
+			}
 		}
 		if err := commit(); err != nil {
 			return fmt.Errorf("recover JSONL transaction commit: %w", err)
+		}
+		journal.State = appendStateResolved
+		if err := writeAppendJournalWithLayout(path, layout, *journal); err != nil {
+			return err
 		}
 	}
 	return finishAppendJournalWithLayout(path, layout, *journal)

@@ -1779,10 +1779,16 @@ head before returning data. A normal append validates the detached head and a
 bounded final live record, then advances the chain head incrementally. Rotation,
 recovery, and explicit verification replay the complete retained chain before
 accepting or returning evidence. Rotation and chained audit appends publish a
-private durable journal with `prepared`, `published`, and `resolved` states plus
-digest-bound archive backups. Recovery rolls a prepared append back to the
-complete pre-rotation snapshot, finalizes a published append by idempotently
-rebuilding the detached head, and removes only resolved transaction artifacts.
+private durable journal with `prepared`, `published`, `committing`, and
+`resolved` states plus digest-bound archive backups. Recovery rolls a prepared
+append, or a version-2 publication whose commit callback provably never began,
+back to the complete pre-rotation snapshot. Once callback execution may have
+started, only the owning audit or ledger path may recover it by idempotently
+rebuilding the detached head. A successful callback is marked `resolved`
+before cleanup, so cleanup-only recovery never repeats it. Legacy version-1
+`published` journals remain callback-owned because their state cannot prove
+whether head publication started. Resolved recovery removes only transaction
+artifacts.
 Malformed journals or corrupt backups fail closed and remain available for
 diagnosis. Generic retention never rewrites chained audit evidence and fails
 on an invalid chain or mismatched ring policy. Repo runtime is capped at 48 MiB. Known

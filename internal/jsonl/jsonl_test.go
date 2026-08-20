@@ -208,6 +208,10 @@ func TestAppendTransactionRecoversPublishedRotation(t *testing.T) {
 	if _, err := os.Stat(appendJournalPath(path)); err != nil {
 		t.Fatalf("published transaction did not retain recovery journal: %v", err)
 	}
+	journal, err := readAppendJournal(path)
+	if err != nil || journal == nil || journal.State != appendStateCommitting {
+		t.Fatalf("failed commit journal = %#v, err = %v", journal, err)
+	}
 	if err := AppendTransaction(path, policy, func() ([]byte, error) {
 		return []byte("after-recovery"), nil
 	}, commit); err != nil {
@@ -228,8 +232,94 @@ func TestAppendTransactionRecoversPublishedRotation(t *testing.T) {
 		}
 		combined = append(combined, body...)
 	}
-	if !bytes.Contains(combined, []byte("published\n")) || !bytes.Contains(combined, []byte("after-recovery\n")) {
-		t.Fatalf("recovered records are missing: %q", combined)
+	want := []byte("old-one\nold-two\npublished\nafter-recovery\n")
+	if !bytes.Equal(combined, want) {
+		t.Fatalf("recovered archive order = %q, want %q", combined, want)
+	}
+	assertNoAppendJournal(t, path, policy.MaxArchives)
+}
+
+func TestAppendTransactionRecoversCommitFailureWithoutRotation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	policy := Policy{MaxBytes: 128, MaxArchives: 1}
+	if err := os.WriteFile(path, []byte("before\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	commitCalls := 0
+	commit := func() error {
+		commitCalls++
+		if commitCalls < 3 {
+			return errors.New("injected commit failure")
+		}
+		return nil
+	}
+	if err := AppendTransaction(path, policy, func() ([]byte, error) {
+		return []byte("published"), nil
+	}, commit); err == nil {
+		t.Fatal("expected initial commit failure")
+	}
+	if err := Recover(path, commit); err == nil {
+		t.Fatal("expected repeated recovery failure")
+	}
+	if err := Recover(path, commit); err != nil {
+		t.Fatal(err)
+	}
+	if commitCalls != 3 {
+		t.Fatalf("commit calls = %d, want 3", commitCalls)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil || string(body) != "before\npublished\n" {
+		t.Fatalf("recovered live data = %q, err = %v", body, err)
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Mode().Perm() != 0o640 {
+		t.Fatalf("recovered live mode = %v, err = %v", info, err)
+	}
+	assertNoAppendJournal(t, path, policy.MaxArchives)
+}
+
+func TestResolvedTransactionCleanupDoesNotRepeatCommit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	policy := Policy{MaxBytes: 16, MaxArchives: 1}
+	if err := os.WriteFile(path, []byte("old-record\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	blockedBackup := appendBackupPath(path, 0)
+	blocker := filepath.Join(blockedBackup, "child")
+	commitCalls := 0
+	commit := func() error {
+		commitCalls++
+		if err := os.Remove(blockedBackup); err != nil {
+			return err
+		}
+		if err := os.Mkdir(blockedBackup, 0o700); err != nil {
+			return err
+		}
+		return os.WriteFile(blocker, []byte("block cleanup"), 0o600)
+	}
+	if err := AppendTransaction(path, policy, func() ([]byte, error) {
+		return []byte("new-record"), nil
+	}, commit); err == nil {
+		t.Fatal("expected injected cleanup failure")
+	}
+	journal, err := readAppendJournal(path)
+	if err != nil || journal == nil || journal.State != appendStateResolved {
+		t.Fatalf("cleanup-failed journal = %#v, err = %v", journal, err)
+	}
+	if err := os.Remove(blocker); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(blockedBackup); err != nil {
+		t.Fatal(err)
+	}
+	if err := Recover(path, func() error {
+		commitCalls++
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if commitCalls != 1 {
+		t.Fatalf("commit calls = %d, want exactly one after cleanup recovery", commitCalls)
 	}
 	assertNoAppendJournal(t, path, policy.MaxArchives)
 }
@@ -247,6 +337,7 @@ func TestAppendJournalValidationFailsClosed(t *testing.T) {
 	}{
 		{name: "version", mutate: func(j *appendJournal) { j.FormatVersion++ }},
 		{name: "state", mutate: func(j *appendJournal) { j.State = "unknown" }},
+		{name: "non-transactional committing state", mutate: func(j *appendJournal) { j.State = appendStateCommitting }},
 		{name: "policy", mutate: func(j *appendJournal) { j.MaxBytes = 0 }},
 		{name: "live size", mutate: func(j *appendJournal) { j.LiveSize = -1 }},
 		{name: "absent live with size", mutate: func(j *appendJournal) { j.LiveSize = 1 }},
@@ -353,10 +444,54 @@ func TestRecoverWithoutJournalDoesNotCreateState(t *testing.T) {
 	}
 }
 
-func TestRecoverPublishedTransactionRequiresCommitCallback(t *testing.T) {
+func TestRecoverCommittingTransactionRequiresCommitCallback(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.jsonl")
 	journal := appendJournal{
 		FormatVersion: appendJournalVersion,
+		State:         appendStateCommitting,
+		Transactional: true,
+		MaxBytes:      64,
+		MaxArchives:   1,
+	}
+	if err := writeAppendJournal(path, journal); err != nil {
+		t.Fatal(err)
+	}
+	if err := Recover(path, nil); !errors.Is(err, ErrTransactionCommitRequired) {
+		t.Fatalf("committing transaction without commit callback = %v", err)
+	}
+}
+
+func TestRecoverPublishedTransactionBeforeCommitRollsBackWithoutCallback(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	policy := Policy{MaxBytes: 64, MaxArchives: 1}
+	if err := os.WriteFile(path, []byte("before\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	journal, err := beginAppendJournal(path, policy, false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := appendRecord(path, []byte("published\n")); err != nil {
+		t.Fatal(err)
+	}
+	journal.State = appendStatePublished
+	if err := writeAppendJournal(path, journal); err != nil {
+		t.Fatal(err)
+	}
+	if err := Recover(path, nil); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil || string(body) != "before\n" {
+		t.Fatalf("callback-free rollback body = %q, err = %v", body, err)
+	}
+	assertNoAppendJournal(t, path, policy.MaxArchives)
+}
+
+func TestRecoverLegacyPublishedTransactionRequiresCommitCallback(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	journal := appendJournal{
+		FormatVersion: legacyJournalVersion,
 		State:         appendStatePublished,
 		Transactional: true,
 		MaxBytes:      64,
@@ -365,8 +500,8 @@ func TestRecoverPublishedTransactionRequiresCommitCallback(t *testing.T) {
 	if err := writeAppendJournal(path, journal); err != nil {
 		t.Fatal(err)
 	}
-	if err := Recover(path, nil); err == nil || !strings.Contains(err.Error(), "commit callback") {
-		t.Fatalf("published transaction without commit callback = %v", err)
+	if err := Recover(path, nil); !errors.Is(err, ErrTransactionCommitRequired) {
+		t.Fatalf("legacy published transaction without commit callback = %v", err)
 	}
 }
 
