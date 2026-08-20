@@ -736,8 +736,10 @@ comparison includes status, redacted identity, and required-approval identity.
 It also compares the explicit pending, approved, rejected, expired, cancelled,
 unavailable, malformed, or replayed transition when present.
 `newly_allowed` describes any less-restrictive decision, while `newly_blocked`
-describes an exact block or a transition from eligible to non-dispatchable or
-withheld. Therefore
+describes only a candidate decision that became an exact block. Eligible,
+non-dispatchable, withheld, suppressed, and recorded phase-outcome changes are
+reported independently and never reclassify warnings or approval requirements
+as blocks. Therefore
 `block -> require_approval`, `block -> warn`, and `warn -> allow` cannot
 bypass review. Newly allowed or newly blocked cases exit 2 until an
 exact reviewed delta manifest binds the case identity, current and candidate

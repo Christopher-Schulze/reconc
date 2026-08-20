@@ -198,8 +198,6 @@ func actionDeltas(current, candidate ActionObservation) []ActionDeltaKind {
 	deltas := []ActionDeltaKind{}
 	if current.Outcome.Decision != candidate.Outcome.Decision {
 		deltas = append(deltas, DeltaDecision)
-		currentPermits := actionOutcomePermits(current.Outcome.PhaseOutcome)
-		candidatePermits := actionOutcomePermits(candidate.Outcome.PhaseOutcome)
 		if candidate.Outcome.Decision.Strength() < current.Outcome.Decision.Strength() {
 			deltas = append(deltas, DeltaNewlyAllowed)
 		}
@@ -208,8 +206,7 @@ func actionDeltas(current, candidate ActionObservation) []ActionDeltaKind {
 			deltas = append(deltas, DeltaNewlyWarned)
 		case action.DecisionRequireApproval:
 			deltas = append(deltas, DeltaNewlyApprovalRequired)
-		}
-		if candidate.Outcome.Decision == action.DecisionBlock || currentPermits && !candidatePermits {
+		case action.DecisionBlock:
 			deltas = append(deltas, DeltaNewlyBlocked)
 		}
 	}
@@ -243,16 +240,6 @@ func actionDeltas(current, candidate ActionObservation) []ActionDeltaKind {
 		deltas = append(deltas, DeltaLedger)
 	}
 	return deltas
-}
-
-func actionOutcomePermits(outcome action.PhaseOutcome) bool {
-	switch outcome {
-	case action.OutcomeDispatchEligible, action.OutcomeDeliveryEligible,
-		action.OutcomeProgressEligible, action.OutcomeRecorded:
-		return true
-	default:
-		return false
-	}
 }
 
 func equalActionAssertion(left, right ActionAssertion) bool {

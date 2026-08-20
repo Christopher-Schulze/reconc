@@ -1027,7 +1027,7 @@ func TestActionAssertionAndDeltaMutationsCannotPass(t *testing.T) {
 		}, want: []ActionDeltaKind{DeltaDecision, DeltaNewlyBlocked}},
 		{name: "approval", mutate: func(value *ActionObservation) {
 			value.Outcome.Decision, value.Outcome.PhaseOutcome = action.DecisionRequireApproval, action.OutcomeDispatchBlocked
-		}, want: []ActionDeltaKind{DeltaDecision, DeltaNewlyApprovalRequired, DeltaNewlyBlocked, DeltaPhaseOutcome}},
+		}, want: []ActionDeltaKind{DeltaDecision, DeltaNewlyApprovalRequired, DeltaPhaseOutcome}},
 		{name: "blocked", mutate: func(value *ActionObservation) {
 			value.Outcome.Decision, value.Outcome.PhaseOutcome = action.DecisionBlock, action.OutcomeDispatchBlocked
 		}, want: []ActionDeltaKind{DeltaDecision, DeltaNewlyBlocked, DeltaPhaseOutcome}},

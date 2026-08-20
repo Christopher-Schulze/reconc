@@ -757,8 +757,9 @@ approval-required, and blocked changes and reason, rule-trace, cache,
 phase-outcome, completeness, tool-identity, approval-state, and failure deltas.
 `newly_allowed` means the decision became less restrictive, including
 `block -> require_approval`, `block -> warn`, and `warn -> allow`;
-`newly_blocked` means the candidate became an exact block or changed an
-eligible phase to non-dispatchable or withheld. Any newly
+`newly_blocked` means the candidate decision became an exact block. A phase
+outcome change is reported independently and never reclassifies a warning or
+approval requirement as a block. Any newly
 allowed or newly blocked action exits 2 after rendering unless
 `--delta-manifest` supplies an exact current review. Each manifest entry binds
 case ID and identity, delta class, current and candidate outcomes, candidate
