@@ -16,10 +16,10 @@ import (
 	"time"
 
 	"reconc.dev/reconc/buildprovenance"
-	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/pathidentity"
+	"reconc.dev/reconc/internal/privatefs"
 	"reconc.dev/reconc/internal/schema"
 )
 
@@ -269,7 +269,7 @@ func withReceiptLock(paths receiptPaths, operation func() error) (resultErr erro
 	if err := ensurePrivateDirectory(paths.directory); err != nil {
 		return err
 	}
-	lockFile, err := os.OpenFile(paths.lock, os.O_CREATE|os.O_RDWR, 0o600)
+	lockFile, err := privatefs.OpenLock(paths.lock)
 	if err != nil {
 		return fmt.Errorf("open installation receipt lock: %w", err)
 	}
@@ -287,21 +287,7 @@ func withReceiptLock(paths receiptPaths, operation func() error) (resultErr erro
 }
 
 func ensurePrivateDirectory(path string) error {
-	if info, err := os.Lstat(path); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-			return fmt.Errorf("installation state path is not a real directory: %s", path)
-		}
-		if err := os.Chmod(path, 0o700); err != nil {
-			return fmt.Errorf("secure installation state directory: %w", err)
-		}
-		return nil
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("inspect installation state directory: %w", err)
-	}
-	if err := os.MkdirAll(path, 0o700); err != nil {
-		return fmt.Errorf("create installation state directory: %w", err)
-	}
-	return nil
+	return privatefs.SecureDirectory(path)
 }
 
 func loadReceiptFile(path string) (*Receipt, error) {
@@ -339,7 +325,7 @@ func writeReceiptUnlocked(path string, receipt *Receipt) (bool, error) {
 	if len(body) > maxInstallationReceipt {
 		return false, fmt.Errorf("installation receipt exceeds %d bytes", maxInstallationReceipt)
 	}
-	changed, err := atomicfile.WritePrivateIfChanged(path, body, 0o600)
+	changed, err := privatefs.WritePrivateIfChanged(path, body, 0o600)
 	if err != nil {
 		return false, fmt.Errorf("publish installation receipt: %w", err)
 	}

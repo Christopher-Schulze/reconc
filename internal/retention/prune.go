@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/audit"
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/jsonl"
+	"reconc.dev/reconc/internal/privatefs"
 )
 
 type candidate struct {
@@ -64,7 +64,7 @@ func RunIfDue(options Options) Report {
 		report := runLocked(options, false)
 		if !options.DryRun {
 			body := []byte(options.Now.UTC().Format(time.RFC3339Nano) + "\n")
-			if _, err := atomicfile.WritePrivateIfChanged(marker, body, 0o600); err != nil {
+			if _, err := privatefs.WritePrivateIfChanged(marker, body, 0o600); err != nil {
 				report.Errors = append(report.Errors, fmt.Sprintf("write retention marker: %v", err))
 			}
 		}
@@ -188,12 +188,12 @@ func pruneProjectRootsInterval(options Options, force bool, report *Report) (Cla
 	if options.DryRun {
 		return pruneProjectRoots(options, report, !force), true
 	}
-	if err := os.MkdirAll(options.StateRoot, 0o700); err != nil {
+	if err := privatefs.RepairDirectory(options.StateRoot); err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("create project retention dir: %v", err))
 		return class, false
 	}
 	lockPath := filepath.Join(options.StateRoot, ProjectRootRetentionLockName)
-	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	lock, err := privatefs.OpenLock(lockPath)
 	if err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("open project retention lock: %v", err))
 		return class, false
@@ -217,7 +217,7 @@ func pruneProjectRootsInterval(options Options, force bool, report *Report) (Cla
 	}
 	class = pruneProjectRoots(options, report, !force)
 	body := []byte(options.Now.UTC().Format(time.RFC3339Nano) + "\n")
-	if _, err := atomicfile.WritePrivateIfChanged(marker, body, 0o600); err != nil {
+	if _, err := privatefs.WritePrivateIfChanged(marker, body, 0o600); err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("write project retention marker: %v", err))
 	}
 	return class, true
@@ -367,12 +367,12 @@ func pruneOwnedTempRootsInterval(options Options, force bool, report *Report) (C
 	if options.DryRun {
 		return pruneOwnedTempRoots(options, report), true
 	}
-	if err := os.MkdirAll(options.StateRoot, 0o700); err != nil {
+	if err := privatefs.RepairDirectory(options.StateRoot); err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("create global retention dir: %v", err))
 		return class, false
 	}
 	lockPath := filepath.Join(options.StateRoot, ".owned-temp-retention.lock")
-	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	lock, err := privatefs.OpenLock(lockPath)
 	if err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("open global retention lock: %v", err))
 		return class, false
@@ -397,7 +397,7 @@ func pruneOwnedTempRootsInterval(options Options, force bool, report *Report) (C
 	class = pruneOwnedTempRoots(options, report)
 	if !options.DryRun {
 		body := []byte(options.Now.UTC().Format(time.RFC3339Nano) + "\n")
-		if _, err := atomicfile.WritePrivateIfChanged(marker, body, 0o600); err != nil {
+		if _, err := privatefs.WritePrivateIfChanged(marker, body, 0o600); err != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("write global retention marker: %v", err))
 		}
 	}
@@ -427,11 +427,11 @@ func normalizeOptions(options Options) Options {
 
 func withPruneLock(options Options, run func() Report) Report {
 	project := ProjectDir(options.StateRoot, options.RepoRoot)
-	if err := os.MkdirAll(project, 0o700); err != nil {
+	if err := privatefs.RepairDirectory(project); err != nil {
 		return Report{Errors: []string{fmt.Sprintf("create retention project dir: %v", err)}}
 	}
 	path := filepath.Join(project, ".retention.lock")
-	lock, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	lock, err := privatefs.OpenLock(path)
 	if err != nil {
 		return Report{Errors: []string{fmt.Sprintf("open retention lock: %v", err)}}
 	}

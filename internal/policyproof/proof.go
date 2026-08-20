@@ -15,9 +15,9 @@ import (
 	"slices"
 	"strings"
 
-	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/pathidentity"
+	"reconc.dev/reconc/internal/privatefs"
 	"reconc.dev/reconc/internal/retention"
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/schema"
@@ -72,13 +72,10 @@ func Store(repoRoot, event, candidateFingerprint string, report *runtime.CheckRe
 		return fmt.Errorf("policy decision proof exceeds %d bytes", maxProofBytes)
 	}
 	dir := filepath.Dir(Path(repoRoot))
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create policy decision proof directory: %w", err)
-	}
-	if err := os.Chmod(dir, 0o700); err != nil {
+	if err := privatefs.SecureDirectory(dir); err != nil {
 		return fmt.Errorf("secure policy decision proof directory: %w", err)
 	}
-	if _, err := atomicfile.WritePrivateIfChanged(Path(repoRoot), body, 0o600); err != nil {
+	if _, err := privatefs.WritePrivateIfChanged(Path(repoRoot), body, 0o600); err != nil {
 		return fmt.Errorf("write policy decision proof: %w", err)
 	}
 	return nil

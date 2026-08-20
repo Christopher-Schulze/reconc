@@ -12,6 +12,7 @@ import (
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/pathidentity"
+	"reconc.dev/reconc/internal/privatefs"
 )
 
 const StateLockTimeout = 2 * time.Second
@@ -46,30 +47,7 @@ func ensurePrivateDirectory(path string) error {
 	if !filepath.IsAbs(path) {
 		return fmt.Errorf("private directory path must be absolute")
 	}
-	info, err := os.Lstat(path)
-	created := false
-	if errors.Is(err, os.ErrNotExist) {
-		if err := os.MkdirAll(path, 0o700); err != nil {
-			return fmt.Errorf("create private directory %s: %w", path, err)
-		}
-		created = true
-		info, err = os.Lstat(path)
-	}
-	if err != nil {
-		return fmt.Errorf("inspect private directory %s: %w", path, err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return fmt.Errorf("private path %s must be a non-symlink directory", path)
-	}
-	if created {
-		if err := secureDirectoryMode(path, info.Mode()); err != nil {
-			return fmt.Errorf("secure private directory %s: %w", path, err)
-		}
-	}
-	if err := validatePrivateDirectory(path); err != nil {
-		return fmt.Errorf("validate private directory %s: %w", path, err)
-	}
-	return nil
+	return privatefs.SecureDirectory(path)
 }
 
 func ensurePrivateSubdirectories(base string, names ...string) (string, error) {
@@ -206,82 +184,19 @@ func acquirePrivateFileLock(ctx context.Context, path string, timeout time.Durat
 }
 
 func openPrivateLockFile(path string) (*os.File, error) {
-	if info, err := os.Lstat(path); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			return nil, fmt.Errorf("lock path %s must be a non-symlink regular file", path)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("inspect lock path %s: %w", path, err)
-	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return nil, fmt.Errorf("open private lock %s: %w", path, err)
-	}
-	opened, statErr := file.Stat()
-	current, lstatErr := os.Lstat(path)
-	if statErr != nil || lstatErr != nil || !opened.Mode().IsRegular() ||
-		current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() ||
-		!os.SameFile(opened, current) {
-		if statErr == nil && lstatErr == nil {
-			statErr = fmt.Errorf("lock path changed identity while opening")
-		}
-		return nil, errors.Join(statErr, lstatErr, file.Close())
-	}
-	if err := securePrivateFileMode(path, opened.Mode()); err != nil {
-		return nil, errors.Join(fmt.Errorf("secure private lock %s: %w", path, err), file.Close())
-	}
-	secured, err := file.Stat()
-	if err != nil {
-		return nil, errors.Join(fmt.Errorf("inspect secured private lock %s: %w", path, err), file.Close())
-	}
-	if err := validatePrivateFile(file, secured); err != nil {
-		return nil, errors.Join(fmt.Errorf("validate private lock %s: %w", path, err), file.Close())
-	}
-	return file, nil
+	return privatefs.OpenLock(path)
 }
 
 func openExistingPrivateLockFile(path string) (*os.File, error) {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return nil, fmt.Errorf("inspect existing lock path %s: %w", path, err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("lock path %s must be a non-symlink regular file", path)
-	}
-	file, err := os.OpenFile(path, os.O_RDWR, 0)
-	if err != nil {
-		return nil, fmt.Errorf("open existing private lock %s: %w", path, err)
-	}
-	opened, statErr := file.Stat()
-	current, lstatErr := os.Lstat(path)
-	if statErr != nil || lstatErr != nil || !opened.Mode().IsRegular() ||
-		current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() ||
-		!os.SameFile(opened, current) {
-		if statErr == nil && lstatErr == nil {
-			statErr = fmt.Errorf("lock path changed identity while opening")
-		}
-		return nil, errors.Join(statErr, lstatErr, file.Close())
-	}
-	if err := validatePrivateFile(file, opened); err != nil {
-		return nil, errors.Join(fmt.Errorf("validate existing private lock %s: %w", path, err), file.Close())
-	}
-	return file, nil
+	return privatefs.OpenExistingLock(path)
 }
 
 func securePublishedPrivateFile(path string) error {
-	info, err := os.Lstat(path)
+	file, err := privatefs.OpenExistingLock(path)
 	if err != nil {
 		return err
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return fmt.Errorf("private publication target must be a non-symlink regular file")
-	}
-	if err := securePrivateFileMode(path, info.Mode()); err != nil {
-		return err
-	}
-	return boundedio.WithRegularFileSnapshot(path, MaxStateTransaction, func(file *os.File, opened os.FileInfo) error {
-		return validatePrivateFile(file, opened)
-	})
+	return file.Close()
 }
 
 func (l *heldLock) close() error {

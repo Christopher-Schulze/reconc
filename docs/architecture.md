@@ -108,6 +108,7 @@ internal/
   mcpgateway/     tools-only MCP stdio enforcement, SDK boundary, child ownership, and orchestration
   parser/         YAML-to-Rule validation + template expansion + scope expansion
   pathidentity/   Unix symlink + Windows reparse/8.3 filesystem identity
+  privatefs/      shared private-directory, lock, owner/mode, hard-link, and descriptor boundary
   policy/         Rule / Scope / Source / Kind / Mode types
   policyproof/    tamper-evident unresolved policy-decision receipts
   presets/        bundled policy packs (embed.FS) + user overlays
@@ -884,6 +885,19 @@ API and create them with `0700`. The macOS `/var`-style filesystem-root alias
 is canonicalized before binding, while nested publication symlinks remain
 rejected. Unix uses rooted rename plus directory fsync; Windows uses rooted
 replacement and flushes the temporary file before publication.
+
+### Private state filesystem boundary
+
+`internal/privatefs` is the shared boundary for Reconc-owned state directories,
+lock files, and private marker/proof publication. It creates components one at
+a time, rejects symlink and irregular entries, repairs only the intended final
+directory through an opened descriptor when legacy state requires migration,
+and validates owner, mode, ACL/security descriptor, and single-link ownership.
+Lock creation opens the exact regular inode with create-only semantics, applies
+private mode/security through the descriptor, and revalidates the directory
+entry before returning it. Action state, installation receipts, retention,
+command proofs, and unresolved policy proofs use this boundary; their paths,
+filenames, retention policy, and public JSON contracts are unchanged.
 
 ### Incremental Stop decision cache
 

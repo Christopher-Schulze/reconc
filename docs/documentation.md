@@ -456,6 +456,14 @@ UTC installation time. Native installers and explicit source `install-cli`
 calls publish it only after checksum, executable, version, and PATH identity
 pass. `install-cli` cannot claim an unsupported ownership type.
 
+Private state directories and locks are created through the shared
+`internal/privatefs` boundary. It rejects symlink, irregular, wrong-owner, and
+unexpected hard-link objects; applies private mode/security through opened
+descriptors; and revalidates identities before a lock is returned. Legacy
+private directories may be repaired only at their intended boundary. Receipt,
+retention, command-proof, policy-proof, and action-state paths retain their
+existing locations, names, retention behavior, and JSON contracts.
+
 `reconc doctor --global [--json] [--output PATH]` is the read-only authority
 for that state. It independently inspects the running executable, bare PATH
 resolution, canonical target, additional PATH candidates, receipt checksum,

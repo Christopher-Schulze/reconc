@@ -18,10 +18,10 @@ import (
 	"strings"
 	"time"
 
-	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/pathidentity"
+	"reconc.dev/reconc/internal/privatefs"
 	"reconc.dev/reconc/internal/retention"
 )
 
@@ -173,14 +173,11 @@ func StoreSuccess(snapshot Snapshot, command, executionMode string, startedAt, c
 		return Proof{}, fmt.Errorf("command proof exceeds %d bytes", maxProofSize)
 	}
 	dir := proofDir(snapshot.RepoRoot)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return Proof{}, fmt.Errorf("create command proof directory: %w", err)
-	}
-	if err := os.Chmod(dir, 0o700); err != nil {
+	if err := privatefs.SecureDirectory(dir); err != nil {
 		return Proof{}, fmt.Errorf("secure command proof directory: %w", err)
 	}
 	path := filepath.Join(dir, proofIdentity(proof)+".json")
-	if _, err := atomicfile.WritePrivateIfChanged(path, data, 0o600); err != nil {
+	if _, err := privatefs.WritePrivateIfChanged(path, data, 0o600); err != nil {
 		return Proof{}, fmt.Errorf("write command proof: %w", err)
 	}
 	retention.RunIfDue(retention.Options{RepoRoot: snapshot.RepoRoot, StateRoot: retention.ResolveStateRoot()})
@@ -253,13 +250,10 @@ func proofDir(repoRoot string) string {
 
 func capture(repoRoot string) (Snapshot, error) {
 	project := retention.ProjectDir(retention.ResolveStateRoot(), repoRoot)
-	if err := os.MkdirAll(project, 0o700); err != nil {
-		return Snapshot{}, fmt.Errorf("create command proof state directory: %w", err)
-	}
-	if err := os.Chmod(project, 0o700); err != nil {
+	if err := privatefs.SecureDirectory(project); err != nil {
 		return Snapshot{}, fmt.Errorf("secure command proof state directory: %w", err)
 	}
-	lock, err := os.OpenFile(filepath.Join(project, "command-proof.snapshot.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	lock, err := privatefs.OpenLock(filepath.Join(project, "command-proof.snapshot.lock"))
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("open command proof snapshot lock: %w", err)
 	}
