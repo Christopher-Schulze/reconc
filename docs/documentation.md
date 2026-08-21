@@ -3642,8 +3642,11 @@ Security posture:
   equivalent clones and worktrees share the portable `.` identity.
 - Current lockfiles carry a self-digest over the canonical payload, bind the
   complete source identities with `source_digest`, and decode into a strict
-  typed runtime plan. Migrated legacy locks additionally prove embedded-rule
-  and MCP parity against reparsed current sources.
+  typed runtime plan. Runtime path patterns are validated during that plan
+  build and retained as bounded immutable matcher programs; patterns outside
+  the compiled-memory admission budget retain a validated doublestar fallback.
+  Migrated legacy locks additionally prove embedded-rule and MCP parity against
+  reparsed current sources.
 
 Reconc is a deterministic repository control plane, not an operating-system
 sandbox. A deliberately hostile same-user process can replace local policy,

@@ -26,6 +26,7 @@ type evalContext struct {
 	rawCommands     []string
 	currentCommands []string
 	preCommand      bool
+	matchers        *runtimePathMatchers
 }
 
 // AssertRuleByID evaluates a SINGLE rule (selected by id) against the
@@ -232,6 +233,7 @@ func evaluateRuntimePlan(root string, plan *runtimePlan, inputs ExecutionInputs,
 		rawCommands:     normalized.rawCommands,
 		currentCommands: normalized.currentCommands,
 		preCommand:      preCommand,
+		matchers:        plan.pathMatchers,
 	}
 	ruleIndexes := plan.indexesFor(allowedKinds, preCommand)
 	rules := make([]*policy.Rule, 0, len(ruleIndexes))
@@ -330,7 +332,7 @@ func evaluateBatchedRequireScripts(ctx *evalContext, rules []*policy.Rule, defau
 		if !ok {
 			continue
 		}
-		scopeMatches, scopeErr := ruleScopeMatches(rule, inputs)
+		scopeMatches, scopeErr := ruleScopeMatchesWithMatchers(ctx.matchers, rule, inputs)
 		if scopeErr != nil || !scopeMatches {
 			// Scope errors remain owned by evaluateRule so they produce the
 			// established fail-closed synthetic violation. A definite scope
@@ -907,6 +909,10 @@ func dedupePreservingOrder(values []string) []string {
 // blocking violation so policy authors can't accidentally or
 // maliciously neutralise a rule by corrupting its scope.
 func ruleScopeMatches(rule *policy.Rule, inputs ExecutionInputs) (bool, error) {
+	return ruleScopeMatchesWithMatchers(nil, rule, inputs)
+}
+
+func ruleScopeMatchesWithMatchers(matchers *runtimePathMatchers, rule *policy.Rule, inputs ExecutionInputs) (bool, error) {
 	if len(rule.ScopePaths) == 0 {
 		return true, nil // global rule
 	}
@@ -915,7 +921,7 @@ func ruleScopeMatches(rule *policy.Rule, inputs ExecutionInputs) (bool, error) {
 	// match and propagate up so the rule evaluator can convert them
 	// into a block-severity synthetic violation.
 	for _, p := range inputs.WritePaths {
-		_, matched, err := MatchAny(rule.ScopePaths, p)
+		_, matched, err := matchAnyPaths(matchers, rule.ScopePaths, p)
 		if err != nil {
 			return false, fmt.Errorf("scope_paths pattern error on input %q: %w", p, err)
 		}
@@ -924,7 +930,7 @@ func ruleScopeMatches(rule *policy.Rule, inputs ExecutionInputs) (bool, error) {
 		}
 	}
 	for _, p := range inputs.ReadPaths {
-		_, matched, err := MatchAny(rule.ScopePaths, p)
+		_, matched, err := matchAnyPaths(matchers, rule.ScopePaths, p)
 		if err != nil {
 			return false, fmt.Errorf("scope_paths pattern error on input %q: %w", p, err)
 		}
@@ -949,7 +955,7 @@ func evaluateRule(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, 
 	// Scope pattern errors surface as a synthetic blocking violation
 	// ("scope-pattern-error") rather than silently skipping the rule.
 	// A malformed scope_paths in the lockfile must NOT neutralise a rule.
-	matched, err := ruleScopeMatches(rule, inputs)
+	matched, err := ruleScopeMatchesWithMatchers(ctx.matchers, rule, inputs)
 	if err != nil {
 		return &Violation{
 			RuleID:            rule.ID,
@@ -966,13 +972,13 @@ func evaluateRule(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, 
 
 	switch rule.Kind {
 	case policy.KindDenyWrite:
-		return evalDenyWrite(rule, defaultMode, inputs)
+		return evalDenyWrite(ctx, rule, defaultMode, inputs)
 	case policy.KindRequireRead:
-		return evalRequireRead(rule, defaultMode, inputs)
+		return evalRequireRead(ctx, rule, defaultMode, inputs)
 	case policy.KindCoupleChange:
-		return evalCoupleChange(rule, defaultMode, inputs)
+		return evalCoupleChange(ctx, rule, defaultMode, inputs)
 	case policy.KindRequireClaim:
-		return evalRequireClaim(rule, defaultMode, inputs)
+		return evalRequireClaim(ctx, rule, defaultMode, inputs)
 	case policy.KindForbidCommand:
 		return evalForbidCommand(ctx, rule, defaultMode, inputs)
 	case policy.KindRequireCommand:
@@ -998,7 +1004,7 @@ func evaluateRule(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, 
 }
 
 func evalRequireAssurance(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
-	triggered, err := matchingPaths(inputs.WritePaths, stringListField(rule, "when_paths"))
+	triggered, err := matchingPathsWithMatchers(ctx.matchers, inputs.WritePaths, stringListField(rule, "when_paths"))
 	if err != nil {
 		return nil, err
 	}
@@ -1423,9 +1429,9 @@ func quote(s string) string {
 	return `"` + s + `"`
 }
 
-func evalDenyWrite(rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
+func evalDenyWrite(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
 	patterns := stringListField(rule, "paths")
-	matched, err := matchingPaths(inputs.WritePaths, patterns)
+	matched, err := matchingPathsWithMatchers(ctx.matchers, inputs.WritePaths, patterns)
 	if err != nil {
 		return nil, err
 	}
@@ -1435,8 +1441,8 @@ func evalDenyWrite(rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionI
 	return buildViolation(rule, defaultMode, matched, nil, nil, nil, nil, nil), nil
 }
 
-func evalRequireRead(rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
-	triggered, err := matchingPaths(inputs.WritePaths, stringListField(rule, "paths"))
+func evalRequireRead(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
+	triggered, err := matchingPathsWithMatchers(ctx.matchers, inputs.WritePaths, stringListField(rule, "paths"))
 	if err != nil {
 		return nil, err
 	}
@@ -1444,7 +1450,7 @@ func evalRequireRead(rule *policy.Rule, defaultMode policy.Mode, inputs Executio
 		return nil, nil
 	}
 	required := stringListField(rule, "before_paths")
-	matchedReads, err := matchingPaths(inputs.ReadPaths, required)
+	matchedReads, err := matchingPathsWithMatchers(ctx.matchers, inputs.ReadPaths, required)
 	if err != nil {
 		return nil, err
 	}
@@ -1454,8 +1460,8 @@ func evalRequireRead(rule *policy.Rule, defaultMode policy.Mode, inputs Executio
 	return buildViolation(rule, defaultMode, triggered, nil, nil, required, nil, nil), nil
 }
 
-func evalCoupleChange(rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
-	triggered, err := matchingPaths(inputs.WritePaths, stringListField(rule, "paths"))
+func evalCoupleChange(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
+	triggered, err := matchingPathsWithMatchers(ctx.matchers, inputs.WritePaths, stringListField(rule, "paths"))
 	if err != nil {
 		return nil, err
 	}
@@ -1463,7 +1469,7 @@ func evalCoupleChange(rule *policy.Rule, defaultMode policy.Mode, inputs Executi
 		return nil, nil
 	}
 	required := stringListField(rule, "when_paths")
-	coupled, err := matchingPaths(inputs.WritePaths, required)
+	coupled, err := matchingPathsWithMatchers(ctx.matchers, inputs.WritePaths, required)
 	if err != nil {
 		return nil, err
 	}
@@ -1473,8 +1479,8 @@ func evalCoupleChange(rule *policy.Rule, defaultMode policy.Mode, inputs Executi
 	return buildViolation(rule, defaultMode, triggered, nil, nil, required, nil, nil), nil
 }
 
-func evalRequireClaim(rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
-	triggered, err := matchingPaths(inputs.WritePaths, stringListField(rule, "when_paths"))
+func evalRequireClaim(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
+	triggered, err := matchingPathsWithMatchers(ctx.matchers, inputs.WritePaths, stringListField(rule, "when_paths"))
 	if err != nil {
 		return nil, err
 	}
@@ -1499,7 +1505,7 @@ func evalForbidCommand(ctx *evalContext, rule *policy.Rule, defaultMode policy.M
 	triggered := []string{}
 	if len(whenPatterns) > 0 {
 		var err error
-		triggered, err = matchingPaths(inputs.WritePaths, whenPatterns)
+		triggered, err = matchingPathsWithMatchers(ctx.matchers, inputs.WritePaths, whenPatterns)
 		if err != nil {
 			return nil, err
 		}
@@ -1554,7 +1560,7 @@ func rawCommandsPreservingSyntax(commands []string, results []CommandResult) []s
 }
 
 func evalRequireCommand(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs, requireSuccess bool) (*Violation, error) {
-	triggered, err := matchingPaths(inputs.WritePaths, stringListField(rule, "when_paths"))
+	triggered, err := matchingPathsWithMatchers(ctx.matchers, inputs.WritePaths, stringListField(rule, "when_paths"))
 	if err != nil {
 		return nil, err
 	}
@@ -1589,12 +1595,16 @@ func ctxRepoRoot(ctx *evalContext) string {
 // --- Match helpers (operate on already-normalized inputs) ---
 
 func matchingPaths(paths, patterns []string) ([]string, error) {
+	return matchingPathsWithMatchers(nil, paths, patterns)
+}
+
+func matchingPathsWithMatchers(matchers *runtimePathMatchers, paths, patterns []string) ([]string, error) {
 	if len(patterns) == 0 || len(paths) == 0 {
 		return nil, nil
 	}
 	out := []string{}
 	for _, p := range paths {
-		_, ok, err := MatchAny(patterns, p)
+		_, ok, err := matchAnyPaths(matchers, patterns, p)
 		if err != nil {
 			return nil, err
 		}

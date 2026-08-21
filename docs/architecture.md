@@ -484,7 +484,10 @@ and byte-compares the notice before checksums and provenance are accepted.
      reparse sources and prove exact embedded rule and canonical-action parity.
    - The validated payload is decoded once into an immutable typed runtime plan.
      ID, kind, pre-command composite, and scope metadata are indexed before any
-     evidence is evaluated; malformed or unknown typed fields fail closed.
+     evidence is evaluated; malformed or unknown typed fields fail closed. The
+     plan also validates every runtime path pattern once and retains bounded,
+     immutable matcher programs for repeated scope and evidence comparisons;
+     the lockfile wire format is unchanged.
    - Normalises the input paths against the repo root.
    - For each rule in the lockfile: applies the scope filter
      (`ruleScopeMatches`), then dispatches to the per-kind

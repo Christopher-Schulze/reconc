@@ -187,7 +187,7 @@ func evalCheck(ctx *evalContext, c policy.Check, captures map[string]string, inp
 	case policy.KindForbidCommand:
 		return evalCheckForbidCommand(ctx, c, inputs)
 	case policy.KindDenyWrite:
-		return evalCheckDenyWrite(c, inputs)
+		return evalCheckDenyWrite(ctx, c, inputs)
 	case policy.KindRequireScript:
 		return evalCheckRequireScript(ctx, c, captures, inputs)
 	}
@@ -347,8 +347,8 @@ func evalCheckForbidCommand(ctx *evalContext, c policy.Check, inputs ExecutionIn
 	return false, "forbidden command(s) ran: " + strings.Join(hit, ", "), nil
 }
 
-func evalCheckDenyWrite(c policy.Check, inputs ExecutionInputs) (bool, string, error) {
-	matched, err := matchingPaths(inputs.WritePaths, c.Paths)
+func evalCheckDenyWrite(ctx *evalContext, c policy.Check, inputs ExecutionInputs) (bool, string, error) {
+	matched, err := matchingPathsWithMatchers(ctx.matchers, inputs.WritePaths, c.Paths)
 	if err != nil {
 		return false, "", err
 	}

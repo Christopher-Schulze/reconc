@@ -83,6 +83,24 @@ func compileGlob(pattern string) (*CompiledGlob, error) {
 	return &CompiledGlob{pattern: pattern, programs: programs, logicalBytes: logicalBytes}, nil
 }
 
+// CompileGlob builds an immutable glob program from validated doublestar
+// syntax. The returned matcher is safe for concurrent read-only Match calls.
+// Callers should compile policy-owned patterns once and retain the program
+// rather than reparsing the same pattern for every candidate value.
+func CompileGlob(pattern string) (*CompiledGlob, error) {
+	return compileGlob(pattern)
+}
+
+// LogicalBytes reports the bounded admission cost of the immutable matcher
+// program. It lets higher-level plans cap aggregate compiled matcher memory
+// without exposing the program's internal token layout.
+func (g *CompiledGlob) LogicalBytes() int {
+	if g == nil {
+		return 0
+	}
+	return g.logicalBytes
+}
+
 func expandGlobAlternatives(pattern string) ([]globExpansion, error) {
 	initial := globExpansion{
 		pattern: pattern, zeroOverrides: map[int]bool{}, starOverrides: map[int]globStarShape{}, segmentResets: map[int]bool{},

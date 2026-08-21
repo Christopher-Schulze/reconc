@@ -81,7 +81,7 @@ func (e *CompiledPolicyEvaluator) CheckWithTrace(repoRoot string, inputs Executi
 	if err != nil {
 		return nil, EvaluationMetrics{}, EvaluationTrace{}, err
 	}
-	matched, err := matchedRuleIDs(repoRoot, e.plan.rules, report.Inputs, inputs)
+	matched, err := matchedRuleIDs(repoRoot, e.plan.pathMatchers, e.plan.rules, report.Inputs, inputs)
 	if err != nil {
 		return nil, EvaluationMetrics{}, EvaluationTrace{}, err
 	}
@@ -266,10 +266,11 @@ func requireScriptBoundaryCount(rule *policy.Rule) int {
 	return count
 }
 
-func matchedRuleIDs(repoRoot string, rules []policy.Rule, normalized, original ExecutionInputs) ([]string, error) {
+func matchedRuleIDs(repoRoot string, matchers *runtimePathMatchers, rules []policy.Rule, normalized, original ExecutionInputs) ([]string, error) {
 	ctx := &evalContext{
 		repoRoot:    repoRoot,
 		rawCommands: rawCommandsPreservingSyntax(original.Commands, original.CommandResults),
+		matchers:    matchers,
 	}
 	ids := []string{}
 	for index := range rules {
@@ -286,7 +287,7 @@ func matchedRuleIDs(repoRoot string, rules []policy.Rule, normalized, original E
 }
 
 func ruleTriggerMatches(ctx *evalContext, rule *policy.Rule, inputs ExecutionInputs) (bool, error) {
-	scopeMatched, err := ruleScopeMatches(rule, inputs)
+	scopeMatched, err := ruleScopeMatchesWithMatchers(ctx.matchers, rule, inputs)
 	if err != nil {
 		return true, nil
 	}
@@ -296,9 +297,9 @@ func ruleTriggerMatches(ctx *evalContext, rule *policy.Rule, inputs ExecutionInp
 	var paths []string
 	switch rule.Kind {
 	case policy.KindDenyWrite:
-		paths, err = matchingPaths(inputs.WritePaths, rule.Paths)
+		paths, err = matchingPathsWithMatchers(ctx.matchers, inputs.WritePaths, rule.Paths)
 	case policy.KindRequireRead, policy.KindCoupleChange:
-		paths, err = matchingPaths(inputs.WritePaths, rule.Paths)
+		paths, err = matchingPathsWithMatchers(ctx.matchers, inputs.WritePaths, rule.Paths)
 	case policy.KindForbidCommand:
 		commands := matchingForbiddenCommands(ctx.rawCommands, rule.Commands, ctx.repoRoot, rule.CommandMatch)
 		if len(commands) == 0 {
@@ -307,14 +308,14 @@ func ruleTriggerMatches(ctx *evalContext, rule *policy.Rule, inputs ExecutionInp
 		if len(rule.WhenPaths) == 0 {
 			return true, nil
 		}
-		paths, err = matchingPaths(inputs.WritePaths, rule.WhenPaths)
+		paths, err = matchingPathsWithMatchers(ctx.matchers, inputs.WritePaths, rule.WhenPaths)
 	case policy.KindRequireFreshFile, policy.KindRequireEvidence,
 		policy.KindAllOf, policy.KindAnyOf, policy.KindNot, policy.KindRequireScript:
 		var contexts []matchContext
 		contexts, err = collectMatchContexts(inputs.WritePaths, rule.WhenPaths)
 		return len(contexts) > 0, err
 	default:
-		paths, err = matchingPaths(inputs.WritePaths, rule.WhenPaths)
+		paths, err = matchingPathsWithMatchers(ctx.matchers, inputs.WritePaths, rule.WhenPaths)
 	}
 	return len(paths) > 0, err
 }
