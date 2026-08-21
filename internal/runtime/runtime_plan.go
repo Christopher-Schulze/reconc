@@ -24,13 +24,19 @@ import (
 // the public one-shot behavior; the hook worker keeps one evaluator for its
 // lifetime so unchanged repositories skip lock JSON decoding and plan build.
 type Evaluator struct {
-	mu    sync.Mutex
-	plans map[string]runtimePlanCacheEntry
+	mu        sync.Mutex
+	plans     map[string]runtimePlanCacheEntry
+	useSerial uint64
 }
 
+const maxRuntimePlanCacheEntries = 32
+
 type runtimePlanCacheEntry struct {
-	lockHash [sha256.Size]byte
-	plan     *runtimePlan
+	lockHash       [sha256.Size]byte
+	freshness      [sha256.Size]byte
+	freshnessValid bool
+	lastUsed       uint64
+	plan           *runtimePlan
 }
 
 type runtimePlan struct {
@@ -44,6 +50,7 @@ type runtimePlan struct {
 	sourceCount          int
 	actions              *action.CompiledPlan
 	customRuntimeDigests map[string]string
+	sources              []runtimeSource
 }
 
 type runtimeEnvelope struct {
@@ -101,6 +108,18 @@ func (e *Evaluator) loadRuntimePlan(root string) (*runtimePlan, error) {
 		return nil, err
 	}
 	lockHash := sha256.Sum256(data)
+	if cached, ok := e.plans[root]; ok {
+		if cached.lockHash == lockHash && cached.freshnessValid {
+			freshness, freshnessErr := observeRuntimeSourceFreshness(root, cached.plan)
+			if freshnessErr == nil && freshness == cached.freshness {
+				e.useSerial++
+				cached.lastUsed = e.useSerial
+				e.plans[root] = cached
+				return cached.plan, nil
+			}
+		}
+		delete(e.plans, root)
+	}
 	bundle, err := ingest.LoadPolicySources(root)
 	if err != nil {
 		delete(e.plans, root)
@@ -110,13 +129,6 @@ func (e *Evaluator) loadRuntimePlan(root string) (*runtimePlan, error) {
 	if err != nil {
 		delete(e.plans, root)
 		return nil, &rerrors.LockfileError{Message: "compute current source digest", Cause: err}
-	}
-	if cached, ok := e.plans[root]; ok && cached.lockHash == lockHash {
-		if cached.plan.sourceCount != len(bundle.Sources) || cached.plan.sourceDigest != currentDigest {
-			delete(e.plans, root)
-			return nil, &rerrors.LockfileError{Message: "compiled lockfile source_digest does not match the current policy sources"}
-		}
-		return cached.plan, nil
 	}
 
 	lock, err := decodeLockfile(data)
@@ -134,8 +146,33 @@ func (e *Evaluator) loadRuntimePlan(root string) (*runtimePlan, error) {
 		delete(e.plans, root)
 		return nil, err
 	}
-	e.plans[root] = runtimePlanCacheEntry{lockHash: lockHash, plan: plan}
+	freshness, freshnessErr := observeRuntimeSourceFreshnessFromBundle(root, plan, bundle)
+	e.useSerial++
+	e.evictRuntimePlanCache(root)
+	e.plans[root] = runtimePlanCacheEntry{
+		lockHash: lockHash, freshness: freshness, freshnessValid: freshnessErr == nil,
+		lastUsed: e.useSerial, plan: plan,
+	}
 	return plan, nil
+}
+
+func (e *Evaluator) evictRuntimePlanCache(incomingRoot string) {
+	if len(e.plans) < maxRuntimePlanCacheEntries {
+		return
+	}
+	var oldestRoot string
+	var oldest uint64
+	for root, entry := range e.plans {
+		if root == incomingRoot {
+			continue
+		}
+		if oldestRoot == "" || entry.lastUsed < oldest {
+			oldestRoot, oldest = root, entry.lastUsed
+		}
+	}
+	if oldestRoot != "" {
+		delete(e.plans, oldestRoot)
+	}
 }
 
 func compileRuntimePlan(payload map[string]interface{}) (*runtimePlan, error) {
@@ -201,6 +238,7 @@ func compileRuntimePlan(payload map[string]interface{}) (*runtimePlan, error) {
 		sourceCount:          envelope.SourceCount,
 		actions:              actions,
 		customRuntimeDigests: customRuntimeDigests,
+		sources:              append([]runtimeSource(nil), envelope.Sources...),
 	}
 	for index := range plan.rules {
 		rule := &plan.rules[index]

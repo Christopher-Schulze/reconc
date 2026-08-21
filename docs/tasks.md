@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 182 Preserve source freshness on runtime-plan cache hits -> tasks/182-preserve-source-freshness-on-runtime-plan-cache-hits.md
 - [ ] 183 Precompile runtime path matchers -> tasks/183-precompile-runtime-path-matchers.md
 - [ ] 184 Precompile runtime template matchers -> tasks/184-precompile-runtime-template-matchers.md
 - [ ] 185 Compile expected shell invocations once -> tasks/185-compile-expected-shell-invocations-once.md
@@ -47,6 +46,7 @@
 
 ## Done
 
+- [x] 182 Preserve source freshness on runtime-plan cache hits -> tasks/done/182-preserve-source-freshness-on-runtime-plan-cache-hits.md
 - [x] 181 Store audit evidence with a private JSONL layout -> tasks/done/181-store-audit-evidence-with-a-private-jsonl-layout.md
 - [x] 180 Bound and cancel production file-lock acquisition -> tasks/done/180-bound-and-cancel-production-file-lock-acquisition.md
 - [x] 179 Unify secure private state and lock publication -> tasks/done/179-unify-secure-private-state-and-lock-publication.md
@@ -56,4 +56,3 @@
 - [x] 175 Distinguish warned and blocked action deltas -> tasks/done/175-distinguish-warned-and-blocked-action-deltas.md
 - [x] 174 Recover failed transactional JSONL commits -> tasks/done/174-recover-failed-transactional-jsonl-commits.md
 - [x] 173 Reconcile CodeQL findings -> tasks/done/173-reconcile-codeql-findings.md
-- [x] 172 Make LangChain MCP a prominent release-blocking feature -> tasks/done/172-make-langchain-mcp-release-blocking.md
