@@ -58,7 +58,7 @@ func TestScanReportsSizes(t *testing.T) {
 	if r.TotalBytes != 5000 {
 		t.Errorf("expected 5000 total bytes, got %d", r.TotalBytes)
 	}
-	expectedTokens := (1000 + 4000) / BytesPerTokenEstimate
+	expectedTokens := int64(1000+4000) / BytesPerTokenEstimate
 	if r.TotalApproxTokens != expectedTokens {
 		t.Errorf("expected %d approx tokens, got %d", expectedTokens, r.TotalApproxTokens)
 	}
@@ -173,5 +173,62 @@ func TestApproxTokensBoundary(t *testing.T) {
 	}
 	if approxTokens(1) != 1 || approxTokens(5) != 2 {
 		t.Errorf("non-empty files must round up: 1 byte=%d, 5 bytes=%d", approxTokens(1), approxTokens(5))
+	}
+	if got := approxTokens(maxInt64Value); got <= 0 || got != (maxInt64Value-1)/BytesPerTokenEstimate+1 {
+		t.Fatalf("maximum int64 token estimate = %d", got)
+	}
+	if got := saturatingAdd(maxInt64Value-1, 10); got != maxInt64Value {
+		t.Fatalf("saturating addition wrapped: %d", got)
+	}
+	if got := saturatingAdd(10, 20); got != 30 {
+		t.Fatalf("saturating addition changed ordinary sum: %d", got)
+	}
+}
+
+func TestScanBoundsDuplicateFloodBeforeFilesystemWork(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	files := make([]string, MaxContextFiles)
+	for index := range files {
+		files[index] = "missing.md"
+	}
+	report := scan(t, repo, files, 100)
+	if len(report.Files) != 1 {
+		t.Fatalf("duplicate flood retained %d files", len(report.Files))
+	}
+	tooMany := append(files, "another.md")
+	if _, err := Scan(repo, tooMany, 100); err == nil {
+		t.Fatal("file-count limit was not enforced before scanning")
+	}
+}
+
+func TestScanSparseHugeFileIsExplicitlyOverBudget(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	path := filepath.Join(repo, "sparse.md")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(1 << 40); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	report := scan(t, repo, []string{"sparse.md"}, 100)
+	if !report.OverBudget || len(report.Files) != 1 || report.Files[0].SizeBytes != 1<<40 {
+		t.Fatalf("sparse file report = %+v", report)
+	}
+}
+
+func TestNormalizeContextPathLengthBoundary(t *testing.T) {
+	t.Parallel()
+	if _, err := normalizeContextPath(strings.Repeat("a", MaxContextPathBytes)); err != nil {
+		t.Fatalf("maximum path length rejected: %v", err)
+	}
+	if _, err := normalizeContextPath(strings.Repeat("a", MaxContextPathBytes+1)); err == nil {
+		t.Fatal("overlong context path was accepted")
 	}
 }

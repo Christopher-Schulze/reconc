@@ -2,7 +2,7 @@
 
 ## Active
 
-- [~] 216 Make context-size accounting bounded and overflow-safe -> tasks/216-make-context-size-accounting-bounded-and-overflow-safe.md
+- [~] 217 Make extracted rule identifiers collision-resistant -> tasks/217-make-extracted-rule-identifiers-collision-resistant.md
 
 ## Queue
 
@@ -19,6 +19,7 @@
 
 ## Done
 
+- [x] 216 Make context-size accounting bounded and overflow-safe -> tasks/done/216-make-context-size-accounting-bounded-and-overflow-safe.md
 - [x] 215 Enforce harness-pack limits before retaining payloads -> tasks/done/215-enforce-harness-pack-limits-before-retaining-payloads.md
 - [x] 214 Deduplicate runtime evidence in linear time -> tasks/done/214-deduplicate-runtime-evidence-in-linear-time.md
 - [x] 213 Compute action argument size once per evaluation -> tasks/done/213-compute-action-argument-size-once-per-evaluation.md

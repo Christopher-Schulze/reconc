@@ -566,6 +566,9 @@ and byte-compares the notice before checksums and provenance are accepted.
      Harness-pack build and archive load validate canonical inventories before
      payload retention, enforce per-file and remaining aggregate byte budgets
      on every read, and compare actual decompressed bytes with the manifest.
+     Context-size accounting bounds requested paths before filesystem work,
+     reports token and byte totals in 64-bit JSON fields with saturating sums,
+     and inspects only stable contained regular-file identities.
    - Normalises the input paths against the repo root.
    - For each rule in the lockfile: applies the scope filter
      (`ruleScopeMatches`), then dispatches to the per-kind
