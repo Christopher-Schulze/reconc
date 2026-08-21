@@ -1003,6 +1003,12 @@ storage reuse that immutable result. A final bounded byte-hash comparison is a
 post-observation barrier; lock mutation or unreadability invalidates the scan
 and prevents report reuse or cache publication. No scan state crosses workers
 or repositories.
+Each attempt phase also carries a typed `stopPolicyAttemptSnapshot` containing
+the complete session-evidence revision, Git view, TASK view, policy-source
+digest/count, and lock-scan identity. Before, post-evaluation, and post-report
+checks exchange these snapshots explicitly; generation comparisons therefore
+cannot accidentally combine source, Git, or TASK observations from different
+capture times.
 
 Applicable native-assurance rules always bypass report reuse. Their complete
 globbed authority surfaces and wall-clock-aged proof inputs are intentionally

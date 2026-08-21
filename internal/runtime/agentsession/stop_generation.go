@@ -78,6 +78,48 @@ type stopGenerationCapture struct {
 	TaskStateHash      string
 }
 
+// stopPolicyAttemptSnapshot is the immutable before/evaluation/after view
+// owned by one Stop attempt. Expensive identities are captured once for that
+// phase and consumers compare complete snapshots rather than mixing fields
+// observed at different times.
+type stopPolicyAttemptSnapshot struct {
+	State            SessionState
+	EvidenceRevision string
+	Git              stopPolicyGitSnapshot
+	Task             stopTaskSnapshot
+	PolicyDigest     string
+	PolicyCount      int
+	Scan             stopPolicyLockScan
+}
+
+func captureStopPolicyAttemptSnapshot(
+	root string,
+	state SessionState,
+	evidenceRevision string,
+	taskSnapshot stopTaskSnapshot,
+	gitSnapshot stopPolicyGitSnapshot,
+	scanCache *stopPolicyScanCache,
+) stopPolicyAttemptSnapshot {
+	digest, count, err := stopPolicySourceIdentity(root)
+	if err != nil {
+		digest = "error:" + err.Error()
+		count = 0
+	}
+	return stopPolicyAttemptSnapshot{
+		State: state, EvidenceRevision: evidenceRevision, Git: gitSnapshot,
+		Task: taskSnapshot, PolicyDigest: digest, PolicyCount: count,
+		Scan: scanCache.get(root, state.WritePaths),
+	}
+}
+
+func (s stopPolicyAttemptSnapshot) generationCapture() stopGenerationCapture {
+	return stopGenerationCapture{
+		PolicySourceDigest: s.PolicyDigest,
+		PolicySourceCount:  s.PolicyCount,
+		TaskStateHash:      stopTaskSnapshotHash(s.Task),
+	}
+}
+
 // NewStopDecisionCache returns one isolated cache owner for a persistent hook
 // worker. It has no process-global state and opens no watcher or background
 // lifecycle.
@@ -324,10 +366,25 @@ func (cache *StopDecisionCache) readStableReport(
 	gitSnapshot stopPolicyGitSnapshot,
 	scanCaches ...*stopPolicyScanCache,
 ) (*runtime.CheckReport, bool) {
+	return cache.readStableReportWithSnapshot(root, state, taskSnapshot, gitSnapshot, firstStopPolicyScanCache(scanCaches), nil)
+}
+
+func firstStopPolicyScanCache(values []*stopPolicyScanCache) *stopPolicyScanCache {
 	var scanCache *stopPolicyScanCache
-	if len(scanCaches) > 0 {
-		scanCache = scanCaches[0]
+	if len(values) > 0 {
+		scanCache = values[0]
 	}
+	return scanCache
+}
+
+func (cache *StopDecisionCache) readStableReportWithSnapshot(
+	root string,
+	state SessionState,
+	taskSnapshot stopTaskSnapshot,
+	gitSnapshot stopPolicyGitSnapshot,
+	scanCache *stopPolicyScanCache,
+	beforeSnapshot *stopPolicyAttemptSnapshot,
+) (*runtime.CheckReport, bool) {
 	entry, ok := cache.entry(root, state.SessionID)
 	if !ok || entry.evidenceHash != stopPolicyEvidenceHash(state) ||
 		entry.fingerprint != state.StopPolicyFingerprint || entry.reportHash != state.StopPolicyReportHash {
@@ -340,7 +397,16 @@ func (cache *StopDecisionCache) readStableReport(
 		cache.invalidate(root, state.SessionID)
 		return nil, false
 	}
-	generationBefore, generationOK := captureStopRepositoryGenerationWithScan(root, gitSnapshot, taskSnapshot, state.WritePaths, scanCache)
+	var generationBefore stopGenerationCapture
+	var generationOK bool
+	if beforeSnapshot != nil {
+		generationBefore, generationOK = captureStopRepositoryGenerationWithIdentityAndScan(
+			root, gitSnapshot, beforeSnapshot.PolicyDigest, beforeSnapshot.PolicyCount,
+			stopTaskSnapshotHash(taskSnapshot), state.WritePaths, scanCache,
+		)
+	} else {
+		generationBefore, generationOK = captureStopRepositoryGenerationWithScan(root, gitSnapshot, taskSnapshot, state.WritePaths, scanCache)
+	}
 	if !generationOK || entry.generation != generationBefore.Fingerprint {
 		cache.invalidate(root, state.SessionID)
 		return nil, false

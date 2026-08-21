@@ -2,11 +2,10 @@
 
 ## Active
 
-- [~] 198 Reuse one stop-attempt lockfile scan -> tasks/198-reuse-one-stop-attempt-lockfile-scan.md
+- [~] 199 Reuse stable stop-policy snapshots within an attempt -> tasks/199-reuse-stable-stop-policy-snapshots-within-an-attempt.md
 
 ## Queue
 
-- [ ] 199 Reuse stable stop-policy snapshots within an attempt -> tasks/199-reuse-stable-stop-policy-snapshots-within-an-attempt.md
 - [ ] 200 Recover hook workers after oversized frames -> tasks/200-recover-hook-workers-after-oversized-frames.md
 - [ ] 201 Eliminate quadratic hook-worker frame assembly -> tasks/201-eliminate-quadratic-hook-worker-frame-assembly.md
 - [ ] 202 Revalidate TASK path components across reads -> tasks/202-revalidate-control-path-components-across-reads.md
@@ -32,6 +31,7 @@
 
 ## Done
 
+- [x] 199 Reuse stable stop-policy snapshots within an attempt -> tasks/done/199-reuse-stable-stop-policy-snapshots-within-an-attempt.md
 - [x] 198 Reuse one stop-attempt lockfile scan -> tasks/done/198-reuse-one-stop-attempt-lockfile-scan.md
 - [x] 197 Decode and validate each lockfile once -> tasks/done/197-decode-and-validate-each-lockfile-once.md
 - [x] 196 Normalize rule JSON once per compiler boundary -> tasks/done/196-normalize-rule-json-once-per-compiler-boundary.md

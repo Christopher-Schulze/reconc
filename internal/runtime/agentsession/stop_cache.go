@@ -234,7 +234,10 @@ func runStopPolicyCheckLockedAttempt(
 	}
 	state = currentState
 	gitSnapshot := stopPolicyGitSnapshotFor(repoRoot)
-	if report, ok := cache.readStableReport(repoRoot, state, taskSnapshot, gitSnapshot, scanCache); ok {
+	beforeSnapshot := captureStopPolicyAttemptSnapshot(
+		repoRoot, state, initialEvidenceRevision, taskSnapshot, gitSnapshot, scanCache,
+	)
+	if report, ok := cache.readStableReportWithSnapshot(repoRoot, state, taskSnapshot, gitSnapshot, scanCache, &beforeSnapshot); ok {
 		current, loadErr := loadCurrentStopPolicyState(repoRoot, state.SessionID)
 		if loadErr != nil {
 			return stopPolicyCheckResult{}, loadErr
@@ -244,8 +247,12 @@ func runStopPolicyCheckLockedAttempt(
 			return stopPolicyCheckResult{}, fmt.Errorf("recapture TASK snapshot for generation cache: %w", captureErr)
 		}
 		currentGit := stopPolicyGitSnapshotFor(repoRoot)
-		currentGeneration, generationOK := captureStopRepositoryGenerationWithScan(
-			repoRoot, currentGit, currentTask, current.WritePaths, scanCache,
+		currentSnapshot := captureStopPolicyAttemptSnapshot(
+			repoRoot, current, "", currentTask, currentGit, scanCache,
+		)
+		currentGeneration, generationOK := captureStopRepositoryGenerationWithIdentityAndScan(
+			repoRoot, currentGit, currentSnapshot.PolicyDigest, currentSnapshot.PolicyCount,
+			stopTaskSnapshotHash(currentTask), current.WritePaths, scanCache,
 		)
 		entry, entryOK := cache.entry(repoRoot, state.SessionID)
 		if stopPolicyCacheBindingMatches(current, state) && generationOK && entryOK &&
@@ -259,7 +266,7 @@ func runStopPolicyCheckLockedAttempt(
 		taskSnapshot = currentTask
 		gitSnapshot = currentGit
 	}
-	fingerprintInput := stopPolicyFingerprintInputForSnapshotWithScan(repoRoot, state, gitSnapshot, taskSnapshot, stopGenerationCapture{}, scanCache)
+	fingerprintInput := stopPolicyFingerprintInputForSnapshotWithScan(repoRoot, state, gitSnapshot, taskSnapshot, beforeSnapshot.generationCapture(), scanCache)
 	cacheable := stopPolicyFingerprintCacheableWithScan(fingerprintInput, scanCache)
 	fingerprint := hashStopPolicyFingerprintInput(fingerprintInput)
 	if cacheable && fingerprint != "" && state.StopPolicyFingerprint == fingerprint &&
@@ -275,8 +282,11 @@ func runStopPolicyCheckLockedAttempt(
 				return stopPolicyCheckResult{}, fmt.Errorf("recapture TASK snapshot for cached Stop: %w", captureErr)
 			}
 			currentGit := stopPolicyGitSnapshotFor(repoRoot)
+			currentSnapshot := captureStopPolicyAttemptSnapshot(
+				repoRoot, current, "", currentTask, currentGit, scanCache,
+			)
 			currentInput := stopPolicyFingerprintInputForSnapshotWithScan(
-				repoRoot, current, currentGit, currentTask, stopGenerationCapture{}, scanCache,
+				repoRoot, current, currentGit, currentTask, currentSnapshot.generationCapture(), scanCache,
 			)
 			if stopPolicyCacheBindingMatches(current, state) &&
 				stopPolicyFingerprintCacheableWithScan(currentInput, scanCache) &&
@@ -313,8 +323,11 @@ func runStopPolicyCheckLockedAttempt(
 	if cacheable && fingerprint != "" && reportHash != "" {
 		if currentTaskSnapshot, captureErr := captureStopTaskSnapshot(repoRoot); captureErr == nil {
 			postGitSnapshot := stopPolicyGitSnapshotFor(repoRoot)
+			afterSnapshot := captureStopPolicyAttemptSnapshot(
+				repoRoot, state, initialEvidenceRevision, currentTaskSnapshot, postGitSnapshot, scanCache,
+			)
 			postFingerprintInput = stopPolicyFingerprintInputForSnapshotWithScan(
-				repoRoot, state, postGitSnapshot, currentTaskSnapshot, stopGenerationCapture{}, scanCache,
+				repoRoot, state, afterSnapshot.Git, afterSnapshot.Task, afterSnapshot.generationCapture(), scanCache,
 			)
 			cacheInputsStable = stopPolicyFingerprintCacheableWithScan(postFingerprintInput, scanCache) &&
 				hashStopPolicyFingerprintInput(postFingerprintInput) == fingerprint &&
@@ -441,7 +454,10 @@ func storeStopGenerationIfWorthwhileWithScan(
 		return
 	}
 	gitBefore := stopPolicyGitSnapshotFor(root)
-	generationBefore, ok := captureStopRepositoryGenerationWithScan(root, gitBefore, taskBefore, state.WritePaths, scanCache)
+	generationBefore, ok := captureStopRepositoryGenerationWithIdentityAndScan(
+		root, gitBefore, fingerprintInput.PolicySourceDigest, fingerprintInput.PolicySourceCount,
+		stopTaskSnapshotHash(taskBefore), state.WritePaths, scanCache,
+	)
 	if !ok {
 		cache.invalidate(root, state.SessionID)
 		return

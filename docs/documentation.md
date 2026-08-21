@@ -3231,6 +3231,10 @@ and cache storage through an attempt-local identity keyed by normalized write
 paths and the exact lockfile SHA-256. A final bounded byte-hash comparison
 invalidates the attempt if the lock changes, so no stale scan can authorize a
 report reuse or generation entry.
+The attempt also keeps complete typed before/evaluation/after identity
+snapshots for Git, TASK state, policy sources, session evidence, and report
+bindings; equality checks compare those phase snapshots rather than mixing
+individual fields captured at different times.
 
 A stored report additionally carries the instant its own inputs stop describing
 it. `require_fresh_file` can turn a clean report stale from wall-clock time
