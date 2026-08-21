@@ -104,6 +104,7 @@ func (e *Evaluator) normalizeBudgetInput(input *EvaluationInput) *RequestError {
 	if !validSnapshotKey || !validStateKey || snapshotKeyID != stateKeyID {
 		return &RequestError{Code: ReasonStateCorrupt, Message: "budget snapshot key generation is invalid"}
 	}
+	argumentBytes, argumentErr := canonicalArgumentBytesForBudgets(expected, input.Request)
 	for index := range candidates {
 		candidate := &candidates[index]
 		if candidate.BudgetID != expected[index].ID {
@@ -112,7 +113,7 @@ func (e *Evaluator) normalizeBudgetInput(input *EvaluationInput) *RequestError {
 		if tool == nil {
 			return &RequestError{Code: ReasonStateCorrupt, Message: "budget snapshot targets an undeclared tool"}
 		}
-		if err := validateBudgetCandidate(*candidate, expected[index], input, *tool); err != nil {
+		if err := validateBudgetCandidate(*candidate, expected[index], input, *tool, argumentBytes, argumentErr); err != nil {
 			return &RequestError{Code: ReasonStateCorrupt, Message: err.Error()}
 		}
 		if candidate.Generation.KeyID != snapshotKeyID {
@@ -144,6 +145,8 @@ func validateBudgetCandidate(
 	declaration Budget,
 	input *EvaluationInput,
 	tool Tool,
+	argumentBytes *uint64,
+	argumentErr error,
 ) error {
 	if candidate.Reset != declaration.Reset || candidate.WindowSeconds != declaration.WindowSeconds ||
 		candidate.Limits != declaration.Limits || !ValidKeyedIdentity(candidate.ScopeIdentity) ||
@@ -160,7 +163,9 @@ func validateBudgetCandidate(
 		!budgetCandidateUsesKey(candidate, candidate.Generation.KeyID) {
 		return fmt.Errorf("budget %q governing generation is invalid", declaration.ID)
 	}
-	required, err := expectedBudgetUsage(declaration.Limits, tool, input.Request)
+	required, err := expectedBudgetUsageWithArgumentBytes(
+		declaration.Limits, tool, input.Request, argumentBytes, argumentErr,
+	)
 	if err != nil || candidate.Required != required {
 		return fmt.Errorf("budget %q reservation charge is invalid", declaration.ID)
 	}
@@ -252,19 +257,36 @@ func validateBudgetScope(scope BudgetScope, declaration Budget, input *Evaluatio
 }
 
 func expectedBudgetUsage(limits BudgetLimits, tool Tool, request Request) (BudgetUsage, error) {
+	return expectedBudgetUsageWithArgumentBytes(limits, tool, request, nil, nil)
+}
+
+func expectedBudgetUsageWithArgumentBytes(
+	limits BudgetLimits,
+	tool Tool,
+	request Request,
+	argumentBytes *uint64,
+	argumentErr error,
+) (BudgetUsage, error) {
 	usage := BudgetUsage{}
 	if limits.CallCount != 0 {
 		usage.CallCount = 1
 	}
 	if limits.ArgumentBytes != 0 {
-		if request.Arguments == nil {
-			return BudgetUsage{}, fmt.Errorf("budgeted pre-call arguments are absent")
+		if argumentErr != nil {
+			return BudgetUsage{}, argumentErr
 		}
-		body, err := request.Arguments.MarshalJSON()
-		if err != nil {
-			return BudgetUsage{}, err
+		if argumentBytes != nil {
+			usage.ArgumentBytes = *argumentBytes
+		} else {
+			if request.Arguments == nil {
+				return BudgetUsage{}, fmt.Errorf("budgeted pre-call arguments are absent")
+			}
+			body, err := request.Arguments.MarshalJSON()
+			if err != nil {
+				return BudgetUsage{}, err
+			}
+			usage.ArgumentBytes = uint64(len(body))
 		}
-		usage.ArgumentBytes = uint64(len(body))
 	}
 	if limits.ResultBytes != 0 {
 		usage.ResultBytes = tool.MaxResultBytes
@@ -279,6 +301,27 @@ func expectedBudgetUsage(limits BudgetLimits, tool Tool, request Request) (Budge
 		usage.RateWindow = 1
 	}
 	return usage, nil
+}
+
+func canonicalArgumentBytesForBudgets(
+	budgets []Budget,
+	request Request,
+) (*uint64, error) {
+	for _, budget := range budgets {
+		if budget.Limits.ArgumentBytes == 0 {
+			continue
+		}
+		if request.Arguments == nil {
+			return nil, fmt.Errorf("budgeted pre-call arguments are absent")
+		}
+		body, err := request.Arguments.MarshalJSON()
+		if err != nil {
+			return nil, err
+		}
+		bytes := uint64(len(body))
+		return &bytes, nil
+	}
+	return nil, nil
 }
 
 func budgetCapacityAvailable(

@@ -513,6 +513,9 @@ and byte-compares the notice before checksums and provenance are accepted.
      Canonical JSON boundaries expose normalized bytes together with the
      decoded `UseNumber` tree, so action validation does not marshal the same
      normalized payload a second time.
+     Budget validation reuses the exact canonical argument-byte length once per
+     evaluation whenever a selected budget declares `argument_bytes`; other
+     budget dimensions do not trigger serialization.
    - `internal/runtime/lockfile.go` performs a 16 MiB bounded read and validates
      schema, version, repository root, migration state, and source freshness.
      Current format-6 locks prove freshness from the complete lock digest plus

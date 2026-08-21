@@ -232,3 +232,75 @@ func TestDecisionCacheBindsEveryBudgetStateComponent(t *testing.T) {
 		})
 	}
 }
+
+func TestCanonicalArgumentBytesForBudgetsUsesCanonicalValueOnce(t *testing.T) {
+	t.Parallel()
+	arguments := mustTestValue(t, `{"unicode":"ä","number":1.0,"nested":{"ok":[true,false]}}`)
+	request := Request{Arguments: &arguments}
+	tool := Tool{}
+	budgets := []Budget{
+		{Limits: BudgetLimits{CallCount: 1}},
+		{Limits: BudgetLimits{ArgumentBytes: 1}},
+		{Limits: BudgetLimits{ArgumentBytes: 4096, ResultBytes: 1}},
+	}
+	bytes, err := canonicalArgumentBytesForBudgets(budgets, request)
+	if err != nil || bytes == nil {
+		t.Fatalf("canonical argument size = %v, %v", bytes, err)
+	}
+	body, err := arguments.MarshalJSON()
+	if err != nil || *bytes != uint64(len(body)) {
+		t.Fatalf("canonical argument bytes = %d, want %d (%s), err = %v", *bytes, len(body), body, err)
+	}
+	first, err := expectedBudgetUsageWithArgumentBytes(
+		budgets[1].Limits, tool, request, bytes, nil,
+	)
+	if err != nil || first.ArgumentBytes != *bytes {
+		t.Fatalf("first shared usage = %#v, %v", first, err)
+	}
+	second, err := expectedBudgetUsageWithArgumentBytes(
+		budgets[2].Limits, tool, request, bytes, nil,
+	)
+	if err != nil || second.ArgumentBytes != *bytes {
+		t.Fatalf("second shared usage = %#v, %v", second, err)
+	}
+	withoutArgumentLimit, err := canonicalArgumentBytesForBudgets(
+		[]Budget{{Limits: BudgetLimits{CallCount: 1}}}, request,
+	)
+	if err != nil || withoutArgumentLimit != nil {
+		t.Fatalf("unneeded argument serialization = %v, %v", withoutArgumentLimit, err)
+	}
+}
+
+func TestCanonicalArgumentBytesForBudgetsPropagatesMarshalFailure(t *testing.T) {
+	t.Parallel()
+	request := Request{Arguments: &Value{kind: ValueKind("corrupt")}}
+	_, err := canonicalArgumentBytesForBudgets(
+		[]Budget{{Limits: BudgetLimits{ArgumentBytes: 1}}}, request,
+	)
+	if err == nil {
+		t.Fatal("corrupt canonical argument value was accepted")
+	}
+}
+
+func BenchmarkBudgetArgumentSizeShared(b *testing.B) {
+	arguments := mustTestValue(b, `{"unicode":"ä","number":1.0,"nested":{"ok":[true,false]}}`)
+	request := Request{Arguments: &arguments}
+	budgets := make([]Budget, 64)
+	for index := range budgets {
+		budgets[index].Limits.ArgumentBytes = 4096
+	}
+	tool := Tool{}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for iteration := 0; iteration < b.N; iteration++ {
+		bytes, err := canonicalArgumentBytesForBudgets(budgets, request)
+		if err != nil || bytes == nil {
+			b.Fatal(err)
+		}
+		for _, budget := range budgets {
+			if _, err := expectedBudgetUsageWithArgumentBytes(budget.Limits, tool, request, bytes, nil); err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+}
