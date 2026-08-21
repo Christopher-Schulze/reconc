@@ -8,6 +8,7 @@
 package parser
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -452,11 +453,6 @@ func validateRuleItem(item map[string]interface{}, src policy.PolicySource, inde
 			return policy.Rule{}, &rerrors.RuleValidationError{Message: "rule '" + id + "' field 'cache_inputs' is only valid for kind require_script"}
 		}
 	}
-	if _, present := item["command_match"]; present {
-		if _, allowed := commandMatchKinds[kind]; !allowed {
-			return policy.Rule{}, &rerrors.RuleValidationError{Message: "rule '" + id + "' command_match is only valid for require_command, require_command_success, and forbid_command (put it on the sub-check inside composites)"}
-		}
-	}
 	if err := validateRuleKindFields(item, kind, id, src.Path); err != nil {
 		return policy.Rule{}, err
 	}
@@ -517,7 +513,7 @@ func validateRuleItem(item map[string]interface{}, src policy.PolicySource, inde
 	if err != nil {
 		return policy.Rule{}, err
 	}
-	commandMatch, err := parseCommandMatch(item, kind, id)
+	commandMatch, err := parseCommandMatch(item, fmt.Sprintf("rule '%s' (kind %s) field 'command_match' in %s", id, kind, src.Path))
 	if err != nil {
 		return policy.Rule{}, err
 	}
@@ -719,32 +715,20 @@ func validateRuleItem(item map[string]interface{}, src policy.PolicySource, inde
 	}, nil
 }
 
-// commandMatchKinds are the rule kinds that compare commands and may
-// therefore carry a command_match mode.
-var commandMatchKinds = map[policy.Kind]struct{}{
-	policy.KindRequireCommand:        {},
-	policy.KindRequireCommandSuccess: {},
-	policy.KindForbidCommand:         {},
-}
-
-// parseCommandMatch validates the optional command_match field: only
-// exact|prefix, and only on command rule kinds (composites carry it on
-// their sub-checks instead).
-func parseCommandMatch(item map[string]interface{}, kind policy.Kind, id string) (policy.CommandMatch, error) {
+// parseCommandMatch validates the optional command_match value. Field-kind
+// eligibility is owned by the rule/check field matrix before this function.
+func parseCommandMatch(item map[string]interface{}, context string) (policy.CommandMatch, error) {
 	raw, present := item["command_match"]
 	if !present || raw == nil {
 		return "", nil
 	}
 	value, isString := raw.(string)
 	if !isString {
-		return "", &rerrors.RuleValidationError{Message: "rule '" + id + "' command_match must be a string"}
+		return "", &rerrors.RuleValidationError{Message: context + " must be a string"}
 	}
 	match := policy.CommandMatch(strings.TrimSpace(value))
 	if !match.Valid() {
-		return "", &rerrors.RuleValidationError{Message: "rule '" + id + "' command_match must be 'exact' or 'prefix', got: " + value}
-	}
-	if _, allowed := commandMatchKinds[kind]; !allowed {
-		return "", &rerrors.RuleValidationError{Message: "rule '" + id + "' command_match is only valid for require_command, require_command_success, and forbid_command (put it on the sub-check inside composites)"}
+		return "", &rerrors.RuleValidationError{Message: context + " must be 'exact' or 'prefix', got: " + value}
 	}
 	if match == policy.CommandMatchExact {
 		// Exact is the default; keep the lockfile free of redundant keys.
@@ -975,7 +959,11 @@ func parseCheckWithSource(item map[string]interface{}, ruleID, listKey, sourcePa
 			}
 		}
 		check.Commands = commands
-		match, err := parseCommandMatch(item, kind, ruleID)
+		if sourcePath == "" {
+			sourcePath = "<unknown source>"
+		}
+		context := fmt.Sprintf("rule '%s' check[%d] (kind %s) field 'command_match' in %s", ruleID, index, kind, sourcePath)
+		match, err := parseCommandMatch(item, context)
 		if err != nil {
 			return policy.Check{}, err
 		}

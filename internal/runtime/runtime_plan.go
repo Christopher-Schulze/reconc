@@ -722,8 +722,6 @@ func validateRuntimeCheck(check *policy.Check) error {
 		values []string
 	}{
 		{"paths", check.Paths},
-		{"before_paths", check.BeforePaths},
-		{"when_paths", check.WhenPaths},
 		{"commands", check.Commands},
 		{"claims", check.Claims},
 		{"args", check.Args},
@@ -733,7 +731,7 @@ func validateRuntimeCheck(check *policy.Check) error {
 			return err
 		}
 	}
-	for _, pattern := range append(append(append([]string{}, check.Paths...), check.BeforePaths...), check.WhenPaths...) {
+	for _, pattern := range check.Paths {
 		if _, err := MatchPath(pattern, "runtime-plan-validation"); err != nil {
 			return fmt.Errorf("invalid path pattern %q: %w", pattern, err)
 		}

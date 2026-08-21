@@ -3909,6 +3909,11 @@ format-6 lockfiles that still name the v0.9.6 schema are accepted through an
 input-only compatibility alias; a refresh writes the v0.9.7 identity. Formats
 1 through 5 keep their exact previously published schema URLs and migration
 behavior. No mutable `main` URL, tag rewrite, or format-version bump is used.
+The current v6 schema also owns the exact composite-check surface instead of
+inheriting the broader historical v4 shape. Sub-checks never carry their own
+`before_paths` or `when_paths`; the parent composite rule owns activation, and
+all legacy formats still reject those dead fields during typed runtime-plan
+construction after migration.
 
 The local publication contract authorizes the new current tag while it is an
 unreleased candidate and verifies the new local v6 bytes, digest, `$id`, and

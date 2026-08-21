@@ -381,12 +381,10 @@ type Check struct {
 	CacheInputs []string `json:"cache_inputs,omitempty" yaml:"cache_inputs,omitempty"`
 
 	// Shared list-shaped fields (require_claim, require_command,
-	// forbid_command, deny_write, require_read, couple_change)
-	Paths       []string `json:"paths,omitempty" yaml:"paths,omitempty"`
-	BeforePaths []string `json:"before_paths,omitempty" yaml:"before_paths,omitempty"`
-	WhenPaths   []string `json:"when_paths,omitempty" yaml:"when_paths,omitempty"`
-	Commands    []string `json:"commands,omitempty" yaml:"commands,omitempty"`
-	Claims      []string `json:"claims,omitempty" yaml:"claims,omitempty"`
+	// forbid_command, deny_write).
+	Paths    []string `json:"paths,omitempty" yaml:"paths,omitempty"`
+	Commands []string `json:"commands,omitempty" yaml:"commands,omitempty"`
+	Claims   []string `json:"claims,omitempty" yaml:"claims,omitempty"`
 	// CommandMatch mirrors Rule.CommandMatch for command sub-checks.
 	CommandMatch CommandMatch `json:"command_match,omitempty" yaml:"command_match,omitempty"`
 

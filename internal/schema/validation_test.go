@@ -211,6 +211,29 @@ func TestEveryLegacyPolicyLockSchemaMigratesToAValidCurrentArtifact(t *testing.T
 	}
 }
 
+func TestCurrentPolicyLockSchemaRejectsDeadCheckPathFields(t *testing.T) {
+	t.Setenv("RECONC_SCHEMA_BASE_URL", "")
+	compiled := compileRegisteredSchemas(t)
+	current, ok := contractschema.CurrentContract(contractschema.PolicyLock)
+	if !ok {
+		t.Fatal("registry has no current policy-lock contract")
+	}
+	definition := compiled[current.DefaultURL]
+	for _, field := range []string{"before_paths", "when_paths"} {
+		artifact := representativeArtifact(t, definition)
+		artifact["rule_count"] = json.Number("1")
+		artifact["rules"] = []any{map[string]any{
+			"id": "gate", "kind": "all_of", "message": "gate", "when_paths": []any{"src/**"},
+			"checks": []any{map[string]any{
+				"kind": "require_claim", "claims": []any{"approved"}, field: []any{"dead/**"},
+			}},
+		}}
+		if err := definition.Validate(artifact); err == nil {
+			t.Fatalf("current policy-lock schema accepted check.%s", field)
+		}
+	}
+}
+
 func compileRegisteredSchemas(t *testing.T) map[string]*jsonschema.Schema {
 	t.Helper()
 	compiler := jsonschema.NewCompiler()

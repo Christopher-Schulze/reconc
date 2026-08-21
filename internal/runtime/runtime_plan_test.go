@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"reconc.dev/reconc/internal/compiler"
+	contractschema "reconc.dev/reconc/internal/schema"
 )
 
 func rewriteLockfileWithDigest(t *testing.T, repo string, mutate func(map[string]interface{})) {
@@ -75,6 +76,101 @@ func TestRuntimePlanRejectsMalformedCurrentRulesAfterEnvelopeValidation(t *testi
 			}
 		})
 	}
+}
+
+func TestRuntimePlanRejectsDeadCheckPathFieldsAcrossAllLockFormats(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "", "rules:\n  - id: gate\n    kind: all_of\n    when_paths: ['src/**']\n    checks:\n      - kind: require_claim\n        claims: [approved]\n    mode: block\n    message: gate\n")
+	data, err := os.ReadFile(filepath.Join(repo, compiler.LockfileRelativePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var current map[string]interface{}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&current); err != nil {
+		t.Fatal(err)
+	}
+	for _, version := range []string{"1", "2", "3", "4", "5", "6"} {
+		version := version
+		t.Run("format-"+version, func(t *testing.T) {
+			valid := cloneRuntimeLockPayload(t, current)
+			prepareRuntimeLockVersion(t, valid, version)
+			lock := decodeRuntimeLockPayload(t, valid)
+			if _, err := compileRuntimePlanWithParts(lock.payload, lock.rulesJSON, lock.actionsJSON, lock.actions); err != nil {
+				t.Fatalf("valid format-%s lock failed: %v", version, err)
+			}
+			for _, field := range []string{"before_paths", "when_paths"} {
+				malformed := cloneRuntimeLockPayload(t, current)
+				check := malformed["rules"].([]interface{})[0].(map[string]interface{})["checks"].([]interface{})[0].(map[string]interface{})
+				check[field] = []interface{}{"dead/**"}
+				prepareRuntimeLockVersion(t, malformed, version)
+				lock := decodeRuntimeLockPayload(t, malformed)
+				if _, err := compileRuntimePlanWithParts(lock.payload, lock.rulesJSON, lock.actionsJSON, lock.actions); err == nil ||
+					!strings.Contains(err.Error(), "unknown field") || !strings.Contains(err.Error(), field) {
+					t.Fatalf("format-%s check.%s was accepted: %v", version, field, err)
+				}
+			}
+		})
+	}
+}
+
+func cloneRuntimeLockPayload(t *testing.T, payload map[string]interface{}) map[string]interface{} {
+	t.Helper()
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var clone map[string]interface{}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if err := decoder.Decode(&clone); err != nil {
+		t.Fatal(err)
+	}
+	return clone
+}
+
+func prepareRuntimeLockVersion(t *testing.T, payload map[string]interface{}, version string) {
+	t.Helper()
+	payload["$schema"] = contractschema.ResolveVersion(contractschema.PolicyLock, version)
+	payload["format_version"] = version
+	payload["sources"] = []interface{}{}
+	payload["source_count"] = json.Number("0")
+	payload["source_digest"] = strings.Repeat("0", 64)
+	delete(payload, "lock_digest")
+	if version == "1" {
+		payload["repo_root"] = "/tmp/reconc-legacy"
+		discovery := payload["discovery"].(map[string]interface{})
+		discovery["repo_root"] = "/tmp/reconc-legacy"
+		discovery["start_path"] = "/tmp/reconc-legacy"
+		delete(payload, "actions")
+		setLegacyV1SourceDigest(t, payload)
+		return
+	}
+	if version == "2" || version == "3" || version == "4" {
+		delete(payload, "actions")
+	}
+	if version == "5" {
+		delete(payload["actions"].(map[string]interface{}), "ledger")
+	}
+	digest, err := compiler.ComputeLockDigest(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload["lock_digest"] = digest
+}
+
+func decodeRuntimeLockPayload(t *testing.T, payload map[string]interface{}) *decodedLockfile {
+	t.Helper()
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := decodeLockfile(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return lock
 }
 
 func TestRuntimePlanRejectsMalformedEvidenceContracts(t *testing.T) {

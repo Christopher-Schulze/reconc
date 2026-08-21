@@ -1259,13 +1259,48 @@ func parseCommandMatchYAML(t *testing.T, yaml string) (*ParsedPolicy, error) {
 func TestCommandMatchValidation(t *testing.T) {
 	// Invalid value fails loud.
 	_, err := parseCommandMatchYAML(t, "rules:\n  - id: r1\n    kind: forbid_command\n    command_match: fuzzy\n    commands: ['x']\n    mode: block\n    message: m\n")
-	if err == nil || !strings.Contains(err.Error(), "command_match must be 'exact' or 'prefix'") {
+	if err == nil || !strings.Contains(err.Error(), "rule 'r1'") ||
+		!strings.Contains(err.Error(), "kind forbid_command") ||
+		!strings.Contains(err.Error(), "field 'command_match'") ||
+		!strings.Contains(err.Error(), "policies/x.yml") ||
+		!strings.Contains(err.Error(), "must be 'exact' or 'prefix'") {
 		t.Fatalf("expected invalid command_match error, got %v", err)
 	}
 	// Wrong kind fails loud.
 	_, err = parseCommandMatchYAML(t, "rules:\n  - id: r2\n    kind: deny_write\n    command_match: prefix\n    paths: ['gen/**']\n    mode: block\n    message: m\n")
-	if err == nil || !strings.Contains(err.Error(), "only valid for require_command") {
+	if err == nil || !strings.Contains(err.Error(), "rule 'r2'") ||
+		!strings.Contains(err.Error(), "kind deny_write") ||
+		!strings.Contains(err.Error(), "command_match") ||
+		!strings.Contains(err.Error(), "policies/x.yml") ||
+		!strings.Contains(err.Error(), "not valid for its kind") {
 		t.Fatalf("expected kind-restriction error, got %v", err)
+	}
+	for _, test := range []struct {
+		name  string
+		value string
+		kind  string
+		want  string
+	}{
+		{name: "composite wrong kind", value: "prefix", kind: "deny_write", want: "not valid for its kind"},
+		{name: "composite invalid value", value: "fuzzy", kind: "forbid_command", want: "must be 'exact' or 'prefix'"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := "rules:\n  - id: composite\n    kind: all_of\n    when_paths: ['src/**']\n    checks:\n      - kind: " + test.kind + "\n        command_match: " + test.value + "\n"
+			if test.kind == "deny_write" {
+				body += "        paths: ['generated/**']\n"
+			} else {
+				body += "        commands: ['go test ./...']\n"
+			}
+			body += "    mode: block\n    message: gate\n"
+			_, err := parseCommandMatchYAML(t, body)
+			if err == nil || !strings.Contains(err.Error(), "rule 'composite'") ||
+				!strings.Contains(err.Error(), "check[0]") ||
+				!strings.Contains(err.Error(), "kind "+test.kind) ||
+				!strings.Contains(err.Error(), "command_match") ||
+				!strings.Contains(err.Error(), "policies/x.yml") || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("composite command_match error = %v", err)
+			}
+		})
 	}
 	// Exact normalizes to empty (lockfile stays clean).
 	parsed, err := parseCommandMatchYAML(t, "rules:\n  - id: r3\n    kind: forbid_command\n    command_match: exact\n    commands: ['x']\n    mode: block\n    message: m\n")

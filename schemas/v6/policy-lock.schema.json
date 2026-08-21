@@ -38,7 +38,10 @@
 	  "type": "array",
 	  "items": {
 	    "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/properties/rules/items",
-	    "allOf": [ { "$ref": "#/$defs/ruleKindFields" } ]
+	    "allOf": [ { "$ref": "#/$defs/ruleKindFields" } ],
+	    "properties": {
+	      "checks": { "type": "array", "items": { "$ref": "#/$defs/policyCheck" } }
+	    }
 	  }
     },
     "actions": { "$ref": "#/$defs/actions" }
@@ -114,6 +117,31 @@
         "message": { "type": "string", "maxLength": 512 },
         "source_identity": { "type": "string", "minLength": 1, "maxLength": 1024 }
       }
+    },
+    "policyCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/$defs/check/properties/kind" },
+        "path": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/$defs/check/properties/path" },
+        "max_age_hours": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/$defs/check/properties/max_age_hours" },
+        "file": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/$defs/check/properties/file" },
+        "must_exist": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/$defs/check/properties/must_exist" },
+        "must_contain": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/$defs/check/properties/must_contain" },
+        "must_not_contain": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/$defs/check/properties/must_not_contain" },
+        "max_line_count": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/$defs/check/properties/max_line_count" },
+        "script": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/$defs/check/properties/script" },
+        "args": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/$defs/check/properties/args" },
+        "timeout_sec": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/$defs/check/properties/timeout_sec" },
+        "paths": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/$defs/check/properties/paths" },
+        "commands": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/$defs/check/properties/commands" },
+        "claims": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/$defs/check/properties/claims" },
+        "command_match": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/$defs/check/properties/command_match" },
+        "optional": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/$defs/check/properties/optional" },
+        "cache_inputs": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/$defs/check/properties/cache_inputs" }
+      },
+      "allOf": [ { "$ref": "#/$defs/checkKindFields" } ]
     },
     "ruleKindFields": {
       "allOf": [
@@ -217,10 +245,6 @@
             { "required": ["required_files"] }, { "required": ["evidence"] }, { "required": ["checks"] }, { "required": ["script"] },
             { "required": ["args"] }, { "required": ["timeout_sec"] }, { "required": ["kill_timeout_sec"] }, { "required": ["cache_inputs"] }
           ] } }
-        },
-        {
-          "if": { "required": ["checks"] },
-          "then": { "properties": { "checks": { "items": { "$ref": "#/$defs/checkKindFields" } } } }
         }
       ]
     },

@@ -768,12 +768,6 @@ func checkToMap(c policy.Check) map[string]interface{} {
 	if len(c.Paths) > 0 {
 		m["paths"] = c.Paths
 	}
-	if len(c.BeforePaths) > 0 {
-		m["before_paths"] = c.BeforePaths
-	}
-	if len(c.WhenPaths) > 0 {
-		m["when_paths"] = c.WhenPaths
-	}
 	if len(c.Commands) > 0 {
 		m["commands"] = c.Commands
 	}

@@ -95,8 +95,6 @@ func compileRuntimePathMatchers(rules []policy.Rule) (*runtimePathMatchers, erro
 		for checkIndex := range rule.Checks {
 			check := &rule.Checks[checkIndex]
 			add(check.Paths)
-			add(check.BeforePaths)
-			add(check.WhenPaths)
 		}
 	}
 	ordered := make([]string, 0, len(patterns))

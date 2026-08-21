@@ -70,16 +70,14 @@ func TestCompileRuntimePathMatchersIncludesNestedRulePatterns(t *testing.T) {
 		WhenPaths:   []string{"**/*.go"},
 		ScopePaths:  []string{"pkg/**"},
 		Checks: []policy.Check{{
-			Paths:       []string{"generated/**"},
-			BeforePaths: []string{"tests/**"},
-			WhenPaths:   []string{"fixtures/**"},
+			Paths: []string{"generated/**"},
 		}},
 	}}
 	matchers, err := compileRuntimePathMatchers(rules)
 	if err != nil {
 		t.Fatalf("compileRuntimePathMatchers: %v", err)
 	}
-	for _, pattern := range []string{"src/**", "docs/**", "**/*.go", "pkg/**", "generated/**", "tests/**", "fixtures/**"} {
+	for _, pattern := range []string{"src/**", "docs/**", "**/*.go", "pkg/**", "generated/**"} {
 		matcher, ok := matchers.byPattern[pattern]
 		if !ok {
 			t.Errorf("matcher map omitted %q", pattern)

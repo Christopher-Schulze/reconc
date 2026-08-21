@@ -1538,11 +1538,7 @@ func mapKeysSorted(m map[string]struct{}) []string {
 	for k := range m {
 		out = append(out, k)
 	}
-	for i := 1; i < len(out); i++ {
-		for j := i; j > 0 && out[j-1] > out[j]; j-- {
-			out[j-1], out[j] = out[j], out[j-1]
-		}
-	}
+	sort.Strings(out)
 	return out
 }
 
@@ -2107,10 +2103,6 @@ func explainViolation(
 	switch kind {
 	case policy.KindDenyWrite:
 		fallback := joinForHumans(stringListField(rule, "paths"))
-		if len(requiredPaths) > 0 {
-			return fmt.Sprintf("Write activity %s matched deny_write rule '%s'.", pathList, id),
-				fmt.Sprintf("Avoid writing paths matching %s.", requiredPathList)
-		}
 		return fmt.Sprintf("Write activity %s matched deny_write rule '%s'.", pathList, id),
 			fmt.Sprintf("Avoid writing paths matching %s.", fallback)
 	case policy.KindRequireRead:
