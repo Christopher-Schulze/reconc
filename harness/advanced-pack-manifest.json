@@ -418,7 +418,7 @@
       "path": "tools/reconc/harness/template/go.mod",
       "mode": 420,
       "size": 140,
-      "sha256": "2a9d05272f119f54f080a98509f2fb2da73c1fa9ec1c74651022293171f84c11",
+      "sha256": "4af04fa6e9548c8870809e3b32d05ae35a04f2e50d2c2eb5aaa8347b9db18925",
       "ownership": "pack-file"
     },
     {
@@ -829,5 +829,5 @@
     }
   ],
   "total_bytes": 830273,
-  "digest": "bce1d86163ecdb10cfe9395c1777a8e0e5ee1504b794048382a2bfe3addda2b6"
+  "digest": "f5cfbec7c9d31c3e23a7f6951981f2e33e7ce40f866d047ea39807f6120bab04"
 }

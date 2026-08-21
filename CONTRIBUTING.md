@@ -17,7 +17,8 @@ repository-local control plane can enforce.
 
 Requirements:
 
-- Go 1.26
+- Go 1.27
+- macOS 13 Ventura or later when developing on macOS
 - Git and a POSIX shell
 - Bun 1.3.14 only for the executable OpenCode, Kilo Code, Oh My Pi, and Pi adapter tests
 - Python 3.13.14 only for the hash-pinned disposable LangChain MCP interoperability test

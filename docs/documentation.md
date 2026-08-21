@@ -213,7 +213,9 @@ is never converted into “not present.”
 
 Requirements:
 
-- Go `1.26`
+- Go `1.27`
+- macOS `13` Ventura or later for native macOS builds; this is the minimum
+  supported by the Go 1.27 toolchain
 - Git for `reconc ci` and hook installation
 - Bun `1.3.14` for executable OpenCode, Kilo Code, Oh My Pi, and Pi adapter tests
   only; the shipped Reconc binary has no Bun runtime dependency
@@ -3503,7 +3505,7 @@ CI checks:
 - root-module and `harness/template` race tests on Ubuntu 24.04 and normal tests
   on macOS 15; whole-module root/template coverage measurement, publication
   audit, formatting, tidy, vet, pinned Govulncheck v1.6.0, and pinned
-  Staticcheck v0.7.0 run once on Linux
+  Staticcheck v0.8.0 run once on Linux
 - native Windows 2025 root-module and `harness/template` tests plus native
   binary version/help smoke and native PowerShell installer success, malformed
   manifest, missing asset, checksum, execution, locked/unwritable target,

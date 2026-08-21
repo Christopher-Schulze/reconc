@@ -318,9 +318,17 @@ require_text "$ci_workflow" "go test ./..."
 require_text "$ci_workflow" "(cd harness/template && go test ./...)"
 require_text "$release_workflow" "go test -race -count=1 ./..."
 require_text "$release_workflow" "(cd harness/template && go test -race -count=1 ./...)"
+root_go_version=$(sed -n 's/^go //p' "$root/go.mod")
+template_go_version=$(sed -n 's/^go //p' "$root/harness/template/go.mod")
+[ "$root_go_version" = "1.27" ] \
+  || fail "$root/go.mod must declare Go 1.27"
+[ "$template_go_version" = "$root_go_version" ] \
+  || fail "$root/harness/template/go.mod must match root Go version $root_go_version"
 require_text "$ci_workflow" "go mod tidy -diff"
 require_text "$ci_workflow" "govulncheck@v1.6.0"
-require_text "$ci_workflow" "staticcheck@v0.7.0"
+require_text "$root/Makefile" "STATICCHECK_VERSION := v0.8.0"
+require_text "$ci_workflow" "staticcheck@v0.8.0"
+require_text "$release_workflow" "staticcheck@v0.8.0"
 require_text "$release_workflow" "govulncheck@v1.6.0"
 require_text "$ci_workflow" "make self-host"
 require_text "$ci_workflow" "shell: pwsh"

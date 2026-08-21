@@ -31,7 +31,7 @@ BINDIR    := .build/bin
 DISTDIR   := dist
 VERSION   ?= 0.9.7
 PROVENANCE_PKG := reconc.dev/reconc/buildprovenance
-STATICCHECK_VERSION := v0.7.0
+STATICCHECK_VERSION := v0.8.0
 RELEASE_COMMIT ?= $(shell git rev-parse HEAD)
 SOURCE_DATE_EPOCH ?= $(shell git show -s --format=%ct $(RELEASE_COMMIT))
 

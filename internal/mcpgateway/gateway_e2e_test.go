@@ -317,11 +317,8 @@ func TestGatewayInspectsProgressEndToEnd(t *testing.T) {
 			if result.IsError {
 				t.Fatalf("progress call result = %#v", result)
 			}
-			if len(notifications) != test.wantProgress {
-				t.Fatalf("progress notifications = %d, want %d", len(notifications), test.wantProgress)
-			}
-			for index := 0; index < test.wantProgress; index++ {
-				notification := <-notifications
+			received := awaitProgressNotifications(t, notifications, test.wantProgress)
+			for index, notification := range received {
 				if notification.ProgressToken != "upstream-progress" ||
 					notification.Progress != float64(index+1) || notification.Total != 2 ||
 					notification.Message != fmt.Sprintf("step %d", index+1) {
@@ -330,6 +327,33 @@ func TestGatewayInspectsProgressEndToEnd(t *testing.T) {
 			}
 		})
 	}
+}
+
+func awaitProgressNotifications(
+	t *testing.T,
+	notifications <-chan *mcp.ProgressNotificationParams,
+	want int,
+) []*mcp.ProgressNotificationParams {
+	t.Helper()
+	received := make([]*mcp.ProgressNotificationParams, 0, want)
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	for len(received) < want {
+		select {
+		case notification := <-notifications:
+			received = append(received, notification)
+		case <-deadline.C:
+			t.Fatalf("progress notifications = %d, want %d", len(received), want)
+		}
+	}
+	quiet := time.NewTimer(2 * time.Second)
+	defer quiet.Stop()
+	select {
+	case notification := <-notifications:
+		t.Fatalf("unexpected extra progress notification: %#v", notification)
+	case <-quiet.C:
+	}
+	return received
 }
 
 func approvalClientOptions(privateKey ed25519.PrivateKey) *mcp.ClientOptions {

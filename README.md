@@ -896,7 +896,9 @@ embedded binary provenance are regenerated or byte-compared before upload.
 GitHub build-provenance attestations bind each manifest-listed artifact to the
 tagged workflow run.
 
-Binaries use a pinned Go toolchain, `CGO_ENABLED=0`, and `-trimpath`.
+Binaries use the Go release selected from the repository's `go.mod`,
+`CGO_ENABLED=0`, and `-trimpath`. Go 1.27 source and release builds require
+macOS 13 Ventura or later on macOS.
 `SOURCE_DATE_EPOCH` supplies deterministic timestamps for SBOM and manpage
 generation. License notices preserve the exact dependency and Go toolchain
 license files and bind each included text to its SHA-256 digest. This supports
