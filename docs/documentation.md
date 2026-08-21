@@ -257,6 +257,15 @@ history from consuming or changing that fixed budget. `FUZZ_TIME`,
 `FUZZ_MINIMIZE`, and `FUZZ_PARALLEL` explicitly change those budgets and the
 worker count. Direct `go test ./...` validates only the root module.
 
+Go 1.27 synthetic time is restricted to tests whose complete dependency graph
+is in memory. The audit append gate tests use `testing/synctest` to prove
+serialization, cancellation, cleanup, and recovery without wall-clock waits;
+Git, subprocess, filesystem, and file-lock tests retain real time. The MCP
+gateway refresh-worker shutdown regression queries the runtime
+`goroutineleak` profile for its exact worker stack only. It neither requires a
+globally empty profile nor treats unrelated test-process goroutines as product
+leaks.
+
 Make targets:
 
 ```bash
@@ -1672,12 +1681,17 @@ through format-5 lockfiles are migrated in memory only after their legacy schema
 identity and digest pass;
 their sources are reparsed and must retain exact embedded rule and canonical
 action parity.
-The lockfile boundary performs one bounded recursive token decode: it rejects
-duplicate keys, invalid Unicode, excessive nesting, non-object roots, and
-trailing values while retaining `json.Number` values. The decoded rules and
-actions are encoded once into typed-plan inputs; the compiled action plan is
-carried forward to runtime construction instead of being marshaled and
-validated again.
+The lockfile boundary performs one bounded recursive
+`encoding/json/jsontext` token decode: it rejects duplicate keys, invalid
+Unicode, excessive nesting, non-object roots, and trailing values while
+retaining `json.Number` values. The action-value boundary uses the same strict
+token API while preserving decimal normalization, aggregate cardinality,
+string, numeric, argument-size, and depth limits plus the public error-kind
+contract. Invalid-input classification performs the legacy Unicode validation
+only after token decoding rejects a value, so valid payloads are not scanned
+twice. The decoded rules and actions are encoded once into typed-plan inputs;
+the compiled action plan is carried forward to runtime construction instead of
+being marshaled and validated again.
 Source compilation uses an evaluation-scoped `SourceLoadContext`: discovery,
 canonical root identity, config identity, and the per-default-glob fragment
 inventory travel together through one load and are revalidated before and
@@ -1705,6 +1719,12 @@ Canonical JSON normalization returns the validated `UseNumber` value and its
 canonical bytes together. Action parity checks consume those bytes directly,
 preserving number fidelity, custom marshaling, null/empty distinctions, and
 trailing-value rejection without a second marshal/decode cycle.
+Canonical action values pre-size one output slice and encode recursively into
+it. Strings use `jsontext.AppendQuote`; the small HTML and JavaScript separator
+set retains the historical `encoding/json` escaping path, preserving
+identity-bearing bytes. Differential tests and fuzzing compare accepted values,
+canonical decimals, duplicate-name behavior, Unicode rejection, nesting, and
+exact string bytes against the previous decoder and encoder contracts.
 Inline fenced-policy blocks are extracted with one bounded line scan and
 incremental line accounting. A per-source block cap is enforced before another
 block body is retained, while LF/CRLF, fence syntax, block IDs, trimming, and
@@ -2404,6 +2424,14 @@ one durable ledger append, 50.0 milliseconds for budget reserve-and-release,
 one end-to-end gateway call. These local observations include the benchmark
 fixtures' durability and process costs where applicable; they are review
 evidence, not latency guarantees.
+
+Five focused repetitions on the same Apple M1 with Go `1.27.0` measured the
+maximum-legal 8 MiB canonical action encoder before and after this change. The
+median moved from 16.006 ms, 23,191,586 B/op, and 18 allocs/op to 10.274 ms,
+8,388,611 B/op, and 1 alloc/op. The complete structured-action benchmark moved
+from 72.828 ms, 22,852,399 B/op, and 118 allocs/op to 41.067 ms, 8,396,832 B/op,
+and 100 allocs/op. Allocation reductions are the stable result; latency is a
+local observation subject to machine load, not a product-wide guarantee.
 
 `MultiServerMCPClient.get_tools()` uses fresh sessions for discovery and calls;
 an explicit `client.session()` plus `load_mcp_tools()` owns one stateful

@@ -1,6 +1,10 @@
 package action
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestParseJSONCanonicalNumbersAndObjectOrder(t *testing.T) {
 	t.Parallel()
@@ -14,6 +18,35 @@ func TestParseJSONCanonicalNumbersAndObjectOrder(t *testing.T) {
 	}
 	if got, want := string(body), `{"a":1,"z":1}`; got != want {
 		t.Fatalf("canonical JSON = %s, want %s", got, want)
+	}
+}
+
+func TestValueMarshalJSONPreservesEncodingJSONEscaping(t *testing.T) {
+	t.Parallel()
+	values := []string{
+		"plain ASCII",
+		"quotes \" and slash / and backslash \\",
+		"controls \x00\b\t\n\f\r\x1f",
+		"HTML <tag>&value>",
+		"JavaScript \u2028 and \u2029",
+		"Unicode é e\u0301 世界 😀 \u007f",
+	}
+	for _, raw := range values {
+		value, err := String(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := value.MarshalJSON()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, err := json.Marshal(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(want) {
+			t.Fatalf("MarshalJSON(%q) = %q, want encoding/json bytes %q", raw, got, want)
+		}
 	}
 }
 
@@ -35,6 +68,39 @@ func TestParseJSONRejectsUnsafeForms(t *testing.T) {
 			t.Parallel()
 			if _, err := ParseJSON(test.body); err == nil {
 				t.Fatal("expected strict JSON rejection")
+			}
+		})
+	}
+}
+
+func TestParseJSONPreservesErrorKinds(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		body []byte
+		kind JSONErrorKind
+	}{
+		{name: "syntax", body: []byte(`{"a":`), kind: JSONErrorInvalid},
+		{name: "duplicate escaped name", body: []byte(`{"a":1,"\u0061":2}`), kind: JSONErrorDuplicateKey},
+		{name: "invalid UTF-8", body: []byte{'"', 0xff, '"'}, kind: JSONErrorInvalidUTF8},
+		{name: "unpaired surrogate", body: []byte(`"\ud800"`), kind: JSONErrorInvalidUTF8},
+		{name: "string limit", body: []byte(`"` + strings.Repeat("x", MaxJSONStringBytes+1) + `"`), kind: JSONErrorLimit},
+		{name: "number limit", body: []byte(`1e100001`), kind: JSONErrorLimit},
+		{
+			name: "depth limit",
+			body: []byte(strings.Repeat("[", MaxJSONDepth+1) + "null" + strings.Repeat("]", MaxJSONDepth+1)),
+			kind: JSONErrorLimit,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := ParseJSON(test.body)
+			if err == nil {
+				t.Fatal("expected strict JSON rejection")
+			}
+			if got := JSONErrorKindOf(err); got != test.kind {
+				t.Fatalf("JSON error kind = %q, want %q: %v", got, test.kind, err)
 			}
 		})
 	}

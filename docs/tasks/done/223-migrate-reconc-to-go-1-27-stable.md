@@ -106,8 +106,8 @@ declaration-only version bump.
   race tests, both complete module race suites, publication audit, harness-pack
   integrity, release-trust, self-hosting, the hash-pinned LangChain proof on
   Python 3.13.14, and both Govulncheck v1.6.0 scans with no vulnerabilities.
-- Coverage measurement passed at 82.7311 percent for the root module and
-  84.0288 percent for the portable harness module.
+- Coverage measurement completed for the root and portable harness modules as
+  review evidence without a numeric pass/fail threshold.
 - Release-trust built and mutated one host-target release fixture only inside
   its disposable temporary directory. No tag, workflow dispatch, remote
   publication, push, or user-facing release was created.

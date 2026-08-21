@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/json"
+	"encoding/json/jsontext"
 	stderrors "errors"
 	"fmt"
 	"io"
@@ -160,21 +161,17 @@ func decodeLockfile(data []byte) (*decodedLockfile, error) {
 }
 
 func decodeStrictLockfileJSON(data []byte) (map[string]interface{}, error) {
-	if err := action.ValidateJSONUnicode(data); err != nil {
-		return nil, err
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
+	decoder := jsontext.NewDecoder(bytes.NewReader(data))
 	value, err := decodeStrictJSONValue(decoder, 1)
 	if err != nil {
-		return nil, err
+		return nil, classifyStrictLockfileJSONError(data, err)
 	}
-	if trailing, err := decoder.Token(); err != io.EOF {
+	if trailing, err := decoder.ReadToken(); err != io.EOF {
 		if err == nil {
 			return nil, fmt.Errorf("multiple JSON values are not allowed")
 		}
-		return nil, err
-	} else if trailing != nil {
+		return nil, classifyStrictLockfileJSONError(data, err)
+	} else if trailing.Kind() != jsontext.KindInvalid {
 		return nil, fmt.Errorf("multiple JSON values are not allowed")
 	}
 	payload, ok := value.(map[string]interface{})
@@ -184,69 +181,88 @@ func decodeStrictLockfileJSON(data []byte) (map[string]interface{}, error) {
 	return payload, nil
 }
 
-func decodeStrictJSONValue(decoder *json.Decoder, depth int) (interface{}, error) {
+func classifyStrictLockfileJSONError(data []byte, err error) error {
+	if stderrors.Is(err, jsontext.ErrDuplicateName) {
+		return fmt.Errorf("duplicate object key: %w", err)
+	}
+	if unicodeErr := action.ValidateJSONUnicode(data); unicodeErr != nil {
+		return unicodeErr
+	}
+	return err
+}
+
+func decodeStrictJSONValue(decoder *jsontext.Decoder, depth int) (interface{}, error) {
 	if depth > maxLockfileJSONDepth {
 		return nil, fmt.Errorf("JSON nesting exceeds %d levels", maxLockfileJSONDepth)
 	}
-	token, err := decoder.Token()
+	token, err := decoder.ReadToken()
 	if err != nil {
 		return nil, err
 	}
-	delimiter, ok := token.(json.Delim)
-	if !ok {
-		return token, nil
-	}
-	switch delimiter {
-	case '{':
-		object := map[string]interface{}{}
-		seen := map[string]struct{}{}
-		for decoder.More() {
-			keyToken, err := decoder.Token()
-			if err != nil {
-				return nil, err
-			}
-			key, ok := keyToken.(string)
-			if !ok {
-				return nil, fmt.Errorf("object key is not a string")
-			}
-			if _, duplicate := seen[key]; duplicate {
-				return nil, fmt.Errorf("duplicate object key %q", key)
-			}
-			seen[key] = struct{}{}
-			child, err := decodeStrictJSONValue(decoder, depth+1)
-			if err != nil {
-				return nil, err
-			}
-			object[key] = child
-		}
-		closing, err := decoder.Token()
-		if err != nil {
-			return nil, err
-		}
-		if closing != json.Delim('}') {
-			return nil, fmt.Errorf("JSON object closed by %q, want %q", closing, '}')
-		}
-		return object, nil
-	case '[':
-		array := []interface{}{}
-		for decoder.More() {
-			child, err := decodeStrictJSONValue(decoder, depth+1)
-			if err != nil {
-				return nil, err
-			}
-			array = append(array, child)
-		}
-		closing, err := decoder.Token()
-		if err != nil {
-			return nil, err
-		}
-		if closing != json.Delim(']') {
-			return nil, fmt.Errorf("JSON array closed by %q, want %q", closing, ']')
-		}
-		return array, nil
+	switch token.Kind() {
+	case jsontext.KindNull:
+		return nil, nil
+	case jsontext.KindFalse:
+		return false, nil
+	case jsontext.KindTrue:
+		return true, nil
+	case jsontext.KindString:
+		return token.String(), nil
+	case jsontext.KindNumber:
+		return json.Number(token.String()), nil
+	case jsontext.KindBeginObject:
+		return decodeStrictJSONObject(decoder, depth)
+	case jsontext.KindBeginArray:
+		return decodeStrictJSONArray(decoder, depth)
 	default:
-		return nil, fmt.Errorf("unexpected JSON delimiter %q", delimiter)
+		return nil, fmt.Errorf("unexpected JSON token %q", token.Kind())
 	}
+}
+
+func decodeStrictJSONObject(decoder *jsontext.Decoder, depth int) (map[string]interface{}, error) {
+	object := map[string]interface{}{}
+	for decoder.PeekKind() != jsontext.KindEndObject {
+		keyToken, err := decoder.ReadToken()
+		if err != nil {
+			return nil, err
+		}
+		if keyToken.Kind() != jsontext.KindString {
+			return nil, fmt.Errorf("object key is not a string")
+		}
+		key := keyToken.String()
+		child, err := decodeStrictJSONValue(decoder, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		object[key] = child
+	}
+	closing, err := decoder.ReadToken()
+	if err != nil {
+		return nil, err
+	}
+	if closing.Kind() != jsontext.KindEndObject {
+		return nil, fmt.Errorf("JSON object closed by %q", closing.Kind())
+	}
+	return object, nil
+}
+
+func decodeStrictJSONArray(decoder *jsontext.Decoder, depth int) ([]interface{}, error) {
+	array := []interface{}{}
+	for decoder.PeekKind() != jsontext.KindEndArray {
+		child, err := decodeStrictJSONValue(decoder, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		array = append(array, child)
+	}
+	closing, err := decoder.ReadToken()
+	if err != nil {
+		return nil, err
+	}
+	if closing.Kind() != jsontext.KindEndArray {
+		return nil, fmt.Errorf("JSON array closed by %q", closing.Kind())
+	}
+	return array, nil
 }
 
 func validateLockfileFreshness(root string, payload map[string]interface{}, migrated bool) error {

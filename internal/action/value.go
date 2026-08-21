@@ -3,6 +3,7 @@ package action
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io"
@@ -338,66 +339,170 @@ func (v Value) Equal(other Value) bool {
 }
 
 func (v Value) MarshalJSON() ([]byte, error) {
-	var out bytes.Buffer
-	if err := v.appendJSON(&out, 0); err != nil {
+	sizeHint, err := v.jsonSizeHint(0)
+	if err != nil {
 		return nil, err
 	}
-	return out.Bytes(), nil
+	return v.appendJSON(make([]byte, 0, sizeHint), 0)
 }
 
-func (v Value) appendJSON(out *bytes.Buffer, depth int) error {
+func (v Value) jsonSizeHint(depth int) (int, error) {
 	if depth > MaxJSONDepth {
-		return fmt.Errorf("value exceeds %d container levels", MaxJSONDepth)
+		return 0, fmt.Errorf("value exceeds %d container levels", MaxJSONDepth)
 	}
 	switch v.kind {
 	case ValueNull:
-		out.WriteString("null")
+		return len("null"), nil
 	case ValueBool:
 		if v.bool {
-			out.WriteString("true")
-		} else {
-			out.WriteString("false")
+			return len("true"), nil
 		}
+		return len("false"), nil
 	case ValueNumber:
-		out.WriteString(v.number.String())
+		return len(v.number.String()), nil
 	case ValueString:
-		encoded, err := json.Marshal(v.string)
-		if err != nil {
-			return err
-		}
-		out.Write(encoded)
+		return addJSONSize(len(v.string), 2)
 	case ValueArray:
-		out.WriteByte('[')
-		for index := range v.array {
-			if index > 0 {
-				out.WriteByte(',')
-			}
-			if err := v.array[index].appendJSON(out, depth+1); err != nil {
-				return err
-			}
-		}
-		out.WriteByte(']')
+		return v.jsonArraySizeHint(depth)
 	case ValueObject:
-		out.WriteByte('{')
-		for index := range v.object {
-			if index > 0 {
-				out.WriteByte(',')
-			}
-			name, err := json.Marshal(v.object[index].Name)
+		return v.jsonObjectSizeHint(depth)
+	default:
+		return 0, fmt.Errorf("value kind %q is invalid", v.kind)
+	}
+}
+
+func (v Value) jsonArraySizeHint(depth int) (int, error) {
+	total := 2
+	for index := range v.array {
+		if index > 0 {
+			var err error
+			total, err = addJSONSize(total, 1)
 			if err != nil {
-				return err
-			}
-			out.Write(name)
-			out.WriteByte(':')
-			if err := v.object[index].Value.appendJSON(out, depth+1); err != nil {
-				return err
+				return 0, err
 			}
 		}
-		out.WriteByte('}')
-	default:
-		return fmt.Errorf("value kind %q is invalid", v.kind)
+		itemSize, err := v.array[index].jsonSizeHint(depth + 1)
+		if err != nil {
+			return 0, err
+		}
+		total, err = addJSONSize(total, itemSize)
+		if err != nil {
+			return 0, err
+		}
 	}
-	return nil
+	return total, nil
+}
+
+func (v Value) jsonObjectSizeHint(depth int) (int, error) {
+	total := 2
+	for index := range v.object {
+		if index > 0 {
+			var err error
+			total, err = addJSONSize(total, 1)
+			if err != nil {
+				return 0, err
+			}
+		}
+		nameSize, err := addJSONSize(len(v.object[index].Name), 2)
+		if err != nil {
+			return 0, err
+		}
+		nameSize, err = addJSONSize(nameSize, 1)
+		if err != nil {
+			return 0, err
+		}
+		total, err = addJSONSize(total, nameSize)
+		if err != nil {
+			return 0, err
+		}
+		valueSize, err := v.object[index].Value.jsonSizeHint(depth + 1)
+		if err != nil {
+			return 0, err
+		}
+		total, err = addJSONSize(total, valueSize)
+		if err != nil {
+			return 0, err
+		}
+	}
+	return total, nil
+}
+
+func addJSONSize(total, increment int) (int, error) {
+	if increment < 0 || total > int(^uint(0)>>1)-increment {
+		return 0, errors.New("canonical JSON size exceeds addressable memory")
+	}
+	return total + increment, nil
+}
+
+func (v Value) appendJSON(out []byte, depth int) ([]byte, error) {
+	if depth > MaxJSONDepth {
+		return nil, fmt.Errorf("value exceeds %d container levels", MaxJSONDepth)
+	}
+	switch v.kind {
+	case ValueNull:
+		return append(out, "null"...), nil
+	case ValueBool:
+		if v.bool {
+			return append(out, "true"...), nil
+		}
+		return append(out, "false"...), nil
+	case ValueNumber:
+		return append(out, v.number.String()...), nil
+	case ValueString:
+		return appendJSONString(out, v.string)
+	case ValueArray:
+		return v.appendJSONArray(out, depth)
+	case ValueObject:
+		return v.appendJSONObject(out, depth)
+	default:
+		return nil, fmt.Errorf("value kind %q is invalid", v.kind)
+	}
+}
+
+func (v Value) appendJSONArray(out []byte, depth int) ([]byte, error) {
+	out = append(out, '[')
+	for index := range v.array {
+		if index > 0 {
+			out = append(out, ',')
+		}
+		var err error
+		out, err = v.array[index].appendJSON(out, depth+1)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return append(out, ']'), nil
+}
+
+func (v Value) appendJSONObject(out []byte, depth int) ([]byte, error) {
+	out = append(out, '{')
+	for index := range v.object {
+		if index > 0 {
+			out = append(out, ',')
+		}
+		var err error
+		out, err = appendJSONString(out, v.object[index].Name)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ':')
+		out, err = v.object[index].Value.appendJSON(out, depth+1)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return append(out, '}'), nil
+}
+
+func appendJSONString(out []byte, value string) ([]byte, error) {
+	if strings.ContainsAny(value, "<>&") || strings.ContainsRune(value, '\u2028') || strings.ContainsRune(value, '\u2029') {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		return append(out, encoded...), nil
+	}
+	return jsontext.AppendQuote(out, value)
 }
 
 func (v *Value) UnmarshalJSON(data []byte) error {
@@ -416,21 +521,17 @@ func ParseJSON(data []byte) (Value, error) {
 	if len(data) > MaxArgumentBytes {
 		return Value{}, jsonValueError(JSONErrorLimit, fmt.Errorf("JSON value must contain 1 to %d bytes", MaxArgumentBytes))
 	}
-	if err := ValidateJSONUnicode(data); err != nil {
-		return Value{}, jsonValueError(JSONErrorInvalidUTF8, err)
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
+	decoder := jsontext.NewDecoder(bytes.NewReader(data))
 	state := valueDecodeState{}
 	value, err := state.read(decoder, 0)
 	if err != nil {
-		return Value{}, classifyJSONValueError(err)
+		return Value{}, classifyJSONValueError(data, err)
 	}
-	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+	if _, err := decoder.ReadToken(); !errors.Is(err, io.EOF) {
 		if err == nil {
 			return Value{}, jsonValueError(JSONErrorInvalid, errors.New("JSON value contains trailing data"))
 		}
-		return Value{}, jsonValueError(JSONErrorInvalid, fmt.Errorf("read trailing JSON: %w", err))
+		return Value{}, classifyJSONValueError(data, fmt.Errorf("read trailing JSON: %w", err))
 	}
 	return value, nil
 }
@@ -450,11 +551,15 @@ func jsonValueError(kind JSONErrorKind, cause error) error {
 	return &JSONValueError{Kind: kind, Cause: cause}
 }
 
-func classifyJSONValueError(err error) error {
+func classifyJSONValueError(data []byte, err error) error {
+	if errors.Is(err, jsontext.ErrDuplicateName) {
+		return jsonValueError(JSONErrorDuplicateKey, err)
+	}
+	if unicodeErr := ValidateJSONUnicode(data); unicodeErr != nil {
+		return jsonValueError(JSONErrorInvalidUTF8, unicodeErr)
+	}
 	message := err.Error()
 	switch {
-	case strings.Contains(message, "duplicate object key"):
-		return jsonValueError(JSONErrorDuplicateKey, err)
 	case strings.Contains(message, "maximum"), strings.Contains(message, "exceeds"),
 		strings.Contains(message, "at most"), strings.Contains(message, "must contain 1 to"),
 		strings.Contains(message, "outside the supported range"):
@@ -468,93 +573,90 @@ type valueDecodeState struct {
 	items int
 }
 
-func (s *valueDecodeState) read(decoder *json.Decoder, depth int) (Value, error) {
+func (s *valueDecodeState) read(decoder *jsontext.Decoder, depth int) (Value, error) {
 	if depth > MaxJSONDepth {
 		return Value{}, fmt.Errorf("JSON value exceeds %d container levels", MaxJSONDepth)
 	}
-	token, err := decoder.Token()
+	token, err := decoder.ReadToken()
 	if err != nil {
 		return Value{}, err
 	}
-	switch value := token.(type) {
-	case nil:
+	switch token.Kind() {
+	case jsontext.KindNull:
 		return Null(), nil
-	case bool:
-		return Boolean(value), nil
-	case string:
-		return String(value)
-	case json.Number:
-		decimal, err := ParseDecimal(string(value))
+	case jsontext.KindFalse:
+		return Boolean(false), nil
+	case jsontext.KindTrue:
+		return Boolean(true), nil
+	case jsontext.KindString:
+		return String(token.String())
+	case jsontext.KindNumber:
+		decimal, err := ParseDecimal(token.String())
 		if err != nil {
 			return Value{}, err
 		}
 		return Number(decimal), nil
-	case json.Delim:
-		switch value {
-		case '[':
-			values := []Value{}
-			for decoder.More() {
-				s.items++
-				if s.items > MaxJSONItems {
-					return Value{}, fmt.Errorf("JSON value exceeds %d object keys plus array items", MaxJSONItems)
-				}
-				item, err := s.read(decoder, depth+1)
-				if err != nil {
-					return Value{}, err
-				}
-				values = append(values, item)
-			}
-			if err := expectDelimiter(decoder, ']'); err != nil {
-				return Value{}, err
-			}
-			return Array(values)
-		case '{':
-			members := []Member{}
-			seen := map[string]struct{}{}
-			for decoder.More() {
-				nameToken, err := decoder.Token()
-				if err != nil {
-					return Value{}, err
-				}
-				name, ok := nameToken.(string)
-				if !ok {
-					return Value{}, errors.New("JSON object key is not a string")
-				}
-				if _, duplicate := seen[name]; duplicate {
-					return Value{}, fmt.Errorf("duplicate object key %q", name)
-				}
-				seen[name] = struct{}{}
-				s.items++
-				if s.items > MaxJSONItems {
-					return Value{}, fmt.Errorf("JSON value exceeds %d object keys plus array items", MaxJSONItems)
-				}
-				memberValue, err := s.read(decoder, depth+1)
-				if err != nil {
-					return Value{}, err
-				}
-				members = append(members, Member{Name: name, Value: memberValue})
-			}
-			if err := expectDelimiter(decoder, '}'); err != nil {
-				return Value{}, err
-			}
-			return Object(members)
-		default:
-			return Value{}, fmt.Errorf("unexpected JSON delimiter %q", value)
-		}
+	case jsontext.KindBeginArray:
+		return s.readArray(decoder, depth)
+	case jsontext.KindBeginObject:
+		return s.readObject(decoder, depth)
 	default:
-		return Value{}, fmt.Errorf("unsupported JSON token %T", token)
+		return Value{}, fmt.Errorf("unsupported JSON token %q", token.Kind())
 	}
 }
 
-func expectDelimiter(decoder *json.Decoder, want json.Delim) error {
-	token, err := decoder.Token()
+func (s *valueDecodeState) readArray(decoder *jsontext.Decoder, depth int) (Value, error) {
+	values := []Value{}
+	for decoder.PeekKind() != jsontext.KindEndArray {
+		s.items++
+		if s.items > MaxJSONItems {
+			return Value{}, fmt.Errorf("JSON value exceeds %d object keys plus array items", MaxJSONItems)
+		}
+		item, err := s.read(decoder, depth+1)
+		if err != nil {
+			return Value{}, err
+		}
+		values = append(values, item)
+	}
+	closing, err := decoder.ReadToken()
 	if err != nil {
-		return err
+		return Value{}, err
 	}
-	if token != want {
-		return fmt.Errorf("JSON container closed by %q, want %q", token, want)
+	if closing.Kind() != jsontext.KindEndArray {
+		return Value{}, fmt.Errorf("JSON array closed by %q", closing.Kind())
 	}
-	return nil
+	return Array(values)
+}
+
+func (s *valueDecodeState) readObject(decoder *jsontext.Decoder, depth int) (Value, error) {
+	members := []Member{}
+	for decoder.PeekKind() != jsontext.KindEndObject {
+		nameToken, err := decoder.ReadToken()
+		if err != nil {
+			return Value{}, err
+		}
+		if nameToken.Kind() != jsontext.KindString {
+			return Value{}, errors.New("JSON object key is not a string")
+		}
+		name := nameToken.String()
+		s.items++
+		if s.items > MaxJSONItems {
+			return Value{}, fmt.Errorf("JSON value exceeds %d object keys plus array items", MaxJSONItems)
+		}
+		memberValue, err := s.read(decoder, depth+1)
+		if err != nil {
+			return Value{}, err
+		}
+		members = append(members, Member{Name: name, Value: memberValue})
+	}
+	closing, err := decoder.ReadToken()
+	if err != nil {
+		return Value{}, err
+	}
+	if closing.Kind() != jsontext.KindEndObject {
+		return Value{}, fmt.Errorf("JSON object closed by %q", closing.Kind())
+	}
+	return Object(members)
 }
 
 // ValidateJSONUnicode rejects byte sequences and escaped surrogate forms that

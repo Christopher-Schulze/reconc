@@ -7,13 +7,18 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"reconc.dev/reconc/internal/jsonl"
 )
 
 func TestAuditAppendGateSerializesAndCleansUp(t *testing.T) {
-	repo := t.TempDir()
+	synctest.Test(t, testAuditAppendGateSerializesAndCleansUp)
+}
+
+func testAuditAppendGateSerializesAndCleansUp(t *testing.T) {
+	repo := filepath.Join("synthetic", t.Name())
 	releaseFirst, err := acquireAuditAppendGate(context.Background(), repo, time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -32,29 +37,35 @@ func TestAuditAppendGateSerializesAndCleansUp(t *testing.T) {
 		acquired <- release
 	}()
 	<-started
+	synctest.Sleep(20 * time.Millisecond)
 	select {
 	case release := <-acquired:
 		release()
 		t.Fatal("second audit append gate acquisition did not wait")
 	case err := <-errs:
 		t.Fatalf("second audit append gate acquisition failed: %v", err)
-	case <-time.After(20 * time.Millisecond):
+	default:
 	}
 
 	releaseFirst()
+	synctest.Wait()
 	select {
 	case release := <-acquired:
 		release()
 	case err := <-errs:
 		t.Fatalf("second audit append gate acquisition failed: %v", err)
-	case <-time.After(time.Second):
+	default:
 		t.Fatal("second audit append gate acquisition did not recover")
 	}
 	assertAuditAppendGatesEmpty(t)
 }
 
 func TestAuditAppendGateTimeoutCancellationAndRecovery(t *testing.T) {
-	repo := t.TempDir()
+	synctest.Test(t, testAuditAppendGateTimeoutCancellationAndRecovery)
+}
+
+func testAuditAppendGateTimeoutCancellationAndRecovery(t *testing.T) {
+	repo := filepath.Join("synthetic", t.Name())
 	release, err := acquireAuditAppendGate(context.Background(), repo, time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -72,13 +83,15 @@ func TestAuditAppendGateTimeoutCancellationAndRecovery(t *testing.T) {
 		cancelResult <- err
 	}()
 	<-cancelStarted
+	synctest.Wait()
 	cancel()
+	synctest.Wait()
 	select {
 	case err := <-cancelResult:
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("cancelled acquisition error = %v, want %v", err, context.Canceled)
 		}
-	case <-time.After(time.Second):
+	default:
 		t.Fatal("cancelled audit append gate acquisition did not return")
 	}
 	if _, err := acquireAuditAppendGate(context.Background(), repo, 0); err == nil || !strings.Contains(err.Error(), "must be positive") {
