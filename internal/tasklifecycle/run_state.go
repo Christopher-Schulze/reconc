@@ -111,7 +111,7 @@ func inspectActiveSectionsRunState(root string) (RunState, bool, error) {
 		return RunState{}, false, nil
 	}
 	overviewPath := filepath.Join(root, filepath.FromSlash(cfg.OverviewPath))
-	pathGuard := runPathGuard{root: root, seen: make(map[string]struct{}, 8)}
+	pathGuard := newTaskPathGuard(root, 8)
 	paths := []struct {
 		label string
 		path  string
@@ -133,6 +133,9 @@ func inspectActiveSectionsRunState(root string) (RunState, bool, error) {
 	if err != nil {
 		return RunState{}, false, fmt.Errorf("read %s: %w", cfg.OverviewPath, err)
 	}
+	if err := pathGuard.revalidate(); err != nil {
+		return RunState{}, true, fmt.Errorf("TASK paths changed while reading %s: %w", cfg.OverviewPath, err)
+	}
 	if cfg.Profile == ProfileAuto && (!bytes.Contains(body, []byte("\n## Active\n")) || bytes.Contains(body, []byte("\nCurrent:"))) {
 		return RunState{}, false, nil
 	}
@@ -147,7 +150,7 @@ func inspectActiveSectionsRunState(root string) (RunState, bool, error) {
 	if pendingTransaction {
 		return RunState{}, false, nil
 	}
-	subTask, activeSubs, ok, err := inspectRunSectionsDetail(root, cfg, snapshot.Active, &pathGuard)
+	subTask, activeSubs, ok, err := inspectRunSectionsDetail(root, cfg, snapshot.Active, pathGuard)
 	if err != nil {
 		return RunState{}, true, err
 	}
@@ -155,7 +158,7 @@ func inspectActiveSectionsRunState(root string) (RunState, bool, error) {
 		return RunState{}, false, nil
 	}
 	for _, task := range snapshot.Queue {
-		_, activeSubs, valid, detailErr := inspectRunSectionsDetail(root, cfg, task, &pathGuard)
+		_, activeSubs, valid, detailErr := inspectRunSectionsDetail(root, cfg, task, pathGuard)
 		if detailErr != nil {
 			return RunState{}, true, detailErr
 		}
@@ -164,13 +167,16 @@ func inspectActiveSectionsRunState(root string) (RunState, bool, error) {
 		}
 	}
 	for _, task := range snapshot.Blocked {
-		_, activeSubs, valid, detailErr := inspectRunSectionsDetail(root, cfg, task, &pathGuard)
+		_, activeSubs, valid, detailErr := inspectRunSectionsDetail(root, cfg, task, pathGuard)
 		if detailErr != nil {
 			return RunState{}, true, detailErr
 		}
 		if !valid || activeSubs > 1 {
 			return RunState{}, false, nil
 		}
+	}
+	if err := pathGuard.revalidate(); err != nil {
+		return RunState{}, true, fmt.Errorf("TASK paths changed before final read: %w", err)
 	}
 	latest, err := readTaskControlFile(overviewPath)
 	pendingTransaction, transactionErr := transactionExists(root)
@@ -189,39 +195,7 @@ func inspectActiveSectionsRunState(root string) (RunState, bool, error) {
 	}, true, nil
 }
 
-type runPathGuard struct {
-	root string
-	seen map[string]struct{}
-}
-
-func (guard *runPathGuard) reject(abs string) error {
-	rel, err := filepath.Rel(guard.root, abs)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("path escapes the repository")
-	}
-	current := guard.root
-	for _, component := range strings.Split(rel, string(filepath.Separator)) {
-		if component == "." || component == "" {
-			continue
-		}
-		current = filepath.Join(current, component)
-		if _, ok := guard.seen[current]; ok {
-			continue
-		}
-		info, statErr := os.Lstat(current)
-		if errors.Is(statErr, os.ErrNotExist) {
-			return nil
-		}
-		if statErr != nil {
-			return fmt.Errorf("inspect path component %s: %w", current, statErr)
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("path uses symlink component %s", current)
-		}
-		guard.seen[current] = struct{}{}
-	}
-	return nil
-}
+type runPathGuard = taskPathGuard
 
 type runSection uint8
 
@@ -386,6 +360,9 @@ func inspectRunSectionsDetail(root string, cfg Config, task Task, pathGuard *run
 	body, err := readTaskControlFile(abs)
 	if err != nil {
 		return "", 0, true, fmt.Errorf("read %s: %w", task.Path, err)
+	}
+	if err := pathGuard.revalidate(); err != nil {
+		return "", 0, true, fmt.Errorf("TASK detail changed while reading %s: %w", task.Path, err)
 	}
 	expectedH1 := "# TASK " + task.ID + ": " + task.Title
 	if first, _, _ := bytes.Cut(body, []byte{'\n'}); strings.TrimSpace(string(first)) != expectedH1 {

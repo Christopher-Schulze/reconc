@@ -87,7 +87,8 @@ func (raw *rawConfig) UnmarshalYAML(node *yaml.Node) error {
 func LoadConfig(repoRoot string) (Config, error) {
 	cfg := defaultConfig()
 	configPath := filepath.Join(repoRoot, ".reconc.yml")
-	if err := rejectSymlinkComponents(repoRoot, configPath); err != nil {
+	guard := newTaskPathGuard(repoRoot, 8)
+	if err := guard.reject(configPath); err != nil {
 		return Config{}, fmt.Errorf("unsafe .reconc.yml: %w", err)
 	}
 	body, err := readTaskControlFile(configPath)
@@ -96,6 +97,9 @@ func LoadConfig(repoRoot string) (Config, error) {
 	}
 	if err != nil {
 		return Config{}, fmt.Errorf("read .reconc.yml: %w", err)
+	}
+	if err := guard.revalidate(); err != nil {
+		return Config{}, fmt.Errorf("unsafe .reconc.yml after read: %w", err)
 	}
 	var file fileConfig
 	if err := yaml.Unmarshal(body, &file); err != nil {
@@ -250,32 +254,7 @@ func canonicalRepoRoot(repoRoot string) (string, error) {
 }
 
 func rejectSymlinkComponents(repoRoot, abs string) error {
-	rel, err := filepath.Rel(repoRoot, abs)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("path escapes the repository")
-	}
-	current := repoRoot
-	components := strings.Split(rel, string(filepath.Separator))
-	for index, component := range components {
-		if component == "." || component == "" {
-			continue
-		}
-		current = filepath.Join(current, component)
-		info, statErr := os.Lstat(current)
-		if errors.Is(statErr, os.ErrNotExist) {
-			return nil
-		}
-		if statErr != nil {
-			return fmt.Errorf("inspect path component %s: %w", current, statErr)
-		}
-		if info.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
-			return fmt.Errorf("path uses symlink component %s", current)
-		}
-		if index < len(components)-1 && !info.IsDir() {
-			return fmt.Errorf("path component %s is not a directory", current)
-		}
-	}
-	return nil
+	return newTaskPathGuard(repoRoot, 8).reject(abs)
 }
 
 func cleanUnique(values []string) []string {

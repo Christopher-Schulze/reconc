@@ -1472,6 +1472,11 @@ Once `task_lifecycle` is explicitly present, its overview path is mandatory:
 missing, unreadable, unsafe, or invalid TASK state fails closed instead of
 degrading to `absent`. `completion.require_committed: true` additionally blocks
 terminal TASK completion while the configured overview or detail tree is dirty.
+All TASK config, overview, runtime-state, detail, and archive paths use one
+identity-aware component guard. It rejects symlink/reparse and irregular
+components, non-directory intermediates, and replacement identities; the fast
+run-state reader revalidates its component snapshot after each detail read and
+before accepting the final overview bytes.
 The terminal gate reuses the single Git status snapshot already built for Stop;
 it adds no Git process to routine executable continuations.
 Portable workflow audits reserve `docs/tasks/` and `docs/tasks/done/` for

@@ -1083,6 +1083,12 @@ Stop reads TASK state through `tasklifecycle.InspectRunState`. Executable
 response before policy report construction and without a Git process.
 `blocked`, `complete`, and `absent` dispositions continue to the terminal Stop
 gate; `invalid` fails closed. This fast path never bypasses PreToolUse, TASK
+policy, or terminal evidence gates. The TASK lifecycle package shares one
+identity-aware path guard across configuration, overview, runtime-state, and
+detail reads. It rejects links, reparse/irregular components, and non-directory
+intermediates, stores verified filesystem identities rather than path strings,
+and revalidates the snapshot after each fast-path detail read and before
+accepting the final overview observation.
 mutation transactions, pre-commit, or terminal policy enforcement. The
 no-progress guard compares typed TASK state plus a write/command material-event
 counter inside the locked state of that exact session; reads, unrelated events,
