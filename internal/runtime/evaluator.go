@@ -664,6 +664,7 @@ func normalizePaths(paths []string, root string) ([]string, error) {
 // the symlink/reparse resolution cost once per evidence path.
 func normalizePathsWithResolvedRoot(paths []string, resolvedRoot string) ([]string, error) {
 	out := []string{}
+	prospective := pathidentity.NewProspectiveResolver()
 	for _, raw := range paths {
 		candidate := raw
 		if candidate == "" {
@@ -679,7 +680,7 @@ func normalizePathsWithResolvedRoot(paths []string, resolvedRoot string) ([]stri
 			absPath = filepath.Join(resolvedRoot, candidate)
 		}
 		cleaned := filepath.Clean(absPath)
-		cleaned, err := pathidentity.ResolveProspective(cleaned)
+		cleaned, err := prospective.Resolve(cleaned)
 		if err != nil {
 			return nil, fmt.Errorf("resolve evidence path %q: %w", raw, err)
 		}

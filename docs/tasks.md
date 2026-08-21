@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 188 Batch prospective path identity resolution -> tasks/188-batch-prospective-path-identity-resolution.md
 - [ ] 189 Batch write-epoch path normalization -> tasks/189-batch-write-epoch-path-normalization.md
 - [ ] 190 Reuse one policy discovery and source-loading context -> tasks/190-reuse-one-policy-discovery-and-source-loading-context.md
 - [ ] 191 Bound policy glob expansion before materialization -> tasks/191-bound-policy-glob-expansion-before-materialization.md
@@ -41,6 +40,7 @@
 
 ## Done
 
+- [x] 188 Batch prospective path identity resolution -> tasks/done/188-batch-prospective-path-identity-resolution.md
 - [x] 187 Memoize stable evidence-file snapshots per evaluation -> tasks/done/187-memoize-stable-evidence-file-snapshots-per-evaluation.md
 - [x] 186 Normalize command evidence once per evaluation -> tasks/done/186-normalize-command-evidence-once-per-evaluation.md
 - [x] 185 Compile expected shell invocations once -> tasks/done/185-compile-expected-shell-invocations-once.md

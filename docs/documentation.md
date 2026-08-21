@@ -3641,6 +3641,10 @@ Security posture:
   every hit, reuses only stable bounded bytes, and fails closed on replacement
   or metadata drift; missing-file results are likewise invalidated if the path
   appears later in the same evaluation.
+- Batch path normalization uses an evaluation-local `pathidentity` prospective
+  resolver. Shared existing ancestors are `Lstat`-revalidated before reuse;
+  missing suffixes remain uncached, preserving symlink/reparse, containment,
+  case, and replacement semantics while reducing repeated ancestor walks.
 - Stop report reuse binds exactly the repository paths the compiled policy
   names, including the script target and the files a `require_script` declares
   through `cache_inputs`. A script that declares nothing is never reused.

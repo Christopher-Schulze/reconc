@@ -496,7 +496,10 @@ and byte-compares the notice before checksums and provenance are accepted.
     remains available to forbid and assurance reporting paths. Evidence-file
     checks use a bounded evaluation-local snapshot cache keyed by the resolved
     path; every hit revalidates file identity, mode, size, and modification
-    time before reusing metadata or bounded content.
+    time before reusing metadata or bounded content. High-cardinality path
+    normalization uses an evaluation-local prospective resolver that
+    revalidates shared existing ancestors before reusing their filesystem
+    identities; missing suffixes are never trusted from string state alone.
    - Normalises the input paths against the repo root.
    - For each rule in the lockfile: applies the scope filter
      (`ruleScopeMatches`), then dispatches to the per-kind
