@@ -22,11 +22,12 @@ import (
 // rule kinds (require_fresh_file, require_evidence) so they can resolve
 // repo-relative paths against the discovered root without re-discovering.
 type evalContext struct {
-	repoRoot        string
-	rawCommands     []string
-	currentCommands []string
-	preCommand      bool
-	matchers        *runtimePathMatchers
+	repoRoot         string
+	rawCommands      []string
+	currentCommands  []string
+	preCommand       bool
+	matchers         *runtimePathMatchers
+	templateMatchers *runtimeTemplateMatchers
 }
 
 // AssertRuleByID evaluates a SINGLE rule (selected by id) against the
@@ -229,11 +230,12 @@ func evaluateRuntimePlan(root string, plan *runtimePlan, inputs ExecutionInputs,
 	}
 	report := NewEmptyReport(root, ingest.LockfilePath, plan.defaultMode, normalized.inputs)
 	ctx := &evalContext{
-		repoRoot:        root,
-		rawCommands:     normalized.rawCommands,
-		currentCommands: normalized.currentCommands,
-		preCommand:      preCommand,
-		matchers:        plan.pathMatchers,
+		repoRoot:         root,
+		rawCommands:      normalized.rawCommands,
+		currentCommands:  normalized.currentCommands,
+		preCommand:       preCommand,
+		matchers:         plan.pathMatchers,
+		templateMatchers: plan.templateMatchers,
 	}
 	ruleIndexes := plan.indexesFor(allowedKinds, preCommand)
 	rules := make([]*policy.Rule, 0, len(ruleIndexes))
@@ -339,7 +341,7 @@ func evaluateBatchedRequireScripts(ctx *evalContext, rules []*policy.Rule, defau
 			// miss is rejected before match-context collection or subprocess IO.
 			continue
 		}
-		contexts, err := collectMatchContexts(inputs.WritePaths, stringListField(rule, "when_paths"))
+		contexts, err := collectMatchContextsWithMatchers(ctx.templateMatchers, inputs.WritePaths, stringListField(rule, "when_paths"))
 		if err != nil {
 			return results, err
 		}
@@ -1062,7 +1064,7 @@ func evalRequireAssurance(ctx *evalContext, rule *policy.Rule, defaultMode polic
 // to the violation. A "pass" exit (0) clears that context.
 func evalRequireScript(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
 	whenPatterns := stringListField(rule, "when_paths")
-	contexts, err := collectMatchContexts(inputs.WritePaths, whenPatterns)
+	contexts, err := collectMatchContextsWithMatchers(ctx.templateMatchers, inputs.WritePaths, whenPatterns)
 	if err != nil {
 		return nil, err
 	}
@@ -1136,7 +1138,7 @@ func evalRequireFreshFile(ctx *evalContext, rule *policy.Rule, defaultMode polic
 
 	// Collect all (write_path, captures) pairs that match the rule's
 	// when_paths. For non-templated patterns captures is empty.
-	contexts, err := collectMatchContexts(inputs.WritePaths, whenPatterns)
+	contexts, err := collectMatchContextsWithMatchers(ctx.templateMatchers, inputs.WritePaths, whenPatterns)
 	if err != nil {
 		return nil, err
 	}
@@ -1220,7 +1222,7 @@ func evalRequireEvidence(ctx *evalContext, rule *policy.Rule, defaultMode policy
 		return nil, nil
 	}
 
-	contexts, err := collectMatchContexts(inputs.WritePaths, whenPatterns)
+	contexts, err := collectMatchContextsWithMatchers(ctx.templateMatchers, inputs.WritePaths, whenPatterns)
 	if err != nil {
 		return nil, err
 	}
@@ -1324,10 +1326,14 @@ type matchContext struct {
 // patterns produce empty captures. Multiple write paths matching one
 // templated pattern produce one context per write path.
 func collectMatchContexts(writes, patterns []string) ([]matchContext, error) {
+	return collectMatchContextsWithMatchers(nil, writes, patterns)
+}
+
+func collectMatchContextsWithMatchers(matchers *runtimeTemplateMatchers, writes, patterns []string) ([]matchContext, error) {
 	out := []matchContext{}
 	for _, w := range writes {
 		for _, pat := range patterns {
-			caps, ok, err := MatchTemplate(pat, w)
+			caps, ok, err := matchTemplateWithMatchers(matchers, pat, w)
 			if err != nil {
 				return nil, err
 			}

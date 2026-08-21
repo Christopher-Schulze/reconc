@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"unicode/utf8"
+
+	"reconc.dev/reconc/internal/policy"
 )
 
 // Template variables let when_paths patterns CAPTURE path segments
@@ -52,55 +55,171 @@ func PatternHasAnyTemplateVar(patterns []string) bool {
 	return false
 }
 
+type templateBoundPart struct {
+	literal  string
+	variable string
+}
+
+// compiledTemplateMatcher owns all immutable work needed to evaluate one
+// when_paths pattern. The masked glob gates candidates before the capture
+// regex runs; boundParts rebuild the captured literal form without reparsing
+// the template source.
+type compiledTemplateMatcher struct {
+	pattern    string
+	hasVars    bool
+	literal    CompiledPathMatcher
+	literalErr error
+	masked     CompiledPathMatcher
+	maskedErr  error
+	regex      *regexp.Regexp
+	regexErr   error
+	names      []string
+	boundParts []templateBoundPart
+}
+
+func compileTemplateMatcher(pattern string) compiledTemplateMatcher {
+	trimmed := strings.TrimSpace(pattern)
+	matcher := compiledTemplateMatcher{pattern: pattern, hasVars: HasTemplateVars(pattern)}
+	if !matcher.hasVars {
+		matcher.literal, matcher.literalErr = CompilePathMatcher(pattern)
+		return matcher
+	}
+	maskedPattern := templateVarRegex.ReplaceAllString(trimmed, "*")
+	matcher.masked, matcher.maskedErr = CompilePathMatcher(maskedPattern)
+	matcher.regex, matcher.names, matcher.regexErr = compileTemplatePattern(trimmed)
+	matcher.boundParts = compileTemplateBoundParts(trimmed)
+	return matcher
+}
+
+func compileTemplateBoundParts(pattern string) []templateBoundPart {
+	locations := templateVarRegex.FindAllStringIndex(pattern, -1)
+	parts := make([]templateBoundPart, 0, len(locations)*2+1)
+	start := 0
+	for _, location := range locations {
+		if location[0] > start {
+			parts = append(parts, templateBoundPart{literal: pattern[start:location[0]]})
+		}
+		parts = append(parts, templateBoundPart{variable: pattern[location[0]+1 : location[1]-1]})
+		start = location[1]
+	}
+	if start < len(pattern) {
+		parts = append(parts, templateBoundPart{literal: pattern[start:]})
+	}
+	return parts
+}
+
+func (m compiledTemplateMatcher) match(path string) (map[string]string, bool, error) {
+	if !m.hasVars {
+		if m.literalErr != nil {
+			return nil, false, m.literalErr
+		}
+		return map[string]string{}, m.literal.Match(path), nil
+	}
+	path = filepath.ToSlash(path)
+	if m.maskedErr != nil {
+		return nil, false, m.maskedErr
+	}
+	if !m.masked.Match(path) {
+		return nil, false, nil
+	}
+	if m.regexErr != nil {
+		return nil, false, m.regexErr
+	}
+	match := m.regex.FindStringSubmatch(path)
+	if match == nil {
+		return nil, false, fmt.Errorf("template matcher diverged from validated glob semantics for pattern %q", m.pattern)
+	}
+	captures := make(map[string]string, len(m.names))
+	for index, name := range m.names {
+		captures[name] = match[index+1]
+	}
+	var boundBuilder strings.Builder
+	for _, part := range m.boundParts {
+		if part.variable == "" {
+			boundBuilder.WriteString(part.literal)
+			continue
+		}
+		boundBuilder.WriteString(escapeGlobLiteral(captures[part.variable]))
+	}
+	boundOK, err := MatchPath(boundBuilder.String(), path)
+	if err != nil {
+		return nil, false, err
+	}
+	if !boundOK {
+		return nil, false, fmt.Errorf("template captures diverged from validated glob semantics for pattern %q", m.pattern)
+	}
+	return captures, true, nil
+}
+
+type runtimeTemplateMatchers struct {
+	byPattern map[string]compiledTemplateMatcher
+}
+
+func compileRuntimeTemplateMatchers(rules []policy.Rule) (*runtimeTemplateMatchers, error) {
+	patterns := make(map[string]struct{})
+	for index := range rules {
+		rule := &rules[index]
+		if !ruleUsesTemplateContexts(rule.Kind) {
+			continue
+		}
+		for _, pattern := range rule.WhenPaths {
+			patterns[pattern] = struct{}{}
+		}
+	}
+	ordered := make([]string, 0, len(patterns))
+	for pattern := range patterns {
+		ordered = append(ordered, pattern)
+	}
+	sort.Strings(ordered)
+	compiled := make(map[string]compiledTemplateMatcher, len(ordered))
+	for _, pattern := range ordered {
+		compiled[pattern] = compileTemplateMatcher(pattern)
+	}
+	return &runtimeTemplateMatchers{byPattern: compiled}, nil
+}
+
+func ruleUsesTemplateContexts(kind policy.Kind) bool {
+	switch kind {
+	case policy.KindRequireFreshFile, policy.KindRequireEvidence, policy.KindRequireScript,
+		policy.KindAllOf, policy.KindAnyOf, policy.KindNot:
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *runtimeTemplateMatchers) match(pattern, path string) (map[string]string, bool, error) {
+	if m == nil {
+		return MatchTemplate(pattern, path)
+	}
+	matcher, ok := m.byPattern[pattern]
+	if !ok {
+		return nil, false, fmt.Errorf("runtime template pattern %q is not part of the immutable plan", pattern)
+	}
+	return matcher.match(path)
+}
+
+func matchTemplateWithMatchers(matchers *runtimeTemplateMatchers, pattern, path string) (map[string]string, bool, error) {
+	if matchers == nil {
+		return MatchTemplate(pattern, path)
+	}
+	return matchers.match(pattern, path)
+}
+
 // MatchTemplate matches path against pattern, returning the captured
 // variables on success.
 //
 //   - If pattern has NO template vars, returns (nil, ok, err) where ok
 //     is the result of regular MatchPath.
 //   - If pattern HAS template vars, compiles to a regex with named
-//     groups, matches, and returns (captures, true, nil) on hit.
+//     groups, matches, and returns (captures, true, nil) on hit. Runtime
+//     plans retain that compiled state; this standalone helper creates an
+//     isolated matcher for compatibility with dynamic callers.
 //
 // Captures map names to captured values; empty map on a non-template
 // pattern that matched.
 func MatchTemplate(pattern, path string) (map[string]string, bool, error) {
-	if !HasTemplateVars(pattern) {
-		ok, err := MatchPath(pattern, path)
-		if err != nil {
-			return nil, false, err
-		}
-		return map[string]string{}, ok, nil
-	}
-	path = filepath.ToSlash(path)
-	masked := templateVarRegex.ReplaceAllString(strings.TrimSpace(pattern), "*")
-	ok, err := MatchPath(masked, path)
-	if err != nil || !ok {
-		return nil, ok, err
-	}
-
-	regex, names, err := compileTemplatePattern(pattern)
-	if err != nil {
-		return nil, false, err
-	}
-	match := regex.FindStringSubmatch(path)
-	if match == nil {
-		return nil, false, fmt.Errorf("template matcher diverged from validated glob semantics for pattern %q", pattern)
-	}
-	captures := make(map[string]string, len(names))
-	for i, name := range names {
-		// match[0] is the full match; match[i+1] is group i (1-indexed).
-		captures[name] = match[i+1]
-	}
-	bound := templateVarRegex.ReplaceAllStringFunc(strings.TrimSpace(pattern), func(placeholder string) string {
-		return escapeGlobLiteral(captures[placeholder[1:len(placeholder)-1]])
-	})
-	boundOK, err := MatchPath(bound, path)
-	if err != nil {
-		return nil, false, err
-	}
-	if !boundOK {
-		return nil, false, fmt.Errorf("template captures diverged from validated glob semantics for pattern %q", pattern)
-	}
-	return captures, true, nil
+	return compileTemplateMatcher(pattern).match(path)
 }
 
 // MatchTemplateAny tries each pattern in order. Returns the first hit

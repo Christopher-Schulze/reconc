@@ -52,6 +52,7 @@ type runtimePlan struct {
 	customRuntimeDigests map[string]string
 	sources              []runtimeSource
 	pathMatchers         *runtimePathMatchers
+	templateMatchers     *runtimeTemplateMatchers
 }
 
 type runtimeEnvelope struct {
@@ -260,6 +261,11 @@ func compileRuntimePlan(payload map[string]interface{}) (*runtimePlan, error) {
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile path matcher preparation failed", Cause: err}
 	}
 	plan.pathMatchers = pathMatchers
+	templateMatchers, err := compileRuntimeTemplateMatchers(plan.rules)
+	if err != nil {
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile template matcher preparation failed", Cause: err}
+	}
+	plan.templateMatchers = templateMatchers
 	return plan, nil
 }
 

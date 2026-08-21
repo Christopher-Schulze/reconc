@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 184 Precompile runtime template matchers -> tasks/184-precompile-runtime-template-matchers.md
 - [ ] 185 Compile expected shell invocations once -> tasks/185-compile-expected-shell-invocations-once.md
 - [ ] 186 Normalize command evidence once per evaluation -> tasks/186-normalize-command-evidence-once-per-evaluation.md
 - [ ] 187 Memoize stable evidence-file snapshots per evaluation -> tasks/187-memoize-stable-evidence-file-snapshots-per-evaluation.md
@@ -45,6 +44,7 @@
 
 ## Done
 
+- [x] 184 Precompile runtime template matchers -> tasks/done/184-precompile-runtime-template-matchers.md
 - [x] 183 Precompile runtime path matchers -> tasks/done/183-precompile-runtime-path-matchers.md
 - [x] 182 Preserve source freshness on runtime-plan cache hits -> tasks/done/182-preserve-source-freshness-on-runtime-plan-cache-hits.md
 - [x] 181 Store audit evidence with a private JSONL layout -> tasks/done/181-store-audit-evidence-with-a-private-jsonl-layout.md
@@ -54,4 +54,3 @@
 - [x] 177 Secure atomic publication parent identities -> tasks/done/177-secure-atomic-publication-parent-identities.md
 - [x] 176 Compile one locked policy-source snapshot -> tasks/done/176-compile-one-locked-policy-source-snapshot.md
 - [x] 175 Distinguish warned and blocked action deltas -> tasks/done/175-distinguish-warned-and-blocked-action-deltas.md
-- [x] 174 Recover failed transactional JSONL commits -> tasks/done/174-recover-failed-transactional-jsonl-commits.md

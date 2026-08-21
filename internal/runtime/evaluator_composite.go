@@ -33,7 +33,7 @@ import (
 // and differ only in the fold over results.
 
 func evalAllOf(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
-	contexts, checks, err := compositeSetup(rule, inputs)
+	contexts, checks, err := compositeSetup(ctx, rule, inputs)
 	if err != nil || len(contexts) == 0 || len(checks) == 0 {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func evalAllOf(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inp
 }
 
 func evalAnyOf(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
-	contexts, checks, err := compositeSetup(rule, inputs)
+	contexts, checks, err := compositeSetup(ctx, rule, inputs)
 	if err != nil || len(contexts) == 0 || len(checks) == 0 {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func evalAnyOf(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inp
 }
 
 func evalNot(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
-	contexts, checks, err := compositeSetup(rule, inputs)
+	contexts, checks, err := compositeSetup(ctx, rule, inputs)
 	if err != nil || len(contexts) == 0 {
 		return nil, err
 	}
@@ -131,9 +131,9 @@ func evalNot(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, input
 // compositeSetup gathers the match contexts and the checks list from
 // the typed rule. Returns empty slices when when_paths doesn't match,
 // signalling "rule does not fire".
-func compositeSetup(rule *policy.Rule, inputs ExecutionInputs) ([]matchContext, []policy.Check, error) {
+func compositeSetup(ctx *evalContext, rule *policy.Rule, inputs ExecutionInputs) ([]matchContext, []policy.Check, error) {
 	patterns := stringListField(rule, "when_paths")
-	contexts, err := collectMatchContexts(inputs.WritePaths, patterns)
+	contexts, err := collectMatchContextsWithMatchers(ctx.templateMatchers, inputs.WritePaths, patterns)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -3622,6 +3622,9 @@ Security posture:
   discovered repository root, including Windows junction and 8.3 aliases.
 - Repository path evidence preserves legal leading and trailing spaces from
   host payload through persisted session state and evaluator matching.
+- Template-aware runtime triggers compile their masked glob and capture regex
+  once per immutable plan; each evaluation only applies captures and performs
+  the existing bound-semantics check.
 - Payload command strings are matched as data and are not executed. Matching
   compares the literal words a shell would execute, so quote removal and
   backslash escapes cannot hide a forbidden program, and an undecodable

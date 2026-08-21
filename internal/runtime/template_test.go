@@ -1,9 +1,124 @@
 package runtime
 
 import (
+	"fmt"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"reconc.dev/reconc/internal/policy"
 )
+
+func legacyMatchTemplateForTest(pattern, path string) (map[string]string, bool, error) {
+	if !HasTemplateVars(pattern) {
+		ok, err := MatchPath(pattern, path)
+		if err != nil {
+			return nil, false, err
+		}
+		return map[string]string{}, ok, nil
+	}
+	path = filepath.ToSlash(path)
+	masked := templateVarRegex.ReplaceAllString(strings.TrimSpace(pattern), "*")
+	ok, err := MatchPath(masked, path)
+	if err != nil || !ok {
+		return nil, ok, err
+	}
+	regex, names, err := compileTemplatePattern(pattern)
+	if err != nil {
+		return nil, false, err
+	}
+	match := regex.FindStringSubmatch(path)
+	if match == nil {
+		return nil, false, fmt.Errorf("template matcher diverged from validated glob semantics for pattern %q", pattern)
+	}
+	captures := make(map[string]string, len(names))
+	for index, name := range names {
+		captures[name] = match[index+1]
+	}
+	bound := templateVarRegex.ReplaceAllStringFunc(strings.TrimSpace(pattern), func(placeholder string) string {
+		return escapeGlobLiteral(captures[placeholder[1:len(placeholder)-1]])
+	})
+	boundOK, err := MatchPath(bound, path)
+	if err != nil {
+		return nil, false, err
+	}
+	if !boundOK {
+		return nil, false, fmt.Errorf("template captures diverged from validated glob semantics for pattern %q", pattern)
+	}
+	return captures, true, nil
+}
+
+func TestCompiledTemplateMatcherMatchesLegacy(t *testing.T) {
+	cases := [][2]string{
+		{"src/**", "src/main.go"},
+		{"src/**", "docs/main.go"},
+		{"docs/todo/{task_id}.md", "docs/todo/TODO-001.md"},
+		{"docs/{category}/{task_id}.md", "docs/todo/TODO-001.md"},
+		{"src/{module}/**/file.go", "src/auth/http/file.go"},
+		{"**/{module}.go", "auth.go"},
+		{"{src,pkg}/{module}/main.go", "pkg/auth/main.go"},
+		{"tmp/{module}.txt", "tmp/*.txt"},
+		{"{x}/{x}", "a/b"},
+		{"src/{module}/file[.go", "src/auth/filex.go"},
+	}
+	for _, testCase := range cases {
+		compiled := compileTemplateMatcher(testCase[0])
+		gotCaptures, gotOK, gotErr := compiled.match(testCase[1])
+		wantCaptures, wantOK, wantErr := legacyMatchTemplateForTest(testCase[0], testCase[1])
+		if gotOK != wantOK || !reflect.DeepEqual(gotCaptures, wantCaptures) || errorText(gotErr) != errorText(wantErr) {
+			t.Errorf("compiled %q/%q = (%v, %v, %v), legacy = (%v, %v, %v)", testCase[0], testCase[1], gotCaptures, gotOK, gotErr, wantCaptures, wantOK, wantErr)
+		}
+	}
+}
+
+func errorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func TestCompileRuntimeTemplateMatchersSelectsContextRules(t *testing.T) {
+	rules := []policy.Rule{
+		{Kind: policy.KindRequireScript, WhenPaths: []string{"scripts/{name}.sh"}},
+		{Kind: policy.KindRequireCommand, WhenPaths: []string{"commands/{name}"}},
+		{Kind: policy.KindAllOf, WhenPaths: []string{"src/{module}/**"}},
+	}
+	matchers, err := compileRuntimeTemplateMatchers(rules)
+	if err != nil {
+		t.Fatalf("compileRuntimeTemplateMatchers: %v", err)
+	}
+	if _, ok := matchers.byPattern["scripts/{name}.sh"]; !ok {
+		t.Fatal("require_script template was not compiled")
+	}
+	if _, ok := matchers.byPattern["src/{module}/**"]; !ok {
+		t.Fatal("composite template was not compiled")
+	}
+	if _, ok := matchers.byPattern["commands/{name}"]; ok {
+		t.Fatal("non-context command template was compiled as a capture matcher")
+	}
+}
+
+func BenchmarkCompiledTemplateMatcher(b *testing.B) {
+	matcher := compileTemplateMatcher("src/{module}/**/file[0-9].go")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if _, _, err := matcher.match("src/runtime/internal/file7.go"); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkDynamicTemplateMatcher(b *testing.B) {
+	b.ReportAllocs()
+	for range b.N {
+		if _, _, err := MatchTemplate("src/{module}/**/file[0-9].go", "src/runtime/internal/file7.go"); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
 
 func TestHasTemplateVars(t *testing.T) {
 	cases := []struct {
