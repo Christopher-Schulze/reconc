@@ -2,9 +2,10 @@
 
 ## Active
 
+- [~] 197 Decode and validate each lockfile once -> tasks/197-decode-and-validate-each-lockfile-once.md
+
 ## Queue
 
-- [ ] 197 Decode and validate each lockfile once -> tasks/197-decode-and-validate-each-lockfile-once.md
 - [ ] 198 Reuse one stop-attempt lockfile scan -> tasks/198-reuse-one-stop-attempt-lockfile-scan.md
 - [ ] 199 Reuse stable stop-policy snapshots within an attempt -> tasks/199-reuse-stable-stop-policy-snapshots-within-an-attempt.md
 - [ ] 200 Recover hook workers after oversized frames -> tasks/200-recover-hook-workers-after-oversized-frames.md
@@ -32,6 +33,7 @@
 
 ## Done
 
+- [x] 197 Decode and validate each lockfile once -> tasks/done/197-decode-and-validate-each-lockfile-once.md
 - [x] 196 Normalize rule JSON once per compiler boundary -> tasks/done/196-normalize-rule-json-once-per-compiler-boundary.md
 - [x] 195 Compute source provenance once per compile -> tasks/done/195-compute-source-provenance-once-per-compile.md
 - [x] 194 Parse repository configuration once -> tasks/done/194-parse-repository-configuration-once.md

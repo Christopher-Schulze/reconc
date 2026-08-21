@@ -143,7 +143,7 @@ func (e *Evaluator) loadRuntimePlan(root string) (*runtimePlan, error) {
 		delete(e.plans, root)
 		return nil, err
 	}
-	plan, err := compileRuntimePlan(lock.payload)
+	plan, err := compileRuntimePlanWithParts(lock.payload, lock.rulesJSON, lock.actionsJSON, lock.actions)
 	if err != nil {
 		delete(e.plans, root)
 		return nil, err
@@ -178,7 +178,11 @@ func (e *Evaluator) evictRuntimePlanCache(incomingRoot string) {
 }
 
 func compileRuntimePlan(payload map[string]interface{}) (*runtimePlan, error) {
-	envelope, err := decodeRuntimeEnvelope(payload)
+	return compileRuntimePlanWithParts(payload, nil, nil, nil)
+}
+
+func compileRuntimePlanWithParts(payload map[string]interface{}, rulesJSON, actionsJSON []byte, compiledActions *action.CompiledPlan) (*runtimePlan, error) {
+	envelope, err := decodeRuntimeEnvelopeWithParts(payload, rulesJSON, actionsJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -192,9 +196,12 @@ func compileRuntimePlan(payload map[string]interface{}) (*runtimePlan, error) {
 	if envelope.SourceCount < 0 || len(envelope.Sources) != envelope.SourceCount {
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile source_count does not match the typed runtime plan"}
 	}
-	actions, err := decodeActionPlanJSON(envelope.Actions)
-	if err != nil {
-		return nil, err
+	actions := compiledActions
+	if actions == nil {
+		actions, err = decodeActionPlanJSON(envelope.Actions)
+		if err != nil {
+			return nil, err
+		}
 	}
 	customRuntimeDigests := map[string]string{}
 	for _, summary := range envelope.CustomRuntimes {
@@ -319,7 +326,39 @@ func decodeActionPlanJSON(data []byte) (*action.CompiledPlan, error) {
 }
 
 func decodeRuntimeEnvelope(payload map[string]interface{}) (*runtimeEnvelope, error) {
-	data, err := json.Marshal(payload)
+	return decodeRuntimeEnvelopeWithParts(payload, nil, nil)
+}
+
+func decodeRuntimeEnvelopeWithParts(payload map[string]interface{}, rulesJSON, actionsJSON []byte) (*runtimeEnvelope, error) {
+	if len(rulesJSON) == 0 {
+		var err error
+		rulesJSON, err = json.Marshal(payload["rules"])
+		if err != nil {
+			return nil, &rerrors.LockfileError{Message: "encode compiled lockfile rules for typed runtime plan", Cause: err}
+		}
+	}
+	if len(actionsJSON) == 0 {
+		var err error
+		actionsJSON, err = json.Marshal(payload["actions"])
+		if err != nil {
+			return nil, &rerrors.LockfileError{Message: "encode compiled lockfile action plan for typed runtime plan", Cause: err}
+		}
+	}
+	// Keep the large rules/actions arrays as already encoded raw messages. The
+	// typed envelope conversion still validates every scalar and source field,
+	// but does not walk and re-encode those nested plans a second time.
+	envelopePayload := make(map[string]interface{}, len(payload))
+	for key, value := range payload {
+		switch key {
+		case "rules", "actions":
+			continue
+		default:
+			envelopePayload[key] = value
+		}
+	}
+	envelopePayload["rules"] = json.RawMessage(rulesJSON)
+	envelopePayload["actions"] = json.RawMessage(actionsJSON)
+	data, err := json.Marshal(envelopePayload)
 	if err != nil {
 		return nil, &rerrors.LockfileError{Message: "encode compiled lockfile for typed runtime plan", Cause: err}
 	}

@@ -25,9 +25,12 @@ const maxLockfileJSONDepth = action.MaxJSONDepth + 2*action.MaxConditionDepth + 
 // --- Lockfile loading + freshness ---
 
 type decodedLockfile struct {
-	payload  map[string]interface{}
-	migrated bool
-	byteHash [sha256.Size]byte
+	payload     map[string]interface{}
+	migrated    bool
+	byteHash    [sha256.Size]byte
+	rulesJSON   []byte
+	actionsJSON []byte
+	actions     *action.CompiledPlan
 }
 
 // lockfileDefaultMode extracts the validated default_mode from a loaded
@@ -89,24 +92,9 @@ func readLockfileBytes(root string) ([]byte, error) {
 }
 
 func decodeLockfile(data []byte) (*decodedLockfile, error) {
-	if err := validateLockfileJSONKeys(data); err != nil {
+	payload, err := decodeStrictLockfileJSON(data)
+	if err != nil {
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile is not strict JSON", Cause: err}
-	}
-	var payload map[string]interface{}
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.UseNumber()
-	if err := dec.Decode(&payload); err != nil {
-		return nil, &rerrors.LockfileError{Message: "compiled lockfile is not valid JSON", Cause: err}
-	}
-	var trailing interface{}
-	if err := dec.Decode(&trailing); err != io.EOF {
-		if err == nil {
-			return nil, &rerrors.LockfileError{Message: "compiled lockfile contains trailing JSON"}
-		}
-		return nil, &rerrors.LockfileError{Message: "compiled lockfile has invalid trailing JSON", Cause: err}
-	}
-	if payload == nil {
-		return nil, &rerrors.LockfileError{Message: "compiled lockfile must contain a JSON object at the top level"}
 	}
 	// Route every non-current payload through the migration table before
 	// validating the rest of the contract.
@@ -152,83 +140,113 @@ func decodeLockfile(data []byte) (*decodedLockfile, error) {
 	if int(expectedSourceCount) != len(sources) {
 		return nil, &rerrors.LockfileError{Message: "compiled lockfile source_count does not match the embedded sources"}
 	}
-	if _, err := decodeActionPlan(payload); err != nil {
+	rulesJSON, err := json.Marshal(payload["rules"])
+	if err != nil {
+		return nil, &rerrors.LockfileError{Message: "encode compiled lockfile rules", Cause: err}
+	}
+	actionsJSON, err := json.Marshal(payload["actions"])
+	if err != nil {
+		return nil, &rerrors.LockfileError{Message: "encode compiled lockfile action plan", Cause: err}
+	}
+	actions, err := decodeActionPlanJSON(actionsJSON)
+	if err != nil {
 		return nil, err
 	}
 
-	return &decodedLockfile{payload: payload, migrated: len(applied) > 0}, nil
+	return &decodedLockfile{
+		payload: payload, migrated: len(applied) > 0,
+		rulesJSON: rulesJSON, actionsJSON: actionsJSON, actions: actions,
+	}, nil
 }
 
-func validateLockfileJSONKeys(data []byte) error {
+func decodeStrictLockfileJSON(data []byte) (map[string]interface{}, error) {
 	if err := action.ValidateJSONUnicode(data); err != nil {
-		return err
+		return nil, err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
-	first, err := decoder.Token()
+	value, err := decodeStrictJSONValue(decoder, 1)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if delimiter, ok := first.(json.Delim); !ok || delimiter != '{' {
-		return fmt.Errorf("root value must be an object")
-	}
-	if err := validateLockfileJSONContainer(decoder, '{', 1); err != nil {
-		return err
-	}
-	if _, err := decoder.Token(); !stderrors.Is(err, io.EOF) {
+	if trailing, err := decoder.Token(); err != io.EOF {
 		if err == nil {
-			return fmt.Errorf("multiple JSON values are not allowed")
+			return nil, fmt.Errorf("multiple JSON values are not allowed")
 		}
-		return err
+		return nil, err
+	} else if trailing != nil {
+		return nil, fmt.Errorf("multiple JSON values are not allowed")
 	}
-	return nil
+	payload, ok := value.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("root value must be an object")
+	}
+	return payload, nil
 }
 
-func validateLockfileJSONContainer(decoder *json.Decoder, delimiter json.Delim, depth int) error {
+func decodeStrictJSONValue(decoder *json.Decoder, depth int) (interface{}, error) {
 	if depth > maxLockfileJSONDepth {
-		return fmt.Errorf("JSON nesting exceeds %d levels", maxLockfileJSONDepth)
+		return nil, fmt.Errorf("JSON nesting exceeds %d levels", maxLockfileJSONDepth)
 	}
-	seen := map[string]struct{}{}
-	for decoder.More() {
-		if delimiter == '{' {
+	token, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+	delimiter, ok := token.(json.Delim)
+	if !ok {
+		return token, nil
+	}
+	switch delimiter {
+	case '{':
+		object := map[string]interface{}{}
+		seen := map[string]struct{}{}
+		for decoder.More() {
 			keyToken, err := decoder.Token()
 			if err != nil {
-				return err
+				return nil, err
 			}
 			key, ok := keyToken.(string)
 			if !ok {
-				return fmt.Errorf("object key is not a string")
+				return nil, fmt.Errorf("object key is not a string")
 			}
 			if _, duplicate := seen[key]; duplicate {
-				return fmt.Errorf("duplicate object key %q", key)
+				return nil, fmt.Errorf("duplicate object key %q", key)
 			}
 			seen[key] = struct{}{}
+			child, err := decodeStrictJSONValue(decoder, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			object[key] = child
 		}
-		value, err := decoder.Token()
+		closing, err := decoder.Token()
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if nested, ok := value.(json.Delim); ok {
-			if nested != '{' && nested != '[' {
-				return fmt.Errorf("unexpected JSON delimiter %q", nested)
-			}
-			if err := validateLockfileJSONContainer(decoder, nested, depth+1); err != nil {
-				return err
-			}
+		if closing != json.Delim('}') {
+			return nil, fmt.Errorf("JSON object closed by %q, want %q", closing, '}')
 		}
+		return object, nil
+	case '[':
+		array := []interface{}{}
+		for decoder.More() {
+			child, err := decodeStrictJSONValue(decoder, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			array = append(array, child)
+		}
+		closing, err := decoder.Token()
+		if err != nil {
+			return nil, err
+		}
+		if closing != json.Delim(']') {
+			return nil, fmt.Errorf("JSON array closed by %q, want %q", closing, ']')
+		}
+		return array, nil
+	default:
+		return nil, fmt.Errorf("unexpected JSON delimiter %q", delimiter)
 	}
-	closing, err := decoder.Token()
-	if err != nil {
-		return err
-	}
-	want := json.Delim('}')
-	if delimiter == '[' {
-		want = ']'
-	}
-	if closing != want {
-		return fmt.Errorf("JSON container closed by %q, want %q", closing, want)
-	}
-	return nil
 }
 
 func validateLockfileFreshness(root string, payload map[string]interface{}, migrated bool) error {

@@ -504,6 +504,11 @@ and byte-compares the notice before checksums and provenance are accepted.
      Current format-6 locks prove freshness from the complete lock digest plus
      one bounded source-bundle digest pass. Migrated legacy locks additionally
      reparse sources and prove exact embedded rule and canonical-action parity.
+     Its strict recursive decoder is the single JSON-token boundary: duplicate
+     keys, Unicode, depth, root shape, numeric values, and trailing data are
+     checked while the `UseNumber` tree is retained. Rules/actions are encoded
+     once for typed decoding, and the already compiled action plan is reused by
+     the runtime plan builder.
    - The validated payload is decoded once into an immutable typed runtime plan.
      ID, kind, pre-command composite, and scope metadata are indexed before any
      evidence is evaluated; malformed or unknown typed fields fail closed. The

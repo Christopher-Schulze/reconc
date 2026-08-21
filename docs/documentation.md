@@ -1647,6 +1647,12 @@ through format-5 lockfiles are migrated in memory only after their legacy schema
 identity and digest pass;
 their sources are reparsed and must retain exact embedded rule and canonical
 action parity.
+The lockfile boundary performs one bounded recursive token decode: it rejects
+duplicate keys, invalid Unicode, excessive nesting, non-object roots, and
+trailing values while retaining `json.Number` values. The decoded rules and
+actions are encoded once into typed-plan inputs; the compiled action plan is
+carried forward to runtime construction instead of being marshaled and
+validated again.
 Source compilation uses an evaluation-scoped `SourceLoadContext`: discovery,
 canonical root identity, config identity, and the per-default-glob fragment
 inventory travel together through one load and are revalidated before and

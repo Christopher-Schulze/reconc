@@ -159,6 +159,14 @@ func BenchmarkRuntimePipelineStages(b *testing.B) {
 			}
 		}
 	})
+	b.Run("typed-plan-cached-lock-parts", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			if _, err := compileRuntimePlanWithParts(lock.payload, lock.rulesJSON, lock.actionsJSON, lock.actions); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 	b.Run("path-match", func(b *testing.B) {
 		paths := []string{"gen/a.go", "src/main.go", "docs/readme.md"}
 		patterns := []string{"gen/**", "generated/**", "vendor/**"}
