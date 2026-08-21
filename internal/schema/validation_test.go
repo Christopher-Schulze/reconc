@@ -2,6 +2,8 @@ package schema_test
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -178,7 +180,14 @@ func TestEveryLegacyPolicyLockSchemaMigratesToAValidCurrentArtifact(t *testing.T
 		t.Run("v"+contract.SchemaVersion, func(t *testing.T) {
 			artifact := representativeArtifact(t, compiled[contract.DefaultURL])
 			artifact["$schema"] = contract.DefaultURL
-			if contract.SchemaVersion != "1" {
+			if contract.SchemaVersion == "1" {
+				canonical := mustJSON(t, map[string]any{
+					"source_precedence": artifact["source_precedence"],
+					"sources":           artifact["sources"],
+				})
+				digest := sha256.Sum256(canonical)
+				artifact["source_digest"] = hex.EncodeToString(digest[:])
+			} else {
 				digest, err := compiler.ComputeLockDigest(artifact)
 				if err != nil {
 					t.Fatalf("compute legacy lock digest: %v", err)

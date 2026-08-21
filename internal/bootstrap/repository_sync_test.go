@@ -1208,6 +1208,7 @@ func TestRepositorySyncMigratesOnlyReceiptOwnedPolicyLock(t *testing.T) {
 		legacySources = append(legacySources, legacySource)
 	}
 	payload["sources"] = legacySources
+	setLegacyV1SourceDigest(t, payload)
 	delete(payload, "actions")
 	delete(payload, "lock_digest")
 	legacy, err := json.MarshalIndent(payload, "", "  ")

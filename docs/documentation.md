@@ -1677,8 +1677,11 @@ physical global-policy paths never enter the committable lock. Its
 itself. For current format-6 locks, runtime verifies that envelope and reads the
 bounded source bundle once to compare its complete identity digest, then
 strictly decodes one typed immutable repository-rule and action plan. Format-1
-through format-5 lockfiles are migrated in memory only after their legacy schema
-identity and digest pass;
+lockfiles are migrated in memory only after their legacy schema and historical
+source digest over `source_precedence` plus raw `sources` pass. That digest
+verifies source records, not the whole format-1 payload because `lock_digest`
+did not exist yet. Formats 2 through 5 require their legacy schema and
+whole-payload digest to pass before migration;
 their sources are reparsed and must retain exact embedded rule and canonical
 action parity.
 The lockfile boundary performs one bounded recursive

@@ -80,6 +80,9 @@ func migrateLockfileV1ToV2(payload map[string]interface{}) (map[string]interface
 			return nil, fmt.Errorf("legacy lockfile discovery.%s must be a non-empty string", field)
 		}
 	}
+	if err := verifyLegacySourceDigest(payload); err != nil {
+		return nil, err
+	}
 
 	out := cloneLockfileMap(payload)
 	portableDiscovery := cloneLockfileMap(discovery)
@@ -95,6 +98,37 @@ func migrateLockfileV1ToV2(payload map[string]interface{}) (map[string]interface
 	}
 	out["lock_digest"] = digest
 	return out, nil
+}
+
+// verifyLegacySourceDigest reproduces the format-1 compiler's exact digest
+// input. Format 1 hashed the serialized source_precedence and raw source
+// records before body-free provenance and whole-lock digests existed.
+func verifyLegacySourceDigest(payload map[string]interface{}) error {
+	stored, ok := payload["source_digest"].(string)
+	decoded, err := hex.DecodeString(stored)
+	if !ok || err != nil || len(decoded) != sha256.Size || stored != strings.ToLower(stored) {
+		return fmt.Errorf("legacy lockfile source_digest is missing or invalid")
+	}
+	precedence, ok := payload["source_precedence"].([]interface{})
+	if !ok {
+		return fmt.Errorf("legacy lockfile source_precedence must contain a list")
+	}
+	sources, ok := payload["sources"].([]interface{})
+	if !ok {
+		return fmt.Errorf("legacy lockfile sources must contain a list")
+	}
+	canonical, err := marshalCanonical(map[string]interface{}{
+		"source_precedence": precedence,
+		"sources":           sources,
+	})
+	if err != nil {
+		return fmt.Errorf("compute legacy source digest: %w", err)
+	}
+	computed := sha256.Sum256(canonical)
+	if stored != hex.EncodeToString(computed[:]) {
+		return fmt.Errorf("legacy lockfile source_digest does not match its sources")
+	}
+	return nil
 }
 
 func migrateLockfileV2ToV3(payload map[string]interface{}) (map[string]interface{}, error) {

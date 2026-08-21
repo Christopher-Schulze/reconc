@@ -338,6 +338,7 @@ func BenchmarkLegacyMigrationPlan(b *testing.B) {
 		map[string]interface{}{"kind": "agents_md", "path": "AGENTS.md", "content": "# project\n"},
 		map[string]interface{}{"kind": "policy_file", "path": "policies/rules.yml", "content": policyText},
 	}
+	setLegacyV1SourceDigest(b, payload)
 	discovery := payload["discovery"].(map[string]interface{})
 	discovery["repo_root"] = repo
 	discovery["start_path"] = repo

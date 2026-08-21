@@ -2,6 +2,8 @@ package compiler
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -27,23 +29,10 @@ func TestMigrateLockfileCurrentVersionIsNoOp(t *testing.T) {
 
 func TestMigrateLockfileV1ToPortableV2(t *testing.T) {
 	t.Setenv("RECONC_SCHEMA_BASE_URL", "")
-	payload := map[string]interface{}{
-		"$schema":        LegacyLockfileSchemaV1,
-		"format_version": "1",
-		"repo_root":      "/tmp/original-checkout",
-		"discovery": map[string]interface{}{
-			"repo_root":  "/tmp/original-checkout",
-			"start_path": "/tmp/original-checkout/subdir",
-			"discovered": true,
-		},
-		"source_digest": strings.Repeat("a", 64),
-		"sources": []interface{}{
-			map[string]interface{}{
-				"kind":    string(policy.SourceAgentsMD),
-				"path":    "AGENTS.md",
-				"content": "# project\n",
-			},
-		},
+	payload := legacyV1Payload()
+	const historicalDigest = "449d143020f0c1cc7a3c395b1b31c2ec1c0bef2e94b001a79529e9bbe5e93083"
+	if payload["source_digest"] != historicalDigest {
+		t.Fatalf("historical format-1 source digest = %v, want %s", payload["source_digest"], historicalDigest)
 	}
 
 	out, applied, err := MigrateLockfile(payload)
@@ -68,6 +57,96 @@ func TestMigrateLockfileV1ToPortableV2(t *testing.T) {
 	}
 	if payload["repo_root"] != "/tmp/original-checkout" {
 		t.Fatal("migration must not mutate the caller payload")
+	}
+}
+
+func TestMigrateLockfileV1RejectsSourceTampering(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(map[string]interface{})
+	}{
+		{name: "missing digest", mutate: func(payload map[string]interface{}) { delete(payload, "source_digest") }},
+		{name: "malformed digest", mutate: func(payload map[string]interface{}) { payload["source_digest"] = "nope" }},
+		{name: "uppercase digest", mutate: func(payload map[string]interface{}) {
+			payload["source_digest"] = strings.ToUpper(payload["source_digest"].(string))
+		}},
+		{name: "precedence", mutate: func(payload map[string]interface{}) { payload["source_precedence"].([]interface{})[0] = "agents_md" }},
+		{name: "source order", mutate: func(payload map[string]interface{}) {
+			sources := payload["sources"].([]interface{})
+			payload["sources"] = []interface{}{sources[1], sources[0]}
+		}},
+		{name: "source kind", mutate: mutateLegacyV1Source("kind", "claude_md")},
+		{name: "source path", mutate: mutateLegacyV1Source("path", "CLAUDE.md")},
+		{name: "source body", mutate: mutateLegacyV1Source("content", "changed\n")},
+		{name: "block id", mutate: mutateLegacyV1Source("block_id", "changed")},
+		{name: "line start", mutate: mutateLegacyV1Source("line_start", json.Number("8"))},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			payload := legacyV1PayloadWithInlineBlock()
+			test.mutate(payload)
+			if _, _, err := MigrateLockfile(payload); err == nil || !strings.Contains(err.Error(), "source_digest") {
+				t.Fatalf("tampered format-1 source payload accepted: %v", err)
+			}
+		})
+	}
+}
+
+func legacyV1Payload() map[string]interface{} {
+	payload := map[string]interface{}{
+		"$schema":        LegacyLockfileSchemaV1,
+		"format_version": "1",
+		"repo_root":      "/tmp/original-checkout",
+		"discovery": map[string]interface{}{
+			"repo_root":  "/tmp/original-checkout",
+			"start_path": "/tmp/original-checkout/subdir",
+			"discovered": true,
+		},
+		"source_precedence": legacyV1SourcePrecedence(),
+		"sources": []interface{}{
+			map[string]interface{}{
+				"kind":    string(policy.SourceAgentsMD),
+				"path":    "AGENTS.md",
+				"content": "# project\n",
+			},
+		},
+	}
+	payload["source_digest"] = legacyV1SourceDigest(payload)
+	return payload
+}
+
+func legacyV1PayloadWithInlineBlock() map[string]interface{} {
+	payload := legacyV1Payload()
+	payload["sources"] = append(payload["sources"].([]interface{}), map[string]interface{}{
+		"kind": "inline_block", "path": "AGENTS.md", "content": "rules: []\n",
+		"block_id": "block-1", "line_start": json.Number("7"),
+	})
+	payload["source_digest"] = legacyV1SourceDigest(payload)
+	return payload
+}
+
+func legacyV1SourcePrecedence() []interface{} {
+	return []interface{}{
+		"global", "claude_md", "agents_md", "start_md", "inline_block",
+		"compiler_config", "preset", "policy_file",
+	}
+}
+
+func legacyV1SourceDigest(payload map[string]interface{}) string {
+	canonical, err := json.Marshal(map[string]interface{}{
+		"source_precedence": payload["source_precedence"],
+		"sources":           payload["sources"],
+	})
+	if err != nil {
+		panic(err)
+	}
+	digest := sha256.Sum256(canonical)
+	return hex.EncodeToString(digest[:])
+}
+
+func mutateLegacyV1Source(field string, value interface{}) func(map[string]interface{}) {
+	return func(payload map[string]interface{}) {
+		payload["sources"].([]interface{})[1].(map[string]interface{})[field] = value
 	}
 }
 

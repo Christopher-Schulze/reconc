@@ -253,6 +253,7 @@ func TestMigratedRuntimePlanRetainsEmbeddedRuleParityCheck(t *testing.T) {
 			map[string]interface{}{"kind": "agents_md", "path": "AGENTS.md", "content": "# project\n"},
 			map[string]interface{}{"kind": "policy_file", "path": "policies/rules.yml", "content": policyText},
 		}
+		setLegacyV1SourceDigest(t, payload)
 		discovery := payload["discovery"].(map[string]interface{})
 		discovery["repo_root"] = repo
 		discovery["start_path"] = repo

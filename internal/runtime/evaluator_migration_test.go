@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -10,6 +12,19 @@ import (
 
 	"reconc.dev/reconc/internal/compiler"
 )
+
+func setLegacyV1SourceDigest(tb testing.TB, payload map[string]interface{}) {
+	tb.Helper()
+	canonical, err := json.Marshal(map[string]interface{}{
+		"source_precedence": payload["source_precedence"],
+		"sources":           payload["sources"],
+	})
+	if err != nil {
+		tb.Fatal(err)
+	}
+	digest := sha256.Sum256(canonical)
+	payload["source_digest"] = hex.EncodeToString(digest[:])
+}
 
 func rewriteLockfile(t *testing.T, repo string, mutate func(map[string]interface{})) {
 	t.Helper()
@@ -81,6 +96,7 @@ func TestCheckAcceptsMigratedV1LockfileFromEquivalentCheckout(t *testing.T) {
 			"content": policyText,
 		},
 	}
+	setLegacyV1SourceDigest(t, payload)
 	discovery, ok := payload["discovery"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("discovery has type %T", payload["discovery"])
@@ -102,6 +118,42 @@ func TestCheckAcceptsMigratedV1LockfileFromEquivalentCheckout(t *testing.T) {
 	if !report.OK || report.Decision != DecisionPass {
 		t.Fatalf("migrated equivalent checkout decision=%s ok=%v", report.Decision, report.OK)
 	}
+}
+
+func TestDecodeLockfileRejectsTamperedV1Sources(t *testing.T) {
+	payload := legacyV1IntegrityPayload(t)
+	payload["sources"].([]interface{})[0].(map[string]interface{})["content"] = "tampered\n"
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeLockfile(body); err == nil || !strings.Contains(err.Error(), "source_digest") {
+		t.Fatalf("runtime accepted tampered format-1 sources: %v", err)
+	}
+}
+
+func legacyV1IntegrityPayload(tb testing.TB) map[string]interface{} {
+	tb.Helper()
+	payload := map[string]interface{}{
+		"$schema": compiler.LegacyLockfileSchemaV1, "format_version": "1",
+		"repo_root": "/tmp/reconc-legacy", "default_mode": "warn",
+		"rule_count": 0, "source_count": 1,
+		"source_precedence": []interface{}{
+			"global", "claude_md", "agents_md", "start_md", "inline_block",
+			"compiler_config", "preset", "policy_file",
+		},
+		"discovery": map[string]interface{}{
+			"repo_root": "/tmp/reconc-legacy", "start_path": "/tmp/reconc-legacy",
+			"discovered": true, "config_candidates": []interface{}{},
+			"policy_paths": []interface{}{}, "warnings": []interface{}{},
+		},
+		"sources": []interface{}{map[string]interface{}{
+			"kind": "agents_md", "path": "AGENTS.md", "content": "# project\n",
+		}},
+		"rules": []interface{}{},
+	}
+	setLegacyV1SourceDigest(tb, payload)
+	return payload
 }
 
 func TestCheckRejectsCurrentLockfileWithPhysicalRoot(t *testing.T) {
@@ -172,6 +224,7 @@ func TestDecodeLockfileCachesTypedPartsForCurrentAndMigratedLocks(t *testing.T) 
 		map[string]interface{}{"kind": "agents_md", "path": "AGENTS.md", "content": "# project\n"},
 		map[string]interface{}{"kind": "policy_file", "path": "policies/rules.yml", "content": policyText},
 	}
+	setLegacyV1SourceDigest(t, legacy)
 	discovery := legacy["discovery"].(map[string]interface{})
 	discovery["repo_root"] = repo
 	discovery["start_path"] = repo

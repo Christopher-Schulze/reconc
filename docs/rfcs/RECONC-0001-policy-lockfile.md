@@ -77,6 +77,12 @@ Each current source record contains `kind`, a logical portable `path`, and
 bounded provenance. Raw source content, physical checkout paths, and physical
 global-policy paths are forbidden in the current lockfile.
 
+Format 1 stored raw source bodies and had no whole-payload `lock_digest`.
+Before migration, Reconc recomputes its historical `source_digest` over the
+stored `source_precedence` and ordered raw `sources` records. This proves source
+record consistency only; the remaining format-1 envelope becomes trusted only
+after current-source rule and action parity checks succeed.
+
 ## Lock Digest
 
 `lock_digest` is SHA-256 over canonical JSON for every top-level field except
@@ -113,9 +119,10 @@ Runtime loaders must:
 
 1. Refuse missing, malformed, stale, schema-drifted, or non-portable current
    lockfiles.
-2. Validate registered legacy schema identities and migrate known format-1
-   absolute-root, format-2 content-bearing, format-3, format-4, and format-5 lockfiles in
-   memory to the current body-free `.` envelope without mutating the input.
+2. Validate registered legacy schema identities, verify the format-1 historical
+   source digest or the format-2-through-5 whole-payload digest as applicable,
+   and migrate known legacy locks in memory to the current body-free `.`
+   envelope without mutating the input.
 3. Validate rule count and source count consistency.
 4. Validate the complete `lock_digest`, then compare the current source-bundle
    identity with `source_digest` without reparsing a current format-6 lock.
