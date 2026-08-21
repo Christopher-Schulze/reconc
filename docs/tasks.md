@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 187 Memoize stable evidence-file snapshots per evaluation -> tasks/187-memoize-stable-evidence-file-snapshots-per-evaluation.md
 - [ ] 188 Batch prospective path identity resolution -> tasks/188-batch-prospective-path-identity-resolution.md
 - [ ] 189 Batch write-epoch path normalization -> tasks/189-batch-write-epoch-path-normalization.md
 - [ ] 190 Reuse one policy discovery and source-loading context -> tasks/190-reuse-one-policy-discovery-and-source-loading-context.md
@@ -42,6 +41,7 @@
 
 ## Done
 
+- [x] 187 Memoize stable evidence-file snapshots per evaluation -> tasks/done/187-memoize-stable-evidence-file-snapshots-per-evaluation.md
 - [x] 186 Normalize command evidence once per evaluation -> tasks/done/186-normalize-command-evidence-once-per-evaluation.md
 - [x] 185 Compile expected shell invocations once -> tasks/done/185-compile-expected-shell-invocations-once.md
 - [x] 184 Precompile runtime template matchers -> tasks/done/184-precompile-runtime-template-matchers.md

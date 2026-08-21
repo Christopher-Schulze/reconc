@@ -493,7 +493,10 @@ and byte-compares the notice before checksums and provenance are accepted.
     normalized command/result semantics, outcome, and freshness epoch, prepares
     normalized expected shell invocations once, and caches observed invocation
     extraction by command text for the evaluation lifetime. Raw command syntax
-    remains available to forbid and assurance reporting paths.
+    remains available to forbid and assurance reporting paths. Evidence-file
+    checks use a bounded evaluation-local snapshot cache keyed by the resolved
+    path; every hit revalidates file identity, mode, size, and modification
+    time before reusing metadata or bounded content.
    - Normalises the input paths against the repo root.
    - For each rule in the lockfile: applies the scope filter
      (`ruleScopeMatches`), then dispatches to the per-kind

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/parser"
@@ -447,6 +448,34 @@ func BenchmarkCommandEvidenceReparse(b *testing.B) {
 	for range b.N {
 		if got := matchingCommands(commands, expected, "/repo", policy.CommandMatchExact); len(got) != 2 {
 			b.Fatalf("reparsed evidence produced %v", got)
+		}
+	}
+}
+
+func BenchmarkEvidenceSnapshotCacheHit(b *testing.B) {
+	path := filepath.Join(b.TempDir(), "evidence.txt")
+	writeFileBench(b, filepath.Dir(path), filepath.Base(path), "alpha\nbeta\n")
+	cache := newEvidenceSnapshotCache()
+	if _, err := cache.snapshot(path, true); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if snapshot, err := cache.snapshot(path, true); err != nil || snapshot.content == "" {
+			b.Fatalf("cached snapshot: %v", err)
+		}
+	}
+}
+
+func BenchmarkEvidenceSnapshotRead(b *testing.B) {
+	path := filepath.Join(b.TempDir(), "evidence.txt")
+	writeFileBench(b, filepath.Dir(path), filepath.Base(path), "alpha\nbeta\n")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if body, err := boundedio.ReadFile(path, maxEvidenceFileBytes); err != nil || len(body) == 0 {
+			b.Fatalf("bounded read: %v", err)
 		}
 	}
 }

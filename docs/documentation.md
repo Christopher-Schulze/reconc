@@ -3636,6 +3636,11 @@ Security posture:
   and bounded observed-command parses are reused for repeated forbidden,
   required, composite, and assurance checks; incomplete or dynamic syntax
   remains fail-closed.
+- Repeated evidence-file checks share a bounded cache for the current
+  evaluation. It revalidates identity, mode, size, and modification time on
+  every hit, reuses only stable bounded bytes, and fails closed on replacement
+  or metadata drift; missing-file results are likewise invalidated if the path
+  appears later in the same evaluation.
 - Stop report reuse binds exactly the repository paths the compiled policy
   names, including the script target and the files a `require_script` declares
   through `cache_inputs`. A script that declares nothing is never reused.

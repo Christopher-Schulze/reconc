@@ -3,11 +3,9 @@ package runtime
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
-	"reconc.dev/reconc/internal/boundedio"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/policy"
 )
@@ -234,16 +232,17 @@ func evalCheckRequireFreshFile(ctx *evalContext, c policy.Check, captures map[st
 	if err != nil {
 		return false, "", err
 	}
-	info, err := os.Stat(full)
+	snapshot, err := ctx.evidenceCache.snapshot(full, false)
 	if err != nil {
-		if os.IsNotExist(err) {
-			if c.Optional {
-				return true, "", nil
-			}
-			return false, "missing file " + pathSubst, nil
-		}
 		return false, "", &rerrors.LockfileError{Message: "stat " + pathSubst, Cause: err}
 	}
+	if !snapshot.exists {
+		if c.Optional {
+			return true, "", nil
+		}
+		return false, "missing file " + pathSubst, nil
+	}
+	info := snapshot.info
 	if !info.Mode().IsRegular() {
 		return false, "not a regular file: " + pathSubst, nil
 	}
@@ -265,34 +264,31 @@ func evalCheckRequireEvidence(ctx *evalContext, c policy.Check, captures map[str
 	if err != nil {
 		return false, "", err
 	}
-	info, err := os.Stat(full)
-	if err != nil {
-		if os.IsNotExist(err) {
-			if c.Optional {
-				return true, "", nil
-			}
-			if c.MustExist {
-				return false, "missing file " + fileSubst, nil
-			}
-			if len(c.MustContain) > 0 || c.MustNotContain != "" || c.MaxLineCount > 0 {
-				return false, "missing file " + fileSubst + " (cannot check content)", nil
-			}
-			return true, "", nil
-		}
-		return false, "", &rerrors.LockfileError{Message: "stat " + fileSubst, Cause: err}
-	}
-	if !info.Mode().IsRegular() {
-		return false, "not a regular file: " + fileSubst, nil
-	}
 	needContent := len(c.MustContain) > 0 || c.MustNotContain != "" || c.MaxLineCount > 0
-	if !needContent {
-		return true, "", nil
-	}
-	data, err := boundedio.ReadFile(full, maxEvidenceFileBytes)
+	snapshot, err := ctx.evidenceCache.snapshot(full, needContent)
 	if err != nil {
 		return false, "", &rerrors.LockfileError{Message: "read " + fileSubst, Cause: err}
 	}
-	content := string(data)
+	if !snapshot.exists {
+		if c.Optional {
+			return true, "", nil
+		}
+		if c.MustExist {
+			return false, "missing file " + fileSubst, nil
+		}
+		if needContent {
+			return false, "missing file " + fileSubst + " (cannot check content)", nil
+		}
+		return true, "", nil
+	}
+	info := snapshot.info
+	if !info.Mode().IsRegular() {
+		return false, "not a regular file: " + fileSubst, nil
+	}
+	if !needContent {
+		return true, "", nil
+	}
+	content := snapshot.content
 	for _, sub := range c.MustContain {
 		if !strings.Contains(content, sub) {
 			return false, fileSubst + ": missing required substring " + quote(sub), nil

@@ -3,7 +3,6 @@ package runtime
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"path"
 	"path/filepath"
 	"sort"
@@ -11,7 +10,6 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/assurance"
-	"reconc.dev/reconc/internal/boundedio"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/pathidentity"
@@ -31,6 +29,7 @@ type evalContext struct {
 	templateMatchers *runtimeTemplateMatchers
 	commandCache     *commandInvocationCache
 	commandEvidence  *commandEvidenceIndex
+	evidenceCache    *evidenceSnapshotCache
 }
 
 type observedCommandInvocations struct {
@@ -268,6 +267,7 @@ func (e *Evaluator) AssertRuleByID(startPath, ruleID string, vars map[string]str
 		templateMatchers: plan.templateMatchers,
 		commandCache:     newCommandInvocationCache([]policy.Rule{*target}, root),
 		commandEvidence:  newCommandEvidenceIndex(normalizedInputs, root),
+		evidenceCache:    newEvidenceSnapshotCache(),
 	}
 
 	v, err := evaluateRule(ctx, target, plan.defaultMode, normalizedInputs)
@@ -370,6 +370,7 @@ func evaluateRuntimePlan(root string, plan *runtimePlan, inputs ExecutionInputs,
 		templateMatchers: plan.templateMatchers,
 		commandCache:     newCommandInvocationCache(plan.rules, root),
 		commandEvidence:  newCommandEvidenceIndex(normalized.inputs, root),
+		evidenceCache:    newEvidenceSnapshotCache(),
 	}
 	ruleIndexes := plan.indexesFor(allowedKinds, preCommand)
 	rules := make([]*policy.Rule, 0, len(ruleIndexes))
@@ -1309,18 +1310,19 @@ func evalRequireFreshFile(ctx *evalContext, rule *policy.Rule, defaultMode polic
 			if err != nil {
 				return nil, err
 			}
-			info, err := os.Stat(fullPath)
+			snapshot, err := ctx.evidenceCache.snapshot(fullPath, false)
 			if err != nil {
-				if os.IsNotExist(err) {
-					if rf.Optional {
-						continue
-					}
-					missing = appendUnique(missing, path)
-					allRequired[path] = struct{}{}
-					continue
-				}
 				return nil, &rerrors.LockfileError{Message: "stat required file " + path, Cause: err}
 			}
+			if !snapshot.exists {
+				if rf.Optional {
+					continue
+				}
+				missing = appendUnique(missing, path)
+				allRequired[path] = struct{}{}
+				continue
+			}
+			info := snapshot.info
 			allRequired[path] = struct{}{}
 			if !info.Mode().IsRegular() {
 				missing = appendUnique(missing, path)
@@ -1392,34 +1394,31 @@ func evalRequireEvidence(ctx *evalContext, rule *policy.Rule, defaultMode policy
 			if err != nil {
 				return nil, err
 			}
-			info, err := os.Stat(fullPath)
+			needContent := len(c.MustContain) > 0 || c.MustNotContain != "" || c.MaxLineCount > 0
+			snapshot, err := ctx.evidenceCache.snapshot(fullPath, needContent)
 			if err != nil {
-				if os.IsNotExist(err) {
-					if c.Optional {
-						continue
-					}
-					if c.MustExist {
-						failures = append(failures, file+": file does not exist")
-					}
-					if !c.MustExist && (len(c.MustContain) > 0 || c.MustNotContain != "" || c.MaxLineCount > 0) {
-						failures = append(failures, file+": file does not exist (cannot check content)")
-					}
+				return nil, &rerrors.LockfileError{Message: "read evidence file " + file, Cause: err}
+			}
+			if !snapshot.exists {
+				if c.Optional {
 					continue
 				}
-				return nil, &rerrors.LockfileError{Message: "stat evidence file " + file, Cause: err}
+				if c.MustExist {
+					failures = append(failures, file+": file does not exist")
+				}
+				if !c.MustExist && needContent {
+					failures = append(failures, file+": file does not exist (cannot check content)")
+				}
+				continue
 			}
+			info := snapshot.info
 			if !info.Mode().IsRegular() {
 				failures = append(failures, file+": not a regular file")
 				continue
 			}
-			needContent := len(c.MustContain) > 0 || c.MustNotContain != "" || c.MaxLineCount > 0
 			var content string
 			if needContent {
-				data, err := boundedio.ReadFile(fullPath, maxEvidenceFileBytes)
-				if err != nil {
-					return nil, &rerrors.LockfileError{Message: "read evidence file " + file, Cause: err}
-				}
-				content = string(data)
+				content = snapshot.content
 			}
 			for _, sub := range c.MustContain {
 				if !strings.Contains(content, sub) {
