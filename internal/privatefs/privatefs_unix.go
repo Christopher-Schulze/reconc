@@ -9,15 +9,18 @@ import (
 )
 
 func validatePrivateFile(file *os.File, info os.FileInfo) error {
+	if err := validatePrivateFileAllowLinks(file, info); err != nil {
+		return err
+	}
+	return validatePrivateLinkCount(info)
+}
+
+func validatePrivateFileAllowLinks(file *os.File, info os.FileInfo) error {
 	if file == nil || info == nil || !info.Mode().IsRegular() || info.Mode().Perm() != PrivateFileMode.Perm() {
 		return fmt.Errorf("private file must be a regular file with mode 0600")
 	}
 	if err := validateCurrentUserOwner(info); err != nil {
 		return err
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || stat == nil || stat.Nlink != 1 {
-		return fmt.Errorf("private file must have exactly one directory link")
 	}
 	return validatePrivateFileACL(file)
 }

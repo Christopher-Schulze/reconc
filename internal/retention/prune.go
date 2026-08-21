@@ -609,12 +609,9 @@ func inspectChainedAudit(name, repoRoot string, maxBytes int64, archives int, re
 		))
 		return class
 	}
-	pendingCleanup, err := jsonl.Inspect(path, jsonl.Policy{
-		MaxBytes:    audit.DefaultMaxSizeBytes,
-		MaxArchives: audit.MaxArchiveFiles,
-	})
+	pendingCleanup, err := audit.InspectRetention(repoRoot)
 	if err != nil {
-		report.Errors = append(report.Errors, fmt.Sprintf("inspect %s bounds: %v", name, err))
+		report.Errors = append(report.Errors, fmt.Sprintf("verify %s chain: %v", name, err))
 		return class
 	}
 	if pendingCleanup.BytesFreed != 0 || pendingCleanup.FilesRemoved != 0 {
@@ -623,9 +620,6 @@ func inspectChainedAudit(name, repoRoot string, maxBytes int64, archives int, re
 			name,
 		))
 		return class
-	}
-	if _, err := audit.EnforceRetention(repoRoot); err != nil {
-		report.Errors = append(report.Errors, fmt.Sprintf("verify %s chain: %v", name, err))
 	}
 	return class
 }

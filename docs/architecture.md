@@ -80,7 +80,7 @@ internal/
   agentguide/     embedded agent-integration guide + section lookup
   assurance/      bounded native layout/source/manifest/proof gates + per-run fact graph
   atomicfile/     identity-bound write-on-change, private-parent, and atomic publication primitives
-  audit/          SHA-256-linked JSONL decision evidence + detached head + bounded rotation
+  audit/          private SHA-256-linked JSONL decision evidence + detached head + bounded rotation
   boundedexec/    concurrency-safe bounded stdout/stderr capture for subprocess boundaries
   boundedio/      exact-size reads for untrusted and repository-controlled files
   bootstrap/      init, repository sync/remove/recovery, portable receipts, journals, and binary resolution
@@ -898,6 +898,16 @@ private mode/security through the descriptor, and revalidates the directory
 entry before returning it. Action state, installation receipts, retention,
 command proofs, and unresolved policy proofs use this boundary; their paths,
 filenames, retention policy, and public JSON contracts are unchanged.
+
+The audit layout is a private specialization of the bounded JSONL contract:
+`.reconc` is `0700`; live and archive evidence, the detached head, lock,
+append journal, and temporary backups are `0600`; and every member is checked
+through the private filesystem security boundary before read or mutation.
+Legacy `0755`/`0644` audit state is migrated in place only after identity and
+regular-file checks; a symlink, special file, wrong owner, or invalid hard-link
+state is rejected without deleting evidence. JSONL hash-chain, archive count,
+size bounds, and public CLI output remain unchanged. Retention inspects the
+validated ring under the same audit lock before reporting any cleanup.
 
 ### Production lock acquisition and ordering
 

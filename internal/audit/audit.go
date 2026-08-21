@@ -30,10 +30,10 @@ import (
 	"strings"
 	"time"
 
-	"reconc.dev/reconc/internal/atomicfile"
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/jsonl"
+	"reconc.dev/reconc/internal/privatefs"
 )
 
 // Relative path under the repo root where the log lives.
@@ -132,6 +132,10 @@ func Append(repoRoot string, entry Entry, maxSizeBytes int64) error {
 		maxSizeBytes = DefaultMaxSizeBytes
 	}
 	path := filepath.Join(repoRoot, AuditFileRelative)
+	layout, err := prepareAuditLayout(repoRoot)
+	if err != nil {
+		return err
+	}
 	policy := jsonl.Policy{MaxBytes: maxSizeBytes, MaxArchives: MaxArchiveFiles}
 	var line []byte
 	var prepared bool
@@ -189,7 +193,7 @@ func Append(repoRoot string, entry Entry, maxSizeBytes int64) error {
 		}
 		return advanceChainHead(repoRoot, previousHead, entry)
 	}
-	if err := jsonl.AppendTransaction(path, policy, prepare, commit); err != nil {
+	if err := jsonl.AppendTransactionWithLayout(path, policy, layout, prepare, commit); err != nil {
 		return fmt.Errorf("audit: append: %w", err)
 	}
 	return nil
@@ -203,6 +207,27 @@ func EnforceRetention(repoRoot string) (jsonl.EnforceResult, error) {
 		return jsonl.EnforceResult{}, err
 	}
 	return jsonl.EnforceResult{}, nil
+}
+
+// InspectRetention validates the private audit layout and reports any generic
+// JSONL cleanup that would be possible, while holding the audit lock for the
+// complete validated snapshot and inspection.
+func InspectRetention(repoRoot string) (jsonl.EnforceResult, error) {
+	if err := recoverPendingAppend(repoRoot); err != nil {
+		return jsonl.EnforceResult{}, err
+	}
+	var result jsonl.EnforceResult
+	err := withAuditLock(repoRoot, func() error {
+		if _, _, err := loadVerifiedSnapshot(repoRoot); err != nil {
+			return err
+		}
+		var err error
+		result, err = jsonl.Inspect(filepath.Join(repoRoot, AuditFileRelative), jsonl.Policy{
+			MaxBytes: DefaultMaxSizeBytes, MaxArchives: MaxArchiveFiles,
+		})
+		return err
+	})
+	return result, err
 }
 
 // TailOptions controls what Tail reads.
@@ -572,7 +597,11 @@ func advanceChainHead(repoRoot string, previous *chainHead, entry Entry) error {
 
 func recoverPendingAppend(repoRoot string) error {
 	path := filepath.Join(repoRoot, AuditFileRelative)
-	return jsonl.Recover(path, func() error {
+	layout, err := prepareAuditLayout(repoRoot)
+	if err != nil {
+		return err
+	}
+	commit := func() error {
 		entries, err := readAuditEntries(path)
 		if err != nil {
 			return err
@@ -581,7 +610,14 @@ func recoverPendingAppend(repoRoot string) error {
 			return err
 		}
 		return writeChainHead(repoRoot, entries)
-	})
+	}
+	err = jsonl.RecoverWithLayout(path, layout, commit)
+	if err == nil || !strings.Contains(err.Error(), "belongs to a different layout") {
+		return err
+	}
+	// A pre-private audit journal used the generic JSONL layout. Recover it
+	// explicitly once, then publish the detached head under the private layout.
+	return jsonl.Recover(path, commit)
 }
 
 func readVerifiedSnapshot(repoRoot string) ([]Entry, *chainHead, error) {
@@ -597,6 +633,13 @@ func readVerifiedSnapshot(repoRoot string) ([]Entry, *chainHead, error) {
 
 func loadVerifiedSnapshot(repoRoot string) ([]Entry, *chainHead, error) {
 	path := filepath.Join(repoRoot, AuditFileRelative)
+	layout, err := auditLayoutForRead(repoRoot)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := validateAuditContentFiles(path, layout); err != nil {
+		return nil, nil, err
+	}
 	entries, err := readAuditEntries(path)
 	if err != nil {
 		return nil, nil, err
@@ -709,6 +752,9 @@ func verifyChainHead(entries []Entry, head *chainHead) error {
 
 func readChainHead(repoRoot string) (*chainHead, error) {
 	path := filepath.Join(repoRoot, AuditHeadRelative)
+	if err := validateAuditHead(path); err != nil {
+		return nil, fmt.Errorf("audit: validate detached head security: %w", err)
+	}
 	data, err := boundedio.ReadRegularFile(path, auditHeadMaxBytes)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -762,25 +808,23 @@ func writeChainHeadValue(repoRoot string, head chainHead) error {
 		return fmt.Errorf("audit: marshal detached head: %w", err)
 	}
 	body = append(body, '\n')
-	if _, err := atomicfile.WritePrivateIfChanged(filepath.Join(repoRoot, AuditHeadRelative), body, 0o600); err != nil {
+	if _, err := privatefs.WritePrivateIfChanged(filepath.Join(repoRoot, AuditHeadRelative), body, 0o600); err != nil {
 		return fmt.Errorf("audit: write detached head: %w", err)
 	}
 	return nil
 }
 
 func withAuditLock(repoRoot string, fn func() error) error {
-	directory := filepath.Join(repoRoot, ".reconc")
-	if _, err := os.Stat(directory); errors.Is(err, os.ErrNotExist) {
-		return fn()
-	} else if err != nil {
+	layout, err := prepareAuditLayout(repoRoot)
+	if err != nil {
 		return err
 	}
-	lock, err := os.OpenFile(filepath.Join(repoRoot, AuditFileRelative)+".lock", os.O_CREATE|os.O_RDWR, 0o644)
+	lock, err := privatefs.OpenLock(layout.LockPath)
 	if err != nil {
 		return err
 	}
 	defer lock.Close()
-	unlock, err := filelock.LockContext(context.Background(), lock, filelock.DefaultTimeout)
+	unlock, err := filelock.LockContext(context.Background(), lock, layout.LockTimeout)
 	if err != nil {
 		return err
 	}

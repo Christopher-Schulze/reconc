@@ -12,6 +12,10 @@ import (
 )
 
 func validatePrivateFile(file *os.File, info os.FileInfo) error {
+	return validatePrivateFileAllowLinks(file, info)
+}
+
+func validatePrivateFileAllowLinks(file *os.File, info os.FileInfo) error {
 	if file == nil || info == nil || !info.Mode().IsRegular() {
 		return fmt.Errorf("private file must be regular")
 	}

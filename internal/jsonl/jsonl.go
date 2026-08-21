@@ -105,8 +105,8 @@ func validateLayout(path string, layout Layout) error {
 		layout.JournalMode.Perm() == 0 || layout.JournalMode.Perm() != layout.JournalMode {
 		return errors.New("jsonl layout modes must contain only non-zero permission bits")
 	}
-	if layout.LockTimeout < 0 || layout.LockTimeout > time.Minute {
-		return errors.New("jsonl layout lock timeout must be between zero and one minute")
+	if layout.LockTimeout < 0 || layout.LockTimeout > 2*time.Minute {
+		return errors.New("jsonl layout lock timeout must be between zero and two minutes")
 	}
 	if layout.Security != nil {
 		identity := layout.Security.JSONLSecurityIdentity()

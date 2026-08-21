@@ -66,6 +66,13 @@ func ValidateFile(file *os.File, info os.FileInfo) error {
 	return validatePrivateFile(file, info)
 }
 
+// ValidateFileAllowLinks applies the private owner/mode/security contract to
+// content files whose atomic rotation intentionally keeps a temporary hard
+// link while both names are live.
+func ValidateFileAllowLinks(file *os.File, info os.FileInfo) error {
+	return validatePrivateFileAllowLinks(file, info)
+}
+
 // SecureDirectory creates or secures a private directory and validates it.
 func SecureDirectory(path string) error {
 	if err := EnsureDirectory(path); err != nil {
@@ -78,12 +85,18 @@ func SecureDirectory(path string) error {
 // descriptor is ready for filelock.Lock/TryLock and remains owned by the
 // caller until it is closed.
 func OpenLock(path string) (*os.File, error) {
-	return openPrivateFile(path, true)
+	return openPrivateFile(path, true, true)
 }
 
 // OpenExistingLock opens an already published private lock without creating it.
 func OpenExistingLock(path string) (*os.File, error) {
-	return openPrivateFile(path, false)
+	return openPrivateFile(path, false, true)
+}
+
+// OpenExistingPrivateFile opens a private content file while allowing the
+// hard-link aliases used by JSONL rotation.
+func OpenExistingPrivateFile(path string) (*os.File, error) {
+	return openPrivateFile(path, false, false)
 }
 
 // WritePrivateIfChanged uses the descriptor-safe atomic publisher, then
@@ -93,7 +106,7 @@ func WritePrivateIfChanged(path string, data []byte, mode os.FileMode) (bool, er
 	if err != nil {
 		return false, err
 	}
-	file, err := openPrivateFile(path, false)
+	file, err := openPrivateFile(path, false, true)
 	if err != nil {
 		return false, fmt.Errorf("validate private publication %s: %w", path, err)
 	}
@@ -230,7 +243,7 @@ func validateDirectoryIdentity(path string, before, after os.FileInfo) error {
 	return nil
 }
 
-func openPrivateFile(path string, create bool) (*os.File, error) {
+func openPrivateFile(path string, create, singleLink bool) (*os.File, error) {
 	parent := filepath.Dir(filepath.Clean(path))
 	if err := RepairDirectory(parent); err != nil {
 		return nil, fmt.Errorf("secure private lock directory: %w", err)
@@ -260,8 +273,10 @@ func openPrivateFile(path string, create bool) (*os.File, error) {
 		!os.SameFile(opened, current) || before != nil && !os.SameFile(before, current) && !create {
 		return nil, errors.Join(fmt.Errorf("private lock changed identity while opening"), statErr, currentErr, file.Close())
 	}
-	if err := validatePrivateLinkCount(opened); err != nil {
-		return nil, errors.Join(err, file.Close())
+	if singleLink {
+		if err := validatePrivateLinkCount(opened); err != nil {
+			return nil, errors.Join(err, file.Close())
+		}
 	}
 	if err := file.Chmod(PrivateFileMode); err != nil {
 		return nil, errors.Join(fmt.Errorf("secure private lock mode: %w", err), file.Close())
@@ -273,7 +288,11 @@ func openPrivateFile(path string, create bool) (*os.File, error) {
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("inspect secured private lock: %w", err), file.Close())
 	}
-	if err := validatePrivateFile(file, secured); err != nil {
+	validate := validatePrivateFile
+	if !singleLink {
+		validate = validatePrivateFileAllowLinks
+	}
+	if err := validate(file, secured); err != nil {
 		return nil, errors.Join(fmt.Errorf("validate private lock: %w", err), file.Close())
 	}
 	current, err = os.Lstat(path)
