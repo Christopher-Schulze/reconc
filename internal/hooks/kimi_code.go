@@ -140,20 +140,22 @@ func uninstallKimiCode() (*UninstallReport, error) {
 	return report, err
 }
 
-func inspectKimiCodePlatform(platform Platform) PlatformStatus {
-	report := PlatformStatus{
+func inspectKimiCodePlatform(platform Platform) (report PlatformStatus) {
+	report = PlatformStatus{
 		Kind: platform.Kind, DisplayName: platform.DisplayName,
 		TargetPath: platform.TargetPath, State: StateAbsent,
 		Detail:         "global managed hook block not installed",
 		ExpectedEvents: platformRuntimeEvents(platform),
+		remediation:    hookInstallRemediation(platform.Kind, "", false),
 	}
+	defer func() { applyRemediation(&report, report.remediation) }()
 	artifact, generateErr := generateKimiCode()
 	report.Generated = generateErr == nil
 	configPath, _, err := kimiCodeConfigPath(false)
 	if err != nil {
 		report.State = StateDegraded
 		report.Detail = err.Error()
-		report.Remediation = "Set a valid KIMI_CODE_HOME, then rerun `reconc hook status`."
+		report.remediation = hostRemediation("Set a valid KIMI_CODE_HOME, then rerun hook status.", remediationCommand{})
 		return report
 	}
 	report.TargetPath = configPath
@@ -161,61 +163,60 @@ func inspectKimiCodePlatform(platform Platform) PlatformStatus {
 	if err != nil {
 		report.State = StateDegraded
 		report.Detail = "global config is unreadable: " + err.Error()
-		report.Remediation = "Repair the Kimi Code config path, then rerun `reconc hook status`."
+		report.remediation = manualRemediation("Repair the Kimi Code config path, then rerun hook status; Reconc will not overwrite an unreadable global configuration.")
 		return report
 	}
 	if !exists {
-		report.Remediation = "Run `reconc hook install kimi-code`."
 		return report
 	}
 	if err := validateKimiCodeTOML(data); err != nil {
 		report.State = StateDegraded
 		report.Detail = "global config is invalid TOML: " + err.Error()
-		report.Remediation = "Repair the Kimi Code config manually; Reconc will not overwrite invalid global configuration."
+		report.remediation = manualRemediation("Repair the Kimi Code config manually; Reconc will not overwrite invalid global configuration.")
 		return report
 	}
 	block, present, blockErr := currentKimiCodeBlock(data)
 	if blockErr != nil {
 		report.State = StateDegraded
 		report.Detail = blockErr.Error()
-		report.Remediation = "Repair the managed marker pair manually, then rerun `reconc hook install kimi-code`."
+		report.remediation = manualRemediation("Repair the managed marker pair manually before reinstalling; Reconc cannot identify a safe replacement boundary.")
 		return report
 	}
 	if !present {
-		report.Remediation = "Run `reconc hook install kimi-code`."
 		return report
 	}
 	report.Installed = true
 	if generateErr != nil || block != artifact.Content {
 		report.State = StateDegraded
 		report.Detail = "managed hook block differs from the current generator"
-		report.Remediation = "Review the drift, then run `reconc hook install kimi-code --force`."
+		report.remediation = hookInstallRemediation(platform.Kind, "", true)
 		return report
 	}
 	bareStatus, err := usercli.InspectRunningOnPATH()
 	if err != nil {
 		report.State = StateDegraded
 		report.Detail = "managed hooks are installed but bare `reconc` identity cannot be verified: " + err.Error()
-		report.Remediation = "Repair the Reconc user CLI, then rerun `reconc hook status`."
+		report.remediation = hostRemediation("Repair the Reconc user CLI, then rerun hook status.", remediationCommand{})
 		return report
 	}
 	if !bareStatus.PathVisible {
 		report.State = StateInstalled
 		report.Detail = "managed hooks are installed but bare `reconc` is not visible on PATH"
-		report.Remediation = "Install the Reconc user CLI on PATH, then restart Kimi Code CLI."
+		report.remediation = hostRemediation("Install the Reconc user CLI on PATH, then restart Kimi Code CLI.", remediationCommand{})
 		return report
 	}
 	if !bareStatus.ChecksumCurrent {
 		report.State = StateDegraded
 		report.Executable = true
 		report.Detail = "managed hooks are installed but bare `reconc` resolves to different bytes: " + bareStatus.ResolvedPath
-		report.Remediation = "Run `" + bareStatus.RunningPath + " install-cli`, then restart Kimi Code CLI."
+		report.remediation = hostRemediation("Repair the user CLI, then restart Kimi Code CLI:", remediationCommand{Program: bareStatus.RunningPath, Args: []string{"install-cli"}})
 		return report
 	}
 	report.State = StateConfigured
 	report.Configured = true
 	report.Executable = true
 	report.Detail = "global hook configuration is current and bare `reconc` is checksum-identical to the running build; live execution is reported separately"
+	report.remediation = noRemediation()
 	return report
 }
 

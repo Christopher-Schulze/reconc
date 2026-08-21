@@ -2638,6 +2638,16 @@ the registry's per-surface documented route sets. Separate `expected_events`,
 the complete artifact routes and which ones a live runtime actually executed.
 Liveness is stored outside the repository and each route writes at most once
 every six hours.
+Status remediation is derived from an internal typed disposition and exact
+program-plus-argv data, never from diagnostic prose. A normal install, a
+managed forced repair, a user-owned conflict, a host-specific action, and no
+action remain distinct. `--force` is emitted only when the installer requires
+and can safely apply it without replacing an unrecognized shared wrapper;
+foreign targets and ambiguous legacy duplicates receive manual ownership
+guidance. Commands render as dynamically fenced POSIX-sh or PowerShell syntax,
+so repository paths containing whitespace, quotes, shell metacharacters,
+backticks, backslashes, or newlines remain literal copyable arguments without
+breaking Markdown.
 Human output keeps only the seen/expected count and last event so large route
 registries do not dominate the terminal. A route counts as installed only when
 the artifact carries it as a complete token: many routes are prefixes of a

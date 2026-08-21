@@ -435,7 +435,7 @@ func installGitPreCommit(repoRoot string, force bool) (*InstallReport, error) {
 		if readErr != nil {
 			return nil, &rerrors.PolicySourceError{Message: "read " + displayPath, Cause: readErr}
 		}
-		managed := strings.HasPrefix(string(existing), "#!/bin/sh\n# Managed by `reconc hook install git-pre-commit`.\n")
+		managed := managedPlatformArtifact(KindGitPreCommit, existing)
 		if !force && !managed && string(existing) != artifact.Content {
 			return nil, &rerrors.PolicySourceError{
 				Message: displayPath + " already contains a foreign hook; pass --force to overwrite",
@@ -690,8 +690,7 @@ func installOpenCode(repoRoot string, force bool) (*InstallReport, error) {
 	action := "created"
 	if existing, err := readManagedArtifact(target); err == nil {
 		action = "updated"
-		text := string(existing)
-		if !force && !strings.Contains(text, "Managed by reconc") && !strings.Contains(text, "reconc hook runtime") {
+		if !force && !managedPlatformArtifact(KindOpenCode, existing) {
 			return nil, &rerrors.PolicySourceError{
 				Message: OpenCodePluginPath + " already exists and is not reconc-managed; pass --force to overwrite",
 			}

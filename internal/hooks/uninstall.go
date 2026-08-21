@@ -78,7 +78,10 @@ func Uninstall(kind, repoRoot string) (*UninstallReport, error) {
 	report := &UninstallReport{
 		Kind: kind, RepoRoot: root, TargetPath: targetPath, Action: action,
 		RemovedEntries: removedEntries, ActivationAction: activationAction,
-		NextAction: "Run `reconc hook status " + quoteStatusArgument(root) + "` to verify the platform is absent while unrelated hooks remain.",
+		NextAction: renderCurrentRemediation(hostRemediation(
+			"Verify that the platform is absent while unrelated hooks remain:",
+			remediationCommand{Program: "reconc", Args: []string{"hook", "status", root}},
+		)),
 	}
 	if definition.Activation.RequiresWrapper {
 		report.WrapperPath = WrapperPath

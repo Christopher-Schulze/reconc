@@ -84,10 +84,7 @@ func installKilo(repoRoot string, force bool) (*InstallReport, error) {
 		KindKilo,
 		repoRoot,
 		force,
-		func(data []byte) bool {
-			text := string(data)
-			return strings.Contains(text, "Managed by reconc") && strings.Contains(text, "kilo-pre-tool-use")
-		},
+		func(data []byte) bool { return managedPlatformArtifact(KindKilo, data) },
 		true,
 		"Restart Kilo Code in this repository so it reloads .kilo/plugin/reconc.js; KILO_PURE must be unset.",
 	)
@@ -98,7 +95,7 @@ func installGitHubCopilot(repoRoot string, force bool) (*InstallReport, error) {
 		KindGitHubCopilot,
 		repoRoot,
 		force,
-		isManagedGitHubCopilotConfig,
+		func(data []byte) bool { return managedPlatformArtifact(KindGitHubCopilot, data) },
 		false,
 		"Restart Copilot CLI in this repository or start a new Copilot cloud agent job so .github/hooks/reconc.json is loaded.",
 	)
@@ -109,11 +106,7 @@ func installGrok(repoRoot string, force bool) (*InstallReport, error) {
 		KindGrok,
 		repoRoot,
 		force,
-		func(data []byte) bool {
-			text := string(data)
-			return strings.Contains(text, `"reconcManaged": true`) &&
-				strings.Contains(text, "grok-pre-tool-use")
-		},
+		func(data []byte) bool { return managedPlatformArtifact(KindGrok, data) },
 		true,
 		"Restart Grok Build or reload /hooks, then run /hooks-trust once for this project so .grok/hooks/reconc.json can execute.",
 	)
@@ -124,12 +117,7 @@ func installOMP(repoRoot string, force bool) (*InstallReport, error) {
 		KindOMP,
 		repoRoot,
 		force,
-		func(data []byte) bool {
-			text := string(data)
-			return strings.Contains(text, "Managed by reconc. Project-local Oh My Pi policy extension.") &&
-				strings.Contains(text, "omp-pre-tool-use") &&
-				strings.Contains(text, "omp-stop")
-		},
+		func(data []byte) bool { return managedPlatformArtifact(KindOMP, data) },
 		false,
 		"Restart OMP from this repository root so it loads .omp/extensions/reconc.ts.",
 	)
@@ -140,12 +128,7 @@ func installPi(repoRoot string, force bool) (*InstallReport, error) {
 		KindPi,
 		repoRoot,
 		force,
-		func(data []byte) bool {
-			text := string(data)
-			return strings.Contains(text, "Managed by reconc. Project-local Pi policy extension.") &&
-				strings.Contains(text, "pi-pre-tool-use") &&
-				strings.Contains(text, "pi-stop")
-		},
+		func(data []byte) bool { return managedPlatformArtifact(KindPi, data) },
 		false,
 		"Restart Pi from this repository root and trust the project when prompted so it loads .pi/extensions/reconc.ts; non-interactive runs may use --approve for that run.",
 	)

@@ -54,6 +54,7 @@ type PlatformStatus struct {
 	Live           bool                             `json:"live"`
 	Remediation    string                           `json:"remediation,omitempty"`
 	MCP            *MCPStatus                       `json:"mcp,omitempty"`
+	remediation    remediationPlan
 }
 
 // HookObservationStatus is the public, source-free view of one observed
@@ -145,17 +146,14 @@ func finalizePlatformStatus(root string, platform Platform, report *PlatformStat
 	}
 	report.Executable = report.Installed && targetExecutable && wrapperExecutable
 	report.Configured = report.State == StateConfigured
-	if report.Configured {
-		return
+	if report.Configured && report.TargetPath == platform.TargetPath && report.remediation.Disposition == remediationInstall {
+		report.remediation = noRemediation()
 	}
-	if report.Remediation != "" {
-		return
+	if (report.remediation.Disposition == remediationInstall || report.remediation.Disposition == remediationForceRepair) &&
+		platform.Activation.RequiresWrapper && !wrapperSafeForRecommendedInstall(root) {
+		report.remediation = manualRemediation("Repair or move the user-owned tools/reconc/bin/hook file before reinstalling; Reconc will not recommend overwriting it.")
 	}
-	force := ""
-	if strings.Contains(report.Detail, "invalid JSON") || strings.Contains(report.Detail, "differs from") || strings.Contains(report.Detail, "unreadable") || strings.Contains(report.Detail, "does not enable") {
-		force = " --force"
-	}
-	report.Remediation = "Run `reconc hook install " + platform.Kind + " " + quoteStatusArgument(root) + force + "`."
+	applyRemediation(report, report.remediation)
 }
 
 func platformArtifactInstalled(root string, platform Platform, reportedPath string) bool {
@@ -180,10 +178,6 @@ func platformArtifactInstalled(root string, platform Platform, reportedPath stri
 	return false
 }
 
-func quoteStatusArgument(value string) string {
-	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
-}
-
 func inspectPlatform(root string, platform Platform) PlatformStatus {
 	report := PlatformStatus{
 		Kind:           platform.Kind,
@@ -193,6 +187,7 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 		Detail:         "artifact not installed",
 		ExpectedEvents: platformRuntimeEvents(platform),
 		SurfaceEvents:  platformSurfaceEvents(platform),
+		remediation:    hookInstallRemediation(platform.Kind, root, false),
 	}
 	target := filepath.Join(root, filepath.FromSlash(platform.TargetPath))
 	defaultTarget := target
@@ -204,6 +199,7 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 			if gitErr == nil && targetErr != nil {
 				report.State = StateDegraded
 				report.Detail = "cannot resolve active Git hooks path: " + err.Error()
+				report.remediation = hostRemediation("Initialize or repair this repository's Git metadata before installing the pre-commit hook.", remediationCommand{Program: "git", Args: []string{"init", root}})
 				return report
 			}
 		} else {
@@ -217,6 +213,7 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 		if _, legacyErr := readManagedArtifact(legacyTarget); legacyErr == nil {
 			report.State = StateDegraded
 			report.Detail = "canonical and legacy Kilo plugins both exist; remove the legacy copy after confirming it is not user-owned"
+			report.remediation = manualRemediation("Review and remove only the confirmed Reconc-owned legacy Kilo plugin; automatic repair will not delete either copy.")
 			return report
 		}
 	}
@@ -228,6 +225,7 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 			target = legacyTarget
 			report.TargetPath = platform.Activation.LegacyArtifactPath
 			report.Detail = "legacy artifact path is selected; reinstall to migrate to " + platform.TargetPath
+			report.remediation = manualRemediation("Review ownership, remove the legacy Kilo plugin, then install the canonical plugin; a one-step install would leave both copies active.")
 		}
 	}
 	if err != nil {
@@ -241,12 +239,14 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 		if !os.IsNotExist(err) {
 			report.State = StateDegraded
 			report.Detail = "artifact is unreadable: " + err.Error()
+			report.remediation = manualRemediation("Repair the artifact path or permissions, then rerun hook status; forced installation cannot safely repair an unreadable target.")
 		}
 		return report
 	}
 	if requiresJSON(platform.InstallMode) && !json.Valid(data) {
 		report.State = StateDegraded
 		report.Detail = "artifact is invalid JSON; reinstall the hook"
+		report.remediation = hookInstallRemediation(platform.Kind, root, true)
 		return report
 	}
 	if platform.Executable && !executableFile(target) {
@@ -258,12 +258,19 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 	if generateErr != nil {
 		report.State = StateDegraded
 		report.Detail = "cannot generate current artifact contract: " + generateErr.Error()
+		report.remediation = manualRemediation("Repair the local Reconc installation before attempting hook repair.")
 		return report
 	}
 	if managedArtifactRequiresExactMatch(platform.InstallMode) {
 		if string(data) != generated.Content {
 			report.State = StateDegraded
-			report.Detail = "managed artifact differs from the current generator; reinstall the hook"
+			if managedPlatformArtifact(platform.Kind, data) {
+				report.Detail = "managed artifact differs from the current generator; reinstall the hook"
+				report.remediation = hookInstallRemediation(platform.Kind, root, false)
+			} else {
+				report.Detail = "artifact contains unrecognized content and is not safe to replace automatically"
+				report.remediation = manualRemediation("Review the user-owned target before replacing it; Reconc will not recommend automatic replacement for unrecognized content.")
+			}
 			return report
 		}
 	}
@@ -284,6 +291,7 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 		if entryErr != nil {
 			report.State = StateDegraded
 			report.Detail = "artifact contract cannot be inspected: " + entryErr.Error()
+			report.remediation = manualRemediation("Repair the host configuration shape manually before reinstalling the Reconc entries.")
 			return report
 		}
 		if len(missingEntries) > 0 {
@@ -302,6 +310,7 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 	if platform.Activation.DisabledByEnv != "" && envTruthy(platform.Activation.DisabledByEnv) {
 		report.State = StateUnsupported
 		report.Detail = platform.Activation.DisabledByEnv + " disables external project plugins in this process"
+		report.remediation = hostRemediation("Unset "+platform.Activation.DisabledByEnv+" and restart the host process; hook installation cannot override this environment setting.", remediationCommand{})
 		return report
 	}
 	if platform.Activation.RequiresWrapper && !executableFile(filepath.Join(root, "tools", "reconc", "bin", "hook")) {
@@ -313,6 +322,7 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 		if _, err := exec.LookPath("sh"); err != nil {
 			report.State = StateDegraded
 			report.Detail = "configuration is complete but ZCode's process executor cannot resolve sh on PATH"
+			report.remediation = hostRemediation("Install a POSIX-compatible sh on PATH, then restart ZCode.", remediationCommand{})
 			return report
 		}
 	}
@@ -327,6 +337,7 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 		if probeErr != nil {
 			report.State = StateDegraded
 			report.Detail = platform.Activation.EnablePath + " is invalid: " + probeErr.Error()
+			report.remediation = manualRemediation("Repair the host activation file manually; hook installation cannot safely rewrite invalid activation syntax.")
 			return report
 		}
 		if !present {
@@ -335,6 +346,7 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 		if !enabled {
 			report.State = StateInstalled
 			report.Detail = "artifact is installed but " + platform.Activation.EnablePath + " does not enable " + platform.Activation.EnableSection + "." + platform.Activation.EnableKey
+			report.remediation = hookInstallRemediation(platform.Kind, root, true)
 			return report
 		}
 	}
@@ -343,13 +355,13 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 		if probeErr != nil {
 			report.State = StateDegraded
 			report.Detail = detail + ": " + probeErr.Error()
-			report.Remediation = remediation
+			report.remediation = remediation
 			return report
 		}
 		if !trusted {
 			report.State = StateInstalled
 			report.Detail = detail
-			report.Remediation = remediation
+			report.remediation = remediation
 			return report
 		}
 	}
@@ -357,6 +369,7 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 	report.State = StateConfigured
 	if report.TargetPath == platform.TargetPath {
 		report.Detail = "configuration is complete and host-discoverable; live execution is reported separately"
+		report.remediation = noRemediation()
 	}
 	return report
 }
@@ -364,10 +377,10 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 const maxPiTrustConfigBytes = 1 << 20
 const maxGitPathOutputBytes = 1 << 20
 
-func inspectPiProjectTrust(root string) (bool, string, string, error) {
+func inspectPiProjectTrust(root string) (bool, string, remediationPlan, error) {
 	agentDir, err := piAgentDir(root)
 	if err != nil {
-		return false, "Pi project trust cannot be inspected", "Set PI_CODING_AGENT_DIR to a valid Pi agent directory, then rerun `reconc hook status`.", err
+		return false, "Pi project trust cannot be inspected", hostRemediation("Set PI_CODING_AGENT_DIR to a valid Pi agent directory, then rerun hook status.", remediationCommand{}), err
 	}
 	trustPath := filepath.Join(agentDir, "trust.json")
 	trust := map[string]*bool{}
@@ -376,7 +389,7 @@ func inspectPiProjectTrust(root string) (bool, string, string, error) {
 		err = json.Unmarshal(trustData, &trust)
 	}
 	if err != nil && !os.IsNotExist(err) {
-		return false, "Pi trust store is invalid or unreadable", "Repair " + trustPath + " with Pi, then rerun `reconc hook status`.", err
+		return false, "Pi trust store is invalid or unreadable", hostRemediation("Repair the Pi trust store at "+trustPath+", then rerun hook status.", remediationCommand{}), err
 	}
 	canonicalRoot := root
 	if resolved, resolveErr := filepath.EvalSymlinks(root); resolveErr == nil {
@@ -385,11 +398,11 @@ func inspectPiProjectTrust(root string) (bool, string, string, error) {
 	for current := filepath.Clean(canonicalRoot); ; current = filepath.Dir(current) {
 		if decision, present := trust[current]; present && decision != nil {
 			if *decision {
-				return true, "configuration is complete, project trust is saved, and Pi can discover the extension; live execution is reported separately", "", nil
+				return true, "configuration is complete, project trust is saved, and Pi can discover the extension; live execution is reported separately", noRemediation(), nil
 			}
 			return false,
 				"artifact is installed but Pi has an explicit untrusted decision for " + current,
-				"Use Pi's interactive project-trust flow to trust this repository, restart Pi, or pass `pi --approve` for one non-interactive run; Reconc never changes user trust.", nil
+				hostRemediation("Use Pi's interactive project-trust flow to trust this repository and restart Pi, or approve one non-interactive run:", remediationCommand{Program: "pi", Args: []string{"--approve"}}), nil
 		}
 		parent := filepath.Dir(current)
 		if parent == current {
@@ -406,19 +419,55 @@ func inspectPiProjectTrust(root string) (bool, string, string, error) {
 		err = json.Unmarshal(settingsData, &settings)
 	}
 	if err != nil && !os.IsNotExist(err) {
-		return false, "Pi global settings are invalid or unreadable", "Repair " + settingsPath + " with Pi, then rerun `reconc hook status`.", err
+		return false, "Pi global settings are invalid or unreadable", hostRemediation("Repair the Pi settings at "+settingsPath+", then rerun hook status.", remediationCommand{}), err
 	}
 	switch settings.DefaultProjectTrust {
 	case "always":
-		return true, "configuration is complete and Pi's global defaultProjectTrust=always makes the extension host-discoverable; live execution is reported separately", "", nil
+		return true, "configuration is complete and Pi's global defaultProjectTrust=always makes the extension host-discoverable; live execution is reported separately", noRemediation(), nil
 	case "never":
 		return false,
 			"artifact is installed but Pi's global defaultProjectTrust=never skips unapproved project extensions",
-			"Use Pi's interactive project-trust flow to save trust for this repository or pass `pi --approve` for one non-interactive run; Reconc never changes user trust.", nil
+			hostRemediation("Use Pi's interactive project-trust flow to save trust for this repository, or approve one non-interactive run:", remediationCommand{Program: "pi", Args: []string{"--approve"}}), nil
 	default:
 		return false,
 			"artifact is installed; Pi will ask for project trust interactively and skips it in non-interactive modes until trust is saved or --approve is used",
-			"Start `pi` in this repository, approve the project-trust prompt, and restart Pi; non-interactive runs may pass `pi --approve` for that run.", nil
+			hostRemediation("Start Pi in this repository, approve the project-trust prompt, and restart Pi. For one non-interactive run:", remediationCommand{Program: "pi", Args: []string{"--approve"}}), nil
+	}
+}
+
+func wrapperSafeForRecommendedInstall(root string) bool {
+	path := filepath.Join(root, filepath.FromSlash(WrapperPath))
+	data, err := readManagedArtifact(path)
+	if os.IsNotExist(err) {
+		return true
+	}
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(data), "# Managed by Reconc. Repo-local agent hook wrapper.")
+}
+
+func managedPlatformArtifact(kind string, data []byte) bool {
+	text := string(data)
+	switch kind {
+	case KindGitPreCommit:
+		return strings.HasPrefix(text, "#!/bin/sh\n# Managed by `reconc hook install git-pre-commit`.\n")
+	case KindOpenCode:
+		return strings.Contains(text, "Managed by reconc") || strings.Contains(text, "reconc hook runtime")
+	case KindKilo:
+		return strings.Contains(text, "Managed by reconc") && strings.Contains(text, "kilo-pre-tool-use")
+	case KindGitHubCopilot:
+		return isManagedGitHubCopilotConfig(data)
+	case KindGrok:
+		return strings.Contains(text, `"reconcManaged": true`) && strings.Contains(text, "grok-pre-tool-use")
+	case KindOMP:
+		return strings.Contains(text, "Managed by reconc. Project-local Oh My Pi policy extension.") &&
+			strings.Contains(text, "omp-pre-tool-use") && strings.Contains(text, "omp-stop")
+	case KindPi:
+		return strings.Contains(text, "Managed by reconc. Project-local Pi policy extension.") &&
+			strings.Contains(text, "pi-pre-tool-use") && strings.Contains(text, "pi-stop")
+	default:
+		return false
 	}
 }
 
