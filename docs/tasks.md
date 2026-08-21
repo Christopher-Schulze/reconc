@@ -8,6 +8,7 @@
 
 ## Done
 
+- [x] 238 Reconcile final documentation and repository hygiene -> tasks/done/238-reconcile-final-documentation-and-repository-hygiene.md
 - [x] 237 Remove residual implementation scaffolding -> tasks/done/237-remove-residual-implementation-scaffolding.md
 - [x] 236 Correct internal contract documentation -> tasks/done/236-correct-internal-contract-documentation.md
 - [x] 235 Replace hand-rolled integer formatters and dead helper -> tasks/done/235-replace-hand-rolled-integer-formatters-and-dead-helper.md
@@ -17,4 +18,3 @@
 - [x] 231 Reuse evidence-path root identity -> tasks/done/231-reuse-evidence-path-root-identity.md
 - [x] 230 Centralize compiled-lockfile discovery state -> tasks/done/230-centralize-compiled-lockfile-discovery-state.md
 - [x] 229 Make command normalization idempotent -> tasks/done/229-make-command-normalization-idempotent.md
-- [x] 228 Make hook remediation typed and shell-safe -> tasks/done/228-make-hook-remediation-typed-and-shell-safe.md

@@ -13,6 +13,8 @@
 
 # IDE / editor
 .vscode/
+!harness/template/repo-root-scaffold/.vscode/
+!harness/template/repo-root-scaffold/.vscode/settings.json
 .idea/
 *.swp
 

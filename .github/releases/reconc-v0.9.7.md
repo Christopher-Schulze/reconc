@@ -17,6 +17,19 @@ publishing the rule-kind field matrix under a new schema identity.
 - Unchanged public schema contracts remain byte-identical at their existing
   immutable v0.9.6 identities.
 
+## Go 1.27 toolchain and implementation
+
+- The root module and portable harness build with stable Go 1.27. Native macOS
+  builds consequently require macOS 13 Ventura or later.
+- Strict action-value and lockfile decoding use Go 1.27's stable
+  `encoding/json/jsontext` token API while retaining Reconc's duplicate-key,
+  Unicode, depth, cardinality, decimal, trailing-input, and error contracts.
+- Canonical action values append into one capacity-hinted output buffer while
+  preserving identity-bearing legacy escaping. Targeted in-memory concurrency
+  tests use `testing/synctest`, and MCP shutdown regression coverage queries the
+  exact `goroutineleak` worker stack without treating unrelated goroutines as
+  product leaks.
+
 ## Transaction and filesystem reliability
 
 - Transactional JSONL publication recovers interrupted commits and preserves a

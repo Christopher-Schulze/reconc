@@ -284,8 +284,8 @@
     {
       "path": "tools/reconc/harness/template/audits/scaffold_cache_inputs_test.go",
       "mode": 420,
-      "size": 3350,
-      "sha256": "1e922f3d2280de0834d1cb00f6b3ba89d8630de1f111f70fe701293928323567",
+      "size": 3873,
+      "sha256": "88c2f26917d6dfb160bc2d3462b77b67ab007c2734131acf5b651111094844e7",
       "ownership": "pack-file"
     },
     {
@@ -590,6 +590,13 @@
       "ownership": "pack-file"
     },
     {
+      "path": "tools/reconc/harness/template/repo-root-scaffold/.vscode/settings.json",
+      "mode": 420,
+      "size": 1725,
+      "sha256": "191de36a264d38ee039a3542cd3e29f0e26f3bb939e55ac85317ed825ae23c33",
+      "ownership": "pack-file"
+    },
+    {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.windsurfignore",
       "mode": 420,
       "size": 650,
@@ -828,6 +835,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 830273,
-  "digest": "f5cfbec7c9d31c3e23a7f6951981f2e33e7ce40f866d047ea39807f6120bab04"
+  "total_bytes": 832521,
+  "digest": "5e1787889b6677294543648a4d78bc143afa82e53b20ffb152208a18168a4882"
 }

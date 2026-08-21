@@ -8,6 +8,24 @@ import (
 	"testing"
 )
 
+func TestScaffoldLocalLoadShedSurfacesArePresent(t *testing.T) {
+	for _, relative := range []string{
+		".cursorindexingignore",
+		".codeiumignore",
+		".windsurfignore",
+		".ignore",
+		".vscode/settings.json",
+	} {
+		info, err := os.Stat(filepath.Join("..", "repo-root-scaffold", filepath.FromSlash(relative)))
+		if err != nil {
+			t.Fatalf("inspect scaffold load-shed surface %s: %v", relative, err)
+		}
+		if !info.Mode().IsRegular() {
+			t.Fatalf("scaffold load-shed surface %s is not a regular file", relative)
+		}
+	}
+}
+
 // TestScaffoldGatesDeclareTheirCacheInputs binds the shipped policy to the
 // audits it invokes. A gate whose audit declares a narrow input set must
 // declare the same surface in the policy, so a bootstrapped repository can
