@@ -362,21 +362,30 @@ func normalizeLockPayload(payload map[string]interface{}) (map[string]interface{
 }
 
 func normalizeJSONValue(value interface{}) (interface{}, error) {
+	normalized, _, err := normalizeJSONValueWithBytes(value)
+	return normalized, err
+}
+
+func normalizeJSONValueWithBytes(value interface{}) (interface{}, []byte, error) {
 	data, err := json.Marshal(value)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var normalized interface{}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	if err := decoder.Decode(&normalized); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var trailing interface{}
 	if err := decoder.Decode(&trailing); err != io.EOF {
-		return nil, fmt.Errorf("normalized value contains trailing JSON")
+		return nil, nil, fmt.Errorf("normalized value contains trailing JSON")
 	}
-	return normalized, nil
+	canonical, err := marshalCanonical(normalized)
+	if err != nil {
+		return nil, nil, err
+	}
+	return normalized, canonical, nil
 }
 
 // ComputeLockDigest returns the canonical SHA-256 digest of the complete
@@ -425,13 +434,9 @@ func ValidateEmbeddedRules(payload map[string]interface{}, parsed *parser.Parsed
 	if !present {
 		return &rerrors.LockfileError{Message: "compiled lockfile action plan does not match the current policy sources"}
 	}
-	expectedActionsValue, err := normalizeJSONValue(expectedActions.Plan())
+	_, expectedActionsData, err := normalizeJSONValueWithBytes(expectedActions.Plan())
 	if err != nil {
 		return &rerrors.LockfileError{Message: "normalize action plan parsed from current policy sources", Cause: err}
-	}
-	expectedActionsData, err := marshalCanonical(expectedActionsValue)
-	if err != nil {
-		return &rerrors.LockfileError{Message: "encode action plan parsed from current policy sources", Cause: err}
 	}
 	actualActionsData, err := marshalCanonical(actualActions)
 	if err != nil {

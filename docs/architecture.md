@@ -496,6 +496,9 @@ and byte-compares the notice before checksums and provenance are accepted.
      The frozen source bundle is converted to one provenance record set and
      content digest; the same records feed both source-digest computation and
      lock-payload serialization.
+     Canonical JSON boundaries expose normalized bytes together with the
+     decoded `UseNumber` tree, so action validation does not marshal the same
+     normalized payload a second time.
    - `internal/runtime/lockfile.go` performs a 16 MiB bounded read and validates
      schema, version, repository root, migration state, and source freshness.
      Current format-6 locks prove freshness from the complete lock digest plus

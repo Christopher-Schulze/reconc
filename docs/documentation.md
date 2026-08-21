@@ -1664,6 +1664,10 @@ At the compile render boundary, each source is converted once into an
 immutable provenance record containing its logical identity and content hash.
 The aggregate source digest and emitted lock payload consume those same
 records, preventing divergent duplicate hashing or map construction.
+Canonical JSON normalization returns the validated `UseNumber` value and its
+canonical bytes together. Action parity checks consume those bytes directly,
+preserving number fidelity, custom marshaling, null/empty distinctions, and
+trailing-value rejection without a second marshal/decode cycle.
 Inline fenced-policy blocks are extracted with one bounded line scan and
 incremental line accounting. A per-source block cap is enforced before another
 block body is retained, while LF/CRLF, fence syntax, block IDs, trimming, and

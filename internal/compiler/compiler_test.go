@@ -636,6 +636,24 @@ func TestCompileSourceProvenanceFreezesRecordsOnce(t *testing.T) {
 	}
 }
 
+func TestNormalizeJSONValueWithBytesPreservesNumbersAndCanonicalBytes(t *testing.T) {
+	value := map[string]interface{}{"b": json.Number("9007199254740993"), "a": "text"}
+	normalized, rawBytes, err := normalizeJSONValueWithBytes(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := normalized.(map[string]interface{})["b"].(json.Number); !ok || got.String() != "9007199254740993" {
+		t.Fatalf("normalized number = %#v", normalized)
+	}
+	encoded, err := marshalCanonical(normalized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(encoded, rawBytes) {
+		t.Fatalf("canonical bytes differ: got=%s want=%s", rawBytes, encoded)
+	}
+}
+
 func TestCheckToMapCoversSpecializedFields(t *testing.T) {
 	cases := []struct {
 		name string

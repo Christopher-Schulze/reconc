@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"encoding/json"
 	"strconv"
 	"testing"
 
@@ -51,6 +52,31 @@ func BenchmarkCompileSourceProvenanceRebuild(b *testing.B) {
 			second = append(second, sourceToMap(source))
 		}
 		if _, err := computeSerializedSourceDigest(second); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkNormalizeJSONValueOnce(b *testing.B) {
+	value := map[string]interface{}{"rules": []interface{}{map[string]interface{}{"id": "rule", "count": json.Number("9007199254740993")}}}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if _, _, err := normalizeJSONValueWithBytes(value); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkNormalizeJSONValueTwice(b *testing.B) {
+	value := map[string]interface{}{"rules": []interface{}{map[string]interface{}{"id": "rule", "count": json.Number("9007199254740993")}}}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if _, err := normalizeJSONValue(value); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := normalizeJSONValue(value); err != nil {
 			b.Fatal(err)
 		}
 	}
