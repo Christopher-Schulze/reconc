@@ -213,7 +213,7 @@ func suggestedExplicitProfile(inspection *Inspection) ProfileName {
 	for _, path := range inspection.ExistingPaths {
 		has[path] = true
 	}
-	if has[".reconc.yml"] && has[".reconc/policy.lock.json"] {
+	if has[".reconc.yml"] && has[policyLockfilePath] {
 		if err := reconruntime.ValidatePolicyLockfile(inspection.RepoRoot); err == nil {
 			return ProfileExisting
 		}

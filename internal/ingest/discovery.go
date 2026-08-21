@@ -23,6 +23,14 @@ import (
 	"sort"
 )
 
+type compiledLockfileState uint8
+
+const (
+	compiledLockfileUnknown compiledLockfileState = iota
+	compiledLockfileMissing
+	compiledLockfilePresent
+)
+
 // ConfigCandidates is the accepted compiler-config filenames (preferred
 // first). A repo may have at most one; multiple triggers a warning.
 var ConfigCandidates = []string{".reconc.yml", ".reconc.yaml"}
@@ -33,6 +41,8 @@ var DefaultPolicyGlobs = []string{"policies/*.yml", "policies/*.yaml"}
 
 // LockfilePath is the repo-relative path where the compiled lockfile lives.
 const LockfilePath = ".reconc/policy.lock.json"
+
+const lockfileMissingWarning = "compiled lockfile not found at " + LockfilePath
 
 // DiscoveryResult is the full discovery outcome.
 //
@@ -64,6 +74,8 @@ type DiscoveryResult struct {
 	// Warnings surfaces actionable drift (missing lockfile, missing
 	// policy fragments, multiple config files, etc.) without failing.
 	Warnings []string `json:"warnings"`
+
+	compiledLockfileState compiledLockfileState
 }
 
 // DiscoverPolicyRepo walks up from startPath until a policy marker is
@@ -141,9 +153,11 @@ func inspectDirectory(dir, originalStart string) (DiscoveryResult, bool, error) 
 
 	lockfile := filepath.Join(dir, LockfilePath)
 	var lockfilePath *string
+	lockfileState := compiledLockfileMissing
 	if isRegularFile(lockfile) {
 		p := LockfilePath
 		lockfilePath = &p
+		lockfileState = compiledLockfilePresent
 	}
 
 	warnings := []string{}
@@ -157,7 +171,7 @@ func inspectDirectory(dir, originalStart string) (DiscoveryResult, bool, error) 
 		warnings = append(warnings, "no policy fragments discovered under policies/*.yml or policies/*.yaml")
 	}
 	if lockfilePath == nil {
-		warnings = append(warnings, "compiled lockfile not found at "+LockfilePath)
+		warnings = append(warnings, lockfileMissingWarning)
 	}
 
 	var preferredConfig *string
@@ -167,18 +181,57 @@ func inspectDirectory(dir, originalStart string) (DiscoveryResult, bool, error) 
 	}
 
 	return DiscoveryResult{
-		StartPath:        originalStart,
-		RepoRoot:         dir,
-		Discovered:       true,
-		ClaudePath:       claude,
-		AgentsPath:       agents,
-		StartMDPath:      startMD,
-		ConfigPath:       preferredConfig,
-		ConfigCandidates: configs,
-		PolicyPaths:      policies,
-		LockfilePath:     lockfilePath,
-		Warnings:         warnings,
+		StartPath:             originalStart,
+		RepoRoot:              dir,
+		Discovered:            true,
+		ClaudePath:            claude,
+		AgentsPath:            agents,
+		StartMDPath:           startMD,
+		ConfigPath:            preferredConfig,
+		ConfigCandidates:      configs,
+		PolicyPaths:           policies,
+		LockfilePath:          lockfilePath,
+		Warnings:              warnings,
+		compiledLockfileState: lockfileState,
 	}, true, nil
+}
+
+// AfterCompiledLockfilePublication returns an independent post-publication
+// discovery snapshot. It marks only the canonical lockfile condition present
+// and removes only the exact warning owned by that condition.
+func (d DiscoveryResult) AfterCompiledLockfilePublication() DiscoveryResult {
+	out := d
+	out.ClaudePath = cloneOptionalString(d.ClaudePath)
+	out.AgentsPath = cloneOptionalString(d.AgentsPath)
+	out.StartMDPath = cloneOptionalString(d.StartMDPath)
+	out.ConfigPath = cloneOptionalString(d.ConfigPath)
+	out.ConfigCandidates = cloneStringSlice(d.ConfigCandidates)
+	out.PolicyPaths = cloneStringSlice(d.PolicyPaths)
+	out.Warnings = make([]string, 0, len(d.Warnings))
+	for _, warning := range d.Warnings {
+		if warning != lockfileMissingWarning {
+			out.Warnings = append(out.Warnings, warning)
+		}
+	}
+	lockfilePath := LockfilePath
+	out.LockfilePath = &lockfilePath
+	out.compiledLockfileState = compiledLockfilePresent
+	return out
+}
+
+func cloneOptionalString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func cloneStringSlice(values []string) []string {
+	if values == nil {
+		return nil
+	}
+	return append(make([]string, 0, len(values)), values...)
 }
 
 // filepathIfRegular returns a pointer to name (not a full path) when the

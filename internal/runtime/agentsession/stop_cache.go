@@ -697,7 +697,7 @@ func stopPolicyFingerprintInputForSnapshot(root string, state SessionState, gitS
 	if err != nil {
 		return stopPolicyFingerprintInput{
 			Version: stopPolicyFingerprintVersion, RepoRoot: root, SessionID: state.SessionID,
-			PolicyLockHash:     fileContentHash(filepath.Join(root, ".reconc", "policy.lock.json")),
+			PolicyLockHash:     fileContentHash(filepath.Join(root, policyLockfilePath)),
 			PolicySourceDigest: "error:" + err.Error(), TaskStateHash: "error:" + err.Error(),
 			GitHead: gitSnapshot.Head, GitStatus: gitSnapshot.Status,
 			GitStatusMode: gitSnapshot.StatusMode, GitStatusOK: gitSnapshot.StatusOK,
@@ -746,7 +746,7 @@ func stopPolicyFingerprintInputForSnapshotWithScan(
 		Version:            stopPolicyFingerprintVersion,
 		RepoRoot:           root,
 		SessionID:          state.SessionID,
-		PolicyLockHash:     fileContentHash(filepath.Join(root, ".reconc", "policy.lock.json")),
+		PolicyLockHash:     fileContentHash(filepath.Join(root, policyLockfilePath)),
 		PolicySourceDigest: policyDigest,
 		PolicySourceCount:  policyCount,
 		TaskStateHash:      taskHash,
@@ -872,7 +872,7 @@ func (c *stopPolicyScanCache) stable(repoRoot string, writePaths []string) bool 
 	if !c.loaded || c.root != repoRoot || scan.LockHash == "" {
 		return true
 	}
-	body, err := boundedio.ReadFile(filepath.Join(repoRoot, ".reconc", "policy.lock.json"), stopPolicyLockfileScanBound)
+	body, err := boundedio.ReadFile(filepath.Join(repoRoot, policyLockfilePath), stopPolicyLockfileScanBound)
 	if err != nil || hashBytes(body) != scan.LockHash {
 		c.mutated = true
 		return false
@@ -894,7 +894,7 @@ func scanStopPolicyLockfile(repoRoot string, writePaths []string) stopPolicyLock
 		// production Stop always supplies a resolved root before caching.
 		return stopPolicyLockScan{Cacheable: true}
 	}
-	body, err := boundedio.ReadFile(filepath.Join(repoRoot, ".reconc", "policy.lock.json"), stopPolicyLockfileScanBound)
+	body, err := boundedio.ReadFile(filepath.Join(repoRoot, policyLockfilePath), stopPolicyLockfileScanBound)
 	if err != nil {
 		// Unreadable lock already fails evaluation; treat uncertainty as
 		// non-cacheable so we never reuse a report we cannot revalidate.

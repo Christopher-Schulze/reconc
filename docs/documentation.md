@@ -1700,6 +1700,12 @@ canonical root identity, config identity, and the per-default-glob fragment
 inventory travel together through one load and are revalidated before and
 after reads. Default fragments therefore are not globbed twice, while
 additional validated includes still expand independently.
+The ingest boundary owns the canonical compiled-lockfile path used by
+discovery, compilation, publication, runtime reads, bootstrap output, doctor,
+CLI help, and generated repository metadata. Successful publication produces
+an independent post-publication discovery snapshot: it marks that exact path
+present and removes only the discovery-owned missing-lockfile warning, leaving
+the pre-publication result and unrelated diagnostics unchanged.
 Policy source ordering is explicit and stable for all source kinds, including
 the custom-runtime rank. It orders provenance and candidate insertion only;
 duplicate rule IDs are never cross-tier overrides. The parser rejects same-tier

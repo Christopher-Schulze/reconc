@@ -62,9 +62,10 @@ func LockfileSchema() string {
 	return schema.Resolve(schema.PolicyLock)
 }
 
-// LockfileRelativePath is the repo-relative location of the compiled
-// lockfile. Mirrored in ingest.LockfilePath for discovery.
-const LockfileRelativePath = ".reconc/policy.lock.json"
+// LockfileRelativePath is the compatibility name for the canonical discovery
+// path. It remains a compile-time alias so publication and readers cannot
+// drift to separate literals.
+const LockfileRelativePath = ingest.LockfilePath
 
 // CompiledPolicy is the summary of a successful compile run plus the
 // metadata needed to surface the result to the user.
@@ -207,9 +208,7 @@ func renderPolicyBundle(bundle *ingest.SourceBundle, compilerVersion string) (*C
 	// thread it through both the lockfile JSON and the returned
 	// CompiledPolicy so they agree (which keeps the lockfile bytes
 	// stable across re-compiles).
-	compiledDiscovery := stripLockfileMissingWarning(bundle.Discovery)
-	lp := LockfileRelativePath
-	compiledDiscovery.LockfilePath = &lp
+	compiledDiscovery := bundle.Discovery.AfterCompiledLockfilePublication()
 
 	conflicts := DetectConflicts(parsed.Rules)
 	if conflicts == nil {
@@ -255,7 +254,7 @@ func renderPolicyBundle(bundle *ingest.SourceBundle, compilerVersion string) (*C
 
 	return &CompiledPolicy{
 		RepoRoot:        root,
-		LockfilePath:    LockfileRelativePath,
+		LockfilePath:    ingest.LockfilePath,
 		CompilerVersion: compilerVersion,
 		FormatVersion:   LockfileFormatVersion,
 		SourceDigest:    provenance.digest,
@@ -946,26 +945,11 @@ func encodeLockfile(payload map[string]interface{}) ([]byte, error) {
 }
 
 func writeLockfile(repoRoot string, body []byte) error {
-	full := filepath.Join(repoRoot, ".reconc", "policy.lock.json")
+	full := filepath.Join(repoRoot, ingest.LockfilePath)
 	if _, err := atomicfile.WritePrivateIfChanged(full, body, 0o644); err != nil {
 		return &rerrors.LockfileError{Message: "write lockfile", Cause: err}
 	}
 	return nil
-}
-
-// stripLockfileMissingWarning returns a copy of the discovery result
-// with the "compiled lockfile not found" warning removed, since after
-// a successful compile that warning is stale.
-func stripLockfileMissingWarning(d ingest.DiscoveryResult) ingest.DiscoveryResult {
-	out := d
-	out.Warnings = make([]string, 0, len(d.Warnings))
-	for _, w := range d.Warnings {
-		if strings.Contains(w, "lockfile not found") {
-			continue
-		}
-		out.Warnings = append(out.Warnings, w)
-	}
-	return out
 }
 
 // templateCaptureKinds are the rule kinds whose glob fields compile

@@ -80,7 +80,7 @@ func preDecisionKey(root string, payloadBytes []byte) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	policyIdentity, ok := hashPreDecisionFile(filepath.Join(root, ".reconc", "policy.lock.json"), false)
+	policyIdentity, ok := hashPreDecisionFile(filepath.Join(root, policyLockfilePath), false)
 	if !ok {
 		return "", false
 	}

@@ -5,6 +5,8 @@ package repositoryignore
 import (
 	"fmt"
 	"strings"
+
+	"reconc.dev/reconc/internal/ingest"
 )
 
 const (
@@ -18,10 +20,10 @@ const (
 // Body returns the stable ignore rules for Reconc-owned runtime state. The
 // compiled policy lockfile remains committable.
 func Body() string {
-	return `/tools/reconc/dist/
+	return fmt.Sprintf(`/tools/reconc/dist/
 .reconc/*
 !.reconc/
-!.reconc/policy.lock.json
+!%s
 !.reconc/install.lock.json
 .reconc/audit.jsonl*
 .reconc/cache/
@@ -32,7 +34,7 @@ func Body() string {
 .reconc/task-transaction.json
 .reconc/bootstrap-*.json
 *.reconc-candidate-*
-*.reconc-remove-candidate-*`
+*.reconc-remove-candidate-*`, ingest.LockfilePath)
 }
 
 // Block returns the complete marker-delimited managed section.

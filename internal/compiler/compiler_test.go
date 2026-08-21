@@ -6,6 +6,7 @@ import (
 	stderrors "errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -382,6 +383,45 @@ func TestCompileSuppressesLockfileMissingWarningAfterRun(t *testing.T) {
 			t.Errorf("post-compile warnings should not include lockfile-missing, got: %v", compiled.Warnings)
 		}
 	}
+}
+
+func TestRenderPreservesWarningContainingLockfileMissingText(t *testing.T) {
+	withRECONCHome(t)
+	repo := t.TempDir()
+	writeFile(t, repo, "AGENTS.md", "# project\n")
+	bundle, err := ingest.LoadPolicySources(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	customWarning := "custom warning: lockfile not found is quoted documentation"
+	bundle.Discovery.Warnings = append(bundle.Discovery.Warnings, customWarning)
+	originalWarnings := append([]string(nil), bundle.Discovery.Warnings...)
+
+	compiled, _, err := renderPolicyBundle(bundle, "0.1.0-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compiled.LockfilePath != ingest.LockfilePath || compiled.Discovery.LockfilePath == nil || *compiled.Discovery.LockfilePath != ingest.LockfilePath {
+		t.Fatalf("compiled lock paths disagree: %+v", compiled)
+	}
+	if !containsExactString(compiled.Warnings, customWarning) {
+		t.Fatalf("custom warning was removed: %v", compiled.Warnings)
+	}
+	if containsExactString(compiled.Warnings, "compiled lockfile not found at "+ingest.LockfilePath) {
+		t.Fatalf("owned missing warning survived: %v", compiled.Warnings)
+	}
+	if !reflect.DeepEqual(bundle.Discovery.Warnings, originalWarnings) || bundle.Discovery.LockfilePath != nil {
+		t.Fatalf("render mutated bundle discovery: %+v", bundle.Discovery)
+	}
+}
+
+func containsExactString(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCompileSourceDigestChangesWithSources(t *testing.T) {

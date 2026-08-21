@@ -63,7 +63,7 @@ func BuildPlan(request Request, productVersion string) (*Plan, error) {
 			break
 		}
 	}
-	lockPath := filepath.Join(root, ".reconc", "policy.lock.json")
+	lockPath := filepath.Join(root, policyLockfilePath)
 	_, lockErr := os.Lstat(lockPath)
 	lockExists := lockErr == nil
 	if lockErr != nil && !os.IsNotExist(lockErr) {

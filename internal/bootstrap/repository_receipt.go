@@ -94,13 +94,13 @@ func BuildRepositoryReceipt(plan *Plan, privateReceipt *InstallReceipt, generati
 		}
 		receipt.UserOwnedPaths = append(receipt.UserOwnedPaths, action.Path)
 	}
-	if entry, ok := privateByPath[".reconc/policy.lock.json"]; ok && entry.Ownership == "file" {
-		body, readErr := readRepositoryRegularFile(plan.RepoRoot, ".reconc/policy.lock.json")
+	if entry, ok := privateByPath[policyLockfilePath]; ok && entry.Ownership == "file" {
+		body, readErr := readRepositoryRegularFile(plan.RepoRoot, policyLockfilePath)
 		if readErr != nil {
 			return nil, readErr
 		}
 		receipt.GeneratedArtifacts = append(receipt.GeneratedArtifacts, GeneratedArtifact{
-			Path: ".reconc/policy.lock.json", Generator: "reconc-policy-compiler",
+			Path: policyLockfilePath, Generator: "reconc-policy-compiler",
 			Version: plan.ProductVersion, SHA256: bytesSHA256(body),
 		})
 	}

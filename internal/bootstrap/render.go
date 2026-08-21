@@ -235,7 +235,7 @@ func renderAgentBlock() string {
 		"## Reconc repository control",
 		"",
 		"This repository compiles policy from `.reconc.yml` and agent instructions into",
-		"`.reconc/policy.lock.json`. Inspection commands are read-only and never refresh",
+		"`" + policyLockfilePath + "`. Inspection commands are read-only and never refresh",
 		"policy implicitly. After policy edits, run `reconc refresh .` explicitly.",
 		"Use `reconc session-briefing . --json` for one versioned, machine-readable TASK,",
 		"policy, and repository-run delta. Fetch only needed reference sections with",
@@ -285,7 +285,7 @@ func renderDocumentationBlock() string {
 	return strings.Join([]string{
 		"## Reconc workflow", "",
 		"Reconc policy lives in `.reconc.yml`; the deterministic compiled contract lives",
-		"in `.reconc/policy.lock.json`. `reconc init` is the canonical non-interactive",
+		"in `" + policyLockfilePath + "`. `reconc init` is the canonical non-interactive",
 		"onboarding command. It uses the transactional create-only bootstrap engine,",
 		"records its exact plan and receipt, and verifies the result. Existing drift",
 		"produces hash-addressed candidates for review. Lower-level `reconc bootstrap`",

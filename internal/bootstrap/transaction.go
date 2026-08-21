@@ -144,7 +144,7 @@ func apply(plan *Plan, productVersion string, options applyOptions) (*Report, er
 		}
 	}
 	if plan.CompileRequired {
-		lockPath := filepath.Join(plan.RepoRoot, ".reconc", "policy.lock.json")
+		lockPath := filepath.Join(plan.RepoRoot, policyLockfilePath)
 		if _, err := os.Lstat(lockPath); !os.IsNotExist(err) {
 			if err == nil {
 				err = fmt.Errorf("policy lockfile appeared after planning")
@@ -179,7 +179,7 @@ func apply(plan *Plan, productVersion string, options applyOptions) (*Report, er
 		}
 		created = append(created, lockRecord)
 		compiledLockSHA = lockRecord.sha256
-		report.Created = append(report.Created, ".reconc/policy.lock.json")
+		report.Created = append(report.Created, policyLockfilePath)
 	}
 	verification, err := Verify(plan)
 	if err != nil || !verification.Valid {

@@ -67,7 +67,7 @@ func buildInstallReceipt(plan *Plan, productVersion, lockSHA, planRecordPath, re
 		}
 		hasCreatedArtifact = true
 		entries = append(entries, InstallReceiptEntry{
-			Path: ".reconc/policy.lock.json", SHA256: lockSHA, Mode: 0o644, Ownership: "file",
+			Path: policyLockfilePath, SHA256: lockSHA, Mode: 0o644, Ownership: "file",
 		})
 	}
 	// An all-unchanged replay must not mint a competing ownership receipt.
@@ -210,7 +210,7 @@ func validateInstallReceipt(plan *Plan, receipt *InstallReceipt) error {
 		if index > 0 && receipt.Entries[index-1].Path >= entry.Path {
 			return fmt.Errorf("bootstrap install receipt entries must be uniquely sorted")
 		}
-		if entry.Path == ".reconc/policy.lock.json" {
+		if entry.Path == policyLockfilePath {
 			if !plan.CompileRequired || entry.Ownership != "file" {
 				return fmt.Errorf("bootstrap install receipt claims an unowned policy lock")
 			}

@@ -245,7 +245,7 @@ func captureStopRepositoryGenerationWithIdentityAndScan(
 		Version:            stopGenerationVersion,
 		RepoRoot:           root,
 		RootIdentity:       rootIdentity,
-		PolicyLockHash:     fileContentHash(filepath.Join(root, ".reconc", "policy.lock.json")),
+		PolicyLockHash:     fileContentHash(filepath.Join(root, policyLockfilePath)),
 		PolicySourceDigest: policyDigest,
 		PolicySourceCount:  policyCount,
 		TaskStateHash:      taskStateHash,

@@ -109,7 +109,7 @@ func rotateSessionEvidenceLocked(repoRoot string, state SessionState) (SessionSt
 		SessionID:      state.SessionID,
 		Index:          index,
 		PreviousDigest: state.EvidenceSegmentDigest,
-		PolicyLockHash: fileContentHash(filepath.Join(repoRoot, ".reconc", "policy.lock.json")),
+		PolicyLockHash: fileContentHash(filepath.Join(repoRoot, policyLockfilePath)),
 		ReadPaths:      append([]string{}, state.ReadPaths...),
 		WritePaths:     append([]string{}, state.WritePaths...),
 		WriteEpochs:    cloneWriteEpochs(state.WriteEpochs),

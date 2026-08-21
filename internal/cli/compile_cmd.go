@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+
 	"reconc.dev/reconc/internal/compiler"
+	"reconc.dev/reconc/internal/ingest"
 )
 
 // runCompile implements `reconc compile [repo] [--json]`.
@@ -45,7 +47,7 @@ func runCompileCommand(command string, args []string, version string, stdout, st
 			outputPath = val
 		case "-h", "--help":
 			fmt.Fprintf(stdout, "Usage: reconc %s [repo] [--json] [--strict-conflicts] [--output PATH]\n", command)
-			fmt.Fprintln(stdout, "Explicitly compile policy sources into .reconc/policy.lock.json.")
+			fmt.Fprintf(stdout, "Explicitly compile policy sources into %s.\n", ingest.LockfilePath)
 			fmt.Fprintln(stdout, "--strict-conflicts: exit 1 if any rule conflicts are detected.")
 			fmt.Fprintln(stdout, "--output PATH: write the primary output to stdout and PATH.")
 			return nil

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"reconc.dev/reconc/internal/commandmeta"
+	"reconc.dev/reconc/internal/ingest"
 )
 
 // Render writes a groff man(1) page for reconc to w. The version is
@@ -34,7 +35,7 @@ func Render(w io.Writer, version string) error {
 	fmt.Fprintln(w, ".SH DESCRIPTION")
 	fmt.Fprintln(w, `Compiles repository policy from AGENTS.md / CLAUDE.md / .reconc.yml and
 related YAML sources into a deterministic policy lockfile
-(\fB.reconc/policy.lock.json\fR), then evaluates your proposed actions
+(\fB`+ingest.LockfilePath+`\fR), then evaluates your proposed actions
 (reads, writes, commands, claims) against that lockfile. One Go binary,
 zero runtime dependencies, offline by default. Designed to make AI
 coding agents' behaviour auditable and gate-able rather than hopeful.`)
@@ -105,7 +106,7 @@ coding agents' behaviour auditable and gate-able rather than hopeful.`)
 	fmt.Fprintln(w, ".I .reconc.yml")
 	fmt.Fprintln(w, "Per-repo policy config. Can extend presets and include rule definitions.")
 	fmt.Fprintln(w, ".TP")
-	fmt.Fprintln(w, ".I .reconc/policy.lock.json")
+	fmt.Fprintln(w, ".I "+ingest.LockfilePath)
 	fmt.Fprintln(w, "Portable compiled policy contract. Commit and review it with policy-source changes.")
 	fmt.Fprintln(w, ".TP")
 	fmt.Fprintln(w, ".I .reconc/install.lock.json")

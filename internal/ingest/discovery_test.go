@@ -3,6 +3,7 @@ package ingest
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -192,6 +193,59 @@ func TestDiscoverSetsLockfilePathWhenPresent(t *testing.T) {
 	}
 }
 
+func TestAfterCompiledLockfilePublicationIsExactAndImmutable(t *testing.T) {
+	repo := newRepo(t)
+	writeFile(t, repo, "AGENTS.md", "# agents\n")
+	writeFile(t, repo, ".reconc.yml", "rules: []\n")
+	writeFile(t, repo, ".reconc.yaml", "rules: []\n")
+
+	before, err := DiscoverPolicyRepo(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	customWarning := "custom diagnostic mentions " + lockfileMissingWarning + " but is not the owned condition"
+	before.Warnings = append(before.Warnings, customWarning)
+	beforeSnapshot := before
+	beforeSnapshot.ConfigCandidates = cloneStringSlice(before.ConfigCandidates)
+	beforeSnapshot.PolicyPaths = cloneStringSlice(before.PolicyPaths)
+	beforeSnapshot.Warnings = cloneStringSlice(before.Warnings)
+
+	after := before.AfterCompiledLockfilePublication()
+	if after.compiledLockfileState != compiledLockfilePresent || after.LockfilePath == nil || *after.LockfilePath != LockfilePath {
+		t.Fatalf("post-publication state = %+v", after)
+	}
+	if hasExactWarning(after.Warnings, lockfileMissingWarning) {
+		t.Fatalf("owned missing warning survived: %v", after.Warnings)
+	}
+	if !hasExactWarning(after.Warnings, customWarning) {
+		t.Fatalf("unrelated warning was removed: %v", after.Warnings)
+	}
+	if !reflect.DeepEqual(before, beforeSnapshot) || before.LockfilePath != nil || before.compiledLockfileState != compiledLockfileMissing {
+		t.Fatalf("transition mutated input: before=%+v snapshot=%+v", before, beforeSnapshot)
+	}
+
+	*after.ConfigPath = "changed.yml"
+	after.ConfigCandidates[0] = "changed.yml"
+	after.Warnings[0] = "changed warning"
+	if *before.ConfigPath != ".reconc.yml" || before.ConfigCandidates[0] != ".reconc.yml" || before.Warnings[0] == "changed warning" {
+		t.Fatalf("post-publication snapshot aliases input storage: before=%+v after=%+v", before, after)
+	}
+}
+
+func TestAfterCompiledLockfilePublicationIsStableWhenAlreadyPresent(t *testing.T) {
+	repo := newRepo(t)
+	writeFile(t, repo, "AGENTS.md", "# agents\n")
+	writeFile(t, repo, LockfilePath, "{}\n")
+	before, err := DiscoverPolicyRepo(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := before.AfterCompiledLockfilePublication()
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("present transition changed discovery value:\nbefore=%+v\nafter=%+v", before, after)
+	}
+}
+
 func TestDiscoverAcceptsFileAsStartPath(t *testing.T) {
 	repo := newRepo(t)
 	writeFile(t, repo, "AGENTS.md", "# agents\n")
@@ -226,6 +280,15 @@ func TestDiscoverUndiscoveredFileFallsBackToContainingDirectory(t *testing.T) {
 func hasWarningContaining(warnings []string, substr string) bool {
 	for _, w := range warnings {
 		if strings.Contains(w, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasExactWarning(warnings []string, expected string) bool {
+	for _, warning := range warnings {
+		if warning == expected {
 			return true
 		}
 	}

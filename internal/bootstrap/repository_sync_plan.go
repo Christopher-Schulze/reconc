@@ -809,7 +809,7 @@ func planCrossPlatformBinary(root string, owned ManagedFile, targetOS, targetArc
 func planPolicyLockMigration(root string, receipt *RepositoryReceipt, productVersion string) (*SyncAction, []SyncMigration, error) {
 	var generated GeneratedArtifact
 	for _, artifact := range receipt.GeneratedArtifacts {
-		if artifact.Path == ".reconc/policy.lock.json" {
+		if artifact.Path == policyLockfilePath {
 			generated = artifact
 			break
 		}

@@ -134,7 +134,7 @@ func detectionEvidence(values map[string][]string) []DetectionEvidence {
 
 func inspectionPaths() []string {
 	paths := []string{
-		".reconc.yml", ".reconc/install.lock.json", ".reconc/policy.lock.json", ".gitignore", "AGENTS.md", "CLAUDE.md", "start.md",
+		".reconc.yml", ".reconc/install.lock.json", policyLockfilePath, ".gitignore", "AGENTS.md", "CLAUDE.md", "start.md",
 		"docs/documentation.md", "docs/tasks.md", hooks.WrapperPath,
 	}
 	for _, platform := range hooks.Platforms() {
