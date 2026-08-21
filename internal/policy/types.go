@@ -403,7 +403,7 @@ func (r Rule) String() string {
 // SourceKind tags the origin of a PolicySource so the compiler can order
 // and digest sources deterministically.
 //
-// Order is lowest-precedence first:
+// Rule-bearing precedence is lowest-precedence first:
 //
 //	global -> claude_md -> agents_md -> start_md -> inline_block ->
 //	compiler_config -> preset -> policy_file
@@ -425,21 +425,36 @@ const (
 	ImpactCandidateBlockPrefix = "impact-candidate:"
 )
 
-// SourcePrecedence is the canonical order in which sources contribute to
-// the compiled lockfile. A source's precedence determines tie-breaking
-// when multiple sources target the same rule id (higher precedence wins,
-// with an error on true duplicate ids within the same precedence level).
+var sourceKindOrder = [...]SourceKind{
+	SourceGlobal,
+	SourceClaudeMD,
+	SourceAgentsMD,
+	SourceStartMD,
+	SourceInlineBlock,
+	SourceCompilerConfig,
+	SourcePreset,
+	SourcePolicyFile,
+	SourceCustomRuntime,
+}
+
+// SourcePrecedence is the serialized order for rule-bearing policy sources.
+// Cross-source duplicate rule IDs are always errors; this order remains a
+// truthful canonical source/digest order rather than an implicit override
+// mechanism. Custom runtime manifests have a rank through SourceRank but do
+// not contribute rule documents.
 func SourcePrecedence() []SourceKind {
-	return []SourceKind{
-		SourceGlobal,
-		SourceClaudeMD,
-		SourceAgentsMD,
-		SourceStartMD,
-		SourceInlineBlock,
-		SourceCompilerConfig,
-		SourcePreset,
-		SourcePolicyFile,
+	return append([]SourceKind(nil), sourceKindOrder[:len(sourceKindOrder)-1]...)
+}
+
+// SourceRank returns one canonical rank for every known source kind,
+// including custom runtime manifests. Unknown kinds return -1.
+func SourceRank(kind SourceKind) int {
+	for index, candidate := range sourceKindOrder {
+		if kind == candidate {
+			return index
+		}
 	}
+	return -1
 }
 
 // PolicySource is one canonical policy input with preserved provenance.

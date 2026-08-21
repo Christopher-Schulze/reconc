@@ -1663,6 +1663,12 @@ canonical root identity, config identity, and the per-default-glob fragment
 inventory travel together through one load and are revalidated before and
 after reads. Default fragments therefore are not globbed twice, while
 additional validated includes still expand independently.
+Policy source ordering is explicit and stable for all source kinds, including
+the custom-runtime rank. It orders provenance and candidate insertion only;
+duplicate rule IDs are never cross-tier overrides. The parser rejects same-tier
+and cross-tier duplicates with the ID plus both source paths, and the lockfile
+continues to serialize the unchanged eight rule-bearing precedence entries for
+compatibility.
 Glob expansion is segment-based and bounded before source bodies are retained:
 patterns are capped at 256 and 1 KiB each, directory enumeration and matches
 are capped, only regular files are candidates, and `**` is not recursive

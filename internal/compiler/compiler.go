@@ -922,15 +922,7 @@ func portableSourcePath(value string) bool {
 }
 
 func sourceKindValid(kind policy.SourceKind) bool {
-	if kind == policy.SourceCustomRuntime {
-		return true
-	}
-	for _, candidate := range policy.SourcePrecedence() {
-		if kind == candidate {
-			return true
-		}
-	}
-	return false
+	return policy.SourceRank(kind) >= 0
 }
 
 // writeLockfile materializes payload at $repoRoot/.reconc/policy.lock.json

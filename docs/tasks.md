@@ -2,11 +2,10 @@
 
 ## Active
 
-- [~] 202 Revalidate TASK path components across reads -> tasks/202-revalidate-control-path-components-across-reads.md
+- [~] 203 Make policy-source precedence truthful and canonical -> tasks/203-make-policy-source-precedence-truthful-and-canonical.md
 
 ## Queue
 
-- [ ] 203 Make policy-source precedence truthful and canonical -> tasks/203-make-policy-source-precedence-truthful-and-canonical.md
 - [ ] 204 Reject fields unsupported by a rule kind -> tasks/204-reject-fields-unsupported-by-a-rule-kind.md
 - [ ] 205 Centralize and enforce template-variable grammar -> tasks/205-centralize-and-enforce-template-variable-grammar.md
 - [ ] 206 Enforce parser cardinality and text limits -> tasks/206-enforce-parser-cardinality-and-text-limits.md
@@ -28,6 +27,7 @@
 
 ## Done
 
+- [x] 203 Make policy-source precedence truthful and canonical -> tasks/done/203-make-policy-source-precedence-truthful-and-canonical.md
 - [x] 202 Revalidate TASK path components across reads -> tasks/done/202-revalidate-control-path-components-across-reads.md
 - [x] 201 Eliminate quadratic hook-worker frame assembly -> tasks/done/201-eliminate-quadratic-hook-worker-frame-assembly.md
 - [x] 200 Recover hook workers after oversized frames -> tasks/done/200-recover-hook-workers-after-oversized-frames.md

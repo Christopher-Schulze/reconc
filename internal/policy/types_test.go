@@ -133,6 +133,27 @@ func TestSourcePrecedenceOrder(t *testing.T) {
 	}
 }
 
+func TestSourceRankCoversEveryCanonicalSourceKind(t *testing.T) {
+	seen := map[int]SourceKind{}
+	for _, kind := range []SourceKind{
+		SourceGlobal, SourceClaudeMD, SourceAgentsMD, SourceStartMD,
+		SourceInlineBlock, SourceCompilerConfig, SourcePreset, SourcePolicyFile,
+		SourceCustomRuntime,
+	} {
+		rank := SourceRank(kind)
+		if rank < 0 {
+			t.Fatalf("SourceRank(%q) = %d, want a canonical rank", kind, rank)
+		}
+		if previous, duplicate := seen[rank]; duplicate {
+			t.Fatalf("source kinds %q and %q share rank %d", previous, kind, rank)
+		}
+		seen[rank] = kind
+	}
+	if got := SourceRank(SourceKind("unknown")); got != -1 {
+		t.Fatalf("unknown source rank = %d, want -1", got)
+	}
+}
+
 func TestRuleStringIncludesAllIdentity(t *testing.T) {
 	r := Rule{ID: "no-secrets", Kind: KindDenyWrite, Mode: ModeBlock}
 	got := r.String()

@@ -34,10 +34,9 @@ func AppendCandidateSource(bundle *SourceBundle, source policy.PolicySource) (*S
 
 func insertCandidateSource(sources []policy.PolicySource, candidate policy.PolicySource) []policy.PolicySource {
 	index := len(sources)
-	precedence := policy.SourcePrecedence()
-	candidateRank := candidateSourceRank(candidate.Kind, precedence)
+	candidateRank := candidateSourceRank(candidate.Kind)
 	for sourceIndex, source := range sources {
-		if candidateSourceRank(source.Kind, precedence) > candidateRank {
+		if candidateSourceRank(source.Kind) > candidateRank {
 			index = sourceIndex
 			break
 		}
@@ -49,14 +48,6 @@ func insertCandidateSource(sources []policy.PolicySource, candidate policy.Polic
 	return out
 }
 
-func candidateSourceRank(kind policy.SourceKind, precedence []policy.SourceKind) int {
-	for index, candidate := range precedence {
-		if kind == candidate {
-			return index
-		}
-	}
-	if kind == policy.SourceCustomRuntime {
-		return len(precedence)
-	}
-	return len(precedence) + 1
+func candidateSourceRank(kind policy.SourceKind) int {
+	return policy.SourceRank(kind)
 }

@@ -2,9 +2,9 @@
 // SourceBundle into a strongly-typed ParsedPolicy ready for the
 // compiler to serialize.
 //
-// Validation is strict by design: any unknown rule kind, missing
-// required field, or duplicate rule id raises *RuleValidationError
-// instead of being silently dropped.
+// Validation is strict by design: any unknown rule kind, missing required
+// field, or duplicate rule ID from any source tier raises *RuleValidationError
+// instead of applying an implicit cross-tier override.
 package parser
 
 import (
@@ -64,7 +64,7 @@ type ParsedPolicy struct {
 // the rule-bearing sources from those files.
 //
 // Returns *RuleValidationError on the first validation failure
-// (with the offending source path / rule id in the message) so users
+// (with both source paths / the rule ID in duplicate diagnostics) so users
 // can fix one problem at a time.
 func ParseRuleDocuments(bundle *ingest.SourceBundle) (*ParsedPolicy, error) {
 	if bundle == nil {

@@ -158,6 +158,14 @@ handling.
    every degradation path raises a typed error rather than silently
    treating the situation as "pass".
 
+The policy source order is canonical and complete: the eight rule-bearing
+tiers are serialized in stable precedence order, and custom runtime manifests
+have the next explicit rank even though their manifest bodies are not rule
+documents. Duplicate rule IDs are always validation errors, including across
+tiers; no source silently overrides another. Diagnostics name the rule ID and
+both source locations, while source ranking remains available for deterministic
+candidate insertion and digest ordering.
+
 3. **Owned publication.** Write paths publish atomically or through an explicit
    transaction. Canonical lockfile bytes are compared before publication, so an
    unchanged compile performs no filesystem write. Bootstrap install is

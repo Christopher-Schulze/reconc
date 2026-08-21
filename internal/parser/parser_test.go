@@ -215,8 +215,8 @@ func TestParseDuplicateIDsAcrossSourcesFails(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for duplicate id")
 	}
-	if !contains(err.Error(), "duplicate rule id") {
-		t.Errorf("expected 'duplicate rule id' in error, got: %v", err)
+	if !contains(err.Error(), "duplicate rule id") || !contains(err.Error(), "policies/a.yml") || !contains(err.Error(), "policies/b.yml") {
+		t.Errorf("duplicate diagnostic lost source locations: %v", err)
 	}
 }
 
