@@ -23,6 +23,7 @@ usage, architecture, release, and security facts should be kept here first.
 - [v0.9.3 To v0.9.4 Migration](#v093-to-v094-migration)
 - [v0.9.4 To v0.9.5 Migration](#v094-to-v095-migration)
 - [v0.9.5 To v0.9.6 Migration](#v095-to-v096-migration)
+- [v0.9.6 To v0.9.7 Migration](#v096-to-v097-migration)
 - [Uninstall And Remove](#uninstall-and-remove)
 - [Development Control Plane](#development-control-plane)
 - [Minimal Example Policy](#minimal-example-policy)
@@ -191,7 +192,7 @@ partial audit, run-log, checksum, release, or provenance snapshot.
 | CLI lockfiles, reports, and extraction | Lockfile summaries are capped at 16 MiB; saved `why` reports at 32 MiB; session-briefing reports at 1 MiB; `extract --from` at 8 MiB and repository-relative only. |
 | Adoption and overlays | Root manifests are capped at 1 MiB, `.reconc.yml`, user presets, and user templates at 8 MiB; workflow, preset, and template directories stop at 4,096 entries and report incomplete inspection. |
 | Run decisions | Each live or archived JSONL file is capped at 2 MiB and each record at 32 KiB. Two archives are retained. `run log --limit N` validates the full retained chain while keeping only the requested tail in memory. |
-| Audit evidence | Each live or archived JSONL file is capped at 2 MiB, each record at 32 KiB, the detached head at 16 KiB, and the ring at two archives. Audit parent directories use `0700`; live/archive/head/lock/journal/backup members use `0600` and are identity- and security-validated before reads or writes. Existing legacy modes are migrated in place only after regular-file checks; symlinks, special files, wrong owners, and invalid lock aliases are rejected without discarding evidence. Export streams only after the complete chain verifies. Portable workflow-audit files are strict non-symlink regular reads capped at 64 MiB; directory walks stop at 100,000 entries, task schemas and legacy prune policies at 1 MiB, and legacy retention directories at 4,096 entries. |
+| Audit evidence | Each live or archived JSONL file is capped at 2 MiB, each record at 32 KiB, the detached head at 16 KiB, and the ring at two archives. Audit parent directories use `0700`; live/archive/head/lock/journal/backup members use `0600` and are identity- and security-validated before reads or writes. Existing legacy modes are migrated in place only after regular-file checks; symlinks, special files, wrong owners, and invalid lock aliases are rejected without discarding evidence. Same-process append bursts serialize per audit directory before the bounded cross-process lock; the file lock remains authoritative across processes. Export streams only after the complete chain verifies. Portable workflow-audit files are strict non-symlink regular reads capped at 64 MiB; directory walks stop at 100,000 entries, task schemas and legacy prune policies at 1 MiB, and legacy retention directories at 4,096 entries. |
 | Bootstrap and repository sync | Managed text is capped at 16 MiB; bootstrap plans at 4 MiB; sync plans at 8 MiB; portable receipts at 4 MiB; rollback before-images at 64 MiB aggregate; journals at 96 MiB; binary artifacts at 256 MiB. Writes remain create-only or atomic and preserve user-owned bytes. |
 | Build provenance | Binary marker inspection streams at most 256 MiB without executing or retaining the binary. Production source hashing accepts at most 16,384 real files, 64 MiB per file, and 512 MiB aggregate. |
 | Command proofs and owned state | Each command proof is capped at 16 KiB and its directory at 4,096 entries; unresolved-policy proofs and workflow-audit cache state are capped at 8 MiB. All are strict regular-file reads that reject links and special files. Retention directories and tree walks have explicit entry ceilings and abort without deleting from a partial inventory. |
@@ -268,9 +269,9 @@ make cover
 make bench
 make self-host
 make publication-audit
-make sbom VERSION=0.9.6
-make notices VERSION=0.9.6
-make release VERSION=0.9.6
+make sbom VERSION=0.9.7
+make notices VERSION=0.9.7
+make release VERSION=0.9.7
 ```
 
 `make coverage` runs both Go modules with atomic whole-module instrumentation
@@ -827,7 +828,7 @@ reconc ci . --base "$CI_MERGE_REQUEST_DIFF_BASE_SHA" --head "$CI_COMMIT_SHA" --f
 reconc ci . --base origin/main --head HEAD --format junit --output reconc-junit.xml
 ```
 
-The current v0.9.6 release can export the same completion candidate for external
+The current v0.9.7 source can export the same completion candidate for external
 review:
 
 ```bash
@@ -1891,7 +1892,8 @@ action-specific bounded compaction owns that state. The ledger live file,
 archives, detached head, and active transaction remain protected together.
 Unknown directories are never treated as product-owned. Audit and run-decision
 JSONL each use a 2 MiB live file plus two
-archives, with file-locked append and pre-append rotation. Audit entries
+archives, with per-directory in-process serialization followed by file-locked
+append and pre-append rotation. Audit entries
 additionally carry one contiguous sequence and SHA-256 previous/current digest
 chain, with the latest identity stored in `.reconc/audit.head.json`. Every
 audit reader verifies all retained archives, the live file, and the detached
@@ -2201,7 +2203,7 @@ and repository checks.
 
 ## Go-Only Action Plane
 
-RECONC-0008 remains Draft. Source and release version `v0.9.6` implements strict
+RECONC-0008 remains Draft. Source and release version `v0.9.7` implements strict
 `actions` authoring, canonical format-6 compilation, deterministic lowering of
 legacy `mcp` declarations, immutable typed matcher programs, a derived MCP
 compatibility view, `reconc why action`, and the transport-neutral deterministic
@@ -2221,7 +2223,7 @@ Action Ledger without creating missing state. Offline simulation and retained
 fixtures remain non-enforcement evidence; only explicitly routed gateway calls
 cross the live tool-call interception boundary.
 
-The same v0.9.6 implementation provides trusted operator and host context
+The same v0.9.7 implementation provides trusted operator and host context
 bindings, domain-separated HMAC identities, explicit key leases and rotation
 blocking, compiled cumulative budgets, evaluator budget snapshots, and a
 private bounded multi-process action-state store. Budget reservations are
@@ -2369,7 +2371,7 @@ The supported and continuously tested matrix is exact:
 
 | Component | Proven version or protocol | Proof boundary |
 | --- | --- | --- |
-| Reconc source binary | `0.9.6` | Built from current source and version-smoked before the test |
+| Reconc source binary | `0.9.7` | Built from current source and version-smoked before the test |
 | MCP Go SDK | `v1.7.0` | Pinned product dependency |
 | Current MCP protocol | `2026-07-28` | Pure-Go raw protocol suite |
 | Legacy MCP protocol | `2025-11-25` | Pure-Go raw suite and external LangChain consumer |
@@ -3817,6 +3819,27 @@ artifacts before PATH. Those files are not a hostile same-user trust boundary.
 Security reports should be private first and include the command, policy,
 lockfile shape, payload if relevant, and reproduction steps.
 
+## v0.9.6 To v0.9.7 Migration
+
+Source-owned installations build source version `0.9.7`. The latest published
+binary remains `reconc-v0.9.6` until the protected `reconc-v0.9.7` tag is
+created and the manual release workflow completes; no installation command
+should use the new tag before that publication exists.
+
+Format 6 keeps its representation and migration chain unchanged, but its
+rule-kind field matrix is now part of the immutable
+`schemas/v6/policy-lock.schema.json` identity at `reconc-v0.9.7`. Existing
+format-6 lockfiles that still name the v0.9.6 schema are accepted through an
+input-only compatibility alias; a refresh writes the v0.9.7 identity. Formats
+1 through 5 keep their exact previously published schema URLs and migration
+behavior. No mutable `main` URL, tag rewrite, or format-version bump is used.
+
+The local publication contract authorizes the new current tag while it is an
+unreleased candidate and verifies the new local v6 bytes, digest, `$id`, and
+registry mapping. The online HTTP publication verifier belongs to the
+tag-bound release workflow and must run only after the exact protected tag is
+published.
+
 ## License
 
 `reconc` is distributed under the MIT License.
@@ -3850,8 +3873,10 @@ current-state documentation.
 
 ## Release State
 
-The current source line is `v0.9.x`; the source version is `v0.9.6`. The latest
-published release is the immutable `reconc-v0.9.6` tag. Release
-artifacts are produced only through an explicit manual Release workflow
-dispatch for an existing `reconc-vX.Y.Z` tag; tag pushes never publish a
-release.
+The current source line is `v0.9.x`; the source version is `v0.9.7`. The latest
+published release remains the immutable `reconc-v0.9.6` tag. The
+`reconc-v0.9.7` format-6 schema identity is an unreleased candidate until its
+protected tag exists and the release workflow has published matching assets.
+Release artifacts are produced only through an explicit manual Release
+workflow dispatch for an existing `reconc-vX.Y.Z` tag; tag pushes never
+publish a release.

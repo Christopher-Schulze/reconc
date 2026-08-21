@@ -4,7 +4,7 @@ set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 python=${PYTHON:-python3}
-reconc_version=0.9.6
+reconc_version=0.9.7
 go_mcp_sdk_version=v1.7.0
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/reconc-langchain.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT INT HUP TERM

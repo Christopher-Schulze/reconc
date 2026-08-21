@@ -87,6 +87,39 @@ func TestActionLedgerRevisionPreservesPublishedV1(t *testing.T) {
 	}
 }
 
+func TestV6PublicationAdvancesWithoutRewritingUnchangedContracts(t *testing.T) {
+	if schema.CurrentSchemaTag == schema.PreviousSchemaTag {
+		t.Fatal("current and previous schema publication tags must differ")
+	}
+	v6, ok := schema.ContractVersion(schema.PolicyLock, "6")
+	if !ok {
+		t.Fatal("current policy-lock v6 contract is absent")
+	}
+	if v6.IntroductionTag != schema.CurrentSchemaTag || v6.DefaultURL != schema.PolicyLockURL {
+		t.Fatalf("v6 publication identity = %#v, want current tag and URL", v6)
+	}
+	previousFound := false
+	for _, alias := range v6.Aliases {
+		if alias.URL == schema.PreviousPolicyLockV6URL {
+			previousFound = true
+			break
+		}
+	}
+	if !previousFound {
+		t.Fatalf("v6 contract does not retain previous publication alias: %#v", v6.Aliases)
+	}
+	if !schema.AcceptsFormat(schema.PolicyLock, schema.PreviousPolicyLockV6URL, "6") {
+		t.Fatal("v6 compatibility alias is not accepted for format 6")
+	}
+	unchanged, ok := schema.ContractVersion(schema.PolicyConfig, "4")
+	if !ok {
+		t.Fatal("current policy-config v4 contract is absent")
+	}
+	if unchanged.IntroductionTag != schema.PreviousSchemaTag || unchanged.DefaultURL != schema.PolicyConfigURL {
+		t.Fatalf("unchanged contract was republished unexpectedly: %#v", unchanged)
+	}
+}
+
 func TestRegistryRecordsExactForensicClassification(t *testing.T) {
 	got := make(map[schema.Compatibility]int)
 	for _, observation := range schema.Observations() {

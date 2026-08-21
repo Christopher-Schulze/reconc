@@ -113,7 +113,7 @@ plumbing, not user configuration.
 
 ## Action Plane commands
 
-`reconc why action` is implemented in source and release version `v0.9.6` and
+`reconc why action` is implemented in source and release version `v0.9.7` and
 is documented under Explain and remediate.
 
 ### `reconc action key init [--reconc-home PATH] [--json]`
@@ -257,7 +257,7 @@ Exactly one authority mode is required. `--credential` is a safe label, never a
 credential value. Approval configuration is an all-or-none pair and must remain
 outside repository and agent authority.
 
-The pinned external proof uses Reconc `0.9.6`, MCP Go SDK `v1.7.0`,
+The pinned external proof uses Reconc `0.9.7`, MCP Go SDK `v1.7.0`,
 `langchain-mcp-adapters==0.3.2`, `langchain-core==1.5.4`, MCP Python SDK
 `1.29.0`, Python `3.13.14`, legacy protocol `2025-11-25`, and Go fixture format
 `1`. It completes an externally signed legacy form approval; the pure-Go suite

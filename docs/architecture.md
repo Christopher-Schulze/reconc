@@ -247,7 +247,7 @@ candidate insertion and digest ordering.
 
 ## Go-Only Action Plane (Draft)
 
-RECONC-0008 remains Draft. v0.9.6 implements strict action
+RECONC-0008 remains Draft. v0.9.7 implements strict action
 authoring, deterministic legacy MCP lowering, one canonical format-6 action
 plan, immutable typed matcher programs, a derived MCP compatibility view, and
 `reconc why action`. The transport-neutral pure evaluator now implements strict
@@ -356,7 +356,7 @@ authority modes, resource limits, failure matrix, approval and budget state
 machines, privacy-bounded ledger, conformance vectors, and package ownership are
 in [RECONC-0008](rfcs/RECONC-0008-go-only-action-plane.md).
 
-The interoperability matrix is Reconc `0.9.6`, Go MCP SDK `v1.7.0`, current
+The interoperability matrix is Reconc `0.9.7`, Go MCP SDK `v1.7.0`, current
 protocol `2026-07-28`, legacy protocol `2025-11-25`, official
 `langchain-mcp-adapters==0.3.2`, `langchain-core==1.5.4`, MCP Python SDK
 `1.29.0`, Python CI `3.13.14`, and Go fixture format `1`. The external adapter
@@ -1030,7 +1030,10 @@ Legacy `0755`/`0644` audit state is migrated in place only after identity and
 regular-file checks; a symlink, special file, wrong owner, or invalid hard-link
 state is rejected without deleting evidence. JSONL hash-chain, archive count,
 size bounds, and public CLI output remain unchanged. Retention inspects the
-validated ring under the same audit lock before reporting any cleanup.
+validated ring under the same audit lock before reporting any cleanup. Same-
+process append bursts pass through a per-audit-directory mutex before the
+bounded cross-process lock, avoiding lock-polling storms while preserving the
+file lock as the inter-process authority.
 
 ### Production lock acquisition and ordering
 

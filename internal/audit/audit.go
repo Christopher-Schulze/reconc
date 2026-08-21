@@ -118,8 +118,9 @@ func Enabled(repoRoot string, configEnabled bool) bool {
 // file is larger than maxSizeBytes after this write, it triggers
 // rotation. Silent no-op if repoRoot is empty.
 //
-// The bounded JSONL writer serializes concurrent processes through a file
-// lock and rotates before append, so files never overshoot the cap.
+// The bounded JSONL writer serializes same-process bursts before acquiring the
+// cross-process file lock and rotates before append, so files never overshoot
+// the cap without a lock-polling storm.
 func Append(repoRoot string, entry Entry, maxSizeBytes int64) error {
 	if repoRoot == "" {
 		return nil
@@ -131,6 +132,9 @@ func Append(repoRoot string, entry Entry, maxSizeBytes int64) error {
 	if maxSizeBytes <= 0 {
 		maxSizeBytes = DefaultMaxSizeBytes
 	}
+	appendMutex := auditAppendMutex(repoRoot)
+	appendMutex.Lock()
+	defer appendMutex.Unlock()
 	path := filepath.Join(repoRoot, AuditFileRelative)
 	layout, err := prepareAuditLayout(repoRoot)
 	if err != nil {

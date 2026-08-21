@@ -66,6 +66,19 @@ const filelockTimeout = 2 * time.Minute
 
 var preparedAuditDirectories sync.Map
 var prepareAuditDirectoryMu sync.Mutex
+var auditAppendLocks sync.Map
+
+// auditAppendMutex serializes append transactions that originate in this
+// process before they contend on the cross-process file lock. The file lock
+// remains authoritative for other processes; this gate prevents a burst of
+// goroutines from busy-polling the same lock and exhausting the bounded lock
+// deadline under race instrumentation or other host load.
+func auditAppendMutex(repoRoot string) *sync.Mutex {
+	directory := filepath.Dir(filepath.Join(repoRoot, AuditFileRelative))
+	candidate := &sync.Mutex{}
+	actual, _ := auditAppendLocks.LoadOrStore(directory, candidate)
+	return actual.(*sync.Mutex)
+}
 
 func prepareAuditLayout(repoRoot string) (jsonl.Layout, error) {
 	path := filepath.Join(repoRoot, AuditFileRelative)

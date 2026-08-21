@@ -33,7 +33,7 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 	)
 	assertContainsAll(t, "architecture", architecture,
 		"## Go-Only Action Plane (Draft)",
-		"v0.9.6 implements strict action",
+		"v0.9.7 implements strict action",
 		"transport-neutral pure evaluator now implements strict",
 		"`internal/actioninspect` now strictly",
 		"Action Ledger records typed payload-free lifecycle evidence",
@@ -46,7 +46,7 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 	)
 	assertContainsAll(t, "documentation", documentation,
 		"## Go-Only Action Plane",
-		"Source and release version `v0.9.6` implements strict",
+		"Source and release version `v0.9.7` implements strict",
 		"`reconc impact` invokes that production evaluator",
 		"`reconc action log tail|stats|verify|export`",
 		"`reconc mcp gateway` owns one operator-selected downstream stdio MCP process",
@@ -55,7 +55,7 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 	)
 	assertContainsAll(t, "commands", commands,
 		"## Action Plane commands",
-		"`reconc why action` is implemented in source and release version `v0.9.6`",
+		"`reconc why action` is implemented in source and release version `v0.9.7`",
 		"### `reconc action log tail",
 		"### `reconc action log stats",
 		"### `reconc action log verify",

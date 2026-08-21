@@ -2,19 +2,25 @@
 // contracts and the enterprise base-URL override.
 package schema
 
-// CurrentSchemaTag is the explicitly authorized immutable publication tag for
-// repaired and newly versioned schema contracts.
-const CurrentSchemaTag = "reconc-v0.9.6"
+// CurrentSchemaTag is the immutable publication tag for the newly versioned
+// current schema contract in this source release. Unchanged contracts retain
+// PreviousSchemaTag so their published bytes and identities remain stable.
+const CurrentSchemaTag = "reconc-v0.9.7"
 
-const DefaultBaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + CurrentSchemaTag + "/schemas/v1"
+// PreviousSchemaTag identifies the last published source release whose
+// unchanged schema contracts remain canonical compatibility inputs and
+// outputs.
+const PreviousSchemaTag = "reconc-v0.9.6"
 
-const Version2BaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + CurrentSchemaTag + "/schemas/v2"
+const DefaultBaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + PreviousSchemaTag + "/schemas/v1"
 
-const Version3BaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + CurrentSchemaTag + "/schemas/v3"
+const Version2BaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + PreviousSchemaTag + "/schemas/v2"
 
-const Version4BaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + CurrentSchemaTag + "/schemas/v4"
+const Version3BaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + PreviousSchemaTag + "/schemas/v3"
 
-const Version5BaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + CurrentSchemaTag + "/schemas/v5"
+const Version4BaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + PreviousSchemaTag + "/schemas/v4"
+
+const Version5BaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + PreviousSchemaTag + "/schemas/v5"
 
 const Version6BaseURL = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + CurrentSchemaTag + "/schemas/v6"
 
@@ -56,6 +62,7 @@ const (
 	ActionEvidenceURL              = DefaultBaseURL + "/action-evidence.schema.json"
 	LegacyPolicyLockURL            = DefaultBaseURL + "/policy-lock.schema.json"
 	PolicyLockURL                  = PolicyLockBaseURL + "/policy-lock.schema.json"
+	PreviousPolicyLockV6URL        = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + PreviousSchemaTag + "/schemas/v6/policy-lock.schema.json"
 	PolicyConfigURL                = Version4BaseURL + "/policy-config.schema.json"
 	PolicyReportURL                = DefaultBaseURL + "/policy-report.schema.json"
 	PolicyFixPlanURL               = DefaultBaseURL + "/policy-fix-plan.schema.json"
@@ -78,7 +85,7 @@ const (
 	LegacyPolicyLockURLUnpinned   = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v1/policy-lock.schema.json"
 	LegacyPolicyLockV2URL         = Version2BaseURL + "/policy-lock.schema.json"
 	LegacyPolicyLockV2URLUnpinned = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v2/policy-lock.schema.json"
-	LegacyPolicyLockV3URL         = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/" + CurrentSchemaTag + "/schemas/v3/policy-lock.schema.json"
+	LegacyPolicyLockV3URL         = Version3BaseURL + "/policy-lock.schema.json"
 	LegacyPolicyLockV3URLUnpinned = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/main/schemas/v3/policy-lock.schema.json"
 	LegacyPolicyLockV4URL         = "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json"
 	LegacyPolicyLockV5URL         = Version5BaseURL + "/policy-lock.schema.json"

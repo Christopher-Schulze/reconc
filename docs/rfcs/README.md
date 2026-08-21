@@ -34,12 +34,14 @@ bug in whichever side is stale and fix them together.
 Every JSON contract has:
 
 - `$schema`: hard compatibility boundary, for example
-  `https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.6/schemas/v6/policy-lock.schema.json`.
+  `https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.7/schemas/v6/policy-lock.schema.json`.
 - `format_version`: exact representation marker owned by that schema version.
 
 Every published schema URL is immutable. Any schema-byte or represented-shape
 change, including an additive field or a new format marker, requires a newly
-versioned schema URL and registry entry. Removing, repurposing, changing a
+versioned schema URL and registry entry. The current format-6 rule-kind matrix
+therefore uses the unreleased `reconc-v0.9.7` identity, while unchanged
+contracts retain their exact `reconc-v0.9.6` identities. Removing, repurposing, changing a
 type, or changing semantics additionally requires a superseding RFC.
 
 `internal/schema` is the single registry for public JSON Schema contracts.

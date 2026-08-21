@@ -5,7 +5,7 @@ Status: Draft
 Contract family: `reconc.action/v1`
 
 Implementation state: partially implemented in source and release version
-`v0.9.6`. TASK 154 implements strict action authoring, canonical action
+`v0.9.7`. TASK 154 implements strict action authoring, canonical action
 compilation and v4 migration, immutable matcher programs, the legacy MCP
 compatibility view, and `reconc why action`. TASK 155 implements the pure
 transport-neutral evaluator, strict normalized requests, exact predicates and
@@ -128,7 +128,7 @@ Primary references are the
 [official Go SDK](https://github.com/modelcontextprotocol/go-sdk), and
 [official LangChain MCP integration](https://docs.langchain.com/oss/python/langchain/mcp).
 
-The disposable proof builds Reconc `0.9.6` and Go fixture format `1`, installs
+The disposable proof builds Reconc `0.9.7` and Go fixture format `1`, installs
 the external Python packages from a hash-pinned universal lock, invokes tools
 directly without a model or service, and rejects runtime socket connections. It
 proves discovery, exact schema and annotations, structured content, progress,
@@ -1331,7 +1331,7 @@ configuration and approval-authority files must be outside the canonical
 repository and outside any path writable by the agent for independent-authority
 claims; otherwise startup refuses that claim.
 
-`reconc why action` is implemented in source and release version `v0.9.6` and
+`reconc why action` is implemented in source and release version `v0.9.7` and
 explains only the compiled contract; it does not claim enforcement. `reconc
 action log tail|stats|verify|export` is also implemented: every read verifies
 the retained chain first, absent state is an empty non-mutating result, and
@@ -1356,8 +1356,8 @@ instead of certifying an external configuration.
 ## Schema And Versioning
 
 The canonical format-6 policy lock stores one `actions` plan and no parallel
-`mcp` runtime plan. Christopher selected `v0.9.6`; TASK 165 owns the truthful
-per-artifact registry and `reconc-v0.9.6` publication identity. TASK 154 must
+`mcp` runtime plan. Christopher selected `v0.9.7`; TASK 165 owns the truthful
+per-artifact registry and `reconc-v0.9.7` publication identity. TASK 154 must
 add the initial action-authoring contracts to that registry without
 mutating any published or restored legacy schema.
 
