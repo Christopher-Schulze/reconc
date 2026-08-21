@@ -32,6 +32,32 @@ type packageScriptCommand struct {
 	base   string
 }
 
+const (
+	maxPackageManagerDirectoryCache = maxScannedFiles * 2
+	maxPackageManagerAncestryCache  = maxScannedFiles
+)
+
+type packageManagerDirectoryObservation struct {
+	directory string
+	metadata  string
+	identity  os.FileInfo
+	managers  []string
+}
+
+type packageManagerAncestryDirectory struct {
+	directory string
+	metadata  string
+	managers  []string
+}
+
+type packageManagerAncestryObservation struct {
+	root        string
+	directory   string
+	metadata    string
+	managers    []string
+	directories []packageManagerAncestryDirectory
+}
+
 func evaluatePackageScripts(root string, gate policy.AssuranceGate, successful []string, state *evaluationState) ([]Finding, error) {
 	commandsByScript := map[string][]packageScriptCommand{}
 	for _, command := range gate.Commands {
@@ -210,11 +236,31 @@ func manifestDirectoryHasMarker(directory string, patterns []string) (bool, erro
 }
 
 func packageManagersForManifest(root, directory, metadata string, state *evaluationState) ([]string, error) {
-	managers, err := packageManagerSignals(directory, metadata)
+	metadata = normalizedPackageManagerMetadata(metadata)
+	cacheKey := root + "\x00" + directory + "\x00" + metadata
+	if cached, ok := state.packageManagerAncestry[cacheKey]; ok {
+		valid := true
+		for _, observed := range cached.directories {
+			managers, err := state.packageManagerSignalsCached(observed.directory, observed.metadata)
+			if err != nil {
+				return nil, err
+			}
+			if !sameStringSet(managers, observed.managers) {
+				valid = false
+				break
+			}
+		}
+		if valid {
+			return append([]string(nil), cached.managers...), nil
+		}
+	}
+	managers, err := state.packageManagerSignalsCached(directory, metadata)
 	if err != nil {
 		return nil, err
 	}
+	observedDirectories := []packageManagerAncestryDirectory{{directory: directory, metadata: metadata, managers: append([]string(nil), managers...)}}
 	if len(managers) > 0 {
+		state.storePackageManagerAncestry(cacheKey, packageManagerAncestryObservation{root: root, directory: directory, metadata: metadata, managers: append([]string(nil), managers...), directories: observedDirectories})
 		return managers, nil
 	}
 	root = filepath.Clean(root)
@@ -223,18 +269,73 @@ func packageManagersForManifest(root, directory, metadata string, state *evaluat
 		if err != nil {
 			return nil, err
 		}
-		managers, err := packageManagerSignals(parent, inheritedMetadata)
+		inheritedMetadata = normalizedPackageManagerMetadata(inheritedMetadata)
+		managers, err := state.packageManagerSignalsCached(parent, inheritedMetadata)
 		if err != nil {
 			return nil, err
 		}
+		observedDirectories = append(observedDirectories, packageManagerAncestryDirectory{directory: parent, metadata: inheritedMetadata, managers: append([]string(nil), managers...)})
 		if len(managers) > 0 {
+			state.storePackageManagerAncestry(cacheKey, packageManagerAncestryObservation{root: root, directory: directory, metadata: metadata, managers: append([]string(nil), managers...), directories: observedDirectories})
 			return managers, nil
 		}
 		if parent == root {
 			break
 		}
 	}
+	state.storePackageManagerAncestry(cacheKey, packageManagerAncestryObservation{root: root, directory: directory, metadata: metadata, managers: nil, directories: observedDirectories})
 	return nil, nil
+}
+
+func (state *evaluationState) packageManagerSignalsCached(directory, metadata string) ([]string, error) {
+	metadata = normalizedPackageManagerMetadata(metadata)
+	key := directory + "\x00" + metadata
+	identity, err := os.Lstat(directory)
+	state.stats.packageManagerDirectoryProbes.Add(1)
+	if err != nil {
+		return nil, err
+	}
+	if cached, ok := state.packageManagerDirectories[key]; ok && samePackageManagerIdentity(cached.identity, identity) {
+		return append([]string(nil), cached.managers...), nil
+	}
+	managers, err := packageManagerSignals(directory, metadata, &state.stats)
+	if err != nil {
+		return nil, err
+	}
+	_, cachedExists := state.packageManagerDirectories[key]
+	if len(state.packageManagerDirectories) < maxPackageManagerDirectoryCache || cachedExists {
+		state.packageManagerDirectories[key] = packageManagerDirectoryObservation{
+			directory: directory, metadata: metadata, identity: identity,
+			managers: append([]string(nil), managers...),
+		}
+	}
+	return managers, nil
+}
+
+func (state *evaluationState) storePackageManagerAncestry(key string, observation packageManagerAncestryObservation) {
+	if len(state.packageManagerAncestry) >= maxPackageManagerAncestryCache {
+		if _, exists := state.packageManagerAncestry[key]; !exists {
+			return
+		}
+	}
+	state.packageManagerAncestry[key] = observation
+}
+
+func samePackageManagerIdentity(left, right os.FileInfo) bool {
+	return left != nil && right != nil && left.Mode() == right.Mode() && left.Size() == right.Size() &&
+		left.ModTime().Equal(right.ModTime()) && os.SameFile(left, right)
+}
+
+func sameStringSet(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func inheritedPackageManagerMetadata(path string, state *evaluationState) (string, error) {
@@ -252,12 +353,9 @@ func inheritedPackageManagerMetadata(path string, state *evaluationState) (strin
 	return document.PackageManager, nil
 }
 
-func packageManagerSignals(directory, metadata string) ([]string, error) {
+func packageManagerSignals(directory, metadata string, counters ...*analysisCounters) ([]string, error) {
 	managers := map[string]bool{}
-	name := strings.ToLower(strings.TrimSpace(metadata))
-	if separator := strings.IndexByte(name, '@'); separator >= 0 {
-		name = name[:separator]
-	}
+	name := normalizedPackageManagerMetadata(metadata)
 	if name == "bun" || name == "npm" || name == "pnpm" || name == "yarn" {
 		managers[name] = true
 	}
@@ -266,6 +364,9 @@ func packageManagerSignals(directory, metadata string) ([]string, error) {
 		"npm-shrinkwrap.json": "npm", "pnpm-lock.yaml": "pnpm", "yarn.lock": "yarn",
 	}
 	for filename, manager := range locks {
+		if len(counters) > 0 && counters[0] != nil {
+			counters[0].packageManagerLockProbes.Add(1)
+		}
 		info, err := os.Lstat(filepath.Join(directory, filename))
 		if os.IsNotExist(err) {
 			continue
@@ -283,6 +384,19 @@ func packageManagerSignals(directory, metadata string) ([]string, error) {
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+func normalizedPackageManagerMetadata(metadata string) string {
+	name := strings.ToLower(strings.TrimSpace(metadata))
+	if separator := strings.IndexByte(name, '@'); separator >= 0 {
+		name = name[:separator]
+	}
+	switch name {
+	case "bun", "npm", "pnpm", "yarn":
+		return name
+	default:
+		return ""
+	}
 }
 
 func pathWithinRoot(root, path string) bool {

@@ -19,25 +19,29 @@ const (
 )
 
 type analysisCounters struct {
-	bodyReads       atomic.Int64
-	lineBuilds      atomic.Int64
-	jsonParses      atomic.Int64
-	goParses        atomic.Int64
-	goFormats       atomic.Int64
-	pathMatches     atomic.Int64
-	pathResolutions atomic.Int64
+	bodyReads                     atomic.Int64
+	lineBuilds                    atomic.Int64
+	jsonParses                    atomic.Int64
+	goParses                      atomic.Int64
+	goFormats                     atomic.Int64
+	pathMatches                   atomic.Int64
+	pathResolutions               atomic.Int64
+	packageManagerDirectoryProbes atomic.Int64
+	packageManagerLockProbes      atomic.Int64
 }
 
 type analysisStats struct {
-	BodyReads       int64
-	LineBuilds      int64
-	JSONParses      int64
-	GoParses        int64
-	GoFormats       int64
-	PathMatches     int64
-	PathResolutions int64
-	Files           int64
-	Bytes           int64
+	BodyReads                     int64
+	LineBuilds                    int64
+	JSONParses                    int64
+	GoParses                      int64
+	GoFormats                     int64
+	PathMatches                   int64
+	PathResolutions               int64
+	PackageManagerDirectoryProbes int64
+	PackageManagerLockProbes      int64
+	Files                         int64
+	Bytes                         int64
 }
 
 type fileFacts struct {
@@ -252,14 +256,16 @@ func (state *evaluationState) prepareGoFacts(files []changedFile, syntax, format
 
 func (state *evaluationState) analysisStats() analysisStats {
 	return analysisStats{
-		BodyReads:       state.stats.bodyReads.Load(),
-		LineBuilds:      state.stats.lineBuilds.Load(),
-		JSONParses:      state.stats.jsonParses.Load(),
-		GoParses:        state.stats.goParses.Load(),
-		GoFormats:       state.stats.goFormats.Load(),
-		PathMatches:     state.stats.pathMatches.Load(),
-		PathResolutions: state.stats.pathResolutions.Load(),
-		Files:           int64(len(state.budget.files)),
-		Bytes:           state.budget.bytes,
+		BodyReads:                     state.stats.bodyReads.Load(),
+		LineBuilds:                    state.stats.lineBuilds.Load(),
+		JSONParses:                    state.stats.jsonParses.Load(),
+		GoParses:                      state.stats.goParses.Load(),
+		GoFormats:                     state.stats.goFormats.Load(),
+		PathMatches:                   state.stats.pathMatches.Load(),
+		PathResolutions:               state.stats.pathResolutions.Load(),
+		PackageManagerDirectoryProbes: state.stats.packageManagerDirectoryProbes.Load(),
+		PackageManagerLockProbes:      state.stats.packageManagerLockProbes.Load(),
+		Files:                         int64(len(state.budget.files)),
+		Bytes:                         state.budget.bytes,
 	}
 }

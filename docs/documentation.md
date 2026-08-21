@@ -2151,8 +2151,13 @@ file metadata from one identity-checked `boundedio` snapshot; file and byte
 budgets charge that opened snapshot once rather than trusting a pre-open path
 stat. The per-evaluation fact graph also reuses normalized
 path classes, validated glob decisions, line indexes, BOM-aware JSON manifest
-objects, and compatible Go syntax and canonical-format facts. For at least 32
-matching Go files, CPU-only parsing and formatting may use at most four workers
+objects, and compatible Go syntax and canonical-format facts. Package-script
+gates memoize each inspected directory's identity, normalized manager signals,
+and parent ancestry within the evaluation; sibling manifests reuse shared
+lockfile observations while identity changes invalidate only the affected
+chain. Nearest-manager precedence, mixed-manager ambiguity, and partial errors
+remain manifest-specific and deterministic. For at least 32 matching Go files,
+CPU-only parsing and formatting may use at most four workers
 after bodies and byte budgets are claimed deterministically. Findings and
 operational errors remain ordered by gate declaration and sorted path, and no
 assurance worker starts a process or network request.

@@ -2,11 +2,10 @@
 
 ## Active
 
-- [~] 210 Memoize package-manager ancestry detection -> tasks/210-memoize-package-manager-ancestry-detection.md
+- [~] 211 Reuse immutable action context roots -> tasks/211-reuse-immutable-action-context-roots.md
 
 ## Queue
 
-- [ ] 211 Reuse immutable action context roots -> tasks/211-reuse-immutable-action-context-roots.md
 - [ ] 212 Validate immutable compiled action plans once -> tasks/212-validate-immutable-compiled-action-plans-once.md
 - [ ] 213 Compute action argument size once per evaluation -> tasks/213-compute-action-argument-size-once-per-evaluation.md
 - [ ] 214 Deduplicate runtime evidence in linear time -> tasks/214-deduplicate-runtime-evidence-in-linear-time.md
@@ -20,6 +19,7 @@
 
 ## Done
 
+- [x] 210 Memoize package-manager ancestry detection -> tasks/done/210-memoize-package-manager-ancestry-detection.md
 - [x] 209 Expose one stable bounded assurance-file read -> tasks/done/209-expose-one-stable-bounded-assurance-file-read.md
 - [x] 208 Memoize evidence matches within one policy evaluation -> tasks/done/208-memoize-evidence-matches-within-one-policy-evaluation.md
 - [x] 207 Avoid duplicate require-script batch preparation -> tasks/done/207-avoid-duplicate-require-script-batch-preparation.md

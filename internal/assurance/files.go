@@ -17,19 +17,21 @@ import (
 )
 
 type evaluationState struct {
-	budget           *scanBudget
-	paths            map[string]resolvedPath
-	facts            map[string]*fileFacts
-	changedPaths     []normalizedChangedPath
-	changedFiles     map[string][]changedFile
-	applicability    map[string]bool
-	validatedGlobs   map[string]bool
-	patternMatches   map[string]*patternMatchBits
-	packageManifests map[string][]changedFile
-	manifestMarkers  map[string]bool
-	observations     map[string]string
-	analysisWorkers  int
-	stats            analysisCounters
+	budget                    *scanBudget
+	paths                     map[string]resolvedPath
+	facts                     map[string]*fileFacts
+	changedPaths              []normalizedChangedPath
+	changedFiles              map[string][]changedFile
+	applicability             map[string]bool
+	validatedGlobs            map[string]bool
+	patternMatches            map[string]*patternMatchBits
+	packageManifests          map[string][]changedFile
+	manifestMarkers           map[string]bool
+	packageManagerDirectories map[string]packageManagerDirectoryObservation
+	packageManagerAncestry    map[string]packageManagerAncestryObservation
+	observations              map[string]string
+	analysisWorkers           int
+	stats                     analysisCounters
 }
 
 type resolvedPath struct {
@@ -67,17 +69,19 @@ func newEvaluationState(changed []string, workerLimit int) *evaluationState {
 		workerLimit = maxAnalysisWorkers
 	}
 	state := &evaluationState{
-		budget:           newScanBudget(),
-		paths:            map[string]resolvedPath{},
-		facts:            map[string]*fileFacts{},
-		changedFiles:     map[string][]changedFile{},
-		applicability:    map[string]bool{},
-		validatedGlobs:   map[string]bool{},
-		patternMatches:   map[string]*patternMatchBits{},
-		packageManifests: map[string][]changedFile{},
-		manifestMarkers:  map[string]bool{},
-		observations:     map[string]string{},
-		analysisWorkers:  workerLimit,
+		budget:                    newScanBudget(),
+		paths:                     map[string]resolvedPath{},
+		facts:                     map[string]*fileFacts{},
+		changedFiles:              map[string][]changedFile{},
+		applicability:             map[string]bool{},
+		validatedGlobs:            map[string]bool{},
+		patternMatches:            map[string]*patternMatchBits{},
+		packageManifests:          map[string][]changedFile{},
+		manifestMarkers:           map[string]bool{},
+		packageManagerDirectories: map[string]packageManagerDirectoryObservation{},
+		packageManagerAncestry:    map[string]packageManagerAncestryObservation{},
+		observations:              map[string]string{},
+		analysisWorkers:           workerLimit,
 	}
 	seen := make(map[string]bool, len(changed))
 	for _, raw := range changed {
