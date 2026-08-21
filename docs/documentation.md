@@ -1744,6 +1744,16 @@ Policy-controlled file paths are repository-relative contracts. Compilation
 rejects absolute, volume-qualified, empty, and parent-traversing paths in
 `required_files[].path`, `evidence[].file`, and composite `path`/`file`
 checks, including paths after template placeholders are masked for validation.
+Before typed rules are retained, the parser applies one bounded YAML contract:
+at most 4,096 rules, 256 checks or items in any rule list, 1,024-byte pattern
+strings, 16-KiB command strings, 64-KiB message strings, 32 nesting levels,
+131,072 YAML nodes, 262,144 alias-expanded nodes, 1,024 aliases, and 4 MiB of
+decoded scalar bytes. Duplicate mapping keys, trailing documents, recursive
+aliases, and any limit overflow fail closed with source path/block, rule, field,
+actual value, and maximum where a rule is identifiable. Required-file,
+evidence, assurance, scope, and composite sub-check collections use the same
+item and text ceilings, so a source cannot bypass bounds by moving data into a
+nested variant.
 Runtime resolves every such path against the filesystem identity of the
 repository root and rejects symlink, reparse-point, or missing-tail resolution
 that escapes it. Policy sources are limited to 8 MiB each, 4,096 sources, and

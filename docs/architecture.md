@@ -500,7 +500,13 @@ and byte-compares the notice before checksums and provenance are accepted.
      root identities before bytes enter the source bundle.
      A compiler config is decoded into one bounded YAML mapping; include and
      preset extraction consume that same representation, so source-loading
-     fields cannot drift through independent parses.
+     fields cannot drift through independent parses. The parser then enforces
+     the canonical typed-graph limits before rule construction: 4,096 rules,
+     256 checks or list items per rule, 1 KiB pattern strings, 16 KiB command
+     strings, 64 KiB message strings, 32 YAML levels, 131,072 YAML nodes,
+     262,144 alias-expanded nodes, 1,024 aliases, and 4 MiB of decoded scalar
+     bytes. Alias expansion, duplicate keys, and trailing YAML documents fail
+     closed before the typed graph is retained.
      The frozen source bundle is converted to one provenance record set and
      content digest; the same records feed both source-digest computation and
      lock-payload serialization.
@@ -696,6 +702,7 @@ class of hostile input.
 | Native assurance run | **4,096 files / 32 MiB reads** | Bounds aggregate source and evidence inspection across all gates. |
 | Assurance findings | **50 + omitted-count marker** | Keeps policy output useful without consuming agent context. |
 | Policy source | **8 MiB each / 4,096 files / 64 MiB aggregate** | Bounds repository and fragment ingestion before compilation. |
+| Parsed policy graph | **4,096 rules / 256 checks or list items / 1 KiB patterns / 16 KiB commands / 64 KiB messages** | Bounds typed rule construction before matching; YAML depth, node, alias, expanded-node, and decoded-scalar-byte ceilings reject structural amplification. |
 | Custom runtime manifest | **256 KiB each / 32 manifests / 32 routes each** | Bounds declarative bridge compilation and prevents adapter configuration from becoming executable input. |
 | Custom runtime conformance suite | **1 MiB / 128 cases** | Bounds offline third-party adapter verification. |
 | Hook liveness | **64 runtimes / 32 routes each / 256 KiB aggregate** | Covers the built-in registry plus the bounded custom-runtime set without unbounded status state. |

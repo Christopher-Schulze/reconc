@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
-	"gopkg.in/yaml.v3"
 	"reconc.dev/reconc/internal/action"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/ingest"
@@ -84,6 +83,9 @@ func ParseRuleDocuments(bundle *ingest.SourceBundle) (*ParsedPolicy, error) {
 
 		doc, err := decodeYAMLMapping(src.Content, src.Path)
 		if err != nil {
+			return nil, err
+		}
+		if err := validateRuleDocumentBounds(src, doc, len(rules)); err != nil {
 			return nil, err
 		}
 		if err := validateDocumentFields(src, doc); err != nil {
@@ -408,6 +410,9 @@ func validateRuleItem(item map[string]interface{}, src policy.PolicySource, inde
 
 	id, err := requiredString(item, "id", src.Path, index)
 	if err != nil {
+		return policy.Rule{}, err
+	}
+	if err := validateRuleMapBounds(src, item, "rules["+itoa(index)+"]", id); err != nil {
 		return policy.Rule{}, err
 	}
 
@@ -1324,27 +1329,7 @@ func validateGlobPatterns(patterns []string, context string) error {
 // decodeYAMLMapping is a parser-local copy that returns the right
 // error type. The ingest layer has its own (PolicySourceError) version.
 func decodeYAMLMapping(raw, context string) (map[string]interface{}, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return map[string]interface{}{}, nil
-	}
-	var doc interface{}
-	if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
-		return nil, &rerrors.RuleValidationError{
-			Message: "invalid yaml in " + context,
-			Cause:   err,
-		}
-	}
-	if doc == nil {
-		return map[string]interface{}{}, nil
-	}
-	mapping, ok := doc.(map[string]interface{})
-	if !ok {
-		return nil, &rerrors.RuleValidationError{
-			Message: "expected a YAML mapping in " + context,
-		}
-	}
-	return mapping, nil
+	return decodeYAMLMappingBounded(raw, context)
 }
 
 // expandTemplate resolves a template name and merges its body into
