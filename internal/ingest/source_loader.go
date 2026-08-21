@@ -359,17 +359,11 @@ func extractInlineBlocks(relPath, text string) ([]policy.PolicySource, error) {
 func inlineLine(text string, start int) (string, int) {
 	end := strings.IndexByte(text[start:], '\n')
 	if end < 0 {
-		line := text[start:]
-		if strings.HasSuffix(line, "\r") {
-			line = line[:len(line)-1]
-		}
+		line := strings.TrimSuffix(text[start:], "\r")
 		return line, len(text)
 	}
 	end += start
-	line := text[start:end]
-	if strings.HasSuffix(line, "\r") {
-		line = line[:len(line)-1]
-	}
+	line := strings.TrimSuffix(text[start:end], "\r")
 	return line, end + 1
 }
 
@@ -488,14 +482,6 @@ func loadPresetSources(names []string) ([]policy.PolicySource, error) {
 		})
 	}
 	return out, nil
-}
-
-// loadPolicyFragmentSources walks the merged include patterns and
-// loads each unique repo-relative file as a policy_file source.
-// Fragments are returned in sorted order for determinism. Every fragment's
-// resolved filesystem identity must stay inside the repository root.
-func loadPolicyFragmentSources(root string, patterns []string) ([]policy.PolicySource, []string, error) {
-	return loadPolicyFragmentSourcesWithDefaults(root, patterns, nil)
 }
 
 func loadPolicyFragmentSourcesWithDefaults(root string, patterns []string, defaultMatches map[string][]string) ([]policy.PolicySource, []string, error) {

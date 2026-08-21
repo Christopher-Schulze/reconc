@@ -27,7 +27,7 @@ does not eliminate duplicate logical matching work.
 - [x] Define bounded memo keys and immutable results
 - [x] Route simple and composite evidence matching through the memo
 - [x] Add differential, identity, and benchmark tests
-- [ ] Run runtime, race, and complete gates
+- [x] Run runtime, race, and complete gates
 
 ## Notes
 
@@ -42,7 +42,8 @@ does not eliminate duplicate logical matching work.
   are memoized deterministically; no cache crosses an evaluation boundary.
 - Focused tests cover identical/near-identical options, negative results,
   changed content, mutable-capture isolation, invalid matcher reuse, and a
-  shared-match benchmark. Full runtime/race gates remain for queue completion.
+  shared-match benchmark. Fresh final candidate verification in TASK 221
+  passed the complete root and portable-template race gates.
 
 ## Deviations
 

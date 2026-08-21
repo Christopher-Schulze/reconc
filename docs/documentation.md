@@ -2203,7 +2203,7 @@ and repository checks.
 
 ## Go-Only Action Plane
 
-RECONC-0008 remains Draft. Source and release version `v0.9.7` implements strict
+RECONC-0008 remains Draft. The `v0.9.7` source candidate implements strict
 `actions` authoring, canonical format-6 compilation, deterministic lowering of
 legacy `mcp` declarations, immutable typed matcher programs, a derived MCP
 compatibility view, `reconc why action`, and the transport-neutral deterministic

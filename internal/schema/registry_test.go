@@ -101,6 +101,9 @@ func TestV6PublicationAdvancesWithoutRewritingUnchangedContracts(t *testing.T) {
 	previousFound := false
 	for _, alias := range v6.Aliases {
 		if alias.URL == schema.PreviousPolicyLockV6URL {
+			if alias.Reason != schema.AliasPriorPublication {
+				t.Fatalf("v0.9.6 policy-lock v6 alias reason = %q, want %q", alias.Reason, schema.AliasPriorPublication)
+			}
 			previousFound = true
 			break
 		}

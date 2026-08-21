@@ -4,8 +4,8 @@ Status: Draft
 
 Contract family: `reconc.action/v1`
 
-Implementation state: partially implemented in source and release version
-`v0.9.7`. TASK 154 implements strict action authoring, canonical action
+Implementation state: partially implemented in the `v0.9.7` source candidate.
+TASK 154 implements strict action authoring, canonical action
 compilation and v4 migration, immutable matcher programs, the legacy MCP
 compatibility view, and `reconc why action`. TASK 155 implements the pure
 transport-neutral evaluator, strict normalized requests, exact predicates and
@@ -1331,7 +1331,7 @@ configuration and approval-authority files must be outside the canonical
 repository and outside any path writable by the agent for independent-authority
 claims; otherwise startup refuses that claim.
 
-`reconc why action` is implemented in source and release version `v0.9.7` and
+`reconc why action` is implemented in the `v0.9.7` source candidate and
 explains only the compiled contract; it does not claim enforcement. `reconc
 action log tail|stats|verify|export` is also implemented: every read verifies
 the retained chain first, absent state is an empty non-mutating result, and
@@ -1356,8 +1356,9 @@ instead of certifying an external configuration.
 ## Schema And Versioning
 
 The canonical format-6 policy lock stores one `actions` plan and no parallel
-`mcp` runtime plan. Christopher selected `v0.9.7`; TASK 165 owns the truthful
-per-artifact registry and `reconc-v0.9.7` publication identity. TASK 154 must
+`mcp` runtime plan. TASK 165 established the per-artifact registry for the
+published `reconc-v0.9.6` line; TASK 220 owns the candidate
+`reconc-v0.9.7` publication identity. TASK 154 must
 add the initial action-authoring contracts to that registry without
 mutating any published or restored legacy schema.
 

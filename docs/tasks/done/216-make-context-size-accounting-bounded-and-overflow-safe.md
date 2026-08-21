@@ -43,8 +43,9 @@ before deduplication.
   final symlinks and special files fail closed, opened identity and metadata
   are revalidated, and only contained non-symlink regular files are reported.
 - Duplicate floods, maximum path/count boundaries, sparse files, arithmetic
-  overflow, and existing containment tests pass. The complete CLI/platform
-  and repository gates remain for queue completion.
+  overflow, and existing containment tests pass. Fresh final candidate
+  verification in TASK 221 passed the complete root and portable-template race
+  gates.
 
 ## Deviations
 

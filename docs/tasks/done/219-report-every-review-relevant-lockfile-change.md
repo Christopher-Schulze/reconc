@@ -58,14 +58,11 @@ changed.
   ordered lists, v5 migration, deterministic ordering, and `IsEmpty`.
 - Focused verification: `go test ./internal/lockdiff ./internal/cli -count=1`
   and `go test -race ./internal/lockdiff ./internal/cli -run 'TestDiff|TestRunDiff' -count=1` passed.
-- The full `make test` gate was executed after implementation. Publication
-  audit and the regenerated harness-pack check pass; the global suite remains
-  blocked by the independent immutable-schema publication mismatch recorded in
-  TASK 220. A concurrent audit append test also failed once under the full
-  race-suite load but passed in an isolated `go test -race` reproduction; it is
-  not attributed to this lockdiff change.
+- TASK 220 resolved the independent immutable-schema publication mismatch.
+  Fresh final candidate verification in TASK 221 passed publication audit,
+  release trust, the complete root and portable-template race gates, and the
+  five-target release build and verification matrix.
 
 ## Deviations
 
-- Global release gate remains open pending TASK 220; no lockdiff behavior is
-  weakened and no publication identity is rewritten to hide the mismatch.
+None.

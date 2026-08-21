@@ -40,7 +40,8 @@ change within the evaluation.
   only when no shared evaluation size is supplied. Shared errors, absent
   arguments, Unicode, normalized numbers, nested values, and a corrupt value
   all fail closed consistently. Focused semantic tests and the shared-size
-  benchmark pass; the complete repository gate remains for queue completion.
+  benchmark pass. Fresh final candidate verification in TASK 221 passed the
+  complete root and portable-template race gates.
 
 ## Deviations
 

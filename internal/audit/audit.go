@@ -132,9 +132,11 @@ func Append(repoRoot string, entry Entry, maxSizeBytes int64) error {
 	if maxSizeBytes <= 0 {
 		maxSizeBytes = DefaultMaxSizeBytes
 	}
-	appendMutex := auditAppendMutex(repoRoot)
-	appendMutex.Lock()
-	defer appendMutex.Unlock()
+	releaseAppendGate, err := acquireAuditAppendGate(context.Background(), repoRoot, auditAppendGateTimeout)
+	if err != nil {
+		return fmt.Errorf("audit: append serialization: %w", err)
+	}
+	defer releaseAppendGate()
 	path := filepath.Join(repoRoot, AuditFileRelative)
 	layout, err := prepareAuditLayout(repoRoot)
 	if err != nil {

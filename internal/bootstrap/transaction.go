@@ -825,7 +825,7 @@ func captureCreatedRecord(path string) (createdRecord, error) {
 	if err != nil {
 		return createdRecord{}, err
 	}
-	file, info, err := openCreatedFile(parent, name, path)
+	file, _, err := openCreatedFile(parent, name, path)
 	if err != nil {
 		_ = parent.Close()
 		return createdRecord{}, err

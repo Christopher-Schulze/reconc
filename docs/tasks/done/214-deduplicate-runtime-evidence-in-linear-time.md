@@ -40,8 +40,8 @@ only stable first-seen uniqueness.
   bounds.
 - Randomized differential tests cover duplicate floods and empty values, and
   the benchmark scales from 128 through 8,192 unique paths with linear
-  behavior. Runtime tests pass; the complete gate remains for queue
-  completion.
+  behavior. Runtime tests pass. Fresh final candidate verification in TASK 221
+  passed the complete root and portable-template race gates.
 
 ## Deviations
 

@@ -1075,19 +1075,6 @@ func dedupePreservingOrder(values []string) []string {
 
 // --- Per-rule evaluation ---
 
-// ruleScopeMatches reports whether a scope-scoped rule should fire
-// for the given inputs.  A global rule (empty scope_paths) always
-// matches.  A scoped rule matches when any read or write path falls
-// under one of its scope patterns.
-//
-// Pattern-compile errors are propagated instead of silently treated
-// as "no match". A malformed scope_paths value surfaces as a synthetic
-// blocking violation so policy authors can't accidentally or
-// maliciously neutralise a rule by corrupting its scope.
-func ruleScopeMatches(rule *policy.Rule, inputs ExecutionInputs) (bool, error) {
-	return ruleScopeMatchesWithMatchers(nil, rule, inputs)
-}
-
 func ruleScopeMatchesWithMatchers(matchers *runtimePathMatchers, rule *policy.Rule, inputs ExecutionInputs) (bool, error) {
 	if len(rule.ScopePaths) == 0 {
 		return true, nil // global rule
@@ -1473,14 +1460,6 @@ type matchContext struct {
 	path     string
 	pattern  string
 	captures map[string]string
-}
-
-// collectMatchContexts walks every write path against every when_paths
-// pattern; for each hit it records (path, captures). Non-templated
-// patterns produce empty captures. Multiple write paths matching one
-// templated pattern produce one context per write path.
-func collectMatchContexts(writes, patterns []string) ([]matchContext, error) {
-	return collectMatchContextsWithMatchers(nil, writes, patterns)
 }
 
 func collectMatchContextsWithMatchers(matchers *runtimeTemplateMatchers, writes, patterns []string) ([]matchContext, error) {

@@ -271,8 +271,3 @@ func addFields(set map[string]struct{}, fields ...string) {
 		set[field] = struct{}{}
 	}
 }
-
-func stringValue(value interface{}) string {
-	text, _ := value.(string)
-	return text
-}

@@ -186,17 +186,6 @@ func captureStopRepositoryGenerationWithScan(
 	)
 }
 
-func captureStopRepositoryGenerationWithIdentity(
-	root string,
-	gitSnapshot stopPolicyGitSnapshot,
-	policyDigest string,
-	policyCount int,
-	taskStateHash string,
-	writePaths []string,
-) (stopGenerationCapture, bool) {
-	return captureStopRepositoryGenerationWithIdentityAndScan(root, gitSnapshot, policyDigest, policyCount, taskStateHash, writePaths, nil)
-}
-
 func captureStopRepositoryGenerationWithIdentityAndScan(
 	root string,
 	gitSnapshot stopPolicyGitSnapshot,

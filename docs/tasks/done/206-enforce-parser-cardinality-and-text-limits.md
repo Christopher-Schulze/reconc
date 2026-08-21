@@ -27,7 +27,7 @@ serialization perform disproportionate work before the late lockfile limit.
 - [x] Define one coherent parser resource-limit contract
 - [x] Enforce limits during decode and typed rule construction
 - [x] Add boundary, amplification, fuzz, and memory tests
-- [ ] Run parser, compiler, runtime, and complete gates
+- [x] Run parser, compiler, runtime, and complete gates
 
 ## Notes
 
@@ -40,9 +40,9 @@ serialization perform disproportionate work before the late lockfile limit.
   available, plus actual and maximum values. Duplicate keys, recursive aliases,
   trailing documents, and malformed YAML remain fail-closed parser errors.
 - Focused parser tests cover limit+1 failures, accepted limit-1/limit message
-  boundaries, alias amplification, duplicate keys, and a fuzz entry point. The
-  complete compiler/runtime gate is intentionally deferred until all queued
-  tasks are integrated.
+  boundaries, alias amplification, duplicate keys, and a fuzz entry point.
+  Fresh final candidate verification in TASK 221 passed the complete root and
+  portable-template race gates.
 
 ## Deviations
 

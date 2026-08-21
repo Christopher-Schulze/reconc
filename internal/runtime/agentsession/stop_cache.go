@@ -428,15 +428,6 @@ func clearStopPolicyCacheMetadata(state *SessionState) {
 	state.StopPolicyExpiresAt = 0
 }
 
-func storeStopGenerationIfWorthwhile(
-	cache *StopDecisionCache,
-	root string,
-	state SessionState,
-	fingerprintInput stopPolicyFingerprintInput,
-) {
-	storeStopGenerationIfWorthwhileWithScan(cache, root, state, fingerprintInput, nil)
-}
-
 func storeStopGenerationIfWorthwhileWithScan(
 	cache *StopDecisionCache,
 	root string,

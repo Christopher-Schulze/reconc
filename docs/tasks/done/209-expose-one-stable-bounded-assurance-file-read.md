@@ -27,7 +27,7 @@ of checks.
 - [x] Implement it once in `boundedio`
 - [x] Migrate assurance budget and read handling
 - [x] Add race, platform, syscall-count, and benchmark tests
-- [ ] Run boundedio, assurance, race, and complete gates
+- [x] Run boundedio, assurance, race, and complete gates
 
 ## Notes
 
@@ -42,7 +42,8 @@ of checks.
   actually read.
 - Focused tests cover strict opened identity, same-size mutation rejection,
   exact limits, irregular/symlink/FIFO rejection, and exactly-once assurance
-  budget charging. Full race and complete gates remain for queue completion.
+  budget charging. Fresh final candidate verification in TASK 221 passed the
+  complete root and portable-template race gates.
 
 ## Deviations
 

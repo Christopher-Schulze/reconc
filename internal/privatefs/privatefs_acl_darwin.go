@@ -30,9 +30,11 @@ type darwinAttributeList struct {
 }
 
 func validatePrivateFileACL(file *os.File) error {
+	//lint:ignore SA1019 The CGO-free implementation requires the Darwin syscall boundary.
 	return validateDarwinACL(uintptr(file.Fd()), nil, unix.SYS_FGETATTRLIST, 0)
 }
 func validatePrivateDirectoryACL(file *os.File) error {
+	//lint:ignore SA1019 The CGO-free implementation requires the Darwin syscall boundary.
 	return validateDarwinACL(uintptr(file.Fd()), nil, unix.SYS_FGETATTRLIST, 0)
 }
 

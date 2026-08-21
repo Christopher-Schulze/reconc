@@ -17,7 +17,7 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 
 	assertContainsAll(t, "RECONC-0008", rfc,
 		"Status: Draft",
-		"Implementation state: partially implemented in source and release version",
+		"Implementation state: partially implemented in the `v0.9.7` source candidate",
 		"TASK 154 implements strict action authoring",
 		"TASK 155 implements the pure",
 		"TASK 156 implements strict format-2 action scenarios",
@@ -46,7 +46,7 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 	)
 	assertContainsAll(t, "documentation", documentation,
 		"## Go-Only Action Plane",
-		"Source and release version `v0.9.7` implements strict",
+		"The `v0.9.7` source candidate implements strict",
 		"`reconc impact` invokes that production evaluator",
 		"`reconc action log tail|stats|verify|export`",
 		"`reconc mcp gateway` owns one operator-selected downstream stdio MCP process",
@@ -55,7 +55,7 @@ func TestDraftActionPlaneContractReportsExactImplementationBoundary(t *testing.T
 	)
 	assertContainsAll(t, "commands", commands,
 		"## Action Plane commands",
-		"`reconc why action` is implemented in source and release version `v0.9.7`",
+		"`reconc why action` is implemented in the `v0.9.7` source candidate",
 		"### `reconc action log tail",
 		"### `reconc action log stats",
 		"### `reconc action log verify",

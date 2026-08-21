@@ -45,8 +45,8 @@ mutation model the ownership contract should make impossible.
   removes the repeated recursive scan without weakening the actual admission
   boundary. Existing malformed-state coverage was moved to constructor
   rejection tests, and pointer/condition fuzz targets remain active.
-- Focused action tests pass. The complete race and repository gates remain for
-  queue completion.
+- Focused action tests pass. Fresh final candidate verification in TASK 221
+  passed the complete root and portable-template race gates.
 
 ## Deviations
 

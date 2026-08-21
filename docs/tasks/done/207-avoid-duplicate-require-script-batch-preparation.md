@@ -26,7 +26,7 @@ the same preparation.
 - [x] Reorder grouping or share preparation with fallback
 - [x] Preserve evidence and error ordering
 - [x] Add differential and benchmark tests
-- [ ] Run runtime and complete gates
+- [x] Run runtime and complete gates
 
 ## Notes
 
@@ -37,7 +37,8 @@ the same preparation.
   remain unhandled and preserve the established fail-closed fallback.
 - Existing batch, scope-miss, timeout-fallback, templated, and mixed-result tests
   remain green. A singleton benchmark exercises the no-batch path and reports
-  allocations; a full runtime gate remains for the final queue completion.
+  allocations. Fresh final candidate verification in TASK 221 passed the
+  complete root and portable-template race gates.
 
 ## Deviations
 

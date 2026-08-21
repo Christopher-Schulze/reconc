@@ -26,7 +26,7 @@ one evaluation.
 - [x] Implement bounded per-evaluation directory memoization
 - [x] Preserve nearest-manager and ambiguity semantics
 - [x] Add monorepo, mutation, and benchmark tests
-- [ ] Run assurance, race, and complete gates
+- [x] Run assurance, race, and complete gates
 
 ## Notes
 
@@ -41,8 +41,8 @@ one evaluation.
   capped by the existing scanned-file ceiling (with a bounded ancestor headroom).
 - Tests cover sibling reuse, nested nearest-manager selection, lockfile removal
   invalidation, missing-directory errors, and a benchmark reporting directory
-  and lockfile probe counts. Full race and complete gates remain for queue
-  completion.
+  and lockfile probe counts. Fresh final candidate verification in TASK 221
+  passed the complete root and portable-template race gates.
 
 ## Deviations
 

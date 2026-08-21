@@ -6,7 +6,7 @@ publishing the rule-kind field matrix under a new schema identity.
 
 ## Schema and compatibility
 
-- Format 6 is published as
+- The immutable release will publish Format 6 as
   `https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.7/schemas/v6/policy-lock.schema.json`.
 - The schema rejects rule fields that are unsupported by the declared rule kind
   before runtime evaluation.

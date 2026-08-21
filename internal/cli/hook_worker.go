@@ -119,10 +119,6 @@ func runHookWorkerWithFrameLimit(args []string, input io.Reader, output io.Write
 	}
 }
 
-func readHookWorkerFrame(reader *bufio.Reader) ([]byte, error) {
-	return readHookWorkerFrameLimit(reader, agentsession.MaxPayloadBytes+hookWorkerFrameOverhead)
-}
-
 func readHookWorkerFrameLimit(reader *bufio.Reader, limit int) ([]byte, error) {
 	frame := make([]byte, 0, 4096)
 	for {

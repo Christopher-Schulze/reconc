@@ -30,6 +30,7 @@ type AliasReason string
 const (
 	AliasUnpinnedLegacy     AliasReason = "unpinned_legacy"
 	AliasMisboundReleaseTag AliasReason = "misbound_release_tag"
+	AliasPriorPublication   AliasReason = "prior_publication"
 	AliasUnreachableHost    AliasReason = "unreachable_host"
 )
 
@@ -385,7 +386,8 @@ func validCompatibility(value Compatibility) bool {
 }
 
 func validAliasReason(value AliasReason) bool {
-	return value == AliasUnpinnedLegacy || value == AliasMisboundReleaseTag || value == AliasUnreachableHost
+	return value == AliasUnpinnedLegacy || value == AliasMisboundReleaseTag ||
+		value == AliasPriorPublication || value == AliasUnreachableHost
 }
 
 func validState(value State) bool {
@@ -449,7 +451,7 @@ func contracts() []Contract {
 		contract(PolicyLock, "3", []string{"3"}, "schemas/v3/policy-lock.schema.json", "policy-lock-v3.schema.json", LegacyPolicyLockV3URL, PreviousSchemaTag, "71f098011740601759e93193217e875bae5861859e8bf25102530e37b833d099", StateLegacy, Alias{URL: LegacyPolicyLockV3URLV091, Reason: AliasMisboundReleaseTag}, Alias{URL: LegacyPolicyLockV3URLUnpinned, Reason: AliasUnpinnedLegacy}),
 		contract(PolicyLock, "4", []string{"4"}, "schemas/v4/policy-lock.schema.json", "policy-lock-v4.schema.json", LegacyPolicyLockV4URL, "reconc-v0.9.4", "32f16bde36b7e8e5d0671c1e3f8bcbf35f810ad7699d93291d1ebb29831b3450", StateLegacy),
 		contract(PolicyLock, "5", []string{"5"}, "schemas/v5/policy-lock.schema.json", "policy-lock-v5.schema.json", LegacyPolicyLockV5URL, PreviousSchemaTag, "86838b49f01d254f0d6fc652105304fbd653c12b8f51a32674013d6bfa87c8f9", StateLegacy),
-		contract(PolicyLock, "6", []string{"6"}, "schemas/v6/policy-lock.schema.json", "policy-lock.schema.json", PolicyLockURL, CurrentSchemaTag, "99b0902282e5985d389c7ebb0588d6a5273afd92acb54b52001a1df0fee3e97a", StateCurrent, Alias{URL: PreviousPolicyLockV6URL, Reason: AliasMisboundReleaseTag}),
+		contract(PolicyLock, "6", []string{"6"}, "schemas/v6/policy-lock.schema.json", "policy-lock.schema.json", PolicyLockURL, CurrentSchemaTag, "99b0902282e5985d389c7ebb0588d6a5273afd92acb54b52001a1df0fee3e97a", StateCurrent, Alias{URL: PreviousPolicyLockV6URL, Reason: AliasPriorPublication}),
 		contract(PolicyReport, "1", []string{"1"}, "schemas/v1/policy-report.schema.json", "policy-report.schema.json", PolicyReportURL, PreviousSchemaTag, "96cb3ebd87dfd06c904daece64ed40178d5c826c211f3bf101065701e090918a", StateCurrent, misbound("schemas/v1/policy-report.schema.json"), unpinned("schemas/v1/policy-report.schema.json")),
 		portableContract(contract(ProofBundle, "1", []string{"1"}, "schemas/v1/proof-bundle.schema.json", "proof-bundle.schema.json", ProofBundleURL, PreviousSchemaTag, "83abb361727ec94993b840b7d6cb1f9a7935692c4282244f2de33b67a6d2fbac", StateCurrent, misbound("schemas/v1/proof-bundle.schema.json"), unpinned("schemas/v1/proof-bundle.schema.json"))),
 		contract(ReleaseManifest, "1", []string{"reconc.release/v1"}, "schemas/v1/release-manifest.schema.json", "release-manifest.schema.json", ReleaseManifestURL, PreviousSchemaTag, "dad8261a8464ebfb8b6011a53ac5c6c55afeb65e494565a04ea3d0c13f5831e2", StateCurrent, misbound("schemas/v1/release-manifest.schema.json"), unpinned("schemas/v1/release-manifest.schema.json")),

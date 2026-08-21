@@ -326,10 +326,6 @@ func decodeActionPlanJSON(data []byte) (*action.CompiledPlan, error) {
 	return compiled, nil
 }
 
-func decodeRuntimeEnvelope(payload map[string]interface{}) (*runtimeEnvelope, error) {
-	return decodeRuntimeEnvelopeWithParts(payload, nil, nil)
-}
-
 func decodeRuntimeEnvelopeWithParts(payload map[string]interface{}, rulesJSON, actionsJSON []byte) (*runtimeEnvelope, error) {
 	if len(rulesJSON) == 0 {
 		var err error

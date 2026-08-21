@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -62,22 +63,73 @@ func auditLayout(path string) jsonl.Layout {
 	}
 }
 
-const filelockTimeout = 2 * time.Minute
+const (
+	filelockTimeout        = 2 * time.Minute
+	auditAppendGateTimeout = 5 * time.Minute
+)
 
 var preparedAuditDirectories sync.Map
 var prepareAuditDirectoryMu sync.Mutex
-var auditAppendLocks sync.Map
+var errAuditAppendGateTimeout = errors.New("audit append serialization timed out")
 
-// auditAppendMutex serializes append transactions that originate in this
-// process before they contend on the cross-process file lock. The file lock
-// remains authoritative for other processes; this gate prevents a burst of
-// goroutines from busy-polling the same lock and exhausting the bounded lock
-// deadline under race instrumentation or other host load.
-func auditAppendMutex(repoRoot string) *sync.Mutex {
-	directory := filepath.Dir(filepath.Join(repoRoot, AuditFileRelative))
-	candidate := &sync.Mutex{}
-	actual, _ := auditAppendLocks.LoadOrStore(directory, candidate)
-	return actual.(*sync.Mutex)
+type auditAppendGate struct {
+	token chan struct{}
+	refs  int
+}
+
+var auditAppendGates = struct {
+	sync.Mutex
+	values map[string]*auditAppendGate
+}{values: make(map[string]*auditAppendGate)}
+
+// acquireAuditAppendGate serializes append transactions from this process
+// before they contend on the authoritative cross-process file lock. References
+// include holders and waiters, so an idle per-directory gate is removed as soon
+// as its last transaction releases or abandons it.
+func acquireAuditAppendGate(ctx context.Context, repoRoot string, timeout time.Duration) (func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if timeout <= 0 {
+		return nil, errors.New("audit append serialization timeout must be positive")
+	}
+	directory := filepath.Clean(filepath.Dir(filepath.Join(repoRoot, AuditFileRelative)))
+	auditAppendGates.Lock()
+	gate := auditAppendGates.values[directory]
+	if gate == nil {
+		gate = &auditAppendGate{token: make(chan struct{}, 1)}
+		auditAppendGates.values[directory] = gate
+	}
+	gate.refs++
+	auditAppendGates.Unlock()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case gate.token <- struct{}{}:
+		var once sync.Once
+		return func() {
+			once.Do(func() {
+				<-gate.token
+				releaseAuditAppendGate(directory, gate)
+			})
+		}, nil
+	case <-ctx.Done():
+		releaseAuditAppendGate(directory, gate)
+		return nil, ctx.Err()
+	case <-timer.C:
+		releaseAuditAppendGate(directory, gate)
+		return nil, fmt.Errorf("%w after %s", errAuditAppendGateTimeout, timeout)
+	}
+}
+
+func releaseAuditAppendGate(directory string, gate *auditAppendGate) {
+	auditAppendGates.Lock()
+	defer auditAppendGates.Unlock()
+	gate.refs--
+	if gate.refs == 0 && auditAppendGates.values[directory] == gate {
+		delete(auditAppendGates.values, directory)
+	}
 }
 
 func prepareAuditLayout(repoRoot string) (jsonl.Layout, error) {

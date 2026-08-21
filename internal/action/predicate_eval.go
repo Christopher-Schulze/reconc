@@ -86,10 +86,6 @@ func evaluatePredicateCore(
 	}
 }
 
-func selectPredicateValue(predicate *CompiledPredicate, request Request) selectedValue {
-	return selectPredicateValueWithRoots(predicate, request, nil)
-}
-
 func selectPredicateValueWithRoots(
 	predicate *CompiledPredicate,
 	request Request,

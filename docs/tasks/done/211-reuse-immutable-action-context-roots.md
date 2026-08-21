@@ -44,8 +44,8 @@ and canonicalization for immutable evaluation input.
   reuse one root in tests, request-slice mutation cannot alter the cached
   result, all four source roots are compared against the checked path, and a
   128-predicate benchmark records the high-cardinality path.
-- Focused action tests pass. The repository race and complete gates remain for
-  queue completion.
+- Focused action tests pass. Fresh final candidate verification in TASK 221
+  passed the complete root and portable-template race gates.
 
 ## Deviations
 
