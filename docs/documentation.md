@@ -2927,6 +2927,11 @@ still reads bounded lock bytes and the complete source bundle identity:
 lock-byte drift rebuilds the plan, while source drift invalidates it and fails
 closed. Session and taint inputs remain freshly loaded. No daemon, socket,
 listener, or runtime network call is added.
+Oversized newline frames are discarded with bounded retained memory and a
+bounded drain budget. A fully terminated oversized frame gets one deterministic
+protocol error and the same worker continues with the next frame; missing
+terminators or drain-budget exhaustion terminate the worker, preserving the
+existing one-shot fallback only for genuine protocol loss.
 Concurrent session updates keep the unchanged active-session pointer on a
 lock-free read fast path. If that optimistic read overlaps an atomic Windows
 publication, Reconc rechecks once under the existing active-session lock;

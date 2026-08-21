@@ -22,9 +22,11 @@ const (
 	hookWorkerMaxEventBytes = 128
 	hookWorkerMaxRepoBytes  = 16 << 10
 	maxHookRuntimeCapture   = 8 << 10
+	maxHookWorkerDrainBytes = 2 * (agentsession.MaxPayloadBytes + hookWorkerFrameOverhead)
 )
 
 var errHookWorkerFrameTooLarge = errors.New("hook worker frame exceeds the bounded protocol limit")
+var errHookWorkerFrameDrainFailed = errors.New("hook worker oversized frame could not be drained")
 
 type hookWorkerRequest struct {
 	FormatVersion int             `json:"format_version"`
@@ -52,6 +54,10 @@ type hookWorkerRootCache struct {
 }
 
 func runHookWorker(args []string, input io.Reader, output io.Writer) error {
+	return runHookWorkerWithFrameLimit(args, input, output, agentsession.MaxPayloadBytes+hookWorkerFrameOverhead)
+}
+
+func runHookWorkerWithFrameLimit(args []string, input io.Reader, output io.Writer, frameLimit int) error {
 	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
 		fmt.Fprintln(output, "Usage: reconc hook worker   (internal; versioned NDJSON over stdin/stdout)")
 		return nil
@@ -66,11 +72,23 @@ func runHookWorker(args []string, input io.Reader, output io.Writer) error {
 		stopCache: agentsession.NewStopDecisionCache(),
 	}
 	for {
-		frame, err := readHookWorkerFrame(reader)
+		frame, err := readHookWorkerFrameLimit(reader, frameLimit)
 		if errors.Is(err, io.EOF) {
 			return nil
 		}
 		if err != nil {
+			if errors.Is(err, errHookWorkerFrameTooLarge) && !errors.Is(err, errHookWorkerFrameDrainFailed) {
+				response := hookWorkerResponse{
+					FormatVersion: hookWorkerFormatVersion,
+					Type:          "error",
+					Code:          1,
+					Error:         errHookWorkerFrameTooLarge.Error(),
+				}
+				if encodeErr := encoder.Encode(response); encodeErr != nil {
+					return &CLIError{ExitCode: 1, Message: "reconc hook worker: write protocol error: " + encodeErr.Error()}
+				}
+				continue
+			}
 			return &CLIError{ExitCode: 1, Message: "reconc hook worker: " + err.Error()}
 		}
 		request, err := decodeHookWorkerRequest(frame)
@@ -110,7 +128,19 @@ func readHookWorkerFrameLimit(reader *bufio.Reader, limit int) ([]byte, error) {
 	for {
 		fragment, err := reader.ReadSlice('\n')
 		if len(frame)+len(fragment) > limit {
-			return nil, errHookWorkerFrameTooLarge
+			if err == nil {
+				return nil, errHookWorkerFrameTooLarge
+			}
+			if errors.Is(err, bufio.ErrBufferFull) {
+				if drainErr := drainHookWorkerFrame(reader, maxHookWorkerDrainBytes); drainErr != nil {
+					return nil, fmt.Errorf("%w: %w", errHookWorkerFrameTooLarge, drainErr)
+				}
+				return nil, errHookWorkerFrameTooLarge
+			}
+			if errors.Is(err, io.EOF) {
+				return nil, fmt.Errorf("%w: %w: truncated hook worker frame", errHookWorkerFrameTooLarge, errHookWorkerFrameDrainFailed)
+			}
+			return nil, fmt.Errorf("%w: %w: %v", errHookWorkerFrameTooLarge, errHookWorkerFrameDrainFailed, err)
 		}
 		frame = append(frame, fragment...)
 		switch {
@@ -132,6 +162,31 @@ func readHookWorkerFrameLimit(reader *bufio.Reader, limit int) ([]byte, error) {
 			return nil, errors.New("truncated hook worker frame")
 		default:
 			return nil, fmt.Errorf("read hook worker frame: %w", err)
+		}
+	}
+}
+
+// drainHookWorkerFrame consumes the remainder of one oversized newline frame
+// without retaining attacker-controlled bytes. A frame that exceeds the
+// independent drain budget terminates the worker; otherwise the next frame is
+// left at the reader boundary and can be processed normally.
+func drainHookWorkerFrame(reader *bufio.Reader, limit int) error {
+	var drained int
+	for {
+		fragment, err := reader.ReadSlice('\n')
+		if len(fragment) > limit-drained {
+			return errHookWorkerFrameDrainFailed
+		}
+		drained += len(fragment)
+		switch {
+		case err == nil:
+			return nil
+		case errors.Is(err, bufio.ErrBufferFull):
+			continue
+		case errors.Is(err, io.EOF):
+			return fmt.Errorf("%w: truncated hook worker frame", errHookWorkerFrameDrainFailed)
+		default:
+			return fmt.Errorf("%w: %v", errHookWorkerFrameDrainFailed, err)
 		}
 	}
 }

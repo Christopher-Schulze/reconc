@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -84,6 +85,53 @@ func TestHookWorkerProtocolErrorIsFramedAndWorkerContinues(t *testing.T) {
 	}
 	if second.Type != "response" || second.ID != "current" || second.Code != 0 {
 		t.Fatalf("worker did not continue after request error: %+v", second)
+	}
+}
+
+func TestHookWorkerOversizedFrameIsDrainedAndWorkerContinues(t *testing.T) {
+	oversized := strings.Repeat("x", 128)
+	input := strings.NewReader(oversized + "\n" +
+		`{"format_version":1,"type":"ping","id":"valid"}` + "\n" +
+		`{"format_version":1,"type":"shutdown","id":"bye"}` + "\n")
+	var output bytes.Buffer
+	if err := runHookWorkerWithFrameLimit(nil, input, &output, 64); err != nil {
+		t.Fatal(err)
+	}
+	decoder := json.NewDecoder(&output)
+	var oversizedResponse, validResponse, shutdownResponse hookWorkerResponse
+	if err := decoder.Decode(&oversizedResponse); err != nil {
+		t.Fatal(err)
+	}
+	if oversizedResponse.Type != "error" || oversizedResponse.ID != "" || oversizedResponse.Error != errHookWorkerFrameTooLarge.Error() {
+		t.Fatalf("oversized response = %+v", oversizedResponse)
+	}
+	if err := decoder.Decode(&validResponse); err != nil {
+		t.Fatal(err)
+	}
+	if validResponse.Type != "response" || validResponse.ID != "valid" || validResponse.Code != 0 {
+		t.Fatalf("worker did not recover after oversized frame: %+v", validResponse)
+	}
+	if err := decoder.Decode(&shutdownResponse); err != nil {
+		t.Fatal(err)
+	}
+	if shutdownResponse.Type != "shutdown" || shutdownResponse.ID != "bye" {
+		t.Fatalf("shutdown response after oversized frame = %+v", shutdownResponse)
+	}
+}
+
+func TestHookWorkerOversizedFrameWithoutTerminatorIsTerminal(t *testing.T) {
+	oversized := strings.Repeat("x", 128)
+	if err := runHookWorkerWithFrameLimit(nil, strings.NewReader(oversized), &bytes.Buffer{}, 64); err == nil || !strings.Contains(err.Error(), "truncated hook worker frame") {
+		t.Fatalf("unterminated oversized frame error = %v", err)
+	}
+}
+
+func TestDrainHookWorkerFrameBoundsDiscardWork(t *testing.T) {
+	if err := drainHookWorkerFrame(bufio.NewReader(strings.NewReader("12345\n")), 4); err == nil || !errors.Is(err, errHookWorkerFrameDrainFailed) {
+		t.Fatalf("drain over budget error = %v", err)
+	}
+	if err := drainHookWorkerFrame(bufio.NewReader(strings.NewReader("1234\nnext\n")), 5); err != nil {
+		t.Fatalf("bounded drain error = %v", err)
 	}
 }
 

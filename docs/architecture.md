@@ -754,6 +754,11 @@ The worker caches `ResolvedRepoRoot` plus an immutable typed policy plan. Root
 resolution eagerly materializes the filesystem object identity before caching,
 including Go's lazy Windows file ID; reuse proves that same object with
 `os.SameFile` and resolves again after same-path replacement or alias drift.
+An oversized request frame is drained to its newline without retaining its
+contents and yields one protocol-error response with an empty ID when the
+request identity cannot be proven. A bounded drain ceiling turns an
+unterminated or excessively long frame into terminal worker loss; a completed
+oversized frame leaves the stream synchronized for the next request.
 Every policy check still performs bounded lock-byte and source-bundle identity
 reads. Changed lock bytes rebuild the plan; changed source identity invalidates
 it and fails closed until `reconc refresh`. Session state, taint, and binary
