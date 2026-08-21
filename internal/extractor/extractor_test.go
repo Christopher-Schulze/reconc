@@ -206,3 +206,24 @@ func TestSuggestionIdentityNormalizesCommands(t *testing.T) {
 		t.Fatalf("command whitespace changed semantic identity: %#v vs %#v", a, b)
 	}
 }
+
+func TestQuoteLineDiagnosticIndices(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name  string
+		index int
+		want  string
+	}{
+		{name: "negative", index: -2, want: "line -1: value"},
+		{name: "zero", index: -1, want: "line 0: value"},
+		{name: "first", index: 0, want: "line 1: value"},
+		{name: "one to two digits", index: 9, want: "line 10: value"},
+		{name: "two to three digits", index: 99, want: "line 100: value"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := quoteLine(test.index, "value"); got != test.want {
+				t.Fatalf("quoteLine(%d) = %q, want %q", test.index, got, test.want)
+			}
+		})
+	}
+}

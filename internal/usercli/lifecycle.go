@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -247,10 +246,4 @@ func targetArtifact(version string) string {
 		name += ".exe"
 	}
 	return name
-}
-
-func sameFileIdentity(path string, expected string) bool {
-	left, leftErr := filepath.EvalSymlinks(path)
-	right, rightErr := filepath.EvalSymlinks(expected)
-	return leftErr == nil && rightErr == nil && samePath(left, right)
 }

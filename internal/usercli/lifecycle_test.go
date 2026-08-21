@@ -623,9 +623,6 @@ func TestLifecyclePureHelpersCoverOrderingAndCommands(t *testing.T) {
 	if got := channelForRelease(selectedRelease{}); got != ChannelStable {
 		t.Fatalf("inferred stable channel = %q", got)
 	}
-	if sameFileIdentity(filepath.Join(t.TempDir(), "missing"), filepath.Join(t.TempDir(), "missing")) {
-		t.Fatal("missing files reported identical")
-	}
 }
 
 func TestAttestationVerificationFailsClosed(t *testing.T) {

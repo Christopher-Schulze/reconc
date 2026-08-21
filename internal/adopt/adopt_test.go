@@ -585,3 +585,31 @@ func TestApplyRejectsDuplicateCandidateIDsWithoutMutation(t *testing.T) {
 		t.Fatalf("failed adoption mutated config:\n%s", body)
 	}
 }
+
+func TestRenderTextSuggestionNumberingBoundaries(t *testing.T) {
+	t.Parallel()
+	if got := RenderText(Report{RepoRoot: "/repo"}); got != "reconc adopt: no conventions detected in /repo\n" {
+		t.Fatalf("empty report = %q", got)
+	}
+
+	suggestions := make([]Suggestion, 10)
+	for index := range suggestions {
+		suggestions[index] = Suggestion{
+			ID: "rule-" + string(rune('a'+index)), Kind: "deny_write", Reason: "reason",
+		}
+	}
+	got := RenderText(Report{RepoRoot: "/repo", Suggestions: suggestions})
+	wantNumbering := "1. rule-a (deny_write)\n     reason\n" +
+		"2. rule-b (deny_write)\n     reason\n" +
+		"3. rule-c (deny_write)\n     reason\n" +
+		"4. rule-d (deny_write)\n     reason\n" +
+		"5. rule-e (deny_write)\n     reason\n" +
+		"6. rule-f (deny_write)\n     reason\n" +
+		"7. rule-g (deny_write)\n     reason\n" +
+		"8. rule-h (deny_write)\n     reason\n" +
+		"9. rule-i (deny_write)\n     reason\n" +
+		"10. rule-j (deny_write)\n     reason\n"
+	if !strings.Contains(got, "Suggested rules (10 total, all warn-mode):\n\n"+wantNumbering) {
+		t.Fatalf("numbered report changed:\n%s", got)
+	}
+}

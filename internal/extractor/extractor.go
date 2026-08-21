@@ -26,6 +26,7 @@ import (
 	"encoding/hex"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -342,27 +343,5 @@ func quoteLine(idx int, s string) string {
 		runes := []rune(s)
 		s = string(runes[:117]) + "..."
 	}
-	return "line " + itoaSmall(idx+1) + ": " + s
-}
-
-// itoaSmall is a tiny integer formatter. Avoids pulling strconv into
-// this package for a single call site.
-func itoaSmall(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	digits := []byte{}
-	neg := false
-	if n < 0 {
-		neg = true
-		n = -n
-	}
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	if neg {
-		return "-" + string(digits)
-	}
-	return string(digits)
+	return "line " + strconv.Itoa(idx+1) + ": " + s
 }

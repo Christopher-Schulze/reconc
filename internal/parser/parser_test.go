@@ -1319,3 +1319,29 @@ func TestCommandMatchValidation(t *testing.T) {
 		t.Errorf("prefix should survive parsing, got %q", parsed.Rules[0].CommandMatch)
 	}
 }
+
+func TestRequiredStringDiagnosticIndices(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name  string
+		index int
+		want  string
+	}{
+		{name: "negative", index: -2, want: "rule field 'id' is required (policy.yml rule[-2])"},
+		{name: "zero", index: 0, want: "rule field 'id' is required (policy.yml rule[0])"},
+		{name: "one digit", index: 9, want: "rule field 'id' is required (policy.yml rule[9])"},
+		{name: "two digits", index: 10, want: "rule field 'id' is required (policy.yml rule[10])"},
+		{name: "three digits", index: 100, want: "rule field 'id' is required (policy.yml rule[100])"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := requiredString(map[string]interface{}{}, "id", "policy.yml", test.index)
+			var validationError *rerrors.RuleValidationError
+			if !stderrors.As(err, &validationError) {
+				t.Fatalf("error = %T, want *RuleValidationError", err)
+			}
+			if validationError.Message != test.want {
+				t.Fatalf("diagnostic = %q, want %q", validationError.Message, test.want)
+			}
+		})
+	}
+}

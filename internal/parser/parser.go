@@ -206,7 +206,7 @@ func parseMCPPolicy(src policy.PolicySource, doc map[string]interface{}) (*polic
 		for index, rawTool := range list {
 			toolMapping, ok := rawTool.(map[string]interface{})
 			if !ok {
-				return nil, true, &rerrors.RuleValidationError{Message: "mcp.tools[" + itoa(index) + "] must be a mapping in " + src.Path}
+				return nil, true, &rerrors.RuleValidationError{Message: "mcp.tools[" + strconv.Itoa(index) + "] must be a mapping in " + src.Path}
 			}
 			tool, err := parseMCPToolPolicy(src, toolMapping, index)
 			if err != nil {
@@ -226,7 +226,7 @@ func parseMCPPolicy(src policy.PolicySource, doc map[string]interface{}) (*polic
 }
 
 func parseMCPToolPolicy(src policy.PolicySource, mapping map[string]interface{}, index int) (policy.MCPToolPolicy, error) {
-	context := "mcp.tools[" + itoa(index) + "]"
+	context := "mcp.tools[" + strconv.Itoa(index) + "]"
 	required := func(field string) (string, error) {
 		raw, present := mapping[field]
 		value, ok := raw.(string)
@@ -321,22 +321,22 @@ func coerceScopes(src policy.PolicySource, doc map[string]interface{}) ([]policy
 		mapping, ok := item.(map[string]interface{})
 		if !ok {
 			return nil, &rerrors.RuleValidationError{
-				Message: "each scope must be a YAML mapping in " + src.Path + " (scope #" + itoa(i) + ")",
+				Message: "each scope must be a YAML mapping in " + src.Path + " (scope #" + strconv.Itoa(i) + ")",
 			}
 		}
-		paths, err := optionalStringList(mapping, "paths", "scope#"+itoa(i))
+		paths, err := optionalStringList(mapping, "paths", "scope#"+strconv.Itoa(i))
 		if err != nil {
 			return nil, err
 		}
 		if len(paths) == 0 {
 			return nil, &rerrors.RuleValidationError{
-				Message: "scope #" + itoa(i) + " in " + src.Path + " requires non-empty 'paths'",
+				Message: "scope #" + strconv.Itoa(i) + " in " + src.Path + " requires non-empty 'paths'",
 			}
 		}
-		if err := validateGlobPatterns(paths, "scope #"+itoa(i)+" in "+src.Path+" field 'paths'"); err != nil {
+		if err := validateGlobPatterns(paths, "scope #"+strconv.Itoa(i)+" in "+src.Path+" field 'paths'"); err != nil {
 			return nil, err
 		}
-		scopeID, err := optionalString(mapping, "id", "scope#"+itoa(i), "", 0)
+		scopeID, err := optionalString(mapping, "id", "scope#"+strconv.Itoa(i), "", 0)
 		if err != nil {
 			return nil, err
 		}
@@ -349,14 +349,14 @@ func coerceScopes(src policy.PolicySource, doc map[string]interface{}) ([]policy
 		ruleList, ok := rawScopeRules.([]interface{})
 		if !ok {
 			return nil, &rerrors.RuleValidationError{
-				Message: "scope #" + itoa(i) + " 'rules' must be a list in " + src.Path,
+				Message: "scope #" + strconv.Itoa(i) + " 'rules' must be a list in " + src.Path,
 			}
 		}
 		for j, ri := range ruleList {
 			rmap, ok := ri.(map[string]interface{})
 			if !ok {
 				return nil, &rerrors.RuleValidationError{
-					Message: "rule #" + itoa(j) + " of scope #" + itoa(i) + " in " + src.Path + " must be a mapping",
+					Message: "rule #" + strconv.Itoa(j) + " of scope #" + strconv.Itoa(i) + " in " + src.Path + " must be a mapping",
 				}
 			}
 			rule, err := validateRuleItem(rmap, src, j)
@@ -420,7 +420,7 @@ func validateRuleItem(item map[string]interface{}, src policy.PolicySource, inde
 	if err != nil {
 		return policy.Rule{}, err
 	}
-	if err := validateRuleMapBounds(src, item, "rules["+itoa(index)+"]", id); err != nil {
+	if err := validateRuleMapBounds(src, item, "rules["+strconv.Itoa(index)+"]", id); err != nil {
 		return policy.Rule{}, err
 	}
 
@@ -638,7 +638,7 @@ func validateRuleItem(item map[string]interface{}, src policy.PolicySource, inde
 		}
 		if kind == policy.KindNot && len(checks) != 1 {
 			return policy.Rule{}, &rerrors.RuleValidationError{
-				Message: "rule '" + id + "' (kind not) requires exactly one check, got " + itoa(len(checks)),
+				Message: "rule '" + id + "' (kind not) requires exactly one check, got " + strconv.Itoa(len(checks)),
 			}
 		}
 	}
@@ -827,7 +827,7 @@ func optionalCheckList(item map[string]interface{}, key, ruleID string, sourcePa
 		mapping, ok := entry.(map[string]interface{})
 		if !ok {
 			return nil, &rerrors.RuleValidationError{
-				Message: "rule '" + ruleID + "' field '" + key + "[" + itoa(i) + "]' must be a YAML mapping",
+				Message: "rule '" + ruleID + "' field '" + key + "[" + strconv.Itoa(i) + "]' must be a YAML mapping",
 			}
 		}
 		c, err := parseCheckWithSource(mapping, ruleID, key, sourcePath, i)
@@ -854,12 +854,12 @@ func parseCheckWithSource(item map[string]interface{}, ruleID, listKey, sourcePa
 	kind := policy.Kind(kindStr)
 	if !kind.Valid() {
 		return policy.Check{}, &rerrors.RuleValidationError{
-			Message: "rule '" + ruleID + "' field '" + listKey + "[" + itoa(index) + "].kind' is not a recognized kind: " + kindStr,
+			Message: "rule '" + ruleID + "' field '" + listKey + "[" + strconv.Itoa(index) + "].kind' is not a recognized kind: " + kindStr,
 		}
 	}
 	if kind.IsComposite() {
 		return policy.Check{}, &rerrors.RuleValidationError{
-			Message: "rule '" + ruleID + "' field '" + listKey + "[" + itoa(index) + "]' nested composite kinds are not supported in v1; flatten the rule",
+			Message: "rule '" + ruleID + "' field '" + listKey + "[" + strconv.Itoa(index) + "]' nested composite kinds are not supported in v1; flatten the rule",
 		}
 	}
 	if err := validateCheckKindFields(item, kind, ruleID, sourcePath, index); err != nil {
@@ -881,7 +881,7 @@ func parseCheckWithSource(item map[string]interface{}, ruleID, listKey, sourcePa
 		if err != nil {
 			return policy.Check{}, err
 		}
-		if err := validateRepoRelativeTemplatePath(path, "rule '"+ruleID+"' field '"+listKey+"["+itoa(index)+"].path'"); err != nil {
+		if err := validateRepoRelativeTemplatePath(path, "rule '"+ruleID+"' field '"+listKey+"["+strconv.Itoa(index)+"].path'"); err != nil {
 			return policy.Check{}, err
 		}
 		check.Path = path
@@ -891,7 +891,7 @@ func parseCheckWithSource(item map[string]interface{}, ruleID, listKey, sourcePa
 		}
 		if hours < 0 {
 			return policy.Check{}, &rerrors.RuleValidationError{
-				Message: "rule '" + ruleID + "' field '" + listKey + "[" + itoa(index) + "].max_age_hours' must be >= 0",
+				Message: "rule '" + ruleID + "' field '" + listKey + "[" + strconv.Itoa(index) + "].max_age_hours' must be >= 0",
 			}
 		}
 		check.MaxAgeHours = hours
@@ -901,7 +901,7 @@ func parseCheckWithSource(item map[string]interface{}, ruleID, listKey, sourcePa
 		if err != nil {
 			return policy.Check{}, err
 		}
-		if err := validateRepoRelativeTemplatePath(file, "rule '"+ruleID+"' field '"+listKey+"["+itoa(index)+"].file'"); err != nil {
+		if err := validateRepoRelativeTemplatePath(file, "rule '"+ruleID+"' field '"+listKey+"["+strconv.Itoa(index)+"].file'"); err != nil {
 			return policy.Check{}, err
 		}
 		check.File = file
@@ -926,13 +926,13 @@ func parseCheckWithSource(item map[string]interface{}, ruleID, listKey, sourcePa
 		}
 		if maxLines < 0 {
 			return policy.Check{}, &rerrors.RuleValidationError{
-				Message: "rule '" + ruleID + "' field '" + listKey + "[" + itoa(index) + "].max_line_count' must be >= 0",
+				Message: "rule '" + ruleID + "' field '" + listKey + "[" + strconv.Itoa(index) + "].max_line_count' must be >= 0",
 			}
 		}
 		check.MaxLineCount = maxLines
 		if !mustExist && len(mustContain) == 0 && mustNotContain == "" && maxLines == 0 {
 			return policy.Check{}, &rerrors.RuleValidationError{
-				Message: "rule '" + ruleID + "' field '" + listKey + "[" + itoa(index) + "]' must specify at least one of: must_exist, must_contain, must_not_contain, max_line_count",
+				Message: "rule '" + ruleID + "' field '" + listKey + "[" + strconv.Itoa(index) + "]' must specify at least one of: must_exist, must_contain, must_not_contain, max_line_count",
 			}
 		}
 
@@ -943,7 +943,7 @@ func parseCheckWithSource(item map[string]interface{}, ruleID, listKey, sourcePa
 		}
 		if len(claims) == 0 {
 			return policy.Check{}, &rerrors.RuleValidationError{
-				Message: "rule '" + ruleID + "' field '" + listKey + "[" + itoa(index) + "].claims' is required",
+				Message: "rule '" + ruleID + "' field '" + listKey + "[" + strconv.Itoa(index) + "].claims' is required",
 			}
 		}
 		check.Claims = claims
@@ -955,7 +955,7 @@ func parseCheckWithSource(item map[string]interface{}, ruleID, listKey, sourcePa
 		}
 		if len(commands) == 0 {
 			return policy.Check{}, &rerrors.RuleValidationError{
-				Message: "rule '" + ruleID + "' field '" + listKey + "[" + itoa(index) + "].commands' is required",
+				Message: "rule '" + ruleID + "' field '" + listKey + "[" + strconv.Itoa(index) + "].commands' is required",
 			}
 		}
 		check.Commands = commands
@@ -976,7 +976,7 @@ func parseCheckWithSource(item map[string]interface{}, ruleID, listKey, sourcePa
 		}
 		if len(paths) == 0 {
 			return policy.Check{}, &rerrors.RuleValidationError{
-				Message: "rule '" + ruleID + "' field '" + listKey + "[" + itoa(index) + "].paths' is required",
+				Message: "rule '" + ruleID + "' field '" + listKey + "[" + strconv.Itoa(index) + "].paths' is required",
 			}
 		}
 		check.Paths = paths
@@ -988,7 +988,7 @@ func parseCheckWithSource(item map[string]interface{}, ruleID, listKey, sourcePa
 		}
 		if !isRepoRelativePath(script) {
 			return policy.Check{}, &rerrors.RuleValidationError{
-				Message: "rule '" + ruleID + "' field '" + listKey + "[" + itoa(index) + "].script' must be a repo-relative path: " + script,
+				Message: "rule '" + ruleID + "' field '" + listKey + "[" + strconv.Itoa(index) + "].script' must be a repo-relative path: " + script,
 			}
 		}
 		check.Script = script
@@ -1003,7 +1003,7 @@ func parseCheckWithSource(item map[string]interface{}, ruleID, listKey, sourcePa
 		}
 		if timeoutSec < 0 {
 			return policy.Check{}, &rerrors.RuleValidationError{
-				Message: "rule '" + ruleID + "' field '" + listKey + "[" + itoa(index) + "].timeout_sec' must be >= 0",
+				Message: "rule '" + ruleID + "' field '" + listKey + "[" + strconv.Itoa(index) + "].timeout_sec' must be >= 0",
 			}
 		}
 		check.TimeoutSec = timeoutSec
@@ -1011,7 +1011,7 @@ func parseCheckWithSource(item map[string]interface{}, ruleID, listKey, sourcePa
 		if err != nil {
 			return policy.Check{}, err
 		}
-		if err := validateScriptCacheInputs(cacheInputs, "rule '"+ruleID+"' field '"+listKey+"["+itoa(index)+"].cache_inputs'"); err != nil {
+		if err := validateScriptCacheInputs(cacheInputs, "rule '"+ruleID+"' field '"+listKey+"["+strconv.Itoa(index)+"].cache_inputs'"); err != nil {
 			return policy.Check{}, err
 		}
 		check.CacheInputs = cacheInputs
@@ -1020,7 +1020,7 @@ func parseCheckWithSource(item map[string]interface{}, ruleID, listKey, sourcePa
 		// Other kinds (require_read, couple_change) are not yet
 		// supported as sub-checks. Add when first user needs them.
 		return policy.Check{}, &rerrors.RuleValidationError{
-			Message: "rule '" + ruleID + "' field '" + listKey + "[" + itoa(index) + "].kind' " + kindStr + " is not yet supported as a sub-check",
+			Message: "rule '" + ruleID + "' field '" + listKey + "[" + strconv.Itoa(index) + "].kind' " + kindStr + " is not yet supported as a sub-check",
 		}
 	}
 
@@ -1045,14 +1045,14 @@ func optionalRequiredFileList(item map[string]interface{}, key, ruleID string) (
 		mapping, ok := entry.(map[string]interface{})
 		if !ok {
 			return nil, &rerrors.RuleValidationError{
-				Message: "rule '" + ruleID + "' field '" + key + "[" + itoa(i) + "]' must be a YAML mapping",
+				Message: "rule '" + ruleID + "' field '" + key + "[" + strconv.Itoa(i) + "]' must be a YAML mapping",
 			}
 		}
 		path, err := requiredStringField(mapping, "path", ruleID, key, i)
 		if err != nil {
 			return nil, err
 		}
-		if err := validateRepoRelativeTemplatePath(path, "rule '"+ruleID+"' field '"+key+"["+itoa(i)+"].path'"); err != nil {
+		if err := validateRepoRelativeTemplatePath(path, "rule '"+ruleID+"' field '"+key+"["+strconv.Itoa(i)+"].path'"); err != nil {
 			return nil, err
 		}
 		ageHours, err := optionalInt(mapping, "max_age_hours", ruleID, key, i)
@@ -1061,7 +1061,7 @@ func optionalRequiredFileList(item map[string]interface{}, key, ruleID string) (
 		}
 		if ageHours < 0 {
 			return nil, &rerrors.RuleValidationError{
-				Message: "rule '" + ruleID + "' field '" + key + "[" + itoa(i) + "].max_age_hours' must be >= 0",
+				Message: "rule '" + ruleID + "' field '" + key + "[" + strconv.Itoa(i) + "].max_age_hours' must be >= 0",
 			}
 		}
 		optional, err := optionalBool(mapping, "optional", ruleID, key, i)
@@ -1095,14 +1095,14 @@ func optionalEvidenceCheckList(item map[string]interface{}, key, ruleID string) 
 		mapping, ok := entry.(map[string]interface{})
 		if !ok {
 			return nil, &rerrors.RuleValidationError{
-				Message: "rule '" + ruleID + "' field '" + key + "[" + itoa(i) + "]' must be a YAML mapping",
+				Message: "rule '" + ruleID + "' field '" + key + "[" + strconv.Itoa(i) + "]' must be a YAML mapping",
 			}
 		}
 		file, err := requiredStringField(mapping, "file", ruleID, key, i)
 		if err != nil {
 			return nil, err
 		}
-		if err := validateRepoRelativeTemplatePath(file, "rule '"+ruleID+"' field '"+key+"["+itoa(i)+"].file'"); err != nil {
+		if err := validateRepoRelativeTemplatePath(file, "rule '"+ruleID+"' field '"+key+"["+strconv.Itoa(i)+"].file'"); err != nil {
 			return nil, err
 		}
 		mustExist, err := optionalBool(mapping, "must_exist", ruleID, key, i)
@@ -1123,7 +1123,7 @@ func optionalEvidenceCheckList(item map[string]interface{}, key, ruleID string) 
 		}
 		if maxLines < 0 {
 			return nil, &rerrors.RuleValidationError{
-				Message: "rule '" + ruleID + "' field '" + key + "[" + itoa(i) + "].max_line_count' must be >= 0",
+				Message: "rule '" + ruleID + "' field '" + key + "[" + strconv.Itoa(i) + "].max_line_count' must be >= 0",
 			}
 		}
 		optional, err := optionalBool(mapping, "optional", ruleID, key, i)
@@ -1133,7 +1133,7 @@ func optionalEvidenceCheckList(item map[string]interface{}, key, ruleID string) 
 		// Validate at least one assertion is present
 		if !mustExist && len(mustContain) == 0 && mustNotContain == "" && maxLines == 0 {
 			return nil, &rerrors.RuleValidationError{
-				Message: "rule '" + ruleID + "' field '" + key + "[" + itoa(i) + "]' must specify at least one of: must_exist, must_contain, must_not_contain, max_line_count",
+				Message: "rule '" + ruleID + "' field '" + key + "[" + strconv.Itoa(i) + "]' must specify at least one of: must_exist, must_contain, must_not_contain, max_line_count",
 			}
 		}
 		out = append(out, policy.EvidenceCheck{
@@ -1154,13 +1154,13 @@ func requiredStringField(item map[string]interface{}, field, ruleID, listKey str
 	raw, ok := item[field]
 	if !ok || raw == nil {
 		return "", &rerrors.RuleValidationError{
-			Message: "rule '" + ruleID + "' field '" + listKey + "[" + itoa(index) + "]." + field + "' is required",
+			Message: "rule '" + ruleID + "' field '" + listKey + "[" + strconv.Itoa(index) + "]." + field + "' is required",
 		}
 	}
 	str, isStr := raw.(string)
 	if !isStr || strings.TrimSpace(str) == "" {
 		return "", &rerrors.RuleValidationError{
-			Message: "rule '" + ruleID + "' field '" + listKey + "[" + itoa(index) + "]." + field + "' must be a non-empty string",
+			Message: "rule '" + ruleID + "' field '" + listKey + "[" + strconv.Itoa(index) + "]." + field + "' must be a non-empty string",
 		}
 	}
 	return strings.TrimSpace(str), nil
@@ -1185,7 +1185,7 @@ func optionalInt(item map[string]interface{}, field, ruleID, listKey string, ind
 		}
 	}
 	return 0, &rerrors.RuleValidationError{
-		Message: "rule '" + ruleID + "' field '" + listKey + "[" + itoa(index) + "]." + field + "' must be an integer",
+		Message: "rule '" + ruleID + "' field '" + listKey + "[" + strconv.Itoa(index) + "]." + field + "' must be an integer",
 	}
 }
 
@@ -1198,7 +1198,7 @@ func optionalBool(item map[string]interface{}, field, ruleID, listKey string, in
 	b, ok := raw.(bool)
 	if !ok {
 		return false, &rerrors.RuleValidationError{
-			Message: "rule '" + ruleID + "' field '" + listKey + "[" + itoa(index) + "]." + field + "' must be a boolean",
+			Message: "rule '" + ruleID + "' field '" + listKey + "[" + strconv.Itoa(index) + "]." + field + "' must be a boolean",
 		}
 	}
 	return b, nil
@@ -1213,7 +1213,7 @@ func optionalString(item map[string]interface{}, field, ruleID, listKey string, 
 	str, isStr := raw.(string)
 	if !isStr {
 		return "", &rerrors.RuleValidationError{
-			Message: "rule '" + ruleID + "' field '" + listKey + "[" + itoa(index) + "]." + field + "' must be a string",
+			Message: "rule '" + ruleID + "' field '" + listKey + "[" + strconv.Itoa(index) + "]." + field + "' must be a string",
 		}
 	}
 	return str, nil
@@ -1229,7 +1229,7 @@ func optionalContainList(item map[string]interface{}, field, ruleID, listKey str
 	list, ok := raw.([]interface{})
 	if !ok {
 		return nil, &rerrors.RuleValidationError{
-			Message: "rule '" + ruleID + "' field '" + listKey + "[" + itoa(index) + "]." + field + "' must be a list of strings",
+			Message: "rule '" + ruleID + "' field '" + listKey + "[" + strconv.Itoa(index) + "]." + field + "' must be a list of strings",
 		}
 	}
 	out := make([]string, 0, len(list))
@@ -1237,7 +1237,7 @@ func optionalContainList(item map[string]interface{}, field, ruleID, listKey str
 		s, ok := v.(string)
 		if !ok || s == "" {
 			return nil, &rerrors.RuleValidationError{
-				Message: "rule '" + ruleID + "' field '" + listKey + "[" + itoa(index) + "]." + field + "' entries must be non-empty strings",
+				Message: "rule '" + ruleID + "' field '" + listKey + "[" + strconv.Itoa(index) + "]." + field + "' entries must be non-empty strings",
 			}
 		}
 		out = append(out, s)
@@ -1254,7 +1254,7 @@ func requiredString(item map[string]interface{}, key, srcPath string, index int)
 	raw, ok := item[key]
 	if !ok || raw == nil {
 		return "", &rerrors.RuleValidationError{
-			Message: "rule field '" + key + "' is required (" + srcPath + " rule[" + itoa(index) + "])",
+			Message: "rule field '" + key + "' is required (" + srcPath + " rule[" + strconv.Itoa(index) + "])",
 		}
 	}
 	str, isStr := raw.(string)
@@ -1321,12 +1321,6 @@ func validateGlobPatterns(patterns []string, context string) error {
 	return nil
 }
 
-// decodeYAMLMapping is a parser-local copy that returns the right
-// error type. The ingest layer has its own (PolicySourceError) version.
-func decodeYAMLMapping(raw, context string) (map[string]interface{}, error) {
-	return decodeYAMLMappingBounded(raw, context)
-}
-
 // expandTemplate resolves a template name and merges its body into
 // userItem. User-supplied fields always win over template defaults.
 // Returns a new map; does not mutate userItem.
@@ -1337,31 +1331,9 @@ func expandTemplate(userItem map[string]interface{}, name string, src policy.Pol
 	tmpl, err := templates.Resolve(name)
 	if err != nil {
 		return nil, &rerrors.RuleValidationError{
-			Message: "rule #" + itoa(index) + " in " + src.Path + ": " + err.Error(),
+			Message: "rule #" + strconv.Itoa(index) + " in " + src.Path + ": " + err.Error(),
 			Cause:   err,
 		}
 	}
 	return templates.Apply(tmpl, userItem), nil
-}
-
-// itoa is a tiny stdlib-free integer-to-string for index labels in
-// error messages. Avoids importing strconv just for this.
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	digits := []byte{}
-	neg := false
-	if n < 0 {
-		neg = true
-		n = -n
-	}
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	if neg {
-		return "-" + string(digits)
-	}
-	return string(digits)
 }

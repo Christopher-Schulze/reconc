@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -188,7 +189,7 @@ func validateRuleListBounds(src policy.PolicySource, list []interface{}, field, 
 			continue
 		}
 		id, _ := rule["id"].(string)
-		if err := validateRuleMapBounds(src, rule, field+"["+itoa(index)+"]", id); err != nil {
+		if err := validateRuleMapBounds(src, rule, field+"["+strconv.Itoa(index)+"]", id); err != nil {
 			return err
 		}
 	}
