@@ -48,8 +48,9 @@ memory use.
   the manifest total.
 - Duplicate entries, directories, truncated archives, misleading size
   declarations, source drift, and remaining-budget rejection are covered by
-  focused tests. Harness-pack tests pass; the complete gate remains for queue
-  completion.
+  focused tests. The canonical generated `harness/advanced-pack-manifest.json`
+  and `harness/advanced-pack.zip` were regenerated from the current template
+  inventory and pass `go run ./scripts/build/harness-pack --check`.
 
 ## Deviations
 
