@@ -54,8 +54,9 @@ type patternMatchBits struct {
 }
 
 type scanBudget struct {
-	files map[string]bool
-	bytes int64
+	files     map[string]bool
+	byteFiles map[string]bool
+	bytes     int64
 }
 
 func newEvaluationState(changed []string, workerLimit int) *evaluationState {
@@ -312,30 +313,18 @@ func (state *evaluationState) read(path string) ([]byte, error) {
 }
 
 func readBounded(path string, budget *scanBudget) ([]byte, error) {
-	info, err := os.Lstat(path)
+	body, info, err := boundedio.ReadRegularFileSnapshot(path, maxFileBytes)
 	if err != nil {
 		return nil, err
 	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+	if info == nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 		return nil, fmt.Errorf("not a regular file: %s", path)
-	}
-	if info.Size() > maxFileBytes {
-		return nil, fmt.Errorf("file exceeds %d-byte assurance limit: %s", maxFileBytes, path)
 	}
 	if err := budget.observeFile(path); err != nil {
 		return nil, err
 	}
-	if err := budget.observeBytes(info.Size()); err != nil {
+	if err := budget.observeBytesForFile(path, info.Size()); err != nil {
 		return nil, err
-	}
-	body, err := boundedio.ReadRegularFile(path, maxFileBytes)
-	if err != nil {
-		return nil, err
-	}
-	if growth := int64(len(body)) - info.Size(); growth > 0 {
-		if err := budget.observeBytes(growth); err != nil {
-			return nil, err
-		}
 	}
 	return body, nil
 }
@@ -484,7 +473,7 @@ func (state *evaluationState) changedPathExempt(changedIndex int, exemptions []p
 }
 
 func newScanBudget() *scanBudget {
-	return &scanBudget{files: map[string]bool{}}
+	return &scanBudget{files: map[string]bool{}, byteFiles: map[string]bool{}}
 }
 
 func (budget *scanBudget) observeFile(path string) error {
@@ -504,4 +493,12 @@ func (budget *scanBudget) observeBytes(count int64) error {
 		return fmt.Errorf("assurance read budget exceeded: %d > %d bytes", budget.bytes, maxTotalBytes)
 	}
 	return nil
+}
+
+func (budget *scanBudget) observeBytesForFile(path string, count int64) error {
+	if budget.byteFiles[path] {
+		return nil
+	}
+	budget.byteFiles[path] = true
+	return budget.observeBytes(count)
 }

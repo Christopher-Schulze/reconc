@@ -116,11 +116,15 @@ func WithRegularFileSnapshot(path string, maxBytes int64, use func(*os.File, os.
 	return errors.Join(useErr, statErr, pathStatErr, closeErr, stableErr)
 }
 
-// ReadRegularFile reads one non-symlink regular file within maxBytes. The
-// limit reader catches growth after the size and identity checks.
-func ReadRegularFile(path string, maxBytes int64) ([]byte, error) {
+// ReadRegularFileSnapshot reads one non-symlink regular file within maxBytes
+// and returns the metadata of the opened identity together with its bytes. The
+// limit reader catches growth after the size and identity checks, and the
+// callback's post-read validation rejects replacement or metadata drift.
+func ReadRegularFileSnapshot(path string, maxBytes int64) ([]byte, os.FileInfo, error) {
 	var body []byte
-	err := WithRegularFileSnapshot(path, maxBytes, func(file *os.File, opened os.FileInfo) error {
+	var opened os.FileInfo
+	err := WithRegularFileSnapshot(path, maxBytes, func(file *os.File, openedInfo os.FileInfo) error {
+		opened = openedInfo
 		var readErr error
 		body, readErr = io.ReadAll(io.LimitReader(file, maxBytes+1))
 		if readErr != nil {
@@ -129,15 +133,22 @@ func ReadRegularFile(path string, maxBytes int64) ([]byte, error) {
 		if int64(len(body)) > maxBytes {
 			return fmt.Errorf("%s exceeds %d bytes", path, maxBytes)
 		}
-		if int64(len(body)) != opened.Size() {
+		if int64(len(body)) != openedInfo.Size() {
 			return fmt.Errorf("%s changed while reading", path)
 		}
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return body, nil
+	return body, opened, nil
+}
+
+// ReadRegularFile reads one non-symlink regular file within maxBytes. The
+// strict snapshot primitive owns all identity and growth checks.
+func ReadRegularFile(path string, maxBytes int64) ([]byte, error) {
+	body, _, err := ReadRegularFileSnapshot(path, maxBytes)
+	return body, err
 }
 
 func sameRegularSnapshot(left, right os.FileInfo) bool {

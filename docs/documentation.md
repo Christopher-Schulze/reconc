@@ -2146,7 +2146,10 @@ walk entries, and 50 returned findings plus one explicit omitted-count marker.
 An unreadable or over-budget authority surface is an error and fails closed.
 Matching gates reuse one canonical path resolution and one bounded in-memory
 file snapshot per evaluation, so overlapping source gates do not reread the
-same bytes from the SSD. The per-evaluation fact graph also reuses normalized
+same bytes from the SSD. The assurance reader obtains bytes and opened regular
+file metadata from one identity-checked `boundedio` snapshot; file and byte
+budgets charge that opened snapshot once rather than trusting a pre-open path
+stat. The per-evaluation fact graph also reuses normalized
 path classes, validated glob decisions, line indexes, BOM-aware JSON manifest
 objects, and compatible Go syntax and canonical-format facts. For at least 32
 matching Go files, CPU-only parsing and formatting may use at most four workers

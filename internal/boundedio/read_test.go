@@ -78,6 +78,24 @@ func TestReadRegularFileRejectsOversizeSparseAndIrregularInputs(t *testing.T) {
 	}
 }
 
+func TestReadRegularFileSnapshotReturnsOpenedIdentity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "strict")
+	if err := os.WriteFile(path, []byte("strict"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body, opened, err := ReadRegularFileSnapshot(path, int64(len("strict")))
+	if err != nil || string(body) != "strict" || opened == nil {
+		t.Fatalf("strict snapshot = %q, %v, identity=%v", body, err, opened)
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(opened, after) || opened.Size() != int64(len(body)) {
+		t.Fatalf("strict snapshot identity mismatch: opened=%v after=%v", opened, after)
+	}
+}
+
 func TestOpenedSnapshotRejectsSameSizeMutation(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mutable")
 	if err := os.WriteFile(path, []byte("before"), 0o600); err != nil {
@@ -165,5 +183,20 @@ func TestReadRejectsOverflowingLimits(t *testing.T) {
 	}
 	if _, err := ReadDir(t.TempDir(), math.MaxInt); err == nil {
 		t.Fatal("MaxInt entry limit must be rejected before ReadDir wrap")
+	}
+}
+
+func BenchmarkReadRegularFileSnapshot(b *testing.B) {
+	path := filepath.Join(b.TempDir(), "benchmark")
+	if err := os.WriteFile(path, []byte(strings.Repeat("x", 4096)), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		body, _, err := ReadRegularFileSnapshot(path, 4096)
+		if err != nil || len(body) != 4096 {
+			b.Fatalf("snapshot read = %d bytes, %v", len(body), err)
+		}
 	}
 }
