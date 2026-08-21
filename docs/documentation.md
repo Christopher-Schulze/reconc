@@ -2932,6 +2932,10 @@ bounded drain budget. A fully terminated oversized frame gets one deterministic
 protocol error and the same worker continues with the next frame; missing
 terminators or drain-budget exhaustion terminate the worker, preserving the
 existing one-shot fallback only for genuine protocol loss.
+Response bytes are accumulated in the generated adapter with geometric growth,
+so one-byte or irregular pipe chunks perform linear total copying. After a
+response, only the unread remainder survives and the buffer remains bounded by
+the 128 KiB response limit.
 Concurrent session updates keep the unchanged active-session pointer on a
 lock-free read fast path. If that optimistic read overlaps an atomic Windows
 publication, Reconc rechecks once under the existing active-session lock;

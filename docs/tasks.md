@@ -2,11 +2,10 @@
 
 ## Active
 
-- [~] 200 Recover hook workers after oversized frames -> tasks/200-recover-hook-workers-after-oversized-frames.md
+- [~] 201 Eliminate quadratic hook-worker frame assembly -> tasks/201-eliminate-quadratic-hook-worker-frame-assembly.md
 
 ## Queue
 
-- [ ] 201 Eliminate quadratic hook-worker frame assembly -> tasks/201-eliminate-quadratic-hook-worker-frame-assembly.md
 - [ ] 202 Revalidate TASK path components across reads -> tasks/202-revalidate-control-path-components-across-reads.md
 - [ ] 203 Make policy-source precedence truthful and canonical -> tasks/203-make-policy-source-precedence-truthful-and-canonical.md
 - [ ] 204 Reject fields unsupported by a rule kind -> tasks/204-reject-fields-unsupported-by-a-rule-kind.md
@@ -30,6 +29,7 @@
 
 ## Done
 
+- [x] 201 Eliminate quadratic hook-worker frame assembly -> tasks/done/201-eliminate-quadratic-hook-worker-frame-assembly.md
 - [x] 200 Recover hook workers after oversized frames -> tasks/done/200-recover-hook-workers-after-oversized-frames.md
 - [x] 199 Reuse stable stop-policy snapshots within an attempt -> tasks/done/199-reuse-stable-stop-policy-snapshots-within-an-attempt.md
 - [x] 198 Reuse one stop-attempt lockfile scan -> tasks/done/198-reuse-one-stop-attempt-lockfile-scan.md

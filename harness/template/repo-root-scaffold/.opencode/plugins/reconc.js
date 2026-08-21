@@ -240,19 +240,33 @@ const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessa
     } catch {}
   }
 
-  const appendBytes = (left, right) => {
-    const joined = new Uint8Array(left.length + right.length)
-    joined.set(left)
-    joined.set(right, left.length)
-    return joined
+  const appendWorkerBytes = (current, right) => {
+    const required = current.length + right.length
+    if (required > maxWorkerResponseBytes) return false
+    if (required > current.capacity) {
+      const capacity = Math.min(
+        maxWorkerResponseBytes,
+        Math.max(required, Math.max(1024, current.capacity * 2)),
+      )
+      const grown = new Uint8Array(capacity)
+      grown.set(current.buffer.subarray(0, current.length))
+      current.buffer = grown
+      current.capacity = capacity
+    }
+    current.buffer.set(right, current.length)
+    current.length = required
+    return true
   }
 
   const readWorkerLine = async (current) => {
     while (true) {
-      const newline = current.buffer.indexOf(10)
+      const newline = current.buffer.subarray(0, current.length).indexOf(10)
       if (newline >= 0) {
         let line = current.buffer.slice(0, newline)
-        current.buffer = current.buffer.slice(newline + 1)
+        const remainder = current.buffer.slice(newline + 1, current.length)
+        current.buffer = remainder
+        current.length = remainder.length
+        current.capacity = remainder.length
         if (line.length > 0 && line[line.length - 1] === 13) line = line.slice(0, -1)
         if (line.length === 0) throw workerError("protocol", "Reconc worker returned an empty frame")
         try {
@@ -264,10 +278,12 @@ const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessa
       const next = await current.reader.read()
       if (next.done) throw workerError("crash", "Reconc worker closed stdout")
       const bytes = next.value instanceof Uint8Array ? next.value : new Uint8Array(next.value)
-      if (current.buffer.length + bytes.length > maxWorkerResponseBytes) {
+      if (current.length + bytes.length > maxWorkerResponseBytes) {
         throw workerError("protocol", "Reconc worker response exceeded its frame limit")
       }
-      current.buffer = appendBytes(current.buffer, bytes)
+      if (!appendWorkerBytes(current, bytes)) {
+        throw workerError("protocol", "Reconc worker response exceeded its frame limit")
+      }
     }
   }
 
@@ -321,7 +337,7 @@ const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessa
       stderr: "pipe",
       killSignal: "SIGKILL",
     })
-    const current = { process, reader: process.stdout.getReader(), buffer: new Uint8Array() }
+    const current = { process, reader: process.stdout.getReader(), buffer: new Uint8Array(), length: 0, capacity: 0 }
     worker = current
     void drainWorkerStderr(process.stderr)
     const id = "ping-" + (++nextRequestID)

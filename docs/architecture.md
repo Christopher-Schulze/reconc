@@ -759,6 +759,11 @@ contents and yields one protocol-error response with an empty ID when the
 request identity cannot be proven. A bounded drain ceiling turns an
 unterminated or excessively long frame into terminal worker loss; a completed
 oversized frame leaves the stream synchronized for the next request.
+The generated JavaScript adapter accumulates response chunks in a geometrically
+growing bounded byte buffer and performs one line/remainder copy per frame;
+small stream chunks therefore cannot trigger quadratic prefix copying. The
+buffer is reduced to the unread remainder after each response and never grows
+beyond the 128 KiB response ceiling.
 Every policy check still performs bounded lock-byte and source-bundle identity
 reads. Changed lock bytes rebuild the plan; changed source identity invalidates
 it and fails closed until `reconc refresh`. Session state, taint, and binary
