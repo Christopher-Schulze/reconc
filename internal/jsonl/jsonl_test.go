@@ -271,10 +271,7 @@ func TestAppendTransactionRecoversCommitFailureWithoutRotation(t *testing.T) {
 	if err != nil || string(body) != "before\npublished\n" {
 		t.Fatalf("recovered live data = %q, err = %v", body, err)
 	}
-	info, err := os.Stat(path)
-	if err != nil || info.Mode().Perm() != 0o640 {
-		t.Fatalf("recovered live mode = %v, err = %v", info, err)
-	}
+	assertJSONLFileMode(t, path, 0o640)
 	assertNoAppendJournal(t, path, policy.MaxArchives)
 }
 

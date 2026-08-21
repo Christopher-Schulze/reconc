@@ -126,25 +126,21 @@ func TestAppendPublishesPrivateAuditLayoutAndMigratesLegacyModes(t *testing.T) {
 	if err := Append(repo, Entry{Event: "legacy", Decision: "pass"}, 0); err != nil {
 		t.Fatal(err)
 	}
-	assertMode(t, directory, 0o700)
+	assertPrivateDirectorySecurity(t, directory, 0o700)
 	for _, path := range []string{
 		filepath.Join(repo, AuditFileRelative),
 		filepath.Join(repo, AuditFileRelative+".lock"),
 		filepath.Join(repo, AuditHeadRelative),
 	} {
-		assertMode(t, path, 0o600)
+		assertPrivateFileSecurity(t, path, 0o600)
 	}
-	if err := os.Chmod(filepath.Join(repo, AuditFileRelative), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(directory, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	driftPrivateFileSecurity(t, filepath.Join(repo, AuditFileRelative), 0o644)
+	driftPrivateDirectorySecurity(t, directory, 0o755)
 	if err := Append(repo, Entry{Event: "migrated", Decision: "warn"}, 0); err != nil {
 		t.Fatal(err)
 	}
-	assertMode(t, directory, 0o700)
-	assertMode(t, filepath.Join(repo, AuditFileRelative), 0o600)
+	assertPrivateDirectorySecurity(t, directory, 0o700)
+	assertPrivateFileSecurity(t, filepath.Join(repo, AuditFileRelative), 0o600)
 	if entries, err := Tail(repo, TailOptions{}); err != nil || len(entries) != 2 {
 		t.Fatalf("migrated audit entries = %d, err=%v", len(entries), err)
 	}
@@ -185,9 +181,7 @@ func TestInspectRetentionUsesPrivateAuditLayout(t *testing.T) {
 		t.Fatal(err)
 	}
 	live := filepath.Join(repo, AuditFileRelative)
-	if err := os.Chmod(live, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	driftPrivateFileSecurity(t, live, 0o644)
 	result, err := InspectRetention(repo)
 	if err != nil {
 		t.Fatalf("InspectRetention: %v", err)
@@ -195,16 +189,5 @@ func TestInspectRetentionUsesPrivateAuditLayout(t *testing.T) {
 	if result != (jsonl.EnforceResult{}) {
 		t.Fatalf("InspectRetention result = %+v, want no cleanup", result)
 	}
-	assertMode(t, live, 0o600)
-}
-
-func assertMode(t *testing.T, path string, want os.FileMode) {
-	t.Helper()
-	info, err := os.Lstat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != want.Perm() {
-		t.Fatalf("%s mode = %04o, want %04o", path, info.Mode().Perm(), want.Perm())
-	}
+	assertPrivateFileSecurity(t, live, 0o600)
 }

@@ -173,7 +173,7 @@ func StoreSuccess(snapshot Snapshot, command, executionMode string, startedAt, c
 		return Proof{}, fmt.Errorf("command proof exceeds %d bytes", maxProofSize)
 	}
 	dir := proofDir(snapshot.RepoRoot)
-	if err := privatefs.SecureDirectory(dir); err != nil {
+	if err := privatefs.RepairDirectory(dir); err != nil {
 		return Proof{}, fmt.Errorf("secure command proof directory: %w", err)
 	}
 	path := filepath.Join(dir, proofIdentity(proof)+".json")
@@ -250,7 +250,7 @@ func proofDir(repoRoot string) string {
 
 func capture(repoRoot string) (Snapshot, error) {
 	project := retention.ProjectDir(retention.ResolveStateRoot(), repoRoot)
-	if err := privatefs.SecureDirectory(project); err != nil {
+	if err := privatefs.RepairDirectory(project); err != nil {
 		return Snapshot{}, fmt.Errorf("secure command proof state directory: %w", err)
 	}
 	lock, err := privatefs.OpenLock(filepath.Join(project, "command-proof.snapshot.lock"))

@@ -17,7 +17,7 @@ func TestCreatedArtifactDescriptorReconcilesWindowsWritableMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := record.file.Chmod(0o400); err != nil {
+	if err := record.parent.Chmod(record.name, 0o400); err != nil {
 		_ = record.close()
 		t.Fatal(err)
 	}

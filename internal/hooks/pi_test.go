@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -53,7 +54,11 @@ func TestInspectPiProjectTrustStates(t *testing.T) {
 			t.Fatal(err)
 		}
 		status := statusForKind(t, repo, KindPi)
-		if status.State != StateInstalled || status.Configured || !strings.Contains(status.Detail, "ask for project trust") || !strings.Contains(status.Remediation, "pi --approve") {
+		if status.State != StateInstalled || status.Configured ||
+			!strings.Contains(status.Detail, "ask for project trust") ||
+			status.remediation.Disposition != remediationHostAction ||
+			status.remediation.Command.Program != "pi" ||
+			!slices.Equal(status.remediation.Command.Args, []string{"--approve"}) {
 			t.Fatalf("Pi default trust status = %+v", status)
 		}
 	})

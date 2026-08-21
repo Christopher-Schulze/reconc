@@ -38,19 +38,41 @@ func TestPOSIXRemediationCommandRoundTripsAdversarialArguments(t *testing.T) {
 	}
 }
 
-func TestPowerShellRemediationUsesLiteralArgumentsAndInvocationOperator(t *testing.T) {
+func TestPowerShellRemediationUsesLiteralProcessStartInfo(t *testing.T) {
 	command := remediationCommand{
 		Program: `C:\\Program Files\\reconc'edge.exe`,
 		Args:    []string{"hook", "install", "codex", "C:\\repo $x; `boom`\nnext", "--force"},
 	}
 	rendered, language := renderRemediationCommand(command, "windows")
-	if language != "powershell" || !strings.HasPrefix(rendered, "& '") {
+	if language != "powershell" || !strings.Contains(rendered, "[System.Diagnostics.ProcessStartInfo]::new()") {
 		t.Fatalf("PowerShell rendering = %q (%s)", rendered, language)
 	}
-	for _, required := range []string{`reconc''edge.exe'`, `$x; ` + "`boom`" + "\nnext'", "'--force'"} {
+	for _, required := range []string{`reconc''edge.exe'`, `$x; ` + "`boom`" + "\nnext", "--force", "UseShellExecute = $false"} {
 		if !strings.Contains(rendered, required) {
 			t.Fatalf("PowerShell rendering missing %q: %s", required, rendered)
 		}
+	}
+}
+
+func TestQuoteWindowsCommandLineArgument(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "empty", value: "", want: `""`},
+		{name: "bare", value: "plain", want: "plain"},
+		{name: "space", value: "space path", want: `"space path"`},
+		{name: "embedded quote", value: `double"quote`, want: `double\"quote`},
+		{name: "bare backslashes", value: `back\\slash`, want: `back\\slash`},
+		{name: "quoted trailing backslash", value: `space path\`, want: `"space path\\"`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := quoteWindowsCommandLineArgument(test.value); got != test.want {
+				t.Fatalf("quoteWindowsCommandLineArgument(%q) = %q, want %q", test.value, got, test.want)
+			}
+		})
 	}
 }
 

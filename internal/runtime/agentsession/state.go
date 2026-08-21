@@ -42,6 +42,7 @@ import (
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/filelock"
 	"reconc.dev/reconc/internal/pathidentity"
+	"reconc.dev/reconc/internal/privatefs"
 	"reconc.dev/reconc/internal/retention"
 )
 
@@ -441,21 +442,7 @@ func saveSessionStateLockedIfChanged(state SessionState) (bool, error) {
 }
 
 func ensurePrivateStateDir(path string) error {
-	info, err := os.Stat(path)
-	if err == nil {
-		if !info.IsDir() {
-			return fmt.Errorf("private state path is not a directory: %s", path)
-		}
-		if filepath.Separator == '\\' || info.Mode().Perm() == 0o700 {
-			return nil
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if err := os.MkdirAll(path, 0o700); err != nil {
-		return err
-	}
-	return os.Chmod(path, 0o700)
+	return privatefs.RepairDirectory(path)
 }
 
 func saveSessionState(state SessionState) error {

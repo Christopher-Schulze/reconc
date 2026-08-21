@@ -48,7 +48,7 @@ func NewSourceLoadContext(repoStartPath string) (*SourceLoadContext, error) {
 	}
 	if discovery.ConfigPath != nil {
 		context.configPath = *discovery.ConfigPath
-		context.configIdentity, err = sourcePathInfo(discovery.RepoRoot, context.configPath)
+		context.configIdentity, err = captureSourcePathInfo(discovery.RepoRoot, context.configPath)
 		if err != nil {
 			return nil, fmt.Errorf("capture compiler config identity: %w", err)
 		}
@@ -117,6 +117,21 @@ func defaultPolicyMatches(root string) (map[string][]string, error) {
 
 func sourcePathInfo(root, relative string) (os.FileInfo, error) {
 	return os.Stat(filepath.Join(root, filepath.FromSlash(relative)))
+}
+
+func captureSourcePathInfo(root, relative string) (os.FileInfo, error) {
+	first, err := sourcePathInfo(root, relative)
+	if err != nil {
+		return nil, err
+	}
+	second, err := sourcePathInfo(root, relative)
+	if err != nil {
+		return nil, err
+	}
+	if !sameSourceInfo(first, second) {
+		return nil, fmt.Errorf("source identity changed during capture")
+	}
+	return first, nil
 }
 
 func sameSourceInfo(left, right os.FileInfo) bool {

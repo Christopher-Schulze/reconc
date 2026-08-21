@@ -284,6 +284,11 @@ require_text "$release_workflow" "    needs: [windows-runtime, langchain-runtime
 require_text "$release_workflow" "      - name: Test natively"
 require_text "$release_workflow" "(cd harness/template && go test ./...)"
 require_text "$release_workflow" "./scripts/tests/test-windows-installer.ps1"
+for workflow in "$ci_workflow" "$release_workflow"; do
+  require_text "$workflow" "      - name: Windows runtime preflight"
+  require_text "$workflow" "        timeout-minutes: 4"
+  require_text "$workflow" "run: ./scripts/tests/windows-runtime-preflight.sh"
+done
 # shellcheck disable=SC2016 # Match the workflow shell expression literally.
 require_text "$release_workflow" 'make verify-release VERSION="$version"'
 if grep -Fq './scripts/release/verify-artifacts.sh dist reconc' "$release_workflow"; then
@@ -342,6 +347,8 @@ if grep -Fq 'staticcheck@latest' "$ci_workflow"; then
 fi
 bash -n "$root/scripts/release/publish-github-release.sh" \
   || fail "release publication helper has invalid Bash syntax"
+bash -n "$root/scripts/tests/windows-runtime-preflight.sh" \
+  || fail "Windows runtime preflight has invalid Bash syntax"
 "$root/scripts/tests/release-publication.sh" \
   || fail "release publication transition tests failed"
 

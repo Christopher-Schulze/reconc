@@ -12,7 +12,7 @@ func validatePrivateFile(file *os.File, info os.FileInfo) error {
 	if err := validatePrivateFileAllowLinks(file, info); err != nil {
 		return err
 	}
-	return validatePrivateLinkCount(info)
+	return validatePrivateLinkCount(file, info)
 }
 
 func validatePrivateFileAllowLinks(file *os.File, info os.FileInfo) error {
@@ -25,7 +25,7 @@ func validatePrivateFileAllowLinks(file *os.File, info os.FileInfo) error {
 	return validatePrivateFileACL(file)
 }
 
-func validatePrivateLinkCount(info os.FileInfo) error {
+func validatePrivateLinkCount(_ *os.File, info os.FileInfo) error {
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok || stat == nil || stat.Nlink != 1 {
 		return fmt.Errorf("private file must have exactly one directory link")

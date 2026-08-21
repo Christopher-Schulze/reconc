@@ -4,7 +4,7 @@ package atomicfile
 
 import "os"
 
-func reconcileMode(file *os.File, current, requested os.FileMode) (bool, error) {
+func reconcileMode(_ *os.Root, _ string, file *os.File, current, requested os.FileMode) (bool, error) {
 	if current.Perm() == requested.Perm() {
 		return false, nil
 	}

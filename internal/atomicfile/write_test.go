@@ -105,12 +105,8 @@ func TestPublicationCreatesExplicitPublicAndPrivateParents(t *testing.T) {
 	if _, err := WritePrivateIfChanged(private, []byte("private\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if info, err := os.Stat(filepath.Dir(public)); err != nil || info.Mode().Perm() != PublicParentMode {
-		t.Fatalf("public parent mode = %v, err=%v", info, err)
-	}
-	if info, err := os.Stat(filepath.Dir(private)); err != nil || info.Mode().Perm() != PrivateParentMode {
-		t.Fatalf("private parent mode = %v, err=%v", info, err)
-	}
+	assertPublicationParent(t, filepath.Dir(public), PublicParentMode)
+	assertPublicationParent(t, filepath.Dir(private), PrivateParentMode)
 }
 
 func TestPublicationRejectsNestedParentSymlink(t *testing.T) {

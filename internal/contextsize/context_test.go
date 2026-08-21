@@ -210,7 +210,7 @@ func TestScanSparseHugeFileIsExplicitlyOverBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := file.Truncate(1 << 40); err != nil {
+	if err := truncateSparseFile(file, 1<<40); err != nil {
 		file.Close()
 		t.Fatal(err)
 	}

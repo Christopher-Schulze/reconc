@@ -72,7 +72,7 @@ func Store(repoRoot, event, candidateFingerprint string, report *runtime.CheckRe
 		return fmt.Errorf("policy decision proof exceeds %d bytes", maxProofBytes)
 	}
 	dir := filepath.Dir(Path(repoRoot))
-	if err := privatefs.SecureDirectory(dir); err != nil {
+	if err := privatefs.RepairDirectory(dir); err != nil {
 		return fmt.Errorf("secure policy decision proof directory: %w", err)
 	}
 	if _, err := privatefs.WritePrivateIfChanged(Path(repoRoot), body, 0o600); err != nil {

@@ -288,7 +288,7 @@ func withReceiptLock(paths receiptPaths, operation func() error) (resultErr erro
 }
 
 func ensurePrivateDirectory(path string) error {
-	return privatefs.SecureDirectory(path)
+	return privatefs.RepairDirectory(path)
 }
 
 func loadReceiptFile(path string) (*Receipt, error) {

@@ -32,6 +32,16 @@ func newEvaluationPathStateWithRootResolver(repoRoot string, resolveRoot func(st
 	if err != nil {
 		return nil, fmt.Errorf("inspect resolved repo filesystem identity: %w", err)
 	}
+	// Go resolves Windows file IDs lazily inside os.SameFile. Compare two
+	// known-current snapshots now so the stored identity is frozen before the
+	// lexical root can be replaced during evaluation.
+	confirmation, err := os.Stat(resolvedRoot)
+	if err != nil {
+		return nil, fmt.Errorf("confirm resolved repo filesystem identity: %w", err)
+	}
+	if !os.SameFile(identity, confirmation) {
+		return nil, fmt.Errorf("resolved repository root changed during identity capture")
+	}
 	return &evaluationPathState{
 		repoRoot: repoRoot, resolvedRoot: resolvedRoot, rootIdentity: identity,
 		prospective: pathidentity.NewProspectiveResolver(),

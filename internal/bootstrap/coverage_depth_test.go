@@ -265,6 +265,9 @@ func TestBootstrapTransactionHelpersPreserveCreateOnlyBoundaries(t *testing.T) {
 	if body, err := os.ReadFile(record.path); err != nil || string(body) != "payload" {
 		t.Fatalf("published body = %q, %v", body, err)
 	}
+	if err := record.close(); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, _, err := publishArtifact(root, artifact, artifact.path, expected, digest); err == nil || !strings.Contains(err.Error(), "publish bootstrap artifact") {
 		t.Fatalf("existing target publication error = %v", err)

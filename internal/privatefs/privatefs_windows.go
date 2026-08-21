@@ -13,7 +13,10 @@ import (
 )
 
 func validatePrivateFile(file *os.File, info os.FileInfo) error {
-	return validatePrivateFileAllowLinks(file, info)
+	if err := validatePrivateFileAllowLinks(file, info); err != nil {
+		return err
+	}
+	return validatePrivateLinkCount(file, info)
 }
 
 func validatePrivateFileAllowLinks(file *os.File, info os.FileInfo) error {
@@ -23,7 +26,19 @@ func validatePrivateFileAllowLinks(file *os.File, info os.FileInfo) error {
 	return validatePrivateWindowsHandle(file, false)
 }
 
-func validatePrivateLinkCount(os.FileInfo) error { return nil }
+func validatePrivateLinkCount(file *os.File, _ os.FileInfo) error {
+	if file == nil {
+		return fmt.Errorf("private file handle is unavailable")
+	}
+	var info windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(windows.Handle(file.Fd()), &info); err != nil {
+		return fmt.Errorf("inspect private Windows file links: %w", err)
+	}
+	if info.NumberOfLinks != 1 {
+		return fmt.Errorf("private file must have exactly one directory link")
+	}
+	return nil
+}
 
 func validateDirectorySecurity(file *os.File, info os.FileInfo) error {
 	if info == nil || !info.IsDir() {
@@ -48,7 +63,19 @@ func secureWindowsHandle(file *os.File, directory bool) error {
 	if err != nil {
 		return fmt.Errorf("build private Windows ACL: %w", err)
 	}
-	if err := windows.SetSecurityInfo(windows.Handle(file.Fd()), windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, acl, nil); err != nil {
+	// PROTECTED_DACL_SECURITY_INFORMATION is one of the security-information
+	// flags that SetNamedSecurityInfo persists for filesystem objects. Assigning
+	// the owner explicitly also covers elevated Windows tokens whose default
+	// object owner is the Administrators group rather than the token user. The
+	// caller opened file without following reparse points and compares its
+	// identity with the path before and after this operation.
+	securityInformation := windows.SECURITY_INFORMATION(windows.OWNER_SECURITY_INFORMATION |
+		windows.DACL_SECURITY_INFORMATION |
+		windows.PROTECTED_DACL_SECURITY_INFORMATION)
+	if err := windows.SetNamedSecurityInfo(
+		file.Name(), windows.SE_FILE_OBJECT, securityInformation,
+		sid, nil, acl, nil,
+	); err != nil {
 		return fmt.Errorf("set private Windows ACL: %w", err)
 	}
 	runtime.KeepAlive(sid)
@@ -61,7 +88,7 @@ func secureFileDescriptor(file *os.File) error      { return secureWindowsHandle
 func openDirectoryDescriptor(path string) (*os.File, error) {
 	return openWindowsPrivateDescriptor(
 		path,
-		windows.GENERIC_READ|windows.WRITE_DAC,
+		windows.GENERIC_READ|windows.WRITE_DAC|windows.WRITE_OWNER,
 		windows.OPEN_EXISTING,
 		windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT,
 	)
@@ -74,7 +101,7 @@ func openPrivateFileDescriptor(path string, create bool) (*os.File, error) {
 	}
 	return openWindowsPrivateDescriptor(
 		path,
-		windows.GENERIC_READ|windows.GENERIC_WRITE|windows.WRITE_DAC,
+		windows.GENERIC_READ|windows.GENERIC_WRITE|windows.WRITE_DAC|windows.WRITE_OWNER,
 		disposition,
 		windows.FILE_ATTRIBUTE_NORMAL|windows.FILE_FLAG_OPEN_REPARSE_POINT,
 	)

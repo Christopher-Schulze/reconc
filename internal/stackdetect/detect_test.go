@@ -139,6 +139,19 @@ func TestDetectIgnoresDependenciesBuildOutputAndUnpairedBunLocks(t *testing.T) {
 	}
 }
 
+func TestPathDepthUsesNormalizedSlashForm(t *testing.T) {
+	for relative, want := range map[string]int{
+		"go.mod":              1,
+		"services/api/go.mod": 3,
+		"a/b/c/d/e/f":         6,
+		"a/b/c/d/e/f/g":       7,
+	} {
+		if got := pathDepth(relative); got != want {
+			t.Errorf("pathDepth(%q) = %d, want %d", relative, got, want)
+		}
+	}
+}
+
 func TestDetectReportsManagersMarkersAndSameDirectoryAmbiguity(t *testing.T) {
 	root := t.TempDir()
 	writeDetectionFile(t, root, "AGENTS.md", "# Context\n")

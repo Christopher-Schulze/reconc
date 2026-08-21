@@ -14,7 +14,11 @@ func TestActiveSessionConcurrentWritersShareOnePointerLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	const writers = 24
-	const rounds = 40
+	// Keep the full writer fan-in that reproduces cross-session pointer races,
+	// but do not turn a correctness regression into a 960-fsync soak test. Four
+	// publication generations exercise repeated lock handoff without starving a
+	// valid waiter behind the production 30-second contention bound on Windows.
+	const rounds = 4
 	start := make(chan struct{})
 	errors := make(chan error, writers*rounds)
 	var wait sync.WaitGroup

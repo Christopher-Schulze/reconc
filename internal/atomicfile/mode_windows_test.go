@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"golang.org/x/sys/windows"
 )
 
 func TestWriteIfChangedIgnoresUnrepresentablePOSIXModeDrift(t *testing.T) {
@@ -28,22 +30,27 @@ func TestWriteIfChangedReconcilesRepresentableReadOnlyDrift(t *testing.T) {
 	if err != nil || !written {
 		t.Fatalf("make read-only: written=%v err=%v", written, err)
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm()&0o200 != 0 {
-		t.Fatalf("file remains writable: mode=%#o", info.Mode().Perm())
+	if !windowsFileReadOnly(t, path) {
+		t.Fatal("file remains writable")
 	}
 	written, err = WriteIfChanged(path, []byte("private\n"), 0o600)
 	if err != nil || !written {
 		t.Fatalf("make writable: written=%v err=%v", written, err)
 	}
-	info, err = os.Stat(path)
+	if windowsFileReadOnly(t, path) {
+		t.Fatal("file remains read-only")
+	}
+}
+
+func windowsFileReadOnly(t *testing.T, path string) bool {
+	t.Helper()
+	name, err := windows.UTF16PtrFromString(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm()&0o200 == 0 {
-		t.Fatalf("file remains read-only: mode=%#o", info.Mode().Perm())
+	attributes, err := windows.GetFileAttributes(name)
+	if err != nil {
+		t.Fatal(err)
 	}
+	return attributes&windows.FILE_ATTRIBUTE_READONLY != 0
 }

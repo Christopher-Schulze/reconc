@@ -390,7 +390,9 @@ func appendUnique(values []string, value string) []string {
 }
 
 func pathDepth(relative string) int {
-	return strings.Count(filepath.Clean(relative), string(filepath.Separator)) + 1
+	// Detect converts repository-relative paths to slash form before applying
+	// the platform-independent scan bound.
+	return strings.Count(relative, "/") + 1
 }
 
 func regularFile(path string) bool {

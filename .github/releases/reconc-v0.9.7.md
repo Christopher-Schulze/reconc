@@ -36,12 +36,15 @@ publishing the rule-kind field matrix under a new schema identity.
   private on-disk layout for audit evidence.
 - Atomic state, lock, bootstrap, and audit publication verifies parent and open
   file identities rather than trusting path names across filesystem races.
-- Windows private-state descriptors request the exact DACL-update rights before
-  applying protected current-user-only ACLs. Unsupported directory-handle
+- Windows private state persists and verifies protected current-user-only DACLs
+  through the supported named-security contract after descriptor identity
+  binding. Readonly drift is repaired relative to the bound parent with Go
+  1.27 `os.Root.Chmod`. Unsupported directory-handle
   flushes no longer turn a successful publication into an access denial;
   payload sync remains, replacement paths retain write-through behavior, and
   Go toolchain notices resolve setup-go junction identity before strict license
-  reads.
+  reads. A focused native Windows preflight runs immediately after module
+  download, before Node/Bun setup and the complete native suite.
 - Production file-lock acquisition is bounded, cancellation-aware, and backed
   by a lifecycle-managed same-process gate without changing the authoritative
   cross-process deadline.

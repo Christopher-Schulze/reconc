@@ -80,14 +80,11 @@ func renderRemediation(plan remediationPlan, operatingSystem string) string {
 }
 
 func renderRemediationCommand(command remediationCommand, operatingSystem string) (string, string) {
+	if operatingSystem == "windows" {
+		return renderPowerShellProcess(command), "powershell"
+	}
 	values := append([]string{command.Program}, command.Args...)
 	quoted := make([]string, len(values))
-	if operatingSystem == "windows" {
-		for index, value := range values {
-			quoted[index] = quotePowerShellArgument(value)
-		}
-		return "& " + strings.Join(quoted, " "), "powershell"
-	}
 	for index, value := range values {
 		quoted[index] = quotePOSIXArgument(value)
 	}
@@ -103,6 +100,62 @@ func quotePOSIXArgument(value string) string {
 
 func quotePowerShellArgument(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
+func renderPowerShellProcess(command remediationCommand) string {
+	arguments := make([]string, len(command.Args))
+	for index, argument := range command.Args {
+		arguments[index] = quoteWindowsCommandLineArgument(argument)
+	}
+	return strings.Join([]string{
+		"$startInfo = [System.Diagnostics.ProcessStartInfo]::new()",
+		"$startInfo.FileName = " + quotePowerShellArgument(command.Program),
+		"$startInfo.UseShellExecute = $false",
+		"$startInfo.Arguments = " + quotePowerShellArgument(strings.Join(arguments, " ")),
+		"$process = [System.Diagnostics.Process]::Start($startInfo)",
+		"if ($null -eq $process) { throw 'failed to start remediation process' }",
+		"$process.WaitForExit()",
+		"exit $process.ExitCode",
+	}, "; ")
+}
+
+// quoteWindowsCommandLineArgument implements the CommandLineToArgvW-compatible
+// escaping used by Go's Windows process launcher. ProcessStartInfo.Arguments
+// accepts the resulting complete native command line even in Windows
+// PowerShell 5.1, whose direct native-command binder loses several edge cases.
+func quoteWindowsCommandLineArgument(value string) string {
+	if value == "" {
+		return `""`
+	}
+	needsQuotes := strings.ContainsAny(value, " \t")
+	needsEscaping := strings.ContainsAny(value, `\"`)
+	if !needsQuotes && !needsEscaping {
+		return value
+	}
+	var result strings.Builder
+	if needsQuotes {
+		result.WriteByte('"')
+	}
+	slashes := 0
+	for _, char := range value {
+		switch char {
+		case '\\':
+			slashes++
+			result.WriteRune(char)
+		case '"':
+			result.WriteString(strings.Repeat(`\`, slashes+1))
+			slashes = 0
+			result.WriteRune(char)
+		default:
+			slashes = 0
+			result.WriteRune(char)
+		}
+	}
+	if needsQuotes {
+		result.WriteString(strings.Repeat(`\`, slashes))
+		result.WriteByte('"')
+	}
+	return result.String()
 }
 
 func shellSafeBareArgument(value string) bool {

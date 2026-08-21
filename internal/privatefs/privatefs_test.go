@@ -30,6 +30,31 @@ func TestSecureDirectoryRejectsSymlinkAndIrregularTargets(t *testing.T) {
 	}
 }
 
+func TestValidateDirectoryEntryRejectsReplacement(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "private")
+	if err := os.Mkdir(path, PrivateDirectoryMode); err != nil {
+		t.Fatal(err)
+	}
+	opened, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := os.Stat(path)
+	if err != nil || !os.SameFile(opened, current) {
+		t.Fatalf("freeze private directory identity: %v", err)
+	}
+	if err := os.Rename(path, filepath.Join(root, "moved")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, PrivateDirectoryMode); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateDirectoryEntry(path, opened); err == nil {
+		t.Fatal("replacement private directory entry was accepted")
+	}
+}
+
 func TestOpenLockRepairsModeAndRejectsHardLinkAndSymlink(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "nested", "state.lock")
@@ -46,13 +71,7 @@ func TestOpenLockRepairsModeAndRejectsHardLinkAndSymlink(t *testing.T) {
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != PrivateFileMode.Perm() {
-		t.Fatalf("lock mode = %04o, want 0600", info.Mode().Perm())
-	}
+	assertPrivateLockSecurity(t, path)
 	hardlink := filepath.Join(root, "hardlink.lock")
 	if err := os.Link(path, hardlink); err != nil {
 		t.Fatal(err)
@@ -95,7 +114,11 @@ func TestConcurrentFirstLockCreationPublishesOneValidIdentity(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := OpenExistingLock(path); err != nil {
+	file, err := OpenExistingLock(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
 }

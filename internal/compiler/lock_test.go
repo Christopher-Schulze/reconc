@@ -155,10 +155,7 @@ func TestAcquireCompileLockRejectsSymlinksWithoutChangingTarget(t *testing.T) {
 	if err != nil || string(got) != string(want) {
 		t.Fatalf("symlink target changed: body=%q err=%v", got, err)
 	}
-	info, err := os.Stat(target)
-	if err != nil || info.Mode().Perm() != 0o640 {
-		t.Fatalf("symlink target mode changed: info=%v err=%v", info, err)
-	}
+	assertRepresentableFileMode(t, target, 0o640)
 }
 
 func TestAcquireCompileLockRejectsSymlinkedParentWithoutCreatingTarget(t *testing.T) {

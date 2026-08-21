@@ -1,7 +1,7 @@
 // Package privatefs provides one identity-checked boundary for Reconc-owned
 // private state. Every directory and lock returned by this package is opened,
-// checked against its directory entry, secured through the descriptor, and
-// checked again before the descriptor is returned.
+// checked against its directory entry, secured while that descriptor binds its
+// identity, and checked again before the descriptor is returned.
 package privatefs
 
 import (
@@ -28,8 +28,8 @@ func EnsureDirectory(path string) error {
 }
 
 // RepairDirectory creates missing components privately and repairs only the
-// final existing directory through its opened descriptor before validating
-// owner, mode, identity, and platform security. Existing ancestors are
+// final existing directory while holding its opened descriptor before
+// validating owner, mode, identity, and platform security. Existing ancestors are
 // identity-checked but never chmodded or given a replacement ACL.
 func RepairDirectory(path string) error {
 	return ensureDirectory(path, true)
@@ -45,8 +45,10 @@ func ensureDirectory(path string, repairExisting bool) error {
 		current = filepath.Join(current, component)
 		_, statErr := os.Lstat(current)
 		created := errors.Is(statErr, os.ErrNotExist)
-		secureMode := created || repairExisting && index == len(components)-1
-		if err := ensureDirectoryComponent(current, secureMode, secureMode || index == len(components)-1); err != nil {
+		final := index == len(components)-1
+		secureMode := created || repairExisting && final
+		repairFinal := repairExisting && final && !created
+		if err := ensureDirectoryComponent(current, secureMode, secureMode || final, repairFinal); err != nil {
 			return fmt.Errorf("secure private directory %s: %w", current, err)
 		}
 	}
@@ -166,7 +168,7 @@ func splitComponents(path string) []string {
 	return parts
 }
 
-func ensureDirectoryComponent(path string, secureMode, validateSecurity bool) error {
+func ensureDirectoryComponent(path string, secureMode, validateSecurity, repairExisting bool) error {
 	if err := os.Mkdir(path, PrivateDirectoryMode.Perm()); err != nil && !errors.Is(err, os.ErrExist) {
 		return fmt.Errorf("create directory: %w", err)
 	}
@@ -178,6 +180,17 @@ func ensureDirectoryComponent(path string, secureMode, validateSecurity bool) er
 	secured, err := file.Stat()
 	if err != nil {
 		return fmt.Errorf("inspect secured directory: %w", err)
+	}
+	if err := validateDirectoryIdentity(path, info, secured); err != nil {
+		return err
+	}
+	if err := validateDirectoryEntry(path, secured); err != nil {
+		return err
+	}
+	if repairExisting {
+		if err := validateDirectorySecurity(file, secured); err == nil {
+			return nil
+		}
 	}
 	if secureMode {
 		if err := file.Chmod(PrivateDirectoryMode); err != nil {
@@ -191,13 +204,8 @@ func ensureDirectoryComponent(path string, secureMode, validateSecurity bool) er
 			return fmt.Errorf("inspect secured directory: %w", err)
 		}
 	}
-	if err := validateDirectoryIdentity(path, info, secured); err != nil {
-		return err
-	}
 	if validateSecurity {
-		if err := validateDirectorySecurity(file, secured); err != nil {
-			return err
-		}
+		return validateDirectoryDescriptor(path, file, info, secured)
 	}
 	return nil
 }
@@ -236,7 +244,19 @@ func validateDirectoryDescriptor(path string, file *os.File, before, after os.Fi
 	if err := validateDirectoryIdentity(path, before, after); err != nil {
 		return err
 	}
+	if err := validateDirectoryEntry(path, after); err != nil {
+		return err
+	}
 	return validateDirectorySecurity(file, after)
+}
+
+func validateDirectoryEntry(path string, opened os.FileInfo) error {
+	current, err := os.Lstat(path)
+	if err != nil || current.Mode()&os.ModeSymlink != 0 || !current.IsDir() ||
+		opened == nil || !os.SameFile(opened, current) {
+		return errors.Join(fmt.Errorf("private directory %s changed identity", path), err)
+	}
+	return nil
 }
 
 func validateDirectoryIdentity(path string, before, after os.FileInfo) error {
@@ -274,7 +294,7 @@ func openPrivateFile(path string, create, singleLink bool) (*os.File, error) {
 		return nil, errors.Join(fmt.Errorf("private lock changed identity while opening"), statErr, currentErr, file.Close())
 	}
 	if singleLink {
-		if err := validatePrivateLinkCount(opened); err != nil {
+		if err := validatePrivateLinkCount(file, opened); err != nil {
 			return nil, errors.Join(err, file.Close())
 		}
 	}

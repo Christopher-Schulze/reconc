@@ -43,6 +43,33 @@ func TestDirectoryCreationValidationAndRepairBoundaries(t *testing.T) {
 	}
 }
 
+func TestDirectoryDescriptorRejectsReplacedPathAfterOpen(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "private")
+	if err := RepairDirectory(path); err != nil {
+		t.Fatal(err)
+	}
+	file, opened, err := openDirectory(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = file.Close() })
+	moved := filepath.Join(root, "moved")
+	if err := os.Rename(path, moved); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, PrivateDirectoryMode); err != nil {
+		t.Fatal(err)
+	}
+	after, err := file.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateDirectoryDescriptor(path, file, opened, after); err == nil {
+		t.Fatal("replaced private directory path was accepted")
+	}
+}
+
 func assertDirectoryMode(t *testing.T, path string, want os.FileMode) {
 	t.Helper()
 	info, err := os.Stat(path)

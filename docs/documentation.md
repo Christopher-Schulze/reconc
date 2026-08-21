@@ -476,8 +476,11 @@ pass. `install-cli` cannot claim an unsupported ownership type.
 
 Private state directories and locks are created through the shared
 `internal/privatefs` boundary. It rejects symlink, irregular, wrong-owner, and
-unexpected hard-link objects; applies private mode/security through opened
-descriptors; and revalidates identities before a lock is returned. Legacy
+unexpected hard-link objects. Unix applies and validates private modes through
+opened descriptors. Windows first binds a no-follow descriptor, applies the
+protected current-user-only DACL through the supported named filesystem
+security operation, then validates that DACL through the opened handle and
+revalidates path identity before returning. Legacy
 private directories may be repaired only at their intended boundary. Receipt,
 retention, command-proof, policy-proof, and action-state paths retain their
 existing locations, names, retention behavior, and JSON contracts.
@@ -1004,6 +1007,14 @@ The Go binary and `.exe` or `.com` policy scripts run natively. Shell hook
 wrappers plus `.sh` and extensionless policy scripts require `sh` on `PATH`;
 Git for Windows supplies it. CI runs the native Windows unit suite, while the
 clean-repository self-host golden path currently runs on Ubuntu and macOS.
+Windows cannot represent POSIX permission bits: Reconc validates protected
+current-user-only DACLs for private state and uses the readonly attribute as
+the representable atomic-file mode boundary. The Windows job runs a focused
+four-minute native filesystem, hook, and runtime preflight immediately after
+Go module download, before Node and Bun setup, then retains the complete native
+suite and installer coverage. The complete Windows suite caps package-level
+parallelism at two so real lifecycle deadlines are not invalidated by unrelated
+CPU- and filesystem-heavy packages competing on the hosted runner.
 
 ### Is the private production repository public?
 
@@ -2668,7 +2679,9 @@ foreign targets and ambiguous legacy duplicates receive manual ownership
 guidance. Commands render as dynamically fenced POSIX-sh or PowerShell syntax,
 so repository paths containing whitespace, quotes, shell metacharacters,
 backticks, backslashes, or newlines remain literal copyable arguments without
-breaking Markdown.
+breaking Markdown. Windows rendering uses `ProcessStartInfo` plus the native
+Windows command-line escaping contract, avoiding Windows PowerShell 5.1's
+lossy direct native-command argument binder while preserving empty arguments.
 Human output keeps only the seen/expected count and last event so large route
 registries do not dominate the terminal. A route counts as installed only when
 the artifact carries it as a complete token: many routes are prefixes of a
@@ -3582,7 +3595,10 @@ CI checks:
   binary version/help smoke and native PowerShell installer success, malformed
   manifest, missing asset, checksum, execution, locked/unwritable target,
   attestation, cleanup, and existing-install preservation paths;
-  shell hook wrappers and shell policy scripts use the documented `sh` runtime
+  a focused four-minute native runtime preflight runs immediately after module
+  download and before Node/Bun provisioning, while the complete suite remains
+  authoritative with two package test binaries at a time; shell hook wrappers
+  and shell policy scripts use the documented `sh` runtime.
 - push and pull-request checks exercise the Windows installer entirely against
   the candidate binary and local fixtures, so an unpublished release candidate
   never depends on a nonexistent remote asset. After publication, a manual CI

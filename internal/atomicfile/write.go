@@ -43,7 +43,7 @@ func writeIfChanged(path string, data []byte, mode, parentMode os.FileMode) (cha
 			if err := parent.validate(); err != nil {
 				return false, errors.Join(err, currentFile.Close())
 			}
-			modeChanged, modeErr := reconcileMode(currentFile, currentInfo.Mode(), mode)
+			modeChanged, modeErr := reconcileMode(directory, name, currentFile, currentInfo.Mode(), mode)
 			validationErr := validateCurrent(directory, name, currentInfo)
 			parentErr := parent.validate()
 			closeErr := currentFile.Close()

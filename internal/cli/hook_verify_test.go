@@ -24,7 +24,7 @@ func TestHookVerifyOfflineCoversSharedMatrixWithoutLiveClaims(t *testing.T) {
 		t.Fatalf("decode report: %v\n%s", err, stdout.String())
 	}
 	if !report.Complete || report.Mode != "offline" || len(report.Results) != len(hooks.VerificationSurfaces()) {
-		t.Fatalf("offline report = complete=%t mode=%s results=%d", report.Complete, report.Mode, len(report.Results))
+		t.Fatalf("offline report = complete=%t mode=%s results=%d degraded=%+v", report.Complete, report.Mode, len(report.Results), degradedHookVerificationResults(report.Results))
 	}
 	for _, result := range report.Results {
 		if !result.Configured || !result.Discoverable || !result.SyntheticEnforced || result.Loaded || result.Observed || result.Enforced || result.Degraded {
@@ -43,6 +43,16 @@ func TestHookVerifyOfflineCoversSharedMatrixWithoutLiveClaims(t *testing.T) {
 			t.Fatalf("offline report exposed private probe material %q", forbidden)
 		}
 	}
+}
+
+func degradedHookVerificationResults(results []hookVerificationResult) []hookVerificationResult {
+	degraded := make([]hookVerificationResult, 0)
+	for _, result := range results {
+		if !hookVerificationResultComplete(result) {
+			degraded = append(degraded, result)
+		}
+	}
+	return degraded
 }
 
 func TestHookVerifyLiveRequiresExactApprovalAndSurface(t *testing.T) {
