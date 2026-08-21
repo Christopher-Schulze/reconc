@@ -310,21 +310,21 @@ func TestEvaluatorFailureOutcomesAreFailClosed(t *testing.T) {
 	}
 }
 
-func TestEvaluatorRejectsCorruptedCompiledState(t *testing.T) {
+func TestNewEvaluatorRejectsMalformedCompiledPlan(t *testing.T) {
 	t.Parallel()
 	pattern := testStringValue(t, "prod-[0-9]+")
 	tests := []struct {
 		name   string
 		rule   Rule
-		mutate func(*Evaluator)
+		mutate func(*CompiledPlan)
 	}{
 		{
 			name: "unknown condition kind",
 			rule: testRule("condition", DecisionBlock, Predicate{
 				Source: SourceArguments, Pointer: "/target", Op: OperatorExists,
 			}),
-			mutate: func(evaluator *Evaluator) {
-				evaluator.rules[0].Condition.Kind = ConditionKind("corrupt")
+			mutate: func(compiled *CompiledPlan) {
+				compiled.plan.Rules[0].When = &Condition{}
 			},
 		},
 		{
@@ -332,8 +332,11 @@ func TestEvaluatorRejectsCorruptedCompiledState(t *testing.T) {
 			rule: testRule("condition", DecisionBlock, Predicate{
 				Source: SourceArguments, Pointer: "/target", Op: OperatorRegex, Value: &pattern,
 			}),
-			mutate: func(evaluator *Evaluator) {
-				evaluator.rules[0].Condition.Predicate.Regex = nil
+			mutate: func(compiled *CompiledPlan) {
+				compiled.plan.Rules[0].When.Predicate.Value = func() *Value {
+					value := testStringValue(t, "[")
+					return &value
+				}()
 			},
 		},
 		{
@@ -341,27 +344,27 @@ func TestEvaluatorRejectsCorruptedCompiledState(t *testing.T) {
 			rule: testRule("condition", DecisionBlock, Predicate{
 				Source: SourceArguments, Pointer: "/target", Op: OperatorExists,
 			}),
-			mutate: func(evaluator *Evaluator) {
-				evaluator.rules[0].Rule.Decision = DecisionAllow
+			mutate: func(compiled *CompiledPlan) {
+				compiled.plan.Rules[0].Decision = DecisionAllow
 			},
 		},
 		{
 			name: "invalid tool index",
 			rule: Rule{ID: "condition", Decision: DecisionWarn, SourceIdentity: ".reconc.yml"},
-			mutate: func(evaluator *Evaluator) {
-				key := ToolIdentityKey(evaluator.plan.Tools[0])
-				evaluator.toolByExact[key] = len(evaluator.plan.Tools)
+			mutate: func(compiled *CompiledPlan) {
+				compiled.plan.Rules[0].ID = "INVALID"
 			},
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			evaluator, input := testActionEvaluator(t, []Rule{test.rule}, Defaults{}, testExternalEffect())
-			test.mutate(evaluator)
-			result := evaluator.Evaluate(input)
-			if result.Decision != DecisionBlock || result.Reason != ReasonInternalInvariant ||
-				result.Failure == nil || result.Failure.Code != ReasonInternalInvariant {
-				t.Fatalf("corrupt evaluator result = %#v", result)
+			compiled, err := CompilePlan(Plan{Rules: []Rule{test.rule}})
+			if err != nil {
+				t.Fatalf("CompilePlan: %v", err)
+			}
+			test.mutate(compiled)
+			if _, err := NewEvaluator(compiled); err == nil {
+				t.Fatal("malformed compiled plan was accepted")
 			}
 		})
 	}

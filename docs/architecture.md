@@ -528,6 +528,10 @@ and byte-compares the notice before checksums and provenance are accepted.
      evidence is evaluated; malformed or unknown typed fields fail closed. The
      plan also validates every runtime path pattern once and retains bounded,
      immutable matcher programs for repeated scope and evidence comparisons;
+     action evaluators likewise recompile and own one detached immutable plan at
+     construction. Every pointer, condition, matcher, index, and cardinality
+     boundary is admitted once; evaluations do not recursively rescan the
+     compiled plan or revalidate each pointer program.
     template-capture patterns additionally retain their masked glob, capture
     regex, and bound-substitution state; the lockfile wire format is
     unchanged. Each evaluation builds one ordered command-evidence index with

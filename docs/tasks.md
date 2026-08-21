@@ -2,7 +2,7 @@
 
 ## Active
 
-- [~] 212 Validate immutable compiled action plans once -> tasks/212-validate-immutable-compiled-action-plans-once.md
+- [~] 213 Compute action argument size once per evaluation -> tasks/213-compute-action-argument-size-once-per-evaluation.md
 
 ## Queue
 
@@ -19,6 +19,7 @@
 
 ## Done
 
+- [x] 212 Validate immutable compiled action plans once -> tasks/done/212-validate-immutable-compiled-action-plans-once.md
 - [x] 211 Reuse immutable action context roots -> tasks/done/211-reuse-immutable-action-context-roots.md
 - [x] 210 Memoize package-manager ancestry detection -> tasks/done/210-memoize-package-manager-ancestry-detection.md
 - [x] 209 Expose one stable bounded assurance-file read -> tasks/done/209-expose-one-stable-bounded-assurance-file-read.md

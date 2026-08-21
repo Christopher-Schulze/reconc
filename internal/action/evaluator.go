@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"unicode/utf8"
 )
 
 type Evaluator struct {
@@ -170,9 +169,6 @@ func (e *Evaluator) preflightFailure(input EvaluationInput) ReasonCode {
 	}
 	if code := e.verifyResampledIdentities(input); code != "" {
 		return code
-	}
-	if !e.compiledBoundsValid() {
-		return ReasonInternalInvariant
 	}
 	return ""
 }
@@ -525,158 +521,8 @@ func equalStrings(left, right []string) bool {
 	return true
 }
 
-func (e *Evaluator) compiledBoundsValid() bool {
-	if !evaluatorHeaderValid(e) || !compiledToolIndexValid(e) {
-		return false
-	}
-	total := 0
-	for _, rule := range e.rules {
-		if !compiledRuleValid(rule) ||
-			!compiledConditionDecisionValid(rule.Condition, rule.Rule.Decision, rule.Rule.Selector.Phases) {
-			return false
-		}
-		nodes, ok := validateCompiledCondition(rule.Condition, 1)
-		total += nodes
-		if !ok || nodes > MaxConditionNodes || total > MaxCompiledNodes {
-			return false
-		}
-	}
-	return len(e.plan.Budgets) <= MaxBudgets && len(e.plan.Approvals) <= MaxApprovalDisclosures &&
-		len(e.plan.Detectors) <= MaxDetectors
-}
-
 func validExecutableSnapshot(value string) bool {
 	return value == "absent" || sha256IdentityPattern.MatchString(value)
-}
-
-func evaluatorHeaderValid(e *Evaluator) bool {
-	if e == nil {
-		return false
-	}
-	defaults := e.plan.Defaults
-	return e.plan.FormatVersion == PlanFormatVersion &&
-		sha256IdentityPattern.MatchString(e.identity) &&
-		len(e.plan.Tools) <= MaxTools && len(e.rules) <= MaxRules &&
-		defaults.DeclaredTool.Valid() && defaults.GatewayUnmatched == DecisionBlock &&
-		(defaults.HostUnmatched == DecisionAllow || defaults.HostUnmatched == DecisionBlock) &&
-		defaults.EvaluationError == DecisionBlock && defaults.PostError == DecisionBlock &&
-		defaults.ProgressError == DecisionBlock && defaults.Cache.Valid()
-}
-
-func compiledToolIndexValid(e *Evaluator) bool {
-	if len(e.toolByExact) != len(e.plan.Tools) {
-		return false
-	}
-	for index, tool := range e.plan.Tools {
-		mapped, ok := e.toolByExact[ToolIdentityKey(tool)]
-		if !ok || mapped != index {
-			return false
-		}
-	}
-	return true
-}
-
-func compiledRuleValid(rule CompiledRule) bool {
-	return SafeLabel(rule.Rule.ID) && rule.Rule.Decision.Valid() &&
-		(rule.Rule.OnIndeterminate == DecisionBlock || rule.Rule.OnIndeterminate == DecisionRequireApproval) &&
-		rule.Rule.Cache.Valid() && utf8.ValidString(rule.Rule.Message) &&
-		len(rule.Rule.Message) <= MaxRuleMessageBytes && rule.Rule.SourceIdentity != "" &&
-		utf8.ValidString(rule.Rule.SourceIdentity) && len(rule.Rule.SourceIdentity) <= MaxPointerBytes &&
-		compiledSelectorValid(rule.Rule.Selector)
-}
-
-func compiledSelectorValid(selector Selector) bool {
-	return compiledStringListValid(selector.ToolIDs, SafeLabel) &&
-		compiledTransportListValid(selector.Transports) &&
-		compiledPlatformListValid(selector.Platforms) &&
-		compiledStringListValid(selector.ServerLabels, SafeLabel) &&
-		compiledStringListValid(selector.ServerFingerprints, ValidIdentity) &&
-		compiledStringListValid(selector.Tools, func(value string) bool {
-			return validateToolName(value, false) == nil
-		}) &&
-		compiledStringListValid(selector.ToolContractDigests, sha256IdentityPattern.MatchString) &&
-		compiledPhaseListValid(selector.Phases)
-}
-
-func compiledStringListValid(values []string, valid func(string) bool) bool {
-	if values != nil && len(values) == 0 || len(values) > MaxListValues {
-		return false
-	}
-	for index, value := range values {
-		if !valid(value) || index > 0 && values[index-1] >= value {
-			return false
-		}
-	}
-	return true
-}
-
-func compiledTransportListValid(values []Transport) bool {
-	if values != nil && len(values) == 0 || len(values) > MaxListValues {
-		return false
-	}
-	for index, value := range values {
-		if !value.Valid() || index > 0 && values[index-1] >= value {
-			return false
-		}
-	}
-	return true
-}
-
-func compiledPlatformListValid(values []Platform) bool {
-	if values != nil && len(values) == 0 || len(values) > MaxListValues {
-		return false
-	}
-	for index, value := range values {
-		if !ValidPlatform(value) || index > 0 && values[index-1] >= value {
-			return false
-		}
-	}
-	return true
-}
-
-func compiledPhaseListValid(values []Phase) bool {
-	if values != nil && len(values) == 0 || len(values) > MaxListValues {
-		return false
-	}
-	for index, value := range values {
-		if !value.Valid() || index > 0 && values[index-1] >= value {
-			return false
-		}
-	}
-	return true
-}
-
-func compiledConditionDecisionValid(condition *CompiledCondition, decision Decision, phases []Phase) bool {
-	if condition == nil {
-		return true
-	}
-	if condition.Kind == ConditionPredicate {
-		return compiledPredicateDecisionValid(condition.Predicate, decision, phases)
-	}
-	for _, child := range condition.Children {
-		if !compiledConditionDecisionValid(child, decision, phases) {
-			return false
-		}
-	}
-	return true
-}
-
-func compiledPredicateDecisionValid(predicate *CompiledPredicate, decision Decision, phases []Phase) bool {
-	if predicate == nil {
-		return false
-	}
-	if decision == DecisionAllow && predicate.Predicate.Source != SourceContext {
-		return false
-	}
-	if decision == DecisionAllow && predicate.Predicate.MinimumProvenance.Rank() < ProvenanceHostObserved.Rank() {
-		return false
-	}
-	for _, phase := range selectedPhases(phases) {
-		if !sourceAllowedInPhase(predicate.Predicate.Source, phase) {
-			return false
-		}
-	}
-	return true
 }
 
 func (e *Evaluator) selectTool(request Request) (*Tool, string) {
