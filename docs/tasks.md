@@ -4,6 +4,8 @@
 
 ## Queue
 
+- [ ] 220 Resolve v6 schema publication drift -> tasks/220-resolve-v6-schema-publication-drift.md
+
 ## Blocked
 
 ## Done
