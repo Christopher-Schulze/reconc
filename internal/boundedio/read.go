@@ -20,25 +20,34 @@ var ErrDirectorySnapshotChanged = errors.New("directory snapshot changed")
 // Final symlinks are followed intentionally; strict callers use
 // ReadRegularFile.
 func ReadFile(path string, maxBytes int64) ([]byte, error) {
+	body, _, err := ReadFileSnapshot(path, maxBytes)
+	return body, err
+}
+
+// ReadFileSnapshot reads a regular file through one bounded open/read window
+// and returns the opened file identity alongside the bytes. Final symlinks are
+// followed intentionally; callers must validate the resolved target's
+// containment separately when repository ownership matters.
+func ReadFileSnapshot(path string, maxBytes int64) ([]byte, os.FileInfo, error) {
 	if maxBytes <= 0 {
-		return nil, errors.New("bounded file read requires a positive byte limit")
+		return nil, nil, errors.New("bounded file read requires a positive byte limit")
 	}
 	if maxBytes > math.MaxInt64-1 {
-		return nil, errors.New("bounded file read byte limit is too large")
+		return nil, nil, errors.New("bounded file read byte limit is too large")
 	}
 	before, err := os.Stat(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if !before.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s must resolve to a regular file", path)
+		return nil, nil, fmt.Errorf("%s must resolve to a regular file", path)
 	}
 	if before.Size() > maxBytes {
-		return nil, fmt.Errorf("%s exceeds %d bytes", path, maxBytes)
+		return nil, nil, fmt.Errorf("%s exceeds %d bytes", path, maxBytes)
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	opened, statErr := file.Stat()
 	after, pathStatErr := os.Stat(path)
@@ -47,7 +56,7 @@ func ReadFile(path string, maxBytes int64) ([]byte, error) {
 		if statErr == nil && pathStatErr == nil {
 			statErr = fmt.Errorf("%s changed identity or exceeded %d bytes while opening", path, maxBytes)
 		}
-		return nil, errors.Join(statErr, pathStatErr, file.Close())
+		return nil, nil, errors.Join(statErr, pathStatErr, file.Close())
 	}
 	return readOpenedFileSnapshot(path, file, opened, maxBytes, os.Stat)
 }
@@ -138,24 +147,24 @@ func sameRegularSnapshot(left, right os.FileInfo) bool {
 		left.ModTime().Equal(right.ModTime())
 }
 
-func readOpenedFileSnapshot(path string, file *os.File, before os.FileInfo, maxBytes int64, pathStat func(string) (os.FileInfo, error)) ([]byte, error) {
+func readOpenedFileSnapshot(path string, file *os.File, before os.FileInfo, maxBytes int64, pathStat func(string) (os.FileInfo, error)) ([]byte, os.FileInfo, error) {
 	body, readErr := io.ReadAll(io.LimitReader(file, maxBytes+1))
 	afterFile, statErr := file.Stat()
 	afterPath, pathStatErr := pathStat(path)
 	closeErr := file.Close()
 	if err := errors.Join(readErr, statErr, pathStatErr, closeErr); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if int64(len(body)) > maxBytes {
-		return nil, fmt.Errorf("%s exceeds %d bytes", path, maxBytes)
+		return nil, nil, fmt.Errorf("%s exceeds %d bytes", path, maxBytes)
 	}
 	if !afterFile.Mode().IsRegular() || !afterPath.Mode().IsRegular() ||
 		!os.SameFile(before, afterFile) || !os.SameFile(afterFile, afterPath) ||
 		before.Mode() != afterFile.Mode() || before.Size() != afterFile.Size() ||
 		int64(len(body)) != afterFile.Size() || !before.ModTime().Equal(afterFile.ModTime()) {
-		return nil, fmt.Errorf("%s changed while reading", path)
+		return nil, nil, fmt.Errorf("%s changed while reading", path)
 	}
-	return body, nil
+	return body, afterFile, nil
 }
 
 // ReadDir returns at most maxEntries entries from a directory. Directory

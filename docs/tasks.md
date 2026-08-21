@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 192 Bind repository source reads to stable file identities -> tasks/192-bind-repository-source-reads-to-stable-file-identities.md
 - [ ] 193 Extract inline policy blocks linearly and within bounds -> tasks/193-extract-inline-policy-blocks-linearly-and-within-bounds.md
 - [ ] 194 Parse repository configuration once -> tasks/194-parse-repository-configuration-once.md
 - [ ] 195 Compute source provenance once per compile -> tasks/195-compute-source-provenance-once-per-compile.md
@@ -37,6 +36,7 @@
 
 ## Done
 
+- [x] 192 Bind repository source reads to stable file identities -> tasks/done/192-bind-repository-source-reads-to-stable-file-identities.md
 - [x] 191 Bound policy glob expansion before materialization -> tasks/done/191-bound-policy-glob-expansion-before-materialization.md
 - [x] 190 Reuse one policy discovery and source-loading context -> tasks/done/190-reuse-one-policy-discovery-and-source-loading-context.md
 - [x] 189 Batch write-epoch path normalization -> tasks/done/189-batch-write-epoch-path-normalization.md

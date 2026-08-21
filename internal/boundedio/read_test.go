@@ -28,6 +28,24 @@ func TestReadFileEnforcesExactLimit(t *testing.T) {
 	}
 }
 
+func TestReadFileSnapshotReturnsOpenedIdentity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "input")
+	if err := os.WriteFile(path, []byte("snapshot"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body, opened, err := ReadFileSnapshot(path, 8)
+	if err != nil || string(body) != "snapshot" || opened == nil {
+		t.Fatalf("snapshot = %q, %v, identity=%v", body, err, opened)
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(opened, after) || opened.Size() != int64(len(body)) {
+		t.Fatalf("opened identity does not match current file: opened=%v after=%v", opened, after)
+	}
+}
+
 func TestReadRegularFileRejectsOversizeSparseAndIrregularInputs(t *testing.T) {
 	root := t.TempDir()
 	exact := filepath.Join(root, "exact")

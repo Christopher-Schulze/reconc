@@ -539,7 +539,7 @@ func readRepositorySource(root, rel string) ([]byte, error) {
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("source %s must resolve to a regular file", rel)
 	}
-	data, err := boundedio.ReadFile(before, maxPolicySourceBytes)
+	data, openedIdentity, err := boundedio.ReadFileSnapshot(before, maxPolicySourceBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -549,6 +549,20 @@ func readRepositorySource(root, rel string) ([]byte, error) {
 	}
 	if before != after {
 		return nil, fmt.Errorf("source %s changed filesystem identity while being read", rel)
+	}
+	afterRoot, err := pathidentity.ResolveExisting(root)
+	if err != nil {
+		return nil, fmt.Errorf("revalidate repository root for %s: %w", rel, err)
+	}
+	if rootIdentity != afterRoot {
+		return nil, fmt.Errorf("repository root changed filesystem identity while reading %s", rel)
+	}
+	afterInfo, err := os.Stat(full)
+	if err != nil {
+		return nil, fmt.Errorf("revalidate source identity %s: %w", rel, err)
+	}
+	if !sameSourceInfo(openedIdentity, afterInfo) {
+		return nil, fmt.Errorf("source %s changed opened filesystem identity while being read", rel)
 	}
 	return data, nil
 }

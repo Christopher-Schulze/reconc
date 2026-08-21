@@ -1657,6 +1657,11 @@ patterns are capped at 256 and 1 KiB each, directory enumeration and matches
 are capped, only regular files are candidates, and `**` is not recursive
 special syntax. Duplicate paths are removed by normalized repository-relative
 identity before reading.
+Repository sources are read through a bounded opened-file snapshot that
+returns the file identity used for the bytes. Loader checks compare that
+identity, the canonical source path, and the canonical repository root after
+the read, so same-path replacement, deletion/recreation, size drift, and
+parent/root swaps fail closed.
 Publication uses identity-bound atomic replacement and skips the write entirely
 when the canonical bytes are unchanged, so readers never see partial JSON and
 repeated compiles do not

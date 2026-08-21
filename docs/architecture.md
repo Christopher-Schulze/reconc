@@ -481,9 +481,12 @@ and byte-compares the notice before checksums and provenance are accepted.
      per-default-glob fragment inventory for the complete source transaction;
      `LoadPolicySourcesWithContext` revalidates that snapshot before and after
      source reads. The compiler passes this context through its lock-protected
-     load, so default fragments are not discovered twice. Policy globs use
+    load, so default fragments are not discovered twice. Policy globs use
      bounded segment enumeration with explicit pattern, directory, match, and
      source-count caps; `**` has no recursive special meaning.
+     Repository source reads use `boundedio.ReadFileSnapshot`, retaining the
+     opened regular-file identity and comparing it with the post-read path and
+     root identities before bytes enter the source bundle.
    - `internal/runtime/lockfile.go` performs a 16 MiB bounded read and validates
      schema, version, repository root, migration state, and source freshness.
      Current format-6 locks prove freshness from the complete lock digest plus
