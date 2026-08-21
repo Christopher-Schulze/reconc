@@ -2,11 +2,10 @@
 
 ## Active
 
-- [~] 203 Make policy-source precedence truthful and canonical -> tasks/203-make-policy-source-precedence-truthful-and-canonical.md
+- [~] 204 Reject fields unsupported by a rule kind -> tasks/204-reject-fields-unsupported-by-a-rule-kind.md
 
 ## Queue
 
-- [ ] 204 Reject fields unsupported by a rule kind -> tasks/204-reject-fields-unsupported-by-a-rule-kind.md
 - [ ] 205 Centralize and enforce template-variable grammar -> tasks/205-centralize-and-enforce-template-variable-grammar.md
 - [ ] 206 Enforce parser cardinality and text limits -> tasks/206-enforce-parser-cardinality-and-text-limits.md
 - [ ] 207 Avoid duplicate require-script batch preparation -> tasks/207-avoid-duplicate-require-script-batch-preparation.md
@@ -26,6 +25,8 @@
 ## Blocked
 
 ## Done
+
+- [x] 204 Reject fields unsupported by a rule kind -> tasks/done/204-reject-fields-unsupported-by-a-rule-kind.md
 
 - [x] 203 Make policy-source precedence truthful and canonical -> tasks/done/203-make-policy-source-precedence-truthful-and-canonical.md
 - [x] 202 Revalidate TASK path components across reads -> tasks/done/202-revalidate-control-path-components-across-reads.md

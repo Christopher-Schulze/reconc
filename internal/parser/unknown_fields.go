@@ -16,6 +16,124 @@ var ruleFields = fieldSet(
 	"deprecated", "deprecated_reason", "deprecated_since", "deprecated_replaced_by",
 )
 
+var ruleKindFields = buildRuleKindFields()
+
+var checkKindFields = buildCheckKindFields()
+
+var checkFields = fieldSet(
+	"kind", "optional", "path", "max_age_hours", "file", "must_exist", "must_contain",
+	"must_not_contain", "max_line_count", "claims", "commands", "command_match",
+	"paths", "script", "args", "timeout_sec", "cache_inputs",
+)
+
+func buildRuleKindFields() map[policy.Kind]map[string]struct{} {
+	common := []string{"id", "kind", "mode", "message", "template", "deprecated", "deprecated_reason", "deprecated_since", "deprecated_replaced_by"}
+	definitions := map[policy.Kind][]string{
+		policy.KindDenyWrite:             {"paths", "when_paths"},
+		policy.KindRequireRead:           {"paths", "before_paths"},
+		policy.KindRequireCommand:        {"when_paths", "commands", "command_match"},
+		policy.KindRequireCommandSuccess: {"when_paths", "commands", "command_match"},
+		policy.KindForbidCommand:         {"commands", "when_paths", "command_match"},
+		policy.KindCoupleChange:          {"paths", "when_paths"},
+		policy.KindRequireClaim:          {"when_paths", "claims"},
+		policy.KindRequireFreshFile:      {"when_paths", "required_files"},
+		policy.KindRequireEvidence:       {"when_paths", "evidence"},
+		policy.KindAllOf:                 {"when_paths", "checks"},
+		policy.KindAnyOf:                 {"when_paths", "checks"},
+		policy.KindNot:                   {"when_paths", "checks"},
+		policy.KindRequireScript:         {"when_paths", "script", "args", "timeout_sec", "kill_timeout_sec", "cache_inputs"},
+		policy.KindRequireAssurance:      {"when_paths", "assurance"},
+	}
+	fields := make(map[policy.Kind]map[string]struct{}, len(definitions))
+	for kind, specific := range definitions {
+		fields[kind] = fieldSet(append(common, specific...)...)
+	}
+	return fields
+}
+
+// RuleKindFields returns the complete authoring-field allowlist for kind.
+// The returned slice is sorted and owned by the caller. Runtime lockfile
+// validation uses this same matrix so parser and runtime cannot silently
+// disagree about fields that a rule may carry.
+func RuleKindFields(kind policy.Kind) []string {
+	allowed, ok := ruleKindFields[kind]
+	if !ok {
+		return nil
+	}
+	fields := make([]string, 0, len(allowed))
+	for field := range allowed {
+		fields = append(fields, field)
+	}
+	sort.Strings(fields)
+	return fields
+}
+
+// RuleKindFieldAllowed reports whether field is valid in an authoring rule of
+// kind. It is intentionally based on the same immutable matrix as the parser.
+func RuleKindFieldAllowed(kind policy.Kind, field string) bool {
+	allowed, ok := ruleKindFields[kind]
+	if !ok {
+		return false
+	}
+	_, ok = allowed[field]
+	return ok
+}
+
+func buildCheckKindFields() map[policy.Kind]map[string]struct{} {
+	common := []string{"kind", "optional"}
+	definitions := map[policy.Kind][]string{
+		policy.KindRequireFreshFile:      {"path", "max_age_hours"},
+		policy.KindRequireEvidence:       {"file", "must_exist", "must_contain", "must_not_contain", "max_line_count"},
+		policy.KindRequireClaim:          {"claims"},
+		policy.KindRequireCommand:        {"commands", "command_match"},
+		policy.KindRequireCommandSuccess: {"commands", "command_match"},
+		policy.KindForbidCommand:         {"commands", "command_match"},
+		policy.KindDenyWrite:             {"paths"},
+		policy.KindRequireScript:         {"script", "args", "timeout_sec", "cache_inputs"},
+	}
+	fields := make(map[policy.Kind]map[string]struct{}, len(definitions))
+	for kind, specific := range definitions {
+		fields[kind] = fieldSet(append(common, specific...)...)
+	}
+	return fields
+}
+
+func validateCheckKindFields(check map[string]interface{}, kind policy.Kind, ruleID, sourcePath string, index int) error {
+	allowed, ok := checkKindFields[kind]
+	if !ok {
+		return nil
+	}
+	unsupported := make([]string, 0)
+	for field := range check {
+		if _, allowed := allowed[field]; !allowed {
+			unsupported = append(unsupported, field)
+		}
+	}
+	if len(unsupported) == 0 {
+		return nil
+	}
+	sort.Strings(unsupported)
+	return &rerrors.RuleValidationError{Message: fmt.Sprintf("rule '%s' check[%d] (kind %s) in %s contains field(s) not valid for its kind: %s", ruleID, index, kind, sourcePath, strings.Join(unsupported, ", "))}
+}
+
+func validateRuleKindFields(rule map[string]interface{}, kind policy.Kind, id, sourcePath string) error {
+	allowed, ok := ruleKindFields[kind]
+	if !ok {
+		return nil
+	}
+	unsupported := make([]string, 0)
+	for field := range rule {
+		if _, allowed := allowed[field]; !allowed {
+			unsupported = append(unsupported, field)
+		}
+	}
+	if len(unsupported) == 0 {
+		return nil
+	}
+	sort.Strings(unsupported)
+	return &rerrors.RuleValidationError{Message: fmt.Sprintf("rule '%s' (kind %s) in %s contains field(s) not valid for its kind: %s", id, kind, sourcePath, strings.Join(unsupported, ", "))}
+}
+
 func validateDocumentFields(src policy.PolicySource, doc map[string]interface{}) error {
 	rootFields := fieldSet("default_mode", "rules", "scopes")
 	if src.Kind == policy.SourceCompilerConfig {
@@ -122,26 +240,10 @@ func validateRuleFields(rule map[string]interface{}, context string) error {
 }
 
 func validateCheckFields(check map[string]interface{}, context string) error {
-	allowed := fieldSet("kind", "optional")
-	switch policy.Kind(strings.TrimSpace(stringValue(check["kind"]))) {
-	case policy.KindRequireFreshFile:
-		addFields(allowed, "path", "max_age_hours")
-	case policy.KindRequireEvidence:
-		addFields(allowed, "file", "must_exist", "must_contain", "must_not_contain", "max_line_count")
-	case policy.KindRequireClaim:
-		addFields(allowed, "claims")
-	case policy.KindRequireCommand, policy.KindRequireCommandSuccess, policy.KindForbidCommand:
-		addFields(allowed, "commands", "command_match")
-	case policy.KindDenyWrite:
-		addFields(allowed, "paths")
-	case policy.KindRequireScript:
-		addFields(allowed, "script", "args", "timeout_sec", "cache_inputs")
-	default:
-		// The existing kind validator owns unknown and unsupported kinds. Use
-		// the full known field union so its more precise diagnostic survives.
-		addFields(allowed, "path", "max_age_hours", "file", "must_exist", "must_contain", "must_not_contain", "max_line_count", "claims", "commands", "paths", "script", "args", "timeout_sec", "cache_inputs")
-	}
-	return rejectUnknownFields(check, allowed, context)
+	// Keep unknown-key diagnostics at document validation time. Known-but-
+	// unsupported fields are checked after parseCheck has the rule kind and can
+	// therefore report the precise rule ID, kind, source, and check index.
+	return rejectUnknownFields(check, checkFields, context)
 }
 
 func rejectUnknownFields(mapping map[string]interface{}, allowed map[string]struct{}, context string) error {

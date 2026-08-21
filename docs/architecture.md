@@ -590,6 +590,15 @@ responsibility-owned command file, canonical command metadata, focused tests, an
    meaningful pair-wise conflicts with existing kinds.
 7. Tests at every layer.
 
+Rule-kind field ownership is centralized in `internal/parser/unknown_fields.go`.
+The matrix is applied after template defaults are merged, before typed rule
+construction, and again at the runtime lock boundary through the exported
+parser allowlist. This prevents a valid union field from becoming an ignored
+field on another kind. Composite inline checks have their own kind matrix and
+retain the rule ID, check index, kind, and source path in diagnostics. The
+current v6 lock schema carries the same kind conditions as an overlay; legacy
+published schemas remain immutable.
+
 ## Dependency graph
 
 ```

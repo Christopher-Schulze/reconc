@@ -1714,6 +1714,24 @@ automation can use `schemas/v4/policy-config.schema.json`; emitted lock, policy
 report, completion report, fix-plan, and proof-bundle artifacts keep their separate public
 schemas.
 
+Rule fields are also kind-specific. After template expansion, the compiler
+rejects any known field that the selected kind cannot evaluate, including empty
+values, and names the rule ID, kind, field, and source path. The canonical
+top-level matrix is: `deny_write` = `paths`, `when_paths`; `require_read` =
+`paths`, `before_paths`; `require_command` and `require_command_success` =
+`when_paths`, `commands`, `command_match`; `forbid_command` = `when_paths`,
+`commands`, `command_match`; `couple_change` = `paths`, `when_paths`;
+`require_claim` = `when_paths`, `claims`; `require_fresh_file` = `when_paths`,
+`required_files`; `require_evidence` = `when_paths`, `evidence`; `all_of`,
+`any_of`, and `not` = `when_paths`, `checks`; `require_script` = `when_paths`,
+`script`, `args`, `timeout_sec`, `kill_timeout_sec`, `cache_inputs`; and
+`require_assurance` = `when_paths`, `assurance`. Every kind additionally
+accepts `id`, `kind`, `mode`, `message`, and the deprecation metadata. Composite
+checks use the corresponding inline matrix, while generated provenance and
+scope fields are lockfile-only. The current v6 lock schema overlays these
+constraints on its legacy rule envelope so an edited lockfile cannot restore
+ignored fields at runtime.
+
 Policy-controlled file paths are repository-relative contracts. Compilation
 rejects absolute, volume-qualified, empty, and parent-traversing paths in
 `required_files[].path`, `evidence[].file`, and composite `path`/`file`

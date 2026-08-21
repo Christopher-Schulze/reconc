@@ -34,7 +34,13 @@
     "source_precedence": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/properties/source_precedence" },
     "discovery": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/properties/discovery" },
     "sources": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/properties/sources" },
-    "rules": { "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/properties/rules" },
+    "rules": {
+	  "type": "array",
+	  "items": {
+	    "$ref": "https://raw.githubusercontent.com/Christopher-Schulze/reconc/reconc-v0.9.4/schemas/v4/policy-lock.schema.json#/properties/rules/items",
+	    "allOf": [ { "$ref": "#/$defs/ruleKindFields" } ]
+	  }
+    },
     "actions": { "$ref": "#/$defs/actions" }
   },
   "$defs": {
@@ -108,6 +114,174 @@
         "message": { "type": "string", "maxLength": 512 },
         "source_identity": { "type": "string", "minLength": 1, "maxLength": 1024 }
       }
+    },
+    "ruleKindFields": {
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "deny_write" } }, "required": ["kind"] },
+          "then": { "not": { "anyOf": [
+            { "required": ["before_paths"] }, { "required": ["commands"] }, { "required": ["claims"] },
+            { "required": ["command_match"] }, { "required": ["required_files"] }, { "required": ["evidence"] },
+            { "required": ["checks"] }, { "required": ["script"] }, { "required": ["args"] },
+            { "required": ["timeout_sec"] }, { "required": ["kill_timeout_sec"] }, { "required": ["cache_inputs"] },
+            { "required": ["assurance"] }
+          ] } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "require_read" } }, "required": ["kind"] },
+          "then": { "not": { "anyOf": [
+            { "required": ["when_paths"] }, { "required": ["commands"] }, { "required": ["claims"] },
+            { "required": ["command_match"] }, { "required": ["required_files"] }, { "required": ["evidence"] },
+            { "required": ["checks"] }, { "required": ["script"] }, { "required": ["args"] },
+            { "required": ["timeout_sec"] }, { "required": ["kill_timeout_sec"] }, { "required": ["cache_inputs"] },
+            { "required": ["assurance"] }
+          ] } }
+        },
+        {
+          "if": { "properties": { "kind": { "enum": ["require_command", "require_command_success"] } }, "required": ["kind"] },
+          "then": { "not": { "anyOf": [
+            { "required": ["paths"] }, { "required": ["before_paths"] }, { "required": ["claims"] },
+            { "required": ["required_files"] }, { "required": ["evidence"] }, { "required": ["checks"] },
+            { "required": ["script"] }, { "required": ["args"] }, { "required": ["timeout_sec"] },
+            { "required": ["kill_timeout_sec"] }, { "required": ["cache_inputs"] }, { "required": ["assurance"] }
+          ] } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "forbid_command" } }, "required": ["kind"] },
+          "then": { "not": { "anyOf": [
+            { "required": ["paths"] }, { "required": ["before_paths"] }, { "required": ["claims"] },
+            { "required": ["required_files"] }, { "required": ["evidence"] }, { "required": ["checks"] },
+            { "required": ["script"] }, { "required": ["args"] }, { "required": ["timeout_sec"] },
+            { "required": ["kill_timeout_sec"] }, { "required": ["cache_inputs"] }, { "required": ["assurance"] }
+          ] } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "couple_change" } }, "required": ["kind"] },
+          "then": { "not": { "anyOf": [
+            { "required": ["before_paths"] }, { "required": ["commands"] }, { "required": ["claims"] },
+            { "required": ["command_match"] }, { "required": ["required_files"] }, { "required": ["evidence"] },
+            { "required": ["checks"] }, { "required": ["script"] }, { "required": ["args"] },
+            { "required": ["timeout_sec"] }, { "required": ["kill_timeout_sec"] }, { "required": ["cache_inputs"] },
+            { "required": ["assurance"] }
+          ] } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "require_claim" } }, "required": ["kind"] },
+          "then": { "not": { "anyOf": [
+            { "required": ["paths"] }, { "required": ["before_paths"] }, { "required": ["commands"] },
+            { "required": ["command_match"] }, { "required": ["required_files"] }, { "required": ["evidence"] },
+            { "required": ["checks"] }, { "required": ["script"] }, { "required": ["args"] },
+            { "required": ["timeout_sec"] }, { "required": ["kill_timeout_sec"] }, { "required": ["cache_inputs"] },
+            { "required": ["assurance"] }
+          ] } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "require_fresh_file" } }, "required": ["kind"] },
+          "then": { "not": { "anyOf": [
+            { "required": ["paths"] }, { "required": ["before_paths"] }, { "required": ["commands"] }, { "required": ["claims"] },
+            { "required": ["command_match"] }, { "required": ["evidence"] }, { "required": ["checks"] }, { "required": ["script"] },
+            { "required": ["args"] }, { "required": ["timeout_sec"] }, { "required": ["kill_timeout_sec"] }, { "required": ["cache_inputs"] },
+            { "required": ["assurance"] }
+          ] } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "require_evidence" } }, "required": ["kind"] },
+          "then": { "not": { "anyOf": [
+            { "required": ["paths"] }, { "required": ["before_paths"] }, { "required": ["commands"] }, { "required": ["claims"] },
+            { "required": ["command_match"] }, { "required": ["required_files"] }, { "required": ["checks"] }, { "required": ["script"] },
+            { "required": ["args"] }, { "required": ["timeout_sec"] }, { "required": ["kill_timeout_sec"] }, { "required": ["cache_inputs"] },
+            { "required": ["assurance"] }
+          ] } }
+        },
+        {
+          "if": { "properties": { "kind": { "enum": ["all_of", "any_of", "not"] } }, "required": ["kind"] },
+          "then": { "not": { "anyOf": [
+            { "required": ["paths"] }, { "required": ["before_paths"] }, { "required": ["commands"] }, { "required": ["claims"] },
+            { "required": ["command_match"] }, { "required": ["required_files"] }, { "required": ["evidence"] }, { "required": ["script"] },
+            { "required": ["args"] }, { "required": ["timeout_sec"] }, { "required": ["kill_timeout_sec"] }, { "required": ["cache_inputs"] },
+            { "required": ["assurance"] }
+          ] } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "require_script" } }, "required": ["kind"] },
+          "then": { "not": { "anyOf": [
+            { "required": ["paths"] }, { "required": ["before_paths"] }, { "required": ["commands"] }, { "required": ["claims"] },
+            { "required": ["command_match"] }, { "required": ["required_files"] }, { "required": ["evidence"] }, { "required": ["checks"] },
+            { "required": ["assurance"] }
+          ] } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "require_assurance" } }, "required": ["kind"] },
+          "then": { "not": { "anyOf": [
+            { "required": ["paths"] }, { "required": ["before_paths"] }, { "required": ["commands"] }, { "required": ["claims"] },
+            { "required": ["required_files"] }, { "required": ["evidence"] }, { "required": ["checks"] }, { "required": ["script"] },
+            { "required": ["args"] }, { "required": ["timeout_sec"] }, { "required": ["kill_timeout_sec"] }, { "required": ["cache_inputs"] }
+          ] } }
+        },
+        {
+          "if": { "required": ["checks"] },
+          "then": { "properties": { "checks": { "items": { "$ref": "#/$defs/checkKindFields" } } } }
+        }
+      ]
+    },
+    "checkKindFields": {
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "require_fresh_file" } }, "required": ["kind"] },
+          "then": { "not": { "anyOf": [
+            { "required": ["file"] }, { "required": ["must_exist"] }, { "required": ["must_contain"] },
+            { "required": ["must_not_contain"] }, { "required": ["max_line_count"] }, { "required": ["claims"] },
+            { "required": ["commands"] }, { "required": ["command_match"] }, { "required": ["paths"] },
+            { "required": ["script"] }, { "required": ["args"] }, { "required": ["timeout_sec"] }, { "required": ["cache_inputs"] }
+          ] } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "require_evidence" } }, "required": ["kind"] },
+          "then": { "not": { "anyOf": [
+            { "required": ["path"] }, { "required": ["max_age_hours"] }, { "required": ["claims"] },
+            { "required": ["commands"] }, { "required": ["command_match"] }, { "required": ["paths"] },
+            { "required": ["script"] }, { "required": ["args"] }, { "required": ["timeout_sec"] }, { "required": ["cache_inputs"] }
+          ] } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "require_claim" } }, "required": ["kind"] },
+          "then": { "not": { "anyOf": [
+            { "required": ["path"] }, { "required": ["max_age_hours"] }, { "required": ["file"] },
+            { "required": ["must_exist"] }, { "required": ["must_contain"] }, { "required": ["must_not_contain"] },
+            { "required": ["max_line_count"] }, { "required": ["commands"] }, { "required": ["command_match"] },
+            { "required": ["paths"] }, { "required": ["script"] }, { "required": ["args"] }, { "required": ["timeout_sec"] },
+            { "required": ["cache_inputs"] }
+          ] } }
+        },
+        {
+          "if": { "properties": { "kind": { "enum": ["require_command", "require_command_success", "forbid_command"] } }, "required": ["kind"] },
+          "then": { "not": { "anyOf": [
+            { "required": ["path"] }, { "required": ["max_age_hours"] }, { "required": ["file"] },
+            { "required": ["must_exist"] }, { "required": ["must_contain"] }, { "required": ["must_not_contain"] },
+            { "required": ["max_line_count"] }, { "required": ["claims"] }, { "required": ["paths"] },
+            { "required": ["script"] }, { "required": ["args"] }, { "required": ["timeout_sec"] }, { "required": ["cache_inputs"] }
+          ] } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "deny_write" } }, "required": ["kind"] },
+          "then": { "not": { "anyOf": [
+            { "required": ["path"] }, { "required": ["max_age_hours"] }, { "required": ["file"] },
+            { "required": ["must_exist"] }, { "required": ["must_contain"] }, { "required": ["must_not_contain"] },
+            { "required": ["max_line_count"] }, { "required": ["claims"] }, { "required": ["commands"] },
+            { "required": ["command_match"] }, { "required": ["script"] }, { "required": ["args"] },
+            { "required": ["timeout_sec"] }, { "required": ["cache_inputs"] }
+          ] } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "require_script" } }, "required": ["kind"] },
+          "then": { "not": { "anyOf": [
+            { "required": ["path"] }, { "required": ["max_age_hours"] }, { "required": ["file"] },
+            { "required": ["must_exist"] }, { "required": ["must_contain"] }, { "required": ["must_not_contain"] },
+            { "required": ["max_line_count"] }, { "required": ["claims"] }, { "required": ["commands"] },
+            { "required": ["command_match"] }, { "required": ["paths"] }
+          ] } }
+        }
+      ]
     },
     "budget": {
       "type": "object",

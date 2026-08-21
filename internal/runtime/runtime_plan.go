@@ -394,13 +394,16 @@ func validateRuntimeRuleFieldPresence(data []byte, rules []policy.Rule) error {
 	}
 	for index, rawRule := range rawRules {
 		allowed := runtimeFieldSet(
-			"id", "kind", "mode", "message", "paths", "before_paths", "when_paths",
-			"commands", "claims", "command_match", "required_files", "evidence", "checks",
-			"script", "args", "timeout_sec", "kill_timeout_sec", "cache_inputs", "assurance",
 			"source_path", "source_block_id",
-			"deprecated", "deprecated_reason", "deprecated_since", "deprecated_replaced_by",
 			"scope_paths", "scope_id",
 		)
+		for _, field := range parser.RuleKindFields(rules[index].Kind) {
+			// template is an authoring-only field and is consumed before a
+			// rule reaches the compiled lockfile.
+			if field != "template" {
+				runtimeAddFields(allowed, field)
+			}
+		}
 		if err := rejectRuntimeFields(rawRule, allowed, fmt.Sprintf("rules[%d]", index)); err != nil {
 			return err
 		}
@@ -523,6 +526,14 @@ func validateRuntimeRule(rule *policy.Rule) error {
 	if rule.CommandMatch != "" && rule.Kind != policy.KindRequireCommand && rule.Kind != policy.KindRequireCommandSuccess && rule.Kind != policy.KindForbidCommand {
 		return fmt.Errorf("command_match is invalid for kind %s", rule.Kind)
 	}
+	for _, field := range runtimeRuleFieldValues(rule) {
+		if !field.present {
+			continue
+		}
+		if field.name != "scope_paths" && field.name != "scope_id" && !parser.RuleKindFieldAllowed(rule.Kind, field.name) {
+			return fmt.Errorf("field %q is invalid for kind %s", field.name, rule.Kind)
+		}
+	}
 	stringLists := []struct {
 		name   string
 		values []string
@@ -584,6 +595,34 @@ func validateRuntimeRule(rule *policy.Rule) error {
 		}
 	}
 	return nil
+}
+
+func runtimeRuleFieldValues(rule *policy.Rule) []struct {
+	name    string
+	present bool
+} {
+	return []struct {
+		name    string
+		present bool
+	}{
+		{"paths", len(rule.Paths) > 0},
+		{"before_paths", len(rule.BeforePaths) > 0},
+		{"when_paths", len(rule.WhenPaths) > 0},
+		{"commands", len(rule.Commands) > 0},
+		{"claims", len(rule.Claims) > 0},
+		{"command_match", rule.CommandMatch != ""},
+		{"required_files", len(rule.RequiredFiles) > 0},
+		{"evidence", len(rule.Evidence) > 0},
+		{"checks", len(rule.Checks) > 0},
+		{"script", rule.Script != ""},
+		{"args", len(rule.Args) > 0},
+		{"timeout_sec", rule.TimeoutSec != 0},
+		{"kill_timeout_sec", rule.KillTimeoutSec != 0},
+		{"cache_inputs", len(rule.CacheInputs) > 0},
+		{"assurance", len(rule.Assurance) > 0},
+		{"scope_paths", len(rule.ScopePaths) > 0},
+		{"scope_id", rule.ScopeID != ""},
+	}
 }
 
 func validateRuntimeRuleShape(rule *policy.Rule) error {

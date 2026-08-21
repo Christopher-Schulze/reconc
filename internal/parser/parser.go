@@ -438,6 +438,19 @@ func validateRuleItem(item map[string]interface{}, src policy.PolicySource, inde
 			}
 		}
 	}
+	if kind != policy.KindRequireScript {
+		if _, present := item["cache_inputs"]; present {
+			return policy.Rule{}, &rerrors.RuleValidationError{Message: "rule '" + id + "' field 'cache_inputs' is only valid for kind require_script"}
+		}
+	}
+	if _, present := item["command_match"]; present {
+		if _, allowed := commandMatchKinds[kind]; !allowed {
+			return policy.Rule{}, &rerrors.RuleValidationError{Message: "rule '" + id + "' command_match is only valid for require_command, require_command_success, and forbid_command (put it on the sub-check inside composites)"}
+		}
+	}
+	if err := validateRuleKindFields(item, kind, id, src.Path); err != nil {
+		return policy.Rule{}, err
+	}
 
 	mode := policy.Mode("")
 	if mRaw, ok := item["mode"]; ok && mRaw != nil {
@@ -603,7 +616,7 @@ func validateRuleItem(item map[string]interface{}, src policy.PolicySource, inde
 	}
 
 	// Phase 4C (W26): composite rule sub-checks.
-	checks, err := optionalCheckList(item, "checks", id)
+	checks, err := optionalCheckList(item, "checks", id, src.Path)
 	if err != nil {
 		return policy.Rule{}, err
 	}
@@ -798,7 +811,11 @@ func validateRepoRelativeTemplatePath(value, context string) error {
 // Each entry must specify a `kind` plus the inline fields appropriate
 // for that kind. Validation is per-kind so misshapen sub-checks fail
 // loudly at compile time.
-func optionalCheckList(item map[string]interface{}, key, ruleID string) ([]policy.Check, error) {
+func optionalCheckList(item map[string]interface{}, key, ruleID string, sourcePaths ...string) ([]policy.Check, error) {
+	sourcePath := ""
+	if len(sourcePaths) > 0 {
+		sourcePath = sourcePaths[0]
+	}
 	raw, ok := item[key]
 	if !ok || raw == nil {
 		return nil, nil
@@ -817,7 +834,7 @@ func optionalCheckList(item map[string]interface{}, key, ruleID string) ([]polic
 				Message: "rule '" + ruleID + "' field '" + key + "[" + itoa(i) + "]' must be a YAML mapping",
 			}
 		}
-		c, err := parseCheck(mapping, ruleID, key, i)
+		c, err := parseCheckWithSource(mapping, ruleID, key, sourcePath, i)
 		if err != nil {
 			return nil, err
 		}
@@ -830,6 +847,10 @@ func optionalCheckList(item map[string]interface{}, key, ruleID string) ([]polic
 // fields (path/file/script for require_fresh_file/evidence/script)
 // are required where the kind expects them.
 func parseCheck(item map[string]interface{}, ruleID, listKey string, index int) (policy.Check, error) {
+	return parseCheckWithSource(item, ruleID, listKey, "", index)
+}
+
+func parseCheckWithSource(item map[string]interface{}, ruleID, listKey, sourcePath string, index int) (policy.Check, error) {
 	kindStr, err := requiredStringField(item, "kind", ruleID, listKey, index)
 	if err != nil {
 		return policy.Check{}, err
@@ -844,6 +865,9 @@ func parseCheck(item map[string]interface{}, ruleID, listKey string, index int) 
 		return policy.Check{}, &rerrors.RuleValidationError{
 			Message: "rule '" + ruleID + "' field '" + listKey + "[" + itoa(index) + "]' nested composite kinds are not supported in v1; flatten the rule",
 		}
+	}
+	if err := validateCheckKindFields(item, kind, ruleID, sourcePath, index); err != nil {
+		return policy.Check{}, err
 	}
 
 	check := policy.Check{Kind: kind}

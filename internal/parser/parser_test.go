@@ -774,6 +774,61 @@ scopes:
 	}
 }
 
+func TestRuleKindFieldMatrixCoversEveryKindAndKnownField(t *testing.T) {
+	union := map[string]struct{}{}
+	for _, kind := range policy.AllKinds() {
+		allowed, ok := ruleKindFields[kind]
+		if !ok {
+			t.Fatalf("rule kind %q has no field-matrix row", kind)
+		}
+		for field := range allowed {
+			union[field] = struct{}{}
+		}
+	}
+	for field := range ruleFields {
+		if _, ok := union[field]; !ok {
+			t.Fatalf("known rule field %q is missing from the kind matrix", field)
+		}
+	}
+	for _, kind := range policy.AllKinds() {
+		allowed := ruleKindFields[kind]
+		for field := range ruleFields {
+			if _, supported := allowed[field]; supported {
+				continue
+			}
+			err := validateRuleKindFields(map[string]interface{}{field: nil}, kind, "matrix", "policy.yml")
+			if err == nil || !strings.Contains(err.Error(), field) || !strings.Contains(err.Error(), string(kind)) {
+				t.Fatalf("kind %q accepted unsupported field %q: %v", kind, field, err)
+			}
+		}
+	}
+}
+
+func TestCheckKindFieldMatrixCoversEveryKnownField(t *testing.T) {
+	for kind, allowed := range checkKindFields {
+		for field := range checkFields {
+			if _, supported := allowed[field]; supported {
+				continue
+			}
+			err := validateCheckKindFields(map[string]interface{}{field: nil}, kind, "matrix", "policy.yml", 2)
+			if err == nil || !strings.Contains(err.Error(), field) || !strings.Contains(err.Error(), string(kind)) || !strings.Contains(err.Error(), "policy.yml") {
+				t.Fatalf("check kind %q accepted unsupported field %q: %v", kind, field, err)
+			}
+		}
+	}
+}
+
+func TestRuleKindFieldMatrixRejectsIgnoredTopLevelField(t *testing.T) {
+	_, err := ParseRuleDocuments(makeBundle(policy.PolicySource{
+		Kind:    policy.SourcePolicyFile,
+		Path:    "policies/ignored.yml",
+		Content: "rules:\n  - id: deny\n    kind: deny_write\n    paths: ['generated/**']\n    claims: ['reviewed']\n    mode: block\n    message: deny\n",
+	}))
+	if err == nil || !strings.Contains(err.Error(), "deny") || !strings.Contains(err.Error(), "deny_write") || !strings.Contains(err.Error(), "claims") || !strings.Contains(err.Error(), "policies/ignored.yml") {
+		t.Fatalf("ignored top-level field was not rejected with complete context: %v", err)
+	}
+}
+
 // --- W31: rule deprecation ------------------------------------------
 
 func TestParseRuleDeprecated(t *testing.T) {
