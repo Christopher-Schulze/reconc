@@ -54,6 +54,40 @@ func TestInvocationsFindsExecutablePositionsWithoutLiteralFalsePositives(t *test
 	}
 }
 
+func TestCompiledExpectationMatchesCompatibilityHelpers(t *testing.T) {
+	commands := []string{
+		"git clean -fd",
+		"git clean -fd && echo done",
+		`bash -lc "git clean -fd"`,
+		`$COMMAND clean -fd`,
+		`git "clean -fd`,
+		strings.Repeat("x", maxCommandBytes+1),
+	}
+	observed, complete := Invocations("git clean -fd", 16)
+	if !complete || len(observed) != 1 {
+		t.Fatalf("observed setup incomplete: %#v, %v", observed, complete)
+	}
+	for _, expected := range commands {
+		compiled := CompileExpectation(expected, 8)
+		for _, prefix := range []bool{false, true} {
+			for _, fold := range []bool{false, true} {
+				wantMatched, wantUncertain := matchExpectedCompatibility(observed[0], expected, prefix, fold)
+				gotMatched, gotUncertain := compiled.Match(observed[0], prefix, fold)
+				if gotMatched != wantMatched || gotUncertain != wantUncertain {
+					t.Errorf("compiled %q prefix=%v fold=%v = (%v,%v), want (%v,%v)", expected, prefix, fold, gotMatched, gotUncertain, wantMatched, wantUncertain)
+				}
+			}
+		}
+	}
+}
+
+func matchExpectedCompatibility(observed Invocation, expected string, prefix, fold bool) (bool, bool) {
+	if fold {
+		return MatchFoldingExecutable(observed, expected, prefix)
+	}
+	return Match(observed, expected, prefix)
+}
+
 func TestInvocationsFailClosedOnDynamicExecutable(t *testing.T) {
 	for _, command := range []string{`$COMMAND clean -fd`, `eval "$COMMAND"`, `sh -c "$COMMAND"`, `$(printf git) clean -fd`, `env -S "git clean -fd"`, `xargs "$COMMAND"`} {
 		if _, complete := Invocations(command, 16); complete {

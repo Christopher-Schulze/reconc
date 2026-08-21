@@ -1164,6 +1164,23 @@ func TestMatchingForbiddenCommandsChecksEveryCompoundSegment(t *testing.T) {
 	}
 }
 
+func TestMatchingForbiddenCommandsReusesPreparedParses(t *testing.T) {
+	cache := newCommandInvocationCache([]policy.Rule{{
+		Commands: []string{"pip install", "git clean -fd"},
+		Checks:   []policy.Check{{Commands: []string{"pip install"}}},
+	}}, "")
+	commands := []string{"echo ready && pip install requests", "echo ready && pip install requests"}
+	if got := matchingForbiddenCommandsWithCache(cache, commands, []string{"pip install", "git clean -fd"}, "", policy.CommandMatchPrefix); len(got) != len(commands) {
+		t.Fatalf("cached forbidden matches = %v, want %d entries", got, len(commands))
+	}
+	if got := len(cache.expected); got != 2 {
+		t.Fatalf("compiled expected command count = %d, want 2", got)
+	}
+	if got := len(cache.observed); got != 1 {
+		t.Fatalf("observed command parse count = %d, want one distinct parse", got)
+	}
+}
+
 // TestMatchingCommandResultsAppliesNormalization pins the integration
 // path that this whole change exists for: a recorded command with
 // absolute repo path + rtk prefix matches the rule's literal form via

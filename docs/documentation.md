@@ -3630,6 +3630,9 @@ Security posture:
   backslash escapes cannot hide a forbidden program, and an undecodable
   construct fails closed instead of comparing unresolved text. Deny matching
   folds the program name's case; evidence matching does not.
+- The runtime prepares normalized expected command invocations once per
+  evaluation and reuses bounded observed-command parses for repeated
+  forbidden-command checks; incomplete or dynamic syntax remains fail-closed.
 - Stop report reuse binds exactly the repository paths the compiled policy
   names, including the script target and the files a `require_script` declares
   through `cache_inputs`. A script that declares nothing is never reused.

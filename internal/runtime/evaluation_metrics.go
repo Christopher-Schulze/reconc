@@ -272,6 +272,7 @@ func matchedRuleIDs(repoRoot string, matchers *runtimePathMatchers, templateMatc
 		rawCommands:      rawCommandsPreservingSyntax(original.Commands, original.CommandResults),
 		matchers:         matchers,
 		templateMatchers: templateMatchers,
+		commandCache:     newCommandInvocationCache(rules, repoRoot),
 	}
 	ids := []string{}
 	for index := range rules {
@@ -302,7 +303,7 @@ func ruleTriggerMatches(ctx *evalContext, rule *policy.Rule, inputs ExecutionInp
 	case policy.KindRequireRead, policy.KindCoupleChange:
 		paths, err = matchingPathsWithMatchers(ctx.matchers, inputs.WritePaths, rule.Paths)
 	case policy.KindForbidCommand:
-		commands := matchingForbiddenCommands(ctx.rawCommands, rule.Commands, ctx.repoRoot, rule.CommandMatch)
+		commands := matchingForbiddenCommandsWithCache(ctx.commandCache, ctx.rawCommands, rule.Commands, ctx.repoRoot, rule.CommandMatch)
 		if len(commands) == 0 {
 			return false, nil
 		}

@@ -10,6 +10,7 @@ import (
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/parser"
+	"reconc.dev/reconc/internal/policy"
 )
 
 // writeFileBench is the *testing.B-flavoured sibling of writeFile in
@@ -393,6 +394,32 @@ func BenchmarkCompile(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		if _, err := compiler.CompileRepoPolicy(repo, "bench"); err != nil {
 			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkForbiddenCommandPrepared(b *testing.B) {
+	expected := []string{"pip install", "git clean -fd", "rm -rf", "npm publish", "terraform destroy", "kubectl delete"}
+	commands := []string{"echo ready && pip install requests", "git status && git clean -fd build", `echo "$(rm -rf build)"`, "echo ready"}
+	rule := policy.Rule{Commands: expected}
+	cache := newCommandInvocationCache([]policy.Rule{rule}, "")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if got := matchingForbiddenCommandsWithCache(cache, commands, expected, "", policy.CommandMatchPrefix); len(got) == 0 {
+			b.Fatal("prepared matcher produced no forbidden hit")
+		}
+	}
+}
+
+func BenchmarkForbiddenCommandReparse(b *testing.B) {
+	expected := []string{"pip install", "git clean -fd", "rm -rf", "npm publish", "terraform destroy", "kubectl delete"}
+	commands := []string{"echo ready && pip install requests", "git status && git clean -fd build", `echo "$(rm -rf build)"`, "echo ready"}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if got := matchingForbiddenCommands(commands, expected, "", policy.CommandMatchPrefix); len(got) == 0 {
+			b.Fatal("reparsed matcher produced no forbidden hit")
 		}
 	}
 }

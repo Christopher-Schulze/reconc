@@ -489,7 +489,9 @@ and byte-compares the notice before checksums and provenance are accepted.
      immutable matcher programs for repeated scope and evidence comparisons;
      template-capture patterns additionally retain their masked glob, capture
      regex, and bound-substitution state; the lockfile wire format is
-     unchanged.
+     unchanged. Each evaluation prepares normalized expected shell invocations
+     once and caches observed invocation extraction by command text for the
+     evaluation lifetime.
    - Normalises the input paths against the repo root.
    - For each rule in the lockfile: applies the scope filter
      (`ruleScopeMatches`), then dispatches to the per-kind

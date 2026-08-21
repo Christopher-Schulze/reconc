@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -28,6 +29,74 @@ type evalContext struct {
 	preCommand       bool
 	matchers         *runtimePathMatchers
 	templateMatchers *runtimeTemplateMatchers
+	commandCache     *commandInvocationCache
+}
+
+type observedCommandInvocations struct {
+	segments []shellcommand.Invocation
+	complete bool
+}
+
+type commandInvocationCache struct {
+	expected map[string]shellcommand.CompiledExpectation
+	observed map[string]observedCommandInvocations
+}
+
+func newCommandInvocationCache(rules []policy.Rule, repoRoot string) *commandInvocationCache {
+	commands := map[string]struct{}{}
+	add := func(values []string) {
+		for _, value := range values {
+			if normalized := normalizeCommandSemantics(value, repoRoot); normalized != "" {
+				commands[normalized] = struct{}{}
+			}
+		}
+	}
+	for index := range rules {
+		add(rules[index].Commands)
+		for checkIndex := range rules[index].Checks {
+			add(rules[index].Checks[checkIndex].Commands)
+		}
+	}
+	ordered := make([]string, 0, len(commands))
+	for command := range commands {
+		ordered = append(ordered, command)
+	}
+	sort.Strings(ordered)
+	expected := make(map[string]shellcommand.CompiledExpectation, len(ordered))
+	for _, command := range ordered {
+		expected[command] = shellcommand.CompileExpectation(command, 8)
+	}
+	return &commandInvocationCache{
+		expected: expected,
+		observed: make(map[string]observedCommandInvocations),
+	}
+}
+
+func (c *commandInvocationCache) expectedMatcher(command string) shellcommand.CompiledExpectation {
+	if c == nil {
+		return shellcommand.CompileExpectation(command, 8)
+	}
+	if matcher, ok := c.expected[command]; ok {
+		return matcher
+	}
+	// This path is only for a caller that supplies a command outside the
+	// immutable plan. It still validates once before use and never calls an
+	// unchecked matcher with unparsed policy text.
+	return shellcommand.CompileExpectation(command, 8)
+}
+
+func (c *commandInvocationCache) observedInvocations(command string) observedCommandInvocations {
+	if c == nil {
+		segments, complete := executableCommandSegments(command, 0)
+		return observedCommandInvocations{segments: segments, complete: complete}
+	}
+	if cached, ok := c.observed[command]; ok {
+		return cached
+	}
+	segments, complete := executableCommandSegments(command, 0)
+	cached := observedCommandInvocations{segments: segments, complete: complete}
+	c.observed[command] = cached
+	return cached
 }
 
 // AssertRuleByID evaluates a SINGLE rule (selected by id) against the
@@ -236,6 +305,7 @@ func evaluateRuntimePlan(root string, plan *runtimePlan, inputs ExecutionInputs,
 		preCommand:       preCommand,
 		matchers:         plan.pathMatchers,
 		templateMatchers: plan.templateMatchers,
+		commandCache:     newCommandInvocationCache(plan.rules, root),
 	}
 	ruleIndexes := plan.indexesFor(allowedKinds, preCommand)
 	rules := make([]*policy.Rule, 0, len(ruleIndexes))
@@ -1503,7 +1573,7 @@ func evalRequireClaim(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mo
 
 func evalForbidCommand(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
 	required := stringListField(rule, "commands")
-	forbidden := matchingForbiddenCommands(commandsForShellAnalysis(ctx, inputs.Commands), required, ctxRepoRoot(ctx), ruleCommandMatchMode(rule))
+	forbidden := matchingForbiddenCommandsWithCache(ctx.commandCache, commandsForShellAnalysis(ctx, inputs.Commands), required, ctxRepoRoot(ctx), ruleCommandMatchMode(rule))
 	if len(forbidden) == 0 {
 		return nil, nil
 	}
@@ -1537,7 +1607,7 @@ func compositeForbiddenCommandMatches(ctx *evalContext, rule *policy.Rule) bool 
 		if check.Kind != policy.KindForbidCommand {
 			continue
 		}
-		if len(matchingForbiddenCommands(ctx.currentCommands, check.Commands, ctx.repoRoot, check.CommandMatch)) > 0 {
+		if len(matchingForbiddenCommandsWithCache(ctx.commandCache, ctx.currentCommands, check.Commands, ctx.repoRoot, check.CommandMatch)) > 0 {
 			return true
 		}
 	}
@@ -1643,24 +1713,29 @@ func matchingCommands(commands, expected []string, repoRoot string, match policy
 }
 
 func matchingForbiddenCommands(commands, expected []string, repoRoot string, match policy.CommandMatch) []string {
+	return matchingForbiddenCommandsWithCache(nil, commands, expected, repoRoot, match)
+}
+
+func matchingForbiddenCommandsWithCache(cache *commandInvocationCache, commands, expected []string, repoRoot string, match policy.CommandMatch) []string {
 	normalizedExpected := normalizeExpectedCommands(expected, repoRoot)
 	if len(normalizedExpected) == 0 {
 		return nil
 	}
 	out := []string{}
 	for _, command := range commands {
-		segments, complete := executableCommandSegments(command, 0)
-		if !complete {
+		observed := cache.observedInvocations(command)
+		if !observed.complete {
 			out = append(out, command)
 			continue
 		}
 		commandMatched := false
-		for _, invocation := range segments {
+		for _, invocation := range observed.segments {
 			for _, expectedCommand := range normalizedExpected {
 				// Deny direction: fold the program name so a forbidden command
 				// cannot be smuggled past the gate by changing its case on a
 				// case-insensitive filesystem.
-				matched, uncertain := shellcommand.MatchFoldingExecutable(invocation, expectedCommand, match == policy.CommandMatchPrefix)
+				compiled := cache.expectedMatcher(expectedCommand)
+				matched, uncertain := compiled.Match(invocation, match == policy.CommandMatchPrefix, true)
 				if matched || uncertain {
 					commandMatched = true
 					break

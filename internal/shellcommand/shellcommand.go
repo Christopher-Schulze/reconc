@@ -47,13 +47,40 @@ type Invocation struct {
 	DynamicWords []bool
 }
 
+// CompiledExpectation is an immutable parse of one expected command. The
+// runtime evaluator retains these values for one evaluation so nested
+// invocation loops do not rebuild the same expected syntax tree.
+type CompiledExpectation struct {
+	invocations []Invocation
+	complete    bool
+}
+
+// CompileExpectation parses one expected command once using the supplied
+// nesting budget. A malformed, dynamic, oversized, or otherwise incomplete
+// command is retained as incomplete so Match preserves the existing
+// fail-closed result without reparsing it.
+func CompileExpectation(command string, maxDepth int) CompiledExpectation {
+	invocations, reason := InvocationsWithReason(command, maxDepth)
+	return CompiledExpectation{invocations: invocations, complete: reason == IncompleteNone}
+}
+
+// Match compares one observed invocation against this precompiled expected
+// command. The result is identical to Match/MatchFoldingExecutable, including
+// uncertainty for incomplete or dynamic syntax.
+func (e CompiledExpectation) Match(invocation Invocation, prefix, foldExecutable bool) (matched, uncertain bool) {
+	if !e.complete || len(e.invocations) != 1 {
+		return false, true
+	}
+	return matchInvocation(invocation, e.invocations[0], prefix, foldExecutable)
+}
+
 // Match reports whether invocation is the static command expected by a policy.
 // Prefix mode permits additional arguments. Uncertain is true only when a
 // dynamic word can occupy an expected position, allowing enforcement callers
 // to fail closed without blocking unrelated commands that merely use dynamic
 // arguments.
 func Match(invocation Invocation, expected string, prefix bool) (matched, uncertain bool) {
-	return match(invocation, expected, prefix, false)
+	return CompileExpectation(expected, 8).Match(invocation, prefix, false)
 }
 
 // MatchFoldingExecutable is Match with a case-insensitive comparison of the
@@ -67,15 +94,10 @@ func Match(invocation Invocation, expected string, prefix bool) (matched, uncert
 // decision identical across hosts. The evidence direction must not use this:
 // there, folding would accept a command the author did not name.
 func MatchFoldingExecutable(invocation Invocation, expected string, prefix bool) (matched, uncertain bool) {
-	return match(invocation, expected, prefix, true)
+	return CompileExpectation(expected, 8).Match(invocation, prefix, true)
 }
 
-func match(invocation Invocation, expected string, prefix bool, foldExecutable bool) (matched, uncertain bool) {
-	expectedInvocations, complete := Invocations(expected, 8)
-	if !complete || len(expectedInvocations) != 1 {
-		return false, true
-	}
-	target := expectedInvocations[0]
+func matchInvocation(invocation, target Invocation, prefix bool, foldExecutable bool) (matched, uncertain bool) {
 	if anyDynamic(target.DynamicWords) || len(target.Words) == 0 || len(invocation.Words) == 0 {
 		return false, true
 	}
