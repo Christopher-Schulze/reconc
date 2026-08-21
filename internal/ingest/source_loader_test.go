@@ -392,17 +392,20 @@ func sourceKinds(b *SourceBundle) []policy.SourceKind {
 
 func TestInlineBlockClosingFenceMustBeAloneOnItsLine(t *testing.T) {
 	content := "# Doc\n\n```reconc\nrules: []\n```\ntrailing prose\n\n```reconc\nrules: []\n  ``` indented, not a fence\n```\n"
-	blocks := inlineBlockRegex.FindAllStringSubmatch(content, -1)
+	blocks, err := ScanInlinePolicyBlocks("AGENTS.md", content)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(blocks) != 2 {
 		t.Fatalf("expected 2 blocks, got %d", len(blocks))
 	}
-	if blocks[0][1] != "rules: []" {
-		t.Errorf("first block content mismatch: %q", blocks[0][1])
+	if blocks[0].Content != "rules: []\n" {
+		t.Errorf("first block content mismatch: %q", blocks[0].Content)
 	}
 	// The indented ``` is content, not a closing fence; the block runs
 	// to the next line-anchored fence.
-	if !strings.Contains(blocks[1][1], "indented, not a fence") {
-		t.Errorf("indented pseudo-fence must stay inside the block: %q", blocks[1][1])
+	if !strings.Contains(blocks[1].Content, "indented, not a fence") {
+		t.Errorf("indented pseudo-fence must stay inside the block: %q", blocks[1].Content)
 	}
 }
 

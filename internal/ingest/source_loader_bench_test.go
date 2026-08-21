@@ -77,19 +77,8 @@ func BenchmarkExtractInlineBlocksLinear(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		if _, err := extractInlineBlocks("AGENTS.md", text); err != nil {
+		if _, err := ScanInlinePolicyBlocks("AGENTS.md", text); err != nil {
 			b.Fatal(err)
-		}
-	}
-}
-
-func BenchmarkExtractInlineBlocksRegexBaseline(b *testing.B) {
-	text := strings.Repeat("prefix text\n", 4096) + "```reconc\nrules: []\n```\n"
-	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		if len(inlineBlockRegex.FindAllStringSubmatchIndex(text, -1)) != 1 {
-			b.Fatal("regex baseline did not find one block")
 		}
 	}
 }

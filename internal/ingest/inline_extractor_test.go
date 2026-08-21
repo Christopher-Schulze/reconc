@@ -7,7 +7,7 @@ import (
 
 func TestExtractInlineBlocksTracksLinesAndCRLF(t *testing.T) {
 	text := "prefix\r\n```reconc\r\nrules: []\r\n```\r\n\n```reconc \t\r\nrules: []\r\n```\r\n"
-	blocks, err := extractInlineBlocks("AGENTS.md", text)
+	blocks, err := ScanInlinePolicyBlocks("AGENTS.md", text)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,7 +21,7 @@ func TestExtractInlineBlocksTracksLinesAndCRLF(t *testing.T) {
 
 func TestExtractInlineBlocksSkipsUnclosedFenceAndRejectsIndentedClose(t *testing.T) {
 	text := "```reconc\nrules: ignored\n  ```\n```reconc\nrules: kept\n```\n"
-	blocks, err := extractInlineBlocks("AGENTS.md", text)
+	blocks, err := ScanInlinePolicyBlocks("AGENTS.md", text)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,13 +35,13 @@ func TestExtractInlineBlocksEnforcesPerSourceCap(t *testing.T) {
 	for index := 0; index < maxInlineBlocksPerSource+1; index++ {
 		builder.WriteString("```reconc\nrules: []\n```\n")
 	}
-	if _, err := extractInlineBlocks("AGENTS.md", builder.String()); err == nil || !strings.Contains(err.Error(), "exceeds") {
+	if _, err := ScanInlinePolicyBlocks("AGENTS.md", builder.String()); err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("block cap error = %v", err)
 	}
 }
 
 func TestExtractInlineBlocksReturnsEmptyForPlainText(t *testing.T) {
-	blocks, err := extractInlineBlocks("AGENTS.md", "plain\ntext\n")
+	blocks, err := ScanInlinePolicyBlocks("AGENTS.md", "plain\ntext\n")
 	if err != nil || len(blocks) != 0 {
 		t.Fatalf("plain extraction = %#v, %v", blocks, err)
 	}

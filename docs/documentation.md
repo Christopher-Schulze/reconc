@@ -1728,10 +1728,12 @@ set retains the historical `encoding/json` escaping path, preserving
 identity-bearing bytes. Differential tests and fuzzing compare accepted values,
 canonical decimals, duplicate-name behavior, Unicode rejection, nesting, and
 exact string bytes against the previous decoder and encoder contracts.
-Inline fenced-policy blocks are extracted with one bounded line scan and
-incremental line accounting. A per-source block cap is enforced before another
-block body is retained, while LF/CRLF, fence syntax, block IDs, trimming, and
-source order remain compatible.
+Inline fenced-policy blocks are extracted with one authoritative bounded line
+scan shared by compilation and deep-doctor reference inspection. Opening and
+closing fences must be line-anchored, may carry horizontal trailing whitespace,
+and accept LF or CRLF. A per-source block cap is enforced before another block
+body is retained; unterminated fences remain prose, and both consumers receive
+the same trimmed content, order, path, line number, and block identity.
 Repository sources are read through a bounded opened-file snapshot that
 returns the file identity used for the bytes. Loader checks compare that
 identity, the canonical source path, and the canonical repository root after

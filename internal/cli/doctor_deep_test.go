@@ -406,11 +406,14 @@ func TestDoctorDeepHelperCoverage(t *testing.T) {
 
 	t.Run("inline blocks and refs", func(t *testing.T) {
 		text := "# doc\n```reconc\nrules:\n  - template: docs-follow-code\n```\n"
-		blocks := extractDoctorInlineBlocks(text)
-		if len(blocks) != 1 || !strings.Contains(blocks[0], "template: docs-follow-code") {
+		blocks, err := ingest.ScanInlinePolicyBlocks("AGENTS.md", text)
+		if err != nil {
+			t.Fatalf("ScanInlinePolicyBlocks: %v", err)
+		}
+		if len(blocks) != 1 || !strings.Contains(blocks[0].Content, "template: docs-follow-code") {
 			t.Fatalf("unexpected inline blocks: %#v", blocks)
 		}
-		templatesFound, err := extractTemplateRefs(blocks[0], "inline")
+		templatesFound, err := extractTemplateRefs(blocks[0].Content, "inline")
 		if err != nil {
 			t.Fatalf("extractTemplateRefs: %v", err)
 		}
@@ -460,6 +463,76 @@ func TestDoctorDeepHelperCoverage(t *testing.T) {
 			t.Fatalf("expected empty-claims OK check, got %#v", check)
 		}
 	})
+}
+
+func TestDoctorInlineSourcesMatchAuthoritativeScanner(t *testing.T) {
+	var maximum strings.Builder
+	for range 512 {
+		maximum.WriteString("```reconc\nrules: []\n```\n")
+	}
+	tests := []struct {
+		name string
+		text string
+	}{
+		{name: "plain markdown", text: "# agents\nNo policy here.\n"},
+		{name: "lf", text: "before\n```reconc\nrules: []\n```\nafter\n"},
+		{name: "crlf and fence whitespace", text: "before\r\n```reconc \t\r\nrules: []\r\n``` \t\r\nafter\r\n"},
+		{name: "multiple including empty", text: "```reconc\n```\ntext\n```reconc\nrules: []\n```\n"},
+		{name: "unterminated", text: "before\n```reconc\nrules: []\n"},
+		{name: "indented opening is prose", text: "  ```reconc\nrules: []\n```\n"},
+		{name: "maximum block count", text: maximum.String()},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := t.TempDir()
+			if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte(tt.text), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			path := "AGENTS.md"
+			discovery := ingest.DiscoveryResult{RepoRoot: repo, AgentsPath: &path}
+			totalBytes := int64(0)
+			doctorSources, doctorErr := loadDoctorTemplateSources(discovery, &totalBytes)
+			blocks, scanErr := ingest.ScanInlinePolicyBlocks(path, tt.text)
+			if doctorErr != nil || scanErr != nil {
+				t.Fatalf("unexpected errors: doctor=%v scanner=%v", doctorErr, scanErr)
+			}
+			if len(doctorSources) != len(blocks) {
+				t.Fatalf("doctor found %d blocks; scanner found %d", len(doctorSources), len(blocks))
+			}
+			for index := range blocks {
+				if doctorSources[index].content != blocks[index].Content {
+					t.Fatalf("block %d content differs: doctor=%q scanner=%q", index, doctorSources[index].content, blocks[index].Content)
+				}
+				if doctorSources[index].label != path+" inline block" {
+					t.Fatalf("block %d label = %q", index, doctorSources[index].label)
+				}
+			}
+			if totalBytes != int64(len(tt.text)) {
+				t.Fatalf("doctor byte accounting = %d, want %d", totalBytes, len(tt.text))
+			}
+		})
+	}
+}
+
+func TestDoctorInlineSourcesRejectExcessiveBlockCount(t *testing.T) {
+	var text strings.Builder
+	for range 513 {
+		text.WriteString("```reconc\nrules: []\n```\n")
+	}
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte(text.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	path := "AGENTS.md"
+	totalBytes := int64(0)
+	_, doctorErr := loadDoctorTemplateSources(ingest.DiscoveryResult{RepoRoot: repo, AgentsPath: &path}, &totalBytes)
+	_, scanErr := ingest.ScanInlinePolicyBlocks(path, text.String())
+	if doctorErr == nil || scanErr == nil {
+		t.Fatalf("expected both consumers to reject excessive blocks: doctor=%v scanner=%v", doctorErr, scanErr)
+	}
+	if !strings.Contains(doctorErr.Error(), scanErr.Error()) {
+		t.Fatalf("doctor error %q does not preserve scanner error %q", doctorErr, scanErr)
+	}
 }
 
 func runDoctorDeepJSON(t *testing.T, repo string) (*doctorDeepJSON, error) {

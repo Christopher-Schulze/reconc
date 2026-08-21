@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -43,8 +42,6 @@ const (
 	// rotation itself is broken, not that the user forgot housekeeping.
 	doctorAuditWarnBytes = int64(audit.DefaultMaxSizeBytes) * int64(1+audit.MaxArchiveFiles)
 )
-
-var doctorInlineBlockRegex = regexp.MustCompile("(?ms)^```reconc[ \\t]*\\r?\\n(.*?)\\r?\\n```")
 
 type doctorDeepReport struct {
 	RepoRoot string        `json:"repo_root"`
@@ -580,8 +577,12 @@ func loadDoctorTemplateSources(discovery ingest.DiscoveryResult, totalBytes *int
 		}
 		text := string(body)
 		if entry.md {
-			for _, block := range extractDoctorInlineBlocks(text) {
-				out = append(out, doctorTemplateSource{label: *entry.path + " inline block", content: block})
+			blocks, err := ingest.ScanInlinePolicyBlocks(*entry.path, text)
+			if err != nil {
+				return nil, fmt.Errorf("inspect inline policy blocks in %s: %w", *entry.path, err)
+			}
+			for _, block := range blocks {
+				out = append(out, doctorTemplateSource{label: *entry.path + " inline block", content: block.Content})
 			}
 			continue
 		}
@@ -607,18 +608,6 @@ func readDoctorTemplateSource(root, relative string, totalBytes *int64) ([]byte,
 		return nil, fmt.Errorf("doctor template source aggregate exceeds %d bytes", doctorSourceAggregateMax)
 	}
 	return body, nil
-}
-
-func extractDoctorInlineBlocks(text string) []string {
-	matches := doctorInlineBlockRegex.FindAllStringSubmatch(text, -1)
-	out := make([]string, 0, len(matches))
-	for _, match := range matches {
-		if len(match) < 2 {
-			continue
-		}
-		out = append(out, strings.TrimSpace(match[1]))
-	}
-	return out
 }
 
 func extractPresetRefs(raw, context string) ([]string, error) {

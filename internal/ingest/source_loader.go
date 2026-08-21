@@ -5,7 +5,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -34,16 +33,6 @@ const (
 	maxCustomRuntimes        = 32
 	maxRuntimeDirEntries     = 4096
 )
-
-// inlineBlockRegex matches fenced ```reconc ... ``` blocks inside
-// markdown context files. Block content is captured group 1.
-//
-// Pattern allows trailing whitespace after the language tag and either
-// LF or CRLF line endings. Both fences must start at the beginning of a
-// line and the closing fence must be alone on its line (modulo trailing
-// whitespace); this is a simple-but-robust approximation of CommonMark
-// fenced code block parsing sufficient for our extraction.
-var inlineBlockRegex = regexp.MustCompile("(?ms)^```reconc[ \\t]*\\r?\\n(.*?)\\r?\\n```[ \\t]*\\r?$")
 
 // SourceBundle is the ordered set of policy sources discovered for a
 // repository, plus the discovery metadata that produced them.
@@ -301,7 +290,7 @@ func loadEntryFileWithBlocks(root, relPath string, kind policy.SourceKind) ([]po
 	out := []policy.PolicySource{
 		{Kind: kind, Path: relPath, Content: text},
 	}
-	blocks, err := extractInlineBlocks(relPath, text)
+	blocks, err := ScanInlinePolicyBlocks(relPath, text)
 	if err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "extract inline policy blocks from " + relPath, Cause: err}
 	}
@@ -309,10 +298,11 @@ func loadEntryFileWithBlocks(root, relPath string, kind policy.SourceKind) ([]po
 	return out, nil
 }
 
-// extractInlineBlocks scans markdown text for fenced ```reconc blocks
-// and returns each as a PolicySource with provenance pointing back to
-// the source line.
-func extractInlineBlocks(relPath, text string) ([]policy.PolicySource, error) {
+// ScanInlinePolicyBlocks is the authoritative scanner for fenced reconc
+// policy blocks. Both compilation and diagnostics consume these exact source
+// records so fence recognition, normalized content, order, and provenance
+// cannot diverge.
+func ScanInlinePolicyBlocks(relPath, text string) ([]policy.PolicySource, error) {
 	out := make([]policy.PolicySource, 0, 4)
 	lineStartOffset := 0
 	lineNumber := 1
