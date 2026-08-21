@@ -2,7 +2,7 @@
 
 ## Active
 
-- [~] 217 Make extracted rule identifiers collision-resistant -> tasks/217-make-extracted-rule-identifiers-collision-resistant.md
+- [~] 218 Close proof-bundle privacy inference gaps -> tasks/218-close-proof-bundle-privacy-inference-gaps.md
 
 ## Queue
 
@@ -19,6 +19,7 @@
 
 ## Done
 
+- [x] 217 Make extracted rule identifiers collision-resistant -> tasks/done/217-make-extracted-rule-identifiers-collision-resistant.md
 - [x] 216 Make context-size accounting bounded and overflow-safe -> tasks/done/216-make-context-size-accounting-bounded-and-overflow-safe.md
 - [x] 215 Enforce harness-pack limits before retaining payloads -> tasks/done/215-enforce-harness-pack-limits-before-retaining-payloads.md
 - [x] 214 Deduplicate runtime evidence in linear time -> tasks/done/214-deduplicate-runtime-evidence-in-linear-time.md

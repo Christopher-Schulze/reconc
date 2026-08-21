@@ -22,7 +22,10 @@
 package extractor
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"regexp"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -36,15 +39,18 @@ import (
 func Extract(content string) []adopt.Suggestion {
 	lines := strings.Split(content, "\n")
 	seen := map[string]struct{}{}
+	positions := map[string]int{}
 	out := []adopt.Suggestion{}
 
 	add := func(s adopt.Suggestion) {
-		// Deduplicate on id -- a rule authored twice in prose should
-		// surface once.
-		if _, ok := seen[s.ID]; ok {
+		key := suggestionIdentity(s)
+		if _, ok := seen[key]; ok {
+			index := positions[key]
+			out[index].Evidence = appendUniqueEvidence(out[index].Evidence, s.Evidence...)
 			return
 		}
-		seen[s.ID] = struct{}{}
+		seen[key] = struct{}{}
+		positions[key] = len(out)
 		out = append(out, s)
 	}
 
@@ -63,7 +69,7 @@ func Extract(content string) []adopt.Suggestion {
 			}
 			target = strings.Trim(strings.TrimSpace(target), "`'\".,;")
 			if isPlausiblePath(target) {
-				id := "extract-read-only-" + slugify(target)
+				id := suggestionID("extract-read-only", "deny_write", target)
 				add(adopt.Suggestion{
 					ID:       id,
 					Kind:     "deny_write",
@@ -80,7 +86,7 @@ func Extract(content string) []adopt.Suggestion {
 		if m := patternGenerated.FindStringSubmatch(trimmed); m != nil {
 			target := strings.Trim(m[1], "`'\"")
 			if isPlausiblePath(target) {
-				id := "extract-generated-" + slugify(target)
+				id := suggestionID("extract-generated", "deny_write", target)
 				add(adopt.Suggestion{
 					ID:       id,
 					Kind:     "deny_write",
@@ -97,7 +103,7 @@ func Extract(content string) []adopt.Suggestion {
 		if m := patternRunBeforeCommit.FindStringSubmatch(trimmed); m != nil {
 			cmd := strings.Trim(m[1], "`'\".,;")
 			if isPlausibleCommand(cmd) {
-				id := "extract-run-" + slugify(cmd)
+				id := suggestionID("extract-run", "require_command", cmd)
 				add(adopt.Suggestion{
 					ID:        id,
 					Kind:      "require_command",
@@ -186,6 +192,9 @@ func isPlausiblePath(s string) bool {
 			return false
 		}
 	}
+	if canonicalBareFilenames[s] {
+		return true
+	}
 	// Paths typically have at least one of: '/', '.', '**', a
 	// file-extension-like suffix. If none of those are present,
 	// it's probably a noun phrase.
@@ -193,6 +202,14 @@ func isPlausiblePath(s string) bool {
 		return false
 	}
 	return true
+}
+
+var canonicalBareFilenames = map[string]bool{
+	"AGENTS.md": true, "CLAUDE.md": true, "Cargo.toml": true,
+	"Dockerfile": true, "Gemfile": true, "Justfile": true,
+	"LICENSE": true, "Makefile": true, "Procfile": true,
+	"README": true, "Rakefile": true, "Vagrantfile": true,
+	"go.mod": true, "package.json": true, "pyproject.toml": true,
 }
 
 // isPlausibleCommand filters obvious non-commands out of the
@@ -239,6 +256,82 @@ func slugify(s string) string {
 		return "rule"
 	}
 	return out
+}
+
+const (
+	maxSuggestionIDBytes = 64
+	digestSuffixBytes    = 10
+)
+
+func suggestionID(prefix, kind, target string) string {
+	normalized := normalizeSuggestionTarget(target)
+	slug := slugify(normalized)
+	digest := sha256.Sum256([]byte(kind + "\x00" + normalized))
+	suffix := "-" + hex.EncodeToString(digest[:])[:digestSuffixBytes]
+	lossy := slug != normalized || len([]byte(normalized)) > 40
+	available := maxSuggestionIDBytes - len(prefix) - 1
+	if lossy {
+		available -= len(suffix)
+	}
+	if available < 1 {
+		available = 1
+	}
+	slug = truncateASCII(slug, available)
+	if slug == "" {
+		slug = "rule"
+	}
+	if lossy {
+		return prefix + "-" + slug + suffix
+	}
+	return prefix + "-" + slug
+}
+
+func suggestionIdentity(s adopt.Suggestion) string {
+	values := append([]string(nil), suggestionIdentityValues(s)...)
+	for index := range values {
+		values[index] = normalizeSuggestionTarget(values[index])
+	}
+	sort.Strings(values)
+	return s.Kind + "\x00" + strings.Join(values, "\x00")
+}
+
+func suggestionIdentityValues(s adopt.Suggestion) []string {
+	switch s.Kind {
+	case "deny_write", "require_read":
+		return s.Paths
+	case "require_command":
+		return s.Commands
+	case "require_claim":
+		return s.Claims
+	default:
+		return []string{s.ID}
+	}
+}
+
+func normalizeSuggestionTarget(value string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+}
+
+func appendUniqueEvidence(values []string, additions ...string) []string {
+	seen := make(map[string]struct{}, len(values)+len(additions))
+	for _, value := range values {
+		seen[value] = struct{}{}
+	}
+	for _, value := range additions {
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		values = append(values, value)
+	}
+	return values
+}
+
+func truncateASCII(value string, maximum int) string {
+	if len(value) <= maximum {
+		return value
+	}
+	return value[:maximum]
 }
 
 // quoteLine formats a cited line for the suggestion's Evidence field.

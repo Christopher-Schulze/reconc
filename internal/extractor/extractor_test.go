@@ -126,7 +126,7 @@ func TestSlugify(t *testing.T) {
 }
 
 func TestIsPlausiblePath(t *testing.T) {
-	good := []string{"generated/**", ".env", "src/main.go", "docs/**", "*.md"}
+	good := []string{"generated/**", ".env", "src/main.go", "docs/**", "*.md", "Makefile"}
 	bad := []string{"this", "anything", "the code", "them"}
 	for _, g := range good {
 		if !isPlausiblePath(g) {
@@ -137,5 +137,72 @@ func TestIsPlausiblePath(t *testing.T) {
 		if isPlausiblePath(b) {
 			t.Errorf("%q should NOT be plausible", b)
 		}
+	}
+}
+
+func TestExtractUsesCollisionResistantSemanticIDs(t *testing.T) {
+	t.Parallel()
+	prose := strings.Join([]string{
+		"Don't edit src/foo-bar.go.",
+		"Don't edit src/foo_bar.go.",
+		"Don't edit src/" + strings.Repeat("a", 55) + "-one.txt.",
+		"Don't edit src/" + strings.Repeat("a", 55) + "-two.txt.",
+	}, "\n")
+	got := Extract(prose)
+	if len(got) != 4 {
+		t.Fatalf("collision candidates collapsed: %#v", got)
+	}
+	ids := map[string]struct{}{}
+	for _, suggestion := range got {
+		if len(suggestion.ID) > maxSuggestionIDBytes || !strings.HasPrefix(suggestion.ID, "extract-read-only-") {
+			t.Fatalf("invalid bounded readable id %q", suggestion.ID)
+		}
+		if _, exists := ids[suggestion.ID]; exists {
+			t.Fatalf("duplicate generated id %q", suggestion.ID)
+		}
+		ids[suggestion.ID] = struct{}{}
+	}
+}
+
+func TestExtractMergesTrueDuplicateProvenance(t *testing.T) {
+	t.Parallel()
+	got := Extract("Don't edit src/main.go.\nDon't edit src/main.go.\n")
+	if len(got) != 1 || len(got[0].Evidence) != 2 {
+		t.Fatalf("duplicate provenance = %#v", got)
+	}
+}
+
+func TestExtractSupportsCanonicalBareFilenamesOnly(t *testing.T) {
+	t.Parallel()
+	if !isPlausiblePath("Makefile") || !isPlausiblePath("Dockerfile") {
+		t.Fatal("canonical bare filename was rejected")
+	}
+	if isPlausiblePath("output") || isPlausiblePath("artifact") {
+		t.Fatal("arbitrary noun was accepted as a path")
+	}
+	got := Extract("Don't edit Makefile.\nDon't edit output.")
+	if len(got) != 1 || got[0].Paths[0] != "Makefile" {
+		t.Fatalf("bare filename extraction = %#v", got)
+	}
+}
+
+func TestExtractLongUnicodeIDsAreDeterministic(t *testing.T) {
+	t.Parallel()
+	content := "Don't edit docs/Überprüfung-" + strings.Repeat("秘密", 80) + ".md."
+	first, second := Extract(content), Extract(content)
+	if len(first) != 1 || len(second) != 1 || first[0].ID != second[0].ID {
+		t.Fatalf("unicode extraction is not deterministic: %#v vs %#v", first, second)
+	}
+	if len(first[0].ID) > maxSuggestionIDBytes || !strings.HasPrefix(first[0].ID, "extract-read-only-") {
+		t.Fatalf("unicode id is not bounded/readable: %q", first[0].ID)
+	}
+}
+
+func TestSuggestionIdentityNormalizesCommands(t *testing.T) {
+	t.Parallel()
+	a := Extract("Run `go   test ./...` before committing.")
+	b := Extract("Run `go test ./...` before committing.")
+	if len(a) != 1 || len(b) != 1 || a[0].ID != b[0].ID {
+		t.Fatalf("command whitespace changed semantic identity: %#v vs %#v", a, b)
 	}
 }

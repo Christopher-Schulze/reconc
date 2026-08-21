@@ -569,6 +569,9 @@ and byte-compares the notice before checksums and provenance are accepted.
      Context-size accounting bounds requested paths before filesystem work,
      reports token and byte totals in 64-bit JSON fields with saturating sums,
      and inspects only stable contained regular-file identities.
+     Prose extraction deduplicates by semantic rule content and emits readable
+     bounded IDs with stable digest suffixes whenever lossy slugging could
+     collide; canonical bare repository filenames use an explicit allowlist.
    - Normalises the input paths against the repo root.
    - For each rule in the lockfile: applies the scope filter
      (`ruleScopeMatches`), then dispatches to the per-kind
