@@ -22,6 +22,7 @@ import (
 // repo-relative paths against the discovered root without re-discovering.
 type evalContext struct {
 	repoRoot         string
+	paths            *evaluationPathState
 	rawCommands      []string
 	currentCommands  []string
 	preCommand       bool
@@ -32,6 +33,13 @@ type evalContext struct {
 	evidenceCache    *evidenceSnapshotCache
 	evidenceMemo     *evidenceMatchMemo
 	contextMemo      *matchContextMemo
+}
+
+func (ctx *evalContext) resolvePolicyFile(relative string) (string, error) {
+	if ctx != nil && ctx.paths != nil {
+		return ctx.paths.resolvePolicyFile(relative)
+	}
+	return resolvePolicyFile(ctxRepoRoot(ctx), relative)
 }
 
 type observedCommandInvocations struct {
@@ -227,55 +235,31 @@ func (e *Evaluator) AssertRuleByID(startPath, ruleID string, vars map[string]str
 	merged := inputs
 	merged.WritePaths = mergedWrites.values()
 
-	resolvedRoot, err := pathidentity.ResolveExisting(root)
-	if err != nil {
-		return nil, fmt.Errorf("resolve repo filesystem identity: %w", err)
-	}
-	normalizedReads, err := normalizePathsWithResolvedRoot(merged.ReadPaths, resolvedRoot)
+	normalized, err := normalizeEvaluationInput(root, merged)
 	if err != nil {
 		return nil, err
-	}
-	normalizedWrites, err := normalizePathsWithResolvedRoot(merged.WritePaths, resolvedRoot)
-	if err != nil {
-		return nil, err
-	}
-	normalizedWriteEpochs, err := normalizeWriteEpochsWithResolvedRoot(merged.WritePaths, merged.WriteEpochs, resolvedRoot)
-	if err != nil {
-		return nil, err
-	}
-	normalizedResults := normalizeCommandResults(merged.CommandResults)
-	rawCommands := rawCommandsPreservingSyntax(merged.Commands, merged.CommandResults)
-	commandsForDedupe := append([]string{}, merged.Commands...)
-	for _, r := range normalizedResults {
-		commandsForDedupe = append(commandsForDedupe, r.Command)
-	}
-	normalizedCommands := dedupePreservingOrder(normalizeCommands(commandsForDedupe))
-	normalizedClaims := normalizeCommands(merged.Claims)
-
-	normalizedInputs := ExecutionInputs{
-		ReadPaths:      normalizedReads,
-		WritePaths:     normalizedWrites,
-		WriteEpochs:    normalizedWriteEpochs,
-		Commands:       normalizedCommands,
-		Claims:         normalizedClaims,
-		CommandResults: normalizedResults,
 	}
 
-	report := NewEmptyReport(root, ingest.LockfilePath, plan.defaultMode, normalizedInputs)
+	report := NewEmptyReport(root, ingest.LockfilePath, plan.defaultMode, normalized.inputs)
 	ctx := &evalContext{
 		repoRoot:         root,
-		rawCommands:      rawCommands,
+		paths:            normalized.paths,
+		rawCommands:      normalized.rawCommands,
+		currentCommands:  normalized.currentCommands,
 		matchers:         plan.pathMatchers,
 		templateMatchers: plan.templateMatchers,
 		commandCache:     newCommandInvocationCache([]policy.Rule{*target}, root),
-		commandEvidence:  newCommandEvidenceIndex(normalizedInputs, root),
+		commandEvidence:  newCommandEvidenceIndex(normalized.inputs, root),
 		evidenceCache:    newEvidenceSnapshotCache(),
 		evidenceMemo:     newEvidenceMatchMemo(),
 		contextMemo:      newMatchContextMemo(),
 	}
 
-	v, err := evaluateRule(ctx, target, plan.defaultMode, normalizedInputs)
+	v, err := evaluateRule(ctx, target, plan.defaultMode, normalized.inputs)
 	if err != nil {
+		return nil, err
+	}
+	if err := normalized.paths.revalidateRoot(); err != nil {
 		return nil, err
 	}
 	if v != nil {
@@ -360,13 +344,18 @@ func (e *Evaluator) checkRepoPolicy(startPath string, inputs ExecutionInputs, al
 }
 
 func evaluateRuntimePlan(root string, plan *runtimePlan, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}, preCommand bool) (*CheckReport, error) {
-	normalized, err := normalizeEvaluationInput(root, inputs)
+	return evaluateRuntimePlanWithRootResolver(root, plan, inputs, allowedKinds, preCommand, pathidentity.ResolveExisting)
+}
+
+func evaluateRuntimePlanWithRootResolver(root string, plan *runtimePlan, inputs ExecutionInputs, allowedKinds map[policy.Kind]struct{}, preCommand bool, resolveRoot func(string) (string, error)) (*CheckReport, error) {
+	normalized, err := normalizeEvaluationInputWithRootResolver(root, inputs, resolveRoot)
 	if err != nil {
 		return nil, err
 	}
 	report := NewEmptyReport(root, ingest.LockfilePath, plan.defaultMode, normalized.inputs)
 	ctx := &evalContext{
 		repoRoot:         root,
+		paths:            normalized.paths,
 		rawCommands:      normalized.rawCommands,
 		currentCommands:  normalized.currentCommands,
 		preCommand:       preCommand,
@@ -402,6 +391,9 @@ func evaluateRuntimePlan(root string, plan *runtimePlan, inputs ExecutionInputs,
 		if v != nil && (!preCommand || !rule.Kind.IsComposite() || compositeForbiddenCommandMatches(ctx, rule)) {
 			report.Violations = append(report.Violations, *v)
 		}
+	}
+	if err := normalized.paths.revalidateRoot(); err != nil {
+		return nil, err
 	}
 
 	report.Finalize()
@@ -749,8 +741,15 @@ func normalizeWriteEpochs(paths []string, epochs map[string]uint64, root string)
 // root so the check hot path resolves the root identity once instead of once
 // per write path.
 func normalizeWriteEpochsWithResolvedRoot(paths []string, epochs map[string]uint64, resolvedRoot string) (map[string]uint64, error) {
-	out := make(map[string]uint64, len(epochs))
 	prospective := pathidentity.NewProspectiveResolver()
+	return normalizeWriteEpochsWithResolver(paths, epochs, resolvedRoot, prospective)
+}
+
+func normalizeWriteEpochsWithResolver(paths []string, epochs map[string]uint64, resolvedRoot string, prospective *pathidentity.ProspectiveResolver) (map[string]uint64, error) {
+	out := make(map[string]uint64, len(epochs))
+	if prospective == nil {
+		prospective = pathidentity.NewProspectiveResolver()
+	}
 	for _, raw := range paths {
 		normalized, keep, err := normalizePathWithResolver(raw, resolvedRoot, prospective)
 		if err != nil {
@@ -1350,7 +1349,7 @@ func evalRequireFreshFile(ctx *evalContext, rule *policy.Rule, defaultMode polic
 					Message: "rule '" + ruleIDOf(rule) + "' required_files path: " + err.Error(),
 				}
 			}
-			fullPath, err := resolvePolicyFile(ctx.repoRoot, path)
+			fullPath, err := ctx.resolvePolicyFile(path)
 			if err != nil {
 				return nil, err
 			}
@@ -1434,7 +1433,7 @@ func evalRequireEvidence(ctx *evalContext, rule *policy.Rule, defaultMode policy
 				}
 			}
 			requiredFiles[file] = struct{}{}
-			fullPath, err := resolvePolicyFile(ctx.repoRoot, file)
+			fullPath, err := ctx.resolvePolicyFile(file)
 			if err != nil {
 				return nil, err
 			}

@@ -47,3 +47,57 @@ func TestEvidenceFileReadIsBounded(t *testing.T) {
 		t.Fatalf("oversized evidence error = %v", err)
 	}
 }
+
+func TestEvaluationPathStateRejectsRepositoryRootReplacement(t *testing.T) {
+	parent := t.TempDir()
+	repo := filepath.Join(parent, "repo")
+	if err := os.Mkdir(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	state, err := newEvaluationPathState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldRepo := filepath.Join(parent, "repo-original")
+	if err := os.Rename(repo, oldRepo); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.resolvePolicyFile("proof.txt"); err == nil || !strings.Contains(err.Error(), "root filesystem identity changed") {
+		t.Fatalf("root replacement error = %v", err)
+	}
+}
+
+func TestEvaluationPathStateRevalidatesReplacedEvidenceParent(t *testing.T) {
+	repo := t.TempDir()
+	proof := filepath.Join(repo, "proof")
+	if err := os.Mkdir(proof, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(proof, "first.txt"), []byte("safe\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state, err := newEvaluationPathState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.resolvePolicyFile("proof/first.txt"); err != nil {
+		t.Fatal(err)
+	}
+
+	original := filepath.Join(repo, "proof-original")
+	if err := os.Rename(proof, original); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, proof); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	_, err = state.resolvePolicyFile("proof/second.txt")
+	var boundary *rerrors.RepoBoundaryError
+	if !stderrors.As(err, &boundary) {
+		t.Fatalf("replaced parent error = %T %v, want RepoBoundaryError", err, err)
+	}
+}

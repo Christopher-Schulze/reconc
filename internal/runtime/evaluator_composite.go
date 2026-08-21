@@ -228,7 +228,7 @@ func evalCheckRequireFreshFile(ctx *evalContext, c policy.Check, captures map[st
 	if err != nil {
 		return false, "", &rerrors.RuleValidationError{Message: "check path: " + err.Error()}
 	}
-	full, err := resolvePolicyFile(ctx.repoRoot, pathSubst)
+	full, err := ctx.resolvePolicyFile(pathSubst)
 	if err != nil {
 		return false, "", err
 	}
@@ -260,7 +260,7 @@ func evalCheckRequireEvidence(ctx *evalContext, c policy.Check, captures map[str
 	if err != nil {
 		return false, "", &rerrors.RuleValidationError{Message: "check file: " + err.Error()}
 	}
-	full, err := resolvePolicyFile(ctx.repoRoot, fileSubst)
+	full, err := ctx.resolvePolicyFile(fileSubst)
 	if err != nil {
 		return false, "", err
 	}

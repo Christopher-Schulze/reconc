@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"reconc.dev/reconc/internal/boundedio"
@@ -504,6 +506,41 @@ func BenchmarkEvidenceSnapshotRead(b *testing.B) {
 		if body, err := boundedio.ReadFile(path, maxEvidenceFileBytes); err != nil || len(body) == 0 {
 			b.Fatalf("bounded read: %v", err)
 		}
+	}
+}
+
+func BenchmarkEvaluateEvidencePaths(b *testing.B) {
+	for _, count := range []int{1, 32, 256} {
+		b.Run(strconv.Itoa(count), func(b *testing.B) {
+			b.Setenv("RECONC_HOME", b.TempDir())
+			repo := b.TempDir()
+			writeFileBench(b, repo, "AGENTS.md", "# benchmark\n")
+			var source strings.Builder
+			source.WriteString("rules:\n  - id: evidence\n    kind: require_evidence\n    when_paths: ['src/**']\n    evidence:\n")
+			for index := range count {
+				path := "proof/evidence-" + strconv.Itoa(index) + ".txt"
+				writeFileBench(b, repo, path, "verified\n")
+				source.WriteString("      - file: '" + path + "'\n        must_exist: true\n")
+			}
+			source.WriteString("    mode: block\n    message: evidence\n")
+			writeFileBench(b, repo, "policies/evidence.yml", source.String())
+			if _, err := compiler.CompileRepoPolicy(repo, "bench"); err != nil {
+				b.Fatal(err)
+			}
+			plan, err := NewEvaluator().loadFreshRuntimePlan(repo)
+			if err != nil {
+				b.Fatal(err)
+			}
+			inputs := ExecutionInputs{WritePaths: []string{"src/main.go"}}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				report, err := evaluateRuntimePlan(repo, plan, inputs, nil, false)
+				if err != nil || report.Decision != DecisionPass {
+					b.Fatalf("evaluation = (%v, %v)", report, err)
+				}
+			}
+		})
 	}
 }
 

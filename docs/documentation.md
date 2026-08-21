@@ -1807,7 +1807,13 @@ item and text ceilings, so a source cannot bypass bounds by moving data into a
 nested variant.
 Runtime resolves every such path against the filesystem identity of the
 repository root and rejects symlink, reparse-point, or missing-tail resolution
-that escapes it. Policy sources are limited to 8 MiB each, 4,096 sources, and
+that escapes it. One evaluation owns one resolved root identity and one bounded
+prospective-path resolver shared by read/write normalization, write epochs,
+top-level evidence checks, composite checks, kind-filtered checks, assertions,
+and pre-command checks. The root directory entry and reused ancestors are
+revalidated during evaluation, while evidence snapshots still revalidate the
+resolved file identity and metadata before reusing bytes. Policy sources are
+limited to 8 MiB each, 4,096 sources, and
 64 MiB in aggregate; compiled lockfiles and execution-input JSON files are
 limited to 16 MiB; evidence and TASK control files are limited to 4 MiB. An
 oversized or boundary-escaping input fails closed before evaluation.
@@ -3833,10 +3839,12 @@ Security posture:
   for top-level and composite checks. The same evaluation memoizes template
   match contexts with cloned capture maps, including deterministic errors, so
   repeated rules do not rebuild equivalent derived evidence.
-- Batch path normalization uses an evaluation-local `pathidentity` prospective
-  resolver. Shared existing ancestors are `Lstat`-revalidated before reuse;
-  missing suffixes remain uncached, preserving symlink/reparse, containment,
-  case, and replacement semantics while reducing repeated ancestor walks.
+- Batch path normalization and policy evidence resolution use one
+  evaluation-local `pathidentity` prospective resolver. Shared existing
+  ancestors are `Lstat`-revalidated before reuse; missing suffixes remain
+  uncached, preserving symlink/reparse, containment, case, and replacement
+  semantics while eliminating repeated root resolution and reducing ancestor
+  walks.
 - Write-epoch normalization runs through the same resolver in one ordered pass
   and merges normalized aliases with the maximum observed epoch, preserving
   causal freshness when absolute and relative spellings collide.

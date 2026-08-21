@@ -73,10 +73,6 @@ func (e *CompiledPolicyEvaluator) CheckWithTrace(repoRoot string, inputs Executi
 	if e == nil || e.plan == nil {
 		return nil, EvaluationMetrics{}, EvaluationTrace{}, fmt.Errorf("compiled policy evaluator is nil")
 	}
-	_, err := pathidentity.ResolveExisting(repoRoot)
-	if err != nil {
-		return nil, EvaluationMetrics{}, EvaluationTrace{}, fmt.Errorf("resolve repo filesystem identity: %w", err)
-	}
 	report, err := evaluateRuntimePlan(repoRoot, e.plan, inputs, nil, false)
 	if err != nil {
 		return nil, EvaluationMetrics{}, EvaluationTrace{}, err
@@ -193,26 +189,33 @@ type normalizedEvaluationInputSet struct {
 	inputs          ExecutionInputs
 	rawCommands     []string
 	currentCommands []string
+	paths           *evaluationPathState
 }
 
 func normalizeEvaluationInput(root string, inputs ExecutionInputs) (normalizedEvaluationInputSet, error) {
-	resolvedRoot, err := pathidentity.ResolveExisting(root)
-	if err != nil {
-		return normalizedEvaluationInputSet{}, fmt.Errorf("resolve repo filesystem identity: %w", err)
-	}
-	reads, err := normalizePathsWithResolvedRoot(inputs.ReadPaths, resolvedRoot)
-	if err != nil {
-		return normalizedEvaluationInputSet{}, err
-	}
-	writes, err := normalizePathsWithResolvedRoot(inputs.WritePaths, resolvedRoot)
+	return normalizeEvaluationInputWithRootResolver(root, inputs, pathidentity.ResolveExisting)
+}
+
+func normalizeEvaluationInputWithRootResolver(root string, inputs ExecutionInputs, resolveRoot func(string) (string, error)) (normalizedEvaluationInputSet, error) {
+	paths, err := newEvaluationPathStateWithRootResolver(root, resolveRoot)
 	if err != nil {
 		return normalizedEvaluationInputSet{}, err
 	}
-	epochs, err := normalizeWriteEpochsWithResolvedRoot(inputs.WritePaths, inputs.WriteEpochs, resolvedRoot)
+	reads, err := normalizePathsWithResolver(inputs.ReadPaths, paths.resolvedRoot, paths.prospective)
 	if err != nil {
 		return normalizedEvaluationInputSet{}, err
 	}
-	return finishInputNormalization(inputs, reads, writes, epochs), nil
+	writes, err := normalizePathsWithResolver(inputs.WritePaths, paths.resolvedRoot, paths.prospective)
+	if err != nil {
+		return normalizedEvaluationInputSet{}, err
+	}
+	epochs, err := normalizeWriteEpochsWithResolver(inputs.WritePaths, inputs.WriteEpochs, paths.resolvedRoot, paths.prospective)
+	if err != nil {
+		return normalizedEvaluationInputSet{}, err
+	}
+	normalized := finishInputNormalization(inputs, reads, writes, epochs)
+	normalized.paths = paths
+	return normalized, nil
 }
 
 func finishInputNormalization(inputs ExecutionInputs, reads, writes []string, epochs map[string]uint64) normalizedEvaluationInputSet {
