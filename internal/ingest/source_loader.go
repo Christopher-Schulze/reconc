@@ -156,13 +156,17 @@ func LoadPolicySourcesWithContext(context *SourceLoadContext) (*SourceBundle, er
 			Path:    *discovery.ConfigPath,
 			Content: string(configText),
 		})
-		extra, err := loadIncludePatterns(string(configText), *discovery.ConfigPath)
+		configDocument, err := decodeYAMLMapping(string(configText), *discovery.ConfigPath)
+		if err != nil {
+			return nil, err
+		}
+		extra, err := loadIncludePatternsDocument(configDocument, *discovery.ConfigPath)
 		if err != nil {
 			return nil, err
 		}
 		includePatterns = append(includePatterns, extra...)
 
-		names, err := loadPresetNames(string(configText), *discovery.ConfigPath)
+		names, err := loadPresetNamesDocument(configDocument, *discovery.ConfigPath)
 		if err != nil {
 			return nil, err
 		}
@@ -387,6 +391,10 @@ func loadIncludePatterns(configText, context string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	return loadIncludePatternsDocument(doc, context)
+}
+
+func loadIncludePatternsDocument(doc map[string]interface{}, context string) ([]string, error) {
 	raw, ok := doc["include"]
 	if !ok || raw == nil {
 		return nil, nil
@@ -424,6 +432,10 @@ func loadPresetNames(configText, context string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	return loadPresetNamesDocument(doc, context)
+}
+
+func loadPresetNamesDocument(doc map[string]interface{}, context string) ([]string, error) {
 	raw, ok := doc["extends"]
 	if !ok || raw == nil {
 		return nil, nil

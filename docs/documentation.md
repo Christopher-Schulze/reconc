@@ -1657,6 +1657,9 @@ patterns are capped at 256 and 1 KiB each, directory enumeration and matches
 are capped, only regular files are candidates, and `**` is not recursive
 special syntax. Duplicate paths are removed by normalized repository-relative
 identity before reading.
+The compiler configuration is decoded once into the authoritative YAML
+mapping; `include` and `extends` extraction then share that document while
+retaining their existing strict field/type errors.
 Inline fenced-policy blocks are extracted with one bounded line scan and
 incremental line accounting. A per-source block cap is enforced before another
 block body is retained, while LF/CRLF, fence syntax, block IDs, trimming, and
