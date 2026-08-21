@@ -123,13 +123,24 @@ func captureStopRepositoryGeneration(
 	taskSnapshot stopTaskSnapshot,
 	writePaths []string,
 ) (stopGenerationCapture, bool) {
+	return captureStopRepositoryGenerationWithScan(root, gitSnapshot, taskSnapshot, writePaths, nil)
+}
+
+func captureStopRepositoryGenerationWithScan(
+	root string,
+	gitSnapshot stopPolicyGitSnapshot,
+	taskSnapshot stopTaskSnapshot,
+	writePaths []string,
+	scanCache *stopPolicyScanCache,
+) (stopGenerationCapture, bool) {
 	policyDigest, policyCount, err := stopPolicySourceIdentity(root)
 	if err != nil {
 		return stopGenerationCapture{}, false
 	}
-	return captureStopRepositoryGenerationWithIdentity(
+	return captureStopRepositoryGenerationWithIdentityAndScan(
 		root, gitSnapshot,
 		policyDigest, policyCount, stopTaskSnapshotHash(taskSnapshot), writePaths,
+		scanCache,
 	)
 }
 
@@ -140,6 +151,18 @@ func captureStopRepositoryGenerationWithIdentity(
 	policyCount int,
 	taskStateHash string,
 	writePaths []string,
+) (stopGenerationCapture, bool) {
+	return captureStopRepositoryGenerationWithIdentityAndScan(root, gitSnapshot, policyDigest, policyCount, taskStateHash, writePaths, nil)
+}
+
+func captureStopRepositoryGenerationWithIdentityAndScan(
+	root string,
+	gitSnapshot stopPolicyGitSnapshot,
+	policyDigest string,
+	policyCount int,
+	taskStateHash string,
+	writePaths []string,
+	scanCache *stopPolicyScanCache,
 ) (stopGenerationCapture, bool) {
 	rootInfo, err := os.Lstat(root)
 	if err != nil {
@@ -164,7 +187,7 @@ func captureStopRepositoryGenerationWithIdentity(
 		}
 		dirty = append(dirty, stopDirtyPathGeneration{Path: path, IndexEntry: indexEntry, Worktree: worktree})
 	}
-	policyScan := scanStopPolicyLockfile(root, sortedUniqueExact(writePaths))
+	policyScan := scanCache.get(root, writePaths)
 	if !policyScan.Cacheable {
 		return stopGenerationCapture{}, false
 	}
@@ -299,7 +322,12 @@ func (cache *StopDecisionCache) readStableReport(
 	state SessionState,
 	taskSnapshot stopTaskSnapshot,
 	gitSnapshot stopPolicyGitSnapshot,
+	scanCaches ...*stopPolicyScanCache,
 ) (*runtime.CheckReport, bool) {
+	var scanCache *stopPolicyScanCache
+	if len(scanCaches) > 0 {
+		scanCache = scanCaches[0]
+	}
 	entry, ok := cache.entry(root, state.SessionID)
 	if !ok || entry.evidenceHash != stopPolicyEvidenceHash(state) ||
 		entry.fingerprint != state.StopPolicyFingerprint || entry.reportHash != state.StopPolicyReportHash {
@@ -312,7 +340,7 @@ func (cache *StopDecisionCache) readStableReport(
 		cache.invalidate(root, state.SessionID)
 		return nil, false
 	}
-	generationBefore, generationOK := captureStopRepositoryGeneration(root, gitSnapshot, taskSnapshot, state.WritePaths)
+	generationBefore, generationOK := captureStopRepositoryGenerationWithScan(root, gitSnapshot, taskSnapshot, state.WritePaths, scanCache)
 	if !generationOK || entry.generation != generationBefore.Fingerprint {
 		cache.invalidate(root, state.SessionID)
 		return nil, false
@@ -327,10 +355,10 @@ func (cache *StopDecisionCache) readStableReport(
 		cache.invalidate(root, state.SessionID)
 		return nil, false
 	}
-	generationAfter, generationOK := captureStopRepositoryGeneration(
-		root, stopPolicyGitSnapshotFor(root), taskAfter, state.WritePaths,
+	generationAfter, generationOK := captureStopRepositoryGenerationWithScan(
+		root, stopPolicyGitSnapshotFor(root), taskAfter, state.WritePaths, scanCache,
 	)
-	if !generationOK || generationBefore.Fingerprint != generationAfter.Fingerprint {
+	if !generationOK || generationBefore.Fingerprint != generationAfter.Fingerprint || !scanCache.stable(root, state.WritePaths) {
 		cache.invalidate(root, state.SessionID)
 		return nil, false
 	}

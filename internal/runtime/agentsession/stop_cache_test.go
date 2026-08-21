@@ -166,6 +166,27 @@ func TestOversizedDirtyFileDisablesStopPolicyCache(t *testing.T) {
 	}
 }
 
+func TestStopPolicyScanCacheReusesScanAndRejectsLockMutation(t *testing.T) {
+	repo := t.TempDir()
+	writePolicyLock(t, repo, `{"rules":[{"kind":"require_claim","claims":["x"]}]}`)
+	cache := &stopPolicyScanCache{}
+	first := cache.get(repo, []string{"src/a.go", "src/a.go"})
+	if !first.Cacheable || first.LockHash == "" {
+		t.Fatalf("initial policy scan = %#v, want cacheable content-identified scan", first)
+	}
+	second := cache.get(repo, []string{"src/a.go"})
+	if second.LockHash != first.LockHash {
+		t.Fatalf("normalized write-path cache missed: first %q, second %q", first.LockHash, second.LockHash)
+	}
+	if !cache.stable(repo, []string{"src/a.go"}) {
+		t.Fatal("unchanged lock was reported unstable")
+	}
+	writePolicyLock(t, repo, `{"rules":[{"kind":"require_claim","claims":["y"]}]}`)
+	if cache.stable(repo, []string{"src/a.go"}) {
+		t.Fatal("mutated lock was accepted as the cached scan identity")
+	}
+}
+
 func writePolicyLock(t *testing.T, repo, lock string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(repo, ".reconc"), 0o755); err != nil {

@@ -3225,7 +3225,12 @@ with the evaluator's first-match semantics, and every resulting concrete target
 is bound before and after evaluation. Malformed, unmatched, or untrusted
 dynamic input fails closed. A lockfile that cannot be read or decoded is
 likewise non-cacheable. The eligibility scan decodes the lockfile rather than
-matching text.
+matching text. Within one Stop attempt, that bounded scan is shared by
+fingerprinting, cacheability, generation capture, expiry, assurance inputs,
+and cache storage through an attempt-local identity keyed by normalized write
+paths and the exact lockfile SHA-256. A final bounded byte-hash comparison
+invalidates the attempt if the lock changes, so no stale scan can authorize a
+report reuse or generation entry.
 
 A stored report additionally carries the instant its own inputs stop describing
 it. `require_fresh_file` can turn a clean report stale from wall-clock time

@@ -995,6 +995,14 @@ exact cache-input mutation during evaluation triggers a current-state retry;
 three consecutive unstable evaluations fail closed. A concurrent follower
 therefore either reads a fully published report whose bindings still match or
 evaluates current state.
+Within one Stop attempt, the bounded policy-lock scan is owned by an
+attempt-local cache keyed by the canonical repository root, normalized write
+paths, and the scan's exact lockfile SHA-256. Fingerprint construction,
+cacheability, generation capture, expiry, assurance inputs, and generation
+storage reuse that immutable result. A final bounded byte-hash comparison is a
+post-observation barrier; lock mutation or unreadability invalidates the scan
+and prevents report reuse or cache publication. No scan state crosses workers
+or repositories.
 
 Applicable native-assurance rules always bypass report reuse. Their complete
 globbed authority surfaces and wall-clock-aged proof inputs are intentionally
