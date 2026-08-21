@@ -99,14 +99,6 @@ func decodeYAMLDocumentBytesBounded(raw, context string) (*parserSourceDocument,
 	return &parserSourceDocument{root: document.Content[0], mapping: mapping}, nil
 }
 
-func decodeYAMLMappingBounded(raw, context string) (map[string]interface{}, error) {
-	document, err := decodeYAMLDocumentBounded(raw, context)
-	if err != nil {
-		return nil, err
-	}
-	return document.mapping, nil
-}
-
 func walkYAMLNode(node *yaml.Node, depth int, bound *yamlBounds, context string) error {
 	if node == nil {
 		return nil

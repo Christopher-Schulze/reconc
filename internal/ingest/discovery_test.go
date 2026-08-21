@@ -211,7 +211,7 @@ func TestAfterCompiledLockfilePublicationIsExactAndImmutable(t *testing.T) {
 	beforeSnapshot.Warnings = cloneStringSlice(before.Warnings)
 
 	after := before.AfterCompiledLockfilePublication()
-	if after.compiledLockfileState != compiledLockfilePresent || after.LockfilePath == nil || *after.LockfilePath != LockfilePath {
+	if after.LockfilePath == nil || *after.LockfilePath != LockfilePath {
 		t.Fatalf("post-publication state = %+v", after)
 	}
 	if hasExactWarning(after.Warnings, lockfileMissingWarning) {
@@ -220,7 +220,7 @@ func TestAfterCompiledLockfilePublicationIsExactAndImmutable(t *testing.T) {
 	if !hasExactWarning(after.Warnings, customWarning) {
 		t.Fatalf("unrelated warning was removed: %v", after.Warnings)
 	}
-	if !reflect.DeepEqual(before, beforeSnapshot) || before.LockfilePath != nil || before.compiledLockfileState != compiledLockfileMissing {
+	if !reflect.DeepEqual(before, beforeSnapshot) || before.LockfilePath != nil {
 		t.Fatalf("transition mutated input: before=%+v snapshot=%+v", before, beforeSnapshot)
 	}
 

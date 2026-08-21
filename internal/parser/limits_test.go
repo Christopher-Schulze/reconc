@@ -69,16 +69,16 @@ func TestParserResourceLimitBoundaries(t *testing.T) {
 
 func TestParserRejectsYAMLAmplificationAndDuplicateKeys(t *testing.T) {
 	aliases := "base: &base\n  value: x\nrules:\n" + strings.Repeat("  - *base\n", maxParserYAMLAliases+1)
-	if _, err := decodeYAMLMappingBounded(aliases, "aliases.yml"); err == nil || !strings.Contains(err.Error(), "yaml aliases") {
+	if _, err := decodeYAMLDocumentBounded(aliases, "aliases.yml"); err == nil || !strings.Contains(err.Error(), "yaml aliases") {
 		t.Fatalf("alias amplification was accepted: %v", err)
 	}
 	duplicate := "rules:\n  - id: one\n    id: two\n    kind: deny_write\n    paths: ['x']\n    message: m\n"
-	if _, err := decodeYAMLMappingBounded(duplicate, "duplicate.yml"); err == nil || !strings.Contains(err.Error(), "mapping key") {
+	if _, err := decodeYAMLDocumentBounded(duplicate, "duplicate.yml"); err == nil || !strings.Contains(err.Error(), "mapping key") {
 		t.Fatalf("duplicate YAML key was accepted: %v", err)
 	}
 }
 
-func FuzzDecodeYAMLMappingBounded(f *testing.F) {
+func FuzzDecodeYAMLDocumentBounded(f *testing.F) {
 	for _, seed := range []string{
 		"rules:\n  - id: one\n    kind: deny_write\n    paths: ['x']\n    message: ok\n",
 		"base: &base\n  value: x\nrules: [*base]\n",
@@ -90,6 +90,6 @@ func FuzzDecodeYAMLMappingBounded(f *testing.F) {
 		if len(raw) > 2*maxParserScalarBytes {
 			t.Skip()
 		}
-		_, _ = decodeYAMLMappingBounded(raw, "fuzz.yml")
+		_, _ = decodeYAMLDocumentBounded(raw, "fuzz.yml")
 	})
 }

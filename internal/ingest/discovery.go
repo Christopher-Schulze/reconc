@@ -23,14 +23,6 @@ import (
 	"sort"
 )
 
-type compiledLockfileState uint8
-
-const (
-	compiledLockfileUnknown compiledLockfileState = iota
-	compiledLockfileMissing
-	compiledLockfilePresent
-)
-
 // ConfigCandidates is the accepted compiler-config filenames (preferred
 // first). A repo may have at most one; multiple triggers a warning.
 var ConfigCandidates = []string{".reconc.yml", ".reconc.yaml"}
@@ -74,8 +66,6 @@ type DiscoveryResult struct {
 	// Warnings surfaces actionable drift (missing lockfile, missing
 	// policy fragments, multiple config files, etc.) without failing.
 	Warnings []string `json:"warnings"`
-
-	compiledLockfileState compiledLockfileState
 }
 
 // DiscoverPolicyRepo walks up from startPath until a policy marker is
@@ -153,11 +143,9 @@ func inspectDirectory(dir, originalStart string) (DiscoveryResult, bool, error) 
 
 	lockfile := filepath.Join(dir, LockfilePath)
 	var lockfilePath *string
-	lockfileState := compiledLockfileMissing
 	if isRegularFile(lockfile) {
 		p := LockfilePath
 		lockfilePath = &p
-		lockfileState = compiledLockfilePresent
 	}
 
 	warnings := []string{}
@@ -181,18 +169,17 @@ func inspectDirectory(dir, originalStart string) (DiscoveryResult, bool, error) 
 	}
 
 	return DiscoveryResult{
-		StartPath:             originalStart,
-		RepoRoot:              dir,
-		Discovered:            true,
-		ClaudePath:            claude,
-		AgentsPath:            agents,
-		StartMDPath:           startMD,
-		ConfigPath:            preferredConfig,
-		ConfigCandidates:      configs,
-		PolicyPaths:           policies,
-		LockfilePath:          lockfilePath,
-		Warnings:              warnings,
-		compiledLockfileState: lockfileState,
+		StartPath:        originalStart,
+		RepoRoot:         dir,
+		Discovered:       true,
+		ClaudePath:       claude,
+		AgentsPath:       agents,
+		StartMDPath:      startMD,
+		ConfigPath:       preferredConfig,
+		ConfigCandidates: configs,
+		PolicyPaths:      policies,
+		LockfilePath:     lockfilePath,
+		Warnings:         warnings,
 	}, true, nil
 }
 
@@ -215,7 +202,6 @@ func (d DiscoveryResult) AfterCompiledLockfilePublication() DiscoveryResult {
 	}
 	lockfilePath := LockfilePath
 	out.LockfilePath = &lockfilePath
-	out.compiledLockfileState = compiledLockfilePresent
 	return out
 }
 

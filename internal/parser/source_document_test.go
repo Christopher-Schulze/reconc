@@ -137,7 +137,7 @@ func maximumLegalMixedDocument() string {
 }
 
 func legacyTwoPassSourceDocumentDecoder(source policy.PolicySource) (*parserSourceDocument, error) {
-	mapping, err := decodeYAMLMappingBounded(source.Content, source.Path)
+	document, err := decodeYAMLDocumentBounded(source.Content, source.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +145,7 @@ func legacyTwoPassSourceDocumentDecoder(source policy.PolicySource) (*parserSour
 	if err != nil {
 		return nil, err
 	}
-	return &parserSourceDocument{root: root, mapping: mapping}, nil
+	return &parserSourceDocument{root: root, mapping: document.mapping}, nil
 }
 
 func legacyDecodeActionDocument(raw, context string) (*yaml.Node, error) {

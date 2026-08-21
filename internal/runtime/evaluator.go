@@ -17,9 +17,8 @@ import (
 	"reconc.dev/reconc/internal/shellcommand"
 )
 
-// repoRootKey is a context-only constant used by evidence-evaluating
-// rule kinds (require_fresh_file, require_evidence) so they can resolve
-// repo-relative paths against the discovered root without re-discovering.
+// evalContext owns the root-bound path state and evaluation-local matcher,
+// command, and evidence caches shared across one policy evaluation.
 type evalContext struct {
 	repoRoot         string
 	paths            *evaluationPathState
