@@ -19,6 +19,32 @@ func BenchmarkActionEvaluatorMaximumLegalPlan(b *testing.B) {
 	benchmarkActionEvaluator(b, evaluatorBenchmarkRules(MaxRules, false))
 }
 
+func BenchmarkActionContextRootPredicates(b *testing.B) {
+	role := testStringValue(b, "operator")
+	request := Request{Context: []ContextValue{{
+		Name: "role", Value: role, Provenance: ProvenanceHostObserved, Available: true,
+	}}}
+	predicates := make([]*CompiledPredicate, 128)
+	for index := range predicates {
+		predicates[index] = compileTestPredicate(b, Predicate{
+			Source: SourceContext, Op: OperatorExists,
+		})
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for iteration := 0; iteration < b.N; iteration++ {
+		roots := predicateRoots{}
+		for _, predicate := range predicates {
+			if result := evaluatePredicateWithRoots(predicate, request, DecisionBlock, &roots); result.state != ConditionTrue {
+				b.Fatal("context predicate did not match")
+			}
+		}
+		if roots.contextBuilds != 1 {
+			b.Fatalf("context root builds = %d", roots.contextBuilds)
+		}
+	}
+}
+
 func BenchmarkActionCompilerRepresentative(b *testing.B) {
 	plan := Plan{
 		Tools: []Tool{{

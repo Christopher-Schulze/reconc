@@ -16,6 +16,27 @@ func evaluateConditionTree(
 	decision Decision,
 	depth int,
 ) conditionEvaluation {
+	return evaluateConditionTreeCore(condition, request, decision, depth, nil, true)
+}
+
+func evaluateConditionTreeWithRoots(
+	condition *CompiledCondition,
+	request Request,
+	decision Decision,
+	depth int,
+	roots *predicateRoots,
+) conditionEvaluation {
+	return evaluateConditionTreeCore(condition, request, decision, depth, roots, false)
+}
+
+func evaluateConditionTreeCore(
+	condition *CompiledCondition,
+	request Request,
+	decision Decision,
+	depth int,
+	roots *predicateRoots,
+	validatePointer bool,
+) conditionEvaluation {
 	if condition == nil {
 		return conditionEvaluation{state: ConditionTrue, complete: true}
 	}
@@ -24,11 +45,11 @@ func evaluateConditionTree(
 	}
 	switch condition.Kind {
 	case ConditionPredicate:
-		return evaluatePredicateCondition(condition, request, decision)
+		return evaluatePredicateConditionCore(condition, request, decision, roots, validatePointer)
 	case ConditionNot:
-		return evaluateNotCondition(condition, request, decision, depth)
+		return evaluateNotConditionCore(condition, request, decision, depth, roots, validatePointer)
 	case ConditionAll, ConditionAny:
-		return evaluateLogicalCondition(condition, request, decision, depth)
+		return evaluateLogicalConditionCore(condition, request, decision, depth, roots, validatePointer)
 	default:
 		return invalidConditionEvaluation(1)
 	}
@@ -39,10 +60,25 @@ func evaluatePredicateCondition(
 	request Request,
 	decision Decision,
 ) conditionEvaluation {
+	return evaluatePredicateConditionCore(condition, request, decision, nil, true)
+}
+
+func evaluatePredicateConditionCore(
+	condition *CompiledCondition,
+	request Request,
+	decision Decision,
+	roots *predicateRoots,
+	validatePointer bool,
+) conditionEvaluation {
 	if condition.Predicate == nil || len(condition.Children) != 0 {
 		return invalidConditionEvaluation(1)
 	}
-	predicate := evaluatePredicate(condition.Predicate, request, decision)
+	var predicate predicateEvaluation
+	if validatePointer {
+		predicate = evaluatePredicate(condition.Predicate, request, decision)
+	} else {
+		predicate = evaluatePredicateWithRoots(condition.Predicate, request, decision, roots)
+	}
 	return conditionEvaluation{
 		state: predicate.state, reason: predicate.reason,
 		actual: predicate.actual, required: predicate.required,
@@ -56,10 +92,21 @@ func evaluateNotCondition(
 	decision Decision,
 	depth int,
 ) conditionEvaluation {
+	return evaluateNotConditionCore(condition, request, decision, depth, nil, true)
+}
+
+func evaluateNotConditionCore(
+	condition *CompiledCondition,
+	request Request,
+	decision Decision,
+	depth int,
+	roots *predicateRoots,
+	validatePointer bool,
+) conditionEvaluation {
 	if condition.Predicate != nil || len(condition.Children) != 1 {
 		return invalidConditionEvaluation(1)
 	}
-	child := evaluateConditionTree(condition.Children[0], request, decision, depth+1)
+	child := evaluateConditionTreeCore(condition.Children[0], request, decision, depth+1, roots, validatePointer)
 	child.nodes++
 	if child.nodes > MaxConditionNodes {
 		return invalidConditionEvaluation(child.nodes)
@@ -78,13 +125,24 @@ func evaluateLogicalCondition(
 	decision Decision,
 	depth int,
 ) conditionEvaluation {
+	return evaluateLogicalConditionCore(condition, request, decision, depth, nil, true)
+}
+
+func evaluateLogicalConditionCore(
+	condition *CompiledCondition,
+	request Request,
+	decision Decision,
+	depth int,
+	roots *predicateRoots,
+	validatePointer bool,
+) conditionEvaluation {
 	if condition.Predicate != nil || len(condition.Children) == 0 {
 		return invalidConditionEvaluation(1)
 	}
 	children := make([]conditionEvaluation, len(condition.Children))
 	nodes := 1
 	for index, child := range condition.Children {
-		children[index] = evaluateConditionTree(child, request, decision, depth+1)
+		children[index] = evaluateConditionTreeCore(child, request, decision, depth+1, roots, validatePointer)
 		nodes += children[index].nodes
 		if nodes > MaxConditionNodes {
 			return invalidConditionEvaluation(nodes)

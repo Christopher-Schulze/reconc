@@ -23,16 +23,47 @@ type selectedValue struct {
 	available  bool
 }
 
+// predicateRoots owns the request-root values used by one evaluation. Request
+// normalization deep-clones context values before evaluation, so the cached
+// root is immutable for the lifetime of the accumulator. Arguments, result,
+// and progress are already canonical Values and are selected directly; the
+// context root is the only root that needs materialization.
+type predicateRoots struct {
+	contextValue  selectedValue
+	contextReady  bool
+	contextBuilds uint32
+}
+
 func evaluatePredicate(
 	predicate *CompiledPredicate,
 	request Request,
 	ruleDecision Decision,
 ) predicateEvaluation {
+	return evaluatePredicateCore(predicate, request, ruleDecision, nil, true)
+}
+
+func evaluatePredicateWithRoots(
+	predicate *CompiledPredicate,
+	request Request,
+	ruleDecision Decision,
+	roots *predicateRoots,
+) predicateEvaluation {
+	return evaluatePredicateCore(predicate, request, ruleDecision, roots, false)
+}
+
+func evaluatePredicateCore(
+	predicate *CompiledPredicate,
+	request Request,
+	ruleDecision Decision,
+	roots *predicateRoots,
+	validatePointer bool,
+) predicateEvaluation {
 	if predicate == nil || !predicate.Predicate.Op.Valid() ||
-		!predicate.Predicate.Source.Valid() || validateCompiledPointer(predicate.Tokens) != nil {
+		!predicate.Predicate.Source.Valid() ||
+		(validatePointer && validateCompiledPointer(predicate.Tokens) != nil) {
 		return indeterminatePredicate(ReasonInternalInvariant, "", "", OperandSummary{})
 	}
-	selected := selectPredicateValue(predicate, request)
+	selected := selectPredicateValueWithRoots(predicate, request, roots)
 	summary := summarizePointer(selected.pointer)
 	required := predicate.Predicate.MinimumProvenance
 	if predicate.Predicate.Source == SourceContext {
@@ -56,6 +87,14 @@ func evaluatePredicate(
 }
 
 func selectPredicateValue(predicate *CompiledPredicate, request Request) selectedValue {
+	return selectPredicateValueWithRoots(predicate, request, nil)
+}
+
+func selectPredicateValueWithRoots(
+	predicate *CompiledPredicate,
+	request Request,
+	roots *predicateRoots,
+) selectedValue {
 	switch predicate.Predicate.Source {
 	case SourceArguments:
 		return selectRoot(request.Arguments, predicate.Tokens, ProvenanceAgentSupplied)
@@ -64,10 +103,25 @@ func selectPredicateValue(predicate *CompiledPredicate, request Request) selecte
 	case SourceProgress:
 		return selectRoot(request.Progress, predicate.Tokens, ProvenanceAgentSupplied)
 	case SourceContext:
+		if roots != nil {
+			return roots.selectContext(request.Context, predicate.Tokens)
+		}
 		return selectContext(request.Context, predicate.Tokens)
 	default:
 		return selectedValue{pointer: PointerResult{State: PointerWrongContainer}}
 	}
+}
+
+func (r *predicateRoots) selectContext(context []ContextValue, tokens []string) selectedValue {
+	if len(tokens) != 0 {
+		return selectContextMember(context, tokens)
+	}
+	if !r.contextReady {
+		r.contextValue = selectContextRoot(context)
+		r.contextReady = true
+		r.contextBuilds++
+	}
+	return r.contextValue
 }
 
 func selectRoot(root *Value, tokens []string, provenance Provenance) selectedValue {

@@ -2,7 +2,7 @@
 
 ## Active
 
-- [~] 211 Reuse immutable action context roots -> tasks/211-reuse-immutable-action-context-roots.md
+- [~] 212 Validate immutable compiled action plans once -> tasks/212-validate-immutable-compiled-action-plans-once.md
 
 ## Queue
 
@@ -19,6 +19,7 @@
 
 ## Done
 
+- [x] 211 Reuse immutable action context roots -> tasks/done/211-reuse-immutable-action-context-roots.md
 - [x] 210 Memoize package-manager ancestry detection -> tasks/done/210-memoize-package-manager-ancestry-detection.md
 - [x] 209 Expose one stable bounded assurance-file read -> tasks/done/209-expose-one-stable-bounded-assurance-file-read.md
 - [x] 208 Memoize evidence matches within one policy evaluation -> tasks/done/208-memoize-evidence-matches-within-one-policy-evaluation.md

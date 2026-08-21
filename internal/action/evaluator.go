@@ -30,6 +30,7 @@ type evaluationAccumulator struct {
 	matched         []matchedRule
 	trace           []TraceEntry
 	budgets         []BudgetCandidate
+	roots           predicateRoots
 	cacheNever      bool
 	completeness    Completeness
 }
@@ -282,7 +283,7 @@ func (a *evaluationAccumulator) evaluateRule(rule CompiledRule) ReasonCode {
 		return ""
 	}
 	entry.Selector = SelectorMatched
-	condition := evaluateConditionTree(rule.Condition, a.input.Request, rule.Rule.Decision, 1)
+	condition := evaluateConditionTreeWithRoots(rule.Condition, a.input.Request, rule.Rule.Decision, 1, &a.roots)
 	if condition.reason == ReasonInternalInvariant {
 		return ReasonInternalInvariant
 	}
