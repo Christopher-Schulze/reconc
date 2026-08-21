@@ -3358,6 +3358,10 @@ that call the same `run-workflow-audit` runner are batched through
 `--batch-json` in one process and then split back into per-rule pass/block
 reports, so subprocess startup drops without weakening rule attribution. All
 runtimes still keep git pre-commit as the repository backstop.
+Candidates are grouped by their immutable runner and timeout key before scope
+and template-context preparation; singleton or ineligible candidates pay only
+the normal per-rule path, while genuine batches retain rule order and per-rule
+attribution.
 The runtime keeps the old read-safe fast path as defense in depth if a host tool
 still sends a read-only PreToolUse event; write tools still resolve the repo and
 fail closed before policy evaluation. Payload parsing stays allocation-light by decoding

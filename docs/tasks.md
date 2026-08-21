@@ -2,11 +2,10 @@
 
 ## Active
 
-- [~] 207 Avoid duplicate require-script batch preparation -> tasks/207-avoid-duplicate-require-script-batch-preparation.md
+- [~] 208 Memoize evidence matches within one policy evaluation -> tasks/208-memoize-evidence-matches-within-one-policy-evaluation.md
 
 ## Queue
 
-- [ ] 208 Memoize evidence matches within one policy evaluation -> tasks/208-memoize-evidence-matches-within-one-policy-evaluation.md
 - [ ] 209 Expose one stable bounded assurance-file read -> tasks/209-expose-one-stable-bounded-assurance-file-read.md
 - [ ] 210 Memoize package-manager ancestry detection -> tasks/210-memoize-package-manager-ancestry-detection.md
 - [ ] 211 Reuse immutable action context roots -> tasks/211-reuse-immutable-action-context-roots.md
@@ -23,6 +22,7 @@
 
 ## Done
 
+- [x] 207 Avoid duplicate require-script batch preparation -> tasks/done/207-avoid-duplicate-require-script-batch-preparation.md
 - [x] 206 Enforce parser cardinality and text limits -> tasks/done/206-enforce-parser-cardinality-and-text-limits.md
 - [x] 205 Centralize and enforce template-variable grammar -> tasks/done/205-centralize-and-enforce-template-variable-grammar.md
 - [x] 204 Reject fields unsupported by a rule kind -> tasks/done/204-reject-fields-unsupported-by-a-rule-kind.md

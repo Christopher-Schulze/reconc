@@ -462,6 +462,10 @@ func evaluateBatchedRequireScripts(ctx *evalContext, rules []*policy.Rule, defau
 		handled:    map[int]bool{},
 		violations: map[int]*Violation{},
 	}
+	// Group only on the cheap, immutable batch key first. Scope matching and
+	// template-context collection are deliberately deferred until a group has
+	// at least two candidates; otherwise a singleton would pay the same
+	// preparation cost and then immediately fall back to evaluateRule.
 	groups := map[workflowAuditBatchKey][]workflowAuditBatchItem{}
 	groupOrder := []workflowAuditBatchKey{}
 	for i, rule := range rules {
@@ -469,30 +473,14 @@ func evaluateBatchedRequireScripts(ctx *evalContext, rules []*policy.Rule, defau
 		if !ok {
 			continue
 		}
-		scopeMatches, scopeErr := ruleScopeMatchesWithMatchers(ctx.matchers, rule, inputs)
-		if scopeErr != nil || !scopeMatches {
-			// Scope errors remain owned by evaluateRule so they produce the
-			// established fail-closed synthetic violation. A definite scope
-			// miss is rejected before match-context collection or subprocess IO.
-			continue
-		}
-		contexts, err := collectMatchContextsWithMatchers(ctx.templateMatchers, inputs.WritePaths, stringListField(rule, "when_paths"))
-		if err != nil {
-			return results, err
-		}
-		if len(contexts) == 0 {
-			continue
-		}
-
 		key := workflowAuditBatchKey{scriptPath: scriptPath, timeoutSec: timeoutSec, killTimeoutSec: killTimeoutSec}
 		if _, ok := groups[key]; !ok {
 			groupOrder = append(groupOrder, key)
 		}
 		groups[key] = append(groups[key], workflowAuditBatchItem{
-			index:    i,
-			rule:     rule,
-			mode:     mode,
-			contexts: contexts,
+			index: i,
+			rule:  rule,
+			mode:  mode,
 		})
 	}
 
@@ -501,6 +489,29 @@ func evaluateBatchedRequireScripts(ctx *evalContext, rules []*policy.Rule, defau
 		if len(items) < 2 {
 			continue
 		}
+		eligible := make([]workflowAuditBatchItem, 0, len(items))
+		for _, item := range items {
+			scopeMatches, scopeErr := ruleScopeMatchesWithMatchers(ctx.matchers, item.rule, inputs)
+			if scopeErr != nil || !scopeMatches {
+				// Scope errors remain owned by evaluateRule so they produce the
+				// established fail-closed synthetic violation. A definite scope
+				// miss is rejected before match-context collection or subprocess IO.
+				continue
+			}
+			contexts, err := collectMatchContextsWithMatchers(ctx.templateMatchers, inputs.WritePaths, stringListField(item.rule, "when_paths"))
+			if err != nil {
+				return results, err
+			}
+			if len(contexts) == 0 {
+				continue
+			}
+			item.contexts = contexts
+			eligible = append(eligible, item)
+		}
+		if len(eligible) < 2 {
+			continue
+		}
+		items = eligible
 		modes := uniqueBatchModes(items)
 		if len(modes) == 0 {
 			continue

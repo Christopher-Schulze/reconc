@@ -245,6 +245,29 @@ func TestWorkflowAuditBatchCandidateAcceptsPortableAuditPath(t *testing.T) {
 	}
 }
 
+func BenchmarkEvaluateBatchedRequireScriptsSingleton(b *testing.B) {
+	rule := &policy.Rule{
+		ID:        "singleton",
+		Kind:      policy.KindRequireScript,
+		Script:    "audits/run-workflow-audit",
+		Args:      []string{"mode-a"},
+		WhenPaths: []string{"src/**"},
+	}
+	ctx := &evalContext{
+		repoRoot:         b.TempDir(),
+		matchers:         &runtimePathMatchers{},
+		templateMatchers: &runtimeTemplateMatchers{},
+	}
+	inputs := ExecutionInputs{WritePaths: []string{"src/main.go"}}
+	rules := []*policy.Rule{rule}
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if _, err := evaluateBatchedRequireScripts(ctx, rules, policy.ModeBlock, inputs); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func TestCheckRequireRead(t *testing.T) {
 	withRECONCHome(t)
 	repo := makeRepo(t, "# project\n", "",
