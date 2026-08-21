@@ -8,7 +8,6 @@
 package parser
 
 import (
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,8 +20,6 @@ import (
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/templates"
 )
-
-var repoPathTemplateVarRE = regexp.MustCompile(`\{[A-Za-z_][A-Za-z0-9_]*\}`)
 
 // requiredFieldsByKind specifies which slice fields must be populated per rule
 // kind.
@@ -496,7 +493,7 @@ func validateRuleItem(item map[string]interface{}, src policy.PolicySource, inde
 		{"before_paths", beforePaths},
 		{"when_paths", whenPaths},
 	} {
-		if err := validateGlobPatterns(globField.patterns, "rule '"+id+"' field '"+globField.name+"'"); err != nil {
+		if err := validateGlobPatterns(globField.patterns, "rule '"+id+"' field '"+globField.name+"' in "+src.Path); err != nil {
 			return policy.Rule{}, err
 		}
 	}
@@ -796,7 +793,10 @@ func isRepoRelativePath(p string) bool {
 }
 
 func validateRepoRelativeTemplatePath(value, context string) error {
-	probe := repoPathTemplateVarRE.ReplaceAllString(value, "reconc-template-value")
+	probe, err := templates.MaskVariables(value, "reconc-template-value")
+	if err != nil {
+		return &rerrors.RuleValidationError{Message: context + " has invalid template syntax: " + err.Error()}
+	}
 	if isRepoRelativePath(probe) {
 		return nil
 	}
@@ -1307,6 +1307,11 @@ func optionalStringList(item map[string]interface{}, key, ruleID string) ([]stri
 // groups to doublestar and pass validation.
 func validateGlobPatterns(patterns []string, context string) error {
 	for _, pattern := range patterns {
+		if _, err := templates.Variables(pattern); err != nil {
+			return &rerrors.RuleValidationError{
+				Message: context + " has invalid template syntax in " + strconv.Quote(pattern) + ": " + err.Error(),
+			}
+		}
 		if _, err := doublestar.Match(pattern, "reconc-glob-syntax-probe"); err != nil {
 			return &rerrors.RuleValidationError{
 				Message: context + " has an invalid glob pattern " + strconv.Quote(pattern) + ": " + err.Error(),

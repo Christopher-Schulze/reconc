@@ -52,6 +52,10 @@ func TestRuntimePlanRejectsMalformedCurrentRulesAfterEnvelopeValidation(t *testi
 		{name: "unsupported claims", mutate: func(rule map[string]interface{}) {
 			rule["claims"] = []interface{}{"reviewed"}
 		}},
+		{name: "malformed template", mutate: func(rule map[string]interface{}) {
+			rule["kind"] = "require_claim"
+			rule["when_paths"] = []interface{}{"docs/{task-id}.md"}
+		}},
 		{name: "cross-kind assurance", mutate: func(rule map[string]interface{}) {
 			rule["assurance"] = []interface{}{map[string]interface{}{
 				"id": "layout", "type": "repository_layout", "required_root_entries": []interface{}{"go.mod"},

@@ -1732,6 +1732,14 @@ scope fields are lockfile-only. The current v6 lock schema overlays these
 constraints on its legacy rule envelope so an edited lockfile cannot restore
 ignored fields at runtime.
 
+Template-bearing paths use the grammar owned by `internal/templates`: a token
+is exactly `{name}` with ASCII identifier characters, while balanced glob
+alternatives such as `{js,ts}` remain valid. Unescaped malformed or unmatched
+braces fail at compile time; literal braces must be escaped as `\{` and `\}`.
+The same scanner drives masking, capture extraction, substitution, runtime
+matching, and compiler diagnostics, so parser and runtime cannot drift on
+hyphens, Unicode, repeated variables, or missing bindings.
+
 Policy-controlled file paths are repository-relative contracts. Compilation
 rejects absolute, volume-qualified, empty, and parent-traversing paths in
 `required_files[].path`, `evidence[].file`, and composite `path`/`file`

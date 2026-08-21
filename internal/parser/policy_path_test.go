@@ -45,3 +45,11 @@ func TestParseAcceptsSafeTemplatedPolicyControlledFile(t *testing.T) {
 		t.Fatalf("safe templated path was rejected: %v", err)
 	}
 }
+
+func TestMalformedTemplateBraceFailsClosed(t *testing.T) {
+	content := "rules:\n  - id: malformed\n    kind: require_claim\n    when_paths: ['docs/{task-id}.md']\n    claims: ['reviewed']\n    mode: block\n    message: malformed\n"
+	_, err := ParseRuleDocuments(makeBundle(policy.PolicySource{Kind: policy.SourcePolicyFile, Path: "policies/malformed.yml", Content: content}))
+	if err == nil || !strings.Contains(err.Error(), "invalid template syntax") || !strings.Contains(err.Error(), "policies/malformed.yml") {
+		t.Fatalf("malformed template expression was accepted: %v", err)
+	}
+}

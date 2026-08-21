@@ -18,6 +18,7 @@ import (
 	"reconc.dev/reconc/internal/parser"
 	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/policy"
+	"reconc.dev/reconc/internal/templates"
 )
 
 // Evaluator owns immutable compiled plans. A short-lived evaluator preserves
@@ -555,6 +556,9 @@ func validateRuntimeRule(rule *policy.Rule) error {
 		return fmt.Errorf("scope_id requires non-empty scope_paths")
 	}
 	for _, pattern := range append(append(append(append([]string{}, rule.Paths...), rule.BeforePaths...), rule.WhenPaths...), rule.ScopePaths...) {
+		if _, err := templates.Variables(pattern); err != nil {
+			return fmt.Errorf("invalid template syntax in path pattern %q: %w", pattern, err)
+		}
 		if _, err := MatchPath(pattern, "runtime-plan-validation"); err != nil {
 			return fmt.Errorf("invalid path pattern %q: %w", pattern, err)
 		}

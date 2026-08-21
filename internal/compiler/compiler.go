@@ -30,6 +30,7 @@ import (
 	"reconc.dev/reconc/internal/parser"
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/schema"
+	"reconc.dev/reconc/internal/templates"
 )
 
 // LockfileFormatVersion is bumped whenever the lockfile contract changes in a
@@ -967,11 +968,6 @@ func stripLockfileMissingWarning(d ingest.DiscoveryResult) ingest.DiscoveryResul
 	return out
 }
 
-// braceVariableRegex matches a single-identifier brace group like
-// {task_id}. Alternations such as {js,ts} contain a comma and never
-// match.
-var braceVariableRegex = regexp.MustCompile(`\{[A-Za-z_][A-Za-z0-9_]*\}`)
-
 // templateCaptureKinds are the rule kinds whose glob fields compile
 // {var} patterns into template captures. Every other kind matches globs
 // through doublestar, where {task_id} is a one-element brace group
@@ -1006,7 +1002,15 @@ func braceVariableWarnings(rules []policy.Rule) []string {
 		}
 		for _, field := range fields {
 			for _, pattern := range field.patterns {
-				if match := braceVariableRegex.FindString(pattern); match != "" {
+				variables, err := templates.Variables(pattern)
+				if err != nil {
+					warnings = append(warnings, fmt.Sprintf(
+						"rule '%s': %s pattern %q has invalid template syntax: %v",
+						r.ID, field.name, pattern, err))
+					continue
+				}
+				if len(variables) > 0 {
+					match := pattern[variables[0].Start:variables[0].End]
 					warnings = append(warnings, fmt.Sprintf(
 						"rule '%s': %s pattern %q uses %s, but kind %s does not capture template variables; doublestar matches it as the literal text %q",
 						r.ID, field.name, pattern, match, r.Kind, strings.Trim(match, "{}")))

@@ -599,6 +599,12 @@ retain the rule ID, check index, kind, and source path in diagnostics. The
 current v6 lock schema carries the same kind conditions as an overlay; legacy
 published schemas remain immutable.
 
+Template grammar is owned by `internal/templates/variables.go`: `{name}` is
+the only capture token, balanced comma alternatives remain glob syntax, and
+unescaped malformed braces fail closed. Parser path masking, compiler
+warnings, runtime capture matching, and substitutions all consume this scanner;
+literal braces require escaping on both sides.
+
 ## Dependency graph
 
 ```

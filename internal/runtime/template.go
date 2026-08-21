@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"reconc.dev/reconc/internal/policy"
+	"reconc.dev/reconc/internal/templates"
 )
 
 // Template variables let when_paths patterns CAPTURE path segments
@@ -34,14 +35,13 @@ import (
 // Multi-segment captures (`{var:**}` syntax) are deferred to a future
 // version; the design is forward-compatible.
 
-var templateVarRegex = regexp.MustCompile(`\{([A-Za-z_][A-Za-z0-9_]*)\}`)
-
 // HasTemplateVars reports whether pattern contains any {var}
 // placeholders. Used by the evaluator to skip the template-matching
 // path entirely when no captures are needed (fast path for the
 // non-templated majority of rules).
 func HasTemplateVars(pattern string) bool {
-	return templateVarRegex.MatchString(pattern)
+	variables, err := templates.Variables(pattern)
+	return err == nil && len(variables) > 0
 }
 
 // PatternHasAnyTemplateVar reports whether ANY pattern in the slice
@@ -79,28 +79,38 @@ type compiledTemplateMatcher struct {
 
 func compileTemplateMatcher(pattern string) compiledTemplateMatcher {
 	trimmed := strings.TrimSpace(pattern)
-	matcher := compiledTemplateMatcher{pattern: pattern, hasVars: HasTemplateVars(pattern)}
+	variables, scanErr := templates.Variables(trimmed)
+	matcher := compiledTemplateMatcher{pattern: pattern, hasVars: len(variables) > 0}
+	if scanErr != nil {
+		matcher.literalErr = scanErr
+		matcher.regexErr = scanErr
+		return matcher
+	}
 	if !matcher.hasVars {
 		matcher.literal, matcher.literalErr = CompilePathMatcher(pattern)
 		return matcher
 	}
-	maskedPattern := templateVarRegex.ReplaceAllString(trimmed, "*")
+	maskedPattern, err := templates.MaskVariables(trimmed, "*")
+	if err != nil {
+		matcher.maskedErr = err
+		matcher.regexErr = err
+		return matcher
+	}
 	matcher.masked, matcher.maskedErr = CompilePathMatcher(maskedPattern)
 	matcher.regex, matcher.names, matcher.regexErr = compileTemplatePattern(trimmed)
-	matcher.boundParts = compileTemplateBoundParts(trimmed)
+	matcher.boundParts = compileTemplateBoundParts(trimmed, variables)
 	return matcher
 }
 
-func compileTemplateBoundParts(pattern string) []templateBoundPart {
-	locations := templateVarRegex.FindAllStringIndex(pattern, -1)
-	parts := make([]templateBoundPart, 0, len(locations)*2+1)
+func compileTemplateBoundParts(pattern string, variables []templates.Variable) []templateBoundPart {
+	parts := make([]templateBoundPart, 0, len(variables)*2+1)
 	start := 0
-	for _, location := range locations {
-		if location[0] > start {
-			parts = append(parts, templateBoundPart{literal: pattern[start:location[0]]})
+	for _, variable := range variables {
+		if variable.Start > start {
+			parts = append(parts, templateBoundPart{literal: pattern[start:variable.Start]})
 		}
-		parts = append(parts, templateBoundPart{variable: pattern[location[0]+1 : location[1]-1]})
-		start = location[1]
+		parts = append(parts, templateBoundPart{variable: variable.Name})
+		start = variable.End
 	}
 	if start < len(pattern) {
 		parts = append(parts, templateBoundPart{literal: pattern[start:]})
@@ -242,20 +252,7 @@ func MatchTemplateAny(patterns []string, path string) (matched string, captures 
 // left intact and an error is returned (so callers can surface the
 // configuration mistake clearly).
 func SubstituteTemplate(s string, captures map[string]string) (string, error) {
-	var missing []string
-	out := templateVarRegex.ReplaceAllStringFunc(s, func(placeholder string) string {
-		// Strip the surrounding braces.
-		name := placeholder[1 : len(placeholder)-1]
-		if val, ok := captures[name]; ok {
-			return val
-		}
-		missing = append(missing, name)
-		return placeholder
-	})
-	if len(missing) > 0 {
-		return out, fmt.Errorf("unresolved template variables: %s", strings.Join(missing, ", "))
-	}
-	return out, nil
+	return templates.Substitute(s, captures)
 }
 
 // SubstituteTemplateInList applies SubstituteTemplate to every entry
@@ -294,16 +291,24 @@ func compileTemplatePattern(pattern string) (*regexp.Regexp, []string, error) {
 }
 
 func appendTemplateGlobRegex(buf *strings.Builder, pattern string, names *[]string, seen map[string]struct{}) error {
+	variables, err := templates.Variables(pattern)
+	if err != nil {
+		return err
+	}
+	byStart := make(map[int]templates.Variable, len(variables))
+	for _, variable := range variables {
+		byStart[variable.Start] = variable
+	}
 	for i := 0; i < len(pattern); {
-		if loc := templateVarRegex.FindStringSubmatchIndex(pattern[i:]); loc != nil && loc[0] == 0 {
-			name := pattern[i+loc[2] : i+loc[3]]
+		if variable, ok := byStart[i]; ok {
+			name := variable.Name
 			if _, duplicate := seen[name]; duplicate {
 				return fmt.Errorf("template variable %q appears twice", name)
 			}
 			seen[name] = struct{}{}
 			*names = append(*names, name)
 			buf.WriteString("([^/]+)")
-			i += loc[1]
+			i = variable.End
 			continue
 		}
 

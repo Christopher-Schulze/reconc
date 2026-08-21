@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"reconc.dev/reconc/internal/policy"
+	"reconc.dev/reconc/internal/templates"
 )
 
 func legacyMatchTemplateForTest(pattern, path string) (map[string]string, bool, error) {
@@ -19,7 +20,10 @@ func legacyMatchTemplateForTest(pattern, path string) (map[string]string, bool, 
 		return map[string]string{}, ok, nil
 	}
 	path = filepath.ToSlash(path)
-	masked := templateVarRegex.ReplaceAllString(strings.TrimSpace(pattern), "*")
+	masked, err := templates.MaskVariables(strings.TrimSpace(pattern), "*")
+	if err != nil {
+		return nil, false, err
+	}
 	ok, err := MatchPath(masked, path)
 	if err != nil || !ok {
 		return nil, ok, err
@@ -36,9 +40,20 @@ func legacyMatchTemplateForTest(pattern, path string) (map[string]string, bool, 
 	for index, name := range names {
 		captures[name] = match[index+1]
 	}
-	bound := templateVarRegex.ReplaceAllStringFunc(strings.TrimSpace(pattern), func(placeholder string) string {
-		return escapeGlobLiteral(captures[placeholder[1:len(placeholder)-1]])
-	})
+	trimmed := strings.TrimSpace(pattern)
+	variables, err := templates.Variables(trimmed)
+	if err != nil {
+		return nil, false, err
+	}
+	var boundBuilder strings.Builder
+	last := 0
+	for _, variable := range variables {
+		boundBuilder.WriteString(trimmed[last:variable.Start])
+		boundBuilder.WriteString(escapeGlobLiteral(captures[variable.Name]))
+		last = variable.End
+	}
+	boundBuilder.WriteString(trimmed[last:])
+	bound := boundBuilder.String()
 	boundOK, err := MatchPath(bound, path)
 	if err != nil {
 		return nil, false, err
