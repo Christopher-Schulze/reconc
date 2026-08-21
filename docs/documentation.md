@@ -1335,6 +1335,16 @@ repository-sync plan/report and custom-runtime manifest use v2. Existing
 supported legacy inputs remain accepted. New output emits only the current
 registered identity, and runtime validation stays offline.
 
+`reconc diff LOCK-A LOCK-B` compares the migrated current envelopes rather than
+raw JSON text. Its typed JSON and text reports classify every top-level field as
+semantic, provenance, generated, or unsupported; show action-plan and other
+envelope changes; report source inventory additions, removals, content changes,
+moves, and order changes; and expose rule source-provenance moves separately
+from semantic rule changes. Only explicitly set-like rule fields are sorted for
+comparison. Ordered lists such as command arguments, source precedence, and
+source inventory retain their order, so a reviewer never loses a meaningful
+ordering change behind generic digest drift.
+
 Impact corpora now emit `reconc-impact-corpus/v2`. Existing strict v1 corpora
 migrate deterministically to repository cases. Format 2 adds offline
 `action_pre` and `action_post` scenarios, exact current assertions, completeness

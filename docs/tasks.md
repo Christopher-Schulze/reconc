@@ -2,16 +2,13 @@
 
 ## Active
 
-- [~] 218 Close proof-bundle privacy inference gaps -> tasks/218-close-proof-bundle-privacy-inference-gaps.md
-
 ## Queue
-
-- [ ] 219 Report every review-relevant lockfile change -> tasks/219-report-every-review-relevant-lockfile-change.md
 
 ## Blocked
 
 ## Done
 
+- [x] 219 Report every review-relevant lockfile change -> tasks/done/219-report-every-review-relevant-lockfile-change.md
 - [x] 218 Close proof-bundle privacy inference gaps -> tasks/done/218-close-proof-bundle-privacy-inference-gaps.md
 - [x] 217 Make extracted rule identifiers collision-resistant -> tasks/done/217-make-extracted-rule-identifiers-collision-resistant.md
 - [x] 216 Make context-size accounting bounded and overflow-safe -> tasks/done/216-make-context-size-accounting-bounded-and-overflow-safe.md

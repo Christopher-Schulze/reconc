@@ -111,7 +111,7 @@ internal/
   hooks/          typed registry + generators + install/uninstall + activation + scaffold sync
   ingest/         discovery + source loading (AGENTS.md, .reconc.yml, presets, globals)
   impactlab/      strict format-2 repository/action corpora, exact action-delta review, and deterministic policy comparison
-  lockdiff/       structural lockfile comparison (ignore-provenance semantics)
+  lockdiff/       structural lockfile comparison with envelope, source-inventory, and provenance reporting
   filelock/       cross-platform process locks
   jsonl/          bounded locked JSONL append + archive rings
   manpage/        groff reconc(1) generation from the canonical command table

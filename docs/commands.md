@@ -830,10 +830,12 @@ Ultra-terse yes/no for one proposed repository write. Prints `yes` or
 ### `reconc diff <lockfile-a> <lockfile-b> [--json]`
 Strict structural comparison of two validated compiled lockfiles. Duplicate
 rule identities, malformed envelopes, and invalid digests fail before diffing.
-Reports added, removed, and changed rules plus default-mode and source-digest
-drift. Provenance-only rule relocation is ignored, order-sensitive fields
-retain their order, and only explicitly order-insensitive fields are
-canonicalized as sets.
+Reports added, removed, and changed rules, explicit rule-provenance moves,
+source inventory additions/removals/moves, source ordering, and every changed
+lockfile envelope field with its semantic, provenance, generated, or
+unsupported classification. Default-mode and source-digest summaries remain
+visible for compact review. Order-sensitive fields retain their order; only
+explicitly order-insensitive rule fields are canonicalized as sets.
 
 ---
 

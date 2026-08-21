@@ -1448,6 +1448,24 @@ func TestRunDiffTwoLocks(t *testing.T) {
 	}
 }
 
+func TestRunDiffReportsEnvelopeSourceAndRuleProvenanceChanges(t *testing.T) {
+	dir := t.TempDir()
+	digest := strings.Repeat("a", 64)
+	a := `{"compiler_version":"old","source_digest":"` + strings.Repeat("b", 64) + `","sources":[{"kind":"policy_file","path":"policies/a.yml","content_sha256":"` + digest + `"}],"rules":[{"id":"r1","kind":"deny_write","mode":"warn","source_path":"policies/a.yml"}]}`
+	b := `{"compiler_version":"new","source_digest":"` + strings.Repeat("c", 64) + `","sources":[{"kind":"policy_file","path":"policies/moved.yml","content_sha256":"` + digest + `"}],"rules":[{"id":"r1","kind":"deny_write","mode":"warn","source_path":"policies/moved.yml"}]}`
+	writeCLITestLock(t, filepath.Join(dir, "a.json"), a)
+	writeCLITestLock(t, filepath.Join(dir, "b.json"), b)
+	var stdout, stderr bytes.Buffer
+	if err := Run([]string{"diff", filepath.Join(dir, "a.json"), filepath.Join(dir, "b.json")}, "0.1.0-test", &stdout, &stderr); err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	for _, want := range []string{"Envelope changes", "compiler_version", "Source changes", "moved", "Rule provenance changes", "source_path"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("expected %q in output, got:\n%s", want, stdout.String())
+		}
+	}
+}
+
 func TestRunDiffJSON(t *testing.T) {
 	dir := t.TempDir()
 	a := `{"rules":[]}`

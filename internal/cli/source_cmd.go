@@ -156,9 +156,9 @@ func runExtract(args []string, stdout, stderr io.Writer) error {
 // runDiff implements `reconc diff <lockA> <lockB> [--json]` (W5).
 //
 // Structural JSON-level comparison of two lockfiles. Matches rules by
-// id and reports added / removed / changed, plus default-mode drift
-// and source-digest shift. Intended for PR reviews: "what did this
-// commit change in the compiled policy?"
+// id and reports rule, source-inventory, provenance, and envelope changes.
+// Intended for PR reviews: "what did this commit change in the compiled
+// policy?"
 func runDiff(args []string, stdout, stderr io.Writer) error {
 	jsonOut := false
 	var positional []string
@@ -170,8 +170,7 @@ func runDiff(args []string, stdout, stderr io.Writer) error {
 		case "-h", "--help":
 			fmt.Fprintln(stdout, "Usage: reconc diff <lockfile-a> <lockfile-b> [--json]")
 			fmt.Fprintln(stdout, "")
-			fmt.Fprintln(stdout, "Compare two compiled lockfiles. Reports added / removed / changed")
-			fmt.Fprintln(stdout, "rules, default-mode drift, source-digest shift.")
+			fmt.Fprintln(stdout, "Compare two compiled lockfiles. Reports rule, source, envelope, and provenance changes.")
 			return nil
 		default:
 			if len(a) > 0 && a[0] == '-' {
@@ -205,6 +204,17 @@ func runDiff(args []string, stdout, stderr io.Writer) error {
 	if report.DigestA != report.DigestB {
 		fmt.Fprintf(stdout, "  source_digest: %s -> %s\n", short12(report.DigestA), short12(report.DigestB))
 	}
+	printEnvelopeChanges(stdout, report.EnvelopeChanges)
+	if len(report.SourceChanges) > 0 {
+		fmt.Fprintf(stdout, "\nSource changes (%d):\n", len(report.SourceChanges))
+		for _, change := range report.SourceChanges {
+			fmt.Fprintf(stdout, "  ~ %s: %s -> %s\n", change.Change, sourceChangeValue(change.Before), sourceChangeValue(change.After))
+		}
+	}
+	if report.SourceOrderDiff {
+		fmt.Fprintln(stdout, "\nSource order changed:")
+		fmt.Fprintf(stdout, "  A: %s\n  B: %s\n", strings.Join(report.SourceOrderA, ", "), strings.Join(report.SourceOrderB, ", "))
+	}
 	if len(report.Added) > 0 {
 		fmt.Fprintf(stdout, "\nAdded (%d):\n", len(report.Added))
 		for _, r := range report.Added {
@@ -223,10 +233,58 @@ func runDiff(args []string, stdout, stderr io.Writer) error {
 			fmt.Fprintf(stdout, "  ~ %s (%s) -- %s\n", c.ID, c.Kind, strings.Join(c.FieldsChanged, ", "))
 		}
 	}
+	if len(report.RuleProvenance) > 0 {
+		fmt.Fprintf(stdout, "\nRule provenance changes (%d):\n", len(report.RuleProvenance))
+		for _, change := range report.RuleProvenance {
+			fmt.Fprintf(stdout, "  ~ %s (%s) -- %s: %s -> %s\n", change.ID, change.Kind, strings.Join(change.FieldsChanged, ", "), ruleSourceValue(change.Before), ruleSourceValue(change.After))
+		}
+	}
 	if report.Unchanged > 0 {
 		fmt.Fprintf(stdout, "\nUnchanged: %d rules\n", report.Unchanged)
 	}
 	return nil
+}
+
+func printEnvelopeChanges(stdout io.Writer, changes []lockdiff.FieldChange) {
+	visible := make([]lockdiff.FieldChange, 0, len(changes))
+	for _, change := range changes {
+		if change.Field == "default_mode" || change.Field == "source_digest" {
+			continue
+		}
+		visible = append(visible, change)
+	}
+	if len(visible) == 0 {
+		return
+	}
+	fmt.Fprintf(stdout, "\nEnvelope changes (%d):\n", len(visible))
+	for _, change := range visible {
+		fmt.Fprintf(stdout, "  ~ %s [%s]: %s -> %s\n", change.Field, change.Class, change.Before, change.After)
+	}
+}
+
+func sourceChangeValue(value *lockdiff.SourceInfo) string {
+	if value == nil {
+		return "<absent>"
+	}
+	result := value.Kind + ":" + value.Path
+	if value.BlockID != "" {
+		result += "#" + value.BlockID
+	}
+	if value.LineStart != 0 {
+		result += "@" + fmt.Sprint(value.LineStart)
+	}
+	return result
+}
+
+func ruleSourceValue(value lockdiff.RuleSourceRef) string {
+	if value.Path == "" && value.BlockID == "" {
+		return "<absent>"
+	}
+	result := value.Path
+	if value.BlockID != "" {
+		result += "#" + value.BlockID
+	}
+	return result
 }
 
 // short12 returns the first 12 chars of a string (typically a hex

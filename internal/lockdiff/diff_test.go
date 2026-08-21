@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"reconc.dev/reconc/internal/compiler"
+	"reconc.dev/reconc/internal/schema"
 )
 
 func writeLock(t *testing.T, path, body string) {
@@ -276,5 +277,256 @@ func TestDiffReportsDigestOnlyChangeAsNonEmpty(t *testing.T) {
 	}
 	if report.IsEmpty() {
 		t.Fatalf("a source digest change must not read as an empty diff: %+v", report)
+	}
+}
+
+func TestDiffClassifiesEveryTopLevelField(t *testing.T) {
+	base := minimalPayload()
+	classes := map[string]FieldClass{
+		"$schema":           FieldClassSemantic,
+		"compiler_version":  FieldClassProvenance,
+		"format_version":    FieldClassSemantic,
+		"repo_root":         FieldClassGenerated,
+		"default_mode":      FieldClassSemantic,
+		"rule_count":        FieldClassGenerated,
+		"source_count":      FieldClassGenerated,
+		"source_digest":     FieldClassProvenance,
+		"lock_digest":       FieldClassGenerated,
+		"source_precedence": FieldClassSemantic,
+		"discovery":         FieldClassProvenance,
+		"sources":           FieldClassProvenance,
+		"rules":             FieldClassSemantic,
+		"actions":           FieldClassSemantic,
+		"custom_runtimes":   FieldClassSemantic,
+	}
+	changed := clonePayload(base)
+	changed["unsupported_field"] = "visible"
+	report, err := diffMaps("a", "b", base, changed)
+	if err != nil {
+		t.Fatalf("diffMaps: %v", err)
+	}
+	got := map[string]FieldClass{}
+	for _, field := range report.FieldClasses {
+		got[field.Field] = field.Class
+	}
+	classes["unsupported_field"] = FieldClassUnsupported
+	if len(got) != len(classes) {
+		t.Fatalf("field classes = %#v, want %#v", got, classes)
+	}
+	for field, want := range classes {
+		if got[field] != want {
+			t.Errorf("field %q class = %q, want %q", field, got[field], want)
+		}
+	}
+
+	for field := range classes {
+		if field == "rules" || field == "sources" {
+			continue
+		}
+		candidate := clonePayload(base)
+		candidate[field] = changedEnvelopeValue(field)
+		if field == "rule_count" {
+			candidate["rules"] = []interface{}{map[string]interface{}{"id": "changed", "kind": "deny_write"}}
+		}
+		if field == "source_count" {
+			candidate["sources"] = []interface{}{sourceValue("policy", "policies/changed.yml", strings.Repeat("e", 64), "", 0)}
+		}
+		fieldReport, err := diffMaps("a", "b", base, candidate)
+		if err != nil {
+			t.Fatalf("field %q diffMaps: %v", field, err)
+		}
+		if len(fieldReport.EnvelopeChanges) != 1 || fieldReport.EnvelopeChanges[0].Field != field {
+			t.Errorf("field %q envelope changes = %#v", field, fieldReport.EnvelopeChanges)
+		}
+	}
+}
+
+func TestDiffReportsSourceInventoryMovesAddsRemovalsAndOrder(t *testing.T) {
+	digestA := strings.Repeat("a", 64)
+	digestB := strings.Repeat("b", 64)
+	digestC := strings.Repeat("c", 64)
+	a := minimalPayload()
+	a["sources"] = []interface{}{
+		sourceValue("policy", "policies/a.yml", digestA, "block-a", 3),
+		sourceValue("policy", "policies/b.yml", digestB, "", 0),
+	}
+	a["source_count"] = 2
+	b := minimalPayload()
+	b["sources"] = []interface{}{
+		sourceValue("policy", "policies/moved.yml", digestA, "block-a", 3),
+		sourceValue("policy", "policies/new.yml", digestC, "", 0),
+	}
+	b["source_count"] = 2
+	report, err := diffMaps("a", "b", a, b)
+	if err != nil {
+		t.Fatalf("diffMaps: %v", err)
+	}
+	if len(report.SourceChanges) != 3 {
+		t.Fatalf("source changes = %#v, want move/add/remove", report.SourceChanges)
+	}
+	wants := []string{"added", "moved", "removed"}
+	for index, want := range wants {
+		if report.SourceChanges[index].Change != want {
+			t.Errorf("source change %d = %q, want %q", index, report.SourceChanges[index].Change, want)
+		}
+	}
+	if !report.SourceOrderDiff || len(report.SourceOrderA) != 2 || len(report.SourceOrderB) != 2 {
+		t.Fatalf("source order change = %t, A=%v, B=%v", report.SourceOrderDiff, report.SourceOrderA, report.SourceOrderB)
+	}
+	if report.IsEmpty() {
+		t.Fatal("source inventory changes were reported as empty")
+	}
+}
+
+func TestDiffReportsSourceContentChangeAtStableLocation(t *testing.T) {
+	a := minimalPayload()
+	a["sources"] = []interface{}{sourceValue("policy", "policies/rules.yml", strings.Repeat("a", 64), "", 0)}
+	a["source_count"] = 1
+	b := minimalPayload()
+	b["sources"] = []interface{}{sourceValue("policy", "policies/rules.yml", strings.Repeat("b", 64), "", 0)}
+	b["source_count"] = 1
+	report, err := diffMaps("a", "b", a, b)
+	if err != nil {
+		t.Fatalf("diffMaps: %v", err)
+	}
+	if len(report.SourceChanges) != 1 || report.SourceChanges[0].Change != "changed" {
+		t.Fatalf("source changes = %#v, want one changed source", report.SourceChanges)
+	}
+}
+
+func TestDiffDoesNotTreatSourceOrderAsASet(t *testing.T) {
+	a := minimalPayload()
+	first := sourceValue("policy", "policies/a.yml", strings.Repeat("a", 64), "", 0)
+	second := sourceValue("policy", "policies/b.yml", strings.Repeat("b", 64), "", 0)
+	a["sources"] = []interface{}{first, second}
+	a["source_count"] = 2
+	b := minimalPayload()
+	b["sources"] = []interface{}{second, first}
+	b["source_count"] = 2
+	report, err := diffMaps("a", "b", a, b)
+	if err != nil {
+		t.Fatalf("diffMaps: %v", err)
+	}
+	if len(report.SourceChanges) != 0 || !report.SourceOrderDiff || report.IsEmpty() {
+		t.Fatalf("source order was not preserved: %#v", report)
+	}
+}
+
+func TestDiffReportsPureRuleProvenanceMove(t *testing.T) {
+	a := minimalPayload()
+	a["rules"] = []interface{}{map[string]interface{}{
+		"id": "r1", "kind": "deny_write", "mode": "warn", "source_path": "policies/a.yml", "source_block_id": "a",
+	}}
+	a["rule_count"] = 1
+	b := clonePayload(a)
+	b["rules"] = []interface{}{map[string]interface{}{
+		"id": "r1", "kind": "deny_write", "mode": "warn", "source_path": "policies/b.yml", "source_block_id": "b",
+	}}
+	report, err := diffMaps("a", "b", a, b)
+	if err != nil {
+		t.Fatalf("diffMaps: %v", err)
+	}
+	if len(report.Changed) != 0 || len(report.RuleProvenance) != 1 {
+		t.Fatalf("rule provenance = changed=%v provenance=%#v", report.Changed, report.RuleProvenance)
+	}
+	if report.RuleProvenance[0].FieldsChanged[0] != "source_block_id" || report.RuleProvenance[0].FieldsChanged[1] != "source_path" {
+		t.Fatalf("provenance fields = %v", report.RuleProvenance[0].FieldsChanged)
+	}
+	if report.IsEmpty() {
+		t.Fatal("rule provenance move was reported as empty")
+	}
+}
+
+func TestDiffMigratesLegacyV5BeforeComparison(t *testing.T) {
+	v5 := minimalPayload()
+	v5["$schema"] = schema.LegacyPolicyLockV5URL
+	v5["format_version"] = "5"
+	v5["actions"] = map[string]interface{}{
+		"format_version": "1", "tools": []interface{}{}, "rules": []interface{}{},
+		"budgets": []interface{}{}, "approvals": []interface{}{}, "detectors": []interface{}{},
+		"defaults": map[string]interface{}{},
+	}
+	v5Digest, err := compiler.ComputeLockDigest(v5)
+	if err != nil {
+		t.Fatalf("compute v5 digest: %v", err)
+	}
+	v5["lock_digest"] = v5Digest
+	current, _, err := compiler.MigrateLockfile(clonePayload(v5))
+	if err != nil {
+		t.Fatalf("migrate v5: %v", err)
+	}
+	legacyPath, currentPath := filepath.Join(t.TempDir(), "v5.json"), filepath.Join(t.TempDir(), "v6.json")
+	writeRawLock(t, legacyPath, v5)
+	writeRawLock(t, currentPath, current)
+	report, err := Diff(legacyPath, currentPath)
+	if err != nil {
+		t.Fatalf("Diff migrated/current: %v", err)
+	}
+	if !report.IsEmpty() {
+		t.Fatalf("migration-only comparison is not empty: %#v", report)
+	}
+}
+
+func minimalPayload() map[string]interface{} {
+	return map[string]interface{}{
+		"$schema": compiler.LockfileSchema(), "compiler_version": "test", "format_version": compiler.LockfileFormatVersion,
+		"repo_root": compiler.PortableRepoRoot, "default_mode": "warn", "rule_count": 0, "source_count": 0,
+		"source_digest": strings.Repeat("0", 64), "lock_digest": strings.Repeat("1", 64),
+		"source_precedence": []interface{}{}, "discovery": map[string]interface{}{
+			"repo_root": ".", "start_path": ".", "discovered": true,
+			"config_candidates": []interface{}{}, "policy_paths": []interface{}{}, "warnings": []interface{}{},
+		}, "sources": []interface{}{},
+		"rules": []interface{}{}, "actions": map[string]interface{}{}, "custom_runtimes": []interface{}{},
+	}
+}
+
+func clonePayload(input map[string]interface{}) map[string]interface{} {
+	output := make(map[string]interface{}, len(input))
+	for key, value := range input {
+		output[key] = value
+	}
+	return output
+}
+
+func changedEnvelopeValue(field string) interface{} {
+	if field == "default_mode" {
+		return "block"
+	}
+	if field == "rule_count" || field == "source_count" {
+		return 1
+	}
+	if field == "custom_runtimes" || field == "source_precedence" {
+		return []interface{}{"changed"}
+	}
+	if field == "discovery" || field == "actions" {
+		return map[string]interface{}{"changed": true}
+	}
+	return "changed"
+}
+
+func sourceValue(kind, path, digest, blockID string, lineStart int) map[string]interface{} {
+	value := map[string]interface{}{"kind": kind, "path": path, "content_sha256": digest}
+	if blockID != "" {
+		value["block_id"] = blockID
+	}
+	if lineStart != 0 {
+		value["line_start"] = lineStart
+	}
+	return value
+}
+
+func writeRawLock(t *testing.T, path string, payload map[string]interface{}) {
+	t.Helper()
+	digest, err := compiler.ComputeLockDigest(payload)
+	if err != nil {
+		t.Fatalf("compute raw lock digest: %v", err)
+	}
+	payload["lock_digest"] = digest
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal raw lock: %v", err)
+	}
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatalf("write raw lock: %v", err)
 	}
 }
