@@ -1566,6 +1566,10 @@ func evidenceChecksFromRule(rule *policy.Rule) []policy.EvidenceCheck {
 	return rule.Evidence
 }
 
+// assuranceGatesFromRule copies gate structs out of the immutable runtime plan.
+// Commands needs its own copy because a struct copy would retain the nested
+// slice's backing array; command evaluation must never gain mutable ownership
+// of plan storage.
 func assuranceGatesFromRule(rule *policy.Rule) ([]policy.AssuranceGate, error) {
 	if rule == nil || len(rule.Assurance) == 0 {
 		return nil, &rerrors.LockfileError{Message: "rule '" + ruleIDOf(rule) + "' missing assurance field in lockfile"}

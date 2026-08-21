@@ -1012,15 +1012,17 @@ replacement and flushes the temporary file before publication.
 ### Private state filesystem boundary
 
 `internal/privatefs` is the shared boundary for Reconc-owned state directories,
-lock files, and private marker/proof publication. It creates components one at
-a time, rejects symlink and irregular entries, repairs only the intended final
-directory through an opened descriptor when legacy state requires migration,
-and validates owner, mode, ACL/security descriptor, and single-link ownership.
+lock files, and private marker/proof publication. It creates missing components
+one at a time with private security and identity-checks traversed existing
+directories without changing their mode or ACL. The final directory must pass
+owner, mode, identity, and ACL/security-descriptor validation; the explicit
+repair path changes only that final boundary through its opened descriptor.
 Lock creation opens the exact regular inode with create-only semantics, applies
-private mode/security through the descriptor, and revalidates the directory
-entry before returning it. Action state, installation receipts, retention,
-command proofs, and unresolved policy proofs use this boundary; their paths,
-filenames, retention policy, and public JSON contracts are unchanged.
+private mode/security through the descriptor, validates single-link ownership,
+and revalidates the directory entry before returning it. Action state,
+installation receipts, retention, command proofs, and unresolved policy proofs
+use this boundary; their paths, filenames, retention policy, and public JSON
+contracts are unchanged.
 
 The audit layout is a private specialization of the bounded JSONL contract:
 `.reconc` is `0700`; live and archive evidence, the detached head, lock,

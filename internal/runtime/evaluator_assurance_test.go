@@ -3,6 +3,8 @@ package runtime
 import (
 	"strings"
 	"testing"
+
+	"reconc.dev/reconc/internal/policy"
 )
 
 func TestRequireAssuranceUsesCurrentSuccessAndChangedFileGate(t *testing.T) {
@@ -89,5 +91,25 @@ func TestRequireAssuranceReportsRawSuccessfulCommandOnce(t *testing.T) {
 	commands := report.Violations[0].MatchedCommands
 	if len(commands) != 1 || commands[0] != "rtk go test ./..." {
 		t.Fatalf("report must keep one raw command instead of raw+normalized duplicates: %v", commands)
+	}
+}
+
+func TestAssuranceGatesFromRuleDetachesCommandStorage(t *testing.T) {
+	t.Parallel()
+	rule := &policy.Rule{
+		ID: "native-assurance",
+		Assurance: []policy.AssuranceGate{{
+			ID: "live", Type: policy.AssuranceLiveVerification,
+			Commands: []string{"go test ./..."},
+		}},
+	}
+	gates, err := assuranceGatesFromRule(rule)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gates[0].ID = "mutated"
+	gates[0].Commands[0] = "mutated"
+	if rule.Assurance[0].ID != "live" || rule.Assurance[0].Commands[0] != "go test ./..." {
+		t.Fatalf("evaluation copy mutated runtime plan storage: %#v", rule.Assurance[0])
 	}
 }

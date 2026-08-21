@@ -694,6 +694,20 @@ func TestNormalizeJSONValueWithBytesPreservesNumbersAndCanonicalBytes(t *testing
 	}
 }
 
+func TestMarshalCanonicalContract(t *testing.T) {
+	t.Parallel()
+	encoded, err := marshalCanonical(map[string]interface{}{"z": 2, "a": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(encoded), `{"a":1,"z":2}`; got != want {
+		t.Fatalf("canonical JSON = %q, want %q", got, want)
+	}
+	if _, err := marshalCanonical(map[string]interface{}{"unsupported": make(chan int)}); err == nil {
+		t.Fatal("unsupported value did not propagate a JSON encoding error")
+	}
+}
+
 func TestCheckToMapCoversSpecializedFields(t *testing.T) {
 	cases := []struct {
 		name string

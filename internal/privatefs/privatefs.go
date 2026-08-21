@@ -19,15 +19,18 @@ const (
 	PrivateFileMode      os.FileMode = 0o600
 )
 
-// EnsureDirectory creates every missing component and validates the complete
-// directory boundary. Existing components are reconciled to private mode.
+// EnsureDirectory creates missing components with private mode and platform
+// security, identity-checks traversed existing directories, and validates the
+// final directory's owner, mode, and platform security. It does not repair an
+// existing final directory or change existing ancestors.
 func EnsureDirectory(path string) error {
 	return ensureDirectory(path, false)
 }
 
-// RepairDirectory creates the private directory boundary and reconciles the
-// final existing directory to private mode through its opened descriptor. It
-// is for legacy state roots that predate the private-mode contract.
+// RepairDirectory creates missing components privately and repairs only the
+// final existing directory through its opened descriptor before validating
+// owner, mode, identity, and platform security. Existing ancestors are
+// identity-checked but never chmodded or given a replacement ACL.
 func RepairDirectory(path string) error {
 	return ensureDirectory(path, true)
 }
@@ -73,7 +76,8 @@ func ValidateFileAllowLinks(file *os.File, info os.FileInfo) error {
 	return validatePrivateFileAllowLinks(file, info)
 }
 
-// SecureDirectory creates or secures a private directory and validates it.
+// SecureDirectory runs EnsureDirectory, then reopens and revalidates the final
+// private directory boundary. Existing security drift fails without repair.
 func SecureDirectory(path string) error {
 	if err := EnsureDirectory(path); err != nil {
 		return err

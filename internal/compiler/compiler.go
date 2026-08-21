@@ -335,9 +335,9 @@ func stringifyKinds(kinds []policy.SourceKind) []string {
 	return out
 }
 
-// marshalCanonical produces compact, sorted-key JSON used for the
-// digest input. Standard json.Marshal already sorts map keys; we just
-// strip whitespace.
+// marshalCanonical encodes digest input as compact JSON. json.Marshal sorts
+// string-keyed maps deterministically and returns any encoding error directly;
+// this wrapper performs no additional whitespace transformation.
 func marshalCanonical(v interface{}) ([]byte, error) {
 	data, err := json.Marshal(v)
 	if err != nil {
@@ -542,12 +542,9 @@ func hostMCPToolCount(plan action.Plan) int {
 	return count
 }
 
-// ruleToMap converts a Rule to a generic map so json.Marshal applies
-// the sort-keys formatter consistently. Empty slice fields become
-// JSON null... actually Go's encoder writes nil slices as null, which
-// would diverge from Python's omitempty behavior. We strip the keys
-// instead so the output matches the design's "omit empty optional
-// fields" rule.
+// ruleToMap converts a Rule to the generic object used by the canonical lock
+// payload. It omits empty optional fields so absent values do not become JSON
+// null or change an otherwise identical rule's serialized identity.
 func ruleToMap(r policy.Rule) map[string]interface{} {
 	m := map[string]interface{}{
 		"id":      r.ID,
