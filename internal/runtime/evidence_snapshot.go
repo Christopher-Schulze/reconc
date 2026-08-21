@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -21,10 +22,12 @@ var errEvidenceSnapshotChanged = errors.New("evidence file snapshot changed duri
 
 type evidenceFileSnapshot struct {
 	path          string
+	identity      string
 	info          os.FileInfo
 	exists        bool
 	content       string
 	contentLoaded bool
+	contentDigest [32]byte
 	err           error
 }
 
@@ -73,6 +76,7 @@ func (c *evidenceSnapshotCache) snapshot(path string, needContent bool) (evidenc
 		}
 		cached.content = loaded.content
 		cached.contentLoaded = true
+		cached.contentDigest = loaded.contentDigest
 		c.store(path, cached)
 		return cached, nil
 	}
@@ -99,7 +103,7 @@ func readEvidenceSnapshot(path string, needContent bool) (evidenceFileSnapshot, 
 		}
 		return evidenceFileSnapshot{path: path}, err
 	}
-	snapshot := evidenceFileSnapshot{path: path, info: info, exists: exists}
+	snapshot := evidenceFileSnapshot{path: path, identity: evidenceIdentity(info), info: info, exists: exists}
 	if !exists {
 		return snapshot, nil
 	}
@@ -122,7 +126,15 @@ func readEvidenceSnapshot(path string, needContent bool) (evidenceFileSnapshot, 
 	}
 	snapshot.content = string(body)
 	snapshot.contentLoaded = true
+	snapshot.contentDigest = sha256.Sum256(body)
 	return snapshot, nil
+}
+
+func evidenceIdentity(info os.FileInfo) string {
+	if info == nil {
+		return ""
+	}
+	return fmt.Sprintf("%T:%#v", info.Sys(), info.Sys())
 }
 
 func statEvidencePath(path string) (os.FileInfo, bool, error) {

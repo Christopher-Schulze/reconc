@@ -131,7 +131,7 @@ func evalNot(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, input
 // signalling "rule does not fire".
 func compositeSetup(ctx *evalContext, rule *policy.Rule, inputs ExecutionInputs) ([]matchContext, []policy.Check, error) {
 	patterns := stringListField(rule, "when_paths")
-	contexts, err := collectMatchContextsWithMatchers(ctx.templateMatchers, inputs.WritePaths, patterns)
+	contexts, err := ctx.contextMemo.collect(ctx.templateMatchers, inputs.WritePaths, patterns)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -269,42 +269,30 @@ func evalCheckRequireEvidence(ctx *evalContext, c policy.Check, captures map[str
 	if err != nil {
 		return false, "", &rerrors.LockfileError{Message: "read " + fileSubst, Cause: err}
 	}
-	if !snapshot.exists {
-		if c.Optional {
-			return true, "", nil
-		}
-		if c.MustExist {
-			return false, "missing file " + fileSubst, nil
-		}
-		if needContent {
-			return false, "missing file " + fileSubst + " (cannot check content)", nil
-		}
-		return true, "", nil
+	match := ctx.evidenceMemo.match(full, snapshot, evidenceMatchOptions{
+		file:           fileSubst,
+		mustExist:      c.MustExist,
+		mustContain:    c.MustContain,
+		mustNotContain: c.MustNotContain,
+		maxLineCount:   c.MaxLineCount,
+		optional:       c.Optional,
+	})
+	if match.err != nil {
+		return false, "", match.err
 	}
-	info := snapshot.info
-	if !info.Mode().IsRegular() {
-		return false, "not a regular file: " + fileSubst, nil
-	}
-	if !needContent {
-		return true, "", nil
-	}
-	content := snapshot.content
-	for _, sub := range c.MustContain {
-		if !strings.Contains(content, sub) {
-			return false, fileSubst + ": missing required substring " + quote(sub), nil
+	if len(match.reasons) > 0 {
+		if !snapshot.exists {
+			if c.MustExist {
+				return false, "missing file " + fileSubst, nil
+			}
+			if needContent {
+				return false, "missing file " + fileSubst + " (cannot check content)", nil
+			}
 		}
-	}
-	if c.MustNotContain != "" && strings.Contains(content, c.MustNotContain) {
-		return false, fileSubst + ": contains forbidden substring " + quote(c.MustNotContain), nil
-	}
-	if c.MaxLineCount > 0 {
-		lines := strings.Count(content, "\n")
-		if !strings.HasSuffix(content, "\n") && len(content) > 0 {
-			lines++
+		if snapshot.info == nil || !snapshot.info.Mode().IsRegular() {
+			return false, "not a regular file: " + fileSubst, nil
 		}
-		if lines > c.MaxLineCount {
-			return false, fmt.Sprintf("%s: %d lines > max %d", fileSubst, lines, c.MaxLineCount), nil
-		}
+		return false, match.reasons[0], nil
 	}
 	return true, "", nil
 }

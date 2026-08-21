@@ -274,6 +274,7 @@ func matchedRuleIDs(repoRoot string, matchers *runtimePathMatchers, templateMatc
 		templateMatchers: templateMatchers,
 		commandCache:     newCommandInvocationCache(rules, repoRoot),
 		commandEvidence:  newCommandEvidenceIndex(normalized, repoRoot),
+		contextMemo:      newMatchContextMemo(),
 	}
 	ids := []string{}
 	for index := range rules {
@@ -315,7 +316,7 @@ func ruleTriggerMatches(ctx *evalContext, rule *policy.Rule, inputs ExecutionInp
 	case policy.KindRequireFreshFile, policy.KindRequireEvidence,
 		policy.KindAllOf, policy.KindAnyOf, policy.KindNot, policy.KindRequireScript:
 		var contexts []matchContext
-		contexts, err = collectMatchContextsWithMatchers(ctx.templateMatchers, inputs.WritePaths, rule.WhenPaths)
+		contexts, err = ctx.contextMemo.collect(ctx.templateMatchers, inputs.WritePaths, rule.WhenPaths)
 		return len(contexts) > 0, err
 	default:
 		paths, err = matchingPathsWithMatchers(ctx.matchers, inputs.WritePaths, rule.WhenPaths)

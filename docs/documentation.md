@@ -3746,6 +3746,12 @@ Security posture:
   every hit, reuses only stable bounded bytes, and fails closed on replacement
   or metadata drift; missing-file results are likewise invalidated if the path
   appears later in the same evaluation.
+- After a stable snapshot is available, a separate bounded logical-match memo
+  keys substituted file bindings, content digest, file identity, and all
+  substring/line-count/optional flags. It preserves ordered negative reasons
+  for top-level and composite checks. The same evaluation memoizes template
+  match contexts with cloned capture maps, including deterministic errors, so
+  repeated rules do not rebuild equivalent derived evidence.
 - Batch path normalization uses an evaluation-local `pathidentity` prospective
   resolver. Shared existing ancestors are `Lstat`-revalidated before reuse;
   missing suffixes remain uncached, preserving symlink/reparse, containment,

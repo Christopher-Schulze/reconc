@@ -30,6 +30,8 @@ type evalContext struct {
 	commandCache     *commandInvocationCache
 	commandEvidence  *commandEvidenceIndex
 	evidenceCache    *evidenceSnapshotCache
+	evidenceMemo     *evidenceMatchMemo
+	contextMemo      *matchContextMemo
 }
 
 type observedCommandInvocations struct {
@@ -268,6 +270,8 @@ func (e *Evaluator) AssertRuleByID(startPath, ruleID string, vars map[string]str
 		commandCache:     newCommandInvocationCache([]policy.Rule{*target}, root),
 		commandEvidence:  newCommandEvidenceIndex(normalizedInputs, root),
 		evidenceCache:    newEvidenceSnapshotCache(),
+		evidenceMemo:     newEvidenceMatchMemo(),
+		contextMemo:      newMatchContextMemo(),
 	}
 
 	v, err := evaluateRule(ctx, target, plan.defaultMode, normalizedInputs)
@@ -371,6 +375,8 @@ func evaluateRuntimePlan(root string, plan *runtimePlan, inputs ExecutionInputs,
 		commandCache:     newCommandInvocationCache(plan.rules, root),
 		commandEvidence:  newCommandEvidenceIndex(normalized.inputs, root),
 		evidenceCache:    newEvidenceSnapshotCache(),
+		evidenceMemo:     newEvidenceMatchMemo(),
+		contextMemo:      newMatchContextMemo(),
 	}
 	ruleIndexes := plan.indexesFor(allowedKinds, preCommand)
 	rules := make([]*policy.Rule, 0, len(ruleIndexes))
@@ -498,7 +504,7 @@ func evaluateBatchedRequireScripts(ctx *evalContext, rules []*policy.Rule, defau
 				// miss is rejected before match-context collection or subprocess IO.
 				continue
 			}
-			contexts, err := collectMatchContextsWithMatchers(ctx.templateMatchers, inputs.WritePaths, stringListField(item.rule, "when_paths"))
+			contexts, err := ctx.contextMemo.collect(ctx.templateMatchers, inputs.WritePaths, stringListField(item.rule, "when_paths"))
 			if err != nil {
 				return results, err
 			}
@@ -1242,7 +1248,7 @@ func evalRequireAssurance(ctx *evalContext, rule *policy.Rule, defaultMode polic
 // to the violation. A "pass" exit (0) clears that context.
 func evalRequireScript(ctx *evalContext, rule *policy.Rule, defaultMode policy.Mode, inputs ExecutionInputs) (*Violation, error) {
 	whenPatterns := stringListField(rule, "when_paths")
-	contexts, err := collectMatchContextsWithMatchers(ctx.templateMatchers, inputs.WritePaths, whenPatterns)
+	contexts, err := ctx.contextMemo.collect(ctx.templateMatchers, inputs.WritePaths, whenPatterns)
 	if err != nil {
 		return nil, err
 	}
@@ -1316,7 +1322,7 @@ func evalRequireFreshFile(ctx *evalContext, rule *policy.Rule, defaultMode polic
 
 	// Collect all (write_path, captures) pairs that match the rule's
 	// when_paths. For non-templated patterns captures is empty.
-	contexts, err := collectMatchContextsWithMatchers(ctx.templateMatchers, inputs.WritePaths, whenPatterns)
+	contexts, err := ctx.contextMemo.collect(ctx.templateMatchers, inputs.WritePaths, whenPatterns)
 	if err != nil {
 		return nil, err
 	}
@@ -1401,7 +1407,7 @@ func evalRequireEvidence(ctx *evalContext, rule *policy.Rule, defaultMode policy
 		return nil, nil
 	}
 
-	contexts, err := collectMatchContextsWithMatchers(ctx.templateMatchers, inputs.WritePaths, whenPatterns)
+	contexts, err := ctx.contextMemo.collect(ctx.templateMatchers, inputs.WritePaths, whenPatterns)
 	if err != nil {
 		return nil, err
 	}
@@ -1432,46 +1438,18 @@ func evalRequireEvidence(ctx *evalContext, rule *policy.Rule, defaultMode policy
 			if err != nil {
 				return nil, &rerrors.LockfileError{Message: "read evidence file " + file, Cause: err}
 			}
-			if !snapshot.exists {
-				if c.Optional {
-					continue
-				}
-				if c.MustExist {
-					failures = append(failures, file+": file does not exist")
-				}
-				if !c.MustExist && needContent {
-					failures = append(failures, file+": file does not exist (cannot check content)")
-				}
-				continue
+			match := ctx.evidenceMemo.match(fullPath, snapshot, evidenceMatchOptions{
+				file:           file,
+				mustExist:      c.MustExist,
+				mustContain:    c.MustContain,
+				mustNotContain: c.MustNotContain,
+				maxLineCount:   c.MaxLineCount,
+				optional:       c.Optional,
+			})
+			if match.err != nil {
+				return nil, match.err
 			}
-			info := snapshot.info
-			if !info.Mode().IsRegular() {
-				failures = append(failures, file+": not a regular file")
-				continue
-			}
-			var content string
-			if needContent {
-				content = snapshot.content
-			}
-			for _, sub := range c.MustContain {
-				if !strings.Contains(content, sub) {
-					failures = append(failures, file+": missing required substring "+quote(sub))
-				}
-			}
-			if c.MustNotContain != "" {
-				if strings.Contains(content, c.MustNotContain) {
-					failures = append(failures, file+": contains forbidden substring "+quote(c.MustNotContain))
-				}
-			}
-			if c.MaxLineCount > 0 {
-				lines := strings.Count(content, "\n")
-				if !strings.HasSuffix(content, "\n") && len(content) > 0 {
-					lines++
-				}
-				if lines > c.MaxLineCount {
-					failures = append(failures, fmt.Sprintf("%s: %d lines > max %d", file, lines, c.MaxLineCount))
-				}
-			}
+			failures = append(failures, match.reasons...)
 		}
 	}
 
