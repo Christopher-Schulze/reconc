@@ -2,7 +2,7 @@
 
 ## Active
 
-- [~] 214 Deduplicate runtime evidence in linear time -> tasks/214-deduplicate-runtime-evidence-in-linear-time.md
+- [~] 215 Enforce harness-pack limits before retaining payloads -> tasks/215-enforce-harness-pack-limits-before-retaining-payloads.md
 
 ## Queue
 
@@ -19,6 +19,7 @@
 
 ## Done
 
+- [x] 214 Deduplicate runtime evidence in linear time -> tasks/done/214-deduplicate-runtime-evidence-in-linear-time.md
 - [x] 213 Compute action argument size once per evaluation -> tasks/done/213-compute-action-argument-size-once-per-evaluation.md
 - [x] 212 Validate immutable compiled action plans once -> tasks/done/212-validate-immutable-compiled-action-plans-once.md
 - [x] 211 Reuse immutable action context roots -> tasks/done/211-reuse-immutable-action-context-roots.md

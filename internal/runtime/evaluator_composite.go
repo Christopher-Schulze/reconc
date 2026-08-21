@@ -345,11 +345,11 @@ func evalCheckDenyWrite(ctx *evalContext, c policy.Check, inputs ExecutionInputs
 // buildCompositeViolation is the violation builder for composite rules.
 // Aggregates triggered paths and failure reasons across all contexts.
 func buildCompositeViolation(rule *policy.Rule, defaultMode policy.Mode, contexts []matchContext, op string, failures []string) *Violation {
-	triggered := []string{}
+	triggered := newStableStringCollector([]string{})
 	for _, mc := range contexts {
-		triggered = appendUnique(triggered, mc.path)
+		triggered.add(mc.path)
 	}
-	v := buildViolation(rule, defaultMode, triggered, nil, nil, nil, nil, nil)
+	v := buildViolation(rule, defaultMode, triggered.values(), nil, nil, nil, nil, nil)
 	v.Explanation = fmt.Sprintf(
 		"Composite rule '%s' (%s) failed on %d context(s): %s",
 		v.RuleID, op, len(contexts), strings.Join(failures, "; "),

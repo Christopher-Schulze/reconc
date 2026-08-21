@@ -555,11 +555,14 @@ and byte-compares the notice before checksums and provenance are accepted.
     identities; missing suffixes are never trusted from string state alone.
     Write-epoch keys use the same resolver and one pass over the write-path
     sequence, merging aliases by maximum epoch after normalized containment.
-    Action predicate evaluation reuses one immutable materialized context
+     Action predicate evaluation reuses one immutable materialized context
     root per evaluation; context-member pointers retain binary-search lookup,
     while arguments, results, and progress are already canonical roots. The
-    production compiled-plan path therefore avoids rebuilding the same object
-    and revalidating its pointer program for every predicate.
+     production compiled-plan path therefore avoids rebuilding the same object
+     and revalidating its pointer program for every predicate.
+     Runtime evidence/report collections use a local membership map plus an
+     ordered slice, preserving first-seen output while avoiding quadratic
+     duplicate scans at bounded high cardinalities.
    - Normalises the input paths against the repo root.
    - For each rule in the lockfile: applies the scope filter
      (`ruleScopeMatches`), then dispatches to the per-kind

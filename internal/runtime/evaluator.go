@@ -220,12 +220,12 @@ func (e *Evaluator) AssertRuleByID(startPath, ruleID string, vars map[string]str
 
 	// Merge: explicit inputs first, then synthesized (preserves
 	// caller-provided evidence and adds our trigger paths).
-	mergedWrites := append([]string{}, inputs.WritePaths...)
+	mergedWrites := newStableStringCollector(inputs.WritePaths)
 	for _, p := range synthesized {
-		mergedWrites = appendUnique(mergedWrites, p)
+		mergedWrites.add(p)
 	}
 	merged := inputs
-	merged.WritePaths = mergedWrites
+	merged.WritePaths = mergedWrites.values()
 
 	resolvedRoot, err := pathidentity.ResolveExisting(root)
 	if err != nil {
@@ -625,11 +625,11 @@ func parseWorkflowAuditBatchOutput(stdout string, expectedModes []string) (map[s
 }
 
 func triggeredPathsForContexts(contexts []matchContext) []string {
-	paths := []string{}
+	paths := newStableStringCollector([]string{})
 	for _, mc := range contexts {
-		paths = appendUnique(paths, mc.path)
+		paths.add(mc.path)
 	}
-	return paths
+	return paths.values()
 }
 
 func batchScriptFailureDetails(scriptPath string, failures []string) []string {
@@ -1191,25 +1191,25 @@ func evalRequireAssurance(ctx *evalContext, rule *policy.Rule, defaultMode polic
 	if err != nil {
 		return nil, err
 	}
-	successful := []string{}
-	reportedSuccessful := []string{}
+	successful := newStableStringCollector([]string{})
+	reportedSuccessful := newStableStringCollector([]string{})
 	if ctx.commandEvidence != nil {
 		for _, result := range ctx.commandEvidence.results {
 			if result.outcome != CommandOutcomeSuccess {
 				continue
 			}
-			reportedSuccessful = appendUnique(reportedSuccessful, result.raw)
-			successful = appendUnique(successful, result.raw)
-			successful = appendUnique(successful, result.normalized)
+			reportedSuccessful.add(result.raw)
+			successful.add(result.raw)
+			successful.add(result.normalized)
 		}
 	} else {
 		for _, result := range inputs.CommandResults {
 			if result.Outcome != CommandOutcomeSuccess {
 				continue
 			}
-			reportedSuccessful = appendUnique(reportedSuccessful, result.Command)
-			successful = appendUnique(successful, result.Command)
-			successful = appendUnique(successful, normalizeCommandSemantics(result.Command, ctx.repoRoot))
+			reportedSuccessful.add(result.Command)
+			successful.add(result.Command)
+			successful.add(normalizeCommandSemantics(result.Command, ctx.repoRoot))
 		}
 	}
 	for gateIndex := range gates {
@@ -1217,7 +1217,7 @@ func evalRequireAssurance(ctx *evalContext, rule *policy.Rule, defaultMode polic
 	}
 	findings, err := assurance.Evaluate(ctx.repoRoot, gates, assurance.Inputs{
 		ChangedPaths:       inputs.WritePaths,
-		SuccessfulCommands: successful,
+		SuccessfulCommands: successful.values(),
 		Now:                time.Now().UTC(),
 	})
 	if err != nil {
@@ -1226,15 +1226,15 @@ func evalRequireAssurance(ctx *evalContext, rule *policy.Rule, defaultMode polic
 	if len(findings) == 0 {
 		return nil, nil
 	}
-	requiredPaths := []string{}
+	requiredPaths := newStableStringCollector([]string{})
 	details := make([]string, 0, len(findings))
 	for _, finding := range findings {
 		details = append(details, "["+finding.GateID+"] "+finding.Message)
 		for _, path := range finding.Paths {
-			requiredPaths = appendUnique(requiredPaths, path)
+			requiredPaths.add(path)
 		}
 	}
-	v := buildViolation(rule, defaultMode, triggered, reportedSuccessful, nil, requiredPaths, nil, nil)
+	v := buildViolation(rule, defaultMode, triggered, reportedSuccessful.values(), nil, requiredPaths.values(), nil, nil)
 	v.Explanation = "Native assurance failed: " + strings.Join(details, "; ")
 	v.RecommendedAction = findings[0].Remediation
 	if len(findings) > 1 {
@@ -1265,9 +1265,9 @@ func evalRequireScript(ctx *evalContext, rule *policy.Rule, defaultMode policy.M
 	killTimeoutSec := rule.KillTimeoutSec
 
 	failures := []string{}
-	triggeredPaths := []string{}
+	triggeredPaths := newStableStringCollector([]string{})
 	for _, mc := range contexts {
-		triggeredPaths = appendUnique(triggeredPaths, mc.path)
+		triggeredPaths.add(mc.path)
 		// Substitute captures into args.
 		substArgs, err := SubstituteTemplateInList(args, mc.captures)
 		if err != nil {
@@ -1297,10 +1297,10 @@ func evalRequireScript(ctx *evalContext, rule *policy.Rule, defaultMode policy.M
 	if len(failures) == 0 {
 		return nil, nil
 	}
-	v := buildViolation(rule, defaultMode, triggeredPaths, nil, nil, []string{scriptPath}, nil, nil)
+	v := buildViolation(rule, defaultMode, triggeredPaths.values(), nil, nil, []string{scriptPath}, nil, nil)
 	v.Explanation = fmt.Sprintf(
 		"Write activity %s triggered require_script rule '%s'. %s",
-		joinForHumans(triggeredPaths), v.RuleID, strings.Join(failures, "; "),
+		joinForHumans(triggeredPaths.values()), v.RuleID, strings.Join(failures, "; "),
 	)
 	v.RecommendedAction = scriptRecommendedAction(failures)
 	return v, nil
@@ -1330,14 +1330,14 @@ func evalRequireFreshFile(ctx *evalContext, rule *policy.Rule, defaultMode polic
 		return nil, nil
 	}
 
-	missing := []string{}
-	stale := []string{}
+	missing := newStableStringCollector([]string{})
+	stale := newStableStringCollector([]string{})
 	allRequired := map[string]struct{}{}
-	triggeredPaths := []string{}
+	triggeredPaths := newStableStringCollector([]string{})
 	now := time.Now()
 
 	for _, mc := range contexts {
-		triggeredPaths = appendUnique(triggeredPaths, mc.path)
+		triggeredPaths.add(mc.path)
 		for _, rf := range files {
 			path, err := SubstituteTemplate(rf.Path, mc.captures)
 			if err != nil {
@@ -1357,41 +1357,41 @@ func evalRequireFreshFile(ctx *evalContext, rule *policy.Rule, defaultMode polic
 				if rf.Optional {
 					continue
 				}
-				missing = appendUnique(missing, path)
+				missing.add(path)
 				allRequired[path] = struct{}{}
 				continue
 			}
 			info := snapshot.info
 			allRequired[path] = struct{}{}
 			if !info.Mode().IsRegular() {
-				missing = appendUnique(missing, path)
+				missing.add(path)
 				continue
 			}
 			if rf.MaxAgeHours > 0 {
 				age := now.Sub(info.ModTime())
 				limit := time.Duration(rf.MaxAgeHours) * time.Hour
 				if age > limit {
-					stale = appendUnique(stale, path)
+					stale.add(path)
 				}
 			}
 		}
 	}
 
-	if len(missing) == 0 && len(stale) == 0 {
+	if len(missing.values()) == 0 && len(stale.values()) == 0 {
 		return nil, nil
 	}
 	requiredPaths := mapKeysSorted(allRequired)
-	v := buildViolation(rule, defaultMode, triggeredPaths, nil, nil, requiredPaths, nil, nil)
+	v := buildViolation(rule, defaultMode, triggeredPaths.values(), nil, nil, requiredPaths, nil, nil)
 	parts := []string{}
-	if len(missing) > 0 {
-		parts = append(parts, "missing: "+joinForHumans(missing))
+	if len(missing.values()) > 0 {
+		parts = append(parts, "missing: "+joinForHumans(missing.values()))
 	}
-	if len(stale) > 0 {
-		parts = append(parts, "stale: "+joinForHumans(stale))
+	if len(stale.values()) > 0 {
+		parts = append(parts, "stale: "+joinForHumans(stale.values()))
 	}
 	v.Explanation = fmt.Sprintf(
 		"Write activity %s triggered require_fresh_file rule '%s' (%s).",
-		joinForHumans(triggeredPaths), v.RuleID, strings.Join(parts, "; "),
+		joinForHumans(triggeredPaths.values()), v.RuleID, strings.Join(parts, "; "),
 	)
 	v.RecommendedAction = "Regenerate or refresh the listed files: " + joinForHumans(requiredPaths) + "."
 	return v, nil
@@ -1417,10 +1417,10 @@ func evalRequireEvidence(ctx *evalContext, rule *policy.Rule, defaultMode policy
 
 	failures := []string{}
 	requiredFiles := map[string]struct{}{}
-	triggeredPaths := []string{}
+	triggeredPaths := newStableStringCollector([]string{})
 
 	for _, mc := range contexts {
-		triggeredPaths = appendUnique(triggeredPaths, mc.path)
+		triggeredPaths.add(mc.path)
 		for _, c := range checks {
 			file, err := SubstituteTemplate(c.File, mc.captures)
 			if err != nil {
@@ -1457,10 +1457,10 @@ func evalRequireEvidence(ctx *evalContext, rule *policy.Rule, defaultMode policy
 		return nil, nil
 	}
 	required := mapKeysSorted(requiredFiles)
-	v := buildViolation(rule, defaultMode, triggeredPaths, nil, nil, required, nil, nil)
+	v := buildViolation(rule, defaultMode, triggeredPaths.values(), nil, nil, required, nil, nil)
 	v.Explanation = fmt.Sprintf(
 		"Write activity %s triggered require_evidence rule '%s'. Failures: %s.",
-		joinForHumans(triggeredPaths), v.RuleID, strings.Join(failures, "; "),
+		joinForHumans(triggeredPaths.values()), v.RuleID, strings.Join(failures, "; "),
 	)
 	v.RecommendedAction = "Update the evidence files to satisfy the listed assertions."
 	return v, nil
@@ -1501,15 +1501,38 @@ func collectMatchContextsWithMatchers(matchers *runtimeTemplateMatchers, writes,
 	return out, nil
 }
 
-// appendUnique appends s to slice if not already present. O(n) per
-// call; fine for the small slices we operate on.
-func appendUnique(slice []string, s string) []string {
-	for _, x := range slice {
-		if x == s {
-			return slice
-		}
+// stableStringCollector preserves first-seen order while keeping membership
+// checks O(1). Its values are scoped to one collection build; callers retain
+// their existing input/output cardinality bounds, so the index cannot outlive
+// or exceed the collection it accelerates.
+type stableStringCollector struct {
+	items []string
+	seen  map[string]struct{}
+}
+
+func newStableStringCollector(initial []string) stableStringCollector {
+	items := initial
+	if initial != nil {
+		items = make([]string, len(initial))
+		copy(items, initial)
 	}
-	return append(slice, s)
+	seen := make(map[string]struct{}, len(initial))
+	for _, value := range initial {
+		seen[value] = struct{}{}
+	}
+	return stableStringCollector{items: items, seen: seen}
+}
+
+func (c *stableStringCollector) add(value string) {
+	if _, exists := c.seen[value]; exists {
+		return
+	}
+	c.seen[value] = struct{}{}
+	c.items = append(c.items, value)
+}
+
+func (c *stableStringCollector) values() []string {
+	return c.items
 }
 
 // mapKeysSorted returns the keys of a string-keyed set in sorted order.
