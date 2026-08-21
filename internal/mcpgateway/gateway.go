@@ -417,7 +417,10 @@ func credentialBindings(labels []string) []actionstate.CredentialBinding {
 func (g *Gateway) discoverTools(ctx context.Context) ([]ToolContract, error) {
 	discoveryCtx, cancel := context.WithTimeout(ctx, ToolDiscoveryTimeout)
 	defer cancel()
-	pages := make([]ToolPage, 0, 4)
+	validator, err := newCatalogValidator()
+	if err != nil {
+		return nil, wrapBoundaryError("validate downstream tool catalog", err)
+	}
 	seenCursors := make(map[string]struct{})
 	cursor := ""
 	for pageNumber := 0; pageNumber < MaxToolPages; pageNumber++ {
@@ -427,9 +430,11 @@ func (g *Gateway) discoverTools(ctx context.Context) ([]ToolContract, error) {
 		if err != nil {
 			return nil, fmt.Errorf("discover downstream tools: %w", err)
 		}
-		pages = append(pages, page)
+		if err := validator.addPage(discoveryCtx, page); err != nil {
+			return nil, wrapBoundaryError("validate downstream tool catalog", err)
+		}
 		if page.NextCursor == "" {
-			contracts, err := validateCatalog(discoveryCtx, pages)
+			contracts, err := validator.finish()
 			if err != nil {
 				return nil, wrapBoundaryError("validate downstream tool catalog", err)
 			}

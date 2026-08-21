@@ -89,7 +89,7 @@ func (d *sdkDownstream) ListTools(ctx context.Context, cursor string) (ToolPage,
 		d.observer.cancel(call)
 		return ToolPage{}, wrapBoundaryError("list downstream tools", err)
 	}
-	raw, observeErr := waitObserved(ctx, call)
+	raw, observeErr := d.observer.wait(ctx, call)
 	if observeErr != nil {
 		return ToolPage{}, observeErr
 	}
@@ -132,7 +132,7 @@ func (d *sdkDownstream) CallTool(
 		d.observer.cancel(call)
 		return CallResult{}, wrapBoundaryError("call downstream tool", err)
 	}
-	raw, observeErr := waitObserved(ctx, call)
+	raw, observeErr := d.observer.wait(ctx, call)
 	if observeErr != nil {
 		return CallResult{}, observeErr
 	}

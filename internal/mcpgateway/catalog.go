@@ -29,44 +29,81 @@ const (
 	maxIconPixels    = 4 << 20
 )
 
-func validateCatalog(ctx context.Context, pages []ToolPage) ([]ToolContract, error) {
-	if len(pages) == 0 || len(pages) > MaxToolPages {
-		return nil, fmt.Errorf("downstream tool catalog page count is invalid")
-	}
-	toolCount, catalogBytes := 0, 0
-	contracts := make([]ToolContract, 0)
-	seen := make(map[string]struct{})
-	schemas := make(map[[sha256.Size]byte]*actioninspect.OutputSchema)
+type catalogValidator struct {
+	pageCount    int
+	toolCount    int
+	catalogBytes int
+	contracts    []ToolContract
+	seen         map[string]struct{}
+	schemas      map[[sha256.Size]byte]*actioninspect.OutputSchema
+	scanner      *actioninspect.TextScanner
+}
+
+func newCatalogValidator() (*catalogValidator, error) {
 	scanner, err := actioninspect.NewTextScanner()
 	if err != nil {
 		return nil, fmt.Errorf("initialize tool metadata inspection: %w", err)
 	}
-	for pageIndex, page := range pages {
-		if len(page.Tools) > MaxToolsPerPage {
-			return nil, fmt.Errorf("downstream tool page %d exceeds %d tools", pageIndex+1, MaxToolsPerPage)
+	return &catalogValidator{
+		contracts: make([]ToolContract, 0),
+		seen:      make(map[string]struct{}),
+		schemas:   make(map[[sha256.Size]byte]*actioninspect.OutputSchema),
+		scanner:   scanner,
+	}, nil
+}
+
+func (v *catalogValidator) addPage(ctx context.Context, page ToolPage) error {
+	v.pageCount++
+	if v.pageCount > MaxToolPages {
+		return fmt.Errorf("downstream tool catalog page count is invalid")
+	}
+	if len(page.Tools) > MaxToolsPerPage {
+		return fmt.Errorf("downstream tool page %d exceeds %d tools", v.pageCount, MaxToolsPerPage)
+	}
+	for _, raw := range page.Tools {
+		if v.toolCount >= MaxTools || len(raw) > MaxCatalogBytes-v.catalogBytes {
+			return fmt.Errorf("downstream tool catalog exceeds its boundary")
 		}
-		for _, raw := range page.Tools {
-			toolCount++
-			catalogBytes += len(raw)
-			if toolCount > MaxTools || catalogBytes > MaxCatalogBytes {
-				return nil, fmt.Errorf("downstream tool catalog exceeds its boundary")
+		v.toolCount++
+		v.catalogBytes += len(raw)
+		contract, err := validateToolContractWithCache(ctx, raw, v.schemas, v.scanner)
+		if err != nil {
+			return fmt.Errorf("validate downstream tool %d: %w", v.toolCount, err)
+		}
+		if extra := len(contract.Canonical) - len(raw); extra > 0 {
+			if extra > MaxCatalogBytes-v.catalogBytes {
+				return fmt.Errorf("downstream tool catalog exceeds its boundary")
 			}
-			contract, err := validateToolContractWithCache(ctx, raw, schemas, scanner)
-			if err != nil {
-				return nil, fmt.Errorf("validate downstream tool %d: %w", toolCount, err)
-			}
-			if _, duplicate := seen[contract.Name]; duplicate {
-				return nil, fmt.Errorf("downstream tool name %q is duplicated", contract.Name)
-			}
-			seen[contract.Name] = struct{}{}
-			contracts = append(contracts, contract)
+			v.catalogBytes += extra
+		}
+		if _, duplicate := v.seen[contract.Name]; duplicate {
+			return fmt.Errorf("downstream tool name %q is duplicated", contract.Name)
+		}
+		v.seen[contract.Name] = struct{}{}
+		v.contracts = append(v.contracts, contract)
+	}
+	return nil
+}
+
+func (v *catalogValidator) finish() ([]ToolContract, error) {
+	if v.pageCount == 0 {
+		return nil, fmt.Errorf("downstream tool catalog page count is invalid")
+	}
+	sort.Slice(v.contracts, func(i, j int) bool { return v.contracts[i].Name < v.contracts[j].Name })
+	return v.contracts, nil
+}
+
+func validateCatalog(ctx context.Context, pages []ToolPage) ([]ToolContract, error) {
+	validator, err := newCatalogValidator()
+	if err != nil {
+		return nil, err
+	}
+	for _, page := range pages {
+		if err := validator.addPage(ctx, page); err != nil {
+			return nil, err
 		}
 	}
-	if toolCount == 0 {
-		contracts = []ToolContract{}
-	}
-	sort.Slice(contracts, func(i, j int) bool { return contracts[i].Name < contracts[j].Name })
-	return contracts, nil
+	return validator.finish()
 }
 
 func validateToolContract(ctx context.Context, raw []byte) (ToolContract, error) {

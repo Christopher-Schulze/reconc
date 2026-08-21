@@ -30,13 +30,13 @@ limit, so adversarial input can allocate far beyond the declared boundary.
 
 ## Sub-Tasks
 
-- [ ] Model every protocol-observer ownership transition and terminal path
-- [ ] Cancel pending calls on all post-begin errors without double-unlock races
-- [ ] Enforce catalog cardinality and byte budgets incrementally
-- [ ] Add deterministic timeout, cancellation, reuse, and hostile-pagination tests
-- [ ] Add allocation and goroutine-leak regression measurements
-- [ ] Run focused, race, integration, and full repository gates
-- [ ] Document the exact observer and catalog resource contracts
+- [x] Model every protocol-observer ownership transition and terminal path
+- [x] Cancel pending calls on all post-begin errors without double-unlock races
+- [x] Enforce catalog cardinality and byte budgets incrementally
+- [x] Add deterministic timeout, cancellation, reuse, and hostile-pagination tests
+- [x] Add allocation and goroutine-leak regression measurements
+- [x] Run focused, race, integration, and full repository gates
+- [x] Document the exact observer and catalog resource contracts
 
 ## Notes
 
@@ -47,6 +47,27 @@ limit, so adversarial input can allocate far beyond the declared boundary.
 - The smallest safe code fix for the deadlock is cancellation on each
   `waitObserved` error path, but tests must prove exact-once ownership because a
   second cancellation or unlock would panic.
+- Observer ownership has three terminal states: pending cancellation removes
+  the request and releases `sendMu`; bound cancellation removes only `byID`;
+  inbound completion removes `byID`, invokes completion, and publishes exactly
+  one buffered response. The new wait wrapper invokes idempotent cancellation
+  only on errors, so all three interleavings remain exact-once.
+- Catalog validation now owns one scanner, schema cache, name set, byte count,
+  tool count, and canonical-contract slice across pages. Each returned page is
+  charged and validated immediately; raw page slices are never accumulated by
+  discovery.
+- Focused verification passed: the complete MCP package in 13.7 seconds, its
+  race suite in 28.0 seconds, and the existing runtime goroutine-leak profile.
+  The maximum 512-tool/four-page benchmark completed one measured iteration in
+  11.2 milliseconds with 5.39 MiB and 54,717 allocations on Apple M1; this is
+  measurement evidence, not a portable threshold.
+- Final verification passed `make test` including root/template race suites and
+  release trust, `make vet`, pinned Staticcheck, the clean self-hosting path,
+  root/template module-tidy diffs, and the pinned LangChain interoperability
+  proof on Python 3.13.14. No release or tag was created.
+- The final decode-failure and SDK-mismatch state assertions passed focused and
+  race execution after the complete gate; they add test coverage only and do
+  not change the already verified product snapshot.
 
 ## Deviations
 

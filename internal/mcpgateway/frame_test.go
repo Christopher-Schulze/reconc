@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -85,6 +87,133 @@ func TestProtocolObserverBindsConcurrentRequestsToExactParameters(t *testing.T) 
 			}
 			assertObservedText(t, first, "first")
 			assertObservedText(t, second, "second")
+		})
+	}
+}
+
+func TestProtocolObserverTimeoutConsumesPendingCall(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		observer := newProtocolObserver()
+		call, err := observer.begin("tools/list", map[string]any{"cursor": ""}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		result := make(chan error, 1)
+		go func() {
+			_, waitErr := observer.wait(ctx, call)
+			result <- waitErr
+		}()
+		synctest.Sleep(time.Second)
+		if err := <-result; !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("observer timeout = %v", err)
+		}
+		assertProtocolObserverIdle(t, observer)
+		assertProtocolObserverReusable(t, observer)
+	})
+}
+
+func TestProtocolObserverCancellationConsumesBoundCall(t *testing.T) {
+	observer := newProtocolObserver()
+	call, err := observer.begin("tools/list", map[string]any{"cursor": "next"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := observer.outbound([]byte(`{"jsonrpc":"2.0","id":7,"method":"tools/list","params":{"cursor":"next"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := observer.wait(ctx, call); !errors.Is(err, context.Canceled) {
+		t.Fatalf("observer cancellation = %v", err)
+	}
+	assertProtocolObserverIdle(t, observer)
+	assertProtocolObserverReusable(t, observer)
+}
+
+func TestProtocolObserverMalformedResponseCompletesExactlyOnce(t *testing.T) {
+	observer := newProtocolObserver()
+	completed := 0
+	call, err := observer.begin("tools/call", map[string]any{
+		"name": "echo", "arguments": map[string]any{},
+	}, func() { completed++ })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := observer.outbound([]byte(`{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"echo","arguments":{}}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := observer.inbound([]byte(`{"jsonrpc":"2.0","id":8}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := observer.wait(t.Context(), call); err == nil || !strings.Contains(err.Error(), "omitted result") {
+		t.Fatalf("malformed observed response = %v", err)
+	}
+	observer.cancel(call)
+	if completed != 1 {
+		t.Fatalf("completion count = %d, want 1", completed)
+	}
+	assertProtocolObserverIdle(t, observer)
+	assertProtocolObserverReusable(t, observer)
+}
+
+func TestProtocolObserverCompletionConsumesStateBeforeConsumerErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		result  string
+		consume func(json.RawMessage) error
+	}{
+		{
+			name:   "decode failure",
+			result: `{"tools":"invalid"}`,
+			consume: func(raw json.RawMessage) error {
+				_, err := decodeToolPage(raw)
+				return err
+			},
+		},
+		{
+			name:   "SDK mismatch",
+			result: `{"tools":[],"nextCursor":"wire"}`,
+			consume: func(raw json.RawMessage) error {
+				page, err := decodeToolPage(raw)
+				if err != nil {
+					return err
+				}
+				if page.NextCursor != "sdk" {
+					return errors.New("SDK tool page differs from the strict wire observation")
+				}
+				return nil
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			observer := newProtocolObserver()
+			call, err := observer.begin("tools/list", map[string]any{"cursor": test.name}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := fmt.Sprintf(
+				`{"jsonrpc":"2.0","id":9,"method":"tools/list","params":{"cursor":%q}}`,
+				test.name,
+			)
+			if err := observer.outbound([]byte(request)); err != nil {
+				t.Fatal(err)
+			}
+			response := `{"jsonrpc":"2.0","id":9,"result":` + test.result + `}`
+			if err := observer.inbound([]byte(response)); err != nil {
+				t.Fatal(err)
+			}
+			raw, err := observer.wait(t.Context(), call)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertProtocolObserverIdle(t, observer)
+			if err := test.consume(raw); err == nil {
+				t.Fatal("post-observation consumer unexpectedly succeeded")
+			}
+			assertProtocolObserverReusable(t, observer)
 		})
 	}
 }
@@ -199,4 +328,25 @@ func assertObservedText(t *testing.T, call *pendingProtocolCall, want string) {
 	if len(result.Content) != 1 || result.Content[0].Text != want {
 		t.Fatalf("observed response = %s, want text %q", strings.TrimSpace(string(raw)), want)
 	}
+}
+
+func assertProtocolObserverIdle(t *testing.T, observer *protocolObserver) {
+	t.Helper()
+	observer.mu.Lock()
+	defer observer.mu.Unlock()
+	if len(observer.pending) != 0 || len(observer.pendingMethods) != 0 || len(observer.byID) != 0 {
+		t.Fatalf(
+			"observer retained state: pending=%d methods=%d ids=%d",
+			len(observer.pending), len(observer.pendingMethods), len(observer.byID),
+		)
+	}
+}
+
+func assertProtocolObserverReusable(t *testing.T, observer *protocolObserver) {
+	t.Helper()
+	call, err := observer.begin("tools/list", map[string]any{"cursor": "reused"}, nil)
+	if err != nil {
+		t.Fatalf("reuse observer: %v", err)
+	}
+	observer.cancel(call)
 }

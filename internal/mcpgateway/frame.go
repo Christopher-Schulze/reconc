@@ -106,6 +106,14 @@ func (o *protocolObserver) cancel(call *pendingProtocolCall) {
 	}
 }
 
+func (o *protocolObserver) wait(ctx context.Context, call *pendingProtocolCall) (json.RawMessage, error) {
+	result, err := waitObserved(ctx, call)
+	if err != nil {
+		o.cancel(call)
+	}
+	return result, err
+}
+
 func (o *protocolObserver) outbound(frame []byte) error {
 	var envelope struct {
 		ID     json.RawMessage `json:"id"`
