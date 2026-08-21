@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 189 Batch write-epoch path normalization -> tasks/189-batch-write-epoch-path-normalization.md
 - [ ] 190 Reuse one policy discovery and source-loading context -> tasks/190-reuse-one-policy-discovery-and-source-loading-context.md
 - [ ] 191 Bound policy glob expansion before materialization -> tasks/191-bound-policy-glob-expansion-before-materialization.md
 - [ ] 192 Bind repository source reads to stable file identities -> tasks/192-bind-repository-source-reads-to-stable-file-identities.md
@@ -40,6 +39,7 @@
 
 ## Done
 
+- [x] 189 Batch write-epoch path normalization -> tasks/done/189-batch-write-epoch-path-normalization.md
 - [x] 188 Batch prospective path identity resolution -> tasks/done/188-batch-prospective-path-identity-resolution.md
 - [x] 187 Memoize stable evidence-file snapshots per evaluation -> tasks/done/187-memoize-stable-evidence-file-snapshots-per-evaluation.md
 - [x] 186 Normalize command evidence once per evaluation -> tasks/done/186-normalize-command-evidence-once-per-evaluation.md

@@ -663,40 +663,60 @@ func normalizePaths(paths []string, root string) ([]string, error) {
 // pathidentity.ResolveExisting and reuse it for every path, instead of paying
 // the symlink/reparse resolution cost once per evidence path.
 func normalizePathsWithResolvedRoot(paths []string, resolvedRoot string) ([]string, error) {
-	out := []string{}
 	prospective := pathidentity.NewProspectiveResolver()
-	for _, raw := range paths {
-		candidate := raw
-		if candidate == "" {
-			continue
-		}
-		// Convert only separators native to the current platform. On POSIX a
-		// backslash is a legal filename byte and must not be conflated with '/'.
-		candidate = filepath.ToSlash(candidate)
-		var absPath string
-		if path.IsAbs(candidate) || filepath.IsAbs(candidate) {
-			absPath = candidate
-		} else {
-			absPath = filepath.Join(resolvedRoot, candidate)
-		}
-		cleaned := filepath.Clean(absPath)
-		cleaned, err := prospective.Resolve(cleaned)
-		if err != nil {
-			return nil, fmt.Errorf("resolve evidence path %q: %w", raw, err)
-		}
+	return normalizePathsWithResolver(paths, resolvedRoot, prospective)
+}
 
-		rel, err := filepath.Rel(resolvedRoot, cleaned)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return nil, &rerrors.RepoBoundaryError{Path: raw, RepoRoot: resolvedRoot}
+func normalizePathsWithResolver(paths []string, resolvedRoot string, prospective *pathidentity.ProspectiveResolver) ([]string, error) {
+	out := []string{}
+	if prospective == nil {
+		prospective = pathidentity.NewProspectiveResolver()
+	}
+	for _, raw := range paths {
+		posix, keep, err := normalizePathWithResolver(raw, resolvedRoot, prospective)
+		if err != nil {
+			return nil, err
 		}
-		// Convert OS-native to POSIX
-		posix := filepath.ToSlash(rel)
-		if posix == "." {
-			continue
+		if keep {
+			out = append(out, posix)
 		}
-		out = append(out, posix)
 	}
 	return out, nil
+}
+
+func normalizePathWithResolver(raw, resolvedRoot string, prospective *pathidentity.ProspectiveResolver) (string, bool, error) {
+	candidate := raw
+	if candidate == "" {
+		return "", false, nil
+	}
+	// Convert only separators native to the current platform. On POSIX a
+	// backslash is a legal filename byte and must not be conflated with '/'.
+	candidate = filepath.ToSlash(candidate)
+	var absPath string
+	if path.IsAbs(candidate) || filepath.IsAbs(candidate) {
+		absPath = candidate
+	} else {
+		absPath = filepath.Join(resolvedRoot, candidate)
+	}
+	cleaned := filepath.Clean(absPath)
+	if prospective == nil {
+		prospective = pathidentity.NewProspectiveResolver()
+	}
+	cleaned, err := prospective.Resolve(cleaned)
+	if err != nil {
+		return "", false, fmt.Errorf("resolve evidence path %q: %w", raw, err)
+	}
+
+	rel, err := filepath.Rel(resolvedRoot, cleaned)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false, &rerrors.RepoBoundaryError{Path: raw, RepoRoot: resolvedRoot}
+	}
+	// Convert OS-native to POSIX
+	posix := filepath.ToSlash(rel)
+	if posix == "." {
+		return "", false, nil
+	}
+	return posix, true, nil
 }
 
 func normalizeWriteEpochs(paths []string, epochs map[string]uint64, root string) (map[string]uint64, error) {
@@ -713,20 +733,21 @@ func normalizeWriteEpochs(paths []string, epochs map[string]uint64, root string)
 // per write path.
 func normalizeWriteEpochsWithResolvedRoot(paths []string, epochs map[string]uint64, resolvedRoot string) (map[string]uint64, error) {
 	out := make(map[string]uint64, len(epochs))
+	prospective := pathidentity.NewProspectiveResolver()
 	for _, raw := range paths {
-		normalized, err := normalizePathsWithResolvedRoot([]string{raw}, resolvedRoot)
+		normalized, keep, err := normalizePathWithResolver(raw, resolvedRoot, prospective)
 		if err != nil {
 			return nil, err
 		}
-		if len(normalized) == 0 {
+		if !keep {
 			continue
 		}
 		epoch := epochs[raw]
 		if epoch == 0 {
 			epoch = epochs[filepath.ToSlash(raw)]
 		}
-		if epoch > out[normalized[0]] {
-			out[normalized[0]] = epoch
+		if epoch > out[normalized] {
+			out[normalized] = epoch
 		}
 	}
 	return out, nil

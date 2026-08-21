@@ -11,6 +11,7 @@ import (
 	"reconc.dev/reconc/internal/compiler"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/parser"
+	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/policy"
 )
 
@@ -476,6 +477,53 @@ func BenchmarkEvidenceSnapshotRead(b *testing.B) {
 	for range b.N {
 		if body, err := boundedio.ReadFile(path, maxEvidenceFileBytes); err != nil || len(body) == 0 {
 			b.Fatalf("bounded read: %v", err)
+		}
+	}
+}
+
+func BenchmarkNormalizeWriteEpochsBatch(b *testing.B) {
+	root := b.TempDir()
+	resolvedRoot, err := pathidentity.ResolveExisting(root)
+	if err != nil {
+		b.Fatal(err)
+	}
+	paths := make([]string, 0, 128)
+	epochs := make(map[string]uint64, 128)
+	for index := 0; index < 128; index++ {
+		path := filepath.Join("src", "pkg", "file"+itoaBench(index)+".go")
+		paths = append(paths, path)
+		epochs[path] = uint64(index + 1)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if _, err := normalizeWriteEpochsWithResolvedRoot(paths, epochs, resolvedRoot); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkNormalizeWriteEpochsPerPath(b *testing.B) {
+	root := b.TempDir()
+	resolvedRoot, err := pathidentity.ResolveExisting(root)
+	if err != nil {
+		b.Fatal(err)
+	}
+	paths := make([]string, 0, 128)
+	epochs := make(map[string]uint64, 128)
+	for index := 0; index < 128; index++ {
+		path := filepath.Join("src", "pkg", "file"+itoaBench(index)+".go")
+		paths = append(paths, path)
+		epochs[path] = uint64(index + 1)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		for _, raw := range paths {
+			normalized, err := normalizePathsWithResolvedRoot([]string{raw}, resolvedRoot)
+			if err != nil || len(normalized) != 1 {
+				b.Fatalf("per-path normalization: %v", err)
+			}
 		}
 	}
 }

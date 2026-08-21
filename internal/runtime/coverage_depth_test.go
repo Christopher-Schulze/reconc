@@ -174,6 +174,23 @@ func TestCommandEvidenceHelpersDropNoiseWithoutWeakeningOutcomes(t *testing.T) {
 	}
 }
 
+func TestNormalizeWriteEpochsPreservesMaximumAliasEpoch(t *testing.T) {
+	root := t.TempDir()
+	absolute := filepath.Join(root, "src", "main.go")
+	paths := []string{absolute, "src/main.go", "src/other.go"}
+	epochs, err := normalizeWriteEpochs(paths, map[string]uint64{
+		absolute:       4,
+		"src/main.go":  9,
+		"src/other.go": 3,
+	}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if epochs["src/main.go"] != 9 || epochs["src/other.go"] != 3 {
+		t.Fatalf("normalized epochs = %#v", epochs)
+	}
+}
+
 func TestCommandEvidenceIndexPreservesOrderAndFreshness(t *testing.T) {
 	inputs := ExecutionInputs{
 		Commands: []string{"rtk go  test ./...", "go test ./...", "echo ready"},

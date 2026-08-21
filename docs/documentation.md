@@ -3645,6 +3645,9 @@ Security posture:
   resolver. Shared existing ancestors are `Lstat`-revalidated before reuse;
   missing suffixes remain uncached, preserving symlink/reparse, containment,
   case, and replacement semantics while reducing repeated ancestor walks.
+- Write-epoch normalization runs through the same resolver in one ordered pass
+  and merges normalized aliases with the maximum observed epoch, preserving
+  causal freshness when absolute and relative spellings collide.
 - Stop report reuse binds exactly the repository paths the compiled policy
   names, including the script target and the files a `require_script` declares
   through `cache_inputs`. A script that declares nothing is never reused.
