@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -146,5 +147,66 @@ func TestLoadLockfileAppliesRegisteredMigration(t *testing.T) {
 	}
 	if payload["migrated_test_flag"] != true {
 		t.Fatalf("expected migration to mutate payload, got %v", payload["migrated_test_flag"])
+	}
+}
+
+func TestDecodeLockfileCachesTypedPartsForCurrentAndMigratedLocks(t *testing.T) {
+	withRECONCHome(t)
+	policyText := "rules:\n  - id: r\n    kind: deny_write\n    paths: ['x']\n    mode: warn\n    message: x\n"
+	repo := makeRepo(t, "# project\n", "", policyText)
+	current, err := os.ReadFile(filepath.Join(repo, ".reconc", "policy.lock.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertDecodedLockfilePartsMatchFallback(t, current, false)
+
+	var legacy map[string]interface{}
+	if err := json.Unmarshal(current, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	legacy["$schema"] = compiler.LegacyLockfileSchemaV1
+	legacy["format_version"] = "1"
+	legacy["repo_root"] = repo
+	delete(legacy, "actions")
+	legacy["sources"] = []interface{}{
+		map[string]interface{}{"kind": "agents_md", "path": "AGENTS.md", "content": "# project\n"},
+		map[string]interface{}{"kind": "policy_file", "path": "policies/rules.yml", "content": policyText},
+	}
+	discovery := legacy["discovery"].(map[string]interface{})
+	discovery["repo_root"] = repo
+	discovery["start_path"] = repo
+	legacyBytes, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertDecodedLockfilePartsMatchFallback(t, legacyBytes, true)
+}
+
+func assertDecodedLockfilePartsMatchFallback(t *testing.T, body []byte, wantMigrated bool) {
+	t.Helper()
+	lock, err := decodeLockfile(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lock.migrated != wantMigrated {
+		t.Fatalf("migrated=%t, want %t", lock.migrated, wantMigrated)
+	}
+	if len(lock.rulesJSON) == 0 || len(lock.actionsJSON) == 0 || lock.actions == nil {
+		t.Fatalf("decoded lockfile did not retain typed parts: rules=%d actions=%d compiled=%p", len(lock.rulesJSON), len(lock.actionsJSON), lock.actions)
+	}
+	prepared, err := compileRuntimePlanWithParts(lock.payload, lock.rulesJSON, lock.actionsJSON, lock.actions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fallback, err := compileRuntimePlan(lock.payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepared.defaultMode != fallback.defaultMode || prepared.sourceDigest != fallback.sourceDigest ||
+		prepared.lockDigest != fallback.lockDigest || prepared.sourceCount != fallback.sourceCount ||
+		!reflect.DeepEqual(prepared.rules, fallback.rules) ||
+		!reflect.DeepEqual(prepared.sources, fallback.sources) ||
+		!reflect.DeepEqual(prepared.actions.Plan(), fallback.actions.Plan()) {
+		t.Fatalf("prepared typed plan drifted from fallback:\nprepared=%+v\nfallback=%+v", prepared, fallback)
 	}
 }

@@ -232,6 +232,24 @@ const killReconcProcessTree = (proc) => {
   try { proc.kill("SIGKILL") } catch {}
 }
 
+const appendReconcWorkerBytes = (current, right, maxBytes) => {
+  const required = current.length + right.length
+  if (required > maxBytes) return false
+  if (required > current.capacity) {
+    const capacity = Math.min(
+      maxBytes,
+      Math.max(required, Math.max(1024, current.capacity * 2)),
+    )
+    const grown = new Uint8Array(capacity)
+    grown.set(current.buffer.subarray(0, current.length))
+    current.buffer = grown
+    current.capacity = capacity
+  }
+  current.buffer.set(right, current.length)
+  current.length = required
+  return true
+}
+
 const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessage) => {
   const workerProtocolVersion = 1
   const maxWorkerResponseBytes = 128 * 1024
@@ -279,24 +297,6 @@ const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessa
     } catch {}
   }
 
-  const appendWorkerBytes = (current, right) => {
-    const required = current.length + right.length
-    if (required > maxWorkerResponseBytes) return false
-    if (required > current.capacity) {
-      const capacity = Math.min(
-        maxWorkerResponseBytes,
-        Math.max(required, Math.max(1024, current.capacity * 2)),
-      )
-      const grown = new Uint8Array(capacity)
-      grown.set(current.buffer.subarray(0, current.length))
-      current.buffer = grown
-      current.capacity = capacity
-    }
-    current.buffer.set(right, current.length)
-    current.length = required
-    return true
-  }
-
   const readWorkerLine = async (current) => {
     while (true) {
       const newline = current.buffer.subarray(0, current.length).indexOf(10)
@@ -320,7 +320,7 @@ const createReconcWorkerTransport = (repo, commandFor, runOneShot, canceledMessa
       if (current.length + bytes.length > maxWorkerResponseBytes) {
         throw workerError("protocol", "Reconc worker response exceeded its frame limit")
       }
-      if (!appendWorkerBytes(current, bytes)) {
+      if (!appendReconcWorkerBytes(current, bytes, maxWorkerResponseBytes)) {
         throw workerError("protocol", "Reconc worker response exceeded its frame limit")
       }
     }

@@ -32,6 +32,14 @@ rather than remove protections casually.
 ## Notes
 
 - Verified in `internal/runtime/lockfile.go` and runtime-plan construction.
+- `TestDecodeStrictLockfileJSONMatchesTwoPassReference` and
+  `FuzzDecodeStrictLockfileJSONParity` compare the single-pass decoder against
+  an independent validate-then-decode oracle for duplicate keys, Unicode,
+  depth, numbers, root shape, and trailing data.
+- `TestDecodeLockfileCachesTypedPartsForCurrentAndMigratedLocks` proves current
+  and migrated locks retain typed rule/action parts and compile identically to
+  the fallback payload path. `BenchmarkLoadLockfile` measures the complete
+  bounded load path.
 - A cache hash is not an integrity substitute and must not replace strict input
   validation.
 

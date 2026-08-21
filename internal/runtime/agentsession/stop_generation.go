@@ -100,7 +100,22 @@ func captureStopPolicyAttemptSnapshot(
 	gitSnapshot stopPolicyGitSnapshot,
 	scanCache *stopPolicyScanCache,
 ) stopPolicyAttemptSnapshot {
-	digest, count, err := stopPolicySourceIdentity(root)
+	return captureStopPolicyAttemptSnapshotWithSourceIdentity(
+		root, state, evidenceRevision, taskSnapshot, gitSnapshot, scanCache,
+		stopPolicySourceIdentity,
+	)
+}
+
+func captureStopPolicyAttemptSnapshotWithSourceIdentity(
+	root string,
+	state SessionState,
+	evidenceRevision string,
+	taskSnapshot stopTaskSnapshot,
+	gitSnapshot stopPolicyGitSnapshot,
+	scanCache *stopPolicyScanCache,
+	loadSourceIdentity func(string) (string, int, error),
+) stopPolicyAttemptSnapshot {
+	digest, count, err := loadSourceIdentity(root)
 	if err != nil {
 		digest = "error:" + err.Error()
 		count = 0

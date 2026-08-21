@@ -47,22 +47,24 @@ ten visible Done entries.
 - TASKs 206 through 210 now record their completed aggregate gates; TASKs 211
   through 216 and 219 now cite the fresh TASK 221 verification instead of stale
   queue-completion or TASK 220 blocker wording.
-- All 53 discovered root-module fuzz targets pass with 500 executions each;
-  the portable template currently defines no fuzz target. Targeted benchmarks
-  cover every optimization benchmark added since v0.9.6 plus audit append with
-  zero and 200 retained records.
+- TASK 222 final verification discovered and passed all 54 root-module fuzz
+  targets with 500 executions each; the portable template defines no fuzz
+  target. Targeted benchmarks cover every optimization benchmark added since
+  v0.9.6 plus audit append with zero and 200 retained records.
 - Staticcheck v0.7.0 under the module's Go 1.26.7 toolchain exposed and now
   rejects optimization-orphaned wrappers plus one overwritten bootstrap stat
   result. Root and portable-template lint and vet pass after the cleanup. The
   initial offline hook-verification failure was traced to Codex's reduced PATH;
   the exact failed test passes with the installed Bun 1.4.0 on PATH.
-- Final verification passed both module `go mod tidy -diff` checks, all root and
-  portable-template tests under the race detector, publication audit over 1,249
-  tracked files, 211 post-boundary commits, and 3,293 post-boundary blobs, the
-  canonical harness-pack check, release trust, and self-hosting. The complete
-  five-target `make release VERSION=0.9.7` matrix produced and verified its
-  manifest, checksums, SBOMs, notices, schema assets, completion scripts, and
-  manpage.
+- Final verification passed both module `go mod tidy -diff` checks, Go vet and
+  pinned staticcheck, all root and portable-template tests under the race
+  detector, the publication audit, canonical harness-pack check, release trust,
+  and self-hosting. Both root and portable-template govulncheck scans reported
+  no vulnerabilities, and the hash-pinned Python 3.13.14 LangChain proof passed.
+  The complete five-target `make release VERSION=0.9.7` matrix produced and
+  verified its manifest, checksums, SBOMs, notices, schema assets, completion
+  scripts, and manpage. Publication-audit inventory counts are intentionally
+  omitted because each subsequent documentation commit changes them.
 - A fresh remote check found no `reconc-v0.9.7` tag or GitHub Release. The
   latest published release remains non-draft, non-prerelease v0.9.6. No tag,
   release, push, or other remote mutation occurred.

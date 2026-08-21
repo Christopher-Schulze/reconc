@@ -32,6 +32,13 @@ within the same phase rather than representing the phase snapshot explicitly.
 
 - Evidence spans `stop_generation.go`, `stop_cache.go`, and stable-report
   helpers in `internal/runtime/agentsession`.
+- `TestStopPolicyAttemptSnapshotCapturesSourceIdentityOncePerPhase`
+  instruments the source-identity loader directly and proves one capture for
+  each explicit before/after phase plus distinct identities after mutation.
+- Existing mutation and contention coverage remains in
+  `TestStopGenerationReevaluatesConcurrentEvidenceBeforeWarming` and
+  `TestStopGenerationCacheCoalescesConcurrentEquivalentStops`;
+  `BenchmarkStopGenerationOracle` covers stable, dirty, and concurrent paths.
 
 ## Deviations
 

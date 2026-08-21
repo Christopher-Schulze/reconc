@@ -2,7 +2,7 @@
 
 ## Why
 
-The JavaScript worker helper `appendBytes` allocates a new array and copies the
+The former JavaScript worker append path allocated a new array and copied the
 entire accumulated prefix for every input chunk. A bounded 128 KiB frame read in
 small chunks therefore performs quadratic cumulative copying and creates
 avoidable garbage on a latency-sensitive hook path.
@@ -30,8 +30,14 @@ avoidable garbage on a latency-sensitive hook path.
 
 ## Notes
 
-- Verified in `appendBytes` and `readWorkerLine` embedded from
-  `internal/hooks/worker_client.go`.
+- `TestWorkerResponseBufferContract` exercises the exact
+  `appendReconcWorkerBytes` implementation embedded from
+  `internal/hooks/worker_client.go`. It covers one-byte and irregular appends,
+  the exact 128 KiB limit, non-mutating overflow rejection, buffered line
+  remainders, abort, restart, fallback, and clean shutdown.
+- `BenchmarkWorkerResponseBufferGeometricGrowth` reports JavaScript execution
+  time separately from Bun startup and verifies bounded copied bytes per full
+  frame. Generator parity covers OpenCode, Kilo, OMP, and Pi scaffold outputs.
 - The session's separate promise-chain memory-leak claim was not proven and is
   not part of this TASK.
 

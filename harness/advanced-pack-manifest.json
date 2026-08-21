@@ -557,29 +557,29 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.kilo/plugin/reconc.js",
       "mode": 420,
-      "size": 32736,
-      "sha256": "daaa02cbb7e4197706b14428fdd692baaf0330552426a2cb7e0866868a561179",
+      "size": 32720,
+      "sha256": "fa901fdd96ac1c7620983c054322d23328c304ad969a51437ee1b7e43966a7bd",
       "ownership": "pack-file"
     },
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.omp/extensions/reconc.ts",
       "mode": 420,
-      "size": 27238,
-      "sha256": "39875b5fc28ef8e19c7ef0a7ab520c36aacc207e72783203f872bc860bcdb47a",
+      "size": 27222,
+      "sha256": "36f081306c7ccd2e46c390788058a219842a77ad23798880e3b6f578845a70f5",
       "ownership": "pack-file"
     },
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.opencode/plugins/reconc.js",
       "mode": 420,
-      "size": 32852,
-      "sha256": "b1ab31bded2238b707f2f2aa8d6e39e15139e8a5023040ac25e2c008204d866d",
+      "size": 32836,
+      "sha256": "77f4af016b99b03d051200f1204cf3cbead32041402d8cfcb1a11eddb94993ab",
       "ownership": "pack-file"
     },
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.pi/extensions/reconc.ts",
       "mode": 420,
-      "size": 30099,
-      "sha256": "65aac66c04371d0444ebac6b4555cad72b8ed3cb7a189d151d260b1d8cca8db9",
+      "size": 30083,
+      "sha256": "35f3208611386f562bd4e0e067e73d76a1ce560ec4ee7c6e3b32e9432b13e624",
       "ownership": "pack-file"
     },
     {
@@ -828,6 +828,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 830337,
-  "digest": "1e744500a182306813e829b8ead6ded6c797f3b18fc515e0e9403154c7f4e1c4"
+  "total_bytes": 830273,
+  "digest": "bce1d86163ecdb10cfe9395c1777a8e0e5ee1504b794048382a2bfe3addda2b6"
 }
