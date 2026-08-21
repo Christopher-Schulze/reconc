@@ -3,6 +3,7 @@
 package privatefs
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -56,6 +57,55 @@ func secureWindowsHandle(file *os.File, directory bool) error {
 
 func secureDirectoryDescriptor(file *os.File) error { return secureWindowsHandle(file, true) }
 func secureFileDescriptor(file *os.File) error      { return secureWindowsHandle(file, false) }
+
+func openDirectoryDescriptor(path string) (*os.File, error) {
+	return openWindowsPrivateDescriptor(
+		path,
+		windows.GENERIC_READ|windows.WRITE_DAC,
+		windows.OPEN_EXISTING,
+		windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT,
+	)
+}
+
+func openPrivateFileDescriptor(path string, create bool) (*os.File, error) {
+	disposition := uint32(windows.OPEN_EXISTING)
+	if create {
+		disposition = windows.OPEN_ALWAYS
+	}
+	return openWindowsPrivateDescriptor(
+		path,
+		windows.GENERIC_READ|windows.GENERIC_WRITE|windows.WRITE_DAC,
+		disposition,
+		windows.FILE_ATTRIBUTE_NORMAL|windows.FILE_FLAG_OPEN_REPARSE_POINT,
+	)
+}
+
+func openWindowsPrivateDescriptor(path string, access, disposition, attributes uint32) (*os.File, error) {
+	pathPointer, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return nil, fmt.Errorf("encode private Windows path: %w", err)
+	}
+	handle, err := windows.CreateFile(
+		pathPointer,
+		access,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE,
+		nil,
+		disposition,
+		attributes,
+		0,
+	)
+	if err != nil {
+		return nil, err
+	}
+	file := os.NewFile(uintptr(handle), path)
+	if file == nil {
+		return nil, errors.Join(
+			fmt.Errorf("wrap private Windows descriptor"),
+			windows.CloseHandle(handle),
+		)
+	}
+	return file, nil
+}
 
 func validatePrivateWindowsHandle(file *os.File, directory bool) error {
 	if file == nil {

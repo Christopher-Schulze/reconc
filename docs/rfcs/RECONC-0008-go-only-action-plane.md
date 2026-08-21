@@ -765,17 +765,19 @@ cannot oversubscribe. Idempotent call IDs prevent double settlement.
 
 The store is private operator state below `RECONC_HOME`, outside repository
 redirection. It is bounded, versioned, locked across processes, regular-file
-only, no-follow, atomically replaced, file- and directory-synced, and
-crash-consistent on Linux, macOS, and Windows. Unix state additionally requires
-the effective user owner and private modes, and macOS rejects extended ACLs;
-Windows state receives and verifies a protected current-user-only DACL. Every
-filesystem root is rejected as `RECONC_HOME`; an existing selected root must
-already satisfy the private ownership, mode, and ACL contract and is never
-repermissioned implicitly. Every trusted clock observation is checked
-against a persisted high-water mark so rollback cannot revive a reservation or
-window. Generic project-root retention never deletes a root containing the
-durable `action/` boundary; later action-specific compaction must preserve all
-consumed capacity and unresolved reservations.
+only, no-follow, atomically replaced, payload-synced, and crash-consistent on
+Linux, macOS, and Windows. Unix also fsyncs the parent directory. Windows uses
+write-through replacement because Win32 cannot flush the read-only bound
+directory handle; private descriptors request `WRITE_DAC` before applying and
+verifying a protected current-user-only DACL. Unix state additionally requires
+the effective user owner and private modes, and macOS rejects extended ACLs.
+Every filesystem root is rejected as `RECONC_HOME`; an existing selected root
+must already satisfy the private ownership, mode, and ACL contract and is never
+repermissioned implicitly. Every trusted clock observation is checked against
+a persisted high-water mark so rollback cannot revive a reservation or window.
+Generic project-root retention never deletes a root containing the durable
+`action/` boundary; later action-specific compaction must preserve all consumed
+capacity and unresolved reservations.
 
 Budget and approval replay share one transaction domain at
 `$RECONC_HOME/projects/<repository-key>/action/state.json` with

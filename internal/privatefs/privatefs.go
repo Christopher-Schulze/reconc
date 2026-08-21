@@ -210,7 +210,7 @@ func openDirectory(path string) (*os.File, os.FileInfo, error) {
 	if before.Mode()&os.ModeSymlink != 0 || !before.IsDir() {
 		return nil, nil, fmt.Errorf("private path must be a non-symlink directory")
 	}
-	file, err := os.Open(path)
+	file, err := openDirectoryDescriptor(path)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -262,11 +262,7 @@ func openPrivateFile(path string, create, singleLink bool) (*os.File, error) {
 	if !create && errors.Is(lstatErr, os.ErrNotExist) {
 		return nil, os.ErrNotExist
 	}
-	flags := os.O_RDWR
-	if create {
-		flags |= os.O_CREATE
-	}
-	file, err := os.OpenFile(path, flags, PrivateFileMode)
+	file, err := openPrivateFileDescriptor(path, create)
 	if err != nil {
 		return nil, fmt.Errorf("open private lock: %w", err)
 	}

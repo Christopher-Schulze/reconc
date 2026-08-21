@@ -2,17 +2,12 @@
 
 package atomicfile
 
-import (
-	"errors"
-	"os"
-)
+import "os"
 
-func syncParentDir(directory *os.Root) error {
-	// Root.Open keeps the directory identity bound; File.Sync maps to
-	// FlushFileBuffers on Windows and provides the durable publication fence.
-	dir, err := directory.Open(".")
-	if err != nil {
-		return err
-	}
-	return errors.Join(dir.Sync(), dir.Close())
+func syncParentDir(*os.Root) error {
+	// Windows exposes no supported directory fsync through os.Root.
+	// File.Sync maps to FlushFileBuffers, which requires GENERIC_WRITE while
+	// os.Root is deliberately read-only. Payload files are synced before
+	// publication, and replacements additionally use MOVEFILE_WRITE_THROUGH.
+	return nil
 }

@@ -17,6 +17,7 @@ import (
 
 	"reconc.dev/reconc/internal/boundedexec"
 	"reconc.dev/reconc/internal/boundedio"
+	"reconc.dev/reconc/internal/pathidentity"
 )
 
 const (
@@ -256,12 +257,16 @@ func loadGoEnvironment(root, goBinary string) (goEnvironment, error) {
 }
 
 func collectToolchainNoticeFiles(root string) ([]noticeFile, error) {
-	files, hasLicense, err := collectNoticeFiles(root)
+	resolvedRoot, err := pathidentity.ResolveExisting(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve Go toolchain root: %w", err)
+	}
+	files, hasLicense, err := collectNoticeFiles(resolvedRoot)
 	if err != nil {
 		return nil, fmt.Errorf("collect Go toolchain notices: %w", err)
 	}
-	if !hasLicense && filepath.Base(root) == "libexec" {
-		parentFiles, parentHasLicense, parentErr := collectNoticeFiles(filepath.Dir(root))
+	if !hasLicense && filepath.Base(resolvedRoot) == "libexec" {
+		parentFiles, parentHasLicense, parentErr := collectNoticeFiles(filepath.Dir(resolvedRoot))
 		if parentErr != nil {
 			return nil, fmt.Errorf("collect packaged Go toolchain license: %w", parentErr)
 		}

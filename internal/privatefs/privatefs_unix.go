@@ -46,6 +46,18 @@ func validateDirectorySecurity(file *os.File, info os.FileInfo) error {
 func secureDirectoryDescriptor(*os.File) error { return nil }
 func secureFileDescriptor(*os.File) error      { return nil }
 
+func openDirectoryDescriptor(path string) (*os.File, error) {
+	return os.Open(path)
+}
+
+func openPrivateFileDescriptor(path string, create bool) (*os.File, error) {
+	flags := os.O_RDWR
+	if create {
+		flags |= os.O_CREATE
+	}
+	return os.OpenFile(path, flags, PrivateFileMode)
+}
+
 func validateCurrentUserOwner(info os.FileInfo) error {
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok || stat == nil || uint64(stat.Uid) != uint64(os.Geteuid()) {

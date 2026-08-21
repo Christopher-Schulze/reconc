@@ -55,6 +55,27 @@ func TestCollectLicenseFilesRejectsMissingAndSymlinkedNotice(t *testing.T) {
 	}
 }
 
+func TestCollectToolchainNoticeFilesResolvesTrustedRootIdentity(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "LICENSE"), []byte("Go license\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "go-root")
+	if err := os.Symlink(root, link); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skip("symlink creation is unavailable")
+		}
+		t.Fatal(err)
+	}
+	files, err := collectToolchainNoticeFiles(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0].Name != "LICENSE" || string(files[0].Body) != "Go license\n" {
+		t.Fatalf("resolved toolchain notices = %#v", files)
+	}
+}
+
 func TestRenderNoticesIsDeterministicAndRetainsExactLicenseText(t *testing.T) {
 	inventory := noticeInventory{
 		Targets: []string{"linux/amd64"},
