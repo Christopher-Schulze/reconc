@@ -3059,8 +3059,16 @@ ID before caching, including Go's otherwise lazy Windows file ID, so replacing
 a repository at the same lexical path invalidates the cached handle. Each request
 still reads bounded lock bytes and the complete source bundle identity:
 lock-byte drift rebuilds the plan, while source drift invalidates it and fails
-closed. Session and taint inputs remain freshly loaded. No daemon, socket,
-listener, or runtime network call is added.
+closed. A cached plan owns the sorted, unique, validated include-pattern recipe
+and its derived glob bases from the full source load. Stable freshness checks
+therefore do not reread or decode compiler configuration just to recover
+includes, and they reuse ingest's bounded include expander instead of
+materializing an unbounded filesystem glob. They still hash both config
+candidates and all discovery markers,
+sources, relevant directories, presets/global state, and custom runtimes; any
+config identity or content change rejects the recipe before a full source load
+decodes the new configuration. Session and taint inputs remain freshly loaded.
+No daemon, socket, listener, or runtime network call is added.
 Oversized newline frames are discarded with bounded retained memory and a
 bounded drain budget. A fully terminated oversized frame gets one deterministic
 protocol error and the same worker continues with the next frame; missing

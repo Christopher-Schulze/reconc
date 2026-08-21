@@ -43,6 +43,17 @@ type SourceBundle struct {
 	RepoRoot  string                `json:"repo_root"`
 	Discovery DiscoveryResult       `json:"discovery"`
 	Sources   []policy.PolicySource `json:"sources"`
+
+	policyIncludePatterns []string
+}
+
+// PolicyIncludePatterns returns a defensive copy of the validated, sorted,
+// unique glob recipe used to construct this bundle's policy-file tier.
+func (b *SourceBundle) PolicyIncludePatterns() []string {
+	if b == nil {
+		return nil
+	}
+	return append([]string(nil), b.policyIncludePatterns...)
 }
 
 // LoadPolicySources is the second stage of the compile pipeline. Given
@@ -173,6 +184,7 @@ func LoadPolicySourcesWithContext(context *SourceLoadContext) (*SourceBundle, er
 	sources = append(sources, presetSources...)
 
 	// 7. Policy file fragments (sorted, deduplicated).
+	includePatterns = sortedUniquePolicyGlobPatterns(includePatterns)
 	fragmentSources, fragmentWarnings, err := loadPolicyFragmentSourcesWithDefaults(root, includePatterns, context.defaultMatches)
 	if err != nil {
 		return nil, err
@@ -195,9 +207,10 @@ func LoadPolicySourcesWithContext(context *SourceLoadContext) (*SourceBundle, er
 		return nil, &rerrors.PolicySourceError{Message: "policy source snapshot changed while loading", Cause: err}
 	}
 	return &SourceBundle{
-		RepoRoot:  root,
-		Discovery: discovery,
-		Sources:   sources,
+		RepoRoot:              root,
+		Discovery:             discovery,
+		Sources:               sources,
+		policyIncludePatterns: append([]string(nil), includePatterns...),
 	}, nil
 }
 
@@ -479,15 +492,7 @@ func loadPolicyFragmentSourcesWithDefaults(root string, patterns []string, defau
 		return nil, nil, &rerrors.PolicySourceError{Message: err.Error()}
 	}
 	// Dedupe + sort patterns first so glob expansion is deterministic.
-	patternSet := map[string]struct{}{}
-	for _, p := range patterns {
-		patternSet[p] = struct{}{}
-	}
-	uniquePatterns := make([]string, 0, len(patternSet))
-	for p := range patternSet {
-		uniquePatterns = append(uniquePatterns, p)
-	}
-	sort.Strings(uniquePatterns)
+	uniquePatterns := sortedUniquePolicyGlobPatterns(patterns)
 
 	seen := map[string]struct{}{}
 	out := []policy.PolicySource{}
@@ -542,6 +547,19 @@ func loadPolicyFragmentSourcesWithDefaults(root string, patterns []string, defau
 		}
 	}
 	return out, []string{}, nil
+}
+
+func sortedUniquePolicyGlobPatterns(patterns []string) []string {
+	patternSet := map[string]struct{}{}
+	for _, p := range patterns {
+		patternSet[p] = struct{}{}
+	}
+	uniquePatterns := make([]string, 0, len(patternSet))
+	for p := range patternSet {
+		uniquePatterns = append(uniquePatterns, p)
+	}
+	sort.Strings(uniquePatterns)
+	return uniquePatterns
 }
 
 // pathOutsideRoot reports whether resolved lies outside resolvedRoot.

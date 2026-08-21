@@ -52,6 +52,7 @@ type runtimePlan struct {
 	actions              *action.CompiledPlan
 	customRuntimeDigests map[string]string
 	sources              []runtimeSource
+	sourceFreshness      sourceFreshnessRecipe
 	pathMatchers         *runtimePathMatchers
 	templateMatchers     *runtimeTemplateMatchers
 }
@@ -145,6 +146,11 @@ func (e *Evaluator) loadRuntimePlan(root string) (*runtimePlan, error) {
 		return nil, err
 	}
 	plan, err := compileRuntimePlanWithParts(lock.payload, lock.rulesJSON, lock.actionsJSON, lock.actions)
+	if err != nil {
+		delete(e.plans, root)
+		return nil, err
+	}
+	plan.sourceFreshness, err = newSourceFreshnessRecipe(root, bundle.PolicyIncludePatterns())
 	if err != nil {
 		delete(e.plans, root)
 		return nil, err

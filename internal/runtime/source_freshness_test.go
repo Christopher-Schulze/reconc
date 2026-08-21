@@ -120,19 +120,7 @@ func TestRuntimePlanCacheEvictsLeastRecentlyUsedEntries(t *testing.T) {
 
 func BenchmarkRuntimePlanFreshnessHit(b *testing.B) {
 	b.Setenv("RECONC_HOME", b.TempDir())
-	repo := b.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, "policies"), 0o755); err != nil {
-		b.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("# project\n"), 0o644); err != nil {
-		b.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(repo, "policies", "rules.yml"), []byte("rules: []\n"), 0o644); err != nil {
-		b.Fatal(err)
-	}
-	if _, err := compiler.CompileRepoPolicy(repo, "bench"); err != nil {
-		b.Fatal(err)
-	}
+	repo := benchmarkFreshnessRepo(b, 2)
 	evaluator := NewEvaluator()
 	first, err := evaluator.loadFreshRuntimePlan(repo)
 	if err != nil {
@@ -180,6 +168,56 @@ func BenchmarkRuntimePlanFreshnessSingleSourceEdit(b *testing.B) {
 			body = "rules: []\n# edit2\n"
 		}
 		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := observeRuntimeSourceFreshness(repo, plan); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkRuntimePlanFreshnessConfigEdit(b *testing.B) {
+	b.Setenv("RECONC_HOME", b.TempDir())
+	repo := benchmarkFreshnessRepo(b, 2)
+	evaluator := NewEvaluator()
+	plan, err := evaluator.loadFreshRuntimePlan(repo)
+	if err != nil {
+		b.Fatal(err)
+	}
+	path := filepath.Join(repo, ".reconc.yml")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for index := range b.N {
+		body := "include:\n  - policies/extra/*.yml\n# edit-a\n"
+		if index%2 == 0 {
+			body = "include:\n  - policies/extra/*.yml\n# edit-b\n"
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := observeRuntimeSourceFreshness(repo, plan); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkRuntimePlanFreshnessIncludeSetEdit(b *testing.B) {
+	b.Setenv("RECONC_HOME", b.TempDir())
+	repo := benchmarkFreshnessRepo(b, 2)
+	evaluator := NewEvaluator()
+	plan, err := evaluator.loadFreshRuntimePlan(repo)
+	if err != nil {
+		b.Fatal(err)
+	}
+	path := filepath.Join(repo, "policies", "extra", "dynamic.yml")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for index := range b.N {
+		if index%2 == 0 {
+			if err := os.WriteFile(path, []byte("rules: []\n"), 0o644); err != nil {
+				b.Fatal(err)
+			}
+		} else if err := os.Remove(path); err != nil {
 			b.Fatal(err)
 		}
 		if _, err := observeRuntimeSourceFreshness(repo, plan); err != nil {

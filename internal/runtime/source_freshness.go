@@ -13,7 +13,6 @@ import (
 	"sort"
 	"strings"
 
-	"gopkg.in/yaml.v3"
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/policy"
@@ -21,12 +20,25 @@ import (
 )
 
 const (
-	maxFreshnessFiles       = 4096
-	maxFreshnessDirectories = 4096
-	maxFreshnessDirEntries  = 4096
-	maxFreshnessFileBytes   = 8 << 20
-	maxFreshnessTotalBytes  = 64 << 20
+	maxFreshnessFiles        = 4096
+	maxFreshnessDirectories  = 4096
+	maxFreshnessDirEntries   = 4096
+	maxFreshnessFileBytes    = 8 << 20
+	maxFreshnessTotalBytes   = 64 << 20
+	maxFreshnessIncludes     = 256
+	maxFreshnessPatternBytes = 1024
+	maxFreshnessRecipeBytes  = maxFreshnessIncludes * maxFreshnessPatternBytes
 )
+
+type sourceFreshnessInclude struct {
+	pattern string
+	base    string
+}
+
+type sourceFreshnessRecipe struct {
+	root     string
+	includes []sourceFreshnessInclude
+}
 
 type freshnessDiscovery struct {
 	RepoRoot         string   `json:"repo_root"`
@@ -84,17 +96,45 @@ func observeRuntimeSourceFreshness(root string, plan *runtimePlan) ([sha256.Size
 	if err != nil {
 		return [sha256.Size]byte{}, err
 	}
-	return observeSourceFreshness(root, plan.sources, discovery)
+	return observeSourceFreshness(root, plan.sources, discovery, plan.sourceFreshness)
 }
 
 func observeRuntimeSourceFreshnessFromBundle(root string, plan *runtimePlan, bundle *ingest.SourceBundle) ([sha256.Size]byte, error) {
 	if plan == nil || bundle == nil {
 		return [sha256.Size]byte{}, errors.New("runtime source freshness requires a plan and bundle")
 	}
-	return observeSourceFreshness(root, plan.sources, bundle.Discovery)
+	return observeSourceFreshness(root, plan.sources, bundle.Discovery, plan.sourceFreshness)
 }
 
-func observeSourceFreshness(root string, sources []runtimeSource, discovery ingest.DiscoveryResult) ([sha256.Size]byte, error) {
+func newSourceFreshnessRecipe(root string, patterns []string) (sourceFreshnessRecipe, error) {
+	if len(patterns) == 0 || len(patterns) > maxFreshnessIncludes {
+		return sourceFreshnessRecipe{}, fmt.Errorf("runtime freshness recipe requires 1-%d include patterns", maxFreshnessIncludes)
+	}
+	recipe := sourceFreshnessRecipe{root: filepath.Clean(root), includes: make([]sourceFreshnessInclude, 0, len(patterns))}
+	totalBytes := 0
+	previous := ""
+	for _, pattern := range patterns {
+		if pattern == "" || len(pattern) > maxFreshnessPatternBytes || (previous != "" && pattern <= previous) {
+			return sourceFreshnessRecipe{}, errors.New("runtime freshness recipe include patterns must be bounded, sorted, and unique")
+		}
+		totalBytes += len(pattern)
+		if totalBytes > maxFreshnessRecipeBytes {
+			return sourceFreshnessRecipe{}, fmt.Errorf("runtime freshness recipe exceeds %d bytes", maxFreshnessRecipeBytes)
+		}
+		base, err := freshnessGlobBase(root, pattern)
+		if err != nil {
+			return sourceFreshnessRecipe{}, err
+		}
+		recipe.includes = append(recipe.includes, sourceFreshnessInclude{pattern: pattern, base: base})
+		previous = pattern
+	}
+	return recipe, nil
+}
+
+func observeSourceFreshness(root string, sources []runtimeSource, discovery ingest.DiscoveryResult, recipe sourceFreshnessRecipe) ([sha256.Size]byte, error) {
+	if filepath.Clean(root) != recipe.root || len(recipe.includes) == 0 {
+		return [sha256.Size]byte{}, errors.New("runtime source freshness recipe does not match repository root")
+	}
 	files := map[string]struct{}{}
 	directories := map[string]struct{}{}
 	virtualPresets := map[string]struct{}{}
@@ -126,38 +166,17 @@ func observeSourceFreshness(root string, sources []runtimeSource, discovery inge
 	for _, rel := range discovery.ConfigCandidates {
 		addFile(files, filepath.Join(root, filepath.FromSlash(rel)))
 	}
-	if discovery.ConfigPath != nil {
-		configPath := filepath.Join(root, filepath.FromSlash(*discovery.ConfigPath))
-		patterns, err := freshnessIncludePatterns(configPath)
-		if err != nil {
-			return [sha256.Size]byte{}, err
+	for _, include := range recipe.includes {
+		includePatterns = append(includePatterns, include.pattern)
+		if filepath.Clean(include.base) != filepath.Clean(root) {
+			addDirectory(directories, include.base)
 		}
-		includePatterns = append(includePatterns, patterns...)
-		for _, pattern := range patterns {
-			base, err := freshnessGlobBase(root, pattern)
-			if err != nil {
-				return [sha256.Size]byte{}, err
-			}
-			if filepath.Clean(base) != filepath.Clean(root) {
-				addDirectory(directories, base)
-			}
-			matches, err := filepath.Glob(filepath.Join(root, filepath.FromSlash(pattern)))
-			if err != nil {
-				return [sha256.Size]byte{}, fmt.Errorf("expand freshness pattern %s: %w", pattern, err)
-			}
-			for _, match := range matches {
-				info, statErr := os.Lstat(match)
-				if statErr != nil {
-					return [sha256.Size]byte{}, statErr
-				}
-				if info.IsDir() {
-					addDirectory(directories, match)
-					continue
-				}
-				if info.Mode().IsRegular() {
-					addFile(files, match)
-				}
-			}
+		matches, err := ingest.ExpandPolicyIncludePattern(root, include.pattern)
+		if err != nil {
+			return [sha256.Size]byte{}, fmt.Errorf("expand freshness pattern %s: %w", include.pattern, err)
+		}
+		for _, match := range matches {
+			addFile(files, match)
 		}
 	}
 	if len(files) > maxFreshnessFiles {
@@ -212,40 +231,6 @@ func freshnessSourcePath(root string, source runtimeSource) (string, string, err
 		return "", "", fmt.Errorf("runtime freshness source path escapes repository: %q", source.Path)
 	}
 	return filepath.Join(root, cleaned), "", nil
-}
-
-func freshnessIncludePatterns(configPath string) ([]string, error) {
-	data, err := boundedio.ReadRegularFile(configPath, maxFreshnessFileBytes)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var document map[string]interface{}
-	if err := yaml.Unmarshal(data, &document); err != nil {
-		return nil, fmt.Errorf("parse compiler config for freshness: %w", err)
-	}
-	raw, ok := document["include"]
-	if !ok || raw == nil {
-		return nil, nil
-	}
-	list, ok := raw.([]interface{})
-	if !ok {
-		return nil, errors.New("compiler config include must be a list")
-	}
-	out := make([]string, 0, len(list)+len(ingest.DefaultPolicyGlobs))
-	out = append(out, ingest.DefaultPolicyGlobs...)
-	for _, item := range list {
-		pattern, ok := item.(string)
-		pattern = strings.TrimSpace(pattern)
-		if !ok || pattern == "" || path.IsAbs(pattern) || filepath.IsAbs(pattern) || strings.Contains(pattern, "..") {
-			return nil, errors.New("compiler config include contains an invalid pattern")
-		}
-		out = append(out, pattern)
-	}
-	sort.Strings(out)
-	return slicesUnique(out), nil
 }
 
 func freshnessGlobBase(root, pattern string) (string, error) {
@@ -408,17 +393,4 @@ func sortedKeys(values map[string]struct{}) []string {
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-func slicesUnique(values []string) []string {
-	if len(values) < 2 {
-		return values
-	}
-	out := values[:1]
-	for _, value := range values[1:] {
-		if value != out[len(out)-1] {
-			out = append(out, value)
-		}
-	}
-	return out
 }

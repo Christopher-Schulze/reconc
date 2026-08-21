@@ -18,6 +18,12 @@ const (
 	maxPolicyGlobDirectoryEntries = maxPolicySources + 1
 )
 
+// ExpandPolicyIncludePattern returns the bounded regular-file matches for one
+// already validated repository-relative policy include pattern.
+func ExpandPolicyIncludePattern(root, pattern string) ([]string, error) {
+	return boundedPolicyGlob(root, pattern)
+}
+
 // boundedPolicyGlob expands one repository-relative glob without ever
 // materializing an unbounded filepath.Glob result. The grammar is segment
 // based (`*`, `?`, and character classes); `**` is not recursive magic.
