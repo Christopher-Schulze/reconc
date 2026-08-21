@@ -424,6 +424,33 @@ func BenchmarkForbiddenCommandReparse(b *testing.B) {
 	}
 }
 
+func BenchmarkCommandEvidencePrepared(b *testing.B) {
+	commands := []string{"rtk go test ./...", "cd /repo && go build ./...", "echo ready"}
+	expected := []string{"go test ./...", "go build ./..."}
+	rule := policy.Rule{Commands: expected}
+	cache := newCommandInvocationCache([]policy.Rule{rule}, "/repo")
+	evidence := newCommandEvidenceIndex(ExecutionInputs{Commands: commands}, "/repo")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if got := matchingCommandsWithEvidence(evidence, cache, commands, expected, "/repo", policy.CommandMatchExact); len(got) != 2 {
+			b.Fatalf("prepared evidence produced %v", got)
+		}
+	}
+}
+
+func BenchmarkCommandEvidenceReparse(b *testing.B) {
+	commands := []string{"rtk go test ./...", "cd /repo && go build ./...", "echo ready"}
+	expected := []string{"go test ./...", "go build ./..."}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if got := matchingCommands(commands, expected, "/repo", policy.CommandMatchExact); len(got) != 2 {
+			b.Fatalf("reparsed evidence produced %v", got)
+		}
+	}
+}
+
 func itoaBench(n int) string {
 	if n == 0 {
 		return "0"

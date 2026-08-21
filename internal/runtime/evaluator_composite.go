@@ -325,9 +325,9 @@ func evalCheckRequireCommand(ctx *evalContext, c policy.Check, inputs ExecutionI
 	var matched []string
 	repoRoot := ctxRepoRoot(ctx)
 	if requireSuccess {
-		matched = matchingCommandResultsSince(inputs.CommandResults, c.Commands, CommandOutcomeSuccess, repoRoot, minimumEpoch, c.CommandMatch)
+		matched = matchingCommandResultsSinceWithEvidence(ctx.commandEvidence, ctx.commandCache, inputs.CommandResults, c.Commands, CommandOutcomeSuccess, repoRoot, minimumEpoch, c.CommandMatch)
 	} else {
-		matched = matchingCommands(inputs.Commands, c.Commands, repoRoot, c.CommandMatch)
+		matched = matchingCommandsWithEvidence(ctx.commandEvidence, ctx.commandCache, inputs.Commands, c.Commands, repoRoot, c.CommandMatch)
 	}
 	if len(matched) > 0 {
 		return true, "", nil

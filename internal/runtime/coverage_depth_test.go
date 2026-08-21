@@ -174,6 +174,33 @@ func TestCommandEvidenceHelpersDropNoiseWithoutWeakeningOutcomes(t *testing.T) {
 	}
 }
 
+func TestCommandEvidenceIndexPreservesOrderAndFreshness(t *testing.T) {
+	inputs := ExecutionInputs{
+		Commands: []string{"rtk go  test ./...", "go test ./...", "echo ready"},
+		CommandResults: []CommandResult{
+			{Command: "cd /repo && go test ./... > result.log", Outcome: CommandOutcomeSuccess, EvidenceEpoch: 9},
+			{Command: "go test ./...", Outcome: CommandOutcomeFailure, EvidenceEpoch: 10},
+		},
+	}
+	index := newCommandEvidenceIndex(inputs, "/repo")
+	if len(index.commands) != len(inputs.Commands) || len(index.results) != len(inputs.CommandResults) {
+		t.Fatalf("evidence cardinality changed: %#v", index)
+	}
+	if got := index.commands[0].normalized; got != "go test ./..." {
+		t.Fatalf("first normalized command = %q", got)
+	}
+	if index.results[0].raw != inputs.CommandResults[0].Command || index.results[0].epoch != 9 {
+		t.Fatalf("result provenance lost: %#v", index.results[0])
+	}
+	cache := newCommandInvocationCache([]policy.Rule{{Commands: []string{"go  test ./..."}}}, "/repo")
+	if got := matchingCommandsWithEvidence(index, cache, inputs.Commands, []string{"go  test ./..."}, "/repo", policy.CommandMatchExact); !reflect.DeepEqual(got, []string{"rtk go  test ./...", "go test ./..."}) {
+		t.Fatalf("command evidence matching = %#v", got)
+	}
+	if got := matchingCommandResultsSinceWithEvidence(index, cache, inputs.CommandResults, []string{"go test ./..."}, CommandOutcomeSuccess, "/repo", 9, policy.CommandMatchExact); !reflect.DeepEqual(got, []string{"cd /repo && go test ./... > result.log"}) {
+		t.Fatalf("fresh result matching = %#v", got)
+	}
+}
+
 func TestCommandResultAndRedirectHelpersEnforceOutcomeEpochAndSyntax(t *testing.T) {
 	results := []CommandResult{
 		{Command: "go test ./...", Outcome: CommandOutcomeFailure, EvidenceEpoch: 9},

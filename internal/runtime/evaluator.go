@@ -30,6 +30,7 @@ type evalContext struct {
 	matchers         *runtimePathMatchers
 	templateMatchers *runtimeTemplateMatchers
 	commandCache     *commandInvocationCache
+	commandEvidence  *commandEvidenceIndex
 }
 
 type observedCommandInvocations struct {
@@ -38,21 +39,58 @@ type observedCommandInvocations struct {
 }
 
 type commandInvocationCache struct {
-	expected map[string]shellcommand.CompiledExpectation
-	observed map[string]observedCommandInvocations
+	expected           map[string]shellcommand.CompiledExpectation
+	normalizedExpected map[string]string
+	observed           map[string]observedCommandInvocations
+}
+
+type normalizedCommandEvidence struct {
+	raw        string
+	normalized string
+	outcome    string
+	epoch      uint64
+}
+
+type commandEvidenceIndex struct {
+	commands []normalizedCommandEvidence
+	results  []normalizedCommandEvidence
+}
+
+func newCommandEvidenceIndex(inputs ExecutionInputs, repoRoot string) *commandEvidenceIndex {
+	index := &commandEvidenceIndex{
+		commands: make([]normalizedCommandEvidence, 0, len(inputs.Commands)),
+		results:  make([]normalizedCommandEvidence, 0, len(inputs.CommandResults)),
+	}
+	for _, command := range inputs.Commands {
+		index.commands = append(index.commands, normalizedCommandEvidence{
+			raw: command, normalized: normalizeCommandSemantics(command, repoRoot),
+		})
+	}
+	for _, result := range inputs.CommandResults {
+		index.results = append(index.results, normalizedCommandEvidence{
+			raw: result.Command, normalized: normalizeCommandSemantics(result.Command, repoRoot),
+			outcome: result.Outcome, epoch: result.EvidenceEpoch,
+		})
+	}
+	return index
 }
 
 func newCommandInvocationCache(rules []policy.Rule, repoRoot string) *commandInvocationCache {
 	commands := map[string]struct{}{}
+	normalizedExpected := map[string]string{}
 	add := func(values []string) {
 		for _, value := range values {
 			if normalized := normalizeCommandSemantics(value, repoRoot); normalized != "" {
 				commands[normalized] = struct{}{}
+				normalizedExpected[value] = normalized
 			}
 		}
 	}
 	for index := range rules {
 		add(rules[index].Commands)
+		for assuranceIndex := range rules[index].Assurance {
+			add(rules[index].Assurance[assuranceIndex].Commands)
+		}
 		for checkIndex := range rules[index].Checks {
 			add(rules[index].Checks[checkIndex].Commands)
 		}
@@ -67,9 +105,27 @@ func newCommandInvocationCache(rules []policy.Rule, repoRoot string) *commandInv
 		expected[command] = shellcommand.CompileExpectation(command, 8)
 	}
 	return &commandInvocationCache{
-		expected: expected,
-		observed: make(map[string]observedCommandInvocations),
+		expected:           expected,
+		normalizedExpected: normalizedExpected,
+		observed:           make(map[string]observedCommandInvocations),
 	}
+}
+
+func (c *commandInvocationCache) normalizedExpectedCommands(expected []string, repoRoot string) []string {
+	if c == nil {
+		return normalizeExpectedCommands(expected, repoRoot)
+	}
+	out := make([]string, 0, len(expected))
+	for _, value := range expected {
+		normalized, ok := c.normalizedExpected[value]
+		if !ok {
+			normalized = normalizeCommandSemantics(value, repoRoot)
+		}
+		if normalized != "" {
+			out = append(out, normalized)
+		}
+	}
+	return out
 }
 
 func (c *commandInvocationCache) expectedMatcher(command string) shellcommand.CompiledExpectation {
@@ -205,7 +261,14 @@ func (e *Evaluator) AssertRuleByID(startPath, ruleID string, vars map[string]str
 	}
 
 	report := NewEmptyReport(root, ingest.LockfilePath, plan.defaultMode, normalizedInputs)
-	ctx := &evalContext{repoRoot: root, rawCommands: rawCommands}
+	ctx := &evalContext{
+		repoRoot:         root,
+		rawCommands:      rawCommands,
+		matchers:         plan.pathMatchers,
+		templateMatchers: plan.templateMatchers,
+		commandCache:     newCommandInvocationCache([]policy.Rule{*target}, root),
+		commandEvidence:  newCommandEvidenceIndex(normalizedInputs, root),
+	}
 
 	v, err := evaluateRule(ctx, target, plan.defaultMode, normalizedInputs)
 	if err != nil {
@@ -306,6 +369,7 @@ func evaluateRuntimePlan(root string, plan *runtimePlan, inputs ExecutionInputs,
 		matchers:         plan.pathMatchers,
 		templateMatchers: plan.templateMatchers,
 		commandCache:     newCommandInvocationCache(plan.rules, root),
+		commandEvidence:  newCommandEvidenceIndex(normalized.inputs, root),
 	}
 	ruleIndexes := plan.indexesFor(allowedKinds, preCommand)
 	rules := make([]*policy.Rule, 0, len(ruleIndexes))
@@ -1089,17 +1153,27 @@ func evalRequireAssurance(ctx *evalContext, rule *policy.Rule, defaultMode polic
 	}
 	successful := []string{}
 	reportedSuccessful := []string{}
-	for _, result := range inputs.CommandResults {
-		if result.Outcome == CommandOutcomeSuccess {
+	if ctx.commandEvidence != nil {
+		for _, result := range ctx.commandEvidence.results {
+			if result.outcome != CommandOutcomeSuccess {
+				continue
+			}
+			reportedSuccessful = appendUnique(reportedSuccessful, result.raw)
+			successful = appendUnique(successful, result.raw)
+			successful = appendUnique(successful, result.normalized)
+		}
+	} else {
+		for _, result := range inputs.CommandResults {
+			if result.Outcome != CommandOutcomeSuccess {
+				continue
+			}
 			reportedSuccessful = appendUnique(reportedSuccessful, result.Command)
 			successful = appendUnique(successful, result.Command)
 			successful = appendUnique(successful, normalizeCommandSemantics(result.Command, ctx.repoRoot))
 		}
 	}
 	for gateIndex := range gates {
-		for commandIndex := range gates[gateIndex].Commands {
-			gates[gateIndex].Commands[commandIndex] = normalizeCommandSemantics(gates[gateIndex].Commands[commandIndex], ctx.repoRoot)
-		}
+		gates[gateIndex].Commands = ctx.commandCache.normalizedExpectedCommands(gates[gateIndex].Commands, ctx.repoRoot)
 	}
 	findings, err := assurance.Evaluate(ctx.repoRoot, gates, assurance.Inputs{
 		ChangedPaths:       inputs.WritePaths,
@@ -1648,9 +1722,9 @@ func evalRequireCommand(ctx *evalContext, rule *policy.Rule, defaultMode policy.
 	repoRoot := ctxRepoRoot(ctx)
 	if requireSuccess {
 		minimumEpoch := latestWriteEpoch(triggered, inputs.WriteEpochs)
-		matched = matchingCommandResultsSince(inputs.CommandResults, required, CommandOutcomeSuccess, repoRoot, minimumEpoch, ruleCommandMatchMode(rule))
+		matched = matchingCommandResultsSinceWithEvidence(ctx.commandEvidence, ctx.commandCache, inputs.CommandResults, required, CommandOutcomeSuccess, repoRoot, minimumEpoch, ruleCommandMatchMode(rule))
 	} else {
-		matched = matchingCommands(inputs.Commands, required, repoRoot, ruleCommandMatchMode(rule))
+		matched = matchingCommandsWithEvidence(ctx.commandEvidence, ctx.commandCache, inputs.Commands, required, repoRoot, ruleCommandMatchMode(rule))
 	}
 	if len(matched) > 0 {
 		return nil, nil
@@ -1692,6 +1766,10 @@ func matchingPathsWithMatchers(matchers *runtimePathMatchers, paths, patterns []
 }
 
 func matchingCommands(commands, expected []string, repoRoot string, match policy.CommandMatch) []string {
+	return matchingCommandsWithEvidence(nil, nil, commands, expected, repoRoot, match)
+}
+
+func matchingCommandsWithEvidence(evidence *commandEvidenceIndex, cache *commandInvocationCache, commands, expected []string, repoRoot string, match policy.CommandMatch) []string {
 	if len(expected) == 0 {
 		return nil
 	}
@@ -1702,11 +1780,14 @@ func matchingCommands(commands, expected []string, repoRoot string, match policy
 	// repo path by the agent runtime (e.g.
 	// `cd /workspace/repo/sub && ...`). normalizeCommandSemantics
 	// applies both transformations to expected and recorded sides.
-	normalizedExpected := normalizeExpectedCommands(expected, repoRoot)
+	normalizedExpected := cache.normalizedExpectedCommands(expected, repoRoot)
 	out := []string{}
-	for _, c := range commands {
-		if commandMatchesExpected(normalizeCommandSemantics(c, repoRoot), normalizedExpected, match) {
-			out = append(out, c)
+	if evidence == nil {
+		evidence = newCommandEvidenceIndex(ExecutionInputs{Commands: commands}, repoRoot)
+	}
+	for _, command := range evidence.commands {
+		if commandMatchesExpected(command.normalized, normalizedExpected, match) {
+			out = append(out, command.raw)
 		}
 	}
 	return out
@@ -1717,7 +1798,7 @@ func matchingForbiddenCommands(commands, expected []string, repoRoot string, mat
 }
 
 func matchingForbiddenCommandsWithCache(cache *commandInvocationCache, commands, expected []string, repoRoot string, match policy.CommandMatch) []string {
-	normalizedExpected := normalizeExpectedCommands(expected, repoRoot)
+	normalizedExpected := cache.normalizedExpectedCommands(expected, repoRoot)
 	if len(normalizedExpected) == 0 {
 		return nil
 	}
@@ -1770,20 +1851,26 @@ func matchingCommandResults(results []CommandResult, expected []string, outcome 
 }
 
 func matchingCommandResultsSince(results []CommandResult, expected []string, outcome string, repoRoot string, minimumEpoch uint64, match policy.CommandMatch) []string {
+	return matchingCommandResultsSinceWithEvidence(nil, nil, results, expected, outcome, repoRoot, minimumEpoch, match)
+}
+
+func matchingCommandResultsSinceWithEvidence(evidence *commandEvidenceIndex, cache *commandInvocationCache, results []CommandResult, expected []string, outcome string, repoRoot string, minimumEpoch uint64, match policy.CommandMatch) []string {
 	if len(expected) == 0 {
 		return nil
 	}
 	// Normalise both sides of the comparison (whitespace + RTK prefix +
 	// absolute repoRoot in cd). See matchingCommands for the rationale.
-	normalizedExpected := normalizeExpectedCommands(expected, repoRoot)
+	normalizedExpected := cache.normalizedExpectedCommands(expected, repoRoot)
 	out := []string{}
-	for _, r := range results {
-		if r.Outcome != outcome || r.EvidenceEpoch < minimumEpoch {
+	if evidence == nil {
+		evidence = newCommandEvidenceIndex(ExecutionInputs{CommandResults: results}, repoRoot)
+	}
+	for _, result := range evidence.results {
+		if result.outcome != outcome || result.epoch < minimumEpoch {
 			continue
 		}
-		norm := normalizeCommandSemantics(r.Command, repoRoot)
-		if commandMatchesExpected(norm, normalizedExpected, match) {
-			out = append(out, r.Command)
+		if commandMatchesExpected(result.normalized, normalizedExpected, match) {
+			out = append(out, result.raw)
 			continue
 		}
 		// Tolerate trailing output REDIRECTIONS only (e.g. a rule
@@ -1794,9 +1881,9 @@ func matchingCommandResultsSince(results []CommandResult, expected []string, out
 		// status is the last stage's, so `go test ./... | tail` could
 		// record success even when the test failed - tolerating it would
 		// weaken require_command_success.
-		if stripped := stripTrailingRedirects(norm); stripped != norm {
+		if stripped := stripTrailingRedirects(result.normalized); stripped != result.normalized {
 			if commandMatchesExpected(stripped, normalizedExpected, match) {
-				out = append(out, r.Command)
+				out = append(out, result.raw)
 			}
 		}
 	}

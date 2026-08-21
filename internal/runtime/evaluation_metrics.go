@@ -273,6 +273,7 @@ func matchedRuleIDs(repoRoot string, matchers *runtimePathMatchers, templateMatc
 		matchers:         matchers,
 		templateMatchers: templateMatchers,
 		commandCache:     newCommandInvocationCache(rules, repoRoot),
+		commandEvidence:  newCommandEvidenceIndex(normalized, repoRoot),
 	}
 	ids := []string{}
 	for index := range rules {
