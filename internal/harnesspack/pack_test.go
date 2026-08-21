@@ -352,6 +352,66 @@ func TestPublicLoadersFailClosed(t *testing.T) {
 	}
 }
 
+func TestLoadArchiveRejectsDuplicateAndIrregularEntriesBeforePayloadRead(t *testing.T) {
+	t.Parallel()
+	manifest := canonicalTestManifest(t)
+	body, err := Encode(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicate := zipEntriesFixture(t, []zipFixtureEntry{
+		{name: "manifest.json", body: body, mode: 0o644},
+		{name: "tools/reconc/file.txt", body: []byte("safe"), mode: 0o644},
+		{name: "tools/reconc/file.txt", body: []byte("safe"), mode: 0o644},
+	})
+	if _, err := LoadArchive(duplicate, "0.9.0"); err == nil {
+		t.Fatal("archive with duplicate entries was accepted")
+	}
+	directory := zipEntriesFixture(t, []zipFixtureEntry{
+		{name: "manifest.json", body: body, mode: 0o644},
+		{name: "tools/reconc/", body: nil, mode: fs.ModeDir | 0o755},
+	})
+	if _, err := LoadArchive(directory, "0.9.0"); err == nil {
+		t.Fatal("archive with directory entry was accepted")
+	}
+}
+
+func TestHarnessPackRemainingBudgetRejectsBeforeOpen(t *testing.T) {
+	t.Parallel()
+	source := &countingHarnessFS{FS: fstest.MapFS{"file.txt": {Data: []byte("safe")}}}
+	if _, err := readBoundedFileWithLimit(source, "file.txt", 4, 3); err == nil {
+		t.Fatal("file exceeding remaining budget was accepted")
+	}
+	if source.opens != 0 {
+		t.Fatalf("file was opened before budget rejection: %d opens", source.opens)
+	}
+	if _, err := readBoundedFileWithLimit(source, "file.txt", 4, MaxFileBytes); err != nil {
+		t.Fatalf("valid bounded read failed: %v", err)
+	}
+	if source.opens != 1 {
+		t.Fatalf("valid read opens = %d, want 1", source.opens)
+	}
+}
+
+func TestLoadArchiveRejectsTruncatedPayload(t *testing.T) {
+	t.Parallel()
+	manifest := canonicalTestManifest(t)
+	body, err := Encode(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := zipEntriesFixture(t, []zipFixtureEntry{
+		{name: "manifest.json", body: body, mode: 0o644},
+		{name: "tools/reconc/file.txt", body: []byte("safe"), mode: 0o644},
+	})
+	if len(archive) < 8 {
+		t.Fatal("fixture archive unexpectedly small")
+	}
+	if _, err := LoadArchive(archive[:len(archive)-8], "0.9.0"); err == nil {
+		t.Fatal("truncated archive was accepted")
+	}
+}
+
 func TestBuildAndBoundedReadFailureContracts(t *testing.T) {
 	options := BuildOptions{
 		Name: "advanced", Version: "0.9.0",
@@ -425,16 +485,41 @@ func canonicalTestManifest(t *testing.T) *Manifest {
 
 func zipFixture(t *testing.T, entries map[string][]byte) []byte {
 	t.Helper()
+	ordered := make([]zipFixtureEntry, 0, len(entries))
+	for _, name := range sortedMapKeys(entries) {
+		ordered = append(ordered, zipFixtureEntry{name: name, body: entries[name], mode: 0o644})
+	}
+	return zipEntriesFixture(t, ordered)
+}
+
+type zipFixtureEntry struct {
+	name string
+	body []byte
+	mode fs.FileMode
+}
+
+type countingHarnessFS struct {
+	fs.FS
+	opens int
+}
+
+func (f *countingHarnessFS) Open(name string) (fs.File, error) {
+	f.opens++
+	return f.FS.Open(name)
+}
+
+func zipEntriesFixture(t *testing.T, entries []zipFixtureEntry) []byte {
+	t.Helper()
 	var buffer bytes.Buffer
 	writer := zip.NewWriter(&buffer)
-	for _, name := range sortedMapKeys(entries) {
-		header := &zip.FileHeader{Name: name, Method: zip.Deflate}
-		header.SetMode(0o644)
+	for _, entrySpec := range entries {
+		header := &zip.FileHeader{Name: entrySpec.name, Method: zip.Deflate}
+		header.SetMode(entrySpec.mode)
 		entry, err := writer.CreateHeader(header)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := entry.Write(entries[name]); err != nil {
+		if _, err := entry.Write(entrySpec.body); err != nil {
 			t.Fatal(err)
 		}
 	}

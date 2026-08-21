@@ -563,6 +563,9 @@ and byte-compares the notice before checksums and provenance are accepted.
      Runtime evidence/report collections use a local membership map plus an
      ordered slice, preserving first-seen output while avoiding quadratic
      duplicate scans at bounded high cardinalities.
+     Harness-pack build and archive load validate canonical inventories before
+     payload retention, enforce per-file and remaining aggregate byte budgets
+     on every read, and compare actual decompressed bytes with the manifest.
    - Normalises the input paths against the repo root.
    - For each rule in the lockfile: applies the scope filter
      (`ruleScopeMatches`), then dispatches to the per-kind

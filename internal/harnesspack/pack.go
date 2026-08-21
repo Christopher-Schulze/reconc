@@ -193,19 +193,27 @@ func Load(manifestBody []byte, source fs.FS, targetPrefix, productVersion string
 		return nil, fmt.Errorf("harness pack source contains %d files, manifest contains %d", len(inventory), len(manifest.Files))
 	}
 	files := make([]Data, 0, len(manifest.Files))
+	var total int64
 	for index, file := range manifest.Files {
 		relative := strings.TrimPrefix(file.Path, prefix+"/")
 		if relative == file.Path || inventory[index] != relative {
 			return nil, fmt.Errorf("harness pack source inventory mismatch at %s", file.Path)
 		}
-		body, err := readBoundedFile(source, relative, file.Size)
+		if file.Size > MaxTotalBytes-total {
+			return nil, fmt.Errorf("harness pack exceeds %d bytes before reading %s", MaxTotalBytes, file.Path)
+		}
+		body, err := readBoundedFileWithLimit(source, relative, file.Size, MaxTotalBytes-total)
 		if err != nil {
 			return nil, fmt.Errorf("read harness pack file %s: %w", file.Path, err)
 		}
 		if err := VerifyFile(file, body); err != nil {
 			return nil, err
 		}
+		total += int64(len(body))
 		files = append(files, Data{File: file, Body: body})
+	}
+	if total != manifest.TotalBytes {
+		return nil, fmt.Errorf("harness pack actual bytes are %d, manifest contains %d", total, manifest.TotalBytes)
 	}
 	return &Pack{Manifest: *manifest, Files: files}, nil
 }
@@ -222,6 +230,9 @@ func LoadArchive(body []byte, productVersion string) (*Pack, error) {
 		reader.File[0].Name != "manifest.json" {
 		return nil, errors.New("harness pack archive inventory is invalid")
 	}
+	if err := validateArchiveInventory(reader.File); err != nil {
+		return nil, err
+	}
 	manifestBody, err := readArchiveFile(reader.File[0], MaxManifestBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read harness pack manifest: %w", err)
@@ -237,20 +248,29 @@ func LoadArchive(body []byte, productVersion string) (*Pack, error) {
 		return nil, fmt.Errorf("harness pack archive contains %d files, manifest contains %d", len(reader.File)-1, len(manifest.Files))
 	}
 	files := make([]Data, 0, len(manifest.Files))
+	var total int64
 	for index, file := range manifest.Files {
 		entry := reader.File[index+1]
 		if entry.Name != file.Path || entry.FileInfo().Mode().Perm() != fs.FileMode(file.Mode) ||
 			entry.FileInfo().Mode()&fs.ModeType != 0 {
 			return nil, fmt.Errorf("harness pack archive entry mismatch at %s", file.Path)
 		}
-		content, err := readArchiveFile(entry, MaxFileBytes)
+		remaining := MaxTotalBytes - total
+		if file.Size > remaining {
+			return nil, fmt.Errorf("harness pack exceeds %d bytes before reading %s", MaxTotalBytes, file.Path)
+		}
+		content, err := readArchiveFile(entry, minInt64(MaxFileBytes, remaining))
 		if err != nil {
 			return nil, fmt.Errorf("read harness pack archive entry %s: %w", file.Path, err)
 		}
 		if err := VerifyFile(file, content); err != nil {
 			return nil, err
 		}
+		total += int64(len(content))
 		files = append(files, Data{File: file, Body: content})
+	}
+	if total != manifest.TotalBytes {
+		return nil, fmt.Errorf("harness pack archive actual bytes are %d, manifest contains %d", total, manifest.TotalBytes)
 	}
 	return &Pack{Manifest: *manifest, Files: files}, nil
 }
@@ -264,12 +284,21 @@ func Build(source fs.FS, options BuildOptions) (*Manifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	files := make([]File, 0, len(inventory))
-	var total int64
+	selected := make([]string, 0, len(inventory))
 	for _, relative := range inventory {
-		if options.ExcludedPaths[relative] {
-			continue
+		if !options.ExcludedPaths[relative] {
+			selected = append(selected, relative)
 		}
+	}
+	if len(selected) == 0 {
+		return nil, errors.New("harness pack must contain at least one non-excluded file")
+	}
+	if len(selected) > MaxFiles {
+		return nil, fmt.Errorf("harness pack contains %d files; maximum is %d", len(selected), MaxFiles)
+	}
+	files := make([]File, 0, len(selected))
+	var total int64
+	for _, relative := range selected {
 		info, err := fs.Stat(source, relative)
 		if err != nil {
 			return nil, fmt.Errorf("stat harness pack source %s: %w", relative, err)
@@ -278,9 +307,15 @@ func Build(source fs.FS, options BuildOptions) (*Manifest, error) {
 		if info.Mode()&0o111 != 0 {
 			mode = 0o755
 		}
-		body, err := readBoundedFile(source, relative, info.Size())
+		if info.Size() < 0 || info.Size() > MaxFileBytes || info.Size() > MaxTotalBytes-total {
+			return nil, fmt.Errorf("harness pack source file %s does not fit the remaining byte budget", relative)
+		}
+		body, err := readBoundedFileWithLimit(source, relative, info.Size(), MaxTotalBytes-total)
 		if err != nil {
 			return nil, fmt.Errorf("read harness pack source %s: %w", relative, err)
+		}
+		if int64(len(body)) > MaxTotalBytes-total {
+			return nil, fmt.Errorf("harness pack exceeds %d bytes after reading %s", MaxTotalBytes, relative)
 		}
 		total += int64(len(body))
 		files = append(files, File{
@@ -407,10 +442,10 @@ func sourceInventory(source fs.FS) ([]string, error) {
 		if path.Clean(current) != current || strings.Contains(current, `\`) {
 			return fmt.Errorf("harness pack source path is not canonical: %s", current)
 		}
-		paths = append(paths, current)
-		if len(paths) > MaxFiles {
+		if len(paths) >= MaxFiles {
 			return fmt.Errorf("harness pack source exceeds %d files", MaxFiles)
 		}
+		paths = append(paths, current)
 		return nil
 	})
 	if err != nil {
@@ -421,26 +456,33 @@ func sourceInventory(source fs.FS) ([]string, error) {
 }
 
 func readBoundedFile(source fs.FS, name string, expectedSize int64) ([]byte, error) {
+	return readBoundedFileWithLimit(source, name, expectedSize, MaxFileBytes)
+}
+
+func readBoundedFileWithLimit(source fs.FS, name string, expectedSize, maximum int64) ([]byte, error) {
 	if expectedSize < 0 || expectedSize > MaxFileBytes {
 		return nil, fmt.Errorf("file size must be 0..%d bytes", MaxFileBytes)
+	}
+	if maximum < 0 || expectedSize > maximum {
+		return nil, fmt.Errorf("file size exceeds remaining %d-byte budget", maximum)
 	}
 	file, err := source.Open(name)
 	if err != nil {
 		return nil, err
 	}
-	body, readErr := io.ReadAll(io.LimitReader(file, MaxFileBytes+1))
+	body, readErr := io.ReadAll(io.LimitReader(file, maximum+1))
 	closeErr := file.Close()
 	if err := errors.Join(readErr, closeErr); err != nil {
 		return nil, err
 	}
-	if len(body) > MaxFileBytes || int64(len(body)) != expectedSize {
+	if int64(len(body)) > maximum || int64(len(body)) != expectedSize {
 		return nil, fmt.Errorf("file size changed: got %d, want %d", len(body), expectedSize)
 	}
 	return body, nil
 }
 
 func readArchiveFile(file *zip.File, maximum int64) ([]byte, error) {
-	if file == nil || file.UncompressedSize64 > uint64(maximum) {
+	if file == nil || maximum < 0 || file.UncompressedSize64 > uint64(maximum) {
 		return nil, fmt.Errorf("archive entry exceeds %d bytes", maximum)
 	}
 	reader, err := file.Open()
@@ -456,6 +498,48 @@ func readArchiveFile(file *zip.File, maximum int64) ([]byte, error) {
 		return nil, errors.New("archive entry size is invalid")
 	}
 	return body, nil
+}
+
+func validateArchiveInventory(entries []*zip.File) error {
+	seen := make(map[string]struct{}, len(entries))
+	for index, entry := range entries {
+		if entry == nil || entry.Name == "" {
+			return fmt.Errorf("harness pack archive entry %d is invalid", index)
+		}
+		if _, duplicate := seen[entry.Name]; duplicate {
+			return fmt.Errorf("harness pack archive contains duplicate entry %s", entry.Name)
+		}
+		seen[entry.Name] = struct{}{}
+		if entry.Name == "manifest.json" && index != 0 {
+			return errors.New("harness pack archive manifest must be the first entry")
+		}
+		if index > 0 {
+			if err := validateArchivePath(entry.Name); err != nil {
+				return err
+			}
+		}
+		mode := entry.FileInfo().Mode()
+		if !mode.IsRegular() || mode&fs.ModeType != 0 {
+			return fmt.Errorf("harness pack archive entry %s is not a regular file", entry.Name)
+		}
+	}
+	return nil
+}
+
+func validateArchivePath(value string) error {
+	if value == "manifest.json" || value == "" || strings.Contains(value, `\`) ||
+		path.IsAbs(value) || path.Clean(value) != value || value == "." || value == ".." ||
+		strings.HasPrefix(value, "../") || strings.HasSuffix(value, "/") {
+		return fmt.Errorf("harness pack archive entry path is not canonical: %q", value)
+	}
+	return nil
+}
+
+func minInt64(left, right int64) int64 {
+	if left < right {
+		return left
+	}
+	return right
 }
 
 type semanticVersion struct {
