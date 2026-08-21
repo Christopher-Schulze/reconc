@@ -481,9 +481,12 @@ and byte-compares the notice before checksums and provenance are accepted.
      per-default-glob fragment inventory for the complete source transaction;
      `LoadPolicySourcesWithContext` revalidates that snapshot before and after
      source reads. The compiler passes this context through its lock-protected
-    load, so default fragments are not discovered twice. Policy globs use
+     load, so default fragments are not discovered twice. Policy globs use
      bounded segment enumeration with explicit pattern, directory, match, and
      source-count caps; `**` has no recursive special meaning.
+     Inline fenced-policy extraction scans each bounded context source once,
+     tracks line numbers incrementally, and stops at its per-source block cap
+     before retaining another block body.
      Repository source reads use `boundedio.ReadFileSnapshot`, retaining the
      opened regular-file identity and comparing it with the post-read path and
      root identities before bytes enter the source bundle.

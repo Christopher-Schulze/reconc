@@ -27,11 +27,12 @@ const GlobalPolicyFilename = "global-policy.yml"
 const GlobalPolicySourcePath = "global:" + GlobalPolicyFilename
 
 const (
-	maxPolicySourceBytes = 8 << 20
-	maxPolicyBundleBytes = 64 << 20
-	maxPolicySources     = 4096
-	maxCustomRuntimes    = 32
-	maxRuntimeDirEntries = 4096
+	maxPolicySourceBytes     = 8 << 20
+	maxPolicyBundleBytes     = 64 << 20
+	maxPolicySources         = 4096
+	maxInlineBlocksPerSource = 512
+	maxCustomRuntimes        = 32
+	maxRuntimeDirEntries     = 4096
 )
 
 // inlineBlockRegex matches fenced ```reconc ... ``` blocks inside
@@ -296,31 +297,87 @@ func loadEntryFileWithBlocks(root, relPath string, kind policy.SourceKind) ([]po
 	out := []policy.PolicySource{
 		{Kind: kind, Path: relPath, Content: text},
 	}
-	out = append(out, extractInlineBlocks(relPath, text)...)
+	blocks, err := extractInlineBlocks(relPath, text)
+	if err != nil {
+		return nil, &rerrors.PolicySourceError{Message: "extract inline policy blocks from " + relPath, Cause: err}
+	}
+	out = append(out, blocks...)
 	return out, nil
 }
 
 // extractInlineBlocks scans markdown text for fenced ```reconc blocks
 // and returns each as a PolicySource with provenance pointing back to
 // the source line.
-func extractInlineBlocks(relPath, text string) []policy.PolicySource {
-	matches := inlineBlockRegex.FindAllStringSubmatchIndex(text, -1)
-	out := make([]policy.PolicySource, 0, len(matches))
-	for _, m := range matches {
-		// m[0]/m[1] = whole match; m[2]/m[3] = group 1 (content)
-		blockStart := m[0]
-		contentStart, contentEnd := m[2], m[3]
-		lineStart := strings.Count(text[:blockStart], "\n") + 1
-		content := strings.TrimSpace(text[contentStart:contentEnd]) + "\n"
-		out = append(out, policy.PolicySource{
-			Kind:      policy.SourceInlineBlock,
-			Path:      relPath,
-			Content:   content,
-			BlockID:   fmt.Sprintf("%s:%d", relPath, lineStart),
-			LineStart: lineStart,
-		})
+func extractInlineBlocks(relPath, text string) ([]policy.PolicySource, error) {
+	out := make([]policy.PolicySource, 0, 4)
+	lineStartOffset := 0
+	lineNumber := 1
+	for lineStartOffset < len(text) {
+		line, nextOffset := inlineLine(text, lineStartOffset)
+		if !isInlineOpeningLine(line) {
+			lineStartOffset = nextOffset
+			lineNumber++
+			continue
+		}
+		contentStart := nextOffset
+		contentOffset := contentStart
+		contentLine := lineNumber + 1
+		for contentOffset < len(text) {
+			candidate, candidateNext := inlineLine(text, contentOffset)
+			if !isInlineClosingLine(candidate) {
+				contentOffset = candidateNext
+				contentLine++
+				continue
+			}
+			if len(out) >= maxInlineBlocksPerSource {
+				return nil, fmt.Errorf("inline policy source %s exceeds %d blocks", relPath, maxInlineBlocksPerSource)
+			}
+			content := strings.TrimSpace(text[contentStart:contentOffset]) + "\n"
+			out = append(out, policy.PolicySource{
+				Kind:      policy.SourceInlineBlock,
+				Path:      relPath,
+				Content:   content,
+				BlockID:   fmt.Sprintf("%s:%d", relPath, lineNumber),
+				LineStart: lineNumber,
+			})
+			lineStartOffset = candidateNext
+			lineNumber = contentLine + 1
+			break
+		}
+		if contentOffset >= len(text) {
+			lineStartOffset = nextOffset
+			lineNumber++
+		}
 	}
-	return out
+	return out, nil
+}
+
+func inlineLine(text string, start int) (string, int) {
+	end := strings.IndexByte(text[start:], '\n')
+	if end < 0 {
+		line := text[start:]
+		if strings.HasSuffix(line, "\r") {
+			line = line[:len(line)-1]
+		}
+		return line, len(text)
+	}
+	end += start
+	line := text[start:end]
+	if strings.HasSuffix(line, "\r") {
+		line = line[:len(line)-1]
+	}
+	return line, end + 1
+}
+
+func isInlineOpeningLine(line string) bool {
+	if !strings.HasPrefix(line, "```reconc") {
+		return false
+	}
+	return strings.Trim(line[len("```reconc"):], " \t") == ""
+}
+
+func isInlineClosingLine(line string) bool {
+	return strings.HasPrefix(line, "```") && strings.Trim(line[3:], " \t") == ""
 }
 
 // loadIncludePatterns parses the `include:` field of a compiler config

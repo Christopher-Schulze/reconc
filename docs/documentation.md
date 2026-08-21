@@ -1657,6 +1657,10 @@ patterns are capped at 256 and 1 KiB each, directory enumeration and matches
 are capped, only regular files are candidates, and `**` is not recursive
 special syntax. Duplicate paths are removed by normalized repository-relative
 identity before reading.
+Inline fenced-policy blocks are extracted with one bounded line scan and
+incremental line accounting. A per-source block cap is enforced before another
+block body is retained, while LF/CRLF, fence syntax, block IDs, trimming, and
+source order remain compatible.
 Repository sources are read through a bounded opened-file snapshot that
 returns the file identity used for the bytes. Loader checks compare that
 identity, the canonical source path, and the canonical repository root after
