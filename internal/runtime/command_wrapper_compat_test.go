@@ -63,6 +63,31 @@ func TestMatchingCommandResultsAcceptWrappedAndAnchoredForms(t *testing.T) {
 	}
 }
 
+func TestStackedWrappersShareOneEvidenceAndPolicyIdentity(t *testing.T) {
+	const root = "/workspace/repo"
+	inputs := ExecutionInputs{
+		Commands: []string{"rtk rtk go test ./..."},
+		CommandResults: []CommandResult{{
+			Command: "rtk rtk go test ./...", Outcome: CommandOutcomeSuccess,
+		}},
+	}
+	index := newCommandEvidenceIndex(inputs, root)
+	if index.commands[0].normalized != "go test ./..." || index.results[0].normalized != "go test ./..." {
+		t.Fatalf("stacked evidence identities = %#v / %#v", index.commands, index.results)
+	}
+	rules := []policy.Rule{{Commands: []string{"go test ./...", "rtk rtk go test ./..."}}}
+	cache := newCommandInvocationCache(rules, root)
+	if len(cache.expected) != 1 {
+		t.Fatalf("equivalent policy commands created %d cache entries", len(cache.expected))
+	}
+	if got := matchingCommandsWithEvidence(index, cache, inputs.Commands, []string{"go test ./..."}, root, policy.CommandMatchExact); len(got) != 1 {
+		t.Fatalf("stacked command evidence did not match literal policy: %v", got)
+	}
+	if got := matchingCommandResultsSince(inputs.CommandResults, []string{"rtk rtk go test ./..."}, CommandOutcomeSuccess, root, 0, policy.CommandMatchExact); len(got) != 1 {
+		t.Fatalf("literal command result did not match stacked policy identity: %v", got)
+	}
+}
+
 // TestRelativizeEpochKeysBridgesAbsoluteAndRelativeSpellings proves session
 // write epochs recorded under absolute payload paths become visible to
 // repo-relative git-path lookups without losing the original keys.

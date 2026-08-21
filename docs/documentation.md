@@ -1986,10 +1986,13 @@ validated by the canonical matcher before acceptance.
 
 Command matching is exact (normalized whole strings) by default.
 Normalization is wrapper- and anchor-tolerant without weakening semantics: a
-transparent `rtk ` proxy prefix is stripped at command position, an absolute
-repo path inside `cd` becomes repo-relative, and a leading `cd <repo-root> &&`
-(or `;`) anchor collapses away entirely because it is a no-op inside the repo
-(`||` and pipe joins are never collapsed). Session write epochs recorded under
+complete stack of transparent `rtk ` proxy prefixes is stripped at each
+unquoted command position in one input-bounded pass, an absolute repo path
+inside `cd` becomes repo-relative, and a leading `cd <repo-root> &&` (or `;`)
+anchor collapses away entirely because it is a no-op inside the repo (`||` and
+pipe joins are never collapsed). Wrapper normalization is a fixed point and
+does not rewrite quoted or escaped data, argument values, backticks, or
+`$(...)` command substitutions. Session write epochs recorded under
 absolute payload paths are aliased to repo-relative spellings during `ci`, so
 the `require_command_success` write-epoch freshness contract binds instead of
 silently reading zero. In `ci --staged`, `require_command_success` violations

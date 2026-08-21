@@ -2,11 +2,10 @@
 
 ## Active
 
-- [~] 229 Make command normalization idempotent -> tasks/229-make-command-normalization-idempotent.md
+- [~] 230 Centralize compiled-lockfile discovery state -> tasks/230-centralize-compiled-lockfile-discovery-state.md
 
 ## Queue
 
-- [ ] 230 Centralize compiled-lockfile discovery state -> tasks/230-centralize-compiled-lockfile-discovery-state.md
 - [ ] 231 Reuse evidence-path root identity -> tasks/231-reuse-evidence-path-root-identity.md
 - [ ] 232 Cache the runtime source-freshness recipe -> tasks/232-cache-runtime-source-freshness-recipe.md
 - [ ] 233 Decode policy YAML once for rules and actions -> tasks/233-decode-policy-yaml-once-for-rules-and-actions.md
@@ -18,6 +17,7 @@
 
 ## Done
 
+- [x] 229 Make command normalization idempotent -> tasks/done/229-make-command-normalization-idempotent.md
 - [x] 228 Make hook remediation typed and shell-safe -> tasks/done/228-make-hook-remediation-typed-and-shell-safe.md
 - [x] 227 Unify inline policy-block discovery -> tasks/done/227-unify-inline-policy-block-discovery.md
 - [x] 226 Derive action-ledger archives from policy -> tasks/done/226-derive-action-ledger-archives-from-policy.md
@@ -27,4 +27,3 @@
 - [x] 222 Close v0.9.7 verification and release-documentation gaps -> tasks/done/222-close-v0-9-7-verification-and-release-documentation-gaps.md
 - [x] 221 Close v0.9.7 release-candidate audit gaps -> tasks/done/221-close-v0-9-7-release-candidate-audit-gaps.md
 - [x] 220 Resolve v6 schema publication drift -> tasks/done/220-resolve-v6-schema-publication-drift.md
-- [x] 219 Report every review-relevant lockfile change -> tasks/done/219-report-every-review-relevant-lockfile-change.md

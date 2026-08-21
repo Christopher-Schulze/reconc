@@ -125,3 +125,31 @@ func FuzzLoadExecutionInputsTextNoPanic(f *testing.F) {
 		}
 	})
 }
+
+func FuzzNormalizeCommandSemanticsIdempotent(f *testing.F) {
+	for _, seed := range []string{
+		"rtk rtk go test ./...",
+		"true && rtk rtk git status",
+		"echo 'rtk rtk literal'",
+		"echo $(true && rtk rtk git status)",
+		"rtkfoo rtk value",
+	} {
+		f.Add(seed, "/workspace/repo")
+	}
+	f.Fuzz(func(t *testing.T, command, root string) {
+		once := normalizeCommandSemantics(command, root)
+		if again := normalizeCommandSemantics(command, root); again != once {
+			t.Fatalf("normalization is nondeterministic: first=%q second=%q", once, again)
+		}
+		if twice := normalizeCommandSemantics(once, root); twice != once {
+			t.Fatalf("normalization is not idempotent: command=%q once=%q twice=%q", command, once, twice)
+		}
+		if !strings.ContainsRune(command, '\'') {
+			quoted := "printf '" + command + "' && rtk rtk go test"
+			normalized := normalizeCommandSemantics(quoted, root)
+			if !strings.HasPrefix(normalized, "printf '"+command+"' && ") {
+				t.Fatalf("quoted data changed: command=%q normalized=%q", quoted, normalized)
+			}
+		}
+	})
+}

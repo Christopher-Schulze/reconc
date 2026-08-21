@@ -897,6 +897,7 @@ func splitCommandSegments(cmd string) []commandSegment {
 	nextSeparator := ""
 	var quote byte
 	escaped := false
+	substitutionDepth := 0
 	for index := 0; index < len(cmd); index++ {
 		current := cmd[index]
 		if escaped {
@@ -915,6 +916,17 @@ func splitCommandSegments(cmd string) []commandSegment {
 		}
 		if current == '\'' || current == '"' || current == '`' {
 			quote = current
+			continue
+		}
+		if current == '(' && (substitutionDepth > 0 || index > 0 && cmd[index-1] == '$') {
+			substitutionDepth++
+			continue
+		}
+		if current == ')' && substitutionDepth > 0 {
+			substitutionDepth--
+			continue
+		}
+		if substitutionDepth > 0 {
 			continue
 		}
 		for _, separator := range commandSegmentSeparators {
@@ -1017,7 +1029,13 @@ func normalizeSegmentBody(body, repoRoot string) string {
 	if body == "" {
 		return body
 	}
-	if strings.HasPrefix(body, "rtk ") {
+	// Every pass consumes at least the complete four-byte "rtk " token, so
+	// the input-derived bound proves convergence even for adversarial stacks.
+	maximumWrappers := len(body) / len("rtk ")
+	for range maximumWrappers {
+		if !strings.HasPrefix(body, "rtk ") {
+			break
+		}
 		body = strings.TrimSpace(body[len("rtk "):])
 	}
 	if repoRoot != "" && strings.HasPrefix(body, "cd ") {

@@ -462,6 +462,23 @@ func BenchmarkCommandEvidenceReparse(b *testing.B) {
 	}
 }
 
+func BenchmarkNormalizeCommandSemantics(b *testing.B) {
+	for _, command := range []string{
+		"go test ./...",
+		"rtk go test ./...",
+		"rtk rtk rtk go test ./... && rtk rtk git status",
+	} {
+		b.Run(command, func(b *testing.B) {
+			b.ReportAllocs()
+			for range b.N {
+				if normalizeCommandSemantics(command, "/repo") == "" {
+					b.Fatal("normalization returned empty")
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkEvidenceSnapshotCacheHit(b *testing.B) {
 	path := filepath.Join(b.TempDir(), "evidence.txt")
 	writeFileBench(b, filepath.Dir(path), filepath.Base(path), "alpha\nbeta\n")
