@@ -16,6 +16,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"reconc.dev/reconc/buildprovenance"
 	"reconc.dev/reconc/internal/commandproof"
@@ -34,11 +36,13 @@ const (
 )
 
 var (
-	secretAssignment = regexp.MustCompile(`(?i)\b(api[_-]?key|access[_-]?token|auth[_-]?token|token|secret|password|passwd|authorization)\s*[:=]\s*[^\s,;]+`)
-	bearerSecret     = regexp.MustCompile(`(?i)\bbearer\s+[^\s,;]+`)
-	knownToken       = regexp.MustCompile(`\b(?:github_pat_|gh[pousr]_|sk-)[A-Za-z0-9_-]{8,}\b`)
-	unixAbsolutePath = regexp.MustCompile(`(^|[\s(])/(?:[^\s:;,)]+)`)
-	windowsPath      = regexp.MustCompile(`(?i)\b[A-Z]:\\[^\s:;,)]+`)
+	secretAssignment = regexp.MustCompile(`(?i)\b(api[_-]?key|access[_-]?token|auth[_-]?token|token|secret|password|passwd|authorization)\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;,)\]}]+)`)
+	bearerSecret     = regexp.MustCompile(`(?i)\bbearer\s+(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;,)\]}]+)`)
+	knownToken       = regexp.MustCompile(`(?i)\b(?:github_pat_|gh[pousr]_|glpat-|xox[baprs]-|xapp-|sk-(?:live_|test_|proj_)?|AIza|npm_|pypi-)[A-Za-z0-9_.-]{8,}\b`)
+	jwtToken         = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b`)
+	awsAccessKey     = regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`)
+	unixAbsolutePath = regexp.MustCompile(`(^|[\s(\[\{"'=,:])/(?:[^\s:;,)\]}"']+)`)
+	windowsPath      = regexp.MustCompile(`(?i)(^|[\s(\[\{"'=,:])[A-Z]:\\(?:[^\s:;,)\]}"']+)`)
 )
 
 type Build struct {
@@ -74,7 +78,11 @@ type Check struct {
 }
 
 type CommandProof struct {
-	Command        string `json:"command"`
+	Command string `json:"command"`
+	// CommandHash is a stable SHA-256 grouping key for the sanitized
+	// executable identity. It is deliberately not a commitment to the full
+	// command or any of its arguments, so it cannot be used as an offline
+	// argument-guessing oracle.
 	CommandHash    string `json:"command_hash"`
 	ExecutionMode  string `json:"execution_mode"`
 	Outcome        string `json:"outcome"`
@@ -275,7 +283,7 @@ func commandProofs(values []commandproof.Proof, snapshot commandproof.Snapshot, 
 		}
 		normalized := strings.Join(strings.Fields(value.Command), " ")
 		result = append(result, CommandProof{
-			Command: summarizeCommand(normalized), CommandHash: hashString(normalized), ExecutionMode: sanitizeText("", value.ExecutionMode),
+			Command: summarizeCommand(normalized), CommandHash: hashString(commandIdentity(normalized)), ExecutionMode: sanitizeText("", value.ExecutionMode),
 			Outcome: value.Outcome, ExitCode: value.ExitCode, Head: value.Head, IndexTree: value.IndexTree,
 			ReceiptDigest:  value.Digest,
 			CandidateBound: value.Head == snapshot.Head && value.IndexTree == snapshot.IndexTree && value.Head == candidateCommit(candidate.GitHead),
@@ -306,11 +314,35 @@ func summarizeCommand(command string) string {
 	if len(fields) == 0 {
 		return "<empty>"
 	}
-	name := filepath.Base(fields[0])
+	name := commandExecutableName(fields[0])
 	if len(fields) == 1 {
 		return sanitizeText("", name)
 	}
 	return sanitizeText("", name+" [arguments redacted]")
+}
+
+func commandIdentity(command string) string {
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return "<empty>"
+	}
+	// An assignment in the first position can contain an arbitrary secret and
+	// is not the executable identity. Collapse that case instead of hashing any
+	// part of its value. This also covers flags accidentally supplied first.
+	if strings.ContainsRune(fields[0], '=') {
+		return "<environment-prefixed-command>"
+	}
+	return sanitizeText("", commandExecutableName(fields[0]))
+}
+
+func commandExecutableName(value string) string {
+	value = strings.Trim(value, "\\\"'")
+	value = strings.ReplaceAll(value, `\`, "/")
+	name := path.Base(value)
+	if name == "." || name == "/" || name == "" {
+		return "<empty>"
+	}
+	return name
 }
 
 func requiredValues(values []Violation, pick func(Violation) []string) []string {
@@ -363,30 +395,88 @@ func sanitizeValues(root string, values []string) []string {
 }
 
 func sanitizeText(root, value string) string {
-	value = strings.TrimSpace(value)
+	value = strings.ToValidUTF8(strings.TrimSpace(value), "\uFFFD")
 	if root != "" {
-		value = strings.ReplaceAll(value, filepath.Clean(root), ".")
-		if name := filepath.Base(filepath.Clean(root)); name != "." && name != string(filepath.Separator) {
-			pattern := regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\b`)
-			value = pattern.ReplaceAllString(value, "<repo>")
+		cleanRoot := filepath.Clean(root)
+		if cleanRoot != "." && cleanRoot != string(filepath.Separator) {
+			value = replaceBoundaryToken(value, cleanRoot, ".")
+			if name := filepath.Base(cleanRoot); name != "." && name != string(filepath.Separator) {
+				value = replaceBoundaryToken(value, name, "<repo>")
+			}
 		}
 	}
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		value = strings.ReplaceAll(value, filepath.Clean(home), "<home>")
+		value = replaceBoundaryToken(value, filepath.Clean(home), "<home>")
 	}
 	if user := strings.TrimSpace(os.Getenv("USER")); len(user) >= 3 {
-		pattern := regexp.MustCompile(`\b` + regexp.QuoteMeta(user) + `\b`)
-		value = pattern.ReplaceAllString(value, "<user>")
+		value = replaceBoundaryToken(value, user, "<user>")
 	}
 	value = secretAssignment.ReplaceAllString(value, "$1=<redacted>")
 	value = bearerSecret.ReplaceAllString(value, "Bearer <redacted>")
 	value = knownToken.ReplaceAllString(value, "<redacted>")
+	value = jwtToken.ReplaceAllString(value, "<redacted>")
+	value = awsAccessKey.ReplaceAllString(value, "<redacted>")
 	value = unixAbsolutePath.ReplaceAllString(value, "$1<external>")
-	value = windowsPath.ReplaceAllString(value, "<external>")
-	if len(value) > maxTextBytes {
-		value = value[:maxTextBytes] + "...[bounded]"
+	value = windowsPath.ReplaceAllString(value, "$1<external>")
+	return boundText(value)
+}
+
+func replaceBoundaryToken(value, target, replacement string) string {
+	if value == "" || target == "" {
+		return value
 	}
-	return value
+	var output strings.Builder
+	output.Grow(len(value))
+	searchFrom := 0
+	for searchFrom < len(value) {
+		relative := strings.Index(value[searchFrom:], target)
+		if relative < 0 {
+			output.WriteString(value[searchFrom:])
+			break
+		}
+		start := searchFrom + relative
+		end := start + len(target)
+		if tokenBoundaryBefore(value, start) && tokenBoundaryAfter(value, end) {
+			output.WriteString(value[searchFrom:start])
+			output.WriteString(replacement)
+			searchFrom = end
+			continue
+		}
+		output.WriteString(value[searchFrom : start+len(target[:1])])
+		searchFrom = start + len(target[:1])
+	}
+	return output.String()
+}
+
+func tokenBoundaryBefore(value string, index int) bool {
+	if index == 0 {
+		return true
+	}
+	runeValue, _ := utf8.DecodeLastRuneInString(value[:index])
+	return !isTokenRune(runeValue)
+}
+
+func tokenBoundaryAfter(value string, index int) bool {
+	if index == len(value) {
+		return true
+	}
+	runeValue, _ := utf8.DecodeRuneInString(value[index:])
+	return !isTokenRune(runeValue)
+}
+
+func isTokenRune(value rune) bool {
+	return unicode.IsLetter(value) || unicode.IsDigit(value) || value == '_' || value == '-' || value == '.'
+}
+
+func boundText(value string) string {
+	if len(value) <= maxTextBytes {
+		return value
+	}
+	boundary := maxTextBytes
+	for boundary > 0 && !utf8.ValidString(value[:boundary]) {
+		boundary--
+	}
+	return value[:boundary] + "...[bounded]"
 }
 
 func stableUnique(values []string) []string {

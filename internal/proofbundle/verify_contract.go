@@ -140,7 +140,7 @@ func verifyCommandProofs(proofs []CommandProof) error {
 		if !validCommandProofContract(proof) {
 			return invalidProof("contains an invalid command proof")
 		}
-		if !validDigest(proof.CommandHash) || !validGitObjectID(proof.IndexTree) || !validDigest(proof.ReceiptDigest) || (!validGitObjectID(proof.Head) && proof.Head != "UNBORN") {
+		if !validDigest(proof.CommandHash) || proof.CommandHash != hashString(commandIdentity(proof.Command)) || !validGitObjectID(proof.IndexTree) || !validDigest(proof.ReceiptDigest) || (!validGitObjectID(proof.Head) && proof.Head != "UNBORN") {
 			return invalidProof("contains an invalid command proof identity")
 		}
 		identity := proof.CommandHash + "\x00" + proof.ReceiptDigest

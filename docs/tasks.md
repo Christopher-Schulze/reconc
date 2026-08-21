@@ -6,19 +6,13 @@
 
 ## Queue
 
-- [ ] 212 Validate immutable compiled action plans once -> tasks/212-validate-immutable-compiled-action-plans-once.md
-- [ ] 213 Compute action argument size once per evaluation -> tasks/213-compute-action-argument-size-once-per-evaluation.md
-- [ ] 214 Deduplicate runtime evidence in linear time -> tasks/214-deduplicate-runtime-evidence-in-linear-time.md
-- [ ] 215 Enforce harness-pack limits before retaining payloads -> tasks/215-enforce-harness-pack-limits-before-retaining-payloads.md
-- [ ] 216 Make context-size accounting bounded and overflow-safe -> tasks/216-make-context-size-accounting-bounded-and-overflow-safe.md
-- [ ] 217 Make extracted rule identifiers collision-resistant -> tasks/217-make-extracted-rule-identifiers-collision-resistant.md
-- [ ] 218 Close proof-bundle privacy inference gaps -> tasks/218-close-proof-bundle-privacy-inference-gaps.md
 - [ ] 219 Report every review-relevant lockfile change -> tasks/219-report-every-review-relevant-lockfile-change.md
 
 ## Blocked
 
 ## Done
 
+- [x] 218 Close proof-bundle privacy inference gaps -> tasks/done/218-close-proof-bundle-privacy-inference-gaps.md
 - [x] 217 Make extracted rule identifiers collision-resistant -> tasks/done/217-make-extracted-rule-identifiers-collision-resistant.md
 - [x] 216 Make context-size accounting bounded and overflow-safe -> tasks/done/216-make-context-size-accounting-bounded-and-overflow-safe.md
 - [x] 215 Enforce harness-pack limits before retaining payloads -> tasks/done/215-enforce-harness-pack-limits-before-retaining-payloads.md

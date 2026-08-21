@@ -44,8 +44,18 @@ Every `reconc` invocation moves data through some subset of this pipe:
        proofbundle
            │
            ▼
-       ProofBundle
+      ProofBundle
 ```
+
+The proof-bundle exporter is a privacy boundary, not a command transcript.
+Every command receipt exposes only a bounded executable summary. Its
+`command_hash` is a deterministic SHA-256 grouping key over the sanitized
+executable identity, never over the normalized command or its arguments, so
+public bundles do not provide an offline argument-guessing oracle. Paths,
+home/user identity, known token forms, and assignment values are redacted with
+boundary-aware replacement, bounded UTF-8 output, and a maintained adversarial
+test corpus; regex recognition is defense in depth rather than secret
+discovery.
 
 `refresh` stops at the lockfile. `check` / `ci` / `assert` / `can`
 load the lockfile and run the runtime evaluator. `fix` / `explain`

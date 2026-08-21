@@ -608,7 +608,10 @@ remediation, and any older unresolved block superseded by the current candidate.
 JSON is the default; Markdown is rendered from the same verified typed data.
 `--output` atomically mirrors the exact stdout bytes to a file. Absolute paths,
 home/user identity, session IDs, prompts, transcripts, environment data, and raw
-command arguments are excluded or redacted. The command is read-only: it never
+command arguments are excluded or redacted. The public `command_hash` is a
+stable SHA-256 grouping key for the sanitized executable identity only; it
+never hashes the full command or arguments and is not an offline
+argument-guessing oracle. The command is read-only: it never
 refreshes policy, runs missing tests, persists a decision, or converts missing
 evidence into a pass. Exit 0 = pass bundle, 2 = blocked bundle emitted, 1 =
 runtime/input/output error.

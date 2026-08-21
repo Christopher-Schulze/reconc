@@ -102,7 +102,7 @@ func TestRenderMarkdownIncludesRichEvidenceContract(t *testing.T) {
 	bundle.Evidence.RequiredClaims = []string{"tests-green"}
 	bundle.Evidence.SatisfiedChecks = []string{}
 	bundle.Evidence.CommandProofs = []CommandProof{{
-		Command: "go [arguments redacted]", CommandHash: strings.Repeat("d", 64),
+		Command: "go [arguments redacted]", CommandHash: hashString("go"),
 		ExecutionMode: "direct", Outcome: "success", Head: strings.Repeat("a", 40), IndexTree: strings.Repeat("b", 40),
 		ReceiptDigest: strings.Repeat("e", 64), CandidateBound: true, Fresh: true,
 	}}
@@ -133,6 +133,20 @@ func TestRenderMarkdownIncludesRichEvidenceContract(t *testing.T) {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("Markdown omitted %q:\n%s", expected, output.String())
 		}
+	}
+}
+
+func TestVerifyRejectsCommandHashThatCommitsToArguments(t *testing.T) {
+	bundle := validProofBundle()
+	bundle.Evidence.CommandProofs = []CommandProof{{
+		Command: "go [arguments redacted]", CommandHash: hashString("go test --secret"),
+		ExecutionMode: "direct", Outcome: "success", Head: strings.Repeat("a", 40),
+		IndexTree: strings.Repeat("b", 40), ReceiptDigest: strings.Repeat("c", 64),
+		CandidateBound: true, Fresh: true,
+	}}
+	bundle.Digest = digest(bundle)
+	if err := Verify(bundle); err == nil || !strings.Contains(err.Error(), "command proof identity") {
+		t.Fatalf("raw command hash was accepted: %v", err)
 	}
 }
 
