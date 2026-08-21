@@ -354,6 +354,9 @@ func loadIncludePatterns(configText, context string) ([]string, error) {
 		}
 		out = append(out, normalized)
 	}
+	if err := validatePolicyGlobPatterns(out); err != nil {
+		return nil, &rerrors.PolicySourceError{Message: err.Error()}
+	}
 	return out, nil
 }
 
@@ -427,6 +430,9 @@ func loadPolicyFragmentSources(root string, patterns []string) ([]policy.PolicyS
 }
 
 func loadPolicyFragmentSourcesWithDefaults(root string, patterns []string, defaultMatches map[string][]string) ([]policy.PolicySource, []string, error) {
+	if err := validatePolicyGlobPatterns(patterns); err != nil {
+		return nil, nil, &rerrors.PolicySourceError{Message: err.Error()}
+	}
 	// Dedupe + sort patterns first so glob expansion is deterministic.
 	patternSet := map[string]struct{}{}
 	for _, p := range patterns {
@@ -449,7 +455,7 @@ func loadPolicyFragmentSourcesWithDefaults(root string, patterns []string, defau
 			}
 		} else {
 			var err error
-			matches, err = filepath.Glob(filepath.Join(root, pattern))
+			matches, err = boundedPolicyGlob(root, pattern)
 			if err != nil {
 				return nil, nil, &rerrors.PolicySourceError{
 					Message: "expand include pattern " + pattern,

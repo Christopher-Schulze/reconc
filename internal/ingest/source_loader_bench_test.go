@@ -43,6 +43,34 @@ func BenchmarkLoadPolicySourcesWithDiscovery(b *testing.B) {
 	}
 }
 
+func BenchmarkBoundedPolicyGlob(b *testing.B) {
+	root := b.TempDir()
+	for index := 0; index < 256; index++ {
+		writeBenchSource(b, root, filepath.Join("policies", "r"+strconv.Itoa(index)+".yml"), "rules: []\n")
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if _, err := boundedPolicyGlob(root, "policies/*.yml"); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkUnboundedPolicyGlobBaseline(b *testing.B) {
+	root := b.TempDir()
+	for index := 0; index < 256; index++ {
+		writeBenchSource(b, root, filepath.Join("policies", "r"+strconv.Itoa(index)+".yml"), "rules: []\n")
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if _, err := filepath.Glob(filepath.Join(root, "policies", "*.yml")); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func writeBenchSource(b *testing.B, root, relative, content string) {
 	b.Helper()
 	path := filepath.Join(root, relative)

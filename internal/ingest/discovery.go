@@ -88,7 +88,10 @@ func DiscoverPolicyRepo(startPath string) (DiscoveryResult, error) {
 	fallbackRoot := cursor
 
 	for {
-		result, found := inspectDirectory(cursor, abs)
+		result, found, inspectErr := inspectDirectory(cursor, abs)
+		if inspectErr != nil {
+			return DiscoveryResult{}, inspectErr
+		}
 		if found {
 			return result, nil
 		}
@@ -113,7 +116,7 @@ func DiscoverPolicyRepo(startPath string) (DiscoveryResult, error) {
 // inspectDirectory checks one directory for policy markers. Returns
 // (result, true) when at least one marker was found; (zero, false) when
 // none were present.
-func inspectDirectory(dir, originalStart string) (DiscoveryResult, bool) {
+func inspectDirectory(dir, originalStart string) (DiscoveryResult, bool, error) {
 	claude := filepathIfRegular(dir, "CLAUDE.md")
 	agents := filepathIfRegular(dir, "AGENTS.md")
 	startMD := filepathIfRegular(dir, "start.md")
@@ -125,12 +128,15 @@ func inspectDirectory(dir, originalStart string) (DiscoveryResult, bool) {
 		}
 	}
 
-	policies := listPolicyFragments(dir)
+	policies, err := listPolicyFragments(dir)
+	if err != nil {
+		return DiscoveryResult{}, false, fmt.Errorf("enumerate policy fragments in %s: %w", dir, err)
+	}
 
 	hasMarker := claude != nil || agents != nil || startMD != nil ||
 		len(configs) > 0 || len(policies) > 0
 	if !hasMarker {
-		return DiscoveryResult{}, false
+		return DiscoveryResult{}, false, nil
 	}
 
 	lockfile := filepath.Join(dir, LockfilePath)
@@ -172,7 +178,7 @@ func inspectDirectory(dir, originalStart string) (DiscoveryResult, bool) {
 		PolicyPaths:      policies,
 		LockfilePath:     lockfilePath,
 		Warnings:         warnings,
-	}, true
+	}, true, nil
 }
 
 // filepathIfRegular returns a pointer to name (not a full path) when the
@@ -199,12 +205,12 @@ func isRegularFile(path string) bool {
 // listPolicyFragments returns the repo-relative (POSIX-style) paths of
 // every file matching DefaultPolicyGlobs under dir. Sorted for
 // deterministic output.
-func listPolicyFragments(dir string) []string {
+func listPolicyFragments(dir string) ([]string, error) {
 	seen := map[string]struct{}{}
 	for _, pattern := range DefaultPolicyGlobs {
-		matches, err := filepath.Glob(filepath.Join(dir, pattern))
+		matches, err := boundedPolicyGlob(dir, pattern)
 		if err != nil {
-			continue // malformed glob is a programmer bug; skip silently
+			return nil, err
 		}
 		for _, m := range matches {
 			if !isRegularFile(m) {
@@ -222,5 +228,5 @@ func listPolicyFragments(dir string) []string {
 		out = append(out, k)
 	}
 	sort.Strings(out)
-	return out
+	return out, nil
 }

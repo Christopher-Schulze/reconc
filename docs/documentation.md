@@ -1652,6 +1652,11 @@ canonical root identity, config identity, and the per-default-glob fragment
 inventory travel together through one load and are revalidated before and
 after reads. Default fragments therefore are not globbed twice, while
 additional validated includes still expand independently.
+Glob expansion is segment-based and bounded before source bodies are retained:
+patterns are capped at 256 and 1 KiB each, directory enumeration and matches
+are capped, only regular files are candidates, and `**` is not recursive
+special syntax. Duplicate paths are removed by normalized repository-relative
+identity before reading.
 Publication uses identity-bound atomic replacement and skips the write entirely
 when the canonical bytes are unchanged, so readers never see partial JSON and
 repeated compiles do not

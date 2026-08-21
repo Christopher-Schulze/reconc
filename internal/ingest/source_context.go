@@ -42,7 +42,10 @@ func NewSourceLoadContext(repoStartPath string) (*SourceLoadContext, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve policy source root: %w", err)
 	}
-	context.defaultMatches = defaultPolicyMatches(discovery.RepoRoot)
+	context.defaultMatches, err = defaultPolicyMatches(discovery.RepoRoot)
+	if err != nil {
+		return nil, fmt.Errorf("capture default policy fragments: %w", err)
+	}
 	if discovery.ConfigPath != nil {
 		context.configPath = *discovery.ConfigPath
 		context.configIdentity, err = sourcePathInfo(discovery.RepoRoot, context.configPath)
@@ -70,7 +73,10 @@ func (c *SourceLoadContext) Validate() error {
 	if rootIdentity != c.rootIdentity {
 		return fmt.Errorf("policy source root identity changed while loading")
 	}
-	current := defaultPolicyMatches(c.RepoRoot)
+	current, err := defaultPolicyMatches(c.RepoRoot)
+	if err != nil {
+		return fmt.Errorf("revalidate default policy fragments: %w", err)
+	}
 	if !reflect.DeepEqual(current, c.defaultMatches) {
 		return fmt.Errorf("default policy fragment inventory changed while loading")
 	}
@@ -86,13 +92,12 @@ func (c *SourceLoadContext) Validate() error {
 	return nil
 }
 
-func defaultPolicyMatches(root string) map[string][]string {
+func defaultPolicyMatches(root string) (map[string][]string, error) {
 	matches := make(map[string][]string, len(DefaultPolicyGlobs))
 	for _, pattern := range DefaultPolicyGlobs {
-		found, err := filepath.Glob(filepath.Join(root, pattern))
+		found, err := boundedPolicyGlob(root, pattern)
 		if err != nil {
-			matches[pattern] = []string{}
-			continue
+			return nil, err
 		}
 		paths := make([]string, 0, len(found))
 		for _, full := range found {
@@ -107,7 +112,7 @@ func defaultPolicyMatches(root string) map[string][]string {
 		sort.Strings(paths)
 		matches[pattern] = paths
 	}
-	return matches
+	return matches, nil
 }
 
 func sourcePathInfo(root, relative string) (os.FileInfo, error) {
