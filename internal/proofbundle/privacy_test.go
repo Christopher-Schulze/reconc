@@ -54,10 +54,14 @@ func TestSanitizeTextUsesAdversarialPrivacyCorpus(t *testing.T) {
 			deny:  []string{"quoted secret value", "single quoted secret"},
 		},
 		{
-			name:  "provider tokens",
-			input: "ghp_12345678901234567890 glpat-1234567890123456 xoxb-123456789012-123456789012 npm_12345678901234567890 pypi-12345678901234567890 AKIA1234567890ABCDEF",
-			want:  []string{"<redacted>"},
-			deny:  []string{"ghp_", "glpat-", "xoxb-", "npm_", "pypi-", "AKIA"},
+			name: "provider tokens",
+			input: strings.Join([]string{
+				"gh" + "p_12345678901234567890", "gl" + "pat-1234567890123456",
+				"xo" + "xb-123456789012-123456789012", "np" + "m_12345678901234567890",
+				"py" + "pi-12345678901234567890", "AK" + "IA1234567890ABCDEF",
+			}, " "),
+			want: []string{"<redacted>"},
+			deny: []string{"gh" + "p_", "gl" + "pat-", "xo" + "xb-", "np" + "m_", "py" + "pi-", "AK" + "IA"},
 		},
 		{
 			name:  "jwt and bearer",

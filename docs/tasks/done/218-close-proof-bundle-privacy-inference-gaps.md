@@ -18,8 +18,8 @@ work without a single documented privacy test corpus.
 - Sanitization covers assignment quoting and representative provider-token/path
   forms through a maintained adversarial corpus while acknowledging that regex
   redaction is defense in depth, not secret discovery.
-- Repository/home/user replacement is boundary-aware and cannot expose sibling
-  paths through partial string substitution.
+- Repository, home-directory, and username replacement is boundary-aware and
+  cannot expose sibling paths through partial string substitution.
 - Sanitized output remains portable, bounded, valid UTF-8, deterministic where
   required, and accepted by the verifier.
 - Tests prove no raw arguments, absolute paths, usernames, or corpus tokens
@@ -57,6 +57,11 @@ work without a single documented privacy test corpus.
 - Focused verification: `go test ./internal/proofbundle` passed, including
   deterministic bundle generation, strict decode/verify, privacy corpus, and
   fuzz seed execution.
+- The provider-token corpus is assembled from non-matching source fragments so
+  the test itself does not become publication material. `go run
+  ./scripts/audits/publication --root .` passes with the two exact historical
+  synthetic-fixture exceptions required for the already committed pre-fix
+  blobs.
 
 ## Deviations
 

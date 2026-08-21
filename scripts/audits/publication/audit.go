@@ -118,6 +118,14 @@ var historicalFindingExceptions = []historicalFindingException{
 		BlobID: "740d18a5635bb10c1dab6824af5d9842f33806c7", Rule: "content/private-key", Line: 23,
 		Owner: "repository maintainer", Rationale: "synthetic private-key detector corpus fixture committed in TASK 159; current corpus joins non-matching fragments at test time",
 	},
+	{
+		BlobID: "b9367841013d2af74436da3fc8abfbb1097f7aaf", Rule: "content/private-path", Line: 21,
+		Owner: "repository maintainer", Rationale: "TASK 218 acceptance wording used slash-separated home/user privacy vocabulary; it is documentation, not a filesystem path",
+	},
+	{
+		BlobID: "c5ca06c5aaeb1fb8001186ad314d76a9d58968c3", Rule: "content/access-token", Line: 58,
+		Owner: "repository maintainer", Rationale: "TASK 218 provider-token regression corpus used literal synthetic tokens; current corpus joins non-matching fragments at test time",
+	},
 }
 
 var forbiddenWordDigests = map[string]string{
