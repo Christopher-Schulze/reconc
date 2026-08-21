@@ -2,11 +2,10 @@
 
 ## Active
 
-- [~] 226 Derive action-ledger archives from policy -> tasks/226-derive-action-ledger-archives-from-policy.md
+- [~] 227 Unify inline policy-block discovery -> tasks/227-unify-inline-policy-block-discovery.md
 
 ## Queue
 
-- [ ] 227 Unify inline policy-block discovery -> tasks/227-unify-inline-policy-block-discovery.md
 - [ ] 228 Make hook remediation typed and shell-safe -> tasks/228-make-hook-remediation-typed-and-shell-safe.md
 - [ ] 229 Make command normalization idempotent -> tasks/229-make-command-normalization-idempotent.md
 - [ ] 230 Centralize compiled-lockfile discovery state -> tasks/230-centralize-compiled-lockfile-discovery-state.md
@@ -21,6 +20,7 @@
 
 ## Done
 
+- [x] 226 Derive action-ledger archives from policy -> tasks/done/226-derive-action-ledger-archives-from-policy.md
 - [x] 225 Verify format-1 source integrity before migration -> tasks/done/225-verify-format-1-source-integrity-before-migration.md
 - [x] 224 Apply validated Go 1.27 optimizations -> tasks/done/224-apply-validated-go-1-27-optimizations.md
 - [x] 223 Migrate Reconc to Go 1.27 stable -> tasks/done/223-migrate-reconc-to-go-1-27-stable.md
@@ -30,4 +30,3 @@
 - [x] 219 Report every review-relevant lockfile change -> tasks/done/219-report-every-review-relevant-lockfile-change.md
 - [x] 218 Close proof-bundle privacy inference gaps -> tasks/done/218-close-proof-bundle-privacy-inference-gaps.md
 - [x] 217 Make extracted rule identifiers collision-resistant -> tasks/done/217-make-extracted-rule-identifiers-collision-resistant.md
-- [x] 216 Make context-size accounting bounded and overflow-safe -> tasks/done/216-make-context-size-accounting-bounded-and-overflow-safe.md

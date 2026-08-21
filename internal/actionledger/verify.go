@@ -234,7 +234,7 @@ func (s *Store) loadRecordsLocked() ([]Record, error) {
 	if err := s.validateArchiveSet(); err != nil {
 		return nil, err
 	}
-	paths, err := jsonl.PathsOldestFirst(s.livePath, MaxArchives)
+	paths, err := jsonl.PathsOldestFirst(s.livePath, s.policy.MaxArchives)
 	if err != nil {
 		return nil, ledgerError(action.ReasonLedgerUnavailable, "inspect action ledger files", err)
 	}
@@ -263,11 +263,11 @@ func (s *Store) loadRecordsLocked() ([]Record, error) {
 }
 
 func (s *Store) validateArchiveSet() error {
-	exists := make([]bool, MaxArchives+1)
-	for index := 0; index <= MaxArchives; index++ {
+	exists := make([]bool, s.policy.MaxArchives+1)
+	for index := 0; index <= s.policy.MaxArchives; index++ {
 		path := s.livePath
 		if index > 0 {
-			path = fmt.Sprintf("%s.%d", s.livePath, index)
+			path = s.livePath + fmt.Sprintf(".%d", index)
 		}
 		info, err := os.Lstat(path)
 		if errors.Is(err, os.ErrNotExist) {
@@ -284,7 +284,7 @@ func (s *Store) validateArchiveSet() error {
 		}
 		exists[index] = true
 	}
-	if !exists[0] && (exists[1] || exists[2]) || exists[2] && !exists[1] {
+	if !archiveSetContiguous(exists) {
 		return ledgerError(action.ReasonLedgerCorrupt, "action ledger archive set has a gap", nil)
 	}
 	return nil
@@ -299,7 +299,7 @@ func (s *Store) validateStablePathsAfterRecovery() error {
 		if !bytes.HasPrefix([]byte(entry.Name()), []byte("ledger")) {
 			continue
 		}
-		if !allowedLedgerEntry(entry.Name(), false) {
+		if !allowedLedgerEntry(entry.Name(), false, s.policy.MaxArchives) {
 			return fmt.Errorf("unexpected action ledger entry %s after recovery", entry.Name())
 		}
 	}
@@ -308,10 +308,19 @@ func (s *Store) validateStablePathsAfterRecovery() error {
 
 func (s *Store) archiveCount() uint32 {
 	count := uint32(0)
-	for index := 1; index <= MaxArchives; index++ {
+	for index := 1; index <= s.policy.MaxArchives; index++ {
 		if _, err := os.Lstat(fmt.Sprintf("%s.%d", s.livePath, index)); err == nil {
 			count++
 		}
 	}
 	return count
+}
+
+func archiveSetContiguous(exists []bool) bool {
+	for index := 1; index < len(exists); index++ {
+		if exists[index] && !exists[index-1] {
+			return false
+		}
+	}
+	return true
 }

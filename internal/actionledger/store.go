@@ -123,7 +123,7 @@ func (s *Store) inspectExistingState() (material bool, lock bool, resultErr erro
 		if !strings.HasPrefix(name, "ledger") {
 			continue
 		}
-		if !allowedLedgerEntry(name, true) {
+		if !allowedLedgerEntry(name, true, s.policy.MaxArchives) {
 			return false, false, ledgerError(action.ReasonLedgerCorrupt, "unexpected action ledger entry "+name, nil)
 		}
 		if name == lockFileName {
@@ -280,7 +280,7 @@ func (s *Store) protectActiveCallsFromRotation(record []byte, statuses []CallSta
 }
 
 func (s *Store) oldestArchiveLastSequence() (uint64, error) {
-	name := fmt.Sprintf("%s.%d", liveFileName, MaxArchives)
+	name := ledgerFileName(s.policy.MaxArchives)
 	body, err := s.storage.ReadPrivateFile(name, MaxLiveBytes)
 	if errors.Is(err, os.ErrNotExist) {
 		return 0, nil
@@ -434,16 +434,46 @@ func (s *Store) loadHead() (*chainHead, error) {
 	return &head, nil
 }
 
-func allowedLedgerEntry(name string, transactionFiles bool) bool {
+func ledgerFileName(index int) string {
+	if index == 0 {
+		return liveFileName
+	}
+	return fmt.Sprintf("%s.%d", liveFileName, index)
+}
+
+func allowedLedgerEntry(name string, transactionFiles bool, maxArchives int) bool {
 	switch name {
-	case liveFileName, liveFileName + ".1", liveFileName + ".2", headFileName, lockFileName:
+	case liveFileName, headFileName, lockFileName:
 		return true
 	case transactionFileName:
 		return transactionFiles
 	}
-	if transactionFiles && strings.HasPrefix(name, transactionBackup+".") {
-		suffix := strings.TrimPrefix(name, transactionBackup+".")
-		return suffix == "0" || suffix == "1" || suffix == "2"
+	if _, ok := boundedLedgerIndex(name, liveFileName+".", 1, maxArchives); ok {
+		return true
 	}
-	return false
+	_, ok := boundedLedgerIndex(name, transactionBackup+".", 0, maxArchives)
+	return transactionFiles && ok
+}
+
+func boundedLedgerIndex(name, prefix string, minimum, maximum int) (int, bool) {
+	if maximum < minimum || !strings.HasPrefix(name, prefix) {
+		return 0, false
+	}
+	suffix := strings.TrimPrefix(name, prefix)
+	if suffix == "" || len(suffix) > 1 && suffix[0] == '0' {
+		return 0, false
+	}
+	value := 0
+	for index := 0; index < len(suffix); index++ {
+		character := suffix[index]
+		if character < '0' || character > '9' {
+			return 0, false
+		}
+		digit := int(character - '0')
+		if value > (maximum-digit)/10 {
+			return 0, false
+		}
+		value = value*10 + digit
+	}
+	return value, value >= minimum && value <= maximum
 }
