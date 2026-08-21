@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 195 Compute source provenance once per compile -> tasks/195-compute-source-provenance-once-per-compile.md
 - [ ] 196 Normalize rule JSON once per compiler boundary -> tasks/196-normalize-rule-json-once-per-compiler-boundary.md
 - [ ] 197 Decode and validate each lockfile once -> tasks/197-decode-and-validate-each-lockfile-once.md
 - [ ] 198 Reuse one stop-attempt lockfile scan -> tasks/198-reuse-one-stop-attempt-lockfile-scan.md
@@ -34,6 +33,7 @@
 
 ## Done
 
+- [x] 195 Compute source provenance once per compile -> tasks/done/195-compute-source-provenance-once-per-compile.md
 - [x] 194 Parse repository configuration once -> tasks/done/194-parse-repository-configuration-once.md
 - [x] 193 Extract inline policy blocks linearly and within bounds -> tasks/done/193-extract-inline-policy-blocks-linearly-and-within-bounds.md
 - [x] 192 Bind repository source reads to stable file identities -> tasks/done/192-bind-repository-source-reads-to-stable-file-identities.md

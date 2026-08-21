@@ -611,6 +611,31 @@ func TestComputeSourceDigestStableAndSensitive(t *testing.T) {
 	}
 }
 
+func TestCompileSourceProvenanceFreezesRecordsOnce(t *testing.T) {
+	bundle := &ingest.SourceBundle{Sources: []policy.PolicySource{{
+		Kind: policy.SourceAgentsMD, Path: "AGENTS.md", Content: "# agents\n",
+	}}}
+	provenance, err := compileSourceProvenance(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(provenance.records) != 1 || provenance.digest == "" {
+		t.Fatalf("provenance = %#v", provenance)
+	}
+	originalRecord := provenance.records[0].(map[string]interface{})
+	bundle.Sources[0].Content = "mutated after snapshot"
+	if originalRecord["content_sha256"] == "" {
+		t.Fatal("provenance record lost content digest")
+	}
+	updated, err := compileSourceProvenance(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.digest == provenance.digest {
+		t.Fatal("mutating source after snapshot must change a newly compiled digest")
+	}
+}
+
 func TestCheckToMapCoversSpecializedFields(t *testing.T) {
 	cases := []struct {
 		name string

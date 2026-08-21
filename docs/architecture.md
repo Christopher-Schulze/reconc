@@ -493,6 +493,9 @@ and byte-compares the notice before checksums and provenance are accepted.
      A compiler config is decoded into one bounded YAML mapping; include and
      preset extraction consume that same representation, so source-loading
      fields cannot drift through independent parses.
+     The frozen source bundle is converted to one provenance record set and
+     content digest; the same records feed both source-digest computation and
+     lock-payload serialization.
    - `internal/runtime/lockfile.go` performs a 16 MiB bounded read and validates
      schema, version, repository root, migration state, and source freshness.
      Current format-6 locks prove freshness from the complete lock digest plus

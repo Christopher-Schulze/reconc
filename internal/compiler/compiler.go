@@ -195,7 +195,7 @@ func renderPolicyBundle(bundle *ingest.SourceBundle, compilerVersion string) (*C
 	}
 
 	root := bundle.RepoRoot
-	digest, err := computeSourceDigest(bundle)
+	provenance, err := compileSourceProvenance(bundle)
 	if err != nil {
 		return nil, nil, &rerrors.LockfileError{Message: "compute source digest", Cause: err}
 	}
@@ -236,7 +236,7 @@ func renderPolicyBundle(bundle *ingest.SourceBundle, compilerVersion string) (*C
 	}
 	compiledDiscovery.Warnings = append(compiledDiscovery.Warnings, braceVariableWarnings(parsed.Rules)...)
 
-	payload := buildLockPayload(bundle, parsed, actionPlan, digest, compilerVersion, compiledDiscovery, customRuntimes)
+	payload := buildLockPayload(bundle, parsed, actionPlan, provenance, compilerVersion, compiledDiscovery, customRuntimes)
 	payload, err = normalizeLockPayload(payload)
 	if err != nil {
 		return nil, nil, &rerrors.LockfileError{Message: "normalize lockfile payload", Cause: err}
@@ -257,7 +257,7 @@ func renderPolicyBundle(bundle *ingest.SourceBundle, compilerVersion string) (*C
 		LockfilePath:    LockfileRelativePath,
 		CompilerVersion: compilerVersion,
 		FormatVersion:   LockfileFormatVersion,
-		SourceDigest:    digest,
+		SourceDigest:    provenance.digest,
 		DefaultMode:     parsed.DefaultMode,
 		RuleCount:       len(parsed.Rules),
 		ActionToolCount: len(actionPlan.Tools),
@@ -287,11 +287,28 @@ func ComputeSourceDigest(bundle *ingest.SourceBundle) (string, error) {
 // computeSourceDigest is the internal implementation; ComputeSourceDigest
 // is the exported wrapper.
 func computeSourceDigest(bundle *ingest.SourceBundle) (string, error) {
+	provenance, err := compileSourceProvenance(bundle)
+	if err != nil {
+		return "", err
+	}
+	return provenance.digest, nil
+}
+
+type sourceProvenance struct {
+	records []interface{}
+	digest  string
+}
+
+func compileSourceProvenance(bundle *ingest.SourceBundle) (sourceProvenance, error) {
 	sources := make([]interface{}, 0, len(bundle.Sources))
 	for _, source := range bundle.Sources {
 		sources = append(sources, sourceToMap(source))
 	}
-	return computeSerializedSourceDigest(sources)
+	digest, err := computeSerializedSourceDigest(sources)
+	if err != nil {
+		return sourceProvenance{}, err
+	}
+	return sourceProvenance{records: sources, digest: digest}, nil
 }
 
 func computeSerializedSourceDigest(sources []interface{}) (string, error) {
@@ -437,7 +454,7 @@ func buildLockPayload(
 	bundle *ingest.SourceBundle,
 	parsed *parser.ParsedPolicy,
 	actions action.Plan,
-	digest string,
+	provenance sourceProvenance,
 	compilerVersion string,
 	discovery ingest.DiscoveryResult,
 	customRuntimes []customruntime.Summary,
@@ -445,11 +462,6 @@ func buildLockPayload(
 	rulesOut := make([]interface{}, 0, len(parsed.Rules))
 	for _, r := range parsed.Rules {
 		rulesOut = append(rulesOut, ruleToMap(r))
-	}
-
-	sourcesOut := make([]interface{}, 0, len(bundle.Sources))
-	for _, s := range bundle.Sources {
-		sourcesOut = append(sourcesOut, sourceToMap(s))
 	}
 
 	payload := map[string]interface{}{
@@ -460,10 +472,10 @@ func buildLockPayload(
 		"default_mode":      string(parsed.DefaultMode),
 		"rule_count":        len(parsed.Rules),
 		"source_count":      len(bundle.Sources),
-		"source_digest":     digest,
+		"source_digest":     provenance.digest,
 		"source_precedence": stringifyKinds(policy.SourcePrecedence()),
 		"discovery":         discoveryToMap(discovery),
-		"sources":           sourcesOut,
+		"sources":           provenance.records,
 		"rules":             rulesOut,
 		"actions":           actions,
 	}
