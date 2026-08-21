@@ -2,7 +2,6 @@ package parser
 
 import (
 	"fmt"
-	"io"
 	"math"
 	"sort"
 	"strconv"
@@ -14,10 +13,9 @@ import (
 	"reconc.dev/reconc/internal/policy"
 )
 
-func parseActionPolicy(source policy.PolicySource) (*action.Plan, bool, error) {
-	root, err := decodeActionDocument(source.Content, source.Path)
-	if err != nil {
-		return nil, false, err
+func parseActionPolicy(source policy.PolicySource, root *yaml.Node) (*action.Plan, bool, error) {
+	if root == nil || root.Kind != yaml.MappingNode {
+		return nil, false, actionError("expected a YAML mapping in " + source.Path)
 	}
 	rootFields, err := actionMapping(root, source.Path, nil)
 	if err != nil {
@@ -667,28 +665,6 @@ func parseActionDefaults(node *yaml.Node, sourcePath string) (action.Defaults, e
 		ProgressError:    action.Decision(optionalActionString(fields, "progress_error")),
 		Cache:            action.CachePolicy(optionalActionString(fields, "cache")),
 	}, nil
-}
-
-func decodeActionDocument(raw, context string) (*yaml.Node, error) {
-	if strings.TrimSpace(raw) == "" {
-		return &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}, nil
-	}
-	decoder := yaml.NewDecoder(strings.NewReader(raw))
-	var document yaml.Node
-	if err := decoder.Decode(&document); err != nil {
-		return nil, actionErrorWithCause("invalid yaml in "+context, err)
-	}
-	var trailing yaml.Node
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		if err != nil {
-			return nil, actionErrorWithCause("invalid trailing yaml in "+context, err)
-		}
-		return nil, actionError("expected exactly one document in " + context)
-	}
-	if len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
-		return nil, actionError("expected a YAML mapping in " + context)
-	}
-	return document.Content[0], nil
 }
 
 func actionMapping(node *yaml.Node, context string, allowed map[string]struct{}) (map[string]*yaml.Node, error) {

@@ -35,12 +35,30 @@ type yamlBounds struct {
 	activeAliases map[*yaml.Node]bool
 }
 
-func decodeYAMLMappingBounded(raw, context string) (map[string]interface{}, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return map[string]interface{}{}, nil
+type parserSourceDocument struct {
+	root    *yaml.Node
+	mapping map[string]interface{}
+}
+
+func decodeRuleSourceDocumentBounded(source policy.PolicySource) (*parserSourceDocument, error) {
+	if source.Kind == policy.SourceCompilerConfig || impactCandidateSource(source) {
+		return decodeYAMLDocumentBytesBounded(source.Content, source.Path)
 	}
-	decoder := yaml.NewDecoder(strings.NewReader(trimmed))
+	return decodeYAMLDocumentBounded(source.Content, source.Path)
+}
+
+func decodeYAMLDocumentBounded(raw, context string) (*parserSourceDocument, error) {
+	return decodeYAMLDocumentBytesBounded(strings.TrimSpace(raw), context)
+}
+
+func decodeYAMLDocumentBytesBounded(raw, context string) (*parserSourceDocument, error) {
+	if strings.TrimSpace(raw) == "" {
+		return &parserSourceDocument{
+			root:    &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"},
+			mapping: map[string]interface{}{},
+		}, nil
+	}
+	decoder := yaml.NewDecoder(strings.NewReader(raw))
 	var document yaml.Node
 	if err := decoder.Decode(&document); err != nil {
 		return nil, &rerrors.RuleValidationError{Message: "invalid yaml in " + context, Cause: err}
@@ -61,13 +79,31 @@ func decodeYAMLMappingBounded(raw, context string) (map[string]interface{}, erro
 		return nil, &rerrors.RuleValidationError{Message: "invalid yaml in " + context, Cause: err}
 	}
 	if decoded == nil {
-		return map[string]interface{}{}, nil
+		root := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		if len(document.Content) == 1 {
+			root = document.Content[0]
+		}
+		return &parserSourceDocument{
+			root:    root,
+			mapping: map[string]interface{}{},
+		}, nil
 	}
 	mapping, ok := decoded.(map[string]interface{})
 	if !ok {
 		return nil, &rerrors.RuleValidationError{Message: "expected a YAML mapping in " + context}
 	}
-	return mapping, nil
+	if len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
+		return nil, &rerrors.RuleValidationError{Message: "expected a YAML mapping in " + context}
+	}
+	return &parserSourceDocument{root: document.Content[0], mapping: mapping}, nil
+}
+
+func decodeYAMLMappingBounded(raw, context string) (map[string]interface{}, error) {
+	document, err := decodeYAMLDocumentBounded(raw, context)
+	if err != nil {
+		return nil, err
+	}
+	return document.mapping, nil
 }
 
 func walkYAMLNode(node *yaml.Node, depth int, bound *yamlBounds, context string) error {

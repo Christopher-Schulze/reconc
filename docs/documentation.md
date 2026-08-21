@@ -1720,6 +1720,12 @@ identity before reading.
 The compiler configuration is decoded once into the authoritative YAML
 mapping; `include` and `extends` extraction then share that document while
 retaining their existing strict field/type errors.
+Every retained rule-bearing source is likewise syntactically decoded once into
+one bounded YAML document. Rule, scope, default-mode, and MCP validation consume
+its typed mapping while canonical action validation consumes the same retained
+node tags and source positions. Duplicate keys, aliases, nesting, scalar-byte
+limits, and trailing documents therefore have one authoritative parser boundary
+without weakening strict action scalar validation.
 At the compile render boundary, each source is converted once into an
 immutable provenance record containing its logical identity and content hash.
 The aggregate source digest and emitted lock payload consume those same

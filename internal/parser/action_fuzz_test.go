@@ -13,6 +13,11 @@ func FuzzParseActionPolicy(f *testing.F) {
 		"actions:\n  tools: []\n  rules: []\n",
 		"actions:\n  rules:\n    - id: block\n      decision: block\n",
 		"actions:\n  detectors: []\n",
+		"actions:\n  rules:\n    - id: number\n      decision: block\n      when:\n        predicate: {source: context, pointer: /value, op: eq, value: 01}\n",
+		"actions:\n  defaults:\n    cache: never\n    cache: always\n",
+		"\v&0",
+		"\xe80 ",
+		"\f0",
 	} {
 		f.Add(seed)
 	}
@@ -20,6 +25,8 @@ func FuzzParseActionPolicy(f *testing.F) {
 		bundle := &ingest.SourceBundle{Sources: []policy.PolicySource{{
 			Kind: policy.SourceCompilerConfig, Path: ".reconc.yml", Content: body,
 		}}}
-		_, _ = ParseRuleDocuments(bundle)
+		gotPolicy, gotErr := parseRuleDocumentsWithDecoder(bundle, decodeRuleSourceDocumentBounded)
+		wantPolicy, wantErr := parseRuleDocumentsWithDecoder(bundle, legacyTwoPassSourceDocumentDecoder)
+		assertParserParity(t, gotPolicy, gotErr, wantPolicy, wantErr)
 	})
 }

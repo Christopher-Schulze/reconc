@@ -63,6 +63,12 @@ type ParsedPolicy struct {
 // (with both source paths / the rule ID in duplicate diagnostics) so users
 // can fix one problem at a time.
 func ParseRuleDocuments(bundle *ingest.SourceBundle) (*ParsedPolicy, error) {
+	return parseRuleDocumentsWithDecoder(bundle, decodeRuleSourceDocumentBounded)
+}
+
+type sourceDocumentDecoder func(source policy.PolicySource) (*parserSourceDocument, error)
+
+func parseRuleDocumentsWithDecoder(bundle *ingest.SourceBundle, decode sourceDocumentDecoder) (*ParsedPolicy, error) {
 	if bundle == nil {
 		return nil, &rerrors.RuleValidationError{Message: "bundle is nil"}
 	}
@@ -81,10 +87,11 @@ func ParseRuleDocuments(bundle *ingest.SourceBundle) (*ParsedPolicy, error) {
 			continue
 		}
 
-		doc, err := decodeYAMLMapping(src.Content, src.Path)
+		document, err := decode(src)
 		if err != nil {
 			return nil, err
 		}
+		doc := document.mapping
 		if err := validateRuleDocumentBounds(src, doc, len(rules)); err != nil {
 			return nil, err
 		}
@@ -118,7 +125,7 @@ func ParseRuleDocuments(bundle *ingest.SourceBundle) (*ParsedPolicy, error) {
 			}
 		}
 		if src.Kind == policy.SourceCompilerConfig || impactCandidateSource(src) {
-			parsedActions, present, err := parseActionPolicy(src)
+			parsedActions, present, err := parseActionPolicy(src, document.root)
 			if err != nil {
 				return nil, err
 			}
