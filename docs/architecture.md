@@ -475,8 +475,13 @@ and byte-compares the notice before checksums and provenance are accepted.
 2. `runCheck` builds `runtime.ExecutionInputs` from flags, captures
    `start := time.Now()`.
 3. `runtime.CheckRepoPolicy(repo, inputs)`:
-   - `ingest.DiscoverPolicyRepo(repo)` walks up for `.reconc/`,
+   - `ingest.NewSourceLoadContext(repo)` walks up for `.reconc/`,
      `.reconc.yml`, `AGENTS.md`, etc.
+     The context binds the canonical root identity, config identity, and
+     per-default-glob fragment inventory for the complete source transaction;
+     `LoadPolicySourcesWithContext` revalidates that snapshot before and after
+     source reads. The compiler passes this context through its lock-protected
+     load, so default fragments are not discovered twice.
    - `internal/runtime/lockfile.go` performs a 16 MiB bounded read and validates
      schema, version, repository root, migration state, and source freshness.
      Current format-6 locks prove freshness from the complete lock digest plus

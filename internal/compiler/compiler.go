@@ -112,7 +112,13 @@ type CompiledSource struct {
 // in the returned CompiledPolicy so callers can show "compiled with
 // reconc X.Y.Z" diagnostics.
 func CompileRepoPolicy(repoStartPath, compilerVersion string) (compiled *CompiledPolicy, err error) {
-	return compileRepoPolicyWithLoader(repoStartPath, compilerVersion, ingest.LoadPolicySources)
+	context, err := ingest.NewSourceLoadContext(repoStartPath)
+	if err != nil {
+		return nil, err
+	}
+	return compileRepoPolicyWithDiscovery(context.Discovery, compilerVersion, func() (*ingest.SourceBundle, error) {
+		return ingest.LoadPolicySourcesWithContext(context)
+	})
 }
 
 func compileRepoPolicyWithLoader(
@@ -124,8 +130,14 @@ func compileRepoPolicyWithLoader(
 	if err != nil {
 		return nil, err
 	}
+	return compileRepoPolicyWithDiscovery(discovery, compilerVersion, func() (*ingest.SourceBundle, error) {
+		return load(repoStartPath)
+	})
+}
+
+func compileRepoPolicyWithDiscovery(discovery ingest.DiscoveryResult, compilerVersion string, load func() (*ingest.SourceBundle, error)) (compiled *CompiledPolicy, err error) {
 	if !discovery.Discovered {
-		_, loadErr := load(repoStartPath)
+		_, loadErr := load()
 		return nil, loadErr
 	}
 	release, err := AcquireCompileLock(discovery.RepoRoot)
@@ -138,7 +150,7 @@ func compileRepoPolicyWithLoader(
 			err = errors.Join(err, fmt.Errorf("release compile lock: %w", releaseErr))
 		}
 	}()
-	bundle, err := load(repoStartPath)
+	bundle, err := load()
 	if err != nil {
 		return nil, err
 	}

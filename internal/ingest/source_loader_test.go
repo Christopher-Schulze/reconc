@@ -34,6 +34,63 @@ func TestLoadPolicySourcesEmptyRepoFails(t *testing.T) {
 	}
 }
 
+func TestSourceLoadContextReusesDiscoveryInventory(t *testing.T) {
+	withRECONCHome(t)
+	repo := t.TempDir()
+	writeFile(t, repo, "AGENTS.md", "# project\n")
+	writeFile(t, repo, "policies/a.yml", "rules: []\n")
+	context, err := NewSourceLoadContext(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(context.defaultMatches[DefaultPolicyGlobs[0]]) != 1 {
+		t.Fatalf("default inventory = %#v", context.defaultMatches)
+	}
+	bundle, err := LoadPolicySourcesWithContext(context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bundle.Sources) != 2 || bundle.Sources[1].Path != "policies/a.yml" {
+		t.Fatalf("sources = %#v", bundle.Sources)
+	}
+}
+
+func TestSourceLoadContextRejectsDefaultInventoryMutation(t *testing.T) {
+	withRECONCHome(t)
+	repo := t.TempDir()
+	writeFile(t, repo, "AGENTS.md", "# project\n")
+	writeFile(t, repo, "policies/a.yml", "rules: []\n")
+	context, err := NewSourceLoadContext(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, repo, "policies/b.yml", "rules: []\n")
+	if _, err := LoadPolicySourcesWithContext(context); err == nil || !strings.Contains(err.Error(), "snapshot") {
+		t.Fatalf("inventory mutation error = %v", err)
+	}
+}
+
+func TestSourceLoadContextRejectsConfigReplacement(t *testing.T) {
+	withRECONCHome(t)
+	repo := t.TempDir()
+	writeFile(t, repo, "AGENTS.md", "# project\n")
+	writeFile(t, repo, ".reconc.yml", "rules: []\n")
+	context, err := NewSourceLoadContext(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement := filepath.Join(repo, "replacement.yml")
+	if err := os.WriteFile(replacement, []byte("rules: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(replacement, filepath.Join(repo, ".reconc.yml")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadPolicySourcesWithContext(context); err == nil || !strings.Contains(err.Error(), "snapshot") {
+		t.Fatalf("config replacement error = %v", err)
+	}
+}
+
 func TestLoadPolicySourcesAgentsMDOnly(t *testing.T) {
 	withRECONCHome(t)
 	repo := t.TempDir()

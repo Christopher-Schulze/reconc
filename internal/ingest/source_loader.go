@@ -73,10 +73,20 @@ type SourceBundle struct {
 // patterns; *PresetNotFoundError when an extends entry doesn't resolve;
 // underlying error wrapped for IO failures.
 func LoadPolicySources(repoStartPath string) (*SourceBundle, error) {
-	discovery, err := DiscoverPolicyRepo(repoStartPath)
+	context, err := NewSourceLoadContext(repoStartPath)
 	if err != nil {
 		return nil, err
 	}
+	return LoadPolicySourcesWithContext(context)
+}
+
+// LoadPolicySourcesWithContext loads one previously discovered, identity-bound
+// source snapshot. The context is validated before and after all reads.
+func LoadPolicySourcesWithContext(context *SourceLoadContext) (*SourceBundle, error) {
+	if context == nil {
+		return nil, &rerrors.PolicySourceError{Message: "policy source load context is nil"}
+	}
+	discovery := context.Discovery
 	if !discovery.Discovered {
 		warning := "no policy markers discovered"
 		if len(discovery.Warnings) > 0 {
@@ -86,6 +96,9 @@ func LoadPolicySources(repoStartPath string) (*SourceBundle, error) {
 	}
 
 	root := discovery.RepoRoot
+	if err := context.Validate(); err != nil {
+		return nil, &rerrors.PolicySourceError{Message: "validate policy source snapshot", Cause: err}
+	}
 	sources := []policy.PolicySource{}
 
 	// 1. Global policy (lowest precedence, applies to every repo).
@@ -166,7 +179,7 @@ func LoadPolicySources(repoStartPath string) (*SourceBundle, error) {
 	sources = append(sources, presetSources...)
 
 	// 7. Policy file fragments (sorted, deduplicated).
-	fragmentSources, fragmentWarnings, err := loadPolicyFragmentSources(root, includePatterns)
+	fragmentSources, fragmentWarnings, err := loadPolicyFragmentSourcesWithDefaults(root, includePatterns, context.defaultMatches)
 	if err != nil {
 		return nil, err
 	}
@@ -183,6 +196,9 @@ func LoadPolicySources(repoStartPath string) (*SourceBundle, error) {
 
 	if err := validatePolicySourceBounds(sources); err != nil {
 		return nil, err
+	}
+	if err := context.Validate(); err != nil {
+		return nil, &rerrors.PolicySourceError{Message: "policy source snapshot changed while loading", Cause: err}
 	}
 	return &SourceBundle{
 		RepoRoot:  root,
@@ -407,6 +423,10 @@ func loadPresetSources(names []string) ([]policy.PolicySource, error) {
 // Fragments are returned in sorted order for determinism. Every fragment's
 // resolved filesystem identity must stay inside the repository root.
 func loadPolicyFragmentSources(root string, patterns []string) ([]policy.PolicySource, []string, error) {
+	return loadPolicyFragmentSourcesWithDefaults(root, patterns, nil)
+}
+
+func loadPolicyFragmentSourcesWithDefaults(root string, patterns []string, defaultMatches map[string][]string) ([]policy.PolicySource, []string, error) {
 	// Dedupe + sort patterns first so glob expansion is deterministic.
 	patternSet := map[string]struct{}{}
 	for _, p := range patterns {
@@ -422,14 +442,22 @@ func loadPolicyFragmentSources(root string, patterns []string) ([]policy.PolicyS
 	out := []policy.PolicySource{}
 	var totalBytes int64
 	for _, pattern := range uniquePatterns {
-		matches, err := filepath.Glob(filepath.Join(root, pattern))
-		if err != nil {
-			return nil, nil, &rerrors.PolicySourceError{
-				Message: "expand include pattern " + pattern,
-				Cause:   err,
+		matches := []string{}
+		if cached, ok := defaultMatches[pattern]; ok {
+			for _, rel := range cached {
+				matches = append(matches, filepath.Join(root, filepath.FromSlash(rel)))
 			}
+		} else {
+			var err error
+			matches, err = filepath.Glob(filepath.Join(root, pattern))
+			if err != nil {
+				return nil, nil, &rerrors.PolicySourceError{
+					Message: "expand include pattern " + pattern,
+					Cause:   err,
+				}
+			}
+			sort.Strings(matches)
 		}
-		sort.Strings(matches)
 		for _, match := range matches {
 			info, err := os.Stat(match)
 			if err != nil || !info.Mode().IsRegular() {

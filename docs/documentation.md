@@ -1647,6 +1647,11 @@ through format-5 lockfiles are migrated in memory only after their legacy schema
 identity and digest pass;
 their sources are reparsed and must retain exact embedded rule and canonical
 action parity.
+Source compilation uses an evaluation-scoped `SourceLoadContext`: discovery,
+canonical root identity, config identity, and the per-default-glob fragment
+inventory travel together through one load and are revalidated before and
+after reads. Default fragments therefore are not globbed twice, while
+additional validated includes still expand independently.
 Publication uses identity-bound atomic replacement and skips the write entirely
 when the canonical bytes are unchanged, so readers never see partial JSON and
 repeated compiles do not
