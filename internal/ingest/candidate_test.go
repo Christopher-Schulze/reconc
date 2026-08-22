@@ -55,3 +55,33 @@ func TestAppendCandidateSourcePreservesCanonicalPrecedenceAndInput(t *testing.T)
 		})
 	}
 }
+
+func TestReplacePolicyFileSourceUsesProductionOrderAndDetachedInput(t *testing.T) {
+	base := []policy.PolicySource{
+		{Kind: policy.SourceCompilerConfig, Path: ".reconc.yml", Content: "rules: []"},
+		{Kind: policy.SourcePolicyFile, Path: "policies/a.yml", Content: "rules: []"},
+		{Kind: policy.SourcePolicyFile, Path: "policies/z.yml", Content: "rules: []"},
+		{Kind: policy.SourceCustomRuntime, Path: ".reconc/runtimes/custom.json", Content: "runtime"},
+	}
+	bundle := &SourceBundle{Sources: append([]policy.PolicySource(nil), base...)}
+	got, err := ReplacePolicyFileSource(bundle, "policies/m.yml", "rules:\n  - id: middle\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPaths := []string{".reconc.yml", "policies/a.yml", "policies/m.yml", "policies/z.yml", ".reconc/runtimes/custom.json"}
+	paths := make([]string, len(got.Sources))
+	for index, source := range got.Sources {
+		paths[index] = source.Path
+	}
+	if !slices.Equal(paths, wantPaths) || !slices.Equal(bundle.Sources, base) {
+		t.Fatalf("replacement paths = %v; input mutated=%t", paths, !slices.Equal(bundle.Sources, base))
+	}
+
+	replaced, err := ReplacePolicyFileSource(got, "policies/m.yml", "rules:\n  - id: replacement\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(replaced.Sources) != len(got.Sources) || replaced.Sources[2].Content != "rules:\n  - id: replacement\n" {
+		t.Fatalf("replacement source = %#v", replaced.Sources)
+	}
+}

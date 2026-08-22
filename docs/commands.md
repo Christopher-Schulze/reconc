@@ -44,6 +44,8 @@ Generated from `internal/commandmeta`; run `make reference-docs` after changing 
 | `reconc ci` | `reconc ci [repo] (--staged \| --base REF [--head REF]) [evidence flags] [--format text\|json\|sarif\|junit]` | evaluate Git-derived changes under policy | text, json, sarif, junit, file |
 | `reconc impact` | `reconc impact [repo] (--candidate FILE \| --pack NAME) [--corpus FILE \| --fixture FILE] [evidence flags] [--delta-manifest FILE] [--format text\|json\|sarif\|junit\|github]` | compare an in-memory additive policy candidate over privacy-bounded replay evidence | text, json, sarif, junit, github, file |
 | `reconc impact export` | `reconc impact export [repo] (--session \| evidence flags) [--complete CLASS] [--case-id ID] [--output PATH]` | export a deterministic privacy-bounded replay corpus | json, file |
+| `reconc policy` | `reconc policy author [repo] (--candidate FILE \| --detected) [authoring flags]` | validate, explain, and explicitly adopt a repository policy fragment | text, json |
+| `reconc policy author` | `reconc policy author [repo] (--candidate FILE \| --detected) [--target policies/NAME.yml] [--corpus FILE \| --fixture FILE] [evidence flags] [--apply] [--json]` | validate and explain a policy candidate, then adopt it only by explicit flag or terminal confirmation | text, json |
 | `reconc exec` | `reconc exec [repo] [--staged] [--shell] -- COMMAND [ARG ...]` | execute and record real command evidence | text |
 | `reconc assert` | `reconc assert <rule-id> [repo] [evidence flags]` | evaluate one rule by id | text, json |
 | `reconc can` | `reconc can write <path> [repo] [--why] [--json]` | return an ultra-terse yes/no policy decision | text, json |
@@ -960,6 +962,46 @@ explicitly authored because a capture cannot infer trusted transport,
 principal, credential, state, or expectation data. A full portable action-case
 shape is committed at
 `harness/template/audits/testdata/action-impact/corpus.json`.
+
+### `reconc policy author [repo] (--candidate FILE | --detected) [--target policies/NAME.yml] [--corpus FILE | --fixture FILE] [evidence flags] [--apply] [--json]`
+
+Run one guided validate, explain, and adopt workflow for a repository-owned
+policy fragment. `--candidate` reads one bounded UTF-8 non-symlink file;
+`--detected` converts the existing deterministic `adopt` rule recommendations
+into a candidate. Detected pack recommendations remain visible for review but
+are never inserted into a policy fragment or `extends` automatically.
+
+Preview first validates the candidate against the embedded current
+`policy-config` JSON Schema without network access, then runs the real source
+loader, preset and template expansion, parser, semantic validation, conflict
+detection, compiler, and canonical lock encoder. Text and
+`reconc.policy-author/v1` JSON report schema success and compiler success
+separately, plus effective packs, normalized rules, source provenance, rule
+kind counts, warnings, conflicts, candidate SHA-256, and predicted source
+identity. Candidate source bytes and the physical repository path are not
+report fields. Any conflict makes the candidate not ready and prevents apply.
+
+Supplying a corpus, fixture, or explicit evidence flag also runs the same
+privacy-bounded Impact Lab comparison as `reconc impact`; it requires a fresh
+current lockfile and preserves all replay, redaction, filesystem-snapshot, and
+`require_script` refusal contracts. Without replay evidence, the command does
+not invent an impact claim.
+
+Validation and explanation never mutate the repository. `--apply` is the only
+non-interactive mutation authority. In text mode on a real terminal, omitting
+`--apply` prompts once with a default of no. Redirected input never prompts,
+and `--json` never prompts even when attached to a terminal. Decline or EOF
+leaves target and lock bytes and identities unchanged.
+
+The target defaults to `policies/reconc-author.yml` and must be one direct
+repository-owned `policies/*.yml` or `policies/*.yaml` file; absolute,
+traversing, nested, linked, or reparse-resolved targets fail closed. Apply
+re-prepares the exact candidate under the canonical repository transaction
+lock, rejects source or candidate drift, atomically writes only that target,
+runs the production compiler, requires the exact previewed lock bytes and a
+fresh runtime validation, and restores its target and lock snapshots on any
+post-publication failure. Existing `reconc adopt` and `reconc impact` commands
+remain available for their narrower compatibility workflows.
 
 ### `reconc exec [repo] [--staged] [--shell] -- COMMAND [ARG ...]`
 Execute a command from the repository root and record its real exit status in

@@ -146,7 +146,7 @@ func readImpactCandidate(filePath string) ([]byte, error) {
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("candidate must be a regular file and not a symlink")
 	}
-	body, err := boundedio.ReadFile(filePath, maxImpactCandidateBytes)
+	body, err := boundedio.ReadRegularFile(filePath, maxImpactCandidateBytes)
 	if err != nil {
 		return nil, err
 	}

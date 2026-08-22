@@ -92,3 +92,36 @@ rules: []
 		t.Fatalf("duplicate candidate action tool error = %v", err)
 	}
 }
+
+func TestRenderRepoPolicyWithTargetCandidateMatchesPublishedCompile(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, ".reconc.yml"), []byte("default_mode: warn\nrules: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(repo, "policies"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := "policies/reconc-author.yml"
+	candidate := "rules:\n  - id: generated-files\n    kind: deny_write\n    paths: ['dist/**']\n    mode: warn\n    message: generated\n"
+	preview, previewBody, baseDigest, err := RenderRepoPolicyWithTargetCandidate(repo, "test", target, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.RuleCount != 1 || preview.SourceDigest == baseDigest {
+		t.Fatalf("target preview = %+v, base=%s", preview, baseDigest)
+	}
+	if err := os.WriteFile(filepath.Join(repo, filepath.FromSlash(target)), []byte(candidate), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	published, err := CompileRepoPolicy(repo, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	publishedBody, err := os.ReadFile(filepath.Join(repo, LockfileRelativePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.SourceDigest != preview.SourceDigest || !bytes.Equal(publishedBody, previewBody) {
+		t.Fatalf("published compile drifted from target preview: preview=%s published=%s", preview.SourceDigest, published.SourceDigest)
+	}
+}

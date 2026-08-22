@@ -746,6 +746,9 @@ reconc impact export . --session --complete write,command,command_outcome --outp
 reconc impact . --pack go-assurance --corpus impact-corpus.json --json --output impact-report.json
 reconc impact . --candidate candidate-actions.yml --corpus action-corpus.json --format github
 reconc impact . --candidate candidate-actions.yml --corpus action-corpus.json --delta-manifest reviewed-deltas.json
+reconc policy author . --candidate candidate.yml --write src/main.go
+reconc policy author . --detected --json
+reconc policy author . --candidate candidate.yml --apply
 ```
 
 `impact` adds one candidate policy file or resolved pack to the current source
@@ -756,6 +759,25 @@ hooks, sessions, audit state, or TASKs, calls a model, or opens a network
 connection. Policies containing `require_script` are refused before any case
 is evaluated because executing an arbitrary repository script cannot satisfy
 the command's side-effect-free contract.
+
+`policy author` turns that review path into one explicit authoring transaction.
+It validates a candidate first against the embedded current policy-config JSON
+Schema and then against the real loader, preset/template expansion, parser,
+compiler, conflict detector, and runtime lock validator. Its explanation
+contains normalized rules, effective packs, body-free source provenance,
+affected rule kinds, warnings, conflicts, and an Impact Lab delta only when
+bounded replay evidence is supplied. Candidate bytes and physical repository
+paths are excluded from its versioned JSON report.
+
+Preview is always read-only. Non-terminal and JSON invocations never prompt;
+text terminals default to no, and automation must supply `--apply` to mutate.
+The selected target is restricted to one direct repository-owned
+`policies/*.yml` or `policies/*.yaml` path. Apply revalidates the preview under
+the canonical repository transaction lock, publishes the target atomically,
+requires the production compiler to emit the exact predicted lockfile, runs a
+fresh runtime validation, and rolls back its own target and lock publication on
+failure. Detected pack suggestions remain review-only and never edit
+`extends`.
 
 Inputs can be explicit fixtures or strict imported corpora. Export retains
 only normalized read/write paths, commands, authoritative command outcomes,
@@ -1703,6 +1725,7 @@ Compile and evaluate:
 - `refresh`
 - `sources`
 - `ci`
+- `policy` - validate, explain, and explicitly adopt a policy fragment
 - `exec`
 - `assert`
 - `can`
@@ -1850,6 +1873,12 @@ free-form rule messages and agent prompts remain unrestricted text. Editors and
 automation can use `schemas/v4/policy-config.schema.json`; emitted lock, policy
 report, completion report, fix-plan, and proof-bundle artifacts keep their separate public
 schemas.
+
+The shipped v2 and current v4 policy-config schema files are embedded into the
+Go binary for offline authoring validation. Embedded bytes are digest-checked
+against the canonical schema registry in tests; schema validation is an early
+diagnostic and never substitutes for the parser, compiler, conflict, preset,
+template, or runtime checks.
 
 Rule fields are also kind-specific. After template expansion, the compiler
 rejects any known field that the selected kind cannot evaluate, including empty

@@ -72,12 +72,19 @@ fresh current plan over a strict privacy-bounded corpus. The branch never
 writes the policy lock or runtime state and refuses any `require_script` rule
 before evaluation so arbitrary repository code cannot violate the
 side-effect-free replay contract.
+`policy author` extends that non-publishing branch with embedded schema
+validation and a selected real `policies/*.yml` provenance path. Preview stays
+read-only; explicit adoption re-prepares under the bootstrap repository lock,
+publishes only the selected fragment, requires the production compiler to emit
+the exact previewed lock bytes, validates the fresh runtime, and restores its
+target and lock snapshots on failure.
 
 ## Package map
 
 ```
 buildprovenance/ deterministic target/source identity + byte-only binary inspection
 harness/         embedded immutable advanced harness pack
+schemas/         published policy schemas plus digest-checked Go embedding for offline authoring
 internal/
   action/         pure action contract, strict values, immutable matchers, evaluator, traces, and exact cache
   actionapproval/ canonical signed approval contracts, authority registry, provider boundary, and MCP mapping
@@ -120,6 +127,7 @@ internal/
   pathidentity/   Unix symlink + Windows reparse/8.3 filesystem identity
   privatefs/      shared private-directory, lock, owner/mode, hard-link, and descriptor boundary
   policy/         Rule / Scope / Source / Kind / Mode types
+  policyauthor/   schema-backed preview, effective explanation, and transactional adoption
   policyproof/    tamper-evident unresolved policy-decision receipts
   presets/        bundled policy packs (embed.FS) + user overlays
   proofbundle/    deterministic portable JSON and Markdown completion evidence
@@ -138,6 +146,7 @@ internal/
   templates/      bundled rule-shape templates (embed.FS) + user overlays
   tui/            dependency-free terminal dashboard
   usercli/        atomic running-build install + exact bare-command PATH verification
+  yamlbound/      shared bounded YAML mapping admission before alias expansion
 ```
 
 `cmd/reconc/main.go` parses argv, delegates to

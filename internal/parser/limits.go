@@ -2,13 +2,13 @@ package parser
 
 import (
 	"fmt"
-	"io"
 	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 	rerrors "reconc.dev/reconc/internal/errors"
 	"reconc.dev/reconc/internal/policy"
+	"reconc.dev/reconc/internal/yamlbound"
 )
 
 // Parser resource limits are intentionally stricter than the source byte
@@ -21,20 +21,12 @@ const (
 	maxParserPatternBytes      = 1024
 	maxParserCommandBytes      = 16 << 10
 	maxParserMessageBytes      = 64 << 10
-	maxParserScalarBytes       = 4 << 20
-	maxParserYAMLDepth         = 32
-	maxParserYAMLNodes         = 131072
-	maxParserYAMLExpandedNodes = 262144
-	maxParserYAMLAliases       = 1024
+	maxParserScalarBytes       = yamlbound.MaxScalarBytes
+	maxParserYAMLDepth         = yamlbound.MaxDepth
+	maxParserYAMLNodes         = yamlbound.MaxNodes
+	maxParserYAMLExpandedNodes = yamlbound.MaxExpandedNodes
+	maxParserYAMLAliases       = yamlbound.MaxAliases
 )
-
-type yamlBounds struct {
-	nodes         int
-	expandedNodes int
-	scalarBytes   int
-	aliases       int
-	activeAliases map[*yaml.Node]bool
-}
 
 type parserSourceDocument struct {
 	root    *yaml.Node
@@ -53,94 +45,11 @@ func decodeYAMLDocumentBounded(raw, context string) (*parserSourceDocument, erro
 }
 
 func decodeYAMLDocumentBytesBounded(raw, context string) (*parserSourceDocument, error) {
-	if strings.TrimSpace(raw) == "" {
-		return &parserSourceDocument{
-			root:    &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"},
-			mapping: map[string]interface{}{},
-		}, nil
-	}
-	decoder := yaml.NewDecoder(strings.NewReader(raw))
-	var document yaml.Node
-	if err := decoder.Decode(&document); err != nil {
-		return nil, &rerrors.RuleValidationError{Message: "invalid yaml in " + context, Cause: err}
-	}
-	var trailing yaml.Node
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		if err == nil {
-			return nil, &rerrors.RuleValidationError{Message: "YAML input must contain one document in " + context}
-		}
-		return nil, &rerrors.RuleValidationError{Message: "invalid trailing yaml in " + context, Cause: err}
-	}
-	bound := yamlBounds{activeAliases: make(map[*yaml.Node]bool)}
-	if err := walkYAMLNode(&document, 0, &bound, context); err != nil {
+	root, mapping, err := yamlbound.DecodeMapping([]byte(raw), context)
+	if err != nil {
 		return nil, err
 	}
-	var decoded interface{}
-	if err := document.Decode(&decoded); err != nil {
-		return nil, &rerrors.RuleValidationError{Message: "invalid yaml in " + context, Cause: err}
-	}
-	if decoded == nil {
-		root := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-		if len(document.Content) == 1 {
-			root = document.Content[0]
-		}
-		return &parserSourceDocument{
-			root:    root,
-			mapping: map[string]interface{}{},
-		}, nil
-	}
-	mapping, ok := decoded.(map[string]interface{})
-	if !ok {
-		return nil, &rerrors.RuleValidationError{Message: "expected a YAML mapping in " + context}
-	}
-	if len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
-		return nil, &rerrors.RuleValidationError{Message: "expected a YAML mapping in " + context}
-	}
-	return &parserSourceDocument{root: document.Content[0], mapping: mapping}, nil
-}
-
-func walkYAMLNode(node *yaml.Node, depth int, bound *yamlBounds, context string) error {
-	if node == nil {
-		return nil
-	}
-	if depth > maxParserYAMLDepth {
-		return parserLimitError(context, "yaml nesting depth", depth, maxParserYAMLDepth, "levels")
-	}
-	bound.nodes++
-	if bound.nodes > maxParserYAMLNodes {
-		return parserLimitError(context, "yaml nodes", bound.nodes, maxParserYAMLNodes, "nodes")
-	}
-	bound.expandedNodes++
-	if bound.expandedNodes > maxParserYAMLExpandedNodes {
-		return parserLimitError(context, "expanded yaml nodes", bound.expandedNodes, maxParserYAMLExpandedNodes, "nodes")
-	}
-	if node.Kind == yaml.AliasNode {
-		bound.aliases++
-		if bound.aliases > maxParserYAMLAliases {
-			return parserLimitError(context, "yaml aliases", bound.aliases, maxParserYAMLAliases, "aliases")
-		}
-		if bound.activeAliases[node.Alias] {
-			return &rerrors.RuleValidationError{Message: "recursive yaml alias in " + context}
-		}
-		bound.activeAliases[node.Alias] = true
-		if err := walkYAMLNode(node.Alias, depth+1, bound, context); err != nil {
-			return err
-		}
-		delete(bound.activeAliases, node.Alias)
-		return nil
-	}
-	if node.Kind == yaml.ScalarNode {
-		bound.scalarBytes += len(node.Value)
-		if bound.scalarBytes > maxParserScalarBytes {
-			return parserLimitError(context, "decoded scalar bytes", bound.scalarBytes, maxParserScalarBytes, "bytes")
-		}
-	}
-	for _, child := range node.Content {
-		if err := walkYAMLNode(child, depth+1, bound, context); err != nil {
-			return err
-		}
-	}
-	return nil
+	return &parserSourceDocument{root: root, mapping: mapping}, nil
 }
 
 func validateRuleDocumentBounds(src policy.PolicySource, doc map[string]interface{}, existingRules int) error {

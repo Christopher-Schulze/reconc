@@ -34,7 +34,10 @@ var DefaultPolicyGlobs = []string{"policies/*.yml", "policies/*.yaml"}
 // LockfilePath is the repo-relative path where the compiled lockfile lives.
 const LockfilePath = ".reconc/policy.lock.json"
 
-const lockfileMissingWarning = "compiled lockfile not found at " + LockfilePath
+const (
+	lockfileMissingWarning        = "compiled lockfile not found at " + LockfilePath
+	policyFragmentsMissingWarning = "no policy fragments discovered under policies/*.yml or policies/*.yaml"
+)
 
 // DiscoveryResult is the full discovery outcome.
 //
@@ -156,7 +159,7 @@ func inspectDirectory(dir, originalStart string) (DiscoveryResult, bool, error) 
 		warnings = append(warnings, "no CLAUDE.md / AGENTS.md / start.md entry file found; compiling config and policy fragments only")
 	}
 	if len(policies) == 0 {
-		warnings = append(warnings, "no policy fragments discovered under policies/*.yml or policies/*.yaml")
+		warnings = append(warnings, policyFragmentsMissingWarning)
 	}
 	if lockfilePath == nil {
 		warnings = append(warnings, lockfileMissingWarning)

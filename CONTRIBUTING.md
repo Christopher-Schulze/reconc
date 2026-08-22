@@ -47,6 +47,12 @@ uses isolated temporary repositories for product dogfooding.
   generated rows by hand.
 - Add tests that fail when the implemented contract is broken. Do not pin prose
   when a semantic invariant can be tested directly.
+- Preview policy changes with `reconc policy author . --candidate FILE`. Add
+  evidence flags when the change needs an Impact Lab delta, and use `--apply`
+  only after reviewing the schema, compiler, conflict, provenance, and impact
+  output. Policy-config schema changes must update the canonical registry,
+  embedded-byte digest tests, parser/compiler regressions, and generated
+  references together.
 - Do not include source-planning TASK files; this repository keeps them local
   and gitignored.
 

@@ -16,6 +16,7 @@ import (
 	stderrors "errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 
@@ -111,6 +112,8 @@ func Run(argv []string, version string, stdout, stderr io.Writer) (runErr error)
 		return runCI(argv[1:], version, stdout, stderr)
 	case "impact":
 		return runImpact(argv[1:], version, stdout)
+	case "policy":
+		return runPolicy(argv[1:], version, os.Stdin, inputIsTerminal(os.Stdin), stdout)
 	case "exec":
 		return runExec(argv[1:], stdout, stderr)
 	case "hook":

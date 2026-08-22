@@ -39,6 +39,26 @@ func RenderRepoPolicyWithCandidate(repoStartPath, compilerVersion string, candid
 	return compiled, body, baseSourceDigest, err
 }
 
+// RenderRepoPolicyWithTargetCandidate compiles a repository as if one exact
+// repository policy fragment already contained candidateContent. It never
+// writes the target or lockfile, and replacement uses production provenance.
+func RenderRepoPolicyWithTargetCandidate(repoStartPath, compilerVersion, targetPath, candidateContent string) (*CompiledPolicy, []byte, string, error) {
+	bundle, err := ingest.LoadPolicySources(repoStartPath)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	baseSourceDigest, err := ComputeSourceDigest(bundle)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	bundle, err = ingest.ReplacePolicyFileSource(bundle, targetPath, candidateContent)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	compiled, body, err := renderPolicyBundle(bundle, compilerVersion)
+	return compiled, body, baseSourceDigest, err
+}
+
 func (candidate CandidateSource) policySource() (policy.PolicySource, error) {
 	if candidate.Name == "" || candidate.Content == "" {
 		return policy.PolicySource{}, fmt.Errorf("candidate name and content must be non-empty")

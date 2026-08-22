@@ -191,7 +191,7 @@ func detectEnvironment(root, goBinary string) (Environment, error) {
 	}
 	var goEnv goEnvironment
 	if err := json.Unmarshal(goOutput, &goEnv); err != nil || goEnv.GoVersion == "" || goEnv.GOOS == "" || goEnv.GOARCH == "" {
-		return Environment{}, errors.New("Go environment output is incomplete")
+		return Environment{}, errors.New("go environment output is incomplete")
 	}
 	cpu, err := cpuIdentity(root, goEnv.GOOS)
 	if err != nil {
@@ -225,11 +225,11 @@ func cpuIdentity(root, goos string) (string, error) {
 	case "windows":
 		body, err = commandOutput(root, 15*time.Second, 8<<10, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "(Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty Name)")
 	default:
-		return "", fmt.Errorf("CPU identity is unsupported on %s", goos)
+		return "", fmt.Errorf("cpu identity is unsupported on %s", goos)
 	}
 	identity := strings.Join(strings.Fields(string(body)), " ")
 	if err != nil || identity == "" {
-		return "", errors.New("CPU identity is unavailable")
+		return "", errors.New("cpu identity is unavailable")
 	}
 	return identity, nil
 }
