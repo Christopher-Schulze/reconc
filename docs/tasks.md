@@ -8,6 +8,7 @@
 
 ## Done
 
+- [x] 265 Complete the bounded NilAway audit -> tasks/done/265-complete-bounded-nilaway-audit.md
 - [x] 264 Perform the v0.9.7 release general rehearsal -> tasks/done/264-perform-v097-release-general-rehearsal.md
 - [x] 263 Make policy-author rollback test platform-neutral -> tasks/done/263-make-policy-author-rollback-test-platform-neutral.md
 - [x] 262 Consolidate repository onto main -> tasks/done/262-consolidate-repository-onto-main.md
@@ -17,4 +18,3 @@
 - [x] 258 Decompose large source owners -> tasks/done/258-decompose-large-source-owners.md
 - [x] 257 Consolidate expensive test fixtures -> tasks/done/257-consolidate-expensive-test-fixtures.md
 - [x] 256 Reduce verification friction and refresh toolchain trust -> tasks/done/256-reduce-verification-friction-and-refresh-toolchain-trust.md
-- [x] 255 Serialize active-session private directory publication -> tasks/done/255-serialize-active-session-private-directory-publication.md
