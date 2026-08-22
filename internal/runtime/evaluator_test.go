@@ -619,8 +619,7 @@ func TestCheckSummariesAndCounts(t *testing.T) {
 
 func TestCheckScopedRuleOnlyFiresInsideScope(t *testing.T) {
 	withRECONCHome(t)
-	policies := `default_mode: warn
-scopes:
+	policies := `scopes:
   - id: web
     paths: ['apps/web/**']
     rules:
@@ -630,7 +629,7 @@ scopes:
         mode: block
         message: web-generated is read-only
 `
-	repo := makeRepo(t, "# t\n", "", policies)
+	repo := makeRepo(t, "# t\n", "default_mode: warn\n", policies)
 
 	// Write inside the web scope -> rule fires.
 	report, err := CheckRepoPolicy(repo, ExecutionInputs{
@@ -660,8 +659,7 @@ scopes:
 
 func TestCheckGlobalAndScopedCoexist(t *testing.T) {
 	withRECONCHome(t)
-	policies := `default_mode: warn
-rules:
+	policies := `rules:
   - id: no-secrets
     kind: deny_write
     paths: ['**/.env']
@@ -677,7 +675,7 @@ scopes:
         mode: block
         message: web-gen
 `
-	repo := makeRepo(t, "# t\n", "", policies)
+	repo := makeRepo(t, "# t\n", "default_mode: warn\n", policies)
 
 	// Global rule always applies regardless of scope.
 	report, err := CheckRepoPolicy(repo, ExecutionInputs{
@@ -696,8 +694,7 @@ scopes:
 
 func TestCheckMultipleScopesIndependent(t *testing.T) {
 	withRECONCHome(t)
-	policies := `default_mode: warn
-scopes:
+	policies := `scopes:
   - id: web
     paths: ['apps/web/**']
     rules:
@@ -715,7 +712,7 @@ scopes:
         mode: block
         message: m
 `
-	repo := makeRepo(t, "# t\n", "", policies)
+	repo := makeRepo(t, "# t\n", "default_mode: warn\n", policies)
 
 	// Writing only in web should not trip mobile's rule.
 	report, err := CheckRepoPolicy(repo, ExecutionInputs{
@@ -736,8 +733,8 @@ scopes:
 func TestCheckAcceptsDefaultSchemaWhenEnvOverrideSet(t *testing.T) {
 	// Compile with no override -> lockfile has default schema URL.
 	withRECONCHome(t)
-	policies := "default_mode: warn\nrules:\n  - id: r\n    kind: deny_write\n    paths: ['x']\n    mode: warn\n    message: m\n"
-	repo := makeRepo(t, "# t\n", "", policies)
+	policies := "rules:\n  - id: r\n    kind: deny_write\n    paths: ['x']\n    mode: warn\n    message: m\n"
+	repo := makeRepo(t, "# t\n", "default_mode: warn\n", policies)
 
 	// Now flip the env and check -- reader must still accept the
 	// default schema URL for back-compat.
@@ -753,8 +750,7 @@ func TestScopeFilterPatternTamperingFailsClosedBeforeEvaluation(t *testing.T) {
 	// Craft a lockfile rule with a malformed scope_paths pattern.
 	// doublestar rejects certain malformed glob character classes.
 	withRECONCHome(t)
-	policies := `default_mode: warn
-scopes:
+	policies := `scopes:
   - id: web
     paths: ['apps/web/**']
     rules:
@@ -764,7 +760,7 @@ scopes:
         mode: block
         message: m
 `
-	repo := makeRepo(t, "# t\n", "", policies)
+	repo := makeRepo(t, "# t\n", "default_mode: warn\n", policies)
 
 	// Now inject a bad scope_paths into the compiled lockfile by
 	// rewriting one entry. Crude but test-focused; a real malformed
@@ -813,8 +809,7 @@ scopes:
 
 func TestCommandMatchCollapsesInteriorSpace(t *testing.T) {
 	withRECONCHome(t)
-	policies := `default_mode: warn
-rules:
+	policies := `rules:
   - id: r1
     kind: require_command
     when_paths: ['src/**']
@@ -822,7 +817,7 @@ rules:
     mode: block
     message: m
 `
-	repo := makeRepo(t, "# t\n", "", policies)
+	repo := makeRepo(t, "# t\n", "default_mode: warn\n", policies)
 
 	// Agent reports the command with a double space.
 	report, err := CheckRepoPolicy(repo, ExecutionInputs{
@@ -843,8 +838,7 @@ func TestCommandMatchRejectsNonWhitespaceDifference(t *testing.T) {
 	// be different -- we're only collapsing whitespace, not ignoring
 	// it.
 	withRECONCHome(t)
-	policies := `default_mode: warn
-rules:
+	policies := `rules:
   - id: r1
     kind: require_command
     when_paths: ['src/**']
@@ -852,7 +846,7 @@ rules:
     mode: block
     message: m
 `
-	repo := makeRepo(t, "# t\n", "", policies)
+	repo := makeRepo(t, "# t\n", "default_mode: warn\n", policies)
 	report, _ := CheckRepoPolicy(repo, ExecutionInputs{
 		WritePaths: []string{filepath.Join(repo, "src/x.go")},
 		Commands:   []string{"gotest"},
@@ -864,8 +858,7 @@ rules:
 
 func TestClaimMatchCollapsesInteriorWhitespace(t *testing.T) {
 	withRECONCHome(t)
-	policies := `default_mode: warn
-rules:
+	policies := `rules:
   - id: r1
     kind: require_claim
     when_paths: ['src/**']
@@ -873,7 +866,7 @@ rules:
     mode: block
     message: m
 `
-	repo := makeRepo(t, "# t\n", "", policies)
+	repo := makeRepo(t, "# t\n", "default_mode: warn\n", policies)
 	// Claim reported with a trailing tab + spaces.
 	report, _ := CheckRepoPolicy(repo, ExecutionInputs{
 		WritePaths: []string{filepath.Join(repo, "src/x.go")},

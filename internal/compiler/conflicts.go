@@ -53,7 +53,7 @@ func DetectConflicts(rules []policy.Rule) []Conflict {
 
 	// --- Exact-match duplicates within the same kind -----------------
 	out = append(out, findExactDuplicates(byKind[policy.KindDenyWrite], "paths", ConflictDuplicateDeny)...)
-	out = append(out, findExactDuplicates(byKind[policy.KindRequireRead], "when_paths", ConflictDuplicateRequireRead)...)
+	out = append(out, findDuplicateRequireReads(byKind[policy.KindRequireRead])...)
 	out = append(out, findExactDuplicates(byKind[policy.KindRequireCommand], "commands", ConflictDuplicateRequireCmd)...)
 	out = append(out, findExactDuplicates(byKind[policy.KindRequireClaim], "claims", ConflictDuplicateRequireClaim)...)
 
@@ -110,6 +110,34 @@ func findExactDuplicates(rules []policy.Rule, field string, kind string) []Confl
 				RuleIDB:     idB,
 				Description: "rules '" + idA + "' and '" + idB + "' have identical " + field + " and are redundant",
 				Paths:       append([]string(nil), selectField(a, field)...),
+			})
+		}
+	}
+	return out
+}
+
+// findDuplicateRequireReads compares the complete read-order obligation.
+// paths selects writes governed by the rule; before_paths selects the reads
+// that must precede them. Both non-empty lists must match for rules to be
+// semantically redundant.
+func findDuplicateRequireReads(rules []policy.Rule) []Conflict {
+	var out []Conflict
+	for i := 0; i < len(rules); i++ {
+		for j := i + 1; j < len(rules); j++ {
+			a, b := rules[i], rules[j]
+			if !slicesEqualSorted(a.Paths, b.Paths) || !slicesEqualSorted(a.BeforePaths, b.BeforePaths) {
+				continue
+			}
+			idA, idB := a.ID, b.ID
+			if idB < idA {
+				idA, idB = idB, idA
+			}
+			out = append(out, Conflict{
+				Kind:        ConflictDuplicateRequireRead,
+				RuleIDA:     idA,
+				RuleIDB:     idB,
+				Description: "rules '" + idA + "' and '" + idB + "' have identical paths and before_paths and are redundant",
+				Paths:       append([]string(nil), a.Paths...),
 			})
 		}
 	}
@@ -246,12 +274,16 @@ func slicesEqualSorted(a, b []string) bool {
 	if len(a) != len(b) || len(a) == 0 {
 		return false
 	}
-	aa := append([]string(nil), a...)
-	bb := append([]string(nil), b...)
+	aa := make([]string, len(a))
+	bb := make([]string, len(b))
+	for i := range a {
+		aa[i] = strings.TrimSpace(a[i])
+		bb[i] = strings.TrimSpace(b[i])
+	}
 	sort.Strings(aa)
 	sort.Strings(bb)
 	for i := range aa {
-		if strings.TrimSpace(aa[i]) != strings.TrimSpace(bb[i]) {
+		if aa[i] != bb[i] {
 			return false
 		}
 	}

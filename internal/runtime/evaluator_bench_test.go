@@ -245,8 +245,8 @@ func BenchmarkCheckLargeRuleset(b *testing.B) {
 func BenchmarkCheckMixedRuleset(b *testing.B) {
 	repo := b.TempDir()
 	writeFileBench(b, repo, "AGENTS.md", "# t\n")
-	writeFileBench(b, repo, "policies/rules.yml", `default_mode: warn
-rules:
+	writeFileBench(b, repo, ".reconc.yml", "default_mode: warn\n")
+	writeFileBench(b, repo, "policies/rules.yml", `rules:
   - id: deny
     kind: deny_write
     paths: ['generated/**']
@@ -366,8 +366,8 @@ func BenchmarkCheckScopedRule(b *testing.B) {
 	b.Setenv("RECONC_HOME", b.TempDir())
 	repo := b.TempDir()
 	writeFileBench(b, repo, "AGENTS.md", "# t\n")
-	writeFileBench(b, repo, "policies/rules.yml", `default_mode: warn
-scopes:
+	writeFileBench(b, repo, ".reconc.yml", "default_mode: warn\n")
+	writeFileBench(b, repo, "policies/rules.yml", `scopes:
   - id: web
     paths: ['apps/web/**']
     rules:

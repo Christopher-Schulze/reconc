@@ -24,6 +24,14 @@
 | `couple_change` | `paths`, `when_paths` | A primary write matching `paths` requires a separate companion write matching `when_paths`; a path matching both is classified as a companion. |
 | `require_claim` | `claims`, `when_paths` | Writes matching `when_paths` require at least one listed claim. |
 
+Every string-list entry is trimmed during parsing and must remain non-empty.
+This applies uniformly to paths, commands, claims, script arguments,
+`cache_inputs`, and evidence `must_contain` values. Static duplicate detection
+is order-insensitive over these normalized values. Two `require_read` rules are
+duplicates only when both their governed `paths` and prerequisite
+`before_paths` lists match; trigger-only or absent fields never establish a
+duplicate.
+
 The command kinds (`require_command`, `require_command_success`,
 `forbid_command`) accept an optional additive `command_match` field:
 `exact` (default) compares normalized whole strings; `prefix` also

@@ -291,8 +291,7 @@ func TestRuntimePlanCacheInvalidatesOnSourceAndLockChanges(t *testing.T) {
 
 func TestTypedEvaluatorMatchesOneShotReports(t *testing.T) {
 	withRECONCHome(t)
-	repo := makeRepo(t, "# project\n", "", `default_mode: warn
-rules:
+	repo := makeRepo(t, "# project\n", "default_mode: warn\n", `rules:
   - id: generated
     kind: deny_write
     paths: ['generated/**']

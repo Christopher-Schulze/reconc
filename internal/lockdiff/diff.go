@@ -21,6 +21,7 @@ import (
 
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/compiler"
+	"reconc.dev/reconc/internal/policy"
 )
 
 const maxLockfileBytes = compiler.MaxLockfileBytes
@@ -516,8 +517,9 @@ func indexRules(payload map[string]interface{}) (map[string]map[string]interface
 	if count, ok := integerField(payload["source_count"]); !ok || count != len(sources) {
 		return nil, fmt.Errorf("source_count must equal sources length")
 	}
-	if mode, _ := payload["default_mode"].(string); mode != "warn" && mode != "block" {
-		return nil, fmt.Errorf("default_mode must be warn or block")
+	mode, ok := payload["default_mode"].(string)
+	if !ok || !policy.Mode(mode).Valid() {
+		return nil, fmt.Errorf("default_mode must contain a valid policy mode")
 	}
 	return out, nil
 }

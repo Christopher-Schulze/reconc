@@ -30,13 +30,13 @@ invalid or misleading authoring input can compile.
 
 ## Sub-Tasks
 
-- [ ] Centralize lockdiff mode validation on the canonical policy enum
-- [ ] Define and test the semantic duplicate key for `require_read`
-- [ ] Reject misplaced `default_mode` before rule parsing
-- [ ] Make contain-list whitespace validation consistent and exhaustive
-- [ ] Assign migrated lock-digest stamping to one layer
-- [ ] Add regression, fuzz, schema, and compatibility coverage
-- [ ] Update policy authoring and migration documentation
+- [x] Centralize lockdiff mode validation on the canonical policy enum
+- [x] Define and test the semantic duplicate key for `require_read`
+- [x] Reject misplaced `default_mode` before rule parsing
+- [x] Make contain-list whitespace validation consistent and exhaustive
+- [x] Assign migrated lock-digest stamping to one layer
+- [x] Add regression, fuzz, schema, and compatibility coverage
+- [x] Update policy authoring and migration documentation
 
 ## Notes
 
@@ -47,6 +47,21 @@ invalid or misleading authoring input can compile.
 - Migration outputs must stay byte-compatible except for eliminating redundant
   work; fixture digests and all supported legacy formats are the acceptance
   oracle.
+- Lockdiff now delegates all four legal values to `policy.Mode.Valid`.
+  `require_read` duplicate detection compares normalized `paths` and
+  `before_paths`, while all policy string-list readers reject whitespace-only
+  elements and store trimmed values.
+- Non-compiler sources, including impact candidates, reject `default_mode`
+  before rule parsing. Runtime tests and benchmarks were corrected to place the
+  field in `.reconc.yml` rather than weakening the production contract.
+- Migration steps return unstamped target-version payloads. The driver stamps
+  each intermediate and final digest once, preserving the authentication input
+  required by the next step and removing the former redundant final pass.
+- Verification: focused package tests and race tests passed for parser,
+  compiler, lockdiff, schema, and runtime; both parser and migration fuzzers ran
+  for two seconds without failure; corrected runtime benchmarks executed once;
+  `make test`, `make vet`, `make lint`, `make self-host`, and module-tidy drift
+  checks all passed.
 
 ## Deviations
 

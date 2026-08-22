@@ -1235,12 +1235,12 @@ func optionalContainList(item map[string]interface{}, field, ruleID, listKey str
 	out := make([]string, 0, len(list))
 	for _, v := range list {
 		s, ok := v.(string)
-		if !ok || s == "" {
+		if !ok || strings.TrimSpace(s) == "" {
 			return nil, &rerrors.RuleValidationError{
 				Message: "rule '" + ruleID + "' field '" + listKey + "[" + strconv.Itoa(index) + "]." + field + "' entries must be non-empty strings",
 			}
 		}
-		out = append(out, s)
+		out = append(out, strings.TrimSpace(s))
 	}
 	if len(out) == 0 {
 		return nil, nil
@@ -1294,7 +1294,7 @@ func optionalStringList(item map[string]interface{}, key, ruleID string) ([]stri
 				Message: "rule '" + ruleID + "' field '" + key + "' must be a list of non-empty strings",
 			}
 		}
-		out = append(out, str)
+		out = append(out, strings.TrimSpace(str))
 	}
 	return out, nil
 }

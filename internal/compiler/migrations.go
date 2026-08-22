@@ -92,11 +92,7 @@ func migrateLockfileV1ToV2(payload map[string]interface{}) (map[string]interface
 	portableDiscovery["repo_root"] = PortableRepoRoot
 	portableDiscovery["start_path"] = PortableRepoRoot
 	out["discovery"] = portableDiscovery
-	digest, err := ComputeLockDigest(out)
-	if err != nil {
-		return nil, fmt.Errorf("compute portable v2 lockfile digest: %w", err)
-	}
-	out["lock_digest"] = digest
+	delete(out, "lock_digest")
 	return out, nil
 }
 
@@ -189,6 +185,7 @@ func migrateLockfileV2ToV3(payload map[string]interface{}) (map[string]interface
 	out["$schema"] = schema.ResolveVersion(schema.PolicyLock, "3")
 	out["sources"] = sources
 	out["source_digest"] = sourceDigest
+	delete(out, "lock_digest")
 	return out, nil
 }
 
@@ -204,11 +201,7 @@ func migrateLockfileV3ToV4(payload map[string]interface{}) (map[string]interface
 	out := cloneLockfileMap(payload)
 	out["$schema"] = schema.ResolveVersion(schema.PolicyLock, "4")
 	out["format_version"] = "4"
-	digest, err := ComputeLockDigest(out)
-	if err != nil {
-		return nil, fmt.Errorf("compute migrated v4 lockfile digest: %w", err)
-	}
-	out["lock_digest"] = digest
+	delete(out, "lock_digest")
 	return out, nil
 }
 
@@ -256,11 +249,7 @@ func migrateLockfileV4ToV5(payload map[string]interface{}) (map[string]interface
 	if err != nil {
 		return nil, fmt.Errorf("normalize migrated v5 lockfile: %w", err)
 	}
-	digest, err := ComputeLockDigest(out)
-	if err != nil {
-		return nil, fmt.Errorf("compute migrated v5 lockfile digest: %w", err)
-	}
-	out["lock_digest"] = digest
+	delete(out, "lock_digest")
 	return out, nil
 }
 
@@ -299,11 +288,7 @@ func migrateLockfileV5ToV6(payload map[string]interface{}) (map[string]interface
 	if err != nil {
 		return nil, fmt.Errorf("normalize migrated v6 lockfile: %w", err)
 	}
-	digest, err := ComputeLockDigest(out)
-	if err != nil {
-		return nil, fmt.Errorf("compute migrated v6 lockfile digest: %w", err)
-	}
-	out["lock_digest"] = digest
+	delete(out, "lock_digest")
 	return out, nil
 }
 
@@ -365,6 +350,14 @@ func MigrateLockfile(payload map[string]interface{}) (map[string]interface{}, []
 					}
 				}
 				next["format_version"] = m.ToVersion
+				digest, digestErr := ComputeLockDigest(next)
+				if digestErr != nil {
+					return nil, applied, &rerrors.LockfileError{
+						Message: fmt.Sprintf("compute migrated %s lockfile digest", m.ToVersion),
+						Cause:   digestErr,
+					}
+				}
+				next["lock_digest"] = digest
 				current = next
 				got = m.ToVersion
 				applied = append(applied, m)
@@ -378,10 +371,5 @@ func MigrateLockfile(payload map[string]interface{}) (map[string]interface{}, []
 			}
 		}
 	}
-	digest, err := ComputeLockDigest(current)
-	if err != nil {
-		return nil, applied, &rerrors.LockfileError{Message: "compute migrated lockfile digest", Cause: err}
-	}
-	current["lock_digest"] = digest
 	return current, applied, nil
 }

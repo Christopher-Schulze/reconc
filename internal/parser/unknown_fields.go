@@ -135,9 +135,12 @@ func validateRuleKindFields(rule map[string]interface{}, kind policy.Kind, id, s
 }
 
 func validateDocumentFields(src policy.PolicySource, doc map[string]interface{}) error {
-	rootFields := fieldSet("default_mode", "rules", "scopes")
+	if _, present := doc["default_mode"]; present && src.Kind != policy.SourceCompilerConfig {
+		return &rerrors.RuleValidationError{Message: "default_mode is only valid in compiler configuration: " + src.Path}
+	}
+	rootFields := fieldSet("rules", "scopes")
 	if src.Kind == policy.SourceCompilerConfig {
-		addFields(rootFields, "extends", "include", "task_lifecycle", "mcp", "actions")
+		addFields(rootFields, "default_mode", "extends", "include", "task_lifecycle", "mcp", "actions")
 	}
 	if impactCandidateSource(src) {
 		addFields(rootFields, "actions")

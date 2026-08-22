@@ -14,6 +14,8 @@ func FuzzParseRuleDocumentsNoPanic(f *testing.F) {
 		"rules:\n  - id: deny\n    kind: deny_write\n    paths: ['generated/**']\n    message: no generated writes\n",
 		"rules:\n  - id: claim\n    kind: require_claim\n    when_paths: ['src/**']\n    claims: ['ci-green']\n    message: ci required\n",
 		"rules:\n  - id: bad\n    kind: nope\n    message: bad\n",
+		"default_mode: block\nrules: []\n",
+		"rules:\n  - id: spaces\n    kind: require_script\n    script: scripts/check.sh\n    args: ['   ']\n    when_paths: ['src/**']\n    message: spaces\n",
 		"rules: [",
 	} {
 		f.Add(seed)

@@ -31,6 +31,10 @@ The compiled `source_precedence` field is:
 `global`, `claude_md`, `agents_md`, `start_md`, `inline_block`,
 `compiler_config`, `preset`, `policy_file`
 
+Only the compiler configuration source may declare top-level `default_mode`.
+Global policy, inline blocks, presets, policy files, and impact candidates that
+declare it are invalid rather than silently ignored.
+
 ## Required Top-Level Fields
 
 | Field | Type | Rule |
@@ -94,6 +98,12 @@ typed immutable plan. A migrated format-1, format-2, format-3, or format-4 lock
 additionally re-parses current sources and requires equivalent canonical rule
 and action behavior,
 so an in-memory legacy migration cannot legitimize policy drift.
+
+Migration steps produce deterministic target-version payloads without a
+`lock_digest`. The migration driver sets `format_version`, computes, and stamps
+the digest exactly once per produced version. Intermediate stamps authenticate
+the input to the next registered step; the last stamp is the final migrated
+lock digest.
 
 ## Rule Entries
 
