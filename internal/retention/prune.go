@@ -31,7 +31,7 @@ const (
 	maxRetentionDirectoryEntries = 16_384
 	maxRetentionWalkEntries      = 100_000
 	// ProjectRootRetentionLockName serializes root deletion with creation of
-	// durable action state in another process.
+	// durable action and agent-session state in another process.
 	ProjectRootRetentionLockName = ".project-root-retention.lock"
 )
 

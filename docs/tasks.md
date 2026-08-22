@@ -2,11 +2,13 @@
 
 ## Active
 
-- [~] 254 Make RECONC_HOME override test platform-neutral -> tasks/254-make-reconc-home-override-test-platform-neutral.md
+- [~] 255 Serialize active-session private directory publication -> tasks/255-serialize-active-session-private-directory-publication.md
 
 ## Queue
 
 ## Blocked
+
+- [!] 254 Make RECONC_HOME override test platform-neutral -> tasks/254-make-reconc-home-override-test-platform-neutral.md
 
 ## Done
 

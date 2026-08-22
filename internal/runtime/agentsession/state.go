@@ -442,7 +442,44 @@ func saveSessionStateLockedIfChanged(state SessionState) (bool, error) {
 }
 
 func ensurePrivateStateDir(path string) error {
-	return privatefs.RepairDirectory(path)
+	if err := privatefs.ValidateDirectory(path); err == nil {
+		return privatefs.RepairDirectory(path)
+	}
+	// A missing or incomplete project directory must not become observable
+	// between filesystem creation and Windows DACL publication. The product-wide
+	// retention lock is the existing cross-process authority for this boundary.
+	root := filepath.Clean(stateRoot())
+	projectRoot := filepath.Join(root, "projects")
+	relative, err := filepath.Rel(projectRoot, filepath.Clean(path))
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return privatefs.RepairDirectory(path)
+	}
+	return publishPrivateStateDirectory(root, path)
+}
+
+func publishPrivateStateDirectory(root, path string) error {
+	if err := privatefs.RepairDirectory(root); err != nil {
+		return fmt.Errorf("secure private state root: %w", err)
+	}
+	lock, err := privatefs.OpenLock(filepath.Join(root, retention.ProjectRootRetentionLockName))
+	if err != nil {
+		return fmt.Errorf("open project state publication lock: %w", err)
+	}
+	unlock, err := filelock.LockContext(context.Background(), lock, agentSessionLockTimeout)
+	if err != nil {
+		return errors.Join(
+			fmt.Errorf("lock project state publication: %w", err),
+			wrapOperationError("close project state publication lock", lock.Close()),
+		)
+	}
+	publicationErr := privatefs.RepairDirectory(path)
+	unlockErr := unlock()
+	closeErr := lock.Close()
+	return errors.Join(
+		publicationErr,
+		wrapOperationError("unlock project state publication", unlockErr),
+		wrapOperationError("close project state publication lock", closeErr),
+	)
 }
 
 func saveSessionState(state SessionState) error {

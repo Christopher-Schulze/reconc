@@ -26,6 +26,10 @@ platform-neutral too.
 - [~] Prove the preflight and full suite on native Windows
 - [ ] Archive the TASK and preserve exact CI evidence
 
+## Blocker
+
+paused for TASK 255 after native Windows DACL publication race
+
 ## Notes
 
 - CI run `32551738459` at source `e6dfa61b` passed CodeQL, Linux, macOS,
