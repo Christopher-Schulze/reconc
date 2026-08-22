@@ -321,6 +321,8 @@ func FuzzNormalizeHostPayload(f *testing.F) {
 	manifest := mustManifest(f, "testdata/local-agent.json")
 	route, _ := manifest.Route("before-tool")
 	f.Add([]byte(`{"context":{"session":"s"},"tool":{"name":"Read","input":{}}}`))
+	f.Add([]byte(`{"context":{"session":"s"},"context":{"session":"duplicate"}}`))
+	f.Add([]byte(`{"context":{"session":"s"},"tool":{"name":"Read","input":[`))
 	f.Fuzz(func(t *testing.T, body []byte) {
 		_, _, _ = NormalizeHostPayload(manifest, route, body)
 	})

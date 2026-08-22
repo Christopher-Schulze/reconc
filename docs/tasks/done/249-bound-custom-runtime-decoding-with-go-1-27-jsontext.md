@@ -34,14 +34,14 @@ Reconc's lockfile and canonical action decoders.
 
 ## Sub-Tasks
 
-- [ ] Inventory route pointer shapes and current decoder/error invariants
-- [ ] Design one-pass pointer selection over Go 1.27 `jsontext.Decoder`
-- [ ] Add explicit depth, cardinality, selected-byte, and retained-value budgets
-- [ ] Preserve neutral request and canonical output compatibility
-- [ ] Add differential, adversarial, fuzz, and maximum-boundary tests
-- [ ] Benchmark allocations and latency against the current interface-tree decoder
-- [ ] Run custom-runtime, race, fuzz, and full repository gates
-- [ ] Update runtime and Go 1.27 documentation with measured results
+- [x] Inventory route pointer shapes and current decoder/error invariants
+- [x] Design one-pass pointer selection over Go 1.27 `jsontext.Decoder`
+- [x] Add explicit depth, cardinality, selected-byte, and retained-value budgets
+- [x] Preserve neutral request and canonical output compatibility
+- [x] Add differential, adversarial, fuzz, and maximum-boundary tests
+- [x] Benchmark allocations and latency against the current interface-tree decoder
+- [x] Run custom-runtime, race, fuzz, and full repository gates
+- [x] Update runtime and Go 1.27 documentation with measured results
 
 ## Notes
 
@@ -51,6 +51,18 @@ Reconc's lockfile and canonical action decoders.
   improve this path.
 - Do not replace one full tree with a custom second full tree. The acceptance
   condition is selective retention with explicit budgets.
+- Shipped conformance host objects top out at 107 bytes. The host cap is reduced
+  from 64 MiB to 8 MiB, aligned with other large policy/action inputs, while
+  selected materialization is independently capped at 2 MiB.
+- Apple M1, five iterations: 64 KiB streaming 301,792 ns/op and 284,515 B/op
+  versus 592,175 ns/op and 412,702 B/op for the interface-tree reference;
+  8 MiB streaming 14,545,458 ns/op and 33,584,300 B/op versus 29,269,683 ns/op
+  and 50,358,718 B/op. The 256-byte fixed-cost path is slower, as documented.
+- Verification: differential fixture and canonical-byte tests, adversarial
+  syntax/budget tests, maximum-boundary tests, the 500-execution streaming
+  parity fuzzer, package race tests, vet, staticcheck, publication audit,
+  harness-pack check, root/template race suites, and release-trust fixtures all
+  passed.
 
 ## Deviations
 

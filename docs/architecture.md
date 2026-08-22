@@ -749,6 +749,7 @@ class of hostile input.
 | Policy source | **8 MiB each / 4,096 files / 64 MiB aggregate** | Bounds repository and fragment ingestion before compilation. |
 | Parsed policy graph | **4,096 rules / 256 checks or list items / 1 KiB patterns / 16 KiB commands / 64 KiB messages** | Bounds typed rule construction before matching; YAML depth, node, alias, expanded-node, and decoded-scalar-byte ceilings reject structural amplification. |
 | Custom runtime manifest | **256 KiB each / 32 manifests / 32 routes each** | Bounds declarative bridge compilation and prevents adapter configuration from becoming executable input. |
+| Custom runtime host payload | **8 MiB / 32 levels / 65,536 object members / 65,536 array items / 13 selected fields / 2 MiB retained** | Go 1.27 `jsontext` validates the complete object; one pointer trie shares ancestor traversal, skips unselected subtrees, and materializes only budgeted selected values. The largest shipped fixture is 107 bytes. |
 | Custom runtime conformance suite | **1 MiB / 128 cases** | Bounds offline third-party adapter verification. |
 | Hook liveness | **64 runtimes / 32 routes each / 256 KiB aggregate** | Covers the built-in registry plus the bounded custom-runtime set without unbounded status state. |
 | Policy lock / execution input | **16 MiB each** | Bounds evaluator control input before JSON decoding. |
@@ -851,7 +852,10 @@ lock, while persistent read or validation failures remain fatal.
 Custom runtimes do not enter the built-in registry and cannot override it.
 Their host adapter invokes `reconc hook bridge <name> <host-event> [repo]` and
 owns the outer process timeout declared in the manifest. Reconc reads one
-bounded JSON object, copies only declared exact fields into the neutral
+bounded JSON object through a strict Go 1.27 `jsontext` validation pass and a
+single shared-ancestor pointer-trie selection pass. Unselected values use
+`SkipValue`; only selected raw spans within the retained-byte budget become
+`json.Number`-preserving Go values. Reconc copies only those declared fields into the neutral
 payload, validates the fresh compiled source digest, executes the existing
 handler, emits one bounded neutral response, and records a collision-resistant
 route liveness key. Status and deep doctor keep manifest configuration,

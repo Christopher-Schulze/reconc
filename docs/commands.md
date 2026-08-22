@@ -1113,6 +1113,12 @@ Read one bounded host JSON object from stdin, select the exact declarative
 manifest in `.reconc/runtimes/<runtime>.json`, normalize only its declared JSON
 Pointers, and dispatch the neutral event through the existing session and
 policy engine. The command emits one bounded, versioned neutral response.
+The inner custom-runtime boundary accepts at most 8 MiB, 32 nesting levels,
+65,536 object members, 65,536 array items, 13 declared mappings, and 2 MiB of
+retained selected JSON. Go 1.27 `jsontext` rejects duplicate names, invalid
+UTF-8 or numbers, malformed structure, and trailing data; one pointer trie
+shares ancestor traversal and `SkipValue` discards unselected subtrees without
+building a complete generic host tree.
 Stale locks, unknown routes, malformed mappings, and fail-closed route errors
 block; missing host guarantees return `unsupported` without claiming stronger
 enforcement than the host provides.

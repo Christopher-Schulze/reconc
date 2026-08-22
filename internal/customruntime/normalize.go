@@ -1,18 +1,12 @@
 package customruntime
 
 import (
-	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"strconv"
 	"strings"
 
 	"reconc.dev/reconc/internal/schema"
 )
-
-const maxHostPayloadBytes = 64 << 20
 
 // NeutralRequest is the public, versioned transport envelope. Payload contains
 // only selected neutral fields, never the complete host request.
@@ -31,22 +25,11 @@ func NormalizeHostPayload(manifest Manifest, route Route, body []byte) (NeutralR
 	if len(body) == 0 || len(body) > maxHostPayloadBytes {
 		return NeutralRequest{}, nil, fmt.Errorf("custom host payload must be 1..%d bytes", maxHostPayloadBytes)
 	}
-	if err := rejectDuplicateJSONKeys(body); err != nil {
+	selected, err := selectHostValues(route.Fields, body)
+	if err != nil {
 		return NeutralRequest{}, nil, err
 	}
-	var host map[string]interface{}
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	decoder.UseNumber()
-	if err := decoder.Decode(&host); err != nil {
-		return NeutralRequest{}, nil, fmt.Errorf("decode custom host payload: %w", err)
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return NeutralRequest{}, nil, fmt.Errorf("custom host payload must contain exactly one JSON object")
-	}
-	if host == nil {
-		return NeutralRequest{}, nil, fmt.Errorf("custom host payload must contain a JSON object")
-	}
-	neutral, err := buildNeutralPayload(manifest, route, host)
+	neutral, err := buildNeutralPayload(manifest, route, selected)
 	if err != nil {
 		return NeutralRequest{}, nil, err
 	}
@@ -62,27 +45,27 @@ func NormalizeHostPayload(manifest Manifest, route Route, body []byte) (NeutralR
 	return request, encoded, nil
 }
 
-func buildNeutralPayload(manifest Manifest, route Route, host map[string]interface{}) (map[string]interface{}, error) {
-	sessionID, err := requiredString(host, route.Fields.SessionID, "session_id")
+func buildNeutralPayload(manifest Manifest, route Route, selected selectedHostValues) (map[string]interface{}, error) {
+	sessionID, err := requiredString(selected, route.Fields.SessionID, "session_id")
 	if err != nil {
 		return nil, err
 	}
 	out := map[string]interface{}{
 		"session_id": sessionID, "reconc_runtime": manifest.Runtime(),
 	}
-	if err := copyOptionalString(host, out, route.Fields.ToolName, "tool_name"); err != nil {
+	if err := copyOptionalString(selected, out, route.Fields.ToolName, "tool_name"); err != nil {
 		return nil, err
 	}
-	if err := copyOptionalObject(host, out, route.Fields.ToolInput, "tool_input"); err != nil {
+	if err := copyOptionalObject(selected, out, route.Fields.ToolInput, "tool_input"); err != nil {
 		return nil, err
 	}
-	if err := copyOptionalObject(host, out, route.Fields.ToolResponse, "tool_response"); err != nil {
+	if err := copyOptionalObject(selected, out, route.Fields.ToolResponse, "tool_response"); err != nil {
 		return nil, err
 	}
 	for _, mapping := range []struct{ pointer, field string }{
 		{route.Fields.ToolUseID, "tool_use_id"}, {route.Fields.Error, "error"},
 	} {
-		if err := copyOptionalString(host, out, mapping.pointer, mapping.field); err != nil {
+		if err := copyOptionalString(selected, out, mapping.pointer, mapping.field); err != nil {
 			return nil, err
 		}
 	}
@@ -90,14 +73,14 @@ func buildNeutralPayload(manifest Manifest, route Route, host map[string]interfa
 		{route.Fields.IsInterrupt, "is_interrupt"}, {route.Fields.StopHookActive, "stop_hook_active"},
 		{route.Fields.StrictContinuation, "strict_continuation"},
 	} {
-		if err := copyOptionalBool(host, out, mapping.pointer, mapping.field); err != nil {
+		if err := copyOptionalBool(selected, out, mapping.pointer, mapping.field); err != nil {
 			return nil, err
 		}
 	}
 	if route.Fields.ExitCode != "" {
-		value, ok, err := selectPointer(host, route.Fields.ExitCode)
-		if err != nil || !ok {
-			return nil, fmt.Errorf("mapped exit_code is missing: %w", err)
+		value, ok := selected[route.Fields.ExitCode]
+		if !ok {
+			return nil, fmt.Errorf("mapped exit_code is missing")
 		}
 		exitCode, ok := exactInt(value)
 		if !ok {
@@ -111,7 +94,7 @@ func buildNeutralPayload(manifest Manifest, route Route, host map[string]interfa
 		out["tool_response"] = response
 	}
 	if route.Event == EventMCPBefore || route.Event == EventMCPAfter {
-		mcp, err := buildMCPEnvelope(manifest, route, host)
+		mcp, err := buildMCPEnvelope(manifest, route, selected)
 		if err != nil {
 			return nil, err
 		}
@@ -120,8 +103,8 @@ func buildNeutralPayload(manifest Manifest, route Route, host map[string]interfa
 	return out, nil
 }
 
-func buildMCPEnvelope(manifest Manifest, route Route, host map[string]interface{}) (map[string]interface{}, error) {
-	tool, err := requiredString(host, route.Fields.MCPTool, "mcp_tool")
+func buildMCPEnvelope(manifest Manifest, route Route, selected selectedHostValues) (map[string]interface{}, error) {
+	tool, err := requiredString(selected, route.Fields.MCPTool, "mcp_tool")
 	if err != nil {
 		return nil, err
 	}
@@ -130,19 +113,19 @@ func buildMCPEnvelope(manifest Manifest, route Route, host map[string]interface{
 		"blocking_pre_hook": route.Event == EventMCPBefore && route.Guarantees.PreExecution && route.Guarantees.SynchronousResponse,
 		"input_valid":       true,
 	}
-	if err := copyOptionalString(host, mcp, route.Fields.MCPServerFingerprint, "server_fingerprint"); err != nil {
+	if err := copyOptionalString(selected, mcp, route.Fields.MCPServerFingerprint, "server_fingerprint"); err != nil {
 		return nil, err
 	}
-	if err := copyOptionalString(host, mcp, route.Fields.MCPOutcome, "outcome"); err != nil {
+	if err := copyOptionalString(selected, mcp, route.Fields.MCPOutcome, "outcome"); err != nil {
 		return nil, err
 	}
 	return mcp, nil
 }
 
-func requiredString(root map[string]interface{}, pointer, field string) (string, error) {
-	value, ok, err := selectPointer(root, pointer)
-	if err != nil || !ok {
-		return "", fmt.Errorf("mapped %s is missing: %w", field, err)
+func requiredString(selected selectedHostValues, pointer, field string) (string, error) {
+	value, ok := selected[pointer]
+	if !ok {
+		return "", fmt.Errorf("mapped %s is missing", field)
 	}
 	text, ok := value.(string)
 	if !ok || text == "" || strings.TrimSpace(text) != text {
@@ -151,13 +134,13 @@ func requiredString(root map[string]interface{}, pointer, field string) (string,
 	return text, nil
 }
 
-func copyOptionalString(root, out map[string]interface{}, pointer, field string) error {
+func copyOptionalString(selected selectedHostValues, out map[string]interface{}, pointer, field string) error {
 	if pointer == "" {
 		return nil
 	}
-	value, ok, err := selectPointer(root, pointer)
-	if err != nil || !ok {
-		return fmt.Errorf("mapped %s is missing: %w", field, err)
+	value, ok := selected[pointer]
+	if !ok {
+		return fmt.Errorf("mapped %s is missing", field)
 	}
 	text, ok := value.(string)
 	if !ok {
@@ -167,13 +150,13 @@ func copyOptionalString(root, out map[string]interface{}, pointer, field string)
 	return nil
 }
 
-func copyOptionalBool(root, out map[string]interface{}, pointer, field string) error {
+func copyOptionalBool(selected selectedHostValues, out map[string]interface{}, pointer, field string) error {
 	if pointer == "" {
 		return nil
 	}
-	value, ok, err := selectPointer(root, pointer)
-	if err != nil || !ok {
-		return fmt.Errorf("mapped %s is missing: %w", field, err)
+	value, ok := selected[pointer]
+	if !ok {
+		return fmt.Errorf("mapped %s is missing", field)
 	}
 	flag, ok := value.(bool)
 	if !ok {
@@ -183,13 +166,13 @@ func copyOptionalBool(root, out map[string]interface{}, pointer, field string) e
 	return nil
 }
 
-func copyOptionalObject(root, out map[string]interface{}, pointer, field string) error {
+func copyOptionalObject(selected selectedHostValues, out map[string]interface{}, pointer, field string) error {
 	if pointer == "" {
 		return nil
 	}
-	value, ok, err := selectPointer(root, pointer)
-	if err != nil || !ok {
-		return fmt.Errorf("mapped %s is missing: %w", field, err)
+	value, ok := selected[pointer]
+	if !ok {
+		return fmt.Errorf("mapped %s is missing", field)
 	}
 	object, ok := value.(map[string]interface{})
 	if !ok {
@@ -228,34 +211,4 @@ func validJSONPointer(pointer string) bool {
 		index++
 	}
 	return true
-}
-
-func selectPointer(root interface{}, pointer string) (interface{}, bool, error) {
-	if pointer == "" {
-		return root, true, nil
-	}
-	if !validJSONPointer(pointer) {
-		return nil, false, fmt.Errorf("invalid JSON Pointer %q", pointer)
-	}
-	current := root
-	for _, raw := range strings.Split(pointer[1:], "/") {
-		segment := strings.ReplaceAll(strings.ReplaceAll(raw, "~1", "/"), "~0", "~")
-		switch value := current.(type) {
-		case map[string]interface{}:
-			selected, exists := value[segment]
-			if !exists {
-				return nil, false, nil
-			}
-			current = selected
-		case []interface{}:
-			index, err := strconv.Atoi(segment)
-			if err != nil || index < 0 || index >= len(value) || strconv.Itoa(index) != segment {
-				return nil, false, nil
-			}
-			current = value[index]
-		default:
-			return nil, false, nil
-		}
-	}
-	return current, true, nil
 }

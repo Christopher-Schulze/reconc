@@ -401,12 +401,7 @@ func validHostEvent(value string) bool {
 }
 
 func validateMappings(fields FieldMappings) error {
-	values := []string{
-		fields.SessionID, fields.ToolName, fields.ToolInput, fields.ToolResponse,
-		fields.ToolUseID, fields.Error, fields.IsInterrupt, fields.StopHookActive,
-		fields.StrictContinuation, fields.ExitCode, fields.MCPTool,
-		fields.MCPServerFingerprint, fields.MCPOutcome,
-	}
+	values := fieldMappingPointers(fields)
 	if fields.SessionID == "" {
 		return fmt.Errorf("fields.session_id is required")
 	}
@@ -424,4 +419,13 @@ func validateMappings(fields FieldMappings) error {
 		seen[pointer] = struct{}{}
 	}
 	return nil
+}
+
+func fieldMappingPointers(fields FieldMappings) []string {
+	return []string{
+		fields.SessionID, fields.ToolName, fields.ToolInput, fields.ToolResponse,
+		fields.ToolUseID, fields.Error, fields.IsInterrupt, fields.StopHookActive,
+		fields.StrictContinuation, fields.ExitCode, fields.MCPTool,
+		fields.MCPServerFingerprint, fields.MCPOutcome,
+	}
 }

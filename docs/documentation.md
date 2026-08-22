@@ -266,6 +266,22 @@ gateway refresh-worker shutdown regression queries the runtime
 globally empty profile nor treats unrelated test-process goroutines as product
 leaks.
 
+Custom-runtime host normalization uses Go 1.27's stable
+`encoding/json/jsontext` decoder in two bounded streaming phases: one strict
+whole-document validation pass and one route-pointer trie pass. The selector
+walks shared pointer ancestors once, uses `SkipValue` for unselected subtrees,
+and decodes a selected subtree into `json.Number`-preserving Go values only
+after its raw byte span fits the retained-value budget. It never builds a
+generic representation of the complete host object.
+
+The checked Apple M1 benchmark (`-benchtime=5x`) measured the streaming path at
+301,792 ns and 284,515 allocated bytes for a 64 KiB typical payload, versus
+592,175 ns and 412,702 bytes for the former interface-tree reference. At the
+8 MiB boundary it measured 14,545,458 ns and 33,584,300 bytes versus 29,269,683
+ns and 50,358,718 bytes. The 256-byte case was 43,867 ns versus 34,542 ns; the
+accepted tradeoff is a small fixed strict-streaming cost while typical and
+maximum payloads roughly halve latency and materially reduce allocation volume.
+
 Make targets:
 
 ```bash
@@ -2749,7 +2765,12 @@ adds its digest and redacted capability summary to the lock contract, and
 therefore makes any manifest edit stale until explicit refresh.
 
 `reconc hook bridge <name> <host-event> [repo]` reads one bounded host payload,
-copies only selected neutral fields, checks the fresh compiled identity, reuses
+strictly validates its 8 MiB byte, 32-level depth, 65,536-member,
+65,536-item, 13-mapping, and 2 MiB retained-selected-value budgets, then walks
+one trie for all declared pointers. Duplicate names, invalid UTF-8 or numbers,
+malformed structure, and trailing data fail closed. Unselected subtrees use
+`SkipValue` and never become a generic interface tree. Reconc copies only the
+selected neutral fields, checks the fresh compiled identity, reuses
 the existing session/policy/MCP/Stop engine, emits one bounded versioned JSON
 response, and records route liveness. Routes lacking pre-execution,
 synchronous-response, authoritative-outcome, continuation, continuation
