@@ -165,6 +165,10 @@ func TestApplyRollsBackTargetAndLockAfterVerificationFailure(t *testing.T) {
 	if err := os.WriteFile(target, originalTarget, 0o640); err != nil {
 		t.Fatal(err)
 	}
+	originalInfo, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := compiler.CompileRepoPolicy(repo, "test"); err != nil {
 		t.Fatal(err)
 	}
@@ -185,9 +189,12 @@ func TestApplyRollsBackTargetAndLockAfterVerificationFailure(t *testing.T) {
 	gotTarget, targetErr := os.ReadFile(target)
 	gotLock, lockErr := os.ReadFile(lockPath)
 	info, infoErr := os.Stat(target)
-	if targetErr != nil || lockErr != nil || infoErr != nil || !bytes.Equal(gotTarget, originalTarget) ||
-		!bytes.Equal(gotLock, originalLock) || info.Mode().Perm() != 0o640 {
-		t.Fatalf("rollback target=%q lock_equal=%t mode=%v errors=%v/%v/%v", gotTarget, bytes.Equal(gotLock, originalLock), info.Mode(), targetErr, lockErr, infoErr)
+	if targetErr != nil || lockErr != nil || infoErr != nil {
+		t.Fatalf("read rollback target/lock: %v/%v/%v", targetErr, lockErr, infoErr)
+	}
+	if !bytes.Equal(gotTarget, originalTarget) || !bytes.Equal(gotLock, originalLock) ||
+		info.Mode().Perm() != originalInfo.Mode().Perm() {
+		t.Fatalf("rollback target=%q lock_equal=%t mode=%v want_mode=%v", gotTarget, bytes.Equal(gotLock, originalLock), info.Mode(), originalInfo.Mode())
 	}
 }
 
