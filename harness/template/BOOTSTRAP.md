@@ -14,6 +14,7 @@ Read this file completely before touching files. The goal is not to invent a new
 - `tools/reconc/harness/template/` is the immutable source template installed by the advanced CLI profile.
 - In the target repo, rename `tools/reconc/harness/template/` to `tools/reconc/harness/<project-name>/`, where `<project-name>` is the target repo directory name normalized to lowercase/kebab-case unless the user explicitly chooses another project name.
 - Placeholder is exactly `project` / `Project` / `PROJECT`. No other project placeholder is valid.
+- In `stack-config.yaml` path values, interpolation is deliberately narrower: only the exact `{project}` token expands. Literal `project` text inside a filename or directory name is preserved.
 - `AGENTS.md` is an excerpt merge: insert the workflow excerpt into an existing `AGENTS.md`; create a new one only when none exists.
 - `.gitignore.excerpt` is an excerpt merge after git initialization; do not overwrite `.gitignore`.
 - Do not scaffold source-project-specific surfaces into generic repos: no secondary/internal-only binary, no Bun frontend package unless the stack requires frontend, no SQLite initial migration unless durable store is selected, no generated_reference artifacts unless generated references are selected, no `go.mod` unless the target stack/repo is Go.
@@ -465,6 +466,12 @@ when that means reporting a temporary budget excess.
 Workflow-audit Git subprocesses have a 15-second deadline; generated-reference
 build and execution have a two-minute deadline, and canceled commands have a
 two-second process/pipe wait bound. Preserve those bounds in derived harnesses.
+Generated-reference checks resolve `scripts/generators/generated_reference`
+through the same selected flat-root or `codebase/` layout as every other stack
+path. Never hard-code the `codebase/` form in a derived harness.
+The legacy compatibility pruner resolves the repository filesystem identity
+before deriving either its project-state key or `.reconc/audit.jsonl`; invoking
+it through a symlink therefore addresses the same state as the real path.
 
 Dual-layout build/dependency ignores should cover both flat-root and `codebase/` when relevant:
 
@@ -591,6 +598,12 @@ helper then walks upward and accepts a root only when both `docs/tasks.md` and
 the project claim bindings exist. Do not use the root-module form
 `go run ./tools/reconc/harness/.../utils/task-claim`; it cannot cross the nested
 Go module boundary.
+`assert` additionally requires the platform-specific repo-local Reconc binary
+to be a current, provenance-bound, non-symlink executable. It holds and
+revalidates that filesystem identity, executes a private verified snapshot,
+and revalidates both identities after process setup and before every following
+claim. Missing, stale, replaced, irregular, or non-executable binaries assert
+nothing and fail closed.
 
 ### Step 7b: Activate source-controlled git hooks
 

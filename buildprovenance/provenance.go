@@ -125,23 +125,62 @@ func EmbeddedProvenance() (Provenance, error) {
 // InspectBinary reads provenance directly from binary bytes. It never executes
 // the inspected file.
 func InspectBinary(binaryPath string) (Provenance, error) {
-	var marker string
+	var provenance Provenance
 	err := boundedio.WithRegularFileSnapshot(binaryPath, maxBinaryBytes, func(file *os.File, _ os.FileInfo) error {
-		var scanErr error
-		marker, scanErr = scanBinaryMarker(file)
-		return scanErr
+		var inspectErr error
+		provenance, inspectErr = InspectOpenFile(file)
+		return inspectErr
 	})
 	if err != nil {
 		return Provenance{}, fmt.Errorf("read Reconc binary: %w", err)
 	}
-	if marker == "" {
-		return Provenance{}, fmt.Errorf("missing or malformed embedded build provenance")
+	return provenance, nil
+}
+
+// InspectOpenFile reads provenance from an already-open regular file without
+// resolving a mutable path. It restores the caller's file offset before
+// returning and rejects metadata changes observed during the scan.
+func InspectOpenFile(file *os.File) (provenance Provenance, err error) {
+	if file == nil {
+		return Provenance{}, fmt.Errorf("open Reconc binary is nil")
 	}
-	provenance, err := ParseMarker(marker)
+	before, err := file.Stat()
 	if err != nil {
 		return Provenance{}, err
 	}
-	return provenance, nil
+	if !before.Mode().IsRegular() {
+		return Provenance{}, fmt.Errorf("open Reconc binary is not a regular file")
+	}
+	if before.Size() > maxBinaryBytes {
+		return Provenance{}, fmt.Errorf("binary exceeds %d bytes", maxBinaryBytes)
+	}
+	offset, err := file.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return Provenance{}, fmt.Errorf("read open Reconc binary offset: %w", err)
+	}
+	defer func() {
+		_, restoreErr := file.Seek(offset, io.SeekStart)
+		err = errors.Join(err, restoreErr)
+	}()
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return Provenance{}, fmt.Errorf("rewind open Reconc binary: %w", err)
+	}
+	marker, err := scanBinaryMarker(file)
+	if err != nil {
+		return Provenance{}, err
+	}
+	after, err := file.Stat()
+	if err != nil {
+		return Provenance{}, err
+	}
+	if !os.SameFile(before, after) || before.Mode() != after.Mode() || before.Size() != after.Size() ||
+		!before.ModTime().Equal(after.ModTime()) {
+		return Provenance{}, fmt.Errorf("open Reconc binary changed while reading provenance")
+	}
+	if marker == "" {
+		return Provenance{}, fmt.Errorf("missing or malformed embedded build provenance")
+	}
+	return ParseMarker(marker)
 }
 
 func scanBinaryMarker(file *os.File) (string, error) {

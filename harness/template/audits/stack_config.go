@@ -136,8 +136,7 @@ func stackProjectRel(root string, cfg stackConfig, relPath string) string {
 }
 
 func stackRootRel(cfg stackConfig, relPath string) string {
-	relPath = strings.ReplaceAll(relPath, "{project}", cfg.Project)
-	return strings.ReplaceAll(relPath, "project", cfg.Project)
+	return strings.ReplaceAll(relPath, "{project}", cfg.Project)
 }
 
 func normalizeStackConfig(cfg *stackConfig) {

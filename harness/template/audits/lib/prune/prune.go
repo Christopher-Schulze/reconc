@@ -135,11 +135,16 @@ type Options struct {
 func Run(opts Options) Report {
 	report := Report{}
 	policy := normalizedPolicy(opts.Policy, &report)
+	repoRoot, err := resolveRepositoryIdentity(opts.RepoRoot)
+	if err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("resolve repository root %s: %v", opts.RepoRoot, err))
+		return report
+	}
 	stateRoot := resolveStateRoot(opts.ReconcHome)
 	if stateRoot != "" {
 		resolvedStateRoot, err := filepath.EvalSymlinks(stateRoot)
 		if err == nil {
-			projectDir := filepath.Join(resolvedStateRoot, "projects", projectKey(opts.RepoRoot))
+			projectDir := filepath.Join(resolvedStateRoot, "projects", projectKey(repoRoot))
 			if err := validatePruneDescendant(resolvedStateRoot, projectDir); err != nil {
 				report.Errors = append(report.Errors, fmt.Sprintf("skip state retention: %v", err))
 			} else {
@@ -152,11 +157,6 @@ func Run(opts Options) Report {
 			report.Errors = append(report.Errors, fmt.Sprintf("resolve state root %s: %v", stateRoot, err))
 		}
 	}
-	repoRoot, err := filepath.EvalSymlinks(opts.RepoRoot)
-	if err != nil {
-		report.Errors = append(report.Errors, fmt.Sprintf("resolve repository root %s: %v", opts.RepoRoot, err))
-		return report
-	}
 	jsonlPath := filepath.Join(repoRoot, ".reconc", "audit.jsonl")
 	if err := validatePruneDescendant(repoRoot, jsonlPath); err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("skip audit retention: %v", err))
@@ -166,6 +166,82 @@ func Run(opts Options) Report {
 	report.JsonlLinesDropped = dropped
 	report.JsonlBytesFreed = freed
 	return report
+}
+
+func resolveRepositoryIdentity(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	before, err := os.Stat(absolute)
+	if err != nil {
+		return "", err
+	}
+	if !before.IsDir() {
+		return "", fmt.Errorf("must be a directory")
+	}
+	resolved, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return "", err
+	}
+	after, err := os.Stat(resolved)
+	if err != nil {
+		return "", err
+	}
+	if !after.IsDir() || !os.SameFile(before, after) {
+		return "", fmt.Errorf("filesystem identity changed while resolving")
+	}
+	return canonicalizeRepositoryCase(filepath.Clean(resolved), after), nil
+}
+
+func canonicalizeRepositoryCase(path string, identity os.FileInfo) string {
+	volume := filepath.VolumeName(path)
+	rest := strings.Trim(strings.TrimPrefix(filepath.Clean(path), volume), string(filepath.Separator))
+	canonical := volume + string(filepath.Separator)
+	for _, component := range strings.Split(rest, string(filepath.Separator)) {
+		if component == "" {
+			continue
+		}
+		resolved := component
+		entries, err := readPruneDirectoryNames(canonical, 65_536)
+		if err == nil {
+			for _, name := range entries {
+				if name == component {
+					resolved = component
+					break
+				}
+				if strings.EqualFold(name, component) {
+					resolved = name
+				}
+			}
+		}
+		canonical = filepath.Join(canonical, resolved)
+	}
+	canonicalInfo, err := os.Stat(canonical)
+	if err != nil || !os.SameFile(identity, canonicalInfo) {
+		return path
+	}
+	return canonical
+}
+
+func readPruneDirectoryNames(path string, limit int) ([]string, error) {
+	directory, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	entries, readErr := directory.ReadDir(limit + 1)
+	closeErr := directory.Close()
+	if err := errors.Join(readErr, closeErr); err != nil && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	if len(entries) > limit {
+		return nil, fmt.Errorf("directory exceeds %d entries", limit)
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	return names, nil
 }
 
 func validatePruneDescendant(base, target string) error {

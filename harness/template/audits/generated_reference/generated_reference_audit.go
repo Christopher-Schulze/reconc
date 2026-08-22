@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -17,19 +19,27 @@ func main() {
 	if err != nil {
 		exit(err)
 	}
-	if err := auditGeneratedReferenceDrift(root); err != nil {
+	if len(os.Args) != 2 {
+		exit(fmt.Errorf("usage: generated-reference-audit GENERATOR_PATH"))
+	}
+	if err := auditGeneratedReferenceDrift(root, os.Args[1]); err != nil {
 		exit(err)
 	}
 }
 
-func auditGeneratedReferenceDrift(root string) error {
-	return auditGeneratedReferenceDriftWithTimeout(root, generatedReferenceAuditTimeout)
+func auditGeneratedReferenceDrift(root string, generatorRel string) error {
+	return auditGeneratedReferenceDriftWithTimeout(root, generatorRel, generatedReferenceAuditTimeout)
 }
 
-func auditGeneratedReferenceDriftWithTimeout(root string, timeout time.Duration) error {
+func auditGeneratedReferenceDriftWithTimeout(root string, generatorRel string, timeout time.Duration) error {
+	generatorRel = filepath.ToSlash(filepath.Clean(filepath.FromSlash(generatorRel)))
+	if generatorRel == "." || filepath.IsAbs(filepath.FromSlash(generatorRel)) ||
+		generatorRel == ".." || strings.HasPrefix(generatorRel, "../") {
+		return fmt.Errorf("generated reference generator path must stay repo-relative: %s", generatorRel)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "run", "./codebase/scripts/generators/generated_reference", "-check")
+	cmd := exec.CommandContext(ctx, "go", "run", "./"+generatorRel, "-check")
 	cmd.WaitDelay = 2 * time.Second
 	cmd.Dir = root
 	cmd.Env = os.Environ()

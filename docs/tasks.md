@@ -5,7 +5,6 @@
 
 ## Queue
 
-- [ ] 247 Secure harness claims and layout portability -> tasks/247-secure-harness-claims-and-layout-portability.md
 - [ ] 248 Preserve bootstrap provenance and repository transactions -> tasks/248-preserve-bootstrap-provenance-and-repository-transactions.md
 - [ ] 249 Bound custom-runtime decoding with Go 1.27 jsontext -> tasks/249-bound-custom-runtime-decoding-with-go-1-27-jsontext.md
 - [ ] 250 Close assurance semantic-validation gaps -> tasks/250-close-assurance-semantic-validation-gaps.md
@@ -17,6 +16,7 @@
 
 ## Done
 
+- [x] 247 Secure harness claims and layout portability -> tasks/done/247-secure-harness-claims-and-layout-portability.md
 - [x] 246 Enforce installer and release trust atomically -> tasks/done/246-enforce-installer-and-release-trust-atomically.md
 - [x] 245 Harden hook ownership and agent process boundaries -> tasks/done/245-harden-hook-ownership-and-agent-process-boundaries.md
 - [x] 244 Make evaluator caches and script decisions fail closed -> tasks/done/244-make-evaluator-caches-and-script-decisions-fail-closed.md
@@ -26,5 +26,3 @@
 - [x] 240 Verify external audit findings -> tasks/done/240-verify-external-audit-findings.md
 - [x] 239 Restore descriptor-safe Windows filesystem compatibility -> tasks/done/239-restore-descriptor-safe-windows-filesystem-compatibility.md
 - [x] 238 Reconcile final documentation and repository hygiene -> tasks/done/238-reconcile-final-documentation-and-repository-hygiene.md
-- [x] 237 Remove residual implementation scaffolding -> tasks/done/237-remove-residual-implementation-scaffolding.md
-- [x] 236 Correct internal contract documentation -> tasks/done/236-correct-internal-contract-documentation.md

@@ -9,8 +9,13 @@ import (
 )
 
 func TestGeneratedReferenceAuditPassesGeneratedReferenceRepo(t *testing.T) {
-	root := t.TempDir()
-	writeGeneratedReferenceGenerator(t, root, `package main
+	for _, generatorRel := range []string{
+		"scripts/generators/generated_reference",
+		"codebase/scripts/generators/generated_reference",
+	} {
+		t.Run(generatorRel, func(t *testing.T) {
+			root := t.TempDir()
+			writeGeneratedReferenceGenerator(t, root, generatorRel, `package main
 
 import (
 	"fmt"
@@ -26,15 +31,18 @@ func main() {
 	}
 }
 `)
-	if err := auditGeneratedReferenceDrift(root); err != nil {
-		t.Fatalf("expected generated references to be fresh: %v", err)
+			if err := auditGeneratedReferenceDrift(root, generatorRel); err != nil {
+				t.Fatalf("expected generated references to be fresh: %v", err)
+			}
+		})
 	}
 }
 
 func TestGeneratedReferenceAuditReportsGeneratorFailure(t *testing.T) {
 	root := t.TempDir()
-	writeGeneratedReferenceGenerator(t, root, "package main\nfunc main(){panic(\"boom\")}\n")
-	err := auditGeneratedReferenceDrift(root)
+	generatorRel := "scripts/generators/generated_reference"
+	writeGeneratedReferenceGenerator(t, root, generatorRel, "package main\nfunc main(){panic(\"boom\")}\n")
+	err := auditGeneratedReferenceDrift(root, generatorRel)
 	if err == nil || !strings.Contains(err.Error(), "generated reference drift audit failed") {
 		t.Fatalf("expected generator failure, got %v", err)
 	}
@@ -54,7 +62,8 @@ func TestGeneratedReferenceAuditOutputIsBounded(t *testing.T) {
 
 func TestGeneratedReferenceAuditCommandUsesRepoRoot(t *testing.T) {
 	root := t.TempDir()
-	writeGeneratedReferenceGenerator(t, root, `package main
+	generatorRel := "codebase/scripts/generators/generated_reference"
+	writeGeneratedReferenceGenerator(t, root, generatorRel, `package main
 
 import (
 	"fmt"
@@ -70,7 +79,7 @@ func main() {
 	}
 }
 `)
-	cmd := exec.Command("go", "run", "./codebase/scripts/generators/generated_reference", "-h")
+	cmd := exec.Command("go", "run", "./"+generatorRel, "-h")
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(), "GO111MODULE=off")
 	if output, err := cmd.CombinedOutput(); err != nil || !strings.Contains(string(output), "-check") {
@@ -78,12 +87,19 @@ func main() {
 	}
 }
 
-func writeGeneratedReferenceGenerator(t *testing.T, root string, content string) {
+func TestGeneratedReferenceAuditRejectsEscapingGeneratorPath(t *testing.T) {
+	err := auditGeneratedReferenceDrift(t.TempDir(), "../generator")
+	if err == nil || !strings.Contains(err.Error(), "must stay repo-relative") {
+		t.Fatalf("escaping generator path was accepted: %v", err)
+	}
+}
+
+func writeGeneratedReferenceGenerator(t *testing.T, root string, generatorRel string, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module project\n\ngo 1.24\n"), 0o644); err != nil {
 		t.Fatalf("write go.mod: %v", err)
 	}
-	dir := filepath.Join(root, "codebase/scripts/generators/generated_reference")
+	dir := filepath.Join(root, filepath.FromSlash(generatorRel))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir generator: %v", err)
 	}

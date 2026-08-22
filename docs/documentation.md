@@ -444,6 +444,12 @@ gates run whenever a write reaches them. The portable audit's separate result
 cache derives stack-configured build and durable-store paths from the same
 normalized helpers as the audits, verifies its input fingerprint again after
 evaluation, and refuses to publish a pass if those inputs move concurrently.
+Configured path expansion replaces only the exact `{project}` token, while
+generated-reference execution uses the same flat-root or `codebase/` layout
+resolver as other stack paths. Architecture imports are mapped only at complete
+configured project path boundaries, and added-line Go comment checks distinguish
+real line comments from `//` inside interpreted strings, raw strings, and rune
+literals.
 Loading rejects unknown fields, incompatible versions, traversal,
 absolute or duplicate paths, links, unsupported modes, oversized input,
 unmanifested files, and checksum or digest drift. Daily init performs no
@@ -486,6 +492,10 @@ revalidates path identity before returning. Legacy
 private directories may be repaired only at their intended boundary. Receipt,
 retention, command-proof, policy-proof, and action-state paths retain their
 existing locations, names, retention behavior, and JSON contracts.
+The portable legacy pruner canonicalizes the existing repository filesystem
+identity before deriving both the runtime-compatible project key and the
+repo-local JSONL path, so symlink and on-disk case aliases cannot split cleanup
+across different identities.
 
 `reconc doctor --global [--json] [--output PATH]` is the read-only authority
 for that state. It independently inspects the running executable, bare PATH
@@ -3514,6 +3524,11 @@ stampeding the Go compiler or exposing a partially written cache binary. Direct 
 commands have a 15-second deadline; generated-reference build and execution
 have a two-minute deadline, and every command has a two-second process/pipe
 wait bound after cancellation.
+TASK-claim assertion applies the same source-digest and embedded-provenance
+contract through an already-open repo-local binary handle. It executes a
+private verified snapshot and revalidates the canonical and snapshot identities
+after process setup and before each additional claim; stale or replaced claim
+authority fails before the next claim is asserted.
 Independent cold workflow-audit keys execute concurrently behind per-key
 singleflight locks. Only short cache read/merge/atomic-publication sections are
 globally serialized, so parallel results cannot overwrite each other. Runtime

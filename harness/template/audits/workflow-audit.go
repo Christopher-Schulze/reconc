@@ -1871,11 +1871,12 @@ func auditGeneratedReferences(root string) []string {
 	if !cfg.GeneratedReferences.Enabled {
 		return nil
 	}
+	generatorRel := stackProjectRel(root, cfg, "scripts/generators/generated_reference")
 	inputs := newCacheInputs()
 	inputs.AddFile(stackConfigPath(root))
 	inputs.AddFile(filepath.Join(projectRoot(root), "backend/shared/contracts/generated_reference/contracts.yaml"))
 	inputs.AddTree(filepath.Join(projectRoot(root), "backend/shared/contracts/generated_reference/generated"), nil)
-	inputs.AddTree(filepath.Join(projectRoot(root), "scripts/generators/generated_reference"), []string{".go"})
+	inputs.AddTree(filepath.Join(root, filepath.FromSlash(generatorRel)), []string{".go"})
 	inputs.AddTree(filepath.Join(root, "tools/reconc/harness/template/audits/generated_reference"), []string{".go"})
 	return runWithCache(root, "generated-references", inputs, func() []string {
 		bin := filepath.Join(root, ".reconc/cache/generated-reference-audit")
@@ -1890,7 +1891,7 @@ func auditGeneratedReferences(root string) []string {
 		if err != nil {
 			return []string{fmt.Sprintf("generated-references audit build failed: %v\n%s", err, string(out))}
 		}
-		cmd, cancel := commandWithTimeout(buildAuditCommandTimeout, bin)
+		cmd, cancel := commandWithTimeout(buildAuditCommandTimeout, bin, generatorRel)
 		cmd.Dir = root
 		output, err := runPreparedAuditCommand(cmd, true)
 		cancel()

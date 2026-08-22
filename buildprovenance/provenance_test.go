@@ -88,6 +88,26 @@ func TestBuildMarkerRoundTripAndBinaryInspection(t *testing.T) {
 	if inspected != parsed {
 		t.Fatalf("inspected provenance %#v, want %#v", inspected, parsed)
 	}
+	file, err := os.Open(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.Seek(7, 0); err != nil {
+		t.Fatal(err)
+	}
+	opened, err := InspectOpenFile(file)
+	if err != nil {
+		t.Fatalf("inspect open binary: %v", err)
+	}
+	if opened != parsed {
+		t.Fatalf("open-file provenance %#v, want %#v", opened, parsed)
+	}
+	if offset, err := file.Seek(0, 1); err != nil || offset != 7 {
+		t.Fatalf("open-file offset = %d, %v; want 7", offset, err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestInspectBinaryStreamsAcrossChunkBoundaryAndRejectsUnsafeInputs(t *testing.T) {

@@ -30,10 +30,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
+
+	"reconc-harness/template/audits/lib/reconcbinary"
 
 	"gopkg.in/yaml.v3"
 )
@@ -278,25 +279,38 @@ func assertClaimsWithTimeout(root string, taskName string, claims []string, time
 		fmt.Printf("task: %s\nclaims: (none -- nothing to assert)\n", taskName)
 		return nil
 	}
-	binaryRel := reconcBinaryRel()
-	binPath := filepath.Join(root, filepath.FromSlash(binaryRel))
-	info, err := os.Lstat(binPath)
+	verified, err := reconcbinary.Open(root, true)
 	if err != nil {
-		return fmt.Errorf("reconc binary missing at %s: %w", binaryRel, err)
+		return err
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || runtime.GOOS != "windows" && info.Mode()&0o111 == 0 {
-		return fmt.Errorf("reconc binary at %s must be a non-symlink executable regular file", binaryRel)
+	defer verified.Close()
+	snapshot, err := verified.Snapshot()
+	if err != nil {
+		return fmt.Errorf("prepare verified Reconc claim authority: %w", err)
 	}
+	defer snapshot.Close()
 	fmt.Printf("task: %s\n", taskName)
 	for _, claim := range claims {
+		if err := errors.Join(verified.Revalidate(), snapshot.Revalidate()); err != nil {
+			return fmt.Errorf("revalidate Reconc claim authority before %s: %w", claim, err)
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		cmd := exec.CommandContext(ctx, binPath, "hook", "claim", root, claim)
+		cmd := exec.CommandContext(ctx, snapshot.Path(), "hook", "claim", root, claim)
 		cmd.WaitDelay = 2 * time.Second
 		var stdout boundedOutput
 		var stderr boundedOutput
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
-		err := cmd.Run()
+		err := cmd.Start()
+		if err == nil {
+			if identityErr := errors.Join(verified.Revalidate(), snapshot.Revalidate()); identityErr != nil {
+				killErr := cmd.Process.Kill()
+				waitErr := cmd.Wait()
+				cancel()
+				return fmt.Errorf("reconc claim authority changed during %s process setup: %w", claim, errors.Join(identityErr, killErr, waitErr))
+			}
+			err = cmd.Wait()
+		}
 		timedOut := ctx.Err() == context.DeadlineExceeded
 		cancel()
 		if timedOut {
@@ -370,11 +384,7 @@ func readRegularFile(path string) ([]byte, error) {
 }
 
 func reconcBinaryRel() string {
-	name := "reconc-" + runtime.GOOS + "-" + runtime.GOARCH
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	return filepath.ToSlash(filepath.Join("tools", "reconc", "dist", name))
+	return reconcbinary.RelativePath()
 }
 
 func fail(format string, args ...interface{}) {

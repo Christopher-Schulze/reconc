@@ -28,7 +28,11 @@ func setupSessionTree(t *testing.T) (repoRoot string, reconcHome string, project
 	t.Helper()
 	repoRoot = t.TempDir()
 	reconcHome = t.TempDir()
-	key := projectKey(repoRoot)
+	canonical, err := resolveRepositoryIdentity(repoRoot)
+	if err != nil {
+		t.Fatalf("resolve repository identity: %v", err)
+	}
+	key := projectKey(canonical)
 	projectKeyDir = filepath.Join(reconcHome, "sessions", "claude", "projects", key)
 	return repoRoot, reconcHome, projectKeyDir
 }
@@ -113,6 +117,52 @@ func TestRunNoOpOnEmptyTree(t *testing.T) {
 	}
 	if len(r.Errors) != 0 {
 		t.Fatalf("unexpected errors: %v", r.Errors)
+	}
+}
+
+func TestRunUsesOneCanonicalRepositoryIdentityForAliases(t *testing.T) {
+	repoRoot := t.TempDir()
+	home := t.TempDir()
+	aliasParent := t.TempDir()
+	alias := filepath.Join(aliasParent, "repo-alias")
+	if err := os.Symlink(repoRoot, alias); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	canonical, err := resolveRepositoryIdentity(repoRoot)
+	if err != nil {
+		t.Fatalf("resolve repository identity: %v", err)
+	}
+	projectDir := filepath.Join(home, "sessions", "claude", "projects", projectKey(canonical))
+	now := time.Now()
+	writeFile(t, filepath.Join(projectDir, "sessions", "old.json"), "{}", now.Add(-time.Minute))
+	writeFile(t, filepath.Join(projectDir, "sessions", "new.json"), "{}", now)
+	writeFile(t, filepath.Join(repoRoot, ".reconc", "audit.jsonl"), "{\"i\":1}\n{\"i\":2}\n", time.Time{})
+	policy := DefaultPolicy()
+	policy.SessionsRetention = 1
+	policy.AuditJsonlMaxLines = 1
+
+	report := Run(Options{RepoRoot: alias, ReconcHome: home, Policy: policy})
+	if len(report.Errors) != 0 || report.SessionsDeleted != 1 || report.JsonlLinesDropped != 1 {
+		t.Fatalf("alias run did not share canonical state and JSONL identity: %+v", report)
+	}
+	if got, err := resolveRepositoryIdentity(alias); err != nil || got != canonical {
+		t.Fatalf("alias identity = %q, %v; want %q", got, err, canonical)
+	}
+}
+
+func TestRunRejectsNonDirectoryRepositoryBeforeStatePruning(t *testing.T) {
+	home := t.TempDir()
+	file := filepath.Join(t.TempDir(), "repo-file")
+	writeFile(t, file, "not a repository", time.Time{})
+	projectDir := filepath.Join(home, "sessions", "claude", "projects", projectKey(file))
+	writeFile(t, filepath.Join(projectDir, "sessions", "must-remain.json"), "{}", time.Now())
+
+	report := Run(Options{RepoRoot: file, ReconcHome: home, Policy: DefaultPolicy()})
+	if len(report.Errors) != 1 || !strings.Contains(report.Errors[0], "must be a directory") {
+		t.Fatalf("non-directory repository must fail before retention: %+v", report)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, "sessions", "must-remain.json")); err != nil {
+		t.Fatalf("state changed before repository identity validation: %v", err)
 	}
 }
 

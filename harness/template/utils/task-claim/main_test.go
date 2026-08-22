@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"reconc.dev/reconc/buildprovenance"
 )
 
 func TestPrintUsageMatchesCommandFirstFlagOrder(t *testing.T) {
@@ -140,16 +143,23 @@ func TestRootLauncherFromRepoRoot(t *testing.T) {
 		t.Fatalf("getwd: %v", err)
 	}
 	templateModule := filepath.Clean(filepath.Join(workingDir, "..", ".."))
+	sourceRoot := filepath.Clean(filepath.Join(templateModule, "..", ".."))
 	root := t.TempDir()
 	for _, rel := range []string{
-		"go.mod",
 		"go.sum",
+		"audits/lib/reconcbinary/binary.go",
 		"utils/task-claim/main.go",
 		"utils/task-claim/run-task-claim",
 		"config/workflow/task-claim-bindings.yaml",
 	} {
 		copyFixture(t, filepath.Join(templateModule, filepath.FromSlash(rel)), root, filepath.ToSlash(filepath.Join("tools/reconc/harness/template", rel)))
 	}
+	moduleBytes, err := os.ReadFile(filepath.Join(templateModule, "go.mod"))
+	if err != nil {
+		t.Fatalf("read template go.mod: %v", err)
+	}
+	module := strings.Replace(string(moduleBytes), "replace reconc.dev/reconc => ../..", "replace reconc.dev/reconc => "+filepath.ToSlash(sourceRoot), 1)
+	writeFixture(t, root, "tools/reconc/harness/template/go.mod", module)
 	launcher := filepath.Join(root, filepath.FromSlash("tools/reconc/harness/template/utils/task-claim/run-task-claim"))
 	if err := os.Chmod(launcher, 0o755); err != nil {
 		t.Fatalf("chmod launcher: %v", err)
@@ -340,8 +350,47 @@ func TestAssertClaimsNoOpOnEmpty(t *testing.T) {
 func TestAssertClaimsRejectsMissingBinary(t *testing.T) {
 	root := t.TempDir()
 	err := assertClaims(root, "TASK-0001-X", []string{"some-claim"})
-	if err == nil || !strings.Contains(err.Error(), "reconc binary missing") {
+	if err == nil || !strings.Contains(err.Error(), "is missing") {
 		t.Fatalf("expected missing-binary error, got %v", err)
+	}
+}
+
+func TestAssertClaimsRejectsMalformedBinaryBeforeClaim(t *testing.T) {
+	root := t.TempDir()
+	binPath := filepath.Join(root, filepath.FromSlash(reconcBinaryRel()))
+	if err := os.MkdirAll(filepath.Dir(binPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(binPath, []byte("not a provenance-bound Reconc binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, root, "tools/reconc/go.mod", "module reconc.dev/reconc\n\ngo 1.27\n")
+	writeFixture(t, root, "tools/reconc/cmd/reconc/main.go", "package main\n\nfunc main() {}\n")
+	err := assertClaims(root, "TASK-0001-X", []string{"some-claim"})
+	if err == nil || !strings.Contains(err.Error(), "missing or malformed embedded build provenance") {
+		t.Fatalf("expected malformed-binary failure before claim, got %v", err)
+	}
+}
+
+func TestAssertClaimsRejectsStaleBinaryBeforeClaim(t *testing.T) {
+	root := t.TempDir()
+	binPath := filepath.Join(root, filepath.FromSlash(reconcBinaryRel()))
+	if err := os.MkdirAll(filepath.Dir(binPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(root, "calls.log")
+	writeClaimStub(t, root, binPath, `package main
+
+func main() {}
+`, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$RECONC_STUB_LOG\"\nexit 0\n")
+	writeFixture(t, root, "tools/reconc/cmd/reconc/main.go", "package main\n\nfunc main() { println(\"changed\") }\n")
+	t.Setenv("RECONC_STUB_LOG", logPath)
+	err := assertClaims(root, "TASK-0001-X", []string{"some-claim"})
+	if err == nil || !strings.Contains(err.Error(), "source digest does not match") {
+		t.Fatalf("expected stale-binary failure before claim, got %v", err)
+	}
+	if _, statErr := os.Stat(logPath); !os.IsNotExist(statErr) {
+		t.Fatalf("stale binary asserted a claim: %v", statErr)
 	}
 }
 
@@ -352,7 +401,7 @@ func TestAssertClaimsForwardsToBinaryStub(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 	logPath := filepath.Join(root, "calls.log")
-	writeClaimStub(t, binPath, `package main
+	writeClaimStub(t, root, binPath, `package main
 
 import (
 	"os"
@@ -388,7 +437,7 @@ func TestAssertClaimsPropagatesBinaryFailure(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(binPath), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	writeClaimStub(t, binPath, `package main
+	writeClaimStub(t, root, binPath, `package main
 
 import (
 	"fmt"
@@ -406,20 +455,47 @@ func main() {
 	}
 }
 
-func writeClaimStub(t *testing.T, binPath, windowsSource, unixScript string) {
+func writeClaimStub(t *testing.T, root, binPath, windowsSource, unixScript string) {
 	t.Helper()
 	if runtime.GOOS != "windows" {
 		if err := os.WriteFile(binPath, []byte(unixScript), 0o755); err != nil {
 			t.Fatalf("write stub: %v", err)
 		}
-		return
+	} else {
+		sourcePath := filepath.Join(t.TempDir(), "main.go")
+		if err := os.WriteFile(sourcePath, []byte(windowsSource), 0o600); err != nil {
+			t.Fatalf("write Windows stub source: %v", err)
+		}
+		build := exec.Command("go", "build", "-o", binPath, sourcePath)
+		if output, err := build.CombinedOutput(); err != nil {
+			t.Fatalf("build Windows stub: %v\n%s", err, output)
+		}
 	}
-	sourcePath := filepath.Join(t.TempDir(), "main.go")
-	if err := os.WriteFile(sourcePath, []byte(windowsSource), 0o600); err != nil {
-		t.Fatalf("write Windows stub source: %v", err)
+	bindClaimStubProvenance(t, root, binPath)
+}
+
+func bindClaimStubProvenance(t *testing.T, root, binPath string) {
+	t.Helper()
+	writeFixture(t, root, "tools/reconc/go.mod", "module reconc.dev/reconc\n\ngo 1.27\n")
+	writeFixture(t, root, "tools/reconc/cmd/reconc/main.go", "package main\n\nfunc main() {}\n")
+	digest, err := buildprovenance.ComputeSourceDigest(
+		filepath.Join(root, "tools", "reconc"), runtime.GOOS, runtime.GOARCH,
+	)
+	if err != nil {
+		t.Fatalf("compute claim stub provenance: %v", err)
 	}
-	build := exec.Command("go", "build", "-o", binPath, sourcePath)
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build Windows stub: %v\n%s", err, output)
+	marker, err := buildprovenance.FormatMarker(buildprovenance.Provenance{
+		Version: "0.0.0-test", GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, SourceDigest: digest,
+	})
+	if err != nil {
+		t.Fatalf("format claim stub provenance: %v", err)
+	}
+	file, err := os.OpenFile(binPath, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("open claim stub for provenance: %v", err)
+	}
+	_, writeErr := file.WriteString("\n# " + marker + "\n")
+	if err := errors.Join(writeErr, file.Close()); err != nil {
+		t.Fatalf("append claim stub provenance: %v", err)
 	}
 }

@@ -5,11 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 
-	"reconc.dev/reconc/buildprovenance"
+	"reconc-harness/template/audits/lib/reconcbinary"
 )
 
 type gitDiffFile struct {
@@ -174,11 +173,49 @@ func auditAddedLineQuality(path string, line string) []string {
 }
 
 func lineComment(line string) string {
-	idx := strings.Index(line, "//")
-	if idx < 0 {
-		return ""
+	const (
+		goCode byte = iota
+		goInterpretedString
+		goRawString
+		goRune
+	)
+	state := goCode
+	escaped := false
+	for index := 0; index < len(line); index++ {
+		current := line[index]
+		switch state {
+		case goCode:
+			switch current {
+			case '"':
+				state = goInterpretedString
+			case '`':
+				state = goRawString
+			case '\'':
+				state = goRune
+			case '/':
+				if index+1 < len(line) && line[index+1] == '/' {
+					return line[index+2:]
+				}
+			}
+		case goRawString:
+			if current == '`' {
+				state = goCode
+			}
+		case goInterpretedString, goRune:
+			if escaped {
+				escaped = false
+				continue
+			}
+			if current == '\\' {
+				escaped = true
+				continue
+			}
+			if state == goInterpretedString && current == '"' || state == goRune && current == '\'' {
+				state = goCode
+			}
+		}
 	}
-	return line[idx+2:]
+	return ""
 }
 
 func isSensitiveProductionGo(path string) bool {
@@ -211,42 +248,19 @@ func isGeneratedGoPath(path string) bool {
 }
 
 func auditReconcBinaryFreshness(root string) []string {
-	binaryRel := localReconcBinaryRel()
-	binary := filepath.Join(root, filepath.FromSlash(binaryRel))
-	binaryInfo, err := os.Stat(binary)
-	if os.IsNotExist(err) {
+	verified, err := reconcbinary.Open(root, false)
+	if err != nil {
+		return []string{err.Error()}
+	}
+	if verified == nil {
 		return nil
 	}
-	if err != nil {
-		return []string{fmt.Sprintf("%s cannot be inspected: %v", binaryRel, err)}
+	if err := verified.Close(); err != nil {
+		return []string{fmt.Sprintf("%s cannot be closed after inspection: %v", reconcbinary.RelativePath(), err)}
 	}
-	var failures []string
-	if runtime.GOOS != "windows" && binaryInfo.Mode()&0o111 == 0 {
-		failures = append(failures, binaryRel+" is not executable; live agent hooks need an executable repo-local Reconc binary")
-	}
-	expected, err := buildprovenance.ComputeSourceDigest(filepath.Join(root, "tools", "reconc"), runtime.GOOS, runtime.GOARCH)
-	if err != nil {
-		failures = append(failures, fmt.Sprintf("%s production source digest failed: %v", binaryRel, err))
-		return failures
-	}
-	provenance, err := buildprovenance.InspectBinary(binary)
-	if err != nil {
-		failures = append(failures, fmt.Sprintf("%s has missing or malformed embedded build provenance: %v", binaryRel, err))
-		return failures
-	}
-	if provenance.GOOS != runtime.GOOS || provenance.GOARCH != runtime.GOARCH {
-		failures = append(failures, fmt.Sprintf("%s embeds target %s/%s, want %s/%s", binaryRel, provenance.GOOS, provenance.GOARCH, runtime.GOOS, runtime.GOARCH))
-	}
-	if provenance.SourceDigest != expected {
-		failures = append(failures, fmt.Sprintf("%s source digest does not match current production inputs; rebuild the live Reconc binary before relying on agent hooks", binaryRel))
-	}
-	return failures
+	return nil
 }
 
 func localReconcBinaryRel() string {
-	name := "reconc-" + runtime.GOOS + "-" + runtime.GOARCH
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	return filepath.ToSlash(filepath.Join("tools", "reconc", "dist", name))
+	return reconcbinary.RelativePath()
 }

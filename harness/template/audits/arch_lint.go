@@ -40,7 +40,7 @@ func auditArchitectureBoundaries(root string) []string {
 			}
 		}
 	}
-	failures = append(failures, auditPackageCycles(root, packages)...)
+	failures = append(failures, auditPackageCycles(root, packages, cfg)...)
 	return failures
 }
 
@@ -134,15 +134,13 @@ func auditImportBoundary(relPkg string, imp string, cfg stackConfig) string {
 	project := cfg.Project
 	switch {
 	case strings.HasPrefix(relPkg, "backend/"+project+"/internal/core/"):
-		if strings.Contains(imp, "/backend/"+project+"/internal/modules/") || strings.Contains(imp, project+"/internal/modules/") {
+		if _, ok := importPathRemainder(imp, project+"/internal/modules"); ok {
 			return fmt.Sprintf("%s imports feature module %s; core services must not depend on modules", relPkg, imp)
 		}
 	case strings.HasPrefix(relPkg, "backend/"+project+"/internal/modules/"):
 		module := moduleNameFromBackendPath(relPkg, cfg)
 		if module != "" {
-			prefix := project + "/internal/modules/"
-			if index := strings.Index(imp, prefix); index >= 0 {
-				imported := strings.TrimPrefix(imp[index:], prefix)
+			if imported, ok := importPathRemainder(imp, project+"/internal/modules"); ok {
 				importedName := strings.Split(imported, "/")[0]
 				if importedName != "" && importedName != module {
 					return fmt.Sprintf("%s imports sibling module %s; modules communicate through EventBus/UCS only", relPkg, imp)
@@ -150,22 +148,24 @@ func auditImportBoundary(relPkg string, imp string, cfg stackConfig) string {
 			}
 		}
 	case strings.HasPrefix(relPkg, "backend/"+project+"/internal/connectors/"):
-		if strings.Contains(imp, project+"/internal/") && !strings.Contains(imp, project+"/pkg/") {
-			imported := filepath.ToSlash(imp)
-			if idx := strings.Index(imported, project+"/internal/connectors"); idx >= 0 {
+		if _, internal := importPathRemainder(imp, project+"/internal"); internal {
+			if _, public := importPathRemainder(imp, project+"/pkg"); public {
+				return ""
+			}
+			if _, connector := importPathRemainder(imp, project+"/internal/connectors"); connector {
 				return ""
 			}
 			return fmt.Sprintf("%s imports internal Project package %s; connectors may use stdlib, project/pkg and backend/shared only", relPkg, imp)
 		}
 	case strings.HasPrefix(relPkg, "backend/"+project+"/pkg/") || strings.HasPrefix(relPkg, "backend/shared/"):
-		if strings.Contains(imp, project+"/internal/") {
+		if _, ok := importPathRemainder(imp, project+"/internal"); ok {
 			return fmt.Sprintf("%s imports internal package %s; public/shared packages must not depend on internals", relPkg, imp)
 		}
 	}
 	return ""
 }
 
-func auditPackageCycles(root string, packages []goPackageNode) []string {
+func auditPackageCycles(root string, packages []goPackageNode, cfg stackConfig) []string {
 	known := map[string]bool{}
 	graph := map[string][]string{}
 	for _, pkg := range packages {
@@ -175,7 +175,7 @@ func auditPackageCycles(root string, packages []goPackageNode) []string {
 	for _, pkg := range packages {
 		relPkg := trimCodebasePrefix(rel(root, pkg.path))
 		for _, imp := range pkg.imports {
-			target := trimCodebasePrefix(importToRepoPath(imp))
+			target := trimCodebasePrefix(importToRepoPath(imp, cfg.Project))
 			if known[target] {
 				graph[relPkg] = append(graph[relPkg], target)
 			}
@@ -210,18 +210,48 @@ func auditPackageCycles(root string, packages []goPackageNode) []string {
 	return failures
 }
 
-func importToRepoPath(imp string) string {
+func importToRepoPath(imp string, project string) string {
 	imp = filepath.ToSlash(imp)
-	for _, marker := range []string{"codebase/backend/", "backend/"} {
-		if index := strings.Index(imp, marker); index >= 0 {
-			path := imp[index:]
-			if strings.HasPrefix(path, "backend/") {
-				return "codebase/" + path
+	for _, candidate := range []struct {
+		prefix string
+		path   string
+	}{
+		{prefix: project + "/codebase/backend/" + project, path: "codebase/backend/" + project},
+		{prefix: project + "/backend/" + project, path: "codebase/backend/" + project},
+		{prefix: project + "/codebase/backend/shared", path: "codebase/backend/shared"},
+		{prefix: project + "/backend/shared", path: "codebase/backend/shared"},
+	} {
+		if remainder, ok := importPathRemainder(imp, candidate.prefix); ok {
+			if remainder == "" {
+				return candidate.path
 			}
-			return path
+			return candidate.path + "/" + remainder
 		}
 	}
 	return ""
+}
+
+func importPathRemainder(importPath string, sequence string) (string, bool) {
+	importPath = strings.Trim(filepath.ToSlash(importPath), "/")
+	sequence = strings.Trim(filepath.ToSlash(sequence), "/")
+	if importPath == "" || sequence == "" {
+		return "", false
+	}
+	for offset := 0; offset <= len(importPath)-len(sequence); {
+		index := strings.Index(importPath[offset:], sequence)
+		if index < 0 {
+			return "", false
+		}
+		index += offset
+		end := index + len(sequence)
+		leftBoundary := index == 0 || importPath[index-1] == '/'
+		rightBoundary := end == len(importPath) || importPath[end] == '/'
+		if leftBoundary && rightBoundary {
+			return strings.TrimPrefix(importPath[end:], "/"), true
+		}
+		offset = index + 1
+	}
+	return "", false
 }
 
 func moduleNameFromBackendPath(path string, cfg stackConfig) string {

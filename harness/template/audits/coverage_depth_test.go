@@ -799,6 +799,15 @@ func TestNormalizeStackConfigMaterializesEveryEnabledDefault(t *testing.T) {
 	}
 }
 
+func TestStackRootRelExpandsOnlyDocumentedProjectPlaceholder(t *testing.T) {
+	cfg := stackConfig{Project: "alpha"}
+	got := stackRootRel(cfg, "myproject/{project}/project-file")
+	want := "myproject/alpha/project-file"
+	if got != want {
+		t.Fatalf("stackRootRel() = %q, want %q", got, want)
+	}
+}
+
 func TestSchedulingHelpersRejectEveryAmbiguousControlValue(t *testing.T) {
 	done := map[string]bool{"TASK-0001-Done": true}
 	if !taskExecutable(taskDetailInfo{state: "Active"}, done) ||

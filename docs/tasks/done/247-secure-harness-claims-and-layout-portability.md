@@ -34,14 +34,14 @@ repositories fail hard gates.
 
 ## Sub-Tasks
 
-- [ ] Bind task-claim authority to the canonical binary freshness proof
-- [ ] Route generated-reference execution through configured layout resolution
-- [ ] Canonicalize retention project keys before every state path is derived
-- [ ] Limit project placeholder expansion to the documented token
-- [ ] Match architecture module paths only at valid boundaries
-- [ ] Replace naive Go line-comment detection with bounded lexical scanning
-- [ ] Add flat/nested, alias, hostile-binary, import, and URL regression fixtures
-- [ ] Regenerate and verify the deterministic harness pack and documentation
+- [x] Bind task-claim authority to the canonical binary freshness proof
+- [x] Route generated-reference execution through configured layout resolution
+- [x] Canonicalize retention project keys before every state path is derived
+- [x] Limit project placeholder expansion to the documented token
+- [x] Match architecture module paths only at valid boundaries
+- [x] Replace naive Go line-comment detection with bounded lexical scanning
+- [x] Add flat/nested, alias, hostile-binary, import, and URL regression fixtures
+- [x] Regenerate and verify the deterministic harness pack and documentation
 
 ## Notes
 
@@ -51,6 +51,11 @@ repositories fail hard gates.
 - No general Go parser dependency is required for one added line; a small
   quote/comment state scanner is sufficient if tests cover interpreted strings,
   raw strings, escapes, rune literals, and real comments.
+- Verification: harness race suites, root race suite, focused MCP race test
+  repeated ten times, complete MCP gateway race suite, vet, staticcheck,
+  publication audit, deterministic pack check, and self-hosting passed. The
+  first broad race run observed one non-reproducing MCP scheduling timeout;
+  focused repetition and the complete package rerun were green.
 
 ## Deviations
 

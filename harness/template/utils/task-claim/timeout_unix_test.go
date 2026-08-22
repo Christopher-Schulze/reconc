@@ -19,6 +19,7 @@ func TestAssertClaimsTimesOut(t *testing.T) {
 	if err := os.WriteFile(binPath, []byte("#!/bin/sh\nwhile :; do :; done\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	bindClaimStubProvenance(t, root, binPath)
 	err := assertClaimsWithTimeout(root, "TASK-0001-X", []string{"alpha"}, 25*time.Millisecond)
 	if err == nil || !strings.Contains(err.Error(), "timed out after 25ms") {
 		t.Fatalf("expected deterministic claim timeout, got %v", err)
