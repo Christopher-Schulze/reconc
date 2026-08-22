@@ -113,7 +113,7 @@ internal/
   impactlab/      strict format-2 repository/action corpora, exact action-delta review, and deterministic policy comparison
   lockdiff/       structural lockfile comparison with envelope, source-inventory, and provenance reporting
   filelock/       cross-platform process locks
-  jsonl/          bounded locked JSONL append + archive rings
+  jsonl/          bounded decode, validation, locked publication, recovery, and indexed tail reads
   manpage/        groff reconc(1) generation from the canonical command table
   mcpgateway/     tools-only MCP stdio enforcement, SDK boundary, child ownership, and orchestration
   parser/         YAML-to-Rule validation + template expansion + scope expansion
@@ -124,10 +124,11 @@ internal/
   presets/        bundled policy packs (embed.FS) + user overlays
   proofbundle/    deterministic portable JSON and Markdown completion evidence
   repositoryignore/ canonical target-repository runtime-ignore contract
-  runtime/        evaluator + remediation + git integration + subprocess runner
+  runtime/        staged evaluation, normalization, matching, violations, remediation, Git, and subprocesses
   retention/      bounded runtime storage lifecycle + owned temp cleanup
   runtime/agentsession/  hook payload handlers, session evidence state,
-                  stop policy cache, run-state store (the package the
+                  fingerprinted Stop snapshots/cache, Git and completion state,
+                  run-state store (the package the
                   hook-runtime threat model below describes)
   safename/       strict lower-kebab identifiers for user-selected assets
   schema/         canonical public JSON contract URLs + enterprise override
@@ -151,6 +152,16 @@ Hook generation
 is separate from merge/install logic, runtime lockfile trust is separate from
 rule evaluation, and Stop decisions are separate from general session event
 handling.
+
+Large package owners follow those same responsibility seams internally. The
+runtime evaluator separates orchestration, script execution, normalization,
+rule evaluation, matching, and violation construction. Agent-session Stop
+handling separates cache policy and storage from fingerprints, Git state, and
+completion snapshots. JSONL separates append/publication, validation,
+journaling/recovery, locking, and tail reads. Hook CLI handling separates
+command routing, lifecycle operations, runtime dispatch, response adaptation,
+timing, and claim operations. These are source-ownership boundaries only; they
+do not add package layers or duplicate public APIs.
 
 ## Key invariants
 
