@@ -64,7 +64,7 @@ type rawConfig struct {
 	OverviewPath string        `yaml:"overview_path"`
 	DetailDir    string        `yaml:"detail_dir"`
 	DoneDir      string        `yaml:"done_dir"`
-	DoneVisible  int           `yaml:"done_visible"`
+	DoneVisible  *int          `yaml:"done_visible"`
 	Completion   rawCompletion `yaml:"completion"`
 }
 
@@ -170,8 +170,8 @@ func mergeRawConfig(cfg Config, raw *rawConfig) Config {
 	if raw.DoneDir != "" {
 		cfg.DoneDir = filepath.ToSlash(raw.DoneDir)
 	}
-	if raw.DoneVisible != 0 {
-		cfg.DoneVisible = raw.DoneVisible
+	if raw.DoneVisible != nil {
+		cfg.DoneVisible = *raw.DoneVisible
 	}
 	cfg.Completion.RequiredSections = cleanUnique(raw.Completion.RequiredSections)
 	cfg.Completion.RequiredEvidenceFields = cleanUnique(raw.Completion.RequiredEvidenceFields)

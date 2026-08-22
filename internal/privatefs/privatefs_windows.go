@@ -107,6 +107,15 @@ func openPrivateFileDescriptor(path string, create bool) (*os.File, error) {
 	)
 }
 
+func openExistingPrivateFileDescriptorReadOnly(path string) (*os.File, error) {
+	return openWindowsPrivateDescriptor(
+		path,
+		windows.GENERIC_READ,
+		windows.OPEN_EXISTING,
+		windows.FILE_ATTRIBUTE_NORMAL|windows.FILE_FLAG_OPEN_REPARSE_POINT,
+	)
+}
+
 func openWindowsPrivateDescriptor(path string, access, disposition, attributes uint32) (*os.File, error) {
 	pathPointer, err := windows.UTF16PtrFromString(path)
 	if err != nil {

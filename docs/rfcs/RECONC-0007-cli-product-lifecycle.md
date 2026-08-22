@@ -64,7 +64,7 @@ The v0.9 additions and changed canonical entrypoints are:
 |---|---|
 | `reconc doctor --global [--json] [--output PATH]` | Read-only installation, ownership, receipt, binary identity, PATH, platform, and provenance diagnosis. `--global` cannot be combined with a repository operand or `--deep`. |
 | `reconc update [--channel stable\|preview \| --version VERSION] [--allow-downgrade] [--from-dir PATH] [--json]` | Selects and verifies an update, applies it for a direct installation, and returns a verified no-op when already current. The default channel is `stable`; a downgrade requires `--allow-downgrade`; `--from-dir` disables network access. |
-| `reconc uninstall [--purge-state] [--json]` | Removes only the globally owned installation. Repository state is never removed. `--purge-state` additionally removes recognized global Reconc state after a complete ownership inventory; unknown files fail closed and remain. |
+| `reconc uninstall [--purge-state] [--json]` | Removes only the globally owned installation. Repository state is never removed. `--purge-state` additionally requires a complete recognized-state inventory before mutation; the private coordination lock remains on one persistent inode, and unknown files fail closed. |
 | `reconc init [repo] [--profile existing|minimal|governed|advanced] [--pack NAME ...] [--hook KIND ...] [--no-hooks] [--accept-managed-blocks] [--json] [--output PATH]` | Inspects, selects, plans, applies, and verifies through `internal/bootstrap`. It writes the durable plan and repository receipt only as part of the transaction. |
 | `reconc repo sync plan [repo] [--output PATH [--replace-output]] [--json]` | Computes the exact change from the repository receipt to the packs embedded in the running binary. Repository inspection is hermetic and read-only; only explicit `--output` may publish the plan outside the repository transaction. |
 | `reconc repo sync apply --plan PATH --digest SHA256 [--json]` | Applies only a saved plan whose canonical digest equals `--digest` and whose preconditions still match. |
@@ -148,6 +148,9 @@ The global receipt lives at
 64 KiB, strict-decoded, self-digested, and atomically published under the lock
 only after the binary transaction and PATH identity pass. It contains no token,
 release response, shell profile, command output, or repository path.
+The lock inode remains after purge so install, update, uninstall, and global
+diagnosis cannot split authority by opening different path identities.
+Diagnosis uses a validating shared open that does not create or repair state.
 
 Required receipt fields:
 

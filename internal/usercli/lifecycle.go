@@ -108,6 +108,7 @@ func uninstallOwned(report *LifecycleReport, request UninstallRequest) (*Lifecyc
 		return nil, err
 	}
 	var removedPath string
+	mutationCommitted := false
 	err = withReceiptLock(paths, func() error {
 		if request.PurgeState {
 			if err := validatePurgeInventory(paths, true); err != nil {
@@ -149,27 +150,31 @@ func uninstallOwned(report *LifecycleReport, request UninstallRequest) (*Lifecyc
 			}
 			return fmt.Errorf("remove installation receipt: %w", err)
 		}
+		mutationCommitted = true
 		removedPath = receipt.BinaryPath
+		if request.PurgeState {
+			if err := purgeInstallationState(paths); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil {
+		if mutationCommitted {
+			report.Status = LifecycleFailed
+			report.Changed = true
+			report.Checks = append(report.Checks, DiagnosticCheck{
+				Name: "state-purge", Status: "fail", Detail: err.Error(),
+			})
+			report.NextAction = "Inspect the retained installation state; the owned binary and receipt were already removed."
+			return report, nil
+		}
 		report.Status = LifecycleRefused
 		report.Checks = append(report.Checks, DiagnosticCheck{
 			Name: "owned-removal", Status: "fail", Detail: err.Error(),
 		})
 		report.NextAction = "Repair ownership with `reconc doctor --global` before uninstalling."
 		return report, nil
-	}
-	if request.PurgeState {
-		if err := purgeInstallationState(paths); err != nil {
-			report.Status = LifecycleFailed
-			report.Changed = true
-			report.Checks = append(report.Checks, DiagnosticCheck{
-				Name: "state-purge", Status: "fail", Detail: err.Error(),
-			})
-			report.NextAction = "Inspect the retained installation state before removing it manually."
-			return report, nil
-		}
 	}
 	report.Status = LifecycleUninstalled
 	report.Changed = true
@@ -183,16 +188,7 @@ func uninstallOwned(report *LifecycleReport, request UninstallRequest) (*Lifecyc
 }
 
 func purgeInstallationState(paths receiptPaths) error {
-	if err := validatePurgeInventory(paths, false); err != nil {
-		return err
-	}
-	if err := os.Remove(paths.lock); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove installation lock: %w", err)
-	}
-	if err := os.Remove(paths.directory); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove empty installation state directory: %w", err)
-	}
-	return nil
+	return validatePurgeInventory(paths, false)
 }
 
 func validatePurgeInventory(paths receiptPaths, receiptPresent bool) error {

@@ -37,7 +37,7 @@ proof redaction.
 
 ## Sub-Tasks
 
-- [ ] Correct heading-level section boundaries and Grok diagnostic precedence
+- [~] Correct heading-level section boundaries and Grok diagnostic precedence
 - [ ] Reject malformed lifecycle timestamps and propagate budget-state errors
 - [ ] Define and test bounded confusable handling for sensitive vocabulary
 - [ ] Bind impact comparisons to one stable filesystem observation

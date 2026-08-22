@@ -126,7 +126,14 @@ func inspectActiveSectionsRunState(root string) (RunState, bool, error) {
 			return RunState{}, false, fmt.Errorf("unsafe %s: %w", item.label, err)
 		}
 	}
-	body, err := readTaskControlFile(overviewPath)
+	pendingTransaction, err := transactionExists(root)
+	if err != nil {
+		return RunState{}, true, err
+	}
+	if pendingTransaction {
+		return RunState{}, false, nil
+	}
+	overview, err := captureTaskFileSnapshot(overviewPath, true)
 	if errors.Is(err, os.ErrNotExist) {
 		return RunState{}, false, nil
 	}
@@ -136,6 +143,7 @@ func inspectActiveSectionsRunState(root string) (RunState, bool, error) {
 	if err := pathGuard.revalidate(); err != nil {
 		return RunState{}, true, fmt.Errorf("TASK paths changed while reading %s: %w", cfg.OverviewPath, err)
 	}
+	body := overview.body
 	if cfg.Profile == ProfileAuto && (!bytes.Contains(body, []byte("\n## Active\n")) || bytes.Contains(body, []byte("\nCurrent:"))) {
 		return RunState{}, false, nil
 	}
@@ -143,14 +151,8 @@ func inspectActiveSectionsRunState(root string) (RunState, bool, error) {
 	if !ok || snapshot.Active.Path == "" {
 		return RunState{}, false, nil
 	}
-	pendingTransaction, err := transactionExists(root)
-	if err != nil {
-		return RunState{}, true, err
-	}
-	if pendingTransaction {
-		return RunState{}, false, nil
-	}
-	subTask, activeSubs, ok, err := inspectRunSectionsDetail(root, cfg, snapshot.Active, pathGuard)
+	snapshots := []taskFileSnapshot{overview}
+	subTask, activeSubs, ok, err := inspectRunSectionsDetail(root, cfg, snapshot.Active, pathGuard, &snapshots)
 	if err != nil {
 		return RunState{}, true, err
 	}
@@ -158,7 +160,7 @@ func inspectActiveSectionsRunState(root string) (RunState, bool, error) {
 		return RunState{}, false, nil
 	}
 	for _, task := range snapshot.Queue {
-		_, activeSubs, valid, detailErr := inspectRunSectionsDetail(root, cfg, task, pathGuard)
+		_, activeSubs, valid, detailErr := inspectRunSectionsDetail(root, cfg, task, pathGuard, &snapshots)
 		if detailErr != nil {
 			return RunState{}, true, detailErr
 		}
@@ -167,7 +169,7 @@ func inspectActiveSectionsRunState(root string) (RunState, bool, error) {
 		}
 	}
 	for _, task := range snapshot.Blocked {
-		_, activeSubs, valid, detailErr := inspectRunSectionsDetail(root, cfg, task, pathGuard)
+		_, activeSubs, valid, detailErr := inspectRunSectionsDetail(root, cfg, task, pathGuard, &snapshots)
 		if detailErr != nil {
 			return RunState{}, true, detailErr
 		}
@@ -178,15 +180,8 @@ func inspectActiveSectionsRunState(root string) (RunState, bool, error) {
 	if err := pathGuard.revalidate(); err != nil {
 		return RunState{}, true, fmt.Errorf("TASK paths changed before final read: %w", err)
 	}
-	latest, err := readTaskControlFile(overviewPath)
-	pendingTransaction, transactionErr := transactionExists(root)
-	if transactionErr != nil {
-		return RunState{}, true, transactionErr
-	}
-	if err != nil || !bytes.Equal(body, latest) || pendingTransaction {
-		return RunState{}, true, &ValidationError{Issues: []Issue{
-			issue("task/read/concurrent-mutation", cfg.OverviewPath, 0, "TASK state changed while it was being read", "retry the read; if a transaction remains, run `reconc task recover`"),
-		}}
+	if issues := concurrentReadIssues(root, cfg, snapshots, pathGuard); len(issues) > 0 {
+		return RunState{}, true, &ValidationError{Issues: issues}
 	}
 	return RunState{
 		Profile: ProfileSections, Disposition: RunContinue,
@@ -344,7 +339,7 @@ func parseRunSectionsRow(row []byte) (parsedRunRow, bool) {
 	return parsedRunRow{id: row[:3], title: title, path: target}, true
 }
 
-func inspectRunSectionsDetail(root string, cfg Config, task Task, pathGuard *runPathGuard) (string, int, bool, error) {
+func inspectRunSectionsDetail(root string, cfg Config, task Task, pathGuard *runPathGuard, snapshots *[]taskFileSnapshot) (string, int, bool, error) {
 	target := filepath.Clean(filepath.FromSlash(task.Path))
 	overviewDir := filepath.Dir(filepath.FromSlash(cfg.OverviewPath))
 	detailDir := filepath.Clean(filepath.FromSlash(cfg.DetailDir))
@@ -357,10 +352,12 @@ func inspectRunSectionsDetail(root string, cfg Config, task Task, pathGuard *run
 	if err := pathGuard.reject(abs); err != nil {
 		return "", 0, true, fmt.Errorf("unsafe %s: %w", task.Path, err)
 	}
-	body, err := readTaskControlFile(abs)
+	snapshot, err := captureTaskFileSnapshot(abs, true)
 	if err != nil {
 		return "", 0, true, fmt.Errorf("read %s: %w", task.Path, err)
 	}
+	*snapshots = append(*snapshots, snapshot)
+	body := snapshot.body
 	if err := pathGuard.revalidate(); err != nil {
 		return "", 0, true, fmt.Errorf("TASK detail changed while reading %s: %w", task.Path, err)
 	}

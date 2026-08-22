@@ -497,6 +497,13 @@ binary identity, build target, source digest, provenance state, and canonical
 UTC installation time. Native installers and explicit source `install-cli`
 calls publish it only after checksum, executable, version, and PATH identity
 pass. `install-cli` cannot claim an unsupported ownership type.
+The lock inode is persistent once created: update, install, uninstall, and an
+existing-state global diagnosis all coordinate through that same identity.
+State purge validates the complete recognized inventory but deliberately
+retains the private lock and its directory, preventing a concurrent process
+from locking a replacement inode. Diagnosis opens an existing lock without
+creating, repairing, chmodding, or rewriting state; a machine with no
+installation state remains untouched.
 
 Private state directories and locks are created through the shared
 `internal/privatefs` boundary. It rejects symlink, irregular, wrong-owner, and
@@ -1497,9 +1504,10 @@ reconc hook uninstall codex . --json
 Global uninstall verifies ownership and checksum identity before mutation.
 Direct and source installations remove only their receipt-owned binary and
 receipt.
-`--purge-state` additionally removes only the known global state inventory and
-fails before mutation if an unknown entry exists. Repository state is always
-retained.
+`--purge-state` additionally requires a complete known global-state inventory
+before mutation and fails if an unknown entry exists. The persistent private
+installation lock and its directory remain as coordination state. Repository
+state is always retained.
 
 Bootstrap removal verifies the portable receipt and current hashes, removes
 only exact owned files and generated artifacts, strips only exact marker-owned
@@ -1542,7 +1550,9 @@ is active, permanent overview rows,
 and detail-file `State:` fields. `auto` selects a profile only when exactly one
 grammar matches. Paths and the visible Done window are configurable. Unknown,
 mixed, duplicated, unsafe, or structurally inconsistent state fails closed
-with stable issue IDs and exact remediation.
+with stable issue IDs and exact remediation. An absent `done_visible` uses the
+default of 10; an explicit value must be between 1 and 1000, so zero and
+negative values never silently select the default.
 
 `completion.required_sections` and `completion.required_evidence_fields` may
 each contain at most 32 unique one-line names of at most 120 characters.
@@ -1557,8 +1567,11 @@ terminal TASK completion while the configured overview or detail tree is dirty.
 All TASK config, overview, runtime-state, detail, and archive paths use one
 identity-aware component guard. It rejects symlink/reparse and irregular
 components, non-directory intermediates, and replacement identities; the fast
-run-state reader revalidates its component snapshot after each detail read and
-before accepting the final overview bytes.
+run-state reader and complete inspector bind the overview, every detail they
+read, every component identity, and the absent transaction journal to one
+before/after snapshot. Changed bytes, disappearance, inode replacement, a new
+symlink, or an appearing transaction fails with
+`task/read/concurrent-mutation`.
 The terminal gate reuses the single Git status snapshot already built for Stop;
 it adds no Git process to routine executable continuations.
 Portable workflow audits reserve `docs/tasks/` and `docs/tasks/done/` for
@@ -1599,7 +1612,9 @@ it never fabricates evidence. A crash leaves `.reconc/task-transaction.json`.
 All readers fail closed while that journal exists; `reconc task recover` rolls
 back only if every touched path still equals its recorded before or after
 image with its recorded regular-file type and permission mode, so an external
-edit is never overwritten. Before publication, the transaction revalidates
+edit is never overwritten. Recovery resolves and validates every rollback path
+before its first mutation and propagates every unsafe-path failure. Before
+publication, the transaction revalidates
 every source, destination, content hash, and mode both as a complete set and
 immediately before its operation. Moves retain the source before-image and use
 a no-clobber hard-link transition; recovery safely recognizes the linked

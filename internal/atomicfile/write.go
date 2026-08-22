@@ -35,7 +35,7 @@ func writeIfChanged(path string, data []byte, mode, parentMode os.FileMode) (cha
 		return false, err
 	}
 	if currentFile != nil {
-		identical, compareErr := matchesCurrent(directory, name, path, currentFile, currentInfo, data)
+		identical, compareErr := compareCurrent(directory, name, path, currentFile, currentInfo, data)
 		if compareErr != nil {
 			return false, compareErr
 		}
@@ -146,6 +146,17 @@ func openCurrent(directory *os.Root, name, path string) (*os.File, os.FileInfo, 
 		)
 	}
 	return file, opened, nil
+}
+
+// compareCurrent transfers descriptor ownership back to the caller only after
+// a successful comparison. A failed comparison closes the descriptor here so
+// its primary and close errors cannot be separated or forgotten.
+func compareCurrent(directory *os.Root, name, path string, file *os.File, info os.FileInfo, data []byte) (bool, error) {
+	identical, err := matchesCurrent(directory, name, path, file, info, data)
+	if err != nil {
+		return false, errors.Join(err, file.Close())
+	}
+	return identical, nil
 }
 
 func matchesCurrent(directory *os.Root, name, path string, file *os.File, info os.FileInfo, data []byte) (bool, error) {

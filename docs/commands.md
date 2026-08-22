@@ -364,8 +364,10 @@ Removes only a globally owned installation. Direct and source removals require
 a valid receipt and exact binary checksum, serialize with update and install,
 and remove the receipt-owned binary plus receipt without touching any
 repository.
-`--purge-state` additionally removes the now-empty recognized installation
-lock directory; unknown entries fail closed and remain. Repository policies,
+`--purge-state` additionally validates that no unknown installation state
+exists before mutation. The private installation lock
+and its directory remain permanently so concurrent and future operations keep
+one lock inode; unknown entries fail closed and remain. Repository policies,
 TASKs, docs, hooks, bootstrap receipts, and runtime evidence are never removed.
 
 ### `reconc init [repo] [--profile existing|minimal|governed|advanced] [--pack NAME] [--hook KIND | --no-hooks] [--accept-managed-blocks] [--json] [--output PATH]`
@@ -581,7 +583,10 @@ checksum identity, PATH shadows, release provenance, evidence, and one exact
 next action. The shadow scan walks PATH in resolution order and, on Windows,
 every name PATHEXT makes executable, so a `reconc.bat` ahead of the installed
 `reconc.exe` is reported rather than missed. The stable JSON contract is
-`schemas/v1/global-diagnostic.schema.json`. Status is `healthy`, `unowned`,
+`schemas/v1/global-diagnostic.schema.json`. When installation state exists,
+diagnosis takes a validated shared lock on the persistent lock inode without
+creating, repairing, chmodding, or rewriting state. When state is absent it
+creates nothing. Status is `healthy`, `unowned`,
 `stale`, `shadowed`, `ambiguous`, or `invalid`; all except `healthy` and a
 single deterministic legacy `unowned` installation exit 1. `--global` cannot
 be combined with `--deep` or a repository operand.

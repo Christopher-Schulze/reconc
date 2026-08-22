@@ -656,7 +656,10 @@ func rollbackTransaction(repoRoot string, journal transaction) error {
 		}
 	}
 	for _, file := range journal.Files {
-		_, abs, _ := safeTransactionPath(repoRoot, file.Path)
+		_, abs, err := safeTransactionPath(repoRoot, file.Path)
+		if err != nil {
+			return err
+		}
 		if file.Created {
 			if err := os.Remove(abs); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("rollback created %s: %w", file.Path, err)
@@ -675,8 +678,14 @@ func rollbackTransaction(repoRoot string, journal transaction) error {
 }
 
 func rollbackTransactionMove(repoRoot string, move transactionMove, sourceFile transactionFile) error {
-	_, source, _ := safeTransactionPath(repoRoot, move.Source)
-	_, destination, _ := safeTransactionPath(repoRoot, move.Destination)
+	_, source, err := safeTransactionPath(repoRoot, move.Source)
+	if err != nil {
+		return err
+	}
+	_, destination, err := safeTransactionPath(repoRoot, move.Destination)
+	if err != nil {
+		return err
+	}
 	sourceInfo, sourceErr := os.Lstat(source)
 	destinationInfo, destinationErr := os.Lstat(destination)
 	switch {

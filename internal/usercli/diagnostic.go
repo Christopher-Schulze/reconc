@@ -81,11 +81,21 @@ func (report *GlobalDiagnostic) Blocking() bool {
 }
 
 func DiagnoseGlobal(version string) (*GlobalDiagnostic, error) {
-	status, err := InspectCurrent("")
+	paths, err := resolveReceiptPaths()
 	if err != nil {
 		return nil, err
 	}
-	paths, err := resolveReceiptPaths()
+	var report *GlobalDiagnostic
+	err = withReceiptReadLock(paths, func() error {
+		var diagnoseErr error
+		report, diagnoseErr = diagnoseGlobalUnlocked(version, paths)
+		return diagnoseErr
+	})
+	return report, err
+}
+
+func diagnoseGlobalUnlocked(version string, paths receiptPaths) (*GlobalDiagnostic, error) {
+	status, err := InspectCurrent("")
 	if err != nil {
 		return nil, err
 	}

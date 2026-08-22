@@ -32,14 +32,14 @@ TASK validation.
 
 ## Sub-Tasks
 
-- [ ] Close atomic current descriptors on compare errors with joined error reporting
-- [ ] Propagate safe-path failures through every TASK rollback branch
-- [ ] Snapshot and revalidate all TASK overview and detail reads
-- [ ] Preserve `done_visible` field presence and reject non-positive values
-- [ ] Keep one persistent installation lock inode across purge operations
-- [ ] Add descriptor, symlink-swap, concurrent-read, and inode-split regressions
-- [ ] Run focused race, platform, recovery, and full repository gates
-- [ ] Update TASK recovery and installation-lock documentation
+- [x] Close atomic current descriptors on compare errors with joined error reporting
+- [x] Propagate safe-path failures through every TASK rollback branch
+- [x] Snapshot and revalidate all TASK overview and detail reads
+- [x] Preserve `done_visible` field presence and reject non-positive values
+- [x] Keep one persistent installation lock inode across purge operations
+- [x] Add descriptor, symlink-swap, concurrent-read, and inode-split regressions
+- [x] Run focused race, platform, recovery, and full repository gates
+- [x] Update TASK recovery and installation-lock documentation
 
 ## Notes
 
@@ -48,6 +48,17 @@ TASK validation.
   bare unsuffixed grandparent directory. F-94 is already fixed by section-aware
   checklist parsing. F-95 conflicts with the globally unique TASK ID contract
   and current no-overwrite archive behavior.
+- Atomic compare failures now transfer descriptor ownership to one close-and-
+  join boundary; 512 forced truncation races leave the descriptor count flat.
+- Both full and fast TASK readers bind every consumed file plus path-component
+  identity and transaction absence to a final snapshot revalidation.
+- Recovery no longer discards any rollback path error. Explicit zero/negative
+  Done windows fail while omission remains the default of 10.
+- Installation purge retains one private lock inode. Global diagnosis uses a
+  non-mutating shared open and retries under that lock if installation begins
+  during an initially absent-state observation.
+- Evidence: focused package Race tests and Windows cross-compilation passed;
+  `make test`, `make vet`, and `make lint` passed on 2026-08-22.
 
 ## Deviations
 

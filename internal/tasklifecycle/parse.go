@@ -46,14 +46,22 @@ func inspectResolved(root string) (*Board, error) {
 	if !cfg.Enabled {
 		return nil, nil
 	}
-	if err := validateTaskRuntimePaths(root, cfg); err != nil {
+	pathGuard := newTaskPathGuard(root, 16)
+	if err := validateTaskRuntimePaths(root, cfg, pathGuard); err != nil {
 		return nil, err
 	}
+	pendingTransaction, err := transactionExists(root)
+	if err != nil {
+		return nil, err
+	}
+	if pendingTransaction {
+		return nil, pendingTransactionError(root)
+	}
 	overviewPath := filepath.Join(root, filepath.FromSlash(cfg.OverviewPath))
-	if err := rejectSymlinkComponents(root, overviewPath); err != nil {
+	if err := pathGuard.reject(overviewPath); err != nil {
 		return nil, fmt.Errorf("unsafe %s: %w", cfg.OverviewPath, err)
 	}
-	body, err := readTaskControlFile(overviewPath)
+	overview, err := captureTaskFileSnapshot(overviewPath, true)
 	if errors.Is(err, os.ErrNotExist) {
 		if cfg.Configured {
 			return nil, &ValidationError{Issues: []Issue{{
@@ -67,21 +75,18 @@ func inspectResolved(root string) (*Board, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", cfg.OverviewPath, err)
 	}
-	pendingTransaction, err := transactionExists(root)
-	if err != nil {
-		return nil, err
-	}
-	if pendingTransaction {
-		return nil, &ValidationError{Issues: []Issue{{
-			ID: "task/transaction/pending", Path: transactionRel,
-			Message:     "an interrupted TASK mutation is pending",
-			Remediation: "run `reconc task recover " + root + "` before reading or changing TASK state",
-		}}}
-	}
-	return parseOverviewSnapshot(root, cfg, overviewPath, body)
+	return parseOverviewSnapshot(root, cfg, overview, pathGuard)
 }
 
-func validateTaskRuntimePaths(root string, cfg Config) error {
+func pendingTransactionError(root string) *ValidationError {
+	return &ValidationError{Issues: []Issue{{
+		ID: "task/transaction/pending", Path: transactionRel,
+		Message:     "an interrupted TASK mutation is pending",
+		Remediation: "run `reconc task recover " + root + "` before reading or changing TASK state",
+	}}}
+}
+
+func validateTaskRuntimePaths(root string, cfg Config, pathGuard *taskPathGuard) error {
 	paths := []struct {
 		label string
 		path  string
@@ -92,15 +97,31 @@ func validateTaskRuntimePaths(root string, cfg Config) error {
 	}
 	for _, item := range paths {
 		abs := filepath.Join(root, filepath.FromSlash(item.path))
-		if err := rejectSymlinkComponents(root, abs); err != nil {
+		if err := pathGuard.reject(abs); err != nil {
 			return fmt.Errorf("unsafe TASK %s: %w", item.label, err)
 		}
 	}
 	return nil
 }
 
-func parseOverviewSnapshot(root string, cfg Config, overviewPath string, body []byte) (*Board, error) {
-	profile, err := detectProfile(cfg.Profile, string(body))
+type taskFileSnapshot struct {
+	path    string
+	body    []byte
+	info    os.FileInfo
+	content bool
+}
+
+func captureTaskFileSnapshot(path string, content bool) (taskFileSnapshot, error) {
+	if !content {
+		info, err := lstatRegularTransactionFile(path)
+		return taskFileSnapshot{path: path, info: info}, err
+	}
+	body, info, err := readRegularTransactionFile(path)
+	return taskFileSnapshot{path: path, body: body, info: info, content: true}, err
+}
+
+func parseOverviewSnapshot(root string, cfg Config, overview taskFileSnapshot, pathGuard *taskPathGuard) (*Board, error) {
+	profile, err := detectProfile(cfg.Profile, string(overview.body))
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +131,7 @@ func parseOverviewSnapshot(root string, cfg Config, overviewPath string, body []
 	}
 	board := &Board{
 		RepoRoot: root, Config: cfg, Profile: profile,
-		overviewBytes: body, overviewLines: strings.Split(string(body), "\n"),
+		overviewBytes: overview.body, overviewLines: strings.Split(string(overview.body), "\n"),
 		sectionLines: map[State]int{}, tasksByID: map[string]*Task{},
 		tasksByName: map[string]*Task{}, tasksByPath: map[string]*Task{}, doneIDs: map[string]bool{},
 		doneTargetDir: filepath.ToSlash(doneTargetDir),
@@ -122,12 +143,13 @@ func parseOverviewSnapshot(root string, cfg Config, overviewPath string, body []
 	case ProfileLogbook:
 		issues = board.parseLogbookOverview()
 	}
-	issues = append(issues, board.loadAndValidateDetails()...)
+	snapshots := []taskFileSnapshot{overview}
+	issues = append(issues, board.loadAndValidateDetails(&snapshots, pathGuard)...)
 	if board.Profile == ProfileLogbook {
 		board.normalizeLogbookBuckets()
 	}
 	issues = append(issues, board.validateInvariants()...)
-	issues = append(issues, concurrentReadIssues(root, cfg, overviewPath, body)...)
+	issues = append(issues, concurrentReadIssues(root, cfg, snapshots, pathGuard)...)
 	if len(issues) > 0 {
 		sortIssues(issues)
 		return nil, &ValidationError{Issues: issues}
@@ -135,16 +157,29 @@ func parseOverviewSnapshot(root string, cfg Config, overviewPath string, body []
 	return board, nil
 }
 
-func concurrentReadIssues(root string, cfg Config, overviewPath string, body []byte) []Issue {
-	latestOverview, rereadErr := readTaskControlFile(overviewPath)
-	pendingTransaction, transactionErr := transactionExists(root)
-	if transactionErr != nil {
-		return []Issue{issue("task/transaction/unreadable", transactionRel, 0, transactionErr.Error(), "restore readable TASK runtime state before retrying")}
+func concurrentReadIssues(root string, cfg Config, snapshots []taskFileSnapshot, pathGuard *taskPathGuard) []Issue {
+	if err := pathGuard.revalidate(); err != nil {
+		return concurrentMutationIssue(cfg)
 	}
-	if pendingTransaction || rereadErr != nil || !bytes.Equal(body, latestOverview) {
-		return []Issue{issue("task/read/concurrent-mutation", cfg.OverviewPath, 0, "TASK state changed while it was being read", "retry the read; if a transaction remains, run `reconc task recover`")}
+	for _, snapshot := range snapshots {
+		if err := pathGuard.reject(snapshot.path); err != nil {
+			return concurrentMutationIssue(cfg)
+		}
+		latest, err := captureTaskFileSnapshot(snapshot.path, snapshot.content)
+		if err != nil || !sameTaskPathIdentity(snapshot.info, latest.info) ||
+			snapshot.content && !bytes.Equal(snapshot.body, latest.body) {
+			return concurrentMutationIssue(cfg)
+		}
+	}
+	pendingTransaction, transactionErr := transactionExists(root)
+	if transactionErr != nil || pendingTransaction {
+		return concurrentMutationIssue(cfg)
 	}
 	return nil
+}
+
+func concurrentMutationIssue(cfg Config) []Issue {
+	return []Issue{issue("task/read/concurrent-mutation", cfg.OverviewPath, 0, "TASK state changed while it was being read", "retry the read; if a transaction remains, run `reconc task recover`")}
 }
 
 // Load is Inspect with a fail-closed missing-control-plane error for explicit
@@ -397,7 +432,7 @@ func hasUnsafePathSegment(path string) bool {
 	return false
 }
 
-func (board *Board) loadAndValidateDetails() []Issue {
+func (board *Board) loadAndValidateDetails(snapshots *[]taskFileSnapshot, pathGuard *taskPathGuard) []Issue {
 	var issues []Issue
 	for _, task := range board.allTasks() {
 		// Archived detail history was validated at the promotion boundary. The
@@ -411,18 +446,26 @@ func (board *Board) loadAndValidateDetails() []Issue {
 			issues = append(issues, issue("task/detail/unsafe-path", board.Config.OverviewPath, task.OverviewLine, err.Error(), "point the row inside the configured detail or done directory"))
 			continue
 		}
+		if err := pathGuard.reject(path); err != nil {
+			issues = append(issues, issue("task/detail/unsafe-path", task.Path, 0, err.Error(), "restore a stable non-symlink TASK detail path"))
+			continue
+		}
 		if task.State == StateDone {
-			if info, statErr := os.Stat(path); statErr != nil || !info.Mode().IsRegular() {
+			snapshot, statErr := captureTaskFileSnapshot(path, false)
+			if statErr != nil {
 				issues = append(issues, issue("task/detail/unreadable", task.Path, 0, "archived detail is missing or not a regular file", "restore the linked archived TASK detail"))
+			} else {
+				*snapshots = append(*snapshots, snapshot)
 			}
 			continue
 		}
-		body, err := readTaskControlFile(path)
+		snapshot, err := captureTaskFileSnapshot(path, true)
 		if err != nil {
 			issues = append(issues, issue("task/detail/unreadable", task.Path, 0, err.Error(), "restore the linked TASK detail file"))
 			continue
 		}
-		task.rawDetail = body
+		*snapshots = append(*snapshots, snapshot)
+		task.rawDetail = snapshot.body
 		issues = append(issues, board.parseDetail(task)...)
 	}
 	return issues

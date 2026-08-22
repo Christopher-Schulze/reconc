@@ -287,6 +287,36 @@ func withReceiptLock(paths receiptPaths, operation func() error) (resultErr erro
 	return operation()
 }
 
+func withReceiptReadLock(paths receiptPaths, operation func() error) (resultErr error) {
+	if _, err := os.Lstat(paths.lock); errors.Is(err, os.ErrNotExist) {
+		if err := operation(); err != nil {
+			return err
+		}
+		if _, err := os.Lstat(paths.lock); errors.Is(err, os.ErrNotExist) {
+			return nil
+		} else if err != nil {
+			return fmt.Errorf("reinspect installation receipt lock: %w", err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("inspect installation receipt lock: %w", err)
+	}
+	lockFile, err := privatefs.OpenExistingLockReadOnly(paths.lock)
+	if err != nil {
+		return fmt.Errorf("open installation receipt lock read-only: %w", err)
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, lockFile.Close())
+	}()
+	unlock, err := filelock.RLockContext(context.Background(), lockFile, filelock.DefaultTimeout)
+	if err != nil {
+		return fmt.Errorf("lock installation receipt read-only: %w", err)
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, unlock())
+	}()
+	return operation()
+}
+
 func ensurePrivateDirectory(path string) error {
 	return privatefs.RepairDirectory(path)
 }

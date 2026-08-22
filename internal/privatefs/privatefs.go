@@ -99,6 +99,41 @@ func OpenExistingLock(path string) (*os.File, error) {
 	return openPrivateFile(path, false, true)
 }
 
+// OpenExistingLockReadOnly opens and validates a published private lock
+// without creating, chmodding, repairing, or rewriting filesystem state.
+func OpenExistingLockReadOnly(path string) (*os.File, error) {
+	parent := filepath.Dir(filepath.Clean(path))
+	if err := ValidateDirectory(parent); err != nil {
+		return nil, fmt.Errorf("validate private lock directory: %w", err)
+	}
+	before, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, os.ErrNotExist
+	}
+	if err != nil {
+		return nil, fmt.Errorf("inspect private lock: %w", err)
+	}
+	file, err := openExistingPrivateFileDescriptorReadOnly(path)
+	if err != nil {
+		return nil, fmt.Errorf("open private lock read-only: %w", err)
+	}
+	opened, statErr := file.Stat()
+	current, currentErr := os.Lstat(path)
+	if statErr != nil || currentErr != nil || !opened.Mode().IsRegular() ||
+		current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() ||
+		!os.SameFile(before, opened) || !os.SameFile(opened, current) {
+		return nil, errors.Join(fmt.Errorf("private lock changed identity while opening read-only"), statErr, currentErr, file.Close())
+	}
+	if err := validatePrivateFile(file, opened); err != nil {
+		return nil, errors.Join(fmt.Errorf("validate private lock: %w", err), file.Close())
+	}
+	current, err = os.Lstat(path)
+	if err != nil || current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() || !os.SameFile(opened, current) {
+		return nil, errors.Join(fmt.Errorf("private lock changed identity after read-only validation"), err, file.Close())
+	}
+	return file, nil
+}
+
 // OpenExistingPrivateFile opens a private content file while allowing the
 // hard-link aliases used by JSONL rotation.
 func OpenExistingPrivateFile(path string) (*os.File, error) {
