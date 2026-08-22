@@ -2,11 +2,10 @@
 
 ## Active
 
-- [~] 271 Make action ledger and state updates incremental -> tasks/271-make-action-ledger-and-state-updates-incremental.md
+- [~] 272 Reduce action inspection and evidence allocation -> tasks/272-reduce-action-inspection-and-evidence-allocation.md
 
 ## Queue
 
-- [ ] 272 Reduce action inspection and evidence allocation -> tasks/272-reduce-action-inspection-and-evidence-allocation.md
 - [ ] 273 Decouple MCP gateway state and progress pipelines -> tasks/273-decouple-mcp-gateway-state-and-progress-pipelines.md
 - [ ] 274 Parse MCP frames once and reuse bounded buffers -> tasks/274-parse-mcp-frames-once-and-reuse-bounded-buffers.md
 - [ ] 275 Scale policy conflict detection and asset loading -> tasks/275-scale-policy-conflict-detection-and-asset-loading.md
@@ -23,6 +22,7 @@
 
 ## Done
 
+- [x] 271 Make action ledger and state updates incremental -> tasks/done/271-make-action-ledger-and-state-updates-incremental.md
 - [x] 270 Optimize action operand evaluation and decision caching -> tasks/done/270-optimize-action-operand-evaluation-and-decision-caching.md
 - [x] 269 Eliminate repeated doctor and hook inspection work -> tasks/done/269-eliminate-repeated-doctor-and-hook-inspection-work.md
 - [x] 268 Correct hook runtime and lifecycle state reporting -> tasks/done/268-correct-hook-runtime-and-lifecycle-state-reporting.md
@@ -32,4 +32,3 @@
 - [x] 264 Perform the v0.9.7 release general rehearsal -> tasks/done/264-perform-v097-release-general-rehearsal.md
 - [x] 263 Make policy-author rollback test platform-neutral -> tasks/done/263-make-policy-author-rollback-test-platform-neutral.md
 - [x] 262 Consolidate repository onto main -> tasks/done/262-consolidate-repository-onto-main.md
-- [x] 261 Improve policy authoring UX -> tasks/done/261-improve-policy-authoring-ux.md

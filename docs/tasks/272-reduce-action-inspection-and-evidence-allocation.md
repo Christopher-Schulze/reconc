@@ -32,7 +32,7 @@ remain repeated work in inspected MCP calls and evidence publication.
 
 ## Sub-Tasks
 
-- [ ] Profile residual engine, detector-policy, scanner, and evidence-pack allocations
+- [~] Profile residual engine, detector-policy, scanner, and evidence-pack allocations
 - [ ] Compute selected-field value identities once per pointer state
 - [ ] Add an immutable non-copying detector-policy iteration boundary
 - [ ] Implement bounded stack-first distinct-character counting

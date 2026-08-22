@@ -16,7 +16,7 @@ func (s *Store) Status(ctx context.Context) (status StateStatus, resultErr error
 		if err := s.resampleRepositoryIdentity(); err != nil {
 			return err
 		}
-		state, persisted, err := s.loadState()
+		state, persisted, persistedBytes, err := s.loadStateWithSize()
 		if err != nil {
 			return err
 		}
@@ -25,7 +25,7 @@ func (s *Store) Status(ctx context.Context) (status StateStatus, resultErr error
 				return err
 			}
 		}
-		status, err = statusFromState(state)
+		status, err = statusFromState(state, persistedBytes)
 		if err != nil {
 			return err
 		}
@@ -34,16 +34,12 @@ func (s *Store) Status(ctx context.Context) (status StateStatus, resultErr error
 	return status, resultErr
 }
 
-func statusFromState(state State) (StateStatus, error) {
-	stateBody, err := encodeBoundedJSON(state, MaxStateBytes)
-	if err != nil {
-		return StateStatus{}, stateError(action.ReasonStateCorrupt, "measure bounded action state", err)
-	}
+func statusFromState(state State, persistedBytes int) (StateStatus, error) {
 	reservedByLineage, err := reservedUsageByLineage(state)
 	if err != nil {
 		return StateStatus{}, err
 	}
-	status := newStateStatus(state, len(stateBody))
+	status := newStateStatus(state, persistedBytes)
 	fillBudgetStatus(&status, state, reservedByLineage)
 	fillApprovalStatus(&status, state)
 	if err := fillReservationStatus(&status, state); err != nil {

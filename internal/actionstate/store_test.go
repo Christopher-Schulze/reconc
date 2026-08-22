@@ -1243,13 +1243,17 @@ func TestBudgetStoreStatusShowsEveryLiveReservationAndExactRemediation(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
+	stateInfo, err := os.Stat(fixture.store.statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	status, err := fixture.store.Status(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if status.StateVersion != version || len(status.Reservations) != 3 || status.LiveReservations != 3 ||
 		status.Indeterminate != 1 || status.Capacity.Reservations != 3 ||
-		status.Capacity.ReservationsMaximum != MaxReservations || status.Capacity.StateBytes <= 0 ||
+		status.Capacity.ReservationsMaximum != MaxReservations || status.Capacity.StateBytes != int(stateInfo.Size()) ||
 		status.Capacity.StateBytes > status.Capacity.StateBytesMaximum {
 		t.Fatalf("reservation status = %#v", status)
 	}

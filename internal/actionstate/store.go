@@ -182,19 +182,24 @@ func (s *Store) validatePrivateDirectories() error {
 }
 
 func (s *Store) loadState() (State, bool, error) {
+	state, persisted, _, err := s.loadStateWithSize()
+	return state, persisted, err
+}
+
+func (s *Store) loadStateWithSize() (State, bool, int, error) {
 	body, err := readPrivateRegularFile(s.statePath, MaxStateBytes)
 	if errors.Is(err, os.ErrNotExist) {
 		state, stateErr := s.initialState()
-		return state, false, stateErr
+		return state, false, 0, stateErr
 	}
 	if err != nil {
-		return State{}, false, stateError(action.ReasonStateCorrupt, "read bounded regular action state", err)
+		return State{}, false, 0, stateError(action.ReasonStateCorrupt, "read bounded regular action state", err)
 	}
 	state, err := s.decodeState(body)
 	if err != nil {
-		return State{}, false, err
+		return State{}, false, 0, err
 	}
-	return state, true, nil
+	return state, true, len(body), nil
 }
 
 func (s *Store) initialState() (State, error) {

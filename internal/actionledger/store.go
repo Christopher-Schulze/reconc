@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"reconc.dev/reconc/internal/action"
@@ -31,13 +32,16 @@ const (
 var errRecordAlreadyCommitted = errors.New("action ledger record is already committed")
 
 type Store struct {
-	storage     actionstate.PrivateProjectStorage
-	directory   string
-	livePath    string
-	headPath    string
-	layout      jsonl.Layout
-	policy      jsonl.Policy
-	publishHead func(string, []byte) error
+	storage        actionstate.PrivateProjectStorage
+	directory      string
+	livePath       string
+	headPath       string
+	checkpointPath string
+	layout         jsonl.Layout
+	policy         jsonl.Policy
+	publishHead    func(string, []byte) error
+	appendMu       sync.Mutex
+	checkpoint     *ledgerCheckpointCache
 }
 
 func OpenStore(storage actionstate.PrivateProjectStorage) (*Store, error) {
@@ -48,7 +52,8 @@ func OpenStore(storage actionstate.PrivateProjectStorage) (*Store, error) {
 	live := filepath.Join(directory, liveFileName)
 	store := &Store{
 		storage: storage, directory: directory, livePath: live,
-		headPath: filepath.Join(directory, headFileName),
+		headPath:       filepath.Join(directory, headFileName),
+		checkpointPath: filepath.Join(directory, checkpointFileName),
 		layout: jsonl.Layout{
 			LockPath:      filepath.Join(directory, lockFileName),
 			JournalPath:   filepath.Join(directory, transactionFileName),
@@ -199,22 +204,28 @@ func (s *Store) Append(ctx context.Context, record Record) (Record, error) {
 	if err := s.validateRecordKeyGeneration(record); err != nil {
 		return Record{}, ledgerError(action.ReasonLedgerCorrupt, "validate action ledger identity generation", err)
 	}
+	s.appendMu.Lock()
+	defer s.appendMu.Unlock()
 	var sealed Record
+	var nextCheckpoint ledgerCheckpointPayload
+	var terminalCallIDs map[string]struct{}
+	var completedCallID string
 	prepare := func() ([]byte, error) {
 		if err := s.validateStablePathsAfterRecovery(); err != nil {
 			return nil, wrapLedgerError(action.ReasonLedgerUnavailable, "validate action ledger paths before append", err)
 		}
-		records, head, _, err := s.loadVerifiedLocked()
+		checkpoint, terminalIDs, err := s.loadAppendCheckpointLocked()
 		if err != nil {
 			return nil, wrapLedgerError(action.ReasonLedgerCorrupt, "verify action ledger before append", err)
 		}
+		terminalCallIDs = terminalIDs
 		sequence := uint64(1)
 		previous := ""
-		if len(records) > 0 {
-			last := records[len(records)-1]
+		if checkpoint.Schema != "" {
+			last := checkpoint.LastRecord
 			sequence = last.Sequence + 1
 			previous = last.Digest
-			if head == nil || head.LastSequence != last.Sequence || head.LastDigest != last.Digest {
+			if checkpoint.Head.LastSequence != last.Sequence || checkpoint.Head.LastDigest != last.Digest {
 				return nil, ledgerError(action.ReasonLedgerCorrupt, "action ledger detached head does not match the retained tail", nil)
 			}
 			if sameRecordInput(last, record) {
@@ -223,12 +234,17 @@ func (s *Store) Append(ctx context.Context, record Record) (Record, error) {
 			}
 		}
 		var body []byte
+		var statuses []CallStatus
 		sealed, body, err = Seal(record, sequence, previous)
 		if err != nil {
 			return nil, ledgerError(action.ReasonLedgerCorrupt, "seal action ledger record", err)
 		}
-		candidate := append(append(make([]Record, 0, len(records)+1), records...), sealed)
-		statuses, err := BuildCallStatuses(candidate)
+		if checkpoint.Schema == "" {
+			head := newChainHead(sealed)
+			nextCheckpoint, statuses, terminalCallIDs, err = s.checkpointFromRecords([]Record{sealed}, &head)
+		} else {
+			nextCheckpoint, statuses, completedCallID, err = s.advanceCheckpoint(checkpoint, terminalCallIDs, sealed)
+		}
 		if err != nil {
 			return nil, ledgerError(action.ReasonLedgerCorrupt, "validate action ledger lifecycle before append", err)
 		}
@@ -237,8 +253,14 @@ func (s *Store) Append(ctx context.Context, record Record) (Record, error) {
 		}
 		return body, nil
 	}
+	commit := func() error {
+		if nextCheckpoint.Schema == "" {
+			return s.commitHeadLocked()
+		}
+		return s.commitCheckpointLocked(nextCheckpoint, terminalCallIDs, completedCallID)
+	}
 	if err := jsonl.AppendTransactionContextWithLayout(
-		ctx, s.livePath, s.policy, s.layout, prepare, s.commitHeadLocked,
+		ctx, s.livePath, s.policy, s.layout, prepare, commit,
 	); err != nil {
 		if errors.Is(err, errRecordAlreadyCommitted) {
 			return sealed, nil
@@ -389,7 +411,11 @@ func (s *Store) commitHeadLocked() error {
 		return wrapLedgerError(action.ReasonLedgerCorrupt, "read detached head for commit", err)
 	}
 	if head != nil && head.LastSequence == last.Sequence && head.LastDigest == last.Digest {
-		return nil
+		verifiedRecords, verifiedHead, _, verifyErr := s.loadVerifiedLocked()
+		if verifyErr != nil {
+			return wrapLedgerError(action.ReasonLedgerCorrupt, "verify retained action ledger for checkpoint rebuild", verifyErr)
+		}
+		return s.rebuildCheckpointLocked(verifiedRecords, verifiedHead)
 	}
 	var next chainHead
 	if head == nil {
@@ -412,6 +438,61 @@ func (s *Store) commitHeadLocked() error {
 	}
 	if err := s.publishHead(headFileName, body); err != nil {
 		return ledgerError(action.ReasonLedgerUnavailable, "publish action ledger detached head", err)
+	}
+	verifiedRecords, verifiedHead, _, err := s.loadVerifiedLocked()
+	if err != nil {
+		return wrapLedgerError(action.ReasonLedgerCorrupt, "verify retained action ledger after detached-head commit", err)
+	}
+	return s.rebuildCheckpointLocked(verifiedRecords, verifiedHead)
+}
+
+func (s *Store) loadAppendCheckpointLocked() (
+	ledgerCheckpointPayload,
+	map[string]struct{},
+	error,
+) {
+	if checkpoint, terminalCallIDs, ok := s.fastCheckpointLocked(); ok {
+		return checkpoint, terminalCallIDs, nil
+	}
+	if body, err := s.storage.ReadPrivateFile(checkpointFileName, maxCheckpointBytes); err == nil {
+		_, _ = s.decodeCheckpoint(body)
+	}
+	records, head, _, err := s.loadVerifiedLocked()
+	if err != nil || len(records) == 0 {
+		return ledgerCheckpointPayload{}, nil, err
+	}
+	checkpoint, _, terminalCallIDs, err := s.checkpointFromRecords(records, head)
+	return checkpoint, terminalCallIDs, err
+}
+
+func (s *Store) commitCheckpointLocked(
+	checkpoint ledgerCheckpointPayload,
+	terminalCallIDs map[string]struct{},
+	completedCallID string,
+) error {
+	body, err := encodeChainHead(checkpoint.Head)
+	if err != nil {
+		return ledgerError(action.ReasonLedgerCorrupt, "encode action ledger detached head", err)
+	}
+	if s.publishHead == nil {
+		return ledgerError(action.ReasonLedgerUnavailable, "action ledger detached-head publisher is unavailable", nil)
+	}
+	if err := s.publishHead(headFileName, body); err != nil {
+		return ledgerError(action.ReasonLedgerUnavailable, "publish action ledger detached head", err)
+	}
+	if err := s.publishCheckpointLocked(checkpoint, terminalCallIDs, completedCallID); err != nil {
+		return ledgerError(action.ReasonLedgerUnavailable, "publish action ledger checkpoint", err)
+	}
+	return nil
+}
+
+func (s *Store) rebuildCheckpointLocked(records []Record, head *chainHead) error {
+	checkpoint, _, terminalCallIDs, err := s.checkpointFromRecords(records, head)
+	if err != nil {
+		return ledgerError(action.ReasonLedgerCorrupt, "build action ledger checkpoint", err)
+	}
+	if err := s.publishCheckpointLocked(checkpoint, terminalCallIDs, ""); err != nil {
+		return ledgerError(action.ReasonLedgerUnavailable, "publish action ledger checkpoint", err)
 	}
 	return nil
 }
@@ -443,7 +524,7 @@ func ledgerFileName(index int) string {
 
 func allowedLedgerEntry(name string, transactionFiles bool, maxArchives int) bool {
 	switch name {
-	case liveFileName, headFileName, lockFileName:
+	case liveFileName, headFileName, checkpointFileName, lockFileName:
 		return true
 	case transactionFileName:
 		return transactionFiles

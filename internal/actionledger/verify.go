@@ -145,6 +145,11 @@ func (s *Store) loadVerifiedLocked() ([]Record, *chainHead, VerificationReport, 
 			report.DetachedHead = HeadInvalid
 			return nil, head, report, fmt.Errorf("action ledger detached head exists without retained records")
 		}
+		if _, checkpointErr := os.Lstat(s.checkpointPath); checkpointErr == nil {
+			return nil, nil, report, fmt.Errorf("action ledger checkpoint exists without retained records")
+		} else if !errors.Is(checkpointErr, os.ErrNotExist) {
+			return nil, nil, report, fmt.Errorf("inspect action ledger checkpoint: %w", checkpointErr)
+		}
 		return []Record{}, nil, EmptyVerificationReport(), nil
 	}
 	report.RecordCount = uint64(len(records))
@@ -301,6 +306,11 @@ func (s *Store) validateStablePathsAfterRecovery() error {
 		}
 		if !allowedLedgerEntry(entry.Name(), false, s.policy.MaxArchives) {
 			return fmt.Errorf("unexpected action ledger entry %s after recovery", entry.Name())
+		}
+		if entry.Name() == checkpointFileName {
+			if err := s.storage.ValidateJSONLFile(s.checkpointPath, maxCheckpointBytes); err != nil {
+				return fmt.Errorf("validate private action ledger checkpoint: %w", err)
+			}
 		}
 	}
 	return s.validateArchiveSet()

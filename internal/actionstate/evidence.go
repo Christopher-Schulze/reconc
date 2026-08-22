@@ -110,7 +110,7 @@ func (s *Store) evidenceSnapshot(
 	if err := s.resampleRepositoryIdentity(); err != nil {
 		return StateStatus{}, ApprovalReceiptVerificationReport{}, false, err
 	}
-	state, exists, err := s.loadState()
+	state, exists, persistedBytes, err := s.loadStateWithSize()
 	if err != nil {
 		return StateStatus{}, ApprovalReceiptVerificationReport{}, false, err
 	}
@@ -121,7 +121,7 @@ func (s *Store) evidenceSnapshot(
 	if _, err := s.trustedNow(state); err != nil {
 		return StateStatus{}, ApprovalReceiptVerificationReport{}, false, err
 	}
-	status, err = statusFromState(state)
+	status, err = statusFromState(state, persistedBytes)
 	if err != nil {
 		return StateStatus{}, ApprovalReceiptVerificationReport{}, false, err
 	}

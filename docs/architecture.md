@@ -1154,6 +1154,17 @@ process append bursts pass through a per-audit-directory mutex before the
 bounded cross-process lock, avoiding lock-polling storms while preserving the
 file lock as the inter-process authority.
 
+The action ledger retains full-chain verification as the startup, recovery,
+external-writer, and explicit-read authority. After one successful verification,
+same-store appends may advance an HMAC-authenticated checkpoint containing the
+detached head/tail binding, exact retained-file change generations, active-call
+records, and a rolling terminal-call digest/count. The in-memory terminal-call
+membership index is rebuilt only from verified retained records and is never
+accepted from disk. Any file-set, OS change-generation, checkpoint-generation,
+repository, or key mismatch falls back to full verification. Detached-head and
+checkpoint publication remain commit steps of the JSONL journal, so interrupted
+publication is rebuilt only after recovery verifies the retained chain.
+
 ### Production lock acquisition and ordering
 
 No production path calls the raw blocking `filelock.Lock` or `RLock` APIs.
@@ -1318,8 +1329,9 @@ These are reproducible observations, not latency contracts. The routine paths
 start no Git process; fsync-backed state, pointer, decision-log, and audit
 durability dominate the remaining cost.
 
-Calibrated benchmark history covers six allocation-sensitive paths in the
-compiler, source loader, path resolver, and runtime evaluator. `make
+Calibrated benchmark history covers twelve allocation-sensitive paths in the
+action evaluator, action ledger, inspection, compiler, hook worker, source
+loader, path resolver, and runtime evaluator. `make
 benchmark-record` runs five samples at 100 fixed iterations with one logical
 CPU, records the raw medians plus Go version, OS, architecture, CPU identity,
 commit, dirty state, and benchmark parameters, and normalizes every target
@@ -1411,8 +1423,9 @@ coupling to any specific tool beyond recognizing that prefix.
   items, results to 4,096 content blocks, decoded binary blocks to 3 MiB, and
   phase work to 500 ms pre-call, 1 second post-result, or 250 ms progress.
 - Action-ledger records are capped at 64 KiB. Its live file and each of two
-  archives are capped at 4 MiB, its detached head at 8 KiB, and append or read
-  transactions at two seconds. An active-call retention conflict fails the
+  archives are capped at 4 MiB, its detached head at 8 KiB, its authenticated
+  incremental checkpoint at 16 MiB, and append transactions at ten seconds.
+  An active-call retention conflict fails the
   append instead of pruning the call's retained beginning.
 - The MCP gateway caps protocol frames and results at 10 MiB, arguments at
   8 MiB, tools at 512, active calls and pending approvals at four each,

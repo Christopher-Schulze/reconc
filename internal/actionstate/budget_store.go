@@ -692,10 +692,11 @@ func reservationForCall(reservations []Reservation, callID string) *Reservation 
 }
 
 func rejectTerminalOrUnsafeRetry(state State, callID, ownerID string) error {
-	for _, call := range state.TerminalCalls {
-		if call.CallID == callID {
-			return stateError(action.ReasonReservationIndeterminate, "action call identity is already terminal", nil)
-		}
+	terminal := sort.Search(len(state.TerminalCalls), func(index int) bool {
+		return state.TerminalCalls[index].CallID >= callID
+	})
+	if terminal < len(state.TerminalCalls) && state.TerminalCalls[terminal].CallID == callID {
+		return stateError(action.ReasonReservationIndeterminate, "action call identity is already terminal", nil)
 	}
 	for _, reservation := range state.Reservations {
 		if reservation.CallID == callID &&

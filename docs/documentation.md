@@ -200,7 +200,7 @@ partial audit, run-log, checksum, release, or provenance snapshot.
 | Impact Lab | Candidate policy files are capped at 8 MiB; strict replay corpora and full typed JSON reports at 64 MiB, corpora at 10,000 cases, and reviewed action-delta manifests at 8 MiB. JUnit, SARIF, and GitHub projections retain at most 1,024 findings and 8 MiB. |
 | Action approvals and state | Canonical approval objects are capped at 64 KiB, authority registries at 1 MiB, sealed request state at 4 KiB, approval TTL at 120 seconds, future issuance skew at 30 seconds, pending approvals at four, retained approval records at 65,536, and the complete private action state at 16 MiB. |
 | Action content inspection | Canonical action values are capped at 8 MiB, strings at 4 MiB, nesting at 32, and JSON items at 65,536. Output schemas are capped at 1 MiB and 8,192 items, MCP results at 4,096 content blocks, decoded binary blocks at 3 MiB, and inspection at 500 ms pre-call, 1 second post-result, or 250 ms progress. |
-| Action decision ledger | Each typed payload-free record is capped at 64 KiB, the live file and each of two archives at 4 MiB, and the detached head at 8 KiB. Appends and reads use a two-second private cross-process transaction boundary; queries return records only after the retained chain, archives, and detached head verify. |
+| Action decision ledger | Each typed payload-free record is capped at 64 KiB, the live file and each of two archives at 4 MiB, the detached head at 8 KiB, and the authenticated incremental checkpoint at 16 MiB. Appends use a ten-second private cross-process transaction boundary; queries return records only after the retained chain, archives, and detached head verify. |
 | MCP gateway | Protocol frames and results are capped at 10 MiB, arguments at 8 MiB, discovery at 512 tools across 64 pages and 8 MiB aggregate metadata, concurrent calls and pending approvals at four each, progress at 128 events and 1 MiB per call, retained child stderr at 256 KiB, and serialized operator diagnostics at 4 KiB per line. Discovery charges and validates each page before requesting the next, retains only canonical contracts, and therefore holds at most the aggregate catalog plus one bounded in-flight page instead of all raw pages. Every observed SDK call consumes its pending or request-ID state on completion, cancellation, timeout, or response failure, so no terminal path retains the serialized send lease. Tool icons are limited to 32 fully decoded self-contained PNG or JPEG data URIs, 48 KiB each, 2,048 pixels per side, and 4,194,304 pixels; remote URLs and decompression bombs fail closed. Tool `_meta` is absent or empty because extension semantics are not enforced. Definitions, frames, progress, stderr, and results are validated or inspected before exposure. |
 | Auxiliary commands and release inventory | Git, Go, attestation, offline-hook, TASK utility, generated-reference, SBOM, and publication-audit subprocesses use purpose-specific 64 KiB to 64 MiB output ceilings and fail on overflow. Release assets are hashed as stable non-symlink regular-file streams, release directories stop after the declared inventory ceiling, and committed manifests, archives, and SBOMs use strict bounded reads. |
 
@@ -268,8 +268,8 @@ worker count. Direct `go test ./...` validates only the root module.
 times at a fixed iteration count and writes the machine-local result under
 `.build/benchmarks/`. `make benchmark-compare` normalizes every target against
 its same-package calibration benchmark before comparing it with the checked
-baseline. The suite covers eleven groups: bounded action traces and context
-operands, prepared action-decision caching, structured action inspection,
+baseline. The suite covers twelve groups: bounded action traces and context
+operands, prepared action-decision caching, incremental action-ledger checkpoints, structured action inspection,
 canonical JSON, contextual source ingestion, prospective path resolution,
 prepared command matching and evidence, source freshness, write-epoch batching,
 and bounded hook-worker frame growth. Its parser
@@ -2468,7 +2468,7 @@ raw selected values, receipts, credentials, or private keys.
 
 The action ledger uses
 `$RECONC_HOME/projects/<repository-key>/action/ledger.jsonl`, two bounded
-archives, `ledger.head.json`, and private lock and transaction files. Its nine
+archives, `ledger.head.json`, `ledger.checkpoint.json`, and private lock and transaction files. Its nine
 typed events cover request acceptance, pre-decision, approval and budget
 transitions, dispatch, downstream outcome, result inspection, final delivery,
 and terminal failure. Domain types and strict validation exclude raw arguments,
@@ -2489,6 +2489,24 @@ current-user-only DACL for every durable and recovery path. A missing lock is
 secured and verified as a private candidate before its final path becomes
 visible; concurrent creators converge on that one published lock before any
 ledger operation proceeds.
+
+The first append after startup, recovery, checkpoint loss or corruption,
+identity-key change, or an external writer fully verifies the retained chain.
+The same store may then advance an authenticated checkpoint while the exact
+live/archive/head/checkpoint file set and each operating-system change
+generation remain unchanged. The checkpoint binds repository and key
+identities, detached head and tail, active-call records, and a rolling digest
+and count of completed call IDs. It therefore scales with active calls rather
+than all completed history. Unix device/inode/change-time and Windows volume,
+file ID, change-time, write-time, and attributes prevent restored modification
+times from making changed bytes look unchanged. Head publication precedes
+checkpoint publication inside the existing recoverable JSONL transaction;
+recovery fully verifies retained bytes before rebuilding either summary.
+
+Action-state status and evidence views report the byte length of the already
+validated persisted state buffer. They do not marshal the complete state a
+second time merely to measure it. Terminal-call admission uses the canonical
+sorted state index; state schema and rendering remain unchanged.
 
 Approval status and reason are exact, receipt provenance is all-or-none, and a
 terminal budget stop cannot be bypassed by a later approval or dispatch. Unknown
