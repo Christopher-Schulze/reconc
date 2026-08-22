@@ -37,15 +37,15 @@ proof redaction.
 
 ## Sub-Tasks
 
-- [~] Correct heading-level section boundaries and Grok diagnostic precedence
-- [ ] Reject malformed lifecycle timestamps and propagate budget-state errors
-- [ ] Define and test bounded confusable handling for sensitive vocabulary
-- [ ] Bind impact comparisons to one stable filesystem observation
-- [ ] Replace command-proof lock retry with one short bounded deadline
-- [ ] Make diagnostic severity monotonic and surface TUI observation failures
-- [ ] Restrict proof redaction to canonical path identities
-- [ ] Run focused, Unicode, timeout, race, proof, TUI, and full gates
-- [ ] Update agent-guide, impact, action, and diagnostic documentation
+- [x] Correct heading-level section boundaries and Grok diagnostic precedence
+- [x] Reject malformed lifecycle timestamps and propagate budget-state errors
+- [x] Define and test bounded confusable handling for sensitive vocabulary
+- [x] Bind impact comparisons to one stable filesystem observation
+- [x] Replace command-proof lock retry with one short bounded deadline
+- [x] Make diagnostic severity monotonic and surface TUI observation failures
+- [x] Restrict proof redaction to canonical path identities
+- [x] Run focused, Unicode, timeout, race, proof, TUI, and full gates
+- [x] Update agent-guide, impact, action, and diagnostic documentation
 
 ## Notes
 
@@ -56,6 +56,19 @@ proof redaction.
   source are testable and reviewable.
 - F-99 is excluded because proof bundles load only current successful proofs;
   `fresh: true` is the exported assertion of that precondition.
+- Focused tests cover malformed timestamps, typed budget corruption, Unicode
+  small-capital/fullwidth forms, same-metadata content drift, typed Git lock
+  contention and total deadline, monotonic installation status, real TUI audit
+  and session failures, and common-basename proof text.
+- The first combined race run exposed two timing-sensitive lock-test outcomes.
+  The production retry now preserves a typed contention observed before the
+  Git command, including when the lock disappears before post-failure
+  inspection, and retains the explicit lock-deadline error when the context
+  expires. The complete command-proof race package is green after correction.
+- Final verification: focused package tests, the complete command-proof race
+  package, `make test` (including full `go test -race -count=1 ./...`, template
+  races, release-trust fixture, publication audit, and harness-pack check),
+  `make vet`, and `make lint` all passed.
 
 ## Deviations
 

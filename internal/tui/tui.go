@@ -8,6 +8,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"reconc.dev/reconc/internal/audit"
 	"reconc.dev/reconc/internal/compiler"
@@ -18,6 +19,8 @@ import (
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
+
+const maxObservationErrorBytes = 1024
 
 // SourceSummary is one source row in the terminal dashboard.
 type SourceSummary struct {
@@ -128,15 +131,34 @@ func Build(repo string) (*View, error) {
 	if stats, err := audit.Stats(discovery.RepoRoot); err == nil {
 		view.AuditTotal = stats.TotalEntries
 		view.AuditBlocking = stats.BlockingFires
+	} else {
+		appendObservationError(view, "audit observation", err)
 	}
 	if sessionID, err := agentsession.ResolveActiveSessionID(discovery.RepoRoot); err == nil {
 		view.ActiveSessionID = sessionID
+	} else {
+		appendObservationError(view, "session observation", err)
 	}
 	addCompletion(view)
 	if len(view.Conflicts) > 0 && view.NextAction == "" {
 		view.NextAction = "inspect static conflicts with `reconc doctor . --deep`"
 	}
 	return view, nil
+}
+
+func appendObservationError(view *View, label string, err error) {
+	if view == nil || err == nil {
+		return
+	}
+	message := label + ": " + err.Error()
+	if len(message) > maxObservationErrorBytes {
+		message = message[:maxObservationErrorBytes-3]
+		for !utf8.ValidString(message) {
+			message = message[:len(message)-1]
+		}
+		message += "..."
+	}
+	view.Errors = append(view.Errors, message)
 }
 
 func addCompletion(view *View) {

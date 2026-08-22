@@ -101,7 +101,7 @@ func diagnoseGlobalUnlocked(version string, paths receiptPaths) (*GlobalDiagnost
 	}
 	report := &GlobalDiagnostic{
 		Schema: schema.Resolve(schema.GlobalDiagnostic), FormatVersion: GlobalDiagnosticFormatVersion,
-		Operation: "doctor.global", Status: DiagnosticUnowned, CurrentVersion: strings.TrimSpace(version),
+		Operation: "doctor.global", Status: DiagnosticHealthy, CurrentVersion: strings.TrimSpace(version),
 		RunningPath: status.SourcePath, InstallTargetPath: status.TargetPath,
 		PathShadows: []string{}, Checks: []DiagnosticCheck{}, Actions: []DiagnosticAction{},
 	}
@@ -151,7 +151,7 @@ func diagnoseGlobalUnlocked(version string, paths receiptPaths) (*GlobalDiagnost
 			Detail: fmt.Sprintf("%s %s/%s source=%s", provenance.Version, provenance.GOOS, provenance.GOARCH, provenance.SourceDigest),
 		})
 		if provenance.Version != report.CurrentVersion {
-			report.Status = DiagnosticInvalid
+			report.promoteStatus(DiagnosticInvalid)
 			report.Checks[len(report.Checks)-1].Status = "fail"
 			report.Checks[len(report.Checks)-1].Detail += "; running version output disagrees"
 		}
@@ -178,25 +178,26 @@ func diagnoseGlobalUnlocked(version string, paths receiptPaths) (*GlobalDiagnost
 		})
 		evaluateReceiptIdentity(report, receipt, status)
 	case errors.Is(loadErr, os.ErrNotExist):
+		report.promoteStatus(DiagnosticUnowned)
 		report.Checks = append(report.Checks, DiagnosticCheck{
 			Name: "installation-receipt", Status: "warn", Detail: "no installation receipt",
 		})
 		classifyLegacyOwnership(report, status, provenanceErr)
 	default:
-		report.Status = DiagnosticInvalid
+		report.promoteStatus(DiagnosticInvalid)
 		report.Checks = append(report.Checks, DiagnosticCheck{
 			Name: "installation-receipt", Status: "fail", Detail: loadErr.Error(),
 		})
 	}
 
 	if report.ResolvedPath == nil {
-		report.Status = DiagnosticShadowed
+		report.promoteStatus(DiagnosticShadowed)
 	} else if report.ReceiptValid && report.Owner != nil &&
 		!samePath(*report.ResolvedPath, *report.BinaryPath) {
-		report.Status = DiagnosticShadowed
+		report.promoteStatus(DiagnosticShadowed)
 	}
 	if len(candidates) > 1 && !report.ReceiptValid {
-		report.Status = DiagnosticAmbiguous
+		report.promoteStatus(DiagnosticAmbiguous)
 	}
 	report.NextAction, report.Actions = diagnosticRemediation(report)
 	sort.SliceStable(report.Checks, func(left, right int) bool {
@@ -208,7 +209,7 @@ func diagnoseGlobalUnlocked(version string, paths receiptPaths) (*GlobalDiagnost
 func evaluateReceiptIdentity(report *GlobalDiagnostic, receipt *Receipt, status *Status) {
 	digest, err := fileSHA256(receipt.BinaryPath)
 	if err != nil {
-		report.Status = DiagnosticStale
+		report.promoteStatus(DiagnosticStale)
 		report.Checks = append(report.Checks, DiagnosticCheck{
 			Name: "receipt-binary", Status: "fail", Detail: err.Error(),
 		})
@@ -220,23 +221,45 @@ func evaluateReceiptIdentity(report *GlobalDiagnostic, receipt *Receipt, status 
 		Detail: fmt.Sprintf("%s checksum=%s", receipt.BinaryPath, digest),
 	}
 	if !report.ChecksumIdentity {
-		report.Status = DiagnosticStale
+		report.promoteStatus(DiagnosticStale)
 		check.Status = "fail"
 		check.Detail += "; receipt checksum differs"
 	}
 	if receipt.Version != report.CurrentVersion {
-		report.Status = DiagnosticStale
+		report.promoteStatus(DiagnosticStale)
 		check.Status = "fail"
 		check.Detail += fmt.Sprintf("; receipt version %s differs from running %s", receipt.Version, report.CurrentVersion)
 	}
 	if report.ResolvedPath == nil || !samePath(receipt.BinaryPath, status.ResolvedPath) {
-		report.Status = DiagnosticShadowed
+		report.promoteStatus(DiagnosticShadowed)
 		check.Status = "fail"
 		check.Detail += "; PATH resolves a different binary"
 	}
 	report.Checks = append(report.Checks, check)
-	if check.Status == "pass" && report.Status != DiagnosticInvalid {
-		report.Status = DiagnosticHealthy
+}
+
+func (report *GlobalDiagnostic) promoteStatus(candidate DiagnosticStatus) {
+	if diagnosticSeverity(candidate) > diagnosticSeverity(report.Status) {
+		report.Status = candidate
+	}
+}
+
+func diagnosticSeverity(status DiagnosticStatus) int {
+	switch status {
+	case DiagnosticHealthy:
+		return 0
+	case DiagnosticUnowned:
+		return 1
+	case DiagnosticAmbiguous:
+		return 2
+	case DiagnosticShadowed:
+		return 3
+	case DiagnosticStale:
+		return 4
+	case DiagnosticInvalid:
+		return 5
+	default:
+		return 6
 	}
 }
 

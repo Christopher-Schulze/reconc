@@ -41,6 +41,16 @@ func TestSectionCaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestLeafSectionStopsAtHigherLevelHeading(t *testing.T) {
+	body := Section("On Block: Get a Fix Plan")
+	if !strings.HasPrefix(body, "### On Block: Get a Fix Plan\n") {
+		t.Fatalf("unexpected leaf section: %q", body)
+	}
+	if strings.Contains(body, "\n## Inspecting Rules\n") || strings.Contains(body, "\n### Render Human-Readable Explanation\n") {
+		t.Fatalf("leaf section crossed its next equal-or-higher heading:\n%s", body)
+	}
+}
+
 func TestSectionNotFound(t *testing.T) {
 	body := Section("this section definitely does not exist")
 	if body != "" {

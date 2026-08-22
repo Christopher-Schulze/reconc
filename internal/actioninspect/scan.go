@@ -331,38 +331,31 @@ func inspectionText(value string, confusable bool) string {
 	return strings.Map(confusableRune, norm.NFKD.String(normalized))
 }
 
+// confusableSkeleton is deliberately bounded to compatibility forms and the
+// cross-script characters needed by the built-in detector vocabulary.
+var confusableSkeleton = map[rune]rune{
+	'а': 'a', 'α': 'a',
+	'е': 'e', 'ε': 'e',
+	'і': 'i', 'ι': 'i',
+	'к': 'k', 'κ': 'k',
+	'м': 'm', 'μ': 'm',
+	'о': 'o', 'ο': 'o',
+	'р': 'p', 'ρ': 'p',
+	'с': 'c',
+	'т': 't', 'τ': 't',
+	'х': 'x', 'χ': 'x',
+	'у': 'y',
+	'ѕ': 's', 'ꜱ': 's',
+}
+
 func confusableRune(value rune) rune {
 	if unicode.Is(unicode.Cf, value) || unicode.Is(unicode.Mn, value) {
 		return -1
 	}
-	switch value {
-	case 'а', 'α':
-		return 'a'
-	case 'е', 'ε':
-		return 'e'
-	case 'і', 'ι':
-		return 'i'
-	case 'к', 'κ':
-		return 'k'
-	case 'м', 'μ':
-		return 'm'
-	case 'о', 'ο':
-		return 'o'
-	case 'р', 'ρ':
-		return 'p'
-	case 'с':
-		return 'c'
-	case 'т', 'τ':
-		return 't'
-	case 'х', 'χ':
-		return 'x'
-	case 'у':
-		return 'y'
-	case 'ѕ':
-		return 's'
-	default:
-		return value
+	if skeleton, ok := confusableSkeleton[value]; ok {
+		return skeleton
 	}
+	return value
 }
 
 func validPaymentCard(value string) bool {

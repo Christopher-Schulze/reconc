@@ -47,19 +47,23 @@ func Section(name string) string {
 	if startIdx < 0 {
 		return ""
 	}
-	// Same-level heading marks the end boundary.
-	prefix := "## "
-	if strings.HasPrefix(lines[startIdx], "### ") {
-		prefix = "### "
-	}
+	startLevel, _ := markdownHeadingLevel(lines[startIdx])
 	endIdx := len(lines)
 	for j := startIdx + 1; j < len(lines); j++ {
-		if strings.HasPrefix(lines[j], prefix) {
+		if level, ok := markdownHeadingLevel(lines[j]); ok && level <= startLevel {
 			endIdx = j
 			break
 		}
 	}
 	return strings.Join(lines[startIdx:endIdx], "\n")
+}
+
+func markdownHeadingLevel(line string) (int, bool) {
+	level := 0
+	for level < len(line) && line[level] == '#' {
+		level++
+	}
+	return level, level > 0 && level <= 6 && level < len(line) && line[level] == ' '
 }
 
 // Sections returns all `## ` top-level headings in document order.

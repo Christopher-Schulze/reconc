@@ -172,17 +172,19 @@ func doctorCheckGrokRuntime(discovery ingest.DiscoveryResult) doctorCheck {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	output, err := doctorGrokInspect(ctx, discovery.RepoRoot)
-	if len(output) > doctorGrokInspectMaxBytes {
-		check.Status = doctorStatusWarn
-		check.Detail = fmt.Sprintf("grok inspect output exceeds %d bytes", doctorGrokInspectMaxBytes)
-		return check
-	}
 	if err != nil {
 		check.Status = doctorStatusWarn
 		check.Detail = "cannot execute `grok inspect --json`: " + err.Error()
-		if detail := strings.TrimSpace(string(output)); detail != "" {
+		if len(output) > doctorGrokInspectMaxBytes {
+			check.Detail += fmt.Sprintf("; stdout exceeds %d bytes", doctorGrokInspectMaxBytes)
+		} else if detail := strings.TrimSpace(string(output)); detail != "" {
 			check.Detail += "; stdout: " + detail
 		}
+		return check
+	}
+	if len(output) > doctorGrokInspectMaxBytes {
+		check.Status = doctorStatusWarn
+		check.Detail = fmt.Sprintf("grok inspect output exceeds %d bytes", doctorGrokInspectMaxBytes)
 		return check
 	}
 	var inspection struct {

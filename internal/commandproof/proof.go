@@ -32,6 +32,9 @@ const (
 	maxProofFiles     = 4096
 	maxGitOutputBytes = 16 << 20
 	gitCommandTimeout = 30 * time.Second
+	gitIndexLockWait  = 5 * time.Second
+	gitRetryInitial   = 25 * time.Millisecond
+	gitRetryMaximum   = 250 * time.Millisecond
 )
 
 // Snapshot identifies the exact commit candidate verified by a command.
@@ -283,19 +286,62 @@ func captureLocked(repoRoot string) (Snapshot, error) {
 }
 
 func gitWriteTree(repoRoot string) (string, error) {
-	var lastErr error
-	for attempt := 0; attempt < 40; attempt++ {
-		indexTree, err := gitOutput(repoRoot, "write-tree")
+	return gitWriteTreeWithTimeout(repoRoot, gitIndexLockWait)
+}
+
+func gitWriteTreeWithTimeout(repoRoot string, timeout time.Duration) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	lockPath, err := gitIndexLockPath(ctx, repoRoot)
+	if err != nil {
+		return "", err
+	}
+	var lastContention error
+	for backoff := gitRetryInitial; ; backoff = min(backoff*2, gitRetryMaximum) {
+		lockObserved := gitIndexLockPresent(lockPath)
+		indexTree, err := gitOutputContext(ctx, repoRoot, "write-tree")
 		if err == nil {
 			return indexTree, nil
 		}
-		lastErr = err
-		if !strings.Contains(err.Error(), "index.lock") {
+		if !gitIndexLockContention(err, lockPath, lockObserved) {
+			if ctx.Err() != nil && lastContention != nil && gitIndexLockPresent(lockPath) {
+				return "", fmt.Errorf("git index remained locked for command proof snapshot after %s: %w", timeout, lastContention)
+			}
 			return "", err
 		}
-		time.Sleep(50 * time.Millisecond)
+		lastContention = err
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return "", fmt.Errorf("git index remained locked for command proof snapshot after %s: %w", timeout, lastContention)
+		case <-timer.C:
+		}
 	}
-	return "", fmt.Errorf("git index remained locked for command proof snapshot: %w", lastErr)
+}
+
+func gitIndexLockPath(ctx context.Context, repoRoot string) (string, error) {
+	path, err := gitOutputContext(ctx, repoRoot, "rev-parse", "--git-path", "index.lock")
+	if err != nil {
+		return "", err
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(repoRoot, path)
+	}
+	return filepath.Clean(path), nil
+}
+
+func gitIndexLockContention(err error, lockPath string, lockObserved bool) bool {
+	var commandErr *gitCommandError
+	if !errors.As(err, &commandErr) {
+		return false
+	}
+	return lockObserved || gitIndexLockPresent(lockPath)
+}
+
+func gitIndexLockPresent(lockPath string) bool {
+	info, statErr := os.Lstat(lockPath)
+	return statErr == nil && info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0
 }
 
 func gitHead(repoRoot string) (string, error) {
@@ -365,6 +411,19 @@ func gitOutput(repoRoot string, args ...string) (string, error) {
 func gitOutputBytes(repoRoot string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitCommandTimeout)
 	defer cancel()
+	out, err := gitOutputBytesContext(ctx, repoRoot, args...)
+	if errors.Is(err, context.DeadlineExceeded) {
+		return nil, fmt.Errorf("git %s timed out after %s", strings.Join(args, " "), gitCommandTimeout)
+	}
+	return out, err
+}
+
+func gitOutputContext(ctx context.Context, repoRoot string, args ...string) (string, error) {
+	out, err := gitOutputBytesContext(ctx, repoRoot, args...)
+	return strings.TrimSpace(string(out)), err
+}
+
+func gitOutputBytesContext(ctx context.Context, repoRoot string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = repoRoot
 	stdout := &boundedCommandOutput{limit: maxGitOutputBytes}
@@ -372,17 +431,29 @@ func gitOutputBytes(repoRoot string, args ...string) ([]byte, error) {
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	err := cmd.Run()
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return nil, fmt.Errorf("git %s timed out after %s", strings.Join(args, " "), gitCommandTimeout)
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("git %s: %w", strings.Join(args, " "), ctx.Err())
 	}
 	if stdout.overflow || stderr.overflow {
 		return nil, fmt.Errorf("git %s output exceeds %d bytes", strings.Join(args, " "), maxGitOutputBytes)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		return nil, &gitCommandError{args: append([]string(nil), args...), cause: err, stderr: strings.TrimSpace(stderr.String())}
 	}
 	return append([]byte(nil), stdout.Bytes()...), nil
 }
+
+type gitCommandError struct {
+	args   []string
+	cause  error
+	stderr string
+}
+
+func (e *gitCommandError) Error() string {
+	return fmt.Sprintf("git %s: %v: %s", strings.Join(e.args, " "), e.cause, e.stderr)
+}
+
+func (e *gitCommandError) Unwrap() error { return e.cause }
 
 type boundedCommandOutput struct {
 	bytes.Buffer

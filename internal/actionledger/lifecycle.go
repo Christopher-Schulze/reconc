@@ -99,7 +99,10 @@ func BuildCallStatuses(records []Record) ([]CallStatus, error) {
 		} else if !reflect.DeepEqual(state.binding, record.Call) {
 			return nil, fmt.Errorf("action ledger call binding drifted for %s", record.Call.CallID)
 		}
-		timestamp, _ := time.Parse(time.RFC3339Nano, record.Timestamp)
+		timestamp, err := time.Parse(time.RFC3339Nano, record.Timestamp)
+		if err != nil {
+			return nil, fmt.Errorf("action ledger call %s has an invalid timestamp at sequence %d: %w", record.Call.CallID, record.Sequence, err)
+		}
 		if !state.lastTimestamp.IsZero() && timestamp.Before(state.lastTimestamp) {
 			return nil, fmt.Errorf("action ledger call %s timestamp moves backward at sequence %d", record.Call.CallID, record.Sequence)
 		}

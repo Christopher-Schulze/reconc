@@ -70,6 +70,13 @@ func compare(
 			stringListText(currentScripts), stringListText(candidateScripts),
 		)
 	}
+	var filesystem *repositorySnapshot
+	if corpusHasRepositoryCases(corpus) {
+		filesystem, err = captureRepositorySnapshot(repoRoot)
+		if err != nil {
+			return Report{}, fmt.Errorf("capture impact filesystem snapshot: %w", err)
+		}
+	}
 	report := Report{
 		FormatVersion: ReportFormatVersion, CorpusID: corpus.CorpusID,
 		CorpusCompleteness: corpus.Completeness, Candidate: candidate,
@@ -109,6 +116,11 @@ func compare(
 		}
 		report.Cases = append(report.Cases, comparison)
 	}
+	if filesystem != nil {
+		if err := filesystem.revalidate(repoRoot); err != nil {
+			return Report{}, fmt.Errorf("impact filesystem drifted during current/candidate comparison: %w", err)
+		}
+	}
 	report.Rules = buildRuleImpacts(evaluator.RuleIDs(), currentMatches, candidateMatches)
 	for _, impact := range report.Rules {
 		if impact.CandidateMatches == 0 {
@@ -124,6 +136,15 @@ func compare(
 	initializeDeltaGate(&report)
 	report.SafetyConclusion = safetyConclusion(corpus.Completeness)
 	return report, nil
+}
+
+func corpusHasRepositoryCases(corpus Corpus) bool {
+	for _, replayCase := range corpus.Cases {
+		if replayCase.Kind == CaseRepository {
+			return true
+		}
+	}
+	return false
 }
 
 func compareRepositoryCase(repoRoot string, replayCase RepositoryCase, current, candidate *runtime.CompiledPolicyEvaluator) (RepositoryComparison, runtime.EvaluationTrace, runtime.EvaluationTrace, error) {

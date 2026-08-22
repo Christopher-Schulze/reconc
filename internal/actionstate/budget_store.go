@@ -95,7 +95,10 @@ func (s *Store) reserveLocked(input ReserveRequest) (ReserveResult, error) {
 	if err := s.writeState(state, persisted, &next); err != nil {
 		return ReserveResult{}, err
 	}
-	candidates = s.candidatesFromState(next, declarations, tool, input, generation, clock.Time)
+	candidates, err = s.candidatesFromState(next, declarations, tool, input, generation, clock.Time)
+	if err != nil {
+		return ReserveResult{}, err
+	}
 	copy := cloneReservation(reservation)
 	return ReserveResult{
 		Snapshot:    s.budgetSnapshot(next.Digest, reservation.Identity, candidates),
@@ -556,24 +559,24 @@ func (s *Store) candidatesFromState(
 	input ReserveRequest,
 	generation action.BudgetGeneration,
 	now time.Time,
-) []action.BudgetCandidate {
+) ([]action.BudgetCandidate, error) {
 	candidates := make([]action.BudgetCandidate, 0, len(declarations))
 	reservedByLineage, err := reservedUsageByLineage(state)
 	if err != nil {
-		return []action.BudgetCandidate{}
+		return nil, err
 	}
 	for _, declaration := range declarations {
 		scope, lineage, scopeIdentity, err := s.budgetScope(declaration, tool.ID, input, now)
 		if err != nil {
-			return []action.BudgetCandidate{}
+			return nil, err
 		}
 		record := budgetRecordForLineage(state.Budgets, lineage)
 		if record == nil || record.ScopeIdentity != scopeIdentity || record.Generation != generation {
-			return []action.BudgetCandidate{}
+			return nil, stateError(action.ReasonStateCorrupt, "reconstruct budget candidate from current state", nil)
 		}
 		required, err := action.RequiredBudgetUsage(declaration.Limits, tool, input.Request)
 		if err != nil {
-			return []action.BudgetCandidate{}
+			return nil, stateError(action.ReasonStateCorrupt, "derive exact budget reservation charge", err)
 		}
 		reserved := reservedByLineage[lineage]
 		available := action.BudgetCapacityAvailable(
@@ -587,7 +590,7 @@ func (s *Store) candidatesFromState(
 		candidate.Scope = scope
 		candidates = append(candidates, candidate)
 	}
-	return candidates
+	return candidates, nil
 }
 
 func (s *Store) budgetSnapshot(stateVersion, reservation string, candidates []action.BudgetCandidate) action.BudgetSnapshot {
@@ -728,7 +731,10 @@ func (s *Store) retryReservationSnapshot(
 		PolicyDigest: input.Request.PolicyDigest, ExecutableDigest: input.Server.ExecutableDigest,
 		ToolContractDigest: input.Request.ToolContractDigest, KeyID: s.key.ID(),
 	}
-	candidates := s.candidatesFromState(state, declarations, tool, input, generation, clock.Time)
+	candidates, err := s.candidatesFromState(state, declarations, tool, input, generation, clock.Time)
+	if err != nil {
+		return ReserveResult{}, err
+	}
 	if len(candidates) != len(declarations) || candidatesExhausted(candidates) {
 		return ReserveResult{}, stateError(action.ReasonStateCorrupt, "existing reservation no longer matches its budget records", nil)
 	}

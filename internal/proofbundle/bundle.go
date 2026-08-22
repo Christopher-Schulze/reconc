@@ -22,6 +22,7 @@ import (
 	"reconc.dev/reconc/buildprovenance"
 	"reconc.dev/reconc/internal/commandproof"
 	"reconc.dev/reconc/internal/completiongate"
+	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/policyproof"
 	"reconc.dev/reconc/internal/runtime"
 	"reconc.dev/reconc/internal/runtime/agentsession"
@@ -396,13 +397,10 @@ func sanitizeValues(root string, values []string) []string {
 
 func sanitizeText(root, value string) string {
 	value = strings.ToValidUTF8(strings.TrimSpace(value), "\uFFFD")
-	if root != "" {
-		cleanRoot := filepath.Clean(root)
-		if cleanRoot != "." && cleanRoot != string(filepath.Separator) {
-			value = replaceBoundaryToken(value, cleanRoot, ".")
-			if name := filepath.Base(cleanRoot); name != "." && name != string(filepath.Separator) {
-				value = replaceBoundaryToken(value, name, "<repo>")
-			}
+	if cleanRoot := canonicalSanitizationRoot(root); cleanRoot != "" {
+		value = replaceBoundaryToken(value, cleanRoot, ".")
+		if slashRoot := filepath.ToSlash(cleanRoot); slashRoot != cleanRoot {
+			value = replaceBoundaryToken(value, slashRoot, ".")
 		}
 	}
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
@@ -419,6 +417,24 @@ func sanitizeText(root, value string) string {
 	value = unixAbsolutePath.ReplaceAllString(value, "$1<external>")
 	value = windowsPath.ReplaceAllString(value, "$1<external>")
 	return boundText(value)
+}
+
+func canonicalSanitizationRoot(root string) string {
+	if strings.TrimSpace(root) == "" {
+		return ""
+	}
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return ""
+	}
+	if resolved, resolveErr := pathidentity.ResolveExisting(absolute); resolveErr == nil {
+		absolute = resolved
+	}
+	absolute = filepath.Clean(absolute)
+	if absolute == string(filepath.Separator) {
+		return ""
+	}
+	return absolute
 }
 
 func replaceBoundaryToken(value, target, replacement string) string {

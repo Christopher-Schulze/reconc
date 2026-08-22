@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -105,6 +106,30 @@ func TestDoctorGrokRuntimeChecksTrustAndEveryNativeRoute(t *testing.T) {
 	check = doctorCheckGrokRuntime(discovery)
 	if check.Status != doctorStatusWarn || !strings.Contains(check.Detail, "/hooks-trust") {
 		t.Fatalf("untrusted Grok doctor check = %+v", check)
+	}
+}
+
+func TestDoctorGrokRuntimeKeepsExecutionFailureBeforeOutputLimit(t *testing.T) {
+	repo := makeCheckRepo(t, "rules: []\n")
+	if _, err := hooks.Install(hooks.KindGrok, repo, false); err != nil {
+		t.Fatal(err)
+	}
+	discovery, err := ingest.DiscoverPolicyRepo(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := doctorGrokInspect
+	defer func() { doctorGrokInspect = original }()
+	doctorGrokInspect = func(context.Context, string) ([]byte, error) {
+		return bytes.Repeat([]byte("x"), doctorGrokInspectMaxBytes+1), errors.New("exit status 23")
+	}
+	check := doctorCheckGrokRuntime(discovery)
+	if check.Status != doctorStatusWarn || !strings.Contains(check.Detail, "exit status 23") ||
+		!strings.Contains(check.Detail, "stdout exceeds") {
+		t.Fatalf("Grok execution and output failure precedence = %+v", check)
+	}
+	if strings.Contains(check.Detail, strings.Repeat("x", 1024)) {
+		t.Fatal("oversized Grok stdout leaked into diagnostic detail")
 	}
 }
 

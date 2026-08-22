@@ -25,14 +25,25 @@ func TestSanitizeTextRedactsIdentityAbsolutePathsAndSecrets(t *testing.T) {
 	windowsPrivatePath := `C:` + `\Users\` + `alice`
 	input := root + " private-project /etc/passwd " + windowsPrivatePath + " token=abc123 github_pat_1234567890"
 	got := sanitizeText(root, input)
-	for _, forbidden := range []string{root, "private-project", "/etc/passwd", windowsPrivatePath, "abc123", "github_pat_"} {
+	for _, forbidden := range []string{root, "/etc/passwd", windowsPrivatePath, "abc123", "github_pat_"} {
 		if strings.Contains(got, forbidden) {
 			t.Errorf("sanitizeText leaked %q: %s", forbidden, got)
 		}
 	}
-	for _, expected := range []string{".", "<repo>", "<external>", "token=<redacted>"} {
+	for _, expected := range []string{".", "private-project", "<external>", "token=<redacted>"} {
 		if !strings.Contains(got, expected) {
 			t.Errorf("sanitizeText omitted %q: %s", expected, got)
+		}
+	}
+}
+
+func TestSanitizeTextDoesNotRedactRepositoryBasenameTokens(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "go")
+	input := root + "/docs/proof.md; go test ./...; docs are evidence"
+	got := sanitizeText(root, input)
+	for _, expected := range []string{"./docs/proof.md", "go test", "docs are evidence"} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("sanitizeText(%q) omitted %q: %s", input, expected, got)
 		}
 	}
 }

@@ -144,7 +144,9 @@ downstream succeeded/failed/unknown, delivered/withheld/suppressed, terminal,
 and incomplete calls, and groups them by run, session, principal, and tool.
 Run and session groups use their keyed identities. Missing events never become
 inferred success, and inactivity or MCP connection closure never becomes an
-invented run or session terminal event.
+invented run or session terminal event. A malformed lifecycle timestamp is an
+explicit reconstruction error; it never becomes a zero timestamp or disables
+ordering checks.
 
 ### `reconc action log verify [repo] [--json]`
 
@@ -178,7 +180,11 @@ intercept a direct downstream or native framework tool call.
 
 The gateway invokes the deterministic action-inspection core before dispatch,
 inspects progress and downstream results, and returns a bounded safe envelope
-instead of a withheld result.
+instead of a withheld result. Confusable-text matching uses Unicode
+compatibility normalization plus one fixed, reviewable skeleton table for the
+cross-script characters required by protected vocabulary; compatibility forms
+such as fullwidth letters and listed small-capital variants cannot bypass the
+same finding.
 
 The same internal boundary implements canonical one-call approval requests,
 Ed25519 approve or reject receipts, strict operator-owned authority registries,
@@ -188,6 +194,9 @@ form-elicitation transport mappings. It exposes no public approver: the
 upstream MCP client must return a valid one-time signed receipt. An unsigned
 client response or a signer under the agent's authority is not an independent
 approval; missing elicitation support or a valid response fails closed.
+Budget-state corruption during reservation or retry is returned as a typed
+state error; it never masquerades as an empty candidate set or restored
+capacity.
 
 ### `reconc mcp gateway [repo] --server LABEL (--expect-lock-digest SHA256 | --allow-repository-managed-policy) --principal LABEL [trusted-context flags] -- COMMAND [ARG...]`
 
@@ -575,6 +584,9 @@ static rule conflicts. Deep mode exits 1 when any check is `FAIL`, 0 when all
 rows are `OK` or `WARN`. The MCP row always states that gateway enforcement is
 limited to explicit `reconc mcp gateway` routes, external client configuration
 is not inspected, and direct/native routes are unenforced.
+For Grok runtime probes, process failure is the primary diagnosis; an
+oversized captured output remains an additional bounded fact and cannot hide
+the failed process.
 
 ### `reconc doctor --global [--json] [--output PATH]`
 Read-only global installation diagnosis. Reports the running version, resolved
@@ -589,7 +601,9 @@ creating, repairing, chmodding, or rewriting state. When state is absent it
 creates nothing. Status is `healthy`, `unowned`,
 `stale`, `shadowed`, `ambiguous`, or `invalid`; all except `healthy` and a
 single deterministic legacy `unowned` installation exit 1. `--global` cannot
-be combined with `--deep` or a repository operand.
+be combined with `--deep` or a repository operand. Classification is
+monotonic: PATH shadowing or ambiguity adds its check detail but never replaces
+a more severe stale-receipt or invalid-ownership result and remediation.
 
 ### `reconc status [repo] [--json] [--output PATH]`
 One-line, read-only policy health summary. Missing, stale, malformed,
@@ -621,7 +635,10 @@ remediation, and any older unresolved block superseded by the current candidate.
 JSON is the default; Markdown is rendered from the same verified typed data.
 `--output` atomically mirrors the exact stdout bytes to a file. Absolute paths,
 home/user identity, session IDs, prompts, transcripts, environment data, and raw
-command arguments are excluded or redacted. The public `command_hash` is a
+command arguments are excluded or redacted. Root redaction matches the
+canonical absolute repository path only; it never globally replaces a common
+repository basename such as `go` or `docs` inside evidence text. The public
+`command_hash` is a
 stable SHA-256 grouping key for the sanitized executable identity only; it
 never hashes the full command or arguments and is not an offline
 argument-guessing oracle. The command is read-only: it never
@@ -801,6 +818,14 @@ migrate deterministically to repository cases; new output is always format 2.
 A corpus is limited to 64 MiB and 10,000 cases, a full JSON report to 64 MiB,
 and a delta manifest to 8 MiB.
 
+Repository cases bind both evaluators to one non-Git filesystem observation.
+Before replay, Reconc records stable identity, metadata, link target, and
+regular-file content digest for at most 100,000 entries below the repository;
+after replay it recaptures that inventory. Any identity, content, type, size,
+timestamp, entry-set, or root drift aborts the comparison instead of becoming
+a policy delta. `.git` internals are excluded because the compiled evaluators
+do not use them as repository evidence.
+
 Policies containing `require_script` are refused before replay because an
 arbitrary repository script cannot be proven side-effect-free.
 
@@ -830,7 +855,11 @@ tracked-unstaged or untracked paths, verifies that the command leaves HEAD,
 the index, and the working tree unchanged, then atomically publishes a bounded
 SHA-256 receipt outside the repository. `--shell` accepts one literal command
 for platform-shell syntax; direct argv execution is the default. Failed
-commands propagate their child exit code and never publish a proof.
+commands propagate their child exit code and never publish a proof. Staged
+snapshot capture recognizes an actual Git index-lock file together with a
+typed Git command failure, retries with capped backoff under one five-second
+total deadline, and then fails explicitly; individual retries cannot each
+consume the normal 30-second Git command timeout.
 
 ### `reconc assert <rule-id> [repo] [--var K=V] [--read PATH] [--write PATH] [--command CMD] [--command-success CMD] [--command-failure CMD] [--claim NAME] [--json]`
 Evaluate exactly one rule, ignoring the rest of the lockfile. Useful
@@ -1171,7 +1200,9 @@ session must reproduce every required proof.
 
 ### `reconc agent-intro [--section NAME] [--list-sections] [--json]`
 Prints the embedded reconc integration guide. Section lookup is
-case-insensitive substring match.
+case-insensitive substring match. A selected section ends at the next heading
+of equal or higher rank, so a leaf heading cannot absorb later parent or
+sibling sections. Section listing remains top-level only.
 
 ### `reconc audit tail [repo] [-n N] [--rule ID] [--since RFC3339] [--decision pass|warn|block] [--json] [--compact]`
 Tail the decision log only after verifying its complete retained SHA-256 chain,
@@ -1332,7 +1363,9 @@ Dependency-free terminal dashboard for policy state. Shows discovery,
 lockfile freshness, source list, rule list, audit summary, active
 session id, the exact completion decision and blockers, conflicts, and the next
 action. `--json` emits the same
-snapshot as structured data. It never refreshes policy implicitly.
+snapshot as structured data. Bounded audit-log and active-session observation
+failures appear in `errors`; they never masquerade as an empty audit or absent
+session. It never refreshes policy implicitly.
 
 ### `reconc help [command [subcommand...]]`
 Print root help or the exact canonical synopsis and summary for one command

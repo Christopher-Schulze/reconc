@@ -30,7 +30,7 @@ and future agent ambiguity.
 
 ## Sub-Tasks
 
-- [ ] Remove the always-empty fragment warning channel
+- [~] Remove the always-empty fragment warning channel
 - [ ] Replace remaining hand-written integer formatters with `strconv`
 - [ ] Migrate tests and benchmarks off production-dead compiler and ingest helpers
 - [ ] Remove dead bootstrap/template compatibility scaffolding
