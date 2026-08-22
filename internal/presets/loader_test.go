@@ -238,9 +238,10 @@ func TestPathUnknownReturnsNotFound(t *testing.T) {
 }
 
 func TestHomeRespectsEnvVar(t *testing.T) {
-	t.Setenv(HomeEnvVar, "/custom/path")
-	if got := Home(); got != "/custom/path" {
-		t.Errorf("expected /custom/path, got %s", got)
+	override := filepath.Join(t.TempDir(), "custom", "path")
+	t.Setenv(HomeEnvVar, override)
+	if got := Home(); got != override {
+		t.Errorf("expected %s, got %s", override, got)
 	}
 }
 

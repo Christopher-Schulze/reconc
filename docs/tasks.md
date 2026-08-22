@@ -2,6 +2,8 @@
 
 ## Active
 
+- [~] 254 Make RECONC_HOME override test platform-neutral -> tasks/254-make-reconc-home-override-test-platform-neutral.md
+
 ## Queue
 
 ## Blocked
