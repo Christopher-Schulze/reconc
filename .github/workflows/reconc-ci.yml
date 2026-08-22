@@ -10,6 +10,11 @@ on:
         required: false
         default: false
         type: boolean
+      full_windows:
+        description: Run the slow all-package Windows suite in addition to preflight, build, and installer checks
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -21,6 +26,7 @@ permissions:
 env:
   BUN_VERSION: 1.3.14
   BUN_INTEGRITY: sha512-aB6GVd42x1Y5ie1K16SF+oLGtgSkwX9hgoDdIW88pjvfTccU8F1vfpoOt34QLv0dZ1v3XimtaxPlZUG81Gx9Zg==
+  TEST_PARALLELISM: 4
 
 jobs:
   test:
@@ -38,13 +44,13 @@ jobs:
         shell: bash
     steps:
       - name: Check out
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
@@ -90,8 +96,8 @@ jobs:
       - name: Test
         if: runner.os != 'Linux'
         run: |
-          go test ./...
-          (cd harness/template && go test ./...)
+          go test -p="$TEST_PARALLELISM" -count=1 ./...
+          (cd harness/template && go test -p="$TEST_PARALLELISM" -count=1 ./...)
 
       - name: Measure coverage
         if: runner.os == 'Linux'
@@ -110,37 +116,39 @@ jobs:
       - name: Vulnerability scan
         if: runner.os == 'Linux'
         run: |
-          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
-          (cd harness/template && go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...)
+          go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+          (cd harness/template && go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...)
 
       - name: Staticcheck
         if: runner.os == 'Linux'
         run: |
-          go run honnef.co/go/tools/cmd/staticcheck@v0.8.0 ./...
-          (cd harness/template && go run honnef.co/go/tools/cmd/staticcheck@v0.8.0 ./...)
+          go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
+          (cd harness/template && go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...)
 
       - name: Race tests
         if: runner.os == 'Linux'
         run: |
-          go test -race -count=1 ./...
-          (cd harness/template && go test -race -count=1 ./...)
+          go test -p="$TEST_PARALLELISM" -race -count=1 ./...
+          (cd harness/template && go test -p="$TEST_PARALLELISM" -race -count=1 ./...)
 
   windows-runtime:
     name: Windows build and smoke
     runs-on: windows-2025
     timeout-minutes: 40
+    env:
+      FULL_WINDOWS_SUITE: ${{ (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) || (github.event_name == 'workflow_dispatch' && inputs.full_windows) }}
     defaults:
       run:
         shell: bash
     steps:
       - name: Check out
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
@@ -158,12 +166,14 @@ jobs:
         run: ./scripts/tests/windows-runtime-preflight.sh
 
       - name: Set up Node
+        if: env.FULL_WINDOWS_SUITE == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24.18.0
           package-manager-cache: false
 
       - name: Set up Bun
+        if: env.FULL_WINDOWS_SUITE == 'true'
         run: |
           bun_package_dir="$(mktemp -d)"
           trap 'rm -rf "$bun_package_dir"' EXIT
@@ -173,10 +183,11 @@ jobs:
           npm install --global "$bun_package_dir/bun-$BUN_VERSION.tgz"
           test "$(bun --version)" = "$BUN_VERSION"
 
-      - name: Test
+      - name: Test full Windows suite
+        if: env.FULL_WINDOWS_SUITE == 'true'
         run: |
-          go test -p=2 ./...
-          (cd harness/template && go test -p=2 ./...)
+          go test -p=2 -count=1 ./...
+          (cd harness/template && go test -p=2 -count=1 ./...)
 
       - name: Build and smoke CLI
         run: |
@@ -210,13 +221,13 @@ jobs:
       PIP_ONLY_BINARY: ":all:"
     steps:
       - name: Check out
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
@@ -242,13 +253,13 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true

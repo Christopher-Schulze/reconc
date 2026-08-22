@@ -229,6 +229,7 @@ Requirements:
 Common commands:
 
 ```bash
+make test-fast
 make test
 make test-langchain
 make fuzz
@@ -242,9 +243,13 @@ make publication-audit
 ```
 
 The canonical Make targets cover both the root Go module and
-`harness/template`; `make test` first rejects unformatted non-ignored Go sources,
-runs the real-repository publication audit once, then runs both race suites and
-the release-trust failure-path checks. The publication CLI contract test uses a
+`harness/template`. `make test-fast` rejects unformatted non-ignored Go sources
+and runs cached normal tests in both modules for a short edit-feedback loop.
+`make test` runs the real-repository publication audit once, then runs uncached
+race suites in both modules and the release-trust failure-path checks. Both
+targets cap package-level parallelism at two by default so an 8 GB development
+machine remains responsive; `TEST_PARALLELISM` accepts a different positive
+integer for larger hosts. The publication CLI contract test uses a
 bounded temporary Git fixture instead of rescanning the real repository under
 the race detector. `make test-langchain` is the separate hash-pinned external
 consumer proof. The `LangChain MCP interoperability` check is required for
@@ -286,6 +291,7 @@ Make targets:
 
 ```bash
 make build
+make test-fast
 make test
 make test-langchain
 make fuzz
@@ -305,7 +311,8 @@ make release VERSION=0.9.7
 (`-coverpkg=./...`) and reports the measurements for review only. The profiles
 are written to `coverage.out` and
 `harness/template/coverage.out`. `make cover` records the same measurements and
-also writes separate HTML reports beside those profiles. Meaningful tests must
+also writes separate HTML reports beside those profiles. Coverage uses the same
+bounded `TEST_PARALLELISM` setting as the test targets. Meaningful tests must
 exercise changed behavior, while OS-specific files and process entry points
 still require their matching platform jobs or integration boundaries.
 
@@ -1054,16 +1061,21 @@ explicit recovery path for corrupt or foreign state.
 
 The Go binary and `.exe` or `.com` policy scripts run natively. Shell hook
 wrappers plus `.sh` and extensionless policy scripts require `sh` on `PATH`;
-Git for Windows supplies it. CI runs the native Windows unit suite, while the
-clean-repository self-host golden path currently runs on Ubuntu and macOS.
+Git for Windows supplies it. CI runs focused Windows-native contracts on every
+candidate and the complete native suite at the bounded checkpoints described
+below; the clean-repository self-host golden path currently runs on Ubuntu and
+macOS.
 Windows cannot represent POSIX permission bits: Reconc validates protected
 current-user-only DACLs for private state and uses the readonly attribute as
-the representable atomic-file mode boundary. The Windows job runs a focused
-four-minute native filesystem, hook, and runtime preflight immediately after
-Go module download, before Node and Bun setup, then retains the complete native
-suite and installer coverage. The complete Windows suite caps package-level
-parallelism at two so real lifecycle deadlines are not invalidated by unrelated
-CPU- and filesystem-heavy packages competing on the hosted runner.
+the representable atomic-file mode boundary. The Windows candidate job runs a
+focused four-minute native filesystem, hook, and runtime preflight immediately
+after Go module download, then always builds and smokes the Windows binary and
+exercises the native installer. It skips the slow all-package suite and
+Node/Bun setup on pull requests and candidate-branch pushes. The complete
+native suite still runs with two package test binaries at a time after every
+accepted update to the default branch, on an explicit manual dispatch with
+`full_windows: true`, and unconditionally against an exact tag in the Release
+workflow.
 
 ### Is the private production repository public?
 
@@ -3674,16 +3686,19 @@ CI checks:
 
 - root-module and `harness/template` race tests on Ubuntu 24.04 and normal tests
   on macOS 15; whole-module root/template coverage measurement, publication
-  audit, formatting, tidy, vet, pinned Govulncheck v1.6.0, and pinned
-  Staticcheck v0.8.0 run once on Linux
-- native Windows 2025 root-module and `harness/template` tests plus native
-  binary version/help smoke and native PowerShell installer success, malformed
+  audit, formatting, tidy, vet, pinned Govulncheck v1.7.0, and pinned
+  Staticcheck v0.8.1 run once on Linux
+- native Windows 2025 runtime preflight plus native binary version/help smoke
+  and native PowerShell installer success, malformed
   manifest, missing asset, checksum, execution, locked/unwritable target,
   attestation, cleanup, and existing-install preservation paths;
   a focused four-minute native runtime preflight runs immediately after module
-  download and before Node/Bun provisioning, while the complete suite remains
-  authoritative with two package test binaries at a time; shell hook wrappers
-  and shell policy scripts use the documented `sh` runtime.
+  download. The all-package root and `harness/template` suite and its Node/Bun
+  adapter runtime run only after default-branch updates or an explicit manual
+  `full_windows: true` dispatch, with two package test binaries at a time. The
+  exact-tag Release workflow always reruns that complete native suite before
+  publication; shell hook wrappers and shell policy scripts use the documented
+  `sh` runtime.
 - push and pull-request checks exercise the Windows installer entirely against
   the candidate binary and local fixtures, so an unpublished release candidate
   never depends on a nonexistent remote asset. After publication, a manual CI

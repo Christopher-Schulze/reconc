@@ -2,7 +2,8 @@
 #
 # Targets:
 #   make build              -- build the reconc binary for the host OS/arch
-#   make test               -- run all tests with -race
+#   make test-fast          -- run cached root/template tests with bounded package parallelism
+#   make test               -- run all tests uncached with -race
 #   make test-langchain     -- run the pinned disposable LangChain proof
 #   make fmt-check          -- reject unformatted non-ignored Go sources
 #   make fmt                -- format all Go sources
@@ -31,7 +32,8 @@ BINDIR    := .build/bin
 DISTDIR   := dist
 VERSION   ?= 0.9.7
 PROVENANCE_PKG := reconc.dev/reconc/buildprovenance
-STATICCHECK_VERSION := v0.8.0
+STATICCHECK_VERSION := v0.8.1
+TEST_PARALLELISM ?= 2
 RELEASE_COMMIT ?= $(shell git rev-parse HEAD)
 SOURCE_DATE_EPOCH ?= $(shell git show -s --format=%ct $(RELEASE_COMMIT))
 
@@ -44,7 +46,7 @@ RELEASE_TARGETS := \
 	linux/arm64 \
 	windows/amd64
 
-.PHONY: build test test-langchain test-release-trust self-host publication-audit harness-pack-check fmt-check fmt vet lint coverage cover fuzz clean run tidy release completion manpage sbom notices checksums verify-release bench
+.PHONY: build test-fast test test-langchain test-release-trust self-host publication-audit harness-pack-check fmt-check fmt vet lint coverage cover fuzz clean run tidy release completion manpage sbom notices checksums verify-release bench check-test-parallelism
 
 build:
 	@mkdir -p $(BINDIR)
@@ -56,11 +58,21 @@ build:
 	   -o $(BINDIR)/$(BIN) ./cmd/reconc; \
 	 $(GO) run ./cmd/reconc-build-provenance --root . --goos "$$goos" --goarch "$$goarch" --version "$(VERSION)" --verify-binary $(BINDIR)/$(BIN)
 
-test:
+check-test-parallelism:
+	@case "$(TEST_PARALLELISM)" in \
+	  ''|*[!0-9]*|0*) printf 'TEST_PARALLELISM must be a positive integer, got %s\n' "$(TEST_PARALLELISM)" >&2; exit 64 ;; \
+	esac
+
+test-fast: check-test-parallelism
+	$(MAKE) --no-print-directory fmt-check
+	$(GO) test -p=$(TEST_PARALLELISM) $(PKG)
+	(cd harness/template && $(GO) test -p=$(TEST_PARALLELISM) ./...)
+
+test: check-test-parallelism
 	$(MAKE) --no-print-directory fmt-check
 	$(MAKE) --no-print-directory publication-audit
-	$(GO) test -race -count=1 -timeout 20m $(PKG)
-	(cd harness/template && $(GO) test -race -count=1 ./...)
+	$(GO) test -p=$(TEST_PARALLELISM) -race -count=1 -timeout 20m $(PKG)
+	(cd harness/template && $(GO) test -p=$(TEST_PARALLELISM) -race -count=1 ./...)
 	./scripts/tests/release-trust.sh
 
 test-release-trust:
@@ -98,11 +110,11 @@ lint:
 	$(GO) run honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION) $(PKG)
 	(cd harness/template && $(GO) run honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION) ./...)
 
-coverage:
-	GO="$(GO)" ./scripts/tests/coverage.sh
+coverage: check-test-parallelism
+	GO="$(GO)" TEST_PARALLELISM="$(TEST_PARALLELISM)" ./scripts/tests/coverage.sh
 
-cover:
-	GO="$(GO)" ./scripts/tests/coverage.sh --html
+cover: check-test-parallelism
+	GO="$(GO)" TEST_PARALLELISM="$(TEST_PARALLELISM)" ./scripts/tests/coverage.sh --html
 
 fuzz:
 	GO="$(GO)" ./scripts/tests/run-fuzz.sh

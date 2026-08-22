@@ -49,6 +49,12 @@ uses isolated temporary repositories for product dogfooding.
 
 ## Verify The Result
 
+Use the bounded cached loop while iterating:
+
+```bash
+make test-fast
+```
+
 Run the complete contributor gate before opening a pull request:
 
 ```bash
@@ -61,14 +67,17 @@ make self-host
 make publication-audit
 ```
 
-`make test` covers the publication audit, root and portable-template race
-suites, and release-trust contract. `make test-langchain` builds the Go gateway
+`make test-fast` checks formatting and both Go modules with the Go build cache
+enabled. `make test` covers the publication audit, root and portable-template
+race suites, and release-trust contract. `make test-langchain` builds the Go gateway
 and fixture, invokes them through LangChain's official pinned MCP adapter with
 no model or service, and denies runtime network access. Its Python environment
 is external test infrastructure, never a shipped Reconc dependency.
-`make coverage` instruments every package
-in each module, writes separate root and template profiles, and reports the
-measurements for review only. `make cover` records
+The test and coverage targets cap package-level parallelism at two by default
+to keep an 8 GB development machine responsive. Set `TEST_PARALLELISM` to a
+different positive integer when the host has enough capacity. `make coverage`
+instruments every package in each module, writes separate root and template
+profiles, and reports the measurements for review only. `make cover` records
 the same measurements and also writes separate HTML reports. Coverage review
 does not replace platform-specific tests. Changes to
 release generation, schemas, completion, manpages, installers, or provenance

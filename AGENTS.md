@@ -18,13 +18,15 @@ this root, and docs/comments should not depend on any external source tree.
   `github.com/bmatcuk/doublestar/v4`, `github.com/pelletier/go-toml/v2`,
   `github.com/santhosh-tekuri/jsonschema/v6`, `golang.org/x/sys`,
   `golang.org/x/text`, `gopkg.in/yaml.v3`, and `mvdan.cc/sh/v3`
-- Test runner: `make test` (publication audit, root module, portable template module, and release trust)
+- Fast test loop: `make test-fast` (cached root and portable-template tests with bounded package parallelism)
+- Complete test gate: `make test` (publication audit, uncached race suites, and release trust)
 - Coverage measurement: `make coverage` (whole-module root and portable-template profiles for review evidence)
 - Entry point: `cmd/reconc/main.go`
 
 ## Build, Test, And Run
 
 ```bash
+make test-fast
 make test
 make vet
 make lint

@@ -8,6 +8,7 @@
 
 ## Done
 
+- [x] 256 Reduce verification friction and refresh toolchain trust -> tasks/done/256-reduce-verification-friction-and-refresh-toolchain-trust.md
 - [x] 255 Serialize active-session private directory publication -> tasks/done/255-serialize-active-session-private-directory-publication.md
 - [x] 254 Make RECONC_HOME override test platform-neutral -> tasks/done/254-make-reconc-home-override-test-platform-neutral.md
 - [x] 253 Remove verified low-risk scaffolding and dead branches -> tasks/done/253-remove-dead-scaffolding.md
@@ -17,4 +18,3 @@
 - [x] 249 Bound custom-runtime decoding with Go 1.27 jsontext -> tasks/done/249-bound-custom-runtime-decoding-with-go-1-27-jsontext.md
 - [x] 248 Preserve bootstrap provenance and repository transactions -> tasks/done/248-preserve-bootstrap-provenance-and-repository-transactions.md
 - [x] 247 Secure harness claims and layout portability -> tasks/done/247-secure-harness-claims-and-layout-portability.md
-- [x] 246 Enforce installer and release trust atomically -> tasks/done/246-enforce-installer-and-release-trust-atomically.md

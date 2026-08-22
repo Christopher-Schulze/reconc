@@ -290,16 +290,22 @@ func gitWriteTree(repoRoot string) (string, error) {
 }
 
 func gitWriteTreeWithTimeout(repoRoot string, timeout time.Duration) (string, error) {
+	return gitWriteTreeWithRunner(repoRoot, timeout, gitOutputContext)
+}
+
+type gitOutputRunner func(context.Context, string, ...string) (string, error)
+
+func gitWriteTreeWithRunner(repoRoot string, timeout time.Duration, output gitOutputRunner) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	lockPath, err := gitIndexLockPath(ctx, repoRoot)
+	lockPath, err := gitIndexLockPath(ctx, repoRoot, output)
 	if err != nil {
 		return "", err
 	}
 	var lastContention error
 	for backoff := gitRetryInitial; ; backoff = min(backoff*2, gitRetryMaximum) {
 		lockObserved := gitIndexLockPresent(lockPath)
-		indexTree, err := gitOutputContext(ctx, repoRoot, "write-tree")
+		indexTree, err := output(ctx, repoRoot, "write-tree")
 		if err == nil {
 			return indexTree, nil
 		}
@@ -320,8 +326,8 @@ func gitWriteTreeWithTimeout(repoRoot string, timeout time.Duration) (string, er
 	}
 }
 
-func gitIndexLockPath(ctx context.Context, repoRoot string) (string, error) {
-	path, err := gitOutputContext(ctx, repoRoot, "rev-parse", "--git-path", "index.lock")
+func gitIndexLockPath(ctx context.Context, repoRoot string, output gitOutputRunner) (string, error) {
+	path, err := output(ctx, repoRoot, "rev-parse", "--git-path", "index.lock")
 	if err != nil {
 		return "", err
 	}

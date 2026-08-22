@@ -126,8 +126,12 @@ require_text "$root/AGENTS.md" "The current source line is \`$release_line\`; th
 require_text "$root/docs/documentation.md" "The current source line is \`$release_line\`; the source version is \`v$project_version\`."
 require_text "$root/.github/releases/reconc-v$project_version.md" "# reconc v$project_version"
 require_text "$root/Makefile" "publication-audit:"
+require_text "$root/Makefile" "TEST_PARALLELISM ?= 2"
+require_text "$root/Makefile" "test-fast: check-test-parallelism"
+require_text "$root/Makefile" '$(GO) test -p=$(TEST_PARALLELISM) $(PKG)'
 require_text "$root/Makefile" "make coverage           -- measure root and template coverage"
 require_text "$root/scripts/tests/coverage.sh" "root module coverage: %s%%"
+require_text "$root/scripts/tests/coverage.sh" '-p="$test_parallelism"'
 
 verify_coverage_review_only() {
   local target="$1"
@@ -202,7 +206,7 @@ require_action "$codeql_workflow" "github/codeql-action/analyze"
 require_action "$ci_workflow" "actions/setup-node"
 require_action "$release_workflow" "actions/setup-node"
 require_action "$release_workflow" "actions/attest-build-provenance"
-[ "$(grep -Fc 'uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0' "$ci_workflow")" -eq 4 ] \
+[ "$(grep -Fc 'uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0' "$ci_workflow")" -eq 4 ] \
   || fail "$ci_workflow must provision pinned Go in all four jobs"
 [ "$(grep -Fc 'go-version-file: go.mod' "$ci_workflow")" -eq 4 ] \
   || fail "$ci_workflow must derive Go from go.mod in all four jobs"
@@ -282,7 +286,7 @@ require_text "$release_workflow" "  windows-runtime:"
 require_text "$release_workflow" "    runs-on: windows-2025"
 require_text "$release_workflow" "    needs: [windows-runtime, langchain-runtime]"
 require_text "$release_workflow" "      - name: Test natively"
-require_text "$release_workflow" "(cd harness/template && go test ./...)"
+require_text "$release_workflow" "(cd harness/template && go test -p=2 -count=1 ./...)"
 require_text "$release_workflow" "./scripts/tests/test-windows-installer.ps1"
 for workflow in "$ci_workflow" "$release_workflow"; do
   require_text "$workflow" "      - name: Windows runtime preflight"
@@ -315,12 +319,29 @@ done
 require_text "$ci_workflow" "  push:"
 require_text "$ci_workflow" "  pull_request:"
 require_text "$ci_workflow" "  workflow_dispatch:"
+require_text "$ci_workflow" "      full_windows:"
+awk '
+  /^      full_windows:$/ { in_block = 1; found = 1; next }
+  in_block && /^      [[:alnum:]_-]+:$/ { in_block = 0 }
+  in_block && /^        default: false$/ { safe_default = 1 }
+  in_block && /^        type: boolean$/ { boolean_type = 1 }
+  END { exit !(found && safe_default && boolean_type) }
+' "$ci_workflow" \
+  || fail "$ci_workflow full_windows must remain a default-false boolean input"
+# shellcheck disable=SC2016 # Match the workflow expression literally.
+require_text "$ci_workflow" 'FULL_WINDOWS_SUITE: ${{ (github.event_name == '\''push'\'' && github.ref_name == github.event.repository.default_branch) || (github.event_name == '\''workflow_dispatch'\'' && inputs.full_windows) }}'
+[ "$(grep -Fc "if: env.FULL_WINDOWS_SUITE == 'true'" "$ci_workflow")" -eq 3 ] \
+  || fail "$ci_workflow must limit Node, Bun, and the all-package Windows suite to explicit full Windows runs"
 if grep -Eq 'pull-requests:[[:space:]]*write|issues:[[:space:]]*write' "$ci_workflow"; then
   fail "$ci_workflow must not create or mutate pull requests or issues"
 fi
 [ -f "$dependabot_config" ] || fail "bounded Dependabot configuration is missing"
-require_text "$ci_workflow" "go test ./..."
-require_text "$ci_workflow" "(cd harness/template && go test ./...)"
+require_text "$ci_workflow" 'go test -p="$TEST_PARALLELISM" -count=1 ./...'
+require_text "$ci_workflow" '(cd harness/template && go test -p="$TEST_PARALLELISM" -count=1 ./...)'
+require_text "$ci_workflow" "go test -p=2 -count=1 ./..."
+require_text "$ci_workflow" "(cd harness/template && go test -p=2 -count=1 ./...)"
+require_text "$release_workflow" "go test -p=2 -count=1 ./..."
+require_text "$release_workflow" "(cd harness/template && go test -p=2 -count=1 ./...)"
 require_text "$release_workflow" "go test -race -count=1 ./..."
 require_text "$release_workflow" "(cd harness/template && go test -race -count=1 ./...)"
 root_go_version=$(sed -n 's/^go //p' "$root/go.mod")
@@ -330,11 +351,11 @@ template_go_version=$(sed -n 's/^go //p' "$root/harness/template/go.mod")
 [ "$template_go_version" = "$root_go_version" ] \
   || fail "$root/harness/template/go.mod must match root Go version $root_go_version"
 require_text "$ci_workflow" "go mod tidy -diff"
-require_text "$ci_workflow" "govulncheck@v1.6.0"
-require_text "$root/Makefile" "STATICCHECK_VERSION := v0.8.0"
-require_text "$ci_workflow" "staticcheck@v0.8.0"
-require_text "$release_workflow" "staticcheck@v0.8.0"
-require_text "$release_workflow" "govulncheck@v1.6.0"
+require_text "$ci_workflow" "govulncheck@v1.7.0"
+require_text "$root/Makefile" "STATICCHECK_VERSION := v0.8.1"
+require_text "$ci_workflow" "staticcheck@v0.8.1"
+require_text "$release_workflow" "staticcheck@v0.8.1"
+require_text "$release_workflow" "govulncheck@v1.7.0"
 require_text "$ci_workflow" "make self-host"
 require_text "$ci_workflow" "shell: pwsh"
 require_text "$ci_workflow" "./scripts/tests/test-windows-installer.ps1"

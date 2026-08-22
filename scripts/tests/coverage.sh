@@ -3,10 +3,18 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 go_cmd="${GO:-go}"
+test_parallelism="${TEST_PARALLELISM:-2}"
 root_profile="$root/coverage.out"
 template_root="$root/harness/template"
 template_profile="$template_root/coverage.out"
 write_html=false
+
+case "$test_parallelism" in
+  ''|*[!0-9]*|0*)
+    printf 'TEST_PARALLELISM must be a positive integer, got %s\n' "$test_parallelism" >&2
+    exit 64
+    ;;
+esac
 
 case "${1:-}" in
   "")
@@ -49,11 +57,11 @@ coverage_percent() {
 
 (
   cd "$root"
-  "$go_cmd" test -count=1 -covermode=atomic -coverpkg=./... -coverprofile="$root_profile" ./...
+  "$go_cmd" test -p="$test_parallelism" -count=1 -covermode=atomic -coverpkg=./... -coverprofile="$root_profile" ./...
 )
 (
   cd "$template_root"
-  "$go_cmd" test -count=1 -covermode=atomic -coverpkg=./... -coverprofile="$template_profile" ./...
+  "$go_cmd" test -p="$test_parallelism" -count=1 -covermode=atomic -coverpkg=./... -coverprofile="$template_profile" ./...
 )
 
 root_actual="$(coverage_percent "$root_profile")"
