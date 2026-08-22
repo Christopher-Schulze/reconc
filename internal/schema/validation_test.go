@@ -234,6 +234,56 @@ func TestCurrentPolicyLockSchemaRejectsDeadCheckPathFields(t *testing.T) {
 	}
 }
 
+func TestCurrentSchemasAcceptExplicitZeroSubstantiveProofAge(t *testing.T) {
+	t.Setenv("RECONC_SCHEMA_BASE_URL", "")
+	compiled := compileRegisteredSchemas(t)
+	configContract, ok := contractschema.CurrentContract(contractschema.PolicyConfig)
+	if !ok {
+		t.Fatal("registry has no current policy-config contract")
+	}
+	config := map[string]any{"rules": []any{map[string]any{
+		"id": "assurance", "kind": "require_assurance", "when_paths": []any{"**"}, "message": "assurance",
+		"assurance": []any{map[string]any{
+			"id": "proof", "type": "substantive_proof", "proof_file": "proof.json", "max_age_hours": json.Number("0"),
+		}},
+	}}}
+	if err := compiled[configContract.DefaultURL].Validate(config); err != nil {
+		t.Fatalf("current policy-config schema rejected zero proof age: %v", err)
+	}
+
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("# project\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "policies"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	policyBody := "rules:\n  - id: assurance\n    kind: require_assurance\n    when_paths: ['**']\n    assurance:\n      - id: proof\n        type: substantive_proof\n        proof_file: proof.json\n        max_age_hours: 0\n    mode: block\n    message: assurance\n"
+	if err := os.WriteFile(filepath.Join(repo, "policies", "rules.yml"), []byte(policyBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compiler.CompileRepoPolicy(repo, "schema-test"); err != nil {
+		t.Fatal(err)
+	}
+	lockBody, err := os.ReadFile(filepath.Join(repo, compiler.LockfileRelativePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lock any
+	decoder := json.NewDecoder(bytes.NewReader(lockBody))
+	decoder.UseNumber()
+	if err := decoder.Decode(&lock); err != nil {
+		t.Fatal(err)
+	}
+	lockContract, ok := contractschema.CurrentContract(contractschema.PolicyLock)
+	if !ok {
+		t.Fatal("registry has no current policy-lock contract")
+	}
+	if err := compiled[lockContract.DefaultURL].Validate(lock); err != nil {
+		t.Fatalf("current policy-lock schema rejected compiled zero proof age: %v", err)
+	}
+}
+
 func compileRegisteredSchemas(t *testing.T) map[string]*jsonschema.Schema {
 	t.Helper()
 	compiler := jsonschema.NewCompiler()

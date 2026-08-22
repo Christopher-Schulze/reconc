@@ -31,14 +31,14 @@ handling for equivalent package manifests.
 
 ## Sub-Tasks
 
-- [ ] Make absent expected package managers an explicit assurance failure
-- [ ] Unify zero freshness semantics for substantive proofs
-- [ ] Validate complete applicability pattern sets before matching
-- [ ] Reject unknown runtime command policies before evaluation
-- [ ] Define and apply one package-JSON BOM contract
-- [ ] Add parser/runtime/schema/fuzz regression matrices
-- [ ] Run assurance, migration, lockfile, race, and full gates
-- [ ] Update assurance authoring and runtime documentation
+- [x] Make absent expected package managers an explicit assurance failure
+- [x] Unify zero freshness semantics for substantive proofs
+- [x] Validate complete applicability pattern sets before matching
+- [x] Reject unknown runtime command policies before evaluation
+- [x] Define and apply one package-JSON BOM contract
+- [x] Add parser/runtime/schema/fuzz regression matrices
+- [x] Run assurance, migration, lockfile, race, and full gates
+- [x] Update assurance authoring and runtime documentation
 
 ## Notes
 
@@ -46,6 +46,10 @@ handling for equivalent package manifests.
 - F-80 is excluded: a deleted or non-regular changed path has no source content
   for content-scanning gates, while symlinks to regular files are currently
   resolved and scanned.
+- Full verification passed: `make test`, `make vet`, `make lint`, and
+  `make fuzz` (61 root-module targets). The race suite covered parser,
+  compiler, runtime, schema, migration, assurance, harness, publication, and
+  release-trust paths.
 
 ## Deviations
 

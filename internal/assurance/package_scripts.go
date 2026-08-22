@@ -106,7 +106,20 @@ func evaluatePackageScripts(root string, gate policy.AssuranceGate, successful [
 			})
 			continue
 		}
-		if gate.PackageManager != "" && (len(managers) != 1 || managers[0] != gate.PackageManager) {
+		if gate.PackageManager != "" && len(managers) == 0 {
+			findings = append(findings, Finding{
+				GateID: gate.ID, Paths: []string{manifest.relative},
+				Message:     fmt.Sprintf("expected package manager %s could not be detected for %s", gate.PackageManager, manifest.relative),
+				Remediation: "Declare the configured package manager in packageManager or add its lockfile at the nearest package boundary.",
+			})
+			continue
+		}
+		if gate.PackageManager != "" && managers[0] != gate.PackageManager {
+			findings = append(findings, Finding{
+				GateID: gate.ID, Paths: []string{manifest.relative},
+				Message:     fmt.Sprintf("expected package manager %s but detected %s for %s", gate.PackageManager, managers[0], manifest.relative),
+				Remediation: "Align package_manager with the nearest package-manager declaration and lockfile, then rerun the policy check.",
+			})
 			continue
 		}
 		scriptNames := make([]string, 0, len(commandsByScript))

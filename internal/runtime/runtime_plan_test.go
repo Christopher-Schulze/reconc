@@ -78,6 +78,56 @@ func TestRuntimePlanRejectsMalformedCurrentRulesAfterEnvelopeValidation(t *testi
 	}
 }
 
+func TestRuntimePlanRejectsInvalidAssuranceCommandPolicyAcrossAllLockFormats(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "", "rules:\n  - id: assurance\n    kind: require_assurance\n    when_paths: ['**']\n    assurance:\n      - id: live\n        type: live_verification\n        commands: ['go test ./...']\n    mode: block\n    message: assurance\n")
+	body, err := os.ReadFile(filepath.Join(repo, compiler.LockfileRelativePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var current map[string]interface{}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if err := decoder.Decode(&current); err != nil {
+		t.Fatal(err)
+	}
+	for _, version := range []string{"1", "2", "3", "4", "5", "6"} {
+		for _, commandPolicy := range []interface{}{nil, "unknown"} {
+			malformed := cloneRuntimeLockPayload(t, current)
+			gate := malformed["rules"].([]interface{})[0].(map[string]interface{})["assurance"].([]interface{})[0].(map[string]interface{})
+			if commandPolicy == nil {
+				delete(gate, "command_policy")
+			} else {
+				gate["command_policy"] = commandPolicy
+			}
+			prepareRuntimeLockVersion(t, malformed, version)
+			lock := decodeRuntimeLockPayload(t, malformed)
+			if _, err := compileRuntimePlanWithParts(lock.payload, lock.rulesJSON, lock.actionsJSON, lock.actions); err == nil || !strings.Contains(err.Error(), "command_policy must be all or any") {
+				t.Fatalf("format-%s command_policy=%v was accepted: %v", version, commandPolicy, err)
+			}
+		}
+	}
+}
+
+func TestRuntimePlanPreservesExplicitZeroProofAgeFromCompiledPolicy(t *testing.T) {
+	withRECONCHome(t)
+	repo := makeRepo(t, "# project\n", "", "rules:\n  - id: assurance\n    kind: require_assurance\n    when_paths: ['**']\n    assurance:\n      - id: proof\n        type: substantive_proof\n        proof_file: proof.json\n        max_age_hours: 0\n    mode: block\n    message: assurance\n")
+	plan, err := NewEvaluator().loadFreshRuntimePlan(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.rules) != 1 || len(plan.rules[0].Assurance) != 1 || plan.rules[0].Assurance[0].MaxAgeHours != 0 {
+		t.Fatalf("compiled zero-age proof contract = %+v", plan.rules)
+	}
+	body, err := os.ReadFile(filepath.Join(repo, compiler.LockfileRelativePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), `"max_age_hours": 0`) {
+		t.Fatal("zero-age proof emitted an unnecessary lockfile field instead of the canonical omitted-zero form")
+	}
+}
+
 func TestRuntimePlanRejectsDeadCheckPathFieldsAcrossAllLockFormats(t *testing.T) {
 	withRECONCHome(t)
 	repo := makeRepo(t, "# project\n", "", "rules:\n  - id: gate\n    kind: all_of\n    when_paths: ['src/**']\n    checks:\n      - kind: require_claim\n        claims: [approved]\n    mode: block\n    message: gate\n")

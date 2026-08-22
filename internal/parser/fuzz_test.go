@@ -16,6 +16,8 @@ func FuzzParseRuleDocumentsNoPanic(f *testing.F) {
 		"rules:\n  - id: bad\n    kind: nope\n    message: bad\n",
 		"default_mode: block\nrules: []\n",
 		"rules:\n  - id: spaces\n    kind: require_script\n    script: scripts/check.sh\n    args: ['   ']\n    when_paths: ['src/**']\n    message: spaces\n",
+		"rules:\n  - id: proof\n    kind: require_assurance\n    when_paths: ['**']\n    assurance:\n      - id: measured\n        type: substantive_proof\n        proof_file: proof.json\n        max_age_hours: 0\n    message: measured\n",
+		"rules:\n  - id: live\n    kind: require_assurance\n    when_paths: ['**']\n    assurance:\n      - id: command\n        type: live_verification\n        commands: ['go test ./...']\n        command_policy: unknown\n    message: live\n",
 		"rules: [",
 	} {
 		f.Add(seed)

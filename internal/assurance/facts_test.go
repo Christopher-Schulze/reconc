@@ -17,7 +17,10 @@ import (
 func TestFactGraphSharesCompatibleAnalysis(t *testing.T) {
 	root := t.TempDir()
 	writeAssuranceFile(t, root, "src/main.go", "package main\n\nfunc run() {\n\tGuardedClient()\n\thttp.Get(\"https://example.test\")\n\tApplyHardening()\n\texec.Command(\"tool\")\n}\n")
-	writeAssuranceFile(t, root, "package.json", `{"packageManager":"npm@11.4.2","scripts":{"test":"node --test"},"dependencies":{"react":"19.1.0"}}`)
+	packageJSON := []byte(`{"packageManager":"npm@11.4.2","scripts":{"test":"node --test"},"dependencies":{"react":"19.1.0"}}`)
+	if err := os.WriteFile(filepath.Join(root, "package.json"), append([]byte{0xef, 0xbb, 0xbf}, packageJSON...), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	gates := []policy.AssuranceGate{
 		{ID: "pins", Type: policy.AssuranceDependencyPins, ManifestPaths: []string{"package.json"}, DependencySections: []string{"dependencies"}},
 		{ID: "scripts", Type: policy.AssurancePackageScripts, ManifestPaths: []string{"package.json"}, PackageManager: "npm", Commands: []string{"npm run test"}},

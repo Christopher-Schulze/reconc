@@ -187,6 +187,39 @@ func TestLiteralApplicabilitySkipsAbsentSurface(t *testing.T) {
 	}
 }
 
+func TestApplicabilityValidatesEveryPatternBeforeMatching(t *testing.T) {
+	root := t.TempDir()
+	writeAssuranceFile(t, root, "go.mod", "module example\n")
+	for _, pattern := range []string{"[malformed", "../outside"} {
+		gate := policy.AssuranceGate{
+			ID: "go-live", Type: policy.AssuranceLiveVerification,
+			ApplicableIf: []string{"go.mod", pattern}, Commands: []string{"go test ./..."}, CommandPolicy: "all",
+		}
+		if _, err := Evaluate(root, []policy.AssuranceGate{gate}, Inputs{}); err == nil {
+			t.Fatalf("later invalid applicability pattern %q was hidden by an earlier match", pattern)
+		}
+	}
+}
+
+func TestCommandPolicyEvaluationIsExhaustive(t *testing.T) {
+	root := t.TempDir()
+	for _, test := range []struct {
+		policy     string
+		successful []string
+		wantError  bool
+	}{
+		{policy: "all", successful: []string{"go test ./...", "go vet ./..."}},
+		{policy: "any", successful: []string{"go test ./..."}},
+		{policy: "unknown", successful: []string{"go test ./...", "go vet ./..."}, wantError: true},
+	} {
+		gate := policy.AssuranceGate{ID: "live", Type: policy.AssuranceLiveVerification, Commands: []string{"go test ./...", "go vet ./..."}, CommandPolicy: test.policy}
+		findings, err := Evaluate(root, []policy.AssuranceGate{gate}, Inputs{SuccessfulCommands: test.successful})
+		if (err != nil) != test.wantError || !test.wantError && len(findings) != 0 {
+			t.Fatalf("command_policy %q = findings=%+v err=%v", test.policy, findings, err)
+		}
+	}
+}
+
 func TestDependencyPinsMutation(t *testing.T) {
 	root := t.TempDir()
 	writeAssuranceFile(t, root, "package.json", `{"dependencies":{"react":"^19.1.0"}}`)
@@ -202,6 +235,24 @@ func TestDependencyPinsMutation(t *testing.T) {
 	findings, err = Evaluate(root, []policy.AssuranceGate{gate}, Inputs{ChangedPaths: []string{"package.json"}})
 	if err != nil || len(findings) != 0 {
 		t.Fatalf("exact pin should pass: findings=%+v err=%v", findings, err)
+	}
+}
+
+func TestDependencyPinsToleratesOneLeadingUTF8BOM(t *testing.T) {
+	for _, withBOM := range []bool{false, true} {
+		root := t.TempDir()
+		body := []byte(`{"dependencies":{"react":"19.1.0"}}`)
+		if withBOM {
+			body = append([]byte{0xef, 0xbb, 0xbf}, body...)
+		}
+		if err := os.WriteFile(filepath.Join(root, "package.json"), body, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		gate := policy.AssuranceGate{ID: "pins", Type: policy.AssuranceDependencyPins, ManifestPaths: []string{"package.json"}, DependencySections: []string{"dependencies"}}
+		findings, err := Evaluate(root, []policy.AssuranceGate{gate}, Inputs{ChangedPaths: []string{"package.json"}})
+		if err != nil || len(findings) != 0 {
+			t.Fatalf("withBOM=%t findings=%+v err=%v", withBOM, findings, err)
+		}
 	}
 }
 
@@ -230,6 +281,41 @@ func TestSubstantiveProofRejectsStaleHashAndMissingLiveCommand(t *testing.T) {
 		if !strings.Contains(joined, expected) {
 			t.Errorf("expected %q in findings: %s", expected, joined)
 		}
+	}
+}
+
+func TestSubstantiveProofZeroAgeDisablesOnlyStaleness(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC().Truncate(time.Second)
+	evidence := []byte("measured samples: 10, 11, 12\n")
+	writeAssuranceFile(t, root, "evidence.txt", string(evidence))
+	hash := sha256.Sum256(evidence)
+	document := proofDocument{FormatVersion: "1", Proofs: []proofRecord{{
+		ID: "proof-1", Subject: "latency", Command: "go test ./...", Outcome: "pass",
+		Aggregation: "mean", Comparator: "lte", Threshold: float64Pointer(20), Actual: float64Pointer(11), Samples: []float64{10, 11, 12},
+		EvidencePath: "evidence.txt", EvidenceSHA256: hex.EncodeToString(hash[:]), VerifiedAt: now.Add(-10 * 365 * 24 * time.Hour).Format(time.RFC3339),
+	}}}
+	body, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeAssuranceFile(t, root, "proofs.json", string(body))
+	gate := policy.AssuranceGate{ID: "proof", Type: policy.AssuranceSubstantiveProof, ProofFile: "proofs.json", MinSamples: 3, MaxAgeHours: 0}
+	inputs := Inputs{SuccessfulCommands: []string{"go test ./..."}, Now: now}
+	findings, err := Evaluate(root, []policy.AssuranceGate{gate}, inputs)
+	if err != nil || len(findings) != 0 {
+		t.Fatalf("zero-age proof = findings=%+v err=%v", findings, err)
+	}
+
+	document.Proofs[0].VerifiedAt = now.Add(6 * time.Minute).Format(time.RFC3339)
+	body, err = json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeAssuranceFile(t, root, "proofs.json", string(body))
+	findings, err = Evaluate(root, []policy.AssuranceGate{gate}, inputs)
+	if err != nil || !strings.Contains(findingsText(findings), "future-dated") {
+		t.Fatalf("zero-age future proof = findings=%+v err=%v", findings, err)
 	}
 }
 

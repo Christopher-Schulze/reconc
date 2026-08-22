@@ -286,9 +286,10 @@ func TestAssuranceGateValidationCoversEveryKindAndCrossFieldInvariant(t *testing
 		{name: "proof path", gate: policy.AssuranceGate{ID: "gate", Type: policy.AssuranceSubstantiveProof, ProofFile: "*.json"}, want: "proof_file"},
 		{name: "proof samples", gate: policy.AssuranceGate{ID: "gate", Type: policy.AssuranceSubstantiveProof, ProofFile: "proof.json", MinSamples: 10001}, want: "min_samples"},
 		{name: "proof age", gate: policy.AssuranceGate{ID: "gate", Type: policy.AssuranceSubstantiveProof, ProofFile: "proof.json", MaxAgeHours: 87601}, want: "max_age_hours"},
-		{name: "proof defaults", gate: policy.AssuranceGate{ID: "gate", Type: policy.AssuranceSubstantiveProof, ProofFile: "proof.json"}, assert: func(t *testing.T, gate policy.AssuranceGate) {
-			if gate.MinSamples != 3 || gate.MaxAgeHours != 24 {
-				t.Fatalf("proof defaults = %d/%d", gate.MinSamples, gate.MaxAgeHours)
+		{name: "proof negative age", gate: policy.AssuranceGate{ID: "gate", Type: policy.AssuranceSubstantiveProof, ProofFile: "proof.json", MaxAgeHours: -1}, want: "max_age_hours"},
+		{name: "proof runtime zero", gate: policy.AssuranceGate{ID: "gate", Type: policy.AssuranceSubstantiveProof, ProofFile: "proof.json"}, assert: func(t *testing.T, gate policy.AssuranceGate) {
+			if gate.MinSamples != 3 || gate.MaxAgeHours != 0 {
+				t.Fatalf("proof runtime values = %d/%d", gate.MinSamples, gate.MaxAgeHours)
 			}
 		}},
 	}

@@ -97,6 +97,11 @@ func optionalAssuranceGateList(item map[string]interface{}, key, ruleID string) 
 		if err := decoder.Decode(&gate); err != nil {
 			return nil, assuranceError(ruleID, fmt.Sprintf("%s[%d] is invalid: %v", key, index, err))
 		}
+		if kind == policy.AssuranceSubstantiveProof {
+			if _, present := mapping["max_age_hours"]; !present {
+				gate.MaxAgeHours = 24
+			}
+		}
 		if err := validateAssuranceGate(&gate); err != nil {
 			return nil, assuranceError(ruleID, fmt.Sprintf("%s[%d]: %v", key, index, err))
 		}
@@ -251,14 +256,11 @@ func validateAssuranceGate(gate *policy.AssuranceGate) error {
 		if gate.MinSamples == 0 {
 			gate.MinSamples = 3
 		}
-		if gate.MaxAgeHours == 0 {
-			gate.MaxAgeHours = 24
-		}
 		if gate.MinSamples < 1 || gate.MinSamples > 10_000 {
 			return fmt.Errorf("min_samples must be between 1 and 10000")
 		}
-		if gate.MaxAgeHours < 1 || gate.MaxAgeHours > 87_600 {
-			return fmt.Errorf("max_age_hours must be between 1 and 87600")
+		if gate.MaxAgeHours < 0 || gate.MaxAgeHours > 87_600 {
+			return fmt.Errorf("max_age_hours must be between 0 and 87600")
 		}
 	}
 	return nil
@@ -267,6 +269,10 @@ func validateAssuranceGate(gate *policy.AssuranceGate) error {
 // ValidateCompiledAssuranceGate validates one already typed lockfile gate
 // without mutating the caller's immutable runtime plan.
 func ValidateCompiledAssuranceGate(gate policy.AssuranceGate) error {
+	if (gate.Type == policy.AssuranceGeneratedReference || gate.Type == policy.AssuranceLiveVerification) &&
+		gate.CommandPolicy != "all" && gate.CommandPolicy != "any" {
+		return fmt.Errorf("command_policy must be all or any")
+	}
 	return validateAssuranceGate(&gate)
 }
 

@@ -2,10 +2,10 @@
 
 ## Active
 
+- [~] 251 Harden filesystem, TASK, and installation transactions -> tasks/251-harden-filesystem-transactions.md
+
 ## Queue
 
-- [ ] 250 Close assurance semantic-validation gaps -> tasks/250-close-assurance-semantic-validation-gaps.md
-- [ ] 251 Harden filesystem, TASK, and installation transactions -> tasks/251-harden-filesystem-transactions.md
 - [ ] 252 Stabilize comparison, action, and diagnostic truth -> tasks/252-stabilize-comparison-action-and-diagnostic-truth.md
 - [ ] 253 Remove verified low-risk scaffolding and dead branches -> tasks/253-remove-dead-scaffolding.md
 
@@ -13,6 +13,7 @@
 
 ## Done
 
+- [x] 250 Close assurance semantic-validation gaps -> tasks/done/250-close-assurance-semantic-validation-gaps.md
 - [x] 249 Bound custom-runtime decoding with Go 1.27 jsontext -> tasks/done/249-bound-custom-runtime-decoding-with-go-1-27-jsontext.md
 - [x] 248 Preserve bootstrap provenance and repository transactions -> tasks/done/248-preserve-bootstrap-provenance-and-repository-transactions.md
 - [x] 247 Secure harness claims and layout portability -> tasks/done/247-secure-harness-claims-and-layout-portability.md

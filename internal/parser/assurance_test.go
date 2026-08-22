@@ -41,6 +41,33 @@ func TestParseRequireAssuranceAppliesTypedDefaults(t *testing.T) {
 	}
 }
 
+func TestParseRequireAssuranceDistinguishesOmittedAndZeroProofAge(t *testing.T) {
+	parsed, err := ParseRuleDocuments(makeBundle(policy.PolicySource{
+		Kind: policy.SourcePolicyFile, Path: "policy.yml", Content: `rules:
+  - id: assurance
+    kind: require_assurance
+    mode: block
+    when_paths: ["**"]
+    message: native gates
+    assurance:
+      - id: default-age
+        type: substantive_proof
+        proof_file: .reconc/default.json
+      - id: unlimited-age
+        type: substantive_proof
+        proof_file: .reconc/unlimited.json
+        max_age_hours: 0
+`,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gates := parsed.Rules[0].Assurance
+	if len(gates) != 2 || gates[0].MaxAgeHours != 24 || gates[1].MaxAgeHours != 0 {
+		t.Fatalf("proof age contracts = %+v", gates)
+	}
+}
+
 func TestParseRequireAssuranceRejectsIrrelevantFieldByType(t *testing.T) {
 	_, err := ParseRuleDocuments(makeBundle(policy.PolicySource{
 		Kind: policy.SourcePolicyFile, Path: "policy.yml", Content: `rules:

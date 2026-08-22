@@ -53,7 +53,7 @@ type fileFacts struct {
 	linesLoaded bool
 	lines       []string
 
-	jsonObjects [2]jsonObjectFacts
+	packageJSON jsonObjectFacts
 
 	packageLoaded bool
 	packageDoc    packageScriptDocument
@@ -111,18 +111,16 @@ func (state *evaluationState) lines(path string) ([]string, error) {
 	return fact.lines, nil
 }
 
-func (state *evaluationState) jsonObject(path string, trimBOM bool) (map[string]json.RawMessage, error) {
+func (state *evaluationState) packageJSONObject(path string) (map[string]json.RawMessage, error) {
 	fact := state.fact(path)
 	body, err := fact.body(state)
 	if err != nil {
 		return nil, err
 	}
-	variant := 0
-	if trimBOM && bytes.HasPrefix(body, []byte{0xef, 0xbb, 0xbf}) {
-		variant = 1
+	if bytes.HasPrefix(body, []byte{0xef, 0xbb, 0xbf}) {
 		body = body[3:]
 	}
-	cached := &fact.jsonObjects[variant]
+	cached := &fact.packageJSON
 	if !cached.loaded {
 		cached.loaded = true
 		state.stats.jsonParses.Add(1)
@@ -137,7 +135,7 @@ func (state *evaluationState) packageDocument(path string) (packageScriptDocumen
 		return fact.packageDoc, fact.packageErr
 	}
 	fact.packageLoaded = true
-	document, err := state.jsonObject(path, true)
+	document, err := state.packageJSONObject(path)
 	if err != nil {
 		fact.packageErr = err
 		return fact.packageDoc, fact.packageErr

@@ -84,8 +84,14 @@ to a selected gate type are invalid. Source gates are changed-file scoped;
 repository-layout and substantive-proof gates inspect their full configured
 authority surface. `package_scripts` checks only non-empty scripts declared in
 the selected package manifests and accepts matching recorded package-manager
-evidence; it never executes a package manager. Operational read and scan limits
-fail closed.
+evidence; a configured manager that is missing, mismatched, or ambiguous fails
+explicitly. `dependency_pins` and `package_scripts` share the same package JSON
+reader and accept at most one leading UTF-8 BOM. Every `applicable_if` pattern
+is validated before matching. Command-evidence gates accept only `all` or `any`
+in compiled state. Substantive proof authoring defaults omitted
+`max_age_hours` to 24 and treats explicit zero as no staleness limit while still
+rejecting invalid or future-dated timestamps. Assurance never executes a package manager.
+Operational read and scan limits fail closed.
 
 ## Composite Rule Kinds
 

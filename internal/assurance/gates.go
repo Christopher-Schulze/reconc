@@ -83,7 +83,7 @@ func evaluateRepositoryLayout(root string, gate policy.AssuranceGate, state *eva
 	return findings, nil
 }
 
-func evaluateCommands(gate policy.AssuranceGate, successful []string) []Finding {
+func evaluateCommands(gate policy.AssuranceGate, successful []string) ([]Finding, error) {
 	successSet := map[string]bool{}
 	for _, command := range successful {
 		successSet[normalizeCommand(command)] = true
@@ -97,8 +97,17 @@ func evaluateCommands(gate policy.AssuranceGate, successful []string) []Finding 
 		}
 		missing = append(missing, command)
 	}
-	if (gate.CommandPolicy == "any" && matched > 0) || (gate.CommandPolicy != "any" && len(missing) == 0) {
-		return nil
+	switch gate.CommandPolicy {
+	case "all":
+		if len(missing) == 0 {
+			return nil, nil
+		}
+	case "any":
+		if matched > 0 {
+			return nil, nil
+		}
+	default:
+		return nil, fmt.Errorf("unsupported command_policy %q", gate.CommandPolicy)
 	}
 	message := "required successful command evidence is missing: " + strings.Join(missing, ", ")
 	if gate.CommandPolicy == "any" {
@@ -107,7 +116,7 @@ func evaluateCommands(gate policy.AssuranceGate, successful []string) []Finding 
 	return []Finding{{
 		GateID: gate.ID, Message: message,
 		Remediation: "Run the configured command successfully in the current session, then rerun the policy check.",
-	}}
+	}}, nil
 }
 
 func evaluateLanguageBoundary(root string, gate policy.AssuranceGate, state *evaluationState) ([]Finding, error) {
@@ -138,7 +147,7 @@ func evaluateDependencyPins(root string, gate policy.AssuranceGate, state *evalu
 	}
 	findings := []Finding{}
 	for _, file := range files {
-		document, err := state.jsonObject(file.full, false)
+		document, err := state.packageJSONObject(file.full)
 		if err != nil {
 			return nil, fmt.Errorf("parse dependency manifest %s: %w", file.relative, err)
 		}

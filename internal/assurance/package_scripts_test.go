@@ -58,6 +58,30 @@ func TestPackageScriptsHonorsManifestMarkersAndRejectsAmbiguity(t *testing.T) {
 	}
 }
 
+func TestPackageScriptsRejectsMissingOrMismatchedExpectedManager(t *testing.T) {
+	for _, test := range []struct {
+		name            string
+		managerEvidence string
+		want            string
+	}{
+		{name: "missing", want: "expected package manager npm could not be detected"},
+		{name: "mismatched", managerEvidence: `,"packageManager":"pnpm@10"`, want: "expected package manager npm but detected pnpm"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			writePackageScriptFile(t, root, "package.json", `{"scripts":{"test":"node --test"}`+test.managerEvidence+`}`)
+			gate := policy.AssuranceGate{ID: "npm-scripts", Type: policy.AssurancePackageScripts, ManifestPaths: []string{"package.json"}, PackageManager: "npm", Commands: []string{"npm run test"}}
+			findings, err := Evaluate(root, []policy.AssuranceGate{gate}, Inputs{SuccessfulCommands: []string{"npm run test"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(findings) != 1 || !strings.Contains(findings[0].Message, test.want) {
+				t.Fatalf("manager findings = %+v", findings)
+			}
+		})
+	}
+}
+
 func TestPackageScriptsIgnoresSymlinkedManagerEvidence(t *testing.T) {
 	root := t.TempDir()
 	writePackageScriptFile(t, root, "package.json", `{"scripts":{"test":"node --test"}}`)

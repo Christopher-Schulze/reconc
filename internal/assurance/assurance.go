@@ -99,7 +99,7 @@ func evaluateWithState(repoRoot string, gates []policy.AssuranceGate, inputs Inp
 		case policy.AssuranceRepositoryLayout:
 			gateFindings, err = evaluateRepositoryLayout(root, gate, state)
 		case policy.AssuranceGeneratedReference, policy.AssuranceLiveVerification:
-			gateFindings = evaluateCommands(gate, inputs.SuccessfulCommands)
+			gateFindings, err = evaluateCommands(gate, inputs.SuccessfulCommands)
 		case policy.AssuranceLanguageBoundary:
 			gateFindings, err = evaluateLanguageBoundary(root, gate, state)
 		case policy.AssuranceDependencyPins:

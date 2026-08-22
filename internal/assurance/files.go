@@ -109,6 +109,15 @@ func (state *evaluationState) applies(root string, patterns []string) (bool, err
 	if len(patterns) == 0 {
 		return true, nil
 	}
+	if err := state.validateGatePatterns(patterns, nil, nil); err != nil {
+		return false, err
+	}
+	for _, pattern := range patterns {
+		clean := filepath.Clean(filepath.FromSlash(pattern))
+		if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			return false, fmt.Errorf("applicability pattern escapes repository: %q", pattern)
+		}
+	}
 	key := stringSlicesKey(patterns)
 	if cached, ok := state.applicability[key]; ok {
 		return cached, nil

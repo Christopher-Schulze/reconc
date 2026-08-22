@@ -2205,15 +2205,17 @@ for product dependency leakage.
 `require_assurance` is the native, no-subprocess rule kind used by assurance
 packs. The parent `when_paths` controls when the gate set runs. Every gate has
 an `id`, `type`, and optional `applicable_if`. Fields that do not belong to the
-selected gate type are rejected instead of being silently ignored.
+selected gate type are rejected instead of being silently ignored. Reconc
+validates the complete `applicable_if` pattern set before checking whether any
+one pattern matches, so an earlier match cannot hide a malformed later pattern.
 
 | Gate type | Contract | Authority surface |
 |---|---|---|
 | `repository_layout` | Allowed, required, forbidden, hidden, and reserved root ownership | Full repository root |
 | `generated_reference` | Configured generator check has current successful command evidence | Current session |
 | `language_boundary` | Changed files use configured extensions inside configured zones | Matching changed files |
-| `dependency_pins` | Changed JSON dependency manifests use exact semantic versions or explicit protocol prefixes | Matching changed manifests |
-| `package_scripts` | Every configured script that is actually declared and non-empty has current successful manager-scoped evidence; absent scripts stay optional | Matching package manifests, including inherited workspace manager evidence |
+| `dependency_pins` | Changed package JSON dependency manifests use exact semantic versions or explicit protocol prefixes | Matching changed manifests |
+| `package_scripts` | Every configured script that is actually declared and non-empty has current successful manager-scoped evidence; a configured manager must be the sole detected manager, while absent scripts stay optional | Matching package manifests, including inherited workspace manager evidence |
 | `network_boundary` | Changed source sites have a nearby non-comment guard marker or reasoned path exemption | Matching changed files |
 | `process_boundary` | Changed process-spawn sites have a nearby non-comment hardening marker or reasoned path exemption | Matching changed files |
 | `substantive_proof` | Fresh measured samples, computed aggregate, threshold result, live command, and byte-matched evidence agree | Full configured proof manifest |
@@ -2251,14 +2253,20 @@ rules:
         command_policy: all
 ```
 
+`generated_reference` and `live_verification` use `command_policy: all` by
+default or `command_policy: any`; compiled locks must contain one of those two
+values and malformed values fail during runtime-plan loading.
+
 Substantive proof files use `format_version: "1"`. Each proof record requires a
 unique ID, subject, current successful command, `outcome: "pass"`, aggregation
 (`last`, `mean`, `min`, `max`, `median`, or `p95`), comparator (`lt`, `lte`,
 `eq`, `gte`, or `gt`), numeric threshold and actual, measured samples, an
 RFC3339 verification time, and a repository-relative evidence path plus its
 SHA-256. Reconc recomputes the aggregate from the samples, compares it to both
-the declared actual and threshold, checks freshness, reruns no command itself,
-and verifies the evidence bytes.
+the declared actual and threshold, reruns no command itself, and verifies the
+evidence bytes. Omitting `max_age_hours` applies the 24-hour authoring default;
+an explicit `max_age_hours: 0` disables only the staleness limit. Invalid
+timestamps and timestamps more than five minutes in the future always fail.
 
 Native assurance is intentionally bounded: 20,000 changed paths, 4,096 unique
 files, 4 MiB per file, 32 MiB total reads, 50,000 applicability or reserved-dir
@@ -2270,9 +2278,12 @@ same bytes from the SSD. The assurance reader obtains bytes and opened regular
 file metadata from one identity-checked `boundedio` snapshot; file and byte
 budgets charge that opened snapshot once rather than trusting a pre-open path
 stat. The per-evaluation fact graph also reuses normalized
-path classes, validated glob decisions, line indexes, BOM-aware JSON manifest
-objects, and compatible Go syntax and canonical-format facts. Package-script
-gates memoize each inspected directory's identity, normalized manager signals,
+path classes, validated glob decisions, line indexes, package JSON objects,
+and compatible Go syntax and canonical-format facts. Package scripts and
+dependency pins share one package JSON parser and accept either ordinary UTF-8
+JSON or exactly one leading UTF-8 BOM; a second or embedded BOM remains invalid.
+Package-script gates memoize each inspected directory's identity, normalized
+manager signals,
 and parent ancestry within the evaluation; sibling manifests reuse shared
 lockfile observations while identity changes invalidate only the affected
 chain. Nearest-manager precedence, mixed-manager ambiguity, and partial errors
@@ -3993,6 +4004,14 @@ inheriting the broader historical v4 shape. Sub-checks never carry their own
 `before_paths` or `when_paths`; the parent composite rule owns activation, and
 all legacy formats still reject those dead fields during typed runtime-plan
 construction after migration.
+
+Native assurance now fails explicitly when a configured package manager is
+missing or mismatched, validates complete applicability lists before matching,
+and rejects invalid compiled command policies during plan loading. Substantive
+proof authoring distinguishes the omitted 24-hour default from explicit
+`max_age_hours: 0`, which disables staleness without disabling timestamp or
+future-skew validation. Package-script and dependency-pin gates share the same
+single-leading-UTF-8-BOM package JSON contract.
 
 The local publication contract authorizes the new current tag while it is an
 unreleased candidate and verifies the new local v6 bytes, digest, `$id`, and

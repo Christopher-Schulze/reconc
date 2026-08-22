@@ -99,7 +99,9 @@ func evaluateSubstantiveProof(root string, gate policy.AssuranceGate, inputs Inp
 			findings = append(findings, proofFinding(gate, gate.ProofFile, label+" command has no current successful runtime evidence: "+proof.Command))
 		}
 		verifiedAt, parseErr := time.Parse(time.RFC3339, proof.VerifiedAt)
-		if parseErr != nil || verifiedAt.After(inputs.Now.Add(5*time.Minute)) || inputs.Now.Sub(verifiedAt) > time.Duration(gate.MaxAgeHours)*time.Hour {
+		futureDated := parseErr == nil && verifiedAt.After(inputs.Now.Add(5*time.Minute))
+		stale := parseErr == nil && gate.MaxAgeHours > 0 && inputs.Now.Sub(verifiedAt) > time.Duration(gate.MaxAgeHours)*time.Hour
+		if parseErr != nil || futureDated || stale {
 			findings = append(findings, proofFinding(gate, gate.ProofFile, label+" verified_at is invalid, future-dated, or stale"))
 		}
 		if err := verifyEvidenceHash(root, proof, state); err != nil {
