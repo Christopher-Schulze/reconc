@@ -210,38 +210,9 @@ func compileRuntimePlanWithParts(payload map[string]interface{}, rulesJSON, acti
 			return nil, err
 		}
 	}
-	customRuntimeDigests := map[string]string{}
-	for _, summary := range envelope.CustomRuntimes {
-		if err := customruntime.ValidateSummary(summary); err != nil {
-			return nil, &rerrors.LockfileError{Message: "compiled lockfile custom runtime is invalid: " + err.Error()}
-		}
-		if _, duplicate := customRuntimeDigests[summary.Runtime]; duplicate {
-			return nil, &rerrors.LockfileError{Message: "compiled lockfile contains duplicate custom runtime " + summary.Runtime}
-		}
-		customRuntimeDigests[summary.Runtime] = summary.ManifestDigest
-	}
-	customSourceNames := map[string]struct{}{}
-	for _, source := range envelope.Sources {
-		if source.Kind != policy.SourceCustomRuntime {
-			continue
-		}
-		const prefix = ".reconc/runtimes/"
-		if !strings.HasPrefix(source.Path, prefix) || !strings.HasSuffix(source.Path, ".json") {
-			return nil, &rerrors.LockfileError{Message: "compiled lockfile custom runtime source path is invalid"}
-		}
-		name := strings.TrimSuffix(strings.TrimPrefix(source.Path, prefix), ".json")
-		if strings.Contains(name, "/") {
-			return nil, &rerrors.LockfileError{Message: "compiled lockfile custom runtime source path is invalid"}
-		}
-		customSourceNames["custom:"+name] = struct{}{}
-	}
-	if len(customSourceNames) != len(customRuntimeDigests) {
-		return nil, &rerrors.LockfileError{Message: "compiled lockfile custom runtime summaries do not match manifest sources"}
-	}
-	for runtimeName := range customSourceNames {
-		if _, ok := customRuntimeDigests[runtimeName]; !ok {
-			return nil, &rerrors.LockfileError{Message: "compiled lockfile custom runtime summaries do not match manifest sources"}
-		}
+	customRuntimeDigests, err := customRuntimeManifestDigests(envelope)
+	if err != nil {
+		return nil, err
 	}
 	plan := &runtimePlan{
 		defaultMode:          envelope.DefaultMode,
@@ -281,6 +252,43 @@ func compileRuntimePlanWithParts(payload map[string]interface{}, rulesJSON, acti
 	}
 	plan.templateMatchers = templateMatchers
 	return plan, nil
+}
+
+func customRuntimeManifestDigests(envelope *runtimeEnvelope) (map[string]string, error) {
+	customRuntimeDigests := map[string]string{}
+	for _, summary := range envelope.CustomRuntimes {
+		if err := customruntime.ValidateSummary(summary); err != nil {
+			return nil, &rerrors.LockfileError{Message: "compiled lockfile custom runtime is invalid: " + err.Error()}
+		}
+		if _, duplicate := customRuntimeDigests[summary.Runtime]; duplicate {
+			return nil, &rerrors.LockfileError{Message: "compiled lockfile contains duplicate custom runtime " + summary.Runtime}
+		}
+		customRuntimeDigests[summary.Runtime] = summary.ManifestDigest
+	}
+	customSourceNames := map[string]struct{}{}
+	for _, source := range envelope.Sources {
+		if source.Kind != policy.SourceCustomRuntime {
+			continue
+		}
+		const prefix = ".reconc/runtimes/"
+		if !strings.HasPrefix(source.Path, prefix) || !strings.HasSuffix(source.Path, ".json") {
+			return nil, &rerrors.LockfileError{Message: "compiled lockfile custom runtime source path is invalid"}
+		}
+		name := strings.TrimSuffix(strings.TrimPrefix(source.Path, prefix), ".json")
+		if strings.Contains(name, "/") {
+			return nil, &rerrors.LockfileError{Message: "compiled lockfile custom runtime source path is invalid"}
+		}
+		customSourceNames["custom:"+name] = struct{}{}
+	}
+	if len(customSourceNames) != len(customRuntimeDigests) {
+		return nil, &rerrors.LockfileError{Message: "compiled lockfile custom runtime summaries do not match manifest sources"}
+	}
+	for runtimeName := range customSourceNames {
+		if _, ok := customRuntimeDigests[runtimeName]; !ok {
+			return nil, &rerrors.LockfileError{Message: "compiled lockfile custom runtime summaries do not match manifest sources"}
+		}
+	}
+	return customRuntimeDigests, nil
 }
 
 func decodeRuntimeRules(raw interface{}) ([]policy.Rule, error) {

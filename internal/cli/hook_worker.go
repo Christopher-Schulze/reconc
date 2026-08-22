@@ -23,6 +23,8 @@ const (
 	hookWorkerMaxRepoBytes  = 16 << 10
 	maxHookRuntimeCapture   = 8 << 10
 	maxHookWorkerDrainBytes = 2 * (agentsession.MaxPayloadBytes + hookWorkerFrameOverhead)
+	hookWorkerReadBuffer    = 64 << 10
+	hookWorkerGrowthWindow  = 4
 )
 
 var errHookWorkerFrameTooLarge = errors.New("hook worker frame exceeds the bounded protocol limit")
@@ -65,7 +67,7 @@ func runHookWorkerWithFrameLimit(args []string, input io.Reader, output io.Write
 	if len(args) != 0 {
 		return &CLIError{ExitCode: 1, Message: "reconc hook worker: accepts no arguments"}
 	}
-	reader := bufio.NewReaderSize(input, 64<<10)
+	reader := bufio.NewReaderSize(input, hookWorkerReadBuffer)
 	encoder := json.NewEncoder(output)
 	rootCache := hookWorkerRootCache{
 		roots: make(map[string]agentsession.ResolvedRepoRoot), evaluator: policyruntime.NewEvaluator(),
@@ -120,7 +122,10 @@ func runHookWorkerWithFrameLimit(args []string, input io.Reader, output io.Write
 }
 
 func readHookWorkerFrameLimit(reader *bufio.Reader, limit int) ([]byte, error) {
-	frame := make([]byte, 0, 4096)
+	if limit < 1 {
+		return nil, fmt.Errorf("hook worker frame limit must be positive")
+	}
+	var frame []byte
 	for {
 		fragment, err := reader.ReadSlice('\n')
 		if len(frame)+len(fragment) > limit {
@@ -138,18 +143,13 @@ func readHookWorkerFrameLimit(reader *bufio.Reader, limit int) ([]byte, error) {
 			}
 			return nil, fmt.Errorf("%w: %w: %v", errHookWorkerFrameTooLarge, errHookWorkerFrameDrainFailed, err)
 		}
-		frame = append(frame, fragment...)
+		if len(frame) == 0 && err == nil {
+			return validateHookWorkerFrame(bytes.Clone(fragment))
+		}
+		frame = appendHookWorkerFragment(frame, fragment, limit, reader.Size()*hookWorkerGrowthWindow+2)
 		switch {
 		case err == nil:
-			frame = bytes.TrimSuffix(frame, []byte{'\n'})
-			frame = bytes.TrimSuffix(frame, []byte{'\r'})
-			if len(frame) == 0 {
-				return nil, errors.New("empty hook worker frame")
-			}
-			if !utf8.Valid(frame) {
-				return nil, errors.New("hook worker frame is not valid UTF-8")
-			}
-			return frame, nil
+			return validateHookWorkerFrame(frame)
 		case errors.Is(err, bufio.ErrBufferFull):
 			continue
 		case errors.Is(err, io.EOF) && len(frame) == 0:
@@ -160,6 +160,33 @@ func readHookWorkerFrameLimit(reader *bufio.Reader, limit int) ([]byte, error) {
 			return nil, fmt.Errorf("read hook worker frame: %w", err)
 		}
 	}
+}
+
+func appendHookWorkerFragment(frame, fragment []byte, limit, initialCapacity int) []byte {
+	required := len(frame) + len(fragment)
+	if required <= cap(frame) {
+		return append(frame, fragment...)
+	}
+	capacity := cap(frame) * hookWorkerGrowthWindow
+	if capacity == 0 {
+		capacity = initialCapacity
+	}
+	capacity = min(limit, max(required, capacity))
+	grown := make([]byte, len(frame), capacity)
+	copy(grown, frame)
+	return append(grown, fragment...)
+}
+
+func validateHookWorkerFrame(frame []byte) ([]byte, error) {
+	frame = bytes.TrimSuffix(frame, []byte{'\n'})
+	frame = bytes.TrimSuffix(frame, []byte{'\r'})
+	if len(frame) == 0 {
+		return nil, errors.New("empty hook worker frame")
+	}
+	if !utf8.Valid(frame) {
+		return nil, errors.New("hook worker frame is not valid UTF-8")
+	}
+	return frame, nil
 }
 
 // drainHookWorkerFrame consumes the remainder of one oversized newline frame

@@ -46,6 +46,13 @@ func TestCustomRuntimeIsValidatedCompiledAndBoundToFreshness(t *testing.T) {
 	if digest, ok := compiledEvaluator.CustomRuntimeManifestDigest("custom:local-agent"); !ok || digest != compiled.CustomRuntimes[0].ManifestDigest {
 		t.Fatalf("compiled runtime digest = %q, %v", digest, ok)
 	}
+	digests, err := runtime.LoadFreshCustomRuntimeManifestDigests(repo)
+	if err != nil {
+		t.Fatalf("load minimal runtime digests: %v", err)
+	}
+	if digest := digests["custom:local-agent"]; digest != compiled.CustomRuntimes[0].ManifestDigest {
+		t.Fatalf("minimal runtime digest = %q, want %q", digest, compiled.CustomRuntimes[0].ManifestDigest)
+	}
 	manifestPath := filepath.Join(repo, ".reconc", "runtimes", "local-agent.json")
 	manifest, err := os.ReadFile(manifestPath)
 	if err != nil {
@@ -57,6 +64,9 @@ func TestCustomRuntimeIsValidatedCompiledAndBoundToFreshness(t *testing.T) {
 	}
 	if _, _, err := runtime.NewEvaluator().CurrentCompiledPolicyEvaluator(repo); err == nil || !strings.Contains(err.Error(), "source_digest") {
 		t.Fatalf("stale custom runtime did not fail closed: %v", err)
+	}
+	if _, err := runtime.LoadFreshCustomRuntimeManifestDigests(repo); err == nil || !strings.Contains(err.Error(), "source_digest") {
+		t.Fatalf("minimal runtime digest lookup accepted stale manifest: %v", err)
 	}
 }
 
@@ -107,6 +117,9 @@ func TestRuntimeRejectsRehashedCustomRuntimeSummaryTampering(t *testing.T) {
 	}
 	if _, _, err := runtime.NewEvaluator().CurrentCompiledPolicyEvaluator(repo); err == nil || !strings.Contains(err.Error(), "summaries do not match") {
 		t.Fatalf("rehashed custom runtime summary tampering error = %v", err)
+	}
+	if _, err := runtime.LoadFreshCustomRuntimeManifestDigests(repo); err == nil || !strings.Contains(err.Error(), "summaries do not match") {
+		t.Fatalf("minimal runtime digest lookup accepted summary tampering: %v", err)
 	}
 }
 

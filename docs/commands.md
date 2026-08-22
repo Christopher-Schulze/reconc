@@ -703,6 +703,11 @@ static rule conflicts. Deep mode exits 1 when any check is `FAIL`, 0 when all
 rows are `OK` or `WARN`. The MCP row always states that gateway enforcement is
 limited to explicit `reconc mcp gateway` routes, external client configuration
 is not inspected, and direct/native routes are unenforced.
+Freshness, parsed rules, conflict detection, and preset/template references
+share one bounded identity-checked source snapshot. A source-load failure stays
+independently reportable: reference diagnosis falls back to its narrower
+bounded raw-source inspection instead of fabricating a result or suppressing
+the other rows.
 For Grok runtime probes, process failure is the primary diagnosis; an
 oversized captured output remains an additional bounded fact and cannot hide
 the failed process.
@@ -1179,7 +1184,10 @@ The command checks malformed, incomplete, non-executable, or drifted managed
 artifacts, the repo-local wrapper, Codex's enable flag, Git `core.hooksPath`,
 Kilo Code pure mode, legacy Kilo Code plugin placement, Grok's native
 project-hook artifact, OMP's generator-exact ExtensionAPI module, and Pi's
-generator-exact extension plus project trust. Pi is `configured` only when the
+generator-exact extension plus project trust. Each platform generator runs once
+per status inspection. The target bytes and mode come from one stable snapshot,
+and the shared wrapper is inspected once for the complete multi-platform report
+rather than reopened per platform. Pi is `configured` only when the
 canonical root has a saved `true` trust entry or `defaultProjectTrust` is
 `always`; Reconc never mutates either setting and reports `pi --approve` as the
 one-run alternative. GitHub Copilot status verifies its generator-exact

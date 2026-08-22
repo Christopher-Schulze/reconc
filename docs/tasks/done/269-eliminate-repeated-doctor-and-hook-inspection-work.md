@@ -37,15 +37,15 @@ latency costs in commands expected to be fast diagnostics.
 
 ## Sub-Tasks
 
-- [~] Introduce one immutable deep-doctor analysis context from the existing bounded source loader
-- [ ] Rewire freshness, conflict, and reference checks to consume shared results without coupling failures
-- [ ] Generate and read each hook artifact once per status inspection
-- [ ] Add request-scoped platform-inspection memoization for route deduplication
-- [ ] Expose the minimum trusted custom-runtime digest lookup surface
-- [ ] Right-size the Go worker frame buffer from measured frame distributions and hard limits
-- [ ] Add focused benchmarks and allocation regression tests
-- [ ] Update diagnostic and performance documentation plus benchmark history
-- [ ] Run CLI, hook, runtime, race, and complete repository verification
+- [x] Introduce one immutable deep-doctor analysis context from the existing bounded source loader
+- [x] Rewire freshness, conflict, and reference checks to consume shared results without coupling failures
+- [x] Generate and read each hook artifact once per status inspection
+- [x] Add request-scoped platform-inspection memoization for route deduplication
+- [x] Expose the minimum trusted custom-runtime digest lookup surface
+- [x] Right-size the Go worker frame buffer from measured frame distributions and hard limits
+- [x] Add focused benchmarks and allocation regression tests
+- [x] Update diagnostic and performance documentation plus benchmark history
+- [x] Run CLI, hook, runtime, race, and complete repository verification
 
 ## Notes
 
@@ -62,6 +62,16 @@ latency costs in commands expected to be fast diagnostics.
   execution only.
 - Removing thin dependency-injection wrappers is not an objective. Refactor
   them only if the shared context cannot otherwise be injected cleanly.
+- Apple M1 repeated measurements reduced deep-doctor bytes/op by about 10.8%
+  and allocations/op by about 16.3%; multi-platform hook-status bytes/op by
+  about 30.8% and allocations/op by about 14.8%.
+- A 1 MiB worker frame moved from about 4.76 MiB and 13 allocations to about
+  1.39 MiB and 4 allocations. The calibrated history now tracks the 64 KiB
+  representative frame and 1 MiB target.
+- Verification passed: focused and complete package tests, selected race tests,
+  Windows cross-compilation, calibrated benchmark comparison, `make
+  test-fast`, vet, Staticcheck, publication audit, self-hosting, and the full
+  release-trust harness.
 
 ## Deviations
 

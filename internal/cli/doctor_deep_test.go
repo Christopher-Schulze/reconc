@@ -14,6 +14,7 @@ import (
 	"reconc.dev/reconc/internal/grokacp"
 	"reconc.dev/reconc/internal/hooks"
 	"reconc.dev/reconc/internal/ingest"
+	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
 
@@ -459,16 +460,17 @@ func TestDoctorDeepHelperCoverage(t *testing.T) {
 
 	t.Run("doctor checks without discovered repo", func(t *testing.T) {
 		discovery := ingest.DiscoveryResult{}
+		analysis := newDoctorAnalysisContext(discovery)
 		if check := doctorCheckAuditSize(discovery); check.Status != doctorStatusWarn {
 			t.Fatalf("expected audit size WARN without discovery, got %#v", check)
 		}
 		if check := doctorCheckSessionClaims(discovery); check.Status != doctorStatusWarn {
 			t.Fatalf("expected session claims WARN without discovery, got %#v", check)
 		}
-		if check := doctorCheckLockfileFreshness(discovery); check.Status != doctorStatusFail {
+		if check := doctorCheckLockfileFreshness(discovery, analysis); check.Status != doctorStatusFail {
 			t.Fatalf("expected lockfile freshness FAIL without discovery, got %#v", check)
 		}
-		if check := doctorCheckConflictCount(discovery); check.Status != doctorStatusFail {
+		if check := doctorCheckConflictCount(discovery, analysis); check.Status != doctorStatusFail {
 			t.Fatalf("expected conflict count FAIL without discovery, got %#v", check)
 		}
 	})
@@ -514,26 +516,27 @@ func TestDoctorInlineSourcesMatchAuthoritativeScanner(t *testing.T) {
 				t.Fatal(err)
 			}
 			path := "AGENTS.md"
-			discovery := ingest.DiscoveryResult{RepoRoot: repo, AgentsPath: &path}
-			totalBytes := int64(0)
-			doctorSources, doctorErr := loadDoctorTemplateSources(discovery, &totalBytes)
+			bundle, doctorErr := ingest.LoadPolicySources(repo)
 			blocks, scanErr := ingest.ScanInlinePolicyBlocks(path, tt.text)
 			if doctorErr != nil || scanErr != nil {
 				t.Fatalf("unexpected errors: doctor=%v scanner=%v", doctorErr, scanErr)
+			}
+			doctorSources := make([]policy.PolicySource, 0, len(blocks))
+			for _, source := range bundle.Sources {
+				if source.Kind == policy.SourceInlineBlock && source.Path == path {
+					doctorSources = append(doctorSources, source)
+				}
 			}
 			if len(doctorSources) != len(blocks) {
 				t.Fatalf("doctor found %d blocks; scanner found %d", len(doctorSources), len(blocks))
 			}
 			for index := range blocks {
-				if doctorSources[index].content != blocks[index].Content {
-					t.Fatalf("block %d content differs: doctor=%q scanner=%q", index, doctorSources[index].content, blocks[index].Content)
+				if doctorSources[index].Content != blocks[index].Content {
+					t.Fatalf("block %d content differs: doctor=%q scanner=%q", index, doctorSources[index].Content, blocks[index].Content)
 				}
-				if doctorSources[index].label != path+" inline block" {
-					t.Fatalf("block %d label = %q", index, doctorSources[index].label)
+				if doctorSources[index].Path != path {
+					t.Fatalf("block %d path = %q", index, doctorSources[index].Path)
 				}
-			}
-			if totalBytes != int64(len(tt.text)) {
-				t.Fatalf("doctor byte accounting = %d, want %d", totalBytes, len(tt.text))
 			}
 		})
 	}
@@ -549,8 +552,7 @@ func TestDoctorInlineSourcesRejectExcessiveBlockCount(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := "AGENTS.md"
-	totalBytes := int64(0)
-	_, doctorErr := loadDoctorTemplateSources(ingest.DiscoveryResult{RepoRoot: repo, AgentsPath: &path}, &totalBytes)
+	_, doctorErr := ingest.LoadPolicySources(repo)
 	_, scanErr := ingest.ScanInlinePolicyBlocks(path, text.String())
 	if doctorErr == nil || scanErr == nil {
 		t.Fatalf("expected both consumers to reject excessive blocks: doctor=%v scanner=%v", doctorErr, scanErr)

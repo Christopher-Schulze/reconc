@@ -21,12 +21,12 @@ func inspectCustomRuntimeStatuses(repoRoot string) ([]hooks.PlatformStatus, erro
 		return nil, err
 	}
 	globalFreshnessError := ""
-	var compiledEvaluator *runtime.CompiledPolicyEvaluator
+	var compiledDigests map[string]string
 	if len(sources) > 0 {
-		if current, _, err := runtime.NewEvaluator().CurrentCompiledPolicyEvaluator(repoRoot); err != nil {
+		if current, err := runtime.LoadFreshCustomRuntimeManifestDigests(repoRoot); err != nil {
 			globalFreshnessError = err.Error()
 		} else {
-			compiledEvaluator = current
+			compiledDigests = current
 		}
 	}
 	reports := make([]hooks.PlatformStatus, 0, len(sources))
@@ -36,8 +36,8 @@ func inspectCustomRuntimeStatuses(repoRoot string) ([]hooks.PlatformStatus, erro
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", source.Path, err)
 		}
-		if compiledEvaluator != nil {
-			expectedDigest, ok := compiledEvaluator.CustomRuntimeManifestDigest(manifest.Runtime())
+		if compiledDigests != nil {
+			expectedDigest, ok := compiledDigests[manifest.Runtime()]
 			if !ok || expectedDigest != manifest.Digest() {
 				freshnessError = "manifest bytes do not match the validated compiled runtime identity"
 			}

@@ -931,6 +931,10 @@ contents and yields one protocol-error response with an empty ID when the
 request identity cannot be proven. A bounded drain ceiling turns an
 unterminated or excessively long frame into terminal worker loss; a completed
 oversized frame leaves the stream synchronized for the next request.
+Single-fragment request frames are copied once at their exact size. Fragmented
+frames begin from the buffered reader's bounded window and grow in fourfold,
+limit-capped steps, avoiding both a hard-limit preallocation and repeated
+geometric reallocations near the 64 MiB request ceiling.
 The generated JavaScript adapter accumulates response chunks in a geometrically
 growing bounded byte buffer and performs one line/remainder copy per frame;
 small stream chunks therefore cannot trigger quadratic prefix copying. The

@@ -2,11 +2,10 @@
 
 ## Active
 
-- [~] 269 Eliminate repeated doctor and hook inspection work -> tasks/269-eliminate-repeated-doctor-and-hook-inspection-work.md
+- [~] 270 Optimize action operand evaluation and decision caching -> tasks/270-optimize-action-operand-evaluation-and-decision-caching.md
 
 ## Queue
 
-- [ ] 270 Optimize action operand evaluation and decision caching -> tasks/270-optimize-action-operand-evaluation-and-decision-caching.md
 - [ ] 271 Make action ledger and state updates incremental -> tasks/271-make-action-ledger-and-state-updates-incremental.md
 - [ ] 272 Reduce action inspection and evidence allocation -> tasks/272-reduce-action-inspection-and-evidence-allocation.md
 - [ ] 273 Decouple MCP gateway state and progress pipelines -> tasks/273-decouple-mcp-gateway-state-and-progress-pipelines.md
@@ -25,6 +24,7 @@
 
 ## Done
 
+- [x] 269 Eliminate repeated doctor and hook inspection work -> tasks/done/269-eliminate-repeated-doctor-and-hook-inspection-work.md
 - [x] 268 Correct hook runtime and lifecycle state reporting -> tasks/done/268-correct-hook-runtime-and-lifecycle-state-reporting.md
 - [x] 267 Repair bootstrap publication and recovery integrity -> tasks/done/267-repair-bootstrap-publication-and-recovery-integrity.md
 - [x] 266 Optimize measured runtime hotpaths -> tasks/done/266-optimize-measured-runtime-hotpaths.md
@@ -34,4 +34,3 @@
 - [x] 262 Consolidate repository onto main -> tasks/done/262-consolidate-repository-onto-main.md
 - [x] 261 Improve policy authoring UX -> tasks/done/261-improve-policy-authoring-ux.md
 - [x] 260 Calibrate benchmark history -> tasks/done/260-calibrate-benchmark-history.md
-- [x] 259 Generate canonical reference surfaces -> tasks/done/259-generate-canonical-reference-surfaces.md

@@ -30,6 +30,13 @@ func NewSourceLoadContext(repoStartPath string) (*SourceLoadContext, error) {
 	if err != nil {
 		return nil, err
 	}
+	return NewSourceLoadContextFromDiscovery(discovery)
+}
+
+// NewSourceLoadContextFromDiscovery binds an already completed discovery to
+// one source-load snapshot. Diagnostic callers use it to avoid repeating the
+// same repository walk while preserving the ordinary identity checks.
+func NewSourceLoadContextFromDiscovery(discovery DiscoveryResult) (*SourceLoadContext, error) {
 	context := &SourceLoadContext{
 		Discovery:      discovery,
 		RepoRoot:       discovery.RepoRoot,
@@ -38,6 +45,7 @@ func NewSourceLoadContext(repoStartPath string) (*SourceLoadContext, error) {
 	if !discovery.Discovered {
 		return context, nil
 	}
+	var err error
 	context.rootIdentity, err = pathidentity.ResolveExisting(discovery.RepoRoot)
 	if err != nil {
 		return nil, fmt.Errorf("resolve policy source root: %w", err)

@@ -188,7 +188,7 @@ partial audit, run-log, checksum, release, or provenance snapshot.
 
 | Surface | Current read contract |
 | --- | --- |
-| Policy and deep doctor sources | 8 MiB per source, 64 MiB aggregate, at most 4,096 policy sources. One rooted filesystem handle anchors each complete policy-source load; every opened file is revalidated against that root and its stable identity before and after the bounded read. Deep doctor reports source, preset, and template errors independently. |
+| Policy and deep doctor sources | 8 MiB per source, 64 MiB aggregate, at most 4,096 policy sources. One rooted filesystem handle anchors each complete policy-source load; every opened file is revalidated against that root and its stable identity before and after the bounded read. Deep doctor derives freshness, parsed rules, conflicts, and references from one immutable snapshot. If full loading fails, a narrower bounded raw-reference fallback keeps source, preset, and template errors independently reportable. |
 | CLI lockfiles, reports, and extraction | Lockfile summaries are capped at 16 MiB; saved `why` reports at 32 MiB; session-briefing reports at 1 MiB; `extract --from` at 8 MiB and repository-relative only. |
 | Adoption and overlays | Root manifests are capped at 1 MiB, `.reconc.yml`, user presets, and user templates at 8 MiB; workflow, preset, and template directories stop at 4,096 entries and report incomplete inspection. |
 | Run decisions | Each live or archived JSONL file is capped at 2 MiB and each record at 32 KiB. Two archives are retained. `run log --limit N` validates the full retained chain while keeping only the requested tail in memory. |
@@ -268,12 +268,21 @@ worker count. Direct `go test ./...` validates only the root module.
 times at a fixed iteration count and writes the machine-local result under
 `.build/benchmarks/`. `make benchmark-compare` normalizes every target against
 its same-package calibration benchmark before comparing it with the checked
-baseline. The suite covers nine groups: bounded action traces, structured
+baseline. The suite covers ten groups: bounded action traces, structured
 action inspection, canonical JSON, contextual source ingestion, prospective
 path resolution, prepared command matching and evidence, source freshness, and
-write-epoch batching. Its parser reconstructs benchmark lines split across Go
-JSON output events. `make benchmark-baseline` is the only baseline-writing
-operation and requires `CONFIRM_BENCHMARK_BASELINE=1`.
+write-epoch batching, plus bounded hook-worker frame growth. Its parser
+reconstructs benchmark lines split across Go JSON output events. `make
+benchmark-baseline` is the only baseline-writing operation and requires
+`CONFIRM_BENCHMARK_BASELINE=1`.
+
+Apple M1 TASK-269 before/after checks reduced deep-doctor allocation volume by
+about 10.8% and allocations by about 16.3%. Multi-platform hook status reduced
+allocation volume by about 30.8% and allocations by about 14.8%; filesystem
+wall time remained noisy. A 1 MiB hook-worker frame fell from about 4.76 MiB
+and 13 allocations to about 1.39 MiB and 4 allocations, with lower measured
+latency. The checked baseline records the worker result through same-package
+calibration rather than absolute timing.
 
 Go 1.27 synthetic time is restricted to tests whose complete dependency graph
 is in memory. The audit append gate tests use `testing/synctest` to prove

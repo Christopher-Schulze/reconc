@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/boundedio"
@@ -278,6 +279,10 @@ func validateLockfileFreshness(root string, payload map[string]interface{}, migr
 }
 
 func validateLockfileFreshnessBundle(payload map[string]interface{}, migrated bool, bundle *ingest.SourceBundle, currentDigest string) error {
+	return validateLockfileFreshnessSnapshot(payload, migrated, bundle, currentDigest, nil)
+}
+
+func validateLockfileFreshnessSnapshot(payload map[string]interface{}, migrated bool, bundle *ingest.SourceBundle, currentDigest string, parsed *parser.ParsedPolicy) error {
 	if int(numAsInt(payload["source_count"])) != len(bundle.Sources) {
 		return &rerrors.LockfileError{Message: "compiled lockfile source_count does not match the current policy sources"}
 	}
@@ -292,9 +297,12 @@ func validateLockfileFreshnessBundle(payload map[string]interface{}, migrated bo
 		return nil
 	}
 
-	parsed, err := parser.ParseRuleDocuments(bundle)
-	if err != nil {
-		return err
+	if parsed == nil {
+		var err error
+		parsed, err = parser.ParseRuleDocuments(bundle)
+		if err != nil {
+			return err
+		}
 	}
 	if err := compiler.ValidateEmbeddedRules(payload, parsed); err != nil {
 		return err
@@ -307,6 +315,69 @@ func validateLockfileFreshnessBundle(payload map[string]interface{}, migrated bo
 		return &rerrors.LockfileError{Message: "compiled lockfile rule_count does not match the current policy sources"}
 	}
 	return nil
+}
+
+// ValidatePolicyLockfileSnapshot verifies one already identity-bound policy
+// source snapshot without rediscovering or rereading it. The complete typed
+// runtime plan is still compiled, so callers share I/O without weakening the
+// ordinary lockfile trust boundary.
+func ValidatePolicyLockfileSnapshot(root string, bundle *ingest.SourceBundle, parsed *parser.ParsedPolicy) error {
+	if bundle == nil {
+		return fmt.Errorf("policy source bundle is nil")
+	}
+	if filepath.Clean(root) != filepath.Clean(bundle.RepoRoot) {
+		return fmt.Errorf("policy source bundle belongs to a different repository")
+	}
+	lock, err := readLockfile(root)
+	if err != nil {
+		return lockfileRefreshRequired(err)
+	}
+	currentDigest, err := compiler.ComputeSourceDigest(bundle)
+	if err != nil {
+		return lockfileRefreshRequired(&rerrors.LockfileError{Message: "compute current source digest", Cause: err})
+	}
+	if err := validateLockfileFreshnessSnapshot(lock.payload, lock.migrated, bundle, currentDigest, parsed); err != nil {
+		return lockfileRefreshRequired(err)
+	}
+	if _, err := compileRuntimePlanWithParts(lock.payload, lock.rulesJSON, lock.actionsJSON, lock.actions); err != nil {
+		return lockfileRefreshRequired(err)
+	}
+	return nil
+}
+
+// LoadFreshCustomRuntimeManifestDigests returns only the validated compiled
+// custom-runtime identities. It verifies the current source snapshot and the
+// complete lock envelope, but deliberately avoids compiling rule matchers and
+// an action evaluator for status-only digest comparisons.
+func LoadFreshCustomRuntimeManifestDigests(startPath string) (map[string]string, error) {
+	context, err := ingest.NewSourceLoadContext(startPath)
+	if err != nil {
+		return nil, err
+	}
+	bundle, err := ingest.LoadPolicySourcesWithContext(context)
+	if err != nil {
+		return nil, err
+	}
+	lock, err := readLockfile(bundle.RepoRoot)
+	if err != nil {
+		return nil, lockfileRefreshRequired(err)
+	}
+	currentDigest, err := compiler.ComputeSourceDigest(bundle)
+	if err != nil {
+		return nil, lockfileRefreshRequired(&rerrors.LockfileError{Message: "compute current source digest", Cause: err})
+	}
+	if err := validateLockfileFreshnessBundle(lock.payload, lock.migrated, bundle, currentDigest); err != nil {
+		return nil, lockfileRefreshRequired(err)
+	}
+	envelope, err := decodeRuntimeEnvelopeWithParts(lock.payload, lock.rulesJSON, lock.actionsJSON)
+	if err != nil {
+		return nil, lockfileRefreshRequired(err)
+	}
+	digests, err := customRuntimeManifestDigests(envelope)
+	if err != nil {
+		return nil, lockfileRefreshRequired(err)
+	}
+	return digests, nil
 }
 
 // ValidatePolicyLockfile verifies that the discovered lockfile is readable,

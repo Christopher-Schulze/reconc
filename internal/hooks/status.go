@@ -33,28 +33,29 @@ const (
 
 // PlatformStatus is one deterministic activation report.
 type PlatformStatus struct {
-	Kind           string                           `json:"kind"`
-	DisplayName    string                           `json:"display_name"`
-	TargetPath     string                           `json:"target_path"`
-	State          ActivationState                  `json:"state"`
-	Detail         string                           `json:"detail"`
-	MissingEvents  []string                         `json:"missing_events,omitempty"`
-	ExpectedEvents []string                         `json:"expected_events,omitempty"`
-	SurfaceEvents  map[HostSurface][]string         `json:"surface_events,omitempty"`
-	LiveEvents     []string                         `json:"live_events,omitempty"`
-	UnseenEvents   []string                         `json:"unseen_events,omitempty"`
-	LastSeen       string                           `json:"last_seen,omitempty"`
-	LastEvent      string                           `json:"last_event,omitempty"`
-	Observations   map[string]HookObservationStatus `json:"observations,omitempty"`
-	LivenessError  string                           `json:"liveness_error,omitempty"`
-	Generated      bool                             `json:"generated"`
-	Installed      bool                             `json:"installed"`
-	Executable     bool                             `json:"executable"`
-	Configured     bool                             `json:"configured"`
-	Live           bool                             `json:"live"`
-	Remediation    string                           `json:"remediation,omitempty"`
-	MCP            *MCPStatus                       `json:"mcp,omitempty"`
-	remediation    remediationPlan
+	Kind             string                           `json:"kind"`
+	DisplayName      string                           `json:"display_name"`
+	TargetPath       string                           `json:"target_path"`
+	State            ActivationState                  `json:"state"`
+	Detail           string                           `json:"detail"`
+	MissingEvents    []string                         `json:"missing_events,omitempty"`
+	ExpectedEvents   []string                         `json:"expected_events,omitempty"`
+	SurfaceEvents    map[HostSurface][]string         `json:"surface_events,omitempty"`
+	LiveEvents       []string                         `json:"live_events,omitempty"`
+	UnseenEvents     []string                         `json:"unseen_events,omitempty"`
+	LastSeen         string                           `json:"last_seen,omitempty"`
+	LastEvent        string                           `json:"last_event,omitempty"`
+	Observations     map[string]HookObservationStatus `json:"observations,omitempty"`
+	LivenessError    string                           `json:"liveness_error,omitempty"`
+	Generated        bool                             `json:"generated"`
+	Installed        bool                             `json:"installed"`
+	Executable       bool                             `json:"executable"`
+	Configured       bool                             `json:"configured"`
+	Live             bool                             `json:"live"`
+	Remediation      string                           `json:"remediation,omitempty"`
+	MCP              *MCPStatus                       `json:"mcp,omitempty"`
+	remediation      remediationPlan
+	targetExecutable bool
 }
 
 // HookObservationStatus is the public, source-free view of one observed
@@ -96,13 +97,14 @@ func InspectPlatforms(repoRoot string) ([]PlatformStatus, error) {
 		return nil, err
 	}
 	reports := make([]PlatformStatus, 0, len(platformRegistry))
+	wrapper := inspectStatusWrapper(root)
 	for _, platform := range Platforms() {
 		if platform.Kind == KindKimiCode {
 			reports = append(reports, inspectKimiCodePlatform(platform))
 			continue
 		}
 		report := inspectPlatform(root, platform)
-		finalizePlatformStatus(root, platform, &report)
+		finalizePlatformStatus(platform, wrapper, &report)
 		reports = append(reports, report)
 	}
 	return reports, nil
@@ -124,71 +126,60 @@ func InspectPlatform(repoRoot, kind string) (PlatformStatus, error) {
 		return inspectKimiCodePlatform(platform), nil
 	}
 	report := inspectPlatform(root, platform)
-	finalizePlatformStatus(root, platform, &report)
+	finalizePlatformStatus(platform, inspectStatusWrapper(root), &report)
 	return report, nil
 }
 
-func finalizePlatformStatus(root string, platform Platform, report *PlatformStatus) {
-	_, generateErr := Generate(platform.Kind)
-	report.Generated = generateErr == nil
-	report.Installed = platformArtifactInstalled(root, platform, report.TargetPath)
-	targetExecutable := true
-	if platform.Executable {
-		target := report.TargetPath
-		if !filepath.IsAbs(target) {
-			target = filepath.Join(root, filepath.FromSlash(target))
-		}
-		targetExecutable = executableFile(target)
+type statusWrapperInspection struct {
+	executable bool
+	safe       bool
+}
+
+func inspectStatusWrapper(root string) statusWrapperInspection {
+	snapshot, err := readManagedArtifactSnapshot(filepath.Join(root, filepath.FromSlash(WrapperPath)))
+	if err != nil {
+		return statusWrapperInspection{}
 	}
+	if !snapshot.exists {
+		return statusWrapperInspection{safe: true}
+	}
+	return statusWrapperInspection{
+		executable: execfile.ModeIsExecutable(snapshot.info.Mode()),
+		safe:       wrapperManagedArtifact(snapshot.body),
+	}
+}
+
+func finalizePlatformStatus(platform Platform, wrapper statusWrapperInspection, report *PlatformStatus) {
 	wrapperExecutable := true
 	if platform.Activation.RequiresWrapper {
-		wrapperExecutable = executableFile(filepath.Join(root, filepath.FromSlash(WrapperPath)))
+		wrapperExecutable = wrapper.executable
 	}
-	report.Executable = report.Installed && targetExecutable && wrapperExecutable
+	report.Executable = report.Installed && report.targetExecutable && wrapperExecutable
 	report.Configured = report.State == StateConfigured
 	if report.Configured && report.TargetPath == platform.TargetPath && report.remediation.Disposition == remediationInstall {
 		report.remediation = noRemediation()
 	}
 	if (report.remediation.Disposition == remediationInstall || report.remediation.Disposition == remediationForceRepair) &&
-		platform.Activation.RequiresWrapper && !wrapperSafeForRecommendedInstall(root) {
+		platform.Activation.RequiresWrapper && !wrapper.safe {
 		report.remediation = manualRemediation("Repair or move the user-owned tools/reconc/bin/hook file before reinstalling; Reconc will not recommend overwriting it.")
 	}
 	applyRemediation(report, report.remediation)
 }
 
-func platformArtifactInstalled(root string, platform Platform, reportedPath string) bool {
-	paths := []string{reportedPath, platform.TargetPath, platform.Activation.LegacyArtifactPath}
-	seen := map[string]bool{}
-	for _, candidate := range paths {
-		if candidate == "" {
-			continue
-		}
-		if !filepath.IsAbs(candidate) {
-			candidate = filepath.Join(root, filepath.FromSlash(candidate))
-		}
-		candidate = filepath.Clean(candidate)
-		if seen[candidate] {
-			continue
-		}
-		seen[candidate] = true
-		if _, err := readManagedArtifact(candidate); err == nil {
-			return true
-		}
-	}
-	return false
-}
-
 func inspectPlatform(root string, platform Platform) PlatformStatus {
 	report := PlatformStatus{
-		Kind:           platform.Kind,
-		DisplayName:    platform.DisplayName,
-		TargetPath:     platform.TargetPath,
-		State:          StateAbsent,
-		Detail:         "artifact not installed",
-		ExpectedEvents: platformRuntimeEvents(platform),
-		SurfaceEvents:  platformSurfaceEvents(platform),
-		remediation:    hookInstallRemediation(platform.Kind, root, false),
+		Kind:             platform.Kind,
+		DisplayName:      platform.DisplayName,
+		TargetPath:       platform.TargetPath,
+		State:            StateAbsent,
+		Detail:           "artifact not installed",
+		ExpectedEvents:   platformRuntimeEvents(platform),
+		SurfaceEvents:    platformSurfaceEvents(platform),
+		remediation:      hookInstallRemediation(platform.Kind, root, false),
+		targetExecutable: true,
 	}
+	generated, generateErr := Generate(platform.Kind)
+	report.Generated = generateErr == nil
 	target := filepath.Join(root, filepath.FromSlash(platform.TargetPath))
 	defaultTarget := target
 	if platform.Activation.Mode == ActivationGitPath {
@@ -207,10 +198,20 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 			report.TargetPath = displayPath
 		}
 	}
-	data, err := readManagedArtifact(target)
+	snapshot, err := readManagedArtifactSnapshot(target)
+	if err == nil && !snapshot.exists {
+		err = &os.PathError{Op: "open", Path: target, Err: os.ErrNotExist}
+	}
+	data := snapshot.body
+	if err == nil {
+		report.Installed = true
+		if platform.Executable {
+			report.targetExecutable = execfile.ModeIsExecutable(snapshot.info.Mode())
+		}
+	}
 	if platform.Kind == KindKilo && err == nil && platform.Activation.LegacyArtifactPath != "" {
 		legacyTarget := filepath.Join(root, filepath.FromSlash(platform.Activation.LegacyArtifactPath))
-		if _, legacyErr := readManagedArtifact(legacyTarget); legacyErr == nil {
+		if legacySnapshot, legacyErr := readManagedArtifactSnapshot(legacyTarget); legacyErr == nil && legacySnapshot.exists {
 			report.State = StateDegraded
 			report.Detail = "canonical and legacy Kilo plugins both exist; remove the legacy copy after confirming it is not user-owned"
 			report.remediation = manualRemediation("Review and remove only the confirmed Reconc-owned legacy Kilo plugin; automatic repair will not delete either copy.")
@@ -219,10 +220,14 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 	}
 	if os.IsNotExist(err) && platform.Activation.LegacyArtifactPath != "" {
 		legacyTarget := filepath.Join(root, filepath.FromSlash(platform.Activation.LegacyArtifactPath))
-		if legacyData, legacyErr := readManagedArtifact(legacyTarget); legacyErr == nil {
-			data = legacyData
+		if legacySnapshot, legacyErr := readManagedArtifactSnapshot(legacyTarget); legacyErr == nil && legacySnapshot.exists {
+			data = legacySnapshot.body
 			err = nil
 			target = legacyTarget
+			report.Installed = true
+			if platform.Executable {
+				report.targetExecutable = execfile.ModeIsExecutable(legacySnapshot.info.Mode())
+			}
 			report.TargetPath = platform.Activation.LegacyArtifactPath
 			report.Detail = "legacy artifact path is selected; reinstall to migrate to " + platform.TargetPath
 			report.remediation = manualRemediation("Review ownership, remove the legacy Kilo plugin, then install the canonical plugin; a one-step install would leave both copies active.")
@@ -230,13 +235,26 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 	}
 	if err != nil {
 		if platform.Activation.Mode == ActivationGitPath && os.IsNotExist(err) && filepath.Clean(target) != filepath.Clean(defaultTarget) {
-			if _, defaultErr := os.Stat(defaultTarget); defaultErr == nil {
+			if defaultSnapshot, defaultErr := readManagedArtifactSnapshot(defaultTarget); defaultErr == nil && defaultSnapshot.exists {
 				report.State = StateShadowed
+				report.Installed = true
+				report.targetExecutable = false
 				report.Detail = "git core.hooksPath selects " + report.TargetPath + " but the managed hook exists only at " + platform.TargetPath
 				return report
 			}
 		}
 		if !os.IsNotExist(err) {
+			if platform.Activation.Mode == ActivationGitPath && filepath.Clean(target) != filepath.Clean(defaultTarget) {
+				if defaultSnapshot, defaultErr := readManagedArtifactSnapshot(defaultTarget); defaultErr == nil && defaultSnapshot.exists {
+					report.Installed = true
+				}
+			}
+			if platform.Activation.LegacyArtifactPath != "" {
+				legacyTarget := filepath.Join(root, filepath.FromSlash(platform.Activation.LegacyArtifactPath))
+				if legacySnapshot, legacyErr := readManagedArtifactSnapshot(legacyTarget); legacyErr == nil && legacySnapshot.exists {
+					report.Installed = true
+				}
+			}
 			report.State = StateDegraded
 			report.Detail = "artifact is unreadable: " + err.Error()
 			report.remediation = manualRemediation("Repair the artifact path or permissions, then rerun hook status; forced installation cannot safely repair an unreadable target.")
@@ -249,12 +267,11 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 		report.remediation = hookInstallRemediation(platform.Kind, root, true)
 		return report
 	}
-	if platform.Executable && !executableFile(target) {
+	if platform.Executable && !report.targetExecutable {
 		report.State = StateDegraded
 		report.Detail = "artifact is installed but not executable; reinstall the hook"
 		return report
 	}
-	generated, generateErr := Generate(platform.Kind)
 	if generateErr != nil {
 		report.State = StateDegraded
 		report.Detail = "cannot generate current artifact contract: " + generateErr.Error()
@@ -439,18 +456,6 @@ func inspectPiProjectTrust(root string) (bool, string, remediationPlan, error) {
 			"artifact is installed; Pi will ask for project trust interactively and skips it in non-interactive modes until trust is saved or --approve is used",
 			hostRemediation("Start Pi in this repository, approve the project-trust prompt, and restart Pi. For one non-interactive run:", remediationCommand{Program: "pi", Args: []string{"--approve"}}), nil
 	}
-}
-
-func wrapperSafeForRecommendedInstall(root string) bool {
-	path := filepath.Join(root, filepath.FromSlash(WrapperPath))
-	data, err := readManagedArtifact(path)
-	if os.IsNotExist(err) {
-		return true
-	}
-	if err != nil {
-		return false
-	}
-	return wrapperManagedArtifact(data)
 }
 
 func managedPlatformArtifact(kind string, data []byte) bool {

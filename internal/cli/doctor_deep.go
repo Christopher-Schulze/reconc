@@ -55,6 +55,42 @@ type doctorCheck struct {
 	Detail string `json:"detail"`
 }
 
+type doctorAnalysisContext struct {
+	bundle    *ingest.SourceBundle
+	bundleErr error
+	parsed    *parser.ParsedPolicy
+	parseErr  error
+	parsedSet bool
+}
+
+func newDoctorAnalysisContext(discovery ingest.DiscoveryResult) *doctorAnalysisContext {
+	analysis := &doctorAnalysisContext{}
+	if !discovery.Discovered {
+		return analysis
+	}
+	context, err := ingest.NewSourceLoadContextFromDiscovery(discovery)
+	if err != nil {
+		analysis.bundleErr = err
+		return analysis
+	}
+	analysis.bundle, analysis.bundleErr = ingest.LoadPolicySourcesWithContext(context)
+	return analysis
+}
+
+func (analysis *doctorAnalysisContext) parsedPolicy() (*parser.ParsedPolicy, error) {
+	if analysis == nil {
+		return nil, fmt.Errorf("doctor analysis context is nil")
+	}
+	if analysis.bundleErr != nil {
+		return nil, analysis.bundleErr
+	}
+	if !analysis.parsedSet {
+		analysis.parsed, analysis.parseErr = parser.ParseRuleDocuments(analysis.bundle)
+		analysis.parsedSet = true
+	}
+	return analysis.parsed, analysis.parseErr
+}
+
 func (r *doctorDeepReport) hasFail() bool {
 	for _, check := range r.Checks {
 		if check.Status == doctorStatusFail {
@@ -69,6 +105,7 @@ func buildDoctorDeepReport(repo string) (*doctorDeepReport, error) {
 	if err != nil {
 		return nil, err
 	}
+	analysis := newDoctorAnalysisContext(discovery)
 	report := &doctorDeepReport{
 		RepoRoot: discovery.RepoRoot,
 		Deep:     true,
@@ -76,12 +113,12 @@ func buildDoctorDeepReport(repo string) (*doctorDeepReport, error) {
 			doctorCheckHookRuntimeCompatibility(discovery),
 			doctorCheckGrokRuntime(discovery),
 			doctorCheckGrokLeaderSteering(discovery),
-			doctorCheckLockfileFreshness(discovery),
+			doctorCheckLockfileFreshness(discovery, analysis),
 			doctorCheckMCPPolicy(discovery),
 			doctorCheckAuditSize(discovery),
-			doctorCheckUnknownRefs(discovery),
+			doctorCheckUnknownRefs(discovery, analysis),
 			doctorCheckSessionClaims(discovery),
-			doctorCheckConflictCount(discovery),
+			doctorCheckConflictCount(discovery, analysis),
 		},
 	}
 	return report, nil
@@ -315,7 +352,7 @@ func doctorCheckHookRuntimeCompatibility(discovery ingest.DiscoveryResult) docto
 	}
 }
 
-func doctorCheckLockfileFreshness(discovery ingest.DiscoveryResult) doctorCheck {
+func doctorCheckLockfileFreshness(discovery ingest.DiscoveryResult, analysis *doctorAnalysisContext) doctorCheck {
 	check := doctorCheck{
 		Name:   "lockfile freshness",
 		Status: doctorStatusFail,
@@ -324,7 +361,18 @@ func doctorCheckLockfileFreshness(discovery ingest.DiscoveryResult) doctorCheck 
 		check.Detail = firstDiscoveryWarning(discovery, "no reconc policy markers discovered")
 		return check
 	}
-	if err := runtime.ValidatePolicyLockfile(discovery.RepoRoot); err != nil {
+	if analysis == nil || analysis.bundleErr != nil {
+		if analysis == nil {
+			check.Detail = "doctor analysis context is nil"
+		} else {
+			check.Detail = analysis.bundleErr.Error()
+		}
+		return check
+	}
+	// The snapshot validator reparses only on this already-failing path so its
+	// established refresh-required error context remains unchanged.
+	parsed, _ := analysis.parsedPolicy()
+	if err := runtime.ValidatePolicyLockfileSnapshot(discovery.RepoRoot, analysis.bundle, parsed); err != nil {
 		check.Detail = err.Error()
 		return check
 	}
@@ -387,7 +435,7 @@ func doctorCheckAuditSize(discovery ingest.DiscoveryResult) doctorCheck {
 	return check
 }
 
-func doctorCheckUnknownRefs(discovery ingest.DiscoveryResult) doctorCheck {
+func doctorCheckUnknownRefs(discovery ingest.DiscoveryResult, analysis *doctorAnalysisContext) doctorCheck {
 	check := doctorCheck{
 		Name:   "preset/template references",
 		Status: doctorStatusFail,
@@ -397,7 +445,17 @@ func doctorCheckUnknownRefs(discovery ingest.DiscoveryResult) doctorCheck {
 		return check
 	}
 
-	presetRefs, templateRefs, err := collectDoctorRefs(discovery)
+	var presetRefs, templateRefs []string
+	var err error
+	if analysis == nil {
+		check.Detail = "doctor analysis context is nil"
+		return check
+	}
+	if analysis.bundleErr != nil {
+		presetRefs, templateRefs, err = collectDoctorRefsFromDiscovery(discovery)
+	} else {
+		presetRefs, templateRefs, err = collectDoctorRefs(analysis.bundle)
+	}
 	if err != nil {
 		check.Detail = err.Error()
 		return check
@@ -489,7 +547,7 @@ func doctorCheckSessionClaims(discovery ingest.DiscoveryResult) doctorCheck {
 	return check
 }
 
-func doctorCheckConflictCount(discovery ingest.DiscoveryResult) doctorCheck {
+func doctorCheckConflictCount(discovery ingest.DiscoveryResult, analysis *doctorAnalysisContext) doctorCheck {
 	check := doctorCheck{
 		Name:   "rule conflicts",
 		Status: doctorStatusFail,
@@ -499,12 +557,7 @@ func doctorCheckConflictCount(discovery ingest.DiscoveryResult) doctorCheck {
 		return check
 	}
 
-	bundle, err := ingest.LoadPolicySources(discovery.RepoRoot)
-	if err != nil {
-		check.Detail = err.Error()
-		return check
-	}
-	parsed, err := parser.ParseRuleDocuments(bundle)
+	parsed, err := analysis.parsedPolicy()
 	if err != nil {
 		check.Detail = err.Error()
 		return check
@@ -520,12 +573,47 @@ func doctorCheckConflictCount(discovery ingest.DiscoveryResult) doctorCheck {
 	return check
 }
 
-func collectDoctorRefs(discovery ingest.DiscoveryResult) ([]string, []string, error) {
+func collectDoctorRefs(bundle *ingest.SourceBundle) ([]string, []string, error) {
+	if bundle == nil {
+		return nil, nil, fmt.Errorf("policy source bundle is nil")
+	}
+	presetSet := map[string]struct{}{}
+	templateSet := map[string]struct{}{}
+	for _, source := range bundle.Sources {
+		if source.Kind == policy.SourceCompilerConfig {
+			names, err := extractPresetRefs(source.Content, source.Path)
+			if err != nil {
+				return nil, nil, err
+			}
+			for _, name := range names {
+				presetSet[name] = struct{}{}
+			}
+		}
+		if source.Kind != policy.SourceCompilerConfig && source.Kind != policy.SourceInlineBlock && source.Kind != policy.SourcePolicyFile {
+			continue
+		}
+		label := source.Path
+		if source.Kind == policy.SourceInlineBlock {
+			label += " inline block"
+		}
+		names, err := extractTemplateRefs(source.Content, label)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, name := range names {
+			templateSet[name] = struct{}{}
+		}
+	}
+
+	return sortedStringSet(presetSet), sortedStringSet(templateSet), nil
+}
+
+func collectDoctorRefsFromDiscovery(discovery ingest.DiscoveryResult) ([]string, []string, error) {
 	presetSet := map[string]struct{}{}
 	templateSet := map[string]struct{}{}
 	totalBytes := int64(0)
 	if discovery.ConfigPath != nil {
-		body, err := readDoctorTemplateSource(discovery.RepoRoot, *discovery.ConfigPath, &totalBytes)
+		body, err := readDoctorReferenceSource(discovery.RepoRoot, *discovery.ConfigPath, &totalBytes)
 		if err != nil {
 			return nil, nil, fmt.Errorf("read compiler config: %w", err)
 		}
@@ -537,7 +625,7 @@ func collectDoctorRefs(discovery ingest.DiscoveryResult) ([]string, []string, er
 			presetSet[name] = struct{}{}
 		}
 	}
-	sources, err := loadDoctorTemplateSources(discovery, &totalBytes)
+	sources, err := loadDoctorReferenceSources(discovery, &totalBytes)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -550,17 +638,16 @@ func collectDoctorRefs(discovery ingest.DiscoveryResult) ([]string, []string, er
 			templateSet[name] = struct{}{}
 		}
 	}
-
 	return sortedStringSet(presetSet), sortedStringSet(templateSet), nil
 }
 
-type doctorTemplateSource struct {
+type doctorReferenceSource struct {
 	label   string
 	content string
 }
 
-func loadDoctorTemplateSources(discovery ingest.DiscoveryResult, totalBytes *int64) ([]doctorTemplateSource, error) {
-	out := []doctorTemplateSource{}
+func loadDoctorReferenceSources(discovery ingest.DiscoveryResult, totalBytes *int64) ([]doctorReferenceSource, error) {
+	out := []doctorReferenceSource{}
 	for _, entry := range []struct {
 		path *string
 		md   bool
@@ -573,7 +660,7 @@ func loadDoctorTemplateSources(discovery ingest.DiscoveryResult, totalBytes *int
 		if entry.path == nil {
 			continue
 		}
-		body, err := readDoctorTemplateSource(discovery.RepoRoot, *entry.path, totalBytes)
+		body, err := readDoctorReferenceSource(discovery.RepoRoot, *entry.path, totalBytes)
 		if err != nil {
 			return nil, err
 		}
@@ -584,23 +671,23 @@ func loadDoctorTemplateSources(discovery ingest.DiscoveryResult, totalBytes *int
 				return nil, fmt.Errorf("inspect inline policy blocks in %s: %w", *entry.path, err)
 			}
 			for _, block := range blocks {
-				out = append(out, doctorTemplateSource{label: *entry.path + " inline block", content: block.Content})
+				out = append(out, doctorReferenceSource{label: *entry.path + " inline block", content: block.Content})
 			}
 			continue
 		}
-		out = append(out, doctorTemplateSource{label: *entry.path, content: text})
+		out = append(out, doctorReferenceSource{label: *entry.path, content: text})
 	}
 	for _, relative := range discovery.PolicyPaths {
-		body, err := readDoctorTemplateSource(discovery.RepoRoot, relative, totalBytes)
+		body, err := readDoctorReferenceSource(discovery.RepoRoot, relative, totalBytes)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, doctorTemplateSource{label: relative, content: string(body)})
+		out = append(out, doctorReferenceSource{label: relative, content: string(body)})
 	}
 	return out, nil
 }
 
-func readDoctorTemplateSource(root, relative string, totalBytes *int64) ([]byte, error) {
+func readDoctorReferenceSource(root, relative string, totalBytes *int64) ([]byte, error) {
 	body, err := boundedio.ReadRegularFile(filepath.Join(root, relative), doctorSourceMaxBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", relative, err)

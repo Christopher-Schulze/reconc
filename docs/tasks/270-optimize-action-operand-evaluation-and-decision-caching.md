@@ -36,7 +36,7 @@ costs multiply by rule and predicate count on the MCP call hot path.
 
 ## Sub-Tasks
 
-- [ ] Profile current predicate summaries, pointer traversal, and cache identity work
+- [~] Profile current predicate summaries, pointer traversal, and cache identity work
 - [ ] Add exact immutable value count/index/encoded-size primitives
 - [ ] Migrate pointer resolution and summaries without exposing backing storage
 - [ ] Thread one verified cache identity through evaluation and storage

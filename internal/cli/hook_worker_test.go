@@ -15,6 +15,8 @@ import (
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
 
+var hookWorkerFrameBenchmarkSink []byte
+
 func TestHookWorkerProcessesOrderedRequestsAndShutdown(t *testing.T) {
 	repo := bootstrapE2ERepo(t)
 	frames := []hookWorkerRequest{
@@ -157,6 +159,59 @@ func TestReadHookWorkerFrameRejectsBoundAndEncodingFailures(t *testing.T) {
 	_, err := readHookWorkerFrameLimit(bufio.NewReader(strings.NewReader("")), 4)
 	if err != io.EOF {
 		t.Fatalf("empty stream error=%v, want EOF", err)
+	}
+}
+
+func TestReadHookWorkerFrameBoundsGrowthAllocations(t *testing.T) {
+	frame := append(bytes.Repeat([]byte{'x'}, 200<<10), '\n')
+	allocations := testing.AllocsPerRun(25, func() {
+		reader := bufio.NewReaderSize(bytes.NewReader(frame), hookWorkerReadBuffer)
+		body, err := readHookWorkerFrameLimit(reader, len(frame))
+		if err != nil {
+			t.Fatal(err)
+		}
+		hookWorkerFrameBenchmarkSink = body
+	})
+	if allocations > 4 {
+		t.Fatalf("200 KiB worker frame allocations = %.1f, want <= 4", allocations)
+	}
+}
+
+func BenchmarkReadHookWorkerFrame(b *testing.B) {
+	for _, benchmark := range []struct {
+		name string
+		size int
+	}{
+		{name: "4KiB", size: 4 << 10},
+		{name: "64KiB", size: 64 << 10},
+		{name: "256KiB", size: 256 << 10},
+		{name: "1MiB", size: 1 << 20},
+	} {
+		b.Run(benchmark.name, func(b *testing.B) {
+			benchmarkReadHookWorkerFrame(b, benchmark.size)
+		})
+	}
+}
+
+func BenchmarkHookWorkerFrameRepresentativeCalibrated(b *testing.B) {
+	benchmarkReadHookWorkerFrame(b, 64<<10)
+}
+
+func BenchmarkHookWorkerFrameLarge(b *testing.B) {
+	benchmarkReadHookWorkerFrame(b, 1<<20)
+}
+
+func benchmarkReadHookWorkerFrame(b *testing.B, size int) {
+	frame := append(bytes.Repeat([]byte{'x'}, size), '\n')
+	b.ReportAllocs()
+	b.SetBytes(int64(size))
+	for b.Loop() {
+		reader := bufio.NewReaderSize(bytes.NewReader(frame), hookWorkerReadBuffer)
+		body, err := readHookWorkerFrameLimit(reader, len(frame))
+		if err != nil {
+			b.Fatal(err)
+		}
+		hookWorkerFrameBenchmarkSink = body
 	}
 }
 

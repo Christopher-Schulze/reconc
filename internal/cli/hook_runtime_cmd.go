@@ -15,8 +15,40 @@ import (
 	"reconc.dev/reconc/internal/runtime/agentsession"
 )
 
-func dedupToFirstClassRoute(root agentsession.ResolvedRepoRoot, sourceRuntime, firstClassKind, event string, stderr io.Writer) bool {
-	report, err := hooks.InspectPlatform(root.Path(), firstClassKind)
+type firstClassRouteReadiness struct {
+	entries [3]firstClassRouteReadinessEntry
+	count   int
+	inspect func(string, string) (hooks.PlatformStatus, error)
+}
+
+type firstClassRouteReadinessEntry struct {
+	kind   string
+	report hooks.PlatformStatus
+	err    error
+}
+
+func newFirstClassRouteReadiness() *firstClassRouteReadiness {
+	return &firstClassRouteReadiness{
+		inspect: hooks.InspectPlatform,
+	}
+}
+
+func (readiness *firstClassRouteReadiness) platform(root, kind string) (hooks.PlatformStatus, error) {
+	for index := 0; index < readiness.count; index++ {
+		if readiness.entries[index].kind == kind {
+			return readiness.entries[index].report, readiness.entries[index].err
+		}
+	}
+	report, err := readiness.inspect(root, kind)
+	if readiness.count < len(readiness.entries) {
+		readiness.entries[readiness.count] = firstClassRouteReadinessEntry{kind: kind, report: report, err: err}
+		readiness.count++
+	}
+	return report, err
+}
+
+func dedupToFirstClassRoute(readiness *firstClassRouteReadiness, root agentsession.ResolvedRepoRoot, sourceRuntime, firstClassKind, event string, stderr io.Writer) bool {
+	report, err := readiness.platform(root.Path(), firstClassKind)
 	if err != nil || report.State != hooks.StateConfigured {
 		return false
 	}
@@ -167,18 +199,19 @@ func runHookRuntimeWithResolverEvaluatorAndStopCache(
 	}
 	repo = root.Path()
 	timing.mark("root_resolve")
+	readiness := newFirstClassRouteReadiness()
 	if route.PlatformKind != hooks.KindCursor && agentsession.PayloadLooksLikeCursor(payload) {
-		if dedupToFirstClassRoute(root, route.PlatformKind, hooks.KindCursor, event, stderr) {
+		if dedupToFirstClassRoute(readiness, root, route.PlatformKind, hooks.KindCursor, event, stderr) {
 			return nil
 		}
 	}
 	if route.PlatformKind != hooks.KindDevinCLI && agentsession.PayloadLooksLikeDevin(payload, repo) {
-		if dedupToFirstClassRoute(root, route.PlatformKind, hooks.KindDevinCLI, event, stderr) {
+		if dedupToFirstClassRoute(readiness, root, route.PlatformKind, hooks.KindDevinCLI, event, stderr) {
 			return nil
 		}
 	}
 	if route.PlatformKind != hooks.KindGrok && agentsession.PayloadLooksLikeGrok(payload) {
-		if dedupToFirstClassRoute(root, route.PlatformKind, hooks.KindGrok, event, stderr) {
+		if dedupToFirstClassRoute(readiness, root, route.PlatformKind, hooks.KindGrok, event, stderr) {
 			return nil
 		}
 	}

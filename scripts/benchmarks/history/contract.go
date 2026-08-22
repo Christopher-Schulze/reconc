@@ -17,7 +17,7 @@ const (
 	resultFormat     = "reconc.benchmark-result/v1"
 	baselineFormat   = "reconc.benchmark-baseline/v1"
 	comparisonFormat = "reconc.benchmark-comparison/v1"
-	suiteVersion     = "reconc.performance-history/v2"
+	suiteVersion     = "reconc.performance-history/v3"
 	maxContractBytes = 4 << 20
 )
 
