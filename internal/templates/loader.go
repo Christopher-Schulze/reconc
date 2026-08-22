@@ -82,24 +82,22 @@ func Resolve(name string) (*Template, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve user template directory: %w", err)
 	}
-	if home != "" {
-		path := filepath.Join(home, cleaned+".yml")
-		if data, err := readRegularFile(path); err == nil {
-			body, description, perr := parseTemplateBytes(data, path)
-			if perr != nil {
-				return nil, perr
-			}
-			return &Template{
-				Name: cleaned, Description: description, Source: SourceUser,
-				Path: path, Body: body,
-			}, nil
-		} else if !os.IsNotExist(err) {
-			return nil, fmt.Errorf("read user template %s: %w", cleaned, err)
+	path := filepath.Join(home, cleaned+".yml")
+	if data, err := readRegularFile(path); err == nil {
+		body, description, perr := parseTemplateBytes(data, path)
+		if perr != nil {
+			return nil, perr
 		}
+		return &Template{
+			Name: cleaned, Description: description, Source: SourceUser,
+			Path: path, Body: body,
+		}, nil
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("read user template %s: %w", cleaned, err)
 	}
 
 	// Built-in fallback.
-	path := "builtin/" + cleaned + ".yml"
+	path = "builtin/" + cleaned + ".yml"
 	data, err := builtinFS.ReadFile(path)
 	if err != nil {
 		return nil, &ErrNotFound{Name: cleaned}
@@ -152,32 +150,30 @@ func List() ([]Template, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve user template directory: %w", err)
 	}
-	if home != "" {
-		entries, err := boundedio.ReadDirNoSymlink(home, maxUserTemplateEntries)
-		if err != nil && !os.IsNotExist(err) {
-			return nil, fmt.Errorf("list user templates: %w", err)
+	userEntries, err := boundedio.ReadDirNoSymlink(home, maxUserTemplateEntries)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("list user templates: %w", err)
+	}
+	for _, e := range userEntries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yml") {
+			continue
 		}
-		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".yml") {
-				continue
-			}
-			name := strings.TrimSuffix(e.Name(), ".yml")
-			if _, err := safename.Normalize("template", name); err != nil {
-				return nil, err
-			}
-			path := filepath.Join(home, e.Name())
-			data, err := readRegularFile(path)
-			if err != nil {
-				return nil, fmt.Errorf("read user template %s: %w", name, err)
-			}
-			body, description, err := parseTemplateBytes(data, path)
-			if err != nil {
-				return nil, err
-			}
-			out[name] = Template{
-				Name: name, Description: description, Source: SourceUser,
-				Path: path, Body: body,
-			}
+		name := strings.TrimSuffix(e.Name(), ".yml")
+		if _, err := safename.Normalize("template", name); err != nil {
+			return nil, err
+		}
+		path := filepath.Join(home, e.Name())
+		data, err := readRegularFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read user template %s: %w", name, err)
+		}
+		body, description, err := parseTemplateBytes(data, path)
+		if err != nil {
+			return nil, err
+		}
+		out[name] = Template{
+			Name: name, Description: description, Source: SourceUser,
+			Path: path, Body: body,
 		}
 	}
 
@@ -251,9 +247,6 @@ func parseTemplateBytes(data []byte, contextPath string) (map[string]interface{}
 	if d, ok := parsed["description"].(string); ok {
 		description = d
 	}
-	// YAML unmarshal produces map[interface{}]interface{} for nested
-	// maps by default; yaml.v3 uses map[string]interface{}. We do a
-	// shallow normalisation just in case.
 	normalised := normaliseStringKeyedMap(parsed)
 	return normalised, description, nil
 }
@@ -268,14 +261,6 @@ func normaliseStringKeyedMap(in map[string]interface{}) map[string]interface{} {
 
 func normaliseValue(v interface{}) interface{} {
 	switch x := v.(type) {
-	case map[interface{}]interface{}:
-		out := map[string]interface{}{}
-		for k, val := range x {
-			if ks, ok := k.(string); ok {
-				out[ks] = normaliseValue(val)
-			}
-		}
-		return out
 	case map[string]interface{}:
 		return normaliseStringKeyedMap(x)
 	case []interface{}:

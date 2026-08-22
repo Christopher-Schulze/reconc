@@ -5,9 +5,11 @@ import (
 	"testing"
 )
 
-func TestEnableCodexHooksPreservesUnrelatedHookKey(t *testing.T) {
+func TestRenderCodexActivationPreservesUnrelatedHookKey(t *testing.T) {
+	repo := t.TempDir()
 	existing := "[other]\nhooks = true\n"
-	got, err := enableCodexHooks(existing)
+	writeBootstrapTestFile(t, repo, ".codex/config.toml", existing, 0o644)
+	got, err := renderCodexActivation(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -16,8 +18,10 @@ func TestEnableCodexHooksPreservesUnrelatedHookKey(t *testing.T) {
 	}
 }
 
-func TestEnableCodexHooksReplacesFalseFeatureWithoutDuplication(t *testing.T) {
-	got, err := enableCodexHooks("[features]\nhooks = false\nexperimental = true\n")
+func TestRenderCodexActivationReplacesFalseFeatureWithoutDuplication(t *testing.T) {
+	repo := t.TempDir()
+	writeBootstrapTestFile(t, repo, ".codex/config.toml", "[features]\nhooks = false\nexperimental = true\n", 0o644)
+	got, err := renderCodexActivation(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,13 +30,15 @@ func TestEnableCodexHooksReplacesFalseFeatureWithoutDuplication(t *testing.T) {
 	}
 }
 
-func TestEnableCodexHooksRejectsAmbiguousFeatureTable(t *testing.T) {
+func TestRenderCodexActivationRejectsAmbiguousFeatureTable(t *testing.T) {
 	for _, existing := range []string{
 		"[features]\nhooks = true\n[features]\nexperimental = true\n",
 		"[features]\nhooks = true\nhooks = false\n",
 		"hooks = true\n",
 	} {
-		if _, err := enableCodexHooks(existing); err == nil {
+		repo := t.TempDir()
+		writeBootstrapTestFile(t, repo, ".codex/config.toml", existing, 0o644)
+		if _, err := renderCodexActivation(repo); err == nil {
 			t.Fatalf("ambiguous Codex TOML was accepted: %q", existing)
 		}
 	}

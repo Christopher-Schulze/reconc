@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"encoding/json"
+	"math"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -147,6 +149,7 @@ func TestRuntimeIntegerFormattingContracts(t *testing.T) {
 		{value: 7, want: "7"},
 		{value: -42, want: "-42"},
 		{value: 12345, want: "12345"},
+		{value: math.MinInt, want: strconv.FormatInt(int64(math.MinInt), 10)},
 	} {
 		if got := itoa(test.value); got != test.want {
 			t.Fatalf("itoa(%d) = %q, want %q", test.value, got, test.want)

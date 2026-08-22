@@ -113,26 +113,8 @@ func splitCommaList(s string) []string {
 	return out
 }
 
-// itoaCLI is a local int->string used in session-briefing messages.
-// Avoids pulling strconv into this file for one format site.
 func itoaCLI(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	digits := []byte{}
-	neg := false
-	if n < 0 {
-		neg = true
-		n = -n
-	}
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	if neg {
-		return "-" + string(digits)
-	}
-	return string(digits)
+	return strconv.Itoa(n)
 }
 
 // sortedMapKeys returns a map's keys alphabetically for stable display.

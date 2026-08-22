@@ -287,9 +287,6 @@ func Suggest(name string) string {
 			bestDistance = distance
 		}
 	}
-	if bestDistance > 2 {
-		return ""
-	}
 	return best
 }
 

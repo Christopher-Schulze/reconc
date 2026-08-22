@@ -16,11 +16,15 @@ func TestCompileCapturesAuthoritativeSourcesWhileHoldingPublicationLock(t *testi
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
 	writeFile(t, repo, "AGENTS.md", "# old\n")
+	discovery, err := ingest.DiscoverPolicyRepo(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
 	loaderEntered := make(chan struct{})
 	continueLoad := make(chan struct{})
 	result := make(chan error, 1)
 	go func() {
-		_, err := compileRepoPolicyWithLoader(repo, "test", func(startPath string) (*ingest.SourceBundle, error) {
+		_, err := compileRepoPolicyWithDiscovery(discovery, "test", func() (*ingest.SourceBundle, error) {
 			root := repo
 			close(loaderEntered)
 			if release, lockErr := AcquireCompileLock(root); lockErr == nil {
@@ -30,7 +34,7 @@ func TestCompileCapturesAuthoritativeSourcesWhileHoldingPublicationLock(t *testi
 				return nil, lockErr
 			}
 			<-continueLoad
-			return ingest.LoadPolicySources(startPath)
+			return ingest.LoadPolicySources(repo)
 		})
 		result <- err
 	}()
@@ -70,8 +74,12 @@ func TestCompileRejectsRepositoryRootDriftAfterLockAcquisition(t *testing.T) {
 	t.Setenv("RECONC_HOME", t.TempDir())
 	repo := t.TempDir()
 	writeFile(t, repo, "AGENTS.md", "# policy\n")
+	discovery, err := ingest.DiscoverPolicyRepo(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
 	other := t.TempDir()
-	_, err := compileRepoPolicyWithLoader(repo, "test", func(string) (*ingest.SourceBundle, error) {
+	_, err = compileRepoPolicyWithDiscovery(discovery, "test", func() (*ingest.SourceBundle, error) {
 		return &ingest.SourceBundle{RepoRoot: other}, nil
 	})
 	if err == nil || !strings.Contains(err.Error(), "root changed") {

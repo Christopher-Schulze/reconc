@@ -255,9 +255,6 @@ func ApplyDeltaManifest(report Report, manifest DeltaManifest, now time.Time) (R
 			unreviewed = append(unreviewed, comparison.ID)
 		}
 	}
-	if len(matched) != len(manifest.Entries) {
-		return Report{}, fmt.Errorf("impact delta manifest did not match every entry")
-	}
 	out.DeltaGate = DeltaGate{
 		Passed: reviewedCount == len(required), RequiredCount: len(required),
 		ReviewedCount: reviewedCount, UnreviewedCases: unreviewed,

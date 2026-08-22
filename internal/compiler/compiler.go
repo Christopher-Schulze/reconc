@@ -123,20 +123,6 @@ func CompileRepoPolicy(repoStartPath, compilerVersion string) (compiled *Compile
 	})
 }
 
-func compileRepoPolicyWithLoader(
-	repoStartPath string,
-	compilerVersion string,
-	load func(string) (*ingest.SourceBundle, error),
-) (compiled *CompiledPolicy, err error) {
-	discovery, err := ingest.DiscoverPolicyRepo(repoStartPath)
-	if err != nil {
-		return nil, err
-	}
-	return compileRepoPolicyWithDiscovery(discovery, compilerVersion, func() (*ingest.SourceBundle, error) {
-		return load(repoStartPath)
-	})
-}
-
 func compileRepoPolicyWithDiscovery(discovery ingest.DiscoveryResult, compilerVersion string, load func() (*ingest.SourceBundle, error)) (compiled *CompiledPolicy, err error) {
 	if !discovery.Discovered {
 		_, loadErr := load()

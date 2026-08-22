@@ -122,10 +122,7 @@ func Scan(repoRoot string, files []string, tokenBudget int) (ScanReport, error) 
 		}
 		out.Files = append(out.Files, fr)
 	}
-	// Deterministic order by descending token count, then alpha for
-	// readable default output. Original insertion order is lost but
-	// that's fine -- callers can ask for it via --order=path if ever
-	// needed.
+	// Deterministic order by descending token count, then path.
 	sort.SliceStable(out.Files, func(i, j int) bool {
 		if out.Files[i].ApproxTokens != out.Files[j].ApproxTokens {
 			return out.Files[i].ApproxTokens > out.Files[j].ApproxTokens

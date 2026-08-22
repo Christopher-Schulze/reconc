@@ -141,10 +141,6 @@ func renderCodexActivation(root string) (string, error) {
 	return content, nil
 }
 
-func enableCodexHooks(existing string) (string, error) {
-	return hooks.RenderCodexActivation(existing, true)
-}
-
 func renderManagedFile(root, relative, start, end, block string) (string, error) {
 	path := filepath.Join(root, filepath.FromSlash(relative))
 	info, err := os.Lstat(path)

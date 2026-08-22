@@ -3,9 +3,11 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -46,9 +48,10 @@ func TestCLIFormattingHelpers(t *testing.T) {
 
 	t.Run("itoaCLI", func(t *testing.T) {
 		cases := map[int]string{
-			0:   "0",
-			17:  "17",
-			-42: "-42",
+			0:           "0",
+			17:          "17",
+			-42:         "-42",
+			math.MinInt: strconv.FormatInt(int64(math.MinInt), 10),
 		}
 		for in, want := range cases {
 			if got := itoaCLI(in); got != want {

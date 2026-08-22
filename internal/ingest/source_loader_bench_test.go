@@ -101,20 +101,6 @@ func BenchmarkParseRepositoryConfigOnce(b *testing.B) {
 	}
 }
 
-func BenchmarkParseRepositoryConfigTwice(b *testing.B) {
-	config := "include:\n  - policies/*.yml\nextends:\n  - default\n"
-	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
-		if _, err := loadIncludePatterns(config, ".reconc.yml"); err != nil {
-			b.Fatal(err)
-		}
-		if _, err := loadPresetNames(config, ".reconc.yml"); err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
 func writeBenchSource(b *testing.B, root, relative, content string) {
 	b.Helper()
 	path := filepath.Join(root, relative)

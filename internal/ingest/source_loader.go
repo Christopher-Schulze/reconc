@@ -185,12 +185,11 @@ func LoadPolicySourcesWithContext(context *SourceLoadContext) (*SourceBundle, er
 
 	// 7. Policy file fragments (sorted, deduplicated).
 	includePatterns = sortedUniquePolicyGlobPatterns(includePatterns)
-	fragmentSources, fragmentWarnings, err := loadPolicyFragmentSourcesWithDefaults(root, includePatterns, context.defaultMatches)
+	fragmentSources, err := loadPolicyFragmentSourcesWithDefaults(root, includePatterns, context.defaultMatches)
 	if err != nil {
 		return nil, err
 	}
 	sources = append(sources, fragmentSources...)
-	discovery.Warnings = append(discovery.Warnings, fragmentWarnings...)
 
 	// 8. Declarative custom runtime manifests. They are not policy YAML, but
 	// their exact bytes participate in the same source identity.
@@ -385,16 +384,6 @@ func isInlineClosingLine(line string) bool {
 	return strings.HasPrefix(line, "```") && strings.Trim(line[3:], " \t") == ""
 }
 
-// loadIncludePatterns parses the `include:` field of a compiler config
-// document into a sanitized list of repo-relative glob patterns.
-func loadIncludePatterns(configText, context string) ([]string, error) {
-	doc, err := decodeYAMLMapping(configText, context)
-	if err != nil {
-		return nil, err
-	}
-	return loadIncludePatternsDocument(doc, context)
-}
-
 func loadIncludePatternsDocument(doc map[string]interface{}, context string) ([]string, error) {
 	raw, ok := doc["include"]
 	if !ok || raw == nil {
@@ -424,16 +413,6 @@ func loadIncludePatternsDocument(doc map[string]interface{}, context string) ([]
 		return nil, &rerrors.PolicySourceError{Message: err.Error()}
 	}
 	return out, nil
-}
-
-// loadPresetNames parses the `extends:` field of a compiler config
-// document into a deduplicated list of preset names.
-func loadPresetNames(configText, context string) ([]string, error) {
-	doc, err := decodeYAMLMapping(configText, context)
-	if err != nil {
-		return nil, err
-	}
-	return loadPresetNamesDocument(doc, context)
 }
 
 func loadPresetNamesDocument(doc map[string]interface{}, context string) ([]string, error) {
@@ -491,9 +470,9 @@ func loadPresetSources(names []string) ([]policy.PolicySource, error) {
 	return out, nil
 }
 
-func loadPolicyFragmentSourcesWithDefaults(root string, patterns []string, defaultMatches map[string][]string) ([]policy.PolicySource, []string, error) {
+func loadPolicyFragmentSourcesWithDefaults(root string, patterns []string, defaultMatches map[string][]string) ([]policy.PolicySource, error) {
 	if err := validatePolicyGlobPatterns(patterns); err != nil {
-		return nil, nil, &rerrors.PolicySourceError{Message: err.Error()}
+		return nil, &rerrors.PolicySourceError{Message: err.Error()}
 	}
 	// Dedupe + sort patterns first so glob expansion is deterministic.
 	uniquePatterns := sortedUniquePolicyGlobPatterns(patterns)
@@ -511,7 +490,7 @@ func loadPolicyFragmentSourcesWithDefaults(root string, patterns []string, defau
 			var err error
 			matches, err = boundedPolicyGlob(root, pattern)
 			if err != nil {
-				return nil, nil, &rerrors.PolicySourceError{
+				return nil, &rerrors.PolicySourceError{
 					Message: "expand include pattern " + pattern,
 					Cause:   err,
 				}
@@ -534,14 +513,14 @@ func loadPolicyFragmentSourcesWithDefaults(root string, patterns []string, defau
 			seen[rel] = struct{}{}
 			data, err := readRepositorySource(root, rel)
 			if err != nil {
-				return nil, nil, &rerrors.PolicySourceError{
+				return nil, &rerrors.PolicySourceError{
 					Message: "read policy fragment " + rel,
 					Cause:   err,
 				}
 			}
 			totalBytes += int64(len(data))
 			if len(out) >= maxPolicySources || totalBytes > maxPolicyBundleBytes {
-				return nil, nil, &rerrors.PolicySourceError{Message: fmt.Sprintf("policy fragments exceed %d sources or %d total bytes", maxPolicySources, maxPolicyBundleBytes)}
+				return nil, &rerrors.PolicySourceError{Message: fmt.Sprintf("policy fragments exceed %d sources or %d total bytes", maxPolicySources, maxPolicyBundleBytes)}
 			}
 			out = append(out, policy.PolicySource{
 				Kind:    policy.SourcePolicyFile,
@@ -550,7 +529,7 @@ func loadPolicyFragmentSourcesWithDefaults(root string, patterns []string, defau
 			})
 		}
 	}
-	return out, []string{}, nil
+	return out, nil
 }
 
 func sortedUniquePolicyGlobPatterns(patterns []string) []string {

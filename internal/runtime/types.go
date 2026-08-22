@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"strconv"
+
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/schema"
 )
@@ -216,24 +218,6 @@ func formatCount(n int, noun string) string {
 	return itoa(n) + " " + noun + "s"
 }
 
-// itoa is a tiny stdlib-free integer-to-string used here to avoid
-// pulling strconv into a hot path. Same shape as parser.itoa.
 func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	digits := []byte{}
-	neg := false
-	if n < 0 {
-		neg = true
-		n = -n
-	}
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	if neg {
-		return "-" + string(digits)
-	}
-	return string(digits)
+	return strconv.Itoa(n)
 }

@@ -30,14 +30,14 @@ and future agent ambiguity.
 
 ## Sub-Tasks
 
-- [~] Remove the always-empty fragment warning channel
-- [ ] Replace remaining hand-written integer formatters with `strconv`
-- [ ] Migrate tests and benchmarks off production-dead compiler and ingest helpers
-- [ ] Remove dead bootstrap/template compatibility scaffolding
-- [ ] Reconcile workflow action authorization with actual workflow use
-- [ ] Correct context-size wording and simplify unreachable control flow
-- [ ] Search for residual symbols and run focused plus full verification
-- [ ] Update documentation only where removed scaffolding was described
+- [x] Remove the always-empty fragment warning channel
+- [x] Replace remaining hand-written integer formatters with `strconv`
+- [x] Migrate tests and benchmarks off production-dead compiler and ingest helpers
+- [x] Remove dead bootstrap/template compatibility scaffolding
+- [x] Reconcile workflow action authorization with actual workflow use
+- [x] Correct context-size wording and simplify unreachable control flow
+- [x] Search for residual symbols and run focused plus full verification
+- [x] Update documentation only where removed scaffolding was described
 
 ## Notes
 
@@ -48,6 +48,21 @@ and future agent ambiguity.
   conflicts with a real implementation change.
 - No formatter, codemod, or broad rewrite is authorized. Every removal is a
   symbol-specific surgical diff with caller and test searches.
+- `actions/upload-artifact` was already absent from the current release-trust
+  allowlist and every current authorization is used by a workflow, so no script
+  edit was required for F-40.
+- The removed items were private implementation scaffolding only. No product
+  documentation described them, so the correct documentation propagation is
+  the TASK record itself rather than a user-facing contract change.
+- Focused tests passed for ingest, runtime, CLI, compiler, bootstrap, templates,
+  context size, command metadata, and Impact Lab. The retained single-parse
+  repository-config benchmark also ran successfully.
+- Residual-symbol and stale-phrase searches are empty for every removed item.
+  Current workflows use exactly the seven actions authorized by release trust.
+- `make test` passed, including formatting, publication audit, deterministic
+  harness-pack verification, full root and template race suites, and the local
+  release-trust fixture. `make vet`, `make lint`, and typed TASK validation also
+  passed.
 
 ## Deviations
 
