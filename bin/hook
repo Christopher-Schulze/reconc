@@ -97,6 +97,7 @@ reconc_target=""
 target_receipt="$repo/tools/reconc/bin/hook-target"
 if [ -f "$target_receipt" ] && [ ! -L "$target_receipt" ]; then
   if exec 3< "$target_receipt"; then
+    # shellcheck disable=SC2034 # The second read detects an unexpected extra line.
     if IFS= read -r reconc_target <&3 && ! IFS= read -r reconc_target_extra <&3; then
       case "$reconc_target" in
         tools/reconc/dist/reconc-darwin-amd64|tools/reconc/dist/reconc-darwin-arm64|tools/reconc/dist/reconc-linux-amd64|tools/reconc/dist/reconc-linux-arm64|tools/reconc/dist/reconc-windows-amd64.exe) ;;

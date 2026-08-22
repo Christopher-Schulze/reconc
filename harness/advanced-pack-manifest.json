@@ -760,8 +760,8 @@
     {
       "path": "tools/reconc/harness/template/utils/promote-task-done/run-promote-task-done",
       "mode": 493,
-      "size": 367,
-      "sha256": "97526a03890199b6caa6443b0151b64b9e644a012a9c6337e0754fb9231387ac",
+      "size": 371,
+      "sha256": "70a2d008e1a1004f91185b71473a29d7781c43d77055dfe169db5fc9023cb452",
       "ownership": "pack-file"
     },
     {
@@ -795,8 +795,8 @@
     {
       "path": "tools/reconc/harness/template/utils/reconc-prune/run-reconc-prune",
       "mode": 493,
-      "size": 357,
-      "sha256": "48f91d5ee6e69c5c911cadf516d8314e8157e668868789d1b9ffcd872ae9e08b",
+      "size": 361,
+      "sha256": "6c11a0047406cc271da016d74a47fe5c6508288c9342b6cc1ecab4bfd2d8b088",
       "ownership": "pack-file"
     },
     {
@@ -823,8 +823,8 @@
     {
       "path": "tools/reconc/harness/template/utils/task-claim/run-task-claim",
       "mode": 493,
-      "size": 265,
-      "sha256": "746c34f085f2a5f04a905a75793eb2f3c4c9e0023c363d4fb1ed6df461f386b0",
+      "size": 269,
+      "sha256": "62478789dc05de9059ab55c0961efc068867be3c80f618fbd89b9b08571cbe3b",
       "ownership": "pack-file"
     },
     {
@@ -849,6 +849,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 858038,
-  "digest": "5ade9441217f90f1d3083c101ec15cf097ff61a7d6f46eb18f53024141096e4b"
+  "total_bytes": 858050,
+  "digest": "61ac811f58195a80fc4cabff85184e02dd47434a905dbe4634c675307eb92bc7"
 }

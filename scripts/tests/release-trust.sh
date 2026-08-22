@@ -44,6 +44,23 @@ require_text() {
   grep -Fq -- "$value" "$file" || fail "$file is missing required release-trust text: $value"
 }
 
+verify_shell_syntax() {
+  local script shebang
+  while IFS= read -r script; do
+    IFS= read -r shebang < "$root/$script" || true
+    case "$shebang" in
+      '#!/bin/bash'|'#!/usr/bin/env bash')
+        bash -n "$root/$script" || return 1
+        ;;
+      '#!/bin/sh'|'#!/usr/bin/env sh')
+        sh -n "$root/$script" || return 1
+        ;;
+    esac
+  done < <(git -C "$root" grep -Il '^#!' -- .)
+}
+
+verify_shell_syntax || fail "tracked shell-script syntax check failed"
+
 action_refs() {
   sed -nE 's/^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]+([^[:space:]#]+).*/\2/p' "$1"
 }
@@ -127,14 +144,17 @@ require_text "$root/docs/documentation.md" "The current source line is \`$releas
 require_text "$root/.github/releases/reconc-v$project_version.md" "# reconc v$project_version"
 require_text "$root/Makefile" "publication-audit:"
 require_text "$root/Makefile" "reference-docs-check:"
+# shellcheck disable=SC2016 # Match the Make expression literally.
 require_text "$root/Makefile" '$(GO) run ./scripts/build/reference-docs --root . --check'
 (cd "$root" && make --no-print-directory reference-docs-check) \
   || fail "generated reference drift check failed"
 require_text "$root/Makefile" "TEST_PARALLELISM ?= 2"
 require_text "$root/Makefile" "test-fast: check-test-parallelism"
+# shellcheck disable=SC2016 # Match the Make expression literally.
 require_text "$root/Makefile" '$(GO) test -p=$(TEST_PARALLELISM) $(PKG)'
 require_text "$root/Makefile" "make coverage           -- measure root and template coverage"
 require_text "$root/scripts/tests/coverage.sh" "root module coverage: %s%%"
+# shellcheck disable=SC2016 # Match the shell expression literally.
 require_text "$root/scripts/tests/coverage.sh" '-p="$test_parallelism"'
 
 verify_coverage_review_only() {
@@ -340,7 +360,9 @@ if grep -Eq 'pull-requests:[[:space:]]*write|issues:[[:space:]]*write' "$ci_work
   fail "$ci_workflow must not create or mutate pull requests or issues"
 fi
 [ -f "$dependabot_config" ] || fail "bounded Dependabot configuration is missing"
+# shellcheck disable=SC2016 # Match the workflow shell expression literally.
 require_text "$ci_workflow" 'go test -p="$TEST_PARALLELISM" -count=1 ./...'
+# shellcheck disable=SC2016 # Match the workflow shell expression literally.
 require_text "$ci_workflow" '(cd harness/template && go test -p="$TEST_PARALLELISM" -count=1 ./...)'
 require_text "$ci_workflow" "go test -p=2 -count=1 ./..."
 require_text "$ci_workflow" "(cd harness/template && go test -p=2 -count=1 ./...)"
