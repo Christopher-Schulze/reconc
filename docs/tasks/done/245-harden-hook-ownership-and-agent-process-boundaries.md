@@ -33,14 +33,14 @@ text can evade the no-progress cap.
 
 ## Sub-Tasks
 
-- [ ] Define exact ownership signatures for every affected hook artifact
-- [ ] Replace substring ownership checks and add foreign-marker adversarial tests
-- [ ] Remove login-shell dependence from strict decision launch paths
-- [ ] Preserve explicit ZCode disablement while merging owned event entries
-- [ ] Replace inherited steering variables before spawning Grok
-- [ ] Key the no-progress cap to material progress across reason changes
-- [ ] Clarify the trusted policy-script and `HOME` environment boundary
-- [ ] Run hook generation, merge, shell, session, race, and full gates
+- [x] Define exact ownership signatures for every affected hook artifact
+- [x] Replace substring ownership checks and add foreign-marker adversarial tests
+- [x] Remove login-shell dependence from strict decision launch paths
+- [x] Preserve explicit ZCode disablement while merging owned event entries
+- [x] Replace inherited steering variables before spawning Grok
+- [x] Key the no-progress cap to material progress across reason changes
+- [x] Clarify the trusted policy-script and `HOME` environment boundary
+- [x] Run hook generation, merge, shell, session, race, and full gates
 
 ## Notes
 
@@ -48,6 +48,19 @@ text can evade the no-progress cap.
 - OMP and Pi source templates remain separate because their abort and host
   result contracts differ. This task should share helpers only where semantics
   are identical, not merely where generated text looks similar.
+- Ownership now requires a canonical generated entry, a statically parsed
+  executable position, or a byte-exact reconstruction of the variable-based
+  current/legacy resolver. Standalone artifacts use their exact first-line,
+  structured-object, or parsed-command signature.
+- Cursor and Antigravity use non-login `sh -c`; generated scaffold artifacts,
+  the harness auditor, the embedded manifest, and the deterministic archive are
+  synchronized from the generators.
+- ZCode preserves explicit disablement, Grok child environments replace all
+  inherited steering spellings before adding one disabled entry, and Grok's
+  attempt counter resets only on material-event progress or clean Stop.
+- Verification passed: focused package tests; focused race tests; Windows amd64
+  compile-only tests for hooks, Grok ACP, and runtime; `make test`; `make vet`;
+  `make lint`; `make self-host`; `go mod tidy`; and `git diff --check`.
 
 ## Deviations
 

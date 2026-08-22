@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync/atomic"
@@ -63,17 +64,46 @@ func TestRunContinuesSameGrokACPSessionUntilReconcIsClean(t *testing.T) {
 	if stdout.String() != "first turn\nsecond turn\n" {
 		t.Fatalf("streamed output = %q", stdout.String())
 	}
-	steerDisabledInAgent := false
+	steerEntries := 0
 	for _, entry := range agentCmd.Env {
 		if entry == SteerEnv+"=0" {
-			steerDisabledInAgent = true
+			steerEntries++
 		}
 	}
-	if !steerDisabledInAgent {
-		t.Fatalf("spawned agent must inherit %s=0 so hooks never leader-steer, env=%v", SteerEnv, agentCmd.Env)
+	if steerEntries != 1 {
+		t.Fatalf("spawned agent must receive exactly one %s=0 so hooks never leader-steer, env=%v", SteerEnv, agentCmd.Env)
 	}
 	if !strings.Contains(stderr.String(), "continuation 1/2") {
 		t.Fatalf("continuation status missing: %q", stderr.String())
+	}
+}
+
+func TestReplaceEnvironmentValueRemovesEveryPriorSpelling(t *testing.T) {
+	tests := []struct {
+		name            string
+		caseInsensitive bool
+		environment     []string
+		want            []string
+	}{
+		{
+			name:        "unix exact name",
+			environment: []string{"A=1", SteerEnv + "=1", SteerEnv + "=off", "B=2"},
+			want:        []string{"A=1", "B=2", SteerEnv + "=0"},
+		},
+		{
+			name:            "windows case insensitive name",
+			caseInsensitive: true,
+			environment:     []string{"A=1", "reconc_grok_steer=1", SteerEnv + "=off", "B=2"},
+			want:            []string{"A=1", "B=2", SteerEnv + "=0"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := replaceEnvironmentValue(test.environment, SteerEnv, "0", test.caseInsensitive)
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("replaceEnvironmentValue() = %#v, want %#v", got, test.want)
+			}
+		})
 	}
 }
 

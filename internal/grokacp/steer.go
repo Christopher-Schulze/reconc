@@ -1,8 +1,6 @@
 package grokacp
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -73,7 +71,7 @@ func SteerTUIStop(repoRoot string, payloadBytes []byte, stopResult agentsession.
 		return ""
 	}
 
-	attempt, allowed, err := prepareSteerAttempt(repoRoot, payload.SessionID, reason)
+	attempt, allowed, err := prepareSteerAttempt(repoRoot, payload.SessionID)
 	if err != nil {
 		return "reconc grok steer: " + err.Error()
 	}
@@ -183,20 +181,19 @@ func payloadReason(payload *agentsession.HookPayload) string {
 }
 
 type steerAttempt struct {
-	continuationKey string
-	materialEvents  uint64
+	materialEvents uint64
 }
 
 // prepareSteerAttempt validates the current no-progress series without
 // consuming budget. Only a successfully delivered interjection is committed.
-func prepareSteerAttempt(repoRoot, sessionID, reason string) (steerAttempt, bool, error) {
-	attempt := steerAttempt{continuationKey: steerContinuationKey(reason)}
+func prepareSteerAttempt(repoRoot, sessionID string) (steerAttempt, bool, error) {
+	attempt := steerAttempt{}
 	allowed := false
 	state, err := agentsession.MutateSessionState(repoRoot, sessionID, func(state agentsession.SessionState) agentsession.SessionState {
-		if state.GrokSteerContinuationKey != attempt.continuationKey || state.GrokSteerMaterialEvents != state.MaterialEvents {
+		if state.GrokSteerMaterialEvents != state.MaterialEvents {
 			state.GrokSteerAttempts = 0
 		}
-		state.GrokSteerContinuationKey = attempt.continuationKey
+		state.GrokSteerContinuationKey = ""
 		state.GrokSteerMaterialEvents = state.MaterialEvents
 		attempt.materialEvents = state.MaterialEvents
 		allowed = state.GrokSteerAttempts < maxStopSteerAttempts
@@ -214,8 +211,7 @@ func prepareSteerAttempt(repoRoot, sessionID, reason string) (steerAttempt, bool
 func commitSteerAttempt(repoRoot, sessionID string, attempt steerAttempt) (uint64, bool, error) {
 	counted := false
 	state, err := agentsession.MutateSessionState(repoRoot, sessionID, func(state agentsession.SessionState) agentsession.SessionState {
-		if state.GrokSteerContinuationKey != attempt.continuationKey ||
-			state.MaterialEvents != attempt.materialEvents ||
+		if state.MaterialEvents != attempt.materialEvents ||
 			state.GrokSteerMaterialEvents != attempt.materialEvents {
 			return state
 		}
@@ -242,18 +238,4 @@ func resetSteerBudget(repoRoot, sessionID string) error {
 		return fmt.Errorf("reset steer budget: %s", err)
 	}
 	return nil
-}
-
-func steerContinuationKey(reason string) string {
-	for _, line := range strings.Split(reason, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "Feedback:") {
-			feedback := strings.TrimSpace(strings.TrimPrefix(line, "Feedback:"))
-			if feedback != "" {
-				return "feedback:" + feedback
-			}
-		}
-	}
-	sum := sha256.Sum256([]byte(strings.TrimSpace(reason)))
-	return "reason:" + hex.EncodeToString(sum[:])
 }

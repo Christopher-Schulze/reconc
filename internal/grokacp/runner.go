@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -105,7 +106,7 @@ func run(ctx context.Context, options Options, dependencies runnerDependencies) 
 	cmd.Dir = root
 	// The runner's prompt loop is the only continuation driver for this
 	// session; hooks fired by the spawned agent must never leader-steer.
-	cmd.Env = append(os.Environ(), SteerEnv+"=0")
+	cmd.Env = replaceEnvironmentValue(os.Environ(), SteerEnv, "0", runtime.GOOS == "windows")
 	serializedStderr := &lockedWriter{writer: options.Stderr}
 	cmd.Stderr = serializedStderr
 	stdin, err := cmd.StdinPipe()
@@ -246,6 +247,18 @@ func run(ctx context.Context, options Options, dependencies runnerDependencies) 
 		}
 		prompt = reason
 	}
+}
+
+func replaceEnvironmentValue(environment []string, name, value string, caseInsensitive bool) []string {
+	replaced := make([]string, 0, len(environment)+1)
+	for _, entry := range environment {
+		entryName, _, found := strings.Cut(entry, "=")
+		if found && (entryName == name || caseInsensitive && strings.EqualFold(entryName, name)) {
+			continue
+		}
+		replaced = append(replaced, entry)
+	}
+	return append(replaced, name+"="+value)
 }
 
 func grokClientCapabilities() map[string]interface{} {

@@ -325,6 +325,12 @@ func inspectPlatform(root string, platform Platform) PlatformStatus {
 			report.remediation = hostRemediation("Install a POSIX-compatible sh on PATH, then restart ZCode.", remediationCommand{})
 			return report
 		}
+		if enabled, present := zcodeHooksEnabled(data); present && !enabled {
+			report.State = StateInstalled
+			report.Detail = "artifact is installed but ZCode hooks are explicitly disabled by hooks.enabled=false"
+			report.remediation = noRemediation()
+			return report
+		}
 	}
 
 	switch platform.Activation.Mode {
@@ -444,7 +450,7 @@ func wrapperSafeForRecommendedInstall(root string) bool {
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(data), "# Managed by Reconc. Repo-local agent hook wrapper.")
+	return wrapperManagedArtifact(data)
 }
 
 func managedPlatformArtifact(kind string, data []byte) bool {
@@ -453,22 +459,30 @@ func managedPlatformArtifact(kind string, data []byte) bool {
 	case KindGitPreCommit:
 		return strings.HasPrefix(text, "#!/bin/sh\n# Managed by `reconc hook install git-pre-commit`.\n")
 	case KindOpenCode:
-		return strings.Contains(text, "Managed by reconc") || strings.Contains(text, "reconc hook runtime")
+		return strings.HasPrefix(text, "// Managed by reconc. Project-local opencode policy adapter.\n")
 	case KindKilo:
-		return strings.Contains(text, "Managed by reconc") && strings.Contains(text, "kilo-pre-tool-use")
+		return strings.HasPrefix(text, "// Managed by reconc. Project-local kilo policy adapter.\n")
 	case KindGitHubCopilot:
 		return isManagedGitHubCopilotConfig(data)
 	case KindGrok:
-		return strings.Contains(text, `"reconcManaged": true`) && strings.Contains(text, "grok-pre-tool-use")
+		if strings.Count(text, `"reconcManaged"`) != 1 {
+			return false
+		}
+		var document struct {
+			ReconcManaged bool `json:"reconcManaged"`
+		}
+		return json.Unmarshal(data, &document) == nil && document.ReconcManaged
 	case KindOMP:
-		return strings.Contains(text, "Managed by reconc. Project-local Oh My Pi policy extension.") &&
-			strings.Contains(text, "omp-pre-tool-use") && strings.Contains(text, "omp-stop")
+		return strings.HasPrefix(text, "// Managed by reconc. Project-local Oh My Pi policy extension.\n")
 	case KindPi:
-		return strings.Contains(text, "Managed by reconc. Project-local Pi policy extension.") &&
-			strings.Contains(text, "pi-pre-tool-use") && strings.Contains(text, "pi-stop")
+		return strings.HasPrefix(text, "// Managed by reconc. Project-local Pi policy extension.\n")
 	default:
 		return false
 	}
+}
+
+func wrapperManagedArtifact(data []byte) bool {
+	return strings.HasPrefix(string(data), "#!/bin/sh\n# Managed by Reconc. Repo-local agent hook wrapper.\n")
 }
 
 func piAgentDir(root string) (string, error) {
@@ -693,10 +707,22 @@ func zcodeConfigIssues(data []byte) []string {
 	if err := json.Unmarshal(data, &document); err != nil {
 		return []string{"invalid ZCode hook settings"}
 	}
-	if document.Hooks.Enabled == nil || !*document.Hooks.Enabled {
-		return []string{"hooks.enabled must be true"}
+	if document.Hooks.Enabled == nil {
+		return []string{"hooks.enabled must be present"}
 	}
 	return nil
+}
+
+func zcodeHooksEnabled(data []byte) (bool, bool) {
+	var document struct {
+		Hooks struct {
+			Enabled *bool `json:"enabled"`
+		} `json:"hooks"`
+	}
+	if json.Unmarshal(data, &document) != nil || document.Hooks.Enabled == nil {
+		return false, false
+	}
+	return *document.Hooks.Enabled, true
 }
 
 func missingRuntimeEvents(platform Platform, content string) []string {

@@ -453,7 +453,7 @@ func generateKimiCode() (*Artifact, error) {
 }
 
 func runtimeCommand(repoExpr, event string) string {
-	return fmt.Sprintf(`sh -lc '%s'`, shellRuntimeCommand(repoExpr, event))
+	return fmt.Sprintf(`sh -c '%s'`, shellRuntimeCommand(repoExpr, event))
 }
 
 func shellRuntimeCommand(repoExpr, event string) string {

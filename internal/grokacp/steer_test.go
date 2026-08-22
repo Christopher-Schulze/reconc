@@ -195,6 +195,19 @@ func TestSteerTUIStopInterjectsAndCounts(t *testing.T) {
 	}
 }
 
+func TestSteerTUIStopReasonChangesDoNotResetNoProgressBudget(t *testing.T) {
+	repo := steerTestRepo(t)
+	leader := newFakeLeader(t, serveInterject(`{"jsonrpc":"2.0","id":1,"result":{"status":"queued"}}`))
+	t.Setenv(leaderSocketEnv, leader.socket)
+	steerSession(t, "s-reworded")
+
+	first := SteerTUIStop(repo, steerPayload("s-reworded", false), continuationResult("first diagnostic wording"))
+	second := SteerTUIStop(repo, steerPayload("s-reworded", false), continuationResult("completely different diagnostic wording"))
+	if !strings.Contains(first, "(1/32)") || !strings.Contains(second, "(2/32)") {
+		t.Fatalf("reason change reset no-progress budget: first=%q second=%q", first, second)
+	}
+}
+
 func TestSteerTUIStopSkipsNativeStopCapableLeader(t *testing.T) {
 	repo := steerTestRepo(t)
 	nativeStopGateAvailable = func() bool { return true }
@@ -254,7 +267,6 @@ func TestSteerTUIStopBudgetExhaustion(t *testing.T) {
 
 	if _, err := agentsession.MutateSessionState(repo, "s-cap", func(state agentsession.SessionState) agentsession.SessionState {
 		state.GrokSteerAttempts = maxStopSteerAttempts
-		state.GrokSteerContinuationKey = steerContinuationKey("more work")
 		state.GrokSteerMaterialEvents = state.MaterialEvents
 		return state
 	}); err != nil {
@@ -271,18 +283,17 @@ func TestSteerTUIStopBudgetExhaustion(t *testing.T) {
 	}
 }
 
-func TestSteerBudgetResetsOnProgressNewBlockAndCleanStop(t *testing.T) {
+func TestSteerBudgetTracksMaterialProgressAcrossReasonChangesAndCleanStop(t *testing.T) {
 	repo := steerTestRepo(t)
 	leader := newFakeLeader(t, func(f *fakeLeader, conn net.Conn) {})
 	t.Setenv(leaderSocketEnv, leader.socket)
 	steerSession(t, "s-reset")
 
-	firstReason := "reconc: block\nFeedback: RB-111"
-	if attempts, allowed, err := recordSuccessfulSteerAttemptForTest(repo, "s-reset", firstReason); err != nil || !allowed || attempts != 1 {
+	if attempts, allowed, err := recordSuccessfulSteerAttemptForTest(repo, "s-reset"); err != nil || !allowed || attempts != 1 {
 		t.Fatalf("first attempt = attempts=%d allowed=%v err=%v", attempts, allowed, err)
 	}
-	if attempts, allowed, err := recordSuccessfulSteerAttemptForTest(repo, "s-reset", "same report\nFeedback: RB-111"); err != nil || !allowed || attempts != 2 {
-		t.Fatalf("same-block attempt = attempts=%d allowed=%v err=%v", attempts, allowed, err)
+	if attempts, allowed, err := recordSuccessfulSteerAttemptForTest(repo, "s-reset"); err != nil || !allowed || attempts != 2 {
+		t.Fatalf("same-progress attempt = attempts=%d allowed=%v err=%v", attempts, allowed, err)
 	}
 
 	if _, err := agentsession.MutateSessionState(repo, "s-reset", func(state agentsession.SessionState) agentsession.SessionState {
@@ -291,11 +302,11 @@ func TestSteerBudgetResetsOnProgressNewBlockAndCleanStop(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if attempts, allowed, err := recordSuccessfulSteerAttemptForTest(repo, "s-reset", firstReason); err != nil || !allowed || attempts != 1 {
+	if attempts, allowed, err := recordSuccessfulSteerAttemptForTest(repo, "s-reset"); err != nil || !allowed || attempts != 1 {
 		t.Fatalf("progress reset = attempts=%d allowed=%v err=%v", attempts, allowed, err)
 	}
-	if attempts, allowed, err := recordSuccessfulSteerAttemptForTest(repo, "s-reset", "different block\nFeedback: RB-222"); err != nil || !allowed || attempts != 1 {
-		t.Fatalf("new-block reset = attempts=%d allowed=%v err=%v", attempts, allowed, err)
+	if attempts, allowed, err := recordSuccessfulSteerAttemptForTest(repo, "s-reset"); err != nil || !allowed || attempts != 2 {
+		t.Fatalf("reason-only change reset the material-progress budget: attempts=%d allowed=%v err=%v", attempts, allowed, err)
 	}
 
 	t.Setenv(leaderSocketEnv, "")
@@ -357,8 +368,8 @@ func TestSteerTUIStopRejectsIncompatibleLeaderProtocol(t *testing.T) {
 	}
 }
 
-func recordSuccessfulSteerAttemptForTest(repo, sessionID, reason string) (uint64, bool, error) {
-	attempt, allowed, err := prepareSteerAttempt(repo, sessionID, reason)
+func recordSuccessfulSteerAttemptForTest(repo, sessionID string) (uint64, bool, error) {
+	attempt, allowed, err := prepareSteerAttempt(repo, sessionID)
 	if err != nil || !allowed {
 		return 0, allowed, err
 	}

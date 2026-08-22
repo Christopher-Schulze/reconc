@@ -18,8 +18,8 @@
     {
       "path": "tools/reconc/harness/template/BOOTSTRAP.md",
       "mode": 420,
-      "size": 46542,
-      "sha256": "95cdc9b00fddb5f5a74ebdb8f54e34764d8c7b74026766e18c771234b6aa1c00",
+      "size": 46808,
+      "sha256": "b90e0ac1e03466e43699ceb5a5a4d471f6314350bb0e06a362b839dcc10f6928",
       "ownership": "pack-file"
     },
     {
@@ -361,15 +361,15 @@
     {
       "path": "tools/reconc/harness/template/audits/workflow-audit.go",
       "mode": 420,
-      "size": 83993,
-      "sha256": "adbf1dc61880ce04b1d46df67b93266a85e23c4eecf6da8ac80b9c6dd4258fff",
+      "size": 84248,
+      "sha256": "5d152af68fc2ed2d410f455cfabb481e364ba8dac1900e15254a2b84c2272fee",
       "ownership": "pack-file"
     },
     {
       "path": "tools/reconc/harness/template/audits/workflow-audit_test.go",
       "mode": 420,
-      "size": 54537,
-      "sha256": "b0695228f096133f2c32174298b2cfc76ff1f59ba7847569d16b45409b40e3cc",
+      "size": 55241,
+      "sha256": "7197134af7b6bb10c91df6a4c94b968a8e88c3df0dfe37106f452568c1d56e0a",
       "ownership": "pack-file"
     },
     {
@@ -459,8 +459,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.agents/hooks.json",
       "mode": 420,
-      "size": 2652,
-      "sha256": "6f2bd32c6adce2924e6d12ac3535c71c63622dafea921505217b0b47a9feef3d",
+      "size": 2647,
+      "sha256": "7524276a0024565f4067a598f0a2f067a6064b3506b471c95772cdcaa940c107",
       "ownership": "pack-file"
     },
     {
@@ -494,8 +494,8 @@
     {
       "path": "tools/reconc/harness/template/repo-root-scaffold/.cursor/hooks.json",
       "mode": 420,
-      "size": 8013,
-      "sha256": "6ed20218522086994d54d89389deb40c3a05ef46163c1d38114713fcfdecaeac",
+      "size": 7996,
+      "sha256": "61d2a76dcf6242a75628bae002234b504c116941fc621b074b9ae4bb099f8bc5",
       "ownership": "pack-file"
     },
     {
@@ -835,6 +835,6 @@
       "ownership": "pack-file"
     }
   ],
-  "total_bytes": 832521,
-  "digest": "5e1787889b6677294543648a4d78bc143afa82e53b20ffb152208a18168a4882"
+  "total_bytes": 833724,
+  "digest": "24791ffbcf8ef18cf032456b3a77f05c1fe0db70bdf24af51f4b95bb7b39ce73"
 }

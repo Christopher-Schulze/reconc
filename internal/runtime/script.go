@@ -298,11 +298,10 @@ func scriptBlockDetail(outcome ScriptOutcome) string {
 	return detail
 }
 
-// sanitizedEnv returns a minimal env for script execution. We strip
-// most env vars to avoid leaking agent secrets / API keys into
-// arbitrary scripts; the script gets PATH (so it can find common
-// tools), HOME, and the marker RECONC_SCRIPT=1 so scripts can detect
-// they're running under reconc.
+// sanitizedEnv minimizes incidental secret exposure to trusted,
+// policy-authored repository code; it is not a process sandbox. HOME stays
+// available because common toolchains need user-level caches and configuration.
+// Scripts also receive PATH, locale/temp settings, and RECONC_SCRIPT=1.
 func sanitizedEnv() []string {
 	keep := []string{"PATH", "HOME", "LANG", "LC_ALL", "TMPDIR"}
 	out := []string{"RECONC_SCRIPT=1"}

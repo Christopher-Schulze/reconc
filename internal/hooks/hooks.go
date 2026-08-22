@@ -296,7 +296,7 @@ func ensureWrapper(root string, force bool) (string, error) {
 		return "", &rerrors.PolicySourceError{Message: "create wrapper parent directory", Cause: err}
 	}
 	if existing, err := readManagedArtifact(target); err == nil {
-		managed := strings.Contains(string(existing), "# Managed by Reconc. Repo-local agent hook wrapper.")
+		managed := wrapperManagedArtifact(existing)
 		if string(existing) != artifact.Content && !managed && !force {
 			return "", &rerrors.PolicySourceError{Message: WrapperPath + " exists and is not reconc-managed; pass --force to overwrite"}
 		}
@@ -792,12 +792,21 @@ func installAntigravity(repoRoot string, force bool) (*InstallReport, error) {
 }
 
 func antigravityHookObjectIsReconcManaged(value interface{}) bool {
-	body, err := json.Marshal(value)
-	if err != nil {
+	events, ok := value.(map[string]interface{})
+	if !ok {
 		return false
 	}
-	text := string(body)
-	return strings.Contains(text, "reconc hook runtime ") ||
-		(strings.Contains(text, "tools/reconc/dist/reconc-") && strings.Contains(text, " hook runtime ")) ||
-		strings.Contains(text, "tools/reconc/bin/hook")
+	for _, rawEntries := range events {
+		entries, ok := rawEntries.([]interface{})
+		if !ok {
+			continue
+		}
+		for _, rawEntry := range entries {
+			entry, ok := rawEntry.(map[string]interface{})
+			if ok && hookEntryContainsReconcInvocation(entry) {
+				return true
+			}
+		}
+	}
+	return false
 }

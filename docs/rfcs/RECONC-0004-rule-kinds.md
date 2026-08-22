@@ -56,7 +56,13 @@ the check entry.
 escape the repository root. `cache_inputs` names the literal repo-relative
 paths the script reads, each a file or a directory; globs, template variables,
 escaping paths, and duplicates are invalid. Stop report reuse binds those paths
-and never reuses a report for a script that declares none. Payload-provided command strings are never
+and never reuses a report for a script that declares none. A policy-authored
+script is trusted repository code, not sandboxed input. Reconc filters its
+environment to reduce incidental secret exposure, but this is secret
+minimization rather than process isolation. `HOME` remains available because
+common toolchains need user-level caches and configuration; policy authors must
+therefore treat user configuration reachable through `HOME` as visible to the
+script. Payload-provided command strings are never
 executed as scripts. Only `status=pass` with exit code 0 passes. Exit code 2 is
 a policy block. Timeout, launch or process failure, any other exit, and an
 unknown or contradictory status fail closed. Timeout diagnostics identify the

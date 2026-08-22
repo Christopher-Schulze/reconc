@@ -72,7 +72,9 @@ func mergeReconcNestedEventHooks(dest, reconcPart map[string]interface{}, opts M
 		destEvents = map[string]interface{}{}
 		destHooks["events"] = destEvents
 	}
-	destHooks["enabled"] = true
+	if _, configured := destHooks["enabled"]; !configured {
+		destHooks["enabled"] = true
+	}
 	return mergeReconcNestedEventMaps(destEvents, reconcEvents, opts)
 }
 
@@ -524,6 +526,9 @@ func classifyHookEntry(entry interface{}, canonicalSignatures map[string]struct{
 	if !ok {
 		return NonReconc
 	}
+	if _, ok := canonicalSignatures[hookEntrySignature(entry)]; ok {
+		return CanonicalReconc
+	}
 	// Generated hooks may call a repo-local binary directly or wrap the
 	// runtime invocation in a shell resolver so it works without PATH. We
 	// still classify both shapes as reconc-owned. Inspect every nested hook:
@@ -531,9 +536,6 @@ func classifyHookEntry(entry interface{}, canonicalSignatures map[string]struct{
 	// the managed invocation from strict uninstall or reinstall handling.
 	if !hookEntryContainsReconcInvocation(m) {
 		return NonReconc
-	}
-	if _, ok := canonicalSignatures[hookEntrySignature(entry)]; ok {
-		return CanonicalReconc
 	}
 	return ModifiedReconc
 }
@@ -569,11 +571,10 @@ const shellOwnershipDepth = 8
 // tools/reconc/bin/hook in an argument, a message, or an echo would otherwise
 // be classified as Reconc-owned and dropped on the next install.
 //
-// Shell strings whose executable positions cannot be enumerated keep the
-// conservative text match. The generated wrappers dispatch through a shell
-// variable and are therefore always in that class: losing a true positive
-// there would duplicate every managed entry on reinstall, which is a worse
-// failure than the residual false positive this narrowing does not reach.
+// Shell strings whose executable positions cannot be enumerated remain
+// user-owned. The variable-dispatched generated resolver is the sole exception:
+// it is accepted only when its complete template reconstructs byte-for-byte.
+// Marker text alone is never enough to grant replacement rights.
 func reconcCommandOwned(signature string) bool {
 	if !reconcSignatureNamesWrapper(signature) {
 		return false
@@ -584,9 +585,12 @@ func reconcCommandOwned(signature string) bool {
 		// literal argv, so no shell analysis is needed or valid.
 		return reconcInvocationWords(words)
 	}
+	if generatedRuntimeShellCommandOwned(words[0]) || legacyRepoWrapperCommandOwned(words[0]) {
+		return true
+	}
 	invocations, complete := shellcommand.Invocations(words[0], shellOwnershipDepth)
 	if !complete {
-		return true
+		return false
 	}
 	for _, invocation := range invocations {
 		if reconcInvocationWords(invocation.Words) {
@@ -594,6 +598,94 @@ func reconcCommandOwned(signature string) bool {
 		}
 	}
 	return false
+}
+
+// generatedRuntimeShellCommandOwned accepts only the byte-exact current
+// resolver template (plus its former login-shell launcher). The resolver uses
+// variables in executable positions, so generic static shell analysis cannot
+// prove it; reconstructing the whole generated command keeps marker mentions
+// and arbitrary dynamic commands outside the ownership boundary.
+func generatedRuntimeShellCommandOwned(command string) bool {
+	body := command
+	launcher := ""
+	for _, candidate := range []string{"sh -c '", "sh -lc '"} {
+		if strings.HasPrefix(command, candidate) && strings.HasSuffix(command, "'") {
+			launcher = candidate
+			body = strings.TrimSuffix(strings.TrimPrefix(command, candidate), "'")
+			break
+		}
+	}
+	if launcher == "" && strings.HasPrefix(command, "sh -") {
+		return false
+	}
+	const repoPrefix = `repo="`
+	const repoSuffix = `"; hook="$repo/tools/reconc/bin/hook"; if [ -x "$hook" ]; then exec "$hook" `
+	if !strings.HasPrefix(body, repoPrefix) {
+		return false
+	}
+	repoEnd := strings.Index(strings.TrimPrefix(body, repoPrefix), repoSuffix)
+	if repoEnd < 0 {
+		return false
+	}
+	repo := strings.TrimPrefix(body, repoPrefix)[:repoEnd]
+	eventStart := len(repoPrefix) + repoEnd + len(repoSuffix)
+	const eventSuffix = ` "$repo"; fi;`
+	eventEnd := strings.Index(body[eventStart:], eventSuffix)
+	if eventEnd < 0 {
+		return false
+	}
+	event := body[eventStart : eventStart+eventEnd]
+	if !validRuntimeRoute(event) || body != shellRuntimeCommand(repo, event) {
+		return false
+	}
+	if launcher == "" {
+		return true
+	}
+	return command == launcher+body+"'"
+}
+
+// legacyRepoWrapperCommandOwned recognises the complete resolver shape used by
+// early Antigravity artifacts. It deliberately does not accept a path fragment
+// or a wrapper mention in an argument.
+func legacyRepoWrapperCommandOwned(command string) bool {
+	for _, launcher := range []string{"sh -c '", "sh -lc '"} {
+		if !strings.HasPrefix(command, launcher) || !strings.HasSuffix(command, "'") {
+			continue
+		}
+		body := strings.TrimSuffix(strings.TrimPrefix(command, launcher), "'")
+		const prefix = `repo="`
+		const middle = `"; exec "$repo/tools/reconc/bin/hook" `
+		if !strings.HasPrefix(body, prefix) {
+			continue
+		}
+		repoEnd := strings.Index(strings.TrimPrefix(body, prefix), middle)
+		if repoEnd < 0 {
+			continue
+		}
+		repo := strings.TrimPrefix(body, prefix)[:repoEnd]
+		eventStart := len(prefix) + repoEnd + len(middle)
+		const suffix = ` "$repo"`
+		if !strings.HasSuffix(body[eventStart:], suffix) {
+			continue
+		}
+		event := strings.TrimSuffix(body[eventStart:], suffix)
+		if validRuntimeRoute(event) && body == fmt.Sprintf(`repo="%s"; exec "$repo/tools/reconc/bin/hook" %s "$repo"`, repo, event) {
+			return true
+		}
+	}
+	return false
+}
+
+func validRuntimeRoute(route string) bool {
+	if route == "" {
+		return false
+	}
+	for _, char := range route {
+		if char != '-' && (char < 'a' || char > 'z') && (char < '0' || char > '9') {
+			return false
+		}
+	}
+	return true
 }
 
 // reconcSignatureNamesWrapper is the historical text match, kept as the

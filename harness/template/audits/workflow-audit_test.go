@@ -758,6 +758,25 @@ func TestAuditHookLauncherShapeRejectsClaudeShellLauncher(t *testing.T) {
 	}
 }
 
+func TestAuditHookLauncherShapeRejectsLoginShellLauncher(t *testing.T) {
+	for _, relative := range []string{".cursor/hooks.json", ".agents/hooks.json"} {
+		t.Run(relative, func(t *testing.T) {
+			root := t.TempDir()
+			installGeneratedHookScaffold(t, root)
+			path := filepath.Join(root, filepath.FromSlash(relative))
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			content := strings.ReplaceAll(string(data), "sh -c '", "sh -lc '")
+			failures := auditHookLauncherShape(relative, content)
+			if !containsFailure(failures, "must use the non-login sh -c launcher") {
+				t.Fatalf("login-shell launcher must fail the audit:\n%s", strings.Join(failures, "\n"))
+			}
+		})
+	}
+}
+
 func TestAuditGrokRouteCoverageRejectsPrefixCollision(t *testing.T) {
 	content := `{"hooks":{"StopFailure":[{"hooks":[{"command":"tools/reconc/bin/hook grok-stop-failure ."}]}]}}`
 	failures := auditGrokRouteCoverage(".grok/hooks/reconc.json", content)

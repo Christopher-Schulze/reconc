@@ -199,7 +199,10 @@ Stop distributions may use optional leader steering over the Unix socket or
 Windows named pipe. Only delivered
 interjections consume the 32-attempt no-progress series; capability-proven
 native hosts suppress duplicate interjection.
-`RECONC_GROK_STEER=0` disables only leader steering. Managed activation
+Only a changed material-event snapshot or a clean Stop resets that series;
+reason wording alone does not. Spawned Grok children receive exactly one
+`RECONC_GROK_STEER=0` entry after inherited duplicates are removed; it disables
+only leader steering. Managed activation
 requires exact hook/wrapper artifacts and route tokens. Deep doctor reports
 native Stop capability and separately probes protocol 1 plus `_x.ai/interject`.
 Typed `continue` and `claim` states continue; an empty active slot claims queued
@@ -358,7 +361,8 @@ native permission event, MCP discriminator, post-user-shell result,
 synchronous Stop gate, or continuation acknowledgement.
 
 ZCode snapshots `.zcode/config.json` at session start. Reconc merges only exact
-managed process entries and preserves foreign settings, events, and commands.
+managed process entries and preserves foreign settings, events, commands, and
+an explicit user `hooks.enabled=false`; status reports that state as disabled.
 Restart the ZCode session after install or uninstall. Hard `PreToolUse` blocks
 use exit code 2, `PermissionRequest` denials use the native decision object,
 and Stop uses native block JSON. Observation routes and host timeouts fail

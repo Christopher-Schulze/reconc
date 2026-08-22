@@ -106,8 +106,8 @@ func TestZCodeInstallPreservesForeignConfigurationAndIsIdempotent(t *testing.T) 
 		t.Fatalf("top-level user config was not preserved: %#v", installed)
 	}
 	hooks := installed["hooks"].(map[string]interface{})
-	if hooks["enabled"] != true || hooks["timeoutMs"] != float64(60000) {
-		t.Fatalf("ZCode hook settings were not preserved/enabled: %#v", hooks)
+	if hooks["enabled"] != false || hooks["timeoutMs"] != float64(60000) {
+		t.Fatalf("ZCode hook settings or explicit disablement were not preserved: %#v", hooks)
 	}
 	events := hooks["events"].(map[string]interface{})
 	if len(events) != 7 || len(events["SessionStart"].([]interface{})) != 2 {
@@ -312,7 +312,7 @@ func TestZCodeUninstallRefusesMatcherOrTimeoutDrift(t *testing.T) {
 	}
 }
 
-func TestZCodeStatusRequiresEnabledConfiguration(t *testing.T) {
+func TestZCodeStatusReportsExplicitUserDisablement(t *testing.T) {
 	repo := t.TempDir()
 	if _, err := Install(KindZCode, repo, false); err != nil {
 		t.Fatal(err)
@@ -324,7 +324,7 @@ func TestZCodeStatusRequiresEnabledConfiguration(t *testing.T) {
 	document := readJSONForZCodeTest(t, target)
 	document["hooks"].(map[string]interface{})["enabled"] = false
 	writeJSONForZCodeTest(t, target, document)
-	if status := statusForKind(t, repo, KindZCode); status.State != StateDegraded || !strings.Contains(status.Detail, "hooks.enabled must be true") {
+	if status := statusForKind(t, repo, KindZCode); status.State != StateInstalled || status.Configured || !strings.Contains(status.Detail, "explicitly disabled") {
 		t.Fatalf("disabled ZCode status = %+v", status)
 	}
 }

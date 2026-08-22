@@ -121,10 +121,18 @@ func generatedHookEntries(t *testing.T, content string) []map[string]interface{}
 				if !ok {
 					continue
 				}
-				if !hookEntryContainsReconcInvocation(entry) {
+				if _, direct := entry["command"].(string); direct {
+					entries = append(entries, entry)
 					continue
 				}
-				entries = append(entries, entry)
+				nested, _ := entry["hooks"].([]interface{})
+				for _, rawHook := range nested {
+					hook, _ := rawHook.(map[string]interface{})
+					if _, nestedCommand := hook["command"].(string); nestedCommand {
+						entries = append(entries, entry)
+						break
+					}
+				}
 			}
 		}
 	}

@@ -2694,10 +2694,11 @@ appearing somewhere in its text. A user hook that only names
 `tools/reconc/bin/hook` in an argument or a message stays user-owned and is
 preserved, while any executable inside `tools/reconc/bin/`, including a renamed
 wrapper, remains a Reconc entry that install and uninstall refuse to treat as
-foreign. Commands whose executable positions cannot be enumerated, which
-includes the generated wrappers because they dispatch through a shell variable,
-keep the conservative text match: losing ownership there would duplicate every
-managed entry on the next install.
+foreign. Current generated shell resolvers and the former login-shell resolver
+are recognized only by reconstructing their complete byte-exact template;
+unparseable commands and marker text alone remain user-owned. Standalone
+plugins and hook files likewise require the format-defined exact first-line,
+top-level object, or parsed-command signature before Reconc may replace them.
 
 Hook output that exceeds a route's byte budget still delivers a decision, on
 the channel that route's host reads. Cursor, GitHub Copilot, and Grok express
@@ -2932,9 +2933,11 @@ ends a session, so the adapter keeps returning `{block, reason}` and leaves the
 hint unused.
 
 ZCode snapshots workspace configuration from `.zcode/config.json` when a
-session starts. `reconc hook install zcode` sets `hooks.enabled=true` and
-merges the seven generated event groups under `hooks.events` while preserving
-unrelated top-level keys, hook settings, and foreign event entries. An
+session starts. `reconc hook install zcode` adds `hooks.enabled=true` only when
+that field is absent and preserves an explicit user `false`, which status
+reports as installed but disabled. It merges the seven generated event groups
+under `hooks.events` while preserving unrelated top-level keys, hook settings,
+and foreign event entries. An
 incompatible `hooks` or `hooks.events` shape fails closed; `--force` first
 publishes a private content-addressed backup and then repairs only the invalid
 hook subtree. Repeated install is byte-stable. Uninstall removes only exact
@@ -2943,7 +2946,8 @@ mutating the file.
 
 The process executor invokes `sh` with explicit argv
 `tools/reconc/bin/hook`, the ZCode route, and `.`. Status requires the shared
-wrapper, `hooks.enabled=true`, all generated entries, and `sh` on `PATH`.
+wrapper, all generated entries, and `sh` on `PATH`; explicit
+`hooks.enabled=false` is valid installed-but-disabled state.
 ZCode exposes `SessionStart`, `UserPromptSubmit`, `PreToolUse`,
 `PermissionRequest`, `PostToolUse`, `PostToolUseFailure`, and `Stop` as
 one-line snake_case JSON envelopes. Hard pre-tool blocks use exit code 2,
@@ -3130,8 +3134,8 @@ process that can replace repository files. Use a sandbox and protected remote
 CI outside that write authority when hostile same-user replacement is in scope.
 Claude Code uses its exec-form
 `command`+`args` shape so it does not spawn a hook shell or run a hook-launcher
-Git lookup. Codex uses the host shell command string without a nested `sh -lc`;
-Cursor and Antigravity use portable shell launchers with a direct
+Git lookup. Codex uses the host shell command string without a nested launcher;
+Cursor and Antigravity use portable non-login `sh -c` launchers with a direct
 wrapper fast path before their Git fallback.
 Codex bootstrap and direct hook installation manage `hooks = true` under the
 `[features]` table. Direct installation rejects an explicit user-owned
@@ -3266,8 +3270,11 @@ continuation through protocol 1 `_x.ai/interject` over Unix sockets or Windows
 named pipes. Reconc suppresses the interjection only when native Stop
 capability is explicitly advertised, preventing duplicate prompts without
 creating a version-based enforcement gap. The 32-attempt leader cap counts
-only delivered interjections in one no-progress series; material progress, a
-new block, or a clean Stop resets it. Multiple endpoints divide the
+only delivered interjections in one no-progress series; a changed material
+session-event snapshot or a clean Stop resets it. Diagnostic and
+block-reason wording changes do not count as progress. Every spawned child gets
+exactly one `RECONC_GROK_STEER=0` entry after inherited duplicates are removed.
+Multiple endpoints divide the
 three-second budget fairly and framed messages complete short writes.
 `RECONC_GROK_STEER=0` disables only leader steering; PreToolUse remains hard
 while native Stop remains dependent on the installed host capability. Deep
@@ -3888,6 +3895,10 @@ Security posture:
   directory symlink moves execution outside the repository root. The declared
   timeout and SIGTERM-to-SIGKILL grace are both clamped before they become
   durations, so no policy value can wrap the conversion or outlive the cap.
+  These scripts are trusted repository code, not sandboxed input. The filtered
+  environment reduces incidental secret exposure but retains `HOME` for common
+  user-level toolchain caches and configuration, which therefore remain
+  visible to the script.
 - Audit log is opt-in via `RECONC_AUDIT=1`.
 - Non-portable current lockfile root markers are a hard stale/fail condition;
   equivalent clones and worktrees share the portable `.` identity.

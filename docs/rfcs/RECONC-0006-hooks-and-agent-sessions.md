@@ -24,9 +24,12 @@
 | `pi` | `.pi/extensions/reconc.ts` | Trust-aware project extension for native session, input, blocking tool and user-shell calls, outcomes, compaction, shutdown, and inferred settled continuation. |
 | `zcode` | `.zcode/config.json` | Project hook integration for all seven native lifecycle, prompt, tool, permission, outcome, and synchronous Stop events. |
 
-Installers are idempotent. Reconc-owned JSON hook entries are
-identified by `reconc hook runtime` command tokens and replaced on
-reinstall; unrelated user config is preserved. The OpenCode installer
+Installers are idempotent. Reconc-owned JSON hook entries require an exact
+generated signature or a parsed Reconc executable position; marker or wrapper
+text in an argument, note, or unrelated field never grants ownership. Managed
+standalone files require their exact first-line, structured-object, or parsed
+command signature at the format-defined location. Reinstall replaces owned
+entries while preserving unrelated user config. The OpenCode installer
 updates only the reconc-managed project plugin and refuses to overwrite
 non-reconc plugin content without `--force`. Kilo Code and Grok managed files
 use the same refusal rule. GitHub Copilot owns only
@@ -38,8 +41,9 @@ and never overwrites foreign content at its dedicated path, including with
 `--force`.
 Pi owns only `.pi/extensions/reconc.ts`, applies the same foreign-content
 refusal, and never edits Pi's project trust or settings files.
-ZCode owns only exact Reconc process entries under `hooks.events` and the
-required `hooks.enabled` activation in `.zcode/config.json`. It preserves
+ZCode owns only exact Reconc process entries under `hooks.events`. It adds
+`hooks.enabled=true` only when the field is absent; an explicit user
+`hooks.enabled=false` remains disabled and is reported as such. It preserves
 foreign settings, events, and commands. Invalid nested shapes fail unless
 explicit force first publishes the exact prior file as a private,
 content-addressed backup.
@@ -147,7 +151,9 @@ automatic compaction, and shutdown are fail-open observations; pre-tool and
 Stop runtime, timeout, malformed, invalid UTF-8, or oversized-output failures
 fail closed. The Stop route uses a 29-second internal budget inside OMP's
 30-second extension-handler deadline; the generated shutdown route uses a
-one-second Reconc budget inside OMP's two-second handler budget.
+one-second Reconc budget inside OMP's two-second handler budget. Direct shell
+launchers use non-login `sh -c`, so user login profiles cannot write before the
+strict decision JSON.
 
 ## Pi Coding Agent Guarantee
 
@@ -343,14 +349,17 @@ For Grok distributions with a passive Stop contract, optional leader mode
 additionally steers the TUI over the Unix socket or Windows named pipe.
 Protocol-1 `_x.ai/interject` requires a
 matching `GROK_SESSION_ID`; only delivered interjections count toward the
-32-attempt no-progress cap. Material progress, a new block, or a clean Stop
-resets the series. Capability-proven native hosts suppress duplicate
+32-attempt no-progress cap. Only a material session-event change or a clean
+Stop resets the series; changing diagnostic or block reason text does not.
+Capability-proven native hosts suppress duplicate
 interjection.
 Strict Grok Stop payloads do not use the repository-run six-event release;
 their applicable bound is this 32-delivered-interjection cap.
 Multiple endpoints receive fair shares of the transport budget and framed
-writes complete short writes. `RECONC_GROK_STEER=0` disables only leader
-steering. Deep doctor reports native Stop support separately and requires a
+writes complete short writes. Every spawned Grok child receives exactly one
+`RECONC_GROK_STEER=0` entry, replacing inherited duplicates with
+platform-appropriate case matching. This disables only leader steering. Deep
+doctor reports native Stop support separately and requires a
 recognized `_x.ai/interject` response for leader compatibility.
 
 ## Generic Agents
@@ -396,5 +405,8 @@ Hook runtime payloads are untrusted:
 - post-tool observation payload failures fail open with warnings
 - payload command strings are matched as data and are never executed
 
-Only policy-authored `require_script` entries can execute subprocesses,
-and those scripts must be repo-local.
+Only policy-authored `require_script` entries can execute subprocesses, and
+those scripts must be repo-local. They are trusted repository code, not a
+sandbox. Environment filtering minimizes incidental secret exposure; `HOME`
+is retained for user-level toolchain caches and configuration and is therefore
+visible to the script.

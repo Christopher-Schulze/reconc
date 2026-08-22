@@ -1063,7 +1063,7 @@ func auditAgentHooks(root string) []string {
 	}
 	if cfg.AgentHooks.RequireCursorHooks {
 		hooks[filepath.Join(root, ".cursor/hooks.json")] = []string{
-			"sh -lc",
+			"sh -c",
 			"failClosed",
 			"tools/reconc/bin/hook",
 			"RECONC_HOOK_REPO_RESOLVED=1",
@@ -1159,7 +1159,7 @@ func auditAgentHooks(root string) []string {
 	}
 	if cfg.AgentHooks.RequireAntigravityHooks {
 		hooks[filepath.Join(root, ".agents/hooks.json")] = []string{
-			"sh -lc",
+			"sh -c",
 			"tools/reconc/bin/hook",
 			"RECONC_HOOK_REPO_RESOLVED=1",
 			"antigravity-pre-invocation",
@@ -1602,6 +1602,11 @@ func auditHookLauncherShape(relative string, content string) []string {
 				failures = append(failures, fmt.Sprintf("%s Devin hook command %q does not use DEVIN_PROJECT_DIR", relative, command))
 			}
 			return
+		}
+		if relative == ".cursor/hooks.json" || relative == ".agents/hooks.json" {
+			if !strings.HasPrefix(command, "sh -c '") {
+				failures = append(failures, fmt.Sprintf("%s hook command must use the non-login sh -c launcher: %q", relative, command))
+			}
 		}
 		for _, token := range []string{
 			`hook="$repo/tools/reconc/bin/hook"`,

@@ -82,4 +82,9 @@ func repairZCodeHookMergeShape(document map[string]interface{}) {
 			hooks["events"] = map[string]interface{}{}
 		}
 	}
+	if rawEnabled, exists := hooks["enabled"]; exists {
+		if _, ok := rawEnabled.(bool); !ok {
+			delete(hooks, "enabled")
+		}
+	}
 }
