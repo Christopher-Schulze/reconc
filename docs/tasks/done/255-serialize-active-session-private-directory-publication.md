@@ -32,8 +32,8 @@ transition instead of exposing an incomplete directory.
 - [x] Add deterministic lock-order and concurrent-publication regressions
 - [x] Extend the shortened native Windows preflight
 - [x] Run local focused and repository verification
-- [~] Prove the preflight and complete suite on native Windows
-- [ ] Archive the TASK and resume TASK 254
+- [x] Prove the preflight and complete suite on native Windows
+- [x] Archive the TASK and resume TASK 254
 
 ## Notes
 
@@ -53,6 +53,10 @@ transition instead of exposing an incomplete directory.
 - Local completion proof passed `make test` including formatting, publication
   audit, root and harness race suites, and release trust; `make vet`, pinned
   Staticcheck, Bash syntax, and typed TASK validation also pass.
+- Candidate CI `32554431282` passed the 45-second native Windows preflight, the
+  complete Windows suite, CLI build/smoke, native PowerShell installer, macOS,
+  Linux race, LangChain, and release trust at source `96b6d67e`. CodeQL run
+  `32554431244` passed against the same source.
 
 ## Deviations
 

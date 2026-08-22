@@ -23,12 +23,8 @@ platform-neutral too.
 - [x] Replace the hard-coded POSIX override with an absolute native test path
 - [x] Add the regression and presets package to the focused Windows preflight
 - [x] Run local focused and repository verification
-- [~] Prove the preflight and full suite on native Windows
-- [ ] Archive the TASK and preserve exact CI evidence
-
-## Blocker
-
-paused for TASK 255 after native Windows DACL publication race
+- [x] Prove the preflight and full suite on native Windows
+- [x] Archive the TASK and preserve exact CI evidence
 
 ## Notes
 
@@ -38,6 +34,10 @@ paused for TASK 255 after native Windows DACL publication race
   `/custom/path`, while the runner correctly resolved `D:\custom\path`.
 - The focused regression, the expanded preflight, Bash syntax, full root race
   suite, Vet, and Staticcheck pass locally. Production code is unchanged.
+- Candidate CI `32554431282` passed the expanded native Windows preflight, the
+  complete Windows suite, CLI build/smoke, native PowerShell installer, macOS,
+  Linux race, LangChain, and release trust at source `96b6d67e`. CodeQL run
+  `32554431244` passed against the same source.
 
 ## Deviations
 
