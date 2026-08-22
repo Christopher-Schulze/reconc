@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestEvidenceSnapshotCacheReusesStableContent(t *testing.T) {
@@ -24,6 +25,28 @@ func TestEvidenceSnapshotCacheReusesStableContent(t *testing.T) {
 	}
 	if first.content != second.content || !second.contentLoaded || cache.bytes != int64(len(first.content)) {
 		t.Fatalf("cache did not retain one stable body: first=%+v second=%+v bytes=%d", first, second, cache.bytes)
+	}
+}
+
+func TestEvidenceSnapshotCacheIgnoresAccessTimeOnlyChanges(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "evidence.txt")
+	if err := os.WriteFile(path, []byte("stable\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cache := newEvidenceSnapshotCache()
+	first, err := cache.snapshot(path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, time.Now().Add(-time.Hour), first.info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	second, err := cache.snapshot(path, true)
+	if err != nil {
+		t.Fatalf("access-time-only change invalidated stable evidence: %v", err)
+	}
+	if second.identity != first.identity || second.content != first.content {
+		t.Fatalf("stable evidence identity changed: first=%+v second=%+v", first, second)
 	}
 }
 

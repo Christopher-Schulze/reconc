@@ -866,11 +866,11 @@ func (c *stopPolicyScanCache) get(repoRoot string, writePaths []string) stopPoli
 // lock fails closed instead of allowing a stale scan to authorize reuse.
 func (c *stopPolicyScanCache) stable(repoRoot string, writePaths []string) bool {
 	if c == nil {
-		return true
+		return false
 	}
 	scan := c.get(repoRoot, writePaths)
 	if !c.loaded || c.root != repoRoot || scan.LockHash == "" {
-		return true
+		return false
 	}
 	body, err := boundedio.ReadFile(filepath.Join(repoRoot, policyLockfilePath), stopPolicyLockfileScanBound)
 	if err != nil || hashBytes(body) != scan.LockHash {

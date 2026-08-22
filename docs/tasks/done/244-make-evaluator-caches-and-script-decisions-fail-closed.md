@@ -34,14 +34,14 @@ and the same hook payload is decoded repeatedly.
 
 ## Sub-Tasks
 
-- [ ] Reproduce the quoted-redirection false positive and contradictory batch result
-- [ ] Replace redirect tokenization with the canonical quote-aware shell path
-- [ ] Make batch process and JSON dispositions one fail-closed contract
-- [ ] Bind Git alias and unreadable-lock state into cache validity
-- [ ] Replace reflected stat identity with stable platform identities
-- [ ] Decode each PreToolUse payload once across cache and handler layers
-- [ ] Benchmark and run evaluator, agent-session, fuzz, race, and full gates
-- [ ] Update runtime cache and script-decision documentation
+- [x] Reproduce the quoted-redirection false positive and contradictory batch result
+- [x] Replace redirect tokenization with the canonical quote-aware shell path
+- [x] Make batch process and JSON dispositions one fail-closed contract
+- [x] Bind Git alias and unreadable-lock state into cache validity
+- [x] Replace reflected stat identity with stable platform identities
+- [x] Decode each PreToolUse payload once across cache and handler layers
+- [x] Benchmark and run evaluator, agent-session, fuzz, race, and full gates
+- [x] Update runtime cache and script-decision documentation
 
 ## Notes
 
@@ -51,6 +51,20 @@ and the same hook payload is decoded repeatedly.
 - A quote-aware implementation should reuse `mvdan.cc/sh/v3`, already present
   in the module, unless the existing normalized command representation provides
   a smaller proven parser surface.
+- `mvdan.cc/sh/v3` now owns trailing-redirection recognition. Fuzzing found and
+  fixed the command-only edge cases `0>0` and `!>0`; quoted and escaped
+  redirect-looking arguments remain intact.
+- Batch results require complete, unique mode coverage and agreement between
+  exit disposition and structured failures. Incomplete structured output
+  executes each rule independently; contradictions block every batched rule.
+- Command cache keys bind the effective Git alias configuration. PreToolUse
+  decodes once and reuses the typed payload across cache and evaluation layers.
+- Evidence object identity is device/inode on Unix and volume/file index on
+  Windows. Access-time-only changes do not invalidate snapshots.
+- Focused unit tests, the redirect idempotence fuzzer, focused race tests,
+  Windows compile checks, `make test`, `make vet`, `make lint`, `make self-host`,
+  module tidy drift, and diff checks passed. The payload-reuse benchmark removed
+  29 allocations and about 2 KiB per key on the measured fixture.
 
 ## Deviations
 

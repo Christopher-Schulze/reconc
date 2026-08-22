@@ -61,7 +61,13 @@ func TestWorkflowAuditBatchHelpersPreserveModeAndFailureTruth(t *testing.T) {
 	if !ok || len(parsed["task-state"]) != 0 || !reflect.DeepEqual(parsed["repo-layout"], []string{"bad root"}) {
 		t.Fatalf("parseWorkflowAuditBatchOutput() = (%#v, %t)", parsed, ok)
 	}
-	for _, invalid := range []string{"not-json", `{"results":[{"mode":"task-state","failures":[]}]}`} {
+	for _, invalid := range []string{
+		"not-json",
+		`{"results":[{"mode":"task-state","failures":[]}]}`,
+		`{"results":[{"mode":"task-state","failures":[]},{"mode":"task-state","failures":[]},{"mode":"repo-layout","failures":[]}]}`,
+		`{"results":[{"mode":"task-state","failures":[]},{"mode":"other","failures":[]}]}`,
+		`{"results":[{"mode":"task-state","failures":[]},{"mode":"repo-layout","failures":[]}],"extra":true}`,
+	} {
 		if parsed, ok := parseWorkflowAuditBatchOutput(invalid, []string{"task-state", "repo-layout"}); ok || parsed != nil {
 			t.Fatalf("invalid batch output accepted: %#v", invalid)
 		}
@@ -236,21 +242,6 @@ func TestCommandResultAndRedirectHelpersEnforceOutcomeEpochAndSyntax(t *testing.
 		t.Fatal("latestWriteEpoch did not return maximum")
 	}
 
-	for token, want := range map[string]bool{">file": true, "2>&1": true, "&>log": true, "a>b": false, "plain": false} {
-		if got := isRedirectStart(token); got != want {
-			t.Fatalf("isRedirectStart(%q) = %t, want %t", token, got, want)
-		}
-	}
-	for token, want := range map[string]bool{">": true, "2>&1": true, "&>": true, "file": false, ">x": false} {
-		if got := isRedirectOperatorOnly(token); got != want {
-			t.Fatalf("isRedirectOperatorOnly(%q) = %t, want %t", token, got, want)
-		}
-	}
-	for token, want := range map[string]bool{"file": true, "path/name": true, "": false, "a|b": false, "a>b": false} {
-		if got := isPlainRedirectTarget(token); got != want {
-			t.Fatalf("isPlainRedirectTarget(%q) = %t, want %t", token, got, want)
-		}
-	}
 }
 
 func TestScalarAndClaimHelpersCoverFallbacksAndWhitespace(t *testing.T) {

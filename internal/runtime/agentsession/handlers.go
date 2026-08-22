@@ -187,7 +187,7 @@ func RunPreToolUse(repoRoot string, payloadBytes []byte) Result {
 	if err != nil {
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}
 	}
-	return runPreToolUseResolved(root.path, payloadBytes)
+	return runPreToolUseParsedWithEvaluator(root.path, payload, runtime.NewEvaluator())
 }
 
 func runPreToolUseResolved(root string, payloadBytes []byte) Result {
@@ -199,6 +199,13 @@ func runPreToolUseResolvedWithEvaluator(root string, payloadBytes []byte, evalua
 	if err != nil {
 		// Fail-closed per threat model.
 		return Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}
+	}
+	return runPreToolUseParsedWithEvaluator(root, payload, evaluator)
+}
+
+func runPreToolUseParsedWithEvaluator(root string, payload *HookPayload, evaluator *runtime.Evaluator) Result {
+	if payload == nil {
+		return Result{ExitCode: 2, Stderr: "reconc hook (pre): parsed payload is unavailable"}
 	}
 	if payload.IsCommandTool() {
 		if reason := forbiddenShellCommandReasonInRepo(root, payload.Command()); reason != "" {

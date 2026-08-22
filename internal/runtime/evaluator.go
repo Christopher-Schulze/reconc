@@ -3,6 +3,7 @@ package runtime
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"path"
 	"path/filepath"
 	"sort"
@@ -530,8 +531,18 @@ func evaluateBatchedRequireScripts(ctx *evalContext, rules []*policy.Rule, defau
 		if evaluation.disposition != scriptOutcomePass && evaluation.disposition != scriptOutcomeBlock {
 			continue
 		}
-		failuresByMode, ok := parseWorkflowAuditBatchOutput(outcome.Stdout, modes)
+		failuresByMode, hasFailures, ok := parseWorkflowAuditBatchOutputDisposition(outcome.Stdout, modes)
 		if !ok {
+			continue
+		}
+		contradictory := (evaluation.disposition == scriptOutcomePass && hasFailures) ||
+			(evaluation.disposition == scriptOutcomeBlock && !hasFailures)
+		if contradictory {
+			detail := fmt.Sprintf("batch process disposition and structured output contradict: status=%s exit_code=%d", outcome.Status, outcome.ExitCode)
+			for _, item := range items {
+				results.handled[item.index] = true
+				results.violations[item.index] = buildBatchScriptViolation(item, key.scriptPath, defaultMode, []string{detail})
+			}
 			continue
 		}
 
@@ -541,15 +552,7 @@ func evaluateBatchedRequireScripts(ctx *evalContext, rules []*policy.Rule, defau
 			if len(failures) == 0 {
 				continue
 			}
-			triggeredPaths := triggeredPathsForContexts(item.contexts)
-			v := buildViolation(item.rule, defaultMode, triggeredPaths, nil, nil, []string{key.scriptPath}, nil, nil)
-			details := batchScriptFailureDetails(key.scriptPath, failures)
-			v.Explanation = fmt.Sprintf(
-				"Write activity %s triggered require_script rule '%s'. %s",
-				joinForHumans(triggeredPaths), v.RuleID, strings.Join(details, "; "),
-			)
-			v.RecommendedAction = batchScriptRecommendedAction(details)
-			results.violations[item.index] = v
+			results.violations[item.index] = buildBatchScriptViolation(item, key.scriptPath, defaultMode, failures)
 		}
 	}
 
@@ -599,20 +602,61 @@ func uniqueBatchModes(items []workflowAuditBatchItem) []string {
 }
 
 func parseWorkflowAuditBatchOutput(stdout string, expectedModes []string) (map[string][]string, bool) {
+	failures, _, ok := parseWorkflowAuditBatchOutputDisposition(stdout, expectedModes)
+	return failures, ok
+}
+
+func parseWorkflowAuditBatchOutputDisposition(stdout string, expectedModes []string) (map[string][]string, bool, bool) {
 	var output workflowAuditBatchOutput
-	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &output); err != nil {
-		return nil, false
+	decoder := json.NewDecoder(strings.NewReader(strings.TrimSpace(stdout)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&output); err != nil {
+		return nil, false, false
+	}
+	var trailing interface{}
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return nil, false, false
+	}
+	expected := make(map[string]struct{}, len(expectedModes))
+	for _, mode := range expectedModes {
+		expected[mode] = struct{}{}
 	}
 	failuresByMode := map[string][]string{}
+	hasFailures := false
 	for _, result := range output.Results {
-		failuresByMode[result.Mode] = result.Failures
+		if _, wanted := expected[result.Mode]; !wanted {
+			return nil, false, false
+		}
+		if _, duplicate := failuresByMode[result.Mode]; duplicate {
+			return nil, false, false
+		}
+		failures := make([]string, 0, len(result.Failures))
+		for _, failure := range result.Failures {
+			if failure = strings.TrimSpace(failure); failure != "" {
+				failures = append(failures, failure)
+				hasFailures = true
+			}
+		}
+		failuresByMode[result.Mode] = failures
 	}
 	for _, mode := range expectedModes {
 		if _, ok := failuresByMode[mode]; !ok {
-			return nil, false
+			return nil, false, false
 		}
 	}
-	return failuresByMode, true
+	return failuresByMode, hasFailures, true
+}
+
+func buildBatchScriptViolation(item workflowAuditBatchItem, scriptPath string, defaultMode policy.Mode, failures []string) *Violation {
+	triggeredPaths := triggeredPathsForContexts(item.contexts)
+	violation := buildViolation(item.rule, defaultMode, triggeredPaths, nil, nil, []string{scriptPath}, nil, nil)
+	details := batchScriptFailureDetails(scriptPath, failures)
+	violation.Explanation = fmt.Sprintf(
+		"Write activity %s triggered require_script rule '%s'. %s",
+		joinForHumans(triggeredPaths), violation.RuleID, strings.Join(details, "; "),
+	)
+	violation.RecommendedAction = batchScriptRecommendedAction(details)
+	return violation
 }
 
 func triggeredPathsForContexts(contexts []matchContext) []string {
@@ -1973,62 +2017,11 @@ func latestWriteEpoch(paths []string, epochs map[string]uint64) uint64 {
 // Used only by require_command_success matching (matchingCommandResults), never
 // by forbid_command, so forbid semantics stay exact.
 func stripTrailingRedirects(cmd string) string {
-	fields := strings.Fields(cmd)
-	for len(fields) > 1 {
-		last := fields[len(fields)-1]
-		switch {
-		case isRedirectStart(last):
-			// Self-contained redirect token: ">file", "2>&1", ">>", "<in".
-			fields = fields[:len(fields)-1]
-		case isRedirectOperatorOnly(fields[len(fields)-2]) && isPlainRedirectTarget(last):
-			// Spaced redirect: "> file", "2> err", "< in".
-			fields = fields[:len(fields)-2]
-		default:
-			return strings.Join(fields, " ")
-		}
+	stripped, complete := shellcommand.StripTrailingRedirects(cmd)
+	if !complete {
+		return cmd
 	}
-	return strings.Join(fields, " ")
-}
-
-// isRedirectStart reports whether tok begins a shell redirection: an optional
-// fd number, an optional leading '&', then '>' or '<' (so ">file", "2>&1",
-// ">>", "&>log", "<in" qualify, but "a>b", "file", "123" do not).
-func isRedirectStart(tok string) bool {
-	i := 0
-	for i < len(tok) && tok[i] >= '0' && tok[i] <= '9' {
-		i++
-	}
-	if i < len(tok) && tok[i] == '&' {
-		i++
-	}
-	return i < len(tok) && (tok[i] == '>' || tok[i] == '<')
-}
-
-// isRedirectOperatorOnly reports whether tok is a bare redirect operator with
-// no fused target (">", ">>", "2>", "&>", "<", "2>&1"): only digits, '&', '<',
-// '>' characters and at least one '<' or '>'.
-func isRedirectOperatorOnly(tok string) bool {
-	hasRedir := false
-	for _, c := range tok {
-		switch {
-		case c >= '0' && c <= '9', c == '&':
-		case c == '<' || c == '>':
-			hasRedir = true
-		default:
-			return false
-		}
-	}
-	return hasRedir
-}
-
-// isPlainRedirectTarget reports whether tok is a plausible redirect target (a
-// filename), i.e. it carries no shell metacharacters that would make it part of
-// a pipeline or another command.
-func isPlainRedirectTarget(tok string) bool {
-	if tok == "" {
-		return false
-	}
-	return !strings.ContainsAny(tok, "|&;<>")
+	return stripped
 }
 
 func matchingClaims(claims, expected []string) []string {

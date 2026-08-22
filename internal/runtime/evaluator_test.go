@@ -1278,6 +1278,10 @@ func TestStripTrailingRedirects(t *testing.T) {
 		{"go test ./... | tail -5", "go test ./... | tail -5"},
 		{"go test ./... 2>&1 | tail", "go test ./... 2>&1 | tail"},
 		{"go test ./... -run X", "go test ./... -run X"},
+		{`go test ./... "2>&1"`, `go test ./... "2>&1"`},
+		{`go test ./... '> out.log'`, `go test ./... '> out.log'`},
+		{`go test ./... \> out.log`, `go test ./... \> out.log`},
+		{`go test ./... "literal > out.log"`, `go test ./... "literal > out.log"`},
 		{"go run main.go", "go run main.go"},
 	}
 	for _, c := range cases {

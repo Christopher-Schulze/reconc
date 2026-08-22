@@ -372,6 +372,20 @@ reparse points, and Claude memory matching accepts only operating-system-
 confirmed component-wise mixtures of 8.3 and long-path aliases for the current
 repository.
 
+Pre-tool decision reuse decodes each bounded payload once, then passes the
+typed payload through normalization, cache identity, cache path selection, and
+policy evaluation. Command-tool identities include the effective Git alias
+configuration, so an alias mutation cannot reuse a prior authorization.
+Uninspectable alias state disables reuse. Source, policy, session, taint, and
+lock state are sampled before and after evaluation; a missing or unreadable
+lock identity is unstable and cannot authorize reuse.
+
+Evidence snapshots compare content identity against stable filesystem object
+identity: device and inode on Unix, volume serial and file index on Windows.
+Size, modification time, and mode remain explicit inputs. Access time and
+unrelated platform stat metadata are excluded, so reads do not invalidate an
+otherwise unchanged snapshot.
+
 ## Payload Safety
 
 Hook runtime payloads are untrusted:

@@ -62,7 +62,12 @@ a policy block. Timeout, launch or process failure, any other exit, and an
 unknown or contradictory status fail closed. Timeout diagnostics identify the
 effective configured duration and matched write path without relying on partial
 script output; composite checks and batched-audit fallback use the same result
-contract.
+contract. Batched audit output must contain each requested mode exactly once,
+must contain no unrequested mode, and must agree with the process disposition:
+exit zero cannot report failures and exit two must report at least one failure.
+Malformed or incomplete structured output falls back to independent rule
+execution; a valid but contradictory process/result pair blocks every rule in
+that batch.
 
 `require_assurance` performs no network calls and spawns no subprocesses. Its
 typed gates are `repository_layout`, `generated_reference`,

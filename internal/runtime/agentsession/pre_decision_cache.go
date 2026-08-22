@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	preDecisionCacheVersion    = "pre-decision-v1"
+	preDecisionCacheVersion    = "pre-decision-v2"
 	maxPreDecisionCacheBytes   = 16 * 1024
 	maxPreDecisionDiagnostic   = 8 * 1024
 	maxPreDecisionIdentityFile = 8 * 1024 * 1024
@@ -36,16 +36,20 @@ type preDecisionCache struct {
 // bytes. The key is sampled again after reading the cache, so a concurrent
 // evidence or policy mutation cannot validate a stale record.
 func runPreDecisionResolvedWithEvaluator(root string, payloadBytes []byte, permission bool, evaluator *runtime.Evaluator) Result {
-	key, cacheable := preDecisionKey(root, payloadBytes)
+	payload, err := ParsePayload(payloadBytes)
+	if err != nil {
+		return adaptPreDecision(Result{ExitCode: 2, Stderr: fmt.Sprintf("reconc hook (pre): %s", err)}, permission)
+	}
+	key, cacheable := preDecisionKeyForPayload(root, payload)
 	if cacheable {
-		if cached, ok := readPreDecisionCache(root, payloadBytes, key); ok {
+		if cached, ok := readPreDecisionCacheForPayload(root, payload, key); ok {
 			return adaptPreDecision(cached, permission)
 		}
 	}
 
-	decision := runPreToolUseResolvedWithEvaluator(root, payloadBytes, evaluator)
-	if postKey, ok := preDecisionKey(root, payloadBytes); cacheable && ok && postKey == key {
-		_ = writePreDecisionCache(root, payloadBytes, postKey, decision)
+	decision := runPreToolUseParsedWithEvaluator(root, payload, evaluator)
+	if postKey, ok := preDecisionKeyForPayload(root, payload); cacheable && ok && postKey == key {
+		_ = writePreDecisionCacheForPayload(root, payload, postKey, decision)
 	}
 	return adaptPreDecision(decision, permission)
 }
@@ -63,7 +67,14 @@ func adaptPreDecision(decision Result, permission bool) Result {
 
 func preDecisionKey(root string, payloadBytes []byte) (string, bool) {
 	payload, err := ParsePayload(payloadBytes)
-	if err != nil || strings.TrimSpace(payload.SessionID) == "" || strings.TrimSpace(payload.ToolUseID) == "" {
+	if err != nil {
+		return "", false
+	}
+	return preDecisionKeyForPayload(root, payload)
+}
+
+func preDecisionKeyForPayload(root string, payload *HookPayload) (string, bool) {
+	if payload == nil || strings.TrimSpace(payload.SessionID) == "" || strings.TrimSpace(payload.ToolUseID) == "" {
 		return "", false
 	}
 	payloadIdentity, err := json.Marshal(struct {
@@ -96,16 +107,31 @@ func preDecisionKey(root string, payloadBytes []byte) (string, bool) {
 	if !ok {
 		return "", false
 	}
+	aliasIdentity := "not-applicable"
+	if payload.IsCommandTool() {
+		aliasIdentity, ok = preDecisionGitAliasIdentity(root)
+		if !ok {
+			return "", false
+		}
+	}
 	hash := sha256.New()
 	for _, part := range [][]byte{
 		[]byte(preDecisionCacheVersion), payloadIdentity,
 		[]byte(policyIdentity), []byte(policySourceIdentity),
-		[]byte(stateIdentity), []byte(taintIdentity),
+		[]byte(stateIdentity), []byte(taintIdentity), []byte(aliasIdentity),
 	} {
 		_, _ = hash.Write(part)
 		_, _ = hash.Write([]byte{0})
 	}
 	return hex.EncodeToString(hash.Sum(nil)), true
+}
+
+func preDecisionGitAliasIdentity(root string) (string, bool) {
+	body, exitCode, err := runGitInspection(root, "config", "--null", "--get-regexp", "^alias\\.")
+	if err != nil || exitCode != 0 && exitCode != 1 {
+		return "", false
+	}
+	return hashBytes(body), true
 }
 
 func preDecisionPolicySourceIdentity(root string) (string, bool) {
@@ -149,11 +175,26 @@ func preDecisionCachePath(root string, payloadBytes []byte) string {
 	if err != nil {
 		return ""
 	}
+	return preDecisionCachePathForPayload(root, payload)
+}
+
+func preDecisionCachePathForPayload(root string, payload *HookPayload) string {
+	if payload == nil {
+		return ""
+	}
 	return filepath.Join(projectDir(root), "pre-decisions", sessionFileKey(payload.SessionID)+".json")
 }
 
 func readPreDecisionCache(root string, payloadBytes []byte, expectedKey string) (Result, bool) {
-	path := preDecisionCachePath(root, payloadBytes)
+	payload, err := ParsePayload(payloadBytes)
+	if err != nil {
+		return Result{}, false
+	}
+	return readPreDecisionCacheForPayload(root, payload, expectedKey)
+}
+
+func readPreDecisionCacheForPayload(root string, payload *HookPayload, expectedKey string) (Result, bool) {
+	path := preDecisionCachePathForPayload(root, payload)
 	if path == "" {
 		return Result{}, false
 	}
@@ -166,18 +207,18 @@ func readPreDecisionCache(root string, payloadBytes []byte, expectedKey string) 
 		(cached.ExitCode != 0 && cached.ExitCode != 2) || len(cached.Stderr) > maxPreDecisionDiagnostic {
 		return Result{}, false
 	}
-	currentKey, ok := preDecisionKey(root, payloadBytes)
+	currentKey, ok := preDecisionKeyForPayload(root, payload)
 	if !ok || currentKey != expectedKey {
 		return Result{}, false
 	}
 	return Result{ExitCode: cached.ExitCode, Stderr: cached.Stderr}, true
 }
 
-func writePreDecisionCache(root string, payloadBytes []byte, key string, decision Result) error {
+func writePreDecisionCacheForPayload(root string, payload *HookPayload, key string, decision Result) error {
 	if decision.ExitCode != 0 && decision.ExitCode != 2 || decision.Stdout != "" || len(decision.Stderr) > maxPreDecisionDiagnostic {
 		return nil
 	}
-	path := preDecisionCachePath(root, payloadBytes)
+	path := preDecisionCachePathForPayload(root, payload)
 	if path == "" {
 		return nil
 	}

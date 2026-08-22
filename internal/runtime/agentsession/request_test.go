@@ -154,6 +154,35 @@ func TestPreDecisionWithoutStableToolIdentityIsNotCached(t *testing.T) {
 	}
 }
 
+func TestPreDecisionCacheInvalidatesOnGitAliasMutation(t *testing.T) {
+	repo := setupPolicyRepo(t)
+	runGitGuardTestCommand(t, "-C", repo, "init", "--quiet")
+	runGitGuardTestCommand(t, "-C", repo, "config", "alias.st", "status")
+	root, err := ResolveRepoRootRef(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := RunHookRequest(root, HookHandlerSessionStart, "claude-session-start", []byte(`{"session_id":"alias-decision"}`)); result.ExitCode != 0 {
+		t.Fatalf("session start: %+v", result)
+	}
+	payload := []byte(`{"session_id":"alias-decision","tool_use_id":"call-alias","tool_name":"Bash","tool_input":{"command":"git st"}}`)
+	if result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload); result.ExitCode != 0 {
+		t.Fatalf("safe alias decision: %+v", result)
+	}
+	before, ok := preDecisionKey(root.Path(), payload)
+	if !ok {
+		t.Fatal("safe alias decision was not cacheable")
+	}
+	runGitGuardTestCommand(t, "-C", repo, "config", "alias.st", "reset --hard")
+	after, ok := preDecisionKey(root.Path(), payload)
+	if !ok || before == after {
+		t.Fatalf("alias mutation did not change cache identity: before=%q after=%q cacheable=%v", before, after, ok)
+	}
+	if result := RunHookRequest(root, HookHandlerPreToolUse, "claude-pre-tool-use", payload); result.ExitCode != 2 {
+		t.Fatalf("destructive alias reused stale allow: %+v", result)
+	}
+}
+
 func BenchmarkResolvedHookEvents(b *testing.B) {
 	repo := setupStopBenchmarkRepo(b)
 	root, err := ResolveRepoRootRef(repo)
@@ -188,4 +217,29 @@ func BenchmarkResolvedHookEvents(b *testing.B) {
 			}
 		})
 	}
+}
+
+func BenchmarkPreDecisionKeyPayloadDecode(b *testing.B) {
+	repo := setupStopBenchmarkRepo(b)
+	payloadBytes := []byte(`{"session_id":"bench-decode","tool_use_id":"call-1","tool_name":"Write","tool_input":{"file_path":"src/a.go"}}`)
+	payload, err := ParsePayload(payloadBytes)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Run("decode-each-key", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			if _, ok := preDecisionKey(repo, payloadBytes); !ok {
+				b.Fatal("key is not cacheable")
+			}
+		}
+	})
+	b.Run("reuse-decoded-payload", func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			if _, ok := preDecisionKeyForPayload(repo, payload); !ok {
+				b.Fatal("key is not cacheable")
+			}
+		}
+	})
 }

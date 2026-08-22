@@ -4,7 +4,6 @@
 
 ## Queue
 
-- [ ] 244 Make evaluator caches and script decisions fail closed -> tasks/244-make-evaluator-caches-and-script-decisions-fail-closed.md
 - [ ] 245 Harden hook ownership and agent process boundaries -> tasks/245-harden-hook-ownership-and-agent-process-boundaries.md
 - [ ] 246 Enforce installer and release trust atomically -> tasks/246-enforce-installer-and-release-trust-atomically.md
 - [ ] 247 Secure harness claims and layout portability -> tasks/247-secure-harness-claims-and-layout-portability.md
@@ -19,6 +18,7 @@
 
 ## Done
 
+- [x] 244 Make evaluator caches and script decisions fail closed -> tasks/done/244-make-evaluator-caches-and-script-decisions-fail-closed.md
 - [x] 243 Correct policy compiler and parser contracts -> tasks/done/243-correct-policy-compiler-and-parser-contracts.md
 - [x] 242 Close MCP observer and catalog resource gaps -> tasks/done/242-close-mcp-observer-and-catalog-resource-gaps.md
 - [x] 241 Complete fast Windows runtime compatibility -> tasks/done/241-complete-fast-windows-runtime-compatibility.md
@@ -28,4 +28,3 @@
 - [x] 237 Remove residual implementation scaffolding -> tasks/done/237-remove-residual-implementation-scaffolding.md
 - [x] 236 Correct internal contract documentation -> tasks/done/236-correct-internal-contract-documentation.md
 - [x] 235 Replace hand-rolled integer formatters and dead helper -> tasks/done/235-replace-hand-rolled-integer-formatters-and-dead-helper.md
-- [x] 234 Remove dead parser and runtime contract paths -> tasks/done/234-remove-dead-parser-and-runtime-contract-paths.md

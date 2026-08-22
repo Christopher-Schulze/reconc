@@ -52,11 +52,11 @@ func (c *evidenceSnapshotCache) snapshot(path string, needContent bool) (evidenc
 		return readEvidenceSnapshot(path, needContent)
 	}
 	if cached, ok := c.entries[path]; ok {
-		current, exists, err := statEvidencePath(path)
+		current, currentIdentity, exists, err := statEvidencePath(path)
 		if err != nil {
 			return evidenceFileSnapshot{}, err
 		}
-		if !sameEvidenceIdentity(cached.info, current, cached.exists, exists) {
+		if !sameEvidenceIdentity(cached.info, current, cached.identity, currentIdentity, cached.exists, exists) {
 			return evidenceFileSnapshot{}, fmt.Errorf("%w: %s", errEvidenceSnapshotChanged, path)
 		}
 		if cached.err != nil {
@@ -71,7 +71,7 @@ func (c *evidenceSnapshotCache) snapshot(path string, needContent bool) (evidenc
 			c.entries[path] = cached
 			return cached, err
 		}
-		if !sameEvidenceIdentity(cached.info, loaded.info, cached.exists, loaded.exists) {
+		if !sameEvidenceIdentity(cached.info, loaded.info, cached.identity, loaded.identity, cached.exists, loaded.exists) {
 			return evidenceFileSnapshot{}, fmt.Errorf("%w: %s", errEvidenceSnapshotChanged, path)
 		}
 		cached.content = loaded.content
@@ -96,14 +96,14 @@ func (c *evidenceSnapshotCache) snapshot(path string, needContent bool) (evidenc
 }
 
 func readEvidenceSnapshot(path string, needContent bool) (evidenceFileSnapshot, error) {
-	info, exists, err := statEvidencePath(path)
+	info, identity, exists, err := statEvidencePath(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return evidenceFileSnapshot{path: path, exists: false}, nil
 		}
 		return evidenceFileSnapshot{path: path}, err
 	}
-	snapshot := evidenceFileSnapshot{path: path, identity: evidenceIdentity(info), info: info, exists: exists}
+	snapshot := evidenceFileSnapshot{path: path, identity: identity, info: info, exists: exists}
 	if !exists {
 		return snapshot, nil
 	}
@@ -117,11 +117,11 @@ func readEvidenceSnapshot(path string, needContent bool) (evidenceFileSnapshot, 
 	if err != nil {
 		return snapshot, err
 	}
-	after, afterExists, err := statEvidencePath(path)
+	after, afterIdentity, afterExists, err := statEvidencePath(path)
 	if err != nil {
 		return snapshot, err
 	}
-	if !sameEvidenceIdentity(info, after, true, afterExists) {
+	if !sameEvidenceIdentity(info, after, identity, afterIdentity, true, afterExists) {
 		return snapshot, fmt.Errorf("%w: %s", errEvidenceSnapshotChanged, path)
 	}
 	snapshot.content = string(body)
@@ -130,32 +130,29 @@ func readEvidenceSnapshot(path string, needContent bool) (evidenceFileSnapshot, 
 	return snapshot, nil
 }
 
-func evidenceIdentity(info os.FileInfo) string {
-	if info == nil {
-		return ""
-	}
-	return fmt.Sprintf("%T:%#v", info.Sys(), info.Sys())
-}
-
-func statEvidencePath(path string) (os.FileInfo, bool, error) {
+func statEvidencePath(path string) (os.FileInfo, string, bool, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, false, nil
+			return nil, "", false, nil
 		}
-		return nil, false, err
+		return nil, "", false, err
 	}
-	return info, true, nil
+	identity, err := evidenceObjectIdentity(path, info)
+	if err != nil {
+		return nil, "", false, err
+	}
+	return info, identity, true, nil
 }
 
-func sameEvidenceIdentity(left, right os.FileInfo, leftExists, rightExists bool) bool {
+func sameEvidenceIdentity(left, right os.FileInfo, leftIdentity, rightIdentity string, leftExists, rightExists bool) bool {
 	if leftExists != rightExists {
 		return false
 	}
 	if !leftExists {
 		return true
 	}
-	return left != nil && right != nil && os.SameFile(left, right) &&
+	return left != nil && right != nil && leftIdentity != "" && leftIdentity == rightIdentity &&
 		left.Mode() == right.Mode() && left.Size() == right.Size() &&
 		left.ModTime().Equal(right.ModTime())
 }

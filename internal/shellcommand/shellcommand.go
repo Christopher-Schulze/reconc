@@ -174,6 +174,62 @@ func InvocationsWithReason(command string, maxDepth int) ([]Invocation, Incomple
 	return invocationsAt(command, maxDepth, 0)
 }
 
+// StripTrailingRedirects removes only syntactic redirections that form the
+// final suffix of a valid Bash command. Quoted and escaped redirect-looking
+// arguments are ordinary words in the AST and remain untouched. The boolean
+// is false when parsing or bounded analysis cannot prove the transformation.
+func StripTrailingRedirects(command string) (string, bool) {
+	command = strings.TrimSpace(command)
+	if command == "" || len(command) > maxCommandBytes {
+		return command, false
+	}
+	file, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(command), "redirect-command")
+	if err != nil {
+		return command, false
+	}
+	redirects := make([]*syntax.Redirect, 0, 2)
+	syntax.Walk(file, func(node syntax.Node) bool {
+		if redirect, ok := node.(*syntax.Redirect); ok {
+			redirects = append(redirects, redirect)
+		}
+		return true
+	})
+	end := len(command)
+	stripped := false
+	for {
+		candidateStart := -1
+		for _, redirect := range redirects {
+			start := int(redirect.Pos().Offset())
+			redirectEnd := int(redirect.End().Offset())
+			if start < 0 || redirectEnd < start || redirectEnd > end {
+				continue
+			}
+			if strings.TrimSpace(command[redirectEnd:end]) == "" && start > candidateStart {
+				candidateStart = start
+			}
+		}
+		if candidateStart < 0 {
+			break
+		}
+		end = candidateStart
+		for end > 0 && (command[end-1] == ' ' || command[end-1] == '\t' || command[end-1] == '\r' || command[end-1] == '\n') {
+			end--
+		}
+		stripped = true
+	}
+	if !stripped {
+		return command, true
+	}
+	result := strings.TrimSpace(command[:end])
+	if result == "" {
+		return command, true
+	}
+	if invocations, reason := InvocationsWithReason(result, 16); reason != IncompleteNone || len(invocations) == 0 {
+		return command, true
+	}
+	return result, true
+}
+
 func invocationsAt(command string, maxDepth, depth int) ([]Invocation, IncompleteReason) {
 	if depth > maxDepth {
 		return nil, IncompleteNestingDepth
