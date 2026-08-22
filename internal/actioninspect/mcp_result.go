@@ -35,12 +35,13 @@ func DecodeMCPToolResult(raw []byte, protocolVersion string) (*MCPToolResult, er
 	if !ok {
 		return nil, malformed("content is required")
 	}
-	items, ok := content.Items()
-	if !ok || len(items) > MaxMCPContentBlocks {
+	itemCount, ok := content.ArrayLen()
+	if !ok || itemCount > MaxMCPContentBlocks {
 		return nil, malformed("content must be a bounded array")
 	}
-	result.Content = make([]ContentBlock, len(items))
-	for index, item := range items {
+	result.Content = make([]ContentBlock, itemCount)
+	for index := 0; index < itemCount; index++ {
+		item, _ := content.ArrayItem(index)
 		block, err := decodeContentBlock(item, index)
 		if err != nil {
 			result.Release()
@@ -48,20 +49,23 @@ func DecodeMCPToolResult(raw []byte, protocolVersion string) (*MCPToolResult, er
 		}
 		result.Content[index] = block
 	}
-	result.AnnotationFields = collectAnnotationFields(items)
-	result.MetadataPointers = collectMetadataPointers(root, items)
+	result.AnnotationFields = collectAnnotationFields(content)
+	result.MetadataPointers = collectMetadataPointers(root, content)
 	return result, nil
 }
 
-func collectAnnotationFields(items []action.Value) []string {
+func collectAnnotationFields(content action.Value) []string {
 	seen := make(map[string]struct{})
-	for _, item := range items {
+	length, _ := content.ArrayLen()
+	for index := 0; index < length; index++ {
+		item, _ := content.ArrayItem(index)
 		annotations, ok := item.Lookup("annotations")
 		if !ok {
 			continue
 		}
-		members, _ := annotations.Members()
-		for _, member := range members {
+		memberCount, _ := annotations.ObjectLen()
+		for memberIndex := 0; memberIndex < memberCount; memberIndex++ {
+			member, _ := annotations.ObjectMember(memberIndex)
 			seen[member.Name] = struct{}{}
 		}
 	}
@@ -73,12 +77,14 @@ func collectAnnotationFields(items []action.Value) []string {
 	return fields
 }
 
-func collectMetadataPointers(root action.Value, items []action.Value) []string {
-	pointers := make([]string, 0, len(items)+1)
+func collectMetadataPointers(root action.Value, content action.Value) []string {
+	length, _ := content.ArrayLen()
+	pointers := make([]string, 0, length+1)
 	if _, ok := root.Lookup("_meta"); ok {
 		pointers = append(pointers, "/_meta")
 	}
-	for index, item := range items {
+	for index := 0; index < length; index++ {
+		item, _ := content.ArrayItem(index)
 		base := "/content/" + strconv.Itoa(index)
 		if _, ok := item.Lookup("_meta"); ok {
 			pointers = append(pointers, base+"/_meta")
@@ -303,11 +309,12 @@ func validateResourceLinkFields(value action.Value) error {
 }
 
 func validateIcons(value action.Value) error {
-	icons, ok := value.Items()
-	if !ok || len(icons) > action.MaxListValues {
+	length, ok := value.ArrayLen()
+	if !ok || length > action.MaxListValues {
 		return malformed("resource link icons must be a bounded array")
 	}
-	for _, icon := range icons {
+	for index := 0; index < length; index++ {
+		icon, _ := value.ArrayItem(index)
 		if err := exactObject(icon, "src", "mimeType", "sizes", "theme"); err != nil {
 			return err
 		}
@@ -333,11 +340,12 @@ func validateIconFields(icon action.Value) error {
 		}
 	}
 	if sizes, ok := icon.Lookup("sizes"); ok {
-		items, isArray := sizes.Items()
-		if !isArray || len(items) > action.MaxListValues {
+		length, isArray := sizes.ArrayLen()
+		if !isArray || length > action.MaxListValues {
 			return malformed("resource icon sizes are invalid")
 		}
-		for _, item := range items {
+		for index := 0; index < length; index++ {
+			item, _ := sizes.ArrayItem(index)
 			if value, isString := item.Text(); !isString || !validIconSize(value) {
 				return malformed("resource icon size is invalid")
 			}
@@ -400,12 +408,13 @@ func validateAnnotations(value action.Value) error {
 }
 
 func validateAudience(value action.Value) error {
-	items, ok := value.Items()
-	if !ok || len(items) > 2 {
+	length, ok := value.ArrayLen()
+	if !ok || length > 2 {
 		return malformed("annotation audience is invalid")
 	}
-	seen := make(map[string]struct{}, len(items))
-	for _, item := range items {
+	seen := make(map[string]struct{}, length)
+	for index := 0; index < length; index++ {
+		item, _ := value.ArrayItem(index)
 		role, isString := item.Text()
 		if !isString || role != "user" && role != "assistant" {
 			return malformed("annotation audience role is invalid")
@@ -419,7 +428,7 @@ func validateAudience(value action.Value) error {
 }
 
 func exactObject(value action.Value, allowed ...string) error {
-	members, ok := value.Members()
+	length, ok := value.ObjectLen()
 	if !ok {
 		return malformed("content value must be an object")
 	}
@@ -427,7 +436,8 @@ func exactObject(value action.Value, allowed ...string) error {
 	for _, name := range allowed {
 		known[name] = struct{}{}
 	}
-	for _, member := range members {
+	for index := 0; index < length; index++ {
+		member, _ := value.ObjectMember(index)
 		if _, ok := known[member.Name]; !ok {
 			return malformed("content object contains an unknown field")
 		}

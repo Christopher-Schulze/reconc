@@ -347,7 +347,7 @@ func (g *Gateway) consumeApproval(
 		g.denyCall(ctx, call, true)
 		return nil, blockedGatewayResultValue(pending.callID, action.ReasonInspectionIncomplete)
 	}
-	inspector, err := actioninspect.NewEngine(pending.snapshot.Plan, g.lease.Key)
+	inspector, err := g.inspectionEngine(pending.snapshot.Plan)
 	if err != nil {
 		call.stateVersion = retry.Snapshot.StateVersion
 		call.approvalCommitted = true
@@ -404,7 +404,7 @@ func (g *Gateway) refreshPreApprovalEvaluation(
 	if err != nil {
 		return action.EvaluationInput{}, pending.decision, action.ReasonInspectionIncomplete
 	}
-	inspector, err := actioninspect.NewEngine(pending.snapshot.Plan, g.lease.Key)
+	inspector, err := g.inspectionEngine(pending.snapshot.Plan)
 	if err != nil {
 		return action.EvaluationInput{}, pending.decision, action.ReasonInspectionIncomplete
 	}

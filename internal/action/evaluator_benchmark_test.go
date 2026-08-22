@@ -19,6 +19,14 @@ func BenchmarkActionEvaluatorMaximumLegalPlan(b *testing.B) {
 	benchmarkActionEvaluator(b, evaluatorBenchmarkRules(MaxRules, false))
 }
 
+func BenchmarkActionEvaluatorRepresentativeCalibrated(b *testing.B) {
+	benchmarkActionEvaluatorSerial(b, evaluatorBenchmarkRules(64, true), false)
+}
+
+func BenchmarkActionEvaluatorMaximumLegalPlanCalibrated(b *testing.B) {
+	benchmarkActionEvaluatorSerial(b, evaluatorBenchmarkRules(MaxRules, false), false)
+}
+
 func BenchmarkActionContextRootPredicates(b *testing.B) {
 	role := testStringValue(b, "operator")
 	request := Request{Context: []ContextValue{{
@@ -95,18 +103,7 @@ func BenchmarkDecisionCacheMiss(b *testing.B) {
 func benchmarkActionEvaluator(b *testing.B, rules []Rule) {
 	b.Helper()
 	b.Run("serial", func(b *testing.B) {
-		evaluator, input := testActionEvaluator(b, rules, Defaults{}, testExternalEffect())
-		b.ReportAllocs()
-		b.ResetTimer()
-		var result EvaluationResult
-		for iteration := 0; iteration < b.N; iteration++ {
-			result = evaluator.Evaluate(input)
-		}
-		if !result.Decision.Valid() {
-			b.Fatal("evaluator returned an invalid decision")
-		}
-		b.StopTimer()
-		reportEvaluationPercentiles(b, evaluator, input)
+		benchmarkActionEvaluatorSerial(b, rules, true)
 	})
 	b.Run("parallel", func(b *testing.B) {
 		evaluator, input := testActionEvaluator(b, rules, Defaults{}, testExternalEffect())
@@ -120,6 +117,24 @@ func benchmarkActionEvaluator(b *testing.B, rules []Rule) {
 			}
 		})
 	})
+}
+
+func benchmarkActionEvaluatorSerial(b *testing.B, rules []Rule, reportPercentiles bool) {
+	b.Helper()
+	evaluator, input := testActionEvaluator(b, rules, Defaults{}, testExternalEffect())
+	b.ReportAllocs()
+	b.ResetTimer()
+	var result EvaluationResult
+	for iteration := 0; iteration < b.N; iteration++ {
+		result = evaluator.Evaluate(input)
+	}
+	if !result.Decision.Valid() {
+		b.Fatal("evaluator returned an invalid decision")
+	}
+	if reportPercentiles {
+		b.StopTimer()
+		reportEvaluationPercentiles(b, evaluator, input)
+	}
 }
 
 func evaluatorBenchmarkRules(count int, matching bool) []Rule {

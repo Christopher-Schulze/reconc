@@ -5,6 +5,7 @@ package runtime
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"syscall"
 )
 
@@ -16,5 +17,10 @@ func freshnessIdentity(info os.FileInfo) string {
 	if !ok || stat == nil {
 		return fmt.Sprintf("%T", info.Sys())
 	}
-	return fmt.Sprintf("dev=%d;ino=%d", stat.Dev, stat.Ino)
+	var storage [64]byte
+	identity := append(storage[:0], "dev="...)
+	identity = strconv.AppendUint(identity, uint64(stat.Dev), 10)
+	identity = append(identity, ";ino="...)
+	identity = strconv.AppendUint(identity, uint64(stat.Ino), 10)
+	return string(identity)
 }

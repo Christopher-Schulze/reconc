@@ -277,11 +277,40 @@ func (v Value) Items() ([]Value, bool) {
 	return append([]Value(nil), v.array...), true
 }
 
+// ArrayLen returns the number of array items without exposing mutable backing
+// storage. Callers use ArrayItem for allocation-free read-only traversal.
+func (v Value) ArrayLen() (int, bool) {
+	return len(v.array), v.kind == ValueArray
+}
+
+// ArrayItem returns one array item by value. Nested collection storage remains
+// encapsulated by Value's defensive collection accessors.
+func (v Value) ArrayItem(index int) (Value, bool) {
+	if v.kind != ValueArray || index < 0 || index >= len(v.array) {
+		return Value{}, false
+	}
+	return v.array[index], true
+}
+
 func (v Value) Members() ([]Member, bool) {
 	if v.kind != ValueObject {
 		return nil, false
 	}
 	return append([]Member(nil), v.object...), true
+}
+
+// ObjectLen returns the number of object members without cloning them.
+func (v Value) ObjectLen() (int, bool) {
+	return len(v.object), v.kind == ValueObject
+}
+
+// ObjectMember returns one sorted object member by value for allocation-free
+// read-only traversal.
+func (v Value) ObjectMember(index int) (Member, bool) {
+	if v.kind != ValueObject || index < 0 || index >= len(v.object) {
+		return Member{}, false
+	}
+	return v.object[index], true
 }
 
 func (v Value) Lookup(name string) (Value, bool) {

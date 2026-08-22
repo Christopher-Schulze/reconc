@@ -38,10 +38,7 @@ type evidenceSnapshotCache struct {
 }
 
 func newEvidenceSnapshotCache() *evidenceSnapshotCache {
-	return &evidenceSnapshotCache{
-		entries: make(map[string]evidenceFileSnapshot),
-		order:   make([]string, 0, maxEvidenceSnapshots),
-	}
+	return &evidenceSnapshotCache{}
 }
 
 // snapshot returns one stable metadata/content view for path during the
@@ -158,6 +155,10 @@ func sameEvidenceIdentity(left, right os.FileInfo, leftIdentity, rightIdentity s
 }
 
 func (c *evidenceSnapshotCache) store(path string, snapshot evidenceFileSnapshot) {
+	if c.entries == nil {
+		c.entries = make(map[string]evidenceFileSnapshot, initialEvaluationMemoEntries)
+		c.order = make([]string, 0, initialEvaluationMemoEntries)
+	}
 	if previous, ok := c.entries[path]; ok {
 		if c.bytes-int64(len(previous.content))+int64(len(snapshot.content)) > maxEvidenceSnapshotBytes {
 			snapshot.content = ""

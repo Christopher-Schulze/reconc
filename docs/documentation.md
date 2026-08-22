@@ -188,7 +188,7 @@ partial audit, run-log, checksum, release, or provenance snapshot.
 
 | Surface | Current read contract |
 | --- | --- |
-| Policy and deep doctor sources | 8 MiB per source, 64 MiB aggregate, at most 4,096 policy sources; deep doctor reports source, preset, and template errors independently. |
+| Policy and deep doctor sources | 8 MiB per source, 64 MiB aggregate, at most 4,096 policy sources. One rooted filesystem handle anchors each complete policy-source load; every opened file is revalidated against that root and its stable identity before and after the bounded read. Deep doctor reports source, preset, and template errors independently. |
 | CLI lockfiles, reports, and extraction | Lockfile summaries are capped at 16 MiB; saved `why` reports at 32 MiB; session-briefing reports at 1 MiB; `extract --from` at 8 MiB and repository-relative only. |
 | Adoption and overlays | Root manifests are capped at 1 MiB, `.reconc.yml`, user presets, and user templates at 8 MiB; workflow, preset, and template directories stop at 4,096 entries and report incomplete inspection. |
 | Run decisions | Each live or archived JSONL file is capped at 2 MiB and each record at 32 KiB. Two archives are retained. `run log --limit N` validates the full retained chain while keeping only the requested tail in memory. |
@@ -237,6 +237,8 @@ make vet
 make lint
 make coverage
 make build
+make benchmark-record
+make benchmark-compare
 go run ./cmd/reconc --help
 make self-host
 make publication-audit
@@ -261,6 +263,17 @@ executions, and a disposable per-run Go fuzz cache prevents machine-local corpus
 history from consuming or changing that fixed budget. `FUZZ_TIME`,
 `FUZZ_MINIMIZE`, and `FUZZ_PARALLEL` explicitly change those budgets and the
 worker count. Direct `go test ./...` validates only the root module.
+
+`make benchmark-record` runs the calibrated performance-history suite five
+times at a fixed iteration count and writes the machine-local result under
+`.build/benchmarks/`. `make benchmark-compare` normalizes every target against
+its same-package calibration benchmark before comparing it with the checked
+baseline. The suite covers nine groups: bounded action traces, structured
+action inspection, canonical JSON, contextual source ingestion, prospective
+path resolution, prepared command matching and evidence, source freshness, and
+write-epoch batching. Its parser reconstructs benchmark lines split across Go
+JSON output events. `make benchmark-baseline` is the only baseline-writing
+operation and requires `CONFIRM_BENCHMARK_BASELINE=1`.
 
 Go 1.27 synthetic time is restricted to tests whose complete dependency graph
 is in memory. The audit append gate tests use `testing/synctest` to prove
@@ -300,6 +313,9 @@ make lint
 make coverage
 make cover
 make bench
+make benchmark-record
+make benchmark-compare
+make benchmark-baseline
 make self-host
 make publication-audit
 make sbom VERSION=0.9.7
@@ -2579,6 +2595,19 @@ from 72.828 ms, 22,852,399 B/op, and 118 allocs/op to 41.067 ms, 8,396,832 B/op,
 and 100 allocs/op. Allocation reductions are the stable result; latency is a
 local observation subject to machine load, not a product-wide guarantee.
 
+The Go 1.27 hotpath pass also bounds trace storage during evaluation, shares
+one immutable compiled inspection pack per gateway, traverses immutable action
+values without cloning child slices, reuses one freshness hashing buffer per
+source batch, right-sizes evaluation-local memos, and opens one rooted source
+reader per complete policy load. Five focused Apple M1 repetitions reduced a
+maximum legal action plan from 3,184,776 to about 326,700 B/op, a clean maximum
+MCP content-array scan from 4,846,336 B/op and 32,777 allocs/op to about
+178,300 B/op and 88 allocs/op, a large freshness set from about 5.39 MiB/op to
+about 758 KiB/op, and contextual source loading from 407,928 B/op and 4,015
+allocs/op to 103,640 B/op and 1,027 allocs/op. The source-load median moved from
+8.410 ms to 3.338 ms in the recorded run; filesystem latency remains
+environment-sensitive, so the allocation reductions are the portable claim.
+
 `MultiServerMCPClient.get_tools()` uses fresh sessions for discovery and calls;
 an explicit `client.session()` plus `load_mcp_tools()` owns one stateful
 session. Reconc binds principal, credential labels, run, session, budgets,
@@ -2704,14 +2733,14 @@ summarizes the core runtime responsibilities:
 - `cmd/reconc`: CLI entry point only
 - `buildprovenance`: deterministic target/source build identity and byte-only binary inspection
 - `internal/cli`: argument parsing and command dispatch
-- `internal/action`: pure canonical action contract, strict normalized values, immutable matcher programs, deterministic evaluation, redacted traces, and exact in-memory decision caching
+- `internal/action`: pure canonical action contract, strict normalized values with read-only indexed traversal, immutable matcher programs, deterministic evaluation with collection-time bounded redacted traces, and exact in-memory decision caching
 - `internal/actionapproval`: canonical signed requests and receipts, operator authority registry, transport-neutral provider contract, and exact current input-required and legacy form-elicitation mappings
-- `internal/actioninspect`: strict MCP result decoding, offline output-schema validation, deterministic bounded content inspection, and safe withholding
+- `internal/actioninspect`: strict MCP result decoding, offline output-schema validation, concurrency-safe compiled detector packs, allocation-bounded content inspection, and safe withholding
 - `internal/actionledger`: strict payload-free lifecycle events, private retained chain, crash recovery, exact lifecycle aggregation, and deterministic verification
 - `internal/actionledgerexport`: verified synthetic minimized Impact Lab export with explicit omission and replay-completeness truth
 - `internal/actionstate`: trusted context identities, key leases, cumulative budgets, atomic approval consumption, and crash-safe private state
 - `internal/mcpgateway`: strict MCP framing and tool discovery, operator-bound child process ownership, live pre-dispatch enforcement, approval flow, progress/result inspection, lifecycle ledger completion, and bounded upstream delivery
-- `internal/ingest`: repository discovery and source loading
+- `internal/ingest`: repository discovery and one-root-handle stable source loading
 - `internal/parser`: YAML-to-policy validation and normalization
 - `internal/compiler`: canonical JSON lockfile generation, digesting, conflicts, migrations, compile lock
 - `internal/impactlab`: strict format-2 repository/action replay corpora, exact reviewed action-delta gates, privacy and completeness checks, and deterministic current-versus-candidate comparison

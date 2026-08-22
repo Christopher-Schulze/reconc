@@ -27,7 +27,7 @@ type evaluationAccumulator struct {
 	toolID          string
 	candidates      []Candidate
 	matched         []matchedRule
-	trace           []TraceEntry
+	trace           traceCollector
 	budgets         []BudgetCandidate
 	roots           predicateRoots
 	cacheNever      bool
@@ -184,7 +184,7 @@ func newEvaluationAccumulator(
 		tool: tool, toolID: toolID,
 		candidates:   []Candidate{evaluator.baselineCandidate(input.Request, tool)},
 		matched:      make([]matchedRule, 0, len(evaluator.rules)),
-		trace:        make([]TraceEntry, 0, min(len(evaluator.rules)+1, MaxTraceEntries)),
+		trace:        newTraceCollector(len(evaluator.rules) + 1),
 		budgets:      cloneBudgetSnapshot(input.Budget).Candidates,
 		completeness: input.Request.Completeness,
 	}
@@ -224,7 +224,7 @@ func (a *evaluationAccumulator) addInspection() *EvaluationResult {
 	a.candidates = append(a.candidates, candidate)
 	for _, ruleID := range evidence.RuleIDs {
 		a.matched = append(a.matched, matchedRule{id: ruleID, decision: candidate.Decision})
-		a.trace = append(a.trace, TraceEntry{
+		a.trace.add(TraceEntry{
 			RuleID: ruleID, ToolID: a.toolID, Selector: SelectorMatched,
 			Condition: ConditionTrue, CandidateDecision: candidate.Decision,
 			Reason: candidate.Reason, Completeness: true,
@@ -250,7 +250,7 @@ func (a *evaluationAccumulator) addRepositoryEffect() *EvaluationResult {
 	a.candidates = append(a.candidates, candidate)
 	for _, ruleID := range a.input.RepositoryEffect.RuleIDs {
 		a.matched = append(a.matched, matchedRule{id: ruleID, decision: candidate.Decision})
-		a.trace = append(a.trace, TraceEntry{
+		a.trace.add(TraceEntry{
 			RuleID: ruleID, ToolID: a.toolID, Selector: SelectorMatched,
 			Condition: ConditionTrue, CandidateDecision: candidate.Decision,
 			Reason: candidate.Reason, Completeness: true,
@@ -275,7 +275,7 @@ func (a *evaluationAccumulator) evaluateRule(rule CompiledRule) ReasonCode {
 		Selector: SelectorUnmatched, Condition: ConditionFalse, Completeness: true,
 	}
 	if !selectorMatches(rule.Rule.Selector, a.input.Request, a.toolID) {
-		a.trace = append(a.trace, entry)
+		a.trace.add(entry)
 		return ""
 	}
 	entry.Selector = SelectorMatched
@@ -285,7 +285,7 @@ func (a *evaluationAccumulator) evaluateRule(rule CompiledRule) ReasonCode {
 	}
 	populateConditionTrace(&entry, condition)
 	if condition.state == ConditionFalse {
-		a.trace = append(a.trace, entry)
+		a.trace.add(entry)
 		return ""
 	}
 	if condition.state == ConditionIndeterminate {
@@ -316,7 +316,7 @@ func (a *evaluationAccumulator) addRuleCandidate(rule CompiledRule, entry TraceE
 	a.candidates = append(a.candidates, candidate)
 	a.matched = append(a.matched, matchedRule{id: rule.Rule.ID, decision: candidate.Decision})
 	a.cacheNever = a.cacheNever || rule.Rule.Cache == CacheNever
-	a.trace = append(a.trace, entry)
+	a.trace.add(entry)
 }
 
 func (a *evaluationAccumulator) result() EvaluationResult {
@@ -333,7 +333,7 @@ func (a *evaluationAccumulator) result() EvaluationResult {
 		PhaseOutcome:   phaseOutcome(a.input.Request.Phase, decision),
 		Inspection:     cloneInspectionEvidence(a.input.Inspection),
 	}
-	result.Trace, result.TraceComplete, result.TraceOmitted = boundTrace(a.trace)
+	result.Trace, result.TraceComplete, result.TraceOmitted = a.trace.finish()
 	result.Cache = a.evaluator.cacheResult(
 		a.input, a.requestIdentity, a.cacheNever, decision, result.Completeness, false,
 	)
@@ -695,22 +695,41 @@ func markEvaluationIncomplete(completeness *Completeness, reason ReasonCode) {
 	})
 }
 
-func boundTrace(entries []TraceEntry) ([]TraceEntry, bool, int) {
-	if entries == nil {
+type traceCollector struct {
+	entries      []TraceEntry
+	logicalBytes int
+	omitted      int
+}
+
+func newTraceCollector(expected int) traceCollector {
+	return traceCollector{
+		entries:      make([]TraceEntry, 0, min(expected, MaxTraceEntries)),
+		logicalBytes: 2,
+	}
+}
+
+func (c *traceCollector) add(entry TraceEntry) {
+	if c.omitted > 0 || len(c.entries) == MaxTraceEntries {
+		c.omitted++
+		return
+	}
+	body, err := json.Marshal(entry)
+	if err != nil || c.logicalBytes+len(body)+1 > MaxTraceBytes {
+		c.omitted++
+		return
+	}
+	c.entries = append(c.entries, entry)
+	c.logicalBytes += len(body) + 1
+}
+
+func (c traceCollector) finish() ([]TraceEntry, bool, int) {
+	if c.entries == nil {
 		return []TraceEntry{}, true, 0
 	}
-	kept := make([]TraceEntry, 0, min(len(entries), MaxTraceEntries))
-	logicalBytes := 2
-	for index, entry := range entries {
-		body, err := json.Marshal(entry)
-		if err != nil || len(kept) == MaxTraceEntries || logicalBytes+len(body)+1 > MaxTraceBytes {
-			omitted := len(entries) - index
-			return appendTraceOverflow(kept, omitted, logicalBytes)
-		}
-		kept = append(kept, entry)
-		logicalBytes += len(body) + 1
+	if c.omitted == 0 {
+		return c.entries, true, 0
 	}
-	return kept, true, 0
+	return appendTraceOverflow(c.entries, c.omitted, c.logicalBytes)
 }
 
 func appendTraceOverflow(kept []TraceEntry, omitted, logicalBytes int) ([]TraceEntry, bool, int) {

@@ -104,11 +104,12 @@ func validateSchemaReferences(value action.Value) error {
 	if value.Kind() == action.ValueBool {
 		return nil
 	}
-	members, ok := value.Members()
+	length, ok := value.ObjectLen()
 	if !ok {
 		return fmt.Errorf("output subschema must be an object or boolean")
 	}
-	for _, member := range members {
+	for index := 0; index < length; index++ {
+		member, _ := value.ObjectMember(index)
 		if err := validateSchemaKeyword(member); err != nil {
 			return err
 		}
@@ -164,11 +165,12 @@ func validateChildSchemas(value action.Value) error {
 }
 
 func validateSchemaArray(value action.Value) error {
-	items, ok := value.Items()
+	length, ok := value.ArrayLen()
 	if !ok {
 		return fmt.Errorf("output schema combinator must be an array")
 	}
-	for _, item := range items {
+	for index := 0; index < length; index++ {
+		item, _ := value.ArrayItem(index)
 		if err := validateSchemaReferences(item); err != nil {
 			return err
 		}
@@ -177,11 +179,12 @@ func validateSchemaArray(value action.Value) error {
 }
 
 func validateSchemaMap(value action.Value, keysArePatterns bool) error {
-	members, ok := value.Members()
+	length, ok := value.ObjectLen()
 	if !ok {
 		return fmt.Errorf("output schema map keyword must be an object")
 	}
-	for _, member := range members {
+	for index := 0; index < length; index++ {
+		member, _ := value.ObjectMember(index)
 		if keysArePatterns {
 			if err := validateSchemaPatternText(member.Name); err != nil {
 				return err
@@ -227,8 +230,9 @@ func countValue(value action.Value, depth, maxDepth int) (int, int, error) {
 	maximumDepth := depth
 	switch value.Kind() {
 	case action.ValueArray:
-		values, _ := value.Items()
-		for _, item := range values {
+		length, _ := value.ArrayLen()
+		for index := 0; index < length; index++ {
+			item, _ := value.ArrayItem(index)
 			count, childDepth, err := countValue(item, depth+1, maxDepth)
 			if err != nil {
 				return 0, childDepth, err
@@ -237,8 +241,9 @@ func countValue(value action.Value, depth, maxDepth int) (int, int, error) {
 			maximumDepth = max(maximumDepth, childDepth)
 		}
 	case action.ValueObject:
-		members, _ := value.Members()
-		for _, member := range members {
+		length, _ := value.ObjectLen()
+		for index := 0; index < length; index++ {
+			member, _ := value.ObjectMember(index)
 			count, childDepth, err := countValue(member.Value, depth+1, maxDepth)
 			if err != nil {
 				return 0, childDepth, err

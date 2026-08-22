@@ -10,7 +10,6 @@ import (
 
 	"reconc.dev/reconc/internal/action"
 	"reconc.dev/reconc/internal/actionapproval"
-	"reconc.dev/reconc/internal/actioninspect"
 	"reconc.dev/reconc/internal/actionledger"
 	"reconc.dev/reconc/internal/actionstate"
 )
@@ -166,7 +165,7 @@ func (g *Gateway) prepareCall(
 	if err != nil {
 		return nil, blockedGatewayResultValue(callID, action.ReasonInspectionIncomplete)
 	}
-	inspector, err := actioninspect.NewEngine(snapshot.Plan, g.lease.Key)
+	inspector, err := g.inspectionEngine(snapshot.Plan)
 	if err != nil {
 		return nil, blockedGatewayResultValue(callID, action.ReasonInspectionIncomplete)
 	}

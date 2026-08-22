@@ -28,6 +28,7 @@ const (
 	maxFreshnessIncludes     = 256
 	maxFreshnessPatternBytes = 1024
 	maxFreshnessRecipeBytes  = maxFreshnessIncludes * maxFreshnessPatternBytes
+	freshnessCopyBufferBytes = 32 << 10
 )
 
 type sourceFreshnessInclude struct {
@@ -266,9 +267,13 @@ func freshnessGlobBase(root, pattern string) (string, error) {
 func observeFreshnessFiles(paths map[string]struct{}) ([]freshnessFile, error) {
 	ordered := sortedKeys(paths)
 	observations := make([]freshnessFile, 0, len(ordered))
+	if len(ordered) == 0 {
+		return observations, nil
+	}
 	var totalBytes int64
+	copyBuffer := make([]byte, freshnessCopyBufferBytes)
 	for _, filePath := range ordered {
-		observation, err := observeFreshnessFile(filePath, &totalBytes)
+		observation, err := observeFreshnessFile(filePath, &totalBytes, copyBuffer)
 		if err != nil {
 			return nil, err
 		}
@@ -277,7 +282,10 @@ func observeFreshnessFiles(paths map[string]struct{}) ([]freshnessFile, error) {
 	return observations, nil
 }
 
-func observeFreshnessFile(path string, totalBytes *int64) (freshnessFile, error) {
+func observeFreshnessFile(path string, totalBytes *int64, copyBuffer []byte) (freshnessFile, error) {
+	if len(copyBuffer) == 0 {
+		return freshnessFile{}, errors.New("runtime freshness copy buffer is empty")
+	}
 	observation := freshnessFile{Path: path}
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -297,7 +305,7 @@ func observeFreshnessFile(path string, totalBytes *int64) (freshnessFile, error)
 	var readBytes int64
 	err = boundedio.WithRegularFileSnapshot(path, maxFreshnessFileBytes, func(file *os.File, opened os.FileInfo) error {
 		var copyErr error
-		readBytes, copyErr = io.Copy(hash, io.LimitReader(file, maxFreshnessFileBytes+1))
+		readBytes, copyErr = io.CopyBuffer(hash, io.LimitReader(file, maxFreshnessFileBytes+1), copyBuffer)
 		if copyErr != nil {
 			return copyErr
 		}
@@ -314,7 +322,11 @@ func observeFreshnessFile(path string, totalBytes *int64) (freshnessFile, error)
 	observation.Size = info.Size()
 	observation.ModTime = info.ModTime().UnixNano()
 	observation.Identity = freshnessIdentity(info)
-	observation.Digest = hex.EncodeToString(hash.Sum(nil))
+	var digest [sha256.Size]byte
+	sum := hash.Sum(digest[:0])
+	var encoded [sha256.Size * 2]byte
+	hex.Encode(encoded[:], sum)
+	observation.Digest = string(encoded[:])
 	return observation, nil
 }
 

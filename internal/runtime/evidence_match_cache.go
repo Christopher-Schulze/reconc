@@ -9,9 +9,10 @@ import (
 )
 
 const (
-	maxEvidenceMatchMemoEntries = maxEvidenceSnapshots
-	maxEvidenceMatchMemoBytes   = 1 << 20
-	maxMatchContextMemoEntries  = 4096
+	maxEvidenceMatchMemoEntries  = maxEvidenceSnapshots
+	maxEvidenceMatchMemoBytes    = 1 << 20
+	maxMatchContextMemoEntries   = 4096
+	initialEvaluationMemoEntries = 8
 )
 
 // evidenceMatchOptions is the complete semantic input for one evidence-file
@@ -50,10 +51,7 @@ type evidenceMatchMemo struct {
 }
 
 func newEvidenceMatchMemo() *evidenceMatchMemo {
-	return &evidenceMatchMemo{
-		entries: make(map[evidenceMatchKey]evidenceMatchResult),
-		order:   make([]evidenceMatchKey, 0, maxEvidenceMatchMemoEntries),
-	}
+	return &evidenceMatchMemo{}
 }
 
 func (m *evidenceMatchMemo) match(path string, snapshot evidenceFileSnapshot, options evidenceMatchOptions) evidenceMatchResult {
@@ -134,6 +132,10 @@ func (m *evidenceMatchMemo) store(key evidenceMatchKey, result evidenceMatchResu
 	if entryBytes > maxEvidenceMatchMemoBytes {
 		return
 	}
+	if m.entries == nil {
+		m.entries = make(map[evidenceMatchKey]evidenceMatchResult, initialEvaluationMemoEntries)
+		m.order = make([]evidenceMatchKey, 0, initialEvaluationMemoEntries)
+	}
 	for len(m.order) >= maxEvidenceMatchMemoEntries || m.bytes+entryBytes > maxEvidenceMatchMemoBytes {
 		if len(m.order) == 0 {
 			break
@@ -182,10 +184,7 @@ type matchContextMemo struct {
 }
 
 func newMatchContextMemo() *matchContextMemo {
-	return &matchContextMemo{
-		entries: make(map[matchContextMemoKey]matchContextMemoEntry),
-		order:   make([]matchContextMemoKey, 0, maxMatchContextMemoEntries),
-	}
+	return &matchContextMemo{}
 }
 
 func (m *matchContextMemo) collect(matchers *runtimeTemplateMatchers, writes, patterns []string) ([]matchContext, error) {
@@ -197,6 +196,10 @@ func (m *matchContextMemo) collect(matchers *runtimeTemplateMatchers, writes, pa
 		return cloneMatchContexts(cached.contexts), cached.err
 	}
 	contexts, err := collectMatchContextsWithMatchers(matchers, writes, patterns)
+	if m.entries == nil {
+		m.entries = make(map[matchContextMemoKey]matchContextMemoEntry, initialEvaluationMemoEntries)
+		m.order = make([]matchContextMemoKey, 0, initialEvaluationMemoEntries)
+	}
 	m.entries[key] = matchContextMemoEntry{contexts: cloneMatchContexts(contexts), err: err}
 	m.order = append(m.order, key)
 	if len(m.order) > maxMatchContextMemoEntries {

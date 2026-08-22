@@ -54,6 +54,7 @@ type Gateway struct {
 	bindings     []actionstate.EnvironmentBinding
 	snapshot     PolicySnapshot
 	cache        *action.DecisionCache
+	inspections  *actioninspect.EngineFactory
 
 	process       *ownedProcess
 	downstream    Downstream
@@ -160,6 +161,10 @@ func startGateway(parent context.Context, config Config) (*Gateway, error) {
 	if err := config.PolicyAuthority.VerifyLockDigest(snapshot.LockDigest); err != nil {
 		return nil, fmt.Errorf("verify policy authority: %w", err)
 	}
+	inspections, err := actioninspect.NewEngineFactory()
+	if err != nil {
+		return nil, fmt.Errorf("compile action inspection detectors: %w", err)
+	}
 	home, err := actionstate.ResolveHome(config.ReconcHome)
 	if err != nil {
 		return nil, err
@@ -171,7 +176,7 @@ func startGateway(parent context.Context, config Config) (*Gateway, error) {
 	gatewayCtx, cancel := context.WithCancel(parent)
 	gateway := &Gateway{
 		config: config, ctx: gatewayCtx, cancel: cancel, lease: lease,
-		snapshot: snapshot, cache: action.NewDecisionCache(),
+		snapshot: snapshot, cache: action.NewDecisionCache(), inspections: inspections,
 		pending: make(map[string]pendingApproval), semaphore: make(chan struct{}, MaxConcurrentCalls),
 		refreshRequests: make(chan struct{}, 1), fatalErrors: make(chan error, 1),
 	}
@@ -253,7 +258,7 @@ func startGateway(parent context.Context, config Config) (*Gateway, error) {
 	if _, err := gateway.state.ReconcileExpiredApprovals(startupCtx); err != nil {
 		return fail(fmt.Errorf("reconcile expired approvals: %w", err))
 	}
-	_, err = actioninspect.NewEngine(snapshot.Plan, lease.Key)
+	_, err = gateway.inspectionEngine(snapshot.Plan)
 	if err != nil {
 		return fail(fmt.Errorf("prepare action inspection: %w", err))
 	}
@@ -286,6 +291,13 @@ func startGateway(parent context.Context, config Config) (*Gateway, error) {
 	gateway.refreshWorkerDone = make(chan struct{})
 	go gateway.runToolRefreshes()
 	return gateway, nil
+}
+
+func (g *Gateway) inspectionEngine(plan *action.CompiledPlan) (*actioninspect.Engine, error) {
+	if g == nil || g.inspections == nil || g.lease == nil {
+		return nil, fmt.Errorf("gateway inspection engine is unavailable")
+	}
+	return g.inspections.NewEngine(plan, g.lease.Key)
 }
 
 func validateApprovalConfiguration(

@@ -20,6 +20,29 @@ type Engine struct {
 	pack compiledDetectorPack
 }
 
+// EngineFactory owns one immutable compiled detector pack. The standard
+// library regular expressions in the pack are safe for concurrent matching,
+// so independent engines can share the compiled programs without sharing
+// request or evidence state.
+type EngineFactory struct {
+	pack compiledDetectorPack
+}
+
+func NewEngineFactory() (*EngineFactory, error) {
+	pack, err := compileBuiltinPack()
+	if err != nil {
+		return nil, err
+	}
+	return &EngineFactory{pack: pack}, nil
+}
+
+func (f *EngineFactory) NewEngine(plan *action.CompiledPlan, key IdentityKey) (*Engine, error) {
+	if f == nil || len(f.pack.rules) == 0 {
+		return nil, fmt.Errorf("inspection engine factory is unavailable")
+	}
+	return newEngine(plan, key, f.pack)
+}
+
 type inspectionAccumulator struct {
 	evidence       action.InspectionEvidence
 	fields         map[string]struct{}
@@ -31,15 +54,19 @@ type inspectionAccumulator struct {
 }
 
 func NewEngine(plan *action.CompiledPlan, key IdentityKey) (*Engine, error) {
+	factory, err := NewEngineFactory()
+	if err != nil {
+		return nil, err
+	}
+	return factory.NewEngine(plan, key)
+}
+
+func newEngine(plan *action.CompiledPlan, key IdentityKey, pack compiledDetectorPack) (*Engine, error) {
 	if err := ValidateCompiledPlan(plan); err != nil {
 		return nil, err
 	}
 	if key == nil || key.ID() == "" {
 		return nil, fmt.Errorf("inspection identity key is unavailable")
-	}
-	pack, err := compileBuiltinPack()
-	if err != nil {
-		return nil, err
 	}
 	return &Engine{plan: plan, key: key, pack: pack}, nil
 }
@@ -136,7 +163,6 @@ func newInspectionAccumulator(phase action.Phase) inspectionAccumulator {
 			PackIdentities: []string{}, SchemaStatus: status, SchemaIdentity: "absent",
 			Fields: []action.InspectionFieldEvidence{}, UnsupportedContent: []action.InspectionContentEvidence{},
 		},
-		fields: make(map[string]struct{}), binaries: make(map[string]struct{}),
 		phase: phase,
 	}
 }
@@ -267,6 +293,9 @@ func (e *Engine) addAnnotationEvidence(accumulator *inspectionAccumulator, field
 	if _, exists := accumulator.binaries[key]; exists {
 		return
 	}
+	if accumulator.binaries == nil {
+		accumulator.binaries = make(map[string]struct{})
+	}
 	accumulator.binaries[key] = struct{}{}
 	accumulator.evidence.UnsupportedContent = append(accumulator.evidence.UnsupportedContent, action.InspectionContentEvidence{
 		ContentType: action.ContentAnnotation, Identity: identity, ByteLength: uint64(len(field)),
@@ -293,6 +322,9 @@ func (e *Engine) addValueEvidence(
 	key := string(contentType) + "\x00" + identity
 	if _, exists := accumulator.binaries[key]; exists {
 		return nil
+	}
+	if accumulator.binaries == nil {
+		accumulator.binaries = make(map[string]struct{})
 	}
 	accumulator.binaries[key] = struct{}{}
 	accumulator.evidence.UnsupportedContent = append(accumulator.evidence.UnsupportedContent, action.InspectionContentEvidence{
@@ -395,8 +427,11 @@ func (e *Engine) scanValue(
 	categories map[action.DetectorCategory]struct{},
 	binaryPointers map[string]struct{},
 ) error {
-	if _, binary := binaryPointers[pointer]; binary {
-		return nil
+	trackPointers := len(binaryPointers) != 0
+	if trackPointers {
+		if _, binary := binaryPointers[pointer]; binary {
+			return nil
+		}
 	}
 	switch value.Kind() {
 	case action.ValueString:
@@ -409,16 +444,25 @@ func (e *Engine) scanValue(
 		}
 		accumulator.addFindings(findings, policy.Policy, accumulator.evidence.SchemaStatus)
 	case action.ValueArray:
-		items, _ := value.Items()
-		for index, item := range items {
-			if err := e.scanValue(ctx, accumulator, policy, item, pointer+"/"+strconv.Itoa(index), categories, binaryPointers); err != nil {
+		length, _ := value.ArrayLen()
+		for index := 0; index < length; index++ {
+			item, _ := value.ArrayItem(index)
+			childPointer := ""
+			if trackPointers {
+				childPointer = pointer + "/" + strconv.Itoa(index)
+			}
+			if err := e.scanValue(ctx, accumulator, policy, item, childPointer, categories, binaryPointers); err != nil {
 				return err
 			}
 		}
 	case action.ValueObject:
-		members, _ := value.Members()
-		for _, member := range members {
-			child := pointer + "/" + escapePointerToken(member.Name)
+		length, _ := value.ObjectLen()
+		for index := 0; index < length; index++ {
+			member, _ := value.ObjectMember(index)
+			child := ""
+			if trackPointers {
+				child = pointer + "/" + escapePointerToken(member.Name)
+			}
 			if err := e.scanValue(ctx, accumulator, policy, member.Value, child, categories, binaryPointers); err != nil {
 				return err
 			}
@@ -431,6 +475,9 @@ func (a *inspectionAccumulator) addField(field action.InspectionFieldEvidence) {
 	key := string(field.Source) + "\x00" + field.PointerIdentity
 	if _, exists := a.fields[key]; exists {
 		return
+	}
+	if a.fields == nil {
+		a.fields = make(map[string]struct{})
 	}
 	a.fields[key] = struct{}{}
 	a.evidence.Fields = append(a.evidence.Fields, field)
@@ -466,15 +513,17 @@ func walkInspectionItems(
 	}
 	switch value.Kind() {
 	case action.ValueArray:
-		children, _ := value.Items()
-		for _, child := range children {
+		length, _ := value.ArrayLen()
+		for index := 0; index < length; index++ {
+			child, _ := value.ArrayItem(index)
 			if err := walkInspectionChild(ctx, child, depth, maxDepth, maxItems, count); err != nil {
 				return err
 			}
 		}
 	case action.ValueObject:
-		members, _ := value.Members()
-		for _, member := range members {
+		length, _ := value.ObjectLen()
+		for index := 0; index < length; index++ {
+			member, _ := value.ObjectMember(index)
 			if err := walkInspectionChild(ctx, member.Value, depth, maxDepth, maxItems, count); err != nil {
 				return err
 			}
@@ -504,6 +553,9 @@ func (e *Engine) addBinaryEvidence(accumulator *inspectionAccumulator, block Con
 	key := string(block.Type) + "\x00" + identity
 	if _, exists := accumulator.binaries[key]; exists {
 		return
+	}
+	if accumulator.binaries == nil {
+		accumulator.binaries = make(map[string]struct{})
 	}
 	accumulator.binaries[key] = struct{}{}
 	accumulator.evidence.UnsupportedContent = append(accumulator.evidence.UnsupportedContent, action.InspectionContentEvidence{
@@ -606,13 +658,16 @@ func (e *Engine) finalizeEvidence(evidence *action.InspectionEvidence) {
 }
 
 func resultBinaryPointers(result *MCPToolResult) map[string]struct{} {
-	values := make(map[string]struct{})
+	var values map[string]struct{}
 	if result == nil {
 		return values
 	}
 	for _, block := range result.Content {
 		if block.Type == action.ContentImage || block.Type == action.ContentAudio ||
 			block.Type == action.ContentResourceBlob || block.Type == action.ContentUnknown {
+			if values == nil {
+				values = make(map[string]struct{})
+			}
 			values[block.Pointer] = struct{}{}
 		}
 	}

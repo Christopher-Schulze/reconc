@@ -26,6 +26,7 @@ func parseBenchmarkJSON(body []byte) (map[string][]MetricSample, error) {
 	}
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	parsed := make(map[string][]MetricSample)
+	var output strings.Builder
 	for events := 0; ; events++ {
 		if events >= maxBenchmarkEvents {
 			return nil, fmt.Errorf("benchmark output exceeds %d events", maxBenchmarkEvents)
@@ -39,14 +40,18 @@ func parseBenchmarkJSON(body []byte) (map[string][]MetricSample, error) {
 		if event.Action != "output" {
 			continue
 		}
-		for _, line := range strings.Split(event.Output, "\n") {
-			name, sample, ok, err := parseBenchmarkLine(line)
-			if err != nil {
-				return nil, err
-			}
-			if ok {
-				parsed[name] = append(parsed[name], sample)
-			}
+		if output.Len() > maxBenchmarkOutput-len(event.Output) {
+			return nil, fmt.Errorf("benchmark output exceeds %d decoded bytes", maxBenchmarkOutput)
+		}
+		output.WriteString(event.Output)
+	}
+	for _, line := range strings.Split(output.String(), "\n") {
+		name, sample, ok, err := parseBenchmarkLine(line)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			parsed[name] = append(parsed[name], sample)
 		}
 	}
 	if len(parsed) == 0 {

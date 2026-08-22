@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -12,7 +13,6 @@ import (
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/customruntime"
 	rerrors "reconc.dev/reconc/internal/errors"
-	"reconc.dev/reconc/internal/pathidentity"
 	"reconc.dev/reconc/internal/policy"
 	"reconc.dev/reconc/internal/presets"
 )
@@ -83,7 +83,7 @@ func LoadPolicySources(repoStartPath string) (*SourceBundle, error) {
 
 // LoadPolicySourcesWithContext loads one previously discovered, identity-bound
 // source snapshot. The context is validated before and after all reads.
-func LoadPolicySourcesWithContext(context *SourceLoadContext) (*SourceBundle, error) {
+func LoadPolicySourcesWithContext(context *SourceLoadContext) (bundle *SourceBundle, resultErr error) {
 	if context == nil {
 		return nil, &rerrors.PolicySourceError{Message: "policy source load context is nil"}
 	}
@@ -100,6 +100,16 @@ func LoadPolicySourcesWithContext(context *SourceLoadContext) (*SourceBundle, er
 	if err := context.Validate(); err != nil {
 		return nil, &rerrors.PolicySourceError{Message: "validate policy source snapshot", Cause: err}
 	}
+	reader, err := newRepositorySourceReader(root)
+	if err != nil {
+		return nil, &rerrors.PolicySourceError{Message: "open policy source root", Cause: err}
+	}
+	defer func() {
+		if closeErr := reader.Close(); closeErr != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("close policy source root: %w", closeErr))
+			bundle = nil
+		}
+	}()
 	sources := []policy.PolicySource{}
 
 	// 1. Global policy (lowest precedence, applies to every repo).
@@ -114,7 +124,7 @@ func LoadPolicySourcesWithContext(context *SourceLoadContext) (*SourceBundle, er
 	// into the later inline_block tier rather than interleaved with prose.
 	inlineSources := []policy.PolicySource{}
 	if discovery.ClaudePath != nil {
-		ss, err := loadEntryFileWithBlocks(root, *discovery.ClaudePath, policy.SourceClaudeMD)
+		ss, err := loadEntryFileWithBlocks(reader, *discovery.ClaudePath, policy.SourceClaudeMD)
 		if err != nil {
 			return nil, err
 		}
@@ -122,7 +132,7 @@ func LoadPolicySourcesWithContext(context *SourceLoadContext) (*SourceBundle, er
 		inlineSources = append(inlineSources, ss[1:]...)
 	}
 	if discovery.AgentsPath != nil {
-		ss, err := loadEntryFileWithBlocks(root, *discovery.AgentsPath, policy.SourceAgentsMD)
+		ss, err := loadEntryFileWithBlocks(reader, *discovery.AgentsPath, policy.SourceAgentsMD)
 		if err != nil {
 			return nil, err
 		}
@@ -130,7 +140,7 @@ func LoadPolicySourcesWithContext(context *SourceLoadContext) (*SourceBundle, er
 		inlineSources = append(inlineSources, ss[1:]...)
 	}
 	if discovery.StartMDPath != nil {
-		ss, err := loadEntryFileWithBlocks(root, *discovery.StartMDPath, policy.SourceStartMD)
+		ss, err := loadEntryFileWithBlocks(reader, *discovery.StartMDPath, policy.SourceStartMD)
 		if err != nil {
 			return nil, err
 		}
@@ -144,7 +154,7 @@ func LoadPolicySourcesWithContext(context *SourceLoadContext) (*SourceBundle, er
 	presetNames := []string{}
 
 	if discovery.ConfigPath != nil {
-		configText, err := readRepositorySource(root, *discovery.ConfigPath)
+		configText, err := reader.Read(*discovery.ConfigPath)
 		if err != nil {
 			return nil, &rerrors.PolicySourceError{
 				Message: "read compiler config " + *discovery.ConfigPath,
@@ -185,7 +195,7 @@ func LoadPolicySourcesWithContext(context *SourceLoadContext) (*SourceBundle, er
 
 	// 7. Policy file fragments (sorted, deduplicated).
 	includePatterns = sortedUniquePolicyGlobPatterns(includePatterns)
-	fragmentSources, err := loadPolicyFragmentSourcesWithDefaults(root, includePatterns, context.defaultMatches)
+	fragmentSources, err := loadPolicyFragmentSourcesWithDefaults(reader, includePatterns, context.defaultMatches)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +203,7 @@ func LoadPolicySourcesWithContext(context *SourceLoadContext) (*SourceBundle, er
 
 	// 8. Declarative custom runtime manifests. They are not policy YAML, but
 	// their exact bytes participate in the same source identity.
-	runtimeSources, err := LoadCustomRuntimeSources(root)
+	runtimeSources, err := loadCustomRuntimeSources(reader)
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +226,22 @@ func LoadPolicySourcesWithContext(context *SourceLoadContext) (*SourceBundle, er
 // LoadCustomRuntimeSources reads repository-owned declarative manifests in a
 // deterministic order. Symlinks and non-regular JSON entries are rejected so
 // the compiled identity always refers to bytes physically owned by the repo.
-func LoadCustomRuntimeSources(root string) ([]policy.PolicySource, error) {
+func LoadCustomRuntimeSources(root string) (sources []policy.PolicySource, resultErr error) {
+	reader, err := newRepositorySourceReader(root)
+	if err != nil {
+		return nil, &rerrors.PolicySourceError{Message: "open custom runtime root", Cause: err}
+	}
+	defer func() {
+		if closeErr := reader.Close(); closeErr != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("close custom runtime root: %w", closeErr))
+			sources = nil
+		}
+	}()
+	return loadCustomRuntimeSources(reader)
+}
+
+func loadCustomRuntimeSources(reader *repositorySourceReader) ([]policy.PolicySource, error) {
+	root := reader.path
 	directory := filepath.Join(root, ".reconc", "runtimes")
 	entries, err := boundedio.ReadDirNoSymlink(directory, maxRuntimeDirEntries)
 	if os.IsNotExist(err) {
@@ -246,7 +271,7 @@ func LoadCustomRuntimeSources(root string) ([]policy.PolicySource, error) {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			return nil, &rerrors.PolicySourceError{Message: "custom runtime " + rel + " must be a non-symlink regular file"}
 		}
-		body, err := readRepositorySource(root, rel)
+		body, err := reader.Read(rel)
 		if err != nil {
 			return nil, &rerrors.PolicySourceError{Message: "read custom runtime " + rel, Cause: err}
 		}
@@ -294,8 +319,8 @@ func loadGlobalPolicySource() (*policy.PolicySource, error) {
 // loadEntryFileWithBlocks reads the named context file (relative to
 // root) and returns the file-as-source plus every inline ```reconc
 // fenced block found inside.
-func loadEntryFileWithBlocks(root, relPath string, kind policy.SourceKind) ([]policy.PolicySource, error) {
-	data, err := readRepositorySource(root, relPath)
+func loadEntryFileWithBlocks(reader *repositorySourceReader, relPath string, kind policy.SourceKind) ([]policy.PolicySource, error) {
+	data, err := reader.Read(relPath)
 	if err != nil {
 		return nil, &rerrors.PolicySourceError{
 			Message: "read context file " + relPath,
@@ -470,7 +495,8 @@ func loadPresetSources(names []string) ([]policy.PolicySource, error) {
 	return out, nil
 }
 
-func loadPolicyFragmentSourcesWithDefaults(root string, patterns []string, defaultMatches map[string][]string) ([]policy.PolicySource, error) {
+func loadPolicyFragmentSourcesWithDefaults(reader *repositorySourceReader, patterns []string, defaultMatches map[string][]string) ([]policy.PolicySource, error) {
+	root := reader.path
 	if err := validatePolicyGlobPatterns(patterns); err != nil {
 		return nil, &rerrors.PolicySourceError{Message: err.Error()}
 	}
@@ -511,7 +537,7 @@ func loadPolicyFragmentSourcesWithDefaults(root string, patterns []string, defau
 				continue
 			}
 			seen[rel] = struct{}{}
-			data, err := readRepositorySource(root, rel)
+			data, err := reader.Read(rel)
 			if err != nil {
 				return nil, &rerrors.PolicySourceError{
 					Message: "read policy fragment " + rel,
@@ -545,72 +571,13 @@ func sortedUniquePolicyGlobPatterns(patterns []string) []string {
 	return uniquePatterns
 }
 
-// pathOutsideRoot reports whether resolved lies outside resolvedRoot.
-func pathOutsideRoot(resolvedRoot, resolved string) (bool, error) {
-	rel, err := filepath.Rel(resolvedRoot, resolved)
-	if err != nil {
-		return false, err
-	}
-	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)), nil
-}
-
-// readRepositorySource reads one regular policy source only when both its
-// lexical path and resolved filesystem identity remain inside root. Resolving
-// before and after the read detects path swaps instead of digesting bytes from
-// a different target than the validated source.
 func readRepositorySource(root, rel string) ([]byte, error) {
-	if filepath.IsAbs(rel) {
-		return nil, fmt.Errorf("%s must be repository-relative", rel)
-	}
-	rootIdentity, err := pathidentity.ResolveExisting(root)
-	if err != nil {
-		return nil, fmt.Errorf("resolve repository root: %w", err)
-	}
-	full := filepath.Join(root, filepath.FromSlash(rel))
-	before, err := pathidentity.ResolveExisting(full)
-	if err != nil {
-		return nil, fmt.Errorf("resolve source %s: %w", rel, err)
-	}
-	outside, err := pathOutsideRoot(rootIdentity, before)
-	if err != nil {
-		return nil, fmt.Errorf("validate source %s containment: %w", rel, err)
-	}
-	if outside {
-		return nil, fmt.Errorf("source %s resolves outside the repository root", rel)
-	}
-	info, err := os.Stat(before)
+	reader, err := newRepositorySourceReader(root)
 	if err != nil {
 		return nil, err
 	}
-	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("source %s must resolve to a regular file", rel)
-	}
-	data, openedIdentity, err := boundedio.ReadFileSnapshot(before, maxPolicySourceBytes)
-	if err != nil {
-		return nil, err
-	}
-	after, err := pathidentity.ResolveExisting(full)
-	if err != nil {
-		return nil, fmt.Errorf("revalidate source %s: %w", rel, err)
-	}
-	if before != after {
-		return nil, fmt.Errorf("source %s changed filesystem identity while being read", rel)
-	}
-	afterRoot, err := pathidentity.ResolveExisting(root)
-	if err != nil {
-		return nil, fmt.Errorf("revalidate repository root for %s: %w", rel, err)
-	}
-	if rootIdentity != afterRoot {
-		return nil, fmt.Errorf("repository root changed filesystem identity while reading %s", rel)
-	}
-	afterInfo, err := os.Stat(full)
-	if err != nil {
-		return nil, fmt.Errorf("revalidate source identity %s: %w", rel, err)
-	}
-	if !sameSourceInfo(openedIdentity, afterInfo) {
-		return nil, fmt.Errorf("source %s changed opened filesystem identity while being read", rel)
-	}
-	return data, nil
+	data, readErr := reader.Read(rel)
+	return data, errors.Join(readErr, reader.Close())
 }
 
 func validatePolicySourceBounds(sources []policy.PolicySource) error {

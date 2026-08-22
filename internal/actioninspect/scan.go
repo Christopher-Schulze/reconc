@@ -144,7 +144,7 @@ func (p compiledDetectorPack) scan(
 			return nil, fmt.Errorf("%w: confusable text exceeds byte boundary", errInspectionLimit)
 		}
 	}
-	findings := make([]Finding, 0, 4)
+	var findings []Finding
 	for _, rule := range p.rules {
 		if _, selected := categories[rule.rule.Category]; !selected {
 			continue

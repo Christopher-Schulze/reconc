@@ -25,11 +25,14 @@ type groupSpec struct {
 }
 
 var benchmarkSuite = []groupSpec{
+	{Name: "action-bounded-trace", Package: "./internal/action", Calibration: "BenchmarkActionEvaluatorRepresentativeCalibrated", Targets: []string{"BenchmarkActionEvaluatorMaximumLegalPlanCalibrated"}},
+	{Name: "action-structured-inspection", Package: "./internal/actioninspect", Calibration: "BenchmarkStructuredJSONRepresentative", Targets: []string{"BenchmarkMaximumLegalContentArray"}},
 	{Name: "compiler-canonical-json", Package: "./internal/compiler", Calibration: "BenchmarkNormalizeJSONValueTwice", Targets: []string{"BenchmarkNormalizeJSONValueOnce"}},
 	{Name: "ingest-source-context", Package: "./internal/ingest", Calibration: "BenchmarkLoadPolicySourcesWithDiscovery", Targets: []string{"BenchmarkLoadPolicySourcesWithContext"}},
 	{Name: "prospective-path-resolution", Package: "./internal/pathidentity", Calibration: "BenchmarkResolveProspectiveIndependent", Targets: []string{"BenchmarkResolveProspectiveBatch"}},
 	{Name: "runtime-command-matching", Package: "./internal/runtime", Calibration: "BenchmarkForbiddenCommandReparse", Targets: []string{"BenchmarkForbiddenCommandPrepared"}},
 	{Name: "runtime-command-evidence", Package: "./internal/runtime", Calibration: "BenchmarkCommandEvidenceReparse", Targets: []string{"BenchmarkCommandEvidencePrepared"}},
+	{Name: "runtime-source-freshness", Package: "./internal/runtime", Calibration: "BenchmarkRuntimePlanFreshnessHit", Targets: []string{"BenchmarkRuntimePlanFreshnessLargeSourceSet"}},
 	{Name: "runtime-write-epochs", Package: "./internal/runtime", Calibration: "BenchmarkNormalizeWriteEpochsPerPath", Targets: []string{"BenchmarkNormalizeWriteEpochsBatch"}},
 }
 

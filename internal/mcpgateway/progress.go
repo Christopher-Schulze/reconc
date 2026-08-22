@@ -13,7 +13,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"reconc.dev/reconc/internal/action"
-	"reconc.dev/reconc/internal/actioninspect"
 )
 
 type callProgress struct {
@@ -175,7 +174,7 @@ func (g *Gateway) evaluateProgress(
 	if err != nil {
 		return progressFailureDecision(call, action.ReasonInspectionIncomplete), false
 	}
-	inspector, err := actioninspect.NewEngine(call.snapshot.Plan, g.lease.Key)
+	inspector, err := g.inspectionEngine(call.snapshot.Plan)
 	if err != nil {
 		return progressFailureDecision(call, action.ReasonInspectionIncomplete), false
 	}

@@ -38,6 +38,21 @@ func TestParseBenchmarkJSONAndNormalize(t *testing.T) {
 	}
 }
 
+func TestParseBenchmarkJSONReassemblesFragmentedOutputEvents(t *testing.T) {
+	body := []byte(strings.Join([]string{
+		`{"Action":"output","Package":"reconc.dev/reconc/internal/runtime","Output":"BenchmarkFragmented-1"}`,
+		`{"Action":"output","Package":"reconc.dev/reconc/internal/runtime","Output":"\t100\t10 ns/op\t20 B/op\t2 allocs/op\n"}`,
+	}, "\n"))
+	parsed, err := parseBenchmarkJSON(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	samples := parsed["BenchmarkFragmented"]
+	if len(samples) != 1 || samples[0].Iterations != 100 || samples[0].BytesPerOp != 20 {
+		t.Fatalf("fragmented benchmark samples = %#v", samples)
+	}
+}
+
 func TestBuildGroupsRefusesMissingBenchmark(t *testing.T) {
 	_, err := buildGroups(map[string][]MetricSample{}, 5)
 	if err == nil || !strings.Contains(err.Error(), benchmarkSuite[0].Calibration) {
