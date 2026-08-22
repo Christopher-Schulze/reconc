@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 )
@@ -508,7 +509,7 @@ func validOpaqueIdentity(value string) bool {
 	}
 	for _, character := range value {
 		if character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z' ||
-			character >= '0' && character <= '9' || stringsContainsRune("._:-", character) {
+			character >= '0' && character <= '9' || strings.ContainsRune("._:-", character) {
 			continue
 		}
 		return false
@@ -541,15 +542,6 @@ func lowerHex64(value string) bool {
 		return false
 	}
 	return true
-}
-
-func stringsContainsRune(value string, want rune) bool {
-	for _, character := range value {
-		if character == want {
-			return true
-		}
-	}
-	return false
 }
 
 func digestBytes(data []byte) string {

@@ -368,14 +368,20 @@ func (v Value) Equal(other Value) bool {
 }
 
 func (v Value) MarshalJSON() ([]byte, error) {
-	sizeHint, err := v.jsonSizeHint(0)
+	sizeHint, err := v.CanonicalJSONSize()
 	if err != nil {
 		return nil, err
 	}
 	return v.appendJSON(make([]byte, 0, sizeHint), 0)
 }
 
-func (v Value) jsonSizeHint(depth int) (int, error) {
+// CanonicalJSONSize returns the exact byte length emitted by MarshalJSON
+// without materializing the encoding.
+func (v Value) CanonicalJSONSize() (int, error) {
+	return v.canonicalJSONSize(0)
+}
+
+func (v Value) canonicalJSONSize(depth int) (int, error) {
 	if depth > MaxJSONDepth {
 		return 0, fmt.Errorf("value exceeds %d container levels", MaxJSONDepth)
 	}
@@ -388,9 +394,9 @@ func (v Value) jsonSizeHint(depth int) (int, error) {
 		}
 		return len("false"), nil
 	case ValueNumber:
-		return len(v.number.String()), nil
+		return v.number.canonicalJSONSize(), nil
 	case ValueString:
-		return addJSONSize(len(v.string), 2)
+		return quotedJSONStringSize(v.string)
 	case ValueArray:
 		return v.jsonArraySizeHint(depth)
 	case ValueObject:
@@ -410,7 +416,7 @@ func (v Value) jsonArraySizeHint(depth int) (int, error) {
 				return 0, err
 			}
 		}
-		itemSize, err := v.array[index].jsonSizeHint(depth + 1)
+		itemSize, err := v.array[index].canonicalJSONSize(depth + 1)
 		if err != nil {
 			return 0, err
 		}
@@ -432,7 +438,7 @@ func (v Value) jsonObjectSizeHint(depth int) (int, error) {
 				return 0, err
 			}
 		}
-		nameSize, err := addJSONSize(len(v.object[index].Name), 2)
+		nameSize, err := quotedJSONStringSize(v.object[index].Name)
 		if err != nil {
 			return 0, err
 		}
@@ -444,11 +450,70 @@ func (v Value) jsonObjectSizeHint(depth int) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		valueSize, err := v.object[index].Value.jsonSizeHint(depth + 1)
+		valueSize, err := v.object[index].Value.canonicalJSONSize(depth + 1)
 		if err != nil {
 			return 0, err
 		}
 		total, err = addJSONSize(total, valueSize)
+		if err != nil {
+			return 0, err
+		}
+	}
+	return total, nil
+}
+
+func (d Decimal) canonicalJSONSize() int {
+	if d.coefficient == "" || d.coefficient == "0" {
+		return 1
+	}
+	size := len(d.coefficient)
+	if d.negative {
+		size++
+	}
+	if d.exponent != 0 {
+		size += 1 + decimalDigits(d.exponent)
+	}
+	return size
+}
+
+func decimalDigits(value int) int {
+	digits := 0
+	if value < 0 {
+		digits++
+		value = -value
+	}
+	for {
+		digits++
+		value /= 10
+		if value == 0 {
+			return digits
+		}
+	}
+}
+
+func quotedJSONStringSize(value string) (int, error) {
+	total := 2
+	htmlSafe := strings.ContainsAny(value, "<>&") || strings.ContainsRune(value, '\u2028') || strings.ContainsRune(value, '\u2029')
+	for _, character := range value {
+		increment := utf8.RuneLen(character)
+		switch character {
+		case '"', '\\', '\b', '\f', '\n', '\r', '\t':
+			increment = 2
+		case '<', '>', '&':
+			if htmlSafe {
+				increment = 6
+			}
+		case '\u2028', '\u2029':
+			if htmlSafe {
+				increment = 6
+			}
+		default:
+			if character < 0x20 {
+				increment = 6
+			}
+		}
+		var err error
+		total, err = addJSONSize(total, increment)
 		if err != nil {
 			return 0, err
 		}

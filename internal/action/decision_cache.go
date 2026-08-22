@@ -49,7 +49,15 @@ func (c *DecisionCache) Lookup(
 	evaluator *Evaluator,
 	input EvaluationInput,
 ) (EvaluationResult, bool, CacheReason) {
-	identity := evaluator.CacheIdentity(input)
+	return c.lookupIdentity(evaluator.CacheIdentity(input))
+}
+
+// LookupPrepared performs no normalization or identity construction.
+func (c *DecisionCache) LookupPrepared(prepared *PreparedEvaluation) (EvaluationResult, bool, CacheReason) {
+	return c.lookupIdentity(preparedCacheIdentity(prepared))
+}
+
+func (c *DecisionCache) lookupIdentity(identity CacheResult) (EvaluationResult, bool, CacheReason) {
 	if !identity.Eligible {
 		return EvaluationResult{}, false, identity.Reason
 	}
@@ -70,11 +78,18 @@ func (c *DecisionCache) Store(
 	input EvaluationInput,
 	result EvaluationResult,
 ) bool {
-	if c == nil || !result.Cache.Eligible || result.Failure != nil {
-		return false
-	}
-	identity := evaluator.CacheIdentity(input)
-	if !identity.Eligible || identity.Identity != result.Cache.Identity {
+	return c.storeIdentity(evaluator.CacheIdentity(input), result)
+}
+
+// StorePrepared verifies the result against the exact prepared eligible
+// identity without repeating input normalization.
+func (c *DecisionCache) StorePrepared(prepared *PreparedEvaluation, result EvaluationResult) bool {
+	return c.storeIdentity(preparedCacheIdentity(prepared), result)
+}
+
+func (c *DecisionCache) storeIdentity(identity CacheResult, result EvaluationResult) bool {
+	if c == nil || !identity.Eligible || !result.Cache.Eligible || result.Failure != nil ||
+		identity.Identity != result.Cache.Identity {
 		return false
 	}
 	c.mu.Lock()
@@ -94,6 +109,13 @@ func (c *DecisionCache) Store(
 	return true
 }
 
+func preparedCacheIdentity(prepared *PreparedEvaluation) CacheResult {
+	if prepared == nil {
+		return CacheResult{Reason: CacheIdentityMissing}
+	}
+	return prepared.cache
+}
+
 func (e *Evaluator) CacheIdentity(input EvaluationInput) CacheResult {
 	if e == nil {
 		return CacheResult{Reason: CacheIdentityMissing}
@@ -107,49 +129,50 @@ func (e *Evaluator) CacheIdentity(input EvaluationInput) CacheResult {
 	if identityErr != nil {
 		return CacheResult{Reason: CacheIdentityMissing}
 	}
-	return e.cacheIdentityNormalized(input, requestIdentity)
+	expected := e.expectedIdentities(input)
+	return e.cacheIdentityNormalized(input, requestIdentity, expected)
 }
 
 func (e *Evaluator) cacheIdentityNormalized(
 	input EvaluationInput,
 	requestIdentity string,
+	expected IdentitySnapshot,
 ) CacheResult {
 	if input.Lifecycle != LifecycleActive || input.Request.Deadline != DeadlineReady {
-		return e.cacheIdentityWithReason(input, requestIdentity, CacheLifecycleInactive)
+		return e.cacheIdentityWithReason(input, requestIdentity, expected, CacheLifecycleInactive)
 	}
 	if e.plan.Defaults.Cache == CacheNever {
-		return e.cacheIdentityWithReason(input, requestIdentity, CachePolicyNever)
+		return e.cacheIdentityWithReason(input, requestIdentity, expected, CachePolicyNever)
 	}
 	if !input.Request.Completeness.Complete() {
-		return e.cacheIdentityWithReason(input, requestIdentity, CacheEvidenceIncomplete)
+		return e.cacheIdentityWithReason(input, requestIdentity, expected, CacheEvidenceIncomplete)
 	}
 	for _, entry := range input.Request.Context {
 		if !entry.Available {
-			return e.cacheIdentityWithReason(input, requestIdentity, CacheContextUnresolved)
+			return e.cacheIdentityWithReason(input, requestIdentity, expected, CacheContextUnresolved)
 		}
 	}
 	if input.Taint.Status != TaintClean {
-		return e.cacheIdentityWithReason(input, requestIdentity, CacheEvidenceTainted)
+		return e.cacheIdentityWithReason(input, requestIdentity, expected, CacheEvidenceTainted)
 	}
-	if code := e.verifyResampledIdentities(input); code != "" {
+	if code := verifyResampledIdentitiesExpected(input.ResampledIdentities, expected); code != "" {
 		reason := CacheIdentityDrift
 		if code == ReasonStateUnavailable {
 			reason = CacheStateStale
 		}
-		return e.cacheIdentityWithReason(input, requestIdentity, reason)
+		return e.cacheIdentityWithReason(input, requestIdentity, expected, reason)
 	}
-	return e.cacheIdentityWithReason(input, requestIdentity, CacheEligible)
+	return e.cacheIdentityWithReason(input, requestIdentity, expected, CacheEligible)
 }
 
-func (e *Evaluator) cacheResult(
-	input EvaluationInput,
-	requestIdentity string,
+func finalizeCacheResult(
+	base CacheResult,
 	ruleNever bool,
 	decision Decision,
+	approval ApprovalSnapshot,
 	completeness Completeness,
 	failure bool,
 ) CacheResult {
-	base := e.cacheIdentityNormalized(input, requestIdentity)
 	if failure {
 		base.Eligible = false
 		base.Reason = CacheFailureResult
@@ -160,7 +183,7 @@ func (e *Evaluator) cacheResult(
 		base.Reason = CacheEvidenceIncomplete
 		return base
 	}
-	if decision == DecisionRequireApproval && input.Approval.Status != ApprovalCurrentUnconsumed {
+	if decision == DecisionRequireApproval && approval.Status != ApprovalCurrentUnconsumed {
 		base.Eligible = false
 		base.Reason = CacheApprovalPending
 		return base
@@ -176,6 +199,7 @@ func (e *Evaluator) cacheResult(
 func (e *Evaluator) cacheIdentityWithReason(
 	input EvaluationInput,
 	requestIdentity string,
+	expected IdentitySnapshot,
 	reason CacheReason,
 ) CacheResult {
 	binding := cacheBinding{
@@ -193,9 +217,9 @@ func (e *Evaluator) cacheIdentityWithReason(
 		Approval: input.Approval,
 		Taint:    input.Taint, Lifecycle: input.Lifecycle,
 		Completeness: input.Request.Completeness, RepositoryEffect: input.RepositoryEffect,
-		RepositoryEffectIdentity: e.expectedIdentities(input).RepositoryEffectIdentity,
+		RepositoryEffectIdentity: expected.RepositoryEffectIdentity,
 		Inspection:               cloneInspectionEvidence(input.Inspection),
-		InspectionIdentity:       e.expectedIdentities(input).InspectionIdentity,
+		InspectionIdentity:       expected.InspectionIdentity,
 		Resampled:                input.ResampledIdentities,
 	}
 	body, err := json.Marshal(binding)

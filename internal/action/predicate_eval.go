@@ -522,24 +522,24 @@ func matchPathConstraint(raw string, constraint PathConstraint) ConditionState {
 	if !ok {
 		return ConditionIndeterminate
 	}
-	base, baseVolume, ok := normalizeRuntimePath(constraint.Base, constraint.Style)
-	if !ok {
-		return ConditionIndeterminate
+	if !constraint.prepared {
+		prepared, err := preparePathConstraint(constraint)
+		if err != nil {
+			return ConditionIndeterminate
+		}
+		constraint = *prepared
 	}
 	if !constraint.CaseSensitive {
 		target = strings.ToLower(target)
-		base = strings.ToLower(base)
 		targetVolume = strings.ToLower(targetVolume)
-		baseVolume = strings.ToLower(baseVolume)
 	}
-	if targetVolume != baseVolume {
+	if targetVolume != constraint.matchVolume {
 		return ConditionIndeterminate
 	}
-	if target == base {
+	if target == constraint.matchBase {
 		return ConditionTrue
 	}
-	prefix := strings.TrimSuffix(base, "/") + "/"
-	return conditionFromBool(strings.HasPrefix(target, prefix))
+	return conditionFromBool(strings.HasPrefix(target, constraint.matchPrefix))
 }
 
 func normalizeRuntimePath(raw string, style PathStyle) (string, string, bool) {
@@ -644,15 +644,15 @@ func summarizePointer(pointer PointerResult) OperandSummary {
 		return summary
 	}
 	summary.Kind = pointer.Value.Kind()
-	body, err := pointer.Value.MarshalJSON()
+	encodedSize, err := pointer.Value.CanonicalJSONSize()
 	if err == nil {
-		summary.ByteLength = len(body)
+		summary.ByteLength = encodedSize
 	}
-	if items, ok := pointer.Value.Items(); ok {
-		summary.ItemCount = len(items)
+	if length, ok := pointer.Value.ArrayLen(); ok {
+		summary.ItemCount = length
 	}
-	if members, ok := pointer.Value.Members(); ok {
-		summary.ItemCount = len(members)
+	if length, ok := pointer.Value.ObjectLen(); ok {
+		summary.ItemCount = length
 	}
 	return summary
 }

@@ -34,6 +34,9 @@ func FuzzParseJSONCanonicalRoundTrip(f *testing.F) {
 		if err != nil || !bytes.Equal(canonical, reencoded) {
 			t.Fatalf("canonical round trip = %q, %v; want %q", reencoded, err, canonical)
 		}
+		if size, err := value.CanonicalJSONSize(); err != nil || size != len(canonical) {
+			t.Fatalf("canonical size = %d, %v; want %d", size, err, len(canonical))
+		}
 	})
 }
 

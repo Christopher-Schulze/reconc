@@ -375,6 +375,13 @@ action evidence export|verify` exposes that read-only evidence path.
 `reconc mcp gateway` invokes the enforcement primitives around every routed
 live tool call.
 
+The evaluator's immutable value boundary provides allocation-free count and
+indexed traversal plus exact canonical encoded size. Compiled predicates own
+prepared path-base state and one-time scalar sort keys. At the gateway boundary,
+one `PreparedEvaluation` owns the normalized request and exact cache binding for
+lookup, evaluation, and store; no filesystem or mutable observation crosses
+that request-scoped object.
+
 Ledger-selected fields are valid only for `arguments` during `pre_call` and
 `result` during `post_result`; progress and observation events carry none.
 Their pointer and value identities bind the policy declaration index, policy,

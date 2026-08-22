@@ -268,10 +268,11 @@ worker count. Direct `go test ./...` validates only the root module.
 times at a fixed iteration count and writes the machine-local result under
 `.build/benchmarks/`. `make benchmark-compare` normalizes every target against
 its same-package calibration benchmark before comparing it with the checked
-baseline. The suite covers ten groups: bounded action traces, structured
-action inspection, canonical JSON, contextual source ingestion, prospective
-path resolution, prepared command matching and evidence, source freshness, and
-write-epoch batching, plus bounded hook-worker frame growth. Its parser
+baseline. The suite covers eleven groups: bounded action traces and context
+operands, prepared action-decision caching, structured action inspection,
+canonical JSON, contextual source ingestion, prospective path resolution,
+prepared command matching and evidence, source freshness, write-epoch batching,
+and bounded hook-worker frame growth. Its parser
 reconstructs benchmark lines split across Go JSON output events. `make
 benchmark-baseline` is the only baseline-writing operation and requires
 `CONFIRM_BENCHMARK_BASELINE=1`.
@@ -2685,6 +2686,13 @@ constraints, JSON Pointers, and typed constants are compiled once into the
 immutable runtime plan. `reconc why action .` explains the result with operand
 values redacted.
 
+Canonical action values expose exact encoded size and bounded indexed reads
+without revealing mutable collection storage. Pointer traversal and redacted
+operand summaries therefore do not clone arrays, objects, or encoded JSON.
+Compiled path predicates retain the normalized base, volume, case-folded form,
+and descendant prefix; only the request operand is normalized while matching.
+Scalar-list compilation encodes each canonical sort key once.
+
 The pure evaluator produces exactly `allow`, `warn`, `require_approval`, and
 `block` with
 `block > require_approval > warn > allow` precedence. Arguments and trusted
@@ -2697,6 +2705,19 @@ lifecycle identity plus immediate resampling. Persistent low-entropy and
 secret-adjacent identities use exact domain-separated keyed identities from an
 operator-owned local key. Missing, malformed, wrongly permissioned, rotated, or
 unleased key material makes the dependent identity unavailable.
+
+The gateway prepares one immutable normalized evaluation and one exact cache
+identity per logical request. Lookup, evaluation, and store share that binding;
+store accepts a result only when its eligible identity matches exactly. The
+standalone cache methods preserve their existing API and perform their own
+preparation when no prepared request is supplied.
+
+Apple M1 TASK-270 measurements moved 128 context-root predicates from 21,816
+B/op and 259 allocations to 312 B/op and 3 allocations. Pointer traversal plus
+summary remains at zero allocations through the maximum legal JSON depth. The
+maximum legal action plan reduced allocations from 810 to 806 in the calibrated
+run; prepared cache lookup and store each avoid normalization and retain only
+the required defensive result copy.
 
 Independent enforcement requires an operator-supplied expected lock digest.
 An explicit repository-managed mode is available with lower provenance and a

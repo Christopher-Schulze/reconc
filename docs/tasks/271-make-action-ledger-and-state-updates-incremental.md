@@ -39,7 +39,7 @@ latency.
 
 ## Sub-Tasks
 
-- [ ] Specify the authenticated incremental ledger checkpoint and migration behavior
+- [~] Specify the authenticated incremental ledger checkpoint and migration behavior
 - [ ] Add full-load checkpoint construction and corruption validation
 - [ ] Update append, detached-head commit, and rotation as one recoverable transaction
 - [ ] Maintain active-call lifecycle state incrementally

@@ -426,3 +426,22 @@ func TestDecisionCacheNilAndEvictionBehavior(t *testing.T) {
 		t.Fatal("newest cache entry was evicted")
 	}
 }
+
+func TestPreparedDecisionCacheBindsOneImmutableEvaluation(t *testing.T) {
+	t.Parallel()
+	evaluator, input := testActionEvaluator(t, nil, Defaults{}, testExternalEffect())
+	prepared := evaluator.Prepare(input)
+	result := prepared.Evaluate()
+	cache := NewDecisionCache()
+	if !cache.StorePrepared(prepared, result) {
+		t.Fatal("prepared eligible result was not stored")
+	}
+	if cached, hit, reason := cache.LookupPrepared(prepared); !hit || reason != CacheEligible || cached.Cache.Identity != result.Cache.Identity {
+		t.Fatalf("prepared lookup = hit %t, reason %s, cache %#v", hit, reason, cached.Cache)
+	}
+	forged := result
+	forged.Cache.Identity = "sha256:" + strings.Repeat("f", 64)
+	if cache.StorePrepared(prepared, forged) {
+		t.Fatal("prepared store accepted a result bound to another identity")
+	}
+}

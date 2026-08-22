@@ -53,6 +53,38 @@ func BenchmarkActionContextRootPredicates(b *testing.B) {
 	}
 }
 
+func BenchmarkActionPointerSummaryScalar(b *testing.B) {
+	root := mustTestValue(b, `{"value":"ready"}`)
+	benchmarkActionPointerSummary(b, root, []string{"value"}, ValueString)
+}
+
+func BenchmarkActionPointerSummaryMaximumDepth(b *testing.B) {
+	root := mustTestValue(b, `"ready"`)
+	tokens := make([]string, MaxJSONDepth)
+	for index := range tokens {
+		var err error
+		root, err = Array([]Value{root})
+		if err != nil {
+			b.Fatal(err)
+		}
+		tokens[index] = "0"
+	}
+	benchmarkActionPointerSummary(b, root, tokens, ValueString)
+}
+
+func benchmarkActionPointerSummary(b *testing.B, root Value, tokens []string, want ValueKind) {
+	b.Helper()
+	b.ReportAllocs()
+	b.ResetTimer()
+	var summary OperandSummary
+	for iteration := 0; iteration < b.N; iteration++ {
+		summary = summarizePointer(resolvePointerTokens(root, tokens))
+	}
+	if summary.PointerState != PointerPresent || summary.Kind != want {
+		b.Fatalf("pointer summary = %#v", summary)
+	}
+}
+
 func BenchmarkActionCompilerRepresentative(b *testing.B) {
 	plan := Plan{
 		Tools: []Tool{{
@@ -96,6 +128,37 @@ func BenchmarkDecisionCacheMiss(b *testing.B) {
 	for iteration := 0; iteration < b.N; iteration++ {
 		if _, hit, _ := cache.Lookup(evaluator, input); hit {
 			b.Fatal("empty cache returned a hit")
+		}
+	}
+}
+
+func BenchmarkPreparedDecisionCacheHit(b *testing.B) {
+	evaluator, input := testActionEvaluator(b, evaluatorBenchmarkRules(16, true), Defaults{}, testExternalEffect())
+	prepared := evaluator.Prepare(input)
+	result := prepared.Evaluate()
+	cache := NewDecisionCache()
+	if !cache.StorePrepared(prepared, result) {
+		b.Fatal("eligible prepared decision was not stored")
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for iteration := 0; iteration < b.N; iteration++ {
+		if _, hit, _ := cache.LookupPrepared(prepared); !hit {
+			b.Fatal("prepared cache hit became a miss")
+		}
+	}
+}
+
+func BenchmarkPreparedDecisionCacheStore(b *testing.B) {
+	evaluator, input := testActionEvaluator(b, evaluatorBenchmarkRules(16, true), Defaults{}, testExternalEffect())
+	prepared := evaluator.Prepare(input)
+	result := prepared.Evaluate()
+	cache := NewDecisionCache()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for iteration := 0; iteration < b.N; iteration++ {
+		if !cache.StorePrepared(prepared, result) {
+			b.Fatal("prepared cache store failed")
 		}
 	}
 }

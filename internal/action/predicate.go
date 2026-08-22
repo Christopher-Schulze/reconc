@@ -1,6 +1,7 @@
 package action
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/netip"
@@ -312,16 +313,29 @@ func normalizeScalarOperandList(predicate *Predicate) error {
 	if !values[0].Scalar() {
 		return fmt.Errorf("operator %s requires non-null scalar values", predicate.Op)
 	}
-	sort.Slice(values, func(i, j int) bool {
-		left, _ := values[i].MarshalJSON()
-		right, _ := values[j].MarshalJSON()
-		return string(left) < string(right)
-	})
 	for index := range values {
 		if !values[index].Scalar() || values[index].Kind() != kind {
 			return fmt.Errorf("operator %s requires same-type scalar values", predicate.Op)
 		}
-		if index > 0 && values[index-1].Equal(values[index]) {
+	}
+	type keyedValue struct {
+		value Value
+		key   []byte
+	}
+	keyed := make([]keyedValue, len(values))
+	for index := range values {
+		key, err := values[index].MarshalJSON()
+		if err != nil {
+			return fmt.Errorf("operator %s value %d: %w", predicate.Op, index, err)
+		}
+		keyed[index] = keyedValue{value: values[index], key: key}
+	}
+	sort.Slice(keyed, func(i, j int) bool { return bytes.Compare(keyed[i].key, keyed[j].key) < 0 })
+	for index := range keyed {
+		values[index] = keyed[index].value
+	}
+	for index := 1; index < len(values); index++ {
+		if values[index-1].Equal(values[index]) {
 			return fmt.Errorf("operator %s contains a duplicate value", predicate.Op)
 		}
 	}
@@ -485,9 +499,28 @@ func normalizePathConstraint(value Value) (*PathConstraint, Value, error) {
 	default:
 		return nil, Value{}, fmt.Errorf("path style must be repository, posix, or windows")
 	}
-	constraint := &PathConstraint{Style: style, Base: base, CaseSensitive: caseSensitive}
+	constraint, err := preparePathConstraint(PathConstraint{Style: style, Base: base, CaseSensitive: caseSensitive})
+	if err != nil {
+		return nil, Value{}, err
+	}
 	normalized, err := pathConstraintValue(*constraint)
 	return constraint, normalized, err
+}
+
+func preparePathConstraint(constraint PathConstraint) (*PathConstraint, error) {
+	base, volume, ok := normalizeRuntimePath(constraint.Base, constraint.Style)
+	if !ok {
+		return nil, fmt.Errorf("path constraint base is invalid")
+	}
+	if !constraint.CaseSensitive {
+		base = strings.ToLower(base)
+		volume = strings.ToLower(volume)
+	}
+	constraint.matchBase = base
+	constraint.matchVolume = volume
+	constraint.matchPrefix = strings.TrimSuffix(base, "/") + "/"
+	constraint.prepared = true
+	return &constraint, nil
 }
 
 func requiredStringArray(value Value, field string) ([]string, error) {
@@ -495,7 +528,7 @@ func requiredStringArray(value Value, field string) ([]string, error) {
 	if !ok {
 		return nil, fmt.Errorf("url constraint requires %s", field)
 	}
-	return stringArray(items, field, false)
+	return stringArray(items, field)
 }
 
 func optionalStringArray(value Value, field string) ([]string, error) {
@@ -503,10 +536,10 @@ func optionalStringArray(value Value, field string) ([]string, error) {
 	if !ok {
 		return nil, nil
 	}
-	return stringArray(items, field, true)
+	return stringArray(items, field)
 }
 
-func stringArray(value Value, field string, allowAbsent bool) ([]string, error) {
+func stringArray(value Value, field string) ([]string, error) {
 	items, ok := value.Items()
 	if !ok || len(items) == 0 || len(items) > MaxListValues {
 		return nil, fmt.Errorf("%s must contain 1 to %d strings", field, MaxListValues)
@@ -519,7 +552,6 @@ func stringArray(value Value, field string, allowAbsent bool) ([]string, error) 
 		}
 		out[index] = text
 	}
-	_ = allowAbsent
 	return out, nil
 }
 

@@ -50,6 +50,36 @@ func TestValueMarshalJSONPreservesEncodingJSONEscaping(t *testing.T) {
 	}
 }
 
+func TestCanonicalJSONSizeMatchesEncoding(t *testing.T) {
+	t.Parallel()
+	for _, raw := range []string{
+		`null`, `true`, `-12345e-9`, `"plain"`,
+		`"quote\\\" slash\\\\ controls\\n"`,
+		`"html <>& and separators \u2028\u2029"`,
+		`{"array":[null,true,"<&",123],"nested":{"line":"a\\nb"}}`,
+	} {
+		raw := raw
+		t.Run(raw, func(t *testing.T) {
+			t.Parallel()
+			value, err := ParseJSON([]byte(raw))
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, err := value.MarshalJSON()
+			if err != nil {
+				t.Fatal(err)
+			}
+			size, err := value.CanonicalJSONSize()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if size != len(body) {
+				t.Fatalf("canonical size = %d, encoded bytes = %d (%s)", size, len(body), body)
+			}
+		})
+	}
+}
+
 func TestParseJSONRejectsUnsafeForms(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

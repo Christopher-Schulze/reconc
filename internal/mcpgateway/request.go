@@ -310,15 +310,16 @@ func (g *Gateway) evaluate(
 	g.toolsMu.RLock()
 	cache := g.cache
 	g.toolsMu.RUnlock()
-	if cached, ok, _ := cache.Lookup(evaluator, input); ok {
+	prepared := evaluator.Prepare(input)
+	if cached, ok, _ := cache.LookupPrepared(prepared); ok {
 		return cached, true
 	}
 	started := time.Now()
-	result := evaluator.Evaluate(input)
+	result := prepared.Evaluate()
 	if time.Since(started) > EvaluationTimeout {
 		return gatewayFailureResult(input, action.ReasonDeadlineExceeded), false
 	}
-	cache.Store(evaluator, input, result)
+	cache.StorePrepared(prepared, result)
 	return result, false
 }
 

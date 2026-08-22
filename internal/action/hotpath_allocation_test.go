@@ -79,3 +79,27 @@ func TestValueIndexedTraversalDoesNotExposeBackingSlices(t *testing.T) {
 		t.Fatal("out-of-range object index was accepted")
 	}
 }
+
+func TestPointerTraversalAndSummaryDoNotAllocate(t *testing.T) {
+	leaf := mustTestValue(t, `{"escaped":"line\\n<>&","items":[1,2,3]}`)
+	nested, err := Array([]Value{leaf})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := leaf.MarshalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantBytes := len(encoded)
+	allocations := testing.AllocsPerRun(1_000, func() {
+		result := resolvePointerTokens(nested, []string{"0"})
+		summary := summarizePointer(result)
+		if summary.PointerState != PointerPresent || summary.Kind != ValueObject ||
+			summary.ItemCount != 2 || summary.ByteLength != wantBytes {
+			panic("pointer summary changed")
+		}
+	})
+	if allocations != 0 {
+		t.Fatalf("pointer traversal and summary allocated %.2f times per run", allocations)
+	}
+}

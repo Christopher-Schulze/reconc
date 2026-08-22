@@ -39,15 +39,15 @@ func resolvePointerTokens(root Value, tokens []string) PointerResult {
 			}
 			current = selected
 		case ValueArray:
-			items, _ := current.Items()
 			index, ok := canonicalArrayIndex(token)
 			if !ok {
 				return PointerResult{State: PointerInvalidIndex}
 			}
-			if index >= len(items) {
+			selected, ok := current.ArrayItem(index)
+			if !ok {
 				return PointerResult{State: PointerMissing}
 			}
-			current = items[index]
+			current = selected
 		default:
 			return PointerResult{State: PointerWrongContainer}
 		}

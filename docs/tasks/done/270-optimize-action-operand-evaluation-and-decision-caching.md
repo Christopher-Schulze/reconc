@@ -36,16 +36,16 @@ costs multiply by rule and predicate count on the MCP call hot path.
 
 ## Sub-Tasks
 
-- [~] Profile current predicate summaries, pointer traversal, and cache identity work
-- [ ] Add exact immutable value count/index/encoded-size primitives
-- [ ] Migrate pointer resolution and summaries without exposing backing storage
-- [ ] Thread one verified cache identity through evaluation and storage
-- [ ] Collapse duplicate expected-identity derivation
-- [ ] Precompile path-base and scalar-list comparison state
-- [ ] Remove the proven-dead `allowAbsent` parameter and local rune helper only in touched code
-- [ ] Add behavioral, allocation, benchmark, fuzz, and race coverage
-- [ ] Update action runtime and performance documentation
-- [ ] Run focused and complete repository verification
+- [x] Profile current predicate summaries, pointer traversal, and cache identity work
+- [x] Add exact immutable value count/index/encoded-size primitives
+- [x] Migrate pointer resolution and summaries without exposing backing storage
+- [x] Thread one verified cache identity through evaluation and storage
+- [x] Collapse duplicate expected-identity derivation
+- [x] Precompile path-base and scalar-list comparison state
+- [x] Remove the proven-dead `allowAbsent` parameter and local rune helper only in touched code
+- [x] Add behavioral, allocation, benchmark, fuzz, and race coverage
+- [x] Update action runtime and performance documentation
+- [x] Run focused and complete repository verification
 
 ## Notes
 
@@ -61,6 +61,17 @@ costs multiply by rule and predicate count on the MCP call hot path.
 - Exact trace byte accounting still requires canonical encoding of retained
   trace entries. Replacing it with an estimate is out of scope unless exact
   equivalence is proven for all escaped JSON forms.
+- Apple M1 baseline measurements: maximum legal evaluation used about 330 KiB
+  and 810 allocations; 128 context-root predicates used 21,816 B and 259
+  allocations; cache hit/miss used 27/24 allocations.
+- After implementation, context-root predicates use 312 B and 3 allocations,
+  maximum-depth pointer summaries use 0 B and 0 allocations, the calibrated
+  maximum plan uses 806 allocations, and standalone cache hit/miss use 25/22
+  allocations. Prepared lookup/store do not repeat normalization.
+- Verification passed: action and gateway unit suites, all 61 bounded fuzz
+  targets, focused race tests, Windows cross-compilation, `make test-fast`,
+  vet, Staticcheck, calibrated benchmark comparison, publication audit,
+  self-hosting, and release-trust.
 
 ## Deviations
 

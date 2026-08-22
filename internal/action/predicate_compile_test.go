@@ -109,6 +109,23 @@ func TestCompilePredicateExactPatternAndListBoundaries(t *testing.T) {
 	}
 }
 
+func TestCompilePredicatePreparesPathConstraint(t *testing.T) {
+	t.Parallel()
+	value := testValue(t, `{"style":"windows","base":"C:/Workspace","case_sensitive":false}`)
+	predicate := Predicate{Source: SourceArguments, Pointer: "/path", Op: OperatorPathWithin, Value: &value}
+	compiled, err := compilePredicate(&predicate, DecisionBlock, []Phase{PhasePreCall})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compiled.Path == nil || !compiled.Path.prepared || compiled.Path.matchBase != "c:/workspace" ||
+		compiled.Path.matchVolume != "c:" || compiled.Path.matchPrefix != "c:/workspace/" {
+		t.Fatalf("prepared path constraint = %#v", compiled.Path)
+	}
+	if state := matchPathConstraint(`c:\WORKSPACE\nested`, *compiled.Path); state != ConditionTrue {
+		t.Fatalf("prepared path match = %s", state)
+	}
+}
+
 func testValue(t *testing.T, raw string) Value {
 	t.Helper()
 	value, err := ParseJSON([]byte(raw))

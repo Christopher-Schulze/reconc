@@ -55,6 +55,10 @@ func FuzzValueMarshalJSONMatchesEncodingJSONEscaping(f *testing.F) {
 		if !bytes.Equal(got, want) {
 			t.Fatalf("jsontext escaping drift for %q: got=%q want=%q", input, got, want)
 		}
+		size, err := value.CanonicalJSONSize()
+		if err != nil || size != len(got) {
+			t.Fatalf("canonical size drift for %q: size=%d bytes=%d err=%v", input, size, len(got), err)
+		}
 	})
 }
 

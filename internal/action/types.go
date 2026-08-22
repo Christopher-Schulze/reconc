@@ -503,4 +503,8 @@ type PathConstraint struct {
 	Style         PathStyle
 	Base          string
 	CaseSensitive bool
+	matchBase     string
+	matchVolume   string
+	matchPrefix   string
+	prepared      bool
 }
