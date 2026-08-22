@@ -251,3 +251,37 @@ func TestHomeFallsBackToHomeDotReconc(t *testing.T) {
 		t.Errorf("expected final path component .reconc, got %s", got)
 	}
 }
+
+func TestHomeResolutionFailureNeverFallsBackRelative(t *testing.T) {
+	t.Setenv(HomeEnvVar, "")
+	original := resolveUserHome
+	resolveUserHome = func() (string, error) { return "", stderrors.New("home unavailable") }
+	t.Cleanup(func() { resolveUserHome = original })
+	if home, err := ResolveHome(); err == nil || home != "" {
+		t.Fatalf("ResolveHome() = %q, %v; want explicit failure", home, err)
+	}
+	if home := Home(); home != "" {
+		t.Fatalf("Home() = %q; failure must not become a relative path", home)
+	}
+	if _, err := List(); err == nil || !strings.Contains(err.Error(), "home unavailable") {
+		t.Fatalf("List did not propagate home failure: %v", err)
+	}
+}
+
+func TestUserPresetRootRejectsSymlinkBeforeBundledFallback(t *testing.T) {
+	home := withRECONCHome(t)
+	target := t.TempDir()
+	if err := os.Symlink(target, filepath.Join(home, "presets")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, err := Load("default"); err == nil || !strings.Contains(err.Error(), "non-symlink directory") {
+		t.Fatalf("symlinked user preset root was accepted: %v", err)
+	}
+}
+
+func TestUserDirectoryRejectsTraversal(t *testing.T) {
+	withRECONCHome(t)
+	if _, err := UserDirectory("../presets"); err == nil {
+		t.Fatal("user directory traversal was accepted")
+	}
+}

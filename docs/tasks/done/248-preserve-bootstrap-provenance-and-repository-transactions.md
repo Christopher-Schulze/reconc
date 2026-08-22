@@ -36,15 +36,15 @@ inconsistent, and displayed recovery commands or YAML can be malformed.
 
 ## Sub-Tasks
 
-- [ ] Reject or exactly preserve legacy harness-pack provenance on digest mismatch
-- [ ] Preserve version-pinned binary ownership during receipt advance
-- [ ] Put adopt read-merge-write under the repository transaction protocol
-- [ ] Define and implement safe bounded cleanup for obsolete private receipts
-- [ ] Make home, preset, template, and Git metadata identity fail closed
-- [ ] Replace bootstrap command quoting with tested literal argv rendering
-- [ ] Encode adopted YAML scalars through one yaml.v3-compatible path
-- [ ] Run bootstrap, sync, adopt, preset, race, compatibility, and full gates
-- [ ] Update bootstrap, worktree, receipt, and recovery documentation
+- [x] Reject or exactly preserve legacy harness-pack provenance on digest mismatch
+- [x] Preserve version-pinned binary ownership during receipt advance
+- [x] Put adopt read-merge-write under the repository transaction protocol
+- [x] Define and implement safe bounded cleanup for obsolete private receipts
+- [x] Make home, preset, template, and Git metadata identity fail closed
+- [x] Replace bootstrap command quoting with tested literal argv rendering
+- [x] Encode adopted YAML scalars through one yaml.v3-compatible path
+- [x] Run bootstrap, sync, adopt, preset, race, compatibility, and full gates
+- [x] Update bootstrap, worktree, receipt, and recovery documentation
 
 ## Notes
 
@@ -55,6 +55,10 @@ inconsistent, and displayed recovery commands or YAML can be malformed.
 - Command strings are operator-facing remediation, not a substitute for typed
   internal remediation. Their tests must execute through the exact shell family
   advertised to the user.
+- Verification: focused package race suites, `make vet`, `make lint`, the full
+  root/template `make test` gate, release-trust fixtures, publication audit, and
+  harness-pack integrity all passed. The final retention hardening then passed
+  the complete affected-package race suite plus vet and staticcheck again.
 
 ## Deviations
 

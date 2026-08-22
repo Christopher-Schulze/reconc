@@ -475,7 +475,7 @@ func TestApplyRejectsVersionAndBlockingIssueBeforeMutation(t *testing.T) {
 	if got := bootstrapHookRuntimeName(hooks.KindCodex); got != hooks.KindCodex {
 		t.Fatalf("Codex runtime name = %q", got)
 	}
-	if got := quoteBootstrapArgument(`a"b`); got != `"a\"b"` {
+	if got := quoteBootstrapArgument(`a"b`); got != `'a"b'` {
 		t.Fatalf("quoted argument = %q", got)
 	}
 	if got := joinApplyRollbackError(errors.New("apply"), errors.New("rollback")).Error(); !strings.Contains(got, "apply") || !strings.Contains(got, "rollback") {

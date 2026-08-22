@@ -139,10 +139,14 @@ func observeSourceFreshness(root string, sources []runtimeSource, discovery inge
 	directories := map[string]struct{}{}
 	virtualPresets := map[string]struct{}{}
 	includePatterns := []string{}
+	reconcHome, err := presets.ResolveHome()
+	if err != nil {
+		return [sha256.Size]byte{}, err
+	}
 	addDirectory(directories, filepath.Join(root, "policies"))
 	addDirectory(directories, filepath.Join(root, ".reconc", "runtimes"))
-	addDirectory(directories, filepath.Join(presets.Home(), "presets"))
-	addFile(files, filepath.Join(presets.Home(), ingest.GlobalPolicyFilename))
+	addDirectory(directories, filepath.Join(reconcHome, "presets"))
+	addFile(files, filepath.Join(reconcHome, ingest.GlobalPolicyFilename))
 	for _, marker := range []string{"CLAUDE.md", "AGENTS.md", "start.md", ".reconc.yml", ".reconc.yaml"} {
 		addFile(files, filepath.Join(root, marker))
 	}
@@ -210,7 +214,11 @@ func observeSourceFreshness(root string, sources []runtimeSource, discovery inge
 
 func freshnessSourcePath(root string, source runtimeSource) (string, string, error) {
 	if source.Kind == policy.SourceGlobal {
-		return filepath.Join(presets.Home(), ingest.GlobalPolicyFilename), "", nil
+		home, err := presets.ResolveHome()
+		if err != nil {
+			return "", "", err
+		}
+		return filepath.Join(home, ingest.GlobalPolicyFilename), "", nil
 	}
 	if source.Kind == policy.SourcePreset || strings.HasPrefix(source.Path, "preset:") {
 		name := strings.TrimPrefix(source.Path, "preset:")

@@ -83,7 +83,7 @@ func TestInitializeMatureRepositoryRequiresExplicitProfileWithoutWriting(t *test
 
 	report, err := Initialize(InitRequest{RepoRoot: repo}, "test-version")
 	if err == nil || report.Status != InitRefused ||
-		!strings.Contains(report.NextAction, "--profile minimal") {
+		!strings.Contains(report.NextAction, "'--profile' 'minimal'") {
 		t.Fatalf("ambiguous init = %+v err=%v", report, err)
 	}
 	after := bootstrapTreeSnapshot(t, repo)
@@ -196,7 +196,7 @@ func TestInitializeWholeFileDriftNamesTheCandidateReviewAction(t *testing.T) {
 		t.Fatalf("whole-file drift = %+v err=%v", report, err)
 	}
 	if !strings.Contains(report.NextAction, "review "+report.Candidates[0]) ||
-		!strings.Contains(report.NextAction, "--profile minimal") {
+		!strings.Contains(report.NextAction, "'--profile' 'minimal'") {
 		t.Fatalf("whole-file drift next action = %q", report.NextAction)
 	}
 	body, readErr := os.ReadFile(filepath.Join(repo, ".reconc.yml"))
@@ -256,8 +256,8 @@ func TestInitRemediationSelectionIsDeterministic(t *testing.T) {
 	command := renderInitCommand("/tmp/repo with spaces", ProfileAdvanced,
 		[]string{"default", "strict"}, nil, true)
 	for _, expected := range []string{
-		"reconc init", "\"/tmp/repo with spaces\"", "--profile advanced",
-		"--pack \"strict\"", "--no-hooks",
+		"reconc 'init'", "'/tmp/repo with spaces'", "'--profile' 'advanced'",
+		"'--pack' 'strict'", "'--no-hooks'",
 	} {
 		if !strings.Contains(command, expected) {
 			t.Fatalf("init remediation %q omits %q", command, expected)
@@ -268,8 +268,8 @@ func TestInitRemediationSelectionIsDeterministic(t *testing.T) {
 	}
 	hookCommand := renderInitCommand("/tmp/repo", ProfileGoverned,
 		[]string{"agent", "strict"}, []string{"codex"}, false)
-	if !strings.Contains(hookCommand, "--pack \"strict\"") ||
-		!strings.Contains(hookCommand, "--hook \"codex\"") ||
+	if !strings.Contains(hookCommand, "'--pack' 'strict'") ||
+		!strings.Contains(hookCommand, "'--hook' 'codex'") ||
 		strings.Contains(hookCommand, "--pack agent") ||
 		strings.Contains(hookCommand, "--no-hooks") {
 		t.Fatalf("hook remediation = %q", hookCommand)

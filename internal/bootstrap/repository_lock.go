@@ -12,8 +12,25 @@ import (
 	"reconc.dev/reconc/internal/presets"
 )
 
+// WithRepositoryTransaction canonicalizes repoRoot and serializes one external
+// repository mutation with init, sync, recovery, removal, and acceptance.
+func WithRepositoryTransaction(repoRoot string, operation func(root string) error) error {
+	root, err := canonicalRepoRoot(repoRoot)
+	if err != nil {
+		return err
+	}
+	if operation == nil {
+		return fmt.Errorf("repository transaction operation is nil")
+	}
+	return withRepositoryTransactionLock(root, func() error { return operation(root) })
+}
+
 func withRepositoryTransactionLock(root string, operation func() error) (resultErr error) {
-	lockDirectory := filepath.Join(presets.Home(), "locks", "repositories")
+	home, err := presets.ResolveHome()
+	if err != nil {
+		return err
+	}
+	lockDirectory := filepath.Join(home, "locks", "repositories")
 	if err := ensureRepositoryLockDirectory(lockDirectory); err != nil {
 		return err
 	}

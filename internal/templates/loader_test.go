@@ -3,8 +3,20 @@ package templates
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestResolveRejectsSymlinkedUserTemplateRoot(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RECONC_HOME", home)
+	if err := os.Symlink(t.TempDir(), filepath.Join(home, "templates")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, err := Resolve("tests-follow-source"); err == nil || !strings.Contains(err.Error(), "non-symlink directory") {
+		t.Fatalf("symlinked user template root was accepted: %v", err)
+	}
+}
 
 func TestResolveBuiltin(t *testing.T) {
 	tmpl, err := Resolve("tests-follow-source")

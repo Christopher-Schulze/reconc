@@ -342,15 +342,7 @@ func harnessPackIdentitiesForPlan(plan *Plan) ([]HarnessPackIdentity, error) {
 		identities[0].Digest == plan.Selection.HarnessPacks[0].Digest {
 		return identities, nil
 	}
-	identities := make([]HarnessPackIdentity, len(plan.Selection.HarnessPacks))
-	for index, selected := range plan.Selection.HarnessPacks {
-		identities[index] = HarnessPackIdentity{
-			Name: selected.Name, Version: selected.Version,
-			MinimumProductVersion:   plan.ProductVersion,
-			MaximumExclusiveVersion: "1.0.0", Digest: selected.Digest,
-		}
-	}
-	return identities, nil
+	return nil, fmt.Errorf("bootstrap plan harness pack digest is not bound to an embedded pack with authenticated compatibility bounds")
 }
 
 func validatePolicyPackIdentities(values []PolicyPackIdentity) error {

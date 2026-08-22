@@ -526,6 +526,11 @@ conflicts, compilation state, blocking issues, and a plan digest. Plan output
 is create-only. An existing byte-identical plan is unchanged. Explicit
 `--replace-output` replaces only a strictly valid Reconc plan for the same
 canonical repository and refuses arbitrary or cross-repository files.
+Repository detection accepts either a real `.git` directory or a bounded,
+strict `gitdir:` metadata file whose resolved target is a real directory, as
+used by linked worktrees. Missing metadata means non-Git; symlinked, malformed,
+or non-directory metadata fails closed. Bootstrap and repository sync use this
+single identity contract.
 
 Apply publishes only absent targets. Exact artifacts remain unchanged. A
 different file, directory, symlink, or special target produces a
@@ -557,6 +562,12 @@ Apply reports
 created/preserved/drifted/skipped and installed/configured/live counts, and
 prints exactly one next command. A stale saved plan prints the exact
 selection-preserving replan command with `--replace-output`.
+The private receipt directory retains the current bootstrap plan/receipt pair
+plus the two newest independently validated historical pairs. Cleanup removes
+only strict, digest-bound, non-symlink Reconc pairs and preserves foreign,
+malformed, partial, current, and linked entries. A legacy harness receipt is
+importable only when its recorded pack digest matches an authenticated embedded
+pack; Reconc never invents compatibility bounds for an unknown digest.
 
 Binary installation has no network path. `--install-binary` uses the running
 executable; `--binary PATH --checksum SHA256` accepts an explicit local artifact
@@ -604,6 +615,9 @@ policy is compiled from current registered sources in memory, so a missing or
 historical lock can be rebuilt without a circular dependency on the old file.
 Registered migrations remain explanatory evidence only when their exact output
 equals the newly compiled target.
+An unchanged receipt-owned binary retains its exact `binary@version`
+component, checksum, mode, and file ownership when the receipt advances; sync
+does not silently erase the approved binary provenance.
 
 Before the first target write, apply publishes the bounded strict
 `.reconc/repository-sync-transaction.json` journal with plan/product identity,

@@ -411,9 +411,12 @@ func normalizeHooks(requested []string, root string) ([]string, error) {
 	kinds = dedupePreservingOrder(kinds)
 	sort.Strings(kinds)
 	if containsString(kinds, hooks.KindGitPreCommit) {
-		info, err := os.Stat(filepath.Join(root, ".git"))
-		if err != nil || !info.IsDir() {
-			return nil, fmt.Errorf("git-pre-commit is not applicable: %s has no .git directory", root)
+		present, err := inspectRepositoryGitMetadata(root)
+		if err != nil {
+			return nil, err
+		}
+		if !present {
+			return nil, fmt.Errorf("git-pre-commit is not applicable: %s has no Git metadata", root)
 		}
 	}
 	return kinds, nil

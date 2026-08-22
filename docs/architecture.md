@@ -456,6 +456,9 @@ global manager -> installation receipt -> installed CLI
 - `internal/bootstrap` remains the only repository transaction owner.
   Canonical `init` and repository sync compose its plan, candidate, receipt,
   verification, journal, recovery, rollback, and path-identity primitives.
+  Adoption joins the same canonical lock for its read-merge-write publication,
+  while bootstrap and sync share one real-directory or strict worktree-file
+  `.git` identity contract.
 - Sync planning sanitizes ambient Git routing and gives `git write-tree` an
   ephemeral object database with the real object database as read-only
   alternate. It therefore binds HEAD and index without writing repository Git
@@ -470,7 +473,10 @@ global manager -> installation receipt -> installed CLI
   their files.
 - The portable `.reconc/install.lock.json` records repository ownership without
   physical checkout paths. Private transaction receipts may bind a checkout
-  for rollback but cannot expand portable ownership.
+  for rollback but cannot expand portable ownership. Private bootstrap history
+  is bounded to the current pair plus two validated historical pairs; malformed,
+  foreign, partial, and linked state is preserved rather than treated as
+  cleanup authority.
 
 The update trust chain is release identity -> checksum -> embedded build
 provenance -> mandatory GitHub build-provenance attestation -> global receipt

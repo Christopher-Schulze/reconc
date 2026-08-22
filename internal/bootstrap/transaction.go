@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -250,6 +251,7 @@ func apply(plan *Plan, productVersion string, options applyOptions) (*Report, er
 		report.Created = append(report.Created, RepositoryReceiptRelativePath)
 	}
 	report.ReceiptPath = receiptPath
+	pruneObsoleteBootstrapReceipts(plan.RepoRoot, plan.PlanDigest)
 	report.Status = ApplyComplete
 	sort.Strings(report.Created)
 	sort.Strings(report.Unchanged)
@@ -311,7 +313,19 @@ func bootstrapHookRuntimeName(kind string) string {
 }
 
 func quoteBootstrapArgument(value string) string {
-	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
+	if runtime.GOOS == "windows" {
+		return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+}
+
+func renderBootstrapCommand(program string, args ...string) string {
+	parts := make([]string, 1, len(args)+1)
+	parts[0] = program
+	for _, argument := range args {
+		parts = append(parts, quoteBootstrapArgument(argument))
+	}
+	return strings.Join(parts, " ")
 }
 
 func materializeCandidates(plan *Plan, conflicts []Action, artifacts map[string]desiredArtifact, options applyOptions) ([]createdRecord, []createdDirectory, error) {

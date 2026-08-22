@@ -431,6 +431,12 @@ Successful reports contain one compact created/preserved/drifted/skipped and
 installed/configured/live summary, a tamper-evident receipt path, and exactly
 one primary next command. Human output uses TTY-only ANSI color for decisions,
 rule IDs, and OK/WARN/FAIL tags; JSON and redirected output never contain ANSI.
+All copy-paste shell commands render each argument for the current shell family
+and preserve quotes, backslashes, dollars, command substitutions, whitespace,
+newlines, and trailing separators as literal argv. Successful apply retains
+the current private plan/receipt pair and the two newest fully validated
+historical pairs; unknown, malformed, partial, current, or symlinked entries
+are never cleanup authority.
 
 ### `reconc bootstrap remove --plan PATH [--json]`
 Reverse one applied plan using the portable repository receipt as the maximum
@@ -547,7 +553,10 @@ when one package manager is evidenced at that boundary; ambiguity is rendered
 for review and no manager is guessed. Stack evidence can
 also produce review-only manifested policy-pack recommendations. `--apply`
 appends individual rules to `.reconc.yml` idempotently and never changes
-`extends`.
+`extends`. The complete read-merge-write operation shares the canonical
+repository transaction lock with init and sync, revalidates the source snapshot
+immediately before atomic publication, and refuses concurrent drift. Emitted
+YAML scalars are deterministic and round-trip exactly through yaml.v3.
 
 ### `reconc extract [repo] [--from PATH] [--yaml | --json]`
 Regex-heuristic scan of AGENTS.md / CLAUDE.md prose for concrete rule
@@ -892,6 +901,9 @@ Rule shape templates (`tests-follow-source`, `docs-follow-code`,
 `no-generated-writes`, `ci-green-before-merge`, `authority-change-approval`,
 `custom-gate-on-change`, `local-secret-state-read-only`, `verified-change`).
 User overrides in `$RECONC_HOME/templates/*.yml`.
+`RECONC_HOME` and user-home resolution failures are explicit. Existing
+`presets` or `templates` roots must be real directories, never symlinks; Reconc
+does not fall back to a CWD-relative state path.
 
 ### `reconc hook generate <git-pre-commit|claude-code|codex|github-copilot|cursor|opencode|devin-cli|antigravity|kilo|grok|omp|pi|zcode|kimi-code> [--json] [--output PATH]`
 Emit the hook artefact content without writing to disk.

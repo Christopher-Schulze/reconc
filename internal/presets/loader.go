@@ -41,6 +41,8 @@ const (
 // PresetSuffix is the only filename suffix that counts as a preset.
 const PresetSuffix = ".yml"
 
+var resolveUserHome = os.UserHomeDir
+
 // bundledPacks holds every preset YAML file shipped with the reconc
 // binary, embedded at compile time. Keys are filenames, values are
 // raw bytes.
@@ -91,21 +93,60 @@ type Capability struct {
 	Rules    []string `json:"rules" yaml:"rules"`
 }
 
-// Home returns the reconc home directory. RECONC_HOME wins; falls back
-// to $HOME/.reconc.
-func Home() string {
+// ResolveHome returns the absolute Reconc home directory. RECONC_HOME wins;
+// user-home discovery failure is explicit and never becomes a relative path.
+func ResolveHome() (string, error) {
 	if v := os.Getenv(HomeEnvVar); v != "" {
-		return os.ExpandEnv(v)
+		resolved, err := filepath.Abs(os.ExpandEnv(v))
+		if err != nil {
+			return "", fmt.Errorf("resolve %s: %w", HomeEnvVar, err)
+		}
+		return resolved, nil
 	}
-	if h, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(h, ".reconc")
+	home, err := resolveUserHome()
+	if err != nil {
+		return "", fmt.Errorf("resolve user home for Reconc state: %w", err)
 	}
-	return ".reconc" // last resort - relative
+	if strings.TrimSpace(home) == "" {
+		return "", fmt.Errorf("resolve user home for Reconc state: empty home directory")
+	}
+	return filepath.Join(home, ".reconc"), nil
 }
 
-// userPresetsDir returns the on-disk directory where user presets live.
-func userPresetsDir() string {
-	return filepath.Join(Home(), "presets")
+// Home is the compatibility accessor for callers that cannot return an error.
+// It returns an empty path on discovery failure rather than a CWD-relative path.
+func Home() string {
+	home, _ := ResolveHome()
+	return home
+}
+
+// UserDirectory resolves and validates one direct Reconc home subdirectory.
+// A missing directory is valid; an existing symlink or non-directory is not.
+func UserDirectory(name string) (string, error) {
+	cleaned, err := safename.Normalize("Reconc home directory", name)
+	if err != nil {
+		return "", err
+	}
+	home, err := ResolveHome()
+	if err != nil {
+		return "", err
+	}
+	directory := filepath.Join(home, cleaned)
+	info, err := os.Lstat(directory)
+	if os.IsNotExist(err) {
+		return directory, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return "", fmt.Errorf("%s must be a non-symlink directory", directory)
+	}
+	return directory, nil
+}
+
+func userPresetsDir() (string, error) {
+	return UserDirectory("presets")
 }
 
 // List returns every preset (bundled + user) sorted by name. User
@@ -353,7 +394,11 @@ func Load(name string) (string, error) {
 	}
 
 	// User wins over bundled.
-	userPath := filepath.Join(userPresetsDir(), cleaned+PresetSuffix)
+	userDir, err := userPresetsDir()
+	if err != nil {
+		return "", &rerrors.PresetError{Message: "resolve user preset directory", Cause: err}
+	}
+	userPath := filepath.Join(userDir, cleaned+PresetSuffix)
 	if data, err := readRegularFile(userPath); err == nil {
 		return string(data), nil
 	} else if !os.IsNotExist(err) {
@@ -377,7 +422,11 @@ func Path(name string) (string, Source, error) {
 		return "", "", &rerrors.PresetError{Message: err.Error()}
 	}
 
-	userPath := filepath.Join(userPresetsDir(), cleaned+PresetSuffix)
+	userDir, err := userPresetsDir()
+	if err != nil {
+		return "", "", &rerrors.PresetError{Message: "resolve user preset directory", Cause: err}
+	}
+	userPath := filepath.Join(userDir, cleaned+PresetSuffix)
 	if info, statErr := os.Lstat(userPath); statErr == nil {
 		if !info.Mode().IsRegular() {
 			return "", "", &rerrors.PresetError{Message: "user preset " + cleaned + " must be a regular file and not a symlink"}
@@ -421,16 +470,19 @@ func scanBundled() ([]Metadata, error) {
 // scanUser walks the user presets directory if it exists. Missing
 // directory is not an error - returns empty slice.
 func scanUser() ([]Metadata, error) {
-	dir := userPresetsDir()
-	info, err := os.Stat(dir)
+	dir, err := userPresetsDir()
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Lstat(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	if !info.IsDir() {
-		return nil, nil
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return nil, fmt.Errorf("%s must be a non-symlink directory", dir)
 	}
 
 	out := []Metadata{}

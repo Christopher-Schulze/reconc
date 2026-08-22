@@ -2,10 +2,8 @@ package bootstrap
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"reconc.dev/reconc/internal/hooks"
 	reconruntime "reconc.dev/reconc/internal/runtime"
@@ -84,7 +82,12 @@ func initializeLocked(request InitRequest, result *InitReport, productVersion st
 	if request.NoHooks {
 		hookKinds = []string{}
 	} else if !request.HooksExplicit && recordedPlan == nil {
-		hookKinds = detectedInitHooks(inspection, request.SkipGitHook, request.SkipAgentHooks)
+		hookKinds, err = detectedInitHooks(inspection, request.SkipGitHook, request.SkipAgentHooks)
+		if err != nil {
+			result.Status = InitRefused
+			result.Profile = profile
+			return err
+		}
 	}
 	plan, err := BuildPlan(Request{
 		RepoRoot: result.RepoRoot, Profile: profile, Packs: packs, Hooks: hookKinds,
@@ -224,10 +227,14 @@ func suggestedExplicitProfile(inspection *Inspection) ProfileName {
 	return ProfileMinimal
 }
 
-func detectedInitHooks(inspection *Inspection, skipGit, skipAgents bool) []string {
+func detectedInitHooks(inspection *Inspection, skipGit, skipAgents bool) ([]string, error) {
 	kinds := []string{}
 	if !skipGit {
-		if info, err := os.Stat(filepath.Join(inspection.RepoRoot, ".git")); err == nil && info.IsDir() {
+		present, err := inspectRepositoryGitMetadata(inspection.RepoRoot)
+		if err != nil {
+			return nil, err
+		}
+		if present {
 			kinds = append(kinds, hooks.KindGitPreCommit)
 		}
 	}
@@ -244,7 +251,7 @@ func detectedInitHooks(inspection *Inspection, skipGit, skipAgents bool) []strin
 	}
 	kinds = dedupePreservingOrder(kinds)
 	sort.Strings(kinds)
-	return kinds
+	return kinds, nil
 }
 
 func initDriftNext(plan *Plan, report *Report) string {
@@ -259,20 +266,20 @@ func initDriftNext(plan *Plan, report *Report) string {
 }
 
 func renderInitCommand(root string, profile ProfileName, packs, hookKinds []string, noHooks bool) string {
-	parts := []string{"reconc", "init", quoteBootstrapArgument(root), "--profile", string(profile)}
+	args := []string{"init", root, "--profile", string(profile)}
 	for _, pack := range packs {
 		if pack != "default" && pack != "agent" {
-			parts = append(parts, "--pack", quoteBootstrapArgument(pack))
+			args = append(args, "--pack", pack)
 		}
 	}
 	if noHooks {
-		parts = append(parts, "--no-hooks")
+		args = append(args, "--no-hooks")
 	} else {
 		for _, kind := range hookKinds {
-			parts = append(parts, "--hook", quoteBootstrapArgument(kind))
+			args = append(args, "--hook", kind)
 		}
 	}
-	return strings.Join(parts, " ")
+	return renderBootstrapCommand("reconc", args...)
 }
 
 func stringPointer(value string) *string {

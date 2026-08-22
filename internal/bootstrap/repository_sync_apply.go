@@ -226,6 +226,7 @@ func applySyncPlanLocked(plan *SyncPlan, report *SyncReport, productVersion stri
 		report.NextAction = "reconc repo sync recover " + quoteBootstrapArgument(plan.RepoRoot)
 		return err
 	}
+	pruneObsoleteBootstrapReceipts(plan.RepoRoot, plan.PlanDigest)
 	report.Status = SyncComplete
 	report.NextAction = "reconc check " + quoteBootstrapArgument(plan.RepoRoot)
 	sort.Strings(report.Changed)
@@ -540,10 +541,10 @@ func advanceRepositoryReceipt(
 		if err != nil {
 			return nil, err
 		}
-		next.ManagedFiles = append(next.ManagedFiles, ManagedFile{
-			Path: file.Path, Mode: file.Mode, SHA256: bytesSHA256(body),
-			Component: "binary", Ownership: "file",
-		})
+		if bytesSHA256(body) != file.SHA256 {
+			return nil, fmt.Errorf("unchanged approved binary no longer matches receipt checksum: %s", file.Path)
+		}
+		next.ManagedFiles = append(next.ManagedFiles, file)
 	}
 	for _, generated := range current.GeneratedArtifacts {
 		body := append([]byte(nil), desiredByPath[generated.Path]...)

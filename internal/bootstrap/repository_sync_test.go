@@ -387,8 +387,8 @@ func TestRepositorySyncRequiresPinnedCrossPlatformBinary(t *testing.T) {
 		t.Fatal(err)
 	}
 	finalBinary, _, _, err := repositoryBinaryOwnership(finalReceipt)
-	if err != nil || finalBinary == nil || finalBinary.Component != "binary" ||
-		finalBinary.SHA256 != pinned.SHA256 {
+	if err != nil || finalBinary == nil || finalBinary.Component != "binary@"+syncTestVersion ||
+		finalBinary.SHA256 != pinned.SHA256 || finalBinary.Ownership != "file" || finalBinary.Mode != 0o755 {
 		t.Fatalf("final cross-platform binary ownership = %+v err=%v", finalBinary, err)
 	}
 }
@@ -1112,25 +1112,9 @@ func TestRepositorySyncImportsHistoricalAdvancedReceipt(t *testing.T) {
 		t.Fatalf("load historical bootstrap receipt: %v", err)
 	}
 
-	plan, err := BuildSyncPlan(repo, syncTestVersion)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !plan.LegacyReceiptImport || plan.CurrentProductVersion != "0.8.8" {
-		t.Fatalf("historical advanced migration plan = %+v", plan)
-	}
-	report, err := ApplySyncPlan(plan, plan.PlanDigest, syncTestVersion)
-	if err != nil || report.Status != SyncComplete {
-		t.Fatalf("historical advanced apply = %+v err=%v", report, err)
-	}
-	updated, err := LoadRepositoryReceipt(repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if updated.ProductVersion != syncTestVersion ||
-		len(updated.HarnessPacks) != 1 ||
-		updated.HarnessPacks[0].Digest == strings.Repeat("a", 64) {
-		t.Fatalf("historical advanced receipt was not migrated: %+v", updated)
+	if _, err := BuildSyncPlan(repo, syncTestVersion); err == nil ||
+		!strings.Contains(err.Error(), "not bound to an embedded pack") {
+		t.Fatalf("unbound historical harness compatibility was accepted: %v", err)
 	}
 }
 

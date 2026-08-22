@@ -263,7 +263,11 @@ func LoadCustomRuntimeSources(root string) ([]policy.PolicySource, error) {
 // $RECONC_HOME points to). Returns nil source when the file doesn't
 // exist or is empty - both are valid "no global policy" states.
 func loadGlobalPolicySource() (*policy.PolicySource, error) {
-	path := filepath.Join(presets.Home(), GlobalPolicyFilename)
+	home, err := presets.ResolveHome()
+	if err != nil {
+		return nil, &rerrors.PolicySourceError{Message: "resolve global policy home", Cause: err}
+	}
+	path := filepath.Join(home, GlobalPolicyFilename)
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {

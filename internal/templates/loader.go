@@ -78,7 +78,11 @@ func Resolve(name string) (*Template, error) {
 		return nil, err
 	}
 	// User override wins.
-	if home := userTemplatesDir(); home != "" {
+	home, err := userTemplatesDir()
+	if err != nil {
+		return nil, fmt.Errorf("resolve user template directory: %w", err)
+	}
+	if home != "" {
 		path := filepath.Join(home, cleaned+".yml")
 		if data, err := readRegularFile(path); err == nil {
 			body, description, perr := parseTemplateBytes(data, path)
@@ -144,7 +148,11 @@ func List() ([]Template, error) {
 	}
 
 	// User overrides.
-	if home := userTemplatesDir(); home != "" {
+	home, err := userTemplatesDir()
+	if err != nil {
+		return nil, fmt.Errorf("resolve user template directory: %w", err)
+	}
+	if home != "" {
 		entries, err := boundedio.ReadDirNoSymlink(home, maxUserTemplateEntries)
 		if err != nil && !os.IsNotExist(err) {
 			return nil, fmt.Errorf("list user templates: %w", err)
@@ -219,8 +227,8 @@ func (e *ErrNotFound) Error() string {
 
 // -------- helpers ----------------------------------------------------
 
-func userTemplatesDir() string {
-	return filepath.Join(presets.Home(), "templates")
+func userTemplatesDir() (string, error) {
+	return presets.UserDirectory("templates")
 }
 
 func readRegularFile(path string) ([]byte, error) {

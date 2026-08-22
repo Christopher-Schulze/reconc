@@ -11,6 +11,7 @@
 package adopt
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"strings"
 
 	"reconc.dev/reconc/internal/atomicfile"
+	"reconc.dev/reconc/internal/bootstrap"
 	"reconc.dev/reconc/internal/boundedio"
 	"reconc.dev/reconc/internal/ingest"
 	"reconc.dev/reconc/internal/parser"
@@ -456,8 +458,18 @@ func RenderText(r Report) string {
 // is atomic; an unwritable shape (inline non-empty rules list) fails
 // loud instead of producing invalid YAML.
 func Apply(repoRoot string, r Report) (added []string, err error) {
+	err = bootstrap.WithRepositoryTransaction(repoRoot, func(root string) error {
+		var applyErr error
+		added, applyErr = applyLocked(root, r)
+		return applyErr
+	})
+	return added, err
+}
+
+func applyLocked(repoRoot string, r Report) (added []string, err error) {
 	configPath := filepath.Join(repoRoot, ".reconc.yml")
 	existing, readErr := boundedio.ReadRegularFile(configPath, maxAdoptConfigBytes)
+	missing := os.IsNotExist(readErr)
 	if readErr != nil && !os.IsNotExist(readErr) {
 		return nil, readErr
 	}
@@ -513,6 +525,13 @@ func Apply(repoRoot string, r Report) (added []string, err error) {
 	}
 	if _, err := validateAdoptConfig(content); err != nil {
 		return nil, fmt.Errorf("validate candidate .reconc.yml: %w", err)
+	}
+	current, currentErr := boundedio.ReadRegularFile(configPath, maxAdoptConfigBytes)
+	if currentErr != nil && !os.IsNotExist(currentErr) {
+		return nil, fmt.Errorf("revalidate .reconc.yml before adopt publication: %w", currentErr)
+	}
+	if missing != os.IsNotExist(currentErr) || !bytes.Equal(current, existing) {
+		return nil, fmt.Errorf(".reconc.yml changed during adopt; rerun adopt against the current repository state")
 	}
 	if _, err := atomicfile.WriteIfChanged(configPath, []byte(content), 0o644); err != nil {
 		return nil, err
@@ -687,21 +706,13 @@ func matchingManifestStack(selectors, detected []string) string {
 }
 
 func quoteYAML(s string) string {
-	// Double-quote and escape embedded quotes / backslashes. Keeps
-	// multi-word messages safe in YAML flow scalar.
-	needsQuote := strings.ContainsAny(s, ":#'\"\n")
-	if !needsQuote {
-		return s
-	}
-	esc := strings.ReplaceAll(s, "\\", "\\\\")
-	esc = strings.ReplaceAll(esc, "\"", "\\\"")
-	return "\"" + esc + "\""
+	return strconv.Quote(s)
 }
 
 func joinQuoted(xs []string) string {
 	quoted := make([]string, len(xs))
 	for i, x := range xs {
-		quoted[i] = "\"" + strings.ReplaceAll(x, "\"", "\\\"") + "\""
+		quoted[i] = quoteYAML(x)
 	}
 	return strings.Join(quoted, ", ")
 }

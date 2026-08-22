@@ -27,10 +27,12 @@ const (
 // read existing objects through the repository object directory as an
 // alternate.
 func captureReadOnlyGitSnapshot(root string) (*commandproof.Snapshot, error) {
-	if _, err := os.Lstat(filepath.Join(root, ".git")); os.IsNotExist(err) {
+	present, err := inspectRepositoryGitMetadata(root)
+	if err != nil {
+		return nil, err
+	}
+	if !present {
 		return nil, nil
-	} else if err != nil {
-		return nil, fmt.Errorf("inspect Git metadata for repository sync: %w", err)
 	}
 	first, err := captureReadOnlyGitState(root)
 	if err != nil {

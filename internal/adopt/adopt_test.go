@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -350,6 +351,74 @@ func TestApplyAppendsToExistingConfig(t *testing.T) {
 	}
 	if strings.Contains(got, "go-assurance") {
 		t.Errorf("adopt --apply must never add inferred packs; got:\n%s", got)
+	}
+}
+
+func TestApplySerializesConcurrentRepositoryMutations(t *testing.T) {
+	repo := t.TempDir()
+	t.Setenv("RECONC_HOME", t.TempDir())
+	reports := []Report{
+		{Suggestions: []Suggestion{{ID: "concurrent-one", Kind: "deny_write", Mode: "warn", Message: "one", Paths: []string{"one/**"}}}},
+		{Suggestions: []Suggestion{{ID: "concurrent-two", Kind: "deny_write", Mode: "warn", Message: "two", Paths: []string{"two/**"}}}},
+	}
+	start := make(chan struct{})
+	errorsByIndex := make([]error, len(reports))
+	var wait sync.WaitGroup
+	for index := range reports {
+		wait.Add(1)
+		go func(index int) {
+			defer wait.Done()
+			<-start
+			_, errorsByIndex[index] = Apply(repo, reports[index])
+		}(index)
+	}
+	close(start)
+	wait.Wait()
+	failed := -1
+	for index, err := range errorsByIndex {
+		if err == nil {
+			continue
+		}
+		if failed >= 0 || !strings.Contains(err.Error(), "repository transaction is already active") {
+			t.Fatalf("concurrent Apply %d failed unexpectedly: %v", index, err)
+		}
+		failed = index
+	}
+	if failed < 0 {
+		t.Fatal("competing non-blocking repository transactions were both admitted")
+	}
+	if _, err := Apply(repo, reports[failed]); err != nil {
+		t.Fatalf("retry rejected concurrent adopt: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(repo, ".reconc.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"concurrent-one", "concurrent-two"} {
+		if !strings.Contains(string(body), "id: "+id) {
+			t.Fatalf("concurrent apply lost %s:\n%s", id, body)
+		}
+	}
+}
+
+func TestQuoteYAMLRoundTripsIndicatorsAndControlCharacters(t *testing.T) {
+	values := []string{
+		"- item", "? key", ": value", "# comment", "!tag", "&anchor", "*alias",
+		"{flow}", "[flow]", ",comma", "|block", ">fold", "@reserved", "`reserved",
+		" leading", "trailing ", "line\nnext", "tab\tvalue", "quote\"slash\\dollar$()",
+		string([]byte{'a', 0x01, 'b'}),
+	}
+	for _, value := range values {
+		document := "value: " + quoteYAML(value) + "\n"
+		var decoded struct {
+			Value string `yaml:"value"`
+		}
+		if err := yaml.Unmarshal([]byte(document), &decoded); err != nil {
+			t.Fatalf("decode scalar %q rendered as %q: %v", value, document, err)
+		}
+		if decoded.Value != value {
+			t.Fatalf("scalar round trip = %q, want %q (rendered %q)", decoded.Value, value, document)
+		}
 	}
 }
 
