@@ -25,6 +25,9 @@
 #   make publication-audit  -- scan the public tree and post-boundary history
 #   make reference-docs     -- regenerate registry-owned Markdown reference sections
 #   make reference-docs-check -- fail when generated Markdown references drift
+#   make benchmark-record   -- record the calibrated benchmark suite
+#   make benchmark-compare  -- compare a result with the checked baseline
+#   make benchmark-baseline -- intentionally refresh the checked baseline
 
 GO        ?= go
 PYTHON    ?= python3
@@ -36,6 +39,11 @@ VERSION   ?= 0.9.7
 PROVENANCE_PKG := reconc.dev/reconc/buildprovenance
 STATICCHECK_VERSION := v0.8.1
 TEST_PARALLELISM ?= 2
+BENCHMARK_COUNT ?= 5
+BENCHMARK_BENCHTIME ?= 100x
+BENCHMARK_RESULT ?= .build/benchmarks/current.json
+BENCHMARK_COMPARISON ?= .build/benchmarks/comparison.json
+BENCHMARK_BASELINE ?= scripts/benchmarks/baseline.json
 RELEASE_COMMIT ?= $(shell git rev-parse HEAD)
 SOURCE_DATE_EPOCH ?= $(shell git show -s --format=%ct $(RELEASE_COMMIT))
 
@@ -48,7 +56,7 @@ RELEASE_TARGETS := \
 	linux/arm64 \
 	windows/amd64
 
-.PHONY: build test-fast test test-langchain test-release-trust self-host publication-audit harness-pack-check reference-docs reference-docs-check fmt-check fmt vet lint coverage cover fuzz clean run tidy release completion manpage sbom notices checksums verify-release bench check-test-parallelism
+.PHONY: build test-fast test test-langchain test-release-trust self-host publication-audit harness-pack-check reference-docs reference-docs-check fmt-check fmt vet lint coverage cover fuzz clean run tidy release completion manpage sbom notices checksums verify-release bench benchmark-record benchmark-compare benchmark-baseline check-test-parallelism
 
 build:
 	@mkdir -p $(BINDIR)
@@ -131,6 +139,16 @@ fuzz:
 
 bench:
 	$(GO) test -run '^$$' -bench . -benchmem -benchtime=1000x $(PKG)
+
+benchmark-record:
+	$(GO) run ./scripts/benchmarks/history record --root . --count $(BENCHMARK_COUNT) --benchtime $(BENCHMARK_BENCHTIME) --output $(BENCHMARK_RESULT)
+
+benchmark-compare:
+	$(GO) run ./scripts/benchmarks/history compare --baseline $(BENCHMARK_BASELINE) --result $(BENCHMARK_RESULT) --output $(BENCHMARK_COMPARISON)
+
+benchmark-baseline:
+	@test "$(CONFIRM_BENCHMARK_BASELINE)" = "1" || { printf 'Set CONFIRM_BENCHMARK_BASELINE=1 to refresh %s intentionally.\n' "$(BENCHMARK_BASELINE)" >&2; exit 64; }
+	$(GO) run ./scripts/benchmarks/history baseline --result $(BENCHMARK_RESULT) --output $(BENCHMARK_BASELINE) --refresh
 
 clean:
 	rm -rf .build $(DISTDIR) coverage.out coverage.html harness/template/coverage.out harness/template/coverage.html

@@ -2,16 +2,15 @@
 
 ## Active
 
-- [~] 260 Calibrate benchmark history -> tasks/260-calibrate-benchmark-history.md
+- [~] 261 Improve policy authoring UX -> tasks/261-improve-policy-authoring-ux.md
 
 ## Queue
-
-- [ ] 261 Improve policy authoring UX -> tasks/261-improve-policy-authoring-ux.md
 
 ## Blocked
 
 ## Done
 
+- [x] 260 Calibrate benchmark history -> tasks/done/260-calibrate-benchmark-history.md
 - [x] 259 Generate canonical reference surfaces -> tasks/done/259-generate-canonical-reference-surfaces.md
 - [x] 258 Decompose large source owners -> tasks/done/258-decompose-large-source-owners.md
 - [x] 257 Consolidate expensive test fixtures -> tasks/done/257-consolidate-expensive-test-fixtures.md

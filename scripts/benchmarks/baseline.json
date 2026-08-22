@@ -1,0 +1,585 @@
+{
+  "format_version": "reconc.benchmark-baseline/v1",
+  "tolerances": {
+    "normalized_ns_per_op": 0.2,
+    "normalized_bytes_per_op": 0.05,
+    "normalized_allocs_per_op": 0.05
+  },
+  "result": {
+    "format_version": "reconc.benchmark-result/v1",
+    "suite_version": "reconc.performance-history/v1",
+    "environment": {
+      "go_version": "go1.27.0",
+      "goos": "darwin",
+      "goarch": "arm64",
+      "cpu": "Apple M1",
+      "commit": "cebfb2fa8fdc54694bd611a320ba3df7d1f30d81",
+      "dirty": true
+    },
+    "parameters": {
+      "count": 5,
+      "benchtime": "100x",
+      "cpu": 1
+    },
+    "groups": [
+      {
+        "name": "compiler-canonical-json",
+        "package": "./internal/compiler",
+        "calibration": {
+          "name": "BenchmarkNormalizeJSONValueTwice",
+          "samples": [
+            {
+              "iterations": 100,
+              "ns_per_op": 18677,
+              "bytes_per_op": 3636,
+              "allocs_per_op": 76
+            },
+            {
+              "iterations": 100,
+              "ns_per_op": 21655,
+              "bytes_per_op": 3636,
+              "allocs_per_op": 76
+            },
+            {
+              "iterations": 100,
+              "ns_per_op": 20560,
+              "bytes_per_op": 3636,
+              "allocs_per_op": 76
+            },
+            {
+              "iterations": 100,
+              "ns_per_op": 21020,
+              "bytes_per_op": 3636,
+              "allocs_per_op": 76
+            },
+            {
+              "iterations": 100,
+              "ns_per_op": 18195,
+              "bytes_per_op": 3636,
+              "allocs_per_op": 76
+            }
+          ],
+          "median": {
+            "ns_per_op": 20560,
+            "bytes_per_op": 3636,
+            "allocs_per_op": 76
+          }
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkNormalizeJSONValueOnce",
+              "samples": [
+                {
+                  "iterations": 100,
+                  "ns_per_op": 14587,
+                  "bytes_per_op": 1820,
+                  "allocs_per_op": 38
+                },
+                {
+                  "iterations": 100,
+                  "ns_per_op": 8723,
+                  "bytes_per_op": 1820,
+                  "allocs_per_op": 38
+                },
+                {
+                  "iterations": 100,
+                  "ns_per_op": 12787,
+                  "bytes_per_op": 1820,
+                  "allocs_per_op": 38
+                },
+                {
+                  "iterations": 100,
+                  "ns_per_op": 13568,
+                  "bytes_per_op": 1820,
+                  "allocs_per_op": 38
+                },
+                {
+                  "iterations": 100,
+                  "ns_per_op": 11921,
+                  "bytes_per_op": 1820,
+                  "allocs_per_op": 38
+                }
+              ],
+              "median": {
+                "ns_per_op": 12787,
+                "bytes_per_op": 1820,
+                "allocs_per_op": 38
+              }
+            },
+            "normalized": {
+              "ns_per_op": 0.6219357976653697,
+              "bytes_per_op": 0.5005500550055005,
+              "allocs_per_op": 0.5
+            }
+          }
+        ]
+      },
+      {
+        "name": "ingest-source-context",
+        "package": "./internal/ingest",
+        "calibration": {
+          "name": "BenchmarkLoadPolicySourcesWithDiscovery",
+          "samples": [
+            {
+              "iterations": 100,
+              "ns_per_op": 17562806,
+              "bytes_per_op": 461752,
+              "allocs_per_op": 4485
+            },
+            {
+              "iterations": 100,
+              "ns_per_op": 16708125,
+              "bytes_per_op": 461800,
+              "allocs_per_op": 4485
+            },
+            {
+              "iterations": 100,
+              "ns_per_op": 10207222,
+              "bytes_per_op": 461752,
+              "allocs_per_op": 4485
+            },
+            {
+              "iterations": 100,
+              "ns_per_op": 9534477,
+              "bytes_per_op": 461800,
+              "allocs_per_op": 4485
+            },
+            {
+              "iterations": 100,
+              "ns_per_op": 12269508,
+              "bytes_per_op": 461800,
+              "allocs_per_op": 4485
+            }
+          ],
+          "median": {
+            "ns_per_op": 12269508,
+            "bytes_per_op": 461800,
+            "allocs_per_op": 4485
+          }
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkLoadPolicySourcesWithContext",
+              "samples": [
+                {
+                  "iterations": 100,
+                  "ns_per_op": 8511805,
+                  "bytes_per_op": 407928,
+                  "allocs_per_op": 4015
+                },
+                {
+                  "iterations": 100,
+                  "ns_per_op": 12361228,
+                  "bytes_per_op": 407928,
+                  "allocs_per_op": 4015
+                },
+                {
+                  "iterations": 100,
+                  "ns_per_op": 15908834,
+                  "bytes_per_op": 407928,
+                  "allocs_per_op": 4015
+                },
+                {
+                  "iterations": 100,
+                  "ns_per_op": 11457298,
+                  "bytes_per_op": 407928,
+                  "allocs_per_op": 4015
+                },
+                {
+                  "iterations": 100,
+                  "ns_per_op": 10304237,
+                  "bytes_per_op": 407928,
+                  "allocs_per_op": 4015
+                }
+              ],
+              "median": {
+                "ns_per_op": 11457298,
+                "bytes_per_op": 407928,
+                "allocs_per_op": 4015
+              }
+            },
+            "normalized": {
+              "ns_per_op": 0.9338025616023071,
+              "bytes_per_op": 0.8833434387180598,
+              "allocs_per_op": 0.89520624303233
+            }
+          }
+        ]
+      },
+      {
+        "name": "prospective-path-resolution",
+        "package": "./internal/pathidentity",
+        "calibration": {
+          "name": "BenchmarkResolveProspectiveIndependent",
+          "samples": [
+            {
+              "iterations": 100,
+              "ns_per_op": 460680,
+              "bytes_per_op": 16728,
+              "allocs_per_op": 171
+            },
+            {
+              "iterations": 100,
+              "ns_per_op": 440756,
+              "bytes_per_op": 16728,
+              "allocs_per_op": 171
+            },
+            {
+              "iterations": 100,
+              "ns_per_op": 657908,
+              "bytes_per_op": 16728,
+              "allocs_per_op": 171
+            },
+            {
+              "iterations": 100,
+              "ns_per_op": 591090,
+              "bytes_per_op": 16728,
+              "allocs_per_op": 171
+            },
+            {
+              "iterations": 100,
+              "ns_per_op": 874475,
+              "bytes_per_op": 16728,
+              "allocs_per_op": 171
+            }
+          ],
+          "median": {
+            "ns_per_op": 591090,
+            "bytes_per_op": 16728,
+            "allocs_per_op": 171
+          }
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkResolveProspectiveBatch",
+              "samples": [
+                {
+                  "iterations": 100,
+                  "ns_per_op": 289028,
+                  "bytes_per_op": 9272,
+                  "allocs_per_op": 88
+                },
+                {
+                  "iterations": 100,
+                  "ns_per_op": 292259,
+                  "bytes_per_op": 9272,
+                  "allocs_per_op": 88
+                },
+                {
+                  "iterations": 100,
+                  "ns_per_op": 506610,
+                  "bytes_per_op": 9272,
+                  "allocs_per_op": 88
+                },
+                {
+                  "iterations": 100,
+                  "ns_per_op": 283995,
+                  "bytes_per_op": 9272,
+                  "allocs_per_op": 88
+                },
+                {
+                  "iterations": 100,
+                  "ns_per_op": 503479,
+                  "bytes_per_op": 9272,
+                  "allocs_per_op": 88
+                }
+              ],
+              "median": {
+                "ns_per_op": 292259,
+                "bytes_per_op": 9272,
+                "allocs_per_op": 88
+              }
+            },
+            "normalized": {
+              "ns_per_op": 0.4944407788999983,
+              "bytes_per_op": 0.5542802486848398,
+              "allocs_per_op": 0.5146198830409356
+            }
+          }
+        ]
+      },
+      {
+        "name": "runtime-command-matching",
+        "package": "./internal/runtime",
+        "calibration": {
+          "name": "BenchmarkForbiddenCommandReparse",
+          "samples": [
+            {
+              "iterations": 100,
+              "ns_per_op": 638388,
+              "bytes_per_op": 221473,
+              "allocs_per_op": 1153
+            },
+            {
+              "iterations": 100,
+              "ns_per_op": 341170,
+              "bytes_per_op": 221473,
+              "allocs_per_op": 1153
+            },
+            {
+              "iterations": 100,
+              "ns_per_op": 255096,
+              "bytes_per_op": 221473,
+              "allocs_per_op": 1153
+            },
+            {
+              "iterations": 100,
+              "ns_per_op": 376697,
+              "bytes_per_op": 221473,
+              "allocs_per_op": 1153
+            },
+            {
+              "iterations": 100,
+              "ns_per_op": 468500,
+              "bytes_per_op": 221472,
+              "allocs_per_op": 1153
+            }
+          ],
+          "median": {
+            "ns_per_op": 376697,
+            "bytes_per_op": 221473,
+            "allocs_per_op": 1153
+          }
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkForbiddenCommandPrepared",
+              "samples": [
+                {
+                  "iterations": 100,
+                  "ns_per_op": 4315,
+                  "bytes_per_op": 483,
+                  "allocs_per_op": 3
+                },
+                {
+                  "iterations": 100,
+                  "ns_per_op": 3909,
+                  "bytes_per_op": 483,
+                  "allocs_per_op": 3
+                },
+                {
+                  "iterations": 100,
+                  "ns_per_op": 3780,
+                  "bytes_per_op": 483,
+                  "allocs_per_op": 3
+                },
+                {
+                  "iterations": 100,
+                  "ns_per_op": 4267,
+                  "bytes_per_op": 483,
+                  "allocs_per_op": 3
+                },
+                {
+                  "iterations": 100,
+                  "ns_per_op": 7863,
+                  "bytes_per_op": 483,
+                  "allocs_per_op": 3
+                }
+              ],
+              "median": {
+                "ns_per_op": 4267,
+                "bytes_per_op": 483,
+                "allocs_per_op": 3
+              }
+            },
+            "normalized": {
+              "ns_per_op": 0.011327406377008577,
+              "bytes_per_op": 0.002180852745029868,
+              "allocs_per_op": 0.0026019080659150044
+            }
+          }
+        ]
+      },
+      {
+        "name": "runtime-command-evidence",
+        "package": "./internal/runtime",
+        "calibration": {
+          "name": "BenchmarkCommandEvidenceReparse",
+          "samples": [
+            {
+              "iterations": 100,
+              "ns_per_op": 9884,
+              "bytes_per_op": 1380,
+              "allocs_per_op": 35
+            },
+            {
+              "iterations": 100,
+              "ns_per_op": 16478,
+              "bytes_per_op": 1380,
+              "allocs_per_op": 35
+            },
+            {
+              "iterations": 100,
+              "ns_per_op": 10733,
+              "bytes_per_op": 1380,
+              "allocs_per_op": 35
+            },
+            {
+              "iterations": 100,
+              "ns_per_op": 8948,
+              "bytes_per_op": 1380,
+              "allocs_per_op": 35
+            },
+            {
+              "iterations": 100,
+              "ns_per_op": 14754,
+              "bytes_per_op": 1380,
+              "allocs_per_op": 35
+            }
+          ],
+          "median": {
+            "ns_per_op": 10733,
+            "bytes_per_op": 1380,
+            "allocs_per_op": 35
+          }
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkCommandEvidencePrepared",
+              "samples": [
+                {
+                  "iterations": 100,
+                  "ns_per_op": 1056,
+                  "bytes_per_op": 64,
+                  "allocs_per_op": 2
+                },
+                {
+                  "iterations": 100,
+                  "ns_per_op": 205,
+                  "bytes_per_op": 64,
+                  "allocs_per_op": 2
+                },
+                {
+                  "iterations": 100,
+                  "ns_per_op": 193.8,
+                  "bytes_per_op": 64,
+                  "allocs_per_op": 2
+                },
+                {
+                  "iterations": 100,
+                  "ns_per_op": 161.7,
+                  "bytes_per_op": 64,
+                  "allocs_per_op": 2
+                },
+                {
+                  "iterations": 100,
+                  "ns_per_op": 221.7,
+                  "bytes_per_op": 64,
+                  "allocs_per_op": 2
+                }
+              ],
+              "median": {
+                "ns_per_op": 205,
+                "bytes_per_op": 64,
+                "allocs_per_op": 2
+              }
+            },
+            "normalized": {
+              "ns_per_op": 0.01909997204882139,
+              "bytes_per_op": 0.0463768115942029,
+              "allocs_per_op": 0.05714285714285714
+            }
+          }
+        ]
+      },
+      {
+        "name": "runtime-write-epochs",
+        "package": "./internal/runtime",
+        "calibration": {
+          "name": "BenchmarkNormalizeWriteEpochsPerPath",
+          "samples": [
+            {
+              "iterations": 100,
+              "ns_per_op": 19439763,
+              "bytes_per_op": 665600,
+              "allocs_per_op": 6656
+            },
+            {
+              "iterations": 100,
+              "ns_per_op": 22730995,
+              "bytes_per_op": 665601,
+              "allocs_per_op": 6656
+            },
+            {
+              "iterations": 100,
+              "ns_per_op": 12595234,
+              "bytes_per_op": 665600,
+              "allocs_per_op": 6656
+            },
+            {
+              "iterations": 100,
+              "ns_per_op": 24875961,
+              "bytes_per_op": 665600,
+              "allocs_per_op": 6656
+            },
+            {
+              "iterations": 100,
+              "ns_per_op": 36653038,
+              "bytes_per_op": 665600,
+              "allocs_per_op": 6656
+            }
+          ],
+          "median": {
+            "ns_per_op": 22730995,
+            "bytes_per_op": 665600,
+            "allocs_per_op": 6656
+          }
+        },
+        "targets": [
+          {
+            "benchmark": {
+              "name": "BenchmarkNormalizeWriteEpochsBatch",
+              "samples": [
+                {
+                  "iterations": 100,
+                  "ns_per_op": 3600432,
+                  "bytes_per_op": 267832,
+                  "allocs_per_op": 2087
+                },
+                {
+                  "iterations": 100,
+                  "ns_per_op": 3580120,
+                  "bytes_per_op": 267832,
+                  "allocs_per_op": 2087
+                },
+                {
+                  "iterations": 100,
+                  "ns_per_op": 2814172,
+                  "bytes_per_op": 267832,
+                  "allocs_per_op": 2087
+                },
+                {
+                  "iterations": 100,
+                  "ns_per_op": 3097020,
+                  "bytes_per_op": 267832,
+                  "allocs_per_op": 2087
+                },
+                {
+                  "iterations": 100,
+                  "ns_per_op": 5076345,
+                  "bytes_per_op": 267832,
+                  "allocs_per_op": 2087
+                }
+              ],
+              "median": {
+                "ns_per_op": 3580120,
+                "bytes_per_op": 267832,
+                "allocs_per_op": 2087
+              }
+            },
+            "normalized": {
+              "ns_per_op": 0.1574994847343902,
+              "bytes_per_op": 0.4023918269230769,
+              "allocs_per_op": 0.3135516826923077
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

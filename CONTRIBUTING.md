@@ -88,6 +88,14 @@ release generation, schemas, completion, manpages, installers, or provenance
 should also run the relevant release command documented in the
 [Makefile](Makefile).
 
+For a deliberate performance review, run `make benchmark-record` followed by
+`make benchmark-compare`. Results use same-run calibration and exact environment
+compatibility instead of absolute CI duration thresholds. Refresh the checked
+baseline only after reviewing both raw and normalized metrics, with `make
+benchmark-baseline CONFIRM_BENCHMARK_BASELINE=1`. The manual `Calibrated
+Benchmarks` workflow provides the same bounded comparison and is never part of
+push or pull-request verification.
+
 Test setup may cache only immutable, authenticated inputs and must return
 detached values to each caller. Repository roots, receipts, policy locks, Git
 state, process environment, and runtime evidence remain test-owned because

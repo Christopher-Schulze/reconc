@@ -1298,6 +1298,26 @@ These are reproducible observations, not latency contracts. The routine paths
 start no Git process; fsync-backed state, pointer, decision-log, and audit
 durability dominate the remaining cost.
 
+Calibrated benchmark history covers six allocation-sensitive paths in the
+compiler, source loader, path resolver, and runtime evaluator. `make
+benchmark-record` runs five samples at 100 fixed iterations with one logical
+CPU, records the raw medians plus Go version, OS, architecture, CPU identity,
+commit, dirty state, and benchmark parameters, and normalizes every target
+against a same-package reference from the same run. `make benchmark-compare`
+accepts only the same suite, Go version, OS, architecture, sample count,
+benchtime, and logical CPU count. CPU models may differ because the ratios are
+same-run calibrated; this reduces host noise but does not make different
+machines equivalent. Absolute medians remain visible and informational.
+
+The checked baseline allows at most 20% normalized time growth and 5%
+normalized bytes or allocation growth. `make benchmark-baseline
+CONFIRM_BENCHMARK_BASELINE=1` is the only baseline-refresh path and requires a
+fresh `make benchmark-record`; comparison never rewrites either input. The
+manual `Calibrated Benchmarks` workflow records and compares on macOS. Normal
+push and pull-request verification never starts the benchmark suite, so these
+measurements inform deliberate performance review without becoming noisy
+wall-clock CI gates.
+
 ### Causal command-success evidence
 
 Session state advances a monotonic evidence epoch for each write tool event.
