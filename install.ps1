@@ -364,19 +364,13 @@ function Confirm-ReconcAttestation {
         [Parameter(Mandatory = $true)]
         [string]$Tool,
         [Parameter(Mandatory = $true)]
-        [string]$Repository,
-        [Parameter(Mandatory = $true)]
-        [bool]$Required
+        [string]$Repository
     )
 
     $command = Get-Command -Name $Tool -CommandType Application -ErrorAction SilentlyContinue |
         Select-Object -First 1
     if ($null -eq $command) {
-        if ($Required) {
-            throw "Attestation verification is required, but '$Tool' is unavailable."
-        }
-        Write-Host "note: '$Tool' is unavailable; checksum verification remains enforced."
-        return "embedded-verified"
+        throw "Build-provenance verification requires '$Tool'. Install GitHub CLI and retry."
     }
 
     try {
@@ -394,21 +388,13 @@ function Confirm-ReconcAttestation {
             --deny-self-hosted-runners 2>&1
     }
     catch {
-        if ($Required) {
-            throw "Attestation verification could not run for $ArtifactPath. $($_.Exception.Message)"
-        }
-        Write-Warning "Attestation verification could not run; checksum verification remains enforced. $($_.Exception.Message)"
-        return "embedded-verified"
+        throw "Build-provenance verification could not run for $ArtifactPath. $($_.Exception.Message)"
     }
     if ($LASTEXITCODE -eq 0) {
         return "github-verified"
     }
     $detail = ($attestationOutput | Out-String).Trim()
-    if ($Required) {
-        throw "Attestation verification failed for $ArtifactPath. $detail"
-    }
-    Write-Warning "Attestation verification failed; checksum verification remains enforced. $detail"
-    return "embedded-verified"
+    throw "Build-provenance verification failed for $ArtifactPath. Verify GitHub CLI access to $Repository and retry. $detail"
 }
 
 function Install-ReconcVerifiedArtifact {
@@ -479,16 +465,19 @@ function Install-ReconcVerifiedArtifact {
         $env:RECONC_INSTALL_RELEASE_TAG = $savedTag
         $env:RECONC_INSTALL_PROVENANCE = $savedProvenance
     }
+    if ($installExitCode -ne 0) {
+        $detail = ($installOutput | Out-String).Trim()
+        if ((Test-Path -LiteralPath $targetPath -PathType Leaf) -and
+            (Get-ReconcFileSha256 -Path $targetPath) -eq $ExpectedChecksum) {
+            throw "Install transaction failed after publishing the verified binary; ownership receipt may be incomplete. Rerun this installer for version $ReleaseVersion. $detail"
+        }
+        throw "Install transaction failed and retained or restored the previous target. $detail"
+    }
     if (-not (Test-Path -LiteralPath $targetPath -PathType Leaf) -or
         (Get-ReconcFileSha256 -Path $targetPath) -ne $ExpectedChecksum) {
         $detail = ($installOutput | Out-String).Trim()
         throw "Verified Reconc transaction did not publish the expected binary. $detail"
     }
-    if ((Test-ReconcCommandMatches -ExpectedChecksum $ExpectedChecksum -ExpectedPath $targetPath) -and $installExitCode -ne 0) {
-        $detail = ($installOutput | Out-String).Trim()
-        throw "Binary is current on PATH but ownership receipt publication failed. $detail"
-    }
-
     return $targetPath
 }
 
@@ -533,9 +522,8 @@ function Invoke-ReconcInstall {
 
     $defaultInstallDirectory = Join-Path $env:LOCALAPPDATA "Programs\Reconc\bin"
     $installDirectory = Get-ReconcEnvironmentValue -Name "RECONC_INSTALL_DIR" -Default $defaultInstallDirectory
-    $attestationTool = Get-ReconcEnvironmentValue -Name "RECONC_ATTESTATION_TOOL" -Default "gh"
-    $attestationRepository = Get-ReconcEnvironmentValue -Name "RECONC_ATTESTATION_REPO" -Default "Christopher-Schulze/reconc"
-    $requireAttestation = (Get-ReconcEnvironmentValue -Name "RECONC_REQUIRE_ATTESTATION" -Default "0") -eq "1"
+    $attestationTool = "gh"
+    $attestationRepository = "Christopher-Schulze/reconc"
 
     $temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) "reconc-install-$([Guid]::NewGuid().ToString('N'))"
     [void](New-Item -ItemType Directory -Path $temporaryDirectory)
@@ -579,8 +567,7 @@ function Invoke-ReconcInstall {
         $provenanceState = Confirm-ReconcAttestation `
             -ArtifactPath $artifactPath `
             -Tool $attestationTool `
-            -Repository $attestationRepository `
-            -Required $requireAttestation
+            -Repository $attestationRepository
         $targetPath = Install-ReconcVerifiedArtifact `
             -ArtifactPath $artifactPath `
             -ExpectedChecksum $expectedChecksum `

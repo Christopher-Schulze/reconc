@@ -65,7 +65,7 @@ verify_action_pins() {
       return 1
     fi
     case "$action" in
-      actions/checkout|actions/setup-go|actions/setup-node|actions/setup-python|actions/upload-artifact|actions/attest-build-provenance|github/codeql-action/init|github/codeql-action/analyze) ;;
+      actions/checkout|actions/setup-go|actions/setup-node|actions/setup-python|actions/attest-build-provenance|github/codeql-action/init|github/codeql-action/analyze) ;;
       *)
         printf '%s\n' "$workflow uses an action outside the allowlist: $action" >&2
         return 1
@@ -360,6 +360,27 @@ expect_failure_reason "destination already exists: install.sh" \
 [ "$(cat "$copy_collision_dir/install.sh")" = "sentinel" ] \
   || fail "copied release asset overwrote an existing destination"
 
+copy_race_dir="$tmp/copy-race"
+copy_race_bin="$tmp/copy-race-bin"
+mkdir -p "$copy_race_dir" "$copy_race_bin"
+real_cp=$(command -v cp)
+cat > "$copy_race_bin/cp" <<'SCRIPT'
+#!/usr/bin/env sh
+set -eu
+destination=""
+for argument in "$@"; do
+  destination="$argument"
+done
+printf 'concurrent-sentinel\n' > "$(dirname "$destination")/LICENSE"
+exec "$RECONC_TEST_REAL_CP" "$@"
+SCRIPT
+chmod +x "$copy_race_bin/cp"
+expect_failure_reason "destination was created concurrently: LICENSE" \
+  env PATH="$copy_race_bin:$PATH" RECONC_TEST_REAL_CP="$real_cp" \
+  "$root/scripts/release/copy-assets.sh" "$copy_race_dir"
+[ "$(cat "$copy_race_dir/LICENSE")" = "concurrent-sentinel" ] \
+  || fail "create-only release publication overwrote a concurrent destination"
+
 release_dir="$tmp/release"
 mkdir -p "$release_dir"
 expect_failure "$root/scripts/release/write-checksums.sh" "$release_dir"
@@ -574,12 +595,46 @@ chmod +x "$fake_bin/curl"
 run_installer() {
   PATH="$fake_bin:$PATH" \
     RECONC_TEST_FIXTURE="$fixture" \
+    RECONC_TEST_EXPECTED_SOURCE_REF="refs/tags/reconc-v$project_version" \
     RECONC_RELEASE_BASE="https://release.invalid" \
-    RECONC_INSTALL_DIR="$install_dir" \
-    RECONC_ATTESTATION_TOOL="${RECONC_TEST_ATTESTATION_TOOL:-reconc-attestation-absent}" \
-    RECONC_REQUIRE_ATTESTATION="${RECONC_TEST_REQUIRE_ATTESTATION:-0}" \
+    RECONC_INSTALL_DIR="${RECONC_TEST_INSTALL_DIR:-$install_dir}" \
     sh "$root/install.sh" "$project_version"
 }
+
+cat > "$fake_bin/gh" <<'SCRIPT'
+#!/usr/bin/env sh
+set -eu
+[ "${1:-}" = "attestation" ] && [ "${2:-}" = "verify" ] && [ -f "${3:-}" ] || exit 2
+case " $* " in
+  *" --repo Christopher-Schulze/reconc "*) ;;
+  *) exit 3 ;;
+esac
+case " $* " in
+  *" --signer-workflow Christopher-Schulze/reconc/.github/workflows/reconc-release.yml "*) ;;
+  *) exit 4 ;;
+esac
+source_ref=false
+deny_self_hosted=false
+expected_source_ref=${RECONC_TEST_EXPECTED_SOURCE_REF:?}
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --source-ref)
+      [ "${2:-}" = "$expected_source_ref" ] || exit 5
+      source_ref=true
+      shift 2
+      ;;
+    --deny-self-hosted-runners)
+      deny_self_hosted=true
+      shift
+      ;;
+    *) shift ;;
+  esac
+done
+[ "$source_ref" = true ] && [ "$deny_self_hosted" = true ] || exit 5
+exit 0
+SCRIPT
+chmod +x "$fake_bin/gh"
+cp "$fake_bin/gh" "$fake_bin/gh-pass"
 
 expect_failure sh "$root/install.sh" --channel stable --version "$project_version"
 expect_failure sh "$root/install.sh" --version "$project_version-preview.01"
@@ -587,21 +642,22 @@ sh "$root/install.sh" --help >/dev/null
 
 printf '#!/usr/bin/env sh\nprintf "old\\n"\n' > "$install_dir/reconc"
 chmod +x "$install_dir/reconc"
-installer_output=$(run_installer 2>&1)
+if installer_output=$(run_installer 2>&1); then
+  fail "installer reported success while the published binary was not PATH-ready"
+fi
 [ "$("$install_dir/reconc" --version)" = "reconc ${project_version}" ] \
-  || fail "verified installer did not publish the downloaded binary"
-printf '%s\n' "$installer_output" | grep -Fq 'PATH: add this line to your shell profile' \
-  || fail "POSIX installer did not report the missing PATH activation"
+  || fail "PATH-inactive partial install did not publish the verified binary"
+printf '%s\n' "$installer_output" | grep -Fq 'ownership receipt may be incomplete' \
+  || fail "PATH-inactive partial install lacked exact recovery status"
 
 receipt_home="$tmp/reconc-home"
 if ! receipt_install_output=$(
   PATH="$fake_bin:$install_dir:$PATH" \
     RECONC_HOME="$receipt_home" \
     RECONC_TEST_FIXTURE="$fixture" \
+    RECONC_TEST_EXPECTED_SOURCE_REF="refs/tags/reconc-v$project_version" \
     RECONC_RELEASE_BASE="https://release.invalid" \
     RECONC_INSTALL_DIR="$install_dir" \
-    RECONC_ATTESTATION_TOOL="reconc-attestation-absent" \
-    RECONC_REQUIRE_ATTESTATION=0 \
     sh "$root/install.sh" "$project_version" 2>&1
 ); then
   fail "PATH-ready POSIX installer failed: $receipt_install_output"
@@ -618,6 +674,8 @@ printf '%s\n' "$global_report" | grep -Fq '"owner": "direct"' \
   || fail "POSIX installer did not retain direct ownership"
 printf '%s\n' "$global_report" | grep -Fq '"channel": "exact"' \
   || fail "POSIX installer did not retain the exact channel"
+printf '%s\n' "$global_report" | grep -Fq '"provenance_state": "github-verified"' \
+  || fail "POSIX installer did not retain mandatory GitHub provenance"
 
 installed_digest=$(sha256_file "$install_dir/reconc")
 dd if=/dev/zero of="$fixture/SHA256SUMS" bs=1048576 count=3 2>/dev/null
@@ -657,41 +715,70 @@ expect_failure run_installer
 cp "$root/.build/bin/reconc" "$fixture/$asset"
 printf '%s  %s\n' "$(sha256_file "$fixture/$asset")" "$asset" > "$fixture/SHA256SUMS"
 
-# Required attestation with the tool absent must fail before install.
+# Missing attestation tooling fails before every install by default.
 printf '#!/usr/bin/env sh\nprintf "sentinel\\n"\n' > "$install_dir/reconc"
 chmod +x "$install_dir/reconc"
-RECONC_TEST_REQUIRE_ATTESTATION=1 expect_failure run_installer
+no_gh_bin="$tmp/no-gh-bin"
+mkdir -p "$no_gh_bin"
+for tool in sh uname grep mktemp wc tr rm cp; do
+  ln -s "$(command -v "$tool")" "$no_gh_bin/$tool"
+done
+mv "$fake_bin/gh" "$fake_bin/gh.active"
+PATH="$no_gh_bin" expect_failure run_installer
+mv "$fake_bin/gh.active" "$fake_bin/gh"
 [ "$("$install_dir/reconc")" = "sentinel" ] \
-  || fail "required attestation without gh replaced the installed binary"
+  || fail "missing mandatory attestation tool replaced the installed binary"
 
 # A succeeding attestation tool lets the install proceed.
-cat > "$fake_bin/reconc-attestation-pass" <<'SCRIPT'
-#!/usr/bin/env sh
-[ "${1:-}" = "attestation" ] && [ "${2:-}" = "verify" ] || exit 2
-exit 0
-SCRIPT
-chmod +x "$fake_bin/reconc-attestation-pass"
-RECONC_TEST_ATTESTATION_TOOL=reconc-attestation-pass \
-  RECONC_TEST_REQUIRE_ATTESTATION=1 run_installer >/dev/null 2>&1
+PATH="$install_dir:$PATH" run_installer >/dev/null 2>&1
 [ "$("$install_dir/reconc" --version)" = "reconc ${project_version}" ] \
   || fail "verified attestation did not publish the downloaded binary"
 
-# A failing attestation tool blocks the install when required...
-cat > "$fake_bin/reconc-attestation-fail" <<'SCRIPT'
+# A failing attestation tool always blocks the install.
+cat > "$fake_bin/gh" <<'SCRIPT'
 #!/usr/bin/env sh
 exit 1
 SCRIPT
-chmod +x "$fake_bin/reconc-attestation-fail"
+chmod +x "$fake_bin/gh"
 printf '#!/usr/bin/env sh\nprintf "sentinel\\n"\n' > "$install_dir/reconc"
 chmod +x "$install_dir/reconc"
-RECONC_TEST_ATTESTATION_TOOL=reconc-attestation-fail \
-  RECONC_TEST_REQUIRE_ATTESTATION=1 expect_failure run_installer
+expect_failure run_installer
 [ "$("$install_dir/reconc")" = "sentinel" ] \
-  || fail "failed required attestation replaced the installed binary"
+  || fail "failed mandatory attestation replaced the installed binary"
+cp "$fake_bin/gh-pass" "$fake_bin/gh"
 
-# ...and only warns when not required.
-RECONC_TEST_ATTESTATION_TOOL=reconc-attestation-fail run_installer >/dev/null 2>&1
-[ "$("$install_dir/reconc" --version)" = "reconc ${project_version}" ] \
-  || fail "optional failed attestation must not block the install"
+# A candidate that publishes bytes and then returns non-zero is never reported
+# as success, regardless of whether this is a first install or an upgrade.
+cat > "$fixture/$asset" <<SCRIPT
+#!/usr/bin/env sh
+set -eu
+case "\${1:-}" in
+  --version) printf '%s\\n' 'reconc ${project_version}' ;;
+  install-cli)
+    [ "\${2:-}" = "--install-dir" ] && [ -n "\${3:-}" ]
+    mkdir -p "\$3"
+    cp "\$0" "\$3/reconc"
+    chmod +x "\$3/reconc"
+    printf '%s\\n' '{"partial":true}'
+    exit 23
+    ;;
+  *) exit 2 ;;
+esac
+SCRIPT
+chmod +x "$fixture/$asset"
+printf '%s  %s\n' "$(sha256_file "$fixture/$asset")" "$asset" > "$fixture/SHA256SUMS"
+failed_install_dir="$tmp/install-cli-failure"
+if failure_output=$(RECONC_TEST_INSTALL_DIR="$failed_install_dir" run_installer 2>&1); then
+  fail "first install reported success after install-cli returned non-zero"
+fi
+printf '%s\n' "$failure_output" | grep -Fq 'ownership receipt may be incomplete' \
+  || fail "first-install partial publication lacked exact recovery status"
+printf '#!/usr/bin/env sh\nprintf "previous\\n"\n' > "$failed_install_dir/reconc"
+chmod +x "$failed_install_dir/reconc"
+if failure_output=$(RECONC_TEST_INSTALL_DIR="$failed_install_dir" run_installer 2>&1); then
+  fail "upgrade reported success after install-cli returned non-zero"
+fi
+printf '%s\n' "$failure_output" | grep -Fq 'ownership receipt may be incomplete' \
+  || fail "upgrade partial publication lacked exact recovery status"
 
 printf 'release-trust: ok (real release target: %ss)\n' "$release_build_seconds"

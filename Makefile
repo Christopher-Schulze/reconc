@@ -44,7 +44,7 @@ RELEASE_TARGETS := \
 	linux/arm64 \
 	windows/amd64
 
-.PHONY: build test test-langchain test-release-trust self-host publication-audit harness-pack-check fmt-check fmt vet lint coverage cover fuzz clean run tidy release completion manpage sbom notices checksums verify-release release-all bench
+.PHONY: build test test-langchain test-release-trust self-host publication-audit harness-pack-check fmt-check fmt vet lint coverage cover fuzz clean run tidy release completion manpage sbom notices checksums verify-release bench
 
 build:
 	@mkdir -p $(BINDIR)

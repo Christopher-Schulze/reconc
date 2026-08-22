@@ -207,8 +207,14 @@ repository. Stable uses the latest-release endpoint, preview uses the bounded
 release list, and exact uses the tag endpoint. Drafts are always rejected.
 After discovery, every download uses the immutable tag URL and verifies exact
 repository, tag, asset name, size, SHA256SUMS entry, embedded build version,
-target, and source digest. Every CLI update then requires successful GitHub
-build-provenance attestation verification before publication.
+target, and source digest. Native installers and every CLI update require
+successful GitHub build-provenance verification before candidate execution or
+publication. The online verifier is fixed to `Christopher-Schulze/reconc`, the
+release workflow, immutable source tag, GitHub-hosted runner, and candidate
+digest; missing or failed verification has no fallback to same-origin
+checksums. Any non-zero candidate `install-cli` result fails the outer
+transaction, which restores prior bytes or reports the exact recoverable
+partial state.
 
 `--from-dir PATH` disables all network access. The directory must contain one
 strict release manifest, `SHA256SUMS`, the exact platform artifact, the
@@ -358,6 +364,9 @@ conventional.
 - Publication stages beside the target, verifies bytes and executable behavior,
   syncs file and parent, and atomically publishes. An existing valid binary or
   receipt remains available until the candidate is fully verified.
+- Repository-sourced release assets stage inside the destination filesystem and
+  publish by atomic create-only hard link, so a concurrently created name is
+  never overwritten between validation and copy.
 - Symlinks, Windows reparse points and 8.3 aliases, path swaps, special files,
   cross-repository plans, stale Git snapshots, and concurrent mutation fail
   before owned publication.

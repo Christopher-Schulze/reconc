@@ -32,6 +32,10 @@ publishing the rule-kind field matrix under a new schema identity.
 
 ## Transaction and filesystem reliability
 
+- Native installers now require GitHub build-provenance verification against
+  the fixed repository, release workflow, source tag, hosted-runner identity,
+  and candidate bytes. Non-zero candidate installation exits can no longer be
+  reported as success, and repository release assets publish create-only.
 - Transactional JSONL publication recovers interrupted commits and preserves a
   private on-disk layout for audit evidence.
 - Atomic state, lock, bootstrap, and audit publication verifies parent and open

@@ -116,10 +116,18 @@ try {
     } "duplicate manifest asset"
 
     $installDirectory = Join-Path $temporaryDirectory "install"
-    $installedPath = Install-ReconcVerifiedArtifact `
-        -ArtifactPath $fixtureArtifact `
-        -ExpectedChecksum $fixtureChecksum `
-        -InstallDirectory $installDirectory
+    $installedPath = Join-Path ([IO.Path]::GetFullPath($installDirectory)) "reconc.exe"
+    $partialInstallMessage = ""
+    try {
+        Install-ReconcVerifiedArtifact `
+            -ArtifactPath $fixtureArtifact `
+            -ExpectedChecksum $fixtureChecksum `
+            -InstallDirectory $installDirectory
+    }
+    catch {
+        $partialInstallMessage = $_.Exception.Message
+    }
+    Assert-ReconcTest ($partialInstallMessage.Contains("ownership receipt may be incomplete")) "off-PATH install lacked exact partial-state failure"
     Assert-ReconcTest (Test-Path -LiteralPath $installedPath -PathType Leaf) "verified artifact was not installed"
     Assert-ReconcTest ((Get-ReconcFileSha256 -Path $installedPath) -eq $fixtureChecksum) "installed artifact checksum changed"
 
@@ -214,26 +222,37 @@ try {
     Assert-ReconcTest ((Get-ReconcFileSha256 -Path $installedPath) -eq $installedChecksum) "unwritable target changed the existing install"
 
     $missingTool = "reconc-attestation-tool-$([Guid]::NewGuid().ToString('N'))"
-    Confirm-ReconcAttestation `
-        -ArtifactPath $fixtureArtifact `
-        -Tool $missingTool `
-        -Repository "example/reconc" `
-        -Required $false
     Assert-ReconcFailure {
         Confirm-ReconcAttestation `
             -ArtifactPath $fixtureArtifact `
             -Tool $missingTool `
-            -Repository "example/reconc" `
-            -Required $true
-    } "required attestation tool missing"
+            -Repository "example/reconc"
+    } "mandatory attestation tool missing"
 
     $passTool = Join-Path $temporaryDirectory "attestation-pass.cmd"
-    Set-Content -LiteralPath $passTool -Encoding ASCII -Value "@exit /b 0"
-    Confirm-ReconcAttestation `
-        -ArtifactPath $fixtureArtifact `
-        -Tool $passTool `
-        -Repository "example/reconc" `
-        -Required $true
+    $attestationArgumentsPath = Join-Path $temporaryDirectory "attestation-arguments.txt"
+    $savedAttestationArgumentsPath = $env:RECONC_TEST_ATTESTATION_ARGUMENTS
+    try {
+        $env:RECONC_TEST_ATTESTATION_ARGUMENTS = $attestationArgumentsPath
+        Set-Content -LiteralPath $passTool -Encoding ASCII -Value @(
+            "@echo off",
+            "echo %* > `"%RECONC_TEST_ATTESTATION_ARGUMENTS%`"",
+            "exit /b 0"
+        )
+        Confirm-ReconcAttestation `
+            -ArtifactPath $fixtureArtifact `
+            -Tool $passTool `
+            -Repository "example/reconc"
+    }
+    finally {
+        $env:RECONC_TEST_ATTESTATION_ARGUMENTS = $savedAttestationArgumentsPath
+    }
+    $attestationArguments = Get-Content -LiteralPath $attestationArgumentsPath -Raw -Encoding ASCII
+    Assert-ReconcTest ($attestationArguments.Contains("attestation verify")) "attestation verifier did not receive the candidate operation"
+    Assert-ReconcTest ($attestationArguments.Contains("--repo example/reconc")) "attestation verifier did not bind the repository"
+    Assert-ReconcTest ($attestationArguments.Contains("--signer-workflow example/reconc/.github/workflows/reconc-release.yml")) "attestation verifier did not bind the release workflow"
+    Assert-ReconcTest ($attestationArguments.Contains("--source-ref refs/tags/reconc-v$ExpectedVersion")) "attestation verifier did not bind the exact release tag"
+    Assert-ReconcTest ($attestationArguments.Contains("--deny-self-hosted-runners")) "attestation verifier did not bind hosted-runner provenance"
 
     $failTool = Join-Path $temporaryDirectory "attestation-fail.cmd"
     Set-Content -LiteralPath $failTool -Encoding ASCII -Value "@exit /b 1"
@@ -241,28 +260,67 @@ try {
         Confirm-ReconcAttestation `
             -ArtifactPath $fixtureArtifact `
             -Tool $failTool `
-            -Repository "example/reconc" `
-            -Required $true
-    } "required attestation failure"
+            -Repository "example/reconc"
+    } "mandatory attestation failure"
+
+    $failingArtifact = Join-Path $temporaryDirectory "install-cli-failure.cmd"
+    Set-Content -LiteralPath $failingArtifact -Encoding ASCII -Value @(
+        "@echo off",
+        "if `"%~1`"==`"--version`" (echo reconc $ExpectedVersion& exit /b 0)",
+        "if not `"%~1`"==`"install-cli`" exit /b 2",
+        "if not `"%~2`"==`"--install-dir`" exit /b 3",
+        "if not exist `"%~3`" mkdir `"%~3`"",
+        "copy /Y `"%~f0`" `"%~3\reconc.exe`" >nul",
+        "echo {`"partial`":true}",
+        "exit /b 23"
+    )
+    $failingChecksum = Get-ReconcFileSha256 -Path $failingArtifact
+    $failingInstallDirectory = Join-Path $temporaryDirectory "install-cli-failure"
+    $failureMessage = ""
+    try {
+        Install-ReconcVerifiedArtifact `
+            -ArtifactPath $failingArtifact `
+            -ExpectedChecksum $failingChecksum `
+            -InstallDirectory $failingInstallDirectory `
+            -ReleaseVersion $ExpectedVersion `
+            -AssetName $assetName `
+            -ProvenanceState "github-verified"
+    }
+    catch {
+        $failureMessage = $_.Exception.Message
+    }
+    Assert-ReconcTest ($failureMessage.Contains("ownership receipt may be incomplete")) "non-zero install-cli result lacked exact partial-state failure"
+    Copy-Item -LiteralPath $fixtureArtifact -Destination (Join-Path $failingInstallDirectory "reconc.exe") -Force
+    $failureMessage = ""
+    try {
+        Install-ReconcVerifiedArtifact `
+            -ArtifactPath $failingArtifact `
+            -ExpectedChecksum $failingChecksum `
+            -InstallDirectory $failingInstallDirectory `
+            -ReleaseVersion $ExpectedVersion `
+            -AssetName $assetName `
+            -ProvenanceState "github-verified"
+    }
+    catch {
+        $failureMessage = $_.Exception.Message
+    }
+    Assert-ReconcTest ($failureMessage.Contains("ownership receipt may be incomplete")) "non-zero upgrade result lacked exact partial-state failure"
 
     if ($LiveRelease) {
         $savedInstallDirectory = [Environment]::GetEnvironmentVariable("RECONC_INSTALL_DIR")
         $savedReleaseBase = [Environment]::GetEnvironmentVariable("RECONC_RELEASE_BASE")
-        $savedAttestationTool = [Environment]::GetEnvironmentVariable("RECONC_ATTESTATION_TOOL")
-        $savedRequireAttestation = [Environment]::GetEnvironmentVariable("RECONC_REQUIRE_ATTESTATION")
+        $savedLiveProcessPath = $env:Path
         $liveInstallDirectory = Join-Path $temporaryDirectory "live"
         try {
             [Environment]::SetEnvironmentVariable("RECONC_INSTALL_DIR", $liveInstallDirectory)
             [Environment]::SetEnvironmentVariable("RECONC_RELEASE_BASE", $null)
-            [Environment]::SetEnvironmentVariable("RECONC_ATTESTATION_TOOL", $missingTool)
-            [Environment]::SetEnvironmentVariable("RECONC_REQUIRE_ATTESTATION", "0")
+            $env:Path = "$liveInstallDirectory;$savedLiveProcessPath"
             & $resolvedInstaller $ExpectedVersion
         }
         finally {
             [Environment]::SetEnvironmentVariable("RECONC_INSTALL_DIR", $savedInstallDirectory)
             [Environment]::SetEnvironmentVariable("RECONC_RELEASE_BASE", $savedReleaseBase)
-            [Environment]::SetEnvironmentVariable("RECONC_ATTESTATION_TOOL", $savedAttestationTool)
-            [Environment]::SetEnvironmentVariable("RECONC_REQUIRE_ATTESTATION", $savedRequireAttestation)
+            $env:Path = $savedLiveProcessPath
         }
 
         $liveBinary = Join-Path $liveInstallDirectory "reconc.exe"

@@ -359,10 +359,13 @@ hexadecimal SHA-256 entry, verify the payload
 before executing it, and delegate binary publication to the candidate's
 `install-cli` transaction. When the installed binary is current on PATH, that
 same locked transaction writes a private, checksum-bound ownership receipt at
-`$RECONC_HOME/install/receipt.json`. An off-PATH install succeeds only for the
-binary and prints exact PATH remediation; it does not claim ownership. A
-download, manifest, checksum, execution, receipt, or publication failure leaves
-the previous valid binary and receipt untouched. Windows arm64 remains
+`$RECONC_HOME/install/receipt.json`. An off-PATH invocation can publish the
+verified binary, but exits non-zero with exact PATH remediation and does not
+claim ownership. Failures before candidate execution leave the previous valid
+binary and receipt untouched. Every non-zero `install-cli` result fails the
+outer installer too; the error distinguishes a retained or restored target from
+matching candidate bytes already published as an exact recoverable partial
+state. Windows arm64 remains
 unsupported until the release matrix ships a matching native asset.
 
 The v0.9 platform contract is one matrix:
@@ -380,14 +383,13 @@ The immutable v0.9.6 tag contains both `install.sh` and `install.ps1`. Public
 bootstrap commands fetch the appropriate script from that tag, never from
 mutable `main`, and install the matching checksummed v0.9.6 binary.
 
-When the GitHub CLI (`gh`) is available, the installer additionally verifies
-the downloaded binary against its GitHub build-provenance attestation before
-installing, which breaks the binary-and-manifest-share-one-origin loop (the
-manifest is bound transitively through the checksum comparison).
-Verification is skipped with a note when `gh` is absent and downgraded to a
-warning when it fails; `RECONC_REQUIRE_ATTESTATION=1` makes both cases fatal.
-`RECONC_ATTESTATION_TOOL` and `RECONC_ATTESTATION_REPO` override the tool and
-repository for mirrors.
+Both native installers require GitHub CLI (`gh`) and verify the downloaded
+binary against its GitHub build-provenance attestation before execution or
+publication. Verification binds the candidate bytes and digest to the fixed
+`Christopher-Schulze/reconc` repository, tagged release source ref, release
+workflow, and GitHub-hosted runner. Missing tooling, unavailable verification,
+or a failed attestation is fatal; checksum verification from the same release
+origin is not accepted as an independent downgrade.
 
 ## Transactional Bootstrap
 

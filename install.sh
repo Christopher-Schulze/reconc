@@ -210,23 +210,18 @@ log "asset:  ${asset}"
 log "url:    ${url}"
 
 # Provenance: the release workflow publishes GitHub build-provenance
-# attestations for every artifact listed in SHA256SUMS. When the GitHub
-# CLI is available, the downloaded binary is verified against its
-# attestation before installation, which breaks the
-# binary-and-manifest-share-one-origin loop (the manifest is bound
-# transitively through the checksum comparison). Optional by default;
-# RECONC_REQUIRE_ATTESTATION=1 makes it mandatory.
-ATTESTATION_TOOL="${RECONC_ATTESTATION_TOOL:-gh}"
-ATTESTATION_REPO="${RECONC_ATTESTATION_REPO:-$REPOSITORY}"
-attestation_state="embedded-verified"
+# attestations for every artifact listed in SHA256SUMS. The GitHub CLI is a
+# required installer dependency because its verification binds the candidate
+# bytes to this repository, the release workflow, and the immutable source tag.
+# A checksum from the same release origin is not an independent substitute.
+ATTESTATION_TOOL="gh"
+ATTESTATION_REPO="$REPOSITORY"
+attestation_state=""
 
 verify_attestation() {
   artifact="$1"
   if ! command -v "$ATTESTATION_TOOL" >/dev/null 2>&1; then
-    [ "${RECONC_REQUIRE_ATTESTATION:-0}" != "1" ] \
-      || die "RECONC_REQUIRE_ATTESTATION=1 but '${ATTESTATION_TOOL}' is not installed"
-    log "attestation: '${ATTESTATION_TOOL}' not found; skipping provenance verification (set RECONC_REQUIRE_ATTESTATION=1 to require it)"
-    return 0
+    die "build-provenance verification requires '${ATTESTATION_TOOL}'; install GitHub CLI and retry"
   fi
   if "$ATTESTATION_TOOL" attestation verify "$artifact" \
     --repo "$ATTESTATION_REPO" \
@@ -237,9 +232,7 @@ verify_attestation() {
     log "attestation: release binary provenance verified (${ATTESTATION_REPO})"
     return 0
   fi
-  [ "${RECONC_REQUIRE_ATTESTATION:-0}" != "1" ] \
-    || die "attestation verification failed for ${asset} (repo ${ATTESTATION_REPO})"
-  log "attestation: WARNING verification failed or unavailable; continuing without provenance proof (set RECONC_REQUIRE_ATTESTATION=1 to make this fatal)"
+  die "build-provenance verification failed for ${asset}; verify GitHub CLI access to ${ATTESTATION_REPO} and retry"
 }
 
 download() {
@@ -292,6 +285,8 @@ trap 'rm -f "$tmp" "$checksums"' EXIT INT HUP TERM
 download "$tmp" "$url" 268435456
 download "$checksums" "$checksum_url" 2097152
 verify_attestation "$tmp"
+[ "$attestation_state" = "github-verified" ] \
+  || die "build-provenance verification returned no trusted state"
 
 expected=""
 matches=0
@@ -350,6 +345,12 @@ if install_output=$(
 else
   install_status=$?
 fi
+[ "$install_status" -eq 0 ] || {
+  if [ -f "$target" ] && [ "$(sha256_file "$target" 2>/dev/null || true)" = "$expected" ]; then
+    die "install transaction failed after publishing the verified binary; ownership receipt may be incomplete, rerun this installer for version ${VERSION}: ${install_output}"
+  fi
+  die "install transaction failed and retained or restored the previous target: ${install_output}"
+}
 [ -f "$target" ] && [ "$(sha256_file "$target")" = "$expected" ] \
   || die "install failed without publishing the verified binary: ${install_output}"
 
@@ -361,8 +362,6 @@ if [ -n "$resolved" ] && [ -f "$resolved" ] && [ "$resolved" -ef "$target" ]; th
   resolved_hash="$(sha256_file "$resolved" 2>/dev/null || true)"
 fi
 if [ "$resolved_hash" = "$expected" ]; then
-  [ "$install_status" -eq 0 ] \
-    || die "binary is current on PATH but ownership receipt publication failed: ${install_output}"
   log "next: reconc --help  or  reconc init ."
 else
   log "PATH: add this line to your shell profile, then open a new terminal:"

@@ -65,9 +65,10 @@ Security-relevant defaults:
 - native installers accept only supported, overflow-safe semantic versions,
   immutable release tags, HTTPS downloads, metadata bounded to 2 MiB, binaries
   bounded to 256 MiB, one exact checksum entry, and explicit downgrades
-- installer provenance verification is bound to the release tag, repository,
-  release workflow, and GitHub-hosted runner identity when `gh` is available;
-  operators can make that verification mandatory
+- native installer provenance verification is mandatory and bound to the
+  release tag, fixed repository, release workflow, GitHub-hosted runner
+  identity, asset digest, and downloaded candidate bytes; missing or failed
+  `gh attestation verify` stops before candidate execution or publication
 - release metadata is generated only from verified checksums and immutable
   tagged source
 - audit logging is opt-in via `RECONC_AUDIT=1`

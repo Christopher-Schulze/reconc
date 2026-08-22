@@ -5,7 +5,6 @@
 
 ## Queue
 
-- [ ] 246 Enforce installer and release trust atomically -> tasks/246-enforce-installer-and-release-trust-atomically.md
 - [ ] 247 Secure harness claims and layout portability -> tasks/247-secure-harness-claims-and-layout-portability.md
 - [ ] 248 Preserve bootstrap provenance and repository transactions -> tasks/248-preserve-bootstrap-provenance-and-repository-transactions.md
 - [ ] 249 Bound custom-runtime decoding with Go 1.27 jsontext -> tasks/249-bound-custom-runtime-decoding-with-go-1-27-jsontext.md
@@ -18,6 +17,7 @@
 
 ## Done
 
+- [x] 246 Enforce installer and release trust atomically -> tasks/done/246-enforce-installer-and-release-trust-atomically.md
 - [x] 245 Harden hook ownership and agent process boundaries -> tasks/done/245-harden-hook-ownership-and-agent-process-boundaries.md
 - [x] 244 Make evaluator caches and script decisions fail closed -> tasks/done/244-make-evaluator-caches-and-script-decisions-fail-closed.md
 - [x] 243 Correct policy compiler and parser contracts -> tasks/done/243-correct-policy-compiler-and-parser-contracts.md

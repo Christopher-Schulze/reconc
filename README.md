@@ -307,11 +307,12 @@ installers:
 - download bounded metadata and the exact platform artifact over HTTPS;
 - require one matching SHA-256 entry and verify the payload before execution;
 - inspect the candidate's embedded version, target, and source identity;
-- verify GitHub build provenance when `gh` is available, or require it when
-  `RECONC_REQUIRE_ATTESTATION=1`;
+- require `gh` and verify GitHub build provenance against the fixed repository,
+  release workflow, immutable source tag, and downloaded candidate bytes;
 - smoke-test the candidate before replacing an existing binary;
 - publish the binary and checksum-bound installation receipt under one lock;
-- retain or restore the previous installation on failure.
+- treat every non-zero `install-cli` result as a failed transaction and retain,
+  restore, or report the exact recoverable partial state.
 
 They never edit shell configuration silently and never claim successful global
 ownership until bare `reconc` resolves to the installed binary. POSIX defaults

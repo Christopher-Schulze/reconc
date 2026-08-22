@@ -27,6 +27,15 @@ go_bin=${GO:-go}
 
 copied=0
 seen=""
+staged=""
+cleanup_stage() {
+  if [ -n "$staged" ] && [ -f "$staged" ]; then
+    rm -f -- "$staged"
+  fi
+}
+trap cleanup_stage EXIT
+trap 'cleanup_stage; exit 1' HUP INT TERM
+
 copy_asset() {
   name="$1"
   source="$2"
@@ -60,7 +69,24 @@ copy_asset() {
     printf 'error: release asset destination already exists: %s\n' "$name" >&2
     exit 1
   fi
-  cp "$root/$source" "$dist/$name"
+  staged=$(mktemp "$dist/.reconc-copy.XXXXXX") || {
+    printf 'error: cannot create release asset stage for %s\n' "$name" >&2
+    exit 1
+  }
+  cp -p "$root/$source" "$staged" || {
+    printf 'error: cannot stage release asset: %s\n' "$name" >&2
+    exit 1
+  }
+  if ! ln "$staged" "$dist/$name"; then
+    if [ -e "$dist/$name" ] || [ -L "$dist/$name" ]; then
+      printf 'error: release asset destination was created concurrently: %s\n' "$name" >&2
+    else
+      printf 'error: cannot publish release asset with create-only semantics: %s\n' "$name" >&2
+    fi
+    exit 1
+  fi
+  rm -f -- "$staged"
+  staged=""
   seen="$seen $name"
   copied=$((copied + 1))
 }

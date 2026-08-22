@@ -95,10 +95,9 @@ Installers and `reconc install-cli`:
 - `RECONC_INSTALL_DIR` (default `~/.local/bin` on POSIX and
   `%LOCALAPPDATA%\Programs\Reconc\bin` for `install.ps1`) -- install target
 - `RECONC_RELEASE_BASE` -- release download mirror
-- `RECONC_REQUIRE_ATTESTATION=1` -- make GitHub provenance verification
-  of `SHA256SUMS` mandatory
-- `RECONC_ATTESTATION_TOOL` / `RECONC_ATTESTATION_REPO` -- override the
-  verification tool (default `gh`) and repository
+- `RECONC_ATTESTATION_TOOL` -- alternate `gh`-compatible verifier used only by
+  `reconc update` and its offline fixtures. Shipped native installers always
+  require `gh` and the fixed `Christopher-Schulze/reconc` identity
 - `RECONC_INSTALL_MANAGER`, `RECONC_INSTALL_CHANNEL`,
   `RECONC_INSTALL_ARTIFACT`, `RECONC_INSTALL_RELEASE_TAG`, and
   `RECONC_INSTALL_PROVENANCE` -- installer-to-binary transaction metadata;

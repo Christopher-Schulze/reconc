@@ -32,14 +32,14 @@ in the product and must report one exact atomic outcome.
 
 ## Sub-Tasks
 
-- [ ] Specify one default provenance policy for both installers
-- [ ] Make attestation absence and verification failure explicit transaction outcomes
-- [ ] Propagate `install-cli` failure on every install branch and prove rollback
-- [ ] Publish copied release assets with atomic no-clobber semantics
-- [ ] Reconcile Make phony targets and workflow action allowlists with actual use
-- [ ] Add adversarial installer, concurrent-copy, and provenance downgrade tests
-- [ ] Update installation, security, release, and operator documentation
-- [ ] Run release-trust, installer, packaging, and full repository gates
+- [x] Specify one default provenance policy for both installers
+- [x] Make attestation absence and verification failure explicit transaction outcomes
+- [x] Propagate `install-cli` failure on every install branch and prove rollback
+- [x] Publish copied release assets with atomic no-clobber semantics
+- [x] Reconcile Make phony targets and workflow action allowlists with actual use
+- [x] Add adversarial installer, concurrent-copy, and provenance downgrade tests
+- [x] Update installation, security, release, and operator documentation
+- [x] Run release-trust, installer, packaging, and full repository gates
 
 ## Notes
 
@@ -49,7 +49,14 @@ in the product and must report one exact atomic outcome.
   replacements even though the SBOM can represent them.
 - F-35 is excluded because `manifest` is intentionally list-only and assembled
   by the dedicated release manifest stage.
+- Verification passed with `make test-release-trust`, `go test
+  ./internal/usercli`, ShellCheck and POSIX syntax checks, `make vet`, `make
+  lint`, `make self-host`, `make tidy`, and a full `make test` race run. One
+  initial MCP approval wait timed out under full-suite contention; the focused
+  race test passed 10/10 and the complete rerun passed.
 
 ## Deviations
 
-None.
+Native PowerShell execution is consolidated into the user-requested shortened
+Windows loop after TASK 253; this task completed its source-level PowerShell
+parity checks and all locally executable gates.
