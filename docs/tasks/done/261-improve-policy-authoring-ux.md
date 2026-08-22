@@ -60,9 +60,6 @@ non-interactive and fail-closed automation contracts.
   trust with real temporary artifact tampering, publication and reference
   audits, root/template coverage, vet, pinned Staticcheck, tidy, pinned
   Govulncheck, self-hosting, and the locked Python 3.13.14 LangChain proof.
-- Final measured coverage is 82.6679% for the root module and 84.0628% for the
-  harness template. The shared YAML decoder is covered through parser and
-  schema consumers at 96.2%; its bounds walker is covered at 75.9%.
 
 ## Deviations
 

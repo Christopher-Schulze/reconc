@@ -15,9 +15,11 @@ this root, and docs/comments should not depend on any external source tree.
 - Language: Go
 - Module: `reconc.dev/reconc`
 - Runtime dependencies: `github.com/Microsoft/go-winio`,
-  `github.com/bmatcuk/doublestar/v4`, `github.com/pelletier/go-toml/v2`,
+  `github.com/bmatcuk/doublestar/v4`, `github.com/dlclark/regexp2`,
+  `github.com/pelletier/go-toml/v2`,
   `github.com/santhosh-tekuri/jsonschema/v6`, `golang.org/x/sys`,
-  `golang.org/x/text`, `gopkg.in/yaml.v3`, and `mvdan.cc/sh/v3`
+  `golang.org/x/term`, `golang.org/x/text`, `gopkg.in/yaml.v3`, and
+  `mvdan.cc/sh/v3`
 - Fast test loop: `make test-fast` (cached root and portable-template tests with bounded package parallelism)
 - Complete test gate: `make test` (publication audit, uncached race suites, and release trust)
 - Coverage measurement: `make coverage` (whole-module root and portable-template profiles for review evidence)
@@ -39,9 +41,10 @@ make publication-audit
 
 Bun `1.3.14` is a test-only dependency for executing the generated OpenCode,
 Kilo Code, Oh My Pi, and Pi adapter contracts; the shipped Reconc binary does not
-require Bun. `github.com/dlclark/regexp2` is a test-only dependency for the
-independent ECMAScript schema-pattern oracle. Production output-schema
-validation uses `github.com/santhosh-tekuri/jsonschema/v6` entirely offline.
+require Bun. `github.com/dlclark/regexp2` supplies ECMAScript matching to
+offline policy-authoring schema validation and the independent schema-pattern
+test oracle. Production schema validation uses
+`github.com/santhosh-tekuri/jsonschema/v6` entirely offline.
 
 ## Conventions
 
@@ -57,6 +60,9 @@ validation uses `github.com/santhosh-tekuri/jsonschema/v6` entirely offline.
 - Put behavior in internal packages; keep `cmd/reconc/main.go` thin.
 - Update tests and user-facing docs with behavior changes.
 - Keep the repository self-contained; do not depend on files outside this root.
+- Work directly on `main`. Never create, publish, or switch to another branch
+  unless Christopher explicitly requests that exact branch. Push repository
+  commits only to `origin/main` unless he explicitly directs otherwise.
 - Change the product version only when Christopher explicitly requests that
   exact version bump. Never infer, select, or perform a version bump
   autonomously.
